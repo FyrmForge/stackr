@@ -1,0 +1,76 @@
+package components
+
+// The right-hand drawer's chrome, shared by every tile kind. It was copied
+// per handler before, and the copies drifted in four ways nobody meant: the
+// database header dropped the responsive padding and the flex-wrap (so it
+// overflowed on a narrow viewport where the app header didn't), dropped its
+// nav's padding the same way, and never showed a status badge, a running
+// database looked statusless next to a running service.
+//
+// What differs per tile stays a parameter: the icon, the subtitle, and the
+// action buttons, which are genuinely per-kind (deploy vs run-now vs nothing).
+
+// PanelHeader is the drawer's fixed top: identity on the left, actions on the
+// right, and the close button when it is rendered inside the drawer rather
+// than on a full page.
+templ PanelHeader(h PanelHead, icon, actions templ.Component) {
+	<div class="flex flex-wrap items-center gap-y-2 justify-between px-4 sm:px-6 py-5 border-b border-rw-border">
+		<div class="flex items-center gap-3 min-w-0">
+			<span class="flex h-9 w-9 items-center justify-center rounded-lg bg-rw-inset text-rw-muted shrink-0">
+				@icon
+			</span>
+			<div class="min-w-0">
+				<div class="flex items-center gap-2">
+					<span class="text-lg font-semibold text-rw-text truncate">{ h.Title }</span>
+					if h.Status != "" {
+						@StatusBadge(h.Status)
+					}
+					if h.Scope != "" {
+						<span class="shrink-0 rounded-md border border-rw-border bg-rw-inset px-1.5 py-0.5 text-[10px] text-rw-muted" title="how far this tile is shared">{ h.Scope }</span>
+					}
+				</div>
+				<div class="flex items-center gap-1.5 min-w-0 text-xs text-rw-faint">
+					if h.Subtitle != "" {
+						<span class="truncate font-mono">{ h.Subtitle }</span>
+					}
+					if h.Subtitle != "" && h.Location != "" {
+						<span class="shrink-0">·</span>
+					}
+					if h.Location != "" {
+						@EnvDot(h.LocationColor, "")
+						<span class="truncate" title="where this tile lives">{ h.Location }</span>
+					}
+				</div>
+			</div>
+		</div>
+		<div class="flex items-center gap-2 shrink-0">
+			@actions
+			if h.InDrawer {
+				<button type="button" data-drawer-close class="flex h-8 w-8 items-center justify-center rounded-lg text-rw-muted hover:text-rw-text hover:bg-rw-raised transition-colors" aria-label="Close">
+					<svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"></path></svg>
+				</button>
+			}
+		</div>
+	</div>
+}
+
+// PanelTabs is the tab strip under the header. Its children are PanelTab.
+templ PanelTabs() {
+	<nav class="flex gap-1 px-4 sm:px-6 border-b border-rw-border overflow-x-auto scrollbar-none">
+		{ children... }
+	</nav>
+}
+
+// PanelTab is one tab. base is the panel's content URL ("/apps/<id>/panel/
+// content"); the tab key is appended. active must already be resolved to a
+// real key, a panel with a default tab normalises it before rendering, so
+// "which tab is lit" is one comparison rather than a rule per panel.
+templ PanelTab(base, active, key, label string) {
+	<button
+		hx-get={ base + "?tab=" + key }
+		hx-target="#panel-content"
+		class={ "px-3 py-2.5 text-sm border-b-2 -mb-px transition-colors",
+			templ.KV("border-rw-accent text-rw-text font-medium", active == key),
+			templ.KV("border-transparent text-rw-muted hover:text-rw-text", active != key) }
+	>{ label }</button>
+}

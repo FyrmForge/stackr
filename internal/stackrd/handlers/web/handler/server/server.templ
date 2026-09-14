@@ -1,0 +1,531 @@
+package server
+
+import (
+	"fmt"
+	"strconv"
+	"strings"
+
+	"github.com/labstack/echo/v4"
+	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
+	"github.com/FyrmForge/stackr/internal/stackrd/infra/runtime"
+	"github.com/FyrmForge/stackr/internal/stackrd/config/settings"
+	"github.com/FyrmForge/stackr/internal/stackrd/handlers/web/components"
+	"github.com/FyrmForge/stackr/internal/stackrd/handlers/web/components/form"
+)
+
+templ serverPage(c echo.Context, sv *repo.Server, node *runtime.Node, here []runtime.NodeTaskInfo, groups []string, ping []components.TimePoint, volErr string, cookieDomain string, instanceBase string, domainRes []repo.DomainResource, rangeKey string, cpu, mem, disk, rx, tx []components.TimePoint, info runtime.HostInfo, vols []runtime.VolumeInfo, storages []repo.Storage, spaths map[string][]repo.StoragePath, nodes []runtime.Node) {
+	@components.Shell(c, sv.Name) {
+		<div class="mb-4">
+			<a href="/servers" class="text-sm text-rw-muted hover:text-rw-text transition-colors">&larr; servers</a>
+		</div>
+		@nodeHeader(c, sv, node)
+		@nodeGroupForm(c, sv, node, groups)
+
+		<div
+			id="server-live"
+			data-ws-room={ "server:" + sv.ID }
+			data-ws-refresh="server"
+			hx-get={ "/servers/" + sv.ID + "?range=" + rangeKey }
+			hx-trigger="refresh, every 120s"
+			hx-select="#server-live"
+			hx-swap="outerHTML"
+		>
+		// A row that has never joined has no machine behind it to ask. Saying so
+		// is the whole fix for the page that used to show the manager's docker
+		// version and volumes as this node's.
+		if sv.NodeID == "" {
+			<div class="panel p-4 mb-6">
+				<p class="text-sm text-rw-text">{ sv.Name } has not joined yet.</p>
+				<p class="text-sm text-rw-muted mt-1">
+					Run the join script on <span class="font-mono">{ sv.Address }</span> and its docker
+					version, resources and volumes appear here. Until then there is no machine to ask.
+					The script is on the <a href="/servers" class="link">servers page</a>.
+				</p>
+			</div>
+		}
+		if info.ServerVersion != "" {
+			<div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+				@statTile("Docker", info.ServerVersion)
+				@statTile("Host", info.OS + " · " + info.Arch)
+				@statTile("CPU / RAM", fmt.Sprintf("%d cores · %.0f GB", info.NCPU, float64(info.MemTotal)/(1024*1024*1024)))
+				@statTile("Containers", fmt.Sprintf("%d running / %d · %d images", info.ContainersRunning, info.Containers, info.Images))
+			</div>
+		}
+
+		<h2 class="text-sm font-semibold uppercase tracking-wide text-rw-faint mt-8 mb-3">Ping over time</h2>
+		<p class="text-sm text-rw-muted mb-3">
+			The manager timing a TCP connect to this node's swarm port, every 30 seconds. Gaps are
+			when stackr was down; a drop to zero is when the node was.
+		</p>
+		@components.MetricChart("Ping", " ms", ping, 0)
+
+		<div id="server-metrics">
+			<div class="flex justify-end gap-1 mb-3">
+				for _, k := range []string{"1h", "6h", "24h"} {
+					<a
+						href={ templ.SafeURL("/servers/" + sv.ID + "?range=" + k) }
+						class={ "px-2.5 py-1 rounded-md text-xs font-mono transition-colors",
+							templ.KV("bg-rw-inset text-rw-text", k == rangeKey),
+							templ.KV("text-rw-muted hover:text-rw-text", k != rangeKey) }
+					>{ k }</a>
+				}
+			</div>
+			<div class="grid grid-cols-1 gap-4">
+				@components.MetricChart("Host CPU", "%", cpu, 100)
+				@components.MetricChart("Host memory", " MB", mem, 0)
+				@components.MetricChart("Root disk used", " GB", disk, 0)
+				@components.MetricChart("Network in", " KB/s", rx, 0)
+				@components.MetricChart("Network out", " KB/s", tx, 0)
+			</div>
+		</div>
+		</div>
+
+		if len(here) > 0 {
+			<h2 class="text-sm font-semibold uppercase tracking-wide text-rw-faint mt-10 mb-4">Running here</h2>
+			<ul class="space-y-1.5 max-w-3xl mb-4">
+				for _, t := range here {
+					<li class="panel px-4 py-2.5 flex items-center gap-3 text-sm">
+						<span class="font-mono text-rw-text">{ t.Service }</span>
+						if t.Slot > 1 {
+							<span class="text-xs px-1.5 py-0.5 rounded bg-rw-inset text-rw-muted font-mono">replica { fmt.Sprint(t.Slot) }</span>
+						}
+						<span class="ml-auto text-xs text-rw-faint">{ t.State }</span>
+					</li>
+				}
+			</ul>
+		}
+
+		<h2 class="text-sm font-semibold uppercase tracking-wide text-rw-faint mt-10 mb-4">
+			Volumes
+			if len(vols) > 0 {
+				<span class="normal-case tracking-normal font-normal text-rw-muted">· { fmt.Sprint(len(vols)) } · { runtime.FmtBytes(totalVolBytes(vols)) } total</span>
+			}
+		</h2>
+		<p class="text-sm text-rw-muted mb-4">Docker named volumes on this host, this host only, because a volume is a directory on one machine's disk. Mount one from a tile's settings as <span class="font-mono text-rw-text">name:/container/path</span>; a volume a running container has mounted cannot be deleted.</p>
+		if volErr != "" {
+			<p class="text-sm text-rw-warn mb-4">The volumes on this node cannot be listed: { volErr }</p>
+		}
+		// No Create box for a node that does not exist yet. The handler refuses
+		// it anyway, but a form that can only fail should not be drawn.
+		if sv.NodeID != "" {
+			<form hx-post={ "/servers/" + sv.ID + "/volumes" } class="flex gap-2 mb-4 max-w-md">
+				@form.CSRFField(c)
+				<input type="text" name="name" placeholder="new volume name" required class="input font-mono"/>
+				<button type="submit" class="btn btn-primary whitespace-nowrap">Create</button>
+			</form>
+		}
+		if len(vols) == 0 {
+			<p class="text-sm text-rw-faint mb-4">No named volumes.</p>
+		} else {
+			<ul class="space-y-2 max-w-3xl mb-4">
+				for _, v := range vols {
+					<li class="panel px-4 py-3 flex flex-wrap items-center gap-3 text-sm">
+						<span class="font-mono text-rw-text">{ v.Name }</span>
+						<span class="text-xs text-rw-faint">{ v.Driver }</span>
+						<span class="text-xs px-1.5 py-0.5 rounded bg-rw-inset text-rw-muted font-mono">{ runtime.FmtBytes(v.SizeBytes) }</span>
+						if len(v.UsedBy) > 0 {
+							<span class="text-xs px-1.5 py-0.5 rounded bg-rw-success/15 text-rw-success" title={ strings.Join(v.UsedBy, ", ") }>
+								in use · { fmt.Sprint(len(v.UsedBy)) }
+							</span>
+						} else if len(v.HeldBy) > 0 {
+							// Held only by containers that are not running: a tile
+							// the operator stopped, or the corpse swarm keeps after
+							// moving a task to another node. Deleting is allowed and
+							// takes those containers with it, so the confirm names
+							// them rather than saying "unused".
+							<span class="text-xs px-1.5 py-0.5 rounded bg-rw-warn/15 text-rw-warn" title={ strings.Join(v.HeldBy, ", ") }>
+								held by { fmt.Sprint(len(v.HeldBy)) } stopped
+							</span>
+						<details class="ml-auto">
+							<summary class="btn btn-danger btn-sm cursor-pointer list-none">Delete</summary>
+							<div class="mt-3">
+								@components.ConfirmDanger(c, components.ConfirmCfg{
+									PostURL: "/servers/" + sv.ID + "/volumes/delete",
+									Want:    v.Name,
+									Path:    sv.Name + " / " + v.Name,
+									Warning: heldConfirm(v),
+									Label:   "Delete volume",
+									ID:      "vol-" + v.Name,
+								})
+								// Rides the same form as the typed box, which is
+								// why it carries form= rather than sitting inside.
+								<input type="hidden" name="name" value={ v.Name } form={ "confirm-form-vol-" + v.Name }/>
+							</div>
+						</details>
+						} else {
+							<span class="text-xs px-1.5 py-0.5 rounded bg-rw-inset text-rw-faint">unused</span>
+						<details class="ml-auto">
+							<summary class="btn btn-danger btn-sm cursor-pointer list-none">Delete</summary>
+							<div class="mt-3">
+								@components.ConfirmDanger(c, components.ConfirmCfg{
+									PostURL: "/servers/" + sv.ID + "/volumes/delete",
+									Want:    v.Name,
+									Path:    sv.Name + " / " + v.Name,
+									Warning: "Deleting this volume destroys its data. There is no copy.",
+									Label:   "Delete volume",
+									ID:      "vol-" + v.Name,
+								})
+								// Rides the same form as the typed box, which is
+								// why it carries form= rather than sitting inside.
+								<input type="hidden" name="name" value={ v.Name } form={ "confirm-form-vol-" + v.Name }/>
+							</div>
+						</details>
+						}
+					</li>
+				}
+			</ul>
+		}
+
+		// Storage is per server and not swarm-wide: a share or a pool is a
+		// directory on one machine's disk, and the volume that mounts it has
+		// to be made on that machine. This section lived under the manager
+		// check with the rest, which meant every storage anyone created was
+		// silently pinned to the manager's server row and no worker could
+		// ever hold one.
+		<h2 class="text-sm font-semibold uppercase tracking-wide text-rw-faint mt-10 mb-4">Storage</h2>
+		<p class="text-sm text-rw-muted mb-4">Network shares (NFS/SMB) and local pools, mounted by docker at container start, never on the host. Tiles attach declared sub-paths only, as <span class="font-mono text-rw-text">storage/sub-path:/mount</span>. Databases must stay on <span class="font-mono">local</span>-backed storage.</p>
+		if len(storages) > 0 {
+			<ul class="space-y-2 max-w-3xl mb-4">
+				for _, st := range storages {
+					<li class="panel px-4 py-3 text-sm">
+						<div class="flex flex-wrap items-center gap-3">
+							<span class="font-mono text-rw-text">{ st.Slug }</span>
+							<span class="text-xs px-1.5 py-0.5 rounded bg-rw-inset text-rw-muted">{ st.Backend }</span>
+							<span class="text-xs text-rw-faint font-mono">{ storageTarget(st) }</span>
+							if st.Status == "ok" {
+								<span class="text-xs px-1.5 py-0.5 rounded bg-rw-success/15 text-rw-success">probe ok</span>
+							} else if st.Status == "error" {
+								<span class="text-xs px-1.5 py-0.5 rounded bg-rw-danger/15 text-rw-danger" title={ st.StatusMsg }>probe failed</span>
+							} else {
+								<span class="text-xs px-1.5 py-0.5 rounded bg-rw-inset text-rw-faint">unprobed</span>
+							}
+							<form hx-post={ "/servers/" + sv.ID + "/storage/probe" } class="ml-auto">
+								@form.CSRFField(c)
+								<input type="hidden" name="id" value={ st.ID }/>
+								<button type="submit" class="btn btn-ghost btn-sm">Probe</button>
+							</form>
+							<form hx-post={ "/servers/" + sv.ID + "/storage/delete" } hx-confirm={ "Remove storage \"" + st.Name + "\"? Data on the share/pool is untouched." }>
+								@form.CSRFField(c)
+								<input type="hidden" name="id" value={ st.ID }/>
+								<button type="submit" class="btn btn-danger btn-sm">Remove</button>
+							</form>
+						</div>
+						if st.Status == "error" && st.StatusMsg != "" {
+							<p class="text-xs text-rw-danger mt-1 font-mono">{ st.StatusMsg }</p>
+						}
+						<div class="mt-2 pl-2 border-l border-rw-border space-y-1">
+							for _, p := range spaths[st.ID] {
+								<div class="flex items-center gap-2 text-xs">
+									<span class="font-mono text-rw-muted">{ st.Slug }/{ p.Name }</span>
+									<span class="text-rw-faint font-mono">→ /{ p.Subpath }</span>
+									if p.ForcedRO {
+										<span class="px-1 rounded bg-rw-warn/15 text-rw-warn">forced ro</span>
+									}
+									<form hx-post={ "/servers/" + sv.ID + "/storage/paths/delete" } hx-confirm={ "Remove sub-path " + p.Name + "?" } class="ml-auto">
+										@form.CSRFField(c)
+										<input type="hidden" name="id" value={ p.ID }/>
+										<button type="submit" class="btn btn-ghost btn-sm">Remove</button>
+									</form>
+								</div>
+							}
+							<form hx-post={ "/servers/" + sv.ID + "/storage/paths" } class="flex flex-wrap gap-2 items-center pt-1">
+								@form.CSRFField(c)
+								<input type="hidden" name="storage_id" value={ st.ID }/>
+								<input type="text" name="name" placeholder="sub-path name" required class="input !w-36 font-mono text-xs"/>
+								<input type="text" name="subpath" placeholder="relative/path (empty = root)" class="input !w-52 font-mono text-xs"/>
+								<label class="flex items-center gap-1 text-xs text-rw-muted">
+									<input type="checkbox" name="forced_ro" value="1"/>
+									forced ro
+								</label>
+								<button type="submit" class="btn btn-ghost btn-sm">Declare sub-path</button>
+							</form>
+						</div>
+					</li>
+				}
+			</ul>
+		}
+		<form hx-post={ "/servers/" + sv.ID + "/storage" } class="grid grid-cols-2 gap-2 max-w-2xl mb-4">
+			@form.CSRFField(c)
+			<input type="text" name="name" placeholder="name, e.g. nas-media / ssd-pool" required class="input"/>
+			<select name="backend" class="input">
+				<option value="nfs">NFS share</option>
+				<option value="smb">SMB share</option>
+				<option value="local">Local pool (host path)</option>
+			</select>
+			<input type="text" name="address" placeholder="address (nfs/smb host)" class="input font-mono text-sm"/>
+			<input type="text" name="export" placeholder="/export | share | /mnt/pool" class="input font-mono text-sm"/>
+			<input type="text" name="username" placeholder="username (smb)" autocomplete="off" class="input font-mono text-sm"/>
+			<input type="password" name="password" placeholder="password (smb)" autocomplete="new-password" class="input font-mono text-sm"/>
+			<input type="text" name="opts" placeholder="extra mount opts (optional)" class="input font-mono text-sm col-span-2"/>
+			<button type="submit" class="btn btn-primary col-span-2">Add storage (probes on create)</button>
+		</form>
+
+		// Domains and Default settings really are instance-wide, so they stay
+		// on the manager's page rather than being repeated on every one
+		// (docs/plans/32-multi-node-ui.md, server page).
+		if node == nil || node.IsManager() {
+		<h2 class="text-sm font-semibold uppercase tracking-wide text-rw-faint mt-10 mb-4">Domains</h2>
+		<p class="text-sm text-rw-muted mb-4">Instance-level domain resources: every stack on this server can generate per-environment hostnames under one, like <span class="font-mono text-rw-text">app.stack.org.{ firstHostOr(domainRes, "example.com") }</span>.</p>
+		if len(domainRes) == 0 {
+			<p class="text-sm text-rw-faint mb-4">No domains yet.</p>
+		} else {
+			<ul class="space-y-2 max-w-3xl mb-4">
+				for _, r := range domainRes {
+					<li class="panel px-4 py-3 flex flex-wrap items-center gap-3 text-sm">
+						<span class="font-mono text-rw-text">{ r.Host }</span>
+						if r.IncludeEnvOnDefault {
+							<span class="text-xs px-1.5 py-0.5 rounded bg-rw-inset text-rw-muted">env slug on default env</span>
+						}
+						<form hx-post={ "/servers/" + sv.ID + "/domains/delete" } hx-confirm={ "Remove \"" + r.Host + "\"? New auto hostnames stop nesting under it." } class="ml-auto">
+							@form.CSRFField(c)
+							<input type="hidden" name="id" value={ r.ID }/>
+							<button type="submit" class="btn btn-danger btn-sm">Delete</button>
+						</form>
+					</li>
+				}
+			</ul>
+		}
+		<form hx-post={ "/servers/" + sv.ID + "/domains" } class="flex flex-wrap gap-2 mb-4 max-w-xl items-center">
+			@form.CSRFField(c)
+			<input type="text" name="host" placeholder="example.com" required class="input font-mono !w-56"/>
+			<label class="flex items-center gap-2 text-sm text-rw-muted">
+				<input type="checkbox" name="include_env_on_default" value="1" class="accent-rw-accent"/>
+				Include env slug on default env
+			</label>
+			<button type="submit" class="btn btn-primary whitespace-nowrap">Add</button>
+		</form>
+
+		<h2 class="text-sm font-semibold uppercase tracking-wide text-rw-faint mt-10 mb-4">Default settings</h2>
+		<p class="text-sm text-rw-muted mb-4">Defaults for everything on this server. Stacks and individual services can override them; empty = built-in default.</p>
+		@serverSettingsForm(c, sv, cookieDomain, instanceBase, nodes)
+		}
+	}
+}
+
+// nodeHeader carries what the row is: which machine, what state, and the two
+// actions that only exist on a worker. The manager has neither, traefik, the
+// registry and the panel are pinned there, so draining it takes 80, 443 and
+// this page down with it (docs/plans/32-multi-node-ui.md, server page).
+templ nodeHeader(c echo.Context, sv *repo.Server, node *runtime.Node) {
+	<div class="flex flex-wrap items-center gap-3 mb-4">
+		<span class="flex h-9 w-9 items-center justify-center rounded-lg bg-rw-inset text-rw-muted">
+			@serverIcon()
+		</span>
+		<div class="min-w-0">
+			<h1 class="text-2xl font-semibold text-rw-text tracking-tight">{ sv.Name }</h1>
+			<div class="text-xs text-rw-faint font-mono">
+				{ orDash(sv.Hostname) }
+				if sv.Address != "" {
+					· { sv.Address }
+				}
+				if sv.Role != "" {
+					· { sv.Role }
+				}
+			</div>
+		</div>
+		if node != nil && !node.IsManager() {
+			<div class="ml-auto flex items-center gap-2">
+				if node.Availability == "drain" {
+					<form hx-post={ "/servers/" + sv.ID + "/activate" }>
+						@form.CSRFField(c)
+						<button type="submit" class="btn btn-ghost btn-sm">Activate</button>
+					</form>
+				} else {
+					<button
+						type="button"
+						class="btn btn-ghost btn-sm"
+						hx-get={ "/servers/" + sv.ID + "/drain" }
+						hx-target="#modal-host"
+						hx-swap="innerHTML"
+					>Drain</button>
+				}
+				<button
+					type="button"
+					class="btn btn-danger btn-sm"
+					hx-get={ "/servers/" + sv.ID + "/remove" }
+					hx-target="#modal-host"
+					hx-swap="innerHTML"
+				>Remove</button>
+			</div>
+		}
+	</div>
+}
+
+// nodeGroupForm sets the node's stackr.group label. Free text, because the
+// groups are whatever the operator decides they are; the suggestions are the
+// ones already in use, so the spelling stays consistent by itself.
+templ nodeGroupForm(c echo.Context, sv *repo.Server, node *runtime.Node, groups []string) {
+	if node != nil {
+		<form hx-post={ "/servers/" + sv.ID + "/group" } class="flex flex-wrap items-end gap-2 mb-6 max-w-xl">
+			@form.CSRFField(c)
+			<div class="flex-1 min-w-48">
+				<label class="label" for="node-group">Group</label>
+				<input
+					id="node-group"
+					type="text"
+					name="group"
+					value={ node.Group }
+					list="node-groups"
+					placeholder="any"
+					class="input font-mono"
+				/>
+				<datalist id="node-groups">
+					for _, g := range groups {
+						<option value={ g }></option>
+					}
+				</datalist>
+			</div>
+			<button type="submit" class="btn btn-ghost btn-sm">Save group</button>
+			<p class="settings-help w-full">
+				Tiles asking for this group can run here. Blank means no group, which any tile with
+				no group requirement can use. Takes effect on each tile's next deploy.
+			</p>
+		</form>
+	}
+}
+
+templ statTile(label, value string) {
+	<div class="panel px-4 py-3">
+		<div class="text-xs text-rw-faint mb-1">{ label }</div>
+		<div class="text-sm text-rw-text">{ value }</div>
+	</div>
+}
+
+templ serverSettingsForm(c echo.Context, sv *repo.Server, cookieDomain string, instanceBase string, nodes []runtime.Node) {
+	{{ s := settings.Parse(sv.Settings) }}
+	// Whether a browser would actually send the panel's session cookie to a
+	// generated preview hostname. If not, protecting them locks everyone out
+	// rather than gating them, so the form says so instead of finding out in
+	// production. instanceBase is the instance-level domain resource ("" =
+	// none configured).
+	{{ cookieCoversEnvDomain := CookieCovers(cookieDomain, instanceBase) }}
+	<form hx-post={ "/servers/" + sv.ID + "/settings" } class="space-y-4 max-w-xl">
+		@form.CSRFField(c)
+		<div>
+			<label class="label">Name</label>
+			<input type="text" name="name" value={ sv.Name } required class="input"/>
+		</div>
+		<div class="grid grid-cols-2 gap-2">
+			<div>
+				<label class="label">Default cron timeout (min)</label>
+				<input type="number" name="cron_timeout_min" value={ intOr(s.CronTimeoutMin) } placeholder="30" min="0" class="input"/>
+			</div>
+			<div>
+				<label class="label">Default CPU limit (cores)</label>
+				<input type="number" name="cpu_limit" value={ floatOr(s.CPULimit) } placeholder="unlimited" step="0.1" min="0" class="input"/>
+			</div>
+			<div>
+				<label class="label">Default memory limit (MB)</label>
+				<input type="number" name="mem_limit_mb" value={ intOr(s.MemLimitMB) } placeholder="unlimited" min="0" class="input"/>
+			</div>
+			<div>
+				<label class="label">Cron run history retention (days)</label>
+				<input type="number" name="run_retention_days" value={ intOr(s.RunRetentionDays) } placeholder="30" min="0" class="input"/>
+			</div>
+			<div>
+				<label class="label">Metrics retention (hours)</label>
+				<input type="number" name="metric_retention_hours" value={ intOr(s.MetricRetentionHours) } placeholder="24" min="0" class="input"/>
+			</div>
+			<div>
+				<label class="label">Build node</label>
+				<select name="build_node" class="input">
+					<option value="" selected?={ strOr(s.BuildNode) == "" }>This manager</option>
+					for _, n := range nodes {
+						if !n.IsManager() {
+							<option value={ n.ID } selected?={ strOr(s.BuildNode) == n.ID }>{ n.Hostname }</option>
+						}
+					}
+				</select>
+			</div>
+			<div>
+				<label class="label">Preview URLs</label>
+				// An unchecked box submits nothing, and Merge only writes keys the
+				// form actually sent, without this the setting could be turned on
+				// and never off again.
+				<input type="hidden" name="protect_auto_domains" value="0"/>
+				<label class="flex items-center gap-2 text-sm text-rw-muted">
+					<input type="checkbox" name="protect_auto_domains" value="1" checked?={ s.ProtectAutoDomains != nil && *s.ProtectAutoDomains } class="accent-rw-accent"/>
+					Require a stackr login
+				</label>
+				<p class="settings-help">
+					Applies only to the generated per-environment hostnames above. Domains you attached by hand stay public.
+					if !cookieCoversEnvDomain {
+						<span class="text-rw-warn block mt-1">
+							This will lock everyone out as configured: the session cookie is scoped to this panel's own hostname, which is not a parent of the domain base, so browsers never send it to a preview URL. Move the panel onto a parent domain first.
+						</span>
+					}
+				</p>
+			</div>
+		</div>
+		<button type="submit" class="btn btn-primary">Save</button>
+	</form>
+}
+
+// firstHostOr is the first resource's host, or a placeholder for the example.
+// storageTarget renders where the storage points, per backend.
+func storageTarget(st repo.Storage) string {
+	switch st.Backend {
+	case "nfs":
+		return st.Address + ":" + st.Export
+	case "smb":
+		return "//" + st.Address + "/" + st.Export
+	}
+	return st.Export
+}
+
+func firstHostOr(res []repo.DomainResource, fallback string) string {
+	if len(res) > 0 {
+		return res[0].Host
+	}
+	return fallback
+}
+
+// totalVolBytes sums known volume sizes (unknown sizes count as 0).
+func totalVolBytes(vols []runtime.VolumeInfo) int64 {
+	var n int64
+	for _, v := range vols {
+		if v.SizeBytes > 0 {
+			n += v.SizeBytes
+		}
+	}
+	return n
+}
+
+func strOr(v *string) string {
+	if v == nil {
+		return ""
+	}
+	return *v
+}
+
+func intOr(v *int) string {
+	if v == nil {
+		return ""
+	}
+	return strconv.Itoa(*v)
+}
+
+func floatOr(v *float64) string {
+	if v == nil {
+		return ""
+	}
+	return strconv.FormatFloat(*v, 'f', -1, 64)
+}
+
+templ serverIcon() {
+	<svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+		<rect x="2" y="2" width="20" height="8" rx="2"></rect>
+		<rect x="2" y="14" width="20" height="8" rx="2"></rect>
+		<line x1="6" y1="6" x2="6.01" y2="6"></line>
+		<line x1="6" y1="18" x2="6.01" y2="18"></line>
+	</svg>
+}
+
+// heldConfirm spells out what a delete takes with it when the only things
+// holding the volume are stopped containers. Rule 5 of the QA rubric: name
+// the object and say what does not come back.
+func heldConfirm(v runtime.VolumeInfo) string {
+	who := strings.Join(v.HeldBy, ", ")
+	return "Delete volume \"" + v.Name + "\"? Its data is gone for good, and the " +
+		fmt.Sprint(len(v.HeldBy)) + " stopped container(s) holding it go too: " + who + "."
+}

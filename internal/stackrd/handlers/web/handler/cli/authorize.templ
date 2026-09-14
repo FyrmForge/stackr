@@ -1,0 +1,72 @@
+package cli
+
+import (
+	"github.com/labstack/echo/v4"
+	v1 "github.com/FyrmForge/stackr/internal/stackrd/handlers/api/v1"
+	"github.com/FyrmForge/stackr/internal/stackrd/handlers/web/components"
+	"github.com/FyrmForge/stackr/internal/stackrd/handlers/web/components/form"
+)
+
+type authorizeView struct {
+	Port     string
+	State    string
+	Hostname string
+	Scopes   []v1.ScopeInfo
+}
+
+// scopesFrom filters the offered scopes to one group. It filters the view's
+// own list rather than calling v1.ScopesIn, because what the CLI may be
+// granted is already narrowed by the signed-in user's access.
+func scopesFrom(offered []v1.ScopeInfo, group string) []v1.ScopeInfo {
+	var out []v1.ScopeInfo
+	for _, s := range offered {
+		if s.Group == group {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+templ authorizePage(c echo.Context, v authorizeView) {
+	@components.Layout(c, "Authorize CLI") {
+		<div class="max-w-md mx-auto pt-24 px-6">
+			<div class="flex items-center gap-2.5 justify-center mb-8">
+				<img src={ components.StaticURL("images/logo-mark.png") } alt="" class="h-10 w-10"/>
+				<span class="text-xl font-semibold text-rw-text">stackr</span>
+			</div>
+			<div class="panel p-8 shadow-rw">
+				<h2 class="text-lg font-semibold text-rw-text mb-2 text-center">Authorize the stackr CLI</h2>
+				<p class="text-sm text-rw-text-muted mb-6 text-center">
+					A CLI on <span class="font-medium text-rw-text">{ v.Hostname }</span> is requesting an API key. Choose what it may do.
+				</p>
+				<form hx-post="/cli/authorize">
+					@form.CSRFField(c)
+					<input type="hidden" name="port" value={ v.Port }/>
+					<input type="hidden" name="state" value={ v.State }/>
+					<input type="hidden" name="hostname" value={ v.Hostname }/>
+					// Grouped like the account page, minus the presets: this
+					// list is pre-ticked, so the useful action here is
+					// un-ticking, not bulk selection.
+					<div class="mb-6">
+						for _, group := range v1.ScopeGroups {
+							if scopes := scopesFrom(v.Scopes, group); len(scopes) > 0 {
+								<fieldset class="mb-3">
+									<legend class="text-xs font-semibold uppercase tracking-wide text-rw-faint mb-1">{ group }</legend>
+									<div class="space-y-1.5">
+										for _, s := range scopes {
+											<label class="flex items-start gap-2.5 text-sm text-rw-text cursor-pointer">
+												<input type="checkbox" name="scopes" value={ s.Name } checked class="mt-0.5"/>
+												<span>{ s.Desc }</span>
+											</label>
+										}
+									</div>
+								</fieldset>
+							}
+						}
+					</div>
+					<button type="submit" class="btn btn-primary w-full">Approve</button>
+				</form>
+			</div>
+		</div>
+	}
+}

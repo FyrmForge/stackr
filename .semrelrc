@@ -1,0 +1,11 @@
+{
+  "branches": [
+    "master"
+  ],
+  "tagFormat": "v{{version}}",
+  "plugins": {
+    "commit-analyzer": {
+      "name": "cz"
+    }
+  }
+}

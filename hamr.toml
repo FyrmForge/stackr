@@ -1,0 +1,89 @@
+# Schema reference: https://github.com/FyrmForge/hamr/blob/master/docs/guide/hamr-toml.md
+
+[hamr]
+version = "0.35.0"
+scaffolded_at = "2026-07-18"
+
+[options]
+database = "sqlite"
+db_connector = "sqlx"
+auth = "session"
+css = "tailwind"
+websockets = true
+e2e = false
+stripe = false
+locale = false
+storage = "local"
+alpine = false
+
+[static]
+dir = "frontend/static"
+dist = "frontend/dist"
+manifest = "internal/stackrd/handlers/web/components/staticmanifest.go"
+package = "components"
+
+[dev]
+# proxy_listen defaults to localhost:3000 (loopback only). To reach the dev app
+# from another device on your LAN (e.g. a phone), set it to ":3000" explicitly.
+proxy_target = "$PORT"
+inject_reload = true
+hamr_console_capture = true
+hamr_console_filter = false
+
+[dev.mcp]
+enabled = true
+
+[dev.mcp.access]
+build = "write"
+dev = "write"
+docker = "write"
+logs = "write"
+mail = "write"
+sms = "write"
+stripe = "write"
+
+[[dev.watch]]
+name = "templ"
+watch = "**/*.templ"
+ignore = "*_templ.go"
+cmd = "templ generate"
+debounce = 100
+
+# one-shot tailwind rebuild on change, watched by hamr itself — the tailwind
+# --watch daemon kept OOM-crashing node. watch globs stay project-root-relative;
+# dir only sets the working directory for cmd.
+[[dev.watch]]
+name = "tailwind"
+watch = ["frontend/css/**/*", "frontend/tailwind.config.js", "internal/stackrd/handlers/web/**/*.templ", "frontend/static/js/*.js"]
+dir = "frontend"
+cmd = "npm run css:build"
+debounce = 300
+
+[[dev.watch]]
+name = "stackrd"
+watch = ["**/*.go", "**/*.templ", ".env"]
+ignore = ["*_templ.go", "*_test.go"]
+cmd = "go build -o ./bin/stackrd ./cmd/stackrd && ./bin/stackrd --generate"
+run = "./bin/stackrd"
+depends = ["templ"]
+reload = "full"
+
+[[dev.watch]]
+name = "static"
+watch = ["frontend/static/**/*"]
+cmd = "hamr gen static"
+debounce = 200
+
+[lint.templ]
+# Each rule is enabled by listing it with "warning" or "error". Omit a rule or
+# set it to "off" to disable it. Unknown rule IDs fail with an error.
+inline-if              = "error"
+inline-for             = "error"
+inline-switch          = "error"
+no-native-form-actions = "error"
+htmx-conflict          = "error"
+img-alt                = "error"
+no-href                = "error"
+inline-style           = "error"
+empty-class            = "error"
+js-href                = "error"

@@ -1,0 +1,77 @@
+package components
+
+import (
+	"context"
+	"time"
+
+	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
+)
+
+// MetricRange maps a picker key to its window; unknown keys fall back to 1h.
+func MetricRange(key string) (string, time.Duration) {
+	switch key {
+	case "6h":
+		return "6h", 6 * time.Hour
+	case "24h":
+		return "24h", 24 * time.Hour
+	}
+	return "1h", time.Hour
+}
+
+// MetricPoints loads samples for the window, bucket-averaged down to ≤240
+// points so a 24h span of 30s samples stays light to render.
+func MetricPoints(ctx context.Context, store repo.Store, ref string, dur time.Duration) (cpu, mem, rx, tx []TimePoint) {
+	ms, _ := store.ListMetrics(ctx, ref, time.Now().Add(-dur))
+	step := len(ms)/240 + 1
+	for i := 0; i < len(ms); i += step {
+		end := i + step
+		if end > len(ms) {
+			end = len(ms)
+		}
+		var c, m, r, t float64
+		for _, s := range ms[i:end] {
+			c += s.CPUPct
+			m += float64(s.MemBytes) / (1024 * 1024)
+			r += s.RxBps / 1024
+			t += s.TxBps / 1024
+		}
+		n := float64(end - i)
+		cpu = append(cpu, TimePoint{T: ms[i].TS, V: c / n})
+		mem = append(mem, TimePoint{T: ms[i].TS, V: m / n})
+		rx = append(rx, TimePoint{T: ms[i].TS, V: r / n})
+		tx = append(tx, TimePoint{T: ms[i].TS, V: t / n})
+	}
+	return
+}
+
+// MetricsFrag is the range picker + charts; swaps itself on range change and
+// auto-refreshes on a slow poll (samples land every 30s). metricsURL is the
+// owning panel's fragment endpoint (e.g. "/apps/<id>/metrics").
+templ MetricsFrag(metricsURL, rangeKey string, cpu, mem, rx, tx []TimePoint) {
+	<div
+		id="metrics-frag"
+		data-ws-refresh="server"
+		hx-get={ metricsURL + "?range=" + rangeKey }
+		hx-trigger="refresh, every 120s"
+		hx-swap="outerHTML"
+	>
+		<div class="flex justify-end gap-1 mb-3">
+			for _, k := range []string{"1h", "6h", "24h"} {
+				<button
+					hx-get={ metricsURL + "?range=" + k }
+					hx-target="#metrics-frag"
+					hx-swap="outerHTML"
+					class={ "px-2.5 py-1 rounded-md text-xs font-mono transition-colors",
+						templ.KV("bg-rw-inset text-rw-text", k == rangeKey),
+						templ.KV("text-rw-muted hover:text-rw-text", k != rangeKey) }
+				>{ k }</button>
+			}
+		</div>
+		<div class="grid grid-cols-1 gap-4">
+			@MetricChart("CPU", "%", cpu, 100)
+			@MetricChart("Memory", " MB", mem, 0)
+			@MetricChart("Network in", " KB/s", rx, 0)
+			@MetricChart("Network out", " KB/s", tx, 0)
+		</div>
+	</div>
+}

@@ -1,0 +1,174 @@
+package db
+
+import (
+	"strconv"
+	"strings"
+
+	"github.com/labstack/echo/v4"
+
+	"github.com/FyrmForge/stackr/internal/stackrd/infra/managedtiles"
+	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
+	"github.com/FyrmForge/stackr/internal/stackrd/handlers/web/components/form"
+)
+
+// dbGroup is one provisioned slice inside a shared instance, with the tiles
+// currently consuming it (empty = nothing is bound to it yet, or it was
+// detached, Orphaned tells the two apart).
+type dbGroup struct {
+	DBName    string
+	Consumers []string
+	// Slug is the slice's addressable name, what `stackr infra` takes as a
+	// path and what `${{ tile.<slug>.… }}` references. Without it on screen
+	// there is no way to discover the address from the panel.
+	Slug string
+	// Orphaned is the provision's own status, not "has no consumers". A fork
+	// and a config-declared slice are both deliberately consumer-less and
+	// perfectly healthy; only a detached one is orphaned.
+	Orphaned bool
+	// Public and ProvisionID matter only to engines with PublicSlices: the
+	// read policy is a per-slice setting, and the toggle needs one provision
+	// row to act on (every consumer of a slice shares its policy).
+	Public      bool
+	ProvisionID string
+}
+
+// dbProvisionsFrag lists the slices provisioned inside this shared instance,
+// one row each, with a whole-slice drop.
+templ dbProvisionsFrag(c echo.Context, d *repo.Tile, groups []dbGroup) {
+	<div id="db-provisions-frag">
+		if len(groups) == 0 {
+			<p class="text-rw-muted text-sm">{ emptyProvisionsMsg(d.Engine) }</p>
+		} else {
+			<ul class="space-y-2">
+				for _, g := range groups {
+					<li class="panel px-4 py-3 flex items-center justify-between gap-3">
+						<span class="text-sm text-rw-text min-w-0">
+							<span class="font-mono">{ g.DBName }</span>
+							if len(g.Consumers) > 0 {
+								<span class="text-rw-faint text-xs ml-1">used by { strings.Join(g.Consumers, ", ") }</span>
+							} else if g.Orphaned {
+								<span class="text-rw-warn text-xs ml-1">orphaned, detached, data kept</span>
+							} else {
+								<span class="text-rw-faint text-xs ml-1">no tile uses it yet</span>
+							}
+							if g.Slug != "" {
+								<span class="block mt-0.5">
+									<button
+										type="button"
+										class="font-mono text-xs text-rw-faint hover:text-rw-text"
+										data-copy={ g.Slug }
+										title="Copy this slice's address, what stackr infra takes as a path"
+									>{ g.Slug }</button>
+								</span>
+							}
+						</span>
+						if hasPublicSlices(d.Engine) {
+							<form
+								hx-post={ "/dbs/" + d.ID + "/provisions/public" }
+								hx-target="#db-provisions-frag"
+								hx-swap="outerHTML"
+							>
+								@form.CSRFField(c)
+								<input type="hidden" name="provision_id" value={ g.ProvisionID }/>
+								<input type="hidden" name="public" value={ boolStr(!g.Public) }/>
+								if g.Public {
+									<button type="submit" class="btn btn-ghost btn-sm" title="Remove the public-read policy. Objects become credentials-only">Public</button>
+								} else {
+									<button type="submit" class="btn btn-ghost btn-sm text-rw-faint" title="Grant anonymous read access to every object in this bucket">Private</button>
+								}
+							</form>
+						}
+						if canFork(d.Engine) {
+							<form
+								hx-post={ "/dbs/" + d.ID + "/provisions/fork" }
+								hx-target="#db-provisions-frag"
+								hx-swap="outerHTML"
+								hx-confirm={ forkWarning(d.Engine, g) }
+							>
+								@form.CSRFField(c)
+								<input type="hidden" name="provision_id" value={ g.ProvisionID }/>
+								<button
+									type="submit"
+									class="btn btn-ghost btn-sm"
+									title="Copy this slice's data into a new one beside it, with its own credentials"
+								>Fork</button>
+							</form>
+						}
+						<form
+							hx-post={ "/dbs/" + d.ID + "/provisions/drop" }
+							hx-target="#db-provisions-frag"
+							hx-swap="outerHTML"
+							hx-confirm={ dropWarning(d.Engine, g) }
+						>
+							@form.CSRFField(c)
+							<input type="hidden" name="db_name" value={ g.DBName }/>
+							<button type="submit" class="btn btn-danger btn-sm">Drop</button>
+						</form>
+					</li>
+				}
+			</ul>
+			<p class="text-xs text-rw-faint mt-2">{ dropHelpText(d.Engine) }</p>
+		}
+	</div>
+}
+
+func boolStr(b bool) string {
+	if b {
+		return "1"
+	}
+	return "0"
+}
+
+// emptyProvisionsMsg is the empty state, in the engine's own noun.
+func emptyProvisionsMsg(engine string) string {
+	return "No provisioned " + sliceLabel(engine) + ". Services in this environment can provision one from their Settings tab."
+}
+
+// dropHelpText explains a drop in the engine's own noun.
+func dropHelpText(engine string) string {
+	noun := unitNoun(engine)
+	return "Dropping destroys the " + noun + " for every tile using it, and removes those tiles' references to it. " +
+		"A tile stops using a " + noun +
+		" by detaching it from its own Settings tab (that keeps the data, it shows here as orphaned)."
+}
+
+// canFork reports whether this engine can copy a slice's data.
+func canFork(engine string) bool { return managedtiles.CanFork(engine) }
+
+// forkWarning sets the expectation a fork sets: it copies, so it takes time and
+// twice the space, and the copy is nobody's until it is attached.
+func forkWarning(engine string, g dbGroup) string {
+	noun := unitNoun(engine)
+	return "Fork " + noun + " \"" + g.DBName + "\"? This copies all of its data into a new " + noun +
+		" on this instance. It can take a while and uses as much space again. " +
+		"The copy starts with no tile using it."
+}
+
+// hasPublicSlices reports whether this engine can publish a slice read-only.
+func hasPublicSlices(engine string) bool { return managedtiles.Engines[engine].PublicSlices }
+
+// unitNoun is what one provisioned slice of this engine is called.
+func unitNoun(engine string) string {
+	if n := managedtiles.Engines[engine].UnitNoun; n != "" {
+		return n
+	}
+	return "slice"
+}
+
+// dropWarning states honestly what a drop will destroy, including that it
+// edits the consumers' own configuration, which is not obvious from a button
+// on the instance's drawer. Their references have to go: a reference to a
+// resource that no longer exists is a hard resolve error, so leaving them
+// would fail every later deploy of those tiles.
+func dropWarning(engine string, g dbGroup) string {
+	noun := unitNoun(engine)
+	if n := len(g.Consumers); n > 0 {
+		return "Drop " + noun + " \"" + g.DBName + "\"? It is still used by " + strconv.Itoa(n) +
+			" tile(s) (" + strings.Join(g.Consumers, ", ") + ". This destroys its data permanently for all of them, " +
+			"and removes the variables in those tiles that reference it."
+	}
+	if g.Orphaned {
+		return "Drop orphaned " + noun + " \"" + g.DBName + "\"? This destroys its data permanently."
+	}
+	return "Drop " + noun + " \"" + g.DBName + "\"? No tile uses it, but this destroys its data permanently."
+}

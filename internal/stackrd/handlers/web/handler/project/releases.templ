@@ -1,0 +1,328 @@
+package project
+
+import (
+	neturl "net/url"
+	"strconv"
+
+	"github.com/labstack/echo/v4"
+
+	"github.com/FyrmForge/stackr/internal/stackrd/handlers/web/components"
+)
+
+// releasesPage is one stack's releases: the ladder, the commits behind it, and
+// the config plans waiting. Promoting lives here rather than on a config plan,
+// because a code-only push has no config change to press.
+templ releasesPage(c echo.Context, v releaseView) {
+	@components.Shell(c, v.Stack.Name+": releases") {
+		<nav class="mb-4 flex items-center gap-1.5 text-sm text-rw-muted">
+			<a href={ templ.SafeURL(stackURL(v.Stack)) } class="hover:text-rw-text transition-colors">{ v.Stack.Name }</a>
+			<span class="text-rw-faint">/</span>
+			<span class="text-rw-text">releases</span>
+		</nav>
+		<div class="flex flex-wrap items-center gap-3 mb-5">
+			<h1 class="text-2xl font-semibold text-rw-text tracking-tight">Releases</h1>
+			if v.Log.Repo != "" {
+				<span class="text-sm text-rw-faint font-mono">{ v.Log.Repo } · { v.Log.Branch }</span>
+			}
+		</div>
+		@ladderStrip(v)
+		@releaseCommits(c, v)
+		@releasePlans(c, v)
+		<div id="promote-modal"></div>
+	}
+}
+
+// ladderStrip is one chip per environment: what it runs, and how far behind
+// the branch head that is.
+templ ladderStrip(v releaseView) {
+	if len(v.Log.Envs) > 0 {
+		<ul class="flex flex-wrap gap-2 mb-6">
+			for _, env := range v.Log.Envs {
+				<li class="panel px-3 py-2 flex items-center gap-2 text-sm">
+					@components.EnvDot(v.Log.Colors[env.ID], "")
+					<a href={ templ.SafeURL(stackURL(v.Stack) + "/" + env.Slug) } class="text-rw-text hover:text-rw-accentHi">{ env.Name }</a>
+					if sha := v.Log.Runs[env.ID]; sha != "" {
+						@commitLink(v.Log.rowFor(sha), sha)
+						if behind, off, found := v.Log.envRun(env.ID); found && off {
+							<span class="text-xs text-rw-warning">off branch</span>
+						} else if found && behind > 0 {
+							<span class="text-xs text-rw-warning">↑{ strconv.Itoa(behind) }</span>
+						}
+					} else {
+						<span class="text-xs text-rw-faint">nothing deployed</span>
+					}
+				</li>
+			}
+		</ul>
+	}
+}
+
+// commitLink is a hash, linked to the commit on the connector when there is
+// one. A local clone has no URL and stays plain text.
+templ commitLink(row *logRow, sha string) {
+	if row != nil && row.Commit.URL != "" {
+		<a href={ templ.SafeURL(row.Commit.URL) } target="_blank" rel="noopener" class="font-mono text-xs text-rw-muted hover:text-rw-text">{ shortSHA(sha) }</a>
+	} else {
+		<span class="font-mono text-xs text-rw-muted">{ shortSHA(sha) }</span>
+	}
+}
+
+templ releaseCommits(c echo.Context, v releaseView) {
+	<h2 class="text-sm font-medium text-rw-muted mb-2">Commits</h2>
+	if v.Log.Err != "" {
+		<div class="panel border-rw-warning/40 px-4 py-2.5 mb-2 text-sm text-rw-warning">
+			Could not reach the repository.
+			if v.Log.StaleFor != "" {
+				<span class="text-rw-muted">Showing the list from { v.Log.StaleFor }.</span>
+			}
+		</div>
+	}
+	if len(v.Rows) == 0 {
+		<p class="panel px-4 py-3 text-sm text-rw-faint mb-8">No commits yet. They appear once the stack is bound to a repository, or a git tile has deployed.</p>
+	} else {
+		<ul class="panel divide-y divide-rw-border mb-8">
+			for _, r := range v.Rows {
+				<li class="flex flex-wrap items-center gap-2 px-4 py-2.5 text-sm min-w-0">
+					if r.Row.Commit.AvatarURL != "" {
+						<img src={ r.Row.Commit.AvatarURL } alt="" class="h-5 w-5 rounded shrink-0"/>
+					} else {
+						<span class="flex h-5 w-5 items-center justify-center rounded bg-rw-inset text-[9px] font-bold uppercase text-rw-accentHi shrink-0">{ components.Initials(r.Row.Commit.Author) }</span>
+					}
+					@commitLink(&r.Row, r.Row.Commit.SHA)
+					<span class="min-w-0 flex-1">
+						<span class="block text-rw-text truncate">{ r.Row.Commit.Message }</span>
+						if !r.Row.Commit.When.IsZero() {
+							<span class="block text-[10px] text-rw-faint truncate">{ r.Row.Commit.Author } · { ago(r.Row.Commit.When) }</span>
+						}
+					</span>
+					@artifactsCell(r)
+					for _, chip := range r.Row.Chips {
+						@logChipView(chip)
+					}
+					for _, t := range r.Targets {
+						@promoteButton(v, t)
+					}
+				</li>
+			}
+		</ul>
+	}
+}
+
+// artifactsCell says whether the image for a commit exists. It reads the
+// deployments, not docker: a commit something has deployed has an image.
+templ artifactsCell(r releaseRow) {
+	if r.Building {
+		<span class="text-xs text-rw-muted shrink-0">building</span>
+	} else if r.Built {
+		<span class="text-xs text-rw-success shrink-0">built</span>
+	} else {
+		<span class="text-xs text-rw-faint shrink-0">not built</span>
+	}
+}
+
+// promoteButton opens the dialogue; nothing is promoted by the click itself.
+templ promoteButton(v releaseView, t promoteTarget) {
+	<button
+		type="button"
+		class={ "btn btn-sm shrink-0", templ.KV("btn-danger", t.Back), templ.KV("btn-ghost", !t.Back) }
+		hx-get={ t.URL + "&return=" + qesc(v.URL) }
+		hx-target="#promote-modal"
+		hx-swap="innerHTML"
+	>
+		if t.Back {
+			Roll back { t.Env.Name }
+		} else {
+			Promote to { t.Env.Name }
+		}
+		if t.PlanWait {
+			<span class="text-rw-warning" title="A config plan is waiting for this environment">·</span>
+		}
+	</button>
+}
+
+templ releasePlans(c echo.Context, v releaseView) {
+	<div class="flex items-center gap-3 mb-2">
+		<h2 class="text-sm font-medium text-rw-muted">Config plans</h2>
+		if v.Stack.ConfigManaged() {
+			<form hx-post={ "/projects/" + v.Stack.ID + "/config/plan" } class="ml-auto">
+				<input type="hidden" name="csrf_token" value={ csrf(c) }/>
+				<button type="submit" class="btn btn-ghost btn-sm">Plan now</button>
+			</form>
+		}
+	</div>
+	if len(v.Plans) == 0 {
+		<p class="panel px-4 py-3 text-sm text-rw-faint">No plans yet.</p>
+	} else {
+		<ul class="space-y-2">
+			for _, pl := range v.Plans {
+				<li class="panel px-4 py-3 flex flex-wrap items-center gap-3 text-sm">
+					@planStatusBadge(pl.Status)
+					<a href={ templ.SafeURL(stackURL(v.Stack) + "/plans/" + pl.ID + "?return=" + qesc(v.URL)) } class="link truncate">{ planTitle(pl) }</a>
+					if pl.EnvSlug != "" {
+						<span class="text-xs px-1.5 py-0.5 rounded bg-rw-inset text-rw-muted font-mono inline-flex items-center gap-1.5">
+							@components.EnvDot(v.Log.Colors[envIDBySlug(v, pl.EnvSlug)], "")
+							{ pl.EnvSlug }
+						</span>
+					}
+					if pl.CommitSHA != "" {
+						@commitLink(v.Log.rowFor(pl.CommitSHA), pl.CommitSHA)
+					}
+					<span class="text-xs text-rw-faint ml-auto">{ pl.CreatedAt.Local().Format("Jan 2 15:04") }</span>
+					if pl.Status == "pending" {
+						<a href={ templ.SafeURL(stackURL(v.Stack) + "/plans/" + pl.ID + "?return=" + qesc(v.URL)) } class="btn btn-ghost btn-sm">Review</a>
+					}
+				</li>
+			}
+		</ul>
+	}
+}
+
+func envIDBySlug(v releaseView, slug string) string {
+	for _, e := range v.Log.Envs {
+		if e.Slug == slug {
+			return e.ID
+		}
+	}
+	return ""
+}
+
+// promoteModal is the dialogue the Promote button fetches: what goes into the
+// environment, and, on the second step, that a config plan is waiting. It is
+// the only rich confirm in the panel; the rest are one sentence in hx-confirm.
+templ promoteModal(c echo.Context, d promoteDialogue) {
+	<div class="fixed inset-0 z-50 flex items-center justify-center p-4">
+		<div class="absolute inset-0 bg-black/60" data-modal-close></div>
+		<div class="relative panel bg-rw-surface border border-rw-border rounded-xl shadow-2xl w-full max-w-md p-5">
+			if d.Step == "plan" {
+				@promoteStepPlan(c, d)
+			} else {
+				@promoteStepOne(c, d)
+			}
+		</div>
+	</div>
+}
+
+templ promoteStepOne(c echo.Context, d promoteDialogue) {
+	<p class="text-sm text-rw-text mb-1">
+		if d.Back {
+			Roll back { d.Env.Name } to { d.Short }?
+		} else {
+			Promote { d.Short } to { d.Env.Name }?
+		}
+	</p>
+	if d.Back {
+		<p class="text-xs text-rw-danger mb-3">Removes { strconv.Itoa(d.Count) } commit{ plural(d.Count) } from { d.Env.Name }.</p>
+	} else if d.Skipped != "" {
+		<p class="text-xs text-rw-warning mb-3">{ d.Skipped } does not run this commit yet.</p>
+	}
+	@promoteCommitList(d)
+	<div class="flex justify-end gap-2 mt-5">
+		<button type="button" class="btn btn-ghost btn-sm" data-modal-close>Cancel</button>
+		if d.Plan != nil {
+			<button
+				type="button"
+				class={ "btn btn-sm", templ.KV("btn-danger", d.Back), templ.KV("btn-primary", !d.Back) }
+				hx-get={ d.PostURL + "?commit=" + d.Commit + "&step=plan&return=" + qesc(d.Return) }
+				hx-target="#promote-modal"
+				hx-swap="innerHTML"
+			>{ promoteVerb(d) }</button>
+		} else {
+			@promoteForm(c, d, "", promoteVerb(d), true)
+		}
+	</div>
+}
+
+templ promoteStepPlan(c echo.Context, d promoteDialogue) {
+	<p class="text-sm text-rw-text mb-1">{ d.Env.Name } has a pending config plan.</p>
+	<p class="text-xs text-rw-muted mb-3">Promote deploys images only. The config the file asks for stays unapplied.</p>
+	<p class="mb-3">
+		<a href={ templ.SafeURL(d.PlanURL) } target="_blank" rel="noopener" class="link text-xs">Open the plan in a new tab ↗</a>
+	</p>
+	@promoteCommitList(d)
+	<div class="flex flex-wrap justify-end gap-2 mt-5">
+		<button type="button" class="btn btn-ghost btn-sm" data-modal-close>Cancel</button>
+		@promoteForm(c, d, "", "Promote images only", false)
+		@promoteForm(c, d, d.Plan.ID, "Apply plan and promote", true)
+	</div>
+}
+
+// promoteForm is one button that actually promotes. planID empty deploys the
+// images alone; set, the whole plan applies first (Applier.ApplyPlan).
+templ promoteForm(c echo.Context, d promoteDialogue, planID, label string, primary bool) {
+	<form hx-post={ d.PostURL }>
+		<input type="hidden" name="csrf_token" value={ csrf(c) }/>
+		<input type="hidden" name="commit" value={ d.Commit }/>
+		if planID != "" {
+			<input type="hidden" name="plan" value={ planID }/>
+		}
+		if d.Return != "" {
+			<input type="hidden" name="return" value={ d.Return }/>
+		}
+		<button type="submit" class={ "btn btn-sm", templ.KV("btn-danger", d.Back), templ.KV("btn-primary", primary && !d.Back), templ.KV("btn-ghost", !primary && !d.Back) }>{ label }</button>
+	</form>
+}
+
+// promoteCommitList is what this promote carries. Five rows, then the rest
+// fold away: a long gap should not push the buttons off the screen.
+templ promoteCommitList(d promoteDialogue) {
+	if len(d.Commits) == 0 {
+		if d.Count > 0 {
+			// The gap is real but sits outside the log's window.
+			<p class="text-xs text-rw-faint">{ strconv.Itoa(d.Count) } commit{ plural(d.Count) }, older than the log shows.</p>
+		} else {
+			<p class="text-xs text-rw-faint">No commits in between; this is the one already picked.</p>
+		}
+	} else {
+		<ul class="text-xs divide-y divide-rw-border border-y border-rw-border">
+			for i, row := range d.Commits {
+				if i < dialogueRows {
+					@promoteCommitRow(row)
+				}
+			}
+		</ul>
+		if len(d.Commits) > dialogueRows {
+			<details class="text-xs">
+				<summary class="px-1 py-1.5 text-rw-faint cursor-pointer">{ strconv.Itoa(d.Count - dialogueRows) } more</summary>
+				<ul class="divide-y divide-rw-border border-b border-rw-border">
+					for i, row := range d.Commits {
+						if i >= dialogueRows {
+							@promoteCommitRow(row)
+						}
+					}
+				</ul>
+			</details>
+		} else if d.Count > len(d.Commits) {
+			<p class="px-1 py-1.5 text-xs text-rw-faint">{ strconv.Itoa(d.Count - len(d.Commits)) } more, older than the log shows.</p>
+		}
+	}
+}
+
+templ promoteCommitRow(row logRow) {
+	<li class="flex items-center gap-2 px-1 py-1.5 min-w-0">
+		@commitLink(&row, row.Commit.SHA)
+		if row.Commit.AvatarURL != "" {
+			<img src={ row.Commit.AvatarURL } alt="" class="h-4 w-4 rounded shrink-0"/>
+		} else {
+			<span class="flex h-4 w-4 items-center justify-center rounded bg-rw-inset text-[8px] font-bold uppercase text-rw-accentHi shrink-0">{ components.Initials(row.Commit.Author) }</span>
+		}
+		<span class="min-w-0 flex-1 truncate text-rw-text">{ row.Commit.Message }</span>
+		if !row.Commit.When.IsZero() {
+			<span class="text-rw-faint shrink-0">{ ago(row.Commit.When) }</span>
+		}
+	</li>
+}
+
+// qesc escapes a value going into a query string.
+func qesc(s string) string { return neturl.QueryEscape(s) }
+
+// promoteVerb is the label on the button that goes ahead: a skipped rung is
+// worth saying on the button itself, not only in the line above it.
+func promoteVerb(d promoteDialogue) string {
+	switch {
+	case d.Back:
+		return "Roll back"
+	case d.Skipped != "":
+		return "Promote anyway"
+	}
+	return "Promote"
+}

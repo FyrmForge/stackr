@@ -1,0 +1,659 @@
+package project
+
+import (
+	"github.com/FyrmForge/stackr/internal/stackrd/envcolor"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/labstack/echo/v4"
+
+	"github.com/FyrmForge/stackr/internal/stackrd/config/envops"
+	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
+	"github.com/FyrmForge/stackr/internal/stackrd/config/settings"
+	"github.com/FyrmForge/stackr/internal/stackrd/handlers/web/components"
+	"github.com/FyrmForge/stackr/internal/stackrd/handlers/web/components/form"
+)
+
+// Stack settings. Every section is its own URL, and each environment has a
+// page of its own, they used to be <details> disclosures buried in one long
+// scroll, which is why environment settings were effectively undiscoverable.
+
+func intPtr(v *int) string {
+	if v == nil {
+		return ""
+	}
+	return strconv.Itoa(*v)
+}
+
+func floatPtr(v *float64) string {
+	if v == nil {
+		return ""
+	}
+	return strconv.FormatFloat(*v, 'f', -1, 64)
+}
+
+func stackNav(p *repo.Stack, active string) []form.NavItem {
+	base := stackURL(p) + "/settings"
+	return []form.NavItem{
+		{Label: "General", Href: base + "/general", Active: active == "general"},
+		{Label: "Config as code", Href: base + "/config", Active: active == "config"},
+		{Label: "Variables", Href: base + "/variables", Active: active == "variables"},
+		{Label: "Domains", Href: base + "/domains", Active: active == "domains"},
+		{Label: "Environments", Href: base + "/environments", Active: active == "environments"},
+		{Label: "PR environments", Href: base + "/pr", Active: active == "pr"},
+	}
+}
+
+templ stackSettingsShell(c echo.Context, p *repo.Stack, active string) {
+	@components.Shell(c, p.Name + ": settings") {
+		<nav class="mb-4 flex items-center gap-1.5 text-sm text-rw-muted">
+			<a href={ templ.SafeURL(stackURL(p)) } class="hover:text-rw-text transition-colors">{ p.Name }</a>
+			<span class="text-rw-faint">/</span>
+			<span class="text-rw-text">settings</span>
+		</nav>
+		<h1 class="text-2xl font-semibold text-rw-text tracking-tight mb-8">{ p.Name }</h1>
+		@form.SettingsLayout(stackNav(p, active)) {
+			{ children... }
+		}
+	}
+}
+
+templ stackGeneralPage(c echo.Context, p *repo.Stack, res settings.Resolved, levels []settings.Level, moveTargets []repo.Org) {
+	@stackSettingsShell(c, p, "general") {
+		@form.Section("Stack", form.ScopeStack, "") {
+			@form.Field("Name", "") {
+				<input type="text" value={ p.Name } disabled class="input"/>
+			}
+			@form.Field("URL slug", "") {
+				<input type="text" value={ p.Slug } disabled class="input font-mono"/>
+			}
+		}
+		@form.Section("Resource defaults", form.ScopeStack, "Applied to every service in this stack that does not set its own. Environments and individual services can still override them; leave a field empty to inherit from the level above.") {
+			{{ ps := settings.Parse(p.Settings) }}
+			{{ srcCron, srcCPU, srcMem := above("stack", levels) }}
+			@form.SettingsForm(c, "/projects/"+p.ID+"/settings") {
+				@form.Field("Cron timeout (minutes)", "") {
+					<input type="number" name="cron_timeout_min" value={ intPtr(ps.CronTimeoutMin) } placeholder="inherit" min="0" class="input"/>
+					@form.Inherited(strconv.Itoa(res.CronTimeoutMin)+" minutes", srcCron)
+				}
+				@form.Field("CPU limit (cores)", "0 means unlimited, which is also how you lift a limit set on the server.") {
+					<input type="number" name="cpu_limit" value={ floatPtr(ps.CPULimit) } placeholder="inherit" step="0.1" min="0" class="input"/>
+					@form.Inherited(limitLabel(res.CPULimit == 0, strconv.FormatFloat(res.CPULimit, 'f', -1, 64)+" cores"), srcCPU)
+				}
+				@form.Field("Memory limit (MB)", "0 means unlimited.") {
+					<input type="number" name="mem_limit_mb" value={ intPtr(ps.MemLimitMB) } placeholder="inherit" min="0" class="input"/>
+					@form.Inherited(limitLabel(res.MemLimitMB == 0, strconv.Itoa(res.MemLimitMB)+" MB"), srcMem)
+				}
+				@form.Save("")
+			}
+		}
+		@form.DangerSection("") {
+			<div class="space-y-5">
+				if len(moveTargets) > 0 {
+					<form hx-post={ "/orgs/stacks/" + p.ID + "/move" } hx-confirm={ "Move \"" + p.Name + "\" to another organization? Its URL changes and connector-based clones start using the new org's connectors." } class="space-y-2">
+						<input type="hidden" name="csrf_token" value={ csrf(c) }/>
+						@form.Field("Move to another organization", "The stack's URL changes with its organization.") {
+							<select name="org_id" class="input">
+								for _, t := range moveTargets {
+									<option value={ t.ID }>{ t.Name }</option>
+								}
+							</select>
+						}
+						<button type="submit" class="btn btn-ghost btn-sm">Move stack</button>
+					</form>
+				}
+				@components.ConfirmDanger(c, components.ConfirmCfg{
+					PostURL: "/projects/" + p.ID + "/delete",
+					Want:    p.Slug,
+					Path:    p.OrgSlug + " / " + p.Slug,
+					Warning: "Deleting this stack removes every environment in it, with their tiles, containers and domains.",
+					Kept:    "Volumes and database data stay on the host.",
+					Label:   "Delete stack",
+					ID:      "stack-delete",
+				})
+			</div>
+		}
+	}
+}
+
+// limitLabel reads a resolved limit, spelling out the unlimited case rather
+// than showing a bare 0.
+func limitLabel(unlimited bool, value string) string {
+	if unlimited {
+		return "no limit"
+	}
+	return value
+}
+
+templ stackConfigPage(c echo.Context, p *repo.Stack, ghConns []repo.Connector) {
+	@stackSettingsShell(c, p, "config") {
+		@form.Section("Export", form.ScopeStack, "This stack's live state as a stackr-compose.yml, the way out of panel-first and into config-as-code. Secrets come out as declarations, never values.") {
+			<a href={ templ.SafeURL(stackURL(p) + "/settings/config/export") } class="btn btn-ghost btn-sm" download="stackr-compose.yml">
+				Download stackr-compose.yml
+			</a>
+		}
+		@form.Section("Config as code", form.ScopeStack, "Bind a repository holding stackr-compose.yml and every push produces a plan of changes. Plans on auto-policy environments apply themselves; deletes and manual environments wait for approval.") {
+			if len(ghConns) == 0 {
+				<p class="text-sm text-rw-faint">
+					No connected GitHub connector in this organization. Add one in
+					<a href={ templ.SafeURL("/orgs/" + orgSlugOf(p) + "/settings/connectors") } class="link">the organization's connector settings</a> first.
+				</p>
+			} else {
+				@form.SettingsForm(c, "/projects/"+p.ID+"/config") {
+					@form.Field("Connector", "Which GitHub App supplies the credentials.") {
+						<select name="connector_id" class="input">
+							if !p.ConfigManaged() {
+								<option value="">Not bound (managed from the UI)</option>
+							}
+							for _, cn := range ghConns {
+								<option value={ cn.ID } selected?={ cn.ID == p.ConfigConnectorID }>{ cn.Name }</option>
+							}
+						</select>
+					}
+					@form.Field("Repository", "In owner/name form.") {
+						<input type="text" name="repo" value={ p.ConfigRepo } placeholder="FyrmForge/hamrstack.io" class="input font-mono"/>
+					}
+					@form.Field("Branch", "Empty uses the repository's default branch.") {
+						<input type="text" name="branch" value={ p.ConfigBranch } placeholder="master" class="input font-mono"/>
+					}
+					@form.Field("Config path", "") {
+						<input type="text" name="path" value={ p.ConfigPath } placeholder="stackr-compose.yml" class="input font-mono"/>
+					}
+					@form.Save("Save & plan")
+				}
+				if p.ConfigManaged() {
+					<div class="flex flex-wrap items-center gap-2 mt-5 pt-5 border-t border-rw-border">
+						<a href={ templ.SafeURL(stackURL(p) + "/releases") } class="btn btn-ghost btn-sm">Open releases</a>
+						<form hx-post={ "/projects/" + p.ID + "/config/plan" }>
+							<input type="hidden" name="csrf_token" value={ csrf(c) }/>
+							<button type="submit" class="btn btn-ghost btn-sm">Plan now</button>
+						</form>
+						<form hx-post={ "/projects/" + p.ID + "/config" } hx-confirm="Unbind the config repository? The stack goes back to being managed from the UI and any staged changes are discarded.">
+							<input type="hidden" name="csrf_token" value={ csrf(c) }/>
+							<input type="hidden" name="connector_id" value=""/>
+							<button type="submit" class="btn btn-danger btn-sm">Unbind</button>
+						</form>
+					</div>
+				}
+			}
+		}
+	}
+}
+
+templ stackVariablesPage(c echo.Context, p *repo.Stack, vars []repo.Variable, links []repo.SecretLink, cfg components.VarsEditCfg, events []repo.AuditEvent) {
+	@stackSettingsShell(c, p, "variables") {
+		@form.Section("Stack variables", form.ScopeStack, "Shared by every environment in this stack. Reference one from a service's variables as ${{ stack.vars.NAME }} or ${{ stack.secrets.NAME }}. Secret values are encrypted; revealing or copying one is recorded.") {
+			@components.VarsEditor(c, vars, cfg)
+		}
+		@form.Section("One-time links", form.ScopeStack, "Exchange values with someone who has no account here. A drop box collects values from them straight into encrypted storage; a share link shows them values you pick, once. Both burn after use.") {
+			@stackLinksSection(c, p, links)
+		}
+		@form.Section("Secret activity", form.ScopeStack, "Every time one of these secrets was revealed, copied, read over the API or written. The panel, the CLI and one-time links all land here.") {
+			@components.AuditList(events)
+		}
+	}
+}
+
+// stackVarsPanel is the canvas drawer view of the stack's variables: inline
+// row editing, no standing form (components.VarsEdit). One-time links stay on
+// the full settings page.
+templ stackVarsPanel(c echo.Context, p *repo.Stack, vars []repo.Variable, cfg components.VarsEditCfg) {
+	@components.PanelHeader(components.PanelHead{
+		Title: varsPanelTitle("Stack", cfg.Class), Subtitle: p.Name, InDrawer: true,
+	}, varsPanelIcon(), stackVarsPanelActions(p))
+	<div class="px-4 sm:px-6 py-5" hx-target="#drawer-body" hx-swap="innerHTML" hx-vals={ "{\"class\":\"" + cfg.Class + "\"}" }>
+		@components.VarsEdit(c, vars, cfg)
+	</div>
+}
+
+// envVarsPanel is the env canvas's drawer view of that environment's own
+// values, the same editor as the stack's, one scope down.
+templ envVarsPanel(c echo.Context, p *repo.Stack, e *repo.Environment, vars []repo.Variable, cfg components.VarsEditCfg) {
+	@components.PanelHeader(components.PanelHead{
+		Title: varsPanelTitle("Environment", cfg.Class), Subtitle: p.Name + " / " + e.Name, InDrawer: true,
+	}, varsPanelIcon(), envVarsPanelActions(p, e))
+	<div class="px-4 sm:px-6 py-5" hx-target="#drawer-body" hx-swap="innerHTML" hx-vals={ "{\"class\":\"" + cfg.Class + "\"}" }>
+		@components.VarsEdit(c, vars, cfg)
+	</div>
+}
+
+templ envVarsPanelActions(p *repo.Stack, e *repo.Environment) {
+	<a href={ templ.SafeURL(stackURL(p) + "/settings/environments/" + e.Slug) } class="btn btn-ghost btn-sm">All settings</a>
+}
+
+// varsPanelTitle names the drawer after the card that opened it.
+func varsPanelTitle(scope, class string) string {
+	if class == "secret" {
+		return scope + " secrets"
+	}
+	return scope + " variables"
+}
+
+templ stackVarsPanelActions(p *repo.Stack) {
+	<a href={ templ.SafeURL(stackURL(p) + "/settings/variables") } class="btn btn-ghost btn-sm">All settings</a>
+}
+
+// varsPanelIcon matches the vars card's tag glyph on the canvas.
+templ varsPanelIcon() {
+	<svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+		<path d="M4 7V5a1 1 0 0 1 1-1h14a1 1 0 0 1 1 1v2"></path>
+		<path d="M9 20h6"></path>
+		<path d="M12 4v16"></path>
+	</svg>
+}
+
+// stackLinksSection is the one-time links list + mint form. Settings page
+// only, the canvas drawer links here rather than embedding it.
+templ stackLinksSection(c echo.Context, p *repo.Stack, links []repo.SecretLink) {
+	if len(links) > 0 {
+				<ul class="space-y-2 mb-5">
+					for _, l := range links {
+						<li class="panel px-3 py-2.5 flex flex-wrap items-center gap-2">
+							<span class="text-sm text-rw-text">{ linkName(l) }</span>
+							<span class="text-[10px] px-1.5 py-0.5 rounded bg-rw-inset text-rw-muted">{ l.Kind }</span>
+							<span class="font-mono text-xs text-rw-muted truncate">{ linkFieldNames(l) }</span>
+							<span class={ "text-[10px] px-1.5 py-0.5 rounded", linkStateClass(l) }>{ linkState(l) }</span>
+							if l.State == repo.LinkOpen {
+								<form hx-post={ "/projects/" + p.ID + "/links/revoke" } hx-confirm="Revoke this link? Anyone holding it loses access immediately." class="ml-auto">
+									<input type="hidden" name="csrf_token" value={ csrf(c) }/>
+									<input type="hidden" name="id" value={ l.ID }/>
+									<button type="submit" class="btn btn-ghost btn-sm">Revoke</button>
+								</form>
+							}
+						</li>
+					}
+				</ul>
+			} else {
+				<p class="text-sm text-rw-faint mb-5">No links yet.</p>
+			}
+			@form.SettingsForm(c, "/projects/"+p.ID+"/links") {
+				@form.Field("Type", "") {
+					<select name="kind" class="input">
+						<option value="drop">Drop box: they send values to you</option>
+						<option value="share">Share link: they read values from you</option>
+					</select>
+				}
+				@form.Field("Label", "Shown to whoever opens the link. Skip it if the link says enough on its own.") {
+					<input type="text" name="label" placeholder="Stripe keys for the new store" class="input"/>
+				}
+				@form.Field("Secret values", "One name per line. Anything after a space becomes a hint shown next to the field. Stored encrypted and never displayed again.") {
+					<textarea name="secret_fields" rows="3" placeholder="STRIPE_SECRET_KEY from your dashboard, Developers > API keys" class="input font-mono"></textarea>
+				}
+				@form.Field("Plain values", "Same format, for things that don't need hiding: account ids, region names, a sender address.") {
+					<textarea name="plain_fields" rows="2" placeholder="STRIPE_ACCOUNT_ID" class="input font-mono"></textarea>
+				}
+				@form.Field("Expires after (hours)", "Hard cutoff, whether or not the link was used.") {
+					<input type="number" name="ttl_hours" value="72" min="1" max="720" class="input"/>
+				}
+				@form.Field("Passphrase (optional)", "Send this by another channel: a text, a call. The link alone is then not enough.") {
+					<input type="text" name="passphrase" autocomplete="off" class="input"/>
+				}
+				@form.Field("Share link: readable for (minutes)", "Grace period after first open, so they can copy without racing you. 0 burns on the first read.") {
+					<input type="number" name="window_minutes" value="0" min="0" max="60" class="input"/>
+				}
+				@form.Save("Create link")
+			}
+}
+
+templ stackDomainsPage(c echo.Context, p *repo.Stack, res []repo.DomainResource) {
+	@stackSettingsShell(c, p, "domains") {
+		@form.Section("Stack domains", form.ScopeStack, "This stack's tiles can generate per-environment hostnames under one of these, like app."+firstStackResHostOr(res, "example.com")+". Hosts are unique across the whole server.") {
+			// res is everything the stack can claim under, nearest level first
+			// (envops.VisibleDomainResources). A stack with none of its own still
+			// generates hostnames under its org's, so listing only the stack's
+			// own said "No domains yet" while auto hostnames were already
+			// nesting under one, the inherited rows are shown, not deletable.
+			if len(res) > 0 {
+				<ul class="space-y-2 mb-5">
+					for _, r := range res {
+						<li class="panel px-3 py-2.5 flex flex-wrap items-center gap-2">
+							<span class="font-mono text-sm text-rw-text">{ r.Host }</span>
+							if r.IncludeEnvOnDefault {
+								<span class="text-xs px-1.5 py-0.5 rounded bg-rw-inset text-rw-muted">env slug on default env</span>
+							}
+							if r.Level == "stack" && !p.ConfigManaged() {
+								<form hx-post={ "/projects/" + p.ID + "/domain-resources/delete" } hx-confirm={ "Remove \"" + r.Host + "\"? New auto hostnames stop nesting under it." } class="ml-auto">
+									<input type="hidden" name="csrf_token" value={ csrf(c) }/>
+									<input type="hidden" name="id" value={ r.ID }/>
+									<button type="submit" class="btn btn-ghost btn-sm">Delete</button>
+								</form>
+							} else if r.Level != "stack" {
+								<span class="ml-auto text-xs px-1.5 py-0.5 rounded bg-rw-inset text-rw-muted">inherited from { r.Level }</span>
+							} else {
+								<span class="ml-auto text-xs px-1.5 py-0.5 rounded bg-rw-inset text-rw-muted">from the config file</span>
+							}
+						</li>
+					}
+				</ul>
+			} else {
+				<p class="text-sm text-rw-faint mb-5">No domains yet.</p>
+			}
+			if p.ConfigManaged() {
+				<p class="text-sm text-rw-faint">Declare this stack's domains under <span class="font-mono text-rw-text">domains:</span> in its config file.</p>
+			} else {
+				@form.SettingsForm(c, "/projects/"+p.ID+"/domain-resources") {
+					@form.Field("Host", "A bare lowercase hostname, e.g. example.com.") {
+						<input type="text" name="host" required placeholder="example.com" class="input font-mono"/>
+					}
+					<label class="flex items-center gap-2 text-sm text-rw-muted cursor-pointer">
+						<input type="checkbox" name="include_env_on_default" value="1" class="accent-rw-accent"/>
+						Include env slug on default env (api.prod instead of api)
+					</label>
+					@form.Save("Add domain")
+				}
+			}
+		}
+	}
+}
+
+// linkName falls back to the field list when the operator skipped the label,
+// a row with no name at all is impossible to tell apart from its neighbours.
+func linkName(l repo.SecretLink) string {
+	if l.Label != "" {
+		return l.Label
+	}
+	if l.Kind == repo.LinkShare {
+		return "Share link"
+	}
+	return "Drop box"
+}
+
+func linkFieldNames(l repo.SecretLink) string {
+	var names []string
+	for _, f := range l.FieldList() {
+		names = append(names, f.Name)
+	}
+	return strings.Join(names, ", ")
+}
+
+// linkState reports what an operator actually needs to know, which is not the
+// stored state: an untouched link that has run out of time still says "open"
+// in the database.
+func linkState(l repo.SecretLink) string {
+	if l.State == repo.LinkOpen && l.Dead(time.Now()) {
+		return "expired"
+	}
+	switch l.State {
+	case repo.LinkBurned:
+		return "used"
+	case repo.LinkLocked:
+		return "locked"
+	case repo.LinkRevoked:
+		return "revoked"
+	}
+	return "waiting"
+}
+
+func linkStateClass(l repo.SecretLink) string {
+	switch linkState(l) {
+	case "waiting":
+		return "bg-rw-success/15 text-rw-success"
+	case "locked":
+		return "bg-rw-danger/15 text-rw-danger"
+	}
+	return "bg-rw-inset text-rw-faint"
+}
+
+// firstStackResHostOr is the first resource's host, or a placeholder.
+func firstStackResHostOr(res []repo.DomainResource, fallback string) string {
+	if len(res) > 0 {
+		return res[0].Host
+	}
+	return fallback
+}
+
+templ stackEnvironmentsPage(c echo.Context, p *repo.Stack, envs []repo.Environment, counts map[string]int, colors map[string]envcolor.Resolved) {
+	@stackSettingsShell(c, p, "environments") {
+		@form.Section("Environments", form.ScopeStack, "Each environment is an isolated copy of the stack with its own services and data. Open one to change its overrides.") {
+			<ul class="space-y-2">
+				for _, e := range envs {
+					<li class="panel px-4 py-3 flex flex-wrap items-center gap-3">
+						@components.EnvDot(colors[e.ID].CSS, "h-2.5 w-2.5")
+						<a href={ templ.SafeURL(stackURL(p) + "/settings/environments/" + e.Slug) } class="text-sm text-rw-text font-medium hover:text-rw-accentHi transition-colors">{ e.Name }</a>
+						<span class="text-xs text-rw-faint font-mono">{ e.Slug }</span>
+						if e.Type == "ephemeral" {
+							<span class="text-xs px-1.5 py-0.5 rounded bg-rw-warning/15 text-rw-warning">temporary</span>
+						}
+						<span class="text-xs text-rw-faint">{ strconv.Itoa(counts[e.ID]) } tiles</span>
+						<span class="ml-auto flex items-center gap-2">
+							<a href={ templ.SafeURL(envURL(p, &e)) } class="btn btn-ghost btn-sm">Open canvas</a>
+							<a href={ templ.SafeURL(stackURL(p) + "/settings/environments/" + e.Slug) } class="btn btn-ghost btn-sm">Settings</a>
+						</span>
+					</li>
+				}
+			</ul>
+		}
+		@form.Section("Colours", form.ScopeStack, "How each environment is drawn on the canvases, plan rows and tile pages. Empty inherits the organization's default for the slug, then the ladder order.") {
+			<ul class="space-y-2">
+				for _, e := range envs {
+					<li class="panel px-4 py-3 flex flex-wrap items-center gap-3">
+						<span class="text-sm text-rw-text w-28 truncate">{ e.Name }</span>
+						if p.ConfigManaged() {
+							@components.EnvDot(colors[e.ID].CSS, "h-4 w-4")
+							<span class="ml-auto">
+								@components.EnvColorSource(colors[e.ID].Source)
+							</span>
+						} else {
+							<form hx-post={ "/envs/" + e.ID + "/color" } class="flex flex-wrap items-center gap-3 flex-1">
+								@form.CSRFField(c)
+								@components.EnvColorPicker(e.Color)
+								<span class="ml-auto flex items-center gap-2">
+									@components.EnvColorSource(colors[e.ID].Source)
+									<button type="submit" class="btn btn-ghost btn-sm">Save</button>
+								</span>
+							</form>
+						}
+					</li>
+				}
+			</ul>
+			if p.ConfigManaged() {
+				<p class="text-xs text-rw-faint mt-3">This stack is managed from its config repository. Set <code class="font-mono">color:</code> on an environment there.</p>
+			}
+		}
+		if !p.ConfigManaged() {
+			@form.Section("New environment", form.ScopeStack, "Cloning copies the source environment's services and settings, not its data.") {
+				@form.SettingsForm(c, "/projects/"+p.ID+"/envs") {
+					@form.Field("Name", "") {
+						<input type="text" name="name" required class="input"/>
+					}
+					@form.Field("Start from", "") {
+						<select name="base_env_id" class="input">
+							<option value="">empty</option>
+							for _, e := range envs {
+								<option value={ e.ID }>{ "clone " + e.Name }</option>
+							}
+						</select>
+					}
+					<label class="flex items-center gap-2 text-sm text-rw-muted cursor-pointer">
+						<input type="checkbox" name="type" value="ephemeral" class="accent-rw-accent"/>
+						Temporary, meant to be deleted when done
+					</label>
+					@form.Save("Create environment")
+				}
+			}
+		} else {
+			@form.Section("New environment", form.ScopeStack, "") {
+				<p class="text-sm text-rw-faint">This stack is managed from its config repository. Add environments there and they appear on the next plan.</p>
+			}
+		}
+	}
+}
+
+templ envSettingsPage(c echo.Context, p *repo.Stack, e *repo.Environment, res settings.Resolved, levels []settings.Level, tiles int, only bool, vars []repo.Variable, cfg components.VarsEditCfg, events []repo.AuditEvent) {
+	@components.Shell(c, e.Name + ": settings") {
+		<nav class="mb-4 flex items-center gap-1.5 text-sm text-rw-muted">
+			<a href={ templ.SafeURL(stackURL(p)) } class="hover:text-rw-text transition-colors">{ p.Name }</a>
+			<span class="text-rw-faint">/</span>
+			<a href={ templ.SafeURL(stackURL(p) + "/settings/environments") } class="hover:text-rw-text transition-colors">environments</a>
+			<span class="text-rw-faint">/</span>
+			<span class="text-rw-text">{ e.Slug }</span>
+		</nav>
+		<h1 class="text-2xl font-semibold text-rw-text tracking-tight mb-1">{ e.Name }</h1>
+		<p class="text-sm text-rw-muted mb-8">{ strconv.Itoa(tiles) } tiles · <a href={ templ.SafeURL(envURL(p, e)) } class="link">open the canvas</a></p>
+		@form.SettingsLayout(stackNav(p, "environments")) {
+			@form.Section("Resource overrides", form.ScopeEnv, "Applied to every service in this environment that does not set its own. Leave a field empty to inherit from the level above.") {
+				{{ es := settings.Parse(e.Settings) }}
+				{{ srcCron, srcCPU, srcMem := above("env", levels) }}
+				@form.SettingsForm(c, "/envs/"+e.ID+"/settings") {
+					@form.Field("Cron timeout (minutes)", "") {
+						<input type="number" name="cron_timeout_min" value={ intPtr(es.CronTimeoutMin) } placeholder="inherit" min="0" class="input"/>
+						@form.Inherited(strconv.Itoa(res.CronTimeoutMin)+" minutes", srcCron)
+					}
+					@form.Field("CPU limit (cores)", "0 means unlimited, which is also how you lift a limit set on the stack.") {
+						<input type="number" name="cpu_limit" value={ floatPtr(es.CPULimit) } placeholder="inherit" step="0.1" min="0" class="input"/>
+						@form.Inherited(limitLabel(res.CPULimit == 0, strconv.FormatFloat(res.CPULimit, 'f', -1, 64)+" cores"), srcCPU)
+					}
+					@form.Field("Memory limit (MB)", "0 means unlimited.") {
+						<input type="number" name="mem_limit_mb" value={ intPtr(es.MemLimitMB) } placeholder="inherit" min="0" class="input"/>
+						@form.Inherited(limitLabel(res.MemLimitMB == 0, strconv.Itoa(res.MemLimitMB)+" MB"), srcMem)
+					}
+					@form.Save("")
+				}
+			}
+			@form.Section("Environment variables", form.ScopeEnv, "This environment's own values. A service reading ${{ stack.vars.NAME }} gets the value set here before the stack's. Secret values are encrypted; revealing or copying one is recorded.") {
+				@components.VarsEditor(c, vars, cfg)
+			}
+			@form.Section("Secret activity", form.ScopeEnv, "Every time one of this environment's secrets was revealed, copied, read over the API or written.") {
+				@components.AuditList(events)
+			}
+			// Rendered whether or not a repo is bound: hiding it meant the only way
+			// to discover per-environment apply policy was to bind a repo first.
+			@form.Section("Config as code", form.ScopeEnv, "Which branch this environment tracks, and whether its plans apply themselves.") {
+				if !p.ConfigManaged() {
+					<p class="text-sm text-rw-faint mb-4">
+						This stack has no config repository bound, so these have no effect yet.
+						<a href={ templ.SafeURL(stackURL(p) + "/settings/config") } class="link">Bind one</a> to use them.
+					</p>
+				}
+				if e.Type == "ephemeral" {
+					<p class="text-sm text-rw-faint">Temporary environments track the branch of the pull request that created them.</p>
+				} else {
+					@form.SettingsForm(c, "/envs/"+e.ID+"/config") {
+						@form.Field("Config branch", "Empty tracks the stack's branch.") {
+							<input type="text" name="config_branch" value={ e.ConfigBranch } placeholder="inherit" class="input font-mono" disabled?={ !p.ConfigManaged() }/>
+						}
+						@form.Field("Apply policy", "Environments wait for approval unless you set this to automatic. Deletes always wait.") {
+							<select name="apply_policy" class="input" disabled?={ !p.ConfigManaged() }>
+								<option value="" selected?={ e.ApplyPolicy == "" }>wait for approval (default)</option>
+								<option value="auto" selected?={ e.ApplyPolicy == "auto" }>apply automatically</option>
+								<option value="manual" selected?={ e.ApplyPolicy == "manual" }>wait for approval</option>
+							</select>
+						}
+						if p.ConfigManaged() {
+							@form.Save("")
+						}
+					}
+				}
+			}
+			@form.DangerSection("") {
+				if p.ConfigManaged() {
+					<p class="text-sm text-rw-faint mb-4">This stack is managed from its config repository, so the environment cannot be deleted here. Remove it from the file instead.</p>
+					@components.ConfirmDanger(c, components.ConfirmCfg{
+						PostURL: "/envs/" + e.ID + "/reset",
+						Want:    e.Slug,
+						Path:    p.OrgSlug + " / " + p.Slug + " / " + e.Slug,
+						Warning: "Reset tears this environment down: every tile, container and proxy route in it. The file still declares it, so the next apply builds it again from scratch.",
+						Kept:    "Database volumes are kept.",
+						Label:   "Reset environment",
+						ID:      "env-reset",
+					})
+				} else if only {
+					<p class="text-sm text-rw-faint">A stack keeps at least one environment, so this one cannot be deleted.</p>
+				} else {
+					@components.ConfirmDanger(c, components.ConfirmCfg{
+						PostURL: "/envs/" + e.ID + "/delete",
+						Want:    e.Slug,
+						Path:    p.OrgSlug + " / " + p.Slug + " / " + e.Slug,
+						Warning: "Deleting this environment removes every tile, container and proxy route in it.",
+						Kept:    "Database volumes are kept.",
+						Label:   "Delete environment",
+						ID:      "env-delete",
+					})
+				}
+			}
+		}
+	}
+}
+
+templ stackPREnvPage(c echo.Context, p *repo.Stack, envs []repo.Environment, prCfg envops.PRConfig, ghConns []repo.Connector) {
+	@stackSettingsShell(c, p, "pr") {
+		@form.Section("Pull request environments", form.ScopeStack, "Each pull request gets a temporary environment built from the config file's pr_envs: template, torn down when the PR closes.") {
+			if len(ghConns) > 0 {
+				<p class="text-sm text-rw-muted mb-4">Your GitHub connector delivers the webhooks automatically, nothing to configure on GitHub.</p>
+			} else {
+				<p class="text-sm text-rw-muted mb-4">
+					With no GitHub connector, point a repository webhook (JSON, pull_request events) at
+					<code class="text-rw-accentHi break-all">{ "/hooks/github/" + p.ID }</code> using the secret below.
+				</p>
+			}
+			@form.SettingsForm(c, "/projects/"+p.ID+"/prenv") {
+				<label class="flex items-center gap-3 text-sm text-rw-text cursor-pointer">
+					<input type="checkbox" name="enabled" value="1" checked?={ prCfg.Enabled } class="accent-rw-accent"/>
+					Enable pull request environments
+				</label>
+				<label class="flex items-center gap-3 text-sm text-rw-text cursor-pointer">
+					<input type="checkbox" name="comment" value="1" checked?={ !prCfg.NoComment } class="accent-rw-accent"/>
+					Post a preview-URL comment on the pull request
+				</label>
+				<label class="flex items-center gap-3 text-sm text-rw-text cursor-pointer">
+					<input type="checkbox" name="status" value="1" checked?={ !prCfg.NoStatus } class="accent-rw-accent"/>
+					Set a commit status check per deploy
+				</label>
+				@form.Save("")
+			}
+		}
+		if prCfg.Secret != "" && len(ghConns) == 0 {
+			@form.Section("Webhook secret", form.ScopeStack, "Copy this into the GitHub webhook's secret field.") {
+				<div class="flex items-center gap-2 min-w-0">
+					<code class="input w-full min-w-0 font-mono text-xs overflow-x-auto whitespace-nowrap">{ prCfg.Secret }</code>
+					<form hx-post={ "/projects/" + p.ID + "/prenv/rotate" } hx-confirm="Regenerate the secret? The current one stops working immediately.">
+						<input type="hidden" name="csrf_token" value={ csrf(c) }/>
+						<button type="submit" class="btn btn-ghost btn-sm whitespace-nowrap">Regenerate</button>
+					</form>
+				</div>
+			}
+		}
+	}
+}
+
+func shortSHA(s string) string {
+	if len(s) > 7 {
+		return s[:7]
+	}
+	return s
+}
+
+
+// above names the deepest level at or above `me` that actually sets each knob,
+// so the hint says where to go and change it rather than always blaming the
+// server. "the built-in default" is the bottom of the cascade.
+func above(me string, levels []settings.Level) (cron, cpu, mem string) {
+	pick := func(set func(settings.Settings) bool) string {
+		out := "the built-in default"
+		for _, l := range levels {
+			if l.Kind == me {
+				break // this level's own value is in the field, not the hint
+			}
+			if set(l.Settings) {
+				out = levelLabel(l)
+			}
+		}
+		return out
+	}
+	return pick(func(s settings.Settings) bool { return s.CronTimeoutMin != nil }),
+		pick(func(s settings.Settings) bool { return s.CPULimit != nil }),
+		pick(func(s settings.Settings) bool { return s.MemLimitMB != nil })
+}
+
+func levelLabel(l settings.Level) string {
+	switch l.Kind {
+	case "server":
+		return "the server"
+	case "org":
+		return "the " + l.Name + " organization"
+	case "stack":
+		return "the " + l.Name + " stack"
+	}
+	return "the " + l.Name + " environment"
+}

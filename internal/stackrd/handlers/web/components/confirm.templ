@@ -1,0 +1,77 @@
+package components
+
+import (
+	"github.com/labstack/echo/v4"
+
+	"github.com/FyrmForge/stackr/internal/stackrd/handlers/web/components/form"
+)
+
+// ConfirmCfg is one destructive action guarded by typing its name.
+type ConfirmCfg struct {
+	// PostURL is where the form goes. Want is the exact text that has to be
+	// typed, and is what the handler re-checks with components.Confirmed.
+	PostURL string
+	Want    string
+	// Path is the full address of the thing, org / stack / env / tile, so
+	// nobody deletes the right name in the wrong place.
+	Path string
+	// What it destroys, one sentence, present tense. Kept is what survives,
+	// empty when nothing does.
+	Warning string
+	Kept    string
+	Label   string // button text, "Delete" when empty
+	// Target and Swap are htmx's, for the panels that replace themselves
+	// rather than redirect.
+	Target string
+	Swap   string
+	// ID makes the input's label and the form unique on a page carrying more
+	// than one of these.
+	ID string
+}
+
+// ConfirmDanger is the in-page version of the type-the-name guard the node
+// Remove modal introduced. Destroying data is worth the friction: a named
+// button is one mis-click, and none of this is undoable
+// (docs/notes.md, misc, better delete guards).
+templ ConfirmDanger(c echo.Context, cfg ConfirmCfg) {
+	<div data-confirm-scope>
+		<p class="text-sm text-rw-text mb-1">{ cfg.Warning }</p>
+		<p class="text-xs text-rw-faint font-mono mb-1">{ cfg.Path }</p>
+		if cfg.Kept != "" {
+			<p class="text-xs text-rw-faint mb-3">{ cfg.Kept }</p>
+		}
+		<div class="mb-3">
+			<label class="label" for={ "confirm-" + cfg.ID }>
+				Type <span class="font-mono text-rw-text">{ cfg.Want }</span> to confirm
+			</label>
+			// name= and form=: the handler re-checks what was typed, so the box
+			// has to be submitted, and it sits outside the form it belongs to.
+			<input
+				id={ "confirm-" + cfg.ID }
+				name="confirm"
+				form={ "confirm-form-" + cfg.ID }
+				type="text"
+				class="input font-mono"
+				data-confirm-input={ cfg.Want }
+				autocomplete="off"
+			/>
+		</div>
+		<form
+			id={ "confirm-form-" + cfg.ID }
+			hx-post={ cfg.PostURL }
+			if cfg.Target != "" {
+				hx-target={ cfg.Target }
+				hx-swap={ cfg.Swap }
+			}
+		>
+			@form.CSRFField(c)
+			<button type="submit" class="btn btn-danger btn-sm" data-confirm-submit disabled>
+				if cfg.Label != "" {
+					{ cfg.Label }
+				} else {
+					Delete
+				}
+			</button>
+		</form>
+	</div>
+}

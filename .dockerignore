@@ -1,0 +1,10 @@
+.git
+bin/
+tmp/
+**/node_modules
+.env
+docker/
+docs/
+e2e/
+coverage.out
+coverage.html

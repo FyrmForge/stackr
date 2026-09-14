@@ -1,0 +1,90 @@
+package components
+
+import (
+	"context"
+
+	"github.com/labstack/echo/v4"
+
+	"github.com/FyrmForge/stackr/internal/stackrd/handlers/middleware"
+)
+
+// themeClass picks the class on <html>. The palette lives in CSS variables
+// (frontend/css/input.css): "dark" and "light" pin a theme, no class at all
+// hands the choice to prefers-color-scheme. Following the OS is the default,
+// so that is also what signed-out pages and unset accounts get.
+//
+// The request context is the fallback, not an extra: the error page renders
+// through hamr's ErrorPages, which hands the component no echo.Context at all,
+// so middleware.ThemeContext leaves the theme where templ can still see it.
+func themeClass(ctx context.Context, c echo.Context) string {
+	theme := middleware.Theme(ctx)
+	if c != nil {
+		if u := middleware.CurrentUser(c); u != nil {
+			theme = u.Theme
+		}
+	}
+	switch theme {
+	case "light":
+		return "light"
+	case "dark":
+		return "dark"
+	default:
+		return ""
+	}
+}
+
+templ Layout(c echo.Context, title string) {
+	<!DOCTYPE html>
+	<html lang="en" class={ themeClass(ctx, c) }>
+	<head>
+		<meta charset="UTF-8"/>
+		<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+		<title>{ title } - stackr</title>
+		<link rel="icon" type="image/png" sizes="32x32" href={ StaticURL("images/favicon-32.png") }/>
+		<link rel="apple-touch-icon" href={ StaticURL("images/apple-touch-icon.png") }/>
+		<link rel="stylesheet" href={ StaticURL("css/output.css") }/>
+	</head>
+	<body class="bg-rw-bg text-rw-text min-h-screen font-sans antialiased">
+		<div class="relative">
+			// Always present so htmx fragment responses have somewhere to put a
+			// flash (see FlashOOB), a save that swaps a panel in place never
+			// renders this layout, and without the slot its confirmation would
+			// sit in the cookie until some later full page load.
+			<div id="flash-slot">
+				if c != nil {
+					@FlashToast(c)
+				}
+			</div>
+			{ children... }
+		</div>
+		// Global search, signed-in pages only; login and error pages have
+		// nothing to search.
+		if c != nil && middleware.CurrentUser(c) != nil {
+			@SearchPalette()
+		}
+
+		<script src={ StaticURL("js/htmx.min.js") }></script>
+		<script src={ StaticURL("js/main.js") }></script>
+		<script src={ StaticURL("js/codearea.js") }></script>
+		<script src={ StaticURL("js/metrics.js") }></script>
+		<script src={ StaticURL("js/logs.js") }></script>
+		<script src={ StaticURL("js/ws.js") }></script>
+		<script src={ StaticURL("js/live.js") }></script>
+		<script>
+			htmx.config.responseHandling = [
+				{code:"204", swap: false},
+				{code:"[23]..", swap: true},
+				// 4xx bodies are OOB-toast-only with HX-Reswap:none (see
+				// htmxErrors), swap so the toast lands, error:false so the
+				// console isn't spammed for a handled validation failure.
+				{code:"4..", swap: true, error: false},
+				{code:"5..", swap: false, error: true}
+			];
+			document.addEventListener('htmx:configRequest', function(evt) {
+				var csrfToken = document.querySelector('input[name="csrf_token"]');
+				if (csrfToken) evt.detail.headers['X-CSRF-Token'] = csrfToken.value;
+			});
+		</script>
+	</body>
+	</html>
+}

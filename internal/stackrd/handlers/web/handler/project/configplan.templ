@@ -1,0 +1,138 @@
+package project
+
+import (
+	"github.com/labstack/echo/v4"
+
+	"github.com/FyrmForge/stackr/internal/stackrd/config/stackconf"
+	"github.com/FyrmForge/stackr/internal/stackrd/handlers/web/components"
+	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
+)
+
+templ planStatusBadge(status string) {
+	switch status {
+		case "pending":
+			<span class="text-xs px-1.5 py-0.5 rounded bg-rw-warning/15 text-rw-warning shrink-0">pending</span>
+		case "clean":
+			<span class="text-xs px-1.5 py-0.5 rounded bg-rw-success/15 text-rw-success shrink-0">clean</span>
+		case "applied":
+			<span class="text-xs px-1.5 py-0.5 rounded bg-rw-success/15 text-rw-success shrink-0">applied</span>
+		case "error":
+			<span class="text-xs px-1.5 py-0.5 rounded bg-rw-danger/15 text-rw-danger shrink-0">error</span>
+		default:
+			<span class="text-xs px-1.5 py-0.5 rounded bg-rw-inset text-rw-faint shrink-0">{ status }</span>
+	}
+}
+
+func planTitle(cp repo.ConfigPlan) string {
+	if cp.Status == "error" {
+		return cp.Error
+	}
+	return cp.Summary
+}
+
+// planPage is one stack's plan review. returnURL is where approve and reject
+// send the user afterwards (the canvas they clicked the banner on) and rides
+// the button URLs as a query. Empty when the page was reached from settings,
+// which then stays the destination.
+// workRunning reports that the apply for this plan is still going, which is
+// what decides whether the page keeps polling itself.
+func workRunning(w *repo.WorkItem) bool {
+	return w != nil && !w.Done()
+}
+
+// workLine is what the banner says. The step comes from the job itself, so it
+// is the real one rather than a guess made from the plan's status.
+func workLine(w *repo.WorkItem) string {
+	switch {
+	case w == nil:
+		return ""
+	case w.Status == "queued":
+		return "Queued, waiting to start."
+	case w.Status == "running":
+		if w.Step != "" {
+			return "Applying: " + w.Step + "."
+		}
+		return "Applying."
+	case w.Status == "error":
+		return "The apply failed: " + w.Error
+	case w.Status == "cancelled":
+		return "The apply was cancelled."
+	case w.Status == "superseded":
+		return "A newer apply replaced this one."
+	}
+	return ""
+}
+
+templ planPage(c echo.Context, p *repo.Stack, cp *repo.ConfigPlan, plan *stackconf.Plan, work *repo.WorkItem, settingsURL, returnURL, envColor string) {
+	@components.Shell(c, p.Name+": plan") {
+		<nav class="mb-4 flex items-center gap-1.5 text-sm text-rw-muted">
+			<a href={ templ.SafeURL(stackURL(p)) } class="hover:text-rw-text transition-colors">{ p.Name }</a>
+			<span class="text-rw-faint">/</span>
+			<a href={ templ.SafeURL(settingsURL) } class="hover:text-rw-text transition-colors">settings</a>
+			<span class="text-rw-faint">/</span>
+			<span class="text-rw-text">plan</span>
+		</nav>
+		<div class="flex items-center gap-3 mb-2">
+			<h1 class="text-2xl font-semibold text-rw-text tracking-tight">Config plan</h1>
+			@planStatusBadge(cp.Status)
+		</div>
+		if line := workLine(work); line != "" {
+			// Polls itself while the job is live, then stops: the apply
+			// outlives this request, so the page cannot be rendered once and
+			// be right. hx-select picks this banner back out of the whole page.
+			<div
+				id="apply-state"
+				class={ "panel px-4 py-3 mb-4 text-sm", templ.KV("text-rw-danger", work.Status == "error"), templ.KV("text-rw-muted", work.Status != "error") }
+				if workRunning(work) {
+					hx-get={ stackURL(p) + "/plans/" + cp.ID }
+					hx-trigger="every 2s"
+					hx-select="#apply-state"
+					hx-swap="outerHTML"
+				}
+			>
+				{ line }
+			</div>
+		}
+		@components.PlanBody(c, stackPlanCfg(p, cp, returnURL, envColor), plan)
+	}
+}
+
+templ planChangeRow(ch stackconf.Change) {
+	<li class="panel px-4 py-2.5 flex flex-wrap items-center gap-2 text-sm font-mono">
+		switch ch.Kind {
+			case "create", "create-env":
+				<span class="text-rw-success shrink-0 w-4">+</span>
+			case "delete", "delete-env":
+				<span class="text-rw-danger shrink-0 w-4">-</span>
+			default:
+				<span class="text-rw-warning shrink-0 w-4">~</span>
+		}
+		<span class="text-rw-faint">{ ch.Env }</span>
+		if ch.Tile != "" {
+			<span class="text-rw-text">{ ch.Tile }</span>
+		} else if ch.Kind == "create-env" || ch.Kind == "delete-env" {
+			// Only env-lifecycle rows are about an environment; the other
+			// tile-less row is the stack rename, where Env already says "stack".
+			<span class="text-rw-text">(environment)</span>
+		}
+		if ch.Field != "" {
+			<span class="text-rw-muted">{ ch.Field }</span>
+		}
+		if ch.Old != "" || ch.New != "" {
+			<span class="text-rw-faint ml-auto truncate max-w-[50%]">
+				if ch.Old != "" {
+					<span class="text-rw-danger line-through">{ ch.Old }</span>
+				}
+				if ch.Old != "" && ch.New != "" {
+					<span class="mx-1">→</span>
+				}
+				if ch.New != "" {
+					<span class="text-rw-success">{ ch.New }</span>
+				}
+			</span>
+		}
+		if ch.Note != "" {
+			<p class="basis-full text-xs text-rw-warning font-sans">{ ch.Note }</p>
+		}
+	</li>
+}

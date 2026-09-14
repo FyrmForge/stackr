@@ -1,0 +1,31 @@
+package form
+
+import (
+	"strconv"
+
+	"github.com/labstack/echo/v4"
+)
+
+// FieldError renders a validation error for a form field.
+// Always renders the element so it can be targeted by OOB swaps.
+templ FieldError(field string, err string) {
+	<span class="text-rw-danger text-sm mt-1 block" id={ "error-" + field } data-has-error={ strconv.FormatBool(err != "") } aria-live="polite">
+		if err != "" {
+			{ err }
+		}
+	</span>
+}
+
+// FieldErrorOOB renders an out-of-band swap for a field error (used with HTMX blur validation).
+templ FieldErrorOOB(field string, err string) {
+	<span class="text-rw-danger text-sm mt-1 block" id={ "error-" + field } data-has-error={ strconv.FormatBool(err != "") } aria-live="polite" hx-swap-oob="true">
+		if err != "" {
+			{ err }
+		}
+	</span>
+}
+
+// CSRFField renders a hidden CSRF token input.
+templ CSRFField(c echo.Context) {
+	<input type="hidden" name="csrf_token" value={ c.Get("csrf").(string) }/>
+}

@@ -1,0 +1,87 @@
+package project
+
+import (
+	"github.com/FyrmForge/stackr/internal/stackrd/config/envcompare"
+	"net/url"
+
+	"github.com/labstack/echo/v4"
+
+	"github.com/FyrmForge/stackr/internal/stackrd/handlers/web/graph"
+	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
+	"github.com/FyrmForge/stackr/internal/stackrd/handlers/web/components"
+	"github.com/FyrmForge/stackr/internal/stackrd/handlers/web/components/canvas"
+)
+
+// planBanner is the config-plan strip above the canvas, shared by the stack
+// and environment levels.
+//
+// It re-fetches itself on any websocket event in the room rather than being
+// pushed: a plan is computed asynchronously (replanAsync, and the push webhook
+// path), so the banner rendered at page load goes stale the moment a variable
+// change lands. selfURL is the page's own canonical URL, hx-select pulls this
+// one element back out of the full page, so no fragment route is needed.
+//
+// The wrapper renders even with no plan, because an element that isn't there
+// can't be refreshed into existence.
+//
+// re-fetching the whole page to update one strip is wasteful, every
+// tile status change in the room costs a page render. It matches what
+// server.templ already does, and a dedicated fragment route is the fix if the
+// canvas ever gets expensive enough to notice.
+//
+// relative z-40 on the banner: page chrome sits above the canvas drawer
+// backdrop (z-30), or a click with the drawer open only closes the drawer.
+templ planBanner(p *repo.Stack, plan *repo.ConfigPlan, selfURL string) {
+	<div
+		id="plan-banner"
+		data-ws-refresh="project"
+		hx-get={ selfURL }
+		hx-trigger="refresh"
+		hx-select="#plan-banner"
+		hx-swap="outerHTML"
+		class="contents"
+	>
+		if plan != nil {
+			<a
+				href={ templ.SafeURL(stackURL(p) + "/plans/" + plan.ID + "?return=" + url.QueryEscape(selfURL)) }
+				class={ "relative z-40 flex items-center gap-2 px-4 sm:px-6 py-2 text-sm border-b border-rw-border shrink-0 transition-colors",
+					templ.KV("bg-rw-warning/10 text-rw-warning hover:bg-rw-warning/20", plan.Status == "pending"),
+					templ.KV("bg-rw-danger/10 text-rw-danger hover:bg-rw-danger/20", plan.Status == "error") }
+			>
+				if plan.Status == "error" {
+					<span>Config invalid, view details</span>
+				} else {
+					<span>Config plan pending: { plan.Summary }, view</span>
+				}
+			</a>
+		}
+	</div>
+}
+
+// stackGraphPage is the stack level of the canvas: environments as cards,
+// clicking one drops into its env graph.
+templ stackGraphPage(c echo.Context, p *repo.Stack, g graph.Graph, pendingPlan *repo.ConfigPlan, cmp envcompare.Result, colors map[string]string, log commitLog) {
+	@components.ShellFull(c, p.Name + ": stack") {
+		<div class="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 sm:px-6 py-3 min-h-14 border-b border-rw-border bg-rw-surface shrink-0">
+			<a href={ templ.SafeURL("/orgs/" + orgSlugOf(p)) } class="text-rw-muted hover:text-rw-text transition-colors" title="Up to the organization">&larr;</a>
+			@crumbs(p, nil, nil, nil)
+			<span class="text-xs text-rw-faint">stack</span>
+			<div class="ml-auto flex items-center gap-2">
+				<a href={ templ.SafeURL(stackSettingsURL(p)) } class="text-sm text-rw-faint hover:text-rw-text transition-colors">Settings</a>
+			</div>
+		</div>
+		@planBanner(p, pendingPlan, stackURL(p))
+		@canvas.Canvas(canvas.Opts{
+			SaveURL: "/projects/" + p.ID + "/graph/positions",
+			WSRoom:  "project:" + p.ID,
+			CSRF:    csrf(c),
+			Empty:   "This stack has no environments yet.",
+			// container flows rolled up onto the env and slice cards
+			// (buildStackGraph's nodeOf + graph.RollupTraffic)
+			Traffic: true,
+		}, g) {
+			@envCompareWidget(c, p, cmp, colors, log)
+		}
+		@canvas.Chrome(true)
+	}
+}

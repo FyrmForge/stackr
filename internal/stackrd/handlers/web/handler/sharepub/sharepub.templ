@@ -1,0 +1,112 @@
+package sharepub
+
+import (
+	"github.com/labstack/echo/v4"
+	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
+	"github.com/FyrmForge/stackr/internal/stackrd/handlers/web/components"
+	"github.com/FyrmForge/stackr/internal/stackrd/handlers/web/components/form"
+)
+
+// Every POST swaps #link-card, so the handler answers a GET with the whole
+// page and a POST with just the card. The person on the other end has no
+// session and no app shell, the card is the entire application.
+//
+// htmx-only, per the project's no-native-form-actions rule, so a
+// recipient with JS blocked gets a button that does nothing. Give the form
+// method/action as well if that ever shows up in support.
+
+templ shell(c echo.Context, title string) {
+	@components.Layout(c, title) {
+		<div class="max-w-md mx-auto pt-24 px-6">
+			<div class="flex items-center gap-2.5 justify-center mb-8">
+				<img src={ components.StaticURL("images/logo-mark.png") } alt="" class="h-10 w-10"/>
+				<span class="text-xl font-semibold text-rw-text">stackr</span>
+			</div>
+			{ children... }
+			<p class="text-xs text-rw-faint text-center mt-4">This is a one-time link. Nobody else can read what you send.</p>
+		</div>
+	}
+}
+
+templ linkPage(c echo.Context, l *repo.SecretLink, token string, values map[string]string, errMsg string) {
+	@shell(c, linkTitle(l)) {
+		@linkCard(c, l, token, values, errMsg)
+	}
+}
+
+templ linkCard(c echo.Context, l *repo.SecretLink, token string, values map[string]string, errMsg string) {
+	<div id="link-card" class="panel p-8 shadow-rw">
+		<h2 class="text-lg font-semibold text-rw-text mb-1">{ linkTitle(l) }</h2>
+		<p class="text-sm text-rw-muted mb-6">{ linkBlurb(l) }</p>
+		<form hx-post={ "/s/" + token } hx-target="#link-card" hx-swap="outerHTML">
+			@form.CSRFField(c)
+			if errMsg != "" {
+				<div class="mb-4 px-4 py-3 rounded-lg border bg-rw-danger/10 border-rw-danger/40 text-rw-danger text-sm">
+					{ errMsg }
+				</div>
+			}
+			if l.Kind == repo.LinkDrop {
+				for _, f := range l.FieldList() {
+					<div class="mb-5">
+						<label for={ fieldPrefix + f.Name } class="label">{ f.Name }</label>
+						<input
+							type="text"
+							id={ fieldPrefix + f.Name }
+							name={ fieldPrefix + f.Name }
+							value={ values[f.Name] }
+							autocomplete="off"
+							class="input font-mono"
+						/>
+						if f.Hint != "" {
+							<p class="mt-1.5 text-xs text-rw-faint">{ f.Hint }</p>
+						}
+					</div>
+				}
+			}
+			if l.PassHash != "" {
+				<div class="mb-6">
+					<label for="passphrase" class="label">Passphrase</label>
+					<input type="password" id="passphrase" name="passphrase" autocomplete="off" class="input"/>
+					<p class="mt-1.5 text-xs text-rw-faint">Sent to you separately from this link.</p>
+				</div>
+			}
+			<button type="submit" class="btn btn-primary w-full">{ linkAction(l) }</button>
+		</form>
+	</div>
+}
+
+templ revealCard(c echo.Context, l *repo.SecretLink, vars []repo.Variable) {
+	<div id="link-card" class="panel p-8 shadow-rw">
+		<h2 class="text-lg font-semibold text-rw-text mb-1">Shared with you</h2>
+		<p class="text-sm text-rw-muted mb-6">{ revealBlurb(l) }</p>
+		if len(vars) == 0 {
+			<p class="text-sm text-rw-muted">There is nothing left to show. The values behind this link were removed.</p>
+		}
+		for _, v := range vars {
+			<div class="mb-4">
+				<div class="label">{ v.Name }</div>
+				<code class="block w-full break-all rounded-lg border border-rw-border bg-rw-inset px-3 py-2 text-sm text-rw-text">{ v.Value }</code>
+			</div>
+		}
+	</div>
+}
+
+templ doneCard(c echo.Context) {
+	<div id="link-card" class="panel p-8 shadow-rw">
+		<h2 class="text-lg font-semibold text-rw-text mb-2">Thank you, that's been delivered</h2>
+		<p class="text-sm text-rw-muted">The values went straight into encrypted storage. This link has now been used up, so it won't open again.</p>
+	</div>
+}
+
+templ deadPage(c echo.Context) {
+	@shell(c, "Link unavailable") {
+		@deadCard(c)
+	}
+}
+
+templ deadCard(c echo.Context) {
+	<div id="link-card" class="panel p-8 shadow-rw">
+		<h2 class="text-lg font-semibold text-rw-text mb-2">This link is no longer available</h2>
+		<p class="text-sm text-rw-muted">One-time links expire, and they close for good once they've been used. Ask whoever sent it for a fresh one.</p>
+	</div>
+}

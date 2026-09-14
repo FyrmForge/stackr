@@ -1,0 +1,162 @@
+package form
+
+import "github.com/labstack/echo/v4"
+
+// Shared building blocks for every settings surface: account, admin, org,
+// stack and the tile drawer. One set of components means one save vocabulary
+// and one visual rhythm, before this, each screen invented its own.
+
+// NavItem is one entry in a settings sub-nav. Href is a real URL so every
+// section is deep-linkable and survives a reload.
+type NavItem struct {
+	Label string
+	Href  string
+	// Active marks the section currently being viewed.
+	Active bool
+}
+
+// SettingsNav renders the left rail of a settings page. Collapses to a
+// horizontal scroller on narrow screens.
+templ SettingsNav(items []NavItem) {
+	<nav class="settings-nav" aria-label="Settings sections">
+		for _, it := range items {
+			<a
+				href={ templ.SafeURL(it.Href) }
+				class={ "settings-nav-item", templ.KV("is-active", it.Active) }
+				if it.Active {
+					aria-current="page"
+				}
+			>
+				{ it.Label }
+			</a>
+		}
+	</nav>
+}
+
+// SettingsLayout pairs the sub-nav with the section body.
+templ SettingsLayout(items []NavItem) {
+	<div class="settings-layout">
+		@SettingsNav(items)
+		<div class="settings-body">
+			{ children... }
+		</div>
+	</div>
+}
+
+// Scope names the level a section writes to, so a reader never has to guess
+// how far a change reaches.
+type Scope string
+
+const (
+	ScopeInstance Scope = "instance"
+	ScopeUser     Scope = "you"
+	ScopeOrg      Scope = "organization"
+	ScopeStack    Scope = "stack"
+	ScopeEnv      Scope = "environment"
+	ScopeTile     Scope = "service"
+)
+
+// scopeHint is the badge's tooltip. A sentence per scope rather than one
+// template with the word dropped in: "applies to the whole organization" reads
+// correctly and "applies to the whole you" does not.
+func scopeHint(scope Scope) string {
+	switch scope {
+	case ScopeUser:
+		return "This setting is yours, and follows you wherever you sign in."
+	case ScopeInstance:
+		return "This setting applies to this whole stackr install."
+	case ScopeTile:
+		return "This setting applies to this service only."
+	default:
+		return "This setting applies to the whole " + string(scope) + "."
+	}
+}
+
+// Section is the standard settings card: title, scope badge, optional
+// explanation, then content.
+templ Section(title string, scope Scope, help string) {
+	<section class="panel p-6 mb-6">
+		<div class="flex items-baseline gap-3 mb-1">
+			<h2 class="text-base font-semibold text-rw-text tracking-tight">{ title }</h2>
+			if scope != "" {
+				<span class="settings-scope" title={ scopeHint(scope) }>{ string(scope) }</span>
+			}
+		</div>
+		if help != "" {
+			<p class="text-sm text-rw-muted mb-4 max-w-2xl">{ help }</p>
+		} else {
+			<div class="mb-4"></div>
+		}
+		{ children... }
+	</section>
+}
+
+// DangerSection is the same card in the danger palette. Always rendered last
+// on a page.
+templ DangerSection(help string) {
+	<section class="panel p-6 mb-6 border-rw-danger/40">
+		<h2 class="text-base font-semibold text-rw-danger tracking-tight mb-1">Danger zone</h2>
+		if help != "" {
+			<p class="text-sm text-rw-muted mb-4 max-w-2xl">{ help }</p>
+		} else {
+			<div class="mb-4"></div>
+		}
+		{ children... }
+	</section>
+}
+
+// Field wraps one labelled control. Every settings input gets a real label,
+// placeholder-only inputs are not acceptable here.
+templ Field(label, help string) {
+	<label class="settings-field">
+		<span class="settings-label">{ label }</span>
+		{ children... }
+		if help != "" {
+			<span class="settings-help">{ help }</span>
+		}
+	</label>
+}
+
+// Inherited annotates a cascade field with the value it would take if left
+// empty, and where that value comes from.
+// Inherited names where a value came from, not just what it is: knowing that a
+// limit is 2 cores is no use without knowing which level to go and change.
+templ Inherited(value, from string) {
+	<span class="settings-help">inherits { value } from { from }</span>
+}
+
+// SettingsForm wraps a section's controls: it carries the CSRF token and wires
+// the dirty-state tracking behind the save button. Taking the context is what
+// makes the token automatic, a settings form that forgets it just 403s.
+templ SettingsForm(c echo.Context, postURL string) {
+	<form hx-post={ postURL } data-settings-form class="space-y-4">
+		@CSRFField(c)
+		{ children... }
+	</form>
+}
+
+// SettingsFormUpload is SettingsForm for a section containing a file input.
+// htmx posts urlencoded by default, which silently drops the file, hx-encoding
+// is what makes the upload actually arrive.
+templ SettingsFormUpload(c echo.Context, postURL string) {
+	<form hx-post={ postURL } hx-encoding="multipart/form-data" data-settings-form class="space-y-4">
+		@CSRFField(c)
+		{ children... }
+	</form>
+}
+
+// Save is the uniform submit control. Pass a label only where the action
+// genuinely differs from saving (for example "Save & plan", which also runs a
+// config plan).
+templ Save(label string) {
+	<div class="flex items-center gap-3 pt-1">
+		<button type="submit" class="btn btn-primary btn-sm" data-settings-save>
+			if label != "" {
+				{ label }
+			} else {
+				Save
+			}
+		</button>
+		<span class="settings-dirty" data-settings-dirty aria-live="polite">Unsaved changes</span>
+	</div>
+}

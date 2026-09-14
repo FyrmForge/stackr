@@ -1,0 +1,80 @@
+package app
+
+import (
+	"github.com/labstack/echo/v4"
+
+	"github.com/FyrmForge/stackr/internal/stackrd/handlers/web/components/form"
+	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
+)
+
+// storageRow is one parsed attachment line for the drawer.
+type storageRow struct {
+	Line   string // the raw tiles.storage line, the detach key
+	Source string // storage-slug/path-name
+	Mount  string
+	RO     bool
+}
+
+// storageOption is one attachable declared sub-path.
+type storageOption struct {
+	Value   string // storage-slug/path-name
+	Label   string // "nas-media/tv (nfs)" etc.
+	Blocked string // non-empty = why this consumer can't attach it
+}
+
+// storageFrag mirrors the MANAGED DATABASES attach flow: current attachments
+// with Detach, then a picker + mount path + ro. Changes apply on next deploy.
+templ storageFrag(c echo.Context, a *repo.Tile, rows []storageRow, options []storageOption) {
+	<div id="storage-frag">
+		if len(rows) == 0 {
+			<p class="text-xs text-rw-faint mb-3">No storage attached. Declared sub-paths mount as read-only or read-write volumes at deploy.</p>
+		} else {
+			<ul class="space-y-1.5 mb-4">
+				for _, r := range rows {
+					<li class="panel px-4 py-2 flex items-center gap-3 text-sm">
+						<span class="font-mono text-rw-text">{ r.Source }</span>
+						<span class="text-xs text-rw-faint font-mono">→ { r.Mount }</span>
+						if r.RO {
+							<span class="text-[10px] px-1 rounded bg-rw-warn/15 text-rw-warn">ro</span>
+						}
+						<form hx-post={ "/apps/" + a.ID + "/storage/detach" } hx-target="#storage-frag" hx-swap="outerHTML" hx-confirm={ "Detach " + r.Source + "? The data stays on the storage." } class="ml-auto">
+							@form.CSRFField(c)
+							<input type="hidden" name="line" value={ r.Line }/>
+							<button type="submit" class="btn btn-ghost btn-sm">Detach</button>
+						</form>
+					</li>
+				}
+			</ul>
+		}
+		if len(options) > 0 {
+			<form hx-post={ "/apps/" + a.ID + "/storage" } hx-target="#storage-frag" hx-swap="outerHTML" class="flex flex-wrap items-end gap-2">
+				@form.CSRFField(c)
+				<div>
+					<label class="label">Sub-path</label>
+					<select name="source" class="input w-auto font-mono text-sm">
+						for _, o := range options {
+							<option value={ o.Value } disabled?={ o.Blocked != "" }>
+								{ o.Label }
+								if o.Blocked != "" {
+									{ ", " + o.Blocked }
+								}
+							</option>
+						}
+					</select>
+				</div>
+				<div>
+					<label class="label">Mount path</label>
+					<input type="text" name="mount" placeholder="/media" required class="input !w-40 font-mono text-sm"/>
+				</div>
+				<label class="flex items-center gap-1.5 text-xs text-rw-muted pb-2">
+					<input type="checkbox" name="ro" value="1"/>
+					read-only
+				</label>
+				<button type="submit" class="btn btn-ghost btn-sm">Attach</button>
+				<p class="w-full text-xs text-rw-faint">Applies on the next deploy. Databases are refused network-backed storage (§ state placement).</p>
+			</form>
+		} else {
+			<p class="text-xs text-rw-faint">No declared sub-paths yet. Declare storage and sub-paths on the <a href="/servers/local" class="link">server page</a> first.</p>
+		}
+	</div>
+}

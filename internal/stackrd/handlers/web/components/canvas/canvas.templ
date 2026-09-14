@@ -1,0 +1,1473 @@
+// Package canvas renders any graph.Graph as the interactive pan/zoom canvas:
+// cards, edges, the right drawer and the settings pane. Everything level
+// specific (which nodes exist, where clicks lead, page chrome) belongs to the
+// handler that builds the Graph, this package only draws one.
+package canvas
+
+import (
+	"fmt"
+	"strings"
+
+	"github.com/FyrmForge/stackr/internal/stackrd/infra/managedtiles"
+	"github.com/FyrmForge/stackr/internal/stackrd/handlers/web/graph"
+	"github.com/FyrmForge/stackr/internal/stackrd/handlers/web/components"
+)
+
+// The card box, from the one place it is declared (internal/graph). Cards are
+// drawn here and placed there, so a second opinion about their size shows up
+// as edges anchored off the card.
+const nodeW = int(graph.CardW)
+const nodeH = int(graph.CardH)
+
+// geomCSS is the server-placed card geometry as a stylesheet, one rule per
+// card and sub-tile. Positions used to ride style= attributes; a <style>
+// block says the same thing without inline styles in the markup. graph.js
+// materializes these into el.style at init, because everything it does
+// (drag, edges, nudge) reads and writes style.left/top directly.
+func geomCSS(g graph.Graph) string {
+	var b strings.Builder
+	for _, n := range g.Nodes {
+		// A deck paints top down: the card, then each dealt sub-tile behind
+		// the one before it. Every box in the deck is the same size, so a
+		// later sub-tile's body lands exactly on the strip that is all you
+		// see of the one before it. Left to the class alone they all sit at
+		// z-index 0 and document order wins, which hides every label but the
+		// last.
+		//
+		// A card with no deck is left to its class, so .graph-node-volume
+		// still sits under the tile it is attached to.
+		reps := replicaSubIDs(n)
+		deck := len(n.Subtiles) + len(reps)
+		cardZ := ""
+		if deck > 0 {
+			cardZ = fmt.Sprintf(";z-index:%d", deck+1)
+		}
+		fmt.Fprintf(&b, "[data-node-id=\"%s\"]{left:%.0fpx;top:%.0fpx;width:%dpx;height:%dpx%s}\n",
+			cssIdent(n.ID), n.X, n.Y, nodeW, nodeHFor(n), cardZ)
+		for i := range n.Subtiles {
+			fmt.Fprintf(&b, "[data-sub-id=\"%s\"]{left:%.0fpx;top:%.0fpx;width:%dpx;height:%dpx;z-index:%d}\n",
+				cssIdent(subID(n, i)), n.X+float64(subtileLeft(i)), n.Y+float64(subtileTop(i)), nodeW, nodeH, deck-i)
+		}
+		// Replica rows are dealt past whatever volume sub-tiles the card
+		// already has, so the two decks never land on the same offset.
+		for i, id := range reps {
+			k := len(n.Subtiles) + i
+			fmt.Fprintf(&b, "[data-sub-id=\"%s\"]{left:%.0fpx;top:%.0fpx;width:%dpx;height:%dpx;z-index:%d}\n",
+				cssIdent(id), n.X+float64(subtileLeft(k)), n.Y+float64(subtileTop(k)), nodeW, nodeH, deck-k)
+		}
+	}
+	return b.String()
+}
+
+// cssIdent keeps a value safe inside a quoted CSS attribute selector. IDs are
+// uuids and slugs, so this only ever strips a hostile database row.
+func cssIdent(s string) string {
+	return strings.NewReplacer("\"", "", "\\", "").Replace(s)
+}
+
+// subID keys one sub-tile's geometry rule (sub-tiles have no id of their own).
+func subID(n graph.Node, i int) string { return fmt.Sprintf("%s/%d", n.ID, i) }
+
+// replicaSubIDs is the geometry key of each dealt replica row, plus the
+// "+n more" row when there is one. Same order replicaCards draws them in.
+func replicaSubIDs(n graph.Node) []string {
+	var out []string
+	for _, r := range n.Replicas.Rows {
+		out = append(out, fmt.Sprintf("%s/r%d", n.ID, r.Slot))
+	}
+	if n.Replicas.Hidden > 0 {
+		out = append(out, n.ID+"/rmore")
+	}
+	return out
+}
+
+// Opts parameterises one canvas. StatusURL is derived from SaveURL by the
+// client (…/positions → …/status), so a level only has to name where drags go.
+type Opts struct {
+	SaveURL string // POST target for dragged positions
+	WSRoom  string // live.js subscription; "" = no live updates
+	CSRF    string
+	Empty   string // empty-state line when the graph has no nodes
+	// Traffic joins the global flow-sampler room so traffic lanes refresh on
+	// every sample tick. Only levels that draw container traffic want it.
+	Traffic bool
+}
+
+// Canvas is the viewport itself. Children render inside it as floating
+// overlays (staging box, level-specific controls).
+templ Canvas(o Opts, g graph.Graph) {
+	<div
+		id="graph-viewport"
+		class="graph-grid relative overflow-hidden bg-rw-bg select-none flex-1 cursor-grab touch-none"
+		data-save-url={ o.SaveURL }
+		if o.WSRoom != "" {
+			data-ws-room={ o.WSRoom }
+		}
+		data-csrf={ o.CSRF }
+		data-card-w={ fmt.Sprint(nodeW) }
+		data-card-h={ fmt.Sprint(nodeH) }
+		data-card-gap-x={ fmt.Sprint(int(graph.CardGapX)) }
+		data-card-gap-y={ fmt.Sprint(int(graph.CardGapY)) }
+		data-grid-px={ fmt.Sprint(graph.GridPx) }
+	>
+		<!-- one GPU-composited transform layer; pan/zoom never re-lays-out children (JS sets the transform) -->
+		<div id="graph-world" class="absolute top-0 left-0 origin-top-left will-change-transform">
+			<!-- server-placed card geometry; graph.js copies it onto el.style at
+			     init. The whole element rides templ.Raw because templ treats
+			     <style> contents as literal text, never as template syntax. -->
+			@templ.Raw("<style>" + geomCSS(g) + "</style>")
+			<!-- annotations render behind everything: boxes group cards, so the
+			     cards must stay clickable on top -->
+			<div id="graph-annotations"></div>
+			@edgeLayer(g)
+			for _, n := range g.Nodes {
+				@subtileCards(n)
+				@replicaCards(n)
+				@nodeCard(n)
+			}
+		</div>
+		if isEmpty(g) {
+			<!-- pointer-events-none: this covers the whole viewport, and the org
+			     canvas draws its own card even while empty, without it that card
+			     is unclickable and undraggable behind the copy. -->
+			<div class="absolute inset-0 flex items-center justify-center text-rw-faint text-sm pointer-events-none">
+				{ o.Empty }
+			</div>
+		}
+		<!-- floating canvas controls, bottom-right of the legend. Settings lives
+		     here rather than in each page's header: it is a property of the canvas,
+		     not of the thing being shown, and every level had its own copy of the
+		     same button before. -->
+		<div class="absolute bottom-4 right-4 flex flex-col gap-1.5 z-10">
+			<button type="button" data-zoom-in class="graph-ctrl" title="Zoom in" aria-label="Zoom in">+</button>
+			<button type="button" data-zoom-out class="graph-ctrl" title="Zoom out" aria-label="Zoom out">&minus;</button>
+			<button type="button" data-zoom-reset class="graph-ctrl" title="Reset view" aria-label="Reset view">
+				<svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+					<path d="M3 8V5a2 2 0 0 1 2-2h3M16 3h3a2 2 0 0 1 2 2v3M21 16v3a2 2 0 0 1-2 2h-3M8 21H5a2 2 0 0 1-2-2v-3"></path>
+				</svg>
+			</button>
+			<!-- "View", not "settings": these change how the canvas is drawn for
+			     you in this browser, and sat under the same word as the settings
+			     that change what is deployed. -->
+			<button type="button" data-graph-settings-toggle class="graph-ctrl" title="View options" aria-label="View options">
+				<svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+					<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"></path>
+					<circle cx="12" cy="12" r="3"></circle>
+				</svg>
+			</button>
+			<button type="button" data-anno-add="text" class="graph-ctrl" title="Add note (click the canvas to place)" aria-label="Add note">
+				<svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+					<path d="M4 7V5h16v2M9 20h6M12 5v15"></path>
+				</svg>
+			</button>
+			<button type="button" data-anno-add="box" class="graph-ctrl" title="Add box (drag on the canvas to draw)" aria-label="Add box">
+				<svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+					<rect x="4" y="5" width="16" height="14" rx="2"></rect>
+				</svg>
+			</button>
+		</div>
+		@templ.JSONScript("graph-annotations-data", g.Annotations)
+		@templ.JSONScript("graph-groups-data", g.Groups)
+		<!-- right-click context menu: items shown/hidden by graph.js per target -->
+		<div id="graph-menu" class="graph-menu" hidden>
+			<button type="button" data-menu="group">Group selection</button>
+			<button type="button" data-menu="ungroup">Ungroup</button>
+			<button type="button" data-menu="add-text">Add label here</button>
+			<button type="button" data-menu="add-box">Add box here</button>
+		</div>
+		<!-- legend: rows are built by graph.js from the edges actually on this
+		     canvas and still visible, so it needs no per-level markup -->
+		<div id="graph-legend" class="graph-legend" hidden></div>
+		{ children... }
+		if o.Traffic {
+			<span hidden data-ws-room="flows"></span>
+		}
+	</div>
+}
+
+// Chrome is everything the canvas needs outside the viewport: the detail
+// drawer, the settings pane and the script that wires them. Render it once per
+// page, after the viewport. traffic must match Opts.Traffic, the traffic
+// toggle is hidden on levels that draw no traffic, where it would do nothing.
+templ Chrome(traffic bool) {
+	<!-- right drawer: detail loads here via HTMX; canvas stays behind -->
+	<div id="drawer-backdrop" class="drawer-backdrop"></div>
+	<div id="drawer" class="drawer">
+		<div id="drawer-body"></div>
+	</div>
+	@settingsDrawer(traffic)
+	@iconSprite()
+	<script src={ components.StaticURL("js/graph.js") }></script>
+}
+
+// settingsDrawer is the view-options pane: same sliding right drawer as the
+// detail panel. These are per-browser (localStorage, applied by graph.js) and
+// change nothing about what is deployed, hence "View" rather than "settings".
+templ settingsDrawer(traffic bool) {
+	<div id="graph-settings-drawer" class="drawer max-w-sm">
+		<div class="flex items-center justify-between px-6 py-4 border-b border-rw-border">
+			<h2 class="text-base font-semibold text-rw-text">View</h2>
+			<button type="button" data-drawer-close class="text-rw-muted hover:text-rw-text transition-colors" aria-label="Close">
+				<svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"></path></svg>
+			</button>
+		</div>
+		<div class="p-6 space-y-4">
+			<label class="flex items-center gap-3 text-sm text-rw-text cursor-pointer">
+				<input type="checkbox" data-gs="snap" class="accent-rw-accent"/>
+				Snap to grid
+			</label>
+			<label class="flex items-center gap-3 text-sm text-rw-text cursor-pointer">
+				<input type="checkbox" data-gs="system" class="accent-rw-accent"/>
+				Show system nodes
+			</label>
+			<label class="flex items-center gap-3 text-sm text-rw-text cursor-pointer">
+				<input type="checkbox" data-gs="badges" class="accent-rw-accent"/>
+				Show exposure badges
+			</label>
+			<label class="flex items-center gap-3 text-sm text-rw-text cursor-pointer">
+				<input type="checkbox" data-gs="divider" class="accent-rw-accent"/>
+				Server boundary
+			</label>
+			<label class="flex items-center gap-3 text-sm text-rw-text cursor-pointer">
+				<input type="checkbox" data-gs="refs" class="accent-rw-accent"/>
+				Show reference edges
+			</label>
+			<label class="flex items-center gap-3 text-sm text-rw-text cursor-pointer">
+				<input type="checkbox" data-gs="startup" class="accent-rw-accent"/>
+				Show startup order
+			</label>
+			<label class="flex items-center gap-3 text-sm text-rw-text cursor-pointer">
+				<input type="checkbox" data-gs="legend" class="accent-rw-accent"/>
+				Show legend
+			</label>
+			if traffic {
+				<label class="flex items-center gap-3 text-sm text-rw-text cursor-pointer">
+					<input type="checkbox" data-gs="net" class="accent-rw-accent"/>
+					Network traffic (rates &amp; pulses)
+				</label>
+			}
+			<div class="border-t border-rw-border pt-4 space-y-3">
+				<p class="text-xs font-medium uppercase tracking-wide text-rw-muted">Edges</p>
+				<label class="flex items-center gap-3 text-sm text-rw-text cursor-pointer">
+					<input type="radio" name="gs-edges" data-gs-choice="edges" value="curved" class="accent-rw-accent"/>
+					Curved
+				</label>
+				<label class="flex items-center gap-3 text-sm text-rw-text cursor-pointer">
+					<input type="radio" name="gs-edges" data-gs-choice="edges" value="straight" class="accent-rw-accent"/>
+					Straight
+				</label>
+				<label class="flex items-center gap-3 text-sm text-rw-text cursor-pointer">
+					<input type="checkbox" data-gs="fan" class="accent-rw-accent"/>
+					Fan out edges at cards
+				</label>
+				<label class="flex items-center gap-3 text-sm text-rw-text cursor-pointer">
+					<input type="checkbox" data-gs="arrows" class="accent-rw-accent"/>
+					Direction arrows
+				</label>
+			</div>
+			<div class="border-t border-rw-border pt-4 space-y-3">
+				<p class="text-xs font-medium uppercase tracking-wide text-rw-muted">Cards</p>
+				<label class="flex items-center gap-3 text-sm text-rw-text cursor-pointer">
+					<input type="checkbox" data-gs="nooverlap" class="accent-rw-accent"/>
+					Keep cards from overlapping
+				</label>
+				<label class="flex items-center gap-3 text-sm text-rw-text cursor-pointer">
+					<input type="checkbox" data-gs="focus" class="accent-rw-accent"/>
+					Highlight connections on hover
+				</label>
+			</div>
+			<div class="border-t border-rw-border pt-4 space-y-3">
+				<p class="text-xs font-medium uppercase tracking-wide text-rw-muted">Arrange</p>
+				<label class="flex items-center gap-3 text-sm text-rw-text cursor-pointer">
+					<input type="radio" name="gs-arrange" data-gs-choice="arrange" value="clusters" class="accent-rw-accent"/>
+					Clusters: each group is its own island
+				</label>
+				<label class="flex items-center gap-3 text-sm text-rw-text cursor-pointer">
+					<input type="radio" name="gs-arrange" data-gs-choice="arrange" value="flow" class="accent-rw-accent"/>
+					Flow: layered left to right
+				</label>
+				<button type="button" data-gs-reset class="btn btn-ghost btn-sm w-full">Re-arrange</button>
+				<p class="text-xs text-rw-muted">Re-arranging replaces hand-placed positions.</p>
+			</div>
+		</div>
+	</div>
+}
+
+// brandTint is the class that colours a brand mark, "" to inherit the card's
+// grey. Only Traefik needs it: its mark is isometric stacked layers, which at
+// 16px is the stack/env card icon, so on the org canvas the proxy read as an
+// eighth stack. The brand's own cyan (#24A1C1, .icon-traefik in css/input.css)
+// tells them apart at a glance, the colour is load-bearing, not decoration,
+// so do not grey it out "for consistency".
+func brandTint(n graph.Node) string {
+	if n.Engine == "traefik" {
+		return "icon-traefik"
+	}
+	return ""
+}
+
+// edgeKindAttr names an edge kind for the DOM. The plain reference edge has no
+// Kind, and "" would be indistinguishable from an unset attribute when
+// graph.js filters or legends by kind, so it gets a real name. "volume" also
+// lands in edgeCurve's default branch but keeps its own name, so hiding
+// reference edges doesn't cut a db off from its data volume.
+func edgeKindAttr(kind string) string {
+	if kind == "" {
+		return "ref"
+	}
+	return kind
+}
+
+// edgeBusy reports whether this edge points at a logical database that is
+// currently doing work. Every consumer's edge into a busy database pulses:
+// PostgreSQL counts transactions per database, never per client, so which
+// consumer caused them is not knowable, the edges say "active", the card
+// says how much.
+func edgeBusy(g graph.Graph, e graph.Edge) bool {
+	for _, n := range g.Nodes {
+		if n.ID == e.To {
+			return n.Kind == graph.KindResource && n.TxnRate > 0
+		}
+	}
+	return false
+}
+
+// fmtTxnRate renders a logical database's transactions/second. Below 10 the
+// decimal carries the signal (0.4 txn/s is meaningfully different from idle);
+// above it the fraction is noise on a card this size.
+func fmtTxnRate(v float64) string {
+	if v < 10 {
+		return fmt.Sprintf("%.1f txn/s", v)
+	}
+	return fmt.Sprintf("%.0f txn/s", v)
+}
+
+// fmtSize renders bytes on disk for a card footer.
+func fmtSize(b int64) string {
+	switch {
+	case b >= 1<<30:
+		return fmt.Sprintf("%.1f GB", float64(b)/(1<<30))
+	case b >= 1<<20:
+		return fmt.Sprintf("%.0f MB", float64(b)/(1<<20))
+	case b >= 1<<10:
+		return fmt.Sprintf("%.0f KB", float64(b)/(1<<10))
+	}
+	return fmt.Sprintf("%d B", b)
+}
+
+// isEmpty reports whether the canvas has nothing to show yet, Opts.Empty
+// stands in for the graph when it does. The org canvas always draws the org
+// itself (a KindOrg card with no Nav, opening its own administration drawer),
+// and that card is not content: without this an org with no stacks would show
+// one lonely card and never the line telling the viewer to create one. Org
+// cards on the root canvas do count, there they ARE the content, and they
+// carry Nav.
+func isEmpty(g graph.Graph) bool {
+	for _, n := range g.Nodes {
+		if n.Kind != graph.KindOrg || n.Nav {
+			return false
+		}
+	}
+	return true
+}
+
+// navURL / panelURL / nodeClass are Go funcs rather than templ if/else-if
+// chains on purpose: templ does not support "else if" inside an attribute
+// block, it emits a literal `else` attribute and evaluates each branch
+// independently, which silently produces two class attributes on one tag.
+
+// navURL is set on cards that drill down a level; those navigate instead of
+// opening the drawer.
+func navURL(n graph.Node) string {
+	if n.Nav {
+		return n.Href
+	}
+	return ""
+}
+
+// panelURL is the drawer fragment for cards that open in place. A query
+// string survives the rewrite: /x?class=y becomes /x/panel?class=y.
+func panelURL(n graph.Node) string {
+	if n.Href == "" || navURL(n) != "" {
+		return ""
+	}
+	if base, q, ok := strings.Cut(n.Href, "?"); ok {
+		return base + "/panel?" + q
+	}
+	return n.Href + "/panel"
+}
+
+func nodeClass(n graph.Node) string {
+	const base = "graph-node absolute block rounded-xl border cursor-grab active:cursor-grabbing"
+	switch n.Kind {
+	case graph.KindProxy, graph.KindHost:
+		return base + " graph-node-system border-dashed border-rw-strong bg-rw-bg/80"
+	case graph.KindRef:
+		return base + " graph-node-ref border-dashed border-rw-accent/50 bg-rw-surface/60 hover:border-rw-accent/80"
+	case graph.KindVolume:
+		return base + " graph-node-volume bg-rw-inset border-rw-border hover:border-rw-accent/60"
+	case graph.KindResource:
+		return base + " graph-node-resource bg-rw-inset border-rw-border hover:border-rw-accent/60 shadow-rw"
+	case graph.KindEnv, graph.KindStack:
+		// A card standing for a whole sub-graph is drawn as a literal stack of
+		// cards (css/input.css). Its own drop shadow is dropped: the deck's
+		// layers ARE the depth, and shadow-rw would smear under them.
+		cls := base + " graph-node-deck bg-rw-surface border-rw-border hover:border-rw-accent/60"
+		if n.Color != "" {
+			cls += " has-env-c"
+		}
+		return cls
+	case graph.KindForward:
+		// Ephemeral: exists only while its relay container does, so it dresses
+		// like the temporary thing it is. Not draggable, no drawer, graph.js
+		// keys off graph-node-forward/data-ephemeral. Keep in sync with
+		// forwardCard() there, which builds this card client-side.
+		return base + " graph-node-forward border-dashed border-rw-accent/40 bg-rw-surface/60 cursor-default active:cursor-default"
+	}
+	return base + " bg-rw-surface border-rw-border hover:border-rw-accent/60 shadow-rw"
+}
+
+// nodeHFor shrinks volume cards, they read as a tile tucked under the tile.
+// Forward cards grow instead: their body is a list of connected users.
+// envAttrs carries an env card's colour as --env-c for the border and the
+// icon tint (css/input.css .has-env-c). An attribute map rather than a style
+// attribute in the markup: the colour is data, a user-picked hex.
+func envAttrs(n graph.Node) templ.Attributes {
+	if n.Color == "" {
+		return nil
+	}
+	return templ.Attributes{"style": "--env-c:" + n.Color}
+}
+
+func nodeHFor(n graph.Node) int {
+	if n.Kind == graph.KindVolume {
+		return 62
+	}
+	if n.Kind == graph.KindForward {
+		return 118
+	}
+	return nodeH
+}
+
+templ edgeLayer(g graph.Graph) {
+	<svg class="absolute top-0 left-0 pointer-events-none overflow-visible" width="1" height="1">
+		<defs>
+			<!-- One arrowhead for every kind of edge: fill="context-stroke" paints
+			     it in the stroke of the path that uses it, so an edge's colour
+			     stays declared once (on the path) instead of being copied into
+			     nine markers that then drift. A browser without context paint
+			     draws no visible head on this background rather than the wrong
+			     colour, which is the same canvas we had before arrows.
+			     marker-end is attached from CSS (css/input.css) so the View
+			     toggle can drop it wholesale, and so a traffic lane, a clone of
+			     its base path, never grows a second head. -->
+			<marker id="edge-arrow" viewBox="0 0 8 8" refX="8" refY="4" markerWidth="5" markerHeight="5" orient="auto" fill="context-stroke" fill-opacity="0.8">
+				<path d="M0 0 L8 4 L0 8 z"></path>
+			</marker>
+		</defs>
+		for _, e := range g.Edges {
+			@edgeCurve(g, e)
+		}
+	</svg>
+}
+
+// Every path carries data-edge-kind so graph.js can filter and legend it
+// without a second table of kinds: the legend reads its swatch styling off a
+// real path of that kind (see buildLegend), so these declarations stay the only
+// place an edge's look is defined.
+templ edgeCurve(g graph.Graph, e graph.Edge) {
+	if d, ok := edgePath(g, e); ok {
+		switch e.Kind {
+			case "startup":
+				<!-- startup order: dependent → dependency, dotted amber so it
+				     reads as sequencing, not data flow -->
+				<path
+					d={ d }
+					data-edge-from={ e.From }
+					data-edge-to={ e.To }
+					data-edge-kind={ e.Kind }
+					fill="none"
+					stroke="var(--rw-amber)"
+					stroke-width="1.2"
+					stroke-opacity="0.5"
+					stroke-linecap="round"
+					stroke-dasharray="1 5"
+				></path>
+			case "traffic":
+				<path
+					d={ d }
+					data-edge-from={ e.From }
+					data-edge-to={ e.To }
+					data-edge-kind={ e.Kind }
+					fill="none"
+					stroke="var(--rw-teal)"
+					stroke-width="1.2"
+					stroke-opacity="0.45"
+					stroke-linecap="round"
+					stroke-dasharray="3 7"
+					class="edge-traffic"
+				></path>
+			case "forward":
+				<!-- live tunnel into the tile: same moving-dash language as an
+			     in-flight deploy (edge-busy), teal like observed traffic,
+			     bytes are moving through it. The stroke lives in .edge-forward
+			     (css/input.css) because graph.js draws this same edge when a
+			     tunnel opens between page loads. -->
+				<path
+					d={ d }
+					data-edge-from={ e.From }
+					data-edge-to={ e.To }
+					data-edge-kind={ e.Kind }
+					fill="none"
+					class="edge-busy edge-forward"
+				></path>
+			case "ingress":
+				<path
+					d={ d }
+					data-edge-from={ e.From }
+					data-edge-to={ e.To }
+					data-edge-kind={ e.Kind }
+					fill="none"
+					stroke="rgb(var(--rw-accent))"
+					stroke-width="1.5"
+					stroke-linecap="round"
+					stroke-opacity="0.7"
+				></path>
+			case "cron":
+				<path
+					d={ d }
+					data-edge-from={ e.From }
+					data-edge-to={ e.To }
+					data-edge-kind={ e.Kind }
+					fill="none"
+					stroke="rgb(var(--rw-accentHi))"
+					stroke-width="1.5"
+					stroke-linecap="round"
+					stroke-dasharray="2 5"
+					stroke-opacity="0.55"
+				></path>
+			case "port":
+				<path
+					d={ d }
+					data-edge-from={ e.From }
+					data-edge-to={ e.To }
+					data-edge-kind={ e.Kind }
+					fill="none"
+					stroke="var(--rw-amber)"
+					stroke-width="1.5"
+					stroke-linecap="round"
+					stroke-opacity="0.6"
+				></path>
+			case "config":
+				<!-- the stack is defined in a repo on this connector: solid and
+			     brighter, because it is a structural fact about the stack -->
+				<path
+					d={ d }
+					data-edge-from={ e.From }
+					data-edge-to={ e.To }
+					data-edge-kind={ e.Kind }
+					fill="none"
+					stroke="var(--rw-edge-connector)"
+					stroke-width="1.5"
+					stroke-linecap="round"
+					stroke-opacity="0.75"
+				></path>
+			case "source":
+				<!-- only builds service source through this connector. Same hue as
+			     "config" so they read as one family; solid vs dashed carries the
+			     difference, so it survives being colour-blind or greyscaled. -->
+				<path
+					d={ d }
+					data-edge-from={ e.From }
+					data-edge-to={ e.To }
+					data-edge-kind={ e.Kind }
+					fill="none"
+					stroke="var(--rw-edge-connector)"
+					stroke-width="1.5"
+					stroke-linecap="round"
+					stroke-dasharray="4 6"
+					stroke-opacity="0.4"
+				></path>
+			case "shared":
+				<path
+					d={ d }
+					data-edge-from={ e.From }
+					data-edge-to={ e.To }
+					data-edge-kind={ e.Kind }
+					fill="none"
+					stroke="rgb(var(--rw-accent))"
+					stroke-width="1.5"
+					stroke-linecap="round"
+					stroke-dasharray="5 4"
+					stroke-opacity="0.6"
+				></path>
+			default:
+				if edgeBusy(g, e) {
+					<path
+						d={ d }
+						data-edge-from={ e.From }
+						data-edge-to={ e.To }
+						data-edge-kind={ edgeKindAttr(e.Kind) }
+						fill="none"
+						stroke="rgb(var(--rw-strong))"
+						stroke-width="1.5"
+						stroke-linecap="round"
+						stroke-dasharray="4 5"
+						class="edge-busy"
+					></path>
+				} else {
+					<path
+						d={ d }
+						data-edge-from={ e.From }
+						data-edge-to={ e.To }
+						data-edge-kind={ edgeKindAttr(e.Kind) }
+						fill="none"
+						stroke="rgb(var(--rw-strong))"
+						stroke-width="1.5"
+						stroke-linecap="round"
+						stroke-dasharray="4 5"
+					></path>
+				}
+		}
+	}
+}
+
+// nodeCard wraps the card face in the right element for what it does. A card
+// that drills down a level is a real anchor with an href: middle-click,
+// ctrl-click and
+// "copy link" then work, which a div with role="button" can never offer. The
+// wrapper is what carries data-node-id and the class; its position comes from
+// the geomCSS stylesheet, which graph.js materializes onto style.left/top at
+// init, so the body must not be positioned.
+templ nodeCard(n graph.Node) {
+	if navURL(n) != "" {
+		<a
+			href={ templ.SafeURL(navURL(n)) }
+			data-nav-url={ navURL(n) }
+			class={ nodeClass(n) }
+			data-node-id={ n.ID }
+			{ envAttrs(n)... }
+			if n.Saved {
+				data-saved="1"
+			}
+			if n.Deck > 0 {
+				data-deck={ fmt.Sprint(n.Deck) }
+			}
+			if n.Staged != "" {
+				data-staged={ n.Staged }
+			}
+		>
+			@nodeCardFace(n)
+		</a>
+	} else {
+		<div
+			role="button"
+			tabindex="0"
+			if panelURL(n) != "" {
+				data-panel-url={ panelURL(n) }
+			}
+			class={ nodeClass(n) }
+			data-node-id={ n.ID }
+			{ envAttrs(n)... }
+			if n.Saved {
+				data-saved="1"
+			}
+			if n.Deck > 0 {
+				data-deck={ fmt.Sprint(n.Deck) }
+			}
+			if n.Ephemeral {
+				data-ephemeral="1"
+			}
+			if n.Staged != "" {
+				data-staged={ n.Staged }
+			}
+		>
+			@nodeCardFace(n)
+		</div>
+	}
+}
+
+// nodeCardFace is everything inside the card box. No positioning here.
+templ nodeCardFace(n graph.Node) {
+	if n.Staged == "delete" {
+		<span class="absolute -top-2 -right-2 z-10 rounded-full bg-rw-danger text-white text-[10px] font-semibold px-1.5 py-0.5 shadow-rw pointer-events-none">removing</span>
+		<span class="absolute inset-0 rounded-xl ring-1 ring-rw-danger/60 pointer-events-none"></span>
+	} else if n.Staged == "pending" {
+		<span class="absolute -top-2 -right-2 z-10 rounded-full bg-rw-accent text-white text-[10px] font-semibold px-1.5 py-0.5 shadow-rw pointer-events-none">edited</span>
+		<span class="absolute inset-0 rounded-xl ring-1 ring-rw-accent/50 pointer-events-none"></span>
+	}
+	if n.Kind == graph.KindVolume {
+		<!-- text lives in the bottom strip, the only part that peeks out
+			     from under the parent tile, logo-style -->
+		<div class="absolute inset-x-0 bottom-0 flex items-center gap-2 px-3.5 py-1.5 min-w-0 text-rw-muted">
+			<span class="shrink-0">
+				@strokeIcon(n)
+			</span>
+			<span class="text-xs font-medium text-rw-text truncate">{ n.Name }</span>
+			<span class="text-[10px] text-rw-faint font-mono truncate ml-auto">{ n.Detail }</span>
+		</div>
+	} else if n.Kind == graph.KindForward {
+		@ForwardFace(n)
+	} else {
+		@nodeCardBody(n)
+	}
+	if n.Node != "" {
+		@nodeChip(n)
+	}
+	if n.MovingTo != "" {
+		<!-- The tile really is still running for most of a move, so the
+			     status chip is left alone and the move gets its own thin bar
+			     (docs/plans/32-multi-node-ui.md, canvas). -->
+		// templint:ignore inline-style -- the width is live data (rsync bytes), not design
+		<span class="move-bar" style={ templ.SafeCSS(pctVar(n.MovePct)) }>
+			<span class="move-bar-fill"></span>
+		</span>
+	}
+	if n.Kind == graph.KindResource && exposed(n) {
+		<!-- slice cards spend their footer on txn/size, so exposure rides
+		the corner badge slot instead (volumes use it on app cards) -->
+		<span class="absolute -bottom-2.5 right-3 z-10 flex items-center gap-1 rounded-md border border-rw-border bg-rw-inset px-1.5 py-0.5 text-[10px] max-w-[70%]">
+			@nodeExposure(n)
+		</span>
+	}
+	if len(n.Volumes) > 0 {
+		<span class="absolute -bottom-2.5 right-3 flex items-center gap-1 rounded-md border border-rw-border bg-rw-inset px-1.5 py-0.5 text-[10px] text-rw-muted max-w-[70%]" title={ "volumes: " + strings.Join(n.Volumes, ", ") }>
+			<svg class="h-2.5 w-2.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+				<path d="M22 12H2"></path>
+				<path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"></path>
+				<line x1="6" x2="6.01" y1="16" y2="16"></line>
+			</svg>
+			<span class="truncate">{ n.Volumes[0] }</span>
+			if len(n.Volumes) > 1 {
+				<span class="shrink-0 text-rw-faint">+{ fmt.Sprint(len(n.Volumes) - 1) }</span>
+			}
+		</span>
+	}
+}
+
+// ForwardFace is one live port-forward relay: who has a tunnel open (avatar
+// badges, hover for name and server role) and on which port.
+//
+// Exported because the status endpoint renders it too: these cards appear and
+// vanish with their relay container, so the client patches them in between
+// page loads. It asks the server for this markup rather than rebuilding it,
+// the client-side copy this replaces drifted invisibly, since it only ran when
+// a real tunnel was open.
+templ ForwardFace(n graph.Node) {
+	<div class="p-3.5 min-w-0">
+		<div class="flex items-center gap-2 min-w-0">
+			<span class="relative flex h-2 w-2 shrink-0">
+				if len(n.Forwards) > 0 {
+					<span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-rw-accent opacity-60"></span>
+					<span class="relative inline-flex h-2 w-2 rounded-full bg-rw-accent"></span>
+				} else {
+					<span class="relative inline-flex h-2 w-2 rounded-full bg-rw-faint"></span>
+				}
+			</span>
+			<span class="font-semibold text-rw-text text-sm truncate">{ n.Name }</span>
+			<span class="ml-auto shrink-0 rounded-md border border-rw-border bg-rw-inset px-1.5 py-0.5 text-[10px] text-rw-muted">forward</span>
+		</div>
+		<div class="node-forward-rows mt-2.5 flex items-center gap-1.5 min-w-0">
+			if len(n.Forwards) == 0 {
+				<div class="font-mono text-xs text-rw-faint">idling, closes soon</div>
+			}
+			for i, u := range n.Forwards {
+				if i < 4 {
+					<span class="group relative">
+						@forwardAvatar(u, "h-9 w-9 text-xs")
+						<!-- hover card: headshot, full name, role, port.
+								     Positioned above the badge; pointer-events off so
+								     it can't steal its own hover and flicker. -->
+						<div class="pointer-events-none absolute bottom-full left-1/2 z-20 mb-2 hidden -translate-x-1/2 items-center gap-2.5 whitespace-nowrap rounded-lg border border-rw-border bg-rw-surface px-3 py-2 shadow-rw group-hover:flex">
+							@forwardAvatar(u, "h-10 w-10 text-sm")
+							<div>
+								<div class="text-sm font-semibold text-rw-text">{ u.Name }</div>
+								<div class="text-xs text-rw-muted">{ forwardHoverLine(u, n.ID) }</div>
+							</div>
+						</div>
+					</span>
+				}
+			}
+			if len(n.Forwards) > 4 {
+				<span class="text-xs text-rw-faint shrink-0">+{ fmt.Sprint(len(n.Forwards) - 4) }</span>
+			}
+		</div>
+	</div>
+}
+
+// nodeCardBody is the ordinary card: icon, name, subtitle, kind chip and the
+// status footer. Volumes and forward relays wear their own faces instead.
+templ nodeCardBody(n graph.Node) {
+	<div class="p-3.5">
+		<div class="flex items-center gap-2.5">
+			<span class="node-icon flex h-7 w-7 items-center justify-center rounded-md bg-rw-inset text-rw-muted shrink-0">
+				@nodeIcon(n)
+			</span>
+			<div class="min-w-0">
+				<div class="font-semibold text-rw-text truncate text-sm leading-tight">{ n.Name }</div>
+				<div class="flex items-center gap-1.5 min-w-0">
+					<span class="text-xs text-rw-faint truncate">{ n.Detail }</span>
+					if kindLabel(n) != "" {
+						<span class="shrink-0 rounded-md border border-rw-border bg-rw-inset px-1.5 py-0.5 text-[10px] text-rw-muted">{ kindLabel(n) }</span>
+					}
+					if n.HostAccess {
+						<span class="shrink-0 rounded-md border border-rw-danger/40 bg-rw-danger/10 px-1.5 py-0.5 text-[10px] text-rw-danger" title="runs privileged or with host devices">host</span>
+					}
+					if n.UpdateAvailable {
+						<span class="shrink-0 rounded-md border border-rw-warn/40 bg-rw-warn/10 px-1.5 py-0.5 text-[10px] text-rw-warn" title="a newer image digest is in the registry. Deploy to update">new version</span>
+					}
+				</div>
+			</div>
+		</div>
+		<!-- No footer on org cards: an organization is not running or idle,
+				     and an empty strip under a divider reads as a missing value. The
+				     card is a name and a stack count, nothing more. -->
+		if n.Kind != graph.KindOrg {
+			<div
+				class="node-footer mt-3 pt-3 border-t border-rw-border flex items-center justify-between gap-2 min-w-0"
+				data-kind={ string(n.Kind) }
+			>
+				@NodeFooter(n)
+			</div>
+		}
+	</div>
+}
+
+// A sub-tile is dealt out of the card like the next card in a deck: down by
+// enough to show its text strip, and across, so the layer reads as a separate
+// card rather than a flap grown off the bottom edge. Same direction as the
+// deck skin on env/stack cards (.graph-node-deck in css/input.css).
+const (
+	subtilePeek   = 28
+	subtileOffset = 8
+)
+
+// subtileTop / subtileLeft place the i-th sub-tile relative to its card, each
+// further one dealt past the last. Both boxes are the same height, so shifting
+// down by subtilePeek is exactly what shows below the card, one text row.
+func subtileTop(i int) int  { return (i + 1) * subtilePeek }
+func subtileLeft(i int) int { return (i + 1) * subtileOffset }
+
+// subtileClass dresses a sub-tile by what it represents. Same component,
+// styles chosen by the data: a volume is an ordinary inset tile, a managed
+// instance wears the purple perforated edge every other reference to a
+// managed tile wears (nodeClass, KindRef).
+// Deliberately NOT .graph-node: a sub-tile is a drawing, not a card. graph.js
+// counts .graph-node against what the server reports and reloads the page when
+// they disagree, and every other node behaviour (drag, select, edges) would
+// have to opt back out one selector at a time.
+func subtileClass(s graph.Subtile) string {
+	const base = "graph-node-sub absolute rounded-xl border cursor-pointer"
+	if s.Kind == "volume" {
+		return base + " bg-rw-inset border-rw-border hover:border-rw-accent/60"
+	}
+	return base + " bg-rw-surface/60 border-dashed border-rw-accent/50 hover:border-rw-accent/80"
+}
+
+// subtileCards draws a node's sub-tiles as the deck under it: same box as the
+// card, offset down so only the bottom strip shows. Siblings of the card, not
+// children, a child cannot paint behind its parent's background, and the
+// layered look needs exactly that.
+//
+// Purely visual: never nodes, never linked, never dragged on their own.
+// data-parent makes graph.js move them with the card; a click opens the thing
+// they stand for (graph.js listens for [data-subtile-panel] on the world).
+templ subtileCards(n graph.Node) {
+	for i, s := range n.Subtiles {
+		<div
+			class={ subtileClass(s) }
+			data-sub-id={ subID(n, i) }
+			data-parent={ n.ID }
+			data-subtile-panel={ s.Href + "/panel" }
+			role="button"
+			tabindex="0"
+			title={ s.Name + " · " + s.Detail }
+		>
+			<div class="absolute inset-x-0 bottom-0 flex h-7 items-center gap-2 px-3 min-w-0 text-rw-muted">
+				@subtileIcon(s)
+				<span class="text-xs font-medium text-rw-text truncate">{ s.Name }</span>
+				<span class="text-[10px] text-rw-faint font-mono truncate ml-auto">{ s.Detail }</span>
+			</div>
+		</div>
+	}
+}
+
+// nodeChip names the node a card's first replica runs on. Only drawn when the
+// swarm has more than one node, the builder leaves Node empty otherwise, so a
+// single-node install is unchanged (docs/plans/32-multi-node-ui.md, canvas).
+//
+// A pinned tile's chip carries a house: its volume is a directory on that
+// machine's disk, so "which node" is not a scheduling detail, it is where the
+// data is.
+templ nodeChip(n graph.Node) {
+	<span
+		class="absolute -top-2 right-3 z-10 flex items-center gap-1 rounded-md border border-rw-border bg-rw-inset px-1.5 py-0.5 text-[10px] text-rw-muted max-w-[80%] pointer-events-none"
+		title={ nodeChipTitle(n) }
+	>
+		if n.Home {
+			<svg class="h-2.5 w-2.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+				<path d="M3 10.5 12 3l9 7.5"></path>
+				<path d="M5 9.5V21h14V9.5"></path>
+			</svg>
+		}
+		<span class="truncate">{ n.Node }</span>
+		if n.MovingTo != "" {
+			<span class="shrink-0 text-rw-warn">&rarr; { n.MovingTo }</span>
+		}
+	</span>
+}
+
+func nodeChipTitle(n graph.Node) string {
+	if n.MovingTo != "" {
+		return "moving from " + n.Node + " to " + n.MovingTo
+	}
+	if n.Home {
+		return "home node " + n.Node + ", its volume lives on that machine's disk"
+	}
+	return "running on " + n.Node
+}
+
+// replicaCards deals replicas 2 and up under the card, the same way volumes
+// are dealt. The card itself is replica 1.
+//
+// Capped at three dealt rows, so four replicas show in full; above that the
+// fourth row is a "+n more" with a one-word summary. Any count above four is
+// the same depth, so a tile at 3 replicas and one at 30 take the same room on
+// the canvas (docs/plans/32-multi-node-ui.md, canvas).
+templ replicaCards(n graph.Node) {
+	for _, r := range n.Replicas.Rows {
+		<div
+			class="graph-node-sub absolute rounded-xl border bg-rw-inset border-rw-border cursor-pointer hover:border-rw-accent/60"
+			data-sub-id={ fmt.Sprintf("%s/r%d", n.ID, r.Slot) }
+			data-parent={ n.ID }
+			data-subtile-panel={ n.Href + "/replicas/" + fmt.Sprint(r.Slot) + "/panel" }
+			role="button"
+			tabindex="0"
+			title={ fmt.Sprintf("replica %d on %s, %s", r.Slot, r.Node, r.State) }
+		>
+			<div class="absolute inset-x-0 bottom-0 flex h-7 items-center gap-2 px-3 min-w-0 text-rw-muted">
+				<span class={ "h-1.5 w-1.5 rounded-full shrink-0", replicaDot(r.State) }></span>
+				<span class="text-xs font-medium text-rw-text truncate">replica { fmt.Sprint(r.Slot) }</span>
+				<span class="text-[10px] text-rw-faint truncate">{ r.Age }</span>
+				<span class="text-[10px] text-rw-faint font-mono truncate ml-auto">{ r.Node }</span>
+			</div>
+		</div>
+	}
+	if n.Replicas.Hidden > 0 {
+		<div
+			class="graph-node-sub absolute rounded-xl border bg-rw-surface border-rw-border cursor-pointer hover:border-rw-accent/60"
+			data-sub-id={ n.ID + "/rmore" }
+			data-parent={ n.ID }
+			data-subtile-panel={ n.Href + "/replicas/panel" }
+			role="button"
+			tabindex="0"
+		>
+			<div class="absolute inset-x-0 bottom-0 flex h-7 items-center gap-2 px-3 min-w-0 text-rw-faint">
+				<span class="text-xs truncate">+{ fmt.Sprint(n.Replicas.Hidden) } more</span>
+				<span class="text-[10px] truncate ml-auto">{ n.Replicas.HiddenWord }</span>
+			</div>
+		</div>
+	}
+}
+
+func replicaDot(state string) string {
+	switch state {
+	case "running":
+		return "bg-rw-success"
+	case "failed", "rejected", "orphaned":
+		return "bg-rw-danger"
+	}
+	return "bg-rw-warn"
+}
+
+// subtileIcon picks a sub-tile's icon from its kind: the volume box for
+// storage, otherwise the hosting engine's own glyph.
+templ subtileIcon(s graph.Subtile) {
+	<svg class="h-3.5 w-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+		if s.Kind == "volume" {
+			@volumeGlyph()
+		} else {
+			@engineGlyph(managedtiles.Engines[s.Kind].Shape)
+		}
+	</svg>
+}
+
+// engineGlyph is the stroke drawing for an engine family, named by the
+// registry's Shape: object storage hands out buckets, wire-protocol engines
+// get the cylinder. One drawing per shape, shared by every place that shows
+// an engine (card icon, sub-tile icon), so a new engine picks a shape rather
+// than adding a branch.
+templ engineGlyph(shape string) {
+	if shape == "bucket" {
+		<!-- a bucket, not a cylinder: object storage hands out buckets.
+		     Deliberately not the AWS mark, the engine here is RustFS. -->
+		<ellipse cx="12" cy="6" rx="8" ry="3"></ellipse>
+		<path d="M4 6.5 7 19.4a2 2 0 0 0 2 1.6h6a2 2 0 0 0 2-1.6L20 6.5"></path>
+	} else {
+		<ellipse cx="12" cy="5" rx="9" ry="3"></ellipse>
+		<path d="M3 5v14a9 3 0 0 0 18 0V5"></path>
+		<path d="M3 12a9 3 0 0 0 18 0"></path>
+	}
+}
+
+templ volumeGlyph() {
+	<path d="M22 12H2"></path>
+	<path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"></path>
+	<line x1="6" x2="6.01" y1="16" y2="16"></line>
+}
+
+// brandIcon names the sprite symbol (icons.templ) for engines that have a real
+// logo worth showing. "" = draw the generic stroke icon instead. Keyed on
+// Node.Engine, not on the card's subtitle: the subtitle is display copy and
+// gets reworded.
+// kindLabel is the chip under a card's name saying what sort of tile it is,
+// the icons alone don't separate a service from a cron from a shared instance.
+// "" for the cards whose kind is already obvious from the canvas they're on
+// (env, stack, org) or from their footer copy (ref says "managed tile" there).
+// Volume cards never reach it, they render the bottom-strip face instead.
+func kindLabel(n graph.Node) string {
+	switch n.Kind {
+	case graph.KindApp:
+		return "service"
+	case graph.KindCron:
+		return "cron"
+	case graph.KindFunction:
+		return "function"
+	case graph.KindManaged:
+		return "database"
+	case graph.KindResource:
+		if noun := managedtiles.Engines[n.Engine].SliceNoun; noun != "" {
+			return noun
+		}
+		return "slice"
+	case graph.KindProxy:
+		return "proxy"
+	case graph.KindConnector:
+		return "connector"
+	case graph.KindHost:
+		return "host ports"
+	}
+	return ""
+}
+
+func brandIcon(n graph.Node) string {
+	if ic := managedtiles.Engines[n.Engine].Icon; ic != "" {
+		return ic
+	}
+	switch n.Engine { // not db engines: the source and the proxy card
+	case "github":
+		return "ic-github"
+	case "traefik":
+		return "ic-traefik"
+	}
+	return ""
+}
+
+templ nodeIcon(n graph.Node) {
+	if brandIcon(n) != "" {
+		<!-- filled brand mark, so it needs its own svg rather than the stroke one below.
+		     brandTint colours the ones that would otherwise be lost among the grey
+		     cards; the rest inherit currentColor like every other icon. -->
+		<svg class={ "h-4 w-4", brandTint(n) } viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+			<use href={ "#" + brandIcon(n) }></use>
+		</svg>
+	} else {
+		@strokeIcon(n)
+	}
+}
+
+templ strokeIcon(n graph.Node) {
+	<svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+		if managedtiles.Engines[n.Engine].Shape != "" {
+			@engineGlyph(managedtiles.Engines[n.Engine].Shape)
+		} else if n.Kind == graph.KindVolume {
+			@volumeGlyph()
+		} else if n.Kind == graph.KindCron {
+			<circle cx="12" cy="12" r="10"></circle>
+			<path d="M12 6v6l4 2"></path>
+		} else if n.Kind == graph.KindFunction {
+			<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+		} else if n.Kind == graph.KindProxy {
+			<circle cx="12" cy="12" r="10"></circle>
+			<path d="M2 12h20M12 2a15.3 15.3 0 0 1 0 20 15.3 15.3 0 0 1 0-20z"></path>
+		} else if n.Kind == graph.KindHost {
+			<rect x="2" y="2" width="20" height="8" rx="2"></rect>
+			<rect x="2" y="14" width="20" height="8" rx="2"></rect>
+			<line x1="6" y1="6" x2="6.01" y2="6"></line>
+			<line x1="6" y1="18" x2="6.01" y2="18"></line>
+		} else if n.Kind == graph.KindManaged || n.Kind == graph.KindRef {
+			<ellipse cx="12" cy="5" rx="9" ry="3"></ellipse>
+			<path d="M3 5v14a9 3 0 0 0 18 0V5"></path>
+			<path d="M3 12a9 3 0 0 0 18 0"></path>
+		} else if n.Kind == graph.KindResource {
+			<!-- one slice of the cylinder: a logical database, not the server -->
+			<ellipse cx="12" cy="7" rx="9" ry="3"></ellipse>
+			<path d="M3 7v10a9 3 0 0 0 18 0V7"></path>
+		} else if n.Kind == graph.KindVars {
+			<path d="M4 7V5a1 1 0 0 1 1-1h14a1 1 0 0 1 1 1v2"></path>
+			<path d="M9 20h6"></path>
+			<path d="M12 4v16"></path>
+		} else if n.Kind == graph.KindConnector {
+			<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path>
+			<path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path>
+		} else if n.Kind == graph.KindOrg {
+			<!-- a building, not more layers: an org is who owns the stacks, not
+			     another stack of them -->
+			<path d="M3 21h18"></path>
+			<path d="M5 21V5a1 1 0 0 1 1-1h8a1 1 0 0 1 1 1v16"></path>
+			<path d="M15 21V9h3a1 1 0 0 1 1 1v11"></path>
+			<path d="M8 8h4M8 12h4M8 16h4"></path>
+		} else if n.Kind == graph.KindEnv || n.Kind == graph.KindStack {
+			<!-- stacked layers: a canvas holding other canvases -->
+			<path d="m12 2 9 5-9 5-9-5 9-5Z"></path>
+			<path d="m3 12 9 5 9-5"></path>
+			<path d="m3 17 9 5 9-5"></path>
+		} else {
+			<!-- the cube is the service glyph, whatever built it. Source used to
+			     switch the icon (a branch for git), so the
+			     same tile read as one thing here and another in its panel
+			     header; the subtitle already prints the source. -->
+			<path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"></path>
+			<path d="m3.3 7 8.7 5 8.7-5"></path>
+			<path d="M12 22V12"></path>
+		}
+	</svg>
+}
+
+// nodeExposure marks how a service reaches the outside world: a globe + host
+// for Traefik-proxied apps, a plug + port for databases published on the host.
+// sliceStats renders a logical database's own activity: transactions per
+// second and size on disk. Read from the engine per database, the traffic
+// overlay measures containers, which cannot be split between slices.
+templ sliceStats(n graph.Node) {
+	if n.SizeBytes > 0 || n.TxnRate > 0 {
+		<span class="flex items-center gap-2 text-xs text-rw-muted shrink-0 tabular-nums" title="transactions/sec · size on disk">
+			if n.TxnRate > 0 {
+				<span>{ fmtTxnRate(n.TxnRate) }</span>
+			}
+			if n.SizeBytes > 0 {
+				<span class="text-rw-faint">{ fmtSize(n.SizeBytes) }</span>
+			}
+		</span>
+	}
+}
+
+// exposed reports whether a card has something to say about the outside world.
+// Slice and ghost cards spend their footer on other things, so the exposure
+// chip only displaces that when there is actually an exposure to show.
+func exposed(n graph.Node) bool {
+	return len(n.Domains) > 0 || n.DomainCount > 0 || n.ExternalPort > 0
+}
+
+func domainCount(n int) string {
+	if n == 1 {
+		return "1 domain"
+	}
+	return fmt.Sprint(n) + " domains"
+}
+
+templ nodeExposure(n graph.Node) {
+	if len(n.Domains) > 0 {
+		<span class="node-exposure flex items-center gap-1 text-xs text-rw-accentHi min-w-0" title={ strings.Join(n.Domains, ", ") }>
+			<svg class="h-3 w-3 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+				<circle cx="12" cy="12" r="10"></circle>
+				<path d="M2 12h20M12 2a15.3 15.3 0 0 1 0 20 15.3 15.3 0 0 1 0-20z"></path>
+			</svg>
+			if n.Nav {
+				<!-- the card itself is an anchor (it drills down a level) and
+				     nested anchors are invalid HTML: the parser splits it into
+				     several elements, each keeping data-node-id, which breaks
+				     dragging. The hostname stays readable, just not clickable. -->
+				<span class="truncate">{ n.Domains[0] }</span>
+			} else {
+				<a data-domain-link href={ templ.SafeURL("https://" + n.Domains[0]) } target="_blank" rel="noopener" class="truncate hover:underline">{ n.Domains[0] }</a>
+			}
+			if len(n.Domains) > 1 {
+				<span class="shrink-0 text-rw-faint">+{ fmt.Sprint(len(n.Domains) - 1) }</span>
+			}
+		</span>
+	} else if n.DomainCount > 0 {
+		<span class="node-exposure flex items-center gap-1 text-xs text-rw-accentHi shrink-0" title="proxied domains. Open the stack to see them">
+			<svg class="h-3 w-3 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+				<circle cx="12" cy="12" r="10"></circle>
+				<path d="M2 12h20M12 2a15.3 15.3 0 0 1 0 20 15.3 15.3 0 0 1 0-20z"></path>
+			</svg>
+			{ domainCount(n.DomainCount) }
+		</span>
+	} else if n.ExternalPort > 0 {
+		<span class="node-exposure flex items-center gap-1 text-xs text-rw-warn shrink-0" title={ fmt.Sprintf("published on host port %d", n.ExternalPort) }>
+			<svg class="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+				<path d="M7 17 17 7M7 7h10v10"></path>
+			</svg>
+			:{ fmt.Sprint(n.ExternalPort) }
+		</span>
+	}
+}
+
+// forwardAvatar is one circular badge: the user's headshot, or their initials.
+// Used at two sizes, on the card and inside its own hover card.
+templ forwardAvatar(u graph.ForwardUser, sizeClasses string) {
+	if u.Avatar != "" {
+		<img src={ u.Avatar } alt="" class={ "rounded-full object-cover shrink-0", sizeClasses }/>
+	} else {
+		<span class={ "flex items-center justify-center rounded-full bg-rw-inset font-bold uppercase text-rw-accentHi shrink-0", sizeClasses }>{ components.Initials(u.Name) }</span>
+	}
+}
+
+// forwardHoverLine is the hover card's second line: role and target port.
+func forwardHoverLine(u graph.ForwardUser, nodeID string) string {
+	if u.Role == "" {
+		return forwardPort(nodeID)
+	}
+	return u.Role + " · " + forwardPort(nodeID)
+}
+
+// forwardPort digs the target port out of a forward node's id
+// ("forward:<tile8>:<port>"), the one fact of the card not carried by its
+// user badges, since every badge on one card shares it.
+func forwardPort(id string) string {
+	if i := strings.LastIndex(id, ":"); i >= 0 {
+		return ":" + id[i+1:]
+	}
+	return ""
+}
+
+// forwardChip marks an env/stack card that has live port-forwards somewhere
+// inside it, the count stands in for the forward cards the level below
+// draws, exactly as DomainCount stands in for Domains. Patched live by
+// pollStatus in static/js/graph.js via the node-forward-chip class.
+templ forwardChip(n graph.Node) {
+	<span
+		class={ "node-forward-chip flex items-center gap-1 text-xs text-rw-accentHi shrink-0", templ.KV("hidden", n.ForwardCount == 0) }
+		title="live port-forward tunnels. Open to see who"
+	>
+		<svg class="h-3 w-3 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+			<path d="M8 3 4 7l4 4"></path>
+			<path d="M4 7h16"></path>
+			<path d="m16 21 4-4-4-4"></path>
+			<path d="M20 17H4"></path>
+		</svg>
+		<span class="node-forward-count">{ fmt.Sprint(n.ForwardCount) }</span>
+	</span>
+}
+
+// cronStatus renders a cron card's footer: last-run outcome + next fire time,
+// instead of the Online/Crashed service wording.
+templ cronStatus(n graph.Node) {
+	if strings.HasPrefix(n.LastRun, "running") {
+		<span class="node-status flex items-center gap-2 text-xs text-rw-warn min-w-0">
+			<span class="h-1.5 w-1.5 rounded-full bg-rw-warn shrink-0"></span>
+			<span class="truncate">{ n.LastRun }</span>
+		</span>
+	} else if strings.HasPrefix(n.LastRun, "ok") {
+		<span class="node-status flex items-center gap-2 text-xs text-rw-success min-w-0">
+			<span class="h-1.5 w-1.5 rounded-full bg-rw-success shrink-0"></span>
+			<span class="truncate">{ n.LastRun }</span>
+		</span>
+	} else if strings.HasPrefix(n.LastRun, "failed") {
+		<span class="node-status flex items-center gap-2 text-xs text-rw-danger min-w-0">
+			<span class="h-1.5 w-1.5 rounded-full bg-rw-danger shrink-0"></span>
+			<span class="truncate">{ n.LastRun }</span>
+		</span>
+	} else {
+		<span class="node-status flex items-center gap-2 text-xs text-rw-faint min-w-0">
+			<span class="h-1.5 w-1.5 rounded-full bg-rw-faint shrink-0"></span>
+			<span class="truncate">{ n.LastRun }</span>
+		</span>
+	}
+	if n.NextRun != "" {
+		<span class="text-xs text-rw-faint shrink-0">{ n.NextRun }</span>
+	} else if n.Kind == graph.KindFunction {
+		<!-- a function has no schedule to pause: its footer names the trigger -->
+		<span class="text-xs text-rw-faint shrink-0">{ n.Detail }</span>
+	} else {
+		<span class="text-xs text-rw-warn shrink-0">paused</span>
+	}
+}
+
+templ nodeStatus(status, waiting string) {
+	switch status {
+		case "running", "done":
+			<span class="node-status flex items-center gap-2 text-xs text-rw-success">
+				<span class="h-1.5 w-1.5 rounded-full bg-rw-success"></span>Online
+			</span>
+		case "error":
+			<span class="node-status flex items-center gap-2 text-xs text-rw-danger">
+				<span class="h-1.5 w-1.5 rounded-full bg-rw-danger"></span>Crashed
+			</span>
+		case "unhealthy":
+			<span class="node-status flex items-center gap-2 text-xs text-rw-warn">
+				<span class="h-1.5 w-1.5 rounded-full bg-rw-warn"></span>Unhealthy
+			</span>
+		case "waiting":
+			<span class="node-status flex items-center gap-2 text-xs text-rw-warn">
+				<span class="h-1.5 w-1.5 rounded-full bg-rw-warn"></span>{ waitingLabel(waiting) }
+			</span>
+		case "building", "queued":
+			<span class="node-status flex items-center gap-2 text-xs text-rw-warn">
+				<span class="h-1.5 w-1.5 rounded-full bg-rw-warn"></span>{ status }
+			</span>
+		default:
+			<span class="node-status flex items-center gap-2 text-xs text-rw-faint">
+				<span class="h-1.5 w-1.5 rounded-full bg-rw-faint"></span>{ statusLabel(status) }
+			</span>
+	}
+}
+
+// waitingLabel names the value the tile is parked on, or says so generically
+// when the deploy predates the typed error.
+func waitingLabel(name string) string {
+	if name == "" {
+		return "Waiting for a value"
+	}
+	return "Waiting for " + name
+}
+
+// statusLabel names a status for a card footer. An empty status means nothing
+// has run yet, which reads as "idle", a blank next to a grey dot just looks
+// broken. Mirrors statusSpan() in static/js/graph.js.
+func statusLabel(status string) string {
+	if status == "" {
+		return "idle"
+	}
+	return status
+}
+
+// edgePath draws a smooth curve between two cards. The anchor sides are
+// picked from the cards' relative positions, left/right edges when the edge
+// is mostly horizontal, top/bottom when mostly vertical, so lines leave and
+// enter wherever is natural instead of always at the side midpoints.
+// Mirrored by edgeFor() in graph.js so drag updates match the server render.
+func edgePath(g graph.Graph, e graph.Edge) (string, bool) {
+	var from, to *graph.Node
+	for i := range g.Nodes {
+		if g.Nodes[i].ID == e.From {
+			from = &g.Nodes[i]
+		}
+		if g.Nodes[i].ID == e.To {
+			to = &g.Nodes[i]
+		}
+	}
+	if from == nil || to == nil {
+		return "", false
+	}
+	return bezier(from.X, from.Y, to.X, to.Y), true
+}
+
+// bezier connects two nodeW×nodeH cards given their top-left corners.
+func bezier(ax, ay, bx, by float64) string {
+	const nodeW, nodeH = graph.CardW, graph.CardH // float form, for corner maths
+	dx := (bx + nodeW/2) - (ax + nodeW/2)
+	dy := (by + nodeH/2) - (ay + nodeH/2)
+	if abs(dx) >= abs(dy) {
+		// horizontal: exit one side edge, enter the facing side edge
+		x1, x2 := ax+nodeW, bx
+		if dx < 0 {
+			x1, x2 = ax, bx+nodeW
+		}
+		y1, y2 := ay+nodeH/2, by+nodeH/2
+		k := maxF(abs(dx)/2, 60)
+		if dx < 0 {
+			k = -k
+		}
+		return fmt.Sprintf("M %.0f %.0f C %.0f %.0f, %.0f %.0f, %.0f %.0f",
+			x1, y1, x1+k, y1, x2-k, y2, x2, y2)
+	}
+	// vertical: exit top/bottom edge, enter the facing edge
+	y1, y2 := ay+nodeH, by
+	if dy < 0 {
+		y1, y2 = ay, by+nodeH
+	}
+	x1, x2 := ax+nodeW/2, bx+nodeW/2
+	k := maxF(abs(dy)/2, 60)
+	if dy < 0 {
+		k = -k
+	}
+	return fmt.Sprintf("M %.0f %.0f C %.0f %.0f, %.0f %.0f, %.0f %.0f",
+		x1, y1, x1, y1+k, x2, y2-k, x2, y2)
+}
+
+func abs(f float64) float64 {
+	if f < 0 {
+		return -f
+	}
+	return f
+}
+
+func maxF(a, b float64) float64 {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+// NodeFooter is a card's bottom strip: the one live line about the thing,
+// its status light, its cron result, what it publishes. Exported because the
+// status endpoint re-renders it on every poll: the client used to rebuild the
+// status span and the cron line in JavaScript, a second vocabulary for the
+// same words that nothing kept in step.
+templ NodeFooter(n graph.Node) {
+	if n.Kind == graph.KindCron || n.Kind == graph.KindFunction {
+		@cronStatus(n)
+	} else if n.Kind == graph.KindRef {
+		if exposed(n) {
+			@nodeExposure(n)
+		} else {
+			<span class="flex items-center gap-1 text-xs text-rw-accentHi min-w-0">
+				<svg class="h-3 w-3 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+					<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path>
+					<path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path>
+				</svg>
+				<span class="truncate">managed tile, open home</span>
+			</span>
+		}
+	} else if n.Kind == graph.KindVars || n.Kind == graph.KindConnector {
+		<span class="flex items-center gap-1 text-xs text-rw-faint min-w-0">
+			<svg class="h-3 w-3 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+				<path d="M7 17 17 7M7 7h10v10"></path>
+			</svg>
+			<span class="truncate">open settings</span>
+		</span>
+	} else if n.Kind == graph.KindResource {
+		@nodeStatus(n.Status, n.Waiting)
+		@sliceStats(n)
+	} else {
+		if n.Replicas.Want > 1 {
+			@replicaStatus(n)
+		} else {
+			@nodeStatus(n.Status, n.Waiting)
+		}
+		@nodeExposure(n)
+		@forwardChip(n)
+	}
+}
+
+// replicaStatus is the roll-up a card wears above one replica: "running · 3/3"
+// green, or "degraded · 2/3" amber when any replica is failed or starting.
+// Amber and not red on purpose, the tile is serving, just not from every
+// replica (docs/plans/32-multi-node-ui.md, canvas).
+templ replicaStatus(n graph.Node) {
+	if n.Replicas.Degraded() {
+		<span class="node-status flex items-center gap-2 text-xs text-rw-warn">
+			<span class="h-1.5 w-1.5 rounded-full bg-rw-warn"></span>
+			degraded · { fmt.Sprintf("%d/%d", n.Replicas.Running, n.Replicas.Want) }
+		</span>
+	} else {
+		<span class="node-status flex items-center gap-2 text-xs text-rw-success">
+			<span class="h-1.5 w-1.5 rounded-full bg-rw-success"></span>
+			running · { fmt.Sprintf("%d/%d", n.Replicas.Running, n.Replicas.Want) }
+		</span>
+	}
+}
+
+// pctVar carries a percentage into CSS as a custom property, so the width
+// lives in a stylesheet rule and not in a style attribute.
+func pctVar(pct int) string {
+	if pct < 0 {
+		pct = 0
+	}
+	if pct > 100 {
+		pct = 100
+	}
+	return fmt.Sprintf("--pct:%d%%", pct)
+}

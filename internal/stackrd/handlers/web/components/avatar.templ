@@ -1,0 +1,48 @@
+package components
+
+import (
+	"strings"
+	"unicode"
+
+	"github.com/FyrmForge/stackr/internal/stackrd/handlers/web/avatar"
+)
+
+// Avatar renders an uploaded image, or the initials badge that every surface
+// showed before uploads existed. sizeClasses carries the dimensions so callers
+// keep control of scale (the sidebar badge and a members row are not the same
+// size), and both branches use them so nothing shifts when someone uploads.
+templ Avatar(path, name, sizeClasses string) {
+	if url := avatar.URL(path); url != "" {
+		<img
+			src={ url }
+			alt=""
+			class={ "rounded object-cover shrink-0", sizeClasses }
+		/>
+	} else {
+		<span class={ "flex items-center justify-center rounded bg-rw-inset font-bold uppercase text-rw-accentHi shrink-0", sizeClasses }>
+			{ Initials(name) }
+		</span>
+	}
+}
+
+// Initials picks up to two leading letters for the fallback badge. Words are
+// what you would expect ("Fyrm Forge" is FF), plus a capital inside a word
+// starts a new one, because product names are routinely written closed up
+// ("FyrmForge" is FF, not F).
+func Initials(name string) string {
+	var out []rune
+	for _, f := range strings.Fields(name) {
+		for i, r := range f {
+			if i == 0 || unicode.IsUpper(r) {
+				out = append(out, r)
+				if len(out) == 2 {
+					return strings.ToUpper(string(out))
+				}
+			}
+		}
+	}
+	if len(out) == 0 {
+		return "?"
+	}
+	return strings.ToUpper(string(out))
+}

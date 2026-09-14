@@ -1,0 +1,66 @@
+package login
+
+import (
+	"github.com/labstack/echo/v4"
+	"github.com/FyrmForge/stackr/internal/stackrd/handlers/web/components"
+	"github.com/FyrmForge/stackr/internal/stackrd/handlers/web/components/form"
+)
+
+templ loginPage(c echo.Context, f LoginForm, errors map[string]string) {
+	@components.Layout(c, "Log In") {
+		<div class="max-w-md mx-auto pt-24 px-6">
+			<div class="flex items-center gap-2.5 justify-center mb-8">
+				<img src={ components.StaticURL("images/logo-mark.png") } alt="" class="h-10 w-10"/>
+				<span class="text-xl font-semibold text-rw-text">stackr</span>
+			</div>
+			<div class="panel p-8 shadow-rw">
+				<h2 class="text-lg font-semibold text-rw-text mb-6 text-center">Log in to your account</h2>
+				@loginForm(c, f, errors)
+			</div>
+		</div>
+	}
+}
+
+templ loginForm(c echo.Context, f LoginForm, errors map[string]string) {
+	<form
+		id="login-form"
+		hx-post="/login"
+		hx-swap="outerHTML"
+		hx-target="#login-form"
+	>
+		@form.CSRFField(c)
+		if form.GetError(errors, "general") != "" {
+			<div class="mb-4 px-4 py-3 rounded-lg border bg-rw-danger/10 border-rw-danger/40 text-rw-danger text-sm">
+				{ form.GetError(errors, "general") }
+			</div>
+		}
+		<div class="mb-5">
+			<label for="email" class="label">Email</label>
+			<input
+				type="email"
+				id="email"
+				name="email"
+				value={ f.Email }
+				class="input"
+				hx-post="/login/validate/email"
+				hx-trigger="blur"
+				hx-swap="none"
+			/>
+			@form.FieldError("email", form.GetError(errors, "email"))
+		</div>
+		<div class="mb-6">
+			<label for="password" class="label">Password</label>
+			<input
+				type="password"
+				id="password"
+				name="password"
+				class="input"
+				hx-post="/login/validate/password"
+				hx-trigger="blur"
+				hx-swap="none"
+			/>
+			@form.FieldError("password", form.GetError(errors, "password"))
+		</div>
+		<button type="submit" class="btn btn-primary w-full">Log in</button>
+	</form>
+}

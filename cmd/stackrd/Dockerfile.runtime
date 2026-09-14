@@ -1,0 +1,10 @@
+# Development runtime image. The test deploy script supplies generated assets
+# and a CGO_ENABLED=0 stackrd-deploy binary in the build context.
+FROM alpine:3.21
+RUN apk add --no-cache ca-certificates tzdata git openssh-client rsync docker-cli docker-cli-compose docker-cli-buildx
+WORKDIR /app
+COPY stackrd-deploy ./stackrd
+COPY frontend ./frontend
+COPY generated ./generated
+EXPOSE 8080
+ENTRYPOINT ["/app/stackrd"]

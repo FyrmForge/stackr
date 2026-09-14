@@ -1,0 +1,10 @@
+{
+  "name": "stackr",
+  "private": true,
+  "scripts": {
+    "css:build": "npx tailwindcss -i ./css/input.css -o ./static/css/output.css --minify"
+  },
+  "devDependencies": {
+    "tailwindcss": "^3.4.0"
+  }
+}

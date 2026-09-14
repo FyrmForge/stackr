@@ -1,0 +1,29 @@
+package components
+
+// SearchPalette is the global search overlay ("/" or the rail icon opens it,
+// main.js drives it). Rendered once per page from Layout so it exists on
+// canvases and settings pages alike; hidden until opened. Results come from
+// GET /search as an HTML fragment.
+templ SearchPalette() {
+	<div id="search-palette" class="hidden fixed inset-0 z-50" role="dialog" aria-modal="true" aria-label="Search">
+		<div class="absolute inset-0 scrim" data-search-close></div>
+		<div class="relative mx-auto mt-[12vh] w-full max-w-xl panel bg-rw-surface border border-rw-border rounded-xl shadow-2xl overflow-hidden">
+			<input
+				id="search-input"
+				type="text"
+				name="q"
+				placeholder="Search everything…"
+				autocomplete="off"
+				spellcheck="false"
+				class="w-full bg-transparent px-4 py-3 text-sm text-rw-text placeholder:text-rw-faint border-b border-rw-border focus:outline-none"
+				hx-get="/search"
+				hx-trigger="input changed delay:150ms"
+				hx-target="#search-results"
+				hx-swap="innerHTML"
+			/>
+			<div id="search-results" class="max-h-[50vh] overflow-y-auto">
+				<p class="px-4 py-6 text-sm text-rw-faint">Search stacks, tiles, variables, settings…</p>
+			</div>
+		</div>
+	</div>
+}

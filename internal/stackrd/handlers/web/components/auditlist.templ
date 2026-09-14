@@ -1,0 +1,36 @@
+package components
+
+import (
+	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
+)
+
+// AuditList is the secret trail for one scope: who read or wrote which value,
+// and when. Reads are the point of it, a write already shows up as a changed
+// value, but a reveal or a copy leaves no other trace.
+templ AuditList(events []repo.AuditEvent) {
+	if len(events) == 0 {
+		<p class="text-sm text-rw-faint">No secret has been read or written here yet.</p>
+	} else {
+		<ul class="space-y-1.5">
+			for _, e := range events {
+				<li class="panel px-3 py-2 flex flex-wrap items-center gap-2 text-xs">
+					<span class={ "px-1.5 py-0.5 rounded", auditActionClass(e.Action) }>{ e.Action }</span>
+					<span class="font-mono text-sm text-rw-text">{ e.Name }</span>
+					<span class="text-rw-muted truncate">{ e.Actor }</span>
+					<span class="ml-auto text-rw-faint">{ e.CreatedAt.Local().Format("Jan 2 15:04") }</span>
+				</li>
+			}
+		</ul>
+	}
+}
+
+// auditActionClass separates reads from writes at a glance: a read is the one
+// that can't be undone or noticed any other way.
+func auditActionClass(action string) string {
+	switch action {
+	case "set", "delete":
+		return "bg-rw-inset text-rw-muted"
+	default:
+		return "bg-rw-warn/15 text-rw-warn"
+	}
+}

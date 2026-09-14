@@ -1,0 +1,20 @@
+package components
+
+import "github.com/labstack/echo/v4"
+
+// SetupHoldingPage is what a member sees while the org's owner is still in the
+// onboarding wizard. Not a 404: they were invited, so they know the org is
+// there, and not-found would only look broken.
+//
+// It keeps the dashboard shell. A bare card with no nav is a dead end, the whole
+// org is closed to this person, so the one thing the page owes them is the way
+// back out to the orgs they can use.
+templ SetupHoldingPage(c echo.Context, org string) {
+	@Shell(c, org) {
+		<div class="max-w-lg mx-auto mt-16 text-center panel p-8">
+			<h2 class="text-xl font-semibold text-rw-text mb-2">{ org } is still being set up</h2>
+			<p class="text-rw-muted mb-6">Its owner has not finished yet. Check back shortly.</p>
+			<a href="/" class="btn btn-ghost">Your organizations</a>
+		</div>
+	}
+}

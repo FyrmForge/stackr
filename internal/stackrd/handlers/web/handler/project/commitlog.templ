@@ -1,0 +1,121 @@
+package project
+
+import (
+	"strconv"
+
+
+	"github.com/FyrmForge/stackr/internal/stackrd/handlers/web/components"
+)
+
+// commitList is the Commits tab of the environments panel.
+templ commitList(log commitLog) {
+	if log.Err != "" {
+		<div class="px-3 py-2 border-b border-rw-warning/40 bg-rw-warning/10 text-rw-warning flex flex-wrap items-center gap-x-2">
+			<span>Could not reach the repository.</span>
+			if log.StaleFor != "" {
+				<span class="text-rw-muted">Showing the list from { log.StaleFor }.</span>
+			}
+			if log.Source == "github" {
+				<a href={ templ.SafeURL(log.ConnectorsURL) } class="link">Connector</a>
+			}
+		</div>
+	}
+	if len(log.Rows) == 0 && log.Err == "" {
+		<p class="px-3 py-3 text-rw-faint">No commits yet. They appear once a git tile has deployed, or when the stack is bound to a repository.</p>
+	}
+	<ul class={ "divide-y divide-rw-border", templ.KV("opacity-60", log.Err != "") }>
+		for _, row := range log.Rows {
+			@logRowLine(row)
+		}
+	</ul>
+	if len(log.Older) > 0 {
+		<p class="px-3 py-1 bg-rw-inset text-rw-faint border-y border-rw-border">{ strconv.Itoa(len(log.Older)) } older commit{ plural(len(log.Older)) }</p>
+		<ul class="divide-y divide-rw-border opacity-70">
+			for _, row := range log.Older {
+				@logRowLine(row)
+			}
+		</ul>
+	}
+	if len(log.OffBranch) > 0 {
+		<p class="px-3 py-1 bg-rw-inset text-rw-faint border-y border-rw-border">not on { log.Branch }</p>
+		<ul class="divide-y divide-rw-border opacity-70">
+			for _, row := range log.OffBranch {
+				@logRowLine(row)
+			}
+		</ul>
+	}
+}
+
+templ logRowLine(row logRow) {
+	<li class="flex items-center gap-2 px-3 py-1.5 min-w-0">
+		if row.Commit.AvatarURL != "" {
+			<img src={ row.Commit.AvatarURL } alt="" class="h-5 w-5 rounded shrink-0"/>
+		} else {
+			<span class="flex h-5 w-5 items-center justify-center rounded bg-rw-inset text-[9px] font-bold uppercase text-rw-accentHi shrink-0">{ components.Initials(row.Commit.Author) }</span>
+		}
+		if row.Commit.URL != "" {
+			<a href={ templ.SafeURL(row.Commit.URL) } target="_blank" rel="noopener" class="font-mono text-xs text-rw-muted hover:text-rw-text shrink-0">{ row.Commit.Short() }</a>
+		} else {
+			<span class="font-mono text-xs text-rw-muted shrink-0">{ row.Commit.Short() }</span>
+		}
+		<span class="min-w-0 flex-1">
+			<span class="block text-rw-text truncate">
+				if row.Commit.Message == "" {
+					<span class="text-rw-faint">commit details unavailable</span>
+				} else {
+					{ row.Commit.Message }
+				}
+			</span>
+			if !row.Commit.When.IsZero() {
+				<span class="block text-[10px] text-rw-faint truncate">{ row.Commit.Author } · { ago(row.Commit.When) }</span>
+			}
+		</span>
+		for _, chip := range row.Chips {
+			@logChipView(chip)
+		}
+	</li>
+}
+
+templ logChipView(chip logChip) {
+	switch chip.State {
+		case "runs":
+			// templint:ignore inline-style -- the colour is data (a user-picked hex), not design
+			<a href={ templ.SafeURL(chip.Href) } class="log-chip" style={ templ.SafeCSS("--env-c:" + chip.Color) } title="Open the environment">
+				<span class="env-dot h-1.5 w-1.5"></span>
+				{ chip.Env.Name }
+				if chip.Behind > 0 {
+					<span class="opacity-80">↑{ strconv.Itoa(chip.Behind) }</span>
+				}
+			</a>
+		case "plan":
+			// templint:ignore inline-style -- the colour is data (a user-picked hex), not design
+			<a href={ templ.SafeURL(chip.Href) } class="log-chip log-chip-dashed" style={ templ.SafeCSS("--env-c:" + chip.Color) }>{ chip.Env.Name } · plan</a>
+		case "plan-error":
+			<a href={ templ.SafeURL(chip.Href) } class="log-chip log-chip-bad">{ chip.Env.Name } · plan error</a>
+		case "failed":
+			<a href={ templ.SafeURL(chip.Href) } class="log-chip log-chip-bad">{ chip.Env.Name } · failed</a>
+		case "building":
+			<a href={ templ.SafeURL(chip.Href) } class="log-chip log-chip-dashed log-chip-plain" title="Building the image; every environment gets it afterwards">
+				@chipSpinner()
+				building { progress(chip) }
+			</a>
+		case "deploying":
+			// templint:ignore inline-style -- the colour is data (a user-picked hex), not design
+			<a href={ templ.SafeURL(chip.Href) } class="log-chip log-chip-dashed" style={ templ.SafeCSS("--env-c:" + chip.Color) }>
+				@chipSpinner()
+				{ chip.Env.Name } { progress(chip) }
+			</a>
+	}
+}
+
+templ chipSpinner() {
+	<svg class="h-2.5 w-2.5 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" aria-hidden="true"><path d="M12 3a9 9 0 1 0 9 9" stroke-linecap="round"></path></svg>
+}
+
+// progress is "done/total" while a batch is in flight, empty for a single tile.
+func progress(c logChip) string {
+	if c.Total < 2 {
+		return ""
+	}
+	return strconv.Itoa(c.Done) + "/" + strconv.Itoa(c.Total)
+}

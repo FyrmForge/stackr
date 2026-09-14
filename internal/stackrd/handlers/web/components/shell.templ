@@ -1,0 +1,201 @@
+package components
+
+import (
+	"strings"
+
+	"github.com/labstack/echo/v4"
+
+	"github.com/FyrmForge/stackr/internal/stackrd/handlers/middleware"
+	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
+)
+
+// Shell is the authenticated dashboard layout: a thin left icon rail (Railway
+// style) + content. Nav labels live in tooltips; the rail stays ~56px.
+templ Shell(c echo.Context, title string) {
+	@Layout(c, title) {
+		<div class="flex min-h-screen">
+			@shellRail(c)
+			<div class="flex-1 min-w-0 ml-0 sm:ml-14 pb-14 sm:pb-0">
+				<main class="max-w-6xl mx-auto px-4 py-6 sm:px-8 sm:py-10">
+					{ children... }
+				</main>
+			</div>
+		</div>
+		@ModalHost()
+	}
+}
+
+templ shellRail(c echo.Context) {
+	<aside class="fixed z-20 bg-rw-surface flex items-center bottom-0 inset-x-0 h-14 flex-row border-t border-rw-border sm:top-0 sm:right-auto sm:h-auto sm:w-14 sm:flex-col sm:border-t-0 sm:border-r">
+					<a href="/" class="h-14 hidden sm:flex items-center justify-center w-full border-b border-rw-border" title="stackr">
+						<img src={ StaticURL("images/logo-mark.png") } alt="stackr" class="h-8 w-8"/>
+					</a>
+					<nav class="flex-1 flex flex-row justify-around sm:py-3 sm:flex-col sm:justify-start items-center gap-1">
+						@orgSwitcher(c)
+						// Styled tooltip instead of a native title: the shortcut is the
+						// point, and a native title hides it behind a one-second hover.
+						<button type="button" data-search-open aria-label="Search" class="rail-tip flex h-9 w-9 items-center justify-center rounded-lg text-rw-muted hover:text-rw-text hover:bg-rw-raised transition-colors">
+							<svg class="h-[18px] w-[18px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+								<circle cx="11" cy="11" r="8"></circle>
+								<line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+							</svg>
+							<span class="rail-tip-bubble" aria-hidden="true">Search <kbd>/</kbd></span>
+						</button>
+						@railIcon(c, "/", "Stacks") {
+							<path d="M3 3h7v7H3zM14 3h7v7h-7zM14 14h7v7h-7zM3 14h7v7H3z"></path>
+						}
+						if middleware.IsAdmin(c) {
+							@railIcon(c, "/containers", "Containers") {
+								<path d="M21 16V8a2 2 0 0 0-1-1.7l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.7l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
+								<path d="M3.3 7 12 12l8.7-5M12 22V12"></path>
+							}
+							@railIcon(c, "/servers", "Servers") {
+								<rect x="2" y="2" width="20" height="8" rx="2"></rect>
+								<rect x="2" y="14" width="20" height="8" rx="2"></rect>
+								<line x1="6" y1="6" x2="6.01" y2="6"></line>
+								<line x1="6" y1="18" x2="6.01" y2="18"></line>
+							}
+						}
+						<div
+							id="notif-bell"
+							data-ws-room="notifications"
+							data-ws-refresh="notification"
+							hx-get="/notifications/badge"
+							hx-trigger="load, refresh, every 120s"
+							hx-swap="innerHTML"
+						>
+							<a href="/notifications" title="Notifications" class={ "relative flex h-9 w-9 items-center justify-center rounded-lg transition-colors",
+								templ.KV("bg-rw-accent/15 text-rw-accentHi", navActive(c, "/notifications")),
+								templ.KV("text-rw-muted hover:text-rw-text hover:bg-rw-raised", !navActive(c, "/notifications")) }>
+								<svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+									<path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"></path>
+									<path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"></path>
+								</svg>
+							</a>
+						</div>
+						// The gear is the admin area, so only admins see it. Everything a
+						// non-admin used it for (their API keys) lives under Account.
+						if middleware.IsAdmin(c) {
+							@railIcon(c, "/admin", "Admin") {
+								<circle cx="12" cy="12" r="3"></circle>
+								<path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+							}
+						}
+					</nav>
+					<div class="pr-2 sm:pr-0 sm:py-3 flex flex-row sm:flex-col items-center gap-1">
+						@railIcon(c, "/account", "Account") {
+							<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+							<circle cx="12" cy="7" r="4"></circle>
+						}
+						<form hx-post="/logout">
+							@CSRFFieldShell(c)
+							<button type="submit" title="Log out" class="flex h-9 w-9 items-center justify-center rounded-lg text-rw-muted hover:text-rw-text hover:bg-rw-raised transition-colors">
+								<svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+									<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"></path>
+								</svg>
+							</button>
+						</form>
+					</div>
+				</aside>
+}
+
+// ShellFull is Shell without the width cap or padding: the icon rail plus a
+// full-viewport-height column. For canvas-style pages (graph).
+templ ShellFull(c echo.Context, title string) {
+	@Layout(c, title) {
+		<div class="flex min-h-screen">
+			@shellRail(c)
+			<div class="flex-1 min-w-0 ml-0 sm:ml-14 pb-14 sm:pb-0 h-dvh flex flex-col overflow-hidden">
+				{ children... }
+			</div>
+			@ModalHost()
+		</div>
+	}
+}
+
+// orgSwitcher is the Dokploy-style active-organization control: an initial
+// badge that opens a switch/create panel, plus a link into the active org's
+// settings. <details> keeps it JS-free.
+templ orgSwitcher(c echo.Context) {
+	if org, ok := middleware.ActiveOrg(c); ok {
+		<details class="relative" id="org-switcher">
+			<summary
+				title={ "Organization: " + org.Name }
+				class="list-none [&::-webkit-details-marker]:hidden cursor-pointer select-none"
+			>
+				@Avatar(org.AvatarPath, org.Name, "h-9 w-9 !rounded-lg text-xs")
+			</summary>
+			<div class="fixed z-30 w-60 panel p-2 shadow-rw bottom-16 left-2 sm:bottom-auto sm:left-16 sm:top-14">
+				<div class="px-2 py-1.5 text-xs font-semibold uppercase tracking-wide text-rw-faint">Organization</div>
+				for _, o := range middleware.Orgs(c) {
+					@orgSwitchRow(c, o, o.ID == org.ID)
+				}
+				<div class="border-t border-rw-border my-1.5"></div>
+				<a href={ templ.SafeURL("/orgs/" + org.Slug + "/settings") } class="block px-2 py-1.5 rounded-md text-sm text-rw-muted hover:text-rw-text hover:bg-rw-raised transition-colors">
+					{ org.Name } settings
+				</a>
+				if middleware.IsAdmin(c) {
+					<div class="border-t border-rw-border my-1.5"></div>
+					<!-- the org list page is gone (the canvas is the organization), so
+					     creating one lives here, next to switching between them. It
+					     goes through the setup wizard, the one way orgs are created.
+					     Server admins only, same as the route it points at -->
+					<a href="/setup" class="block px-2 py-1.5 rounded-md text-sm text-rw-muted hover:text-rw-text hover:bg-rw-raised transition-colors">
+						New organization
+					</a>
+				}
+			</div>
+		</details>
+	}
+}
+
+templ orgSwitchRow(c echo.Context, o repo.Org, active bool) {
+	<form hx-post="/orgs/switch">
+		@CSRFFieldShell(c)
+		<input type="hidden" name="id" value={ o.ID }/>
+		<button
+			type="submit"
+			class={ "w-full text-left px-2 py-1.5 rounded-md text-sm transition-colors flex items-center gap-2",
+				templ.KV("text-rw-text bg-rw-accent/10", active),
+				templ.KV("text-rw-muted hover:text-rw-text hover:bg-rw-raised", !active) }
+		>
+			@Avatar(o.AvatarPath, o.Name, "h-5 w-5 text-[10px]")
+			<span class="truncate">{ o.Name }</span>
+			if active {
+				<span class="ml-auto text-rw-accentHi">✓</span>
+			}
+		</button>
+	</form>
+}
+
+// railIcon renders one icon-only nav button. Children are the inline SVG paths.
+templ railIcon(c echo.Context, href, label string) {
+	<a
+		href={ templ.SafeURL(href) }
+		title={ label }
+		class={ "flex h-9 w-9 items-center justify-center rounded-lg transition-colors",
+			templ.KV("bg-rw-accent/15 text-rw-accentHi", navActive(c, href)),
+			templ.KV("text-rw-muted hover:text-rw-text hover:bg-rw-raised", !navActive(c, href)) }
+	>
+		<svg class="h-[18px] w-[18px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+			{ children... }
+		</svg>
+	</a>
+}
+
+// navActive reports whether the current request path belongs to a nav section.
+func navActive(c echo.Context, href string) bool {
+	p := c.Request().URL.Path
+	if href == "/" {
+		return p == "/" ||
+			strings.HasPrefix(p, "/projects") ||
+			strings.HasPrefix(p, "/apps") ||
+			strings.HasPrefix(p, "/dbs") ||
+			strings.HasPrefix(p, "/deployments")
+	}
+	return strings.HasPrefix(p, href)
+}
+
+templ CSRFFieldShell(c echo.Context) {
+	<input type="hidden" name="csrf_token" value={ c.Get("csrf").(string) }/>
+}

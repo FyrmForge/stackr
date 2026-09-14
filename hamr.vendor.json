@@ -1,0 +1,22 @@
+{
+  "deps": {
+    "htmx": {
+      "version": "2.0.4",
+      "url": "https://unpkg.com/htmx.org@2.0.4/dist/htmx.min.js",
+      "out": "frontend/static/js/htmx.min.js",
+      "sha256": "e209dda5c8235479f3166defc7750e1dbcd5a5c1808b7792fc2e6733768fb447"
+    },
+    "xterm": {
+      "version": "",
+      "url": "https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.css",
+      "out": "frontend/static/css/xterm.css",
+      "sha256": "ba8e6985669488981ccf40c0cefe3aba80722cb6c92de7ad628b0bd717faf2b6"
+    },
+    "xterm.min": {
+      "version": "",
+      "url": "https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.min.js",
+      "out": "frontend/static/js/xterm.min.js",
+      "sha256": "4196e242ef1cf4c2adead8d97f4a772a69576076f70b095e004b4abbb049e7bf"
+    }
+  }
+}

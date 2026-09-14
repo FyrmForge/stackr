@@ -1,0 +1,47 @@
+package settings
+
+import (
+	"github.com/labstack/echo/v4"
+
+	"github.com/FyrmForge/stackr/internal/stackrd/handlers/web/components"
+	"github.com/FyrmForge/stackr/internal/stackrd/handlers/web/components/form"
+	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
+)
+
+// auditFilter is the two things worth narrowing by: who, and what they did.
+// A read is the one action that leaves no other trace, so it is the one people
+// come here looking for.
+type auditFilter struct {
+	Actor  string
+	Action string
+	Actors []string
+}
+
+templ auditPage(c echo.Context, events []repo.AuditEvent, f auditFilter) {
+	@page(c, "audit", "Every secret read and written on this server.") {
+		@form.Section("Secret activity", form.ScopeInstance, "Newest first. A reveal or a copy is a read: it is the one action that leaves no other trace.") {
+			<form hx-get="/admin/audit" hx-push-url="true" hx-target="body" class="flex flex-wrap items-end gap-2 mb-5">
+				<div>
+					<label class="label" for="audit-actor">Actor</label>
+					<select id="audit-actor" name="actor" class="input">
+						<option value="">Anyone</option>
+						for _, a := range f.Actors {
+							<option value={ a } selected?={ a == f.Actor }>{ a }</option>
+						}
+					</select>
+				</div>
+				<div>
+					<label class="label" for="audit-action">Action</label>
+					<select id="audit-action" name="action" class="input">
+						<option value="">Any</option>
+						for _, a := range []string{"reveal", "copy", "read", "set", "edit", "delete", "share"} {
+							<option value={ a } selected?={ a == f.Action }>{ a }</option>
+						}
+					</select>
+				</div>
+				<button type="submit" class="btn btn-ghost btn-sm">Filter</button>
+			</form>
+			@components.AuditList(events)
+		}
+	}
+}

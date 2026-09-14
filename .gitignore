@@ -1,0 +1,58 @@
+# Binaries
+bin/
+tmp/
+*.exe
+
+# Environment
+.env
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Go
+vendor/
+
+# SQLite database files and WAL sidecars
+data/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# HAMR AI artifacts
+.hamr/
+
+# Test artifacts
+testdata/e2e-artifacts/
+coverage.out
+coverage.html
+
+# Agent / browser-QA artifacts (screenshots, snapshots, console logs)
+.playwright-mcp/
+.claude/
+/artifacts/
+
+# Node (if tailwind)
+**/node_modules/
+frontend/dist/
+generated/
+
+# CLI per-repo link (machine-local, like railway's .railway)
+.stackr/
+
+# Runtime upload target (avatars, org logos) — user data, not source
+uploads/
+
+# Per-developer hamr.toml overrides (merged over hamr.toml at load)
+.pref.hamr.toml
+
+# Claude Design bundle, rebuilt by .design-sync/build.mjs
+ds-bundle/

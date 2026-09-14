@@ -1,0 +1,78 @@
+package components
+
+import "github.com/FyrmForge/stackr/internal/stackrd/envcolor"
+
+// EnvColorPicker is the six palette hues, "default" (clears the override),
+// and a native colour input for anything else. Radios named color; picking a
+// custom colour ticks the "custom" radio and the handler reads the input.
+templ EnvColorPicker(current string) {
+	<div class="flex flex-wrap items-center gap-2">
+		// aria-label on each input, not just title on the label: the labels
+		// carry no text, and a title on an ancestor is not part of an input's
+		// accessible name, so a screen reader read eight anonymous radios.
+		<label class="env-swatch env-swatch-none" title="default">
+			<input type="radio" name="color" value="" aria-label="default colour" checked?={ current == "" } class="sr-only"/>
+		</label>
+		for _, n := range envcolor.Names {
+			// templint:ignore inline-style -- the swatch is the colour itself
+			<label class="env-swatch" title={ n } style={ templ.SafeCSS("--env-c:" + envcolor.CSS(n)) }>
+				<input type="radio" name="color" value={ n } aria-label={ n } checked?={ current == n } class="sr-only"/>
+			</label>
+		}
+		<label class="env-swatch env-swatch-custom" title="custom">
+			<input type="radio" name="color" value="custom" aria-label="custom colour" checked?={ isHex(current) } class="sr-only"/>
+			// The #888888 below is a literal on purpose: it is the initial value
+			// of a colour picker, which is the operator's own choice and not a
+			// theme colour. Mid grey so neither theme suggests an answer.
+			<input
+				type="color"
+				name="custom"
+				aria-label="pick a custom colour"
+				value={ hexOr(current, "#888888") }
+				class="h-full w-full cursor-pointer bg-transparent"
+				onchange="this.previousElementSibling.checked = true"
+			/>
+		</label>
+	</div>
+}
+
+// EnvDot is the coloured dot beside an environment's name. css is an
+// envcolor CSS value; size overrides the default 8px.
+templ EnvDot(css, size string) {
+	if css != "" {
+		// templint:ignore inline-style -- the colour is data (a user-picked hex), not design
+		<span class={ "env-dot", size } style={ templ.SafeCSS("--env-c:" + css) }></span>
+	}
+}
+
+// EnvColorSource is the pill saying where a colour came from.
+templ EnvColorSource(source string) {
+	switch source {
+		case "file":
+			<span class="text-xs px-1.5 py-0.5 rounded bg-rw-inset text-rw-muted">config file</span>
+		case "stack":
+			<span class="text-xs px-1.5 py-0.5 rounded bg-rw-inset text-rw-muted">this stack</span>
+		case "org":
+			<span class="text-xs px-1.5 py-0.5 rounded bg-rw-inset text-rw-muted">organization</span>
+		default:
+			<span class="text-xs px-1.5 py-0.5 rounded bg-rw-inset text-rw-faint">default</span>
+	}
+}
+
+func isHex(v string) bool { return len(v) == 7 && v[0] == '#' }
+
+func hexOr(v, def string) string {
+	if isHex(v) {
+		return v
+	}
+	return def
+}
+
+// EnvColorFromForm reads the picker: the radio, or the custom input when
+// the custom radio is ticked. ok is false for a value envcolor rejects.
+func EnvColorFromForm(radio, custom string) (v string, ok bool) {
+	if radio == "custom" {
+		radio = custom
+	}
+	return radio, envcolor.Valid(radio)
+}

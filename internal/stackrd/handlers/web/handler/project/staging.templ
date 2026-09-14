@@ -1,0 +1,108 @@
+package project
+
+import (
+	"strconv"
+
+	"github.com/labstack/echo/v4"
+
+	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
+	"github.com/FyrmForge/stackr/internal/stackrd/config/stackconf"
+	"github.com/FyrmForge/stackr/internal/stackrd/handlers/web/components"
+	"github.com/FyrmForge/stackr/internal/stackrd/handlers/web/components/form"
+)
+
+// stagingPage reviews an environment's pending (staged) changes before they
+// apply as one transaction.
+templ stagingPage(c echo.Context, p *repo.Stack, env *repo.Environment, changes []repo.StagedChange, plan *stackconf.Plan) {
+	@components.Shell(c, p.Name + ": pending changes") {
+		<nav class="mb-4 flex items-center gap-1.5 text-sm text-rw-muted">
+			<a href={ templ.SafeURL(stackURL(p)) } class="hover:text-rw-text transition-colors">{ p.Name }</a>
+			<span class="text-rw-faint">/</span>
+			<a href={ templ.SafeURL(envURL(p, env)) } class="hover:text-rw-text transition-colors">{ env.Name }</a>
+			<span class="text-rw-faint">/</span>
+			<span class="text-rw-text">pending changes</span>
+		</nav>
+		<div class="flex items-center gap-3 mb-2">
+			<h1 class="text-2xl font-semibold text-rw-text tracking-tight">Pending changes</h1>
+			<span class="text-xs px-1.5 py-0.5 rounded bg-rw-accent/15 text-rw-accentHi">{ strconv.Itoa(len(changes)) }</span>
+		</div>
+		<p class="text-sm text-rw-muted mb-6">Staged in <span class="font-mono text-rw-text">{ env.Name }</span>, applied together as one transaction.</p>
+
+		if len(changes) == 0 {
+			<p class="text-rw-muted text-sm">No pending changes. Edit a tile to stage one.</p>
+		} else {
+			<h3 class="text-sm font-semibold uppercase tracking-wide text-rw-faint mb-3">Staged edits</h3>
+			<ul class="space-y-2 mb-6">
+				for _, ch := range changes {
+					<li class="panel px-4 py-3 flex items-center justify-between gap-3">
+						<span class="text-sm text-rw-text min-w-0">
+							<span class="font-mono">{ ch.TileSlug }</span>
+							<span class="text-rw-faint ml-2">{ ch.Summary }</span>
+							if ch.AuthorName != "" {
+								<span class="text-rw-faint ml-2">· by { ch.AuthorName }</span>
+							}
+						</span>
+						<form
+							hx-post={ "/projects/" + p.ID + "/staging/" + env.ID + "/changes/" + ch.ID + "/discard" }
+							hx-confirm="Discard this staged change?"
+						>
+							@form.CSRFField(c)
+							<button type="submit" class="btn btn-ghost btn-sm">Discard</button>
+						</form>
+					</li>
+				}
+			</ul>
+
+			<h3 class="text-sm font-semibold uppercase tracking-wide text-rw-faint mb-3">What applying will do</h3>
+			if plan.Empty() {
+				<p class="text-rw-muted text-sm">No effective change: the staged values match what's deployed.</p>
+			} else {
+				<ul class="space-y-1.5 mb-6">
+					for _, ch := range plan.Changes {
+						@planChangeRow(ch)
+					}
+				</ul>
+			}
+			for _, e := range plan.Errors {
+				<div class="panel border-rw-danger/40 p-3 mb-2 text-sm text-rw-danger">{ e }</div>
+			}
+
+			<div class="flex items-center gap-2 mt-6">
+				<form
+					hx-post={ "/projects/" + p.ID + "/staging/" + env.ID + "/apply" }
+					if plan.Destructive() {
+						hx-confirm="This applies deletes. Continue?"
+					}
+				>
+					@form.CSRFField(c)
+					<button type="submit" class="btn btn-primary btn-sm">Apply changes</button>
+				</form>
+				<form hx-post={ "/projects/" + p.ID + "/staging/" + env.ID + "/discard" } hx-confirm="Discard all pending changes?">
+					@form.CSRFField(c)
+					<button type="submit" class="btn btn-ghost btn-sm">Discard all</button>
+				</form>
+			</div>
+			<p class="text-xs text-rw-faint mt-3">Applying reconciles the environment to the staged config; the end state matches what you see here.</p>
+		}
+	}
+}
+
+// stagingBox is the floating canvas indicator: N pending changes → review.
+templ stagingBox(p *repo.Stack, env *repo.Environment, count int) {
+	if count > 0 {
+		<a
+			href={ templ.SafeURL("/projects/" + p.ID + "/staging/" + env.ID) }
+			class="absolute bottom-6 left-1/2 -translate-x-1/2 z-30 flex items-center gap-2.5 rounded-xl border border-rw-accent/40 bg-rw-surface px-4 py-3 shadow-rw hover:border-rw-accent transition-colors"
+		>
+			<span class="flex h-6 min-w-6 items-center justify-center rounded-full bg-rw-accent/20 px-1.5 text-xs font-semibold text-rw-accentHi">{ strconv.Itoa(count) }</span>
+			<span class="text-sm text-rw-text">pending change<span>{ plural(count) }</span>, review &amp; apply</span>
+		</a>
+	}
+}
+
+func plural(n int) string {
+	if n == 1 {
+		return ""
+	}
+	return "s"
+}

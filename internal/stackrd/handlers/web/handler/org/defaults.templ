@@ -1,0 +1,69 @@
+package org
+
+import (
+	"strconv"
+
+	"github.com/labstack/echo/v4"
+
+	"github.com/FyrmForge/stackr/internal/stackrd/config/settings"
+	"github.com/FyrmForge/stackr/internal/stackrd/handlers/web/components/form"
+	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
+)
+
+// The org rung of the defaults cascade. Without it the same overrides were
+// retyped per stack and drifted; a stack still overrides anything set here,
+// and an environment overrides the stack.
+templ orgDefaultsPage(c echo.Context, o *repo.Org, own settings.Settings, res settings.Resolved, canEdit bool) {
+	@settingsShell(c, o, "defaults") {
+		@form.Section("Resource defaults", form.ScopeOrg, "Applied to every stack in this organization that does not set its own. Leave a field empty to inherit from the server.") {
+			if !canEdit {
+				<p class="text-sm text-rw-faint mb-4">Only an owner can change these.</p>
+			}
+			@form.SettingsForm(c, "/orgs/"+o.Slug+"/settings/defaults") {
+				@form.Field("Cron timeout (minutes)", "How long a cron run may take before it is killed.") {
+					<input type="number" name="cron_timeout_min" value={ intPtr(own.CronTimeoutMin) } placeholder="inherit" min="0" disabled?={ !canEdit } class="input"/>
+					@form.Inherited(strconv.Itoa(res.CronTimeoutMin)+" minutes", "the server")
+				}
+				@form.Field("CPU limit (cores)", "0 means unlimited, which is also how you lift a limit set on the server.") {
+					<input type="number" name="cpu_limit" value={ floatPtr(own.CPULimit) } placeholder="inherit" step="0.1" min="0" disabled?={ !canEdit } class="input"/>
+					@form.Inherited(limitLabel(res.CPULimit == 0, strconv.FormatFloat(res.CPULimit, 'f', -1, 64)+" cores"), "the server")
+				}
+				@form.Field("Memory limit (MB)", "0 means unlimited.") {
+					<input type="number" name="mem_limit_mb" value={ intPtr(own.MemLimitMB) } placeholder="inherit" min="0" disabled?={ !canEdit } class="input"/>
+					@form.Inherited(limitLabel(res.MemLimitMB == 0, strconv.Itoa(res.MemLimitMB)+" MB"), "the server")
+				}
+				@form.Field("Run history (days)", "How long cron run rows are kept.") {
+					<input type="number" name="run_retention_days" value={ intPtr(own.RunRetentionDays) } placeholder="inherit" min="0" disabled?={ !canEdit } class="input"/>
+					@form.Inherited(strconv.Itoa(res.RunRetentionDays)+" days", "the server")
+				}
+				if canEdit {
+					@form.Save("")
+				}
+			}
+		}
+	}
+}
+
+// intPtr and floatPtr render an override as a form value: empty is "inherit",
+// which is what an absent override means.
+func intPtr(p *int) string {
+	if p == nil {
+		return ""
+	}
+	return strconv.Itoa(*p)
+}
+
+func floatPtr(p *float64) string {
+	if p == nil {
+		return ""
+	}
+	return strconv.FormatFloat(*p, 'f', -1, 64)
+}
+
+// limitLabel reads "unlimited" rather than "0 cores", which is what 0 means.
+func limitLabel(unlimited bool, value string) string {
+	if unlimited {
+		return "unlimited"
+	}
+	return value
+}

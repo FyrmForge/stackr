@@ -1,0 +1,411 @@
+package settings
+
+import (
+	"strconv"
+
+	"github.com/labstack/echo/v4"
+	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
+	"github.com/FyrmForge/stackr/internal/stackrd/infra/runtime"
+	"github.com/FyrmForge/stackr/internal/stackrd/handlers/web/components"
+	"github.com/FyrmForge/stackr/internal/stackrd/handlers/web/components/form"
+)
+
+// The admin area: everything scoped to this installation. Personal settings
+// (profile, API keys, notification preferences) live under /account, and
+// org-scoped settings (connectors, members, org variables) live on the org's
+// own settings page, mixing all three on one page was the old /settings.
+
+func nav(active string) []form.NavItem {
+	return []form.NavItem{
+		{Label: "Servers", Href: "/servers", Active: active == "servers"},
+		{Label: "Users", Href: "/admin/users", Active: active == "users"},
+		{Label: "Registries", Href: "/admin/registries", Active: active == "registries"},
+		{Label: "TLS & domains", Href: "/admin/tls", Active: active == "tls"},
+		{Label: "Proxy", Href: "/admin/proxy", Active: active == "proxy"},
+		{Label: "Backups", Href: "/admin/backups", Active: active == "backups"},
+		{Label: "Secret activity", Href: "/admin/audit", Active: active == "audit"},
+		{Label: "Maintenance", Href: "/admin/maintenance", Active: active == "maintenance"},
+	}
+}
+
+templ page(c echo.Context, active, subtitle string) {
+	@components.Shell(c, "Admin") {
+		<h1 class="text-2xl font-semibold text-rw-text tracking-tight mb-1">Admin</h1>
+		<p class="text-sm text-rw-muted mb-8">{ subtitle }</p>
+		@form.SettingsLayout(nav(active)) {
+			{ children... }
+		}
+	}
+}
+
+templ usersPage(c echo.Context, users []repo.User) {
+	@page(c, "users", "Everything scoped to this installation.") {
+		@form.Section("Users", form.ScopeInstance, "Server admins bypass every organization check. To invite someone to an organization, use that organization's settings.") {
+			<ul class="space-y-2">
+				for _, u := range users {
+					<li class="panel px-4 py-3 text-sm flex flex-wrap items-center gap-2">
+						<span class="text-rw-text">{ u.Name }</span>
+						<span class="text-rw-faint">{ u.Email }</span>
+						if u.Role == "admin" {
+							<span class="text-xs px-1.5 py-0.5 rounded bg-rw-accent/15 text-rw-accentHi">admin</span>
+						}
+						if !u.Active {
+							<span class="text-xs px-1.5 py-0.5 rounded bg-rw-danger/15 text-rw-danger">disabled</span>
+						}
+						<span class="ml-auto flex items-center gap-1.5">
+							<form hx-post={ "/admin/users/" + u.ID + "/admin" }
+								if u.Role == "admin" {
+									hx-confirm={ "Remove server-admin rights from " + u.Name + "?" }
+								} else {
+									hx-confirm={ "Make " + u.Name + " a server admin? They get full access to every org and all server settings." }
+								}
+							>
+								@form.CSRFField(c)
+								if u.Role == "admin" {
+									<button type="submit" class="btn btn-ghost btn-sm">Remove admin</button>
+								} else {
+									<button type="submit" class="btn btn-ghost btn-sm">Make admin</button>
+								}
+							</form>
+							if u.Role != "admin" {
+								<form hx-post={ "/admin/users/" + u.ID + "/toggle" }
+									if u.Active {
+										hx-confirm={ "Disable " + u.Name + "? They will not be able to log in." }
+									}
+								>
+									@form.CSRFField(c)
+									if u.Active {
+										<button type="submit" class="btn btn-danger btn-sm">Disable</button>
+									} else {
+										<button type="submit" class="btn btn-ghost btn-sm">Enable</button>
+									}
+								</form>
+							}
+						</span>
+					</li>
+				}
+			</ul>
+		}
+	}
+}
+
+templ registriesPage(c echo.Context, registries []repo.Registry) {
+	@page(c, "registries", "Where built images are pushed and pulled from.") {
+		@form.Section("Add an external registry", form.ScopeInstance, "Credentials for a registry you already have, such as ghcr.io or Docker Hub.") {
+			@form.SettingsForm(c, "/admin/registries") {
+				@form.Field("Name", "") {
+					<input type="text" name="name" required class="input" placeholder="ghcr"/>
+				}
+				@form.Field("URL", "") {
+					<input type="text" name="url" required class="input" placeholder="ghcr.io/user"/>
+				}
+				@form.Field("Username", "") {
+					<input type="text" name="username" class="input" autocomplete="off"/>
+				}
+				@form.Field("Password or token", "") {
+					<input type="password" name="password" autocomplete="new-password" class="input"/>
+				}
+				@form.Save("Add registry")
+			}
+		}
+		@form.Section("Registries", form.ScopeInstance, "") {
+			if len(registries) == 0 {
+				<p class="text-sm text-rw-faint">No registries yet.</p>
+			} else {
+				<ul class="space-y-2">
+					for _, r := range registries {
+						<li class="panel px-4 py-3 space-y-2">
+							<div class="flex items-center justify-between gap-3">
+								<span class="text-sm text-rw-text">
+									{ r.Name } <span class="text-rw-faint">{ r.URL }</span>
+									if r.Managed {
+										<span class="text-xs px-1.5 py-0.5 rounded bg-rw-accent/15 text-rw-accentHi ml-2">managed</span>
+									}
+								</span>
+								if !r.Managed {
+									<form hx-post={ "/admin/registries/" + r.ID + "/delete" } hx-confirm="Remove this registry? Services pulling from it fail until reconfigured.">
+										@form.CSRFField(c)
+										<button type="submit" class="btn btn-danger btn-sm">Remove</button>
+									</form>
+								}
+							</div>
+							if r.Managed {
+								// Credentials used to be printed in the page body; they are
+								// revealed on demand now, like every other secret.
+								<div class="flex items-center gap-3 text-xs">
+									<span class="text-rw-faint">Credentials</span>
+									<span class="font-mono text-rw-muted select-none" data-secret data-value={ "user " + r.Username + " / pass " + r.Password }>••••••••</span>
+									<button type="button" data-reveal aria-pressed="false" class="btn btn-ghost btn-sm">Reveal</button>
+									<button type="button" data-copy={ r.Password } class="btn btn-ghost btn-sm">Copy password</button>
+								</div>
+							}
+						</li>
+					}
+				</ul>
+			}
+		}
+	}
+}
+
+templ tlsPage(c echo.Context, dnsProvider, dnsEnv, acmeEmail string, managed *repo.Registry) {
+	@page(c, "tls", "Certificates and the public entry points.") {
+		@form.Section("Wildcard certificates", form.ScopeInstance, "Wildcard domains such as *.example.com need a DNS-01 challenge. Set your DNS provider and the credentials it needs; Traefik restarts when they change.") {
+			@form.SettingsForm(c, "/admin/dns") {
+				@form.Field("DNS provider", "Any lego provider name. Empty disables wildcard certificates.") {
+					<input type="text" name="dns_provider" value={ dnsProvider } placeholder="cloudflare" class="input"/>
+				}
+				@form.Field("Credentials", "KEY=VALUE per line, passed to Traefik.") {
+					<textarea name="dns_env" rows="3" data-code="env" placeholder="CF_DNS_API_TOKEN=..." class="input font-mono text-sm">{ dnsEnv }</textarea>
+				}
+				@form.Save("")
+			}
+			<p class="text-xs text-rw-faint mt-4">Provider names come from the <a href="https://doc.traefik.io/traefik/https/acme/#providers" target="_blank" rel="noopener" class="link">Traefik ACME provider list</a>.</p>
+		}
+		@form.Section("ACME account", form.ScopeInstance, "The email Let's Encrypt uses for expiry warnings. Set with the ACME_EMAIL environment variable at startup. Leave it empty to run the proxy without TLS at all (plain HTTP on port 80, for LAN/test hosts no CA can reach).") {
+			@form.Field("Account email", "Read-only: it is part of the server's environment, not its database.") {
+				if acmeEmail == "" {
+					<input type="text" value="not set" disabled class="input"/>
+				} else {
+					<input type="text" value={ acmeEmail } disabled class="input"/>
+				}
+			}
+		}
+		if managed != nil {
+			@form.Section("Managed registry domain", form.ScopeInstance, "Puts the built-in registry behind Traefik on a public hostname. Clearing it removes the route.") {
+				@form.SettingsForm(c, "/admin/registry/domain") {
+					@form.Field("Domain", "") {
+						<input type="text" name="domain" placeholder="registry.example.com" value={ managed.Domain } class="input"/>
+					}
+					@form.Save("")
+				}
+			}
+		}
+	}
+}
+
+templ backupsPage(c echo.Context, dests []repo.BackupDestination, panel *repo.Backup, runs []repo.BackupRun) {
+	@page(c, "backups", "Where backups are written.") {
+		@DestinationsSection(c, dests, "/admin/backups/destinations", true)
+		@panelBackupSection(c, dests, panel, runs)
+	}
+}
+
+// The panel's own database: every org's tiles, domains, variables and
+// credentials live in it, which is why it may only go to a server-wide
+// destination and why the copy is taken with VACUUM INTO rather than by
+// copying the file out from under a running server.
+templ panelBackupSection(c echo.Context, dests []repo.BackupDestination, panel *repo.Backup, runs []repo.BackupRun) {
+	@form.Section("Stackr's own database", form.ScopeInstance, "A consistent copy of the panel database, taken while it is serving. The archive carries the master key that decrypts every secret in it, so keep it somewhere private. Restore it on the host with scripts/restore.sh.") {
+		if len(dests) == 0 {
+			<p class="text-sm text-rw-faint">Add a server-wide destination above first.</p>
+		} else {
+			@form.SettingsForm(c, "/admin/backups/panel") {
+				@form.Field("Destination", "") {
+					<select name="destination_id" class="input">
+						for _, d := range dests {
+							<option value={ d.ID } selected?={ panel != nil && panel.DestinationID == d.ID }>{ d.Name }</option>
+						}
+					</select>
+				}
+				@form.Field("Schedule (cron)", "") {
+					<input type="text" name="cron" value={ panelField(panel, "cron") } placeholder="0 4 * * *" required class="input font-mono"/>
+				}
+				@form.Field("Timezone", "Empty runs on server time.") {
+					<input type="text" name="timezone" value={ panelField(panel, "timezone") } placeholder="Europe/London" class="input"/>
+				}
+				@form.Field("Keep the newest", "") {
+					<input type="number" name="keep_latest" min="0" value={ panelField(panel, "keep") } class="input"/>
+				}
+				<label class="flex items-center gap-2 text-sm text-rw-text cursor-pointer">
+					<input type="checkbox" name="enabled" value="1" checked?={ panel == nil || panel.Enabled } class="accent-rw-accent"/>
+					Run on schedule
+				</label>
+				@form.Save("Save")
+			}
+			if panel != nil {
+				<div class="flex items-center gap-1.5 mt-4">
+					<form hx-post="/admin/backups/panel/run">
+						@form.CSRFField(c)
+						<button type="submit" class="btn btn-ghost btn-sm">Back up now</button>
+					</form>
+					<form hx-post="/admin/backups/panel/delete" hx-confirm="Stop backing up the panel database?">
+						@form.CSRFField(c)
+						<button type="submit" class="btn btn-danger btn-sm">Remove</button>
+					</form>
+				</div>
+				if len(runs) > 0 {
+					<ul class="space-y-1.5 mt-4">
+						for _, r := range runs {
+							<li class="flex items-center gap-2 text-xs">
+								<span class="text-rw-muted font-mono">{ r.CreatedAt.Format("2006-01-02 15:04") }</span>
+								if r.Status == "done" {
+									<span class="text-rw-muted">{ runtime.FmtBytes(r.SizeBytes) }</span>
+								} else {
+									<span class="text-rw-danger">{ r.Status }</span>
+								}
+								if r.Error != "" {
+									<span class="text-rw-danger truncate">{ r.Error }</span>
+								}
+							</li>
+						}
+					</ul>
+				}
+			}
+		}
+	}
+}
+
+// panelField renders one field of the panel schedule, with the defaults a
+// first-time setup should see.
+func panelField(b *repo.Backup, field string) string {
+	switch field {
+	case "cron":
+		if b != nil {
+			return b.Cron
+		}
+	case "timezone":
+		if b != nil {
+			return b.Timezone
+		}
+	case "keep":
+		if b != nil {
+			return strconv.Itoa(b.KeepLatest)
+		}
+		return "7"
+	}
+	return ""
+}
+
+// DestinationsSection is rendered by both the admin page (server-wide
+// destinations) and an org's settings page (that org's own). base is the URL
+// the two forms post to, which is what scopes them.
+templ DestinationsSection(c echo.Context, dests []repo.BackupDestination, base string, global bool) {
+	@form.Section("Add a destination", scopeOf(global), "Any S3-compatible bucket: AWS, MinIO, Backblaze B2, a RustFS instance. The credentials are checked by writing and deleting a probe object before the destination is saved.") {
+		@form.SettingsForm(c, base) {
+			@form.Field("Name", "") {
+				<input type="text" name="name" required class="input" placeholder="offsite"/>
+			}
+			@form.Field("Endpoint", "Full URL, including the scheme.") {
+				<input type="text" name="endpoint" required class="input" placeholder="https://s3.eu-west-1.amazonaws.com"/>
+			}
+			@form.Field("Bucket", "") {
+				<input type="text" name="bucket" required class="input" placeholder="stackr-backups"/>
+			}
+			@form.Field("Region", "Optional: servers that ignore regions still need one for signing.") {
+				<input type="text" name="region" class="input" placeholder="us-east-1"/>
+			}
+			@form.Field("Access key", "") {
+				<input type="text" name="access_key" class="input" autocomplete="off"/>
+			}
+			@form.Field("Secret key", "Stored encrypted and never shown again.") {
+				<input type="password" name="secret_key" autocomplete="new-password" class="input"/>
+			}
+			if global {
+				@form.Field("Sharing", "The bucket credentials go with it, so this is off unless you say otherwise.") {
+					<label class="flex items-center gap-3 text-sm text-rw-text cursor-pointer">
+						<input type="checkbox" name="shared" value="1" class="accent-rw-accent"/>
+						Offer it to every organization
+					</label>
+				}
+			}
+			@form.Save("Add destination")
+		}
+	}
+	@form.Section("Destinations", scopeOf(global), destinationsHelp(global)) {
+		if len(dests) == 0 {
+			<p class="text-sm text-rw-faint">None yet.</p>
+		} else {
+			<ul class="space-y-2">
+				for _, d := range dests {
+					<li class="panel px-4 py-3 text-sm flex flex-wrap items-center gap-2">
+						<span class="text-rw-text">{ d.Name }</span>
+						<span class="text-rw-faint font-mono text-xs">{ d.Bucket + " at " + d.Endpoint }</span>
+						if global {
+							<form hx-post={ base + "/" + d.ID + "/shared" } class="ml-auto">
+								@form.CSRFField(c)
+								if d.Shared {
+									<button type="submit" class="btn btn-ghost btn-sm" title="Take it back from every organization">Shared</button>
+								} else {
+									<input type="hidden" name="shared" value="1"/>
+									<button type="submit" class="btn btn-ghost btn-sm" title="Offer it to every organization">Not shared</button>
+								}
+							</form>
+						}
+						<form class={ templ.KV("ml-auto", !global) } hx-post={ base + "/" + d.ID + "/delete" } hx-confirm="Remove this destination? Every backup schedule pointing at it is removed too. Archives already in the bucket are kept.">
+							@form.CSRFField(c)
+							<button type="submit" class="btn btn-danger btn-sm">Remove</button>
+						</form>
+					</li>
+				}
+			</ul>
+		}
+	}
+}
+
+func scopeOf(global bool) form.Scope {
+	if global {
+		return form.ScopeInstance
+	}
+	return form.ScopeOrg
+}
+
+func destinationsHelp(global bool) string {
+	if global {
+		return "A shared server-wide destination can be chosen from every organization. An unshared one is yours alone; the panel's own backup uses it either way."
+	}
+	return "Only this organization's tiles can back up here."
+}
+
+templ maintenancePage(c echo.Context, cleanupEnabled bool, imageInterval string) {
+	@page(c, "maintenance", "Housekeeping for the host.") {
+		@form.Section("Nightly cleanup", form.ScopeInstance, "Reclaims disk by pruning stopped containers, dangling images and build cache once a night. Running containers and named volumes are never touched.") {
+			@form.SettingsForm(c, "/admin/cleanup") {
+				<label class="flex items-center gap-3 text-sm text-rw-text cursor-pointer">
+					<input type="checkbox" name="enabled" value="1" checked?={ cleanupEnabled } class="accent-rw-accent"/>
+					Enable nightly Docker cleanup
+				</label>
+				@form.Save("")
+			}
+		}
+		@form.Section("Image version checks", form.ScopeInstance, "How often the registry watcher polls for new digests of tiles with an update policy. Registry HEAD requests only, so they don't count toward Docker Hub pull limits.") {
+			@form.SettingsForm(c, "/admin/imagewatch") {
+				<label class="flex items-center gap-3 text-sm text-rw-text">
+					Check every
+					<input type="number" name="interval_minutes" value={ imageInterval } min="0" max="1440" class="w-24 rounded-md bg-rw-inset border border-rw-border px-2 py-1 text-sm"/>
+					minutes (0 = off)
+				</label>
+				@form.Save("")
+			}
+		}
+	}
+}
+
+// githubRedirect auto-submits the app manifest to GitHub's create-app form
+// (the manifest flow requires a browser form POST, not a redirect).
+templ githubRedirect(action, manifest string) {
+	@components.Layout(nil, "Taking you to GitHub") {
+		<div class="max-w-md mx-auto pt-24 px-6">
+			<div class="flex items-center gap-2.5 justify-center mb-8">
+				<img src={ components.StaticURL("images/logo-mark.png") } alt="" class="h-10 w-10"/>
+				<span class="text-xl font-semibold text-rw-text">stackr</span>
+			</div>
+			<div class="panel p-8 shadow-rw text-center">
+				<h1 class="text-lg font-semibold text-rw-text mb-1">Taking you to GitHub</h1>
+				<p class="text-sm text-rw-muted mb-6">GitHub creates the app from the manifest we just built. Approve it there and you land back here.</p>
+				<div class="mx-auto h-6 w-6 rounded-full border-2 border-rw-border border-t-rw-accent animate-spin" role="status" aria-label="Redirecting"></div>
+				// templint:ignore no-native-form-actions -- GitHub's manifest flow requires a browser form POST
+				<form method="post" action={ templ.SafeURL(action) }>
+					<input type="hidden" name="manifest" value={ manifest }/>
+					// The page submits itself; the button is only for browsers with
+					// scripts off, so it stays out of the way otherwise.
+					<noscript>
+						<button type="submit" class="btn btn-primary w-full mt-6">Continue to GitHub</button>
+					</noscript>
+				</form>
+			</div>
+		</div>
+		<script>
+			document.forms[0].submit();
+		</script>
+	}
+}

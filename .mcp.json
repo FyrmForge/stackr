@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "hamr-dev": {
+      "args": [
+        "mcp"
+      ],
+      "command": "hamr"
+    }
+  }
+}
