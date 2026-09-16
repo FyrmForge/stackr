@@ -1,6 +1,6 @@
 # Plan: node agents on a published install
 
-Status: agreed 2026-09-16 (A, B, C, D), built the same day, not verified on the rig.
+Status: done 2026-09-16, verified on the rig (manager + skrt2) with v0.1.3 and v0.1.4.
 
 Working rules: discuss first, one point at a time, no code without a go, no
 git writes, no edits to `*_templ.go` or `output.css`.

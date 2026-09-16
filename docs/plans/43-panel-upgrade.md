@@ -1,7 +1,9 @@
 # Plan: upgrade from the panel
 
-Status: agreed and reviewed 2026-09-16, built the same day, not verified on
-the rig. Closes phase 4 of
+Status: done 2026-09-16. Verified on the rig: install.sh v0.1.1, panel
+upgrades v0.1.1 to v0.1.2 and v0.1.3 to v0.1.4 with two orgs of running
+tiles across two nodes (no tile task restarted, data intact, agents rolled),
+and a boot-crashing update rolled back by swarm. Closes phase 4 of
 `docs/beta-release.md`.
 
 Working rules: discuss first, one point at a time, no code without a go, no
@@ -119,9 +121,10 @@ the manual panel backup move in from the settings handler later.
 - `scripts/install.sh`: `--version X` flag, default `latest`, sets both image
   tags. Drop the "not published yet" header and the "re-run to upgrade" text.
   Existing-service branch as decided above.
-- `scripts/restore.sh`: when the archive's version is newer than the running
-  image, pin the service to the archive's version before scaling up. Older
-  archives keep the current image and migrate forward on boot.
+- `scripts/restore.sh`: when the archive's version differs from the running
+  image, pin the service to the archive's version before scaling up, in
+  either direction. A restore always brings back the build that wrote the
+  data, so the pre-upgrade archive alone undoes a bad upgrade.
 
 ### D. Docs
 
@@ -135,8 +138,8 @@ On the rig: install `v0.1.0` with `install.sh --version 0.1.0`, push a
 `fix:` to master to get `v0.1.1`, see the rail dot appear, press Upgrade,
 confirm the archive exists, the panel comes back on `v0.1.1`, and on a
 two-node rig the worker's agent reports the same version. Then run
-`restore.sh` with the pre-upgrade archive and confirm the service is left
-on `v0.1.1` (archive older, image untouched).
+`restore.sh` with the pre-upgrade archive and confirm the service is back
+on `v0.1.0`.
 
 ## Not doing
 

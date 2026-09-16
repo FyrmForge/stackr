@@ -84,7 +84,7 @@ without version pinning, because pinning needs a published tagged image.
 Add `docker service update --image ghcr.io/fyrmforge/stackr:<VERSION>`
 before the scale-up here.
 
-## Phase 4: install and upgrade, built 2026-09-16, not verified on the rig
+## Phase 4: install and upgrade, done 2026-09-16
 
 Plan and decisions: `docs/plans/43-panel-upgrade.md`.
 

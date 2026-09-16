@@ -14,19 +14,23 @@ import (
 // Panel upgrades (docs/plans/43-panel-upgrade.md). The work is in
 // service.AdminService; these only render it.
 
-// GET /admin/update
+// GET /admin/update. Renders at once; the release check loads into it.
 func (h *handler) Update(c echo.Context) error {
-	ctx := c.Request().Context()
 	v := upgradeView{Version: h.admin.Version(), Upgradable: h.admin.Upgradable()}
-	if v.Upgradable {
-		if _, err := h.admin.CheckUpgrade(ctx); err != nil {
-			v.CheckErr = err.Error()
-		}
-		v.Latest, v.Available = h.admin.Available(ctx)
-	}
-	v.Archive, _ = h.store.GetSetting(ctx, service.SettingUpgradeArchive)
-	v.Previous, _ = h.store.GetSetting(ctx, service.SettingUpgradePrevious)
+	v.Archive, _ = h.store.GetSetting(c.Request().Context(), service.SettingUpgradeArchive)
 	return respond.HTML(c, http.StatusOK, upgradePage(c, v))
+}
+
+// GET /admin/update/check asks GitHub and answers with the button, "up to
+// date", or the error. Its own request so the page never waits on GitHub.
+func (h *handler) UpdateCheck(c echo.Context) error {
+	ctx := c.Request().Context()
+	var v upgradeView
+	if _, err := h.admin.CheckUpgrade(ctx); err != nil {
+		v.CheckErr = err.Error()
+	}
+	v.Latest, v.Available = h.admin.Available(ctx)
+	return respond.HTML(c, http.StatusOK, upgradeStatus(c, v))
 }
 
 // POST /admin/update

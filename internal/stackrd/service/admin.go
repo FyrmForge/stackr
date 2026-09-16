@@ -25,7 +25,6 @@ import (
 const (
 	SettingUpgradeLatest    = "upgrade_latest"
 	SettingUpgradeCheckedAt = "upgrade_checked_at"
-	SettingUpgradePrevious  = "upgrade_previous_image"
 	SettingUpgradeArchive   = "upgrade_archive"
 )
 
@@ -154,7 +153,7 @@ func (s *AdminService) Upgrade(ctx context.Context, tag string) error {
 
 	// STACKR_IMAGE is what the agent service is built from. Leaving it on the
 	// old tag gives a new panel that refuses every old agent.
-	prev, err := s.rt.UpdateServiceImage(ctx, panelService, image, map[string]string{"STACKR_IMAGE": image}, &swarm.UpdateConfig{
+	err := s.rt.UpdateServiceImage(ctx, panelService, image, map[string]string{"STACKR_IMAGE": image}, &swarm.UpdateConfig{
 		Parallelism: 1,
 		// One panel on one sqlite file: the old task has to be gone first.
 		Order:         swarm.UpdateOrderStopFirst,
@@ -165,9 +164,9 @@ func (s *AdminService) Upgrade(ctx context.Context, tag string) error {
 		return fmt.Errorf("update service: %w", err)
 	}
 	// Only now: the page offers this archive as the way back, which means
-	// nothing for an upgrade that never reached the swap.
+	// nothing for an upgrade that never reached the swap. restore.sh moves
+	// the service back to the build in the archive, so nothing else is kept.
 	_ = s.store.SetSetting(ctx, SettingUpgradeArchive, archive)
-	_ = s.store.SetSetting(ctx, SettingUpgradePrevious, prev)
 	return nil
 }
 

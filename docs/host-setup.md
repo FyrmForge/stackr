@@ -98,9 +98,10 @@ Data dir defaults to `/var/lib/stackr`, which is what `install.sh` offers.
 The script prints the archive's version next to the running image, asks
 for confirmation, scales the `stackr` service to zero, keeps a copy of the
 files it is replacing (suffixed `.before-<timestamp>`), unpacks, and
-scales back up. When the archive was written by a newer release than the
-running image, the service moves to that release first. An older archive
-keeps the running image and migrates forward on boot.
+scales back up. When the archive was written by a different release than
+the running image, the service moves to the archive's release first, in
+either direction. Restoring an older backup after an upgrade also moves the
+panel back to that build; upgrade again from the panel afterwards.
 
 Deployed services are not touched. Stackr reconciles them as it starts.
 
@@ -119,8 +120,8 @@ The button pulls the new panel and relay images, writes
 service at the new image. The new panel migrates the database and rolls the
 node agents to the same build. A new version that does not stay up for a
 minute is rolled back by swarm; the database is not, so the way back from a
-bad upgrade is `restore.sh` with that archive. The update page prints the
-command.
+bad upgrade is `restore.sh` with that archive, which also moves the service
+back to the previous release. The update page prints the command.
 
 Supported path is one release to the next. Skipping versions is not tested.
 

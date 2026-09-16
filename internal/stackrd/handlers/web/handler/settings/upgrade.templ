@@ -12,7 +12,6 @@ type upgradeView struct {
 	Available  bool
 	CheckErr   string
 	Archive    string
-	Previous   string
 }
 
 templ upgradePage(c echo.Context, v upgradeView) {
@@ -22,28 +21,34 @@ templ upgradePage(c echo.Context, v upgradeView) {
 				<p class="text-rw-text">Running <span class="font-mono">{ v.Version }</span></p>
 				if !v.Upgradable {
 					<p class="text-rw-muted">Dev build, no upgrades.</p>
-				} else if v.Available {
-					<form hx-post="/admin/update" hx-target="#upgrade" hx-swap="innerHTML" hx-disabled-elt="find button" hx-confirm={ "Upgrade to " + v.Latest + "? The panel restarts." }>
-						@form.CSRFField(c)
-						<input type="hidden" name="version" value={ v.Latest }/>
-						<button type="submit" class="btn btn-primary btn-sm">Upgrade to { v.Latest }</button>
-					</form>
-				} else if v.Latest != "" {
-					<p class="text-rw-muted">Up to date.</p>
-				}
-				if v.CheckErr != "" {
-					<p class="text-rw-danger">{ v.CheckErr }</p>
+				} else {
+					<div hx-get="/admin/update/check" hx-trigger="load" hx-swap="outerHTML">
+						<p class="text-rw-muted">Checking for updates.</p>
+					</div>
 				}
 			</div>
 		}
 		if v.Archive != "" {
-			@form.Section("Going back", form.ScopeInstance, "The panel cannot restore itself. Run this on the manager.") {
+			@form.Section("Going back", form.ScopeInstance, "Puts back the data and the build from before the upgrade. The panel cannot restore itself. Run this on the manager.") {
 				<pre class="text-xs font-mono text-rw-muted whitespace-pre-wrap">scripts/restore.sh { v.Archive }</pre>
-				if v.Previous != "" {
-					<p class="text-xs text-rw-faint mt-2">Previous image <span class="font-mono">{ v.Previous }</span></p>
-				}
 			}
 		}
+	}
+}
+
+// upgradeStatus is the release check's answer, swapped into the page on load.
+templ upgradeStatus(c echo.Context, v upgradeView) {
+	if v.Available {
+		<form hx-post="/admin/update" hx-target="#upgrade" hx-swap="innerHTML" hx-disabled-elt="find button" hx-confirm={ "Upgrade to " + v.Latest + "? The panel restarts." }>
+			@form.CSRFField(c)
+			<input type="hidden" name="version" value={ v.Latest }/>
+			<button type="submit" class="btn btn-primary btn-sm">Upgrade to { v.Latest }</button>
+		</form>
+	} else if v.Latest != "" {
+		<p class="text-rw-muted">Up to date.</p>
+	}
+	if v.CheckErr != "" {
+		<p class="text-rw-danger">{ v.CheckErr }</p>
 	}
 }
 
