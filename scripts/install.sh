@@ -232,7 +232,7 @@ docker info >/dev/null 2>&1 || die "cannot talk to the docker daemon; is it runn
 # Rebuilding a live install would re-ask every answer and drop whatever the
 # panel has changed on its own service since.
 if docker service inspect stackr >/dev/null 2>&1; then
-  cat >&2 <<LIVE
+  cat >&2 <<'LIVE'
 stackr is already installed on this host.
 
 Upgrade from the panel: Admin, Update.
@@ -240,7 +240,7 @@ Upgrade from the panel: Admin, Update.
 If the panel will not start, move it to a release by hand:
 
   docker pull ghcr.io/fyrmforge/stackr-proxyrelay:<version>
-  docker tag ghcr.io/fyrmforge/stackr-proxyrelay:<version> $RELAY_LOCAL
+  docker tag ghcr.io/fyrmforge/stackr-proxyrelay:<version> stkr-proxyrelay:local
   docker service update --image ghcr.io/fyrmforge/stackr:<version> \
     --env-add STACKR_IMAGE=ghcr.io/fyrmforge/stackr:<version> stackr
 LIVE
