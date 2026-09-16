@@ -23,7 +23,7 @@ import (
 // list called on anything else is worth a look anyway.
 var nodeScoped = map[string]bool{
 	"ConnectContainer": true, "ContainerIsSystem": true, "CreateVolume": true,
-	"CreateVolumeOpts": true, "DeleteVolumeFile": true, "DigestRef": true,
+	"CreateVolumeOpts": true, "DeleteVolumeFile": true, "PushImageDigest": true,
 	"Exec": true, "ExecShell": true, "ExecStream": true, "ExecTTY": true,
 	"HealthStatus": true, "InspectContainer": true, "InspectVolume": true,
 	"ListAll": true, "ListByLabel": true, "ListVolumeFiles": true,

@@ -602,28 +602,6 @@ func (r *Runtime) PushImage(ctx context.Context, ref string, logW io.Writer) err
 	return cmd.Run()
 }
 
-// DigestRef turns a pushed tag into the same image pinned by digest:
-// registry/name@sha256:... The agent service uses it because its tag never
-// changes. A spec that says :latest is byte-identical after an upgrade, so
-// EnsureService sees nothing to do and every node keeps running the old
-// agent while the panel starts refusing its calls on the version header.
-func (r *Runtime) DigestRef(ctx context.Context, ref string) (string, error) {
-	ins, err := r.cli.ImageInspect(ctx, ref)
-	if err != nil {
-		return "", err
-	}
-	repo := ref
-	if i := strings.LastIndex(ref, ":"); i > strings.LastIndex(ref, "/") {
-		repo = ref[:i]
-	}
-	for _, rd := range ins.RepoDigests {
-		if strings.HasPrefix(rd, repo+"@") {
-			return rd, nil
-		}
-	}
-	return "", fmt.Errorf("no digest recorded for %s; was it pushed?", ref)
-}
-
 // TagImage tags src as dst.
 func (r *Runtime) TagImage(ctx context.Context, src, dst string) error {
 	return r.cli.ImageTag(ctx, src, dst)
@@ -2070,13 +2048,31 @@ func (r *Runtime) PullImageAuth(ctx context.Context, ref, auth string, logW io.W
 	if err != nil {
 		return err
 	}
-	return drainProgress(rc, logW)
+	_, err = drainProgress(rc, logW)
+	return err
 }
 
 func (r *Runtime) PushImageAuth(ctx context.Context, ref, auth string, logW io.Writer) error {
+	_, err := r.pushImage(ctx, ref, auth, logW)
+	return err
+}
+
+// PushImageDigest pushes and returns the manifest digest the registry stored.
+// Not the local image id: with the containerd image store a pulled multi-arch
+// image's id is its index, while the push sends only this platform, so a ref
+// pinned to the id names a manifest the registry never received.
+func (r *Runtime) PushImageDigest(ctx context.Context, ref, auth string) (string, error) {
+	digest, err := r.pushImage(ctx, ref, auth, io.Discard)
+	if err == nil && digest == "" {
+		err = fmt.Errorf("registry reported no digest for %s", ref)
+	}
+	return digest, err
+}
+
+func (r *Runtime) pushImage(ctx context.Context, ref, auth string, logW io.Writer) (string, error) {
 	rc, err := r.cli.ImagePush(ctx, ref, image.PushOptions{RegistryAuth: auth})
 	if err != nil {
-		return err
+		return "", err
 	}
 	return drainProgress(rc, logW)
 }
@@ -2091,23 +2087,32 @@ type progressLine struct {
 	ErrorDetail *struct {
 		Message string `json:"message"`
 	} `json:"errorDetail"`
+	// Aux carries the pushed manifest's digest at the end of a push.
+	Aux *struct {
+		Digest string `json:"Digest"`
+	} `json:"aux"`
 }
 
 // drainProgress renders the JSON progress stream as plain lines and returns the
 // error the stream reports. The stream's own error is the only signal there is:
 // the HTTP call itself succeeds even when the push is refused, so a caller that
 // only checked err would record a failed push as a finished deployment.
-func drainProgress(rc io.ReadCloser, logW io.Writer) error {
+// Also returns the digest a push reports, "" for a pull.
+func drainProgress(rc io.ReadCloser, logW io.Writer) (string, error) {
 	defer func() { _ = rc.Close() }()
 	dec := json.NewDecoder(rc)
 	var streamErr error
+	var digest string
 	for {
 		var l progressLine
 		if err := dec.Decode(&l); err != nil {
 			if err == io.EOF {
 				break
 			}
-			return err
+			return "", err
+		}
+		if l.Aux != nil && l.Aux.Digest != "" {
+			digest = l.Aux.Digest
 		}
 		if l.ErrorDetail != nil {
 			streamErr = fmt.Errorf("%s", l.ErrorDetail.Message)
@@ -2127,5 +2132,5 @@ func drainProgress(rc io.ReadCloser, logW io.Writer) error {
 		}
 		_, _ = fmt.Fprintln(logW, l.Status)
 	}
-	return streamErr
+	return digest, streamErr
 }

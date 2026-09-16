@@ -5,7 +5,7 @@
 # service. Installs once: upgrades run from the panel (Admin, Update), and a
 # host that already has the stackr service is refused.
 #
-#   install.sh [--version 0.1.1]    default: latest
+#   install.sh [--version 0.1.1]    default: the latest release
 #
 # With a hostname the panel publishes no port at all
 # (docs/plans/31-node-agent-open-questions.md, the panel as a service). Swarm
@@ -29,6 +29,15 @@ while [ $# -gt 0 ]; do
     *) die "unknown argument: $1 (usage: $0 [--version X.Y.Z])" ;;
   esac
 done
+# latest becomes the release number it points at. The node agents run the
+# panel's own image straight from ghcr only when it is a release tag
+# (docs/plans/44-agent-image-published.md), and restore.sh compares versions.
+if [ "$version" = latest ]; then
+  command -v curl >/dev/null || die "curl is needed to find the latest release; install it or pass --version X.Y.Z"
+  version=$({ curl -fsSL https://api.github.com/repos/FyrmForge/stackr/releases/latest || true; } |
+    sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' | head -1)
+  [ -n "$version" ] || die "could not read the latest release from GitHub; pass --version X.Y.Z"
+fi
 # Release tags carry a v, image tags do not.
 version=${version#v}
 

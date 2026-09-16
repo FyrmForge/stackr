@@ -445,18 +445,30 @@ func main() {
 	// the runtime, which these were built from.
 	// A swarm with more than one node runs Ensure on every boot, not only
 	// when the service is missing. It is the upgrade path: the new panel
-	// pushes its own image and updates the agent service to that digest, so
-	// the agents roll to the same build (docs/plans/30-docker-swarm.md, step
-	// 7). Skipping it while the service exists leaves every node on the old
-	// agent, which the panel then refuses on the version header.
+	// points the agent service at its own image (a release tag, or a digest in
+	// the managed registry), so the agents roll to the same build
+	// (docs/plans/30-docker-swarm.md, step 7; 44-agent-image-published.md).
+	// Skipping it while the service exists leaves every node on the old agent,
+	// which the panel then refuses on the version header.
 	go func() {
 		ctx := context.Background()
 		ns, err := rt.ListNodes(ctx)
 		if err != nil || len(ns) < 2 {
 			return
 		}
-		if err := agent.Ensure(ctx, store, rt, envDataDir); err != nil {
-			log.Error("node agent service", "error", err)
+		// Retried: on the registry path the push authenticates against this
+		// panel, which is not listening yet on the first try.
+		for attempt := 1; ; attempt++ {
+			err := agent.Ensure(ctx, store, rt, envDataDir)
+			if err == nil {
+				return
+			}
+			if attempt == 10 {
+				log.Error("node agent service", "error", err)
+				return
+			}
+			log.Warn("node agent service, retrying", "attempt", attempt, "error", err)
+			time.Sleep(15 * time.Second)
 		}
 	}()
 	// Upgrades from the panel. The release check runs at boot and daily so the

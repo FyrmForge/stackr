@@ -5,10 +5,10 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
-	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/registry"
@@ -138,6 +138,19 @@ func Ensure(ctx context.Context, store repo.Store, rt *runtime.Runtime, dataDir 
 // single node and is caught on the second, when the agent task fails to
 // place with an image-pull error naming the tag.
 func publish(ctx context.Context, store repo.Store, rt *runtime.Runtime, local string) (image, auth string, err error) {
+	// A release image is already on a public registry every node can reach,
+	// as a multi-arch index, so each node pulls its own platform. Its tag
+	// moves on every upgrade, so the spec changes and the agents roll. No
+	// push, which is also no race against the panel's own token endpoint at
+	// boot (docs/plans/44-agent-image-published.md).
+	//
+	// The auth is an explicit anonymous one, not "": an empty auth makes swarm
+	// keep the one already in the spec, which on a service that used to point
+	// at the managed registry is that registry's agent login, and every node
+	// would send it to ghcr.
+	if releaseImage.MatchString(local) {
+		return local, anonymousAuth, nil
+	}
 	reg, err := store.GetManagedRegistry(ctx)
 	if err != nil || reg == nil {
 		return local, "", nil //nolint:nilerr // no registry is a single-node install, not a failure
@@ -167,19 +180,18 @@ func publish(ctx context.Context, store repo.Store, rt *runtime.Runtime, local s
 	// The root credential in the request's own auth header. Not `docker
 	// login`: the daemon config is shared by everything on the node, and this
 	// is the one credential that can reach every org's namespace.
-	if err := rt.PushImageAuth(ctx, pushed, registry.EncodeAuth(reg, reg.URL), io.Discard); err != nil {
-		return "", "", fmt.Errorf("pushing the agent image: %w", err)
-	}
+	//
 	// By digest, not by the tag. The tag is always :latest, so an upgraded
 	// panel would produce a byte-identical service spec, swarm would find
 	// nothing to update, and every node would keep running the old agent,
 	// which the panel then refuses to talk to on the version header, with no
-	// way left in the product to fix it.
-	pinned, err := rt.DigestRef(ctx, pushed)
+	// way left in the product to fix it. The digest is the one the registry
+	// reports for the push, not the local image's: for a multi-arch image the
+	// local id is the whole index and only this platform was pushed.
+	digest, err := rt.PushImageDigest(ctx, pushed, registry.EncodeAuth(reg, reg.URL))
 	if err != nil {
-		return "", "", err
+		return "", "", fmt.Errorf("pushing the agent image: %w", err)
 	}
-	_, digest, _ := strings.Cut(pinned, "@")
 	// The spec's credential is the pull-only agent identity, not the root
 	// pair: the spec is handed to every node and the agent is global, so the
 	// root pair there is a permanent cluster-wide key to every org's images.
@@ -187,6 +199,13 @@ func publish(ctx context.Context, store repo.Store, rt *runtime.Runtime, local s
 	return host + "/stkr-agent@" + digest,
 		registry.Auth(registry.AgentUser, registry.AgentSecret(reg.Password), host), nil
 }
+
+// releaseImage is a published stackr release, the only ref install.sh and the
+// panel upgrade ever set.
+var releaseImage = regexp.MustCompile(`^ghcr\.io/fyrmforge/stackr:[0-9]+\.[0-9]+\.[0-9]+(@sha256:[0-9a-f]+)?$`)
+
+// anonymousAuth is base64("{}"), an auth blob with no credentials in it.
+const anonymousAuth = "e30="
 
 // ensureKey creates the shared runtime key as a swarm secret, once. Returns
 // the key when it made one and "" when it was already there, a secret's
