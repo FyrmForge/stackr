@@ -56,11 +56,10 @@ archive_version=$(tar xzf "$ARCHIVE" -O VERSION | tr -d '[:space:]')
 running_image=$(docker service inspect stackr \
   --format '{{.Spec.TaskTemplate.ContainerSpec.Image}}')
 
-# An archive from a newer build than the running one holds a schema the
-# running binary predates, so the service moves to the archive's release.
-# An older archive keeps the current image and migrates forward on boot.
-# Only a release tag on both sides can be compared; :latest or a local build
-# is left alone and reported below.
+# The data comes back with the build that wrote it, in either direction: a
+# newer archive holds a schema the running binary predates, and an older one
+# is how a bad upgrade is undone. Only a release tag on both sides can be
+# compared; :latest or a local build is left alone and reported below.
 semver='^[0-9]+\.[0-9]+\.[0-9]+$'
 archive_tag=${archive_version#v}
 running_tag=${running_image%%@*}
@@ -68,8 +67,7 @@ running_tag=${running_tag##*:}
 pin=""
 if printf '%s' "$archive_tag" | grep -Eq "$semver" &&
   printf '%s' "$running_tag" | grep -Eq "$semver" &&
-  [ "$archive_tag" != "$running_tag" ] &&
-  [ "$(printf '%s\n%s\n' "$running_tag" "$archive_tag" | sort -V | tail -1)" = "$archive_tag" ]; then
+  [ "$archive_tag" != "$running_tag" ]; then
   pin=$archive_tag
 fi
 

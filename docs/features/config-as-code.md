@@ -69,10 +69,12 @@ base:                       # tiles defined once, landing in EVERY static env
         DATABASE_URL: ${{ tile.web-db.DATABASE_URL }}
       depends_on:           # startup order on bulk starts (apply, boot resync)
         - seed:completed    # started (default) | healthy | completed
-      files:                # repo files shipped into the container, read-only
+      files:                # repo files or folders shipped into the container, read-only
         - config/app.yml:/etc/app/config.yml:template   # :template = varref over the bytes
-      storage:              # declared storage-tile sub-paths
+        - dashboards:/etc/grafana/dashboards           # a folder ships the whole tree
+      storage:              # declared storage-tile sub-paths, or an org share
         - pool-ssd/webdata:/data
+        - ${{ org.storage.media }}/tv:/tv
       volumes:
         - uploads:/app/uploads
       healthcheck: curl -f http://localhost:8080/health
@@ -121,8 +123,9 @@ binding). Image-source runnables take `update_policy: off|notify|auto` (the
 registry watcher: badge + notification, or auto-redeploy on a new digest);
 git-built ones take `wait_for_ci: true` (a push parks its deploy until the
 commit's checks pass). Domain entries set exactly one of `host` / `apex` /
-`auto`, plus optional `path`, `https` (default true), `redirect_to`; the first
-listed is what `STACKR_PUBLIC_URL` resolves to.
+`auto`, plus optional `path`, `https` (default true), `redirect_to`,
+`middlewares`, `priority`, `rule` and `port` (see Domains); the first listed is
+what `STACKR_PUBLIC_URL` resolves to.
 
 Managed instances take `image:` as a per-instance override of the engine
 default (you own upgrade compatibility), `shm_size_mb` and `update_policy`.
@@ -203,6 +206,84 @@ tiles:
       - host: legacy.example.com
         force_https: false   # serve TLS, still answer on http
 ```
+
+Four more keys shape the route itself:
+
+- `middlewares`: traefik middleware names, run after stackr's own auth and
+  header ones. A bare name is this stack's `proxy.middlewares` entry,
+  `stack/name` is another stack's in the same org.
+- `priority`: the traefik router priority.
+- `rule`: a raw traefik rule. It replaces the generated `Host()` and
+  `PathPrefix()` match only, so `host:` is still required: it picks the
+  certificate. A plain entry and a rule entry can share a host.
+- `port`: the container port for this entry. Blank uses the tile's.
+
+```yaml
+domains:
+  - host: oc.example.com
+  - host: oc.example.com
+    rule: Host(`oc.example.com`) && Path(`/.well-known/openid-configuration`)
+    priority: 100
+    middlewares: [oidc-discovery, auth/authelia]
+```
+
+## Proxy middlewares
+
+`proxy.middlewares` holds raw traefik middleware bodies. stackr writes them to
+one dynamic file per stack, under names only it uses, so two stacks never
+collide. A plan refuses a domain naming a middleware that does not exist, and
+refuses to drop one a domain anywhere in the org still names: traefik would
+switch those routers off without a word.
+
+```yaml
+proxy:
+  middlewares:
+    authelia:
+      forwardAuth:
+        address: http://authelia:9091/api/authz/forward-auth
+        trustForwardHeader: true
+        authResponseHeaders: [Remote-User, Remote-Groups, Remote-Email]
+```
+
+## Org shares
+
+The org file's `storage:` declares network shares, smb or nfs. There is no
+`local` backend: an org never touches a host's disk. Credentials come from org
+values by reference. Any tile in the org mounts any sub-path of a share, or
+its root, with `${{ org.storage.NAME }}`. Nothing is declared up front.
+
+```yaml
+# stackr-org.yml
+secrets:
+  MEDIA_SMB_USER:
+  MEDIA_SMB_PASSWORD:
+storage:
+  media:
+    backend: smb                 # smb | nfs
+    address: nas.lan
+    export: media                # smb share name, or nfs exported directory
+    username: ${{ org.secrets.MEDIA_SMB_USER }}
+    password: ${{ org.secrets.MEDIA_SMB_PASSWORD }}
+    path: /library               # optional root inside the export
+    opts: vers=3.0               # optional raw mount options
+```
+
+Each distinct sub-path is its own docker volume, created on every ready node,
+and one volume mounts into any number of containers at once. Managed databases
+cannot mount a share: database files over nfs or smb corrupt. Changing a share
+recreates its volumes, so stop the tiles that mount it first. A share a tile
+still mounts cannot be dropped from the file. Outside config, `stackr storage
+add --org <org>` adds one to an org with no config file.
+
+## Files
+
+A `files:` entry naming a folder ships the whole tree, and `:template` on a
+folder templates every file in it. Each deploy writes a fresh copy, so a file
+deleted from the repo is gone from the next deploy. Only regular files are
+copied; symlinks are skipped.
+
+`volumes:` refuses a relative source like `./authelia:/config`. Under swarm it
+used to mount an empty directory; ship repo files with `files:` instead.
 
 ## Renames: `moved:`
 

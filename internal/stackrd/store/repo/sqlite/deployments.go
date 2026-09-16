@@ -87,8 +87,8 @@ func (s *Store) CreateDomain(ctx context.Context, d *repo.Domain) error {
 	enc.Path = storePath(d.Path)
 	enc.KeyPEM = secrets.Encrypt(d.KeyPEM)
 	_, err := s.db.NamedExecContext(ctx,
-		`INSERT INTO domains (id, tile_id, host, path, container_port, https, force_https, redirect_to, cert_pem, key_pem, auto, position, created_at)
-		 VALUES (:id, :tile_id, :host, :path, :container_port, :https, :force_https, :redirect_to, :cert_pem, :key_pem, :auto, :position, :created_at)`, &enc)
+		`INSERT INTO domains (id, tile_id, host, path, container_port, https, force_https, redirect_to, cert_pem, key_pem, auto, position, middlewares, priority, rule, created_at)
+		 VALUES (:id, :tile_id, :host, :path, :container_port, :https, :force_https, :redirect_to, :cert_pem, :key_pem, :auto, :position, :middlewares, :priority, :rule, :created_at)`, &enc)
 	return err
 }
 
@@ -113,10 +113,12 @@ func (s *Store) GetDomain(ctx context.Context, id string) (*repo.Domain, error) 
 	return d, err
 }
 
-// GetDomainByHostPath finds the domain claiming a host+path (nil if free).
-// Used to reject duplicate/cross-tenant host claims before insert.
+// GetDomainByHostPath finds the domain claiming a host+path (nil if free),
+// the plain row before any rule row on it. Used to reject duplicate and
+// cross-tenant host claims before insert: a rule row owns the host+path for
+// its tile as much as a plain one does.
 func (s *Store) GetDomainByHostPath(ctx context.Context, host, path string) (*repo.Domain, error) {
-	return get[repo.Domain](ctx, s, `SELECT * FROM domains WHERE host = ? AND path = ?`, host, storePath(path))
+	return get[repo.Domain](ctx, s, `SELECT * FROM domains WHERE host = ? AND path = ? ORDER BY rule LIMIT 1`, host, storePath(path))
 }
 
 // ListDomainsByTile orders by declaration position first, the primary

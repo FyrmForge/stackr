@@ -76,6 +76,9 @@ type File struct {
 	// UIEdits: what the panel does with an edit to a field this file owns,
 	// block (default) or stage. Blank inherits the org file's defaults:.
 	UIEdits string `yaml:"ui_edits,omitempty"`
+	// Proxy carries raw traefik middlewares this stack's domains, and other
+	// stacks' in the org, can name (middlewares.go).
+	Proxy ProxyConf `yaml:"proxy,omitempty"`
 }
 
 // DomainResConf is one declared domain resource. Hosts are unique across the
@@ -505,6 +508,16 @@ type DomainConf struct {
 	// alone used to do.
 	ForceHTTPS *bool  `yaml:"force_https" json:"force_https,omitempty"`
 	RedirectTo string `yaml:"redirect_to" json:"redirect_to,omitempty"`
+	// Middlewares are appended after stackr's own auth and header ones: a
+	// bare name is this stack's proxy.middlewares entry, stack/name another
+	// stack's in the same org.
+	Middlewares []string `yaml:"middlewares" json:"middlewares,omitempty"`
+	Priority    int      `yaml:"priority" json:"priority,omitempty"`
+	// Rule is a raw traefik rule that replaces the generated Host/PathPrefix
+	// matcher. host: is still required: it picks the certificate.
+	Rule string `yaml:"rule" json:"rule,omitempty"`
+	// Port is the container port for this entry; 0 inherits the tile's.
+	Port int `yaml:"port" json:"port,omitempty"`
 }
 
 func (d DomainConf) HTTPSOn() bool { return d.HTTPS == nil || *d.HTTPS }
@@ -526,9 +539,11 @@ type Resolved struct {
 	UIEdits string
 	// Domains is the stack's declared domain resources, stack-level (not per
 	// env), so an env-scoped plan leaves them alone entirely.
-	Domains  []DomainResConf
-	PREnvs   *PREnvs
-	EnvOrder []string // the ladder: first = default environment; the home (repo.HomeSlug) is not on it
+	Domains []DomainResConf
+	// Middlewares is proxy.middlewares, stack-level like Domains.
+	Middlewares map[string]RawMap
+	PREnvs      *PREnvs
+	EnvOrder    []string // the ladder: first = default environment; the home (repo.HomeSlug) is not on it
 	// DefaultEnv is the file's bottom rung, set by Load. Diff prefers it over
 	// the store's idea of the default: on a first apply the envs the file
 	// declares may not exist yet, and the store's first env can be one the
@@ -651,6 +666,9 @@ func Parse(data []byte) (*File, error) {
 	if err := ValidateDomains(f.Domains); err != nil {
 		return nil, err
 	}
+	if err := validateMiddlewares(f.Proxy.Middlewares); err != nil {
+		return nil, err
+	}
 	return &f, nil
 }
 
@@ -703,13 +721,14 @@ func Load(data []byte, fetch Fetcher) (*Resolved, error) {
 
 func resolve(f *File) (*Resolved, error) {
 	r := &Resolved{
-		Stack:    f.Stack,
-		UIEdits:  f.UIEdits,
-		Domains:  f.Domains,
-		PREnvs:   f.PREnvs,
-		Envs:     map[string]ResolvedEnv{},
-		Vars:     f.Vars,
-		Defaults: f.Defaults,
+		Stack:       f.Stack,
+		UIEdits:     f.UIEdits,
+		Domains:     f.Domains,
+		Middlewares: f.Proxy.Middlewares,
+		PREnvs:      f.PREnvs,
+		Envs:        map[string]ResolvedEnv{},
+		Vars:        f.Vars,
+		Defaults:    f.Defaults,
 	}
 	if r.Stack == "" {
 		return nil, fmt.Errorf("stack name required")
@@ -1101,6 +1120,14 @@ func validateTile(name string, tc TileConf) error {
 		}
 		if (d.Apex != "" || d.Auto) && (d.Path != "" || d.RedirectTo != "") {
 			return fmt.Errorf("tile %s: apex/auto domains take no path or redirect", name)
+		}
+		if d.Rule != "" && d.Host == "" {
+			return fmt.Errorf("tile %s: a domain rule needs host: too, it picks the certificate", name)
+		}
+		for _, m := range d.Middlewares {
+			if strings.Count(m, "/") > 1 || strings.HasPrefix(m, "/") || strings.HasSuffix(m, "/") || strings.TrimSpace(m) == "" {
+				return fmt.Errorf("tile %s: middleware %q must be name or stack/name", name, m)
+			}
 		}
 	}
 	return nil

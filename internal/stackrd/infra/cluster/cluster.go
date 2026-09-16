@@ -445,7 +445,9 @@ func (c *Cluster) NodeOfStorage(ctx context.Context, s *repo.Storage) (string, e
 		// "local" is the manager's own row, seeded by the first migration and
 		// given its node id by the node reconcile at boot. Before that has run
 		// once it is still this machine, so say so rather than refuse.
-		if s.ServerID == "local" {
+		// An org share has no server: it is on the network, so any node can
+		// mount it, and this one is as good as any.
+		if s.ServerID == "local" || s.OrgID != "" {
 			return c.Self(ctx), nil
 		}
 		return "", fmt.Errorf("storage %s sits on a server that has not joined the swarm yet", s.Slug)

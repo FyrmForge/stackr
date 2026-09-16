@@ -210,7 +210,9 @@ func For(ctx context.Context, store repo.Store, rt *runtime.Runtime, t *repo.Til
 }
 
 // ParseAttachment decodes one tiles.storage line:
-// "storage-slug/path-name:/mount[:ro]".
+// "storage-slug/path-name:/mount[:ro]". Only an org share line
+// ("${{ org.storage.NAME }}:/mount") may leave the path name out: it mounts
+// the share's root that way, while a server pool always names a path.
 func ParseAttachment(line string) (storageSlug, pathName, mount string, ro bool, err error) {
 	rest := line
 	if strings.HasSuffix(rest, ":ro") {
@@ -222,12 +224,20 @@ func ParseAttachment(line string) (storageSlug, pathName, mount string, ro bool,
 		return "", "", "", false, fmt.Errorf("storage %q: want storage/subpath:/mount[:ro]", line)
 	}
 	src, mnt := rest[:i], rest[i+1:]
-	j := strings.IndexByte(src, '/')
-	if j <= 0 || j == len(src)-1 {
-		return "", "", "", false, fmt.Errorf("storage %q: source must be storage-slug/path-name", line)
-	}
 	if !strings.HasPrefix(mnt, "/") {
 		return "", "", "", false, fmt.Errorf("storage %q: mount path must be absolute", line)
+	}
+	j := strings.IndexByte(src, '/')
+	if j < 0 {
+		// varref would say for sure, but it imports this package's importers;
+		// a bare pool slug never starts with a reference.
+		if !strings.HasPrefix(src, "${{") {
+			return "", "", "", false, fmt.Errorf("storage %q: source must be storage-slug/path-name", line)
+		}
+		return src, "", mnt, ro, nil
+	}
+	if j == 0 || j == len(src)-1 {
+		return "", "", "", false, fmt.Errorf("storage %q: source must be storage-slug/path-name", line)
 	}
 	return src[:j], src[j+1:], mnt, ro, nil
 }

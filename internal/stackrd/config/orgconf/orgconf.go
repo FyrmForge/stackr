@@ -59,6 +59,8 @@ type File struct {
 	// Domains are the org's domain resources: the bases every stack in the org
 	// generates hostnames under unless it declares its own.
 	Domains []stackconf.DomainResConf `yaml:"domains,omitempty"`
+	// Storage is the org's network shares (storage.go).
+	Storage map[string]StorageConf `yaml:"storage,omitempty"`
 }
 
 // Defaults is the defaults: block.
@@ -96,7 +98,7 @@ type StackRef struct {
 // version: and stack: are optional in a body, inherited from the org file
 // and the entry's key, but still recognized so files carrying them parse.
 var bodyKeys = map[string]bool{"version": true, "stack": true, "base": true,
-	"environments": true, "shared": true, "secrets": true, "pr_envs": true, "include": true}
+	"environments": true, "shared": true, "secrets": true, "pr_envs": true, "include": true, "proxy": true}
 
 func (r *StackRef) UnmarshalYAML(n *yaml.Node) error {
 	if n.Kind != yaml.MappingNode {
@@ -177,6 +179,9 @@ func Parse(data []byte) (*File, error) {
 		return nil, fmt.Errorf("defaults: %w", err)
 	}
 	if err := stackconf.ValidateDomains(f.Domains); err != nil {
+		return nil, err
+	}
+	if err := validateStorage(f.Storage); err != nil {
 		return nil, err
 	}
 	for name, raw := range f.Shared {
@@ -479,6 +484,10 @@ func (r Runner) diff(ctx context.Context, org *repo.Org, f *File) (*stackconf.Pl
 		}
 	}
 
+	if err := r.diffStorage(ctx, org, f, p); err != nil {
+		return nil, err
+	}
+
 	// Org vars: additive + update. Removal is manual, the org may carry
 	// clickops vars the file never declared, and nothing marks origin.
 	cur, err := r.Store.ListVariables(ctx, repo.OwnerOrg, org.ID)
@@ -715,9 +724,26 @@ func (r Runner) Apply(ctx context.Context, org *repo.Org, cp *repo.ConfigPlan) e
 		return err
 	}
 
-	// Stacks first, shared instances need a stack env to host their row.
+	// Shares before the stacks: their tiles mount them on deploy.
 	var failed []string
+	if err := r.applyStorage(ctx, org, f, &failed); err != nil {
+		return err
+	}
+
+	// Stacks first, shared instances need a stack env to host their row. A
+	// stack naming another stack's middleware fails when it sorts before its
+	// provider on a fresh org; the second pass finds the provider applied.
+	var again []string
 	for _, name := range sortedKeys(f.Stacks) {
+		if err := r.applyStack(ctx, org, name, f.Stacks[name]); err != nil {
+			if strings.Contains(err.Error(), "no middleware ") {
+				again = append(again, name)
+				continue
+			}
+			failed = append(failed, fmt.Sprintf("stack %s: %v", name, err))
+		}
+	}
+	for _, name := range again {
 		if err := r.applyStack(ctx, org, name, f.Stacks[name]); err != nil {
 			failed = append(failed, fmt.Sprintf("stack %s: %v", name, err))
 		}

@@ -1,13 +1,16 @@
 package repo
 
 import (
+	"crypto/sha256"
 	"database/sql"
 	"database/sql/driver"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -131,6 +134,11 @@ type Stack struct {
 	// has applied once. Read it through UIEdits().
 	UIEditsMode string `db:"ui_edits"`
 
+	// ProxyMiddlewares is the stack file's proxy.middlewares: rendered as
+	// YAML, name to raw traefik middleware body. proxy.WriteStackMiddlewares
+	// turns it into one dynamic file.
+	ProxyMiddlewares string `db:"proxy_middlewares"`
+
 	CreatedAt time.Time `db:"created_at"`
 }
 
@@ -239,8 +247,12 @@ type Environment struct {
 // docker local-driver volume. Never mounted on the host by stackr, docker
 // performs the mount at container start.
 type Storage struct {
-	ID        string    `db:"id"`
-	ServerID  string    `db:"server_id"`
+	ID       string `db:"id"`
+	ServerID string `db:"server_id"` // "" on an org share
+	// OrgID is set on an org's network share (stackr-org.yml storage:), which
+	// has no server and no declared paths: tiles in that org mount any
+	// sub-path through ${{ org.storage.NAME }}.
+	OrgID     string    `db:"org_id"`
 	Name      string    `db:"name"`
 	Slug      string    `db:"slug"`
 	Backend   string    `db:"backend"` // nfs | smb | local
@@ -273,6 +285,16 @@ type StoragePath struct {
 // volume, and leave the data detached. Volumes are id-named and already
 // outside the slug scheme, so the shorter prefix bought nothing here.
 func StorageVolume(pathID string) string { return "stackr-stor-" + pathID[:8] }
+
+// OrgShareVolume is the docker volume for one sub-path of an org share. Org
+// shares declare no paths, so the name comes from the sub-path and the
+// share's connection: the same string gives the same volume on every node,
+// and an edited share gets a new name, so a node that missed the edit (down
+// at the time) cannot keep serving the old export from a same-named volume.
+func OrgShareVolume(s *Storage, subpath string) string {
+	sum := sha256.Sum256([]byte(strings.Join([]string{subpath, s.Backend, s.Address, s.Export, s.Username, s.Password, s.Opts}, "\x00")))
+	return "stackr-stor-" + s.ID[:8] + "-" + hex.EncodeToString(sum[:4])
+}
 
 // Server is one Docker host stackr manages: the "local" row is the swarm
 // manager and runs the panel, every other row is a swarm node added through
@@ -744,8 +766,27 @@ type Domain struct {
 	Auto bool `db:"auto"`
 	// Position is the declaration order among the tile's domains, first
 	// listed is primary, what STACKR_PUBLIC_URL resolves to.
-	Position  int       `db:"position"`
+	Position int `db:"position"`
+	// Middlewares are traefik middleware names appended after stackr's own:
+	// a bare name is one of the tile's stack's proxy.middlewares, stack/name
+	// is another stack's in the same org. Newline-separated.
+	Middlewares string `db:"middlewares"`
+	Priority    int    `db:"priority"` // traefik router priority, 0 = traefik's default
+	// Rule is a raw traefik rule that replaces the generated Host/PathPrefix
+	// matcher. Host still drives the certificate.
+	Rule      string    `db:"rule"`
 	CreatedAt time.Time `db:"created_at"`
+}
+
+// MiddlewareList splits Middlewares into names.
+func (d Domain) MiddlewareList() []string {
+	var out []string
+	for _, m := range strings.Split(d.Middlewares, "\n") {
+		if m = strings.TrimSpace(m); m != "" {
+			out = append(out, m)
+		}
+	}
+	return out
 }
 
 // DomainResource is a domain owned at a level, instance (server), org or

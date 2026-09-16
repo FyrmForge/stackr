@@ -2,6 +2,7 @@ package app
 
 import (
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/labstack/echo/v4"
@@ -57,6 +58,9 @@ templ domainsSection(c echo.Context, a *repo.Tile, domains []repo.Domain) {
 			<input type="text" name="path" placeholder="/ (path prefix)" title="Route only requests under this path prefix to this service" class={ inputCls + " !w-32" }/>
 			<input type="number" name="container_port" placeholder="port" min="1" max="65535" class={ inputCls + " !w-24" }/>
 			<input type="text" name="redirect_to" placeholder="redirect to (optional)" title="Requests to this host 301 to the given host instead of being served" class={ inputCls + " !w-48" }/>
+			<input type="text" name="rule" placeholder="traefik rule (optional)" title="Replaces the host and path match. The host still picks the certificate." class={ inputCls + " !w-56" }/>
+			<input type="number" name="priority" placeholder="priority" title="Higher wins when routes overlap" class={ inputCls + " !w-24" }/>
+			<input type="text" name="middlewares" placeholder="middlewares, comma separated" title="A stack middleware name, or stack/name from another stack" class={ inputCls + " !w-56" }/>
 			<label class="text-sm text-rw-muted flex items-center gap-1.5">
 				<input type="checkbox" name="https" value="1" checked/> HTTPS
 			</label>
@@ -82,6 +86,15 @@ templ domainsSection(c echo.Context, a *repo.Tile, domains []repo.Domain) {
 							}
 							if d.Path != "" && d.Path != "/" {
 								<span class="font-mono text-rw-faint">{ d.Path }</span>
+							}
+							if d.Rule != "" {
+								<span class="font-mono text-xs text-rw-faint">{ d.Rule }</span>
+							}
+							if d.Priority != 0 {
+								<span class="text-xs text-rw-faint">priority { strconv.Itoa(d.Priority) }</span>
+							}
+							if d.Middlewares != "" {
+								<span class="text-xs text-rw-faint">via { strings.Join(d.MiddlewareList(), ", ") }</span>
 							}
 							if d.RedirectTo != "" {
 								<span class="text-rw-faint">301 → { d.RedirectTo }</span>

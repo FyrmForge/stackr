@@ -8609,10 +8609,25 @@
             "type": "boolean",
             "nullable": true
           },
+          "middlewares": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
           "path": {
             "type": "string"
           },
+          "port": {
+            "type": "integer"
+          },
+          "priority": {
+            "type": "integer"
+          },
           "redirect_to": {
+            "type": "string"
+          },
+          "rule": {
             "type": "string"
           }
         }
@@ -10442,6 +10457,10 @@
             "type": "string",
             "description": "extra mount opts"
           },
+          "org": {
+            "type": "string",
+            "description": "org slug: makes an org network share (nfs/smb) its tiles mount as ${{ org.storage.NAME }}"
+          },
           "password": {
             "type": "string",
             "description": "smb; encrypted at rest (docker volume metadata keeps a plaintext copy)"
@@ -10469,6 +10488,10 @@
           },
           "name": {
             "type": "string"
+          },
+          "org": {
+            "type": "string",
+            "description": "org slug, set on an org share"
           },
           "paths": {
             "type": "array",

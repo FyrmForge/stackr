@@ -11,17 +11,22 @@ import (
 // pattern as provisions.db_password. (Docker's volume metadata still holds a
 // second plaintext copy once a volume is created; §2.7 accepts that.)
 
-const storageCols = `id, server_id, name, slug, backend, address, export, username, password, opts, status, status_msg, created_at`
+const storageCols = `id, server_id, org_id, name, slug, backend, address, export, username, password, opts, status, status_msg, created_at`
+
+// storageSelect reads the two owner columns as "" rather than NULL: exactly
+// one is set, and the model carries plain strings.
+const storageSelect = `SELECT id, COALESCE(server_id, '') AS server_id, COALESCE(org_id, '') AS org_id, name, slug, backend,
+	address, export, username, password, opts, status, status_msg, created_at FROM storage`
 
 func (s *Store) CreateStorage(ctx context.Context, st *repo.Storage) error {
 	enc := *st
 	enc.Password = secrets.Encrypt(st.Password)
-	if enc.ServerID == "" {
+	if enc.ServerID == "" && enc.OrgID == "" {
 		enc.ServerID = "local"
 	}
 	_, err := s.db.NamedExecContext(ctx,
 		`INSERT INTO storage (`+storageCols+`) VALUES
-		 (:id, :server_id, :name, :slug, :backend, :address, :export, :username, :password, :opts, :status, :status_msg, :created_at)`, &enc)
+		 (:id, NULLIF(:server_id, ''), NULLIF(:org_id, ''), :name, :slug, :backend, :address, :export, :username, :password, :opts, :status, :status_msg, :created_at)`, &enc)
 	return err
 }
 
@@ -34,15 +39,21 @@ func decryptStorage(st *repo.Storage, err error) (*repo.Storage, error) {
 }
 
 func (s *Store) GetStorage(ctx context.Context, id string) (*repo.Storage, error) {
-	return decryptStorage(get[repo.Storage](ctx, s, `SELECT * FROM storage WHERE id = ?`, id))
+	return decryptStorage(get[repo.Storage](ctx, s, storageSelect+` WHERE id = ?`, id))
 }
 
+// GetStorageBySlug finds a server pool or share. Org shares are not found
+// here: their slugs are only unique inside one org (GetOrgStorageBySlug).
 func (s *Store) GetStorageBySlug(ctx context.Context, slug string) (*repo.Storage, error) {
-	return decryptStorage(get[repo.Storage](ctx, s, `SELECT * FROM storage WHERE slug = ?`, slug))
+	return decryptStorage(get[repo.Storage](ctx, s, storageSelect+` WHERE slug = ? AND server_id IS NOT NULL`, slug))
+}
+
+func (s *Store) GetOrgStorageBySlug(ctx context.Context, orgID, slug string) (*repo.Storage, error) {
+	return decryptStorage(get[repo.Storage](ctx, s, storageSelect+` WHERE org_id = ? AND slug = ?`, orgID, slug))
 }
 
 func (s *Store) ListStorage(ctx context.Context) ([]repo.Storage, error) {
-	sts, err := list[repo.Storage](ctx, s, `SELECT * FROM storage ORDER BY name`)
+	sts, err := list[repo.Storage](ctx, s, storageSelect+` ORDER BY name`)
 	if err != nil {
 		return sts, err
 	}

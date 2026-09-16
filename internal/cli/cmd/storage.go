@@ -38,7 +38,11 @@ func storageLsCmd(rt *Runtime) *cobra.Command {
 				return rt.EmitJSON(es)
 			}
 			for _, e := range es {
-				_, _ = fmt.Fprintf(rt.Stdout, "%s\t%s\t%s\t%s\t%s\n", e.ID, e.Slug, e.Backend, e.Status, e.StatusMsg)
+				org := e.Org
+				if org == "" {
+					org = "-"
+				}
+				_, _ = fmt.Fprintf(rt.Stdout, "%s\t%s\t%s\t%s\t%s\t%s\n", e.ID, e.Slug, org, e.Backend, e.Status, e.StatusMsg)
 				for _, p := range e.Paths {
 					ro := ""
 					if p.ForcedRO {
@@ -95,6 +99,7 @@ func storageAddCmd(rt *Runtime) *cobra.Command {
 	f.StringVar(&in.Username, "username", "", "username")
 	f.StringVar(&in.Password, "password", "", "password (prefer STACKR_STORAGE_PASSWORD or the prompt)")
 	f.StringVar(&in.Opts, "opts", "", "raw mount options")
+	f.StringVar(&in.Org, "org", "", "org slug: an org share (nfs/smb), mounted as ${{ org.storage.NAME }}")
 	return cmd
 }
 

@@ -815,6 +815,9 @@ func (pl Planner) Snapshot(ctx context.Context, stack *repo.Stack) (State, error
 	if all, err := pl.Store.ListDomains(ctx); err == nil {
 		s.AllDomains = all
 	}
+	if err := pl.middlewareSnapshot(ctx, stack, &s); err != nil {
+		return s, err
+	}
 	paths := map[string]string{} // instance tile id → colon-path, memoised
 	for _, env := range envs {
 		if env.Type == "ephemeral" {

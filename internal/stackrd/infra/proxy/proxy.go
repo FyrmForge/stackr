@@ -18,6 +18,8 @@ import (
 	"strings"
 	"time"
 
+	yaml "go.yaml.in/yaml/v3"
+
 	"github.com/FyrmForge/stackr/internal/stackrd/config/envutil"
 	"github.com/FyrmForge/stackr/internal/stackrd/config/settings"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/cluster"
@@ -412,14 +414,27 @@ func (p *Proxy) WriteApp(app *repo.Tile, domains []repo.Domain) error {
 	var certs []repo.Domain
 	for i, d := range domains {
 		name := fmt.Sprintf("app-%s-%d", id8, i)
+		// A declared rule replaces the matcher only; the host still picks the
+		// certificate below.
 		rule := hostRule(d)
+		if d.Rule != "" {
+			rule = quoteYAML(d.Rule)
+		}
 		svc := name
 
-		routerMws := mws
+		routerMws := append([]string(nil), mws...)
 		// Auth first in the chain: no point running the header preset for a
 		// request that is about to be bounced to the login page.
 		if protectAuto && d.Auto {
 			routerMws = append([]string{"stackr-auth@file"}, routerMws...)
+		}
+		// The operator's own after stackr's.
+		for _, ref := range d.MiddlewareList() {
+			routerMws = append(routerMws, p.stackMiddleware(ctx, app, ref))
+		}
+		prio := ""
+		if d.Priority != 0 {
+			prio = fmt.Sprintf("      priority: %d\n", d.Priority)
 		}
 		if d.RedirectTo != "" {
 			// Redirect domains bypass auth/headers: the 301 fires first anyway.
@@ -445,13 +460,13 @@ func (p *Proxy) WriteApp(app *repo.Tile, domains []repo.Domain) error {
 			// force_https off leaves the http router serving the tile, so a
 			// client that cannot follow a redirect still gets an answer.
 			if d.ForceHTTPS {
-				fmt.Fprintf(&b, "    %s-http:\n      rule: %s\n      entryPoints: [web]\n      middlewares: [https-redirect]\n      service: %s\n", name, rule, svc)
+				fmt.Fprintf(&b, "    %s-http:\n      rule: %s\n%s      entryPoints: [web]\n      middlewares: [https-redirect]\n      service: %s\n", name, rule, prio, svc)
 			} else {
-				fmt.Fprintf(&b, "    %s-http:\n      rule: %s\n      entryPoints: [web]\n%s      service: %s\n", name, rule, middlewareLine(routerMws), svc)
+				fmt.Fprintf(&b, "    %s-http:\n      rule: %s\n%s      entryPoints: [web]\n%s      service: %s\n", name, rule, prio, middlewareLine(routerMws), svc)
 			}
-			fmt.Fprintf(&b, "    %s:\n      rule: %s\n      entryPoints: [websecure]\n%s%s      service: %s\n", name, rule, middlewareLine(routerMws), tls, svc)
+			fmt.Fprintf(&b, "    %s:\n      rule: %s\n%s      entryPoints: [websecure]\n%s%s      service: %s\n", name, rule, prio, middlewareLine(routerMws), tls, svc)
 		} else {
-			fmt.Fprintf(&b, "    %s:\n      rule: %s\n      entryPoints: [web]\n%s      service: %s\n", name, rule, middlewareLine(routerMws), svc)
+			fmt.Fprintf(&b, "    %s:\n      rule: %s\n%s      entryPoints: [web]\n%s      service: %s\n", name, rule, prio, middlewareLine(routerMws), svc)
 		}
 	}
 	if mwDefs.Len() > 0 {
@@ -492,6 +507,72 @@ func (p *Proxy) WriteApp(app *repo.Tile, domains []repo.Domain) error {
 	// their hostnames are not ours to parse.
 	go p.verify(domains[0].Host)
 	return nil
+}
+
+// StackMiddlewareName is the traefik name of one entry in a stack's
+// proxy.middlewares. Keyed on the stack id, not its slug: slugs repeat across
+// orgs and change on rename, and either would silently point a router at
+// someone else's middleware or at nothing.
+func StackMiddlewareName(stackID, name string) string {
+	return "stk-" + stackID[:8] + "-" + name
+}
+
+// stackMiddleware resolves a domain's middleware reference: a bare name is
+// the tile's own stack's, stack/name another stack's in the same org. When
+// the other stack is gone (renamed or deleted after the plan checked it) the
+// name still goes on the router: traefik disables a router naming a
+// middleware it cannot find, and a dead route beats a forwardAuth guard
+// silently dropping off a public one.
+func (p *Proxy) stackMiddleware(ctx context.Context, app *repo.Tile, ref string) string {
+	stackSlug, name, cross := strings.Cut(ref, "/")
+	if !cross {
+		return StackMiddlewareName(app.StackID, ref) + "@file"
+	}
+	missing := "missing-" + stackSlug + "-" + name + "@file"
+	if p.store == nil {
+		return missing
+	}
+	own, err := p.store.GetStack(ctx, app.StackID)
+	if err != nil || own == nil {
+		return missing
+	}
+	other, err := p.store.GetStackBySlug(ctx, own.OrgID, stackSlug)
+	if err != nil || other == nil {
+		return missing
+	}
+	return StackMiddlewareName(other.ID, name) + "@file"
+}
+
+// WriteStackMiddlewares writes a stack's proxy.middlewares as
+// dynamic/stack-<id>.yml, or removes the file when it has none. The bodies are
+// the operator's raw traefik config; only the names are rewritten.
+func (p *Proxy) WriteStackMiddlewares(s *repo.Stack) error {
+	path := filepath.Join(p.dir, "dynamic", "stack-"+s.ID+".yml")
+	var bodies map[string]any
+	if s.ProxyMiddlewares != "" {
+		if err := yaml.Unmarshal([]byte(s.ProxyMiddlewares), &bodies); err != nil {
+			return fmt.Errorf("stack %s middlewares: %w", s.Slug, err)
+		}
+	}
+	if len(bodies) == 0 {
+		err := os.Remove(path)
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	named := make(map[string]any, len(bodies))
+	for n, body := range bodies {
+		named[StackMiddlewareName(s.ID, n)] = body
+	}
+	out, err := yaml.Marshal(map[string]any{"http": map[string]any{"middlewares": named}})
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	return atomicWrite(path, "# generated by stackr, do not edit\n"+string(out))
 }
 
 // hostRule builds the router rule; wildcard hosts need HostRegexp.
@@ -547,6 +628,18 @@ func (p *Proxy) Resync(ctx context.Context) error {
 	if err := p.SyncCustomDynamic(p.customEntries(ctx)); err != nil {
 		return err
 	}
+	stacks, err := p.store.ListStacks(ctx)
+	if err != nil {
+		return err
+	}
+	for i := range stacks {
+		if err := p.WriteStackMiddlewares(&stacks[i]); err != nil {
+			return err
+		}
+	}
+	if err := p.pruneOrphans("stack-", stackIDs(stacks)); err != nil {
+		return err
+	}
 	return p.pruneOrphanApps(tiles)
 }
 
@@ -595,6 +688,40 @@ func (p *Proxy) SyncCustomDynamic(entries map[string]string) error {
 func (p *Proxy) CurrentStatic() string {
 	b, _ := os.ReadFile(filepath.Join(p.dir, "traefik.yml"))
 	return string(b)
+}
+
+func stackIDs(stacks []repo.Stack) map[string]bool {
+	out := make(map[string]bool, len(stacks))
+	for i := range stacks {
+		out[stacks[i].ID] = true
+	}
+	return out
+}
+
+// pruneOrphans deletes <prefix><id>.yml files whose id is not live, a deleted
+// stack's middlewares.
+func (p *Proxy) pruneOrphans(prefix string, live map[string]bool) error {
+	dir := filepath.Join(p.dir, "dynamic")
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	for _, e := range entries {
+		name := e.Name()
+		if e.IsDir() || !strings.HasPrefix(name, prefix) || !strings.HasSuffix(name, ".yml") {
+			continue
+		}
+		if id := strings.TrimSuffix(strings.TrimPrefix(name, prefix), ".yml"); id == "" || live[id] {
+			continue
+		}
+		if err := os.Remove(filepath.Join(dir, name)); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+	}
+	return nil
 }
 
 // pruneOrphanApps deletes app-<id>.yml files whose tile is gone. Resync only

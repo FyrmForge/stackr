@@ -747,6 +747,7 @@ type StorageEntry struct {
 	Backend   string        `json:"backend"`
 	Status    string        `json:"status"`
 	StatusMsg string        `json:"status_msg"`
+	Org       string        `json:"org,omitempty"`
 	Paths     []StoragePath `json:"paths"`
 }
 
@@ -766,6 +767,7 @@ type StorageCreate struct {
 	Username string `json:"username,omitempty"`
 	Password string `json:"password,omitempty"`
 	Opts     string `json:"opts,omitempty"`
+	Org      string `json:"org,omitempty"`
 }
 
 type StoragePathCreate struct {

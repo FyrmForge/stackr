@@ -109,7 +109,7 @@ CREATE TABLE domains (
     key_pem         TEXT      NOT NULL DEFAULT '',
     auto            INTEGER   NOT NULL DEFAULT 0,
     position        INTEGER   NOT NULL DEFAULT 0 -- order within a tile, the proxy matches in it
-, force_https INTEGER NOT NULL DEFAULT 1);
+, force_https INTEGER NOT NULL DEFAULT 1, middlewares TEXT NOT NULL DEFAULT '', priority INTEGER NOT NULL DEFAULT 0, rule TEXT NOT NULL DEFAULT '');
 CREATE TABLE environments (
     id             TEXT      PRIMARY KEY,
     stack_id       TEXT      NOT NULL REFERENCES stacks (id) ON DELETE CASCADE,
@@ -263,7 +263,7 @@ CREATE TABLE stacks (
     config_connector_id  TEXT      NOT NULL DEFAULT '',
     config_repo          TEXT      NOT NULL DEFAULT '',
     config_branch        TEXT      NOT NULL DEFAULT '',
-    config_path          TEXT      NOT NULL DEFAULT '', org_declared INTEGER NOT NULL DEFAULT 0, ui_edits TEXT NOT NULL DEFAULT '',
+    config_path          TEXT      NOT NULL DEFAULT '', org_declared INTEGER NOT NULL DEFAULT 0, ui_edits TEXT NOT NULL DEFAULT '', proxy_middlewares TEXT NOT NULL DEFAULT '',
                                    UNIQUE (org_id, slug)
 );
 CREATE TABLE staged_changes (
@@ -365,7 +365,7 @@ CREATE INDEX idx_config_plans_stack       ON config_plans(stack_id, created_at D
 CREATE INDEX idx_connectors_org           ON connectors(org_id);
 CREATE INDEX idx_cron_runs_ref            ON cron_runs (ref, started_at DESC);
 CREATE INDEX idx_deployments_tile         ON deployments (tile_id, created_at DESC);
-CREATE UNIQUE INDEX idx_domains_host_path        ON domains (host, path);
+CREATE UNIQUE INDEX idx_domains_host_path        ON domains (host, path, rule);
 CREATE INDEX idx_resources_provider       ON managed_resources(provider_tile_id);
 CREATE INDEX idx_metrics_ref_ts           ON metrics (ref, ts);
 CREATE INDEX idx_notifications_read       ON notifications (read, created_at DESC);
@@ -440,7 +440,10 @@ CREATE TABLE graph_groups (
 CREATE INDEX idx_graph_groups_owner ON graph_groups(owner_id);
 CREATE TABLE storage (
     id          TEXT       PRIMARY KEY,
-    server_id   TEXT       NOT NULL DEFAULT 'local' REFERENCES servers(id) ON DELETE CASCADE,
+    -- Exactly one of server_id / org_id: a server pool or share, or an org's
+    -- network share (stackr-org.yml storage:, nfs/smb only).
+    server_id   TEXT       REFERENCES servers(id) ON DELETE CASCADE,
+    org_id      TEXT       REFERENCES orgs(id) ON DELETE CASCADE,
     name        TEXT       NOT NULL,
     slug        TEXT       NOT NULL,
     backend     TEXT       NOT NULL, -- nfs | smb | local,
@@ -451,9 +454,11 @@ CREATE TABLE storage (
     opts        TEXT       NOT NULL DEFAULT '', -- extra mount opts appended to o=,
     status      TEXT       NOT NULL DEFAULT 'unknown', -- ok | error | unknown (last probe),
     status_msg  TEXT       NOT NULL DEFAULT '',
-    created_at  TIMESTAMP  NOT NULL
+    created_at  TIMESTAMP  NOT NULL,
+    CHECK ((server_id IS NULL) != (org_id IS NULL))
 );
-CREATE UNIQUE INDEX idx_storage_slug ON storage(server_id, slug);
+CREATE UNIQUE INDEX idx_storage_slug ON storage(server_id, slug) WHERE server_id IS NOT NULL;
+CREATE UNIQUE INDEX idx_storage_org_slug ON storage(org_id, slug) WHERE org_id IS NOT NULL;
 CREATE TABLE storage_paths (
     id          TEXT       PRIMARY KEY,
     storage_id  TEXT       NOT NULL REFERENCES storage(id) ON DELETE CASCADE,

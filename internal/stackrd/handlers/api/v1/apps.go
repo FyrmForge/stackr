@@ -12,6 +12,7 @@ import (
 
 	"github.com/FyrmForge/stackr/internal/stackrd/config/runpolicy"
 	"github.com/FyrmForge/stackr/internal/stackrd/config/stackconf"
+	"github.com/FyrmForge/stackr/internal/stackrd/config/varref"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/envnet"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/jobs"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/runtime"
@@ -299,8 +300,17 @@ func (a *API) patchApp(c echo.Context) error {
 			if err != nil {
 				return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 			}
-			st, serr := a.store.GetStorageBySlug(ctx, slug)
-			if serr != nil || st == nil {
+			var st *repo.Storage
+			if name := varref.OrgStorageRef(l); name != "" {
+				s, serr := a.store.GetStack(ctx, t.StackID)
+				if serr != nil || s == nil {
+					return echo.NewHTTPError(http.StatusNotFound, "not found")
+				}
+				st, serr = a.store.GetOrgStorageBySlug(ctx, s.OrgID, name)
+				if serr != nil || st == nil {
+					return echo.NewHTTPError(http.StatusBadRequest, "org share "+name+" not found")
+				}
+			} else if st, err = a.store.GetStorageBySlug(ctx, slug); err != nil || st == nil {
 				return echo.NewHTTPError(http.StatusBadRequest, "storage "+slug+" not found")
 			}
 			if err := storagetiles.ValidateAttach(st, t); err != nil {

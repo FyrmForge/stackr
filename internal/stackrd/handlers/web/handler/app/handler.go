@@ -1654,7 +1654,21 @@ func (h *handler) CreateDomain(c echo.Context) error {
 		return err
 	}
 	redirectTo := strings.TrimSpace(c.FormValue("redirect_to"))
+	rule := strings.TrimSpace(c.FormValue("rule"))
+	priority, _ := strconv.Atoi(c.FormValue("priority"))
+	var mws []string
+	for _, m := range strings.Split(c.FormValue("middlewares"), ",") {
+		if m = strings.TrimSpace(m); m != "" {
+			mws = append(mws, m)
+		}
+	}
+	// traefik disables a router naming a middleware it cannot find and says
+	// so only in its own log, so refuse the typo here, like the config plan.
+	if err := h.checkMiddlewares(ctx, a.StackID, mws); err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+	}
 	port, _ := strconv.Atoi(c.FormValue("container_port"))
+	ownPort := port
 	if port == 0 {
 		port = a.ContainerPort
 	}
@@ -1679,7 +1693,9 @@ func (h *handler) CreateDomain(c echo.Context) error {
 	if path == "" {
 		path = "/"
 	}
-	if existing, _ := h.store.GetDomainByHostPath(ctx, host, path); existing != nil {
+	// A rule entry may share host + path with this tile's own entries, never
+	// with another tile's: its priority would take that tile's traffic.
+	if existing, _ := h.store.GetDomainByHostPath(ctx, host, path); existing != nil && (existing.TileID != a.ID || (rule == "" && existing.Rule == "")) {
 		return echo.NewHTTPError(http.StatusConflict, "host + path already in use")
 	}
 	// Anti-squat: a custom host may not start with another org's slug, the same
@@ -1692,15 +1708,14 @@ func (h *handler) CreateDomain(c echo.Context) error {
 	if err := envops.CheckOrgSquat(ctx, h.store, host, stack.OrgID); err != nil {
 		return echo.NewHTTPError(http.StatusConflict, err.Error())
 	}
-	// Stage the domain onto the tile's desired set. Per-domain container ports
-	// aren't in the config model (it uses the tile's port), so a custom port
-	// here applies only on the immediate path.
+	// Stage the domain onto the tile's desired set.
 	if stage {
 		desired, err := h.currentDesiredDomains(ctx, a)
 		if err != nil {
 			return err
 		}
-		dc := stackconf.DomainConf{Host: host, Path: path, RedirectTo: redirectTo}
+		dc := stackconf.DomainConf{Host: host, Path: path, RedirectTo: redirectTo,
+			Rule: rule, Priority: priority, Middlewares: mws, Port: ownPort}
 		if c.FormValue("https") == "" {
 			off := false
 			dc.HTTPS = &off
@@ -1720,6 +1735,9 @@ func (h *handler) CreateDomain(c echo.Context) error {
 		ContainerPort: port,
 		HTTPS:         c.FormValue("https") != "",
 		RedirectTo:    redirectTo,
+		Rule:          rule,
+		Priority:      priority,
+		Middlewares:   strings.Join(mws, "\n"),
 		CreatedAt:     time.Now().UTC(),
 	}
 	if err := h.store.CreateDomain(ctx, d); err != nil {
@@ -1897,4 +1915,31 @@ func (h *handler) syncProxy(c echo.Context, a *repo.Tile) error {
 		return err
 	}
 	return h.px.WriteApp(a, domains)
+}
+
+// checkMiddlewares refuses a middleware reference no stack file declares: a
+// bare name is the tile's own stack's, stack/name another stack's in the org.
+func (h *handler) checkMiddlewares(ctx context.Context, stackID string, refs []string) error {
+	if len(refs) == 0 {
+		return nil
+	}
+	own, err := h.store.GetStack(ctx, stackID)
+	if err != nil || own == nil {
+		return fmt.Errorf("stack not found")
+	}
+	for _, ref := range refs {
+		slug, name, cross := strings.Cut(ref, "/")
+		st := own
+		if cross {
+			if st, err = h.store.GetStackBySlug(ctx, own.OrgID, slug); err != nil || st == nil {
+				return fmt.Errorf("no stack %s in this org", slug)
+			}
+		} else {
+			name = slug
+		}
+		if _, ok := stackconf.ParseMiddlewares(st.ProxyMiddlewares)[name]; !ok {
+			return fmt.Errorf("no middleware %s; proxy.middlewares in the stack file declares them", ref)
+		}
+	}
+	return nil
 }

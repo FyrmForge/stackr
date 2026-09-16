@@ -23,7 +23,12 @@ func TestParseAttachment(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, slug == "ssd-pool" && name == "configs" && mount == "/config" && ro)
 
-	for _, bad := range []string{"tv:/tv", "nas/", "nas/tv:relative", "nas/tv", ":/x"} {
+	// Only an org share line may skip the path name: it mounts the root.
+	slug, name, mount, _, err = ParseAttachment("${{ org.storage.media }}:/media")
+	require.NoError(t, err)
+	assert.True(t, slug == "${{ org.storage.media }}" && name == "" && mount == "/media")
+
+	for _, bad := range []string{"tv:/tv", "nas/", "nas/tv:relative", "nas/tv", ":/x", "/tv:/tv"} {
 		_, _, _, _, err := ParseAttachment(bad)
 		assert.Error(t, err, bad)
 	}
@@ -31,27 +36,27 @@ func TestParseAttachment(t *testing.T) {
 
 func TestVolumeOpts(t *testing.T) {
 	nfs := &repo.Storage{Slug: "nas", Backend: "nfs", Address: "192.168.1.50", Export: "/export/media"}
-	o, err := VolumeOpts(nfs, &repo.StoragePath{Subpath: "tv"})
+	o, err := VolumeOpts(nfs, "tv")
 	require.NoError(t, err)
 	assert.Equal(t, "nfs", o["type"])
 	assert.Equal(t, ":/export/media/tv", o["device"])
 	assert.Contains(t, o["o"], "addr=192.168.1.50")
 
 	smb := &repo.Storage{Slug: "nas2", Backend: "smb", Address: "192.168.1.51", Export: "share", Username: "u", Password: "p"}
-	o, err = VolumeOpts(smb, &repo.StoragePath{Subpath: "media/tv"})
+	o, err = VolumeOpts(smb, "media/tv")
 	require.NoError(t, err)
 	assert.Equal(t, "cifs", o["type"])
 	assert.Equal(t, "//192.168.1.51/share/media/tv", o["device"])
 	assert.Contains(t, o["o"], "username=u")
 
 	local := &repo.Storage{Slug: "ssd", Backend: "local", Export: "/mnt/ssd/pool"}
-	o, err = VolumeOpts(local, &repo.StoragePath{Subpath: "grafana"})
+	o, err = VolumeOpts(local, "grafana")
 	require.NoError(t, err)
 	assert.Equal(t, "none", o["type"])
 	assert.Equal(t, "bind", o["o"])
 	assert.Equal(t, "/mnt/ssd/pool/grafana", o["device"])
 
-	_, err = VolumeOpts(&repo.Storage{Backend: "local", Export: "relative"}, &repo.StoragePath{})
+	_, err = VolumeOpts(&repo.Storage{Backend: "local", Export: "relative"}, "")
 	require.Error(t, err, "local pool with a relative path must fail")
 }
 

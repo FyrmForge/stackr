@@ -12,10 +12,12 @@
 //	${{ stack.secrets.<name> }}   stack-wide secret
 //	${{ org.vars.<name> }}        org-wide plain variable
 //	${{ org.secrets.<name> }}     org-wide secret
+//	${{ org.storage.<name> }}     org network share, only in a tile's storage:
+//	                              lines (storagetiles.Resolve)
 //	${{ stackr.<NAME> }}          value the server supplies about itself
 //	                              (PROXY_IP, PROXY_CIDR, see platformVar)
 //
-// vars, secrets and backups are reserved slugs: a tile or shared instance may
+// vars, secrets, backups and storage are reserved slugs: a tile or shared instance may
 // not take one, or ${{ stack.vars.X }} would be ambiguous. The two-part
 // ${{ stack.<name> }} / ${{ org.<name> }} forms are gone; they are parse errors
 // naming the replacement.
@@ -134,6 +136,7 @@ const (
 	BucketVars    = "vars"
 	BucketSecrets = "secrets"
 	BucketBackups = "backups"
+	BucketStorage = "storage"
 )
 
 // Reserved reports whether a slug is one of the reference buckets. The list
@@ -201,6 +204,10 @@ func Parse(body string) (Ref, error) {
 		case r.Slug == BucketVars || r.Slug == BucketSecrets:
 			if r.Scope != "stack" && r.Scope != "org" {
 				return r, fmt.Errorf("%s: only stack and org carry %s", r.Source, r.Slug)
+			}
+		case r.Slug == BucketStorage:
+			if r.Scope != "org" {
+				return r, fmt.Errorf("%s: shares live under org; write ${{ org.storage.<name> }}", r.Source)
 			}
 		case r.Slug == BucketBackups:
 			if r.Scope != "org" && r.Scope != "stackr" {
@@ -393,6 +400,8 @@ func (s *session) lookup(r Ref) (string, error) {
 		// from a tile's backup: block. Resolving one into a container
 		// environment would hand them out.
 		return "", fmt.Errorf("%s: a backup destination is referenced from a tile's backup: block, not from a variable", r.Source)
+	case BucketStorage:
+		return s.orgStorage(r)
 	}
 	switch r.Scope {
 	case "tile":
@@ -437,6 +446,31 @@ func (s *session) platformVar(r Ref) (string, error) {
 		return "", fmt.Errorf("%s: not known yet; the proxy records it when it attaches to this environment's network, which has not happened since %s was created", r.Source, env.Slug)
 	}
 	return v, nil
+}
+
+// orgStorage resolves ${{ org.storage.<name> }} to the share's slug. The
+// lookup is by the consumer's own org, so a tile can never name another
+// org's share.
+func (s *session) orgStorage(r Ref) (string, error) {
+	st, err := s.r.store.GetOrgStorageBySlug(s.ctx, s.stack.OrgID, r.Name)
+	if err != nil {
+		return "", err
+	}
+	if st == nil {
+		return "", fmt.Errorf("%s: this org has no share named %q", r.Source, r.Name)
+	}
+	return st.Slug, nil
+}
+
+// OrgStorageRef reports the share name when a storage: line mounts an org
+// share, "" when it is a server pool line.
+func OrgStorageRef(line string) string {
+	for _, body := range Refs(line) {
+		if r, err := Parse(body); err == nil && r.Scope == "org" && r.Slug == BucketStorage {
+			return r.Name
+		}
+	}
+	return ""
 }
 
 // scopeVar resolves ${{ stack.vars.<name> }}, ${{ stack.secrets.<name> }} and

@@ -13,6 +13,8 @@ decisions.
 | [16 install scripts](16-install-scripts.md) | partly exercised | Finish production-install coverage and fold upgrade work into the beta release. |
 | [20 event-triggered functions](20-event-triggered-functions.md) | discussion | Decide the tile model, delivery guarantees and network ownership. |
 | [33 workqueue](33-workqueue.md) | steps 1–3 shipped | Move backups, volume moves and cron runs onto the durable queue. |
+| [45 lazy page loads](45-lazy-page-loads.md) | proposed, reviewed | Pages that block on docker, agents, GitHub or the registry: fragments or bounded calls with an unknown state, nine items. |
+| [46 serverconfig gaps](46-serverconfig-gaps.md) | done | Org network shares, domain middlewares and rules, folder `files:`. |
 
 The beta sequence is tracked in [Beta release](../beta-release.md). Product
 gaps which are not approved plans live in [Notes](../notes.md).
@@ -37,4 +39,5 @@ gaps which are not approved plans live in [Notes](../notes.md).
 | [34](34-apply-and-review-fixes.md)–[39](39-review-fixes.md) | Apply safety, cluster boundary, builds, parity, restore and review fixes shipped. |
 | [40](40-cloudflare.md) | Cloudflare connector parked. |
 | [41](41-beta-gate.md)–[42](42-ignored-writes.md) | Beta gate and ignored-write audit shipped and rig-verified. |
+| [43](43-panel-upgrade.md)–[44](44-agent-image-published.md) | Panel upgrade and node agents on a published install shipped and rig-verified. |
 | [2026-09-11 review](2026-09-11-review-fixes.md) | Security and tenancy review fixes shipped. |

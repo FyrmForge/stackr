@@ -29,7 +29,8 @@ func StateToResolved(stackName string, s State) *Resolved {
 		}
 	}
 	sort.Strings(order) // stable; real display order is applied by the caller
-	r := &Resolved{Stack: stackName, EnvOrder: order, Envs: map[string]ResolvedEnv{}}
+	r := &Resolved{Stack: stackName, EnvOrder: order, Envs: map[string]ResolvedEnv{},
+		Middlewares: ParseMiddlewares(s.Middlewares)}
 	// Domain resources round-trip as-is: a staged UI edit builds its desired
 	// config from this, and an empty Domains would read as "delete them all".
 	for _, d := range s.DomainRes {
@@ -142,7 +143,7 @@ func tileToConf(ts TileState, cur EnvState) TileConf {
 		tc.Privileged = t.Privileged
 		tc.Devices = splitTileLines(t.Devices)
 		tc.Restart = t.RestartPolicy
-		tc.Domains = domainsToConf(ts.Domains, cur.ApexHosts)
+		tc.Domains = domainsToConf(ts.Domains, cur.ApexHosts, ts.Tile.ContainerPort)
 	}
 	switch t.Kind {
 	case "service", "cron", "function":
@@ -166,6 +167,11 @@ func sourceToConf(t *repo.Tile, tc *TileConf) {
 	switch t.SourceType {
 	case "image":
 		tc.Image = t.ImageRef
+		tc.GitURL = t.GitURL
+		tc.Branch = t.GitBranch
+		if t.GitURL != "" {
+			tc.Connector = t.ConnectorID
+		}
 	default:
 		tc.Branch = t.GitBranch
 		tc.GitURL = t.GitURL
@@ -195,7 +201,7 @@ func envToMap(raw string) EnvMap {
 // nil HTTPS means "on" (the config default), so only an http-only domain
 // records an explicit false. Generated rows serialize as the intent (auto),
 // resource-host rows as apex claims, the read-side mirror of claimHost.
-func domainsToConf(ds []repo.Domain, apexHosts map[string]bool) []DomainConf {
+func domainsToConf(ds []repo.Domain, apexHosts map[string]bool, tilePort int) []DomainConf {
 	if len(ds) == 0 {
 		return nil
 	}
@@ -209,7 +215,11 @@ func domainsToConf(ds []repo.Domain, apexHosts map[string]bool) []DomainConf {
 			out = append(out, DomainConf{Apex: d.Host})
 			continue
 		}
-		dc := DomainConf{Host: d.Host, Path: d.Path, RedirectTo: d.RedirectTo}
+		dc := DomainConf{Host: d.Host, Path: d.Path, RedirectTo: d.RedirectTo,
+			Middlewares: d.MiddlewareList(), Priority: d.Priority, Rule: d.Rule}
+		if d.ContainerPort != 0 && d.ContainerPort != tilePort && d.RedirectTo == "" {
+			dc.Port = d.ContainerPort
+		}
 		if !d.HTTPS {
 			off := false
 			dc.HTTPS = &off

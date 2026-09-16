@@ -11,7 +11,7 @@ backups, and presents the whole system as a live dependency canvas.
 - Git and image deployments with immutable registry artifacts.
 - Multiple environments, promotion, rollback and pull-request previews.
 - Reviewable stack and organization configuration as code.
-- Managed PostgreSQL, MariaDB, MongoDB, Redis and S3-compatible storage.
+- Managed PostgreSQL and S3-compatible storage.
 - Logical database and bucket slices from shared instances.
 - Traefik routing, automatic TLS and environment-aware domains.
 - Scheduled jobs, one-shot functions and durable background work.

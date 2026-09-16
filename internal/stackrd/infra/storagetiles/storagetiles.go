@@ -11,6 +11,7 @@ import (
 	"path"
 	"strings"
 
+	"github.com/FyrmForge/stackr/internal/stackrd/config/varref"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/cluster"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/placement"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
@@ -24,8 +25,8 @@ func ValidBackend(b string) bool {
 }
 
 // VolumeOpts builds the docker local-driver options for one sub-path.
-func VolumeOpts(s *repo.Storage, p *repo.StoragePath) (map[string]string, error) {
-	sub := strings.Trim(p.Subpath, "/")
+func VolumeOpts(s *repo.Storage, subpath string) (map[string]string, error) {
+	sub := strings.Trim(subpath, "/")
 	switch s.Backend {
 	case "nfs":
 		o := "addr=" + s.Address + ",rw,nfsvers=4"
@@ -60,35 +61,56 @@ func VolumeOpts(s *repo.Storage, p *repo.StoragePath) (map[string]string, error)
 // a volume is a directory on one host, and creating an nfs mount on the
 // manager when the operator picked a worker leaves the worker without the
 // share it is about to mount, with swarm reporting the task healthy.
-func EnsureVolume(ctx context.Context, c *cluster.Cluster, node string, s *repo.Storage, p *repo.StoragePath) (string, error) {
-	name := repo.StorageVolume(p.ID)
+//
+// name is repo.StorageVolume for a declared path, repo.OrgShareVolume for an
+// org share's sub-path.
+func EnsureVolume(ctx context.Context, c *cluster.Cluster, node, name string, s *repo.Storage, subpath string) (string, error) {
 	if c.VolumeExists(ctx, node, name) {
 		return name, nil
 	}
-	opts, err := VolumeOpts(s, p)
+	opts, err := VolumeOpts(s, subpath)
 	if err != nil {
 		return "", err
 	}
 	return name, c.CreateVolumeOpts(ctx, node, name, "local", opts)
 }
 
-// Recreate drops and recreates the sub-path volume, the §2.7 edit dance
-// (opts are immutable on a docker volume). Fails while consumers hold it.
-func Recreate(ctx context.Context, c *cluster.Cluster, node string, s *repo.Storage, p *repo.StoragePath) error {
-	name := repo.StorageVolume(p.ID)
-	_ = c.RemoveVolume(ctx, node, name)
-	opts, err := VolumeOpts(s, p)
+// DropOrgShareVolumes removes every sub-path volume of an org share on every
+// ready node, the org share's edit dance: opts are immutable on a docker
+// volume, and the next deploy of each consumer recreates its volume with the
+// new ones. Docker refuses to remove a volume a container still mounts, so
+// this fails while consumers run, and the caller must not save the edit.
+func DropOrgShareVolumes(ctx context.Context, c *cluster.Cluster, s *repo.Storage) error {
+	nodes, err := c.ListNodes(ctx)
 	if err != nil {
 		return err
 	}
-	return c.CreateVolumeOpts(ctx, node, name, "local", opts)
+	prefix := "stackr-stor-" + s.ID[:8] + "-"
+	for _, n := range nodes {
+		if n.Status() != "ready" {
+			continue
+		}
+		vols, err := c.ListVolumes(ctx, n.ID)
+		if err != nil {
+			return err
+		}
+		for _, v := range vols {
+			if !strings.HasPrefix(v.Name, prefix) {
+				continue
+			}
+			if err := c.RemoveVolume(ctx, n.ID, v.Name); err != nil {
+				return fmt.Errorf("share %s is still mounted on %s; stop its tiles first: %w", s.Slug, n.Hostname, err)
+			}
+		}
+	}
+	return nil
 }
 
 // Probe mounts the sub-path volume in a throwaway container and lists its
 // root, surfacing bad creds / dead exports / missing local paths at
 // create/edit time instead of at first deploy. Returns nil on success.
 func Probe(ctx context.Context, c *cluster.Cluster, node string, s *repo.Storage, p *repo.StoragePath) error {
-	name, err := EnsureVolume(ctx, c, node, s, p)
+	name, err := EnsureVolume(ctx, c, node, repo.StorageVolume(p.ID), s, p.Subpath)
 	if err != nil {
 		return err
 	}
@@ -130,34 +152,7 @@ func ensureForConsumer(ctx context.Context, c *cluster.Cluster, store repo.Store
 		return "", err
 	}
 	if s.Backend != "local" {
-		nodes, err := c.ListNodes(ctx)
-		if err != nil {
-			return "", err
-		}
-		// Best effort per node: a node whose agent is down cannot take the
-		// definition, and failing the whole deploy for a machine the consumer
-		// may never land on trades a working deploy for a tidy one. The last
-		// error is only reported if no node took it.
-		var name string
-		var last error
-		for _, n := range nodes {
-			if n.Status() != "ready" {
-				continue
-			}
-			got, err := EnsureVolume(ctx, c, n.ID, s, p)
-			if err != nil {
-				last = err
-				continue
-			}
-			name = got
-		}
-		if name == "" {
-			if last != nil {
-				return "", fmt.Errorf("storage %s: no node could take it: %w", s.Slug, last)
-			}
-			return "", fmt.Errorf("storage %s: no ready node to mount it on", s.Slug)
-		}
-		return name, nil
+		return ensureEverywhere(ctx, c, repo.StorageVolume(p.ID), s, p.Subpath)
 	}
 	// Two local pools on two machines cannot both be mounted by one task, and
 	// whichever one loses gets an empty auto-created volume rather than an
@@ -173,7 +168,40 @@ func ensureForConsumer(ctx context.Context, c *cluster.Cluster, store repo.Store
 		return "", fmt.Errorf("storage %s is a local pool on another machine; %s runs elsewhere and would mount an empty directory. Move one of them, or use an nfs/smb share",
 			s.Slug, consumer.Slug)
 	}
-	return EnsureVolume(ctx, c, home, s, p)
+	return EnsureVolume(ctx, c, home, repo.StorageVolume(p.ID), s, p.Subpath)
+}
+
+// ensureEverywhere makes a network share's volume on every ready node.
+//
+// Best effort per node: a node whose agent is down cannot take the
+// definition, and failing the whole deploy for a machine the consumer may
+// never land on trades a working deploy for a tidy one. The last error is
+// only reported if no node took it.
+func ensureEverywhere(ctx context.Context, c *cluster.Cluster, name string, s *repo.Storage, subpath string) (string, error) {
+	nodes, err := c.ListNodes(ctx)
+	if err != nil {
+		return "", err
+	}
+	var got string
+	var last error
+	for _, n := range nodes {
+		if n.Status() != "ready" {
+			continue
+		}
+		v, err := EnsureVolume(ctx, c, n.ID, name, s, subpath)
+		if err != nil {
+			last = err
+			continue
+		}
+		got = v
+	}
+	if got == "" {
+		if last != nil {
+			return "", fmt.Errorf("storage %s: no node could take it: %w", s.Slug, last)
+		}
+		return "", fmt.Errorf("storage %s: no ready node to mount it on", s.Slug)
+	}
+	return got, nil
 }
 
 // ParseAttachment decodes one tiles.storage line. It lives in placement so
@@ -184,9 +212,15 @@ var ParseAttachment = placement.ParseAttachment
 // Resolve turns one attachment line into a ready bind string, ensuring the
 // backing volume exists and applying forced-ro.
 func Resolve(ctx context.Context, c *cluster.Cluster, store repo.Store, consumer *repo.Tile, line string) (string, error) {
+	if varref.OrgStorageRef(line) != "" {
+		return resolveOrgShare(ctx, c, store, consumer, line)
+	}
 	slug, pathName, mount, ro, err := ParseAttachment(line)
 	if err != nil {
 		return "", err
+	}
+	if pathName == "" {
+		return "", fmt.Errorf("storage %q: source must be storage-slug/path-name", line)
 	}
 	s, err := store.GetStorageBySlug(ctx, slug)
 	if err != nil || s == nil {
@@ -207,11 +241,51 @@ func Resolve(ctx context.Context, c *cluster.Cluster, store repo.Store, consumer
 		if err != nil {
 			return "", err
 		}
-		bind := name + ":" + mount
+		bind := name + ":" + mount + ":nocopy"
 		if ro || paths[i].ForcedRO {
-			bind += ":ro"
+			bind += ",ro"
 		}
 		return bind, nil
 	}
 	return "", fmt.Errorf("storage %s has no declared sub-path %q; declare it first (strict sub-paths)", slug, pathName)
+}
+
+// resolveOrgShare mounts a sub-path of an org share:
+// "${{ org.storage.NAME }}[/any/sub/path]:/mount[:ro]". Nothing is declared
+// up front, so each distinct sub-path is its own volume, named from the path.
+func resolveOrgShare(ctx context.Context, c *cluster.Cluster, store repo.Store, consumer *repo.Tile, line string) (string, error) {
+	ex, err := varref.New(store).ExpandStrings(ctx, consumer.ID, varref.System, []string{line})
+	if err != nil {
+		return "", err
+	}
+	slug, sub, mount, ro, err := ParseAttachment(ex[0])
+	if err != nil {
+		return "", err
+	}
+	sub = strings.Trim(path.Clean("/"+sub), "/")
+	for _, part := range strings.Split(sub, "/") {
+		if part == ".." {
+			return "", fmt.Errorf("storage %q: sub-path must stay inside the share", line)
+		}
+	}
+	stack, err := store.GetStack(ctx, consumer.StackID)
+	if err != nil || stack == nil {
+		return "", fmt.Errorf("storage %q: stack not found", line)
+	}
+	s, err := store.GetOrgStorageBySlug(ctx, stack.OrgID, slug)
+	if err != nil || s == nil {
+		return "", fmt.Errorf("storage %q: share not found", line)
+	}
+	if err := ValidateAttach(s, consumer); err != nil {
+		return "", err
+	}
+	name, err := ensureEverywhere(ctx, c, repo.OrgShareVolume(s, sub), s, sub)
+	if err != nil {
+		return "", err
+	}
+	bind := name + ":" + mount + ":nocopy"
+	if ro {
+		bind += ",ro"
+	}
+	return bind, nil
 }

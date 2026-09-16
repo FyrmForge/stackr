@@ -1,5 +1,9 @@
 
 # misc
+- [ ] `files:` only work on the manager. The per-deploy copy is written to the
+      manager's data dir and bind-mounted, so a tile placed on a worker mounts
+      a path that is not there. True for single files and folders alike. Fix
+      with docker configs, or by pinning tiles with files to the manager
 - [ ] the recovery CLI the install script promises cannot act as admin. The
       `/usr/local/bin/stackr` wrapper (scripts/install.sh) execs `/app/stackr`
       inside the panel container, and the image ships it

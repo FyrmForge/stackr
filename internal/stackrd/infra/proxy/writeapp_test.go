@@ -167,3 +167,34 @@ func TestForceHTTPSIsSeparateFromServingTLS(t *testing.T) {
 	assert.Contains(t, noRedirect, "entryPoints: [websecure]", "TLS is still served")
 	assert.Contains(t, noRedirect, "entryPoints: [web]", "and so is plain http")
 }
+
+func TestWriteAppRouteKeys(t *testing.T) {
+	app := &repo.Tile{ID: "abcdefgh-1234", StackID: "stack123-0000"}
+	got := writeAndRead(t, app, []repo.Domain{
+		{ID: "d1", Host: "oc.example.com", ContainerPort: 8080, HTTPS: true},
+		{ID: "d2", Host: "oc.example.com", ContainerPort: 9090, HTTPS: true, Priority: 100,
+			Rule: "Host(`oc.example.com`) && Path(`/.well-known/openid-configuration`)", Middlewares: "oidc-discovery"},
+	})
+	assert.Contains(t, got, `rule: "Host(`+"`oc.example.com`"+`) && Path(`+"`/.well-known/openid-configuration`"+`)"`)
+	assert.Contains(t, got, "priority: 100")
+	assert.Contains(t, got, "middlewares: [stk-stack123-oidc-discovery@file]")
+	assert.Contains(t, got, "certResolver: le", "the rule entry still gets its host's certificate")
+	assert.Contains(t, got, "tile-abcdefgh:9090")
+}
+
+func TestWriteStackMiddlewares(t *testing.T) {
+	p := &Proxy{dir: t.TempDir()}
+	s := &repo.Stack{ID: "stack123-0000", Slug: "auth",
+		ProxyMiddlewares: "authelia:\n  forwardAuth:\n    address: http://authelia:9091/api/authz/forward-auth\n"}
+	require.NoError(t, p.WriteStackMiddlewares(s))
+	path := filepath.Join(p.dir, "dynamic", "stack-"+s.ID+".yml")
+	b, err := os.ReadFile(path)
+	require.NoError(t, err)
+	assert.Contains(t, string(b), "stk-stack123-authelia:")
+	assert.Contains(t, string(b), "address: http://authelia:9091/api/authz/forward-auth")
+
+	s.ProxyMiddlewares = ""
+	require.NoError(t, p.WriteStackMiddlewares(s))
+	_, err = os.Stat(path)
+	assert.True(t, os.IsNotExist(err))
+}

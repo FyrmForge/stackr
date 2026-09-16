@@ -75,6 +75,7 @@ type Store interface {
 	CreateStorage(ctx context.Context, s *Storage) error
 	GetStorage(ctx context.Context, id string) (*Storage, error)
 	GetStorageBySlug(ctx context.Context, slug string) (*Storage, error)
+	GetOrgStorageBySlug(ctx context.Context, orgID, slug string) (*Storage, error)
 	ListStorage(ctx context.Context) ([]Storage, error)
 	UpdateStorage(ctx context.Context, s *Storage) error
 	DeleteStorage(ctx context.Context, id string) error

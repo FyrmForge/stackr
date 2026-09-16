@@ -24,6 +24,7 @@ func nav(o *repo.Org, active string) []form.NavItem {
 		{Label: "Connectors", Href: base + "/connectors", Active: active == "connectors"},
 		{Label: "Variables", Href: base + "/variables", Active: active == "variables"},
 		{Label: "Domains", Href: base + "/domains", Active: active == "domains"},
+		{Label: "Storage", Href: base + "/storage", Active: active == "storage"},
 		{Label: "Backups", Href: base + "/backups", Active: active == "backups"},
 		{Label: "Registry", Href: base + "/registry", Active: active == "registry"},
 		{Label: "Defaults", Href: base + "/defaults", Active: active == "defaults"},
@@ -230,6 +231,33 @@ templ orgDomainsPage(c echo.Context, o *repo.Org, res []repo.DomainResource, can
 					</label>
 					@form.Save("Add domain")
 				}
+			}
+		}
+	}
+}
+
+templ orgStoragePage(c echo.Context, o *repo.Org, shares []repo.Storage) {
+	@settingsShell(c, o, "storage") {
+		@form.Section("Network shares", form.ScopeOrg, "Tiles in this organization mount them as ${{ org.storage.NAME }}.") {
+			if len(shares) > 0 {
+				<ul class="space-y-2 mb-5">
+					for _, s := range shares {
+						<li class="panel px-3 py-2.5 flex flex-wrap items-center gap-2">
+							<span class="font-mono text-sm text-rw-text">{ s.Slug }</span>
+							<span class="font-mono text-xs text-rw-muted">{ s.Backend + "://" + s.Address + "/" + s.Export }</span>
+							if o.ConfigManaged() {
+								<span class="ml-auto text-xs px-1.5 py-0.5 rounded bg-rw-inset text-rw-muted">config file</span>
+							}
+						</li>
+					}
+				</ul>
+			} else {
+				<p class="text-sm text-rw-faint mb-5">No shares yet.</p>
+			}
+			if o.ConfigManaged() {
+				<p class="text-sm text-rw-faint">Declare shares under <span class="font-mono text-rw-text">storage:</span> in the org config file.</p>
+			} else {
+				<p class="text-sm text-rw-faint">Add one with <span class="font-mono text-rw-text">stackr storage add --org { o.Slug }</span>.</p>
 			}
 		}
 	}

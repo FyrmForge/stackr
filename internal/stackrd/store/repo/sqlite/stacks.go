@@ -151,9 +151,9 @@ func (s *Store) CreateStack(ctx context.Context, st *repo.Stack) error {
 	defer func() { _ = tx.Rollback() }()
 	if _, err := tx.NamedExecContext(ctx,
 		`INSERT INTO stacks (id, org_id, name, slug, description, settings,
-		 config_connector_id, config_repo, config_branch, config_path, org_declared, created_at)
+		 config_connector_id, config_repo, config_branch, config_path, org_declared, proxy_middlewares, created_at)
 		 VALUES (:id, :org_id, :name, :slug, :description, :settings,
-		 :config_connector_id, :config_repo, :config_branch, :config_path, :org_declared, :created_at)`, st); err != nil {
+		 :config_connector_id, :config_repo, :config_branch, :config_path, :org_declared, :proxy_middlewares, :created_at)`, st); err != nil {
 		return err
 	}
 	if _, err := tx.NamedExecContext(ctx,
@@ -182,7 +182,7 @@ func (s *Store) UpdateStack(ctx context.Context, st *repo.Stack) error {
 		`UPDATE stacks SET name = :name, slug = :slug, description = :description, settings = :settings,
 		 config_connector_id = :config_connector_id, config_repo = :config_repo,
 		 config_branch = :config_branch, config_path = :config_path, org_declared = :org_declared,
-		 ui_edits = :ui_edits WHERE id = :id`, st)
+		 ui_edits = :ui_edits, proxy_middlewares = :proxy_middlewares WHERE id = :id`, st)
 	return err
 }
 

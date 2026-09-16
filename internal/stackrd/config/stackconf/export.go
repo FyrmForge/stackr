@@ -27,7 +27,7 @@ func ExportFile(r *Resolved) *File {
 	// that has already happened, so exporting live state has nothing to say
 	// about one.
 	f := &File{Version: 1, Stack: r.Stack, UIEdits: r.UIEdits, Domains: r.Domains,
-		Vars: r.Vars, Defaults: r.Defaults, PREnvs: r.PREnvs}
+		Vars: r.Vars, Defaults: r.Defaults, PREnvs: r.PREnvs, Proxy: ProxyConf{Middlewares: r.Middlewares}}
 	// Shared instances live in the home environment, which is not a rung and
 	// so is never written as one.
 	if home, ok := r.Envs[repo.HomeSlug]; ok && len(home.Tiles) > 0 {

@@ -344,6 +344,10 @@ func (a Applier) ApplyPlan(ctx context.Context, stack *repo.Stack, cp *repo.Conf
 	if err := a.applyDomainRes(ctx, stack, resolved.Domains, takeDomainRes(plan)); err != nil {
 		return false, err
 	}
+	finishMiddlewares, err := a.applyMiddlewares(ctx, stack, resolved, plan)
+	if err != nil {
+		return false, err
+	}
 	if ren := takeRename(plan); ren != nil {
 		if err := a.RenameStack(ctx, stack, resolved.Stack, plan); err != nil {
 			return false, err
@@ -363,6 +367,7 @@ func (a Applier) ApplyPlan(ctx context.Context, stack *repo.Stack, cp *repo.Conf
 	if err := a.execute(ctx, stack, resolved, plan, opts); err != nil {
 		return false, err
 	}
+	finishMiddlewares()
 	// Envs were held back for a person, so the plan is not done. It stays
 	// pending and the whole thing applies again on approval.
 	if held {
@@ -672,9 +677,14 @@ func (a Applier) ApplyResolved(ctx context.Context, stack *repo.Stack, resolved 
 	if err := a.applyDomainRes(ctx, stack, resolved.Domains, takeDomainRes(plan)); err != nil {
 		return false, err
 	}
+	finishMiddlewares, err := a.applyMiddlewares(ctx, stack, resolved, plan)
+	if err != nil {
+		return false, err
+	}
 	if err := a.execute(ctx, stack, resolved, plan, opts); err != nil {
 		return false, err
 	}
+	finishMiddlewares()
 	return true, nil
 }
 
@@ -1572,7 +1582,7 @@ func (a Applier) syncDomains(ctx context.Context, env *repo.Environment, t *repo
 	}
 	byKey := map[string]repo.Domain{}
 	for _, d := range cur {
-		byKey[d.Host+normPath(d.Path)] = d
+		byKey[domainKey(d.Host, d.Path, d.Rule)] = d
 	}
 	seen := map[string]bool{}
 	changed := false
@@ -1583,26 +1593,26 @@ func (a Applier) syncDomains(ctx context.Context, env *repo.Environment, t *repo
 		if herr != nil {
 			return herr
 		}
-		key := host + normPath(dc.Path)
+		key := domainKey(host, dc.Path, dc.Rule)
 		seen[key] = true
+		mws := strings.Join(dc.Middlewares, "\n")
 		if d, ok := byKey[key]; ok {
 			// Traefik routes off Domain.ContainerPort, not Tile.ContainerPort, so a
 			// config port: change has to land here too or the proxy keeps routing
 			// the old port. Nothing marks a row as config- vs API-created, so the
-			// heuristic is "it matched the tile's old port" = it tracked the tile.
-			// replace with an explicit owner column if API-set ports on
-			// config-managed tiles ever become a real workflow.
-			newPort := d.ContainerPort
-			if oldPort != 0 && tc.Port != 0 && d.ContainerPort == oldPort {
-				newPort = tc.Port
-			}
-			if d.HTTPS != dc.HTTPSOn() || d.ForceHTTPS != dc.ForceHTTPSOn() || d.RedirectTo != dc.RedirectTo || newPort != d.ContainerPort || d.Auto != dc.Auto || d.Position != i {
+			// heuristic is "it matched the tile's old port" = it tracked the tile;
+			// a domain's own port: wins outright (domainPort).
+			newPort := domainPort(dc, tc, oldPort, d.ContainerPort)
+			if d.HTTPS != dc.HTTPSOn() || d.ForceHTTPS != dc.ForceHTTPSOn() || d.RedirectTo != dc.RedirectTo || newPort != d.ContainerPort || d.Auto != dc.Auto || d.Position != i ||
+				d.Middlewares != mws || d.Priority != dc.Priority {
 				d.HTTPS = dc.HTTPSOn()
 				d.ForceHTTPS = dc.ForceHTTPSOn()
 				d.RedirectTo = dc.RedirectTo
 				d.ContainerPort = newPort
 				d.Auto = dc.Auto
 				d.Position = i
+				d.Middlewares = mws
+				d.Priority = dc.Priority
 				// No partial-update op exists; recreate preserves the id-free bits.
 				if err := store.DeleteDomain(ctx, d.ID); err != nil {
 					return err
@@ -1615,6 +1625,9 @@ func (a Applier) syncDomains(ctx context.Context, env *repo.Environment, t *repo
 			continue
 		}
 		port := tc.Port
+		if dc.Port != 0 {
+			port = dc.Port
+		}
 		if port == 0 && dc.RedirectTo != "" {
 			port = 80
 		}
@@ -1629,6 +1642,9 @@ func (a Applier) syncDomains(ctx context.Context, env *repo.Environment, t *repo
 			RedirectTo:    dc.RedirectTo,
 			Auto:          dc.Auto,
 			Position:      i,
+			Middlewares:   mws,
+			Priority:      dc.Priority,
+			Rule:          dc.Rule,
 			CreatedAt:     time.Now().UTC(),
 		}
 		if err := store.CreateDomain(ctx, d); err != nil {
@@ -1858,6 +1874,13 @@ func applySource(t *repo.Tile, tc TileConf, stack *repo.Stack, opts DiffOpts) {
 	case tc.Image != "":
 		t.SourceType = "image"
 		t.ImageRef = tc.Image
+		// An image tile takes git coordinates only to ship files: from the
+		// repo. Set unconditionally: a git tile turned image must lose its old
+		// repo, or the next files: entry clones it.
+		t.GitURL, t.GitBranch, t.ConnectorID = tc.GitURL, tc.Branch, ""
+		if tc.GitURL != "" {
+			t.ConnectorID = firstNonEmpty(tc.Connector, stack.ConfigConnectorID)
+		}
 	default:
 		t.SourceType = "git"
 		if u := firstNonEmpty(tc.GitURL, opts.GitURL); u != "" {

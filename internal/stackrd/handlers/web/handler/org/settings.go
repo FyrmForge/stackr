@@ -482,6 +482,26 @@ func (h *handler) SettingsDomains(c echo.Context) error {
 	return respond.HTML(c, http.StatusOK, orgDomainsPage(c, o, res, stackrmw.CanWriteOrg(c, h.store, o.ID)))
 }
 
+// GET /orgs/:id/settings/storage, this org's network shares. Read-only: they
+// come from the org file or the CLI.
+func (h *handler) SettingsStorage(c echo.Context) error {
+	o, err := h.settingsOrg(c)
+	if err != nil {
+		return err
+	}
+	all, err := h.store.ListStorage(c.Request().Context())
+	if err != nil {
+		return err
+	}
+	var shares []repo.Storage
+	for _, s := range all {
+		if s.OrgID == o.ID {
+			shares = append(shares, s)
+		}
+	}
+	return respond.HTML(c, http.StatusOK, orgStoragePage(c, o, shares))
+}
+
 // orgDomains is this org's own domain resources. There is no owner-scoped
 // query, so the filtering happens here.
 func (h *handler) orgDomains(c echo.Context, orgID string) ([]repo.DomainResource, error) {

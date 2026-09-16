@@ -8,6 +8,7 @@ package orgconf
 import (
 	"context"
 	"sort"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 
@@ -42,6 +43,35 @@ func ExportFile(ctx context.Context, store repo.Store, org *repo.Org) (*File, er
 			f.Vars = map[string]string{}
 		}
 		f.Vars[v.Name] = v.Value
+	}
+
+	shares, err := store.ListStorage(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, s := range shares {
+		if s.OrgID != org.ID {
+			continue
+		}
+		if f.Storage == nil {
+			f.Storage = map[string]StorageConf{}
+		}
+		// The password never goes in the file: reference the org secret that
+		// holds it, or declare one for the operator to set when none does.
+		pw := ""
+		if s.Password != "" {
+			name := secretHolding(vars, s.Password)
+			if name == "" {
+				name = strings.ToUpper(strings.ReplaceAll(s.Slug, "-", "_")) + "_PASSWORD"
+				if f.Secrets == nil {
+					f.Secrets = stackconf.SecretsNode{}
+				}
+				f.Secrets[name] = stackconf.SecretConf{}
+			}
+			pw = "${{ org.secrets." + name + " }}"
+		}
+		f.Storage[s.Slug] = StorageConf{Backend: s.Backend, Address: s.Address, Export: s.Export,
+			Username: s.Username, Password: pw, Opts: s.Opts}
 	}
 
 	all, err := store.ListDomainResources(ctx)
@@ -116,4 +146,14 @@ type yamlBuffer struct{ b []byte }
 func (w *yamlBuffer) Write(p []byte) (int, error) {
 	w.b = append(w.b, p...)
 	return len(p), nil
+}
+
+// secretHolding names the org secret whose value is v, "" when none does.
+func secretHolding(vars []repo.Variable, v string) string {
+	for _, x := range vars {
+		if x.Secret && x.Value == v {
+			return x.Name
+		}
+	}
+	return ""
 }

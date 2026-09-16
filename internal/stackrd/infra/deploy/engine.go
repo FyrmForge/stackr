@@ -8,6 +8,7 @@ import (
 	"database/sql"
 	"fmt"
 	"io"
+	"io/fs"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -691,7 +692,7 @@ func (e *Engine) pipeline(ctx context.Context, d *repo.Deployment, app *repo.Til
 	}
 	// files: after the varref pass on binds, the materialized host paths are
 	// literal and must not be re-expanded.
-	fileBinds, err := e.materializeFiles(ctx, rr, app, w)
+	fileBinds, err := e.materializeFiles(ctx, rr, app, d.ID, w)
 	if err != nil {
 		return fmt.Errorf("files: %w", err)
 	}
@@ -775,6 +776,9 @@ func (e *Engine) pipeline(ctx context.Context, d *repo.Deployment, app *repo.Til
 	}
 	e.retireContainers(ctx, app, w)
 	e.pruneImages(ctx, app)
+	// Only now: a bind mount reads the host directory live, so the old task
+	// needed its folder until the roll replaced it.
+	pruneFiles(e.dataDir, app.ID, d.ID)
 	return nil
 }
 
@@ -933,6 +937,10 @@ func (e *Engine) fetch(ctx context.Context, app *repo.Tile, dir, ref string, w i
 	if ref == "" {
 		ref = app.GitBranch
 	}
+	if ref == "" {
+		// No branch set (an image tile shipping files:): the repo's default.
+		ref = "HEAD"
+	}
 	if !repo.ValidGitURL(app.GitURL) {
 		return "", fmt.Errorf("git_url %q is not an allowed repository URL", app.GitURL)
 	}
@@ -950,7 +958,11 @@ func (e *Engine) fetch(ctx context.Context, app *repo.Tile, dir, ref string, w i
 	}
 	if _, err := os.Stat(filepath.Join(dir, ".git")); err != nil {
 		_ = os.RemoveAll(dir)
-		cmd := exec.CommandContext(ctx, "git", "clone", "--branch", app.GitBranch, "--single-branch", "--", app.GitURL, dir)
+		args := []string{"clone", "--single-branch"}
+		if app.GitBranch != "" {
+			args = append(args, "--branch", app.GitBranch)
+		}
+		cmd := exec.CommandContext(ctx, "git", append(args, "--", app.GitURL, dir)...)
 		cmd.Env = env
 		cmd.Stdout = w
 		cmd.Stderr = w
@@ -1062,10 +1074,17 @@ func underRepo(repoDir, p string) (string, error) {
 }
 
 // materializeFiles copies the tile's declared files: entries out of its git
-// repo into <dataDir>/files/<tile-id>/, templates the flagged ones through
-// the varref resolver, and returns the read-only bind lines. The repo is the
-// file source even for image tiles, those must carry git coordinates.
-func (e *Engine) materializeFiles(ctx context.Context, rr *varref.Resolver, app *repo.Tile, w io.Writer) ([]string, error) {
+// repo into <dataDir>/files/<tile-id>/<deploy-id>/, templates the flagged ones
+// through the varref resolver, and returns the read-only bind lines. An entry
+// naming a folder ships the whole tree, and :template templates every file in
+// it. The repo is the file source even for image tiles, those must carry git
+// coordinates.
+//
+// A fresh folder per deploy rather than one rewritten in place: the running
+// task bind-mounts its folder live, and a file deleted from the repo has to
+// disappear from the next one. pruneFiles removes the old folders once the new
+// service has converged.
+func (e *Engine) materializeFiles(ctx context.Context, rr *varref.Resolver, app *repo.Tile, deployID string, w io.Writer) ([]string, error) {
 	lines := splitLines(app.Files)
 	if len(lines) == 0 {
 		return nil, nil
@@ -1080,7 +1099,7 @@ func (e *Engine) materializeFiles(ctx context.Context, rr *varref.Resolver, app 
 			return nil, fmt.Errorf("fetch: %w", err)
 		}
 	}
-	outDir := filepath.Join(e.dataDir, "files", app.ID)
+	outDir := filepath.Join(e.dataDir, "files", app.ID, deployID)
 	binds := make([]string, 0, len(lines))
 	for _, l := range lines {
 		repoPath, containerPath, template, err := runtime.ParseFileMount(l)
@@ -1091,28 +1110,77 @@ func (e *Engine) materializeFiles(ctx context.Context, rr *varref.Resolver, app 
 		if err != nil {
 			return nil, err
 		}
-		b, err := os.ReadFile(src)
+		info, err := os.Stat(src)
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", repoPath, err)
 		}
-		if template {
-			ex, err := rr.ExpandStrings(ctx, app.ID, varref.System, []string{string(b)})
-			if err != nil {
-				return nil, fmt.Errorf("template %s: %w", repoPath, err)
-			}
-			b = []byte(ex[0])
-		}
 		dst := filepath.Join(outDir, filepath.FromSlash(repoPath))
-		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+		copyOne := func(from, to string) error {
+			b, err := os.ReadFile(from)
+			if err != nil {
+				return err
+			}
+			if template {
+				ex, err := rr.ExpandStrings(ctx, app.ID, varref.System, []string{string(b)})
+				if err != nil {
+					return fmt.Errorf("template %s: %w", from, err)
+				}
+				b = []byte(ex[0])
+			}
+			if err := os.MkdirAll(filepath.Dir(to), 0o755); err != nil {
+				return err
+			}
+			return os.WriteFile(to, b, 0o644)
+		}
+		if !info.IsDir() {
+			if err := copyOne(src, dst); err != nil {
+				return nil, fmt.Errorf("%s: %w", repoPath, err)
+			}
+			_, _ = fmt.Fprintf(w, "file %s -> %s%s\n", repoPath, containerPath, map[bool]string{true: " (templated)"}[template])
+			binds = append(binds, dst+":"+containerPath+":ro")
+			continue
+		}
+		n := 0
+		// Regular files only: a symlink in the repo could point anywhere on
+		// this host, and the folder is about to be mounted into a container.
+		err = filepath.WalkDir(src, func(p string, de fs.DirEntry, err error) error {
+			if err != nil || !de.Type().IsRegular() {
+				return err
+			}
+			rel, err := filepath.Rel(src, p)
+			if err != nil {
+				return err
+			}
+			n++
+			return copyOne(p, filepath.Join(dst, rel))
+		})
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", repoPath, err)
+		}
+		if err := os.MkdirAll(dst, 0o755); err != nil { // an empty folder still mounts
 			return nil, err
 		}
-		if err := os.WriteFile(dst, b, 0o644); err != nil {
-			return nil, err
-		}
-		_, _ = fmt.Fprintf(w, "file %s -> %s%s\n", repoPath, containerPath, map[bool]string{true: " (templated)"}[template])
+		_, _ = fmt.Fprintf(w, "folder %s -> %s (%d files)%s\n", repoPath, containerPath, n, map[bool]string{true: " (templated)"}[template])
 		binds = append(binds, dst+":"+containerPath+":ro")
 	}
 	return binds, nil
+}
+
+// pruneFiles removes every per-deploy files folder of a tile except keep's.
+func pruneFiles(dataDir, tileID, keep string) {
+	dir := filepath.Join(dataDir, "files", tileID)
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	for _, en := range entries {
+		if en.Name() == keep {
+			continue
+		}
+		if err := os.RemoveAll(filepath.Join(dir, en.Name())); err != nil {
+			slog.Error("old files folder not removed", "tile", tileID, "folder", en.Name(), "error", err)
+		}
+	}
 }
 
 // serviceCommand builds the argv override for a service tile: varref-expanded,

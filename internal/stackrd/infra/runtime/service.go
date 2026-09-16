@@ -316,12 +316,26 @@ func parseMounts(lines []string) ([]mount.Mount, error) {
 		if len(parts) < 2 || parts[0] == "" || parts[1] == "" {
 			return nil, fmt.Errorf("volume %q: want source:/target[:ro]", l)
 		}
+		// A relative source has no directory to be relative to under swarm,
+		// which mounts an empty one without a word. Repo files ship with files:.
+		if strings.HasPrefix(parts[0], ".") {
+			return nil, fmt.Errorf("volume %q: relative paths do not work here; ship repo files with files: instead", l)
+		}
 		m := mount.Mount{Source: parts[0], Target: parts[1], Type: mount.TypeVolume}
-		if strings.HasPrefix(parts[0], "/") || strings.HasPrefix(parts[0], ".") {
+		if strings.HasPrefix(parts[0], "/") {
 			m.Type = mount.TypeBind
 		}
-		if len(parts) > 2 && strings.Contains(parts[2], "ro") {
-			m.ReadOnly = true
+		if len(parts) > 2 {
+			for _, o := range strings.Split(parts[2], ",") {
+				switch o {
+				case "ro":
+					m.ReadOnly = true
+				case "nocopy":
+					// A network share is not a fresh volume to seed: copying the
+					// image's files onto it fails on smb and writes to the NAS.
+					m.VolumeOptions = &mount.VolumeOptions{NoCopy: true}
+				}
+			}
 		}
 		out = append(out, m)
 	}
@@ -441,15 +455,13 @@ func (r *Runtime) updateService(ctx context.Context, name string, opts swarm.Ser
 }
 
 // UpdateServiceImage points a service at image, sets env on top of what it
-// has, and replaces its update policy. Returns the image it ran before.
-func (r *Runtime) UpdateServiceImage(ctx context.Context, name, image string, env map[string]string, cfg *swarm.UpdateConfig) (string, error) {
-	var prev string
-	err := r.updateService(ctx, name, swarm.ServiceUpdateOptions{}, func(spec *swarm.ServiceSpec) bool {
+// has, and replaces its update policy.
+func (r *Runtime) UpdateServiceImage(ctx context.Context, name, image string, env map[string]string, cfg *swarm.UpdateConfig) error {
+	return r.updateService(ctx, name, swarm.ServiceUpdateOptions{}, func(spec *swarm.ServiceSpec) bool {
 		cs := spec.TaskTemplate.ContainerSpec
 		if cs == nil {
 			return false
 		}
-		prev = cs.Image
 		cs.Image = image
 		// Replace in place: mutate runs again on a version conflict, and an
 		// append would stack a second STACKR_IMAGE each time.
@@ -467,7 +479,6 @@ func (r *Runtime) UpdateServiceImage(ctx context.Context, name, image string, en
 		spec.UpdateConfig = cfg
 		return true
 	})
-	return prev, err
 }
 
 // errNoService is updateService's "nothing there", swallowed by the callers

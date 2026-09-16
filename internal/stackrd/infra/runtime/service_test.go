@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/docker/docker/api/types/mount"
@@ -113,6 +114,15 @@ func TestParseMounts(t *testing.T) {
 	}
 	if got[1].Type != mount.TypeBind || !got[1].ReadOnly {
 		t.Fatalf("read-only bind: %+v", got[1])
+	}
+	share, err := parseMounts([]string{"stackr-stor-1:/tv:nocopy,ro"})
+	if err != nil || !share[0].ReadOnly || share[0].VolumeOptions == nil || !share[0].VolumeOptions.NoCopy {
+		t.Fatalf("storage mount options not read: %+v %v", share, err)
+	}
+	for _, rel := range []string{"./authelia:/config", "../x:/x"} {
+		if _, err := parseMounts([]string{rel}); err == nil || !strings.Contains(err.Error(), "files:") {
+			t.Fatalf("%s: want an error naming files:, got %v", rel, err)
+		}
 	}
 	if _, err := parseMounts([]string{"nonsense"}); err == nil {
 		t.Fatal("a line with no target must fail the deploy, not mount nothing")

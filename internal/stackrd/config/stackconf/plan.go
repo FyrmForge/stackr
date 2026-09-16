@@ -41,6 +41,14 @@ type State struct {
 	// (idx_domains_host_path), so a claim on a host another tile routes must
 	// fail in the plan, not as a constraint error mid-apply.
 	AllDomains []repo.Domain
+	// StackSlug and Middlewares are the stack row's slug and stored
+	// proxy.middlewares. OrgMiddlewares is every other stack's names in the
+	// org by slug; MiddlewareUsers is the other stacks' tiles naming one of
+	// this stack's, by name.
+	StackSlug       string
+	Middlewares     string
+	OrgMiddlewares  map[string]map[string]bool
+	MiddlewareUsers map[string][]string
 }
 
 type EnvState struct {
@@ -490,7 +498,9 @@ func Diff(r *Resolved, s State, opts DiffOpts) *Plan {
 	}
 	if opts.OnlyEnv == "" {
 		p.diffDomainRes(r.Domains, s)
+		p.diffMiddlewares(r, s)
 	}
+	p.checkMiddlewareRefs(r, s, opts)
 	// Static envs not declared: strict mode deletes. Env-scoped plans never
 	// judge other envs' existence.
 	if opts.OnlyEnv == "" {
@@ -723,6 +733,13 @@ func diffSource(upd func(field, old, new_ string), t repo.Tile, tc TileConf, opt
 	switch {
 	case tc.Image != "":
 		upd("source", sourceLabel(&t), "image "+tc.Image)
+		upd("git_url", t.GitURL, tc.GitURL)
+		upd("branch", t.GitBranch, tc.Branch)
+		conn := ""
+		if tc.GitURL != "" {
+			conn = firstNonEmpty(tc.Connector, opts.Connector)
+		}
+		upd("connector", t.ConnectorID, conn)
 	default:
 		branch := tc.Branch
 		if branch == "" {
@@ -798,7 +815,7 @@ func (p *Plan) diffDomains(env, name string, tc TileConf, ts TileState, opts Dif
 	}
 	cur := map[string]repo.Domain{}
 	for _, d := range ts.Domains {
-		cur[d.Host+normPath(d.Path)] = d
+		cur[domainKey(d.Host, d.Path, d.Rule)] = d
 	}
 	seen := map[string]bool{}
 	var wantHosts, haveHosts []string
@@ -808,12 +825,12 @@ func (p *Plan) diffDomains(env, name string, tc TileConf, ts TileState, opts Dif
 			p.Errors = append(p.Errors, fmt.Sprintf("env %s: %v", env, err))
 			continue
 		}
-		key := host + normPath(dc.Path)
+		key := domainKey(host, dc.Path, dc.Rule)
 		seen[key] = true
 		wantHosts = append(wantHosts, key)
 		d, ok := cur[key]
 		if !ok {
-			if !p.claimHost(env, name, key, ts.Tile.ID) {
+			if !p.claimHost(env, name, host+normPath(dc.Path), ts.Tile.ID) {
 				continue
 			}
 			p.Changes = append(p.Changes, Change{Kind: "update", Env: env, Tile: name, Field: "domain +" + host, New: domainLabel(dc, host)})
@@ -824,11 +841,15 @@ func (p *Plan) diffDomains(env, name string, tc TileConf, ts TileState, opts Dif
 		if want != have {
 			p.Changes = append(p.Changes, Change{Kind: "update", Env: env, Tile: name, Field: "domain " + host, Old: have, New: want})
 		}
+		if port := domainPort(dc, tc, ts.Tile.ContainerPort, d.ContainerPort); port != d.ContainerPort {
+			p.Changes = append(p.Changes, Change{Kind: "update", Env: env, Tile: name, Field: "domain " + host + " port",
+				Old: strconv.Itoa(d.ContainerPort), New: strconv.Itoa(port)})
+		}
 	}
 	// ts.Domains comes position-ordered; a pure reorder changes the primary
 	// (STACKR_PUBLIC_URL) without adding or removing anything.
 	for _, d := range ts.Domains {
-		haveHosts = append(haveHosts, d.Host+normPath(d.Path))
+		haveHosts = append(haveHosts, domainKey(d.Host, d.Path, d.Rule))
 	}
 	if len(wantHosts) == len(haveHosts) && len(seen) == len(cur) {
 		for i := range wantHosts {
@@ -869,8 +890,10 @@ func (p *Plan) checkConnector(env, name string, tc TileConf, s State) {
 
 // claimHost records a tile's claim on host+path, or reports it taken when
 // another tile (in the database or earlier in this plan) already routes it.
+// Ownership ignores rule: a tile may route one host+path several ways, but a
+// rule entry on another tile's host would take its traffic by priority.
 func (p *Plan) claimHost(env, name, key, ownID string) bool {
-	if owner, taken := p.hostOwner[key]; taken && owner != ownID {
+	if owner, taken := p.hostOwner[key]; taken && owner != ownID && owner != "plan:"+env+"/"+name {
 		p.Errors = append(p.Errors, fmt.Sprintf("env %s: tile %s: %s already routes to another service", env, name, key))
 		return false
 	}
@@ -929,8 +952,47 @@ func normPath(p string) string {
 	return p
 }
 
+// domainKey is a domain row's identity, the unique index idx_domains_host_path:
+// a rule entry can share its host and path with a plain one on the same tile.
+// Ownership across tiles stays host+path (claimHost).
+func domainKey(host, path, rule string) string {
+	if rule != "" {
+		return host + normPath(path) + " rule " + rule
+	}
+	return host + normPath(path)
+}
+
+// domainPort is the container port a declared domain routes to: its own
+// port:, else the tile's. A row whose port was only tracking the tile's old
+// port follows it; anything else set outside the file is left alone when the
+// file names no port.
+func domainPort(dc DomainConf, tc TileConf, oldTilePort, rowPort int) int {
+	switch {
+	case dc.Port != 0:
+		return dc.Port
+	case tc.Port != 0 && rowPort == oldTilePort:
+		return tc.Port
+	}
+	return rowPort
+}
+
+// routeSuffix renders the routing keys both labels share.
+func routeSuffix(mws []string, priority int, rule string) string {
+	s := ""
+	if rule != "" {
+		s += " rule " + rule
+	}
+	if priority != 0 {
+		s += " priority " + strconv.Itoa(priority)
+	}
+	if len(mws) > 0 {
+		s += " via " + strings.Join(mws, ", ")
+	}
+	return s
+}
+
 func domainLabel(d DomainConf, host string) string {
-	s := host + normPath(d.Path)
+	s := host + normPath(d.Path) + routeSuffix(d.Middlewares, d.Priority, d.Rule)
 	if d.Auto {
 		s += " (auto)"
 	}
@@ -946,7 +1008,7 @@ func domainLabel(d DomainConf, host string) string {
 }
 
 func domainLabelDB(d repo.Domain) string {
-	s := d.Host + normPath(d.Path)
+	s := d.Host + normPath(d.Path) + routeSuffix(d.MiddlewareList(), d.Priority, d.Rule)
 	if d.Auto {
 		s += " (auto)"
 	}
