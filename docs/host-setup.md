@@ -98,10 +98,37 @@ Data dir defaults to `/var/lib/stackr`, which is what `install.sh` offers.
 The script prints the archive's version next to the running image, asks
 for confirmation, scales the `stackr` service to zero, keeps a copy of the
 files it is replacing (suffixed `.before-<timestamp>`), unpacks, and
-scales back up.
+scales back up. When the archive was written by a newer release than the
+running image, the service moves to that release first. An older archive
+keeps the running image and migrates forward on boot.
 
 Deployed services are not touched. Stackr reconciles them as it starts.
 
 Archives written before the panel backup carried the key are missing
 `keys/master.key`, and the script refuses them rather than restoring a
 database it cannot decrypt.
+
+## Upgrading the panel
+
+Upgrades run from the panel: Admin, Update. The rail shows an arrow when a
+newer release is out. `install.sh` installs once and refuses a host that
+already runs stackr.
+
+The button pulls the new panel and relay images, writes
+`<data-dir>/backups/pre-upgrade-<version>.tar.gz`, then points the `stackr`
+service at the new image. The new panel migrates the database and rolls the
+node agents to the same build. A new version that does not stay up for a
+minute is rolled back by swarm; the database is not, so the way back from a
+bad upgrade is `restore.sh` with that archive. The update page prints the
+command.
+
+Supported path is one release to the next. Skipping versions is not tested.
+
+If the panel will not start at all, move it by hand on the manager:
+
+```
+docker pull ghcr.io/fyrmforge/stackr-proxyrelay:<version>
+docker tag ghcr.io/fyrmforge/stackr-proxyrelay:<version> stkr-proxyrelay:local
+docker service update --image ghcr.io/fyrmforge/stackr:<version> \
+  --env-add STACKR_IMAGE=ghcr.io/fyrmforge/stackr:<version> stackr
+```

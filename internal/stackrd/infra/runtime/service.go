@@ -440,6 +440,36 @@ func (r *Runtime) updateService(ctx context.Context, name string, opts swarm.Ser
 	return lastErr
 }
 
+// UpdateServiceImage points a service at image, sets env on top of what it
+// has, and replaces its update policy. Returns the image it ran before.
+func (r *Runtime) UpdateServiceImage(ctx context.Context, name, image string, env map[string]string, cfg *swarm.UpdateConfig) (string, error) {
+	var prev string
+	err := r.updateService(ctx, name, swarm.ServiceUpdateOptions{}, func(spec *swarm.ServiceSpec) bool {
+		cs := spec.TaskTemplate.ContainerSpec
+		if cs == nil {
+			return false
+		}
+		prev = cs.Image
+		cs.Image = image
+		// Replace in place: mutate runs again on a version conflict, and an
+		// append would stack a second STACKR_IMAGE each time.
+		for k, v := range env {
+			found := false
+			for i, e := range cs.Env {
+				if strings.HasPrefix(e, k+"=") {
+					cs.Env[i], found = k+"="+v, true
+				}
+			}
+			if !found {
+				cs.Env = append(cs.Env, k+"="+v)
+			}
+		}
+		spec.UpdateConfig = cfg
+		return true
+	})
+	return prev, err
+}
+
 // errNoService is updateService's "nothing there", swallowed by the callers
 // for which a missing service is a normal state.
 var errNoService = errors.New("service does not exist")

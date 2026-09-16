@@ -55,6 +55,8 @@ type Deps struct {
 	// DataDir is where the panel keeps its copy of the agent runtime key,
 	// which is what the sample push is authenticated against.
 	DataDir string
+	// Version is the panel's build, reported by /api/health.
+	Version string
 }
 
 // RegisterRoutes registers all API route handlers on the server.
@@ -62,7 +64,7 @@ func RegisterRoutes(srv *server.Server, deps *Deps) {
 	api := srv.Echo().Group("/api")
 	api.Use(middleware.Logging())
 
-	healthHandler := health.NewHandler(deps.Store)
+	healthHandler := health.NewHandler(deps.Store, deps.Version)
 	api.GET("/health", healthHandler.Health)
 
 	// The agents' sample endpoint sits outside the v1 group: an agent holds

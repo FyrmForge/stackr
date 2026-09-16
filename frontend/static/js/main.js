@@ -615,3 +615,30 @@ document.addEventListener('click', function (evt) {
         }
     });
 })();
+
+// Panel upgrade: the update page swaps in [data-upgrade-wait] once swarm has
+// the new image. The old task answers for a few seconds after that, so only
+// the target version in /api/health counts as back.
+htmx.onLoad(function (root) {
+    var el = root.closest && root.closest('[data-upgrade-wait]') ||
+        root.querySelector && root.querySelector('[data-upgrade-wait]');
+    if (!el || el.dataset.polling) return;
+    el.dataset.polling = '1';
+    var want = el.dataset.upgradeWait, started = Date.now();
+    function next() {
+        if (Date.now() - started > 180000) {
+            var late = el.querySelector('[data-upgrade-late]');
+            if (late) late.hidden = false;
+        }
+        setTimeout(poll, 3000);
+    }
+    function poll() {
+        fetch('/api/health', { cache: 'no-store' })
+            .then(function (r) { return r.json(); })
+            .then(function (h) {
+                if (h.version === want) location.href = '/admin/update';
+                else next();
+            }, next);
+    }
+    setTimeout(poll, 3000);
+});

@@ -2,8 +2,10 @@
 # Install stackr on a fresh Docker host.
 #
 # Asks the four things nothing can infer and creates the panel as a swarm
-# service. Re-running upgrades in place: the same `docker service update` with
-# a newer image is the whole operation.
+# service. Installs once: upgrades run from the panel (Admin, Update), and a
+# host that already has the stackr service is refused.
+#
+#   install.sh [--version 0.1.1]    default: latest
 #
 # With a hostname the panel publishes no port at all
 # (docs/plans/31-node-agent-open-questions.md, the panel as a service). Swarm
@@ -15,18 +17,26 @@
 # With localhost or a bare IP traefik has nothing to route (proxy.routablePanel
 # refuses both), so the panel publishes 8080 in host mode instead, the same
 # as scripts/dev/deploy-test.sh.
-#
-# Not tested end to end, the images below are not published yet. See
-# docs/plans/16-install-scripts.md.
 set -euo pipefail
 
-IMAGE="${STACKR_IMAGE:-ghcr.io/fyrmforge/stackr:latest}"
-RELAY_IMAGE="${STACKR_RELAY_IMAGE:-ghcr.io/fyrmforge/stackr-proxyrelay:latest}"
+die() { echo "error: $*" >&2; exit 1; }
+
+version=latest
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --version) [ $# -ge 2 ] || die "--version needs a value"; version=$2; shift 2 ;;
+    --version=*) version=${1#*=}; shift ;;
+    *) die "unknown argument: $1 (usage: $0 [--version X.Y.Z])" ;;
+  esac
+done
+# Release tags carry a v, image tags do not.
+version=${version#v}
+
+IMAGE="${STACKR_IMAGE:-ghcr.io/fyrmforge/stackr:$version}"
+RELAY_IMAGE="${STACKR_RELAY_IMAGE:-ghcr.io/fyrmforge/stackr-proxyrelay:$version}"
 # runtime.ProxyRelayImage is a hardcoded local tag, so the pulled image has to
 # be retagged to match. Wart, tracked in the plan.
 RELAY_LOCAL="stkr-proxyrelay:local"
-
-die() { echo "error: $*" >&2; exit 1; }
 
 # ask <var> <prompt> <default>: re-asks until valid_<var> accepts the answer.
 ask() {
@@ -219,6 +229,24 @@ REGPY
 command -v docker >/dev/null || die "docker is not installed; https://docs.docker.com/engine/install/"
 docker info >/dev/null 2>&1 || die "cannot talk to the docker daemon; is it running?"
 
+# Rebuilding a live install would re-ask every answer and drop whatever the
+# panel has changed on its own service since.
+if docker service inspect stackr >/dev/null 2>&1; then
+  cat >&2 <<LIVE
+stackr is already installed on this host.
+
+Upgrade from the panel: Admin, Update.
+
+If the panel will not start, move it to a release by hand:
+
+  docker pull ghcr.io/fyrmforge/stackr-proxyrelay:<version>
+  docker tag ghcr.io/fyrmforge/stackr-proxyrelay:<version> $RELAY_LOCAL
+  docker service update --image ghcr.io/fyrmforge/stackr:<version> \
+    --env-add STACKR_IMAGE=ghcr.io/fyrmforge/stackr:<version> stackr
+LIVE
+  exit 1
+fi
+
 swarm_init
 # Before anything is created: this restarts dockerd.
 trust_own_registry "$(advertise_addr)"
@@ -309,7 +337,6 @@ echo "--- starting ---"
 #
 # $publish is empty unless the host is localhost or an IP. Reaching the panel
 # is otherwise traefik's job; see the header.
-docker service rm stackr >/dev/null 2>&1 || true
 # shellcheck disable=SC2086
 docker service create \
   --name stackr \
@@ -352,7 +379,7 @@ stackr is running.
   panel     $base_url
   data      $data_dir
   admin     stackr <command>          (works even when the panel is unreachable)
-  upgrade   docker service update --image $IMAGE stackr
+  upgrade   Admin, Update in the panel
 DONE
 
 if [ "$tls" = on ]; then

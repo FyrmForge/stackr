@@ -83,6 +83,10 @@ templ shellRail(c echo.Context) {
 						}
 					</nav>
 					<div class="pr-2 sm:pr-0 sm:py-3 flex flex-row sm:flex-col items-center gap-1">
+						// Empty unless a newer release is out.
+						if middleware.IsAdmin(c) {
+							<div hx-get="/admin/update/badge" hx-trigger="load" hx-swap="innerHTML"></div>
+						}
 						@railIcon(c, "/account", "Account") {
 							<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
 							<circle cx="12" cy="7" r="4"></circle>

@@ -459,6 +459,17 @@ func main() {
 			log.Error("node agent service", "error", err)
 		}
 	}()
+	// Upgrades from the panel. The release check runs at boot and daily so the
+	// rail badge has something to show; the update page also checks on open.
+	adminService := service.NewAdminService(store, rt, clus, backupService, envDataDir, version)
+	go func() {
+		for {
+			if _, err := adminService.CheckUpgrade(context.Background()); err != nil {
+				log.Warn("upgrade check", "error", err)
+			}
+			time.Sleep(24 * time.Hour)
+		}
+	}()
 	nodeSvc := &nodes.Service{Store: store, RT: rt}
 	// Sync writes the manager's own swarm id onto its servers row. Nothing
 	// else does, and every screen keyed on servers.node_id (tile placement,
@@ -531,6 +542,7 @@ func main() {
 		Nodes:          nodeSvc,
 		DataDir:        envDataDir,
 		RegistrySigner: registrySigner,
+		Version:        version,
 	})
 
 	web.RegisterRoutes(srv, &web.Deps{
@@ -567,6 +579,7 @@ func main() {
 		Cluster:        clus,
 		Mover:          mover,
 		Version:        version,
+		Admin:          adminService,
 	})
 
 	log.Info("starting server", "port", envPort, "devMode", envDevMode, "version", version)

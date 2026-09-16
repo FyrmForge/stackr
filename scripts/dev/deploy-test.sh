@@ -20,7 +20,8 @@ templ generate >/dev/null
 hamr gen static >/dev/null
 # Own output path: hamr dev's watcher rebuilds bin/stackrd (dynamically linked)
 # on file changes and would race us.
-CGO_ENABLED=0 go build -ldflags "-X main.version=$(git rev-parse --short HEAD)" -o bin/stackrd-deploy ./cmd/stackrd
+# STACKR_VERSION=v0.0.9 fakes an old release, to test the panel upgrade.
+CGO_ENABLED=0 go build -ldflags "-X main.version=${STACKR_VERSION:-$(git rev-parse --short HEAD)}" -o bin/stackrd-deploy ./cmd/stackrd
 CGO_ENABLED=0 go build -ldflags "-s -w" -o bin/proxyrelay ./cmd/proxyrelay
 ./bin/stackrd-deploy --generate >/dev/null
 

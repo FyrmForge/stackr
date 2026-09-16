@@ -1,10 +1,10 @@
 
 # misc
-- [ ] the recovery CLI the install script promises does not exist. The
+- [ ] the recovery CLI the install script promises cannot act as admin. The
       `/usr/local/bin/stackr` wrapper (scripts/install.sh) execs `/app/stackr`
-      inside the panel container, but cmd/stackrd/Dockerfile only copies
-      `/app/stackrd`. Copying the CLI in is two lines; the real work is how it
-      acts as admin with no browser and maybe no API key. Options: a
+      inside the panel container, and the image ships it
+      (cmd/stackrd/Dockerfile), but it still needs a login: there is no way
+      for it to act as admin with no browser and maybe no API key. Options: a
       localhost-only admin key the server writes into the data dir on boot,
       a direct-to-db mode, or drop the promise. Needs its own plan
 - [ ] the join script needs an interactive terminal for sudo, so it cannot be

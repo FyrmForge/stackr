@@ -525,6 +525,28 @@ func (s *Service) writePanelArchive(w io.Writer) error {
 	return gz.Close()
 }
 
+// WritePanelArchiveTo writes the panel archive to a local file. It lands under
+// a temporary name first, so a failed write never leaves a truncated archive
+// that looks restorable.
+func (s *Service) WritePanelArchiveTo(p string) error {
+	if err := os.MkdirAll(path.Dir(p), 0o700); err != nil {
+		return err
+	}
+	f, err := os.CreateTemp(path.Dir(p), path.Base(p)+".*")
+	if err != nil {
+		return err
+	}
+	defer func() { _ = os.Remove(f.Name()) }()
+	if err := s.writePanelArchive(f); err != nil {
+		_ = f.Close()
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	return os.Rename(f.Name(), p)
+}
+
 // --- scratch space ---
 
 func (s *Service) scratchDir() string { return path.Join(s.dataDir, "backups") }

@@ -119,6 +119,8 @@ type Deps struct {
 	Mover   *volmove.Service
 	// Version is the panel's build, shown against each node's agent version.
 	Version string
+	// Admin runs installation-wide operations, today the panel upgrade.
+	Admin *service.AdminService
 }
 
 // RegisterRoutes registers all web route handlers on the server.
@@ -201,7 +203,7 @@ func RegisterRoutes(srv *server.Server, deps *Deps) {
 		}
 	}
 
-	settingsHandler := settingspage.NewHandler(deps.Store, deps.Backups, deps.Runtime, deps.Proxy, deps.GitHub, deps.RegistrySigner, deps.DataDir, deps.RegistryPort, deps.ACMEEmail, deps.BaseURL)
+	settingsHandler := settingspage.NewHandler(deps.Store, deps.Backups, deps.Admin, deps.Runtime, deps.Proxy, deps.GitHub, deps.RegistrySigner, deps.DataDir, deps.RegistryPort, deps.ACMEEmail, deps.BaseURL)
 
 	searchHandler := searchpage.NewHandler(deps.Store)
 	site.GET("/search", searchHandler.Search, auth.RequireAuth())
@@ -472,6 +474,9 @@ func RegisterRoutes(srv *server.Server, deps *Deps) {
 	site.GET("/admin/tls", settingsHandler.TLS, auth.RequireAuth(), adminOnly)
 	site.GET("/admin/audit", settingsHandler.Audit, auth.RequireAuth(), adminOnly)
 	site.GET("/admin/maintenance", settingsHandler.Maintenance, auth.RequireAuth(), adminOnly)
+	site.GET("/admin/update", settingsHandler.Update, auth.RequireAuth(), adminOnly)
+	site.POST("/admin/update", settingsHandler.RunUpdate, auth.RequireAuth(), adminOnly)
+	site.GET("/admin/update/badge", settingsHandler.UpdateBadge, auth.RequireAuth(), adminOnly)
 	site.GET("/admin/backups", settingsHandler.Backups, auth.RequireAuth(), adminOnly)
 	site.POST("/admin/backups/destinations", settingsHandler.CreateDestination, auth.RequireAuth(), adminOnly)
 	site.POST("/admin/backups/destinations/:destID/delete", settingsHandler.DeleteDestination, auth.RequireAuth(), adminOnly)

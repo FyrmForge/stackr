@@ -84,23 +84,22 @@ without version pinning, because pinning needs a published tagged image.
 Add `docker service update --image ghcr.io/fyrmforge/stackr:<VERSION>`
 before the scale-up here.
 
-## Phase 4: install and upgrade
+## Phase 4: install and upgrade, built 2026-09-16, not verified on the rig
 
-- `install.sh` and `restore.sh` accept a version argument.
-- **Upgrade mechanism already exists**: `install.sh` re-runs in place and
-  does `docker service update --image`. Keep it.
-- **Automatic panel backup before the image swap**, so every upgrade has
-  a restore point. Reuses phase 1's archive.
-- **Schema** migrations run on boot (`hamr/pkg/db/sqlite`), forward only.
-  Downgrade means `restore.sh` with the pre-upgrade archive.
-- **Rollout order** is manager first, then workers. Node agents run the
-  same image (`stackrd agent`), so the agent contract
-  (`infra/agent/contract.go`) has to tolerate one version of skew or the
-  join breaks mid-rollout.
+Plan and decisions: `docs/plans/43-panel-upgrade.md`.
+
+- **The panel upgrades itself** from Admin, Update. Releases come from
+  GitHub; the rail shows an arrow when one is newer.
+- **Panel backup before the image swap**, written locally to
+  `backups/pre-upgrade-<version>.tar.gz`. Reuses phase 1's archive.
+- **Schema** migrations run on boot, forward only. Swarm rolls back an
+  image that does not stay up; data goes back only with `restore.sh`.
+- **Rollout order** is manager first, then workers: the new panel's boot
+  rolls the agents to its own build.
+- `install.sh --version X` installs once and refuses a live host.
+  `restore.sh` moves the service to the archive's release when it is newer.
 - **Supported upgrade for beta is N to N+1 only.** Skipping versions is
   not tested.
-- Open: who triggers it. Operator on the host running `install.sh`, or a
-  button in `/admin` that pulls and updates its own service.
 
 ---
 

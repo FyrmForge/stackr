@@ -32,12 +32,14 @@ import (
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/proxy"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/registry"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/runtime"
+	"github.com/FyrmForge/stackr/internal/stackrd/service"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 )
 
 type handler struct {
 	store        repo.Store
 	backups      *backup.Service
+	admin        *service.AdminService
 	rt           *runtime.Runtime
 	px           *proxy.Proxy
 	gh           *githubapp.Client
@@ -51,8 +53,8 @@ type handler struct {
 }
 
 // NewHandler creates a new admin settings handler.
-func NewHandler(store repo.Store, bk *backup.Service, rt *runtime.Runtime, px *proxy.Proxy, gh *githubapp.Client, signer *registry.Signer, dataDir, registryPort, acmeEmail, baseURL string) *handler {
-	return &handler{store: store, backups: bk, rt: rt, px: px, gh: gh, signer: signer, dataDir: dataDir,
+func NewHandler(store repo.Store, bk *backup.Service, admin *service.AdminService, rt *runtime.Runtime, px *proxy.Proxy, gh *githubapp.Client, signer *registry.Signer, dataDir, registryPort, acmeEmail, baseURL string) *handler {
+	return &handler{store: store, backups: bk, admin: admin, rt: rt, px: px, gh: gh, signer: signer, dataDir: dataDir,
 		registryPort: registryPort, acmeEmail: acmeEmail, baseURL: baseURL}
 }
 
