@@ -20,6 +20,7 @@ import (
 	"os"
 	"os/exec"
 	"path"
+	"regexp"
 	"slices"
 	"sort"
 	"strconv"
@@ -2087,11 +2088,14 @@ type progressLine struct {
 	ErrorDetail *struct {
 		Message string `json:"message"`
 	} `json:"errorDetail"`
-	// Aux carries the pushed manifest's digest at the end of a push.
-	Aux *struct {
-		Digest string `json:"Digest"`
-	} `json:"aux"`
 }
+
+// pushedDigest matches the line every push ends with, "<tag>: digest:
+// sha256:... size: N". It is the one place both image stores report the
+// manifest that actually went out: the containerd store sends no aux digest,
+// and when it falls back from an index to one platform's manifest this line
+// names the manifest.
+var pushedDigest = regexp.MustCompile(`: digest: (sha256:[0-9a-f]{64}) size: `)
 
 // drainProgress renders the JSON progress stream as plain lines and returns the
 // error the stream reports. The stream's own error is the only signal there is:
@@ -2111,8 +2115,8 @@ func drainProgress(rc io.ReadCloser, logW io.Writer) (string, error) {
 			}
 			return "", err
 		}
-		if l.Aux != nil && l.Aux.Digest != "" {
-			digest = l.Aux.Digest
+		if m := pushedDigest.FindStringSubmatch(l.Status); m != nil {
+			digest = m[1]
 		}
 		if l.ErrorDetail != nil {
 			streamErr = fmt.Errorf("%s", l.ErrorDetail.Message)
