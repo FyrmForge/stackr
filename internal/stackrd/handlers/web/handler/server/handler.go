@@ -322,7 +322,8 @@ func (h *handler) SaveSettings(c echo.Context) error {
 	sv.Name = c.FormValue("name")
 	next := settings.Merge(settings.Parse(sv.Settings), vals)
 	if err := next.Check(); err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+		middleware.SetFlash(c, err.Error(), middleware.FlashError)
+		return respond.Redirect(c, "/servers/"+sv.ID)
 	}
 	sv.Settings = next.JSON()
 	if err := h.store.UpdateServer(ctx, sv); err != nil {

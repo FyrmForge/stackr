@@ -1031,7 +1031,8 @@ func (h *handler) SaveSettings(c echo.Context) error {
 	}
 	next := settings.Merge(settings.Parse(p.Settings), vals)
 	if err := next.Check(); err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+		middleware.SetFlash(c, err.Error(), middleware.FlashError)
+		return respond.Redirect(c, h.settingsSection(ctx, p, "general"))
 	}
 	p.Settings = next.JSON()
 	if err := h.store.UpdateStack(ctx, p); err != nil {
@@ -2557,7 +2558,8 @@ func (h *handler) SaveEnvSettings(c echo.Context) error {
 	}
 	next := settings.Merge(settings.Parse(env.Settings), vals)
 	if err := next.Check(); err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+		middleware.SetFlash(c, err.Error(), middleware.FlashError)
+		return respond.Redirect(c, h.envSettingsURL(ctx, p, env.Slug))
 	}
 	env.Settings = next.JSON()
 	if err := h.store.UpdateEnvironment(ctx, env); err != nil {

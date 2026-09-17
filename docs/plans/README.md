@@ -14,7 +14,7 @@ decisions.
 | [47 trusted proxies](47-trusted-proxies.md) | built, not rig-verified | Trusted proxy CIDRs and fetched Cloudflare ranges on the Proxy page. |
 | [48 install domains and basic auth](48-install-domains-and-basic-auth.md) | built, rig-verified | Root domain and trusted proxy install prompts, basic-auth URL protection, host-only session cookie. |
 | [49 installer binary](49-installer-binary.md) | built, rig-verified | Installer as a Go binary with a real form, pulled by a small `install.sh`. |
-| [50 basic auth review fixes](50-basic-auth-review-fixes.md) | built, not rig-verified | Six review findings on the basic-auth cascade: fail-closed protection, one lock hash, no inherited password over the API, the credential pair validated on save, per-env unset secrets. |
+| [50 basic auth review fixes](50-basic-auth-review-fixes.md) | built, rig-verified | Six review findings on the basic-auth cascade: fail-closed protection, one lock hash, no inherited password over the API, the credential pair validated on save, per-env unset secrets. |
 
 The beta sequence is tracked in [Beta release](../beta-release.md). Product
 gaps which are not approved plans live in [Notes](../notes.md).

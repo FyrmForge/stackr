@@ -1,6 +1,6 @@
 # Plan: basic auth review fixes
 
-Status: built 2026-09-17, tests and lint green, not rig-verified.
+Status: built and rig-verified 2026-09-17.
 
 Working rules: discuss first, one point at a time, no code without a go, no
 git writes, no edits to `*_templ.go` or `output.css`, terse UI copy.
@@ -156,7 +156,22 @@ Matches the decisions above, with these details worth knowing:
 - Points 1 and 2 checked against the old behaviour: reverting
   `basicAuthEntry` to `settings.ForTile` and `hashPassword` to `"!"` makes
   `TestWriteAppFailsClosedOnStoreError` and `TestWriteAppBasicAuthLock` fail.
-- Not run on the rig. Nothing here changes the install path.
+- Rig (`stackr-test.vulpe.dev`), wiped first, installed with the installer
+  binary (`--yes`, domain + HTTPS), onboarded, one nginx tile with an auto
+  domain, protection set at org level:
+  - the tile answered 401 with no credentials and with a wrong password, 200
+    with the right one;
+  - a user with no password was refused at the save, with the reason on
+    screen;
+  - the stored password was not in the page HTML, the input came back empty
+    with a placeholder of `unchanged`, and a save that never retyped it kept
+    it (an unrelated field on the same form saved normally);
+  - a password of `${{ org.secrets.MISSING }}` locked the route: the old
+    password, the literal reference and no credentials all gave 401;
+  - two saves in a row left the route file byte-identical, locked or not, so
+    Traefik is not reloaded for nothing;
+  - clearing the user gave both credentials back to the level above and the
+    tile went open again.
 
 ### 7. The password was rendered back into the form (added 2026-09-17)
 
@@ -174,6 +189,10 @@ Decision: the password never leaves the store.
   show the stored value can give the pair back to the level above.
 - The API returns `"set"` as `own`, never the password, so a client can still
   tell a level that sets one from a level that inherits.
+
+A validation failure on these forms is a flash and a redirect, not a bare
+400: the forms post over htmx, which renders an error body nowhere, so the
+status alone was a save that silently did nothing. Found on the rig.
 
 Rejected: a hidden "the password is unchanged" marker field (a second source
 of truth, and a client that forgets it silently wipes the password), and

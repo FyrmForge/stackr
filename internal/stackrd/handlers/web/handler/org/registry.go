@@ -269,7 +269,10 @@ func (h *handler) SaveDefaults(c echo.Context) error {
 	}
 	next := settings.Merge(settings.Parse(o.Settings), vals)
 	if err := next.Check(); err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+		// Flash, not a 400: the form posts over htmx, which renders an error
+		// body nowhere, so a bare status is a save that silently does nothing.
+		middleware.SetFlash(c, err.Error(), middleware.FlashError)
+		return respond.Redirect(c, "/orgs/"+o.Slug+"/settings/defaults")
 	}
 	o.Settings = next.JSON()
 	if err := h.store.UpdateOrg(c.Request().Context(), o); err != nil {
