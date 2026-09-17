@@ -496,6 +496,7 @@ func RegisterRoutes(srv *server.Server, deps *Deps) {
 	site.POST("/admin/imagewatch", settingsHandler.SaveImageWatch, auth.RequireAuth(), adminOnly)
 	site.POST("/admin/dns", settingsHandler.SaveDNS, auth.RequireAuth(), adminOnly)
 	site.GET("/admin/proxy", settingsHandler.ProxyPage, auth.RequireAuth(), adminOnly)
+	site.POST("/admin/proxy/trusted", settingsHandler.SaveTrustedProxies, auth.RequireAuth(), adminOnly)
 	site.POST("/admin/proxy/override", settingsHandler.SaveProxyOverride, auth.RequireAuth(), adminOnly)
 	site.POST("/admin/proxy/entry", settingsHandler.SaveProxyEntry, auth.RequireAuth(), adminOnly)
 	site.POST("/admin/proxy/entry/delete", settingsHandler.DeleteProxyEntry, auth.RequireAuth(), adminOnly)

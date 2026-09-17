@@ -1,8 +1,9 @@
 # Install, deploy and wipe scripts
 
 Status: `deploy-test.sh` and `wipe-test.sh` implemented and exercised on the
-test box 2026-09-03. `install.sh` written the same day but **never run** — the
-images it pulls are not published yet.
+test box 2026-09-03. `install.sh` written the same day and verified on the rig
+2026-09-16 against the published v0.1.1 images (plan 43). Two decisions still
+open, see Not done.
 
 ## Where this came from
 
@@ -158,7 +159,6 @@ and a day of repeated wipes burns that.
 
 ## Not done
 
-- Running `install.sh`. It needs published images; there is nothing to pull.
 - A `curl | sh` bootstrap. It is the shape the world expects and also the shape
   that runs an unreviewed script as root. Undecided.
 - Moving `BASE_URL`/`ACME_EMAIL` into the `settings` table and the setup wizard.

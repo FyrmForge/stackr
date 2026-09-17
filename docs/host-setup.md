@@ -22,6 +22,14 @@ the open internet.
 Ports to open between nodes: 2377/tcp, 7946/tcp and udp, 4789/udp. ESP is not
 needed, there is no IPsec.
 
+## Behind Cloudflare
+
+Tick "Trust Cloudflare" on the admin Proxy page. Traefik then takes
+X-Forwarded-For from Cloudflare's ranges, so apps see the real visitor IP.
+
+Also firewall 80/443 to Cloudflare's ranges. Otherwise the origin is still
+open on its own IP, and anyone can skip Cloudflare.
+
 ## conntrack byte accounting — required for the graph traffic overlay
 
 The live traffic overlay on the environment graph (animated edges + Bps labels)

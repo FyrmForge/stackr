@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"net"
 	"net/http"
 	"sort"
 	"strings"
@@ -56,7 +57,50 @@ func (h *handler) ProxyPage(c echo.Context) error {
 		names = append(names, n)
 	}
 	sort.Strings(names)
-	return respond.HTML(c, http.StatusOK, proxyPage(c, h.px.CurrentStatic(), override, names, entries))
+	typed, _ := h.store.GetSetting(ctx, "trusted_proxies")
+	trustCF, _ := h.store.GetSetting(ctx, "trust_cloudflare")
+	return respond.HTML(c, http.StatusOK, proxyPage(c, h.px.CurrentStatic(), override, names, entries, typed, trustCF == "1"))
+}
+
+// POST /admin/proxy/trusted, the CIDRs Traefik takes X-Forwarded-For from.
+// Traefik is recreated in the background.
+func (h *handler) SaveTrustedProxies(c echo.Context) error {
+	ctx := c.Request().Context()
+	var lines []string
+	for _, line := range strings.Split(c.FormValue("trusted_proxies"), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		if _, _, err := net.ParseCIDR(line); err != nil {
+			return echo.NewHTTPError(http.StatusBadRequest, "not a CIDR: "+line)
+		}
+		lines = append(lines, line)
+	}
+	trustCF := ""
+	if c.FormValue("trust_cloudflare") == "1" {
+		trustCF = "1"
+		if err := h.px.RefreshCloudflare(ctx); err != nil {
+			if cached, _ := h.store.GetSetting(ctx, "cloudflare_cidrs"); strings.TrimSpace(cached) == "" {
+				slog.Warn("cloudflare ranges fetch failed", "error", err)
+				return echo.NewHTTPError(http.StatusBadGateway, "could not reach Cloudflare")
+			}
+			slog.Warn("cloudflare ranges fetch failed, using cache", "error", err)
+		}
+	}
+	if err := h.store.SetSetting(ctx, "trusted_proxies", strings.Join(lines, "\n")); err != nil {
+		return err
+	}
+	if err := h.store.SetSetting(ctx, "trust_cloudflare", trustCF); err != nil {
+		return err
+	}
+	go func() {
+		if err := h.px.EnsureTraefik(context.Background()); err != nil {
+			slog.Error("traefik restart after trusted proxies change failed", "error", err)
+		}
+	}()
+	middleware.SetFlash(c, "Trusted proxies saved.", middleware.FlashSuccess)
+	return respond.Redirect(c, "/admin/proxy")
 }
 
 // POST /admin/proxy/override, verbatim static-config override; empty reverts

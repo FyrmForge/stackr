@@ -1,6 +1,6 @@
 # Plan: trusted proxies
 
-Status: agreed 2026-09-16, not built.
+Status: agreed 2026-09-16, built 2026-09-17, not rig-verified.
 
 Working rules: discuss first, one point at a time, no code without a go, no
 git writes, no edits to `*_templ.go` or `output.css`, terse UI copy.

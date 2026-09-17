@@ -16,7 +16,7 @@ import (
 
 // The /admin/proxy page: the live static config, the verbatim override
 // editor, and the operator's named dynamic entries.
-func proxyPage(c echo.Context, current, override string, names []string, entries map[string]string) templ.Component {
+func proxyPage(c echo.Context, current, override string, names []string, entries map[string]string, trusted string, trustCloudflare bool) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
@@ -49,17 +49,7 @@ func proxyPage(c echo.Context, current, override string, names []string, entries
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<div class=\"space-y-10\"><section><div class=\"flex items-center gap-2 mb-1\"><h2 class=\"text-sm font-semibold uppercase tracking-wide text-rw-faint\">Static config</h2>")
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			if override != "" {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "<span class=\"text-[10px] px-1.5 py-0.5 rounded bg-rw-warn/15 text-rw-warn\">override active, differs from generated</span>")
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
-			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "</div><p class=\"text-xs text-rw-faint mb-3\">The current <span class=\"font-mono\">traefik.yml</span>. Saving an override replaces the generated file verbatim (replace, not merge) and restarts Traefik; empty reverts to generated. Generated-default improvements stop reaching this server while an override is active.</p><form hx-post=\"/admin/proxy/override\" class=\"space-y-2\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<div class=\"space-y-10\"><section><h2 class=\"text-sm font-semibold uppercase tracking-wide text-rw-faint mb-3\">Trusted proxies</h2><form hx-post=\"/admin/proxy/trusted\" class=\"space-y-2\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -67,69 +57,120 @@ func proxyPage(c echo.Context, current, override string, names []string, entries
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, "<textarea name=\"static_override\" rows=\"14\" data-code=\"yaml\" placeholder=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "<textarea name=\"trusted_proxies\" aria-label=\"Trusted proxy CIDRs\" rows=\"4\" placeholder=\"one CIDR per line\" class=\"input font-mono text-xs w-full\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var3 string
-			templ_7745c5c3_Var3, templ_7745c5c3_Err = templ.JoinStringErrs(current)
+			templ_7745c5c3_Var3, templ_7745c5c3_Err = templ.JoinStringErrs(trusted)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/stackrd/handlers/web/handler/settings/proxy.templ`, Line: 26, Col: 86}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/stackrd/handlers/web/handler/settings/proxy.templ`, Line: 18, Col: 160}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var3))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 5, "\" class=\"input font-mono text-xs w-full\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "</textarea> <label class=\"flex items-center gap-2 text-sm text-rw-text cursor-pointer\"><input type=\"checkbox\" name=\"trust_cloudflare\" value=\"1\"")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			if trustCloudflare {
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, " checked")
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 5, " class=\"accent-rw-accent\"> Trust Cloudflare</label><p class=\"text-xs text-rw-faint\">Fetched from cloudflare.com on save and restart.</p>")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			if override != "" {
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, "<p class=\"text-xs text-rw-warn\">The static override below replaces this list.</p>")
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 7, "<button type=\"submit\" class=\"btn btn-primary btn-sm\">Save</button></form></section><section><div class=\"flex items-center gap-2 mb-1\"><h2 class=\"text-sm font-semibold uppercase tracking-wide text-rw-faint\">Static config</h2>")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			if override != "" {
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 8, "<span class=\"text-[10px] px-1.5 py-0.5 rounded bg-rw-warn/15 text-rw-warn\">override active, differs from generated</span>")
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 9, "</div><p class=\"text-xs text-rw-faint mb-3\">The current <span class=\"font-mono\">traefik.yml</span>. Saving an override replaces the generated file verbatim (replace, not merge) and restarts Traefik; empty reverts to generated. Generated-default improvements stop reaching this server while an override is active.</p><form hx-post=\"/admin/proxy/override\" class=\"space-y-2\">")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = form.CSRFField(c).Render(ctx, templ_7745c5c3_Buffer)
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 10, "<textarea name=\"static_override\" rows=\"14\" data-code=\"yaml\" placeholder=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var4 string
-			templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.JoinStringErrs(override)
+			templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.JoinStringErrs(current)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/stackrd/handlers/web/handler/settings/proxy.templ`, Line: 26, Col: 138}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/stackrd/handlers/web/handler/settings/proxy.templ`, Line: 42, Col: 86}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var4))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, "</textarea><div class=\"flex gap-2\"><button type=\"submit\" class=\"btn btn-primary btn-sm\">Save override</button></div><p class=\"text-xs text-rw-faint\">Leave empty and save to clear the override. The box's placeholder shows the config currently on disk.</p></form></section><section><h2 class=\"text-sm font-semibold uppercase tracking-wide text-rw-faint mb-1\">Custom dynamic entries</h2><p class=\"text-xs text-rw-faint mb-3\">Named YAML files written into the dynamic dir (<span class=\"font-mono\">custom-&lt;name&gt;.yml</span>): global middlewares like <span class=\"font-mono\">authelia@file</span>, LAN routes to machines that aren't tiles, TCP passthroughs. Traefik's file provider picks changes up live. Generated <span class=\"font-mono\">app-*.yml</span> files stay stackr-owned.</p>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 11, "\" class=\"input font-mono text-xs w-full\">")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			var templ_7745c5c3_Var5 string
+			templ_7745c5c3_Var5, templ_7745c5c3_Err = templ.JoinStringErrs(override)
+			if templ_7745c5c3_Err != nil {
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/stackrd/handlers/web/handler/settings/proxy.templ`, Line: 42, Col: 138}
+			}
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var5))
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 12, "</textarea><div class=\"flex gap-2\"><button type=\"submit\" class=\"btn btn-primary btn-sm\">Save override</button></div><p class=\"text-xs text-rw-faint\">Leave empty and save to clear the override. The box's placeholder shows the config currently on disk.</p></form></section><section><h2 class=\"text-sm font-semibold uppercase tracking-wide text-rw-faint mb-1\">Custom dynamic entries</h2><p class=\"text-xs text-rw-faint mb-3\">Named YAML files written into the dynamic dir (<span class=\"font-mono\">custom-&lt;name&gt;.yml</span>): global middlewares like <span class=\"font-mono\">authelia@file</span>, LAN routes to machines that aren't tiles, TCP passthroughs. Traefik's file provider picks changes up live. Generated <span class=\"font-mono\">app-*.yml</span> files stay stackr-owned.</p>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			if len(names) > 0 {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 7, "<ul class=\"space-y-2 mb-4\">")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 13, "<ul class=\"space-y-2 mb-4\">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				for _, n := range names {
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 8, "<li class=\"panel px-4 py-2.5\"><details><summary class=\"flex items-center gap-3 text-sm cursor-pointer list-none\"><span class=\"font-mono text-rw-text\">custom-")
-					if templ_7745c5c3_Err != nil {
-						return templ_7745c5c3_Err
-					}
-					var templ_7745c5c3_Var5 string
-					templ_7745c5c3_Var5, templ_7745c5c3_Err = templ.JoinStringErrs(n)
-					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/stackrd/handlers/web/handler/settings/proxy.templ`, Line: 44, Col: 57}
-					}
-					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var5))
-					if templ_7745c5c3_Err != nil {
-						return templ_7745c5c3_Err
-					}
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 9, ".yml</span><form hx-post=\"/admin/proxy/entry/delete\" hx-confirm=\"")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 14, "<li class=\"panel px-4 py-2.5\"><details><summary class=\"flex items-center gap-3 text-sm cursor-pointer list-none\"><span class=\"font-mono text-rw-text\">custom-")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
 					var templ_7745c5c3_Var6 string
-					templ_7745c5c3_Var6, templ_7745c5c3_Err = templ.JoinStringErrs("Remove custom-" + n + ".yml? Anything routed through it breaks.")
+					templ_7745c5c3_Var6, templ_7745c5c3_Err = templ.JoinStringErrs(n)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/stackrd/handlers/web/handler/settings/proxy.templ`, Line: 45, Col: 130}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/stackrd/handlers/web/handler/settings/proxy.templ`, Line: 60, Col: 57}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var6))
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 10, "\" class=\"ml-auto\">")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 15, ".yml</span><form hx-post=\"/admin/proxy/entry/delete\" hx-confirm=\"")
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
+					var templ_7745c5c3_Var7 string
+					templ_7745c5c3_Var7, templ_7745c5c3_Err = templ.JoinStringErrs("Remove custom-" + n + ".yml? Anything routed through it breaks.")
+					if templ_7745c5c3_Err != nil {
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/stackrd/handlers/web/handler/settings/proxy.templ`, Line: 61, Col: 130}
+					}
+					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var7))
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 16, "\" class=\"ml-auto\">")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
@@ -137,43 +178,43 @@ func proxyPage(c echo.Context, current, override string, names []string, entries
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 11, "<input type=\"hidden\" name=\"name\" value=\"")
-					if templ_7745c5c3_Err != nil {
-						return templ_7745c5c3_Err
-					}
-					var templ_7745c5c3_Var7 string
-					templ_7745c5c3_Var7, templ_7745c5c3_Err = templ.JoinStringErrs(n)
-					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/stackrd/handlers/web/handler/settings/proxy.templ`, Line: 47, Col: 53}
-					}
-					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var7))
-					if templ_7745c5c3_Err != nil {
-						return templ_7745c5c3_Err
-					}
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 12, "\"> <button type=\"submit\" class=\"btn btn-ghost btn-sm\">Remove</button></form></summary><pre class=\"mt-2 text-xs font-mono text-rw-muted whitespace-pre-wrap\">")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 17, "<input type=\"hidden\" name=\"name\" value=\"")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
 					var templ_7745c5c3_Var8 string
-					templ_7745c5c3_Var8, templ_7745c5c3_Err = templ.JoinStringErrs(entries[n])
+					templ_7745c5c3_Var8, templ_7745c5c3_Err = templ.JoinStringErrs(n)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/stackrd/handlers/web/handler/settings/proxy.templ`, Line: 51, Col: 91}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/stackrd/handlers/web/handler/settings/proxy.templ`, Line: 63, Col: 53}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var8))
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 13, "</pre></details></li>")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 18, "\"> <button type=\"submit\" class=\"btn btn-ghost btn-sm\">Remove</button></form></summary><pre class=\"mt-2 text-xs font-mono text-rw-muted whitespace-pre-wrap\">")
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
+					var templ_7745c5c3_Var9 string
+					templ_7745c5c3_Var9, templ_7745c5c3_Err = templ.JoinStringErrs(entries[n])
+					if templ_7745c5c3_Err != nil {
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/stackrd/handlers/web/handler/settings/proxy.templ`, Line: 67, Col: 91}
+					}
+					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var9))
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 19, "</pre></details></li>")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 14, "</ul>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 20, "</ul>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 15, "<form hx-post=\"/admin/proxy/entry\" class=\"space-y-2\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 21, "<form hx-post=\"/admin/proxy/entry\" class=\"space-y-2\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -181,7 +222,7 @@ func proxyPage(c echo.Context, current, override string, names []string, entries
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 16, "<input type=\"text\" name=\"name\" placeholder=\"entry name, e.g. authelia\" required class=\"input w-64\"> <textarea name=\"yaml\" rows=\"8\" data-code=\"yaml\" required placeholder=\"http:\n  middlewares:\n    authelia:\n      forwardAuth:\n        address: http://authelia:9091/api/verify?rd=https://auth.example.com\" class=\"input font-mono text-xs w-full\"></textarea> <button type=\"submit\" class=\"btn btn-primary btn-sm\">Save entry</button><p class=\"text-xs text-rw-faint\">Saving an existing name replaces that entry.</p></form></section></div>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 22, "<input type=\"text\" name=\"name\" placeholder=\"entry name, e.g. authelia\" required class=\"input w-64\"> <textarea name=\"yaml\" rows=\"8\" data-code=\"yaml\" required placeholder=\"http:\n  middlewares:\n    authelia:\n      forwardAuth:\n        address: http://authelia:9091/api/verify?rd=https://auth.example.com\" class=\"input font-mono text-xs w-full\"></textarea> <button type=\"submit\" class=\"btn btn-primary btn-sm\">Save entry</button><p class=\"text-xs text-rw-faint\">Saving an existing name replaces that entry.</p></form></section></div>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

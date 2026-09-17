@@ -8,9 +8,25 @@ import (
 
 // The /admin/proxy page: the live static config, the verbatim override
 // editor, and the operator's named dynamic entries.
-templ proxyPage(c echo.Context, current, override string, names []string, entries map[string]string) {
+templ proxyPage(c echo.Context, current, override string, names []string, entries map[string]string, trusted string, trustCloudflare bool) {
 	@page(c, "proxy", "Traefik escape hatches: a verbatim static-config override and hand-written dynamic entries.") {
 		<div class="space-y-10">
+			<section>
+				<h2 class="text-sm font-semibold uppercase tracking-wide text-rw-faint mb-3">Trusted proxies</h2>
+				<form hx-post="/admin/proxy/trusted" class="space-y-2">
+					@form.CSRFField(c)
+					<textarea name="trusted_proxies" aria-label="Trusted proxy CIDRs" rows="4" placeholder="one CIDR per line" class="input font-mono text-xs w-full">{ trusted }</textarea>
+					<label class="flex items-center gap-2 text-sm text-rw-text cursor-pointer">
+						<input type="checkbox" name="trust_cloudflare" value="1" checked?={ trustCloudflare } class="accent-rw-accent"/>
+						Trust Cloudflare
+					</label>
+					<p class="text-xs text-rw-faint">Fetched from cloudflare.com on save and restart.</p>
+					if override != "" {
+						<p class="text-xs text-rw-warn">The static override below replaces this list.</p>
+					}
+					<button type="submit" class="btn btn-primary btn-sm">Save</button>
+				</form>
+			</section>
 			<section>
 				<div class="flex items-center gap-2 mb-1">
 					<h2 class="text-sm font-semibold uppercase tracking-wide text-rw-faint">Static config</h2>
