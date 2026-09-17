@@ -112,12 +112,26 @@ func (h *handler) Setup(c echo.Context) error {
 	switch step {
 	case "name":
 		return respond.HTML(c, http.StatusOK, setupNamePage(c, o))
-	case "connector":
+	case "connector", "config":
+		// The step body hangs on GitHub's repo list, so the frame renders at
+		// once and the body loads into it (?body=1). No connector means no
+		// GitHub call, and that body renders inline.
 		conns := h.githubConnectors(c, o)
-		return respond.HTML(c, http.StatusOK, setupConnectorPage(c, o, conns, h.connectorRepos(c, conns)))
-	case "config":
-		conns := h.githubConnectors(c, o)
-		return respond.HTML(c, http.StatusOK, setupConfigPage(c, o, conns, h.connectorRepos(c, conns)))
+		var repos []githubapp.Repo
+		loaded := len(conns) == 0 || c.QueryParam("body") == "1"
+		if len(conns) > 0 && loaded {
+			repos = h.connectorRepos(c, conns)
+		}
+		if c.QueryParam("body") == "1" {
+			if step == "connector" {
+				return respond.HTML(c, http.StatusOK, setupConnectorBody(c, o, conns, repos))
+			}
+			return respond.HTML(c, http.StatusOK, setupConfigBody(c, o, conns, repos))
+		}
+		if step == "connector" {
+			return respond.HTML(c, http.StatusOK, setupConnectorPage(c, o, conns, repos, loaded))
+		}
+		return respond.HTML(c, http.StatusOK, setupConfigPage(c, o, conns, repos, loaded))
 	case "domain":
 		// A managed org's domains come from its file, so the step shows them
 		// rather than asking for one.

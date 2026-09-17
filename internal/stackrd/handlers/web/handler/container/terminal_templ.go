@@ -14,7 +14,7 @@ import (
 	"github.com/labstack/echo/v4"
 )
 
-func termPage(c echo.Context, d *runtime.ContainerDetail, node string) templ.Component {
+func termPage(c echo.Context, d *runtime.ContainerDetail, node string, down bool) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
@@ -73,26 +73,37 @@ func termPage(c echo.Context, d *runtime.ContainerDetail, node string) templ.Com
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, ": terminal</h1></div><div id=\"term\" class=\"panel overflow-hidden p-2\"></div><script src=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, ": terminal</h1></div>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var5 string
-			templ_7745c5c3_Var5, templ_7745c5c3_Err = templ.JoinStringErrs(components.StaticURL("js/xterm.min.js"))
-			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/stackrd/handlers/web/handler/container/terminal.templ`, Line: 17, Col: 55}
-			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var5))
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, "\"></script> ")
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			templ_7745c5c3_Err = termScript(d.ID, node).Render(ctx, templ_7745c5c3_Buffer)
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
+			if down {
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, "<p class=\"text-sm text-rw-warn\">Node not answering.</p>")
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+			} else {
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 5, "<div id=\"term\" class=\"panel overflow-hidden p-2\"></div><script src=\"")
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				var templ_7745c5c3_Var5 string
+				templ_7745c5c3_Var5, templ_7745c5c3_Err = templ.JoinStringErrs(components.StaticURL("js/xterm.min.js"))
+				if templ_7745c5c3_Err != nil {
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/stackrd/handlers/web/handler/container/terminal.templ`, Line: 20, Col: 56}
+				}
+				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var5))
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, "\"></script> ")
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				templ_7745c5c3_Err = termScript(d.ID, node).Render(ctx, templ_7745c5c3_Buffer)
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
 			}
 			return nil
 		})
@@ -125,33 +136,33 @@ func termScript(id, node string) templ.Component {
 			templ_7745c5c3_Var6 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 5, "<script data-container-id=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 7, "<script data-container-id=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var7 string
 		templ_7745c5c3_Var7, templ_7745c5c3_Err = templ.JoinStringErrs(id)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/stackrd/handlers/web/handler/container/terminal.templ`, Line: 23, Col: 31}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/stackrd/handlers/web/handler/container/terminal.templ`, Line: 27, Col: 31}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var7))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, "\" data-node=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 8, "\" data-node=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var8 string
 		templ_7745c5c3_Var8, templ_7745c5c3_Err = templ.JoinStringErrs(node)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/stackrd/handlers/web/handler/container/terminal.templ`, Line: 23, Col: 50}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/stackrd/handlers/web/handler/container/terminal.templ`, Line: 27, Col: 50}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var8))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 7, "\">\n\t\t(function() {\n\t\t\tconst id = document.currentScript.dataset.containerId;\n\t\t\t// The node travels with the id: a container id means nothing to\n\t\t\t// the manager's daemon when the container is on a worker.\n\t\t\tconst node = document.currentScript.dataset.node;\n\t\t\tconst q = node ? '?node=' + encodeURIComponent(node) : '';\n\t\t\t// Literal on purpose: a terminal is black in both themes. Tying it to\n\t\t\t// a surface token would give a light-theme terminal a pale background\n\t\t\t// under output that assumes a dark one.\n\t\t\tconst term = new Terminal({ fontSize: 14, cursorBlink: true, theme: { background: '#000000' } });\n\t\t\tterm.open(document.getElementById('term'));\n\t\t\tconst proto = location.protocol === 'https:' ? 'wss' : 'ws';\n\t\t\tconst ws = new WebSocket(proto + '://' + location.host + '/containers/' + id + '/term/ws' + q);\n\t\t\tws.binaryType = 'arraybuffer';\n\t\t\tws.onopen = function() {\n\t\t\t\tws.send(JSON.stringify({type: 'resize', cols: term.cols, rows: term.rows}));\n\t\t\t};\n\t\t\tws.onmessage = function(e) { term.write(new Uint8Array(e.data)); };\n\t\t\tws.onclose = function() { term.write('\\r\\n[disconnected]\\r\\n'); };\n\t\t\tterm.onData(function(data) { ws.send(new TextEncoder().encode(data)); });\n\t\t\tterm.onResize(function(s) { ws.send(JSON.stringify({type: 'resize', cols: s.cols, rows: s.rows})); });\n\t\t\twindow.addEventListener('resize', function() { /* no fit addon; fixed 80x24 default */ });\n\t\t})();\n\t</script>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 9, "\">\n\t\t(function() {\n\t\t\tconst id = document.currentScript.dataset.containerId;\n\t\t\t// The node travels with the id: a container id means nothing to\n\t\t\t// the manager's daemon when the container is on a worker.\n\t\t\tconst node = document.currentScript.dataset.node;\n\t\t\tconst q = node ? '?node=' + encodeURIComponent(node) : '';\n\t\t\t// Literal on purpose: a terminal is black in both themes. Tying it to\n\t\t\t// a surface token would give a light-theme terminal a pale background\n\t\t\t// under output that assumes a dark one.\n\t\t\tconst term = new Terminal({ fontSize: 14, cursorBlink: true, theme: { background: '#000000' } });\n\t\t\tterm.open(document.getElementById('term'));\n\t\t\tconst proto = location.protocol === 'https:' ? 'wss' : 'ws';\n\t\t\tconst ws = new WebSocket(proto + '://' + location.host + '/containers/' + id + '/term/ws' + q);\n\t\t\tws.binaryType = 'arraybuffer';\n\t\t\tws.onopen = function() {\n\t\t\t\tws.send(JSON.stringify({type: 'resize', cols: term.cols, rows: term.rows}));\n\t\t\t};\n\t\t\tws.onmessage = function(e) { term.write(new Uint8Array(e.data)); };\n\t\t\tws.onclose = function() { term.write('\\r\\n[disconnected]\\r\\n'); };\n\t\t\tterm.onData(function(data) { ws.send(new TextEncoder().encode(data)); });\n\t\t\tterm.onResize(function(s) { ws.send(JSON.stringify({type: 'resize', cols: s.cols, rows: s.rows})); });\n\t\t\twindow.addEventListener('resize', function() { /* no fit addon; fixed 80x24 default */ });\n\t\t})();\n\t</script>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

@@ -109,31 +109,6 @@ func (h *handler) Detail(c echo.Context) error {
 	for i := range disk { // MB -> GB for a readable scale
 		disk[i].V /= 1024
 	}
-	// Per node: the daemon info and the volumes both belong to whichever
-	// machine this row is, and a volume is a directory on one host's disk.
-	// The dispatcher answers from the socket for this node and through the
-	// agent for any other.
-	//
-	// Not for a row that has never joined, though. A pending server has an
-	// empty node_id, and agent.Nodes.IsSelf reads the empty string as
-	// "wherever it is", which resolves to the manager, so this page used to
-	// show the manager's docker version, core count, image count and whole
-	// volume list as if they belonged to a machine that has no docker on it
-	// at all, each volume with a live Delete button. "I do not mind which
-	// node" and "this node does not exist yet" are the same value, so the
-	// caller has to tell them apart.
-	var info runtime.HostInfo
-	var vols []runtime.VolumeInfo
-	volMsg := ""
-	if sv.NodeID != "" {
-		nodeInfo, _ := h.clus.Info(ctx, sv.NodeID)
-		info = nodeInfo.Host
-		var volErr error
-		vols, volErr = h.clus.ListVolumes(ctx, sv.NodeID)
-		if volErr != nil {
-			volMsg = volErr.Error()
-		}
-	}
 	// Ping history is the manager's own measurement, so it works from the
 	// day a node joins, with no agent involved.
 	//
@@ -182,8 +157,56 @@ func (h *handler) Detail(c echo.Context) error {
 		ps, _ := h.store.ListStoragePaths(ctx, all[i].ID)
 		spaths[all[i].ID] = ps
 	}
-	return respond.HTML(c, http.StatusOK, serverPage(c, sv, node, here, groups, ping, volMsg,
-		h.cookieDomain, instanceBase, domainRes, rangeKey, cpu, mem, disk, rx, tx, info, vols, storages, spaths, allNodes))
+	return respond.HTML(c, http.StatusOK, serverPage(c, sv, node, here, groups, ping,
+		h.cookieDomain, instanceBase, domainRes, rangeKey, cpu, mem, disk, rx, tx, storages, spaths, allNodes))
+}
+
+// The daemon info and the volumes both go through the node's agent, so each
+// is its own request and a node that does not answer costs its own region,
+// not the page. Both belong to whichever machine this row is: a volume is a
+// directory on one host's disk. The dispatcher answers from the socket for
+// this node and through the agent for any other.
+//
+// Not for a row that has never joined, though. A pending server has an empty
+// node_id, and agent.Nodes.IsSelf reads the empty string as "wherever it is",
+// which resolves to the manager, so this page used to show the manager's
+// docker version, core count, image count and whole volume list as if they
+// belonged to a machine that has no docker on it at all, each volume with a
+// live Delete button. "I do not mind which node" and "this node does not
+// exist yet" are the same value, so the caller has to tell them apart.
+
+// GET /servers/:id/host, the docker stat tiles.
+func (h *handler) Host(c echo.Context) error {
+	ctx := c.Request().Context()
+	sv, err := h.store.GetServer(ctx, c.Param("id"))
+	if err != nil || sv == nil || sv.NodeID == "" {
+		return echo.NewHTTPError(http.StatusNotFound, "server not found")
+	}
+	// Bounded, so a hung agent renders "no answer" rather than a request
+	// timeout 500.
+	ictx, cancel := components.PageCtx(ctx)
+	defer cancel()
+	info, err := h.clus.Info(ictx, sv.NodeID)
+	return respond.HTML(c, http.StatusOK, hostTiles(info.Host, err != nil))
+}
+
+// GET /servers/:id/volumes, the volumes section.
+func (h *handler) Volumes(c echo.Context) error {
+	ctx := c.Request().Context()
+	sv, err := h.store.GetServer(ctx, c.Param("id"))
+	if err != nil || sv == nil {
+		return echo.NewHTTPError(http.StatusNotFound, "server not found")
+	}
+	var vols []runtime.VolumeInfo
+	msg := ""
+	if sv.NodeID != "" {
+		vctx, cancel := components.PageCtx(ctx)
+		defer cancel()
+		if vols, err = h.clus.ListVolumes(vctx, sv.NodeID); err != nil {
+			msg = err.Error()
+		}
+	}
+	return respond.HTML(c, http.StatusOK, serverVolumes(c, sv, vols, msg))
 }
 
 // knownGroups is every group already set on a node, so the Group field can

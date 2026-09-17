@@ -13,13 +13,18 @@ import (
 	"github.com/FyrmForge/stackr/internal/stackrd/handlers/web/components/form"
 )
 
-templ serverPage(c echo.Context, sv *repo.Server, node *runtime.Node, here []runtime.NodeTaskInfo, groups []string, ping []components.TimePoint, volErr string, cookieDomain string, instanceBase string, domainRes []repo.DomainResource, rangeKey string, cpu, mem, disk, rx, tx []components.TimePoint, info runtime.HostInfo, vols []runtime.VolumeInfo, storages []repo.Storage, spaths map[string][]repo.StoragePath, nodes []runtime.Node) {
+templ serverPage(c echo.Context, sv *repo.Server, node *runtime.Node, here []runtime.NodeTaskInfo, groups []string, ping []components.TimePoint, cookieDomain string, instanceBase string, domainRes []repo.DomainResource, rangeKey string, cpu, mem, disk, rx, tx []components.TimePoint, storages []repo.Storage, spaths map[string][]repo.StoragePath, nodes []runtime.Node) {
 	@components.Shell(c, sv.Name) {
 		<div class="mb-4">
 			<a href="/servers" class="text-sm text-rw-muted hover:text-rw-text transition-colors">&larr; servers</a>
 		</div>
 		@nodeHeader(c, sv, node)
 		@nodeGroupForm(c, sv, node, groups)
+		// Outside #server-live on purpose: the tiles are one agent call and
+		// change on nothing the live refresh watches, so they load once.
+		if sv.NodeID != "" {
+			<div hx-get={ "/servers/" + sv.ID + "/host" } hx-trigger="load" hx-swap="outerHTML"></div>
+		}
 
 		<div
 			id="server-live"
@@ -43,15 +48,6 @@ templ serverPage(c echo.Context, sv *repo.Server, node *runtime.Node, here []run
 				</p>
 			</div>
 		}
-		if info.ServerVersion != "" {
-			<div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
-				@statTile("Docker", info.ServerVersion)
-				@statTile("Host", info.OS + " · " + info.Arch)
-				@statTile("CPU / RAM", fmt.Sprintf("%d cores · %.0f GB", info.NCPU, float64(info.MemTotal)/(1024*1024*1024)))
-				@statTile("Containers", fmt.Sprintf("%d running / %d · %d images", info.ContainersRunning, info.Containers, info.Images))
-			</div>
-		}
-
 		<h2 class="text-sm font-semibold uppercase tracking-wide text-rw-faint mt-8 mb-3">Ping over time</h2>
 		<p class="text-sm text-rw-muted mb-3">
 			The manager timing a TCP connect to this node's swarm port, every 30 seconds. Gaps are
@@ -95,86 +91,10 @@ templ serverPage(c echo.Context, sv *repo.Server, node *runtime.Node, here []run
 			</ul>
 		}
 
-		<h2 class="text-sm font-semibold uppercase tracking-wide text-rw-faint mt-10 mb-4">
-			Volumes
-			if len(vols) > 0 {
-				<span class="normal-case tracking-normal font-normal text-rw-muted">· { fmt.Sprint(len(vols)) } · { runtime.FmtBytes(totalVolBytes(vols)) } total</span>
-			}
-		</h2>
-		<p class="text-sm text-rw-muted mb-4">Docker named volumes on this host, this host only, because a volume is a directory on one machine's disk. Mount one from a tile's settings as <span class="font-mono text-rw-text">name:/container/path</span>; a volume a running container has mounted cannot be deleted.</p>
-		if volErr != "" {
-			<p class="text-sm text-rw-warn mb-4">The volumes on this node cannot be listed: { volErr }</p>
-		}
-		// No Create box for a node that does not exist yet. The handler refuses
-		// it anyway, but a form that can only fail should not be drawn.
-		if sv.NodeID != "" {
-			<form hx-post={ "/servers/" + sv.ID + "/volumes" } class="flex gap-2 mb-4 max-w-md">
-				@form.CSRFField(c)
-				<input type="text" name="name" placeholder="new volume name" required class="input font-mono"/>
-				<button type="submit" class="btn btn-primary whitespace-nowrap">Create</button>
-			</form>
-		}
-		if len(vols) == 0 {
-			<p class="text-sm text-rw-faint mb-4">No named volumes.</p>
-		} else {
-			<ul class="space-y-2 max-w-3xl mb-4">
-				for _, v := range vols {
-					<li class="panel px-4 py-3 flex flex-wrap items-center gap-3 text-sm">
-						<span class="font-mono text-rw-text">{ v.Name }</span>
-						<span class="text-xs text-rw-faint">{ v.Driver }</span>
-						<span class="text-xs px-1.5 py-0.5 rounded bg-rw-inset text-rw-muted font-mono">{ runtime.FmtBytes(v.SizeBytes) }</span>
-						if len(v.UsedBy) > 0 {
-							<span class="text-xs px-1.5 py-0.5 rounded bg-rw-success/15 text-rw-success" title={ strings.Join(v.UsedBy, ", ") }>
-								in use · { fmt.Sprint(len(v.UsedBy)) }
-							</span>
-						} else if len(v.HeldBy) > 0 {
-							// Held only by containers that are not running: a tile
-							// the operator stopped, or the corpse swarm keeps after
-							// moving a task to another node. Deleting is allowed and
-							// takes those containers with it, so the confirm names
-							// them rather than saying "unused".
-							<span class="text-xs px-1.5 py-0.5 rounded bg-rw-warn/15 text-rw-warn" title={ strings.Join(v.HeldBy, ", ") }>
-								held by { fmt.Sprint(len(v.HeldBy)) } stopped
-							</span>
-						<details class="ml-auto">
-							<summary class="btn btn-danger btn-sm cursor-pointer list-none">Delete</summary>
-							<div class="mt-3">
-								@components.ConfirmDanger(c, components.ConfirmCfg{
-									PostURL: "/servers/" + sv.ID + "/volumes/delete",
-									Want:    v.Name,
-									Path:    sv.Name + " / " + v.Name,
-									Warning: heldConfirm(v),
-									Label:   "Delete volume",
-									ID:      "vol-" + v.Name,
-								})
-								// Rides the same form as the typed box, which is
-								// why it carries form= rather than sitting inside.
-								<input type="hidden" name="name" value={ v.Name } form={ "confirm-form-vol-" + v.Name }/>
-							</div>
-						</details>
-						} else {
-							<span class="text-xs px-1.5 py-0.5 rounded bg-rw-inset text-rw-faint">unused</span>
-						<details class="ml-auto">
-							<summary class="btn btn-danger btn-sm cursor-pointer list-none">Delete</summary>
-							<div class="mt-3">
-								@components.ConfirmDanger(c, components.ConfirmCfg{
-									PostURL: "/servers/" + sv.ID + "/volumes/delete",
-									Want:    v.Name,
-									Path:    sv.Name + " / " + v.Name,
-									Warning: "Deleting this volume destroys its data. There is no copy.",
-									Label:   "Delete volume",
-									ID:      "vol-" + v.Name,
-								})
-								// Rides the same form as the typed box, which is
-								// why it carries form= rather than sitting inside.
-								<input type="hidden" name="name" value={ v.Name } form={ "confirm-form-vol-" + v.Name }/>
-							</div>
-						</details>
-						}
-					</li>
-				}
-			</ul>
-		}
+		<div hx-get={ "/servers/" + sv.ID + "/volumes" } hx-trigger="load" hx-swap="outerHTML">
+			<h2 class="text-sm font-semibold uppercase tracking-wide text-rw-faint mt-10 mb-4">Volumes</h2>
+			@components.Loading("Listing.")
+		</div>
 
 		// Storage is per server and not swarm-wide: a share or a pool is a
 		// directory on one machine's disk, and the volume that mounts it has
@@ -382,6 +302,106 @@ templ nodeGroupForm(c echo.Context, sv *repo.Server, node *runtime.Node, groups 
 			</p>
 		</form>
 	}
+}
+
+// hostTiles is the node's docker at a glance, loaded after the page.
+templ hostTiles(info runtime.HostInfo, failed bool) {
+	if failed {
+		<p class="text-sm text-rw-warn mb-6">No answer from this node.</p>
+	} else if info.ServerVersion != "" {
+		<div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+			@statTile("Docker", info.ServerVersion)
+			@statTile("Host", info.OS + " · " + info.Arch)
+			@statTile("CPU / RAM", fmt.Sprintf("%d cores · %.0f GB", info.NCPU, float64(info.MemTotal)/(1024*1024*1024)))
+			@statTile("Containers", fmt.Sprintf("%d running / %d · %d images", info.ContainersRunning, info.Containers, info.Images))
+		</div>
+	}
+}
+
+// serverVolumes is the volumes section, loaded after the page.
+templ serverVolumes(c echo.Context, sv *repo.Server, vols []runtime.VolumeInfo, volErr string) {
+	<div>
+		<h2 class="text-sm font-semibold uppercase tracking-wide text-rw-faint mt-10 mb-4">
+			Volumes
+			if len(vols) > 0 {
+				<span class="normal-case tracking-normal font-normal text-rw-muted">· { fmt.Sprint(len(vols)) } · { runtime.FmtBytes(totalVolBytes(vols)) } total</span>
+			}
+		</h2>
+		<p class="text-sm text-rw-muted mb-4">Docker named volumes on this host, this host only, because a volume is a directory on one machine's disk. Mount one from a tile's settings as <span class="font-mono text-rw-text">name:/container/path</span>; a volume a running container has mounted cannot be deleted.</p>
+		if volErr != "" {
+			<p class="text-sm text-rw-warn mb-4">The volumes on this node cannot be listed: { volErr }</p>
+		}
+		// No Create box for a node that does not exist yet. The handler refuses
+		// it anyway, but a form that can only fail should not be drawn.
+		if sv.NodeID != "" {
+			<form hx-post={ "/servers/" + sv.ID + "/volumes" } class="flex gap-2 mb-4 max-w-md">
+				@form.CSRFField(c)
+				<input type="text" name="name" placeholder="new volume name" required class="input font-mono"/>
+				<button type="submit" class="btn btn-primary whitespace-nowrap">Create</button>
+			</form>
+		}
+		if len(vols) == 0 {
+			<p class="text-sm text-rw-faint mb-4">No named volumes.</p>
+		} else {
+			<ul class="space-y-2 max-w-3xl mb-4">
+				for _, v := range vols {
+					<li class="panel px-4 py-3 flex flex-wrap items-center gap-3 text-sm">
+						<span class="font-mono text-rw-text">{ v.Name }</span>
+						<span class="text-xs text-rw-faint">{ v.Driver }</span>
+						<span class="text-xs px-1.5 py-0.5 rounded bg-rw-inset text-rw-muted font-mono">{ runtime.FmtBytes(v.SizeBytes) }</span>
+						if len(v.UsedBy) > 0 {
+							<span class="text-xs px-1.5 py-0.5 rounded bg-rw-success/15 text-rw-success" title={ strings.Join(v.UsedBy, ", ") }>
+								in use · { fmt.Sprint(len(v.UsedBy)) }
+							</span>
+						} else if len(v.HeldBy) > 0 {
+							// Held only by containers that are not running: a tile
+							// the operator stopped, or the corpse swarm keeps after
+							// moving a task to another node. Deleting is allowed and
+							// takes those containers with it, so the confirm names
+							// them rather than saying "unused".
+							<span class="text-xs px-1.5 py-0.5 rounded bg-rw-warn/15 text-rw-warn" title={ strings.Join(v.HeldBy, ", ") }>
+								held by { fmt.Sprint(len(v.HeldBy)) } stopped
+							</span>
+						<details class="ml-auto">
+							<summary class="btn btn-danger btn-sm cursor-pointer list-none">Delete</summary>
+							<div class="mt-3">
+								@components.ConfirmDanger(c, components.ConfirmCfg{
+									PostURL: "/servers/" + sv.ID + "/volumes/delete",
+									Want:    v.Name,
+									Path:    sv.Name + " / " + v.Name,
+									Warning: heldConfirm(v),
+									Label:   "Delete volume",
+									ID:      "vol-" + v.Name,
+								})
+								// Rides the same form as the typed box, which is
+								// why it carries form= rather than sitting inside.
+								<input type="hidden" name="name" value={ v.Name } form={ "confirm-form-vol-" + v.Name }/>
+							</div>
+						</details>
+						} else {
+							<span class="text-xs px-1.5 py-0.5 rounded bg-rw-inset text-rw-faint">unused</span>
+						<details class="ml-auto">
+							<summary class="btn btn-danger btn-sm cursor-pointer list-none">Delete</summary>
+							<div class="mt-3">
+								@components.ConfirmDanger(c, components.ConfirmCfg{
+									PostURL: "/servers/" + sv.ID + "/volumes/delete",
+									Want:    v.Name,
+									Path:    sv.Name + " / " + v.Name,
+									Warning: "Deleting this volume destroys its data. There is no copy.",
+									Label:   "Delete volume",
+									ID:      "vol-" + v.Name,
+								})
+								// Rides the same form as the typed box, which is
+								// why it carries form= rather than sitting inside.
+								<input type="hidden" name="name" value={ v.Name } form={ "confirm-form-vol-" + v.Name }/>
+							</div>
+						</details>
+						}
+					</li>
+				}
+			</ul>
+		}
+	</div>
 }
 
 templ statTile(label, value string) {

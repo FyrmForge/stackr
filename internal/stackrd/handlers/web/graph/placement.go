@@ -24,6 +24,9 @@ type TileTasks struct {
 	// MovingTo and MovePct describe a volume move in flight.
 	MovingTo string
 	MovePct  int
+	// Unknown is a task list swarm did not answer for. The tile gets no
+	// chip and no roll-up rather than a wrong one.
+	Unknown bool
 }
 
 // Task is one running replica.
@@ -49,7 +52,7 @@ func ApplyPlacement(g *Graph, byTile map[string]TileTasks, multiNode bool) {
 			continue
 		}
 		t, ok := byTile[id]
-		if !ok {
+		if !ok || t.Unknown {
 			continue
 		}
 		apply(&g.Nodes[i], t, multiNode)

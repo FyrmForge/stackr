@@ -154,8 +154,20 @@ templ setupSwitchToConfig(c echo.Context, o *repo.Org) {
 // Step 2. A GitHub App manifest has to be posted by the browser to github.com,
 // so this stays a native form; the wizard flag rides a cookie set server-side
 // because GitHub sends the user back on its own URL.
-templ setupConnectorPage(c echo.Context, o *repo.Org, conns []repo.Connector, repos []githubapp.Repo) {
+templ setupConnectorPage(c echo.Context, o *repo.Org, conns []repo.Connector, repos []githubapp.Repo, loaded bool) {
 	@setupShell(c, "Connect GitHub", "A private GitHub App for this organization, so there are no tokens to copy around.", setupStepNo(o, "connector"), setupTotal(o)) {
+		if loaded {
+			@setupConnectorBody(c, o, conns, repos)
+		} else {
+			<div hx-get={ "/orgs/" + o.Slug + "/setup/connector?body=1" } hx-trigger="load" hx-swap="outerHTML">
+				@components.Loading("Reading repositories.")
+			</div>
+		}
+	}
+}
+
+templ setupConnectorBody(c echo.Context, o *repo.Org, conns []repo.Connector, repos []githubapp.Repo) {
+	<div>
 		if len(conns) == 0 {
 			// templint:ignore no-native-form-actions -- response is the auto-submitting redirect page; must replace the document
 			<form method="post" action={ templ.SafeURL("/orgs/" + o.Slug + "/setup/connector") } class="space-y-5">
@@ -189,13 +201,25 @@ templ setupConnectorPage(c echo.Context, o *repo.Org, conns []repo.Connector, re
 			<a href={ templ.SafeURL(setupNextURL(o, "connector")) } class="btn btn-primary w-full">Continue</a>
 			@setupNav(connectorInstallURL(conns), "Change which repositories it can see")
 		}
-	}
+	</div>
 }
 
 // Step 3. Same binding form as the settings page, minus the plan history.
 // Values are checked when the file is applied, not while you type.
-templ setupConfigPage(c echo.Context, o *repo.Org, conns []repo.Connector, repos []githubapp.Repo) {
+templ setupConfigPage(c echo.Context, o *repo.Org, conns []repo.Connector, repos []githubapp.Repo, loaded bool) {
 	@setupShell(c, "Config as code", "One file in a repo declares the whole organization. Its plans are always applied by hand.", setupStepNo(o, "config"), setupTotal(o)) {
+		if loaded {
+			@setupConfigBody(c, o, conns, repos)
+		} else {
+			<div hx-get={ "/orgs/" + o.Slug + "/setup/config?body=1" } hx-trigger="load" hx-swap="outerHTML">
+				@components.Loading("Reading repositories.")
+			</div>
+		}
+	}
+}
+
+templ setupConfigBody(c echo.Context, o *repo.Org, conns []repo.Connector, repos []githubapp.Repo) {
+	<div>
 		if len(conns) == 0 {
 			<p class="text-sm text-rw-muted mb-5">This needs a GitHub connector, and this organization has none yet.</p>
 			<a href={ templ.SafeURL("/orgs/" + o.Slug + "/setup/connector") } class="btn btn-primary w-full">Connect GitHub</a>
@@ -223,7 +247,7 @@ templ setupConfigPage(c echo.Context, o *repo.Org, conns []repo.Connector, repos
 			</form>
 			@setupSwitchToUI(c, o)
 		}
-	}
+	</div>
 }
 
 // Step 3, second screen. Binding a file produces a plan and the plan is the

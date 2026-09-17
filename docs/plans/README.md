@@ -13,7 +13,7 @@ decisions.
 | [16 install scripts](16-install-scripts.md) | partly exercised | Finish production-install coverage and fold upgrade work into the beta release. |
 | [20 event-triggered functions](20-event-triggered-functions.md) | discussion | Decide the tile model, delivery guarantees and network ownership. |
 | [33 workqueue](33-workqueue.md) | steps 1–3 shipped | Move backups, volume moves and cron runs onto the durable queue. |
-| [45 lazy page loads](45-lazy-page-loads.md) | proposed, reviewed | Pages that block on docker, agents, GitHub or the registry: fragments or bounded calls with an unknown state, nine items. |
+| [45 lazy page loads](45-lazy-page-loads.md) | implemented, rig tested | Pages that block on docker, agents, GitHub or the registry: fragments or bounded calls with an unknown state, nine items. |
 | [46 serverconfig gaps](46-serverconfig-gaps.md) | done | Org network shares, domain middlewares and rules, folder `files:`. |
 
 The beta sequence is tracked in [Beta release](../beta-release.md). Product

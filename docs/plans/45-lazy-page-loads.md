@@ -1,7 +1,36 @@
 # Plan: pages that wait on something slow
 
-Status: proposed 2026-09-16, reviewed against the code the same day. Nothing
-implemented.
+Status: proposed 2026-09-16, reviewed against the code the same day.
+Implemented and rig tested 2026-09-17 (two nodes, worker agent paused,
+registry stopped). Not tested: GitHub unreachable (no sudo on the manager to
+block outbound). Where the build differs from the text below:
+
+- Item 1 is one file. The `HaveBehind` line is in `commitLog`, not `Graph`.
+  Also added a mutex on the older map: every request shares it until the head
+  moves, and concurrent writes crash the process.
+- Item 3 keeps the settings tab's `volumeView` call (the attach dropdown
+  reads its services) and only drops the disk scan. The warning moved inside
+  the size cell.
+- Item 4: the websocket room and the 120s poll sit on a wrapper. The poll
+  re-fetches the page with `hx-select`, so a node that joins or leaves shows
+  up without a reload. The wrapper carries `hx-disinherit="*"`, or the
+  sections inherit the select and swap in nothing. Each section URL carries
+  the hostname, so a section is one agent call and no node lookup.
+- Item 5 renders "node not answering" only for dial and deadline errors,
+  logged as a warning. Docker's "No such container" is a 404, and anything
+  else (a bad node id, a stale agent, a bad key) is the error itself.
+- A shared `components.PageCtx` is the 5s bound, and `components.Loading` the
+  placeholder, at every site.
+- Item 6: a failed info call now says "No answer from this node" instead of
+  showing nothing.
+- Item 7 is one fragment, `.../registry/images?image=`. Image links stay full
+  page links; image names contain slashes, so a path parameter was awkward.
+- Item 8 is `?body=1` on the step route, not a new route.
+- Item 9: org uses an inline timeout, it has only the one call.
+- The node fragments (containers section, server host and volumes) are
+  bounded at 5 seconds too. Found on the rig: unbounded, a hung agent held
+  them for the 30 second request timeout, which answered 500 and the "no
+  answer" line never showed.
 
 Working rules: discuss first, one point at a time, no code without a go, no
 git writes, no edits to `*_templ.go` or `output.css`, terse UI copy.

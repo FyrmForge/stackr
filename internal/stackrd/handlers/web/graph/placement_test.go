@@ -44,3 +44,12 @@ func TestApplyPlacementSingleNode(t *testing.T) {
 		t.Fatal("a one-node swarm drew a node chip")
 	}
 }
+
+// A task list swarm did not answer for draws nothing, not "degraded 0/3".
+func TestApplyPlacementUnknown(t *testing.T) {
+	g := Graph{Nodes: []Node{{ID: AppNodeID("t1")}}}
+	ApplyPlacement(&g, map[string]TileTasks{"t1": {Want: 3, Unknown: true}}, true)
+	if g.Nodes[0].Replicas.Want != 0 || g.Nodes[0].Node != "" {
+		t.Fatalf("unknown tile got a roll-up: %+v", g.Nodes[0].Replicas)
+	}
+}

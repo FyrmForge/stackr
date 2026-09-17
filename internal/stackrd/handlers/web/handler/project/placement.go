@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 
+	"github.com/FyrmForge/stackr/internal/stackrd/handlers/web/components"
 	"github.com/FyrmForge/stackr/internal/stackrd/handlers/web/graph"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/envnet"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
@@ -20,6 +21,8 @@ import (
 // Every failure here is silent by design: the canvas is the main screen, and
 // a swarm call that times out must cost it a chip, not the page.
 func (h *handler) markPlacement(ctx context.Context, g *graph.Graph, tiles []repo.Tile) {
+	ctx, cancel := components.PageCtx(ctx)
+	defer cancel()
 	nodes, err := h.rt.ListNodes(ctx)
 	if err != nil {
 		slog.Debug("canvas: listing swarm nodes", "error", err)
@@ -28,6 +31,9 @@ func (h *handler) markPlacement(ctx context.Context, g *graph.Graph, tiles []rep
 	// One node is the common case and has nothing to say: no chips, and the
 	// canvas is exactly what it was before any of this existed.
 	multiNode := len(nodes) > 1
+	if !multiNode && !anyReplicated(tiles) {
+		return // nothing to draw: chips need two nodes, the roll-up two replicas
+	}
 	nodeName := map[string]string{}
 	for _, n := range nodes {
 		nodeName[n.ID] = n.Hostname
@@ -48,7 +54,11 @@ func (h *handler) markPlacement(ctx context.Context, g *graph.Graph, tiles []rep
 			tt.HomeNode = t.HomeNode
 		}
 		tasks, err := h.rt.ServiceTasksOnNetwork(ctx, sc.ServiceName(t.Slug), "")
-		if err == nil {
+		if err != nil {
+			// no tasks is not "0 running": a replicated tile would paint
+			// degraded when swarm only failed to answer
+			tt.Unknown = true
+		} else {
 			for _, task := range tasks {
 				if task.DesiredState != "running" {
 					continue
@@ -69,4 +79,13 @@ func (h *handler) markPlacement(ctx context.Context, g *graph.Graph, tiles []rep
 		byTile[t.ID] = tt
 	}
 	graph.ApplyPlacement(g, byTile, multiNode)
+}
+
+func anyReplicated(tiles []repo.Tile) bool {
+	for i := range tiles {
+		if tiles[i].Replicas > 1 {
+			return true
+		}
+	}
+	return false
 }

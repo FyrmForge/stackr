@@ -8,17 +8,20 @@ import (
 	"github.com/FyrmForge/hamr/pkg/respond"
 	"github.com/labstack/echo/v4"
 
+	"github.com/FyrmForge/stackr/internal/stackrd/handlers/web/components"
 	"github.com/FyrmForge/stackr/internal/stackrd/handlers/web/wsterm"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/cluster"
 )
 
 // GET /containers/:id/term, terminal page.
 func (h *handler) TermPage(c echo.Context) error {
-	d, err := h.clus.InspectContainer(c.Request().Context(), h.node(c), c.Param("id"))
+	ctx, cancel := components.PageCtx(c.Request().Context())
+	defer cancel()
+	d, down, err := h.inspect(ctx, c)
 	if err != nil {
-		return echo.NewHTTPError(http.StatusNotFound, "container not found")
+		return err
 	}
-	return respond.HTML(c, http.StatusOK, termPage(c, d, h.node(c)))
+	return respond.HTML(c, http.StatusOK, termPage(c, d, h.node(c), down))
 }
 
 // GET /containers/:id/term/ws, websocket bridged to docker exec TTY.

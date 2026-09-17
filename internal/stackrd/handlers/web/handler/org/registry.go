@@ -59,22 +59,46 @@ func (h *handler) renderRegistry(c echo.Context, o *repo.Org, newCred string) er
 	if reg.Domain != "" {
 		v.Host = reg.Domain
 	}
+	v.Open = c.QueryParam("image")
+	return respond.HTML(c, http.StatusOK, orgRegistryPage(c, v))
+}
+
+// RegistryImages is the Images section, loaded after the page: the catalog and
+// the open image's manifests are registry calls, and the credentials above
+// must not wait on a registry that is down.
+// GET /orgs/:slug/settings/registry/images?image=
+func (h *handler) RegistryImages(c echo.Context) error {
+	o, err := h.settingsOrg(c)
+	if err != nil {
+		return err
+	}
+	ctx := c.Request().Context()
+	v := registryView{Org: o, CanEdit: h.ownerOf(c, o.ID)}
+	reg, err := h.store.GetManagedRegistry(ctx)
+	if err != nil {
+		return err
+	}
+	if reg == nil {
+		return echo.NewHTTPError(http.StatusNotFound, "no managed registry")
+	}
 	cl := registry.NewClient(reg, h.regsign)
 	names, err := cl.Images(ctx, o.Slug)
 	if err != nil {
 		v.Err = "Could not read the registry: " + err.Error()
-		return respond.HTML(c, http.StatusOK, orgRegistryPage(c, v))
+		return respond.HTML(c, http.StatusOK, registryImages(c, v))
 	}
 	open := c.QueryParam("image")
 	ns := registry.Namespace(o.Slug)
 	for _, n := range names {
 		im := registryImage{Name: n, Short: strings.TrimPrefix(n, ns), Open: n == open}
 		if im.Open {
+			// ponytail: one manifest read per tag, in series. Fine for a few
+			// dozen tags; parallelise here if an image grows past that.
 			im.Tags = h.tagRows(c, o, cl, n)
 		}
 		v.Images = append(v.Images, im)
 	}
-	return respond.HTML(c, http.StatusOK, orgRegistryPage(c, v))
+	return respond.HTML(c, http.StatusOK, registryImages(c, v))
 }
 
 // tagRows expands one image. A manifest that will not read still lists its tag:

@@ -1,13 +1,19 @@
 package container
 
 import (
+	"context"
+	"errors"
 	"fmt"
+	"log/slog"
+	"net"
 	"net/http"
+	"strings"
 
 	"github.com/FyrmForge/hamr/pkg/respond"
 	"github.com/labstack/echo/v4"
 
 	"github.com/FyrmForge/stackr/internal/stackrd/handlers/notify"
+	"github.com/FyrmForge/stackr/internal/stackrd/handlers/web/components"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/cluster"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/runtime"
 )
@@ -41,8 +47,7 @@ func (h *handler) node(c echo.Context) string {
 // has to be sent to the daemon that has it.
 type ctRow struct {
 	runtime.ManagedContainer
-	Node     string
-	NodeName string
+	Node string
 	// ShowStopped is the list filter this row was rendered under, so that an
 	// action taken on it returns to the same view rather than the default one.
 	ShowStopped bool
@@ -101,40 +106,50 @@ func (h *handler) List(c echo.Context) error {
 			rows[i] = ctRow{ManagedContainer: ct}
 		}
 		rows, stopped := applyFilter(rows, showStopped)
-		return respond.HTML(c, http.StatusOK, listPage(c, rows, false, nil, showStopped, stopped))
+		return respond.HTML(c, http.StatusOK, listPage(c, rows, nil, showStopped, stopped))
 	}
-	var rows []ctRow
-	var failed []string
-	for _, n := range nodes {
-		cs, err := h.clus.ListAll(ctx, n.ID)
-		if err != nil {
-			// One unreachable node must not blank the whole page. Its name
-			// is reported instead, so "missing" is never silent.
-			failed = append(failed, n.Hostname)
-			continue
-		}
-		for _, ct := range cs {
-			rows = append(rows, ctRow{ManagedContainer: ct, Node: n.ID, NodeName: n.Hostname})
-		}
+	// Sections only: each node's list is its own request, NodeList, so a node
+	// that does not answer delays its own section and not the page.
+	return respond.HTML(c, http.StatusOK, listPage(c, nil, nodes, showStopped, 0))
+}
+
+// GET /containers/node/:id?host=, one node's section of the list.
+//
+// The hostname travels in the query so this is one agent call and no node
+// lookup: a container event refreshes every section at once. A node that has
+// left the swarm fails the call and shows as not answering until the page's
+// own poll re-reads the node list and drops the section.
+//
+// A failed node is rendered into the section, not flashed. middleware.SetFlash
+// writes a cookie the *next* request reads, so a flash set here would never be
+// seen. And it is a notice rather than a toast because it is not an event: the
+// node is still unreachable while you read the page.
+func (h *handler) NodeList(c echo.Context) error {
+	// Bounded: a hung agent otherwise holds the section until the request
+	// timeout turns it into a 500 and the notice never shows.
+	ctx, cancel := components.PageCtx(c.Request().Context())
+	defer cancel()
+	showStopped := c.QueryParam("stopped") == "1"
+	n := runtime.Node{ID: c.Param("id"), Hostname: c.QueryParam("host")}
+	cs, err := h.clus.ListAll(ctx, n.ID)
+	if err != nil {
+		return respond.HTML(c, http.StatusOK, nodeSection(c, n, nil, true, showStopped, 0))
 	}
-	// Rendered into the page, not flashed. middleware.SetFlash writes a cookie
-	// the *next* request reads, so a flash set here and rendered here is never
-	// seen, the operator got a page with a node's containers silently missing
-	// and no word about it.
-	//
-	// A banner rather than a toast, because this is not an event: the node is
-	// still unreachable while you read the page, and the notice should last as
-	// long as the condition does.
+	rows := make([]ctRow, len(cs))
+	for i, ct := range cs {
+		rows[i] = ctRow{ManagedContainer: ct, Node: n.ID}
+	}
 	rows, stopped := applyFilter(rows, showStopped)
-	return respond.HTML(c, http.StatusOK, listPage(c, rows, true, failed, showStopped, stopped))
+	return respond.HTML(c, http.StatusOK, nodeSection(c, n, rows, false, showStopped, stopped))
 }
 
 // GET /containers/:id
 func (h *handler) Detail(c echo.Context) error {
-	ctx := c.Request().Context()
-	d, err := h.clus.InspectContainer(ctx, h.node(c), c.Param("id"))
+	ctx, cancel := components.PageCtx(c.Request().Context())
+	defer cancel()
+	d, down, err := h.inspect(ctx, c)
 	if err != nil {
-		return echo.NewHTTPError(http.StatusNotFound, "container not found")
+		return err
 	}
 	var st runtime.ContainerStats
 	if d.State == "running" {
@@ -144,7 +159,36 @@ func (h *handler) Detail(c echo.Context) error {
 	// "View logs" and "Open terminal" links 404 for every container on a
 	// worker, while the same two links on the list page work, the list keeps
 	// the node and this screen dropped it.
-	return respond.HTML(c, http.StatusOK, detailPage(c, d, st, h.node(c)))
+	return respond.HTML(c, http.StatusOK, detailPage(c, d, st, h.node(c), down))
+}
+
+// inspect is the container a page is about, under the page's deadline. Docker
+// saying the container does not exist is a 404. A node that does not answer
+// (a halted node fails at the dial, a hung one at the deadline) renders the
+// page on the short id with down set, because the container is most likely
+// still there. Everything else, a bad node id, a stale agent, a bad key, is
+// an error the operator has to see.
+func (h *handler) inspect(ctx context.Context, c echo.Context) (*runtime.ContainerDetail, bool, error) {
+	id := c.Param("id")
+	d, err := h.clus.InspectContainer(ctx, h.node(c), id)
+	if err == nil {
+		return d, false, nil
+	}
+	// The agent flattens docker's error to its message, so the message is
+	// the one thing both paths share.
+	if strings.Contains(err.Error(), "No such container") {
+		return nil, false, echo.NewHTTPError(http.StatusNotFound, "container not found")
+	}
+	var ne net.Error
+	if !errors.Is(err, context.DeadlineExceeded) && !errors.As(err, &ne) {
+		return nil, false, err
+	}
+	slog.Warn("container page: node not answering", "node", h.node(c), "container", id, "error", err)
+	name := id
+	if len(name) > 12 {
+		name = name[:12]
+	}
+	return &runtime.ContainerDetail{ID: id, Name: name}, true, nil
 }
 
 // backToList is the list, keeping the stopped filter the action was started
@@ -198,11 +242,13 @@ func (h *handler) Remove(c echo.Context) error {
 
 // GET /containers/:id/logs, page with live SSE view.
 func (h *handler) LogsPage(c echo.Context) error {
-	d, err := h.clus.InspectContainer(c.Request().Context(), h.node(c), c.Param("id"))
+	ctx, cancel := components.PageCtx(c.Request().Context())
+	defer cancel()
+	d, down, err := h.inspect(ctx, c)
 	if err != nil {
-		return echo.NewHTTPError(http.StatusNotFound, "container not found")
+		return err
 	}
-	return respond.HTML(c, http.StatusOK, logsPage(c, d, h.node(c)))
+	return respond.HTML(c, http.StatusOK, logsPage(c, d, h.node(c), down))
 }
 
 // GET /containers/:id/logs/stream, SSE follow.

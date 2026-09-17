@@ -599,38 +599,47 @@ templ volumeOverview(a *repo.Tile, vol volumeView) {
 				<div class="label">Docker volume</div>
 				<span class="text-sm text-rw-text font-mono">{ a.DockerVolume() }</span>
 			</div>
-			<div class={ "panel p-4", templ.KV("border-rw-warn", vol.OverLimit(a)) }>
+			// Measured after the page: the size is a host wide docker disk scan.
+			<div hx-get={ "/apps/" + a.ID + "/size" } hx-trigger="load" hx-swap="outerHTML" class="panel p-4">
 				<div class="label">Size</div>
-				if vol.SizeBytes < 0 {
-					<span class="text-sm text-rw-faint">not measured yet</span>
-				} else {
-					<span class={ "text-sm", templ.KV("text-rw-warn", vol.OverLimit(a)), templ.KV("text-rw-text", !vol.OverLimit(a)) }>
-						{ runtime.FmtBytes(vol.SizeBytes) }
-					</span>
-					if a.MaxSizeMB > 0 {
-						<span class="text-xs text-rw-faint block mt-0.5">of { strconv.Itoa(a.MaxSizeMB) } MB expected</span>
-					}
-				}
+				@components.Loading("Measuring.")
 			</div>
 		</div>
-		if vol.OverLimit(a) {
-			<p class="text-xs text-rw-warn">Past its expected size. Nothing is enforcing this: docker's local volume driver has no quota, so the volume keeps growing until the host disk fills.</p>
-		}
 		<p class="text-xs text-rw-faint">Data persists across redeploys and service deletion. Cleanup lives on the <a href="/servers/local" class="link">server's Volumes page</a>.</p>
 	</div>
 }
 
-// volumeView is the volume-tile slice of panel data. SizeBytes is -1 when
-// docker has not measured the volume (never deployed, or the scan failed).
+// volumeView is the volume-tile slice of panel data.
 type volumeView struct {
-	Services  []repo.Tile
-	SizeBytes int64
+	Services []repo.Tile
 }
 
-// OverLimit reports whether a measured volume has passed its declared ceiling.
+// volumeSize is the Size cell, swapped in once docker has answered. size is
+// -1 when docker has not measured the volume (never deployed, or the scan
+// failed).
+templ volumeSize(a *repo.Tile, size int64) {
+	<div class={ "panel p-4", templ.KV("border-rw-warn", overLimit(a, size)) }>
+		<div class="label">Size</div>
+		if size < 0 {
+			<span class="text-sm text-rw-faint">not measured yet</span>
+		} else {
+			<span class={ "text-sm", templ.KV("text-rw-warn", overLimit(a, size)), templ.KV("text-rw-text", !overLimit(a, size)) }>
+				{ runtime.FmtBytes(size) }
+			</span>
+			if a.MaxSizeMB > 0 {
+				<span class="text-xs text-rw-faint block mt-0.5">of { strconv.Itoa(a.MaxSizeMB) } MB expected</span>
+			}
+		}
+		if overLimit(a, size) {
+			<p class="text-xs text-rw-warn mt-2">Past its expected size. Nothing is enforcing this: docker's local volume driver has no quota, so the volume keeps growing until the host disk fills.</p>
+		}
+	</div>
+}
+
+// overLimit reports whether a measured volume has passed its declared ceiling.
 // Unknown size or no ceiling is never "over".
-func (v volumeView) OverLimit(a *repo.Tile) bool {
-	return a.MaxSizeMB > 0 && v.SizeBytes >= 0 && v.SizeBytes > int64(a.MaxSizeMB)*1024*1024
+func overLimit(a *repo.Tile, size int64) bool {
+	return a.MaxSizeMB > 0 && size >= 0 && size > int64(a.MaxSizeMB)*1024*1024
 }
 
 // volumeSettings: attach/detach and the danger zone.

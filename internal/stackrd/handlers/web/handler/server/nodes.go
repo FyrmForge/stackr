@@ -219,7 +219,11 @@ func (h *handler) RemoveForm(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	vols, volErr := h.clus.ListVolumes(ctx, sv.NodeID)
+	// Display only, and the node being removed is often the one already
+	// gone: bounded, so the dialogue opens and the remove still runs.
+	vctx, cancel := components.PageCtx(ctx)
+	defer cancel()
+	vols, volErr := h.clus.ListVolumes(vctx, sv.NodeID)
 	msg := ""
 	if volErr != nil {
 		msg = volErr.Error()

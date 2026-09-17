@@ -695,19 +695,28 @@ func (h *handler) envServices(ctx context.Context, a *repo.Tile) []repo.Tile {
 	return out
 }
 
-// volumeView gathers everything a volume tile's panel needs beyond the tile
-// itself: its attach-target choices and its current size on disk.
+// volumeView gathers what a volume tile's panel needs beyond the tile itself:
+// its attach-target choices. The size is its own request, Size.
+func (h *handler) volumeView(ctx context.Context, a *repo.Tile) volumeView {
+	return volumeView{Services: h.envServices(ctx, a)}
+}
+
+// GET /apps/:id/size, the volume's size cell on the overview.
 //
 // The size costs a docker DiskUsage scan, which is why it is measured here,
-// once, when someone opens the drawer, and not on the canvas. Painting a
-// warning badge on every volume card would mean that scan on every graph
-// render, for a limit nothing enforces anyway.
-func (h *handler) volumeView(ctx context.Context, a *repo.Tile) volumeView {
-	v := volumeView{Services: h.envServices(ctx, a), SizeBytes: -1}
-	if info, err := h.clus.InspectVolume(ctx, a.DockerVolume()); err == nil {
-		v.SizeBytes = info.SizeBytes
+// after the panel is up, and not on the canvas. Painting a warning badge on
+// every volume card would mean that scan on every graph render, for a limit
+// nothing enforces anyway.
+func (h *handler) Size(c echo.Context) error {
+	a, err := h.load(c)
+	if err != nil {
+		return err
 	}
-	return v
+	size := int64(-1)
+	if info, err := h.clus.InspectVolume(c.Request().Context(), a.DockerVolume()); err == nil {
+		size = info.SizeBytes
+	}
+	return respond.HTML(c, http.StatusOK, volumeSize(a, size))
 }
 
 // Attach points a volume at a service (or detaches it) and redeploys the

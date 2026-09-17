@@ -1369,7 +1369,9 @@ func (h *handler) forwardCounts(ctx context.Context) map[string]int {
 	}
 	seen := map[key]bool{}
 	if h.rt != nil { // nil in tests
-		if relays, err := h.rt.ListProxyRelays(ctx); err == nil {
+		rctx, cancel := components.PageCtx(ctx)
+		defer cancel()
+		if relays, err := h.rt.ListProxyRelays(rctx); err == nil {
 			for _, r := range relays {
 				seen[key{r.TileID, r.Port}] = true
 			}
@@ -1409,7 +1411,9 @@ func (h *handler) addForwards(ctx context.Context, g *graph.Graph, tiles []repo.
 	seen := map[key]bool{}
 	var order []key
 
-	if relays, err := h.rt.ListProxyRelays(ctx); err == nil {
+	rctx, cancel := components.PageCtx(ctx)
+	defer cancel()
+	if relays, err := h.rt.ListProxyRelays(rctx); err == nil {
 		for _, r := range relays {
 			k := key{r.TileID, r.Port}
 			if inEnv[r.TileID] && !seen[k] {

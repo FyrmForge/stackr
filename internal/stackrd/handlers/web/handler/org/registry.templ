@@ -1,10 +1,12 @@
 package org
 
 import (
+	"net/url"
 	"strconv"
 
 	"github.com/labstack/echo/v4"
 
+	"github.com/FyrmForge/stackr/internal/stackrd/handlers/web/components"
 	"github.com/FyrmForge/stackr/internal/stackrd/handlers/web/components/form"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/registry"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
@@ -16,7 +18,8 @@ type registryView struct {
 	Creds   []repo.OrgRegistryCredential
 	Images  []registryImage
 	Host    string // the address a docker login goes to
-	Err     string // the registry is down or unreachable; the page still renders
+	Err     string // the registry is not configured, down or unreachable; the page still renders
+	Open    string // the image to expand, from ?image=
 	NewCred string // the plaintext of a credential just minted, shown once
 	CanEdit bool
 }
@@ -87,51 +90,63 @@ templ orgRegistryPage(c echo.Context, v registryView) {
 		@form.Section("Images", form.ScopeOrg, "What this organization has pushed. Deleting a tag frees its space at the next nightly cleanup.") {
 			if v.Err != "" {
 				<p class="text-sm text-rw-warn mb-5">{ v.Err }</p>
-			} else if len(v.Images) == 0 {
-				<p class="text-sm text-rw-faint mb-5">Nothing pushed yet.</p>
 			} else {
-				<ul class="space-y-2">
-					for _, im := range v.Images {
-						<li class="panel px-3 py-2.5">
-							<a
-								href={ templ.SafeURL("/orgs/" + v.Org.Slug + "/settings/registry?image=" + im.Name) }
-								class="font-mono text-sm text-rw-text hover:text-rw-accent transition-colors"
-							>
-								{ im.Short }
-							</a>
-							if im.Open {
-								<ul class="mt-2 space-y-1">
-									for _, t := range im.Tags {
-										<li class="flex flex-wrap items-center gap-2 text-xs">
-											<span class="font-mono text-rw-text">{ t.Tag }</span>
-											<span class="text-rw-muted">{ strconv.FormatInt(t.SizeMB, 10) } MB</span>
-											<span class="font-mono text-rw-faint truncate">{ t.Digest }</span>
-											if t.RunsOn != "" {
-												<span class="text-[10px] px-1.5 py-0.5 rounded bg-rw-warn/15 text-rw-warn">
-													deployed on { t.RunsOn }
-												</span>
-											} else if v.CanEdit {
-												<form
-													hx-post={ "/orgs/" + v.Org.Slug + "/settings/registry/tags/delete" }
-													hx-confirm={ "Delete " + im.Short + ":" + t.Tag + "?" }
-													class="ml-auto"
-												>
-													@form.CSRFField(c)
-													<input type="hidden" name="image" value={ im.Name }/>
-													<input type="hidden" name="tag" value={ t.Tag }/>
-													<button type="submit" class="btn btn-ghost btn-sm">Delete</button>
-												</form>
-											}
-										</li>
-									}
-								</ul>
-							}
-						</li>
-					}
-				</ul>
+				<div hx-get={ "/orgs/" + v.Org.Slug + "/settings/registry/images?image=" + url.QueryEscape(v.Open) } hx-trigger="load" hx-swap="outerHTML">
+					@components.Loading("Reading the registry.")
+				</div>
 			}
 		}
 	}
+}
+
+templ registryImages(c echo.Context, v registryView) {
+	<div>
+		if v.Err != "" {
+			<p class="text-sm text-rw-warn mb-5">{ v.Err }</p>
+		} else if len(v.Images) == 0 {
+			<p class="text-sm text-rw-faint mb-5">Nothing pushed yet.</p>
+		} else {
+			<ul class="space-y-2">
+				for _, im := range v.Images {
+					<li class="panel px-3 py-2.5">
+						<a
+							href={ templ.SafeURL("/orgs/" + v.Org.Slug + "/settings/registry?image=" + im.Name) }
+							class="font-mono text-sm text-rw-text hover:text-rw-accent transition-colors"
+						>
+							{ im.Short }
+						</a>
+						if im.Open {
+							<ul class="mt-2 space-y-1">
+								for _, t := range im.Tags {
+									<li class="flex flex-wrap items-center gap-2 text-xs">
+										<span class="font-mono text-rw-text">{ t.Tag }</span>
+										<span class="text-rw-muted">{ strconv.FormatInt(t.SizeMB, 10) } MB</span>
+										<span class="font-mono text-rw-faint truncate">{ t.Digest }</span>
+										if t.RunsOn != "" {
+											<span class="text-[10px] px-1.5 py-0.5 rounded bg-rw-warn/15 text-rw-warn">
+												deployed on { t.RunsOn }
+											</span>
+										} else if v.CanEdit {
+											<form
+												hx-post={ "/orgs/" + v.Org.Slug + "/settings/registry/tags/delete" }
+												hx-confirm={ "Delete " + im.Short + ":" + t.Tag + "?" }
+												class="ml-auto"
+											>
+												@form.CSRFField(c)
+												<input type="hidden" name="image" value={ im.Name }/>
+												<input type="hidden" name="tag" value={ t.Tag }/>
+												<button type="submit" class="btn btn-ghost btn-sm">Delete</button>
+											</form>
+										}
+									</li>
+								}
+							</ul>
+						}
+					</li>
+				}
+			</ul>
+		}
+	</div>
 }
 
 // lastUsed reads as a date or as "never": a credential nobody has used is the

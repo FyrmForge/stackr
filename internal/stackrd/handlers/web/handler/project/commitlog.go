@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/FyrmForge/stackr/internal/stackrd/handlers/web/components"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/gitlog"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 )
@@ -122,11 +123,20 @@ type logCacheEntry struct {
 	older map[string]olderInfo
 }
 
+// olderInfo is one lookup. known is false when the lookup failed: the row
+// stays in Older with no behind count, and checked says when to try again.
 type olderInfo struct {
 	commit   gitlog.Commit
 	behind   int
 	onBranch bool
+	known    bool
+	checked  time.Time
 }
+
+// olderMu guards the older maps. fetchCommits hands the same map to every
+// request until the head moves, and two canvases rendering at once wrote it
+// together.
+var olderMu sync.Mutex
 
 // logCache is one list per stack, refreshed at most once a minute: the page
 // refreshes on every project event and GitHub rate-limits.
@@ -164,15 +174,28 @@ func (h *handler) fetchCommits(ctx context.Context, p *repo.Stack) logCacheEntry
 
 // olderCommit is what the log shows for a commit outside its list: the commit
 // itself, how far behind the head it is, and whether the branch has it at
-// all. One call per sha per head, remembered in the cache entry.
+// all. One call per sha per head, remembered in the cache entry. A failed
+// lookup is remembered too, for the same minute fetchCommits waits, so a
+// GitHub that is down or rate limiting costs one render a minute, not every
+// one.
 func (h *handler) olderCommit(ctx context.Context, p *repo.Stack, e *logCacheEntry, sha string) olderInfo {
-	if o, ok := e.older[sha]; ok {
+	olderMu.Lock()
+	if o, ok := e.older[sha]; ok && (o.known || time.Since(o.checked) < time.Minute) {
+		olderMu.Unlock()
 		return o
 	}
 	if e.older == nil {
 		e.older = map[string]olderInfo{}
 	}
-	o := olderInfo{commit: gitlog.Commit{SHA: sha}, onBranch: true}
+	olderMu.Unlock()
+	o := olderInfo{commit: gitlog.Commit{SHA: sha}, onBranch: true, checked: time.Now()}
+	remember := func(o olderInfo) olderInfo {
+		olderMu.Lock()
+		e.older[sha] = o
+		olderMu.Unlock()
+		logCache.Store(p.ID, *e)
+		return o
+	}
 	head := e.branch
 	if len(e.commits) > 0 {
 		head = e.commits[0].SHA
@@ -182,7 +205,7 @@ func (h *handler) olderCommit(ctx context.Context, p *repo.Stack, e *logCacheEnt
 	case "github":
 		cn, cerr := h.store.GetConnector(ctx, p.ConfigConnectorID)
 		if cerr != nil || cn == nil {
-			return o
+			return remember(o)
 		}
 		if cm, cerr := h.gh.Commit(ctx, cn, p.ConfigRepo, sha); cerr == nil {
 			o.commit = cm
@@ -205,12 +228,17 @@ func (h *handler) olderCommit(ctx context.Context, p *repo.Stack, e *logCacheEnt
 		return o
 	}
 	if err != nil {
-		// unknown stays "older", counted as nothing; try again next fetch
-		return o
+		// unknown stays "older" with no behind count; tried again in a minute
+		o.behind, o.onBranch = 0, true
+		if ctx.Err() != nil {
+			// The page's budget ran out, not GitHub: not remembered, or one
+			// slow render would hide every viewer's counts for a minute.
+			return o
+		}
+		return remember(o)
 	}
-	e.older[sha] = o
-	logCache.Store(p.ID, *e)
-	return o
+	o.known = true
+	return remember(o)
 }
 
 // loadCommits reads from GitHub through the stack's connector, or from the
@@ -373,11 +401,13 @@ func (h *handler) commitLog(ctx context.Context, p *repo.Stack) commitLog {
 		first = false
 	}
 	// Commits outside the list: fill in the commit, the distance to the head,
-	// and whether the branch has it at all.
+	// and whether the branch has it at all. One page budget for all of them.
+	octx, cancel := components.PageCtx(ctx)
+	defer cancel()
 	for sha, row := range older {
-		o := h.olderCommit(ctx, p, &e, sha)
+		o := h.olderCommit(octx, p, &e, sha)
 		row.Commit = o.commit
-		row.Behind, row.HaveBehind = o.behind, o.onBranch
+		row.Behind, row.HaveBehind = o.behind, o.known && o.onBranch
 		for i := range row.Chips {
 			if row.Chips[i].State == "runs" {
 				row.Chips[i].Behind = o.behind

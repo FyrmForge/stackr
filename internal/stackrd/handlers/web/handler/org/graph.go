@@ -9,6 +9,7 @@ import (
 
 	"github.com/FyrmForge/stackr/internal/stackrd/config/varref"
 	stackrmw "github.com/FyrmForge/stackr/internal/stackrd/handlers/middleware"
+	"github.com/FyrmForge/stackr/internal/stackrd/handlers/web/components"
 	"github.com/FyrmForge/stackr/internal/stackrd/handlers/web/components/canvas"
 	"github.com/FyrmForge/stackr/internal/stackrd/handlers/web/graph"
 	"github.com/FyrmForge/stackr/internal/stackrd/handlers/web/handler/annotate"
@@ -403,7 +404,10 @@ func (h *handler) buildOrgGraph(ctx context.Context, o *repo.Org, style graph.Ar
 	}
 	fwdSeen := map[fwdKey]bool{}
 	if h.rt != nil {
-		if relays, err := h.rt.ListProxyRelays(ctx); err == nil {
+		// Bounded: a slow manager socket costs the forward chips, not the canvas.
+		rctx, cancel := components.PageCtx(ctx)
+		defer cancel()
+		if relays, err := h.rt.ListProxyRelays(rctx); err == nil {
 			for _, r := range relays {
 				fwdSeen[fwdKey{r.TileID, r.Port}] = true
 			}

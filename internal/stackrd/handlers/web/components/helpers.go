@@ -1,8 +1,17 @@
 package components
 
 import (
+	"context"
+	"time"
+
 	"github.com/FyrmForge/hamr/pkg/middleware"
 )
+
+// PageCtx bounds a call a page waits on. A miss has to render as unknown,
+// never as a zero, and never as a request timeout 500.
+func PageCtx(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(ctx, 5*time.Second)
+}
 
 // BaseURL is the application's public origin (e.g. "https://example.com").
 // Empty in dev; set from main via the BASE_URL env var.
