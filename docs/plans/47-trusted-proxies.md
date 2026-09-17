@@ -1,6 +1,25 @@
 # Plan: trusted proxies
 
-Status: agreed 2026-09-16, built 2026-09-17, not rig-verified.
+Status: agreed 2026-09-16, built 2026-09-17 (880cb09), not rig-verified.
+
+## Built differently from below (2026-09-17)
+
+- Fetch timeout is 3 seconds for both lists together, not per request.
+  `cloudflareTimeout` in `trusted.go`. With the box ticked every
+  `EnsureTraefik` fetches first, including the ones run inside requests
+  (domain resources, API proxy config), so an outage costs those 3 seconds.
+- The cache is sorted before it is written. Cloudflare reordering its list
+  would otherwise recreate Traefik on an unrelated write.
+- The fetch rejects the whole response if any line is not a CIDR, so an
+  error page never replaces a good cache.
+- The override warning reads "The static override below replaces this list."
+- Textarea has `aria-label="Trusted proxy CIDRs"` for templint.
+
+## Left to verify on the rig
+
+- Behind Cloudflare, an app sees the visitor IP, not Cloudflare's.
+- "could not reach Cloudflare" on save with no cache. Only the fetch is
+  tested, not the page.
 
 Working rules: discuss first, one point at a time, no code without a go, no
 git writes, no edits to `*_templ.go` or `output.css`, terse UI copy.
