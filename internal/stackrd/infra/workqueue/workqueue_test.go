@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/FyrmForge/stackr/internal/stackrd/config/settings"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/testdb"
 )
 
@@ -152,7 +153,7 @@ func TestBootRecoveryDealsWithWhatTheLastRunLeft(t *testing.T) {
 	q.Register("one-shot", func(context.Context, *Job) error { return nil }, KindOpts{
 		OnRestart:   Fail,
 		RestartFail: "a half-copied volume cannot be resumed",
-		Cleanup:     func(context.Context, *Job) { cleaned = true },
+		Cleanup:     func(context.Context, *Job) string { cleaned = true; return "" },
 	})
 	// "gone" is deliberately left registered so both convergent rows requeue;
 	// the unregistered case is checked below with its own kind.
@@ -228,4 +229,39 @@ func TestCancelStopsARunningJob(t *testing.T) {
 		w, _ := store.GetWorkItem(ctx, id)
 		return w != nil && w.Status == "cancelled"
 	})
+}
+
+// A kind with a settings limit runs no more than that at once, and the next
+// one starts as soon as a slot frees.
+func TestLimitComesFromSettings(t *testing.T) {
+	ctx := context.Background()
+	store := testdb.New(t)
+	q := New(store)
+
+	started := make(chan struct{}, 4)
+	release := make(chan struct{})
+	q.Register("slow", func(context.Context, *Job) error {
+		started <- struct{}{}
+		<-release
+		return nil
+	}, KindOpts{Concurrency: 5, Limit: func(r settings.Resolved) int { return r.BackupRestoreConcurrency }})
+	q.Start(ctx)
+
+	for range 2 {
+		_, err := q.Enqueue(ctx, "slow", "", nil)
+		require.NoError(t, err)
+	}
+	<-started
+	select {
+	case <-started:
+		t.Fatal("the built-in limit of one was ignored")
+	case <-time.After(200 * time.Millisecond):
+	}
+	release <- struct{}{}
+	select {
+	case <-started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("the second job did not start when the slot freed")
+	}
+	close(release)
 }

@@ -957,11 +957,27 @@ func (c *Client) RunBackup(ctx context.Context, id string) (BackupRun, error) {
 	return out, c.send(ctx, http.MethodPost, "/api/v1/backups/"+id+"/run", nil, &out)
 }
 
-// Restore writes an archive back over the live database or volume. Needs the
-// backups:restore scope, which is granted separately from backups:write.
-func (c *Client) Restore(ctx context.Context, backupID, runID string) error {
-	return c.send(ctx, http.MethodPost, "/api/v1/backups/"+backupID+"/restore",
-		map[string]string{"run_id": runID}, nil)
+// RestoreStatus is one restore as the server's work queue tracks it.
+type RestoreStatus struct {
+	ID     string `json:"id"`
+	Status string `json:"status"`
+	Step   string `json:"step"`
+	Error  string `json:"error"`
+}
+
+// Restore queues an archive to be written back over the live database or
+// volume. Needs the backups:restore scope, which is granted separately from
+// backups:write.
+func (c *Client) Restore(ctx context.Context, backupID, runID string) (RestoreStatus, error) {
+	var out RestoreStatus
+	return out, c.send(ctx, http.MethodPost, "/api/v1/backups/"+backupID+"/restore",
+		map[string]string{"run_id": runID}, &out)
+}
+
+// LatestRestore reads the newest restore of a backup.
+func (c *Client) LatestRestore(ctx context.Context, backupID string) (RestoreStatus, error) {
+	var out RestoreStatus
+	return out, c.getJSON(ctx, "/api/v1/backups/"+backupID+"/restore", &out)
 }
 
 // PlanChange is one line of a config plan's diff.

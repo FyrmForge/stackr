@@ -69,7 +69,7 @@ func (h *handler) markPlacement(ctx context.Context, g *graph.Graph, tiles []rep
 			}
 		}
 		if h.mover != nil {
-			if mv := h.mover.ForTile(t.ID); mv != nil {
+			if mv := h.mover.ForTile(ctx, t.ID); mv != nil {
 				tt.MovingTo = nodeName[mv.To]
 				if mv.Total > 0 {
 					tt.MovePct = int(float64(mv.Bytes) / float64(mv.Total) * 100)

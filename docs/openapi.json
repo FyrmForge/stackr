@@ -2308,6 +2308,67 @@
       }
     },
     "/api/v1/backups/{id}/restore": {
+      "get": {
+        "summary": "Latest restore of a backup (scope: backups:read)",
+        "operationId": "latestRestoreOfABackup",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/V1RestoreOut"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/V1ErrBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/V1ErrBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/V1ErrBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "apiKey": []
+          }
+        ]
+      },
       "post": {
         "summary": "Restore from a backup (scope: backups:restore)",
         "operationId": "restoreFromABackup",
@@ -2332,7 +2393,14 @@
         },
         "responses": {
           "201": {
-            "description": "Created"
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/V1RestoreOut"
+                }
+              }
+            }
           },
           "401": {
             "description": "Unauthorized",
@@ -10249,6 +10317,30 @@
           "run_id": {
             "type": "string",
             "description": "the run whose archive to restore"
+          }
+        }
+      },
+      "V1RestoreOut": {
+        "type": "object",
+        "properties": {
+          "created_at": {
+            "type": "string"
+          },
+          "error": {
+            "type": "string"
+          },
+          "finished_at": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "description": "queued | running | done | error | cancelled | superseded"
+          },
+          "step": {
+            "type": "string"
           }
         }
       },

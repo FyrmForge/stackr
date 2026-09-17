@@ -23,19 +23,20 @@ package volmove
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"slices"
 	"sync"
 	"time"
 
-	"github.com/google/uuid"
-
+	"github.com/FyrmForge/stackr/internal/stackrd/config/settings"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/cluster"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/envnet"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/managedtiles"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/placement"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/runtime"
+	"github.com/FyrmForge/stackr/internal/stackrd/infra/workqueue"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 )
 
@@ -43,10 +44,11 @@ import (
 type Phase string
 
 const (
-	PhaseCopy   Phase = "copy"  // first pass, tile still running
-	PhaseStop   Phase = "stop"  // stopping for the delta pass
-	PhaseDelta  Phase = "delta" // second pass, tile down
-	PhaseStart  Phase = "start" // starting on the target
+	PhaseQueued Phase = "queued" // waiting for a free slot
+	PhaseCopy   Phase = "copy"   // first pass, tile still running
+	PhaseStop   Phase = "stop"   // stopping for the delta pass
+	PhaseDelta  Phase = "delta"  // second pass, tile down
+	PhaseStart  Phase = "start"  // starting on the target
 	PhaseDone   Phase = "done"
 	PhaseFailed Phase = "failed"
 )
@@ -94,12 +96,27 @@ type Redeployer interface {
 	EnqueueCurrent(ctx context.Context, t *repo.Tile, trigger string) (string, error)
 }
 
-// Service runs moves and remembers the ones in flight.
-//
-// In memory on purpose: a panel restart mid-move leaves the source volume
-// intact and the tile where it started, which is the safe end of the failure.
-// Persisting a half-move would mean resuming one, and a resume that guesses
-// wrong deletes a volume.
+// Kind is the work-queue kind a move runs under.
+const Kind = "volume.move"
+
+// moveJob is the payload: everything Start decided before anything moved.
+type moveJob struct {
+	TileID  string   `json:"tile_id"`
+	From    string   `json:"from"`
+	To      string   `json:"to"`
+	Volumes []string `json:"volumes"`
+}
+
+// moveProgress is the item's progress blob, so the bar survives a restart.
+type moveProgress struct {
+	Bytes int64 `json:"bytes"`
+	Total int64 `json:"total"`
+}
+
+// Service runs moves on the work queue. The phase is the item's step and the
+// byte counters its progress, so the modal reads the same thing after a
+// restart. A restart mid-move fails it and puts the tile back where it
+// started (cleanup): resuming a half-move blind is how a volume is lost.
 type Service struct {
 	Store  repo.Store
 	C      *cluster.Cluster // every docker call, and the two agents an rsync runs between
@@ -111,43 +128,95 @@ type Service struct {
 	// constrained to the node it had just left, while the modal said "Moved".
 	Instances *managedtiles.Service
 
-	mu    sync.Mutex
-	moves map[string]*Move // by tile id, one at a time per tile
+	work *workqueue.Queue
+
+	// moving is the tile ids with a move running. Start's check reads the
+	// table and can race a second click; this cannot, and two rsync passes and
+	// two home-node flips on one tile is how a volume is lost.
+	mu     sync.Mutex
+	moving map[string]bool
 }
 
 func New(store repo.Store, c *cluster.Cluster, d Redeployer, inst *managedtiles.Service) *Service {
-	return &Service{Store: store, C: c, Deploy: d, Instances: inst, moves: map[string]*Move{}}
+	return &Service{Store: store, C: c, Deploy: d, Instances: inst, moving: map[string]bool{}}
 }
 
-// ForTile returns the move in flight for a tile, or nil. The canvas card and
-// the drawer both read this to show the old to new arrow and the bar.
-func (s *Service) ForTile(tileID string) *Move {
+func (s *Service) begin(tileID string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if m, ok := s.moves[tileID]; ok {
-		cp := *m
-		return &cp
+	if s.moving[tileID] {
+		return false
 	}
-	return nil
+	s.moving[tileID] = true
+	return true
 }
 
-// All returns every move in flight.
-func (s *Service) All() []Move {
+func (s *Service) end(tileID string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	out := make([]Move, 0, len(s.moves))
-	for _, m := range s.moves {
-		out = append(out, *m)
-	}
-	return out
+	delete(s.moving, tileID)
 }
 
-func (s *Service) update(tileID string, f func(*Move)) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if m, ok := s.moves[tileID]; ok {
-		f(m)
+// WithWork registers the move kind. Call before the queue starts.
+func (s *Service) WithWork(q *workqueue.Queue) *Service {
+	s.work = q
+	q.Register(Kind, s.handle, workqueue.KindOpts{
+		// Two rsync passes of an unbounded volume, plus a deploy wait.
+		Timeout:   24 * time.Hour,
+		Limit:     func(r settings.Resolved) int { return r.VolumeMoveConcurrency },
+		OnRestart: workqueue.Fail,
+		Cleanup:   s.cleanup,
+	})
+	return s
+}
+
+// finishedShown is how long a finished move stays on the card and in the
+// modal, long enough for the UI to have shown how it ended.
+const finishedShown = 30 * time.Second
+
+// ForTile returns the move in flight for a tile, or one that finished in the
+// last few seconds, or nil. The canvas card and the drawer both read this to
+// show the old to new arrow and the bar.
+func (s *Service) ForTile(ctx context.Context, tileID string) *Move {
+	w, err := s.Store.LatestWorkItem(ctx, Kind, tileID)
+	if err != nil || w == nil {
+		return nil
 	}
+	return moveOf(w)
+}
+
+// moveOf renders a work item as the Move the UI reads. nil for a move that is
+// over and no longer worth showing.
+func moveOf(w *repo.WorkItem) *Move {
+	var p moveJob
+	_ = json.Unmarshal([]byte(w.Payload), &p)
+	var pr moveProgress
+	_ = json.Unmarshal([]byte(w.Progress), &pr)
+	m := &Move{ID: w.ID, TileID: p.TileID, From: p.From, To: p.To, Volumes: p.Volumes,
+		Bytes: pr.Bytes, Total: pr.Total, Started: w.CreatedAt}
+	if w.StartedAt.Valid {
+		m.Started = w.StartedAt.Time
+	}
+	switch w.Status {
+	case "queued":
+		m.Phase = PhaseQueued
+	case "running":
+		m.Phase = Phase(w.Step)
+		if m.Phase == "" {
+			m.Phase = PhaseCopy
+		}
+	case "done", "error":
+		if !w.FinishedAt.Valid || time.Since(w.FinishedAt.Time) > finishedShown {
+			return nil
+		}
+		m.Phase = PhaseDone
+		if w.Status == "error" {
+			m.Phase, m.Error = PhaseFailed, w.Error
+		}
+	default:
+		return nil
+	}
+	return m
 }
 
 // volumesOf finds every docker volume a tile's data lives in. The Move modal
@@ -231,8 +300,8 @@ func (s *Service) Estimate(ctx context.Context, t *repo.Tile) ([]VolumeSize, int
 	return out, total, nil
 }
 
-// Start begins a move of the tile's volume to target. It returns as soon as
-// the move is registered; progress is read back through ForTile.
+// Start queues a move of the tile's volume to target. It returns as soon as
+// the move is queued; progress is read back through ForTile.
 func (s *Service) Start(ctx context.Context, t *repo.Tile, targetNode string) (*Move, error) {
 	from := s.sourceNode(ctx, t)
 	if from == "" {
@@ -260,63 +329,117 @@ func (s *Service) Start(ctx context.Context, t *repo.Tile, targetNode string) (*
 		return nil, fmt.Errorf("the agent on the target node is not reachable")
 	}
 
-	s.mu.Lock()
-	if _, busy := s.moves[t.ID]; busy {
-		s.mu.Unlock()
+	if s.work == nil {
+		return nil, fmt.Errorf("volume moves are not available")
+	}
+	// One move per tile. The queue only dedupes waiting items, so a move
+	// already running has to be refused here.
+	if w, err := s.Store.LatestWorkItem(ctx, Kind, t.ID); err != nil {
+		return nil, err
+	} else if w != nil && !w.Done() {
 		return nil, fmt.Errorf("%s is already being moved", t.Slug)
 	}
-	m := &Move{
-		ID: uuid.New().String(), TileID: t.ID, From: from, To: targetNode,
-		Volumes: vols, Phase: PhaseCopy, Started: time.Now(),
+	id, err := s.work.Enqueue(ctx, Kind, t.ID, moveJob{TileID: t.ID, From: from, To: targetNode, Volumes: vols})
+	if err != nil {
+		return nil, err
 	}
-	s.moves[t.ID] = m
-	s.mu.Unlock()
-
-	tile := *t
-	go s.run(context.WithoutCancel(ctx), &tile, *m)
-	cp := *m
-	return &cp, nil
+	w, err := s.Store.GetWorkItem(ctx, id)
+	if err != nil || w == nil {
+		return nil, fmt.Errorf("the move was queued but cannot be read back")
+	}
+	return moveOf(w), nil
 }
 
-func (s *Service) run(ctx context.Context, t *repo.Tile, m Move) {
-	if err := s.do(ctx, t, m); err != nil {
+// handle runs one queued move.
+func (s *Service) handle(ctx context.Context, j *workqueue.Job) error {
+	var p moveJob
+	if err := j.Payload(&p); err != nil {
+		return err
+	}
+	t, err := s.Store.GetTile(ctx, p.TileID)
+	if err != nil || t == nil {
+		return fmt.Errorf("tile %s is gone", p.TileID)
+	}
+	if !s.begin(t.ID) {
+		return fmt.Errorf("%s is already being moved", t.Slug)
+	}
+	defer s.end(t.ID)
+	m := Move{ID: j.Item.ID, TileID: t.ID, From: p.From, To: p.To, Volumes: p.Volumes}
+	if err := s.do(ctx, j, t, m); err != nil {
 		slog.Error("volume move failed", "tile", t.Slug, "error", err)
-		s.update(t.ID, func(mv *Move) { mv.Phase, mv.Error = PhaseFailed, err.Error() })
 		// A failure anywhere past the stop leaves the service at zero: the
 		// paths that scale it back do so themselves, but do() can also return
 		// before reaching one of them. Putting it back is safe either way,
 		// scaling a running service to one is a no-op.
-		if name, nerr := s.serviceName(context.WithoutCancel(ctx), t); nerr == nil && name != "" {
-			if serr := s.C.ScaleService(context.WithoutCancel(ctx), name, 1); serr != nil {
+		back := context.WithoutCancel(ctx)
+		if name, nerr := s.serviceName(back, t); nerr == nil && name != "" {
+			if serr := s.C.ScaleService(back, name, 1); serr != nil {
 				slog.Error("volume move: restarting after a failure", "tile", t.Slug, "error", serr)
 			}
 		}
-		// Left in the map so the UI can show why, and cleared on the same
-		// timer as a success: a failed move that never leaves the map blocks
-		// every later move of that tile with "is already being moved", with
-		// no way to clear it short of restarting the panel.
-		s.forget(t.ID, PhaseFailed)
-		return
+		return err
 	}
-	s.update(t.ID, func(mv *Move) { mv.Phase = PhaseDone })
-	s.forget(t.ID, PhaseDone)
+	return nil
 }
 
-// forget drops a finished move from the map after a pause long enough for the
-// UI to have shown how it ended. Only if it is still in the phase it finished
-// in: a new move started in the meantime owns the entry now.
-func (s *Service) forget(tileID string, phase Phase) {
-	go func() {
-		time.Sleep(30 * time.Second)
-		s.mu.Lock()
-		if mv, ok := s.moves[tileID]; ok && mv.Phase == phase {
-			delete(s.moves, tileID)
+// cleanup puts back a move a restart interrupted, by the phase it reached.
+// Every phase closes the receivers on the target. Once the tile was stopped it
+// is started on the source again, and once the home node moved it moves back:
+// the source copy is whole until a move finishes, so the source is the safe
+// end. Copies on the target stay, as on any failed move.
+func (s *Service) cleanup(ctx context.Context, j *workqueue.Job) string {
+	var p moveJob
+	if err := j.Payload(&p); err != nil {
+		return ""
+	}
+	if dst, err := s.C.Client(ctx, p.To); err == nil {
+		for i := range p.Volumes {
+			if err := dst.CloseMoveReceiver(ctx, fmt.Sprintf("%s-%d", j.Item.ID, i)); err != nil {
+				slog.Error("volume move cleanup: closing the receiver", "move", j.Item.ID, "error", err)
+			}
 		}
-		s.mu.Unlock()
-	}()
+	} else {
+		slog.Error("volume move cleanup: target agent", "move", j.Item.ID, "error", err)
+	}
+	t, err := s.Store.GetTile(ctx, p.TileID)
+	if err != nil || t == nil {
+		return ""
+	}
+	name, err := s.serviceName(ctx, t)
+	if err != nil || name == "" {
+		return ""
+	}
+	switch Phase(j.Item.Step) {
+	case PhaseStart:
+		// Already up on the target: every volume arrived before this phase,
+		// so the move is done in all but the row.
+		if s.runningOn(ctx, name, p.To) {
+			return "The panel restarted as the move finished. " + t.Name + " is running on its new node."
+		}
+		if err := s.C.StopService(ctx, name); err != nil {
+			slog.Error("volume move cleanup: stopping", "tile", t.Slug, "error", err)
+		}
+		if err := s.Store.SetTileHomeNode(ctx, t.ID, p.From); err != nil {
+			slog.Error("volume move cleanup: putting the home node back", "tile", t.Slug, "error", err)
+			return ""
+		}
+		t.HomeNode = p.From
+		// A managed instance waits for its service to settle, which can
+		// outlast the cap boot recovery puts on cleanup.
+		go func() {
+			if err := s.start(context.Background(), t); err != nil {
+				slog.Error("volume move cleanup: starting on the source", "tile", t.Slug, "error", err)
+			}
+		}()
+	case PhaseStop, PhaseDelta:
+		if err := s.C.ScaleService(ctx, name, 1); err != nil {
+			slog.Error("volume move cleanup: starting on the source", "tile", t.Slug, "error", err)
+		}
+	}
+	return "The panel restarted mid move. " + t.Name + " is back on its old node, and partial copies were left on the target."
 }
 
-func (s *Service) do(ctx context.Context, t *repo.Tile, m Move) error {
+func (s *Service) do(ctx context.Context, j *workqueue.Job, t *repo.Tile, m Move) error {
 	src, err := s.C.Client(ctx, m.From)
 	if err != nil {
 		return fmt.Errorf("source agent: %w", err)
@@ -359,21 +482,29 @@ func (s *Service) do(ctx context.Context, t *repo.Tile, m Move) error {
 			tal.seed(i, n)
 		}
 	}
-	publish := func() {
+	// Written to the row at most once a second: rsync reports far more often
+	// than the modal polls. A leg finishing always writes.
+	var last time.Time
+	publish := func(force bool) {
+		if !force && time.Since(last) < time.Second {
+			return
+		}
+		last = time.Now()
 		d, tot := tal.sum()
-		s.update(t.ID, func(mv *Move) { mv.Bytes, mv.Total = d, tot })
+		j.SetProgress(ctx, moveProgress{Bytes: d, Total: tot})
 	}
-	publish()
+	publish(true)
 	progress := func(i int) func(int64, int64) {
 		return func(d, tot int64) {
 			tal.report(i, d, tot)
-			publish()
+			publish(false)
 		}
 	}
 	complete := func(i int) {
 		tal.complete(i)
-		publish()
+		publish(true)
 	}
+	j.SetStep(ctx, string(PhaseCopy))
 
 	// Pass one, tile still running. The copies are dirty by definition; that
 	// is what pass two is for.
@@ -385,7 +516,7 @@ func (s *Service) do(ctx context.Context, t *repo.Tile, m Move) error {
 	}
 
 	// Pass two. The tile is down for this and only this.
-	s.update(t.ID, func(mv *Move) { mv.Phase = PhaseStop })
+	j.SetStep(ctx, string(PhaseStop))
 	svcName, err := s.serviceName(ctx, t)
 	if err != nil {
 		return err
@@ -396,7 +527,7 @@ func (s *Service) do(ctx context.Context, t *repo.Tile, m Move) error {
 		return fmt.Errorf("stopping %s: %w", t.Slug, err)
 	}
 
-	s.update(t.ID, func(mv *Move) { mv.Phase = PhaseDelta })
+	j.SetStep(ctx, string(PhaseDelta))
 	// Every volume, before the home node moves. Stopping at the first failure
 	// leaves the tile on the source with all of its source volumes untouched,
 	// which is the safe end: the copies already on the target are fresh
@@ -415,7 +546,7 @@ func (s *Service) do(ctx context.Context, t *repo.Tile, m Move) error {
 
 	// Only now does the tile belong to the other node, and only because every
 	// volume arrived.
-	s.update(t.ID, func(mv *Move) { mv.Phase = PhaseStart })
+	j.SetStep(ctx, string(PhaseStart))
 	if err := s.Store.SetTileHomeNode(ctx, t.ID, m.To); err != nil {
 		if scaleErr := s.C.ScaleService(context.WithoutCancel(ctx), svcName, 1); scaleErr != nil {
 			slog.Error("volume move: restarting after a failed home-node write", "tile", t.Slug, "error", scaleErr)
@@ -423,19 +554,30 @@ func (s *Service) do(ctx context.Context, t *repo.Tile, m Move) error {
 		return fmt.Errorf("recording the new home node: %w", err)
 	}
 	t.HomeNode = m.To
-	if err := s.startOnTarget(ctx, t); err != nil {
+	if err := s.start(ctx, t); err != nil {
+		back := context.WithoutCancel(ctx)
+		// A start that timed out is not a start that failed. On the rig a
+		// worker pulling postgres for the first time outlived the 90 second
+		// settle wait, the move rolled back, and the task came up on the target
+		// a moment later anyway, running on the copy while home_node said the
+		// source. The next deploy would have gone back to the stale source copy
+		// and dropped every write made in between.
+		if s.cameUp(back, svcName, m.To) {
+			slog.Warn("volume move: the start timed out but the tile came up on the target", "tile", t.Slug, "error", err)
+			// start marked a managed instance "error" on the timeout.
+			if t.IsManaged() {
+				if serr := s.Store.UpdateTileStatus(back, t.ID, "running"); serr != nil {
+					slog.Error("moved instance status not saved", "tile", t.ID, "error", serr)
+				}
+			}
+			return nil
+		}
 		// The data is on both nodes and the source copy is still whole, so the
 		// safe end is where it started. Leaving home_node on the target with a
 		// failed deploy left the service stopped on both machines while the
 		// modal said Moved (docs/plans/39-codex-review-fixes.md, point 3).
-		back := context.WithoutCancel(ctx)
-		if e := s.Store.SetTileHomeNode(back, t.ID, m.From); e != nil {
-			slog.Error("volume move: putting the home node back", "tile", t.Slug, "error", e)
-		} else {
-			t.HomeNode = m.From
-		}
-		if e := s.C.ScaleService(back, svcName, 1); e != nil {
-			slog.Error("volume move: restarting on the source after a failed start", "tile", t.Slug, "error", e)
+		if rerr := s.rollBack(back, t, svcName, m.From); rerr != nil {
+			return fmt.Errorf("starting on the target: %w, and putting it back on the source failed too: %v", err, rerr)
 		}
 		return fmt.Errorf("starting on the target: %w", err)
 	}
@@ -454,13 +596,71 @@ func (s *Service) do(ctx context.Context, t *repo.Tile, m Move) error {
 	return nil
 }
 
-// startOnTarget brings the tile up where its data now is.
+// startGrace is how long a failed start is given to come up on the target
+// anyway before the move rolls back: long enough for a node's first pull of a
+// large image. A var so the test does not wait it out.
+//
+// ponytail: fixed wait, read the task's pull progress if a big image ever
+// needs longer.
+var startGrace = 5 * time.Minute
+
+// cameUp waits up to startGrace for a running task of the service on node.
+func (s *Service) cameUp(ctx context.Context, svcName, node string) bool {
+	deadline := time.Now().Add(startGrace)
+	for {
+		if s.runningOn(ctx, svcName, node) {
+			return true
+		}
+		if time.Now().After(deadline) {
+			return false
+		}
+		select {
+		case <-ctx.Done():
+			return false
+		case <-time.After(deployPoll):
+		}
+	}
+}
+
+// runningOn reports a running task of the service on node, right now.
+func (s *Service) runningOn(ctx context.Context, svcName, node string) bool {
+	tasks, err := s.C.RunningTasks(ctx, svcName)
+	if err != nil {
+		return false
+	}
+	for _, task := range tasks {
+		if task.NodeID == node {
+			return true
+		}
+	}
+	return false
+}
+
+// rollBack puts a tile whose start on the target failed back on the source.
+//
+// Stopped first, so a task that starts on the target late cannot take writes
+// that the source copy will never see. Then deployed again, not only scaled:
+// the service spec still pins the target, and scaling it back up without a
+// redeploy is how the tile ended up running on the target while home_node
+// said the source.
+func (s *Service) rollBack(ctx context.Context, t *repo.Tile, svcName, from string) error {
+	if err := s.C.StopService(ctx, svcName); err != nil {
+		return fmt.Errorf("stopping %s: %w", t.Slug, err)
+	}
+	if err := s.Store.SetTileHomeNode(ctx, t.ID, from); err != nil {
+		return fmt.Errorf("putting the home node back: %w", err)
+	}
+	t.HomeNode = from
+	return s.start(ctx, t)
+}
+
+// start brings the tile up where its home node says its data is.
 //
 // A managed instance goes through managedtiles.Deploy, which rebuilds the
 // service spec from placement.For, so the node constraint follows the home
 // node that was just written and the replica comes back. A service tile goes
 // through the deploy engine on the image it already runs.
-func (s *Service) startOnTarget(ctx context.Context, t *repo.Tile) error {
+func (s *Service) start(ctx context.Context, t *repo.Tile) error {
 	if t.IsManaged() {
 		if s.Instances == nil {
 			return fmt.Errorf("no managed-instance deployer wired")

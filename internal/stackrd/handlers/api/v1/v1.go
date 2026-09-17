@@ -338,7 +338,8 @@ func (a *API) Register(g *echo.Group) {
 	op[idParam, struct{}](a, g, http.MethodDelete, "/backups/:id", ScopeBackupsWrite, "Delete backup", a.deleteBackup)
 	op[idParam, []backupRunOut](a, g, http.MethodGet, "/backups/:id/runs", ScopeBackupsRead, "List backup runs", a.listBackupRuns)
 	op[idParam, backupRunOut](a, g, http.MethodPost, "/backups/:id/run", ScopeBackupsWrite, "Run backup now", a.runBackup)
-	op[restoreIn, struct{}](a, g, http.MethodPost, "/backups/:id/restore", ScopeBackupsRestore, "Restore from a backup", a.restoreBackup)
+	op[restoreIn, restoreOut](a, g, http.MethodPost, "/backups/:id/restore", ScopeBackupsRestore, "Restore from a backup", a.restoreBackup)
+	op[idParam, restoreOut](a, g, http.MethodGet, "/backups/:id/restore", ScopeBackupsRead, "Latest restore of a backup", a.getRestore)
 	// port-forward: a websocket tunnel to a container port. "tiles" and not
 	// "apps"/"dbs" because it works on either, which those paths don't say.
 	// The spec entry is nominal, the response is a 101 upgrade, not JSON.

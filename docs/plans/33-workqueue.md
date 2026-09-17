@@ -2,7 +2,11 @@
 
 Status: agreed 2026-09-12. **Steps 1, 2 and 3 built and verified the same day**
 (the table, the package, boot recovery, `config.apply`, and `tile.deploy`).
-Steps 4 and 5, backups, volume moves and cron, are not started.
+Steps 4 and 5, backups, volume moves and cron, agreed in detail 2026-09-17
+(see "Steps 4 and 5, agreed" below) and **built the same day**. Tests, lint
+and templint pass; the panel backup, a tile's Run now and a cron run were driven
+locally, and moves, backups and restores on the two-node rig (see "Rig
+results").
 
 Step 3 was brought forward because redeploying the panel stranded whatever was
 building and repeatedly disrupted verification.
@@ -125,6 +129,152 @@ A `queued` row just runs.
 Steps 2 onward are independent. Stopping after 2 still fixes the bug that
 started this.
 
+## Steps 4 and 5, agreed 2026-09-17
+
+Working rules: discuss first, one point at a time, no code without a go, no
+git writes, no edits to `*_templ.go` or `output.css`, terse UI copy.
+
+### Where things stand before the change
+
+- `infra/backup/backup.go`: `Service.Run` and `Service.Restore` run inline on
+  a `context.WithoutCancel` request context. The web handler
+  (`handler/backups/handler.go` Run and Restore, `handler/settings/handler.go`
+  RunPanelBackup) and the API (`handlers/api/v1/backups.go` runBackup,
+  restoreBackup) block until done. Schedules call `Run` from a robfig cron
+  entry. The per-backup claim is the in-memory `running` map
+  (`begin`/`end`), shared by run and restore.
+- `infra/volmove/volmove.go`: `Start` launches `go s.run`. State is the
+  in-memory `moves` map, read by `ForTile`/`All`. Callers:
+  `handler/server/nodes.go` (MoveForm, Move, moveError),
+  `handler/project/placement.go`.
+- `infra/jobs/jobs.go`: cron entries call `RunApp` inline; manual runs call
+  `StartApp` (`go s.runApp`). Callers: `handler/app/handler.go`,
+  `handlers/api/v1/apps.go`, `cmd/stackrd/main.go` (on-deploy function
+  trigger). `Stop` uses the in-memory `cancels` map.
+  `CloseOrphanCronRuns` closes rows on boot but the swarm job service keeps
+  running.
+- Found while reading: a restart mid backup leaves pause-mode containers
+  paused, or stop-mode services scaled to zero. Nothing puts them back.
+
+### Decisions
+
+1. **Restore goes on the queue too.** New kind `backup.restore` beside
+   `backup.run`. On restart it fails and leaves the service stopped, with an
+   error saying the volume may be half-restored. Starting an app on half its
+   data is worse than leaving it down.
+2. **Run now and Restore return at once.** They enqueue and return. The runs
+   list in `handler/backups/panel.templ` shows the running row and polls
+   until done. Restore has no row of its own, so its status is read from the
+   work item. API `backup run` returns the queued run (CLI already prints
+   "Started run X"). CLI `backup restore` keeps its wait by polling the work
+   item, so "Restored." still means restored.
+3. **Volume move restart.** Fails. `step` records the phase (copy, stop,
+   delta, start). Cleanup per step:
+   - copy: app still running, close the receivers on the target.
+   - stop / delta: close the receivers, scale the service back up on the
+     source.
+   - start: home node may point at the target. Put it back to the source and
+     scale up, the same path `do()` already takes on a failed start.
+   - Half-copied target volumes stay, as on any failed move today, and the
+     error says so.
+   - Progress (bytes, total, phase) moves from the map to the work item's
+     `progress`/`step`, so the modal survives a restart. One move per tile
+     stays enforced.
+4. **Cron restart.** Fails, and cleanup removes the orphaned swarm job
+   service (same effect as Stop). No requeue: re-running a half-done job
+   blind is not safe. Ticks, manual runs and on-deploy runs all enqueue
+   `cron.run`; the `cron_runs` row stays the detail row. Stop becomes
+   `Queue.Cancel`. Skip rules (overlap, held stack, depends_on) stay in the
+   handler.
+5. **Concurrency limits are admin settings, not constants.** Four
+   server-only fields on `settings.Settings` (`config/settings/settings.go`),
+   in the same JSON blob as `BuildNode` and ignored at lower levels:
+
+   | kind | default |
+   |---|---|
+   | `cron.run` | 8 |
+   | `backup.run` | 2 |
+   | `backup.restore` | 1 |
+   | `volume.move` | 2 |
+
+   On the server settings form (`serverSettingsForm` in
+   `handler/server/server.templ`) next to Build node, and in the API
+   catalogue (`settingKeys` in `handlers/api/v1/settings.go`) so the CLI can
+   set them. `workqueue.go` stops fixing the semaphore at `Register` and reads
+   the limit each drain, so a change applies within seconds. Lowering a limit
+   lets running jobs finish; only new ones wait. Kinds without a setting
+   (`config.apply`, `tile.deploy`) keep `KindOpts.Concurrency`.
+6. **No global work admin page in this pass.** Its own small plan later.
+
+### Implementation choices, 2026-09-17
+
+- The in-memory per-backup and per-cron claims stay inside the handlers. The
+  queue's dedupe only touches waiting items, so it cannot stop two running.
+- `backup.run` and `cron.run` are keyed by their run row id. The row is
+  written at enqueue, so the API returns it and Stop finds the item from it.
+  `backup.restore` and `volume.move` are keyed by backup id and tile id.
+- New API route `GET /api/v1/backups/:id/restore`, the newest restore. The
+  CLI polls it.
+- The backups tab polls only the history list, so a schedule being edited
+  is not wiped.
+- `CloseOrphanCronRuns` is gone: a waiting run survives a restart, and an
+  interrupted one is closed by cleanup.
+- The Move modal says "Waiting to start" while the move limit is full.
+- Volume moves keep an in-memory per-tile claim in the handler as well as
+  Start's table check, which a double click can race.
+- Restart cleanup is capped at 30 seconds per item, because recovery runs
+  before the panel serves and a cleanup may dial a dead node's agent.
+- A failed restore shows on the backups tab for 24 hours.
+- `KindOpts.Cleanup` returns a message that replaces `RestartFail`, because
+  a restore's message depends on whether it had started writing.
+
+### Rig results, 2026-09-17
+
+Driven on the two-node rig with the managed postgres `orgpg`:
+
+- Move both ways: 14 seconds each, progress and phases in the modal.
+- Move with a slow start (image not yet on the target): finishes as Moved.
+- Move whose start cannot succeed (target paused mid move): rolls back,
+  home node, service constraint and status all back on the source.
+- Panel restart during the start phase: cleanup sees it running on the
+  target and keeps it there, receivers closed.
+- Dump and stop-mode volume backups, CLI `backup run` and `backup restore`
+  (the CLI waits and prints Restored.), web restore with the tab polling.
+- Panel restart mid volume restore: service left at zero, error says so,
+  CLI reports the failure.
+- Panel restart mid stop-mode backup: service scaled back up, run closed
+  with cleanup's reason.
+
+Found and fixed while doing it:
+
+- `runtime.WaitRolled` never settled a service started from zero replicas,
+  because swarm records no update then. Every managed-database move waited
+  out 90 seconds and failed. `ServiceState.RolledSince` also accepts every
+  running task being newer than the change.
+- A failed start put `home_node` back but never redeployed, so the service
+  stayed pinned to the target, running on the copy, while the panel said the
+  source. The next deploy would have gone back to the stale copy and lost the
+  writes. The move now waits `startGrace` for a late start, and otherwise
+  stops, puts the home node back, and redeploys on the source. Restart
+  cleanup does the same.
+- `SweepStaleRuns` closed interrupted backup runs before the queue's cleanup
+  ran, hiding its reason. Its backup_runs statement is gone.
+
+Not driven: a restart mid copy (46 MB copies in under a second), and backup
+cleanup in pause mode.
+
+### Build order
+
+1. Queue reads limits from settings; settings fields, form, API catalogue.
+2. `backup.run` and `backup.restore`, with restart cleanup; web page polls;
+   API and CLI.
+3. `volume.move` on the work item, with per-step restart cleanup; modal reads
+   the work item.
+4. `cron.run`: ticks, manual and on-deploy enqueue; Stop cancels; restart
+   removes the job service.
+5. `make test`, `make lint`, `make templint`, then drive the backups page and
+   the Move modal in the browser.
+
 ## Not doing
 
 - Retries with backoff. `attempts` is in the table so it can be added, but
@@ -137,8 +287,8 @@ started this.
 ## Open
 
 - Does the Runs tab become a global "work" view, or does each kind keep
-  rendering its own rows off `work_items`? Leaning per-kind, with one admin
-  page listing everything.
+  rendering its own rows off `work_items`? Per-kind for steps 4 and 5
+  (decided 2026-09-17). The admin page listing everything is deferred.
 - Deploy logs stream through `stream.Hub` keyed by deployment id. If deploys
   move onto work items, the topic key changes and `logs.js` follows.
 - Whether `cron_runs`, `backup_runs` and `deployments` collapse into

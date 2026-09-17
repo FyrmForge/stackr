@@ -35,6 +35,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/envnet"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/managedtiles"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/runtime"
+	"github.com/FyrmForge/stackr/internal/stackrd/infra/workqueue"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 )
 
@@ -53,6 +54,7 @@ type Service struct {
 	db      *sqlx.DB // the panel's own database, for VACUUM INTO
 	dataDir string
 	version string // build version, written into the panel archive
+	work    *workqueue.Queue
 
 	mu      sync.Mutex
 	cron    *cron.Cron
@@ -95,7 +97,9 @@ func (s *Service) LoadSchedules(ctx context.Context) error {
 		}
 		b := b
 		id, err := s.cron.AddFunc(b.Schedule(), func() {
-			_, _ = s.Run(context.Background(), b.ID, "schedule")
+			if _, err := s.Start(context.Background(), b.ID, "schedule"); err != nil {
+				slog.Error("scheduled backup not queued", "backup", b.ID, "error", err)
+			}
 		})
 		if err != nil {
 			continue // invalid expression; ValidateCron guards new saves
@@ -155,32 +159,11 @@ func (s *Service) prefixFor(ctx context.Context, b *repo.Backup) string {
 
 // --- running one backup ---
 
-// Run executes one backup end to end: produce the archive locally, upload it,
-// prune what falls outside the keep count. trigger is recorded on the run row
-// ("schedule", "manual", or "pre-restore").
-func (s *Service) Run(ctx context.Context, backupID, trigger string) (*repo.BackupRun, error) {
-	// hamr caps every request context at 30 seconds, and a manual run is
-	// triggered from a request. Cut loose from it: a tar and an upload measured
-	// in minutes must not die halfway, least of all a restore's pre-backup.
-	// the caller still blocks for the whole run, detach the web
-	// trigger if a long backup holding a browser request open matters.
-	ctx = context.WithoutCancel(ctx)
-	b, err := s.store.GetBackup(ctx, backupID)
-	if err != nil || b == nil {
-		return nil, fmt.Errorf("backup not found")
-	}
-	if !s.begin(b.ID) {
-		return nil, fmt.Errorf("a run for this backup is already in progress")
-	}
-	defer s.end(b.ID)
-	return s.run(ctx, b, trigger)
-}
-
 // begin claims a backup id for the caller, false when something else holds it.
 // Restore holds the same claim across its whole flow, so a second restore
-// cannot start a parallel wipe-and-extract on one volume, which is what the
-// detached context makes reachable, since a browser that gives up on a slow
-// restore leaves it running and invites a second click.
+// cannot start a parallel wipe-and-extract on one volume. The queue only
+// dedupes waiting items, so this is what stops a run and a restore of one
+// backup running side by side.
 func (s *Service) begin(id string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -197,37 +180,53 @@ func (s *Service) end(id string) {
 	s.mu.Unlock()
 }
 
-// run is Run without the claim, so a restore can reuse it for its pre-restore
-// backup while still holding the claim itself.
-func (s *Service) run(ctx context.Context, b *repo.Backup, trigger string) (*repo.BackupRun, error) {
-	dest, err := s.store.GetBackupDestination(ctx, b.DestinationID)
-	if err != nil || dest == nil {
-		return nil, fmt.Errorf("destination not found")
-	}
-
+// openRun writes the run row before any work, so a caller has an id to show
+// while the job waits in the queue.
+func (s *Service) openRun(ctx context.Context, b *repo.Backup, trigger, status string) (*repo.BackupRun, error) {
 	run := &repo.BackupRun{
 		ID: uuid.New().String(), BackupID: b.ID, Trigger: trigger,
-		Status: "running", CreatedAt: time.Now().UTC(),
+		Status: status, CreatedAt: time.Now().UTC(),
 	}
-	if err := s.store.CreateBackupRun(ctx, run); err != nil {
-		return nil, err
+	return run, s.store.CreateBackupRun(ctx, run)
+}
+
+// closeRun records a run's outcome.
+func (s *Service) closeRun(run *repo.BackupRun, err error) {
+	run.FinishedAt = sql.NullTime{Time: time.Now().UTC(), Valid: true}
+	if err != nil {
+		run.Status, run.Error = "error", err.Error()
+	} else {
+		run.Status = "done"
 	}
-	finish := func(err error, key string, size int64) (*repo.BackupRun, error) {
-		run.FinishedAt = sql.NullTime{Time: time.Now().UTC(), Valid: true}
-		if err != nil {
-			run.Status, run.Error = "error", err.Error()
-		} else {
-			run.Status, run.ObjectKey, run.SizeBytes = "done", key, size
-		}
-		// context.Background: the run row must be closed out even when the
-		// request that started it has already gone away.
-		if uerr := s.store.UpdateBackupRun(context.Background(), run); uerr != nil {
-			slog.Error("backup run not closed out", "run", run.ID, "status", run.Status, "error", uerr)
-		}
+	// context.Background: the run row must be closed out even when the job's
+	// own context has timed out or been cancelled.
+	if uerr := s.store.UpdateBackupRun(context.Background(), run); uerr != nil {
+		slog.Error("backup run not closed out", "run", run.ID, "status", run.Status, "error", uerr)
+	}
+}
+
+// run executes one backup end to end on an open run row: produce the archive
+// locally, upload it, prune what falls outside the keep count. Without the
+// claim, so a restore can reuse it for its pre-restore backup while holding
+// the claim itself. step records how far it got, for restart cleanup.
+func (s *Service) run(ctx context.Context, b *repo.Backup, run *repo.BackupRun, step func(string)) (*repo.BackupRun, error) {
+	run.Status = "running"
+	if err := s.store.UpdateBackupRun(ctx, run); err != nil {
 		return run, err
 	}
+	finish := func(err error, key string, size int64) (*repo.BackupRun, error) {
+		if err == nil {
+			run.ObjectKey, run.SizeBytes = key, size
+		}
+		s.closeRun(run, err)
+		return run, err
+	}
+	dest, err := s.store.GetBackupDestination(ctx, b.DestinationID)
+	if err != nil || dest == nil {
+		return finish(fmt.Errorf("destination not found"), "", 0)
+	}
 
-	name, produce, err := s.producer(ctx, b)
+	name, produce, err := s.producer(ctx, b, step)
 	if err != nil {
 		return finish(err, "", 0)
 	}
@@ -240,6 +239,8 @@ func (s *Service) run(ctx context.Context, b *repo.Backup, trigger string) (*rep
 	if err := produce(f); err != nil {
 		return finish(err, "", 0)
 	}
+	// The containers are released by now; cleanup has nothing to put back.
+	step("uploading")
 	size, err := f.Seek(0, io.SeekEnd)
 	if err != nil {
 		return finish(err, "", 0)
@@ -259,14 +260,14 @@ func (s *Service) run(ctx context.Context, b *repo.Backup, trigger string) (*rep
 	// prefix, so pruning to the keep count would delete the oldest, which,
 	// when the oldest is the archive being restored, destroys it before the
 	// download and leaves the user with neither.
-	if trigger != "pre-restore" {
+	if run.Trigger != "pre-restore" {
 		s.prune(ctx, b, dest)
 	}
 	return finish(nil, key, size)
 }
 
 // producer returns the archive's file name and a function that writes it.
-func (s *Service) producer(ctx context.Context, b *repo.Backup) (string, func(io.Writer) error, error) {
+func (s *Service) producer(ctx context.Context, b *repo.Backup, step func(string)) (string, func(io.Writer) error, error) {
 	switch b.Kind {
 	case repo.BackupStackr:
 		return "stackr.tar.gz", s.writePanelArchive, nil
@@ -285,7 +286,7 @@ func (s *Service) producer(ctx context.Context, b *repo.Backup) (string, func(io
 		if err != nil {
 			return "", nil, err
 		}
-		return t.Slug + ".tar.gz", func(w io.Writer) error { return s.writeVolume(ctx, b, t, vol, w) }, nil
+		return t.Slug + ".tar.gz", func(w io.Writer) error { return s.writeVolume(ctx, b, t, vol, w, step) }, nil
 	}
 	return "", nil, fmt.Errorf("unknown backup kind %q", b.Kind)
 }
@@ -348,7 +349,7 @@ func (s *Service) writeDump(ctx context.Context, t *repo.Tile, w io.Writer) erro
 // writeVolume tars the volume into w under the config's container mode:
 // pause (freeze, the default), stop, or live (no interference, torn copies
 // possible). The container is always released before the caller uploads.
-func (s *Service) writeVolume(ctx context.Context, b *repo.Backup, t *repo.Tile, vol string, w io.Writer) error {
+func (s *Service) writeVolume(ctx context.Context, b *repo.Backup, t *repo.Tile, vol string, w io.Writer, step func(string)) error {
 	node, err := s.on(ctx, t)
 	if err != nil {
 		return err
@@ -366,6 +367,7 @@ func (s *Service) writeVolume(ctx context.Context, b *repo.Backup, t *repo.Tile,
 	}
 	switch b.ContainerMode {
 	case repo.ModeStop:
+		step(stepStopped)
 		resume, err := s.quiesce(ctx, t)
 		if err != nil {
 			return err
@@ -374,6 +376,7 @@ func (s *Service) writeVolume(ctx context.Context, b *repo.Backup, t *repo.Tile,
 	case repo.ModeLive:
 		// nothing to do, the documented torn-copy mode
 	default: // pause
+		step(stepPaused)
 		for _, cid := range cids {
 			if err := s.c.PauseContainer(ctx, node, cid); err != nil {
 				return fmt.Errorf("pausing container: %w", err)
@@ -399,13 +402,7 @@ func (s *Service) writeVolume(ctx context.Context, b *repo.Backup, t *repo.Tile,
 // holds, and it is the only stop used here: managed instances are services
 // too.
 func (s *Service) quiesce(ctx context.Context, t *repo.Tile) (func(), error) {
-	target := t
-	if t.IsVolume() && t.AttachedTileID != "" {
-		if att, err := s.store.GetTile(ctx, t.AttachedTileID); err == nil && att != nil {
-			target = att
-		}
-	}
-	name := envnet.ServiceFor(ctx, s.store, target)
+	name := s.serviceOf(ctx, t)
 	if name == "" {
 		return func() {}, nil
 	}
@@ -417,6 +414,18 @@ func (s *Service) quiesce(ctx context.Context, t *repo.Tile) (func(), error) {
 		return nil, fmt.Errorf("stopping service: %w", err)
 	}
 	return func() { _ = s.c.ScaleService(context.Background(), name, 1) }, nil
+}
+
+// serviceOf is the service that owns a tile's volume: the tile itself, or the
+// app a volume tile is attached to.
+func (s *Service) serviceOf(ctx context.Context, t *repo.Tile) string {
+	target := t
+	if t.IsVolume() && t.AttachedTileID != "" {
+		if att, err := s.store.GetTile(ctx, t.AttachedTileID); err == nil && att != nil {
+			target = att
+		}
+	}
+	return envnet.ServiceFor(ctx, s.store, target)
 }
 
 func (s *Service) containersFor(ctx context.Context, t *repo.Tile) ([]string, error) {
@@ -623,35 +632,41 @@ func (s *Service) prune(ctx context.Context, b *repo.Backup, dest *repo.BackupDe
 
 // --- restore ---
 
-// Restore puts one recorded run back. The run is loaded by id and must belong
-// to this backup, the object key is never taken from the caller, because on a
-// shared bucket that would be a cross-tenant read.
+// restorable checks a run can be restored at all. The run is loaded by id and
+// must belong to this backup, the object key is never taken from the caller,
+// because on a shared bucket that would be a cross-tenant read. Checked when
+// the restore is queued, so the button answers at once, and again when it runs.
+func (s *Service) restorable(ctx context.Context, b *repo.Backup, runID string) (*repo.BackupRun, error) {
+	run, err := s.store.GetBackupRun(ctx, runID)
+	if err != nil || run == nil || run.BackupID != b.ID {
+		return nil, fmt.Errorf("backup run not found")
+	}
+	if run.Status != "done" || run.ObjectKey == "" {
+		return nil, fmt.Errorf("that run did not produce an archive")
+	}
+	if b.Kind == repo.BackupStackr {
+		return nil, fmt.Errorf("a panel backup is restored on the host with scripts/restore.sh, not from here: the archive carries the master key and has to land in the data dir before stackr starts")
+	}
+	return run, nil
+}
+
+// restore puts one recorded run back.
 //
 // Volume restores are destructive and ordered so that every recoverable
 // failure happens before the wipe: take a pre-restore backup, download,
 // verify, and only then stop → wipe → extract → start.
-func (s *Service) Restore(ctx context.Context, backupID, runID string) error {
-	ctx = context.WithoutCancel(ctx) // see Run: a restore must not die mid-wipe
-	b, err := s.store.GetBackup(ctx, backupID)
-	if err != nil || b == nil {
-		return fmt.Errorf("backup not found")
-	}
+func (s *Service) restore(ctx context.Context, j *workqueue.Job, b *repo.Backup, runID string) error {
 	// Held for the whole flow, pre-restore backup included: two concurrent
 	// restores would run two `rm -rf` + untar passes over one volume.
 	if !s.begin(b.ID) {
 		return fmt.Errorf("a run or restore for this backup is already in progress")
 	}
 	defer s.end(b.ID)
-	run, err := s.store.GetBackupRun(ctx, runID)
-	if err != nil || run == nil || run.BackupID != b.ID {
-		return fmt.Errorf("backup run not found")
+	run, err := s.restorable(ctx, b, runID)
+	if err != nil {
+		return err
 	}
-	if run.Status != "done" || run.ObjectKey == "" {
-		return fmt.Errorf("that run did not produce an archive")
-	}
-	if b.Kind == repo.BackupStackr {
-		return fmt.Errorf("a panel backup is restored on the host with scripts/restore.sh, not from here: the archive carries the master key and has to land in the data dir before stackr starts")
-	}
+	step := func(st string) { j.SetStep(ctx, st) }
 	dest, err := s.store.GetBackupDestination(ctx, b.DestinationID)
 	if err != nil || dest == nil {
 		return fmt.Errorf("destination not found")
@@ -665,16 +680,22 @@ func (s *Service) Restore(ctx context.Context, backupID, runID string) error {
 	// `pg_dump | psql` over a live database, which is every bit as
 	// irreversible as untarring over a volume. A failure here aborts the
 	// restore, going on would leave no way back.
-	if _, err := s.run(ctx, b, "pre-restore"); err != nil {
+	pre, err := s.openRun(ctx, b, "pre-restore", "running")
+	if err != nil {
+		return err
+	}
+	// Kept on the item so restart cleanup can close this row too.
+	j.SetProgress(ctx, restoreProgress{PreRun: pre.ID})
+	if _, err := s.run(ctx, b, pre, step); err != nil {
 		return fmt.Errorf("pre-restore backup failed, restore aborted: %w", err)
 	}
 	if b.Kind == repo.BackupDump {
-		return s.restoreDump(ctx, t, dest, run.ObjectKey)
+		return s.restoreDump(ctx, t, dest, run.ObjectKey, step)
 	}
-	return s.restoreVolume(ctx, b, t, dest, run.ObjectKey)
+	return s.restoreVolume(ctx, b, t, dest, run.ObjectKey, step)
 }
 
-func (s *Service) restoreDump(ctx context.Context, t *repo.Tile, dest *repo.BackupDestination, key string) error {
+func (s *Service) restoreDump(ctx context.Context, t *repo.Tile, dest *repo.BackupDestination, key string, step func(string)) error {
 	eng, ok := managedtiles.Engines[t.Engine]
 	if !ok || eng.RestoreCmd == nil {
 		return fmt.Errorf("restore is not supported for %s", t.Engine)
@@ -696,6 +717,7 @@ func (s *Service) restoreDump(ctx context.Context, t *repo.Tile, dest *repo.Back
 	if err != nil {
 		return err
 	}
+	step(stepRestoring)
 	rd, wait, err := s.c.ExecStream(ctx, node, cid, eng.RestoreCmd(t), gz)
 	if err != nil {
 		return err
@@ -704,7 +726,7 @@ func (s *Service) restoreDump(ctx context.Context, t *repo.Tile, dest *repo.Back
 	return wait()
 }
 
-func (s *Service) restoreVolume(ctx context.Context, b *repo.Backup, t *repo.Tile, dest *repo.BackupDestination, key string) error {
+func (s *Service) restoreVolume(ctx context.Context, b *repo.Backup, t *repo.Tile, dest *repo.BackupDestination, key string, step func(string)) error {
 	vol, err := VolumeFor(t)
 	if err != nil {
 		return err
@@ -731,6 +753,7 @@ func (s *Service) restoreVolume(ctx context.Context, b *repo.Backup, t *repo.Til
 		return err
 	}
 
+	step(stepRestoring)
 	resume, err := s.quiesce(ctx, t)
 	if err != nil {
 		return err

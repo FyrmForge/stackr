@@ -220,7 +220,7 @@ func (h *handler) StopRun(c echo.Context) error {
 	if run == nil || run.Ref != "app:"+a.ID {
 		return echo.NewHTTPError(http.StatusNotFound, "run not found")
 	}
-	if !h.jobs.Stop(run.ID) {
+	if !h.jobs.Stop(c.Request().Context(), run.ID) {
 		middleware.SetFlash(c, "That run already finished.", middleware.FlashInfo)
 	}
 	return h.headerDone(c, a)

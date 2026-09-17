@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"strconv"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -327,11 +328,31 @@ completion even if you Ctrl-C the wait.`,
 			if err != nil {
 				return err
 			}
-			if err := client.Restore(cmd.Context(), args[0], runID); err != nil {
-				if cmd.Context().Err() != nil {
-					return fmt.Errorf("stopped waiting; the restore continues server-side")
-				}
+			st, err := client.Restore(cmd.Context(), args[0], runID)
+			if err != nil {
 				return err
+			}
+			// Queued server-side; wait on the same item so "Restored." still
+			// means restored.
+			for {
+				switch st.Status {
+				case "done":
+				case "error":
+					return fmt.Errorf("restore failed: %s", st.Error)
+				case "cancelled", "superseded":
+					return fmt.Errorf("restore %s", st.Status)
+				default:
+					select {
+					case <-cmd.Context().Done():
+						return fmt.Errorf("stopped waiting; the restore continues server-side")
+					case <-time.After(2 * time.Second):
+					}
+					if st, err = client.LatestRestore(cmd.Context(), args[0]); err != nil {
+						return err
+					}
+					continue
+				}
+				break
 			}
 			if rt.JSON {
 				return rt.EmitJSON(struct {

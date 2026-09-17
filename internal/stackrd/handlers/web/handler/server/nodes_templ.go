@@ -1739,6 +1739,8 @@ func joinCommand(panelHost, key string) string {
 
 func movePhaseWord(p volmove.Phase) string {
 	switch p {
+	case volmove.PhaseQueued:
+		return "Waiting to start"
 	case volmove.PhaseCopy:
 		return "Copying, still running"
 	case volmove.PhaseStop:

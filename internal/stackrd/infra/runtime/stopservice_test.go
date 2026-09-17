@@ -89,3 +89,17 @@ func TestConvergedNeedsTheUpdateItWasAskedAbout(t *testing.T) {
 	assert.True(t, ServiceState{Wanted: 1, Running: 1}.Converged(),
 		"a service that has never been updated is settled")
 }
+
+// A service brought up from zero replicas has no update for swarm to record,
+// so the only sign the change landed is that every running task is newer than
+// it. An older task still running is the previous spec and does not count.
+func TestRolledSinceFromZeroReplicas(t *testing.T) {
+	since := time.Now()
+	fresh := ServiceState{Wanted: 1, Running: 1, OldestRunning: since.Add(time.Second)}
+	assert.True(t, fresh.RolledSince(since), "a task created after the change is the change")
+
+	stale := ServiceState{Wanted: 1, Running: 1, OldestRunning: since.Add(-time.Minute)}
+	assert.False(t, stale.RolledSince(since), "a task from before the change is the old spec")
+
+	assert.False(t, ServiceState{Wanted: 1, Running: 0}.RolledSince(since), "nothing running")
+}

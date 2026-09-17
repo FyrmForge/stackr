@@ -264,10 +264,10 @@ func (h *handler) RunPanelBackup(c echo.Context) error {
 	if err != nil || b == nil {
 		return echo.NewHTTPError(http.StatusNotFound, "no panel backup configured")
 	}
-	if _, err := h.backups.Run(ctx, b.ID, "manual"); err != nil {
+	if _, err := h.backups.Start(ctx, b.ID, "manual"); err != nil {
 		middleware.SetFlash(c, "Backup failed: "+err.Error(), middleware.FlashError)
 	} else {
-		middleware.SetFlash(c, "Panel database backed up.", middleware.FlashSuccess)
+		middleware.SetFlash(c, "Backup started.", middleware.FlashSuccess)
 	}
 	return respond.Redirect(c, "/admin/backups")
 }

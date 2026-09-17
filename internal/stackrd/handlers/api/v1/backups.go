@@ -334,14 +334,12 @@ func (a *API) runBackup(c echo.Context) error {
 	if a.backups == nil {
 		return echo.NewHTTPError(http.StatusServiceUnavailable, "backups are not available")
 	}
-	run, err := a.backups.Run(c.Request().Context(), b.ID, "manual")
+	// Queued, not run: the row comes back "queued" and the runs list follows it.
+	run, err := a.backups.Start(c.Request().Context(), b.ID, "manual")
 	if err != nil {
-		if run != nil { // the attempt is recorded; report it with its error
-			return c.JSON(http.StatusOK, toRunOut(run))
-		}
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
-	return c.JSON(http.StatusCreated, toRunOut(run))
+	return c.JSON(http.StatusAccepted, toRunOut(run))
 }
 
 // restoreBackup puts one recorded run back. The archive is named by run id,
@@ -365,10 +363,40 @@ func (a *API) restoreBackup(c echo.Context) error {
 	if a.backups == nil {
 		return echo.NewHTTPError(http.StatusServiceUnavailable, "backups are not available")
 	}
-	if err := a.backups.Restore(c.Request().Context(), b.ID, in.RunID); err != nil {
+	ctx := c.Request().Context()
+	if _, err := a.backups.StartRestore(ctx, b.ID, in.RunID); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
-	return c.NoContent(http.StatusCreated) // 201: what the spec declares for a POST
+	return a.restoreStatus(c, b.ID)
+}
+
+// getRestore is the newest restore of a backup. The CLI polls it to wait for
+// a restore it queued.
+func (a *API) getRestore(c echo.Context) error {
+	b, _, err := a.requireBackup(c, false)
+	if err != nil {
+		return err
+	}
+	if a.backups == nil {
+		return echo.NewHTTPError(http.StatusServiceUnavailable, "backups are not available")
+	}
+	return a.restoreStatus(c, b.ID)
+}
+
+func (a *API) restoreStatus(c echo.Context, backupID string) error {
+	w, err := a.backups.LatestRestore(c.Request().Context(), backupID)
+	if err != nil {
+		return err
+	}
+	if w == nil {
+		return echo.NewHTTPError(http.StatusNotFound, "no restore for this backup")
+	}
+	out := restoreOut{ID: w.ID, Status: w.Status, Step: w.Step, Error: w.Error,
+		CreatedAt: w.CreatedAt.Format(time.RFC3339)}
+	if w.FinishedAt.Valid {
+		out.FinishedAt = w.FinishedAt.Time.Format(time.RFC3339)
+	}
+	return c.JSON(http.StatusOK, out)
 }
 
 func (a *API) reloadBackupSchedules(ctx context.Context) {

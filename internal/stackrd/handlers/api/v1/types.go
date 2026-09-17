@@ -182,6 +182,16 @@ type backupRunOut struct {
 	FinishedAt string `json:"finished_at"`
 }
 
+// restoreOut is one restore as the work queue tracks it.
+type restoreOut struct {
+	ID         string `json:"id"`
+	Status     string `json:"status" description:"queued | running | done | error | cancelled | superseded"`
+	Step       string `json:"step"`
+	Error      string `json:"error"`
+	CreatedAt  string `json:"created_at"`
+	FinishedAt string `json:"finished_at"`
+}
+
 type restoreIn struct {
 	ID    string `path:"id"` // backup id
 	RunID string `json:"run_id" required:"true" description:"the run whose archive to restore"`

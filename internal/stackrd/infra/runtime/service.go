@@ -695,6 +695,7 @@ type ServiceTask struct {
 	Desired     string
 	Err         string
 	ExitCode    int
+	Created     time.Time
 }
 
 // ServiceTasks lists a service's tasks whose desired state is running: the
@@ -729,6 +730,7 @@ func (r *Runtime) serviceTasks(ctx context.Context, name string, onlyRunning boo
 			State:   string(t.Status.State),
 			Desired: string(t.DesiredState),
 			Err:     t.Status.Err,
+			Created: t.CreatedAt,
 		}
 		if t.Status.ContainerStatus != nil {
 			st.ContainerID = t.Status.ContainerStatus.ContainerID
@@ -753,6 +755,23 @@ type ServiceState struct {
 	// and this one has not been picked up yet", which read identically and
 	// made WaitConverged return before the roll had even started.
 	UpdateStarted time.Time
+	// OldestRunning is when the oldest running replica's task was created,
+	// zero with none running.
+	OldestRunning time.Time
+}
+
+// RolledSince reports the service settled on a change posted at since.
+//
+// Either swarm recorded an update that began after since, or every running
+// replica is a task created after it. The second is the only evidence when
+// the service was at zero replicas before the change: swarm has nothing to
+// roll, records no update, and a wait on UpdateStarted alone never ended. Every
+// managed-database move timed out on it and was then rolled back half way.
+func (s ServiceState) RolledSince(since time.Time) bool {
+	if !s.Converged() {
+		return false
+	}
+	return !s.UpdateStarted.Before(since) || (!s.OldestRunning.IsZero() && !s.OldestRunning.Before(since))
 }
 
 // RolledBack reports that swarm gave up on the new spec and put the old one
@@ -799,6 +818,9 @@ func (r *Runtime) ServiceStatus(ctx context.Context, name string) (ServiceState,
 		// the new one has so much as pulled its image.
 		if t.State == "running" && t.Desired == "running" {
 			st.Running++
+			if st.OldestRunning.IsZero() || t.Created.Before(st.OldestRunning) {
+				st.OldestRunning = t.Created
+			}
 		} else if t.Err != "" && st.Message == "" {
 			// Swarm only fills UpdateStatus.Message on an update; a task that
 			// cannot start at all (bad image, no such node) says why here.
@@ -1093,7 +1115,7 @@ func (r *Runtime) WaitRolled(ctx context.Context, name string, since time.Time, 
 	deadline := time.Now().Add(timeout)
 	for {
 		st, err := r.ServiceStatus(ctx, name)
-		if err == nil && st.Converged() && !st.UpdateStarted.Before(since) {
+		if err == nil && st.RolledSince(since) {
 			return nil
 		}
 		if time.Now().After(deadline) {

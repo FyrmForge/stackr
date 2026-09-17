@@ -31,6 +31,12 @@ type Settings struct {
 	// only read at the server level. Empty means the manager, in a capped
 	// builder per org (docs/plans/37-builds.md).
 	BuildNode *string `json:"build_node,omitempty"`
+	// How many of each queued kind run at once, instance-wide and only read
+	// at the server level like BuildNode (docs/plans/33-workqueue.md).
+	CronRunConcurrency       *int `json:"cron_run_concurrency,omitempty"`
+	BackupRunConcurrency     *int `json:"backup_run_concurrency,omitempty"`
+	BackupRestoreConcurrency *int `json:"backup_restore_concurrency,omitempty"`
+	VolumeMoveConcurrency    *int `json:"volume_move_concurrency,omitempty"`
 }
 
 // Resolved is the fully-cascaded result, every field concrete.
@@ -48,6 +54,11 @@ type Resolved struct {
 	NodeGroup string
 	// BuildNode is the node id builds run on, "" = the manager.
 	BuildNode string
+	// Work queue limits per kind.
+	CronRunConcurrency       int
+	BackupRunConcurrency     int
+	BackupRestoreConcurrency int
+	VolumeMoveConcurrency    int
 }
 
 // Builtin defaults, the bottom of the cascade.
@@ -57,6 +68,11 @@ var builtin = Resolved{
 	MemLimitMB:           0, // unlimited
 	RunRetentionDays:     30,
 	MetricRetentionHours: 24,
+	// Zero would stall a kind for ever, so every limit has a real default.
+	CronRunConcurrency:       8,
+	BackupRunConcurrency:     2,
+	BackupRestoreConcurrency: 1,
+	VolumeMoveConcurrency:    2,
 }
 
 // Parse decodes a settings JSON blob; bad or empty input is "no overrides".
@@ -100,6 +116,18 @@ func Resolve(levels ...Settings) Resolved {
 		}
 		if s.BuildNode != nil {
 			r.BuildNode = *s.BuildNode
+		}
+		if s.CronRunConcurrency != nil {
+			r.CronRunConcurrency = *s.CronRunConcurrency
+		}
+		if s.BackupRunConcurrency != nil {
+			r.BackupRunConcurrency = *s.BackupRunConcurrency
+		}
+		if s.BackupRestoreConcurrency != nil {
+			r.BackupRestoreConcurrency = *s.BackupRestoreConcurrency
+		}
+		if s.VolumeMoveConcurrency != nil {
+			r.VolumeMoveConcurrency = *s.VolumeMoveConcurrency
 		}
 	}
 	return r
@@ -148,6 +176,10 @@ func Merge(s Settings, vals url.Values) Settings {
 	num(vals, "mem_limit_mb", &s.MemLimitMB, true)
 	num(vals, "run_retention_days", &s.RunRetentionDays, false)
 	num(vals, "metric_retention_hours", &s.MetricRetentionHours, false)
+	num(vals, "cron_run_concurrency", &s.CronRunConcurrency, false)
+	num(vals, "backup_run_concurrency", &s.BackupRunConcurrency, false)
+	num(vals, "backup_restore_concurrency", &s.BackupRestoreConcurrency, false)
+	num(vals, "volume_move_concurrency", &s.VolumeMoveConcurrency, false)
 	if v, ok := field(vals, "protect_auto_domains"); ok {
 		b := v == "1" || v == "true" || v == "on"
 		s.ProtectAutoDomains = &b

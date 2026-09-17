@@ -214,7 +214,6 @@ type Store interface {
 	OpenCronRun(ctx context.Context, ref string) (*CronRun, error)
 	ListOpenCronRuns(ctx context.Context) ([]CronRun, error)
 	PruneCronRuns(ctx context.Context, before time.Time) error
-	CloseOrphanCronRuns(ctx context.Context) error
 
 	// API keys
 	CreateOrgRegistryCredential(ctx context.Context, c *OrgRegistryCredential) error

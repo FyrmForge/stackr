@@ -49,6 +49,26 @@ type configView struct {
 	repo.Backup
 	DestName string
 	Runs     []repo.BackupRun
+	Restore  *repo.WorkItem // the newest restore, nil when there has been none
+}
+
+// restoreShown is how long a failed restore stays on the tab.
+const restoreShown = 24 * time.Hour
+
+// RestoreFailed reports a restore that failed recently enough to still say so.
+func (cv configView) RestoreFailed() bool {
+	r := cv.Restore
+	return r != nil && r.Status == "error" && r.FinishedAt.Valid && time.Since(r.FinishedAt.Time) < restoreShown
+}
+
+// Active reports work still going, which is when the history polls.
+func (cv configView) Active() bool {
+	for _, r := range cv.Runs {
+		if r.Status == "queued" || r.Status == "running" {
+			return true
+		}
+	}
+	return cv.Restore != nil && !cv.Restore.Done()
 }
 
 // loadTile resolves the tile in the URL and checks org membership. Every route
@@ -122,14 +142,30 @@ func (h *handler) load(c echo.Context, t *repo.Tile) (view, error) {
 		return v, err
 	}
 	for _, b := range bs {
-		cv := configView{Backup: b}
-		if d, _ := h.store.GetBackupDestination(ctx, b.DestinationID); d != nil {
-			cv.DestName = d.Name
-		}
-		cv.Runs, _ = h.store.ListBackupRuns(ctx, b.ID, 10)
-		v.Configs = append(v.Configs, cv)
+		v.Configs = append(v.Configs, h.configView(c, b))
 	}
 	return v, nil
+}
+
+func (h *handler) configView(c echo.Context, b repo.Backup) configView {
+	ctx := c.Request().Context()
+	cv := configView{Backup: b}
+	if d, _ := h.store.GetBackupDestination(ctx, b.DestinationID); d != nil {
+		cv.DestName = d.Name
+	}
+	cv.Runs, _ = h.store.ListBackupRuns(ctx, b.ID, 10)
+	cv.Restore, _ = h.svc.LatestRestore(ctx, b.ID)
+	return cv
+}
+
+// GET /backups/:id/history, the run list alone. Polled while work is going,
+// so a schedule being edited above it is not wiped.
+func (h *handler) History(c echo.Context) error {
+	b, _, err := h.loadBackup(c)
+	if err != nil {
+		return err
+	}
+	return respond.HTML(c, http.StatusOK, history(c, h.configView(c, *b)))
 }
 
 func (h *handler) render(c echo.Context, t *repo.Tile) error {
@@ -260,12 +296,10 @@ func (h *handler) Run(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	run, err := h.svc.Run(c.Request().Context(), b.ID, "manual")
-	switch {
-	case err != nil:
+	if _, err := h.svc.Start(c.Request().Context(), b.ID, "manual"); err != nil {
 		middleware.SetFlash(c, "Backup failed: "+err.Error(), middleware.FlashError)
-	case run != nil:
-		middleware.SetFlash(c, "Backup done. "+strconv.FormatInt(run.SizeBytes/1024, 10)+" KB uploaded.", middleware.FlashSuccess)
+	} else {
+		middleware.SetFlash(c, "Backup started.", middleware.FlashSuccess)
 	}
 	return h.render(c, t)
 }
@@ -281,10 +315,10 @@ func (h *handler) Restore(c echo.Context) error {
 	// are not expressible in the config file at all, so no plan can revert
 	// one, and the guard only made a config-managed database unrestorable
 	// while still letting Run now take the backup.
-	if err := h.svc.Restore(c.Request().Context(), b.ID, c.FormValue("run_id")); err != nil {
+	if _, err := h.svc.StartRestore(c.Request().Context(), b.ID, c.FormValue("run_id")); err != nil {
 		middleware.SetFlash(c, "Restore failed: "+err.Error(), middleware.FlashError)
 	} else {
-		middleware.SetFlash(c, "Restored. The container was restarted.", middleware.FlashSuccess)
+		middleware.SetFlash(c, "Restore started.", middleware.FlashSuccess)
 	}
 	return h.render(c, t)
 }

@@ -57,11 +57,9 @@ func (s *Store) SweepStaleRuns(ctx context.Context) error {
 		`UPDATE deployments SET status = 'error', error = '` + repo.InterruptedMsg + `',
 		 finished_at = CURRENT_TIMESTAMP WHERE status IN ('queued', 'running')`,
 		`UPDATE tiles SET status = 'stopped', updated_at = CURRENT_TIMESTAMP WHERE status = 'building'`,
-		// A backup run is only ever finished by the process that started it, so
-		// one left "running" is one that died with a restart, the history
-		// would otherwise show it as still in progress forever.
-		`UPDATE backup_runs SET status = 'error', error = '` + repo.InterruptedMsg + `',
-		 finished_at = CURRENT_TIMESTAMP WHERE status = 'running'`,
+		// No backup_runs here: the work queue's restart cleanup closes an
+		// interrupted run with a reason, after putting back what it froze
+		// (docs/plans/33-workqueue.md).
 	} {
 		if _, err := s.db.ExecContext(ctx, q); err != nil {
 			return err

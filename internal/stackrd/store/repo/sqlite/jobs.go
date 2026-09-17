@@ -14,18 +14,6 @@ func (s *Store) CreateCronRun(ctx context.Context, r *repo.CronRun) error {
 	return err
 }
 
-// CloseOrphanCronRuns finishes runs left open by a crash or a restart. The row
-// is written before the work starts, and the in-memory overlap lock does not
-// survive the process, so without this the panel shows a run as still going
-// forever, and nothing will ever close it.
-func (s *Store) CloseOrphanCronRuns(ctx context.Context) error {
-	_, err := s.db.ExecContext(ctx,
-		`UPDATE cron_runs SET status = 'error', finished_at = ?,
-		 output = CASE WHEN output = '' THEN 'interrupted: stackr restarted while this run was in progress' ELSE output END
-		 WHERE finished_at IS NULL`, time.Now().UTC())
-	return err
-}
-
 // FinishCronRun closes out a run inserted while it was still going. Only the
 // three columns a finish can move are written, so nothing races the insert.
 func (s *Store) FinishCronRun(ctx context.Context, r *repo.CronRun) error {

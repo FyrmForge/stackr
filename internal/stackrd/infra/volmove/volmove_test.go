@@ -2,9 +2,11 @@ package volmove
 
 import (
 	"context"
+	"database/sql"
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
@@ -118,7 +120,7 @@ func TestStartRefusesAnEmptyTarget(t *testing.T) {
 		t.Fatalf("get tile: %v", err)
 	}
 
-	s := &Service{Store: store, moves: map[string]*Move{}}
+	s := &Service{Store: store}
 	// Refused before anything is reached over the network, so a nil Nodes is
 	// proof the guard fired rather than the reachability check.
 	if _, err := s.Start(ctx, tile, ""); err == nil {
@@ -213,4 +215,23 @@ func TestVolumesOfFindsAManagedInstancesOwnVolume(t *testing.T) {
 	got, err := s.volumesOf(ctx, inst)
 	require.NoError(t, err, "volumesOf on a managed instance")
 	require.Equal(t, []string{"stackr-db-2e0ba04c"}, got)
+}
+
+// The modal reads the work item: a waiting move says so, a running one shows
+// its step and bytes, and a finished one drops off once it has been shown.
+func TestMoveOfReadsTheWorkItem(t *testing.T) {
+	w := &repo.WorkItem{Payload: `{"tile_id":"t1","from":"a","to":"b","volumes":["v"]}`, Status: "queued"}
+	assert.Equal(t, PhaseQueued, moveOf(w).Phase)
+
+	w.Status, w.Step, w.Progress = "running", "delta", `{"bytes":5,"total":10}`
+	m := moveOf(w)
+	assert.Equal(t, PhaseDelta, m.Phase)
+	assert.EqualValues(t, 5, m.Bytes)
+	assert.Equal(t, "b", m.To)
+
+	w.Status, w.Error = "error", "rsync died"
+	w.FinishedAt = sql.NullTime{Time: time.Now(), Valid: true}
+	assert.Equal(t, PhaseFailed, moveOf(w).Phase)
+	w.FinishedAt.Time = time.Now().Add(-time.Hour)
+	assert.Nil(t, moveOf(w), "an old failure still blocks the card")
 }

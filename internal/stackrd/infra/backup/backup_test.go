@@ -3,12 +3,15 @@ package backup
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
+	"os"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/FyrmForge/stackr/internal/stackrd/infra/workqueue"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/testdb"
 )
@@ -111,4 +114,41 @@ func TestOneRunPerBackupAtATime(t *testing.T) {
 	assert.True(t, s.begin("b2"), "an unrelated backup was blocked")
 	s.end("b1")
 	assert.True(t, s.begin("b1"), "claim not released")
+}
+
+// A backup the panel restarted in the middle of is failed on boot: its run row
+// is closed with the reason and the half-written scratch file is deleted.
+func TestRestartFailsAnInterruptedBackup(t *testing.T) {
+	store := testdb.New(t)
+	ctx := context.Background()
+	dest := &repo.BackupDestination{ID: "d1", Name: "global", Endpoint: "https://s3", Bucket: "b", CreatedAt: time.Now().UTC()}
+	require.NoError(t, store.CreateBackupDestination(ctx, dest))
+	b := &repo.Backup{ID: "b1", DestinationID: dest.ID, Kind: repo.BackupStackr,
+		Cron: "0 4 * * *", KeepLatest: 7, Enabled: true, CreatedAt: time.Now().UTC()}
+	require.NoError(t, store.CreateBackup(ctx, b))
+
+	s := &Service{store: store, dataDir: t.TempDir(), running: map[string]bool{}}
+	run, err := s.openRun(ctx, b, "manual", "running")
+	require.NoError(t, err)
+	scratch, err := s.scratchFile(b.ID)
+	require.NoError(t, err)
+	_ = scratch.Close()
+
+	payload, _ := json.Marshal(runJob{BackupID: b.ID, RunID: run.ID})
+	require.NoError(t, store.CreateWorkItem(ctx, &repo.WorkItem{ID: "w1", Kind: RunKind, DedupeKey: run.ID,
+		Payload: string(payload), Status: "running", Step: "uploading", CreatedAt: time.Now().UTC()}))
+
+	q := workqueue.New(store)
+	s.WithWork(q)
+	cctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	q.Start(cctx)
+
+	w, _ := store.GetWorkItem(ctx, "w1")
+	assert.Equal(t, "error", w.Status)
+	got, _ := store.GetBackupRun(ctx, run.ID)
+	assert.Equal(t, "error", got.Status, "the run row was left open")
+	assert.True(t, got.FinishedAt.Valid)
+	_, err = os.Stat(scratch.Name())
+	assert.True(t, os.IsNotExist(err), "the partial archive was not deleted")
 }

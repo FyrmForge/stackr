@@ -468,6 +468,7 @@ func RegisterRoutes(srv *server.Server, deps *Deps) {
 	site.POST("/backups/:id/delete", backupsHandler.Delete, auth.RequireAuth())
 	site.POST("/backups/:id/run", backupsHandler.Run, auth.RequireAuth())
 	site.POST("/backups/:id/restore", backupsHandler.Restore, auth.RequireAuth())
+	site.GET("/backups/:id/history", backupsHandler.History, auth.RequireAuth())
 
 	// The admin area: everything scoped to this installation. Personal settings
 	// live under /account and org settings on the org's own page, /settings

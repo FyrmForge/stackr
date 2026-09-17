@@ -6,25 +6,30 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/FyrmForge/stackr/internal/stackrd/infra/workqueue"
+	"github.com/FyrmForge/stackr/internal/stackrd/store/testdb"
 )
 
-// Stop is what turns an error into a "stopped" row: it cancels the run's
-// context (which kills the one-shot container) and marks the id, so the
-// finish path knows the failure was asked for. A run that is already over
-// must answer false rather than silently doing nothing.
-func TestStopCancelsAndMarks(t *testing.T) {
-	s := NewService(nil, nil, nil)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+// Stop finds a run's work item by the run id. A run still waiting never
+// starts, so its row is closed as stopped right there; a run that is over
+// answers false.
+func TestStopAWaitingRun(t *testing.T) {
+	ctx := context.Background()
+	store := testdb.New(t)
+	seed := testdb.SeedStack(t, store, false)
+	q := workqueue.New(store) // never started, so the item stays queued
+	s := NewService(store, nil, nil).WithWork(q)
 
-	assert.False(t, s.Stop("nobody"), "stopped a run that was never held")
+	assert.False(t, s.Stop(ctx, "nobody"), "stopped a run that does not exist")
 
-	s.hold("run1", cancel)
-	require.True(t, s.Stop("run1"), "Stop found no run to cancel")
-	assert.Error(t, ctx.Err(), "the run's context was left alive")
-	assert.True(t, s.wasStopped("run1"), "the run was not marked stopped, so it would record as an error")
+	run, err := s.StartApp(ctx, seed.Tile.ID, TriggerManualAPI, "tester")
+	require.NoError(t, err)
+	require.True(t, s.Stop(ctx, run.ID), "Stop found no run to cancel")
 
-	s.release("run1")
-	assert.False(t, s.Stop("run1"), "a finished run is still stoppable")
-	assert.False(t, s.wasStopped("run1"), "the stopped mark outlived the run")
+	got, err := store.GetCronRun(ctx, run.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "stopped", got.Status)
+	assert.True(t, got.FinishedAt.Valid, "the waiting run's row was left open")
+	assert.False(t, s.Stop(ctx, run.ID), "a stopped run is still stoppable")
 }

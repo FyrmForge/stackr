@@ -404,7 +404,9 @@ func main() {
 			prevFinish(tile, d)
 		}
 		if tile.Kind == "function" && tile.RunOnDeploy && d.Status == "done" {
-			go jobsService.RunApp(context.Background(), tile.ID, jobs.TriggerDeploy, "")
+			if _, err := jobsService.StartApp(context.Background(), tile.ID, jobs.TriggerDeploy, ""); err != nil {
+				log.Error("on-deploy run not queued", "tile", tile.ID, "error", err)
+			}
 		}
 		// Baseline the pulled digest so the image watcher compares against
 		// what actually runs (git builds carry no registry digest).
@@ -531,6 +533,11 @@ func main() {
 	work := workqueue.New(store)
 	stackconf.RegisterApply(work, applier)
 	engine.WithWork(work)
+	// Every kind registers before Start: boot recovery fails a row whose kind
+	// has no handler, which would skip its cleanup.
+	backupService.WithWork(work)
+	mover.WithWork(work)
+	jobsService.WithWork(work)
 	work.Start(context.Background())
 	// Optional: with no provider configured this is nil and invites fall back
 	// to a link the inviter passes on by hand.

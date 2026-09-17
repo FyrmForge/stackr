@@ -28,6 +28,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/envnet"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/registry"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/runtime"
+	"github.com/FyrmForge/stackr/internal/stackrd/infra/workqueue"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 )
 
@@ -37,14 +38,13 @@ type Service struct {
 	store    repo.Store
 	c        *cluster.Cluster // every docker call: a job in "exec" mode runs inside the tile's container, wherever that is
 	notifier *notify.Notifier
+	work     *workqueue.Queue
 
 	mu      sync.Mutex
 	cron    *cron.Cron
 	entries map[string]cron.EntryID // jobID -> entry
 	running map[string]bool         // refs ("job:<id>"/"app:<id>") mid-run
-	cancels map[string]context.CancelFunc
-	stopped map[string]bool // run ids Stop was called on
-	held    map[string]int  // stack ids mid config-apply; schedule ticks skip
+	held    map[string]int          // stack ids mid config-apply; schedule ticks skip
 }
 
 func NewService(store repo.Store, c *cluster.Cluster, notifier *notify.Notifier) *Service {
@@ -55,8 +55,6 @@ func NewService(store repo.Store, c *cluster.Cluster, notifier *notify.Notifier)
 		cron:     cron.New(),
 		entries:  map[string]cron.EntryID{},
 		running:  map[string]bool{},
-		cancels:  map[string]context.CancelFunc{},
-		stopped:  map[string]bool{},
 		held:     map[string]int{},
 	}
 	s.cron.Start()
@@ -169,44 +167,89 @@ func (s *Service) skipReason(ctx context.Context, app *repo.Tile, trigger string
 	return ""
 }
 
-// hold registers the cancel func of a run in flight so Stop can reach it;
-// release drops it (and the stopped mark) once the run is over.
-func (s *Service) hold(runID string, cancel context.CancelFunc) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.cancels[runID] = cancel
+// Kind is the work-queue kind every cron and function run goes through:
+// schedule ticks, manual runs and on-deploy runs alike.
+const Kind = "cron.run"
+
+// runJob is the payload. The run row is written before the item, and its id
+// is also the item's dedupe key, which is how Stop finds the item.
+type runJob struct {
+	TileID string `json:"tile_id"`
+	RunID  string `json:"run_id"`
 }
 
-func (s *Service) release(runID string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	delete(s.cancels, runID)
-	delete(s.stopped, runID)
+// interrupted is what a run the panel restarted in the middle of records.
+const interrupted = "interrupted: stackr restarted while this run was in progress"
+
+// WithWork registers the run kind. Call before the queue starts.
+//
+// A restart fails a run rather than requeueing it: re-running a half-done job
+// blind is not safe. Cleanup removes the job service the run left behind,
+// which is what Stop would have done.
+func (s *Service) WithWork(q *workqueue.Queue) *Service {
+	s.work = q
+	q.Register(Kind, func(ctx context.Context, j *workqueue.Job) error {
+		var p runJob
+		if err := j.Payload(&p); err != nil {
+			return err
+		}
+		run, err := s.store.GetCronRun(ctx, p.RunID)
+		if err != nil || run == nil {
+			return fmt.Errorf("cron run %s is gone", p.RunID)
+		}
+		app, err := s.store.GetTile(ctx, p.TileID)
+		if err != nil || app == nil {
+			s.finishRun(context.WithoutCancel(ctx), run, "error", "tile not found")
+			return fmt.Errorf("tile %s is gone", p.TileID)
+		}
+		s.runApp(ctx, app, run)
+		return nil
+	}, workqueue.KindOpts{
+		// The tile's own timeout is applied inside runApp; this only has to
+		// be longer than any of them.
+		Timeout:     24 * time.Hour,
+		Limit:       func(r settings.Resolved) int { return r.CronRunConcurrency },
+		OnRestart:   workqueue.Fail,
+		RestartFail: interrupted,
+		Cleanup: func(ctx context.Context, j *workqueue.Job) string {
+			var p runJob
+			if err := j.Payload(&p); err != nil {
+				return ""
+			}
+			if app, err := s.store.GetTile(ctx, p.TileID); err == nil && app != nil {
+				if name := s.RunService(ctx, app, p.RunID); name != "" {
+					if err := s.c.RemoveService(ctx, name); err != nil {
+						slog.Info("cron cleanup: removing the job service", "service", name, "error", err)
+					}
+				}
+			}
+			if run, err := s.store.GetCronRun(ctx, p.RunID); err == nil && run != nil && !run.FinishedAt.Valid {
+				s.finishRun(ctx, run, "error", interrupted)
+			}
+			return ""
+		},
+	})
+	return s
 }
 
-func (s *Service) wasStopped(runID string) bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.stopped[runID]
-}
-
-// Stop cancels a run in flight; false when it is not (or no longer) running.
+// Stop cancels a run, waiting or in flight; false when it is already over.
 // Cancelling the ctx is enough to kill the work: RunJob removes the job
-// service it created when its ctx goes away, which kills the task. The one
-// exception is an exec-mode job, that kills the docker exec client, and the
-// process inside the service's own container keeps going. The row still
-// closes as stopped.
-func (s *Service) Stop(runID string) bool {
-	s.mu.Lock()
-	cancel, ok := s.cancels[runID]
-	if ok {
-		s.stopped[runID] = true
-	}
-	s.mu.Unlock()
-	if !ok {
+// service it created when its ctx goes away, which kills the task. A run
+// still waiting never started, so its row is closed here.
+func (s *Service) Stop(ctx context.Context, runID string) bool {
+	w, err := s.store.LatestWorkItem(ctx, Kind, runID)
+	if err != nil || w == nil || w.Done() {
 		return false
 	}
-	cancel()
+	if err := s.work.Cancel(ctx, w.ID); err != nil {
+		slog.Error("cron stop", "run", runID, "error", err)
+		return false
+	}
+	if w.Status == "queued" {
+		if run, err := s.store.GetCronRun(ctx, runID); err == nil && run != nil && !run.FinishedAt.Valid {
+			s.finishRun(ctx, run, "stopped", "")
+		}
+	}
 	return true
 }
 
@@ -251,10 +294,9 @@ func (s *Service) finishRun(ctx context.Context, r *repo.CronRun, status, output
 // LoadSchedules (re)registers cron entries for all enabled jobs and all
 // cron-kind apps (standalone CronJob-style services).
 func (s *Service) LoadSchedules(ctx context.Context) error {
-	// Runs are opened before the work and closed after it, so anything still
-	// open here belongs to a process that is gone. Best-effort: a failure to
-	// tidy history must not stop the scheduler coming up.
-	_ = s.store.CloseOrphanCronRuns(ctx)
+	// No sweep of open runs here: a run waiting in the queue survives a
+	// restart and is still open, and one the restart interrupted is closed by
+	// the queue's cleanup.
 	apps, err := s.store.ListTiles(ctx)
 	if err != nil {
 		return err
@@ -271,7 +313,9 @@ func (s *Service) LoadSchedules(ctx context.Context) error {
 		}
 		a := a
 		id, err := s.cron.AddFunc(a.Cron, func() {
-			s.RunApp(context.Background(), a.ID, TriggerSchedule, "")
+			if _, err := s.StartApp(context.Background(), a.ID, TriggerSchedule, ""); err != nil {
+				slog.Error("scheduled run not queued", "tile", a.ID, "error", err)
+			}
 		})
 		if err != nil {
 			continue
@@ -281,14 +325,14 @@ func (s *Service) LoadSchedules(ctx context.Context) error {
 	return nil
 }
 
-// StartApp opens the run row and hands the work to a goroutine, returning as
-// soon as the row exists. A handler can then render a panel that already says
-// "running", RunNow used to race the insert and always drew idle.
-//
-// ctx covers the lookup and the insert only. The work gets a background ctx:
-// a request ctx dies when the response is written, which would cancel every
-// manual run the instant it started.
+// StartApp opens the run row and queues the work, returning as soon as the
+// row exists. A handler can then render a panel that already says "running",
+// RunNow used to race the insert and always drew idle. Schedule ticks,
+// manual runs and on-deploy runs all start here.
 func (s *Service) StartApp(ctx context.Context, appID, trigger, actor string) (*repo.CronRun, error) {
+	if s.work == nil {
+		return nil, fmt.Errorf("job runner unavailable")
+	}
 	app, err := s.store.GetTile(ctx, appID)
 	if err != nil {
 		return nil, err
@@ -297,27 +341,22 @@ func (s *Service) StartApp(ctx context.Context, appID, trigger, actor string) (*
 		return nil, fmt.Errorf("tile %s not found", appID)
 	}
 	run := s.startRun(ctx, "app:"+app.ID, trigger, actor, time.Now().UTC())
-	s.notifier.Project(app.StackID)
-	go s.runApp(context.Background(), app, run)
-	return run, nil
-}
-
-// RunApp is the scheduler's entry point: the same work, waited on.
-func (s *Service) RunApp(ctx context.Context, appID, trigger, actor string) {
-	app, err := s.store.GetTile(ctx, appID)
-	if err != nil || app == nil {
-		return
+	if _, err := s.work.Enqueue(ctx, Kind, run.ID, runJob{TileID: app.ID, RunID: run.ID}); err != nil {
+		s.finishRun(ctx, run, "error", err.Error())
+		return nil, err
 	}
-	run := s.startRun(ctx, "app:"+app.ID, trigger, actor, time.Now().UTC())
 	s.notifier.Project(app.StackID)
-	s.runApp(ctx, app, run)
+	return run, nil
 }
 
 // runApp executes one cron-kind app: a fresh one-shot container from its
 // image with its (decrypted) env, outcome recorded on the app row and on the
 // run opened by the caller. Overlapping ticks are skipped unless the app
 // allows them.
-func (s *Service) runApp(ctx context.Context, app *repo.Tile, run *repo.CronRun) {
+func (s *Service) runApp(jobCtx context.Context, app *repo.Tile, run *repo.CronRun) {
+	// Stop cancels jobCtx; the outcome is still written, so everything after
+	// the run itself uses a context that outlives the cancel.
+	ctx := context.WithoutCancel(jobCtx)
 	ref := run.Ref
 	if !s.begin(ref, app.AllowOverlap) {
 		s.finishRun(ctx, run, "skipped", "previous run still in progress")
@@ -348,10 +387,8 @@ func (s *Service) runApp(ctx context.Context, app *repo.Tile, run *repo.CronRun)
 
 	res := settings.ForTile(ctx, s.store, app)
 	cpuLimit, memLimit := res.EffectiveLimits(app.CPULimit, app.MemLimitMB)
-	runCtx, cancel := context.WithTimeout(ctx, time.Duration(res.EffectiveTimeout(app.TimeoutMinutes))*time.Minute)
+	runCtx, cancel := context.WithTimeout(jobCtx, time.Duration(res.EffectiveTimeout(app.TimeoutMinutes))*time.Minute)
 	defer cancel()
-	s.hold(run.ID, cancel)
-	defer s.release(run.ID)
 	netName, name := s.runNames(ctx, app, "run", run.ID)
 	var out string
 	env, nets, err := s.envLines(ctx, app)
@@ -365,7 +402,7 @@ func (s *Service) runApp(ctx context.Context, app *repo.Tile, run *repo.CronRun)
 		status = "error"
 		// A run someone stopped is not a failure: no error text, and the row
 		// says stopped so the history and the card stay readable.
-		if s.wasStopped(run.ID) {
+		if jobCtx.Err() == context.Canceled {
 			status = "stopped"
 		} else {
 			out = out + "\n" + err.Error()

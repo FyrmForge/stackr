@@ -152,8 +152,20 @@ templ modeOption(current, value, label, help string) {
 }
 
 templ history(c echo.Context, cv configView) {
-	<div>
+	<div
+		if cv.Active() {
+			hx-get={ "/backups/" + cv.ID + "/history" }
+			hx-trigger="every 2s"
+			hx-target="this"
+			hx-swap="outerHTML"
+		}
+	>
 		<h4 class="text-xs font-semibold uppercase tracking-wide text-rw-faint mb-2">History</h4>
+		if cv.Restore != nil && !cv.Restore.Done() {
+			<p class="text-xs text-rw-muted mb-2">Restoring…</p>
+		} else if cv.RestoreFailed() {
+			<p class="text-xs text-rw-danger mb-2">Restore failed: { cv.Restore.Error }</p>
+		}
 		if len(cv.Runs) == 0 {
 			<p class="text-xs text-rw-faint">No runs yet.</p>
 		} else {
@@ -163,6 +175,8 @@ templ history(c echo.Context, cv configView) {
 						<span class="text-rw-muted font-mono">{ r.CreatedAt.Format("2006-01-02 15:04") }</span>
 						if r.Status == "done" {
 							<span class="text-rw-muted">{ runtime.FmtBytes(r.SizeBytes) }</span>
+						} else if r.Status == "queued" || r.Status == "running" {
+							<span class="text-rw-muted">{ r.Status }</span>
 						} else {
 							<span class="text-rw-danger">{ r.Status }</span>
 						}
@@ -173,7 +187,7 @@ templ history(c echo.Context, cv configView) {
 							<span class="text-rw-danger truncate">{ r.Error }</span>
 						}
 						if r.Status == "done" {
-							<form class="ml-auto" hx-post={ "/backups/" + cv.ID + "/restore" }
+							<form class="ml-auto" hx-post={ "/backups/" + cv.ID + "/restore" } hx-target="#backups-tab" hx-swap="outerHTML"
 								hx-confirm="Restore this archive? The current data is overwritten. A pre-restore backup is taken first.">
 								@form.CSRFField(c)
 								<input type="hidden" name="run_id" value={ r.ID }/>

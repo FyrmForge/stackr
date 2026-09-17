@@ -402,7 +402,7 @@ func (h *handler) MoveForm(c echo.Context) error {
 	if err != nil || t == nil {
 		return echo.NewHTTPError(http.StatusNotFound, "tile not found")
 	}
-	if mv := h.mover.ForTile(t.ID); mv != nil {
+	if mv := h.mover.ForTile(ctx, t.ID); mv != nil {
 		return respond.HTML(c, http.StatusOK, moveModal(c, t, nil, nil, 0, "", mv))
 	}
 	targets, err := h.moveTargets(ctx, t)

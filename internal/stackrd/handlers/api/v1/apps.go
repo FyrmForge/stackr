@@ -532,7 +532,7 @@ func (a *API) stopRun(c echo.Context) error {
 	if run == nil || run.Ref != "app:"+t.ID {
 		return echo.NewHTTPError(http.StatusNotFound, "run not found")
 	}
-	return c.JSON(http.StatusOK, runStopped{Stopped: a.jobs.Stop(run.ID)})
+	return c.JSON(http.StatusOK, runStopped{Stopped: a.jobs.Stop(c.Request().Context(), run.ID)})
 }
 
 // --- deployments ---

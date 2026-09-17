@@ -212,6 +212,18 @@ var settingKeys = []struct {
 	{"build_node",
 		func(r settings.Resolved) string { return r.BuildNode },
 		func(s settings.Settings) *string { return s.BuildNode }},
+	{"cron_run_concurrency",
+		func(r settings.Resolved) string { return strconv.Itoa(r.CronRunConcurrency) },
+		func(s settings.Settings) *string { return intStr(s.CronRunConcurrency) }},
+	{"backup_run_concurrency",
+		func(r settings.Resolved) string { return strconv.Itoa(r.BackupRunConcurrency) },
+		func(s settings.Settings) *string { return intStr(s.BackupRunConcurrency) }},
+	{"backup_restore_concurrency",
+		func(r settings.Resolved) string { return strconv.Itoa(r.BackupRestoreConcurrency) },
+		func(s settings.Settings) *string { return intStr(s.BackupRestoreConcurrency) }},
+	{"volume_move_concurrency",
+		func(r settings.Resolved) string { return strconv.Itoa(r.VolumeMoveConcurrency) },
+		func(s settings.Settings) *string { return intStr(s.VolumeMoveConcurrency) }},
 }
 
 // ownAndSource finds this level's own override for a key and names the deepest

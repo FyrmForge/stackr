@@ -25,6 +25,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/FyrmForge/stackr/internal/stackrd/config/settings"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 )
 
@@ -89,7 +90,12 @@ type KindOpts struct {
 	// engine has always used.
 	Timeout time.Duration
 	// Concurrency is how many of this kind run at once. Zero means one.
+	// Ignored when Limit is set.
 	Concurrency int
+	// Limit reads the kind's concurrency from the server settings. Read on
+	// every drain, so a change applies within one poll. Lowering it lets
+	// running jobs finish; only new ones wait.
+	Limit func(settings.Resolved) int
 	// OnRestart is what boot recovery does with a row left running.
 	OnRestart Recovery
 	// RestartFail is the error recorded when OnRestart is Fail. A generic
@@ -97,7 +103,9 @@ type KindOpts struct {
 	RestartFail string
 	// Cleanup runs on a job that OnRestart failed, before the row is closed:
 	// deleting a partial artifact, putting a service back up. Best effort.
-	Cleanup func(ctx context.Context, j *Job)
+	// A non-empty return replaces RestartFail, for a kind whose message
+	// depends on how far it got.
+	Cleanup func(ctx context.Context, j *Job) string
 	// OnSuperseded runs for each queued item a newer Enqueue with the same
 	// dedupe key pushed aside, so the domain row it carried can be closed.
 	// Without it the deploy or plan row stays open with nothing to run it.
@@ -105,9 +113,9 @@ type KindOpts struct {
 }
 
 type kind struct {
-	h    Handler
-	opts KindOpts
-	sem  chan struct{}
+	h       Handler
+	opts    KindOpts
+	running int // guarded by Queue.mu
 }
 
 // Queue is the runner. One per process.
@@ -143,7 +151,7 @@ func (q *Queue) Register(name string, h Handler, opts KindOpts) {
 	}
 	q.mu.Lock()
 	defer q.mu.Unlock()
-	q.kinds[name] = &kind{h: h, opts: opts, sem: make(chan struct{}, opts.Concurrency)}
+	q.kinds[name] = &kind{h: h, opts: opts}
 }
 
 // Enqueue adds an item and supersedes the older queued ones sharing its
@@ -274,7 +282,13 @@ func (q *Queue) recover(ctx context.Context) {
 			msg = "the panel restarted while this was running, and it cannot be resumed"
 		}
 		if k.opts.Cleanup != nil {
-			k.opts.Cleanup(ctx, &Job{Item: w, store: q.store})
+			// Bounded: recovery runs before the panel serves, and a cleanup
+			// dialling the agent on a dead node must not hold boot hostage.
+			cctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+			if m := k.opts.Cleanup(cctx, &Job{Item: w, store: q.store}); m != "" {
+				msg = m
+			}
+			cancel()
 		}
 		slog.Warn("workqueue: failing work the restart interrupted", "kind", w.Kind, "item", w.ID)
 		if err := q.store.FinishWorkItem(ctx, w.ID, "error", msg); err != nil {
@@ -306,6 +320,7 @@ func (q *Queue) drain(ctx context.Context) {
 		slog.Error("workqueue: cannot read the queue", "error", err)
 		return
 	}
+	var res *settings.Resolved
 	for i := range items {
 		w := items[i]
 		q.mu.Lock()
@@ -317,20 +332,38 @@ func (q *Queue) drain(ctx context.Context) {
 			}
 			continue
 		}
-		// Non-blocking: a kind at its concurrency limit must not hold up the
-		// other kinds behind it in the list.
-		select {
-		case k.sem <- struct{}{}:
-		default:
+		limit := k.opts.Concurrency
+		if k.opts.Limit != nil {
+			if res == nil {
+				r := settings.ForServer(ctx, q.store)
+				res = &r
+			}
+			limit = max(k.opts.Limit(*res), 1)
+		}
+		// A kind at its limit is skipped, not waited on: it must not hold up
+		// the other kinds behind it in the list. Counted before the goroutine
+		// starts, or one drain pass could launch past the limit.
+		q.mu.Lock()
+		if k.running >= limit {
+			q.mu.Unlock()
 			continue
+		}
+		k.running++
+		q.mu.Unlock()
+		done := func() {
+			q.mu.Lock()
+			k.running--
+			q.mu.Unlock()
+			// A freed slot is work that can start now, not at the next tick.
+			q.poke()
 		}
 		claimed, err := q.store.ClaimWorkItem(ctx, w.ID)
 		if err != nil || !claimed {
-			<-k.sem
+			done()
 			continue
 		}
 		go func(w repo.WorkItem, k *kind) {
-			defer func() { <-k.sem }()
+			defer done()
 			q.run(w, k)
 		}(w, k)
 	}

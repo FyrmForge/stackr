@@ -458,6 +458,22 @@ templ serverSettingsForm(c echo.Context, sv *repo.Server, cookieDomain string, i
 				</select>
 			</div>
 			<div>
+				<label class="label">Concurrent cron runs</label>
+				<input type="number" name="cron_run_concurrency" value={ intOr(s.CronRunConcurrency) } placeholder="8" min="0" class="input"/>
+			</div>
+			<div>
+				<label class="label">Concurrent backups</label>
+				<input type="number" name="backup_run_concurrency" value={ intOr(s.BackupRunConcurrency) } placeholder="2" min="0" class="input"/>
+			</div>
+			<div>
+				<label class="label">Concurrent restores</label>
+				<input type="number" name="backup_restore_concurrency" value={ intOr(s.BackupRestoreConcurrency) } placeholder="1" min="0" class="input"/>
+			</div>
+			<div>
+				<label class="label">Concurrent volume moves</label>
+				<input type="number" name="volume_move_concurrency" value={ intOr(s.VolumeMoveConcurrency) } placeholder="2" min="0" class="input"/>
+			</div>
+			<div>
 				<label class="label">Preview URLs</label>
 				// An unchecked box submits nothing, and Merge only writes keys the
 				// form actually sent, without this the setting could be turned on
