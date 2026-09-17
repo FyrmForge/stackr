@@ -29,11 +29,6 @@ type handler struct {
 	store repo.Store
 	rt    *runtime.Runtime
 	px    *proxy.Proxy
-	// cookieDomain is the host the panel's session cookie is scoped to (from
-	// BASE_URL). Needed to tell the operator whether protecting preview URLs
-	// would work or just lock everyone out.
-	cookieDomain string
-
 	// The swarm half (nodes.go). nodes keeps the table in step with the
 	// swarm and issues join keys, clus is every docker call on any node, mover runs volume moves.
 	nodes   *nodes.Service
@@ -47,50 +42,24 @@ type handler struct {
 // Deps is what the servers screens need. A struct rather than nine positional
 // arguments, which is what it had grown to.
 type Deps struct {
-	Store        repo.Store
-	Runtime      *runtime.Runtime
-	Proxy        *proxy.Proxy
-	CookieDomain string
-	Nodes        *nodes.Service
-	Cluster      *cluster.Cluster
-	Mover        *volmove.Service
-	BaseURL      string
-	DataDir      string
-	Version      string
+	Store   repo.Store
+	Runtime *runtime.Runtime
+	Proxy   *proxy.Proxy
+	Nodes   *nodes.Service
+	Cluster *cluster.Cluster
+	Mover   *volmove.Service
+	BaseURL string
+	DataDir string
+	Version string
 }
 
 // NewHandler creates a new server handler.
 func NewHandler(d Deps) *handler {
 	return &handler{
-		store: d.Store, rt: d.Runtime, px: d.Proxy, cookieDomain: d.CookieDomain,
+		store: d.Store, rt: d.Runtime, px: d.Proxy,
 		nodes: d.Nodes, clus: d.Cluster, mover: d.Mover,
 		baseURL: d.BaseURL, dataDir: d.DataDir, version: d.Version,
 	}
-}
-
-// CookieCovers reports whether a browser holding the panel's session cookie
-// would send it to a hostname under envDomainBase.
-//
-// A cookie set for "panel.example.com" is never sent to "app.preview.com", and
-// is only sent to "x.panel.example.com" because that is a subdomain. So the
-// forwardAuth on preview URLs is useful exactly when the panel's domain is the
-// base itself or a parent of it.
-//
-// An unset base is "nothing to protect", which is not a misconfiguration. An
-// unset cookie domain is: BASE_URL is empty, so the cookie is host-only for
-// whatever hostname the panel was reached on and is never sent to a preview
-// URL, the configuration where turning this on locks everyone out is exactly
-// the one where the warning used to be hidden.
-func CookieCovers(cookieDomain, envDomainBase string) bool {
-	cookieDomain = strings.TrimPrefix(strings.TrimSpace(cookieDomain), ".")
-	envDomainBase = strings.TrimSpace(envDomainBase)
-	if envDomainBase == "" {
-		return true
-	}
-	if cookieDomain == "" {
-		return false
-	}
-	return envDomainBase == cookieDomain || strings.HasSuffix(envDomainBase, "."+cookieDomain)
 }
 
 // GET /servers/:id?range=..., stats history + docker info + settings.
@@ -130,8 +99,7 @@ func (h *handler) Detail(c echo.Context) error {
 	if sv.NodeID != "" {
 		here, _ = h.rt.NodeTasks(ctx, sv.NodeID)
 	}
-	// This server's own domain resources; the first one also feeds the
-	// preview-URL cookie warning on the settings form.
+	// This server's own domain resources.
 	var domainRes []repo.DomainResource
 	if res, err := h.store.ListDomainResources(ctx); err == nil {
 		for _, r := range res {
@@ -139,10 +107,6 @@ func (h *handler) Detail(c echo.Context) error {
 				domainRes = append(domainRes, r)
 			}
 		}
-	}
-	instanceBase := ""
-	if len(domainRes) > 0 {
-		instanceBase = domainRes[0].Host
 	}
 	// This server's own, not every server's: each one is a directory on this
 	// machine, and the page's Add form writes this server's id.
@@ -158,7 +122,7 @@ func (h *handler) Detail(c echo.Context) error {
 		spaths[all[i].ID] = ps
 	}
 	return respond.HTML(c, http.StatusOK, serverPage(c, sv, node, here, groups, ping,
-		h.cookieDomain, instanceBase, domainRes, rangeKey, cpu, mem, disk, rx, tx, storages, spaths, allNodes))
+		domainRes, rangeKey, cpu, mem, disk, rx, tx, storages, spaths, allNodes))
 }
 
 // The daemon info and the volumes both go through the node's agent, so each
@@ -356,11 +320,15 @@ func (h *handler) SaveSettings(c echo.Context) error {
 		return err
 	}
 	sv.Name = c.FormValue("name")
-	sv.Settings = settings.Merge(settings.Parse(sv.Settings), vals).JSON()
+	next := settings.Merge(settings.Parse(sv.Settings), vals)
+	if err := next.Check(); err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+	}
+	sv.Settings = next.JSON()
 	if err := h.store.UpdateServer(ctx, sv); err != nil {
 		return err
 	}
-	// Settings feed the rendered proxy routes (protect_auto_domains), which are
+	// Settings feed the rendered proxy routes (protect), which are
 	// otherwise only rewritten on domain changes, a toggle here must take
 	// effect now, not on the next deploy.
 	if h.px != nil {

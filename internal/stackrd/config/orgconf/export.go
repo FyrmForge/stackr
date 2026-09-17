@@ -118,7 +118,9 @@ func defaultsFromSettings(s settings.Settings) stackconf.DefaultsConf {
 		MemLimitMB:           s.MemLimitMB,
 		RunRetentionDays:     s.RunRetentionDays,
 		MetricRetentionHours: s.MetricRetentionHours,
-		ProtectAutoDomains:   s.ProtectAutoDomains,
+		Protect:              s.Protect,
+		ProtectUser:          s.ProtectUser,
+		ProtectPassword:      s.ProtectPassword,
 		NodeGroup:            s.NodeGroup,
 	}
 }

@@ -1,4 +1,4 @@
-.PHONY: deploy-test build test e2e lint templint openapi db-refresh clean install check-templ generate check-node-modules css-build proxyrelay installcli
+.PHONY: deploy-test build test e2e lint templint openapi db-refresh clean install check-templ generate check-node-modules css-build proxyrelay installcli installer
 
 # Force bash so the ENV_LOAD eval below works cross-shell (sh on Debian/Ubuntu
 # is dash, which doesn't grok `eval "$(...)"` quoting consistently).
@@ -53,6 +53,10 @@ build: check-templ check-node-modules
 ## installcli: Build and install the stackr CLI to GOBIN (~/go/bin by default)
 installcli:
 	go install -ldflags "-X github.com/FyrmForge/stackr/internal/cli/cmd.version=$(VERSION)" ./cmd/stackr
+
+## installer: Build stackr-install for linux amd64 (bin/stackr-install). Pass --version when running it
+installer:
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "-s -w" -o bin/stackr-install ./cmd/stackr-install
 
 ## proxyrelay: Build the proxyrelay binary and its image (stkr-proxyrelay:local)
 # stackr creates one of these per active `stackr forward` target; it looks the

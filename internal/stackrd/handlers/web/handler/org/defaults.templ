@@ -36,6 +36,7 @@ templ orgDefaultsPage(c echo.Context, o *repo.Org, own settings.Settings, res se
 					<input type="number" name="run_retention_days" value={ intPtr(own.RunRetentionDays) } placeholder="inherit" min="0" disabled?={ !canEdit } class="input"/>
 					@form.Inherited(strconv.Itoa(res.RunRetentionDays)+" days", "the server")
 				}
+				@form.ProtectFields(own, res, !canEdit)
 				if canEdit {
 					@form.Save("")
 				}

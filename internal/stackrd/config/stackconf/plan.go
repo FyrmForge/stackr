@@ -680,7 +680,7 @@ func (p *Plan) diffTile(env, name string, tc TileConf, ts TileState, cur EnvStat
 		upd("published_ports", joinNorm(strings.Split(t.PublishedPorts, "\n")), joinNorm(strings.Split(tc.PublishedPorts, "\n")))
 		upd("traefik_override", t.TraefikOverride, tc.TraefikOverride)
 		upd("basic_auth_user", t.BasicAuthUser, tc.BasicAuthUser)
-		upd("basic_auth_hash", t.BasicAuthHash, tc.BasicAuthHash)
+		upd("basic_auth_password", t.BasicAuthPassword, tc.BasicAuthPassword)
 		upd("command", t.Command, tc.Command)
 		upd("user", t.User, tc.User)
 		upd("shm_size_mb", strconv.Itoa(t.ShmSizeMB), strconv.Itoa(tc.ShmSizeMB))

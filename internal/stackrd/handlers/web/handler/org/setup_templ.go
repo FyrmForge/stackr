@@ -1285,7 +1285,7 @@ func domainSubtitle(o *repo.Org) string {
 // Step 4. Prefilled with the org slug under the server's own domain when
 // BASE_URL says what that is; empty otherwise, since a LAN install has no base
 // domain to guess from.
-func setupDomainPage(c echo.Context, o *repo.Org, res []repo.DomainResource) templ.Component {
+func setupDomainPage(c echo.Context, o *repo.Org, res []repo.DomainResource, prefill string) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
@@ -1348,9 +1348,9 @@ func setupDomainPage(c echo.Context, o *repo.Org, res []repo.DomainResource) tem
 						return templ_7745c5c3_Err
 					}
 					var templ_7745c5c3_Var55 string
-					templ_7745c5c3_Var55, templ_7745c5c3_Err = templ.JoinStringErrs(setupDomainPrefill(o))
+					templ_7745c5c3_Var55, templ_7745c5c3_Err = templ.JoinStringErrs(prefill)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/stackrd/handlers/web/handler/org/setup.templ`, Line: 316, Col: 53}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/stackrd/handlers/web/handler/org/setup.templ`, Line: 316, Col: 39}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var55))
 					if templ_7745c5c3_Err != nil {
@@ -1411,9 +1411,9 @@ func setupDomainPage(c echo.Context, o *repo.Org, res []repo.DomainResource) tem
 					return templ_7745c5c3_Err
 				}
 				var templ_7745c5c3_Var57 string
-				templ_7745c5c3_Var57, templ_7745c5c3_Err = templ.JoinStringErrs(setupDomainPrefill(o))
+				templ_7745c5c3_Var57, templ_7745c5c3_Err = templ.JoinStringErrs(prefill)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/stackrd/handlers/web/handler/org/setup.templ`, Line: 330, Col: 90}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/stackrd/handlers/web/handler/org/setup.templ`, Line: 330, Col: 76}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var57))
 				if templ_7745c5c3_Err != nil {

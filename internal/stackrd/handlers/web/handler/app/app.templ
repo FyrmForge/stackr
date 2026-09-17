@@ -267,15 +267,6 @@ func runTrigger(r repo.CronRun) string {
 	return t
 }
 
-// passPlaceholder hints whether a basic-auth password is already set (the
-// hash is never echoed back; blank keeps it).
-func passPlaceholder(a *repo.Tile) string {
-	if a.BasicAuthHash != "" {
-		return "unchanged"
-	}
-	return ""
-}
-
 // fmtLimit renders a cores value without trailing zeros ("0.5", "2").
 func fmtLimit(v float64) string {
 	return strconv.FormatFloat(v, 'f', -1, 64)
@@ -556,11 +547,11 @@ templ serviceSettingsForm(c echo.Context, a *repo.Tile, managed bool, node place
 				<input type="number" name="container_port" value={ strconv.Itoa(a.ContainerPort) } min="0" max="65535" disabled?={ managed } class={ inputCls }/>
 			}
 			<div class="grid grid-cols-2 gap-2">
-				@field("Basic auth user (empty = no auth)") {
+				@field("Basic auth user (empty = inherit)") {
 					<input type="text" name="basic_auth_user" value={ a.BasicAuthUser } autocomplete="off" disabled?={ managed } class={ inputCls }/>
 				}
-				@field("Basic auth password") {
-					<input type="password" name="basic_auth_pass" placeholder={ passPlaceholder(a) } autocomplete="new-password" disabled?={ managed } class={ inputCls }/>
+				@field("Basic auth password (or a ${{ }} reference)") {
+					<input type="text" name="basic_auth_password" value={ a.BasicAuthPassword } autocomplete="off" disabled?={ managed } class={ inputCls + " font-mono" }/>
 				}
 			</div>
 			<label class="text-sm text-rw-muted flex items-center gap-2">

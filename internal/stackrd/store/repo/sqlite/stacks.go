@@ -218,6 +218,11 @@ func (s *Store) LatestConfigPlan(ctx context.Context, stackID string) (*repo.Con
 		`SELECT * FROM config_plans WHERE stack_id = ? ORDER BY rowid DESC LIMIT 1`, stackID)
 }
 
+func (s *Store) LatestSettledConfigPlan(ctx context.Context, stackID string) (*repo.ConfigPlan, error) {
+	return get[repo.ConfigPlan](ctx, s,
+		`SELECT * FROM config_plans WHERE stack_id = ? AND status IN ('applied', 'clean') ORDER BY rowid DESC LIMIT 1`, stackID)
+}
+
 // CountStacksAwaitingPlan is how many of an org's stacks have a newest plan
 // still waiting on someone (pending or error). Newest only: an old error plan
 // that a later plan moved past is history, not a decision to make.

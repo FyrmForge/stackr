@@ -55,7 +55,8 @@ func TestLevelsNamesEachRung(t *testing.T) {
 	s := testdb.New(t)
 	seed := testdb.SeedStack(t, s, false)
 
-	got := settings.Levels(ctx, s, "", "", seed.Env.ID)
+	got, err := settings.Levels(ctx, s, "", "", seed.Env.ID)
+	require.NoError(t, err)
 	kinds := make([]string, 0, len(got))
 	for _, l := range got {
 		kinds = append(kinds, l.Kind)
@@ -64,7 +65,8 @@ func TestLevelsNamesEachRung(t *testing.T) {
 		"levels = %+v, want the whole chain derived from the env alone", got)
 
 	// Naming only the org stops there: there is no stack to walk down to.
-	got = settings.Levels(ctx, s, seed.Org.ID, "", "")
+	got, err = settings.Levels(ctx, s, seed.Org.ID, "", "")
+	require.NoError(t, err)
 	require.Len(t, got, 2, "levels = %+v", got)
 	assert.Equal(t, "org", got[1].Kind)
 }

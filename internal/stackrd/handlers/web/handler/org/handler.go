@@ -22,6 +22,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/githubapp"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/mail"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/metrics"
+	"github.com/FyrmForge/stackr/internal/stackrd/infra/proxy"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/registry"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/runtime"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
@@ -38,10 +39,11 @@ type handler struct {
 	gh       *githubapp.Client   // connector repo lists and install state; nil in tests
 	mail     *mail.Mailer        // invite emails; nil when no provider is configured
 	regsign  *registry.Signer    // managed-registry tokens for the catalog reads; nil in tests
+	px       *proxy.Proxy        // re-renders routes when org defaults change; nil in tests
 }
 
-func NewHandler(store repo.Store, notifier *notify.Notifier, sampler *metrics.Sampler, files storage.FileStorage, rt *runtime.Runtime, forwards *forward.Registry, orgcfg *orgconf.Runner, gh *githubapp.Client, mailer *mail.Mailer, regsign *registry.Signer) *handler {
-	return &handler{store: store, notifier: notifier, sampler: sampler, files: files, rt: rt, forwards: forwards, orgcfg: orgcfg, gh: gh, mail: mailer, regsign: regsign}
+func NewHandler(store repo.Store, notifier *notify.Notifier, sampler *metrics.Sampler, files storage.FileStorage, rt *runtime.Runtime, forwards *forward.Registry, orgcfg *orgconf.Runner, gh *githubapp.Client, mailer *mail.Mailer, regsign *registry.Signer, px *proxy.Proxy) *handler {
+	return &handler{store: store, notifier: notifier, sampler: sampler, files: files, rt: rt, forwards: forwards, orgcfg: orgcfg, gh: gh, mail: mailer, regsign: regsign, px: px}
 }
 
 // POST /orgs, step 1's answer. The org is created empty and named later, by

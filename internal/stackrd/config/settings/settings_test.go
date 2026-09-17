@@ -134,19 +134,19 @@ func TestExplicitZeroSurvivesJSONRoundTrip(t *testing.T) {
 // of the last made the setting one-way: on, and never off again.
 func TestMergeCheckboxTogglesBothWays(t *testing.T) {
 	on := Merge(Settings{}, url.Values{
-		"protect_auto_domains": {"0", "1"}, // hidden, then the ticked box
+		"protect": {"0", "1"}, // hidden, then the ticked box
 	})
-	require.NotNil(t, on.ProtectAutoDomains, "ticked box did not turn it on: %+v", on.ProtectAutoDomains)
-	require.True(t, *on.ProtectAutoDomains, "ticked box did not turn it on: %+v", on.ProtectAutoDomains)
+	require.NotNil(t, on.Protect, "ticked box did not turn it on: %+v", on.Protect)
+	require.True(t, *on.Protect, "ticked box did not turn it on: %+v", on.Protect)
 	off := Merge(on, url.Values{
-		"protect_auto_domains": {"0"}, // hidden alone: the box was unticked
+		"protect": {"0"}, // hidden alone: the box was unticked
 	})
-	require.NotNil(t, off.ProtectAutoDomains, "unticked box did not turn it off: %+v", off.ProtectAutoDomains)
-	require.False(t, *off.ProtectAutoDomains, "unticked box did not turn it off: %+v", off.ProtectAutoDomains)
+	require.NotNil(t, off.Protect, "unticked box did not turn it off: %+v", off.Protect)
+	require.False(t, *off.Protect, "unticked box did not turn it off: %+v", off.Protect)
 	// A form that never mentions the key leaves the override alone.
 	untouched := Merge(on, url.Values{"cpu_limit": {"1"}})
-	if assert.NotNil(t, untouched.ProtectAutoDomains, "an unrelated form wiped the setting") {
-		assert.True(t, *untouched.ProtectAutoDomains, "an unrelated form wiped the setting")
+	if assert.NotNil(t, untouched.Protect, "an unrelated form wiped the setting") {
+		assert.True(t, *untouched.Protect, "an unrelated form wiped the setting")
 	}
 }
 
@@ -160,4 +160,75 @@ func TestBuildNodeMerge(t *testing.T) {
 	assert.Equal(t, "node-2", Resolve(s).BuildNode, "untouched by a form without the field")
 	s = Merge(s, url.Values{"build_node": {""}})
 	assert.Equal(t, "", Resolve(s).BuildNode)
+}
+
+// User and password resolve as a pair. A level that sets only the user must not
+// borrow the password of the level above, or nobody could log in.
+func TestProtectCredentialsResolveAsOneUnit(t *testing.T) {
+	user, pass, on := "org", "orgpass", true
+	envUser := "env"
+	r := Resolve(Settings{Protect: &on, ProtectUser: &user, ProtectPassword: &pass}, Settings{ProtectUser: &envUser})
+	assert.True(t, r.Protect)
+	assert.Equal(t, "env", r.ProtectUser)
+	assert.Empty(t, r.ProtectPassword, "password leaked in from the level above")
+
+	r = Resolve(Settings{Protect: &on, ProtectUser: &user, ProtectPassword: &pass}, Settings{})
+	assert.Equal(t, "org", r.ProtectUser)
+	assert.Equal(t, "orgpass", r.ProtectPassword)
+
+	s := Merge(Settings{Protect: &on, ProtectPassword: &pass}, url.Values{"protect_password": {""}, "protect": {""}})
+	assert.Nil(t, s.ProtectPassword, "empty submit clears back to inherit")
+	assert.Nil(t, s.Protect, "the inherit choice clears the toggle")
+}
+
+func TestCheckProtectPair(t *testing.T) {
+	str := func(s string) *string { return &s }
+	on := true
+	for _, c := range []struct {
+		name string
+		s    Settings
+		ok   bool
+	}{
+		{"nothing set", Settings{}, true},
+		{"both set", Settings{ProtectUser: str("admin"), ProtectPassword: str("hunter2")}, true},
+		{"protect on, credentials inherited", Settings{Protect: &on}, true},
+		{"user without password", Settings{ProtectUser: str("admin")}, false},
+		{"password without user", Settings{ProtectPassword: str("hunter2")}, false},
+		{"user with empty password", Settings{ProtectUser: str("admin"), ProtectPassword: str("")}, false},
+		{"protect off does not excuse half a pair", Settings{ProtectUser: str("admin")}, false},
+	} {
+		err := c.s.Check()
+		if c.ok {
+			assert.NoError(t, err, c.name)
+		} else {
+			assert.Error(t, err, c.name)
+		}
+	}
+}
+
+// The settings form cannot render the stored password back into the input, so
+// a blank one has to mean "leave it alone". Clearing the user is what gives
+// the pair back to the level above.
+func TestMergeKeepsUnrenderedPassword(t *testing.T) {
+	str := func(s string) *string { return &s }
+	stored := Settings{ProtectUser: str("admin"), ProtectPassword: str("hunter2")}
+
+	// A plain save of the form: user round-trips, password comes back blank.
+	got := Merge(stored, url.Values{"protect_user": {"admin"}, "protect_password": {""}})
+	require.NotNil(t, got.ProtectPassword)
+	assert.Equal(t, "hunter2", *got.ProtectPassword)
+	assert.NoError(t, got.Check(), "a save of an untouched form must not 400")
+
+	got = Merge(stored, url.Values{"protect_user": {"root"}, "protect_password": {"newpass"}})
+	assert.Equal(t, "newpass", *got.ProtectPassword)
+	assert.Equal(t, "root", *got.ProtectUser)
+
+	// Clearing the user inherits both.
+	got = Merge(stored, url.Values{"protect_user": {""}, "protect_password": {""}})
+	assert.Nil(t, got.ProtectUser)
+	assert.Nil(t, got.ProtectPassword)
+
+	// A user typed at a level that never had a password is still refused.
+	got = Merge(Settings{}, url.Values{"protect_user": {"admin"}, "protect_password": {""}})
+	assert.Error(t, got.Check())
 }

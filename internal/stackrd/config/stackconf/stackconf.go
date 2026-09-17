@@ -21,6 +21,7 @@ import (
 	yaml "go.yaml.in/yaml/v3"
 
 	"github.com/FyrmForge/stackr/internal/stackrd/config/runpolicy"
+	"github.com/FyrmForge/stackr/internal/stackrd/config/settings"
 	"github.com/FyrmForge/stackr/internal/stackrd/config/varref"
 	"github.com/FyrmForge/stackr/internal/stackrd/envcolor"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/backup"
@@ -187,8 +188,13 @@ type DefaultsConf struct {
 	MemLimitMB           *int     `yaml:"mem_limit_mb" json:"mem_limit_mb,omitempty"`
 	RunRetentionDays     *int     `yaml:"run_retention_days" json:"run_retention_days,omitempty"`
 	MetricRetentionHours *int     `yaml:"metric_retention_hours" json:"metric_retention_hours,omitempty"`
-	ProtectAutoDomains   *bool    `yaml:"protect_auto_domains" json:"protect_auto_domains,omitempty"`
-	NodeGroup            *string  `yaml:"node_group" json:"node_group,omitempty"`
+	// Basic auth on every URL below this level; the password is text or a
+	// ${{ }} reference. Tags match settings.Settings, SettingsJSON is stored
+	// as is.
+	Protect         *bool   `yaml:"protect" json:"protect,omitempty"`
+	ProtectUser     *string `yaml:"protect_user" json:"protect_user,omitempty"`
+	ProtectPassword *string `yaml:"protect_password" json:"protect_password,omitempty"`
+	NodeGroup       *string `yaml:"node_group" json:"node_group,omitempty"`
 }
 
 // SettingsJSON renders the level for storage, the shape
@@ -206,6 +212,12 @@ func (d DefaultsConf) SettingsJSON() string {
 // same as saying "inherit everything": a level that declares nothing leaves
 // whatever the panel set alone.
 func (d DefaultsConf) Empty() bool { return d.SettingsJSON() == "{}" }
+
+// Check refuses a level that sets half the basic auth pair, the same rule the
+// panel's settings forms apply. SettingsJSON reaches the store without going
+// through settings.Merge, so this is the config path's only gate: a user with
+// no password locks every URL below the level behind a password nobody has.
+func (d DefaultsConf) Check() error { return settings.Parse(d.SettingsJSON()).Check() }
 
 // BackupConf is a tile's backup schedule. The destination is a reference and
 // never a literal: a destination carries the bucket credentials, and the file
@@ -374,11 +386,11 @@ type TileConf struct {
 	WaitForCI bool `yaml:"wait_for_ci" json:"wait_for_ci,omitempty"`
 	// Service build/routing extras editable from the settings form. These are
 	// modeled so UI settings edits stage through the config engine.
-	BuildArgs       string `yaml:"build_args" json:"build_args,omitempty"`
-	PublishedPorts  string `yaml:"published_ports" json:"published_ports,omitempty"`
-	TraefikOverride string `yaml:"traefik_override" json:"traefik_override,omitempty"`
-	BasicAuthUser   string `yaml:"basic_auth_user" json:"basic_auth_user,omitempty"`
-	BasicAuthHash   string `yaml:"basic_auth_hash" json:"basic_auth_hash,omitempty"` // bcrypt; staged from the form pre-hashed
+	BuildArgs         string `yaml:"build_args" json:"build_args,omitempty"`
+	PublishedPorts    string `yaml:"published_ports" json:"published_ports,omitempty"`
+	TraefikOverride   string `yaml:"traefik_override" json:"traefik_override,omitempty"`
+	BasicAuthUser     string `yaml:"basic_auth_user" json:"basic_auth_user,omitempty"`
+	BasicAuthPassword string `yaml:"basic_auth_password" json:"basic_auth_password,omitempty"` // plain or a ${{ }} reference, hashed when the route is written
 	// Container runtime fields (services; shm_size_mb also applies to managed
 	// instances). Restart is "" or "always" (restart on any exit),
 	// "on-failure", or "no" (runtime.NormalizeRestart); Devices lines
@@ -668,6 +680,14 @@ func Parse(data []byte) (*File, error) {
 	}
 	if err := validateMiddlewares(f.Proxy.Middlewares); err != nil {
 		return nil, err
+	}
+	if err := f.Defaults.Check(); err != nil {
+		return nil, fmt.Errorf("defaults: %w", err)
+	}
+	for _, name := range f.Environments.Order {
+		if err := f.Environments.Envs[name].Defaults.Check(); err != nil {
+			return nil, fmt.Errorf("environment %s defaults: %w", name, err)
+		}
 	}
 	return &f, nil
 }

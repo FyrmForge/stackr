@@ -3,10 +3,13 @@ package proxy
 import (
 	"os"
 	"path/filepath"
+	"regexp"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/crypto/bcrypt"
 
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 )
@@ -23,10 +26,10 @@ func writeAndRead(t *testing.T, app *repo.Tile, domains []repo.Domain) string {
 
 func TestWriteAppExtras(t *testing.T) {
 	app := &repo.Tile{
-		ID:            "abcdefgh-1234",
-		BasicAuthUser: "admin",
-		BasicAuthHash: "$2a$10$hash",
-		SecHeaders:    true,
+		ID:                "abcdefgh-1234",
+		BasicAuthUser:     "admin",
+		BasicAuthPassword: "hunter2",
+		SecHeaders:        true,
 	}
 	got := writeAndRead(t, app, []repo.Domain{
 		{ID: "d1", Host: "app.example.com", ContainerPort: 8080, HTTPS: true},
@@ -36,7 +39,7 @@ func TestWriteAppExtras(t *testing.T) {
 
 	for _, want := range []string{
 		"basicAuth",
-		`"admin:$2a$10$hash"`,
+		`"admin:$2a$05$`,
 		"stsSeconds: 31536000",
 		"middlewares: [app-abcdefgh-auth, app-abcdefgh-hdr]",
 		"redirectRegex",
@@ -52,6 +55,59 @@ func TestWriteAppExtras(t *testing.T) {
 	// The redirect domain must not inherit the auth/header middlewares.
 	assert.NotContains(t, got, "middlewares: [app-abcdefgh-auth, app-abcdefgh-hdr, app-abcdefgh-1-rd]",
 		"redirect router got auth middlewares")
+}
+
+// basicUser pulls the user:hash line out of a rendered route file.
+func basicUser(t *testing.T, got string) (user, hash string) {
+	t.Helper()
+	m := regexp.MustCompile(`- "([^:"]*):([^"]*)"`).FindStringSubmatch(got)
+	require.NotNil(t, m, "no basicAuth user in:\n%s", got)
+	return m[1], m[2]
+}
+
+func TestWriteAppBasicAuth(t *testing.T) {
+	app := &repo.Tile{ID: "abcdefgh-1234", BasicAuthUser: "admin", BasicAuthPassword: "hunter2"}
+	domains := []repo.Domain{
+		{ID: "d1", Host: "a.example.com", ContainerPort: 80, HTTPS: true, Auto: true},
+		{ID: "d2", Host: "real.example.com", ContainerPort: 80, HTTPS: true},
+	}
+	got := writeAndRead(t, app, domains)
+	_, hash := basicUser(t, got)
+	require.NoError(t, bcrypt.CompareHashAndPassword([]byte(hash), []byte("hunter2")))
+	assert.Equal(t, 4, strings.Count(got, "middlewares: [app-abcdefgh-auth]"),
+		"every router, hand-attached domains included, needs the auth")
+	assert.Equal(t, got, writeAndRead(t, app, domains), "a rewrite must not change the hash")
+
+	// A reference that cannot resolve locks the URL instead of opening it.
+	app.BasicAuthPassword = "${{ stack.secrets.PREVIEW_PASS }}"
+	_, hash = basicUser(t, writeAndRead(t, app, domains))
+	assert.Error(t, bcrypt.CompareHashAndPassword([]byte(hash), []byte(app.BasicAuthPassword)))
+	assert.Error(t, bcrypt.CompareHashAndPassword([]byte(hash), []byte("")))
+
+	assert.NotContains(t, writeAndRead(t, &repo.Tile{ID: "abcdefgh-1234"}, domains), "basicAuth")
+}
+
+func TestWriteAppBasicAuthLock(t *testing.T) {
+	domains := []repo.Domain{{ID: "d1", Host: "a.example.com", ContainerPort: 80, HTTPS: true}}
+	// bcrypt refuses anything over 72 bytes, which a ${{ }} reference can
+	// expand to. The route locks; it must not fall back to a literal Traefik
+	// would compare as plain text.
+	long := strings.Repeat("x", 100)
+	app := &repo.Tile{ID: "abcdefgh-1234", BasicAuthUser: "admin", BasicAuthPassword: long}
+	_, hash := basicUser(t, writeAndRead(t, app, domains))
+	assert.Error(t, bcrypt.CompareHashAndPassword([]byte(hash), []byte(long)))
+	assert.Error(t, bcrypt.CompareHashAndPassword([]byte(hash), []byte(hash)))
+	_, err := bcrypt.Cost([]byte(hash))
+	require.NoError(t, err, "a real bcrypt hash: Traefik compares anything else as plain text")
+
+	// Every lock renders the same bytes: a new hash per render would rewrite
+	// the file on every settings save and make Traefik reload it.
+	locked := &repo.Tile{ID: "abcdefgh-1234", BasicAuthUser: "admin",
+		BasicAuthPassword: "${{ stack.secrets.NOPE }}"}
+	first := writeAndRead(t, locked, domains)
+	assert.Equal(t, first, writeAndRead(t, locked, domains))
+	_, lockedHash := basicUser(t, first)
+	assert.Equal(t, hash, lockedHash, "both lock paths share one hash")
 }
 
 func TestWriteAppCustomCert(t *testing.T) {

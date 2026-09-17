@@ -272,14 +272,14 @@ func (a *API) patchApp(c echo.Context) error {
 	if has("basic_auth_user") {
 		t.BasicAuthUser = in.BasicAuthUser
 		if in.BasicAuthUser == "" {
-			t.BasicAuthHash = "" // no user, no credential left behind
+			t.BasicAuthPassword = "" // no user, no credential left behind
 		}
 	}
-	if has("basic_auth_hash") {
-		t.BasicAuthHash = in.BasicAuthHash
+	if has("basic_auth_password") {
+		t.BasicAuthPassword = in.BasicAuthPassword
 	}
-	if t.BasicAuthUser != "" && t.BasicAuthHash == "" {
-		return echo.NewHTTPError(http.StatusBadRequest, "basic_auth_user needs basic_auth_hash (bcrypt)")
+	if t.BasicAuthUser != "" && t.BasicAuthPassword == "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "basic_auth_user needs basic_auth_password")
 	}
 	if has("command") {
 		// Shared key: a cron's one-shot line (`sh -c`) or a service's CMD

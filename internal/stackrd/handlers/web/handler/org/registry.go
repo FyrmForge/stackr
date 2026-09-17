@@ -8,6 +8,7 @@ package org
 
 import (
 	"context"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -266,9 +267,20 @@ func (h *handler) SaveDefaults(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	o.Settings = settings.Merge(settings.Parse(o.Settings), vals).JSON()
+	next := settings.Merge(settings.Parse(o.Settings), vals)
+	if err := next.Check(); err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+	}
+	o.Settings = next.JSON()
 	if err := h.store.UpdateOrg(c.Request().Context(), o); err != nil {
 		return err
+	}
+	// Protection feeds the rendered routes, which otherwise only change on a
+	// domain edit or a deploy.
+	if h.px != nil {
+		if err := h.px.Resync(c.Request().Context()); err != nil {
+			slog.Error("proxy resync after org defaults save", "error", err)
+		}
 	}
 	middleware.SetFlash(c, "Defaults saved.", middleware.FlashSuccess)
 	return respond.Redirect(c, "/orgs/"+o.Slug+"/settings/defaults")

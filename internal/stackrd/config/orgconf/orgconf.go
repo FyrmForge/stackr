@@ -181,6 +181,9 @@ func Parse(data []byte) (*File, error) {
 	if err := stackconf.ValidateDomains(f.Domains); err != nil {
 		return nil, err
 	}
+	if err := f.Defaults.Check(); err != nil {
+		return nil, fmt.Errorf("defaults: %w", err)
+	}
 	if err := validateStorage(f.Storage); err != nil {
 		return nil, err
 	}
@@ -680,15 +683,22 @@ func (r Runner) Apply(ctx context.Context, org *repo.Org, cp *repo.ConfigPlan) e
 	}
 	// The org's rung of the defaults cascade. Declaring nothing leaves the
 	// panel's overrides alone; the file owns what it declares.
+	settingsChanged := false
 	if !f.Defaults.Empty() {
 		if want := f.Defaults.SettingsJSON(); org.Settings != want {
 			org.Settings = want
-			changed = true
+			changed, settingsChanged = true, true
 		}
 	}
 	if changed {
 		if err := r.Store.UpdateOrg(ctx, org); err != nil {
 			return err
+		}
+	}
+	// Protection feeds the rendered routes.
+	if settingsChanged && r.Applier.Ops.PX != nil {
+		if err := r.Applier.Ops.PX.Resync(ctx); err != nil {
+			slog.Error("proxy resync after org defaults apply", "error", err)
 		}
 	}
 

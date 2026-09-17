@@ -24,7 +24,7 @@ func TestStateToResolvedRoundTrip(t *testing.T) {
 		BuildArgs:       "GO_VERSION=1.24",
 		PublishedPorts:  "9000:9000\n5432:5432/udp",
 		TraefikOverride: "http:\n  routers: {}",
-		BasicAuthUser:   "admin", BasicAuthHash: "$2a$10$abcdefghijklmnopqrstuv",
+		BasicAuthUser:   "admin", BasicAuthPassword: "${{ stack.secrets.PREVIEW_PASS }}",
 	}
 	api := repo.Tile{Slug: "api", Kind: "service", SourceType: "image", ImageRef: "nginx:1.27", ContainerPort: 80}
 	cron := repo.Tile{Slug: "ping", Kind: "cron", SourceType: "image", ImageRef: "alpine:3", Cron: "0 3 * * *", Command: "sh /x.sh", TimeoutMinutes: 15}

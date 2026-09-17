@@ -50,6 +50,29 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        if: steps.semantic.outputs.version != ''
+        with:
+          go-version-file: go.mod
+
+      # releases/latest/download/install.sh is the curl | bash install URL. It
+      # downloads the installer for its CPU from the same release and checks
+      # it against checksums.txt (docs/plans/49-installer-binary.md).
+      - name: Attach the installer
+        if: steps.semantic.outputs.version != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.semantic.outputs.version }}
+        run: |
+          mkdir -p dist
+          for arch in amd64 arm64; do
+            CGO_ENABLED=0 GOOS=linux GOARCH="$arch" go build -trimpath \
+              -ldflags "-s -w -X github.com/FyrmForge/stackr/internal/installer.version=${VERSION}" \
+              -o "dist/stackr-install-linux-$arch" ./cmd/stackr-install
+          done
+          (cd dist && sha256sum stackr-install-linux-* > checksums.txt)
+          gh release upload "v${VERSION}" scripts/install.sh dist/* --clobber
+
   images:
     needs: release
     if: needs.release.outputs.version != ''

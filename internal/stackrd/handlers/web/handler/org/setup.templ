@@ -301,7 +301,7 @@ func domainSubtitle(o *repo.Org) string {
 // Step 4. Prefilled with the org slug under the server's own domain when
 // BASE_URL says what that is; empty otherwise, since a LAN install has no base
 // domain to guess from.
-templ setupDomainPage(c echo.Context, o *repo.Org, res []repo.DomainResource) {
+templ setupDomainPage(c echo.Context, o *repo.Org, res []repo.DomainResource, prefill string) {
 	@setupShell(c, domainHeading(o), domainSubtitle(o), setupStepNo(o, "domain"), setupTotal(o)) {
 		if o.ConfigManaged() {
 			// Read-only rather than prose: the same box the other branch asks
@@ -313,7 +313,7 @@ templ setupDomainPage(c echo.Context, o *repo.Org, res []repo.DomainResource) {
 					<input type="text" value={ r.Host } readonly aria-label="Domain" class="input font-mono text-rw-muted cursor-default"/>
 				}
 				if len(res) == 0 {
-					<input type="text" value={ setupDomainPrefill(o) } readonly aria-label="Domain" class="input font-mono text-rw-muted cursor-default"/>
+					<input type="text" value={ prefill } readonly aria-label="Domain" class="input font-mono text-rw-muted cursor-default"/>
 				}
 			</div>
 			if len(res) == 0 {
@@ -327,7 +327,7 @@ templ setupDomainPage(c echo.Context, o *repo.Org, res []repo.DomainResource) {
 				@form.CSRFField(c)
 				<div>
 					<label class="label" for="setup-host">Host</label>
-					<input type="text" id="setup-host" name="host" required value={ setupDomainPrefill(o) } placeholder="example.com" class="input font-mono"/>
+					<input type="text" id="setup-host" name="host" required value={ prefill } placeholder="example.com" class="input font-mono"/>
 					<p class="mt-1.5 text-xs text-rw-faint">A bare lowercase hostname, unique across the server.</p>
 				</div>
 				<label class="flex items-center gap-2 text-sm text-rw-muted cursor-pointer">

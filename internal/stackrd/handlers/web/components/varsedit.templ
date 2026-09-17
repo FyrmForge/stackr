@@ -1,9 +1,12 @@
 package components
 
 import (
+	"strings"
+
 	"github.com/labstack/echo/v4"
 
 	"github.com/FyrmForge/stackr/internal/stackrd/config/secrets"
+	"github.com/FyrmForge/stackr/internal/stackrd/config/stackconf"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 	"github.com/FyrmForge/stackr/internal/stackrd/handlers/web/components/form"
 )
@@ -38,6 +41,9 @@ type VarsEditCfg struct {
 	RevealName string // secret row currently shown unmasked ("" = none)
 	Adding     bool   // render the empty new-variable row
 	CanWrite   bool
+	// Unset is the declared secrets with no value, shown under Secrets as
+	// not-set rows. Page mode only.
+	Unset []stackconf.Input
 }
 
 // query builds a round-trip URL, carrying the class so the drawer comes back
@@ -66,10 +72,17 @@ templ VarsEdit(c echo.Context, vars []repo.Variable, cfg VarsEditCfg) {
 	if cfg.Class == "" {
 		for _, g := range varGroups(vars) {
 			<h4 class="text-xs uppercase tracking-wide text-rw-faint mb-2">{ g.Title }</h4>
-			if len(g.Vars) == 0 {
-				<p class="text-sm text-rw-faint mb-5">Nothing here yet.</p>
-			} else {
+			if g.Secret && len(cfg.Unset) > 0 {
+				<ul class="space-y-2 mb-5">
+					for _, in := range cfg.Unset {
+						@varsUnsetRow(c, cfg, in)
+					}
+				</ul>
+			}
+			if len(g.Vars) > 0 {
 				@varsList(c, g.Vars, cfg)
+			} else if !g.Secret || len(cfg.Unset) == 0 {
+				<p class="text-sm text-rw-faint mb-5">Nothing here yet.</p>
 			}
 		}
 		if cfg.Adding {
@@ -137,6 +150,27 @@ templ varsList(c echo.Context, vars []repo.Variable, cfg VarsEditCfg) {
 	</ul>
 }
 
+// varsUnsetRow is a secret the config file declares and nobody has set. Set
+// opens the same edit row an existing secret gets.
+templ varsUnsetRow(c echo.Context, cfg VarsEditCfg, in stackconf.Input) {
+	if cfg.CanWrite && in.Name == cfg.EditName {
+		@varsEditRow(c, cfg, repo.Variable{Name: in.Name, Secret: true})
+	} else {
+		<li class="panel px-3 py-2.5 flex flex-wrap items-center gap-2 border-rw-danger/60">
+			<span class="font-mono text-sm text-rw-danger">{ in.Name }</span>
+			<span class="text-[10px] px-1.5 py-0.5 rounded bg-rw-danger/15 text-rw-danger">not set</span>
+			if cfg.CanWrite {
+				<div class="ml-auto">
+					<button type="button" hx-get={ cfg.query("edit=" + in.Name) } class="btn btn-ghost btn-sm">Set</button>
+				</div>
+			}
+			if len(in.Blocked) > 0 {
+				<p class="basis-full text-xs text-rw-muted">Will not deploy: { strings.Join(in.Blocked, ", ") }</p>
+			}
+		</li>
+	}
+}
+
 // varsEditRow is one row in its editable state, an existing row (name fixed,
 // value pre-filled and editable) or, with an empty name, the new row the +
 // button added. In page mode the secret flag is a checkbox, since one page
@@ -185,14 +219,15 @@ templ varsEditRow(c echo.Context, cfg VarsEditCfg, v repo.Variable) {
 
 // varGroup is one namespace's rows on a settings page.
 type varGroup struct {
-	Title string
-	Vars  []repo.Variable
+	Title  string
+	Secret bool
+	Vars   []repo.Variable
 }
 
 // varGroups splits a page's rows into vars and secrets, in that order. Both
 // groups always render, so an empty one still shows where a row would land.
 func varGroups(vars []repo.Variable) []varGroup {
-	g := []varGroup{{Title: "Vars"}, {Title: "Secrets"}}
+	g := []varGroup{{Title: "Vars"}, {Title: "Secrets", Secret: true}}
 	for _, v := range vars {
 		if v.Secret {
 			g[1].Vars = append(g[1].Vars, v)

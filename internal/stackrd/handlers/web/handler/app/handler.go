@@ -12,7 +12,6 @@ import (
 	"strings"
 	"time"
 
-	"golang.org/x/crypto/bcrypt"
 
 	"github.com/FyrmForge/stackr/internal/stackrd/config/envops"
 	"github.com/FyrmForge/stackr/internal/stackrd/config/envutil"
@@ -1412,7 +1411,7 @@ func settingsPatch(a *repo.Tile) map[string]any {
 	p["update_policy"] = a.UpdatePolicy
 	p["wait_for_ci"] = a.WaitForCI
 	p["basic_auth_user"] = a.BasicAuthUser
-	p["basic_auth_hash"] = a.BasicAuthHash
+	p["basic_auth_password"] = a.BasicAuthPassword
 	switch a.SourceType {
 	case "image":
 		p["image"] = a.ImageRef
@@ -1570,15 +1569,10 @@ func (h *handler) SaveSettings(c echo.Context) error {
 		a.PublishedPorts = c.FormValue("published_ports")
 		a.TraefikOverride = c.FormValue("traefik_override")
 		a.BasicAuthUser = c.FormValue("basic_auth_user")
+		a.BasicAuthPassword = c.FormValue("basic_auth_password")
 		if a.BasicAuthUser == "" {
-			a.BasicAuthHash = ""
-		} else if pw := c.FormValue("basic_auth_pass"); pw != "" {
-			hash, err := bcrypt.GenerateFromPassword([]byte(pw), bcrypt.DefaultCost)
-			if err != nil {
-				return err
-			}
-			a.BasicAuthHash = string(hash)
-		} else if a.BasicAuthHash == "" {
+			a.BasicAuthPassword = ""
+		} else if a.BasicAuthPassword == "" {
 			return echo.NewHTTPError(http.StatusBadRequest, "basic auth password required")
 		}
 	}

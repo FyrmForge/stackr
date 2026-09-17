@@ -7,6 +7,7 @@ package settings
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/url"
 	"strconv"
 	"strings"
@@ -21,7 +22,13 @@ type Settings struct {
 	MemLimitMB           *int     `json:"mem_limit_mb,omitempty"`
 	RunRetentionDays     *int     `json:"run_retention_days,omitempty"`
 	MetricRetentionHours *int     `json:"metric_retention_hours,omitempty"`
-	ProtectAutoDomains   *bool    `json:"protect_auto_domains,omitempty"`
+	// Protect puts basic auth in front of every URL of every tile below this
+	// level. User and password travel as a pair: the nearest level that sets
+	// either supplies both (docs/plans/48-install-domains-and-basic-auth.md).
+	// The password is plain text or a ${{ }} reference.
+	Protect         *bool   `json:"protect,omitempty"`
+	ProtectUser     *string `json:"protect_user,omitempty"`
+	ProtectPassword *string `json:"protect_password,omitempty"`
 	// NodeGroup constrains where tiles at this level may run, by the
 	// stackr.group node label. Empty string is an explicit "anywhere" that
 	// overrides a group set above (docs/plans/31-node-agent-open-questions.md,
@@ -46,10 +53,11 @@ type Resolved struct {
 	MemLimitMB           int
 	RunRetentionDays     int
 	MetricRetentionHours int
-	// ProtectAutoDomains puts a Traefik forwardAuth in front of the generated
-	// per-environment hostnames, so a preview URL needs a stackr session.
-	// Hand-attached domains are never touched, those are the real ones.
-	ProtectAutoDomains bool
+	// Protect gates every URL with basic auth. An empty user or password
+	// while on locks the URL rather than opening it (proxy.WriteApp).
+	Protect         bool
+	ProtectUser     string
+	ProtectPassword string
 	// NodeGroup is the resolved placement group, "" = anywhere.
 	NodeGroup string
 	// BuildNode is the node id builds run on, "" = the manager.
@@ -108,8 +116,13 @@ func Resolve(levels ...Settings) Resolved {
 		if s.MetricRetentionHours != nil {
 			r.MetricRetentionHours = *s.MetricRetentionHours
 		}
-		if s.ProtectAutoDomains != nil {
-			r.ProtectAutoDomains = *s.ProtectAutoDomains
+		if s.Protect != nil {
+			r.Protect = *s.Protect
+		}
+		// One unit: a level setting only the user must not pair it with a
+		// password from the level above.
+		if s.ProtectUser != nil || s.ProtectPassword != nil {
+			r.ProtectUser, r.ProtectPassword = deref(s.ProtectUser), deref(s.ProtectPassword)
 		}
 		if s.NodeGroup != nil {
 			r.NodeGroup = *s.NodeGroup
@@ -180,9 +193,25 @@ func Merge(s Settings, vals url.Values) Settings {
 	num(vals, "backup_run_concurrency", &s.BackupRunConcurrency, false)
 	num(vals, "backup_restore_concurrency", &s.BackupRestoreConcurrency, false)
 	num(vals, "volume_move_concurrency", &s.VolumeMoveConcurrency, false)
-	if v, ok := field(vals, "protect_auto_domains"); ok {
-		b := v == "1" || v == "true" || v == "on"
-		s.ProtectAutoDomains = &b
+	// protect is a select with an inherit choice, so empty clears it.
+	if v, ok := field(vals, "protect"); ok {
+		if v == "" {
+			s.Protect = nil
+		} else {
+			b := v == "1" || v == "true" || v == "on"
+			s.Protect = &b
+		}
+	}
+	str(vals, "protect_user", &s.ProtectUser)
+	// The password is never rendered back into the form, so a blank one means
+	// "leave it as it is", not "clear it". Clearing the user clears both: they
+	// travel as a pair, and it is the only way to give them back to the level
+	// above from a form that cannot show what is stored.
+	if v, ok := field(vals, "protect_password"); ok && v != "" {
+		s.ProtectPassword = &v
+	}
+	if s.ProtectUser == nil {
+		s.ProtectPassword = nil
 	}
 	// node_group is the one string field, and its empty value is meaningful:
 	// "any" is a real choice that has to beat a group set above, not a
@@ -206,6 +235,21 @@ func Merge(s Settings, vals url.Values) Settings {
 	return s
 }
 
+// Check refuses a level that sets half of the basic auth pair. Resolve takes
+// user and password as one unit, so a level with only one of them resolves
+// the other to empty, and proxy.WriteApp locks every URL below it behind a
+// password nobody knows. Caught at the save, where the operator can see it.
+func (s Settings) Check() error {
+	user, pass := s.ProtectUser != nil && *s.ProtectUser != "", s.ProtectPassword != nil && *s.ProtectPassword != ""
+	if user == pass {
+		return nil
+	}
+	if user {
+		return errors.New("protection needs a password as well as a user")
+	}
+	return errors.New("protection needs a user as well as a password")
+}
+
 // field reports a form value and whether the key was submitted at all.
 //
 // The last value wins, which is what makes the hidden-input idiom work: an
@@ -218,6 +262,26 @@ func field(vals url.Values, key string) (string, bool) {
 		return "", false
 	}
 	return strings.TrimSpace(v[len(v)-1]), true
+}
+
+// str folds a string field: submitted empty clears it back to inherit.
+func str(vals url.Values, key string, dst **string) {
+	v, ok := field(vals, key)
+	if !ok {
+		return
+	}
+	if v == "" {
+		*dst = nil
+		return
+	}
+	*dst = &v
+}
+
+func deref(p *string) string {
+	if p == nil {
+		return ""
+	}
+	return *p
 }
 
 // num folds an int field. allowZero keeps an explicit 0 as a real override;
@@ -272,6 +336,17 @@ func ForTile(ctx context.Context, store repo.Store, t *repo.Tile) Resolved {
 	return Resolve(Chain(ctx, store, "", t.StackID, t.EnvironmentID)...)
 }
 
+// TryTile is ForTile for callers that must tell a missing level from an
+// unreadable one, which is everything reading Protect: a swallowed error
+// resolves to "not protected" and publishes the URL.
+func TryTile(ctx context.Context, store repo.Store, t *repo.Tile) (Resolved, error) {
+	chain, err := TryChain(ctx, store, "", t.StackID, t.EnvironmentID)
+	if err != nil {
+		return Resolved{}, err
+	}
+	return Resolve(chain...), nil
+}
+
 // Level is one rung of the cascade, named so a settings page can say where an
 // inherited value came from.
 type Level struct {
@@ -283,27 +358,45 @@ type Level struct {
 // Levels walks the chain down to the deepest id given and returns every rung,
 // server first. The org is derived from the stack, and the stack from the
 // environment, so a caller only ever names the level it is looking at.
-func Levels(ctx context.Context, store repo.Store, orgID, stackID, envID string) []Level {
+//
+// A store error is returned, not swallowed. A level that fails to load looks
+// exactly like a level that sets nothing, and for Protect that reads as "not
+// protected": the caller has to know the difference (TryTile).
+func Levels(ctx context.Context, store repo.Store, orgID, stackID, envID string) ([]Level, error) {
 	var env *repo.Environment
 	if envID != "" {
-		env, _ = store.GetEnvironment(ctx, envID)
+		var err error
+		if env, err = store.GetEnvironment(ctx, envID); err != nil {
+			return nil, err
+		}
 		if env != nil {
 			stackID = env.StackID
 		}
 	}
 	var stack *repo.Stack
 	if stackID != "" {
-		stack, _ = store.GetStack(ctx, stackID)
+		var err error
+		if stack, err = store.GetStack(ctx, stackID); err != nil {
+			return nil, err
+		}
 		if stack != nil {
 			orgID = stack.OrgID
 		}
 	}
 	out := []Level{}
-	if sv, err := store.GetServer(ctx, "local"); err == nil && sv != nil {
+	sv, err := store.GetServer(ctx, "local")
+	if err != nil {
+		return nil, err
+	}
+	if sv != nil {
 		out = append(out, Level{Kind: "server", Name: "this server", Settings: Parse(sv.Settings)})
 	}
 	if orgID != "" {
-		if o, err := store.GetOrg(ctx, orgID); err == nil && o != nil {
+		o, err := store.GetOrg(ctx, orgID)
+		if err != nil {
+			return nil, err
+		}
+		if o != nil {
 			out = append(out, Level{Kind: "org", Name: o.Name, Settings: Parse(o.Settings)})
 		}
 	}
@@ -313,15 +406,40 @@ func Levels(ctx context.Context, store repo.Store, orgID, stackID, envID string)
 	if env != nil {
 		out = append(out, Level{Kind: "env", Name: env.Name, Settings: Parse(env.Settings)})
 	}
+	return out, nil
+}
+
+// Above resolves the levels over the one of this kind, which is what a
+// settings page shows as the inherited value.
+func Above(levels []Level, kind string) Resolved {
+	var chain []Settings
+	for _, l := range levels {
+		if l.Kind == kind {
+			break
+		}
+		chain = append(chain, l.Settings)
+	}
+	return Resolve(chain...)
+}
+
+// Chain is Levels' settings alone, ready for Resolve. A store error means no
+// overrides, which is the right answer for the limits and placement fields:
+// falling back to the built-in default is better than failing the caller.
+// Anything that must not fail open goes through TryChain instead.
+func Chain(ctx context.Context, store repo.Store, orgID, stackID, envID string) []Settings {
+	out, _ := TryChain(ctx, store, orgID, stackID, envID)
 	return out
 }
 
-// Chain is Levels' settings alone, ready for Resolve.
-func Chain(ctx context.Context, store repo.Store, orgID, stackID, envID string) []Settings {
-	ls := Levels(ctx, store, orgID, stackID, envID)
+// TryChain is Chain with the store error kept.
+func TryChain(ctx context.Context, store repo.Store, orgID, stackID, envID string) ([]Settings, error) {
+	ls, err := Levels(ctx, store, orgID, stackID, envID)
+	if err != nil {
+		return nil, err
+	}
 	out := make([]Settings, 0, len(ls))
 	for _, l := range ls {
 		out = append(out, l.Settings)
 	}
-	return out
+	return out, nil
 }

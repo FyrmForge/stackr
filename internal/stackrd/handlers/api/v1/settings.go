@@ -7,6 +7,7 @@ package v1
 // and nothing about which level to change to move it.
 
 import (
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -80,7 +81,7 @@ func (a *API) resolveSettingsTarget(c echo.Context, kind string, write bool) (*s
 
 // levels returns the chain above and including this target, so a reader can
 // see which level a value actually comes from.
-func (a *API) settingsLevels(c echo.Context, t *settingsTarget) []settings.Level {
+func (a *API) settingsLevels(c echo.Context, t *settingsTarget) ([]settings.Level, error) {
 	ctx := c.Request().Context()
 	switch t.kind {
 	case "server":
@@ -99,7 +100,11 @@ func (a *API) settingsFor(kind string) echo.HandlerFunc {
 		if err != nil {
 			return err
 		}
-		return c.JSON(http.StatusOK, a.toSettingsOut(c, t))
+		out, err := a.toSettingsOut(c, t)
+		if err != nil {
+			return err
+		}
+		return c.JSON(http.StatusOK, out)
 	}
 }
 
@@ -126,7 +131,11 @@ func (a *API) patchSettingsFor(kind string) echo.HandlerFunc {
 			}
 			vals.Set(k, *v)
 		}
-		merged := settings.Merge(t.current, vals).JSON()
+		next := settings.Merge(t.current, vals)
+		if err := next.Check(); err != nil {
+			return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+		}
+		merged := next.JSON()
 		ctx := c.Request().Context()
 		switch t.kind {
 		case "server":
@@ -146,14 +155,27 @@ func (a *API) patchSettingsFor(kind string) echo.HandlerFunc {
 			return err
 		}
 		t.current = settings.Parse(merged)
-		return c.JSON(http.StatusOK, a.toSettingsOut(c, t))
+		// Protection feeds the rendered routes.
+		if a.px != nil {
+			if err := a.px.Resync(ctx); err != nil {
+				slog.Error("proxy resync after settings patch", "error", err)
+			}
+		}
+		out, err := a.toSettingsOut(c, t)
+		if err != nil {
+			return err
+		}
+		return c.JSON(http.StatusOK, out)
 	}
 }
 
 // toSettingsOut renders one row per knob: the resolved value, which level it
 // came from, and this level's own override if it has one.
-func (a *API) toSettingsOut(c echo.Context, t *settingsTarget) settingsOut {
-	levels := a.settingsLevels(c, t)
+func (a *API) toSettingsOut(c echo.Context, t *settingsTarget) (settingsOut, error) {
+	levels, err := a.settingsLevels(c, t)
+	if err != nil {
+		return settingsOut{}, err
+	}
 	res := settings.Resolve(chainOf(levels)...)
 	out := settingsOut{Level: t.kind, Values: []settingKnob{}}
 	add := func(key, value string, own *string, source string) {
@@ -163,7 +185,7 @@ func (a *API) toSettingsOut(c echo.Context, t *settingsTarget) settingsOut {
 		own, source := ownAndSource(levels, t.kind, k.key)
 		add(k.key, k.resolved(res), own, source)
 	}
-	return out
+	return out, nil
 }
 
 func chainOf(levels []settings.Level) []settings.Settings {
@@ -197,14 +219,30 @@ var settingKeys = []struct {
 	{"metric_retention_hours",
 		func(r settings.Resolved) string { return strconv.Itoa(r.MetricRetentionHours) },
 		func(s settings.Settings) *string { return intStr(s.MetricRetentionHours) }},
-	{"protect_auto_domains",
-		func(r settings.Resolved) string { return boolStr(r.ProtectAutoDomains) },
+	{"protect",
+		func(r settings.Resolved) string { return boolStr(r.Protect) },
 		func(s settings.Settings) *string {
-			if s.ProtectAutoDomains == nil {
+			if s.Protect == nil {
 				return nil
 			}
-			v := boolStr(*s.ProtectAutoDomains)
+			v := boolStr(*s.Protect)
 			return &v
+		}},
+	{"protect_user",
+		func(r settings.Resolved) string { return r.ProtectUser },
+		func(s settings.Settings) *string { return s.ProtectUser }},
+	// The password is never returned, resolved or own: reading settings needs
+	// only a read scope, and the panel's own form does not render it either.
+	// Source still names the level that set it, and own says "set" so a
+	// client can tell a level that has one from a level that inherits.
+	{"protect_password",
+		func(settings.Resolved) string { return "" },
+		func(s settings.Settings) *string {
+			if s.ProtectPassword == nil {
+				return nil
+			}
+			set := "set"
+			return &set
 		}},
 	{"node_group",
 		func(r settings.Resolved) string { return r.NodeGroup },

@@ -6,7 +6,6 @@ package web
 
 import (
 	"context"
-	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -67,10 +66,8 @@ import (
 
 // Deps holds the dependencies for route registration.
 type Deps struct {
-	Store   repo.Store
-	BaseURL string
-	// CookieDomain is what the session cookie is scoped to (BASE_URL's host).
-	CookieDomain  string
+	Store         repo.Store
+	BaseURL       string
 	StaticBaseURL string
 	DevMode       bool
 	// CookieSecure marks session, flash and CSRF cookies Secure. It follows
@@ -208,7 +205,7 @@ func RegisterRoutes(srv *server.Server, deps *Deps) {
 	searchHandler := searchpage.NewHandler(deps.Store)
 	site.GET("/search", searchHandler.Search, auth.RequireAuth())
 
-	orgHandler := orgpage.NewHandler(deps.Store, deps.Notifier, deps.Metrics, deps.FileStorage, deps.Runtime, deps.Forwards, deps.OrgConfig, deps.GitHub, deps.Mail, deps.RegistrySigner)
+	orgHandler := orgpage.NewHandler(deps.Store, deps.Notifier, deps.Metrics, deps.FileStorage, deps.Runtime, deps.Forwards, deps.OrgConfig, deps.GitHub, deps.Mail, deps.RegistrySigner, deps.Proxy)
 	// "/" is the root canvas, every org the viewer belongs to, one card each,
 	// and each card drills into that org's own canvas. Its saved layout is
 	// per-user (repo.ScopeUser), so these three routes carry no :id.
@@ -316,7 +313,7 @@ func RegisterRoutes(srv *server.Server, deps *Deps) {
 
 	serverHandler := serverpage.NewHandler(serverpage.Deps{
 		Store: deps.Store, Runtime: deps.Runtime, Proxy: deps.Proxy,
-		CookieDomain: deps.CookieDomain, Nodes: deps.Nodes, Cluster: deps.Cluster,
+		Nodes: deps.Nodes, Cluster: deps.Cluster,
 		Mover: deps.Mover, BaseURL: deps.BaseURL,
 		DataDir: deps.DataDir, Version: deps.Version,
 	})
@@ -517,12 +514,6 @@ func RegisterRoutes(srv *server.Server, deps *Deps) {
 	site.GET("/settings", settingsHandler.LegacyRedirect, auth.RequireAuth())
 
 	accountHandler := accountpage.NewHandler(deps.Store, deps.AuthService, deps.FileStorage)
-	// Traefik's forwardAuth target for protected preview domains
-	// (proxy.authCheckPath). Deliberately not behind RequireAuth: its whole
-	// job is to answer "is there a session", and the redirect it sends has to
-	// be absolute, the request arrived at a preview hostname where the
-	// panel's own /login does not exist.
-	site.GET("/_stackr/authcheck", authCheck(deps.Store, deps.BaseURL))
 
 	// Uploaded avatars and org logos, streamed from FileStorage.
 	site.GET("/avatars/*", avatar.Serve(deps.FileStorage), auth.RequireAuth())
@@ -706,54 +697,6 @@ func RegisterRoutes(srv *server.Server, deps *Deps) {
 	site.GET("/:org/:stack/:env", projectHandler.Graph, auth.RequireAuth())
 	site.GET("/:org/:stack/:env/logs", projectHandler.EnvLogs, auth.RequireAuth())
 	site.GET("/:org/:stack/:env/:tile", tilePage(deps.Store, appHandler.Detail, dbHandler.Detail), auth.RequireAuth())
-}
-
-// authCheck answers Traefik's forwardAuth for a protected preview domain.
-//
-// "Is there a session" is not the question. Preview hostnames belong to a
-// tile, that tile to an org, and a session proves only that someone works
-// here, answering 204 on a session alone lets any user of the panel browse
-// every other organization's preview URLs. Traefik forwards the hostname it
-// was asked for, so the owning org is knowable, and the check is the same one
-// the rest of the panel makes.
-//
-// Deliberately not behind RequireAuth: its job includes answering for signed
-// -out visitors, and the redirect must be absolute, the request arrived at a
-// preview hostname where the panel's own /login does not exist.
-func authCheck(store repo.Store, baseURL string) echo.HandlerFunc {
-	login := strings.TrimRight(baseURL, "/") + "/login"
-	return func(c echo.Context) error {
-		if hamrmw.GetSubjectID(c) == "" {
-			return c.Redirect(http.StatusSeeOther, login)
-		}
-		host := c.Request().Header.Get("X-Forwarded-Host")
-		if h, _, err := net.SplitHostPort(host); err == nil {
-			host = h
-		}
-		ctx := c.Request().Context()
-		// Auto domains are always created at "/" (envops.EnsureAutoDomain), and
-		// this middleware is only attached to them, so an exact lookup is enough.
-		// An unknown host is not a domain stackr routes: refuse rather than
-		// wave it through on the strength of a session.
-		dom, err := store.GetDomainByHostPath(ctx, host, "/")
-		if err != nil || dom == nil {
-			return echo.NewHTTPError(http.StatusForbidden, "not your preview URL")
-		}
-		t, err := store.GetTile(ctx, dom.TileID)
-		if err != nil || t == nil {
-			return echo.NewHTTPError(http.StatusForbidden, "not your preview URL")
-		}
-		s, err := store.GetStack(ctx, t.StackID)
-		if err != nil || s == nil {
-			return echo.NewHTTPError(http.StatusForbidden, "not your preview URL")
-		}
-		if !middleware.InOrg(c, s.OrgID) {
-			// Logged in, wrong tenant: another trip through /login changes
-			// nothing, so this is a refusal and not a redirect.
-			return echo.NewHTTPError(http.StatusForbidden, "not your preview URL")
-		}
-		return c.NoContent(http.StatusNoContent)
-	}
 }
 
 // tilePage resolves /:org/:stack/:env/:tile to a tile and delegates to the

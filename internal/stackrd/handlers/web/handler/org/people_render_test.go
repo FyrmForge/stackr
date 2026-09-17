@@ -138,7 +138,7 @@ func TestSetupDomainPageManaged(t *testing.T) {
 	res := []repo.DomainResource{{ID: "d1", Host: "acme.example.com"}, {ID: "d2", Host: "acme.dev"}}
 
 	var buf bytes.Buffer
-	require.NoError(t, setupDomainPage(c, managed, res).Render(context.Background(), &buf))
+	require.NoError(t, setupDomainPage(c, managed, res, "").Render(context.Background(), &buf))
 	out := buf.String()
 	for _, r := range res {
 		require.Contains(t, out, `value="`+r.Host+`"`, "every declared domain gets a box")
@@ -150,7 +150,7 @@ func TestSetupDomainPageManaged(t *testing.T) {
 
 	// The unmanaged branch still asks for one.
 	buf.Reset()
-	require.NoError(t, setupDomainPage(c, &repo.Org{ID: "o2", Slug: "solo"}, nil).Render(context.Background(), &buf))
+	require.NoError(t, setupDomainPage(c, &repo.Org{ID: "o2", Slug: "solo"}, nil, "").Render(context.Background(), &buf))
 	out = buf.String()
 	require.Contains(t, out, `name="host"`, "an unmanaged org is still asked for a domain")
 	require.NotContains(t, out, "managed by config")

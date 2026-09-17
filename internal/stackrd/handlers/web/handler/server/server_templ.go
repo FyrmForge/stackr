@@ -21,7 +21,7 @@ import (
 	"github.com/labstack/echo/v4"
 )
 
-func serverPage(c echo.Context, sv *repo.Server, node *runtime.Node, here []runtime.NodeTaskInfo, groups []string, ping []components.TimePoint, cookieDomain string, instanceBase string, domainRes []repo.DomainResource, rangeKey string, cpu, mem, disk, rx, tx []components.TimePoint, storages []repo.Storage, spaths map[string][]repo.StoragePath, nodes []runtime.Node) templ.Component {
+func serverPage(c echo.Context, sv *repo.Server, node *runtime.Node, here []runtime.NodeTaskInfo, groups []string, ping []components.TimePoint, domainRes []repo.DomainResource, rangeKey string, cpu, mem, disk, rx, tx []components.TimePoint, storages []repo.Storage, spaths map[string][]repo.StoragePath, nodes []runtime.Node) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
@@ -828,7 +828,7 @@ func serverPage(c echo.Context, sv *repo.Server, node *runtime.Node, here []runt
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = serverSettingsForm(c, sv, cookieDomain, instanceBase, nodes).Render(ctx, templ_7745c5c3_Buffer)
+				templ_7745c5c3_Err = serverSettingsForm(c, sv, nodes).Render(ctx, templ_7745c5c3_Buffer)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -1553,7 +1553,7 @@ func statTile(label, value string) templ.Component {
 	})
 }
 
-func serverSettingsForm(c echo.Context, sv *repo.Server, cookieDomain string, instanceBase string, nodes []runtime.Node) templ.Component {
+func serverSettingsForm(c echo.Context, sv *repo.Server, nodes []runtime.Node) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
@@ -1575,7 +1575,6 @@ func serverSettingsForm(c echo.Context, sv *repo.Server, cookieDomain string, in
 		}
 		ctx = templ.ClearChildren(ctx)
 		s := settings.Parse(sv.Settings)
-		cookieCoversEnvDomain := CookieCovers(cookieDomain, instanceBase)
 		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 147, "<form hx-post=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
@@ -1583,7 +1582,7 @@ func serverSettingsForm(c echo.Context, sv *repo.Server, cookieDomain string, in
 		var templ_7745c5c3_Var74 string
 		templ_7745c5c3_Var74, templ_7745c5c3_Err = templ.JoinStringErrs("/servers/" + sv.ID + "/settings")
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/stackrd/handlers/web/handler/server/server.templ`, Line: 422, Col: 50}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/stackrd/handlers/web/handler/server/server.templ`, Line: 416, Col: 50}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var74))
 		if templ_7745c5c3_Err != nil {
@@ -1604,7 +1603,7 @@ func serverSettingsForm(c echo.Context, sv *repo.Server, cookieDomain string, in
 		var templ_7745c5c3_Var75 string
 		templ_7745c5c3_Var75, templ_7745c5c3_Err = templ.JoinStringErrs(sv.Name)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/stackrd/handlers/web/handler/server/server.templ`, Line: 426, Col: 49}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/stackrd/handlers/web/handler/server/server.templ`, Line: 420, Col: 49}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var75))
 		if templ_7745c5c3_Err != nil {
@@ -1617,7 +1616,7 @@ func serverSettingsForm(c echo.Context, sv *repo.Server, cookieDomain string, in
 		var templ_7745c5c3_Var76 string
 		templ_7745c5c3_Var76, templ_7745c5c3_Err = templ.JoinStringErrs(intOr(s.CronTimeoutMin))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/stackrd/handlers/web/handler/server/server.templ`, Line: 431, Col: 80}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/stackrd/handlers/web/handler/server/server.templ`, Line: 425, Col: 80}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var76))
 		if templ_7745c5c3_Err != nil {
@@ -1630,7 +1629,7 @@ func serverSettingsForm(c echo.Context, sv *repo.Server, cookieDomain string, in
 		var templ_7745c5c3_Var77 string
 		templ_7745c5c3_Var77, templ_7745c5c3_Err = templ.JoinStringErrs(floatOr(s.CPULimit))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/stackrd/handlers/web/handler/server/server.templ`, Line: 435, Col: 69}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/stackrd/handlers/web/handler/server/server.templ`, Line: 429, Col: 69}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var77))
 		if templ_7745c5c3_Err != nil {
@@ -1643,7 +1642,7 @@ func serverSettingsForm(c echo.Context, sv *repo.Server, cookieDomain string, in
 		var templ_7745c5c3_Var78 string
 		templ_7745c5c3_Var78, templ_7745c5c3_Err = templ.JoinStringErrs(intOr(s.MemLimitMB))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/stackrd/handlers/web/handler/server/server.templ`, Line: 439, Col: 72}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/stackrd/handlers/web/handler/server/server.templ`, Line: 433, Col: 72}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var78))
 		if templ_7745c5c3_Err != nil {
@@ -1656,7 +1655,7 @@ func serverSettingsForm(c echo.Context, sv *repo.Server, cookieDomain string, in
 		var templ_7745c5c3_Var79 string
 		templ_7745c5c3_Var79, templ_7745c5c3_Err = templ.JoinStringErrs(intOr(s.RunRetentionDays))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/stackrd/handlers/web/handler/server/server.templ`, Line: 443, Col: 84}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/stackrd/handlers/web/handler/server/server.templ`, Line: 437, Col: 84}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var79))
 		if templ_7745c5c3_Err != nil {
@@ -1669,7 +1668,7 @@ func serverSettingsForm(c echo.Context, sv *repo.Server, cookieDomain string, in
 		var templ_7745c5c3_Var80 string
 		templ_7745c5c3_Var80, templ_7745c5c3_Err = templ.JoinStringErrs(intOr(s.MetricRetentionHours))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/stackrd/handlers/web/handler/server/server.templ`, Line: 447, Col: 92}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/stackrd/handlers/web/handler/server/server.templ`, Line: 441, Col: 92}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var80))
 		if templ_7745c5c3_Err != nil {
@@ -1698,7 +1697,7 @@ func serverSettingsForm(c echo.Context, sv *repo.Server, cookieDomain string, in
 				var templ_7745c5c3_Var81 string
 				templ_7745c5c3_Var81, templ_7745c5c3_Err = templ.JoinStringErrs(n.ID)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/stackrd/handlers/web/handler/server/server.templ`, Line: 455, Col: 27}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/stackrd/handlers/web/handler/server/server.templ`, Line: 449, Col: 27}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var81))
 				if templ_7745c5c3_Err != nil {
@@ -1721,7 +1720,7 @@ func serverSettingsForm(c echo.Context, sv *repo.Server, cookieDomain string, in
 				var templ_7745c5c3_Var82 string
 				templ_7745c5c3_Var82, templ_7745c5c3_Err = templ.JoinStringErrs(n.Hostname)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/stackrd/handlers/web/handler/server/server.templ`, Line: 455, Col: 83}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/stackrd/handlers/web/handler/server/server.templ`, Line: 449, Col: 83}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var82))
 				if templ_7745c5c3_Err != nil {
@@ -1740,7 +1739,7 @@ func serverSettingsForm(c echo.Context, sv *repo.Server, cookieDomain string, in
 		var templ_7745c5c3_Var83 string
 		templ_7745c5c3_Var83, templ_7745c5c3_Err = templ.JoinStringErrs(intOr(s.CronRunConcurrency))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/stackrd/handlers/web/handler/server/server.templ`, Line: 462, Col: 88}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/stackrd/handlers/web/handler/server/server.templ`, Line: 456, Col: 88}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var83))
 		if templ_7745c5c3_Err != nil {
@@ -1753,7 +1752,7 @@ func serverSettingsForm(c echo.Context, sv *repo.Server, cookieDomain string, in
 		var templ_7745c5c3_Var84 string
 		templ_7745c5c3_Var84, templ_7745c5c3_Err = templ.JoinStringErrs(intOr(s.BackupRunConcurrency))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/stackrd/handlers/web/handler/server/server.templ`, Line: 466, Col: 92}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/stackrd/handlers/web/handler/server/server.templ`, Line: 460, Col: 92}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var84))
 		if templ_7745c5c3_Err != nil {
@@ -1766,7 +1765,7 @@ func serverSettingsForm(c echo.Context, sv *repo.Server, cookieDomain string, in
 		var templ_7745c5c3_Var85 string
 		templ_7745c5c3_Var85, templ_7745c5c3_Err = templ.JoinStringErrs(intOr(s.BackupRestoreConcurrency))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/stackrd/handlers/web/handler/server/server.templ`, Line: 470, Col: 100}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/stackrd/handlers/web/handler/server/server.templ`, Line: 464, Col: 100}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var85))
 		if templ_7745c5c3_Err != nil {
@@ -1779,33 +1778,21 @@ func serverSettingsForm(c echo.Context, sv *repo.Server, cookieDomain string, in
 		var templ_7745c5c3_Var86 string
 		templ_7745c5c3_Var86, templ_7745c5c3_Err = templ.JoinStringErrs(intOr(s.VolumeMoveConcurrency))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/stackrd/handlers/web/handler/server/server.templ`, Line: 474, Col: 94}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/stackrd/handlers/web/handler/server/server.templ`, Line: 468, Col: 94}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var86))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 167, "\" placeholder=\"2\" min=\"0\" class=\"input\"></div><div><label class=\"label\">Preview URLs</label><input type=\"hidden\" name=\"protect_auto_domains\" value=\"0\"> <label class=\"flex items-center gap-2 text-sm text-rw-muted\"><input type=\"checkbox\" name=\"protect_auto_domains\" value=\"1\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 167, "\" placeholder=\"2\" min=\"0\" class=\"input\"></div></div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		if s.ProtectAutoDomains != nil && *s.ProtectAutoDomains {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 168, " checked")
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 169, " class=\"accent-rw-accent\"> Require a stackr login</label><p class=\"settings-help\">Applies only to the generated per-environment hostnames above. Domains you attached by hand stay public. ")
+		templ_7745c5c3_Err = form.ProtectFields(s, settings.Resolve(), false).Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		if !cookieCoversEnvDomain {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 170, "<span class=\"text-rw-warn block mt-1\">This will lock everyone out as configured: the session cookie is scoped to this panel's own hostname, which is not a parent of the domain base, so browsers never send it to a preview URL. Move the panel onto a parent domain first.</span>")
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 171, "</p></div></div><button type=\"submit\" class=\"btn btn-primary\">Save</button></form>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 168, "<button type=\"submit\" class=\"btn btn-primary\">Save</button></form>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -1885,7 +1872,7 @@ func serverIcon() templ.Component {
 			templ_7745c5c3_Var87 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 172, "<svg class=\"h-4 w-4\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><rect x=\"2\" y=\"2\" width=\"20\" height=\"8\" rx=\"2\"></rect> <rect x=\"2\" y=\"14\" width=\"20\" height=\"8\" rx=\"2\"></rect> <line x1=\"6\" y1=\"6\" x2=\"6.01\" y2=\"6\"></line> <line x1=\"6\" y1=\"18\" x2=\"6.01\" y2=\"18\"></line></svg>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 169, "<svg class=\"h-4 w-4\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><rect x=\"2\" y=\"2\" width=\"20\" height=\"8\" rx=\"2\"></rect> <rect x=\"2\" y=\"14\" width=\"20\" height=\"8\" rx=\"2\"></rect> <line x1=\"6\" y1=\"6\" x2=\"6.01\" y2=\"6\"></line> <line x1=\"6\" y1=\"18\" x2=\"6.01\" y2=\"18\"></line></svg>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

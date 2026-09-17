@@ -117,7 +117,7 @@ More service keys, all optional: `command` (CMD override, argv shell-split),
 `user`, `shm_size_mb`, `privileged`, `devices`, `watch_paths`, `build_args`,
 `published_ports`, `traefik_override` (replaces the generated proxy file
 verbatim; address backends by slug), `basic_auth_user`/
-`basic_auth_hash`, `security_headers`, `branch`, and explicit git source
+`basic_auth_password` (text or a `${{ }}` reference), `security_headers`, `branch`, and explicit git source
 (`git_url`/`connector` — config-managed stacks normally inherit the
 binding). Image-source runnables take `update_policy: off|notify|auto` (the
 registry watcher: badge + notification, or auto-redeploy on a new digest);
@@ -330,13 +330,20 @@ defaults:
   mem_limit_mb: 1024
   run_retention_days: 14
   metric_retention_hours: 48
-  protect_auto_domains: true
+  protect: true                     # basic auth on every URL below
+  protect_user: preview
+  protect_password: ${{ stack.secrets.PREVIEW_PASS }}
   node_group: build
 environments:
   staging:
     defaults:
       mem_limit_mb: 512
 ```
+
+`protect_user` and `protect_password` go together: the nearest level that
+sets either supplies both. A tile's own `basic_auth_user` beats them. On with
+no user, or a password reference that does not resolve, locks the URL with a
+random password rather than leaving it open.
 
 The org file's `defaults:` takes the same keys (alongside `ui_edits` and
 `env_colors`). A level that declares nothing leaves whatever the panel set

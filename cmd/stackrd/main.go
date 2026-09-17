@@ -120,7 +120,8 @@ func main() {
 
 	components.StaticBaseURL = envStaticBaseURL
 
-	// Base URL (cookie domain & CORS).
+	// Base URL (CORS and the panel route). The session cookie is host-only on
+	// purpose: a Domain attribute would hand it to every app under the panel.
 	baseOrigin, baseDomain, err := config.ParseBaseURL(envBaseURL)
 	if err != nil {
 		log.Error("invalid BASE_URL", "error", err)
@@ -225,7 +226,6 @@ func main() {
 	// Sessions.
 	sessionManager := auth.NewSessionManager(store,
 		auth.WithCookieSecure(cookieSecure),
-		auth.WithCookieDomain(baseDomain),
 	)
 
 	// Auth service.
@@ -342,14 +342,22 @@ func main() {
 		config.GetEnvOrDefault("TRAEFIK_HTTPS_PORT", "443"),
 		config.GetEnvOrDefault("ACME_EMAIL", ""),
 		// How Traefik reaches the panel from inside the docker network, for
-		// the preview-domain forwardAuth. The default matches the alias the
-		// deploy script gives the stackr container.
+		// the panel's own route. The default matches the alias the deploy
+		// script gives the stackr container.
 		config.GetEnvOrDefault("PANEL_INTERNAL_URL", fmt.Sprintf("http://stkr-panel:%d", envPort)),
 		// The panel's own public hostname, so Traefik can route to it without
 		// anybody configuring a domain first.
 		baseDomain,
 		envTLSOff,
 	)
+	// Before Traefik starts: it reads the trusted proxy settings.
+	if err := seedInstall(context.Background(), store,
+		config.GetEnvOrDefault("ROOT_DOMAIN", ""),
+		config.GetEnvOrDefault("TRUST_CLOUDFLARE", ""),
+		config.GetEnvOrDefault("TRUSTED_PROXY_CIDRS", ""),
+		px.RefreshCloudflare); err != nil {
+		log.Error("seeding install answers failed", "error", err)
+	}
 	go func() {
 		if err := px.EnsureTraefik(context.Background()); err != nil {
 			log.Error("traefik startup failed", "error", err)
@@ -567,7 +575,6 @@ func main() {
 	web.RegisterRoutes(srv, &web.Deps{
 		Store:          store,
 		BaseURL:        baseOrigin,
-		CookieDomain:   baseDomain,
 		StaticBaseURL:  envStaticBaseURL,
 		DevMode:        envDevMode,
 		CookieSecure:   cookieSecure,

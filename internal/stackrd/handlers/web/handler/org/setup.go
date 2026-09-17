@@ -1,6 +1,7 @@
 package org
 
 import (
+	"context"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -141,7 +142,7 @@ func (h *handler) Setup(c echo.Context) error {
 				return err
 			}
 		}
-		return respond.HTML(c, http.StatusOK, setupDomainPage(c, o, res))
+		return respond.HTML(c, http.StatusOK, setupDomainPage(c, o, res, h.setupDomainPrefill(c.Request().Context(), o)))
 	case "team":
 		ctx := c.Request().Context()
 		members, err := h.store.ListOrgMembers(ctx, o.ID)
@@ -205,11 +206,11 @@ func (h *handler) SetupDone(c echo.Context) error {
 // removes rows the file adopted), and ranked below a declared one so the file
 // wins the moment it names a domain.
 func (h *handler) ensureDefaultDomain(c echo.Context, o *repo.Org) error {
-	host := setupDomainPrefill(o)
+	ctx := c.Request().Context()
+	host := h.setupDomainPrefill(ctx, o)
 	if host == "" {
 		return nil // a LAN install has no base domain to build one from
 	}
-	ctx := c.Request().Context()
 	all, err := h.store.ListDomainResources(ctx)
 	if err != nil {
 		return err
@@ -439,9 +440,17 @@ func (h *handler) SetupMode(c echo.Context) error {
 	return respond.Redirect(c, setupFirstURL(o))
 }
 
-// setupDomainPrefill guesses <slug>.<server domain> from BASE_URL. A LAN or
-// test install has no BASE_URL and so gets an empty field rather than a guess.
-func setupDomainPrefill(o *repo.Org) string {
+// setupDomainPrefill guesses <slug>.<root>: the instance domain resource the
+// installer's root domain seeded, else BASE_URL's host. A LAN or test install
+// has neither and gets an empty field rather than a guess.
+func (h *handler) setupDomainPrefill(ctx context.Context, o *repo.Org) string {
+	if all, err := h.store.ListDomainResources(ctx); err == nil {
+		for _, r := range all {
+			if r.Level == "instance" {
+				return o.Slug + "." + r.Host
+			}
+		}
+	}
 	if components.BaseURL == "" {
 		return ""
 	}

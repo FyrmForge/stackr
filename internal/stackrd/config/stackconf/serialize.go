@@ -132,7 +132,7 @@ func tileToConf(ts TileState, cur EnvState) TileConf {
 		tc.PublishedPorts = t.PublishedPorts
 		tc.TraefikOverride = t.TraefikOverride
 		tc.BasicAuthUser = t.BasicAuthUser
-		tc.BasicAuthHash = t.BasicAuthHash
+		tc.BasicAuthPassword = t.BasicAuthPassword
 		tc.Command = t.Command
 		tc.User = t.User
 		tc.ShmSizeMB = t.ShmSizeMB

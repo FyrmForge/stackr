@@ -427,11 +427,11 @@ type Tile struct {
 	NodeGroup string `db:"node_group"`
 
 	// Proxy/routing extras rendered into the tile's Traefik config.
-	BasicAuthUser   string `db:"basic_auth_user"`  // "" = no basic auth
-	BasicAuthHash   string `db:"basic_auth_hash"`  // bcrypt hash for BasicAuthUser
-	SecHeaders      bool   `db:"sec_headers"`      // HSTS + nosniff + frame-deny preset
-	PublishedPorts  string `db:"published_ports"`  // "host:container[/udp]" per line, applied at deploy
-	TraefikOverride string `db:"traefik_override"` // raw dynamic config, replaces the generated file
+	BasicAuthUser     string `db:"basic_auth_user"`     // "" = no basic auth
+	BasicAuthPassword string `db:"basic_auth_password"` // plain or a ${{ }} reference; proxy.WriteApp hashes it
+	SecHeaders        bool   `db:"sec_headers"`         // HSTS + nosniff + frame-deny preset
+	PublishedPorts    string `db:"published_ports"`     // "host:container[/udp]" per line, applied at deploy
+	TraefikOverride   string `db:"traefik_override"`    // raw dynamic config, replaces the generated file
 
 	CreatedAt time.Time `db:"created_at"`
 	UpdatedAt time.Time `db:"updated_at"`

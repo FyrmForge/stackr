@@ -1029,7 +1029,11 @@ func (h *handler) SaveSettings(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	p.Settings = settings.Merge(settings.Parse(p.Settings), vals).JSON()
+	next := settings.Merge(settings.Parse(p.Settings), vals)
+	if err := next.Check(); err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+	}
+	p.Settings = next.JSON()
 	if err := h.store.UpdateStack(ctx, p); err != nil {
 		return err
 	}
@@ -1039,7 +1043,7 @@ func (h *handler) SaveSettings(c echo.Context) error {
 }
 
 // resyncProxy re-renders every app's traefik config after a settings save:
-// the cascade feeds the rendered routes (protect_auto_domains), which are
+// the cascade feeds the rendered routes (protect), which are
 // otherwise only rewritten on domain changes.
 func (h *handler) resyncProxy(ctx context.Context) {
 	if h.px == nil {
@@ -1786,7 +1790,11 @@ func (h *handler) SettingsGeneral(c echo.Context) error {
 	// server and the stack, so it is part of that.
 	ctx := c.Request().Context()
 	res := settings.ForOrg(ctx, h.store, p.OrgID)
-	return respond.HTML(c, http.StatusOK, stackGeneralPage(c, p, res, settings.Levels(ctx, h.store, "", p.ID, ""), moveTargets))
+	levels, err := settings.Levels(ctx, h.store, "", p.ID, "")
+	if err != nil {
+		return err
+	}
+	return respond.HTML(c, http.StatusOK, stackGeneralPage(c, p, res, levels, moveTargets))
 }
 
 // GET /:org/:stack/settings/config
@@ -1875,6 +1883,19 @@ func (h *handler) renderStackVars(c echo.Context, p *repo.Stack) error {
 		cfg.PanelURL = stackURL(p) + "/settings/variables/panel"
 		return respond.HTML(c, http.StatusOK, stackVarsPanel(c, p, filterVarsClass(vars, class), cfg))
 	}
+	cp, err := h.store.LatestSettledConfigPlan(ctx, p.ID)
+	if err != nil {
+		return err
+	}
+	orgVars, err := h.store.ListVariables(ctx, repo.OwnerOrg, p.OrgID)
+	if err != nil {
+		return err
+	}
+	envVars, err := h.envVariables(ctx, p.ID)
+	if err != nil {
+		return err
+	}
+	cfg.Unset = unsetSecrets(cp, vars, orgVars, envVars)
 	if surface == surfaceEditor {
 		return respond.HTML(c, http.StatusOK, components.VarsEditor(c, vars, cfg))
 	}
@@ -1943,6 +1964,73 @@ func blankSecrets(vars []repo.Variable) {
 			vars[i].Value = ""
 		}
 	}
+}
+
+// envVariables is every environment of the stack and the variables set on it,
+// keyed by environment id. An environment with none still gets an entry: it is
+// exactly the one that leaves a stack-declared secret unset.
+func (h *handler) envVariables(ctx context.Context, stackID string) (map[string][]repo.Variable, error) {
+	envs, err := h.store.ListEnvironmentsByStack(ctx, stackID)
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string][]repo.Variable, len(envs))
+	for _, e := range envs {
+		vars, err := h.store.ListVariables(ctx, repo.OwnerEnv, e.ID)
+		if err != nil {
+			return nil, err
+		}
+		out[e.ID] = vars
+	}
+	return out, nil
+}
+
+// unsetSecrets is the stack-scope values the last settled plan found declared
+// with no value and nobody has supplied. A stack with no config file has no
+// plan, and so no rows.
+//
+// A stack-declared secret may be valued per environment instead: varref
+// resolves the consumer's env row before the stack one, so a name set in every
+// environment is set, and one missing from any environment is not. byEnv is
+// every environment of the stack, including those with no variables at all.
+func unsetSecrets(cp *repo.ConfigPlan, stackVars, orgVars []repo.Variable, byEnv map[string][]repo.Variable) []stackconf.Input {
+	if cp == nil {
+		return nil
+	}
+	var plan struct {
+		Inputs []stackconf.Input `json:"inputs"`
+	}
+	if json.Unmarshal([]byte(cp.Plan), &plan) != nil {
+		return nil
+	}
+	have := map[string]bool{}
+	for _, vars := range [][]repo.Variable{stackVars, orgVars} {
+		for _, v := range vars {
+			have[v.Name] = true
+		}
+	}
+	// A name counts as covered per env only when every environment has it.
+	everyEnv := map[string]int{}
+	for _, vars := range byEnv {
+		seen := map[string]bool{}
+		for _, v := range vars {
+			if !seen[v.Name] {
+				seen[v.Name] = true
+				everyEnv[v.Name]++
+			}
+		}
+	}
+	var out []stackconf.Input
+	for _, in := range plan.Inputs {
+		if in.Scope != "stack" || have[in.Name] {
+			continue
+		}
+		if len(byEnv) > 0 && everyEnv[in.Name] == len(byEnv) {
+			continue
+		}
+		out = append(out, in)
+	}
+	return out
 }
 
 // varSecret reports whether the named row is a secret, so an edit round trip
@@ -2164,7 +2252,11 @@ func (h *handler) renderEnvVars(c echo.Context, p *repo.Stack, env *repo.Environ
 	}
 	// Resolved without the environment's own level: what it inherits.
 	res := settings.ForStack(ctx, h.store, p.ID)
-	return respond.HTML(c, http.StatusOK, envSettingsPage(c, p, env, res, settings.Levels(ctx, h.store, "", "", env.ID), len(tiles), only || len(envs) == 1, vars, cfg, events))
+	levels, err := settings.Levels(ctx, h.store, "", "", env.ID)
+	if err != nil {
+		return err
+	}
+	return respond.HTML(c, http.StatusOK, envSettingsPage(c, p, env, res, levels, len(tiles), only || len(envs) == 1, vars, cfg, events))
 }
 
 // GET /:org/:stack/settings/pr
@@ -2463,7 +2555,11 @@ func (h *handler) SaveEnvSettings(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	env.Settings = settings.Merge(settings.Parse(env.Settings), vals).JSON()
+	next := settings.Merge(settings.Parse(env.Settings), vals)
+	if err := next.Check(); err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+	}
+	env.Settings = next.JSON()
 	if err := h.store.UpdateEnvironment(ctx, env); err != nil {
 		return err
 	}

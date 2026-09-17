@@ -319,7 +319,7 @@ CREATE TABLE tiles (
     updated_at         DATETIME  NOT NULL DEFAULT CURRENT_TIMESTAMP,
     connector_id       TEXT      NOT NULL DEFAULT '',
     basic_auth_user    TEXT      NOT NULL DEFAULT '',
-    basic_auth_hash    TEXT      NOT NULL DEFAULT '',
+    basic_auth_password TEXT     NOT NULL DEFAULT '',
     sec_headers        INTEGER   NOT NULL DEFAULT 0,
     published_ports    TEXT      NOT NULL DEFAULT '',
     traefik_override   TEXT      NOT NULL DEFAULT '',

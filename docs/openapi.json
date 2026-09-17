@@ -8841,7 +8841,7 @@
           "backup": {
             "$ref": "#/components/schemas/StackconfBackupConf"
           },
-          "basic_auth_hash": {
+          "basic_auth_password": {
             "type": "string"
           },
           "basic_auth_user": {

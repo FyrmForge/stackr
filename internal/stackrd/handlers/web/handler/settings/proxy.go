@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
-	"net"
 	"net/http"
 	"sort"
 	"strings"
@@ -14,6 +13,7 @@ import (
 	"github.com/labstack/echo/v4"
 	yaml "go.yaml.in/yaml/v3"
 
+	"github.com/FyrmForge/stackr/internal/netaddr"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 )
 
@@ -72,10 +72,11 @@ func (h *handler) SaveTrustedProxies(c echo.Context) error {
 		if line == "" {
 			continue
 		}
-		if _, _, err := net.ParseCIDR(line); err != nil {
-			return echo.NewHTTPError(http.StatusBadRequest, "not a CIDR: "+line)
+		cidr, err := netaddr.ParseTrusted(line)
+		if err != nil {
+			return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 		}
-		lines = append(lines, line)
+		lines = append(lines, cidr)
 	}
 	trustCF := ""
 	if c.FormValue("trust_cloudflare") == "1" {

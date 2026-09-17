@@ -123,3 +123,28 @@ func TestCountStacksAwaitingPlan(t *testing.T) {
 	n, _ = store.CountStacksAwaitingPlan(ctx, seed.Org.ID)
 	require.Equal(t, 2, n, "a fresh error plan puts the stack back in")
 }
+
+// The Variables panel reads declared-but-unset secrets off the newest plan
+// that says how the stack runs now. A pending or rejected plan is a proposal,
+// not that.
+func TestLatestSettledConfigPlan(t *testing.T) {
+	ctx := context.Background()
+	store := testdb.New(t)
+	seed := testdb.SeedStack(t, store, true)
+
+	got, err := store.LatestSettledConfigPlan(ctx, seed.Stack.ID)
+	require.NoError(t, err)
+	require.Nil(t, got, "no plans yet")
+
+	now := time.Now().UTC()
+	for _, p := range []struct{ id, status string }{
+		{"old-applied", "applied"}, {"clean", "clean"}, {"pending", "pending"}, {"rejected", "rejected"},
+	} {
+		require.NoError(t, store.CreateConfigPlan(ctx, &repo.ConfigPlan{ID: p.id, StackID: seed.Stack.ID,
+			Status: p.status, CreatedAt: now}))
+	}
+	got, err = store.LatestSettledConfigPlan(ctx, seed.Stack.ID)
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	require.Equal(t, "clean", got.ID)
+}

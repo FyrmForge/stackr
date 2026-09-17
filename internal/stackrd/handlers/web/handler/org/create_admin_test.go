@@ -31,7 +31,7 @@ func TestCreateOrgIsAdminOnly(t *testing.T) {
 
 	seed := testdb.SeedStack(t, s, false)
 	orgs := []repo.Org{*seed.Org}
-	h := NewHandler(s, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	h := NewHandler(s, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 
 	before, err := s.ListOrgs(ctx)
 	require.NoError(t, err)

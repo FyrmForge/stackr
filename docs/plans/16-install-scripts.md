@@ -2,8 +2,8 @@
 
 Status: `deploy-test.sh` and `wipe-test.sh` implemented and exercised on the
 test box 2026-09-03. `install.sh` written the same day and verified on the rig
-2026-09-16 against the published v0.1.1 images (plan 43). Two decisions still
-open, see Not done.
+2026-09-16 against the published v0.1.1 images (plan 43). The two open
+decisions were made 2026-09-17, see Decided 2026-09-17.
 
 ## Where this came from
 
@@ -159,11 +159,62 @@ and a day of repeated wipes burns that.
 
 ## Not done
 
-- A `curl | sh` bootstrap. It is the shape the world expects and also the shape
-  that runs an unreviewed script as root. Undecided.
-- Moving `BASE_URL`/`ACME_EMAIL` into the `settings` table and the setup wizard.
+- Moving `BASE_URL`/`ACME_EMAIL` into the `settings` table and the setup
+  wizard. Decided against 2026-09-17, see below.
 - Keeping a systemd/binary install path.
 - Uninstalling Docker or Tailscale in the wipe. Those are the floor.
+
+## Decided 2026-09-17
+
+### `curl | bash` install: yes
+
+Built 2026-09-17. The body is one `{ }` block rather than `main()`, same
+effect. A truncated download was checked to run nothing.
+
+Tested 2026-09-17 in a privileged docker:dind box (the rig has no passwordless
+sudo, and the local libvirt VM had no IPv4 route): `cat install.sh | bash -s --
+--version 0.3.0` with no terminal refuses with the ssh -t message; with a
+terminal it asks every question, installs v0.3.0 and the panel answers on
+8080. The real `releases/latest/download` URL is untested until a release
+carries the asset.
+
+Rig, 2026-09-17: wiped both nodes, then `cat install.sh | sudo bash -s --
+--version 0.3.0` over `ssh -tt` on the manager, TLS on. Panel came up on
+https://stackr-test.vulpe.dev with a Let's Encrypt certificate. This found a
+bug older than this change: `ask acme_email` calls `valid_acme_email`, which
+did not exist (`valid_email`), so every TLS install looped on the email
+question. Renamed.
+
+The one-liner is the shape people expect. The "download, read, run" form is
+documented next to it for anyone who wants to read it first.
+
+Touch points:
+
+- `.github/workflows/release.yml`: after the release job, upload
+  `scripts/install.sh` as a release asset (`gh release upload
+  v$VERSION scripts/install.sh`). The one-liner is then
+  `curl -fsSL https://github.com/FyrmForge/stackr/releases/latest/download/install.sh | sudo bash`.
+  Needs the repo public, or the URL 404s.
+- `scripts/install.sh`:
+  - `ask()` and `yesno()` read from `/dev/tty`, not stdin. Under a pipe
+    stdin is the script itself. Fail clearly when there is no tty.
+  - Wrap the body in `main() { ... }; main "$@"`, so a download cut off
+    mid-stream runs nothing.
+  - `--version` still works: `| sudo bash -s -- --version 0.1.4`.
+- `docs/host-setup.md`: both install forms.
+
+Test: run the one-liner on a wiped rig box (`wipe-test.sh`), answer the
+prompts, panel comes up.
+
+### `BASE_URL` / `ACME_EMAIL` stay in env
+
+They stay what `install.sh` asks for, in the service env, not the
+`settings` table: a saved typo in the hostname would lock the operator out of
+the panel it was typed into.
+
+A `stackr host set base-url|acme-email` command was built, rig-tested and then
+dropped the same day: not wanted. Changing either after install is a
+`docker service update --env-add` by hand, or a reinstall.
 
 ## Noted while deciding, out of scope here
 

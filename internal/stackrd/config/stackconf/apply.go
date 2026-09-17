@@ -928,9 +928,11 @@ func (a Applier) execute(ctx context.Context, stack *repo.Stack, r *Resolved, p 
 	// The stack's own rung of the defaults cascade. Declaring nothing leaves
 	// the panel's overrides alone; declaring something replaces them, because
 	// the file owns what it declares.
+	settingsChanged := false
 	if !r.Defaults.Empty() && opts.OnlyEnv == "" {
 		if want := r.Defaults.SettingsJSON(); stack.Settings != want {
 			stack.Settings = want
+			settingsChanged = true
 			warn("stack defaults", nil, store.UpdateStack(ctx, stack))
 		}
 	}
@@ -954,6 +956,7 @@ func (a Applier) execute(ctx context.Context, stack *repo.Stack, r *Resolved, p 
 			wantSettings = re.Defaults.SettingsJSON()
 		}
 		if env.Color != re.Color || env.Position != i || env.ApplyPolicy != re.ApplyPolicy || env.Settings != wantSettings {
+			settingsChanged = settingsChanged || env.Settings != wantSettings
 			env.Color = re.Color
 			env.Position = i
 			env.ApplyPolicy = re.ApplyPolicy
@@ -961,6 +964,11 @@ func (a Applier) execute(ctx context.Context, stack *repo.Stack, r *Resolved, p 
 			warn("env settings", nil, store.UpdateEnvironment(ctx, env))
 		}
 		warn("declared overrides", nil, a.syncDeclared(ctx, env, re))
+	}
+	// Protection feeds the rendered routes, which a settings-only change
+	// would otherwise leave as they were.
+	if settingsChanged && a.Ops.PX != nil {
+		warn("proxy resync", nil, a.Ops.PX.Resync(ctx))
 	}
 	// Second generation pass: the pre-gate pass could not mint for envs that
 	// did not exist yet. Idempotent, an existing value is never touched.
@@ -1435,11 +1443,11 @@ func (a Applier) updateTile(ctx context.Context, stack *repo.Stack, env *repo.En
 	}
 	cron = t.Kind == "cron" && (fields["schedule"] || fields["command"] || fields["source"] || fields["timeout_minutes"])
 
-	// Proxy-only changes (domains, headers) rewrite the route; anything else
+	// Proxy-only changes (domains, headers, basic auth) rewrite the route; anything else
 	// on a service rebuilds it.
 	proxyOnly := true
 	for f := range fields {
-		if f != "security_headers" && !strings.HasPrefix(f, "domain ") && !strings.HasPrefix(f, "domain +") && !strings.HasPrefix(f, "domain -") {
+		if f != "security_headers" && f != "basic_auth_user" && f != "basic_auth_password" && !strings.HasPrefix(f, "domain ") && !strings.HasPrefix(f, "domain +") && !strings.HasPrefix(f, "domain -") {
 			proxyOnly = false
 		}
 	}
@@ -1727,7 +1735,7 @@ func applyTileConf(t *repo.Tile, tc TileConf, stack *repo.Stack, opts DiffOpts) 
 		t.PublishedPorts = tc.PublishedPorts
 		t.TraefikOverride = tc.TraefikOverride
 		t.BasicAuthUser = tc.BasicAuthUser
-		t.BasicAuthHash = tc.BasicAuthHash
+		t.BasicAuthPassword = tc.BasicAuthPassword
 		t.Command = tc.Command
 		t.User = tc.User
 		t.ShmSizeMB = tc.ShmSizeMB

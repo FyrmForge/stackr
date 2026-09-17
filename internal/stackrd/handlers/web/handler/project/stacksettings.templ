@@ -85,6 +85,7 @@ templ stackGeneralPage(c echo.Context, p *repo.Stack, res settings.Resolved, lev
 					<input type="number" name="mem_limit_mb" value={ intPtr(ps.MemLimitMB) } placeholder="inherit" min="0" class="input"/>
 					@form.Inherited(limitLabel(res.MemLimitMB == 0, strconv.Itoa(res.MemLimitMB)+" MB"), srcMem)
 				}
+				@form.ProtectFields(ps, settings.Above(levels, "stack"), false)
 				@form.Save("")
 			}
 		}
@@ -508,6 +509,7 @@ templ envSettingsPage(c echo.Context, p *repo.Stack, e *repo.Environment, res se
 						<input type="number" name="mem_limit_mb" value={ intPtr(es.MemLimitMB) } placeholder="inherit" min="0" class="input"/>
 						@form.Inherited(limitLabel(res.MemLimitMB == 0, strconv.Itoa(res.MemLimitMB)+" MB"), srcMem)
 					}
+					@form.ProtectFields(es, settings.Above(levels, "env"), false)
 					@form.Save("")
 				}
 			}

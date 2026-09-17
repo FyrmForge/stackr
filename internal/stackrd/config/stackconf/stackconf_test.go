@@ -341,3 +341,24 @@ func TestReplicasAgainstVolumes(t *testing.T) {
 		t.Fatal("a negative replica count was accepted")
 	}
 }
+
+// A config file that sets a protect user with no password would lock every
+// URL below that level behind a password nobody has. The panel's settings
+// forms refuse it; SettingsJSON bypasses them, so Parse has to.
+func TestParseRefusesHalfAProtectPair(t *testing.T) {
+	const head = "version: 1\nstack: s\n"
+	_, err := Parse([]byte(head + "defaults:\n  protect: true\n  protect_user: admin\n"))
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "password")
+
+	_, err = Parse([]byte(head + "defaults:\n  protect: true\n  protect_user: admin\n  protect_password: hunter2\n"))
+	require.NoError(t, err)
+
+	// Credentials inherited from the org or server level are fine.
+	_, err = Parse([]byte(head + "defaults:\n  protect: true\n"))
+	require.NoError(t, err)
+
+	_, err = Parse([]byte(head + "environments:\n  prod:\n    defaults:\n      protect_password: hunter2\n"))
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "prod")
+}

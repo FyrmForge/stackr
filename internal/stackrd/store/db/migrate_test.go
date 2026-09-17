@@ -46,7 +46,7 @@ var squashedColumns = map[string][]string{
 	"provisions":    {"public", "on_remove"},
 	"stacks":        {"config_branch", "config_connector_id", "config_path", "config_repo"},
 	"tiles": {
-		"attached_tile_id", "basic_auth_hash", "basic_auth_user", "connector_id",
+		"attached_tile_id", "basic_auth_password", "basic_auth_user", "connector_id",
 		"endpoint_port_var", "endpoint_protocol", "max_size_mb", "mount_path",
 		"published_ports", "scope_id", "scope_kind", "sec_headers",
 		"traefik_override", "volume_name", "watch_paths",

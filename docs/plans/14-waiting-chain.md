@@ -1,6 +1,7 @@
 # Plan: unset values, the whole chain
 
-Status: implemented 2026-09-03. The secrets-panel question under Open is still open.
+Status: implemented 2026-09-03. Both open points decided 2026-09-17; the
+not-set row built the same day and verified on the rig.
 
 Working rules: discuss first, one point at a time, no code without a go, no
 git writes, no edits to `*_templ.go` or `output.css`, terse UI copy.
@@ -110,11 +111,57 @@ neither. The input's `Blocked` is `[production/web production/worker]`.
 Test: `waiting_test.go`, a tile whose dependency row is `waiting:X` parks as
 `waiting:X` without the resolver being reached.
 
-## Open
+## Decided 2026-09-17
 
-- **Secrets panel.** An unset declared secret has no row, so the env
-  secrets panel does not list it (seen on the test box: `SESSION_SECRET`
-  shows, `SMTP_PASSWORD` does not). Showing it as a "not set" row means
-  `setVarNames` has to treat an empty value as unset. Not decided.
-- **Nested plans.** Org-scope inputs still cannot name their readers. Same
-  parking lot as before.
+- **Nested plans: left as is.** Org-scope input rows carry no blocked list.
+  Each stack's own plan shows it once the stack exists. Building it on the
+  org plan would mean fetching every stack's repo during an org plan.
+- **Secrets panel: show a "not set" row.** A declared secret with no value
+  gets a red row in the stack Variables panel, with a Set box. Plan below.
+
+## Plan: the not-set row
+
+Built 2026-09-17. Differences from below:
+
+- `LatestSettledConfigPlan` reads the newest `applied` **or `clean`** plan.
+  A clean plan never has inputs (an input row makes a plan non-empty), so it
+  correctly says nothing is missing any more.
+- The filter drops names set at the stack or the org. An env-only value for
+  a per-env secret still shows as not set until the next plan settles.
+- Tested as a unit (`handler/project/unset_test.go`) and a store test
+  (`TestLatestSettledConfigPlan`) instead of a handler render test. Checked
+  in the browser: row renders, Set opens the edit row, saving replaces it.
+- Rig, 2026-09-17: `test-org/stackr-test` declares `SMTP_PASSWORD`. No row
+  while its plan was pending; after the apply the row showed, and Set with
+  Generate replaced it with a normal secret.
+
+### Where the declared names come from (decided 2026-09-17: A)
+
+The panel has no config file in hand. Two store-only sources:
+
+- **A. The last applied stack plan.** `repo.ConfigPlan.Plan` is the JSON
+  `stackconf.Plan`, which already has `Inputs` (name, scope, secret,
+  required, blocked). Read the newest `applied` row, drop names that now
+  have a value. Knows everything the plan page knew. A stack with no config
+  file has no plan and no rows, which is right.
+- **B. Waiting tiles.** Tiles parked as `waiting:NAME`
+  (`internal/stackrd/infra/deploy/waiting.go`). Always current, but it
+  misses a secret no tile has tried to deploy with yet, and cannot tell a
+  secret from a var or stack scope from org.
+
+### Touch points
+
+- `internal/stackrd/store/repo/repo.go` + `sqlite/stacks.go`: a
+  `LatestAppliedConfigPlan(ctx, stackID)`, unless `ListConfigPlans` plus a
+  status filter is enough (check before adding).
+- `internal/stackrd/handlers/web/handler/project/handler.go`
+  `renderStackVars`: load the plan, decode `Inputs`, keep `Scope == "stack"`
+  names missing from `vars`, pass them in `VarsEditCfg`.
+- `internal/stackrd/handlers/web/components/varsedit.templ`: in page mode,
+  render those names in the Secrets group as red "Not set" rows whose edit
+  opens the existing Set flow. Blocked tiles as one short line.
+- Org Variables panel (`handler/org/graph.go`): nothing, per the
+  nested-plans decision.
+
+Test: handler test, an applied plan with an input `SMTP_PASSWORD` and no
+variable renders a not-set row; setting the variable removes it.

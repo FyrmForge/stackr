@@ -300,6 +300,14 @@ func orgDefaultsPage(c echo.Context, o *repo.Org, own settings.Settings, res set
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
+					templ_7745c5c3_Err = form.ProtectFields(own, res, !canEdit).Render(ctx, templ_7745c5c3_Buffer)
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 23, " ")
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
 					if canEdit {
 						templ_7745c5c3_Err = form.Save("").Render(ctx, templ_7745c5c3_Buffer)
 						if templ_7745c5c3_Err != nil {

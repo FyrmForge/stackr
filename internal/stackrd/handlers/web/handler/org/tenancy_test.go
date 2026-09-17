@@ -75,7 +75,7 @@ func wantStatus(t *testing.T, what string, err error, code int) {
 func TestOrgCanvasWritesCheckThatOrgsRole(t *testing.T) {
 	s := testdb.New(t)
 	u, orgs, other, _, _ := ownerHereViewerThere(t, s)
-	h := NewHandler(s, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	h := NewHandler(s, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 
 	// Reading the canvas of an org they only view stays allowed.
 	c := asUser(t, http.MethodGet, "", u, orgs, "owner")
@@ -108,7 +108,7 @@ func TestOrgCanvasWritesCheckThatOrgsRole(t *testing.T) {
 func TestMoveStackChecksBothOrgs(t *testing.T) {
 	s := testdb.New(t)
 	u, orgs, other, otherStack, ownStack := ownerHereViewerThere(t, s)
-	h := NewHandler(s, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	h := NewHandler(s, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	owned := orgs[0]
 
 	// Pulling a stack out of the org they only view.

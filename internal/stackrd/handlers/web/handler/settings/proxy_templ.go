@@ -57,14 +57,14 @@ func proxyPage(c echo.Context, current, override string, names []string, entries
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "<textarea name=\"trusted_proxies\" aria-label=\"Trusted proxy CIDRs\" rows=\"4\" placeholder=\"one CIDR per line\" class=\"input font-mono text-xs w-full\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "<textarea name=\"trusted_proxies\" aria-label=\"Trusted proxy CIDRs\" rows=\"4\" placeholder=\"one address or range per line\" class=\"input font-mono text-xs w-full\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var3 string
 			templ_7745c5c3_Var3, templ_7745c5c3_Err = templ.JoinStringErrs(trusted)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/stackrd/handlers/web/handler/settings/proxy.templ`, Line: 18, Col: 160}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/stackrd/handlers/web/handler/settings/proxy.templ`, Line: 18, Col: 172}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var3))
 			if templ_7745c5c3_Err != nil {

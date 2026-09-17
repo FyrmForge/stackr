@@ -50,7 +50,7 @@ func TestAddMemberAlwaysInvites(t *testing.T) {
 	org := orgs[0]
 	joiner := &repo.User{ID: "u2", Email: "joiner@example.com", Name: "Joiner", Role: "user", Active: true, CreatedAt: now, UpdatedAt: now}
 	require.NoError(t, s.CreateUser(ctx, joiner))
-	h := NewHandler(s, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	h := NewHandler(s, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 
 	add := func(email string) error {
 		c := asUser(t, http.MethodPost, "email="+url.QueryEscape(email)+"&role=viewer", owner, orgs, "owner")
@@ -76,11 +76,17 @@ func TestAddMemberAlwaysInvites(t *testing.T) {
 }
 
 func TestSetupDomainPrefill(t *testing.T) {
+	s := testdb.New(t)
+	ctx := context.Background()
+	h := NewHandler(s, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	o := &repo.Org{Slug: "acme"}
 	components.BaseURL = ""
-	require.Equal(t, "", setupDomainPrefill(o))
-	components.BaseURL = "https://stackr.example.com"
-	require.Equal(t, "acme.stackr.example.com", setupDomainPrefill(o))
+	require.Equal(t, "", h.setupDomainPrefill(ctx, o))
+	components.BaseURL = "https://panel.example.com"
+	require.Equal(t, "acme.panel.example.com", h.setupDomainPrefill(ctx, o))
+	// The installer's root domain wins over the panel's own host.
+	require.NoError(t, s.CreateDomainResource(ctx, &repo.DomainResource{ID: "r1", Level: "instance", OwnerID: "local", Host: "example.com", CreatedAt: time.Now()}))
+	require.Equal(t, "acme.example.com", h.setupDomainPrefill(ctx, o))
 	components.BaseURL = ""
 }
 
@@ -135,7 +141,7 @@ func TestReinviteMintsANewToken(t *testing.T) {
 		CreatedAt: time.Now().UTC().AddDate(0, 0, -30), ExpiresAt: time.Now().UTC().AddDate(0, 0, -16),
 	}
 	require.NoError(t, s.CreateInvite(ctx, dead))
-	h := NewHandler(s, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	h := NewHandler(s, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 
 	c := asUser(t, http.MethodPost, "", owner, orgs, "owner")
 	c.SetParamNames("id", "inviteID")
@@ -168,7 +174,7 @@ func TestSetupDoneOnlyOnPost(t *testing.T) {
 	org.SetupDoneAt = nil
 	require.NoError(t, s.UpdateOrg(ctx, &org))
 	orgs[0] = org
-	h := NewHandler(s, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	h := NewHandler(s, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 
 	get := asUser(t, http.MethodGet, "", u, orgs, "owner")
 	get.Set("csrf", "test-token") // the summary carries the Finish form
@@ -213,7 +219,7 @@ func TestSetupDoneCreatesDefaultDomain(t *testing.T) {
 		if seed != nil {
 			seed(t, s, &org)
 		}
-		h := NewHandler(s, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+		h := NewHandler(s, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 		c := asUser(t, http.MethodPost, "", u, orgs, "owner")
 		c.SetPath("/orgs/:slug/setup/done")
 		c.SetParamNames("slug")

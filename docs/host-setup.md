@@ -6,6 +6,70 @@ ships the app, not the host prep. `scripts/dev/wipe-test.sh` takes the same box
 back to a fresh install — containers, networks and data dir, not just the DB;
 a partial wipe leaves Traefik serving a config from before it.
 
+## Installing
+
+On a Docker host, as root:
+
+```
+curl -fsSL https://github.com/FyrmForge/stackr/releases/latest/download/install.sh | sudo bash
+```
+
+To read it first:
+
+```
+curl -fsSLO https://github.com/FyrmForge/stackr/releases/latest/download/install.sh
+less install.sh
+sudo bash install.sh
+```
+
+The script downloads `stackr-install` for your CPU from the same release,
+checks it against the release's `checksums.txt`, and runs it. The installer
+is a form: arrow keys or tab move between fields, and bad answers show under
+the field.
+
+A domain is required. Apps are reached by name through Traefik and so is the
+panel, so an install on a bare IP address is not offered.
+
+It asks for the root domain apps are named under (`example.com` gives
+`app.stack.org.example.com`), the panel hostname (default `stkr.example.com`),
+whether the box is behind Cloudflare, the IP address of any other proxy in
+front of it (`192.168.1.100` or a range like `10.0.0.0/8`), whether HTTPS is
+on, the ports, and with HTTPS the Let's Encrypt email.
+
+HTTPS off is for a name the Let's Encrypt challenge cannot reach (a LAN or
+tailnet name), or when something in front already terminates HTTPS. The panel
+and apps then serve plain HTTP and Traefik takes no port 443.
+
+DNS needs the panel host and `*.<root>`. Before installing, the summary warns
+when either does not resolve yet; you can install anyway and add them after.
+The root and proxy answers are copied into the panel on first boot; change them
+there afterwards (the server page for the domain, Admin, Proxy for the rest).
+
+`--dry-run` shows the form and prints what it would run without changing
+anything; it needs no root and no docker:
+
+```
+curl -fsSL https://github.com/FyrmForge/stackr/releases/latest/download/install.sh | bash -s -- --dry-run
+```
+
+Every question has a flag, and `--yes` installs from the flags with no form
+(`--help` lists them):
+
+```
+curl -fsSL .../install.sh | sudo bash -s -- --yes \
+  --domain example.com --proxy 192.168.1.100 --email ops@example.com
+```
+
+Data lives in `/var/lib/stackr`; `STACKR_DATA_DIR=/srv/stackr` (through
+`sudo STACKR_DATA_DIR=... bash`) puts it elsewhere.
+
+`--version X.Y.Z` pins a release (`| sudo bash -s -- --version X.Y.Z` when
+piped). Without `--yes` the form needs a terminal, so run it from an
+interactive shell (`ssh -t` for a remote one).
+
+To build the installer yourself: `make installer`, then
+`sudo bin/stackr-install --version X.Y.Z`.
+
 ## Traffic between nodes is not encrypted
 
 The swarm overlay stackr creates is plain VXLAN. Everything one node sends

@@ -95,6 +95,9 @@ type Store interface {
 	CreateConfigPlan(ctx context.Context, p *ConfigPlan) error
 	GetConfigPlan(ctx context.Context, id string) (*ConfigPlan, error)
 	LatestConfigPlan(ctx context.Context, stackID string) (*ConfigPlan, error)
+	// LatestSettledConfigPlan is the newest plan that describes the stack as it
+	// runs: applied, or clean (nothing to apply). Nil if none.
+	LatestSettledConfigPlan(ctx context.Context, stackID string) (*ConfigPlan, error)
 	CountStacksAwaitingPlan(ctx context.Context, orgID string) (int, error)
 	ListConfigPlans(ctx context.Context, stackID string, limit int) ([]ConfigPlan, error)
 	SetConfigPlanStatus(ctx context.Context, id, status string) error

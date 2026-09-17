@@ -13,7 +13,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/stackrd/handlers/web/components/form"
 )
 
-templ serverPage(c echo.Context, sv *repo.Server, node *runtime.Node, here []runtime.NodeTaskInfo, groups []string, ping []components.TimePoint, cookieDomain string, instanceBase string, domainRes []repo.DomainResource, rangeKey string, cpu, mem, disk, rx, tx []components.TimePoint, storages []repo.Storage, spaths map[string][]repo.StoragePath, nodes []runtime.Node) {
+templ serverPage(c echo.Context, sv *repo.Server, node *runtime.Node, here []runtime.NodeTaskInfo, groups []string, ping []components.TimePoint, domainRes []repo.DomainResource, rangeKey string, cpu, mem, disk, rx, tx []components.TimePoint, storages []repo.Storage, spaths map[string][]repo.StoragePath, nodes []runtime.Node) {
 	@components.Shell(c, sv.Name) {
 		<div class="mb-4">
 			<a href="/servers" class="text-sm text-rw-muted hover:text-rw-text transition-colors">&larr; servers</a>
@@ -217,7 +217,7 @@ templ serverPage(c echo.Context, sv *repo.Server, node *runtime.Node, here []run
 
 		<h2 class="text-sm font-semibold uppercase tracking-wide text-rw-faint mt-10 mb-4">Default settings</h2>
 		<p class="text-sm text-rw-muted mb-4">Defaults for everything on this server. Stacks and individual services can override them; empty = built-in default.</p>
-		@serverSettingsForm(c, sv, cookieDomain, instanceBase, nodes)
+		@serverSettingsForm(c, sv, nodes)
 		}
 	}
 }
@@ -411,14 +411,8 @@ templ statTile(label, value string) {
 	</div>
 }
 
-templ serverSettingsForm(c echo.Context, sv *repo.Server, cookieDomain string, instanceBase string, nodes []runtime.Node) {
+templ serverSettingsForm(c echo.Context, sv *repo.Server, nodes []runtime.Node) {
 	{{ s := settings.Parse(sv.Settings) }}
-	// Whether a browser would actually send the panel's session cookie to a
-	// generated preview hostname. If not, protecting them locks everyone out
-	// rather than gating them, so the form says so instead of finding out in
-	// production. instanceBase is the instance-level domain resource ("" =
-	// none configured).
-	{{ cookieCoversEnvDomain := CookieCovers(cookieDomain, instanceBase) }}
 	<form hx-post={ "/servers/" + sv.ID + "/settings" } class="space-y-4 max-w-xl">
 		@form.CSRFField(c)
 		<div>
@@ -473,26 +467,8 @@ templ serverSettingsForm(c echo.Context, sv *repo.Server, cookieDomain string, i
 				<label class="label">Concurrent volume moves</label>
 				<input type="number" name="volume_move_concurrency" value={ intOr(s.VolumeMoveConcurrency) } placeholder="2" min="0" class="input"/>
 			</div>
-			<div>
-				<label class="label">Preview URLs</label>
-				// An unchecked box submits nothing, and Merge only writes keys the
-				// form actually sent, without this the setting could be turned on
-				// and never off again.
-				<input type="hidden" name="protect_auto_domains" value="0"/>
-				<label class="flex items-center gap-2 text-sm text-rw-muted">
-					<input type="checkbox" name="protect_auto_domains" value="1" checked?={ s.ProtectAutoDomains != nil && *s.ProtectAutoDomains } class="accent-rw-accent"/>
-					Require a stackr login
-				</label>
-				<p class="settings-help">
-					Applies only to the generated per-environment hostnames above. Domains you attached by hand stay public.
-					if !cookieCoversEnvDomain {
-						<span class="text-rw-warn block mt-1">
-							This will lock everyone out as configured: the session cookie is scoped to this panel's own hostname, which is not a parent of the domain base, so browsers never send it to a preview URL. Move the panel onto a parent domain first.
-						</span>
-					}
-				</p>
-			</div>
 		</div>
+		@form.ProtectFields(s, settings.Resolve(), false)
 		<button type="submit" class="btn btn-primary">Save</button>
 	</form>
 }
