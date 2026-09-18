@@ -56,3 +56,6 @@ uploads/
 
 # Claude Design bundle, rebuilt by .design-sync/build.mjs
 ds-bundle/
+
+# QA round docs (per-run findings, not the recipe)
+docs/qa/rounds/

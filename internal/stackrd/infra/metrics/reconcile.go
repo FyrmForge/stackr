@@ -52,6 +52,17 @@ func reconcileStatus(t *repo.Tile, state, health string, hasContainer bool) (str
 		if running {
 			return "running", true
 		}
+	// A failed deploy writes "error" (infra/deploy/engine.go), and nothing
+	// clears it: a bad image tag leaves Swarm serving the previous task while
+	// the canvas reads Crashed for ever. The container is the truth here, same
+	// as every other case; the failed deployment row keeps the cause.
+	case "error":
+		if running {
+			if health == "unhealthy" {
+				return "unhealthy", true
+			}
+			return "running", true
+		}
 	}
 	return "", false
 }

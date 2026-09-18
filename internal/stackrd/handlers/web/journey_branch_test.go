@@ -107,12 +107,10 @@ func TestJourneyDiscardDraft(t *testing.T) {
 	summary := j.page("/orgs/" + slug + "/setup/done")
 	require.Contains(t, summary, "/orgs/"+slug+"/delete", "the summary is where Discard lives")
 
-	// Wrong name first: a delete that destroys things is not a mis-click away,
-	// and the browser disabling a button is not the guard, this is.
-	code, _ := j.post(summary, "/orgs/"+slug+"/delete", url.Values{"confirm": {"not-it"}})
-	require.Equal(t, 400, code, "the typed name has to match")
-
-	code, loc := j.post(summary, "/orgs/"+slug+"/delete", url.Values{"confirm": {slug}})
+	// Discard sends the hx-confirm dialog and nothing else, and a draft has
+	// nothing behind it to protect: asking for a typed slug on top made every
+	// Discard a 400 with the draft still there and nothing on screen.
+	code, loc := j.post(summary, "/orgs/"+slug+"/delete", url.Values{})
 	require.Equal(t, "/", loc, "discarding goes back to the canvas, code %d", code)
 
 	o, err := j.store.GetOrgBySlug(context.Background(), slug)
@@ -121,6 +119,22 @@ func TestJourneyDiscardDraft(t *testing.T) {
 
 	// And /setup still works with no orgs left at all.
 	j.page("/setup")
+}
+
+// The typed-name guard is still the guard everywhere it protects something: an
+// org past Finish holds stacks, people and secrets, and deletes from settings.
+func TestJourneyDeleteFinishedOrgNeedsTypedName(t *testing.T) {
+	j := newJourney(t)
+	j.register("owner@example.com", "Correct-Horse9")
+	slug := j.createOrg("Acme")
+	j.finishSetup(slug)
+
+	page := j.page("/orgs/" + slug + "/settings/general")
+	code, _ := j.post(page, "/orgs/"+slug+"/delete", url.Values{})
+	require.Equal(t, 400, code, "no confirm field, no delete")
+
+	code, _ = j.post(page, "/orgs/"+slug+"/delete", url.Values{"confirm": {"not-it"}})
+	require.Equal(t, 400, code, "the typed name has to match")
 }
 
 // The bug this wizard was rebuilt for, from the other end: an org nobody has

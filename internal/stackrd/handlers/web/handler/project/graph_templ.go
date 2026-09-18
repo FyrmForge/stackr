@@ -462,7 +462,7 @@ func graphPage(c echo.Context, p *repo.Stack, env *repo.Environment, envs []repo
 				SaveURL: "/envs/" + env.ID + "/graph/positions",
 				WSRoom:  "project:" + p.ID,
 				CSRF:    csrf(c),
-				Empty:   "No tiles in this environment yet.",
+				Empty:   emptyCanvasText(stagedCount),
 				Traffic: true,
 			}, g).Render(templ.WithChildren(ctx, templ_7745c5c3_Var19), templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
@@ -847,6 +847,15 @@ func csrf(c echo.Context) string {
 		return v
 	}
 	return ""
+}
+
+// emptyCanvasText: a created tile is staged, not drawn, so the plain empty
+// state contradicts the click that just happened.
+func emptyCanvasText(stagedCount int) string {
+	if stagedCount > 0 {
+		return "Nothing applied yet. Review the pending change."
+	}
+	return "No tiles in this environment yet."
 }
 
 var _ = templruntime.GeneratedTemplate

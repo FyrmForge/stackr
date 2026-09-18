@@ -143,7 +143,7 @@ func registerForm(c echo.Context, f RegisterForm, errors map[string]string) temp
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 8, "\" class=\"input\" hx-post=\"/register/validate/name\" hx-trigger=\"blur\" hx-swap=\"none\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 8, "\" class=\"input\" autocomplete=\"name\" hx-post=\"/register/validate/name\" hx-trigger=\"blur\" hx-swap=\"none\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -158,13 +158,13 @@ func registerForm(c echo.Context, f RegisterForm, errors map[string]string) temp
 		var templ_7745c5c3_Var7 string
 		templ_7745c5c3_Var7, templ_7745c5c3_Err = templ.JoinStringErrs(f.Email)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/stackrd/handlers/web/handler/auth/register/register.templ`, Line: 58, Col: 19}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/stackrd/handlers/web/handler/auth/register/register.templ`, Line: 59, Col: 19}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var7))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 10, "\" class=\"input\" hx-post=\"/register/validate/email\" hx-trigger=\"blur\" hx-swap=\"none\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 10, "\" class=\"input\" autocomplete=\"username\" hx-post=\"/register/validate/email\" hx-trigger=\"blur\" hx-swap=\"none\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -172,7 +172,7 @@ func registerForm(c echo.Context, f RegisterForm, errors map[string]string) temp
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 11, "</div><div class=\"mb-6\"><label for=\"password\" class=\"label\">Password</label> <input type=\"password\" id=\"password\" name=\"password\" class=\"input\" hx-post=\"/register/validate/password\" hx-trigger=\"blur\" hx-swap=\"none\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 11, "</div><div class=\"mb-6\"><label for=\"password\" class=\"label\">Password</label> <input type=\"password\" id=\"password\" name=\"password\" class=\"input\" autocomplete=\"new-password\" hx-post=\"/register/validate/password\" hx-trigger=\"blur\" hx-swap=\"none\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

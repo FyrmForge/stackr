@@ -172,8 +172,14 @@ func (h *handler) Delete(c echo.Context) error {
 	if unfinished {
 		back = "/orgs/" + o.Slug + "/setup/done"
 	}
-	if err := components.RequireConfirm(c, o.Slug); err != nil {
-		return err
+	// Typing a generated slug to throw away a draft is friction with nothing
+	// behind it, and the wizard's Discard has only hx-confirm to ask with. The
+	// stacks check below still refuses a draft whose config apply built
+	// something, and a finished org still has to be typed out.
+	if !unfinished {
+		if err := components.RequireConfirm(c, o.Slug); err != nil {
+			return err
+		}
 	}
 	stacks, err := h.store.ListStacksByOrg(ctx, o.ID)
 	if err != nil {

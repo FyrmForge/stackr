@@ -143,7 +143,7 @@ func loginForm(c echo.Context, f LoginForm, errors map[string]string) templ.Comp
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 8, "\" class=\"input\" hx-post=\"/login/validate/email\" hx-trigger=\"blur\" hx-swap=\"none\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 8, "\" class=\"input\" autocomplete=\"username\" hx-post=\"/login/validate/email\" hx-trigger=\"blur\" hx-swap=\"none\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -151,7 +151,7 @@ func loginForm(c echo.Context, f LoginForm, errors map[string]string) templ.Comp
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 9, "</div><div class=\"mb-6\"><label for=\"password\" class=\"label\">Password</label> <input type=\"password\" id=\"password\" name=\"password\" class=\"input\" hx-post=\"/login/validate/password\" hx-trigger=\"blur\" hx-swap=\"none\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 9, "</div><div class=\"mb-6\"><label for=\"password\" class=\"label\">Password</label> <input type=\"password\" id=\"password\" name=\"password\" class=\"input\" autocomplete=\"current-password\" hx-post=\"/login/validate/password\" hx-trigger=\"blur\" hx-swap=\"none\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

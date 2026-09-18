@@ -600,6 +600,7 @@ func (h *handler) CreateDomain(c echo.Context) error {
 		Path:          path,
 		ContainerPort: managedtiles.Engines[d.Engine].Port,
 		HTTPS:         c.FormValue("https") != "",
+		ForceHTTPS:    c.FormValue("https") != "",
 		CreatedAt:     time.Now().UTC(),
 	}
 	if err := h.store.CreateDomain(ctx, dom); err != nil {

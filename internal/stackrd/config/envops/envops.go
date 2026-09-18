@@ -447,9 +447,14 @@ func (o Ops) EnsureAutoDomain(ctx context.Context, env *repo.Environment, t *rep
 		Path:          "/",
 		ContainerPort: t.ContainerPort,
 		HTTPS:         true,
-		Auto:          true,
-		Position:      len(kept),
-		CreatedAt:     time.Now().UTC(),
+		// Same default as the API and as a config file with no force_https:
+		// serving TLS implies the bounce. Left false the row also diffs against
+		// its own serialization for ever, so every later plan carried a change
+		// that changed nothing.
+		ForceHTTPS: true,
+		Auto:       true,
+		Position:   len(kept),
+		CreatedAt:  time.Now().UTC(),
 	}
 	if err := o.Store.CreateDomain(ctx, d); err != nil {
 		return err

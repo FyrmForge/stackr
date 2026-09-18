@@ -73,7 +73,17 @@ func OrgContext(store repo.Store) echo.MiddlewareFunc {
 			if err != nil || len(orgs) == 0 {
 				return next(c)
 			}
+			// An unfinished draft is gated everywhere but its own wizard, so
+			// landing on one as the active org means every page bounces. Prefer
+			// a finished org; fall back to the first when they are all drafts,
+			// which is a fresh install mid-wizard.
 			active := orgs[0]
+			for _, o := range orgs {
+				if o.SetupDoneAt != nil {
+					active = o
+					break
+				}
+			}
 			if ck, err := c.Cookie(OrgCookie); err == nil {
 				for _, o := range orgs {
 					if o.ID == ck.Value {

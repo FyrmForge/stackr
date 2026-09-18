@@ -12,7 +12,6 @@ import (
 	"strings"
 	"time"
 
-
 	"github.com/FyrmForge/stackr/internal/stackrd/config/envops"
 	"github.com/FyrmForge/stackr/internal/stackrd/config/envutil"
 	"github.com/FyrmForge/stackr/internal/stackrd/config/staging"
@@ -1737,11 +1736,15 @@ func (h *handler) CreateDomain(c echo.Context) error {
 		Path:          path,
 		ContainerPort: port,
 		HTTPS:         c.FormValue("https") != "",
-		RedirectTo:    redirectTo,
-		Rule:          rule,
-		Priority:      priority,
-		Middlewares:   strings.Join(mws, "\n"),
-		CreatedAt:     time.Now().UTC(),
+		// No control for it on this form, so it follows https, the default
+		// everywhere else. False alongside HTTPS also leaves plain HTTP
+		// unredirected and makes every later plan carry a no-op change row.
+		ForceHTTPS:  c.FormValue("https") != "",
+		RedirectTo:  redirectTo,
+		Rule:        rule,
+		Priority:    priority,
+		Middlewares: strings.Join(mws, "\n"),
+		CreatedAt:   time.Now().UTC(),
 	}
 	if err := h.store.CreateDomain(ctx, d); err != nil {
 		return err

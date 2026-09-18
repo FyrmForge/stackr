@@ -95,7 +95,9 @@ answer is silent rather than an error.
 
 ### D. Onboarding and settings
 
-18. Fresh install wizard, registry, domain and TLS, the servers page
+18. Fresh install wizard, registry, domain and TLS, the servers page.
+    The whole first-boot chain has its own runbook, `docs/qa/onboarding.md`:
+    run that instead of expanding this item
     Fresh install, no org yet: the owning account can still POST under
     `/servers` (add node, drain, save a volume). The middleware used to
     answer "read-only access" here
@@ -367,7 +369,8 @@ recording every step where you have to guess what to do next. A guess is a
 finding even when the step works.
 
 1. **First run to first app online.** Fresh install, no org. Stop at the first
-   moment you would have to read documentation.
+   moment you would have to read documentation. Step by step in
+   `docs/qa/onboarding.md`.
 2. **My app is down, find out why.** Break a tile on purpose. Time how many
    clicks from the canvas to the log line that explains it.
 3. **Add a second server.** From the servers page to a tile running on the

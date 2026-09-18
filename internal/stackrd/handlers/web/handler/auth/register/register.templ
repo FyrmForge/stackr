@@ -43,6 +43,7 @@ templ registerForm(c echo.Context, f RegisterForm, errors map[string]string) {
 				name="name"
 				value={ f.Name }
 				class="input"
+				autocomplete="name"
 				hx-post="/register/validate/name"
 				hx-trigger="blur"
 				hx-swap="none"
@@ -57,6 +58,7 @@ templ registerForm(c echo.Context, f RegisterForm, errors map[string]string) {
 				name="email"
 				value={ f.Email }
 				class="input"
+				autocomplete="username"
 				hx-post="/register/validate/email"
 				hx-trigger="blur"
 				hx-swap="none"
@@ -70,6 +72,7 @@ templ registerForm(c echo.Context, f RegisterForm, errors map[string]string) {
 				id="password"
 				name="password"
 				class="input"
+				autocomplete="new-password"
 				hx-post="/register/validate/password"
 				hx-trigger="blur"
 				hx-swap="none"

@@ -42,6 +42,7 @@ templ loginForm(c echo.Context, f LoginForm, errors map[string]string) {
 				name="email"
 				value={ f.Email }
 				class="input"
+				autocomplete="username"
 				hx-post="/login/validate/email"
 				hx-trigger="blur"
 				hx-swap="none"
@@ -55,6 +56,7 @@ templ loginForm(c echo.Context, f LoginForm, errors map[string]string) {
 				id="password"
 				name="password"
 				class="input"
+				autocomplete="current-password"
 				hx-post="/login/validate/password"
 				hx-trigger="blur"
 				hx-swap="none"

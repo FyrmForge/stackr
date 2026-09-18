@@ -143,7 +143,33 @@ func (h *handler) APIKeys(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	return respond.HTML(c, http.StatusOK, apiKeysPage(c, keys))
+	return respond.HTML(c, http.StatusOK, apiKeysPage(c, keys, h.takeNewKey(c)))
+}
+
+// newKeyCookie carries a token just minted across the redirect to this page,
+// which renders it once with a copy button. It used to ride the flash, and a
+// flash is built to disappear on its own: miss it and the key is dead. Same
+// one-shot exposure as that was (HttpOnly, seconds, cleared on read), the
+// difference is that it waits on the page instead of on a timer.
+const newKeyCookie = "stackr_new_key"
+
+func (h *handler) setNewKey(c echo.Context, raw string) {
+	c.SetCookie(&http.Cookie{
+		Name: newKeyCookie, Value: raw, Path: "/account/apikeys", MaxAge: 60,
+		HttpOnly: true, Secure: c.Scheme() == "https", SameSite: http.SameSiteLaxMode,
+	})
+}
+
+func (h *handler) takeNewKey(c echo.Context) string {
+	ck, err := c.Cookie(newKeyCookie)
+	if err != nil || ck.Value == "" {
+		return ""
+	}
+	c.SetCookie(&http.Cookie{
+		Name: newKeyCookie, Path: "/account/apikeys", MaxAge: -1,
+		HttpOnly: true, Secure: c.Scheme() == "https", SameSite: http.SameSiteLaxMode,
+	})
+	return ck.Value
 }
 
 // myKeys returns the current user's API keys. Keys are user-scoped, so this
@@ -197,7 +223,8 @@ func (h *handler) CreateAPIKey(c echo.Context) error {
 	if err := h.store.CreateAPIKey(c.Request().Context(), k); err != nil {
 		return err
 	}
-	middleware.SetFlash(c, "API key created. Copy it now, it is not shown again: "+raw, middleware.FlashSuccess)
+	h.setNewKey(c, raw)
+	middleware.SetFlash(c, "API key created.", middleware.FlashSuccess)
 	return respond.Redirect(c, "/account/apikeys")
 }
 

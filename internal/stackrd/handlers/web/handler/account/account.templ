@@ -60,6 +60,10 @@ templ profilePage(c echo.Context, u *repo.User) {
 		}
 		@form.Section("Password", form.ScopeUser, "Changing your password does not sign out your other sessions.") {
 			@form.SettingsForm(c, "/account/password") {
+				// Password managers match a saved login by its username, and a
+				// password form without one is what Chrome warns about; it is
+				// not submitted, the session says who this is.
+				<input type="hidden" name="username" autocomplete="username" value={ u.Email }/>
 				@form.Field("Current password", "") {
 					<input type="password" name="current_password" required class="input" autocomplete="current-password"/>
 				}
@@ -75,8 +79,17 @@ templ profilePage(c echo.Context, u *repo.User) {
 	}
 }
 
-templ apiKeysPage(c echo.Context, keys []repo.APIKey) {
+templ apiKeysPage(c echo.Context, keys []repo.APIKey, newKey string) {
 	@page(c, "apikeys", "Programmatic access for the CLI and CI.") {
+		if newKey != "" {
+			<div class="panel px-4 py-3 mb-5 border-rw-success/40 bg-rw-success/5">
+				<p class="text-sm text-rw-text mb-2">Your new key. Copy it now, it is not shown again.</p>
+				<div class="flex items-center gap-2">
+					<code class="flex-1 min-w-0 truncate font-mono text-xs text-rw-accentHi">{ newKey }</code>
+					<button type="button" data-copy={ newKey } class="btn btn-ghost btn-sm">Copy</button>
+				</div>
+			</div>
+		}
 		@form.Section("Create a key", form.ScopeUser, "Use with the x-api-key header. The token is shown once, at creation.") {
 			@form.SettingsForm(c, "/account/apikeys") {
 				@form.Field("Key name", "Something that says where it is used, like ci or laptop.") {

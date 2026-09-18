@@ -91,6 +91,13 @@ templ setupBranchPage(c echo.Context) {
 				<span class="block mt-0.5 text-xs text-rw-muted">Name it, connect GitHub and add a domain, step by step.</span>
 			</button>
 		</form>
+		// The wizard is chromeless on purpose, so this page had no way out at
+		// all: no sidebar, no logout, and no Discard yet because nothing has
+		// been created. One link back to the root canvas is enough; on a fresh
+		// install it lands on its empty state, which carries its own create.
+		<div class="mt-6 text-center">
+			<a href="/" class="text-xs text-rw-faint hover:text-rw-text transition-colors">All organizations</a>
+		</div>
 	}
 }
 
@@ -401,11 +408,19 @@ templ setupDonePage(c echo.Context, o *repo.Org, done []setupItem) {
 			}
 		</ul>
 		if o.Name == setupDraftName {
-			// Nothing has named this org yet, and on this branch only the apply
-			// can: finishing here would leave an organization called
-			// "Untitled organization" living at a random slug forever.
-			<p class="text-sm text-rw-muted mb-4">This organization has no name yet. Its config file gives it one when the plan is applied.</p>
-			<a href={ templ.SafeURL("/orgs/" + o.Slug + "/setup/config") } class="btn btn-primary w-full">Back to the config file</a>
+			// Nothing has named this org yet: finishing here would leave an
+			// organization called "Untitled organization" living at a random
+			// slug forever. Which step fixes that depends on the branch, and
+			// the other branch's step does not exist to send anyone to: the
+			// config step on a UI draft redirects straight back to this page,
+			// so a single button here is a loop.
+			if o.SetupConfigBranch() {
+				<p class="text-sm text-rw-muted mb-4">This organization has no name yet. Its config file gives it one when the plan is applied.</p>
+				<a href={ templ.SafeURL("/orgs/" + o.Slug + "/setup/config") } class="btn btn-primary w-full">Back to the config file</a>
+			} else {
+				<p class="text-sm text-rw-muted mb-4">This organization has no name yet.</p>
+				<a href={ templ.SafeURL("/orgs/" + o.Slug + "/setup/name") } class="btn btn-primary w-full">Name it</a>
+			}
 		} else {
 			<form hx-post={ "/orgs/" + o.Slug + "/setup/done" }>
 				@form.CSRFField(c)

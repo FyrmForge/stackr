@@ -155,3 +155,26 @@ func TestSetupDomainPageManaged(t *testing.T) {
 	require.Contains(t, out, `name="host"`, "an unmanaged org is still asked for a domain")
 	require.NotContains(t, out, "managed by config")
 }
+
+// The summary used to pick its copy off the placeholder name alone and then
+// assume the config branch, so a by-hand draft got "Back to the config file",
+// a step that branch does not have: Setup redirects it to this page, and the
+// only button on the page led back to the page. Both branches, rendered.
+func TestSetupDonePageUnnamedDraftPerBranch(t *testing.T) {
+	render := func(mode string) string {
+		c := echo.New().NewContext(httptest.NewRequest("GET", "/", nil), httptest.NewRecorder())
+		c.Set("csrf", "test-token")
+		o := &repo.Org{ID: "o1", Name: setupDraftName, Slug: "org-6447f2", SetupMode: mode}
+		var buf bytes.Buffer
+		require.NoError(t, setupDonePage(c, o, nil).Render(context.Background(), &buf))
+		return buf.String()
+	}
+
+	ui := render("ui")
+	require.Contains(t, ui, "/orgs/org-6447f2/setup/name", "a by-hand draft is sent to the name step")
+	require.NotContains(t, ui, "/orgs/org-6447f2/setup/config", "that step is not on this branch")
+
+	cfg := render("config")
+	require.Contains(t, cfg, "/orgs/org-6447f2/setup/config", "the config branch keeps its own way back")
+	require.NotContains(t, cfg, "/orgs/org-6447f2/setup/name", "no name step on this branch")
+}

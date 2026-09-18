@@ -39,6 +39,13 @@ func TestReconcileStatus(t *testing.T) {
 		{"unhealthy no-checks recovers", repo.Tile{Status: "unhealthy"}, "running", "", true, "running", true},
 		{"unhealthy stays", repo.Tile{Status: "unhealthy"}, "running", "unhealthy", true, "", false},
 		{"unhealthy container gone", repo.Tile{Status: "unhealthy"}, "", "", false, "stopped", true},
+
+		// A failed deploy writes "error" and nothing else clears it: a bad
+		// image tag leaves swarm serving the old task while the canvas reads
+		// Crashed for ever.
+		{"error tile, container running", repo.Tile{Status: "error"}, "running", "", true, "running", true},
+		{"error tile, container unhealthy", repo.Tile{Status: "error"}, "running", "unhealthy", true, "unhealthy", true},
+		{"error tile, container gone", repo.Tile{Status: "error"}, "", "", false, "", false},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
