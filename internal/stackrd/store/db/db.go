@@ -21,11 +21,11 @@ func MigrateConfig() sqlite.MigrateConfig {
 	}
 }
 
-// Migrate brings the database to head, which since 2026-09-14 is one file:
-// 001_initial, squashed through the old 018. No adoption shim, so any database
-// at an older version starts again from empty. Safe because stackr has no
-// install anywhere but the test rig; the chain starts growing again at 002 the
-// day there is data that has to survive an upgrade.
+// Migrate brings the database to head. 001_initial is one file, squashed
+// through the old 018 on 2026-09-14, and frozen on 2026-09-18: the chain grows
+// at 002 from here on, forward-only and additive, and migrate_guard_test.go
+// enforces that. There is no adoption shim, so a database written before the
+// squash starts again from empty; nothing but the test rig ever held one.
 func Migrate(conn *sqlx.DB) error {
 	return sqlite.Migrate(conn, MigrateConfig())
 }

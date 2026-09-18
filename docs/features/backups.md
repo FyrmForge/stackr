@@ -24,28 +24,39 @@ Backup and restore for managed tiles (databases) and volumes, plus stackr itself
 Local-first storage with optional sync to remote targets, per-unit encryption,
 cascading settings, all routes authed and org-scoped.
 
+## The on-disk contract
+
+Frozen names. A restore, a self-upgrade and `scripts/restore.sh` all depend on
+them, so none of them changes quietly: if one ever has to change, it ships with
+a migration script in the same release.
+
+| thing | value | written by |
+|---|---|---|
+| data dir | `/var/lib/stackr` | `internal/installer/flags.go` (`STACKR_DATA_DIR` moves it); the daemon's own default is `./data` (`cmd/stackrd/main.go`) |
+| swarm service | `stackr` | `internal/installer/steps.go` (`serviceArgs`) |
+| panel archive members | `stackr.db`, `keys/master.key`, `VERSION` | `internal/stackrd/infra/backup` (`panelarchive_test.go` asserts all three); checked member by member in `scripts/restore.sh` |
+
+The service is `stackr`, not `stackr_panel`: the installer creates it with
+`docker service create`, not from a stack file, so there is no stack prefix.
+
 ## Model
 
 ### Backup modes (exactly two)
 
 | Mode | Applies to | How |
 |---|---|---|
-| Logical dump | postgres, mysql, mariadb, mongo | engine dump tool via `runtime.ExecStream`, streamed to store; DB stays up |
-| Volume tar | volume tiles, redis, s3/RustFS tiles | `tar -c` of the docker volume via the helper-container pattern (`internal/stackrd/infra/runtime/runtime.go` volume file ops) |
+| Logical dump | postgres | engine dump tool via `runtime.ExecStream`, streamed to store; DB stays up |
+| Volume tar | volume tiles, s3/RustFS tiles | `tar -c` of the docker volume via the helper-container pattern (`internal/stackrd/infra/runtime/runtime.go` volume file ops) |
 
 Pinned engine commands (consistency is in the flags — do not improvise):
 
 | Engine | Backup | Restore |
 |---|---|---|
 | postgres | `pg_dump --clean --if-exists` | `psql --single-transaction -v ON_ERROR_STOP=1` |
-| mysql | `mysqldump --single-transaction --routines --triggers --events` | `mysql` |
-| mariadb | `mariadb-dump --single-transaction --routines --triggers --events` | `mariadb` |
-| mongo | `mongodump --archive` | `mongorestore --archive --drop` |
 
 Tar-mode consistency:
 
-- **redis**: `BGSAVE`, poll `LASTSAVE` until complete, then tar. Never tar mid-write.
-- **other running engines / volumes**: per-tile toggle — **stop-then-tar** (brief
+- **running engines / volumes**: per-tile toggle — **stop-then-tar** (brief
   downtime, clean snapshot) or **live tar** (no downtime, crash-consistent only;
   labelled as such in the UI). Default: stop-then-tar for s3/RustFS tiles, live
   for plain volume tiles.
@@ -158,8 +169,8 @@ A manual restore cannot interleave with a scheduled backup on the same tile.
 
 ## Acceptance Criteria
 
-- [ ] Dump backup + restore for postgres/mysql/mariadb/mongo with the pinned flags
-- [ ] Tar backup + restore for volume tiles, redis (BGSAVE-gated), s3 tiles (stop-then-tar)
+- [ ] Dump backup + restore for postgres with the pinned flags
+- [ ] Tar backup + restore for volume tiles and s3 tiles (stop-then-tar)
 - [ ] Tar restore swaps volumes; live data survives a corrupt archive / wrong key
 - [ ] Local path primary store (default `/var/lib/stackr/backups`) with free-space guard; S3 primary alternative
 - [ ] Add-only sync to rsync-over-ssh and S3 targets, independent remote retention
@@ -178,8 +189,8 @@ A manual restore cannot interleave with a scheduled backup on the same tile.
   runner; age stream wrapper; checksum tee — extending the shipped
   `internal/stackrd/infra/backup`.
 - Engine dump/restore commands stay with the engines in
-  `internal/stackrd/infra/managedtiles` (redis gains tar-mode restore, s3
-  tiles gain tar-mode backup — via mode selection, not new engine commands).
+  `internal/stackrd/infra/managedtiles` (s3 tiles gain tar-mode backup — via
+  mode selection, not new engine commands).
 - New migration (shipped tables differ — see status header): `backup_settings`
   (scope-keyed cascade rows), sha256 + size columns on `backup_runs`,
   `backup_targets` (sync targets + per-target retention).
@@ -204,5 +215,5 @@ A manual restore cannot interleave with a scheduled backup on the same tile.
 - Unit: store impls (local/S3), age wrapper round-trip, cascade resolution,
   retention pruning (incl. never-prune-last-good), checksum verify, per-tile lock
 - E2E: backup+restore round-trip per engine against real containers; tar restore
-  volume-swap incl. corrupt-archive abort; redis BGSAVE gate; route auth audit;
+  volume-swap incl. corrupt-archive abort; route auth audit;
   `restore-system` from a scratch data dir

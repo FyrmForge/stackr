@@ -5,8 +5,8 @@ package managedtiles
 //
 // Fork is provision + copy. The provisioning half is CloneSlice's, unchanged,
 // everything new here is the copy half and the naming around it. The copy
-// itself never leaves the instance: postgres and mariadb pipe dump into
-// restore inside the container, s3 copies object-side on the server.
+// itself never leaves the instance: postgres pipes dump into restore inside
+// the container, s3 copies object-side on the server.
 
 import (
 	"context"

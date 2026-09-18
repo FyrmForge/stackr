@@ -45,7 +45,7 @@ secrets:                    # declared at stack level, valued per env — names,
 shared:                     # stack-scoped managed instances, shared by every env
   sharedpg:                 # lives in the stack's home, not in any env
     type: managed
-    engine: postgres        # postgres | mariadb | mongo | redis | s3
+    engine: postgres        # postgres | s3
     external_port: 25432    # publish on the host (omit = internal only)
     limits:
       cpu: 1.0

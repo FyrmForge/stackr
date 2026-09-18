@@ -24,8 +24,11 @@
   ```
 
 - No backwards compatibility, no data migrations for existing installs, no
-  upgrade paths. Break schemas freely; a test VM is wiped and reinstalled.
+  upgrade paths. Break APIs and config freely; a test VM is wiped and
+  reinstalled.
 - Do not raise "what about existing users" questions.
+- The one exception is the database schema: `001_initial` is frozen as of
+  2026-09-18. See Database below.
 
 ## Build & Test
 
@@ -424,6 +427,16 @@ Custom components via `@apply` in `frontend/css/input.css`:
 
 ## Database
 - Migrations in `internal/stackrd/store/db/migrations/` (sequential numbering)
+- **`001_initial` is frozen (2026-09-18).** A schema change is a new `002_*`
+  on top of it, never an edit to the baseline. Up to that date every change
+  edited the baseline and the rig got wiped; that is over, because the next
+  install may hold data nobody can recreate.
+- Migrations after the baseline are **additive only**: no `DROP`, no `RENAME`,
+  no `TRUNCATE`, no `DELETE FROM`. `migrate_guard_test.go` enforces it, and
+  pins the baseline's hash so an edit to `001_initial` fails the build. A deliberate drop needs
+  a `-- migration-guard: allow <reason>` line above the statement, and is
+  normally two releases: stop writing the column, remove it once no running
+  version reads it.
 - Use `sqlx` for queries in repo implementations
 - Migrations run during server startup via `db.Migrate(...)`
 - Store interface in `internal/stackrd/store/repo/repo.go`

@@ -1,6 +1,6 @@
 # Shared Infra Tiles
 
-One shared container (postgres, mariadb, s3, redis, …) serving many services:
+One shared container (postgres, s3, …) serving many services:
 stackr provisions a logical slice (database / bucket / keyspace) + creds per
 consumer instead of spinning up a container per service. Also covers shared
 singletons (grafana, analytics, loki) that need reachability, not slicing.
@@ -9,13 +9,13 @@ singletons (grafana, analytics, loki) that need reachability, not slicing.
 
 ### Two categories
 
-- **Provisionable instances** — today postgres, mariadb and s3; the live list
+- **Provisionable instances** — today postgres and s3; the live list
   is the entries in `managedtiles.Engines`
   (`internal/stackrd/infra/managedtiles`) carrying a `Provision` hook, not a
   list kept here. Each attached
   consumer gets its own logical slice + scoped creds. Stackr runs a
   provisioner on attach (CREATE DATABASE/USER with grants scoped to that db;
-  minio bucket + access key; redis ACL + key prefix or logical db index).
+  minio bucket + access key).
 - **Shared singletons** — grafana, umami, loki, etc. Ordinary service tiles at
   a shared scope. Attach = network + url secret only. No per-product API
   integrations (datasources, sites) — done by hand in the app's own UI.
@@ -120,8 +120,8 @@ Both levels:
    consumed): a "Shared" section on the stack page and an org infra canvas.
 3. **Config-as-code + PR envs. ✅ DONE** — shipped as `shared:` + slice tiles
    (`from:`), plan/apply, PR-env auto-provision + auto-drop on close.
-4. **More kinds + backups.** redis and mongo provisioners (postgres, s3 and
-   mariadb are done); per-logical-db
+4. **More kinds + backups.** More provisioners than postgres and s3, which
+   are the only engines stackr ships; per-logical-db
    backup schedules + restore; singleton attach (network + url secret, no
    provisioner).
 

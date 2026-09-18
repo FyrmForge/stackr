@@ -56,29 +56,6 @@
       watcher from the manager's copy, which can be a different digest from
       what the worker runs. Node calls; one-argument change once plan 35
       lands (docs/plans/35-cluster.md, "Not doing")
-- [ ] remove the mariadb, mongo and redis managed engines, and re-add them
-      only when there is capacity to test them properly. Step 0 of
-      docs/plans/35-cluster.md. They are half-built,
-      not deprecated: nothing has ever exercised them on the rig in ten QA
-      rounds. Removal is three entries out of the `Engines` map in
-      `infra/managedtiles/managedtiles.go`, deleting `engine_mariadb.go`, and
-      four tests that name them (`restorecmd_test.go`, two `fork_test.go`,
-      `config/varref/varref_test.go`). Everything else reads the map by key
-      and already handles a missing entry, and all five call sites that reach
-      a func field off an entry guard for absent or nil first. The unknown
-      engine error at `config/stackconf/stackconf.go:809` should say "not
-      supported", not "no longer supported". What each one needs on the way
-      back in:
-  - mariadb: the provisioner is already written and complete, provision,
-        drop, fork, dump, restore. It has simply never been run. Its dump
-        relies on `mariadb-dump` writing `DROP TABLE IF EXISTS`, which is what
-        keeps its restore from merging
-  - mongo: image and dump/restore only, no provisioner, so no slices
-  - redis: image and an RDB-copy dump only, no provisioner, and restore was
-        never wired. Also needs a licence decision: `redis:7` resolves to
-        7.4.x, which is RSALv2 + SSPLv1 and not open source. Valkey is the
-        BSD-3 fork and the likely replacement, but check whether its image
-        ships a `redis-server` symlink, since the engine's Cmd calls that name
 - [ ] **the panel attaches its own container to instance shared overlays and
       never detaches, and the attachment can take the instance service's own
       VIP address, which kills the overlay load balancer for that network.
