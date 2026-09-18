@@ -1,7 +1,14 @@
 # Plan: onboarding QA fixes
 
 Status: steps 1 to 9 built 2026-09-18, step 10 investigated and accepted.
-`make test`, `make lint`, `make templint` green. Not verified on the rig yet.
+`make test`, `make lint`, `make templint` green. Verified on the rig the same
+day, round doc `docs/qa/rounds/2026-09-18-onboarding.md`: steps 1, 2, 3, 6, 7,
+8, 9 held first time; steps 4 and 5 were incomplete (the profile form's hidden
+username field and the org cookie), both fixed and re-verified after a
+redeploy. Three findings from that round stay open and are not in this plan:
+a required secret that does not block the apply, a config path that saves a
+binding to a file that does not exist, and the real length of the boot
+certificate window (a minute, not ten seconds).
 
 Working rules: discuss first, one point at a time, no code without a go, no
 git writes, no edits to `*_templ.go` or `output.css`, terse UI copy.
@@ -162,12 +169,16 @@ The link shows unconditionally; on a fresh install it lands on the
 organizations empty state, which carries its own create action, so there is
 no dead end to guard against.
 
-### 10. A ten-second window after boot serves a cert that fails verification
+### 10. A minute-long window after boot serves a cert that fails verification
 
 Right after the panel and Traefik started, the panel host served a
 certificate that failed hostname verification; moments later it was the real
-Let's Encrypt one. Likely Traefik's built-in default certificate before it has
-loaded `le.json`.
+Let's Encrypt one. It is Traefik's built-in default certificate before the
+stored ones are in play.
+
+Measured on 2026-09-18 (round 2): 60 to 90 seconds, not the ten this was
+written with. The traefik log says why: it registers the ACME account against
+Let's Encrypt at boot before it serves anything from `le.json`.
 
 Investigated 2026-09-18, **accepted**. Both inputs are already on the manager's
 disk before the container starts: `writeStatic` writes `traefik.yml` and the
@@ -302,3 +313,32 @@ One commit's worth of changes, nothing staged or committed (they sit unstaged).
 Not done, and not code: plan 51's paragraph claiming the onboarding chain has
 never been run green, and a row for this plan in `docs/plans/README.md` (that
 file has another session's uncommitted edits in it).
+
+## Aftermath, 2026-09-18
+
+The verification round (`docs/qa/rounds/2026-09-18-onboarding.md`) found the
+two incomplete fixes and three things this plan did not ask about. What was
+done with them:
+
+- **Step 4 was incomplete.** Chrome does not count a `type=hidden` field as
+  the username field a password form needs. It is now a `type=text` field
+  hidden with `sr-only`, `tabindex="-1"`, `readonly`, `aria-hidden`. Console
+  silent on `/account/profile` after a redeploy.
+- **Step 5 was incomplete.** The fallback was fixed but the cause was the
+  cookie: creating a draft calls `setActive`, and `stackr_org` outlives the
+  session. `OrgContext` now ignores a cookie naming an unfinished draft while
+  the account has a finished org, on both the admin and member-scoped lists.
+  Test `TestOrgContextPrefersAFinishedOrg`.
+- **A required secret does not block an apply (round finding R2-3).** Read
+  out: this is deliberate and the plan row already says "Apply goes ahead
+  without it." The defect was a stale comment on `SecretConf.Required`
+  claiming the apply refuses. Comment corrected, no behaviour changed. What is
+  left is a question, not a bug: `required: true` currently only prefixes that
+  note, so it has no teeth beyond wording. Deciding whether it should is not
+  in this plan.
+- **A config path that does not exist (R2-4).** The binding is still saved,
+  which is right for a file about to be committed, but the message now names
+  the path, repo and branch it looked in and says to check the path or commit
+  the file. `handler/org/config.go`.
+- **The boot certificate window (R2-5).** Number corrected above, still
+  accepted.

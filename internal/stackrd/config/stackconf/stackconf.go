@@ -256,8 +256,12 @@ type SecretConf struct {
 	Length         int    `yaml:"length" json:"length,omitempty"` // generated only; 0 = 32
 	IncludeNumbers bool   `yaml:"include_numbers" json:"include_numbers,omitempty"`
 	IncludeSymbols bool   `yaml:"include_symbols" json:"include_symbols,omitempty"`
-	// Required: apply refuses while unset (instead of warning and deploying
-	// services that crash without the value).
+	// Required marks the plan row "Required." and nothing more: the apply goes
+	// ahead, and the tiles that read the value fail their own deploy on an
+	// unresolved reference (see Plan.Warnings). It does not refuse the apply,
+	// which an older version of this comment claimed: refusing would mean a
+	// stack declaring its own credentials could never be stood up from its
+	// file in the first place.
 	Required bool `yaml:"required" json:"required,omitempty"`
 	// EnvVersions (default true): each env holds its own value; generation
 	// mints one per env. false = one stack-wide value, env overrides refused.

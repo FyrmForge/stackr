@@ -86,10 +86,20 @@ func OrgContext(store repo.Store) echo.MiddlewareFunc {
 			}
 			if ck, err := c.Cookie(OrgCookie); err == nil {
 				for _, o := range orgs {
-					if o.ID == ck.Value {
-						active = o
+					if o.ID != ck.Value {
+						continue
+					}
+					// Creating a draft makes it the active org, and this cookie
+					// outlives the session: a draft abandoned mid-wizard was
+					// still active after a fresh login, with every page in it
+					// bouncing to the wizard. A draft only wins while it is the
+					// only thing there is; the wizard itself is addressed by
+					// slug, not by the active org.
+					if o.SetupDoneAt == nil && active.SetupDoneAt != nil {
 						break
 					}
+					active = o
+					break
 				}
 			}
 			role := "viewer"

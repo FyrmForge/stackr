@@ -61,9 +61,11 @@ templ profilePage(c echo.Context, u *repo.User) {
 		@form.Section("Password", form.ScopeUser, "Changing your password does not sign out your other sessions.") {
 			@form.SettingsForm(c, "/account/password") {
 				// Password managers match a saved login by its username, and a
-				// password form without one is what Chrome warns about; it is
-				// not submitted, the session says who this is.
-				<input type="hidden" name="username" autocomplete="username" value={ u.Email }/>
+				// password form without one is what Chrome warns about. A
+				// type=hidden field does not count for it, so this is a real
+				// text input hidden by CSS and kept out of the tab order. The
+				// server ignores the field; the session says who this is.
+				<input type="text" name="username" autocomplete="username" value={ u.Email } class="sr-only" tabindex="-1" readonly aria-hidden="true"/>
 				@form.Field("Current password", "") {
 					<input type="password" name="current_password" required class="input" autocomplete="current-password"/>
 				}

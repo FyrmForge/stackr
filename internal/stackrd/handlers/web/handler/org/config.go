@@ -79,7 +79,11 @@ func (h *handler) SaveOrgConfig(c echo.Context) error {
 		cp, err := h.orgcfg.Plan(ctx, o, "")
 		switch {
 		case err == orgconf.ErrNoFile:
-			middleware.SetFlash(c, "Binding saved. No config file at that path yet, so there is nothing to plan.", middleware.FlashError)
+			// Named so a typo reads as a typo: the old wording ("no file at
+			// that path yet") only fits the case where the file is about to be
+			// committed, and left the wizard sitting on the form with no idea
+			// which of the four fields was wrong.
+			middleware.SetFlash(c, "Binding saved, but "+o.ConfigPath+" is not in "+o.ConfigRepo+" on "+o.ConfigBranch+". Check the path, or commit the file and plan again.", middleware.FlashError)
 		case err != nil:
 			middleware.SetFlash(c, "Binding saved, but planning failed: "+err.Error(), middleware.FlashError)
 		case cp.Status == "clean" && c.FormValue("plan_only") == "":
