@@ -15,6 +15,7 @@ decisions.
 | [48 install domains and basic auth](48-install-domains-and-basic-auth.md) | built, rig-verified | Root domain and trusted proxy install prompts, basic-auth URL protection, host-only session cookie. |
 | [49 installer binary](49-installer-binary.md) | built, rig-verified | Installer as a Go binary with a real form, pulled by a small `install.sh`. |
 | [50 basic auth review fixes](50-basic-auth-review-fixes.md) | built, rig-verified | Six review findings on the basic-auth cascade: fail-closed protection, one lock hash, no inherited password over the API, the credential pair validated on save, per-env unset secrets. |
+| [service extraction](service-extraction/03-refactor.md) | swept and reviewed, refactor proposed, not agreed | 267 operations inventoried across web, API, CLI and config; 117 flagged, 17 confirmed security findings. `03` takes the layout decisions, specifies SchedulerService and ProxyService, and ranks the rest. |
 | [51 pre-cut freeze](51-pre-cut.md) | agreed, not built | Store stays SQLite, on-disk names final, stale engine docs to clean. Ends by freezing `001_initial` and adding an additive-only migration guard. |
 
 The beta sequence is tracked in [Beta release](../beta-release.md). Product
