@@ -256,7 +256,7 @@ func promoteSpan(log commitLog, runsSHA, commit string) (rows []logRow, count in
 // skippedRungFor names the rung below envSlug when it does not run the commit
 // being promoted. Promoting past it is allowed; the dialogue says so.
 func (h *handler) skippedRungFor(ctx context.Context, p *repo.Stack, envSlug, commit string) string {
-	envs, _ := h.store.ListEnvironmentsByStack(ctx, p.ID)
+	envs, _ := h.envs.ListForStack(ctx, p.ID)
 	var static []repo.Environment
 	for i := range envs {
 		if envs[i].Type == "static" {

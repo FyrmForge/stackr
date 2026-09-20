@@ -13,6 +13,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/stackrd/handlers/web/components/canvas"
 	"github.com/FyrmForge/stackr/internal/stackrd/handlers/web/graph"
 	"github.com/FyrmForge/stackr/internal/stackrd/handlers/web/handler/annotate"
+	"github.com/FyrmForge/stackr/internal/stackrd/service"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 )
 
@@ -428,7 +429,7 @@ func (h *handler) buildOrgGraph(ctx context.Context, o *repo.Org, style graph.Ar
 	var summaries []graph.StackSummary
 	for i := range stacks {
 		st := &stacks[i]
-		envs, err := h.store.ListEnvironmentsByStack(ctx, st.ID)
+		envs, err := h.envs.ListForStack(ctx, st.ID)
 		if err != nil {
 			return graph.Graph{}, nil, err
 		}
@@ -527,7 +528,7 @@ func (h *handler) orgVarCards(ctx context.Context, o *repo.Org, stacks []repo.St
 	// global settings page, which has never had a variables section, clicking
 	// an org variables card was a dead end.
 	cards := graph.VarCards{Scope: "org", Label: "Organization", Href: "/orgs/" + o.Slug + "/settings/variables"}
-	vars, err := h.store.ListVariables(ctx, repo.OwnerOrg, o.ID)
+	vars, err := h.vars.List(ctx, service.OrgVars(o.ID))
 	if err != nil || len(vars) == 0 {
 		return cards
 	}

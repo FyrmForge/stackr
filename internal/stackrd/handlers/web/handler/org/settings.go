@@ -91,7 +91,7 @@ func (h *handler) envColorRows(ctx context.Context, o *repo.Org, stacks []repo.S
 	var rows []envColorRow
 	seen := map[string]bool{}
 	for _, s := range stacks {
-		envs, err := h.store.ListEnvironmentsByStack(ctx, s.ID)
+		envs, err := h.envs.ListForStack(ctx, s.ID)
 		if err != nil {
 			continue
 		}
@@ -265,7 +265,7 @@ func (h *handler) VarsPanel(c echo.Context) error {
 // in-page editor swap, full settings page, picked by the request's htmx
 // target. Mirrors renderStackVars in handler/project.
 func (h *handler) renderVars(c echo.Context, o *repo.Org) error {
-	vars, err := h.store.ListVariables(c.Request().Context(), repo.OwnerOrg, o.ID)
+	vars, err := h.vars.List(c.Request().Context(), service.OrgVars(o.ID))
 	if err != nil {
 		return err
 	}
@@ -326,7 +326,7 @@ func (h *handler) OrgVarValue(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	vars, err := h.store.ListVariables(c.Request().Context(), repo.OwnerOrg, o.ID)
+	vars, err := h.vars.List(c.Request().Context(), service.OrgVars(o.ID))
 	if err != nil {
 		return err
 	}

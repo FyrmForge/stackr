@@ -228,7 +228,7 @@ func (h *handler) Create(c echo.Context) error {
 // operates on this one. Phase 3 (env switcher) replaces callers with an
 // explicit env from the URL.
 func (h *handler) defaultEnv(ctx context.Context, stackID string) (*repo.Environment, error) {
-	envs, err := h.store.ListEnvironmentsByStack(ctx, stackID)
+	envs, err := h.envs.ListForStack(ctx, stackID)
 	if err != nil {
 		return nil, err
 	}
@@ -299,12 +299,9 @@ func (h *handler) resolveSlugs(c echo.Context) (*repo.Stack, *repo.Environment, 
 		return nil, nil, echo.NewHTTPError(http.StatusNotFound, "stack not found")
 	}
 	p.OrgSlug = org.Slug
-	env, err := h.store.GetEnvironmentBySlug(ctx, p.ID, c.Param("env"))
+	env, err := h.envs.BySlug(ctx, p.ID, c.Param("env"))
 	if err != nil {
-		return nil, nil, err
-	}
-	if env == nil {
-		return nil, nil, echo.NewHTTPError(http.StatusNotFound, "environment not found")
+		return nil, nil, stackrmw.HTTP(err)
 	}
 	return p, env, nil
 }
@@ -359,12 +356,9 @@ func (h *handler) CreateEnvironment(c echo.Context) error {
 // POST /envs/:id/delete
 func (h *handler) DeleteEnvironment(c echo.Context) error {
 	ctx := c.Request().Context()
-	env, err := h.store.GetEnvironment(ctx, c.Param("id"))
+	env, err := h.envs.Get(ctx, c.Param("id"))
 	if err != nil {
-		return err
-	}
-	if env == nil {
-		return echo.NewHTTPError(http.StatusNotFound, "environment not found")
+		return stackrmw.HTTP(err)
 	}
 	p, err := h.loadStack(c, env.StackID)
 	if err != nil {
@@ -397,12 +391,9 @@ func (h *handler) DeleteEnvironment(c echo.Context) error {
 // POST /envs/:id/reset
 func (h *handler) ResetEnvironment(c echo.Context) error {
 	ctx := c.Request().Context()
-	env, err := h.store.GetEnvironment(ctx, c.Param("id"))
+	env, err := h.envs.Get(ctx, c.Param("id"))
 	if err != nil {
-		return err
-	}
-	if env == nil {
-		return echo.NewHTTPError(http.StatusNotFound, "environment not found")
+		return stackrmw.HTTP(err)
 	}
 	p, err := h.loadStack(c, env.StackID)
 	if err != nil {
@@ -534,7 +525,7 @@ func (h *handler) Graph(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	envs, err := h.store.ListEnvironmentsByStack(ctx, p.ID)
+	envs, err := h.envs.ListForStack(ctx, p.ID)
 	if err != nil {
 		return err
 	}
@@ -566,7 +557,7 @@ func (h *handler) envColorsByID(ctx context.Context, p *repo.Stack, envs []repo.
 
 // envColorsBySlug is envColorsByID keyed by slug, for plan rows.
 func (h *handler) envColorsBySlug(ctx context.Context, p *repo.Stack) map[string]string {
-	envs, err := h.store.ListEnvironmentsByStack(ctx, p.ID)
+	envs, err := h.envs.ListForStack(ctx, p.ID)
 	if err != nil {
 		return nil
 	}
@@ -726,9 +717,9 @@ func (h *handler) loadPlan(c echo.Context) (*repo.Stack, *repo.ConfigPlan, error
 // POST /envs/:id/config, per-env config branch + apply policy.
 func (h *handler) SaveEnvConfig(c echo.Context) error {
 	ctx := c.Request().Context()
-	env, err := h.store.GetEnvironment(ctx, c.Param("id"))
-	if err != nil || env == nil {
-		return echo.NewHTTPError(http.StatusNotFound, "environment not found")
+	env, err := h.envs.Get(ctx, c.Param("id"))
+	if err != nil {
+		return stackrmw.HTTP(err)
 	}
 	p, err := h.loadStack(c, env.StackID)
 	if err != nil {
@@ -982,9 +973,9 @@ func (h *handler) SaveNodePosition(c echo.Context) error {
 		in.Nodes = append(in.Nodes, in.pos)
 	}
 	ctx := c.Request().Context()
-	env, err := h.store.GetEnvironment(ctx, c.Param("id"))
-	if err != nil || env == nil {
-		return echo.NewHTTPError(http.StatusNotFound, "environment not found")
+	env, err := h.envs.Get(ctx, c.Param("id"))
+	if err != nil {
+		return stackrmw.HTTP(err)
 	}
 	tiles, err := h.store.ListTilesByEnv(ctx, env.ID)
 	if err != nil {
@@ -1008,9 +999,9 @@ func (h *handler) SaveNodePosition(c echo.Context) error {
 // POST /envs/:id/graph/positions/reset, drop all saved positions so the
 // canvas falls back to the auto-layout.
 func (h *handler) ResetNodePositions(c echo.Context) error {
-	env, err := h.store.GetEnvironment(c.Request().Context(), c.Param("id"))
-	if err != nil || env == nil {
-		return echo.NewHTTPError(http.StatusNotFound, "environment not found")
+	env, err := h.envs.Get(c.Request().Context(), c.Param("id"))
+	if err != nil {
+		return stackrmw.HTTP(err)
 	}
 	if err := h.store.DeleteNodePositions(c.Request().Context(), repo.GraphOwner(repo.ScopeEnv, env.ID)); err != nil {
 		return err
@@ -1034,9 +1025,9 @@ func (h *handler) EnvLogs(c echo.Context) error {
 // GET /envs/:id/logs/stream
 func (h *handler) EnvLogsStream(c echo.Context) error {
 	ctx := c.Request().Context()
-	env, err := h.store.GetEnvironment(ctx, c.Param("id"))
-	if err != nil || env == nil {
-		return echo.NewHTTPError(http.StatusNotFound, "environment not found")
+	env, err := h.envs.Get(ctx, c.Param("id"))
+	if err != nil {
+		return stackrmw.HTTP(err)
 	}
 	tiles, err := h.store.ListTilesByEnv(ctx, env.ID)
 	if err != nil {
@@ -1693,7 +1684,7 @@ func (h *handler) StackVarsPanel(c echo.Context) error {
 // re-renders exactly the surface it was made on.
 func (h *handler) renderStackVars(c echo.Context, p *repo.Stack) error {
 	ctx := c.Request().Context()
-	vars, err := h.store.ListVariables(ctx, repo.OwnerStack, p.ID)
+	vars, err := h.vars.List(ctx, service.StackVars(p.ID))
 	if err != nil {
 		return err
 	}
@@ -1725,7 +1716,7 @@ func (h *handler) renderStackVars(c echo.Context, p *repo.Stack) error {
 	if err != nil {
 		return err
 	}
-	orgVars, err := h.store.ListVariables(ctx, repo.OwnerOrg, p.OrgID)
+	orgVars, err := h.vars.List(ctx, service.OrgVars(p.OrgID))
 	if err != nil {
 		return err
 	}
@@ -1757,7 +1748,7 @@ func (h *handler) StackVarValue(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	vars, err := h.store.ListVariables(ctx, repo.OwnerStack, p.ID)
+	vars, err := h.vars.List(ctx, service.StackVars(p.ID))
 	if err != nil {
 		return err
 	}
@@ -1801,13 +1792,13 @@ func blankSecrets(vars []repo.Variable) {
 // keyed by environment id. An environment with none still gets an entry: it is
 // exactly the one that leaves a stack-declared secret unset.
 func (h *handler) envVariables(ctx context.Context, stackID string) (map[string][]repo.Variable, error) {
-	envs, err := h.store.ListEnvironmentsByStack(ctx, stackID)
+	envs, err := h.envs.ListForStack(ctx, stackID)
 	if err != nil {
 		return nil, err
 	}
 	out := make(map[string][]repo.Variable, len(envs))
 	for _, e := range envs {
-		vars, err := h.store.ListVariables(ctx, repo.OwnerEnv, e.ID)
+		vars, err := h.vars.List(ctx, service.EnvVars(e.ID))
 		if err != nil {
 			return nil, err
 		}
@@ -1922,7 +1913,7 @@ func (h *handler) SettingsEnvironments(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	envs, err := h.store.ListEnvironmentsByStack(ctx, p.ID)
+	envs, err := h.envs.ListForStack(ctx, p.ID)
 	if err != nil {
 		return err
 	}
@@ -1941,12 +1932,9 @@ func (h *handler) SettingsEnvironments(c echo.Context) error {
 // POST /envs/:id/color
 func (h *handler) SaveEnvColor(c echo.Context) error {
 	ctx := c.Request().Context()
-	env, err := h.store.GetEnvironment(ctx, c.Param("id"))
+	env, err := h.envs.Get(ctx, c.Param("id"))
 	if err != nil {
-		return err
-	}
-	if env == nil {
-		return echo.NewHTTPError(http.StatusNotFound, "environment not found")
+		return stackrmw.HTTP(err)
 	}
 	p, err := h.loadStack(c, env.StackID)
 	if err != nil {
@@ -1975,7 +1963,7 @@ func (h *handler) SettingsEnvironment(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	envs, err := h.store.ListEnvironmentsByStack(ctx, p.ID)
+	envs, err := h.envs.ListForStack(ctx, p.ID)
 	if err != nil {
 		return err
 	}
@@ -2009,7 +1997,7 @@ func (h *handler) EnvVarValue(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	vars, err := h.store.ListVariables(c.Request().Context(), repo.OwnerEnv, env.ID)
+	vars, err := h.vars.List(c.Request().Context(), service.EnvVars(env.ID))
 	if err != nil {
 		return err
 	}
@@ -2022,12 +2010,9 @@ func (h *handler) settingsEnv(c echo.Context) (*repo.Stack, *repo.Environment, e
 	if err != nil {
 		return nil, nil, err
 	}
-	env, err := h.store.GetEnvironmentBySlug(c.Request().Context(), p.ID, c.Param("env"))
+	env, err := h.envs.BySlug(c.Request().Context(), p.ID, c.Param("env"))
 	if err != nil {
-		return nil, nil, err
-	}
-	if env == nil {
-		return nil, nil, echo.NewHTTPError(http.StatusNotFound, "environment not found")
+		return nil, nil, stackrmw.HTTP(err)
 	}
 	return p, env, nil
 }
@@ -2036,7 +2021,7 @@ func (h *handler) settingsEnv(c echo.Context) (*repo.Stack, *repo.Environment, e
 // same way renderStackVars does for the stack.
 func (h *handler) renderEnvVars(c echo.Context, p *repo.Stack, env *repo.Environment, only bool) error {
 	ctx := c.Request().Context()
-	vars, err := h.store.ListVariables(ctx, repo.OwnerEnv, env.ID)
+	vars, err := h.vars.List(ctx, service.EnvVars(env.ID))
 	if err != nil {
 		return err
 	}
@@ -2069,7 +2054,7 @@ func (h *handler) renderEnvVars(c echo.Context, p *repo.Stack, env *repo.Environ
 		return respond.HTML(c, http.StatusOK, components.VarsEditor(c, vars, cfg))
 	}
 	tiles, _ := h.store.ListTilesByEnv(ctx, env.ID)
-	envs, err := h.store.ListEnvironmentsByStack(ctx, p.ID)
+	envs, err := h.envs.ListForStack(ctx, p.ID)
 	if err != nil {
 		return err
 	}
@@ -2093,7 +2078,7 @@ func (h *handler) SettingsPREnv(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	envs, err := h.store.ListEnvironmentsByStack(ctx, p.ID)
+	envs, err := h.envs.ListForStack(ctx, p.ID)
 	if err != nil {
 		return err
 	}
@@ -2324,12 +2309,9 @@ func (h *handler) DeleteStackDomain(c echo.Context) error {
 // POST /envs/:id/settings
 func (h *handler) SaveEnvSettings(c echo.Context) error {
 	ctx := c.Request().Context()
-	env, err := h.store.GetEnvironment(ctx, c.Param("id"))
+	env, err := h.envs.Get(ctx, c.Param("id"))
 	if err != nil {
-		return err
-	}
-	if env == nil {
-		return echo.NewHTTPError(http.StatusNotFound, "environment not found")
+		return stackrmw.HTTP(err)
 	}
 	p, err := h.loadStack(c, env.StackID)
 	if err != nil {
@@ -2356,12 +2338,9 @@ func (h *handler) SaveEnvSettings(c echo.Context) error {
 // POST /envs/:id/vars
 func (h *handler) SaveEnvVar(c echo.Context) error {
 	ctx := c.Request().Context()
-	env, err := h.store.GetEnvironment(ctx, c.Param("id"))
+	env, err := h.envs.Get(ctx, c.Param("id"))
 	if err != nil {
-		return err
-	}
-	if env == nil {
-		return echo.NewHTTPError(http.StatusNotFound, "environment not found")
+		return stackrmw.HTTP(err)
 	}
 	p, err := h.loadStack(c, env.StackID)
 	if err != nil {
@@ -2384,12 +2363,9 @@ func (h *handler) SaveEnvVar(c echo.Context) error {
 // POST /envs/:id/vars/delete
 func (h *handler) DeleteEnvVar(c echo.Context) error {
 	ctx := c.Request().Context()
-	env, err := h.store.GetEnvironment(ctx, c.Param("id"))
+	env, err := h.envs.Get(ctx, c.Param("id"))
 	if err != nil {
-		return err
-	}
-	if env == nil {
-		return echo.NewHTTPError(http.StatusNotFound, "environment not found")
+		return stackrmw.HTTP(err)
 	}
 	p, err := h.loadStack(c, env.StackID)
 	if err != nil {

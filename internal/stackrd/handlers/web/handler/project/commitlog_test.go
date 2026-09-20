@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/gitlog"
+	"github.com/FyrmForge/stackr/internal/stackrd/service"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/testdb"
 )
@@ -45,7 +46,7 @@ func TestCommitLogPlacesChips(t *testing.T) {
 		{SHA: "aaaaaaa0", Message: "head"},
 		{SHA: "aaaaaaa1", Message: "one back"},
 	}})
-	h := &handler{store: s}
+	h := &handler{store: s, envs: service.NewEnvironmentService(s, nil, nil, nil, service.NewGateService(s)), vars: service.NewVariableService(s, nil, nil, nil)}
 	log := h.commitLog(ctx, seed.Stack)
 
 	require.Len(t, log.Rows, 2)

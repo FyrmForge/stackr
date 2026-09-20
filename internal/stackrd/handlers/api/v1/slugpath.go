@@ -24,11 +24,13 @@ package v1
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"strings"
 
 	"github.com/labstack/echo/v4"
 
+	"github.com/FyrmForge/stackr/internal/stackrd/service/svcerr"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 )
 
@@ -87,7 +89,13 @@ func (a *API) envByPath(ctx context.Context, ref string) (*repo.Environment, err
 	if err != nil || st == nil {
 		return nil, err
 	}
-	return a.store.GetEnvironmentBySlug(ctx, st.ID, parts[2])
+	env, err := a.envs.BySlug(ctx, st.ID, parts[2])
+	if errors.Is(err, svcerr.ErrNotFound) {
+		// A path that resolves to nothing is not an error here: every caller
+		// of this resolver decides for itself what a miss means.
+		return nil, nil
+	}
+	return env, err
 }
 
 // tileByPath resolves org/stack/env/tile.

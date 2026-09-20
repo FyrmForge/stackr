@@ -310,3 +310,14 @@ func (s *VariableService) stackOf(ctx context.Context, owner VarOwner) string {
 	}
 	return ""
 }
+
+// List is an owner's variables, values included.
+//
+// It does NOT mask. Masking is not a property of the rows, it is a property of
+// who is asking — see canReadSecrets in handlers/api/v1/variables.go and
+// toVarEntries in the panel — so a service that masked here would either have
+// to take the principal or would quietly blind the deploy path, which needs
+// the plaintext. The only thing that moves is who may reach the table.
+func (s *VariableService) List(ctx context.Context, owner VarOwner) ([]repo.Variable, error) {
+	return s.store.ListVariables(ctx, owner.Kind, owner.ID)
+}

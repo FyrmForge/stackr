@@ -21,8 +21,8 @@ func (h *handler) loadStagingEnv(c echo.Context) (*repo.Stack, *repo.Environment
 	// on any install where the two differ (the review breadcrumbs and every
 	// post-apply/discard redirect went to /<org-id>/... before this).
 	h.fillOrg(c.Request().Context(), stack)
-	env, err := h.store.GetEnvironment(c.Request().Context(), c.Param("envID"))
-	if err != nil || env == nil || env.StackID != stack.ID {
+	env, err := h.envs.Get(c.Request().Context(), c.Param("envID"))
+	if err != nil || env.StackID != stack.ID {
 		return nil, nil, echo.NewHTTPError(http.StatusNotFound, "environment not found")
 	}
 	return stack, env, nil

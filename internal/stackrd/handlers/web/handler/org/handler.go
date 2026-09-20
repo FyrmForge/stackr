@@ -34,9 +34,10 @@ type handler struct {
 	// resources owns the hostnames stackr may generate names under.
 	resources  *service.DomainResourceService
 	vars       *service.VariableService
-	stacks     *service.StackService    // the stack row; a move between orgs is its call
-	registries *service.RegistryService // org push/pull credentials and image tags
-	members    *service.MemberService   // who is in the org and at what level
+	stacks     *service.StackService       // the stack row; a move between orgs is its call
+	registries *service.RegistryService    // org push/pull credentials and image tags
+	members    *service.MemberService      // who is in the org and at what level
+	envs       *service.EnvironmentService // a stack's environments, for the canvas
 	store      repo.Store
 	notifier   *notify.Notifier
 	sampler    *metrics.Sampler    // traffic lanes on the org canvas; nil in tests
@@ -229,6 +230,9 @@ func (h *handler) setActive(c echo.Context, id string) {
 // WithDomainResources gives the page the domain-resource service.
 // WithVariables gives the org settings page the variable service.
 func (h *handler) WithVariables(v *service.VariableService) *handler { h.vars = v; return h }
+
+// WithEnvironments gives the canvas the environment service.
+func (h *handler) WithEnvironments(e *service.EnvironmentService) *handler { h.envs = e; return h }
 
 func (h *handler) WithDomainResources(r *service.DomainResourceService) *handler {
 	h.resources = r

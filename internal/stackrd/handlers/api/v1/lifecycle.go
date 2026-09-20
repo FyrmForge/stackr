@@ -123,9 +123,9 @@ func (a *API) createAutoDomain(c echo.Context) error {
 		return err
 	}
 	ctx := c.Request().Context()
-	env, err := a.store.GetEnvironment(ctx, t.EnvironmentID)
-	if err != nil || env == nil {
-		return echo.NewHTTPError(http.StatusNotFound, "environment not found")
+	env, err := a.envs.Get(ctx, t.EnvironmentID)
+	if err != nil {
+		return stackrmw.HTTP(err)
 	}
 	if err := a.domains.AddAuto(ctx, env, t, a.actor(c)); err != nil {
 		return stackrmw.HTTP(err)

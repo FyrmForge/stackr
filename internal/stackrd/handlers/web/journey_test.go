@@ -111,14 +111,16 @@ func newJourney(t *testing.T) *journey {
 		Applier:        applier,
 		// The pages write through services now; their own dependencies are
 		// nil-safe, so the rows land and the docker/proxy half is skipped.
-		Tiles:     service.NewTileService(store, nil, nil, nil, nil, nil, service.NewGateService(store)),
-		Domains:   service.NewDomainService(store, nil, service.NewGateService(store)),
-		Resources: service.NewDomainResourceService(store, nil),
-		Lifecycle: service.NewTileLifecycleService(store, nil, nil, nil, nil, nil),
-		Telemetry: service.NewTileTelemetryService(store, nil),
-		OrgConfig: orgRunner,
-		Work:      work,
-		Access:    service.NewAccessService(store),
+		Tiles:        service.NewTileService(store, nil, nil, nil, nil, nil, service.NewGateService(store)),
+		Domains:      service.NewDomainService(store, nil, service.NewGateService(store)),
+		Resources:    service.NewDomainResourceService(store, nil),
+		Lifecycle:    service.NewTileLifecycleService(store, nil, nil, nil, nil, nil),
+		Telemetry:    service.NewTileTelemetryService(store, nil),
+		Environments: service.NewEnvironmentService(store, nil, nil, nil, service.NewGateService(store)),
+		Variables:    service.NewVariableService(store, nil, nil, nil),
+		OrgConfig:    orgRunner,
+		Work:         work,
+		Access:       service.NewAccessService(store),
 	})
 
 	ts := httptest.NewServer(srv.Echo())

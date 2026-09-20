@@ -38,7 +38,7 @@ func (a *API) listReleases(c echo.Context) error {
 		return err
 	}
 	ctx := c.Request().Context()
-	envs, err := a.store.ListEnvironmentsByStack(ctx, s.ID)
+	envs, err := a.envs.ListForStack(ctx, s.ID)
 	if err != nil {
 		return err
 	}

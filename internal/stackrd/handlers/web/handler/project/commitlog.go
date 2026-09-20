@@ -257,7 +257,7 @@ func (h *handler) loadCommits(ctx context.Context, p *repo.Stack) (commits []git
 	if h.engine() == nil {
 		return nil, "", "", "", nil
 	}
-	envs, _ := h.store.ListEnvironmentsByStack(ctx, p.ID)
+	envs, _ := h.envs.ListForStack(ctx, p.ID)
 	for _, e := range envs {
 		if e.Type == "ephemeral" {
 			continue
@@ -325,7 +325,7 @@ func (h *handler) commitLog(ctx context.Context, p *repo.Stack) commitLog {
 	}
 	envHref := func(env repo.Environment) string { return stackURL(p) + "/" + env.Slug }
 
-	envs, _ := h.store.ListEnvironmentsByStack(ctx, p.ID)
+	envs, _ := h.envs.ListForStack(ctx, p.ID)
 	colors := h.envColorsByID(ctx, p, envs)
 	log.Colors = colors
 	plans, _ := h.store.ListConfigPlans(ctx, p.ID, 30)

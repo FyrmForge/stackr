@@ -9,6 +9,7 @@ import (
 
 	"github.com/FyrmForge/stackr/internal/stackrd/config/envcompare"
 	"github.com/FyrmForge/stackr/internal/stackrd/config/stackconf"
+	stackrmw "github.com/FyrmForge/stackr/internal/stackrd/handlers/middleware"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 )
 
@@ -18,7 +19,7 @@ import (
 // compareStack builds the comparison for one stack: static envs in ladder
 // order, the planner's snapshot, and the intended marks.
 func (h *handler) compareStack(ctx context.Context, p *repo.Stack) (envcompare.Result, map[string]string, error) {
-	envs, err := h.store.ListEnvironmentsByStack(ctx, p.ID)
+	envs, err := h.envs.ListForStack(ctx, p.ID)
 	if err != nil {
 		return envcompare.Result{}, nil, err
 	}
@@ -63,12 +64,9 @@ func (h *handler) renderCompare(c echo.Context, p *repo.Stack) error {
 // compareEnv loads the env behind a panel action and the cell it acts on.
 func (h *handler) compareEnv(c echo.Context) (*repo.Stack, *repo.Environment, envcompare.Result, envcompare.Cell, error) {
 	ctx := c.Request().Context()
-	env, err := h.store.GetEnvironment(ctx, c.Param("id"))
+	env, err := h.envs.Get(ctx, c.Param("id"))
 	if err != nil {
-		return nil, nil, envcompare.Result{}, envcompare.Cell{}, err
-	}
-	if env == nil {
-		return nil, nil, envcompare.Result{}, envcompare.Cell{}, echo.NewHTTPError(http.StatusNotFound, "environment not found")
+		return nil, nil, envcompare.Result{}, envcompare.Cell{}, stackrmw.HTTP(err)
 	}
 	p, err := h.loadStack(c, env.StackID)
 	if err != nil {

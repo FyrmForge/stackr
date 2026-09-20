@@ -108,7 +108,7 @@ func (a *API) forwardPresence(c echo.Context, t *repo.Tile, port int, sess forwa
 	// Resolve the stack up front: the deferred nudge runs after the websocket
 	// dies, when the request context is already cancelled.
 	var stackID string
-	if env, err := a.store.GetEnvironment(ctx, t.EnvironmentID); err == nil && env != nil {
+	if env, err := a.envs.Get(ctx, t.EnvironmentID); err == nil {
 		stackID = env.StackID
 	}
 	nudge := func() {

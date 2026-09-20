@@ -8,9 +8,11 @@ import (
 	"github.com/labstack/echo/v4"
 
 	"github.com/FyrmForge/stackr/internal/stackrd/config/varref"
+	stackrmw "github.com/FyrmForge/stackr/internal/stackrd/handlers/middleware"
 	"github.com/FyrmForge/stackr/internal/stackrd/handlers/web/components/canvas"
 	"github.com/FyrmForge/stackr/internal/stackrd/handlers/web/graph"
 	"github.com/FyrmForge/stackr/internal/stackrd/handlers/web/handler/annotate"
+	"github.com/FyrmForge/stackr/internal/stackrd/service"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 )
 
@@ -202,9 +204,9 @@ func (h *handler) DeleteEnvGraphGroup(c echo.Context) error {
 // loadEnvForAnnotation resolves + authorizes the env in the URL, the same
 // check SaveNodePosition (env level) runs.
 func (h *handler) loadEnvForAnnotation(c echo.Context) (envID, stackID string, err error) {
-	env, err := h.store.GetEnvironment(c.Request().Context(), c.Param("id"))
-	if err != nil || env == nil {
-		return "", "", echo.NewHTTPError(http.StatusNotFound, "environment not found")
+	env, err := h.envs.Get(c.Request().Context(), c.Param("id"))
+	if err != nil {
+		return "", "", stackrmw.HTTP(err)
 	}
 	return env.ID, env.StackID, nil
 }
@@ -250,7 +252,7 @@ func (h *handler) resolveStackSlugs(c echo.Context) (*repo.Stack, error) {
 // for them here, for graph.RollupTraffic.
 func (h *handler) buildStackGraph(ctx context.Context, p *repo.Stack, style graph.ArrangeStyle) (graph.Graph, map[string]string, error) {
 	h.fillOrg(ctx, p)
-	envs, err := h.store.ListEnvironmentsByStack(ctx, p.ID)
+	envs, err := h.envs.ListForStack(ctx, p.ID)
 	if err != nil {
 		return graph.Graph{}, nil, err
 	}
@@ -427,8 +429,8 @@ func (h *handler) buildStackGraph(ctx context.Context, p *repo.Stack, style grap
 // to whichever tiles name a variable this environment overrides.
 func (h *handler) envVarCards(ctx context.Context, envID string, tiles []repo.Tile) graph.VarCards {
 	cards := graph.VarCards{Scope: "env", Label: "Environment"}
-	env, err := h.store.GetEnvironment(ctx, envID)
-	if err != nil || env == nil {
+	env, err := h.envs.Get(ctx, envID)
+	if err != nil {
 		return cards
 	}
 	p, err := h.store.GetStack(ctx, env.StackID)
@@ -439,7 +441,7 @@ func (h *handler) envVarCards(ctx context.Context, envID string, tiles []repo.Ti
 	// Href is never navigated to (the cards open the drawer): the canvas
 	// derives the panel URL from it by appending /panel.
 	cards.Href = stackURL(p) + "/settings/environments/" + env.Slug + "/variables"
-	vars, err := h.store.ListVariables(ctx, repo.OwnerEnv, env.ID)
+	vars, err := h.vars.List(ctx, service.EnvVars(env.ID))
 	if err != nil || len(vars) == 0 {
 		return cards
 	}
@@ -484,7 +486,7 @@ func (h *handler) envVarCards(ctx context.Context, envID string, tiles []repo.Ti
 // table, not the varref catalogue, see orgVarCards for why.
 func (h *handler) stackVarCards(ctx context.Context, p *repo.Stack, envs []repo.Environment) graph.VarCards {
 	cards := graph.VarCards{Scope: "stack", Label: "Stack", Href: stackURL(p) + "/settings/variables"}
-	vars, err := h.store.ListVariables(ctx, repo.OwnerStack, p.ID)
+	vars, err := h.vars.List(ctx, service.StackVars(p.ID))
 	if err != nil || len(vars) == 0 {
 		return cards
 	}

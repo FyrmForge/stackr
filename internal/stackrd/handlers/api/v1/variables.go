@@ -89,7 +89,7 @@ func (a *API) getVars(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	vars, err := a.store.ListVariables(c.Request().Context(), repo.OwnerTile, t.ID)
+	vars, err := a.vars.List(c.Request().Context(), service.TileVars(t.ID))
 	if err != nil {
 		return err
 	}
@@ -118,7 +118,7 @@ func (a *API) putVars(c echo.Context) error {
 	if err := a.writeVars(c, repo.OwnerTile, t.ID, in.Vars, t); err != nil {
 		return stackrmw.HTTP(err)
 	}
-	vars, err := a.store.ListVariables(c.Request().Context(), repo.OwnerTile, t.ID)
+	vars, err := a.vars.List(c.Request().Context(), service.TileVars(t.ID))
 	if err != nil {
 		return err
 	}
@@ -181,7 +181,7 @@ func (a *API) getStackVars(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	vars, err := a.store.ListVariables(c.Request().Context(), repo.OwnerStack, s.ID)
+	vars, err := a.vars.List(c.Request().Context(), service.StackVars(s.ID))
 	if err != nil {
 		return err
 	}
@@ -214,9 +214,9 @@ func (a *API) putStackVars(c echo.Context) error {
 // not 403, so ids don't leak across tenants). The stack comes back too, it
 // carries the org id a write check needs.
 func (a *API) requireEnv(c echo.Context, envID string) (*repo.Environment, *repo.Stack, error) {
-	env, err := a.store.GetEnvironment(c.Request().Context(), envID)
-	if err != nil || env == nil {
-		return nil, nil, echo.NewHTTPError(http.StatusNotFound, "not found")
+	env, err := a.envs.Get(c.Request().Context(), envID)
+	if err != nil {
+		return nil, nil, stackrmw.HTTP(err)
 	}
 	s, err := a.stack(c, env.StackID)
 	if err != nil {
@@ -230,7 +230,7 @@ func (a *API) getEnvVars(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	vars, err := a.store.ListVariables(c.Request().Context(), repo.OwnerEnv, env.ID)
+	vars, err := a.vars.List(c.Request().Context(), service.EnvVars(env.ID))
 	if err != nil {
 		return err
 	}
@@ -282,7 +282,7 @@ func (a *API) getOrgVars(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	vars, err := a.store.ListVariables(c.Request().Context(), repo.OwnerOrg, o.ID)
+	vars, err := a.vars.List(c.Request().Context(), service.OrgVars(o.ID))
 	if err != nil {
 		return err
 	}

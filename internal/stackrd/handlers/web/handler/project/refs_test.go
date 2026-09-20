@@ -8,6 +8,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/FyrmForge/stackr/internal/stackrd/service"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/testdb"
 )
@@ -46,7 +47,7 @@ func TestTileRefsEdgePerSliceDeduplicated(t *testing.T) {
 		Name: "ORDERS_URL_ALIAS", Value: "${{ tile.sharedpg-orders.DATABASE_URL }}",
 		CreatedAt: now, UpdatedAt: now}), "dup var")
 
-	h := &handler{store: s}
+	h := &handler{store: s, envs: service.NewEnvironmentService(s, nil, nil, nil, service.NewGateService(s)), vars: service.NewVariableService(s, nil, nil, nil)}
 	refs := h.tileRefs(ctx, []repo.Tile{*seed.Tile, *instance})
 	got := append([]string(nil), refs[seed.Tile.ID]...)
 	sort.Strings(got)

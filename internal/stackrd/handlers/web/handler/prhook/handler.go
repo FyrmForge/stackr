@@ -9,6 +9,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -27,6 +28,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/stackrd/service"
 	"github.com/FyrmForge/stackr/internal/stackrd/service/notify"
 	"github.com/FyrmForge/stackr/internal/stackrd/service/scheduler"
+	"github.com/FyrmForge/stackr/internal/stackrd/service/svcerr"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 )
 
@@ -312,7 +314,7 @@ func (h *handler) planConfigs(ctx context.Context, orgID string, p *pushPayload)
 		if s.OrgID != orgID || !s.ConfigManaged() || s.ConfigRepo != p.Repository.FullName {
 			continue
 		}
-		envs, err := h.store.ListEnvironmentsByStack(ctx, s.ID)
+		envs, err := h.envs.ListForStack(ctx, s.ID)
 		if err != nil {
 			continue
 		}
@@ -396,7 +398,7 @@ func (h *handler) autoDeploy(ctx context.Context, orgID string, p *pushPayload, 
 		if configOnlyPush(&stacks[i], p.changedFiles()) {
 			continue
 		}
-		envs, err := h.store.ListEnvironmentsByStack(ctx, stacks[i].ID)
+		envs, err := h.envs.ListForStack(ctx, stacks[i].ID)
 		if err != nil {
 			continue
 		}
@@ -468,7 +470,7 @@ func (h *handler) dispatch(ctx context.Context, stack *repo.Stack, cfg repo.PRCo
 // stackTracksRepo reports whether any git tile in any of the stack's
 // environments points at the webhook's repository.
 func (h *handler) stackTracksRepo(ctx context.Context, stackID string, p *prPayload) bool {
-	envs, err := h.store.ListEnvironmentsByStack(ctx, stackID)
+	envs, err := h.envs.ListForStack(ctx, stackID)
 	if err != nil {
 		return false
 	}
@@ -487,10 +489,11 @@ func (h *handler) stackTracksRepo(ctx context.Context, stackID string, p *prPayl
 }
 
 func (h *handler) openPR(ctx context.Context, stack *repo.Stack, cfg repo.PRConfig, slug string, p *prPayload) error {
-	if env, err := h.store.GetEnvironmentBySlug(ctx, stack.ID, slug); err != nil {
-		return err
-	} else if env != nil {
+	switch _, err := h.envs.BySlug(ctx, stack.ID, slug); {
+	case err == nil:
 		return h.syncPR(ctx, stack, slug) // reopened with env still around
+	case !errors.Is(err, svcerr.ErrNotFound):
+		return err
 	}
 	// A PR env is a template instantiation: base + pr_envs.tiles, built purely
 	// from the file through the ordinary apply engine, never a clone of a
@@ -553,7 +556,7 @@ func (h *handler) openPR(ctx context.Context, stack *repo.Stack, cfg repo.PRConf
 	}
 	// A PR env has no base env, its board starts from the default (oldest)
 	// env's layout so matching slugs land where the team arranged them.
-	if envs, err := h.store.ListEnvironmentsByStack(ctx, stack.ID); err == nil && len(envs) > 0 {
+	if envs, err := h.envs.ListForStack(ctx, stack.ID); err == nil && len(envs) > 0 {
 		envops.CopyLayout(ctx, h.store, envs[0].ID, env.ID)
 	}
 	h.sched.Reload(ctx)
@@ -614,7 +617,7 @@ func (h *handler) updatePlanComment(ctx context.Context, stack *repo.Stack, p *p
 		md = planMarkdown(plan, base)
 	}
 	_ = h.store.SetSetting(ctx, githubapp.PlanKey(stack.ID, num), md)
-	env, _ := h.store.GetEnvironmentBySlug(ctx, stack.ID, "pr-"+num)
+	env, _ := h.envs.BySlug(ctx, stack.ID, "pr-"+num)
 	h.gh.RefreshPRComment(ctx, cn, p.Repository.FullName, num, stack.ID, env)
 }
 
@@ -690,12 +693,12 @@ func contains(list []string, s string) bool {
 }
 
 func (h *handler) syncPR(ctx context.Context, stack *repo.Stack, slug string) error {
-	env, err := h.store.GetEnvironmentBySlug(ctx, stack.ID, slug)
+	env, err := h.envs.BySlug(ctx, stack.ID, slug)
+	if errors.Is(err, svcerr.ErrNotFound) {
+		return nil // PR was filtered at open (against/enabled), nothing to sync
+	}
 	if err != nil {
 		return err
-	}
-	if env == nil {
-		return nil // PR was filtered at open (against/enabled), nothing to sync
 	}
 	tiles, err := h.store.ListTilesByEnv(ctx, env.ID)
 	if err != nil {
@@ -714,12 +717,12 @@ func (h *handler) syncPR(ctx context.Context, stack *repo.Stack, slug string) er
 }
 
 func (h *handler) closePR(ctx context.Context, stack *repo.Stack, slug string) error {
-	env, err := h.store.GetEnvironmentBySlug(ctx, stack.ID, slug)
+	env, err := h.envs.BySlug(ctx, stack.ID, slug)
+	if errors.Is(err, svcerr.ErrNotFound) {
+		return nil // already gone
+	}
 	if err != nil {
 		return err
-	}
-	if env == nil {
-		return nil // already gone
 	}
 	if err := h.ops.Teardown(ctx, stack, env); err != nil {
 		return err

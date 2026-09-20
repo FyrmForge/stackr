@@ -99,7 +99,7 @@ func (a *API) orgForCreate(c echo.Context, explicit string) (string, error) {
 
 // resolveEnv finds an env by slug within a stack (default: the first env).
 func (a *API) resolveEnv(ctx context.Context, stackID, slug string) (*repo.Environment, error) {
-	envs, err := a.store.ListEnvironmentsByStack(ctx, stackID)
+	envs, err := a.envs.ListForStack(ctx, stackID)
 	if err != nil || len(envs) == 0 {
 		return nil, echo.NewHTTPError(http.StatusBadRequest, "stack has no environments")
 	}

@@ -55,8 +55,8 @@ func (a *API) infraPath(ctx context.Context, d *repo.Tile, cache map[string]stri
 	// Only an env-scoped instance carries the env segment, so the lookup is
 	// skipped for the other two scopes rather than done and discarded.
 	if d.ScopeKind == "" || d.ScopeKind == "env" {
-		env, err := a.store.GetEnvironment(ctx, d.EnvironmentID)
-		if err != nil || env == nil {
+		env, err := a.envs.Get(ctx, d.EnvironmentID)
+		if err != nil {
 			return ""
 		}
 		envSlug = env.Slug

@@ -1227,3 +1227,53 @@ moved to the four routes' verbs. Go does not complain about an unused
 parameter, so nothing failed — and a parameter named `write` that used to mean
 "authorize harder" and now means nothing is exactly what gets re-wired later
 by someone who believes it still works. Deleted.
+
+# Point 19, first domain slice — environments and variables
+
+## A service read answers ErrNotFound, never (nil, nil)
+
+`repo.Store` answers a missing row with `(nil, nil)`, so all forty handlers
+that read an environment wrote the same two checks — the error, then the nil —
+and a third of them got it subtly wrong: `if err != nil || env == nil { 404 }`
+flattens a database failure into "not found", which is an outage that looks
+like a typo.
+
+`EnvironmentService.Get` and `.BySlug` answer `svcerr.ErrNotFound` instead.
+The handler writes one check and hands the error to `middleware.HTTP`, which
+has always mapped that to 404. A store failure now surfaces as the 500 it is.
+
+The five callers that genuinely tolerate absence — the PR hook asking whether
+a preview environment exists yet, the breadcrumb builder, the API's
+`envByPath` resolver — say so with `errors.Is(err, svcerr.ErrNotFound)` rather
+than by reading a nil. That is the difference this makes: "I expect this to be
+missing sometimes" is now written down at the site that expects it.
+
+No optional twin was added. Two methods for one read, one erroring and one
+not, is the double vocabulary this whole point exists to remove.
+
+## VariableService.List does not mask
+
+`Masked` is not a property of the rows. It is a property of who is asking:
+`canReadSecrets` in `handlers/api/v1/variables.go` decides it from the
+principal's level in the resource's org, and the deploy path needs the
+plaintext. A `List` that masked would either have to take the principal — a
+service asking about authorization, which D-something says it must not — or
+quietly blind the deployer. It returns the rows; masking stays at the surface
+that knows the asker.
+
+This is the first of the FILTERED reads the plan says to write down. The list
+so far: `canReadSecrets`/`toVarEntries` (secret masking),
+`a.dests.Visible(ctx, a.viewer(c))` (backup destinations), the per-row
+`orgAllowed` in the API collections. An unfiltered forwarder for any of those
+would silently widen what a page shows, which is why they move last and by
+hand.
+
+## Two nil services that only tests could find
+
+`apiFor` built an `EnvironmentService` and never attached it; the journey
+harness and four `project` tests built handlers with a bare `store`. Nothing
+failed until a handler called the service, because a nil `*Service` is a
+perfectly good field. Wiring, not logic — but it is the failure mode of every
+remaining slice, so: a test that constructs a handler by hand must construct
+the services it now depends on, and the scan that finds the reads does not
+find the wiring.

@@ -287,3 +287,43 @@ func (s *EnvironmentService) Update(ctx context.Context, env *repo.Environment, 
 	}
 	return s.store.UpdateEnvironment(ctx, env)
 }
+
+// --- reads ---
+//
+// The store answers a missing row with (nil, nil), so every one of the forty
+// handlers that read an environment wrote the same two checks: the error, then
+// the nil. These answer svcerr.ErrNotFound instead, which the handlers' error
+// mapping already turns into a 404. A caller that tolerates absence — the
+// pull-request hook asking whether a preview environment exists yet — says so
+// with errors.Is rather than by reading a nil.
+
+// Get is one environment by id.
+func (s *EnvironmentService) Get(ctx context.Context, id string) (*repo.Environment, error) {
+	e, err := s.store.GetEnvironment(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if e == nil {
+		return nil, svcerr.ErrNotFound
+	}
+	return e, nil
+}
+
+// BySlug is one environment by its slug within a stack.
+func (s *EnvironmentService) BySlug(ctx context.Context, stackID, slug string) (*repo.Environment, error) {
+	e, err := s.store.GetEnvironmentBySlug(ctx, stackID, slug)
+	if err != nil {
+		return nil, err
+	}
+	if e == nil {
+		return nil, svcerr.ErrNotFound
+	}
+	return e, nil
+}
+
+// ListForStack is a stack's environments in ladder order: static ones by
+// position, then the ephemeral ones. The order is the store's, and the panel's
+// environment switcher depends on it.
+func (s *EnvironmentService) ListForStack(ctx context.Context, stackID string) ([]repo.Environment, error) {
+	return s.store.ListEnvironmentsByStack(ctx, stackID)
+}

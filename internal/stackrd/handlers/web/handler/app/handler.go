@@ -57,6 +57,7 @@ type handler struct {
 	domains *service.DomainService
 	slices  *service.SliceService
 	vars    *service.VariableService
+	envs    *service.EnvironmentService
 	// telemetry resolves where a tile's logs and metrics come from.
 	telemetry *service.TileTelemetryService
 	// deploys owns the redeploy-if-running rule, which this file had two
@@ -70,6 +71,9 @@ type handler struct {
 // NewHandler creates a new app handler.
 // WithSlices gives the panel the slice service the API holds.
 func (h *handler) WithSlices(sl *service.SliceService) *handler { h.slices = sl; return h }
+
+// WithEnvironments gives the tile page the environment its tile sits in.
+func (h *handler) WithEnvironments(e *service.EnvironmentService) *handler { h.envs = e; return h }
 
 // WithGate gives the panel the config-managed gate.
 func (h *handler) WithGate(g *service.GateService) *handler { h.gate = g; return h }
@@ -530,7 +534,7 @@ func (h *handler) crumb(c echo.Context, a *repo.Tile) breadcrumb {
 	ctx := c.Request().Context()
 	b := breadcrumb{StackHref: "/projects/" + a.StackID, StackName: "stack"}
 	stack, _ := h.store.GetStack(ctx, a.StackID)
-	env, _ := h.store.GetEnvironment(ctx, a.EnvironmentID)
+	env, _ := h.envs.Get(ctx, a.EnvironmentID)
 	if stack == nil || env == nil {
 		return b
 	}
@@ -928,7 +932,7 @@ func (h *handler) Vars(c echo.Context) error {
 		return err
 	}
 	ctx := c.Request().Context()
-	vars, err := h.store.ListVariables(ctx, repo.OwnerTile, a.ID)
+	vars, err := h.vars.List(ctx, service.TileVars(a.ID))
 	if err != nil {
 		return err
 	}
@@ -969,7 +973,7 @@ func (h *handler) VarValue(c echo.Context) error {
 	if err != nil || s == nil {
 		return echo.NewHTTPError(http.StatusNotFound, "not found")
 	}
-	vars, err := h.store.ListVariables(c.Request().Context(), repo.OwnerTile, a.ID)
+	vars, err := h.vars.List(c.Request().Context(), service.TileVars(a.ID))
 	if err != nil {
 		return err
 	}
@@ -1017,7 +1021,7 @@ func (h *handler) DeleteVar(c echo.Context) error {
 	// name of the same spelling also sits in the blob, which is exactly what
 	// the Variables list still offers under ui_edits: block.
 	secret := false
-	if vars, verr := h.store.ListVariables(ctx, repo.OwnerTile, a.ID); verr == nil {
+	if vars, verr := h.vars.List(ctx, service.TileVars(a.ID)); verr == nil {
 		for _, v := range vars {
 			if v.Name == name && v.Secret {
 				secret = true
@@ -1494,9 +1498,9 @@ func (h *handler) CreateAutoDomain(c echo.Context) error {
 		return err
 	}
 	ctx := c.Request().Context()
-	env, err := h.store.GetEnvironment(ctx, a.EnvironmentID)
-	if err != nil || env == nil {
-		return echo.NewHTTPError(http.StatusNotFound, "environment not found")
+	env, err := h.envs.Get(ctx, a.EnvironmentID)
+	if err != nil {
+		return stackrmw.HTTP(err)
 	}
 	if err := h.domains.AddAuto(ctx, env, a, stackrmw.WebActor(c)); err != nil {
 		return stackrmw.HTTP(err)

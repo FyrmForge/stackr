@@ -59,6 +59,7 @@ func apiFor(s *sqlite.Store) *API {
 		WithOrgConfig(&orgconf.Runner{Store: s}).
 		WithAccess(service.NewAccessService(s)).
 		WithTiles(tiles).
+		WithEnvironments(envs).
 		WithInstances(service.NewManagedInstanceService(s, nil, tiles, gate, nil)).
 		WithSlices(service.NewSliceService(s, nil, nil, nil)).
 		WithVariables(service.NewVariableService(s, nil, nil, nil)).

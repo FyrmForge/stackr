@@ -2518,3 +2518,15 @@ type alias for `service.TimePoint` so no view signature changed. The API's
 
 Two operations, not one forwarder each: the panel buckets to 240 points
 because a chart has 640 pixels, and an API caller plotting its own does not.
+
+**Slice 1: environments and variables. 525 -> 504.**
+
+`EnvironmentService` gained `Get`, `BySlug` and `ListForStack`;
+`VariableService` gained `List`, taking the `VarOwner` the writes already
+take, so the four owner kinds stop being two loose arguments at the call site.
+
+63 call sites across 14 files. `envs` is new on the `org`, `search` and `app`
+panel handlers, wired in `handlers/web/server.go` next to the others.
+
+The reads answer `svcerr.ErrNotFound` rather than `(nil, nil)` — see
+05-assumptions.md for why, and for the masking that deliberately did NOT move.

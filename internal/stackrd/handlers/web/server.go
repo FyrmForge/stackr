@@ -297,11 +297,12 @@ func RegisterRoutes(srv *server.Server, deps *Deps) {
 		WithImageWatch(deps.ImageWatch).
 		WithRevoke(deps.Revoke)
 
-	searchHandler := searchpage.NewHandler(deps.Store)
+	searchHandler := searchpage.NewHandler(deps.Store, deps.Environments)
 	site.GET("/search", searchHandler.Search, auth.RequireAuth())
 
 	orgHandler := orgpage.NewHandler(deps.Store, deps.Notifier, deps.Metrics, deps.FileStorage, deps.Runtime, deps.Forwards, deps.OrgConfig, deps.GitHub, deps.Mail, deps.RegistrySigner, deps.Proxy).
 		WithDomainResources(deps.Resources).WithVariables(deps.Variables).WithStacks(deps.Stacks).
+		WithEnvironments(deps.Environments).
 		WithWork(deps.Work).
 		WithSettings(deps.Settings)
 	// "/" is the root canvas, every org the viewer belongs to, one card each,
@@ -683,6 +684,7 @@ func RegisterRoutes(srv *server.Server, deps *Deps) {
 	read(site, "/containers/:id/term/ws", containerHandler.TermWS, service.VerbAdminRead, service.KindNone, "", adminOnly)
 
 	appHandler := apppage.NewHandler(deps.Store, deps.Cluster, deps.Proxy, deps.Engine, deps.Jobs, deps.GitHub, deps.Notifier, deps.Lifecycle, deps.Tiles, deps.Telemetry, deps.Domains).
+		WithEnvironments(deps.Environments).
 		WithSlices(deps.Slices).
 		WithVariables(deps.Variables).
 		WithDeploys(deps.Deploys).

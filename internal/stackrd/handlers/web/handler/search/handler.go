@@ -18,14 +18,18 @@ import (
 
 	"github.com/FyrmForge/stackr/internal/stackrd/handlers/middleware"
 	"github.com/FyrmForge/stackr/internal/stackrd/handlers/web/graph"
+	"github.com/FyrmForge/stackr/internal/stackrd/service"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 )
 
 type handler struct {
 	store repo.Store
+	envs  *service.EnvironmentService
 }
 
-func NewHandler(store repo.Store) *handler { return &handler{store: store} }
+func NewHandler(store repo.Store, envs *service.EnvironmentService) *handler {
+	return &handler{store: store, envs: envs}
+}
 
 // result is one palette row.
 type result struct {
@@ -95,7 +99,7 @@ func (h *handler) Search(c echo.Context) error {
 	envByID := map[string]repo.Environment{}
 	envPath := map[string]string{} // env id -> "/org/stack/env"
 	for id, sp := range stackPath {
-		envs, err := h.store.ListEnvironmentsByStack(ctx, id)
+		envs, err := h.envs.ListForStack(ctx, id)
 		if err != nil {
 			return err
 		}

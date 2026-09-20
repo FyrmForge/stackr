@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/gitlog"
+	"github.com/FyrmForge/stackr/internal/stackrd/service"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/testdb"
 )
@@ -94,7 +95,7 @@ func TestReleaseViewTargets(t *testing.T) {
 
 	logCache.Store(seed.Stack.ID, logCacheEntry{checked: time.Now(), at: time.Now(), branch: "master",
 		source: "github", commits: []gitlog.Commit{{SHA: sha(0)}, {SHA: sha(1)}}})
-	h := &handler{store: s}
+	h := &handler{store: s, envs: service.NewEnvironmentService(s, nil, nil, nil, service.NewGateService(s)), vars: service.NewVariableService(s, nil, nil, nil)}
 	v := h.releaseView(ctx, seed.Stack)
 
 	require.Len(t, v.Rows, 2)

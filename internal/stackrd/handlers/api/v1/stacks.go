@@ -60,7 +60,7 @@ func (a *API) listEnvs(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	envs, err := a.store.ListEnvironmentsByStack(c.Request().Context(), s.ID)
+	envs, err := a.envs.ListForStack(c.Request().Context(), s.ID)
 	if err != nil {
 		return err
 	}

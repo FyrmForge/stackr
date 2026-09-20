@@ -197,8 +197,8 @@ func (a *API) toSliceOut(c echo.Context, inst *repo.Tile, p *repo.Provision) sli
 // the stack it belongs to.
 func (a *API) requireEnvAccess(c echo.Context, envID string) (*repo.Environment, error) {
 	ctx := c.Request().Context()
-	env, err := a.store.GetEnvironment(ctx, envID)
-	if err != nil || env == nil {
+	env, err := a.envs.Get(ctx, envID)
+	if err != nil {
 		env, err = a.envByPath(ctx, envID) // org:stack:env
 	}
 	if err != nil || env == nil {
