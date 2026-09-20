@@ -336,17 +336,17 @@ type JoinKey struct {
 // past its hour.
 func (k JoinKey) Spent() bool { return k.UsedAt.Valid || time.Now().After(k.ExpiresAt) }
 
-// Tile is anything on an environment's canvas. Kind picks the lifecycle:
-// "service" (long-running, default) or "cron" (one-shot container on a
-// schedule, k8s CronJob-style). A tile with Engine != "" is a database
-// preset, same service lifecycle plus connection-string handling.
-type Tile struct {
-	ID             string `db:"id"`
-	StackID        string `db:"stack_id"` // denormalized from environment for cheap stack-wide queries
-	EnvironmentID  string `db:"environment_id"`
+// TileConfig is the declared half of a tile: everything a form, a config file
+// or an API call asks for. It is exactly the column set UpdateTile writes, and
+// that is not a coincidence — UpdateTile takes one of these, so a write on the
+// config path cannot name a state column. Adding a field here without adding
+// it to UpdateTile's SQL is the one mistake still possible, and it fails the
+// same way it always did: the column stops persisting.
+//
+// Embedded into Tile, so t.ImageRef still reads and writes through promotion.
+// Only the store's signatures see the two halves apart.
+type TileConfig struct {
 	Name           string `db:"name"`
-	Slug           string `db:"slug"`
-	Kind           string `db:"kind"`        // service | cron
 	SourceType     string `db:"source_type"` // git | image
 	GitURL         string `db:"git_url"`
 	GitBranch      string `db:"git_branch"`
@@ -376,11 +376,9 @@ type Tile struct {
 	// Storage attaches declared storage sub-paths, one per line:
 	// "storage-slug/path-name:/mount[:ro]" (§2.7). Resolved to docker
 	// local-driver volumes at deploy.
-	Storage      string  `db:"storage"`
-	WebhookToken string  `db:"webhook_token"`
-	Status       string  `db:"status"`
-	CPULimit     float64 `db:"cpu_limit"`    // cores, 0 = unlimited
-	MemLimitMB   int     `db:"mem_limit_mb"` // MB, 0 = unlimited
+	Storage    string  `db:"storage"`
+	CPULimit   float64 `db:"cpu_limit"`    // cores, 0 = unlimited
+	MemLimitMB int     `db:"mem_limit_mb"` // MB, 0 = unlimited
 
 	// Container runtime fields (services). User is docker's --user ("uid[:gid]"),
 	// ShmSizeMB sizes /dev/shm (0 = docker default; also honored on managed
@@ -398,12 +396,10 @@ type Tile struct {
 	// deploys.
 	WatchPaths string `db:"watch_paths"`
 
-	// Image-watch fields (image-source tiles). UpdatePolicy: off | notify |
-	// auto. ImageDigest is what the last deploy pulled, LatestDigest the
-	// newest the registry watcher has seen, unequal = "new version" badge.
+	// UpdatePolicy is the image-watch setting (image-source tiles):
+	// off | notify | auto. What the watcher OBSERVES is state, over in
+	// TileState.
 	UpdatePolicy string `db:"update_policy"`
-	ImageDigest  string `db:"image_digest"`
-	LatestDigest string `db:"latest_digest"`
 	// WaitForCI parks push auto-deploys as waiting_ci until the commit's
 	// checks pass (git-source tiles).
 	WaitForCI bool `db:"wait_for_ci"`
@@ -418,12 +414,10 @@ type Tile struct {
 	// no portable quota, so nothing stops a volume growing past it.
 	MaxSizeMB int `db:"max_size_mb"`
 
-	// Placement (docs/plans/32-multi-node-ui.md). HomeNode is the swarm node
-	// ID a pinned tile's volume lives on: state, set on first deploy, changed
-	// only by the Move action, and required before a pinned tile can deploy.
-	// Replicas is config, stateless tiles only. NodeGroup is the
-	// `stackr.group` node label a tile is constrained to, "" = anywhere.
-	HomeNode  string `db:"home_node"`
+	// Placement (docs/plans/32-multi-node-ui.md). Replicas is config,
+	// stateless tiles only. NodeGroup is the `stackr.group` node label a tile
+	// is constrained to, "" = anywhere. HomeNode, the third of the trio, is
+	// state — see TileState.
 	Replicas  int    `db:"replicas"`
 	NodeGroup string `db:"node_group"`
 
@@ -434,9 +428,6 @@ type Tile struct {
 	PublishedPorts    string `db:"published_ports"`     // "host:container[/udp]" per line, applied at deploy
 	TraefikOverride   string `db:"traefik_override"`    // raw dynamic config, replaces the generated file
 
-	CreatedAt time.Time `db:"created_at"`
-	UpdatedAt time.Time `db:"updated_at"`
-
 	// Database-preset fields (Engine != "" marks a db tile).
 	Engine       string `db:"engine"` // a key of databases.Engines, that registry is the list
 	DBName       string `db:"db_name"`
@@ -444,15 +435,12 @@ type Tile struct {
 	DBPassword   string `db:"db_password"`
 	ExternalPort int    `db:"external_port"` // 0 = internal only
 
-	// Cron-kind fields: schedule, command override (empty = image CMD), and
-	// the last run's outcome recorded directly on the row.
-	Cron           string       `db:"cron"`
-	Command        string       `db:"command"`
-	AllowOverlap   bool         `db:"allow_overlap"`
-	TimeoutMinutes int          `db:"timeout_minutes"`
-	LastRunAt      sql.NullTime `db:"last_run_at"`
-	LastStatus     string       `db:"last_status"`
-	LastOutput     string       `db:"last_output"`
+	// Cron-kind fields: schedule and command override (empty = image CMD).
+	// The last run's OUTCOME is state, in TileState.
+	Cron           string `db:"cron"`
+	Command        string `db:"command"`
+	AllowOverlap   bool   `db:"allow_overlap"`
+	TimeoutMinutes int    `db:"timeout_minutes"`
 
 	// Scope: where the tile lives. "env" (default, ScopeID ""), "stack" or
 	// "org", see managedtiles.Eligible. "server" is not implemented.
@@ -464,11 +452,68 @@ type Tile struct {
 	// ("" = none); ContainerPort stays canonical.
 	EndpointProtocol string `db:"endpoint_protocol"` // http | https | tcp
 	EndpointPortVar  string `db:"endpoint_port_var"`
+}
+
+// TileState is the observed half: what stackr found out about a tile by
+// running it. Nobody declares any of this, and no write takes a TileState —
+// each field has its own narrow setter on the store, because a whole-struct
+// state write would let a caller holding a stale copy stomp a field it never
+// looked at, which is the bug this split exists to prevent.
+//
+// The setters, one per line below: UpdateTileStatus, SetTileHomeNode,
+// SetTileImageDigest, SetTileLatestDigest, RecordTileRun (the three run
+// fields together, since one run produces all three) and SetTileSharedNet.
+type TileState struct {
+	Status string `db:"status"`
+
+	// ImageDigest is what the last deploy pulled, LatestDigest the newest the
+	// registry watcher has seen; unequal = "new version" badge.
+	ImageDigest  string `db:"image_digest"`
+	LatestDigest string `db:"latest_digest"`
+
+	// HomeNode is the swarm node ID a pinned tile's volume lives on: set on
+	// first deploy, changed only by the Move action, and required before a
+	// pinned tile can deploy.
+	HomeNode string `db:"home_node"`
+
+	// The last cron run's outcome, recorded directly on the row.
+	LastRunAt  sql.NullTime `db:"last_run_at"`
+	LastStatus string       `db:"last_status"`
+	LastOutput string       `db:"last_output"`
 
 	// SharedNetName is the db-pool overlay a shared managed instance holds,
 	// claimed on provision and returned on delete. Read it through
 	// SharedNet(), never directly.
 	SharedNetName string `db:"shared_net"`
+}
+
+// Tile is anything on an environment's canvas. Kind picks the lifecycle:
+// "service" (long-running, default) or "cron" (one-shot container on a
+// schedule, k8s CronJob-style). A tile with Engine != "" is a database
+// preset, same service lifecycle plus connection-string handling.
+//
+// The two embedded halves are the point 20 split: TileConfig is declared,
+// TileState is observed, and the store's writers take one or the other so
+// neither path can name the other's columns. Reads are whole — a caller gets
+// spec and status together, as k8s and swarm both return them — and field
+// access is unchanged, because Go promotes embedded fields.
+//
+// What stays here is neither: identity, which only CreateTile and RenameTile
+// write, plus the row timestamps.
+type Tile struct {
+	ID            string `db:"id"`
+	StackID       string `db:"stack_id"` // denormalized from environment for cheap stack-wide queries
+	EnvironmentID string `db:"environment_id"`
+	Slug          string `db:"slug"`
+	Kind          string `db:"kind"` // service | cron
+	// WebhookToken is minted once at insert and never rewritten.
+	WebhookToken string `db:"webhook_token"`
+
+	TileConfig
+	TileState
+
+	CreatedAt time.Time `db:"created_at"`
+	UpdatedAt time.Time `db:"updated_at"`
 }
 
 // StagedChange is one pending structural edit in the UI-staging buffer:

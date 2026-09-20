@@ -35,11 +35,12 @@ import (
 // callers, and the import would close a cycle. A full row is the shape both
 // sides already hold anyway.
 //
-// Note what the store does *not* write: sqlite's UpdateTile excludes status,
-// slug, shared_net and home_node, and the comment there names the bug behind
-// each exclusion. A "helpful" full-struct UPDATE that included them would
-// silently revert four columns; identity moves only through Rename and the
-// lifecycle service.
+// Note what the store does *not* write: UpdateTile takes a repo.TileConfig,
+// so status, shared_net, home_node and the digests are not expressible on that
+// path at all, and slug is identity that moves only through Rename. Before
+// point 20 those columns were merely absent from the SQL, which meant a
+// full-struct write compiled, returned nil and reverted nothing — visibly
+// fine, silently a no-op.
 type TileService struct {
 	store  repo.Store
 	clus   *cluster.Cluster
@@ -98,7 +99,7 @@ func (s *TileService) Update(ctx context.Context, t *repo.Tile, extra []string, 
 		changed[f] = true
 	}
 	t.UpdatedAt = time.Now().UTC()
-	if err := s.store.UpdateTile(ctx, t); err != nil {
+	if err := s.store.UpdateTile(ctx, t.ID, t.TileConfig); err != nil {
 		return false, err
 	}
 	return false, s.afterWrite(ctx, t, changed)
@@ -256,7 +257,7 @@ func (s *TileService) orphanVolumes(ctx context.Context, t *repo.Tile) {
 	for i := range vols {
 		v := vols[i]
 		v.AttachedTileID, v.MountPath = "", ""
-		if err := s.store.UpdateTile(ctx, &v); err != nil {
+		if err := s.store.UpdateTile(ctx, v.ID, v.TileConfig); err != nil {
 			slog.Error("volume not detached from its deleted owner", "volume", v.ID, "error", err)
 		}
 	}
@@ -406,9 +407,9 @@ func (s *TileService) checkAttach(ctx context.Context, t *repo.Tile) error {
 //   - tear the containers down first. The swarm service name is built from
 //     the slug, so a rename leaves the old service running under the old name
 //     for ever if it is not removed before the row moves.
-//   - rename the row. Slug moves only through RenameTile — sqlite's
-//     UpdateTile excludes the column deliberately, so a full-row write will
-//     not do it.
+//   - rename the row. Slug moves only through RenameTile — it is identity,
+//     not config, so it is not in repo.TileConfig and UpdateTile cannot
+//     express it.
 //   - rewrite the route. The route file is keyed on the tile id, so the file
 //     survives, but its contents carry the slug; the config path used to
 //     *remove* the route and never write it back, which left a renamed tile
@@ -536,5 +537,5 @@ func (s *TileService) BySlug(ctx context.Context, envID, slug string) (*repo.Til
 // scheduler made, a field the caller knows is not config-owned. A new caller
 // almost certainly wants Update.
 func (s *TileService) Save(ctx context.Context, t *repo.Tile) error {
-	return s.store.UpdateTile(ctx, t)
+	return s.store.UpdateTile(ctx, t.ID, t.TileConfig)
 }

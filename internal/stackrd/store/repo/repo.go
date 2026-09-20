@@ -151,7 +151,7 @@ type Store interface {
 	ListTilesByEnv(ctx context.Context, envID string) ([]Tile, error)
 	ListTilesByStack(ctx context.Context, stackID string) ([]Tile, error)
 	ListTiles(ctx context.Context) ([]Tile, error)
-	UpdateTile(ctx context.Context, t *Tile) error
+	UpdateTile(ctx context.Context, id string, cfg TileConfig) error
 	RenameTile(ctx context.Context, id, name, slug string) error
 	UpdateTileStatus(ctx context.Context, id, status string) error
 	SetTileHomeNode(ctx context.Context, id, nodeID string) error

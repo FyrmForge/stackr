@@ -1480,7 +1480,7 @@ func (a Applier) updateTile(ctx context.Context, stack *repo.Stack, env *repo.En
 			return false, fmt.Errorf("tile %s: %w", slug, err)
 		}
 	}
-	if err := store.UpdateTile(ctx, t); err != nil {
+	if err := store.UpdateTile(ctx, t.ID, t.TileConfig); err != nil {
 		return false, err
 	}
 	// The file owns this tile's variables: one dropped from the config has to

@@ -963,7 +963,7 @@ func (r Runner) applyShared(ctx context.Context, org *repo.Org, f *File, failed 
 			}
 			t.ImageRef, t.ShmSizeMB, t.ExternalPort = want, tc.ShmSizeMB, tc.ExternalPort
 			t.UpdatedAt = time.Now().UTC()
-			if err := r.Store.UpdateTile(ctx, t); err != nil {
+			if err := r.Store.UpdateTile(ctx, t.ID, t.TileConfig); err != nil {
 				return err
 			}
 			if r.Applier.Instances != nil && (t.Status == "running" || t.Status == "error") {

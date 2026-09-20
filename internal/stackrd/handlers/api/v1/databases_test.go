@@ -56,7 +56,7 @@ func TestPatchDBLeavesOmittedFields(t *testing.T) {
 	seed := testdb.SeedStack(t, s, false)
 	d := seedDB(t, s, seed)
 	d.CPULimit, d.MemLimitMB = 2, 512
-	require.NoError(t, s.UpdateTile(context.Background(), d), "seed limits")
+	require.NoError(t, s.UpdateTile(context.Background(), d.ID, d.TileConfig), "seed limits")
 	a := apiFor(s)
 
 	_, err := call(t, a, a.patchDB, http.MethodPatch, "/", `{"external_port":0}`, d.ID, ScopeDBsWrite)

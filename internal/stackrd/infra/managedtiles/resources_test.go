@@ -163,7 +163,7 @@ func TestPublishConnection(t *testing.T) {
 	assert.Equal(t, alias, got["PGHOST"].Value, "PGHOST, want the tile alias")
 	before := got["DATABASE_URL"].Value
 	inst.Slug, inst.Name = "renamed", "renamed"
-	require.NoError(t, s.UpdateTile(ctx, inst), "rename")
+	require.NoError(t, s.UpdateTile(ctx, inst.ID, inst.TileConfig), "rename")
 	managedtiles.PublishConnection(ctx, s, inst)
 	after, err := s.ListVariables(ctx, repo.OwnerTile, inst.ID)
 	require.NoError(t, err, "list after rename")
@@ -248,7 +248,7 @@ func TestAttachSharesOneResource(t *testing.T) {
 	// reference with it, an unbound reference is a hard resolve error, so
 	// leaving it behind would fail every later deploy of that tile.
 	second.Env = "DATABASE_URL=" + managedtiles.Ref(inst, &attached, "DATABASE_URL") + "\nKEEP=1"
-	require.NoError(t, s.UpdateTile(ctx, second), "set consumer env")
+	require.NoError(t, s.UpdateTile(ctx, second.ID, second.TileConfig), "set consumer env")
 	require.NoError(t, svc(s).Detach(ctx, &attached), "detach")
 	left, err := s.ListVariables(ctx, repo.OwnerTile, second.ID)
 	require.NoError(t, err, "list vars")

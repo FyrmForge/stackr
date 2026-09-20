@@ -54,7 +54,7 @@ func TestSnapshotResolvesSlices(t *testing.T) {
 	consumer := seed.Tile
 	consumer.ImageRef = "nginx:1.27" // the seed leaves it blank, which diffs as a source change
 	consumer.Env = "LOG_LEVEL=debug\nPRIMARY_DB=${{ tile.site-db.DATABASE_URL }}"
-	require.NoError(t, store.UpdateTile(ctx, consumer), "consumer")
+	require.NoError(t, store.UpdateTile(ctx, consumer.ID, consumer.TileConfig), "consumer")
 	require.NoError(t, store.CreateProvision(ctx, &repo.Provision{ID: "pr1", InstanceTileID: inst.ID,
 		EnvID: seed.Env.ID, DBName: "orders", DBUser: "u", DBPassword: "p",
 		Status: "active", OnRemove: "drop", ResourceSlug: "site-db", CreatedAt: now}), "provision")

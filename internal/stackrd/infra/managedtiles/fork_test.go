@@ -94,7 +94,7 @@ func TestDropResourceStripsConsumerRefs(t *testing.T) {
 
 	// The consumer references the slice the way wiring a var does.
 	consumer.Env = "DATABASE_URL=${{ tile.app-db.DATABASE_URL }}\nOTHER=keep-me"
-	require.NoError(t, s.UpdateTile(ctx, consumer))
+	require.NoError(t, s.UpdateTile(ctx, consumer.ID, consumer.TileConfig))
 
 	svc.dropResource(ctx, inst, p)
 

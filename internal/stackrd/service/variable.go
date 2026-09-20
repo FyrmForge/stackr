@@ -253,7 +253,7 @@ func (s *VariableService) syncBlob(ctx context.Context, owner VarOwner) error {
 		return nil
 	}
 	t.Env = blob
-	return s.store.UpdateTile(ctx, t)
+	return s.store.UpdateTile(ctx, t.ID, t.TileConfig)
 }
 
 // after performs what a variable write earns. This is the half the API had

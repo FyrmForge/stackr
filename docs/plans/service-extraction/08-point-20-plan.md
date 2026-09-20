@@ -125,3 +125,32 @@ The deferred half of point 20 stays deferred: splitting the READS into
 `GetConfig()`/`GetState()` was already superseded, because every orchestrator
 (k8s, swarm) returns spec and status in one read. Only the write split was
 ever live, and most of it turns out to be built.
+
+---
+
+# Built, 2026-09-20 — option A, and it cost nothing
+
+`go.mod` moved to `go 1.27.1`. Go 1.27 allows a promoted field directly in a
+composite literal, so `repo.Tile{Name: "x"}` still compiles with `Name` living
+in an embedded `TileConfig`. **The 258 rewrites this plan priced the option at
+did not happen — zero literals changed.** With the churn gone, B has no case
+left; A is strictly better and shipped.
+
+What landed:
+
+- `repo.TileConfig` (55 fields) and `repo.TileState` (8), embedded in
+  `repo.Tile`. Identity and timestamps stay on `Tile`.
+- `UpdateTile(ctx, id string, cfg repo.TileConfig)`. **This is the deliverable**
+  — the embedding alone changes nothing, the guarantee is that the parameter
+  type cannot name a state column. 10 production call sites and the test
+  fakes moved to `UpdateTile(ctx, t.ID, t.TileConfig)`.
+- `tileConfigWrite` in `sqlite/tiles.go`, which adds `:id` and `:updated_at`
+  to the bind struct. sqlx fails at run time on a named parameter the struct
+  lacks, and the compiler is silent about it.
+- `sqlite/tileconfig_test.go`: reflective round-trip of every config field,
+  plus a config save that must not revert `status`, `home_node` or
+  `image_digest`.
+
+Not built: `SetTileState`. See 05-assumptions.md — a whole-struct state write
+is this same bug pointed the other way, and the narrow setters were already
+right.

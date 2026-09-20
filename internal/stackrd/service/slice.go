@@ -146,7 +146,7 @@ func (s *SliceService) Wire(ctx context.Context, instance, consumer *repo.Tile,
 }
 
 func (s *SliceService) saveAndRedeploy(ctx context.Context, consumer *repo.Tile) error {
-	if err := s.store.UpdateTile(ctx, consumer); err != nil {
+	if err := s.store.UpdateTile(ctx, consumer.ID, consumer.TileConfig); err != nil {
 		return err
 	}
 	if s.engine == nil {

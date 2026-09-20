@@ -113,8 +113,8 @@ func (o *orphanStore) ListProvisionsByConsumer(context.Context, string) ([]repo.
 	return nil, nil
 }
 func (o *orphanStore) DeleteTile(context.Context, string) error { return nil }
-func (o *orphanStore) UpdateTile(_ context.Context, t *repo.Tile) error {
-	o.updated = append(o.updated, *t)
+func (o *orphanStore) UpdateTile(_ context.Context, id string, cfg repo.TileConfig) error {
+	o.updated = append(o.updated, repo.Tile{ID: id, TileConfig: cfg})
 	return nil
 }
 

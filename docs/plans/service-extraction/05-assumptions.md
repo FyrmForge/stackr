@@ -1342,3 +1342,73 @@ against the previous commit's list, which must never gain a line:
 	comm -13 before after   # must be empty
 
 Run for all three slices so far. Empty each time; 525 -> 335 is real.
+
+# Point 20
+
+## Go 1.27 made the 258 rewrites go away
+
+The plan doc priced option A at 258 composite-literal rewrites, because Go had
+no flat literal for a promoted field: `repo.Tile{Name: "x"}` would have had to
+become `repo.Tile{TileConfig: repo.TileConfig{Name: "x"}}`.
+
+Go 1.27 allows promoted fields directly in a composite literal. `go.mod` moved
+from `go 1.26.3` to `go 1.27.1` (and the two Dockerfiles' `ARG GO_VERSION`
+with it; CI reads the version from `go.mod`), and **not one of the 258
+literals changed**. The embedding is otherwise ordinary Go, nothing new.
+
+That deletes the only argument for option B. The cost of A was the churn, and
+there is no churn.
+
+## No SetTileState — TileState is a read grouping only
+
+The plan doc sketched `SetTileState(ctx, id, st TileState)` as the mirror of
+`UpdateTile(ctx, id, cfg TileConfig)`. It is not built, on purpose.
+
+A whole-struct state write is the bug this point exists to remove, pointed the
+other way: a caller holding a `TileState` loaded a second ago, writing it back
+to change `HomeNode`, would stomp a `Status` that changed in between. The five
+narrow setters (`UpdateTileStatus`, `SetTileHomeNode`, `SetTileImageDigest`,
+`SetTileLatestDigest`, `RecordTileRun`, plus `SetTileSharedNet`) each name one
+fact and cannot express another. They were already correct; nothing replaced
+them.
+
+So the two halves are not symmetric. `TileConfig` is a write parameter.
+`TileState` is a grouping that gives the observed fields one place to be
+documented, and nothing takes one as an argument.
+
+## The partition is defined by UpdateTile's SQL, not by taste
+
+`TileConfig` holds exactly the columns the `UPDATE tiles SET ...` statement
+names, minus `id` and `updated_at`. Checked mechanically, both directions
+empty.
+
+Those two are the trap. sqlx's named exec fails at RUN time, not compile time,
+when the struct is missing a parameter the query names — and only in that
+direction, extra fields are ignored. They are supplied by `tileConfigWrite`, a
+bind struct local to `sqlite/tiles.go` that embeds `TileConfig` and adds the
+two. Widening `TileConfig` to carry `ID` instead would put `db:"id"` at two
+depths, which is the duplicated-field-list trap the plan rejected option C for.
+
+Columns in neither half stay on `Tile` itself: `id`, `stack_id`,
+`environment_id`, `slug`, `kind`, `webhook_token`, `created_at`, `updated_at`.
+All identity or timestamps, all written only by `CreateTile` and `RenameTile`.
+
+## The regression guard is reflective, not per-column
+
+One mistake survives the type split: adding a field to `TileConfig` and
+forgetting it in `UpdateTile`'s SQL. sqlx ignores the extra field, so the
+column silently stops persisting — the same class of quiet failure, moved.
+
+`sqlite/tileconfig_test.go` fills every `TileConfig` field reflectively with a
+distinct non-zero value, writes, reads back and compares field by field, so a
+field added later is covered without anyone remembering to cover it. Verified
+to have teeth: dropping `node_group = :node_group` from the SQL fails it by
+name. The typed per-column cases in `newcols_test.go` stay; they document
+which columns arrived when.
+
+## UpdateTile no longer stamps the caller's struct
+
+It used to set `t.UpdatedAt` on the caller's `*repo.Tile` as a side effect of
+writing the row. With a value parameter it cannot, and no caller read it back —
+every one of them re-loads or discards the struct. Worth knowing before someone
+looks for a stale `UpdatedAt` in a rendered page.

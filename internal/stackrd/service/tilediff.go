@@ -115,8 +115,8 @@ func canonRestart(v string) string {
 // B row of point 3.
 //
 // Both sides must be rows loaded from the store and then edited, not freshly
-// built structs: four columns (status, slug, shared_net, home_node) are
-// excluded from UpdateTile by the store and would otherwise read as changes.
+// built structs: slug and everything in repo.TileState are outside what
+// UpdateTile writes and would otherwise read as changes.
 func DiffTiles(old, cur *repo.Tile) Changed {
 	c := Changed{}
 	if old == nil || cur == nil {

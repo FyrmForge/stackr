@@ -77,7 +77,7 @@ func TestEndpointPortVarInjection(t *testing.T) {
 	tile := seed.Tile
 	tile.ContainerPort = 8080
 	tile.EndpointPortVar = "PORT"
-	require.NoError(t, s.UpdateTile(ctx, tile), "update")
+	require.NoError(t, s.UpdateTile(ctx, tile.ID, tile.TileConfig), "update")
 	assert.Equal(t, "8080", resolve(t, s, tile.ID)["PORT"], "injected PORT")
 
 	setVar(t, s, repo.OwnerTile, tile.ID, "PORT", "9999", false)

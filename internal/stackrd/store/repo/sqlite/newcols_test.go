@@ -34,7 +34,7 @@ func TestNewColumnsRoundTrip(t *testing.T) {
 	require.NotNil(t, got, "get")
 	assert.Equal(t, 512, got.MaxSizeMB, "max_size_mb not stored on create")
 	got.MaxSizeMB = 1024
-	require.NoError(t, store.UpdateTile(ctx, got), "update")
+	require.NoError(t, store.UpdateTile(ctx, got.ID, got.TileConfig), "update")
 	again, _ := store.GetTile(ctx, vol.ID)
 	assert.False(t, again == nil || again.MaxSizeMB != 1024, "max_size_mb not stored on update: %+v", again)
 
@@ -66,7 +66,7 @@ func TestNewColumnsRoundTrip(t *testing.T) {
 	rt.Files = "config/loki.yml:/etc/loki/config.yml"
 	rt.Storage = "nas-media/tv:/tv:ro"
 	rt.User, rt.ShmSizeMB, rt.Privileged, rt.Devices, rt.RestartPolicy = "999", 64, false, "/dev/dri", ""
-	require.NoError(t, store.UpdateTile(ctx, rt), "update svc")
+	require.NoError(t, store.UpdateTile(ctx, rt.ID, rt.TileConfig), "update svc")
 	rt2, _ := store.GetTile(ctx, svc.ID)
 	require.NotNil(t, rt2)
 	assert.Equal(t, "999", rt2.User, "user not stored on update")

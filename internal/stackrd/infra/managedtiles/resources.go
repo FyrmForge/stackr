@@ -171,7 +171,7 @@ func (s *Service) dropConsumerRefs(ctx context.Context, res *repo.ManagedResourc
 		return
 	}
 	t.Env = strings.Join(kept, "\n")
-	if err := s.store.UpdateTile(ctx, t); err != nil {
+	if err := s.store.UpdateTile(ctx, t.ID, t.TileConfig); err != nil {
 		return
 	}
 	// The blob projection only ever adds, so the rows have to go explicitly.

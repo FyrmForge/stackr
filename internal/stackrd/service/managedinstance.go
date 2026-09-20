@@ -198,7 +198,7 @@ func (s *ManagedInstanceService) Update(ctx context.Context, t *repo.Tile, by Ac
 	}
 	changed := DiffTiles(old, t)
 	t.UpdatedAt = time.Now().UTC()
-	if err := s.store.UpdateTile(ctx, t); err != nil {
+	if err := s.store.UpdateTile(ctx, t.ID, t.TileConfig); err != nil {
 		return err
 	}
 	return s.AfterWrite(ctx, t, changed)
@@ -274,7 +274,7 @@ func (s *ManagedInstanceService) SetScope(ctx context.Context, t *repo.Tile, sco
 		return err
 	}
 	t.UpdatedAt = time.Now().UTC()
-	return s.store.UpdateTile(ctx, t)
+	return s.store.UpdateTile(ctx, t.ID, t.TileConfig)
 }
 
 // PlanScope is SetScope's gate and mapping without the write, for a caller

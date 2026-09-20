@@ -186,7 +186,7 @@ func TestPortChangeReachesDomains(t *testing.T) {
 
 	tile := seed.Tile
 	tile.ContainerPort = 3000
-	require.NoError(t, store.UpdateTile(ctx, tile))
+	require.NoError(t, store.UpdateTile(ctx, tile.ID, tile.TileConfig))
 	tracking := &repo.Domain{ID: "d1", TileID: tile.ID, Host: "app.test", ContainerPort: 3000, HTTPS: true, CreatedAt: time.Now().UTC()}
 	pinned := &repo.Domain{ID: "d2", TileID: tile.ID, Host: "api.test", ContainerPort: 9999, HTTPS: true, CreatedAt: time.Now().UTC()}
 	for _, d := range []*repo.Domain{tracking, pinned} {
