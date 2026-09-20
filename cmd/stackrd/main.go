@@ -694,6 +694,7 @@ func main() {
 	// One owner for membership: one role whitelist, one expiry rule, one
 	// last-owner guard, and the invite mailed from both surfaces.
 	memberSvc := service.NewMemberService(store, mailer, revokeSvc)
+	orgSvc := service.NewOrgService(store)
 
 	api.RegisterRoutes(srv, &api.Deps{
 		Store:          store,
@@ -723,6 +724,7 @@ func main() {
 		Registries:     registrySvc,
 		PREnvs:         prenvSvc,
 		Members:        memberSvc,
+		Orgs:           orgSvc,
 		OrgConfig:      orgRunner,
 		Deploys:        deploySvc,
 		Releases:       releaseSvc,
@@ -780,6 +782,7 @@ func main() {
 		Registries:     registrySvc,
 		PREnvs:         prenvSvc,
 		Members:        memberSvc,
+		Orgs:           orgSvc,
 		OrgConfig:      orgRunner,
 		Deploys:        deploySvc,
 		Releases:       releaseSvc,

@@ -32,17 +32,9 @@ import (
 func (h *handler) settingsOrg(c echo.Context) (*repo.Org, error) {
 	ctx := c.Request().Context()
 	key := orgKey(c)
-	o, err := h.store.GetOrgBySlug(ctx, key)
+	o, err := h.orgs.Resolve(ctx, key)
 	if err != nil {
-		return nil, err
-	}
-	if o == nil {
-		if o, err = h.store.GetOrg(ctx, key); err != nil {
-			return nil, err
-		}
-	}
-	if o == nil {
-		return nil, echo.NewHTTPError(http.StatusNotFound, "org not found")
+		return nil, stackrmw.HTTP(err)
 	}
 	return o, nil
 }
@@ -158,14 +150,14 @@ func (h *handler) SettingsMembers(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	members, err := h.store.ListOrgMembers(ctx, o.ID)
+	members, err := h.members.ListMembers(ctx, o.ID)
 	if err != nil {
 		return err
 	}
 	isOwner := h.ownerOf(c, o.ID)
 	var invites []repo.Invite
 	if isOwner {
-		if invites, err = h.store.ListInvitesByOrg(ctx, o.ID); err != nil {
+		if invites, err = h.members.ListInvites(ctx, o.ID); err != nil {
 			return err
 		}
 	}

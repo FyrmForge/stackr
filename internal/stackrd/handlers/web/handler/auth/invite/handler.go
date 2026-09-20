@@ -24,6 +24,8 @@ type handler struct {
 	store          repo.Store
 	authService    *service.AuthService
 	sessionManager *hamrauth.SessionManager
+	orgs           *service.OrgService
+	members        *service.MemberService
 }
 
 func NewHandler(store repo.Store, authService *service.AuthService, sm *hamrauth.SessionManager) *handler {
@@ -36,8 +38,8 @@ func (h *handler) loadInvite(ctx context.Context, token string) (*repo.Invite, *
 	if err != nil || inv == nil || inv.UsedAt.Valid || time.Now().After(inv.ExpiresAt) {
 		return nil, nil
 	}
-	org, err := h.store.GetOrg(ctx, inv.OrgID)
-	if err != nil || org == nil {
+	org, err := h.orgs.Get(ctx, inv.OrgID)
+	if err != nil {
 		return nil, nil
 	}
 	return inv, org
@@ -121,7 +123,7 @@ func (h *handler) join(c echo.Context, inv *repo.Invite, org *repo.Org, u *repo.
 		middleware.SetFlash(c, "This invite is for "+inv.Email+".", middleware.FlashError)
 		return respond.Redirect(c, "/")
 	}
-	if m, _ := h.store.GetOrgMember(ctx, inv.OrgID, u.ID); m == nil {
+	if role, _ := h.members.RoleOf(ctx, inv.OrgID, u.ID); role == "" {
 		if err := h.store.UpsertOrgMember(ctx, &repo.OrgMember{
 			OrgID: inv.OrgID, UserID: u.ID, Role: inv.Role, CreatedAt: time.Now().UTC(),
 		}); err != nil {
@@ -137,3 +139,9 @@ func (h *handler) join(c echo.Context, inv *repo.Invite, org *repo.Org, u *repo.
 	middleware.SetFlash(c, "Welcome to "+org.Name+"!", middleware.FlashSuccess)
 	return respond.Redirect(c, "/")
 }
+
+// WithOrgs gives the invite page the organization service.
+func (h *handler) WithOrgs(o *service.OrgService) *handler { h.orgs = o; return h }
+
+// WithMembers gives the invite page the membership service.
+func (h *handler) WithMembers(m *service.MemberService) *handler { h.members = m; return h }

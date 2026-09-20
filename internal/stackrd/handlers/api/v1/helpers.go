@@ -2,6 +2,7 @@ package v1
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"sort"
 	"strings"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/FyrmForge/stackr/internal/stackrd/config/envutil"
 	"github.com/FyrmForge/stackr/internal/stackrd/service"
+	"github.com/FyrmForge/stackr/internal/stackrd/service/svcerr"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 )
 
@@ -28,13 +30,13 @@ func (a *API) orgForCreate(c echo.Context, explicit string) (string, error) {
 	ctx := c.Request().Context()
 	cand := map[string]bool{}
 	if a.isAdmin(c) {
-		orgs, _ := a.store.ListOrgs(ctx)
+		orgs, _ := a.orgs.ListAll(ctx)
 		for _, o := range orgs {
 			cand[o.ID] = true
 		}
 	} else {
 		for id := range a.userOrgIDs(c) {
-			if m, err := a.store.GetOrgMember(ctx, id, a.user(c).ID); err == nil && m != nil && (m.Role == "owner" || m.Role == "member") {
+			if role, err := a.members.RoleOf(ctx, id, a.user(c).ID); err == nil && (role == "owner" || role == "member") {
 				cand[id] = true
 			}
 		}
@@ -58,13 +60,13 @@ func (a *API) orgForCreate(c echo.Context, explicit string) (string, error) {
 	// the 409 that says why.
 	pending := map[string]*repo.Org{}
 	for id := range cand {
-		o, err := a.store.GetOrg(ctx, id)
-		if err != nil {
-			return "", err
-		}
-		if o == nil {
+		o, err := a.orgs.Get(ctx, id)
+		if errors.Is(err, svcerr.ErrNotFound) {
 			delete(cand, id) // vanished under us: not a candidate, not a 409
 			continue
+		}
+		if err != nil {
+			return "", err
 		}
 		if o.SetupDoneAt == nil {
 			pending[id] = o

@@ -54,6 +54,7 @@ type handler struct {
 	work   *workqueue.Queue      // prenvs owns the stored pull-request settings.
 	prenvs *service.PREnvService // orgcfg is the org config runner, wired once in main.
 	orgcfg *orgconf.Runner
+	orgs   *service.OrgService
 }
 
 func NewHandler(store repo.Store, engine *deploy.Engine, ops envops.Ops, applier stackconf.Applier, gh *githubapp.Client, notifier *notify.Notifier) *handler {
@@ -296,7 +297,7 @@ func (h *handler) planConfigs(ctx context.Context, orgID string, p *pushPayload)
 	planned := 0
 	// Org config first: a push to the org file re-plans the org. Plans only,
 	// org applies are always human-approved, never webhook-driven.
-	if org, err := h.store.GetOrg(ctx, orgID); err == nil && org != nil &&
+	if org, err := h.orgs.Get(ctx, orgID); err == nil &&
 		org.ConfigManaged() && org.ConfigRepo == p.Repository.FullName {
 		orgBranch := org.ConfigBranch
 		if orgBranch == "" {
@@ -772,3 +773,6 @@ func validSignature(secret, header string, body []byte) bool {
 
 // WithScheduler gives the handler the schedule reloader.
 func (h *handler) WithScheduler(s *scheduler.Service) *handler { h.sched = s; return h }
+
+// WithOrgs gives the page the organization service.
+func (h *handler) WithOrgs(v *service.OrgService) *handler { h.orgs = v; return h }

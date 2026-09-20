@@ -63,7 +63,7 @@ func (a *API) storageOut(c echo.Context, st *repo.Storage) storageOut {
 	out := storageOut{ID: st.ID, Name: st.Name, Slug: st.Slug, Backend: st.Backend,
 		Address: st.Address, Export: st.Export, Status: st.Status, StatusMsg: st.StatusMsg}
 	if st.OrgID != "" {
-		if org, _ := a.store.GetOrg(c.Request().Context(), st.OrgID); org != nil {
+		if org, _ := a.orgs.Get(c.Request().Context(), st.OrgID); org != nil {
 			out.Org = org.Slug
 		}
 	}
@@ -127,9 +127,9 @@ func (a *API) deleteStorage(c echo.Context) error {
 	if st.OrgID != "" {
 		// Access first: an org share is the org's to remove. The consumer
 		// scan and the volume cleanup are the service's, for both kinds.
-		org, oerr := a.store.GetOrg(ctx, st.OrgID)
-		if oerr != nil || org == nil {
-			return echo.NewHTTPError(http.StatusNotFound, "org not found")
+		org, oerr := a.orgs.Get(ctx, st.OrgID)
+		if oerr != nil {
+			return stackrmw.HTTP(oerr)
 		}
 		if _, oerr := a.orgShareOwner(ctx, org.Slug); oerr != nil {
 			return oerr
@@ -194,8 +194,8 @@ func (a *API) deleteStoragePath(c echo.Context) error {
 // repo owns its shares in stackr-org.yml, and its next apply would delete one
 // added here.
 func (a *API) orgShareOwner(ctx context.Context, slug string) (*repo.Org, error) {
-	org, err := a.store.GetOrgBySlug(ctx, slug)
-	if err != nil || org == nil {
+	org, err := a.orgs.BySlug(ctx, slug)
+	if err != nil {
 		return nil, echo.NewHTTPError(http.StatusNotFound, "org "+slug+" not found")
 	}
 	if org.ConfigManaged() {

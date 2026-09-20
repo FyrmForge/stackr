@@ -97,6 +97,8 @@ type API struct {
 	orgcfg *orgconf.Runner
 	// members owns who is in an org and at what level.
 	members *service.MemberService
+	// orgs owns the organization row and the setup draft.
+	orgs *service.OrgService
 	// settings owns every rung of the defaults cascade.
 	settings *service.SettingsService
 	// access owns the level every verb needs, shared with the panel.
@@ -188,6 +190,9 @@ func (a *API) WithPREnvs(p *service.PREnvService) *API { a.prenvs = p; return a 
 
 // WithMembers gives the API the membership service.
 func (a *API) WithMembers(m *service.MemberService) *API { a.members = m; return a }
+
+// WithOrgs gives the API the organization service.
+func (a *API) WithOrgs(o *service.OrgService) *API { a.orgs = o; return a }
 
 // WithOrgConfig gives the API the org config runner.
 func (a *API) WithOrgConfig(r *orgconf.Runner) *API { a.orgcfg = r; return a }

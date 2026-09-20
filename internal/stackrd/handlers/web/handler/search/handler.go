@@ -23,10 +23,12 @@ import (
 )
 
 type handler struct {
-	store  repo.Store
-	envs   *service.EnvironmentService
-	stacks *service.StackService
-	tiles  *service.TileService
+	store   repo.Store
+	envs    *service.EnvironmentService
+	stacks  *service.StackService
+	tiles   *service.TileService
+	members *service.MemberService
+	orgs    *service.OrgService
 }
 
 func NewHandler(store repo.Store, envs *service.EnvironmentService,
@@ -224,7 +226,7 @@ func (h *handler) Search(c echo.Context) error {
 
 	// Members and config plans, per-org / per-stack queries, both small.
 	for _, o := range orgByID {
-		members, err := h.store.ListOrgMembers(ctx, o.ID)
+		members, err := h.members.ListMembers(ctx, o.ID)
 		if err != nil {
 			return err
 		}
@@ -347,3 +349,9 @@ func tileKind(t repo.Tile) string {
 		return "service"
 	}
 }
+
+// WithMembers gives the page the membership service.
+func (h *handler) WithMembers(v *service.MemberService) *handler { h.members = v; return h }
+
+// WithOrgs gives the page the organization service.
+func (h *handler) WithOrgs(v *service.OrgService) *handler { h.orgs = v; return h }

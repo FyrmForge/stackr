@@ -119,6 +119,7 @@ type Deps struct {
 	Registries   *service.RegistryService
 	PREnvs       *service.PREnvService
 	Members      *service.MemberService
+	Orgs         *service.OrgService
 	Instances    *service.ManagedInstanceService
 	Slices       *service.SliceService
 	Metrics      *metrics.Sampler
@@ -295,13 +296,16 @@ func RegisterRoutes(srv *server.Server, deps *Deps) {
 		WithDestinations(deps.Destinations).
 		WithRegistries(deps.Registries).
 		WithImageWatch(deps.ImageWatch).
-		WithRevoke(deps.Revoke)
+		WithRevoke(deps.Revoke).
+		WithOrgs(deps.Orgs)
 
-	searchHandler := searchpage.NewHandler(deps.Store, deps.Environments, deps.Stacks, deps.Tiles)
+	searchHandler := searchpage.NewHandler(deps.Store, deps.Environments, deps.Stacks, deps.Tiles).
+		WithOrgs(deps.Orgs).WithMembers(deps.Members)
 	site.GET("/search", searchHandler.Search, auth.RequireAuth())
 
 	orgHandler := orgpage.NewHandler(deps.Store, deps.Notifier, deps.Metrics, deps.FileStorage, deps.Runtime, deps.Forwards, deps.OrgConfig, deps.GitHub, deps.Mail, deps.RegistrySigner, deps.Proxy).
 		WithDomainResources(deps.Resources).WithVariables(deps.Variables).WithStacks(deps.Stacks).
+		WithOrgs(deps.Orgs).WithMembers(deps.Members).
 		WithTiles(deps.Tiles).
 		WithEnvironments(deps.Environments).
 		WithWork(deps.Work).
@@ -468,6 +472,7 @@ func RegisterRoutes(srv *server.Server, deps *Deps) {
 
 	applier := deps.Applier
 	projectHandler := project.NewHandler(deps.Store, deps.Runtime, deps.Cluster, deps.Proxy, deps.Metrics, deps.Notifier, deps.GitHub, applier, deps.Forwards).
+		WithOrgs(deps.Orgs).
 		WithInstances(deps.Instances).
 		WithVariables(deps.Variables).
 		WithEnvironments(deps.Environments).
@@ -686,7 +691,7 @@ func RegisterRoutes(srv *server.Server, deps *Deps) {
 	read(site, "/containers/:id/term/ws", containerHandler.TermWS, service.VerbAdminRead, service.KindNone, "", adminOnly)
 
 	appHandler := apppage.NewHandler(deps.Store, deps.Cluster, deps.Proxy, deps.Engine, deps.Jobs, deps.GitHub, deps.Notifier, deps.Lifecycle, deps.Tiles, deps.Telemetry, deps.Domains).
-		WithEnvironments(deps.Environments).WithStacks(deps.Stacks).
+		WithEnvironments(deps.Environments).WithStacks(deps.Stacks).WithOrgs(deps.Orgs).
 		WithSlices(deps.Slices).
 		WithVariables(deps.Variables).
 		WithDeploys(deps.Deploys).
@@ -748,6 +753,7 @@ func RegisterRoutes(srv *server.Server, deps *Deps) {
 		WithEnvironments(deps.Environments).
 		WithStacks(deps.Stacks).
 		WithTiles(deps.Tiles).
+		WithOrgs(deps.Orgs).
 		WithPREnvs(deps.PREnvs).
 		WithOrgConfig(deps.OrgConfig).
 		WithWork(deps.Work).
@@ -798,7 +804,7 @@ func RegisterRoutes(srv *server.Server, deps *Deps) {
 
 	// Org invite links: logged-in users join directly, visitors register through
 	// the invite. Works both ways, so no auth requirement either direction.
-	inviteHandler := invite.NewHandler(deps.Store, deps.AuthService, deps.SessionManager)
+	inviteHandler := invite.NewHandler(deps.Store, deps.AuthService, deps.SessionManager).WithOrgs(deps.Orgs).WithMembers(deps.Members)
 	site.GET("/invite/:token", inviteHandler.Page)
 	site.POST("/invite/:token", inviteHandler.Submit, authLimit)
 

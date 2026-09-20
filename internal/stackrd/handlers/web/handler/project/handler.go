@@ -94,6 +94,7 @@ type handler struct {
 	// the request: it clones repos and builds images, so it routinely outlives
 	// the browser that asked for it.
 	work *workqueue.Queue
+	orgs *service.OrgService
 }
 
 // WithMover attaches the volume-move service. Set from the router rather than
@@ -258,7 +259,7 @@ func (h *handler) fillOrg(ctx context.Context, p *repo.Stack) {
 	if p == nil || p.OrgSlug != "" {
 		return
 	}
-	if org, _ := h.store.GetOrg(ctx, p.OrgID); org != nil {
+	if org, _ := h.orgs.Get(ctx, p.OrgID); org != nil {
 		p.OrgSlug = org.Slug
 	}
 }
@@ -283,12 +284,9 @@ func (h *handler) envSettingsURL(ctx context.Context, p *repo.Stack, envSlug str
 // resolveSlugs maps /:org/:stack/:env path params to rows.
 func (h *handler) resolveSlugs(c echo.Context) (*repo.Stack, *repo.Environment, error) {
 	ctx := c.Request().Context()
-	org, err := h.store.GetOrgBySlug(ctx, c.Param("org"))
+	org, err := h.orgs.BySlug(ctx, c.Param("org"))
 	if err != nil {
-		return nil, nil, err
-	}
-	if org == nil {
-		return nil, nil, echo.NewHTTPError(http.StatusNotFound, "org not found")
+		return nil, nil, stackrmw.HTTP(err)
 	}
 	p, err := h.stacks.BySlug(ctx, org.ID, c.Param("stack"))
 	if err != nil {
@@ -540,7 +538,7 @@ func (h *handler) Graph(c echo.Context) error {
 
 // envColorsByID resolves every env's colour for one stack, as CSS values.
 func (h *handler) envColorsByID(ctx context.Context, p *repo.Stack, envs []repo.Environment) map[string]string {
-	org, _ := h.store.GetOrg(ctx, p.OrgID)
+	org, _ := h.orgs.Get(ctx, p.OrgID)
 	out := map[string]string{}
 	for id, r := range envcolor.Map(envs, org, p.ConfigManaged()) {
 		out[id] = r.CSS
@@ -1566,9 +1564,9 @@ func atoiOr(s string, def int) int {
 // settings section starts here.
 func (h *handler) settingsStack(c echo.Context) (*repo.Stack, error) {
 	ctx := c.Request().Context()
-	org, err := h.store.GetOrgBySlug(ctx, c.Param("org"))
-	if err != nil || org == nil {
-		return nil, echo.NewHTTPError(http.StatusNotFound, "org not found")
+	org, err := h.orgs.BySlug(ctx, c.Param("org"))
+	if err != nil {
+		return nil, stackrmw.HTTP(err)
 	}
 	p, err := h.stacks.BySlug(ctx, org.ID, c.Param("stack"))
 	if err != nil {
@@ -1913,7 +1911,7 @@ func (h *handler) SettingsEnvironments(c echo.Context) error {
 			counts[e.ID] = len(tiles)
 		}
 	}
-	org, _ := h.store.GetOrg(ctx, p.OrgID)
+	org, _ := h.orgs.Get(ctx, p.OrgID)
 	return respond.HTML(c, http.StatusOK, stackEnvironmentsPage(c, p, envs, counts, envcolor.Map(envs, org, p.ConfigManaged())))
 }
 
@@ -2424,3 +2422,6 @@ func (h *handler) WithDomainResources(r *service.DomainResourceService) *handler
 	h.resources = r
 	return h
 }
+
+// WithOrgs gives the page the organization service.
+func (h *handler) WithOrgs(v *service.OrgService) *handler { h.orgs = v; return h }

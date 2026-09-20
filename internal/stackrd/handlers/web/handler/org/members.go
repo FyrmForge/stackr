@@ -31,8 +31,8 @@ func (h *handler) ownerOf(c echo.Context, orgID string) bool {
 	if u == nil {
 		return false
 	}
-	m, err := h.store.GetOrgMember(c.Request().Context(), orgID, u.ID)
-	return err == nil && m != nil && m.Role == "owner"
+	role, err := h.members.RoleOf(c.Request().Context(), orgID, u.ID)
+	return err == nil && role == "owner"
 }
 
 // ownedOrg loads the org a route addresses by slug. It used to refuse anyone
@@ -81,7 +81,7 @@ func (h *handler) Rename(c echo.Context) error {
 		// has no URL in it and the org would be unreachable.
 		return refuse("That name needs at least one letter or digit, since it becomes the URL.")
 	}
-	if existing, _ := h.store.GetOrgBySlug(ctx, slug); existing != nil && existing.ID != o.ID {
+	if existing, _ := h.orgs.BySlug(ctx, slug); existing != nil && existing.ID != o.ID {
 		return refuse("Another organization already uses that name.")
 	}
 	// Anti-squat in reverse: renaming to a slug that some other org's domain
@@ -183,7 +183,7 @@ func (h *handler) Delete(c echo.Context) error {
 		middleware.SetFlash(c, msg, middleware.FlashError)
 		return respond.Redirect(c, back)
 	}
-	orgs, err := h.store.ListOrgs(ctx)
+	orgs, err := h.orgs.ListAll(ctx)
 	if err != nil {
 		return err
 	}

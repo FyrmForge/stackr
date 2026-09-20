@@ -228,12 +228,9 @@ func (h *handler) ResetStackNodePositions(c echo.Context) error {
 // resolveStackSlugs maps /:org/:stack to its row, org access checked.
 func (h *handler) resolveStackSlugs(c echo.Context) (*repo.Stack, error) {
 	ctx := c.Request().Context()
-	org, err := h.store.GetOrgBySlug(ctx, c.Param("org"))
+	org, err := h.orgs.BySlug(ctx, c.Param("org"))
 	if err != nil {
-		return nil, err
-	}
-	if org == nil {
-		return nil, echo.NewHTTPError(http.StatusNotFound, "org not found")
+		return nil, stackrmw.HTTP(err)
 	}
 	p, err := h.stacks.BySlug(ctx, org.ID, c.Param("stack"))
 	if err != nil {

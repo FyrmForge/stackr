@@ -67,6 +67,7 @@ type handler struct {
 	// gate answers whether a config-managed stack takes this edit, and
 	// whether it stages. editGate was a second copy of it.
 	gate *service.GateService
+	orgs *service.OrgService
 }
 
 // NewHandler creates a new app handler.
@@ -543,7 +544,7 @@ func (h *handler) crumb(c echo.Context, a *repo.Tile) breadcrumb {
 	// Fallback keeps the crumb clickable-ish for an orphaned stack; the org
 	// id is at least honest where a magic slug would not be.
 	orgSlug := stack.OrgID
-	if o, _ := h.store.GetOrg(ctx, stack.OrgID); o != nil && o.Slug != "" {
+	if o, _ := h.orgs.Get(ctx, stack.OrgID); o != nil && o.Slug != "" {
 		orgSlug = o.Slug
 	}
 	b.EnvName = env.Name
@@ -791,8 +792,8 @@ func (h *handler) infraAddress(ctx context.Context, instance *repo.Tile) string 
 	if err != nil {
 		return instance.Slug
 	}
-	org, err := h.store.GetOrg(ctx, st.OrgID)
-	if err != nil || org == nil {
+	org, err := h.orgs.Get(ctx, st.OrgID)
+	if err != nil {
 		return instance.Slug
 	}
 	return managedtiles.InfraPath(instance.ScopeKind, org.Slug, sc.StackSlug, sc.EnvSlug, instance.Slug)
@@ -1611,3 +1612,6 @@ func (h *handler) stageDomains(c echo.Context, a *repo.Tile, mutate func([]stack
 
 // WithScheduler gives the handler the schedule reloader.
 func (h *handler) WithScheduler(s *scheduler.Service) *handler { h.sched = s; return h }
+
+// WithOrgs gives the page the organization service.
+func (h *handler) WithOrgs(v *service.OrgService) *handler { h.orgs = v; return h }

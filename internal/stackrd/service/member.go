@@ -168,3 +168,29 @@ func (s *MemberService) lastOwnerGuard(ctx context.Context, org *repo.Org, userI
 	}
 	return svcerr.Conflictf("an organization needs at least one owner")
 }
+
+// RoleOf is this user's role in this organization, "" when they are not a
+// member. A server admin is not a member row and gets "" here too: admin-ness
+// is a property of the user, which every caller already has.
+//
+// AccessService.Principal builds the same answer for every org the user is in,
+// in one pass, and keeps doing so. That is a different question — "what can
+// this request do anywhere" versus "what is this one person to this one org" —
+// and the only thing the two share is a table read, not a rule.
+func (s *MemberService) RoleOf(ctx context.Context, orgID, userID string) (string, error) {
+	m, err := s.store.GetOrgMember(ctx, orgID, userID)
+	if err != nil || m == nil {
+		return "", err
+	}
+	return m.Role, nil
+}
+
+// ListMembers is an organization's members.
+func (s *MemberService) ListMembers(ctx context.Context, orgID string) ([]repo.OrgMember, error) {
+	return s.store.ListOrgMembers(ctx, orgID)
+}
+
+// ListInvites is an organization's outstanding invitations.
+func (s *MemberService) ListInvites(ctx context.Context, orgID string) ([]repo.Invite, error) {
+	return s.store.ListInvitesByOrg(ctx, orgID)
+}

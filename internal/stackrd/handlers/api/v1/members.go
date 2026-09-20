@@ -27,7 +27,7 @@ func (a *API) listMembers(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	ms, err := a.store.ListOrgMembers(c.Request().Context(), o.ID)
+	ms, err := a.members.ListMembers(c.Request().Context(), o.ID)
 	if err != nil {
 		return err
 	}
@@ -75,11 +75,16 @@ func (a *API) setMemberRole(c echo.Context) error {
 	if err := a.members.SetRole(ctx, o, c.Param("user"), in.Role); err != nil {
 		return stackrmw.HTTP(err)
 	}
-	m, err := a.store.GetOrgMember(ctx, o.ID, c.Param("user"))
-	if err != nil || m == nil {
-		return echo.NewHTTPError(http.StatusNotFound, "not found")
+	ms, err := a.members.ListMembers(ctx, o.ID)
+	if err != nil {
+		return err
 	}
-	return c.JSON(http.StatusOK, memberOut{UserID: m.UserID, Email: m.Email, Name: m.Name, Role: m.Role})
+	for _, m := range ms {
+		if m.UserID == c.Param("user") {
+			return c.JSON(http.StatusOK, memberOut{UserID: m.UserID, Email: m.Email, Name: m.Name, Role: m.Role})
+		}
+	}
+	return echo.NewHTTPError(http.StatusNotFound, "not found")
 }
 
 func (a *API) removeMember(c echo.Context) error {
@@ -98,7 +103,7 @@ func (a *API) listInvites(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	invs, err := a.store.ListInvitesByOrg(c.Request().Context(), o.ID)
+	invs, err := a.members.ListInvites(c.Request().Context(), o.ID)
 	if err != nil {
 		return err
 	}

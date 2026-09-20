@@ -2544,3 +2544,21 @@ One dead read fell out: `app.VarValue` still loaded the stack for a check that
 point 18 moved onto the route, leaving a query whose result nothing used. Go
 does not report an unused value that an `if x == nil` consumes, which is how it
 survived the earlier pass.
+
+**Slice 3: organizations and membership. 446 -> 335.**
+
+New `service.OrgService`: `Get`, `BySlug`, `Resolve`, `ListForUser`, `ListAll`,
+`UnfinishedDraft`, `StartDraft`. `MemberService` gained `RoleOf`,
+`ListMembers`, `ListInvites`.
+
+The panel's `POST /orgs` is now nine lines: who may ask, and where they land.
+Everything it used to decide is `StartDraft`. `setupDraftName` became
+`service.DraftOrgName` with the panel keeping a local alias, so no view
+changed.
+
+Three copies of "slug first, id as fallback" collapsed into `Resolve`.
+
+Wiring went in BEFORE the call sites this time — `Deps.Orgs` in both servers,
+`apiFor`, the journey harness, the `project` tests — so the failures that came
+back were logic, not nil services. That is the third slice's only process
+change and it saved the whole round of nil-pointer panics the first two had.

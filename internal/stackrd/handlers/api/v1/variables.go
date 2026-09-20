@@ -264,8 +264,8 @@ func (a *API) putEnvVars(c echo.Context) error {
 // leak across tenants).
 func (a *API) requireOrg(c echo.Context, orgID string) (*repo.Org, error) {
 	ctx := c.Request().Context()
-	o, err := a.store.GetOrg(ctx, orgID)
-	if err != nil || o == nil {
+	o, err := a.orgs.Get(ctx, orgID)
+	if err != nil {
 		o, err = a.orgByPath(ctx, orgID) // a bare org slug, see slugpath.go
 	}
 	if err != nil || o == nil || !a.orgMember(c, o.ID) {

@@ -117,6 +117,8 @@ func newJourney(t *testing.T) *journey {
 		Lifecycle:    service.NewTileLifecycleService(store, nil, nil, nil, nil, nil),
 		Telemetry:    service.NewTileTelemetryService(store, nil),
 		Environments: service.NewEnvironmentService(store, nil, nil, nil, service.NewGateService(store)),
+		Orgs:         service.NewOrgService(store),
+		Members:      service.NewMemberService(store, nil, service.NewRevokeService(store, nil)),
 		Stacks: service.NewStackService(store, nil, nil,
 			service.NewEnvironmentService(store, nil, nil, nil, service.NewGateService(store)),
 			nil, service.NewGateService(store), nil),

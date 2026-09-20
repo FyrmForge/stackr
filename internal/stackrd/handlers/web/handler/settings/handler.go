@@ -62,6 +62,7 @@ type handler struct {
 	// dests owns the destination rules: the trim, the bucket probe, the
 	// cascade's schedule reload and who still writes to a shared bucket.
 	dests *service.BackupDestinationService
+	orgs  *service.OrgService
 }
 
 // WithRegistries attaches the registry service.
@@ -166,13 +167,11 @@ func (h *handler) destOrg(c echo.Context) (string, error) {
 	if orgID == "" {
 		return "", nil // /admin/..., already behind adminOnly
 	}
-	o, err := h.store.GetOrgBySlug(c.Request().Context(), orgID)
+	o, err := h.orgs.Resolve(c.Request().Context(), orgID)
 	if err != nil {
-		return "", err
+		return "", stackrmw.HTTP(err)
 	}
-	if o != nil {
-		orgID = o.ID
-	}
+	orgID = o.ID
 	// Write rights in *this* org, not the cookie-selected one: a destination
 	// holds bucket credentials, and deleting one cascades away every schedule
 	// attached to it.
@@ -353,7 +352,7 @@ func (h *handler) destinationsDone(c echo.Context, orgID string) error {
 	if orgID == "" {
 		return respond.Redirect(c, "/admin/backups")
 	}
-	o, _ := h.store.GetOrg(c.Request().Context(), orgID)
+	o, _ := h.orgs.Get(c.Request().Context(), orgID)
 	if o == nil {
 		return respond.Redirect(c, "/")
 	}
@@ -416,11 +415,11 @@ func (h *handler) GitHubConnect(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, "org_id required")
 	}
 	// The path carries the slug; the connector row needs the id.
-	if o, err := h.store.GetOrgBySlug(c.Request().Context(), orgID); err != nil {
-		return err
-	} else if o != nil {
-		orgID = o.ID
+	o, err := h.orgs.Resolve(c.Request().Context(), orgID)
+	if err != nil {
+		return stackrmw.HTTP(err)
 	}
+	orgID = o.ID
 	// Was unguarded: the org id came straight off the form, so anyone could
 	// create a connector inside an org they are not a member of. The delete
 	// path was hardened for exactly this; the create path was missed.
@@ -452,7 +451,7 @@ func (h *handler) GitHubCallback(c echo.Context) error {
 		return respond.Redirect(c, "/")
 	}
 	middleware.SetFlash(c, "GitHub App created. Now install it on the repos you want to deploy.", middleware.FlashSuccess)
-	org, _ := h.store.GetOrg(ctx, cn.OrgID)
+	org, _ := h.orgs.Get(ctx, cn.OrgID)
 	if org == nil {
 		return respond.Redirect(c, "/")
 	}
@@ -499,7 +498,7 @@ func (h *handler) DeleteConnector(c echo.Context) error {
 	// its own repository.
 	if users, uerr := connectorUsers(ctx, h.store, cn); uerr == nil && len(users) > 0 {
 		middleware.SetFlash(c, "Still used by "+strings.Join(users, ", ")+". Point those at another connector first.", middleware.FlashError)
-		org, _ := h.store.GetOrg(ctx, cn.OrgID)
+		org, _ := h.orgs.Get(ctx, cn.OrgID)
 		if org == nil {
 			return respond.Redirect(c, "/")
 		}
@@ -509,7 +508,7 @@ func (h *handler) DeleteConnector(c echo.Context) error {
 		return err
 	}
 	middleware.SetFlash(c, "Connector removed. Delete the GitHub App itself at github.com/settings/apps if you no longer need it.", middleware.FlashSuccess)
-	org, _ := h.store.GetOrg(ctx, cn.OrgID)
+	org, _ := h.orgs.Get(ctx, cn.OrgID)
 	if org == nil {
 		return respond.Redirect(c, "/")
 	}
@@ -749,3 +748,6 @@ func (h *handler) WithImageWatch(w *service.ImageWatchService) *handler { h.watc
 
 // WithScheduler gives the handler the schedule reloader.
 func (h *handler) WithScheduler(s *scheduler.Service) *handler { h.sched = s; return h }
+
+// WithOrgs gives the page the organization service.
+func (h *handler) WithOrgs(v *service.OrgService) *handler { h.orgs = v; return h }

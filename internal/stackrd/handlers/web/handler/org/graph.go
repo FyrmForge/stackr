@@ -27,7 +27,7 @@ func (h *handler) Home(c echo.Context) error {
 	// carry on. Every other route in that org already lands them on the wizard,
 	// so this is the one page that made them click through a picture of it.
 	if u := stackrmw.CurrentUser(c); u != nil {
-		if orgs, err := h.store.ListOrgsForUser(c.Request().Context(), u.ID); err == nil &&
+		if orgs, err := h.orgs.ListForUser(c.Request().Context(), u.ID); err == nil &&
 			len(orgs) == 1 && orgs[0].SetupDoneAt == nil && h.ownerOf(c, orgs[0].ID) {
 			return respond.Redirect(c, "/orgs/"+orgs[0].Slug+"/setup/done")
 		}
@@ -184,7 +184,7 @@ func (h *handler) buildOrgsGraph(c echo.Context) (graph.Graph, error) {
 	if u == nil {
 		return graph.Graph{}, echo.NewHTTPError(http.StatusUnauthorized, "not signed in")
 	}
-	orgs, err := h.store.ListOrgsForUser(ctx, u.ID)
+	orgs, err := h.orgs.ListForUser(ctx, u.ID)
 	if err != nil {
 		return graph.Graph{}, err
 	}
@@ -205,7 +205,7 @@ func (h *handler) buildOrgsGraph(c echo.Context) (graph.Graph, error) {
 		// Membership is a count on the card, not a list: who they are lives in
 		// the org's own settings. A read failure leaves it at 0, which the card
 		// renders as "no member count" rather than "0 members".
-		members, err := h.store.ListOrgMembers(ctx, orgs[i].ID)
+		members, err := h.members.ListMembers(ctx, orgs[i].ID)
 		if err != nil {
 			return graph.Graph{}, err
 		}
@@ -336,17 +336,9 @@ func (h *handler) loadOrg(c echo.Context) (*repo.Org, error) {
 	// canvas and settings pages agree on what /orgs/<x> means.
 	ctx := c.Request().Context()
 	key := orgKey(c)
-	o, err := h.store.GetOrgBySlug(ctx, key)
+	o, err := h.orgs.Resolve(ctx, key)
 	if err != nil {
-		return nil, err
-	}
-	if o == nil {
-		if o, err = h.store.GetOrg(ctx, key); err != nil {
-			return nil, err
-		}
-	}
-	if o == nil {
-		return nil, echo.NewHTTPError(http.StatusNotFound, "org not found")
+		return nil, stackrmw.HTTP(err)
 	}
 	return o, nil
 }

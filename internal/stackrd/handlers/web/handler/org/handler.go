@@ -6,11 +6,9 @@ package org
 
 import (
 	"net/http"
-	"time"
 
 	"github.com/FyrmForge/hamr/pkg/middleware"
 	"github.com/FyrmForge/hamr/pkg/respond"
-	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 
 	"github.com/FyrmForge/hamr/pkg/storage"
@@ -55,6 +53,7 @@ type handler struct {
 	work *workqueue.Queue
 	// settings owns every rung of the defaults cascade.
 	settings *service.SettingsService
+	orgs     *service.OrgService
 }
 
 // WithSettings attaches the settings service.
@@ -74,21 +73,15 @@ func NewHandler(store repo.Store, notifier *notify.Notifier, sampler *metrics.Sa
 		// this constructor has both of its dependencies already, and a nil
 		// one would be a silent loss of the membership rules.
 		members:    service.NewMemberService(store, mailer, service.NewRevokeService(store, notifier)),
+		orgs:       service.NewOrgService(store),
 		registries: service.NewRegistryService(store)}
 }
 
-// POST /orgs, step 1's answer. The org is created empty and named later, by
-// whichever branch the owner picked: the config file names a managed org, the
-// name step names a hand-built one. Asking for a name here and letting the file
-// overwrite it seconds afterwards is what this replaced.
-//
-// The creator becomes the org's owner.
+// POST /orgs, step 1's answer. Everything this used to decide — one draft
+// per person, the placeholder name, the creator's owner row — is
+// OrgService.StartDraft now; what is left here is who may ask and where they
+// land.
 func (h *handler) Create(c echo.Context) error {
-	ctx := c.Request().Context()
-	mode := c.FormValue("mode")
-	if mode != "config" && mode != "ui" {
-		return echo.NewHTTPError(http.StatusBadRequest, "pick how to set the organization up")
-	}
 	u := stackrmw.CurrentUser(c)
 	if u == nil {
 		return echo.NewHTTPError(http.StatusUnauthorized, "sign in first")
@@ -99,71 +92,13 @@ func (h *handler) Create(c echo.Context) error {
 	if !stackrmw.IsAdmin(c) {
 		return echo.NewHTTPError(http.StatusNotFound, "not found")
 	}
-	// One draft per person. Coming back to /setup and picking the other branch
-	// is the same organization changing its mind, not a second one, matched on
-	// "unfinished and owned", not on the placeholder name, because the UI branch
-	// renames at its very first step.
-	if o := h.unfinishedDraft(c, u.ID); o != nil {
-		o.SetupMode = mode
-		if err := h.store.UpdateOrg(ctx, o); err != nil {
-			return err
-		}
-		h.setActive(c, o.ID)
-		return respond.Redirect(c, setupFirstURL(o))
-	}
-	o := &repo.Org{
-		ID:        uuid.New().String(),
-		Name:      setupDraftName,
-		Slug:      draftSlug(),
-		CreatedAt: time.Now().UTC(),
-		SetupMode: mode,
-	}
-	if err := h.store.CreateOrg(ctx, o); err != nil {
-		return err
-	}
-	if err := h.store.UpsertOrgMember(ctx, &repo.OrgMember{
-		OrgID: o.ID, UserID: u.ID, Role: "owner", CreatedAt: time.Now().UTC(),
-	}); err != nil {
-		return err
+	o, err := h.orgs.StartDraft(c.Request().Context(), u.ID, c.FormValue("mode"))
+	if err != nil {
+		return stackrmw.HTTP(err)
 	}
 	h.setActive(c, o.ID)
 	return respond.Redirect(c, setupFirstURL(o))
 }
-
-// unfinishedDraft is the org this user is already halfway through setting up,
-// if there is one. Nil is the normal answer.
-//
-// The newest wins. ListOrgsForUser orders by name, so taking the first match
-// would make "the draft" a store-order accident the moment someone owns two,
-// an org they were invited to as owner and never finished, say.
-func (h *handler) unfinishedDraft(c echo.Context, userID string) *repo.Org {
-	orgs, err := h.store.ListOrgsForUser(c.Request().Context(), userID)
-	if err != nil {
-		return nil
-	}
-	ctx := c.Request().Context()
-	var newest *repo.Org
-	for i := range orgs {
-		if orgs[i].SetupDoneAt != nil {
-			continue
-		}
-		// The caller's own role, not ownerOf: that one says yes to any admin,
-		// which would make a stranger's half-finished org, one this admin was
-		// invited to as a viewer, the draft their next answer to step 1 moves.
-		m, err := h.store.GetOrgMember(ctx, orgs[i].ID, userID)
-		if err != nil || m == nil || m.Role != "owner" {
-			continue
-		}
-		if newest == nil || orgs[i].CreatedAt.After(newest.CreatedAt) {
-			newest = &orgs[i]
-		}
-	}
-	return newest
-}
-
-// draftSlug is a URL for an org with no name yet. Random rather than counted:
-// two people starting at once must not collide on the same slug.
-func draftSlug() string { return "org-" + uuid.New().String()[:6] }
 
 // POST /orgs/switch, only into orgs the user belongs to.
 func (h *handler) Switch(c echo.Context) error {
@@ -178,9 +113,9 @@ func (h *handler) Switch(c echo.Context) error {
 // POST /orgs/stacks/:id/move
 func (h *handler) MoveStack(c echo.Context) error {
 	ctx := c.Request().Context()
-	target, err := h.store.GetOrg(ctx, c.FormValue("org_id"))
+	target, err := h.orgs.Get(ctx, c.FormValue("org_id"))
 	if err != nil {
-		return err
+		return stackrmw.HTTP(err)
 	}
 	// A move edits BOTH orgs' contents: it takes the stack out of one and
 	// puts it in the other, so it needs write rights in each.
@@ -201,9 +136,9 @@ func (h *handler) MoveStack(c echo.Context) error {
 	}
 	// The form lives on the stack's own settings page, so failures go back
 	// there rather than to the org that no longer lists its stacks.
-	from, err := h.store.GetOrg(ctx, stack.OrgID)
-	if err != nil || from == nil {
-		return echo.NewHTTPError(http.StatusNotFound, "org not found")
+	from, err := h.orgs.Get(ctx, stack.OrgID)
+	if err != nil {
+		return stackrmw.HTTP(err)
 	}
 	if err := h.stacks.Move(ctx, stack, target.ID); err != nil {
 		middleware.SetFlash(c, err.Error(), middleware.FlashError)
@@ -239,3 +174,9 @@ func (h *handler) WithDomainResources(r *service.DomainResourceService) *handler
 	h.resources = r
 	return h
 }
+
+// WithOrgs gives the page the organization service.
+func (h *handler) WithOrgs(v *service.OrgService) *handler { h.orgs = v; return h }
+
+// WithMembers gives the page the membership service.
+func (h *handler) WithMembers(v *service.MemberService) *handler { h.members = v; return h }

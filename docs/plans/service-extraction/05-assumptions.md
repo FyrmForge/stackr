@@ -1277,3 +1277,68 @@ perfectly good field. Wiring, not logic — but it is the failure mode of every
 remaining slice, so: a test that constructs a handler by hand must construct
 the services it now depends on, and the scan that finds the reads does not
 find the wiring.
+
+# Point 19, third slice — organizations
+
+## OrgService is not a read shell
+
+The rule the plan sets is "never one forwarder per store method", and an
+organization service built only of `Get`/`BySlug`/`ListAll` would have been
+exactly that. Three things moved with the reads, and they are what justify the
+type:
+
+`StartDraft` — the whole body of the panel's `POST /orgs` except who may ask.
+One draft per person, the placeholder name, the random slug, the creator's
+owner row. The panel was the only surface that knew any of it.
+
+`UnfinishedDraft` — two rules that were written as comments inside a private
+panel helper: the newest draft wins (because `ListOrgsForUser` orders by name,
+so "the first one" is a store-order accident once somebody owns two), and it
+is matched on the caller's OWN role, not on "is an admin", or a stranger's
+half-finished org becomes the one this admin's next answer to step 1 moves.
+
+`Resolve` — slug first, id as fallback. There were three copies: the canvas
+loader, the settings loader (each carrying a comment saying it had to match
+the other), and the API's connector path, which had it written as a
+slug-to-id translation rather than a load.
+
+## ListAll and ListForUser are deliberately far apart
+
+For stacks and tiles the unscoped listing is an admin convenience. For
+organizations the org IS the tenancy unit, so reaching for `ListAll` where
+`ListForUser` belongs does not widen a page, it crosses a tenant. The two are
+named apart rather than being one method with a flag, and `ListAll`'s doc
+comment names its three legitimate callers: the admin branch of the API's org
+list, the server-wide setup-state map, and the "last organization cannot be
+deleted" count. All four call sites were read before being given the method.
+
+## MemberService.RoleOf next to AccessService.Principal
+
+`Principal` already reads every membership row for the requesting user. A
+second role lookup is the drift risk the whole extraction exists to remove, so
+this one is deliberate and narrow: `Principal` answers "what can this REQUEST
+do anywhere", building a map for the requester; `RoleOf` answers "what is this
+ONE person to this ONE org", which is the question the invite page and the
+member endpoints ask about somebody who is not the requester. The two share a
+table read, not a rule, and neither can answer the other's question. Written
+into `RoleOf`'s doc comment so the next reader does not collapse them.
+
+`RoleOf` returns "" for a server admin, because an admin is not a member row.
+Every caller already has the user, so none of them needed to be told twice.
+
+## The net's regeneration can hide a new reader
+
+`stillStoreReading` is regenerated from the scan each slice, which sets
+`known := seen` and makes BOTH arms of the test pass trivially. A rewrite that
+ADDED a store read to a previously clean function would be adopted silently
+rather than failing.
+
+So the regeneration is not the check. The check is a diff of the name column
+against the previous commit's list, which must never gain a line:
+
+	git show <prev>:...storefree_test.go | sed -n '/stillStoreReading/,/^`/p' \
+	  | sed 's/ ->.*//' | sort > before
+	# same over the working copy > after
+	comm -13 before after   # must be empty
+
+Run for all three slices so far. Empty each time; 525 -> 335 is real.

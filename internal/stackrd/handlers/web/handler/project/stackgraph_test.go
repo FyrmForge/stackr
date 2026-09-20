@@ -48,7 +48,7 @@ func TestStackGraphMapsTrafficEndpointsToCards(t *testing.T) {
 			Status: "active", CreatedAt: now, UpdatedAt: now}), "create resource %s", r.id)
 	}
 
-	h := &handler{store: s, envs: service.NewEnvironmentService(s, nil, nil, nil, service.NewGateService(s)), vars: service.NewVariableService(s, nil, nil, nil), stacks: service.NewStackService(s, nil, nil, service.NewEnvironmentService(s, nil, nil, nil, service.NewGateService(s)), nil, service.NewGateService(s), nil), tiles: service.NewTileService(s, nil, nil, nil, nil, nil, service.NewGateService(s))}
+	h := &handler{store: s, envs: service.NewEnvironmentService(s, nil, nil, nil, service.NewGateService(s)), vars: service.NewVariableService(s, nil, nil, nil), stacks: service.NewStackService(s, nil, nil, service.NewEnvironmentService(s, nil, nil, nil, service.NewGateService(s)), nil, service.NewGateService(s), nil), tiles: service.NewTileService(s, nil, nil, nil, nil, nil, service.NewGateService(s)), orgs: service.NewOrgService(s)}
 	_, nodeOf, err := h.buildStackGraph(ctx, seed.Stack, graph.ArrangeClusters)
 	require.NoError(t, err, "buildStackGraph")
 

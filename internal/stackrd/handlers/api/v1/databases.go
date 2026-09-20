@@ -43,8 +43,8 @@ func (a *API) infraPath(ctx context.Context, d *repo.Tile, cache map[string]stri
 		if err != nil {
 			return ""
 		}
-		org, err := a.store.GetOrg(ctx, s.OrgID)
-		if err != nil || org == nil {
+		org, err := a.orgs.Get(ctx, s.OrgID)
+		if err != nil {
 			return ""
 		}
 		prefix = org.Slug + "\x00" + s.Slug
@@ -162,7 +162,7 @@ func (a *API) createDB(c echo.Context) error {
 		return stackrmw.HTTP(err)
 	}
 	out := toDBOut(d)
-	if org, _ := a.store.GetOrg(ctx, s.OrgID); org != nil {
+	if org, _ := a.orgs.Get(ctx, s.OrgID); org != nil {
 		out.Path = managedtiles.InfraPath(d.ScopeKind, org.Slug, s.Slug, env.Slug, d.Slug)
 	}
 	return c.JSON(http.StatusCreated, out)

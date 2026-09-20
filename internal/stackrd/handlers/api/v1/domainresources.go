@@ -152,9 +152,9 @@ func (a *API) rejectManagedOwner(ctx context.Context, level, owner string) error
 		}
 		return managedGuard(s)
 	case "org":
-		o, err := a.store.GetOrg(ctx, owner)
-		if err != nil || o == nil {
-			return echo.NewHTTPError(http.StatusNotFound, "not found")
+		o, err := a.orgs.Get(ctx, owner)
+		if err != nil {
+			return stackrmw.HTTP(err)
 		}
 		if o.ConfigManaged() {
 			return echo.NewHTTPError(http.StatusConflict, "organization is managed by "+o.ConfigRepo+"; declare domains: in the org config file")

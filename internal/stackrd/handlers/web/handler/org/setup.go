@@ -145,13 +145,13 @@ func (h *handler) Setup(c echo.Context) error {
 		return respond.HTML(c, http.StatusOK, setupDomainPage(c, o, res, h.setupDomainPrefill(c.Request().Context(), o)))
 	case "team":
 		ctx := c.Request().Context()
-		members, err := h.store.ListOrgMembers(ctx, o.ID)
+		members, err := h.members.ListMembers(ctx, o.ID)
 		if err != nil {
 			return err
 		}
 		// Only owners reach the wizard at all, so the invites (and their
 		// tokens) are safe to render here without a second permission check.
-		invites, err := h.store.ListInvitesByOrg(ctx, o.ID)
+		invites, err := h.members.ListInvites(ctx, o.ID)
 		if err != nil {
 			return err
 		}
@@ -333,8 +333,8 @@ func (h *handler) setupSummary(c echo.Context, o *repo.Org) []setupItem {
 	ctx := c.Request().Context()
 	base := "/orgs/" + o.Slug + "/setup/"
 	res, _ := h.orgDomains(c, o.ID)
-	members, _ := h.store.ListOrgMembers(ctx, o.ID)
-	invites, _ := h.store.ListInvitesByOrg(ctx, o.ID)
+	members, _ := h.members.ListMembers(ctx, o.ID)
+	invites, _ := h.members.ListInvites(ctx, o.ID)
 	// A bound config has already produced a plan by the time step 6 renders,
 	// and that plan is what someone has to act on, so the summary points at it
 	// rather than at the binding form that made it.
@@ -436,7 +436,10 @@ func backTo(c echo.Context, o *repo.Org, def string) string {
 // a nameless special case; the cost is an abandoned draft showing up in the
 // switcher under this. "New organization" is the switcher's own create action
 // (components/shell.templ), so the draft does not borrow that wording.
-const setupDraftName = "Untitled organization"
+// setupDraftName is service.DraftOrgName under the name the pages already
+// use. The value belongs to the service that writes it; the pages only
+// compare against it to decide whether an org has been named yet.
+const setupDraftName = service.DraftOrgName
 
 // setupNamePrefill leaves the name step empty rather than asking the owner to
 // clear a placeholder they never typed.

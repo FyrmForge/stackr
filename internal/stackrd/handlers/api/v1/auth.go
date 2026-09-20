@@ -195,7 +195,7 @@ func (a *API) KeyAuth(next echo.HandlerFunc) echo.HandlerFunc {
 		c.Set(ctxKey, k)
 		c.Set(ctxUser, user)
 		if user.Role != "admin" { // admins see all orgs → leave orgIDs nil
-			orgs, err := a.store.ListOrgsForUser(ctx, user.ID)
+			orgs, err := a.orgs.ListForUser(ctx, user.ID)
 			if err != nil {
 				return err
 			}
@@ -283,7 +283,7 @@ func (a *API) setupDone(c echo.Context) map[string]bool {
 		return m
 	}
 	m := map[string]bool{}
-	orgs, err := a.store.ListOrgs(c.Request().Context())
+	orgs, err := a.orgs.ListAll(c.Request().Context())
 	if err == nil {
 		for _, o := range orgs {
 			m[o.ID] = o.SetupDoneAt != nil
@@ -328,9 +328,9 @@ func (a *API) requireStackAccess(c echo.Context, stackID string) (*repo.Stack, e
 	if !a.orgMember(c, s.OrgID) {
 		return nil, echo.NewHTTPError(http.StatusNotFound, "not found")
 	}
-	o, err := a.store.GetOrg(ctx, s.OrgID)
+	o, err := a.orgs.Get(ctx, s.OrgID)
 	if err != nil {
-		return nil, err
+		return nil, stackrmw.HTTP(err)
 	}
 	if err := orgReady(o); err != nil {
 		return nil, err
@@ -472,9 +472,9 @@ func (a *API) gate(v service.Verb, k service.Kind, param string, h echo.HandlerF
 			// helpers checked this on every org- and stack-addressed route
 			// (orgReady in requireStackAccess); it is not a level, so it does
 			// not live in the verb table.
-			o, err := a.store.GetOrg(ctx, orgID)
+			o, err := a.orgs.Get(ctx, orgID)
 			if err != nil {
-				return err
+				return stackrmw.HTTP(err)
 			}
 			if err := orgReady(o); err != nil {
 				return err
