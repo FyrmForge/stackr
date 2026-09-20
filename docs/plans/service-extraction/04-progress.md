@@ -2683,3 +2683,29 @@ converting them is a different job from moving the reads.
 
 **525 -> 1**, across eight slices, with the name-column diff run against the
 previous commit every time and empty every time.
+
+## Point 19 verified live, complete — 2026-09-20
+
+Deployed again after slice 8 and re-walked it. Reads first, then the writes,
+because slice 8 moved writes too and a crawl only exercises GETs.
+
+**Reads.** Same crawl as before: **112 pages, no 5xx**, same two stale
+`/deployments/<id>` 404s from `/notifications` (tiles long gone). API
+collections 200, bogus ids 404.
+
+**Writes, each asserted by reading the state back, not by its status code:**
+
+- Canvas note through `annotate` -> `GraphService.SaveAnnotation`: 200,
+  **appears on the org canvas**, delete 204, **gone from the canvas**.
+- Canvas box: rejected 400 with one member, accepted with two — that is
+  `ValidateGraphGroup`, still enforced — saved, **id present in the page**,
+  deleted 204.
+- Home canvas node positions through `GraphService.SavePositions`: 204, the
+  saved coordinate **renders back on `/`**.
+- Org variables over the API through `VariableService.Set`/`Replace`: PUT 200,
+  **read back with the value**, PUT empty 200, **read back gone**.
+- Invitations through `MemberService.CreateInvite`/`DeleteInvite`: 201 and 204.
+- Notifications through `NotificationService.MarkAllRead`: 200.
+
+The two 400s along the way were both validation doing its job on a deliberately
+malformed body, not breakage.
