@@ -179,3 +179,10 @@ func (s *RevokeService) ownerOrg(ctx context.Context, kind, id string) (orgID, s
 	}
 	return "", "", nil
 }
+
+// Links are the share links minted against one owner, revoked ones included:
+// the panel shows a revoked link as revoked rather than hiding it, so that a
+// person who was handed one can be told what happened to it.
+func (s *RevokeService) Links(ctx context.Context, ownerKind, ownerID string) ([]repo.SecretLink, error) {
+	return s.store.ListSecretLinks(ctx, ownerKind, ownerID)
+}

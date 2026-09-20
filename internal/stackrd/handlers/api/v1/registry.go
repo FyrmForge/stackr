@@ -43,7 +43,7 @@ func (a *API) listRegistryCredentials(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	creds, err := a.store.ListOrgRegistryCredentials(c.Request().Context(), o.ID)
+	creds, err := a.registries.Credentials(c.Request().Context(), o.ID)
 	if err != nil {
 		return err
 	}
@@ -203,7 +203,7 @@ func (a *API) deleteRegistryTag(c echo.Context) error {
 // credentials, and the managed one's domain decides how every node pulls.
 
 func (a *API) listRegistries(c echo.Context) error {
-	regs, err := a.store.ListRegistries(c.Request().Context())
+	regs, err := a.registries.ListAll(c.Request().Context())
 	if err != nil {
 		return err
 	}
@@ -235,9 +235,9 @@ func (a *API) createRegistry(c echo.Context) error {
 // traefik route.
 func (a *API) patchRegistry(c echo.Context) error {
 	ctx := c.Request().Context()
-	r, err := a.store.GetRegistry(ctx, c.Param("id"))
-	if err != nil || r == nil {
-		return echo.NewHTTPError(http.StatusNotFound, "not found")
+	r, err := a.registries.Get(ctx, c.Param("id"))
+	if err != nil {
+		return stackrmw.HTTP(err)
 	}
 	var in registryPatch
 	if err := c.Bind(&in); err != nil {
@@ -271,9 +271,9 @@ func (a *API) patchRegistry(c echo.Context) error {
 
 func (a *API) deleteRegistry(c echo.Context) error {
 	ctx := c.Request().Context()
-	r, err := a.store.GetRegistry(ctx, c.Param("id"))
-	if err != nil || r == nil {
-		return echo.NewHTTPError(http.StatusNotFound, "not found")
+	r, err := a.registries.Get(ctx, c.Param("id"))
+	if err != nil {
+		return stackrmw.HTTP(err)
 	}
 	if r.Managed {
 		// Every build pushes to it, so a deploy would have nowhere to get its

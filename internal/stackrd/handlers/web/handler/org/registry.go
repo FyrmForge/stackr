@@ -42,7 +42,7 @@ func (h *handler) renderRegistry(c echo.Context, o *repo.Org, newCred string) er
 	ctx := c.Request().Context()
 	v := registryView{Org: o, CanEdit: h.ownerOf(c, o.ID), NewCred: newCred}
 	var err error
-	if v.Creds, err = h.store.ListOrgRegistryCredentials(ctx, o.ID); err != nil {
+	if v.Creds, err = h.registries.Credentials(ctx, o.ID); err != nil {
 		return err
 	}
 	reg, err := h.store.GetManagedRegistry(ctx)

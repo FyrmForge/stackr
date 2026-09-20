@@ -68,6 +68,9 @@ type Deps struct {
 	PREnvs       *service.PREnvService
 	Members      *service.MemberService
 	Orgs         *service.OrgService
+	NodeService  *service.NodeService
+	Audit        *service.AuditService
+	AuthService  *service.AuthService
 	OrgConfig    *orgconf.Runner
 	Instances    *service.ManagedInstanceService
 	Slices       *service.SliceService
@@ -131,6 +134,8 @@ func RegisterRoutes(srv *server.Server, deps *Deps) {
 		WithOrgConfig(deps.OrgConfig).
 		WithMembers(deps.Members).
 		WithOrgs(deps.Orgs).
+		WithNodeService(deps.NodeService).
+		WithAuth(deps.AuthService).
 		WithInstances(deps.Instances).
 		WithSlices(deps.Slices).
 		WithMail(deps.Mail)

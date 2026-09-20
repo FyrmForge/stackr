@@ -2577,3 +2577,22 @@ plan be approved through a stack plan's route.
 `handler/project`'s four test files built the same growing struct literal by
 hand; they share `testHandler(s)` now (`testhandler_test.go`). Every slice adds
 a field to it, which is exactly why it should exist once.
+
+**Slice 5: servers, registries, backups, settings, accounts, audit. 253 -> 190.**
+
+`NodeService.Get`/`ByNodeID`/`ListAll`, `RegistryService.Get`/`ListAll`/
+`Credentials`, `BackupDestinationService.Get`, `BackupScheduleService.ForTile`/
+`ListAll`/`Runs`, `SettingsService.Value`/`SetValue`, `AuthService.User`/
+`Users`/`SaveUser`, `APIKeyService.ListAll`, `RevokeService.Links`.
+
+New `service.AuditService`: `For` and `All`. Reads only — an audit row is
+written by whatever did the thing, in the same call, through `store/audit`. A
+service owning that write would put a hop between an action and its record.
+
+The user row went to `AuthService` rather than to a new `UserService`:
+Register, ChangePassword and Authenticate already live there, and an account
+is not org-scoped — membership is, and that is `MemberService`'s.
+
+One name collision worth knowing about: `handler/server` already had a field
+`nodes` holding `infra/nodes.Service`, the swarm client. `service.NodeService`
+is `nodeSvc` there and now everywhere, so the two never read alike.

@@ -124,7 +124,7 @@ func (a *API) listBackups(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	bs, err := a.store.ListBackupsByTile(c.Request().Context(), t.ID)
+	bs, err := a.schedules.ForTile(c.Request().Context(), t.ID)
 	if err != nil {
 		return err
 	}
@@ -226,7 +226,7 @@ func (a *API) listBackupRuns(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	rs, err := a.store.ListBackupRuns(c.Request().Context(), b.ID, 50)
+	rs, err := a.schedules.Runs(c.Request().Context(), b.ID, 50)
 	if err != nil {
 		return err
 	}
@@ -320,9 +320,9 @@ func (a *API) restoreStatus(c echo.Context, backupID string) error {
 // for a reason nobody can see from the panel.
 func (a *API) patchDestination(c echo.Context) error {
 	ctx := c.Request().Context()
-	d, err := a.store.GetBackupDestination(ctx, c.Param("id"))
-	if err != nil || d == nil {
-		return echo.NewHTTPError(http.StatusNotFound, "not found")
+	d, err := a.dests.Get(ctx, c.Param("id"))
+	if err != nil {
+		return stackrmw.HTTP(err)
 	}
 	if !d.Global() {
 		return echo.NewHTTPError(http.StatusBadRequest, "sharing applies to server-wide destinations only")

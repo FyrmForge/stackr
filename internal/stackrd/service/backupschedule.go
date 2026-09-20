@@ -243,3 +243,21 @@ func (s *BackupScheduleService) normalise(t *repo.Tile, b *repo.Backup) error {
 	}
 	return nil
 }
+
+// --- reads ---
+
+// ForTile is a tile's backup schedules.
+func (s *BackupScheduleService) ForTile(ctx context.Context, tileID string) ([]repo.Backup, error) {
+	return s.store.ListBackupsByTile(ctx, tileID)
+}
+
+// ListAll is every backup schedule on the server, for the admin listing and
+// the scheduler's own sweep.
+func (s *BackupScheduleService) ListAll(ctx context.Context) ([]repo.Backup, error) {
+	return s.store.ListBackups(ctx)
+}
+
+// Runs are one schedule's most recent runs, newest first.
+func (s *BackupScheduleService) Runs(ctx context.Context, backupID string, limit int) ([]repo.BackupRun, error) {
+	return s.store.ListBackupRuns(ctx, backupID, limit)
+}

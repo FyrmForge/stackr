@@ -99,6 +99,10 @@ type API struct {
 	members *service.MemberService
 	// orgs owns the organization row and the setup draft.
 	orgs *service.OrgService
+	// nodeSvc owns the server rows the settings endpoints read.
+	nodeSvc *service.NodeService
+	// auth owns the account row behind a key.
+	auth *service.AuthService
 	// settings owns every rung of the defaults cascade.
 	settings *service.SettingsService
 	// access owns the level every verb needs, shared with the panel.
@@ -193,6 +197,12 @@ func (a *API) WithMembers(m *service.MemberService) *API { a.members = m; return
 
 // WithOrgs gives the API the organization service.
 func (a *API) WithOrgs(o *service.OrgService) *API { a.orgs = o; return a }
+
+// WithNodeService gives the API the node service.
+func (a *API) WithNodeService(n *service.NodeService) *API { a.nodeSvc = n; return a }
+
+// WithAuth gives the API the account service.
+func (a *API) WithAuth(s *service.AuthService) *API { a.auth = s; return a }
 
 // WithOrgConfig gives the API the org config runner.
 func (a *API) WithOrgConfig(r *orgconf.Runner) *API { a.orgcfg = r; return a }

@@ -93,9 +93,12 @@ type handler struct {
 	// work is the durable job runner. An apply is enqueued on it, never run on
 	// the request: it clones repos and builds images, so it routinely outlives
 	// the browser that asked for it.
-	work   *workqueue.Queue
-	orgs   *service.OrgService
-	slices *service.SliceService
+	work    *workqueue.Queue
+	orgs    *service.OrgService
+	slices  *service.SliceService
+	nodeSvc *service.NodeService
+	audit   *service.AuditService
+	revoke  *service.RevokeService
 }
 
 // WithMover attaches the volume-move service. Set from the router rather than
@@ -853,7 +856,7 @@ func (h *handler) PlanView(c echo.Context) error {
 			placement.InGroup(ctx, h.store, h.rt, t, m.ToGroup) {
 			continue // the data is already on a node in the wanted group
 		}
-		if sv, serr := h.store.GetServerByNodeID(ctx, m.FromNode); serr == nil && sv != nil {
+		if sv, serr := h.nodeSvc.ByNodeID(ctx, m.FromNode); serr == nil {
 			m.FromNode = sv.Name
 		}
 		live = append(live, m)
@@ -1717,11 +1720,11 @@ func (h *handler) renderStackVars(c echo.Context, p *repo.Stack) error {
 	if surface == surfaceEditor {
 		return respond.HTML(c, http.StatusOK, components.VarsEditor(c, vars, cfg))
 	}
-	links, err := h.store.ListSecretLinks(ctx, repo.OwnerStack, p.ID)
+	links, err := h.revoke.Links(ctx, repo.OwnerStack, p.ID)
 	if err != nil {
 		return err
 	}
-	events, err := h.store.ListAuditEvents(ctx, repo.OwnerStack, p.ID, auditPageSize)
+	events, err := h.audit.For(ctx, repo.OwnerStack, p.ID, auditPageSize)
 	if err != nil {
 		return err
 	}
@@ -2047,7 +2050,7 @@ func (h *handler) renderEnvVars(c echo.Context, p *repo.Stack, env *repo.Environ
 	if err != nil {
 		return err
 	}
-	events, err := h.store.ListAuditEvents(ctx, repo.OwnerEnv, env.ID, auditPageSize)
+	events, err := h.audit.For(ctx, repo.OwnerEnv, env.ID, auditPageSize)
 	if err != nil {
 		return err
 	}
@@ -2214,7 +2217,7 @@ func (h *handler) RevokeStackLink(c echo.Context) error {
 		return err
 	}
 	// Scope check: a link id from another stack must not be revocable here.
-	links, err := h.store.ListSecretLinks(ctx, repo.OwnerStack, p.ID)
+	links, err := h.revoke.Links(ctx, repo.OwnerStack, p.ID)
 	if err != nil {
 		return err
 	}
@@ -2429,3 +2432,12 @@ func (h *handler) WithOrgs(v *service.OrgService) *handler { h.orgs = v; return 
 
 // WithSlices gives the page the provision service.
 func (h *handler) WithSlices(v *service.SliceService) *handler { h.slices = v; return h }
+
+// WithNodeService gives the page the node service.
+func (h *handler) WithNodeService(v *service.NodeService) *handler { h.nodeSvc = v; return h }
+
+// WithAudit gives the page the audit trail.
+func (h *handler) WithAudit(v *service.AuditService) *handler { h.audit = v; return h }
+
+// WithRevoke gives the page the share-link service.
+func (h *handler) WithRevoke(v *service.RevokeService) *handler { h.revoke = v; return h }

@@ -120,6 +120,7 @@ type Deps struct {
 	PREnvs       *service.PREnvService
 	Members      *service.MemberService
 	Orgs         *service.OrgService
+	Audit        *service.AuditService
 	Instances    *service.ManagedInstanceService
 	Slices       *service.SliceService
 	Metrics      *metrics.Sampler
@@ -297,16 +298,19 @@ func RegisterRoutes(srv *server.Server, deps *Deps) {
 		WithRegistries(deps.Registries).
 		WithImageWatch(deps.ImageWatch).
 		WithRevoke(deps.Revoke).
-		WithOrgs(deps.Orgs)
+		WithOrgs(deps.Orgs).
+		WithSettings(deps.Settings).WithSchedules(deps.Schedules).
+		WithAuth(deps.AuthService).WithAudit(deps.Audit)
 
 	searchHandler := searchpage.NewHandler(deps.Store, deps.Environments, deps.Stacks, deps.Tiles).
-		WithOrgs(deps.Orgs).WithMembers(deps.Members).WithDomains(deps.Domains).WithPlans(deps.Plans)
+		WithOrgs(deps.Orgs).WithMembers(deps.Members).WithDomains(deps.Domains).WithPlans(deps.Plans).WithSchedules(deps.Schedules)
 	site.GET("/search", searchHandler.Search, auth.RequireAuth())
 
 	orgHandler := orgpage.NewHandler(deps.Store, deps.Notifier, deps.Metrics, deps.FileStorage, deps.Runtime, deps.Forwards, deps.OrgConfig, deps.GitHub, deps.Mail, deps.RegistrySigner, deps.Proxy).
 		WithDomainResources(deps.Resources).WithVariables(deps.Variables).WithStacks(deps.Stacks).
 		WithDomains(deps.Domains).WithSlices(deps.Slices).WithStorage(deps.Storage).
 		WithPlans(deps.Plans).WithDeploys(deps.Deploys).
+		WithAudit(deps.Audit).WithAuth(deps.AuthService).
 		WithOrgs(deps.Orgs).WithMembers(deps.Members).
 		WithTiles(deps.Tiles).
 		WithEnvironments(deps.Environments).
@@ -474,7 +478,8 @@ func RegisterRoutes(srv *server.Server, deps *Deps) {
 
 	applier := deps.Applier
 	projectHandler := project.NewHandler(deps.Store, deps.Runtime, deps.Cluster, deps.Proxy, deps.Metrics, deps.Notifier, deps.GitHub, applier, deps.Forwards).
-		WithOrgs(deps.Orgs).WithSlices(deps.Slices).
+		WithOrgs(deps.Orgs).WithSlices(deps.Slices).WithNodeService(deps.NodeService).
+		WithAudit(deps.Audit).WithRevoke(deps.Revoke).
 		WithInstances(deps.Instances).
 		WithVariables(deps.Variables).
 		WithEnvironments(deps.Environments).
@@ -695,7 +700,7 @@ func RegisterRoutes(srv *server.Server, deps *Deps) {
 
 	appHandler := apppage.NewHandler(deps.Store, deps.Cluster, deps.Proxy, deps.Engine, deps.Jobs, deps.GitHub, deps.Notifier, deps.Lifecycle, deps.Tiles, deps.Telemetry, deps.Domains).
 		WithEnvironments(deps.Environments).WithStacks(deps.Stacks).WithOrgs(deps.Orgs).
-		WithStorage(deps.Storage).
+		WithStorage(deps.Storage).WithAudit(deps.Audit).
 		WithSlices(deps.Slices).
 		WithVariables(deps.Variables).
 		WithDeploys(deps.Deploys).
@@ -758,6 +763,7 @@ func RegisterRoutes(srv *server.Server, deps *Deps) {
 		WithStacks(deps.Stacks).
 		WithTiles(deps.Tiles).
 		WithOrgs(deps.Orgs).
+		WithSettings(deps.Settings).
 		WithPREnvs(deps.PREnvs).
 		WithOrgConfig(deps.OrgConfig).
 		WithWork(deps.Work).

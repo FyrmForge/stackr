@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/FyrmForge/stackr/internal/stackrd/service"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/testdb"
 )
@@ -29,7 +30,7 @@ import (
 // One condition, two callers.
 func TestVolumeNodeResolvesTheServerAndRefusesOneThatHasNotJoined(t *testing.T) {
 	store := testdb.New(t)
-	h := &handler{store: store}
+	h := &handler{store: store, nodeSvc: service.NewNodeService(store, nil, "")}
 	ctx := context.Background()
 
 	require.NoError(t, store.CreateServer(ctx, &repo.Server{

@@ -195,3 +195,36 @@ func (s *NodeService) EnsureAgent(ctx context.Context) error {
 	}()
 	return first
 }
+
+// --- reads ---
+
+// Get is one server row by id.
+func (s *NodeService) Get(ctx context.Context, id string) (*repo.Server, error) {
+	sv, err := s.store.GetServer(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if sv == nil {
+		return nil, svcerr.ErrNotFound
+	}
+	return sv, nil
+}
+
+// ByNodeID is one server row addressed by its swarm node id rather than ours.
+func (s *NodeService) ByNodeID(ctx context.Context, nodeID string) (*repo.Server, error) {
+	sv, err := s.store.GetServerByNodeID(ctx, nodeID)
+	if err != nil {
+		return nil, err
+	}
+	if sv == nil {
+		return nil, svcerr.ErrNotFound
+	}
+	return sv, nil
+}
+
+// ListAll is every server in the swarm. There is no org-scoped variant and
+// never will be: a server belongs to the install, not to an organization,
+// which is why every route that reaches this carries VerbAdminRead.
+func (s *NodeService) ListAll(ctx context.Context) ([]repo.Server, error) {
+	return s.store.ListServers(ctx)
+}

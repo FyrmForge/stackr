@@ -61,8 +61,12 @@ type handler struct {
 	revoke *service.RevokeService
 	// dests owns the destination rules: the trim, the bucket probe, the
 	// cascade's schedule reload and who still writes to a shared bucket.
-	dests *service.BackupDestinationService
-	orgs  *service.OrgService
+	dests     *service.BackupDestinationService
+	orgs      *service.OrgService
+	settings  *service.SettingsService
+	schedules *service.BackupScheduleService
+	auth      *service.AuthService
+	audit     *service.AuditService
 }
 
 // WithRegistries attaches the registry service.
@@ -100,7 +104,7 @@ func (h *handler) LegacyRedirect(c echo.Context) error {
 
 // GET /admin/users
 func (h *handler) Users(c echo.Context) error {
-	users, err := h.store.ListUsers(c.Request().Context())
+	users, err := h.auth.Users(c.Request().Context())
 	if err != nil {
 		return err
 	}
@@ -109,7 +113,7 @@ func (h *handler) Users(c echo.Context) error {
 
 // GET /admin/registries
 func (h *handler) Registries(c echo.Context) error {
-	regs, err := h.store.ListRegistries(c.Request().Context())
+	regs, err := h.registries.ListAll(c.Request().Context())
 	if err != nil {
 		return err
 	}
@@ -119,8 +123,8 @@ func (h *handler) Registries(c echo.Context) error {
 // GET /admin/tls
 func (h *handler) TLS(c echo.Context) error {
 	ctx := c.Request().Context()
-	dnsProvider, _ := h.store.GetSetting(ctx, "dns_provider")
-	dnsEnv, _ := h.store.GetSetting(ctx, "dns_env")
+	dnsProvider, _ := h.settings.Value(ctx, "dns_provider")
+	dnsEnv, _ := h.settings.Value(ctx, "dns_env")
 	managed, err := h.store.GetManagedRegistry(ctx)
 	if err != nil {
 		return err
@@ -130,7 +134,7 @@ func (h *handler) TLS(c echo.Context) error {
 
 // GET /admin/maintenance
 func (h *handler) Maintenance(c echo.Context) error {
-	cleanup, _ := h.store.GetSetting(c.Request().Context(), "cleanup_enabled")
+	cleanup, _ := h.settings.Value(c.Request().Context(), "cleanup_enabled")
 	interval := strconv.Itoa(h.watch.Interval(c.Request().Context()))
 	return respond.HTML(c, http.StatusOK, maintenancePage(c, cleanup == "1", interval))
 }
@@ -207,13 +211,13 @@ func (h *handler) Backups(c echo.Context) error {
 // panelBackup finds the schedule for stackr's own database. There is at most
 // one, it is the server's, not a tile's, so it is not created per anything.
 func (h *handler) panelBackup(ctx context.Context) (*repo.Backup, []repo.BackupRun, error) {
-	all, err := h.store.ListBackups(ctx)
+	all, err := h.schedules.ListAll(ctx)
 	if err != nil {
 		return nil, nil, err
 	}
 	for i := range all {
 		if all[i].Kind == repo.BackupStackr {
-			runs, _ := h.store.ListBackupRuns(ctx, all[i].ID, 10)
+			runs, _ := h.schedules.Runs(ctx, all[i].ID, 10)
 			return &all[i], runs, nil
 		}
 	}
@@ -547,13 +551,13 @@ func connectorUsers(ctx context.Context, store repo.Store, cn *repo.Connector) (
 // POST /admin/users/:id/admin, grant or revoke server-admin rights.
 func (h *handler) ToggleUserAdmin(c echo.Context) error {
 	ctx := c.Request().Context()
-	u, err := h.store.GetUserByID(ctx, c.Param("id"))
-	if err != nil || u == nil {
-		return echo.NewHTTPError(http.StatusNotFound, "user not found")
+	u, err := h.auth.User(ctx, c.Param("id"))
+	if err != nil {
+		return stackrmw.HTTP(err)
 	}
 	if u.Role == "admin" {
 		// Demotion: never remove the last admin.
-		users, err := h.store.ListUsers(ctx)
+		users, err := h.auth.Users(ctx)
 		if err != nil {
 			return err
 		}
@@ -572,7 +576,7 @@ func (h *handler) ToggleUserAdmin(c echo.Context) error {
 		u.Role = "admin"
 	}
 	u.UpdatedAt = time.Now().UTC()
-	if err := h.store.UpdateUser(ctx, u); err != nil {
+	if err := h.auth.SaveUser(ctx, u); err != nil {
 		return err
 	}
 	middleware.SetFlash(c, "User updated.", middleware.FlashSuccess)
@@ -582,9 +586,9 @@ func (h *handler) ToggleUserAdmin(c echo.Context) error {
 // POST /admin/users/:id/toggle, enable or disable a user account.
 func (h *handler) ToggleUserActive(c echo.Context) error {
 	ctx := c.Request().Context()
-	u, err := h.store.GetUserByID(ctx, c.Param("id"))
-	if err != nil || u == nil {
-		return echo.NewHTTPError(http.StatusNotFound, "user not found")
+	u, err := h.auth.User(ctx, c.Param("id"))
+	if err != nil {
+		return stackrmw.HTTP(err)
 	}
 	if u.Role == "admin" {
 		middleware.SetFlash(c, "The server admin cannot be disabled.", middleware.FlashError)
@@ -592,7 +596,7 @@ func (h *handler) ToggleUserActive(c echo.Context) error {
 	}
 	u.Active = !u.Active
 	u.UpdatedAt = time.Now().UTC()
-	if err := h.store.UpdateUser(ctx, u); err != nil {
+	if err := h.auth.SaveUser(ctx, u); err != nil {
 		return err
 	}
 	// Disabling only. The share links this user minted answer to whoever holds
@@ -613,7 +617,7 @@ func (h *handler) ToggleCleanup(c echo.Context) error {
 	if c.FormValue("enabled") != "" {
 		v = "1"
 	}
-	if err := h.store.SetSetting(c.Request().Context(), "cleanup_enabled", v); err != nil {
+	if err := h.settings.SetValue(c.Request().Context(), "cleanup_enabled", v); err != nil {
 		return err
 	}
 	// Every other save on this page confirms; this one used to answer silently.
@@ -689,9 +693,9 @@ func orgParam(c echo.Context) string {
 // POST /admin/backups/destinations/:destID/shared
 func (h *handler) ToggleDestinationShared(c echo.Context) error {
 	ctx := c.Request().Context()
-	d, err := h.store.GetBackupDestination(ctx, c.Param("destID"))
-	if err != nil || d == nil {
-		return echo.NewHTTPError(http.StatusNotFound, "destination not found")
+	d, err := h.dests.Get(ctx, c.Param("destID"))
+	if err != nil {
+		return stackrmw.HTTP(err)
 	}
 	if !d.Global() {
 		return echo.NewHTTPError(http.StatusBadRequest, "sharing applies to server-wide destinations only")
@@ -720,13 +724,13 @@ const auditPageSize = 200
 func (h *handler) Audit(c echo.Context) error {
 	ctx := c.Request().Context()
 	actor, action := c.QueryParam("actor"), c.QueryParam("action")
-	events, err := h.store.ListAllAuditEvents(ctx, actor, action, auditPageSize)
+	events, err := h.audit.All(ctx, actor, action, auditPageSize)
 	if err != nil {
 		return err
 	}
 	// The actor list comes from the unfiltered page, so picking one does not
 	// remove every other name from the dropdown.
-	all, err := h.store.ListAllAuditEvents(ctx, "", "", auditPageSize)
+	all, err := h.audit.All(ctx, "", "", auditPageSize)
 	if err != nil {
 		return err
 	}
@@ -751,3 +755,15 @@ func (h *handler) WithScheduler(s *scheduler.Service) *handler { h.sched = s; re
 
 // WithOrgs gives the page the organization service.
 func (h *handler) WithOrgs(v *service.OrgService) *handler { h.orgs = v; return h }
+
+// WithSettings gives the page the settings service.
+func (h *handler) WithSettings(v *service.SettingsService) *handler { h.settings = v; return h }
+
+// WithSchedules gives the page the backup-schedule service.
+func (h *handler) WithSchedules(v *service.BackupScheduleService) *handler { h.schedules = v; return h }
+
+// WithAuth gives the page the account service.
+func (h *handler) WithAuth(v *service.AuthService) *handler { h.auth = v; return h }
+
+// WithAudit gives the page the audit trail.
+func (h *handler) WithAudit(v *service.AuditService) *handler { h.audit = v; return h }

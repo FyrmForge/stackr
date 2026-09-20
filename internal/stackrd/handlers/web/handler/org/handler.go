@@ -59,6 +59,8 @@ type handler struct {
 	storage  *service.StorageService
 	plans    *service.PlanService
 	deploys  *service.DeployService
+	audit    *service.AuditService
+	auth     *service.AuthService
 }
 
 // WithSettings attaches the settings service.
@@ -200,3 +202,10 @@ func (h *handler) WithPlans(v *service.PlanService) *handler { h.plans = v; retu
 
 // WithDeploys gives the page the deploy service.
 func (h *handler) WithDeploys(v *service.DeployService) *handler { h.deploys = v; return h }
+
+// WithAudit gives the page the audit trail.
+func (h *handler) WithAudit(v *service.AuditService) *handler { h.audit = v; return h }
+
+// WithAuth gives the page the account service, for the user names an org
+// settings page shows beside its members.
+func (h *handler) WithAuth(a *service.AuthService) *handler { h.auth = a; return h }

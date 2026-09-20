@@ -230,3 +230,19 @@ func (s *BackupDestinationService) Resolve(ctx context.Context, orgID, ref strin
 	}
 	return d, nil
 }
+
+// Get is one destination by id, with no visibility filter.
+//
+// Visible and AtScope are the filtered reads and stay the ones a listing
+// uses; this answers a route that already named an id the gate has resolved
+// tenancy for. Anything that lists destinations to a person wants Visible.
+func (s *BackupDestinationService) Get(ctx context.Context, id string) (*repo.BackupDestination, error) {
+	d, err := s.store.GetBackupDestination(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if d == nil {
+		return nil, svcerr.ErrNotFound
+	}
+	return d, nil
+}

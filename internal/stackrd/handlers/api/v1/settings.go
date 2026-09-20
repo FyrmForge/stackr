@@ -40,9 +40,9 @@ func (a *API) resolveSettingsTarget(c echo.Context, kind string) (*settingsTarge
 	t := &settingsTarget{kind: kind}
 	switch kind {
 	case "server":
-		sv, err := a.store.GetServer(ctx, "local")
-		if err != nil || sv == nil {
-			return nil, echo.NewHTTPError(http.StatusNotFound, "not found")
+		sv, err := a.nodeSvc.Get(ctx, "local")
+		if err != nil {
+			return nil, stackrmw.HTTP(err)
 		}
 		t.server, t.current = sv, settings.Parse(sv.Settings)
 	case "org":

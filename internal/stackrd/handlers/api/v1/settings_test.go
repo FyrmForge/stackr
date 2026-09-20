@@ -36,7 +36,7 @@ func TestSettingsPasswordNotInherited(t *testing.T) {
 	seed.Org.Settings = settings.Settings{Protect: &on, ProtectUser: &user, ProtectPassword: &pass}.JSON()
 	require.NoError(t, store.UpdateOrg(ctx, seed.Org))
 
-	a := &API{store: store, settings: service.NewSettingsService(store, nil), access: service.NewAccessService(store)}
+	a := &API{store: store, settings: service.NewSettingsService(store, nil), access: service.NewAccessService(store), nodeSvc: service.NewNodeService(store, nil, "")}
 	e := echo.New()
 	c := e.NewContext(httptest.NewRequest("GET", "/", nil), httptest.NewRecorder())
 	out, err := a.toSettingsOut(c, &settingsTarget{kind: "stack", org: seed.Org, stack: seed.Stack})
@@ -66,7 +66,7 @@ func TestSettingsPasswordNotInherited(t *testing.T) {
 func TestPatchSettingsRefusesHalfAPair(t *testing.T) {
 	store := testdb.New(t)
 	testdb.SeedStack(t, store, false)
-	a := &API{store: store, settings: service.NewSettingsService(store, nil), access: service.NewAccessService(store)}
+	a := &API{store: store, settings: service.NewSettingsService(store, nil), access: service.NewAccessService(store), nodeSvc: service.NewNodeService(store, nil, "")}
 
 	patch := func(body string) (int, string) {
 		e := echo.New()

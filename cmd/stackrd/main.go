@@ -695,6 +695,7 @@ func main() {
 	// last-owner guard, and the invite mailed from both surfaces.
 	memberSvc := service.NewMemberService(store, mailer, revokeSvc)
 	orgSvc := service.NewOrgService(store)
+	auditSvc := service.NewAuditService(store)
 
 	api.RegisterRoutes(srv, &api.Deps{
 		Store:          store,
@@ -725,6 +726,9 @@ func main() {
 		PREnvs:         prenvSvc,
 		Members:        memberSvc,
 		Orgs:           orgSvc,
+		Audit:          auditSvc,
+		NodeService:    nodeLifecycle,
+		AuthService:    authService,
 		OrgConfig:      orgRunner,
 		Deploys:        deploySvc,
 		Releases:       releaseSvc,
@@ -783,6 +787,7 @@ func main() {
 		PREnvs:         prenvSvc,
 		Members:        memberSvc,
 		Orgs:           orgSvc,
+		Audit:          auditSvc,
 		OrgConfig:      orgRunner,
 		Deploys:        deploySvc,
 		Releases:       releaseSvc,

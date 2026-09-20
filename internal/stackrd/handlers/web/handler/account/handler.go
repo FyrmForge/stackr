@@ -46,12 +46,9 @@ func NewHandler(store repo.Store, auth *service.AuthService, files storage.FileS
 
 // me loads the signed-in user.
 func (h *handler) me(c echo.Context) (*repo.User, error) {
-	u, err := h.store.GetUserByID(c.Request().Context(), middleware.GetSubjectID(c))
+	u, err := h.auth.User(c.Request().Context(), middleware.GetSubjectID(c))
 	if err != nil {
-		return nil, err
-	}
-	if u == nil {
-		return nil, echo.NewHTTPError(http.StatusNotFound, "user not found")
+		return nil, stackrmw.HTTP(err)
 	}
 	return u, nil
 }
@@ -105,7 +102,7 @@ func (h *handler) SaveProfile(c echo.Context) error {
 		u.AvatarPath = ""
 	}
 	u.UpdatedAt = time.Now().UTC()
-	if err := h.store.UpdateUser(ctx, u); err != nil {
+	if err := h.auth.SaveUser(ctx, u); err != nil {
 		return err
 	}
 	middleware.SetFlash(c, "Profile saved.", middleware.FlashSuccess)
@@ -178,7 +175,7 @@ func (h *handler) takeNewKey(c echo.Context) string {
 // never shows one person another's keys, not even for an admin, who has their
 // own list here and the audit trail elsewhere.
 func (h *handler) myKeys(c echo.Context) ([]repo.APIKey, error) {
-	all, err := h.store.ListAPIKeys(c.Request().Context())
+	all, err := h.keys.ListAll(c.Request().Context())
 	if err != nil {
 		return nil, err
 	}
@@ -222,7 +219,7 @@ func (h *handler) DeleteAPIKey(c echo.Context) error {
 }
 
 func (h *handler) ownsAPIKey(c echo.Context, id string) bool {
-	keys, err := h.store.ListAPIKeys(c.Request().Context())
+	keys, err := h.keys.ListAll(c.Request().Context())
 	if err != nil {
 		return false
 	}
@@ -308,7 +305,7 @@ func (h *handler) SaveNotifications(c echo.Context) error {
 	blob, _ := json.Marshal(prefs)
 	u.NotifyPrefs = string(blob)
 	u.UpdatedAt = time.Now().UTC()
-	if err := h.store.UpdateUser(c.Request().Context(), u); err != nil {
+	if err := h.auth.SaveUser(c.Request().Context(), u); err != nil {
 		return err
 	}
 	middleware.SetFlash(c, "Notification preferences saved.", middleware.FlashSuccess)
@@ -347,7 +344,7 @@ func (h *handler) SaveAppearance(c echo.Context) error {
 	}
 	u.Theme = theme
 	u.UpdatedAt = time.Now().UTC()
-	if err := h.store.UpdateUser(c.Request().Context(), u); err != nil {
+	if err := h.auth.SaveUser(c.Request().Context(), u); err != nil {
 		return err
 	}
 	middleware.SetFlash(c, "Theme saved.", middleware.FlashSuccess)
@@ -383,8 +380,14 @@ func (h *handler) SaveGraphPrefs(c echo.Context) error {
 	}
 	u.GraphPrefs = string(body)
 	u.UpdatedAt = time.Now().UTC()
-	if err := h.store.UpdateUser(c.Request().Context(), u); err != nil {
+	if err := h.auth.SaveUser(c.Request().Context(), u); err != nil {
 		return err
 	}
 	return c.NoContent(http.StatusNoContent)
 }
+
+// WithAuth gives the page the account service.
+func (h *handler) WithAuth(v *service.AuthService) *handler { h.auth = v; return h }
+
+// WithKeys gives the page the API-key service.
+func (h *handler) WithKeys(v *service.APIKeyService) *handler { h.keys = v; return h }

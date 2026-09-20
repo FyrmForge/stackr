@@ -182,7 +182,7 @@ func (a *API) KeyAuth(next echo.HandlerFunc) echo.HandlerFunc {
 		if k == nil {
 			return echo.NewHTTPError(http.StatusUnauthorized, "invalid api key")
 		}
-		user, err := a.store.GetUserByID(ctx, k.UserID)
+		user, err := a.auth.User(ctx, k.UserID)
 		if err != nil || user == nil {
 			return echo.NewHTTPError(http.StatusUnauthorized, "api key user no longer exists")
 		}

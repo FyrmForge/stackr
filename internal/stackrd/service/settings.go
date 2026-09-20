@@ -138,3 +138,19 @@ func (s *SettingsService) SaveEnv(ctx context.Context, env *repo.Environment, va
 	s.resync(ctx)
 	return nil
 }
+
+// --- reads ---
+
+// Value is one raw server setting, "" when unset.
+//
+// The cascade (SaveServer and its siblings) is the typed half of this table;
+// Value is the untyped one, and its callers are the handful of keys that are
+// not part of any rung: a stored PR-comment body, the install's ACME email.
+func (s *SettingsService) Value(ctx context.Context, key string) (string, error) {
+	return s.store.GetSetting(ctx, key)
+}
+
+// SetValue writes one raw server setting.
+func (s *SettingsService) SetValue(ctx context.Context, key, value string) error {
+	return s.store.SetSetting(ctx, key, value)
+}

@@ -69,6 +69,7 @@ type handler struct {
 	gate    *service.GateService
 	orgs    *service.OrgService
 	storage *service.StorageService
+	audit   *service.AuditService
 }
 
 // NewHandler creates a new app handler.
@@ -944,7 +945,7 @@ func (h *handler) Vars(c echo.Context) error {
 		return err
 	}
 	// newest 50, no paging, add paging when someone asks to scroll back.
-	events, err := h.store.ListAuditEvents(ctx, repo.OwnerTile, a.ID, 50)
+	events, err := h.audit.For(ctx, repo.OwnerTile, a.ID, 50)
 	if err != nil {
 		return err
 	}
@@ -1619,3 +1620,6 @@ func (h *handler) WithOrgs(v *service.OrgService) *handler { h.orgs = v; return 
 
 // WithStorage gives the page the storage service.
 func (h *handler) WithStorage(v *service.StorageService) *handler { h.storage = v; return h }
+
+// WithAudit gives the page the audit trail.
+func (h *handler) WithAudit(v *service.AuditService) *handler { h.audit = v; return h }

@@ -14,6 +14,7 @@ import (
 	"github.com/FyrmForge/hamr/pkg/validate"
 	"github.com/google/uuid"
 
+	"github.com/FyrmForge/stackr/internal/stackrd/service/svcerr"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 )
 
@@ -152,4 +153,33 @@ func (s *AuthService) Authenticate(ctx context.Context, email, password string) 
 	}
 
 	return user, nil
+}
+
+// --- the user row ---
+
+// User is one account by id.
+func (s *AuthService) User(ctx context.Context, id string) (*repo.User, error) {
+	u, err := s.store.GetUserByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if u == nil {
+		return nil, svcerr.ErrNotFound
+	}
+	return u, nil
+}
+
+// Users is every account on the server. The admin user list and the two
+// pickers that need a name for an id; there is no org-scoped variant, because
+// an account is not org-scoped — membership is, and that is MemberService's.
+func (s *AuthService) Users(ctx context.Context) ([]repo.User, error) {
+	return s.store.ListUsers(ctx)
+}
+
+// SaveUser writes an account back. The rules that guard what may change —
+// the password, the role, the active flag — belong to the callers that own
+// them (ChangePassword here, the admin page's own checks); this is the write
+// itself, so no handler needs the store to make it.
+func (s *AuthService) SaveUser(ctx context.Context, u *repo.User) error {
+	return s.store.UpdateUser(ctx, u)
 }

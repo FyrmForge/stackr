@@ -81,12 +81,9 @@ func NewHandler(d Deps) *handler {
 // GET /servers/:id?range=..., stats history + docker info + settings.
 func (h *handler) Detail(c echo.Context) error {
 	ctx := c.Request().Context()
-	sv, err := h.store.GetServer(ctx, c.Param("id"))
+	sv, err := h.nodeSvc.Get(ctx, c.Param("id"))
 	if err != nil {
-		return err
-	}
-	if sv == nil {
-		return echo.NewHTTPError(http.StatusNotFound, "server not found")
+		return stackrmw.HTTP(err)
 	}
 	rangeKey, dur := metricRange(c.QueryParam("range"))
 	cpu, mem, rx, tx := h.points(ctx, "server:"+sv.ID, dur)
@@ -173,9 +170,9 @@ func (h *handler) Host(c echo.Context) error {
 // GET /servers/:id/volumes, the volumes section.
 func (h *handler) Volumes(c echo.Context) error {
 	ctx := c.Request().Context()
-	sv, err := h.store.GetServer(ctx, c.Param("id"))
-	if err != nil || sv == nil {
-		return echo.NewHTTPError(http.StatusNotFound, "server not found")
+	sv, err := h.nodeSvc.Get(ctx, c.Param("id"))
+	if err != nil {
+		return stackrmw.HTTP(err)
 	}
 	var vols []runtime.VolumeInfo
 	msg := ""
@@ -211,9 +208,9 @@ func (h *handler) knownGroups(ctx context.Context) ([]string, error) {
 // POST /servers/:id/domains, add an instance-level domain resource.
 func (h *handler) CreateDomainResource(c echo.Context) error {
 	ctx := c.Request().Context()
-	sv, err := h.store.GetServer(ctx, c.Param("id"))
-	if err != nil || sv == nil {
-		return echo.NewHTTPError(http.StatusNotFound, "server not found")
+	sv, err := h.nodeSvc.Get(ctx, c.Param("id"))
+	if err != nil {
+		return stackrmw.HTTP(err)
 	}
 	host := c.FormValue("host")
 	if _, err := h.resources.Create(ctx, "instance", sv.ID, host, service.ResourceOpts{
@@ -257,12 +254,9 @@ func (h *handler) DeleteDomainResource(c echo.Context) error {
 // machine, so it is refused here rather than being allowed to collapse onto
 // the manager.
 func (h *handler) volumeNode(c echo.Context) (string, error) {
-	sv, err := h.store.GetServer(c.Request().Context(), c.Param("id"))
+	sv, err := h.nodeSvc.Get(c.Request().Context(), c.Param("id"))
 	if err != nil {
-		return "", err
-	}
-	if sv == nil {
-		return "", echo.NewHTTPError(http.StatusNotFound, "server not found")
+		return "", stackrmw.HTTP(err)
 	}
 	if sv.NodeID == "" {
 		return "", echo.NewHTTPError(http.StatusConflict,
@@ -326,9 +320,9 @@ func (h *handler) DeleteVolume(c echo.Context) error {
 // POST /servers/:id/settings, save the default-settings blob.
 func (h *handler) SaveSettings(c echo.Context) error {
 	ctx := c.Request().Context()
-	sv, err := h.store.GetServer(ctx, c.Param("id"))
-	if err != nil || sv == nil {
-		return echo.NewHTTPError(http.StatusNotFound, "server not found")
+	sv, err := h.nodeSvc.Get(ctx, c.Param("id"))
+	if err != nil {
+		return stackrmw.HTTP(err)
 	}
 	vals, err := c.FormParams()
 	if err != nil {

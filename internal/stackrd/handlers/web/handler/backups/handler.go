@@ -143,7 +143,7 @@ func (h *handler) load(c echo.Context, t *repo.Tile) (view, error) {
 			}
 		}
 	}
-	bs, err := h.store.ListBackupsByTile(ctx, t.ID)
+	bs, err := h.schedules.ForTile(ctx, t.ID)
 	if err != nil {
 		return v, err
 	}
@@ -156,10 +156,10 @@ func (h *handler) load(c echo.Context, t *repo.Tile) (view, error) {
 func (h *handler) configView(c echo.Context, b repo.Backup) configView {
 	ctx := c.Request().Context()
 	cv := configView{Backup: b}
-	if d, _ := h.store.GetBackupDestination(ctx, b.DestinationID); d != nil {
+	if d, _ := h.dests.Get(ctx, b.DestinationID); d != nil {
 		cv.DestName = d.Name
 	}
-	cv.Runs, _ = h.store.ListBackupRuns(ctx, b.ID, 10)
+	cv.Runs, _ = h.schedules.Runs(ctx, b.ID, 10)
 	cv.Restore, _ = h.svc.LatestRestore(ctx, b.ID)
 	return cv
 }

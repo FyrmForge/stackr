@@ -93,9 +93,9 @@ func (h *handler) AddNode(c echo.Context) error {
 // NewJoinKey mints a fresh key for a pending row whose first one expired.
 func (h *handler) NewJoinKey(c echo.Context) error {
 	ctx := c.Request().Context()
-	sv, err := h.store.GetServer(ctx, c.Param("id"))
-	if err != nil || sv == nil {
-		return echo.NewHTTPError(http.StatusNotFound, "server not found")
+	sv, err := h.nodeSvc.Get(ctx, c.Param("id"))
+	if err != nil {
+		return stackrmw.HTTP(err)
 	}
 	if _, err := h.nodes.IssueKey(ctx, sv); err != nil {
 		return err
@@ -197,9 +197,9 @@ func joinClientIP(c echo.Context) string {
 // from what it never will.
 func (h *handler) DrainForm(c echo.Context) error {
 	ctx := c.Request().Context()
-	sv, err := h.store.GetServer(ctx, c.Param("id"))
-	if err != nil || sv == nil {
-		return echo.NewHTTPError(http.StatusNotFound, "server not found")
+	sv, err := h.nodeSvc.Get(ctx, c.Param("id"))
+	if err != nil {
+		return stackrmw.HTTP(err)
 	}
 	stateless, pinned, err := h.tasksOn(ctx, sv.NodeID)
 	if err != nil {
@@ -212,9 +212,9 @@ func (h *handler) DrainForm(c echo.Context) error {
 // on the machine and become unreachable.
 func (h *handler) RemoveForm(c echo.Context) error {
 	ctx := c.Request().Context()
-	sv, err := h.store.GetServer(ctx, c.Param("id"))
-	if err != nil || sv == nil {
-		return echo.NewHTTPError(http.StatusNotFound, "server not found")
+	sv, err := h.nodeSvc.Get(ctx, c.Param("id"))
+	if err != nil {
+		return stackrmw.HTTP(err)
 	}
 	stateless, pinned, err := h.tasksOn(ctx, sv.NodeID)
 	if err != nil {
@@ -268,9 +268,9 @@ func (h *handler) Activate(c echo.Context) error {
 // service, flash and come back to the node.
 func (h *handler) nodeAction(c echo.Context, msg string, do func(context.Context, *repo.Server) error) error {
 	ctx := c.Request().Context()
-	sv, err := h.store.GetServer(ctx, c.Param("id"))
-	if err != nil || sv == nil {
-		return echo.NewHTTPError(http.StatusNotFound, "server not found")
+	sv, err := h.nodeSvc.Get(ctx, c.Param("id"))
+	if err != nil {
+		return stackrmw.HTTP(err)
 	}
 	if err := do(ctx, sv); err != nil {
 		return stackrmw.HTTP(err)
@@ -284,9 +284,9 @@ func (h *handler) nodeAction(c echo.Context, msg string, do func(context.Context
 // acknowledge.
 func (h *handler) Remove(c echo.Context) error {
 	ctx := c.Request().Context()
-	sv, err := h.store.GetServer(ctx, c.Param("id"))
-	if err != nil || sv == nil {
-		return echo.NewHTTPError(http.StatusNotFound, "server not found")
+	sv, err := h.nodeSvc.Get(ctx, c.Param("id"))
+	if err != nil {
+		return stackrmw.HTTP(err)
 	}
 	if err := h.nodeSvc.Remove(ctx, sv, confirmed(c, sv.Name)); err != nil {
 		return stackrmw.HTTP(err)
@@ -304,9 +304,9 @@ func (h *handler) Remove(c echo.Context) error {
 // is matched against.
 func (h *handler) SaveGroup(c echo.Context) error {
 	ctx := c.Request().Context()
-	sv, err := h.store.GetServer(ctx, c.Param("id"))
-	if err != nil || sv == nil {
-		return echo.NewHTTPError(http.StatusNotFound, "server not found")
+	sv, err := h.nodeSvc.Get(ctx, c.Param("id"))
+	if err != nil {
+		return stackrmw.HTTP(err)
 	}
 	group := strings.TrimSpace(c.FormValue("group"))
 	if err := h.nodeSvc.SetGroup(ctx, sv, group); err != nil {

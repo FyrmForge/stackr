@@ -79,3 +79,9 @@ func (s *APIKeyService) Mint(ctx context.Context, userID, orgID, name string, sc
 	}
 	return k, raw, nil
 }
+
+// ListAll is every API key on the server, secrets excluded — the store never
+// returns the hash. The account page filters to the caller's own.
+func (s *APIKeyService) ListAll(ctx context.Context) ([]repo.APIKey, error) {
+	return s.store.ListAPIKeys(ctx)
+}

@@ -23,14 +23,15 @@ import (
 )
 
 type handler struct {
-	store   repo.Store
-	envs    *service.EnvironmentService
-	stacks  *service.StackService
-	tiles   *service.TileService
-	members *service.MemberService
-	orgs    *service.OrgService
-	domains *service.DomainService
-	plans   *service.PlanService
+	store     repo.Store
+	envs      *service.EnvironmentService
+	stacks    *service.StackService
+	tiles     *service.TileService
+	members   *service.MemberService
+	orgs      *service.OrgService
+	domains   *service.DomainService
+	plans     *service.PlanService
+	schedules *service.BackupScheduleService
 }
 
 func NewHandler(store repo.Store, envs *service.EnvironmentService,
@@ -213,7 +214,7 @@ func (h *handler) Search(c echo.Context) error {
 	}
 
 	// Backups, named by what they back up.
-	backups, err := h.store.ListBackups(ctx)
+	backups, err := h.schedules.ListAll(ctx)
 	if err != nil {
 		return err
 	}
@@ -363,3 +364,6 @@ func (h *handler) WithDomains(v *service.DomainService) *handler { h.domains = v
 
 // WithPlans gives the page the config-plan service.
 func (h *handler) WithPlans(v *service.PlanService) *handler { h.plans = v; return h }
+
+// WithSchedules gives the page the backup-schedule service.
+func (h *handler) WithSchedules(v *service.BackupScheduleService) *handler { h.schedules = v; return h }

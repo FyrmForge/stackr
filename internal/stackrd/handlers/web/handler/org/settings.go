@@ -182,7 +182,7 @@ func (h *handler) addCandidates(c echo.Context, orgID string, members []repo.Org
 	if !stackrmw.IsAdmin(c) {
 		return nil
 	}
-	users, err := h.store.ListUsers(c.Request().Context())
+	users, err := h.auth.Users(c.Request().Context())
 	if err != nil {
 		return nil
 	}
@@ -293,7 +293,7 @@ func (h *handler) renderVars(c echo.Context, o *repo.Org) error {
 		return respond.HTML(c, http.StatusOK, components.VarsEditor(c, vars, cfg))
 	}
 	// newest 50, no paging, add paging when someone asks to scroll back.
-	events, err := h.store.ListAuditEvents(c.Request().Context(), repo.OwnerOrg, o.ID, 50)
+	events, err := h.audit.For(c.Request().Context(), repo.OwnerOrg, o.ID, 50)
 	if err != nil {
 		return err
 	}

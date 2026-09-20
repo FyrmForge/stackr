@@ -51,10 +51,11 @@ type handler struct {
 	notifier *notify.Notifier
 	// work is the durable job runner. An auto-apply goes on it rather than
 	// running inline on GitHub's delivery request.
-	work   *workqueue.Queue      // prenvs owns the stored pull-request settings.
-	prenvs *service.PREnvService // orgcfg is the org config runner, wired once in main.
-	orgcfg *orgconf.Runner
-	orgs   *service.OrgService
+	work     *workqueue.Queue      // prenvs owns the stored pull-request settings.
+	prenvs   *service.PREnvService // orgcfg is the org config runner, wired once in main.
+	orgcfg   *orgconf.Runner
+	orgs     *service.OrgService
+	settings *service.SettingsService
 }
 
 func NewHandler(store repo.Store, engine *deploy.Engine, ops envops.Ops, applier stackconf.Applier, gh *githubapp.Client, notifier *notify.Notifier) *handler {
@@ -584,7 +585,7 @@ func (h *handler) updatePlanComment(ctx context.Context, stack *repo.Stack, p *p
 	}
 	num := strconv.Itoa(p.Number)
 	if p.Action == "closed" {
-		_ = h.store.SetSetting(ctx, githubapp.PlanKey(stack.ID, num), "")
+		_ = h.settings.SetValue(ctx, githubapp.PlanKey(stack.ID, num), "")
 		return
 	}
 	base := p.PullRequest.Base.Ref
@@ -623,7 +624,7 @@ func (h *handler) updatePlanComment(ctx context.Context, stack *repo.Stack, p *p
 	default:
 		md = planMarkdown(plan, base)
 	}
-	_ = h.store.SetSetting(ctx, githubapp.PlanKey(stack.ID, num), md)
+	_ = h.settings.SetValue(ctx, githubapp.PlanKey(stack.ID, num), md)
 	env, _ := h.envs.BySlug(ctx, stack.ID, "pr-"+num)
 	h.gh.RefreshPRComment(ctx, cn, p.Repository.FullName, num, stack.ID, env)
 }
@@ -776,3 +777,6 @@ func (h *handler) WithScheduler(s *scheduler.Service) *handler { h.sched = s; re
 
 // WithOrgs gives the page the organization service.
 func (h *handler) WithOrgs(v *service.OrgService) *handler { h.orgs = v; return h }
+
+// WithSettings gives the page the settings service.
+func (h *handler) WithSettings(v *service.SettingsService) *handler { h.settings = v; return h }

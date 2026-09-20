@@ -180,3 +180,28 @@ func (s *RegistryService) TagInUse(ctx context.Context, org *repo.Org, name, tag
 	}
 	return "", nil
 }
+
+// --- reads ---
+
+// Get is one registry by id.
+func (s *RegistryService) Get(ctx context.Context, id string) (*repo.Registry, error) {
+	r, err := s.store.GetRegistry(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if r == nil {
+		return nil, svcerr.ErrNotFound
+	}
+	return r, nil
+}
+
+// ListAll is every registry this install can pull from or push to.
+func (s *RegistryService) ListAll(ctx context.Context) ([]repo.Registry, error) {
+	return s.store.ListRegistries(ctx)
+}
+
+// Credentials are an organization's push/pull credentials for the managed
+// registry. The secret half is not here: only the row.
+func (s *RegistryService) Credentials(ctx context.Context, orgID string) ([]repo.OrgRegistryCredential, error) {
+	return s.store.ListOrgRegistryCredentials(ctx, orgID)
+}
