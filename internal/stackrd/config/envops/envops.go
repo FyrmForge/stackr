@@ -49,6 +49,15 @@ type Ops struct {
 	// Resources owns the hostnames names are generated under, including the
 	// ACME account each one's certificates are issued on.
 	Resources *service.DomainResourceService
+	// Envs owns the environments table. Every path here that created,
+	// renamed, deleted or re-pointed an environment used to write the row
+	// itself, which is how the config applier ended up skipping the reserved
+	// -slug and duplicate-name checks the other four creators run.
+	Envs *service.EnvironmentService
+	// Vars owns the variables table, for the same reason: cloning an env
+	// copied its variables with a raw upsert, so none of the secret auditing
+	// or the waiting-value clearing happened on that path.
+	Vars *service.VariableService
 	// Sched re-registers the cron and backup tables. Tearing an env down
 	// deletes the environment row, which cascades every tile in it and with
 	// them their cron_jobs and backups rows — the same stale-entry bug point
@@ -242,7 +251,7 @@ func (o Ops) cloneVars(ctx context.Context, baseTileID, newTileID string, rewrit
 			v.Value = strings.ReplaceAll(v.Value, old, new_)
 		}
 		v.OwnerID, v.CreatedAt, v.UpdatedAt = newTileID, now, now
-		if err := o.Store.UpsertVariable(ctx, &v); err != nil {
+		if err := o.Vars.Upsert(ctx, &v); err != nil {
 			return err
 		}
 		if v.Secret {
@@ -300,7 +309,7 @@ func (o Ops) repointRefs(ctx context.Context, tileID, oldSlug, newSlug string) {
 			continue
 		}
 		v.Value, v.UpdatedAt = updated, time.Now().UTC()
-		_ = o.Store.UpsertVariable(ctx, &v)
+		_ = o.Vars.Upsert(ctx, &v)
 	}
 }
 
@@ -351,7 +360,7 @@ func (o Ops) Teardown(ctx context.Context, stack *repo.Stack, env *repo.Environm
 	// per-PR generated secrets) must go explicitly or they leak forever.
 	if vars, err := o.Store.ListVariables(ctx, repo.OwnerEnv, env.ID); err == nil {
 		for _, v := range vars {
-			if err := o.Store.DeleteVariable(ctx, repo.OwnerEnv, env.ID, v.Name); err != nil {
+			if err := o.Vars.Remove(ctx, service.EnvVars(env.ID), v.Name); err != nil {
 				slog.Error("env variable not deleted", "env", env.ID, "name", v.Name, "error", err)
 			}
 		}
@@ -385,7 +394,7 @@ func (o Ops) Teardown(ctx context.Context, stack *repo.Stack, env *repo.Environm
 			return fmt.Errorf("releasing overlay %s: %w", env.Network, err)
 		}
 	}
-	if err := o.Store.DeleteEnvironment(ctx, env.ID); err != nil {
+	if err := o.Envs.Remove(ctx, env.ID); err != nil {
 		return err
 	}
 	// The cascade took this env's cron_jobs and backups rows with it; without

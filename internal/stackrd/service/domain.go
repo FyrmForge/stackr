@@ -108,18 +108,9 @@ func (s *DomainService) plan(ctx context.Context, t *repo.Tile, spec DomainSpec)
 	if t.IsManaged() && !managedtiles.SpeaksHTTP(t.Engine) {
 		return nil, invalid("host", "this engine does not speak HTTP, so it cannot have a hostname")
 	}
-	port := spec.Port
-	if port == 0 {
-		port = t.ContainerPort
-	}
-	if port == 0 {
-		if spec.RedirectTo == "" {
-			return nil, invalid("container_port", "container port required (set it on the app or the domain)")
-		}
-		// A redirect never proxies, so the target is unused — but 0 renders
-		// as http://alias:0, which is not a URL anyone meant. The API left it
-		// at zero and wrote exactly that into the route.
-		port = 80
+	port, err := DomainPort(spec.Port, t.ContainerPort, spec.RedirectTo)
+	if err != nil {
+		return nil, err
 	}
 	https := true
 	if spec.HTTPS != nil {
@@ -133,11 +124,9 @@ func (s *DomainService) plan(ctx context.Context, t *repo.Tile, spec DomainSpec)
 	if spec.ForceHTTPS != nil {
 		force = *spec.ForceHTTPS
 	}
-	if strings.HasPrefix(host, "*.") && https {
-		// A wildcard certificate can only be issued over DNS-01.
-		if p, _ := s.store.GetSetting(ctx, "dns_provider"); p == "" {
-			return nil, invalid("host", "wildcard HTTPS needs a DNS provider; configure it in Settings")
-		}
+	dns, _ := s.store.GetSetting(ctx, "dns_provider")
+	if err := CheckWildcardHTTPS(host, https, dns != ""); err != nil {
+		return nil, err
 	}
 	// One host+path, one owner. A rule entry may share host+path with this
 	// tile's own entries — its priority decides between them — but never with

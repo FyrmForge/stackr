@@ -25,6 +25,13 @@ import (
 // This is the same shape as gatefree_test.go, for the same reason: the failure
 // is silent. A read left behind compiles, passes every test, and renders.
 //
+// The walk counts two spellings of the same call: `h.store.GetX(…)` on a
+// field, and `store.GetX(…)` on a repo.Store the function was handed. It used
+// to count only the first, and three functions in handler/settings were
+// already through that hole — a helper that takes the store reads it as a bare
+// identifier, which is indistinguishable from a call to this package's own
+// code unless the parameter types are read.
+//
 // stillStoreReading is the worklist. It shrinks; it does not grow. A new
 // handler that reaches for the store fails here on the first run.
 
@@ -61,6 +68,20 @@ func storeReads(t *testing.T, root string) map[string][]string {
 				e = &fn{pkg: pkg}
 				byKey[key] = e
 			}
+			// Parameters and receivers declared as repo.Store. A helper that
+			// TAKES the store reads it as a bare identifier — `store.GetOrg(…)`
+			// — which looks exactly like a call to a function in this package,
+			// so without this the read is filed as a local edge and vanishes.
+			// Two of them were already through that hole.
+			bare := map[string]bool{}
+			for _, fl := range params(fd) {
+				if !isRepoStore(fl.Type) {
+					continue
+				}
+				for _, nm := range fl.Names {
+					bare[nm.Name] = true
+				}
+			}
 			ast.Inspect(fd.Body, func(n ast.Node) bool {
 				ce, ok := n.(*ast.CallExpr)
 				if !ok {
@@ -81,9 +102,14 @@ func storeReads(t *testing.T, root string) map[string][]string {
 					return true
 				}
 				// h.helper(...) on the receiver is a local edge; anything
-				// deeper (h.tiles.Create) belongs to another package.
-				if _, ok := sel.X.(*ast.Ident); ok {
-					e.calls = append(e.calls, sel.Sel.Name)
+				// deeper (h.tiles.Create) belongs to another package. A bare
+				// identifier that IS the store is the banned call, not an edge.
+				if id, ok := sel.X.(*ast.Ident); ok {
+					if bare[id.Name] {
+						e.store = append(e.store, sel.Sel.Name)
+					} else {
+						e.calls = append(e.calls, sel.Sel.Name)
+					}
 				}
 				return true
 			})
@@ -204,3 +230,27 @@ func TestNoHandlerReadsTheStore(t *testing.T) {
 const stillStoreReading = `
 handlers/api/handler/health.Health -> Health
 `
+
+// params is a function's receiver plus its parameters, flattened.
+func params(fd *ast.FuncDecl) []*ast.Field {
+	var out []*ast.Field
+	if fd.Recv != nil {
+		out = append(out, fd.Recv.List...)
+	}
+	if fd.Type.Params != nil {
+		out = append(out, fd.Type.Params.List...)
+	}
+	return out
+}
+
+// isRepoStore reports whether a type expression is repo.Store. The import is
+// always named repo in these packages; an alias would read as a local type and
+// slip through, which is a smaller hole than the one this closes.
+func isRepoStore(x ast.Expr) bool {
+	sel, ok := x.(*ast.SelectorExpr)
+	if !ok || sel.Sel.Name != "Store" {
+		return false
+	}
+	id, ok := sel.X.(*ast.Ident)
+	return ok && id.Name == "repo"
+}

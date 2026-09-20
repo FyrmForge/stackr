@@ -213,13 +213,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	// One-shot upgrade: project existing env blobs into variable rows, which is
-	// what the resolver reads. Without it an upgraded install deploys apps with
-	// an empty environment.
-	if err := envops.BackfillVariables(context.Background(), store); err != nil {
-		log.Error("variable backfill failed", "error", err)
-	}
-
 	cookieSecure := cookieSecureFor(envDevMode, envTLSOff)
 
 	// Sessions.
@@ -575,9 +568,18 @@ func main() {
 	// Config-as-code. Built here rather than inside either router because the
 	// web canvas and the API drive the same plan → approve → apply flow, and two
 	// copies would be two things to keep in step.
+	//
+	// Ops is a variable rather than an inline literal because of a knot: the
+	// environment service tears down through Ops, and Ops now writes its rows
+	// back through the environment service. Two of Ops' fields therefore can
+	// only be filled in after the service exists, and the service is handed
+	// &ops so it sees them when they are. applier.Ops is assigned from the
+	// finished value further down — a copy taken here would be a copy with a
+	// nil Envs, and the nil would not show up until a teardown.
+	ops := envops.Ops{Store: store, RT: rt, Cluster: clus, PX: pxSvc, DBs: dbService,
+		Tiles: tiles, Sched: sched, Domains: domains, Resources: resources}
 	applier := stackconf.Applier{
 		Planner:   stackconf.Planner{Store: store, Src: gh},
-		Ops:       envops.Ops{Store: store, RT: rt, Cluster: clus, PX: pxSvc, DBs: dbService, Tiles: tiles, Sched: sched, Domains: domains, Resources: resources},
 		DBs:       dbService,
 		Instances: instances,
 		Slices:    slices,
@@ -618,7 +620,12 @@ func main() {
 	// One owner for the environment row. envops does the teardown below the
 	// line; the rules, the gate and the two tables nothing used to clean up
 	// are here.
-	envSvc := service.NewEnvironmentService(store, applier.Ops, sched, applier.Planner, gate)
+	envSvc := service.NewEnvironmentService(store, &ops, sched, applier.Planner, gate)
+
+	// The other half of the knot described at ops above: fill the two fields
+	// in, then hand the applier the finished value.
+	ops.Envs, ops.Vars = envSvc, vars
+	applier.Ops = ops
 
 	// One owner for the bucket a backup is written to, and one for the
 	// schedules pointed at it. Three creators had three rule sets; the

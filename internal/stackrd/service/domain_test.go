@@ -174,3 +174,45 @@ func TestAttachRefusals(t *testing.T) {
 		}
 	})
 }
+
+// The two rules that moved out to pure functions (DomainPort,
+// CheckWildcardHTTPS) so config-as-code could apply them at plan time. Their
+// own behaviour is tested next to the planner; this asserts they are still
+// wired into the request path, which is the half a refactor can silently drop.
+func TestAttachStillAppliesThePortAndWildcardRules(t *testing.T) {
+	stack := &repo.Stack{ID: "s1"}
+
+	portless := tile()
+	portless.ContainerPort = 0
+	st := &domStore{stack: stack}
+	if _, _, err := domSvc(st).Attach(context.Background(), portless,
+		DomainSpec{Host: "shop.example.com"}, Actor{}); err == nil {
+		t.Fatal("a non-redirect domain with no port anywhere must be refused")
+	} else if _, ok := svcerr.IsInvalid(err); !ok {
+		t.Fatalf("want an invalid-field refusal, got %T: %v", err, err)
+	}
+
+	// A redirect never proxies, so the same tile is fine — on port 80, not 0.
+	st = &domStore{stack: stack}
+	if _, _, err := domSvc(st).Attach(context.Background(), portless,
+		DomainSpec{Host: "old.example.com", RedirectTo: "https://shop.example.com"}, Actor{}); err != nil {
+		t.Fatalf("redirect with no port: %v", err)
+	}
+	if st.created == nil || st.created.ContainerPort != 80 {
+		t.Fatalf("want the redirect on port 80, got %+v", st.created)
+	}
+
+	// Wildcard over TLS with no DNS provider: the certificate could never
+	// issue, so the hostname is refused rather than written.
+	st = &domStore{stack: stack}
+	if _, _, err := domSvc(st).Attach(context.Background(), tile(),
+		DomainSpec{Host: "*.shop.example.com"}, Actor{}); err == nil {
+		t.Fatal("wildcard HTTPS with no DNS provider must be refused")
+	}
+
+	st = &domStore{stack: stack, dnsProv: "cloudflare"}
+	if _, _, err := domSvc(st).Attach(context.Background(), tile(),
+		DomainSpec{Host: "*.shop.example.com"}, Actor{}); err != nil {
+		t.Fatalf("wildcard with a DNS provider configured: %v", err)
+	}
+}

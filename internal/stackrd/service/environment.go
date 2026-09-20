@@ -52,6 +52,14 @@ type CreateEnv struct {
 	Name      string
 	Type      string // "static" (default) or "ephemeral"
 	BaseEnvID string
+
+	// The three the config file owns and the panel does not. They were the
+	// reason a config apply built the row itself instead of calling Adopt,
+	// and building it itself is how it skipped the reserved-slug and
+	// duplicate checks the other four callers get.
+	Color       string
+	ApplyPolicy string
+	Position    int
 }
 
 // reservedEnvSlug names the slugs an environment may not take. "settings" and
@@ -106,7 +114,8 @@ func (s *EnvironmentService) Adopt(ctx context.Context, stack *repo.Stack, in Cr
 		envType = "ephemeral"
 	}
 	env := &repo.Environment{ID: uuid.New().String(), StackID: stack.ID, Name: name,
-		Slug: slug, Type: envType, Settings: "{}", CreatedAt: time.Now().UTC()}
+		Slug: slug, Type: envType, Settings: "{}", CreatedAt: time.Now().UTC(),
+		Color: in.Color, ApplyPolicy: in.ApplyPolicy, Position: in.Position}
 	if in.BaseEnvID != "" {
 		base, err := s.store.GetEnvironment(ctx, in.BaseEnvID)
 		if err != nil {
@@ -333,4 +342,85 @@ func (s *EnvironmentService) ListForStack(ctx context.Context, stackID string) (
 // when the stack has none.
 func (s *EnvironmentService) Home(ctx context.Context, stackID string) (*repo.Environment, error) {
 	return s.store.HomeEnvironment(ctx, stackID)
+}
+
+// --- writes the row's other owners used to make themselves ---
+//
+// Everything below exists because something outside this package was writing
+// the environments table directly: the config applier, the env ops, the
+// network pool, the proxy recorder. None of those writes had a rule to skip,
+// which is exactly why they were easy to leave — and why the table ended up
+// with five writers and one of them (the applier) quietly not running the
+// name checks the other four did.
+
+// Save persists an environment row a caller has already mutated. The config
+// applier builds the whole row from the file and writes it wholesale; Update
+// is the patch-shaped door for the surfaces that change one field.
+func (s *EnvironmentService) Save(ctx context.Context, env *repo.Environment) error {
+	if env == nil {
+		return svcerr.ErrNotFound
+	}
+	return s.store.UpdateEnvironment(ctx, env)
+}
+
+// Rename changes an environment's display name and slug together. The two
+// always move as a pair — a slug that does not match its name is how the
+// generated hostname stops matching the panel.
+func (s *EnvironmentService) Rename(ctx context.Context, env *repo.Environment, name, slug string) error {
+	if env == nil {
+		return svcerr.ErrNotFound
+	}
+	name, slug = strings.TrimSpace(name), strings.TrimSpace(slug)
+	if slug == "" {
+		slug = repo.Slugify(name)
+	}
+	if slug == "" {
+		return invalid("name", "needs at least one letter or number")
+	}
+	if reservedEnvSlug(slug) {
+		return svcerr.Invalidf("name", "%q is reserved", slug)
+	}
+	if other, _ := s.store.GetEnvironmentBySlug(ctx, env.StackID, slug); other != nil && other.ID != env.ID {
+		return svcerr.Conflictf("an environment named %q already exists in this stack", other.Name)
+	}
+	if err := s.store.RenameEnvironment(ctx, env.ID, name, slug); err != nil {
+		return err
+	}
+	env.Name, env.Slug = name, slug
+	return nil
+}
+
+// Remove deletes the row and nothing else. Delete is the door with the
+// teardown behind it; this is for callers that have already torn down.
+func (s *EnvironmentService) Remove(ctx context.Context, id string) error {
+	return s.store.DeleteEnvironment(ctx, id)
+}
+
+// SetNetwork records the overlay network an environment holds, or clears it.
+// The pool below decides the name; the row is this package's.
+func (s *EnvironmentService) SetNetwork(ctx context.Context, envID, network string) error {
+	return s.store.SetEnvironmentNetwork(ctx, envID, network)
+}
+
+// SetProxy records where an environment's proxy answered. Best-effort state,
+// written after the container is up.
+func (s *EnvironmentService) SetProxy(ctx context.Context, envID, ip, cidr string) error {
+	return s.store.SetEnvironmentProxy(ctx, envID, ip, cidr)
+}
+
+// EnsureHome puts a stack's hidden stack-scoped environment back. A stack
+// made before the home existed, or one whose row was wiped, has none; the
+// store owns what a home looks like, so this is a restore rather than a
+// create and skips every name rule on purpose.
+func (s *EnvironmentService) EnsureHome(ctx context.Context, stackID string, now time.Time) (*repo.Environment, error) {
+	if env, err := s.store.GetEnvironmentBySlug(ctx, stackID, repo.HomeSlug); err != nil {
+		return nil, err
+	} else if env != nil {
+		return env, nil
+	}
+	env := repo.HomeEnv(stackID, now)
+	if err := s.store.CreateEnvironment(ctx, env); err != nil {
+		return nil, err
+	}
+	return env, nil
 }

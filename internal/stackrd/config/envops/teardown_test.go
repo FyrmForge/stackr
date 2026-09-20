@@ -8,7 +8,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/FyrmForge/stackr/internal/stackrd/config/envops"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/runtime"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/testdb"
@@ -41,7 +40,7 @@ func TestTeardownDeletesTheEnvsVariables(t *testing.T) {
 		require.NoError(t, s.UpsertVariable(ctx, &v), "seed var %s", v.Name)
 	}
 
-	require.NoError(t, (envops.Ops{Store: s}).Teardown(ctx, seed.Stack, pr), "teardown")
+	require.NoError(t, ops(t, s).Teardown(ctx, seed.Stack, pr), "teardown")
 
 	left, err := s.ListVariables(ctx, repo.OwnerEnv, pr.ID)
 	require.NoError(t, err, "list torn-down env vars")
@@ -80,7 +79,7 @@ func TestTeardownKeepsTheEnvWhenTheOverlayWillNotRelease(t *testing.T) {
 	rt, err := runtime.New()
 	require.NoError(t, err, "runtime")
 
-	err = (envops.Ops{Store: s, RT: rt}).Teardown(ctx, seed.Stack, env)
+	err = opsRT(t, s, rt).Teardown(ctx, seed.Stack, env)
 	require.Error(t, err, "teardown reported success with an undrained overlay")
 	assert.Contains(t, err.Error(), "stkr-net-07", "the error does not name the overlay")
 

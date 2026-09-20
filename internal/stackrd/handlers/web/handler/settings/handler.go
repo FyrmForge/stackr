@@ -393,8 +393,8 @@ type ConnectorView struct {
 }
 
 // LoadOrgConnectors lists connectors for one org.
-func LoadOrgConnectors(ctx context.Context, store repo.Store, org repo.Org) (OrgConnectors, error) {
-	cns, err := store.ListConnectorsByOrg(ctx, org.ID)
+func LoadOrgConnectors(ctx context.Context, connectors *service.ConnectorService, org repo.Org) (OrgConnectors, error) {
+	cns, err := connectors.ForOrg(ctx, org.ID)
 	if err != nil {
 		return OrgConnectors{}, err
 	}
@@ -498,7 +498,7 @@ func (h *handler) DeleteConnector(c echo.Context) error {
 	// dangling id stayed on the tiles and stacks that named it, failing later
 	// and somewhere else — in the CI gate, or in a plan that could not read
 	// its own repository.
-	if users, uerr := connectorUsers(ctx, h.store, cn); uerr == nil && len(users) > 0 {
+	if users, uerr := h.connectors.Users(ctx, cn); uerr == nil && len(users) > 0 {
 		middleware.SetFlash(c, "Still used by "+strings.Join(users, ", ")+". Point those at another connector first.", middleware.FlashError)
 		org, _ := h.orgs.Get(ctx, cn.OrgID)
 		if org == nil {
@@ -515,35 +515,6 @@ func (h *handler) DeleteConnector(c echo.Context) error {
 		return respond.Redirect(c, "/")
 	}
 	return respond.Redirect(c, "/orgs/"+org.Slug+"/settings/connectors")
-}
-
-// connectorUsers names what would be left holding a dead connector id: the
-// org's own config binding, any stack bound through it, and any tile built
-// from it.
-func connectorUsers(ctx context.Context, store repo.Store, cn *repo.Connector) ([]string, error) {
-	var out []string
-	if org, err := store.GetOrg(ctx, cn.OrgID); err == nil && org != nil && org.ConfigConnectorID == cn.ID {
-		out = append(out, "the "+org.Name+" organization's config binding")
-	}
-	stacks, err := store.ListStacksByOrg(ctx, cn.OrgID)
-	if err != nil {
-		return nil, err
-	}
-	for i := range stacks {
-		if stacks[i].ConfigConnectorID == cn.ID {
-			out = append(out, stacks[i].Slug+"'s config binding")
-		}
-		tiles, terr := store.ListTilesByStack(ctx, stacks[i].ID)
-		if terr != nil {
-			continue
-		}
-		for j := range tiles {
-			if tiles[j].ConnectorID == cn.ID {
-				out = append(out, stacks[i].Slug+"/"+tiles[j].Slug)
-			}
-		}
-	}
-	return out, nil
 }
 
 // POST /admin/users/:id/admin, grant or revoke server-admin rights.

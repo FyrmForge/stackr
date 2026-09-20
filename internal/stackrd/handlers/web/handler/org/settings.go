@@ -210,7 +210,7 @@ func (h *handler) SettingsConnectors(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	conns, err := settingspage.LoadOrgConnectors(c.Request().Context(), h.store, *o)
+	conns, err := settingspage.LoadOrgConnectors(c.Request().Context(), h.connectors, *o)
 	if err != nil {
 		return err
 	}

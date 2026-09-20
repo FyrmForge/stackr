@@ -53,3 +53,35 @@ func (s *ConnectorService) ListAll(ctx context.Context) ([]repo.Connector, error
 func (s *ConnectorService) Delete(ctx context.Context, id string) error {
 	return s.store.DeleteConnector(ctx, id)
 }
+
+// Users names what would be left holding a dead connector id: the org's own
+// config binding, any stack bound through it, and any tile built from it.
+//
+// The delete confirmation is what asks, but the question is the connector's
+// own — "what still points at me" — and answering it took three store reads a
+// handler was making for itself.
+func (s *ConnectorService) Users(ctx context.Context, cn *repo.Connector) ([]string, error) {
+	var out []string
+	if org, err := s.store.GetOrg(ctx, cn.OrgID); err == nil && org != nil && org.ConfigConnectorID == cn.ID {
+		out = append(out, "the "+org.Name+" organization's config binding")
+	}
+	stacks, err := s.store.ListStacksByOrg(ctx, cn.OrgID)
+	if err != nil {
+		return nil, err
+	}
+	for i := range stacks {
+		if stacks[i].ConfigConnectorID == cn.ID {
+			out = append(out, stacks[i].Slug+"'s config binding")
+		}
+		tiles, terr := s.store.ListTilesByStack(ctx, stacks[i].ID)
+		if terr != nil {
+			continue
+		}
+		for j := range tiles {
+			if tiles[j].ConnectorID == cn.ID {
+				out = append(out, stacks[i].Slug+"/"+tiles[j].Slug)
+			}
+		}
+	}
+	return out, nil
+}

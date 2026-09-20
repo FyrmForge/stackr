@@ -331,6 +331,30 @@ func (s *VariableService) Upsert(ctx context.Context, v *repo.Variable) error {
 	return s.store.UpsertVariable(ctx, v)
 }
 
+// Remove deletes one variable, with none of Unset's cascade.
+//
+// Unset is the door for a person removing a variable: it audits the delete,
+// clears any waiting value and syncs the owner's blob. This is for the
+// machine paths that have already decided the row goes — tearing an
+// environment down, dropping a consumer's references to a resource that no
+// longer exists. Those used to call the store.
+func (s *VariableService) Remove(ctx context.Context, owner VarOwner, name string) error {
+	return s.store.DeleteVariable(ctx, owner.Kind, owner.ID, name)
+}
+
+// ReplaceTileVars swaps a tile's whole variable set for the one on the tile.
+//
+// The config file owns a tile's variables outright — what it does not declare
+// is gone — so the config applier replaces rather than merges. It is the only
+// caller and it used to reach the store directly, which is how the table
+// ended up with a writer that VariableService knew nothing about.
+func (s *VariableService) ReplaceTileVars(ctx context.Context, t *repo.Tile) error {
+	if t == nil {
+		return svcerr.ErrNotFound
+	}
+	return s.store.ReplaceTileVars(ctx, t)
+}
+
 // Names is every variable name on the server, values excluded — the search
 // palette's index. It carries no owner and no values on purpose: a name is
 // not a secret, a value may be.

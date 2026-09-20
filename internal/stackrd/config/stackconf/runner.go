@@ -112,6 +112,7 @@ func (pl Planner) loadDomainContext(ctx context.Context, stack *repo.Stack, opts
 	if all, err := pl.Store.ListDomainResources(ctx); err == nil {
 		opts.DomainResources = service.VisibleDomainResources(all, stack.ID, stack.OrgID)
 	}
+	opts.DNSProvider, _ = pl.Store.GetSetting(ctx, "dns_provider")
 	if orgs, err := pl.Store.ListOrgs(ctx); err == nil {
 		opts.ForeignOrgSlugs = map[string]bool{}
 		for _, o := range orgs {

@@ -322,3 +322,40 @@ func (s *DomainResourceService) ListAll(ctx context.Context) ([]repo.DomainResou
 func (s *DomainResourceService) Save(ctx context.Context, r *repo.DomainResource) error {
 	return s.store.CreateDomainResource(ctx, r)
 }
+
+// The two domain rules below sit here, next to CheckOrgSquat, because they
+// have the same shape: one rule about a hostname, needed by every surface that
+// accepts one. DomainService applies them per request; config-as-code applies
+// them at plan time, over a whole file, where a store read per domain is the
+// wrong cost — so the rule is a pure function and the caller supplies the
+// context. Two copies of a rule is how the config path came to write a route
+// the panel would refuse.
+
+// DomainPort resolves the container port a route proxies to: the domain's own
+// port, else the tile's. Zero is only allowed for a redirect, which never
+// proxies — and even then the port becomes 80, because 0 renders as
+// http://alias:0, which is not a URL anyone meant.
+func DomainPort(specPort, tilePort int, redirectTo string) (int, error) {
+	port := specPort
+	if port == 0 {
+		port = tilePort
+	}
+	if port != 0 {
+		return port, nil
+	}
+	if redirectTo == "" {
+		return 0, invalid("container_port", "container port required (set it on the app or the domain)")
+	}
+	return 80, nil
+}
+
+// CheckWildcardHTTPS rejects a wildcard hostname served over TLS when no DNS
+// provider is configured. A wildcard certificate can only be issued over
+// DNS-01, so without one the certificate never issues and the refusal arrives
+// as a hostname that does not answer.
+func CheckWildcardHTTPS(host string, https, dnsConfigured bool) error {
+	if !https || dnsConfigured || !strings.HasPrefix(host, "*.") {
+		return nil
+	}
+	return invalid("host", "wildcard HTTPS needs a DNS provider; configure it in Settings")
+}

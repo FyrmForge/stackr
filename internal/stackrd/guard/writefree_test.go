@@ -368,11 +368,8 @@ const stillWriting = `
 3 cmd/stackrd/SetSetting
 1 internal/stackrd/config/envops/CreateBinding
 1 internal/stackrd/config/envops/CreateTile
-1 internal/stackrd/config/envops/DeleteEnvironment
 2 internal/stackrd/config/envops/DeleteProvision
-1 internal/stackrd/config/envops/DeleteVariable
 1 internal/stackrd/config/envops/SaveNodePositions
-3 internal/stackrd/config/envops/UpsertVariable
 1 internal/stackrd/config/orgconf/CreateDomainResource
 1 internal/stackrd/config/orgconf/CreateOrgConfigPlan
 1 internal/stackrd/config/orgconf/CreateStorage

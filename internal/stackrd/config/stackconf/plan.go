@@ -313,6 +313,11 @@ type DiffOpts struct {
 	// literal host may not start with one: config as code would otherwise be
 	// the hole in the anti-squat rule the UI paths enforce.
 	ForeignOrgSlugs map[string]bool
+	// DNSProvider is the configured ACME DNS-01 provider, "" for none. A
+	// wildcard domain in a file needs one, and the plan is where that has to
+	// be said: without it the apply writes a hostname whose certificate never
+	// issues, and nothing reports why.
+	DNSProvider string
 
 	// OnlyEnv restricts the diff to one environment (env-branch plans);
 	// env-level create/delete of OTHER envs never appears in such a plan.
@@ -832,6 +837,7 @@ func (p *Plan) diffDomains(env, name string, tc TileConf, ts TileState, opts Dif
 	if tc.Type != "service" {
 		return
 	}
+	p.checkDomainRules(env, name, tc, opts)
 	cur := map[string]repo.Domain{}
 	for _, d := range ts.Domains {
 		cur[domainKey(d.Host, d.Path, d.Rule)] = d
@@ -922,6 +928,31 @@ func (p *Plan) claimHost(env, name, key, ownID string) bool {
 	return true
 }
 
+// checkDomainRules applies the domain rules that are not about ownership —
+// the ones DomainService applies on the panel and the API paths, shared as
+// pure functions so the two cannot drift again. Ownership is claimHost's job,
+// and a host that does not resolve is already reported by the caller.
+//
+// Both walks call this: a tile the plan creates never reaches diffDomains,
+// and a tile it updates never reaches claimHosts.
+func (p *Plan) checkDomainRules(env, name string, tc TileConf, opts DiffOpts) {
+	if tc.Type != "service" {
+		return
+	}
+	for _, dc := range tc.Domains {
+		host, err := claimHost(dc, env, name, opts)
+		if err != nil {
+			continue
+		}
+		if err := service.CheckWildcardHTTPS(host, dc.HTTPSOn(), opts.DNSProvider != ""); err != nil {
+			p.Errors = append(p.Errors, fmt.Sprintf("env %s: tile %s: domain %s: %v", env, name, host, err))
+		}
+		if _, err := service.DomainPort(dc.Port, tc.Port, dc.RedirectTo); err != nil {
+			p.Errors = append(p.Errors, fmt.Sprintf("env %s: tile %s: domain %s: %v", env, name, host, err))
+		}
+	}
+}
+
 // claimHosts runs the host checks for a tile the plan creates, the create
 // path never reaches diffDomains, and a taken host there died on the unique
 // index mid-apply.
@@ -929,6 +960,7 @@ func (p *Plan) claimHosts(env, name string, tc TileConf, ownID string, opts Diff
 	if tc.Type != "service" {
 		return
 	}
+	p.checkDomainRules(env, name, tc, opts)
 	for _, dc := range tc.Domains {
 		host, err := claimHost(dc, env, name, opts)
 		if err != nil {

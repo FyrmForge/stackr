@@ -1254,10 +1254,8 @@ func (a Applier) createTile(ctx context.Context, stack *repo.Stack, env *repo.En
 	// port list, a storage attachment or a placement the other two surfaces
 	// refuse outright — and the refusal arrived at deploy time, as a failed
 	// container, with the plan already marked applied.
-	if a.Ops.Tiles != nil {
-		if err := a.Ops.Tiles.Validate(ctx, t); err != nil {
-			return fmt.Errorf("tile %s: %w", slug, err)
-		}
+	if err := a.Ops.Tiles.Validate(ctx, t); err != nil {
+		return fmt.Errorf("tile %s: %w", slug, err)
 	}
 	if err := store.CreateTile(ctx, t); err != nil {
 		return err
@@ -1475,10 +1473,8 @@ func (a Applier) updateTile(ctx context.Context, stack *repo.Stack, env *repo.En
 	t.UpdatedAt = time.Now().UTC()
 	// Same validator as create, and as both surfaces: an edit that would be
 	// refused from the panel must be refused from the file.
-	if a.Ops.Tiles != nil {
-		if err := a.Ops.Tiles.Validate(ctx, t); err != nil {
-			return false, fmt.Errorf("tile %s: %w", slug, err)
-		}
+	if err := a.Ops.Tiles.Validate(ctx, t); err != nil {
+		return false, fmt.Errorf("tile %s: %w", slug, err)
 	}
 	if err := store.UpdateTile(ctx, t.ID, t.TileConfig); err != nil {
 		return false, err
@@ -1580,14 +1576,10 @@ func (a Applier) deleteTile(ctx context.Context, env *repo.Environment, slug str
 		// it, which is the decision the held-slices refusal exists to ask for.
 		return a.Instances.TearDown(ctx, t, true)
 	}
-	if a.Ops.Tiles != nil {
-		// The service owns the order and the cascade; this path used to do
-		// four of the five steps and skip re-registering the schedule tables
-		// the delete cascaded, so a removed cron kept ticking until restart.
-		return a.Ops.Tiles.TearDown(ctx, t)
-	}
-	// No service wired (tests): drop the row and nothing else.
-	return store.DeleteTile(ctx, t.ID)
+	// The service owns the order and the cascade; this path used to do four of
+	// the five steps and skip re-registering the schedule tables the delete
+	// cascaded, so a removed cron kept ticking until restart.
+	return a.Ops.Tiles.TearDown(ctx, t)
 }
 
 // CopyTile writes tc onto an existing tile in env and deploys it: the compare
@@ -1664,12 +1656,12 @@ func (a Applier) syncDomains(ctx context.Context, env *repo.Environment, t *repo
 			}
 			continue
 		}
-		port := tc.Port
-		if dc.Port != 0 {
-			port = dc.Port
-		}
-		if port == 0 && dc.RedirectTo != "" {
-			port = 80
+		// The same resolution the panel and the API use, refusal included.
+		// The plan already refused this (checkDomainRules), so reaching it
+		// here means the file changed under an approved plan.
+		port, perr := service.DomainPort(dc.Port, tc.Port, dc.RedirectTo)
+		if perr != nil {
+			return fmt.Errorf("tile %s: domain %s: %w", t.Slug, host, perr)
 		}
 		d := &repo.Domain{
 			ID:            uuid.New().String(),
