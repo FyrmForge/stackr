@@ -1409,6 +1409,21 @@ which columns arrived when.
 ## UpdateTile no longer stamps the caller's struct
 
 It used to set `t.UpdatedAt` on the caller's `*repo.Tile` as a side effect of
-writing the row. With a value parameter it cannot, and no caller read it back —
-every one of them re-loads or discards the struct. Worth knowing before someone
-looks for a stale `UpdatedAt` in a rendered page.
+writing the row. With a value parameter it cannot. Checked every call site:
+none reads it back afterwards, and `TileService.save` stamps it on the struct
+itself a line before the call, so the surface that renders a tile still holds a
+fresh timestamp. Worth knowing before someone looks for a stale `UpdatedAt` in
+a rendered page.
+
+## Nothing walks a Tile's fields reflectively
+
+The one thing promotion does not rescue is iteration: `reflect` now sees
+`Tile` as eight fields plus two structs, not seventy. A field walk would keep
+compiling and quietly stop seeing `ImageRef`.
+
+`DiffTiles` in `service/tilediff.go` is the one that would matter — a broken
+diff detects no drift, redeploys nothing and reports no error. It compares
+field by field by name, as do `config/envcompare` and stackconf's serializer.
+The only `reflect` in the tree outside tests is `internal/cli/cmd/runtime.go`,
+on a slice, unrelated. `encoding/json` is fine by itself: anonymous struct
+fields flatten, so the API's tile JSON is byte-identical.

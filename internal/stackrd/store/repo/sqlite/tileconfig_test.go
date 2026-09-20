@@ -46,7 +46,10 @@ func TestTileConfigRoundTripsEveryField(t *testing.T) {
 		case reflect.Float64:
 			f.SetFloat(float64(i) + 0.5)
 		case reflect.Bool:
-			f.SetBool(true)
+			// Alternating, not all-true: two bool columns bound to each
+			// other's parameter would round-trip cleanly if every bool
+			// carried the same value.
+			f.SetBool(i%2 == 0)
 		default:
 			t.Fatalf("TileConfig.%s is a %s — teach this test how to fill it",
 				v.Type().Field(i).Name, f.Kind())
