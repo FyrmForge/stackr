@@ -2596,3 +2596,34 @@ is not org-scoped — membership is, and that is `MemberService`'s.
 One name collision worth knowing about: `handler/server` already had a field
 `nodes` holding `infra/nodes.Service`, the swarm client. `service.NodeService`
 is `nodeSvc` there and now everywhere, so the two never read alike.
+
+## Point 19 verified live, after slice 5 — 2026-09-20
+
+Deployed to the VM and walked it, because five slices had gone in on unit
+tests alone and the error contract moved in all of them.
+
+**Panel, as the server admin.** A crawl from `/`, an org canvas, a stack, the
+admin area, `/servers` and `/account`, following every `href` and `hx-get` four
+levels deep: **112 pages, no 5xx, no error page**. The only 404s were two
+`/deployments/<id>` links on `/notifications` whose tiles no longer exist —
+correct, and older than this work.
+
+**Panel, as a member (not a server admin).** `/admin`, `/admin/users`,
+`/admin/audit`, `/admin/backups`, `/admin/tls`, `/servers`, `/containers` all
+**404**, not 403 — the concealment rule from point 18 still holds with the
+reads coming through services. Their own org's pages 200, a bogus org slug
+404, a bogus stack id 404.
+
+**API, with an everything-scoped key.** Every collection and every
+org/stack-addressed read 200; `apps`, `envs`, `deployments`, `tiles/backups`,
+`config/plans` and `org-config/plans` all **404** on a bogus id. No 5xx.
+
+**Two deliberate behaviour changes, both in handler/settings.** `destOrg` and
+`GitHubConnect` used to leave the raw path segment in `orgID` when it resolved
+to no organization, and carry on. `OrgService.Resolve` answers ErrNotFound, so
+they 404. That is the correct answer and it is new.
+
+**One thing this does NOT change back:** a store failure on a read that used to
+be folded into `if err != nil || x == nil { 404 }` is now a 500. Intended — an
+outage that renders as "not found" is the bug that hid a broken query for a
+release — but it means a database hiccup reaches the error page.
