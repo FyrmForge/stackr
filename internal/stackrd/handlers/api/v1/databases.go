@@ -236,9 +236,9 @@ func (a *API) attachProvision(c echo.Context) error {
 	if err := c.Bind(&in); err != nil || in.ProvisionID == "" {
 		return echo.NewHTTPError(http.StatusBadRequest, "provision_id required")
 	}
-	src, err := a.store.GetProvision(ctx, in.ProvisionID)
+	src, err := a.slices.Get(ctx, in.ProvisionID)
 	if err != nil {
-		return err
+		return stackrmw.HTTP(err)
 	}
 	p, instance, err := a.slices.Attach(ctx, src, consumer)
 	if err != nil {

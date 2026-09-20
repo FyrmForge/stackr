@@ -261,3 +261,15 @@ func (s *BackupScheduleService) ListAll(ctx context.Context) ([]repo.Backup, err
 func (s *BackupScheduleService) Runs(ctx context.Context, backupID string, limit int) ([]repo.BackupRun, error) {
 	return s.store.ListBackupRuns(ctx, backupID, limit)
 }
+
+// Get is one backup schedule by id.
+func (s *BackupScheduleService) Get(ctx context.Context, id string) (*repo.Backup, error) {
+	b, err := s.store.GetBackup(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if b == nil {
+		return nil, svcerr.ErrNotFound
+	}
+	return b, nil
+}

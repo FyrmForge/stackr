@@ -879,9 +879,9 @@ func (h *handler) AttachProvision(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, "only services and crons can consume provisions")
 	}
 	ctx := c.Request().Context()
-	src, err := h.store.GetProvision(ctx, c.FormValue("provision_id"))
+	src, err := h.slices.Get(ctx, c.FormValue("provision_id"))
 	if err != nil {
-		return err
+		return stackrmw.HTTP(err)
 	}
 	p, instance, err := h.slices.Attach(ctx, src, a)
 	if err != nil {

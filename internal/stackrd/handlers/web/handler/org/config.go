@@ -115,8 +115,8 @@ func (h *handler) loadOrgPlan(c echo.Context) (*repo.Org, *repo.ConfigPlan, erro
 	if err != nil {
 		return nil, nil, err
 	}
-	cp, err := h.store.GetOrgConfigPlan(c.Request().Context(), c.Param("planID"))
-	if err != nil || cp == nil || cp.StackID != o.ID {
+	cp, err := h.plans.GetOrgPlan(c.Request().Context(), c.Param("planID"))
+	if err != nil || cp.StackID != o.ID {
 		return nil, nil, echo.NewHTTPError(http.StatusNotFound, "plan not found")
 	}
 	return o, cp, nil

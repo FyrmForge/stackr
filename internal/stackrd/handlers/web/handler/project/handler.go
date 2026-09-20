@@ -93,12 +93,13 @@ type handler struct {
 	// work is the durable job runner. An apply is enqueued on it, never run on
 	// the request: it clones repos and builds images, so it routinely outlives
 	// the browser that asked for it.
-	work    *workqueue.Queue
-	orgs    *service.OrgService
-	slices  *service.SliceService
-	nodeSvc *service.NodeService
-	audit   *service.AuditService
-	revoke  *service.RevokeService
+	work      *workqueue.Queue
+	orgs      *service.OrgService
+	slices    *service.SliceService
+	nodeSvc   *service.NodeService
+	audit     *service.AuditService
+	revoke    *service.RevokeService
+	telemetry *service.TileTelemetryService
 }
 
 // WithMover attaches the volume-move service. Set from the router rather than
@@ -702,8 +703,8 @@ func (h *handler) loadPlan(c echo.Context) (*repo.Stack, *repo.ConfigPlan, error
 	if err != nil {
 		return nil, nil, err
 	}
-	cp, err := h.store.GetConfigPlan(ctx, c.Param("planID"))
-	if err != nil || cp == nil || cp.StackID != p.ID {
+	cp, err := h.plans.Get(ctx, c.Param("planID"))
+	if err != nil || cp.StackID != p.ID {
 		return nil, nil, echo.NewHTTPError(http.StatusNotFound, "plan not found")
 	}
 	return p, cp, nil
@@ -1187,7 +1188,7 @@ func (h *handler) buildGraph(ctx context.Context, envID string, style graph.Arra
 		if tiles[i].IsManaged() {
 			prefix = "db:"
 		}
-		if ms, err := h.store.ListMetrics(ctx, prefix+tiles[i].ID, since); err == nil && len(ms) > 0 {
+		if ms, err := h.telemetry.SamplesSince(ctx, prefix+tiles[i].ID, since); err == nil && len(ms) > 0 {
 			last := ms[len(ms)-1]
 			rates[tiles[i].ID] = [2]float64{last.RxBps, last.TxBps}
 		}
@@ -2441,3 +2442,6 @@ func (h *handler) WithAudit(v *service.AuditService) *handler { h.audit = v; ret
 
 // WithRevoke gives the page the share-link service.
 func (h *handler) WithRevoke(v *service.RevokeService) *handler { h.revoke = v; return h }
+
+// WithTelemetry gives the page the metric window.
+func (h *handler) WithTelemetry(v *service.TileTelemetryService) *handler { h.telemetry = v; return h }

@@ -99,9 +99,9 @@ func (h *handler) loadTile(c echo.Context, id string) (*repo.Tile, error) {
 
 // loadBackup resolves a backup by id through its tile's org.
 func (h *handler) loadBackup(c echo.Context) (*repo.Backup, *repo.Tile, error) {
-	b, err := h.store.GetBackup(c.Request().Context(), c.Param("id"))
-	if err != nil || b == nil {
-		return nil, nil, echo.NewHTTPError(http.StatusNotFound, "not found")
+	b, err := h.schedules.Get(c.Request().Context(), c.Param("id"))
+	if err != nil {
+		return nil, nil, stackrmw.HTTP(err)
 	}
 	t, err := h.loadTile(c, b.TileID.String)
 	if err != nil {

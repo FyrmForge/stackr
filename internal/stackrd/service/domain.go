@@ -353,3 +353,16 @@ func (s *DomainService) ForTile(ctx context.Context, tileID string) ([]repo.Doma
 func (s *DomainService) ListAll(ctx context.Context) ([]repo.Domain, error) {
 	return s.store.ListDomains(ctx)
 }
+
+// Get is one hostname by id. Whose it is, is the route's question: every
+// caller reaches this behind a gate that resolved the tile's org first.
+func (s *DomainService) Get(ctx context.Context, id string) (*repo.Domain, error) {
+	d, err := s.store.GetDomain(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if d == nil {
+		return nil, svcerr.ErrNotFound
+	}
+	return d, nil
+}

@@ -70,12 +70,12 @@ func (a *API) createDestination(c echo.Context) error {
 
 func (a *API) deleteDestination(c echo.Context) error {
 	ctx := c.Request().Context()
-	d, err := a.store.GetBackupDestination(ctx, c.Param("id"))
+	d, err := a.dests.Get(ctx, c.Param("id"))
 	if err != nil {
-		return err
+		return stackrmw.HTTP(err)
 	}
 	// 404 rather than 403 on someone else's org, so ids don't leak.
-	if d == nil || (!d.Global() && !a.orgAllowed(c, d.OrgID.String)) {
+	if !d.Global() && !a.orgAllowed(c, d.OrgID.String) {
 		return echo.NewHTTPError(http.StatusNotFound, "not found")
 	}
 	if d.Global() {
@@ -105,9 +105,9 @@ func toBackupOut(b *repo.Backup) backupOut {
 // gate answers for it through service.ErrServerOwned. Here it just means
 // there is no tile to return.
 func (a *API) loadBackup(c echo.Context) (*repo.Backup, *repo.Tile, error) {
-	b, err := a.store.GetBackup(c.Request().Context(), c.Param("id"))
-	if err != nil || b == nil {
-		return nil, nil, echo.NewHTTPError(http.StatusNotFound, "not found")
+	b, err := a.schedules.Get(c.Request().Context(), c.Param("id"))
+	if err != nil {
+		return nil, nil, stackrmw.HTTP(err)
 	}
 	if b.Kind == repo.BackupStackr {
 		return b, nil, nil

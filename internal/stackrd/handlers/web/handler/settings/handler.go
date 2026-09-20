@@ -11,6 +11,7 @@ package settings
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"sort"
@@ -31,6 +32,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/stackrd/service"
 	svcproxy "github.com/FyrmForge/stackr/internal/stackrd/service/proxy"
 	"github.com/FyrmForge/stackr/internal/stackrd/service/scheduler"
+	"github.com/FyrmForge/stackr/internal/stackrd/service/svcerr"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 )
 
@@ -125,8 +127,9 @@ func (h *handler) TLS(c echo.Context) error {
 	ctx := c.Request().Context()
 	dnsProvider, _ := h.settings.Value(ctx, "dns_provider")
 	dnsEnv, _ := h.settings.Value(ctx, "dns_env")
-	managed, err := h.store.GetManagedRegistry(ctx)
-	if err != nil {
+	// Absent is fine here: the page renders the "not configured" state.
+	managed, err := h.registries.Managed(ctx)
+	if err != nil && !errors.Is(err, svcerr.ErrUnavailable) {
 		return err
 	}
 	return respond.HTML(c, http.StatusOK, tlsPage(c, dnsProvider, dnsEnv, h.acmeEmail, managed))
@@ -230,8 +233,8 @@ func (h *handler) panelBackup(ctx context.Context) (*repo.Backup, []repo.BackupR
 // rest.
 func (h *handler) SavePanelBackup(c echo.Context) error {
 	ctx := c.Request().Context()
-	dest, err := h.store.GetBackupDestination(ctx, c.FormValue("destination_id"))
-	if err != nil {
+	dest, err := h.dests.Get(ctx, c.FormValue("destination_id"))
+	if err != nil && !errors.Is(err, svcerr.ErrNotFound) {
 		return err
 	}
 	if dest == nil || !dest.Global() {
@@ -336,8 +339,8 @@ func (h *handler) DeleteDestination(c echo.Context) error {
 		return err
 	}
 	ctx := c.Request().Context()
-	d, err := h.store.GetBackupDestination(ctx, c.Param("destID"))
-	if err != nil {
+	d, err := h.dests.Get(ctx, c.Param("destID"))
+	if err != nil && !errors.Is(err, svcerr.ErrNotFound) {
 		return err
 	}
 	// Scope check, not just existence: an org page may only delete that org's
@@ -634,12 +637,12 @@ func (h *handler) ToggleCleanup(c echo.Context) error {
 // the "registry" network alias Traefik routes to.
 func (h *handler) SetRegistryDomain(c echo.Context) error {
 	ctx := c.Request().Context()
-	reg, err := h.store.GetManagedRegistry(ctx)
+	reg, err := h.registries.Managed(ctx)
+	if errors.Is(err, svcerr.ErrUnavailable) {
+		return echo.NewHTTPError(http.StatusBadRequest, "enable the managed registry first")
+	}
 	if err != nil {
 		return err
-	}
-	if reg == nil {
-		return echo.NewHTTPError(http.StatusBadRequest, "enable the managed registry first")
 	}
 	if err := h.px.SetRegistryDomain(ctx, reg, c.FormValue("domain")); err != nil {
 		return err

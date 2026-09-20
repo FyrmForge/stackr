@@ -375,8 +375,8 @@ func (h *handler) ForkProvision(c echo.Context) error {
 		return err
 	}
 	ctx := c.Request().Context()
-	src, err := h.store.GetProvision(ctx, c.FormValue("provision_id"))
-	if err != nil || src == nil || src.InstanceTileID != d.ID {
+	src, err := h.slices.Get(ctx, c.FormValue("provision_id"))
+	if err != nil || src.InstanceTileID != d.ID {
 		middleware.SetFlash(c, "Fork failed: no such "+unitNoun(d.Engine)+".", middleware.FlashError)
 		return h.renderProvisions(c, d)
 	}

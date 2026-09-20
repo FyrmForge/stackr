@@ -8,6 +8,7 @@ package org
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"strings"
 
@@ -19,6 +20,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/stackrd/config/settings"
 	stackrmw "github.com/FyrmForge/stackr/internal/stackrd/handlers/middleware"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/registry"
+	"github.com/FyrmForge/stackr/internal/stackrd/service/svcerr"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 )
 
@@ -45,11 +47,8 @@ func (h *handler) renderRegistry(c echo.Context, o *repo.Org, newCred string) er
 	if v.Creds, err = h.registries.Credentials(ctx, o.ID); err != nil {
 		return err
 	}
-	reg, err := h.store.GetManagedRegistry(ctx)
-	if err != nil {
-		return err
-	}
-	if reg == nil {
+	reg, err := h.registries.Managed(ctx)
+	if errors.Is(err, svcerr.ErrUnavailable) {
 		v.Err = "The managed registry is not configured yet."
 		return respond.HTML(c, http.StatusOK, orgRegistryPage(c, v))
 	}
@@ -72,11 +71,8 @@ func (h *handler) RegistryImages(c echo.Context) error {
 	}
 	ctx := c.Request().Context()
 	v := registryView{Org: o, CanEdit: h.ownerOf(c, o.ID)}
-	reg, err := h.store.GetManagedRegistry(ctx)
-	if err != nil {
-		return err
-	}
-	if reg == nil {
+	reg, err := h.registries.Managed(ctx)
+	if errors.Is(err, svcerr.ErrUnavailable) {
 		return echo.NewHTTPError(http.StatusNotFound, "no managed registry")
 	}
 	cl := registry.NewClient(reg, h.regsign)

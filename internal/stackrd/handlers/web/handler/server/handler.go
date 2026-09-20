@@ -44,7 +44,9 @@ type handler struct {
 	nodeSvc *service.NodeService
 	// tiles owns the tile rows the node pages read when they show what runs
 	// where.
-	tiles *service.TileService
+	tiles      *service.TileService
+	telemetry  *service.TileTelemetryService
+	registries *service.RegistryService
 }
 
 // WithNodeService attaches the node service.
@@ -155,8 +157,8 @@ func (h *handler) Detail(c echo.Context) error {
 // GET /servers/:id/host, the docker stat tiles.
 func (h *handler) Host(c echo.Context) error {
 	ctx := c.Request().Context()
-	sv, err := h.store.GetServer(ctx, c.Param("id"))
-	if err != nil || sv == nil || sv.NodeID == "" {
+	sv, err := h.nodeSvc.Get(ctx, c.Param("id"))
+	if err != nil || sv.NodeID == "" {
 		return echo.NewHTTPError(http.StatusNotFound, "server not found")
 	}
 	// Bounded, so a hung agent renders "no answer" rather than a request
@@ -350,7 +352,7 @@ func metricRange(key string) (string, time.Duration) {
 
 // points loads bucket-averaged samples (same shape as the app charts).
 func (h *handler) points(ctx context.Context, ref string, dur time.Duration) (cpu, mem, rx, tx []components.TimePoint) {
-	ms, _ := h.store.ListMetrics(ctx, ref, time.Now().Add(-dur))
+	ms, _ := h.telemetry.SamplesSince(ctx, ref, time.Now().Add(-dur))
 	step := len(ms)/240 + 1
 	for i := 0; i < len(ms); i += step {
 		end := i + step
@@ -381,3 +383,9 @@ func (h *handler) WithDomainResources(r *service.DomainResourceService) *handler
 
 // WithTiles gives the page the tile service.
 func (h *handler) WithTiles(t *service.TileService) *handler { h.tiles = t; return h }
+
+// WithTelemetry gives the page the metric window.
+func (h *handler) WithTelemetry(v *service.TileTelemetryService) *handler { h.telemetry = v; return h }
+
+// WithRegistries gives the page the registry service.
+func (h *handler) WithRegistries(v *service.RegistryService) *handler { h.registries = v; return h }

@@ -123,7 +123,7 @@ func (h *handler) JoinScript(c echo.Context) error {
 		return c.String(http.StatusInternalServerError, "# this server is not a swarm manager\nexit 1\n")
 	}
 	reg, regTLS := "", false
-	if r, err := h.store.GetManagedRegistry(ctx); err == nil && r != nil {
+	if r, err := h.registries.Managed(ctx); err == nil {
 		reg, _ = registry.PullAddr(ctx, h.rt, r)
 		regTLS = r.Domain != ""
 	}

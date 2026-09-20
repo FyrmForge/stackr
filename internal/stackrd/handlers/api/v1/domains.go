@@ -67,9 +67,9 @@ func (a *API) createDomain(c echo.Context) error {
 // deleteDomain removes a host and re-syncs the proxy.
 func (a *API) deleteDomain(c echo.Context) error {
 	ctx := c.Request().Context()
-	d, err := a.store.GetDomain(ctx, c.Param("id"))
-	if err != nil || d == nil {
-		return echo.NewHTTPError(http.StatusNotFound, "not found")
+	d, err := a.domains.Get(ctx, c.Param("id"))
+	if err != nil {
+		return stackrmw.HTTP(err)
 	}
 	t, err := a.tile(c, d.TileID)
 	if err != nil {

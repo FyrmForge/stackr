@@ -299,7 +299,7 @@ func RegisterRoutes(srv *server.Server, deps *Deps) {
 		WithImageWatch(deps.ImageWatch).
 		WithRevoke(deps.Revoke).
 		WithOrgs(deps.Orgs).
-		WithSettings(deps.Settings).WithSchedules(deps.Schedules).
+		WithSettings(deps.Settings).WithSchedules(deps.Schedules).WithRegistries(deps.Registries).
 		WithAuth(deps.AuthService).WithAudit(deps.Audit)
 
 	searchHandler := searchpage.NewHandler(deps.Store, deps.Environments, deps.Stacks, deps.Tiles).
@@ -439,7 +439,8 @@ func RegisterRoutes(srv *server.Server, deps *Deps) {
 		Nodes: deps.Nodes, Cluster: deps.Cluster,
 		Mover: deps.Mover, BaseURL: deps.BaseURL,
 		Version: deps.Version,
-	}).WithDomainResources(deps.Resources).WithStorage(deps.Storage).WithSettings(deps.Settings).WithNodeService(deps.NodeService).WithTiles(deps.Tiles)
+	}).WithDomainResources(deps.Resources).WithStorage(deps.Storage).WithSettings(deps.Settings).WithNodeService(deps.NodeService).WithTiles(deps.Tiles).
+		WithTelemetry(deps.Telemetry).WithRegistries(deps.Registries)
 	// The join script is the one route here with no session in front of it.
 	// It is curled by a machine that has no login and is not in the swarm
 	// yet; the one-time key in the URL, bound to that machine's address, is
@@ -479,7 +480,7 @@ func RegisterRoutes(srv *server.Server, deps *Deps) {
 	applier := deps.Applier
 	projectHandler := project.NewHandler(deps.Store, deps.Runtime, deps.Cluster, deps.Proxy, deps.Metrics, deps.Notifier, deps.GitHub, applier, deps.Forwards).
 		WithOrgs(deps.Orgs).WithSlices(deps.Slices).WithNodeService(deps.NodeService).
-		WithAudit(deps.Audit).WithRevoke(deps.Revoke).
+		WithAudit(deps.Audit).WithRevoke(deps.Revoke).WithTelemetry(deps.Telemetry).
 		WithInstances(deps.Instances).
 		WithVariables(deps.Variables).
 		WithEnvironments(deps.Environments).

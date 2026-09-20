@@ -133,3 +133,11 @@ func (s *TileTelemetryService) Points(ctx context.Context, ref string, dur time.
 // It is one prefix for both, and nine places rebuilt the string by hand — so
 // a tile whose ref scheme ever changes would have gone stale in eight of them.
 func TileRef(tileID string) string { return "app:" + tileID }
+
+// SamplesSince is a metric window with an explicit start, for the callers
+// that already have one: the server page's host chart and the canvas's
+// per-tile sparkline sweep, both of which pick the window once and then read
+// many refs against it.
+func (s *TileTelemetryService) SamplesSince(ctx context.Context, ref string, since time.Time) ([]repo.Metric, error) {
+	return s.store.ListMetrics(ctx, ref, since)
+}

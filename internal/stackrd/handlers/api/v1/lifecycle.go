@@ -148,9 +148,9 @@ func (a *API) createAutoDomain(c echo.Context) error {
 // here rather than at the proxy, where the failure is a silent 5xx on one host.
 func (a *API) patchDomain(c echo.Context) error {
 	ctx := c.Request().Context()
-	d, err := a.store.GetDomain(ctx, c.Param("id"))
-	if err != nil || d == nil {
-		return echo.NewHTTPError(http.StatusNotFound, "not found")
+	d, err := a.domains.Get(ctx, c.Param("id"))
+	if err != nil {
+		return stackrmw.HTTP(err)
 	}
 	t, err := a.tile(c, d.TileID)
 	if err != nil {

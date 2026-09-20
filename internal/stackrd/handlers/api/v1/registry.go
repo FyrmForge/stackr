@@ -28,12 +28,9 @@ func (a *API) requireOrgRegistry(c echo.Context, write bool) (*repo.Org, *repo.R
 	if err != nil {
 		return nil, nil, err
 	}
-	reg, err := a.store.GetManagedRegistry(c.Request().Context())
+	reg, err := a.registries.Managed(c.Request().Context())
 	if err != nil {
-		return nil, nil, err
-	}
-	if reg == nil {
-		return nil, nil, echo.NewHTTPError(http.StatusServiceUnavailable, "the managed registry is not configured")
+		return nil, nil, stackrmw.HTTP(err)
 	}
 	return o, reg, nil
 }

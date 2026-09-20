@@ -316,8 +316,8 @@ func setupPlanCfg(o *repo.Org, cp *repo.ConfigPlan, work *repo.WorkItem) compone
 // is how step 3 is first arrived at.
 func (h *handler) setupPlan(c echo.Context, o *repo.Org) *repo.ConfigPlan {
 	if id := c.QueryParam("plan"); id != "" {
-		cp, err := h.store.GetOrgConfigPlan(c.Request().Context(), id)
-		if err != nil || cp == nil || cp.StackID != o.ID {
+		cp, err := h.plans.GetOrgPlan(c.Request().Context(), id)
+		if err != nil || cp.StackID != o.ID {
 			return nil
 		}
 		return cp
