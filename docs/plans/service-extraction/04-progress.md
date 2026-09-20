@@ -2530,3 +2530,17 @@ panel handlers, wired in `handlers/web/server.go` next to the others.
 
 The reads answer `svcerr.ErrNotFound` rather than `(nil, nil)` — see
 05-assumptions.md for why, and for the masking that deliberately did NOT move.
+
+**Slice 2: stacks and tiles. 504 -> 446.**
+
+`StackService` gained `Get`, `BySlug`, `ListForOrg`, `ListAll`; `TileService`
+gained `Get`, `ListForEnv`, `ListForStack`, `ListAll`. 82 call sites.
+
+`tiles` and/or `stacks` are new on the `app`, `db`, `backups`, `deployment`,
+`server`, `org`, `prhook` and `search` handlers — eight page families that had
+been reading the two central tables directly.
+
+One dead read fell out: `app.VarValue` still loaded the stack for a check that
+point 18 moved onto the route, leaving a query whose result nothing used. Go
+does not report an unused value that an `if x == nil` consumes, which is how it
+survived the earlier pass.

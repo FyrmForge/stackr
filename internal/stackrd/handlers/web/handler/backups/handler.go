@@ -34,6 +34,8 @@ type handler struct {
 	// dests owns which destinations this tile may be pointed at.
 	schedules *service.BackupScheduleService
 	dests     *service.BackupDestinationService
+	// tiles owns the tile a backup is taken of.
+	tiles *service.TileService
 }
 
 // WithBackups attaches the two backup services.
@@ -87,12 +89,9 @@ func (cv configView) Active() bool {
 // in this file starts here, a backup resolved by id alone, with no walk back
 // to the tile's org, is the hole the removed feature shipped with.
 func (h *handler) loadTile(c echo.Context, id string) (*repo.Tile, error) {
-	t, err := h.store.GetTile(c.Request().Context(), id)
+	t, err := h.tiles.Get(c.Request().Context(), id)
 	if err != nil {
-		return nil, err
-	}
-	if t == nil {
-		return nil, echo.NewHTTPError(http.StatusNotFound, "not found")
+		return nil, stackrmw.HTTP(err)
 	}
 	return t, nil
 }
@@ -296,3 +295,6 @@ func atoiOr(s string, def int) int {
 
 // WithScheduler gives the handler the schedule reloader.
 func (h *handler) WithScheduler(s *scheduler.Service) *handler { h.sched = s; return h }
+
+// WithTiles gives the page the tile service.
+func (h *handler) WithTiles(t *service.TileService) *handler { h.tiles = t; return h }

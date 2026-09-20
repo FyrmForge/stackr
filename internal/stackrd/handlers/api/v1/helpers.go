@@ -15,8 +15,8 @@ import (
 
 // stackOrg returns a stack's org id ("" when the stack is gone), cache-free.
 func (a *API) stackOrg(c echo.Context, stackID string) string {
-	s, err := a.store.GetStack(c.Request().Context(), stackID)
-	if err != nil || s == nil {
+	s, err := a.stacks.Get(c.Request().Context(), stackID)
+	if err != nil {
 		return ""
 	}
 	return s.OrgID

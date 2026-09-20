@@ -235,12 +235,9 @@ func (h *handler) resolveStackSlugs(c echo.Context) (*repo.Stack, error) {
 	if org == nil {
 		return nil, echo.NewHTTPError(http.StatusNotFound, "org not found")
 	}
-	p, err := h.store.GetStackBySlug(ctx, org.ID, c.Param("stack"))
+	p, err := h.stacks.BySlug(ctx, org.ID, c.Param("stack"))
 	if err != nil {
-		return nil, err
-	}
-	if p == nil {
-		return nil, echo.NewHTTPError(http.StatusNotFound, "stack not found")
+		return nil, stackrmw.HTTP(err)
 	}
 	p.OrgSlug = org.Slug
 	return p, nil
@@ -293,7 +290,7 @@ func (h *handler) buildStackGraph(ctx context.Context, p *repo.Stack, style grap
 	)
 	for i := range envs {
 		env := &envs[i]
-		tiles, err := h.store.ListTilesByEnv(ctx, env.ID)
+		tiles, err := h.tiles.ListForEnv(ctx, env.ID)
 		if err != nil {
 			return graph.Graph{}, nil, err
 		}
@@ -327,7 +324,7 @@ func (h *handler) buildStackGraph(ctx context.Context, p *repo.Stack, style grap
 		}
 		linked := map[string]bool{} // instance ids this env already has an edge to
 		for _, r := range envRes {
-			inst, _ := h.store.GetTile(ctx, r.ProviderTileID)
+			inst, _ := h.tiles.Get(ctx, r.ProviderTileID)
 			if inst == nil || linked[inst.ID] {
 				continue
 			}
@@ -382,7 +379,7 @@ func (h *handler) buildStackGraph(ctx context.Context, p *repo.Stack, style grap
 	// Shared instances nothing provisions from yet: still residents, they
 	// live in the stack's home.
 	if home, err := h.store.HomeEnvironment(ctx, p.ID); err == nil && home != nil {
-		tiles, err := h.store.ListTilesByEnv(ctx, home.ID)
+		tiles, err := h.tiles.ListForEnv(ctx, home.ID)
 		if err != nil {
 			return graph.Graph{}, nil, err
 		}
@@ -433,8 +430,8 @@ func (h *handler) envVarCards(ctx context.Context, envID string, tiles []repo.Ti
 	if err != nil {
 		return cards
 	}
-	p, err := h.store.GetStack(ctx, env.StackID)
-	if err != nil || p == nil {
+	p, err := h.stacks.Get(ctx, env.StackID)
+	if err != nil {
 		return cards
 	}
 	h.fillOrg(ctx, p)
@@ -500,7 +497,7 @@ func (h *handler) stackVarCards(ctx context.Context, p *repo.Stack, envs []repo.
 		}
 	}
 	for i := range envs {
-		tiles, err := h.store.ListTilesByEnv(ctx, envs[i].ID)
+		tiles, err := h.tiles.ListForEnv(ctx, envs[i].ID)
 		if err != nil {
 			continue
 		}

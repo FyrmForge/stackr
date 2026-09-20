@@ -23,12 +23,15 @@ import (
 )
 
 type handler struct {
-	store repo.Store
-	envs  *service.EnvironmentService
+	store  repo.Store
+	envs   *service.EnvironmentService
+	stacks *service.StackService
+	tiles  *service.TileService
 }
 
-func NewHandler(store repo.Store, envs *service.EnvironmentService) *handler {
-	return &handler{store: store, envs: envs}
+func NewHandler(store repo.Store, envs *service.EnvironmentService,
+	stacks *service.StackService, tiles *service.TileService) *handler {
+	return &handler{store: store, envs: envs, stacks: stacks, tiles: tiles}
 }
 
 // result is one palette row.
@@ -79,7 +82,7 @@ func (h *handler) Search(c echo.Context) error {
 	}
 
 	// Stacks, and the maps everything below resolves through.
-	stacks, err := h.store.ListStacks(ctx)
+	stacks, err := h.stacks.ListAll(ctx)
 	if err != nil {
 		return err
 	}
@@ -128,7 +131,7 @@ func (h *handler) Search(c echo.Context) error {
 	// Tiles. The focus target depends on how the canvas draws the tile: an
 	// attached volume rides under its service, a slice-hosting instance is
 	// replaced by its slices, everything else has its own card.
-	tiles, err := h.store.ListTiles(ctx)
+	tiles, err := h.tiles.ListAll(ctx)
 	if err != nil {
 		return err
 	}

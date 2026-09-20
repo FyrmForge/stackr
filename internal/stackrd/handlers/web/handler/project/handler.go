@@ -3,6 +3,7 @@ package project
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"html"
 	"log/slog"
@@ -48,6 +49,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/stackrd/service/notify"
 	svcproxy "github.com/FyrmForge/stackr/internal/stackrd/service/proxy"
 	"github.com/FyrmForge/stackr/internal/stackrd/service/scheduler"
+	"github.com/FyrmForge/stackr/internal/stackrd/service/svcerr"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/audit"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 )
@@ -148,12 +150,9 @@ func (h *handler) WithDomains(d *service.DomainService) *handler { h.domains = d
 
 // loadStack fetches a stack by id with the org tenancy check applied.
 func (h *handler) loadStack(c echo.Context, id string) (*repo.Stack, error) {
-	p, err := h.store.GetStack(c.Request().Context(), id)
+	p, err := h.stacks.Get(c.Request().Context(), id)
 	if err != nil {
-		return nil, err
-	}
-	if p == nil {
-		return nil, echo.NewHTTPError(http.StatusNotFound, "stack not found")
+		return nil, stackrmw.HTTP(err)
 	}
 	// Every redirect built from stackURL needs the org slug; without it the
 	// URL carries the org id and 404s (approve / plan-again did exactly that).
@@ -291,12 +290,9 @@ func (h *handler) resolveSlugs(c echo.Context) (*repo.Stack, *repo.Environment, 
 	if org == nil {
 		return nil, nil, echo.NewHTTPError(http.StatusNotFound, "org not found")
 	}
-	p, err := h.store.GetStackBySlug(ctx, org.ID, c.Param("stack"))
+	p, err := h.stacks.BySlug(ctx, org.ID, c.Param("stack"))
 	if err != nil {
-		return nil, nil, err
-	}
-	if p == nil {
-		return nil, nil, echo.NewHTTPError(http.StatusNotFound, "stack not found")
+		return nil, nil, stackrmw.HTTP(err)
 	}
 	p.OrgSlug = org.Slug
 	env, err := h.envs.BySlug(ctx, p.ID, c.Param("env"))
@@ -311,20 +307,17 @@ func (h *handler) resolveSlugs(c echo.Context) (*repo.Stack, *repo.Environment, 
 // straight in an environment any more.
 func (h *handler) RedirectStack(c echo.Context) error {
 	ctx := c.Request().Context()
-	p, err := h.store.GetStack(ctx, c.Param("id"))
-	if err != nil {
-		return err
-	}
-	if p == nil {
+	p, err := h.stacks.Get(ctx, c.Param("id"))
+	if errors.Is(err, svcerr.ErrNotFound) {
 		// /:org/:stack form, resolve by slugs.
-		org, err := h.store.GetOrgBySlug(ctx, c.Param("org"))
-		if err != nil || org == nil {
+		org, oerr := h.store.GetOrgBySlug(ctx, c.Param("org"))
+		if oerr != nil || org == nil {
 			return echo.NewHTTPError(http.StatusNotFound, "not found")
 		}
-		p, err = h.store.GetStackBySlug(ctx, org.ID, c.Param("stack"))
-		if err != nil || p == nil {
-			return echo.NewHTTPError(http.StatusNotFound, "stack not found")
-		}
+		p, err = h.stacks.BySlug(ctx, org.ID, c.Param("stack"))
+	}
+	if err != nil {
+		return stackrmw.HTTP(err)
 	}
 	h.fillOrg(ctx, p)
 	return c.Redirect(http.StatusSeeOther, stackURL(p))
@@ -494,7 +487,7 @@ func (h *handler) CreateTile(c echo.Context) error {
 		tc := stackconf.TileConfOf(stackconf.TileState{Tile: *a}, stackconf.EnvState{})
 		if kind == "volume" {
 			tc.Path = a.MountPath
-			if target, terr := h.store.GetTile(ctx, a.AttachedTileID); terr == nil && target != nil {
+			if target, terr := h.tiles.Get(ctx, a.AttachedTileID); terr == nil {
 				tc.Attach = target.Slug
 			}
 		}
@@ -857,7 +850,7 @@ func (h *handler) PlanView(c echo.Context) error {
 	live := plan.Moves[:0]
 	for i := range plan.Moves {
 		m := plan.Moves[i]
-		if t, terr := h.store.GetTile(ctx, m.TileID); terr == nil && t != nil &&
+		if t, terr := h.tiles.Get(ctx, m.TileID); terr == nil &&
 			placement.InGroup(ctx, h.store, h.rt, t, m.ToGroup) {
 			continue // the data is already on a node in the wanted group
 		}
@@ -943,7 +936,7 @@ func (h *handler) GraphStatus(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	tiles, _ := h.store.ListTilesByEnv(ctx, envID)
+	tiles, _ := h.tiles.ListForEnv(ctx, envID)
 	return c.JSON(http.StatusOK, map[string]any{
 		"nodes":   canvas.StatusNodes(ctx, g.Nodes),
 		"traffic": h.envTraffic(tiles),
@@ -977,7 +970,7 @@ func (h *handler) SaveNodePosition(c echo.Context) error {
 	if err != nil {
 		return stackrmw.HTTP(err)
 	}
-	tiles, err := h.store.ListTilesByEnv(ctx, env.ID)
+	tiles, err := h.tiles.ListForEnv(ctx, env.ID)
 	if err != nil {
 		return err
 	}
@@ -1029,7 +1022,7 @@ func (h *handler) EnvLogsStream(c echo.Context) error {
 	if err != nil {
 		return stackrmw.HTTP(err)
 	}
-	tiles, err := h.store.ListTilesByEnv(ctx, env.ID)
+	tiles, err := h.tiles.ListForEnv(ctx, env.ID)
 	if err != nil {
 		return err
 	}
@@ -1168,7 +1161,7 @@ func arrangeStyle(c echo.Context) graph.ArrangeStyle {
 }
 
 func (h *handler) buildGraph(ctx context.Context, envID string, style graph.ArrangeStyle) (graph.Graph, error) {
-	tiles, err := h.store.ListTilesByEnv(ctx, envID)
+	tiles, err := h.tiles.ListForEnv(ctx, envID)
 	if err != nil {
 		return graph.Graph{}, err
 	}
@@ -1459,7 +1452,7 @@ func (h *handler) sharedRefs(ctx context.Context, envID string, tiles []repo.Til
 			continue
 		}
 		for _, p := range ps {
-			inst, _ := h.store.GetTile(ctx, p.InstanceTileID)
+			inst, _ := h.tiles.Get(ctx, p.InstanceTileID)
 			if inst == nil || inst.EnvironmentID == envID {
 				continue // missing, or already a real node on this canvas
 			}
@@ -1577,12 +1570,9 @@ func (h *handler) settingsStack(c echo.Context) (*repo.Stack, error) {
 	if err != nil || org == nil {
 		return nil, echo.NewHTTPError(http.StatusNotFound, "org not found")
 	}
-	p, err := h.store.GetStackBySlug(ctx, org.ID, c.Param("stack"))
+	p, err := h.stacks.BySlug(ctx, org.ID, c.Param("stack"))
 	if err != nil {
-		return nil, err
-	}
-	if p == nil {
-		return nil, echo.NewHTTPError(http.StatusNotFound, "stack not found")
+		return nil, stackrmw.HTTP(err)
 	}
 	p.OrgSlug = org.Slug
 	return p, nil
@@ -1919,7 +1909,7 @@ func (h *handler) SettingsEnvironments(c echo.Context) error {
 	}
 	counts := map[string]int{}
 	for _, e := range envs {
-		if tiles, err := h.store.ListTilesByEnv(ctx, e.ID); err == nil {
+		if tiles, err := h.tiles.ListForEnv(ctx, e.ID); err == nil {
 			counts[e.ID] = len(tiles)
 		}
 	}
@@ -2053,7 +2043,7 @@ func (h *handler) renderEnvVars(c echo.Context, p *repo.Stack, env *repo.Environ
 	case surfaceEditor:
 		return respond.HTML(c, http.StatusOK, components.VarsEditor(c, vars, cfg))
 	}
-	tiles, _ := h.store.ListTilesByEnv(ctx, env.ID)
+	tiles, _ := h.tiles.ListForEnv(ctx, env.ID)
 	envs, err := h.envs.ListForStack(ctx, p.ID)
 	if err != nil {
 		return err

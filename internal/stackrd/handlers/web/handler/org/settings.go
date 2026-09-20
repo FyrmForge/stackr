@@ -63,7 +63,7 @@ func (h *handler) SettingsGeneral(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	stacks, err := h.store.ListStacksByOrg(ctx, o.ID)
+	stacks, err := h.stacks.ListForOrg(ctx, o.ID)
 	if err != nil {
 		return err
 	}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 
+	stackrmw "github.com/FyrmForge/stackr/internal/stackrd/handlers/middleware"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 	"github.com/labstack/echo/v4"
 )
@@ -21,9 +22,9 @@ func managedGuard(s *repo.Stack) error {
 // rejectManaged is managedGuard for handlers that hold a tile, not the stack.
 // Fails closed: if the stack can't be read we can't prove the write is allowed.
 func (a *API) rejectManaged(ctx context.Context, stackID string) error {
-	s, err := a.store.GetStack(ctx, stackID)
-	if err != nil || s == nil {
-		return echo.NewHTTPError(http.StatusNotFound, "not found")
+	s, err := a.stacks.Get(ctx, stackID)
+	if err != nil {
+		return stackrmw.HTTP(err)
 	}
 	return managedGuard(s)
 }

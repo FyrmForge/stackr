@@ -13,7 +13,7 @@ import (
 )
 
 func (a *API) listDBs(c echo.Context) error {
-	ds, err := a.store.ListTiles(c.Request().Context())
+	ds, err := a.tiles.ListAll(c.Request().Context())
 	if err != nil {
 		return err
 	}
@@ -39,8 +39,8 @@ func (a *API) listDBs(c echo.Context) error {
 func (a *API) infraPath(ctx context.Context, d *repo.Tile, cache map[string]string) string {
 	prefix, ok := cache[d.StackID]
 	if !ok {
-		s, err := a.store.GetStack(ctx, d.StackID)
-		if err != nil || s == nil {
+		s, err := a.stacks.Get(ctx, d.StackID)
+		if err != nil {
 			return ""
 		}
 		org, err := a.store.GetOrg(ctx, s.OrgID)
@@ -206,7 +206,7 @@ func (a *API) provisionApp(c echo.Context) error {
 			instance = t.Instance
 		}
 	} else {
-		instance, err = a.store.GetTile(ctx, in.InstanceID)
+		instance, err = a.tiles.Get(ctx, in.InstanceID)
 	}
 	if err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, "invalid shared instance")

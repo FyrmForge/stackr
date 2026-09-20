@@ -37,6 +37,10 @@ type handler struct {
 	// telemetry owns the metric window: the bucketing used to sit in a templ
 	// file reading the store (point 19).
 	telemetry *service.TileTelemetryService
+	// tiles owns the tile row this page reads; a database IS a tile.
+	tiles *service.TileService
+	// stacks owns the stack a database belongs to.
+	stacks *service.StackService
 }
 
 // NewHandler creates a new database handler.
@@ -63,12 +67,9 @@ func (h *handler) actor(c echo.Context) service.Actor {
 }
 
 func (h *handler) load(c echo.Context) (*repo.Tile, error) {
-	d, err := h.store.GetTile(c.Request().Context(), c.Param("id"))
+	d, err := h.tiles.Get(c.Request().Context(), c.Param("id"))
 	if err != nil {
-		return nil, err
-	}
-	if d == nil {
-		return nil, echo.NewHTTPError(http.StatusNotFound, "database not found")
+		return nil, stackrmw.HTTP(err)
 	}
 	// The drawer has no breadcrumb, so its header says where the tile
 	// lives. Resolved here because every panel path comes through load().
@@ -155,7 +156,7 @@ func (h *handler) loadTab(c echo.Context, d *repo.Tile, tab string) (tabData, er
 			return td, err
 		}
 		if d.ScopeKind != "org" {
-			if st, err := h.store.GetStack(ctx, d.StackID); err == nil && st != nil {
+			if st, err := h.stacks.Get(ctx, d.StackID); err == nil {
 				td.fileOwned = st.ConfigManaged()
 			}
 		}
@@ -332,7 +333,7 @@ func (h *handler) renderProvisions(c echo.Context, d *repo.Tile) error {
 			order = append(order, p.DBName)
 		}
 		if p.ConsumerTileID != "" {
-			if t, _ := h.store.GetTile(ctx, p.ConsumerTileID); t != nil {
+			if t, _ := h.tiles.Get(ctx, p.ConsumerTileID); t != nil {
 				g.Consumers = append(g.Consumers, t.Name)
 			}
 		}
@@ -553,3 +554,9 @@ func (h *handler) DeleteDomain(c echo.Context) error {
 	middleware.SetFlash(c, "Domain removed.", middleware.FlashSuccess)
 	return h.panelDone(c, d, "settings")
 }
+
+// WithTiles gives the page the tile service.
+func (h *handler) WithTiles(t *service.TileService) *handler { h.tiles = t; return h }
+
+// WithStacks gives the page the stack service.
+func (h *handler) WithStacks(s *service.StackService) *handler { h.stacks = s; return h }

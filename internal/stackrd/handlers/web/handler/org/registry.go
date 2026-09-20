@@ -126,12 +126,12 @@ func (h *handler) tagRows(c echo.Context, o *repo.Org, cl *registry.Client, name
 // if an org ever grows big enough to notice.
 func (h *handler) liveTags(ctx context.Context, o *repo.Org) map[string]string {
 	out := map[string]string{}
-	stacks, err := h.store.ListStacksByOrg(ctx, o.ID)
+	stacks, err := h.stacks.ListForOrg(ctx, o.ID)
 	if err != nil {
 		return out
 	}
 	for _, st := range stacks {
-		tiles, err := h.store.ListTilesByStack(ctx, st.ID)
+		tiles, err := h.tiles.ListForStack(ctx, st.ID)
 		if err != nil {
 			continue
 		}

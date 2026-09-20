@@ -37,8 +37,8 @@ func (a *API) listDomainResources(c echo.Context) error {
 				continue
 			}
 		case "stack":
-			s, err := a.store.GetStack(ctx, r.OwnerID)
-			if err != nil || s == nil || !a.orgAllowed(c, s.OrgID) {
+			s, err := a.stacks.Get(ctx, r.OwnerID)
+			if err != nil || !a.orgAllowed(c, s.OrgID) {
 				continue
 			}
 		}
@@ -146,9 +146,9 @@ func (a *API) deleteDomainResource(c echo.Context) error {
 func (a *API) rejectManagedOwner(ctx context.Context, level, owner string) error {
 	switch level {
 	case "stack":
-		s, err := a.store.GetStack(ctx, owner)
-		if err != nil || s == nil {
-			return echo.NewHTTPError(http.StatusNotFound, "not found")
+		s, err := a.stacks.Get(ctx, owner)
+		if err != nil {
+			return stackrmw.HTTP(err)
 		}
 		return managedGuard(s)
 	case "org":

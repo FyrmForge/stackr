@@ -19,7 +19,7 @@ func (a *API) listVolumes(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	ts, err := a.store.ListTiles(c.Request().Context())
+	ts, err := a.tiles.ListAll(c.Request().Context())
 	if err != nil {
 		return err
 	}

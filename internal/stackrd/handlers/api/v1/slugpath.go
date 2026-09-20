@@ -76,7 +76,11 @@ func (a *API) stackByPath(ctx context.Context, ref string) (*repo.Stack, error) 
 	if err != nil || org == nil {
 		return nil, err
 	}
-	return a.store.GetStackBySlug(ctx, org.ID, parts[1])
+	st, err := a.stacks.BySlug(ctx, org.ID, parts[1])
+	if errors.Is(err, svcerr.ErrNotFound) {
+		return nil, nil // see envByPath: a path miss is the caller's to interpret
+	}
+	return st, err
 }
 
 // envByPath resolves org/stack/env.

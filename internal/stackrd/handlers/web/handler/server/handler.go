@@ -42,6 +42,9 @@ type handler struct {
 	settings *service.SettingsService
 	// nodeSvc owns a node's life after it joins: drain, remove, group label.
 	nodeSvc *service.NodeService
+	// tiles owns the tile rows the node pages read when they show what runs
+	// where.
+	tiles *service.TileService
 }
 
 // WithNodeService attaches the node service.
@@ -381,3 +384,6 @@ func (h *handler) WithDomainResources(r *service.DomainResourceService) *handler
 	h.resources = r
 	return h
 }
+
+// WithTiles gives the page the tile service.
+func (h *handler) WithTiles(t *service.TileService) *handler { h.tiles = t; return h }

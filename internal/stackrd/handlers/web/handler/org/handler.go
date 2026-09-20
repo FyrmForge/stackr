@@ -38,6 +38,7 @@ type handler struct {
 	registries *service.RegistryService    // org push/pull credentials and image tags
 	members    *service.MemberService      // who is in the org and at what level
 	envs       *service.EnvironmentService // a stack's environments, for the canvas
+	tiles      *service.TileService        // the tiles the canvas draws
 	store      repo.Store
 	notifier   *notify.Notifier
 	sampler    *metrics.Sampler    // traffic lanes on the org canvas; nil in tests
@@ -194,12 +195,9 @@ func (h *handler) MoveStack(c echo.Context) error {
 	if err := stackrmw.RequireOrgWrite(c, h.store, target.ID); err != nil {
 		return err
 	}
-	stack, err := h.store.GetStack(ctx, c.Param("id"))
+	stack, err := h.stacks.Get(ctx, c.Param("id"))
 	if err != nil {
-		return err
-	}
-	if stack == nil {
-		return echo.NewHTTPError(http.StatusNotFound, "stack not found")
+		return stackrmw.HTTP(err)
 	}
 	// The form lives on the stack's own settings page, so failures go back
 	// there rather than to the org that no longer lists its stacks.
@@ -230,6 +228,9 @@ func (h *handler) setActive(c echo.Context, id string) {
 // WithDomainResources gives the page the domain-resource service.
 // WithVariables gives the org settings page the variable service.
 func (h *handler) WithVariables(v *service.VariableService) *handler { h.vars = v; return h }
+
+// WithTiles gives the canvas the tile service.
+func (h *handler) WithTiles(t *service.TileService) *handler { h.tiles = t; return h }
 
 // WithEnvironments gives the canvas the environment service.
 func (h *handler) WithEnvironments(e *service.EnvironmentService) *handler { h.envs = e; return h }

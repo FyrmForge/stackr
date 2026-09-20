@@ -53,7 +53,7 @@ func (a *API) listReleases(c echo.Context) error {
 		if envs[i].Type != "static" {
 			continue
 		}
-		tiles, err := a.store.ListTilesByEnv(ctx, envs[i].ID)
+		tiles, err := a.tiles.ListForEnv(ctx, envs[i].ID)
 		if err != nil {
 			return err
 		}

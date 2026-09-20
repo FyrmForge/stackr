@@ -198,7 +198,7 @@ func (h *handler) buildOrgsGraph(c echo.Context) (graph.Graph, error) {
 	}
 	summaries := make([]graph.OrgSummary, 0, len(orgs))
 	for i := range orgs {
-		stacks, err := h.store.ListStacksByOrg(ctx, orgs[i].ID)
+		stacks, err := h.stacks.ListForOrg(ctx, orgs[i].ID)
 		if err != nil {
 			return graph.Graph{}, err
 		}
@@ -367,7 +367,7 @@ func arrangeStyle(c echo.Context) graph.ArrangeStyle {
 }
 
 func (h *handler) buildOrgGraph(ctx context.Context, o *repo.Org, style graph.ArrangeStyle) (graph.Graph, map[string]string, error) {
-	stacks, err := h.store.ListStacksByOrg(ctx, o.ID)
+	stacks, err := h.stacks.ListForOrg(ctx, o.ID)
 	if err != nil {
 		return graph.Graph{}, nil, err
 	}
@@ -433,7 +433,7 @@ func (h *handler) buildOrgGraph(ctx context.Context, o *repo.Org, style graph.Ar
 		if err != nil {
 			return graph.Graph{}, nil, err
 		}
-		tiles, err := h.store.ListTilesByStack(ctx, st.ID)
+		tiles, err := h.tiles.ListForStack(ctx, st.ID)
 		if err != nil {
 			return graph.Graph{}, nil, err
 		}
@@ -470,7 +470,7 @@ func (h *handler) buildOrgGraph(ctx context.Context, o *repo.Org, style graph.Ar
 				continue
 			}
 			for _, p := range ps {
-				inst, _ := h.store.GetTile(ctx, p.InstanceTileID)
+				inst, _ := h.tiles.Get(ctx, p.InstanceTileID)
 				if inst == nil || inst.ScopeKind != "org" {
 					continue
 				}
@@ -542,7 +542,7 @@ func (h *handler) orgVarCards(ctx context.Context, o *repo.Org, stacks []repo.St
 		}
 	}
 	for i := range stacks {
-		tiles, err := h.store.ListTilesByStack(ctx, stacks[i].ID)
+		tiles, err := h.tiles.ListForStack(ctx, stacks[i].ID)
 		if err != nil {
 			continue
 		}

@@ -95,7 +95,7 @@ func TestReleaseViewTargets(t *testing.T) {
 
 	logCache.Store(seed.Stack.ID, logCacheEntry{checked: time.Now(), at: time.Now(), branch: "master",
 		source: "github", commits: []gitlog.Commit{{SHA: sha(0)}, {SHA: sha(1)}}})
-	h := &handler{store: s, envs: service.NewEnvironmentService(s, nil, nil, nil, service.NewGateService(s)), vars: service.NewVariableService(s, nil, nil, nil)}
+	h := &handler{store: s, envs: service.NewEnvironmentService(s, nil, nil, nil, service.NewGateService(s)), vars: service.NewVariableService(s, nil, nil, nil), stacks: service.NewStackService(s, nil, nil, service.NewEnvironmentService(s, nil, nil, nil, service.NewGateService(s)), nil, service.NewGateService(s), nil), tiles: service.NewTileService(s, nil, nil, nil, nil, nil, service.NewGateService(s))}
 	v := h.releaseView(ctx, seed.Stack)
 
 	require.Len(t, v.Rows, 2)

@@ -58,6 +58,7 @@ type handler struct {
 	slices  *service.SliceService
 	vars    *service.VariableService
 	envs    *service.EnvironmentService
+	stacks  *service.StackService
 	// telemetry resolves where a tile's logs and metrics come from.
 	telemetry *service.TileTelemetryService
 	// deploys owns the redeploy-if-running rule, which this file had two
@@ -74,6 +75,9 @@ func (h *handler) WithSlices(sl *service.SliceService) *handler { h.slices = sl;
 
 // WithEnvironments gives the tile page the environment its tile sits in.
 func (h *handler) WithEnvironments(e *service.EnvironmentService) *handler { h.envs = e; return h }
+
+// WithStacks gives the tile page the stack it belongs to.
+func (h *handler) WithStacks(s *service.StackService) *handler { h.stacks = s; return h }
 
 // WithGate gives the panel the config-managed gate.
 func (h *handler) WithGate(g *service.GateService) *handler { h.gate = g; return h }
@@ -96,7 +100,7 @@ func (h *handler) Connectors(c echo.Context) error {
 	}
 	ctx := c.Request().Context()
 	var conns []repo.Connector
-	if stack, err := h.store.GetStack(ctx, a.StackID); err == nil && stack != nil {
+	if stack, err := h.stacks.Get(ctx, a.StackID); err == nil {
 		all, _ := h.store.ListConnectorsByOrg(ctx, stack.OrgID)
 		for _, cn := range all {
 			if cn.Provider == "github" && githubapp.ParseConfig(cn.Config).Connected() {
@@ -363,12 +367,9 @@ func (h *handler) Branches(c echo.Context) error {
 }
 
 func (h *handler) load(c echo.Context) (*repo.Tile, error) {
-	a, err := h.store.GetTile(c.Request().Context(), c.Param("id"))
+	a, err := h.tiles.Get(c.Request().Context(), c.Param("id"))
 	if err != nil {
-		return nil, err
-	}
-	if a == nil {
-		return nil, echo.NewHTTPError(http.StatusNotFound, "app not found")
+		return nil, stackrmw.HTTP(err)
 	}
 	// The drawer has no breadcrumb, so its header says where the tile
 	// lives. Resolved here because every panel path comes through load().
@@ -533,7 +534,7 @@ func (h *handler) Detail(c echo.Context) error {
 func (h *handler) crumb(c echo.Context, a *repo.Tile) breadcrumb {
 	ctx := c.Request().Context()
 	b := breadcrumb{StackHref: "/projects/" + a.StackID, StackName: "stack"}
-	stack, _ := h.store.GetStack(ctx, a.StackID)
+	stack, _ := h.stacks.Get(ctx, a.StackID)
 	env, _ := h.envs.Get(ctx, a.EnvironmentID)
 	if stack == nil || env == nil {
 		return b
@@ -612,7 +613,7 @@ func (h *handler) PanelHeader(c echo.Context) error {
 // envServices lists the plain services in the tile's environment, the
 // attach-target choices for a volume panel.
 func (h *handler) envServices(ctx context.Context, a *repo.Tile) []repo.Tile {
-	tiles, err := h.store.ListTilesByEnv(ctx, a.EnvironmentID)
+	tiles, err := h.tiles.ListForEnv(ctx, a.EnvironmentID)
 	if err != nil {
 		return nil
 	}
@@ -681,8 +682,8 @@ func (h *handler) Attach(c echo.Context) error {
 	}
 	targetSlug := ""
 	if targetID != "" {
-		target, err := h.store.GetTile(ctx, targetID)
-		if err != nil || target == nil || target.EnvironmentID != a.EnvironmentID || target.Kind != "service" || target.IsManaged() {
+		target, err := h.tiles.Get(ctx, targetID)
+		if err != nil || target.EnvironmentID != a.EnvironmentID || target.Kind != "service" || target.IsManaged() {
 			return echo.NewHTTPError(http.StatusBadRequest, "invalid attach target")
 		}
 		if !strings.HasPrefix(path, "/") {
@@ -705,7 +706,7 @@ func (h *handler) Attach(c echo.Context) error {
 		// The expected size is not config-modeled and deploys nothing, so it
 		// saves straight through rather than waiting behind an apply. Written
 		// from the stored row so the staged attach/path don't ride along.
-		if stored, err := h.store.GetTile(ctx, a.ID); err == nil && stored != nil {
+		if stored, err := h.tiles.Get(ctx, a.ID); err == nil {
 			stored.MaxSizeMB = a.MaxSizeMB
 			if err := h.store.UpdateTile(ctx, stored); err != nil {
 				return err
@@ -758,7 +759,7 @@ func (h *handler) renderProvisions(c echo.Context, a *repo.Tile) error {
 	rows := make([]provisionRow, 0, len(ps))
 	for _, p := range ps {
 		name, ref := "?", ""
-		if t, _ := h.store.GetTile(ctx, p.InstanceTileID); t != nil {
+		if t, _ := h.tiles.Get(ctx, p.InstanceTileID); t != nil {
 			name = t.Name
 			ref = managedtiles.Ref(t, &p, managedtiles.DefaultOutput(t.Engine))
 		}
@@ -786,8 +787,8 @@ func (h *handler) infraAddress(ctx context.Context, instance *repo.Tile) string 
 	if err != nil {
 		return instance.Slug
 	}
-	st, err := h.store.GetStack(ctx, instance.StackID)
-	if err != nil || st == nil {
+	st, err := h.stacks.Get(ctx, instance.StackID)
+	if err != nil {
 		return instance.Slug
 	}
 	org, err := h.store.GetOrg(ctx, st.OrgID)
@@ -845,9 +846,9 @@ func (h *handler) Provision(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, "only services and crons can consume provisions")
 	}
 	ctx := c.Request().Context()
-	instance, err := h.store.GetTile(ctx, c.FormValue("instance_id"))
+	instance, err := h.tiles.Get(ctx, c.FormValue("instance_id"))
 	if err != nil {
-		return err
+		return stackrmw.HTTP(err)
 	}
 	p, err := h.slices.Provision(ctx, instance, a, "", false)
 	if err != nil {
@@ -967,12 +968,8 @@ func (h *handler) VarValue(c echo.Context) error {
 		return err
 	}
 	// A reveal hands out plaintext, so it takes write rights in the tile's
-	// own org. Checked explicitly: the access check above only refuses
-	// viewers on mutating requests, and this is a GET.
-	s, err := h.store.GetStack(c.Request().Context(), a.StackID)
-	if err != nil || s == nil {
-		return echo.NewHTTPError(http.StatusNotFound, "not found")
-	}
+	// own org. That is the route's verb now (VerbVariableRead, write level),
+	// which is why the stack this used to load for its own check is gone.
 	vars, err := h.vars.List(c.Request().Context(), service.TileVars(a.ID))
 	if err != nil {
 		return err
@@ -1105,15 +1102,15 @@ func (h *handler) SaveEnv(c echo.Context) error {
 // uiManaged reports whether the stack owns its tiles in the UI (not bound to a
 // config repo), the stacks where structural edits stage instead of deploy.
 func (h *handler) uiManaged(ctx context.Context, stackID string) bool {
-	stack, err := h.store.GetStack(ctx, stackID)
-	return err == nil && stack != nil && !stack.ConfigManaged()
+	stack, err := h.stacks.Get(ctx, stackID)
+	return err == nil && !stack.ConfigManaged()
 }
 
 // configMode is "" when the UI owns the stack outright, else the stack's
 // ui_edits mode, what the panel does with an edit to a file-owned field.
 func (h *handler) configMode(ctx context.Context, stackID string) string {
-	s, err := h.store.GetStack(ctx, stackID)
-	if err != nil || s == nil || !s.ConfigManaged() {
+	s, err := h.stacks.Get(ctx, stackID)
+	if err != nil || !s.ConfigManaged() {
 		return ""
 	}
 	return s.UIEdits()
@@ -1145,9 +1142,9 @@ var managedErr = stackrmw.ManagedErr
 // rejectManaged blocks a structural write when the config file owns the stack.
 // Fails closed: a lookup error blocks rather than allows.
 func (h *handler) rejectManaged(ctx context.Context, stackID string) error {
-	s, err := h.store.GetStack(ctx, stackID)
-	if err != nil || s == nil {
-		return echo.NewHTTPError(http.StatusNotFound, "not found")
+	s, err := h.stacks.Get(ctx, stackID)
+	if err != nil {
+		return stackrmw.HTTP(err)
 	}
 	if s.ConfigManaged() {
 		return managedErr(s)

@@ -117,10 +117,13 @@ func newJourney(t *testing.T) *journey {
 		Lifecycle:    service.NewTileLifecycleService(store, nil, nil, nil, nil, nil),
 		Telemetry:    service.NewTileTelemetryService(store, nil),
 		Environments: service.NewEnvironmentService(store, nil, nil, nil, service.NewGateService(store)),
-		Variables:    service.NewVariableService(store, nil, nil, nil),
-		OrgConfig:    orgRunner,
-		Work:         work,
-		Access:       service.NewAccessService(store),
+		Stacks: service.NewStackService(store, nil, nil,
+			service.NewEnvironmentService(store, nil, nil, nil, service.NewGateService(store)),
+			nil, service.NewGateService(store), nil),
+		Variables: service.NewVariableService(store, nil, nil, nil),
+		OrgConfig: orgRunner,
+		Work:      work,
+		Access:    service.NewAccessService(store),
 	})
 
 	ts := httptest.NewServer(srv.Echo())

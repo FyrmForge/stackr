@@ -22,12 +22,9 @@ import (
 
 // loadTile fetches an org-checked tile by the :id param.
 func (h *handler) loadTile(c echo.Context) (*repo.Tile, error) {
-	app, err := h.store.GetTile(c.Request().Context(), c.Param("id"))
+	app, err := h.tiles.Get(c.Request().Context(), c.Param("id"))
 	if err != nil {
-		return nil, err
-	}
-	if app == nil {
-		return nil, echo.NewHTTPError(http.StatusNotFound, "app not found")
+		return nil, stackrmw.HTTP(err)
 	}
 	return app, nil
 }
@@ -41,14 +38,11 @@ func (h *handler) loadDeployment(c echo.Context) (*repo.Deployment, *repo.Tile, 
 	if d == nil {
 		return nil, nil, echo.NewHTTPError(http.StatusNotFound, "deployment not found")
 	}
-	app, err := h.store.GetTile(c.Request().Context(), d.TileID)
+	// No tile row means no stack to check membership against. A deployment
+	// whose tile is gone is nobody's to read, which is what ErrNotFound says.
+	app, err := h.tiles.Get(c.Request().Context(), d.TileID)
 	if err != nil {
-		return nil, nil, err
-	}
-	if app == nil {
-		// No tile row means no stack to check membership against. A
-		// deployment whose tile is gone is nobody's to read.
-		return nil, nil, echo.NewHTTPError(http.StatusNotFound, "deployment not found")
+		return nil, nil, stackrmw.HTTP(err)
 	}
 	return d, app, nil
 }
@@ -59,6 +53,8 @@ type handler struct {
 	hub    *stream.Hub
 	// deploys owns which tiles may be deployed and what a cancel means.
 	deploys *service.DeployService
+	// tiles owns the tile a deployment belongs to.
+	tiles *service.TileService
 }
 
 // NewHandler creates a new deployment handler.
@@ -210,3 +206,6 @@ func (h *handler) Stream(c echo.Context) error {
 		}
 	}
 }
+
+// WithTiles gives the page the tile service.
+func (h *handler) WithTiles(t *service.TileService) *handler { h.tiles = t; return h }

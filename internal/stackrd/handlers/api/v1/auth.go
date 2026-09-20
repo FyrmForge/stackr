@@ -318,8 +318,8 @@ func (a *API) userOrgIDs(c echo.Context) map[string]bool {
 // (404 not 403 so ids don't leak across tenants).
 func (a *API) requireStackAccess(c echo.Context, stackID string) (*repo.Stack, error) {
 	ctx := c.Request().Context()
-	s, err := a.store.GetStack(ctx, stackID)
-	if err != nil || s == nil {
+	s, err := a.stacks.Get(ctx, stackID)
+	if err != nil {
 		s, err = a.stackByPath(ctx, stackID) // org:stack, see slugpath.go
 	}
 	if err != nil || s == nil {
@@ -410,8 +410,8 @@ func (a *API) principal(ctx context.Context, c echo.Context) (service.Principal,
 // user's live write role in the tile's org.
 func (a *API) requireTile(c echo.Context, tileID string, write bool) (*repo.Tile, error) {
 	ctx := c.Request().Context()
-	t, err := a.store.GetTile(ctx, tileID)
-	if err != nil || t == nil {
+	t, err := a.tiles.Get(ctx, tileID)
+	if err != nil {
 		t, err = a.tileByPath(ctx, tileID) // org:stack:env:tile
 	}
 	if err != nil || t == nil {

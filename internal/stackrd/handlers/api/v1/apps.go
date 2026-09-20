@@ -16,7 +16,7 @@ import (
 func (a *API) listApps(c echo.Context) error {
 	proj := c.QueryParam("stack")
 	env := c.QueryParam("env")
-	apps, err := a.store.ListTiles(c.Request().Context())
+	apps, err := a.tiles.ListAll(c.Request().Context())
 	if err != nil {
 		return err
 	}

@@ -186,7 +186,7 @@ func (a *API) toSliceOut(c echo.Context, inst *repo.Tile, p *repo.Provision) sli
 		if row.ConsumerTileID == "" {
 			continue
 		}
-		if t, _ := a.store.GetTile(ctx, row.ConsumerTileID); t != nil {
+		if t, _ := a.tiles.Get(ctx, row.ConsumerTileID); t != nil {
 			out.Consumers = append(out.Consumers, t.Name)
 		}
 	}

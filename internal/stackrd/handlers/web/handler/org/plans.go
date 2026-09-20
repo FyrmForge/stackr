@@ -52,7 +52,7 @@ func (h *handler) Plans(c echo.Context) error {
 		}
 		groups = append(groups, g)
 	}
-	stacks, err := h.store.ListStacksByOrg(ctx, o.ID)
+	stacks, err := h.stacks.ListForOrg(ctx, o.ID)
 	if err != nil {
 		return err
 	}

@@ -288,3 +288,40 @@ func (s *StackService) dropStaged(ctx context.Context, st *repo.Stack) {
 		}
 	}
 }
+
+// --- reads ---
+
+// Get is one stack by id.
+func (s *StackService) Get(ctx context.Context, id string) (*repo.Stack, error) {
+	st, err := s.store.GetStack(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if st == nil {
+		return nil, svcerr.ErrNotFound
+	}
+	return st, nil
+}
+
+// BySlug is one stack by its slug within an org.
+func (s *StackService) BySlug(ctx context.Context, orgID, slug string) (*repo.Stack, error) {
+	st, err := s.store.GetStackBySlug(ctx, orgID, slug)
+	if err != nil {
+		return nil, err
+	}
+	if st == nil {
+		return nil, svcerr.ErrNotFound
+	}
+	return st, nil
+}
+
+// ListForOrg is an org's stacks.
+func (s *StackService) ListForOrg(ctx context.Context, orgID string) ([]repo.Stack, error) {
+	return s.store.ListStacksByOrg(ctx, orgID)
+}
+
+// ListAll is every stack on the server, for the admin area and the jobs that
+// sweep all of them. Not org-scoped; see the note on TileService.ListAll.
+func (s *StackService) ListAll(ctx context.Context) ([]repo.Stack, error) {
+	return s.store.ListStacks(ctx)
+}

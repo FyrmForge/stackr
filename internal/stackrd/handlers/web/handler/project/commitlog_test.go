@@ -46,7 +46,7 @@ func TestCommitLogPlacesChips(t *testing.T) {
 		{SHA: "aaaaaaa0", Message: "head"},
 		{SHA: "aaaaaaa1", Message: "one back"},
 	}})
-	h := &handler{store: s, envs: service.NewEnvironmentService(s, nil, nil, nil, service.NewGateService(s)), vars: service.NewVariableService(s, nil, nil, nil)}
+	h := &handler{store: s, envs: service.NewEnvironmentService(s, nil, nil, nil, service.NewGateService(s)), vars: service.NewVariableService(s, nil, nil, nil), stacks: service.NewStackService(s, nil, nil, service.NewEnvironmentService(s, nil, nil, nil, service.NewGateService(s)), nil, service.NewGateService(s), nil), tiles: service.NewTileService(s, nil, nil, nil, nil, nil, service.NewGateService(s))}
 	log := h.commitLog(ctx, seed.Stack)
 
 	require.Len(t, log.Rows, 2)

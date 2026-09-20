@@ -325,9 +325,9 @@ func (h *handler) SaveGroup(c echo.Context) error {
 // MoveForm opens the Move modal, or reopens it on a move already running.
 func (h *handler) MoveForm(c echo.Context) error {
 	ctx := c.Request().Context()
-	t, err := h.store.GetTile(ctx, c.Param("id"))
-	if err != nil || t == nil {
-		return echo.NewHTTPError(http.StatusNotFound, "tile not found")
+	t, err := h.tiles.Get(ctx, c.Param("id"))
+	if err != nil {
+		return stackrmw.HTTP(err)
 	}
 	if mv := h.mover.ForTile(ctx, t.ID); mv != nil {
 		return respond.HTML(c, http.StatusOK, moveModal(c, t, nil, nil, 0, "", mv))
@@ -373,9 +373,9 @@ func (h *handler) moveTargets(ctx context.Context, t *repo.Tile) ([]runtime.Node
 // Move starts the copy. The modal turns into a progress bar and polls.
 func (h *handler) Move(c echo.Context) error {
 	ctx := c.Request().Context()
-	t, err := h.store.GetTile(ctx, c.Param("id"))
-	if err != nil || t == nil {
-		return echo.NewHTTPError(http.StatusNotFound, "tile not found")
+	t, err := h.tiles.Get(ctx, c.Param("id"))
+	if err != nil {
+		return stackrmw.HTTP(err)
 	}
 	target := c.FormValue("target")
 	// Checked against the list that decided the dropdown, not just handed to

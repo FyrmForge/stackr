@@ -443,3 +443,36 @@ func (s *TileService) Rename(ctx context.Context, t *repo.Tile, name, slug strin
 	}
 	return nil
 }
+
+// --- reads ---
+
+// Get is one tile by id, ErrNotFound rather than a nil row — see the note on
+// EnvironmentService.Get.
+func (s *TileService) Get(ctx context.Context, id string) (*repo.Tile, error) {
+	t, err := s.store.GetTile(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if t == nil {
+		return nil, svcerr.ErrNotFound
+	}
+	return t, nil
+}
+
+// ListForEnv is an environment's tiles.
+func (s *TileService) ListForEnv(ctx context.Context, envID string) ([]repo.Tile, error) {
+	return s.store.ListTilesByEnv(ctx, envID)
+}
+
+// ListForStack is every tile in a stack, across all its environments.
+func (s *TileService) ListForStack(ctx context.Context, stackID string) ([]repo.Tile, error) {
+	return s.store.ListTilesByStack(ctx, stackID)
+}
+
+// ListAll is every tile on the server. It is not org-scoped and never will be:
+// the two callers are the admin area and the scheduler, and a caller that
+// wants one org's tiles wants ListForStack per stack, which the tenancy check
+// on the stack has already answered for.
+func (s *TileService) ListAll(ctx context.Context) ([]repo.Tile, error) {
+	return s.store.ListTiles(ctx)
+}

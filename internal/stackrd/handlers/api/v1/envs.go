@@ -27,9 +27,9 @@ func (a *API) envAndStack(c echo.Context, envID string) (*repo.Environment, *rep
 	if err != nil {
 		return nil, nil, err
 	}
-	s, err := a.store.GetStack(c.Request().Context(), env.StackID)
-	if err != nil || s == nil {
-		return nil, nil, echo.NewHTTPError(http.StatusNotFound, "not found")
+	s, err := a.stacks.Get(c.Request().Context(), env.StackID)
+	if err != nil {
+		return nil, nil, stackrmw.HTTP(err)
 	}
 	return env, s, nil
 }
@@ -37,7 +37,7 @@ func (a *API) envAndStack(c echo.Context, envID string) (*repo.Environment, *rep
 // envRunning reports whether anything is deployed in the environment, which is
 // what makes a delete or reset destructive rather than tidy-up.
 func (a *API) envRunning(c echo.Context, envID string) bool {
-	tiles, err := a.store.ListTilesByEnv(c.Request().Context(), envID)
+	tiles, err := a.tiles.ListForEnv(c.Request().Context(), envID)
 	if err != nil {
 		return false
 	}

@@ -91,7 +91,7 @@ func (h *handler) Rename(c echo.Context) error {
 		// domains too, and treating them as foreign refused a rename over a
 		// hostname the renamer already holds.
 		ours := map[string]bool{o.ID: true}
-		if stacks, serr := h.store.ListStacksByOrg(ctx, o.ID); serr == nil {
+		if stacks, serr := h.stacks.ListForOrg(ctx, o.ID); serr == nil {
 			for i := range stacks {
 				ours[stacks[i].ID] = true
 			}
@@ -169,7 +169,7 @@ func (h *handler) Delete(c echo.Context) error {
 			return err
 		}
 	}
-	stacks, err := h.store.ListStacksByOrg(ctx, o.ID)
+	stacks, err := h.stacks.ListForOrg(ctx, o.ID)
 	if err != nil {
 		return err
 	}

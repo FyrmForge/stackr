@@ -172,7 +172,7 @@ func (a *API) deleteStoragePath(c echo.Context) error {
 	}
 	st, _ := a.store.GetStorage(ctx, p.StorageID)
 	if st != nil {
-		tiles, _ := a.store.ListTiles(ctx)
+		tiles, _ := a.tiles.ListAll(ctx)
 		for i := range tiles {
 			for _, l := range strings.Split(tiles[i].Storage, "\n") {
 				if slug, name, _, _, err := storagetiles.ParseAttachment(strings.TrimSpace(l)); err == nil && slug == st.Slug && name == p.Name {

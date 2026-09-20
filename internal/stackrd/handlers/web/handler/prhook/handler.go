@@ -22,6 +22,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/stackrd/config/envops"
 	"github.com/FyrmForge/stackr/internal/stackrd/config/orgconf"
 	"github.com/FyrmForge/stackr/internal/stackrd/config/stackconf"
+	stackrmw "github.com/FyrmForge/stackr/internal/stackrd/handlers/middleware"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/deploy"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/githubapp"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/workqueue"
@@ -40,6 +41,8 @@ type handler struct {
 	sched   *scheduler.Service
 	ops     envops.Ops
 	envs    *service.EnvironmentService
+	stacks  *service.StackService
+	tiles   *service.TileService
 	applier stackconf.Applier
 	gh      *githubapp.Client
 	// notifier exists only to nudge open canvases after a push re-plans: the
@@ -63,6 +66,12 @@ func NewHandler(store repo.Store, engine *deploy.Engine, ops envops.Ops, applier
 // WithEnvironments gives the hook the environment service, so a preview
 // environment is created under the same rules as every other one.
 func (h *handler) WithEnvironments(e *service.EnvironmentService) *handler { h.envs = e; return h }
+
+// WithStacks and WithTiles give the hook the rows it reads to decide what a
+// push touches.
+func (h *handler) WithStacks(s *service.StackService) *handler { h.stacks = s; return h }
+
+func (h *handler) WithTiles(t *service.TileService) *handler { h.tiles = t; return h }
 
 // WithOrgConfig gives the hook the org config runner.
 func (h *handler) WithOrgConfig(r *orgconf.Runner) *handler { h.orgcfg = r; return h }
@@ -98,12 +107,9 @@ type prPayload struct {
 // ignored.
 func (h *handler) Hook(c echo.Context) error {
 	ctx := c.Request().Context()
-	stack, err := h.store.GetStack(ctx, c.Param("stack"))
+	stack, err := h.stacks.Get(ctx, c.Param("stack"))
 	if err != nil {
-		return err
-	}
-	if stack == nil {
-		return echo.NewHTTPError(http.StatusNotFound, "unknown stack")
+		return stackrmw.HTTP(err)
 	}
 	cfg := repo.LoadPRConfig(ctx, h.store, stack.ID)
 	if !cfg.Enabled {
@@ -170,7 +176,7 @@ func (h *handler) HookConnector(c echo.Context) error {
 		if err := json.Unmarshal(body, &p); err != nil || p.Number == 0 {
 			return echo.NewHTTPError(http.StatusBadRequest, "bad payload")
 		}
-		stacks, err := h.store.ListStacks(ctx)
+		stacks, err := h.stacks.ListAll(ctx)
 		if err != nil {
 			return err
 		}
@@ -283,7 +289,7 @@ func (h *handler) planConfigs(ctx context.Context, orgID string, p *pushPayload)
 	if branch == p.Ref || p.Deleted {
 		return 0
 	}
-	stacks, err := h.store.ListStacks(ctx)
+	stacks, err := h.stacks.ListAll(ctx)
 	if err != nil {
 		return 0
 	}
@@ -384,7 +390,7 @@ func (h *handler) autoDeploy(ctx context.Context, orgID string, p *pushPayload, 
 	if branch == p.Ref || p.Deleted { // tag/other ref, or branch deletion
 		return 0
 	}
-	stacks, err := h.store.ListStacks(ctx)
+	stacks, err := h.stacks.ListAll(ctx)
 	if err != nil {
 		return 0
 	}
@@ -406,7 +412,7 @@ func (h *handler) autoDeploy(ctx context.Context, orgID string, p *pushPayload, 
 			if env.Type != "static" || !isDefaultEnv(envs, &env) {
 				continue
 			}
-			tiles, err := h.store.ListTilesByEnv(ctx, env.ID)
+			tiles, err := h.tiles.ListForEnv(ctx, env.ID)
 			if err != nil {
 				continue
 			}
@@ -475,7 +481,7 @@ func (h *handler) stackTracksRepo(ctx context.Context, stackID string, p *prPayl
 		return false
 	}
 	for _, env := range envs {
-		tiles, err := h.store.ListTilesByEnv(ctx, env.ID)
+		tiles, err := h.tiles.ListForEnv(ctx, env.ID)
 		if err != nil {
 			continue
 		}
@@ -700,7 +706,7 @@ func (h *handler) syncPR(ctx context.Context, stack *repo.Stack, slug string) er
 	if err != nil {
 		return err
 	}
-	tiles, err := h.store.ListTilesByEnv(ctx, env.ID)
+	tiles, err := h.tiles.ListForEnv(ctx, env.ID)
 	if err != nil {
 		return err
 	}

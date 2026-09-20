@@ -297,11 +297,12 @@ func RegisterRoutes(srv *server.Server, deps *Deps) {
 		WithImageWatch(deps.ImageWatch).
 		WithRevoke(deps.Revoke)
 
-	searchHandler := searchpage.NewHandler(deps.Store, deps.Environments)
+	searchHandler := searchpage.NewHandler(deps.Store, deps.Environments, deps.Stacks, deps.Tiles)
 	site.GET("/search", searchHandler.Search, auth.RequireAuth())
 
 	orgHandler := orgpage.NewHandler(deps.Store, deps.Notifier, deps.Metrics, deps.FileStorage, deps.Runtime, deps.Forwards, deps.OrgConfig, deps.GitHub, deps.Mail, deps.RegistrySigner, deps.Proxy).
 		WithDomainResources(deps.Resources).WithVariables(deps.Variables).WithStacks(deps.Stacks).
+		WithTiles(deps.Tiles).
 		WithEnvironments(deps.Environments).
 		WithWork(deps.Work).
 		WithSettings(deps.Settings)
@@ -428,7 +429,7 @@ func RegisterRoutes(srv *server.Server, deps *Deps) {
 		Nodes: deps.Nodes, Cluster: deps.Cluster,
 		Mover: deps.Mover, BaseURL: deps.BaseURL,
 		Version: deps.Version,
-	}).WithDomainResources(deps.Resources).WithStorage(deps.Storage).WithSettings(deps.Settings).WithNodeService(deps.NodeService)
+	}).WithDomainResources(deps.Resources).WithStorage(deps.Storage).WithSettings(deps.Settings).WithNodeService(deps.NodeService).WithTiles(deps.Tiles)
 	// The join script is the one route here with no session in front of it.
 	// It is curled by a machine that has no login and is not in the swarm
 	// yet; the one-time key in the URL, bound to that machine's address, is
@@ -547,7 +548,8 @@ func RegisterRoutes(srv *server.Server, deps *Deps) {
 	mutate(site, "POST", "/projects/:id/graph/groups/delete", projectHandler.DeleteStackGraphGroup, service.VerbStackWrite, service.KindStack, "id")
 
 	dbHandler := dbpage.NewHandler(deps.Store, deps.Databases, deps.Cluster, deps.Proxy, deps.Notifier).
-		WithServices(deps.Instances, deps.Slices, deps.Lifecycle, deps.Domains, deps.Telemetry)
+		WithServices(deps.Instances, deps.Slices, deps.Lifecycle, deps.Domains, deps.Telemetry).
+		WithTiles(deps.Tiles).WithStacks(deps.Stacks)
 	read(site, "/dbs/:id", redirectTile(deps.Store), service.VerbTileRead, service.KindTile, "id")
 	read(site, "/dbs/:id/panel", dbHandler.Panel, service.VerbTileRead, service.KindTile, "id")
 	read(site, "/dbs/:id/panel/content", dbHandler.PanelContent, service.VerbTileRead, service.KindTile, "id")
@@ -584,7 +586,7 @@ func RegisterRoutes(srv *server.Server, deps *Deps) {
 
 	// The Backups tab, shared by database tiles and volume tiles: one fragment
 	// both panel packages fetch, rather than the same markup twice.
-	backupsHandler := backupspage.NewHandler(deps.Store, deps.Backups).WithScheduler(deps.Scheduler).WithBackups(deps.Schedules, deps.Destinations)
+	backupsHandler := backupspage.NewHandler(deps.Store, deps.Backups).WithScheduler(deps.Scheduler).WithBackups(deps.Schedules, deps.Destinations).WithTiles(deps.Tiles)
 	read(site, "/tiles/:id/backups", backupsHandler.Panel, service.VerbTileRead, service.KindTile, "id")
 	mutate(site, "POST", "/tiles/:id/backups", backupsHandler.Create, service.VerbBackupWrite, service.KindTile, "id")
 	mutate(site, "POST", "/backups/:id/save", backupsHandler.Save, service.VerbBackupWrite, service.KindBackup, "id")
@@ -684,7 +686,7 @@ func RegisterRoutes(srv *server.Server, deps *Deps) {
 	read(site, "/containers/:id/term/ws", containerHandler.TermWS, service.VerbAdminRead, service.KindNone, "", adminOnly)
 
 	appHandler := apppage.NewHandler(deps.Store, deps.Cluster, deps.Proxy, deps.Engine, deps.Jobs, deps.GitHub, deps.Notifier, deps.Lifecycle, deps.Tiles, deps.Telemetry, deps.Domains).
-		WithEnvironments(deps.Environments).
+		WithEnvironments(deps.Environments).WithStacks(deps.Stacks).
 		WithSlices(deps.Slices).
 		WithVariables(deps.Variables).
 		WithDeploys(deps.Deploys).
@@ -731,7 +733,7 @@ func RegisterRoutes(srv *server.Server, deps *Deps) {
 	read(site, "/apps/:id/runs/logs/stream", appHandler.RunsLogsStream, service.VerbTileRead, service.KindTile, "id")
 	mutate(site, "POST", "/apps/:id/cron/toggle", appHandler.ToggleCron, service.VerbTileWrite, service.KindTile, "id")
 
-	deploymentHandler := deploymentpage.NewHandler(deps.Store, deps.Engine, deps.StreamHub).WithDeploys(deps.Deploys)
+	deploymentHandler := deploymentpage.NewHandler(deps.Store, deps.Engine, deps.StreamHub).WithDeploys(deps.Deploys).WithTiles(deps.Tiles)
 	mutate(site, "POST", "/apps/:id/deploy", deploymentHandler.Deploy, service.VerbTileWrite, service.KindTile, "id")
 	mutate(site, "POST", "/apps/:id/rollback", deploymentHandler.Rollback, service.VerbTileWrite, service.KindTile, "id")
 	read(site, "/deployments/:id", deploymentHandler.Detail, service.VerbDeploymentRead, service.KindDeployment, "id")
@@ -744,6 +746,8 @@ func RegisterRoutes(srv *server.Server, deps *Deps) {
 		envops.Ops{Store: deps.Store, RT: deps.Runtime, Cluster: deps.Cluster, PX: deps.Proxy, DBs: deps.Databases,
 			Tiles: deps.Tiles, Sched: deps.Scheduler, Domains: deps.Domains, Resources: deps.Resources}, applier, deps.GitHub, deps.Notifier).
 		WithEnvironments(deps.Environments).
+		WithStacks(deps.Stacks).
+		WithTiles(deps.Tiles).
 		WithPREnvs(deps.PREnvs).
 		WithOrgConfig(deps.OrgConfig).
 		WithWork(deps.Work).

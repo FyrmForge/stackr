@@ -10,7 +10,7 @@ import (
 )
 
 func (a *API) listStacks(c echo.Context) error {
-	ps, err := a.store.ListStacks(c.Request().Context())
+	ps, err := a.stacks.ListAll(c.Request().Context())
 	if err != nil {
 		return err
 	}

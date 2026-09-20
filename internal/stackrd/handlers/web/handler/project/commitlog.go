@@ -262,7 +262,7 @@ func (h *handler) loadCommits(ctx context.Context, p *repo.Stack) (commits []git
 		if e.Type == "ephemeral" {
 			continue
 		}
-		tiles, _ := h.store.ListTilesByEnv(ctx, e.ID)
+		tiles, _ := h.tiles.ListForEnv(ctx, e.ID)
 		for i := range tiles {
 			t := &tiles[i]
 			if t.SourceType != "git" {
@@ -443,7 +443,7 @@ type envProgress struct {
 // something ran it.
 func (h *handler) envDeployments(ctx context.Context, envID string) (runs, live, failed *repo.Deployment, prog envProgress, built map[string]bool) {
 	built = map[string]bool{}
-	tiles, _ := h.store.ListTilesByEnv(ctx, envID)
+	tiles, _ := h.tiles.ListForEnv(ctx, envID)
 	for i := range tiles {
 		if tiles[i].SourceType != "git" {
 			continue
