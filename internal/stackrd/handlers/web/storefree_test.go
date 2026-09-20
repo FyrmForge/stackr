@@ -183,104 +183,24 @@ func TestNoHandlerReadsTheStore(t *testing.T) {
 	t.Logf("%d handler function(s) still reading the store", len(seen))
 }
 
-// stillStoreReading is point 19's worklist: handler functions whose body still
-// reaches the store, directly or through a helper in the same package.
+// stillStoreReading is what is LEFT of point 19: handler functions whose body
+// still reaches the store, directly or through a helper in the same package.
 //
-// Every entry is work not yet done, and the list only shrinks. It was seeded
-// from the scan rather than typed, so it is an accurate picture of the
-// starting point and not a wish.
+// It started at 525 functions, seeded from the scan rather than typed, and it
+// only shrinks. One is left, and it is not work:
 //
-// Read it as functions, not call sites: a page handler that calls h.loadStack
-// is here because loadStack reads, so moving one loader clears several rows.
-// 81 functions remain. Domain slices done: environments and variables;
-// stacks and tiles; organizations and membership; domains, storage,
-// provisions, config plans and deployments; then servers, registries,
-// backup schedules, settings, accounts and the audit trail.
+// The health endpoint pings the store to answer "is the database there". That
+// is a liveness check on the dependency itself, not a read of anything a
+// service could own — a StoreHealthService would be the forwarder this whole
+// point exists to avoid.
 //
-// The order of work, decided with the dev: components/metrics.templ first (a
-// TEMPLATE reading the store is the worst of them), then the domains that
-// already have a service to move into, then page assembly — which becomes one
-// view method per page family, never one forwarder per store method.
+// What this test does NOT measure: a handler PASSING h.store to a lower layer.
+// Several still do (stackconf.Planner, envnet, placement, sharelink, the
+// settings cascade, audit.Record), because those helpers take a repo.Store and
+// converting them is a separate job from moving the reads. The scan counts
+// calls, not passes, and saying so here is cheaper than someone later reading
+// a green test as "no handler has a store".
+
 const stillStoreReading = `
 handlers/api/handler/health.Health -> Health
-handlers/api/v1.KeyAuth -> GetAPIKeyByHash
-handlers/api/v1.checkConnector -> GetConnector
-handlers/api/v1.createInvite -> CreateInvite
-handlers/api/v1.createRegistry -> CreateRegistry
-handlers/api/v1.deleteBackup -> DeleteBackup
-handlers/api/v1.deleteRegistry -> DeleteRegistry
-handlers/api/v1.listAppResources -> BindingsForConsumer, GetResource, ListOutputs
-handlers/api/v1.newInvite -> CreateInvite
-handlers/api/v1.patchDestination -> UpdateBackupDestination
-handlers/api/v1.patchRegistry -> UpdateRegistry
-handlers/api/v1.requireTile -> GetTileBySlug
-handlers/api/v1.restoreBackup -> GetBackupRun
-handlers/api/v1.tileByPath -> GetTileBySlug
-handlers/web/handler/account.DeleteAPIKey -> DeleteAPIKey
-handlers/web/handler/account.SaveProfile -> GetUserByEmail
-handlers/web/handler/app.Attach -> GetServerByNodeID, UpdateTile
-handlers/web/handler/app.CreateAutoDomain -> GetServerByNodeID
-handlers/web/handler/app.CreateDomain -> GetServerByNodeID
-handlers/web/handler/app.DeleteDomain -> GetServerByNodeID
-handlers/web/handler/app.Detail -> GetServerByNodeID
-handlers/web/handler/app.Panel -> GetServerByNodeID
-handlers/web/handler/app.PanelContent -> GetServerByNodeID
-handlers/web/handler/app.SaveEnv -> GetServerByNodeID, UpdateTile
-handlers/web/handler/app.SaveSettings -> GetServerByNodeID
-handlers/web/handler/app.SetDomainCert -> GetServerByNodeID
-handlers/web/handler/app.ToggleDomainHTTPS -> GetServerByNodeID
-handlers/web/handler/app.loadTab -> GetServerByNodeID
-handlers/web/handler/app.panelDone -> GetServerByNodeID
-handlers/web/handler/app.placementOf -> GetServerByNodeID
-handlers/web/handler/deployment.Stream -> GetDeployment
-handlers/web/handler/org.ConnectorBranches -> GetConnector
-handlers/web/handler/org.ConnectorFileExists -> GetConnector
-handlers/web/handler/org.Delete -> DeleteOrg
-handlers/web/handler/org.DeleteAnnotation -> DeleteOrg
-handlers/web/handler/org.DeleteHomeAnnotation -> DeleteOrg
-handlers/web/handler/org.OrgPlanView -> LatestWorkItem
-handlers/web/handler/org.SaveOrgConfig -> GetConnector
-handlers/web/handler/org.SetPlanInput -> UpsertVariable
-handlers/web/handler/org.SetupConfigPlan -> LatestWorkItem
-handlers/web/handler/org.SetupDone -> CreateDomainResource
-handlers/web/handler/org.ensureDefaultDomain -> CreateDomainResource
-handlers/web/handler/org.orgPlanWork -> LatestWorkItem
-handlers/web/handler/org.pickerConnector -> GetConnector
-handlers/web/handler/prhook.Hook -> GetConnector
-handlers/web/handler/prhook.HookConnector -> GetConnector
-handlers/web/handler/prhook.updatePlanComment -> GetConnector
-handlers/web/handler/project.CopyEnv -> GetConnector, ListIntended
-handlers/web/handler/project.CreateDB -> GetEnvironment
-handlers/web/handler/project.CreateTile -> GetEnvironment
-handlers/web/handler/project.DeleteStackVar -> LatestSettledConfigPlan
-handlers/web/handler/project.EnvCompare -> GetConnector, ListIntended
-handlers/web/handler/project.Graph -> BindingsForConsumer, GetConnector, LatestConfigPlan, ListIntended, ListOpenCronRuns, ListResourcesByEnv
-handlers/web/handler/project.GraphStatus -> BindingsForConsumer, ListOpenCronRuns, ListResourcesByEnv
-handlers/web/handler/project.MarkIntended -> GetConnector, ListIntended, SetIntended
-handlers/web/handler/project.PlanView -> GetConfigPlan, LatestWorkItem
-handlers/web/handler/project.PromoteDialogue -> GetConnector
-handlers/web/handler/project.RedirectStack -> GetOrgBySlug
-handlers/web/handler/project.Releases -> GetConnector
-handlers/web/handler/project.SaveStackVar -> LatestSettledConfigPlan
-handlers/web/handler/project.SettingsVariables -> LatestSettledConfigPlan
-handlers/web/handler/project.StackGraph -> BindingsForConsumer, GetConnector, HomeEnvironment, LatestConfigPlan, ListIntended, ListResourcesByEnv
-handlers/web/handler/project.StackGraphStatus -> BindingsForConsumer, HomeEnvironment, ListResourcesByEnv
-handlers/web/handler/project.StackVarsPanel -> LatestSettledConfigPlan
-handlers/web/handler/project.StagingDiscardOne -> GetStagedChange
-handlers/web/handler/project.buildGraph -> BindingsForConsumer, ListOpenCronRuns, ListResourcesByEnv
-handlers/web/handler/project.buildStackGraph -> BindingsForConsumer, HomeEnvironment, ListResourcesByEnv
-handlers/web/handler/project.commitLog -> GetConnector
-handlers/web/handler/project.compareEnv -> ListIntended
-handlers/web/handler/project.compareStack -> ListIntended
-handlers/web/handler/project.envFromForm -> GetEnvironment
-handlers/web/handler/project.fetchCommits -> GetConnector
-handlers/web/handler/project.loadCommits -> GetConnector
-handlers/web/handler/project.olderCommit -> GetConnector
-handlers/web/handler/project.releaseView -> GetConnector
-handlers/web/handler/project.renderCompare -> GetConnector, ListIntended
-handlers/web/handler/project.renderStackVars -> LatestSettledConfigPlan
-handlers/web/handler/project.sharedRefs -> BindingsForConsumer, ListResourcesByEnv
-handlers/web/handler/search.Search -> ListResourcesByEnv, ListVariableNames
-handlers/web/handler/settings.DeletePanelBackup -> DeleteBackup
-handlers/web/handler/settings.SavePanelBackup -> CreateBackup, UpdateBackup
 `

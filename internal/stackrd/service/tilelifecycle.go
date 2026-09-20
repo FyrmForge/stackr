@@ -291,3 +291,9 @@ func (s *TileLifecycleService) Runs(ctx context.Context, ref string, limit int) 
 func (s *TileLifecycleService) OpenRun(ctx context.Context, ref string) (*repo.CronRun, error) {
 	return s.store.OpenCronRun(ctx, ref)
 }
+
+// OpenRuns is every cron run in flight across the server, which the canvas
+// uses to mark the tiles that are running right now.
+func (s *TileLifecycleService) OpenRuns(ctx context.Context) ([]repo.CronRun, error) {
+	return s.store.ListOpenCronRuns(ctx)
+}

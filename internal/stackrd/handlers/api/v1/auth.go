@@ -175,7 +175,7 @@ func (a *API) KeyAuth(next echo.HandlerFunc) echo.HandlerFunc {
 			return echo.NewHTTPError(http.StatusUnauthorized, "missing x-api-key")
 		}
 		ctx := c.Request().Context()
-		k, err := a.store.GetAPIKeyByHash(ctx, HashKey(raw))
+		k, err := a.keys.ByHash(ctx, HashKey(raw))
 		if err != nil {
 			return err
 		}

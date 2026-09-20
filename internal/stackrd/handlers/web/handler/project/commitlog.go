@@ -204,8 +204,8 @@ func (h *handler) olderCommit(ctx context.Context, p *repo.Stack, e *logCacheEnt
 	var err error
 	switch e.source {
 	case "github":
-		cn, cerr := h.store.GetConnector(ctx, p.ConfigConnectorID)
-		if cerr != nil || cn == nil {
+		cn, cerr := h.connectors.Get(ctx, p.ConfigConnectorID)
+		if cerr != nil {
 			return remember(o)
 		}
 		if cm, cerr := h.gh.Commit(ctx, cn, p.ConfigRepo, sha); cerr == nil {
@@ -246,8 +246,8 @@ func (h *handler) olderCommit(ctx context.Context, p *repo.Stack, e *logCacheEnt
 // local clone of the reference env's first git tile when there is none.
 func (h *handler) loadCommits(ctx context.Context, p *repo.Stack) (commits []gitlog.Commit, branch, source, dir string, err error) {
 	if p.ConfigManaged() && h.gh != nil {
-		cn, cerr := h.store.GetConnector(ctx, p.ConfigConnectorID)
-		if cerr != nil || cn == nil {
+		cn, cerr := h.connectors.Get(ctx, p.ConfigConnectorID)
+		if cerr != nil {
 			return nil, "", "", "", fmt.Errorf("config connector: not found")
 		}
 		branch, _ = h.applier.Planner.StackBranch(ctx, p)

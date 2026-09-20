@@ -202,7 +202,7 @@ func (a *API) deleteBackup(c echo.Context) error {
 		return err
 	}
 	ctx := c.Request().Context()
-	if err := a.store.DeleteBackup(ctx, b.ID); err != nil {
+	if err := a.schedules.Remove(ctx, b.ID); err != nil {
 		return err
 	}
 	a.sched.ReloadBackups(ctx)
@@ -267,8 +267,8 @@ func (a *API) restoreBackup(c echo.Context) error {
 	}
 	// Checked here as well as in the service: this is the boundary the id
 	// arrives at, and a run from another schedule is another org's archive.
-	run, err := a.store.GetBackupRun(c.Request().Context(), in.RunID)
-	if err != nil || run == nil || run.BackupID != b.ID {
+	run, err := a.schedules.Run(c.Request().Context(), in.RunID)
+	if err != nil || run.BackupID != b.ID {
 		return echo.NewHTTPError(http.StatusNotFound, "backup run not found")
 	}
 	if a.backups == nil {
@@ -343,7 +343,7 @@ func (a *API) patchDestination(c echo.Context) error {
 	if in.Shared != nil {
 		d.Shared = *in.Shared
 	}
-	if err := a.store.UpdateBackupDestination(ctx, d); err != nil {
+	if err := a.dests.Save(ctx, d); err != nil {
 		return err
 	}
 	return c.JSON(http.StatusOK, toDestinationOut(d))

@@ -102,6 +102,7 @@ type handler struct {
 	telemetry  *service.TileTelemetryService
 	graph      *service.GraphService
 	connectors *service.ConnectorService
+	life       *service.TileLifecycleService
 }
 
 // WithMover attaches the volume-move service. Set from the router rather than
@@ -249,8 +250,8 @@ func (h *handler) defaultEnv(ctx context.Context, stackID string) (*repo.Environ
 // when present, the stack's default env otherwise.
 func (h *handler) envFromForm(c echo.Context, stackID string) (*repo.Environment, error) {
 	if id := c.FormValue("env_id"); id != "" {
-		env, err := h.store.GetEnvironment(c.Request().Context(), id)
-		if err != nil {
+		env, err := h.envs.Get(c.Request().Context(), id)
+		if err != nil && !errors.Is(err, svcerr.ErrNotFound) {
 			return nil, err
 		}
 		if env == nil || env.StackID != stackID {
@@ -315,8 +316,8 @@ func (h *handler) RedirectStack(c echo.Context) error {
 	p, err := h.stacks.Get(ctx, c.Param("id"))
 	if errors.Is(err, svcerr.ErrNotFound) {
 		// /:org/:stack form, resolve by slugs.
-		org, oerr := h.store.GetOrgBySlug(ctx, c.Param("org"))
-		if oerr != nil || org == nil {
+		org, oerr := h.orgs.BySlug(ctx, c.Param("org"))
+		if oerr != nil {
 			return echo.NewHTTPError(http.StatusNotFound, "not found")
 		}
 		p, err = h.stacks.BySlug(ctx, org.ID, c.Param("stack"))
@@ -531,7 +532,7 @@ func (h *handler) Graph(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	pendingPlan, _ := h.store.LatestConfigPlan(ctx, p.ID)
+	pendingPlan, _ := h.plans.Latest(ctx, p.ID)
 	if pendingPlan != nil && pendingPlan.Status != "pending" && pendingPlan.Status != "error" {
 		pendingPlan = nil
 	}
@@ -830,8 +831,8 @@ func (h *handler) PlanView(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	cp, err := h.store.GetConfigPlan(ctx, c.Param("planID"))
-	if err != nil || cp == nil || cp.StackID != p.ID {
+	cp, err := h.plans.Get(ctx, c.Param("planID"))
+	if err != nil || cp.StackID != p.ID {
 		return echo.NewHTTPError(http.StatusNotFound, "plan not found")
 	}
 	var plan stackconf.Plan
@@ -841,7 +842,7 @@ func (h *handler) PlanView(c echo.Context) error {
 	// for the stack's id, so it never matched a row and the banner never
 	// rendered at all. An older plan's page cannot narrate a newer plan's
 	// apply, because the key is the plan.
-	work, _ := h.store.LatestWorkItem(ctx, stackconf.ApplyKind, cp.ID)
+	work, _ := h.plans.Work(ctx, stackconf.ApplyKind, cp.ID)
 	// Move blocks are re-checked against live placement, then named.
 	//
 	// Re-checked because the stored plan is a snapshot: once the operator
@@ -1203,7 +1204,7 @@ func (h *handler) buildGraph(ctx context.Context, envID string, style graph.Arra
 	for _, d := range allDomains {
 		domains[d.TileID] = append(domains[d.TileID], d.Host)
 	}
-	resources, err := h.store.ListResourcesByEnv(ctx, envID)
+	resources, err := h.instances.Resources(ctx, envID)
 	if err != nil {
 		return graph.Graph{}, err
 	}
@@ -1214,7 +1215,7 @@ func (h *handler) buildGraph(ctx context.Context, envID string, style graph.Arra
 	markStaged(&g, tiles, h.stagedMarkers(ctx, envID))
 	// A cron mid-run: its footer says so until the row closes. The status
 	// endpoint re-renders footers on every poll, so it flips back on its own.
-	if open, err := h.store.ListOpenCronRuns(ctx); err == nil {
+	if open, err := h.life.OpenRuns(ctx); err == nil {
 		graph.MarkRunning(&g, open)
 	}
 	h.markSliceStats(&g)
@@ -1430,13 +1431,13 @@ func (h *handler) sharedRefs(ctx context.Context, envID string, tiles []repo.Til
 	// consumer -> slice -> instance says it, so a second consumer -> instance
 	// edge would draw the same dependency twice.
 	viaSlice := map[string]bool{} // "<consumer tile>|<instance tile>"
-	if resources, err := h.store.ListResourcesByEnv(ctx, envID); err == nil {
+	if resources, err := h.instances.Resources(ctx, envID); err == nil {
 		provider := make(map[string]string, len(resources))
 		for _, r := range resources {
 			provider[r.ID] = r.ProviderTileID
 		}
 		for i := range tiles {
-			binds, err := h.store.BindingsForConsumer(ctx, tiles[i].ID)
+			binds, err := h.instances.Bindings(ctx, tiles[i].ID)
 			if err != nil {
 				continue
 			}
@@ -1707,7 +1708,7 @@ func (h *handler) renderStackVars(c echo.Context, p *repo.Stack) error {
 		cfg.PanelURL = stackURL(p) + "/settings/variables/panel"
 		return respond.HTML(c, http.StatusOK, stackVarsPanel(c, p, filterVarsClass(vars, class), cfg))
 	}
-	cp, err := h.store.LatestSettledConfigPlan(ctx, p.ID)
+	cp, err := h.plans.LatestSettled(ctx, p.ID)
 	if err != nil {
 		return err
 	}
@@ -2453,3 +2454,6 @@ func (h *handler) WithGraph(g *service.GraphService) *handler { h.graph = g; ret
 
 // WithConnectors gives the page the connector service.
 func (h *handler) WithConnectors(v *service.ConnectorService) *handler { h.connectors = v; return h }
+
+// WithLifecycle gives the page the tile lifecycle service.
+func (h *handler) WithLifecycle(v *service.TileLifecycleService) *handler { h.life = v; return h }

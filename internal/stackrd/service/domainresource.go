@@ -314,3 +314,11 @@ func canonLevel(level, ownerID string) (string, string) {
 func (s *DomainResourceService) ListAll(ctx context.Context) ([]repo.DomainResource, error) {
 	return s.store.ListDomainResources(ctx)
 }
+
+// Save writes a domain-resource row directly. Create is the one with the
+// rules — the ownership check, the host validation; this is the raw write for
+// the setup wizard, which creates the install's first hostname before there
+// is an owner to check against.
+func (s *DomainResourceService) Save(ctx context.Context, r *repo.DomainResource) error {
+	return s.store.CreateDomainResource(ctx, r)
+}

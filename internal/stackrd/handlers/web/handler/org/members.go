@@ -194,7 +194,7 @@ func (h *handler) Delete(c echo.Context) error {
 		middleware.SetFlash(c, "The last organization cannot be deleted.", middleware.FlashError)
 		return respond.Redirect(c, back)
 	}
-	if err := h.store.DeleteOrg(ctx, o.ID); err != nil {
+	if err := h.orgs.Delete(ctx, o.ID); err != nil {
 		return err
 	}
 	// Its builder and build cache go with it, or they sit on the disk for ever.

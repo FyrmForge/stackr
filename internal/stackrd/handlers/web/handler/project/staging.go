@@ -92,8 +92,8 @@ func (h *handler) StagingDiscardOne(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	sc, err := h.store.GetStagedChange(ctx, c.Param("changeID"))
-	if err != nil || sc == nil || sc.EnvID != env.ID {
+	sc, err := h.tiles.StagedChange(ctx, c.Param("changeID"))
+	if err != nil || sc.EnvID != env.ID {
 		return echo.NewHTTPError(http.StatusNotFound, "change not found")
 	}
 	if err := h.tiles.DiscardStaged(ctx, sc.ID); err != nil {

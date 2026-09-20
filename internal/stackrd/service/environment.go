@@ -327,3 +327,10 @@ func (s *EnvironmentService) BySlug(ctx context.Context, stackID, slug string) (
 func (s *EnvironmentService) ListForStack(ctx context.Context, stackID string) ([]repo.Environment, error) {
 	return s.store.ListEnvironmentsByStack(ctx, stackID)
 }
+
+// Home is a stack's hidden stack-scoped environment, the one that holds
+// whatever belongs to the stack rather than to any of its environments. Nil
+// when the stack has none.
+func (s *EnvironmentService) Home(ctx context.Context, stackID string) (*repo.Environment, error) {
+	return s.store.HomeEnvironment(ctx, stackID)
+}

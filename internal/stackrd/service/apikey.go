@@ -85,3 +85,14 @@ func (s *APIKeyService) Mint(ctx context.Context, userID, orgID, name string, sc
 func (s *APIKeyService) ListAll(ctx context.Context) ([]repo.APIKey, error) {
 	return s.store.ListAPIKeys(ctx)
 }
+
+// ByHash resolves a presented token to its key row, nil when no key matches.
+// The hash is the caller's: the raw token never reaches this package twice.
+func (s *APIKeyService) ByHash(ctx context.Context, hash string) (*repo.APIKey, error) {
+	return s.store.GetAPIKeyByHash(ctx, hash)
+}
+
+// Delete revokes a key.
+func (s *APIKeyService) Delete(ctx context.Context, id string) error {
+	return s.store.DeleteAPIKey(ctx, id)
+}

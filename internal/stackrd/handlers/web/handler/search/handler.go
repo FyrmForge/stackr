@@ -33,6 +33,8 @@ type handler struct {
 	plans      *service.PlanService
 	schedules  *service.BackupScheduleService
 	connectors *service.ConnectorService
+	instances  *service.ManagedInstanceService
+	vars       *service.VariableService
 }
 
 func NewHandler(store repo.Store, envs *service.EnvironmentService,
@@ -123,7 +125,7 @@ func (h *handler) Search(c echo.Context) error {
 	// instance (which draws no card of its own) can focus its first slice.
 	slicesOf := map[string][]repo.ManagedResource{} // provider tile id -> slices
 	for id := range envByID {
-		res, err := h.store.ListResourcesByEnv(ctx, id)
+		res, err := h.instances.Resources(ctx, id)
 		if err != nil {
 			return err
 		}
@@ -184,7 +186,7 @@ func (h *handler) Search(c echo.Context) error {
 	}
 
 	// Variable names, never values (see ListVariableNames).
-	vars, err := h.store.ListVariableNames(ctx)
+	vars, err := h.vars.Names(ctx)
 	if err != nil {
 		return err
 	}
@@ -371,3 +373,12 @@ func (h *handler) WithSchedules(v *service.BackupScheduleService) *handler { h.s
 
 // WithConnectors gives the page the connector service.
 func (h *handler) WithConnectors(v *service.ConnectorService) *handler { h.connectors = v; return h }
+
+// WithInstances gives the page the managed-resource service.
+func (h *handler) WithInstances(v *service.ManagedInstanceService) *handler {
+	h.instances = v
+	return h
+}
+
+// WithVariables gives the page the variable service.
+func (h *handler) WithVariables(v *service.VariableService) *handler { h.vars = v; return h }

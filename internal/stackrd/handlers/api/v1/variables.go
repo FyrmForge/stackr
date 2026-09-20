@@ -343,17 +343,17 @@ func (a *API) listAppResources(c echo.Context) error {
 		return err
 	}
 	ctx := c.Request().Context()
-	binds, err := a.store.BindingsForConsumer(ctx, t.ID)
+	binds, err := a.instances.Bindings(ctx, t.ID)
 	if err != nil {
 		return err
 	}
 	out := []resourceOut{}
 	for _, b := range binds {
-		res, err := a.store.GetResource(ctx, b.ResourceID)
-		if err != nil || res == nil {
+		res, err := a.instances.Resource(ctx, b.ResourceID)
+		if err != nil {
 			continue
 		}
-		outs, err := a.store.ListOutputs(ctx, res.ID)
+		outs, err := a.instances.Outputs(ctx, res.ID)
 		if err != nil {
 			return err
 		}

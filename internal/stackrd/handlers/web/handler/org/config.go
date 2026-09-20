@@ -59,8 +59,8 @@ func (h *handler) SaveOrgConfig(c echo.Context) error {
 		if connID == "" {
 			o.ConfigConnectorID, o.ConfigRepo, o.ConfigBranch, o.ConfigPath = "", "", "", ""
 		} else {
-			cn, cerr := h.store.GetConnector(ctx, connID)
-			if cerr != nil || cn == nil || cn.OrgID != o.ID {
+			cn, cerr := h.connectors.Get(ctx, connID)
+			if cerr != nil || cn.OrgID != o.ID {
 				return echo.NewHTTPError(http.StatusBadRequest, "connector must belong to this organization")
 			}
 			repoFull := strings.TrimSuffix(strings.TrimPrefix(strings.TrimSpace(c.FormValue("repo")), "https://github.com/"), ".git")
@@ -172,7 +172,7 @@ func (h *handler) SetPlanInput(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, "a value is required")
 	}
 	now := time.Now().UTC()
-	if err := h.store.UpsertVariable(ctx, &repo.Variable{
+	if err := h.vars.Upsert(ctx, &repo.Variable{
 		OwnerKind: repo.OwnerOrg, OwnerID: o.ID, Name: name,
 		Value: val, Secret: true, CreatedAt: now, UpdatedAt: now,
 	}); err != nil {
@@ -249,8 +249,8 @@ func (h *handler) pickerConnector(c echo.Context) (*repo.Connector, string, erro
 	if h.gh == nil {
 		return nil, "", echo.NewHTTPError(http.StatusNotFound, "no github client")
 	}
-	cn, err := h.store.GetConnector(c.Request().Context(), c.Param("connectorID"))
-	if err != nil || cn == nil || cn.OrgID != o.ID || cn.Provider != "github" {
+	cn, err := h.connectors.Get(c.Request().Context(), c.Param("connectorID"))
+	if err != nil || cn.OrgID != o.ID || cn.Provider != "github" {
 		return nil, "", echo.NewHTTPError(http.StatusNotFound, "connector not found")
 	}
 	full := c.QueryParam("repo")

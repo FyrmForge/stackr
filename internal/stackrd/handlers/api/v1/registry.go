@@ -221,7 +221,7 @@ func (a *API) createRegistry(c echo.Context) error {
 	r := &repo.Registry{ID: uuid.New().String(), Name: strings.TrimSpace(in.Name),
 		URL: strings.TrimSpace(in.URL), Username: in.Username, Password: in.Password,
 		CreatedAt: time.Now().UTC()}
-	if err := a.store.CreateRegistry(c.Request().Context(), r); err != nil {
+	if err := a.registries.Create(c.Request().Context(), r); err != nil {
 		return err
 	}
 	return c.JSON(http.StatusCreated, toRegistryOut(r))
@@ -259,7 +259,7 @@ func (a *API) patchRegistry(c echo.Context) error {
 		}
 	} else {
 		r.Domain = strings.TrimSpace(domain)
-		if err := a.store.UpdateRegistry(ctx, r); err != nil {
+		if err := a.registries.Save(ctx, r); err != nil {
 			return err
 		}
 	}
@@ -277,7 +277,7 @@ func (a *API) deleteRegistry(c echo.Context) error {
 		// image from. Clearing its domain is the thing a caller can do.
 		return echo.NewHTTPError(http.StatusConflict, "the managed registry cannot be removed")
 	}
-	if err := a.store.DeleteRegistry(ctx, r.ID); err != nil {
+	if err := a.registries.Delete(ctx, r.ID); err != nil {
 		return err
 	}
 	return c.NoContent(http.StatusNoContent)

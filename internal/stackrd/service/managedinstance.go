@@ -413,3 +413,48 @@ func (s *ManagedInstanceService) setStatus(ctx context.Context, t *repo.Tile, st
 		s.notifier.Containers()
 	}
 }
+
+// --- managed resources ---
+//
+// A managed resource is something a config file declared that stackr provisions
+// outside the container graph — a bucket, a queue — with outputs a tile binds
+// to as variables. The canvas draws them and the variable resolver reads them,
+// and both were walking these four tables themselves.
+
+// Resources are an environment's managed resources.
+func (s *ManagedInstanceService) Resources(ctx context.Context, envID string) ([]repo.ManagedResource, error) {
+	return s.store.ListResourcesByEnv(ctx, envID)
+}
+
+// Resource is one managed resource by id.
+func (s *ManagedInstanceService) Resource(ctx context.Context, id string) (*repo.ManagedResource, error) {
+	r, err := s.store.GetResource(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if r == nil {
+		return nil, svcerr.ErrNotFound
+	}
+	return r, nil
+}
+
+// Outputs are what a provisioned resource published for its consumers to bind.
+func (s *ManagedInstanceService) Outputs(ctx context.Context, resourceID string) ([]repo.ResourceOutput, error) {
+	return s.store.ListOutputs(ctx, resourceID)
+}
+
+// Bindings are the resource outputs one tile consumes.
+func (s *ManagedInstanceService) Bindings(ctx context.Context, consumerTileID string) ([]repo.ResourceBinding, error) {
+	return s.store.BindingsForConsumer(ctx, consumerTileID)
+}
+
+// Intended is an environment's declared-but-not-yet-applied variable values,
+// the left-hand column of the environment comparison.
+func (s *ManagedInstanceService) Intended(ctx context.Context, envID string) ([]repo.Intended, error) {
+	return s.store.ListIntended(ctx, envID)
+}
+
+// SetIntended records one declared value.
+func (s *ManagedInstanceService) SetIntended(ctx context.Context, row *repo.Intended) error {
+	return s.store.SetIntended(ctx, row)
+}

@@ -321,3 +321,19 @@ func (s *VariableService) stackOf(ctx context.Context, owner VarOwner) string {
 func (s *VariableService) List(ctx context.Context, owner VarOwner) ([]repo.Variable, error) {
 	return s.store.ListVariables(ctx, owner.Kind, owner.ID)
 }
+
+// Upsert writes one variable row directly, with none of Set's cascade — no
+// replan, no redeploy, no blob sync.
+//
+// Its one caller is the org config wizard, writing values that the apply it is
+// about to run will act on anyway. Anything a person edits goes through Set.
+func (s *VariableService) Upsert(ctx context.Context, v *repo.Variable) error {
+	return s.store.UpsertVariable(ctx, v)
+}
+
+// Names is every variable name on the server, values excluded — the search
+// palette's index. It carries no owner and no values on purpose: a name is
+// not a secret, a value may be.
+func (s *VariableService) Names(ctx context.Context) ([]repo.Variable, error) {
+	return s.store.ListVariableNames(ctx)
+}

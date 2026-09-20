@@ -515,3 +515,26 @@ func (s *TileService) DiscardStaged(ctx context.Context, id string) error {
 func (s *TileService) DiscardStagedForEnv(ctx context.Context, envID string) error {
 	return s.store.DeleteStagedByEnv(ctx, envID)
 }
+
+// BySlug is one tile by its slug within an environment.
+func (s *TileService) BySlug(ctx context.Context, envID, slug string) (*repo.Tile, error) {
+	t, err := s.store.GetTileBySlug(ctx, envID, slug)
+	if err != nil {
+		return nil, err
+	}
+	if t == nil {
+		return nil, svcerr.ErrNotFound
+	}
+	return t, nil
+}
+
+// Save writes a tile row back WITHOUT the cascade.
+//
+// Update is the one with the rules: it gates on the config file, works out
+// what changed, and redeploys or stages accordingly. This is the raw write,
+// for the three callers that have already decided — a node reassignment the
+// scheduler made, a field the caller knows is not config-owned. A new caller
+// almost certainly wants Update.
+func (s *TileService) Save(ctx context.Context, t *repo.Tile) error {
+	return s.store.UpdateTile(ctx, t)
+}

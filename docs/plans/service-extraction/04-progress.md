@@ -2658,3 +2658,28 @@ staged change is what `Update`, `Create` and `Delete` return `staged bool`
 for. Cron runs went onto `TileLifecycleService`, beside `RunNow` and `StopRun`.
 `OpenRun` answers nil rather than ErrNotFound — "not running" is a state every
 caller renders, not a missing row.
+
+**Slice 8: the tail. 81 -> 1. Point 19 is done.**
+
+Managed resources, bindings and outputs to `ManagedInstanceService`; the
+latest/settled plan and the apply's work item to `PlanService`; the remaining
+connector, staged-change, cron-run, backup-run, registry, invite, key, user and
+variable reads and writes to the services that already owned their domain.
+
+`handler/annotate` — the shared HTTP half of "save one note, save one box" —
+took a `repo.Store` and now takes the `GraphService`. That is four pages'
+worth of store passing gone with one signature.
+
+**One entry remains and it is not work.** The health endpoint pings the store
+to answer "is the database there". A liveness check on the dependency is not a
+read a service could own, and a `StoreHealthService` is precisely the
+forwarder this point exists to avoid. It is on the list with that reason.
+
+**What the net does not measure**, written into its doc comment so a green run
+is not misread: a handler PASSING `h.store` to a lower layer. Several still
+do — `stackconf.Planner`, `envnet`, `placement`, `sharelink`, the settings
+cascade, `audit.Record` — because those helpers take a `repo.Store`, and
+converting them is a different job from moving the reads.
+
+**525 -> 1**, across eight slices, with the name-column diff run against the
+previous commit every time and empty every time.

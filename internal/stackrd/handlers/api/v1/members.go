@@ -156,7 +156,7 @@ func (a *API) newInvite(c echo.Context, o *repo.Org, email, role string, days in
 	now := time.Now().UTC()
 	inv := &repo.Invite{ID: secrets.RandomHex(24), OrgID: o.ID, Email: email, Role: role,
 		CreatedBy: a.user(c).ID, CreatedAt: now, ExpiresAt: now.AddDate(0, 0, days)}
-	if err := a.store.CreateInvite(c.Request().Context(), inv); err != nil {
+	if err := a.members.CreateInvite(c.Request().Context(), inv); err != nil {
 		return nil, err
 	}
 	// The panel mailed the invite and this path did not, so an invite created

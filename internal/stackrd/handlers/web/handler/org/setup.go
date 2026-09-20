@@ -220,7 +220,7 @@ func (h *handler) ensureDefaultDomain(c echo.Context, o *repo.Org) error {
 	if len(service.VisibleDomainResources(all, "", o.ID)) > 0 {
 		return nil
 	}
-	return h.store.CreateDomainResource(ctx, &repo.DomainResource{
+	return h.resources.Save(ctx, &repo.DomainResource{
 		ID: uuid.New().String(), Level: "org", OwnerID: o.ID, Host: host,
 		CreatedAt: time.Now().UTC(),
 	})

@@ -94,7 +94,7 @@ func (h *handler) SaveHomeAnnotation(c echo.Context) error {
 	if u == nil {
 		return echo.NewHTTPError(http.StatusUnauthorized, "not signed in")
 	}
-	return annotate.Save(c, h.store, repo.GraphOwner(repo.ScopeUser, u.ID))
+	return annotate.Save(c, h.graph, repo.GraphOwner(repo.ScopeUser, u.ID))
 }
 
 func (h *handler) DeleteHomeAnnotation(c echo.Context) error {
@@ -102,7 +102,7 @@ func (h *handler) DeleteHomeAnnotation(c echo.Context) error {
 	if u == nil {
 		return echo.NewHTTPError(http.StatusUnauthorized, "not signed in")
 	}
-	return annotate.Delete(c, h.store, repo.GraphOwner(repo.ScopeUser, u.ID))
+	return annotate.Delete(c, h.graph, repo.GraphOwner(repo.ScopeUser, u.ID))
 }
 
 // SaveAnnotation / DeleteAnnotation edit the org canvas's shared notes.
@@ -112,7 +112,7 @@ func (h *handler) SaveAnnotation(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	if err := annotate.Save(c, h.store, repo.GraphOwner(repo.ScopeOrg, o.ID)); err != nil {
+	if err := annotate.Save(c, h.graph, repo.GraphOwner(repo.ScopeOrg, o.ID)); err != nil {
 		return err
 	}
 	h.notifier.Org(o.ID)
@@ -124,7 +124,7 @@ func (h *handler) DeleteAnnotation(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	if err := annotate.Delete(c, h.store, repo.GraphOwner(repo.ScopeOrg, o.ID)); err != nil {
+	if err := annotate.Delete(c, h.graph, repo.GraphOwner(repo.ScopeOrg, o.ID)); err != nil {
 		return err
 	}
 	h.notifier.Org(o.ID)
@@ -139,7 +139,7 @@ func (h *handler) SaveHomeGraphGroup(c echo.Context) error {
 	if u == nil {
 		return echo.NewHTTPError(http.StatusUnauthorized, "not signed in")
 	}
-	return annotate.SaveGroup(c, h.store, repo.GraphOwner(repo.ScopeUser, u.ID))
+	return annotate.SaveGroup(c, h.graph, repo.GraphOwner(repo.ScopeUser, u.ID))
 }
 
 func (h *handler) DeleteHomeGraphGroup(c echo.Context) error {
@@ -147,7 +147,7 @@ func (h *handler) DeleteHomeGraphGroup(c echo.Context) error {
 	if u == nil {
 		return echo.NewHTTPError(http.StatusUnauthorized, "not signed in")
 	}
-	return annotate.DeleteGroup(c, h.store, repo.GraphOwner(repo.ScopeUser, u.ID))
+	return annotate.DeleteGroup(c, h.graph, repo.GraphOwner(repo.ScopeUser, u.ID))
 }
 
 // SaveGraphGroup / DeleteGraphGroup edit the org canvas's shared groups.
@@ -157,7 +157,7 @@ func (h *handler) SaveGraphGroup(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	if err := annotate.SaveGroup(c, h.store, repo.GraphOwner(repo.ScopeOrg, o.ID)); err != nil {
+	if err := annotate.SaveGroup(c, h.graph, repo.GraphOwner(repo.ScopeOrg, o.ID)); err != nil {
 		return err
 	}
 	h.notifier.Org(o.ID)
@@ -169,7 +169,7 @@ func (h *handler) DeleteGraphGroup(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	if err := annotate.DeleteGroup(c, h.store, repo.GraphOwner(repo.ScopeOrg, o.ID)); err != nil {
+	if err := annotate.DeleteGroup(c, h.graph, repo.GraphOwner(repo.ScopeOrg, o.ID)); err != nil {
 		return err
 	}
 	h.notifier.Org(o.ID)

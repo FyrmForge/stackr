@@ -145,3 +145,23 @@ func (s *PlanService) SetOrgPlanStatus(ctx context.Context, id, status string) e
 func (s *PlanService) AwaitingPlan(ctx context.Context, orgID string) (int, error) {
 	return s.store.CountStacksAwaitingPlan(ctx, orgID)
 }
+
+// Latest is a stack's most recent config plan whatever its state, nil when it
+// has never been planned. Nil rather than ErrNotFound: "no plan yet" is what
+// an unbound stack looks like, and the banner renders it as a state.
+func (s *PlanService) Latest(ctx context.Context, stackID string) (*repo.ConfigPlan, error) {
+	return s.store.LatestConfigPlan(ctx, stackID)
+}
+
+// LatestSettled is the most recent plan that has been applied or rejected —
+// the one a "last applied" line names, which the pending one must not stand in
+// for.
+func (s *PlanService) LatestSettled(ctx context.Context, stackID string) (*repo.ConfigPlan, error) {
+	return s.store.LatestSettledConfigPlan(ctx, stackID)
+}
+
+// Work is the queued or running job for one plan's apply, nil when the apply
+// has not been enqueued. The panel shows the queue position from it.
+func (s *PlanService) Work(ctx context.Context, kind, planID string) (*repo.WorkItem, error) {
+	return s.store.LatestWorkItem(ctx, kind, planID)
+}

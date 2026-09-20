@@ -136,6 +136,8 @@ func RegisterRoutes(srv *server.Server, deps *Deps) {
 		WithOrgs(deps.Orgs).
 		WithNodeService(deps.NodeService).
 		WithAuth(deps.AuthService).
+		WithKeys(service.NewAPIKeyService(deps.Store)).
+		WithConnectors(service.NewConnectorService(deps.Store)).
 		WithInstances(deps.Instances).
 		WithSlices(deps.Slices).
 		WithMail(deps.Mail)

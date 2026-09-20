@@ -185,3 +185,11 @@ func (s *OrgService) Resolve(ctx context.Context, key string) (*repo.Org, error)
 func (s *OrgService) Save(ctx context.Context, o *repo.Org) error {
 	return s.store.UpdateOrg(ctx, o)
 }
+
+// Delete removes an organization. What it cascades is the store's; whether it
+// MAY be removed — the last organization on the install cannot be, and a draft
+// does not count as one — is the panel's, because that rule is about what the
+// setup wizard needs to leave behind.
+func (s *OrgService) Delete(ctx context.Context, id string) error {
+	return s.store.DeleteOrg(ctx, id)
+}

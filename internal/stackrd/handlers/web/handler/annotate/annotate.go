@@ -11,13 +11,14 @@ import (
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 
+	"github.com/FyrmForge/stackr/internal/stackrd/service"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 )
 
 // Save upserts one annotation posted as JSON. The server owns the id: a save
 // without one is a create and gets a fresh uuid. The id always comes back in
 // the response so the client can address the note from then on.
-func Save(c echo.Context, store repo.Store, owner string) error {
+func Save(c echo.Context, graph *service.GraphService, owner string) error {
 	var in struct {
 		ID    string  `json:"id"`
 		Kind  string  `json:"kind"`
@@ -43,7 +44,7 @@ func Save(c echo.Context, store repo.Store, owner string) error {
 	if err := repo.ValidateAnnotation(a); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
-	if err := store.UpsertAnnotation(c.Request().Context(), a); err != nil {
+	if err := graph.SaveAnnotation(c.Request().Context(), a); err != nil {
 		return err
 	}
 	return c.JSON(http.StatusOK, map[string]string{"id": a.ID})
@@ -51,14 +52,14 @@ func Save(c echo.Context, store repo.Store, owner string) error {
 
 // Delete removes one annotation by id, scoped to the owner so a request can
 // never delete another canvas's note.
-func Delete(c echo.Context, store repo.Store, owner string) error {
+func Delete(c echo.Context, graph *service.GraphService, owner string) error {
 	var in struct {
 		ID string `json:"id"`
 	}
 	if err := c.Bind(&in); err != nil || in.ID == "" {
 		return echo.NewHTTPError(http.StatusBadRequest, "id required")
 	}
-	if err := store.DeleteAnnotation(c.Request().Context(), owner, in.ID); err != nil {
+	if err := graph.DeleteAnnotation(c.Request().Context(), owner, in.ID); err != nil {
 		return err
 	}
 	return c.NoContent(http.StatusNoContent)

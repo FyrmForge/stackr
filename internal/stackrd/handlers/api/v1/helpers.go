@@ -125,8 +125,8 @@ func (a *API) checkConnector(ctx context.Context, s *repo.Stack, id string) erro
 	if id == "" {
 		return nil
 	}
-	cn, err := a.store.GetConnector(ctx, id)
-	if err != nil {
+	cn, err := a.connectors.Get(ctx, id)
+	if err != nil && !errors.Is(err, svcerr.ErrNotFound) {
 		return err
 	}
 	if cn == nil || cn.OrgID != s.OrgID {

@@ -205,3 +205,15 @@ func (s *RegistryService) ListAll(ctx context.Context) ([]repo.Registry, error) 
 func (s *RegistryService) Credentials(ctx context.Context, orgID string) ([]repo.OrgRegistryCredential, error) {
 	return s.store.ListOrgRegistryCredentials(ctx, orgID)
 }
+
+// Create adds a registry row. AddExternal is the one with the rules — it
+// validates the URL and the credentials; this is the raw write for the
+// managed registry, which stackr creates for itself.
+func (s *RegistryService) Create(ctx context.Context, r *repo.Registry) error {
+	return s.store.CreateRegistry(ctx, r)
+}
+
+// Save writes a registry row back.
+func (s *RegistryService) Save(ctx context.Context, r *repo.Registry) error {
+	return s.store.UpdateRegistry(ctx, r)
+}

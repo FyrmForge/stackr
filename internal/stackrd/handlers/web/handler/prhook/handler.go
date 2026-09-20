@@ -577,8 +577,8 @@ func (h *handler) updatePlanComment(ctx context.Context, stack *repo.Stack, p *p
 		return
 	}
 	pl := h.planner()
-	cn, err := h.store.GetConnector(ctx, stack.ConfigConnectorID)
-	if err != nil || cn == nil {
+	cn, err := h.connectors.Get(ctx, stack.ConfigConnectorID)
+	if err != nil {
 		return
 	}
 	num := strconv.Itoa(p.Number)

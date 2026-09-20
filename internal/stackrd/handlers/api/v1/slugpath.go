@@ -116,7 +116,11 @@ func (a *API) tileByPath(ctx context.Context, ref string) (*repo.Tile, error) {
 	if err != nil || env == nil {
 		return nil, err
 	}
-	return a.store.GetTileBySlug(ctx, env.ID, parts[3])
+	t, err := a.tiles.BySlug(ctx, env.ID, parts[3])
+	if errors.Is(err, svcerr.ErrNotFound) {
+		return nil, nil // a path miss is the caller's to interpret
+	}
+	return t, err
 }
 
 // listOrgs is the entry point for slug addressing: without it a caller holding

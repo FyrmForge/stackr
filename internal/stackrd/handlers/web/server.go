@@ -307,7 +307,7 @@ func RegisterRoutes(srv *server.Server, deps *Deps) {
 
 	searchHandler := searchpage.NewHandler(deps.Store, deps.Environments, deps.Stacks, deps.Tiles).
 		WithOrgs(deps.Orgs).WithMembers(deps.Members).WithDomains(deps.Domains).WithPlans(deps.Plans).WithSchedules(deps.Schedules).
-		WithConnectors(deps.Connectors)
+		WithConnectors(deps.Connectors).WithInstances(deps.Instances).WithVariables(deps.Variables)
 	site.GET("/search", searchHandler.Search, auth.RequireAuth())
 
 	orgHandler := orgpage.NewHandler(deps.Store, deps.Notifier, deps.Metrics, deps.FileStorage, deps.Runtime, deps.Forwards, deps.OrgConfig, deps.GitHub, deps.Mail, deps.RegistrySigner, deps.Proxy).
@@ -486,7 +486,7 @@ func RegisterRoutes(srv *server.Server, deps *Deps) {
 	projectHandler := project.NewHandler(deps.Store, deps.Runtime, deps.Cluster, deps.Proxy, deps.Metrics, deps.Notifier, deps.GitHub, applier, deps.Forwards).
 		WithOrgs(deps.Orgs).WithSlices(deps.Slices).WithNodeService(deps.NodeService).
 		WithAudit(deps.Audit).WithRevoke(deps.Revoke).WithTelemetry(deps.Telemetry).
-		WithConnectors(deps.Connectors).
+		WithConnectors(deps.Connectors).WithLifecycle(deps.Lifecycle).
 		WithGraph(deps.Graph).
 		WithInstances(deps.Instances).
 		WithVariables(deps.Variables).
@@ -709,6 +709,7 @@ func RegisterRoutes(srv *server.Server, deps *Deps) {
 	appHandler := apppage.NewHandler(deps.Store, deps.Cluster, deps.Proxy, deps.Engine, deps.Jobs, deps.GitHub, deps.Notifier, deps.Lifecycle, deps.Tiles, deps.Telemetry, deps.Domains).
 		WithEnvironments(deps.Environments).WithStacks(deps.Stacks).WithOrgs(deps.Orgs).
 		WithStorage(deps.Storage).WithAudit(deps.Audit).WithConnectors(deps.Connectors).
+		WithNodeService(deps.NodeService).
 		WithSlices(deps.Slices).
 		WithVariables(deps.Variables).
 		WithDeploys(deps.Deploys).

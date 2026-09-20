@@ -273,3 +273,39 @@ func (s *BackupScheduleService) Get(ctx context.Context, id string) (*repo.Backu
 	}
 	return b, nil
 }
+
+// Save writes a schedule row directly, and Remove deletes one.
+//
+// Create, Update and Delete are the ones with the rules — the destination
+// resolution, the cron normalisation, the scheduler re-registration. These two
+// are the raw writes, for the panel's server-backup page, which schedules the
+// PANEL's own backup: a row with no tile, which every rule above is written
+// about a tile for.
+func (s *BackupScheduleService) Save(ctx context.Context, b *repo.Backup) error {
+	if b.ID == "" {
+		return svcerr.Invalid{Field: "id", Msg: "required"}
+	}
+	if existing, err := s.store.GetBackup(ctx, b.ID); err != nil {
+		return err
+	} else if existing == nil {
+		return s.store.CreateBackup(ctx, b)
+	}
+	return s.store.UpdateBackup(ctx, b)
+}
+
+// Remove deletes a schedule row.
+func (s *BackupScheduleService) Remove(ctx context.Context, id string) error {
+	return s.store.DeleteBackup(ctx, id)
+}
+
+// Run is one recorded backup run by id.
+func (s *BackupScheduleService) Run(ctx context.Context, id string) (*repo.BackupRun, error) {
+	r, err := s.store.GetBackupRun(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if r == nil {
+		return nil, svcerr.ErrNotFound
+	}
+	return r, nil
+}

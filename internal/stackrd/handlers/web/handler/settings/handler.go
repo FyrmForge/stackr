@@ -261,12 +261,9 @@ func (h *handler) SavePanelBackup(c echo.Context) error {
 		middleware.SetFlash(c, err.Error(), middleware.FlashError)
 		return respond.Redirect(c, "/admin/backups")
 	}
-	if create {
-		err = h.store.CreateBackup(ctx, b)
-	} else {
-		err = h.store.UpdateBackup(ctx, b)
-	}
-	if err != nil {
+	// Save upserts, so the create/update branch the page tracked is gone.
+	_ = create
+	if err = h.schedules.Save(ctx, b); err != nil {
 		return err
 	}
 	h.sched.ReloadBackups(ctx)
@@ -296,7 +293,7 @@ func (h *handler) DeletePanelBackup(c echo.Context) error {
 	if err != nil || b == nil {
 		return echo.NewHTTPError(http.StatusNotFound, "no panel backup configured")
 	}
-	if err := h.store.DeleteBackup(ctx, b.ID); err != nil {
+	if err := h.schedules.Remove(ctx, b.ID); err != nil {
 		return err
 	}
 	h.sched.ReloadBackups(ctx)

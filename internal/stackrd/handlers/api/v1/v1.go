@@ -103,6 +103,10 @@ type API struct {
 	nodeSvc *service.NodeService
 	// auth owns the account row behind a key.
 	auth *service.AuthService
+	// keys resolves a presented token to its row.
+	keys *service.APIKeyService
+	// connectors owns the source-host link a config-managed stack clones through.
+	connectors *service.ConnectorService
 	// settings owns every rung of the defaults cascade.
 	settings *service.SettingsService
 	// access owns the level every verb needs, shared with the panel.
@@ -203,6 +207,12 @@ func (a *API) WithNodeService(n *service.NodeService) *API { a.nodeSvc = n; retu
 
 // WithAuth gives the API the account service.
 func (a *API) WithAuth(s *service.AuthService) *API { a.auth = s; return a }
+
+// WithKeys gives the API the key service.
+func (a *API) WithKeys(k *service.APIKeyService) *API { a.keys = k; return a }
+
+// WithConnectors gives the API the connector service.
+func (a *API) WithConnectors(c *service.ConnectorService) *API { a.connectors = c; return a }
 
 // WithOrgConfig gives the API the org config runner.
 func (a *API) WithOrgConfig(r *orgconf.Runner) *API { a.orgcfg = r; return a }

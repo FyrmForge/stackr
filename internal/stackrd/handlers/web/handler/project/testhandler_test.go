@@ -17,16 +17,20 @@ func testHandler(s repo.Store) *handler {
 	gate := service.NewGateService(s)
 	envs := service.NewEnvironmentService(s, nil, nil, nil, gate)
 	return &handler{
-		store:   s,
-		envs:    envs,
-		vars:    service.NewVariableService(s, nil, nil, nil),
-		stacks:  service.NewStackService(s, nil, nil, envs, nil, gate, nil),
-		tiles:   service.NewTileService(s, nil, nil, nil, nil, nil, gate),
-		orgs:    service.NewOrgService(s),
-		domains: service.NewDomainService(s, nil, gate),
-		slices:  service.NewSliceService(s, nil, nil, nil),
-		plans:   service.NewPlanService(s, nil, nil),
-		deploys: service.NewDeployService(s, nil),
-		graph:   service.NewGraphService(s),
+		store:      s,
+		envs:       envs,
+		vars:       service.NewVariableService(s, nil, nil, nil),
+		stacks:     service.NewStackService(s, nil, nil, envs, nil, gate, nil),
+		tiles:      service.NewTileService(s, nil, nil, nil, nil, nil, gate),
+		orgs:       service.NewOrgService(s),
+		domains:    service.NewDomainService(s, nil, gate),
+		slices:     service.NewSliceService(s, nil, nil, nil),
+		plans:      service.NewPlanService(s, nil, nil),
+		deploys:    service.NewDeployService(s, nil),
+		graph:      service.NewGraphService(s),
+		instances:  service.NewManagedInstanceService(s, nil, service.NewTileService(s, nil, nil, nil, nil, nil, gate), gate, nil),
+		life:       service.NewTileLifecycleService(s, nil, nil, nil, nil, nil),
+		telemetry:  service.NewTileTelemetryService(s, nil),
+		connectors: service.NewConnectorService(s),
 	}
 }

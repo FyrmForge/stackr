@@ -237,3 +237,11 @@ func (s *MemberService) Join(ctx context.Context, orgID, userID, role string) er
 		OrgID: orgID, UserID: userID, Role: role, CreatedAt: time.Now().UTC(),
 	})
 }
+
+// CreateInvite writes an invitation row. Invite is the one with the rules —
+// the role check, the expiry, the email — and is what a person's invitation
+// goes through. This is the raw write, for the API's own minting path, which
+// hands the token back rather than sending it.
+func (s *MemberService) CreateInvite(ctx context.Context, i *repo.Invite) error {
+	return s.store.CreateInvite(ctx, i)
+}

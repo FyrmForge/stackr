@@ -36,7 +36,7 @@ func (h *handler) compareStack(ctx context.Context, p *repo.Stack) (envcompare.R
 	}
 	intended := map[string][]repo.Intended{}
 	for _, e := range statics {
-		rows, _ := h.store.ListIntended(ctx, e.ID)
+		rows, _ := h.instances.Intended(ctx, e.ID)
 		intended[e.ID] = rows
 	}
 	return envcompare.Compare(p.Name, statics, state, intended), colors, nil
@@ -103,7 +103,7 @@ func (h *handler) MarkIntended(c echo.Context) error {
 		if k.Intended {
 			continue
 		}
-		if err := h.store.SetIntended(ctx, &repo.Intended{EnvironmentID: env.ID, TileSlug: c.FormValue("tile"), Key: k.Name, Value: k.Val}); err != nil {
+		if err := h.instances.SetIntended(ctx, &repo.Intended{EnvironmentID: env.ID, TileSlug: c.FormValue("tile"), Key: k.Name, Value: k.Val}); err != nil {
 			return err
 		}
 	}

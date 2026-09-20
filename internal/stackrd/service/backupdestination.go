@@ -246,3 +246,9 @@ func (s *BackupDestinationService) Get(ctx context.Context, id string) (*repo.Ba
 	}
 	return d, nil
 }
+
+// Save writes a destination row back. SetShared and Delete own the rules
+// about what a destination may become; this is the field edit.
+func (s *BackupDestinationService) Save(ctx context.Context, d *repo.BackupDestination) error {
+	return s.store.UpdateBackupDestination(ctx, d)
+}

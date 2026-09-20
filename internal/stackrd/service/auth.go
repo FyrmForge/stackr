@@ -183,3 +183,10 @@ func (s *AuthService) Users(ctx context.Context) ([]repo.User, error) {
 func (s *AuthService) SaveUser(ctx context.Context, u *repo.User) error {
 	return s.store.UpdateUser(ctx, u)
 }
+
+// UserByEmail is one account by address, nil when there is none. Nil rather
+// than ErrNotFound: its callers are asking "is this address taken", where
+// absent is the answer they want.
+func (s *AuthService) UserByEmail(ctx context.Context, email string) (*repo.User, error) {
+	return s.store.GetUserByEmail(ctx, email)
+}

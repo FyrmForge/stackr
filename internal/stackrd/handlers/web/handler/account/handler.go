@@ -80,7 +80,7 @@ func (h *handler) SaveProfile(c echo.Context) error {
 	}
 	// Email is the login identifier, so a collision would lock someone out.
 	if email != u.Email {
-		if existing, _ := h.store.GetUserByEmail(ctx, email); existing != nil {
+		if existing, _ := h.auth.UserByEmail(ctx, email); existing != nil {
 			middleware.SetFlash(c, "That email is already registered.", middleware.FlashError)
 			return respond.Redirect(c, "/account/profile")
 		}
@@ -211,7 +211,7 @@ func (h *handler) DeleteAPIKey(c echo.Context) error {
 	if !h.ownsAPIKey(c, c.Param("id")) && !stackrmw.IsAdmin(c) {
 		return echo.NewHTTPError(http.StatusNotFound, "not found")
 	}
-	if err := h.store.DeleteAPIKey(c.Request().Context(), c.Param("id")); err != nil {
+	if err := h.keys.Delete(c.Request().Context(), c.Param("id")); err != nil {
 		return err
 	}
 	middleware.SetFlash(c, "API key revoked.", middleware.FlashSuccess)

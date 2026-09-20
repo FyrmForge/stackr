@@ -29,7 +29,7 @@ func (h *handler) StackGraph(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	pendingPlan, _ := h.store.LatestConfigPlan(ctx, p.ID)
+	pendingPlan, _ := h.plans.Latest(ctx, p.ID)
 	if pendingPlan != nil && pendingPlan.Status != "pending" && pendingPlan.Status != "error" {
 		pendingPlan = nil
 	}
@@ -104,7 +104,7 @@ func (h *handler) SaveStackAnnotation(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	if err := annotate.Save(c, h.store, repo.GraphOwner(repo.ScopeStack, p.ID)); err != nil {
+	if err := annotate.Save(c, h.graph, repo.GraphOwner(repo.ScopeStack, p.ID)); err != nil {
 		return err
 	}
 	h.notifier.Project(p.ID)
@@ -116,7 +116,7 @@ func (h *handler) DeleteStackAnnotation(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	if err := annotate.Delete(c, h.store, repo.GraphOwner(repo.ScopeStack, p.ID)); err != nil {
+	if err := annotate.Delete(c, h.graph, repo.GraphOwner(repo.ScopeStack, p.ID)); err != nil {
 		return err
 	}
 	h.notifier.Project(p.ID)
@@ -130,7 +130,7 @@ func (h *handler) SaveEnvAnnotation(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	if err := annotate.Save(c, h.store, repo.GraphOwner(repo.ScopeEnv, env)); err != nil {
+	if err := annotate.Save(c, h.graph, repo.GraphOwner(repo.ScopeEnv, env)); err != nil {
 		return err
 	}
 	h.notifier.Project(stackID)
@@ -142,7 +142,7 @@ func (h *handler) DeleteEnvAnnotation(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	if err := annotate.Delete(c, h.store, repo.GraphOwner(repo.ScopeEnv, env)); err != nil {
+	if err := annotate.Delete(c, h.graph, repo.GraphOwner(repo.ScopeEnv, env)); err != nil {
 		return err
 	}
 	h.notifier.Project(stackID)
@@ -156,7 +156,7 @@ func (h *handler) SaveStackGraphGroup(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	if err := annotate.SaveGroup(c, h.store, repo.GraphOwner(repo.ScopeStack, p.ID)); err != nil {
+	if err := annotate.SaveGroup(c, h.graph, repo.GraphOwner(repo.ScopeStack, p.ID)); err != nil {
 		return err
 	}
 	h.notifier.Project(p.ID)
@@ -168,7 +168,7 @@ func (h *handler) DeleteStackGraphGroup(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	if err := annotate.DeleteGroup(c, h.store, repo.GraphOwner(repo.ScopeStack, p.ID)); err != nil {
+	if err := annotate.DeleteGroup(c, h.graph, repo.GraphOwner(repo.ScopeStack, p.ID)); err != nil {
 		return err
 	}
 	h.notifier.Project(p.ID)
@@ -182,7 +182,7 @@ func (h *handler) SaveEnvGraphGroup(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	if err := annotate.SaveGroup(c, h.store, repo.GraphOwner(repo.ScopeEnv, env)); err != nil {
+	if err := annotate.SaveGroup(c, h.graph, repo.GraphOwner(repo.ScopeEnv, env)); err != nil {
 		return err
 	}
 	h.notifier.Project(stackID)
@@ -194,7 +194,7 @@ func (h *handler) DeleteEnvGraphGroup(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	if err := annotate.DeleteGroup(c, h.store, repo.GraphOwner(repo.ScopeEnv, env)); err != nil {
+	if err := annotate.DeleteGroup(c, h.graph, repo.GraphOwner(repo.ScopeEnv, env)); err != nil {
 		return err
 	}
 	h.notifier.Project(stackID)
@@ -315,7 +315,7 @@ func (h *handler) buildStackGraph(ctx context.Context, p *repo.Stack, style grap
 		// up and appear here only as ghost references, so the dependency the
 		// org canvas draws doesn't vanish on the way down. Ghosts below cover
 		// instances owned outside this stack too.
-		envRes, err := h.store.ListResourcesByEnv(ctx, env.ID)
+		envRes, err := h.instances.Resources(ctx, env.ID)
 		if err != nil {
 			return graph.Graph{}, nil, err
 		}
@@ -375,7 +375,7 @@ func (h *handler) buildStackGraph(ctx context.Context, p *repo.Stack, style grap
 	}
 	// Shared instances nothing provisions from yet: still residents, they
 	// live in the stack's home.
-	if home, err := h.store.HomeEnvironment(ctx, p.ID); err == nil && home != nil {
+	if home, err := h.envs.Home(ctx, p.ID); err == nil && home != nil {
 		tiles, err := h.tiles.ListForEnv(ctx, home.ID)
 		if err != nil {
 			return graph.Graph{}, nil, err

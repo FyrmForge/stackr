@@ -71,6 +71,7 @@ type handler struct {
 	storage    *service.StorageService
 	audit      *service.AuditService
 	connectors *service.ConnectorService
+	nodeSvc    *service.NodeService
 }
 
 // NewHandler creates a new app handler.
@@ -428,8 +429,8 @@ func (h *handler) placementOf(ctx context.Context, a *repo.Tile) placementView {
 	if nodeID == "" {
 		return placementView{}
 	}
-	sv, err := h.store.GetServerByNodeID(ctx, nodeID)
-	if err != nil || sv == nil {
+	sv, err := h.nodeSvc.ByNodeID(ctx, nodeID)
+	if err != nil {
 		// Pinned to a node with no row: it left the swarm. Say the id, which
 		// is all there is, rather than nothing.
 		return placementView{Name: nodeID, Status: "gone"}
@@ -712,7 +713,7 @@ func (h *handler) Attach(c echo.Context) error {
 		// from the stored row so the staged attach/path don't ride along.
 		if stored, err := h.tiles.Get(ctx, a.ID); err == nil {
 			stored.MaxSizeMB = a.MaxSizeMB
-			if err := h.store.UpdateTile(ctx, stored); err != nil {
+			if err := h.tiles.Save(ctx, stored); err != nil {
 				return err
 			}
 		}
@@ -724,7 +725,7 @@ func (h *handler) Attach(c echo.Context) error {
 		return h.panelDone(c, a, "settings")
 	}
 
-	if err := h.store.UpdateTile(ctx, a); err != nil {
+	if err := h.tiles.Save(ctx, a); err != nil {
 		return err
 	}
 	// Redeploy whichever services gained or lost the mount.
@@ -1086,7 +1087,7 @@ func (h *handler) SaveEnv(c echo.Context) error {
 
 	a.Env = newEnv
 	a.BuildArgs = c.FormValue("build_args")
-	if err := h.store.UpdateTile(ctx, a); err != nil {
+	if err := h.tiles.Save(ctx, a); err != nil {
 		return err
 	}
 	// Env vars only take effect at container start, so redeploy a running
@@ -1627,3 +1628,6 @@ func (h *handler) WithAudit(v *service.AuditService) *handler { h.audit = v; ret
 
 // WithConnectors gives the page the connector service.
 func (h *handler) WithConnectors(v *service.ConnectorService) *handler { h.connectors = v; return h }
+
+// WithNodeService gives the tile page the server a tile is pinned to.
+func (h *handler) WithNodeService(n *service.NodeService) *handler { h.nodeSvc = n; return h }

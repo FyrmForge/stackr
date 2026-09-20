@@ -98,7 +98,7 @@ func (h *handler) OrgPlanView(c echo.Context) error {
 // queued for it. Keyed on the plan id, which is the dedupe key the enqueue
 // uses, so an older plan's page can never narrate a newer plan's apply.
 func (h *handler) orgPlanWork(c echo.Context, cp *repo.ConfigPlan) *repo.WorkItem {
-	w, err := h.store.LatestWorkItem(c.Request().Context(), orgconf.ApplyKind, cp.ID)
+	w, err := h.plans.Work(c.Request().Context(), orgconf.ApplyKind, cp.ID)
 	if err != nil {
 		return nil
 	}

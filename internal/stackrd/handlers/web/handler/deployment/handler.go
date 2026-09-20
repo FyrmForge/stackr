@@ -181,7 +181,7 @@ func (h *handler) Stream(c echo.Context) error {
 	}
 
 	// Already finished? One event and done.
-	d, _ = h.store.GetDeployment(ctx, d.ID)
+	d, _ = h.deploys.Get(ctx, d.ID)
 	if d != nil && deploystate.IsTerminal(d.Status) {
 		_, _ = fmt.Fprintf(res, "event: done\ndata: %s\n\n", d.Status)
 		res.Flush()
