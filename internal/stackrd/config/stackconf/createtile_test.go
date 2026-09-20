@@ -36,7 +36,7 @@ func tileApplier(store repo.Store) Applier {
 	tiles := service.NewTileService(store, nil, nil, nil, nil, nil, service.NewGateService(store))
 	return Applier{
 		Planner: Planner{Store: store},
-		Ops: envops.Ops{Store: store, Tiles: tiles},
+		Ops:     envops.Ops{Store: store, Tiles: tiles},
 	}
 }
 
