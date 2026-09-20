@@ -2709,3 +2709,33 @@ collections 200, bogus ids 404.
 
 The two 400s along the way were both validation doing its job on a deliberately
 malformed body, not breakage.
+
+## Point 20 — live verification, 2026-09-20
+
+Deployed to the test VM (the image builds on `golang:1.27.1-alpine`) and driven
+through the panel, every write asserted by reading the row back out of
+`~/stackr/data/stackr.db` on the box rather than by looking at a page.
+
+The check that discriminates is not "does it still work" — it is a config save
+landing while observed state does not move:
+
+1. New stack `qa/p20live`, new image tile `p20check` (nginx:alpine, port 80).
+   The panel stages structural tile edits, so this arrived as a staged
+   `create`; applying it built and deployed the tile. Row after:
+   `status=running`, `image_digest=sha256:62ff2089…`, `container_port=80`.
+   That exercises `CreateTile`, `UpdateTileStatus` and `SetTileImageDigest`.
+2. Settings save on the same tile, `mem_limit_mb` 0 -> 321, then applied.
+   Row after: **`mem_limit_mb=321`, `status` still `running`, `image_digest`
+   unchanged, `container_port` still 80.** The config half landed through the
+   new `UpdateTile(ctx, id, TileConfig)`; the observed half was untouched.
+3. Separately, a settings save on `test-org/nas/samba` — a tile with all three
+   state fields set — left `status=running`, `home_node=1ufcjndj…` and its
+   digest exactly as they were. That org is config-as-code, so the save landed
+   in the staging buffer with `limits.memory_mb: 321` in the payload, which is
+   the config path's own behaviour and not something this point changed.
+4. Read crawl as admin: 140 pages, no 5xx.
+
+The settings form itself is worth noting: its fields are exactly
+`source_type … depends_on`, all config. No `status`, no `home_node`, no
+digest — the form never carried state, which is why nothing had to change in
+the panel for any of this.
