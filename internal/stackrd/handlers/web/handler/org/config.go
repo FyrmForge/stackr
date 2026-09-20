@@ -72,7 +72,7 @@ func (h *handler) SaveOrgConfig(c echo.Context) error {
 			o.ConfigBranch = strings.TrimSpace(c.FormValue("branch"))
 			o.ConfigPath = strings.TrimSpace(c.FormValue("path"))
 		}
-		if err := h.store.UpdateOrg(ctx, o); err != nil {
+		if err := h.orgs.Save(ctx, o); err != nil {
 			return err
 		}
 	}

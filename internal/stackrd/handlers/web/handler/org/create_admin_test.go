@@ -34,7 +34,8 @@ func TestCreateOrgIsAdminOnly(t *testing.T) {
 	orgs := []repo.Org{*seed.Org}
 	h := NewHandler(s, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil).
 		WithDomainResources(service.NewDomainResourceService(s, nil)).
-		WithPlans(service.NewPlanService(s, nil, nil))
+		WithPlans(service.NewPlanService(s, nil, nil)).
+		WithGraph(service.NewGraphService(s))
 
 	before, err := s.ListOrgs(ctx)
 	require.NoError(t, err)

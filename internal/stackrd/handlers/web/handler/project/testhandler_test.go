@@ -27,5 +27,6 @@ func testHandler(s repo.Store) *handler {
 		slices:  service.NewSliceService(s, nil, nil, nil),
 		plans:   service.NewPlanService(s, nil, nil),
 		deploys: service.NewDeployService(s, nil),
+		graph:   service.NewGraphService(s),
 	}
 }

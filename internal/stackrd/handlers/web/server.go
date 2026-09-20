@@ -121,6 +121,7 @@ type Deps struct {
 	Members      *service.MemberService
 	Orgs         *service.OrgService
 	Audit        *service.AuditService
+	Graph        *service.GraphService
 	Instances    *service.ManagedInstanceService
 	Slices       *service.SliceService
 	Metrics      *metrics.Sampler
@@ -309,6 +310,7 @@ func RegisterRoutes(srv *server.Server, deps *Deps) {
 	orgHandler := orgpage.NewHandler(deps.Store, deps.Notifier, deps.Metrics, deps.FileStorage, deps.Runtime, deps.Forwards, deps.OrgConfig, deps.GitHub, deps.Mail, deps.RegistrySigner, deps.Proxy).
 		WithDomainResources(deps.Resources).WithVariables(deps.Variables).WithStacks(deps.Stacks).
 		WithDomains(deps.Domains).WithSlices(deps.Slices).WithStorage(deps.Storage).
+		WithGraph(deps.Graph).
 		WithPlans(deps.Plans).WithDeploys(deps.Deploys).
 		WithAudit(deps.Audit).WithAuth(deps.AuthService).
 		WithOrgs(deps.Orgs).WithMembers(deps.Members).
@@ -481,6 +483,7 @@ func RegisterRoutes(srv *server.Server, deps *Deps) {
 	projectHandler := project.NewHandler(deps.Store, deps.Runtime, deps.Cluster, deps.Proxy, deps.Metrics, deps.Notifier, deps.GitHub, applier, deps.Forwards).
 		WithOrgs(deps.Orgs).WithSlices(deps.Slices).WithNodeService(deps.NodeService).
 		WithAudit(deps.Audit).WithRevoke(deps.Revoke).WithTelemetry(deps.Telemetry).
+		WithGraph(deps.Graph).
 		WithInstances(deps.Instances).
 		WithVariables(deps.Variables).
 		WithEnvironments(deps.Environments).

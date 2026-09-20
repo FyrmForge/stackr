@@ -100,6 +100,7 @@ type handler struct {
 	audit     *service.AuditService
 	revoke    *service.RevokeService
 	telemetry *service.TileTelemetryService
+	graph     *service.GraphService
 }
 
 // WithMover attaches the volume-move service. Set from the router rather than
@@ -985,7 +986,7 @@ func (h *handler) SaveNodePosition(c echo.Context) error {
 	if err := repo.ValidateNodePositions(owner, ps); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
-	if err := h.store.SaveNodePositions(ctx, owner, ps); err != nil {
+	if err := h.graph.SavePositions(ctx, owner, ps); err != nil {
 		return err
 	}
 	h.notifier.Project(env.StackID) // other open canvases re-fetch and move the card
@@ -999,7 +1000,7 @@ func (h *handler) ResetNodePositions(c echo.Context) error {
 	if err != nil {
 		return stackrmw.HTTP(err)
 	}
-	if err := h.store.DeleteNodePositions(c.Request().Context(), repo.GraphOwner(repo.ScopeEnv, env.ID)); err != nil {
+	if err := h.graph.ResetPositions(c.Request().Context(), repo.GraphOwner(repo.ScopeEnv, env.ID)); err != nil {
 		return err
 	}
 	h.notifier.Project(env.StackID)
@@ -1171,7 +1172,7 @@ func (h *handler) buildGraph(ctx context.Context, envID string, style graph.Arra
 	apps, dbs := splitTiles(tiles)
 	// Layouts are per-environment: dragging a card in one environment used to
 	// rearrange every sibling environment of the same stack.
-	rows, err := h.store.ListNodePositions(ctx, repo.GraphOwner(repo.ScopeEnv, envID))
+	rows, err := h.graph.Positions(ctx, repo.GraphOwner(repo.ScopeEnv, envID))
 	if err != nil {
 		return graph.Graph{}, err
 	}
@@ -1222,8 +1223,8 @@ func (h *handler) buildGraph(ctx context.Context, envID string, style graph.Arra
 	// (docs/plans/32-multi-node-ui.md, canvas).
 	h.markPlacement(ctx, &g, tiles)
 	h.addForwards(ctx, &g, tiles)
-	g.Annotations, _ = h.store.ListAnnotations(ctx, repo.GraphOwner(repo.ScopeEnv, envID))
-	g.Groups, _ = h.store.ListGraphGroups(ctx, repo.GraphOwner(repo.ScopeEnv, envID))
+	g.Annotations, _ = h.graph.Annotations(ctx, repo.GraphOwner(repo.ScopeEnv, envID))
+	g.Groups, _ = h.graph.Groups(ctx, repo.GraphOwner(repo.ScopeEnv, envID))
 	return g, nil
 }
 
@@ -2445,3 +2446,6 @@ func (h *handler) WithRevoke(v *service.RevokeService) *handler { h.revoke = v; 
 
 // WithTelemetry gives the page the metric window.
 func (h *handler) WithTelemetry(v *service.TileTelemetryService) *handler { h.telemetry = v; return h }
+
+// WithGraph gives the canvas its saved layout.
+func (h *handler) WithGraph(g *service.GraphService) *handler { h.graph = g; return h }

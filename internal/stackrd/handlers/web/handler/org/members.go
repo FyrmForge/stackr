@@ -133,7 +133,7 @@ func (h *handler) Rename(c echo.Context) error {
 		_ = h.files.Delete(ctx, o.AvatarPath)
 		o.AvatarPath = ""
 	}
-	if err := h.store.UpdateOrg(ctx, o); err != nil {
+	if err := h.orgs.Save(ctx, o); err != nil {
 		return err
 	}
 	// In the wizard this is the first name the org has had, so there is nothing
@@ -331,8 +331,8 @@ func (h *handler) ownedInvite(c echo.Context) (*repo.Org, *repo.Invite, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	inv, err := h.store.GetInvite(c.Request().Context(), c.Param("inviteID"))
-	if err != nil || inv == nil || inv.OrgID != o.ID {
+	inv, err := h.members.GetInvite(c.Request().Context(), c.Param("inviteID"))
+	if err != nil || inv.OrgID != o.ID {
 		return nil, nil, echo.NewHTTPError(http.StatusNotFound, "invite not found")
 	}
 	return o, inv, nil
@@ -344,7 +344,7 @@ func (h *handler) DeleteInvite(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	if err := h.store.DeleteInvite(c.Request().Context(), inv.ID); err != nil {
+	if err := h.members.DeleteInvite(c.Request().Context(), inv.ID); err != nil {
 		return err
 	}
 	middleware.SetFlash(c, "Invite revoked.", middleware.FlashSuccess)
@@ -386,7 +386,7 @@ func (h *handler) ReinviteMember(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	if err := h.store.DeleteInvite(c.Request().Context(), inv.ID); err != nil {
+	if err := h.members.DeleteInvite(c.Request().Context(), inv.ID); err != nil {
 		return err
 	}
 	middleware.SetFlash(c, h.inviteFlash(c, o, fresh), middleware.FlashSuccess)

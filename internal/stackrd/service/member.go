@@ -194,3 +194,46 @@ func (s *MemberService) ListMembers(ctx context.Context, orgID string) ([]repo.O
 func (s *MemberService) ListInvites(ctx context.Context, orgID string) ([]repo.Invite, error) {
 	return s.store.ListInvitesByOrg(ctx, orgID)
 }
+
+// --- the invite row ---
+
+// GetInvite is one invitation by id or token.
+func (s *MemberService) GetInvite(ctx context.Context, id string) (*repo.Invite, error) {
+	i, err := s.store.GetInvite(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if i == nil {
+		return nil, svcerr.ErrNotFound
+	}
+	return i, nil
+}
+
+// UseInvite marks an invitation spent. Whether the person accepting it is the
+// person it was addressed to is the caller's check: the invite page compares
+// the address, and a caller that skipped that would be redeemable by anybody
+// holding the link.
+func (s *MemberService) UseInvite(ctx context.Context, id string) error {
+	return s.store.MarkInviteUsed(ctx, id)
+}
+
+// DeleteInvite withdraws an unaccepted invitation.
+func (s *MemberService) DeleteInvite(ctx context.Context, id string) error {
+	return s.store.DeleteInvite(ctx, id)
+}
+
+// Join adds a membership at the invited role, if the person is not in the org
+// already. Idempotent on purpose: two clicks on one invite link is the normal
+// way this is reached.
+func (s *MemberService) Join(ctx context.Context, orgID, userID, role string) error {
+	existing, err := s.RoleOf(ctx, orgID, userID)
+	if err != nil {
+		return err
+	}
+	if existing != "" {
+		return nil
+	}
+	return s.store.UpsertOrgMember(ctx, &repo.OrgMember{
+		OrgID: orgID, UserID: userID, Role: role, CreatedAt: time.Now().UTC(),
+	})
+}

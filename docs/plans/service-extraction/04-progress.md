@@ -2627,3 +2627,18 @@ they 404. That is the correct answer and it is new.
 be folded into `if err != nil || x == nil { 404 }` is now a 500. Intended — an
 outage that renders as "not found" is the bug that hid a broken query for a
 release — but it means a database hiccup reaches the error page.
+
+**Slice 6: the canvas layout, the org row, invitations. 145 -> 122.**
+
+New `service.GraphService` over the three layout tables — node positions,
+annotations, graph groups. They share one shape (a `repo.GraphOwner` key: a
+scope plus an id) and the two canvases and three panel miniatures were each
+assembling that key and reading all three tables themselves. `Load` reads a
+whole layout at once; the three singles stay for the pages that draw only
+cards.
+
+`OrgService.Save` and `MemberService.GetInvite`/`UseInvite`/`DeleteInvite`/
+`Join`. `Join` is the invite page's "add the membership if they are not in it
+already", which was written inline with its own `GetOrgMember` check — the
+idempotence matters because two clicks on one invite link is the normal way
+that path is reached.

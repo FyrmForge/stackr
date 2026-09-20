@@ -119,6 +119,7 @@ func newJourney(t *testing.T) *journey {
 		Environments: service.NewEnvironmentService(store, nil, nil, nil, service.NewGateService(store)),
 		Orgs:         service.NewOrgService(store),
 		Plans:        service.NewPlanService(store, nil, nil),
+		Graph:        service.NewGraphService(store),
 		Deploys:      service.NewDeployService(store, nil),
 		Slices:       service.NewSliceService(store, nil, nil, nil),
 		Storage:      service.NewStorageService(store, nil),

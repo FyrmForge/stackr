@@ -67,7 +67,7 @@ func (h *handler) SaveHomeNodePosition(c echo.Context) error {
 	if err := repo.ValidateNodePositions(owner, ps); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
-	if err := h.store.SaveNodePositions(c.Request().Context(), owner, ps); err != nil {
+	if err := h.graph.SavePositions(c.Request().Context(), owner, ps); err != nil {
 		return err
 	}
 	return c.NoContent(http.StatusNoContent)
@@ -80,7 +80,7 @@ func (h *handler) ResetHomeNodePositions(c echo.Context) error {
 	if u == nil {
 		return echo.NewHTTPError(http.StatusUnauthorized, "not signed in")
 	}
-	if err := h.store.DeleteNodePositions(c.Request().Context(), repo.GraphOwner(repo.ScopeUser, u.ID)); err != nil {
+	if err := h.graph.ResetPositions(c.Request().Context(), repo.GraphOwner(repo.ScopeUser, u.ID)); err != nil {
 		return err
 	}
 	return c.NoContent(http.StatusNoContent)
@@ -188,7 +188,7 @@ func (h *handler) buildOrgsGraph(c echo.Context) (graph.Graph, error) {
 	if err != nil {
 		return graph.Graph{}, err
 	}
-	rows, err := h.store.ListNodePositions(ctx, repo.GraphOwner(repo.ScopeUser, u.ID))
+	rows, err := h.graph.Positions(ctx, repo.GraphOwner(repo.ScopeUser, u.ID))
 	if err != nil {
 		return graph.Graph{}, err
 	}
@@ -216,8 +216,8 @@ func (h *handler) buildOrgsGraph(c echo.Context) (graph.Graph, error) {
 		})
 	}
 	g := graph.BuildOrgs(summaries, positions)
-	g.Annotations, _ = h.store.ListAnnotations(ctx, repo.GraphOwner(repo.ScopeUser, u.ID))
-	g.Groups, _ = h.store.ListGraphGroups(ctx, repo.GraphOwner(repo.ScopeUser, u.ID))
+	g.Annotations, _ = h.graph.Annotations(ctx, repo.GraphOwner(repo.ScopeUser, u.ID))
+	g.Groups, _ = h.graph.Groups(ctx, repo.GraphOwner(repo.ScopeUser, u.ID))
 	return g, nil
 }
 
@@ -304,7 +304,7 @@ func (h *handler) SaveNodePosition(c echo.Context) error {
 	if err := repo.ValidateNodePositions(owner, ps); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
-	if err := h.store.SaveNodePositions(c.Request().Context(), owner, ps); err != nil {
+	if err := h.graph.SavePositions(c.Request().Context(), owner, ps); err != nil {
 		return err
 	}
 	h.notifier.Org(o.ID) // other open org canvases re-fetch and move the card
@@ -318,7 +318,7 @@ func (h *handler) ResetNodePositions(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	if err := h.store.DeleteNodePositions(c.Request().Context(), repo.GraphOwner(repo.ScopeOrg, o.ID)); err != nil {
+	if err := h.graph.ResetPositions(c.Request().Context(), repo.GraphOwner(repo.ScopeOrg, o.ID)); err != nil {
 		return err
 	}
 	h.notifier.Org(o.ID)
@@ -363,7 +363,7 @@ func (h *handler) buildOrgGraph(ctx context.Context, o *repo.Org, style graph.Ar
 	if err != nil {
 		return graph.Graph{}, nil, err
 	}
-	rows, err := h.store.ListNodePositions(ctx, repo.GraphOwner(repo.ScopeOrg, o.ID))
+	rows, err := h.graph.Positions(ctx, repo.GraphOwner(repo.ScopeOrg, o.ID))
 	if err != nil {
 		return graph.Graph{}, nil, err
 	}
@@ -506,8 +506,8 @@ func (h *handler) buildOrgGraph(ctx context.Context, o *repo.Org, style graph.Ar
 	// the header's Settings link (graph.templ).
 	g := graph.BuildOrg(summaries, instances, connectors, h.orgVarCards(ctx, o, stacks), positions)
 	g.Arrange(style, positions)
-	g.Annotations, _ = h.store.ListAnnotations(ctx, repo.GraphOwner(repo.ScopeOrg, o.ID))
-	g.Groups, _ = h.store.ListGraphGroups(ctx, repo.GraphOwner(repo.ScopeOrg, o.ID))
+	g.Annotations, _ = h.graph.Annotations(ctx, repo.GraphOwner(repo.ScopeOrg, o.ID))
+	g.Groups, _ = h.graph.Groups(ctx, repo.GraphOwner(repo.ScopeOrg, o.ID))
 	return g, nodeOf, nil
 }
 

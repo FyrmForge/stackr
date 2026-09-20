@@ -52,7 +52,8 @@ func TestAddMemberAlwaysInvites(t *testing.T) {
 	require.NoError(t, s.CreateUser(ctx, joiner))
 	h := NewHandler(s, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil).
 		WithDomainResources(service.NewDomainResourceService(s, nil)).
-		WithPlans(service.NewPlanService(s, nil, nil))
+		WithPlans(service.NewPlanService(s, nil, nil)).
+		WithGraph(service.NewGraphService(s))
 
 	add := func(email string) error {
 		c := asUser(t, http.MethodPost, "email="+url.QueryEscape(email)+"&role=viewer", owner, orgs, "owner")
@@ -82,7 +83,8 @@ func TestSetupDomainPrefill(t *testing.T) {
 	ctx := context.Background()
 	h := NewHandler(s, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil).
 		WithDomainResources(service.NewDomainResourceService(s, nil)).
-		WithPlans(service.NewPlanService(s, nil, nil))
+		WithPlans(service.NewPlanService(s, nil, nil)).
+		WithGraph(service.NewGraphService(s))
 	o := &repo.Org{Slug: "acme"}
 	components.BaseURL = ""
 	require.Equal(t, "", h.setupDomainPrefill(ctx, o))
@@ -147,7 +149,8 @@ func TestReinviteMintsANewToken(t *testing.T) {
 	require.NoError(t, s.CreateInvite(ctx, dead))
 	h := NewHandler(s, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil).
 		WithDomainResources(service.NewDomainResourceService(s, nil)).
-		WithPlans(service.NewPlanService(s, nil, nil))
+		WithPlans(service.NewPlanService(s, nil, nil)).
+		WithGraph(service.NewGraphService(s))
 
 	c := asUser(t, http.MethodPost, "", owner, orgs, "owner")
 	c.SetParamNames("id", "inviteID")
@@ -182,7 +185,8 @@ func TestSetupDoneOnlyOnPost(t *testing.T) {
 	orgs[0] = org
 	h := NewHandler(s, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil).
 		WithDomainResources(service.NewDomainResourceService(s, nil)).
-		WithPlans(service.NewPlanService(s, nil, nil))
+		WithPlans(service.NewPlanService(s, nil, nil)).
+		WithGraph(service.NewGraphService(s))
 
 	get := asUser(t, http.MethodGet, "", u, orgs, "owner")
 	get.Set("csrf", "test-token") // the summary carries the Finish form
@@ -229,7 +233,8 @@ func TestSetupDoneCreatesDefaultDomain(t *testing.T) {
 		}
 		h := NewHandler(s, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil).
 			WithDomainResources(service.NewDomainResourceService(s, nil)).
-			WithPlans(service.NewPlanService(s, nil, nil))
+			WithPlans(service.NewPlanService(s, nil, nil)).
+			WithGraph(service.NewGraphService(s))
 		c := asUser(t, http.MethodPost, "", u, orgs, "owner")
 		c.SetPath("/orgs/:slug/setup/done")
 		c.SetParamNames("slug")

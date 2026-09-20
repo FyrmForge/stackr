@@ -696,6 +696,7 @@ func main() {
 	memberSvc := service.NewMemberService(store, mailer, revokeSvc)
 	orgSvc := service.NewOrgService(store)
 	auditSvc := service.NewAuditService(store)
+	graphSvc := service.NewGraphService(store)
 
 	api.RegisterRoutes(srv, &api.Deps{
 		Store:          store,
@@ -788,6 +789,7 @@ func main() {
 		Members:        memberSvc,
 		Orgs:           orgSvc,
 		Audit:          auditSvc,
+		Graph:          graphSvc,
 		OrgConfig:      orgRunner,
 		Deploys:        deploySvc,
 		Releases:       releaseSvc,

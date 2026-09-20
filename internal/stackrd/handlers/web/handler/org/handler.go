@@ -61,6 +61,7 @@ type handler struct {
 	deploys  *service.DeployService
 	audit    *service.AuditService
 	auth     *service.AuthService
+	graph    *service.GraphService
 }
 
 // WithSettings attaches the settings service.
@@ -209,3 +210,6 @@ func (h *handler) WithAudit(v *service.AuditService) *handler { h.audit = v; ret
 // WithAuth gives the page the account service, for the user names an org
 // settings page shows beside its members.
 func (h *handler) WithAuth(a *service.AuthService) *handler { h.auth = a; return h }
+
+// WithGraph gives the canvas its saved layout.
+func (h *handler) WithGraph(g *service.GraphService) *handler { h.graph = g; return h }

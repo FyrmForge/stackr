@@ -137,11 +137,11 @@ func (a *API) deleteInvite(c echo.Context) error {
 		return err
 	}
 	ctx := c.Request().Context()
-	inv, err := a.store.GetInvite(ctx, c.Param("invite"))
-	if err != nil || inv == nil || inv.OrgID != o.ID {
+	inv, err := a.members.GetInvite(ctx, c.Param("invite"))
+	if err != nil || inv.OrgID != o.ID {
 		return echo.NewHTTPError(http.StatusNotFound, "not found")
 	}
-	if err := a.store.DeleteInvite(ctx, inv.ID); err != nil {
+	if err := a.members.DeleteInvite(ctx, inv.ID); err != nil {
 		return err
 	}
 	return c.NoContent(http.StatusNoContent)

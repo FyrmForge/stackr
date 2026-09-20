@@ -177,3 +177,11 @@ func (s *OrgService) Resolve(ctx context.Context, key string) (*repo.Org, error)
 	}
 	return o, nil
 }
+
+// Save writes an organization row back. The rules that decide what may change
+// belong to the callers that own them — the wizard's steps, the settings
+// cascade — so this is the write itself, and no handler needs the store to
+// make it.
+func (s *OrgService) Save(ctx context.Context, o *repo.Org) error {
+	return s.store.UpdateOrg(ctx, o)
+}

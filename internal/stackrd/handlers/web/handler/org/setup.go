@@ -183,7 +183,7 @@ func (h *handler) SetupDone(c echo.Context) error {
 	if o.SetupDoneAt == nil {
 		now := time.Now().UTC()
 		o.SetupDoneAt = &now
-		if err := h.store.UpdateOrg(c.Request().Context(), o); err != nil {
+		if err := h.orgs.Save(c.Request().Context(), o); err != nil {
 			return err
 		}
 		if err := h.ensureDefaultDomain(c, o); err != nil {
@@ -478,7 +478,7 @@ func (h *handler) SetupMode(c echo.Context) error {
 		o.ConfigConnectorID, o.ConfigRepo, o.ConfigBranch, o.ConfigPath = "", "", "", ""
 	}
 	o.SetupMode = mode
-	if err := h.store.UpdateOrg(ctx, o); err != nil {
+	if err := h.orgs.Save(ctx, o); err != nil {
 		return err
 	}
 	return respond.Redirect(c, setupFirstURL(o))

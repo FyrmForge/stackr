@@ -134,7 +134,7 @@ func (h *handler) SaveEnvColor(c echo.Context) error {
 		b, _ := json.Marshal(m)
 		o.EnvColors = string(b)
 	}
-	if err := h.store.UpdateOrg(ctx, o); err != nil {
+	if err := h.orgs.Save(ctx, o); err != nil {
 		return err
 	}
 	middleware.SetFlash(c, "Colour saved.", middleware.FlashSuccess)

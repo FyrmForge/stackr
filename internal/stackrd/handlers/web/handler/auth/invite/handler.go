@@ -34,8 +34,8 @@ func NewHandler(store repo.Store, authService *service.AuthService, sm *hamrauth
 
 // loadInvite fetches a live (unused, unexpired) invite and its org.
 func (h *handler) loadInvite(ctx context.Context, token string) (*repo.Invite, *repo.Org) {
-	inv, err := h.store.GetInvite(ctx, token)
-	if err != nil || inv == nil || inv.UsedAt.Valid || time.Now().After(inv.ExpiresAt) {
+	inv, err := h.members.GetInvite(ctx, token)
+	if err != nil || inv.UsedAt.Valid || time.Now().After(inv.ExpiresAt) {
 		return nil, nil
 	}
 	org, err := h.orgs.Get(ctx, inv.OrgID)
@@ -123,14 +123,10 @@ func (h *handler) join(c echo.Context, inv *repo.Invite, org *repo.Org, u *repo.
 		middleware.SetFlash(c, "This invite is for "+inv.Email+".", middleware.FlashError)
 		return respond.Redirect(c, "/")
 	}
-	if role, _ := h.members.RoleOf(ctx, inv.OrgID, u.ID); role == "" {
-		if err := h.store.UpsertOrgMember(ctx, &repo.OrgMember{
-			OrgID: inv.OrgID, UserID: u.ID, Role: inv.Role, CreatedAt: time.Now().UTC(),
-		}); err != nil {
-			return err
-		}
+	if err := h.members.Join(ctx, inv.OrgID, u.ID, inv.Role); err != nil {
+		return err
 	}
-	_ = h.store.MarkInviteUsed(ctx, inv.ID)
+	_ = h.members.UseInvite(ctx, inv.ID)
 	c.SetCookie(&http.Cookie{
 		Name: stackrmw.OrgCookie, Value: inv.OrgID, Path: "/",
 		MaxAge: 365 * 24 * 3600, HttpOnly: true, Secure: stackrmw.SecureCookie(c),

@@ -192,7 +192,7 @@ func TestNoHandlerReadsTheStore(t *testing.T) {
 //
 // Read it as functions, not call sites: a page handler that calls h.loadStack
 // is here because loadStack reads, so moving one loader clears several rows.
-// 145 functions remain. Domain slices done: environments and variables;
+// 122 functions remain. Domain slices done: environments and variables;
 // stacks and tiles; organizations and membership; domains, storage,
 // provisions, config plans and deployments; then servers, registries,
 // backup schedules, settings, accounts and the audit trail.
@@ -208,7 +208,6 @@ handlers/api/v1.checkConnector -> GetConnector
 handlers/api/v1.createInvite -> CreateInvite
 handlers/api/v1.createRegistry -> CreateRegistry
 handlers/api/v1.deleteBackup -> DeleteBackup
-handlers/api/v1.deleteInvite -> DeleteInvite, GetInvite
 handlers/api/v1.deleteRegistry -> DeleteRegistry
 handlers/api/v1.deleteStoragePath -> DeleteStoragePath, GetStoragePath
 handlers/api/v1.listAppResources -> BindingsForConsumer, GetResource, ListOutputs
@@ -251,10 +250,6 @@ handlers/web/handler/app.openRun -> OpenCronRun
 handlers/web/handler/app.panelDone -> GetServerByNodeID, ListCronRuns, OpenCronRun
 handlers/web/handler/app.placementOf -> GetServerByNodeID
 handlers/web/handler/app.stageDomains -> ListStagedByEnv
-handlers/web/handler/auth/invite.Page -> GetInvite, MarkInviteUsed, UpsertOrgMember
-handlers/web/handler/auth/invite.Submit -> GetInvite, MarkInviteUsed, UpsertOrgMember
-handlers/web/handler/auth/invite.join -> MarkInviteUsed, UpsertOrgMember
-handlers/web/handler/auth/invite.loadInvite -> GetInvite
 handlers/web/handler/deployment.Stream -> GetDeployment
 handlers/web/handler/notification.Badge -> CountUnreadNotifications
 handlers/web/handler/notification.Clear -> DeleteAllNotifications
@@ -265,33 +260,19 @@ handlers/web/handler/org.ConnectorFileExists -> GetConnector
 handlers/web/handler/org.Delete -> DeleteOrg
 handlers/web/handler/org.DeleteAnnotation -> DeleteOrg
 handlers/web/handler/org.DeleteHomeAnnotation -> DeleteOrg
-handlers/web/handler/org.DeleteInvite -> DeleteInvite, GetInvite
-handlers/web/handler/org.Graph -> ListAnnotations, ListConnectorsByOrg, ListGraphGroups, ListNodePositions
-handlers/web/handler/org.GraphStatus -> ListAnnotations, ListConnectorsByOrg, ListGraphGroups, ListNodePositions
-handlers/web/handler/org.Home -> ListAnnotations, ListGraphGroups, ListNodePositions
-handlers/web/handler/org.HomeStatus -> ListAnnotations, ListGraphGroups, ListNodePositions
+handlers/web/handler/org.Graph -> ListConnectorsByOrg
+handlers/web/handler/org.GraphStatus -> ListConnectorsByOrg
 handlers/web/handler/org.OrgPlanView -> LatestWorkItem
-handlers/web/handler/org.ReinviteMember -> DeleteInvite, GetInvite
-handlers/web/handler/org.Rename -> UpdateOrg
-handlers/web/handler/org.ResendInvite -> GetInvite
-handlers/web/handler/org.ResetHomeNodePositions -> DeleteNodePositions
-handlers/web/handler/org.ResetNodePositions -> DeleteNodePositions
-handlers/web/handler/org.SaveEnvColor -> UpdateOrg
-handlers/web/handler/org.SaveHomeNodePosition -> SaveNodePositions
-handlers/web/handler/org.SaveNodePosition -> SaveNodePositions
-handlers/web/handler/org.SaveOrgConfig -> GetConnector, UpdateOrg
+handlers/web/handler/org.SaveOrgConfig -> GetConnector
 handlers/web/handler/org.SetPlanInput -> UpsertVariable
 handlers/web/handler/org.SettingsConfig -> ListConnectorsByOrg
 handlers/web/handler/org.Setup -> ListConnectorsByOrg
 handlers/web/handler/org.SetupConfigPlan -> LatestWorkItem
-handlers/web/handler/org.SetupDone -> CreateDomainResource, UpdateOrg
-handlers/web/handler/org.SetupMode -> UpdateOrg
-handlers/web/handler/org.buildOrgGraph -> ListAnnotations, ListConnectorsByOrg, ListGraphGroups, ListNodePositions
-handlers/web/handler/org.buildOrgsGraph -> ListAnnotations, ListGraphGroups, ListNodePositions
+handlers/web/handler/org.SetupDone -> CreateDomainResource
+handlers/web/handler/org.buildOrgGraph -> ListConnectorsByOrg
 handlers/web/handler/org.ensureDefaultDomain -> CreateDomainResource
 handlers/web/handler/org.githubConnectors -> ListConnectorsByOrg
 handlers/web/handler/org.orgPlanWork -> LatestWorkItem
-handlers/web/handler/org.ownedInvite -> GetInvite
 handlers/web/handler/org.pickerConnector -> GetConnector
 handlers/web/handler/org.setupSummary -> ListConnectorsByOrg
 handlers/web/handler/prhook.Hook -> GetConnector
@@ -303,30 +284,26 @@ handlers/web/handler/project.CreateDB -> GetEnvironment
 handlers/web/handler/project.CreateTile -> GetEnvironment
 handlers/web/handler/project.DeleteStackVar -> LatestSettledConfigPlan
 handlers/web/handler/project.EnvCompare -> GetConnector, ListIntended
-handlers/web/handler/project.Graph -> BindingsForConsumer, CountStagedByEnv, GetConnector, LatestConfigPlan, ListAnnotations, ListGraphGroups, ListIntended, ListNodePositions, ListOpenCronRuns, ListResourcesByEnv, ListStagedByEnv
-handlers/web/handler/project.GraphStatus -> BindingsForConsumer, ListAnnotations, ListGraphGroups, ListNodePositions, ListOpenCronRuns, ListResourcesByEnv, ListStagedByEnv
+handlers/web/handler/project.Graph -> BindingsForConsumer, CountStagedByEnv, GetConnector, LatestConfigPlan, ListIntended, ListOpenCronRuns, ListResourcesByEnv, ListStagedByEnv
+handlers/web/handler/project.GraphStatus -> BindingsForConsumer, ListOpenCronRuns, ListResourcesByEnv, ListStagedByEnv
 handlers/web/handler/project.MarkIntended -> GetConnector, ListIntended, SetIntended
 handlers/web/handler/project.PlanView -> GetConfigPlan, LatestWorkItem
 handlers/web/handler/project.PromoteDialogue -> GetConnector
 handlers/web/handler/project.RedirectStack -> GetOrgBySlug
 handlers/web/handler/project.Releases -> GetConnector
 handlers/web/handler/project.Repos -> ListConnectorsByOrg
-handlers/web/handler/project.ResetNodePositions -> DeleteNodePositions
-handlers/web/handler/project.ResetStackNodePositions -> DeleteNodePositions
-handlers/web/handler/project.SaveNodePosition -> SaveNodePositions
-handlers/web/handler/project.SaveStackNodePosition -> SaveNodePositions
 handlers/web/handler/project.SaveStackVar -> LatestSettledConfigPlan
 handlers/web/handler/project.SettingsConfig -> ListConnectorsByOrg
 handlers/web/handler/project.SettingsPREnv -> ListConnectorsByOrg
 handlers/web/handler/project.SettingsVariables -> LatestSettledConfigPlan
-handlers/web/handler/project.StackGraph -> BindingsForConsumer, CountStagedByEnv, GetConnector, HomeEnvironment, LatestConfigPlan, ListAnnotations, ListGraphGroups, ListIntended, ListNodePositions, ListResourcesByEnv
-handlers/web/handler/project.StackGraphStatus -> BindingsForConsumer, CountStagedByEnv, HomeEnvironment, ListAnnotations, ListGraphGroups, ListNodePositions, ListResourcesByEnv
+handlers/web/handler/project.StackGraph -> BindingsForConsumer, CountStagedByEnv, GetConnector, HomeEnvironment, LatestConfigPlan, ListIntended, ListResourcesByEnv
+handlers/web/handler/project.StackGraphStatus -> BindingsForConsumer, CountStagedByEnv, HomeEnvironment, ListResourcesByEnv
 handlers/web/handler/project.StackVarsPanel -> LatestSettledConfigPlan
 handlers/web/handler/project.StagingDiscard -> DeleteStagedByEnv
 handlers/web/handler/project.StagingDiscardOne -> CountStagedByEnv, DeleteStagedChange, GetStagedChange
 handlers/web/handler/project.StagingReview -> ListStagedByEnv
-handlers/web/handler/project.buildGraph -> BindingsForConsumer, ListAnnotations, ListGraphGroups, ListNodePositions, ListOpenCronRuns, ListResourcesByEnv, ListStagedByEnv
-handlers/web/handler/project.buildStackGraph -> BindingsForConsumer, CountStagedByEnv, HomeEnvironment, ListAnnotations, ListGraphGroups, ListNodePositions, ListResourcesByEnv
+handlers/web/handler/project.buildGraph -> BindingsForConsumer, ListOpenCronRuns, ListResourcesByEnv, ListStagedByEnv
+handlers/web/handler/project.buildStackGraph -> BindingsForConsumer, CountStagedByEnv, HomeEnvironment, ListResourcesByEnv
 handlers/web/handler/project.commitLog -> GetConnector
 handlers/web/handler/project.compareEnv -> ListIntended
 handlers/web/handler/project.compareStack -> ListIntended

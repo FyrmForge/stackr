@@ -86,7 +86,8 @@ func TestOrgCanvasWritesCheckThatOrgsRole(t *testing.T) {
 	u, orgs, other, _, _ := ownerHereViewerThere(t, s)
 	h := NewHandler(s, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil).
 		WithDomainResources(service.NewDomainResourceService(s, nil)).
-		WithPlans(service.NewPlanService(s, nil, nil))
+		WithPlans(service.NewPlanService(s, nil, nil)).
+		WithGraph(service.NewGraphService(s))
 
 	// Reading the canvas of an org they only view stays allowed.
 	c := asUser(t, http.MethodGet, "", u, orgs, "owner")
@@ -126,7 +127,8 @@ func TestMoveStackChecksBothOrgs(t *testing.T) {
 	u, orgs, other, otherStack, ownStack := ownerHereViewerThere(t, s)
 	h := NewHandler(s, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil).
 		WithDomainResources(service.NewDomainResourceService(s, nil)).
-		WithPlans(service.NewPlanService(s, nil, nil))
+		WithPlans(service.NewPlanService(s, nil, nil)).
+		WithGraph(service.NewGraphService(s))
 	owned := orgs[0]
 
 	// Pulling a stack out of the org they only view.

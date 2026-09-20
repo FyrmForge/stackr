@@ -90,7 +90,7 @@ func (h *handler) SaveStackNodePosition(c echo.Context) error {
 	if err := repo.ValidateNodePositions(owner, ps); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
-	if err := h.store.SaveNodePositions(c.Request().Context(), owner, ps); err != nil {
+	if err := h.graph.SavePositions(c.Request().Context(), owner, ps); err != nil {
 		return err
 	}
 	h.notifier.Project(p.ID)
@@ -218,7 +218,7 @@ func (h *handler) ResetStackNodePositions(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	if err := h.store.DeleteNodePositions(c.Request().Context(), repo.GraphOwner(repo.ScopeStack, p.ID)); err != nil {
+	if err := h.graph.ResetPositions(c.Request().Context(), repo.GraphOwner(repo.ScopeStack, p.ID)); err != nil {
 		return err
 	}
 	h.notifier.Project(p.ID)
@@ -250,7 +250,7 @@ func (h *handler) buildStackGraph(ctx context.Context, p *repo.Stack, style grap
 	if err != nil {
 		return graph.Graph{}, nil, err
 	}
-	rows, err := h.store.ListNodePositions(ctx, repo.GraphOwner(repo.ScopeStack, p.ID))
+	rows, err := h.graph.Positions(ctx, repo.GraphOwner(repo.ScopeStack, p.ID))
 	if err != nil {
 		return graph.Graph{}, nil, err
 	}
@@ -412,8 +412,8 @@ func (h *handler) buildStackGraph(ctx context.Context, p *repo.Stack, style grap
 	}
 	g := graph.BuildStack(summaries, instances, ghosts, h.stackVarCards(ctx, p, envs), positions)
 	g.Arrange(style, positions)
-	g.Annotations, _ = h.store.ListAnnotations(ctx, repo.GraphOwner(repo.ScopeStack, p.ID))
-	g.Groups, _ = h.store.ListGraphGroups(ctx, repo.GraphOwner(repo.ScopeStack, p.ID))
+	g.Annotations, _ = h.graph.Annotations(ctx, repo.GraphOwner(repo.ScopeStack, p.ID))
+	g.Groups, _ = h.graph.Groups(ctx, repo.GraphOwner(repo.ScopeStack, p.ID))
 	return g, nodeOf, nil
 }
 
