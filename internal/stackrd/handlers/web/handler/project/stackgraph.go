@@ -261,7 +261,7 @@ func (h *handler) buildStackGraph(ctx context.Context, p *repo.Stack, style grap
 
 	// Hosts by tile, so each env card can show what of it is reachable from
 	// outside (and hang off the Traefik card).
-	allDomains, err := h.store.ListDomains(ctx)
+	allDomains, err := h.domains.ListAll(ctx)
 	if err != nil {
 		return graph.Graph{}, nil, err
 	}

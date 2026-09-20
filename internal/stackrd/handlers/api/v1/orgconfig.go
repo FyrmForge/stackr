@@ -9,6 +9,7 @@ import (
 	"github.com/labstack/echo/v4"
 
 	"github.com/FyrmForge/stackr/internal/stackrd/config/orgconf"
+	stackrmw "github.com/FyrmForge/stackr/internal/stackrd/handlers/middleware"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 )
 
@@ -86,7 +87,7 @@ func (a *API) listOrgPlans(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	plans, err := a.store.ListOrgConfigPlans(c.Request().Context(), org.ID, 20)
+	plans, err := a.plans.ForOrg(c.Request().Context(), org.ID, 20)
 	if err != nil {
 		return err
 	}
@@ -111,9 +112,9 @@ func (a *API) getOrgPlan(c echo.Context) error {
 
 func (a *API) requireOrgPlan(c echo.Context) (*repo.Org, *repo.ConfigPlan, error) {
 	ctx := c.Request().Context()
-	cp, err := a.store.GetOrgConfigPlan(ctx, c.Param("id"))
-	if err != nil || cp == nil {
-		return nil, nil, echo.NewHTTPError(http.StatusNotFound, "plan not found")
+	cp, err := a.plans.GetOrgPlan(ctx, c.Param("id"))
+	if err != nil {
+		return nil, nil, stackrmw.HTTP(err)
 	}
 	org, err := a.org(c, cp.StackID) // org id rides ConfigPlan.StackID
 	if err != nil {
@@ -149,7 +150,7 @@ func (a *API) rejectOrgPlan(c echo.Context) error {
 	if cp.Status != "pending" {
 		return echo.NewHTTPError(http.StatusConflict, "plan is "+cp.Status)
 	}
-	if err := a.store.SetOrgConfigPlanStatus(c.Request().Context(), cp.ID, "rejected"); err != nil {
+	if err := a.plans.SetOrgPlanStatus(c.Request().Context(), cp.ID, "rejected"); err != nil {
 		return err
 	}
 	cp.Status = "rejected"

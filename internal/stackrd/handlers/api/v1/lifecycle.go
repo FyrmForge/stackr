@@ -130,7 +130,7 @@ func (a *API) createAutoDomain(c echo.Context) error {
 	if err := a.domains.AddAuto(ctx, env, t, a.actor(c)); err != nil {
 		return stackrmw.HTTP(err)
 	}
-	ds, err := a.store.ListDomainsByTile(ctx, t.ID)
+	ds, err := a.domains.ForTile(ctx, t.ID)
 	if err != nil {
 		return err
 	}
@@ -201,9 +201,9 @@ func (a *API) detachProvision(c echo.Context) error {
 // setProvisionPublic exposes or hides a slice outside its own network.
 func (a *API) setProvisionPublic(c echo.Context) error {
 	ctx := c.Request().Context()
-	p, err := a.store.GetProvision(ctx, c.Param("id"))
-	if err != nil || p == nil {
-		return echo.NewHTTPError(http.StatusNotFound, "not found")
+	p, err := a.slices.Get(ctx, c.Param("id"))
+	if err != nil {
+		return stackrmw.HTTP(err)
 	}
 	inst, err := a.tile(c, p.InstanceTileID)
 	if err != nil {
@@ -224,9 +224,9 @@ func (a *API) setProvisionPublic(c echo.Context) error {
 // the manager for a share hung off a worker proves nothing about the worker.
 func (a *API) probeStorage(c echo.Context) error {
 	ctx := c.Request().Context()
-	st, err := a.store.GetStorage(ctx, c.Param("id"))
-	if err != nil || st == nil {
-		return echo.NewHTTPError(http.StatusNotFound, "not found")
+	st, err := a.storage.Get(ctx, c.Param("id"))
+	if err != nil {
+		return stackrmw.HTTP(err)
 	}
 	node, err := a.clus.NodeOfStorage(ctx, st)
 	if err == nil {

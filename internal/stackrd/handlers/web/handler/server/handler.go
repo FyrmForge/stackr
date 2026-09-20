@@ -117,7 +117,7 @@ func (h *handler) Detail(c echo.Context) error {
 	}
 	// This server's own domain resources.
 	var domainRes []repo.DomainResource
-	if res, err := h.store.ListDomainResources(ctx); err == nil {
+	if res, err := h.resources.ListAll(ctx); err == nil {
 		for _, r := range res {
 			if r.Level == "instance" && r.OwnerID == sv.ID {
 				domainRes = append(domainRes, r)
@@ -126,7 +126,7 @@ func (h *handler) Detail(c echo.Context) error {
 	}
 	// This server's own, not every server's: each one is a directory on this
 	// machine, and the page's Add form writes this server's id.
-	all, _ := h.store.ListStorage(ctx)
+	all, _ := h.storage.ListAll(ctx)
 	storages := make([]repo.Storage, 0, len(all))
 	spaths := map[string][]repo.StoragePath{}
 	for i := range all {
@@ -134,7 +134,7 @@ func (h *handler) Detail(c echo.Context) error {
 			continue
 		}
 		storages = append(storages, all[i])
-		ps, _ := h.store.ListStoragePaths(ctx, all[i].ID)
+		ps, _ := h.storage.Paths(ctx, all[i].ID)
 		spaths[all[i].ID] = ps
 	}
 	return respond.HTML(c, http.StatusOK, serverPage(c, sv, node, here, groups, ping,

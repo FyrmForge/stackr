@@ -31,12 +31,9 @@ func (h *handler) loadTile(c echo.Context) (*repo.Tile, error) {
 
 // loadDeployment fetches an org-checked deployment (and its tile) by :id.
 func (h *handler) loadDeployment(c echo.Context) (*repo.Deployment, *repo.Tile, error) {
-	d, err := h.store.GetDeployment(c.Request().Context(), c.Param("id"))
+	d, err := h.deploys.Get(c.Request().Context(), c.Param("id"))
 	if err != nil {
-		return nil, nil, err
-	}
-	if d == nil {
-		return nil, nil, echo.NewHTTPError(http.StatusNotFound, "deployment not found")
+		return nil, nil, stackrmw.HTTP(err)
 	}
 	// No tile row means no stack to check membership against. A deployment
 	// whose tile is gone is nobody's to read, which is what ErrNotFound says.

@@ -86,7 +86,7 @@ func (h *handler) Rename(c echo.Context) error {
 	}
 	// Anti-squat in reverse: renaming to a slug that some other org's domain
 	// already leads with would hand this org that org's generated hostnames.
-	if all, derr := h.store.ListDomainResources(ctx); derr == nil {
+	if all, derr := h.resources.ListAll(ctx); derr == nil {
 		// Our own resources are not somebody else's: an org owns its stacks'
 		// domains too, and treating them as foreign refused a rename over a
 		// hostname the renamer already holds.

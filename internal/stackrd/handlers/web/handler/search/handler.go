@@ -29,6 +29,8 @@ type handler struct {
 	tiles   *service.TileService
 	members *service.MemberService
 	orgs    *service.OrgService
+	domains *service.DomainService
+	plans   *service.PlanService
 }
 
 func NewHandler(store repo.Store, envs *service.EnvironmentService,
@@ -153,7 +155,7 @@ func (h *handler) Search(c echo.Context) error {
 	}
 
 	// Domains, land on the owning tile's card.
-	domains, err := h.store.ListDomains(ctx)
+	domains, err := h.domains.ListAll(ctx)
 	if err != nil {
 		return err
 	}
@@ -238,7 +240,7 @@ func (h *handler) Search(c echo.Context) error {
 		if !s.ConfigManaged() {
 			continue
 		}
-		plans, err := h.store.ListConfigPlans(ctx, id, 10)
+		plans, err := h.plans.ForStack(ctx, id, 10)
 		if err != nil {
 			return err
 		}
@@ -355,3 +357,9 @@ func (h *handler) WithMembers(v *service.MemberService) *handler { h.members = v
 
 // WithOrgs gives the page the organization service.
 func (h *handler) WithOrgs(v *service.OrgService) *handler { h.orgs = v; return h }
+
+// WithDomains gives the page the domain service.
+func (h *handler) WithDomains(v *service.DomainService) *handler { h.domains = v; return h }
+
+// WithPlans gives the page the config-plan service.
+func (h *handler) WithPlans(v *service.PlanService) *handler { h.plans = v; return h }

@@ -54,6 +54,11 @@ type handler struct {
 	// settings owns every rung of the defaults cascade.
 	settings *service.SettingsService
 	orgs     *service.OrgService
+	domains  *service.DomainService
+	slices   *service.SliceService
+	storage  *service.StorageService
+	plans    *service.PlanService
+	deploys  *service.DeployService
 }
 
 // WithSettings attaches the settings service.
@@ -180,3 +185,18 @@ func (h *handler) WithOrgs(v *service.OrgService) *handler { h.orgs = v; return 
 
 // WithMembers gives the page the membership service.
 func (h *handler) WithMembers(v *service.MemberService) *handler { h.members = v; return h }
+
+// WithDomains gives the page the domain service.
+func (h *handler) WithDomains(v *service.DomainService) *handler { h.domains = v; return h }
+
+// WithSlices gives the page the provision service.
+func (h *handler) WithSlices(v *service.SliceService) *handler { h.slices = v; return h }
+
+// WithStorage gives the page the storage service.
+func (h *handler) WithStorage(v *service.StorageService) *handler { h.storage = v; return h }
+
+// WithPlans gives the page the config-plan service.
+func (h *handler) WithPlans(v *service.PlanService) *handler { h.plans = v; return h }
+
+// WithDeploys gives the page the deploy service.
+func (h *handler) WithDeploys(v *service.DeployService) *handler { h.deploys = v; return h }

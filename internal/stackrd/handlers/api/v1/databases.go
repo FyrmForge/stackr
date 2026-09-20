@@ -256,7 +256,7 @@ func (a *API) listAppProvisions(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	ps, err := a.store.ListProvisionsByConsumer(c.Request().Context(), consumer.ID)
+	ps, err := a.slices.ForConsumer(c.Request().Context(), consumer.ID)
 	if err != nil {
 		return err
 	}

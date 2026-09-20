@@ -300,11 +300,13 @@ func RegisterRoutes(srv *server.Server, deps *Deps) {
 		WithOrgs(deps.Orgs)
 
 	searchHandler := searchpage.NewHandler(deps.Store, deps.Environments, deps.Stacks, deps.Tiles).
-		WithOrgs(deps.Orgs).WithMembers(deps.Members)
+		WithOrgs(deps.Orgs).WithMembers(deps.Members).WithDomains(deps.Domains).WithPlans(deps.Plans)
 	site.GET("/search", searchHandler.Search, auth.RequireAuth())
 
 	orgHandler := orgpage.NewHandler(deps.Store, deps.Notifier, deps.Metrics, deps.FileStorage, deps.Runtime, deps.Forwards, deps.OrgConfig, deps.GitHub, deps.Mail, deps.RegistrySigner, deps.Proxy).
 		WithDomainResources(deps.Resources).WithVariables(deps.Variables).WithStacks(deps.Stacks).
+		WithDomains(deps.Domains).WithSlices(deps.Slices).WithStorage(deps.Storage).
+		WithPlans(deps.Plans).WithDeploys(deps.Deploys).
 		WithOrgs(deps.Orgs).WithMembers(deps.Members).
 		WithTiles(deps.Tiles).
 		WithEnvironments(deps.Environments).
@@ -472,7 +474,7 @@ func RegisterRoutes(srv *server.Server, deps *Deps) {
 
 	applier := deps.Applier
 	projectHandler := project.NewHandler(deps.Store, deps.Runtime, deps.Cluster, deps.Proxy, deps.Metrics, deps.Notifier, deps.GitHub, applier, deps.Forwards).
-		WithOrgs(deps.Orgs).
+		WithOrgs(deps.Orgs).WithSlices(deps.Slices).
 		WithInstances(deps.Instances).
 		WithVariables(deps.Variables).
 		WithEnvironments(deps.Environments).
@@ -591,7 +593,8 @@ func RegisterRoutes(srv *server.Server, deps *Deps) {
 
 	// The Backups tab, shared by database tiles and volume tiles: one fragment
 	// both panel packages fetch, rather than the same markup twice.
-	backupsHandler := backupspage.NewHandler(deps.Store, deps.Backups).WithScheduler(deps.Scheduler).WithBackups(deps.Schedules, deps.Destinations).WithTiles(deps.Tiles)
+	backupsHandler := backupspage.NewHandler(deps.Store, deps.Backups).WithScheduler(deps.Scheduler).WithBackups(deps.Schedules, deps.Destinations).WithTiles(deps.Tiles).
+		WithSlices(deps.Slices)
 	read(site, "/tiles/:id/backups", backupsHandler.Panel, service.VerbTileRead, service.KindTile, "id")
 	mutate(site, "POST", "/tiles/:id/backups", backupsHandler.Create, service.VerbBackupWrite, service.KindTile, "id")
 	mutate(site, "POST", "/backups/:id/save", backupsHandler.Save, service.VerbBackupWrite, service.KindBackup, "id")
@@ -692,6 +695,7 @@ func RegisterRoutes(srv *server.Server, deps *Deps) {
 
 	appHandler := apppage.NewHandler(deps.Store, deps.Cluster, deps.Proxy, deps.Engine, deps.Jobs, deps.GitHub, deps.Notifier, deps.Lifecycle, deps.Tiles, deps.Telemetry, deps.Domains).
 		WithEnvironments(deps.Environments).WithStacks(deps.Stacks).WithOrgs(deps.Orgs).
+		WithStorage(deps.Storage).
 		WithSlices(deps.Slices).
 		WithVariables(deps.Variables).
 		WithDeploys(deps.Deploys).

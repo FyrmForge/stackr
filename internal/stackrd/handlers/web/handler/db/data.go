@@ -63,7 +63,7 @@ func (h *handler) loadData(c echo.Context) (*dataScope, error) {
 	if !managedtiles.Engines[d.Engine].DataBrowser {
 		return nil, echo.NewHTTPError(http.StatusNotFound, "this engine has no data browser")
 	}
-	ps, err := h.store.ListProvisionsByInstance(c.Request().Context(), d.ID)
+	ps, err := h.slices.ForInstance(c.Request().Context(), d.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -244,7 +244,7 @@ func (h *handler) PGDBPanel(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusNotFound, "this engine has no data browser")
 	}
 	dbName := c.Param("db")
-	ps, err := h.store.ListProvisionsByInstance(c.Request().Context(), d.ID)
+	ps, err := h.slices.ForInstance(c.Request().Context(), d.ID)
 	if err != nil {
 		return err
 	}

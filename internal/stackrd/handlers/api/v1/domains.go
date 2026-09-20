@@ -20,7 +20,7 @@ func (a *API) listDomains(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	ds, err := a.store.ListDomainsByTile(c.Request().Context(), t.ID)
+	ds, err := a.domains.ForTile(c.Request().Context(), t.ID)
 	if err != nil {
 		return err
 	}

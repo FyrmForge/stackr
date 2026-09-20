@@ -41,7 +41,7 @@ func (h *handler) Plans(c echo.Context) error {
 		return err
 	}
 	var groups []planGroup
-	orgPlans, err := h.store.ListOrgConfigPlans(ctx, o.ID, 20)
+	orgPlans, err := h.plans.ForOrg(ctx, o.ID, 20)
 	if err != nil {
 		return err
 	}
@@ -57,7 +57,7 @@ func (h *handler) Plans(c echo.Context) error {
 		return err
 	}
 	for _, s := range stacks {
-		sp, err := h.store.ListConfigPlans(ctx, s.ID, 10)
+		sp, err := h.plans.ForStack(ctx, s.ID, 10)
 		if err != nil {
 			return err
 		}
@@ -112,7 +112,7 @@ func (h *handler) pendingOrgPlans(c echo.Context, o *repo.Org) (*repo.ConfigPlan
 	ctx := c.Request().Context()
 	var latest *repo.ConfigPlan
 	n := 0
-	orgPlans, _ := h.store.ListOrgConfigPlans(ctx, o.ID, 20)
+	orgPlans, _ := h.plans.ForOrg(ctx, o.ID, 20)
 	for i := range orgPlans {
 		if waiting(&orgPlans[i]) {
 			if latest == nil {
@@ -121,7 +121,7 @@ func (h *handler) pendingOrgPlans(c echo.Context, o *repo.Org) (*repo.ConfigPlan
 			n++
 		}
 	}
-	stackN, _ := h.store.CountStacksAwaitingPlan(ctx, o.ID)
+	stackN, _ := h.plans.AwaitingPlan(ctx, o.ID)
 	return latest, n + stackN
 }
 

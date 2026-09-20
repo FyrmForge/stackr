@@ -62,7 +62,7 @@ func (a *API) listReleases(c echo.Context) error {
 			if tiles[j].SourceType != "git" {
 				continue
 			}
-			ds, err := a.store.ListDeploymentsByTile(ctx, tiles[j].ID, releaseWindow)
+			ds, err := a.deploys.ForTile(ctx, tiles[j].ID, releaseWindow)
 			if err != nil {
 				return err
 			}
@@ -96,7 +96,7 @@ func (a *API) listReleases(c echo.Context) error {
 			runs[envs[i].Slug] = newestDone.CommitSHA
 		}
 	}
-	plans, _ := a.store.ListConfigPlans(ctx, s.ID, 30)
+	plans, _ := a.plans.ForStack(ctx, s.ID, 30)
 	out := make([]releaseOut, 0, len(commits))
 	for sha, e := range commits {
 		row := releaseOut{Commit: sha, Built: e.built, Building: e.building,

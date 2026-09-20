@@ -136,7 +136,7 @@ func (h *handler) liveTags(ctx context.Context, o *repo.Org) map[string]string {
 			continue
 		}
 		for i := range tiles {
-			ds, err := h.store.ListDeploymentsByTile(ctx, tiles[i].ID, 5)
+			ds, err := h.deploys.ForTile(ctx, tiles[i].ID, 5)
 			if err != nil {
 				continue
 			}

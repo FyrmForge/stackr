@@ -336,3 +336,27 @@ func (s *SliceService) changed(instance *repo.Tile) {
 		s.notifier.Project(instance.StackID)
 	}
 }
+
+// --- reads ---
+
+// Get is one provision by id.
+func (s *SliceService) Get(ctx context.Context, id string) (*repo.Provision, error) {
+	p, err := s.store.GetProvision(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if p == nil {
+		return nil, svcerr.ErrNotFound
+	}
+	return p, nil
+}
+
+// ForInstance is every slice cut out of one managed instance.
+func (s *SliceService) ForInstance(ctx context.Context, instanceTileID string) ([]repo.Provision, error) {
+	return s.store.ListProvisionsByInstance(ctx, instanceTileID)
+}
+
+// ForConsumer is every slice one tile has been wired to.
+func (s *SliceService) ForConsumer(ctx context.Context, consumerTileID string) ([]repo.Provision, error) {
+	return s.store.ListProvisionsByConsumer(ctx, consumerTileID)
+}

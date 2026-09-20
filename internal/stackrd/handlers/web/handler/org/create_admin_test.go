@@ -8,6 +8,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/FyrmForge/stackr/internal/stackrd/service"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/testdb"
 )
@@ -31,7 +32,9 @@ func TestCreateOrgIsAdminOnly(t *testing.T) {
 
 	seed := testdb.SeedStack(t, s, false)
 	orgs := []repo.Org{*seed.Org}
-	h := NewHandler(s, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	h := NewHandler(s, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil).
+		WithDomainResources(service.NewDomainResourceService(s, nil)).
+		WithPlans(service.NewPlanService(s, nil, nil))
 
 	before, err := s.ListOrgs(ctx)
 	require.NoError(t, err)

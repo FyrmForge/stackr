@@ -328,7 +328,7 @@ func (h *handler) commitLog(ctx context.Context, p *repo.Stack) commitLog {
 	envs, _ := h.envs.ListForStack(ctx, p.ID)
 	colors := h.envColorsByID(ctx, p, envs)
 	log.Colors = colors
-	plans, _ := h.store.ListConfigPlans(ctx, p.ID, 30)
+	plans, _ := h.plans.ForStack(ctx, p.ID, 30)
 	building := map[string]bool{} // commits that already carry a building chip
 	first := true
 	for _, env := range envs {
@@ -448,7 +448,7 @@ func (h *handler) envDeployments(ctx context.Context, envID string) (runs, live,
 		if tiles[i].SourceType != "git" {
 			continue
 		}
-		deps, _ := h.store.ListDeploymentsByTile(ctx, tiles[i].ID, 5)
+		deps, _ := h.deploys.ForTile(ctx, tiles[i].ID, 5)
 		// The tile's newest deploy is its part of the batch in flight.
 		if len(deps) > 0 {
 			switch deps[0].Status {

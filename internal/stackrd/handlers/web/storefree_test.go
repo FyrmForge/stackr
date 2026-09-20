@@ -192,8 +192,9 @@ func TestNoHandlerReadsTheStore(t *testing.T) {
 //
 // Read it as functions, not call sites: a page handler that calls h.loadStack
 // is here because loadStack reads, so moving one loader clears several rows.
-// 335 functions remain. Domain slices done: environments and variables,
-// stacks and tiles, then organizations and membership.
+// 253 functions remain. Domain slices done: environments and variables,
+// stacks and tiles, organizations and membership, then domains, storage,
+// provisions, config plans and deployments.
 //
 // The order of work, decided with the dev: components/metrics.templ first (a
 // TEMPLATE reading the store is the worst of them), then the domains that
@@ -203,69 +204,40 @@ const stillStoreReading = `
 handlers/api/handler/health.Health -> Health
 handlers/api/v1.KeyAuth -> GetAPIKeyByHash, GetUserByID
 handlers/api/v1.Register -> GetServer
-handlers/api/v1.approveOrgPlan -> GetOrgConfigPlan
-handlers/api/v1.approvePlan -> GetConfigPlan
 handlers/api/v1.attachProvision -> GetProvision
-handlers/api/v1.cancelDeployment -> GetDeployment
 handlers/api/v1.checkConnector -> GetConnector
-handlers/api/v1.createAutoDomain -> ListDomainsByTile
 handlers/api/v1.createInvite -> CreateInvite
 handlers/api/v1.createRegistry -> CreateRegistry
 handlers/api/v1.createRegistryCredential -> GetManagedRegistry
-handlers/api/v1.createStorage -> ListStoragePaths
-handlers/api/v1.createStoragePath -> GetStorage
 handlers/api/v1.deleteBackup -> DeleteBackup, GetBackup
 handlers/api/v1.deleteDestination -> GetBackupDestination
 handlers/api/v1.deleteDomain -> GetDomain
 handlers/api/v1.deleteInvite -> DeleteInvite, GetInvite
-handlers/api/v1.deleteProvision -> GetProvision
 handlers/api/v1.deleteRegistry -> DeleteRegistry, GetRegistry
 handlers/api/v1.deleteRegistryTag -> GetManagedRegistry
-handlers/api/v1.deleteStorage -> GetStorage
-handlers/api/v1.deleteStoragePath -> DeleteStoragePath, GetStorage, GetStoragePath
-handlers/api/v1.forkProvision -> GetProvision
-handlers/api/v1.getDeployment -> GetDeployment
-handlers/api/v1.getDeploymentLogs -> GetDeployment
-handlers/api/v1.getOrgPlan -> GetOrgConfigPlan
-handlers/api/v1.getPlan -> GetConfigPlan
+handlers/api/v1.deleteStoragePath -> DeleteStoragePath, GetStoragePath
 handlers/api/v1.getRestore -> GetBackup
-handlers/api/v1.listAppProvisions -> ListProvisionsByConsumer
 handlers/api/v1.listAppResources -> BindingsForConsumer, GetResource, ListOutputs
 handlers/api/v1.listBackupRuns -> GetBackup, ListBackupRuns
 handlers/api/v1.listBackups -> ListBackupsByTile
-handlers/api/v1.listDeployments -> ListDeploymentsByTile
-handlers/api/v1.listDomainResources -> ListDomainResources
-handlers/api/v1.listDomains -> ListDomainsByTile
-handlers/api/v1.listInstanceProvisions -> ListProvisionsByInstance
-handlers/api/v1.listOrgPlans -> ListOrgConfigPlans
-handlers/api/v1.listPlans -> ListConfigPlans
 handlers/api/v1.listRegistries -> ListRegistries
 handlers/api/v1.listRegistryCredentials -> ListOrgRegistryCredentials
 handlers/api/v1.listRegistryImages -> GetManagedRegistry
 handlers/api/v1.listRegistryTags -> GetManagedRegistry
-handlers/api/v1.listReleases -> ListConfigPlans, ListDeploymentsByTile
-handlers/api/v1.listStorage -> ListStorage, ListStoragePaths
 handlers/api/v1.loadBackup -> GetBackup
-handlers/api/v1.loadDeployment -> GetDeployment
 handlers/api/v1.newInvite -> CreateInvite
 handlers/api/v1.patchBackup -> GetBackup
 handlers/api/v1.patchDestination -> GetBackupDestination, UpdateBackupDestination
 handlers/api/v1.patchDomain -> GetDomain
 handlers/api/v1.patchRegistry -> GetRegistry, UpdateRegistry
 handlers/api/v1.patchSettingsFor -> GetServer
-handlers/api/v1.probeStorage -> GetStorage, ListStoragePaths, UpdateStorage
-handlers/api/v1.rejectOrgPlan -> GetOrgConfigPlan, SetOrgConfigPlanStatus
-handlers/api/v1.rejectPlan -> GetConfigPlan
-handlers/api/v1.requireOrgPlan -> GetOrgConfigPlan
+handlers/api/v1.probeStorage -> UpdateStorage
 handlers/api/v1.requireOrgRegistry -> GetManagedRegistry
-handlers/api/v1.requirePlan -> GetConfigPlan
 handlers/api/v1.requireTile -> GetTileBySlug
 handlers/api/v1.resolveSettingsTarget -> GetServer
 handlers/api/v1.restoreBackup -> GetBackup, GetBackupRun
 handlers/api/v1.runBackup -> GetBackup
-handlers/api/v1.setProvisionPublic -> GetProvision
 handlers/api/v1.settingsFor -> GetServer
-handlers/api/v1.storageOut -> ListStoragePaths
 handlers/api/v1.tileByPath -> GetTileBySlug
 handlers/web/handler/account.APIKeys -> ListAPIKeys
 handlers/web/handler/account.Appearance -> GetUserByID
@@ -281,94 +253,54 @@ handlers/web/handler/account.SaveProfile -> GetUserByEmail, GetUserByID, UpdateU
 handlers/web/handler/account.me -> GetUserByID
 handlers/web/handler/account.myKeys -> ListAPIKeys
 handlers/web/handler/account.ownsAPIKey -> ListAPIKeys
-handlers/web/handler/app.Attach -> GetServerByNodeID, ListCronRuns, ListDeploymentsByTile, ListDomainsByTile, OpenCronRun, UpdateTile
-handlers/web/handler/app.AttachProvision -> GetProvision, ListProvisionsByConsumer
-handlers/web/handler/app.AttachStorage -> ListStorage, ListStoragePaths
+handlers/web/handler/app.Attach -> GetServerByNodeID, ListCronRuns, OpenCronRun, UpdateTile
+handlers/web/handler/app.AttachProvision -> GetProvision
 handlers/web/handler/app.Connectors -> ListConnectorsByOrg
-handlers/web/handler/app.CreateAutoDomain -> GetServerByNodeID, ListCronRuns, ListDeploymentsByTile, ListDomainsByTile, OpenCronRun
-handlers/web/handler/app.CreateDomain -> GetServerByNodeID, ListCronRuns, ListDeploymentsByTile, ListDomainsByTile, ListStagedByEnv, OpenCronRun
-handlers/web/handler/app.DeleteDomain -> GetServerByNodeID, ListCronRuns, ListDeploymentsByTile, ListDomainsByTile, ListStagedByEnv, OpenCronRun
+handlers/web/handler/app.CreateAutoDomain -> GetServerByNodeID, ListCronRuns, OpenCronRun
+handlers/web/handler/app.CreateDomain -> GetServerByNodeID, ListCronRuns, ListStagedByEnv, OpenCronRun
+handlers/web/handler/app.DeleteDomain -> GetServerByNodeID, ListCronRuns, ListStagedByEnv, OpenCronRun
 handlers/web/handler/app.DeleteVar -> ListAuditEvents, ListStagedByEnv
-handlers/web/handler/app.DetachProvision -> ListProvisionsByConsumer
-handlers/web/handler/app.DetachStorage -> ListStorage, ListStoragePaths
-handlers/web/handler/app.Detail -> GetServerByNodeID, ListCronRuns, ListDeploymentsByTile, ListDomainsByTile, OpenCronRun
-handlers/web/handler/app.Panel -> GetServerByNodeID, ListCronRuns, ListDeploymentsByTile, ListDomainsByTile, OpenCronRun
-handlers/web/handler/app.PanelContent -> GetServerByNodeID, ListCronRuns, ListDeploymentsByTile, ListDomainsByTile, OpenCronRun
+handlers/web/handler/app.Detail -> GetServerByNodeID, ListCronRuns, OpenCronRun
+handlers/web/handler/app.Panel -> GetServerByNodeID, ListCronRuns, OpenCronRun
+handlers/web/handler/app.PanelContent -> GetServerByNodeID, ListCronRuns, OpenCronRun
 handlers/web/handler/app.PanelHeader -> OpenCronRun
-handlers/web/handler/app.Provision -> ListProvisionsByConsumer
-handlers/web/handler/app.Provisions -> ListProvisionsByConsumer
 handlers/web/handler/app.Restart -> OpenCronRun
 handlers/web/handler/app.RunNow -> OpenCronRun
 handlers/web/handler/app.RunsLogsStream -> ListCronRuns
-handlers/web/handler/app.SaveEnv -> GetServerByNodeID, ListCronRuns, ListDeploymentsByTile, ListDomainsByTile, OpenCronRun, UpdateTile
+handlers/web/handler/app.SaveEnv -> GetServerByNodeID, ListCronRuns, OpenCronRun, UpdateTile
 handlers/web/handler/app.SaveSecretVar -> ListAuditEvents, ListStagedByEnv
-handlers/web/handler/app.SaveSettings -> GetServerByNodeID, ListCronRuns, ListDeploymentsByTile, ListDomainsByTile, OpenCronRun
-handlers/web/handler/app.SetDomainCert -> GetServerByNodeID, ListCronRuns, ListDeploymentsByTile, ListDomainsByTile, OpenCronRun
+handlers/web/handler/app.SaveSettings -> GetServerByNodeID, ListCronRuns, OpenCronRun
+handlers/web/handler/app.SetDomainCert -> GetServerByNodeID, ListCronRuns, OpenCronRun
 handlers/web/handler/app.Stop -> OpenCronRun
 handlers/web/handler/app.StopRun -> OpenCronRun
-handlers/web/handler/app.StorageFrag -> ListStorage, ListStoragePaths
 handlers/web/handler/app.ToggleCron -> OpenCronRun
-handlers/web/handler/app.ToggleDomainHTTPS -> GetServerByNodeID, ListCronRuns, ListDeploymentsByTile, ListDomainsByTile, ListStagedByEnv, OpenCronRun
+handlers/web/handler/app.ToggleDomainHTTPS -> GetServerByNodeID, ListCronRuns, ListStagedByEnv, OpenCronRun
 handlers/web/handler/app.Vars -> ListAuditEvents, ListStagedByEnv
-handlers/web/handler/app.currentDesiredDomains -> ListDomainsByTile, ListStagedByEnv
+handlers/web/handler/app.currentDesiredDomains -> ListStagedByEnv
 handlers/web/handler/app.currentDesiredEnv -> ListStagedByEnv
 handlers/web/handler/app.headerDone -> OpenCronRun
-handlers/web/handler/app.loadTab -> GetServerByNodeID, ListCronRuns, ListDeploymentsByTile, ListDomainsByTile, OpenCronRun
+handlers/web/handler/app.loadTab -> GetServerByNodeID, ListCronRuns, OpenCronRun
 handlers/web/handler/app.openRun -> OpenCronRun
-handlers/web/handler/app.panelDone -> GetServerByNodeID, ListCronRuns, ListDeploymentsByTile, ListDomainsByTile, OpenCronRun
+handlers/web/handler/app.panelDone -> GetServerByNodeID, ListCronRuns, OpenCronRun
 handlers/web/handler/app.placementOf -> GetServerByNodeID
-handlers/web/handler/app.renderProvisions -> ListProvisionsByConsumer
-handlers/web/handler/app.stageDomains -> ListDomainsByTile, ListStagedByEnv
-handlers/web/handler/app.storageOptions -> ListStorage, ListStoragePaths
+handlers/web/handler/app.stageDomains -> ListStagedByEnv
 handlers/web/handler/auth/invite.Page -> GetInvite, MarkInviteUsed, UpsertOrgMember
 handlers/web/handler/auth/invite.Submit -> GetInvite, MarkInviteUsed, UpsertOrgMember
 handlers/web/handler/auth/invite.join -> MarkInviteUsed, UpsertOrgMember
 handlers/web/handler/auth/invite.loadInvite -> GetInvite
-handlers/web/handler/backups.Create -> GetBackupDestination, ListBackupRuns, ListBackupsByTile, ListProvisionsByInstance
-handlers/web/handler/backups.Delete -> GetBackup, GetBackupDestination, ListBackupRuns, ListBackupsByTile, ListProvisionsByInstance
+handlers/web/handler/backups.Create -> GetBackupDestination, ListBackupRuns, ListBackupsByTile
+handlers/web/handler/backups.Delete -> GetBackup, GetBackupDestination, ListBackupRuns, ListBackupsByTile
 handlers/web/handler/backups.History -> GetBackup, GetBackupDestination, ListBackupRuns
-handlers/web/handler/backups.Panel -> GetBackupDestination, ListBackupRuns, ListBackupsByTile, ListProvisionsByInstance
-handlers/web/handler/backups.Restore -> GetBackup, GetBackupDestination, ListBackupRuns, ListBackupsByTile, ListProvisionsByInstance
-handlers/web/handler/backups.Run -> GetBackup, GetBackupDestination, ListBackupRuns, ListBackupsByTile, ListProvisionsByInstance
-handlers/web/handler/backups.Save -> GetBackup, GetBackupDestination, ListBackupRuns, ListBackupsByTile, ListProvisionsByInstance
+handlers/web/handler/backups.Panel -> GetBackupDestination, ListBackupRuns, ListBackupsByTile
+handlers/web/handler/backups.Restore -> GetBackup, GetBackupDestination, ListBackupRuns, ListBackupsByTile
+handlers/web/handler/backups.Run -> GetBackup, GetBackupDestination, ListBackupRuns, ListBackupsByTile
+handlers/web/handler/backups.Save -> GetBackup, GetBackupDestination, ListBackupRuns, ListBackupsByTile
 handlers/web/handler/backups.configView -> GetBackupDestination, ListBackupRuns
-handlers/web/handler/backups.load -> GetBackupDestination, ListBackupRuns, ListBackupsByTile, ListProvisionsByInstance
+handlers/web/handler/backups.load -> GetBackupDestination, ListBackupRuns, ListBackupsByTile
 handlers/web/handler/backups.loadBackup -> GetBackup
-handlers/web/handler/backups.render -> GetBackupDestination, ListBackupRuns, ListBackupsByTile, ListProvisionsByInstance
-handlers/web/handler/db.BucketFileDelete -> ListDomainsByTile, ListProvisionsByInstance
-handlers/web/handler/db.BucketFileDownload -> ListProvisionsByInstance
-handlers/web/handler/db.BucketFileUpload -> ListProvisionsByInstance
-handlers/web/handler/db.BucketFiles -> ListProvisionsByInstance
-handlers/web/handler/db.BucketPanel -> ListProvisionsByInstance
-handlers/web/handler/db.CreateDomain -> ListDomainsByTile
-handlers/web/handler/db.Data -> ListProvisionsByInstance
-handlers/web/handler/db.DataCell -> ListProvisionsByInstance
-handlers/web/handler/db.DataDelete -> ListProvisionsByInstance
-handlers/web/handler/db.DataInsert -> ListProvisionsByInstance
-handlers/web/handler/db.DataUpdate -> ListProvisionsByInstance
-handlers/web/handler/db.Delete -> ListDomainsByTile
-handlers/web/handler/db.DeleteDomain -> ListDomainsByTile
-handlers/web/handler/db.Detail -> ListDomainsByTile
-handlers/web/handler/db.DropProvision -> ListProvisionsByInstance
-handlers/web/handler/db.ForkProvision -> GetProvision, ListProvisionsByInstance
-handlers/web/handler/db.PGDBPanel -> ListProvisionsByInstance
-handlers/web/handler/db.Panel -> ListDomainsByTile
-handlers/web/handler/db.PanelContent -> ListDomainsByTile
-handlers/web/handler/db.Provisions -> ListProvisionsByInstance
-handlers/web/handler/db.SetPort -> ListDomainsByTile
-handlers/web/handler/db.SetProvisionPublic -> ListProvisionsByInstance
-handlers/web/handler/db.SetScope -> ListDomainsByTile
-handlers/web/handler/db.VolumeFileDelete -> ListDomainsByTile
-handlers/web/handler/db.loadBucket -> ListProvisionsByInstance
-handlers/web/handler/db.loadData -> ListProvisionsByInstance
-handlers/web/handler/db.loadTab -> ListDomainsByTile
-handlers/web/handler/db.panelDone -> ListDomainsByTile
-handlers/web/handler/db.renderProvisions -> ListProvisionsByInstance
-handlers/web/handler/deployment.Cancel -> GetDeployment
-handlers/web/handler/deployment.Detail -> GetDeployment
-handlers/web/handler/deployment.Status -> GetDeployment
+handlers/web/handler/backups.render -> GetBackupDestination, ListBackupRuns, ListBackupsByTile
+handlers/web/handler/db.ForkProvision -> GetProvision
 handlers/web/handler/deployment.Stream -> GetDeployment
-handlers/web/handler/deployment.loadDeployment -> GetDeployment
 handlers/web/handler/notification.Badge -> CountUnreadNotifications
 handlers/web/handler/notification.Clear -> DeleteAllNotifications
 handlers/web/handler/notification.MarkAllRead -> MarkAllNotificationsRead
@@ -382,16 +314,15 @@ handlers/web/handler/org.DeleteAnnotation -> DeleteOrg
 handlers/web/handler/org.DeleteHomeAnnotation -> DeleteOrg
 handlers/web/handler/org.DeleteInvite -> DeleteInvite, GetInvite
 handlers/web/handler/org.DeleteOrgVar -> ListAuditEvents
-handlers/web/handler/org.Graph -> CountStacksAwaitingPlan, ListAnnotations, ListConnectorsByOrg, ListDomains, ListGraphGroups, ListNodePositions, ListOrgConfigPlans, ListProvisionsByConsumer
-handlers/web/handler/org.GraphStatus -> ListAnnotations, ListConnectorsByOrg, ListDomains, ListGraphGroups, ListNodePositions, ListProvisionsByConsumer
+handlers/web/handler/org.Graph -> ListAnnotations, ListConnectorsByOrg, ListGraphGroups, ListNodePositions
+handlers/web/handler/org.GraphStatus -> ListAnnotations, ListConnectorsByOrg, ListGraphGroups, ListNodePositions
 handlers/web/handler/org.Home -> ListAnnotations, ListGraphGroups, ListNodePositions
 handlers/web/handler/org.HomeStatus -> ListAnnotations, ListGraphGroups, ListNodePositions
 handlers/web/handler/org.OrgPlanView -> GetOrgConfigPlan, LatestWorkItem
-handlers/web/handler/org.Plans -> ListConfigPlans, ListOrgConfigPlans
-handlers/web/handler/org.RegistryImages -> GetManagedRegistry, ListDeploymentsByTile
+handlers/web/handler/org.RegistryImages -> GetManagedRegistry
 handlers/web/handler/org.ReinviteMember -> DeleteInvite, GetInvite
-handlers/web/handler/org.RejectOrgPlan -> GetOrgConfigPlan, SetOrgConfigPlanStatus
-handlers/web/handler/org.Rename -> ListDomainResources, UpdateOrg
+handlers/web/handler/org.RejectOrgPlan -> GetOrgConfigPlan
+handlers/web/handler/org.Rename -> UpdateOrg
 handlers/web/handler/org.ResendInvite -> GetInvite
 handlers/web/handler/org.ResetHomeNodePositions -> DeleteNodePositions
 handlers/web/handler/org.ResetNodePositions -> DeleteNodePositions
@@ -401,59 +332,52 @@ handlers/web/handler/org.SaveNodePosition -> SaveNodePositions
 handlers/web/handler/org.SaveOrgConfig -> GetConnector, UpdateOrg
 handlers/web/handler/org.SaveOrgVar -> ListAuditEvents
 handlers/web/handler/org.SetPlanInput -> GetOrgConfigPlan, UpsertVariable
-handlers/web/handler/org.SettingsConfig -> ListConnectorsByOrg, ListOrgConfigPlans
-handlers/web/handler/org.SettingsDomains -> ListDomainResources
+handlers/web/handler/org.SettingsConfig -> ListConnectorsByOrg
 handlers/web/handler/org.SettingsMembers -> ListUsers
 handlers/web/handler/org.SettingsRegistry -> GetManagedRegistry, ListOrgRegistryCredentials
-handlers/web/handler/org.SettingsStorage -> ListStorage
 handlers/web/handler/org.SettingsVariables -> ListAuditEvents
-handlers/web/handler/org.Setup -> CountStacksAwaitingPlan, ListConnectorsByOrg, ListDomainResources, ListOrgConfigPlans, ListUsers
+handlers/web/handler/org.Setup -> ListConnectorsByOrg, ListUsers
 handlers/web/handler/org.SetupApprovePlan -> GetOrgConfigPlan
-handlers/web/handler/org.SetupConfigPlan -> CountStacksAwaitingPlan, GetOrgConfigPlan, LatestWorkItem, ListOrgConfigPlans
-handlers/web/handler/org.SetupDone -> CreateDomainResource, ListDomainResources, UpdateOrg
-handlers/web/handler/org.SetupMode -> CountStacksAwaitingPlan, ListOrgConfigPlans, SetOrgConfigPlanStatus, UpdateOrg
-handlers/web/handler/org.SetupRejectPlan -> GetOrgConfigPlan, SetOrgConfigPlanStatus
+handlers/web/handler/org.SetupConfigPlan -> GetOrgConfigPlan, LatestWorkItem
+handlers/web/handler/org.SetupDone -> CreateDomainResource, UpdateOrg
+handlers/web/handler/org.SetupMode -> UpdateOrg
+handlers/web/handler/org.SetupRejectPlan -> GetOrgConfigPlan
 handlers/web/handler/org.VarsPanel -> ListAuditEvents
 handlers/web/handler/org.addCandidates -> ListUsers
 handlers/web/handler/org.approvePlan -> GetOrgConfigPlan
-handlers/web/handler/org.buildOrgGraph -> ListAnnotations, ListConnectorsByOrg, ListDomains, ListGraphGroups, ListNodePositions, ListProvisionsByConsumer
+handlers/web/handler/org.buildOrgGraph -> ListAnnotations, ListConnectorsByOrg, ListGraphGroups, ListNodePositions
 handlers/web/handler/org.buildOrgsGraph -> ListAnnotations, ListGraphGroups, ListNodePositions
-handlers/web/handler/org.ensureDefaultDomain -> CreateDomainResource, ListDomainResources
+handlers/web/handler/org.ensureDefaultDomain -> CreateDomainResource
 handlers/web/handler/org.githubConnectors -> ListConnectorsByOrg
-handlers/web/handler/org.liveTags -> ListDeploymentsByTile
 handlers/web/handler/org.loadOrgPlan -> GetOrgConfigPlan
-handlers/web/handler/org.orgDomains -> ListDomainResources
 handlers/web/handler/org.orgPlanWork -> LatestWorkItem
 handlers/web/handler/org.ownedInvite -> GetInvite
-handlers/web/handler/org.pendingOrgPlans -> CountStacksAwaitingPlan, ListOrgConfigPlans
 handlers/web/handler/org.pickerConnector -> GetConnector
-handlers/web/handler/org.rejectPlan -> GetOrgConfigPlan, SetOrgConfigPlanStatus
+handlers/web/handler/org.rejectPlan -> GetOrgConfigPlan
 handlers/web/handler/org.renderRegistry -> GetManagedRegistry, ListOrgRegistryCredentials
 handlers/web/handler/org.renderVars -> ListAuditEvents
-handlers/web/handler/org.setupDomainPrefill -> ListDomainResources
-handlers/web/handler/org.setupPlan -> CountStacksAwaitingPlan, GetOrgConfigPlan, ListOrgConfigPlans
-handlers/web/handler/org.setupSummary -> CountStacksAwaitingPlan, ListConnectorsByOrg, ListDomainResources, ListOrgConfigPlans
-handlers/web/handler/org.tagRows -> ListDeploymentsByTile
+handlers/web/handler/org.setupPlan -> GetOrgConfigPlan
+handlers/web/handler/org.setupSummary -> ListConnectorsByOrg
 handlers/web/handler/prhook.Hook -> GetConnector, SetSetting
 handlers/web/handler/prhook.HookConnector -> GetConnector, SetSetting
 handlers/web/handler/prhook.planConfigs -> GetConnector
 handlers/web/handler/prhook.updatePlanComment -> GetConnector, SetSetting
 handlers/web/handler/project.ApprovePlan -> GetConfigPlan
-handlers/web/handler/project.CopyEnv -> GetConnector, ListConfigPlans, ListDeploymentsByTile, ListIntended
+handlers/web/handler/project.CopyEnv -> GetConnector, ListIntended
 handlers/web/handler/project.CreateDB -> GetEnvironment
 handlers/web/handler/project.CreateTile -> GetEnvironment
 handlers/web/handler/project.DeleteEnvVar -> ListAuditEvents
 handlers/web/handler/project.DeleteStackVar -> LatestSettledConfigPlan, ListAuditEvents, ListSecretLinks
-handlers/web/handler/project.EnvCompare -> GetConnector, ListConfigPlans, ListDeploymentsByTile, ListIntended
+handlers/web/handler/project.EnvCompare -> GetConnector, ListIntended
 handlers/web/handler/project.EnvVarsPanel -> ListAuditEvents
-handlers/web/handler/project.Graph -> BindingsForConsumer, CountStagedByEnv, GetConnector, LatestConfigPlan, ListAnnotations, ListConfigPlans, ListDeploymentsByTile, ListDomains, ListDomainsByTile, ListGraphGroups, ListIntended, ListMetrics, ListNodePositions, ListOpenCronRuns, ListProvisionsByConsumer, ListResourcesByEnv, ListStagedByEnv
-handlers/web/handler/project.GraphStatus -> BindingsForConsumer, ListAnnotations, ListDomains, ListDomainsByTile, ListGraphGroups, ListMetrics, ListNodePositions, ListOpenCronRuns, ListProvisionsByConsumer, ListResourcesByEnv, ListStagedByEnv
-handlers/web/handler/project.MarkIntended -> GetConnector, ListConfigPlans, ListDeploymentsByTile, ListIntended, SetIntended
+handlers/web/handler/project.Graph -> BindingsForConsumer, CountStagedByEnv, GetConnector, LatestConfigPlan, ListAnnotations, ListGraphGroups, ListIntended, ListMetrics, ListNodePositions, ListOpenCronRuns, ListResourcesByEnv, ListStagedByEnv
+handlers/web/handler/project.GraphStatus -> BindingsForConsumer, ListAnnotations, ListGraphGroups, ListMetrics, ListNodePositions, ListOpenCronRuns, ListResourcesByEnv, ListStagedByEnv
+handlers/web/handler/project.MarkIntended -> GetConnector, ListIntended, SetIntended
 handlers/web/handler/project.PlanView -> GetConfigPlan, GetServerByNodeID, LatestWorkItem
-handlers/web/handler/project.PromoteDialogue -> GetConnector, ListConfigPlans, ListDeploymentsByTile
+handlers/web/handler/project.PromoteDialogue -> GetConnector
 handlers/web/handler/project.RedirectStack -> GetOrgBySlug
 handlers/web/handler/project.RejectPlan -> GetConfigPlan
-handlers/web/handler/project.Releases -> GetConnector, ListConfigPlans, ListDeploymentsByTile
+handlers/web/handler/project.Releases -> GetConnector
 handlers/web/handler/project.Repos -> ListConnectorsByOrg
 handlers/web/handler/project.ResetNodePositions -> DeleteNodePositions
 handlers/web/handler/project.ResetStackNodePositions -> DeleteNodePositions
@@ -464,50 +388,45 @@ handlers/web/handler/project.SaveStackNodePosition -> SaveNodePositions
 handlers/web/handler/project.SaveStackVar -> LatestSettledConfigPlan, ListAuditEvents, ListSecretLinks
 handlers/web/handler/project.SetPlanInput -> GetConfigPlan
 handlers/web/handler/project.SettingsConfig -> ListConnectorsByOrg
-handlers/web/handler/project.SettingsDomains -> ListDomainResources
 handlers/web/handler/project.SettingsEnvironment -> ListAuditEvents
 handlers/web/handler/project.SettingsPREnv -> ListConnectorsByOrg
 handlers/web/handler/project.SettingsVariables -> LatestSettledConfigPlan, ListAuditEvents, ListSecretLinks
-handlers/web/handler/project.StackGraph -> BindingsForConsumer, CountStagedByEnv, GetConnector, HomeEnvironment, LatestConfigPlan, ListAnnotations, ListConfigPlans, ListDeploymentsByTile, ListDomains, ListDomainsByTile, ListGraphGroups, ListIntended, ListNodePositions, ListProvisionsByConsumer, ListResourcesByEnv
-handlers/web/handler/project.StackGraphStatus -> BindingsForConsumer, CountStagedByEnv, HomeEnvironment, ListAnnotations, ListDomains, ListDomainsByTile, ListGraphGroups, ListNodePositions, ListProvisionsByConsumer, ListResourcesByEnv
+handlers/web/handler/project.StackGraph -> BindingsForConsumer, CountStagedByEnv, GetConnector, HomeEnvironment, LatestConfigPlan, ListAnnotations, ListGraphGroups, ListIntended, ListNodePositions, ListResourcesByEnv
+handlers/web/handler/project.StackGraphStatus -> BindingsForConsumer, CountStagedByEnv, HomeEnvironment, ListAnnotations, ListGraphGroups, ListNodePositions, ListResourcesByEnv
 handlers/web/handler/project.StackVarsPanel -> LatestSettledConfigPlan, ListAuditEvents, ListSecretLinks
 handlers/web/handler/project.StagingDiscard -> DeleteStagedByEnv
 handlers/web/handler/project.StagingDiscardOne -> CountStagedByEnv, DeleteStagedChange, GetStagedChange
 handlers/web/handler/project.StagingReview -> ListStagedByEnv
-handlers/web/handler/project.buildGraph -> BindingsForConsumer, ListAnnotations, ListDomains, ListDomainsByTile, ListGraphGroups, ListMetrics, ListNodePositions, ListOpenCronRuns, ListProvisionsByConsumer, ListResourcesByEnv, ListStagedByEnv
-handlers/web/handler/project.buildStackGraph -> BindingsForConsumer, CountStagedByEnv, HomeEnvironment, ListAnnotations, ListDomains, ListDomainsByTile, ListGraphGroups, ListNodePositions, ListProvisionsByConsumer, ListResourcesByEnv
-handlers/web/handler/project.commitLog -> GetConnector, ListConfigPlans, ListDeploymentsByTile
+handlers/web/handler/project.buildGraph -> BindingsForConsumer, ListAnnotations, ListGraphGroups, ListMetrics, ListNodePositions, ListOpenCronRuns, ListResourcesByEnv, ListStagedByEnv
+handlers/web/handler/project.buildStackGraph -> BindingsForConsumer, CountStagedByEnv, HomeEnvironment, ListAnnotations, ListGraphGroups, ListNodePositions, ListResourcesByEnv
+handlers/web/handler/project.commitLog -> GetConnector
 handlers/web/handler/project.compareEnv -> ListIntended
 handlers/web/handler/project.compareStack -> ListIntended
-handlers/web/handler/project.envDeployments -> ListDeploymentsByTile
 handlers/web/handler/project.envFromForm -> GetEnvironment
 handlers/web/handler/project.fetchCommits -> GetConnector
 handlers/web/handler/project.githubConnectors -> ListConnectorsByOrg
 handlers/web/handler/project.loadCommits -> GetConnector
 handlers/web/handler/project.loadPlan -> GetConfigPlan
 handlers/web/handler/project.olderCommit -> GetConnector
-handlers/web/handler/project.releaseView -> GetConnector, ListConfigPlans, ListDeploymentsByTile
-handlers/web/handler/project.renderCompare -> GetConnector, ListConfigPlans, ListDeploymentsByTile, ListIntended
+handlers/web/handler/project.releaseView -> GetConnector
+handlers/web/handler/project.renderCompare -> GetConnector, ListIntended
 handlers/web/handler/project.renderEnvVars -> ListAuditEvents
 handlers/web/handler/project.renderStackVars -> LatestSettledConfigPlan, ListAuditEvents, ListSecretLinks
-handlers/web/handler/project.sharedRefs -> BindingsForConsumer, ListDomainsByTile, ListProvisionsByConsumer, ListResourcesByEnv
-handlers/web/handler/project.skippedRungFor -> ListDeploymentsByTile
+handlers/web/handler/project.sharedRefs -> BindingsForConsumer, ListResourcesByEnv
 handlers/web/handler/project.stagedMarkers -> ListStagedByEnv
-handlers/web/handler/search.Search -> ListBackups, ListConfigPlans, ListConnectors, ListDomains, ListResourcesByEnv, ListVariableNames
+handlers/web/handler/search.Search -> ListBackups, ListConnectors, ListResourcesByEnv, ListVariableNames
 handlers/web/handler/server.Activate -> GetServer
 handlers/web/handler/server.CreateDomainResource -> GetServer
-handlers/web/handler/server.CreateStoragePath -> GetStorage
 handlers/web/handler/server.CreateVolume -> GetServer
-handlers/web/handler/server.DeleteStorage -> GetStorage
-handlers/web/handler/server.DeleteStoragePath -> DeleteStoragePath, GetStorage, GetStoragePath
+handlers/web/handler/server.DeleteStoragePath -> DeleteStoragePath, GetStoragePath
 handlers/web/handler/server.DeleteVolume -> GetServer
-handlers/web/handler/server.Detail -> GetServer, ListDomainResources, ListMetrics, ListStorage, ListStoragePaths
+handlers/web/handler/server.Detail -> GetServer, ListMetrics
 handlers/web/handler/server.Drain -> GetServer
 handlers/web/handler/server.DrainForm -> GetServer
 handlers/web/handler/server.Host -> GetServer
 handlers/web/handler/server.JoinScript -> GetManagedRegistry
 handlers/web/handler/server.NewJoinKey -> GetServer
-handlers/web/handler/server.ProbeStorage -> GetStorage, UpdateStorage
+handlers/web/handler/server.ProbeStorage -> UpdateStorage
 handlers/web/handler/server.Remove -> GetServer
 handlers/web/handler/server.RemoveForm -> GetServer
 handlers/web/handler/server.SaveGroup -> GetServer

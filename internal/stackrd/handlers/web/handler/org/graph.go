@@ -374,7 +374,7 @@ func (h *handler) buildOrgGraph(ctx context.Context, o *repo.Org, style graph.Ar
 
 	// How much of each stack is reachable from outside, counted here, listed
 	// one level down.
-	allDomains, err := h.store.ListDomains(ctx)
+	allDomains, err := h.domains.ListAll(ctx)
 	if err != nil {
 		return graph.Graph{}, nil, err
 	}
@@ -457,7 +457,7 @@ func (h *handler) buildOrgGraph(ctx context.Context, o *repo.Org, style graph.Ar
 		// Instances this stack consumes that are shared org-wide, including
 		// ones owned by another stack.
 		for j := range tiles {
-			ps, err := h.store.ListProvisionsByConsumer(ctx, tiles[j].ID)
+			ps, err := h.slices.ForConsumer(ctx, tiles[j].ID)
 			if err != nil {
 				continue
 			}

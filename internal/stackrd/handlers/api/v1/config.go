@@ -54,9 +54,9 @@ func (a *API) requireConfigStack(c echo.Context, stackID string, write bool) (*r
 
 // requirePlan loads a plan and the stack it belongs to, 404ing across tenants.
 func (a *API) requirePlan(c echo.Context, write bool) (*repo.Stack, *repo.ConfigPlan, error) {
-	cp, err := a.store.GetConfigPlan(c.Request().Context(), c.Param("id"))
-	if err != nil || cp == nil {
-		return nil, nil, echo.NewHTTPError(http.StatusNotFound, "not found")
+	cp, err := a.plans.Get(c.Request().Context(), c.Param("id"))
+	if err != nil {
+		return nil, nil, stackrmw.HTTP(err)
 	}
 	s, err := a.requireConfigStack(c, cp.StackID, write)
 	if err != nil {
@@ -75,7 +75,7 @@ func (a *API) listPlans(c echo.Context) error {
 	if n, cerr := strconv.Atoi(c.QueryParam("limit")); cerr == nil && n > 0 {
 		limit = min(n, maxPlanLimit)
 	}
-	plans, err := a.store.ListConfigPlans(c.Request().Context(), s.ID, limit)
+	plans, err := a.plans.ForStack(c.Request().Context(), s.ID, limit)
 	if err != nil {
 		return err
 	}

@@ -64,7 +64,7 @@ func (a *API) listInstanceProvisions(c echo.Context) error {
 	if !inst.IsManaged() {
 		return echo.NewHTTPError(http.StatusNotFound, "not found")
 	}
-	ps, err := a.store.ListProvisionsByInstance(c.Request().Context(), inst.ID)
+	ps, err := a.slices.ForInstance(c.Request().Context(), inst.ID)
 	if err != nil {
 		return err
 	}
@@ -132,9 +132,9 @@ func (a *API) forkProvision(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, "invalid body")
 	}
 	ctx := c.Request().Context()
-	src, err := a.store.GetProvision(ctx, c.Param("id"))
-	if err != nil || src == nil {
-		return echo.NewHTTPError(http.StatusNotFound, "not found")
+	src, err := a.slices.Get(ctx, c.Param("id"))
+	if err != nil {
+		return stackrmw.HTTP(err)
 	}
 	inst, err := a.tile(c, src.InstanceTileID)
 	if err != nil {
@@ -156,9 +156,9 @@ func (a *API) forkProvision(c echo.Context) error {
 // operation.
 func (a *API) deleteProvision(c echo.Context) error {
 	ctx := c.Request().Context()
-	p, err := a.store.GetProvision(ctx, c.Param("id"))
-	if err != nil || p == nil {
-		return echo.NewHTTPError(http.StatusNotFound, "not found")
+	p, err := a.slices.Get(ctx, c.Param("id"))
+	if err != nil {
+		return stackrmw.HTTP(err)
 	}
 	inst, err := a.tile(c, p.InstanceTileID)
 	if err != nil {

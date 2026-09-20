@@ -152,7 +152,7 @@ func (h *handler) loadTab(c echo.Context, d *repo.Tile, tab string) (tabData, er
 		_, dur := components.MetricRange(c.QueryParam("range"))
 		td.cpu, td.mem, td.rx, td.tx = h.telemetry.Points(ctx, "db:"+d.ID, dur)
 	case "settings":
-		if td.domains, err = h.store.ListDomainsByTile(ctx, d.ID); err != nil {
+		if td.domains, err = h.domains.ForTile(ctx, d.ID); err != nil {
 			return td, err
 		}
 		if d.ScopeKind != "org" {
@@ -315,7 +315,7 @@ func (h *handler) Provisions(c echo.Context) error {
 
 func (h *handler) renderProvisions(c echo.Context, d *repo.Tile) error {
 	ctx := c.Request().Context()
-	ps, err := h.store.ListProvisionsByInstance(ctx, d.ID)
+	ps, err := h.slices.ForInstance(ctx, d.ID)
 	if err != nil {
 		return err
 	}

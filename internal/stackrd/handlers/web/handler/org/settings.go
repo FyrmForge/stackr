@@ -447,7 +447,7 @@ func (h *handler) SettingsStorage(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	all, err := h.store.ListStorage(c.Request().Context())
+	all, err := h.storage.ListAll(c.Request().Context())
 	if err != nil {
 		return err
 	}
@@ -463,7 +463,7 @@ func (h *handler) SettingsStorage(c echo.Context) error {
 // orgDomains is this org's own domain resources. There is no owner-scoped
 // query, so the filtering happens here.
 func (h *handler) orgDomains(c echo.Context, orgID string) ([]repo.DomainResource, error) {
-	all, err := h.store.ListDomainResources(c.Request().Context())
+	all, err := h.resources.ListAll(c.Request().Context())
 	if err != nil {
 		return nil, err
 	}

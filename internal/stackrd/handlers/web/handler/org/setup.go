@@ -211,7 +211,7 @@ func (h *handler) ensureDefaultDomain(c echo.Context, o *repo.Org) error {
 	if host == "" {
 		return nil // a LAN install has no base domain to build one from
 	}
-	all, err := h.store.ListDomainResources(ctx)
+	all, err := h.resources.ListAll(ctx)
 	if err != nil {
 		return err
 	}
@@ -471,7 +471,7 @@ func (h *handler) SetupMode(c echo.Context) error {
 	ctx := c.Request().Context()
 	if mode == "ui" {
 		if cp, _ := h.pendingOrgPlans(c, o); cp != nil && cp.Status == "pending" {
-			if err := h.store.SetOrgConfigPlanStatus(ctx, cp.ID, "rejected"); err != nil {
+			if err := h.plans.SetOrgPlanStatus(ctx, cp.ID, "rejected"); err != nil {
 				return err
 			}
 		}
@@ -488,7 +488,7 @@ func (h *handler) SetupMode(c echo.Context) error {
 // installer's root domain seeded, else BASE_URL's host. A LAN or test install
 // has neither and gets an empty field rather than a guess.
 func (h *handler) setupDomainPrefill(ctx context.Context, o *repo.Org) string {
-	if all, err := h.store.ListDomainResources(ctx); err == nil {
+	if all, err := h.resources.ListAll(ctx); err == nil {
 		for _, r := range all {
 			if r.Level == "instance" {
 				return o.Slug + "." + r.Host

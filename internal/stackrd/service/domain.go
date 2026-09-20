@@ -338,3 +338,18 @@ func (s *DomainService) checkMiddlewares(ctx context.Context, own *repo.Stack, r
 	}
 	return nil
 }
+
+// --- reads ---
+
+// ForTile is a tile's hostnames, in the order the panel lists them.
+func (s *DomainService) ForTile(ctx context.Context, tileID string) ([]repo.Domain, error) {
+	return s.store.ListDomainsByTile(ctx, tileID)
+}
+
+// ListAll is every hostname on the server. Its callers are the proxy-facing
+// pages and the admin domain list, both of which are server-wide by nature;
+// a caller that wants one org's hostnames wants ForTile per tile, which the
+// tenancy check on the tile has already answered for.
+func (s *DomainService) ListAll(ctx context.Context) ([]repo.Domain, error) {
+	return s.store.ListDomains(ctx)
+}

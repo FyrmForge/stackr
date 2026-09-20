@@ -71,9 +71,9 @@ func (h *handler) CreateStorage(c echo.Context) error {
 // POST /servers/:id/storage/delete
 func (h *handler) DeleteStorage(c echo.Context) error {
 	ctx := c.Request().Context()
-	st, err := h.store.GetStorage(ctx, c.FormValue("id"))
-	if err != nil || st == nil {
-		return echo.NewHTTPError(http.StatusNotFound, "storage not found")
+	st, err := h.storage.Get(ctx, c.FormValue("id"))
+	if err != nil {
+		return stackrmw.HTTP(err)
 	}
 	// Through the service, which has the org branch this handler never had:
 	// an org share is referenced as ${{ org.storage.NAME }}, which the
@@ -89,9 +89,9 @@ func (h *handler) DeleteStorage(c echo.Context) error {
 // POST /servers/:id/storage/probe
 func (h *handler) ProbeStorage(c echo.Context) error {
 	ctx := c.Request().Context()
-	st, err := h.store.GetStorage(ctx, c.FormValue("id"))
-	if err != nil || st == nil {
-		return echo.NewHTTPError(http.StatusNotFound, "storage not found")
+	st, err := h.storage.Get(ctx, c.FormValue("id"))
+	if err != nil {
+		return stackrmw.HTTP(err)
 	}
 	h.probeAndRecord(ctx, st)
 	if st.Status == "ok" {
@@ -105,9 +105,9 @@ func (h *handler) ProbeStorage(c echo.Context) error {
 // POST /servers/:id/storage/paths
 func (h *handler) CreateStoragePath(c echo.Context) error {
 	ctx := c.Request().Context()
-	st, err := h.store.GetStorage(ctx, c.FormValue("storage_id"))
-	if err != nil || st == nil {
-		return echo.NewHTTPError(http.StatusNotFound, "storage not found")
+	st, err := h.storage.Get(ctx, c.FormValue("storage_id"))
+	if err != nil {
+		return stackrmw.HTTP(err)
 	}
 	// The service slugifies and then checks for emptiness. This handler did
 	// it the other way round, so a name of "..." became a sub-path called "".
@@ -131,7 +131,7 @@ func (h *handler) DeleteStoragePath(c echo.Context) error {
 	if err != nil || p == nil {
 		return echo.NewHTTPError(http.StatusNotFound, "sub-path not found")
 	}
-	st, _ := h.store.GetStorage(ctx, p.StorageID)
+	st, _ := h.storage.Get(ctx, p.StorageID)
 	if st != nil {
 		if consumers, _ := h.storage.Consumers(ctx, st, p.Name); len(consumers) > 0 {
 			return echo.NewHTTPError(http.StatusConflict, "still attached to "+strings.Join(consumers, ", ")+"; detach first")

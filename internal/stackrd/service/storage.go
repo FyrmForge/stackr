@@ -218,3 +218,27 @@ func (s *StorageService) DeclarePath(ctx context.Context, st *repo.Storage, name
 	}
 	return p, nil
 }
+
+// --- reads ---
+
+// Get is one storage row by id.
+func (s *StorageService) Get(ctx context.Context, id string) (*repo.Storage, error) {
+	st, err := s.store.GetStorage(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if st == nil {
+		return nil, svcerr.ErrNotFound
+	}
+	return st, nil
+}
+
+// ListAll is every storage row on the server.
+func (s *StorageService) ListAll(ctx context.Context) ([]repo.Storage, error) {
+	return s.store.ListStorage(ctx)
+}
+
+// Paths are the named sub-paths declared on one storage row.
+func (s *StorageService) Paths(ctx context.Context, storageID string) ([]repo.StoragePath, error) {
+	return s.store.ListStoragePaths(ctx, storageID)
+}

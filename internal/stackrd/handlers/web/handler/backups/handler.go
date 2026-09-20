@@ -35,7 +35,8 @@ type handler struct {
 	schedules *service.BackupScheduleService
 	dests     *service.BackupDestinationService
 	// tiles owns the tile a backup is taken of.
-	tiles *service.TileService
+	tiles  *service.TileService
+	slices *service.SliceService
 }
 
 // WithBackups attaches the two backup services.
@@ -135,7 +136,7 @@ func (h *handler) load(c echo.Context, t *repo.Tile) (view, error) {
 	// databases in the same server, and per-slice backups are phase 4 of
 	// docs/features/shared-infra.md, so say so rather than let a 400-byte
 	// artifact read as a backup of everything.
-	if ps, perr := h.store.ListProvisionsByInstance(ctx, t.ID); perr == nil {
+	if ps, perr := h.slices.ForInstance(ctx, t.ID); perr == nil {
 		for i := range ps {
 			if ps[i].Status == "active" {
 				v.Slices++
@@ -298,3 +299,6 @@ func (h *handler) WithScheduler(s *scheduler.Service) *handler { h.sched = s; re
 
 // WithTiles gives the page the tile service.
 func (h *handler) WithTiles(t *service.TileService) *handler { h.tiles = t; return h }
+
+// WithSlices gives the page the provision service.
+func (h *handler) WithSlices(v *service.SliceService) *handler { h.slices = v; return h }

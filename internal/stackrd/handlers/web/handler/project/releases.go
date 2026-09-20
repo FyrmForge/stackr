@@ -106,7 +106,7 @@ func planWaiting(log commitLog, plans []repo.ConfigPlan, envSlug, commit string)
 
 func (h *handler) releaseView(ctx context.Context, p *repo.Stack) releaseView {
 	log := h.commitLog(ctx, p)
-	plans, _ := h.store.ListConfigPlans(ctx, p.ID, 10)
+	plans, _ := h.plans.ForStack(ctx, p.ID, 10)
 	v := releaseView{Stack: p, Log: log, Plans: plans, URL: stackURL(p) + "/releases"}
 	// Envs[0] is the rung that builds on push; nothing is promoted to it.
 	upper := log.Envs
@@ -203,7 +203,7 @@ func (h *handler) PromoteDialogue(c echo.Context) error {
 	}
 	d.Commits, d.Count, d.Back = promoteSpan(log, log.Runs[env.ID], commit)
 	d.Skipped = h.skippedRungFor(ctx, p, env.Slug, commit)
-	plans, _ := h.store.ListConfigPlans(ctx, p.ID, 10)
+	plans, _ := h.plans.ForStack(ctx, p.ID, 10)
 	if cp := planWaiting(log, plans, env.Slug, commit); cp != nil {
 		d.Plan = cp
 		d.PlanURL = stackURL(p) + "/plans/" + cp.ID

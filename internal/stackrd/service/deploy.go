@@ -137,3 +137,23 @@ func (s *DeployService) Live(ctx context.Context, tileID string) ([]repo.Deploym
 	}
 	return out, nil
 }
+
+// --- reads ---
+
+// Get is one deployment by id.
+func (s *DeployService) Get(ctx context.Context, id string) (*repo.Deployment, error) {
+	d, err := s.store.GetDeployment(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if d == nil {
+		return nil, svcerr.ErrNotFound
+	}
+	return d, nil
+}
+
+// ForTile is a tile's most recent deployments, newest first. Live is the
+// narrower question — which of them are still running — and stays separate.
+func (s *DeployService) ForTile(ctx context.Context, tileID string, limit int) ([]repo.Deployment, error) {
+	return s.store.ListDeploymentsByTile(ctx, tileID, limit)
+}

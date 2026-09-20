@@ -24,7 +24,7 @@ func toDomainResourceOut(r *repo.DomainResource) domainResourceOut {
 // instance rows for everyone, org/stack rows only within the caller's orgs.
 func (a *API) listDomainResources(c echo.Context) error {
 	ctx := c.Request().Context()
-	all, err := a.store.ListDomainResources(ctx)
+	all, err := a.resources.ListAll(ctx)
 	if err != nil {
 		return err
 	}

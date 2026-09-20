@@ -43,7 +43,7 @@ func (h *handler) SettingsConfig(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	plans, _ := h.store.ListOrgConfigPlans(c.Request().Context(), o.ID, 10)
+	plans, _ := h.plans.ForOrg(c.Request().Context(), o.ID, 10)
 	return respond.HTML(c, http.StatusOK, orgConfigPage(c, o, h.githubConnectors(c, o), plans))
 }
 
@@ -231,7 +231,7 @@ func (h *handler) rejectPlan(c echo.Context) (*repo.Org, error) {
 	if cp.Status != "pending" {
 		return nil, echo.NewHTTPError(http.StatusConflict, "plan is "+cp.Status)
 	}
-	if err := h.store.SetOrgConfigPlanStatus(c.Request().Context(), cp.ID, "rejected"); err != nil {
+	if err := h.plans.SetOrgPlanStatus(c.Request().Context(), cp.ID, "rejected"); err != nil {
 		return nil, err
 	}
 	middleware.SetFlash(c, "Plan rejected.", middleware.FlashSuccess)

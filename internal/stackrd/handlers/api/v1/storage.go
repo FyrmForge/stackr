@@ -67,7 +67,7 @@ func (a *API) storageOut(c echo.Context, st *repo.Storage) storageOut {
 			out.Org = org.Slug
 		}
 	}
-	paths, _ := a.store.ListStoragePaths(c.Request().Context(), st.ID)
+	paths, _ := a.storage.Paths(c.Request().Context(), st.ID)
 	for _, p := range paths {
 		out.Paths = append(out.Paths, storagePathOut{ID: p.ID, Name: p.Name, Subpath: p.Subpath,
 			ForcedRO: p.ForcedRO, Volume: repo.StorageVolume(p.ID)})
@@ -76,7 +76,7 @@ func (a *API) storageOut(c echo.Context, st *repo.Storage) storageOut {
 }
 
 func (a *API) listStorage(c echo.Context) error {
-	sts, err := a.store.ListStorage(c.Request().Context())
+	sts, err := a.storage.ListAll(c.Request().Context())
 	if err != nil {
 		return err
 	}
@@ -120,9 +120,9 @@ func (a *API) createStorage(c echo.Context) error {
 
 func (a *API) deleteStorage(c echo.Context) error {
 	ctx := c.Request().Context()
-	st, err := a.store.GetStorage(ctx, c.Param("id"))
-	if err != nil || st == nil {
-		return echo.NewHTTPError(http.StatusNotFound, "storage not found")
+	st, err := a.storage.Get(ctx, c.Param("id"))
+	if err != nil {
+		return stackrmw.HTTP(err)
 	}
 	if st.OrgID != "" {
 		// Access first: an org share is the org's to remove. The consumer
@@ -143,9 +143,9 @@ func (a *API) deleteStorage(c echo.Context) error {
 
 func (a *API) createStoragePath(c echo.Context) error {
 	ctx := c.Request().Context()
-	st, err := a.store.GetStorage(ctx, c.Param("id"))
-	if err != nil || st == nil {
-		return echo.NewHTTPError(http.StatusNotFound, "storage not found")
+	st, err := a.storage.Get(ctx, c.Param("id"))
+	if err != nil {
+		return stackrmw.HTTP(err)
 	}
 	var in storagePathIn
 	if err := c.Bind(&in); err != nil {
@@ -170,7 +170,7 @@ func (a *API) deleteStoragePath(c echo.Context) error {
 	if err != nil || p == nil {
 		return echo.NewHTTPError(http.StatusNotFound, "sub-path not found")
 	}
-	st, _ := a.store.GetStorage(ctx, p.StorageID)
+	st, _ := a.storage.Get(ctx, p.StorageID)
 	if st != nil {
 		tiles, _ := a.tiles.ListAll(ctx)
 		for i := range tiles {

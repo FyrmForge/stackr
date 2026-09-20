@@ -66,8 +66,9 @@ type handler struct {
 	deploys *service.DeployService
 	// gate answers whether a config-managed stack takes this edit, and
 	// whether it stages. editGate was a second copy of it.
-	gate *service.GateService
-	orgs *service.OrgService
+	gate    *service.GateService
+	orgs    *service.OrgService
+	storage *service.StorageService
 }
 
 // NewHandler creates a new app handler.
@@ -470,10 +471,10 @@ func (h *handler) loadTab(c echo.Context, a *repo.Tile, tab string) (tabData, er
 			d.vol = h.volumeView(ctx, a)
 			break
 		}
-		if d.domains, err = h.store.ListDomainsByTile(ctx, a.ID); err != nil {
+		if d.domains, err = h.domains.ForTile(ctx, a.ID); err != nil {
 			return d, err
 		}
-		if d.deployments, err = h.store.ListDeploymentsByTile(ctx, a.ID, 1); err != nil {
+		if d.deployments, err = h.deploys.ForTile(ctx, a.ID, 1); err != nil {
 			return d, err
 		}
 		d.node = h.placementOf(ctx, a)
@@ -492,7 +493,7 @@ func (h *handler) loadTab(c echo.Context, a *repo.Tile, tab string) (tabData, er
 			d.vol = h.volumeView(ctx, a)
 			break
 		}
-		if d.domains, err = h.store.ListDomainsByTile(ctx, a.ID); err != nil {
+		if d.domains, err = h.domains.ForTile(ctx, a.ID); err != nil {
 			return d, err
 		}
 		d.configMode = h.configMode(ctx, a.StackID)
@@ -506,7 +507,7 @@ func (h *handler) loadTab(c echo.Context, a *repo.Tile, tab string) (tabData, er
 	case "variables":
 		// app already carries env/build_args
 	default: // deployments, for every kind that has them
-		if d.deployments, err = h.store.ListDeploymentsByTile(ctx, a.ID, 10); err != nil {
+		if d.deployments, err = h.deploys.ForTile(ctx, a.ID, 10); err != nil {
 			return d, err
 		}
 	}
@@ -753,7 +754,7 @@ func (h *handler) Provisions(c echo.Context) error {
 
 func (h *handler) renderProvisions(c echo.Context, a *repo.Tile) error {
 	ctx := c.Request().Context()
-	ps, err := h.store.ListProvisionsByConsumer(ctx, a.ID)
+	ps, err := h.slices.ForConsumer(ctx, a.ID)
 	if err != nil {
 		return err
 	}
@@ -1224,7 +1225,7 @@ func (h *handler) currentDesiredDomains(ctx context.Context, a *repo.Tile) ([]st
 			}
 		}
 	}
-	cur, err := h.store.ListDomainsByTile(ctx, a.ID)
+	cur, err := h.domains.ForTile(ctx, a.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -1505,7 +1506,7 @@ func (h *handler) CreateAutoDomain(c echo.Context) error {
 	}
 	// EnsureAuto is a silent no-op with no resource to nest under; say where
 	// to add one rather than appearing to do nothing.
-	ds, _ := h.store.ListDomainsByTile(ctx, a.ID)
+	ds, _ := h.domains.ForTile(ctx, a.ID)
 	auto := false
 	for _, d := range ds {
 		if d.Auto {
@@ -1615,3 +1616,6 @@ func (h *handler) WithScheduler(s *scheduler.Service) *handler { h.sched = s; re
 
 // WithOrgs gives the page the organization service.
 func (h *handler) WithOrgs(v *service.OrgService) *handler { h.orgs = v; return h }
+
+// WithStorage gives the page the storage service.
+func (h *handler) WithStorage(v *service.StorageService) *handler { h.storage = v; return h }

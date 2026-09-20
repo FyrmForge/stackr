@@ -381,7 +381,7 @@ func (a *API) listDeployments(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	ds, err := a.store.ListDeploymentsByTile(c.Request().Context(), t.ID, 20)
+	ds, err := a.deploys.ForTile(c.Request().Context(), t.ID, 20)
 	if err != nil {
 		return err
 	}
@@ -410,9 +410,9 @@ func (a *API) getDeployment(c echo.Context) error {
 // the route's gate asks for that now (VerbDeploymentCancel on the cancel,
 // VerbDeploymentRead on the reads).
 func (a *API) loadDeployment(c echo.Context, id string) (*repo.Deployment, error) {
-	d, err := a.store.GetDeployment(c.Request().Context(), id)
-	if err != nil || d == nil {
-		return nil, echo.NewHTTPError(http.StatusNotFound, "not found")
+	d, err := a.deploys.Get(c.Request().Context(), id)
+	if err != nil {
+		return nil, stackrmw.HTTP(err)
 	}
 	if _, err := a.tile(c, d.TileID); err != nil {
 		return nil, err

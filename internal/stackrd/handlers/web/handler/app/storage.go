@@ -30,7 +30,7 @@ func (h *handler) storageRows(a *repo.Tile) []storageRow {
 }
 
 func (h *handler) storageOptions(ctx context.Context, a *repo.Tile) []storageOption {
-	storages, err := h.store.ListStorage(ctx)
+	storages, err := h.storage.ListAll(ctx)
 	if err != nil {
 		return nil
 	}
@@ -41,7 +41,7 @@ func (h *handler) storageOptions(ctx context.Context, a *repo.Tile) []storageOpt
 	var out []storageOption
 	for i := range storages {
 		st := &storages[i]
-		paths, _ := h.store.ListStoragePaths(ctx, st.ID)
+		paths, _ := h.storage.Paths(ctx, st.ID)
 		for j := range paths {
 			val := st.Slug + "/" + paths[j].Name
 			if attached[val] {

@@ -2562,3 +2562,18 @@ Wiring went in BEFORE the call sites this time — `Deps.Orgs` in both servers,
 `apiFor`, the journey harness, the `project` tests — so the failures that came
 back were logic, not nil services. That is the third slice's only process
 change and it saved the whole round of nil-pointer panics the first two had.
+
+**Slice 4: domains, storage, provisions, config plans, deployments. 335 -> 253.**
+
+`DomainService.ForTile`/`ListAll`, `DomainResourceService.ListAll`,
+`StorageService.Get`/`ListAll`/`Paths`, `SliceService.Get`/`ForInstance`/
+`ForConsumer`, `PlanService.Get`/`ForStack`/`GetOrgPlan`/`ForOrg`/
+`SetOrgPlanStatus`/`AwaitingPlan`, `DeployService.Get`/`ForTile`.
+
+Org and stack config plans keep separate methods on purpose: different table,
+different approver, different level. One `Get` over both ids would let an org
+plan be approved through a stack plan's route.
+
+`handler/project`'s four test files built the same growing struct literal by
+hand; they share `testHandler(s)` now (`testhandler_test.go`). Every slice adds
+a field to it, which is exactly why it should exist once.

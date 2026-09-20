@@ -95,3 +95,53 @@ func (s *PlanService) pending(cp *repo.ConfigPlan) error {
 	}
 	return nil
 }
+
+// --- reads ---
+
+// Get is one stack config plan by id.
+func (s *PlanService) Get(ctx context.Context, id string) (*repo.ConfigPlan, error) {
+	cp, err := s.store.GetConfigPlan(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if cp == nil {
+		return nil, svcerr.ErrNotFound
+	}
+	return cp, nil
+}
+
+// ForStack is a stack's most recent config plans, newest first.
+func (s *PlanService) ForStack(ctx context.Context, stackID string, limit int) ([]repo.ConfigPlan, error) {
+	return s.store.ListConfigPlans(ctx, stackID, limit)
+}
+
+// GetOrgPlan is one ORG config plan by id. Org plans are a separate table
+// from stack plans and deliberately separate methods here: they are approved
+// by a different owner, at a different level, and conflating the two ids
+// would let an org plan be approved through a stack plan's route.
+func (s *PlanService) GetOrgPlan(ctx context.Context, id string) (*repo.ConfigPlan, error) {
+	cp, err := s.store.GetOrgConfigPlan(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if cp == nil {
+		return nil, svcerr.ErrNotFound
+	}
+	return cp, nil
+}
+
+// ForOrg is an organization's most recent org config plans, newest first.
+func (s *PlanService) ForOrg(ctx context.Context, orgID string, limit int) ([]repo.ConfigPlan, error) {
+	return s.store.ListOrgConfigPlans(ctx, orgID, limit)
+}
+
+// SetOrgPlanStatus records an org plan's outcome.
+func (s *PlanService) SetOrgPlanStatus(ctx context.Context, id, status string) error {
+	return s.store.SetOrgConfigPlanStatus(ctx, id, status)
+}
+
+// AwaitingPlan counts an org's stacks with a plan waiting on somebody. The
+// canvas badge.
+func (s *PlanService) AwaitingPlan(ctx context.Context, orgID string) (int, error) {
+	return s.store.CountStacksAwaitingPlan(ctx, orgID)
+}

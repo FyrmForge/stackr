@@ -306,3 +306,11 @@ func canonLevel(level, ownerID string) (string, string) {
 		return "instance", ownerID
 	}
 }
+
+// ListAll is every domain resource on the server: the hostnames stackr may
+// generate names under. Filtering them to what a caller may see is the
+// surface's job — the API's list does it per row against the caller's orgs —
+// because "may see" is not a property of the row.
+func (s *DomainResourceService) ListAll(ctx context.Context) ([]repo.DomainResource, error) {
+	return s.store.ListDomainResources(ctx)
+}

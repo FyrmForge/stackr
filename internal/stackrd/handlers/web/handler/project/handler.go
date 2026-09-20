@@ -93,8 +93,9 @@ type handler struct {
 	// work is the durable job runner. An apply is enqueued on it, never run on
 	// the request: it clones repos and builds images, so it routinely outlives
 	// the browser that asked for it.
-	work *workqueue.Queue
-	orgs *service.OrgService
+	work   *workqueue.Queue
+	orgs   *service.OrgService
+	slices *service.SliceService
 }
 
 // WithMover attaches the volume-move service. Set from the router rather than
@@ -1188,7 +1189,7 @@ func (h *handler) buildGraph(ctx context.Context, envID string, style graph.Arra
 			rates[tiles[i].ID] = [2]float64{last.RxBps, last.TxBps}
 		}
 	}
-	allDomains, err := h.store.ListDomains(ctx)
+	allDomains, err := h.domains.ListAll(ctx)
 	if err != nil {
 		return graph.Graph{}, err
 	}
@@ -1445,7 +1446,7 @@ func (h *handler) sharedRefs(ctx context.Context, envID string, tiles []repo.Til
 		if t.IsManaged() || t.IsVolume() {
 			continue
 		}
-		ps, err := h.store.ListProvisionsByConsumer(ctx, t.ID)
+		ps, err := h.slices.ForConsumer(ctx, t.ID)
 		if err != nil {
 			continue
 		}
@@ -1464,7 +1465,7 @@ func (h *handler) sharedRefs(ctx context.Context, envID string, tiles []repo.Til
 					Href:         "/dbs/" + inst.ID,
 					ExternalPort: inst.ExternalPort,
 				}
-				if doms, err := h.store.ListDomainsByTile(ctx, inst.ID); err == nil {
+				if doms, err := h.domains.ForTile(ctx, inst.ID); err == nil {
 					for _, d := range doms {
 						ref.Domains = append(ref.Domains, d.Host)
 					}
@@ -2236,7 +2237,7 @@ func (h *handler) SettingsDomains(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	all, err := h.store.ListDomainResources(c.Request().Context())
+	all, err := h.resources.ListAll(c.Request().Context())
 	if err != nil {
 		return err
 	}
@@ -2425,3 +2426,6 @@ func (h *handler) WithDomainResources(r *service.DomainResourceService) *handler
 
 // WithOrgs gives the page the organization service.
 func (h *handler) WithOrgs(v *service.OrgService) *handler { h.orgs = v; return h }
+
+// WithSlices gives the page the provision service.
+func (h *handler) WithSlices(v *service.SliceService) *handler { h.slices = v; return h }
