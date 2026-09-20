@@ -1,0 +1,14 @@
+-- An API key remembers the org it was minted for.
+--
+-- Scopes are granted against whichever org the minting browser's cookie
+-- pointed at, and the key carried no org of its own, so a write scope minted
+-- on org A travelled to org B and only the live role check in B stopped it.
+-- A bound key now also has to be acting in the org that justified its scopes.
+--
+-- NULL means unbound: every key that exists today, plus keys minted by a
+-- server admin (whose write scopes come from the admin badge, not from any
+-- org) and keys minted with no active org. Unbound keeps the old behaviour on
+-- purpose — silently narrowing a live credential breaks running CI with no
+-- signal to its owner. See docs/plans/service-extraction/06-points-18-20.md,
+-- "The four open decisions", #2.
+ALTER TABLE api_keys ADD COLUMN org_id TEXT REFERENCES orgs (id) ON DELETE SET NULL;

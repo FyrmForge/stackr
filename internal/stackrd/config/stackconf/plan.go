@@ -7,10 +7,10 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/FyrmForge/stackr/internal/stackrd/config/envops"
 	"github.com/FyrmForge/stackr/internal/stackrd/config/envutil"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/managedtiles"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/runtime"
+	"github.com/FyrmForge/stackr/internal/stackrd/service"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 )
 
@@ -37,6 +37,12 @@ type State struct {
 	// mints clones private repositories, so naming another org's id has to be
 	// a plan error rather than a silent fallback at deploy time.
 	OrgConnectors map[string]bool
+	// ConnectorsKnown says the listing above succeeded. A nil map otherwise
+	// means two different things — "the lookup failed" and "the org owns
+	// none" — and the check used to treat both as "do not check", so a file
+	// naming another org's connector passed the plan on an org with no
+	// connectors of its own.
+	ConnectorsKnown bool
 	// AllDomains is every tile domain on the server: host+path is unique
 	// (idx_domains_host_path), so a claim on a host another tile routes must
 	// fail in the plan, not as a constraint error mid-apply.
@@ -336,7 +342,7 @@ func claimHost(dc DomainConf, envSlug, tileSlug string, opts DiffOpts) (string, 
 			return "", fmt.Errorf("tile %s: auto domain, but no domain resource is visible to this stack; add one at stack, org or server level", tileSlug)
 		}
 		res := opts.DomainResources[0]
-		return envops.AutoHost(res, opts.OrgSlug, opts.StackSlug, envSlug, tileSlug, envSlug == opts.DefaultEnv), nil
+		return service.AutoHost(res, opts.OrgSlug, opts.StackSlug, envSlug, tileSlug, envSlug == opts.DefaultEnv), nil
 	case dc.Apex != "":
 		for _, r := range opts.DomainResources {
 			if r.Host == dc.Apex {
@@ -548,12 +554,23 @@ func (p *Plan) diffDomainRes(want []DomainResConf, s State) {
 			p.Changes = append(p.Changes, Change{Kind: "create", Env: "stack", Field: "domain", New: d.Host})
 			continue
 		}
-		switch {
-		case cur.IncludeEnvOnDefault != d.IncludeEnvOnDefault:
+		// Independent, not a switch: two fields can move in one edit, and a
+		// switch showed only the first of them.
+		if cur.IncludeEnvOnDefault != d.IncludeEnvOnDefault {
 			p.Changes = append(p.Changes, Change{Kind: "update", Env: "stack", Field: "domain",
 				Old: d.Host + " include_env_on_default=" + boolStr(cur.IncludeEnvOnDefault),
 				New: d.Host + " include_env_on_default=" + boolStr(d.IncludeEnvOnDefault)})
-		case !cur.Declared:
+		}
+		// acme_email was applied on create and never diffed, so changing it in
+		// a stack file did nothing at all and the plan said nothing either.
+		// The org file has diffed and applied it since it gained domains:.
+		if cur.ACMEEmail != d.ACMEEmail {
+			p.Changes = append(p.Changes, Change{Kind: "update", Env: "stack", Field: "domain",
+				Old:  d.Host + " acme_email=" + defStr(cur.ACMEEmail, "(instance default)"),
+				New:  d.Host + " acme_email=" + defStr(d.ACMEEmail, "(instance default)"),
+				Note: "certificates under this host move to another Let's Encrypt account; traefik restarts once"})
+		}
+		if !cur.Declared && cur.IncludeEnvOnDefault == d.IncludeEnvOnDefault && cur.ACMEEmail == d.ACMEEmail {
 			p.Changes = append(p.Changes, Change{Kind: "update", Env: "stack", Field: "domain", New: d.Host,
 				Note: "added in the panel; the file adopts it, and dropping it from the file will delete it"})
 		}
@@ -624,6 +641,8 @@ func (p *Plan) diffTile(env, name string, tc TileConf, ts TileState, cur EnvStat
 	case "volume":
 		upd("attach", attachedSlug(cur, t.AttachedTileID), tc.Attach)
 		upd("path", t.MountPath, tc.Path)
+		upd("volume_name", t.VolumeName, tc.VolumeName)
+		upd("max_size_mb", strconv.Itoa(t.MaxSizeMB), strconv.Itoa(tc.MaxSizeMB))
 	case "managed":
 		// engine is handled above as a replace. The rest is in-place: the port
 		// changes the host mapping, the scope changes who may provision from
@@ -878,11 +897,13 @@ func (p *Plan) diffDomains(env, name string, tc TileConf, ts TileState, opts Dif
 // and clone its private repositories. A plan error, not an apply one: by apply
 // time the deploy is already running (docs/surface-parity.md, bugs found).
 //
-// An empty OrgConnectors means the lookup failed rather than "the org owns
-// none", so it checks nothing: refusing every build over a database blip is
-// worse than the deploy-time guard in infra/githubapp, which stands either way.
+// A failed lookup checks nothing: refusing every build over a database blip
+// is worse than the deploy-time guard in infra/githubapp, which stands either
+// way. "The org owns none" is a different answer and does refuse — that case
+// used to be indistinguishable from the blip, so a file naming another org's
+// connector planned clean on any org that had none of its own.
 func (p *Plan) checkConnector(env, name string, tc TileConf, s State) {
-	if tc.Connector == "" || len(s.OrgConnectors) == 0 || s.OrgConnectors[tc.Connector] {
+	if tc.Connector == "" || !s.ConnectorsKnown || s.OrgConnectors[tc.Connector] {
 		return
 	}
 	p.Errors = append(p.Errors, fmt.Sprintf("env %s: tile %s: connector %s belongs to another organisation", env, name, tc.Connector))

@@ -13,14 +13,26 @@
   var ws = new HamrWS("/ws");
 
   ws.onopen = function () {
-    document.querySelectorAll("[data-ws-room]").forEach(function (el) {
-      ws.send(JSON.stringify({ action: "join", room: el.dataset.wsRoom }));
-    });
+    document.querySelectorAll("[data-ws-room]").forEach(join);
   };
+
+  function join(el) {
+    ws.send(JSON.stringify({ action: "join", room: el.dataset.wsRoom }));
+  }
 
   ws.onmessage = function (e) {
     var ev;
     try { ev = JSON.parse(e.data); } catch (_) { return; }
+    // Standing changed: leave every room and ask for them back, so the
+    // server's join check runs again and the rooms we may no longer read are
+    // dropped. A room is authorized when it is joined and never after.
+    if (ev.type === "access") {
+      document.querySelectorAll("[data-ws-room]").forEach(function (el) {
+        ws.send(JSON.stringify({ action: "leave", room: el.dataset.wsRoom }));
+        join(el);
+      });
+      return;
+    }
     // HTML swap events (server-rendered fragments)
     if (ev.target && ev.html) {
       var t = document.querySelector(ev.target);

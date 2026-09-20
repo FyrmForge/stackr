@@ -8,9 +8,9 @@ import (
 	"errors"
 	"time"
 
-	"github.com/FyrmForge/stackr/internal/stackrd/handlers/notify"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/deploy"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/githubapp"
+	"github.com/FyrmForge/stackr/internal/stackrd/service/notify"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 )
 
@@ -114,5 +114,6 @@ func (g *Gate) fail(ctx context.Context, d *repo.Deployment, t *repo.Tile, msg s
 	if t != nil {
 		name = t.Name
 	}
-	g.Notifier.Push(ctx, notify.KindDeployFailed, "Deploy blocked: "+name, msg, "/deployments/"+d.ID)
+	title, body := notify.DeployFailed(name, msg)
+	g.Notifier.Push(ctx, notify.KindDeployFailed, title, body, "/deployments/"+d.ID)
 }

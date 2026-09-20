@@ -8,7 +8,6 @@ import (
 	"github.com/labstack/echo/v4"
 
 	"github.com/FyrmForge/stackr/internal/stackrd/config/varref"
-	stackrmw "github.com/FyrmForge/stackr/internal/stackrd/handlers/middleware"
 	"github.com/FyrmForge/stackr/internal/stackrd/handlers/web/components/canvas"
 	"github.com/FyrmForge/stackr/internal/stackrd/handlers/web/graph"
 	"github.com/FyrmForge/stackr/internal/stackrd/handlers/web/handler/annotate"
@@ -207,9 +206,6 @@ func (h *handler) loadEnvForAnnotation(c echo.Context) (envID, stackID string, e
 	if err != nil || env == nil {
 		return "", "", echo.NewHTTPError(http.StatusNotFound, "environment not found")
 	}
-	if err := stackrmw.RequireStackAccess(c, h.store, env.StackID); err != nil {
-		return "", "", err
-	}
 	return env.ID, env.StackID, nil
 }
 
@@ -245,9 +241,6 @@ func (h *handler) resolveStackSlugs(c echo.Context) (*repo.Stack, error) {
 		return nil, echo.NewHTTPError(http.StatusNotFound, "stack not found")
 	}
 	p.OrgSlug = org.Slug
-	if err := stackrmw.RequireOrgAccess(c, p.OrgID); err != nil {
-		return nil, err
-	}
 	return p, nil
 }
 

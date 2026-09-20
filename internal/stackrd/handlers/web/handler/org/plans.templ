@@ -57,7 +57,7 @@ templ orgPlansPage(c echo.Context, o *repo.Org, groups []planGroup) {
 // orgPlanPage reviews one org plan. The stack equivalent is planPage in
 // handler/project; they read alike on purpose, because they answer the same
 // question at two levels.
-templ orgPlanPage(c echo.Context, o *repo.Org, cp *repo.ConfigPlan) {
+templ orgPlanPage(c echo.Context, o *repo.Org, cp *repo.ConfigPlan, work *repo.WorkItem) {
 	@components.Shell(c, o.Name+": plan") {
 		<nav class="mb-4 flex items-center gap-1.5 text-sm text-rw-muted">
 			<a href={ templ.SafeURL("/orgs/" + o.Slug) } class="hover:text-rw-text transition-colors">{ o.Name }</a>
@@ -70,8 +70,29 @@ templ orgPlanPage(c echo.Context, o *repo.Org, cp *repo.ConfigPlan) {
 			<h1 class="text-2xl font-semibold text-rw-text tracking-tight">Organization plan</h1>
 			@planStatus(cp.Status)
 		</div>
-		@components.PlanBody(c, orgPlanCfg(o, cp, "/orgs/"+o.Slug+"/plans/"+cp.ID), stackconf.ParsePlan(cp))
+		@components.PlanBody(c, orgPlanWorkCfg(o, cp, work), stackconf.ParsePlan(cp))
 	}
+}
+
+// orgPlanWorkCfg is the settings plan page's config: this org's endpoints plus
+// the apply banner. The page is addressed by id while an apply is live, because
+// the apply can rename the org out from under the slug it was opened on.
+func orgPlanWorkCfg(o *repo.Org, cp *repo.ConfigPlan, work *repo.WorkItem) components.PlanViewCfg {
+	cfg := orgPlanCfg(o, cp, "/orgs/"+o.Slug+"/plans/"+cp.ID)
+	cfg.Work, cfg.PollURL = work, "/orgs/"+o.ID+"/plans/"+cp.ID
+	return withoutButtonsWhileApplying(cfg, work)
+}
+
+// withoutButtonsWhileApplying takes the decision away for as long as one is
+// already being carried out. The plan stays "pending" for the whole apply, so
+// both buttons would otherwise stay live: a Reject clicked mid-run is written
+// and then overwritten by the apply's own "applied" at the end, and the org is
+// built anyway by something the operator just said no to.
+func withoutButtonsWhileApplying(cfg components.PlanViewCfg, work *repo.WorkItem) components.PlanViewCfg {
+	if work != nil && !work.Done() {
+		cfg.ApproveURL, cfg.RejectURL, cfg.InputURL = "", "", ""
+	}
+	return cfg
 }
 
 // orgPlanCfg points the shared plan view at this org's endpoints. base is the

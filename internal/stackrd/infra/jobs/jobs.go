@@ -23,12 +23,12 @@ import (
 
 	"github.com/FyrmForge/stackr/internal/stackrd/config/settings"
 	"github.com/FyrmForge/stackr/internal/stackrd/config/varref"
-	"github.com/FyrmForge/stackr/internal/stackrd/handlers/notify"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/cluster"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/envnet"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/registry"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/runtime"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/workqueue"
+	"github.com/FyrmForge/stackr/internal/stackrd/service/notify"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 )
 
@@ -254,12 +254,14 @@ func (s *Service) Stop(ctx context.Context, runID string) bool {
 }
 
 // Triggers a run can be started by; recorded on the row so the history says
-// who asked for it, the way deployments.trigger does.
+// what kind of run it was, the way deployments.trigger does. There is one
+// "manual" rather than a member per surface: who and where from live in the
+// actor column (service.Actor), so adding a surface no longer adds a trigger
+// that every "was this manual?" query has to learn.
 const (
-	TriggerSchedule  = "schedule"
-	TriggerManualWeb = "manual web"
-	TriggerManualAPI = "manual api"
-	TriggerDeploy    = "deploy"
+	TriggerSchedule = "schedule"
+	TriggerManual   = "manual"
+	TriggerDeploy   = "deploy"
 )
 
 // startRun opens a run row before the work starts, with finished_at NULL so

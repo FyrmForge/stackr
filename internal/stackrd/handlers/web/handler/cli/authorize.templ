@@ -12,6 +12,10 @@ type authorizeView struct {
 	State    string
 	Hostname string
 	Scopes   []v1.ScopeInfo
+	// Org names the organization the key will be bound to, empty when it will
+	// be unbound (server admins). Shown because the binding is otherwise
+	// invisible until a command 404s in a different org.
+	Org string
 }
 
 // scopesFrom filters the offered scopes to one group. It filters the view's
@@ -39,6 +43,11 @@ templ authorizePage(c echo.Context, v authorizeView) {
 				<p class="text-sm text-rw-text-muted mb-6 text-center">
 					A CLI on <span class="font-medium text-rw-text">{ v.Hostname }</span> is requesting an API key. Choose what it may do.
 				</p>
+				if v.Org != "" {
+					<p class="text-sm text-rw-text-muted mb-6 text-center">
+						The key will work in <span class="font-medium text-rw-text">{ v.Org }</span> only.
+					</p>
+				}
 				<form hx-post="/cli/authorize">
 					@form.CSRFField(c)
 					<input type="hidden" name="port" value={ v.Port }/>

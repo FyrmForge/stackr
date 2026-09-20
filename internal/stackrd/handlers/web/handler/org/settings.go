@@ -7,20 +7,17 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/FyrmForge/hamr/pkg/htmx"
 	"github.com/FyrmForge/hamr/pkg/middleware"
 	"github.com/FyrmForge/hamr/pkg/respond"
-	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 
-	"github.com/FyrmForge/stackr/internal/stackrd/config/envops"
 	"github.com/FyrmForge/stackr/internal/stackrd/envcolor"
 	stackrmw "github.com/FyrmForge/stackr/internal/stackrd/handlers/middleware"
 	"github.com/FyrmForge/stackr/internal/stackrd/handlers/web/components"
 	settingspage "github.com/FyrmForge/stackr/internal/stackrd/handlers/web/handler/settings"
-	"github.com/FyrmForge/stackr/internal/stackrd/infra/deploy"
+	"github.com/FyrmForge/stackr/internal/stackrd/service"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/audit"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 )
@@ -46,9 +43,6 @@ func (h *handler) settingsOrg(c echo.Context) (*repo.Org, error) {
 	}
 	if o == nil {
 		return nil, echo.NewHTTPError(http.StatusNotFound, "org not found")
-	}
-	if err := stackrmw.RequireOrgWrite(c, h.store, o.ID); err != nil {
-		return nil, err
 	}
 	return o, nil
 }
@@ -215,14 +209,7 @@ func (h *handler) addCandidates(c echo.Context, orgID string, members []repo.Org
 
 // ownedSettingsOrg is settingsOrg plus the owner check.
 func (h *handler) ownedSettingsOrg(c echo.Context) (*repo.Org, error) {
-	o, err := h.settingsOrg(c)
-	if err != nil {
-		return nil, err
-	}
-	if !h.ownerOf(c, o.ID) {
-		return nil, echo.NewHTTPError(http.StatusNotFound, "org not found")
-	}
-	return o, nil
+	return h.settingsOrg(c)
 }
 
 // GET /orgs/:id/settings/connectors
@@ -292,7 +279,7 @@ func (h *handler) renderVars(c echo.Context, o *repo.Org) error {
 		}
 	}
 	class, editName, editValue := panelParams(c, vars)
-	audit.PanelViews(c, h.store, vars, repo.OwnerOrg, o.ID)
+	stackrmw.AuditPanelViews(c, h.store, vars, repo.OwnerOrg, o.ID)
 	cfg := components.VarsEditCfg{
 		PostURL:    "/orgs/" + o.Slug + "/settings/vars",
 		RefScope:   "org",
@@ -339,17 +326,11 @@ func (h *handler) OrgVarValue(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	// Copy hands out plaintext, so it needs the same write rights that gate
-	// the unmasked drawer view. Checked explicitly: RequireOrgWrite only
-	// refuses mutating requests, and this is a GET.
-	if !stackrmw.CanWriteOrg(c, h.store, o.ID) {
-		return echo.NewHTTPError(http.StatusForbidden, "read-only")
-	}
 	vars, err := h.store.ListVariables(c.Request().Context(), repo.OwnerOrg, o.ID)
 	if err != nil {
 		return err
 	}
-	return audit.ServeValue(c, h.store, vars, repo.OwnerOrg, o.ID, audit.Copy)
+	return stackrmw.AuditServeValue(c, h.store, vars, repo.OwnerOrg, o.ID, audit.Copy)
 }
 
 // panelParams / filterVarsClass mirror the stack drawer's helpers in
@@ -418,28 +399,12 @@ func (h *handler) SaveOrgVar(c echo.Context) error {
 		return err
 	}
 	// Write rights in this org, not in whichever one the cookie selects.
-	if err := stackrmw.RequireOrgWrite(c, h.store, o.ID); err != nil {
-		return err
-	}
 	name := c.FormValue("name")
-	if !varNameRe.MatchString(name) {
-		return echo.NewHTTPError(http.StatusBadRequest, "variable name: letters, digits, _ . - only")
+	if err := h.vars.Set(ctx, service.OrgVars(o.ID), []service.VarWrite{{
+		Name: name, Value: components.VarValue(c), Secret: c.FormValue("secret") != "",
+	}}, stackrmw.WebActor(c)); err != nil {
+		return stackrmw.HTTP(err)
 	}
-	now := time.Now().UTC()
-	v := &repo.Variable{
-		OwnerKind: repo.OwnerOrg,
-		OwnerID:   o.ID,
-		Name:      name,
-		Value:     components.VarValue(c),
-		Secret:    c.FormValue("secret") != "",
-		CreatedAt: now,
-		UpdatedAt: now,
-	}
-	if err := h.store.UpsertVariable(ctx, v); err != nil {
-		return err
-	}
-	audit.Record(ctx, h.store, audit.Actor(c), audit.Set, repo.OwnerOrg, o.ID, name)
-	deploy.ClearWaitingOrg(ctx, h.store, o.ID, name)
 	if inEditor(c) {
 		return h.renderVars(c, o)
 	}
@@ -455,13 +420,10 @@ func (h *handler) DeleteOrgVar(c echo.Context) error {
 		return err
 	}
 	// Write rights in this org, not in whichever one the cookie selects.
-	if err := stackrmw.RequireOrgWrite(c, h.store, o.ID); err != nil {
-		return err
+	if err := h.vars.Unset(ctx, service.OrgVars(o.ID),
+		[]string{c.FormValue("name")}, stackrmw.WebActor(c)); err != nil {
+		return stackrmw.HTTP(err)
 	}
-	if err := h.store.DeleteVariable(ctx, repo.OwnerOrg, o.ID, c.FormValue("name")); err != nil {
-		return err
-	}
-	audit.Record(ctx, h.store, audit.Actor(c), audit.Delete, repo.OwnerOrg, o.ID, c.FormValue("name"))
 	if inEditor(c) {
 		return h.renderVars(c, o)
 	}
@@ -479,7 +441,11 @@ func (h *handler) SettingsDomains(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	return respond.HTML(c, http.StatusOK, orgDomainsPage(c, o, res, stackrmw.CanWriteOrg(c, h.store, o.ID)))
+	// Owner, not write: both buttons on this page are owner-level now (the
+	// delete always was, the save was raised to match — decision #1 in
+	// 06-points-18-20.md). Offering a member the form would be offering a
+	// form that always answers 403.
+	return respond.HTML(c, http.StatusOK, orgDomainsPage(c, o, res, stackrmw.IsOwnerOf(c, h.store, o.ID)))
 }
 
 // GET /orgs/:id/settings/storage, this org's network shares. Read-only: they
@@ -526,34 +492,16 @@ func (h *handler) SaveOrgDomain(c echo.Context) error {
 		return err
 	}
 	// Write rights in this org, not in whichever one the cookie selects.
-	if err := stackrmw.RequireOrgWrite(c, h.store, o.ID); err != nil {
-		return err
-	}
-	// stackr-org.yml models domains: now, so a managed org's are its file's.
-	if o.ConfigManaged() {
-		return echo.NewHTTPError(http.StatusConflict, "this organization is managed by "+o.ConfigRepo+"; declare domains: in the org config file")
-	}
 	host := strings.TrimSpace(c.FormValue("host"))
-	if err := envops.ValidateResourceHost(host); err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
-	}
-	all, err := h.store.ListDomainResources(ctx)
-	if err != nil {
-		return err
-	}
-	if envops.HostTaken(all, host) {
-		return echo.NewHTTPError(http.StatusConflict, "that host is already a domain resource")
-	}
-	if err := envops.CheckOrgSquat(ctx, h.store, host, o.ID); err != nil {
-		return echo.NewHTTPError(http.StatusConflict, err.Error())
-	}
-	r := &repo.DomainResource{
-		ID: uuid.New().String(), Level: "org", OwnerID: o.ID, Host: host,
+	// The config-managed refusal, the host shape, the taken check and the
+	// anti-squat rule all live in the service now. Squat used to be checked
+	// *here only*, which made it decorative: the same name could be claimed
+	// from the API, at stack level, or one tile down.
+	if _, err := h.resources.Create(ctx, "org", o.ID, host, service.ResourceOpts{
 		IncludeEnvOnDefault: c.FormValue("include_env_on_default") != "",
-		CreatedAt:           time.Now().UTC(),
-	}
-	if err := h.store.CreateDomainResource(ctx, r); err != nil {
-		return err
+		ACMEEmail:           c.FormValue("acme_email"),
+	}); err != nil {
+		return stackrmw.HTTP(err)
 	}
 	middleware.SetFlash(c, "Domain "+host+" added. This organization's tiles can now claim auto hostnames under it.", middleware.FlashSuccess)
 	// The wizard asks for one domain; having it is the step done.
@@ -570,26 +518,18 @@ func (h *handler) DeleteOrgDomain(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	if err := stackrmw.RequireOrgWrite(c, h.store, o.ID); err != nil {
-		return err
-	}
-	if o.ConfigManaged() {
-		return echo.NewHTTPError(http.StatusConflict, "this organization is managed by "+o.ConfigRepo+"; remove the host from domains: in the org config file")
-	}
-	// Only this org's own rows, the id comes from a form field.
-	all, err := h.store.ListDomainResources(ctx)
+	r, err := h.resources.Get(ctx, c.FormValue("id"))
 	if err != nil {
-		return err
+		return stackrmw.HTTP(err)
 	}
-	for _, r := range all {
-		if r.ID == c.FormValue("id") && r.Level == "org" && r.OwnerID == o.ID {
-			if err := h.store.DeleteDomainResource(ctx, r.ID); err != nil {
-				return err
-			}
-			middleware.SetFlash(c, "Domain resource removed. Existing generated hostnames keep working until their tile redeploys.", middleware.FlashSuccess)
-			break
-		}
+	// Only this org's own rows; the id comes from a form field.
+	if r.Level != "org" || r.OwnerID != o.ID {
+		return echo.NewHTTPError(http.StatusNotFound, "not found")
 	}
+	if err := h.resources.Delete(ctx, r.ID); err != nil {
+		return stackrmw.HTTP(err)
+	}
+	middleware.SetFlash(c, "Domain resource removed. Existing generated hostnames keep working until their tile redeploys.", middleware.FlashSuccess)
 	return respond.Redirect(c, "/orgs/"+o.Slug+"/settings/domains")
 }
 

@@ -14,13 +14,15 @@ import (
 
 	"github.com/FyrmForge/stackr/internal/stackrd/config/envops"
 	"github.com/FyrmForge/stackr/internal/stackrd/config/secrets"
-	"github.com/FyrmForge/stackr/internal/stackrd/infra/backup"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/deploy"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/envnet"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/jobs"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/managedtiles"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/placement"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/runtime"
+	"github.com/FyrmForge/stackr/internal/stackrd/service"
+	"github.com/FyrmForge/stackr/internal/stackrd/service/scheduler"
+	"github.com/FyrmForge/stackr/internal/stackrd/store/audit"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 )
 
@@ -32,11 +34,22 @@ type Applier struct {
 	Planner Planner
 	Ops     envops.Ops
 	DBs     *managedtiles.Service
-	Engine  *deploy.Engine
-	Jobs    *jobs.Service
-	// Backups reloads the backup scheduler after the file's `backup:` blocks
+	// Instances owns a managed instance's deploy/teardown; Slices owns the
+	// slices cut from one. Both nil-safe: a pure-DB reconciliation has no
+	// cluster behind it.
+	Instances *service.ManagedInstanceService
+	Slices    *service.SliceService
+	// Schedules owns a backup schedule's rules. The file writes through it so
+	// a declared schedule gets the same kind derivation, volume guard and
+	// validator a panel or API one does; this path had none of the three.
+	Schedules *service.BackupScheduleService
+	Engine    *deploy.Engine
+	// Jobs holds and releases a stack's cron runs around an apply. Schedule
+	// reloading goes through Sched, not here.
+	Jobs *jobs.Service
+	// Sched re-registers the cron and backup tables after the file's blocks
 	// land. Nil in tests and wherever an apply is a pure-DB reconciliation.
-	Backups *backup.Service
+	Sched *scheduler.Service
 
 	// Deployed, when non-nil, collects the tiles this apply queued a deploy
 	// for. The push webhook sets it and skips those tiles in its own branch
@@ -438,10 +451,20 @@ func (a Applier) applyDomainRes(ctx context.Context, stack *repo.Stack, want []D
 			}
 			// Also the adoption path: a panel row named in the file becomes
 			// the file's, and only then can a later apply delete it.
-			r.IncludeEnvOnDefault = conf[host].IncludeEnvOnDefault
+			want := conf[host]
+			r.IncludeEnvOnDefault = want.IncludeEnvOnDefault
 			r.Declared = true
 			if err := store.UpdateDomainResource(ctx, &r); err != nil {
 				return err
+			}
+			// The ACME account lives in traefik's static config, so it goes
+			// through the resource service, which restarts traefik once. This
+			// path used to apply acme_email on create only, so changing it in
+			// a stack file did nothing.
+			if r.ACMEEmail != want.ACMEEmail && a.Ops.Resources != nil {
+				if err := a.Ops.Resources.SetACME(ctx, r.ID, want.ACMEEmail); err != nil {
+					return err
+				}
 			}
 		case "delete":
 			dels = append(dels, c)
@@ -533,6 +556,14 @@ func takeRename(p *Plan) *Change {
 // swallows a stop against a service that is not there (runtime.ScaleService,
 // errNoService). p may be an empty Plan: it only names the tiles and envs the
 // rename should leave stopped because the same apply is deleting them.
+// RenameStackNow is RenameStack with no plan: nothing is being deleted in the
+// same breath, so nothing is held down. It is what service.StackRenamer asks
+// for — the service layer cannot name a *Plan, since stackconf imports it and
+// not the other way round.
+func (a Applier) RenameStackNow(ctx context.Context, stack *repo.Stack, name string) error {
+	return a.RenameStack(ctx, stack, name, &Plan{})
+}
+
 func (a Applier) RenameStack(ctx context.Context, stack *repo.Stack, name string, p *Plan) error {
 	store := a.Planner.Store
 	deletedEnv, deletedTile := map[string]bool{}, map[string]bool{}
@@ -592,20 +623,16 @@ func (a Applier) RestartTile(ctx context.Context, t *repo.Tile) { a.restartTile(
 // Best-effort: a redeploy that fails is a warning, the row is already renamed
 // and the next deploy picks it up.
 func (a Applier) restartTile(ctx context.Context, t *repo.Tile) {
-	store := a.Planner.Store
 	if t.IsManaged() {
 		if t.Status != "running" && t.Status != "error" {
 			return
 		}
-		if a.DBs == nil {
+		if a.Instances == nil {
 			return
 		}
-		if derr := a.DBs.Deploy(ctx, t); derr != nil {
-			warn("rename redeploy db", t, derr)
-			warn("mark db errored", t, store.UpdateTileStatus(ctx, t.ID, "error"))
-		} else if t.Status != "running" {
-			warn("mark db running", t, store.UpdateTileStatus(ctx, t.ID, "running"))
-		}
+		// The service writes the status either way, which is the half four of
+		// the six hand-copied "deploy then status" blocks each got wrong.
+		warn("rename redeploy db", t, a.Instances.Deploy(ctx, t))
 		return
 	}
 	if t.Kind != "service" || t.Status != "running" {
@@ -955,11 +982,27 @@ func (a Applier) execute(ctx context.Context, stack *repo.Stack, r *Resolved, p 
 		if !re.Defaults.Empty() {
 			wantSettings = re.Defaults.SettingsJSON()
 		}
-		if env.Color != re.Color || env.Position != i || env.ApplyPolicy != re.ApplyPolicy || env.Settings != wantSettings {
+		// Colour and apply policy follow the same rule as the settings above,
+		// and used to not: they were written on every apply whether or not the
+		// file said anything, so a colour set on the canvas or a policy set
+		// over the API silently reverted on the next plan. Undeclared means
+		// unmanaged — which is what ui_edits and the rest of the gate
+		// vocabulary already assume everywhere else.
+		wantColor, wantPolicy := env.Color, env.ApplyPolicy
+		if re.Color != "" {
+			wantColor = re.Color
+		}
+		if re.ApplyPolicy != "" {
+			wantPolicy = re.ApplyPolicy
+		}
+		// Position is not in that set: it is the file's declaration order, not
+		// a value anyone can set from a surface, and the default environment's
+		// generated hostname is derived from it (service.defaultEnvID).
+		if env.Color != wantColor || env.Position != i || env.ApplyPolicy != wantPolicy || env.Settings != wantSettings {
 			settingsChanged = settingsChanged || env.Settings != wantSettings
-			env.Color = re.Color
+			env.Color = wantColor
 			env.Position = i
-			env.ApplyPolicy = re.ApplyPolicy
+			env.ApplyPolicy = wantPolicy
 			env.Settings = wantSettings
 			warn("env settings", nil, store.UpdateEnvironment(ctx, env))
 		}
@@ -967,7 +1010,7 @@ func (a Applier) execute(ctx context.Context, stack *repo.Stack, r *Resolved, p 
 	}
 	// Protection feeds the rendered routes, which a settings-only change
 	// would otherwise leave as they were.
-	if settingsChanged && a.Ops.PX != nil {
+	if settingsChanged {
 		warn("proxy resync", nil, a.Ops.PX.Resync(ctx))
 	}
 	// Second generation pass: the pre-gate pass could not mint for envs that
@@ -982,10 +1025,10 @@ func (a Applier) execute(ctx context.Context, stack *repo.Stack, r *Resolved, p 
 	// backup scheduler is reloaded below.
 	if err := a.applyBackups(ctx, stack, r, opts.OnlyEnv, opts.SkipEnvs); err != nil {
 		warn("write backups", nil, err)
-	} else if a.Backups != nil {
+	} else {
 		// The scheduler holds the cron entries in memory, so a written row
 		// does not fire until it is reloaded.
-		warn("reload backup schedules", nil, a.Backups.LoadSchedules(ctx))
+		a.Sched.ReloadBackups(ctx)
 	}
 
 	// One tile's failure does not abandon the rest. An apply is not atomic,
@@ -1096,8 +1139,8 @@ func (a Applier) execute(ctx context.Context, stack *repo.Stack, r *Resolved, p 
 		cronTouched = true
 	}
 
-	if cronTouched && a.Jobs != nil {
-		warn("reload cron schedules", nil, a.Jobs.LoadSchedules(ctx))
+	if cronTouched {
+		a.Sched.ReloadCron(ctx)
 	}
 	if len(failed) > 0 {
 		// Sorted so the same broken config reports the same way twice. The
@@ -1206,6 +1249,16 @@ func (a Applier) createTile(ctx context.Context, stack *repo.Stack, env *repo.En
 	if (tc.Type == "cron" || tc.Type == "function") && t.TimeoutMinutes == 0 {
 		t.TimeoutMinutes = 30
 	}
+	// The same validator the panel and the API run. This path checked the
+	// cron expression and nothing else, so a file could declare a limit, a
+	// port list, a storage attachment or a placement the other two surfaces
+	// refuse outright — and the refusal arrived at deploy time, as a failed
+	// container, with the plan already marked applied.
+	if a.Ops.Tiles != nil {
+		if err := a.Ops.Tiles.Validate(ctx, t); err != nil {
+			return fmt.Errorf("tile %s: %w", slug, err)
+		}
+	}
 	if err := store.CreateTile(ctx, t); err != nil {
 		return err
 	}
@@ -1223,13 +1276,8 @@ func (a Applier) createTile(ctx context.Context, stack *repo.Stack, env *repo.En
 		return err
 	}
 	switch {
-	case tc.Type == "managed" && a.DBs != nil:
-		if err := a.DBs.Deploy(ctx, t); err == nil {
-			warn("mark db running", t, store.UpdateTileStatus(ctx, t.ID, "running"))
-		} else {
-			warn("deploy db", t, err)
-			warn("mark db errored", t, store.UpdateTileStatus(ctx, t.ID, "error"))
-		}
+	case tc.Type == "managed" && a.Instances != nil:
+		warn("deploy db", t, a.Instances.Deploy(ctx, t))
 	case (tc.Type == "service" || tc.Type == "cron" || tc.Type == "function") && a.Engine != nil:
 		// A cron/function enqueues the same build; the engine stops at the
 		// artifact (no keep-alive container) per its run policy.
@@ -1331,7 +1379,7 @@ func applyOrder(slugs []string, re ResolvedEnv) []string {
 // dependency's declared start period, mirroring the deploy health gate.
 func (a Applier) waitDeps(ctx context.Context, env *repo.Environment, tc TileConf) error {
 	for _, line := range tc.DependsOn {
-		slug, cond, err := ParseDep(line)
+		slug, cond, err := runtime.ParseDep(line)
 		if err != nil || cond == "started" {
 			continue // shape errors were validation's job
 		}
@@ -1411,6 +1459,13 @@ func (a Applier) updateTile(ctx context.Context, stack *repo.Stack, env *repo.En
 		return false, fmt.Errorf("tile %s: not found in %s", slug, env.Slug)
 	}
 	oldPort := t.ContainerPort
+	// Held before the write: moving a volume from one service to another has
+	// to rebuild both, and this path only ever rebuilt the new one, so the
+	// old service kept the bind until something else redeployed it.
+	oldTarget := ""
+	if t.IsVolume() {
+		oldTarget = t.AttachedTileID
+	}
 	applyTileConf(t, tc, stack, opts)
 	if tc.Type == "volume" {
 		if err := a.resolveAttach(ctx, env, t, tc); err != nil {
@@ -1418,6 +1473,13 @@ func (a Applier) updateTile(ctx context.Context, stack *repo.Stack, env *repo.En
 		}
 	}
 	t.UpdatedAt = time.Now().UTC()
+	// Same validator as create, and as both surfaces: an edit that would be
+	// refused from the panel must be refused from the file.
+	if a.Ops.Tiles != nil {
+		if err := a.Ops.Tiles.Validate(ctx, t); err != nil {
+			return false, fmt.Errorf("tile %s: %w", slug, err)
+		}
+	}
 	if err := store.UpdateTile(ctx, t); err != nil {
 		return false, err
 	}
@@ -1436,6 +1498,9 @@ func (a Applier) updateTile(ctx context.Context, stack *repo.Stack, env *repo.En
 	}
 	if tc.Type == "volume" {
 		a.redeployAttached(ctx, t)
+		if oldTarget != "" && oldTarget != t.AttachedTileID {
+			a.redeployAttached(ctx, &repo.Tile{AttachedTileID: oldTarget})
+		}
 		return false, nil
 	}
 	if err := a.syncDomains(ctx, env, t, tc, opts, oldPort); err != nil {
@@ -1443,99 +1508,55 @@ func (a Applier) updateTile(ctx context.Context, stack *repo.Stack, env *repo.En
 	}
 	cron = t.Kind == "cron" && (fields["schedule"] || fields["command"] || fields["source"] || fields["timeout_minutes"])
 
-	// Proxy-only changes (domains, headers, basic auth) rewrite the route; anything else
-	// on a service rebuilds it.
-	proxyOnly := true
-	for f := range fields {
-		if f != "security_headers" && f != "basic_auth_user" && f != "basic_auth_password" && !strings.HasPrefix(f, "domain ") && !strings.HasPrefix(f, "domain +") && !strings.HasPrefix(f, "domain -") {
-			proxyOnly = false
-		}
-	}
-	switch {
 	// A db's container carries its port mapping and its resource limits, so a
 	// changed row means nothing until it is recreated. Scope is the exception:
 	// it only governs who may provision, and no container knows about it.
-	case t.IsManaged():
+	// This branch stays here rather than moving into the tile service because
+	// the managed-instance lifecycle is its own concept (point 5).
+	if t.IsManaged() {
 		// "error" redeploys as well as "running": an errored instance is a
 		// failure, often this apply's own, since a rejected setting takes the
 		// container down, and the next apply is the natural place to heal it.
-		// A deliberately "stopped" instance is left alone.
-		// on a config-managed stack the file arguably owns "should
-		// this be running" outright; that is a bigger semantic change than
-		// healing a failure, so it is not made here.
-		if a.DBs != nil && (t.Status == "running" || t.Status == "error") && needsDBRedeploy(fields) {
+		// A deliberately "stopped" instance is left alone. On a config-managed
+		// stack the file arguably owns "should this be running" outright; that
+		// is a bigger semantic change than healing a failure, so it is not
+		// made here.
+		if a.Instances != nil {
 			// A redeploy removes the old container before starting the new one,
 			// so a rejected setting (a cpu limit above the host's core count,
-			// say) leaves the instance down. Mark it errored the way createTile
-			// does, otherwise the only signal is the reconciler noticing the
-			// container vanished, which reads as a mystery stop rather than as
-			// this apply's doing.
-			if derr := a.DBs.Deploy(ctx, t); derr != nil {
-				warn("mark db errored", t, store.UpdateTileStatus(ctx, t.ID, "error"))
-				// Reported, not just logged: the container is gone, and an apply
-				// that says "applied" while the database is down is the failure
-				// this whole path exists to avoid. Safe to surface now that one
-				// tile's failure no longer abandons the others.
+			// say) leaves the instance down; the service marks it errored.
+			// Reported, not just logged: an apply that says "applied" while the
+			// database is down is the failure this whole path exists to avoid.
+			if derr := a.Instances.AfterWrite(ctx, t, service.Changed(fields)); derr != nil {
 				return false, fmt.Errorf("redeploy: %w", derr)
-			} else if t.Status != "running" {
-				// Healing an errored instance has to clear the status too, or
-				// the canvas keeps showing a failure that is over and the only
-				// thing that ever corrects it is the reconciler noticing.
-				warn("mark db running", t, store.UpdateTileStatus(ctx, t.ID, "running"))
 			}
 		}
+		return cron, nil
+	}
+	// Everything else asks the tile service which side effects this change
+	// earns, so the panel, the API and a config apply answer from one rule
+	// set — but performs them here, because the applier records what it
+	// deployed and a deploy queued from inside the service would be missing
+	// from that report.
+	changed := service.Changed(fields)
+	switch {
 	case t.Kind == "service":
-		if proxyOnly {
-			if a.Ops.PX != nil {
-				domains, _ := store.ListDomainsByTile(ctx, t.ID)
-				warn("rewrite proxy route", t, a.Ops.PX.WriteApp(t, domains))
-			}
-		} else {
+		// The route is rewritten either way. It used to be rewritten *only*
+		// on a proxy-only change, and the deploy engine never writes it
+		// itself (1.11) — so an apply that moved a domain and a limit
+		// together left the route stale until something else rewrote it.
+		warn("rewrite proxy route", t, a.Ops.PX.SyncTile(ctx, t))
+		if !changed.ProxyOnly() {
 			a.deploy(ctx, t, "deploy")
 		}
 	case t.Kind == "cron", t.Kind == "function":
-		// Only source changes need a rebuild, schedule/command/timeouts are
-		// read off the row at each run.
-		if cronNeedsBuild(fields) {
+		// Only source changes need a rebuild; schedule, command and timeouts
+		// are read off the row at each run.
+		if changed.NeedsBuild() {
 			a.deploy(ctx, t, "build")
 		}
 	}
 	return cron, nil
-}
-
-// cronNeedsBuild reports whether any changed field feeds the built artifact.
-// CopyTile writes tc onto an existing tile in env and deploys it: the compare
-// panel's "Copy from <reference>". fields names what changed, in the update
-// path's terms ("env", "image"). UI-managed stacks only; the caller gates.
-func (a Applier) CopyTile(ctx context.Context, stack *repo.Stack, env *repo.Environment, slug string, tc TileConf, fields map[string]bool) error {
-	_, err := a.updateTile(ctx, stack, env, slug, tc, fields, DiffOpts{})
-	return err
-}
-
-func cronNeedsBuild(fields map[string]bool) bool {
-	for _, f := range []string{"source", "source_type", "git_url", "connector", "branch", "build_context", "dockerfile", "build_args"} {
-		if fields[f] {
-			return true
-		}
-	}
-	return false
-}
-
-// needsDBRedeploy reports whether any changed field is one the running
-// container embodies. Restarting a database is disruptive enough that it should
-// follow from a field that actually needs it.
-func needsDBRedeploy(fields map[string]bool) bool {
-	// node_group and replicas are placement, which lives in the service spec
-	// exactly like the limits do. Leaving them out meant a group pin applied
-	// to a managed instance wrote the row and touched nothing, so the plan
-	// read "applied" with the database still scaled to zero on the node it
-	// was supposed to have left.
-	for _, f := range []string{"external_port", "cpu_limit", "memory_mb", "env", "image", "shm_size_mb", "node_group", "replicas"} {
-		if fields[f] {
-			return true
-		}
-	}
-	return false
 }
 
 // deleteTile stops a tile's containers, removes its route, orphans any shared-db
@@ -1551,19 +1572,30 @@ func (a Applier) deleteTile(ctx context.Context, env *repo.Environment, slug str
 		}
 		return nil // already gone
 	}
-	a.stopContainers(ctx, t)
-	if a.Ops.PX != nil {
-		warn("remove proxy route", t, a.Ops.PX.RemoveApp(t.ID))
+	if t.IsManaged() && a.Instances != nil {
+		// An instance is a provider: TileService.TearDown orphans what a tile
+		// consumed, which for an instance is nothing. Its own slices, its
+		// shared network and the pool entry behind it are this path's, and
+		// only this path had none of them. force: the file no longer declares
+		// it, which is the decision the held-slices refusal exists to ask for.
+		return a.Instances.TearDown(ctx, t, true)
 	}
-	// Orphan (don't drop) any shared-db provisions this tile consumed.
-	if a.DBs != nil {
-		if ps, _ := store.ListProvisionsByConsumer(ctx, t.ID); len(ps) > 0 {
-			for i := range ps {
-				warn("detach provision", t, a.DBs.Detach(ctx, &ps[i]))
-			}
-		}
+	if a.Ops.Tiles != nil {
+		// The service owns the order and the cascade; this path used to do
+		// four of the five steps and skip re-registering the schedule tables
+		// the delete cascaded, so a removed cron kept ticking until restart.
+		return a.Ops.Tiles.TearDown(ctx, t)
 	}
+	// No service wired (tests): drop the row and nothing else.
 	return store.DeleteTile(ctx, t.ID)
+}
+
+// CopyTile writes tc onto an existing tile in env and deploys it: the compare
+// panel's "Copy from <reference>". fields names what changed, in the update
+// path's terms ("env", "image"). UI-managed stacks only; the caller gates.
+func (a Applier) CopyTile(ctx context.Context, stack *repo.Stack, env *repo.Environment, slug string, tc TileConf, fields map[string]bool) error {
+	_, err := a.updateTile(ctx, stack, env, slug, tc, fields, DiffOpts{})
+	return err
 }
 
 // teardownEnv removes an env and everything in it. Falls back to row deletes
@@ -1669,9 +1701,8 @@ func (a Applier) syncDomains(ctx context.Context, env *repo.Environment, t *repo
 		}
 		changed = true
 	}
-	if changed && a.Ops.PX != nil && t.Kind == "service" {
-		domains, _ := store.ListDomainsByTile(ctx, t.ID)
-		warn("rewrite proxy route", t, a.Ops.PX.WriteApp(t, domains))
+	if changed && t.Kind == "service" {
+		warn("rewrite proxy route", t, a.Ops.PX.SyncTile(ctx, t))
 	}
 	return nil
 }
@@ -1683,6 +1714,8 @@ func applyTileConf(t *repo.Tile, tc TileConf, stack *repo.Stack, opts DiffOpts) 
 	case "volume":
 		t.Kind = "volume"
 		t.MountPath = tc.Path
+		t.VolumeName = tc.VolumeName
+		t.MaxSizeMB = tc.MaxSizeMB
 		// attach slug resolves to a tile id in the Applier (needs env context)
 	case "managed":
 		t.Engine = tc.Engine
@@ -1814,6 +1847,17 @@ func (a Applier) ensureSecrets(ctx context.Context, stack *repo.Stack, r *Resolv
 			if err := store.UpsertVariable(ctx, v); err != nil {
 				return err
 			}
+			// Minting a secret is a write of a credential, and this path
+			// recorded nothing: a generated value appeared with no audit row
+			// saying where it came from. The apply is the actor.
+			audit.Record(ctx, store, "config:"+stack.Slug, audit.Set, v.OwnerKind, v.OwnerID, name)
+			// And a tile parked waiting for this very name is released, which
+			// this path also skipped — the value it was waiting for now exists.
+			if v.OwnerKind == repo.OwnerEnv {
+				deploy.ClearWaitingEnv(ctx, store, v.OwnerID, name)
+			} else {
+				deploy.ClearWaiting(ctx, store, name, v.OwnerID)
+			}
 		}
 	}
 	return nil
@@ -1847,6 +1891,7 @@ func (a Applier) applyVars(ctx context.Context, stack *repo.Stack, r *Resolved, 
 				Name: name, Value: val, CreatedAt: now, UpdatedAt: now}); err != nil {
 				return err
 			}
+			audit.Record(ctx, store, "config:"+stack.Slug, audit.Set, ownerKind, ownerID, name)
 			clear(name)
 		}
 		return nil

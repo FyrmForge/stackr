@@ -13,6 +13,7 @@ package stackconf
 // meant to go into git.
 
 import (
+	"context"
 	"fmt"
 	"sort"
 
@@ -178,4 +179,31 @@ func (sn SecretsNode) MarshalYAML() (any, error) {
 		n.Content = append(n.Content, key, val)
 	}
 	return n, nil
+}
+
+// ExportStack renders a live stack as the config file that would reproduce it:
+// snapshot, serialise, and put the environments back in ladder order, which
+// Snapshot does not carry and which the file's meaning depends on.
+//
+// One copy, where the panel's download and the API's GET were the same
+// twenty-five lines twice — and the ladder order was the part most likely to
+// be fixed in one of them only.
+func ExportStack(ctx context.Context, store repo.Store, stack *repo.Stack) ([]byte, error) {
+	state, err := (Planner{Store: store}).Snapshot(ctx, stack)
+	if err != nil {
+		return nil, err
+	}
+	r := StateToResolved(stack.Name, state)
+	if envs, lerr := store.ListEnvironmentsByStack(ctx, stack.ID); lerr == nil {
+		var order []string
+		for i := range envs {
+			if envs[i].Type == "static" {
+				order = append(order, envs[i].Slug)
+			}
+		}
+		if len(order) > 0 {
+			r.EnvOrder = order
+		}
+	}
+	return ExportYAML(r)
 }

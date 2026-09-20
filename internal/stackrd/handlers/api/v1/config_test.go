@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/FyrmForge/stackr/internal/stackrd/config/stackconf"
+	"github.com/FyrmForge/stackr/internal/stackrd/service"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo/sqlite"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/testdb"
@@ -51,14 +52,17 @@ func TestApproveRejectRequireOrgWrite(t *testing.T) {
 	require.NoError(t, s.UpsertOrgMember(ctx, &repo.OrgMember{
 		OrgID: seed.Org.ID, UserID: "outsider", Role: "viewer", CreatedAt: now}), "seed viewer")
 
-	_, err := callAs(t, a, a.approvePlan, http.MethodPost, "/", "", cp.ID, orgs, ScopeConfigApply)
+	_, err := callGated(t, a, a.approvePlan, http.MethodPost, "/", "", cp.ID, orgs,
+		service.VerbStackPlanApprove, service.KindStackPlan, ScopeConfigApply)
 	wantStatus(t, err, http.StatusForbidden, "viewer approving")
 
-	_, err = callAs(t, a, a.rejectPlan, http.MethodPost, "/", "", cp.ID, orgs, ScopeConfigApply)
+	_, err = callGated(t, a, a.rejectPlan, http.MethodPost, "/", "", cp.ID, orgs,
+		service.VerbStackPlanApprove, service.KindStackPlan, ScopeConfigApply)
 	wantStatus(t, err, http.StatusForbidden, "viewer rejecting")
 
 	// Reading is a different question, a viewer may see the plan.
-	rec, err := callAs(t, a, a.getPlan, http.MethodGet, "/", "", cp.ID, orgs, ScopeConfigRead)
+	rec, err := callGated(t, a, a.getPlan, http.MethodGet, "/", "", cp.ID, orgs,
+		service.VerbOrgRead, service.KindStackPlan, ScopeConfigRead)
 	require.NoError(t, err, "viewer reading plan")
 	require.Equal(t, http.StatusOK, rec.Code, "viewer reading plan")
 }
@@ -72,13 +76,16 @@ func TestConfigPlanRoutesRejectOtherOrg(t *testing.T) {
 	a := apiFor(s)
 	outsider := []string{"org2"}
 
-	_, err := callAs(t, a, a.getPlan, http.MethodGet, "/", "", cp.ID, outsider, ScopeConfigRead)
+	_, err := callGated(t, a, a.getPlan, http.MethodGet, "/", "", cp.ID, outsider,
+		service.VerbOrgRead, service.KindStackPlan, ScopeConfigRead)
 	wantStatus(t, err, http.StatusNotFound, "outsider reading plan")
 
-	_, err = callAs(t, a, a.approvePlan, http.MethodPost, "/", "", cp.ID, outsider, ScopeConfigApply)
+	_, err = callGated(t, a, a.approvePlan, http.MethodPost, "/", "", cp.ID, outsider,
+		service.VerbStackPlanApprove, service.KindStackPlan, ScopeConfigApply)
 	wantStatus(t, err, http.StatusNotFound, "outsider approving plan")
 
-	_, err = callAs(t, a, a.listPlans, http.MethodGet, "/", "", seed.Stack.ID, outsider, ScopeConfigRead)
+	_, err = callGated(t, a, a.listPlans, http.MethodGet, "/", "", seed.Stack.ID, outsider,
+		service.VerbOrgRead, service.KindStack, ScopeConfigRead)
 	wantStatus(t, err, http.StatusNotFound, "outsider listing plans")
 }
 
@@ -254,11 +261,14 @@ func TestPreviewRequiresOrgWrite(t *testing.T) {
 	require.NoError(t, s.UpsertOrgMember(ctx, &repo.OrgMember{
 		OrgID: seed.Org.ID, UserID: "outsider", Role: "viewer", CreatedAt: now}), "seed viewer")
 
-	_, err := callAs(t, a, a.previewPlan, http.MethodPost, "/", `{"main":"version: 1"}`,
-		seed.Stack.ID, orgs, ScopeConfigRead)
+	// Through the route's gate, not the bare handler: point 18 moved the
+	// check off the body and onto the route, so calling the handler direct
+	// would now assert nothing.
+	_, err := callAs(t, a, a.gate(service.VerbStackPlan, service.KindStack, "id", a.previewPlan),
+		http.MethodPost, "/", `{"main":"version: 1"}`, seed.Stack.ID, orgs, ScopeConfigRead)
 	wantStatus(t, err, http.StatusForbidden, "viewer previewing a stack plan")
 
-	_, err = callAs(t, a, a.previewOrgPlan, http.MethodPost, "/", `{"main":"version: 1"}`,
-		seed.Org.ID, orgs, ScopeConfigRead)
+	_, err = callAs(t, a, a.gate(service.VerbOrgConfigBind, service.KindOrg, "id", a.previewOrgPlan),
+		http.MethodPost, "/", `{"main":"version: 1"}`, seed.Org.ID, orgs, ScopeConfigRead)
 	wantStatus(t, err, http.StatusForbidden, "viewer previewing an org plan")
 }

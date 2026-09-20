@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	stackrmw "github.com/FyrmForge/stackr/internal/stackrd/handlers/middleware"
+	"github.com/FyrmForge/stackr/internal/stackrd/service"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo/sqlite"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/testdb"
@@ -66,6 +67,14 @@ func ownerHereViewerThere(t *testing.T, s *sqlite.Store) (*repo.User, []repo.Org
 	return u, []repo.Org{*seed.Org, *other}, other, otherStack, seed.Stack
 }
 
+// gated runs a handler the way the router does: behind the route's verb gate,
+// which is where these checks live now. Calling the handler bare asserts
+// nothing about who is asking — that is what moving authorization to the route
+// means — so a test that does is testing the loader, not the rule.
+func gated(s *sqlite.Store, v service.Verb, k service.Kind, param string, h echo.HandlerFunc) echo.HandlerFunc {
+	return stackrmw.Gate(s, service.NewAccessService(s), v, k, param)(h)
+}
+
 func wantStatus(t *testing.T, what string, err error, code int) {
 	t.Helper()
 	he, ok := err.(*echo.HTTPError)
@@ -89,18 +98,23 @@ func TestOrgCanvasWritesCheckThatOrgsRole(t *testing.T) {
 	c = asUser(t, http.MethodPost, `{"node_id":"stack:s2","x":10,"y":20}`, u, orgs, "owner")
 	c.SetParamNames("id")
 	c.SetParamValues(other.ID)
-	wantStatus(t, "viewer saving positions", h.SaveNodePosition(c), http.StatusForbidden)
+	wantStatus(t, "viewer saving positions",
+		gated(s, service.VerbOrgGraphWrite, service.KindOrg, "id", h.SaveNodePosition)(c),
+		http.StatusForbidden)
 
 	c = asUser(t, http.MethodPost, "", u, orgs, "owner")
 	c.SetParamNames("id")
 	c.SetParamValues(other.ID)
-	wantStatus(t, "viewer resetting positions", h.ResetNodePositions(c), http.StatusForbidden)
+	wantStatus(t, "viewer resetting positions",
+		gated(s, service.VerbOrgGraphWrite, service.KindOrg, "id", h.ResetNodePositions)(c),
+		http.StatusForbidden)
 
 	// In the org they own, the same write goes through.
 	c = asUser(t, http.MethodPost, `{"node_id":"stack:s1","x":10,"y":20}`, u, orgs, "owner")
 	c.SetParamNames("id")
 	c.SetParamValues(orgs[0].ID)
-	require.NoError(t, h.SaveNodePosition(c), "owner saving positions in their own org")
+	require.NoError(t, gated(s, service.VerbOrgGraphWrite, service.KindOrg, "id", h.SaveNodePosition)(c),
+		"owner saving positions in their own org")
 }
 
 // A move edits both orgs' contents, so write rights in either one alone is not
@@ -115,11 +129,17 @@ func TestMoveStackChecksBothOrgs(t *testing.T) {
 	c := asUser(t, http.MethodPost, "org_id="+owned.ID, u, orgs, "owner")
 	c.SetParamNames("id")
 	c.SetParamValues(otherStack.ID)
-	wantStatus(t, "moving another org's stack out", h.MoveStack(c), http.StatusForbidden)
+	wantStatus(t, "moving another org's stack out",
+		gated(s, service.VerbStackWrite, service.KindStack, "id", h.MoveStack)(c),
+		http.StatusForbidden)
 
 	// Pushing one of their own into it.
 	c = asUser(t, http.MethodPost, "org_id="+other.ID, u, orgs, "owner")
 	c.SetParamNames("id")
 	c.SetParamValues(ownStack.ID)
-	wantStatus(t, "moving a stack into an org they only view", h.MoveStack(c), http.StatusForbidden)
+	// The gate answers for the org the stack is LEAVING; the org it is moving
+	// INTO arrives in the body, so that half stays in the handler.
+	wantStatus(t, "moving a stack into an org they only view",
+		gated(s, service.VerbStackWrite, service.KindStack, "id", h.MoveStack)(c),
+		http.StatusForbidden)
 }

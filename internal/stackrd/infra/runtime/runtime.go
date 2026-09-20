@@ -40,6 +40,8 @@ import (
 	"github.com/docker/docker/client"
 	"github.com/docker/docker/pkg/stdcopy"
 	"github.com/docker/go-connections/nat"
+
+	"github.com/FyrmForge/stackr/internal/installspec"
 )
 
 const (
@@ -79,8 +81,9 @@ const (
 	// never built or pulled from here.
 	ProxyRelayImage = "stkr-proxyrelay:local"
 	// ProxyRelayPort is the fixed port every relay listens on; each relay has
-	// its own network namespace, so there is nothing to collide with.
-	ProxyRelayPort = 15000
+	// its own network namespace, so there is nothing to collide with. The
+	// relay binary defaults to the same constant.
+	ProxyRelayPort = installspec.RelayPort
 )
 
 type Runtime struct {

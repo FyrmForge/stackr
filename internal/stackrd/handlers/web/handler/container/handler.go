@@ -12,10 +12,12 @@ import (
 	"github.com/FyrmForge/hamr/pkg/respond"
 	"github.com/labstack/echo/v4"
 
-	"github.com/FyrmForge/stackr/internal/stackrd/handlers/notify"
+	stackrmw "github.com/FyrmForge/stackr/internal/stackrd/handlers/middleware"
 	"github.com/FyrmForge/stackr/internal/stackrd/handlers/web/components"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/cluster"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/runtime"
+	"github.com/FyrmForge/stackr/internal/stackrd/service"
+	"github.com/FyrmForge/stackr/internal/stackrd/service/notify"
 )
 
 type handler struct {
@@ -24,11 +26,13 @@ type handler struct {
 	// manager's own socket knows about its own and nothing else.
 	clus     *cluster.Cluster
 	notifier *notify.Notifier
+	// containers owns the system-container guard the four verbs share.
+	containers *service.ContainerService
 }
 
 // NewHandler creates a new container browser handler.
-func NewHandler(clus *cluster.Cluster, notifier *notify.Notifier) *handler {
-	return &handler{clus: clus, notifier: notifier}
+func NewHandler(clus *cluster.Cluster, notifier *notify.Notifier, containers *service.ContainerService) *handler {
+	return &handler{clus: clus, notifier: notifier, containers: containers}
 }
 
 // node is the node a request is about. Every route carries it as ?node=,
@@ -199,42 +203,23 @@ func backToList(c echo.Context) string {
 }
 
 // POST /containers/:id/start | stop | remove
+//
+// The system-container guard is ContainerService's, one rule for all three.
 func (h *handler) Start(c echo.Context) error {
-	if err := h.clus.StartContainer(c.Request().Context(), h.node(c), c.Param("id")); err != nil {
-		return err
-	}
-	h.notifier.Containers()
-	return respond.Redirect(c, backToList(c))
+	return h.containerAction(c, h.containers.Start)
 }
 
 func (h *handler) Stop(c echo.Context) error {
-	ctx := c.Request().Context()
-	if h.clus.ContainerIsSystem(ctx, h.node(c), c.Param("id")) {
-		return echo.NewHTTPError(http.StatusForbidden, "the panel and proxy containers can't be stopped from here")
-	}
-	if err := h.clus.StopContainer(ctx, h.node(c), c.Param("id")); err != nil {
-		return err
-	}
-	h.notifier.Containers()
-	return respond.Redirect(c, backToList(c))
+	return h.containerAction(c, h.containers.Stop)
 }
 
 func (h *handler) Remove(c echo.Context) error {
-	ctx := c.Request().Context()
-	if h.clus.ContainerIsSystem(ctx, h.node(c), c.Param("id")) {
-		// A system container that has already exited is a previous generation
-		// left behind by an upgrade. It cuts nothing off, and refusing it is
-		// what left every node accumulating agent rows no operator could ever
-		// clear. The guard is about the running
-		// one, which is the one the panel depends on.
-		d, err := h.clus.InspectContainer(ctx, h.node(c), c.Param("id"))
-		if err != nil || d.State == "running" {
-			return echo.NewHTTPError(http.StatusForbidden,
-				"the panel, proxy and node agent containers cannot be removed while they are running")
-		}
-	}
-	if err := h.clus.StopRemove(ctx, h.node(c), c.Param("id")); err != nil {
-		return err
+	return h.containerAction(c, h.containers.Remove)
+}
+
+func (h *handler) containerAction(c echo.Context, do func(context.Context, string, string) error) error {
+	if err := do(c.Request().Context(), h.node(c), c.Param("id")); err != nil {
+		return stackrmw.HTTP(err)
 	}
 	h.notifier.Containers()
 	return respond.Redirect(c, backToList(c))

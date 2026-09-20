@@ -16,6 +16,7 @@ import (
 	"encoding/pem"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
@@ -328,6 +329,11 @@ func (c *Client) connectorForTile(ctx context.Context, tile *repo.Tile) *repo.Co
 		// org's private repositories. Every other reference in config is
 		// scoped; this one was not.
 		if cn == nil || cn.OrgID != stack.OrgID {
+			// Refused, not missing. Returning nil here makes the clone run
+			// unauthenticated, which fails on a private repository with a
+			// git error nobody can trace back to this decision — so say so.
+			slog.Error("connector refused: not this stack's organisation",
+				"tile", tile.ID, "connector", tile.ConnectorID, "org", stack.OrgID)
 			return nil
 		}
 		return cn

@@ -2,16 +2,12 @@ package v1
 
 import (
 	"context"
-	"fmt"
-	"log/slog"
 	"net/http"
 	"strings"
-	"time"
 
-	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 
-	"github.com/FyrmForge/stackr/internal/stackrd/config/envutil"
+	stackrmw "github.com/FyrmForge/stackr/internal/stackrd/handlers/middleware"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/managedtiles"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 )
@@ -80,182 +76,90 @@ func toDBOut(d *repo.Tile) dbOut {
 		UpdatePolicy: d.UpdatePolicy, ImageDigest: d.ImageDigest, LatestDigest: d.LatestDigest}
 }
 
-// applyScope resolves a scope name onto the tile. ScopeID is derived from the
-// stack, never taken from the caller, so no request can point an instance at
-// another tenant.
-func applyScope(d *repo.Tile, s *repo.Stack, scope string) error {
-	switch scope {
-	case "", "env":
-		d.ScopeKind, d.ScopeID = "env", ""
-	case "stack":
-		d.ScopeKind, d.ScopeID = "stack", s.ID
-	case "org":
-		d.ScopeKind, d.ScopeID = "org", s.OrgID
-	default:
-		return echo.NewHTTPError(http.StatusBadRequest, "scope must be env, stack, or org")
-	}
-	return nil
-}
-
 // patchDB updates the instance settings the canvas exposes: the published
-// port, the sharing scope, and the resource limits. All three are config-modeled,
-// so rejectManaged keeps a file-owned stack from drifting.
+// port, the sharing scope, the resource limits, the image and the update
+// policy. The merge is the edge's job (D6): every field is optional, so an
+// absent key must leave the row alone rather than zero it.
 func (a *API) patchDB(c echo.Context) error {
 	ctx := c.Request().Context()
-	t, err := a.requireTile(c, c.Param("id"), true)
+	t, err := a.tile(c, c.Param("id"))
 	if err != nil {
 		return err
 	}
 	if !t.IsManaged() {
 		return echo.NewHTTPError(http.StatusNotFound, "not found")
-	}
-	if err := a.rejectManaged(ctx, t.StackID); err != nil {
-		return err
 	}
 	var in dbPatch
 	if err := c.Bind(&in); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, "bad body")
 	}
-	redeploy := false
 	if in.ExternalPort != nil {
-		if *in.ExternalPort < 0 || *in.ExternalPort > 65535 {
-			return echo.NewHTTPError(http.StatusBadRequest, "external_port out of range")
-		}
-		redeploy = redeploy || *in.ExternalPort != t.ExternalPort
 		t.ExternalPort = *in.ExternalPort
 	}
 	if in.CPULimit != nil {
-		if *in.CPULimit < 0 {
-			return echo.NewHTTPError(http.StatusBadRequest, "cpu_limit must not be negative")
-		}
-		redeploy = redeploy || *in.CPULimit != t.CPULimit
 		t.CPULimit = *in.CPULimit
 	}
 	if in.MemLimitMB != nil {
-		mem := *in.MemLimitMB
-		if mem < 0 {
-			return echo.NewHTTPError(http.StatusBadRequest, "mem_limit_mb must not be negative")
-		}
-		if mem > 0 && mem < 6 {
-			mem = 6 // docker rejects memory caps under 6MB
-		}
-		redeploy = redeploy || mem != t.MemLimitMB
-		t.MemLimitMB = mem
+		t.MemLimitMB = *in.MemLimitMB
 	}
 	if in.Image != nil {
-		img := *in.Image
-		if img == "" {
-			img = managedtiles.Engines[t.Engine].DefaultImage
-		}
-		redeploy = redeploy || img != t.ImageRef
-		t.ImageRef = img
+		t.ImageRef = *in.Image
 	}
 	if in.ShmSizeMB != nil {
-		if *in.ShmSizeMB < 0 {
-			return echo.NewHTTPError(http.StatusBadRequest, "shm_size_mb must not be negative")
-		}
-		redeploy = redeploy || *in.ShmSizeMB != t.ShmSizeMB
 		t.ShmSizeMB = *in.ShmSizeMB
 	}
-	if in.Scope != nil {
-		s, serr := a.store.GetStack(ctx, t.StackID)
-		if serr != nil || s == nil {
-			return echo.NewHTTPError(http.StatusNotFound, "not found")
-		}
-		if err := applyScope(t, s, *in.Scope); err != nil {
-			return err
-		}
-		// No redeploy: scope governs who may provision from the instance, and
-		// the running container knows nothing about it.
-	}
 	if in.UpdatePolicy != nil {
-		switch *in.UpdatePolicy {
-		case "", "off":
-			t.UpdatePolicy = "off"
-		case "notify", "auto":
-			t.UpdatePolicy = *in.UpdatePolicy
-		default:
-			return echo.NewHTTPError(http.StatusBadRequest, "update_policy must be off, notify or auto")
-		}
-		// No redeploy: the watcher reads the row.
+		t.UpdatePolicy = *in.UpdatePolicy
 	}
-	t.UpdatedAt = time.Now().UTC()
-	if err := a.store.UpdateTile(ctx, t); err != nil {
-		return err
-	}
-	// The port mapping and the resource caps live on the container, so the row
-	// alone changes nothing until it is recreated.
-	if redeploy && t.Status == "running" {
-		if derr := managedtiles.NewService(a.clus, a.store).Deploy(ctx, t); derr != nil {
-			return echo.NewHTTPError(http.StatusUnprocessableEntity, "settings saved but redeploy failed: "+derr.Error())
+	// Scope asks its own gate — it is the one field the org-scope exception
+	// does not cover — but it does not write: one merged row, one write, one
+	// diff, or the settings beside it would land with no redeploy behind them.
+	if in.Scope != nil {
+		if err := a.instances.PlanScope(ctx, t, *in.Scope); err != nil {
+			return stackrmw.HTTP(err)
 		}
+	}
+	if err := a.instances.Update(ctx, t, a.actor(c)); err != nil {
+		return stackrmw.HTTP(err)
 	}
 	return c.JSON(http.StatusOK, toDBOut(t))
 }
 
 func (a *API) getDB(c echo.Context) error {
-	t, err := a.requireTile(c, c.Param("id"), false)
+	t, err := a.tile(c, c.Param("id"))
 	if err != nil {
 		return err
 	}
 	if !t.IsManaged() {
 		return echo.NewHTTPError(http.StatusNotFound, "not found")
 	}
-	return c.JSON(http.StatusOK, toDBOut(t))
+	// The colon-path, which listDBs sets and this used to omit, so a caller
+	// that read one instance back could not address it.
+	out := toDBOut(t)
+	out.Path = a.infraPath(c.Request().Context(), t, map[string]string{})
+	return c.JSON(http.StatusOK, out)
 }
 
 func (a *API) createDB(c echo.Context) error {
-	s, err := a.requireStackAccess(c, c.Param("id"))
+	s, err := a.stack(c, c.Param("id"))
 	if err != nil {
 		return err
 	}
 	ctx := c.Request().Context()
-	if err := a.requireOrgWrite(ctx, c, s.OrgID); err != nil {
-		return err
-	}
-	if err := managedGuard(s); err != nil {
-		return err
-	}
 	var in dbIn
-	if err := c.Bind(&in); err != nil || in.Name == "" || in.Engine == "" {
-		return echo.NewHTTPError(http.StatusBadRequest, "name and engine required")
+	if err := c.Bind(&in); err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid body")
 	}
 	env, err := a.resolveEnv(ctx, s.ID, in.EnvSlug)
 	if err != nil {
 		return err
 	}
-	slug := repo.Slugify(in.Name)
-	if repo.ReservedSlug(slug) {
-		return echo.NewHTTPError(http.StatusBadRequest, "\""+slug+"\" is reserved for variable references; pick another name")
-	}
-	if existing, _ := a.store.GetTileBySlug(ctx, env.ID, slug); existing != nil {
-		return echo.NewHTTPError(http.StatusConflict, "a tile with that name already exists in the environment")
-	}
-	now := time.Now().UTC()
-	d := &repo.Tile{ID: uuid.New().String(), StackID: s.ID, EnvironmentID: env.ID,
-		Name: in.Name, Slug: slug, Engine: in.Engine, SourceType: "image", Kind: "service",
-		WebhookToken: uuid.New().String(), Status: "idle", CreatedAt: now, UpdatedAt: now}
-	if err := applyScope(d, s, in.Scope); err != nil {
-		return err
-	}
-	if err := managedtiles.NewDB(d); err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
-	}
-	if err := a.store.CreateTile(ctx, d); err != nil {
-		return err
-	}
-	managedtiles.PublishConnection(ctx, a.store, d)
-	svc := managedtiles.NewService(a.clus, a.store)
-	if err := svc.Deploy(ctx, d); err == nil {
-		if serr := a.store.UpdateTileStatus(ctx, d.ID, "running"); serr != nil {
-			slog.Error("database status not saved", "tile", d.ID, "status", "running", "error", serr)
-		}
-		d.Status = "running"
-	} else {
-		if serr := a.store.UpdateTileStatus(ctx, d.ID, "error"); serr != nil {
-			slog.Error("database status not saved", "tile", d.ID, "status", "error", "error", serr)
-		}
-		d.Status = "error"
+	d := &repo.Tile{StackID: s.ID, EnvironmentID: env.ID, Name: in.Name, Engine: in.Engine}
+	// The gate, the slug rules, the scope derivation, the generated
+	// credentials and the deploy are all the service's; what stays here is
+	// the tenancy of the request and the wire shape of the answer.
+	if _, err := a.instances.Create(ctx, d, in.Scope, nil, a.actor(c)); err != nil {
+		return stackrmw.HTTP(err)
 	}
 	out := toDBOut(d)
 	if org, _ := a.store.GetOrg(ctx, s.OrgID); org != nil {
@@ -274,7 +178,7 @@ func toProvisionOut(p *repo.Provision) provisionOut {
 // provisionApp creates a logical database in a shared instance for the consumer
 // app, wires the connection secret into the app's env, and redeploys it.
 func (a *API) provisionApp(c echo.Context) error {
-	consumer, err := a.requireTile(c, c.Param("id"), true)
+	consumer, err := a.tile(c, c.Param("id"))
 	if err != nil {
 		return err
 	}
@@ -304,15 +208,15 @@ func (a *API) provisionApp(c echo.Context) error {
 	} else {
 		instance, err = a.store.GetTile(ctx, in.InstanceID)
 	}
-	if err != nil || instance == nil || !managedtiles.Eligible(ctx, a.store, instance, consumer) {
+	if err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, "invalid shared instance")
 	}
-	p, err := managedtiles.NewService(a.clus, a.store).Provision(ctx, instance, consumer, in.Name, in.Public)
+	p, err := a.slices.Provision(ctx, instance, consumer, in.Name, in.Public)
 	if err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+		return stackrmw.HTTP(err)
 	}
-	if err := a.wireProvisionFor(ctx, instance, consumer, p, in.EnvVar); err != nil {
-		return err
+	if _, err := a.slices.Wire(ctx, instance, consumer, p, in.EnvVar); err != nil {
+		return stackrmw.HTTP(err)
 	}
 	return c.JSON(http.StatusCreated, toProvisionOut(p))
 }
@@ -320,7 +224,7 @@ func (a *API) provisionApp(c echo.Context) error {
 // attachProvision points the consumer app at an existing logical database
 // (same env) so it can share another tile's database.
 func (a *API) attachProvision(c echo.Context) error {
-	consumer, err := a.requireTile(c, c.Param("id"), true)
+	consumer, err := a.tile(c, c.Param("id"))
 	if err != nil {
 		return err
 	}
@@ -333,26 +237,22 @@ func (a *API) attachProvision(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, "provision_id required")
 	}
 	src, err := a.store.GetProvision(ctx, in.ProvisionID)
-	if err != nil || src == nil || src.EnvID != consumer.EnvironmentID {
-		return echo.NewHTTPError(http.StatusBadRequest, "invalid database")
-	}
-	instance, err := a.store.GetTile(ctx, src.InstanceTileID)
-	if err != nil || instance == nil {
-		return echo.NewHTTPError(http.StatusBadRequest, "instance not found")
-	}
-	p, err := managedtiles.NewService(a.clus, a.store).AttachExisting(ctx, instance, src, consumer)
 	if err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
-	}
-	if err := a.wireProvisionFor(ctx, instance, consumer, p, in.EnvVar); err != nil {
 		return err
+	}
+	p, instance, err := a.slices.Attach(ctx, src, consumer)
+	if err != nil {
+		return stackrmw.HTTP(err)
+	}
+	if _, err := a.slices.Wire(ctx, instance, consumer, p, in.EnvVar); err != nil {
+		return stackrmw.HTTP(err)
 	}
 	return c.JSON(http.StatusCreated, toProvisionOut(p))
 }
 
 // listAppProvisions lists the logical databases a consumer app holds.
 func (a *API) listAppProvisions(c echo.Context) error {
-	consumer, err := a.requireTile(c, c.Param("id"), false)
+	consumer, err := a.tile(c, c.Param("id"))
 	if err != nil {
 		return err
 	}
@@ -367,73 +267,20 @@ func (a *API) listAppProvisions(c echo.Context) error {
 	return c.JSON(http.StatusOK, out)
 }
 
-// wireProvisionFor wires a provision's secret(s) into the consumer's env and
-// redeploys. Engines whose slices need more than a url (s3: endpoint, bucket,
-// keys) auto-inject their whole output set and ignore envVar; the rest inject
-// the single url secret under envVar.
-func (a *API) wireProvisionFor(ctx context.Context, instance, consumer *repo.Tile, p *repo.Provision, envVar string) error {
-	// Config-managed stack: the file owns consumer.Env, so an injection here is
-	// stripped by the next apply. Provision + publish only; the response carries
-	// the secret name for the user to reference from their config file.
-	if s, err := a.store.GetStack(ctx, consumer.StackID); err != nil || s == nil || s.ConfigManaged() {
-		return err
-	}
-	if managedtiles.Engines[instance.Engine].AutoInjectAll {
-		for k, v := range managedtiles.NewService(a.clus, a.store).AutoInjectVars(ctx, instance, p) {
-			consumer.Env, _ = envutil.Inject(consumer.Env, k, v)
-		}
-		if err := a.store.UpdateTile(ctx, consumer); err != nil {
-			return err
-		}
-		_, err := a.engine.Enqueue(ctx, consumer, "provision")
-		return err
-	}
-	return a.wireProvision(ctx, consumer, managedtiles.Ref(instance, p, managedtiles.DefaultOutput(instance.Engine)), envVar)
-}
-
-// wireProvision injects a reference to the provisioned resource into the
-// consumer's env under envVar (blank = publish only) and redeploys so it joins
-// the shared network.
-func (a *API) wireProvision(ctx context.Context, consumer *repo.Tile, ref, envVar string) error {
-	if envVar == "" {
-		return nil // resource published; the user writes the reference themselves
-	}
-	consumer.Env, _ = envutil.Inject(consumer.Env, envVar, ref)
-	if err := a.store.UpdateTile(ctx, consumer); err != nil {
-		return err
-	}
-	_, err := a.engine.Enqueue(ctx, consumer, "provision")
-	return err
-}
-
 func (a *API) deleteDB(c echo.Context) error {
-	t, err := a.requireTile(c, c.Param("id"), true)
+	t, err := a.tile(c, c.Param("id"))
 	if err != nil {
 		return err
 	}
 	if !t.IsManaged() {
 		return echo.NewHTTPError(http.StatusNotFound, "not found")
 	}
-	ctx := c.Request().Context()
-	if err := a.rejectManaged(ctx, t.StackID); err != nil {
-		return err
-	}
 	// Deleting a shared instance destroys every logical database or bucket cut
-	// from it, and each consumer keeps a variable pointing at a resource that no
-	// longer resolves, so the deploy that discovers it is the next one, not
-	// this call. Refuse by default; the caller has to say it means it.
-	if c.QueryParam("force") != "true" {
-		held, err := a.store.ListProvisionsByInstance(ctx, t.ID)
-		if err != nil {
-			return err
-		}
-		if len(held) > 0 {
-			return echo.NewHTTPError(http.StatusConflict,
-				fmt.Sprintf("%d consumer(s) hold slices on this instance; detach them first, or pass force=true to destroy the data with it", len(held)))
-		}
-	}
-	if err := a.teardownTile(ctx, t); err != nil {
-		return err
+	// from it, and each consumer keeps a variable pointing at a resource that
+	// no longer resolves. Refuse by default; the caller has to say it means it.
+	force := c.QueryParam("force") == "true"
+	if err := a.instances.Delete(c.Request().Context(), t, force, a.actor(c)); err != nil {
+		return stackrmw.HTTP(err)
 	}
 	return c.NoContent(http.StatusNoContent)
 }

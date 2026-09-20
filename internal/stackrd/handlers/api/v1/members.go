@@ -15,31 +15,15 @@ import (
 	"github.com/labstack/echo/v4"
 
 	"github.com/FyrmForge/stackr/internal/stackrd/config/secrets"
+	stackrmw "github.com/FyrmForge/stackr/internal/stackrd/handlers/middleware"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 )
 
 // inviteDays is how long a link stays good. The same default the panel uses.
 const inviteDays = 7
 
-// requireOrgOwner is the gate on membership changes: content write is not
-// enough to hand somebody else access.
-func (a *API) requireOrgOwner(c echo.Context) (*repo.Org, error) {
-	o, err := a.requireOrg(c, c.Param("id"))
-	if err != nil {
-		return nil, err
-	}
-	if a.isAdmin(c) {
-		return o, nil
-	}
-	m, err := a.store.GetOrgMember(c.Request().Context(), o.ID, a.user(c).ID)
-	if err != nil || m == nil || m.Role != "owner" {
-		return nil, echo.NewHTTPError(http.StatusForbidden, "only an owner can change membership")
-	}
-	return o, nil
-}
-
 func (a *API) listMembers(c echo.Context) error {
-	o, err := a.requireOrg(c, c.Param("id"))
+	o, err := a.org(c, c.Param("id"))
 	if err != nil {
 		return err
 	}
@@ -59,7 +43,7 @@ func (a *API) listMembers(c echo.Context) error {
 // accepting an invite, so minting one for an address that has never signed in
 // would grant access to an account that does not exist.
 func (a *API) addMember(c echo.Context) error {
-	o, err := a.requireOrgOwner(c)
+	o, err := a.org(c, c.Param("id"))
 	if err != nil {
 		return err
 	}
@@ -67,32 +51,19 @@ func (a *API) addMember(c echo.Context) error {
 	if err := c.Bind(&in); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, "invalid body")
 	}
-	email := strings.ToLower(strings.TrimSpace(in.Email))
-	if email == "" {
-		return echo.NewHTTPError(http.StatusBadRequest, "email required")
-	}
-	role := validRole(in.Role)
-	// An existing member's role is changed, not re-invited: a second invite to
-	// somebody who is already here reads as an error the caller cannot see.
-	ms, err := a.store.ListOrgMembers(c.Request().Context(), o.ID)
+	// The role whitelist, the expiry bounds and the already-a-member check
+	// are the service's. A bad role used to become "member" here without
+	// saying so, and a negative expiry minted an invite that had already run
+	// out.
+	inv, err := a.members.Invite(c.Request().Context(), o, in.Email, in.Role, in.ExpiresDays, a.actor(c))
 	if err != nil {
-		return err
-	}
-	for i := range ms {
-		if strings.EqualFold(ms[i].Email, email) {
-			return echo.NewHTTPError(http.StatusConflict,
-				email+" is already a member; change their role instead")
-		}
-	}
-	inv, err := a.newInvite(c, o, email, role, in.ExpiresDays)
-	if err != nil {
-		return err
+		return stackrmw.HTTP(err)
 	}
 	return c.JSON(http.StatusCreated, toInviteOut(inv))
 }
 
 func (a *API) setMemberRole(c echo.Context) error {
-	o, err := a.requireOrgOwner(c)
+	o, err := a.org(c, c.Param("id"))
 	if err != nil {
 		return err
 	}
@@ -101,63 +72,29 @@ func (a *API) setMemberRole(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, "invalid body")
 	}
 	ctx := c.Request().Context()
+	if err := a.members.SetRole(ctx, o, c.Param("user"), in.Role); err != nil {
+		return stackrmw.HTTP(err)
+	}
 	m, err := a.store.GetOrgMember(ctx, o.ID, c.Param("user"))
 	if err != nil || m == nil {
 		return echo.NewHTTPError(http.StatusNotFound, "not found")
-	}
-	role := validRole(in.Role)
-	if m.Role == "owner" && role != "owner" {
-		if err := a.lastOwnerGuard(c, o, m.UserID); err != nil {
-			return err
-		}
-	}
-	m.Role = role
-	if err := a.store.UpsertOrgMember(ctx, m); err != nil {
-		return err
 	}
 	return c.JSON(http.StatusOK, memberOut{UserID: m.UserID, Email: m.Email, Name: m.Name, Role: m.Role})
 }
 
 func (a *API) removeMember(c echo.Context) error {
-	o, err := a.requireOrgOwner(c)
+	o, err := a.org(c, c.Param("id"))
 	if err != nil {
 		return err
 	}
-	ctx := c.Request().Context()
-	m, err := a.store.GetOrgMember(ctx, o.ID, c.Param("user"))
-	if err != nil || m == nil {
-		return echo.NewHTTPError(http.StatusNotFound, "not found")
-	}
-	if m.Role == "owner" {
-		if err := a.lastOwnerGuard(c, o, m.UserID); err != nil {
-			return err
-		}
-	}
-	if err := a.store.DeleteOrgMember(ctx, o.ID, m.UserID); err != nil {
-		return err
+	if err := a.members.Remove(c.Request().Context(), o, c.Param("user")); err != nil {
+		return stackrmw.HTTP(err)
 	}
 	return c.NoContent(http.StatusNoContent)
 }
 
-// lastOwnerGuard refuses to leave an org with nobody who can administer it.
-// An admin can still reach it, but from inside the product the org would be
-// stuck: nobody left to invite anybody.
-func (a *API) lastOwnerGuard(c echo.Context, o *repo.Org, userID string) error {
-	ms, err := a.store.ListOrgMembers(c.Request().Context(), o.ID)
-	if err != nil {
-		return err
-	}
-	for i := range ms {
-		if ms[i].Role == "owner" && ms[i].UserID != userID {
-			return nil
-		}
-	}
-	return echo.NewHTTPError(http.StatusConflict,
-		"this is the last owner; promote somebody else first")
-}
-
 func (a *API) listInvites(c echo.Context) error {
-	o, err := a.requireOrgOwner(c)
+	o, err := a.org(c, c.Param("id"))
 	if err != nil {
 		return err
 	}
@@ -173,7 +110,7 @@ func (a *API) listInvites(c echo.Context) error {
 }
 
 func (a *API) createInvite(c echo.Context) error {
-	o, err := a.requireOrgOwner(c)
+	o, err := a.org(c, c.Param("id"))
 	if err != nil {
 		return err
 	}
@@ -190,7 +127,7 @@ func (a *API) createInvite(c echo.Context) error {
 }
 
 func (a *API) deleteInvite(c echo.Context) error {
-	o, err := a.requireOrgOwner(c)
+	o, err := a.org(c, c.Param("id"))
 	if err != nil {
 		return err
 	}
@@ -217,6 +154,10 @@ func (a *API) newInvite(c echo.Context, o *repo.Org, email, role string, days in
 	if err := a.store.CreateInvite(c.Request().Context(), inv); err != nil {
 		return nil, err
 	}
+	// The panel mailed the invite and this path did not, so an invite created
+	// over the API or the CLI wrote a row and told nobody. A bounce is not
+	// fatal: the link is in the response either way.
+	inv.MailFailed = a.mail.SendInvite(c.Request().Context(), o, inv)
 	return inv, nil
 }
 

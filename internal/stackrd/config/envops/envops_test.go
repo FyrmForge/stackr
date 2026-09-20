@@ -5,7 +5,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/FyrmForge/stackr/internal/stackrd/config/envops"
+	"github.com/FyrmForge/stackr/internal/stackrd/service"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 )
 
@@ -20,7 +20,7 @@ func TestVisibleDomainResourcesPrefersDeclared(t *testing.T) {
 		{ID: "d3", Level: "instance", Host: "server.example", Declared: false},
 		{ID: "d4", Level: "stack", OwnerID: "s1", Host: "stack.example", Declared: false},
 	}
-	got := envops.VisibleDomainResources(all, "s1", "o1")
+	got := service.VisibleDomainResources(all, "s1", "o1")
 	var hosts []string
 	for _, r := range got {
 		hosts = append(hosts, r.Host)

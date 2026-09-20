@@ -17,33 +17,62 @@ import (
 
 	"github.com/FyrmForge/stackr/internal/stackrd/config/orgconf"
 	stackrmw "github.com/FyrmForge/stackr/internal/stackrd/handlers/middleware"
-	"github.com/FyrmForge/stackr/internal/stackrd/handlers/notify"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/forward"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/githubapp"
-	"github.com/FyrmForge/stackr/internal/stackrd/infra/mail"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/metrics"
-	"github.com/FyrmForge/stackr/internal/stackrd/infra/proxy"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/registry"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/runtime"
+	"github.com/FyrmForge/stackr/internal/stackrd/infra/workqueue"
+	"github.com/FyrmForge/stackr/internal/stackrd/service"
+	svcmail "github.com/FyrmForge/stackr/internal/stackrd/service/mail"
+	"github.com/FyrmForge/stackr/internal/stackrd/service/notify"
+	svcproxy "github.com/FyrmForge/stackr/internal/stackrd/service/proxy"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 )
 
 type handler struct {
-	store    repo.Store
-	notifier *notify.Notifier
-	sampler  *metrics.Sampler    // traffic lanes on the org canvas; nil in tests
-	files    storage.FileStorage // org logos; nil in tests
-	rt       *runtime.Runtime    // live forward-relay counts; nil in tests
-	forwards *forward.Registry   // open CLI forward sessions; nil in tests
-	orgcfg   *orgconf.Runner     // org config-as-code plans/applies; nil in tests
-	gh       *githubapp.Client   // connector repo lists and install state; nil in tests
-	mail     *mail.Mailer        // invite emails; nil when no provider is configured
-	regsign  *registry.Signer    // managed-registry tokens for the catalog reads; nil in tests
-	px       *proxy.Proxy        // re-renders routes when org defaults change; nil in tests
+	// resources owns the hostnames stackr may generate names under.
+	resources  *service.DomainResourceService
+	vars       *service.VariableService
+	stacks     *service.StackService    // the stack row; a move between orgs is its call
+	registries *service.RegistryService // org push/pull credentials and image tags
+	members    *service.MemberService   // who is in the org and at what level
+	store      repo.Store
+	notifier   *notify.Notifier
+	sampler    *metrics.Sampler    // traffic lanes on the org canvas; nil in tests
+	files      storage.FileStorage // org logos; nil in tests
+	rt         *runtime.Runtime    // live forward-relay counts; nil in tests
+	forwards   *forward.Registry   // open CLI forward sessions; nil in tests
+	orgcfg     *orgconf.Runner     // org config-as-code plans/applies; nil in tests
+	gh         *githubapp.Client   // connector repo lists and install state; nil in tests
+	mail       *svcmail.Service    // invite emails; nil when no provider is configured
+	regsign    *registry.Signer    // managed-registry tokens for the catalog reads; nil in tests
+	px         *svcproxy.Service   // re-renders routes when org defaults change; nil in tests
+	// work is the durable job runner. An org apply goes on it, never on the
+	// request: it creates and binds stacks, each of which plans in turn.
+	work *workqueue.Queue
+	// settings owns every rung of the defaults cascade.
+	settings *service.SettingsService
 }
 
-func NewHandler(store repo.Store, notifier *notify.Notifier, sampler *metrics.Sampler, files storage.FileStorage, rt *runtime.Runtime, forwards *forward.Registry, orgcfg *orgconf.Runner, gh *githubapp.Client, mailer *mail.Mailer, regsign *registry.Signer, px *proxy.Proxy) *handler {
-	return &handler{store: store, notifier: notifier, sampler: sampler, files: files, rt: rt, forwards: forwards, orgcfg: orgcfg, gh: gh, mail: mailer, regsign: regsign, px: px}
+// WithSettings attaches the settings service.
+func (h *handler) WithSettings(st *service.SettingsService) *handler { h.settings = st; return h }
+
+// WithWork attaches the durable job runner.
+func (h *handler) WithWork(q *workqueue.Queue) *handler { h.work = q; return h }
+
+// WithStacks attaches the stack service, which owns the slug collision a
+// move has to refuse.
+func (h *handler) WithStacks(st *service.StackService) *handler { h.stacks = st; return h }
+
+func NewHandler(store repo.Store, notifier *notify.Notifier, sampler *metrics.Sampler, files storage.FileStorage, rt *runtime.Runtime, forwards *forward.Registry, orgcfg *orgconf.Runner, gh *githubapp.Client, mailer *svcmail.Service, regsign *registry.Signer, px *svcproxy.Service) *handler {
+	return &handler{store: store, notifier: notifier, sampler: sampler, files: files, rt: rt,
+		forwards: forwards, orgcfg: orgcfg, gh: gh, mail: mailer, regsign: regsign, px: px,
+		// Built here rather than injected: it is stateless, every caller of
+		// this constructor has both of its dependencies already, and a nil
+		// one would be a silent loss of the membership rules.
+		members:    service.NewMemberService(store, mailer, service.NewRevokeService(store, notifier)),
+		registries: service.NewRegistryService(store)}
 }
 
 // POST /orgs, step 1's answer. The org is created empty and named later, by
@@ -151,9 +180,13 @@ func (h *handler) MoveStack(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	// A move edits both orgs' contents, it takes the stack out of one and
-	// puts it in the other, so it needs write rights in each, in that org
-	// rather than in whichever one the cookie has selected.
+	// A move edits BOTH orgs' contents: it takes the stack out of one and
+	// puts it in the other, so it needs write rights in each.
+	//
+	// The route's gate answers for the org the stack is leaving (KindStack on
+	// :id). The org it is moving INTO arrives in the form, which the gate
+	// cannot see, so that half is checked here and has to stay — see
+	// stillBodyGated in handlers/web/gatefree_test.go.
 	if target == nil {
 		return echo.NewHTTPError(http.StatusNotFound, "org not found")
 	}
@@ -167,21 +200,15 @@ func (h *handler) MoveStack(c echo.Context) error {
 	if stack == nil {
 		return echo.NewHTTPError(http.StatusNotFound, "stack not found")
 	}
-	if err := stackrmw.RequireOrgWrite(c, h.store, stack.OrgID); err != nil {
-		return err
-	}
 	// The form lives on the stack's own settings page, so failures go back
 	// there rather than to the org that no longer lists its stacks.
 	from, err := h.store.GetOrg(ctx, stack.OrgID)
 	if err != nil || from == nil {
 		return echo.NewHTTPError(http.StatusNotFound, "org not found")
 	}
-	if other, _ := h.store.GetStackBySlug(ctx, target.ID, stack.Slug); other != nil {
-		middleware.SetFlash(c, "That org already has a stack with this slug.", middleware.FlashError)
+	if err := h.stacks.Move(ctx, stack, target.ID); err != nil {
+		middleware.SetFlash(c, err.Error(), middleware.FlashError)
 		return respond.Redirect(c, "/"+from.Slug+"/"+stack.Slug+"/settings")
-	}
-	if err := h.store.SetStackOrg(ctx, stack.ID, target.ID); err != nil {
-		return err
 	}
 	middleware.SetFlash(c, "Moved "+stack.Name+" to "+target.Name+". Its connector-based clones now use "+target.Name+"'s connectors.", middleware.FlashSuccess)
 	return respond.Redirect(c, "/"+target.Slug+"/"+stack.Slug+"/settings")
@@ -197,4 +224,13 @@ func (h *handler) setActive(c echo.Context, id string) {
 		Secure:   stackrmw.SecureCookie(c),
 		SameSite: http.SameSiteLaxMode,
 	})
+}
+
+// WithDomainResources gives the page the domain-resource service.
+// WithVariables gives the org settings page the variable service.
+func (h *handler) WithVariables(v *service.VariableService) *handler { h.vars = v; return h }
+
+func (h *handler) WithDomainResources(r *service.DomainResourceService) *handler {
+	h.resources = r
+	return h
 }

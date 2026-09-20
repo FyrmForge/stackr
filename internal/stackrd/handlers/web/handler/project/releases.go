@@ -11,6 +11,8 @@ import (
 	"github.com/labstack/echo/v4"
 
 	"github.com/FyrmForge/stackr/internal/stackrd/config/stackconf"
+	stackrmw "github.com/FyrmForge/stackr/internal/stackrd/handlers/middleware"
+	"github.com/FyrmForge/stackr/internal/stackrd/service"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 )
 
@@ -169,24 +171,11 @@ type promoteDialogue struct {
 // promoteEnv resolves the env in the URL and refuses the ones that are not a
 // rung: the default env builds on push, and an ephemeral one has no ladder.
 func (h *handler) promoteEnv(ctx context.Context, p *repo.Stack, slug string) (*repo.Environment, error) {
-	envs, err := h.store.ListEnvironmentsByStack(ctx, p.ID)
+	env, err := h.releases.Target(ctx, p, slug)
 	if err != nil {
-		return nil, err
+		return nil, stackrmw.HTTP(err)
 	}
-	n := 0
-	for i := range envs {
-		if envs[i].Type != "static" {
-			continue
-		}
-		if envs[i].Slug == slug {
-			if n == 0 {
-				return nil, echo.NewHTTPError(http.StatusBadRequest, "the first environment builds on push; it is not promoted to")
-			}
-			return &envs[i], nil
-		}
-		n++
-	}
-	return nil, echo.NewHTTPError(http.StatusNotFound, "environment not found")
+	return env, nil
 }
 
 // GET /projects/:id/envs/:slug/promote?commit=&step=
@@ -301,43 +290,30 @@ func (h *handler) PromoteCommit(c echo.Context) error {
 		return err
 	}
 	commit := strings.TrimSpace(c.FormValue("commit"))
-	if commit == "" {
-		return echo.NewHTTPError(http.StatusBadRequest, "a commit is required")
-	}
 	back := localPath(c.FormValue("return"))
 	if back == "" {
 		back = stackURL(p) + "/releases"
 	}
-	// The plan applies first, whole, then the images move. A plan is a config
-	// diff of the whole stack, not a rung, so it is not scoped to this env and
-	// applying it is the same operation as pressing Apply on the plan page.
-	if planID := c.FormValue("plan"); planID != "" {
-		cp, gerr := h.store.GetConfigPlan(ctx, planID)
-		if gerr != nil || cp == nil || cp.StackID != p.ID {
-			return echo.NewHTTPError(http.StatusNotFound, "plan not found")
-		}
-		// Both halves in one job: the images must not move until the whole
-		// config has landed, and a restart between them would otherwise leave
-		// the promote orphaned.
-		if _, err := h.work.Enqueue(ctx, stackconf.ApplyKind, p.ID, stackconf.ApplyJob{
-			StackID: p.ID, PlanID: cp.ID, Force: true,
-			PromoteEnv: env.Slug, PromoteCommit: commit,
-		}); err != nil {
-			middleware.SetFlash(c, "Could not queue the apply: "+err.Error(), middleware.FlashError)
-			return respond.Redirect(c, back)
-		}
-		middleware.SetFlash(c, "Applying, then promoting "+env.Slug+".", middleware.FlashSuccess)
-		to := stackURL(p) + "/plans/" + cp.ID
-		if back != "" {
-			to += "?return=" + neturl.QueryEscape(back)
-		}
-		return respond.Redirect(c, to)
-	}
-	if err := h.applier.Promote(ctx, p, env.Slug, commit); err != nil {
+	planID := c.FormValue("plan")
+	// The plan applies first, whole, then the images move — one job, so a
+	// restart between the halves cannot leave the promote orphaned. Both the
+	// dedupe key and the enqueueing are the service's; this used to build the
+	// job by hand under the stack id and lose the plan-id dedupe.
+	//
+	// Force is the form's checkbox now. It was hard-coded true here, so the
+	// panel's button silently overrode a per-environment apply policy that the
+	// API and the CLI respect.
+	if _, err := h.releases.Promote(ctx, p, env, service.PromoteReq{
+		Commit: commit, PlanID: planID, Force: c.FormValue("force") != "",
+	}); err != nil {
 		middleware.SetFlash(c, "Promote failed: "+err.Error(), middleware.FlashError)
 		return respond.Redirect(c, back)
 	}
-	middleware.SetFlash(c, "Promoted "+shortSHA(commit)+" to "+env.Slug+".", middleware.FlashSuccess)
+	if planID != "" {
+		middleware.SetFlash(c, "Applying, then promoting "+env.Slug+".", middleware.FlashSuccess)
+		return respond.Redirect(c, stackURL(p)+"/plans/"+planID+"?return="+neturl.QueryEscape(back))
+	}
+	middleware.SetFlash(c, "Promoting "+shortSHA(commit)+" to "+env.Slug+".", middleware.FlashSuccess)
 	return respond.Redirect(c, back)
 }
 
@@ -345,29 +321,11 @@ func (h *handler) PromoteCommit(c echo.Context) error {
 // state: the way out of panel-first and into config-as-code.
 // GET /:org/:stack/settings/config/export
 func (h *handler) ExportConfig(c echo.Context) error {
-	ctx := c.Request().Context()
 	p, err := h.resolveStackSlugs(c)
 	if err != nil {
 		return err
 	}
-	state, err := stackconf.Planner{Store: h.store}.Snapshot(ctx, p)
-	if err != nil {
-		return err
-	}
-	r := stackconf.StateToResolved(p.Name, state)
-	// The ladder order is the store's, which Snapshot does not carry.
-	if envs, lerr := h.store.ListEnvironmentsByStack(ctx, p.ID); lerr == nil {
-		var order []string
-		for i := range envs {
-			if envs[i].Type == "static" {
-				order = append(order, envs[i].Slug)
-			}
-		}
-		if len(order) > 0 {
-			r.EnvOrder = order
-		}
-	}
-	out, err := stackconf.ExportYAML(r)
+	out, err := stackconf.ExportStack(c.Request().Context(), h.store, p)
 	if err != nil {
 		return err
 	}

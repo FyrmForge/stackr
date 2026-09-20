@@ -14,13 +14,10 @@ package stackconf
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
-	"time"
-
-	"github.com/google/uuid"
 
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/backup"
+	"github.com/FyrmForge/stackr/internal/stackrd/service"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 )
 
@@ -112,13 +109,22 @@ func (pl Planner) planBackups(ctx context.Context, stack *repo.Stack, r *Resolve
 				continue
 			}
 			w, declared := byTile[envName+"/"+tileName]
+			// The whole list, not cur[0]. One `backup:` block is the tile's
+			// full desired set, so a second schedule made in the panel is a
+			// removal the plan has to show — it used to be invisible to the
+			// plan and then deleted anyway when the block went, which is the
+			// plan saying one thing and doing another.
 			switch {
 			case declared && len(cur) == 0:
 				p.Changes = append(p.Changes, backupChange("create", w))
 			case declared:
-				if old := backupSummary(&cur[0], destName(ctx, pl.Store, cur[0].DestinationID)); old != wantSummary(w) {
+				old := backupSummary(&cur[0], destName(ctx, pl.Store, cur[0].DestinationID))
+				if old != wantSummary(w) || len(cur) > 1 {
 					ch := backupChange("update", w)
 					ch.Old = old
+					if len(cur) > 1 {
+						ch.Note = fmt.Sprintf("the file owns this tile's schedules; %d extra one(s) made outside it are removed", len(cur)-1)
+					}
 					p.Changes = append(p.Changes, ch)
 				}
 			case len(cur) > 0:
@@ -214,24 +220,34 @@ func (a Applier) applyBackups(ctx context.Context, stack *repo.Stack, r *Resolve
 				}
 				continue
 			}
-			b := &repo.Backup{
-				TileID: sql.NullString{String: t.ID, Valid: true}, DestinationID: w.Dest.ID, Kind: w.Kind,
-				ContainerMode: w.Conf.Mode, Cron: w.Conf.Schedule, Timezone: w.Conf.TZ,
-				KeepLatest: w.Conf.Keep, Enabled: w.Conf.On(),
-			}
-			if b.Kind == repo.BackupVolume && b.ContainerMode == "" {
-				b.ContainerMode = repo.ModePause
+			keep := w.Conf.Keep
+			enabled := w.Conf.On()
+			spec := service.ScheduleSpec{
+				Dest: w.Dest.ID, Kind: w.Kind, Mode: w.Conf.Mode,
+				Cron: &w.Conf.Schedule, Timezone: &w.Conf.TZ,
+				Keep: &keep, Enabled: &enabled,
 			}
 			if len(cur) == 0 {
-				b.ID, b.CreatedAt = uuid.New().String(), time.Now().UTC()
-				if err := store.CreateBackup(ctx, b); err != nil {
-					return err
+				// Adopt, not Create: the gate this write would be checked
+				// against is the one protecting the file, and this is the
+				// file. The rules are the same otherwise — including
+				// backup.Validate and the volume guard, which this path
+				// skipped entirely.
+				if _, err := a.Schedules.Adopt(ctx, t, spec); err != nil {
+					return fmt.Errorf("tile %s: backup: %w", tileName, err)
 				}
 				continue
 			}
-			b.ID, b.CreatedAt = cur[0].ID, cur[0].CreatedAt
-			if err := store.UpdateBackup(ctx, b); err != nil {
-				return err
+			b := cur[0]
+			if err := a.Schedules.Reconcile(ctx, &b, t, spec); err != nil {
+				return fmt.Errorf("tile %s: backup: %w", tileName, err)
+			}
+			// One `backup:` block is the tile's whole desired set, so anything
+			// beyond the first row was made outside the file and goes.
+			for i := 1; i < len(cur); i++ {
+				if err := store.DeleteBackup(ctx, cur[i].ID); err != nil {
+					return err
+				}
 			}
 		}
 	}

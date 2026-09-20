@@ -88,12 +88,7 @@ func IsPinned(ctx context.Context, store repo.Store, t *repo.Tile) bool {
 		// runs, a stateful one spread across nodes loses data.
 		return true
 	}
-	for i := range siblings {
-		if siblings[i].IsVolume() && siblings[i].AttachedTileID == t.ID {
-			return true
-		}
-	}
-	return false
+	return len(repo.VolumesAttachedTo(siblings, t.ID)) > 0
 }
 
 // InGroup reports whether a pinned tile's data already sits on a node in the

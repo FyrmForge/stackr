@@ -2,6 +2,7 @@ package deployment
 
 import (
 	"github.com/labstack/echo/v4"
+	"github.com/FyrmForge/stackr/internal/deploystate"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 	"github.com/FyrmForge/stackr/internal/stackrd/handlers/web/components"
 	"github.com/FyrmForge/stackr/internal/stackrd/handlers/web/components/form"
@@ -35,14 +36,14 @@ templ statusFragment(c echo.Context, d *repo.Deployment) {
 	<span
 		id="deploy-status"
 		class="flex items-center gap-3"
-		if d.Status == "queued" || d.Status == "running" || d.Status == "waiting_ci" {
+		if deploystate.IsLive(d.Status) {
 			hx-get={ "/deployments/" + d.ID + "/status" }
 			hx-trigger="every 2s"
 			hx-swap="outerHTML"
 		}
 	>
 		@components.StatusBadge(d.Status)
-		if d.Status == "queued" || d.Status == "running" || d.Status == "waiting_ci" {
+		if deploystate.IsLive(d.Status) {
 			<form hx-post={ "/deployments/" + d.ID + "/cancel" } hx-confirm="Cancel this deployment?">
 				@form.CSRFField(c)
 				<button type="submit" class="btn btn-danger btn-sm">Cancel</button>

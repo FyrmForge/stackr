@@ -10,6 +10,7 @@ import (
 	"github.com/labstack/echo/v4"
 
 	"github.com/FyrmForge/stackr/internal/stackrd/config/orgconf"
+	stackrmw "github.com/FyrmForge/stackr/internal/stackrd/handlers/middleware"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/deploy"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/githubapp"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/audit"
@@ -121,19 +122,20 @@ func (h *handler) loadOrgPlan(c echo.Context) (*repo.Org, *repo.ConfigPlan, erro
 	return o, cp, nil
 }
 
-// POST /orgs/:slug/plans/:planID/approve, applies synchronously.
+// POST /orgs/:slug/plans/:planID/approve, queues the apply.
+//
+// Always to the plan page, because the apply has not happened yet: that page
+// is where the progress banner lives and where the failure would be recorded.
+// Addressed by org id, not slug, because the apply can rename the org while
+// this page is still polling and the old slug would 404 under it. loadOrg and
+// settingsOrg both fall back to an id lookup, which is why a bookmark from
+// before a rename still resolves.
 func (h *handler) ApproveOrgPlan(c echo.Context) error {
-	o, applied, err := h.approvePlan(c)
+	o, err := h.approvePlan(c)
 	if err != nil {
 		return err
 	}
-	// o.Slug is the post-apply one: a plan that renames the org has already
-	// moved it, and redirecting to the slug in the URL would 404.
-	if !applied {
-		// The failure is on the plan row now; the page is where to read it.
-		return respond.Redirect(c, "/orgs/"+o.Slug+"/plans/"+c.Param("planID"))
-	}
-	return respond.Redirect(c, "/orgs/"+o.Slug+"/plans")
+	return respond.Redirect(c, "/orgs/"+o.ID+"/plans/"+c.Param("planID"))
 }
 
 // POST /orgs/:slug/plans/:planID/reject
@@ -176,7 +178,7 @@ func (h *handler) SetPlanInput(c echo.Context) error {
 	}); err != nil {
 		return err
 	}
-	audit.Record(ctx, h.store, audit.Actor(c), audit.Set, repo.OwnerOrg, o.ID, name)
+	audit.Record(ctx, h.store, stackrmw.AuditActor(c), audit.Set, repo.OwnerOrg, o.ID, name)
 	deploy.ClearWaitingOrg(ctx, h.store, o.ID, name)
 	var np *repo.ConfigPlan
 	if h.orgcfg != nil {
@@ -200,23 +202,25 @@ func (h *handler) SetPlanInput(c echo.Context) error {
 // approvePlan and rejectPlan are the decision itself, without the redirect,
 // the wizard's step 3 makes the same two decisions and then continues to step 4
 // instead of landing on the plans list.
-func (h *handler) approvePlan(c echo.Context) (o *repo.Org, applied bool, err error) {
+//
+// It no longer reports whether the apply worked, because it no longer waits to
+// find out: queuing it is the whole of the decision, and the outcome arrives on
+// the plan row and in the banner both surfaces now poll.
+func (h *handler) approvePlan(c echo.Context) (*repo.Org, error) {
 	o, cp, err := h.loadOrgPlan(c)
 	if err != nil {
-		return nil, false, err
+		return nil, err
 	}
 	if cp.Status != "pending" {
-		return nil, false, echo.NewHTTPError(http.StatusConflict, "plan is "+cp.Status)
+		return nil, echo.NewHTTPError(http.StatusConflict, "plan is "+cp.Status)
 	}
 	if h.orgcfg == nil {
-		return nil, false, echo.NewHTTPError(http.StatusServiceUnavailable, "org config runner unavailable")
+		return nil, echo.NewHTTPError(http.StatusServiceUnavailable, "org config runner unavailable")
 	}
-	if err := h.orgcfg.Apply(c.Request().Context(), o, cp); err != nil {
-		middleware.SetFlash(c, "Apply failed: "+err.Error(), middleware.FlashError)
-		return o, false, nil
+	if _, err := orgconf.EnqueueApply(c.Request().Context(), h.work, o, cp); err != nil {
+		return nil, echo.NewHTTPError(http.StatusServiceUnavailable, err.Error())
 	}
-	middleware.SetFlash(c, "Org plan applied.", middleware.FlashSuccess)
-	return o, true, nil
+	return o, nil
 }
 
 func (h *handler) rejectPlan(c echo.Context) (*repo.Org, error) {

@@ -303,12 +303,10 @@ func (a Applier) applyMoves(ctx context.Context, stack *repo.Stack, r *Resolved,
 			if other, _ := store.GetTileBySlug(ctx, envs[i].ID, m.To); other != nil {
 				continue // both exist: a plan error, refused before this ran
 			}
-			envnet.TearDown(ctx, store, a.Ops.Cluster, t)
-			if a.Ops.PX != nil {
-				_ = a.Ops.PX.RemoveApp(t.ID)
-			}
-			t.Name, t.Slug = m.To, m.To
-			if err := store.RenameTile(ctx, t.ID, t.Name, t.Slug); err != nil {
+			// Teardown, rename, route rewrite — the service owns the order,
+			// and this path owns the redeploy because the applier reports
+			// what it deployed.
+			if err := a.Ops.Tiles.Rename(ctx, t, m.To, m.To); err != nil {
 				return err
 			}
 			a.restartTile(ctx, t)

@@ -20,7 +20,7 @@ func TestHoldSkipsScheduleTicks(t *testing.T) {
 	s.Hold("st")
 	s.Hold("st")
 	assert.Equal(t, "config apply in progress", s.skipReason(ctx, app, TriggerSchedule))
-	assert.Equal(t, "", s.skipReason(ctx, app, TriggerManualWeb), "a manual run must not be held")
+	assert.Equal(t, "", s.skipReason(ctx, app, TriggerManual), "a manual run must not be held")
 	s.Release("st")
 	assert.Equal(t, "config apply in progress", s.skipReason(ctx, app, TriggerSchedule), "one release undid two holds")
 	s.Release("st")

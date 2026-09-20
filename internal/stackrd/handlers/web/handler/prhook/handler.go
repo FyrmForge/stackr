@@ -15,27 +15,29 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
-	"time"
 
-	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 
 	"github.com/FyrmForge/stackr/internal/stackrd/config/envops"
 	"github.com/FyrmForge/stackr/internal/stackrd/config/orgconf"
 	"github.com/FyrmForge/stackr/internal/stackrd/config/stackconf"
-	"github.com/FyrmForge/stackr/internal/stackrd/handlers/notify"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/deploy"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/githubapp"
-	"github.com/FyrmForge/stackr/internal/stackrd/infra/jobs"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/workqueue"
+	"github.com/FyrmForge/stackr/internal/stackrd/service"
+	"github.com/FyrmForge/stackr/internal/stackrd/service/notify"
+	"github.com/FyrmForge/stackr/internal/stackrd/service/scheduler"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 )
 
 type handler struct {
-	store   repo.Store
-	engine  *deploy.Engine
-	jobs    *jobs.Service
+	store  repo.Store
+	engine *deploy.Engine
+	// sched re-registers the cron and backup tables after a write that
+	// changes or cascades their rows.
+	sched   *scheduler.Service
 	ops     envops.Ops
+	envs    *service.EnvironmentService
 	applier stackconf.Applier
 	gh      *githubapp.Client
 	// notifier exists only to nudge open canvases after a push re-plans: the
@@ -44,16 +46,29 @@ type handler struct {
 	notifier *notify.Notifier
 	// work is the durable job runner. An auto-apply goes on it rather than
 	// running inline on GitHub's delivery request.
-	work *workqueue.Queue
+	work   *workqueue.Queue      // prenvs owns the stored pull-request settings.
+	prenvs *service.PREnvService // orgcfg is the org config runner, wired once in main.
+	orgcfg *orgconf.Runner
 }
 
-func NewHandler(store repo.Store, engine *deploy.Engine, jobsSvc *jobs.Service, ops envops.Ops, applier stackconf.Applier, gh *githubapp.Client, notifier *notify.Notifier) *handler {
-	return &handler{store: store, engine: engine, jobs: jobsSvc, ops: ops, applier: applier, gh: gh, notifier: notifier}
+func NewHandler(store repo.Store, engine *deploy.Engine, ops envops.Ops, applier stackconf.Applier, gh *githubapp.Client, notifier *notify.Notifier) *handler {
+	return &handler{store: store, engine: engine, ops: ops, applier: applier, gh: gh, notifier: notifier}
 }
 
 // WithWork gives the webhook the durable runner. Without it an auto-apply runs
 // inline on the delivery request, and GitHub hangs up after about ten seconds,
 // which cancelled almost every auto-apply on push.
+// WithEnvironments gives the hook the environment service, so a preview
+// environment is created under the same rules as every other one.
+func (h *handler) WithEnvironments(e *service.EnvironmentService) *handler { h.envs = e; return h }
+
+// WithOrgConfig gives the hook the org config runner.
+func (h *handler) WithOrgConfig(r *orgconf.Runner) *handler { h.orgcfg = r; return h }
+
+// WithPREnvs gives the hook the pull-request settings service, so the file's
+// comment:/status:/enabled: land through the same writer the panel uses.
+func (h *handler) WithPREnvs(p *service.PREnvService) *handler { h.prenvs = p; return h }
+
 func (h *handler) WithWork(q *workqueue.Queue) *handler { h.work = q; return h }
 
 func (h *handler) planner() stackconf.Planner { return h.applier.Planner }
@@ -88,7 +103,7 @@ func (h *handler) Hook(c echo.Context) error {
 	if stack == nil {
 		return echo.NewHTTPError(http.StatusNotFound, "unknown stack")
 	}
-	cfg := envops.LoadPRConfig(ctx, h.store, stack.ID)
+	cfg := repo.LoadPRConfig(ctx, h.store, stack.ID)
 	if !cfg.Enabled {
 		return echo.NewHTTPError(http.StatusNotFound, "pr environments disabled")
 	}
@@ -106,7 +121,17 @@ func (h *handler) Hook(c echo.Context) error {
 	if err := json.Unmarshal(body, &p); err != nil || p.Number == 0 {
 		return echo.NewHTTPError(http.StatusBadRequest, "bad payload")
 	}
-
+	// Same repo check the connector route runs. Without it a webhook pointed
+	// at this stack by hand opens a pr-N environment for a repository none of
+	// its tiles track.
+	if !h.stackTracksRepo(ctx, stack.ID, &p) &&
+		!(stack.ConfigManaged() && stack.ConfigRepo == p.Repository.FullName) {
+		return c.JSON(http.StatusOK, map[string]string{"status": "ignored"})
+	}
+	// And the plan preview the connector route posts, which this one did not.
+	if stack.ConfigManaged() && stack.ConfigRepo == p.Repository.FullName {
+		h.updatePlanComment(ctx, stack, &p)
+	}
 	if err := h.dispatch(ctx, stack, cfg, &p); err != nil {
 		return err
 	}
@@ -157,7 +182,7 @@ func (h *handler) HookConnector(c echo.Context) error {
 			if stack.ConfigManaged() && stack.ConfigRepo == p.Repository.FullName {
 				h.updatePlanComment(ctx, stack, &p)
 			}
-			cfg := envops.LoadPRConfig(ctx, h.store, stack.ID)
+			cfg := repo.LoadPRConfig(ctx, h.store, stack.ID)
 			if !cfg.Enabled || !h.stackTracksRepo(ctx, stack.ID, &p) {
 				continue
 			}
@@ -272,8 +297,10 @@ func (h *handler) planConfigs(ctx context.Context, orgID string, p *pushPayload)
 			}
 		}
 		if orgBranch == branch {
-			r := orgconf.Runner{Store: h.store, Src: h.applier.Planner.Src, Stacks: h.applier.Planner, Applier: h.applier}
-			if _, err := r.Plan(ctx, org, p.After); err != nil && err != orgconf.ErrNoFile {
+			// The wired runner, not a fresh one: an inline construction
+			// leaves out the services the runner needs to create and bind a
+			// stack the way the panel does.
+			if _, err := h.orgcfg.Plan(ctx, org, p.After); err != nil && err != orgconf.ErrNoFile {
 				slog.Error("org config plan failed", "org", org.Slug, "error", err)
 			} else {
 				planned++
@@ -341,7 +368,7 @@ func (h *handler) maybeAutoApply(ctx context.Context, s *repo.Stack, cp *repo.Co
 	if h.work == nil {
 		return
 	}
-	if _, err := stackconf.EnqueueApply(ctx, h.work, s, cp, false); err != nil {
+	if _, err := stackconf.EnqueueApply(ctx, h.work, s, cp, false, stackconf.PromoteWith{}); err != nil {
 		slog.Error("config auto-apply could not be queued", "stack", s.Slug, "plan", cp.ID, "error", err)
 	}
 }
@@ -424,7 +451,7 @@ func isDefaultEnv(envs []repo.Environment, env *repo.Environment) bool {
 	return false
 }
 
-func (h *handler) dispatch(ctx context.Context, stack *repo.Stack, cfg envops.PRConfig, p *prPayload) error {
+func (h *handler) dispatch(ctx context.Context, stack *repo.Stack, cfg repo.PRConfig, p *prPayload) error {
 	slug := fmt.Sprintf("pr-%d", p.Number)
 	switch p.Action {
 	case "opened", "reopened":
@@ -459,7 +486,7 @@ func (h *handler) stackTracksRepo(ctx context.Context, stackID string, p *prPayl
 	return false
 }
 
-func (h *handler) openPR(ctx context.Context, stack *repo.Stack, cfg envops.PRConfig, slug string, p *prPayload) error {
+func (h *handler) openPR(ctx context.Context, stack *repo.Stack, cfg repo.PRConfig, slug string, p *prPayload) error {
 	if env, err := h.store.GetEnvironmentBySlug(ctx, stack.ID, slug); err != nil {
 		return err
 	} else if env != nil {
@@ -485,29 +512,27 @@ func (h *handler) openPR(ctx context.Context, stack *repo.Stack, cfg envops.PRCo
 	// config-managed stack, where the file owns the settings.
 	// read-through instead if githubapp can reach the config
 	// without an import cycle.
-	if pre.Comment != nil || pre.Status != nil {
-		want := cfg
-		if pre.Comment != nil {
-			want.NoComment = !*pre.Comment
-		}
-		if pre.Status != nil {
-			want.NoStatus = !*pre.Status
-		}
-		if want != cfg {
-			cfg = want
-			_ = envops.SavePRConfig(ctx, h.store, stack.ID, cfg)
+	if pre.Enabled != nil || pre.Comment != nil || pre.Status != nil {
+		// enabled: too. It was read a few lines up to decide whether to build
+		// at all and then never written, so the panel toggle and the file
+		// disagreed with no way to see which was in force.
+		next, err := h.prenvs.Adopt(ctx, stack.ID, service.PREnvPatch{
+			Enabled: pre.Enabled, Comment: pre.Comment, Status: pre.Status,
+		})
+		if err == nil {
+			cfg = next
 		}
 	}
-	env := &repo.Environment{
-		ID:        uuid.New().String(),
-		StackID:   stack.ID,
-		Name:      strings.ToUpper(slug[:2]) + " " + slug[3:], // "PR 42"
-		Slug:      slug,
-		Type:      "ephemeral",
-		Settings:  "{}",
-		CreatedAt: time.Now().UTC(),
-	}
-	if err := h.store.CreateEnvironment(ctx, env); err != nil {
+	// Adopt, not Create: this is the config engine making a preview
+	// environment on a stack the file owns, which Create's gate refuses. It
+	// gets the rules (reserved slugs, the duplicate check) that this path
+	// never had — a branch colliding with an existing environment used to
+	// surface as a raw UNIQUE error.
+	env, err := h.envs.Adopt(ctx, stack, service.CreateEnv{
+		Name: strings.ToUpper(slug[:2]) + " " + slug[3:], // "PR 42"
+		Type: "ephemeral",
+	})
+	if err != nil {
 		return err
 	}
 	// One-env desired state from the template, reconciled by the apply engine:
@@ -531,7 +556,7 @@ func (h *handler) openPR(ctx context.Context, stack *repo.Stack, cfg envops.PRCo
 	if envs, err := h.store.ListEnvironmentsByStack(ctx, stack.ID); err == nil && len(envs) > 0 {
 		envops.CopyLayout(ctx, h.store, envs[0].ID, env.ID)
 	}
-	_ = h.jobs.LoadSchedules(ctx)
+	h.sched.Reload(ctx)
 	return nil
 }
 
@@ -699,7 +724,7 @@ func (h *handler) closePR(ctx context.Context, stack *repo.Stack, slug string) e
 	if err := h.ops.Teardown(ctx, stack, env); err != nil {
 		return err
 	}
-	_ = h.jobs.LoadSchedules(ctx)
+	h.sched.Reload(ctx)
 	return nil
 }
 
@@ -735,3 +760,6 @@ func validSignature(secret, header string, body []byte) bool {
 	want := hex.EncodeToString(mac.Sum(nil))
 	return hmac.Equal([]byte(want), []byte(strings.TrimPrefix(header, "sha256=")))
 }
+
+// WithScheduler gives the handler the schedule reloader.
+func (h *handler) WithScheduler(s *scheduler.Service) *handler { h.sched = s; return h }

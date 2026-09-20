@@ -454,9 +454,20 @@ func (r *Runtime) updateService(ctx context.Context, name string, opts swarm.Ser
 	return lastErr
 }
 
+// panelUpdate is the roll policy for replacing the panel with a new build.
+// It lives here because it is a swarm concept: the service layer above asks
+// for a replacement and does not know what an update order is.
+var panelUpdate = &swarm.UpdateConfig{
+	Parallelism: 1,
+	// One panel on one sqlite file: the old task has to be gone first.
+	Order:         swarm.UpdateOrderStopFirst,
+	FailureAction: swarm.UpdateFailureActionRollback,
+	Monitor:       60 * time.Second,
+}
+
 // UpdateServiceImage points a service at image, sets env on top of what it
-// has, and replaces its update policy.
-func (r *Runtime) UpdateServiceImage(ctx context.Context, name, image string, env map[string]string, cfg *swarm.UpdateConfig) error {
+// has, and rolls it stop-first with a rollback on failure.
+func (r *Runtime) UpdateServiceImage(ctx context.Context, name, image string, env map[string]string) error {
 	return r.updateService(ctx, name, swarm.ServiceUpdateOptions{}, func(spec *swarm.ServiceSpec) bool {
 		cs := spec.TaskTemplate.ContainerSpec
 		if cs == nil {
@@ -476,7 +487,7 @@ func (r *Runtime) UpdateServiceImage(ctx context.Context, name, image string, en
 				cs.Env = append(cs.Env, k+"="+v)
 			}
 		}
-		spec.UpdateConfig = cfg
+		spec.UpdateConfig = panelUpdate
 		return true
 	})
 }

@@ -8,13 +8,15 @@ import (
 	"strings"
 	"time"
 
+	"github.com/FyrmForge/stackr/internal/deploystate"
+
 	"github.com/FyrmForge/hamr/pkg/respond"
 	"github.com/labstack/echo/v4"
 
 	stackrmw "github.com/FyrmForge/stackr/internal/stackrd/handlers/middleware"
 	"github.com/FyrmForge/stackr/internal/stackrd/handlers/stream"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/deploy"
-	"github.com/FyrmForge/stackr/internal/stackrd/infra/envnet"
+	"github.com/FyrmForge/stackr/internal/stackrd/service"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 )
 
@@ -26,9 +28,6 @@ func (h *handler) loadTile(c echo.Context) (*repo.Tile, error) {
 	}
 	if app == nil {
 		return nil, echo.NewHTTPError(http.StatusNotFound, "app not found")
-	}
-	if err := stackrmw.RequireStackAccess(c, h.store, app.StackID); err != nil {
-		return nil, err
 	}
 	return app, nil
 }
@@ -46,10 +45,10 @@ func (h *handler) loadDeployment(c echo.Context) (*repo.Deployment, *repo.Tile, 
 	if err != nil {
 		return nil, nil, err
 	}
-	if app != nil {
-		if err := stackrmw.RequireStackAccess(c, h.store, app.StackID); err != nil {
-			return nil, nil, err
-		}
+	if app == nil {
+		// No tile row means no stack to check membership against. A
+		// deployment whose tile is gone is nobody's to read.
+		return nil, nil, echo.NewHTTPError(http.StatusNotFound, "deployment not found")
 	}
 	return d, app, nil
 }
@@ -58,6 +57,8 @@ type handler struct {
 	store  repo.Store
 	engine *deploy.Engine
 	hub    *stream.Hub
+	// deploys owns which tiles may be deployed and what a cancel means.
+	deploys *service.DeployService
 }
 
 // NewHandler creates a new deployment handler.
@@ -65,9 +66,8 @@ func NewHandler(store repo.Store, engine *deploy.Engine, hub *stream.Hub) *handl
 	return &handler{store: store, engine: engine, hub: hub}
 }
 
-// upperEnvDeploy is why a tile above the default env has no Deploy: its
-// images come from Promote on the releases page.
-const upperEnvDeploy = "this environment deploys by promote from the releases page"
+// WithDeploys attaches the deploy service.
+func (h *handler) WithDeploys(d *service.DeployService) *handler { h.deploys = d; return h }
 
 // POST /apps/:id/deploy
 func (h *handler) Deploy(c echo.Context) error {
@@ -75,15 +75,9 @@ func (h *handler) Deploy(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	if app.Kind == "cron" {
-		return echo.NewHTTPError(http.StatusBadRequest, "cron services run on their schedule; use Run now")
-	}
-	if envnet.UpperEnv(c.Request().Context(), h.store, app) {
-		return echo.NewHTTPError(http.StatusBadRequest, upperEnvDeploy)
-	}
-	id, err := h.engine.Enqueue(c.Request().Context(), app, "manual")
+	id, err := h.deploys.Trigger(c.Request().Context(), app, "manual")
 	if err != nil {
-		return err
+		return stackrmw.HTTP(err)
 	}
 	return respond.Redirect(c, "/deployments/"+id)
 }
@@ -98,9 +92,9 @@ func (h *handler) Rollback(c echo.Context) error {
 	if tag == "" {
 		return echo.NewHTTPError(http.StatusBadRequest, "image tag required")
 	}
-	id, err := h.engine.EnqueueRollback(c.Request().Context(), app, tag)
+	id, err := h.deploys.Rollback(c.Request().Context(), app, tag)
 	if err != nil {
-		return err
+		return stackrmw.HTTP(err)
 	}
 	return respond.Redirect(c, "/deployments/"+id)
 }
@@ -120,7 +114,7 @@ func (h *handler) Status(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	if d.Status != "queued" && d.Status != "running" {
+	if deploystate.IsTerminal(d.Status) {
 		// Final state: stop the polling swap loop.
 		c.Response().Header().Set("HX-Reswap", "outerHTML")
 	}
@@ -132,7 +126,7 @@ func (h *handler) Cancel(c echo.Context) error {
 	if _, _, err := h.loadDeployment(c); err != nil {
 		return err
 	}
-	h.engine.Cancel(c.Request().Context(), c.Param("id"))
+	h.deploys.Cancel(c.Request().Context(), c.Param("id"))
 	return respond.Redirect(c, "/deployments/"+c.Param("id"))
 }
 
@@ -195,7 +189,7 @@ func (h *handler) Stream(c echo.Context) error {
 
 	// Already finished? One event and done.
 	d, _ = h.store.GetDeployment(ctx, d.ID)
-	if d != nil && d.Status != "queued" && d.Status != "running" {
+	if d != nil && deploystate.IsTerminal(d.Status) {
 		_, _ = fmt.Fprintf(res, "event: done\ndata: %s\n\n", d.Status)
 		res.Flush()
 		return nil

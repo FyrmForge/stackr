@@ -27,6 +27,8 @@ import (
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/deploy"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/managedtiles"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/registry"
+	"github.com/FyrmForge/stackr/internal/stackrd/service"
+	"github.com/FyrmForge/stackr/internal/stackrd/store/audit"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 )
 
@@ -254,6 +256,16 @@ type Runner struct {
 	Src     stackconf.FileSource
 	Stacks  stackconf.Planner
 	Applier stackconf.Applier
+	// Resources owns the ACME account a domain resource's certificates are
+	// issued on, and the traefik restart that changing it needs. Nil-checked:
+	// tests that only diff do not wire it.
+	Resources *service.DomainResourceService
+	// StackSvc owns the stack row. An org file that declares a stack creates
+	// and binds it through here, so it gets the slug rules, the production
+	// environment and the staged-row drop that the panel's own create and
+	// bind have always had. Required for Apply; a Runner that only diffs does
+	// not reach it.
+	StackSvc *service.StackService
 }
 
 // Load fetches and parses the org's bound file, returning the head sha too.
@@ -696,10 +708,8 @@ func (r Runner) Apply(ctx context.Context, org *repo.Org, cp *repo.ConfigPlan) e
 		}
 	}
 	// Protection feeds the rendered routes.
-	if settingsChanged && r.Applier.Ops.PX != nil {
-		if err := r.Applier.Ops.PX.Resync(ctx); err != nil {
-			slog.Error("proxy resync after org defaults apply", "error", err)
-		}
+	if settingsChanged {
+		r.Applier.Ops.PX.Resync(ctx)
 	}
 
 	// Vars + generated secrets.
@@ -708,6 +718,7 @@ func (r Runner) Apply(ctx context.Context, org *repo.Org, cp *repo.ConfigPlan) e
 			Name: name, Value: f.Vars[name], CreatedAt: now, UpdatedAt: now}); err != nil {
 			return err
 		}
+		audit.Record(ctx, r.Store, "config:"+org.Slug, audit.Set, repo.OwnerOrg, org.ID, name)
 		deploy.ClearWaitingOrg(ctx, r.Store, org.ID, name)
 	}
 	cur, _ := r.Store.ListVariables(ctx, repo.OwnerOrg, org.ID)
@@ -725,6 +736,9 @@ func (r Runner) Apply(ctx context.Context, org *repo.Org, cp *repo.ConfigPlan) e
 			CreatedAt: now, UpdatedAt: now}); err != nil {
 			return err
 		}
+		// A generated secret is a value nobody chose and nobody can read back
+		// off the file: the audit row is the only record it was ever minted.
+		audit.Record(ctx, r.Store, "config:"+org.Slug, audit.Set, repo.OwnerOrg, org.ID, name)
 		deploy.ClearWaitingOrg(ctx, r.Store, org.ID, name)
 	}
 
@@ -823,13 +837,22 @@ func (r Runner) applyDomains(ctx context.Context, org *repo.Org, f *File) error 
 		}
 		// Naming a panel row here adopts it; only then can a later apply
 		// delete it.
-		if cur.IncludeEnvOnDefault != d.IncludeEnvOnDefault || cur.ACMEEmail != d.ACMEEmail || !cur.Declared {
+		if cur.IncludeEnvOnDefault != d.IncludeEnvOnDefault || !cur.Declared {
 			cur.IncludeEnvOnDefault = d.IncludeEnvOnDefault
-			cur.ACMEEmail = d.ACMEEmail
 			cur.Declared = true
 			if err := r.Store.UpdateDomainResource(ctx, &cur); err != nil {
 				return err
 			}
+		}
+		// Separately, and through the service: the ACME account lives in
+		// traefik's static config, so changing it needs a restart. This path
+		// wrote the row and never restarted, although the plan line it emits
+		// promises "traefik restarts once".
+		if cur.ACMEEmail != d.ACMEEmail && r.Resources != nil {
+			if err := r.Resources.SetACME(ctx, cur.ID, d.ACMEEmail); err != nil {
+				return err
+			}
+			cur.ACMEEmail = d.ACMEEmail
 		}
 	}
 	for host, res := range own {
@@ -857,15 +880,11 @@ func (r Runner) applyStack(ctx context.Context, org *repo.Org, name string, ref 
 	if err != nil {
 		return err
 	}
-	now := time.Now().UTC()
 	if s == nil {
-		s = &repo.Stack{ID: uuid.New().String(), OrgID: org.ID, Name: name, Slug: slug, Settings: "{}",
-			OrgDeclared: true, CreatedAt: now}
-		if err := r.Store.CreateStack(ctx, s); err != nil {
-			return err
-		}
-		if err := r.Store.CreateEnvironment(ctx, &repo.Environment{ID: uuid.New().String(), StackID: s.ID,
-			Name: "Production", Slug: "production", Type: "static", Settings: "{}", CreatedAt: now}); err != nil {
+		// Through the service: this copy built the row and the production
+		// environment by hand, so it had none of the rules the panel and the
+		// API go through, and its environment had none either.
+		if s, err = r.StackSvc.Create(ctx, org.ID, service.CreateStack{Name: name, OrgDeclared: true}); err != nil {
 			return err
 		}
 	}
@@ -894,9 +913,18 @@ func (r Runner) applyStack(ctx context.Context, org *repo.Org, name string, ref 
 	}
 	wantRepo, wantConn, wantBranch, wantPath := r.refBinding(org, ref)
 	if s.ConfigRepo != wantRepo || s.ConfigConnectorID != wantConn || s.ConfigBranch != wantBranch || s.ConfigPath != wantPath || !s.OrgDeclared {
-		s.ConfigRepo, s.ConfigConnectorID, s.ConfigBranch, s.ConfigPath = wantRepo, wantConn, wantBranch, wantPath
-		s.OrgDeclared = true
-		if err := r.Store.UpdateStack(ctx, s); err != nil {
+		// Through the service: this copy wrote the binding with none of the
+		// three things the panel's own bind does. It took the connector id on
+		// trust, where a connector is a credential and only the stack's own
+		// org may lend one; it stored the repo string unnormalised, so a
+		// github URL and an owner/name for the same repo were two different
+		// bindings; and it left every environment's staged rows in place,
+		// where the file now owns the stack and applying them would be a
+		// structural write the lock exists to block.
+		if err := r.StackSvc.Bind(ctx, s, service.BindConfig{
+			ConnectorID: wantConn, Repo: wantRepo, Branch: wantBranch, Path: wantPath,
+			OrgDeclared: true,
+		}); err != nil {
 			return err
 		}
 	}
@@ -938,18 +966,20 @@ func (r Runner) applyShared(ctx context.Context, org *repo.Org, f *File, failed 
 			if err := r.Store.UpdateTile(ctx, t); err != nil {
 				return err
 			}
-			if r.Applier.DBs != nil && t.Status == "running" {
-				if err := r.Applier.DBs.Deploy(ctx, t); err != nil {
+			if r.Applier.Instances != nil && (t.Status == "running" || t.Status == "error") {
+				// The service writes the status; this path used to redeploy and
+				// leave the column saying whatever it said before.
+				if err := r.Applier.Instances.Deploy(ctx, t); err != nil {
 					*failed = append(*failed, fmt.Sprintf("shared %s: redeploy: %v", name, err))
 				}
 			}
 			continue
 		}
 		if exists { // engine replace: drop, then recreate below
-			if r.Applier.DBs != nil {
-				_ = r.Applier.DBs.Remove(ctx, t)
-			}
-			if err := r.Store.DeleteTile(ctx, t.ID); err != nil {
+			// The full teardown, not just the service: this path released the
+			// network pool and nothing else, so the route, the slices cut from
+			// the instance and their resource rows all outlived it.
+			if err := r.teardownShared(ctx, t); err != nil {
 				return err
 			}
 		}
@@ -971,14 +1001,9 @@ func (r Runner) applyShared(ctx context.Context, org *repo.Org, f *File, failed 
 			return err
 		}
 		managedtiles.PublishConnection(ctx, r.Store, t)
-		if r.Applier.DBs != nil {
-			if err := r.Applier.DBs.Deploy(ctx, t); err != nil {
+		if r.Applier.Instances != nil {
+			if err := r.Applier.Instances.Deploy(ctx, t); err != nil {
 				*failed = append(*failed, fmt.Sprintf("shared %s: deploy: %v", name, err))
-				if serr := r.Store.UpdateTileStatus(ctx, t.ID, "error"); serr != nil {
-					slog.Error("shared tile status not saved", "tile", t.ID, "status", "error", "error", serr)
-				}
-			} else if serr := r.Store.UpdateTileStatus(ctx, t.ID, "running"); serr != nil {
-				slog.Error("shared tile status not saved", "tile", t.ID, "status", "running", "error", serr)
 			}
 		}
 	}
@@ -986,14 +1011,21 @@ func (r Runner) applyShared(ctx context.Context, org *repo.Org, f *File, failed 
 		if _, declared := f.Shared[slug]; declared {
 			continue
 		}
-		if r.Applier.DBs != nil {
-			_ = r.Applier.DBs.Remove(ctx, t)
-		}
-		if err := r.Store.DeleteTile(ctx, t.ID); err != nil {
+		if err := r.teardownShared(ctx, t); err != nil {
 			*failed = append(*failed, fmt.Sprintf("shared %s: delete: %v", slug, err))
 		}
 	}
 	return nil
+}
+
+// teardownShared removes an org-scoped instance completely. The file no
+// longer declares it, so the held-slices refusal is answered by the file
+// itself: force.
+func (r Runner) teardownShared(ctx context.Context, t *repo.Tile) error {
+	if r.Applier.Instances == nil {
+		return r.Store.DeleteTile(ctx, t.ID)
+	}
+	return r.Applier.Instances.TearDown(ctx, t, true)
 }
 
 // hostEnv picks where an org-scoped instance row physically lives: the first

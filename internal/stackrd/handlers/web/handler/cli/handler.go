@@ -22,6 +22,8 @@ import (
 	"github.com/FyrmForge/hamr/pkg/respond"
 	v1 "github.com/FyrmForge/stackr/internal/stackrd/handlers/api/v1"
 	stackrmw "github.com/FyrmForge/stackr/internal/stackrd/handlers/middleware"
+	"github.com/FyrmForge/stackr/internal/stackrd/handlers/web/handler/account"
+	"github.com/FyrmForge/stackr/internal/stackrd/service"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 )
 
@@ -31,7 +33,11 @@ const codeTTL = 2 * time.Minute
 // only when the CLI exchanges the code, so an abandoned or timed-out login
 // leaves nothing in the database, this record just expires in memory.
 type pending struct {
-	userID   string
+	userID string
+	// orgID binds the minted key to the org that justified its scopes, empty
+	// for a server admin and for no active org. Captured here, at the approve
+	// step: the exchange is unauthenticated and has no session to read it off.
+	orgID    string
 	scopes   string // JSON array
 	hostname string
 	expiry   time.Time
@@ -39,6 +45,8 @@ type pending struct {
 
 type handler struct {
 	store repo.Store
+	// keys owns the token format and the key row.
+	keys  *service.APIKeyService
 	mu    sync.Mutex
 	codes map[string]pending
 }
@@ -46,7 +54,7 @@ type handler struct {
 // NewHandler creates the CLI-login handler. Codes live in memory only; a
 // pending login that outlives a restart just fails and the user retries.
 func NewHandler(store repo.Store) *handler {
-	return &handler{store: store, codes: map[string]pending{}}
+	return &handler{store: store, keys: service.NewAPIKeyService(store), codes: map[string]pending{}}
 }
 
 // grantable returns the scopes this user may put on a key: read scopes always,
@@ -61,6 +69,18 @@ func grantable(c echo.Context) []v1.ScopeInfo {
 		out = append(out, s)
 	}
 	return out
+}
+
+// mintOrgName names the org the key will be bound to, empty when unbound.
+func mintOrgName(c echo.Context) string {
+	id := account.MintOrg(c)
+	if id == "" {
+		return ""
+	}
+	if o, ok := stackrmw.ActiveOrg(c); ok && o.ID == id {
+		return o.Name
+	}
+	return ""
 }
 
 // GET /cli/authorize?port=<n>&state=<s>&hostname=<h>, the approve page.
@@ -78,6 +98,7 @@ func (h *handler) Authorize(c echo.Context) error {
 		State:    state,
 		Hostname: hostname(c.QueryParam("hostname")),
 		Scopes:   grantable(c),
+		Org:      mintOrgName(c),
 	}))
 }
 
@@ -93,15 +114,8 @@ func (h *handler) Approve(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, "missing state")
 	}
 
-	canWrite := stackrmw.CanWrite(c) || stackrmw.IsAdmin(c)
 	form, _ := c.FormParams()
-	granted := make([]string, 0)
-	for _, s := range form["scopes"] {
-		if !v1.ValidScope(s) || (v1.WriteScope(s) && !canWrite) {
-			continue
-		}
-		granted = append(granted, s)
-	}
+	granted := v1.GrantableScopes(form["scopes"], stackrmw.CanWrite(c) || stackrmw.IsAdmin(c))
 	if len(granted) == 0 {
 		return echo.NewHTTPError(http.StatusBadRequest, "select at least one permission")
 	}
@@ -114,6 +128,7 @@ func (h *handler) Approve(c echo.Context) error {
 	h.purgeLocked()
 	h.codes[code] = pending{
 		userID:   middleware.GetSubjectID(c),
+		orgID:    account.MintOrg(c),
 		scopes:   string(scopesJSON),
 		hostname: hostname(c.FormValue("hostname")),
 		expiry:   time.Now().Add(codeTTL),
@@ -150,17 +165,16 @@ func (h *handler) Exchange(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusNotFound, "unknown or expired code")
 	}
 
-	raw := "sk_" + uuid.New().String()
-	k := &repo.APIKey{
-		ID:        uuid.New().String(),
-		UserID:    p.userID,
-		Name:      "stackr CLI (" + p.hostname + ")",
-		TokenHash: v1.HashKey(raw),
-		Scopes:    p.scopes,
-		CreatedAt: time.Now().UTC(),
-	}
-	if err := h.store.CreateAPIKey(c.Request().Context(), k); err != nil {
+	// The scopes were filtered and stashed at the grant step, above; this
+	// path is unauthenticated, so it has nobody to filter against.
+	var scopes []string
+	if err := json.Unmarshal([]byte(p.scopes), &scopes); err != nil {
 		return err
+	}
+	_, raw, err := h.keys.Mint(c.Request().Context(), p.userID, p.orgID,
+		"stackr CLI ("+p.hostname+")", scopes)
+	if err != nil {
+		return stackrmw.HTTP(err)
 	}
 	return c.JSON(http.StatusOK, exchangeResp{Key: raw})
 }

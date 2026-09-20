@@ -23,7 +23,7 @@ func TestStopAWaitingRun(t *testing.T) {
 
 	assert.False(t, s.Stop(ctx, "nobody"), "stopped a run that does not exist")
 
-	run, err := s.StartApp(ctx, seed.Tile.ID, TriggerManualAPI, "tester")
+	run, err := s.StartApp(ctx, seed.Tile.ID, TriggerManual, "tester")
 	require.NoError(t, err)
 	require.True(t, s.Stop(ctx, run.ID), "Stop found no run to cancel")
 

@@ -5,16 +5,18 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"sort"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
 
-	"github.com/FyrmForge/stackr/internal/stackrd/config/envops"
 	"github.com/FyrmForge/stackr/internal/stackrd/config/varref"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/envnet"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/managedtiles"
+	"github.com/FyrmForge/stackr/internal/stackrd/infra/runtime"
+	"github.com/FyrmForge/stackr/internal/stackrd/service"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 )
 
@@ -108,7 +110,7 @@ func (pl Planner) loadDomainContext(ctx context.Context, stack *repo.Stack, opts
 		opts.DefaultEnv = envs[0].Slug
 	}
 	if all, err := pl.Store.ListDomainResources(ctx); err == nil {
-		opts.DomainResources = envops.VisibleDomainResources(all, stack.ID, stack.OrgID)
+		opts.DomainResources = service.VisibleDomainResources(all, stack.ID, stack.OrgID)
 	}
 	if orgs, err := pl.Store.ListOrgs(ctx); err == nil {
 		opts.ForeignOrgSlugs = map[string]bool{}
@@ -623,7 +625,7 @@ func blockedTiles(re ResolvedEnv, name string) []string {
 				continue
 			}
 			for _, line := range tc.DependsOn {
-				if slug, _, err := ParseDep(line); err == nil && blocked[slug] {
+				if slug, _, err := runtime.ParseDep(line); err == nil && blocked[slug] {
 					blocked[tileName] = true
 					grew = true
 				}
@@ -796,6 +798,7 @@ func (pl Planner) Snapshot(ctx context.Context, stack *repo.Stack) (State, error
 	}
 	if cns, err := pl.Store.ListConnectorsByOrg(ctx, stack.OrgID); err == nil {
 		s.OrgConnectors = map[string]bool{}
+		s.ConnectorsKnown = true
 		for i := range cns {
 			s.OrgConnectors[cns[i].ID] = true
 		}
@@ -808,7 +811,7 @@ func (pl Planner) Snapshot(ctx context.Context, stack *repo.Stack) (State, error
 				s.DomainRes = append(s.DomainRes, r)
 			}
 		}
-		for _, r := range envops.VisibleDomainResources(all, stack.ID, stack.OrgID) {
+		for _, r := range service.VisibleDomainResources(all, stack.ID, stack.OrgID) {
 			apex[r.Host] = true
 		}
 	}
@@ -937,4 +940,26 @@ func (pl Planner) infraPath(ctx context.Context, inst *repo.Tile, paths map[stri
 	path := managedtiles.InfraPath(inst.ScopeKind, org.Slug, sc.StackSlug, sc.EnvSlug, inst.Slug)
 	paths[inst.ID] = path
 	return path, nil
+}
+
+// Replan refreshes every plan on a config-managed stack, in the background.
+//
+// Detached on purpose, and on its own context: a replan walks the whole
+// config tree and is far slower than the request that triggers it, and the
+// request's context is cancelled the moment that request returns. The panel
+// has always done it this way; the API did not replan at all, so doing it
+// inline there would have put a slow walk inside a 30-second budget.
+//
+// Satisfies service.Replanner.
+func (pl Planner) Replan(ctx context.Context, stack *repo.Stack) {
+	if stack == nil || !stack.ConfigManaged() {
+		return
+	}
+	s := *stack
+	go func() {
+		if _, err := pl.RunAll(context.Background(), &s, ""); err != nil &&
+			err != ErrNoFile && err != ErrNotBound {
+			slog.Error("replan after a change not completed", "stack", s.ID, "error", err)
+		}
+	}()
 }

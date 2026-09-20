@@ -19,6 +19,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/netpool"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/placement"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/runtime"
+	"github.com/FyrmForge/stackr/internal/stackrd/store/audit"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 )
 
@@ -382,9 +383,21 @@ func URL(d *repo.Tile) string {
 // resource sharing the tile's slug would make every reference ambiguous.
 func PublishConnection(ctx context.Context, store repo.Store, d *repo.Tile) {
 	now := time.Now().UTC()
+	// What is already stored, so a refresh that changes nothing writes no
+	// audit row. This runs on every deploy of a database tile, and a row per
+	// deploy per credential would bury the writes that mean something.
+	had := map[string]string{}
+	if cur, err := store.ListVariables(ctx, repo.OwnerTile, d.ID); err == nil {
+		for _, v := range cur {
+			had[v.Name] = v.Value
+		}
+	}
 	for _, c := range Conn(d) {
 		_ = store.UpsertVariable(ctx, &repo.Variable{OwnerKind: repo.OwnerTile, OwnerID: d.ID,
 			Name: c.Name, Value: c.Value, Secret: c.Secret, CreatedAt: now, UpdatedAt: now})
+		if c.Secret && had[c.Name] != c.Value {
+			audit.Record(ctx, store, "system:managed-tile", audit.Set, repo.OwnerTile, d.ID, c.Name)
+		}
 	}
 }
 

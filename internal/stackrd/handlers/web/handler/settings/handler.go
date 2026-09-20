@@ -11,9 +11,7 @@ package settings
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"sort"
 	"strconv"
@@ -28,20 +26,25 @@ import (
 	stackrmw "github.com/FyrmForge/stackr/internal/stackrd/handlers/middleware"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/backup"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/githubapp"
-	"github.com/FyrmForge/stackr/internal/stackrd/infra/imagewatch"
-	"github.com/FyrmForge/stackr/internal/stackrd/infra/proxy"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/registry"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/runtime"
 	"github.com/FyrmForge/stackr/internal/stackrd/service"
+	svcproxy "github.com/FyrmForge/stackr/internal/stackrd/service/proxy"
+	"github.com/FyrmForge/stackr/internal/stackrd/service/scheduler"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 )
 
 type handler struct {
-	store        repo.Store
-	backups      *backup.Service
+	store   repo.Store
+	backups *backup.Service
+	// sched re-registers the cron and backup tables after a write that
+	// changes or cascades their rows.
+	sched *scheduler.Service
+	// watch owns the registry check cadence and what an auto policy does.
+	watch        *service.ImageWatchService
 	admin        *service.AdminService
 	rt           *runtime.Runtime
-	px           *proxy.Proxy
+	px           *svcproxy.Service
 	gh           *githubapp.Client
 	signer       *registry.Signer
 	dataDir      string
@@ -50,10 +53,31 @@ type handler struct {
 	// as its token realm: a docker client has to be able to reach it.
 	baseURL   string
 	acmeEmail string
+	// registries owns the registry rows and the managed one's guards.
+	registries *service.RegistryService
+	// revoke closes what a live re-check cannot reach. Deactivating a user is
+	// felt at their next request everywhere except the share links they
+	// minted, which carry no user at all.
+	revoke *service.RevokeService
+	// dests owns the destination rules: the trim, the bucket probe, the
+	// cascade's schedule reload and who still writes to a shared bucket.
+	dests *service.BackupDestinationService
+}
+
+// WithRegistries attaches the registry service.
+func (h *handler) WithRegistries(r *service.RegistryService) *handler { h.registries = r; return h }
+
+// WithRevoke attaches the revocation service.
+func (h *handler) WithRevoke(r *service.RevokeService) *handler { h.revoke = r; return h }
+
+// WithDestinations attaches the backup destination service.
+func (h *handler) WithDestinations(d *service.BackupDestinationService) *handler {
+	h.dests = d
+	return h
 }
 
 // NewHandler creates a new admin settings handler.
-func NewHandler(store repo.Store, bk *backup.Service, admin *service.AdminService, rt *runtime.Runtime, px *proxy.Proxy, gh *githubapp.Client, signer *registry.Signer, dataDir, registryPort, acmeEmail, baseURL string) *handler {
+func NewHandler(store repo.Store, bk *backup.Service, admin *service.AdminService, rt *runtime.Runtime, px *svcproxy.Service, gh *githubapp.Client, signer *registry.Signer, dataDir, registryPort, acmeEmail, baseURL string) *handler {
 	return &handler{store: store, backups: bk, admin: admin, rt: rt, px: px, gh: gh, signer: signer, dataDir: dataDir,
 		registryPort: registryPort, acmeEmail: acmeEmail, baseURL: baseURL}
 }
@@ -106,24 +130,19 @@ func (h *handler) TLS(c echo.Context) error {
 // GET /admin/maintenance
 func (h *handler) Maintenance(c echo.Context) error {
 	cleanup, _ := h.store.GetSetting(c.Request().Context(), "cleanup_enabled")
-	interval, _ := h.store.GetSetting(c.Request().Context(), imagewatch.SettingInterval)
-	if strings.TrimSpace(interval) == "" {
-		interval = "5"
-	}
+	interval := strconv.Itoa(h.watch.Interval(c.Request().Context()))
 	return respond.HTML(c, http.StatusOK, maintenancePage(c, cleanup == "1", interval))
 }
 
 // POST /admin/imagewatch, set the registry check cadence (minutes, 0 = off).
 func (h *handler) SaveImageWatch(c echo.Context) error {
-	v := strings.TrimSpace(c.FormValue("interval_minutes"))
-	n, err := strconv.Atoi(v)
-	if err != nil || n < 0 {
-		middleware.SetFlash(c, "Check interval must be a non-negative number of minutes.", middleware.FlashError)
+	if err := h.watch.SetInterval(c.Request().Context(), c.FormValue("interval_minutes")); err != nil {
+		if !stackrmw.FlashRefusal(c, err) {
+			return err
+		}
 		return respond.Redirect(c, "/admin/maintenance")
 	}
-	if err := h.store.SetSetting(c.Request().Context(), imagewatch.SettingInterval, strconv.Itoa(n)); err != nil {
-		return err
-	}
+	n := h.watch.Interval(c.Request().Context())
 	if n == 0 {
 		middleware.SetFlash(c, "Image version checks disabled.", middleware.FlashSuccess)
 	} else {
@@ -165,18 +184,11 @@ func (h *handler) destOrg(c echo.Context) (string, error) {
 
 // ListDestinations returns the destinations visible at one scope: an org's own
 // for an org page, the server-wide ones for the admin page.
+//
+// Kept as a function because other packages call it; the rule itself is
+// BackupDestinationService's.
 func ListDestinations(ctx context.Context, store repo.Store, orgID string) ([]repo.BackupDestination, error) {
-	all, err := store.ListBackupDestinations(ctx)
-	if err != nil {
-		return nil, err
-	}
-	var out []repo.BackupDestination
-	for _, d := range all {
-		if (orgID == "" && d.Global()) || (orgID != "" && d.OrgID.String == orgID) {
-			out = append(out, d)
-		}
-	}
-	return out, nil
+	return service.NewBackupDestinationService(store, nil).AtScope(ctx, orgID)
 }
 
 // GET /admin/backups
@@ -250,9 +262,7 @@ func (h *handler) SavePanelBackup(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	if h.backups != nil {
-		_ = h.backups.LoadSchedules(ctx)
-	}
+	h.sched.ReloadBackups(ctx)
 	middleware.SetFlash(c, "Panel database backup saved.", middleware.FlashSuccess)
 	return respond.Redirect(c, "/admin/backups")
 }
@@ -282,9 +292,7 @@ func (h *handler) DeletePanelBackup(c echo.Context) error {
 	if err := h.store.DeleteBackup(ctx, b.ID); err != nil {
 		return err
 	}
-	if h.backups != nil {
-		_ = h.backups.LoadSchedules(ctx)
-	}
+	h.sched.ReloadBackups(ctx)
 	middleware.SetFlash(c, "Panel database backup removed.", middleware.FlashSuccess)
 	return respond.Redirect(c, "/admin/backups")
 }
@@ -298,34 +306,20 @@ func (h *handler) CreateDestination(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	ctx := c.Request().Context()
-	d := &repo.BackupDestination{
-		ID:        uuid.New().String(),
-		Name:      strings.TrimSpace(c.FormValue("name")),
-		Endpoint:  strings.TrimSpace(c.FormValue("endpoint")),
-		Region:    strings.TrimSpace(c.FormValue("region")),
-		Bucket:    strings.TrimSpace(c.FormValue("bucket")),
+	// Server-wide: shared decides whether every org may write into it. Off
+	// unless asked, because the bucket credentials go with it.
+	if _, err := h.dests.Create(c.Request().Context(), service.NewDestination{
+		Name:      c.FormValue("name"),
+		Endpoint:  c.FormValue("endpoint"),
+		Region:    c.FormValue("region"),
+		Bucket:    c.FormValue("bucket"),
 		AccessKey: c.FormValue("access_key"),
 		SecretKey: c.FormValue("secret_key"),
-		CreatedAt: time.Now().UTC(),
-	}
-	if orgID != "" {
-		d.OrgID = sql.NullString{String: orgID, Valid: true}
-	} else {
-		// Server-wide: shared decides whether every org may write into it.
-		// Off unless asked, because the bucket credentials go with it.
-		d.Shared = c.FormValue("shared") != ""
-	}
-	if d.Name == "" || d.Endpoint == "" || d.Bucket == "" {
-		middleware.SetFlash(c, "Name, endpoint and bucket are required.", middleware.FlashError)
+		OrgID:     orgID,
+		Shared:    orgID == "" && c.FormValue("shared") != "",
+	}); err != nil {
+		middleware.SetFlash(c, err.Error(), middleware.FlashError)
 		return h.destinationsDone(c, orgID)
-	}
-	if err := backup.TestDestination(ctx, d); err != nil {
-		middleware.SetFlash(c, "Could not write to that bucket: "+err.Error(), middleware.FlashError)
-		return h.destinationsDone(c, orgID)
-	}
-	if err := h.store.CreateBackupDestination(ctx, d); err != nil {
-		return err
 	}
 	middleware.SetFlash(c, "Destination added and verified.", middleware.FlashSuccess)
 	return h.destinationsDone(c, orgID)
@@ -348,8 +342,8 @@ func (h *handler) DeleteDestination(c echo.Context) error {
 	if d == nil || d.OrgID.String != orgID {
 		return echo.NewHTTPError(http.StatusNotFound, "destination not found")
 	}
-	if err := h.store.DeleteBackupDestination(ctx, d.ID); err != nil {
-		return err
+	if err := h.dests.Delete(ctx, d); err != nil {
+		return stackrmw.HTTP(err)
 	}
 	middleware.SetFlash(c, "Destination removed. Its schedules went with it; the archives in the bucket did not.", middleware.FlashSuccess)
 	return h.destinationsDone(c, orgID)
@@ -370,17 +364,9 @@ func (h *handler) destinationsDone(c echo.Context, orgID string) error {
 // in the background when provider or credentials changed.
 func (h *handler) SaveDNS(c echo.Context) error {
 	ctx := c.Request().Context()
-	if err := h.store.SetSetting(ctx, "dns_provider", strings.TrimSpace(c.FormValue("dns_provider"))); err != nil {
+	if err := h.px.SetDNS(ctx, c.FormValue("dns_provider"), c.FormValue("dns_env")); err != nil {
 		return err
 	}
-	if err := h.store.SetSetting(ctx, "dns_env", c.FormValue("dns_env")); err != nil {
-		return err
-	}
-	go func() {
-		if err := h.px.EnsureTraefik(context.Background()); err != nil {
-			slog.Error("traefik restart after dns settings failed", "error", err)
-		}
-	}()
 	middleware.SetFlash(c, "DNS settings saved. Traefik restarts if they changed.", middleware.FlashSuccess)
 	return respond.Redirect(c, "/admin/tls")
 }
@@ -438,9 +424,6 @@ func (h *handler) GitHubConnect(c echo.Context) error {
 	// Was unguarded: the org id came straight off the form, so anyone could
 	// create a connector inside an org they are not a member of. The delete
 	// path was hardened for exactly this; the create path was missed.
-	if err := stackrmw.RequireOrgWrite(c, h.store, orgID); err != nil {
-		return err
-	}
 	action, manifest, err := h.gh.Begin(c.Request().Context(), orgID, strings.TrimSpace(c.FormValue("gh_org")))
 	if err != nil {
 		return err
@@ -510,8 +493,17 @@ func (h *handler) DeleteConnector(c echo.Context) error {
 	}
 	// Was unguarded: any user could sever any org's connector (and its config
 	// bindings) by ID.
-	if err := stackrmw.RequireOrgWrite(c, h.store, cn.OrgID); err != nil {
-		return err
+	// Refused while something still points at it. The row used to go and the
+	// dangling id stayed on the tiles and stacks that named it, failing later
+	// and somewhere else — in the CI gate, or in a plan that could not read
+	// its own repository.
+	if users, uerr := connectorUsers(ctx, h.store, cn); uerr == nil && len(users) > 0 {
+		middleware.SetFlash(c, "Still used by "+strings.Join(users, ", ")+". Point those at another connector first.", middleware.FlashError)
+		org, _ := h.store.GetOrg(ctx, cn.OrgID)
+		if org == nil {
+			return respond.Redirect(c, "/")
+		}
+		return respond.Redirect(c, "/orgs/"+org.Slug+"/settings/connectors")
 	}
 	if err := h.store.DeleteConnector(ctx, cn.ID); err != nil {
 		return err
@@ -522,6 +514,35 @@ func (h *handler) DeleteConnector(c echo.Context) error {
 		return respond.Redirect(c, "/")
 	}
 	return respond.Redirect(c, "/orgs/"+org.Slug+"/settings/connectors")
+}
+
+// connectorUsers names what would be left holding a dead connector id: the
+// org's own config binding, any stack bound through it, and any tile built
+// from it.
+func connectorUsers(ctx context.Context, store repo.Store, cn *repo.Connector) ([]string, error) {
+	var out []string
+	if org, err := store.GetOrg(ctx, cn.OrgID); err == nil && org != nil && org.ConfigConnectorID == cn.ID {
+		out = append(out, "the "+org.Name+" organization's config binding")
+	}
+	stacks, err := store.ListStacksByOrg(ctx, cn.OrgID)
+	if err != nil {
+		return nil, err
+	}
+	for i := range stacks {
+		if stacks[i].ConfigConnectorID == cn.ID {
+			out = append(out, stacks[i].Slug+"'s config binding")
+		}
+		tiles, terr := store.ListTilesByStack(ctx, stacks[i].ID)
+		if terr != nil {
+			continue
+		}
+		for j := range tiles {
+			if tiles[j].ConnectorID == cn.ID {
+				out = append(out, stacks[i].Slug+"/"+tiles[j].Slug)
+			}
+		}
+	}
+	return out, nil
 }
 
 // POST /admin/users/:id/admin, grant or revoke server-admin rights.
@@ -575,6 +596,14 @@ func (h *handler) ToggleUserActive(c echo.Context) error {
 	if err := h.store.UpdateUser(ctx, u); err != nil {
 		return err
 	}
+	// Disabling only. The share links this user minted answer to whoever holds
+	// the URL, with no user on the redeem path, so they outlive the account
+	// unless they are closed here — see service.RevokeService.
+	if !u.Active {
+		if err := h.revoke.UserDeactivated(ctx, u.ID); err != nil {
+			return err
+		}
+	}
 	middleware.SetFlash(c, "User updated.", middleware.FlashSuccess)
 	return respond.Redirect(c, "/admin/users")
 }
@@ -609,19 +638,7 @@ func (h *handler) SetRegistryDomain(c echo.Context) error {
 	if reg == nil {
 		return echo.NewHTTPError(http.StatusBadRequest, "enable the managed registry first")
 	}
-	reg.Domain = strings.TrimSpace(c.FormValue("domain"))
-	if err := h.store.UpdateRegistry(ctx, reg); err != nil {
-		return err
-	}
-	if reg.Domain != "" {
-		// The "registry" alias traefik dials lives in the service spec, so an
-		// EnsureManaged is enough, no recreate, and no roll when it is
-		// already there.
-		if _, err := registry.EnsureManaged(ctx, h.store, h.rt, h.signer, h.dataDir, h.registryPort, h.baseURL); err != nil {
-			return err
-		}
-	}
-	if err := h.px.WriteRegistry(reg.Domain); err != nil {
+	if err := h.px.SetRegistryDomain(ctx, reg, c.FormValue("domain")); err != nil {
 		return err
 	}
 	if reg.Domain == "" {
@@ -634,19 +651,9 @@ func (h *handler) SetRegistryDomain(c echo.Context) error {
 
 // POST /admin/registries, add an external registry.
 func (h *handler) CreateRegistry(c echo.Context) error {
-	r := &repo.Registry{
-		ID:        uuid.New().String(),
-		Name:      strings.TrimSpace(c.FormValue("name")),
-		URL:       strings.TrimSpace(c.FormValue("url")),
-		Username:  c.FormValue("username"),
-		Password:  c.FormValue("password"),
-		CreatedAt: time.Now().UTC(),
-	}
-	if r.Name == "" || r.URL == "" {
-		return echo.NewHTTPError(http.StatusBadRequest, "name and url required")
-	}
-	if err := h.store.CreateRegistry(c.Request().Context(), r); err != nil {
-		return err
+	if _, err := h.registries.AddExternal(c.Request().Context(), c.FormValue("name"),
+		c.FormValue("url"), c.FormValue("username"), c.FormValue("password")); err != nil {
+		return stackrmw.HTTP(err)
 	}
 	middleware.SetFlash(c, "Registry added.", middleware.FlashSuccess)
 	return respond.Redirect(c, "/admin/registries")
@@ -654,8 +661,12 @@ func (h *handler) CreateRegistry(c echo.Context) error {
 
 // POST /admin/registries/:id/delete
 func (h *handler) DeleteRegistry(c echo.Context) error {
-	if err := h.store.DeleteRegistry(c.Request().Context(), c.Param("id")); err != nil {
-		return err
+	// Through the service, which refuses the managed row. This handler did
+	// not load the registry at all, so one POST removed it; boot then
+	// recreated it with a fresh password and every org's derived credential
+	// stopped working until the next EnsureSystemCredential.
+	if err := h.registries.Delete(c.Request().Context(), c.Param("id")); err != nil {
+		return stackrmw.HTTP(err)
 	}
 	middleware.SetFlash(c, "Registry removed.", middleware.FlashSuccess)
 	return respond.Redirect(c, "/admin/registries")
@@ -687,15 +698,9 @@ func (h *handler) ToggleDestinationShared(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, "sharing applies to server-wide destinations only")
 	}
 	want := c.FormValue("shared") != ""
-	if !want && d.Shared {
-		if users := h.destinationUsers(ctx, d.ID); len(users) > 0 {
-			middleware.SetFlash(c, "Still used by "+strings.Join(users, ", ")+". Move those schedules first.", middleware.FlashError)
-			return respond.Redirect(c, "/admin/backups")
-		}
-	}
-	d.Shared = want
-	if err := h.store.UpdateBackupDestination(ctx, d); err != nil {
-		return err
+	if err := h.dests.SetShared(ctx, d, want); err != nil {
+		middleware.SetFlash(c, err.Error(), middleware.FlashError)
+		return respond.Redirect(c, "/admin/backups")
 	}
 	if want {
 		middleware.SetFlash(c, "Shared with every organization.", middleware.FlashSuccess)
@@ -703,38 +708,6 @@ func (h *handler) ToggleDestinationShared(c echo.Context) error {
 		middleware.SetFlash(c, "No longer shared.", middleware.FlashSuccess)
 	}
 	return respond.Redirect(c, "/admin/backups")
-}
-
-// destinationUsers names the stacks whose tiles back up to this destination.
-//
-// walks every backup row. Tens of rows; add a store query if an
-// install ever grows big enough to notice.
-func (h *handler) destinationUsers(ctx context.Context, destID string) []string {
-	bs, err := h.store.ListBackups(ctx)
-	if err != nil {
-		return nil
-	}
-	seen := map[string]bool{}
-	var out []string
-	for i := range bs {
-		if bs[i].DestinationID != destID || !bs[i].TileID.Valid {
-			continue // a NULL tile is the panel's own backup; admins own both ends
-		}
-		t, err := h.store.GetTile(ctx, bs[i].TileID.String)
-		if err != nil || t == nil {
-			continue
-		}
-		st, err := h.store.GetStack(ctx, t.StackID)
-		if err != nil || st == nil {
-			continue
-		}
-		name := st.Slug + "/" + t.Slug
-		if !seen[name] {
-			seen[name], out = true, append(out, name)
-		}
-	}
-	sort.Strings(out)
-	return out
 }
 
 // auditPageSize is how far back the admin listing goes in one page. Deep
@@ -770,3 +743,9 @@ func (h *handler) Audit(c echo.Context) error {
 	sort.Strings(f.Actors)
 	return respond.HTML(c, http.StatusOK, auditPage(c, events, f))
 }
+
+// WithImageWatch gives the handler the registry watch.
+func (h *handler) WithImageWatch(w *service.ImageWatchService) *handler { h.watch = w; return h }
+
+// WithScheduler gives the handler the schedule reloader.
+func (h *handler) WithScheduler(s *scheduler.Service) *handler { h.sched = s; return h }

@@ -16,7 +16,11 @@ func TestSeedInstallRunsOnce(t *testing.T) {
 	ctx := context.Background()
 	ok := func(context.Context) error { return nil }
 
-	require.NoError(t, seedInstall(ctx, s, "Example.com", "1", "10.0.0.0/8, nope, 192.168.1.100", ok))
+	// A bad CIDR refuses the whole list rather than being skipped with a
+	// warning: a silently dropped entry is a trusted proxy that is not
+	// trusted, and it surfaces later as every client IP being the proxy's.
+	require.Error(t, seedInstall(ctx, s, "Example.com", "1", "10.0.0.0/8, nope, 192.168.1.100", ok))
+	require.NoError(t, seedInstall(ctx, s, "Example.com", "1", "10.0.0.0/8, 192.168.1.100", ok))
 	res, err := s.ListDomainResources(ctx)
 	require.NoError(t, err)
 	require.Len(t, res, 1)

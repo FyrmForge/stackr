@@ -30,6 +30,14 @@ func (s *Store) ListSecretLinks(ctx context.Context, ownerKind, ownerID string) 
 		ownerKind, ownerID)
 }
 
+// ListOpenSecretLinks is every link still usable, newest first. Expiry is
+// evaluated on the row (SecretLink.Dead), so this returns lapsed-but-open rows
+// too; revoking one that had already lapsed costs nothing.
+func (s *Store) ListOpenSecretLinks(ctx context.Context) ([]repo.SecretLink, error) {
+	return list[repo.SecretLink](ctx, s,
+		`SELECT * FROM secret_links WHERE state = ? ORDER BY created_at DESC`, repo.LinkOpen)
+}
+
 // ClaimSecretLink flips an open link to state and reports whether this caller
 // won the race. Callers must act only when it returns true, checking the
 // state and then writing would let two concurrent submits both through.

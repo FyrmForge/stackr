@@ -73,9 +73,13 @@ func (r Runner) applyMoves(ctx context.Context, org *repo.Org, f *File) error {
 				continue // both exist: a plan error, refused before this ran
 			}
 			// The stack slug is in every container name under it, so the
-			// stack's own apply is what rebuilds them; it runs right after.
-			s.Name, s.Slug = m.To, m.To
-			if err := r.Store.UpdateStack(ctx, s); err != nil {
+			// stack's own apply is what rebuilds them; it runs right after,
+			// and it is also what knows the display name the file wants.
+			//
+			// Reslug, not a rename: this wrote Name and Slug both, from the
+			// slug, so a stack called "Billing API" that moved to `billing`
+			// came out displayed as "billing".
+			if err := r.StackSvc.Reslug(ctx, s, m.To); err != nil {
 				return err
 			}
 			continue

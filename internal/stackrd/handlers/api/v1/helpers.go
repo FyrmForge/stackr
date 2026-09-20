@@ -9,7 +9,7 @@ import (
 	"github.com/labstack/echo/v4"
 
 	"github.com/FyrmForge/stackr/internal/stackrd/config/envutil"
-	"github.com/FyrmForge/stackr/internal/stackrd/infra/envnet"
+	"github.com/FyrmForge/stackr/internal/stackrd/service"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 )
 
@@ -37,6 +37,14 @@ func (a *API) orgForCreate(c echo.Context, explicit string) (string, error) {
 			if m, err := a.store.GetOrgMember(ctx, id, a.user(c).ID); err == nil && m != nil && (m.Role == "owner" || m.Role == "member") {
 				cand[id] = true
 			}
+		}
+	}
+	// A bound key may only create in the org it was minted for. This path
+	// picks an org by role rather than resolving one from the request, so it
+	// is the one write that never reaches requireVerb — see keyOrgAllows.
+	for id := range cand {
+		if a.keyOrgAllows(c, id) != nil {
+			delete(cand, id)
 		}
 	}
 	// A create names its org instead of inheriting one from a resource, so it
@@ -125,13 +133,28 @@ func (a *API) checkConnector(ctx context.Context, s *repo.Stack, id string) erro
 	return nil
 }
 
-// teardownTile stops a tile's containers, removes its proxy route, and drops it.
+// teardownTile stops a tile's containers, removes its proxy route, orphans
+// the shared-db provisions it consumed, drops the row and re-registers the
+// two schedule tables its rows cascaded out of.
+//
+// The last two halves are new here: this used to be three lines that skipped
+// both, so a tile deleted over the API left provision rows pointing at an id
+// that no longer resolved and left its cron_jobs and backups entries ticking.
+// It stays as a helper because the volume and managed-database delete routes
+// call it too, and their gates are points 9 and 5.
 func (a *API) teardownTile(ctx context.Context, t *repo.Tile) error {
-	envnet.TearDown(ctx, a.store, a.clus, t)
-	if a.px != nil {
-		_ = a.px.RemoveApp(t.ID)
+	return a.tiles.TearDown(ctx, t)
+}
+
+// actor names the API key that made the call. There is no user row behind an
+// API key, so the id is empty and the key's name is what signs a staged
+// change or a run.
+func (a *API) actor(c echo.Context) service.Actor {
+	act := service.Actor{Via: "api"}
+	if k, _ := c.Get(ctxKey).(*repo.APIKey); k != nil {
+		act.Name = k.Name
 	}
-	return a.store.DeleteTile(ctx, t.ID)
+	return act
 }
 
 func envToMap(raw string) map[string]string {
@@ -156,4 +179,15 @@ func mapToEnv(m map[string]string) string {
 		b.WriteByte('\n')
 	}
 	return strings.TrimRight(b.String(), "\n")
+}
+
+// stackChanged nudges the open canvases after something in a stack changed
+// that is not a tile's runtime state: variables, a slice's visibility, a new
+// managed database. Same omission as statusChanged — the panel nudged, the
+// API did not.
+func (a *API) stackChanged(stackID string) {
+	if a.notify == nil || stackID == "" {
+		return
+	}
+	a.notify.Project(stackID)
 }

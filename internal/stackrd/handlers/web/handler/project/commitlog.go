@@ -3,6 +3,7 @@ package project
 import (
 	"context"
 	"fmt"
+	"github.com/FyrmForge/stackr/internal/deploystate"
 	"path/filepath"
 	"sort"
 	"sync"
@@ -451,34 +452,36 @@ func (h *handler) envDeployments(ctx context.Context, envID string) (runs, live,
 		// The tile's newest deploy is its part of the batch in flight.
 		if len(deps) > 0 {
 			switch deps[0].Status {
-			case "done":
+			case deploystate.Done:
 				prog.Done++
 				prog.Total++
-			case "queued", "running", "waiting_ci":
-				prog.Total++
-				if tiles[i].Status == "building" {
-					prog.Building = true
+			default:
+				if deploystate.IsLive(deps[0].Status) {
+					prog.Total++
+					if tiles[i].Status == "building" {
+						prog.Building = true
+					}
 				}
 			}
 		}
 		for j := range deps {
 			d := &deps[j]
 			switch d.Status {
-			case "done":
+			case deploystate.Done:
 				if d.CommitSHA != "" {
 					built[d.CommitSHA] = true
 				}
 				if d.CommitSHA != "" && (runs == nil || d.CreatedAt.After(runs.CreatedAt)) {
 					runs = d
 				}
-			case "queued", "running", "waiting_ci":
-				if live == nil || d.CreatedAt.After(live.CreatedAt) {
-					live = d
-				}
-			case "error":
+			case deploystate.Error:
 				// only the tile's newest attempt counts as "failed"
 				if j == 0 && d.CommitSHA != "" && (failed == nil || d.CreatedAt.After(failed.CreatedAt)) {
 					failed = d
+				}
+			default:
+				if deploystate.IsLive(d.Status) && (live == nil || d.CreatedAt.After(live.CreatedAt)) {
+					live = d
 				}
 			}
 		}

@@ -16,7 +16,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/FyrmForge/stackr/internal/stackrd/config/envops"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/gitlog"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 )
@@ -86,7 +85,7 @@ func (c *Client) DeployFinished(ctx context.Context, tile *repo.Tile, d *repo.De
 	if cn == nil {
 		return
 	}
-	prCfg := envops.LoadPRConfig(ctx, c.store, env.StackID)
+	prCfg := repo.LoadPRConfig(ctx, c.store, env.StackID)
 	if prCfg.NoComment && prCfg.NoStatus {
 		return
 	}

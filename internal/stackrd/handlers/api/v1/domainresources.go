@@ -1,18 +1,17 @@
 package v1
 
 // Domain resources: hosts owned at a level (instance/org/stack) that tiles
-// generate per-environment hostnames under. See envops.AutoHost.
+// generate per-environment hostnames under. See service.AutoHost.
 
 import (
 	"context"
 	"net/http"
 	"strings"
-	"time"
 
-	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 
-	"github.com/FyrmForge/stackr/internal/stackrd/config/envops"
+	stackrmw "github.com/FyrmForge/stackr/internal/stackrd/handlers/middleware"
+	"github.com/FyrmForge/stackr/internal/stackrd/service"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 )
 
@@ -103,62 +102,43 @@ func (a *API) createDomainResource(c echo.Context) error {
 	if err := c.Bind(&in); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, "invalid body")
 	}
-	host := strings.TrimSpace(in.Host)
-	if err := envops.ValidateResourceHost(host); err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
-	}
 	level := in.Level
-	// "node" is an accepted spelling of the same level, normalized here so only
-	// one value is ever stored; the rest of the codebase knows "instance".
 	if level == "" || level == "node" {
 		level = "instance"
 	}
+	// Who may write at this level is answered from the request's identity,
+	// so it stays here. Everything about the host itself — its shape, whether
+	// it is taken, whether it squats on another org's slug, whether the
+	// owner's config file owns it, and the ACME account this path used to
+	// accept and throw away — is the service's.
 	owner, err := a.resolveResourceTenancy(c, level, in.Owner)
 	if err != nil {
 		return err
 	}
-	all, err := a.store.ListDomainResources(ctx)
+	r, err := a.resources.Create(ctx, level, owner, in.Host, service.ResourceOpts{
+		IncludeEnvOnDefault: in.IncludeEnvOnDefault,
+		ACMEEmail:           in.ACMEEmail,
+	})
 	if err != nil {
-		return err
-	}
-	if envops.HostTaken(all, host) {
-		return echo.NewHTTPError(http.StatusConflict, "that host is already a domain resource")
-	}
-	if err := a.rejectManagedOwner(ctx, level, owner); err != nil {
-		return err
-	}
-	r := &repo.DomainResource{ID: uuid.New().String(), Level: level, OwnerID: owner, Host: host,
-		IncludeEnvOnDefault: in.IncludeEnvOnDefault, CreatedAt: time.Now().UTC()}
-	if err := a.store.CreateDomainResource(ctx, r); err != nil {
-		return err
+		return stackrmw.HTTP(err)
 	}
 	return c.JSON(http.StatusCreated, toDomainResourceOut(r))
 }
 
 func (a *API) deleteDomainResource(c echo.Context) error {
 	ctx := c.Request().Context()
-	all, err := a.store.ListDomainResources(ctx)
+	r, err := a.resources.Get(ctx, c.Param("id"))
 	if err != nil {
+		return stackrmw.HTTP(err)
+	}
+	// Same write rules as creation: deleting is editing the owner's scope.
+	if _, err := a.resolveResourceTenancy(c, r.Level, r.OwnerID); err != nil {
 		return err
 	}
-	for i := range all {
-		r := &all[i]
-		if r.ID != c.Param("id") {
-			continue
-		}
-		// Same write rules as creation, deleting is editing the owner's scope.
-		if _, err := a.resolveResourceTenancy(c, r.Level, r.OwnerID); err != nil {
-			return err
-		}
-		if err := a.rejectManagedOwner(ctx, r.Level, r.OwnerID); err != nil {
-			return err
-		}
-		if err := a.store.DeleteDomainResource(ctx, r.ID); err != nil {
-			return err
-		}
-		return c.NoContent(http.StatusNoContent)
+	if err := a.resources.Delete(ctx, r.ID); err != nil {
+		return stackrmw.HTTP(err)
 	}
-	return echo.NewHTTPError(http.StatusNotFound, "not found")
+	return c.NoContent(http.StatusNoContent)
 }
 
 // rejectManagedOwner blocks a domain-resource write when the owner's config
@@ -191,19 +171,9 @@ func (a *API) rejectManagedOwner(ctx context.Context, level, owner string) error
 // its static config.
 func (a *API) patchDomainResource(c echo.Context) error {
 	ctx := c.Request().Context()
-	all, err := a.store.ListDomainResources(ctx)
+	res, err := a.resources.Get(ctx, c.Param("id"))
 	if err != nil {
-		return err
-	}
-	var res *repo.DomainResource
-	for i := range all {
-		if all[i].ID == c.Param("id") {
-			res = &all[i]
-			break
-		}
-	}
-	if res == nil {
-		return echo.NewHTTPError(http.StatusNotFound, "not found")
+		return stackrmw.HTTP(err)
 	}
 	if _, err := a.resolveResourceTenancy(c, res.Level, res.OwnerID); err != nil {
 		return err
@@ -213,16 +183,13 @@ func (a *API) patchDomainResource(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, "invalid body")
 	}
 	if in.ACMEEmail != nil {
-		email := strings.ToLower(strings.TrimSpace(*in.ACMEEmail))
-		if err := a.store.SetDomainResourceACME(ctx, res.ID, email); err != nil {
-			return err
+		// The managed-owner refusal is inside SetACME. This path skipped it,
+		// so a config-managed org's ACME account could be changed over the
+		// API and reverted by the next apply.
+		if err := a.resources.SetACME(ctx, res.ID, *in.ACMEEmail); err != nil {
+			return stackrmw.HTTP(err)
 		}
-		res.ACMEEmail = email
-		if a.px != nil {
-			// The account lives in the static config, so the resolver set has
-			// to be rewritten before the next certificate is asked for.
-			_ = a.px.EnsureTraefik(ctx)
-		}
+		res.ACMEEmail = strings.ToLower(strings.TrimSpace(*in.ACMEEmail))
 	}
 	return c.JSON(http.StatusOK, toDomainResourceOut(res))
 }

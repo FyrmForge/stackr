@@ -4,52 +4,65 @@ package server
 
 import (
 	"context"
-	"log/slog"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/FyrmForge/hamr/pkg/middleware"
 	"github.com/FyrmForge/hamr/pkg/respond"
-	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 
-	"github.com/FyrmForge/stackr/internal/stackrd/config/envops"
-	"github.com/FyrmForge/stackr/internal/stackrd/config/settings"
+	stackrmw "github.com/FyrmForge/stackr/internal/stackrd/handlers/middleware"
 	"github.com/FyrmForge/stackr/internal/stackrd/handlers/web/components"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/cluster"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/nodes"
-	"github.com/FyrmForge/stackr/internal/stackrd/infra/proxy"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/runtime"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/volmove"
+	"github.com/FyrmForge/stackr/internal/stackrd/service"
+	svcproxy "github.com/FyrmForge/stackr/internal/stackrd/service/proxy"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 )
 
 type handler struct {
-	store repo.Store
-	rt    *runtime.Runtime
-	px    *proxy.Proxy
+	// resources owns the hostnames stackr may generate names under.
+	resources *service.DomainResourceService
+	store     repo.Store
+	rt        *runtime.Runtime
+	px        *svcproxy.Service
 	// The swarm half (nodes.go). nodes keeps the table in step with the
 	// swarm and issues join keys, clus is every docker call on any node, mover runs volume moves.
 	nodes   *nodes.Service
 	clus    *cluster.Cluster
 	mover   *volmove.Service
 	baseURL string
-	dataDir string
 	version string
+	// storage owns the share and sub-path rules, which this page and the API
+	// each had their own version of.
+	storage *service.StorageService
+	// settings owns every rung of the defaults cascade.
+	settings *service.SettingsService
+	// nodeSvc owns a node's life after it joins: drain, remove, group label.
+	nodeSvc *service.NodeService
 }
+
+// WithNodeService attaches the node service.
+func (h *handler) WithNodeService(n *service.NodeService) *handler { h.nodeSvc = n; return h }
+
+// WithStorage attaches the storage service.
+func (h *handler) WithStorage(st *service.StorageService) *handler { h.storage = st; return h }
+
+// WithSettings attaches the settings service.
+func (h *handler) WithSettings(st *service.SettingsService) *handler { h.settings = st; return h }
 
 // Deps is what the servers screens need. A struct rather than nine positional
 // arguments, which is what it had grown to.
 type Deps struct {
 	Store   repo.Store
 	Runtime *runtime.Runtime
-	Proxy   *proxy.Proxy
+	Proxy   *svcproxy.Service
 	Nodes   *nodes.Service
 	Cluster *cluster.Cluster
 	Mover   *volmove.Service
 	BaseURL string
-	DataDir string
 	Version string
 }
 
@@ -58,7 +71,7 @@ func NewHandler(d Deps) *handler {
 	return &handler{
 		store: d.Store, rt: d.Runtime, px: d.Proxy,
 		nodes: d.Nodes, clus: d.Cluster, mover: d.Mover,
-		baseURL: d.BaseURL, dataDir: d.DataDir, version: d.Version,
+		baseURL: d.BaseURL, version: d.Version,
 	}
 }
 
@@ -199,24 +212,12 @@ func (h *handler) CreateDomainResource(c echo.Context) error {
 	if err != nil || sv == nil {
 		return echo.NewHTTPError(http.StatusNotFound, "server not found")
 	}
-	host := strings.TrimSpace(c.FormValue("host"))
-	if err := envops.ValidateResourceHost(host); err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
-	}
-	all, err := h.store.ListDomainResources(ctx)
-	if err != nil {
-		return err
-	}
-	if envops.HostTaken(all, host) {
-		return echo.NewHTTPError(http.StatusConflict, "that host is already a domain resource")
-	}
-	r := &repo.DomainResource{
-		ID: uuid.New().String(), Level: "instance", OwnerID: sv.ID, Host: host,
+	host := c.FormValue("host")
+	if _, err := h.resources.Create(ctx, "instance", sv.ID, host, service.ResourceOpts{
 		IncludeEnvOnDefault: c.FormValue("include_env_on_default") != "",
-		CreatedAt:           time.Now().UTC(),
-	}
-	if err := h.store.CreateDomainResource(ctx, r); err != nil {
-		return err
+		ACMEEmail:           c.FormValue("acme_email"),
+	}); err != nil {
+		return stackrmw.HTTP(err)
 	}
 	middleware.SetFlash(c, "Domain "+host+" added. Tiles can now claim auto hostnames under it.", middleware.FlashSuccess)
 	return respond.Redirect(c, "/servers/"+sv.ID)
@@ -224,8 +225,19 @@ func (h *handler) CreateDomainResource(c echo.Context) error {
 
 // POST /servers/:id/domains/delete
 func (h *handler) DeleteDomainResource(c echo.Context) error {
-	if err := h.store.DeleteDomainResource(c.Request().Context(), c.FormValue("id")); err != nil {
-		return err
+	ctx := c.Request().Context()
+	r, err := h.resources.Get(ctx, c.FormValue("id"))
+	if err != nil {
+		return stackrmw.HTTP(err)
+	}
+	// This page owns the instance level and nothing else. It used to delete
+	// whatever id the form carried, which meant an org's or a stack's
+	// resource could be removed from here.
+	if r.Level != "instance" {
+		return echo.NewHTTPError(http.StatusNotFound, "not found")
+	}
+	if err := h.resources.Delete(ctx, r.ID); err != nil {
+		return stackrmw.HTTP(err)
 	}
 	middleware.SetFlash(c, "Domain resource removed. Existing generated hostnames keep working until their tile redeploys.", middleware.FlashSuccess)
 	return respond.Redirect(c, "/servers/"+c.Param("id"))
@@ -319,23 +331,11 @@ func (h *handler) SaveSettings(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	sv.Name = c.FormValue("name")
-	next := settings.Merge(settings.Parse(sv.Settings), vals)
-	if err := next.Check(); err != nil {
-		middleware.SetFlash(c, err.Error(), middleware.FlashError)
-		return respond.Redirect(c, "/servers/"+sv.ID)
-	}
-	sv.Settings = next.JSON()
-	if err := h.store.UpdateServer(ctx, sv); err != nil {
-		return err
-	}
-	// Settings feed the rendered proxy routes (protect), which are
-	// otherwise only rewritten on domain changes, a toggle here must take
-	// effect now, not on the next deploy.
-	if h.px != nil {
-		if err := h.px.Resync(ctx); err != nil {
-			slog.Error("proxy resync after settings save", "error", err)
+	if err := h.settings.SaveServer(ctx, sv, c.FormValue("name"), vals); err != nil {
+		if !stackrmw.FlashRefusal(c, err) {
+			return err
 		}
+		return respond.Redirect(c, "/servers/"+sv.ID)
 	}
 	middleware.SetFlash(c, "Server settings saved.", middleware.FlashSuccess)
 	return respond.Redirect(c, "/servers/"+sv.ID)
@@ -374,4 +374,10 @@ func (h *handler) points(ctx context.Context, ref string, dur time.Duration) (cp
 		tx = append(tx, components.TimePoint{T: ms[i].TS, V: tv / n})
 	}
 	return
+}
+
+// WithDomainResources gives the page the domain-resource service.
+func (h *handler) WithDomainResources(r *service.DomainResourceService) *handler {
+	h.resources = r
+	return h
 }

@@ -8,26 +8,38 @@
 package backups
 
 import (
-	"database/sql"
 	"net/http"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/FyrmForge/hamr/pkg/middleware"
 	"github.com/FyrmForge/hamr/pkg/respond"
-	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 
 	stackrmw "github.com/FyrmForge/stackr/internal/stackrd/handlers/middleware"
 	"github.com/FyrmForge/stackr/internal/stackrd/handlers/web/components"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/backup"
+	"github.com/FyrmForge/stackr/internal/stackrd/service"
+	"github.com/FyrmForge/stackr/internal/stackrd/service/scheduler"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 )
 
 type handler struct {
 	store repo.Store
 	svc   *backup.Service
+	// sched re-registers the cron and backup tables after a write that
+	// changes or cascades their rows.
+	sched *scheduler.Service
+	// schedules owns the rules a schedule is created and edited under;
+	// dests owns which destinations this tile may be pointed at.
+	schedules *service.BackupScheduleService
+	dests     *service.BackupDestinationService
+}
+
+// WithBackups attaches the two backup services.
+func (h *handler) WithBackups(sch *service.BackupScheduleService, d *service.BackupDestinationService) *handler {
+	h.schedules, h.dests = sch, d
+	return h
 }
 
 // NewHandler creates the backups-tab handler.
@@ -82,9 +94,6 @@ func (h *handler) loadTile(c echo.Context, id string) (*repo.Tile, error) {
 	if t == nil {
 		return nil, echo.NewHTTPError(http.StatusNotFound, "not found")
 	}
-	if err := stackrmw.RequireStackAccess(c, h.store, t.StackID); err != nil {
-		return nil, err
-	}
 	return t, nil
 }
 
@@ -114,18 +123,15 @@ func (h *handler) load(c echo.Context, t *repo.Tile) (view, error) {
 	if err != nil {
 		return v, err
 	}
-	dests, err := h.store.ListBackupDestinations(ctx)
+	// An unshared server-wide destination is not offered here: it carries the
+	// credentials the archive is written with, and the admin has not handed
+	// it out. One rule, in the destination service, where the admin page, the
+	// org page and the API each had their own.
+	dests, err := h.dests.Visible(ctx, service.Viewer{Orgs: map[string]bool{orgID: true}})
 	if err != nil {
 		return v, err
 	}
-	for _, d := range dests {
-		// An unshared server-wide destination is not offered here: it carries
-		// the credentials the archive is written with, and the admin has not
-		// handed it out.
-		if d.VisibleTo(orgID) {
-			v.Dests = append(v.Dests, d)
-		}
-	}
+	v.Dests = append(v.Dests, dests...)
 	// A dump covers the instance's own database only. Slices are separate
 	// databases in the same server, and per-slice backups are phase 4 of
 	// docs/features/shared-infra.md, so say so rather than let a 400-byte
@@ -191,49 +197,21 @@ func (h *handler) Create(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	ctx := c.Request().Context()
-	orgID, err := backup.OrgOf(ctx, h.store, t)
-	if err != nil {
-		return err
-	}
-	// The destination is what crosses the tenant boundary: the tile is already
-	// known to be this org's, the bucket credentials are not.
-	if _, err := backup.ResolveDestination(ctx, h.store, orgID, c.FormValue("destination_id")); err != nil {
+	// The destination resolution, the kind derivation, the volume guard, the
+	// mode and keep defaults, the validator and the schedule reload are all
+	// the service's. This path and the API's had a different answer for four
+	// of those six.
+	keep := atoiOr(c.FormValue("keep_latest"), service.DefaultKeep)
+	cron, tz := c.FormValue("cron"), c.FormValue("timezone")
+	if _, err := h.schedules.Create(c.Request().Context(), t, service.ScheduleSpec{
+		Dest: c.FormValue("destination_id"),
+		Kind: c.FormValue("kind"),
+		Mode: c.FormValue("container_mode"),
+		Cron: &cron, Timezone: &tz, Keep: &keep,
+	}, stackrmw.WebActor(c)); err != nil {
 		middleware.SetFlash(c, err.Error(), middleware.FlashError)
 		return h.render(c, t)
 	}
-	b := &repo.Backup{
-		ID:            uuid.New().String(),
-		TileID:        sql.NullString{String: t.ID, Valid: true},
-		DestinationID: c.FormValue("destination_id"),
-		Kind:          repo.BackupVolume,
-		ContainerMode: c.FormValue("container_mode"),
-		Cron:          strings.TrimSpace(c.FormValue("cron")),
-		Timezone:      strings.TrimSpace(c.FormValue("timezone")),
-		KeepLatest:    atoiOr(c.FormValue("keep_latest"), 7),
-		Enabled:       true,
-		CreatedAt:     time.Now().UTC(),
-	}
-	if t.IsManaged() && c.FormValue("kind") != repo.BackupVolume {
-		b.Kind = repo.BackupDump
-	}
-	if b.ContainerMode == "" {
-		b.ContainerMode = repo.ModePause
-	}
-	if b.Kind == repo.BackupVolume {
-		if _, err := backup.VolumeFor(t); err != nil {
-			middleware.SetFlash(c, err.Error(), middleware.FlashError)
-			return h.render(c, t)
-		}
-	}
-	if err := backup.Validate(b); err != nil {
-		middleware.SetFlash(c, err.Error(), middleware.FlashError)
-		return h.render(c, t)
-	}
-	if err := h.store.CreateBackup(ctx, b); err != nil {
-		return err
-	}
-	h.reload(c)
 	middleware.SetFlash(c, "Backup scheduled.", middleware.FlashSuccess)
 	return h.render(c, t)
 }
@@ -244,33 +222,20 @@ func (h *handler) Save(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	ctx := c.Request().Context()
-	if dest := c.FormValue("destination_id"); dest != "" && dest != b.DestinationID {
-		orgID, err := backup.OrgOf(ctx, h.store, t)
-		if err != nil {
-			return err
-		}
-		if _, err := backup.ResolveDestination(ctx, h.store, orgID, dest); err != nil {
-			middleware.SetFlash(c, err.Error(), middleware.FlashError)
-			return h.render(c, t)
-		}
-		b.DestinationID = dest
-	}
-	if m := c.FormValue("container_mode"); m != "" {
-		b.ContainerMode = m
-	}
-	b.Cron = strings.TrimSpace(c.FormValue("cron"))
-	b.Timezone = strings.TrimSpace(c.FormValue("timezone"))
-	b.KeepLatest = atoiOr(c.FormValue("keep_latest"), b.KeepLatest)
-	b.Enabled = c.FormValue("enabled") != ""
-	if err := backup.Validate(b); err != nil {
+	// Cron and timezone come from the form either way, so both are clearable
+	// here; the API and the CLI could not clear a timezone at all, which was
+	// an artefact of "patch only non-empty" rather than a rule.
+	keep := atoiOr(c.FormValue("keep_latest"), b.KeepLatest)
+	cron, tz := c.FormValue("cron"), c.FormValue("timezone")
+	enabled := c.FormValue("enabled") != ""
+	if err := h.schedules.Update(c.Request().Context(), b, t, service.ScheduleSpec{
+		Dest: c.FormValue("destination_id"),
+		Mode: c.FormValue("container_mode"),
+		Cron: &cron, Timezone: &tz, Keep: &keep, Enabled: &enabled,
+	}, stackrmw.WebActor(c)); err != nil {
 		middleware.SetFlash(c, err.Error(), middleware.FlashError)
 		return h.render(c, t)
 	}
-	if err := h.store.UpdateBackup(ctx, b); err != nil {
-		return err
-	}
-	h.reload(c)
 	middleware.SetFlash(c, "Backup updated.", middleware.FlashSuccess)
 	return h.render(c, t)
 }
@@ -282,10 +247,9 @@ func (h *handler) Delete(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	if err := h.store.DeleteBackup(c.Request().Context(), b.ID); err != nil {
-		return err
+	if err := h.schedules.Delete(c.Request().Context(), b); err != nil {
+		return stackrmw.HTTP(err)
 	}
-	h.reload(c)
 	middleware.SetFlash(c, "Backup removed. Archives already uploaded were kept.", middleware.FlashSuccess)
 	return h.render(c, t)
 }
@@ -323,16 +287,12 @@ func (h *handler) Restore(c echo.Context) error {
 	return h.render(c, t)
 }
 
-// reload re-registers cron entries after any schedule change.
-func (h *handler) reload(c echo.Context) {
-	if h.svc != nil {
-		_ = h.svc.LoadSchedules(c.Request().Context())
-	}
-}
-
 func atoiOr(s string, def int) int {
 	if n, err := strconv.Atoi(s); err == nil && n >= 0 {
 		return n
 	}
 	return def
 }
+
+// WithScheduler gives the handler the schedule reloader.
+func (h *handler) WithScheduler(s *scheduler.Service) *handler { h.sched = s; return h }

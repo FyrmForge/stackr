@@ -12,8 +12,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/FyrmForge/stackr/internal/stackrd/config/stackconf"
 	stackrmw "github.com/FyrmForge/stackr/internal/stackrd/handlers/middleware"
+	"github.com/FyrmForge/stackr/internal/stackrd/service"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo/sqlite"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/testdb"
@@ -45,38 +45,53 @@ func memberOf(t *testing.T, s *sqlite.Store, orgID, userID, role string) *repo.U
 	return u
 }
 
-// loadStack guarded membership only, so every POST behind it (34 routes: create
-// tile, delete env, save vars) ran for an org viewer.
-func TestLoadStackRefusesViewerWrites(t *testing.T) {
+// gated runs a handler behind the route's verb gate, which is where these
+// checks live now. loadStack used to refuse a viewer's POST itself; it is a
+// loader again, and the refusal belongs to the route.
+func gated(s *sqlite.Store, v service.Verb, k service.Kind, param string, h echo.HandlerFunc) echo.HandlerFunc {
+	return stackrmw.Gate(s, service.NewAccessService(s), v, k, param)(h)
+}
+
+// Every write behind a stack route (34 of them: create tile, delete env, save
+// vars) must refuse an org viewer, and the same viewer must still read.
+func TestStackWritesRefuseAViewer(t *testing.T) {
 	s := testdb.New(t)
 	seed := testdb.SeedStack(t, s, false)
-	h := NewHandler(s, nil, nil, nil, nil, nil, nil, nil, stackconf.Applier{}, nil)
 	u := memberOf(t, s, seed.Org.ID, "viewer1", "viewer")
 	orgs := []repo.Org{*seed.Org}
+	reached := func(c echo.Context) error { return nil }
 
-	_, err := h.loadStack(ctxFor(http.MethodPost, "/", u, orgs, "viewer"), seed.Stack.ID)
+	c := ctxFor(http.MethodPost, "/", u, orgs, "viewer")
+	c.SetParamNames("id")
+	c.SetParamValues(seed.Stack.ID)
 	var he *echo.HTTPError
-	require.ErrorAs(t, err, &he, "viewer POST should be refused")
+	require.ErrorAs(t, gated(s, service.VerbStackWrite, service.KindStack, "id", reached)(c), &he,
+		"viewer POST should be refused")
 	assert.Equal(t, http.StatusForbidden, he.Code)
 
-	// The same viewer still reads the stack.
-	_, err = h.loadStack(ctxFor(http.MethodGet, "/", u, orgs, "viewer"), seed.Stack.ID)
-	assert.NoError(t, err, "viewer GET should still load")
+	c = ctxFor(http.MethodGet, "/", u, orgs, "viewer")
+	c.SetParamNames("id")
+	c.SetParamValues(seed.Stack.ID)
+	assert.NoError(t, gated(s, service.VerbOrgRead, service.KindStack, "id", reached)(c),
+		"viewer GET should still be allowed")
 }
 
 // GraphStatus took the env id straight off the URL, so any logged-in user could
-// poll any env's tile names, statuses and traffic.
+// poll any env's tile names, statuses and traffic. It is a gated read now, so
+// the refusal is the gate's — and still a 404, not a 403, because an outsider
+// must not learn the env exists.
 func TestGraphStatusRefusesOutsiders(t *testing.T) {
 	s := testdb.New(t)
 	seed := testdb.SeedStack(t, s, false)
-	h := NewHandler(s, nil, nil, nil, nil, nil, nil, nil, stackconf.Applier{}, nil)
 	u := memberOf(t, s, seed.Org.ID, "outsider", "")
+	reached := func(c echo.Context) error { return nil }
 
 	c := ctxFor(http.MethodGet, "/envs/"+seed.Env.ID+"/graph/status", u, nil, "")
 	c.SetParamNames("id")
 	c.SetParamValues(seed.Env.ID)
 
 	var he *echo.HTTPError
-	require.ErrorAs(t, h.GraphStatus(c), &he, "outsider should be refused")
+	require.ErrorAs(t, gated(s, service.VerbOrgRead, service.KindEnv, "id", reached)(c), &he,
+		"outsider should be refused")
 	assert.Equal(t, http.StatusNotFound, he.Code)
 }

@@ -105,12 +105,99 @@ func (a Applier) RunApplyJob(ctx context.Context, j *workqueue.Job, p ApplyJob) 
 	return nil
 }
 
+// PromoteWith is the optional second half of an apply: once the whole config
+// has landed, move the images built at Commit onto the Env rung. Zero means
+// "apply only".
+type PromoteWith struct {
+	Env    string
+	Commit string
+}
+
 // EnqueueApply is the one way a config apply is started. The dedupe key is the
 // plan, not the stack: one push makes one plan per branch-bound env, and a
 // stack-wide key left every plan but the last sitting "pending" with nothing
 // to run it. Two approvals of the same plan still collapse into one apply.
-func EnqueueApply(ctx context.Context, q *workqueue.Queue, stack *repo.Stack, cp *repo.ConfigPlan, force bool) (string, error) {
+//
+// The apply-and-promote paths go through here too. Both surfaces used to build
+// the ApplyJob by hand under the *stack* id, which threw the plan-id dedupe
+// away: a promote queued while an approval of the same plan was already
+// waiting ran the apply twice.
+func EnqueueApply(ctx context.Context, q *workqueue.Queue, stack *repo.Stack, cp *repo.ConfigPlan, force bool, promote PromoteWith) (string, error) {
 	return q.Enqueue(ctx, ApplyKind, cp.ID, ApplyJob{
 		StackID: stack.ID, PlanID: cp.ID, Force: force,
+		PromoteEnv: promote.Env, PromoteCommit: promote.Commit,
 	})
+}
+
+// PromoteKind is the work-queue kind a plain promote runs under — a promote
+// with no config plan behind it, which is what a code-only push produces.
+const PromoteKind = "config.promote"
+
+// PromoteJob is its payload.
+type PromoteJob struct {
+	StackID string `json:"stack_id"`
+	Env     string `json:"env"`
+	Commit  string `json:"commit"`
+}
+
+// RegisterPromote wires the promote handler onto the queue.
+//
+// Dropped rather than requeued on restart: a promote is a decision about which
+// commit an environment should be running, and re-taking someone's decision
+// after a restart could move an environment backwards past whatever was
+// promoted in the meantime. An apply is convergent and a promote is not.
+func RegisterPromote(q *workqueue.Queue, a Applier) {
+	q.Register(PromoteKind, func(ctx context.Context, j *workqueue.Job) error {
+		var p PromoteJob
+		if err := j.Payload(&p); err != nil {
+			return err
+		}
+		stack, err := a.Planner.Store.GetStack(ctx, p.StackID)
+		if err != nil {
+			return err
+		}
+		if stack == nil {
+			return fmt.Errorf("stack %s is gone", p.StackID)
+		}
+		j.SetStep(ctx, "promoting "+p.Env)
+		return a.Promote(ctx, stack, p.Env, p.Commit)
+	}, workqueue.KindOpts{
+		Timeout:     10 * time.Minute,
+		OnRestart:   workqueue.Fail,
+		RestartFail: "the server restarted mid-promote; promote the commit again",
+	})
+}
+
+// EnqueuePromote queues a promote with no plan behind it. The dedupe key is
+// the environment: two people promoting to staging at once is one promote,
+// and the second would otherwise race the first's deploys.
+//
+// Queued rather than run on the request, which is where it used to run on both
+// surfaces. A promote walks every tile of every rung at or above the target
+// and resolves each one's image name, so it is a request-time walk of the
+// whole stack whose failures had nowhere to be recorded.
+func EnqueuePromote(ctx context.Context, q *workqueue.Queue, stack *repo.Stack, envSlug, commit string) (string, error) {
+	return q.Enqueue(ctx, PromoteKind, stack.ID+":"+envSlug, PromoteJob{
+		StackID: stack.ID, Env: envSlug, Commit: commit,
+	})
+}
+
+// Queue adapts the work queue to service.ApplyQueue, so the service layer can
+// start an apply or a promote without importing this package. Both halves are
+// keyed here rather than at the caller, which is the point: the two surfaces
+// each chose their own key and lost the dedupe.
+type Queue struct{ Q *workqueue.Queue }
+
+func (q Queue) Apply(ctx context.Context, stack *repo.Stack, cp *repo.ConfigPlan, force bool, promoteEnv, promoteCommit string) (string, error) {
+	if q.Q == nil {
+		return "", fmt.Errorf("the job runner is not available")
+	}
+	return EnqueueApply(ctx, q.Q, stack, cp, force, PromoteWith{Env: promoteEnv, Commit: promoteCommit})
+}
+
+func (q Queue) Promote(ctx context.Context, stack *repo.Stack, envSlug, commit string) (string, error) {
+	if q.Q == nil {
+		return "", fmt.Errorf("the job runner is not available")
+	}
+	return EnqueuePromote(ctx, q.Q, stack, envSlug, commit)
 }

@@ -8,19 +8,16 @@ package org
 
 import (
 	"context"
-	"log/slog"
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/FyrmForge/hamr/pkg/middleware"
 	"github.com/FyrmForge/hamr/pkg/respond"
-	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 
 	"github.com/FyrmForge/stackr/internal/stackrd/config/orgconf"
-	"github.com/FyrmForge/stackr/internal/stackrd/config/secrets"
 	"github.com/FyrmForge/stackr/internal/stackrd/config/settings"
+	stackrmw "github.com/FyrmForge/stackr/internal/stackrd/handlers/middleware"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/registry"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 )
@@ -167,20 +164,12 @@ func (h *handler) CreateRegistryCredential(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	name := strings.TrimSpace(c.FormValue("name"))
-	if name == "" {
-		return echo.NewHTTPError(http.StatusBadRequest, "name required")
-	}
-	if name == registry.SystemCredentialName {
-		return echo.NewHTTPError(http.StatusConflict,
-			"\""+registry.SystemCredentialName+"\" is the credential stackr's own deploys use; pick another name")
-	}
-	secret := secrets.RandomHex(24)
-	if err := h.store.CreateOrgRegistryCredential(c.Request().Context(), &repo.OrgRegistryCredential{
-		ID: uuid.New().String(), OrgID: o.ID, Name: name,
-		SecretHash: registry.HashSecret(secret), Prefix: secret[:8], CreatedAt: time.Now().UTC(),
-	}); err != nil {
-		return err
+	// Through the service, which also requires a managed registry to exist:
+	// this path minted a credential for a registry that was not there, where
+	// the API answers 503.
+	_, secret, err := h.registries.MintCredential(c.Request().Context(), o, c.FormValue("name"))
+	if err != nil {
+		return stackrmw.HTTP(err)
 	}
 	// Rendered here rather than after a redirect: the secret exists only in
 	// this request, and a query parameter would put it in browser history.
@@ -195,16 +184,8 @@ func (h *handler) DeleteRegistryCredential(c echo.Context) error {
 		return err
 	}
 	ctx := c.Request().Context()
-	cred, err := h.store.GetOrgRegistryCredential(ctx, c.FormValue("id"))
-	if err != nil || cred == nil || cred.OrgID != o.ID {
-		return echo.NewHTTPError(http.StatusNotFound, "credential not found")
-	}
-	if cred.System {
-		return echo.NewHTTPError(http.StatusConflict,
-			"this is the credential stackr's own deploys push with; removing it would break the next build")
-	}
-	if err := h.store.DeleteOrgRegistryCredential(ctx, cred.ID); err != nil {
-		return err
+	if err := h.registries.RevokeCredential(ctx, o, c.FormValue("id")); err != nil {
+		return stackrmw.HTTP(err)
 	}
 	middleware.SetFlash(c, "Credential revoked.", middleware.FlashSuccess)
 	return respond.Redirect(c, "/orgs/"+o.Slug+"/settings/registry")
@@ -220,16 +201,26 @@ func (h *handler) DeleteRegistryTag(c echo.Context) error {
 		return err
 	}
 	ctx := c.Request().Context()
-	name, tag := c.FormValue("image"), c.FormValue("tag")
-	if !strings.HasPrefix(name, registry.Namespace(o.Slug)) {
-		return echo.NewHTTPError(http.StatusNotFound, "image not found")
+	tag := c.FormValue("tag")
+	// One name resolver and one in-use matcher, shared with the API. This
+	// path checked the prefix only — no repo-name or tag grammar — and its
+	// matcher indexed the stored tag by the part after the first slash, so a
+	// tag stored without a pull host was deletable while a live deployment
+	// still pointed at it.
+	name, err := h.registries.Image(ctx, o, c.FormValue("image"))
+	if err != nil {
+		return stackrmw.HTTP(err)
 	}
-	if where := h.liveTags(ctx, o)[name+":"+tag]; where != "" {
+	where, err := h.registries.TagInUse(ctx, o, name, tag)
+	if err != nil {
+		return stackrmw.HTTP(err)
+	}
+	if where != "" {
 		return echo.NewHTTPError(http.StatusConflict, "still deployed on "+where)
 	}
-	reg, err := h.store.GetManagedRegistry(ctx)
-	if err != nil || reg == nil {
-		return echo.NewHTTPError(http.StatusServiceUnavailable, "the managed registry is not configured")
+	reg, err := h.registries.Managed(ctx)
+	if err != nil {
+		return stackrmw.HTTP(err)
 	}
 	if err := registry.NewClient(reg, h.regsign).DeleteTag(ctx, name, tag); err != nil {
 		middleware.SetFlash(c, "Could not delete it: "+err.Error(), middleware.FlashError)
@@ -259,31 +250,17 @@ func (h *handler) SaveDefaults(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	if o.ConfigManaged() {
-		return echo.NewHTTPError(http.StatusConflict,
-			"this organization is managed by "+o.ConfigRepo+"; set defaults: in the org config file")
-	}
 	vals, err := c.FormParams()
 	if err != nil {
 		return err
 	}
-	next := settings.Merge(settings.Parse(o.Settings), vals)
-	if err := next.Check(); err != nil {
-		// Flash, not a 400: the form posts over htmx, which renders an error
-		// body nowhere, so a bare status is a save that silently does nothing.
-		middleware.SetFlash(c, err.Error(), middleware.FlashError)
-		return respond.Redirect(c, "/orgs/"+o.Slug+"/settings/defaults")
-	}
-	o.Settings = next.JSON()
-	if err := h.store.UpdateOrg(c.Request().Context(), o); err != nil {
-		return err
-	}
-	// Protection feeds the rendered routes, which otherwise only change on a
-	// domain edit or a deploy.
-	if h.px != nil {
-		if err := h.px.Resync(c.Request().Context()); err != nil {
-			slog.Error("proxy resync after org defaults save", "error", err)
+	// Flash, not a 400: the form posts over htmx, which renders an error body
+	// nowhere, so a bare status is a save that silently does nothing.
+	if err := h.settings.SaveOrg(c.Request().Context(), o, vals); err != nil {
+		if !stackrmw.FlashRefusal(c, err) {
+			return err
 		}
+		return respond.Redirect(c, "/orgs/"+o.Slug+"/settings/defaults")
 	}
 	middleware.SetFlash(c, "Defaults saved.", middleware.FlashSuccess)
 	return respond.Redirect(c, "/orgs/"+o.Slug+"/settings/defaults")

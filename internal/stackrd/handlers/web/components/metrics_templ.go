@@ -9,48 +9,15 @@ import "github.com/a-h/templ"
 import templruntime "github.com/a-h/templ/runtime"
 
 import (
-	"context"
 	"time"
 
-	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
+	"github.com/FyrmForge/stackr/internal/stackrd/service"
 )
 
 // MetricRange maps a picker key to its window; unknown keys fall back to 1h.
-func MetricRange(key string) (string, time.Duration) {
-	switch key {
-	case "6h":
-		return "6h", 6 * time.Hour
-	case "24h":
-		return "24h", 24 * time.Hour
-	}
-	return "1h", time.Hour
-}
-
-// MetricPoints loads samples for the window, bucket-averaged down to ≤240
-// points so a 24h span of 30s samples stays light to render.
-func MetricPoints(ctx context.Context, store repo.Store, ref string, dur time.Duration) (cpu, mem, rx, tx []TimePoint) {
-	ms, _ := store.ListMetrics(ctx, ref, time.Now().Add(-dur))
-	step := len(ms)/240 + 1
-	for i := 0; i < len(ms); i += step {
-		end := i + step
-		if end > len(ms) {
-			end = len(ms)
-		}
-		var c, m, r, t float64
-		for _, s := range ms[i:end] {
-			c += s.CPUPct
-			m += float64(s.MemBytes) / (1024 * 1024)
-			r += s.RxBps / 1024
-			t += s.TxBps / 1024
-		}
-		n := float64(end - i)
-		cpu = append(cpu, TimePoint{T: ms[i].TS, V: c / n})
-		mem = append(mem, TimePoint{T: ms[i].TS, V: m / n})
-		rx = append(rx, TimePoint{T: ms[i].TS, V: r / n})
-		tx = append(tx, TimePoint{T: ms[i].TS, V: t / n})
-	}
-	return
-}
+// The rule lives in the service so the panel's picker and the API's ?range=
+// cannot answer differently; this stays as the name the templates call.
+func MetricRange(key string) (string, time.Duration) { return service.MetricRange(key) }
 
 // MetricsFrag is the range picker + charts; swaps itself on range change and
 // auto-refreshes on a slow poll (samples land every 30s). metricsURL is the
@@ -83,7 +50,7 @@ func MetricsFrag(metricsURL, rangeKey string, cpu, mem, rx, tx []TimePoint) temp
 		var templ_7745c5c3_Var2 string
 		templ_7745c5c3_Var2, templ_7745c5c3_Err = templ.JoinStringErrs(metricsURL + "?range=" + rangeKey)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/stackrd/handlers/web/components/metrics.templ`, Line: 54, Col: 44}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/stackrd/handlers/web/components/metrics.templ`, Line: 21, Col: 44}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var2))
 		if templ_7745c5c3_Err != nil {
@@ -108,7 +75,7 @@ func MetricsFrag(metricsURL, rangeKey string, cpu, mem, rx, tx []TimePoint) temp
 			var templ_7745c5c3_Var4 string
 			templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.JoinStringErrs(metricsURL + "?range=" + k)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/stackrd/handlers/web/components/metrics.templ`, Line: 61, Col: 40}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/stackrd/handlers/web/components/metrics.templ`, Line: 28, Col: 40}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var4))
 			if templ_7745c5c3_Err != nil {
@@ -134,7 +101,7 @@ func MetricsFrag(metricsURL, rangeKey string, cpu, mem, rx, tx []TimePoint) temp
 			var templ_7745c5c3_Var6 string
 			templ_7745c5c3_Var6, templ_7745c5c3_Err = templ.JoinStringErrs(k)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/stackrd/handlers/web/components/metrics.templ`, Line: 67, Col: 8}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/stackrd/handlers/web/components/metrics.templ`, Line: 34, Col: 8}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var6))
 			if templ_7745c5c3_Err != nil {

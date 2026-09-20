@@ -8,7 +8,6 @@ import (
 
 	"github.com/labstack/echo/v4"
 
-	"github.com/FyrmForge/stackr/internal/stackrd/config/envops"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 	"github.com/FyrmForge/stackr/internal/stackrd/config/settings"
 	"github.com/FyrmForge/stackr/internal/stackrd/handlers/web/components"
@@ -72,6 +71,9 @@ templ stackGeneralPage(c echo.Context, p *repo.Stack, res settings.Resolved, lev
 		@form.Section("Resource defaults", form.ScopeStack, "Applied to every service in this stack that does not set its own. Environments and individual services can still override them; leave a field empty to inherit from the level above.") {
 			{{ ps := settings.Parse(p.Settings) }}
 			{{ srcCron, srcCPU, srcMem := above("stack", levels) }}
+			if p.ConfigManaged() {
+				<p class="text-sm text-rw-faint">This stack is managed from its config repository. Set <code class="font-mono">defaults:</code> there; a value saved here is replaced on the next apply.</p>
+			}
 			@form.SettingsForm(c, "/projects/"+p.ID+"/settings") {
 				@form.Field("Cron timeout (minutes)", "") {
 					<input type="number" name="cron_timeout_min" value={ intPtr(ps.CronTimeoutMin) } placeholder="inherit" min="0" class="input"/>
@@ -86,7 +88,9 @@ templ stackGeneralPage(c echo.Context, p *repo.Stack, res settings.Resolved, lev
 					@form.Inherited(limitLabel(res.MemLimitMB == 0, strconv.Itoa(res.MemLimitMB)+" MB"), srcMem)
 				}
 				@form.ProtectFields(ps, settings.Above(levels, "stack"), false)
-				@form.Save("")
+				if !p.ConfigManaged() {
+					@form.Save("")
+				}
 			}
 		}
 		@form.DangerSection("") {
@@ -496,6 +500,9 @@ templ envSettingsPage(c echo.Context, p *repo.Stack, e *repo.Environment, res se
 			@form.Section("Resource overrides", form.ScopeEnv, "Applied to every service in this environment that does not set its own. Leave a field empty to inherit from the level above.") {
 				{{ es := settings.Parse(e.Settings) }}
 				{{ srcCron, srcCPU, srcMem := above("env", levels) }}
+				if p.ConfigManaged() {
+					<p class="text-sm text-rw-faint">This stack is managed from its config repository. Set <code class="font-mono">defaults:</code> on the environment there; a value saved here is replaced on the next apply.</p>
+				}
 				@form.SettingsForm(c, "/envs/"+e.ID+"/settings") {
 					@form.Field("Cron timeout (minutes)", "") {
 						<input type="number" name="cron_timeout_min" value={ intPtr(es.CronTimeoutMin) } placeholder="inherit" min="0" class="input"/>
@@ -510,7 +517,9 @@ templ envSettingsPage(c echo.Context, p *repo.Stack, e *repo.Environment, res se
 						@form.Inherited(limitLabel(res.MemLimitMB == 0, strconv.Itoa(res.MemLimitMB)+" MB"), srcMem)
 					}
 					@form.ProtectFields(es, settings.Above(levels, "env"), false)
-					@form.Save("")
+					if !p.ConfigManaged() {
+						@form.Save("")
+					}
 				}
 			}
 			@form.Section("Environment variables", form.ScopeEnv, "This environment's own values. A service reading ${{ stack.vars.NAME }} gets the value set here before the stack's. Secret values are encrypted; revealing or copying one is recorded.") {
@@ -578,7 +587,7 @@ templ envSettingsPage(c echo.Context, p *repo.Stack, e *repo.Environment, res se
 	}
 }
 
-templ stackPREnvPage(c echo.Context, p *repo.Stack, envs []repo.Environment, prCfg envops.PRConfig, ghConns []repo.Connector) {
+templ stackPREnvPage(c echo.Context, p *repo.Stack, envs []repo.Environment, prCfg repo.PRConfig, ghConns []repo.Connector) {
 	@stackSettingsShell(c, p, "pr") {
 		@form.Section("Pull request environments", form.ScopeStack, "Each pull request gets a temporary environment built from the config file's pr_envs: template, torn down when the PR closes.") {
 			if len(ghConns) > 0 {

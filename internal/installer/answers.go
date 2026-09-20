@@ -6,12 +6,12 @@ package installer
 import (
 	"errors"
 	"fmt"
-	"net/netip"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 
+	"github.com/FyrmForge/stackr/internal/installspec"
 	"github.com/FyrmForge/stackr/internal/netaddr"
 )
 
@@ -94,49 +94,9 @@ func (a *Answers) Check(busy func(string) bool) error {
 	return nil
 }
 
-// cleanName takes what people paste: a browser URL with scheme, path, port,
-// a trailing dot, capitals.
-func cleanName(s string) string {
-	h := strings.TrimSpace(s)
-	h = strings.TrimPrefix(strings.TrimPrefix(h, "http://"), "https://")
-	h, _, _ = strings.Cut(h, "/")
-	h, _, _ = strings.Cut(h, ":")
-	return strings.ToLower(strings.TrimSuffix(h, "."))
-}
-
-// CheckRoot accepts a domain name Let's Encrypt can issue for.
-func CheckRoot(s string) (string, error) {
-	h := cleanName(s)
-	if h == "" {
-		return "", errors.New("a domain is required")
-	}
-	if _, err := netip.ParseAddr(h); err == nil || h == "localhost" {
-		return "", fmt.Errorf("%s is an address, not a domain; stackr reaches apps and the panel by name", h)
-	}
-	if len(h) > 253 {
-		return "", fmt.Errorf("%s is longer than 253 characters", h)
-	}
-	labels := strings.Split(h, ".")
-	for _, l := range labels {
-		switch {
-		case l == "":
-			return "", fmt.Errorf("%s has an empty label", h)
-		case len(l) > 63:
-			return "", fmt.Errorf("%s is longer than 63 characters", l)
-		case strings.Trim(l, "abcdefghijklmnopqrstuvwxyz0123456789-") != "":
-			return "", fmt.Errorf("%s has characters a domain cannot contain", h)
-		case l[0] == '-' || l[len(l)-1] == '-':
-			return "", fmt.Errorf("%s starts or ends with a dash", l)
-		}
-	}
-	if len(labels) < 2 {
-		return "", fmt.Errorf("%s is a single label; use a full name like example.com", h)
-	}
-	if strings.Trim(labels[len(labels)-1], "0123456789") == "" {
-		return "", fmt.Errorf("%s is not a valid domain", h)
-	}
-	return h, nil
-}
+// CheckRoot accepts a domain name Let's Encrypt can issue for. The grammar
+// lives in installspec so the panel's own domain form refuses the same hosts.
+func CheckRoot(s string) (string, error) { return installspec.CheckRoot(s) }
 
 // CheckHost accepts a name at or under root.
 func CheckHost(s, root string) (string, error) {

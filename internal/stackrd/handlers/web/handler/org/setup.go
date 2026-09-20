@@ -13,9 +13,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 
-	"github.com/FyrmForge/stackr/internal/stackrd/config/envops"
 	"github.com/FyrmForge/stackr/internal/stackrd/handlers/web/components"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/githubapp"
+	"github.com/FyrmForge/stackr/internal/stackrd/service"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 )
 
@@ -217,7 +217,7 @@ func (h *handler) ensureDefaultDomain(c echo.Context, o *repo.Org) error {
 	}
 	// Anything already visible to this org's stacks is enough, including a
 	// server-wide resource every org inherits.
-	if len(envops.VisibleDomainResources(all, "", o.ID)) > 0 {
+	if len(service.VisibleDomainResources(all, "", o.ID)) > 0 {
 		return nil
 	}
 	return h.store.CreateDomainResource(ctx, &repo.DomainResource{
@@ -242,27 +242,52 @@ func (h *handler) SetupConfigPlan(c echo.Context) error {
 	if o.SetupDoneAt != nil {
 		return respond.Redirect(c, "/orgs/"+o.Slug+"/plans")
 	}
-	cp, _ := h.pendingOrgPlans(c, o)
+	cp := h.setupPlan(c, o)
 	if cp == nil {
 		return respond.Redirect(c, "/orgs/"+o.Slug+"/setup/config")
 	}
-	return respond.HTML(c, http.StatusOK, setupPlanPage(c, o, cp))
+	// The apply landed while this screen was polling: on to step 4, built from
+	// the slug the org has now rather than the one the poll arrived on. The
+	// redirect reaches htmx as HX-Redirect, so the page navigates itself.
+	work := h.orgPlanWork(c, cp)
+	if work != nil && work.Done() {
+		if cp.Status == "applied" {
+			return respond.Redirect(c, setupNextURL(o, "config"))
+		}
+		// It failed. Stay on the plan, but as a navigation rather than a
+		// banner swap, so the screen comes back carrying the error and the
+		// Plan again the failed plan needs.
+		if c.Request().Header.Get("HX-Request") == "true" {
+			return respond.Redirect(c, setupPlanURL(o, cp.ID))
+		}
+	}
+	return respond.HTML(c, http.StatusOK, setupPlanPage(c, o, cp, work))
 }
 
 // POST /orgs/:slug/setup/config/plan/:planID/approve
+//
+// Back to the plan screen, which then advances itself: the apply is queued, so
+// there is nothing to report yet, and walking on to step 4 would be walking on
+// from an org that is still being built. The screen shows the banner, polls,
+// and redirects to the next step when the job lands.
+//
+// Addressed by org id: the apply this queues can rename the org, and by the
+// time the poll comes back the slug this request arrived on is gone.
 func (h *handler) SetupApprovePlan(c echo.Context) error {
-	o, applied, err := h.approvePlan(c)
+	o, err := h.approvePlan(c)
 	if err != nil {
 		return err
 	}
-	// The apply may have renamed the org, so the next step is built from the
-	// slug it has now, not the one this request arrived on. A failed apply
-	// stays on the plan: the error is on it, and moving on would leave the
-	// org half built with nothing saying so.
-	if !applied {
-		return respond.Redirect(c, "/orgs/"+o.Slug+"/setup/config/plan")
-	}
-	return respond.Redirect(c, setupNextURL(o, "config"))
+	return respond.Redirect(c, setupPlanURL(o, c.Param("planID")))
+}
+
+// setupPlanURL is the wizard's plan screen for one named plan. The id in the
+// query is what keeps the screen on its own plan: pendingOrgPlans answers with
+// the newest plan still waiting, and the moment the apply lands this one stops
+// waiting, so a poll without it would find nothing pending and bounce back to
+// the binding form instead of moving on.
+func setupPlanURL(o *repo.Org, planID string) string {
+	return "/orgs/" + o.ID + "/setup/config/plan?plan=" + planID
 }
 
 // POST /orgs/:slug/setup/config/plan/:planID/reject
@@ -279,10 +304,26 @@ func (h *handler) SetupRejectPlan(c echo.Context) error {
 // setupPlanCfg is the plan screen's buttons: the same approve and reject as the
 // plans page. There is no way past it, this branch's org is named and built by
 // the apply, so walking on would leave an org that only exists as a binding.
-func setupPlanCfg(o *repo.Org, cp *repo.ConfigPlan) components.PlanViewCfg {
+func setupPlanCfg(o *repo.Org, cp *repo.ConfigPlan, work *repo.WorkItem) components.PlanViewCfg {
 	cfg := orgPlanCfg(o, cp, "/orgs/"+o.Slug+"/setup/config/plan/"+cp.ID)
 	cfg.ReplanURL = "/orgs/" + o.Slug + "/setup/config"
-	return cfg
+	cfg.Work, cfg.PollURL = work, setupPlanURL(o, cp.ID)
+	return withoutButtonsWhileApplying(cfg, work)
+}
+
+// setupPlan is the plan this screen is about: the one named in the query when
+// the screen is polling itself, and otherwise whatever is still waiting, which
+// is how step 3 is first arrived at.
+func (h *handler) setupPlan(c echo.Context, o *repo.Org) *repo.ConfigPlan {
+	if id := c.QueryParam("plan"); id != "" {
+		cp, err := h.store.GetOrgConfigPlan(c.Request().Context(), id)
+		if err != nil || cp == nil || cp.StackID != o.ID {
+			return nil
+		}
+		return cp
+	}
+	cp, _ := h.pendingOrgPlans(c, o)
+	return cp
 }
 
 // setupSummary is the step 6 checklist: what the wizard actually set up. Each

@@ -261,9 +261,9 @@ templ setupConfigBody(c echo.Context, o *repo.Org, conns []repo.Connector, repos
 // decision, so it belongs to the step that made it rather than to a settings
 // page the wizard has not let anyone reach yet. Same review component the plans
 // page uses; only the buttons differ.
-templ setupPlanPage(c echo.Context, o *repo.Org, cp *repo.ConfigPlan) {
+templ setupPlanPage(c echo.Context, o *repo.Org, cp *repo.ConfigPlan, work *repo.WorkItem) {
 	@setupShell(c, "Review the plan", "This is what applying the config file does to this organization.", setupStepNo(o, "plan"), setupTotal(o)) {
-		@components.PlanBody(c, setupPlanCfg(o, cp), stackconf.ParsePlan(cp))
+		@components.PlanBody(c, setupPlanCfg(o, cp, work), stackconf.ParsePlan(cp))
 	}
 }
 

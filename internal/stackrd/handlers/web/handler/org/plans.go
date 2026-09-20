@@ -8,6 +8,7 @@ import (
 	"github.com/FyrmForge/hamr/pkg/respond"
 	"github.com/labstack/echo/v4"
 
+	"github.com/FyrmForge/stackr/internal/stackrd/config/orgconf"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 )
 
@@ -79,7 +80,29 @@ func (h *handler) OrgPlanView(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	return respond.HTML(c, http.StatusOK, orgPlanPage(c, o, cp))
+	work := h.orgPlanWork(c, cp)
+	// The apply finished while the banner was polling. Only the banner swaps
+	// on a poll, so everything else on screen is still the approve-time
+	// render: the plan reads pending and its Approve button is still live,
+	// pointing at a plan the next click would 409 on. Bounce the poll into a
+	// real navigation and the whole page comes back with the status the plan
+	// actually has. Only on the poll, or the navigation it asks for would
+	// arrive here and ask for another.
+	if work != nil && work.Done() && c.Request().Header.Get("HX-Request") == "true" {
+		return respond.Redirect(c, "/orgs/"+o.ID+"/plans/"+cp.ID)
+	}
+	return respond.HTML(c, http.StatusOK, orgPlanPage(c, o, cp, work))
+}
+
+// orgPlanWork is the apply running behind this plan, or nil when none has been
+// queued for it. Keyed on the plan id, which is the dedupe key the enqueue
+// uses, so an older plan's page can never narrate a newer plan's apply.
+func (h *handler) orgPlanWork(c echo.Context, cp *repo.ConfigPlan) *repo.WorkItem {
+	w, err := h.store.LatestWorkItem(c.Request().Context(), orgconf.ApplyKind, cp.ID)
+	if err != nil {
+		return nil
+	}
+	return w
 }
 
 // pendingOrgPlans is what the org canvas banner needs: the newest plan still

@@ -11,8 +11,8 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/stretchr/testify/require"
 
-	"github.com/FyrmForge/stackr/internal/stackrd/config/envops"
 	"github.com/FyrmForge/stackr/internal/stackrd/handlers/web/components"
+	"github.com/FyrmForge/stackr/internal/stackrd/service"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo/sqlite"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/testdb"
@@ -98,11 +98,11 @@ func TestCheckOrgSquat(t *testing.T) {
 	other := &repo.Org{ID: "orgX", Name: "Other", Slug: "other", CreatedAt: time.Now().UTC()}
 	require.NoError(t, s.CreateOrg(ctx, other))
 
-	require.Error(t, envops.CheckOrgSquat(ctx, s, "other.example.com", "mine"), "another org's slug as first label")
-	require.Error(t, envops.CheckOrgSquat(ctx, s, "*.other.example.com", "mine"), "wildcard hides the same claim")
-	require.NoError(t, envops.CheckOrgSquat(ctx, s, "other.example.com", other.ID), "the org's own slug is fine")
-	require.NoError(t, envops.CheckOrgSquat(ctx, s, "unrelated.example.com", "mine"))
-	require.NoError(t, envops.CheckOrgSquat(ctx, s, "example.com", "mine"), "single-label hosts have no org prefix")
+	require.Error(t, service.CheckOrgSquat(ctx, s, "other.example.com", "mine"), "another org's slug as first label")
+	require.Error(t, service.CheckOrgSquat(ctx, s, "*.other.example.com", "mine"), "wildcard hides the same claim")
+	require.NoError(t, service.CheckOrgSquat(ctx, s, "other.example.com", other.ID), "the org's own slug is fine")
+	require.NoError(t, service.CheckOrgSquat(ctx, s, "unrelated.example.com", "mine"))
+	require.NoError(t, service.CheckOrgSquat(ctx, s, "example.com", "mine"), "single-label hosts have no org prefix")
 }
 
 // The People list is one list built from two tables, so it is the only place

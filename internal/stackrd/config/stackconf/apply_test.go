@@ -5,7 +5,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/FyrmForge/stackr/internal/stackrd/config/envops"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/deploy"
+	"github.com/FyrmForge/stackr/internal/stackrd/service"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/testdb"
 	"github.com/google/uuid"
@@ -410,12 +412,12 @@ func TestRefBrokenOnlyMatchesAnUnresolvedReference(t *testing.T) {
 // to have left.
 func TestNeedsDBRedeployCoversPlacementNotJustLimits(t *testing.T) {
 	for _, f := range []string{"external_port", "cpu_limit", "memory_mb", "env", "image", "shm_size_mb", "node_group", "replicas"} {
-		if !needsDBRedeploy(map[string]bool{f: true}) {
+		if !service.Changed(map[string]bool{f: true}).NeedsDBRedeploy() {
 			t.Errorf("%s does not redeploy the instance, but it is in the service spec", f)
 		}
 	}
 	// Scope governs who may provision and no container knows about it.
-	if needsDBRedeploy(map[string]bool{"scope": true}) {
+	if service.Changed(map[string]bool{"scope": true}).NeedsDBRedeploy() {
 		t.Error("scope redeploys the instance, but nothing in the spec changed")
 	}
 }
@@ -509,7 +511,11 @@ environments:
       web: {image: nginx}
 `)}}
 	deployed := map[string]bool{}
-	a := Applier{Planner: pl, Deployed: deployed}
+	// A rename is the tile service's now: it tears the old swarm service
+	// down, moves the slug and rewrites the route, in that order. Its own
+	// dependencies are nil-safe, so here it moves the row and skips the rest.
+	a := Applier{Planner: pl, Deployed: deployed,
+		Ops: envops.Ops{Store: store, Tiles: service.NewTileService(store, nil, nil, nil, nil, nil, service.NewGateService(store))}}
 
 	cp, err := runStack(ctx, pl, seed.Stack)
 	require.NoError(t, err, "Run")

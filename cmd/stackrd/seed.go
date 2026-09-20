@@ -2,14 +2,15 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
 
-	"github.com/FyrmForge/stackr/internal/netaddr"
-	"github.com/FyrmForge/stackr/internal/stackrd/config/envops"
+	"github.com/FyrmForge/stackr/internal/stackrd/service"
+	svcproxy "github.com/FyrmForge/stackr/internal/stackrd/service/proxy"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 )
 
@@ -38,7 +39,7 @@ func seedInstall(ctx context.Context, store repo.Store, rootDomain, trustCF, cid
 		if err != nil {
 			return err
 		}
-		if sv != nil && !envops.HostTaken(all, root) {
+		if sv != nil && !service.HostTaken(all, root) {
 			if err := store.CreateDomainResource(ctx, &repo.DomainResource{
 				ID: uuid.New().String(), Level: "instance", OwnerID: sv.ID, Host: root, CreatedAt: time.Now().UTC(),
 			}); err != nil {
@@ -46,17 +47,12 @@ func seedInstall(ctx context.Context, store repo.Store, rootDomain, trustCF, cid
 			}
 		}
 	}
-	var lines []string
-	for _, c := range strings.Split(cidrs, ",") {
-		if strings.TrimSpace(c) == "" {
-			continue
-		}
-		cidr, err := netaddr.ParseTrusted(c)
-		if err != nil {
-			slog.Warn("TRUSTED_PROXY_CIDRS: skipping", "error", err)
-			continue
-		}
-		lines = append(lines, cidr)
+	// One policy with the panel and the installer: a bad line refuses the
+	// list. Skipping it used to leave a trusted proxy that is not trusted,
+	// which shows up later as every client IP being the proxy's.
+	lines, err := svcproxy.ParseTrustedList(cidrs)
+	if err != nil {
+		return fmt.Errorf("TRUSTED_PROXY_CIDRS: %w", err)
 	}
 	if len(lines) > 0 {
 		if err := store.SetSetting(ctx, "trusted_proxies", strings.Join(lines, "\n")); err != nil {

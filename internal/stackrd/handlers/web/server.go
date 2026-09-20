@@ -22,7 +22,6 @@ import (
 	"github.com/FyrmForge/stackr/internal/stackrd/config/orgconf"
 	"github.com/FyrmForge/stackr/internal/stackrd/config/stackconf"
 	"github.com/FyrmForge/stackr/internal/stackrd/handlers/middleware"
-	"github.com/FyrmForge/stackr/internal/stackrd/handlers/notify"
 	"github.com/FyrmForge/stackr/internal/stackrd/handlers/stream"
 	"github.com/FyrmForge/stackr/internal/stackrd/handlers/web/avatar"
 	"github.com/FyrmForge/stackr/internal/stackrd/handlers/web/components"
@@ -51,16 +50,18 @@ import (
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/forward"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/githubapp"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/jobs"
-	"github.com/FyrmForge/stackr/internal/stackrd/infra/mail"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/managedtiles"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/metrics"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/nodes"
-	"github.com/FyrmForge/stackr/internal/stackrd/infra/proxy"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/registry"
 	stackruntime "github.com/FyrmForge/stackr/internal/stackrd/infra/runtime"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/volmove"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/workqueue"
 	"github.com/FyrmForge/stackr/internal/stackrd/service"
+	svcmail "github.com/FyrmForge/stackr/internal/stackrd/service/mail"
+	"github.com/FyrmForge/stackr/internal/stackrd/service/notify"
+	svcproxy "github.com/FyrmForge/stackr/internal/stackrd/service/proxy"
+	"github.com/FyrmForge/stackr/internal/stackrd/service/scheduler"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 )
 
@@ -83,16 +84,49 @@ type Deps struct {
 	StreamHub      *stream.Hub
 	Engine         *deploy.Engine
 	Runtime        *stackruntime.Runtime
-	Proxy          *proxy.Proxy
+	Proxy          *svcproxy.Service
 	Databases      *managedtiles.Service
 	Jobs           *jobs.Service
 	Backups        *backup.Service
-	Metrics        *metrics.Sampler
-	Forwards       *forward.Registry
-	GitHub         *githubapp.Client
+	// Scheduler re-registers the cron and backup tables after a write.
+	Scheduler *scheduler.Service
+	// Lifecycle owns stop/restart/pause/run for a tile, shared with the API
+	// router so a script and a person get the same side effects.
+	Lifecycle *service.TileLifecycleService
+	// Tiles owns the tile row: create, update, rename, delete.
+	Tiles *service.TileService
+	// Telemetry resolves where a tile's logs and metrics come from.
+	Telemetry *service.TileTelemetryService
+	// Domains owns the hostnames a tile answers on; Resources owns the
+	// hostnames stackr may generate names under.
+	Domains      *service.DomainService
+	Resources    *service.DomainResourceService
+	Variables    *service.VariableService
+	Environments *service.EnvironmentService
+	Stacks       *service.StackService
+	Deploys      *service.DeployService
+	Releases     *service.ReleaseService
+	Plans        *service.PlanService
+	Gate         *service.GateService
+	Schedules    *service.BackupScheduleService
+	Destinations *service.BackupDestinationService
+	Storage      *service.StorageService
+	Settings     *service.SettingsService
+	NodeService  *service.NodeService
+	Containers   *service.ContainerService
+	ImageWatch   *service.ImageWatchService
+	Access       *service.AccessService
+	Registries   *service.RegistryService
+	PREnvs       *service.PREnvService
+	Members      *service.MemberService
+	Instances    *service.ManagedInstanceService
+	Slices       *service.SliceService
+	Metrics      *metrics.Sampler
+	Forwards     *forward.Registry
+	GitHub       *githubapp.Client
 	// Mail is nil when no provider is configured: invites then fall back to
 	// copy-the-link, which is the only channel a self-hosted box always has.
-	Mail *mail.Mailer
+	Mail *svcmail.Service
 	// Applier drives config-as-code, shared with the API router.
 	Applier stackconf.Applier
 	// Work is the durable job runner; applies are enqueued, not run inline.
@@ -118,6 +152,9 @@ type Deps struct {
 	Version string
 	// Admin runs installation-wide operations, today the panel upgrade.
 	Admin *service.AdminService
+	// Revoke closes share links a live re-check cannot reach, today when an
+	// admin deactivates the account that minted them.
+	Revoke *service.RevokeService
 }
 
 // RegisterRoutes registers all web route handlers on the server.
@@ -160,7 +197,15 @@ func RegisterRoutes(srv *server.Server, deps *Deps) {
 
 	auth := hamrmw.NewBrowserAuth(deps.SessionManager,
 		hamrmw.WithSubjectLoader(func(reqCtx context.Context, id string) (any, error) {
-			return deps.Store.GetUserByID(reqCtx, id)
+			u, err := deps.Store.GetUserByID(reqCtx, id)
+			// Deactivating a user used to close nothing: Active was checked
+			// at login and nowhere else, so an open session kept working for
+			// as long as the browser held it. A nil subject here is a dead
+			// session, which is what deactivation is supposed to mean.
+			if err != nil || u == nil || !u.Active {
+				return nil, err
+			}
+			return u, nil
 		}),
 		hamrmw.WithLoginRedirect("/login"),
 		hamrmw.WithHomeRedirect("/"),
@@ -173,6 +218,51 @@ func RegisterRoutes(srv *server.Server, deps *Deps) {
 	site.Use(middleware.ThemeContext())
 	site.Use(middleware.OrgContext(deps.Store))
 	site.Use(middleware.ReadOnlyGuard())
+
+	// mutate registers a mutating route: it mounts the verb check AND records
+	// the verb on the route, from one call.
+	//
+	// The two cannot be done separately on purpose. A route that carried the
+	// check but declared nothing would be invisible to the route walk, and a
+	// route that declared a verb without mounting the check would read as
+	// gated and be open — which is the failure point 18 exists to remove, not
+	// to relocate. v is the operation, k is what the route addresses, and
+	// param names the path parameter carrying k's reference.
+	//
+	// The level a verb needs is service's (verbLevels in access.go); the
+	// captured level each route enforced before is frozen in
+	// handlers/web/routelevel_test.go, and the two are asserted equal there.
+	mutate := func(g *echo.Group, method, path string, h echo.HandlerFunc,
+		v service.Verb, k service.Kind, param string, extra ...echo.MiddlewareFunc) {
+		mw := append([]echo.MiddlewareFunc{
+			auth.RequireAuth(),
+			middleware.Gate(deps.Store, deps.Access, v, k, param),
+		}, extra...)
+		g.Add(method, path, h, mw...).Name = string(v)
+	}
+
+	// read is mutate for a GET, and the same bargain: mounting the check and
+	// declaring the verb are one call, so a route cannot read as gated and be
+	// open.
+	//
+	// Reads went through the same gate helpers the writes did, which is why
+	// they could not be gated first: for a read-only handler the helper IS
+	// the body check, so the level had to be read out by hand rather than
+	// taken from the AST walk that captured the writes. What each read route
+	// enforced before is frozen in routeread_test.go.
+	//
+	// Not every read can take one. A page that spans orgs — the home canvas,
+	// search, the API's collection endpoints — has no single org to resolve,
+	// and its tenancy is a per-row filter inside the handler, not a gate.
+	// Those stay as they are and are listed in routeread_test.go.
+	read := func(g *echo.Group, path string, h echo.HandlerFunc,
+		v service.Verb, k service.Kind, param string, extra ...echo.MiddlewareFunc) {
+		mw := append([]echo.MiddlewareFunc{
+			auth.RequireAuth(),
+			middleware.Gate(deps.Store, deps.Access, v, k, param),
+		}, extra...)
+		g.Add(http.MethodGet, path, h, mw...).Name = string(v)
+	}
 
 	// authLimit blunts scripted credential hammering on the three endpoints
 	// that take a credential from an unauthenticated caller. Own store, so it
@@ -200,12 +290,20 @@ func RegisterRoutes(srv *server.Server, deps *Deps) {
 		}
 	}
 
-	settingsHandler := settingspage.NewHandler(deps.Store, deps.Backups, deps.Admin, deps.Runtime, deps.Proxy, deps.GitHub, deps.RegistrySigner, deps.DataDir, deps.RegistryPort, deps.ACMEEmail, deps.BaseURL)
+	settingsHandler := settingspage.NewHandler(deps.Store, deps.Backups, deps.Admin, deps.Runtime, deps.Proxy, deps.GitHub, deps.RegistrySigner, deps.DataDir, deps.RegistryPort, deps.ACMEEmail, deps.BaseURL).
+		WithScheduler(deps.Scheduler).
+		WithDestinations(deps.Destinations).
+		WithRegistries(deps.Registries).
+		WithImageWatch(deps.ImageWatch).
+		WithRevoke(deps.Revoke)
 
 	searchHandler := searchpage.NewHandler(deps.Store)
 	site.GET("/search", searchHandler.Search, auth.RequireAuth())
 
-	orgHandler := orgpage.NewHandler(deps.Store, deps.Notifier, deps.Metrics, deps.FileStorage, deps.Runtime, deps.Forwards, deps.OrgConfig, deps.GitHub, deps.Mail, deps.RegistrySigner, deps.Proxy)
+	orgHandler := orgpage.NewHandler(deps.Store, deps.Notifier, deps.Metrics, deps.FileStorage, deps.Runtime, deps.Forwards, deps.OrgConfig, deps.GitHub, deps.Mail, deps.RegistrySigner, deps.Proxy).
+		WithDomainResources(deps.Resources).WithVariables(deps.Variables).WithStacks(deps.Stacks).
+		WithWork(deps.Work).
+		WithSettings(deps.Settings)
 	// "/" is the root canvas, every org the viewer belongs to, one card each,
 	// and each card drills into that org's own canvas. Its saved layout is
 	// per-user (repo.ScopeUser), so these three routes carry no :id.
@@ -227,96 +325,109 @@ func RegisterRoutes(srv *server.Server, deps *Deps) {
 	// org that already exists and stay owner-gated: an admin can hand an org to
 	// an owner who is not an admin, and that owner still has to finish setting
 	// it up.
-	site.GET("/setup", orgHandler.SetupStart, auth.RequireAuth(), adminOnly)
-	site.GET("/orgs/:slug/setup/:step", orgHandler.Setup, auth.RequireAuth())
+	read(site, "/setup", orgHandler.SetupStart, service.VerbAdminRead, service.KindNone, "", adminOnly)
+	read(site, "/orgs/:slug/setup/:step", orgHandler.Setup, service.VerbOrgOwnerRead, service.KindOrg, "slug")
 	// The wizard's own POST routes. Each is served by the handler that owns the
 	// same change in settings; arriving here is what makes it redirect back to
 	// the step instead of to the settings tab (backTo in handler/org/setup.go).
-	site.POST("/orgs/:slug/setup/name", orgHandler.Rename, auth.RequireAuth())
-	site.POST("/orgs/:slug/setup/mode", orgHandler.SetupMode, auth.RequireAuth())
-	site.POST("/orgs/:slug/setup/connector", settingsHandler.GitHubConnect, auth.RequireAuth())
-	site.POST("/orgs/:slug/setup/config", orgHandler.SaveOrgConfig, auth.RequireAuth())
-	site.GET("/orgs/:slug/setup/config/plan", orgHandler.SetupConfigPlan, auth.RequireAuth())
-	site.POST("/orgs/:slug/setup/config/plan/:planID/approve", orgHandler.SetupApprovePlan, auth.RequireAuth())
-	site.POST("/orgs/:slug/setup/config/plan/:planID/reject", orgHandler.SetupRejectPlan, auth.RequireAuth())
-	site.POST("/orgs/:slug/setup/config/plan/:planID/inputs", orgHandler.SetPlanInput, auth.RequireAuth())
-	site.POST("/orgs/:slug/setup/domain", orgHandler.SaveOrgDomain, auth.RequireAuth())
-	site.POST("/orgs/:slug/setup/team/members", orgHandler.AddMember, auth.RequireAuth())
-	site.POST("/orgs/:slug/setup/team/members/:userID/role", orgHandler.SetMemberRole, auth.RequireAuth())
-	site.POST("/orgs/:slug/setup/team/members/:userID/remove", orgHandler.RemoveMember, auth.RequireAuth())
-	site.POST("/orgs/:slug/setup/team/invites/:inviteID/resend", orgHandler.ResendInvite, auth.RequireAuth())
-	site.POST("/orgs/:slug/setup/team/invites/:inviteID/reinvite", orgHandler.ReinviteMember, auth.RequireAuth())
-	site.POST("/orgs/:slug/setup/team/invites/:inviteID/delete", orgHandler.DeleteInvite, auth.RequireAuth())
-	site.POST("/orgs/:slug/setup/done", orgHandler.SetupDone, auth.RequireAuth())
-	site.GET("/orgs/:slug", orgHandler.Graph, auth.RequireAuth())
-	site.GET("/orgs/:slug/graph/status", orgHandler.GraphStatus, auth.RequireAuth())
-	site.POST("/orgs/:slug/graph/positions", orgHandler.SaveNodePosition, auth.RequireAuth())
-	site.POST("/orgs/:slug/graph/positions/reset", orgHandler.ResetNodePositions, auth.RequireAuth())
-	site.POST("/orgs/:slug/graph/annotations", orgHandler.SaveAnnotation, auth.RequireAuth())
-	site.POST("/orgs/:slug/graph/annotations/delete", orgHandler.DeleteAnnotation, auth.RequireAuth())
-	site.POST("/orgs/:slug/graph/groups", orgHandler.SaveGraphGroup, auth.RequireAuth())
-	site.POST("/orgs/:slug/graph/groups/delete", orgHandler.DeleteGraphGroup, auth.RequireAuth())
+	//
+	// ownerOnly on the two that are served by a handler gated at member level
+	// in its settings home. The wizard's other steps are all owner, and the
+	// setup allow-list waives the draft gate for this whole prefix, so without
+	// it a member who cannot see the wizard could still post its domain and
+	// connector steps. AccessService holds the level; this is the route that
+	// asks for it (point 15, VerbSetupDomain / VerbSetupConnector).
+	setupVerb := func(v service.Verb) echo.MiddlewareFunc {
+		return middleware.RequireVerb(deps.Store, deps.Access, v)
+	}
+	mutate(site, "POST", "/orgs/:slug/setup/name", orgHandler.Rename, service.VerbSetupStep, service.KindOrg, "slug")
+	mutate(site, "POST", "/orgs/:slug/setup/mode", orgHandler.SetupMode, service.VerbSetupStep, service.KindOrg, "slug")
+	mutate(site, "POST", "/orgs/:slug/setup/connector", settingsHandler.GitHubConnect, service.VerbSetupConnector, service.KindOrg, "slug", setupVerb(service.VerbSetupConnector))
+	mutate(site, "POST", "/orgs/:slug/setup/config", orgHandler.SaveOrgConfig, service.VerbSetupStep, service.KindOrg, "slug")
+	read(site, "/orgs/:slug/setup/config/plan", orgHandler.SetupConfigPlan, service.VerbOrgOwnerRead, service.KindOrg, "slug")
+	mutate(site, "POST", "/orgs/:slug/setup/config/plan/:planID/approve", orgHandler.SetupApprovePlan, service.VerbSetupStep, service.KindOrg, "slug")
+	mutate(site, "POST", "/orgs/:slug/setup/config/plan/:planID/reject", orgHandler.SetupRejectPlan, service.VerbSetupStep, service.KindOrg, "slug")
+	mutate(site, "POST", "/orgs/:slug/setup/config/plan/:planID/inputs", orgHandler.SetPlanInput, service.VerbSetupStep, service.KindOrg, "slug")
+	mutate(site, "POST", "/orgs/:slug/setup/domain", orgHandler.SaveOrgDomain, service.VerbSetupDomain, service.KindOrg, "slug", setupVerb(service.VerbSetupDomain))
+	mutate(site, "POST", "/orgs/:slug/setup/team/members", orgHandler.AddMember, service.VerbSetupStep, service.KindOrg, "slug")
+	mutate(site, "POST", "/orgs/:slug/setup/team/members/:userID/role", orgHandler.SetMemberRole, service.VerbSetupStep, service.KindOrg, "slug")
+	mutate(site, "POST", "/orgs/:slug/setup/team/members/:userID/remove", orgHandler.RemoveMember, service.VerbSetupStep, service.KindOrg, "slug")
+	mutate(site, "POST", "/orgs/:slug/setup/team/invites/:inviteID/resend", orgHandler.ResendInvite, service.VerbSetupStep, service.KindOrg, "slug")
+	mutate(site, "POST", "/orgs/:slug/setup/team/invites/:inviteID/reinvite", orgHandler.ReinviteMember, service.VerbSetupStep, service.KindOrg, "slug")
+	mutate(site, "POST", "/orgs/:slug/setup/team/invites/:inviteID/delete", orgHandler.DeleteInvite, service.VerbSetupStep, service.KindOrg, "slug")
+	mutate(site, "POST", "/orgs/:slug/setup/done", orgHandler.SetupDone, service.VerbSetupStep, service.KindOrg, "slug")
+	read(site, "/orgs/:slug", orgHandler.Graph, service.VerbOrgRead, service.KindOrg, "slug")
+	read(site, "/orgs/:slug/graph/status", orgHandler.GraphStatus, service.VerbOrgRead, service.KindOrg, "slug")
+	mutate(site, "POST", "/orgs/:slug/graph/positions", orgHandler.SaveNodePosition, service.VerbOrgGraphWrite, service.KindOrg, "slug")
+	mutate(site, "POST", "/orgs/:slug/graph/positions/reset", orgHandler.ResetNodePositions, service.VerbOrgGraphWrite, service.KindOrg, "slug")
+	mutate(site, "POST", "/orgs/:slug/graph/annotations", orgHandler.SaveAnnotation, service.VerbOrgGraphWrite, service.KindOrg, "slug")
+	mutate(site, "POST", "/orgs/:slug/graph/annotations/delete", orgHandler.DeleteAnnotation, service.VerbOrgGraphWrite, service.KindOrg, "slug")
+	mutate(site, "POST", "/orgs/:slug/graph/groups", orgHandler.SaveGraphGroup, service.VerbOrgGraphWrite, service.KindOrg, "slug")
+	mutate(site, "POST", "/orgs/:slug/graph/groups/delete", orgHandler.DeleteGraphGroup, service.VerbOrgGraphWrite, service.KindOrg, "slug")
 	// The org's settings page: members, invites, connectors, variables, rename
 	// and delete. ":id" accepts the org's slug or its uuid.
-	site.GET("/orgs/:slug/plans", orgHandler.Plans, auth.RequireAuth())
-	site.GET("/orgs/:slug/plans/:planID", orgHandler.OrgPlanView, auth.RequireAuth())
-	site.POST("/orgs/:slug/plans/:planID/approve", orgHandler.ApproveOrgPlan, auth.RequireAuth())
-	site.POST("/orgs/:slug/plans/:planID/reject", orgHandler.RejectOrgPlan, auth.RequireAuth())
-	site.POST("/orgs/:slug/plans/:planID/inputs", orgHandler.SetPlanInput, auth.RequireAuth())
+	read(site, "/orgs/:slug/plans", orgHandler.Plans, service.VerbOrgOwnerRead, service.KindOrg, "slug")
+	read(site, "/orgs/:slug/plans/:planID", orgHandler.OrgPlanView, service.VerbOrgOwnerRead, service.KindOrg, "slug")
+	mutate(site, "POST", "/orgs/:slug/plans/:planID/approve", orgHandler.ApproveOrgPlan, service.VerbOrgPlanApprove, service.KindOrg, "slug")
+	mutate(site, "POST", "/orgs/:slug/plans/:planID/reject", orgHandler.RejectOrgPlan, service.VerbOrgPlanApprove, service.KindOrg, "slug")
+	mutate(site, "POST", "/orgs/:slug/plans/:planID/inputs", orgHandler.SetPlanInput, service.VerbOrgPlanApprove, service.KindOrg, "slug")
 	// Settings are closed until the org has been through the wizard, so the
 	// steps cannot be skipped sideways by clicking into a tab. Everything that
 	// has to stay reachable mid-setup (the canvas, the plans pages, the repo
 	// picker's lookups) is registered outside this group.
 	orgSettings := site.Group("/orgs/:slug/settings", auth.RequireAuth(), middleware.RequireSetupDone(deps.Store))
-	orgSettings.GET("", orgHandler.SettingsIndex)
-	orgSettings.GET("/general", orgHandler.SettingsGeneral)
-	orgSettings.GET("/members", orgHandler.SettingsMembers)
-	orgSettings.GET("/invites", orgHandler.SettingsInvites)
-	orgSettings.GET("/connectors", orgHandler.SettingsConnectors)
-	orgSettings.GET("/variables", orgHandler.SettingsVariables)
-	orgSettings.GET("/variables/panel", orgHandler.VarsPanel)
-	orgSettings.GET("/variables/value", orgHandler.OrgVarValue)
-	orgSettings.GET("/domains", orgHandler.SettingsDomains)
-	orgSettings.POST("/domains", orgHandler.SaveOrgDomain)
-	orgSettings.POST("/domains/delete", orgHandler.DeleteOrgDomain)
-	orgSettings.GET("/storage", orgHandler.SettingsStorage)
-	orgSettings.POST("/env-colors", orgHandler.SaveEnvColor)
-	orgSettings.GET("/backups", orgHandler.SettingsBackups)
-	orgSettings.GET("/config/export", orgHandler.ExportConfig)
-	orgSettings.GET("/defaults", orgHandler.SettingsDefaults)
-	orgSettings.POST("/defaults", orgHandler.SaveDefaults)
-	orgSettings.GET("/registry", orgHandler.SettingsRegistry)
-	orgSettings.GET("/registry/images", orgHandler.RegistryImages)
-	orgSettings.POST("/registry/credentials", orgHandler.CreateRegistryCredential)
-	orgSettings.POST("/registry/credentials/delete", orgHandler.DeleteRegistryCredential)
-	orgSettings.POST("/registry/tags/delete", orgHandler.DeleteRegistryTag)
-	orgSettings.GET("/config", orgHandler.SettingsConfig)
-	orgSettings.POST("/config", orgHandler.SaveOrgConfig)
-	orgSettings.POST("/backups/destinations", settingsHandler.CreateDestination)
-	orgSettings.POST("/backups/destinations/:destID/delete", settingsHandler.DeleteDestination)
-	orgSettings.POST("/vars", orgHandler.SaveOrgVar)
-	orgSettings.POST("/vars/delete", orgHandler.DeleteOrgVar)
-	orgSettings.POST("/connectors/github", settingsHandler.GitHubConnect)
-	orgSettings.POST("/connectors/:connectorID/delete", settingsHandler.DeleteConnector)
-	site.POST("/orgs/:slug/rename", orgHandler.Rename, auth.RequireAuth())
-	site.POST("/orgs/:slug/delete", orgHandler.Delete, auth.RequireAuth())
-	site.POST("/orgs/:slug/members", orgHandler.AddMember, auth.RequireAuth())
-	site.POST("/orgs/:slug/members/:userID/role", orgHandler.SetMemberRole, auth.RequireAuth())
-	site.POST("/orgs/:slug/members/:userID/remove", orgHandler.RemoveMember, auth.RequireAuth())
-	site.POST("/orgs/:slug/invites", orgHandler.CreateInvite, auth.RequireAuth())
-	site.POST("/orgs/:slug/invites/:inviteID/delete", orgHandler.DeleteInvite, auth.RequireAuth())
-	site.POST("/orgs/:slug/invites/:inviteID/resend", orgHandler.ResendInvite, auth.RequireAuth())
-	site.POST("/orgs/:slug/invites/:inviteID/reinvite", orgHandler.ReinviteMember, auth.RequireAuth())
-	site.POST("/orgs", orgHandler.Create, auth.RequireAuth(), adminOnly)
+	read(orgSettings, "", orgHandler.SettingsIndex, service.VerbOrgRead, service.KindOrg, "slug")
+	read(orgSettings, "/general", orgHandler.SettingsGeneral, service.VerbOrgRead, service.KindOrg, "slug")
+	read(orgSettings, "/members", orgHandler.SettingsMembers, service.VerbMemberList, service.KindOrg, "slug")
+	read(orgSettings, "/invites", orgHandler.SettingsInvites, service.VerbOrgOwnerRead, service.KindOrg, "slug")
+	read(orgSettings, "/connectors", orgHandler.SettingsConnectors, service.VerbOrgRead, service.KindOrg, "slug")
+	read(orgSettings, "/variables", orgHandler.SettingsVariables, service.VerbOrgRead, service.KindOrg, "slug")
+	read(orgSettings, "/variables/panel", orgHandler.VarsPanel, service.VerbOrgRead, service.KindOrg, "slug")
+	read(orgSettings, "/variables/value", orgHandler.OrgVarValue, service.VerbVariableWrite, service.KindOrg, "slug")
+	read(orgSettings, "/domains", orgHandler.SettingsDomains, service.VerbOrgRead, service.KindOrg, "slug")
+	// Owner, not write: the delete on the next line was already owner, and a
+	// surface disagreeing with itself about a level resolves upward — see
+	// 06-points-18-20.md, "The four open decisions", #1.
+	mutate(orgSettings, "POST", "/domains", orgHandler.SaveOrgDomain, service.VerbOrgWrite, service.KindOrg, "slug")
+	mutate(orgSettings, "POST", "/domains/delete", orgHandler.DeleteOrgDomain, service.VerbOrgWrite, service.KindOrg, "slug")
+	read(orgSettings, "/storage", orgHandler.SettingsStorage, service.VerbOrgRead, service.KindOrg, "slug")
+	mutate(orgSettings, "POST", "/env-colors", orgHandler.SaveEnvColor, service.VerbOrgWrite, service.KindOrg, "slug")
+	read(orgSettings, "/backups", orgHandler.SettingsBackups, service.VerbOrgRead, service.KindOrg, "slug")
+	read(orgSettings, "/config/export", orgHandler.ExportConfig, service.VerbConfigExport, service.KindOrg, "slug")
+	read(orgSettings, "/defaults", orgHandler.SettingsDefaults, service.VerbOrgRead, service.KindOrg, "slug")
+	mutate(orgSettings, "POST", "/defaults", orgHandler.SaveDefaults, service.VerbOrgDefaults, service.KindOrg, "slug")
+	read(orgSettings, "/registry", orgHandler.SettingsRegistry, service.VerbOrgRead, service.KindOrg, "slug")
+	read(orgSettings, "/registry/images", orgHandler.RegistryImages, service.VerbRegistryList, service.KindOrg, "slug")
+	mutate(orgSettings, "POST", "/registry/credentials", orgHandler.CreateRegistryCredential, service.VerbRegistryCredential, service.KindOrg, "slug")
+	mutate(orgSettings, "POST", "/registry/credentials/delete", orgHandler.DeleteRegistryCredential, service.VerbRegistryCredential, service.KindOrg, "slug")
+	mutate(orgSettings, "POST", "/registry/tags/delete", orgHandler.DeleteRegistryTag, service.VerbRegistryTagDelete, service.KindOrg, "slug")
+	read(orgSettings, "/config", orgHandler.SettingsConfig, service.VerbOrgRead, service.KindOrg, "slug")
+	mutate(orgSettings, "POST", "/config", orgHandler.SaveOrgConfig, service.VerbOrgConfigBind, service.KindOrg, "slug")
+	mutate(orgSettings, "POST", "/backups/destinations", settingsHandler.CreateDestination, service.VerbBackupWrite, service.KindOrg, "slug")
+	mutate(orgSettings, "POST", "/backups/destinations/:destID/delete", settingsHandler.DeleteDestination, service.VerbBackupWrite, service.KindOrg, "slug")
+	mutate(orgSettings, "POST", "/vars", orgHandler.SaveOrgVar, service.VerbVariableWrite, service.KindOrg, "slug")
+	mutate(orgSettings, "POST", "/vars/delete", orgHandler.DeleteOrgVar, service.VerbVariableWrite, service.KindOrg, "slug")
+	mutate(orgSettings, "POST", "/connectors/github", settingsHandler.GitHubConnect, service.VerbConnectorWrite, service.KindOrg, "slug")
+	mutate(orgSettings, "POST", "/connectors/:connectorID/delete", settingsHandler.DeleteConnector, service.VerbConnectorWrite, service.KindOrg, "slug")
+	mutate(site, "POST", "/orgs/:slug/rename", orgHandler.Rename, service.VerbOrgWrite, service.KindOrg, "slug")
+	mutate(site, "POST", "/orgs/:slug/delete", orgHandler.Delete, service.VerbOrgWrite, service.KindOrg, "slug")
+	mutate(site, "POST", "/orgs/:slug/members", orgHandler.AddMember, service.VerbMemberManage, service.KindOrg, "slug")
+	mutate(site, "POST", "/orgs/:slug/members/:userID/role", orgHandler.SetMemberRole, service.VerbMemberManage, service.KindOrg, "slug")
+	mutate(site, "POST", "/orgs/:slug/members/:userID/remove", orgHandler.RemoveMember, service.VerbMemberManage, service.KindOrg, "slug")
+	mutate(site, "POST", "/orgs/:slug/invites", orgHandler.CreateInvite, service.VerbMemberManage, service.KindOrg, "slug")
+	mutate(site, "POST", "/orgs/:slug/invites/:inviteID/delete", orgHandler.DeleteInvite, service.VerbMemberManage, service.KindOrg, "slug")
+	mutate(site, "POST", "/orgs/:slug/invites/:inviteID/resend", orgHandler.ResendInvite, service.VerbMemberManage, service.KindOrg, "slug")
+	mutate(site, "POST", "/orgs/:slug/invites/:inviteID/reinvite", orgHandler.ReinviteMember, service.VerbMemberManage, service.KindOrg, "slug")
+	mutate(site, "POST", "/orgs", orgHandler.Create, service.VerbOrgCreate, service.KindNone, "", adminOnly)
 	site.POST("/orgs/switch", orgHandler.Switch, auth.RequireAuth())
-	site.POST("/orgs/stacks/:id/move", orgHandler.MoveStack, auth.RequireAuth())
+	mutate(site, "POST", "/orgs/stacks/:id/move", orgHandler.MoveStack, service.VerbStackWrite, service.KindStack, "id")
 
 	serverHandler := serverpage.NewHandler(serverpage.Deps{
 		Store: deps.Store, Runtime: deps.Runtime, Proxy: deps.Proxy,
 		Nodes: deps.Nodes, Cluster: deps.Cluster,
 		Mover: deps.Mover, BaseURL: deps.BaseURL,
-		DataDir: deps.DataDir, Version: deps.Version,
-	})
+		Version: deps.Version,
+	}).WithDomainResources(deps.Resources).WithStorage(deps.Storage).WithSettings(deps.Settings).WithNodeService(deps.NodeService)
 	// The join script is the one route here with no session in front of it.
 	// It is curled by a machine that has no login and is not in the swarm
 	// yet; the one-time key in the URL, bound to that machine's address, is
@@ -327,185 +438,199 @@ func RegisterRoutes(srv *server.Server, deps *Deps) {
 	// the daemon may not advertise. Same key, re-read inside its TTL, so it is
 	// outside the session for the same reason.
 	e.POST("/join/:key/node", serverHandler.ClaimNode)
-	site.GET("/servers", serverHandler.List, auth.RequireAuth(), adminOnly)
-	site.GET("/servers/add", serverHandler.AddNodeForm, auth.RequireAuth(), adminOnly)
-	site.POST("/servers/add", serverHandler.AddNode, auth.RequireAuth(), adminOnly)
-	site.GET("/servers/move/:id", serverHandler.MoveForm, auth.RequireAuth(), adminOnly)
-	site.POST("/servers/move/:id", serverHandler.Move, auth.RequireAuth(), adminOnly)
-	site.POST("/servers/:id/join-key", serverHandler.NewJoinKey, auth.RequireAuth(), adminOnly)
-	site.GET("/servers/:id/drain", serverHandler.DrainForm, auth.RequireAuth(), adminOnly)
-	site.POST("/servers/:id/drain", serverHandler.Drain, auth.RequireAuth(), adminOnly)
-	site.POST("/servers/:id/activate", serverHandler.Activate, auth.RequireAuth(), adminOnly)
-	site.GET("/servers/:id/remove", serverHandler.RemoveForm, auth.RequireAuth(), adminOnly)
-	site.POST("/servers/:id/remove", serverHandler.Remove, auth.RequireAuth(), adminOnly)
-	site.POST("/servers/:id/group", serverHandler.SaveGroup, auth.RequireAuth(), adminOnly)
-	site.GET("/servers/:id", serverHandler.Detail, auth.RequireAuth(), adminOnly)
-	site.GET("/servers/:id/host", serverHandler.Host, auth.RequireAuth(), adminOnly)
-	site.GET("/servers/:id/volumes", serverHandler.Volumes, auth.RequireAuth(), adminOnly)
-	site.POST("/servers/:id/settings", serverHandler.SaveSettings, auth.RequireAuth(), adminOnly)
-	site.POST("/servers/:id/volumes", serverHandler.CreateVolume, auth.RequireAuth(), adminOnly)
-	site.POST("/servers/:id/volumes/delete", serverHandler.DeleteVolume, auth.RequireAuth(), adminOnly)
-	site.POST("/servers/:id/storage", serverHandler.CreateStorage, auth.RequireAuth(), adminOnly)
-	site.POST("/servers/:id/storage/delete", serverHandler.DeleteStorage, auth.RequireAuth(), adminOnly)
-	site.POST("/servers/:id/storage/probe", serverHandler.ProbeStorage, auth.RequireAuth(), adminOnly)
-	site.POST("/servers/:id/storage/paths", serverHandler.CreateStoragePath, auth.RequireAuth(), adminOnly)
-	site.POST("/servers/:id/storage/paths/delete", serverHandler.DeleteStoragePath, auth.RequireAuth(), adminOnly)
-	site.POST("/servers/:id/domains", serverHandler.CreateDomainResource, auth.RequireAuth(), adminOnly)
-	site.POST("/servers/:id/domains/delete", serverHandler.DeleteDomainResource, auth.RequireAuth(), adminOnly)
+	read(site, "/servers", serverHandler.List, service.VerbAdminRead, service.KindNone, "", adminOnly)
+	read(site, "/servers/add", serverHandler.AddNodeForm, service.VerbAdminRead, service.KindNone, "", adminOnly)
+	mutate(site, "POST", "/servers/add", serverHandler.AddNode, service.VerbNodeManage, service.KindNone, "", adminOnly)
+	read(site, "/servers/move/:id", serverHandler.MoveForm, service.VerbAdminRead, service.KindNone, "", adminOnly)
+	mutate(site, "POST", "/servers/move/:id", serverHandler.Move, service.VerbNodeManage, service.KindNone, "", adminOnly)
+	mutate(site, "POST", "/servers/:id/join-key", serverHandler.NewJoinKey, service.VerbNodeManage, service.KindNone, "", adminOnly)
+	read(site, "/servers/:id/drain", serverHandler.DrainForm, service.VerbAdminRead, service.KindNone, "", adminOnly)
+	mutate(site, "POST", "/servers/:id/drain", serverHandler.Drain, service.VerbNodeManage, service.KindNone, "", adminOnly)
+	mutate(site, "POST", "/servers/:id/activate", serverHandler.Activate, service.VerbNodeManage, service.KindNone, "", adminOnly)
+	read(site, "/servers/:id/remove", serverHandler.RemoveForm, service.VerbAdminRead, service.KindNone, "", adminOnly)
+	mutate(site, "POST", "/servers/:id/remove", serverHandler.Remove, service.VerbNodeManage, service.KindNone, "", adminOnly)
+	mutate(site, "POST", "/servers/:id/group", serverHandler.SaveGroup, service.VerbNodeManage, service.KindNone, "", adminOnly)
+	read(site, "/servers/:id", serverHandler.Detail, service.VerbAdminRead, service.KindNone, "", adminOnly)
+	read(site, "/servers/:id/host", serverHandler.Host, service.VerbAdminRead, service.KindNone, "", adminOnly)
+	read(site, "/servers/:id/volumes", serverHandler.Volumes, service.VerbAdminRead, service.KindNone, "", adminOnly)
+	mutate(site, "POST", "/servers/:id/settings", serverHandler.SaveSettings, service.VerbNodeManage, service.KindNone, "", adminOnly)
+	mutate(site, "POST", "/servers/:id/volumes", serverHandler.CreateVolume, service.VerbNodeManage, service.KindNone, "", adminOnly)
+	mutate(site, "POST", "/servers/:id/volumes/delete", serverHandler.DeleteVolume, service.VerbNodeManage, service.KindNone, "", adminOnly)
+	mutate(site, "POST", "/servers/:id/storage", serverHandler.CreateStorage, service.VerbNodeManage, service.KindNone, "", adminOnly)
+	mutate(site, "POST", "/servers/:id/storage/delete", serverHandler.DeleteStorage, service.VerbNodeManage, service.KindNone, "", adminOnly)
+	mutate(site, "POST", "/servers/:id/storage/probe", serverHandler.ProbeStorage, service.VerbNodeManage, service.KindNone, "", adminOnly)
+	mutate(site, "POST", "/servers/:id/storage/paths", serverHandler.CreateStoragePath, service.VerbNodeManage, service.KindNone, "", adminOnly)
+	mutate(site, "POST", "/servers/:id/storage/paths/delete", serverHandler.DeleteStoragePath, service.VerbNodeManage, service.KindNone, "", adminOnly)
+	mutate(site, "POST", "/servers/:id/domains", serverHandler.CreateDomainResource, service.VerbNodeManage, service.KindNone, "", adminOnly)
+	mutate(site, "POST", "/servers/:id/domains/delete", serverHandler.DeleteDomainResource, service.VerbNodeManage, service.KindNone, "", adminOnly)
 
 	applier := deps.Applier
-	projectHandler := project.NewHandler(deps.Store, deps.Jobs, deps.Runtime, deps.Cluster, deps.Proxy, deps.Metrics, deps.Notifier, deps.GitHub, applier, deps.Forwards).
+	projectHandler := project.NewHandler(deps.Store, deps.Runtime, deps.Cluster, deps.Proxy, deps.Metrics, deps.Notifier, deps.GitHub, applier, deps.Forwards).
+		WithInstances(deps.Instances).
+		WithVariables(deps.Variables).
+		WithEnvironments(deps.Environments).
+		WithStacks(deps.Stacks).
+		WithDeploys(deps.Deploys).
+		WithReleases(deps.Releases).
+		WithPlans(deps.Plans).
+		WithPREnvs(deps.PREnvs).
 		WithMover(deps.Mover).
-		WithWork(deps.Work)
-	site.POST("/projects", projectHandler.Create, auth.RequireAuth())
+		WithWork(deps.Work).
+		WithSettings(deps.Settings).
+		WithScheduler(deps.Scheduler).
+		WithTiles(deps.Tiles).
+		WithDomains(deps.Domains).
+		WithDomainResources(deps.Resources)
+	mutate(site, "POST", "/projects", projectHandler.Create, service.VerbStackCreate, service.KindDeferred, "")
 	// Legacy id URLs redirect to the canonical slug URLs.
-	site.GET("/projects/:id", projectHandler.RedirectStack, auth.RequireAuth())
-	site.GET("/projects/:id/graph", projectHandler.RedirectStack, auth.RequireAuth())
-	site.POST("/projects/:id/delete", projectHandler.Delete, auth.RequireAuth())
-	site.POST("/projects/:id/settings", projectHandler.SaveSettings, auth.RequireAuth())
-	site.POST("/projects/:id/config", projectHandler.SaveConfigBinding, auth.RequireAuth())
-	site.POST("/projects/:id/config/plan", projectHandler.PlanNow, auth.RequireAuth())
+	read(site, "/projects/:id", projectHandler.RedirectStack, service.VerbOrgRead, service.KindStack, "id")
+	read(site, "/projects/:id/graph", projectHandler.RedirectStack, service.VerbOrgRead, service.KindStack, "id")
+	mutate(site, "POST", "/projects/:id/delete", projectHandler.Delete, service.VerbStackWrite, service.KindStack, "id")
+	mutate(site, "POST", "/projects/:id/settings", projectHandler.SaveSettings, service.VerbStackWrite, service.KindStack, "id")
+	mutate(site, "POST", "/projects/:id/config", projectHandler.SaveConfigBinding, service.VerbStackWrite, service.KindStack, "id")
+	mutate(site, "POST", "/projects/:id/config/plan", projectHandler.PlanNow, service.VerbStackPlan, service.KindStack, "id")
 	// The pre-rename URL, kept alive because links to it exist; the page
 	// itself now lives under /:org/:stack.
-	site.GET("/projects/:id/config/plans/:planID", projectHandler.PlanRedirect, auth.RequireAuth())
-	site.POST("/projects/:id/config/plans/:planID/approve", projectHandler.ApprovePlan, auth.RequireAuth())
-	site.POST("/projects/:id/config/plans/:planID/reject", projectHandler.RejectPlan, auth.RequireAuth())
-	site.POST("/projects/:id/config/plans/:planID/inputs", projectHandler.SetPlanInput, auth.RequireAuth())
-	site.POST("/envs/:id/config", projectHandler.SaveEnvConfig, auth.RequireAuth())
-	site.POST("/projects/:id/apps", projectHandler.CreateTile, auth.RequireAuth())
-	site.GET("/projects/:id/repos", projectHandler.Repos, auth.RequireAuth())
-	site.POST("/projects/:id/dbs", projectHandler.CreateDB, auth.RequireAuth())
-	site.POST("/projects/:id/envs", projectHandler.CreateEnvironment, auth.RequireAuth())
-	site.POST("/envs/:id/delete", projectHandler.DeleteEnvironment, auth.RequireAuth())
-	site.POST("/envs/:id/reset", projectHandler.ResetEnvironment, auth.RequireAuth())
-	site.POST("/envs/:id/settings", projectHandler.SaveEnvSettings, auth.RequireAuth())
-	site.POST("/envs/:id/color", projectHandler.SaveEnvColor, auth.RequireAuth())
-	site.POST("/envs/:id/vars", projectHandler.SaveEnvVar, auth.RequireAuth())
-	site.POST("/envs/:id/vars/delete", projectHandler.DeleteEnvVar, auth.RequireAuth())
-	site.POST("/projects/:id/vars", projectHandler.SaveStackVar, auth.RequireAuth())
-	site.POST("/projects/:id/vars/delete", projectHandler.DeleteStackVar, auth.RequireAuth())
-	site.POST("/projects/:id/links", projectHandler.MintStackLink, auth.RequireAuth())
-	site.POST("/projects/:id/links/revoke", projectHandler.RevokeStackLink, auth.RequireAuth())
-	site.POST("/projects/:id/domain-resources", projectHandler.SaveStackDomain, auth.RequireAuth())
-	site.POST("/projects/:id/domain-resources/delete", projectHandler.DeleteStackDomain, auth.RequireAuth())
-	site.POST("/projects/:id/prenv", projectHandler.SavePREnv, auth.RequireAuth())
-	site.POST("/projects/:id/prenv/rotate", projectHandler.RotatePRSecret, auth.RequireAuth())
+	read(site, "/projects/:id/config/plans/:planID", projectHandler.PlanRedirect, service.VerbOrgRead, service.KindStack, "id")
+	mutate(site, "POST", "/projects/:id/config/plans/:planID/approve", projectHandler.ApprovePlan, service.VerbStackPlanApprove, service.KindStackPlan, "planID")
+	mutate(site, "POST", "/projects/:id/config/plans/:planID/reject", projectHandler.RejectPlan, service.VerbStackPlanApprove, service.KindStackPlan, "planID")
+	mutate(site, "POST", "/projects/:id/config/plans/:planID/inputs", projectHandler.SetPlanInput, service.VerbStackPlanApprove, service.KindStackPlan, "planID")
+	mutate(site, "POST", "/envs/:id/config", projectHandler.SaveEnvConfig, service.VerbEnvWrite, service.KindEnv, "id")
+	mutate(site, "POST", "/projects/:id/apps", projectHandler.CreateTile, service.VerbStackWrite, service.KindStack, "id")
+	read(site, "/projects/:id/repos", projectHandler.Repos, service.VerbOrgRead, service.KindStack, "id")
+	mutate(site, "POST", "/projects/:id/dbs", projectHandler.CreateDB, service.VerbStackWrite, service.KindStack, "id")
+	mutate(site, "POST", "/projects/:id/envs", projectHandler.CreateEnvironment, service.VerbStackWrite, service.KindStack, "id")
+	mutate(site, "POST", "/envs/:id/delete", projectHandler.DeleteEnvironment, service.VerbEnvWrite, service.KindEnv, "id")
+	mutate(site, "POST", "/envs/:id/reset", projectHandler.ResetEnvironment, service.VerbEnvWrite, service.KindEnv, "id")
+	mutate(site, "POST", "/envs/:id/settings", projectHandler.SaveEnvSettings, service.VerbEnvWrite, service.KindEnv, "id")
+	mutate(site, "POST", "/envs/:id/color", projectHandler.SaveEnvColor, service.VerbEnvWrite, service.KindEnv, "id")
+	mutate(site, "POST", "/envs/:id/vars", projectHandler.SaveEnvVar, service.VerbVariableWrite, service.KindEnv, "id")
+	mutate(site, "POST", "/envs/:id/vars/delete", projectHandler.DeleteEnvVar, service.VerbVariableWrite, service.KindEnv, "id")
+	mutate(site, "POST", "/projects/:id/vars", projectHandler.SaveStackVar, service.VerbVariableWrite, service.KindStack, "id")
+	mutate(site, "POST", "/projects/:id/vars/delete", projectHandler.DeleteStackVar, service.VerbVariableWrite, service.KindStack, "id")
+	mutate(site, "POST", "/projects/:id/links", projectHandler.MintStackLink, service.VerbShareLinkMint, service.KindStack, "id")
+	mutate(site, "POST", "/projects/:id/links/revoke", projectHandler.RevokeStackLink, service.VerbShareLinkMint, service.KindStack, "id")
+	mutate(site, "POST", "/projects/:id/domain-resources", projectHandler.SaveStackDomain, service.VerbDomainWrite, service.KindStack, "id")
+	mutate(site, "POST", "/projects/:id/domain-resources/delete", projectHandler.DeleteStackDomain, service.VerbDomainWrite, service.KindStack, "id")
+	mutate(site, "POST", "/projects/:id/prenv", projectHandler.SavePREnv, service.VerbStackWrite, service.KindStack, "id")
+	mutate(site, "POST", "/projects/:id/prenv/rotate", projectHandler.RotatePRSecret, service.VerbStackWrite, service.KindStack, "id")
 	// Environment-scoped canvas data (graph.js reads these off data attrs).
-	site.GET("/envs/:id/graph/status", projectHandler.GraphStatus, auth.RequireAuth())
-	site.GET("/projects/:id/staging/:envID", projectHandler.StagingReview, auth.RequireAuth())
-	site.POST("/projects/:id/staging/:envID/apply", projectHandler.StagingApply, auth.RequireAuth())
-	site.POST("/projects/:id/staging/:envID/discard", projectHandler.StagingDiscard, auth.RequireAuth())
-	site.POST("/projects/:id/staging/:envID/changes/:changeID/discard", projectHandler.StagingDiscardOne, auth.RequireAuth())
-	site.GET("/envs/:id/logs/stream", projectHandler.EnvLogsStream, auth.RequireAuth())
-	site.POST("/envs/:id/graph/positions", projectHandler.SaveNodePosition, auth.RequireAuth())
-	site.POST("/envs/:id/graph/positions/reset", projectHandler.ResetNodePositions, auth.RequireAuth())
-	site.POST("/envs/:id/graph/annotations", projectHandler.SaveEnvAnnotation, auth.RequireAuth())
-	site.POST("/envs/:id/graph/annotations/delete", projectHandler.DeleteEnvAnnotation, auth.RequireAuth())
-	site.POST("/envs/:id/graph/groups", projectHandler.SaveEnvGraphGroup, auth.RequireAuth())
-	site.POST("/envs/:id/graph/groups/delete", projectHandler.DeleteEnvGraphGroup, auth.RequireAuth())
+	read(site, "/envs/:id/graph/status", projectHandler.GraphStatus, service.VerbOrgRead, service.KindEnv, "id")
+	read(site, "/projects/:id/staging/:envID", projectHandler.StagingReview, service.VerbOrgRead, service.KindStack, "id")
+	mutate(site, "POST", "/projects/:id/staging/:envID/apply", projectHandler.StagingApply, service.VerbStackPlanApprove, service.KindStack, "id")
+	mutate(site, "POST", "/projects/:id/staging/:envID/discard", projectHandler.StagingDiscard, service.VerbStackPlanApprove, service.KindStack, "id")
+	mutate(site, "POST", "/projects/:id/staging/:envID/changes/:changeID/discard", projectHandler.StagingDiscardOne, service.VerbStackPlanApprove, service.KindStack, "id")
+	read(site, "/envs/:id/logs/stream", projectHandler.EnvLogsStream, service.VerbOrgRead, service.KindEnv, "id")
+	mutate(site, "POST", "/envs/:id/graph/positions", projectHandler.SaveNodePosition, service.VerbEnvWrite, service.KindEnv, "id")
+	mutate(site, "POST", "/envs/:id/graph/positions/reset", projectHandler.ResetNodePositions, service.VerbEnvWrite, service.KindEnv, "id")
+	mutate(site, "POST", "/envs/:id/graph/annotations", projectHandler.SaveEnvAnnotation, service.VerbEnvWrite, service.KindEnv, "id")
+	mutate(site, "POST", "/envs/:id/graph/annotations/delete", projectHandler.DeleteEnvAnnotation, service.VerbEnvWrite, service.KindEnv, "id")
+	mutate(site, "POST", "/envs/:id/graph/groups", projectHandler.SaveEnvGraphGroup, service.VerbEnvWrite, service.KindEnv, "id")
+	mutate(site, "POST", "/envs/:id/graph/groups/delete", projectHandler.DeleteEnvGraphGroup, service.VerbEnvWrite, service.KindEnv, "id")
 	// The environments pill and panel on the stack canvas (plan 24).
-	site.GET("/projects/:id/envs/compare", projectHandler.EnvCompare, auth.RequireAuth())
+	read(site, "/projects/:id/envs/compare", projectHandler.EnvCompare, service.VerbOrgRead, service.KindStack, "id")
 	// Promotion: one dialogue, one endpoint, wherever the button sits (the
 	// releases page, a config plan row). The GET renders the confirm as a
 	// fragment because it carries the commits going in, not one sentence.
-	site.GET("/projects/:id/envs/:slug/promote", projectHandler.PromoteDialogue, auth.RequireAuth())
-	site.POST("/projects/:id/envs/:slug/promote", projectHandler.PromoteCommit, auth.RequireAuth())
-	site.POST("/envs/:id/intended", projectHandler.MarkIntended, auth.RequireAuth())
-	site.POST("/envs/:id/copy", projectHandler.CopyEnv, auth.RequireAuth())
+	read(site, "/projects/:id/envs/:slug/promote", projectHandler.PromoteDialogue, service.VerbOrgRead, service.KindStack, "id")
+	mutate(site, "POST", "/projects/:id/envs/:slug/promote", projectHandler.PromoteCommit, service.VerbStackWrite, service.KindStack, "id")
+	mutate(site, "POST", "/envs/:id/intended", projectHandler.MarkIntended, service.VerbEnvWrite, service.KindEnv, "id")
+	mutate(site, "POST", "/envs/:id/copy", projectHandler.CopyEnv, service.VerbEnvWrite, service.KindEnv, "id")
 	// Stack canvas: same three endpoints one level up (see StackGraph).
-	site.GET("/projects/:id/graph/status", projectHandler.StackGraphStatus, auth.RequireAuth())
-	site.POST("/projects/:id/graph/positions", projectHandler.SaveStackNodePosition, auth.RequireAuth())
-	site.POST("/projects/:id/graph/positions/reset", projectHandler.ResetStackNodePositions, auth.RequireAuth())
-	site.POST("/projects/:id/graph/annotations", projectHandler.SaveStackAnnotation, auth.RequireAuth())
-	site.POST("/projects/:id/graph/annotations/delete", projectHandler.DeleteStackAnnotation, auth.RequireAuth())
-	site.POST("/projects/:id/graph/groups", projectHandler.SaveStackGraphGroup, auth.RequireAuth())
-	site.POST("/projects/:id/graph/groups/delete", projectHandler.DeleteStackGraphGroup, auth.RequireAuth())
+	read(site, "/projects/:id/graph/status", projectHandler.StackGraphStatus, service.VerbOrgRead, service.KindStack, "id")
+	mutate(site, "POST", "/projects/:id/graph/positions", projectHandler.SaveStackNodePosition, service.VerbStackWrite, service.KindStack, "id")
+	mutate(site, "POST", "/projects/:id/graph/positions/reset", projectHandler.ResetStackNodePositions, service.VerbStackWrite, service.KindStack, "id")
+	mutate(site, "POST", "/projects/:id/graph/annotations", projectHandler.SaveStackAnnotation, service.VerbStackWrite, service.KindStack, "id")
+	mutate(site, "POST", "/projects/:id/graph/annotations/delete", projectHandler.DeleteStackAnnotation, service.VerbStackWrite, service.KindStack, "id")
+	mutate(site, "POST", "/projects/:id/graph/groups", projectHandler.SaveStackGraphGroup, service.VerbStackWrite, service.KindStack, "id")
+	mutate(site, "POST", "/projects/:id/graph/groups/delete", projectHandler.DeleteStackGraphGroup, service.VerbStackWrite, service.KindStack, "id")
 
-	dbHandler := dbpage.NewHandler(deps.Store, deps.Databases, deps.Cluster, deps.Proxy, deps.Notifier)
-	site.GET("/dbs/:id", redirectTile(deps.Store), auth.RequireAuth())
-	site.GET("/dbs/:id/panel", dbHandler.Panel, auth.RequireAuth())
-	site.GET("/dbs/:id/panel/content", dbHandler.PanelContent, auth.RequireAuth())
-	site.GET("/dbs/:id/volume/panel", dbHandler.VolumePanel, auth.RequireAuth())
-	site.GET("/dbs/:id/volume/files", dbHandler.VolumeFiles, auth.RequireAuth())
-	site.GET("/dbs/:id/volume/files/download", dbHandler.VolumeFileDownload, auth.RequireAuth())
-	site.POST("/dbs/:id/volume/files/upload", dbHandler.VolumeFileUpload, auth.RequireAuth())
-	site.POST("/dbs/:id/volume/files/delete", dbHandler.VolumeFileDelete, auth.RequireAuth())
-	site.GET("/dbs/:id/buckets/:bucket/panel", dbHandler.BucketPanel, auth.RequireAuth())
-	site.GET("/dbs/:id/buckets/:bucket/files", dbHandler.BucketFiles, auth.RequireAuth())
-	site.GET("/dbs/:id/buckets/:bucket/files/download", dbHandler.BucketFileDownload, auth.RequireAuth())
-	site.POST("/dbs/:id/buckets/:bucket/files/upload", dbHandler.BucketFileUpload, auth.RequireAuth())
-	site.POST("/dbs/:id/buckets/:bucket/files/delete", dbHandler.BucketFileDelete, auth.RequireAuth())
-	site.GET("/dbs/:id/data", dbHandler.Data, auth.RequireAuth())
-	site.GET("/dbs/:id/data/cell", dbHandler.DataCell, auth.RequireAuth())
-	site.POST("/dbs/:id/data/update", dbHandler.DataUpdate, auth.RequireAuth())
-	site.POST("/dbs/:id/data/insert", dbHandler.DataInsert, auth.RequireAuth())
-	site.POST("/dbs/:id/data/delete", dbHandler.DataDelete, auth.RequireAuth())
-	site.GET("/dbs/:id/pgdbs/:db/panel", dbHandler.PGDBPanel, auth.RequireAuth())
-	site.GET("/dbs/:id/metrics", dbHandler.Metrics, auth.RequireAuth())
-	site.GET("/dbs/:id/logs/stream", dbHandler.LogsStream, auth.RequireAuth())
-	site.POST("/dbs/:id/deploy", dbHandler.Deploy, auth.RequireAuth())
-	site.POST("/dbs/:id/stop", dbHandler.Stop, auth.RequireAuth())
-	site.POST("/dbs/:id/start", dbHandler.Start, auth.RequireAuth())
-	site.POST("/dbs/:id/delete", dbHandler.Delete, auth.RequireAuth())
-	site.POST("/dbs/:id/port", dbHandler.SetPort, auth.RequireAuth())
-	site.POST("/dbs/:id/scope", dbHandler.SetScope, auth.RequireAuth())
-	site.POST("/dbs/:id/domains", dbHandler.CreateDomain, auth.RequireAuth())
-	site.POST("/dbs/:id/domains/:domainID/delete", dbHandler.DeleteDomain, auth.RequireAuth())
-	site.GET("/dbs/:id/provisions", dbHandler.Provisions, auth.RequireAuth())
-	site.POST("/dbs/:id/provisions/drop", dbHandler.DropProvision, auth.RequireAuth())
-	site.POST("/dbs/:id/provisions/public", dbHandler.SetProvisionPublic, auth.RequireAuth())
-	site.POST("/dbs/:id/provisions/fork", dbHandler.ForkProvision, auth.RequireAuth())
+	dbHandler := dbpage.NewHandler(deps.Store, deps.Databases, deps.Cluster, deps.Proxy, deps.Notifier).
+		WithServices(deps.Instances, deps.Slices, deps.Lifecycle, deps.Domains, deps.Telemetry)
+	read(site, "/dbs/:id", redirectTile(deps.Store), service.VerbTileRead, service.KindTile, "id")
+	read(site, "/dbs/:id/panel", dbHandler.Panel, service.VerbTileRead, service.KindTile, "id")
+	read(site, "/dbs/:id/panel/content", dbHandler.PanelContent, service.VerbTileRead, service.KindTile, "id")
+	read(site, "/dbs/:id/volume/panel", dbHandler.VolumePanel, service.VerbTileRead, service.KindTile, "id")
+	read(site, "/dbs/:id/volume/files", dbHandler.VolumeFiles, service.VerbTileRead, service.KindTile, "id")
+	read(site, "/dbs/:id/volume/files/download", dbHandler.VolumeFileDownload, service.VerbTileRead, service.KindTile, "id")
+	mutate(site, "POST", "/dbs/:id/volume/files/upload", dbHandler.VolumeFileUpload, service.VerbTileWrite, service.KindTile, "id")
+	mutate(site, "POST", "/dbs/:id/volume/files/delete", dbHandler.VolumeFileDelete, service.VerbTileWrite, service.KindTile, "id")
+	read(site, "/dbs/:id/buckets/:bucket/panel", dbHandler.BucketPanel, service.VerbTileRead, service.KindTile, "id")
+	read(site, "/dbs/:id/buckets/:bucket/files", dbHandler.BucketFiles, service.VerbTileRead, service.KindTile, "id")
+	read(site, "/dbs/:id/buckets/:bucket/files/download", dbHandler.BucketFileDownload, service.VerbTileRead, service.KindTile, "id")
+	mutate(site, "POST", "/dbs/:id/buckets/:bucket/files/upload", dbHandler.BucketFileUpload, service.VerbTileWrite, service.KindTile, "id")
+	mutate(site, "POST", "/dbs/:id/buckets/:bucket/files/delete", dbHandler.BucketFileDelete, service.VerbTileWrite, service.KindTile, "id")
+	read(site, "/dbs/:id/data", dbHandler.Data, service.VerbTileRead, service.KindTile, "id")
+	read(site, "/dbs/:id/data/cell", dbHandler.DataCell, service.VerbTileRead, service.KindTile, "id")
+	mutate(site, "POST", "/dbs/:id/data/update", dbHandler.DataUpdate, service.VerbTileWrite, service.KindTile, "id")
+	mutate(site, "POST", "/dbs/:id/data/insert", dbHandler.DataInsert, service.VerbTileWrite, service.KindTile, "id")
+	mutate(site, "POST", "/dbs/:id/data/delete", dbHandler.DataDelete, service.VerbTileWrite, service.KindTile, "id")
+	read(site, "/dbs/:id/pgdbs/:db/panel", dbHandler.PGDBPanel, service.VerbTileRead, service.KindTile, "id")
+	read(site, "/dbs/:id/metrics", dbHandler.Metrics, service.VerbTileRead, service.KindTile, "id")
+	read(site, "/dbs/:id/logs/stream", dbHandler.LogsStream, service.VerbTileRead, service.KindTile, "id")
+	mutate(site, "POST", "/dbs/:id/deploy", dbHandler.Deploy, service.VerbTileWrite, service.KindTile, "id")
+	mutate(site, "POST", "/dbs/:id/stop", dbHandler.Stop, service.VerbTileWrite, service.KindTile, "id")
+	mutate(site, "POST", "/dbs/:id/start", dbHandler.Start, service.VerbTileWrite, service.KindTile, "id")
+	mutate(site, "POST", "/dbs/:id/delete", dbHandler.Delete, service.VerbTileWrite, service.KindTile, "id")
+	mutate(site, "POST", "/dbs/:id/port", dbHandler.SetPort, service.VerbTileWrite, service.KindTile, "id")
+	mutate(site, "POST", "/dbs/:id/scope", dbHandler.SetScope, service.VerbTileWrite, service.KindTile, "id")
+	mutate(site, "POST", "/dbs/:id/domains", dbHandler.CreateDomain, service.VerbDomainWrite, service.KindTile, "id")
+	mutate(site, "POST", "/dbs/:id/domains/:domainID/delete", dbHandler.DeleteDomain, service.VerbDomainWrite, service.KindTile, "id")
+	read(site, "/dbs/:id/provisions", dbHandler.Provisions, service.VerbTileRead, service.KindTile, "id")
+	mutate(site, "POST", "/dbs/:id/provisions/drop", dbHandler.DropProvision, service.VerbTileWrite, service.KindTile, "id")
+	mutate(site, "POST", "/dbs/:id/provisions/public", dbHandler.SetProvisionPublic, service.VerbTileWrite, service.KindTile, "id")
+	mutate(site, "POST", "/dbs/:id/provisions/fork", dbHandler.ForkProvision, service.VerbTileWrite, service.KindTile, "id")
 
 	// The Backups tab, shared by database tiles and volume tiles: one fragment
 	// both panel packages fetch, rather than the same markup twice.
-	backupsHandler := backupspage.NewHandler(deps.Store, deps.Backups)
-	site.GET("/tiles/:id/backups", backupsHandler.Panel, auth.RequireAuth())
-	site.POST("/tiles/:id/backups", backupsHandler.Create, auth.RequireAuth())
-	site.POST("/backups/:id/save", backupsHandler.Save, auth.RequireAuth())
-	site.POST("/backups/:id/delete", backupsHandler.Delete, auth.RequireAuth())
-	site.POST("/backups/:id/run", backupsHandler.Run, auth.RequireAuth())
-	site.POST("/backups/:id/restore", backupsHandler.Restore, auth.RequireAuth())
-	site.GET("/backups/:id/history", backupsHandler.History, auth.RequireAuth())
+	backupsHandler := backupspage.NewHandler(deps.Store, deps.Backups).WithScheduler(deps.Scheduler).WithBackups(deps.Schedules, deps.Destinations)
+	read(site, "/tiles/:id/backups", backupsHandler.Panel, service.VerbTileRead, service.KindTile, "id")
+	mutate(site, "POST", "/tiles/:id/backups", backupsHandler.Create, service.VerbBackupWrite, service.KindTile, "id")
+	mutate(site, "POST", "/backups/:id/save", backupsHandler.Save, service.VerbBackupWrite, service.KindBackup, "id")
+	mutate(site, "POST", "/backups/:id/delete", backupsHandler.Delete, service.VerbBackupWrite, service.KindBackup, "id")
+	mutate(site, "POST", "/backups/:id/run", backupsHandler.Run, service.VerbBackupWrite, service.KindBackup, "id")
+	mutate(site, "POST", "/backups/:id/restore", backupsHandler.Restore, service.VerbBackupWrite, service.KindBackup, "id")
+	read(site, "/backups/:id/history", backupsHandler.History, service.VerbOrgRead, service.KindBackup, "id")
 
 	// The admin area: everything scoped to this installation. Personal settings
 	// live under /account and org settings on the org's own page, /settings
 	// used to be all three at once.
-	site.GET("/admin", settingsHandler.Index, auth.RequireAuth(), adminOnly)
-	site.GET("/admin/users", settingsHandler.Users, auth.RequireAuth(), adminOnly)
-	site.GET("/admin/registries", settingsHandler.Registries, auth.RequireAuth(), adminOnly)
-	site.GET("/admin/tls", settingsHandler.TLS, auth.RequireAuth(), adminOnly)
-	site.GET("/admin/audit", settingsHandler.Audit, auth.RequireAuth(), adminOnly)
-	site.GET("/admin/maintenance", settingsHandler.Maintenance, auth.RequireAuth(), adminOnly)
-	site.GET("/admin/update", settingsHandler.Update, auth.RequireAuth(), adminOnly)
-	site.POST("/admin/update", settingsHandler.RunUpdate, auth.RequireAuth(), adminOnly)
-	site.GET("/admin/update/check", settingsHandler.UpdateCheck, auth.RequireAuth(), adminOnly)
-	site.GET("/admin/update/badge", settingsHandler.UpdateBadge, auth.RequireAuth(), adminOnly)
-	site.GET("/admin/backups", settingsHandler.Backups, auth.RequireAuth(), adminOnly)
-	site.POST("/admin/backups/destinations", settingsHandler.CreateDestination, auth.RequireAuth(), adminOnly)
-	site.POST("/admin/backups/destinations/:destID/delete", settingsHandler.DeleteDestination, auth.RequireAuth(), adminOnly)
-	site.POST("/admin/backups/panel", settingsHandler.SavePanelBackup, auth.RequireAuth(), adminOnly)
-	site.POST("/admin/backups/panel/run", settingsHandler.RunPanelBackup, auth.RequireAuth(), adminOnly)
-	site.POST("/admin/backups/panel/delete", settingsHandler.DeletePanelBackup, auth.RequireAuth(), adminOnly)
-	site.POST("/admin/registry/domain", settingsHandler.SetRegistryDomain, auth.RequireAuth(), adminOnly)
-	site.POST("/admin/registries", settingsHandler.CreateRegistry, auth.RequireAuth(), adminOnly)
-	site.POST("/admin/registries/:id/delete", settingsHandler.DeleteRegistry, auth.RequireAuth(), adminOnly)
-	site.POST("/admin/cleanup", settingsHandler.ToggleCleanup, auth.RequireAuth(), adminOnly)
-	site.POST("/admin/backups/destinations/:destID/shared", settingsHandler.ToggleDestinationShared, auth.RequireAuth(), adminOnly)
-	site.POST("/admin/imagewatch", settingsHandler.SaveImageWatch, auth.RequireAuth(), adminOnly)
-	site.POST("/admin/dns", settingsHandler.SaveDNS, auth.RequireAuth(), adminOnly)
-	site.GET("/admin/proxy", settingsHandler.ProxyPage, auth.RequireAuth(), adminOnly)
-	site.POST("/admin/proxy/trusted", settingsHandler.SaveTrustedProxies, auth.RequireAuth(), adminOnly)
-	site.POST("/admin/proxy/override", settingsHandler.SaveProxyOverride, auth.RequireAuth(), adminOnly)
-	site.POST("/admin/proxy/entry", settingsHandler.SaveProxyEntry, auth.RequireAuth(), adminOnly)
-	site.POST("/admin/proxy/entry/delete", settingsHandler.DeleteProxyEntry, auth.RequireAuth(), adminOnly)
-	site.POST("/admin/users/:id/toggle", settingsHandler.ToggleUserActive, auth.RequireAuth(), adminOnly)
-	site.POST("/admin/users/:id/admin", settingsHandler.ToggleUserAdmin, auth.RequireAuth(), adminOnly)
+	read(site, "/admin", settingsHandler.Index, service.VerbAdminRead, service.KindNone, "", adminOnly)
+	read(site, "/admin/users", settingsHandler.Users, service.VerbAdminRead, service.KindNone, "", adminOnly)
+	read(site, "/admin/registries", settingsHandler.Registries, service.VerbAdminRead, service.KindNone, "", adminOnly)
+	read(site, "/admin/tls", settingsHandler.TLS, service.VerbAdminRead, service.KindNone, "", adminOnly)
+	read(site, "/admin/audit", settingsHandler.Audit, service.VerbAdminRead, service.KindNone, "", adminOnly)
+	read(site, "/admin/maintenance", settingsHandler.Maintenance, service.VerbAdminRead, service.KindNone, "", adminOnly)
+	read(site, "/admin/update", settingsHandler.Update, service.VerbAdminRead, service.KindNone, "", adminOnly)
+	mutate(site, "POST", "/admin/update", settingsHandler.RunUpdate, service.VerbServerDefaults, service.KindNone, "", adminOnly)
+	read(site, "/admin/update/check", settingsHandler.UpdateCheck, service.VerbAdminRead, service.KindNone, "", adminOnly)
+	read(site, "/admin/update/badge", settingsHandler.UpdateBadge, service.VerbAdminRead, service.KindNone, "", adminOnly)
+	read(site, "/admin/backups", settingsHandler.Backups, service.VerbAdminRead, service.KindNone, "", adminOnly)
+	mutate(site, "POST", "/admin/backups/destinations", settingsHandler.CreateDestination, service.VerbServerDefaults, service.KindNone, "", adminOnly)
+	mutate(site, "POST", "/admin/backups/destinations/:destID/delete", settingsHandler.DeleteDestination, service.VerbServerDefaults, service.KindNone, "", adminOnly)
+	mutate(site, "POST", "/admin/backups/panel", settingsHandler.SavePanelBackup, service.VerbServerDefaults, service.KindNone, "", adminOnly)
+	mutate(site, "POST", "/admin/backups/panel/run", settingsHandler.RunPanelBackup, service.VerbServerDefaults, service.KindNone, "", adminOnly)
+	mutate(site, "POST", "/admin/backups/panel/delete", settingsHandler.DeletePanelBackup, service.VerbServerDefaults, service.KindNone, "", adminOnly)
+	mutate(site, "POST", "/admin/registry/domain", settingsHandler.SetRegistryDomain, service.VerbServerDefaults, service.KindNone, "", adminOnly)
+	mutate(site, "POST", "/admin/registries", settingsHandler.CreateRegistry, service.VerbServerDefaults, service.KindNone, "", adminOnly)
+	mutate(site, "POST", "/admin/registries/:id/delete", settingsHandler.DeleteRegistry, service.VerbServerDefaults, service.KindNone, "", adminOnly)
+	mutate(site, "POST", "/admin/cleanup", settingsHandler.ToggleCleanup, service.VerbServerDefaults, service.KindNone, "", adminOnly)
+	mutate(site, "POST", "/admin/backups/destinations/:destID/shared", settingsHandler.ToggleDestinationShared, service.VerbServerDefaults, service.KindNone, "", adminOnly)
+	mutate(site, "POST", "/admin/imagewatch", settingsHandler.SaveImageWatch, service.VerbServerDefaults, service.KindNone, "", adminOnly)
+	mutate(site, "POST", "/admin/dns", settingsHandler.SaveDNS, service.VerbServerDefaults, service.KindNone, "", adminOnly)
+	read(site, "/admin/proxy", settingsHandler.ProxyPage, service.VerbAdminRead, service.KindNone, "", adminOnly)
+	mutate(site, "POST", "/admin/proxy/trusted", settingsHandler.SaveTrustedProxies, service.VerbProxyAdmin, service.KindNone, "", adminOnly)
+	mutate(site, "POST", "/admin/proxy/override", settingsHandler.SaveProxyOverride, service.VerbProxyAdmin, service.KindNone, "", adminOnly)
+	mutate(site, "POST", "/admin/proxy/entry", settingsHandler.SaveProxyEntry, service.VerbProxyAdmin, service.KindNone, "", adminOnly)
+	mutate(site, "POST", "/admin/proxy/entry/delete", settingsHandler.DeleteProxyEntry, service.VerbProxyAdmin, service.KindNone, "", adminOnly)
+	mutate(site, "POST", "/admin/users/:id/toggle", settingsHandler.ToggleUserActive, service.VerbUserAdmin, service.KindNone, "", adminOnly)
+	mutate(site, "POST", "/admin/users/:id/admin", settingsHandler.ToggleUserAdmin, service.VerbUserAdmin, service.KindNone, "", adminOnly)
 	// Connectors are org-scoped: the pages live on the org, the handlers ship
 	// with the admin package because that is where they grew up.
 	// Outside orgSettings on purpose: the wizard's repo picker calls both while
 	// setup is still open. Owner-only and scoped to this org's own connectors.
-	site.GET("/orgs/:slug/settings/connectors/:connectorID/branches", orgHandler.ConnectorBranches, auth.RequireAuth())
-	site.GET("/orgs/:slug/settings/connectors/:connectorID/file", orgHandler.ConnectorFileExists, auth.RequireAuth())
+	read(site, "/orgs/:slug/settings/connectors/:connectorID/branches", orgHandler.ConnectorBranches, service.VerbOrgOwnerRead, service.KindOrg, "slug")
+	read(site, "/orgs/:slug/settings/connectors/:connectorID/file", orgHandler.ConnectorFileExists, service.VerbOrgOwnerRead, service.KindOrg, "slug")
 	// GitHub is told this callback path when the app manifest is created, so it
 	// stays put even though the rest of /settings moved.
 	site.GET("/settings/github/callback", settingsHandler.GitHubCallback, auth.RequireAuth())
@@ -545,72 +670,82 @@ func RegisterRoutes(srv *server.Server, deps *Deps) {
 	site.POST("/cli/authorize", cliHandler.Approve, auth.RequireAuth())
 	e.POST("/cli/exchange", cliHandler.Exchange, authLimit)
 
-	containerHandler := containerpage.NewHandler(deps.Cluster, deps.Notifier)
-	site.GET("/containers", containerHandler.List, auth.RequireAuth(), adminOnly)
-	site.GET("/containers/node/:id", containerHandler.NodeList, auth.RequireAuth(), adminOnly)
-	site.GET("/containers/:id", containerHandler.Detail, auth.RequireAuth(), adminOnly)
-	site.POST("/containers/:id/start", containerHandler.Start, auth.RequireAuth(), adminOnly)
-	site.POST("/containers/:id/stop", containerHandler.Stop, auth.RequireAuth(), adminOnly)
-	site.POST("/containers/:id/remove", containerHandler.Remove, auth.RequireAuth(), adminOnly)
-	site.GET("/containers/:id/logs", containerHandler.LogsPage, auth.RequireAuth(), adminOnly)
-	site.GET("/containers/:id/logs/stream", containerHandler.LogsStream, auth.RequireAuth(), adminOnly)
-	site.GET("/containers/:id/term", containerHandler.TermPage, auth.RequireAuth(), adminOnly)
-	site.GET("/containers/:id/term/ws", containerHandler.TermWS, auth.RequireAuth(), adminOnly)
+	containerHandler := containerpage.NewHandler(deps.Cluster, deps.Notifier, deps.Containers)
+	read(site, "/containers", containerHandler.List, service.VerbAdminRead, service.KindNone, "", adminOnly)
+	read(site, "/containers/node/:id", containerHandler.NodeList, service.VerbAdminRead, service.KindNone, "", adminOnly)
+	read(site, "/containers/:id", containerHandler.Detail, service.VerbAdminRead, service.KindNone, "", adminOnly)
+	mutate(site, "POST", "/containers/:id/start", containerHandler.Start, service.VerbContainerAdmin, service.KindNone, "", adminOnly)
+	mutate(site, "POST", "/containers/:id/stop", containerHandler.Stop, service.VerbContainerAdmin, service.KindNone, "", adminOnly)
+	mutate(site, "POST", "/containers/:id/remove", containerHandler.Remove, service.VerbContainerAdmin, service.KindNone, "", adminOnly)
+	read(site, "/containers/:id/logs", containerHandler.LogsPage, service.VerbAdminRead, service.KindNone, "", adminOnly)
+	read(site, "/containers/:id/logs/stream", containerHandler.LogsStream, service.VerbAdminRead, service.KindNone, "", adminOnly)
+	read(site, "/containers/:id/term", containerHandler.TermPage, service.VerbAdminRead, service.KindNone, "", adminOnly)
+	read(site, "/containers/:id/term/ws", containerHandler.TermWS, service.VerbAdminRead, service.KindNone, "", adminOnly)
 
-	appHandler := apppage.NewHandler(deps.Store, deps.Cluster, deps.Proxy, deps.Engine, deps.Jobs, deps.GitHub, deps.Notifier)
-	site.GET("/apps/:id", redirectTile(deps.Store), auth.RequireAuth())
-	site.GET("/apps/:id/branches", appHandler.Branches, auth.RequireAuth())
-	site.GET("/apps/:id/connectors", appHandler.Connectors, auth.RequireAuth())
-	site.GET("/apps/:id/repos", appHandler.Repos, auth.RequireAuth())
-	site.GET("/apps/:id/panel", appHandler.Panel, auth.RequireAuth())
-	site.GET("/apps/:id/panel/content", appHandler.PanelContent, auth.RequireAuth())
-	site.GET("/apps/:id/panel/header", appHandler.PanelHeader, auth.RequireAuth())
-	site.GET("/apps/:id/metrics", appHandler.Metrics, auth.RequireAuth())
-	site.GET("/apps/:id/logs/stream", appHandler.LogsStream, auth.RequireAuth())
-	site.GET("/apps/:id/vars", appHandler.Vars, auth.RequireAuth())
-	site.GET("/apps/:id/vars/value", appHandler.VarValue, auth.RequireAuth())
-	site.POST("/apps/:id/vars/secret", appHandler.SaveSecretVar, auth.RequireAuth())
-	site.POST("/apps/:id/vars/delete", appHandler.DeleteVar, auth.RequireAuth())
-	site.POST("/apps/:id/env", appHandler.SaveEnv, auth.RequireAuth())
-	site.POST("/apps/:id/settings", appHandler.SaveSettings, auth.RequireAuth())
-	site.POST("/apps/:id/attach", appHandler.Attach, auth.RequireAuth())
-	site.GET("/apps/:id/volume/files", appHandler.VolumeFiles, auth.RequireAuth())
-	site.GET("/apps/:id/volume/files/download", appHandler.VolumeFileDownload, auth.RequireAuth())
-	site.POST("/apps/:id/volume/files/upload", appHandler.VolumeFileUpload, auth.RequireAuth())
-	site.POST("/apps/:id/volume/files/delete", appHandler.VolumeFileDelete, auth.RequireAuth())
-	site.GET("/apps/:id/provisions", appHandler.Provisions, auth.RequireAuth())
-	site.GET("/apps/:id/size", appHandler.Size, auth.RequireAuth())
-	site.GET("/apps/:id/storage", appHandler.StorageFrag, auth.RequireAuth())
-	site.POST("/apps/:id/storage", appHandler.AttachStorage, auth.RequireAuth())
-	site.POST("/apps/:id/storage/detach", appHandler.DetachStorage, auth.RequireAuth())
-	site.POST("/apps/:id/provision", appHandler.Provision, auth.RequireAuth())
-	site.POST("/apps/:id/provisions/attach", appHandler.AttachProvision, auth.RequireAuth())
-	site.POST("/apps/:id/provisions/:pid/detach", appHandler.DetachProvision, auth.RequireAuth())
-	site.POST("/apps/:id/delete", appHandler.Delete, auth.RequireAuth())
-	site.POST("/apps/:id/domains", appHandler.CreateDomain, auth.RequireAuth())
-	site.POST("/apps/:id/domains/auto", appHandler.CreateAutoDomain, auth.RequireAuth())
-	site.POST("/apps/:id/domains/:domainID/https", appHandler.ToggleDomainHTTPS, auth.RequireAuth())
-	site.POST("/apps/:id/domains/:domainID/cert", appHandler.SetDomainCert, auth.RequireAuth())
-	site.POST("/apps/:id/domains/:domainID/delete", appHandler.DeleteDomain, auth.RequireAuth())
-	site.POST("/apps/:id/stop", appHandler.Stop, auth.RequireAuth())
-	site.POST("/apps/:id/restart", appHandler.Restart, auth.RequireAuth())
-	site.POST("/apps/:id/run", appHandler.RunNow, auth.RequireAuth())
-	site.POST("/apps/:id/runs/:run/stop", appHandler.StopRun, auth.RequireAuth())
-	site.GET("/apps/:id/runs/logs/stream", appHandler.RunsLogsStream, auth.RequireAuth())
-	site.POST("/apps/:id/cron/toggle", appHandler.ToggleCron, auth.RequireAuth())
+	appHandler := apppage.NewHandler(deps.Store, deps.Cluster, deps.Proxy, deps.Engine, deps.Jobs, deps.GitHub, deps.Notifier, deps.Lifecycle, deps.Tiles, deps.Telemetry, deps.Domains).
+		WithSlices(deps.Slices).
+		WithVariables(deps.Variables).
+		WithDeploys(deps.Deploys).
+		WithGate(deps.Gate).
+		WithScheduler(deps.Scheduler)
+	read(site, "/apps/:id", redirectTile(deps.Store), service.VerbTileRead, service.KindTile, "id")
+	read(site, "/apps/:id/branches", appHandler.Branches, service.VerbTileRead, service.KindTile, "id")
+	read(site, "/apps/:id/connectors", appHandler.Connectors, service.VerbTileRead, service.KindTile, "id")
+	read(site, "/apps/:id/repos", appHandler.Repos, service.VerbTileRead, service.KindTile, "id")
+	read(site, "/apps/:id/panel", appHandler.Panel, service.VerbTileRead, service.KindTile, "id")
+	read(site, "/apps/:id/panel/content", appHandler.PanelContent, service.VerbTileRead, service.KindTile, "id")
+	read(site, "/apps/:id/panel/header", appHandler.PanelHeader, service.VerbTileRead, service.KindTile, "id")
+	read(site, "/apps/:id/metrics", appHandler.Metrics, service.VerbTileRead, service.KindTile, "id")
+	read(site, "/apps/:id/logs/stream", appHandler.LogsStream, service.VerbTileRead, service.KindTile, "id")
+	read(site, "/apps/:id/vars", appHandler.Vars, service.VerbTileRead, service.KindTile, "id")
+	read(site, "/apps/:id/vars/value", appHandler.VarValue, service.VerbVariableWrite, service.KindTile, "id")
+	mutate(site, "POST", "/apps/:id/vars/secret", appHandler.SaveSecretVar, service.VerbVariableWrite, service.KindTile, "id")
+	mutate(site, "POST", "/apps/:id/vars/delete", appHandler.DeleteVar, service.VerbVariableWrite, service.KindTile, "id")
+	mutate(site, "POST", "/apps/:id/env", appHandler.SaveEnv, service.VerbTileWrite, service.KindTile, "id")
+	mutate(site, "POST", "/apps/:id/settings", appHandler.SaveSettings, service.VerbTileWrite, service.KindTile, "id")
+	mutate(site, "POST", "/apps/:id/attach", appHandler.Attach, service.VerbTileWrite, service.KindTile, "id")
+	read(site, "/apps/:id/volume/files", appHandler.VolumeFiles, service.VerbTileRead, service.KindTile, "id")
+	read(site, "/apps/:id/volume/files/download", appHandler.VolumeFileDownload, service.VerbTileRead, service.KindTile, "id")
+	mutate(site, "POST", "/apps/:id/volume/files/upload", appHandler.VolumeFileUpload, service.VerbTileWrite, service.KindTile, "id")
+	mutate(site, "POST", "/apps/:id/volume/files/delete", appHandler.VolumeFileDelete, service.VerbTileWrite, service.KindTile, "id")
+	read(site, "/apps/:id/provisions", appHandler.Provisions, service.VerbTileRead, service.KindTile, "id")
+	read(site, "/apps/:id/size", appHandler.Size, service.VerbTileRead, service.KindTile, "id")
+	read(site, "/apps/:id/storage", appHandler.StorageFrag, service.VerbTileRead, service.KindTile, "id")
+	mutate(site, "POST", "/apps/:id/storage", appHandler.AttachStorage, service.VerbTileWrite, service.KindTile, "id")
+	mutate(site, "POST", "/apps/:id/storage/detach", appHandler.DetachStorage, service.VerbTileWrite, service.KindTile, "id")
+	mutate(site, "POST", "/apps/:id/provision", appHandler.Provision, service.VerbTileWrite, service.KindTile, "id")
+	mutate(site, "POST", "/apps/:id/provisions/attach", appHandler.AttachProvision, service.VerbTileWrite, service.KindTile, "id")
+	mutate(site, "POST", "/apps/:id/provisions/:pid/detach", appHandler.DetachProvision, service.VerbTileWrite, service.KindTile, "id")
+	mutate(site, "POST", "/apps/:id/delete", appHandler.Delete, service.VerbTileWrite, service.KindTile, "id")
+	mutate(site, "POST", "/apps/:id/domains", appHandler.CreateDomain, service.VerbDomainWrite, service.KindTile, "id")
+	mutate(site, "POST", "/apps/:id/domains/auto", appHandler.CreateAutoDomain, service.VerbDomainWrite, service.KindTile, "id")
+	mutate(site, "POST", "/apps/:id/domains/:domainID/https", appHandler.ToggleDomainHTTPS, service.VerbDomainWrite, service.KindTile, "id")
+	mutate(site, "POST", "/apps/:id/domains/:domainID/cert", appHandler.SetDomainCert, service.VerbDomainWrite, service.KindTile, "id")
+	mutate(site, "POST", "/apps/:id/domains/:domainID/delete", appHandler.DeleteDomain, service.VerbDomainWrite, service.KindTile, "id")
+	mutate(site, "POST", "/apps/:id/stop", appHandler.Stop, service.VerbTileWrite, service.KindTile, "id")
+	mutate(site, "POST", "/apps/:id/restart", appHandler.Restart, service.VerbTileWrite, service.KindTile, "id")
+	mutate(site, "POST", "/apps/:id/run", appHandler.RunNow, service.VerbTileWrite, service.KindTile, "id")
+	mutate(site, "POST", "/apps/:id/runs/:run/stop", appHandler.StopRun, service.VerbTileWrite, service.KindTile, "id")
+	read(site, "/apps/:id/runs/logs/stream", appHandler.RunsLogsStream, service.VerbTileRead, service.KindTile, "id")
+	mutate(site, "POST", "/apps/:id/cron/toggle", appHandler.ToggleCron, service.VerbTileWrite, service.KindTile, "id")
 
-	deploymentHandler := deploymentpage.NewHandler(deps.Store, deps.Engine, deps.StreamHub)
-	site.POST("/apps/:id/deploy", deploymentHandler.Deploy, auth.RequireAuth())
-	site.POST("/apps/:id/rollback", deploymentHandler.Rollback, auth.RequireAuth())
-	site.GET("/deployments/:id", deploymentHandler.Detail, auth.RequireAuth())
-	site.GET("/deployments/:id/status", deploymentHandler.Status, auth.RequireAuth())
-	site.GET("/deployments/:id/stream", deploymentHandler.Stream, auth.RequireAuth())
-	site.POST("/deployments/:id/cancel", deploymentHandler.Cancel, auth.RequireAuth())
+	deploymentHandler := deploymentpage.NewHandler(deps.Store, deps.Engine, deps.StreamHub).WithDeploys(deps.Deploys)
+	mutate(site, "POST", "/apps/:id/deploy", deploymentHandler.Deploy, service.VerbTileWrite, service.KindTile, "id")
+	mutate(site, "POST", "/apps/:id/rollback", deploymentHandler.Rollback, service.VerbTileWrite, service.KindTile, "id")
+	read(site, "/deployments/:id", deploymentHandler.Detail, service.VerbDeploymentRead, service.KindDeployment, "id")
+	read(site, "/deployments/:id/status", deploymentHandler.Status, service.VerbDeploymentRead, service.KindDeployment, "id")
+	read(site, "/deployments/:id/stream", deploymentHandler.Stream, service.VerbDeploymentRead, service.KindDeployment, "id")
+	mutate(site, "POST", "/deployments/:id/cancel", deploymentHandler.Cancel, service.VerbDeploymentCancel, service.KindDeployment, "id")
 
 	// Webhooks: outside the site group, token/signature-authenticated, no CSRF/session.
-	prHandler := prhook.NewHandler(deps.Store, deps.Engine, deps.Jobs,
-		envops.Ops{Store: deps.Store, RT: deps.Runtime, Cluster: deps.Cluster, PX: deps.Proxy, DBs: deps.Databases}, applier, deps.GitHub, deps.Notifier).
-		WithWork(deps.Work)
+	prHandler := prhook.NewHandler(deps.Store, deps.Engine,
+		envops.Ops{Store: deps.Store, RT: deps.Runtime, Cluster: deps.Cluster, PX: deps.Proxy, DBs: deps.Databases,
+			Tiles: deps.Tiles, Sched: deps.Scheduler, Domains: deps.Domains, Resources: deps.Resources}, applier, deps.GitHub, deps.Notifier).
+		WithEnvironments(deps.Environments).
+		WithPREnvs(deps.PREnvs).
+		WithOrgConfig(deps.OrgConfig).
+		WithWork(deps.Work).
+		WithScheduler(deps.Scheduler)
 	e.POST("/hooks/github/:stack", prHandler.Hook, middleware.Logging())
 	e.POST("/hooks/connectors/:id", prHandler.HookConnector, middleware.Logging())
 
@@ -665,7 +800,7 @@ func RegisterRoutes(srv *server.Server, deps *Deps) {
 	// and the person on the other end has no account by design. The rate limit
 	// is per-IP: the token itself is unguessable and passphrase attempts are
 	// capped per link, so this only exists to blunt scripted hammering.
-	shareHandler := sharepub.NewHandler(deps.Store)
+	shareHandler := sharepub.NewHandler(deps.Store).WithVariables(deps.Variables)
 	shareLimit := hamrmw.RateLimitWithConfig(hamrmw.RateLimitConfig{
 		Store:  hamrmw.NewMemoryStore(hamrmw.WithMaxSize(10000)),
 		Rate:   30,
@@ -676,27 +811,27 @@ func RegisterRoutes(srv *server.Server, deps *Deps) {
 
 	// Canonical slug URLs: /:org/:stack[/:env[/:tile]]. Registered last;
 	// echo prefers static segments, so reserved top-level paths always win.
-	site.GET("/:org/:stack", projectHandler.StackGraph, auth.RequireAuth())
+	read(site, "/:org/:stack", projectHandler.StackGraph, service.VerbOrgRead, service.KindOrg, "org")
 	// Stack settings: one URL per section, plus a page per environment. These
 	// were all one long scroll, with environment settings hidden in disclosures.
-	site.GET("/:org/:stack/plans/:planID", projectHandler.PlanView, auth.RequireAuth())
-	site.GET("/:org/:stack/releases", projectHandler.Releases, auth.RequireAuth())
-	site.GET("/:org/:stack/settings", projectHandler.Settings, auth.RequireAuth())
-	site.GET("/:org/:stack/settings/general", projectHandler.SettingsGeneral, auth.RequireAuth())
-	site.GET("/:org/:stack/settings/config", projectHandler.SettingsConfig, auth.RequireAuth())
-	site.GET("/:org/:stack/settings/config/export", projectHandler.ExportConfig, auth.RequireAuth())
-	site.GET("/:org/:stack/settings/variables", projectHandler.SettingsVariables, auth.RequireAuth())
-	site.GET("/:org/:stack/settings/variables/panel", projectHandler.StackVarsPanel, auth.RequireAuth())
-	site.GET("/:org/:stack/settings/variables/value", projectHandler.StackVarValue, auth.RequireAuth())
-	site.GET("/:org/:stack/settings/domains", projectHandler.SettingsDomains, auth.RequireAuth())
-	site.GET("/:org/:stack/settings/environments", projectHandler.SettingsEnvironments, auth.RequireAuth())
-	site.GET("/:org/:stack/settings/environments/:env", projectHandler.SettingsEnvironment, auth.RequireAuth())
-	site.GET("/:org/:stack/settings/environments/:env/variables/panel", projectHandler.EnvVarsPanel, auth.RequireAuth())
-	site.GET("/:org/:stack/settings/environments/:env/variables/value", projectHandler.EnvVarValue, auth.RequireAuth())
-	site.GET("/:org/:stack/settings/pr", projectHandler.SettingsPREnv, auth.RequireAuth())
-	site.GET("/:org/:stack/:env", projectHandler.Graph, auth.RequireAuth())
-	site.GET("/:org/:stack/:env/logs", projectHandler.EnvLogs, auth.RequireAuth())
-	site.GET("/:org/:stack/:env/:tile", tilePage(deps.Store, appHandler.Detail, dbHandler.Detail), auth.RequireAuth())
+	read(site, "/:org/:stack/plans/:planID", projectHandler.PlanView, service.VerbOrgRead, service.KindOrg, "org")
+	read(site, "/:org/:stack/releases", projectHandler.Releases, service.VerbOrgRead, service.KindOrg, "org")
+	read(site, "/:org/:stack/settings", projectHandler.Settings, service.VerbOrgRead, service.KindOrg, "org")
+	read(site, "/:org/:stack/settings/general", projectHandler.SettingsGeneral, service.VerbOrgRead, service.KindOrg, "org")
+	read(site, "/:org/:stack/settings/config", projectHandler.SettingsConfig, service.VerbOrgRead, service.KindOrg, "org")
+	read(site, "/:org/:stack/settings/config/export", projectHandler.ExportConfig, service.VerbConfigExport, service.KindOrg, "org")
+	read(site, "/:org/:stack/settings/variables", projectHandler.SettingsVariables, service.VerbOrgRead, service.KindOrg, "org")
+	read(site, "/:org/:stack/settings/variables/panel", projectHandler.StackVarsPanel, service.VerbOrgRead, service.KindOrg, "org")
+	read(site, "/:org/:stack/settings/variables/value", projectHandler.StackVarValue, service.VerbVariableWrite, service.KindOrg, "org")
+	read(site, "/:org/:stack/settings/domains", projectHandler.SettingsDomains, service.VerbOrgRead, service.KindOrg, "org")
+	read(site, "/:org/:stack/settings/environments", projectHandler.SettingsEnvironments, service.VerbOrgRead, service.KindOrg, "org")
+	read(site, "/:org/:stack/settings/environments/:env", projectHandler.SettingsEnvironment, service.VerbOrgRead, service.KindOrg, "org")
+	read(site, "/:org/:stack/settings/environments/:env/variables/panel", projectHandler.EnvVarsPanel, service.VerbOrgRead, service.KindOrg, "org")
+	read(site, "/:org/:stack/settings/environments/:env/variables/value", projectHandler.EnvVarValue, service.VerbVariableWrite, service.KindOrg, "org")
+	read(site, "/:org/:stack/settings/pr", projectHandler.SettingsPREnv, service.VerbOrgRead, service.KindOrg, "org")
+	read(site, "/:org/:stack/:env", projectHandler.Graph, service.VerbOrgRead, service.KindOrg, "org")
+	read(site, "/:org/:stack/:env/logs", projectHandler.EnvLogs, service.VerbOrgRead, service.KindOrg, "org")
+	read(site, "/:org/:stack/:env/:tile", tilePage(deps.Store, appHandler.Detail, dbHandler.Detail), service.VerbOrgRead, service.KindOrg, "org")
 }
 
 // tilePage resolves /:org/:stack/:env/:tile to a tile and delegates to the

@@ -17,12 +17,13 @@ import (
 	"sync"
 	"time"
 
+	"github.com/FyrmForge/stackr/internal/deploystate"
+
 	"github.com/google/uuid"
 
 	"github.com/FyrmForge/stackr/internal/stackrd/config/runpolicy"
 	"github.com/FyrmForge/stackr/internal/stackrd/config/settings"
 	"github.com/FyrmForge/stackr/internal/stackrd/config/varref"
-	"github.com/FyrmForge/stackr/internal/stackrd/handlers/notify"
 	"github.com/FyrmForge/stackr/internal/stackrd/handlers/stream"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/cluster"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/envnet"
@@ -32,6 +33,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/runtime"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/storagetiles"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/workqueue"
+	"github.com/FyrmForge/stackr/internal/stackrd/service/notify"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 )
 
@@ -307,7 +309,7 @@ func (e *Engine) Cancel(ctx context.Context, deploymentID string) {
 		return
 	}
 	d, err := e.store.GetDeployment(ctx, deploymentID)
-	if err != nil || d == nil || (d.Status != "queued" && d.Status != "waiting_ci") {
+	if err != nil || d == nil || !deploystate.IsCancellable(d.Status) {
 		return
 	}
 	d.Status = "cancelled"
@@ -530,8 +532,8 @@ func (e *Engine) run(deploymentID string) {
 	e.notifier.Containers()
 	switch d.Status {
 	case "error":
-		e.notifier.Push(context.Background(), notify.KindDeployFailed,
-			"Deploy failed: "+app.Name, d.Error, "/deployments/"+d.ID)
+		title, body := notify.DeployFailed(app.Name, d.Error)
+		e.notifier.Push(context.Background(), notify.KindDeployFailed, title, body, "/deployments/"+d.ID)
 	case "done":
 		e.notifier.Push(context.Background(), notify.KindDeployDone,
 			"Deployed "+app.Name, "", "/deployments/"+d.ID)
@@ -1265,9 +1267,10 @@ func splitLines(s string) []string {
 func (e *Engine) volumeBinds(ctx context.Context, app *repo.Tile) []string {
 	binds := []string{}
 	if tiles, err := e.store.ListTilesByEnv(ctx, app.EnvironmentID); err == nil {
-		for i := range tiles {
-			t := &tiles[i]
-			if t.IsVolume() && t.AttachedTileID == app.ID && t.MountPath != "" {
+		for _, t := range repo.VolumesAttachedTo(tiles, app.ID) {
+			// A volume with no mount path is attached but not yet placed;
+			// binding it as "name:" would be a malformed bind string.
+			if t.MountPath != "" {
 				binds = append(binds, t.DockerVolume()+":"+t.MountPath)
 			}
 		}

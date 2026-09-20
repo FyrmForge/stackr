@@ -13,6 +13,8 @@ import (
 	"charm.land/huh/v2"
 	"charm.land/lipgloss/v2"
 	"golang.org/x/term"
+
+	"github.com/FyrmForge/stackr/internal/installspec"
 )
 
 // keys adds the arrow keys to moving between fields; huh only has tab and
@@ -56,13 +58,13 @@ func ask(a *Answers, dry bool) error {
 			Description("Apps get names under it: app.stack.org.example.com.").
 			Validate(func(s string) error { _, err := CheckRoot(s); return err })),
 		step(1, huh.NewInput().Title("Panel hostname").Value(&a.Host).
-			PlaceholderFunc(func() string { return "stkr." + cleanName(a.Root) }, &a.Root).
+			PlaceholderFunc(func() string { return "stkr." + installspec.CleanHost(a.Root) }, &a.Root).
 			Description("Blank for the one shown.").
 			Validate(func(s string) error {
 				if strings.TrimSpace(s) == "" {
 					return nil
 				}
-				_, err := CheckHost(s, cleanName(a.Root))
+				_, err := CheckHost(s, installspec.CleanHost(a.Root))
 				return err
 			})),
 		step(2, yes("Behind Cloudflare?", &a.Cloudflare)),

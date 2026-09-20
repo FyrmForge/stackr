@@ -7,34 +7,59 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/FyrmForge/hamr/pkg/middleware"
 	"github.com/FyrmForge/hamr/pkg/respond"
-	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 
 	stackrmw "github.com/FyrmForge/stackr/internal/stackrd/handlers/middleware"
-	"github.com/FyrmForge/stackr/internal/stackrd/handlers/notify"
 	"github.com/FyrmForge/stackr/internal/stackrd/handlers/web/components"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/cluster"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/managedtiles"
-	"github.com/FyrmForge/stackr/internal/stackrd/infra/proxy"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/runtime"
+	"github.com/FyrmForge/stackr/internal/stackrd/service"
+	"github.com/FyrmForge/stackr/internal/stackrd/service/notify"
+	svcproxy "github.com/FyrmForge/stackr/internal/stackrd/service/proxy"
+	"github.com/FyrmForge/stackr/internal/stackrd/service/svcerr"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 )
 
 type handler struct {
-	store    repo.Store
-	dbs      *managedtiles.Service
-	px       *proxy.Proxy
-	notifier *notify.Notifier
-	clus     *cluster.Cluster // every docker call: a database's data volume is on its home node's disk, not necessarily the manager's
+	store     repo.Store
+	dbs       *managedtiles.Service
+	px        *svcproxy.Service
+	notifier  *notify.Notifier
+	clus      *cluster.Cluster // every docker call: a database's data volume is on its home node's disk, not necessarily the manager's
+	instances *service.ManagedInstanceService
+	slices    *service.SliceService
+	life      *service.TileLifecycleService
+	domains   *service.DomainService
+	// telemetry owns the metric window: the bucketing used to sit in a templ
+	// file reading the store (point 19).
+	telemetry *service.TileTelemetryService
 }
 
 // NewHandler creates a new database handler.
-func NewHandler(store repo.Store, dbs *managedtiles.Service, clus *cluster.Cluster, px *proxy.Proxy, notifier *notify.Notifier) *handler {
+func NewHandler(store repo.Store, dbs *managedtiles.Service, clus *cluster.Cluster, px *svcproxy.Service, notifier *notify.Notifier) *handler {
 	return &handler{store: store, dbs: dbs, clus: clus, px: px, notifier: notifier}
+}
+
+// WithServices gives the panel the same values the API holds, so an action
+// taken here and the identical call over the API perform the same effects.
+func (h *handler) WithServices(inst *service.ManagedInstanceService, sl *service.SliceService,
+	life *service.TileLifecycleService, dom *service.DomainService,
+	tel *service.TileTelemetryService) *handler {
+	h.instances, h.slices, h.life, h.domains, h.telemetry = inst, sl, life, dom, tel
+	return h
+}
+
+// actor names the signed-in user. Via is deliberately left empty rather than
+// set to "web": a managed instance has no staged shape, so every one of these
+// writes goes straight through and the gate is only ever a refusal.
+func (h *handler) actor(c echo.Context) service.Actor {
+	a := stackrmw.WebActor(c)
+	a.Via = ""
+	return a
 }
 
 func (h *handler) load(c echo.Context) (*repo.Tile, error) {
@@ -44,9 +69,6 @@ func (h *handler) load(c echo.Context) (*repo.Tile, error) {
 	}
 	if d == nil {
 		return nil, echo.NewHTTPError(http.StatusNotFound, "database not found")
-	}
-	if err := stackrmw.RequireStackAccess(c, h.store, d.StackID); err != nil {
-		return nil, err
 	}
 	// The drawer has no breadcrumb, so its header says where the tile
 	// lives. Resolved here because every panel path comes through load().
@@ -127,7 +149,7 @@ func (h *handler) loadTab(c echo.Context, d *repo.Tile, tab string) (tabData, er
 		// live view, content arrives over SSE (LogsStream), nothing to preload
 	case "metrics":
 		_, dur := components.MetricRange(c.QueryParam("range"))
-		td.cpu, td.mem, td.rx, td.tx = components.MetricPoints(ctx, h.store, "db:"+d.ID, dur)
+		td.cpu, td.mem, td.rx, td.tx = h.telemetry.Points(ctx, "db:"+d.ID, dur)
 	case "settings":
 		if td.domains, err = h.store.ListDomainsByTile(ctx, d.ID); err != nil {
 			return td, err
@@ -235,7 +257,7 @@ func (h *handler) Metrics(c echo.Context) error {
 		return err
 	}
 	key, dur := components.MetricRange(c.QueryParam("range"))
-	cpu, mem, rx, tx := components.MetricPoints(c.Request().Context(), h.store, "db:"+d.ID, dur)
+	cpu, mem, rx, tx := h.telemetry.Points(c.Request().Context(), "db:"+d.ID, dur)
 	return respond.HTML(c, http.StatusOK, components.MetricsFrag("/dbs/"+d.ID+"/metrics", key, cpu, mem, rx, tx))
 }
 
@@ -247,18 +269,9 @@ func (h *handler) Deploy(c echo.Context) error {
 	}
 	// Image pulls can take minutes; run detached so the request returns at once.
 	go func() {
-		ctx := context.Background()
-		if err := h.dbs.Deploy(ctx, d); err != nil {
-			if serr := h.store.UpdateTileStatus(ctx, d.ID, "error"); serr != nil {
-				slog.Error("database status not saved", "tile", d.ID, "status", "error", "error", serr)
-			}
-			h.statusChanged(d)
-			return
+		if err := h.instances.Deploy(context.Background(), d); err != nil {
+			slog.Error("database deploy failed", "tile", d.ID, "error", err)
 		}
-		if err := h.store.UpdateTileStatus(ctx, d.ID, "running"); err != nil {
-			slog.Error("database status not saved", "tile", d.ID, "status", "running", "error", err)
-		}
-		h.statusChanged(d)
 	}()
 	middleware.SetFlash(c, "Database deploying. Refresh in a moment.", middleware.FlashSuccess)
 	return h.headerDone(c, d)
@@ -270,14 +283,9 @@ func (h *handler) Stop(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	if err := h.dbs.Stop(c.Request().Context(), d); err != nil {
-		return err
+	if err := h.life.Stop(c.Request().Context(), d); err != nil {
+		return stackrmw.HTTP(err)
 	}
-	if err := h.store.UpdateTileStatus(c.Request().Context(), d.ID, "stopped"); err != nil {
-		slog.Error("database status not saved", "tile", d.ID, "status", "stopped", "error", err)
-	}
-	h.statusChanged(d)
-	d.Status = "stopped"
 	middleware.SetFlash(c, "Database stopped.", middleware.FlashSuccess)
 	return h.headerDone(c, d)
 }
@@ -288,23 +296,11 @@ func (h *handler) Start(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	if err := h.dbs.Start(c.Request().Context(), d); err != nil {
-		return err
+	if err := h.life.Restart(c.Request().Context(), d); err != nil {
+		return stackrmw.HTTP(err)
 	}
-	if err := h.store.UpdateTileStatus(c.Request().Context(), d.ID, "running"); err != nil {
-		slog.Error("database status not saved", "tile", d.ID, "status", "running", "error", err)
-	}
-	h.statusChanged(d)
-	d.Status = "running"
-	middleware.SetFlash(c, "Database started.", middleware.FlashSuccess)
+	middleware.SetFlash(c, "Database starting. Refresh in a moment.", middleware.FlashSuccess)
 	return h.headerDone(c, d)
-}
-
-// statusChanged tells open canvases to refetch. The acting tab gets its new
-// badge from the header re-render; every other viewer only learns from this.
-func (h *handler) statusChanged(d *repo.Tile) {
-	h.notifier.Project(d.StackID)
-	h.notifier.Containers()
 }
 
 // GET /dbs/:id/provisions, the provisioned-databases fragment.
@@ -356,7 +352,7 @@ func (h *handler) DropProvision(c echo.Context) error {
 	}
 	ctx := c.Request().Context()
 	dbName := c.FormValue("db_name")
-	if err := h.dbs.DropDB(ctx, d, dbName); err != nil {
+	if err := h.slices.Drop(ctx, d, dbName); err != nil {
 		middleware.SetFlash(c, "Drop failed: "+err.Error(), middleware.FlashError)
 	} else {
 		// The engine's own noun: this handler serves buckets as well as databases.
@@ -383,7 +379,7 @@ func (h *handler) ForkProvision(c echo.Context) error {
 		middleware.SetFlash(c, "Fork failed: no such "+unitNoun(d.Engine)+".", middleware.FlashError)
 		return h.renderProvisions(c, d)
 	}
-	fork, err := h.dbs.ForkSlice(ctx, d, src, "", "")
+	fork, err := h.slices.Fork(ctx, d, src, "", "")
 	if err != nil {
 		middleware.SetFlash(c, "Fork failed: "+err.Error(), middleware.FlashError)
 	} else {
@@ -403,40 +399,20 @@ func (h *handler) SetProvisionPublic(c echo.Context) error {
 	ctx := c.Request().Context()
 	// Resolved through this instance's own provisions, so a provision id from
 	// another instance can't be steered in through the form.
-	ps, err := h.store.ListProvisionsByInstance(ctx, d.ID)
+	target, err := h.slices.Find(ctx, d, c.FormValue("provision_id"))
 	if err != nil {
-		return err
-	}
-	id := c.FormValue("provision_id")
-	var target *repo.Provision
-	for i := range ps {
-		if ps[i].ID == id {
-			target = &ps[i]
-			break
-		}
-	}
-	if target == nil {
 		return echo.NewHTTPError(http.StatusNotFound, "bucket not found on this instance")
 	}
 	public := c.FormValue("public") == "1"
-	// Every row sharing the bucket name shares its policy, so they all move
-	// together, otherwise the drawer would show one consumer as public and
-	// its neighbour as private for the same bucket.
-	for i := range ps {
-		if ps[i].DBName != target.DBName {
-			continue
-		}
-		if err := h.dbs.SetBucketPublic(ctx, d, &ps[i], public); err != nil {
-			middleware.SetFlash(c, "Could not change exposure: "+err.Error(), middleware.FlashError)
-			return h.renderProvisions(c, d)
-		}
+	if err := h.slices.SetPublic(ctx, d, target, public); err != nil {
+		middleware.SetFlash(c, "Could not change exposure: "+err.Error(), middleware.FlashError)
+		return h.renderProvisions(c, d)
 	}
 	if public {
 		middleware.SetFlash(c, "Bucket "+target.DBName+" is now publicly readable.", middleware.FlashSuccess)
 	} else {
 		middleware.SetFlash(c, "Bucket "+target.DBName+" is now private.", middleware.FlashSuccess)
 	}
-	h.notifier.Project(d.StackID)
 	return h.renderProvisions(c, d)
 }
 
@@ -446,26 +422,18 @@ func (h *handler) Delete(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	// The file owns the stack's tiles, deleting one here is reverted by the
-	// next plan. Checked before the provisions gate so a managed stack gets the
-	// actionable answer ("edit the config file") not "drop them first".
-	if err := h.requireFileUnowned(c, d); err != nil {
-		return err
-	}
 	if err := components.RequireConfirm(c, d.Slug); err != nil {
 		return err
 	}
-	// Gate: a shared instance still holding provisioned databases (attached
-	// or orphaned) can't be deleted, that data belongs to consumers.
-	if ps, _ := h.store.ListProvisionsByInstance(c.Request().Context(), d.ID); len(ps) > 0 {
-		middleware.SetFlash(c, fmt.Sprintf("This instance still holds %d provisioned database(s). Drop them first.", len(ps)), middleware.FlashError)
-		return h.panelDone(c, d, "settings")
-	}
-	if err := h.dbs.Remove(c.Request().Context(), d); err != nil {
-		return err
-	}
-	if err := h.store.DeleteTile(c.Request().Context(), d.ID); err != nil {
-		return err
+	// force stays false from the panel: the drawer has no list of what would
+	// be destroyed, so the refusal is the only thing that tells the user the
+	// slices are there. The CLI prompts with the list and then forces.
+	if err := h.instances.Delete(c.Request().Context(), d, false, h.actor(c)); err != nil {
+		if conf, ok := svcerr.IsConflict(err); ok {
+			middleware.SetFlash(c, conf.Msg, middleware.FlashError)
+			return h.panelDone(c, d, "settings")
+		}
+		return stackrmw.HTTP(err)
 	}
 	middleware.SetFlash(c, "Database deleted. Its data volume was kept.", middleware.FlashSuccess)
 	return respond.Redirect(c, "/projects/"+d.StackID)
@@ -477,52 +445,48 @@ func (h *handler) SetPort(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	// Every field on this form is config-modeled now (external_port joined
-	// limits:), so on a managed stack the file owns all of them, an edit here
-	// would survive only until the next apply reverted it.
-	if err := h.requireFileUnowned(c, d); err != nil {
-		return err
-	}
-	port, err := strconv.Atoi(c.FormValue("external_port"))
-	if err != nil || port < 0 || port > 65535 {
-		port = 0
-	}
-	d.ExternalPort = port
-	if v, err := strconv.ParseFloat(c.FormValue("cpu_limit"), 64); err == nil && v >= 0 {
-		d.CPULimit = v
-	}
-	if v, err := strconv.Atoi(c.FormValue("mem_limit_mb")); err == nil && v >= 0 {
-		d.MemLimitMB = v
-		if v > 0 && v < 6 {
-			d.MemLimitMB = 6 // docker rejects memory caps under 6MB
-		}
-	}
-	if v, err := strconv.Atoi(c.FormValue("shm_size_mb")); err == nil && v >= 0 {
-		d.ShmSizeMB = v
-	}
-	// Image override: empty reverts to the engine default; the operator owns
-	// upgrade compatibility on anything else.
-	img := strings.TrimSpace(c.FormValue("image_ref"))
-	if img == "" {
-		img = managedtiles.Engines[d.Engine].DefaultImage
-	}
-	d.ImageRef = img
-	switch v := c.FormValue("update_policy"); v {
-	case "notify", "auto":
-		d.UpdatePolicy = v
-	default:
-		d.UpdatePolicy = "off"
-	}
-	if err := h.store.UpdateTile(c.Request().Context(), d); err != nil {
-		return err
-	}
-	if d.Status == "running" {
-		if err := h.dbs.Deploy(c.Request().Context(), d); err != nil {
-			return err
-		}
+	// The form is the whole settings block, so every field is read back even
+	// when it did not move; the service diffs the row it reads against the
+	// stored one to decide whether the container has to be recreated.
+	d.ExternalPort = formInt(c, "external_port")
+	d.CPULimit = formFloat(c, "cpu_limit")
+	d.MemLimitMB = formInt(c, "mem_limit_mb")
+	d.ShmSizeMB = formInt(c, "shm_size_mb")
+	d.ImageRef = strings.TrimSpace(c.FormValue("image_ref"))
+	d.UpdatePolicy = c.FormValue("update_policy")
+	if err := h.instances.Update(c.Request().Context(), d, h.actor(c)); err != nil {
+		return stackrmw.HTTP(err)
 	}
 	middleware.SetFlash(c, "Settings updated.", middleware.FlashSuccess)
 	return h.panelDone(c, d, "settings")
+}
+
+// formInt reads a whole-number field. An unparsable value becomes -1 rather
+// than 0 so the service refuses it: the panel used to fold a typo into "not
+// set", which silently unpublished a port or dropped a memory cap.
+func formInt(c echo.Context, name string) int {
+	raw := strings.TrimSpace(c.FormValue(name))
+	if raw == "" {
+		return 0
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil {
+		return -1
+	}
+	return n
+}
+
+// formFloat is formInt for a fractional field, with the same refusal.
+func formFloat(c echo.Context, name string) float64 {
+	raw := strings.TrimSpace(c.FormValue(name))
+	if raw == "" {
+		return 0
+	}
+	v, err := strconv.ParseFloat(raw, 64)
+	if err != nil {
+		return -1
+	}
+	return v
 }
 
 // POST /dbs/:id/scope, set how widely this instance is shared.
@@ -531,25 +495,8 @@ func (h *handler) SetScope(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	// scope: is config-modeled, see SetPort.
-	if err := stackrmw.RequireUnmanaged(c, h.store, d.StackID); err != nil {
-		return err
-	}
-	ctx := c.Request().Context()
-	switch c.FormValue("scope_kind") {
-	case "stack":
-		d.ScopeKind, d.ScopeID = "stack", d.StackID
-	case "org":
-		orgID := ""
-		if s, _ := h.store.GetStack(ctx, d.StackID); s != nil {
-			orgID = s.OrgID
-		}
-		d.ScopeKind, d.ScopeID = "org", orgID
-	default:
-		d.ScopeKind, d.ScopeID = "env", ""
-	}
-	if err := h.store.UpdateTile(ctx, d); err != nil {
-		return err
+	if err := h.instances.SetScope(c.Request().Context(), d, c.FormValue("scope_kind"), h.actor(c)); err != nil {
+		return stackrmw.HTTP(err)
 	}
 	middleware.SetFlash(c, "Sharing scope updated to "+managedtiles.ScopeLabel(d.ScopeKind)+".", middleware.FlashSuccess)
 	return h.panelDone(c, d, "settings")
@@ -574,40 +521,18 @@ func (h *handler) CreateDomain(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	ctx := c.Request().Context()
 	if err := h.requireFileUnowned(c, d); err != nil {
 		return err
 	}
-	if !managedtiles.SpeaksHTTP(d.Engine) {
-		return echo.NewHTTPError(http.StatusBadRequest, d.Engine+" does not speak HTTP, so Traefik cannot route to it")
-	}
-	host := c.FormValue("host")
-	if host == "" {
-		return echo.NewHTTPError(http.StatusBadRequest, "host required")
-	}
-	path := c.FormValue("path")
-	if path == "" {
-		path = "/"
-	}
-	// One route, one owner, the unique index is global across tiles.
-	if existing, _ := h.store.GetDomainByHostPath(ctx, host, path); existing != nil {
-		return echo.NewHTTPError(http.StatusConflict, "host + path already in use")
-	}
-	dom := &repo.Domain{
-		ID:            uuid.New().String(),
-		TileID:        d.ID,
-		Host:          host,
-		Path:          path,
-		ContainerPort: managedtiles.Engines[d.Engine].Port,
-		HTTPS:         c.FormValue("https") != "",
-		ForceHTTPS:    c.FormValue("https") != "",
-		CreatedAt:     time.Now().UTC(),
-	}
-	if err := h.store.CreateDomain(ctx, dom); err != nil {
-		return err
-	}
-	if err := h.syncProxy(ctx, d); err != nil {
-		return err
+	https := c.FormValue("https") != ""
+	// Port, the HTTP-engine refusal and the uniqueness rule are all in the
+	// service now, so the API stopped accepting a managed id with port 0.
+	_, _, err = h.domains.Attach(c.Request().Context(), d, service.DomainSpec{
+		Host: c.FormValue("host"), Path: c.FormValue("path"),
+		HTTPS: &https, ForceHTTPS: &https,
+	}, h.actor(c))
+	if err != nil {
+		return stackrmw.HTTP(err)
 	}
 	middleware.SetFlash(c, "Domain added.", middleware.FlashSuccess)
 	return h.panelDone(c, d, "settings")
@@ -619,29 +544,12 @@ func (h *handler) DeleteDomain(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	ctx := c.Request().Context()
 	if err := h.requireFileUnowned(c, d); err != nil {
 		return err
 	}
-	dom, err := h.store.GetDomain(ctx, c.Param("domainID"))
-	if err != nil || dom == nil || dom.TileID != d.ID {
-		return echo.NewHTTPError(http.StatusNotFound, "domain not found")
-	}
-	if err := h.store.DeleteDomain(ctx, dom.ID); err != nil {
-		return err
-	}
-	if err := h.syncProxy(ctx, d); err != nil {
-		return err
+	if _, _, err := h.domains.Detach(c.Request().Context(), d, c.Param("domainID"), h.actor(c)); err != nil {
+		return stackrmw.HTTP(err)
 	}
 	middleware.SetFlash(c, "Domain removed.", middleware.FlashSuccess)
 	return h.panelDone(c, d, "settings")
-}
-
-// syncProxy rewrites this tile's Traefik config from its current domains.
-func (h *handler) syncProxy(ctx context.Context, d *repo.Tile) error {
-	domains, err := h.store.ListDomainsByTile(ctx, d.ID)
-	if err != nil {
-		return err
-	}
-	return h.px.WriteApp(d, domains)
 }

@@ -2,56 +2,86 @@ package app
 
 import (
 	"context"
-	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
-	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/FyrmForge/stackr/internal/stackrd/config/envops"
 	"github.com/FyrmForge/stackr/internal/stackrd/config/envutil"
 	"github.com/FyrmForge/stackr/internal/stackrd/config/staging"
 	"github.com/FyrmForge/stackr/internal/stackrd/config/varref"
-	"github.com/FyrmForge/stackr/internal/stackrd/handlers/notify"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/cluster"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/deploy"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/envnet"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/githubapp"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/jobs"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/managedtiles"
+	"github.com/FyrmForge/stackr/internal/stackrd/infra/proxy"
+	"github.com/FyrmForge/stackr/internal/stackrd/service"
+	"github.com/FyrmForge/stackr/internal/stackrd/service/notify"
+	"github.com/FyrmForge/stackr/internal/stackrd/service/svcerr"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/audit"
 
 	"github.com/FyrmForge/hamr/pkg/middleware"
 	"github.com/FyrmForge/hamr/pkg/respond"
-	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 
 	"github.com/FyrmForge/stackr/internal/stackrd/config/stackconf"
 	stackrmw "github.com/FyrmForge/stackr/internal/stackrd/handlers/middleware"
 	"github.com/FyrmForge/stackr/internal/stackrd/handlers/web/components"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/placement"
-	"github.com/FyrmForge/stackr/internal/stackrd/infra/proxy"
-	"github.com/FyrmForge/stackr/internal/stackrd/infra/runtime"
+	svcproxy "github.com/FyrmForge/stackr/internal/stackrd/service/proxy"
+	"github.com/FyrmForge/stackr/internal/stackrd/service/scheduler"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 )
 
 type handler struct {
-	store    repo.Store
-	clus     *cluster.Cluster // every docker call (docs/plans/35-cluster.md)
-	px       *proxy.Proxy
-	engine   *deploy.Engine
-	jobs     *jobs.Service
+	store  repo.Store
+	clus   *cluster.Cluster // every docker call (docs/plans/35-cluster.md)
+	px     *svcproxy.Service
+	engine *deploy.Engine
+	jobs   *jobs.Service
+	// sched re-registers the cron and backup tables after a write that
+	// changes or cascades their rows.
+	sched    *scheduler.Service
 	gh       *githubapp.Client
 	notifier *notify.Notifier
+	// life owns every runtime state change a person can ask for: stop,
+	// restart, pause a schedule, run now, stop a run. tiles owns the row.
+	life  *service.TileLifecycleService
+	tiles *service.TileService
+	// domains owns the hostnames a tile answers on.
+	domains *service.DomainService
+	slices  *service.SliceService
+	vars    *service.VariableService
+	// telemetry resolves where a tile's logs and metrics come from.
+	telemetry *service.TileTelemetryService
+	// deploys owns the redeploy-if-running rule, which this file had two
+	// copies of and storage.go two more.
+	deploys *service.DeployService
+	// gate answers whether a config-managed stack takes this edit, and
+	// whether it stages. editGate was a second copy of it.
+	gate *service.GateService
 }
 
 // NewHandler creates a new app handler.
-func NewHandler(store repo.Store, clus *cluster.Cluster, px *proxy.Proxy, engine *deploy.Engine, jobsSvc *jobs.Service, gh *githubapp.Client, notifier *notify.Notifier) *handler {
-	return &handler{store: store, clus: clus, px: px, engine: engine, jobs: jobsSvc, gh: gh, notifier: notifier}
+// WithSlices gives the panel the slice service the API holds.
+func (h *handler) WithSlices(sl *service.SliceService) *handler { h.slices = sl; return h }
+
+// WithGate gives the panel the config-managed gate.
+func (h *handler) WithGate(g *service.GateService) *handler { h.gate = g; return h }
+
+// WithDeploys gives the panel the deploy service.
+func (h *handler) WithDeploys(d *service.DeployService) *handler { h.deploys = d; return h }
+
+// WithVariables gives the tile drawer the variable service.
+func (h *handler) WithVariables(v *service.VariableService) *handler { h.vars = v; return h }
+
+func NewHandler(store repo.Store, clus *cluster.Cluster, px *svcproxy.Service, engine *deploy.Engine, jobsSvc *jobs.Service, gh *githubapp.Client, notifier *notify.Notifier, life *service.TileLifecycleService, tiles *service.TileService, telemetry *service.TileTelemetryService, domains *service.DomainService) *handler {
+	return &handler{store: store, clus: clus, px: px, engine: engine, jobs: jobsSvc, gh: gh, notifier: notifier, life: life, tiles: tiles, telemetry: telemetry, domains: domains}
 }
 
 // GET /apps/:id/connectors, <option>s for the git connector select.
@@ -104,24 +134,23 @@ func (h *handler) LogsStream(c echo.Context) error {
 	res.Header().Set(echo.HeaderContentType, "text/event-stream")
 	res.Header().Set("Cache-Control", "no-cache")
 	res.WriteHeader(http.StatusOK)
-	// A service's logs are every replica on every node, collected through the
-	// manager; a container's are one replica on one box. Cron tiles have no
-	// long-lived service, so they fall through to the container path.
+	// Where the lines come from is a rule about how the tile is deployed,
+	// and it lives in the telemetry service so this handler and the API's
+	// cannot resolve it differently.
+	src := h.telemetry.Logs(ctx, a)
+	if !src.Found() {
+		_, _ = fmt.Fprint(res, "data: O - no running container. Deploy first (cron tiles only log per run)\n\n")
+		res.Flush()
+		return nil
+	}
 	var (
 		ch   <-chan string
 		stop func()
 	)
-	if name := envnet.ServiceFor(ctx, h.store, a); name != "" {
-		ch, stop, err = h.clus.StreamServiceLogsMarked(ctx, name, 300)
-	}
-	if ch == nil {
-		cs, _ := h.clus.ListByLabel(ctx, runtime.LabelApp, a.ID)
-		if len(cs) == 0 {
-			_, _ = fmt.Fprint(res, "data: O - no running container. Deploy first (cron tiles only log per run)\n\n")
-			res.Flush()
-			return nil
-		}
-		ch, stop, err = h.clus.StreamLogsMarked(ctx, h.clus.Self(ctx), cs[0].ID, 300)
+	if src.Service != "" {
+		ch, stop, err = h.clus.StreamServiceLogsMarked(ctx, src.Service, 300)
+	} else {
+		ch, stop, err = h.clus.StreamLogsMarked(ctx, h.clus.Self(ctx), src.Container, 300)
 	}
 	if err != nil {
 		return err
@@ -148,45 +177,8 @@ func (h *handler) Metrics(c echo.Context) error {
 		return err
 	}
 	key, dur := components.MetricRange(c.QueryParam("range"))
-	cpu, mem, rx, tx := components.MetricPoints(c.Request().Context(), h.store, "app:"+a.ID, dur)
+	cpu, mem, rx, tx := h.telemetry.Points(c.Request().Context(), service.TileRef(a.ID), dur)
 	return respond.HTML(c, http.StatusOK, metricsFrag(a, key, cpu, mem, rx, tx))
-}
-
-// parseLimits parses resource caps; anything invalid or negative means 0
-// (unlimited). Docker rejects memory caps under 6MB, so tiny values clamp up.
-func parseLimits(cpu, mem string) (float64, int) {
-	c, _ := strconv.ParseFloat(cpu, 64)
-	if c < 0 {
-		c = 0
-	}
-	m, _ := strconv.Atoi(mem)
-	if m < 0 {
-		m = 0
-	}
-	if m > 0 && m < 6 {
-		m = 6
-	}
-	return c, m
-}
-
-// timeoutMinutes parses a runtime cap, clamped to [1, 1440]; default 30.
-func timeoutMinutes(v string) int {
-	n, err := strconv.Atoi(v)
-	if err != nil || n < 1 {
-		return 30
-	}
-	if n > 1440 {
-		return 1440
-	}
-	return n
-}
-
-// updatePolicyForm normalizes the settings select to the stored enum.
-func updatePolicyForm(v string) string {
-	if v == "notify" || v == "auto" {
-		return v
-	}
-	return "off"
 }
 
 // POST /apps/:id/run, run a cron-kind app immediately (in background).
@@ -195,11 +187,9 @@ func (h *handler) RunNow(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	// StartApp, not a bare goroutine: the run row has to exist before the
-	// header renders, or the badge draws idle for a run that is already going.
-	// No flash either, the header says "running" and the Runs tab has the row.
-	if _, err := h.jobs.StartApp(c.Request().Context(), a.ID, jobs.TriggerManualWeb, actorOf(c)); err != nil {
-		return err
+	// No flash: the header says "running" and the Runs tab has the row.
+	if _, err := h.life.RunNow(c.Request().Context(), a, stackrmw.WebActor(c)); err != nil {
+		return stackrmw.HTTP(err)
 	}
 	return h.headerDone(c, a)
 }
@@ -211,14 +201,11 @@ func (h *handler) StopRun(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	run, err := h.store.GetCronRun(c.Request().Context(), c.Param("run"))
+	stopped, err := h.life.StopRun(c.Request().Context(), a, c.Param("run"))
 	if err != nil {
-		return err
+		return stackrmw.HTTP(err)
 	}
-	if run == nil || run.Ref != "app:"+a.ID {
-		return echo.NewHTTPError(http.StatusNotFound, "run not found")
-	}
-	if !h.jobs.Stop(c.Request().Context(), run.ID) {
+	if !stopped {
 		middleware.SetFlash(c, "That run already finished.", middleware.FlashInfo)
 	}
 	return h.headerDone(c, a)
@@ -227,22 +214,13 @@ func (h *handler) StopRun(c echo.Context) error {
 // runWindow is how many runs the Runs tab lists and the Logs tab replays.
 const runWindow = 20
 
-// GET /apps/:id/runs/logs/stream, SSE: the tile's runs as one stream. A cron
-// has no long-lived container, so there is nothing to follow between runs:
-// what the recent runs stored replays oldest-first, then the run in flight (if
-// any) is followed live off its own container, found by the stackr.run label.
-//
-// Every line carries the run's short id as a "tag|" prefix, LogView's multi
-// mode renders that as a coloured chip and matches it in the search box, so
-// typing a run id narrows the stream to that run. Stored output has no
-// per-line time, so replayed lines all carry the run's start.
 func (h *handler) RunsLogsStream(c echo.Context) error {
 	a, err := h.load(c)
 	if err != nil {
 		return err
 	}
 	ctx := c.Request().Context()
-	runs, err := h.store.ListCronRuns(ctx, "app:"+a.ID, runWindow)
+	runs, err := h.store.ListCronRuns(ctx, service.TileRef(a.ID), runWindow)
 	if err != nil {
 		return err
 	}
@@ -327,71 +305,30 @@ func shortRun(id string) string {
 // (and its deployment record) around so Deploy/Restart brings the same thing
 // back. Stopping the task's container instead would just make swarm start
 // another one.
+// POST /apps/:id/stop. No flash: SetFlash only surfaces on the *next*
+// request, and the header re-render already shows the new status badge.
 func (h *handler) Stop(c echo.Context) error {
 	a, err := h.load(c)
 	if err != nil {
 		return err
 	}
-	if err := h.clus.ScaleService(c.Request().Context(), envnet.ServiceFor(c.Request().Context(), h.store, a), 0); err != nil {
-		return err
+	if err := h.life.Stop(c.Request().Context(), a); err != nil {
+		return stackrmw.HTTP(err)
 	}
-	if err := h.store.UpdateTileStatus(c.Request().Context(), a.ID, "stopped"); err != nil {
-		slog.Error("tile status not saved", "tile", a.ID, "status", "stopped", "error", err)
-	}
-	h.statusChanged(a)
-	a.Status = "stopped"
-	// No flash: SetFlash only surfaces on the *next* request, and the header
-	// re-render already shows the new status badge in place.
 	return h.headerDone(c, a)
 }
 
 // POST /apps/:id/restart, bounce the tile. Deliberately not a redeploy: no
-// rebuild, no new image, the same spec re-rolled. For a service that is a
-// forced update (scale 0 then 1 would drop the replica count a stopped tile
-// is meant to keep).
+// rebuild, no new image, the same spec re-rolled.
 func (h *handler) Restart(c echo.Context) error {
 	a, err := h.load(c)
 	if err != nil {
 		return err
 	}
-	ctx := c.Request().Context()
-	if err := h.restartTile(ctx, a); err != nil {
-		// Bounced but not back up: record what is actually true, or the tile
-		// keeps claiming "running" over a dead one.
-		if serr := h.store.UpdateTileStatus(ctx, a.ID, "stopped"); serr != nil {
-			slog.Error("tile status not saved", "tile", a.ID, "status", "stopped", "error", serr)
-		}
-		h.statusChanged(a)
-		return err
+	if err := h.life.Restart(c.Request().Context(), a); err != nil {
+		return stackrmw.HTTP(err)
 	}
-	if err := h.store.UpdateTileStatus(ctx, a.ID, "running"); err != nil {
-		slog.Error("tile status not saved", "tile", a.ID, "status", "running", "error", err)
-	}
-	h.statusChanged(a)
-	a.Status = "running"
 	return h.headerDone(c, a)
-}
-
-// restartTile bounces a tile in place: a forced service update, managed
-// instances included. Deliberately not scale 0 then 1, a stopped tile is
-// meant to keep its replica count. A tile that was scaled to zero comes back
-// up.
-func (h *handler) restartTile(ctx context.Context, a *repo.Tile) error {
-	name := envnet.ServiceFor(ctx, h.store, a)
-	if name == "" {
-		return echo.NewHTTPError(http.StatusBadRequest, "nothing deployed to restart")
-	}
-	// A pinned tile is forced to one replica by placement, so its configured
-	// count is not what it comes back as; placement.For is the authority and
-	// runs on the next deploy. One is right for everything with a volume.
-	return h.clus.RestartService(ctx, name, a.Replicas)
-}
-
-// statusChanged tells open canvases to refetch. The acting tab gets its new
-// badge from the header re-render; every other viewer only learns from this.
-func (h *handler) statusChanged(a *repo.Tile) {
-	h.notifier.Project(a.StackID)
-	h.notifier.Containers()
 }
 
 // POST /apps/:id/cron/toggle, pause/resume a cron-kind app's schedule.
@@ -400,16 +337,10 @@ func (h *handler) ToggleCron(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	status := "paused"
-	if a.Status == "paused" {
-		status = "idle"
+	status, err := h.life.ToggleCron(c.Request().Context(), a)
+	if err != nil {
+		return stackrmw.HTTP(err)
 	}
-	if err := h.store.UpdateTileStatus(c.Request().Context(), a.ID, status); err != nil {
-		return err
-	}
-	_ = h.jobs.LoadSchedules(c.Request().Context())
-	h.statusChanged(a)
-	a.Status = status
 	if status == "paused" {
 		middleware.SetFlash(c, "Schedule paused.", middleware.FlashSuccess)
 	} else {
@@ -434,9 +365,6 @@ func (h *handler) load(c echo.Context) (*repo.Tile, error) {
 	}
 	if a == nil {
 		return nil, echo.NewHTTPError(http.StatusNotFound, "app not found")
-	}
-	if err := stackrmw.RequireStackAccess(c, h.store, a.StackID); err != nil {
-		return nil, err
 	}
 	// The drawer has no breadcrumb, so its header says where the tile
 	// lives. Resolved here because every panel path comes through load().
@@ -528,7 +456,7 @@ func (h *handler) loadTab(c echo.Context, a *repo.Tile, tab string) (tabData, er
 	// Every tab, not just Runs: the header carries the run state, and it is
 	// rendered above whichever tab is open.
 	if runsTile(a) {
-		d.openRun, _ = h.store.OpenCronRun(ctx, "app:"+a.ID)
+		d.openRun, _ = h.store.OpenCronRun(ctx, service.TileRef(a.ID))
 	}
 	switch tab {
 	case "overview":
@@ -547,10 +475,10 @@ func (h *handler) loadTab(c echo.Context, a *repo.Tile, tab string) (tabData, er
 		// live view, content arrives over SSE (LogsStream), nothing to preload.
 		// A cron has no container to follow, so its Logs tab picks a run.
 		if runsTile(a) {
-			d.runs, _ = h.store.ListCronRuns(ctx, "app:"+a.ID, runWindow)
+			d.runs, _ = h.store.ListCronRuns(ctx, service.TileRef(a.ID), runWindow)
 		}
 	case "runs":
-		d.runs, _ = h.store.ListCronRuns(ctx, "app:"+a.ID, runWindow)
+		d.runs, _ = h.store.ListCronRuns(ctx, service.TileRef(a.ID), runWindow)
 	case "http":
 		d.httpLog = h.px.AccessLog(a.ID, 100)
 	case "settings":
@@ -568,7 +496,7 @@ func (h *handler) loadTab(c echo.Context, a *repo.Tile, tab string) (tabData, er
 		d.node = h.placementOf(ctx, a)
 	case "metrics":
 		_, dur := components.MetricRange(c.QueryParam("range"))
-		d.cpu, d.mem, d.rx, d.tx = components.MetricPoints(ctx, h.store, "app:"+a.ID, dur)
+		d.cpu, d.mem, d.rx, d.tx = h.telemetry.Points(ctx, service.TileRef(a.ID), dur)
 	case "variables":
 		// app already carries env/build_args
 	default: // deployments, for every kind that has them
@@ -663,7 +591,7 @@ func (h *handler) openRun(c echo.Context, a *repo.Tile) *repo.CronRun {
 	if !runsTile(a) {
 		return nil
 	}
-	r, _ := h.store.OpenCronRun(c.Request().Context(), "app:"+a.ID)
+	r, _ := h.store.OpenCronRun(c.Request().Context(), service.TileRef(a.ID))
 	return r
 }
 
@@ -795,9 +723,10 @@ func (h *handler) Attach(c echo.Context) error {
 		if id == "" || (id == oldTarget && oldTarget == targetID) {
 			continue
 		}
-		if t, err := h.store.GetTile(ctx, id); err == nil && t != nil {
-			_, _ = h.engine.Enqueue(ctx, t, "volume")
-		}
+		// Only if it is up: a mount exists on the next container either way,
+		// and queueing a deploy for a stopped service would start it behind
+		// the user's back.
+		h.deploys.RedeployIfRunning(ctx, id, "volume")
 	}
 	if targetID == "" {
 		middleware.SetFlash(c, "Volume detached.", middleware.FlashSuccess)
@@ -865,12 +794,10 @@ func (h *handler) infraAddress(ctx context.Context, instance *repo.Tile) string 
 }
 
 func (h *handler) wireProvision(ctx context.Context, a *repo.Tile, instance *repo.Tile, p *repo.Provision, varName, verb string) (string, error) {
-	ref := managedtiles.Ref(instance, p, managedtiles.DefaultOutput(instance.Engine))
 	// On a config-managed stack the file owns tile.Env: injecting here would be
 	// stripped by the next apply, leaving the app without its DB URL. The file
 	// can declare the whole relationship with uses:, so point at that rather
 	// than at a hand-written reference the next plan would show as drift.
-	// !uiManaged also covers the lookup-error case: don't inject.
 	if !h.uiManaged(ctx, a.StackID) {
 		if varName == "" {
 			varName = managedtiles.DefaultOutput(instance.Engine)
@@ -879,20 +806,24 @@ func (h *handler) wireProvision(ctx context.Context, a *repo.Tile, instance *rep
 			"uses:\n  - infra: " + h.infraAddress(ctx, instance) + "\n    name: " + p.DBName +
 			"\n    var: " + varName, nil
 	}
-	if varName == "" {
+	used, err := h.slices.Wire(ctx, instance, a, p, varName)
+	if err != nil {
+		return "", err
+	}
+	// An s3 slice injects its whole output set and ignores the asked-for name
+	// (one endpoint is not enough to reach a bucket with), so it reports none.
+	if used == "" {
+		if managedtiles.Engines[instance.Engine].AutoInjectAll {
+			return "Database " + verb + ". Its connection details were set on " + a.Name +
+				", which is redeploying.", nil
+		}
+		ref := managedtiles.Ref(instance, p, managedtiles.DefaultOutput(instance.Engine))
 		return "Database " + verb + ". Add " + ref + " to this tile's variables; it applies on the next deploy.", nil
 	}
-	newEnv, used := injectEnvVar(a.Env, varName, ref)
-	a.Env = newEnv
-	if err := h.store.UpdateTile(ctx, a); err != nil {
-		return "", err
-	}
-	if _, err := h.engine.Enqueue(ctx, a, "provision"); err != nil {
-		return "", err
-	}
 	msg := "Database " + verb + ". " + used + " set and " + a.Name + " is redeploying."
-	if used != varName {
-		msg = "Database " + verb + ". " + varName + " was already used, so " + used + " was set instead; " + a.Name + " is redeploying."
+	if used != service.EnvVarName(varName) {
+		msg = "Database " + verb + ". " + service.EnvVarName(varName) +
+			" was already used, so " + used + " was set instead; " + a.Name + " is redeploying."
 	}
 	return msg, nil
 }
@@ -911,15 +842,15 @@ func (h *handler) Provision(c echo.Context) error {
 	}
 	ctx := c.Request().Context()
 	instance, err := h.store.GetTile(ctx, c.FormValue("instance_id"))
-	if err != nil || instance == nil || !managedtiles.Eligible(ctx, h.store, instance, a) {
-		return echo.NewHTTPError(http.StatusBadRequest, "invalid shared instance")
+	if err != nil {
+		return err
 	}
-	p, err := h.dbsvc().Provision(ctx, instance, a, "", false)
+	p, err := h.slices.Provision(ctx, instance, a, "", false)
 	if err != nil {
 		middleware.SetFlash(c, "Provisioning failed: "+err.Error(), middleware.FlashError)
 		return h.renderProvisions(c, a)
 	}
-	msg, err := h.wireProvision(ctx, a, instance, p, envVarName(c.FormValue("env_var")), "provisioned")
+	msg, err := h.wireProvision(ctx, a, instance, p, c.FormValue("env_var"), "provisioned")
 	if err != nil {
 		return err
 	}
@@ -941,48 +872,20 @@ func (h *handler) AttachProvision(c echo.Context) error {
 	}
 	ctx := c.Request().Context()
 	src, err := h.store.GetProvision(ctx, c.FormValue("provision_id"))
-	if err != nil || src == nil || src.EnvID != a.EnvironmentID {
-		return echo.NewHTTPError(http.StatusBadRequest, "invalid database")
+	if err != nil {
+		return err
 	}
-	instance, err := h.store.GetTile(ctx, src.InstanceTileID)
-	if err != nil || instance == nil {
-		return echo.NewHTTPError(http.StatusBadRequest, "instance not found")
-	}
-	p, err := h.dbsvc().AttachExisting(ctx, instance, src, a)
+	p, instance, err := h.slices.Attach(ctx, src, a)
 	if err != nil {
 		middleware.SetFlash(c, "Attach failed: "+err.Error(), middleware.FlashError)
 		return h.renderProvisions(c, a)
 	}
-	msg, err := h.wireProvision(ctx, a, instance, p, envVarName(c.FormValue("env_var")), "attached")
+	msg, err := h.wireProvision(ctx, a, instance, p, c.FormValue("env_var"), "attached")
 	if err != nil {
 		return err
 	}
 	middleware.SetFlash(c, msg, middleware.FlashSuccess)
 	return h.renderProvisions(c, a)
-}
-
-// envVarName sanitises a user-supplied env var name to a safe shell
-// identifier ("" if nothing usable remains).
-func envVarName(s string) string {
-	s = strings.TrimSpace(s)
-	var b strings.Builder
-	for i, r := range s {
-		switch {
-		case r >= 'A' && r <= 'Z', r == '_':
-			b.WriteRune(r)
-		case r >= 'a' && r <= 'z':
-			b.WriteRune(r - 32) // upper-case, env-var convention
-		case r >= '0' && r <= '9' && i > 0:
-			b.WriteRune(r)
-		}
-	}
-	return b.String()
-}
-
-// injectEnvVar sets key=val in the consumer's env without clobbering an
-// existing different value. See envutil.Inject.
-func injectEnvVar(env, key, val string) (string, string) {
-	return envutil.Inject(env, key, val)
 }
 
 // POST /apps/:id/provisions/:pid/detach, unlink, keep the data (orphaned).
@@ -995,19 +898,12 @@ func (h *handler) DetachProvision(c echo.Context) error {
 		return err
 	}
 	ctx := c.Request().Context()
-	p, err := h.store.GetProvision(ctx, c.Param("pid"))
-	if err != nil || p == nil || p.ConsumerTileID != a.ID {
-		return echo.NewHTTPError(http.StatusNotFound, "provision not found")
-	}
-	if err := h.dbsvc().Detach(ctx, p); err != nil {
-		return err
+	if err := h.slices.Detach(ctx, a, c.Param("pid")); err != nil {
+		return stackrmw.HTTP(err)
 	}
 	middleware.SetFlash(c, "Detached. The data was kept. Drop it from the instance's panel.", middleware.FlashSuccess)
 	return h.renderProvisions(c, a)
 }
-
-// dbsvc is the shared-instance provisioner (stateless, built on demand).
-func (h *handler) dbsvc() *managedtiles.Service { return managedtiles.NewService(h.clus, h.store) }
 
 // panelDone finishes a panel-form save: htmx requests get the re-rendered
 // panel content in place (both the drawer and the full page host
@@ -1073,14 +969,11 @@ func (h *handler) VarValue(c echo.Context) error {
 	if err != nil || s == nil {
 		return echo.NewHTTPError(http.StatusNotFound, "not found")
 	}
-	if !stackrmw.CanWriteOrg(c, h.store, s.OrgID) {
-		return echo.NewHTTPError(http.StatusForbidden, "read-only")
-	}
 	vars, err := h.store.ListVariables(c.Request().Context(), repo.OwnerTile, a.ID)
 	if err != nil {
 		return err
 	}
-	return audit.ServeValue(c, h.store, vars, repo.OwnerTile, a.ID, audit.Reveal)
+	return stackrmw.AuditServeValue(c, h.store, vars, repo.OwnerTile, a.ID, audit.Reveal)
 }
 
 // POST /apps/:id/vars/secret, add or replace one secret variable. Secrets are
@@ -1091,17 +984,14 @@ func (h *handler) SaveSecretVar(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	name := strings.TrimSpace(c.FormValue("name"))
-	if name == "" {
-		return echo.NewHTTPError(http.StatusBadRequest, "name required")
+	// The name rule is the service's now. This form used to accept any
+	// non-empty string, so a tile secret could be given a name the panel
+	// refused one scope up and that no shell could read.
+	if err := h.vars.Set(c.Request().Context(), service.TileVars(a.ID), []service.VarWrite{{
+		Name: strings.TrimSpace(c.FormValue("name")), Value: components.VarValue(c), Secret: true,
+	}}, stackrmw.WebActor(c)); err != nil {
+		return stackrmw.HTTP(err)
 	}
-	now := time.Now().UTC()
-	if err := h.store.UpsertVariable(c.Request().Context(), &repo.Variable{
-		OwnerKind: repo.OwnerTile, OwnerID: a.ID, Name: name,
-		Value: components.VarValue(c), Secret: true, CreatedAt: now, UpdatedAt: now}); err != nil {
-		return err
-	}
-	audit.Record(c.Request().Context(), h.store, audit.Actor(c), audit.Set, repo.OwnerTile, a.ID, name)
 	middleware.SetFlash(c, "Secret saved. It applies on the next deploy.", middleware.FlashSuccess)
 	return h.Vars(c)
 }
@@ -1149,10 +1039,9 @@ func (h *handler) DeleteVar(c echo.Context) error {
 		middleware.SetFlash(c, name+" removal staged. Review & apply on the canvas.", middleware.FlashSuccess)
 		return h.Vars(c)
 	}
-	if err := h.store.DeleteVariable(ctx, repo.OwnerTile, a.ID, name); err != nil {
-		return err
+	if err := h.vars.Unset(ctx, service.TileVars(a.ID), []string{name}, stackrmw.WebActor(c)); err != nil {
+		return stackrmw.HTTP(err)
 	}
-	audit.Record(ctx, h.store, audit.Actor(c), audit.Delete, repo.OwnerTile, a.ID, name)
 	middleware.SetFlash(c, "Variable deleted. It stops being set on the next deploy.", middleware.FlashSuccess)
 	return h.Vars(c)
 }
@@ -1198,10 +1087,10 @@ func (h *handler) SaveEnv(c echo.Context) error {
 	// Env vars only take effect at container start, so redeploy a running
 	// service, otherwise a just-added ${secret.*} silently never connects.
 	// Crons apply their env on the next scheduled run; volumes/dbs don't apply.
+	// The rule itself is the deploy service's, in one place, where it used to
+	// be spelled out here and in three other handlers.
 	if a.Kind == "service" && !a.IsManaged() && !a.IsVolume() && a.Status == "running" {
-		if _, err := h.engine.Enqueue(ctx, a, "variables"); err != nil {
-			return err
-		}
+		h.deploys.RedeployIfRunning(ctx, a.ID, "variables")
 		middleware.SetFlash(c, "Variables saved. "+a.Name+" is redeploying to apply them.", middleware.FlashSuccess)
 	} else {
 		middleware.SetFlash(c, "Variables saved. They apply on the next deploy.", middleware.FlashSuccess)
@@ -1231,15 +1120,16 @@ func (h *handler) configMode(ctx context.Context, stackID string) string {
 // declares ui_edits: stage, the panel then wins until the next config plan,
 // which shows the drift and overwrites it on apply, terraform style. Anything
 // else is refused, and a lookup error refuses too: this fails closed.
+//
+// The rule itself is GateService's — this was a second implementation of it,
+// written before the gate existed, differing only in that it could not answer
+// for a surface other than the canvas.
 func (h *handler) editGate(ctx context.Context, stackID string) (stage bool, err error) {
-	s, err := h.store.GetStack(ctx, stackID)
-	if err != nil || s == nil {
-		return false, echo.NewHTTPError(http.StatusNotFound, "not found")
+	stage, err = h.gate.Gate(ctx, stackID, service.GateFieldEdit, service.SurfaceCanvas)
+	if err != nil {
+		return false, stackrmw.HTTP(err)
 	}
-	if s.ConfigManaged() && s.UIEdits() != repo.UIEditsStage {
-		return false, managedErr(s)
-	}
-	return true, nil
+	return stage, nil
 }
 
 // managedErr is the 409 returned for a blocked structural write on a
@@ -1359,84 +1249,16 @@ func nonNegInt(v string) int {
 	return n
 }
 
-// settingsPatch builds the sparse config patch for a staged settings edit from
-// the (in-memory, form-populated) tile. It carries every settings-owned field
-// so a cleared field applies, and deliberately omits env + domains, those keep
-// their own staged groups (SaveEnv / the domain handlers).
-func settingsPatch(a *repo.Tile) map[string]any {
-	p := map[string]any{"limits": map[string]any{"cpu": a.CPULimit, "memory_mb": a.MemLimitMB}}
-	if a.Kind == "cron" {
-		p["type"] = "cron"
-		p["image"] = a.ImageRef
-		p["schedule"] = a.Cron
-		p["command"] = a.Command
-		p["update_policy"] = a.UpdatePolicy
-		p["allow_overlap"] = a.AllowOverlap
-		p["timeout_minutes"] = a.TimeoutMinutes
-		return p
-	}
-	if a.Kind == "function" {
-		p["type"] = "function"
-		p["image"] = a.ImageRef
-		p["command"] = a.Command
-		p["update_policy"] = a.UpdatePolicy
-		p["run_on_deploy"] = a.RunOnDeploy
-		p["allow_overlap"] = a.AllowOverlap
-		p["timeout_minutes"] = a.TimeoutMinutes
-		p["depends_on"] = splitNonEmpty(a.DependsOn)
-		return p
-	}
-	p["port"] = a.ContainerPort
-	p["healthcheck"] = a.HealthcheckCmd
-	p["healthcheck_interval"] = a.HealthcheckIntervalS
-	p["healthcheck_timeout"] = a.HealthcheckTimeoutS
-	p["healthcheck_retries"] = a.HealthcheckRetries
-	p["healthcheck_start_period"] = a.HealthcheckStartPeriodS
-	p["command"] = a.Command
-	p["user"] = a.User
-	p["shm_size_mb"] = a.ShmSizeMB
-	p["privileged"] = a.Privileged
-	p["devices"] = splitNonEmpty(a.Devices)
-	p["restart"] = a.RestartPolicy
-	p["depends_on"] = splitNonEmpty(a.DependsOn)
-	p["security_headers"] = a.SecHeaders
-	p["volumes"] = splitNonEmpty(a.Volumes)
-	p["files"] = splitNonEmpty(a.Files)
-	p["storage"] = splitNonEmpty(a.Storage)
-	p["watch_paths"] = splitNonEmpty(a.WatchPaths)
-	p["build_args"] = a.BuildArgs
-	p["published_ports"] = a.PublishedPorts
-	p["traefik_override"] = a.TraefikOverride
-	p["update_policy"] = a.UpdatePolicy
-	p["wait_for_ci"] = a.WaitForCI
-	p["basic_auth_user"] = a.BasicAuthUser
-	p["basic_auth_password"] = a.BasicAuthPassword
-	switch a.SourceType {
-	case "image":
-		p["image"] = a.ImageRef
-	default: // git
-		p["image"] = ""
-		p["git_url"] = a.GitURL
-		p["connector"] = a.ConnectorID
-		p["branch"] = a.GitBranch
-		p["build"] = map[string]any{"context": a.BuildContext, "dockerfile": a.DockerfilePath}
-	}
-	return p
-}
-
 // POST /apps/:id/settings
+//
+// Binds the form onto the loaded tile and hands the whole row to the tile
+// service. Every rule that used to live here — the cron expression, the git
+// URL, the connector's org, the mount and device grammars, the replica
+// guard, the limits — is the service's now, and so is deciding whether the
+// save stages, rewrites the route or redeploys. This function maps strings
+// to fields and renders the answer.
 func (h *handler) SaveSettings(c echo.Context) error {
-	ctx := c.Request().Context()
 	a, err := h.load(c)
-	if err != nil {
-		return err
-	}
-	// The settings form is entirely fields the config file owns, so one gate
-	// covers the whole save. Build args, push-to-registry, published ports,
-	// the traefik override, basic auth and allow-overlap used to pass straight
-	// through on a config-managed stack, every one of them is diffed by
-	// plan.go, so those saves were silent drift the next plan reverted.
-	stage, err := h.editGate(ctx, a.StackID)
 	if err != nil {
 		return err
 	}
@@ -1444,162 +1266,149 @@ func (h *handler) SaveSettings(c echo.Context) error {
 	// the settings form, so settings saves must never touch a.Env.
 	switch a.Kind {
 	case "cron":
-		// cron services have a slim settings form: image, schedule, command, env
-		cronExpr := c.FormValue("cron")
-		if err := jobs.ValidateCron(cronExpr); err != nil {
-			return echo.NewHTTPError(http.StatusBadRequest, "invalid cron expression")
-		}
-		a.Cron = cronExpr
+		// cron tiles have a slim settings form: image, schedule, command, limits
+		a.Cron = c.FormValue("cron")
 		a.Command = c.FormValue("command")
 		a.ImageRef = c.FormValue("image_ref")
-		a.UpdatePolicy = updatePolicyForm(c.FormValue("update_policy"))
+		a.UpdatePolicy = c.FormValue("update_policy")
 		a.AllowOverlap = c.FormValue("allow_overlap") != ""
-		a.TimeoutMinutes = timeoutMinutes(c.FormValue("timeout_minutes"))
-		a.CPULimit, a.MemLimitMB = parseLimits(c.FormValue("cpu_limit"), c.FormValue("mem_limit_mb"))
+		if err := bindInts(c, map[string]*int{"timeout_minutes": &a.TimeoutMinutes}); err != nil {
+			return stackrmw.HTTP(err)
+		}
+		if err := bindLimits(c, a); err != nil {
+			return stackrmw.HTTP(err)
+		}
 	case "function":
 		// a cron minus the schedule, plus the on-deploy trigger
 		a.Command = c.FormValue("command")
 		a.ImageRef = c.FormValue("image_ref")
-		a.UpdatePolicy = updatePolicyForm(c.FormValue("update_policy"))
+		a.UpdatePolicy = c.FormValue("update_policy")
 		a.RunOnDeploy = c.FormValue("run_on_deploy") != ""
 		a.DependsOn = c.FormValue("depends_on")
-		for _, l := range splitNonEmpty(a.DependsOn) {
-			if _, _, err := stackconf.ParseDep(l); err != nil {
-				return echo.NewHTTPError(http.StatusBadRequest, err.Error())
-			}
-		}
 		a.AllowOverlap = c.FormValue("allow_overlap") != ""
-		a.TimeoutMinutes = timeoutMinutes(c.FormValue("timeout_minutes"))
-		a.CPULimit, a.MemLimitMB = parseLimits(c.FormValue("cpu_limit"), c.FormValue("mem_limit_mb"))
+		if err := bindInts(c, map[string]*int{"timeout_minutes": &a.TimeoutMinutes}); err != nil {
+			return stackrmw.HTTP(err)
+		}
+		if err := bindLimits(c, a); err != nil {
+			return stackrmw.HTTP(err)
+		}
 	default:
 		a.SourceType = c.FormValue("source_type")
 		a.GitURL = strings.TrimSpace(c.FormValue("git_url"))
-		if a.SourceType == "git" && !repo.ValidGitURL(a.GitURL) {
-			return echo.NewHTTPError(http.StatusBadRequest, "Use a GitHub URL: https://github.com/owner/repo or git@github.com:owner/repo")
-		}
 		a.GitBranch = c.FormValue("git_branch")
 		a.ConnectorID = c.FormValue("connector_id")
-		// A connector grants credentials, only accept one from the tile's own org.
-		if a.ConnectorID != "" {
-			cn, err := h.store.GetConnector(c.Request().Context(), a.ConnectorID)
-			ok := err == nil && cn != nil
-			if ok {
-				stack, serr := h.store.GetStack(c.Request().Context(), a.StackID)
-				ok = serr == nil && stack != nil && stack.OrgID == cn.OrgID
-			}
-			if !ok {
-				a.ConnectorID = ""
-			}
-		}
 		a.ImageRef = c.FormValue("image_ref")
 		a.DockerfilePath = c.FormValue("dockerfile_path")
 		a.BuildContext = c.FormValue("build_context")
 		a.BuildArgs = c.FormValue("build_args")
 		a.Volumes = c.FormValue("volumes")
 		a.Files = c.FormValue("files")
-		for _, l := range splitNonEmpty(a.Files) {
-			if _, _, _, err := runtime.ParseFileMount(l); err != nil {
-				return echo.NewHTTPError(http.StatusBadRequest, err.Error())
-			}
-		}
 		a.WatchPaths = c.FormValue("watch_paths")
 		a.HealthcheckCmd = c.FormValue("healthcheck_cmd")
-		a.HealthcheckIntervalS = nonNegInt(c.FormValue("healthcheck_interval_s"))
-		a.HealthcheckTimeoutS = nonNegInt(c.FormValue("healthcheck_timeout_s"))
-		a.HealthcheckRetries = nonNegInt(c.FormValue("healthcheck_retries"))
-		a.HealthcheckStartPeriodS = nonNegInt(c.FormValue("healthcheck_start_period_s"))
 		a.Command = c.FormValue("command")
 		a.User = c.FormValue("user")
-		a.ShmSizeMB, _ = strconv.Atoi(c.FormValue("shm_size_mb"))
-		if a.ShmSizeMB < 0 {
-			a.ShmSizeMB = 0
-		}
 		a.Privileged = c.FormValue("privileged") != ""
 		a.Devices = c.FormValue("devices")
-		for _, l := range splitNonEmpty(a.Devices) {
-			if _, err := runtime.ParseDevice(l); err != nil {
-				return echo.NewHTTPError(http.StatusBadRequest, err.Error())
-			}
-		}
-		rp, err := runtime.NormalizeRestart(c.FormValue("restart_policy"))
-		if err != nil {
-			return echo.NewHTTPError(http.StatusBadRequest, err.Error())
-		}
-		a.RestartPolicy = rp
+		a.RestartPolicy = c.FormValue("restart_policy")
 		a.DependsOn = c.FormValue("depends_on")
-		for _, l := range splitNonEmpty(a.DependsOn) {
-			if _, _, err := stackconf.ParseDep(l); err != nil {
-				return echo.NewHTTPError(http.StatusBadRequest, err.Error())
-			}
+		a.PublishedPorts = c.FormValue("published_ports")
+		a.TraefikOverride = c.FormValue("traefik_override")
+		a.BasicAuthUser = c.FormValue("basic_auth_user")
+		a.BasicAuthPassword = c.FormValue("basic_auth_password")
+		a.SecHeaders = c.FormValue("sec_headers") != ""
+		a.UpdatePolicy = c.FormValue("update_policy")
+		a.WaitForCI = c.FormValue("wait_for_ci") != ""
+		// These six render on every settings form, so an empty input is the
+		// user clearing the field, not the form staying quiet about it.
+		// Zeroed first, then bound: without this, clearing the port in the
+		// panel is a silent no-op — no write, no diff, no redeploy.
+		a.ContainerPort, a.ShmSizeMB = 0, 0
+		a.HealthcheckIntervalS, a.HealthcheckTimeoutS = 0, 0
+		a.HealthcheckRetries, a.HealthcheckStartPeriodS = 0, 0
+		if err := bindInts(c, map[string]*int{
+			"container_port":             &a.ContainerPort,
+			"shm_size_mb":                &a.ShmSizeMB,
+			"healthcheck_interval_s":     &a.HealthcheckIntervalS,
+			"healthcheck_timeout_s":      &a.HealthcheckTimeoutS,
+			"healthcheck_retries":        &a.HealthcheckRetries,
+			"healthcheck_start_period_s": &a.HealthcheckStartPeriodS,
+			// replicas is the exception and keeps skip-on-empty: the field
+			// is absent from the form for kinds that cannot scale, and zero
+			// is not a replica count anyone means.
+			"replicas": &a.Replicas,
+		}); err != nil {
+			return stackrmw.HTTP(err)
+		}
+		if err := bindLimits(c, a); err != nil {
+			return stackrmw.HTTP(err)
 		}
 		// Placement. Home node is deliberately not here: it is state, set on
 		// first deploy and changed only by a completed volume move, and a
 		// settings save that carried a stale value over it would point the
 		// tile at an empty volume on another machine
 		// (docs/plans/32-multi-node-ui.md, tile drawer).
-		if v := c.FormValue("replicas"); v != "" {
-			n, err := strconv.Atoi(v)
-			if err != nil || n < 1 {
-				return echo.NewHTTPError(http.StatusBadRequest, "replicas: a whole number, at least 1")
-			}
-			if n > 1 && placement.IsPinned(ctx, h.store, a) {
-				return echo.NewHTTPError(http.StatusBadRequest,
-					"this tile holds a volume, so it can only run one replica: two writers on one volume corrupt it")
-			}
-			a.Replicas = n
-		}
 		a.NodeGroup = strings.TrimSpace(c.FormValue("node_group"))
 		if a.NodeGroup == "any" {
 			a.NodeGroup = ""
 		}
-		a.ContainerPort, _ = strconv.Atoi(c.FormValue("container_port"))
-		a.UpdatePolicy = updatePolicyForm(c.FormValue("update_policy"))
-		a.WaitForCI = c.FormValue("wait_for_ci") != ""
-		// Each knob renders only for its source; a source switch in the same
-		// save must not smuggle the other one along.
+		// Form semantics, not a rule: each of these knobs renders only for
+		// its own source, so on the other source the browser sends nothing
+		// and a stale value left on the row would read as an edit nobody
+		// made. The service still refuses the combination if a caller sends
+		// it outright.
 		if a.SourceType != "image" {
-			a.UpdatePolicy = "off"
+			a.UpdatePolicy = ""
 		}
 		if a.SourceType != "git" {
 			a.WaitForCI = false
 		}
-		a.CPULimit, a.MemLimitMB = parseLimits(c.FormValue("cpu_limit"), c.FormValue("mem_limit_mb"))
-		a.SecHeaders = c.FormValue("sec_headers") != ""
-		a.PublishedPorts = c.FormValue("published_ports")
-		a.TraefikOverride = c.FormValue("traefik_override")
-		a.BasicAuthUser = c.FormValue("basic_auth_user")
-		a.BasicAuthPassword = c.FormValue("basic_auth_password")
-		if a.BasicAuthUser == "" {
-			a.BasicAuthPassword = ""
-		} else if a.BasicAuthPassword == "" {
-			return echo.NewHTTPError(http.StatusBadRequest, "basic auth password required")
-		}
 	}
-	// The settings edit goes into the per-env pending set; env + domains keep
-	// their own staged groups. Compose tiles used to be exempt because the
-	// config engine could not model them; it can now, so they stage too.
-	if stage {
-		if err := h.stage(c, a, "settings", staging.OpUpdate, settingsPatch(a)); err != nil {
-			return err
-		}
+	staged, err := h.tiles.Update(c.Request().Context(), a, nil, stackrmw.WebActor(c))
+	if err != nil {
+		return stackrmw.HTTP(err)
+	}
+	if staged {
 		middleware.SetFlash(c, "Settings staged. Review & apply on the canvas to deploy.", middleware.FlashSuccess)
-		return h.panelDone(c, a, "settings")
+	} else {
+		middleware.SetFlash(c, "Settings saved.", middleware.FlashSuccess)
 	}
-	if err := h.store.UpdateTile(c.Request().Context(), a); err != nil {
-		return err
-	}
-	if a.Kind == "cron" {
-		_ = h.jobs.LoadSchedules(c.Request().Context())
-	}
-	// Routing extras (auth, headers, override) live in the Traefik config,
-	// re-render it so they apply without a redeploy.
-	if a.Kind != "cron" && a.Kind != "function" {
-		if err := h.syncProxy(c, a); err != nil {
-			return err
-		}
-	}
-	middleware.SetFlash(c, "Settings saved.", middleware.FlashSuccess)
 	return h.panelDone(c, a, "settings")
+}
+
+// bindInts reads whole numbers off the form. An empty input leaves the field
+// alone, so the caller zeroes anything the form always renders *before*
+// calling — an empty box there is a clear, not a silence. A field that is
+// present and not a number is a 400 naming the field, where it used to become
+// a silent zero (SP1: validate, do not coerce).
+func bindInts(c echo.Context, into map[string]*int) error {
+	for key, dst := range into {
+		raw := strings.TrimSpace(c.FormValue(key))
+		if raw == "" {
+			continue
+		}
+		n, err := strconv.Atoi(raw)
+		if err != nil {
+			return svcerr.Invalid{Field: key, Msg: "must be a whole number"}
+		}
+		*dst = n
+	}
+	return nil
+}
+
+// bindLimits reads the cpu/memory pair. Both halves together, because they
+// are written together: sending one alone used to zero the other.
+func bindLimits(c echo.Context, a *repo.Tile) error {
+	if raw := strings.TrimSpace(c.FormValue("cpu_limit")); raw != "" {
+		f, err := strconv.ParseFloat(raw, 64)
+		if err != nil {
+			return svcerr.Invalid{Field: "cpu_limit", Msg: "must be a number, for example 0.5"}
+		}
+		a.CPULimit = f
+	} else {
+		a.CPULimit = 0
+	}
+	a.MemLimitMB = 0
+	return bindInts(c, map[string]*int{"mem_limit_mb": &a.MemLimitMB})
 }
 
 // POST /apps/:id/delete
@@ -1608,39 +1417,22 @@ func (h *handler) Delete(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	ctx := c.Request().Context()
-	stage, err := h.editGate(ctx, a.StackID)
-	if err != nil {
-		return err
-	}
-	if a.IsVolume() && a.AttachedTileID != "" {
-		return echo.NewHTTPError(http.StatusBadRequest, "detach the volume before deleting it")
-	}
-	// The typed name, re-checked here. The browser only disables a button.
+	// The typed name, re-checked here. The browser only disables a button,
+	// and a confirmation is a property of this form, not of the write.
 	if err := components.RequireConfirm(c, a.Slug); err != nil {
 		return err
 	}
-	// Stage the deletion. The tile stays on the canvas (struck through) until
-	// the pending set is applied, which tears it down.
-	if stage {
-		if err := h.stage(c, a, "delete", staging.OpDelete, nil); err != nil {
-			return err
-		}
+	staged, err := h.tiles.Delete(c.Request().Context(), a, stackrmw.WebActor(c))
+	if err != nil {
+		return stackrmw.HTTP(err)
+	}
+	if staged {
+		// The tile stays on the canvas, struck through, until the pending set
+		// is applied — which is what tears it down.
 		middleware.SetFlash(c, "Deletion staged. Review & apply on the canvas to remove it.", middleware.FlashSuccess)
-		return respond.Redirect(c, "/projects/"+a.StackID)
+	} else {
+		middleware.SetFlash(c, "App deleted.", middleware.FlashSuccess)
 	}
-	envnet.TearDown(ctx, h.store, h.clus, a)
-	_ = h.px.RemoveApp(a.ID)
-	// Orphan (don't drop) any shared-db provisions this service owned.
-	if ps, _ := h.store.ListProvisionsByConsumer(ctx, a.ID); len(ps) > 0 {
-		for i := range ps {
-			_ = h.dbsvc().Detach(ctx, &ps[i])
-		}
-	}
-	if err := h.store.DeleteTile(ctx, a.ID); err != nil {
-		return err
-	}
-	middleware.SetFlash(c, "App deleted.", middleware.FlashSuccess)
 	return respond.Redirect(c, "/projects/"+a.StackID)
 }
 
@@ -1650,136 +1442,67 @@ func (h *handler) CreateDomain(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	ctx := c.Request().Context()
-	stage, err := h.editGate(ctx, a.StackID)
-	if err != nil {
-		return err
-	}
-	redirectTo := strings.TrimSpace(c.FormValue("redirect_to"))
-	rule := strings.TrimSpace(c.FormValue("rule"))
-	priority, _ := strconv.Atoi(c.FormValue("priority"))
 	var mws []string
 	for _, m := range strings.Split(c.FormValue("middlewares"), ",") {
 		if m = strings.TrimSpace(m); m != "" {
 			mws = append(mws, m)
 		}
 	}
-	// traefik disables a router naming a middleware it cannot find and says
-	// so only in its own log, so refuse the typo here, like the config plan.
-	if err := h.checkMiddlewares(ctx, a.StackID, mws); err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+	priority, _ := strconv.Atoi(c.FormValue("priority"))
+	ownPort, _ := strconv.Atoi(c.FormValue("container_port"))
+	// The form's HTTPS control is a checkbox, so an unticked box is an
+	// explicit "off", not "unsaid". A JSON body or a config file that omits
+	// the key means "on"; that is the difference the pointer carries.
+	off := c.FormValue("https") == ""
+	https := !off
+	spec := service.DomainSpec{
+		Host: c.FormValue("host"), Path: c.FormValue("path"), Port: ownPort,
+		HTTPS: &https, RedirectTo: c.FormValue("redirect_to"),
+		Rule: c.FormValue("rule"), Priority: priority, Middlewares: mws,
 	}
-	port, _ := strconv.Atoi(c.FormValue("container_port"))
-	ownPort := port
-	if port == 0 {
-		port = a.ContainerPort
+	d, staged, err := h.domains.Attach(c.Request().Context(), a, spec, stackrmw.WebActor(c))
+	if err != nil {
+		return stackrmw.HTTP(err)
 	}
-	if port == 0 {
-		if redirectTo == "" {
-			return echo.NewHTTPError(http.StatusBadRequest, "container port required (set it on the app or the domain)")
-		}
-		port = 80 // redirect domains never proxy; the service target is unused
-	}
-	host := c.FormValue("host")
-	if host == "" {
-		return echo.NewHTTPError(http.StatusBadRequest, "host required")
-	}
-	if strings.HasPrefix(host, "*.") && c.FormValue("https") != "" {
-		if p, _ := h.store.GetSetting(ctx, "dns_provider"); p == "" {
-			return echo.NewHTTPError(http.StatusBadRequest, "wildcard HTTPS needs a DNS provider; configure it in Settings")
-		}
-	}
-	// Normalize empty path to "/" (matches the API and the unique index) and
-	// reject a host+path already claimed by any tile, one route, one owner.
-	path := c.FormValue("path")
-	if path == "" {
-		path = "/"
-	}
-	// A rule entry may share host + path with this tile's own entries, never
-	// with another tile's: its priority would take that tile's traffic.
-	if existing, _ := h.store.GetDomainByHostPath(ctx, host, path); existing != nil && (existing.TileID != a.ID || (rule == "" && existing.Rule == "")) {
-		return echo.NewHTTPError(http.StatusConflict, "host + path already in use")
-	}
-	// Anti-squat: a custom host may not start with another org's slug, the same
-	// rule org domain resources are under. Without it the guard on the org page
-	// means nothing, since anyone can claim the same name one tile down.
-	stack, err := h.store.GetStack(ctx, a.StackID)
-	if err != nil || stack == nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, "could not read the stack this tile belongs to")
-	}
-	if err := envops.CheckOrgSquat(ctx, h.store, host, stack.OrgID); err != nil {
-		return echo.NewHTTPError(http.StatusConflict, err.Error())
-	}
-	// Stage the domain onto the tile's desired set.
-	if stage {
-		desired, err := h.currentDesiredDomains(ctx, a)
-		if err != nil {
-			return err
-		}
-		dc := stackconf.DomainConf{Host: host, Path: path, RedirectTo: redirectTo,
-			Rule: rule, Priority: priority, Middlewares: mws, Port: ownPort}
-		if c.FormValue("https") == "" {
-			off := false
-			dc.HTTPS = &off
-		}
-		desired = append(desired, dc)
-		if err := h.stage(c, a, "domains", staging.OpUpdate, map[string]any{"domains": desired}); err != nil {
+	if staged {
+		if err := h.stageDomains(c, a, func(cur []stackconf.DomainConf) []stackconf.DomainConf {
+			dc := stackconf.DomainConf{Host: d.Host, Path: d.Path, RedirectTo: d.RedirectTo,
+				Rule: d.Rule, Priority: d.Priority, Middlewares: mws, Port: ownPort}
+			if !d.HTTPS {
+				// Both halves, explicitly. DomainConf.ForceHTTPSOn treats nil
+				// as on, so carrying only https:false staged a domain that
+				// applied with the redirect still enabled — bouncing plain
+				// HTTP onto TLS that is not served.
+				dc.HTTPS, dc.ForceHTTPS = &off, &off
+			}
+			return append(cur, dc)
+		}); err != nil {
 			return err
 		}
 		middleware.SetFlash(c, "Domain staged. Review & apply on the canvas.", middleware.FlashSuccess)
-		return h.panelDone(c, a, "settings")
-	}
-	d := &repo.Domain{
-		ID:            uuid.New().String(),
-		TileID:        a.ID,
-		Host:          host,
-		Path:          path,
-		ContainerPort: port,
-		HTTPS:         c.FormValue("https") != "",
-		// No control for it on this form, so it follows https, the default
-		// everywhere else. False alongside HTTPS also leaves plain HTTP
-		// unredirected and makes every later plan carry a no-op change row.
-		ForceHTTPS:  c.FormValue("https") != "",
-		RedirectTo:  redirectTo,
-		Rule:        rule,
-		Priority:    priority,
-		Middlewares: strings.Join(mws, "\n"),
-		CreatedAt:   time.Now().UTC(),
-	}
-	if err := h.store.CreateDomain(ctx, d); err != nil {
-		return err
-	}
-	if err := h.syncProxy(c, a); err != nil {
-		return err
 	}
 	return h.panelDone(c, a, "settings")
 }
 
 // POST /apps/:id/domains/auto, give the tile its generated hostname under the
-// nearest visible domain resource (envops.EnsureAutoDomain, same as config
-// `auto: true`). Auto rows are generated, not authored, so they don't go
-// through staging even on a UI-managed stack.
+// nearest visible domain resource (same as config `auto: true`). Auto rows are
+// generated, not authored, so they don't go through staging even on a
+// UI-managed stack.
 func (h *handler) CreateAutoDomain(c echo.Context) error {
 	a, err := h.load(c)
 	if err != nil {
 		return err
 	}
 	ctx := c.Request().Context()
-	if err := h.rejectManaged(ctx, a.StackID); err != nil {
-		return err
-	}
-	if a.Kind != "service" || a.ContainerPort == 0 {
-		return echo.NewHTTPError(http.StatusBadRequest, "auto domains need a service with a container port")
-	}
 	env, err := h.store.GetEnvironment(ctx, a.EnvironmentID)
 	if err != nil || env == nil {
 		return echo.NewHTTPError(http.StatusNotFound, "environment not found")
 	}
-	if err := (envops.Ops{Store: h.store, RT: h.clus.Runtime(), Cluster: h.clus, PX: h.px}).EnsureAutoDomain(ctx, env, a); err != nil {
-		return err
+	if err := h.domains.AddAuto(ctx, env, a, stackrmw.WebActor(c)); err != nil {
+		return stackrmw.HTTP(err)
 	}
-	// EnsureAutoDomain is a silent no-op with no resource to nest under, tell
-	// the operator where to add one instead of appearing to do nothing.
+	// EnsureAuto is a silent no-op with no resource to nest under; say where
+	// to add one rather than appearing to do nothing.
 	ds, _ := h.store.ListDomainsByTile(ctx, a.ID)
 	auto := false
 	for _, d := range ds {
@@ -1802,42 +1525,27 @@ func (h *handler) ToggleDomainHTTPS(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	ctx := c.Request().Context()
-	stage, err := h.editGate(ctx, a.StackID)
+	d, on, staged, err := h.domains.ToggleHTTPS(c.Request().Context(), a, c.Param("domainID"), stackrmw.WebActor(c))
 	if err != nil {
-		return err
+		return stackrmw.HTTP(err)
 	}
-	d, err := h.store.GetDomain(ctx, c.Param("domainID"))
-	if err != nil || d == nil {
-		return echo.NewHTTPError(http.StatusNotFound, "domain not found")
-	}
-	// Stage the HTTPS flip onto the tile's desired domain set.
-	if stage {
-		desired, err := h.currentDesiredDomains(ctx, a)
-		if err != nil {
-			return err
-		}
-		for i := range desired {
-			if desired[i].Host == d.Host && desired[i].Path == d.Path {
-				if d.HTTPS { // was on → now off
-					off := false
-					desired[i].HTTPS = &off
-				} else { // was off → now on (nil = on)
-					desired[i].HTTPS = nil
+	if staged {
+		if err := h.stageDomains(c, a, func(cur []stackconf.DomainConf) []stackconf.DomainConf {
+			for i := range cur {
+				if cur[i].Host == d.Host && cur[i].Path == d.Path {
+					if on {
+						cur[i].HTTPS = nil // nil is on
+					} else {
+						off := false
+						cur[i].HTTPS = &off
+					}
 				}
 			}
-		}
-		if err := h.stage(c, a, "domains", staging.OpUpdate, map[string]any{"domains": desired}); err != nil {
+			return cur
+		}); err != nil {
 			return err
 		}
 		middleware.SetFlash(c, "Domain change staged. Review & apply on the canvas.", middleware.FlashSuccess)
-		return h.panelDone(c, a, "settings")
-	}
-	if err := h.store.SetDomainHTTPS(ctx, d.ID, !d.HTTPS); err != nil {
-		return err
-	}
-	if err := h.syncProxy(c, a); err != nil {
-		return err
 	}
 	return h.panelDone(c, a, "settings")
 }
@@ -1848,24 +1556,12 @@ func (h *handler) SetDomainCert(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	d, err := h.store.GetDomain(c.Request().Context(), c.Param("domainID"))
-	if err != nil || d == nil || d.TileID != a.ID {
-		return echo.NewHTTPError(http.StatusNotFound, "domain not found")
+	certPEM, keyPEM := c.FormValue("cert_pem"), c.FormValue("key_pem")
+	if _, _, err := h.domains.SetTLS(c.Request().Context(), a, c.Param("domainID"),
+		service.TLSPatch{CertPEM: &certPEM, KeyPEM: &keyPEM}, stackrmw.WebActor(c)); err != nil {
+		return stackrmw.HTTP(err)
 	}
-	certPEM := strings.TrimSpace(c.FormValue("cert_pem"))
-	keyPEM := strings.TrimSpace(c.FormValue("key_pem"))
-	if certPEM != "" || keyPEM != "" {
-		if _, err := tls.X509KeyPair([]byte(certPEM), []byte(keyPEM)); err != nil {
-			return echo.NewHTTPError(http.StatusBadRequest, "invalid certificate/key pair: "+err.Error())
-		}
-	}
-	if err := h.store.SetDomainCert(c.Request().Context(), d.ID, certPEM, keyPEM); err != nil {
-		return err
-	}
-	if err := h.syncProxy(c, a); err != nil {
-		return err
-	}
-	if certPEM == "" {
+	if strings.TrimSpace(certPEM) == "" {
 		middleware.SetFlash(c, "Custom certificate removed.", middleware.FlashSuccess)
 	} else {
 		middleware.SetFlash(c, "Custom certificate installed.", middleware.FlashSuccess)
@@ -1879,73 +1575,38 @@ func (h *handler) DeleteDomain(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	ctx := c.Request().Context()
-	stage, err := h.editGate(ctx, a.StackID)
+	d, staged, err := h.domains.Detach(c.Request().Context(), a, c.Param("domainID"), stackrmw.WebActor(c))
 	if err != nil {
-		return err
+		return stackrmw.HTTP(err)
 	}
-	// Stage the removal, drop the domain from the desired set.
-	if stage {
-		d, err := h.store.GetDomain(ctx, c.Param("domainID"))
-		if err != nil || d == nil || d.TileID != a.ID {
-			return echo.NewHTTPError(http.StatusNotFound, "domain not found")
-		}
-		desired, err := h.currentDesiredDomains(ctx, a)
-		if err != nil {
-			return err
-		}
-		kept := desired[:0]
-		for _, dc := range desired {
-			if dc.Host != d.Host || dc.Path != d.Path {
-				kept = append(kept, dc)
+	if staged {
+		if err := h.stageDomains(c, a, func(cur []stackconf.DomainConf) []stackconf.DomainConf {
+			kept := cur[:0]
+			for _, dc := range cur {
+				if dc.Host != d.Host || dc.Path != d.Path {
+					kept = append(kept, dc)
+				}
 			}
-		}
-		if err := h.stage(c, a, "domains", staging.OpUpdate, map[string]any{"domains": kept}); err != nil {
+			return kept
+		}); err != nil {
 			return err
 		}
 		middleware.SetFlash(c, "Domain removal staged. Review & apply on the canvas.", middleware.FlashSuccess)
-		return h.panelDone(c, a, "settings")
-	}
-	if err := h.store.DeleteDomain(ctx, c.Param("domainID")); err != nil {
-		return err
-	}
-	if err := h.syncProxy(c, a); err != nil {
-		return err
 	}
 	return h.panelDone(c, a, "settings")
 }
 
-func (h *handler) syncProxy(c echo.Context, a *repo.Tile) error {
-	domains, err := h.store.ListDomainsByTile(c.Request().Context(), a.ID)
+// stageDomains records a change to the tile's desired domain set. The service
+// has already decided the change is legal and what it looks like; this only
+// puts it in the pending set, in the config engine's shape, which the service
+// cannot build without importing the config engine.
+func (h *handler) stageDomains(c echo.Context, a *repo.Tile, mutate func([]stackconf.DomainConf) []stackconf.DomainConf) error {
+	desired, err := h.currentDesiredDomains(c.Request().Context(), a)
 	if err != nil {
 		return err
 	}
-	return h.px.WriteApp(a, domains)
+	return h.stage(c, a, "domains", staging.OpUpdate, map[string]any{"domains": mutate(desired)})
 }
 
-// checkMiddlewares refuses a middleware reference no stack file declares: a
-// bare name is the tile's own stack's, stack/name another stack's in the org.
-func (h *handler) checkMiddlewares(ctx context.Context, stackID string, refs []string) error {
-	if len(refs) == 0 {
-		return nil
-	}
-	own, err := h.store.GetStack(ctx, stackID)
-	if err != nil || own == nil {
-		return fmt.Errorf("stack not found")
-	}
-	for _, ref := range refs {
-		slug, name, cross := strings.Cut(ref, "/")
-		st := own
-		if cross {
-			if st, err = h.store.GetStackBySlug(ctx, own.OrgID, slug); err != nil || st == nil {
-				return fmt.Errorf("no stack %s in this org", slug)
-			}
-		} else {
-			name = slug
-		}
-		if _, ok := stackconf.ParseMiddlewares(st.ProxyMiddlewares)[name]; !ok {
-			return fmt.Errorf("no middleware %s; proxy.middlewares in the stack file declares them", ref)
-		}
-	}
-	return nil
-}
+// WithScheduler gives the handler the schedule reloader.
+func (h *handler) WithScheduler(s *scheduler.Service) *handler { h.sched = s; return h }

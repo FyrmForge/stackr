@@ -13,14 +13,16 @@ package v1
 // that fails because a connector is rate-limited.
 
 import (
-	"context"
 	"net/http"
 	"sort"
 	"strings"
 
+	"github.com/FyrmForge/stackr/internal/deploystate"
+
 	"github.com/labstack/echo/v4"
 
-	"github.com/FyrmForge/stackr/internal/stackrd/config/stackconf"
+	stackrmw "github.com/FyrmForge/stackr/internal/stackrd/handlers/middleware"
+	"github.com/FyrmForge/stackr/internal/stackrd/service"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 )
 
@@ -31,7 +33,7 @@ const releaseWindow = 5
 // listReleases is the promotable set: every commit this stack has a deployment
 // for, newest first, with what each rung runs and which plan is waiting.
 func (a *API) listReleases(c echo.Context) error {
-	s, err := a.requireStackAccess(c, c.Param("id"))
+	s, err := a.stack(c, c.Param("id"))
 	if err != nil {
 		return err
 	}
@@ -83,8 +85,10 @@ func (a *API) listReleases(c echo.Context) error {
 					if newestDone == nil || d.CreatedAt.After(newestDone.CreatedAt) {
 						newestDone = d
 					}
-				case "queued", "running", "waiting_ci":
-					e.building = true
+				default:
+					if deploystate.IsLive(d.Status) {
+						e.building = true
+					}
 				}
 			}
 		}
@@ -125,66 +129,24 @@ func (a *API) listReleases(c echo.Context) error {
 // confirmation dialogue; an API caller has not been shown one, so nothing here
 // assumes it.
 func (a *API) promote(c echo.Context) error {
-	s, err := a.requireStackAccess(c, c.Param("id"))
+	s, err := a.stack(c, c.Param("id"))
 	if err != nil {
 		return err
 	}
 	ctx := c.Request().Context()
-	if err := a.requireOrgWrite(ctx, c, s.OrgID); err != nil {
-		return err
-	}
 	var in promoteIn
-	if err := c.Bind(&in); err != nil || strings.TrimSpace(in.Commit) == "" {
-		return echo.NewHTTPError(http.StatusBadRequest, "commit required")
+	if err := c.Bind(&in); err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid body")
 	}
-	env, err := a.promoteEnv(ctx, s, c.Param("slug"))
+	env, err := a.releases.Target(ctx, s, c.Param("slug"))
 	if err != nil {
-		return err
+		return stackrmw.HTTP(err)
 	}
-	commit := strings.TrimSpace(in.Commit)
-	if in.Plan == "" {
-		if err := a.applier.Promote(ctx, s, env.Slug, commit); err != nil {
-			return echo.NewHTTPError(http.StatusBadRequest, err.Error())
-		}
-		return c.JSON(http.StatusAccepted, promoteOut{Env: env.Slug, Commit: commit})
-	}
-	cp, err := a.store.GetConfigPlan(ctx, in.Plan)
-	if err != nil || cp == nil || cp.StackID != s.ID {
-		return echo.NewHTTPError(http.StatusNotFound, "plan not found")
-	}
-	if a.work == nil {
-		return echo.NewHTTPError(http.StatusServiceUnavailable, "the job runner is not available")
-	}
-	id, err := a.work.Enqueue(ctx, stackconf.ApplyKind, s.ID, stackconf.ApplyJob{
-		StackID: s.ID, PlanID: cp.ID, Force: in.Force,
-		PromoteEnv: env.Slug, PromoteCommit: commit,
+	job, err := a.releases.Promote(ctx, s, env, service.PromoteReq{
+		Commit: in.Commit, PlanID: in.Plan, Force: in.Force,
 	})
 	if err != nil {
-		return err
+		return stackrmw.HTTP(err)
 	}
-	return c.JSON(http.StatusAccepted, promoteOut{Env: env.Slug, Commit: commit, Plan: cp.ID, Job: id})
-}
-
-// promoteEnv resolves the env in the path and refuses the ones that are not a
-// rung: the default env builds on push, and an ephemeral one has no ladder.
-func (a *API) promoteEnv(ctx context.Context, s *repo.Stack, slug string) (*repo.Environment, error) {
-	envs, err := a.store.ListEnvironmentsByStack(ctx, s.ID)
-	if err != nil {
-		return nil, err
-	}
-	n := 0
-	for i := range envs {
-		if envs[i].Type != "static" {
-			continue
-		}
-		if envs[i].Slug == slug {
-			if n == 0 {
-				return nil, echo.NewHTTPError(http.StatusBadRequest,
-					"the first environment builds on push; it is not promoted to")
-			}
-			return &envs[i], nil
-		}
-		n++
-	}
-	return nil, echo.NewHTTPError(http.StatusNotFound, "environment not found")
+	return c.JSON(http.StatusAccepted, promoteOut{Env: env.Slug, Commit: strings.TrimSpace(in.Commit), Plan: in.Plan, Job: job})
 }

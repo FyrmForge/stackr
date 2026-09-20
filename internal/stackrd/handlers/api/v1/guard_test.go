@@ -5,6 +5,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/FyrmForge/stackr/internal/stackrd/service"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/testdb"
 	"github.com/labstack/echo/v4"
@@ -51,7 +52,8 @@ func TestAPIRefusesUnfinishedOrg(t *testing.T) {
 	seed.Org.SetupDoneAt = nil
 	require.NoError(t, s.UpdateOrg(t.Context(), seed.Org), "reopen the wizard")
 
-	_, err := call(t, a, a.getVars, http.MethodGet, "/", "", seed.Tile.ID, ScopeVarsRead)
+	_, err := callThroughGate(t, a, a.getVars, http.MethodGet, "/", "", seed.Tile.ID,
+		service.VerbTileRead, service.KindTile, ScopeVarsRead)
 	var he *echo.HTTPError
 	require.ErrorAs(t, err, &he, "want 409, got %v", err)
 	require.Equal(t, http.StatusConflict, he.Code, "want 409, got %v", err)

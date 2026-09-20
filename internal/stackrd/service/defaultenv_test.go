@@ -1,4 +1,4 @@
-package envops
+package service
 
 import (
 	"context"
@@ -26,9 +26,9 @@ func TestDefaultEnvIDFollowsTheFileNotTheClock(t *testing.T) {
 	// position 0, which is what a file listing staging first produces.
 	seed.Env.Position = 1
 	require.NoError(t, store.UpdateEnvironment(ctx, seed.Env))
-	staging := &repo.Environment{ID: "env-staging", StackID: seed.Stack.ID, Name: "Staging",
+	stagingEnv := &repo.Environment{ID: "env-staging", StackID: seed.Stack.ID, Name: "Staging",
 		Slug: "staging", Type: "static", Position: 0, CreatedAt: now.Add(time.Hour)}
-	require.NoError(t, store.CreateEnvironment(ctx, staging))
+	require.NoError(t, store.CreateEnvironment(ctx, stagingEnv))
 	// The home env holds stack-scoped instances and is never routed to, so it
 	// must never win the position tie even though it sits at 0.
 	if home, _ := store.GetEnvironmentBySlug(ctx, seed.Stack.ID, repo.HomeSlug); home != nil {
@@ -36,8 +36,7 @@ func TestDefaultEnvIDFollowsTheFileNotTheClock(t *testing.T) {
 		require.NoError(t, store.UpdateEnvironment(ctx, home))
 	}
 
-	o := Ops{Store: store}
-	got, err := o.defaultEnvID(ctx, seed.Stack.ID)
+	got, err := NewDomainService(store, nil, nil).defaultEnvID(ctx, seed.Stack.ID)
 	require.NoError(t, err)
-	assert.Equal(t, staging.ID, got, "the file's bottom rung is the default, whatever was created first")
+	assert.Equal(t, stagingEnv.ID, got, "the file's bottom rung is the default, whatever was created first")
 }

@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -31,7 +32,6 @@ import (
 	"github.com/FyrmForge/stackr/internal/stackrd/config/stackconf"
 	"github.com/FyrmForge/stackr/internal/stackrd/handlers/api"
 	v1 "github.com/FyrmForge/stackr/internal/stackrd/handlers/api/v1"
-	"github.com/FyrmForge/stackr/internal/stackrd/handlers/notify"
 	"github.com/FyrmForge/stackr/internal/stackrd/handlers/stream"
 	"github.com/FyrmForge/stackr/internal/stackrd/handlers/web"
 	"github.com/FyrmForge/stackr/internal/stackrd/handlers/web/components"
@@ -55,6 +55,10 @@ import (
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/volmove"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/workqueue"
 	"github.com/FyrmForge/stackr/internal/stackrd/service"
+	svcmail "github.com/FyrmForge/stackr/internal/stackrd/service/mail"
+	"github.com/FyrmForge/stackr/internal/stackrd/service/notify"
+	svcproxy "github.com/FyrmForge/stackr/internal/stackrd/service/proxy"
+	"github.com/FyrmForge/stackr/internal/stackrd/service/scheduler"
 	appdb "github.com/FyrmForge/stackr/internal/stackrd/store/db"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo/sqlite"
@@ -209,11 +213,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	// One-shot upgrade: legacy name:/path mounts become volume tiles.
-	if err := envops.ConvertLegacyMounts(context.Background(), store); err != nil {
-		log.Error("volume-tile conversion failed", "error", err)
-	}
-
 	// One-shot upgrade: project existing env blobs into variable rows, which is
 	// what the resolver reads. Without it an upgraded install deploys apps with
 	// an empty environment.
@@ -291,24 +290,57 @@ func main() {
 	// a leftover; also undo the self-attachments the pre-relay design made.
 	rt.SweepForwardState(context.Background())
 
+	// One owner for "may this principal do this verb in this org". The level
+	// per verb lives in its table; the surfaces ask, they no longer decide.
+	accessSvc := service.NewAccessService(store)
+
 	// WebSocket hub. Clients join rooms ({"action":"join","room":"..."}) and
 	// get data-free "changed" events pushed by the notifier (live UI updates).
+	//
+	// The subject comes off the session cookie on the upgrade, and a join is
+	// checked against it. Neither used to happen: /ws is registered outside
+	// the site group, so the connection carried no identity at all, and the
+	// hub joined whatever room the client named. The payloads are event kinds
+	// with no data, so what leaked was activity timing — when any stack
+	// deploys, when anything on the box changes — to anyone who could reach
+	// the port.
 	var hub *websocket.Hub
-	hub = websocket.NewHub(websocket.WithLogger(log), websocket.WithOnMessage(func(c *websocket.Client, msg []byte) {
-		var m struct {
-			Action string `json:"action"`
-			Room   string `json:"room"`
-		}
-		if json.Unmarshal(msg, &m) != nil {
-			return
-		}
-		switch m.Action {
-		case "join":
-			hub.JoinRoom(c, m.Room)
-		case "leave":
-			hub.LeaveRoom(c, m.Room)
-		}
-	}))
+	hub = websocket.NewHub(
+		websocket.WithLogger(log),
+		websocket.WithSubjectIDFunc(func(r *http.Request) string {
+			ck, err := r.Cookie(sessionManager.CookieName())
+			if err != nil || ck.Value == "" {
+				return ""
+			}
+			// Not r.Context(): this runs after the connection has been
+			// hijacked for the upgrade, and a cancelled context here would
+			// refuse every join on the box.
+			sctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			sess, err := sessionManager.ValidateSession(sctx, ck.Value)
+			if err != nil || sess == nil {
+				return ""
+			}
+			return sess.SubjectID
+		}),
+		websocket.WithOnMessage(func(c *websocket.Client, msg []byte) {
+			var m struct {
+				Action string `json:"action"`
+				Room   string `json:"room"`
+			}
+			if json.Unmarshal(msg, &m) != nil {
+				return
+			}
+			switch m.Action {
+			case "join":
+				if !roomReadable(context.Background(), store, accessSvc, c.SubjectID, m.Room) {
+					return
+				}
+				hub.JoinRoom(c, m.Room)
+			case "leave":
+				hub.LeaveRoom(c, m.Room)
+			}
+		}))
 	notifier := notify.New(hub, store)
 
 	// Nothing else can finish a deploy that died with the previous process.
@@ -350,6 +382,10 @@ func main() {
 		baseDomain,
 		envTLSOff,
 	)
+	// Everything above the service line writes traefik config through this,
+	// never through *proxy.Proxy: one managed gate, one error policy, and one
+	// serialized rewrite-and-restart.
+	pxSvc := svcproxy.New(store, px, rt, registrySigner, envDataDir, registryPort, baseOrigin)
 	// Before Traefik starts: it reads the trusted proxy settings.
 	if err := seedInstall(context.Background(), store,
 		config.GetEnvOrDefault("ROOT_DOMAIN", ""),
@@ -359,18 +395,32 @@ func main() {
 		log.Error("seeding install answers failed", "error", err)
 	}
 	go func() {
-		if err := px.EnsureTraefik(context.Background()); err != nil {
+		// Boot is the one caller that takes the error rather than a log line
+		// from inside the service: nothing is serving yet.
+		if err := pxSvc.EnsureTraefikNow(context.Background()); err != nil {
 			log.Error("traefik startup failed", "error", err)
 		}
 		// Dynamic configs are renders of DB state, regenerate them so a
 		// wiped/restored data dir heals itself.
-		if err := px.Resync(context.Background()); err != nil {
-			log.Error("proxy resync failed", "error", err)
-		}
+		pxSvc.Resync(context.Background())
 	}()
 
 	// Metrics sampler + nightly cleanup.
-	sampler := metrics.NewSampler(store, clus, notifier)
+	// The slice reader is wired here rather than imported inside the sampler:
+	// metrics sits below managedtiles, and that edge is the one that closed
+	// the cycle keeping managedtiles off the node-aware runtime.
+	sampler := metrics.NewSampler(store, clus, notifier).WithSliceReader(
+		func(ctx context.Context, inst *repo.Tile, names []string) (map[string]metrics.SliceRead, error) {
+			read, err := managedtiles.NewService(clus, store).SliceStats(ctx, inst, names)
+			if err != nil || read == nil {
+				return nil, err
+			}
+			out := make(map[string]metrics.SliceRead, len(read))
+			for name, st := range read {
+				out[name] = metrics.SliceRead{Xacts: st.Xacts, Size: st.Size}
+			}
+			return out, nil
+		})
 	go sampler.Run(context.Background())
 	go sampler.RunFlows(context.Background())
 	go func() {
@@ -424,30 +474,38 @@ func main() {
 			}
 		}
 	}
-	if err := jobsService.LoadSchedules(context.Background()); err != nil {
-		log.Error("loading job schedules failed", "error", err)
-	}
-
-	// Registry watcher (per-tile update_policy) on a 1-minute janitor tick;
-	// the real cadence is the image_check_interval setting, due-checked
-	// in-task because janitor schedules are fixed at AddTask time.
-	watcher := &imagewatch.Watcher{Store: store, Notifier: notifier, Engine: engine,
-		DB: dbService, Cluster: clus, GH: gh, Client: &imagewatch.Client{}}
-	jan := janitor.New(janitor.WithTimeout(2*time.Minute), janitor.WithLogger(log))
-	jan.AddTask("@every 1m", watcher)
-	// CI gate: releases (or fails) push deploys parked behind wait_for_ci.
-	jan.AddTask("@every 1m", &cigate.Gate{Store: store, Engine: engine, GH: gh, Notifier: notifier})
-	if err := jan.Start(context.Background()); err != nil {
-		log.Error("janitor start failed", "error", err)
-	}
 
 	// Backups: dumps, volume archives, and the panel's own database. Holds the
 	// live *sqlx.DB because VACUUM INTO is the only consistent way to copy the
 	// file while stackr is serving.
 	backupService := backup.NewService(store, dbService, clus, database, envDataDir, version)
-	if err := backupService.LoadSchedules(context.Background()); err != nil {
-		log.Error("loading backup schedules failed", "error", err)
+
+	// One owner for "re-register the schedules". Everything that cascades a
+	// cron_jobs or backups row calls this instead of LoadSchedules directly.
+	sched := scheduler.New(jobsService, backupService)
+	if cronErr, bkErr := sched.Boot(context.Background()); cronErr != nil || bkErr != nil {
+		log.Error("loading schedules failed", "cron", cronErr, "backups", bkErr)
 	}
+
+	// One owner for "put this tile into that runtime state". Both routers get
+	// the same value, so a stop over the API and a stop in the panel perform
+	// the same side effects — the nudge to open canvases included, which the
+	// API used to skip.
+	lifecycle := service.NewTileLifecycleService(store, clus, jobsService, dbService, sched, notifier)
+
+	// One owner for the tile row and for everything a write to it has to
+	// cascade. gate answers "may this stack be written to, and does the write
+	// queue for review" for every surface with one rule set.
+	gate := service.NewGateService(store)
+	tiles := service.NewTileService(store, clus, pxSvc, dbService, sched, engine, gate)
+	telemetry := service.NewTileTelemetryService(store, clus)
+	domains := service.NewDomainService(store, pxSvc, gate)
+	resources := service.NewDomainResourceService(store, pxSvc)
+
+	// One owner for a managed database instance and for the slices cut out of
+	// it. Delete used to be four teardowns and none of them was complete.
+	instances := service.NewManagedInstanceService(store, dbService, tiles, gate, notifier)
+	slices := service.NewSliceService(store, dbService, engine, notifier)
 
 	// Handed to everything that touches a container or a volume: both live on
 	// one node's disk, and the manager's own socket answers only for itself.
@@ -460,26 +518,20 @@ func main() {
 	// (docs/plans/30-docker-swarm.md, step 7; 44-agent-image-published.md).
 	// Skipping it while the service exists leaves every node on the old agent,
 	// which the panel then refuses on the version header.
+	// One owner for a node's life after it joins, and for the one agent-ensure
+	// retry policy the boot path used to have to itself.
+	nodeLifecycle := service.NewNodeService(store, rt, envDataDir)
+
 	go func() {
 		ctx := context.Background()
 		ns, err := rt.ListNodes(ctx)
 		if err != nil || len(ns) < 2 {
 			return
 		}
-		// Retried: on the registry path the push authenticates against this
+		// The retries are NodeService's, the same ones the panel's Add node
+		// gets: on the registry path the push authenticates against this
 		// panel, which is not listening yet on the first try.
-		for attempt := 1; ; attempt++ {
-			err := agent.Ensure(ctx, store, rt, envDataDir)
-			if err == nil {
-				return
-			}
-			if attempt == 10 {
-				log.Error("node agent service", "error", err)
-				return
-			}
-			log.Warn("node agent service, retrying", "attempt", attempt, "error", err)
-			time.Sleep(15 * time.Second)
-		}
+		_ = nodeLifecycle.EnsureAgent(ctx)
 	}()
 	// Upgrades from the panel. The release check runs at boot and daily so the
 	// rail badge has something to show; the update page also checks on open.
@@ -524,14 +576,88 @@ func main() {
 	// web canvas and the API drive the same plan → approve → apply flow, and two
 	// copies would be two things to keep in step.
 	applier := stackconf.Applier{
-		Planner: stackconf.Planner{Store: store, Src: gh},
-		Ops:     envops.Ops{Store: store, RT: rt, Cluster: clus, PX: px, DBs: dbService},
-		DBs:     dbService,
-		Engine:  engine,
-		Jobs:    jobsService,
-		Backups: backupService,
+		Planner:   stackconf.Planner{Store: store, Src: gh},
+		Ops:       envops.Ops{Store: store, RT: rt, Cluster: clus, PX: pxSvc, DBs: dbService, Tiles: tiles, Sched: sched, Domains: domains, Resources: resources},
+		DBs:       dbService,
+		Instances: instances,
+		Slices:    slices,
+		Engine:    engine,
+		Jobs:      jobsService,
+		Sched:     sched,
 	}
-	orgRunner := &orgconf.Runner{Store: store, Src: gh, Stacks: applier.Planner, Applier: applier}
+	// One owner for which tiles may be deployed. The engine below the line
+	// still writes the deployment row; what moved up is the rules, which had
+	// drifted between the two surfaces and had a fourth private copy inside
+	// the variable service.
+	deploySvc := service.NewDeployService(store, engine)
+
+	// One owner for every write to the variables table. The replanner is the
+	// config planner, which detaches its own walk: a variable write must not
+	// wait on one, and the API's request budget could not have afforded it.
+	vars := service.NewVariableService(store, deploySvc, applier.Planner, notifier)
+
+	// Registry watcher (per-tile update_policy) on a 1-minute janitor tick;
+	// the real cadence is the image_check_interval setting, due-checked
+	// in-task because janitor schedules are fixed at AddTask time.
+	//
+	// Built here rather than with the other background tasks above because it
+	// is a service now, not a janitor task with a store: an auto update goes
+	// through DeployService and ManagedInstanceService, so it has to come
+	// after both.
+	imageWatch := &service.ImageWatchService{Store: store, Notifier: notifier,
+		Cluster: clus, GH: gh, Client: &imagewatch.Client{},
+		Deploys: deploySvc, Instances: instances}
+	jan := janitor.New(janitor.WithTimeout(2*time.Minute), janitor.WithLogger(log))
+	jan.AddTask("@every 1m", imageWatch)
+	// CI gate: releases (or fails) push deploys parked behind wait_for_ci.
+	jan.AddTask("@every 1m", &cigate.Gate{Store: store, Engine: engine, GH: gh, Notifier: notifier})
+	if err := jan.Start(context.Background()); err != nil {
+		log.Error("janitor start failed", "error", err)
+	}
+
+	// One owner for the environment row. envops does the teardown below the
+	// line; the rules, the gate and the two tables nothing used to clean up
+	// are here.
+	envSvc := service.NewEnvironmentService(store, applier.Ops, sched, applier.Planner, gate)
+
+	// One owner for the bucket a backup is written to, and one for the
+	// schedules pointed at it. Three creators had three rule sets; the
+	// destination's visibility rule was written out three times.
+	// One owner for a share or pool: the server id comes from the caller,
+	// the sub-path name is slugified before it is checked, and a delete knows
+	// the difference between a server's pool and an org's share.
+	storageSvc := service.NewStorageService(store, clus)
+
+	// One owner for the registry rows: the managed one cannot be deleted from
+	// either surface now, and one in-use matcher decides whether a tag may go.
+	registrySvc := service.NewRegistryService(store)
+
+	// One owner for the defaults cascade at all four levels: the config-file
+	// gate applies at org, stack and env, and every write resyncs the proxy.
+	settingsSvc := service.NewSettingsService(store, pxSvc)
+
+	// One owner for the pull-request environment settings: comment: and
+	// status: are the file's keys, so a panel edit to them goes through the
+	// gate rather than being silently reverted at the next pull request.
+	prenvSvc := service.NewPREnvService(store, gate)
+
+	destSvc := service.NewBackupDestinationService(store, sched)
+	scheduleSvc := service.NewBackupScheduleService(store, destSvc, sched, gate)
+	// Set after construction rather than in the literal: the schedule service
+	// needs the gate and the scheduler, which are built alongside the applier.
+	applier.Schedules = scheduleSvc
+
+	// One owner for the stack row. The rename goes through the config
+	// applier, which is the only implementation that stops the tiles under
+	// the old slug and brings them back under the new one.
+	// One owner for what a change of standing has to tear down: a demotion,
+	// a removal and a stack move all leave working share links behind, and a
+	// websocket room outlives the membership that let it in.
+	revokeSvc := service.NewRevokeService(store, notifier)
+
+	stackSvc := service.NewStackService(store, applier.Ops, sched, envSvc, applier, gate, revokeSvc)
+
+	orgRunner := &orgconf.Runner{Store: store, Src: gh, Stacks: applier.Planner, Applier: applier, Resources: resources, StackSvc: stackSvc}
 
 	// One durable runner for long work (docs/plans/33-workqueue.md). Applies
 	// go on it first: they were the only long job with no queue at all, and
@@ -540,6 +666,17 @@ func main() {
 	// recorded.
 	work := workqueue.New(store)
 	stackconf.RegisterApply(work, applier)
+	stackconf.RegisterPromote(work, applier)
+	// The org-level apply was the last one left running inline. It is the
+	// slower of the two — a bucket probe per declared share and a repository
+	// fetch per declared stack — and a request that died mid-apply took the
+	// record of the failure with it.
+	orgconf.RegisterApply(work, orgRunner)
+	// The ladder, once there is a queue to put a promote on. Nothing about a
+	// promote runs on the request any more.
+	releaseSvc := service.NewReleaseService(store, stackconf.Queue{Q: work})
+	// One owner for a config plan after it exists: replan, approve, reject.
+	planSvc := service.NewPlanService(store, applier.Planner, stackconf.Queue{Q: work})
 	engine.WithWork(work)
 	// Every kind registers before Start: boot recovery fails a row whose kind
 	// has no handler, which would skip its cleanup.
@@ -549,19 +686,48 @@ func main() {
 	work.Start(context.Background())
 	// Optional: with no provider configured this is nil and invites fall back
 	// to a link the inviter passes on by hand.
-	mailer := mail.FromEnv()
+	mailer := svcmail.New(mail.FromEnv(), baseOrigin)
 	if mailer.Enabled() {
 		log.Info("outbound mail configured")
 	}
+
+	// One owner for membership: one role whitelist, one expiry rule, one
+	// last-owner guard, and the invite mailed from both surfaces.
+	memberSvc := service.NewMemberService(store, mailer, revokeSvc)
 
 	api.RegisterRoutes(srv, &api.Deps{
 		Store:          store,
 		Cluster:        clus,
 		Engine:         engine,
 		Runtime:        rt,
-		Proxy:          px,
+		Proxy:          pxSvc,
 		Jobs:           jobsService,
 		Backups:        backupService,
+		Scheduler:      sched,
+		Lifecycle:      lifecycle,
+		Tiles:          tiles,
+		Telemetry:      telemetry,
+		Domains:        domains,
+		Resources:      resources,
+		Instances:      instances,
+		Slices:         slices,
+		Variables:      vars,
+		Environments:   envSvc,
+		Stacks:         stackSvc,
+		Gate:           gate,
+		Schedules:      scheduleSvc,
+		Destinations:   destSvc,
+		Storage:        storageSvc,
+		Settings:       settingsSvc,
+		Access:         accessSvc,
+		Registries:     registrySvc,
+		PREnvs:         prenvSvc,
+		Members:        memberSvc,
+		OrgConfig:      orgRunner,
+		Deploys:        deploySvc,
+		Releases:       releaseSvc,
+		Plans:          planSvc,
+		Mail:           mailer,
 		Forwards:       forwards,
 		Notifier:       notifier,
 		Applier:        applier,
@@ -587,10 +753,37 @@ func main() {
 		Engine:         engine,
 		Runtime:        rt,
 		RegistrySigner: registrySigner,
-		Proxy:          px,
+		Proxy:          pxSvc,
 		Databases:      dbService,
 		Jobs:           jobsService,
 		Backups:        backupService,
+		Scheduler:      sched,
+		Lifecycle:      lifecycle,
+		Tiles:          tiles,
+		Telemetry:      telemetry,
+		Domains:        domains,
+		Resources:      resources,
+		Instances:      instances,
+		Slices:         slices,
+		Variables:      vars,
+		Environments:   envSvc,
+		Stacks:         stackSvc,
+		Gate:           gate,
+		Schedules:      scheduleSvc,
+		Destinations:   destSvc,
+		Storage:        storageSvc,
+		Settings:       settingsSvc,
+		NodeService:    nodeLifecycle,
+		Containers:     service.NewContainerService(clus),
+		ImageWatch:     imageWatch,
+		Access:         accessSvc,
+		Registries:     registrySvc,
+		PREnvs:         prenvSvc,
+		Members:        memberSvc,
+		OrgConfig:      orgRunner,
+		Deploys:        deploySvc,
+		Releases:       releaseSvc,
+		Plans:          planSvc,
 		Metrics:        sampler,
 		Forwards:       forwards,
 		GitHub:         gh,
@@ -599,13 +792,13 @@ func main() {
 		DataDir:        envDataDir,
 		RegistryPort:   registryPort,
 		ACMEEmail:      config.GetEnvOrDefault("ACME_EMAIL", ""),
-		OrgConfig:      orgRunner,
 		Mail:           mailer,
 		Nodes:          nodeSvc,
 		Cluster:        clus,
 		Mover:          mover,
 		Version:        version,
 		Admin:          adminService,
+		Revoke:         revokeSvc,
 	})
 
 	log.Info("starting server", "port", envPort, "devMode", envDevMode, "version", version)

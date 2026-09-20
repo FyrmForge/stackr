@@ -2,11 +2,11 @@ package v1
 
 import (
 	"net/http"
-	"time"
 
-	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 
+	stackrmw "github.com/FyrmForge/stackr/internal/stackrd/handlers/middleware"
+	"github.com/FyrmForge/stackr/internal/stackrd/service"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 )
 
@@ -16,7 +16,7 @@ func toDomainOut(d *repo.Domain) domainOut {
 }
 
 func (a *API) listDomains(c echo.Context) error {
-	t, err := a.requireTile(c, c.Param("id"), false)
+	t, err := a.tile(c, c.Param("id"))
 	if err != nil {
 		return err
 	}
@@ -32,56 +32,34 @@ func (a *API) listDomains(c echo.Context) error {
 }
 
 // createDomain attaches a host to an app and updates the proxy immediately.
+// Every rule — squat, wildcard DNS, middleware references, the managed
+// engine's HTTP support, the port and HTTPS defaults — is the domain
+// service's, and the panel used to apply about three times as many of them
+// as this path did.
 func (a *API) createDomain(c echo.Context) error {
-	t, err := a.requireTile(c, c.Param("id"), true)
+	t, err := a.tile(c, c.Param("id"))
 	if err != nil {
-		return err
-	}
-	if err := a.rejectManaged(c.Request().Context(), t.StackID); err != nil {
 		return err
 	}
 	var in domainIn
-	if err := c.Bind(&in); err != nil || in.Host == "" {
-		return echo.NewHTTPError(http.StatusBadRequest, "host required")
+	if err := c.Bind(&in); err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid body")
 	}
-	port := in.ContainerPort
-	if port == 0 {
-		port = t.ContainerPort
-	}
-	if port == 0 && in.RedirectTo == "" {
-		return echo.NewHTTPError(http.StatusBadRequest, "container port required (set it on the app or the domain)")
-	}
-	https := true
-	if in.HTTPS != nil {
-		https = *in.HTTPS
-	}
-	// Default on: serving TLS used to imply the bounce, so anything that does
-	// not say otherwise keeps behaving the way it did.
-	force := true
-	if in.ForceHTTPS != nil {
-		force = *in.ForceHTTPS
-	}
-	path := in.Path
-	if path == "" {
-		path = "/"
-	}
-	ctx := c.Request().Context()
-	// One host+path routes to one tile, reject a claim already taken (any org).
-	if existing, _ := a.store.GetDomainByHostPath(ctx, in.Host, path); existing != nil {
-		return echo.NewHTTPError(http.StatusConflict, "host + path already in use")
-	}
-	d := &repo.Domain{ID: uuid.New().String(), TileID: t.ID, Host: in.Host, Path: path,
-		ContainerPort: port, HTTPS: https, ForceHTTPS: force, RedirectTo: in.RedirectTo,
-		CreatedAt: time.Now().UTC()}
-	if err := a.store.CreateDomain(ctx, d); err != nil {
-		return err
-	}
-	ds, err := a.store.ListDomainsByTile(ctx, t.ID)
+	d, staged, err := a.domains.Attach(c.Request().Context(), t, service.DomainSpec{
+		Host: in.Host, Path: in.Path, Port: in.ContainerPort,
+		HTTPS: in.HTTPS, ForceHTTPS: in.ForceHTTPS, RedirectTo: in.RedirectTo,
+		Rule: in.Rule, Priority: in.Priority, Middlewares: in.Middlewares,
+	}, a.actor(c))
 	if err != nil {
-		return err
+		return stackrmw.HTTP(err)
 	}
-	if err := a.px.WriteApp(t, ds); err != nil {
-		return err
+	if staged {
+		// A config-managed stack that declares `ui_edits: stage` holds every
+		// surface's field edits for review, this one included. Nothing is
+		// written, and the API cannot record into the pending set without the
+		// canvas's desired-set machinery, so say so rather than answer 201.
+		return echo.NewHTTPError(http.StatusConflict,
+			"this stack stages edits for review; add the domain from the canvas")
 	}
 	return c.JSON(http.StatusCreated, toDomainOut(d))
 }
@@ -93,22 +71,15 @@ func (a *API) deleteDomain(c echo.Context) error {
 	if err != nil || d == nil {
 		return echo.NewHTTPError(http.StatusNotFound, "not found")
 	}
-	t, err := a.requireTile(c, d.TileID, true)
+	t, err := a.tile(c, d.TileID)
 	if err != nil {
 		return err
 	}
-	if err := a.rejectManaged(ctx, t.StackID); err != nil {
-		return err
-	}
-	if err := a.store.DeleteDomain(ctx, d.ID); err != nil {
-		return err
-	}
-	ds, err := a.store.ListDomainsByTile(ctx, t.ID)
-	if err != nil {
-		return err
-	}
-	if err := a.px.WriteApp(t, ds); err != nil {
-		return err
+	if _, staged, err := a.domains.Detach(ctx, t, d.ID, a.actor(c)); err != nil {
+		return stackrmw.HTTP(err)
+	} else if staged {
+		return echo.NewHTTPError(http.StatusConflict,
+			"this stack stages edits for review; remove the domain from the canvas")
 	}
 	return c.NoContent(http.StatusNoContent)
 }

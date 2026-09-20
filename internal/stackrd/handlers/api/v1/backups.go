@@ -2,16 +2,15 @@ package v1
 
 import (
 	"context"
-	"database/sql"
 	"net/http"
-	"sort"
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 
+	stackrmw "github.com/FyrmForge/stackr/internal/stackrd/handlers/middleware"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/backup"
+	"github.com/FyrmForge/stackr/internal/stackrd/service"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 )
 
@@ -28,19 +27,12 @@ func toDestinationOut(d *repo.BackupDestination) destinationOut {
 // credentials the archive is written with. Admins see every one, which is what
 // the admin page is. Secrets are never rendered back.
 func (a *API) listDestinations(c echo.Context) error {
-	ds, err := a.store.ListBackupDestinations(c.Request().Context())
+	ds, err := a.dests.Visible(c.Request().Context(), a.viewer(c))
 	if err != nil {
 		return err
 	}
 	out := make([]destinationOut, 0, len(ds))
 	for i := range ds {
-		switch {
-		case a.isAdmin(c):
-		case ds[i].Global() && !ds[i].Shared:
-			continue
-		case !ds[i].Global() && !a.orgAllowed(c, ds[i].OrgID.String):
-			continue
-		}
 		out = append(out, toDestinationOut(&ds[i]))
 	}
 	return c.JSON(http.StatusOK, out)
@@ -51,32 +43,27 @@ func (a *API) createDestination(c echo.Context) error {
 	if err := c.Bind(&in); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, "invalid body")
 	}
-	if in.Name == "" || in.Endpoint == "" || in.Bucket == "" {
-		return echo.NewHTTPError(http.StatusBadRequest, "name, endpoint and bucket are required")
-	}
 	ctx := c.Request().Context()
-	d := &repo.BackupDestination{
-		ID: uuid.New().String(), Name: in.Name, Endpoint: in.Endpoint, Bucket: in.Bucket,
-		Region: in.Region, AccessKey: in.AccessKey, SecretKey: in.SecretKey, CreatedAt: time.Now().UTC(),
-	}
-	// A server-wide destination is reachable from every org that it is shared
-	// with, so only an admin may create one.
+	// A server-wide destination is reachable from every org it is shared
+	// with, so only an admin may create one. Access stays here; the trim, the
+	// required fields and the bucket probe are the service's, and the panel
+	// trimmed where this stored raw — which broke referencing the name from a
+	// config file.
+	// KindDeferred: the org arrives in the body, so the route's gate could
+	// not resolve a tenancy and this check is the only one.
 	if in.OrgID == "" {
 		if !a.isAdmin(c) {
 			return echo.NewHTTPError(http.StatusForbidden, "only admins can create a server-wide destination")
 		}
-		d.Shared = in.Shared
-	} else {
-		if err := a.requireOrgWrite(ctx, c, in.OrgID); err != nil {
-			return err
-		}
-		d.OrgID = sql.NullString{String: in.OrgID, Valid: true}
-	}
-	if err := backup.TestDestination(ctx, d); err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, "destination unreachable: "+err.Error())
-	}
-	if err := a.store.CreateBackupDestination(ctx, d); err != nil {
+	} else if err := a.requireOrgWrite(ctx, c, in.OrgID); err != nil {
 		return err
+	}
+	d, err := a.dests.Create(ctx, service.NewDestination{
+		Name: in.Name, Endpoint: in.Endpoint, Bucket: in.Bucket, Region: in.Region,
+		AccessKey: in.AccessKey, SecretKey: in.SecretKey, OrgID: in.OrgID, Shared: in.Shared,
+	})
+	if err != nil {
+		return stackrmw.HTTP(err)
 	}
 	return c.JSON(http.StatusCreated, toDestinationOut(d))
 }
@@ -95,11 +82,9 @@ func (a *API) deleteDestination(c echo.Context) error {
 		if !a.isAdmin(c) {
 			return echo.NewHTTPError(http.StatusForbidden, "only admins can remove a server-wide destination")
 		}
-	} else if err := a.requireOrgWrite(ctx, c, d.OrgID.String); err != nil {
-		return err
 	}
-	if err := a.store.DeleteBackupDestination(ctx, d.ID); err != nil {
-		return err
+	if err := a.dests.Delete(ctx, d); err != nil {
+		return stackrmw.HTTP(err)
 	}
 	return c.NoContent(http.StatusNoContent)
 }
@@ -112,23 +97,22 @@ func toBackupOut(b *repo.Backup) backupOut {
 		KeepLatest: b.KeepLatest, Enabled: b.Enabled}
 }
 
-// requireBackup loads a backup and checks the caller may act on the tile it
-// belongs to. Every route in this file goes through it, resolving a backup by
-// id without walking back to its tile's org is exactly the hole the removed
-// version shipped with.
-func (a *API) requireBackup(c echo.Context, write bool) (*repo.Backup, *repo.Tile, error) {
+// loadBackup loads a backup and the tile it hangs off, which is where its
+// tenancy comes from. The route's gate resolves the same walk (KindBackup in
+// service/tenancy.go) and checks the level; this is the row itself.
+//
+// The panel's own backup has no tile: it belongs to the installation, and the
+// gate answers for it through service.ErrServerOwned. Here it just means
+// there is no tile to return.
+func (a *API) loadBackup(c echo.Context) (*repo.Backup, *repo.Tile, error) {
 	b, err := a.store.GetBackup(c.Request().Context(), c.Param("id"))
 	if err != nil || b == nil {
 		return nil, nil, echo.NewHTTPError(http.StatusNotFound, "not found")
 	}
 	if b.Kind == repo.BackupStackr {
-		// The panel's own database belongs to no org; only an admin sees it.
-		if !a.isAdmin(c) {
-			return nil, nil, echo.NewHTTPError(http.StatusNotFound, "not found")
-		}
 		return b, nil, nil
 	}
-	t, err := a.requireTile(c, b.TileID.String, write)
+	t, err := a.tile(c, b.TileID.String)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -136,7 +120,7 @@ func (a *API) requireBackup(c echo.Context, write bool) (*repo.Backup, *repo.Til
 }
 
 func (a *API) listBackups(c echo.Context) error {
-	t, err := a.requireTile(c, c.Param("id"), false)
+	t, err := a.tile(c, c.Param("id"))
 	if err != nil {
 		return err
 	}
@@ -152,7 +136,7 @@ func (a *API) listBackups(c echo.Context) error {
 }
 
 func (a *API) createBackup(c echo.Context) error {
-	t, err := a.requireTile(c, c.Param("id"), true)
+	t, err := a.tile(c, c.Param("id"))
 	if err != nil {
 		return err
 	}
@@ -160,52 +144,16 @@ func (a *API) createBackup(c echo.Context) error {
 	if err := c.Bind(&in); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, "invalid body")
 	}
-	ctx := c.Request().Context()
-	orgID, err := backup.OrgOf(ctx, a.store, t)
+	// Every rule is the service's. This path accepted a dump for a tile that
+	// is not a database, defaulted keep to 0 (which means keep nothing), and
+	// did not gate a write to a key the config file owns.
+	b, err := a.schedules.Create(c.Request().Context(), t, service.ScheduleSpec{
+		Dest: in.DestinationID, Kind: in.Kind, Mode: in.ContainerMode,
+		Cron: &in.Cron, Timezone: &in.Timezone, Keep: in.KeepLatest, Enabled: in.Enabled,
+	}, a.actor(c))
 	if err != nil {
-		return err
+		return stackrmw.HTTP(err)
 	}
-	// The destination is the tenant boundary here, the tile is already known
-	// to be the caller's, the bucket credentials are what could not be.
-	destID, err := a.resolveDestinationRef(ctx, orgID, in.DestinationID)
-	if err != nil {
-		return echo.NewHTTPError(http.StatusNotFound, err.Error())
-	}
-	in.DestinationID = destID
-	b := &repo.Backup{
-		ID: uuid.New().String(), TileID: sql.NullString{String: t.ID, Valid: true},
-		DestinationID: in.DestinationID, Kind: in.Kind, ContainerMode: in.ContainerMode,
-		Cron: in.Cron, Timezone: in.Timezone, KeepLatest: in.KeepLatest, Enabled: true,
-		CreatedAt: time.Now().UTC(),
-	}
-	if b.Kind == "" {
-		if t.IsManaged() {
-			b.Kind = repo.BackupDump
-		} else {
-			b.Kind = repo.BackupVolume
-		}
-	}
-	if b.Kind == repo.BackupStackr {
-		return echo.NewHTTPError(http.StatusBadRequest, "the panel's own database is configured from the admin area")
-	}
-	if b.ContainerMode == "" {
-		b.ContainerMode = repo.ModePause
-	}
-	if in.Enabled != nil {
-		b.Enabled = *in.Enabled
-	}
-	if b.Kind == repo.BackupVolume {
-		if _, err := backup.VolumeFor(t); err != nil {
-			return echo.NewHTTPError(http.StatusBadRequest, err.Error())
-		}
-	}
-	if err := backup.Validate(b); err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
-	}
-	if err := a.store.CreateBackup(ctx, b); err != nil {
-		return err
-	}
-	a.reloadBackupSchedules(ctx)
 	return c.JSON(http.StatusCreated, toBackupOut(b))
 }
 
@@ -228,7 +176,7 @@ func (a *API) resolveDestinationRef(ctx context.Context, orgID, ref string) (str
 }
 
 func (a *API) patchBackup(c echo.Context) error {
-	b, t, err := a.requireBackup(c, true)
+	b, t, err := a.loadBackup(c)
 	if err != nil {
 		return err
 	}
@@ -236,57 +184,20 @@ func (a *API) patchBackup(c echo.Context) error {
 	if err := c.Bind(&in); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, "invalid body")
 	}
-	ctx := c.Request().Context()
-	if in.DestinationID != "" && in.DestinationID != b.DestinationID {
-		orgID := ""
-		if t != nil {
-			if orgID, err = backup.OrgOf(ctx, a.store, t); err != nil {
-				return err
-			}
-		}
-		destID, err := a.resolveDestinationRef(ctx, orgID, in.DestinationID)
-		if err != nil {
-			return echo.NewHTTPError(http.StatusNotFound, err.Error())
-		}
-		dest, err := a.store.GetBackupDestination(ctx, destID)
-		if err != nil || dest == nil {
-			return echo.NewHTTPError(http.StatusNotFound, "destination not found")
-		}
-		in.DestinationID = destID
-		// The panel's own database may only leave the server through a
-		// destination the admins own.
-		if b.Kind == repo.BackupStackr && !dest.Global() {
-			return echo.NewHTTPError(http.StatusBadRequest, "the panel database needs a server-wide destination")
-		}
-		b.DestinationID = in.DestinationID
+	// Cron and timezone are pointers on the patch now, so clearing a timezone
+	// is expressible. It was not: "apply only if non-empty" meant a timezone,
+	// once set, could never be removed over the API or the CLI.
+	if err := a.schedules.Update(c.Request().Context(), b, t, service.ScheduleSpec{
+		Dest: in.DestinationID, Mode: in.ContainerMode,
+		Cron: in.Cron, Timezone: in.Timezone, Keep: in.KeepLatest, Enabled: in.Enabled,
+	}, a.actor(c)); err != nil {
+		return stackrmw.HTTP(err)
 	}
-	if in.ContainerMode != "" {
-		b.ContainerMode = in.ContainerMode
-	}
-	if in.Cron != "" {
-		b.Cron = in.Cron
-	}
-	if in.Timezone != "" {
-		b.Timezone = in.Timezone
-	}
-	if in.KeepLatest != nil {
-		b.KeepLatest = *in.KeepLatest
-	}
-	if in.Enabled != nil {
-		b.Enabled = *in.Enabled
-	}
-	if err := backup.Validate(b); err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
-	}
-	if err := a.store.UpdateBackup(ctx, b); err != nil {
-		return err
-	}
-	a.reloadBackupSchedules(ctx)
 	return c.JSON(http.StatusOK, toBackupOut(b))
 }
 
 func (a *API) deleteBackup(c echo.Context) error {
-	b, _, err := a.requireBackup(c, true)
+	b, _, err := a.loadBackup(c)
 	if err != nil {
 		return err
 	}
@@ -294,7 +205,7 @@ func (a *API) deleteBackup(c echo.Context) error {
 	if err := a.store.DeleteBackup(ctx, b.ID); err != nil {
 		return err
 	}
-	a.reloadBackupSchedules(ctx)
+	a.sched.ReloadBackups(ctx)
 	return c.NoContent(http.StatusNoContent)
 }
 
@@ -311,7 +222,7 @@ func toRunOut(r *repo.BackupRun) backupRunOut {
 }
 
 func (a *API) listBackupRuns(c echo.Context) error {
-	b, _, err := a.requireBackup(c, false)
+	b, _, err := a.loadBackup(c)
 	if err != nil {
 		return err
 	}
@@ -327,7 +238,7 @@ func (a *API) listBackupRuns(c echo.Context) error {
 }
 
 func (a *API) runBackup(c echo.Context) error {
-	b, _, err := a.requireBackup(c, true)
+	b, _, err := a.loadBackup(c)
 	if err != nil {
 		return err
 	}
@@ -346,7 +257,7 @@ func (a *API) runBackup(c echo.Context) error {
 // never by object key, a key off the wire would read any object in the
 // bucket, which on a shared destination means another org's backups.
 func (a *API) restoreBackup(c echo.Context) error {
-	b, _, err := a.requireBackup(c, true)
+	b, _, err := a.loadBackup(c)
 	if err != nil {
 		return err
 	}
@@ -373,7 +284,7 @@ func (a *API) restoreBackup(c echo.Context) error {
 // getRestore is the newest restore of a backup. The CLI polls it to wait for
 // a restore it queued.
 func (a *API) getRestore(c echo.Context) error {
-	b, _, err := a.requireBackup(c, false)
+	b, _, err := a.loadBackup(c)
 	if err != nil {
 		return err
 	}
@@ -397,12 +308,6 @@ func (a *API) restoreStatus(c echo.Context, backupID string) error {
 		out.FinishedAt = w.FinishedAt.Time.Format(time.RFC3339)
 	}
 	return c.JSON(http.StatusOK, out)
-}
-
-func (a *API) reloadBackupSchedules(ctx context.Context) {
-	if a.backups != nil {
-		_ = a.backups.LoadSchedules(ctx)
-	}
 }
 
 // patchDestination flips the shared toggle on a server-wide destination.
@@ -430,7 +335,7 @@ func (a *API) patchDestination(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, "invalid body")
 	}
 	if in.Shared != nil && !*in.Shared && d.Shared {
-		if users := a.destinationUsers(ctx, d.ID); len(users) > 0 {
+		if users, _ := a.dests.Users(ctx, d.ID); len(users) > 0 {
 			return echo.NewHTTPError(http.StatusConflict,
 				"still used by "+strings.Join(users, ", "))
 		}
@@ -442,39 +347,4 @@ func (a *API) patchDestination(c echo.Context) error {
 		return err
 	}
 	return c.JSON(http.StatusOK, toDestinationOut(d))
-}
-
-// destinationUsers names the stacks whose tiles back up to this destination.
-//
-// walks every backup row. Tens of rows; add a store query if an
-// install ever grows big enough to notice.
-func (a *API) destinationUsers(ctx context.Context, destID string) []string {
-	bs, err := a.store.ListBackups(ctx)
-	if err != nil {
-		return nil
-	}
-	seen := map[string]bool{}
-	var out []string
-	for i := range bs {
-		if bs[i].DestinationID != destID {
-			continue
-		}
-		if !bs[i].TileID.Valid {
-			continue // the panel's own backup; the admin owns both ends of it
-		}
-		t, err := a.store.GetTile(ctx, bs[i].TileID.String)
-		if err != nil || t == nil {
-			continue
-		}
-		st, err := a.store.GetStack(ctx, t.StackID)
-		if err != nil || st == nil {
-			continue
-		}
-		name := st.Slug + "/" + t.Slug
-		if !seen[name] {
-			seen[name], out = true, append(out, name)
-		}
-	}
-	sort.Strings(out)
-	return out
 }

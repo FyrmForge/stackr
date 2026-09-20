@@ -8,13 +8,10 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v4"
-
-	"github.com/FyrmForge/stackr/internal/stackrd/infra/envnet"
-	"github.com/FyrmForge/stackr/internal/stackrd/infra/runtime"
 )
 
 func (a *API) getAppLogs(c echo.Context) error {
-	t, err := a.requireTile(c, c.Param("id"), false)
+	t, err := a.tile(c, c.Param("id"))
 	if err != nil {
 		return err
 	}
@@ -24,23 +21,21 @@ func (a *API) getAppLogs(c echo.Context) error {
 	}
 	follow := c.QueryParam("follow") == "1" || c.QueryParam("follow") == "true"
 	ctx := c.Request().Context()
-	// Service logs cover every replica on every node, through the manager,
-	// a container's logs are one replica on one box.
-	if name := envnet.ServiceFor(ctx, a.store, t); name != "" {
+	// Where the lines come from is the telemetry service's answer, shared
+	// with the panel's SSE handler so the two cannot pick different sources.
+	src := a.telemetry.Logs(ctx, t)
+	if src.Service != "" {
 		if follow {
-			return a.streamServiceLogs(c, name, tail)
+			return a.streamServiceLogs(c, src.Service, tail)
 		}
-		if out, err := a.clus.ServiceLogs(ctx, name, tail); err == nil {
+		if out, err := a.clus.ServiceLogs(ctx, src.Service, tail); err == nil {
 			return c.JSON(http.StatusOK, logsOut{Lines: out})
 		}
 		// Fall through: a tile that has never deployed has no service, and a
 		// cron tile's history lives on its runs, not here.
+		src.Container = a.telemetry.Container(ctx, t)
 	}
-	// Pre-swarm containers only, and those are the manager's own: a tile that
-	// has deployed since the swarm move answered above, from the service,
-	// which swarm collects across every node.
-	cs, _ := a.clus.ListByLabel(ctx, runtime.LabelApp, t.ID)
-	if len(cs) == 0 {
+	if src.Container == "" {
 		if follow {
 			// not running → nothing to follow; poll-until-started if a CLI ever needs it
 			return c.NoContent(http.StatusNoContent)
@@ -48,9 +43,9 @@ func (a *API) getAppLogs(c echo.Context) error {
 		return c.JSON(http.StatusOK, logsOut{Lines: ""})
 	}
 	if follow {
-		return a.streamAppLogs(c, cs[0].ID, tail)
+		return a.streamAppLogs(c, src.Container, tail)
 	}
-	out, err := a.clus.Logs(ctx, cs[0].ID, tail)
+	out, err := a.clus.Logs(ctx, src.Container, tail)
 	if err != nil {
 		return err
 	}

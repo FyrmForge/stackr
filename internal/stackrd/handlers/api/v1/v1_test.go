@@ -51,7 +51,7 @@ func (d specDoc) op(t *testing.T, method, path string) specOp {
 
 func TestSpec_PathsAndSecurity(t *testing.T) {
 	doc := buildSpec(t)
-	assert.Len(t, doc.Paths, 97, "paths")
+	assert.Len(t, doc.Paths, 98, "paths")
 	assert.Contains(t, doc.Components.SecuritySchemes, securityName, "security scheme missing from spec")
 }
 

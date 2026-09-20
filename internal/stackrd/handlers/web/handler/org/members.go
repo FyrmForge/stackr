@@ -1,8 +1,6 @@
 package org
 
 import (
-	"context"
-	"html"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -12,9 +10,6 @@ import (
 	"github.com/FyrmForge/hamr/pkg/respond"
 	"github.com/labstack/echo/v4"
 
-	hamremail "github.com/FyrmForge/hamr/pkg/email"
-
-	"github.com/FyrmForge/stackr/internal/stackrd/config/secrets"
 	stackrmw "github.com/FyrmForge/stackr/internal/stackrd/handlers/middleware"
 	"github.com/FyrmForge/stackr/internal/stackrd/handlers/web/avatar"
 	"github.com/FyrmForge/stackr/internal/stackrd/handlers/web/components"
@@ -40,19 +35,12 @@ func (h *handler) ownerOf(c echo.Context, orgID string) bool {
 	return err == nil && m != nil && m.Role == "owner"
 }
 
-// ownedOrg loads the org and refuses anyone who isn't its owner. Not-found
-// rather than forbidden: a non-owner has no business learning it exists.
+// ownedOrg loads the org a route addresses by slug. It used to refuse anyone
+// who was not its owner; the route's verb does that now (VerbOrgWrite,
+// VerbMemberManage and the rest of the owner rung), and it kept the panel's
+// 404, which service.VerbOrgOwnerRead still carries for the owner-only pages.
 func (h *handler) ownedOrg(c echo.Context) (*repo.Org, error) {
-	// ownedOrg is reached from POST routes whose param is the slug, so it
-	// resolves the same way the settings pages do.
-	o, err := h.settingsOrg(c)
-	if err != nil {
-		return nil, err
-	}
-	if o == nil || !h.ownerOf(c, o.ID) {
-		return nil, echo.NewHTTPError(http.StatusNotFound, "org not found")
-	}
-	return o, nil
+	return h.settingsOrg(c)
 }
 
 // POST /orgs/:id/rename, redirects rather than re-rendering the drawer: the
@@ -257,46 +245,9 @@ func (h *handler) AddMember(c echo.Context) error {
 // newInvite creates the invite row and, when this server can send mail, mails
 // the link to the address it is bound to.
 func (h *handler) newInvite(c echo.Context, o *repo.Org, addr, role string, days int) (*repo.Invite, error) {
-	ctx := c.Request().Context()
-	var createdBy string
-	if u := stackrmw.CurrentUser(c); u != nil {
-		createdBy = u.ID
-	}
-	inv := &repo.Invite{
-		ID:        secrets.RandomHex(24),
-		OrgID:     o.ID,
-		Email:     addr,
-		Role:      role,
-		CreatedBy: createdBy,
-		CreatedAt: time.Now().UTC(),
-		ExpiresAt: time.Now().UTC().AddDate(0, 0, days),
-	}
-	if err := h.store.CreateInvite(ctx, inv); err != nil {
-		return nil, err
-	}
-	h.mailInvite(c, o, inv)
-	return inv, nil
-}
-
-// mailInvite sends the invite link to the address it is bound to. A send
-// failure is not fatal, the row exists and the link is on the page, so the
-// invite is still usable by hand, it only sets MailFailed so the page can say
-// so. Resend calls this with the same token rather than minting a new one.
-func (h *handler) mailInvite(c echo.Context, o *repo.Org, inv *repo.Invite) {
-	if inv.Email == "" || !h.mail.Enabled() {
-		return
-	}
-	link := inviteURL(c, inv.ID)
-	if err := h.mail.Send(c.Request().Context(), hamremail.Addr("", inv.Email),
-		"You have been invited to "+o.Name+" on stackr",
-		"You have been invited to join "+o.Name+" as "+inv.Role+".\n\nOpen this link to accept:\n"+link+"\n\nThe link works once and expires on "+inv.ExpiresAt.Format("Jan 2 2006")+".",
-		`<p>You have been invited to join <strong>`+html.EscapeString(o.Name)+`</strong> as `+inv.Role+`.</p>`+
-			`<p><a href="`+html.EscapeString(link)+`">Accept the invitation</a></p>`+
-			`<p>The link works once and expires on `+inv.ExpiresAt.Format("Jan 2 2006")+`.</p>`,
-	); err != nil {
-		c.Logger().Warnf("invite mail to %s: %v", inv.Email, err)
-		inv.MailFailed = true
-	}
+	// The role whitelist, the expiry bounds and the already-a-member check
+	// are the service's; only the last of those existed here at all.
+	return h.members.Invite(c.Request().Context(), o, addr, role, days, stackrmw.WebActor(c))
 }
 
 // inviteFlash says what actually happened to the invite, which depends on
@@ -322,22 +273,9 @@ func (h *handler) SetMemberRole(c echo.Context) error {
 		return err
 	}
 	back := backTo(c, o, "/orgs/"+o.Slug+"/settings/members")
-	userID := c.Param("userID")
-	role := c.FormValue("role")
-	if role != "owner" && role != "member" && role != "viewer" {
-		return echo.NewHTTPError(http.StatusBadRequest, "bad role")
-	}
-	m, err := h.store.GetOrgMember(ctx, o.ID, userID)
-	if err != nil || m == nil {
-		return echo.NewHTTPError(http.StatusNotFound, "member not found")
-	}
-	if m.Role == "owner" && role != "owner" && h.lastOwner(ctx, o.ID, userID) {
-		middleware.SetFlash(c, "An org needs at least one owner.", middleware.FlashError)
+	if err := h.members.SetRole(ctx, o, c.Param("userID"), c.FormValue("role")); err != nil {
+		middleware.SetFlash(c, err.Error(), middleware.FlashError)
 		return respond.Redirect(c, back)
-	}
-	m.Role = role
-	if err := h.store.UpsertOrgMember(ctx, m); err != nil {
-		return err
 	}
 	middleware.SetFlash(c, "Role updated.", middleware.FlashSuccess)
 	return respond.Redirect(c, back)
@@ -351,14 +289,10 @@ func (h *handler) RemoveMember(c echo.Context) error {
 		return err
 	}
 	back := backTo(c, o, "/orgs/"+o.Slug+"/settings/members")
-	userID := c.Param("userID")
-	if m, err := h.store.GetOrgMember(ctx, o.ID, userID); err == nil && m != nil &&
-		m.Role == "owner" && h.lastOwner(ctx, o.ID, userID) {
-		middleware.SetFlash(c, "An org needs at least one owner.", middleware.FlashError)
-		return respond.Redirect(c, back)
-	}
-	if err := h.store.DeleteOrgMember(ctx, o.ID, userID); err != nil {
-		return err
+	// Through the service, which 404s a member who is not one. This path
+	// reported "Member removed." for a user id that was never in the org.
+	if err := h.members.Remove(ctx, o, c.Param("userID")); err != nil {
+		return stackrmw.HTTP(err)
 	}
 	middleware.SetFlash(c, "Member removed.", middleware.FlashSuccess)
 	return respond.Redirect(c, back)
@@ -371,20 +305,6 @@ func (h *handler) RemoveMember(c echo.Context) error {
 func isSelf(c echo.Context, userID string) bool {
 	u := stackrmw.CurrentUser(c)
 	return u != nil && u.ID == userID
-}
-
-// lastOwner reports whether userID is the org's only owner.
-func (h *handler) lastOwner(ctx context.Context, orgID, userID string) bool {
-	members, err := h.store.ListOrgMembers(ctx, orgID)
-	if err != nil {
-		return true // fail safe: refuse the demotion
-	}
-	for _, m := range members {
-		if m.Role == "owner" && m.UserID != userID {
-			return false
-		}
-	}
-	return true
 }
 
 // POST /orgs/:id/invites, create a shareable invite link (14-day expiry).
@@ -444,7 +364,7 @@ func (h *handler) ResendInvite(c echo.Context) error {
 	if inv.ExpiresAt.Before(time.Now().UTC()) {
 		return echo.NewHTTPError(http.StatusConflict, "this invite has expired")
 	}
-	h.mailInvite(c, o, inv)
+	inv.MailFailed = h.mail.SendInvite(c.Request().Context(), o, inv)
 	if inv.MailFailed {
 		middleware.SetFlash(c, "The email could not be sent. Copy the link and send it yourself.", middleware.FlashError)
 	} else {

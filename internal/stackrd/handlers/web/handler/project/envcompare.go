@@ -142,8 +142,6 @@ func (h *handler) CopyEnv(c echo.Context) error {
 	if err := h.applier.CopyTile(ctx, p, env, slug, tc, cell.Fields()); err != nil {
 		return err
 	}
-	if h.jobs != nil {
-		_ = h.jobs.LoadSchedules(ctx)
-	}
+	h.sched.Reload(ctx)
 	return h.renderCompare(c, p)
 }

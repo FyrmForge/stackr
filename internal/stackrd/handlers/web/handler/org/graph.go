@@ -347,9 +347,6 @@ func (h *handler) loadOrg(c echo.Context) (*repo.Org, error) {
 	if o == nil {
 		return nil, echo.NewHTTPError(http.StatusNotFound, "org not found")
 	}
-	if err := stackrmw.RequireOrgWrite(c, h.store, o.ID); err != nil {
-		return nil, err
-	}
 	return o, nil
 }
 

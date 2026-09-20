@@ -13,16 +13,22 @@ import (
 	"github.com/FyrmForge/hamr/pkg/respond"
 
 	"github.com/FyrmForge/stackr/internal/stackrd/config/sharelink"
+	"github.com/FyrmForge/stackr/internal/stackrd/service"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 )
 
 type handler struct {
 	store repo.Store
+	vars  *service.VariableService
 }
 
 func NewHandler(store repo.Store) *handler {
 	return &handler{store: store}
 }
+
+// WithVariables gives the drop box the variable service, for the half of a
+// submit that is not the write itself.
+func (h *handler) WithVariables(v *service.VariableService) *handler { h.vars = v; return h }
 
 // fieldInput is how a drop-box value arrives. Prefixed so a field named
 // "passphrase" can't collide with the gate's own input.
@@ -75,6 +81,19 @@ func (h *handler) Submit(c echo.Context) error {
 		}
 		return respond.HTML(c, http.StatusUnprocessableEntity,
 			linkCard(c, l, token, values, "Fill in every field before sending."))
+	}
+	// The burn and the writes are one transaction, so the storing could not be
+	// handed over — but everything after it can be, and this path used to skip
+	// all of it: a drop box filled in by a client released no deploy parked on
+	// the name and left a config-managed stack's plan stale.
+	if h.vars != nil {
+		names := make([]string, 0, len(values))
+		for _, f := range l.FieldList() {
+			names = append(names, f.Name)
+		}
+		if err := h.vars.Applied(ctx, service.VarOwner{Kind: l.OwnerKind, ID: l.OwnerID}, names); err != nil {
+			return err
+		}
 	}
 	return respond.HTML(c, http.StatusOK, doneCard(c))
 }

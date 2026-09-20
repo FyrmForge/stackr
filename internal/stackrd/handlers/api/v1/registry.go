@@ -15,7 +15,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 
-	"github.com/FyrmForge/stackr/internal/stackrd/config/secrets"
+	stackrmw "github.com/FyrmForge/stackr/internal/stackrd/handlers/middleware"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/registry"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 )
@@ -24,14 +24,9 @@ import (
 // route here needs both, and a missing registry is a 503 rather than a 404,
 // because the org is fine and the thing that is down is ours.
 func (a *API) requireOrgRegistry(c echo.Context, write bool) (*repo.Org, *repo.Registry, error) {
-	o, err := a.requireOrg(c, c.Param("id"))
+	o, err := a.org(c, c.Param("id"))
 	if err != nil {
 		return nil, nil, err
-	}
-	if write {
-		if err := a.requireOrgWrite(c.Request().Context(), c, o.ID); err != nil {
-			return nil, nil, err
-		}
 	}
 	reg, err := a.store.GetManagedRegistry(c.Request().Context())
 	if err != nil {
@@ -44,7 +39,7 @@ func (a *API) requireOrgRegistry(c echo.Context, write bool) (*repo.Org, *repo.R
 }
 
 func (a *API) listRegistryCredentials(c echo.Context) error {
-	o, err := a.requireOrg(c, c.Param("id"))
+	o, err := a.org(c, c.Param("id"))
 	if err != nil {
 		return err
 	}
@@ -68,45 +63,24 @@ func (a *API) createRegistryCredential(c echo.Context) error {
 		return err
 	}
 	var in registryCredentialIn
-	if err := c.Bind(&in); err != nil || strings.TrimSpace(in.Name) == "" {
-		return echo.NewHTTPError(http.StatusBadRequest, "name required")
+	if err := c.Bind(&in); err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid body")
 	}
-	name := strings.TrimSpace(in.Name)
-	if name == registry.SystemCredentialName {
-		return echo.NewHTTPError(http.StatusConflict,
-			"\""+registry.SystemCredentialName+"\" is the credential stackr's own deploys use; pick another name")
-	}
-	secret := secrets.RandomHex(24)
-	cred := &repo.OrgRegistryCredential{ID: uuid.New().String(), OrgID: o.ID, Name: name,
-		SecretHash: registry.HashSecret(secret), Prefix: secret[:8], CreatedAt: time.Now().UTC()}
-	if err := a.store.CreateOrgRegistryCredential(c.Request().Context(), cred); err != nil {
-		return err
+	cred, secret, err := a.registries.MintCredential(c.Request().Context(), o, in.Name)
+	if err != nil {
+		return stackrmw.HTTP(err)
 	}
 	return c.JSON(http.StatusCreated, toRegistryCredentialOut(cred, secret))
 }
 
 func (a *API) deleteRegistryCredential(c echo.Context) error {
 	ctx := c.Request().Context()
-	cred, err := a.store.GetOrgRegistryCredential(ctx, c.Param("cred"))
-	if err != nil || cred == nil {
-		return echo.NewHTTPError(http.StatusNotFound, "not found")
-	}
-	o, err := a.requireOrg(c, c.Param("id"))
+	o, err := a.org(c, c.Param("id"))
 	if err != nil {
 		return err
 	}
-	if cred.OrgID != o.ID {
-		return echo.NewHTTPError(http.StatusNotFound, "not found")
-	}
-	if err := a.requireOrgWrite(ctx, c, o.ID); err != nil {
-		return err
-	}
-	if cred.System {
-		return echo.NewHTTPError(http.StatusConflict,
-			"this is the credential stackr's own deploys push with; removing it would break the next build")
-	}
-	if err := a.store.DeleteOrgRegistryCredential(ctx, cred.ID); err != nil {
-		return err
+	if err := a.registries.RevokeCredential(ctx, o, c.Param("cred")); err != nil {
+		return stackrmw.HTTP(err)
 	}
 	return c.NoContent(http.StatusNoContent)
 }
@@ -144,22 +118,18 @@ func (a *API) listRegistryImages(c echo.Context) error {
 // down. Syntax is the registry client's rail (repoName in infra/registry/gc.go,
 // which admits no slash at all); what is left here is authorization, the
 // namespace prefix.
+// orgImage resolves the :name path segment inside the org's namespace. The
+// resolution itself is the registry service's, shared with the panel; what
+// stays here is unescaping the path and the 404 wording (the registry
+// client's own error comes back as a 502 repeating the namespaced name,
+// which reads as "the registry is broken" for a bad path from the caller).
 func (a *API) orgImage(c echo.Context, o *repo.Org) (string, error) {
-	name, err := url.PathUnescape(c.Param("name"))
+	raw, err := url.PathUnescape(c.Param("name"))
 	if err != nil {
 		return "", echo.NewHTTPError(http.StatusBadRequest, "malformed image name")
 	}
-	ns := registry.Namespace(o.Slug)
-	// A short name is the friendly form the listing shows; a full one is what
-	// a script copies out of an image reference. Both resolve, neither can
-	// reach outside the namespace.
-	if !strings.HasPrefix(name, ns) {
-		name = ns + name
-	}
-	if !strings.HasPrefix(name, ns) || !registry.ValidRepoName(name) {
-		// Not the registry client's error: that one comes back as a 502 and
-		// repeats the namespaced name, which reads as "the registry is broken"
-		// for what is a bad path from the caller.
+	name, err := a.registries.Image(c.Request().Context(), o, raw)
+	if err != nil {
 		return "", echo.NewHTTPError(http.StatusNotFound, "not found")
 	}
 	return name, nil
@@ -213,49 +183,17 @@ func (a *API) deleteRegistryTag(c echo.Context) error {
 	// Same rule as pruning: an image a live deployment points at is what a
 	// restart would pull, so deleting it turns the next restart into a
 	// manifest-unknown failure with nothing left to explain it.
-	if used, where := a.tagInUse(c, o, name, tag); used {
+	where, err := a.registries.TagInUse(ctx, o, name, tag)
+	if err != nil {
+		return stackrmw.HTTP(err)
+	}
+	if where != "" {
 		return echo.NewHTTPError(http.StatusConflict, "still deployed on "+where)
 	}
 	if err := registry.NewClient(reg, a.signer).DeleteTag(ctx, name, tag); err != nil {
 		return echo.NewHTTPError(http.StatusBadGateway, err.Error())
 	}
 	return c.NoContent(http.StatusNoContent)
-}
-
-// tagInUse reports whether any tile in the org runs this image reference, and
-// names the first one that does.
-//
-// walks the org's stacks and tiles. Tens of rows; add a store query
-// if an org ever grows big enough to notice.
-func (a *API) tagInUse(c echo.Context, o *repo.Org, name, tag string) (bool, string) {
-	ctx := c.Request().Context()
-	stacks, err := a.store.ListStacksByOrg(ctx, o.ID)
-	if err != nil {
-		return false, ""
-	}
-	for _, st := range stacks {
-		tiles, err := a.store.ListTilesByStack(ctx, st.ID)
-		if err != nil {
-			continue
-		}
-		for i := range tiles {
-			ds, err := a.store.ListDeploymentsByTile(ctx, tiles[i].ID, 5)
-			if err != nil {
-				continue
-			}
-			for _, d := range ds {
-				if d.Status != "done" || d.ImageTag == "" {
-					continue
-				}
-				// The stored tag carries the pull host; the registry path is
-				// its tail, which is what identifies the image.
-				if strings.HasSuffix(d.ImageTag, "/"+name+":"+tag) || d.ImageTag == name+":"+tag {
-					return true, st.Slug + "/" + tiles[i].Slug
-				}
-			}
-		}
-	}
-	return false, ""
 }
 
 // --- admin: the registries themselves ---
@@ -305,20 +243,26 @@ func (a *API) patchRegistry(c echo.Context) error {
 	if err := c.Bind(&in); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, "invalid body")
 	}
-	if in.Domain != nil {
-		r.Domain = strings.TrimSpace(*in.Domain)
-	}
 	if in.Username != nil {
 		r.Username = *in.Username
 	}
 	if in.Password != nil {
 		r.Password = *in.Password
 	}
-	if err := a.store.UpdateRegistry(ctx, r); err != nil {
-		return err
+	domain := r.Domain
+	if in.Domain != nil {
+		domain = *in.Domain
 	}
-	if r.Managed && a.px != nil {
-		if err := a.px.WriteRegistry(r.Domain); err != nil {
+	if r.Managed {
+		// SetRegistryDomain also runs registry.EnsureManaged, which the panel
+		// did and this path did not: traefik routed to a "registry" alias the
+		// service was not carrying.
+		if err := a.px.SetRegistryDomain(ctx, r, domain); err != nil {
+			return err
+		}
+	} else {
+		r.Domain = strings.TrimSpace(domain)
+		if err := a.store.UpdateRegistry(ctx, r); err != nil {
 			return err
 		}
 	}

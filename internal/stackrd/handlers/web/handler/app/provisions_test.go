@@ -4,6 +4,9 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+
+	"github.com/FyrmForge/stackr/internal/stackrd/config/envutil"
+	"github.com/FyrmForge/stackr/internal/stackrd/service"
 )
 
 func TestEnvVarName(t *testing.T) {
@@ -16,24 +19,24 @@ func TestEnvVarName(t *testing.T) {
 		"!!!":          "",
 	}
 	for in, want := range cases {
-		assert.Equal(t, want, envVarName(in), "envVarName(%q)", in)
+		assert.Equal(t, want, service.EnvVarName(in), "service.EnvVarName(%q)", in)
 	}
 }
 
 func TestInjectEnvVar(t *testing.T) {
 	// fresh key appends, name unchanged
-	env, used := injectEnvVar("FOO=bar", "DATABASE_URL", "u1")
+	env, used := envutil.Inject("FOO=bar", "DATABASE_URL", "u1")
 	assert.Equal(t, "FOO=bar\nDATABASE_URL=u1", env, "append")
 	assert.Equal(t, "DATABASE_URL", used, "append")
 	// same key + same value is a no-op (idempotent re-provision)
-	env, used = injectEnvVar("DATABASE_URL=u1", "DATABASE_URL", "u1")
+	env, used = envutil.Inject("DATABASE_URL=u1", "DATABASE_URL", "u1")
 	assert.Equal(t, "DATABASE_URL=u1", env, "idempotent")
 	assert.Equal(t, "DATABASE_URL", used, "idempotent")
 	// collision: key holds a DIFFERENT value → must NOT clobber, suffix instead
-	env, used = injectEnvVar("DATABASE_URL=old", "DATABASE_URL", "new")
+	env, used = envutil.Inject("DATABASE_URL=old", "DATABASE_URL", "new")
 	assert.Equal(t, "DATABASE_URL_2", used, "collision")
 	assert.Equal(t, "DATABASE_URL=old\nDATABASE_URL_2=new", env, "collision")
 	// second collision escalates to _3
-	_, used = injectEnvVar("DATABASE_URL=a\nDATABASE_URL_2=b", "DATABASE_URL", "c")
+	_, used = envutil.Inject("DATABASE_URL=a\nDATABASE_URL_2=b", "DATABASE_URL", "c")
 	assert.Equal(t, "DATABASE_URL_3", used, "collision escalate")
 }

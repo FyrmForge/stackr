@@ -19,10 +19,11 @@ import (
 
 	"github.com/FyrmForge/stackr/internal/stackrd/config/orgconf"
 	"github.com/FyrmForge/stackr/internal/stackrd/config/stackconf"
-	"github.com/FyrmForge/stackr/internal/stackrd/handlers/notify"
 	"github.com/FyrmForge/stackr/internal/stackrd/handlers/web"
 	"github.com/FyrmForge/stackr/internal/stackrd/handlers/web/components"
+	"github.com/FyrmForge/stackr/internal/stackrd/infra/workqueue"
 	"github.com/FyrmForge/stackr/internal/stackrd/service"
+	"github.com/FyrmForge/stackr/internal/stackrd/service/notify"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo/sqlite"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/testdb"
@@ -88,6 +89,15 @@ func newJourney(t *testing.T) *journey {
 	require.NoError(t, err, "server")
 	hub := websocket.NewHub()
 	applier := stackconf.Applier{Planner: stackconf.Planner{Store: store, Src: src}}
+	// A real work queue, because the applies run on it now: an approve that
+	// cannot reach the runner is a 503, and the wizard's own plan screen is
+	// what waits for the job and then moves on.
+	orgRunner := &orgconf.Runner{Store: store, Src: src, Stacks: applier.Planner, Applier: applier}
+	work := workqueue.New(store)
+	stackconf.RegisterApply(work, applier)
+	stackconf.RegisterPromote(work, applier)
+	orgconf.RegisterApply(work, orgRunner)
+	work.Start(context.Background())
 	// The pages reference /static/..., same as the binary does.
 	components.StaticBaseURL = "/static"
 	web.RegisterRoutes(srv, &web.Deps{
@@ -99,7 +109,16 @@ func newJourney(t *testing.T) *journey {
 		Hub:            hub,
 		Notifier:       notify.New(hub, store),
 		Applier:        applier,
-		OrgConfig:      &orgconf.Runner{Store: store, Src: src, Stacks: applier.Planner, Applier: applier},
+		// The pages write through services now; their own dependencies are
+		// nil-safe, so the rows land and the docker/proxy half is skipped.
+		Tiles:     service.NewTileService(store, nil, nil, nil, nil, nil, service.NewGateService(store)),
+		Domains:   service.NewDomainService(store, nil, service.NewGateService(store)),
+		Resources: service.NewDomainResourceService(store, nil),
+		Lifecycle: service.NewTileLifecycleService(store, nil, nil, nil, nil, nil),
+		Telemetry: service.NewTileTelemetryService(store, nil),
+		OrgConfig: orgRunner,
+		Work:      work,
+		Access:    service.NewAccessService(store),
 	})
 
 	ts := httptest.NewServer(srv.Echo())

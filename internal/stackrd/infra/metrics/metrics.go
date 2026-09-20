@@ -12,11 +12,10 @@ import (
 	"time"
 
 	"github.com/FyrmForge/stackr/internal/stackrd/config/settings"
-	"github.com/FyrmForge/stackr/internal/stackrd/handlers/notify"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/cluster"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/hostmetrics"
-	"github.com/FyrmForge/stackr/internal/stackrd/infra/managedtiles"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/runtime"
+	"github.com/FyrmForge/stackr/internal/stackrd/service/notify"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 )
 
@@ -39,11 +38,34 @@ type Sampler struct {
 	trafMu     sync.Mutex
 	traffic    Traffic
 
-	// per-logical-database counters, read from the engine (see managedtiles.SliceStats)
+	// per-logical-database counters, read from the engine
 	prevSlice  map[string]sliceCounters // resource id -> previous cumulative reading
 	sliceMu    sync.Mutex
 	sliceStats map[string]SliceStat // resource id -> latest derived stat
+	// readSlices asks one instance for its logical databases' counters.
+	//
+	// A function rather than an import of managedtiles. This package is the
+	// panel's sampler and the node agent's alike, and the managedtiles edge is
+	// the one that closed the cycle keeping managedtiles from importing the
+	// node-aware runtime (docs/plans/35-cluster.md). main supplies it; a
+	// sampler built without one simply reports no slice stats.
+	readSlices SliceReader
 }
+
+// SliceRead is one logical database's cumulative counters at a point in time,
+// as the engine reports them. It mirrors managedtiles.SliceStat, which is what
+// the wired reader actually returns.
+type SliceRead struct {
+	Xacts uint64
+	Size  int64
+}
+
+// SliceReader reads an instance's per-database counters. It reports (nil, nil)
+// for an engine that does not measure its slices.
+type SliceReader func(ctx context.Context, instance *repo.Tile, dbNames []string) (map[string]SliceRead, error)
+
+// WithSliceReader wires the per-database counter reader.
+func (s *Sampler) WithSliceReader(r SliceReader) *Sampler { s.readSlices = r; return s }
 
 // sliceCounters is one resource's previous cumulative reading, for rates.
 type sliceCounters struct {
@@ -213,7 +235,9 @@ func StoreHostSample(ctx context.Context, store repo.Store, ref string, now time
 // differently (mysql via information_schema, s3 via its own API), so each
 // earns its own branch when it lands.
 func (s *Sampler) sampleSlices(ctx context.Context, cs []runtime.ManagedContainer, now time.Time) {
-	svc := managedtiles.NewService(s.clus, s.store)
+	if s.readSlices == nil {
+		return
+	}
 	stats := map[string]SliceStat{}
 	for _, c := range cs {
 		id := c.Labels[runtime.LabelDB]
@@ -221,7 +245,7 @@ func (s *Sampler) sampleSlices(ctx context.Context, cs []runtime.ManagedContaine
 			continue
 		}
 		inst, err := s.store.GetTile(ctx, id)
-		if err != nil || inst == nil || !managedtiles.HasSliceStats(inst.Engine) {
+		if err != nil || inst == nil {
 			continue
 		}
 		resources, err := s.store.ListResourcesByProvider(ctx, inst.ID)
@@ -232,9 +256,9 @@ func (s *Sampler) sampleSlices(ctx context.Context, cs []runtime.ManagedContaine
 		for _, r := range resources {
 			names = append(names, r.Name)
 		}
-		read, err := svc.SliceStats(ctx, inst, names)
-		if err != nil {
-			continue // instance busy or down; keep the previous reading
+		read, err := s.readSlices(ctx, inst, names)
+		if err != nil || len(read) == 0 {
+			continue // instance busy, down, or an engine that does not count
 		}
 		for _, r := range resources {
 			cur, ok := read[r.Name]

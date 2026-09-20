@@ -1,6 +1,7 @@
 package repo
 
 import (
+	"context"
 	"crypto/sha256"
 	"database/sql"
 	"database/sql/driver"
@@ -744,6 +745,55 @@ func (w WorkItem) Done() bool {
 	return false
 }
 
+// VolumesAttachedTo filters a tile list down to the volume tiles mounted into
+// one tile. Four copies of this two-line predicate existed — the API's volume
+// listing, the placement resolver, the deploy engine's bind builder and the
+// volume mover — and they are in three packages that cannot import each
+// other's, which is why it lives beside the type.
+func VolumesAttachedTo(tiles []Tile, tileID string) []Tile {
+	out := make([]Tile, 0, 2)
+	for i := range tiles {
+		if tiles[i].IsVolume() && tiles[i].AttachedTileID == tileID {
+			out = append(out, tiles[i])
+		}
+	}
+	return out
+}
+
+// PRConfig enables GitHub pull-request environments for one stack. What each
+// PR env contains comes from the config file's pr_envs: template, not from a
+// base environment, there is nothing to pick here.
+//
+// It lives here rather than in config/envops because all three layers read
+// it: the service layer owns the write rules, the PR hook above it applies
+// the file's choice, and infra/githubapp reads comment/status when it decides
+// whether to post deploy feedback. envops imports the service layer, so it
+// could not be the home for something the service layer needs.
+type PRConfig struct {
+	Enabled bool   `json:"enabled"`
+	Secret  string `json:"secret"` // webhook HMAC secret
+	// Inverted so the zero value keeps both on for existing stacks.
+	NoComment bool `json:"no_comment"` // suppress the sticky PR preview comment
+	NoStatus  bool `json:"no_status"`  // suppress the commit status check
+}
+
+func prKey(stackID string) string { return "prenv." + stackID }
+
+// LoadPRConfig reads a stack's PR-environment config (zero value if unset).
+func LoadPRConfig(ctx context.Context, store Store, stackID string) PRConfig {
+	var cfg PRConfig
+	if v, err := store.GetSetting(ctx, prKey(stackID)); err == nil && v != "" {
+		_ = json.Unmarshal([]byte(v), &cfg)
+	}
+	return cfg
+}
+
+// SavePRConfig persists a stack's PR-environment config.
+func SavePRConfig(ctx context.Context, store Store, stackID string, cfg PRConfig) error {
+	b, _ := json.Marshal(cfg)
+	return store.SetSetting(ctx, prKey(stackID), string(b))
+}
+
 // Domain routes a hostname through Traefik to a Tile container port.
 type Domain struct {
 	ID            string `db:"id"`
@@ -1082,13 +1132,22 @@ type Notification struct {
 // APIKey authenticates REST API calls. Scopes is a JSON array of capability
 // strings ("resource:action"); a request is allowed only if the key carries
 // the scope the route requires AND the key's user still has org access.
+//
+// OrgID is the org the key was minted for. Set, the key's scopes are only
+// good in that org: whoever minted it was granted write scopes on the strength
+// of their role there, and the grant should not travel. NULL is unbound and
+// keeps the original behaviour (valid in every org the user belongs to) —
+// every key that existed before the column, every key a server admin mints
+// (their write scopes come from the admin badge, not from an org) and any key
+// minted with no active org.
 type APIKey struct {
-	ID        string    `db:"id"`
-	UserID    string    `db:"user_id"`
-	Name      string    `db:"name"`
-	TokenHash string    `db:"token_hash"`
-	Scopes    string    `db:"scopes"` // JSON array of scope strings
-	CreatedAt time.Time `db:"created_at"`
+	ID        string         `db:"id"`
+	UserID    string         `db:"user_id"`
+	Name      string         `db:"name"`
+	TokenHash string         `db:"token_hash"`
+	Scopes    string         `db:"scopes"` // JSON array of scope strings
+	OrgID     sql.NullString `db:"org_id"` // NULL = unbound, see above
+	CreatedAt time.Time      `db:"created_at"`
 }
 
 // OrgRegistryCredential is a push/pull credential for one organization's

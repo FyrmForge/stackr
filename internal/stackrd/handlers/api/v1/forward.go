@@ -34,7 +34,7 @@ func (a *API) forwardTile(c echo.Context) error {
 	// write, not read: a tunnel is unrestricted access to the container, so
 	// this matches ScopeTilesForward being declared a write capability. A
 	// read-only org member must not be able to open one.
-	t, err := a.requireTile(c, c.Param("id"), true)
+	t, err := a.tile(c, c.Param("id"))
 	if err != nil {
 		return err
 	}

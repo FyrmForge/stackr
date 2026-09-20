@@ -34,35 +34,6 @@ func planTitle(cp repo.ConfigPlan) string {
 // send the user afterwards (the canvas they clicked the banner on) and rides
 // the button URLs as a query. Empty when the page was reached from settings,
 // which then stays the destination.
-// workRunning reports that the apply for this plan is still going, which is
-// what decides whether the page keeps polling itself.
-func workRunning(w *repo.WorkItem) bool {
-	return w != nil && !w.Done()
-}
-
-// workLine is what the banner says. The step comes from the job itself, so it
-// is the real one rather than a guess made from the plan's status.
-func workLine(w *repo.WorkItem) string {
-	switch {
-	case w == nil:
-		return ""
-	case w.Status == "queued":
-		return "Queued, waiting to start."
-	case w.Status == "running":
-		if w.Step != "" {
-			return "Applying: " + w.Step + "."
-		}
-		return "Applying."
-	case w.Status == "error":
-		return "The apply failed: " + w.Error
-	case w.Status == "cancelled":
-		return "The apply was cancelled."
-	case w.Status == "superseded":
-		return "A newer apply replaced this one."
-	}
-	return ""
-}
-
 templ planPage(c echo.Context, p *repo.Stack, cp *repo.ConfigPlan, plan *stackconf.Plan, work *repo.WorkItem, settingsURL, returnURL, envColor string) {
 	@components.Shell(c, p.Name+": plan") {
 		<nav class="mb-4 flex items-center gap-1.5 text-sm text-rw-muted">
@@ -76,24 +47,7 @@ templ planPage(c echo.Context, p *repo.Stack, cp *repo.ConfigPlan, plan *stackco
 			<h1 class="text-2xl font-semibold text-rw-text tracking-tight">Config plan</h1>
 			@planStatusBadge(cp.Status)
 		</div>
-		if line := workLine(work); line != "" {
-			// Polls itself while the job is live, then stops: the apply
-			// outlives this request, so the page cannot be rendered once and
-			// be right. hx-select picks this banner back out of the whole page.
-			<div
-				id="apply-state"
-				class={ "panel px-4 py-3 mb-4 text-sm", templ.KV("text-rw-danger", work.Status == "error"), templ.KV("text-rw-muted", work.Status != "error") }
-				if workRunning(work) {
-					hx-get={ stackURL(p) + "/plans/" + cp.ID }
-					hx-trigger="every 2s"
-					hx-select="#apply-state"
-					hx-swap="outerHTML"
-				}
-			>
-				{ line }
-			</div>
-		}
-		@components.PlanBody(c, stackPlanCfg(p, cp, returnURL, envColor), plan)
+		@components.PlanBody(c, stackPlanWorkCfg(p, cp, work, returnURL, envColor), plan)
 	}
 }
 

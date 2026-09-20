@@ -61,8 +61,8 @@ func (s *Store) DeleteRegistry(ctx context.Context, id string) error {
 
 func (s *Store) CreateAPIKey(ctx context.Context, k *repo.APIKey) error {
 	_, err := s.db.NamedExecContext(ctx,
-		`INSERT INTO api_keys (id, user_id, name, token_hash, scopes, created_at)
-		 VALUES (:id, :user_id, :name, :token_hash, :scopes, :created_at)`, k)
+		`INSERT INTO api_keys (id, user_id, name, token_hash, scopes, org_id, created_at)
+		 VALUES (:id, :user_id, :name, :token_hash, :scopes, :org_id, :created_at)`, k)
 	return err
 }
 

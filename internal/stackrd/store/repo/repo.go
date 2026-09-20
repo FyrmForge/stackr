@@ -272,6 +272,11 @@ type Store interface {
 	CreateSecretLink(ctx context.Context, l *SecretLink) error
 	GetSecretLinkByHash(ctx context.Context, tokenHash string) (*SecretLink, error)
 	ListSecretLinks(ctx context.Context, ownerKind, ownerID string) ([]SecretLink, error)
+	// ListOpenSecretLinks is every live link on the box, for revocation:
+	// a share link is a bearer token with no role check at redeem, so when
+	// somebody's standing drops the links they minted have to be closed by
+	// hand. There are few of them — they expire — so the caller filters.
+	ListOpenSecretLinks(ctx context.Context) ([]SecretLink, error)
 	ClaimSecretLink(ctx context.Context, id, state string) (bool, error)
 	// BurnDropLink is the claim plus the variable writes in one transaction:
 	// a failed write rolls back the burn, so the sender can always resubmit.

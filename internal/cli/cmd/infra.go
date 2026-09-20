@@ -232,11 +232,27 @@ The prompt spells out that blast radius before anything happens.`,
 			}
 			// --force is the legacy skip spelling; don't mutate rt.Yes, which
 			// outlives this command in tests and legacy-forwarding trees.
+			//
+			// saw records whether the blast radius was actually shown and
+			// agreed to. It is what the server's force flag carries: this
+			// command used to send force=true on every path, so the API's
+			// held-slices refusal was unreachable from the CLI and a scripted
+			// `-y` destroyed every consumer's data without anything ever
+			// printing what it was about to take.
+			// --force is the explicit "destroy it with its slices" answer; -y
+			// only means "do not prompt me", and on its own it no longer
+			// carries that destruction, so the server's refusal is reachable
+			// again from a script that never saw the warning.
+			saw := force
 			confirm := func(msg string) error {
-				if force {
+				if force || rt.Yes {
 					return nil
 				}
-				return rt.Confirm(msg)
+				if err := rt.Confirm(msg); err != nil {
+					return err
+				}
+				saw = true
+				return nil
 			}
 			if t.Kind == "slice" {
 				warn := ""
@@ -259,7 +275,7 @@ The prompt spells out that blast radius before anything happens.`,
 				if err := confirm(fmt.Sprintf("Remove instance %s?%s", t.Path, warn)); err != nil {
 					return err
 				}
-				if err := client.DeleteDB(cmd.Context(), t.ID, true); err != nil {
+				if err := client.DeleteDB(cmd.Context(), t.ID, saw); err != nil {
 					return err
 				}
 			}
@@ -271,7 +287,8 @@ The prompt spells out that blast radius before anything happens.`,
 		},
 	}
 	cmd.Flags().StringVar(&envID, "env-id", "", "environment id for path resolution")
-	cmd.Flags().BoolVar(&force, "force", false, "skip the confirmation (same as --yes)")
+	cmd.Flags().BoolVar(&force, "force", false,
+		"skip the confirmation and destroy an instance's slices with it")
 	return cmd
 }
 

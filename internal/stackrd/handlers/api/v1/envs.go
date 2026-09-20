@@ -10,30 +10,26 @@ package v1
 
 import (
 	"net/http"
-	"strings"
-	"time"
 
-	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 
 	"github.com/FyrmForge/stackr/internal/stackrd/config/envops"
-	"github.com/FyrmForge/stackr/internal/stackrd/envcolor"
+	stackrmw "github.com/FyrmForge/stackr/internal/stackrd/handlers/middleware"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/managedtiles"
+	"github.com/FyrmForge/stackr/internal/stackrd/service"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 )
 
-// requireEnvWrite resolves the env and checks write access to its org.
-func (a *API) requireEnvWrite(c echo.Context, envID string) (*repo.Environment, *repo.Stack, error) {
-	env, err := a.requireEnvAccess(c, envID)
+// envAndStack loads an environment and the stack it belongs to. It used to
+// check write access as well; the route's gate does that now.
+func (a *API) envAndStack(c echo.Context, envID string) (*repo.Environment, *repo.Stack, error) {
+	env, err := a.env(c, envID)
 	if err != nil {
 		return nil, nil, err
 	}
 	s, err := a.store.GetStack(c.Request().Context(), env.StackID)
 	if err != nil || s == nil {
 		return nil, nil, echo.NewHTTPError(http.StatusNotFound, "not found")
-	}
-	if err := a.requireOrgWrite(c.Request().Context(), c, s.OrgID); err != nil {
-		return nil, nil, err
 	}
 	return env, s, nil
 }
@@ -56,32 +52,14 @@ func (a *API) envRunning(c echo.Context, envID string) bool {
 }
 
 func (a *API) deleteEnv(c echo.Context) error {
-	env, s, err := a.requireEnvWrite(c, c.Param("id"))
+	env, s, err := a.envAndStack(c, c.Param("id"))
 	if err != nil {
 		return err
-	}
-	ctx := c.Request().Context()
-	if err := a.rejectManaged(ctx, s.ID); err != nil {
-		return err
-	}
-	envs, err := a.store.ListEnvironmentsByStack(ctx, s.ID)
-	if err != nil {
-		return err
-	}
-	if len(envs) <= 1 {
-		return echo.NewHTTPError(http.StatusBadRequest, "a stack needs at least one environment")
 	}
 	var in forceIn
 	_ = c.Bind(&in)
-	if !in.Force && a.envRunning(c, env.ID) {
-		return echo.NewHTTPError(http.StatusConflict,
-			"tiles are running in "+env.Slug+"; pass force: true to tear them down")
-	}
-	if err := a.envOps().Teardown(ctx, s, env); err != nil {
-		return err
-	}
-	if a.jobs != nil {
-		_ = a.jobs.LoadSchedules(ctx)
+	if err := a.envs.Delete(c.Request().Context(), s, env, in.Force, a.actor(c)); err != nil {
+		return stackrmw.HTTP(err)
 	}
 	return c.NoContent(http.StatusNoContent)
 }
@@ -89,26 +67,16 @@ func (a *API) deleteEnv(c echo.Context) error {
 // resetEnv tears a config-managed stack's environment down so the next apply
 // rebuilds it from the file. A half-applied env had no way back otherwise.
 func (a *API) resetEnv(c echo.Context) error {
-	env, s, err := a.requireEnvWrite(c, c.Param("id"))
+	env, s, err := a.envAndStack(c, c.Param("id"))
 	if err != nil {
 		return err
 	}
-	if !s.ConfigManaged() {
-		return echo.NewHTTPError(http.StatusBadRequest,
-			"reset is for config-managed stacks; delete the environment instead")
-	}
 	var in forceIn
 	_ = c.Bind(&in)
-	if !in.Force && a.envRunning(c, env.ID) {
-		return echo.NewHTTPError(http.StatusConflict,
-			"tiles are running in "+env.Slug+"; pass force: true to tear them down")
-	}
-	ctx := c.Request().Context()
-	if err := a.envOps().Teardown(ctx, s, env); err != nil {
-		return err
-	}
-	if a.jobs != nil {
-		_ = a.jobs.LoadSchedules(ctx)
+	// The replan is the service's, and this path never had one: a reset over
+	// the API left the stack's plans describing tiles that no longer existed.
+	if err := a.envs.Reset(c.Request().Context(), s, env, in.Force, a.actor(c)); err != nil {
+		return stackrmw.HTTP(err)
 	}
 	return c.NoContent(http.StatusNoContent)
 }
@@ -116,39 +84,23 @@ func (a *API) resetEnv(c echo.Context) error {
 // copyEnv creates a new environment from an existing one: same tiles, nothing
 // deployed. The slug is derived from the name, like every other slug.
 func (a *API) copyEnv(c echo.Context) error {
-	src, s, err := a.requireEnvWrite(c, c.Param("id"))
+	src, s, err := a.envAndStack(c, c.Param("id"))
 	if err != nil {
 		return err
 	}
-	ctx := c.Request().Context()
-	if err := a.rejectManaged(ctx, s.ID); err != nil {
-		return err
-	}
 	var in copyEnvIn
-	if err := c.Bind(&in); err != nil || strings.TrimSpace(in.Name) == "" {
-		return echo.NewHTTPError(http.StatusBadRequest, "name required")
+	if err := c.Bind(&in); err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid body")
 	}
-	slug := repo.Slugify(in.Name)
-	if slug == "" || slug == "settings" || slug == "list" || slug == repo.HomeSlug {
-		return echo.NewHTTPError(http.StatusBadRequest, "that name is reserved or has no slug in it")
-	}
-	if existing, _ := a.store.GetEnvironmentBySlug(ctx, s.ID, slug); existing != nil {
-		return echo.NewHTTPError(http.StatusConflict, "an environment with that name already exists")
-	}
-	envType := "static"
+	envType := ""
 	if in.Ephemeral {
 		envType = "ephemeral"
 	}
-	env := &repo.Environment{ID: uuid.New().String(), StackID: s.ID, Name: strings.TrimSpace(in.Name),
-		Slug: slug, Type: envType, BaseEnvID: src.ID, Settings: src.Settings, CreatedAt: time.Now().UTC()}
-	if err := a.store.CreateEnvironment(ctx, env); err != nil {
-		return err
-	}
-	if err := a.envOps().CloneTiles(ctx, env); err != nil {
-		return err
-	}
-	if a.jobs != nil {
-		_ = a.jobs.LoadSchedules(ctx)
+	env, err := a.envs.Create(c.Request().Context(), s, service.CreateEnv{
+		Name: in.Name, Type: envType, BaseEnvID: src.ID,
+	}, a.actor(c))
+	if err != nil {
+		return stackrmw.HTTP(err)
 	}
 	return c.JSON(http.StatusCreated, envOut{ID: env.ID, Name: env.Name, Slug: env.Slug})
 }
@@ -160,7 +112,7 @@ func (a *API) copyEnv(c echo.Context) error {
 // `protected` is deliberately absent: it is a config-file key that gates
 // deletes during an apply, not a column, so there is nothing here to set.
 func (a *API) patchEnv(c echo.Context) error {
-	env, _, err := a.requireEnvWrite(c, c.Param("id"))
+	env, _, err := a.envAndStack(c, c.Param("id"))
 	if err != nil {
 		return err
 	}
@@ -168,22 +120,10 @@ func (a *API) patchEnv(c echo.Context) error {
 	if err := c.Bind(&in); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, "invalid body")
 	}
-	if in.Color != nil {
-		if !envcolor.Valid(*in.Color) {
-			return echo.NewHTTPError(http.StatusBadRequest, "color must be a palette name or #rrggbb")
-		}
-		env.Color = *in.Color
-	}
-	if in.ApplyPolicy != nil {
-		switch *in.ApplyPolicy {
-		case "", "auto", "manual":
-			env.ApplyPolicy = *in.ApplyPolicy
-		default:
-			return echo.NewHTTPError(http.StatusBadRequest, "apply_policy must be auto, manual or empty")
-		}
-	}
-	if err := a.store.UpdateEnvironment(c.Request().Context(), env); err != nil {
-		return err
+	if err := a.envs.Update(c.Request().Context(), env, service.EnvPatch{
+		Color: in.Color, ApplyPolicy: in.ApplyPolicy,
+	}, a.actor(c)); err != nil {
+		return stackrmw.HTTP(err)
 	}
 	return c.JSON(http.StatusOK, envOut{ID: env.ID, Name: env.Name, Slug: env.Slug})
 }
@@ -192,5 +132,5 @@ func (a *API) patchEnv(c echo.Context) error {
 // Built on demand, like the panel's.
 func (a *API) envOps() envops.Ops {
 	return envops.Ops{Store: a.store, RT: a.clus.Runtime(), Cluster: a.clus, PX: a.px,
-		DBs: managedtiles.NewService(a.clus, a.store)}
+		DBs: managedtiles.NewService(a.clus, a.store), Tiles: a.tiles, Sched: a.sched, Domains: a.domains, Resources: a.resources}
 }

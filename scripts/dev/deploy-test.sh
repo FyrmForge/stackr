@@ -114,6 +114,9 @@ ssh "$HOST" "
   #
   # mode=host, not the routing mesh: swarm published ports have no host IP,
   # and host mode at least keeps the port on this node's own interface.
+  # This create mirrors internal/installspec.CreateArgs, which is what
+  # install.sh and the panel's own upgrade both build from. Shell cannot
+  # import it; if a flag or an env var changes there, change it here too.
   ENVARGS=\$(awk -F= '/^[A-Za-z_][A-Za-z0-9_]*=/ {printf \"--env %s \", \$0}' $ENV_FILE)
   docker service create \
     --name stackr \

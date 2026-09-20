@@ -621,6 +621,15 @@ func (p *Proxy) Resync(ctx context.Context) error {
 	if err := p.pruneOrphanApps(tiles); err != nil {
 		return err
 	}
+	// The managed registry's route is DB state like everything else here, and
+	// nothing but a domain save ever wrote it: a wiped data dir lost the route
+	// until someone re-saved the domain. Whether the route exists must not
+	// depend on which code path last ran.
+	if reg, err := p.store.GetManagedRegistry(ctx); err == nil && reg != nil {
+		if err := p.WriteRegistry(reg.Domain); err != nil {
+			return err
+		}
+	}
 	if len(failed) > 0 {
 		return fmt.Errorf("could not rewrite routes for %s", strings.Join(failed, ", "))
 	}

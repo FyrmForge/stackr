@@ -70,7 +70,7 @@ type File struct {
 	// per-env logical dbs.
 	Base BaseConf `yaml:"base,omitempty"`
 	// Domains are the stack's own domain resources, the bases its tiles
-	// generate per-environment hostnames under (envops.AutoHost). Declaring
+	// generate per-environment hostnames under (service.AutoHost). Declaring
 	// them here is what lets a managed stack own its own hostnames instead of
 	// borrowing its org's.
 	Domains []DomainResConf `yaml:"domains,omitempty"`
@@ -123,7 +123,7 @@ type BaseConf struct {
 	Tiles map[string]RawMap `yaml:"tiles"`
 }
 
-// PREnvs mirrors envops.PRConfig plus the PR env's tile template. A PR env is
+// PREnvs mirrors repo.PRConfig plus the PR env's tile template. A PR env is
 // base + Tiles, built purely from the file, never cloned from a live env, so
 // panel drift can't leak into previews.
 type PREnvs struct {
@@ -448,6 +448,14 @@ type TileConf struct {
 	// volume
 	Attach string `yaml:"attach" json:"attach,omitempty"` // tile slug mounting this volume ("" = detached)
 	Path   string `yaml:"path" json:"path,omitempty"`     // container mount path
+	// VolumeName pins the docker volume name; empty derives it from the tile
+	// id. MaxSizeMB is the size the panel reports against. Both are real
+	// columns that UpdateTile already writes and the API already accepts —
+	// the only reason a file could not declare them is that nobody added the
+	// fields, which also meant a staged volume create could not carry them,
+	// because a staged patch round-trips through TileConfOf.
+	VolumeName string `yaml:"volume_name" json:"volume_name,omitempty"`
+	MaxSizeMB  int    `yaml:"max_size_mb" json:"max_size_mb,omitempty"`
 	// slice: a logical db / bucket cut from a managed instance. The config
 	// key is the reference slug (${{ tile.<key>.<OUTPUT> }}); From addresses
 	// the instance (dotted: instance | stack.instance | org.stack.instance |
@@ -1048,7 +1056,7 @@ func validateTile(name string, tc TileConf) error {
 			return fmt.Errorf("tile %s: wait_for_ci needs a git-built source", name)
 		}
 		for _, d := range tc.DependsOn {
-			if _, _, err := ParseDep(d); err != nil {
+			if _, _, err := runtime.ParseDep(d); err != nil {
 				return fmt.Errorf("tile %s: %w", name, err)
 			}
 		}

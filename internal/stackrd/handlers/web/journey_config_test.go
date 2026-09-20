@@ -39,6 +39,23 @@ func (j *journey) bindConfig(slug, body string) {
 		"binding a file lands on the plan it just produced, code %d", code)
 }
 
+// awaitApply is the wizard's plan screen doing what a browser does with it:
+// polling while the queued apply runs, and following the redirect the screen
+// answers with once the job has landed. Returns where it sent us.
+func (j *journey) awaitApply(planURL string) string {
+	j.t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		code, loc := j.get(planURL)
+		if code == http.StatusSeeOther {
+			return loc
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	j.t.Fatalf("the apply never finished: %s still rendering", planURL)
+	return ""
+}
+
 // Binding a file in the wizard has to show the plan it produced. Sending the
 // owner on to step 4 without it means the org they just described never gets
 // built and nothing on screen says so.
@@ -64,12 +81,21 @@ func TestJourneyConfigPlanInWizard(t *testing.T) {
 		"the pending plan is still reachable from inside the wizard")
 
 	code, loc = j.post(plan, planAction(t, plan, "approve"), url.Values{})
-	// The apply is what names a config-managed org, so the next step is under
-	// the slug the file gave it, not the placeholder the draft had.
-	require.Equal(t, "/orgs/acme/setup/team", loc,
-		"approving continues the wizard, which on this branch has no domain step, code %d", code)
+	// Approving queues the apply and stays on the plan screen, which then
+	// polls itself. The URL is the org's id, not its slug: the apply is about
+	// to rename the org, and the slug this request arrived on will be gone by
+	// the time the next poll goes out.
+	o, err := j.store.GetOrgBySlug(context.Background(), slug)
+	require.NoError(t, err)
+	require.Equal(t, "/orgs/"+o.ID+"/setup/config/plan?plan="+planIDFrom(t, plan), loc,
+		"approving stays on the plan while it applies, code %d", code)
 
-	o, err := j.store.GetOrgBySlug(context.Background(), "acme")
+	// The apply is what names a config-managed org, so the step it advances to
+	// is under the slug the file gave it, not the placeholder the draft had.
+	require.Equal(t, "/orgs/acme/setup/team", j.awaitApply(loc),
+		"the plan screen moves the wizard on once the apply lands")
+
+	o, err = j.store.GetOrgBySlug(context.Background(), "acme")
 	require.NoError(t, err)
 	vars, err := j.store.ListVariables(context.Background(), repo.OwnerOrg, o.ID)
 	require.NoError(t, err)
@@ -99,7 +125,8 @@ func TestJourneyPlanInputs(t *testing.T) {
 	plan = j.page("/orgs/" + slug + "/setup/config/plan")
 	require.NotContains(t, plan, `name="value"`, "the box is gone once the value exists")
 
-	_, _ = j.post(plan, planAction(t, plan, "approve"), url.Values{})
+	_, loc = j.post(plan, planAction(t, plan, "approve"), url.Values{})
+	j.awaitApply(loc)
 	o, err := j.store.GetOrgBySlug(context.Background(), "acme") // the file named it
 	require.NoError(t, err)
 	vars, err := j.store.ListVariables(context.Background(), repo.OwnerOrg, o.ID)
@@ -121,12 +148,22 @@ func TestJourneyRename(t *testing.T) {
 
 	j.bindConfig(slug, "version: 1\norg: Initech\n")
 	plan := j.page("/orgs/" + slug + "/setup/config/plan")
-	code, loc := j.post(plan, planAction(t, plan, "approve"), url.Values{})
-	require.Equal(t, "/orgs/initech/setup/team", loc, "the redirect uses the post-apply slug, code %d", code)
+	_, loc := j.post(plan, planAction(t, plan, "approve"), url.Values{})
+	require.Equal(t, "/orgs/initech/setup/team", j.awaitApply(loc),
+		"the step the plan screen advances to uses the post-apply slug")
 
-	code, _ = j.get("/orgs/" + slug + "/setup/team")
+	code, _ := j.get("/orgs/" + slug + "/setup/team")
 	require.Equal(t, http.StatusNotFound, code, "the old slug is gone")
 	j.page("/orgs/initech/setup/team")
+}
+
+// planIDFrom reads the plan's id off its own approve button, so the test never
+// has to guess at an id the page already carries.
+func planIDFrom(t *testing.T, page string) string {
+	t.Helper()
+	action := planAction(t, page, "approve")
+	parts := strings.Split(strings.TrimSuffix(action, "/approve"), "/")
+	return parts[len(parts)-1]
 }
 
 // planAction finds the plan page's own button target, so the test posts where

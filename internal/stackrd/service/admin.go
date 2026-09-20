@@ -13,8 +13,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/docker/docker/api/types/swarm"
-
+	"github.com/FyrmForge/stackr/internal/installspec"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/backup"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/cluster"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/runtime"
@@ -28,12 +27,13 @@ const (
 	SettingUpgradeArchive   = "upgrade_archive"
 )
 
+// panelService is the swarm service install.sh creates.
+const panelService = installspec.ServiceName
+
 const (
-	// panelService is the swarm service install.sh creates.
-	panelService = "stackr"
-	panelRepo    = "ghcr.io/fyrmforge/stackr"
-	relayRepo    = "ghcr.io/fyrmforge/stackr-proxyrelay"
-	releasesURL  = "https://api.github.com/repos/FyrmForge/stackr/releases/latest"
+	panelRepo   = "ghcr.io/fyrmforge/stackr"
+	relayRepo   = "ghcr.io/fyrmforge/stackr-proxyrelay"
+	releasesURL = "https://api.github.com/repos/FyrmForge/stackr/releases/latest"
 )
 
 var ErrUpgradeRunning = errors.New("upgrade already running")
@@ -153,13 +153,7 @@ func (s *AdminService) Upgrade(ctx context.Context, tag string) error {
 
 	// STACKR_IMAGE is what the agent service is built from. Leaving it on the
 	// old tag gives a new panel that refuses every old agent.
-	err := s.rt.UpdateServiceImage(ctx, panelService, image, map[string]string{"STACKR_IMAGE": image}, &swarm.UpdateConfig{
-		Parallelism: 1,
-		// One panel on one sqlite file: the old task has to be gone first.
-		Order:         swarm.UpdateOrderStopFirst,
-		FailureAction: swarm.UpdateFailureActionRollback,
-		Monitor:       60 * time.Second,
-	})
+	err := s.rt.UpdateServiceImage(ctx, panelService, image, map[string]string{"STACKR_IMAGE": image})
 	if err != nil {
 		return fmt.Errorf("update service: %w", err)
 	}

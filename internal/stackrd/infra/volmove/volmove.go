@@ -246,10 +246,8 @@ func (s *Service) volumesOf(ctx context.Context, t *repo.Tile) ([]string, error)
 		return nil, err
 	}
 	var vols []string
-	for i := range siblings {
-		if siblings[i].IsVolume() && siblings[i].AttachedTileID == t.ID {
-			vols = append(vols, siblings[i].DockerVolume())
-		}
+	for _, v := range repo.VolumesAttachedTo(siblings, t.ID) {
+		vols = append(vols, v.DockerVolume())
 	}
 	if len(vols) == 0 {
 		return nil, fmt.Errorf("%s has no volume to move", t.Slug)

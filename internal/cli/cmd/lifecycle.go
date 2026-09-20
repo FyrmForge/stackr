@@ -628,7 +628,10 @@ func stackPREnvCmd(rt *Runtime) *cobra.Command {
 			}
 			changed := enable || disable || rotate || comment != "" || status != ""
 			if changed {
-				fields := map[string]any{"enabled": cur.Enabled, "rotate_secret": rotate}
+				// Only what was asked for. The route's patch is sparse now,
+				// so this no longer has to read the current value back and
+				// send it again to keep `enabled` from being reset.
+				fields := map[string]any{"rotate_secret": rotate}
 				if enable {
 					fields["enabled"] = true
 				}
