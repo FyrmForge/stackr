@@ -109,6 +109,46 @@ func storeWrites(t *testing.T, root string, writes map[string]bool) []site {
 	t.Helper()
 	var found []site
 	fset := token.NewFileSet()
+	// Field names declared repo.Store, collected across the WHOLE tree before
+	// the call scan. Per-file was the guard's second hole: a struct declared
+	// in one file and used in another carries its store field under a name
+	// the second file never sees, so `x.db.CreateTile(…)` reads as a call on
+	// something unknown. Names are cheap; a missed write is not.
+	fields := map[string]bool{"store": true, "Store": true}
+	_ = filepath.Walk(root, func(p string, fi os.FileInfo, err error) error {
+		if err != nil {
+			return nil
+		}
+		if fi.IsDir() {
+			if skipDir(p) {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(p, ".go") || strings.HasSuffix(p, "_templ.go") {
+			return nil
+		}
+		f, perr := parser.ParseFile(fset, p, nil, 0)
+		if perr != nil {
+			return nil
+		}
+		ast.Inspect(f, func(n ast.Node) bool {
+			st, ok := n.(*ast.StructType)
+			if !ok {
+				return true
+			}
+			for _, fl := range st.Fields.List {
+				if !isRepoStore(fl.Type) {
+					continue
+				}
+				for _, nm := range fl.Names {
+					fields[nm.Name] = true
+				}
+			}
+			return true
+		})
+		return nil
+	})
 	err := filepath.Walk(root, func(p string, fi os.FileInfo, err error) error {
 		if err != nil {
 			return nil
@@ -130,25 +170,6 @@ func storeWrites(t *testing.T, root string, writes map[string]bool) []site {
 		}
 		rel, _ := filepath.Rel(root, p)
 		pkg := filepath.ToSlash(filepath.Dir(rel))
-
-		// Struct fields declared repo.Store, file-wide. A field is reached as
-		// x.store, so the field NAME is what the selector will show.
-		fields := map[string]bool{}
-		ast.Inspect(f, func(n ast.Node) bool {
-			st, ok := n.(*ast.StructType)
-			if !ok {
-				return true
-			}
-			for _, fl := range st.Fields.List {
-				if !isRepoStore(fl.Type) {
-					continue
-				}
-				for _, nm := range fl.Names {
-					fields[nm.Name] = true
-				}
-			}
-			return true
-		})
 
 		for _, d := range f.Decls {
 			fd, ok := d.(*ast.FuncDecl)
@@ -198,7 +219,7 @@ func storeWrites(t *testing.T, root string, writes map[string]bool) []site {
 				switch x := sel.X.(type) {
 				case *ast.SelectorExpr:
 					// x.store.Method(…) — a field on a struct.
-					hit = fields[x.Sel.Name] || x.Sel.Name == "store" || x.Sel.Name == "Store"
+					hit = fields[x.Sel.Name]
 				case *ast.Ident:
 					// store.Method(…) — the store as a parameter.
 					hit = bare[x.Name]
@@ -450,4 +471,101 @@ const stillWriting = `
 1 internal/stackrd/infra/workqueue/RequeueWorkItem
 2 internal/stackrd/infra/workqueue/SetWorkItemProgress
 1 internal/stackrd/infra/workqueue/SupersedeQueuedWorkItems
+`
+
+// The audit table has a back door. `store/audit.Record(ctx, store, …)` calls
+// AddAuditEvent, so it is a store write — but it is spelled as a call to a
+// helper with the store as an argument, which the walk above cannot see. The
+// scan found fourteen of them, two in handler packages that the write guard
+// would otherwise declare clean.
+//
+// Decided 2026-09-20: AuditService takes the write and store/audit.Record is
+// deleted. Until it is, this second rule keeps the count honest, so the green
+// above cannot be read as "the handlers write nothing".
+func TestNothingOutsideServiceHandsTheStoreToAudit(t *testing.T) {
+	root := "../../.."
+	fset := token.NewFileSet()
+	got := map[string]int{}
+	err := filepath.Walk(root, func(p string, fi os.FileInfo, err error) error {
+		if err != nil {
+			return nil
+		}
+		if fi.IsDir() {
+			if skipDir(p) {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(p, ".go") ||
+			strings.HasSuffix(p, "_test.go") ||
+			strings.HasSuffix(p, "_templ.go") {
+			return nil
+		}
+		f, perr := parser.ParseFile(fset, p, nil, 0)
+		if perr != nil {
+			return nil
+		}
+		rel, _ := filepath.Rel(root, p)
+		ast.Inspect(f, func(n ast.Node) bool {
+			ce, ok := n.(*ast.CallExpr)
+			if !ok {
+				return true
+			}
+			sel, ok := ce.Fun.(*ast.SelectorExpr)
+			if !ok || sel.Sel.Name != "Record" {
+				return true
+			}
+			id, ok := sel.X.(*ast.Ident)
+			if !ok || id.Name != "audit" {
+				return true
+			}
+			got[filepath.ToSlash(filepath.Dir(rel))]++
+			return true
+		})
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("walking: %v", err)
+	}
+
+	allowed := map[string]int{}
+	for _, l := range strings.Split(strings.TrimSpace(stillAuditing), "\n") {
+		if l = strings.TrimSpace(l); l == "" {
+			continue
+		}
+		f := strings.Fields(l)
+		if len(f) != 2 {
+			t.Fatalf("malformed stillAuditing line: %q", l)
+		}
+		allowed[f[1]] = atoi(t, f[0])
+	}
+
+	var bad []string
+	for pkg, n := range got {
+		if a, ok := allowed[pkg]; !ok || n > a {
+			bad = append(bad, pkg+": "+itoa(n)+" call(s)")
+		}
+	}
+	for pkg, a := range allowed {
+		if got[pkg] < a {
+			bad = append(bad, pkg+" is down to "+itoa(got[pkg])+" from "+itoa(a)+" — lower it")
+		}
+	}
+	sort.Strings(bad)
+	if len(bad) > 0 {
+		t.Errorf("audit.Record outside service/ does not match stillAuditing:\n  %s",
+			strings.Join(bad, "\n  "))
+	}
+}
+
+// stillAuditing is the audit back door's worklist, by package.
+const stillAuditing = `
+2 internal/stackrd/config/orgconf
+1 internal/stackrd/config/envops
+2 internal/stackrd/config/sharelink
+2 internal/stackrd/config/stackconf
+2 internal/stackrd/handlers/api/v1
+3 internal/stackrd/handlers/middleware
+1 internal/stackrd/handlers/web/handler/org
+1 internal/stackrd/infra/managedtiles
 `
