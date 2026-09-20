@@ -63,12 +63,13 @@ type handler struct {
 	revoke *service.RevokeService
 	// dests owns the destination rules: the trim, the bucket probe, the
 	// cascade's schedule reload and who still writes to a shared bucket.
-	dests     *service.BackupDestinationService
-	orgs      *service.OrgService
-	settings  *service.SettingsService
-	schedules *service.BackupScheduleService
-	auth      *service.AuthService
-	audit     *service.AuditService
+	dests      *service.BackupDestinationService
+	orgs       *service.OrgService
+	settings   *service.SettingsService
+	schedules  *service.BackupScheduleService
+	auth       *service.AuthService
+	audit      *service.AuditService
+	connectors *service.ConnectorService
 }
 
 // WithRegistries attaches the registry service.
@@ -490,12 +491,9 @@ func (h *handler) DeleteConnector(c echo.Context) error {
 	if id == "" {
 		id = c.Param("id")
 	}
-	cn, err := h.store.GetConnector(ctx, id)
+	cn, err := h.connectors.Get(ctx, id)
 	if err != nil {
-		return err
-	}
-	if cn == nil {
-		return echo.NewHTTPError(http.StatusNotFound, "connector not found")
+		return stackrmw.HTTP(err)
 	}
 	// Was unguarded: any user could sever any org's connector (and its config
 	// bindings) by ID.
@@ -511,7 +509,7 @@ func (h *handler) DeleteConnector(c echo.Context) error {
 		}
 		return respond.Redirect(c, "/orgs/"+org.Slug+"/settings/connectors")
 	}
-	if err := h.store.DeleteConnector(ctx, cn.ID); err != nil {
+	if err := h.connectors.Delete(ctx, cn.ID); err != nil {
 		return err
 	}
 	middleware.SetFlash(c, "Connector removed. Delete the GitHub App itself at github.com/settings/apps if you no longer need it.", middleware.FlashSuccess)
@@ -770,3 +768,6 @@ func (h *handler) WithAuth(v *service.AuthService) *handler { h.auth = v; return
 
 // WithAudit gives the page the audit trail.
 func (h *handler) WithAudit(v *service.AuditService) *handler { h.audit = v; return h }
+
+// WithConnectors gives the page the connector service.
+func (h *handler) WithConnectors(v *service.ConnectorService) *handler { h.connectors = v; return h }

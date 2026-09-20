@@ -38,7 +38,7 @@ func (h *handler) probeAndRecord(ctx context.Context, st *repo.Storage) {
 	} else {
 		st.Status, st.StatusMsg = "ok", ""
 	}
-	if err := h.store.UpdateStorage(ctx, st); err != nil {
+	if err := h.storage.Save(ctx, st); err != nil {
 		slog.Error("storage probe result not saved", "storage", st.ID, "status", st.Status, "error", err)
 	}
 }
@@ -127,9 +127,9 @@ func (h *handler) CreateStoragePath(c echo.Context) error {
 // POST /servers/:id/storage/paths/delete
 func (h *handler) DeleteStoragePath(c echo.Context) error {
 	ctx := c.Request().Context()
-	p, err := h.store.GetStoragePath(ctx, c.FormValue("id"))
-	if err != nil || p == nil {
-		return echo.NewHTTPError(http.StatusNotFound, "sub-path not found")
+	p, err := h.storage.Path(ctx, c.FormValue("id"))
+	if err != nil {
+		return stackrmw.HTTP(err)
 	}
 	st, _ := h.storage.Get(ctx, p.StorageID)
 	if st != nil {
@@ -140,7 +140,7 @@ func (h *handler) DeleteStoragePath(c echo.Context) error {
 	if node, err := h.clus.NodeOfStorage(ctx, st); err == nil {
 		_ = h.clus.RemoveVolume(ctx, node, repo.StorageVolume(p.ID))
 	}
-	if err := h.store.DeleteStoragePath(ctx, p.ID); err != nil {
+	if err := h.storage.DeletePath(ctx, p.ID); err != nil {
 		return err
 	}
 	middleware.SetFlash(c, "Sub-path removed. Data on the share/pool is untouched.", middleware.FlashSuccess)

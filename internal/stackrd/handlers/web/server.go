@@ -99,34 +99,36 @@ type Deps struct {
 	Telemetry *service.TileTelemetryService
 	// Domains owns the hostnames a tile answers on; Resources owns the
 	// hostnames stackr may generate names under.
-	Domains      *service.DomainService
-	Resources    *service.DomainResourceService
-	Variables    *service.VariableService
-	Environments *service.EnvironmentService
-	Stacks       *service.StackService
-	Deploys      *service.DeployService
-	Releases     *service.ReleaseService
-	Plans        *service.PlanService
-	Gate         *service.GateService
-	Schedules    *service.BackupScheduleService
-	Destinations *service.BackupDestinationService
-	Storage      *service.StorageService
-	Settings     *service.SettingsService
-	NodeService  *service.NodeService
-	Containers   *service.ContainerService
-	ImageWatch   *service.ImageWatchService
-	Access       *service.AccessService
-	Registries   *service.RegistryService
-	PREnvs       *service.PREnvService
-	Members      *service.MemberService
-	Orgs         *service.OrgService
-	Audit        *service.AuditService
-	Graph        *service.GraphService
-	Instances    *service.ManagedInstanceService
-	Slices       *service.SliceService
-	Metrics      *metrics.Sampler
-	Forwards     *forward.Registry
-	GitHub       *githubapp.Client
+	Domains       *service.DomainService
+	Resources     *service.DomainResourceService
+	Variables     *service.VariableService
+	Environments  *service.EnvironmentService
+	Stacks        *service.StackService
+	Deploys       *service.DeployService
+	Releases      *service.ReleaseService
+	Plans         *service.PlanService
+	Gate          *service.GateService
+	Schedules     *service.BackupScheduleService
+	Destinations  *service.BackupDestinationService
+	Storage       *service.StorageService
+	Settings      *service.SettingsService
+	NodeService   *service.NodeService
+	Containers    *service.ContainerService
+	ImageWatch    *service.ImageWatchService
+	Access        *service.AccessService
+	Registries    *service.RegistryService
+	PREnvs        *service.PREnvService
+	Members       *service.MemberService
+	Orgs          *service.OrgService
+	Audit         *service.AuditService
+	Graph         *service.GraphService
+	Connectors    *service.ConnectorService
+	Notifications *service.NotificationService
+	Instances     *service.ManagedInstanceService
+	Slices        *service.SliceService
+	Metrics       *metrics.Sampler
+	Forwards      *forward.Registry
+	GitHub        *githubapp.Client
 	// Mail is nil when no provider is configured: invites then fall back to
 	// copy-the-link, which is the only channel a self-hosted box always has.
 	Mail *svcmail.Service
@@ -301,16 +303,17 @@ func RegisterRoutes(srv *server.Server, deps *Deps) {
 		WithRevoke(deps.Revoke).
 		WithOrgs(deps.Orgs).
 		WithSettings(deps.Settings).WithSchedules(deps.Schedules).WithRegistries(deps.Registries).
-		WithAuth(deps.AuthService).WithAudit(deps.Audit)
+		WithAuth(deps.AuthService).WithAudit(deps.Audit).WithConnectors(deps.Connectors)
 
 	searchHandler := searchpage.NewHandler(deps.Store, deps.Environments, deps.Stacks, deps.Tiles).
-		WithOrgs(deps.Orgs).WithMembers(deps.Members).WithDomains(deps.Domains).WithPlans(deps.Plans).WithSchedules(deps.Schedules)
+		WithOrgs(deps.Orgs).WithMembers(deps.Members).WithDomains(deps.Domains).WithPlans(deps.Plans).WithSchedules(deps.Schedules).
+		WithConnectors(deps.Connectors)
 	site.GET("/search", searchHandler.Search, auth.RequireAuth())
 
 	orgHandler := orgpage.NewHandler(deps.Store, deps.Notifier, deps.Metrics, deps.FileStorage, deps.Runtime, deps.Forwards, deps.OrgConfig, deps.GitHub, deps.Mail, deps.RegistrySigner, deps.Proxy).
 		WithDomainResources(deps.Resources).WithVariables(deps.Variables).WithStacks(deps.Stacks).
 		WithDomains(deps.Domains).WithSlices(deps.Slices).WithStorage(deps.Storage).
-		WithGraph(deps.Graph).
+		WithGraph(deps.Graph).WithConnectors(deps.Connectors).
 		WithPlans(deps.Plans).WithDeploys(deps.Deploys).
 		WithAudit(deps.Audit).WithAuth(deps.AuthService).
 		WithOrgs(deps.Orgs).WithMembers(deps.Members).
@@ -483,6 +486,7 @@ func RegisterRoutes(srv *server.Server, deps *Deps) {
 	projectHandler := project.NewHandler(deps.Store, deps.Runtime, deps.Cluster, deps.Proxy, deps.Metrics, deps.Notifier, deps.GitHub, applier, deps.Forwards).
 		WithOrgs(deps.Orgs).WithSlices(deps.Slices).WithNodeService(deps.NodeService).
 		WithAudit(deps.Audit).WithRevoke(deps.Revoke).WithTelemetry(deps.Telemetry).
+		WithConnectors(deps.Connectors).
 		WithGraph(deps.Graph).
 		WithInstances(deps.Instances).
 		WithVariables(deps.Variables).
@@ -676,7 +680,7 @@ func RegisterRoutes(srv *server.Server, deps *Deps) {
 	site.GET("/account/graph-prefs", accountHandler.GraphPrefs, auth.RequireAuth())
 	site.PUT("/account/graph-prefs", accountHandler.SaveGraphPrefs, auth.RequireAuth())
 
-	notificationHandler := notificationpage.NewHandler(deps.Store)
+	notificationHandler := notificationpage.NewHandler(deps.Store).WithNotifications(deps.Notifications)
 	site.GET("/notifications", notificationHandler.Page, auth.RequireAuth())
 	site.GET("/notifications/badge", notificationHandler.Badge, auth.RequireAuth())
 	site.POST("/notifications/read", notificationHandler.MarkAllRead, auth.RequireAuth())
@@ -704,7 +708,7 @@ func RegisterRoutes(srv *server.Server, deps *Deps) {
 
 	appHandler := apppage.NewHandler(deps.Store, deps.Cluster, deps.Proxy, deps.Engine, deps.Jobs, deps.GitHub, deps.Notifier, deps.Lifecycle, deps.Tiles, deps.Telemetry, deps.Domains).
 		WithEnvironments(deps.Environments).WithStacks(deps.Stacks).WithOrgs(deps.Orgs).
-		WithStorage(deps.Storage).WithAudit(deps.Audit).
+		WithStorage(deps.Storage).WithAudit(deps.Audit).WithConnectors(deps.Connectors).
 		WithSlices(deps.Slices).
 		WithVariables(deps.Variables).
 		WithDeploys(deps.Deploys).
@@ -768,6 +772,7 @@ func RegisterRoutes(srv *server.Server, deps *Deps) {
 		WithTiles(deps.Tiles).
 		WithOrgs(deps.Orgs).
 		WithSettings(deps.Settings).
+		WithConnectors(deps.Connectors).
 		WithPREnvs(deps.PREnvs).
 		WithOrgConfig(deps.OrgConfig).
 		WithWork(deps.Work).

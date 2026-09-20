@@ -51,11 +51,12 @@ type handler struct {
 	notifier *notify.Notifier
 	// work is the durable job runner. An auto-apply goes on it rather than
 	// running inline on GitHub's delivery request.
-	work     *workqueue.Queue      // prenvs owns the stored pull-request settings.
-	prenvs   *service.PREnvService // orgcfg is the org config runner, wired once in main.
-	orgcfg   *orgconf.Runner
-	orgs     *service.OrgService
-	settings *service.SettingsService
+	work       *workqueue.Queue      // prenvs owns the stored pull-request settings.
+	prenvs     *service.PREnvService // orgcfg is the org config runner, wired once in main.
+	orgcfg     *orgconf.Runner
+	orgs       *service.OrgService
+	settings   *service.SettingsService
+	connectors *service.ConnectorService
 }
 
 func NewHandler(store repo.Store, engine *deploy.Engine, ops envops.Ops, applier stackconf.Applier, gh *githubapp.Client, notifier *notify.Notifier) *handler {
@@ -154,12 +155,9 @@ func (h *handler) Hook(c echo.Context) error {
 // tiles track the payload repo.
 func (h *handler) HookConnector(c echo.Context) error {
 	ctx := c.Request().Context()
-	cn, err := h.store.GetConnector(ctx, c.Param("id"))
+	cn, err := h.connectors.Get(ctx, c.Param("id"))
 	if err != nil {
-		return err
-	}
-	if cn == nil {
-		return echo.NewHTTPError(http.StatusNotFound, "unknown connector")
+		return stackrmw.HTTP(err)
 	}
 	secret := githubapp.ParseConfig(cn.Config).WebhookSecret
 	if secret == "" {
@@ -302,7 +300,7 @@ func (h *handler) planConfigs(ctx context.Context, orgID string, p *pushPayload)
 		org.ConfigManaged() && org.ConfigRepo == p.Repository.FullName {
 		orgBranch := org.ConfigBranch
 		if orgBranch == "" {
-			if cn, cerr := h.store.GetConnector(ctx, org.ConfigConnectorID); cerr == nil && cn != nil {
+			if cn, cerr := h.connectors.Get(ctx, org.ConfigConnectorID); cerr == nil {
 				orgBranch, _ = h.applier.Planner.Src.DefaultBranch(ctx, cn, org.ConfigRepo)
 			}
 		}
@@ -780,3 +778,6 @@ func (h *handler) WithOrgs(v *service.OrgService) *handler { h.orgs = v; return 
 
 // WithSettings gives the page the settings service.
 func (h *handler) WithSettings(v *service.SettingsService) *handler { h.settings = v; return h }
+
+// WithConnectors gives the page the connector service.
+func (h *handler) WithConnectors(v *service.ConnectorService) *handler { h.connectors = v; return h }

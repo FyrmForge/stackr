@@ -239,7 +239,7 @@ func (a *API) probeStorage(c echo.Context) error {
 	} else {
 		st.Status, st.StatusMsg = "ok", ""
 	}
-	if err := a.store.UpdateStorage(ctx, st); err != nil {
+	if err := a.storage.Save(ctx, st); err != nil {
 		return err
 	}
 	return c.JSON(http.StatusOK, a.storageOut(c, st))

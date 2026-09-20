@@ -476,3 +476,42 @@ func (s *TileService) ListForStack(ctx context.Context, stackID string) ([]repo.
 func (s *TileService) ListAll(ctx context.Context) ([]repo.Tile, error) {
 	return s.store.ListTiles(ctx)
 }
+
+// --- staged changes ---
+//
+// A staged change is a write this service refused to apply because the config
+// file owns the field, parked for the next plan to show as drift. It is
+// produced by Update, Create and Delete — the `staged bool` they return — so
+// reading and discarding one belongs here rather than in a table of its own.
+
+// Staged is an environment's pending changes.
+func (s *TileService) Staged(ctx context.Context, envID string) ([]repo.StagedChange, error) {
+	return s.store.ListStagedByEnv(ctx, envID)
+}
+
+// StagedCount is how many an environment has, for the banner.
+func (s *TileService) StagedCount(ctx context.Context, envID string) (int, error) {
+	return s.store.CountStagedByEnv(ctx, envID)
+}
+
+// StagedChange is one pending change by id.
+func (s *TileService) StagedChange(ctx context.Context, id string) (*repo.StagedChange, error) {
+	sc, err := s.store.GetStagedChange(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if sc == nil {
+		return nil, svcerr.ErrNotFound
+	}
+	return sc, nil
+}
+
+// DiscardStaged drops one pending change.
+func (s *TileService) DiscardStaged(ctx context.Context, id string) error {
+	return s.store.DeleteStagedChange(ctx, id)
+}
+
+// DiscardStagedForEnv drops every pending change in an environment.
+func (s *TileService) DiscardStagedForEnv(ctx context.Context, envID string) error {
+	return s.store.DeleteStagedByEnv(ctx, envID)
+}

@@ -24,7 +24,7 @@ import (
 // row with no app behind; counting it would show step 2 an install button for
 // an app that does not exist.
 func (h *handler) githubConnectors(c echo.Context, o *repo.Org) []repo.Connector {
-	conns, err := h.store.ListConnectorsByOrg(c.Request().Context(), o.ID)
+	conns, err := h.connectors.ForOrg(c.Request().Context(), o.ID)
 	if err != nil {
 		return nil
 	}

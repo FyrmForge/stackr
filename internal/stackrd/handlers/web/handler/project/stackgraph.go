@@ -291,7 +291,7 @@ func (h *handler) buildStackGraph(ctx context.Context, p *repo.Stack, style grap
 		if err != nil {
 			return graph.Graph{}, nil, err
 		}
-		staged, _ := h.store.CountStagedByEnv(ctx, env.ID)
+		staged, _ := h.tiles.StagedCount(ctx, env.ID)
 		s := graph.EnvSummary{
 			ID:     env.ID,
 			Slug:   env.Slug,

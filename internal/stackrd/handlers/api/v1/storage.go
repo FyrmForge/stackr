@@ -166,9 +166,9 @@ func (a *API) createStoragePath(c echo.Context) error {
 
 func (a *API) deleteStoragePath(c echo.Context) error {
 	ctx := c.Request().Context()
-	p, err := a.store.GetStoragePath(ctx, c.Param("id"))
-	if err != nil || p == nil {
-		return echo.NewHTTPError(http.StatusNotFound, "sub-path not found")
+	p, err := a.storage.Path(ctx, c.Param("id"))
+	if err != nil {
+		return stackrmw.HTTP(err)
 	}
 	st, _ := a.storage.Get(ctx, p.StorageID)
 	if st != nil {
@@ -184,7 +184,7 @@ func (a *API) deleteStoragePath(c echo.Context) error {
 	if node, err := a.clus.NodeOfStorage(ctx, st); err == nil {
 		_ = a.clus.RemoveVolume(ctx, node, repo.StorageVolume(p.ID))
 	}
-	if err := a.store.DeleteStoragePath(ctx, p.ID); err != nil {
+	if err := a.storage.DeletePath(ctx, p.ID); err != nil {
 		return err
 	}
 	return c.JSON(http.StatusOK, struct{}{})

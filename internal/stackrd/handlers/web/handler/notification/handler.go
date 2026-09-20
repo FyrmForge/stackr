@@ -11,11 +11,13 @@ import (
 	"github.com/FyrmForge/hamr/pkg/respond"
 	"github.com/labstack/echo/v4"
 
+	"github.com/FyrmForge/stackr/internal/stackrd/service"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 )
 
 type handler struct {
-	store repo.Store
+	store         repo.Store
+	notifications *service.NotificationService
 }
 
 // NewHandler creates a new notification handler.
@@ -28,18 +30,18 @@ func NewHandler(store repo.Store) *handler {
 func (h *handler) Page(c echo.Context) error {
 	ctx := c.Request().Context()
 	me := middleware.GetSubjectID(c)
-	ns, err := h.store.ListNotifications(ctx, me, 100)
+	ns, err := h.notifications.List(ctx, me, 100)
 	if err != nil {
 		return err
 	}
-	_ = h.store.MarkAllNotificationsRead(ctx, me)
+	_ = h.notifications.MarkAllRead(ctx, me)
 	return respond.HTML(c, http.StatusOK, notificationsPage(c, ns))
 }
 
 // POST /notifications/read, explicit mark-all-read (viewing already does
 // this; the button exists for peace of mind and updates the badge instantly).
 func (h *handler) MarkAllRead(c echo.Context) error {
-	if err := h.store.MarkAllNotificationsRead(c.Request().Context(), middleware.GetSubjectID(c)); err != nil {
+	if err := h.notifications.MarkAllRead(c.Request().Context(), middleware.GetSubjectID(c)); err != nil {
 		return err
 	}
 	return respond.Redirect(c, "/notifications")
@@ -47,7 +49,7 @@ func (h *handler) MarkAllRead(c echo.Context) error {
 
 // POST /notifications/clear, delete everything of mine.
 func (h *handler) Clear(c echo.Context) error {
-	if err := h.store.DeleteAllNotifications(c.Request().Context(), middleware.GetSubjectID(c)); err != nil {
+	if err := h.notifications.DeleteAll(c.Request().Context(), middleware.GetSubjectID(c)); err != nil {
 		return err
 	}
 	return respond.Redirect(c, "/notifications")
@@ -55,6 +57,12 @@ func (h *handler) Clear(c echo.Context) error {
 
 // GET /notifications/badge, the rail bell fragment with unread count.
 func (h *handler) Badge(c echo.Context) error {
-	n, _ := h.store.CountUnreadNotifications(c.Request().Context(), middleware.GetSubjectID(c))
+	n, _ := h.notifications.Unread(c.Request().Context(), middleware.GetSubjectID(c))
 	return respond.HTML(c, http.StatusOK, Bell(c, n))
+}
+
+// WithNotifications gives the page the notification list.
+func (h *handler) WithNotifications(v *service.NotificationService) *handler {
+	h.notifications = v
+	return h
 }

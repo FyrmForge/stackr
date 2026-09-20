@@ -52,16 +52,17 @@ type handler struct {
 	// request: it creates and binds stacks, each of which plans in turn.
 	work *workqueue.Queue
 	// settings owns every rung of the defaults cascade.
-	settings *service.SettingsService
-	orgs     *service.OrgService
-	domains  *service.DomainService
-	slices   *service.SliceService
-	storage  *service.StorageService
-	plans    *service.PlanService
-	deploys  *service.DeployService
-	audit    *service.AuditService
-	auth     *service.AuthService
-	graph    *service.GraphService
+	settings   *service.SettingsService
+	orgs       *service.OrgService
+	domains    *service.DomainService
+	slices     *service.SliceService
+	storage    *service.StorageService
+	plans      *service.PlanService
+	deploys    *service.DeployService
+	audit      *service.AuditService
+	auth       *service.AuthService
+	graph      *service.GraphService
+	connectors *service.ConnectorService
 }
 
 // WithSettings attaches the settings service.
@@ -213,3 +214,6 @@ func (h *handler) WithAuth(a *service.AuthService) *handler { h.auth = a; return
 
 // WithGraph gives the canvas its saved layout.
 func (h *handler) WithGraph(g *service.GraphService) *handler { h.graph = g; return h }
+
+// WithConnectors gives the page the connector service.
+func (h *handler) WithConnectors(v *service.ConnectorService) *handler { h.connectors = v; return h }

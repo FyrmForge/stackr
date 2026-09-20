@@ -66,10 +66,11 @@ type handler struct {
 	deploys *service.DeployService
 	// gate answers whether a config-managed stack takes this edit, and
 	// whether it stages. editGate was a second copy of it.
-	gate    *service.GateService
-	orgs    *service.OrgService
-	storage *service.StorageService
-	audit   *service.AuditService
+	gate       *service.GateService
+	orgs       *service.OrgService
+	storage    *service.StorageService
+	audit      *service.AuditService
+	connectors *service.ConnectorService
 }
 
 // NewHandler creates a new app handler.
@@ -104,7 +105,7 @@ func (h *handler) Connectors(c echo.Context) error {
 	ctx := c.Request().Context()
 	var conns []repo.Connector
 	if stack, err := h.stacks.Get(ctx, a.StackID); err == nil {
-		all, _ := h.store.ListConnectorsByOrg(ctx, stack.OrgID)
+		all, _ := h.connectors.ForOrg(ctx, stack.OrgID)
 		for _, cn := range all {
 			if cn.Provider == "github" && githubapp.ParseConfig(cn.Config).Connected() {
 				conns = append(conns, cn)
@@ -231,7 +232,7 @@ func (h *handler) RunsLogsStream(c echo.Context) error {
 		return err
 	}
 	ctx := c.Request().Context()
-	runs, err := h.store.ListCronRuns(ctx, service.TileRef(a.ID), runWindow)
+	runs, err := h.life.Runs(ctx, service.TileRef(a.ID), runWindow)
 	if err != nil {
 		return err
 	}
@@ -464,7 +465,7 @@ func (h *handler) loadTab(c echo.Context, a *repo.Tile, tab string) (tabData, er
 	// Every tab, not just Runs: the header carries the run state, and it is
 	// rendered above whichever tab is open.
 	if runsTile(a) {
-		d.openRun, _ = h.store.OpenCronRun(ctx, service.TileRef(a.ID))
+		d.openRun, _ = h.life.OpenRun(ctx, service.TileRef(a.ID))
 	}
 	switch tab {
 	case "overview":
@@ -483,10 +484,10 @@ func (h *handler) loadTab(c echo.Context, a *repo.Tile, tab string) (tabData, er
 		// live view, content arrives over SSE (LogsStream), nothing to preload.
 		// A cron has no container to follow, so its Logs tab picks a run.
 		if runsTile(a) {
-			d.runs, _ = h.store.ListCronRuns(ctx, service.TileRef(a.ID), runWindow)
+			d.runs, _ = h.life.Runs(ctx, service.TileRef(a.ID), runWindow)
 		}
 	case "runs":
-		d.runs, _ = h.store.ListCronRuns(ctx, service.TileRef(a.ID), runWindow)
+		d.runs, _ = h.life.Runs(ctx, service.TileRef(a.ID), runWindow)
 	case "http":
 		d.httpLog = h.px.AccessLog(a.ID, 100)
 	case "settings":
@@ -599,7 +600,7 @@ func (h *handler) openRun(c echo.Context, a *repo.Tile) *repo.CronRun {
 	if !runsTile(a) {
 		return nil
 	}
-	r, _ := h.store.OpenCronRun(c.Request().Context(), service.TileRef(a.ID))
+	r, _ := h.life.OpenRun(c.Request().Context(), service.TileRef(a.ID))
 	return r
 }
 
@@ -1187,7 +1188,7 @@ func envMapFromBlob(raw string) map[string]string {
 // build on this: staging replaces the whole group per (tile, summary), so
 // rebuilding from the committed blob would silently drop a staged env edit.
 func (h *handler) currentDesiredEnv(ctx context.Context, a *repo.Tile) (map[string]string, error) {
-	existing, err := h.store.ListStagedByEnv(ctx, a.EnvironmentID)
+	existing, err := h.tiles.Staged(ctx, a.EnvironmentID)
 	if err != nil {
 		return nil, err
 	}
@@ -1212,7 +1213,7 @@ func (h *handler) currentDesiredEnv(ctx context.Context, a *repo.Tile) (map[stri
 // to config. Each staged domain mutation builds on this so successive edits
 // compose (staging replaces the whole set, so a lone add would else clobber).
 func (h *handler) currentDesiredDomains(ctx context.Context, a *repo.Tile) ([]stackconf.DomainConf, error) {
-	if existing, err := h.store.ListStagedByEnv(ctx, a.EnvironmentID); err == nil {
+	if existing, err := h.tiles.Staged(ctx, a.EnvironmentID); err == nil {
 		for i := range existing {
 			if existing[i].TileSlug == a.Slug && existing[i].Summary == "domains" {
 				var p struct {
@@ -1623,3 +1624,6 @@ func (h *handler) WithStorage(v *service.StorageService) *handler { h.storage = 
 
 // WithAudit gives the page the audit trail.
 func (h *handler) WithAudit(v *service.AuditService) *handler { h.audit = v; return h }
+
+// WithConnectors gives the page the connector service.
+func (h *handler) WithConnectors(v *service.ConnectorService) *handler { h.connectors = v; return h }

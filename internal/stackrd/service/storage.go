@@ -242,3 +242,27 @@ func (s *StorageService) ListAll(ctx context.Context) ([]repo.Storage, error) {
 func (s *StorageService) Paths(ctx context.Context, storageID string) ([]repo.StoragePath, error) {
 	return s.store.ListStoragePaths(ctx, storageID)
 }
+
+// Path is one declared sub-path by id.
+func (s *StorageService) Path(ctx context.Context, id string) (*repo.StoragePath, error) {
+	p, err := s.store.GetStoragePath(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if p == nil {
+		return nil, svcerr.ErrNotFound
+	}
+	return p, nil
+}
+
+// DeletePath withdraws a declared sub-path. Whether anything still mounts it
+// is Consumers' question, which the caller asks first: this does not check,
+// because the admin page's "delete anyway" needs to get past a yes.
+func (s *StorageService) DeletePath(ctx context.Context, id string) error {
+	return s.store.DeleteStoragePath(ctx, id)
+}
+
+// Save writes a storage row back.
+func (s *StorageService) Save(ctx context.Context, st *repo.Storage) error {
+	return s.store.UpdateStorage(ctx, st)
+}

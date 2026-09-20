@@ -2642,3 +2642,19 @@ cards.
 already", which was written inline with its own `GetOrgMember` check — the
 idempotence matters because two clicks on one invite link is the normal way
 that path is reached.
+
+**Slice 7: connectors, notifications, staged changes, cron runs, storage
+paths. 122 -> 81.**
+
+Two new services. `ConnectorService` owns the connector row; the GitHub App
+manifest flow stays in `infra/githubapp`, which is the half that talks to
+GitHub. `NotificationService` owns the bell count, the list and the two
+clears; raising a notification stays `notify.Notifier`'s, because the websocket
+fan-out is part of raising it. Every notification row has exactly one
+recipient, so every method takes a user id and none takes an org.
+
+Staged changes went onto `TileService` rather than a table of their own: a
+staged change is what `Update`, `Create` and `Delete` return `staged bool`
+for. Cron runs went onto `TileLifecycleService`, beside `RunNow` and `StopRun`.
+`OpenRun` answers nil rather than ErrNotFound — "not running" is a state every
+caller renders, not a missing row.

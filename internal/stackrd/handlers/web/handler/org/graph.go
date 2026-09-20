@@ -493,7 +493,7 @@ func (h *handler) buildOrgGraph(ctx context.Context, o *repo.Org, style graph.Ar
 	}
 
 	var connectors []graph.OrgConnector
-	if cs, err := h.store.ListConnectorsByOrg(ctx, o.ID); err == nil {
+	if cs, err := h.connectors.ForOrg(ctx, o.ID); err == nil {
 		for _, cn := range cs {
 			connectors = append(connectors, graph.OrgConnector{
 				ID: cn.ID, Name: cn.Name, Detail: cn.Provider, Provider: cn.Provider,

@@ -93,14 +93,15 @@ type handler struct {
 	// work is the durable job runner. An apply is enqueued on it, never run on
 	// the request: it clones repos and builds images, so it routinely outlives
 	// the browser that asked for it.
-	work      *workqueue.Queue
-	orgs      *service.OrgService
-	slices    *service.SliceService
-	nodeSvc   *service.NodeService
-	audit     *service.AuditService
-	revoke    *service.RevokeService
-	telemetry *service.TileTelemetryService
-	graph     *service.GraphService
+	work       *workqueue.Queue
+	orgs       *service.OrgService
+	slices     *service.SliceService
+	nodeSvc    *service.NodeService
+	audit      *service.AuditService
+	revoke     *service.RevokeService
+	telemetry  *service.TileTelemetryService
+	graph      *service.GraphService
+	connectors *service.ConnectorService
 }
 
 // WithMover attaches the volume-move service. Set from the router rather than
@@ -178,7 +179,7 @@ func (h *handler) Repos(c echo.Context) error {
 	}
 	type pick struct{ Value, Label string }
 	var picks []pick
-	conns, _ := h.store.ListConnectorsByOrg(ctx, p.OrgID)
+	conns, _ := h.connectors.ForOrg(ctx, p.OrgID)
 	for i := range conns {
 		if conns[i].Provider != "github" || !githubapp.ParseConfig(conns[i].Config).Connected() {
 			continue
@@ -534,7 +535,7 @@ func (h *handler) Graph(c echo.Context) error {
 	if pendingPlan != nil && pendingPlan.Status != "pending" && pendingPlan.Status != "error" {
 		pendingPlan = nil
 	}
-	stagedCount, _ := h.store.CountStagedByEnv(ctx, env.ID)
+	stagedCount, _ := h.tiles.StagedCount(ctx, env.ID)
 	cmp, _, err := h.compareStack(ctx, p)
 	if err != nil {
 		return err
@@ -1350,7 +1351,7 @@ func (h *handler) markSliceStats(g *graph.Graph) {
 // teardown, "pending" for any other staged edit). Creates have no committed
 // tile/node, so they don't appear here (shown in the pending box + review).
 func (h *handler) stagedMarkers(ctx context.Context, envID string) map[string]string {
-	changes, err := h.store.ListStagedByEnv(ctx, envID)
+	changes, err := h.tiles.Staged(ctx, envID)
 	if err != nil {
 		return nil
 	}
@@ -1638,7 +1639,7 @@ func (h *handler) SettingsConfig(c echo.Context) error {
 
 // githubConnectors lists the org's connectors that finished their setup.
 func (h *handler) githubConnectors(ctx context.Context, orgID string) ([]repo.Connector, error) {
-	conns, err := h.store.ListConnectorsByOrg(ctx, orgID)
+	conns, err := h.connectors.ForOrg(ctx, orgID)
 	if err != nil {
 		return nil, err
 	}
@@ -2449,3 +2450,6 @@ func (h *handler) WithTelemetry(v *service.TileTelemetryService) *handler { h.te
 
 // WithGraph gives the canvas its saved layout.
 func (h *handler) WithGraph(g *service.GraphService) *handler { h.graph = g; return h }
+
+// WithConnectors gives the page the connector service.
+func (h *handler) WithConnectors(v *service.ConnectorService) *handler { h.connectors = v; return h }

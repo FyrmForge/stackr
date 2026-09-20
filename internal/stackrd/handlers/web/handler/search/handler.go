@@ -23,15 +23,16 @@ import (
 )
 
 type handler struct {
-	store     repo.Store
-	envs      *service.EnvironmentService
-	stacks    *service.StackService
-	tiles     *service.TileService
-	members   *service.MemberService
-	orgs      *service.OrgService
-	domains   *service.DomainService
-	plans     *service.PlanService
-	schedules *service.BackupScheduleService
+	store      repo.Store
+	envs       *service.EnvironmentService
+	stacks     *service.StackService
+	tiles      *service.TileService
+	members    *service.MemberService
+	orgs       *service.OrgService
+	domains    *service.DomainService
+	plans      *service.PlanService
+	schedules  *service.BackupScheduleService
+	connectors *service.ConnectorService
 }
 
 func NewHandler(store repo.Store, envs *service.EnvironmentService,
@@ -169,7 +170,7 @@ func (h *handler) Search(c echo.Context) error {
 	}
 
 	// Connectors, cards on the org canvas.
-	connectors, err := h.store.ListConnectors(ctx)
+	connectors, err := h.connectors.ListAll(ctx)
 	if err != nil {
 		return err
 	}
@@ -367,3 +368,6 @@ func (h *handler) WithPlans(v *service.PlanService) *handler { h.plans = v; retu
 
 // WithSchedules gives the page the backup-schedule service.
 func (h *handler) WithSchedules(v *service.BackupScheduleService) *handler { h.schedules = v; return h }
+
+// WithConnectors gives the page the connector service.
+func (h *handler) WithConnectors(v *service.ConnectorService) *handler { h.connectors = v; return h }

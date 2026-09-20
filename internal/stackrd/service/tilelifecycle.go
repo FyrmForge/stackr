@@ -277,3 +277,17 @@ func (s *TileLifecycleService) setStatus(ctx context.Context, t *repo.Tile, stat
 // runToCompletion: kinds that finish rather than serve. They have runs, not
 // replicas, which is why stop, restart and run mean different things for them.
 func runToCompletion(t *repo.Tile) bool { return t.Kind == "cron" || t.Kind == "function" }
+
+// --- cron runs ---
+
+// Runs are a cron tile's most recent runs, newest first.
+func (s *TileLifecycleService) Runs(ctx context.Context, ref string, limit int) ([]repo.CronRun, error) {
+	return s.store.ListCronRuns(ctx, ref, limit)
+}
+
+// OpenRun is the run a cron tile is in the middle of, nil when it is idle.
+// Nil rather than ErrNotFound: "not running" is the ordinary answer here, not
+// a missing row, and every caller renders it as a state.
+func (s *TileLifecycleService) OpenRun(ctx context.Context, ref string) (*repo.CronRun, error) {
+	return s.store.OpenCronRun(ctx, ref)
+}
