@@ -175,3 +175,58 @@ func (s *DeployService) Progress(ctx context.Context, d *repo.Deployment) error 
 func (s *DeployService) ForTile(ctx context.Context, tileID string, limit int) ([]repo.Deployment, error) {
 	return s.store.ListDeploymentsByTile(ctx, tileID, limit)
 }
+
+// Row is Get without the refusal: nil when there is no such deployment.
+//
+// Get's ErrNotFound is right for a handler answering a request. The engine
+// and the volume mover are asking whether a row is still there at all — a
+// cancelled deploy, a tile deleted mid-move — and for them absence is an
+// ordinary branch, not something to report.
+func (s *DeployService) Row(ctx context.Context, id string) (*repo.Deployment, error) {
+	return s.store.GetDeployment(ctx, id)
+}
+
+// Latest is the tile's newest deployment, nil when it has never deployed.
+//
+// Four packages asked this as `ListDeploymentsByTile(id, 1)` and unpacked the
+// slice themselves: the config applier deciding whether a build is broken,
+// the registry deciding whether a tag is in use, the PR comment reporting
+// what happened, and the deploy engine. One question, four spellings of it.
+func (s *DeployService) Latest(ctx context.Context, tileID string) (*repo.Deployment, error) {
+	ds, err := s.store.ListDeploymentsByTile(ctx, tileID, 1)
+	if err != nil || len(ds) == 0 {
+		return nil, err
+	}
+	return &ds[0], nil
+}
+
+// CurrentImage is the image tag the tile is actually running: the newest
+// deployment that finished, "" when it has never finished one.
+//
+// This was written twice, identically — infra/deploy.CurrentImage and
+// infra/jobs.appImage — each fetching twenty rows and taking the first done
+// one with a tag. They differed only in the fallback, which stays with the
+// caller: the deploy path has nothing to fall back to, the job path runs the
+// tile's configured image ref.
+//
+// Twenty rows rather than one because a deployment that failed does not
+// replace the image that is running; a tile whose last three builds broke is
+// still serving the one before them.
+func (s *DeployService) CurrentImage(ctx context.Context, tileID string) (string, error) {
+	ds, err := s.store.ListDeploymentsByTile(ctx, tileID, 20)
+	if err != nil {
+		return "", err
+	}
+	for _, d := range ds {
+		if d.Status == "done" && d.ImageTag != "" {
+			return d.ImageTag, nil
+		}
+	}
+	return "", nil
+}
+
+// Waiting are the deployments held for a CI check to report. The engine
+// releases them when a check arrives; the janitor's gate times them out.
+func (s *DeployService) Waiting(ctx context.Context) ([]repo.Deployment, error) {
+	return s.store.ListDeploymentsByStatus(ctx, "waiting_ci")
+}

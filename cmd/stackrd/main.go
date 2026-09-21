@@ -418,6 +418,7 @@ func main() {
 	// The PR comment reads its stored plan preview back through the same
 	// owner the webhook handler wrote it with.
 	gh.UseSettings(settingsSvc)
+	gh.UseDeploys(rows)
 	// Before Traefik starts: it reads the trusted proxy settings.
 	if err := seedInstall(context.Background(), store, settingsSvc,
 		config.GetEnvOrDefault("ROOT_DOMAIN", ""),
@@ -485,7 +486,7 @@ func main() {
 	dbService := managedtiles.NewService(clus, store, rows)
 
 	// Scheduled jobs (cron commands for apps).
-	jobsService := jobs.NewService(store, clus, notifier, rows, nil, registrySvc)
+	jobsService := jobs.NewService(store, clus, notifier, rows, nil, registrySvc, rows)
 	// Function tiles with the on-deploy trigger fire once their own build
 	// lands, chained onto the GitHub hook above rather than replacing it.
 	prevFinish := engine.OnFinish
@@ -656,7 +657,7 @@ func main() {
 	jan := janitor.New(janitor.WithTimeout(2*time.Minute), janitor.WithLogger(log))
 	jan.AddTask("@every 1m", imageWatch)
 	// CI gate: releases (or fails) push deploys parked behind wait_for_ci.
-	jan.AddTask("@every 1m", &cigate.Gate{Store: store, Engine: engine, GH: gh, Notifier: notifier})
+	jan.AddTask("@every 1m", &cigate.Gate{Store: store, Deploys: rows, Engine: engine, GH: gh, Notifier: notifier})
 	if err := jan.Start(context.Background()); err != nil {
 		log.Error("janitor start failed", "error", err)
 	}

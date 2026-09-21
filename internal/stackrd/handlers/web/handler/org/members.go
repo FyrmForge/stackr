@@ -14,7 +14,6 @@ import (
 	"github.com/FyrmForge/stackr/internal/stackrd/handlers/web/avatar"
 	"github.com/FyrmForge/stackr/internal/stackrd/handlers/web/components"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/deploy"
-	"github.com/FyrmForge/stackr/internal/stackrd/infra/registry"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 )
 
@@ -108,7 +107,7 @@ func (h *handler) Rename(c echo.Context) error {
 	// manifest push per tag) or orphaning them. Refusing the rename is the
 	// smaller thing to be right about.
 	if slug != o.Slug {
-		has, herr := registry.OrgHasImages(ctx, h.store, o.ID)
+		has, herr := h.registries.OrgHasImages(ctx, o.ID)
 		if herr != nil {
 			return herr
 		}

@@ -47,6 +47,9 @@ type Service struct {
 	regs registry.Registries
 	// runs owns cron_runs and the tile's last-run summary.
 	runs Runs
+	// deploys owns the deployments table. A job runs the image the tile is
+	// actually running, which is that table's question and not this one's.
+	deploys Deploys
 
 	mu      sync.Mutex
 	cron    *cron.Cron
@@ -65,6 +68,13 @@ type Runs interface {
 	RecordTileRun(ctx context.Context, tileID, status, output string) error
 }
 
+// Deploys is the read a job needs from the deployments table.
+// service.Rows satisfies it; an interface because service/ is built on this
+// package.
+type Deploys interface {
+	CurrentImage(ctx context.Context, tileID string) (string, error)
+}
+
 // WithRuns hands over the service that owns cron_runs.
 //
 // A setter, not a constructor argument, because of the order main.go is
@@ -74,7 +84,7 @@ type Runs interface {
 func (s *Service) WithRuns(r Runs) *Service { s.runs = r; return s }
 
 func NewService(store repo.Store, c *cluster.Cluster, notifier *notify.Notifier,
-	envs envnet.Envs, runs Runs, regs registry.Registries) *Service {
+	envs envnet.Envs, runs Runs, regs registry.Registries, deploys Deploys) *Service {
 	s := &Service{
 		store:    store,
 		c:        c,
@@ -82,6 +92,7 @@ func NewService(store repo.Store, c *cluster.Cluster, notifier *notify.Notifier,
 		envs:     envs,
 		runs:     runs,
 		regs:     regs,
+		deploys:  deploys,
 		cron:     cron.New(),
 		entries:  map[string]cron.EntryID{},
 		running:  map[string]bool{},
@@ -502,16 +513,15 @@ func (s *Service) RunService(ctx context.Context, app *repo.Tile, runID string) 
 	return name
 }
 
-// appImage resolves the image a one-shot job should run: the last successful
-// deployment's tag, falling back to the app's configured image ref.
+// appImage resolves the image a one-shot job should run: the image the tile
+// is actually running, falling back to its configured ref.
+//
+// The first half used to be this package's own copy of the deploy engine's
+// CurrentImage, loop for loop. Only the fallback differs, and that part is
+// genuinely a job's: a deploy has nothing to fall back to.
 func (s *Service) appImage(ctx context.Context, app *repo.Tile) string {
-	deps, err := s.store.ListDeploymentsByTile(ctx, app.ID, 20)
-	if err == nil {
-		for _, d := range deps {
-			if d.Status == "done" && d.ImageTag != "" {
-				return d.ImageTag
-			}
-		}
+	if tag, err := s.deploys.CurrentImage(ctx, app.ID); err == nil && tag != "" {
+		return tag
 	}
 	return app.ImageRef
 }

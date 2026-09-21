@@ -32,7 +32,7 @@ func TestWaitForDeploymentFailsOnAnythingButDone(t *testing.T) {
 		CreatedAt: now, UpdatedAt: now}
 	require.NoError(t, store.CreateTile(ctx, tile), "create tile")
 
-	s := &Service{Store: store}
+	s := &Service{Store: store, Rows: storeRows{s: store}}
 
 	for _, tc := range []struct {
 		status string
@@ -80,5 +80,5 @@ func TestWaitForDeploymentGivesUpWithTheContext(t *testing.T) {
 
 	cctx, cancel := context.WithCancel(ctx)
 	cancel()
-	assert.Error(t, (&Service{Store: store}).waitForDeployment(cctx, "dep-stuck"))
+	assert.Error(t, (&Service{Store: store, Rows: storeRows{s: store}}).waitForDeployment(cctx, "dep-stuck"))
 }

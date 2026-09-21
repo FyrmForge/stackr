@@ -99,3 +99,33 @@ func (r storeRows) RecordDeployment(ctx context.Context, d *repo.Deployment) err
 func (r storeRows) DeploymentProgress(ctx context.Context, d *repo.Deployment) error {
 	return r.s.UpdateDeployment(ctx, d)
 }
+
+// The read half. CurrentImage carries the one rule in this set — the newest
+// deployment that finished, skipping the failures on top of it — so it is
+// spelled out here rather than forwarded, and a change to the real one
+// should fail these tests rather than pass silently.
+
+func (r storeRows) Row(ctx context.Context, id string) (*repo.Deployment, error) {
+	return r.s.GetDeployment(ctx, id)
+}
+
+func (r storeRows) ForTile(ctx context.Context, tileID string, limit int) ([]repo.Deployment, error) {
+	return r.s.ListDeploymentsByTile(ctx, tileID, limit)
+}
+
+func (r storeRows) CurrentImage(ctx context.Context, tileID string) (string, error) {
+	ds, err := r.s.ListDeploymentsByTile(ctx, tileID, 20)
+	if err != nil {
+		return "", err
+	}
+	for _, d := range ds {
+		if d.Status == "done" && d.ImageTag != "" {
+			return d.ImageTag, nil
+		}
+	}
+	return "", nil
+}
+
+func (r storeRows) Waiting(ctx context.Context) ([]repo.Deployment, error) {
+	return r.s.ListDeploymentsByStatus(ctx, "waiting_ci")
+}

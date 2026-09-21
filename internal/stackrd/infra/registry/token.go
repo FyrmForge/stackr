@@ -419,38 +419,3 @@ func Auth(orgSlug, secret, host string) string {
 	return base64.URLEncoding.EncodeToString(b)
 }
 
-// OrgHasImages reports whether anything has ever been pushed under the org's
-// registry namespace.
-//
-// Read from the deployments table rather than the registry's catalog API: the
-// namespace is the org slug and the registry has no rename, so a rename would
-// have to re-tag every image (a blob mount plus a manifest push per tag) or
-// orphan them. Refusing the rename is the smaller thing to be right about, and
-// refusing it needs an answer even while the registry is down.
-//
-// walks the org's stacks and tiles. Tens of rows; add a store query
-// if an org ever grows big enough to notice.
-func OrgHasImages(ctx context.Context, store repo.Store, orgID string) (bool, error) {
-	stacks, err := store.ListStacksByOrg(ctx, orgID)
-	if err != nil {
-		return false, err
-	}
-	for _, st := range stacks {
-		tiles, err := store.ListTilesByStack(ctx, st.ID)
-		if err != nil {
-			return false, err
-		}
-		for i := range tiles {
-			ds, err := store.ListDeploymentsByTile(ctx, tiles[i].ID, 1)
-			if err != nil {
-				return false, err
-			}
-			for _, d := range ds {
-				if d.ImageTag != "" {
-					return true, nil
-				}
-			}
-		}
-	}
-	return false, nil
-}

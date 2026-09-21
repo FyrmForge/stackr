@@ -132,7 +132,7 @@ func (e *Engine) WithWork(q *workqueue.Queue) *Engine {
 			if err := j.Payload(&p); err != nil {
 				return
 			}
-			d, err := e.store.GetDeployment(ctx, p.DeploymentID)
+			d, err := e.rows.Row(ctx, p.DeploymentID)
 			if err != nil || d == nil || d.Status != "queued" {
 				return
 			}
@@ -153,7 +153,7 @@ func (e *Engine) WithWork(q *workqueue.Queue) *Engine {
 // newer deploy) is left exactly as it is: the work item is stale then, and
 // run() declines it on the status check.
 func (e *Engine) reopen(ctx context.Context, deploymentID string) error {
-	d, err := e.store.GetDeployment(ctx, deploymentID)
+	d, err := e.rows.Row(ctx, deploymentID)
 	if err != nil || d == nil {
 		return err
 	}
@@ -205,6 +205,14 @@ type Rows interface {
 	managedtiles.Rows
 	RecordDeployment(ctx context.Context, d *repo.Deployment) error
 	DeploymentProgress(ctx context.Context, d *repo.Deployment) error
+	// The read half of the same table. The engine is below the service that
+	// owns it, so it asks through here rather than through the store — the
+	// point being that "what image is this tile running" has one answer, not
+	// one per package that wants it.
+	Row(ctx context.Context, id string) (*repo.Deployment, error)
+	ForTile(ctx context.Context, tileID string, limit int) ([]repo.Deployment, error)
+	CurrentImage(ctx context.Context, tileID string) (string, error)
+	Waiting(ctx context.Context) ([]repo.Deployment, error)
 }
 
 func NewEngine(store repo.Store, rt *runtime.Runtime, clus *cluster.Cluster, hub *stream.Hub, dataDir string, notifier *notify.Notifier, rows Rows, regs registry.Registries) *Engine {
@@ -278,18 +286,14 @@ func (e *Engine) EnqueuePromote(ctx context.Context, app *repo.Tile, commitSHA s
 }
 
 // CurrentImage is the tag of the tile's newest successful deployment, "" when
-// it has never deployed.
+// it has never deployed. The loop itself belongs to the service that owns the
+// table; infra/jobs had its own copy of it, byte for byte.
 func (e *Engine) CurrentImage(ctx context.Context, app *repo.Tile) string {
-	deps, err := e.store.ListDeploymentsByTile(ctx, app.ID, 20)
+	tag, err := e.rows.CurrentImage(ctx, app.ID)
 	if err != nil {
 		return ""
 	}
-	for _, d := range deps {
-		if d.Status == "done" && d.ImageTag != "" {
-			return d.ImageTag
-		}
-	}
-	return ""
+	return tag
 }
 
 // EnqueueCurrent restarts the tile on the image it already runs, with the
@@ -332,7 +336,7 @@ func (e *Engine) Cancel(ctx context.Context, deploymentID string) {
 		cancel()
 		return
 	}
-	d, err := e.store.GetDeployment(ctx, deploymentID)
+	d, err := e.rows.Row(ctx, deploymentID)
 	if err != nil || d == nil || !deploystate.IsCancellable(d.Status) {
 		return
 	}
@@ -386,7 +390,7 @@ func (e *Engine) FailWaiting(ctx context.Context, d *repo.Deployment, msg string
 
 // SupersedeWaiting cancels a tile's parked waiting_ci deployments.
 func (e *Engine) SupersedeWaiting(ctx context.Context, tileID, note string) {
-	ds, err := e.store.ListDeploymentsByStatus(ctx, "waiting_ci")
+	ds, err := e.rows.Waiting(ctx)
 	if err != nil {
 		return
 	}
@@ -478,7 +482,7 @@ func (e *Engine) run(deploymentID string) {
 		e.mu.Unlock()
 	}()
 
-	d, err := e.store.GetDeployment(ctx, deploymentID)
+	d, err := e.rows.Row(ctx, deploymentID)
 	if err != nil || d == nil || d.Status != "queued" {
 		return
 	}
@@ -821,7 +825,7 @@ func (e *Engine) pruneImages(ctx context.Context, app *repo.Tile) {
 		if siblings[i].Slug != app.Slug {
 			continue
 		}
-		deps, err := e.store.ListDeploymentsByTile(ctx, siblings[i].ID, 100)
+		deps, err := e.rows.ForTile(ctx, siblings[i].ID, 100)
 		if err != nil {
 			continue
 		}

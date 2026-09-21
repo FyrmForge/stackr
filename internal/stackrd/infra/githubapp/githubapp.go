@@ -68,7 +68,9 @@ type Client struct {
 	conns Connectors
 	// set owns the settings row the rendered plan preview is parked in
 	// between the webhook that renders it and the comment that shows it.
-	set     Settings
+	set Settings
+	// deploys owns the deployments table the PR comment reports from.
+	deploys Deploys
 	baseURL string
 	http    *http.Client
 
@@ -92,6 +94,15 @@ type Settings interface {
 // during boot, before the services are, and the value is not read until a
 // pull-request webhook arrives.
 func (c *Client) UseSettings(s Settings) { c.set = s }
+
+// Deploys is the read the PR comment needs: what happened to each tile in the
+// preview environment. service.Rows satisfies it.
+type Deploys interface {
+	Latest(ctx context.Context, tileID string) (*repo.Deployment, error)
+}
+
+// UseDeploys hands over that owner, for the same reason as UseSettings.
+func (c *Client) UseDeploys(d Deploys) { c.deploys = d }
 
 // Begin creates a pending github connector in the org and returns the
 // GitHub form action plus the manifest JSON to POST there. The connector id

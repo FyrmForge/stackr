@@ -134,6 +134,28 @@ func (r Rows) DeploymentProgress(ctx context.Context, d *repo.Deployment) error 
 	return r.Deploys.Progress(ctx, d)
 }
 
+// The read half of the deployments table, for the engine below.
+
+func (r Rows) Row(ctx context.Context, id string) (*repo.Deployment, error) {
+	return r.Deploys.Row(ctx, id)
+}
+
+func (r Rows) ForTile(ctx context.Context, tileID string, limit int) ([]repo.Deployment, error) {
+	return r.Deploys.ForTile(ctx, tileID, limit)
+}
+
+func (r Rows) CurrentImage(ctx context.Context, tileID string) (string, error) {
+	return r.Deploys.CurrentImage(ctx, tileID)
+}
+
+func (r Rows) Waiting(ctx context.Context) ([]repo.Deployment, error) {
+	return r.Deploys.Waiting(ctx)
+}
+
+func (r Rows) Latest(ctx context.Context, tileID string) (*repo.Deployment, error) {
+	return r.Deploys.Latest(ctx, tileID)
+}
+
 func (r Rows) SetNetwork(ctx context.Context, envID, network string) error {
 	return r.Envs.SetNetwork(ctx, envID, network)
 }

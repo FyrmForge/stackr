@@ -186,10 +186,9 @@ func (c *Client) prComment(ctx context.Context, stackID, prNum string, env *repo
 	if d == nil {
 		// Plan-triggered refresh: report the env's latest deploy if any.
 		for i := range tiles {
-			if ds, err := c.store.ListDeploymentsByTile(ctx, tiles[i].ID, 1); err == nil && len(ds) > 0 {
-				if d == nil || ds[0].CreatedAt.After(d.CreatedAt) {
-					dd := ds[0]
-					d = &dd
+			if latest, err := c.deploys.Latest(ctx, tiles[i].ID); err == nil && latest != nil {
+				if d == nil || latest.CreatedAt.After(d.CreatedAt) {
+					d = latest
 				}
 			}
 		}

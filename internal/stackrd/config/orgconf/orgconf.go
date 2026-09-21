@@ -26,7 +26,6 @@ import (
 	"github.com/FyrmForge/stackr/internal/stackrd/envcolor"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/deploy"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/managedtiles"
-	"github.com/FyrmForge/stackr/internal/stackrd/infra/registry"
 	"github.com/FyrmForge/stackr/internal/stackrd/service"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/audit"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
@@ -275,6 +274,14 @@ func (r Runner) planRows() *service.PlanService {
 	return service.NewPlanService(r.Store, nil, nil)
 }
 
+// registries owns the rename gate: an org slug is the registry namespace, so
+// an org that has ever pushed an image cannot be renamed. Built on demand for
+// the same reason planRows is — the read needs nothing but the store, and the
+// panel asks the same question through the same owner.
+func (r Runner) registries() *service.RegistryService {
+	return service.NewRegistryService(r.Store)
+}
+
 // Load fetches and parses the org's bound file, returning the head sha too.
 func (r Runner) Load(ctx context.Context, org *repo.Org) (*File, string, error) {
 	if !org.ConfigManaged() {
@@ -445,7 +452,7 @@ func (r Runner) diff(ctx context.Context, org *repo.Org, f *File) (*stackconf.Pl
 		// The registry namespace is the org slug and a docker registry has no
 		// rename: moving it would orphan every image, or mean re-tagging each
 		// one (a blob mount plus a manifest push per tag).
-		hasImages, _ := registry.OrgHasImages(ctx, r.Store, org.ID)
+		hasImages, _ := r.registries().OrgHasImages(ctx, org.ID)
 		switch {
 		case hasImages:
 			p.Errors = append(p.Errors, "org rename to "+want+
@@ -680,7 +687,7 @@ func (r Runner) Apply(ctx context.Context, org *repo.Org, cp *repo.ConfigPlan) e
 		// Gated here too, not only in the plan: an apply that skipped its plan
 		// (a webhook push plans and applies in one go) would otherwise orphan
 		// every image under the old namespace.
-		has, herr := registry.OrgHasImages(ctx, r.Store, org.ID)
+		has, herr := r.registries().OrgHasImages(ctx, org.ID)
 		if herr != nil {
 			return herr
 		}

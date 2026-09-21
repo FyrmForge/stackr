@@ -123,6 +123,8 @@ type moveProgress struct {
 type Rows interface {
 	SetHomeNode(ctx context.Context, tileID, nodeID string) error
 	SetTileStatus(ctx context.Context, tileID, status string) error
+	// Row is the deployment this move is waiting on, nil when it is gone.
+	Row(ctx context.Context, id string) (*repo.Deployment, error)
 }
 
 type Service struct {
@@ -722,7 +724,7 @@ func (s *Service) waitForDeployment(ctx context.Context, id string) error {
 			return fmt.Errorf("deployment %s did not finish within 10 minutes", id)
 		case <-tick.C:
 		}
-		d, err := s.Store.GetDeployment(ctx, id)
+		d, err := s.Rows.Row(ctx, id)
 		if err != nil {
 			return err
 		}
