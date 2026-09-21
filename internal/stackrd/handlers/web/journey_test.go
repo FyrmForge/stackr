@@ -18,6 +18,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/FyrmForge/stackr/internal/stackrd/config/orgconf"
+	"github.com/FyrmForge/stackr/internal/stackrd/config/envops"
 	"github.com/FyrmForge/stackr/internal/stackrd/config/stackconf"
 	"github.com/FyrmForge/stackr/internal/stackrd/handlers/web"
 	"github.com/FyrmForge/stackr/internal/stackrd/handlers/web/components"
@@ -88,7 +89,18 @@ func newJourney(t *testing.T) *journey {
 	)
 	require.NoError(t, err, "server")
 	hub := websocket.NewHub()
-	applier := stackconf.Applier{Planner: stackconf.Planner{Store: store, Src: src}}
+	// Ops carries the services an apply writes its rows through. Leaving it
+	// zero used to be fine, because the applier wrote the store itself; now a
+	// missing service is a nil pointer inside a work-queue job, which surfaces
+	// as "the apply never finished" rather than as a stack trace.
+	gate := service.NewGateService(store)
+	ops := envops.Ops{
+		Store: store,
+		Tiles: service.NewTileService(store, nil, nil, nil, nil, nil, gate),
+		Vars:  service.NewVariableService(store, nil, nil, nil),
+	}
+	ops.Envs = service.NewEnvironmentService(store, &ops, nil, nil, gate)
+	applier := stackconf.Applier{Planner: stackconf.Planner{Store: store, Src: src}, Ops: ops}
 	// A real work queue, because the applies run on it now: an approve that
 	// cannot reach the runner is a 503, and the wizard's own plan screen is
 	// what waits for the job and then moves on.

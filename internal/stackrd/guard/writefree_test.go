@@ -387,7 +387,6 @@ const stillWriting = `
 1 internal/stackrd/config/orgconf/UpdateStack
 1 internal/stackrd/config/orgconf/UpdateStorage
 1 internal/stackrd/config/orgconf/UpdateTile
-2 internal/stackrd/config/orgconf/UpsertVariable
 1 internal/stackrd/config/sharelink/BurnDropLink
 3 internal/stackrd/config/sharelink/ClaimSecretLink
 1 internal/stackrd/config/sharelink/CreateSecretLink

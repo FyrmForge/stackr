@@ -714,7 +714,7 @@ func (r Runner) Apply(ctx context.Context, org *repo.Org, cp *repo.ConfigPlan) e
 
 	// Vars + generated secrets.
 	for _, name := range sortedKeys(f.Vars) {
-		if err := r.Store.UpsertVariable(ctx, &repo.Variable{OwnerKind: repo.OwnerOrg, OwnerID: org.ID,
+		if err := r.Applier.Ops.Vars.Upsert(ctx, &repo.Variable{OwnerKind: repo.OwnerOrg, OwnerID: org.ID,
 			Name: name, Value: f.Vars[name], CreatedAt: now, UpdatedAt: now}); err != nil {
 			return err
 		}
@@ -731,7 +731,7 @@ func (r Runner) Apply(ctx context.Context, org *repo.Org, cp *repo.ConfigPlan) e
 		if sc.Default != "generated" || set[name] {
 			continue
 		}
-		if err := r.Store.UpsertVariable(ctx, &repo.Variable{OwnerKind: repo.OwnerOrg, OwnerID: org.ID,
+		if err := r.Applier.Ops.Vars.Upsert(ctx, &repo.Variable{OwnerKind: repo.OwnerOrg, OwnerID: org.ID,
 			Name: name, Secret: true, Value: secrets.Generate(sc.GenLength(), sc.IncludeNumbers, sc.IncludeSymbols),
 			CreatedAt: now, UpdatedAt: now}); err != nil {
 			return err
