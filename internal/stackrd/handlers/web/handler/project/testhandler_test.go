@@ -19,7 +19,7 @@ func testHandler(s repo.Store) *handler {
 	return &handler{
 		store:      s,
 		envs:       envs,
-		vars:       service.NewVariableService(s, nil, nil, nil),
+		vars:       service.NewVariableService(s, nil, nil, nil, nil),
 		stacks:     service.NewStackService(s, nil, nil, envs, nil, gate, nil),
 		tiles:      service.NewTileService(s, nil, nil, nil, nil, nil, gate),
 		orgs:       service.NewOrgService(s),

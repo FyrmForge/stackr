@@ -610,7 +610,7 @@ func main() {
 	// One owner for every write to the variables table. The replanner is the
 	// config planner, which detaches its own walk: a variable write must not
 	// wait on one, and the API's request budget could not have afforded it.
-	vars := service.NewVariableService(store, deploySvc, applier.Planner, notifier)
+	vars := service.NewVariableService(store, deploySvc, tiles, applier.Planner, notifier)
 
 	// Registry watcher (per-tile update_policy) on a 1-minute janitor tick;
 	// the real cadence is the image_check_interval setting, due-checked
@@ -644,7 +644,7 @@ func main() {
 	// And the other half of rows, declared near the top: everything under
 	// infra/ has been holding this pointer since before either service
 	// existed.
-	rows.Envs, rows.Tiles = envSvc, tiles
+	rows.Envs, rows.Tiles, rows.Deploys = envSvc, tiles, deploySvc
 	// The proxy is built near the top and records where traefik landed on
 	// each environment's overlay, which is a write to the environment row.
 	px.UseEnvs(envSvc)

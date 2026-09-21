@@ -22,7 +22,7 @@ func wiredOps(store repo.Store) envops.Ops {
 	o := envops.Ops{
 		Store: store,
 		Tiles: service.NewTileService(store, nil, nil, nil, nil, nil, gate),
-		Vars:  service.NewVariableService(store, nil, nil, nil),
+		Vars:  service.NewVariableService(store, nil, nil, nil, nil),
 	}
 	// The knot main.go has: the environment service tears down through Ops,
 	// and Ops writes its rows back through the environment service.

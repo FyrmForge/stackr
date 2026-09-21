@@ -719,7 +719,7 @@ func (r Runner) Apply(ctx context.Context, org *repo.Org, cp *repo.ConfigPlan) e
 			return err
 		}
 		audit.Record(ctx, r.Store, "config:"+org.Slug, audit.Set, repo.OwnerOrg, org.ID, name)
-		deploy.ClearWaitingOrg(ctx, r.Store, org.ID, name)
+		deploy.ClearWaitingOrg(ctx, r.Store, r.Applier.Ops.Tiles, org.ID, name)
 	}
 	cur, _ := r.Store.ListVariables(ctx, repo.OwnerOrg, org.ID)
 	set := map[string]bool{}
@@ -739,7 +739,7 @@ func (r Runner) Apply(ctx context.Context, org *repo.Org, cp *repo.ConfigPlan) e
 		// A generated secret is a value nobody chose and nobody can read back
 		// off the file: the audit row is the only record it was ever minted.
 		audit.Record(ctx, r.Store, "config:"+org.Slug, audit.Set, repo.OwnerOrg, org.ID, name)
-		deploy.ClearWaitingOrg(ctx, r.Store, org.ID, name)
+		deploy.ClearWaitingOrg(ctx, r.Store, r.Applier.Ops.Tiles, org.ID, name)
 	}
 
 	// Org domain resources before the stacks: a stack's own auto-hostname

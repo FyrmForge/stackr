@@ -414,9 +414,6 @@ const stillWriting = `
 1 internal/stackrd/handlers/web/TouchOrgRegistryCredential
 1 internal/stackrd/infra/backup/CreateBackupRun
 2 internal/stackrd/infra/backup/UpdateBackupRun
-3 internal/stackrd/infra/deploy/CreateDeployment
-11 internal/stackrd/infra/deploy/UpdateDeployment
-5 internal/stackrd/infra/deploy/UpdateTileStatus
 1 internal/stackrd/infra/githubapp/CreateConnector
 1 internal/stackrd/infra/githubapp/UpdateConnector
 1 internal/stackrd/infra/jobs/CreateCronRun
@@ -553,6 +550,5 @@ const stillAuditing = `
 2 internal/stackrd/config/stackconf
 2 internal/stackrd/handlers/api/v1
 3 internal/stackrd/handlers/middleware
-1 internal/stackrd/handlers/web/handler/org
 1 internal/stackrd/infra/managedtiles
 `

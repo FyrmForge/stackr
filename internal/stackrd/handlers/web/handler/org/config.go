@@ -3,7 +3,6 @@ package org
 import (
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/FyrmForge/hamr/pkg/middleware"
 	"github.com/FyrmForge/hamr/pkg/respond"
@@ -11,9 +10,8 @@ import (
 
 	"github.com/FyrmForge/stackr/internal/stackrd/config/orgconf"
 	stackrmw "github.com/FyrmForge/stackr/internal/stackrd/handlers/middleware"
-	"github.com/FyrmForge/stackr/internal/stackrd/infra/deploy"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/githubapp"
-	"github.com/FyrmForge/stackr/internal/stackrd/store/audit"
+	"github.com/FyrmForge/stackr/internal/stackrd/service"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 )
 
@@ -171,15 +169,14 @@ func (h *handler) SetPlanInput(c echo.Context) error {
 	if val == "" {
 		return echo.NewHTTPError(http.StatusBadRequest, "a value is required")
 	}
-	now := time.Now().UTC()
-	if err := h.vars.Upsert(ctx, &repo.Variable{
-		OwnerKind: repo.OwnerOrg, OwnerID: o.ID, Name: name,
-		Value: val, Secret: true, CreatedAt: now, UpdatedAt: now,
-	}); err != nil {
+	// Set, not Upsert: this used to be an Upsert followed by the handler's own
+	// copy of the audit row and the waiting-release, which is the service's
+	// job written out a second time. Upsert is the raw door and skips both.
+	if err := h.vars.Set(ctx, service.OrgVars(o.ID),
+		[]service.VarWrite{{Name: name, Value: val, Secret: true}},
+		stackrmw.WebActor(c)); err != nil {
 		return err
 	}
-	audit.Record(ctx, h.store, stackrmw.AuditActor(c), audit.Set, repo.OwnerOrg, o.ID, name)
-	deploy.ClearWaitingOrg(ctx, h.store, o.ID, name)
 	var np *repo.ConfigPlan
 	if h.orgcfg != nil {
 		var perr error

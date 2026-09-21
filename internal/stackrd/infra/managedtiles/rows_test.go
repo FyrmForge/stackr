@@ -29,4 +29,8 @@ func (r storeRows) SetProxy(ctx context.Context, envID, ip, cidr string) error {
 	return r.s.SetEnvironmentProxy(ctx, envID, ip, cidr)
 }
 
+func (r storeRows) SetTileStatus(ctx context.Context, tileID, status string) error {
+	return r.s.UpdateTileStatus(ctx, tileID, status)
+}
+
 func testRows(s repo.Store) Rows { return storeRows{s: s} }

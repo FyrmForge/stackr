@@ -546,3 +546,12 @@ func (s *TileService) Save(ctx context.Context, t *repo.Tile) error {
 func (s *TileService) SetSharedNet(ctx context.Context, tileID, name string) error {
 	return s.store.SetTileSharedNet(ctx, tileID, name)
 }
+
+// SetStatus records what a tile is doing: building, running, stopped, errored.
+//
+// Runtime state rather than config, and written from four places below this
+// package — the deploy engine, the metrics reconciler, the volume mover, the
+// waiting sweeper. All four used to write the column themselves.
+func (s *TileService) SetStatus(ctx context.Context, tileID, status string) error {
+	return s.store.UpdateTileStatus(ctx, tileID, status)
+}

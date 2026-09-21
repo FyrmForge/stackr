@@ -64,7 +64,7 @@ func apiFor(s *sqlite.Store) *API {
 		WithMembers(service.NewMemberService(s, nil, service.NewRevokeService(s, nil))).
 		WithInstances(service.NewManagedInstanceService(s, nil, tiles, gate, nil)).
 		WithSlices(service.NewSliceService(s, nil, nil, nil)).
-		WithVariables(service.NewVariableService(s, nil, nil, nil)).
+		WithVariables(service.NewVariableService(s, nil, nil, nil, nil)).
 		WithLifecycle(service.NewTileLifecycleService(s, nil, nil, nil, nil, nil)).
 		WithDomains(service.NewDomainService(s, nil, gate)).
 		WithDomainResources(service.NewDomainResourceService(s, nil)).

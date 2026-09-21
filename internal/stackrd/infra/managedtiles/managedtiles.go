@@ -285,6 +285,7 @@ type Rows interface {
 	SetNetwork(ctx context.Context, envID, network string) error
 	SetSharedNet(ctx context.Context, tileID, name string) error
 	SetProxy(ctx context.Context, envID, ip, cidr string) error
+	SetTileStatus(ctx context.Context, tileID, status string) error
 }
 
 func NewService(c *cluster.Cluster, store repo.Store, rows Rows) *Service {

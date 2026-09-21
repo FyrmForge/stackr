@@ -1,6 +1,10 @@
 package service
 
-import "context"
+import (
+	"context"
+
+	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
+)
 
 // Rows is the row-owning services, bundled for the layer below.
 //
@@ -21,6 +25,23 @@ import "context"
 type Rows struct {
 	Envs  *EnvironmentService
 	Tiles *TileService
+	// Deploys is filled after the deploy engine exists, because the service
+	// is built on the engine and the engine holds this. Only the engine
+	// reaches these two methods, and only while running a deploy — long
+	// after the assignment.
+	Deploys *DeployService
+}
+
+func (r Rows) SetTileStatus(ctx context.Context, tileID, status string) error {
+	return r.Tiles.SetStatus(ctx, tileID, status)
+}
+
+func (r Rows) RecordDeployment(ctx context.Context, d *repo.Deployment) error {
+	return r.Deploys.Record(ctx, d)
+}
+
+func (r Rows) DeploymentProgress(ctx context.Context, d *repo.Deployment) error {
+	return r.Deploys.Progress(ctx, d)
 }
 
 func (r Rows) SetNetwork(ctx context.Context, envID, network string) error {

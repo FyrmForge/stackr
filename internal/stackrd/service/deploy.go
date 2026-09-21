@@ -152,6 +152,24 @@ func (s *DeployService) Get(ctx context.Context, id string) (*repo.Deployment, e
 	return d, nil
 }
 
+// --- the row the engine below writes ---
+//
+// A deployment row is state, not config: nothing here has a rule to check,
+// and the engine is the only caller. What moves is who owns the table, so
+// that the next thing wanting to write a deployment has one door to find
+// rather than a store handle and a guess.
+
+// Record inserts a deployment row.
+func (s *DeployService) Record(ctx context.Context, d *repo.Deployment) error {
+	return s.store.CreateDeployment(ctx, d)
+}
+
+// Progress persists a deployment row the engine has moved on: a new status, a
+// stage, a finish time.
+func (s *DeployService) Progress(ctx context.Context, d *repo.Deployment) error {
+	return s.store.UpdateDeployment(ctx, d)
+}
+
 // ForTile is a tile's most recent deployments, newest first. Live is the
 // narrower question — which of them are still running — and stays separate.
 func (s *DeployService) ForTile(ctx context.Context, tileID string, limit int) ([]repo.Deployment, error) {

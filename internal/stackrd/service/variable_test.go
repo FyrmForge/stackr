@@ -35,7 +35,7 @@ func (v *varStore) ListTilesByStack(context.Context, string) ([]repo.Tile, error
 	return nil, nil
 }
 
-func varSvc(st repo.Store) *VariableService { return NewVariableService(st, nil, nil, nil) }
+func varSvc(st repo.Store) *VariableService { return NewVariableService(st, nil, nil, nil, nil) }
 
 // SP1: the panel's name rule is the rule. The API accepted any non-empty
 // string, so a name with a space in it stored fine and then produced a

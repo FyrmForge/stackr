@@ -71,14 +71,18 @@ type VariableService struct {
 	store repo.Store
 	// deploys owns the redeploy-if-running rule. This used to be a private
 	// copy of it, beside three more in the panel's own handlers.
-	deploys  *DeployService
+	deploys *DeployService
+	// tiles owns the tile row, including its status. Releasing a deploy
+	// parked on a variable is a status write, and this package used to make
+	// it against the store.
+	tiles    *TileService
 	plan     Replanner
 	notifier *notify.Notifier
 }
 
-func NewVariableService(store repo.Store, deploys *DeployService, plan Replanner,
-	n *notify.Notifier) *VariableService {
-	return &VariableService{store: store, deploys: deploys, plan: plan, notifier: n}
+func NewVariableService(store repo.Store, deploys *DeployService, tiles *TileService,
+	plan Replanner, n *notify.Notifier) *VariableService {
+	return &VariableService{store: store, deploys: deploys, tiles: tiles, plan: plan, notifier: n}
 }
 
 // Set writes the named variables and leaves everything else alone. The verb
@@ -214,11 +218,11 @@ func (s *VariableService) remove(ctx context.Context, owner VarOwner, name strin
 func (s *VariableService) clearWaiting(ctx context.Context, owner VarOwner, name string) {
 	switch owner.Kind {
 	case repo.OwnerEnv:
-		deploy.ClearWaitingEnv(ctx, s.store, owner.ID, name)
+		deploy.ClearWaitingEnv(ctx, s.store, s.tiles, owner.ID, name)
 	case repo.OwnerStack:
-		deploy.ClearWaiting(ctx, s.store, name, owner.ID)
+		deploy.ClearWaiting(ctx, s.store, s.tiles, name, owner.ID)
 	case repo.OwnerOrg:
-		deploy.ClearWaitingOrg(ctx, s.store, owner.ID, name)
+		deploy.ClearWaitingOrg(ctx, s.store, s.tiles, owner.ID, name)
 	}
 }
 

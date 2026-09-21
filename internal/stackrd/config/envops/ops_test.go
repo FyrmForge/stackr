@@ -22,7 +22,7 @@ func ops(t *testing.T, s repo.Store) envops.Ops {
 	t.Helper()
 	o := envops.Ops{
 		Store: s,
-		Vars:  service.NewVariableService(s, nil, nil, nil),
+		Vars:  service.NewVariableService(s, nil, nil, nil, nil),
 	}
 	// The same knot main.go has: the environment service tears down through
 	// Ops, and Ops deletes its rows through the environment service.

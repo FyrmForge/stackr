@@ -97,7 +97,7 @@ func newJourney(t *testing.T) *journey {
 	ops := envops.Ops{
 		Store: store,
 		Tiles: service.NewTileService(store, nil, nil, nil, nil, nil, gate),
-		Vars:  service.NewVariableService(store, nil, nil, nil),
+		Vars:  service.NewVariableService(store, nil, nil, nil, nil),
 	}
 	ops.Envs = service.NewEnvironmentService(store, &ops, nil, nil, gate)
 	applier := stackconf.Applier{Planner: stackconf.Planner{Store: store, Src: src}, Ops: ops}
@@ -141,7 +141,7 @@ func newJourney(t *testing.T) *journey {
 		Stacks: service.NewStackService(store, nil, nil,
 			service.NewEnvironmentService(store, nil, nil, nil, service.NewGateService(store)),
 			nil, service.NewGateService(store), nil),
-		Variables: service.NewVariableService(store, nil, nil, nil),
+		Variables: service.NewVariableService(store, nil, nil, nil, nil),
 		OrgConfig: orgRunner,
 		Work:      work,
 		Access:    service.NewAccessService(store),

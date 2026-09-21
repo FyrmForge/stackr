@@ -49,11 +49,14 @@ type Engine struct {
 	hub      *stream.Hub
 	notifier *notify.Notifier
 	dataDir  string
-	// rows is the services that own rows a deploy touches but this package
-	// does not: the environment's overlay, a shared instance's overlay, the
-	// proxy address. managedtiles.Rows is the same set, so one field serves
-	// both this package and the managed-tile service it builds.
-	rows managedtiles.Rows
+	// rows is the services that own the rows a deploy writes: the deployment
+	// itself, the tile's status, the environment's overlay, a shared
+	// instance's overlay, the proxy address.
+	//
+	// Rows is the superset of managedtiles.Rows so one field serves both this
+	// package and the managed-tile service it builds. service.Rows satisfies
+	// it; nothing else should.
+	rows Rows
 
 	// GitAuth optionally returns extra environment lines (GIT_CONFIG_*) that
 	// authenticate the tile's fetch/clone (e.g. a GitHub App installation
@@ -134,7 +137,7 @@ func (e *Engine) WithWork(q *workqueue.Queue) *Engine {
 			d.Status = "cancelled"
 			d.Error = "superseded by a newer deploy"
 			d.FinishedAt = sql.NullTime{Time: time.Now().UTC(), Valid: true}
-			if err := e.store.UpdateDeployment(ctx, d); err != nil {
+			if err := e.rows.DeploymentProgress(ctx, d); err != nil {
 				slog.Error("superseded deploy not marked cancelled", "deployment", d.ID, "error", err)
 			}
 			e.hub.Publish("deploy-status:"+d.ID, "cancelled")
@@ -160,7 +163,7 @@ func (e *Engine) reopen(ctx context.Context, deploymentID string) error {
 	d.Status = "queued"
 	d.Error = ""
 	d.FinishedAt = sql.NullTime{}
-	return e.store.UpdateDeployment(ctx, d)
+	return e.rows.DeploymentProgress(ctx, d)
 }
 
 // dispatch hands a queued deployment to whichever runner is wired.
@@ -184,13 +187,25 @@ func (e *Engine) dispatch(ctx context.Context, d *repo.Deployment) error {
 func (e *Engine) failQueued(ctx context.Context, d *repo.Deployment, msg string) error {
 	d.Status = "error"
 	d.Error = msg
-	if err := e.store.UpdateDeployment(ctx, d); err != nil {
+	if err := e.rows.DeploymentProgress(ctx, d); err != nil {
 		slog.Error("queued deploy not marked failed", "deployment", d.ID, "error", err)
 	}
 	return fmt.Errorf("%s", msg)
 }
 
-func NewEngine(store repo.Store, rt *runtime.Runtime, clus *cluster.Cluster, hub *stream.Hub, dataDir string, notifier *notify.Notifier, rows managedtiles.Rows) *Engine {
+// Rows is what a deploy writes that is not this package's to own. Declared
+// here rather than imported because service/ is built on top of this package.
+//
+// A deployment row and a tile status are state, not config — there is no rule
+// on the other side of these. What the indirection buys is one owner per
+// table, so the next writer has a door to find instead of a store handle.
+type Rows interface {
+	managedtiles.Rows
+	RecordDeployment(ctx context.Context, d *repo.Deployment) error
+	DeploymentProgress(ctx context.Context, d *repo.Deployment) error
+}
+
+func NewEngine(store repo.Store, rt *runtime.Runtime, clus *cluster.Cluster, hub *stream.Hub, dataDir string, notifier *notify.Notifier, rows Rows) *Engine {
 	e := &Engine{
 		store:    store,
 		rt:       rt,
@@ -230,7 +245,7 @@ func (e *Engine) Enqueue(ctx context.Context, app *repo.Tile, trigger string) (s
 		Trigger:   trigger,
 		CreatedAt: time.Now().UTC(),
 	}
-	if err := e.store.CreateDeployment(ctx, d); err != nil {
+	if err := e.rows.RecordDeployment(ctx, d); err != nil {
 		return "", err
 	}
 	if err := e.dispatch(ctx, d); err != nil {
@@ -297,7 +312,7 @@ func (e *Engine) enqueueImage(ctx context.Context, app *repo.Tile, trigger, imag
 		CommitSHA: commitSHA,
 		CreatedAt: time.Now().UTC(),
 	}
-	if err := e.store.CreateDeployment(ctx, d); err != nil {
+	if err := e.rows.RecordDeployment(ctx, d); err != nil {
 		return "", err
 	}
 	if err := e.dispatch(ctx, d); err != nil {
@@ -320,7 +335,7 @@ func (e *Engine) Cancel(ctx context.Context, deploymentID string) {
 	}
 	d.Status = "cancelled"
 	d.FinishedAt = sql.NullTime{Time: time.Now().UTC(), Valid: true}
-	if err := e.store.UpdateDeployment(ctx, d); err != nil {
+	if err := e.rows.DeploymentProgress(ctx, d); err != nil {
 		slog.Error("deploy not marked cancelled", "deployment", d.ID, "error", err)
 	}
 }
@@ -338,7 +353,7 @@ func (e *Engine) Park(ctx context.Context, app *repo.Tile, trigger, commitSHA st
 		CommitSHA: commitSHA,
 		CreatedAt: time.Now().UTC(),
 	}
-	if err := e.store.CreateDeployment(ctx, d); err != nil {
+	if err := e.rows.RecordDeployment(ctx, d); err != nil {
 		return "", err
 	}
 	e.hub.Publish("deploy-status:"+d.ID, "waiting_ci")
@@ -348,7 +363,7 @@ func (e *Engine) Park(ctx context.Context, app *repo.Tile, trigger, commitSHA st
 // Release moves a parked deployment into the build queue.
 func (e *Engine) Release(ctx context.Context, d *repo.Deployment) error {
 	d.Status = "queued"
-	if err := e.store.UpdateDeployment(ctx, d); err != nil {
+	if err := e.rows.DeploymentProgress(ctx, d); err != nil {
 		return err
 	}
 	return e.dispatch(ctx, d)
@@ -360,7 +375,7 @@ func (e *Engine) FailWaiting(ctx context.Context, d *repo.Deployment, msg string
 	d.Status = "error"
 	d.Error = msg
 	d.FinishedAt = sql.NullTime{Time: time.Now().UTC(), Valid: true}
-	if err := e.store.UpdateDeployment(ctx, d); err != nil {
+	if err := e.rows.DeploymentProgress(ctx, d); err != nil {
 		slog.Error("parked deploy not marked failed", "deployment", d.ID, "error", err)
 	}
 	e.hub.Publish("deploy-status:"+d.ID, "error")
@@ -380,7 +395,7 @@ func (e *Engine) SupersedeWaiting(ctx context.Context, tileID, note string) {
 		d.Status = "cancelled"
 		d.Error = note
 		d.FinishedAt = sql.NullTime{Time: time.Now().UTC(), Valid: true}
-		if err := e.store.UpdateDeployment(ctx, d); err != nil {
+		if err := e.rows.DeploymentProgress(ctx, d); err != nil {
 			slog.Error("deploy not marked cancelled", "deployment", d.ID, "error", err)
 		}
 		e.hub.Publish("deploy-status:"+d.ID, "cancelled")
@@ -478,10 +493,10 @@ func (e *Engine) run(deploymentID string) {
 
 	d.Status = "running"
 	d.StartedAt = sql.NullTime{Time: time.Now().UTC(), Valid: true}
-	if err := e.store.UpdateDeployment(ctx, d); err != nil {
+	if err := e.rows.DeploymentProgress(ctx, d); err != nil {
 		slog.Error("deploy not marked running", "deployment", d.ID, "error", err)
 	}
-	if err := e.store.UpdateTileStatus(ctx, app.ID, "building"); err != nil {
+	if err := e.rows.SetTileStatus(ctx, app.ID, "building"); err != nil {
 		slog.Error("tile not marked building", "tile", app.ID, "error", err)
 	}
 	e.hub.Publish("deploy-status:"+d.ID, "running")
@@ -514,7 +529,7 @@ func (e *Engine) run(deploymentID string) {
 			// the whole fix.
 			tileStatus = WaitingPrefix + name
 		}
-		if err := e.store.UpdateTileStatus(context.Background(), app.ID, tileStatus); err != nil {
+		if err := e.rows.SetTileStatus(context.Background(), app.ID, tileStatus); err != nil {
 			slog.Error("tile status not saved", "tile", app.ID, "status", tileStatus, "error", err)
 		}
 	} else {
@@ -526,11 +541,11 @@ func (e *Engine) run(deploymentID string) {
 		if pol, ok := runpolicy.For(app.Kind); ok && !pol.KeepAlive {
 			status = "idle"
 		}
-		if err := e.store.UpdateTileStatus(context.Background(), app.ID, status); err != nil {
+		if err := e.rows.SetTileStatus(context.Background(), app.ID, status); err != nil {
 			slog.Error("tile status not saved", "tile", app.ID, "status", status, "error", err)
 		}
 	}
-	if err := e.store.UpdateDeployment(context.Background(), d); err != nil {
+	if err := e.rows.DeploymentProgress(context.Background(), d); err != nil {
 		slog.Error("final deploy status not saved", "deployment", d.ID, "status", d.Status, "error", err)
 	}
 	e.hub.Publish("deploy-status:"+d.ID, d.Status)
@@ -615,7 +630,7 @@ func (e *Engine) pipeline(ctx context.Context, d *repo.Deployment, app *repo.Til
 		}
 		d.CommitSHA = sha
 		d.ImageTag = ""
-		if err := e.store.UpdateDeployment(ctx, d); err != nil {
+		if err := e.rows.DeploymentProgress(ctx, d); err != nil {
 			slog.Error("deploy commit not saved", "deployment", d.ID, "sha", sha, "error", err)
 		}
 
@@ -652,7 +667,7 @@ func (e *Engine) pipeline(ctx context.Context, d *repo.Deployment, app *repo.Til
 		}
 	}
 	d.ImageTag = imageRef
-	if err := e.store.UpdateDeployment(ctx, d); err != nil {
+	if err := e.rows.DeploymentProgress(ctx, d); err != nil {
 		slog.Error("deploy image tag not saved", "deployment", d.ID, "image", imageRef, "error", err)
 	}
 

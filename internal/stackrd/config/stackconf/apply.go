@@ -1842,9 +1842,9 @@ func (a Applier) ensureSecrets(ctx context.Context, stack *repo.Stack, r *Resolv
 			// And a tile parked waiting for this very name is released, which
 			// this path also skipped — the value it was waiting for now exists.
 			if v.OwnerKind == repo.OwnerEnv {
-				deploy.ClearWaitingEnv(ctx, store, v.OwnerID, name)
+				deploy.ClearWaitingEnv(ctx, store, a.Ops.Tiles, v.OwnerID, name)
 			} else {
-				deploy.ClearWaiting(ctx, store, name, v.OwnerID)
+				deploy.ClearWaiting(ctx, store, a.Ops.Tiles, name, v.OwnerID)
 			}
 		}
 	}
@@ -1886,7 +1886,7 @@ func (a Applier) applyVars(ctx context.Context, stack *repo.Stack, r *Resolved, 
 	}
 	if onlyEnv == "" {
 		if err := write(repo.OwnerStack, stack.ID, r.Vars, func(name string) {
-			deploy.ClearWaiting(ctx, store, name, stack.ID)
+			deploy.ClearWaiting(ctx, store, a.Ops.Tiles, name, stack.ID)
 		}); err != nil {
 			return err
 		}
@@ -1900,7 +1900,7 @@ func (a Applier) applyVars(ctx context.Context, stack *repo.Stack, r *Resolved, 
 			continue
 		}
 		if err := write(repo.OwnerEnv, env.ID, r.Envs[envName].Vars, func(name string) {
-			deploy.ClearWaitingEnv(ctx, store, env.ID, name)
+			deploy.ClearWaitingEnv(ctx, store, a.Ops.Tiles, env.ID, name)
 		}); err != nil {
 			return err
 		}

@@ -35,17 +35,17 @@ func TestWaitingTiles(t *testing.T) {
 	require.Equal(t, "SESSION_SECRET", WaitingFor(tile.Status))
 	require.Empty(t, WaitingFor("error"), "an ordinary failure is not a wait")
 
-	ClearWaiting(ctx, store, "OTHER", seed.Stack.ID)
+	ClearWaiting(ctx, store, storeRows{s: store}, "OTHER", seed.Stack.ID)
 	after, err := store.GetTile(ctx, tile.ID)
 	require.NoError(t, err)
 	require.Equal(t, WaitingPrefix+"SESSION_SECRET", after.Status, "another name must not release it")
 
-	ClearWaiting(ctx, store, "SESSION_SECRET", "some-other-stack")
+	ClearWaiting(ctx, store, storeRows{s: store}, "SESSION_SECRET", "some-other-stack")
 	after, err = store.GetTile(ctx, tile.ID)
 	require.NoError(t, err)
 	require.Equal(t, WaitingPrefix+"SESSION_SECRET", after.Status, "the same name in another stack is another tenant's variable")
 
-	ClearWaitingOrg(ctx, store, seed.Stack.OrgID, "SESSION_SECRET")
+	ClearWaitingOrg(ctx, store, storeRows{s: store}, seed.Stack.OrgID, "SESSION_SECRET")
 	after, err = store.GetTile(ctx, tile.ID)
 	require.NoError(t, err)
 	require.Equal(t, "stopped", after.Status, "setting the value leaves a tile that is simply not running")
