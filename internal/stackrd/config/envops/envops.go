@@ -130,7 +130,7 @@ func (o Ops) CloneTiles(ctx context.Context, env *repo.Environment) error {
 			return err
 		}
 		if t.IsManaged() {
-			managedtiles.PublishConnection(ctx, o.Store, t)
+			managedtiles.PublishConnection(ctx, o.Store, o.Rows(), t)
 		}
 		// Auto domains are opt-in now: the clone inherits the intent only if
 		// the base tile carried a generated hostname.

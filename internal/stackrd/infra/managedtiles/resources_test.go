@@ -21,12 +21,22 @@ import (
 // This file is the external test package, so it can name service/ — the
 // in-package tests cannot, and use a store-backed fake instead (rows_test.go).
 func svc(s *sqlite.Store) *managedtiles.Service {
+	return managedtiles.NewService(nil, s, svcRows(s))
+}
+
+// svcRows is the real bundle of row owners, which only this file can build:
+// the in-package tests would import service/ into its own dependency and
+// cycle.
+func svcRows(s *sqlite.Store) service.Rows {
 	gate := service.NewGateService(s)
-	rows := service.Rows{
-		Envs:  service.NewEnvironmentService(s, nil, nil, nil, gate),
-		Tiles: service.NewTileService(s, nil, nil, nil, nil, nil, gate),
+	tiles := service.NewTileService(s, nil, nil, nil, nil, nil, gate)
+	return service.Rows{
+		Envs:      service.NewEnvironmentService(s, nil, nil, nil, gate),
+		Tiles:     tiles,
+		Vars:      service.NewVariableService(s, nil, tiles, nil, nil),
+		Slices:    service.NewSliceService(s, nil, nil, nil),
+		Instances: service.NewManagedInstanceService(s, nil, tiles, gate, nil),
 	}
-	return managedtiles.NewService(nil, s, rows)
 }
 
 func instance(t *testing.T, s *sqlite.Store, seed testdb.Seed, engine string) *repo.Tile {
@@ -151,7 +161,7 @@ func TestPublishConnection(t *testing.T) {
 	inst := instance(t, s, seed, "postgres")
 	inst.DBName, inst.DBUser, inst.DBPassword = "app", "app", "pw"
 
-	managedtiles.PublishConnection(ctx, s, inst)
+	managedtiles.PublishConnection(ctx, s, svcRows(s), inst)
 
 	vars, err := s.ListVariables(ctx, repo.OwnerTile, inst.ID)
 	require.NoError(t, err, "list")
@@ -174,7 +184,7 @@ func TestPublishConnection(t *testing.T) {
 	before := got["DATABASE_URL"].Value
 	inst.Slug, inst.Name = "renamed", "renamed"
 	require.NoError(t, s.UpdateTile(ctx, inst.ID, inst.TileConfig), "rename")
-	managedtiles.PublishConnection(ctx, s, inst)
+	managedtiles.PublishConnection(ctx, s, svcRows(s), inst)
 	after, err := s.ListVariables(ctx, repo.OwnerTile, inst.ID)
 	require.NoError(t, err, "list after rename")
 	for _, v := range after {

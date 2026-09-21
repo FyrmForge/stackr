@@ -1007,7 +1007,7 @@ func (r Runner) applyShared(ctx context.Context, org *repo.Org, f *File, failed 
 		if err := r.Store.CreateTile(ctx, t); err != nil {
 			return err
 		}
-		managedtiles.PublishConnection(ctx, r.Store, t)
+		managedtiles.PublishConnection(ctx, r.Store, r.Applier.Ops.Rows(), t)
 		if r.Applier.Instances != nil {
 			if err := r.Applier.Instances.Deploy(ctx, t); err != nil {
 				*failed = append(*failed, fmt.Sprintf("shared %s: deploy: %v", name, err))

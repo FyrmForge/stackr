@@ -33,4 +33,55 @@ func (r storeRows) SetTileStatus(ctx context.Context, tileID, status string) err
 	return r.s.UpdateTileStatus(ctx, tileID, status)
 }
 
+func (r storeRows) SetTileImageDigest(ctx context.Context, tileID, digest string) error {
+	return r.s.SetTileImageDigest(ctx, tileID, digest)
+}
+
+func (r storeRows) SaveTile(ctx context.Context, t *repo.Tile) error {
+	return r.s.UpdateTile(ctx, t.ID, t.TileConfig)
+}
+
+func (r storeRows) RecordProvision(ctx context.Context, p *repo.Provision) error {
+	return r.s.CreateProvision(ctx, p)
+}
+
+func (r storeRows) UpdateProvision(ctx context.Context, p *repo.Provision) error {
+	return r.s.UpdateProvision(ctx, p)
+}
+
+func (r storeRows) RemoveProvision(ctx context.Context, id string) error {
+	return r.s.DeleteProvision(ctx, id)
+}
+
+func (r storeRows) SaveResource(ctx context.Context, res *repo.ManagedResource, create bool) error {
+	if create {
+		return r.s.CreateResource(ctx, res)
+	}
+	return r.s.UpdateResource(ctx, res)
+}
+
+func (r storeRows) RemoveResource(ctx context.Context, id string) error {
+	return r.s.DeleteResource(ctx, id)
+}
+
+func (r storeRows) SaveOutput(ctx context.Context, o *repo.ResourceOutput) error {
+	return r.s.UpsertOutput(ctx, o)
+}
+
+func (r storeRows) Bind(ctx context.Context, b *repo.ResourceBinding) error {
+	return r.s.CreateBinding(ctx, b)
+}
+
+func (r storeRows) Unbind(ctx context.Context, resourceID, consumerTileID string) error {
+	return r.s.DeleteBinding(ctx, resourceID, consumerTileID)
+}
+
+func (r storeRows) UpsertVariable(ctx context.Context, v *repo.Variable) error {
+	return r.s.UpsertVariable(ctx, v)
+}
+
+func (r storeRows) RemoveVariable(ctx context.Context, ownerKind, ownerID, name string) error {
+	return r.s.DeleteVariable(ctx, ownerKind, ownerID, name)
+}
+
 func testRows(s repo.Store) Rows { return storeRows{s: s} }

@@ -340,6 +340,29 @@ func (s *SliceService) changed(instance *repo.Tile) {
 // --- reads ---
 
 // Get is one provision by id.
+// --- the provisions row, for the engine below ---
+//
+// A provision is the record of a database or bucket carved out of a managed
+// instance. The carving is infra/managedtiles' job; the row is this
+// package's, and managedtiles was writing it directly — nine sites.
+
+// Record inserts a provision row.
+func (s *SliceService) Record(ctx context.Context, p *repo.Provision) error {
+	return s.store.CreateProvision(ctx, p)
+}
+
+// Update persists a provision row the caller has moved: a new owner, a
+// retention policy, a public flag, a removal mark.
+func (s *SliceService) Update(ctx context.Context, p *repo.Provision) error {
+	return s.store.UpdateProvision(ctx, p)
+}
+
+// Remove deletes a provision row. Drop is the door with the database
+// deletion behind it; this is the row alone.
+func (s *SliceService) Remove(ctx context.Context, id string) error {
+	return s.store.DeleteProvision(ctx, id)
+}
+
 func (s *SliceService) Get(ctx context.Context, id string) (*repo.Provision, error) {
 	p, err := s.store.GetProvision(ctx, id)
 	if err != nil {

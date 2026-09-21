@@ -286,11 +286,35 @@ type Rows interface {
 	SetSharedNet(ctx context.Context, tileID, name string) error
 	SetProxy(ctx context.Context, envID, ip, cidr string) error
 	SetTileStatus(ctx context.Context, tileID, status string) error
+	SetTileImageDigest(ctx context.Context, tileID, digest string) error
+	SaveTile(ctx context.Context, t *repo.Tile) error
+
+	// provisions: the slice this package carves, as a row.
+	RecordProvision(ctx context.Context, p *repo.Provision) error
+	UpdateProvision(ctx context.Context, p *repo.Provision) error
+	RemoveProvision(ctx context.Context, id string) error
+
+	// managed_resources and what hangs off them.
+	SaveResource(ctx context.Context, r *repo.ManagedResource, create bool) error
+	RemoveResource(ctx context.Context, id string) error
+	SaveOutput(ctx context.Context, o *repo.ResourceOutput) error
+	Bind(ctx context.Context, b *repo.ResourceBinding) error
+	Unbind(ctx context.Context, resourceID, consumerTileID string) error
+
+	// variables: a managed tile publishes its connection details as the
+	// consumer's env, which is a secret write with auditing on the far side.
+	UpsertVariable(ctx context.Context, v *repo.Variable) error
+	RemoveVariable(ctx context.Context, ownerKind, ownerID, name string) error
 }
 
 func NewService(c *cluster.Cluster, store repo.Store, rows Rows) *Service {
 	return &Service{c: c, store: store, rows: rows}
 }
+
+// Rows hands back the row owners this service was built with, for the callers
+// one layer up that need the same bundle and would otherwise assemble a
+// second one.
+func (s *Service) Rows() Rows { return s.rows }
 
 // locate is where an instance's container is right now, id and node, from
 // swarm task state. The local socket only answers for the manager, so an
@@ -399,7 +423,7 @@ func URL(d *repo.Tile) string {
 //
 // They live as tile variables rather than a managed resource because a
 // resource sharing the tile's slug would make every reference ambiguous.
-func PublishConnection(ctx context.Context, store repo.Store, d *repo.Tile) {
+func PublishConnection(ctx context.Context, store repo.Store, rows Rows, d *repo.Tile) {
 	now := time.Now().UTC()
 	// What is already stored, so a refresh that changes nothing writes no
 	// audit row. This runs on every deploy of a database tile, and a row per
@@ -411,7 +435,7 @@ func PublishConnection(ctx context.Context, store repo.Store, d *repo.Tile) {
 		}
 	}
 	for _, c := range Conn(d) {
-		_ = store.UpsertVariable(ctx, &repo.Variable{OwnerKind: repo.OwnerTile, OwnerID: d.ID,
+		_ = rows.UpsertVariable(ctx, &repo.Variable{OwnerKind: repo.OwnerTile, OwnerID: d.ID,
 			Name: c.Name, Value: c.Value, Secret: c.Secret, CreatedAt: now, UpdatedAt: now})
 		if c.Secret && had[c.Name] != c.Value {
 			audit.Record(ctx, store, "system:managed-tile", audit.Set, repo.OwnerTile, d.ID, c.Name)
@@ -463,7 +487,7 @@ func (s *Service) Deploy(ctx context.Context, d *repo.Tile) error {
 
 	// Self-heal: republish the tile's connection details so a consumer that
 	// references them resolves current values even after a password rotation.
-	PublishConnection(ctx, s.store, d)
+	PublishConnection(ctx, s.store, s.rows, d)
 	env := eng.Env(d)
 	extra, err := s.declaredEnv(ctx, d)
 	if err != nil {
@@ -527,7 +551,7 @@ func (s *Service) Deploy(ctx context.Context, d *repo.Tile) error {
 	// Managed deploys bypass the engine's OnFinish, so baseline the image
 	// digest here or the registry watcher never learns what runs.
 	if dg, err := s.c.LocalDigest(ctx, d.ImageRef); err == nil && dg != "" {
-		_ = s.store.SetTileImageDigest(ctx, d.ID, dg)
+		_ = s.rows.SetTileImageDigest(ctx, d.ID, dg)
 	}
 	return nil
 }

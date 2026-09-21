@@ -61,7 +61,7 @@ func (s *Service) ProvisionSlice(ctx context.Context, instance *repo.Tile, envID
 		}
 		p.ResourceSlug = slug
 		p.Status = "active"
-		if err := s.store.UpdateProvision(ctx, p); err != nil {
+		if err := s.rows.UpdateProvision(ctx, p); err != nil {
 			return nil, err
 		}
 		if public != p.Public && Engines[instance.Engine].PublicSlices {
@@ -78,7 +78,7 @@ func (s *Service) ProvisionSlice(ctx context.Context, instance *repo.Tile, envID
 		return nil, err
 	}
 	p.ResourceSlug = slug
-	if err := s.store.UpdateProvision(ctx, p); err != nil {
+	if err := s.rows.UpdateProvision(ctx, p); err != nil {
 		return nil, err
 	}
 	// Re-sync renames the hook-created resource onto the config key.
@@ -94,7 +94,7 @@ func (s *Service) CloneSlice(ctx context.Context, instance *repo.Tile, envID, sl
 		return nil, err
 	}
 	p.ResourceSlug = slug
-	if err := s.store.UpdateProvision(ctx, p); err != nil {
+	if err := s.rows.UpdateProvision(ctx, p); err != nil {
 		return nil, err
 	}
 	return p, s.SyncResource(ctx, instance, p)
@@ -125,7 +125,7 @@ func (s *Service) AttachExisting(ctx context.Context, instance *repo.Tile, src *
 		Public:         src.Public, // shares the source slice's visibility
 		CreatedAt:      time.Now().UTC(),
 	}
-	if err := s.store.CreateProvision(ctx, p); err != nil {
+	if err := s.rows.RecordProvision(ctx, p); err != nil {
 		return nil, err
 	}
 	if err := s.SyncResource(ctx, instance, p); err != nil {
@@ -142,7 +142,7 @@ func (s *Service) Detach(ctx context.Context, p *repo.Provision) error {
 	}
 	p.ConsumerTileID = ""
 	p.Status = "orphaned"
-	return s.store.UpdateProvision(ctx, p)
+	return s.rows.UpdateProvision(ctx, p)
 }
 
 // DropDB destroys a provisioned slice (logical database, bucket) and removes
@@ -173,7 +173,7 @@ func (s *Service) DropDB(ctx context.Context, instance *repo.Tile, dbName string
 	}
 	for i := range rows {
 		s.dropResource(ctx, instance, &rows[i])
-		if err := s.store.DeleteProvision(ctx, rows[i].ID); err != nil {
+		if err := s.rows.RemoveProvision(ctx, rows[i].ID); err != nil {
 			return err
 		}
 	}

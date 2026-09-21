@@ -30,6 +30,59 @@ type Rows struct {
 	// reaches these two methods, and only while running a deploy — long
 	// after the assignment.
 	Deploys *DeployService
+	// Slices, Instances and Vars are filled at the same point and for the
+	// same reason: all three are built on infra packages that hold this.
+	Slices    *SliceService
+	Instances *ManagedInstanceService
+	Vars      *VariableService
+}
+
+func (r Rows) SetTileImageDigest(ctx context.Context, tileID, digest string) error {
+	return r.Tiles.SetImageDigest(ctx, tileID, digest)
+}
+
+func (r Rows) SaveTile(ctx context.Context, t *repo.Tile) error {
+	return r.Tiles.Save(ctx, t)
+}
+
+func (r Rows) RecordProvision(ctx context.Context, p *repo.Provision) error {
+	return r.Slices.Record(ctx, p)
+}
+
+func (r Rows) UpdateProvision(ctx context.Context, p *repo.Provision) error {
+	return r.Slices.Update(ctx, p)
+}
+
+func (r Rows) RemoveProvision(ctx context.Context, id string) error {
+	return r.Slices.Remove(ctx, id)
+}
+
+func (r Rows) SaveResource(ctx context.Context, res *repo.ManagedResource, create bool) error {
+	return r.Instances.SaveResource(ctx, res, create)
+}
+
+func (r Rows) RemoveResource(ctx context.Context, id string) error {
+	return r.Instances.RemoveResource(ctx, id)
+}
+
+func (r Rows) SaveOutput(ctx context.Context, o *repo.ResourceOutput) error {
+	return r.Instances.SaveOutput(ctx, o)
+}
+
+func (r Rows) Bind(ctx context.Context, b *repo.ResourceBinding) error {
+	return r.Instances.Bind(ctx, b)
+}
+
+func (r Rows) Unbind(ctx context.Context, resourceID, consumerTileID string) error {
+	return r.Instances.Unbind(ctx, resourceID, consumerTileID)
+}
+
+func (r Rows) UpsertVariable(ctx context.Context, v *repo.Variable) error {
+	return r.Vars.Upsert(ctx, v)
+}
+
+func (r Rows) RemoveVariable(ctx context.Context, ownerKind, ownerID, name string) error {
+	return r.Vars.Remove(ctx, VarOwner{Kind: ownerKind, ID: ownerID}, name)
 }
 
 func (r Rows) SetTileStatus(ctx context.Context, tileID, status string) error {

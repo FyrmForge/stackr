@@ -645,6 +645,7 @@ func main() {
 	// infra/ has been holding this pointer since before either service
 	// existed.
 	rows.Envs, rows.Tiles, rows.Deploys = envSvc, tiles, deploySvc
+	rows.Slices, rows.Instances, rows.Vars = slices, instances, vars
 	// The proxy is built near the top and records where traefik landed on
 	// each environment's overlay, which is a write to the environment row.
 	px.UseEnvs(envSvc)

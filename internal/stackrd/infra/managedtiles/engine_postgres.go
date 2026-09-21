@@ -62,7 +62,7 @@ func pgProvision(s *Service, ctx context.Context, instance, consumer *repo.Tile,
 	if err := s.psql(ctx, cid, instance, stmts); err != nil {
 		return nil, err
 	}
-	if err := s.store.CreateProvision(ctx, p); err != nil {
+	if err := s.rows.RecordProvision(ctx, p); err != nil {
 		return nil, err
 	}
 	if err := s.SyncResource(ctx, instance, p); err != nil {

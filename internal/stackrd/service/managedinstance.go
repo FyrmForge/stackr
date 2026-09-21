@@ -46,6 +46,12 @@ func NewManagedInstanceService(store repo.Store, dbs *managedtiles.Service,
 	return &ManagedInstanceService{store: store, dbs: dbs, tiles: tiles, gate: gate, notifier: n}
 }
 
+// rows is the row owners the managed-tile layer writes through. Taken from
+// the managed-tile service rather than rebuilt, because that is the same
+// bundle main.go handed it and this service is itself one of the owners in
+// it — building a second here would point a struct at itself.
+func (s *ManagedInstanceService) rows() managedtiles.Rows { return s.dbs.Rows() }
+
 // ApplyScope resolves a scope name onto the tile. ScopeID is derived from the
 // stack, never taken from the caller, so no request can point an instance at
 // another tenant. SP1: an unknown scope is refused, not coerced — the panel
@@ -167,7 +173,7 @@ func (s *ManagedInstanceService) Create(ctx context.Context, t *repo.Tile, scope
 	if err := s.store.CreateTile(ctx, t); err != nil {
 		return false, err
 	}
-	managedtiles.PublishConnection(ctx, s.store, t)
+	managedtiles.PublishConnection(ctx, s.store, s.rows(), t)
 	// Reported, not swallowed: a create whose container never came up is the
 	// one thing the caller most needs to hear about, and the row is already
 	// there either way (the status column says which).
@@ -457,4 +463,44 @@ func (s *ManagedInstanceService) Intended(ctx context.Context, envID string) ([]
 // SetIntended records one declared value.
 func (s *ManagedInstanceService) SetIntended(ctx context.Context, row *repo.Intended) error {
 	return s.store.SetIntended(ctx, row)
+}
+
+// ClearDeclaredIntended drops an environment's declared intended rows before
+// the config walk rewrites them. The config applier owned this outright.
+func (s *ManagedInstanceService) ClearDeclaredIntended(ctx context.Context, envID string) error {
+	return s.store.ClearDeclaredIntended(ctx, envID)
+}
+
+// --- the four tables the provisioner below writes ---
+//
+// managed_resources, resource_outputs and resource_bindings are this
+// service's by the audit's reckoning, and infra/managedtiles was writing all
+// three itself while reconciling a tile's declared resources.
+
+// SaveResource inserts or updates one managed resource.
+func (s *ManagedInstanceService) SaveResource(ctx context.Context, r *repo.ManagedResource, create bool) error {
+	if create {
+		return s.store.CreateResource(ctx, r)
+	}
+	return s.store.UpdateResource(ctx, r)
+}
+
+// RemoveResource deletes a managed resource. Its outputs and bindings
+// cascade with it.
+func (s *ManagedInstanceService) RemoveResource(ctx context.Context, id string) error {
+	return s.store.DeleteResource(ctx, id)
+}
+
+// SaveOutput records one of a resource's outputs — a host, a port, a URL.
+func (s *ManagedInstanceService) SaveOutput(ctx context.Context, o *repo.ResourceOutput) error {
+	return s.store.UpsertOutput(ctx, o)
+}
+
+// Bind points a consumer tile at a resource; Unbind removes that pointer.
+func (s *ManagedInstanceService) Bind(ctx context.Context, b *repo.ResourceBinding) error {
+	return s.store.CreateBinding(ctx, b)
+}
+
+func (s *ManagedInstanceService) Unbind(ctx context.Context, resourceID, consumerTileID string) error {
+	return s.store.DeleteBinding(ctx, resourceID, consumerTileID)
 }

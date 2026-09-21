@@ -547,6 +547,12 @@ func (s *TileService) SetSharedNet(ctx context.Context, tileID, name string) err
 	return s.store.SetTileSharedNet(ctx, tileID, name)
 }
 
+// SetImageDigest records the image digest a tile is actually running, which
+// is what the registry watcher compares a new tag against.
+func (s *TileService) SetImageDigest(ctx context.Context, tileID, digest string) error {
+	return s.store.SetTileImageDigest(ctx, tileID, digest)
+}
+
 // SetStatus records what a tile is doing: building, running, stopped, errored.
 //
 // Runtime state rather than config, and written from four places below this

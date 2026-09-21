@@ -1264,7 +1264,7 @@ func (a Applier) createTile(ctx context.Context, stack *repo.Stack, env *repo.En
 		return err
 	}
 	if tc.Type == "managed" {
-		managedtiles.PublishConnection(ctx, store, t)
+		managedtiles.PublishConnection(ctx, store, a.Ops.Rows(), t)
 	}
 	if err := a.syncDomains(ctx, env, t, tc, opts, 0); err != nil {
 		return err
@@ -1486,7 +1486,7 @@ func (a Applier) updateTile(ctx context.Context, stack *repo.Stack, env *repo.En
 	if t.IsManaged() {
 		// ReplaceTileVars just dropped everything the file doesn't declare,
 		// including the tile's own published connection details, republish them.
-		managedtiles.PublishConnection(ctx, store, t)
+		managedtiles.PublishConnection(ctx, store, a.Ops.Rows(), t)
 	}
 	if tc.Type == "volume" {
 		a.redeployAttached(ctx, t)
