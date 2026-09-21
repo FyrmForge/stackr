@@ -287,6 +287,7 @@ type Rows interface {
 	SetProxy(ctx context.Context, envID, ip, cidr string) error
 	SetTileStatus(ctx context.Context, tileID, status string) error
 	SetTileImageDigest(ctx context.Context, tileID, digest string) error
+	SetHomeNode(ctx context.Context, tileID, nodeID string) error
 	SaveTile(ctx context.Context, t *repo.Tile) error
 
 	// provisions: the slice this package carves, as a row.
@@ -512,7 +513,7 @@ func (s *Service) Deploy(ctx context.Context, d *repo.Tile) error {
 	cpuLimit, memLimit := settings.ForTile(ctx, s.store, d).EffectiveLimits(d.CPULimit, d.MemLimitMB)
 	// A managed database always holds a volume, so it is always pinned and
 	// always needs a home node before swarm is allowed to place it.
-	place, err := placement.For(ctx, s.store, s.c.Runtime(), d)
+	place, err := placement.For(ctx, s.store, s.rows, s.c.Runtime(), d)
 	if err != nil {
 		return err
 	}

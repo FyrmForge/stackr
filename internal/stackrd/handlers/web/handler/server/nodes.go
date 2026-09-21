@@ -351,7 +351,7 @@ func (h *handler) moveTargets(ctx context.Context, t *repo.Tile) ([]runtime.Node
 	if err != nil {
 		return nil, err
 	}
-	plan, err := placement.For(ctx, h.store, h.rt, t)
+	plan, err := placement.For(ctx, h.store, h.tiles, h.rt, t)
 	if err != nil {
 		// A tile whose home node has left the swarm still has to be movable
 		// somewhere; the group is all that matters here.

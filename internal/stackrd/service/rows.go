@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"time"
 
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 )
@@ -35,6 +36,42 @@ type Rows struct {
 	Slices    *SliceService
 	Instances *ManagedInstanceService
 	Vars      *VariableService
+	Telemetry *TileTelemetryService
+	Nodes     *NodeService
+}
+
+// The servers and join_keys tables, for infra/nodes.
+func (r Rows) Adopt(ctx context.Context, sv *repo.Server) error {
+	return r.Nodes.Adopt(ctx, sv)
+}
+
+func (r Rows) SaveServer(ctx context.Context, sv *repo.Server) error {
+	return r.Nodes.Save(ctx, sv)
+}
+
+func (r Rows) IssueKey(ctx context.Context, k *repo.JoinKey) error {
+	return r.Nodes.IssueKey(ctx, k)
+}
+
+func (r Rows) BurnKey(ctx context.Context, key string) (bool, error) {
+	return r.Nodes.BurnKey(ctx, key)
+}
+
+func (r Rows) BurnKeysFor(ctx context.Context, serverID string) (int, error) {
+	return r.Nodes.BurnKeysFor(ctx, serverID)
+}
+
+// RecordSample and PruneSamples are the metrics table, for infra/metrics.
+func (r Rows) RecordSample(ctx context.Context, m *repo.Metric) error {
+	return r.Telemetry.RecordSample(ctx, m)
+}
+
+func (r Rows) PruneSamples(ctx context.Context, before time.Time) error {
+	return r.Telemetry.Prune(ctx, before)
+}
+
+func (r Rows) SetHomeNode(ctx context.Context, tileID, nodeID string) error {
+	return r.Tiles.SetHomeNode(ctx, tileID, nodeID)
 }
 
 func (r Rows) SetTileImageDigest(ctx context.Context, tileID, digest string) error {

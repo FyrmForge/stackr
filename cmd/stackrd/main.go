@@ -416,7 +416,7 @@ func main() {
 	// The slice reader is wired here rather than imported inside the sampler:
 	// metrics sits below managedtiles, and that edge is the one that closed
 	// the cycle keeping managedtiles off the node-aware runtime.
-	sampler := metrics.NewSampler(store, clus, notifier).WithSliceReader(
+	sampler := metrics.NewSampler(store, rows, clus, notifier).WithSliceReader(
 		func(ctx context.Context, inst *repo.Tile, names []string) (map[string]metrics.SliceRead, error) {
 			read, err := managedtiles.NewService(clus, store, rows).SliceStats(ctx, inst, names)
 			if err != nil || read == nil {
@@ -551,7 +551,8 @@ func main() {
 			time.Sleep(24 * time.Hour)
 		}
 	}()
-	nodeSvc := &nodes.Service{Store: store, RT: rt}
+	nodeSvc := &nodes.Service{Store: store, RT: rt,
+		Rows: rows}
 	// Sync writes the manager's own swarm id onto its servers row. Nothing
 	// else does, and every screen keyed on servers.node_id (tile placement,
 	// /servers/local, volume delete) reads the manager as not joined until
@@ -559,7 +560,7 @@ func main() {
 	if _, err := nodeSvc.Sync(context.Background()); err != nil {
 		log.Error("node sync", "error", err)
 	}
-	mover := volmove.New(store, clus, engine, dbService)
+	mover := volmove.New(store, rows, clus, engine, dbService)
 	// A move receiver left behind by a panel that died mid-move holds a
 	// volume open and squats the alias the next move wants.
 	rt.SweepMoveReceivers(context.Background())
@@ -646,6 +647,7 @@ func main() {
 	// existed.
 	rows.Envs, rows.Tiles, rows.Deploys = envSvc, tiles, deploySvc
 	rows.Slices, rows.Instances, rows.Vars = slices, instances, vars
+	rows.Telemetry, rows.Nodes = telemetry, service.NewNodeService(store, rt, envDataDir)
 	// The proxy is built near the top and records where traefik landed on
 	// each environment's overlay, which is a write to the environment row.
 	px.UseEnvs(envSvc)

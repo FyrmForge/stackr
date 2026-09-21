@@ -18,6 +18,22 @@ type TileTelemetryService struct {
 	clus  *cluster.Cluster
 }
 
+// --- the metric rows the sampler below writes ---
+//
+// A metric point carries no rule and the sampler is its only writer. What
+// moves is ownership: the table has one owner, which is where a retention
+// rule or a per-tile sampling rule would go if either is ever wanted.
+
+// RecordSample stores one metric point.
+func (s *TileTelemetryService) RecordSample(ctx context.Context, m *repo.Metric) error {
+	return s.store.InsertMetric(ctx, m)
+}
+
+// Prune drops metric points older than the retention window.
+func (s *TileTelemetryService) Prune(ctx context.Context, before time.Time) error {
+	return s.store.PruneMetrics(ctx, before)
+}
+
 func NewTileTelemetryService(store repo.Store, clus *cluster.Cluster) *TileTelemetryService {
 	return &TileTelemetryService{store: store, clus: clus}
 }

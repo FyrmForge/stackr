@@ -199,6 +199,46 @@ func (s *NodeService) EnsureAgent(ctx context.Context) error {
 // --- reads ---
 
 // Get is one server row by id.
+// --- the rows the node syncer below writes ---
+//
+// Adopting a swarm node, mirroring its state, minting and burning its join
+// key: all of it was infra/nodes writing servers and join_keys directly.
+// There is no rule on the far side of these — the swarm is the authority on
+// what a node is — but the table has one owner now, and a rule about who may
+// join has somewhere to live if it is ever wanted.
+
+// Adopt records a node the swarm reports and the table does not have.
+func (s *NodeService) Adopt(ctx context.Context, sv *repo.Server) error {
+	return s.store.CreateServer(ctx, sv)
+}
+
+// Save persists a server row the caller has moved.
+func (s *NodeService) Save(ctx context.Context, sv *repo.Server) error {
+	return s.store.UpdateServer(ctx, sv)
+}
+
+// IssueKey stores a freshly minted join key.
+func (s *NodeService) IssueKey(ctx context.Context, k *repo.JoinKey) error {
+	return s.store.CreateJoinKey(ctx, k)
+}
+
+// BurnKey spends one join key, reporting whether it was still live.
+func (s *NodeService) BurnKey(ctx context.Context, key string) (bool, error) {
+	return s.store.BurnJoinKey(ctx, key)
+}
+
+// BurnKeysFor spends every live key a server holds. Issuing a new script has
+// to revoke the old one, or "new script" reads as a rotation and acts as an
+// addition.
+func (s *NodeService) BurnKeysFor(ctx context.Context, serverID string) (int, error) {
+	return s.store.BurnServerJoinKeys(ctx, serverID)
+}
+
+// RecordSample stores one metric point. The node pinger's, and the sampler's.
+func (s *NodeService) RecordSample(ctx context.Context, m *repo.Metric) error {
+	return s.store.InsertMetric(ctx, m)
+}
+
 func (s *NodeService) Get(ctx context.Context, id string) (*repo.Server, error) {
 	sv, err := s.store.GetServer(ctx, id)
 	if err != nil {

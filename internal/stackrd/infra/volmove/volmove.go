@@ -117,8 +117,17 @@ type moveProgress struct {
 // byte counters its progress, so the modal reads the same thing after a
 // restart. A restart mid-move fails it and puts the tile back where it
 // started (cleanup): resuming a half-move blind is how a volume is lost.
+// Rows owns the two tile columns a move writes: where the tile lives, and
+// what it is doing while it moves. Declared here rather than imported —
+// service/ is built on top of this package.
+type Rows interface {
+	SetHomeNode(ctx context.Context, tileID, nodeID string) error
+	SetTileStatus(ctx context.Context, tileID, status string) error
+}
+
 type Service struct {
 	Store  repo.Store
+	Rows   Rows
 	C      *cluster.Cluster // every docker call, and the two agents an rsync runs between
 	Deploy Redeployer
 	// Instances starts a managed instance again. It needs its own path: an
@@ -137,8 +146,8 @@ type Service struct {
 	moving map[string]bool
 }
 
-func New(store repo.Store, c *cluster.Cluster, d Redeployer, inst *managedtiles.Service) *Service {
-	return &Service{Store: store, C: c, Deploy: d, Instances: inst, moving: map[string]bool{}}
+func New(store repo.Store, rows Rows, c *cluster.Cluster, d Redeployer, inst *managedtiles.Service) *Service {
+	return &Service{Store: store, Rows: rows, C: c, Deploy: d, Instances: inst, moving: map[string]bool{}}
 }
 
 func (s *Service) begin(tileID string) bool {
@@ -417,7 +426,7 @@ func (s *Service) cleanup(ctx context.Context, j *workqueue.Job) string {
 		if err := s.C.StopService(ctx, name); err != nil {
 			slog.Error("volume move cleanup: stopping", "tile", t.Slug, "error", err)
 		}
-		if err := s.Store.SetTileHomeNode(ctx, t.ID, p.From); err != nil {
+		if err := s.Rows.SetHomeNode(ctx, t.ID, p.From); err != nil {
 			slog.Error("volume move cleanup: putting the home node back", "tile", t.Slug, "error", err)
 			return ""
 		}
@@ -545,7 +554,7 @@ func (s *Service) do(ctx context.Context, j *workqueue.Job, t *repo.Tile, m Move
 	// Only now does the tile belong to the other node, and only because every
 	// volume arrived.
 	j.SetStep(ctx, string(PhaseStart))
-	if err := s.Store.SetTileHomeNode(ctx, t.ID, m.To); err != nil {
+	if err := s.Rows.SetHomeNode(ctx, t.ID, m.To); err != nil {
 		if scaleErr := s.C.ScaleService(context.WithoutCancel(ctx), svcName, 1); scaleErr != nil {
 			slog.Error("volume move: restarting after a failed home-node write", "tile", t.Slug, "error", scaleErr)
 		}
@@ -564,7 +573,7 @@ func (s *Service) do(ctx context.Context, j *workqueue.Job, t *repo.Tile, m Move
 			slog.Warn("volume move: the start timed out but the tile came up on the target", "tile", t.Slug, "error", err)
 			// start marked a managed instance "error" on the timeout.
 			if t.IsManaged() {
-				if serr := s.Store.UpdateTileStatus(back, t.ID, "running"); serr != nil {
+				if serr := s.Rows.SetTileStatus(back, t.ID, "running"); serr != nil {
 					slog.Error("moved instance status not saved", "tile", t.ID, "error", serr)
 				}
 			}
@@ -645,7 +654,7 @@ func (s *Service) rollBack(ctx context.Context, t *repo.Tile, svcName, from stri
 	if err := s.C.StopService(ctx, svcName); err != nil {
 		return fmt.Errorf("stopping %s: %w", t.Slug, err)
 	}
-	if err := s.Store.SetTileHomeNode(ctx, t.ID, from); err != nil {
+	if err := s.Rows.SetHomeNode(ctx, t.ID, from); err != nil {
 		return fmt.Errorf("putting the home node back: %w", err)
 	}
 	t.HomeNode = from
@@ -670,12 +679,12 @@ func (s *Service) start(ctx context.Context, t *repo.Tile) error {
 		// apply will not touch, so the move would look fixed and leave the
 		// instance unreachable from the file for ever.
 		if err := s.Instances.Deploy(ctx, t); err != nil {
-			if serr := s.Store.UpdateTileStatus(ctx, t.ID, "error"); serr != nil {
+			if serr := s.Rows.SetTileStatus(ctx, t.ID, "error"); serr != nil {
 				slog.Error("moved instance status not saved", "tile", t.ID, "status", "error", "error", serr)
 			}
 			return err
 		}
-		return s.Store.UpdateTileStatus(ctx, t.ID, "running")
+		return s.Rows.SetTileStatus(ctx, t.ID, "running")
 	}
 	id, err := s.Deploy.EnqueueCurrent(ctx, t, "volume-move")
 	if err != nil {

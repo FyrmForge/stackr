@@ -412,22 +412,10 @@ const stillWriting = `
 1 internal/stackrd/infra/jobs/FinishCronRun
 1 internal/stackrd/infra/jobs/PruneCronRuns
 2 internal/stackrd/infra/jobs/RecordTileRun
-4 internal/stackrd/infra/metrics/InsertMetric
-1 internal/stackrd/infra/metrics/PruneMetrics
-1 internal/stackrd/infra/metrics/UpdateTileStatus
-1 internal/stackrd/infra/nodes/BurnJoinKey
-1 internal/stackrd/infra/nodes/BurnServerJoinKeys
-1 internal/stackrd/infra/nodes/CreateJoinKey
-2 internal/stackrd/infra/nodes/CreateServer
-1 internal/stackrd/infra/nodes/InsertMetric
-2 internal/stackrd/infra/nodes/UpdateServer
-2 internal/stackrd/infra/placement/SetTileHomeNode
 1 internal/stackrd/infra/proxy/SetSetting
 1 internal/stackrd/infra/registry/CreateOrgRegistryCredential
 1 internal/stackrd/infra/registry/CreateRegistry
 1 internal/stackrd/infra/registry/DeleteSystemOrgRegistryCredential
-3 internal/stackrd/infra/volmove/SetTileHomeNode
-3 internal/stackrd/infra/volmove/UpdateTileStatus
 `
 
 // The audit table has a back door. `store/audit.Record(ctx, store, …)` calls

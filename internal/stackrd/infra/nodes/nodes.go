@@ -42,9 +42,26 @@ const KeyTTL = time.Hour
 const swarmPort = 7946
 
 // Service is the servers screen's back end.
+// Rows is the owner of the servers and join_keys tables, and of the metric
+// point a ping produces. Declared here rather than imported because service/
+// is built on top of this package; service.NodeService satisfies it.
+type Rows interface {
+	// metrics.Rows because a node ping is a metric point, and the host
+	// samples a worker posts go through the same door.
+	metrics.Rows
+	Adopt(ctx context.Context, sv *repo.Server) error
+	SaveServer(ctx context.Context, sv *repo.Server) error
+	IssueKey(ctx context.Context, k *repo.JoinKey) error
+	BurnKey(ctx context.Context, key string) (bool, error)
+	BurnKeysFor(ctx context.Context, serverID string) (int, error)
+}
+
 type Service struct {
 	Store repo.Store
 	RT    *runtime.Runtime
+	// Rows owns what this package writes. Adopting a node, mirroring its
+	// swarm state and minting its join key were all direct store writes.
+	Rows Rows
 }
 
 // Row is one line of the servers list: the table row and the swarm node
@@ -132,7 +149,7 @@ func (s *Service) Sync(ctx context.Context) ([]Row, error) {
 			Role: n.Role, Status: n.Status(), CreatedAt: time.Now().UTC(),
 			Settings: "{}",
 		}
-		if err := s.Store.CreateServer(ctx, sv); err != nil {
+		if err := s.Rows.Adopt(ctx, sv); err != nil {
 			slog.Error("nodes: adopting a node with no row", "node", n.ID, "error", err)
 			continue
 		}
@@ -213,7 +230,7 @@ func (s *Service) mirror(ctx context.Context, sv *repo.Server, n runtime.Node) {
 		// Only the timestamp moved; not worth a write every page load.
 		return
 	}
-	if err := s.Store.UpdateServer(ctx, sv); err != nil {
+	if err := s.Rows.SaveServer(ctx, sv); err != nil {
 		slog.Error("nodes: mirroring swarm state", "server", sv.ID, "error", err)
 	}
 }
@@ -243,7 +260,7 @@ func (s *Service) Ping(ctx context.Context) {
 		ms := pingOnce(ctx, sv.Address)
 		// A failure is stored as a negative, so a gap in the chart means the
 		// panel was down and a red point means the node was.
-		_ = s.Store.InsertMetric(ctx, &repo.Metric{Ref: PingRef(sv.ID), TS: now, CPUPct: ms})
+		_ = s.Rows.RecordSample(ctx, &repo.Metric{Ref: PingRef(sv.ID), TS: now, CPUPct: ms})
 	}
 }
 
@@ -293,7 +310,7 @@ func (s *Service) StoreSample(ctx context.Context, nodeID string, ts time.Time, 
 	if sv == nil {
 		return fmt.Errorf("no server row for node %s", nodeID)
 	}
-	metrics.StoreHostSample(ctx, s.Store, "server:"+sv.ID, ts, sample)
+	metrics.StoreHostSample(ctx, s.Rows, "server:"+sv.ID, ts, sample)
 	return nil
 }
 
@@ -360,7 +377,7 @@ func (s *Service) AddNode(ctx context.Context, name, addr string) (*repo.Server,
 		Address: addr, Role: "worker", Status: "pending",
 		Settings: "{}", CreatedAt: now,
 	}
-	if err := s.Store.CreateServer(ctx, sv); err != nil {
+	if err := s.Rows.Adopt(ctx, sv); err != nil {
 		return nil, nil, err
 	}
 	key, err := s.IssueKey(ctx, sv)
@@ -380,7 +397,7 @@ func (s *Service) AddNode(ctx context.Context, name, addr string) (*repo.Server,
 // live key by construction, so a leaked script dies the moment a new one is
 // generated.
 func (s *Service) IssueKey(ctx context.Context, sv *repo.Server) (*repo.JoinKey, error) {
-	if _, err := s.Store.BurnServerJoinKeys(ctx, sv.ID); err != nil {
+	if _, err := s.Rows.BurnKeysFor(ctx, sv.ID); err != nil {
 		return nil, err
 	}
 	b := make([]byte, 24)
@@ -392,7 +409,7 @@ func (s *Service) IssueKey(ctx context.Context, sv *repo.Server) (*repo.JoinKey,
 		Key: hex.EncodeToString(b), ServerID: sv.ID, Address: sv.Address,
 		ExpiresAt: now.Add(KeyTTL), CreatedAt: now,
 	}
-	if err := s.Store.CreateJoinKey(ctx, k); err != nil {
+	if err := s.Rows.IssueKey(ctx, k); err != nil {
 		return nil, err
 	}
 	return k, nil
@@ -476,7 +493,7 @@ func (s *Service) Claim(ctx context.Context, key, nodeID, remoteAddr string) err
 		return fmt.Errorf("the row this key was issued for is gone")
 	}
 	sv.NodeID = nodeID
-	return s.Store.UpdateServer(ctx, sv)
+	return s.Rows.SaveServer(ctx, sv)
 }
 
 // Redeem checks a join key and burns it, returning the row it belongs to.
@@ -515,7 +532,7 @@ func (s *Service) Redeem(ctx context.Context, key, remoteAddr string) (*repo.Ser
 			"issued_for", k.Address, "seen_from", remoteAddr,
 			"note", "normal behind NAT or a reverse proxy")
 	}
-	ok, err := s.Store.BurnJoinKey(ctx, key)
+	ok, err := s.Rows.BurnKey(ctx, key)
 	if err != nil {
 		return nil, err
 	}

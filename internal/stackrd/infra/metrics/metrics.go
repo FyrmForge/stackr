@@ -22,10 +22,22 @@ import (
 const sampleEvery = 30 * time.Second
 const flowEvery = 5 * time.Second
 
+// Rows is the owner of the metrics table and of a tile's status column.
+// Declared here rather than imported because service/ is built on top of this
+// package; service.Rows satisfies it.
+type Rows interface {
+	RecordSample(ctx context.Context, m *repo.Metric) error
+	PruneSamples(ctx context.Context, before time.Time) error
+	SetTileStatus(ctx context.Context, tileID, status string) error
+}
+
 type Sampler struct {
 	store    repo.Store
 	clus     *cluster.Cluster // every docker call; the local walk and the off-node pass both go through it
 	notifier *notify.Notifier
+	// rows owns the two tables this package writes: the metric points, and
+	// the tile status the reconciler corrects.
+	rows Rows
 
 	// previous cumulative network counters for rate deltas
 	prevNet map[string]netCounters // per container ref
@@ -123,8 +135,8 @@ func (prev netCounters) rates(cur netCounters) (rxBps, txBps float64) {
 	return float64(cur.rx-prev.rx) / dt, float64(cur.tx-prev.tx) / dt
 }
 
-func NewSampler(store repo.Store, clus *cluster.Cluster, notifier *notify.Notifier) *Sampler {
-	return &Sampler{store: store, clus: clus, notifier: notifier, prevNet: map[string]netCounters{},
+func NewSampler(store repo.Store, rows Rows, clus *cluster.Cluster, notifier *notify.Notifier) *Sampler {
+	return &Sampler{store: store, clus: clus, notifier: notifier, rows: rows, prevNet: map[string]netCounters{},
 		prevFlows: map[string][2]uint64{}, prevSlice: map[string]sliceCounters{}, sliceStats: map[string]SliceStat{}}
 }
 
@@ -190,14 +202,14 @@ func (s *Sampler) sample(ctx context.Context) {
 		cur := netCounters{rx: st.RxBytes, tx: st.TxBytes, at: now}
 		rx, tx := s.prevNet[ref].rates(cur)
 		s.prevNet[ref] = cur
-		_ = s.store.InsertMetric(ctx, &repo.Metric{Ref: ref, TS: now, CPUPct: st.CPUPct,
+		_ = s.rows.RecordSample(ctx, &repo.Metric{Ref: ref, TS: now, CPUPct: st.CPUPct,
 			MemBytes: int64(st.MemBytes), RxBps: rx, TxBps: tx})
 	}
 	s.sampleOffNode(ctx, seen, now)
 	s.sampleHost(ctx, now)
 	s.sampleSlices(ctx, cs, now)
 	retention := time.Duration(settings.ForServer(ctx, s.store).MetricRetentionHours) * time.Hour
-	_ = s.store.PruneMetrics(ctx, now.Add(-retention))
+	_ = s.rows.PruneSamples(ctx, now.Add(-retention))
 	s.notifier.Server()
 }
 
@@ -213,17 +225,17 @@ func (s *Sampler) sampleHost(ctx context.Context, now time.Time) {
 	if !ok {
 		return
 	}
-	StoreHostSample(ctx, s.store, "server:local", now, sample)
+	StoreHostSample(ctx, s.rows, "server:local", now, sample)
 }
 
 // StoreHostSample writes one host reading under a server ref. The manager
 // samples itself through sampleHost; a worker's arrives from its agent and
 // lands here too, so both nodes' graphs read the same rows.
-func StoreHostSample(ctx context.Context, store repo.Store, ref string, now time.Time, s hostmetrics.HostSample) {
-	_ = store.InsertMetric(ctx, &repo.Metric{Ref: ref, TS: now, CPUPct: s.CPUPct,
+func StoreHostSample(ctx context.Context, rows Rows, ref string, now time.Time, s hostmetrics.HostSample) {
+	_ = rows.RecordSample(ctx, &repo.Metric{Ref: ref, TS: now, CPUPct: s.CPUPct,
 		MemBytes: s.MemBytes, RxBps: s.RxBps, TxBps: s.TxBps})
 	if s.DiskUsed > 0 {
-		_ = store.InsertMetric(ctx, &repo.Metric{Ref: ref + ":disk", TS: now, MemBytes: s.DiskUsed})
+		_ = rows.RecordSample(ctx, &repo.Metric{Ref: ref + ":disk", TS: now, MemBytes: s.DiskUsed})
 	}
 }
 
@@ -423,7 +435,7 @@ func (s *Sampler) sampleOffNode(ctx context.Context, seen map[string]bool, now t
 		cur := netCounters{rx: st.RxBytes, tx: st.TxBytes, at: now}
 		rx, tx := s.prevNet[ref].rates(cur)
 		s.prevNet[ref] = cur
-		_ = s.store.InsertMetric(ctx, &repo.Metric{Ref: ref, TS: now, CPUPct: st.CPUPct,
+		_ = s.rows.RecordSample(ctx, &repo.Metric{Ref: ref, TS: now, CPUPct: st.CPUPct,
 			MemBytes: int64(st.MemBytes), RxBps: rx, TxBps: tx})
 	}
 }

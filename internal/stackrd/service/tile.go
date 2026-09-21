@@ -547,6 +547,15 @@ func (s *TileService) SetSharedNet(ctx context.Context, tileID, name string) err
 	return s.store.SetTileSharedNet(ctx, tileID, name)
 }
 
+// SetHomeNode pins a tile to the node holding its volume, or clears the pin.
+//
+// Written by the placement chooser and by the volume mover, both of which
+// used to write the column themselves. The chooser decides which node; which
+// tile holds it is this package's row.
+func (s *TileService) SetHomeNode(ctx context.Context, tileID, nodeID string) error {
+	return s.store.SetTileHomeNode(ctx, tileID, nodeID)
+}
+
 // SetImageDigest records the image digest a tile is actually running, which
 // is what the registry watcher compares a new tag against.
 func (s *TileService) SetImageDigest(ctx context.Context, tileID, digest string) error {

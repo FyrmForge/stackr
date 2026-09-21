@@ -37,6 +37,10 @@ func (r storeRows) SetTileImageDigest(ctx context.Context, tileID, digest string
 	return r.s.SetTileImageDigest(ctx, tileID, digest)
 }
 
+func (r storeRows) SetHomeNode(ctx context.Context, tileID, nodeID string) error {
+	return r.s.SetTileHomeNode(ctx, tileID, nodeID)
+}
+
 func (r storeRows) SaveTile(ctx context.Context, t *repo.Tile) error {
 	return r.s.UpdateTile(ctx, t.ID, t.TileConfig)
 }

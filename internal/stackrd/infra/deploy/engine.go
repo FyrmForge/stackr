@@ -749,7 +749,7 @@ func (e *Engine) pipeline(ctx context.Context, d *repo.Deployment, app *repo.Til
 	// here on first deploy and is refused outright if that node has left the
 	// swarm, never rescheduled onto an empty volume
 	// (docs/plans/30-docker-swarm.md, addendum).
-	place, err := placement.For(ctx, e.store, e.rt, app)
+	place, err := placement.For(ctx, e.store, e.rows, e.rt, app)
 	if err != nil {
 		return err
 	}

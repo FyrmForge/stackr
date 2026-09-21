@@ -18,7 +18,7 @@ import (
 func TestClaimRefusesAKeyItShouldNot(t *testing.T) {
 	ctx := context.Background()
 	store := testdb.New(t)
-	s := &Service{Store: store}
+	s := &Service{Store: store, Rows: testdb.NodeRows{Store: store}}
 
 	sv := &repo.Server{ID: "srv-1", Name: "worker-2", Kind: "swarm", Address: "10.0.0.20",
 		Role: "worker", Status: "pending", Settings: "{}", CreatedAt: time.Now().UTC()}
@@ -51,7 +51,7 @@ func TestClaimRefusesAKeyItShouldNot(t *testing.T) {
 func TestAddNodeRefusesALineBreakInTheName(t *testing.T) {
 	ctx := context.Background()
 	store := testdb.New(t)
-	s := &Service{Store: store}
+	s := &Service{Store: store, Rows: testdb.NodeRows{Store: store}}
 
 	sv, key, err := s.AddNode(ctx, "web\necho hi", "192.168.1.50")
 	require.Error(t, err, "a name with a line break was accepted")
