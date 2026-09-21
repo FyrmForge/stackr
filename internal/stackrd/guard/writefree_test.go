@@ -97,15 +97,16 @@ type site struct {
 	line   string
 }
 
-// storeWrites walks the tree and reports every call to a write method made on
-// something that is a repo.Store.
+// storeCalls walks the tree and reports every call to one of the named
+// methods made on something that is a repo.Store. The write guard passes it
+// the mutating half of the interface; readfree_test.go passes it the rest.
 //
 // Two spellings are matched, the same two storefree_test.go learned to match:
 // a field — x.store.CreateTile(…) — and a bare identifier that the function
 // was handed as a repo.Store — store.CreateTile(…). The second is the one
 // that hides: without reading the parameter types it is indistinguishable
 // from a call to a function in the same package.
-func storeWrites(t *testing.T, root string, writes map[string]bool) []site {
+func storeCalls(t *testing.T, root string, want map[string]bool) []site {
 	t.Helper()
 	var found []site
 	fset := token.NewFileSet()
@@ -212,7 +213,7 @@ func storeWrites(t *testing.T, root string, writes map[string]bool) []site {
 					return true
 				}
 				sel, ok := ce.Fun.(*ast.SelectorExpr)
-				if !ok || !writes[sel.Sel.Name] {
+				if !ok || !want[sel.Sel.Name] {
 					return true
 				}
 				hit := false
@@ -263,23 +264,34 @@ func skipDir(p string) bool {
 func TestNothingOutsideServiceWritesTheStore(t *testing.T) {
 	root := "../../.."
 	writes := writeMethods(t, filepath.Join(root, "internal/stackrd/store/repo/repo.go"))
+	checkWorklist(t, "write", "stillWriting", stillWriting, storeCalls(t, root, writes))
+}
 
+// checkWorklist compares a scan against its allowlist and fails both ways: a
+// site the list does not cover, and a list entry the tree has outgrown. The
+// second half is what keeps the list honest — an allowlist that is only ever
+// checked upwards rots into a permanent exemption.
+//
+// `kind` is the word for one site ("write", "read"); `name` is the constant
+// to point the reader at.
+func checkWorklist(t *testing.T, kind, name, list string, sites []site) {
+	t.Helper()
 	allowed := map[string]int{}
-	for _, l := range strings.Split(strings.TrimSpace(stillWriting), "\n") {
+	for _, l := range strings.Split(strings.TrimSpace(list), "\n") {
 		l = strings.TrimSpace(l)
 		if l == "" || strings.HasPrefix(l, "#") {
 			continue
 		}
 		f := strings.Fields(l)
 		if len(f) != 2 {
-			t.Fatalf("malformed stillWriting line: %q (want `<count> <pkg>/<Method>`)", l)
+			t.Fatalf("malformed %s line: %q (want `<count> <pkg>/<Method>`)", name, l)
 		}
 		allowed[f[1]] = atoi(t, f[0])
 	}
 
 	got := map[string]int{}
 	lines := map[string][]string{}
-	for _, s := range storeWrites(t, root, writes) {
+	for _, s := range sites {
 		k := s.pkg + "/" + s.method
 		got[k]++
 		lines[k] = append(lines[k], s.line)
@@ -297,23 +309,23 @@ func TestNothingOutsideServiceWritesTheStore(t *testing.T) {
 	}
 	for k, a := range allowed {
 		if got[k] == 0 {
-			under = append(under, k+" no longer writes ("+itoa(a)+" expected) — delete the line")
+			under = append(under, k+" no longer "+kind+"s ("+itoa(a)+" expected) — delete the line")
 		}
 	}
 	sort.Strings(over)
 	sort.Strings(under)
 
 	if len(over) > 0 {
-		t.Errorf("%d store write(s) outside service/ that stillWriting does not cover.\n"+
-			"A write that skips the service skips the service's rules, and the next rule\n"+
+		t.Errorf("%d store %s group(s) outside service/ that %s does not cover.\n"+
+			"A %s that skips the service skips the service's rules, and the next rule\n"+
 			"gets added in one place out of two. Route it through the service:\n  %s",
-			len(over), strings.Join(over, "\n  "))
+			len(over), kind, name, kind, strings.Join(over, "\n  "))
 	}
 	if len(under) > 0 {
-		t.Errorf("%d stillWriting entr(ies) are stale. The list only shrinks, so shrink it:\n  %s",
-			len(under), strings.Join(under, "\n  "))
+		t.Errorf("%d %s entr(ies) are stale. The list only shrinks, so shrink it:\n  %s",
+			len(under), name, strings.Join(under, "\n  "))
 	}
-	t.Logf("%d write site(s) still outside service/", len(storeWrites(t, root, writes)))
+	t.Logf("%d %s site(s) still outside service/", len(sites), kind)
 }
 
 // fnFields is a function's receiver plus its parameters, flattened.
