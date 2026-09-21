@@ -246,7 +246,7 @@ func TestDeployDropsTileWhenEnqueueFails(t *testing.T) {
 	store := testdb.New(t)
 	// A volume tile is the cheapest guaranteed Enqueue error: it refuses
 	// before touching the store or the queue.
-	eng := deploy.NewEngine(store, nil, nil, nil, t.TempDir(), nil)
+	eng := deploy.NewEngine(store, nil, nil, nil, t.TempDir(), nil, wiredOps(store).Rows())
 	deployed := map[string]bool{}
 	a := applier(Planner{Store: store})
 	a.Engine, a.deployed = eng, deployed

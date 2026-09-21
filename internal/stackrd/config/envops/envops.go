@@ -65,6 +65,9 @@ type Ops struct {
 	Sched *scheduler.Service
 }
 
+// Rows bundles the two services the layer below writes its rows through.
+func (o Ops) Rows() service.Rows { return service.Rows{Envs: o.Envs, Tiles: o.Tiles} }
+
 // CloneTiles copies every tile of env.BaseEnvID into env: same config, fresh
 // identity (id, webhook token, db password). Sibling references survive: any
 // env var mentioning a base db tile's password is rewritten to the clone's
@@ -197,7 +200,7 @@ func (o Ops) cloneEnvSlices(ctx context.Context, env *repo.Environment, cloned [
 	if err != nil || len(ps) == 0 {
 		return
 	}
-	svc := managedtiles.NewService(o.Cluster, o.Store)
+	svc := managedtiles.NewService(o.Cluster, o.Store, o.Rows())
 	slugs := map[string]bool{}
 	for i := range ps {
 		p := &ps[i]
@@ -279,7 +282,7 @@ func (o Ops) cloneProvisions(ctx context.Context, clone *repo.Tile, baseTileID s
 	if err != nil || len(ps) == 0 {
 		return
 	}
-	svc := managedtiles.NewService(o.Cluster, o.Store)
+	svc := managedtiles.NewService(o.Cluster, o.Store, o.Rows())
 	for i := range ps {
 		inst, err := o.Store.GetTile(ctx, ps[i].InstanceTileID)
 		if err != nil || inst == nil {
@@ -295,12 +298,18 @@ func (o Ops) cloneProvisions(ctx context.Context, clone *repo.Tile, baseTileID s
 }
 
 // repointRefs rewrites a tile's references from one resource slug to another.
+//
+// A dropped write here is not cosmetic: the variable keeps pointing at the
+// base environment's resource, so the cloned tile reads the wrong database
+// and there is nothing anywhere to say why. It used to be discarded.
 func (o Ops) repointRefs(ctx context.Context, tileID, oldSlug, newSlug string) {
 	if oldSlug == newSlug {
 		return
 	}
 	vars, err := o.Store.ListVariables(ctx, repo.OwnerTile, tileID)
 	if err != nil {
+		slog.Error("resource refs not repointed: the clone keeps pointing at the base env's resource",
+			"tile", tileID, "from", oldSlug, "to", newSlug, "error", err)
 		return
 	}
 	for _, v := range vars {
@@ -309,7 +318,10 @@ func (o Ops) repointRefs(ctx context.Context, tileID, oldSlug, newSlug string) {
 			continue
 		}
 		v.Value, v.UpdatedAt = updated, time.Now().UTC()
-		_ = o.Vars.Upsert(ctx, &v)
+		if err := o.Vars.Upsert(ctx, &v); err != nil {
+			slog.Error("resource ref not repointed: this variable still points at the base env's resource",
+				"tile", tileID, "name", v.Name, "from", oldSlug, "to", newSlug, "error", err)
+		}
 	}
 }
 
@@ -386,11 +398,11 @@ func (o Ops) Teardown(ctx context.Context, stack *repo.Stack, env *repo.Environm
 			if t.SharedNetName == "" || t.ScopeKind == "org" {
 				continue
 			}
-			if err := netpool.ReleaseDB(ctx, o.Store, o.RT, t); err != nil {
+			if err := netpool.ReleaseDB(ctx, o.Tiles, o.RT, t); err != nil {
 				return fmt.Errorf("releasing overlay %s of %s: %w", t.SharedNetName, t.Slug, err)
 			}
 		}
-		if err := netpool.ReleaseEnv(ctx, o.Store, o.RT, env); err != nil {
+		if err := netpool.ReleaseEnv(ctx, o.Envs, o.RT, env); err != nil {
 			return fmt.Errorf("releasing overlay %s: %w", env.Network, err)
 		}
 	}

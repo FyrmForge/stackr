@@ -49,6 +49,11 @@ type Engine struct {
 	hub      *stream.Hub
 	notifier *notify.Notifier
 	dataDir  string
+	// rows is the services that own rows a deploy touches but this package
+	// does not: the environment's overlay, a shared instance's overlay, the
+	// proxy address. managedtiles.Rows is the same set, so one field serves
+	// both this package and the managed-tile service it builds.
+	rows managedtiles.Rows
 
 	// GitAuth optionally returns extra environment lines (GIT_CONFIG_*) that
 	// authenticate the tile's fetch/clone (e.g. a GitHub App installation
@@ -185,7 +190,7 @@ func (e *Engine) failQueued(ctx context.Context, d *repo.Deployment, msg string)
 	return fmt.Errorf("%s", msg)
 }
 
-func NewEngine(store repo.Store, rt *runtime.Runtime, clus *cluster.Cluster, hub *stream.Hub, dataDir string, notifier *notify.Notifier) *Engine {
+func NewEngine(store repo.Store, rt *runtime.Runtime, clus *cluster.Cluster, hub *stream.Hub, dataDir string, notifier *notify.Notifier, rows managedtiles.Rows) *Engine {
 	e := &Engine{
 		store:    store,
 		rt:       rt,
@@ -193,6 +198,7 @@ func NewEngine(store repo.Store, rt *runtime.Runtime, clus *cluster.Cluster, hub
 		hub:      hub,
 		notifier: notifier,
 		dataDir:  dataDir,
+		rows:     rows,
 		queue:    make(chan string, 256),
 		cancels:  map[string]context.CancelFunc{},
 	}
@@ -660,7 +666,7 @@ func (e *Engine) pipeline(ctx context.Context, d *repo.Deployment, app *repo.Til
 	}
 
 	// Run the new container on its environment's network, then retire the old.
-	sc, netName, err := envnet.Ensure(ctx, e.store, e.clus, app)
+	sc, netName, err := envnet.Ensure(ctx, e.store, e.rows, e.clus, app)
 	if err != nil {
 		return fmt.Errorf("environment network: %w", err)
 	}
@@ -670,7 +676,7 @@ func (e *Engine) pipeline(ctx context.Context, d *repo.Deployment, app *repo.Til
 	// Reconcile provisioned deps from their rows (recreate a dropped db/bucket +
 	// republish its secret) before resolving secrets, so a self-healed secret is
 	// available in this same deploy.
-	managedtiles.NewService(e.clus, e.store).EnsureProvisions(ctx, app, w)
+	managedtiles.NewService(e.clus, e.store, e.rows).EnsureProvisions(ctx, app, w)
 	// A dependency parked on an unset value never comes up, so neither does
 	// this tile. Park it on the same name instead of starting it against a
 	// dependency that is not there.

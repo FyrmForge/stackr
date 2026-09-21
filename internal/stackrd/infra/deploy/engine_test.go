@@ -52,11 +52,13 @@ func TestParseKV(t *testing.T) {
 func TestNewEngineKeepsWhatItIsGiven(t *testing.T) {
 	store := testdb.New(t)
 	clus := cluster.New(nil, agent.New(nil, "", t.TempDir()), store)
-	e := NewEngine(store, nil, clus, stream.NewHub(), t.TempDir(), nil)
+	rows := storeRows{s: store}
+	e := NewEngine(store, nil, clus, stream.NewHub(), t.TempDir(), nil, rows)
 
 	require.NotNil(t, e.clus, "the cluster is every docker call a deploy makes")
 	assert.Same(t, clus, e.clus)
 	assert.Same(t, store, e.store)
+	assert.Equal(t, rows, e.rows, "the row owners a deploy writes an environment's overlay through")
 }
 
 // The build context and dockerfile come from a tile's settings and the clone

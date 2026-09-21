@@ -39,6 +39,10 @@ type Service struct {
 	c        *cluster.Cluster // every docker call: a job in "exec" mode runs inside the tile's container, wherever that is
 	notifier *notify.Notifier
 	work     *workqueue.Queue
+	// envs owns the environment row's network columns. Running a job in a
+	// fresh environment claims that environment's overlay, and the claim
+	// writes a row this package does not own.
+	envs envnet.Envs
 
 	mu      sync.Mutex
 	cron    *cron.Cron
@@ -47,11 +51,12 @@ type Service struct {
 	held    map[string]int          // stack ids mid config-apply; schedule ticks skip
 }
 
-func NewService(store repo.Store, c *cluster.Cluster, notifier *notify.Notifier) *Service {
+func NewService(store repo.Store, c *cluster.Cluster, notifier *notify.Notifier, envs envnet.Envs) *Service {
 	s := &Service{
 		store:    store,
 		c:        c,
 		notifier: notifier,
+		envs:     envs,
 		cron:     cron.New(),
 		entries:  map[string]cron.EntryID{},
 		running:  map[string]bool{},
@@ -453,7 +458,7 @@ func (s *Service) envLines(ctx context.Context, app *repo.Tile) ([]string, []str
 // Both empty only on lookup failure, jobSpec then falls back to the
 // shared network and a random name rather than dying on a naming error.
 func (s *Service) runNames(ctx context.Context, app *repo.Tile, kind, runID string) (string, string) {
-	sc, netName, err := envnet.Ensure(ctx, s.store, s.c, app)
+	sc, netName, err := envnet.Ensure(ctx, s.store, s.envs, s.c, app)
 	if err != nil {
 		return "", ""
 	}

@@ -268,10 +268,27 @@ func SpeaksHTTP(engine string) bool { return Engines[engine].HTTP }
 type Service struct {
 	c     *cluster.Cluster
 	store repo.Store
+	// rows is the services that own the rows this package writes. It is an
+	// interface (Rows, below) rather than the services themselves because
+	// service/ is built on top of this package and cannot be imported here.
+	rows Rows
 }
 
-func NewService(c *cluster.Cluster, store repo.Store) *Service {
-	return &Service{c: c, store: store}
+// Rows is what this package needs to write, expressed as the services that
+// own those rows rather than as the store.
+//
+// Provisioning a slice touches four tables that belong elsewhere: the
+// environment's network, a shared instance's network, a tile's row, and a
+// tile's variables. Writing them here directly is what let a managed tile
+// publish a connection secret with none of the variable service's auditing.
+type Rows interface {
+	SetNetwork(ctx context.Context, envID, network string) error
+	SetSharedNet(ctx context.Context, tileID, name string) error
+	SetProxy(ctx context.Context, envID, ip, cidr string) error
+}
+
+func NewService(c *cluster.Cluster, store repo.Store, rows Rows) *Service {
+	return &Service{c: c, store: store, rows: rows}
 }
 
 // locate is where an instance's container is right now, id and node, from
@@ -435,7 +452,7 @@ func (s *Service) Deploy(ctx context.Context, d *repo.Tile) error {
 	if !ok {
 		return fmt.Errorf("unknown engine %q", d.Engine)
 	}
-	sc, netName, err := envnet.Ensure(ctx, s.store, s.c, d)
+	sc, netName, err := envnet.Ensure(ctx, s.store, s.rows, s.c, d)
 	if err != nil {
 		return fmt.Errorf("environment network: %w", err)
 	}
@@ -586,5 +603,5 @@ func (s *Service) Remove(ctx context.Context, d *repo.Tile) error {
 			return err
 		}
 	}
-	return netpool.ReleaseDB(ctx, s.store, s.c.Runtime(), d)
+	return netpool.ReleaseDB(ctx, s.rows, s.c.Runtime(), d)
 }

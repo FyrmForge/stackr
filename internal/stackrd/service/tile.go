@@ -539,3 +539,10 @@ func (s *TileService) BySlug(ctx context.Context, envID, slug string) (*repo.Til
 func (s *TileService) Save(ctx context.Context, t *repo.Tile) error {
 	return s.store.UpdateTile(ctx, t.ID, t.TileConfig)
 }
+
+// SetSharedNet records the pooled overlay a shared managed instance holds, or
+// clears it. The pool below decides which name is free; the row is this
+// package's, and the pool used to write it directly.
+func (s *TileService) SetSharedNet(ctx context.Context, tileID, name string) error {
+	return s.store.SetTileSharedNet(ctx, tileID, name)
+}

@@ -10,6 +10,7 @@ import (
 
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/envnet"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/managedtiles"
+	"github.com/FyrmForge/stackr/internal/stackrd/service"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo/sqlite"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/testdb"
@@ -17,7 +18,16 @@ import (
 
 // svc builds a Service with no docker runtime: SyncResource and its helpers
 // only touch the store, and this keeps the mirror testable without a daemon.
-func svc(s *sqlite.Store) *managedtiles.Service { return managedtiles.NewService(nil, s) }
+// This file is the external test package, so it can name service/ — the
+// in-package tests cannot, and use a store-backed fake instead (rows_test.go).
+func svc(s *sqlite.Store) *managedtiles.Service {
+	gate := service.NewGateService(s)
+	rows := service.Rows{
+		Envs:  service.NewEnvironmentService(s, nil, nil, nil, gate),
+		Tiles: service.NewTileService(s, nil, nil, nil, nil, nil, gate),
+	}
+	return managedtiles.NewService(nil, s, rows)
+}
 
 func instance(t *testing.T, s *sqlite.Store, seed testdb.Seed, engine string) *repo.Tile {
 	t.Helper()

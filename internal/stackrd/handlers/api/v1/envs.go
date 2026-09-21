@@ -130,7 +130,12 @@ func (a *API) patchEnv(c echo.Context) error {
 
 // envOps is the shared environment machinery: teardown, cloning, auto domains.
 // Built on demand, like the panel's.
+// Envs and Vars are not optional: every row this writes goes through one of
+// them, so a missing one is a nil pointer at the first write rather than a
+// compile error. They were absent when the writes still went to the store.
 func (a *API) envOps() envops.Ops {
+	rows := service.Rows{Envs: a.envs, Tiles: a.tiles}
 	return envops.Ops{Store: a.store, RT: a.clus.Runtime(), Cluster: a.clus, PX: a.px,
-		DBs: managedtiles.NewService(a.clus, a.store), Tiles: a.tiles, Sched: a.sched, Domains: a.domains, Resources: a.resources}
+		DBs: managedtiles.NewService(a.clus, a.store, rows), Tiles: a.tiles, Sched: a.sched,
+		Domains: a.domains, Resources: a.resources, Envs: a.envs, Vars: a.vars}
 }

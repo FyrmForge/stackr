@@ -19,7 +19,7 @@ func TestForkSliceUnsupportedEngine(t *testing.T) {
 	assert.True(t, CanFork("postgres"))
 
 	s := testdb.New(t)
-	svc := NewService(nil, s)
+	svc := NewService(nil, s, testRows(s))
 	inst := &repo.Tile{ID: "instnope", Engine: "nope", Slug: "cache"}
 	_, err := svc.ForkSlice(context.Background(), inst, &repo.Provision{DBName: "app"}, "", "")
 	require.Error(t, err)
@@ -48,7 +48,7 @@ func TestUniqueResourceSlug(t *testing.T) {
 		require.NoError(t, s.CreateProvision(ctx, &p))
 	}
 
-	svc := NewService(nil, s)
+	svc := NewService(nil, s, testRows(s))
 
 	// The drawer slice's effective slug is sharedpg-app_db... whatever
 	// ResourceSlug derives, assert against the helper, not a literal.
@@ -89,7 +89,7 @@ func TestDropResourceStripsConsumerRefs(t *testing.T) {
 		EnvID: seed.Env.ID, DBName: "app_db", ResourceSlug: "app-db", Status: "active", CreatedAt: now}
 	require.NoError(t, s.CreateProvision(ctx, p))
 
-	svc := NewService(nil, s)
+	svc := NewService(nil, s, testRows(s))
 	require.NoError(t, svc.SyncResource(ctx, inst, p))
 
 	// The consumer references the slice the way wiring a var does.

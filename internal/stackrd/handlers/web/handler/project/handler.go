@@ -2381,8 +2381,16 @@ func (h *handler) DeleteEnvVar(c echo.Context) error {
 // ops bundles env lifecycle deps for the shared envops package.
 func (h *handler) ops() envops.Ops {
 	// DBs is what lets Teardown reclaim an ephemeral env's provisioned slices.
-	return envops.Ops{Store: h.store, RT: h.rt, Cluster: h.clus, PX: h.px, DBs: managedtiles.NewService(h.clus, h.store),
-		Tiles: h.tiles, Sched: h.sched, Domains: h.domains, Resources: h.resources}
+	//
+	// Envs and Vars are not optional: every row this writes goes through one
+	// of them, so a missing one is a nil pointer at the first write rather
+	// than a compile error. They were absent when the writes still went
+	// straight to the store.
+	rows := service.Rows{Envs: h.envs, Tiles: h.tiles}
+	return envops.Ops{Store: h.store, RT: h.rt, Cluster: h.clus, PX: h.px,
+		DBs:   managedtiles.NewService(h.clus, h.store, rows),
+		Tiles: h.tiles, Sched: h.sched, Domains: h.domains, Resources: h.resources,
+		Envs: h.envs, Vars: h.vars}
 }
 
 // SavePREnv stores the stack's PR-environment webhook config.

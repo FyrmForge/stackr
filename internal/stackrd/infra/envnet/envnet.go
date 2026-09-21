@@ -26,6 +26,16 @@ import (
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 )
 
+// Envs is the environment row's two network columns, as this package needs
+// them. Declared here rather than imported because the service package is
+// built on top of this one — same reason netpool declares its own.
+//
+// EnvironmentService is what satisfies it.
+type Envs interface {
+	SetNetwork(ctx context.Context, envID, network string) error
+	SetProxy(ctx context.Context, envID, ip, cidr string) error
+}
+
 // Prefix opens every docker object stackr owns: networks, containers and the
 // panel's own traefik/registry/relay containers. Images use ImagePrefix.
 // Volumes are the exception, they keep the older "stackr-" prefix, because
@@ -162,20 +172,20 @@ func ForStack(ctx context.Context, store repo.Store, st *repo.Stack, envSlug str
 // create would take 80 and 443 down. Traefik holds the whole pool from the
 // moment it starts (infra/proxy), so the network this claims is already one
 // of its own.
-func Ensure(ctx context.Context, store repo.Store, c *cluster.Cluster, t *repo.Tile) (Scope, string, error) {
+func Ensure(ctx context.Context, store repo.Store, envs Envs, c *cluster.Cluster, t *repo.Tile) (Scope, string, error) {
 	sc, err := Resolve(ctx, store, t)
 	if err != nil {
 		return Scope{}, "", err
 	}
 	// netpool shapes overlays, which is swarm state and the manager's own.
-	netName, err := netpool.ClaimEnv(ctx, store, c.Runtime(), t.EnvironmentID)
+	netName, err := netpool.ClaimEnv(ctx, store, envs, c.Runtime(), t.EnvironmentID)
 	if err != nil {
 		return Scope{}, "", err
 	}
 	// Recording here is what lets a tile in a just-created env resolve
 	// ${{ stackr.PROXY_CIDR }}: the deploy engine calls Ensure before it
 	// resolves variables, so the value is in place by the time it is read.
-	RecordProxyAddr(ctx, store, c, t.EnvironmentID, netName)
+	RecordProxyAddr(ctx, envs, c, t.EnvironmentID, netName)
 	return sc, netName, nil
 }
 
@@ -233,7 +243,7 @@ func Net(ctx context.Context, store repo.Store, envID string) (string, error) {
 // Best-effort throughout: this is a convenience for config files, and no
 // failure here should stop a deploy or stop Traefik serving. A missed write
 // leaves the previous value standing until the next attach.
-func RecordProxyAddr(ctx context.Context, store repo.Store, c *cluster.Cluster, envID, netName string) {
+func RecordProxyAddr(ctx context.Context, envs Envs, c *cluster.Cluster, envID, netName string) {
 	if envID == "" || c == nil {
 		return
 	}
@@ -245,5 +255,5 @@ func RecordProxyAddr(ctx context.Context, store repo.Store, c *cluster.Cluster, 
 	if err != nil || ip == "" {
 		return
 	}
-	_ = store.SetEnvironmentProxy(ctx, envID, ip, cidr)
+	_ = envs.SetProxy(ctx, envID, ip, cidr)
 }

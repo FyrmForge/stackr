@@ -243,6 +243,22 @@ func main() {
 		log.Error("ensure docker network failed", "error", err)
 		os.Exit(1)
 	}
+	// rows is the handle the layer below writes its rows through: the
+	// environment's overlay, a shared instance's overlay, where traefik
+	// answered. Everything under infra/ needs it, and almost everything under
+	// infra/ is built before the services that fill it in — the deploy
+	// engine, the managed-tile service and the job runner all come first, and
+	// the services are built on top of them.
+	//
+	// So it is one pointer, handed out empty and filled once further down.
+	// The alternative is reordering a wiring block whose order is load-
+	// bearing, to remove an indirection that costs nothing.
+	//
+	// Everything that dereferences it does so on a request, long after the
+	// assignment below. The one exception is Backfill, which runs at boot, so
+	// its two fields are set before it.
+	rows := &service.Rows{}
+
 	// Tenant networks come from a pre-created pool of overlays, because a
 	// swarm service cannot join a network without rolling its tasks
 	// (docs/plans/30-docker-swarm.md). Create them before anything claims one.
@@ -253,11 +269,9 @@ func main() {
 	// A crash between deleting an env and returning its network leaves a free
 	// name with someone else's containers still on it.
 	netpool.Sweep(context.Background(), store, rt)
-	// An install upgraded across 009 has environments with no overlay at all,
-	// because that migration added the column empty and only a deploy ever
-	// fills it. Give them one now rather than at whatever point somebody next
-	// redeploys.
-	netpool.Backfill(context.Background(), store, rt)
+	// Backfill used to run here. It writes the environment row, so it now
+	// needs the environment service, which is built much further down — the
+	// call moved with it rather than the wiring moving up.
 	// One signer for the whole process. The registry service and the web token
 	// route both need it, and both used to load it themselves: on a fresh data
 	// dir that raced, and the endpoint could end up signing with a key the
@@ -351,7 +365,7 @@ func main() {
 	// touches a container, so nothing can be constructed without it
 	// (docs/plans/35-cluster.md).
 	clus := cluster.New(rt, nodeDispatch, store)
-	engine := deploy.NewEngine(store, rt, clus, streamHub, envDataDir, notifier)
+	engine := deploy.NewEngine(store, rt, clus, streamHub, envDataDir, notifier, rows)
 
 	// GitHub connectors: private-repo clone auth, ghcr pulls, PR feedback.
 	gh := githubapp.New(store, baseOrigin)
@@ -404,7 +418,7 @@ func main() {
 	// the cycle keeping managedtiles off the node-aware runtime.
 	sampler := metrics.NewSampler(store, clus, notifier).WithSliceReader(
 		func(ctx context.Context, inst *repo.Tile, names []string) (map[string]metrics.SliceRead, error) {
-			read, err := managedtiles.NewService(clus, store).SliceStats(ctx, inst, names)
+			read, err := managedtiles.NewService(clus, store, rows).SliceStats(ctx, inst, names)
 			if err != nil || read == nil {
 				return nil, err
 			}
@@ -443,10 +457,10 @@ func main() {
 		}
 	}()
 
-	dbService := managedtiles.NewService(clus, store)
+	dbService := managedtiles.NewService(clus, store, rows)
 
 	// Scheduled jobs (cron commands for apps).
-	jobsService := jobs.NewService(store, clus, notifier)
+	jobsService := jobs.NewService(store, clus, notifier, rows)
 	// Function tiles with the on-deploy trigger fire once their own build
 	// lands, chained onto the GitHub hook above rather than replacing it.
 	prevFinish := engine.OnFinish
@@ -626,6 +640,22 @@ func main() {
 	// in, then hand the applier the finished value.
 	ops.Envs, ops.Vars = envSvc, vars
 	applier.Ops = ops
+
+	// And the other half of rows, declared near the top: everything under
+	// infra/ has been holding this pointer since before either service
+	// existed.
+	rows.Envs, rows.Tiles = envSvc, tiles
+	// The proxy is built near the top and records where traefik landed on
+	// each environment's overlay, which is a write to the environment row.
+	px.UseEnvs(envSvc)
+
+	// An environment whose network column is empty has no overlay, and only a
+	// deploy ever fills it — so a freshly created environment cannot be port
+	// -forwarded into until something in it is deployed, and the proxy leaves
+	// it out of its network-to-env map without saying so. Give them one at
+	// boot instead. Runs here rather than next to Sweep because it writes the
+	// environment row, and the service that owns that row is only wired now.
+	netpool.Backfill(context.Background(), store, envSvc, rt)
 
 	// One owner for the bucket a backup is written to, and one for the
 	// schedules pointed at it. Three creators had three rule sets; the

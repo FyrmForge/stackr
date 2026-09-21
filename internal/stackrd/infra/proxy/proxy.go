@@ -34,8 +34,12 @@ type Proxy struct {
 	// clus is every container and image call, on whichever node owns it; rt
 	// is the same manager socket for the swarm half (services, overlays),
 	// which is the manager's by definition.
-	clus      *cluster.Cluster
-	rt        *runtime.Runtime
+	clus *cluster.Cluster
+	rt   *runtime.Runtime
+	// envs owns the environment row. Attaching traefik to an environment's
+	// overlay records where it landed, and that column is not this package's
+	// to write.
+	envs      envnet.Envs
 	store     repo.Store
 	dir       string // dataDir/traefik, mounted at /etc/traefik in the container
 	httpPort  string
@@ -81,6 +85,16 @@ func New(clus *cluster.Cluster, store repo.Store, dataDir, httpPort, httpsPort, 
 	p.restart = p.restartTraefik
 	return p
 }
+
+// UseEnvs hands the proxy the service that owns the environment row.
+//
+// It is a setter rather than a constructor argument because of the order
+// main.go is forced into: the proxy is built early (the proxy service, and
+// most of what follows, is built on it) and the environment service is built
+// late (it needs the config applier, which needs the proxy). Until this is
+// called, attaching traefik to an environment records nothing — which is
+// best-effort anyway, so it degrades rather than panics.
+func (p *Proxy) UseEnvs(e envnet.Envs) { p.envs = e }
 
 // dnsConfig returns the configured DNS-01 provider and its credential env
 // lines ("" = wildcard certs disabled). Stored in global settings.
@@ -332,9 +346,12 @@ func (p *Proxy) recordAddrs(ctx context.Context, nets []string) {
 			}
 		}
 	}
+	if p.envs == nil {
+		return
+	}
 	for _, n := range nets {
 		if envID, ok := byNet[n]; ok {
-			envnet.RecordProxyAddr(ctx, p.store, p.clus, envID, n)
+			envnet.RecordProxyAddr(ctx, p.envs, p.clus, envID, n)
 		}
 	}
 }

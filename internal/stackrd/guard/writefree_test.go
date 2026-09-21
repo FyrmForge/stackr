@@ -417,7 +417,6 @@ const stillWriting = `
 3 internal/stackrd/infra/deploy/CreateDeployment
 11 internal/stackrd/infra/deploy/UpdateDeployment
 5 internal/stackrd/infra/deploy/UpdateTileStatus
-1 internal/stackrd/infra/envnet/SetEnvironmentProxy
 1 internal/stackrd/infra/githubapp/CreateConnector
 1 internal/stackrd/infra/githubapp/UpdateConnector
 1 internal/stackrd/infra/jobs/CreateCronRun
@@ -440,8 +439,6 @@ const stillWriting = `
 4 internal/stackrd/infra/metrics/InsertMetric
 1 internal/stackrd/infra/metrics/PruneMetrics
 1 internal/stackrd/infra/metrics/UpdateTileStatus
-2 internal/stackrd/infra/netpool/SetEnvironmentNetwork
-2 internal/stackrd/infra/netpool/SetTileSharedNet
 1 internal/stackrd/infra/nodes/BurnJoinKey
 1 internal/stackrd/infra/nodes/BurnServerJoinKeys
 1 internal/stackrd/infra/nodes/CreateJoinKey

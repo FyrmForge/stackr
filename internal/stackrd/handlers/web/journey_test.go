@@ -17,8 +17,8 @@ import (
 	"github.com/FyrmForge/hamr/pkg/websocket"
 	"github.com/stretchr/testify/require"
 
-	"github.com/FyrmForge/stackr/internal/stackrd/config/orgconf"
 	"github.com/FyrmForge/stackr/internal/stackrd/config/envops"
+	"github.com/FyrmForge/stackr/internal/stackrd/config/orgconf"
 	"github.com/FyrmForge/stackr/internal/stackrd/config/stackconf"
 	"github.com/FyrmForge/stackr/internal/stackrd/handlers/web"
 	"github.com/FyrmForge/stackr/internal/stackrd/handlers/web/components"

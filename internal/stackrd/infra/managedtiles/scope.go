@@ -21,7 +21,7 @@ func SharedNet(instance *repo.Tile) string { return instance.SharedNet() }
 // point: consumers in dev must not be able to see consumers in prod
 // (docs/plans/30-docker-swarm.md, decision 2).
 func (s *Service) ensureSharedNet(ctx context.Context, instance *repo.Tile) error {
-	_, err := netpool.ClaimDB(ctx, s.store, s.c.Runtime(), instance)
+	_, err := netpool.ClaimDB(ctx, s.store, s.rows, s.c.Runtime(), instance)
 	return err
 }
 
