@@ -127,7 +127,8 @@ func TestRestartFailsAnInterruptedBackup(t *testing.T) {
 		Cron: "0 4 * * *", KeepLatest: 7, Enabled: true, CreatedAt: time.Now().UTC()}
 	require.NoError(t, store.CreateBackup(ctx, b))
 
-	s := &Service{store: store, dataDir: t.TempDir(), running: map[string]bool{}}
+	s := &Service{store: store, runs: testdb.BackupRuns{Store: store},
+		dataDir: t.TempDir(), running: map[string]bool{}}
 	run, err := s.openRun(ctx, b, "manual", "running")
 	require.NoError(t, err)
 	scratch, err := s.scratchFile(b.ID)
