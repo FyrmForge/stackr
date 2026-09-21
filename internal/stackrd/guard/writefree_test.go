@@ -428,12 +428,6 @@ const stillWriting = `
 1 internal/stackrd/infra/registry/DeleteSystemOrgRegistryCredential
 3 internal/stackrd/infra/volmove/SetTileHomeNode
 3 internal/stackrd/infra/volmove/UpdateTileStatus
-1 internal/stackrd/infra/workqueue/ClaimWorkItem
-1 internal/stackrd/infra/workqueue/CreateWorkItem
-7 internal/stackrd/infra/workqueue/FinishWorkItem
-1 internal/stackrd/infra/workqueue/RequeueWorkItem
-2 internal/stackrd/infra/workqueue/SetWorkItemProgress
-1 internal/stackrd/infra/workqueue/SupersedeQueuedWorkItems
 `
 
 // The audit table has a back door. `store/audit.Record(ctx, store, …)` calls

@@ -18,7 +18,7 @@ func TestStopAWaitingRun(t *testing.T) {
 	ctx := context.Background()
 	store := testdb.New(t)
 	seed := testdb.SeedStack(t, store, false)
-	q := workqueue.New(store) // never started, so the item stays queued
+	q := workqueue.New(store, testdb.WorkItems{Store: store}) // never started, so the item stays queued
 	s := NewService(store, nil, nil, nil).WithWork(q)
 
 	assert.False(t, s.Stop(ctx, "nobody"), "stopped a run that does not exist")

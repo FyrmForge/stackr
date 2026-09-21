@@ -33,7 +33,7 @@ func TestAFailedApplyLandsOnThePlanRow(t *testing.T) {
 	}
 	require.NoError(t, s.CreateOrgConfigPlan(ctx, cp))
 
-	q := workqueue.New(s)
+	q := workqueue.New(s, testdb.WorkItems{Store: s})
 	RegisterApply(q, &Runner{Store: s})
 	q.Start(ctx)
 
@@ -77,7 +77,7 @@ func TestOneApplyPerPlan(t *testing.T) {
 	}
 	require.NoError(t, s.CreateOrgConfigPlan(ctx, cp))
 
-	q := workqueue.New(s)
+	q := workqueue.New(s, testdb.WorkItems{Store: s})
 	RegisterApply(q, &Runner{Store: s}) // registered, never started: rows only
 
 	first, err := EnqueueApply(ctx, q, seed.Org, cp)

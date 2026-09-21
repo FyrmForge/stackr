@@ -702,7 +702,7 @@ func main() {
 	// they ran on the HTTP request's context, so a browser that stopped
 	// waiting killed the apply half way through and the failure was never
 	// recorded.
-	work := workqueue.New(store)
+	work := workqueue.New(store, service.NewWorkItemService(store))
 	stackconf.RegisterApply(work, applier)
 	stackconf.RegisterPromote(work, applier)
 	// The org-level apply was the last one left running inline. It is the

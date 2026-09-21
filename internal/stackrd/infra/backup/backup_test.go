@@ -138,7 +138,7 @@ func TestRestartFailsAnInterruptedBackup(t *testing.T) {
 	require.NoError(t, store.CreateWorkItem(ctx, &repo.WorkItem{ID: "w1", Kind: RunKind, DedupeKey: run.ID,
 		Payload: string(payload), Status: "running", Step: "uploading", CreatedAt: time.Now().UTC()}))
 
-	q := workqueue.New(store)
+	q := workqueue.New(store, testdb.WorkItems{Store: store})
 	s.WithWork(q)
 	cctx, cancel := context.WithCancel(ctx)
 	defer cancel()

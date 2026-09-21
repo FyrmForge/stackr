@@ -34,6 +34,7 @@ import (
 type Job struct {
 	Item  *repo.WorkItem
 	store repo.Store
+	items Items
 }
 
 // Payload decodes the item's payload into v.
@@ -49,7 +50,7 @@ func (j *Job) Payload(v any) error {
 // a log line.
 func (j *Job) SetStep(ctx context.Context, step string) {
 	j.Item.Step = step
-	if err := j.store.SetWorkItemProgress(ctx, j.Item.ID, step, j.Item.Progress); err != nil {
+	if err := j.items.Progress(ctx, j.Item.ID, step, j.Item.Progress); err != nil {
 		slog.Error("workqueue: writing step", "item", j.Item.ID, "error", err)
 	}
 }
@@ -62,7 +63,7 @@ func (j *Job) SetProgress(ctx context.Context, v any) {
 		return
 	}
 	j.Item.Progress = string(b)
-	if err := j.store.SetWorkItemProgress(ctx, j.Item.ID, j.Item.Step, j.Item.Progress); err != nil {
+	if err := j.items.Progress(ctx, j.Item.ID, j.Item.Step, j.Item.Progress); err != nil {
 		slog.Error("workqueue: writing progress", "item", j.Item.ID, "error", err)
 	}
 }
@@ -119,8 +120,25 @@ type kind struct {
 }
 
 // Queue is the runner. One per process.
+// Items is the work_items table's owner. Declared here rather than imported
+// because service/ is built on top of this package.
+//
+// It is a forwarder today — see service.WorkItemService, which says so at
+// length. The reason it exists anyway is that the rule is "the store is
+// written from service/", with no carve-out for what looked like bookkeeping
+// to whoever wrote it.
+type Items interface {
+	Enqueue(ctx context.Context, w *repo.WorkItem) error
+	Claim(ctx context.Context, id string) (bool, error)
+	Finish(ctx context.Context, id, status, errMsg string) error
+	Requeue(ctx context.Context, id string) error
+	Progress(ctx context.Context, id, step, progress string) error
+	Supersede(ctx context.Context, kind, dedupeKey, exceptID string) error
+}
+
 type Queue struct {
 	store repo.Store
+	items Items
 
 	mu      sync.Mutex
 	kinds   map[string]*kind
@@ -132,9 +150,10 @@ type Queue struct {
 }
 
 // New builds the queue. Nothing runs until Start.
-func New(store repo.Store) *Queue {
+func New(store repo.Store, items Items) *Queue {
 	return &Queue{
 		store:   store,
+		items:   items,
 		kinds:   map[string]*kind{},
 		cancels: map[string]context.CancelFunc{},
 		wake:    make(chan struct{}, 1),
@@ -183,7 +202,7 @@ func (q *Queue) Enqueue(ctx context.Context, kindName, dedupeKey string, payload
 		Status:    "queued",
 		CreatedAt: time.Now().UTC(),
 	}
-	if err := q.store.CreateWorkItem(ctx, w); err != nil {
+	if err := q.items.Enqueue(ctx, w); err != nil {
 		return "", err
 	}
 	// Read the victims before the update flips them: the store reports no
@@ -206,11 +225,11 @@ func (q *Queue) Enqueue(ctx context.Context, kindName, dedupeKey string, payload
 	}
 	// After the insert, so the row that survives is the new one whatever
 	// happens in between.
-	if err := q.store.SupersedeQueuedWorkItems(ctx, kindName, dedupeKey, w.ID); err != nil {
+	if err := q.items.Supersede(ctx, kindName, dedupeKey, w.ID); err != nil {
 		slog.Error("workqueue: superseding older items", "kind", kindName, "key", dedupeKey, "error", err)
 	} else {
 		for i := range older {
-			k.opts.OnSuperseded(ctx, &Job{Item: &older[i], store: q.store})
+			k.opts.OnSuperseded(ctx, &Job{Item: &older[i], store: q.store, items: q.items})
 		}
 	}
 	q.poke()
@@ -232,7 +251,7 @@ func (q *Queue) Cancel(ctx context.Context, id string) error {
 	if err != nil || w == nil || w.Done() {
 		return err
 	}
-	return q.store.FinishWorkItem(ctx, id, "cancelled", "")
+	return q.items.Finish(ctx, id, "cancelled", "")
 }
 
 func (q *Queue) poke() {
@@ -265,14 +284,14 @@ func (q *Queue) recover(ctx context.Context) {
 		// A kind nobody registers any more cannot be recovered or reasoned
 		// about, and leaving it running would hide it from every listing.
 		if k == nil {
-			if err := q.store.FinishWorkItem(ctx, w.ID, "error", "no handler for "+w.Kind+" any more"); err != nil {
+			if err := q.items.Finish(ctx, w.ID, "error", "no handler for "+w.Kind+" any more"); err != nil {
 				slog.Error("workqueue: orphaned item not closed", "kind", w.Kind, "item", w.ID, "error", err)
 			}
 			continue
 		}
 		if k.opts.OnRestart == Requeue {
 			slog.Warn("workqueue: requeueing work the restart interrupted", "kind", w.Kind, "item", w.ID)
-			if err := q.store.RequeueWorkItem(ctx, w.ID); err != nil {
+			if err := q.items.Requeue(ctx, w.ID); err != nil {
 				slog.Error("workqueue: requeue failed", "item", w.ID, "error", err)
 			}
 			continue
@@ -285,13 +304,13 @@ func (q *Queue) recover(ctx context.Context) {
 			// Bounded: recovery runs before the panel serves, and a cleanup
 			// dialling the agent on a dead node must not hold boot hostage.
 			cctx, cancel := context.WithTimeout(ctx, 30*time.Second)
-			if m := k.opts.Cleanup(cctx, &Job{Item: w, store: q.store}); m != "" {
+			if m := k.opts.Cleanup(cctx, &Job{Item: w, store: q.store, items: q.items}); m != "" {
 				msg = m
 			}
 			cancel()
 		}
 		slog.Warn("workqueue: failing work the restart interrupted", "kind", w.Kind, "item", w.ID)
-		if err := q.store.FinishWorkItem(ctx, w.ID, "error", msg); err != nil {
+		if err := q.items.Finish(ctx, w.ID, "error", msg); err != nil {
 			slog.Error("workqueue: interrupted item not closed", "kind", w.Kind, "item", w.ID, "error", err)
 		}
 	}
@@ -327,7 +346,7 @@ func (q *Queue) drain(ctx context.Context) {
 		k := q.kinds[w.Kind]
 		q.mu.Unlock()
 		if k == nil {
-			if err := q.store.FinishWorkItem(ctx, w.ID, "error", "no handler for "+w.Kind); err != nil {
+			if err := q.items.Finish(ctx, w.ID, "error", "no handler for "+w.Kind); err != nil {
 				slog.Error("workqueue: item with no handler not closed", "kind", w.Kind, "item", w.ID, "error", err)
 			}
 			continue
@@ -357,7 +376,7 @@ func (q *Queue) drain(ctx context.Context) {
 			// A freed slot is work that can start now, not at the next tick.
 			q.poke()
 		}
-		claimed, err := q.store.ClaimWorkItem(ctx, w.ID)
+		claimed, err := q.items.Claim(ctx, w.ID)
 		if err != nil || !claimed {
 			done()
 			continue
@@ -384,7 +403,7 @@ func (q *Queue) run(w repo.WorkItem, k *kind) {
 		q.mu.Unlock()
 	}()
 
-	j := &Job{Item: &w, store: q.store}
+	j := &Job{Item: &w, store: q.store, items: q.items}
 	err := func() (err error) {
 		// A panic in one handler must not take the panel with it. The row
 		// records it, which is the only place anyone would look.
@@ -410,16 +429,16 @@ func (q *Queue) run(w repo.WorkItem, k *kind) {
 	fin := context.Background()
 	switch {
 	case err == nil:
-		if ferr := q.store.FinishWorkItem(fin, w.ID, "done", ""); ferr != nil {
+		if ferr := q.items.Finish(fin, w.ID, "done", ""); ferr != nil {
 			slog.Error("workqueue: item not closed", "kind", w.Kind, "item", w.ID, "status", "done", "error", ferr)
 		}
 	case ctx.Err() == context.Canceled:
-		if ferr := q.store.FinishWorkItem(fin, w.ID, "cancelled", ""); ferr != nil {
+		if ferr := q.items.Finish(fin, w.ID, "cancelled", ""); ferr != nil {
 			slog.Error("workqueue: item not closed", "kind", w.Kind, "item", w.ID, "status", "cancelled", "error", ferr)
 		}
 	default:
 		slog.Error("workqueue: job failed", "kind", w.Kind, "item", w.ID, "error", err)
-		if ferr := q.store.FinishWorkItem(fin, w.ID, "error", err.Error()); ferr != nil {
+		if ferr := q.items.Finish(fin, w.ID, "error", err.Error()); ferr != nil {
 			slog.Error("workqueue: item not closed", "kind", w.Kind, "item", w.ID, "status", "error", "error", ferr)
 		}
 	}

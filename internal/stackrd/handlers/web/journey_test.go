@@ -105,7 +105,7 @@ func newJourney(t *testing.T) *journey {
 	// cannot reach the runner is a 503, and the wizard's own plan screen is
 	// what waits for the job and then moves on.
 	orgRunner := &orgconf.Runner{Store: store, Src: src, Stacks: applier.Planner, Applier: applier}
-	work := workqueue.New(store)
+	work := workqueue.New(store, service.NewWorkItemService(store))
 	stackconf.RegisterApply(work, applier)
 	stackconf.RegisterPromote(work, applier)
 	orgconf.RegisterApply(work, orgRunner)
