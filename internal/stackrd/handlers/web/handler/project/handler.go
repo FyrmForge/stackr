@@ -588,7 +588,7 @@ func (h *handler) stageChange(c echo.Context, t *repo.Tile, summary, op string, 
 	if u := stackrmw.CurrentUser(c); u != nil {
 		authorID, authorName = u.ID, u.Name
 	}
-	return staging.Stage(c.Request().Context(), h.store, t, authorID, authorName, summary, op, patch)
+	return staging.Stage(c.Request().Context(), h.store, h.tiles, t, authorID, authorName, summary, op, patch)
 }
 
 // POST /projects/:id/config, bind (or unbind) the stack's config repo.
@@ -2201,7 +2201,7 @@ func (h *handler) MintStackLink(c echo.Context) error {
 		ExpiresAt:     time.Now().Add(time.Duration(hours) * time.Hour),
 		CreatedBy:     middleware.GetSubjectID(c),
 	}
-	token, err := sharelink.Mint(ctx, h.store, l, c.FormValue("passphrase"))
+	token, err := sharelink.Mint(ctx, h.store, h.revoke, l, c.FormValue("passphrase"))
 	if err != nil {
 		return err
 	}
@@ -2228,7 +2228,7 @@ func (h *handler) RevokeStackLink(c echo.Context) error {
 	id := c.FormValue("id")
 	for _, l := range links {
 		if l.ID == id {
-			if err := sharelink.Revoke(ctx, h.store, id); err != nil {
+			if err := sharelink.Revoke(ctx, h.revoke, id); err != nil {
 				return err
 			}
 			middleware.SetFlash(c, "Link revoked.", middleware.FlashSuccess)

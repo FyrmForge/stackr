@@ -164,7 +164,7 @@ func (s *ManagedInstanceService) Create(ctx context.Context, t *repo.Tile, scope
 		// Credentials are generated at apply time by the reconcile engine, the
 		// same as a config-managed create, so NewDB is deliberately not run on
 		// this branch: a password staged here would never be the one used.
-		return true, staging.Stage(ctx, s.store, t, by.ID, by.Name, "create",
+		return true, staging.Stage(ctx, s.store, s.tiles, t, by.ID, by.Name, "create",
 			staging.OpCreate, stagedPatch)
 	}
 	if err := managedtiles.NewDB(t); err != nil {

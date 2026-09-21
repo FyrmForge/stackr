@@ -20,7 +20,13 @@ import (
 type handler struct {
 	store repo.Store
 	vars  *service.VariableService
+	// links owns the secret_links table. This package used to reach past it
+	// to the store, which is the half of D-8 on the burn side.
+	links *service.RevokeService
 }
+
+// WithLinks gives the public pages the service that owns a share link.
+func (h *handler) WithLinks(r *service.RevokeService) *handler { h.links = r; return h }
 
 func NewHandler(store repo.Store) *handler {
 	return &handler{store: store}
@@ -36,7 +42,7 @@ const fieldPrefix = "f_"
 
 // GET /s/:token
 func (h *handler) Page(c echo.Context) error {
-	l, err := sharelink.Open(c.Request().Context(), h.store, c.Param("token"))
+	l, err := sharelink.Open(c.Request().Context(), h.links, c.Param("token"))
 	if err != nil {
 		return h.dead(c, err, false)
 	}
@@ -47,7 +53,7 @@ func (h *handler) Page(c echo.Context) error {
 func (h *handler) Submit(c echo.Context) error {
 	ctx := c.Request().Context()
 	token := c.Param("token")
-	l, err := sharelink.Open(ctx, h.store, token)
+	l, err := sharelink.Open(ctx, h.links, token)
 	if err != nil {
 		return h.dead(c, err, true)
 	}
@@ -59,7 +65,7 @@ func (h *handler) Submit(c echo.Context) error {
 		values[f.Name] = c.FormValue(fieldPrefix + f.Name)
 	}
 
-	if err := sharelink.Unlock(ctx, h.store, l, c.FormValue("passphrase")); err != nil {
+	if err := sharelink.Unlock(ctx, h.links, l, c.FormValue("passphrase")); err != nil {
 		if errors.Is(err, sharelink.ErrPass) {
 			return respond.HTML(c, http.StatusUnprocessableEntity,
 				linkCard(c, l, token, values, "That passphrase is not right."))
@@ -68,14 +74,14 @@ func (h *handler) Submit(c echo.Context) error {
 	}
 
 	if l.Kind == repo.LinkShare {
-		vars, err := sharelink.Reveal(ctx, h.store, l)
+		vars, err := sharelink.Reveal(ctx, h.store, h.links, l)
 		if err != nil {
 			return h.dead(c, err, true)
 		}
 		return respond.HTML(c, http.StatusOK, revealCard(c, l, vars))
 	}
 
-	if err := sharelink.Submit(ctx, h.store, l, values); err != nil {
+	if err := sharelink.Submit(ctx, h.store, h.links, l, values); err != nil {
 		if errors.Is(err, sharelink.ErrDead) {
 			return h.dead(c, err, true)
 		}

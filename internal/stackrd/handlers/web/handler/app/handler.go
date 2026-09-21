@@ -1171,7 +1171,7 @@ func (h *handler) stage(c echo.Context, a *repo.Tile, summary, op string, patch 
 	if u := stackrmw.CurrentUser(c); u != nil {
 		authorID, authorName = u.ID, u.Name
 	}
-	return staging.Stage(c.Request().Context(), h.store, a, authorID, authorName, summary, op, patch)
+	return staging.Stage(c.Request().Context(), h.store, h.tiles, a, authorID, authorName, summary, op, patch)
 }
 
 // envMapFromBlob parses a KEY=VALUE blob into a map (always non-nil so an

@@ -54,8 +54,18 @@ type cachedToken struct {
 	exp   time.Time
 }
 
+// Connectors is the connectors table's owner. service.ConnectorService
+// satisfies it; an interface because service/ is built on this package.
+type Connectors interface {
+	Create(ctx context.Context, cn *repo.Connector) error
+	Save(ctx context.Context, cn *repo.Connector) error
+}
+
 type Client struct {
-	store   repo.Store
+	store repo.Store
+	// conns owns the connector row this flow creates and then fills in with
+	// the credentials GitHub hands back.
+	conns   Connectors
 	baseURL string
 	http    *http.Client
 
@@ -63,8 +73,8 @@ type Client struct {
 	tokens map[string]cachedToken // connector id → installation token
 }
 
-func New(store repo.Store, baseURL string) *Client {
-	return &Client{store: store, baseURL: strings.TrimRight(baseURL, "/"),
+func New(store repo.Store, conns Connectors, baseURL string) *Client {
+	return &Client{store: store, conns: conns, baseURL: strings.TrimRight(baseURL, "/"),
 		http: &http.Client{Timeout: 15 * time.Second}, tokens: map[string]cachedToken{}}
 }
 
@@ -89,7 +99,7 @@ func (c *Client) Begin(ctx context.Context, orgID, ghOrg string) (action, manife
 	}
 	cfg, _ := json.Marshal(Config{State: nonce})
 	cn.Config = string(cfg)
-	if err = c.store.CreateConnector(ctx, cn); err != nil {
+	if err = c.conns.Create(ctx, cn); err != nil {
 		return "", "", err
 	}
 
@@ -186,7 +196,7 @@ func (c *Client) Complete(ctx context.Context, code, state string) (*repo.Connec
 	}
 	cn.Name = "GitHub · " + out.Slug
 	cn.Config = string(raw)
-	if err := c.store.UpdateConnector(ctx, cn); err != nil {
+	if err := c.conns.Save(ctx, cn); err != nil {
 		return nil, err
 	}
 	return cn, nil

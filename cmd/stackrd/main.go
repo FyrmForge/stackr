@@ -368,7 +368,7 @@ func main() {
 	engine := deploy.NewEngine(store, rt, clus, streamHub, envDataDir, notifier, rows)
 
 	// GitHub connectors: private-repo clone auth, ghcr pulls, PR feedback.
-	gh := githubapp.New(store, baseOrigin)
+	gh := githubapp.New(store, service.NewConnectorService(store), baseOrigin)
 	engine.GitAuth = gh.CloneAuth
 	engine.RegistryAuth = gh.RegistryAuth
 	engine.OnFinish = func(tile *repo.Tile, d *repo.Deployment) {

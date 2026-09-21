@@ -383,10 +383,6 @@ const stillWriting = `
 1 internal/stackrd/config/orgconf/UpdateStack
 1 internal/stackrd/config/orgconf/UpdateStorage
 1 internal/stackrd/config/orgconf/UpdateTile
-1 internal/stackrd/config/sharelink/BurnDropLink
-3 internal/stackrd/config/sharelink/ClaimSecretLink
-1 internal/stackrd/config/sharelink/CreateSecretLink
-2 internal/stackrd/config/sharelink/TouchSecretLink
 1 internal/stackrd/config/stackconf/ClearDeclaredIntended
 1 internal/stackrd/config/stackconf/CreateBinding
 2 internal/stackrd/config/stackconf/CreateDomain
@@ -401,13 +397,9 @@ const stillWriting = `
 2 internal/stackrd/config/stackconf/UpdateProvision
 4 internal/stackrd/config/stackconf/UpdateStack
 1 internal/stackrd/config/stackconf/UpdateTile
-1 internal/stackrd/config/staging/CreateStagedChange
-1 internal/stackrd/config/staging/DeleteStagedChange
 1 internal/stackrd/handlers/web/TouchOrgRegistryCredential
 1 internal/stackrd/infra/backup/CreateBackupRun
 2 internal/stackrd/infra/backup/UpdateBackupRun
-1 internal/stackrd/infra/githubapp/CreateConnector
-1 internal/stackrd/infra/githubapp/UpdateConnector
 1 internal/stackrd/infra/jobs/CreateCronRun
 1 internal/stackrd/infra/jobs/FinishCronRun
 1 internal/stackrd/infra/jobs/PruneCronRuns

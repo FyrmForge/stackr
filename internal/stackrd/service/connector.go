@@ -49,6 +49,21 @@ func (s *ConnectorService) ListAll(ctx context.Context) ([]repo.Connector, error
 	return s.store.ListConnectors(ctx)
 }
 
+// Create stores a new connector.
+//
+// Part 3 of the drift audit: this service existed and owned Get, ForOrg,
+// ListAll and Delete. The two writes had no owner at all — the GitHub App
+// manifest flow and the settings handler each made them against the store.
+func (s *ConnectorService) Create(ctx context.Context, cn *repo.Connector) error {
+	return s.store.CreateConnector(ctx, cn)
+}
+
+// Save persists a connector the caller has moved: the credentials the App
+// manifest callback returns, a rename, a changed scope.
+func (s *ConnectorService) Save(ctx context.Context, cn *repo.Connector) error {
+	return s.store.UpdateConnector(ctx, cn)
+}
+
 // Delete removes a connector.
 func (s *ConnectorService) Delete(ctx context.Context, id string) error {
 	return s.store.DeleteConnector(ctx, id)

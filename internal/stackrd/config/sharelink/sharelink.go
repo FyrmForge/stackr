@@ -11,6 +11,7 @@ package sharelink
 import (
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -34,6 +35,24 @@ var (
 	ErrPass = errors.New("wrong passphrase")
 )
 
+// Links is the secret_links table's owner, as this package needs it.
+//
+// D-8 of the drift audit: this package minted links and RevokeService revoked
+// them. One concept, two owners, and the mint side carried no rules — which
+// is how a scope granted at mint time still binds against whatever org the
+// cookie held. Moving the writes behind the service does not fix that; it
+// puts the mint and the revoke in one place, which is where the fix goes.
+//
+// An interface rather than the service itself because service/ is built on
+// this package.
+type Links interface {
+	Mint(ctx context.Context, l *repo.SecretLink) error
+	ByHash(ctx context.Context, tokenHash string) (*repo.SecretLink, error)
+	Claim(ctx context.Context, id, state string) (bool, error)
+	BurnDrop(ctx context.Context, id string, vars []repo.Variable) (bool, error)
+	Touch(ctx context.Context, id string, attempts int, openedAt sql.NullTime) error
+}
+
 // HashToken is the one-way mapping from the token in the URL to what we store.
 // Same shape as API keys: the plaintext exists only in the link we hand out.
 func HashToken(raw string) string {
@@ -43,7 +62,7 @@ func HashToken(raw string) string {
 
 // Mint stores a link and returns the token for its URL. The token is returned
 // exactly once, only its hash is persisted, so a lost link can't be recovered.
-func Mint(ctx context.Context, store repo.Store, l *repo.SecretLink, pass string) (string, error) {
+func Mint(ctx context.Context, store repo.Store, links Links, l *repo.SecretLink, pass string) (string, error) {
 	token := secrets.RandomHex(32)
 	l.ID = uuid.New().String()
 	l.TokenHash = HashToken(token)
@@ -59,7 +78,7 @@ func Mint(ctx context.Context, store repo.Store, l *repo.SecretLink, pass string
 	if l.Fields == "" {
 		l.Fields = "[]"
 	}
-	if err := store.CreateSecretLink(ctx, l); err != nil {
+	if err := links.Mint(ctx, l); err != nil {
 		return "", err
 	}
 	return token, nil
@@ -74,8 +93,8 @@ func EncodeFields(fields []repo.SecretLinkField) (string, error) {
 // Open resolves a token to a live link. It is safe on GET: no state changes
 // here, and a passphrase-protected link reports ErrPass without touching the
 // row, so a prefetch can't spend an attempt.
-func Open(ctx context.Context, store repo.Store, token string) (*repo.SecretLink, error) {
-	l, err := store.GetSecretLinkByHash(ctx, HashToken(token))
+func Open(ctx context.Context, links Links, token string) (*repo.SecretLink, error) {
+	l, err := links.ByHash(ctx, HashToken(token))
 	if err != nil {
 		return nil, err
 	}
@@ -87,7 +106,7 @@ func Open(ctx context.Context, store repo.Store, token string) (*repo.SecretLink
 
 // Unlock checks the passphrase on a link Open already returned, counting wrong
 // answers and locking the link once they run out. POST only, it writes.
-func Unlock(ctx context.Context, store repo.Store, l *repo.SecretLink, pass string) error {
+func Unlock(ctx context.Context, links Links, l *repo.SecretLink, pass string) error {
 	if l.PassHash == "" {
 		return nil
 	}
@@ -100,12 +119,12 @@ func Unlock(ctx context.Context, store repo.Store, l *repo.SecretLink, pass stri
 	}
 	l.Attempts++
 	if l.Attempts >= repo.MaxLinkAttempts {
-		if _, err := store.ClaimSecretLink(ctx, l.ID, repo.LinkLocked); err != nil {
+		if _, err := links.Claim(ctx, l.ID, repo.LinkLocked); err != nil {
 			return err
 		}
 		return ErrDead
 	}
-	if err := store.TouchSecretLink(ctx, l.ID, l.Attempts, l.OpenedAt); err != nil {
+	if err := links.Touch(ctx, l.ID, l.Attempts, l.OpenedAt); err != nil {
 		return err
 	}
 	return ErrPass
@@ -114,7 +133,7 @@ func Unlock(ctx context.Context, store repo.Store, l *repo.SecretLink, pass stri
 // Submit burns a drop box and writes what was collected, atomically: the
 // claimed burn and the variable writes are one transaction, so a losing
 // double-submit writes nothing and a failed write un-burns the link.
-func Submit(ctx context.Context, store repo.Store, l *repo.SecretLink, values map[string]string) error {
+func Submit(ctx context.Context, store repo.Store, links Links, l *repo.SecretLink, values map[string]string) error {
 	if l.Kind != repo.LinkDrop {
 		return ErrDead
 	}
@@ -144,7 +163,7 @@ func Submit(ctx context.Context, store repo.Store, l *repo.SecretLink, values ma
 	}
 	// Burn and writes are one transaction: if any write fails, the burn rolls
 	// back too, and the sender's retained form can simply be resubmitted.
-	won, err := store.BurnDropLink(ctx, l.ID, vars)
+	won, err := links.BurnDrop(ctx, l.ID, vars)
 	if err != nil {
 		return err
 	}
@@ -161,18 +180,18 @@ func Submit(ctx context.Context, store repo.Store, l *repo.SecretLink, values ma
 // live, never copied at mint, so revoking a link leaves nothing to clean up.
 // With a grace window the link stays readable until the window closes rather
 // than dying on the first read.
-func Reveal(ctx context.Context, store repo.Store, l *repo.SecretLink) ([]repo.Variable, error) {
+func Reveal(ctx context.Context, store repo.Store, links Links, l *repo.SecretLink) ([]repo.Variable, error) {
 	if l.Kind != repo.LinkShare {
 		return nil, ErrDead
 	}
 	if l.WindowMinutes > 0 {
 		if !l.OpenedAt.Valid {
 			l.OpenedAt.Time, l.OpenedAt.Valid = time.Now(), true
-			if err := store.TouchSecretLink(ctx, l.ID, l.Attempts, l.OpenedAt); err != nil {
+			if err := links.Touch(ctx, l.ID, l.Attempts, l.OpenedAt); err != nil {
 				return nil, err
 			}
 		}
-	} else if won, err := store.ClaimSecretLink(ctx, l.ID, repo.LinkBurned); err != nil {
+	} else if won, err := links.Claim(ctx, l.ID, repo.LinkBurned); err != nil {
 		return nil, err
 	} else if !won {
 		return nil, ErrDead
@@ -200,7 +219,7 @@ func Reveal(ctx context.Context, store repo.Store, l *repo.SecretLink) ([]repo.V
 }
 
 // Revoke kills a link whatever state it is in.
-func Revoke(ctx context.Context, store repo.Store, id string) error {
-	_, err := store.ClaimSecretLink(ctx, id, repo.LinkRevoked)
+func Revoke(ctx context.Context, links Links, id string) error {
+	_, err := links.Claim(ctx, id, repo.LinkRevoked)
 	return err
 }

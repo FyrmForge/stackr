@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 
 	"github.com/FyrmForge/stackr/internal/stackrd/service/notify"
@@ -185,4 +186,45 @@ func (s *RevokeService) ownerOrg(ctx context.Context, kind, id string) (orgID, s
 // person who was handed one can be told what happened to it.
 func (s *RevokeService) Links(ctx context.Context, ownerKind, ownerID string) ([]repo.SecretLink, error) {
 	return s.store.ListSecretLinks(ctx, ownerKind, ownerID)
+}
+
+// --- minting and spending, which used to live outside this package ---
+//
+// D-8 of the drift audit: config/sharelink minted secret links and this
+// service revoked them. One concept, two owners, and the mint side carried no
+// rules at all — which is why a scope grant made at mint time still binds
+// against whatever org the cookie held, and demoting the person it was minted
+// for narrows nothing.
+//
+// Moving the writes here does not fix that on its own. It puts them where the
+// fix goes.
+
+// Mint stores a new share link.
+func (s *RevokeService) Mint(ctx context.Context, l *repo.SecretLink) error {
+	return s.store.CreateSecretLink(ctx, l)
+}
+
+// ByHash finds a link by the hash of its token. The token itself is never
+// stored, so this is the only way in from a URL.
+func (s *RevokeService) ByHash(ctx context.Context, tokenHash string) (*repo.SecretLink, error) {
+	return s.store.GetSecretLinkByHash(ctx, tokenHash)
+}
+
+// Claim burns a link into a terminal state — revoked, opened, locked —
+// reporting whether it was still open to be burned. One transaction, because
+// two people opening a one-time link at once must not both see the value.
+func (s *RevokeService) Claim(ctx context.Context, id, state string) (bool, error) {
+	return s.store.ClaimSecretLink(ctx, id, state)
+}
+
+// BurnDrop is Claim plus the variables a drop link submitted, in one
+// transaction: a drop that stored its values and failed to burn is a
+// reusable credential form.
+func (s *RevokeService) BurnDrop(ctx context.Context, id string, vars []repo.Variable) (bool, error) {
+	return s.store.BurnDropLink(ctx, id, vars)
+}
+
+// Touch records an attempt against a link, and when it was first opened.
+func (s *RevokeService) Touch(ctx context.Context, id string, attempts int, openedAt sql.NullTime) error {
+	return s.store.TouchSecretLink(ctx, id, attempts, openedAt)
 }

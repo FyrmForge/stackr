@@ -832,7 +832,7 @@ func RegisterRoutes(srv *server.Server, deps *Deps) {
 	// and the person on the other end has no account by design. The rate limit
 	// is per-IP: the token itself is unguessable and passphrase attempts are
 	// capped per link, so this only exists to blunt scripted hammering.
-	shareHandler := sharepub.NewHandler(deps.Store).WithVariables(deps.Variables)
+	shareHandler := sharepub.NewHandler(deps.Store).WithVariables(deps.Variables).WithLinks(deps.Revoke)
 	shareLimit := hamrmw.RateLimitWithConfig(hamrmw.RateLimitConfig{
 		Store:  hamrmw.NewMemoryStore(hamrmw.WithMaxSize(10000)),
 		Rate:   30,

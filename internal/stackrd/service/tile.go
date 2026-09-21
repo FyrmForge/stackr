@@ -84,7 +84,7 @@ func (s *TileService) Update(ctx context.Context, t *repo.Tile, extra []string, 
 		return false, err
 	}
 	if stage {
-		return true, staging.Stage(ctx, s.store, t, by.ID, by.Name, "settings",
+		return true, staging.Stage(ctx, s.store, s, t, by.ID, by.Name, "settings",
 			staging.OpUpdate, staging.SettingsPatch(t))
 	}
 	// Read back what is stored before overwriting it: the diff is what picks
@@ -193,7 +193,7 @@ func (s *TileService) Delete(ctx context.Context, t *repo.Tile, by Actor) (stage
 		}
 	}
 	if stage {
-		return true, staging.Stage(ctx, s.store, t, by.ID, by.Name, "delete", staging.OpDelete, nil)
+		return true, staging.Stage(ctx, s.store, s, t, by.ID, by.Name, "delete", staging.OpDelete, nil)
 	}
 	return false, s.TearDown(ctx, t)
 }
@@ -295,7 +295,7 @@ func (s *TileService) Create(ctx context.Context, t *repo.Tile, stagedPatch any,
 		return false, err
 	}
 	if stage {
-		return true, staging.Stage(ctx, s.store, t, by.ID, by.Name, "create",
+		return true, staging.Stage(ctx, s.store, s, t, by.ID, by.Name, "create",
 			staging.OpCreate, stagedPatch)
 	}
 	if err := s.store.CreateTile(ctx, t); err != nil {
@@ -505,6 +505,12 @@ func (s *TileService) StagedChange(ctx context.Context, id string) (*repo.Staged
 		return nil, svcerr.ErrNotFound
 	}
 	return sc, nil
+}
+
+// SaveStaged records one pending change. config/staging builds the row —
+// the payload shape is the config engine's — and this owns the table.
+func (s *TileService) SaveStaged(ctx context.Context, sc *repo.StagedChange) error {
+	return s.store.CreateStagedChange(ctx, sc)
 }
 
 // DiscardStaged drops one pending change.

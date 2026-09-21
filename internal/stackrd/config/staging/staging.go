@@ -15,6 +15,16 @@ import (
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 )
 
+// Staged is the staged_changes table's owner. service.TileService satisfies
+// it; an interface because that package is built on this one.
+//
+// The payload shape is this package's — it is the config engine's grammar —
+// and the row is the tile service's. Both halves used to be here.
+type Staged interface {
+	SaveStaged(ctx context.Context, sc *repo.StagedChange) error
+	DiscardStaged(ctx context.Context, id string) error
+}
+
 // Ops for a staged change.
 const (
 	OpUpdate = "update" // sparse patch onto the committed tile
@@ -26,11 +36,11 @@ const (
 // One row per (env, tile_slug, summary): re-staging the same group replaces
 // its prior row, so per-group last-write-wins. patch is the sparse (update)
 // or full (create) config; nil for delete.
-func Stage(ctx context.Context, store repo.Store, tile *repo.Tile, authorID, authorName, summary, op string, patch any) error {
+func Stage(ctx context.Context, store repo.Store, staged Staged, tile *repo.Tile, authorID, authorName, summary, op string, patch any) error {
 	if existing, err := store.ListStagedByEnv(ctx, tile.EnvironmentID); err == nil {
 		for i := range existing {
 			if existing[i].TileSlug == tile.Slug && existing[i].Summary == summary {
-				if err := store.DeleteStagedChange(ctx, existing[i].ID); err != nil {
+				if err := staged.DiscardStaged(ctx, existing[i].ID); err != nil {
 					slog.Error("superseded staged change not deleted", "change", existing[i].ID, "tile", tile.Slug, "error", err)
 				}
 			}
@@ -48,7 +58,7 @@ func Stage(ctx context.Context, store repo.Store, tile *repo.Tile, authorID, aut
 	if err != nil {
 		return err
 	}
-	return store.CreateStagedChange(ctx, &repo.StagedChange{
+	return staged.SaveStaged(ctx, &repo.StagedChange{
 		ID:         uuid.NewString(),
 		StackID:    tile.StackID,
 		EnvID:      tile.EnvironmentID,
