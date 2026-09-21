@@ -193,7 +193,7 @@ func TestPortChangeReachesDomains(t *testing.T) {
 		require.NoError(t, store.CreateDomain(ctx, d))
 	}
 
-	a := Applier{Planner: Planner{Store: store}}
+	a := applier(Planner{Store: store})
 	tc := TileConf{Type: "service", Image: "nginx", Port: 8080,
 		Domains: []DomainConf{{Host: "app.test"}, {Host: "api.test"}}}
 	require.NoError(t, a.syncDomains(ctx, seed.Env, tile, tc, DiffOpts{}, 3000))

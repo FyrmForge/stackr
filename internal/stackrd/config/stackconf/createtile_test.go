@@ -7,8 +7,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/FyrmForge/stackr/internal/stackrd/config/envops"
-	"github.com/FyrmForge/stackr/internal/stackrd/service"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/testdb"
 )
@@ -32,13 +30,7 @@ import (
 // service. The infra below the service (cluster, proxy, scheduler, engine) is
 // nil, which those all tolerate — what is under test is the rule, not the
 // container.
-func tileApplier(store repo.Store) Applier {
-	tiles := service.NewTileService(store, nil, nil, nil, nil, nil, service.NewGateService(store))
-	return Applier{
-		Planner: Planner{Store: store},
-		Ops:     envops.Ops{Store: store, Tiles: tiles},
-	}
-}
+func tileApplier(store repo.Store) Applier { return applier(Planner{Store: store}) }
 
 func TestConfigApplyCreatesATile(t *testing.T) {
 	ctx := context.Background()

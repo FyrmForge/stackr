@@ -40,7 +40,7 @@ func TestApplyVarsWritesBothLevels(t *testing.T) {
 	assert.Equal(t, map[string]string{"LOG_LEVEL": "debug"}, r.Envs["staging"].Vars)
 	assert.Empty(t, r.Envs["prod"].Vars, "prod declares none; it must not inherit a copy")
 
-	a := Applier{Planner: Planner{Store: store}}
+	a := applier(Planner{Store: store})
 	require.NoError(t, a.applyVars(ctx, seed.Stack, r, "", nil))
 
 	vars, err := store.ListVariables(ctx, repo.OwnerStack, seed.Stack.ID)
@@ -75,7 +75,7 @@ func TestVarsRefuseToOverwriteASecret(t *testing.T) {
 	require.Len(t, p.Errors, 1, "errors = %v, want the secret refusal", p.Errors)
 	assert.Contains(t, p.Errors[0], "REGION")
 
-	require.NoError(t, Applier{Planner: pl}.applyVars(ctx, seed.Stack, r, "", nil))
+	require.NoError(t, applier(pl).applyVars(ctx, seed.Stack, r, "", nil))
 	vars, _ := store.ListVariables(ctx, repo.OwnerStack, seed.Stack.ID)
 	for _, v := range vars {
 		if v.Name == "REGION" {

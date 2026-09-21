@@ -937,18 +937,15 @@ func (a Applier) execute(ctx context.Context, stack *repo.Stack, r *Resolved, p 
 		if existing, gerr := store.GetEnvironmentBySlug(ctx, stack.ID, slug); gerr == nil && existing != nil {
 			continue
 		}
-		env := &repo.Environment{
-			ID:          uuid.New().String(),
-			StackID:     stack.ID,
+		// Adopt is the declarative door onto the same rules the panel, the
+		// API and the PR hook create through. Building the row here instead
+		// is how this path skipped the reserved-slug and duplicate-name
+		// checks all three of those run.
+		if _, err := a.Ops.Envs.Adopt(ctx, stack, service.CreateEnv{
 			Name:        strings.ToUpper(slug[:1]) + slug[1:],
-			Slug:        slug,
-			Type:        "static",
-			Settings:    "{}",
 			Color:       r.Envs[slug].Color,
 			ApplyPolicy: r.Envs[slug].ApplyPolicy,
-			CreatedAt:   now,
-		}
-		if err := store.CreateEnvironment(ctx, env); err != nil {
+		}); err != nil {
 			return err
 		}
 	}
@@ -1004,7 +1001,7 @@ func (a Applier) execute(ctx context.Context, stack *repo.Stack, r *Resolved, p 
 			env.Position = i
 			env.ApplyPolicy = wantPolicy
 			env.Settings = wantSettings
-			warn("env settings", nil, store.UpdateEnvironment(ctx, env))
+			warn("env settings", nil, a.Ops.Envs.Save(ctx, env))
 		}
 		warn("declared overrides", nil, a.syncDeclared(ctx, env, re))
 	}
@@ -1045,8 +1042,7 @@ func (a Applier) execute(ctx context.Context, stack *repo.Stack, r *Resolved, p 
 		if err == nil && env == nil && envSlug == repo.HomeSlug {
 			// A stack made before the home existed (or a wiped row). The
 			// store owns the home, so put it back rather than fail the apply.
-			env = repo.HomeEnv(stack.ID, now)
-			err = store.CreateEnvironment(ctx, env)
+			env, err = a.Ops.Envs.EnsureHome(ctx, stack.ID, now)
 		}
 		if err != nil || env == nil {
 			return fmt.Errorf("env %s: not found", envSlug)
@@ -1260,7 +1256,7 @@ func (a Applier) createTile(ctx context.Context, stack *repo.Stack, env *repo.En
 	if err := store.CreateTile(ctx, t); err != nil {
 		return err
 	}
-	if err := store.ReplaceTileVars(ctx, t); err != nil {
+	if err := a.Ops.Vars.ReplaceTileVars(ctx, t); err != nil {
 		return err
 	}
 	// After the row exists: a binding points at the consumer id.
@@ -1481,7 +1477,7 @@ func (a Applier) updateTile(ctx context.Context, stack *repo.Stack, env *repo.En
 	}
 	// The file owns this tile's variables: one dropped from the config has to
 	// stop resolving, not linger as drift the next plan can't see.
-	if err := store.ReplaceTileVars(ctx, t); err != nil {
+	if err := a.Ops.Vars.ReplaceTileVars(ctx, t); err != nil {
 		return false, err
 	}
 	if err := a.syncBindings(ctx, t, tc); err != nil {
@@ -1596,7 +1592,7 @@ func (a Applier) teardownEnv(ctx context.Context, stack *repo.Stack, env *repo.E
 	if a.Ops.RT != nil && a.Ops.PX != nil {
 		return a.Ops.Teardown(ctx, stack, env)
 	}
-	return a.Planner.Store.DeleteEnvironment(ctx, env.ID)
+	return a.Ops.Envs.Remove(ctx, env.ID)
 }
 
 // syncDomains reconciles a service tile's domains to its config. Auto env
@@ -1836,7 +1832,7 @@ func (a Applier) ensureSecrets(ctx context.Context, stack *repo.Stack, r *Resolv
 				v.OwnerKind, v.OwnerID = repo.OwnerStack, stack.ID
 				set[name] = true // one stack-wide mint, not one per env walked
 			}
-			if err := store.UpsertVariable(ctx, v); err != nil {
+			if err := a.Ops.Vars.Upsert(ctx, v); err != nil {
 				return err
 			}
 			// Minting a secret is a write of a credential, and this path
@@ -1879,7 +1875,7 @@ func (a Applier) applyVars(ctx context.Context, stack *repo.Stack, r *Resolved, 
 			if secret[name] {
 				continue
 			}
-			if err := store.UpsertVariable(ctx, &repo.Variable{OwnerKind: ownerKind, OwnerID: ownerID,
+			if err := a.Ops.Vars.Upsert(ctx, &repo.Variable{OwnerKind: ownerKind, OwnerID: ownerID,
 				Name: name, Value: val, CreatedAt: now, UpdatedAt: now}); err != nil {
 				return err
 			}

@@ -279,8 +279,7 @@ func (a Applier) applyMoves(ctx context.Context, stack *repo.Stack, r *Resolved,
 			for i := range tiles {
 				envnet.TearDown(ctx, store, a.Ops.Cluster, &tiles[i])
 			}
-			env.Name, env.Slug = strings.ToUpper(m.To[:1])+m.To[1:], m.To
-			if err := store.RenameEnvironment(ctx, env.ID, env.Name, env.Slug); err != nil {
+			if err := a.Ops.Envs.Rename(ctx, env, strings.ToUpper(m.To[:1])+m.To[1:], m.To); err != nil {
 				return err
 			}
 			// Back up under the new names. Same selection as a stack rename:
