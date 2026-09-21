@@ -17,6 +17,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/managedtiles"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/runtime"
 	"github.com/FyrmForge/stackr/internal/stackrd/service"
+	svcproxy "github.com/FyrmForge/stackr/internal/stackrd/service/proxy"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 )
 
@@ -53,6 +54,22 @@ type Planner struct {
 // no second implementation for anything to drift against.
 func (pl Planner) PlanRows() *service.PlanService {
 	return service.NewPlanService(pl.Store, nil, nil)
+}
+
+// dnsProvider is the configured DNS-01 provider, "" when wildcard
+// certificates are off. It decides whether a `*.example.com` in a config file
+// is accepted at all, and the panel asks the same question through the same
+// owner — this used to be the key typed by hand here and again in the proxy,
+// so a rename in one place would have left the file surface accepting
+// wildcards the proxy could never get a certificate for.
+//
+// Built on demand for the same reason PlanRows is: the read needs nothing but
+// the store, and a field would mean wiring every Planner literal in the tests
+// for an object that is one line to make. The nil proxy is the documented
+// "nothing to write traefik config through" case; this only reads.
+func (pl Planner) dnsProvider(ctx context.Context) string {
+	p, _ := svcproxy.New(pl.Store, nil, nil, nil, nil, "", "", "").DNS(ctx)
+	return p
 }
 
 // StackBranch resolves the branch a stack-scoped plan reads from.
@@ -126,7 +143,7 @@ func (pl Planner) loadDomainContext(ctx context.Context, stack *repo.Stack, opts
 	if all, err := pl.Store.ListDomainResources(ctx); err == nil {
 		opts.DomainResources = service.VisibleDomainResources(all, stack.ID, stack.OrgID)
 	}
-	opts.DNSProvider, _ = pl.Store.GetSetting(ctx, "dns_provider")
+	opts.DNSProvider = pl.dnsProvider(ctx)
 	if orgs, err := pl.Store.ListOrgs(ctx); err == nil {
 		opts.ForeignOrgSlugs = map[string]bool{}
 		for _, o := range orgs {

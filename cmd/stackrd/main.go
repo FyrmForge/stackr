@@ -29,6 +29,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/stackrd/config/envops"
 	"github.com/FyrmForge/stackr/internal/stackrd/config/orgconf"
 	"github.com/FyrmForge/stackr/internal/stackrd/config/secrets"
+	"github.com/FyrmForge/stackr/internal/stackrd/config/settings"
 	"github.com/FyrmForge/stackr/internal/stackrd/config/stackconf"
 	"github.com/FyrmForge/stackr/internal/stackrd/handlers/api"
 	v1 "github.com/FyrmForge/stackr/internal/stackrd/handlers/api/v1"
@@ -403,8 +404,21 @@ func main() {
 	// never through *proxy.Proxy: one managed gate, one error policy, and one
 	// serialized rewrite-and-restart.
 	pxSvc := svcproxy.New(store, px, registrySvc, rt, registrySigner, envDataDir, registryPort, baseOrigin)
+	// Immediately, and before anything renders: the proxy reads every one of
+	// its settings rows back through this. It is a setter rather than a
+	// constructor argument only because pxSvc is built on px.
+	px.UseSettings(pxSvc)
+	// One owner for the defaults cascade at all four levels: the config-file
+	// gate applies at org, stack and env, and every write resyncs the proxy.
+	// Built here rather than with the rest of the services because boot reads
+	// settings before most of them exist — the install seed and the nightly
+	// cleanup switch both go through it.
+	settingsSvc := service.NewSettingsService(store, pxSvc)
+	// The PR comment reads its stored plan preview back through the same
+	// owner the webhook handler wrote it with.
+	gh.UseSettings(settingsSvc)
 	// Before Traefik starts: it reads the trusted proxy settings.
-	if err := seedInstall(context.Background(), store,
+	if err := seedInstall(context.Background(), store, settingsSvc,
 		config.GetEnvOrDefault("ROOT_DOMAIN", ""),
 		config.GetEnvOrDefault("TRUST_CLOUDFLARE", ""),
 		config.GetEnvOrDefault("TRUSTED_PROXY_CIDRS", ""),
@@ -449,7 +463,7 @@ func main() {
 			if fi, err := os.Stat(accessLog); err == nil && fi.Size() > 50<<20 {
 				_ = os.Truncate(accessLog, 0)
 			}
-			if v, _ := store.GetSetting(context.Background(), "cleanup_enabled"); v == "1" {
+			if v, _ := settingsSvc.Value(context.Background(), settings.KeyCleanupEnabled); v == "1" {
 				if out, err := clus.Prune(context.Background(), clus.Self(context.Background())); err != nil {
 					log.Error("docker cleanup failed", "error", err)
 				} else {
@@ -684,10 +698,6 @@ func main() {
 
 	// One owner for the registry rows: the managed one cannot be deleted from
 	// either surface now, and one in-use matcher decides whether a tag may go.
-
-	// One owner for the defaults cascade at all four levels: the config-file
-	// gate applies at org, stack and env, and every write resyncs the proxy.
-	settingsSvc := service.NewSettingsService(store, pxSvc)
 
 	// One owner for the pull-request environment settings: comment: and
 	// status: are the file's keys, so a panel edit to them goes through the

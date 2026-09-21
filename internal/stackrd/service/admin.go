@@ -15,16 +15,19 @@ import (
 
 	"github.com/FyrmForge/stackr/internal/installspec"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/backup"
+	"github.com/FyrmForge/stackr/internal/stackrd/config/settings"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/cluster"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/runtime"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 )
 
-// Settings the upgrade writes, read back by the update page.
+// Settings the upgrade writes, read back by the update page. The keys
+// themselves live in config/settings with every other settings key; these are
+// the names this package and the update page already use.
 const (
-	SettingUpgradeLatest    = "upgrade_latest"
-	SettingUpgradeCheckedAt = "upgrade_checked_at"
-	SettingUpgradeArchive   = "upgrade_archive"
+	SettingUpgradeLatest    = settings.KeyUpgradeLatest
+	SettingUpgradeCheckedAt = settings.KeyUpgradeCheckedAt
+	SettingUpgradeArchive   = settings.KeyUpgradeArchive
 )
 
 // panelService is the swarm service install.sh creates.

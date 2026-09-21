@@ -21,6 +21,7 @@ import (
 
 	"github.com/FyrmForge/stackr/internal/stackrd/config/envops"
 	"github.com/FyrmForge/stackr/internal/stackrd/config/orgconf"
+	"github.com/FyrmForge/stackr/internal/stackrd/config/settings"
 	"github.com/FyrmForge/stackr/internal/stackrd/config/stackconf"
 	stackrmw "github.com/FyrmForge/stackr/internal/stackrd/handlers/middleware"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/deploy"
@@ -583,7 +584,7 @@ func (h *handler) updatePlanComment(ctx context.Context, stack *repo.Stack, p *p
 	}
 	num := strconv.Itoa(p.Number)
 	if p.Action == "closed" {
-		_ = h.settings.SetValue(ctx, githubapp.PlanKey(stack.ID, num), "")
+		_ = h.settings.SetValue(ctx, settings.PRPlanKey(stack.ID, num), "")
 		return
 	}
 	base := p.PullRequest.Base.Ref
@@ -622,7 +623,7 @@ func (h *handler) updatePlanComment(ctx context.Context, stack *repo.Stack, p *p
 	default:
 		md = planMarkdown(plan, base)
 	}
-	_ = h.settings.SetValue(ctx, githubapp.PlanKey(stack.ID, num), md)
+	_ = h.settings.SetValue(ctx, settings.PRPlanKey(stack.ID, num), md)
 	env, _ := h.envs.BySlug(ctx, stack.ID, "pr-"+num)
 	h.gh.RefreshPRComment(ctx, cn, p.Repository.FullName, num, stack.ID, env)
 }

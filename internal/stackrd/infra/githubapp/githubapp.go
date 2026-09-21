@@ -65,7 +65,10 @@ type Client struct {
 	store repo.Store
 	// conns owns the connector row this flow creates and then fills in with
 	// the credentials GitHub hands back.
-	conns   Connectors
+	conns Connectors
+	// set owns the settings row the rendered plan preview is parked in
+	// between the webhook that renders it and the comment that shows it.
+	set     Settings
 	baseURL string
 	http    *http.Client
 
@@ -77,6 +80,18 @@ func New(store repo.Store, conns Connectors, baseURL string) *Client {
 	return &Client{store: store, conns: conns, baseURL: strings.TrimRight(baseURL, "/"),
 		http: &http.Client{Timeout: 15 * time.Second}, tokens: map[string]cachedToken{}}
 }
+
+// Settings is the owner of the settings row this reads the stored plan
+// preview back out of. service.SettingsService satisfies it; an interface
+// because that package is built on this one.
+type Settings interface {
+	Value(ctx context.Context, key string) (string, error)
+}
+
+// UseSettings hands over that owner. A setter because this client is built
+// during boot, before the services are, and the value is not read until a
+// pull-request webhook arrives.
+func (c *Client) UseSettings(s Settings) { c.set = s }
 
 // Begin creates a pending github connector in the org and returns the
 // GitHub form action plus the manifest JSON to POST there. The connector id

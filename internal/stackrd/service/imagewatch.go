@@ -17,15 +17,16 @@ import (
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/imagewatch"
 	"github.com/FyrmForge/stackr/internal/stackrd/service/notify"
 	"github.com/FyrmForge/stackr/internal/stackrd/service/svcerr"
+	"github.com/FyrmForge/stackr/internal/stackrd/config/settings"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 )
 
 // Settings keys: check cadence in minutes ("" = 5, "0" = the watch off) and
-// the RFC3339 stamp of the last sweep (the janitor ticks every minute; this is
-// what makes the cadence runtime-changeable).
+// the RFC3339 stamp of the last sweep. The keys themselves live in
+// config/settings with every other settings key.
 const (
-	SettingImageInterval = "image_check_interval"
-	settingImageLast     = "image_check_last"
+	SettingImageInterval = settings.KeyImageInterval
+	settingImageLast     = settings.KeyImageLast
 )
 
 // defaultImageInterval is the cadence with nothing configured.

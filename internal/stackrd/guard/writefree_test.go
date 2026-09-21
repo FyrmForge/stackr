@@ -377,7 +377,6 @@ func atoi(t *testing.T, s string) int {
 // `<count> <package>/<Method>`. Seeded from the scan, not typed.
 const stillWriting = `
 1 cmd/stackrd/CreateDomainResource
-3 cmd/stackrd/SetSetting
 1 internal/stackrd/config/envops/CreateBinding
 1 internal/stackrd/config/envops/CreateTile
 2 internal/stackrd/config/envops/DeleteProvision
@@ -410,7 +409,6 @@ const stillWriting = `
 4 internal/stackrd/config/stackconf/UpdateStack
 1 internal/stackrd/config/stackconf/UpdateTile
 1 internal/stackrd/handlers/web/TouchOrgRegistryCredential
-1 internal/stackrd/infra/proxy/SetSetting
 `
 
 // The audit table has a back door. `store/audit.Record(ctx, store, …)` calls

@@ -77,7 +77,6 @@ func TestNothingOutsideServiceReadsTheStore(t *testing.T) {
 // `<count> <package>/<Method>`. Seeded from the scan, not typed.
 const stillReading = `
 1 cmd/stackrd/GetServer
-1 cmd/stackrd/GetSetting
 1 cmd/stackrd/GetStack
 1 cmd/stackrd/GetUserByID
 1 cmd/stackrd/ListDomainResources
@@ -112,7 +111,6 @@ const stillReading = `
 1 internal/stackrd/config/stackconf/GetEnvironment
 15 internal/stackrd/config/stackconf/GetEnvironmentBySlug
 5 internal/stackrd/config/stackconf/GetOrg
-1 internal/stackrd/config/stackconf/GetSetting
 3 internal/stackrd/config/stackconf/GetStack
 1 internal/stackrd/config/stackconf/GetStackBySlug
 4 internal/stackrd/config/stackconf/GetTile
@@ -199,7 +197,6 @@ const stillReading = `
 1 internal/stackrd/infra/envnet/ListEnvironmentsByStack
 2 internal/stackrd/infra/githubapp/GetConnector
 1 internal/stackrd/infra/githubapp/GetEnvironment
-1 internal/stackrd/infra/githubapp/GetSetting
 1 internal/stackrd/infra/githubapp/GetStack
 1 internal/stackrd/infra/githubapp/ListConnectorsByOrg
 1 internal/stackrd/infra/githubapp/ListDeploymentsByTile
@@ -245,7 +242,6 @@ const stillReading = `
 1 internal/stackrd/infra/placement/GetTile
 1 internal/stackrd/infra/placement/ListTilesByEnv
 1 internal/stackrd/infra/proxy/GetManagedRegistry
-7 internal/stackrd/infra/proxy/GetSetting
 1 internal/stackrd/infra/proxy/GetStack
 1 internal/stackrd/infra/proxy/GetStackBySlug
 1 internal/stackrd/infra/proxy/HomeEnvironment

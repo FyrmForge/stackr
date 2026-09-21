@@ -14,29 +14,20 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"sort"
 	"strings"
 	"sync"
 
 	yaml "go.yaml.in/yaml/v3"
 
 	"github.com/FyrmForge/stackr/internal/netaddr"
+	"github.com/FyrmForge/stackr/internal/stackrd/config/envutil"
+	"github.com/FyrmForge/stackr/internal/stackrd/config/settings"
 	infraproxy "github.com/FyrmForge/stackr/internal/stackrd/infra/proxy"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/registry"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/runtime"
 	"github.com/FyrmForge/stackr/internal/stackrd/service/svcerr"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
-)
-
-// Settings keys the escape hatches live in. They are in the DB rather than on
-// disk so a wiped data dir heals from the next Resync.
-const (
-	SettingCustomDynamic = "proxy_custom_dynamic"
-	SettingStaticOverrid = "traefik_static_override"
-	SettingTrustedProxie = "trusted_proxies"
-	SettingTrustCF       = "trust_cloudflare"
-	SettingCFCIDRs       = "cloudflare_cidrs"
-	SettingDNSProvider   = "dns_provider"
-	SettingDNSEnv        = "dns_env"
 )
 
 // invalid is a refusal caused by what the caller sent. The vocabulary is
@@ -257,7 +248,7 @@ func (s *Service) CurrentStatic() string {
 // StaticOverride is the operator's verbatim traefik.yml, empty when the
 // generated default is in use.
 func (s *Service) StaticOverride(ctx context.Context) string {
-	v, _ := s.store.GetSetting(ctx, SettingStaticOverrid)
+	v, _ := s.store.GetSetting(ctx, settings.KeyStaticOverride)
 	return v
 }
 
@@ -268,19 +259,34 @@ func (s *Service) SetStaticOverride(ctx context.Context, body string) error {
 	} else if err := validYAML(body); err != nil {
 		return invalid("not valid YAML: %v", err)
 	}
-	if err := s.store.SetSetting(ctx, SettingStaticOverrid, body); err != nil {
+	if err := s.store.SetSetting(ctx, settings.KeyStaticOverride, body); err != nil {
 		return err
 	}
 	s.EnsureTraefik()
 	return nil
 }
 
+// DNS is the configured DNS-01 provider and its credential env lines; an
+// empty provider means wildcard certificates are off.
+//
+// The render path in infra/proxy used to read both keys itself. Same two
+// keys, typed a second time, with nothing saying they were the same two —
+// and config/stackconf typed dns_provider a third time to decide whether to
+// let a wildcard domain through at all. A provider set here and misspelled
+// there is a panel that accepts the domain and a proxy that never gets a
+// certificate for it.
+func (s *Service) DNS(ctx context.Context) (provider string, env []string) {
+	provider, _ = s.store.GetSetting(ctx, settings.KeyDNSProvider)
+	raw, _ := s.store.GetSetting(ctx, settings.KeyDNSEnv)
+	return provider, envutil.Lines(raw)
+}
+
 // SetDNS stores the DNS-01 provider and its credentials, for wildcard certs.
 func (s *Service) SetDNS(ctx context.Context, provider, env string) error {
-	if err := s.store.SetSetting(ctx, SettingDNSProvider, strings.TrimSpace(provider)); err != nil {
+	if err := s.store.SetSetting(ctx, settings.KeyDNSProvider, strings.TrimSpace(provider)); err != nil {
 		return err
 	}
-	if err := s.store.SetSetting(ctx, SettingDNSEnv, env); err != nil {
+	if err := s.store.SetSetting(ctx, settings.KeyDNSEnv, env); err != nil {
 		return err
 	}
 	s.EnsureTraefik()
@@ -301,9 +307,24 @@ func (s *Service) SetResourceACME(ctx context.Context, resourceID, email string)
 
 // TrustedProxies is the stored CIDR list and the Cloudflare toggle.
 func (s *Service) TrustedProxies(ctx context.Context) (raw string, trustCF bool) {
-	raw, _ = s.store.GetSetting(ctx, SettingTrustedProxie)
-	v, _ := s.store.GetSetting(ctx, SettingTrustCF)
+	raw, _ = s.store.GetSetting(ctx, settings.KeyTrustedProxies)
+	v, _ := s.store.GetSetting(ctx, settings.KeyTrustCF)
 	return raw, v == "1"
+}
+
+// CloudflareCIDRs is the cached copy of Cloudflare's published edge ranges,
+// "" when the toggle has never been on.
+func (s *Service) CloudflareCIDRs(ctx context.Context) string {
+	v, _ := s.store.GetSetting(ctx, settings.KeyCFCIDRs)
+	return v
+}
+
+// SetCloudflareCIDRs replaces the cache. Sorted here rather than at the call
+// site: Cloudflare reordering its own list must not come back as a changed
+// static config and a recreated Traefik container.
+func (s *Service) SetCloudflareCIDRs(ctx context.Context, cidrs []string) error {
+	sort.Strings(cidrs)
+	return s.store.SetSetting(ctx, settings.KeyCFCIDRs, strings.Join(cidrs, "\n"))
 }
 
 // SetTrustedProxies replaces the CIDRs Traefik takes X-Forwarded-For from.
@@ -319,7 +340,7 @@ func (s *Service) SetTrustedProxies(ctx context.Context, raw string, trustCF boo
 	}
 	if trustCF && s.available() {
 		if err := s.px.RefreshCloudflare(ctx); err != nil {
-			if cached, _ := s.store.GetSetting(ctx, SettingCFCIDRs); strings.TrimSpace(cached) == "" {
+			if cached, _ := s.store.GetSetting(ctx, settings.KeyCFCIDRs); strings.TrimSpace(cached) == "" {
 				slog.Warn("cloudflare ranges fetch failed", "error", err)
 				return fmt.Errorf("could not reach Cloudflare: %w", err)
 			}
@@ -330,10 +351,10 @@ func (s *Service) SetTrustedProxies(ctx context.Context, raw string, trustCF boo
 	if trustCF {
 		flag = "1"
 	}
-	if err := s.store.SetSetting(ctx, SettingTrustedProxie, strings.Join(lines, "\n")); err != nil {
+	if err := s.store.SetSetting(ctx, settings.KeyTrustedProxies, strings.Join(lines, "\n")); err != nil {
 		return err
 	}
-	if err := s.store.SetSetting(ctx, SettingTrustCF, flag); err != nil {
+	if err := s.store.SetSetting(ctx, settings.KeyTrustCF, flag); err != nil {
 		return err
 	}
 	s.EnsureTraefik()
@@ -363,7 +384,7 @@ func ParseTrustedList(raw string) ([]string, error) {
 
 // Entries is the operator's named dynamic-config entries, name -> raw yaml.
 func (s *Service) Entries(ctx context.Context) map[string]string {
-	raw, _ := s.store.GetSetting(ctx, SettingCustomDynamic)
+	raw, _ := s.store.GetSetting(ctx, settings.KeyCustomDynamic)
 	out := map[string]string{}
 	if raw != "" {
 		_ = json.Unmarshal([]byte(raw), &out)
@@ -401,7 +422,7 @@ func (s *Service) saveEntries(ctx context.Context, entries map[string]string) er
 	if err != nil {
 		return err
 	}
-	if err := s.store.SetSetting(ctx, SettingCustomDynamic, string(b)); err != nil {
+	if err := s.store.SetSetting(ctx, settings.KeyCustomDynamic, string(b)); err != nil {
 		return err
 	}
 	if !s.available() {

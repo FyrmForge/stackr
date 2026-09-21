@@ -8,7 +8,6 @@ import (
 	"log"
 	"net"
 	"net/http"
-	"sort"
 	"strings"
 	"time"
 )
@@ -79,27 +78,27 @@ func trustedIPs(typed, cached string) []string {
 	return out
 }
 
-// RefreshCloudflare fetches Cloudflare's ranges and caches them in
-// cloudflare_cidrs. The cache is untouched on failure.
+// RefreshCloudflare fetches Cloudflare's ranges and caches them. The cache is
+// untouched on failure. The sort that keeps a reordered Cloudflare list from
+// recreating Traefik lives with the write, in the settings owner.
 func (p *Proxy) RefreshCloudflare(ctx context.Context) error {
 	cidrs, err := fetchCloudflare(ctx)
 	if err != nil {
 		return err
 	}
-	sort.Strings(cidrs) // Cloudflare reordering its list must not recreate Traefik
-	return p.store.SetSetting(ctx, "cloudflare_cidrs", strings.Join(cidrs, "\n"))
+	return p.settings.SetCloudflareCIDRs(ctx, cidrs)
 }
 
 // trustedIPsLine renders forwardedHeaders for one entrypoint, or "" when
 // nothing is trusted so the static config stays byte-identical.
 func (p *Proxy) trustedIPsLine(ctx context.Context) string {
-	typed, _ := p.store.GetSetting(ctx, "trusted_proxies")
+	typed, trustCF := p.settings.TrustedProxies(ctx)
 	var cached string
-	if on, _ := p.store.GetSetting(ctx, "trust_cloudflare"); on == "1" {
+	if trustCF {
 		if err := p.RefreshCloudflare(ctx); err != nil {
 			log.Printf("proxy: cloudflare ranges not refreshed, using cache: %v", err)
 		}
-		cached, _ = p.store.GetSetting(ctx, "cloudflare_cidrs")
+		cached = p.settings.CloudflareCIDRs(ctx)
 	}
 	ips := trustedIPs(typed, cached)
 	if len(ips) == 0 {
