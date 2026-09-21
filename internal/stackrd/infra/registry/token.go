@@ -282,13 +282,13 @@ func HashSecret(raw string) string {
 
 // EnsureSystemCredential returns the org's stackr-owned push secret, creating
 // or repairing its row as needed.
-func EnsureSystemCredential(ctx context.Context, store repo.Store, regs Registries, reg *repo.Registry, org *repo.Org) (string, error) {
+func EnsureSystemCredential(ctx context.Context, regs Registries, reg *repo.Registry, org *repo.Org) (string, error) {
 	if reg == nil || org == nil {
 		return "", fmt.Errorf("no registry or organization")
 	}
 	secret := systemSecret(reg.Password, org.ID)
 	hash := HashSecret(secret)
-	creds, err := store.ListOrgRegistryCredentials(ctx, org.ID)
+	creds, err := regs.Credentials(ctx, org.ID)
 	if err != nil {
 		return "", err
 	}
@@ -355,7 +355,7 @@ func GrantAgentPull(scopes []string) []Access {
 // caller that reaches for the registry's root pair instead hands that node a
 // credential good for every org's images.
 func OrgCredential(ctx context.Context, store repo.Store, regs Registries, t *repo.Tile) (*repo.Registry, *repo.Org, string, error) {
-	reg, err := store.GetManagedRegistry(ctx)
+	reg, err := regs.ManagedOrNil(ctx)
 	if err != nil {
 		return nil, nil, "", err
 	}
@@ -370,7 +370,7 @@ func OrgCredential(ctx context.Context, store repo.Store, regs Registries, t *re
 	if err != nil || org == nil {
 		return nil, nil, "", fmt.Errorf("organization for %s: %w", t.Slug, errOr(err, "not found"))
 	}
-	secret, err := EnsureSystemCredential(ctx, store, regs, reg, org)
+	secret, err := EnsureSystemCredential(ctx, regs, reg, org)
 	if err != nil {
 		return nil, nil, "", err
 	}

@@ -37,6 +37,12 @@ const ServiceName = "stkr-registry"
 // itself. service.RegistryService satisfies it; an interface because that
 // package is built on this one.
 type Registries interface {
+	// ManagedOrNil is the registry stackr runs, nil when this install has
+	// none. Five packages used to ask the store this question directly and
+	// each rebuilt "is this reference ours" from the answer.
+	ManagedOrNil(ctx context.Context) (*repo.Registry, error)
+	// Credentials are one org's rows, used to find or repair the system one.
+	Credentials(ctx context.Context, orgID string) ([]repo.OrgRegistryCredential, error)
 	EnsureRow(ctx context.Context, r *repo.Registry) error
 	MintSystemCredential(ctx context.Context, c *repo.OrgRegistryCredential) error
 	RevokeSystemCredential(ctx context.Context, id string) error
@@ -44,7 +50,7 @@ type Registries interface {
 
 func EnsureManaged(ctx context.Context, store repo.Store, regs Registries, rt *runtime.Runtime, signer *Signer, dataDir, port, baseURL string) (*repo.Registry, error) {
 	realm := strings.TrimSuffix(baseURL, "/") + TokenPath
-	reg, err := store.GetManagedRegistry(ctx)
+	reg, err := regs.ManagedOrNil(ctx)
 	if err != nil {
 		return nil, err
 	}

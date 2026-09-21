@@ -22,6 +22,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/cluster"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/envnet"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/netpool"
+	"github.com/FyrmForge/stackr/internal/stackrd/infra/registry"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/runtime"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 )
@@ -59,7 +60,11 @@ type Proxy struct {
 	// settings owns the k/v rows this renders from. Every one of them used
 	// to be a GetSetting here with the key typed inline, which is how the
 	// same key came to be spelled in two packages and read back "" in one.
-	settings  Settings
+	settings Settings
+	// regs owns the managed registry row. Resync writes that registry's own
+	// traefik route, which nothing but a domain save used to write — a wiped
+	// data dir lost it until someone re-saved the domain.
+	regs      registry.Registries
 	store     repo.Store
 	dir       string // dataDir/traefik, mounted at /etc/traefik in the container
 	httpPort  string
@@ -121,6 +126,10 @@ func (p *Proxy) UseEnvs(e envnet.Envs) { p.envs = e }
 // this one, so it cannot be a constructor argument. main.go calls this as
 // soon as both exist, before anything renders.
 func (p *Proxy) UseSettings(s Settings) { p.settings = s }
+
+// UseRegistries hands the proxy the owner of the managed registry row, for
+// the same reason and at the same moment as UseSettings.
+func (p *Proxy) UseRegistries(r registry.Registries) { p.regs = r }
 
 // TileAlias is the tile's globally-unique DNS alias. Traefik sits on every
 // environment network, so its target must be unique across envs (plain slugs
@@ -660,7 +669,7 @@ func (p *Proxy) Resync(ctx context.Context) error {
 	// nothing but a domain save ever wrote it: a wiped data dir lost the route
 	// until someone re-saved the domain. Whether the route exists must not
 	// depend on which code path last ran.
-	if reg, err := p.store.GetManagedRegistry(ctx); err == nil && reg != nil {
+	if reg, err := p.regs.ManagedOrNil(ctx); err == nil && reg != nil {
 		if err := p.WriteRegistry(reg.Domain); err != nil {
 			return err
 		}

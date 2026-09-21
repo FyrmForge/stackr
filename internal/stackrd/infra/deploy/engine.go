@@ -899,7 +899,7 @@ func shortSHA(sha, deployID string) string {
 func (e *Engine) pushToRegistry(ctx context.Context, app *repo.Tile, imageRef string, w io.Writer) (string, string, error) {
 	// One registry: the managed one. The per-tile override column never had a
 	// writer and is gone (migration 013).
-	reg, err := e.store.GetManagedRegistry(ctx)
+	reg, err := e.regs.ManagedOrNil(ctx)
 	if err != nil {
 		return "", "", err
 	}

@@ -21,7 +21,7 @@ func TestRemoveRefusesTheManagerAndAnUnconfirmedName(t *testing.T) {
 	ctx := context.Background()
 	store := testdb.New(t)
 	testdb.SeedStack(t, store, false)
-	svc := service.NewNodeService(store, nil, "")
+	svc := service.NewNodeService(store, nil, nil, "")
 
 	mgr := &repo.Server{ID: "local", Name: "manager", Role: "manager"}
 	inv, ok := svcerr.IsInvalid(svc.Remove(ctx, mgr, true))
@@ -39,7 +39,7 @@ func TestRemoveRefusesTheManagerAndAnUnconfirmedName(t *testing.T) {
 // has nothing to write to.
 func TestSetGroupNeedsAJoinedNode(t *testing.T) {
 	store := testdb.New(t)
-	svc := service.NewNodeService(store, nil, "")
+	svc := service.NewNodeService(store, nil, nil, "")
 	_, ok := svcerr.IsInvalid(svc.SetGroup(context.Background(), &repo.Server{ID: "n2"}, "ssd"))
 	assert.True(t, ok)
 }

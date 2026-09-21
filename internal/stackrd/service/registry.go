@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"crypto/subtle"
 	"strings"
 	"time"
 
@@ -76,6 +77,83 @@ func (s *RegistryService) Managed(ctx context.Context) (*repo.Registry, error) {
 		return nil, svcerr.ErrUnavailable
 	}
 	return reg, nil
+}
+
+// ManagedOrNil is Managed for a caller deciding whether to do something at
+// all, rather than one answering a request: boot, which creates the row when
+// it finds none, and the render and deploy paths, for which "no managed
+// registry on this install" is an ordinary state and not a refusal to report.
+//
+// Managed's ErrUnavailable is right for a handler and wrong for those: it
+// would turn the commonest configuration into an error branch.
+func (s *RegistryService) ManagedOrNil(ctx context.Context) (*repo.Registry, error) {
+	return s.store.GetManagedRegistry(ctx)
+}
+
+// RegistryLogin is who a registry client turned out to be, and what its token
+// may carry.
+type RegistryLogin struct {
+	// Subject is what goes in the token: the registry's own user, the agent
+	// user, or "<org slug>/<credential name>".
+	Subject string
+	Access  []registry.Access
+}
+
+// Authenticate identifies a docker client from the basic-auth pair it
+// presented and returns the access its token may carry, already narrowed to
+// the scopes it asked for.
+//
+// A nil login with a nil error is "that pair matches nothing" — the caller
+// answers 401. It is not an svcerr refusal because this endpoint is outside
+// the edge mapping on purpose: a docker client needs a WWW-Authenticate realm
+// on the way out, which is the handler's to write and not a status code's.
+//
+// The three identities in order, and why the order matters:
+//
+//  1. The managed registry's own user. The agent image and the garbage
+//     collector live outside every org's namespace, so a token scoped to one
+//     org cannot reach them.
+//  2. The agent's pull-only identity, derived from the registry password
+//     rather than stored, so rotating the password rotates it and there is no
+//     row to keep. It reaches the agent image and nothing else.
+//  3. An org credential. The username is the org slug, so a real secret
+//     presented against the wrong org is refused — without that check the
+//     slug in the request would be decoration.
+//
+// The access is always narrowed and never echoed back. Handing the client the
+// scope it asked for is exactly the cross-tenant hole this replaces.
+func (s *RegistryService) Authenticate(ctx context.Context, user, secret string, scopes []string) (*RegistryLogin, error) {
+	reg, err := s.store.GetManagedRegistry(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if reg != nil && reg.Username != "" && user == reg.Username &&
+		subtle.ConstantTimeCompare([]byte(secret), []byte(reg.Password)) == 1 {
+		return &RegistryLogin{Subject: user, Access: registry.GrantAll(scopes)}, nil
+	}
+	if reg != nil && reg.Password != "" && user == registry.AgentUser &&
+		subtle.ConstantTimeCompare([]byte(secret), []byte(registry.AgentSecret(reg.Password))) == 1 {
+		return &RegistryLogin{Subject: user, Access: registry.GrantAgentPull(scopes)}, nil
+	}
+
+	cred, err := s.store.GetOrgRegistryCredentialByHash(ctx, registry.HashSecret(secret))
+	if err != nil {
+		return nil, err
+	}
+	org, err := s.store.GetOrgBySlug(ctx, user)
+	if err != nil {
+		return nil, err
+	}
+	if cred == nil || org == nil || cred.OrgID != org.ID {
+		return nil, nil
+	}
+	if err := s.TouchCredential(ctx, cred.ID); err != nil {
+		return nil, err
+	}
+	return &RegistryLogin{
+		Subject: org.Slug + "/" + cred.Name,
+		Access:  registry.GrantFor(org.Slug, scopes),
+	}, nil
 }
 
 // MintCredential creates an org push/pull credential and returns the secret,

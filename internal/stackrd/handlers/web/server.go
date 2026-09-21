@@ -180,7 +180,7 @@ func RegisterRoutes(srv *server.Server, deps *Deps) {
 	// raced the registry service on a fresh data dir, and in tests it wrote a
 	// private key into the source tree under an empty DataDir. A nil signer
 	// registers the 503 route.
-	e.GET(registry.TokenPath, registryToken(deps.Store, deps.RegistrySigner))
+	e.GET(registry.TokenPath, registryToken(deps.Registries, deps.RegistrySigner))
 
 	// Content Security Policy.
 	csp := "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'"

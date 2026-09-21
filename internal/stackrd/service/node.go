@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/agent"
+	"github.com/FyrmForge/stackr/internal/stackrd/infra/registry"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/runtime"
 	"github.com/FyrmForge/stackr/internal/stackrd/service/svcerr"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
@@ -22,8 +23,12 @@ import (
 // second surface would have to re-derive and would get wrong in a way nobody
 // notices until a volume is unreachable.
 type NodeService struct {
-	store   repo.Store
-	rt      *runtime.Runtime
+	store repo.Store
+	rt    *runtime.Runtime
+	// regs owns the managed registry row. The agent image is pushed into it
+	// and every node pulls from it, which is the one thing infra/agent used
+	// to reach the store for — it no longer does.
+	regs    registry.Registries
 	dataDir string
 	// ensuring guards the retry loop. Boot starts one; so does every failing
 	// Add node click, and during a registry outage that is one loop per click,
@@ -32,8 +37,8 @@ type NodeService struct {
 }
 
 // NewNodeService creates a new node service.
-func NewNodeService(store repo.Store, rt *runtime.Runtime, dataDir string) *NodeService {
-	return &NodeService{store: store, rt: rt, dataDir: dataDir}
+func NewNodeService(store repo.Store, rt *runtime.Runtime, regs registry.Registries, dataDir string) *NodeService {
+	return &NodeService{store: store, rt: rt, regs: regs, dataDir: dataDir}
 }
 
 // PinnedTiles are the tiles holding a volume on this node's disk. Swarm never
@@ -166,7 +171,7 @@ const (
 // the very first node to join a fresh install — the one case the retry was
 // written for — got a single attempt and an agent that never came up.
 func (s *NodeService) EnsureAgent(ctx context.Context) error {
-	first := agent.Ensure(ctx, s.store, s.rt, s.dataDir)
+	first := agent.Ensure(ctx, s.regs, s.rt, s.dataDir)
 	if first == nil {
 		return nil
 	}
@@ -182,7 +187,7 @@ func (s *NodeService) EnsureAgent(ctx context.Context) error {
 		bg := context.Background()
 		for attempt := 2; attempt <= agentRetries; attempt++ {
 			time.Sleep(agentBackoff)
-			if err := agent.Ensure(bg, s.store, s.rt, s.dataDir); err == nil {
+			if err := agent.Ensure(bg, s.regs, s.rt, s.dataDir); err == nil {
 				slog.Info("node agent service started", "attempt", attempt)
 				return
 			} else if attempt == agentRetries {

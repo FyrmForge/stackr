@@ -13,7 +13,6 @@ import (
 
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/registry"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/runtime"
-	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 )
 
 // Ensure creates the shared runtime key and the global agent service if they
@@ -26,12 +25,12 @@ import (
 // on its own node it uses the socket directly. Also called at boot when the
 // service has gone missing, and after the encryption flip recreates the
 // networks.
-func Ensure(ctx context.Context, store repo.Store, rt *runtime.Runtime, dataDir string) error {
+func Ensure(ctx context.Context, regs registry.Registries, rt *runtime.Runtime, dataDir string) error {
 	local := PanelImage(ctx, rt)
 	if local == "" {
 		return fmt.Errorf("cannot tell which image the panel is running, so cannot start the node agent from it")
 	}
-	image, auth, err := publish(ctx, store, rt, local)
+	image, auth, err := publish(ctx, regs, rt, local)
 	if err != nil {
 		return err
 	}
@@ -137,7 +136,7 @@ func Ensure(ctx context.Context, store repo.Store, rt *runtime.Runtime, dataDir 
 // An install with no registry yet keeps the local tag. That is correct on a
 // single node and is caught on the second, when the agent task fails to
 // place with an image-pull error naming the tag.
-func publish(ctx context.Context, store repo.Store, rt *runtime.Runtime, local string) (image, auth string, err error) {
+func publish(ctx context.Context, regs registry.Registries, rt *runtime.Runtime, local string) (image, auth string, err error) {
 	// A release image is already on a public registry every node can reach,
 	// as a multi-arch index, so each node pulls its own platform. Its tag
 	// moves on every upgrade, so the spec changes and the agents roll. No
@@ -151,7 +150,7 @@ func publish(ctx context.Context, store repo.Store, rt *runtime.Runtime, local s
 	if releaseImage.MatchString(local) {
 		return local, anonymousAuth, nil
 	}
-	reg, err := store.GetManagedRegistry(ctx)
+	reg, err := regs.ManagedOrNil(ctx)
 	if err != nil || reg == nil {
 		return local, "", nil //nolint:nilerr // no registry is a single-node install, not a failure
 	}

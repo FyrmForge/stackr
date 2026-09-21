@@ -408,6 +408,7 @@ func main() {
 	// its settings rows back through this. It is a setter rather than a
 	// constructor argument only because pxSvc is built on px.
 	px.UseSettings(pxSvc)
+	px.UseRegistries(registrySvc)
 	// One owner for the defaults cascade at all four levels: the config-file
 	// gate applies at org, stack and env, and every write resyncs the proxy.
 	// Built here rather than with the rest of the services because boot reads
@@ -555,7 +556,7 @@ func main() {
 	// which the panel then refuses on the version header.
 	// One owner for a node's life after it joins, and for the one agent-ensure
 	// retry policy the boot path used to have to itself.
-	nodeLifecycle := service.NewNodeService(store, rt, envDataDir)
+	nodeLifecycle := service.NewNodeService(store, rt, registrySvc, envDataDir)
 
 	go func() {
 		ctx := context.Background()
@@ -675,7 +676,7 @@ func main() {
 	// existed.
 	rows.Envs, rows.Tiles, rows.Deploys = envSvc, tiles, deploySvc
 	rows.Slices, rows.Instances, rows.Vars = slices, instances, vars
-	rows.Telemetry, rows.Nodes = telemetry, service.NewNodeService(store, rt, envDataDir)
+	rows.Telemetry, rows.Nodes = telemetry, service.NewNodeService(store, rt, registrySvc, envDataDir)
 	// The proxy is built near the top and records where traefik landed on
 	// each environment's overlay, which is a write to the environment row.
 	px.UseEnvs(envSvc)

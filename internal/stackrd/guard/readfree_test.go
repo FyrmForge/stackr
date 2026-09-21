@@ -159,17 +159,14 @@ const stillReading = `
 2 internal/stackrd/handlers/web/CountUsers
 1 internal/stackrd/handlers/web/GetEnvironment
 1 internal/stackrd/handlers/web/GetEnvironmentBySlug
-2 internal/stackrd/handlers/web/GetManagedRegistry
 1 internal/stackrd/handlers/web/GetOrg
-2 internal/stackrd/handlers/web/GetOrgBySlug
+1 internal/stackrd/handlers/web/GetOrgBySlug
 1 internal/stackrd/handlers/web/GetOrgMember
-1 internal/stackrd/handlers/web/GetOrgRegistryCredentialByHash
 1 internal/stackrd/handlers/web/GetStack
 1 internal/stackrd/handlers/web/GetStackBySlug
 1 internal/stackrd/handlers/web/GetTile
 1 internal/stackrd/handlers/web/GetTileBySlug
 1 internal/stackrd/handlers/web/GetUserByID
-1 internal/stackrd/infra/agent/GetManagedRegistry
 5 internal/stackrd/infra/backup/GetBackup
 3 internal/stackrd/infra/backup/GetBackupDestination
 4 internal/stackrd/infra/backup/GetBackupRun
@@ -183,7 +180,6 @@ const stillReading = `
 1 internal/stackrd/infra/cigate/ListDeploymentsByStatus
 1 internal/stackrd/infra/cluster/GetServer
 4 internal/stackrd/infra/deploy/GetDeployment
-1 internal/stackrd/infra/deploy/GetManagedRegistry
 1 internal/stackrd/infra/deploy/GetTile
 1 internal/stackrd/infra/deploy/GetTileBySlug
 1 internal/stackrd/infra/deploy/ListDeploymentsByStatus
@@ -241,7 +237,6 @@ const stillReading = `
 1 internal/stackrd/infra/placement/GetStorageBySlug
 1 internal/stackrd/infra/placement/GetTile
 1 internal/stackrd/infra/placement/ListTilesByEnv
-1 internal/stackrd/infra/proxy/GetManagedRegistry
 1 internal/stackrd/infra/proxy/GetStack
 1 internal/stackrd/infra/proxy/GetStackBySlug
 1 internal/stackrd/infra/proxy/HomeEnvironment
@@ -250,11 +245,9 @@ const stillReading = `
 1 internal/stackrd/infra/proxy/ListEnvironmentsByStack
 2 internal/stackrd/infra/proxy/ListStacks
 1 internal/stackrd/infra/proxy/ListTiles
-2 internal/stackrd/infra/registry/GetManagedRegistry
 1 internal/stackrd/infra/registry/GetOrg
 1 internal/stackrd/infra/registry/GetStack
 1 internal/stackrd/infra/registry/ListDeploymentsByTile
-1 internal/stackrd/infra/registry/ListOrgRegistryCredentials
 1 internal/stackrd/infra/registry/ListStacksByOrg
 1 internal/stackrd/infra/registry/ListTilesByStack
 1 internal/stackrd/infra/storagetiles/GetOrgStorageBySlug

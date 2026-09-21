@@ -408,7 +408,6 @@ const stillWriting = `
 2 internal/stackrd/config/stackconf/UpdateProvision
 4 internal/stackrd/config/stackconf/UpdateStack
 1 internal/stackrd/config/stackconf/UpdateTile
-1 internal/stackrd/handlers/web/TouchOrgRegistryCredential
 `
 
 // The audit table has a back door. `store/audit.Record(ctx, store, …)` calls

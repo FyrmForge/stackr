@@ -30,7 +30,7 @@ import (
 // One condition, two callers.
 func TestVolumeNodeResolvesTheServerAndRefusesOneThatHasNotJoined(t *testing.T) {
 	store := testdb.New(t)
-	h := &handler{store: store, nodeSvc: service.NewNodeService(store, nil, "")}
+	h := &handler{store: store, nodeSvc: service.NewNodeService(store, nil, nil, "")}
 	ctx := context.Background()
 
 	require.NoError(t, store.CreateServer(ctx, &repo.Server{

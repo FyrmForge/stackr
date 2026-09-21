@@ -23,7 +23,7 @@ func TestManagedAuthOnlyForARegistryHost(t *testing.T) {
 	ctx := context.Background()
 	store := testdb.New(t)
 	seed := testdb.SeedStack(t, store, false)
-	e := NewEngine(store, nil, nil, nil, t.TempDir(), nil, storeRows{s: store}, nil)
+	e := NewEngine(store, nil, nil, nil, t.TempDir(), nil, storeRows{s: store}, testdb.Registries{Store: store})
 
 	// No host segment at all: docker hub, and a credential must not travel.
 	for _, ref := range []string{"nginx:1.27", "alpine", "library/nginx:1.27", ""} {
