@@ -140,6 +140,48 @@ func (s *PlanService) SetOrgPlanStatus(ctx context.Context, id, status string) e
 	return s.store.SetOrgConfigPlanStatus(ctx, id, status)
 }
 
+// --- the rows the planners below write ---
+//
+// A plan row carries no rule: it is the result of the walk, and the walk is
+// in config/. What moves here is ownership, so that "who writes a config
+// plan" has one answer. It had five: two planners, two appliers and a job.
+
+// Create stores a freshly computed stack plan.
+func (s *PlanService) Create(ctx context.Context, p *repo.ConfigPlan) error {
+	return s.store.CreateConfigPlan(ctx, p)
+}
+
+// SetStatus moves a stack plan: pending, applied, rejected, superseded.
+func (s *PlanService) SetStatus(ctx context.Context, id, status string) error {
+	return s.store.SetConfigPlanStatus(ctx, id, status)
+}
+
+// SetError keeps why an apply failed on the row, so the plan page can say so
+// rather than leaving the plan looking merely unapplied.
+func (s *PlanService) SetError(ctx context.Context, id, msg string) error {
+	return s.store.SetConfigPlanError(ctx, id, msg)
+}
+
+// SupersedePending retires the stack's older pending plans. A new plan makes
+// the previous one unapprovable, and the banner counts what is pending.
+func (s *PlanService) SupersedePending(ctx context.Context, stackID, envSlug string) error {
+	return s.store.SupersedePendingPlans(ctx, stackID, envSlug)
+}
+
+// CreateOrgPlan, SetOrgPlanError and SupersedePendingOrg are the org twins.
+// SetOrgPlanStatus is above, where it already was.
+func (s *PlanService) CreateOrgPlan(ctx context.Context, p *repo.ConfigPlan) error {
+	return s.store.CreateOrgConfigPlan(ctx, p)
+}
+
+func (s *PlanService) SetOrgPlanError(ctx context.Context, id, msg string) error {
+	return s.store.SetOrgConfigPlanError(ctx, id, msg)
+}
+
+func (s *PlanService) SupersedePendingOrg(ctx context.Context, orgID string) error {
+	return s.store.SupersedePendingOrgPlans(ctx, orgID)
+}
+
 // AwaitingPlan counts an org's stacks with a plan waiting on somebody. The
 // canvas badge.
 func (s *PlanService) AwaitingPlan(ctx context.Context, orgID string) (int, error) {

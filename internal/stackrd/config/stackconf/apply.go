@@ -338,7 +338,7 @@ func (a Applier) ApplyPlan(ctx context.Context, stack *repo.Stack, cp *repo.Conf
 		if held {
 			return false, nil
 		}
-		_ = a.Planner.Store.SetConfigPlanStatus(ctx, cp.ID, "applied")
+		_ = a.Planner.PlanRows().SetStatus(ctx, cp.ID, "applied")
 		return true, nil
 	}
 	if !force {
@@ -386,7 +386,7 @@ func (a Applier) ApplyPlan(ctx context.Context, stack *repo.Stack, cp *repo.Conf
 	if held {
 		return false, nil
 	}
-	_ = a.Planner.Store.SetConfigPlanStatus(ctx, cp.ID, "applied")
+	_ = a.Planner.PlanRows().SetStatus(ctx, cp.ID, "applied")
 	return true, nil
 }
 

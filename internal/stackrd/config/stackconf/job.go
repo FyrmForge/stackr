@@ -83,7 +83,7 @@ func (a Applier) RunApplyJob(ctx context.Context, j *workqueue.Job, p ApplyJob) 
 	applied, err := a.ApplyPlan(ctx, stack, cp, p.Force)
 	if err != nil {
 		// Recorded on the row, because that is where it is read.
-		if werr := store.SetConfigPlanError(ctx, cp.ID, err.Error()); werr != nil {
+		if werr := a.Planner.PlanRows().SetError(ctx, cp.ID, err.Error()); werr != nil {
 			slog.Error("config apply: recording the failure on the plan", "plan", cp.ID, "error", werr)
 		}
 		return err

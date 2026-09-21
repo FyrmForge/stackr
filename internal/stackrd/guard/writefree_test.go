@@ -371,7 +371,6 @@ const stillWriting = `
 2 internal/stackrd/config/envops/DeleteProvision
 1 internal/stackrd/config/envops/SaveNodePositions
 1 internal/stackrd/config/orgconf/CreateDomainResource
-1 internal/stackrd/config/orgconf/CreateOrgConfigPlan
 1 internal/stackrd/config/orgconf/CreateStorage
 1 internal/stackrd/config/orgconf/CreateTile
 1 internal/stackrd/config/orgconf/DeleteDomainResource
@@ -379,9 +378,6 @@ const stillWriting = `
 1 internal/stackrd/config/orgconf/DeleteStorage
 1 internal/stackrd/config/orgconf/DeleteTile
 1 internal/stackrd/config/orgconf/RenameTile
-3 internal/stackrd/config/orgconf/SetOrgConfigPlanError
-1 internal/stackrd/config/orgconf/SetOrgConfigPlanStatus
-1 internal/stackrd/config/orgconf/SupersedePendingOrgPlans
 1 internal/stackrd/config/orgconf/UpdateDomainResource
 1 internal/stackrd/config/orgconf/UpdateOrg
 1 internal/stackrd/config/orgconf/UpdateStack
@@ -393,7 +389,6 @@ const stillWriting = `
 2 internal/stackrd/config/sharelink/TouchSecretLink
 1 internal/stackrd/config/stackconf/ClearDeclaredIntended
 1 internal/stackrd/config/stackconf/CreateBinding
-1 internal/stackrd/config/stackconf/CreateConfigPlan
 2 internal/stackrd/config/stackconf/CreateDomain
 1 internal/stackrd/config/stackconf/CreateDomainResource
 1 internal/stackrd/config/stackconf/CreateTile
@@ -401,10 +396,7 @@ const stillWriting = `
 2 internal/stackrd/config/stackconf/DeleteDomain
 1 internal/stackrd/config/stackconf/DeleteDomainResource
 1 internal/stackrd/config/stackconf/DeleteStagedByEnv
-1 internal/stackrd/config/stackconf/SetConfigPlanError
-2 internal/stackrd/config/stackconf/SetConfigPlanStatus
 1 internal/stackrd/config/stackconf/SetIntended
-1 internal/stackrd/config/stackconf/SupersedePendingPlans
 1 internal/stackrd/config/stackconf/UpdateDomainResource
 2 internal/stackrd/config/stackconf/UpdateProvision
 4 internal/stackrd/config/stackconf/UpdateStack

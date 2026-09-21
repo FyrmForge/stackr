@@ -268,6 +268,13 @@ type Runner struct {
 	StackSvc *service.StackService
 }
 
+// planRows owns org_config_plans. Built from this runner's own store rather
+// than from Stacks, which a diff-only runner leaves zero — see the same
+// method on stackconf.Planner for why it is built here instead of injected.
+func (r Runner) planRows() *service.PlanService {
+	return service.NewPlanService(r.Store, nil, nil)
+}
+
 // Load fetches and parses the org's bound file, returning the head sha too.
 func (r Runner) Load(ctx context.Context, org *repo.Org) (*File, string, error) {
 	if !org.ConfigManaged() {
@@ -366,14 +373,14 @@ func (r Runner) PreviewBundle(ctx context.Context, org *repo.Org, main []byte) (
 }
 
 func (r Runner) save(ctx context.Context, org *repo.Org, sha string, p *repo.ConfigPlan) (*repo.ConfigPlan, error) {
-	if err := r.Store.SupersedePendingOrgPlans(ctx, org.ID); err != nil {
+	if err := r.planRows().SupersedePendingOrg(ctx, org.ID); err != nil {
 		return nil, err
 	}
 	p.ID = uuid.New().String()
 	p.StackID = org.ID // org_config_plans: stack_id holds the org id
 	p.CommitSHA = sha
 	p.CreatedAt = time.Now().UTC()
-	if err := r.Store.CreateOrgConfigPlan(ctx, p); err != nil {
+	if err := r.planRows().CreateOrgPlan(ctx, p); err != nil {
 		return nil, err
 	}
 	return p, nil
@@ -647,7 +654,7 @@ func (r Runner) refBinding(org *repo.Org, ref StackRef) (repoFull, connector, br
 func (r Runner) Apply(ctx context.Context, org *repo.Org, cp *repo.ConfigPlan) error {
 	f, _, err := r.Load(ctx, org)
 	if err != nil {
-		_ = r.Store.SetOrgConfigPlanError(ctx, cp.ID, err.Error())
+		_ = r.planRows().SetOrgPlanError(ctx, cp.ID, err.Error())
 		return err
 	}
 	p, err := r.diff(ctx, org, f)
@@ -802,10 +809,10 @@ func (r Runner) Apply(ctx context.Context, org *repo.Org, cp *repo.ConfigPlan) e
 
 	if len(failed) > 0 {
 		msg := strings.Join(failed, "; ")
-		_ = r.Store.SetOrgConfigPlanError(ctx, cp.ID, msg)
+		_ = r.planRows().SetOrgPlanError(ctx, cp.ID, msg)
 		return fmt.Errorf("%s", msg)
 	}
-	return r.Store.SetOrgConfigPlanStatus(ctx, cp.ID, "applied")
+	return r.planRows().SetOrgPlanStatus(ctx, cp.ID, "applied")
 }
 
 // applyDomains reconciles the org's domain resources with the file. Deletions

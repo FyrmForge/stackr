@@ -41,6 +41,20 @@ type Planner struct {
 	Src   FileSource
 }
 
+// PlanRows is the owner of config_plans and org_config_plans. The walk that
+// produces a plan is this package's; the row it produces is not, and the two
+// planners, the two appliers and two jobs were all writing it themselves.
+//
+// It is built from the store on demand rather than injected. PlanService's
+// write half needs nothing but the store, and the read half is built FROM
+// this planner — so a field would be a construction cycle, and threading one
+// through would mean wiring thirty-three test literals to get an object that
+// is three words to make. This returns the same owner either way, so there is
+// no second implementation for anything to drift against.
+func (pl Planner) PlanRows() *service.PlanService {
+	return service.NewPlanService(pl.Store, nil, nil)
+}
+
 // StackBranch resolves the branch a stack-scoped plan reads from.
 func (pl Planner) StackBranch(ctx context.Context, stack *repo.Stack) (string, error) {
 	if stack.ConfigBranch != "" {
@@ -287,14 +301,14 @@ func (pl Planner) diffSave(ctx context.Context, stack *repo.Stack, sha, branch s
 }
 
 func (pl Planner) save(ctx context.Context, stack *repo.Stack, sha string, p *repo.ConfigPlan) (*repo.ConfigPlan, error) {
-	if err := pl.Store.SupersedePendingPlans(ctx, stack.ID, p.EnvSlug); err != nil {
+	if err := pl.PlanRows().SupersedePending(ctx, stack.ID, p.EnvSlug); err != nil {
 		return nil, err
 	}
 	p.ID = uuid.New().String()
 	p.StackID = stack.ID
 	p.CommitSHA = sha
 	p.CreatedAt = time.Now().UTC()
-	if err := pl.Store.CreateConfigPlan(ctx, p); err != nil {
+	if err := pl.PlanRows().Create(ctx, p); err != nil {
 		return nil, err
 	}
 	return p, nil

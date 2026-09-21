@@ -79,7 +79,7 @@ func (r *Runner) RunApplyJob(ctx context.Context, j *workqueue.Job, p ApplyJob) 
 
 	j.SetStep(ctx, "applying")
 	if err := r.Apply(ctx, org, cp); err != nil {
-		if werr := r.Store.SetOrgConfigPlanError(ctx, cp.ID, err.Error()); werr != nil {
+		if werr := r.planRows().SetOrgPlanError(ctx, cp.ID, err.Error()); werr != nil {
 			slog.Error("org config apply: recording the failure on the plan", "plan", cp.ID, "error", werr)
 		}
 		return err
