@@ -257,6 +257,18 @@ func (s *BackupScheduleService) ListAll(ctx context.Context) ([]repo.Backup, err
 	return s.store.ListBackups(ctx)
 }
 
+// --- the run rows the backup runner below writes ---
+
+// OpenRun records a backup run that has just started.
+func (s *BackupScheduleService) OpenRun(ctx context.Context, r *repo.BackupRun) error {
+	return s.store.CreateBackupRun(ctx, r)
+}
+
+// SaveRun persists a run the runner has moved: a step, a size, an outcome.
+func (s *BackupScheduleService) SaveRun(ctx context.Context, r *repo.BackupRun) error {
+	return s.store.UpdateBackupRun(ctx, r)
+}
+
 // Runs are one schedule's most recent runs, newest first.
 func (s *BackupScheduleService) Runs(ctx context.Context, backupID string, limit int) ([]repo.BackupRun, error) {
 	return s.store.ListBackupRuns(ctx, backupID, limit)

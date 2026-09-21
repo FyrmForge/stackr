@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/cluster"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/envnet"
@@ -279,6 +280,33 @@ func (s *TileLifecycleService) setStatus(ctx context.Context, t *repo.Tile, stat
 func runToCompletion(t *repo.Tile) bool { return t.Kind == "cron" || t.Kind == "function" }
 
 // --- cron runs ---
+
+// --- the run rows the job runner below writes ---
+//
+// A cron run is the record of one execution: the runner decides when and
+// what, this owns the row. There is no rule on this side; what moves is that
+// cron_runs has one writer.
+
+// StartRun records a run that has just begun.
+func (s *TileLifecycleService) StartRun(ctx context.Context, r *repo.CronRun) error {
+	return s.store.CreateCronRun(ctx, r)
+}
+
+// FinishRun closes a run with its outcome.
+func (s *TileLifecycleService) FinishRun(ctx context.Context, r *repo.CronRun) error {
+	return s.store.FinishCronRun(ctx, r)
+}
+
+// PruneRuns drops runs past the retention window.
+func (s *TileLifecycleService) PruneRuns(ctx context.Context, before time.Time) error {
+	return s.store.PruneCronRuns(ctx, before)
+}
+
+// RecordTileRun stamps the last-run summary onto the tile itself, which is
+// what the card shows without opening the run list.
+func (s *TileLifecycleService) RecordTileRun(ctx context.Context, tileID, status, output string) error {
+	return s.store.RecordTileRun(ctx, tileID, status, output)
+}
 
 // Runs are a cron tile's most recent runs, newest first.
 func (s *TileLifecycleService) Runs(ctx context.Context, ref string, limit int) ([]repo.CronRun, error) {

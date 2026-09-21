@@ -53,7 +53,7 @@ func TestNewEngineKeepsWhatItIsGiven(t *testing.T) {
 	store := testdb.New(t)
 	clus := cluster.New(nil, agent.New(nil, "", t.TempDir()), store)
 	rows := storeRows{s: store}
-	e := NewEngine(store, nil, clus, stream.NewHub(), t.TempDir(), nil, rows)
+	e := NewEngine(store, nil, clus, stream.NewHub(), t.TempDir(), nil, rows, nil)
 
 	require.NotNil(t, e.clus, "the cluster is every docker call a deploy makes")
 	assert.Same(t, clus, e.clus)

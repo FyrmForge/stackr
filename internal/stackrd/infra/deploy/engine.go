@@ -57,6 +57,8 @@ type Engine struct {
 	// package and the managed-tile service it builds. service.Rows satisfies
 	// it; nothing else should.
 	rows Rows
+	// regs owns the registry row and the credential the panel issues itself.
+	regs registry.Registries
 
 	// GitAuth optionally returns extra environment lines (GIT_CONFIG_*) that
 	// authenticate the tile's fetch/clone (e.g. a GitHub App installation
@@ -205,7 +207,7 @@ type Rows interface {
 	DeploymentProgress(ctx context.Context, d *repo.Deployment) error
 }
 
-func NewEngine(store repo.Store, rt *runtime.Runtime, clus *cluster.Cluster, hub *stream.Hub, dataDir string, notifier *notify.Notifier, rows Rows) *Engine {
+func NewEngine(store repo.Store, rt *runtime.Runtime, clus *cluster.Cluster, hub *stream.Hub, dataDir string, notifier *notify.Notifier, rows Rows, regs registry.Registries) *Engine {
 	e := &Engine{
 		store:    store,
 		rt:       rt,
@@ -214,6 +216,7 @@ func NewEngine(store repo.Store, rt *runtime.Runtime, clus *cluster.Cluster, hub
 		notifier: notifier,
 		dataDir:  dataDir,
 		rows:     rows,
+		regs:     regs,
 		queue:    make(chan string, 256),
 		cancels:  map[string]context.CancelFunc{},
 	}
@@ -912,7 +915,7 @@ func (e *Engine) pushToRegistry(ctx context.Context, app *repo.Tile, imageRef st
 	// `docker login`: the daemon config is shared by every org on the node, so
 	// logging in for one org would leave its push credential usable by the
 	// next org's build.
-	_, org, secret, err := registry.OrgCredential(ctx, e.store, app)
+	_, org, secret, err := registry.OrgCredential(ctx, e.store, e.regs, app)
 	if err != nil {
 		return "", "", err
 	}
@@ -945,7 +948,7 @@ func (e *Engine) managedAuth(ctx context.Context, app *repo.Tile, imageRef strin
 	if !ok || !strings.ContainsAny(host, ".:") {
 		return "" // docker hub, no host segment
 	}
-	at, auth, err := registry.OrgPullAuth(ctx, e.store, e.rt, app)
+	at, auth, err := registry.OrgPullAuth(ctx, e.store, e.regs, e.rt, app)
 	if err != nil || at != host {
 		return ""
 	}

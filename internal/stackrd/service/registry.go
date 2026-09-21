@@ -200,6 +200,30 @@ func (s *RegistryService) ListAll(ctx context.Context) ([]repo.Registry, error) 
 	return s.store.ListRegistries(ctx)
 }
 
+// --- the rows infra/registry writes while keeping itself running ---
+
+// EnsureRow stores the managed registry's own row on first boot.
+func (s *RegistryService) EnsureRow(ctx context.Context, r *repo.Registry) error {
+	return s.store.CreateRegistry(ctx, r)
+}
+
+// MintSystemCredential stores a credential the panel issues to itself, for
+// pulling its own images. Not MintCredential: that one is a person asking,
+// and carries the org rules.
+func (s *RegistryService) MintSystemCredential(ctx context.Context, c *repo.OrgRegistryCredential) error {
+	return s.store.CreateOrgRegistryCredential(ctx, c)
+}
+
+// RevokeSystemCredential drops a system credential being rotated out.
+func (s *RegistryService) RevokeSystemCredential(ctx context.Context, id string) error {
+	return s.store.DeleteSystemOrgRegistryCredential(ctx, id)
+}
+
+// TouchCredential stamps last-used on a credential that just authenticated.
+func (s *RegistryService) TouchCredential(ctx context.Context, id string) error {
+	return s.store.TouchOrgRegistryCredential(ctx, id)
+}
+
 // Credentials are an organization's push/pull credentials for the managed
 // registry. The secret half is not here: only the row.
 func (s *RegistryService) Credentials(ctx context.Context, orgID string) ([]repo.OrgRegistryCredential, error) {

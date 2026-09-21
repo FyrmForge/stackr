@@ -288,8 +288,18 @@ func main() {
 	// (docs/plans/30-docker-swarm.md, decision 3). Pulling registry:2 can be
 	// slow, so it runs alongside boot rather than blocking it; the first
 	// deploy fails with the push error if it is not ready yet.
+	// One owner for the registry row and for the credentials the panel issues
+	// to itself. Built here rather than with the other services further down
+	// because the registry comes up during boot and several things below take
+	// it; it needs nothing but the store.
+
+	// One owner for the registry row and for the credentials the panel issues
+	// to itself. Built here rather than with the other services further down
+	// because the registry comes up during boot and several things below take
+	// it; it needs nothing but the store.
+	registrySvc := service.NewRegistryService(store)
 	go func() {
-		if _, err := registry.EnsureManaged(context.Background(), store, rt, registrySigner, envDataDir, registryPort, baseOrigin); err != nil {
+		if _, err := registry.EnsureManaged(context.Background(), store, registrySvc, rt, registrySigner, envDataDir, registryPort, baseOrigin); err != nil {
 			log.Error("managed registry start failed", "error", err)
 		}
 	}()
@@ -365,7 +375,7 @@ func main() {
 	// touches a container, so nothing can be constructed without it
 	// (docs/plans/35-cluster.md).
 	clus := cluster.New(rt, nodeDispatch, store)
-	engine := deploy.NewEngine(store, rt, clus, streamHub, envDataDir, notifier, rows)
+	engine := deploy.NewEngine(store, rt, clus, streamHub, envDataDir, notifier, rows, registrySvc)
 
 	// GitHub connectors: private-repo clone auth, ghcr pulls, PR feedback.
 	gh := githubapp.New(store, service.NewConnectorService(store), baseOrigin)
@@ -392,7 +402,7 @@ func main() {
 	// Everything above the service line writes traefik config through this,
 	// never through *proxy.Proxy: one managed gate, one error policy, and one
 	// serialized rewrite-and-restart.
-	pxSvc := svcproxy.New(store, px, rt, registrySigner, envDataDir, registryPort, baseOrigin)
+	pxSvc := svcproxy.New(store, px, registrySvc, rt, registrySigner, envDataDir, registryPort, baseOrigin)
 	// Before Traefik starts: it reads the trusted proxy settings.
 	if err := seedInstall(context.Background(), store,
 		config.GetEnvOrDefault("ROOT_DOMAIN", ""),
@@ -460,7 +470,7 @@ func main() {
 	dbService := managedtiles.NewService(clus, store, rows)
 
 	// Scheduled jobs (cron commands for apps).
-	jobsService := jobs.NewService(store, clus, notifier, rows)
+	jobsService := jobs.NewService(store, clus, notifier, rows, nil, registrySvc)
 	// Function tiles with the on-deploy trigger fire once their own build
 	// lands, chained onto the GitHub hook above rather than replacing it.
 	prevFinish := engine.OnFinish
@@ -485,7 +495,7 @@ func main() {
 	// Backups: dumps, volume archives, and the panel's own database. Holds the
 	// live *sqlx.DB because VACUUM INTO is the only consistent way to copy the
 	// file while stackr is serving.
-	backupService := backup.NewService(store, dbService, clus, database, envDataDir, version)
+	backupService := backup.NewService(store, nil, dbService, clus, database, envDataDir, version)
 
 	// One owner for "re-register the schedules". Everything that cascades a
 	// cron_jobs or backups row calls this instead of LoadSchedules directly.
@@ -499,6 +509,10 @@ func main() {
 	// the same side effects — the nudge to open canvases included, which the
 	// API used to skip.
 	lifecycle := service.NewTileLifecycleService(store, clus, jobsService, dbService, sched, notifier)
+	// The knot: the job runner writes cron_runs through the service, and the
+	// service runs jobs through the runner. The runner is built first, so the
+	// row owner is handed over here. Nothing reads it until a job fires.
+	jobsService.WithRuns(lifecycle)
 
 	// One owner for the tile row and for everything a write to it has to
 	// cascade. gate answers "may this stack be written to, and does the write
@@ -670,7 +684,6 @@ func main() {
 
 	// One owner for the registry rows: the managed one cannot be deleted from
 	// either surface now, and one in-use matcher decides whether a tag may go.
-	registrySvc := service.NewRegistryService(store)
 
 	// One owner for the defaults cascade at all four levels: the config-file
 	// gate applies at org, stack and env, and every write resyncs the proxy.
@@ -683,6 +696,8 @@ func main() {
 
 	destSvc := service.NewBackupDestinationService(store, sched)
 	scheduleSvc := service.NewBackupScheduleService(store, destSvc, sched, gate)
+	// Same knot as the job runner's, one table over.
+	backupService.WithRuns(scheduleSvc)
 	// Set after construction rather than in the literal: the schedule service
 	// needs the gate and the scheduler, which are built alongside the applier.
 	applier.Schedules = scheduleSvc

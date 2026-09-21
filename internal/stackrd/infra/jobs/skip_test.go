@@ -12,7 +12,7 @@ import (
 // A schedule tick on a stack mid config-apply skips; a manual run does not.
 // Release undoes exactly one Hold.
 func TestHoldSkipsScheduleTicks(t *testing.T) {
-	s := NewService(nil, nil, nil, nil)
+	s := NewService(nil, nil, nil, nil, nil, nil)
 	app := &repo.Tile{StackID: "st"}
 	ctx := context.Background()
 

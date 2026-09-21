@@ -43,6 +43,10 @@ type Service struct {
 	// fresh environment claims that environment's overlay, and the claim
 	// writes a row this package does not own.
 	envs envnet.Envs
+	// regs owns the credential a job pulls its image with.
+	regs registry.Registries
+	// runs owns cron_runs and the tile's last-run summary.
+	runs Runs
 
 	mu      sync.Mutex
 	cron    *cron.Cron
@@ -51,12 +55,33 @@ type Service struct {
 	held    map[string]int          // stack ids mid config-apply; schedule ticks skip
 }
 
-func NewService(store repo.Store, c *cluster.Cluster, notifier *notify.Notifier, envs envnet.Envs) *Service {
+// Runs is the owner of cron_runs and of the tile's last-run summary.
+// service.TileLifecycleService satisfies it; an interface because that
+// package is built on this one.
+type Runs interface {
+	StartRun(ctx context.Context, r *repo.CronRun) error
+	FinishRun(ctx context.Context, r *repo.CronRun) error
+	PruneRuns(ctx context.Context, before time.Time) error
+	RecordTileRun(ctx context.Context, tileID, status, output string) error
+}
+
+// WithRuns hands over the service that owns cron_runs.
+//
+// A setter, not a constructor argument, because of the order main.go is
+// forced into: TileLifecycleService is built ON this service, so it cannot
+// exist when this one is constructed. Nothing dereferences runs until a job
+// actually fires, which is long after.
+func (s *Service) WithRuns(r Runs) *Service { s.runs = r; return s }
+
+func NewService(store repo.Store, c *cluster.Cluster, notifier *notify.Notifier,
+	envs envnet.Envs, runs Runs, regs registry.Registries) *Service {
 	s := &Service{
 		store:    store,
 		c:        c,
 		notifier: notifier,
 		envs:     envs,
+		runs:     runs,
+		regs:     regs,
 		cron:     cron.New(),
 		entries:  map[string]cron.EntryID{},
 		running:  map[string]bool{},
@@ -280,7 +305,7 @@ func (s *Service) startRun(ctx context.Context, ref, trigger, actor string, star
 		Actor:     actor,
 		StartedAt: started,
 	}
-	if err := s.store.CreateCronRun(ctx, r); err != nil {
+	if err := s.runs.StartRun(ctx, r); err != nil {
 		slog.Error("cron run not opened", "run", r.ID, "ref", ref, "error", err)
 	}
 	return r
@@ -291,11 +316,11 @@ func (s *Service) startRun(ctx context.Context, ref, trigger, actor string, star
 func (s *Service) finishRun(ctx context.Context, r *repo.CronRun, status, output string) {
 	r.Status, r.Output = status, output
 	r.FinishedAt = sql.NullTime{Time: time.Now().UTC(), Valid: true}
-	if err := s.store.FinishCronRun(ctx, r); err != nil {
+	if err := s.runs.FinishRun(ctx, r); err != nil {
 		slog.Error("cron run not closed", "run", r.ID, "ref", r.Ref, "status", status, "error", err)
 	}
 	days := settings.ForServer(ctx, s.store).RunRetentionDays
-	_ = s.store.PruneCronRuns(ctx, time.Now().Add(-time.Duration(days)*24*time.Hour))
+	_ = s.runs.PruneRuns(ctx, time.Now().Add(-time.Duration(days)*24*time.Hour))
 }
 
 // LoadSchedules (re)registers cron entries for all enabled jobs and all
@@ -379,7 +404,7 @@ func (s *Service) runApp(jobCtx context.Context, app *repo.Tile, run *repo.CronR
 
 	image := s.appImage(ctx, app)
 	if image == "" {
-		_ = s.store.RecordTileRun(ctx, app.ID, "error", "no image set")
+		_ = s.runs.RecordTileRun(ctx, app.ID, "error", "no image set")
 		s.finishRun(ctx, run, "error", "no image set")
 		s.notifier.Project(app.StackID)
 		return
@@ -419,7 +444,7 @@ func (s *Service) runApp(jobCtx context.Context, app *repo.Tile, run *repo.CronR
 		out = out[len(out)-maxOutput:]
 	}
 	out = strings.TrimSpace(out)
-	_ = s.store.RecordTileRun(ctx, app.ID, status, out)
+	_ = s.runs.RecordTileRun(ctx, app.ID, status, out)
 	s.finishRun(ctx, run, status, out)
 	s.notifier.Project(app.StackID)
 	// Notify on the ok→error transition only, a cron that keeps failing on
@@ -544,7 +569,7 @@ func (s *Service) pullAuth(ctx context.Context, app *repo.Tile, image string) st
 	if !ok || !strings.ContainsAny(host, ".:") {
 		return "" // docker hub, no host segment
 	}
-	at, auth, err := registry.OrgPullAuth(ctx, s.store, s.c.Runtime(), app)
+	at, auth, err := registry.OrgPullAuth(ctx, s.store, s.regs, s.c.Runtime(), app)
 	if err != nil || at != host {
 		return ""
 	}

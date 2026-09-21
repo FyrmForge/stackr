@@ -52,7 +52,11 @@ type Service struct {
 
 	// The managed registry's route needs the registry service itself ensured
 	// first, because the alias Traefik dials lives in that service's spec.
-	rt           *runtime.Runtime
+	rt *runtime.Runtime
+	// regs owns the registry row EnsureManaged writes. This package is under
+	// service/ but is its own package, so it takes the interface like the
+	// infra callers do rather than importing the parent.
+	regs         registry.Registries
 	signer       *registry.Signer
 	dataDir      string
 	registryPort string
@@ -76,8 +80,8 @@ type Service struct {
 
 // New builds the service. rt, signer and the three strings are only needed by
 // SetRegistryDomain; everything else works without them.
-func New(store repo.Store, px *infraproxy.Proxy, rt *runtime.Runtime, signer *registry.Signer, dataDir, registryPort, baseURL string) *Service {
-	s := &Service{store: store, px: px, rt: rt, signer: signer,
+func New(store repo.Store, px *infraproxy.Proxy, regs registry.Registries, rt *runtime.Runtime, signer *registry.Signer, dataDir, registryPort, baseURL string) *Service {
+	s := &Service{store: store, px: px, regs: regs, rt: rt, signer: signer,
 		dataDir: dataDir, registryPort: registryPort, baseURL: baseURL}
 	if px != nil {
 		s.ensure = px.EnsureTraefik
@@ -418,7 +422,7 @@ func (s *Service) SetRegistryDomain(ctx context.Context, reg *repo.Registry, dom
 		return err
 	}
 	if reg.Domain != "" {
-		if _, err := registry.EnsureManaged(ctx, s.store, s.rt, s.signer, s.dataDir, s.registryPort, s.baseURL); err != nil {
+		if _, err := registry.EnsureManaged(ctx, s.store, s.regs, s.rt, s.signer, s.dataDir, s.registryPort, s.baseURL); err != nil {
 			return err
 		}
 	}

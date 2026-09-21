@@ -33,7 +33,16 @@ const ServiceName = "stkr-registry"
 // realm is where a docker client is sent to exchange a credential for a token.
 // It has to be an address the *client* can reach, which for a build on the
 // manager is stackrd's own listen address.
-func EnsureManaged(ctx context.Context, store repo.Store, rt *runtime.Runtime, signer *Signer, dataDir, port, baseURL string) (*repo.Registry, error) {
+// Registries owns the registry row and the credentials the panel issues to
+// itself. service.RegistryService satisfies it; an interface because that
+// package is built on this one.
+type Registries interface {
+	EnsureRow(ctx context.Context, r *repo.Registry) error
+	MintSystemCredential(ctx context.Context, c *repo.OrgRegistryCredential) error
+	RevokeSystemCredential(ctx context.Context, id string) error
+}
+
+func EnsureManaged(ctx context.Context, store repo.Store, regs Registries, rt *runtime.Runtime, signer *Signer, dataDir, port, baseURL string) (*repo.Registry, error) {
 	realm := strings.TrimSuffix(baseURL, "/") + TokenPath
 	reg, err := store.GetManagedRegistry(ctx)
 	if err != nil {
@@ -50,7 +59,7 @@ func EnsureManaged(ctx context.Context, store repo.Store, rt *runtime.Runtime, s
 			Managed:   true,
 			CreatedAt: time.Now().UTC(),
 		}
-		if err := store.CreateRegistry(ctx, reg); err != nil {
+		if err := regs.EnsureRow(ctx, reg); err != nil {
 			return nil, err
 		}
 	}

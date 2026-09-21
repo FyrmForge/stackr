@@ -398,16 +398,7 @@ const stillWriting = `
 4 internal/stackrd/config/stackconf/UpdateStack
 1 internal/stackrd/config/stackconf/UpdateTile
 1 internal/stackrd/handlers/web/TouchOrgRegistryCredential
-1 internal/stackrd/infra/backup/CreateBackupRun
-2 internal/stackrd/infra/backup/UpdateBackupRun
-1 internal/stackrd/infra/jobs/CreateCronRun
-1 internal/stackrd/infra/jobs/FinishCronRun
-1 internal/stackrd/infra/jobs/PruneCronRuns
-2 internal/stackrd/infra/jobs/RecordTileRun
 1 internal/stackrd/infra/proxy/SetSetting
-1 internal/stackrd/infra/registry/CreateOrgRegistryCredential
-1 internal/stackrd/infra/registry/CreateRegistry
-1 internal/stackrd/infra/registry/DeleteSystemOrgRegistryCredential
 `
 
 // The audit table has a back door. `store/audit.Record(ctx, store, …)` calls
