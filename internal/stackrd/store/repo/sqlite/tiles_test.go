@@ -24,7 +24,7 @@ func TestUpdateTileLeavesStatusAlone(t *testing.T) {
 	require.NoError(t, err, "get")
 	stale.Status = "idle" // what a form rendered before the deploy would send
 	stale.Name = "renamed"
-	require.NoError(t, store.UpdateTile(ctx, stale), "update")
+	require.NoError(t, store.UpdateTile(ctx, stale.ID, stale.TileConfig), "update")
 
 	got, err := store.GetTile(ctx, seed.Tile.ID)
 	require.NoError(t, err, "get after")

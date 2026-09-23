@@ -1,17 +1,21 @@
 package v1
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/labstack/echo/v4"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/FyrmForge/stackr/internal/stackrd/config/orgconf"
 	"github.com/FyrmForge/stackr/internal/stackrd/config/stackconf"
+	"github.com/FyrmForge/stackr/internal/stackrd/service"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo/sqlite"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/testdb"
@@ -33,8 +37,46 @@ func call(t *testing.T, a *API, h echo.HandlerFunc, method, target, body, id str
 	return rec, h(c)
 }
 
+// callThroughGate is call() with the route's gate in front, for the tests that
+// are about what the gate decides — tenancy, the unfinished wizard — rather
+// than about what the handler does with a row it was handed.
+func callThroughGate(t *testing.T, a *API, h echo.HandlerFunc, method, target, body, id string,
+	v service.Verb, k service.Kind, scopes ...string) (*httptest.ResponseRecorder, error) {
+	t.Helper()
+	return call(t, a, a.gate(v, k, "id", h), method, target, body, id, scopes...)
+}
+
+// apiFor builds the API over a real store with no cluster, proxy or engine.
+// The tile service is wired because every tile write goes through it now; its
+// own dependencies are all nil-safe, so the row is written and the side
+// effects are skipped, which is what these tests want to observe.
 func apiFor(s *sqlite.Store) *API {
-	return New(s, nil, nil, nil, nil, nil, nil, nil, nil, stackconf.Applier{})
+	gate := service.NewGateService(s)
+	tiles := service.NewTileService(s, nil, nil, nil, nil, nil, gate)
+	envs := service.NewEnvironmentService(s, nil, nil, nil, gate)
+	dests := service.NewBackupDestinationService(s, nil)
+	return New(s, nil, nil, nil, nil, nil, nil, nil, nil, stackconf.Applier{}).
+		WithOrgConfig(&orgconf.Runner{Store: s}).
+		WithAccess(service.NewAccessService(s)).
+		WithTiles(tiles).
+		WithEnvironments(envs).
+		WithOrgs(service.NewOrgService(s)).
+		WithMembers(service.NewMemberService(s, nil, service.NewRevokeService(s, nil))).
+		WithInstances(service.NewManagedInstanceService(s, nil, tiles, gate, nil)).
+		WithSlices(service.NewSliceService(s, nil, nil, nil)).
+		WithVariables(service.NewVariableService(s, nil, nil, nil, nil)).
+		WithLifecycle(service.NewTileLifecycleService(s, nil, nil, nil, nil, nil)).
+		WithDomains(service.NewDomainService(s, nil, gate)).
+		WithDomainResources(service.NewDomainResourceService(s, nil)).
+		WithTelemetry(service.NewTileTelemetryService(s, nil)).
+		WithStacks(service.NewStackService(s, nil, nil, envs, nil, gate, nil)).
+		WithDeploys(service.NewDeployService(s, nil)).
+		WithReleases(service.NewReleaseService(s, nil)).
+		WithPlans(service.NewPlanService(s, nil, nil)).
+		WithBackupServices(
+			service.NewBackupScheduleService(s, dests, nil, gate),
+			dests,
+		)
 }
 
 func decodeVars(t *testing.T, rec *httptest.ResponseRecorder) map[string]varEntry {
@@ -69,6 +111,35 @@ func TestGetVarsMasksSecrets(t *testing.T) {
 	require.NoError(t, err, "get with secrets:read")
 	got = decodeVars(t, rec)
 	assert.Equal(t, "s3cr3t", got["TOKEN"].Value, "secrets:read did not reveal TOKEN")
+}
+
+// secrets:read is a write-grade scope, so it can only be minted by somebody
+// with content-write — but the key outlives the role. A member who minted one
+// and was then demoted to viewer must stop seeing values at the next request,
+// the same way a demoted session does on the panel.
+func TestSecretsReadStillNeedsWriteInTheOrg(t *testing.T) {
+	s := testdb.New(t)
+	seed := testdb.SeedStack(t, s, false)
+	a := apiFor(s)
+	ctx := context.Background()
+	now := time.Now().UTC()
+
+	body := `{"variables":[{"name":"TOKEN","value":"s3cr3t","secret":true}]}`
+	_, err := call(t, a, a.putVars, http.MethodPut, "/", body, seed.Tile.ID, ScopeVarsWrite)
+	require.NoError(t, err, "put")
+
+	require.NoError(t, s.CreateUser(ctx, &repo.User{ID: "demoted", Email: "d@example.com",
+		Name: "Demoted", Role: "user", Active: true, CreatedAt: now, UpdatedAt: now}), "seed user")
+	require.NoError(t, s.UpsertOrgMember(ctx, &repo.OrgMember{
+		OrgID: seed.Org.ID, UserID: "demoted", Role: "viewer", CreatedAt: now}), "seed viewer")
+
+	// callAs authenticates as "demoted", a viewer in the tile's own org.
+	rec, err := callAs(t, a, a.getVars, http.MethodGet, "/", "", seed.Tile.ID,
+		[]string{seed.Org.ID}, ScopeVarsRead, ScopeSecretsRead)
+	require.NoError(t, err, "viewer listing variables")
+	got := decodeVars(t, rec)
+	assert.Equal(t, maskedValue, got["TOKEN"].Value,
+		"a viewer's key read a secret value on the strength of a scope alone")
 }
 
 // A masked value sent back would silently overwrite the real one with "•••".

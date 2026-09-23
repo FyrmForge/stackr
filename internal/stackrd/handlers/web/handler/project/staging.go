@@ -21,8 +21,8 @@ func (h *handler) loadStagingEnv(c echo.Context) (*repo.Stack, *repo.Environment
 	// on any install where the two differ (the review breadcrumbs and every
 	// post-apply/discard redirect went to /<org-id>/... before this).
 	h.fillOrg(c.Request().Context(), stack)
-	env, err := h.store.GetEnvironment(c.Request().Context(), c.Param("envID"))
-	if err != nil || env == nil || env.StackID != stack.ID {
+	env, err := h.envs.Get(c.Request().Context(), c.Param("envID"))
+	if err != nil || env.StackID != stack.ID {
 		return nil, nil, echo.NewHTTPError(http.StatusNotFound, "environment not found")
 	}
 	return stack, env, nil
@@ -35,7 +35,7 @@ func (h *handler) StagingReview(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	changes, err := h.store.ListStagedByEnv(ctx, env.ID)
+	changes, err := h.tiles.Staged(ctx, env.ID)
 	if err != nil {
 		return err
 	}
@@ -78,7 +78,7 @@ func (h *handler) StagingDiscard(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	if err := h.store.DeleteStagedByEnv(ctx, env.ID); err != nil {
+	if err := h.tiles.DiscardStagedForEnv(ctx, env.ID); err != nil {
 		return err
 	}
 	middleware.SetFlash(c, "Pending changes discarded.", middleware.FlashSuccess)
@@ -92,15 +92,15 @@ func (h *handler) StagingDiscardOne(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	sc, err := h.store.GetStagedChange(ctx, c.Param("changeID"))
-	if err != nil || sc == nil || sc.EnvID != env.ID {
+	sc, err := h.tiles.StagedChange(ctx, c.Param("changeID"))
+	if err != nil || sc.EnvID != env.ID {
 		return echo.NewHTTPError(http.StatusNotFound, "change not found")
 	}
-	if err := h.store.DeleteStagedChange(ctx, sc.ID); err != nil {
+	if err := h.tiles.DiscardStaged(ctx, sc.ID); err != nil {
 		return err
 	}
 	middleware.SetFlash(c, "Change discarded.", middleware.FlashSuccess)
-	if n, _ := h.store.CountStagedByEnv(ctx, env.ID); n == 0 {
+	if n, _ := h.tiles.StagedCount(ctx, env.ID); n == 0 {
 		return respond.Redirect(c, envURL(stack, env))
 	}
 	return respond.Redirect(c, "/projects/"+stack.ID+"/staging/"+env.ID)

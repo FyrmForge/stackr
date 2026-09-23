@@ -23,7 +23,7 @@ import (
 func TestReopenOnlyRevivesWhatTheRestartInterrupted(t *testing.T) {
 	ctx := context.Background()
 	store := testdb.New(t)
-	e := &Engine{store: store}
+	e := &Engine{store: store, rows: storeRows{s: store}}
 	// A deployment references a real tile; SeedStack gives us one.
 	seed := testdb.SeedStack(t, store, true)
 

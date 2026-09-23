@@ -12,6 +12,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/stackrd/handlers/web/components/canvas"
 	"github.com/FyrmForge/stackr/internal/stackrd/handlers/web/graph"
 	"github.com/FyrmForge/stackr/internal/stackrd/handlers/web/handler/annotate"
+	"github.com/FyrmForge/stackr/internal/stackrd/service"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 )
 
@@ -28,7 +29,7 @@ func (h *handler) StackGraph(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	pendingPlan, _ := h.store.LatestConfigPlan(ctx, p.ID)
+	pendingPlan, _ := h.plans.Latest(ctx, p.ID)
 	if pendingPlan != nil && pendingPlan.Status != "pending" && pendingPlan.Status != "error" {
 		pendingPlan = nil
 	}
@@ -89,7 +90,7 @@ func (h *handler) SaveStackNodePosition(c echo.Context) error {
 	if err := repo.ValidateNodePositions(owner, ps); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
-	if err := h.store.SaveNodePositions(c.Request().Context(), owner, ps); err != nil {
+	if err := h.graph.SavePositions(c.Request().Context(), owner, ps); err != nil {
 		return err
 	}
 	h.notifier.Project(p.ID)
@@ -103,7 +104,7 @@ func (h *handler) SaveStackAnnotation(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	if err := annotate.Save(c, h.store, repo.GraphOwner(repo.ScopeStack, p.ID)); err != nil {
+	if err := annotate.Save(c, h.graph, repo.GraphOwner(repo.ScopeStack, p.ID)); err != nil {
 		return err
 	}
 	h.notifier.Project(p.ID)
@@ -115,7 +116,7 @@ func (h *handler) DeleteStackAnnotation(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	if err := annotate.Delete(c, h.store, repo.GraphOwner(repo.ScopeStack, p.ID)); err != nil {
+	if err := annotate.Delete(c, h.graph, repo.GraphOwner(repo.ScopeStack, p.ID)); err != nil {
 		return err
 	}
 	h.notifier.Project(p.ID)
@@ -129,7 +130,7 @@ func (h *handler) SaveEnvAnnotation(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	if err := annotate.Save(c, h.store, repo.GraphOwner(repo.ScopeEnv, env)); err != nil {
+	if err := annotate.Save(c, h.graph, repo.GraphOwner(repo.ScopeEnv, env)); err != nil {
 		return err
 	}
 	h.notifier.Project(stackID)
@@ -141,7 +142,7 @@ func (h *handler) DeleteEnvAnnotation(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	if err := annotate.Delete(c, h.store, repo.GraphOwner(repo.ScopeEnv, env)); err != nil {
+	if err := annotate.Delete(c, h.graph, repo.GraphOwner(repo.ScopeEnv, env)); err != nil {
 		return err
 	}
 	h.notifier.Project(stackID)
@@ -155,7 +156,7 @@ func (h *handler) SaveStackGraphGroup(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	if err := annotate.SaveGroup(c, h.store, repo.GraphOwner(repo.ScopeStack, p.ID)); err != nil {
+	if err := annotate.SaveGroup(c, h.graph, repo.GraphOwner(repo.ScopeStack, p.ID)); err != nil {
 		return err
 	}
 	h.notifier.Project(p.ID)
@@ -167,7 +168,7 @@ func (h *handler) DeleteStackGraphGroup(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	if err := annotate.DeleteGroup(c, h.store, repo.GraphOwner(repo.ScopeStack, p.ID)); err != nil {
+	if err := annotate.DeleteGroup(c, h.graph, repo.GraphOwner(repo.ScopeStack, p.ID)); err != nil {
 		return err
 	}
 	h.notifier.Project(p.ID)
@@ -181,7 +182,7 @@ func (h *handler) SaveEnvGraphGroup(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	if err := annotate.SaveGroup(c, h.store, repo.GraphOwner(repo.ScopeEnv, env)); err != nil {
+	if err := annotate.SaveGroup(c, h.graph, repo.GraphOwner(repo.ScopeEnv, env)); err != nil {
 		return err
 	}
 	h.notifier.Project(stackID)
@@ -193,7 +194,7 @@ func (h *handler) DeleteEnvGraphGroup(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	if err := annotate.DeleteGroup(c, h.store, repo.GraphOwner(repo.ScopeEnv, env)); err != nil {
+	if err := annotate.DeleteGroup(c, h.graph, repo.GraphOwner(repo.ScopeEnv, env)); err != nil {
 		return err
 	}
 	h.notifier.Project(stackID)
@@ -203,12 +204,9 @@ func (h *handler) DeleteEnvGraphGroup(c echo.Context) error {
 // loadEnvForAnnotation resolves + authorizes the env in the URL, the same
 // check SaveNodePosition (env level) runs.
 func (h *handler) loadEnvForAnnotation(c echo.Context) (envID, stackID string, err error) {
-	env, err := h.store.GetEnvironment(c.Request().Context(), c.Param("id"))
-	if err != nil || env == nil {
-		return "", "", echo.NewHTTPError(http.StatusNotFound, "environment not found")
-	}
-	if err := stackrmw.RequireStackAccess(c, h.store, env.StackID); err != nil {
-		return "", "", err
+	env, err := h.envs.Get(c.Request().Context(), c.Param("id"))
+	if err != nil {
+		return "", "", stackrmw.HTTP(err)
 	}
 	return env.ID, env.StackID, nil
 }
@@ -220,7 +218,7 @@ func (h *handler) ResetStackNodePositions(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	if err := h.store.DeleteNodePositions(c.Request().Context(), repo.GraphOwner(repo.ScopeStack, p.ID)); err != nil {
+	if err := h.graph.ResetPositions(c.Request().Context(), repo.GraphOwner(repo.ScopeStack, p.ID)); err != nil {
 		return err
 	}
 	h.notifier.Project(p.ID)
@@ -230,24 +228,15 @@ func (h *handler) ResetStackNodePositions(c echo.Context) error {
 // resolveStackSlugs maps /:org/:stack to its row, org access checked.
 func (h *handler) resolveStackSlugs(c echo.Context) (*repo.Stack, error) {
 	ctx := c.Request().Context()
-	org, err := h.store.GetOrgBySlug(ctx, c.Param("org"))
+	org, err := h.orgs.BySlug(ctx, c.Param("org"))
 	if err != nil {
-		return nil, err
+		return nil, stackrmw.HTTP(err)
 	}
-	if org == nil {
-		return nil, echo.NewHTTPError(http.StatusNotFound, "org not found")
-	}
-	p, err := h.store.GetStackBySlug(ctx, org.ID, c.Param("stack"))
+	p, err := h.stacks.BySlug(ctx, org.ID, c.Param("stack"))
 	if err != nil {
-		return nil, err
-	}
-	if p == nil {
-		return nil, echo.NewHTTPError(http.StatusNotFound, "stack not found")
+		return nil, stackrmw.HTTP(err)
 	}
 	p.OrgSlug = org.Slug
-	if err := stackrmw.RequireOrgAccess(c, p.OrgID); err != nil {
-		return nil, err
-	}
 	return p, nil
 }
 
@@ -257,11 +246,11 @@ func (h *handler) resolveStackSlugs(c echo.Context) (*repo.Stack, error) {
 // for them here, for graph.RollupTraffic.
 func (h *handler) buildStackGraph(ctx context.Context, p *repo.Stack, style graph.ArrangeStyle) (graph.Graph, map[string]string, error) {
 	h.fillOrg(ctx, p)
-	envs, err := h.store.ListEnvironmentsByStack(ctx, p.ID)
+	envs, err := h.envs.ListForStack(ctx, p.ID)
 	if err != nil {
 		return graph.Graph{}, nil, err
 	}
-	rows, err := h.store.ListNodePositions(ctx, repo.GraphOwner(repo.ScopeStack, p.ID))
+	rows, err := h.graph.Positions(ctx, repo.GraphOwner(repo.ScopeStack, p.ID))
 	if err != nil {
 		return graph.Graph{}, nil, err
 	}
@@ -272,7 +261,7 @@ func (h *handler) buildStackGraph(ctx context.Context, p *repo.Stack, style grap
 
 	// Hosts by tile, so each env card can show what of it is reachable from
 	// outside (and hang off the Traefik card).
-	allDomains, err := h.store.ListDomains(ctx)
+	allDomains, err := h.domains.ListAll(ctx)
 	if err != nil {
 		return graph.Graph{}, nil, err
 	}
@@ -298,11 +287,11 @@ func (h *handler) buildStackGraph(ctx context.Context, p *repo.Stack, style grap
 	)
 	for i := range envs {
 		env := &envs[i]
-		tiles, err := h.store.ListTilesByEnv(ctx, env.ID)
+		tiles, err := h.tiles.ListForEnv(ctx, env.ID)
 		if err != nil {
 			return graph.Graph{}, nil, err
 		}
-		staged, _ := h.store.CountStagedByEnv(ctx, env.ID)
+		staged, _ := h.tiles.StagedCount(ctx, env.ID)
 		s := graph.EnvSummary{
 			ID:     env.ID,
 			Slug:   env.Slug,
@@ -326,13 +315,13 @@ func (h *handler) buildStackGraph(ctx context.Context, p *repo.Stack, style grap
 		// up and appear here only as ghost references, so the dependency the
 		// org canvas draws doesn't vanish on the way down. Ghosts below cover
 		// instances owned outside this stack too.
-		envRes, err := h.store.ListResourcesByEnv(ctx, env.ID)
+		envRes, err := h.instances.Resources(ctx, env.ID)
 		if err != nil {
 			return graph.Graph{}, nil, err
 		}
 		linked := map[string]bool{} // instance ids this env already has an edge to
 		for _, r := range envRes {
-			inst, _ := h.store.GetTile(ctx, r.ProviderTileID)
+			inst, _ := h.tiles.Get(ctx, r.ProviderTileID)
 			if inst == nil || linked[inst.ID] {
 				continue
 			}
@@ -386,8 +375,8 @@ func (h *handler) buildStackGraph(ctx context.Context, p *repo.Stack, style grap
 	}
 	// Shared instances nothing provisions from yet: still residents, they
 	// live in the stack's home.
-	if home, err := h.store.HomeEnvironment(ctx, p.ID); err == nil && home != nil {
-		tiles, err := h.store.ListTilesByEnv(ctx, home.ID)
+	if home, err := h.envs.Home(ctx, p.ID); err == nil && home != nil {
+		tiles, err := h.tiles.ListForEnv(ctx, home.ID)
 		if err != nil {
 			return graph.Graph{}, nil, err
 		}
@@ -423,8 +412,8 @@ func (h *handler) buildStackGraph(ctx context.Context, p *repo.Stack, style grap
 	}
 	g := graph.BuildStack(summaries, instances, ghosts, h.stackVarCards(ctx, p, envs), positions)
 	g.Arrange(style, positions)
-	g.Annotations, _ = h.store.ListAnnotations(ctx, repo.GraphOwner(repo.ScopeStack, p.ID))
-	g.Groups, _ = h.store.ListGraphGroups(ctx, repo.GraphOwner(repo.ScopeStack, p.ID))
+	g.Annotations, _ = h.graph.Annotations(ctx, repo.GraphOwner(repo.ScopeStack, p.ID))
+	g.Groups, _ = h.graph.Groups(ctx, repo.GraphOwner(repo.ScopeStack, p.ID))
 	return g, nodeOf, nil
 }
 
@@ -434,19 +423,19 @@ func (h *handler) buildStackGraph(ctx context.Context, p *repo.Stack, style grap
 // to whichever tiles name a variable this environment overrides.
 func (h *handler) envVarCards(ctx context.Context, envID string, tiles []repo.Tile) graph.VarCards {
 	cards := graph.VarCards{Scope: "env", Label: "Environment"}
-	env, err := h.store.GetEnvironment(ctx, envID)
-	if err != nil || env == nil {
+	env, err := h.envs.Get(ctx, envID)
+	if err != nil {
 		return cards
 	}
-	p, err := h.store.GetStack(ctx, env.StackID)
-	if err != nil || p == nil {
+	p, err := h.stacks.Get(ctx, env.StackID)
+	if err != nil {
 		return cards
 	}
 	h.fillOrg(ctx, p)
 	// Href is never navigated to (the cards open the drawer): the canvas
 	// derives the panel URL from it by appending /panel.
 	cards.Href = stackURL(p) + "/settings/environments/" + env.Slug + "/variables"
-	vars, err := h.store.ListVariables(ctx, repo.OwnerEnv, env.ID)
+	vars, err := h.vars.List(ctx, service.EnvVars(env.ID))
 	if err != nil || len(vars) == 0 {
 		return cards
 	}
@@ -491,7 +480,7 @@ func (h *handler) envVarCards(ctx context.Context, envID string, tiles []repo.Ti
 // table, not the varref catalogue, see orgVarCards for why.
 func (h *handler) stackVarCards(ctx context.Context, p *repo.Stack, envs []repo.Environment) graph.VarCards {
 	cards := graph.VarCards{Scope: "stack", Label: "Stack", Href: stackURL(p) + "/settings/variables"}
-	vars, err := h.store.ListVariables(ctx, repo.OwnerStack, p.ID)
+	vars, err := h.vars.List(ctx, service.StackVars(p.ID))
 	if err != nil || len(vars) == 0 {
 		return cards
 	}
@@ -505,7 +494,7 @@ func (h *handler) stackVarCards(ctx context.Context, p *repo.Stack, envs []repo.
 		}
 	}
 	for i := range envs {
-		tiles, err := h.store.ListTilesByEnv(ctx, envs[i].ID)
+		tiles, err := h.tiles.ListForEnv(ctx, envs[i].ID)
 		if err != nil {
 			continue
 		}

@@ -5,25 +5,18 @@ import (
 	"io"
 	"net/http"
 	"strings"
-	"time"
 
-	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 
 	"github.com/FyrmForge/stackr/internal/stackrd/config/runpolicy"
-	"github.com/FyrmForge/stackr/internal/stackrd/config/stackconf"
-	"github.com/FyrmForge/stackr/internal/stackrd/config/varref"
-	"github.com/FyrmForge/stackr/internal/stackrd/infra/envnet"
-	"github.com/FyrmForge/stackr/internal/stackrd/infra/jobs"
-	"github.com/FyrmForge/stackr/internal/stackrd/infra/runtime"
-	"github.com/FyrmForge/stackr/internal/stackrd/infra/storagetiles"
+	stackrmw "github.com/FyrmForge/stackr/internal/stackrd/handlers/middleware"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 )
 
 func (a *API) listApps(c echo.Context) error {
 	proj := c.QueryParam("stack")
 	env := c.QueryParam("env")
-	apps, err := a.store.ListTiles(c.Request().Context())
+	apps, err := a.tiles.ListAll(c.Request().Context())
 	if err != nil {
 		return err
 	}
@@ -53,145 +46,91 @@ func toAppOut(x *repo.Tile) appOut {
 		ImageDigest: x.ImageDigest, LatestDigest: x.LatestDigest}
 }
 
-// createApp, patchApp and deleteApp write straight through, no
-// staging. On a stack whose canvas edits queue into the pending set, the same
-// change made here lands immediately; see docs/features/api.md. Deliberate
+// createApp, patchApp and deleteApp write straight through, no staging. On a
+// stack whose canvas edits queue into the pending set, the same change made
+// here lands immediately; see docs/features/api.md. Deliberate
 // (docs/plan-parity.md item 5), not an oversight.
 func (a *API) createApp(c echo.Context) error {
-	s, err := a.requireStackAccess(c, c.Param("id"))
+	s, err := a.stack(c, c.Param("id"))
 	if err != nil {
 		return err
 	}
 	ctx := c.Request().Context()
-	if err := a.requireOrgWrite(ctx, c, s.OrgID); err != nil {
-		return err
-	}
-	if err := managedGuard(s); err != nil {
-		return err
-	}
 	var in appIn
-	if err := c.Bind(&in); err != nil || in.Name == "" {
-		return echo.NewHTTPError(http.StatusBadRequest, "name required")
+	if err := c.Bind(&in); err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "bad body")
 	}
 	env, err := a.resolveEnv(ctx, s.ID, in.EnvSlug)
 	if err != nil {
 		return err
 	}
-	slug := repo.Slugify(in.Name)
-	if repo.ReservedSlug(slug) {
-		return echo.NewHTTPError(http.StatusBadRequest, "\""+slug+"\" is reserved for variable references; pick another name")
-	}
-	if existing, _ := a.store.GetTileBySlug(ctx, env.ID, slug); existing != nil {
-		return echo.NewHTTPError(http.StatusConflict, "a tile with that name already exists in the environment")
-	}
-	src := in.SourceType
-	if src == "" {
-		if in.Image != "" {
-			src = "image"
-		} else {
-			src = "git"
-		}
-	}
-	branch := in.GitBranch
-	if branch == "" {
-		branch = "main"
-	}
 	kind := in.Kind
 	if kind == "" {
 		kind = "service"
 	}
-	if _, ok := runpolicy.For(kind); !ok {
+	if _, ok := runpolicy.For(kind); !ok && kind != "volume" {
 		return echo.NewHTTPError(http.StatusBadRequest, "kind must be service, cron or function")
 	}
-	if kind == "function" && in.TimeoutMinutes == 0 {
-		in.TimeoutMinutes = 30
-	}
-	// Cron parity with the web and config paths: an unvalidated schedule lands
-	// in the DB and LoadSchedules silently skips it, so the job looks configured
-	// and never runs. Crons build from git exactly like services now, the run
-	// policy only forbids ingress.
-	if pol, ok := runpolicy.For(kind); ok {
-		if pol.RequiresSchedule {
-			if err := jobs.ValidateCron(in.Schedule); err != nil {
-				return echo.NewHTTPError(http.StatusBadRequest, err.Error())
-			}
-			if in.TimeoutMinutes == 0 {
-				in.TimeoutMinutes = 30
-			}
-		}
-		if !pol.AllowsIngress && in.Port != 0 {
-			return echo.NewHTTPError(http.StatusBadRequest, "a "+kind+" has no endpoint; port does not apply")
-		}
-		if src == "image" && in.Image == "" {
-			return echo.NewHTTPError(http.StatusBadRequest, "image source requires an image")
-		}
-		if src == "git" {
-			if in.GitURL == "" {
-				return echo.NewHTTPError(http.StatusBadRequest, "git source requires a git_url")
-			}
-			if !repo.ValidGitURL(in.GitURL) {
-				return echo.NewHTTPError(http.StatusBadRequest, "Use a GitHub URL: https://github.com/owner/repo or git@github.com:owner/repo")
-			}
-		}
-	}
-	dockerfile := in.DockerfilePath
-	if dockerfile == "" {
-		dockerfile = "Dockerfile"
-	}
-	buildContext := in.BuildContext
-	if buildContext == "" {
-		buildContext = "."
-	}
-	if err := a.checkConnector(ctx, s, in.Connector); err != nil {
-		return err
-	}
-	now := time.Now().UTC()
 	t := &repo.Tile{
-		ID: uuid.New().String(), StackID: s.ID, EnvironmentID: env.ID, ConnectorID: in.Connector,
-		Name: in.Name, Slug: slug, Kind: kind, SourceType: src,
-		ImageRef: in.Image, GitURL: strings.TrimSpace(in.GitURL), GitBranch: branch, ContainerPort: in.Port,
-		DockerfilePath: dockerfile, BuildContext: buildContext, Env: mapToEnv(in.Env),
-		Cron: in.Schedule, Command: in.Command, TimeoutMinutes: in.TimeoutMinutes,
-		WebhookToken: uuid.New().String(), Status: "idle", CreatedAt: now, UpdatedAt: now,
+		StackID: s.ID, EnvironmentID: env.ID, ConnectorID: in.Connector,
+		Name: in.Name, Kind: kind, SourceType: in.SourceType,
+		ImageRef: in.Image, GitURL: strings.TrimSpace(in.GitURL), GitBranch: in.GitBranch,
+		ContainerPort: in.Port, DockerfilePath: in.DockerfilePath, BuildContext: in.BuildContext,
+		Env: mapToEnv(in.Env), Cron: in.Schedule, Command: in.Command,
+		TimeoutMinutes: in.TimeoutMinutes,
 	}
-	if err := a.store.CreateTile(ctx, t); err != nil {
-		return err
-	}
-	if kind == "cron" && a.jobs != nil {
-		// Without this the cron only starts running after the next restart.
-		if err := a.jobs.LoadSchedules(ctx); err != nil {
-			return err
-		}
+	// Every rule about the result — the slug, the cron expression, the source,
+	// the connector's org, the kind-scoped keys — is the service's, and so is
+	// the cron reload this path used to answer 500 for when it failed.
+	if _, err := a.tiles.Create(ctx, t, nil, a.actor(c)); err != nil {
+		return stackrmw.HTTP(err)
 	}
 	return c.JSON(http.StatusCreated, toAppOut(t))
 }
 
 func (a *API) getApp(c echo.Context) error {
-	t, err := a.requireTile(c, c.Param("id"), false)
+	t, err := a.tile(c, c.Param("id"))
 	if err != nil {
 		return err
 	}
 	return c.JSON(http.StatusOK, toAppOut(t))
 }
 
+// notManaged refuses a managed database id on an /apps/ route. An instance is
+// not an app: it has its own settings rules, its own redeploy predicate and a
+// teardown that takes its slices, its shared network and the pool entry with
+// it. These routes reached TileService directly, so `DELETE /apps/{db-id}`
+// dropped the row and leaked all three, and `PATCH /apps/{db-id}` applied
+// none of the instance rules and never recreated the container. The /dbs/
+// routes are the ones that do this properly.
+func notManaged(t *repo.Tile) error {
+	if t.IsManaged() {
+		return echo.NewHTTPError(http.StatusNotFound, "not found")
+	}
+	return nil
+}
+
 func (a *API) patchApp(c echo.Context) error {
-	t, err := a.requireTile(c, c.Param("id"), true)
+	t, err := a.tile(c, c.Param("id"))
 	if err != nil {
 		return err
 	}
-	ctx := c.Request().Context()
-	if err := a.rejectManaged(ctx, t.StackID); err != nil {
+	if err := notManaged(t); err != nil {
 		return err
 	}
+	ctx := c.Request().Context()
 	body, err := io.ReadAll(c.Request().Body)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, "bad body")
 	}
-	// The body is read twice on purpose. TileConf is value-typed, so a field the
-	// caller left out and a field the caller set to zero decode to the same
-	// thing, patching only `image` would blank the port, the limits and every
-	// other numeric field. The raw key set is what separates absent from
-	// cleared, and only keys actually present get written.
+	// The body is read twice on purpose. TileConf is value-typed, so a field
+	// the caller left out and a field the caller set to zero decode to the
+	// same thing: patching only `image` would blank the port, the limits and
+	// every other numeric field. The raw key set is what separates absent
+	// from cleared, and only keys actually present get written.
+	//
+	// This merge stays at the edge by design (D6): it is the shape of *this*
+	// wire format, and the service is handed the finished row.
 	var present map[string]json.RawMessage
 	if err := json.Unmarshal(body, &present); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, "bad body")
@@ -215,9 +154,6 @@ func (a *API) patchApp(c echo.Context) error {
 		}
 	}
 	if has("git_url") {
-		if in.GitURL != "" && !repo.ValidGitURL(in.GitURL) {
-			return echo.NewHTTPError(http.StatusBadRequest, "Use a GitHub URL: https://github.com/owner/repo or git@github.com:owner/repo")
-		}
 		t.GitURL = strings.TrimSpace(in.GitURL)
 		if in.GitURL != "" {
 			t.SourceType = "git"
@@ -230,29 +166,45 @@ func (a *API) patchApp(c echo.Context) error {
 		t.GitBranch = in.GitBranch
 	}
 	if has("connector") {
-		s, serr := a.store.GetStack(ctx, t.StackID)
-		if serr != nil || s == nil {
-			return echo.NewHTTPError(http.StatusNotFound, "not found")
-		}
-		if err := a.checkConnector(ctx, s, in.Connector); err != nil {
-			return err
-		}
 		t.ConnectorID = in.Connector
 	}
 	if has("port") {
-		if pol, ok := runpolicy.For(t.Kind); ok && !pol.AllowsIngress && in.Port != 0 {
-			return echo.NewHTTPError(http.StatusBadRequest, "a "+t.Kind+" has no endpoint; port does not apply")
-		}
 		t.ContainerPort = in.Port
 	}
-	if has("build") && in.Build != nil {
-		t.DockerfilePath, t.BuildContext = in.Build.Dockerfile, in.Build.Context
+	// limits and build are atomic pairs on the row but not in the request:
+	// `--cpu` alone used to send memory_mb: 0 and zero the other half,
+	// because assigning the whole struct treats an unsent field as a clear.
+	// Merge per sub-key instead, so an absent half means unchanged.
+	if sub := subKeys(present["build"]); in.Build != nil {
+		if sub["dockerfile"] {
+			t.DockerfilePath = in.Build.Dockerfile
+		}
+		if sub["context"] {
+			t.BuildContext = in.Build.Context
+		}
 	}
-	if has("limits") && in.Limits != nil {
-		t.CPULimit, t.MemLimitMB = in.Limits.CPU, in.Limits.MemoryMB
+	if sub := subKeys(present["limits"]); in.Limits != nil {
+		if sub["cpu"] {
+			t.CPULimit = in.Limits.CPU
+		}
+		if sub["memory_mb"] {
+			t.MemLimitMB = in.Limits.MemoryMB
+		}
 	}
 	if has("healthcheck") {
 		t.HealthcheckCmd = in.Healthcheck
+	}
+	if has("healthcheck_interval") {
+		t.HealthcheckIntervalS = in.HealthInterval
+	}
+	if has("healthcheck_timeout") {
+		t.HealthcheckTimeoutS = in.HealthTimeout
+	}
+	if has("healthcheck_retries") {
+		t.HealthcheckRetries = in.HealthRetries
+	}
+	if has("healthcheck_start_period") {
+		t.HealthcheckStartPeriodS = in.HealthStartPeriod
 	}
 	if has("watch_paths") {
 		t.WatchPaths = strings.Join(in.WatchPaths, "\n")
@@ -278,216 +230,119 @@ func (a *API) patchApp(c echo.Context) error {
 	if has("basic_auth_password") {
 		t.BasicAuthPassword = in.BasicAuthPassword
 	}
-	if t.BasicAuthUser != "" && t.BasicAuthPassword == "" {
-		return echo.NewHTTPError(http.StatusBadRequest, "basic_auth_user needs basic_auth_password")
-	}
 	if has("command") {
 		// Shared key: a cron's one-shot line (`sh -c`) or a service's CMD
 		// override (argv), see runpolicy.AllowsCommand.
 		t.Command = in.Command
 	}
 	if has("files") {
-		for _, l := range in.Files {
-			if _, _, _, err := runtime.ParseFileMount(l); err != nil {
-				return echo.NewHTTPError(http.StatusBadRequest, err.Error())
-			}
-		}
 		t.Files = strings.Join(in.Files, "\n")
 	}
 	if has("storage") {
-		for _, l := range in.Storage {
-			slug, _, _, _, err := storagetiles.ParseAttachment(l)
-			if err != nil {
-				return echo.NewHTTPError(http.StatusBadRequest, err.Error())
-			}
-			var st *repo.Storage
-			if name := varref.OrgStorageRef(l); name != "" {
-				s, serr := a.store.GetStack(ctx, t.StackID)
-				if serr != nil || s == nil {
-					return echo.NewHTTPError(http.StatusNotFound, "not found")
-				}
-				st, serr = a.store.GetOrgStorageBySlug(ctx, s.OrgID, name)
-				if serr != nil || st == nil {
-					return echo.NewHTTPError(http.StatusBadRequest, "org share "+name+" not found")
-				}
-			} else if st, err = a.store.GetStorageBySlug(ctx, slug); err != nil || st == nil {
-				return echo.NewHTTPError(http.StatusBadRequest, "storage "+slug+" not found")
-			}
-			if err := storagetiles.ValidateAttach(st, t); err != nil {
-				return echo.NewHTTPError(http.StatusBadRequest, err.Error())
-			}
-		}
 		t.Storage = strings.Join(in.Storage, "\n")
 	}
 	if has("depends_on") {
-		for _, d := range in.DependsOn {
-			if _, _, err := stackconf.ParseDep(d); err != nil {
-				return echo.NewHTTPError(http.StatusBadRequest, err.Error())
-			}
-		}
 		// Sibling existence + cycles are validated where the whole env is in
 		// view (config resolve / staged apply); the row accepts the shape.
 		t.DependsOn = strings.Join(in.DependsOn, "\n")
 	}
-	if t.Kind == "service" {
-		if has("user") {
-			t.User = in.User
-		}
-		if has("shm_size_mb") {
-			if in.ShmSizeMB < 0 {
-				return echo.NewHTTPError(http.StatusBadRequest, "shm_size_mb must not be negative")
-			}
-			t.ShmSizeMB = in.ShmSizeMB
-		}
-		if has("privileged") {
-			t.Privileged = in.Privileged
-		}
-		if has("devices") {
-			for _, d := range in.Devices {
-				if _, err := runtime.ParseDevice(d); err != nil {
-					return echo.NewHTTPError(http.StatusBadRequest, err.Error())
-				}
-			}
-			t.Devices = strings.Join(in.Devices, "\n")
-		}
-		if has("restart") {
-			rp, err := runtime.NormalizeRestart(in.Restart)
-			if err != nil {
-				return echo.NewHTTPError(http.StatusBadRequest, err.Error())
-			}
-			t.RestartPolicy = rp
-		}
-	} else if has("user", "shm_size_mb", "privileged", "devices", "restart") {
-		return echo.NewHTTPError(http.StatusBadRequest, "user, shm_size_mb, privileged, devices and restart apply to service tiles only")
+	if has("user") {
+		t.User = in.User
 	}
-	if t.Kind == "service" {
-		if has("healthcheck_interval") {
-			t.HealthcheckIntervalS = in.HealthInterval
-		}
-		if has("healthcheck_timeout") {
-			t.HealthcheckTimeoutS = in.HealthTimeout
-		}
-		if has("healthcheck_retries") {
-			t.HealthcheckRetries = in.HealthRetries
-		}
-		if has("healthcheck_start_period") {
-			t.HealthcheckStartPeriodS = in.HealthStartPeriod
-		}
-		if t.HealthcheckIntervalS < 0 || t.HealthcheckTimeoutS < 0 || t.HealthcheckRetries < 0 || t.HealthcheckStartPeriodS < 0 {
-			return echo.NewHTTPError(http.StatusBadRequest, "healthcheck knobs must not be negative")
-		}
+	if has("shm_size_mb") {
+		t.ShmSizeMB = in.ShmSizeMB
 	}
-	if t.Kind == "function" {
-		if has("run_on_deploy") {
-			t.RunOnDeploy = in.RunOnDeploy
-		}
-		if has("timeout_minutes") {
-			if in.TimeoutMinutes < 0 {
-				return echo.NewHTTPError(http.StatusBadRequest, "timeout_minutes must not be negative")
-			}
-			t.TimeoutMinutes = in.TimeoutMinutes
-		}
-		if has("allow_overlap") {
-			t.AllowOverlap = in.AllowOverlap
-		}
-		if has("schedule") {
-			return echo.NewHTTPError(http.StatusBadRequest, "schedule applies to cron tiles only")
-		}
-	} else if has("run_on_deploy") {
-		return echo.NewHTTPError(http.StatusBadRequest, "run_on_deploy applies to function tiles only")
+	if has("privileged") {
+		t.Privileged = in.Privileged
 	}
-	if t.Kind == "cron" {
-		if has("schedule") {
-			// Validated here for the same reason createApp validates: an invalid
-			// expression lands in the DB, LoadSchedules skips it, and the job
-			// looks configured while never running.
-			if err := jobs.ValidateCron(in.Schedule); err != nil {
-				return echo.NewHTTPError(http.StatusBadRequest, err.Error())
-			}
-			t.Cron = in.Schedule
-		}
-		if has("timeout_minutes") {
-			if in.TimeoutMinutes < 0 {
-				return echo.NewHTTPError(http.StatusBadRequest, "timeout_minutes must not be negative")
-			}
-			t.TimeoutMinutes = in.TimeoutMinutes
-		}
-		if has("allow_overlap") {
-			t.AllowOverlap = in.AllowOverlap
-		}
-	} else if t.Kind != "function" && has("schedule", "timeout_minutes", "allow_overlap") {
-		return echo.NewHTTPError(http.StatusBadRequest, "schedule, timeout_minutes and allow_overlap apply to cron and function tiles only")
+	if has("devices") {
+		t.Devices = strings.Join(in.Devices, "\n")
+	}
+	if has("restart") {
+		t.RestartPolicy = in.Restart
+	}
+	if has("run_on_deploy") {
+		t.RunOnDeploy = in.RunOnDeploy
+	}
+	if has("schedule") {
+		t.Cron = in.Schedule
+	}
+	if has("timeout_minutes") {
+		t.TimeoutMinutes = in.TimeoutMinutes
+	}
+	if has("allow_overlap") {
+		t.AllowOverlap = in.AllowOverlap
+	}
+	// Scale over the API and therefore over the CLI. The config file already
+	// declares both and appPatch already parsed them; patchApp simply dropped
+	// them, so `stackr tile scale` could not exist. An API that accepts a key
+	// and ignores it is worse than one that refuses it, and worse again than
+	// one that works.
+	if has("replicas") {
+		t.Replicas = in.Replicas
+	}
+	if has("node_group") {
+		t.NodeGroup = in.NodeGroup
 	}
 	if has("update_policy") {
-		switch in.UpdatePolicy {
-		case "", "off", "notify", "auto":
-		default:
-			return echo.NewHTTPError(http.StatusBadRequest, "update_policy must be off, notify or auto")
-		}
-		if (in.UpdatePolicy == "notify" || in.UpdatePolicy == "auto") && t.SourceType != "image" {
-			return echo.NewHTTPError(http.StatusBadRequest, "update_policy watches an image source")
-		}
 		t.UpdatePolicy = in.UpdatePolicy
-		if t.UpdatePolicy == "" {
-			t.UpdatePolicy = "off"
-		}
 	}
 	if has("wait_for_ci") {
-		if in.WaitForCI && t.SourceType != "git" {
-			return echo.NewHTTPError(http.StatusBadRequest, "wait_for_ci needs a git-built source")
-		}
 		t.WaitForCI = in.WaitForCI
 	}
-	// A runnable tile must leave the patch with a usable source: blanking a
-	// cron's image used to slip through and strand a job that looks
-	// configured but cannot run.
-	if _, runnable := runpolicy.For(t.Kind); runnable {
-		if t.SourceType == "image" && t.ImageRef == "" {
-			return echo.NewHTTPError(http.StatusBadRequest, "image source requires an image (set git_url to switch to a git build)")
-		}
-		if t.SourceType == "git" && t.GitURL == "" {
-			return echo.NewHTTPError(http.StatusBadRequest, "git source requires a git_url")
-		}
-	}
-	t.UpdatedAt = time.Now().UTC()
-	if err := a.store.UpdateTile(ctx, t); err != nil {
-		return err
-	}
-	if t.Kind == "cron" && a.jobs != nil {
-		// A changed schedule only takes effect on the next restart otherwise.
-		_ = a.jobs.LoadSchedules(ctx)
+	// Everything above is the wire format. Every rule about the result — the
+	// cron expression, the git URL, the connector's org, the mount grammars,
+	// the kind-scoped keys, the replica guard — belongs to the service, and
+	// so does whether this save stages, rewrites the route or redeploys.
+	if _, err := a.tiles.Update(ctx, t, nil, a.actor(c)); err != nil {
+		return stackrmw.HTTP(err)
 	}
 	return c.JSON(http.StatusOK, toAppOut(t))
 }
 
+// subKeys names which members of a nested JSON object the caller actually
+// sent, so a partial object merges instead of replacing.
+func subKeys(raw json.RawMessage) map[string]bool {
+	out := map[string]bool{}
+	if len(raw) == 0 {
+		return out
+	}
+	var m map[string]json.RawMessage
+	if json.Unmarshal(raw, &m) != nil {
+		return out
+	}
+	for k := range m {
+		out[k] = true
+	}
+	return out
+}
+
 func (a *API) deleteApp(c echo.Context) error {
-	t, err := a.requireTile(c, c.Param("id"), true)
+	t, err := a.tile(c, c.Param("id"))
 	if err != nil {
 		return err
 	}
-	if err := a.rejectManaged(c.Request().Context(), t.StackID); err != nil {
+	if err := notManaged(t); err != nil {
 		return err
 	}
-	if err := a.teardownTile(c.Request().Context(), t); err != nil {
-		return err
-	}
-	if t.Kind == "cron" && a.jobs != nil {
-		_ = a.jobs.LoadSchedules(c.Request().Context())
+	if _, err := a.tiles.Delete(c.Request().Context(), t, a.actor(c)); err != nil {
+		return stackrmw.HTTP(err)
 	}
 	return c.NoContent(http.StatusNoContent)
 }
 
 func (a *API) deployApp(c echo.Context) error {
-	t, err := a.requireTile(c, c.Param("id"), true)
+	t, err := a.tile(c, c.Param("id"))
 	if err != nil {
 		return err
 	}
-	if envnet.UpperEnv(c.Request().Context(), a.store, t) {
-		return echo.NewHTTPError(http.StatusBadRequest, "this environment deploys by promote from the releases page")
-	}
-	id, err := a.engine.Enqueue(c.Request().Context(), t, "api")
+	// Managed, volume, cron and upper-env are all the service's refusals now.
+	// The cron one is new here: the panel has always refused to deploy a cron
+	// tile, and this path queued one, where a cron tile has no long-running
+	// container for a deploy to replace.
+	id, err := a.deploys.Trigger(c.Request().Context(), t, "api")
 	if err != nil {
-		return err
+		return stackrmw.HTTP(err)
 	}
 	return c.JSON(http.StatusAccepted, deployAccepted{Deployment: id})
 }
@@ -495,54 +350,38 @@ func (a *API) deployApp(c echo.Context) error {
 // runApp fires one immediate run of a cron or function tile. Detached: the
 // run records into the tile's run history, same as the panel's "Run now".
 func (a *API) runApp(c echo.Context) error {
-	t, err := a.requireTile(c, c.Param("id"), true)
+	t, err := a.tile(c, c.Param("id"))
 	if err != nil {
 		return err
 	}
-	if t.Kind != "cron" && t.Kind != "function" {
-		return echo.NewHTTPError(http.StatusBadRequest, "run applies to cron and function tiles")
-	}
-	if a.jobs == nil {
-		return echo.NewHTTPError(http.StatusServiceUnavailable, "job runner unavailable")
-	}
-	name := ""
-	if k, _ := c.Get(ctxKey).(*repo.APIKey); k != nil {
-		name = k.Name
-	}
-	run, err := a.jobs.StartApp(c.Request().Context(), t.ID, jobs.TriggerManualAPI, name)
+	run, err := a.life.RunNow(c.Request().Context(), t, a.actor(c))
 	if err != nil {
-		return err
+		return stackrmw.HTTP(err)
 	}
 	return c.JSON(http.StatusAccepted, runAccepted{Started: true, Run: run.ID})
 }
 
 // stopRun ends a run in flight. The row closes as "stopped", not an error.
 func (a *API) stopRun(c echo.Context) error {
-	t, err := a.requireTile(c, c.Param("id"), true)
+	t, err := a.tile(c, c.Param("id"))
 	if err != nil {
 		return err
 	}
-	if a.jobs == nil {
-		return echo.NewHTTPError(http.StatusServiceUnavailable, "job runner unavailable")
-	}
-	run, err := a.store.GetCronRun(c.Request().Context(), c.Param("run"))
+	stopped, err := a.life.StopRun(c.Request().Context(), t, c.Param("run"))
 	if err != nil {
-		return err
+		return stackrmw.HTTP(err)
 	}
-	if run == nil || run.Ref != "app:"+t.ID {
-		return echo.NewHTTPError(http.StatusNotFound, "run not found")
-	}
-	return c.JSON(http.StatusOK, runStopped{Stopped: a.jobs.Stop(c.Request().Context(), run.ID)})
+	return c.JSON(http.StatusOK, runStopped{Stopped: stopped})
 }
 
 // --- deployments ---
 
 func (a *API) listDeployments(c echo.Context) error {
-	t, err := a.requireTile(c, c.Param("id"), false)
+	t, err := a.tile(c, c.Param("id"))
 	if err != nil {
 		return err
 	}
-	ds, err := a.store.ListDeploymentsByTile(c.Request().Context(), t.ID, 20)
+	ds, err := a.deploys.ForTile(c.Request().Context(), t.ID, 20)
 	if err != nil {
 		return err
 	}
@@ -566,13 +405,16 @@ func (a *API) getDeployment(c echo.Context) error {
 	return c.JSON(http.StatusOK, toDeploymentOut(d))
 }
 
-// loadDeployment fetches a deployment and enforces access to its owning tile.
+// loadDeployment fetches a deployment and the tile it belongs to, which is
+// where its tenancy comes from. It used to take the role the caller needed;
+// the route's gate asks for that now (VerbDeploymentCancel on the cancel,
+// VerbDeploymentRead on the reads).
 func (a *API) loadDeployment(c echo.Context, id string) (*repo.Deployment, error) {
-	d, err := a.store.GetDeployment(c.Request().Context(), id)
-	if err != nil || d == nil {
-		return nil, echo.NewHTTPError(http.StatusNotFound, "not found")
+	d, err := a.deploys.Get(c.Request().Context(), id)
+	if err != nil {
+		return nil, stackrmw.HTTP(err)
 	}
-	if _, err := a.requireTile(c, d.TileID, false); err != nil {
+	if _, err := a.tile(c, d.TileID); err != nil {
 		return nil, err
 	}
 	return d, nil

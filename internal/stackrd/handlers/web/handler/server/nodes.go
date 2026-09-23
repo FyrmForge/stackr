@@ -19,6 +19,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/runtime"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 
+	stackrmw "github.com/FyrmForge/stackr/internal/stackrd/handlers/middleware"
 	"github.com/FyrmForge/stackr/internal/stackrd/handlers/web/components"
 )
 
@@ -68,7 +69,7 @@ func (h *handler) AddNode(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 	agentErr := ""
-	if err := agent.Ensure(ctx, h.store, h.rt, h.dataDir); err != nil {
+	if err := h.nodeSvc.EnsureAgent(ctx); err != nil {
 		// The row and the key are good; the node can still join. Say so
 		// rather than rolling back a key the operator may already be pasting.
 		// Logged as well as flashed: a flash is gone on the next page, and
@@ -92,9 +93,9 @@ func (h *handler) AddNode(c echo.Context) error {
 // NewJoinKey mints a fresh key for a pending row whose first one expired.
 func (h *handler) NewJoinKey(c echo.Context) error {
 	ctx := c.Request().Context()
-	sv, err := h.store.GetServer(ctx, c.Param("id"))
-	if err != nil || sv == nil {
-		return echo.NewHTTPError(http.StatusNotFound, "server not found")
+	sv, err := h.nodeSvc.Get(ctx, c.Param("id"))
+	if err != nil {
+		return stackrmw.HTTP(err)
 	}
 	if _, err := h.nodes.IssueKey(ctx, sv); err != nil {
 		return err
@@ -122,7 +123,7 @@ func (h *handler) JoinScript(c echo.Context) error {
 		return c.String(http.StatusInternalServerError, "# this server is not a swarm manager\nexit 1\n")
 	}
 	reg, regTLS := "", false
-	if r, err := h.store.GetManagedRegistry(ctx); err == nil && r != nil {
+	if r, err := h.registries.Managed(ctx); err == nil {
 		reg, _ = registry.PullAddr(ctx, h.rt, r)
 		regTLS = r.Domain != ""
 	}
@@ -196,9 +197,9 @@ func joinClientIP(c echo.Context) string {
 // from what it never will.
 func (h *handler) DrainForm(c echo.Context) error {
 	ctx := c.Request().Context()
-	sv, err := h.store.GetServer(ctx, c.Param("id"))
-	if err != nil || sv == nil {
-		return echo.NewHTTPError(http.StatusNotFound, "server not found")
+	sv, err := h.nodeSvc.Get(ctx, c.Param("id"))
+	if err != nil {
+		return stackrmw.HTTP(err)
 	}
 	stateless, pinned, err := h.tasksOn(ctx, sv.NodeID)
 	if err != nil {
@@ -211,9 +212,9 @@ func (h *handler) DrainForm(c echo.Context) error {
 // on the machine and become unreachable.
 func (h *handler) RemoveForm(c echo.Context) error {
 	ctx := c.Request().Context()
-	sv, err := h.store.GetServer(ctx, c.Param("id"))
-	if err != nil || sv == nil {
-		return echo.NewHTTPError(http.StatusNotFound, "server not found")
+	sv, err := h.nodeSvc.Get(ctx, c.Param("id"))
+	if err != nil {
+		return stackrmw.HTTP(err)
 	}
 	stateless, pinned, err := h.tasksOn(ctx, sv.NodeID)
 	if err != nil {
@@ -231,71 +232,23 @@ func (h *handler) RemoveForm(c echo.Context) error {
 	return respond.HTML(c, http.StatusOK, removeModal(c, sv, stateless, pinned, vols, msg))
 }
 
-// tasksOn splits a node's running tasks: the ones swarm reschedules by
-// itself, and the ones holding a volume on that node's disk, which it never
-// does and must never be allowed to.
+// tasksOn asks the node service for the split and wraps the pinned tiles in
+// the row type the two modals render.
 func (h *handler) tasksOn(ctx context.Context, nodeID string) (stateless []runtime.NodeTaskInfo, pinned []pinnedTile, err error) {
-	tasks, err := h.rt.NodeTasks(ctx, nodeID)
+	stateless, tiles, err := h.nodeSvc.Tasks(ctx, nodeID)
 	if err != nil {
 		return nil, nil, err
 	}
-	homed := map[string]bool{}
-	tiles, err := h.store.ListTiles(ctx)
-	if err != nil {
-		return nil, nil, err
-	}
-	for i := range tiles {
-		if tiles[i].HomeNode == nodeID {
-			homed[tiles[i].ID] = true
-			pinned = append(pinned, pinnedTile{Tile: tiles[i]})
-		}
-	}
-	for _, t := range tasks {
-		if t.TileID != "" && homed[t.TileID] {
-			continue // already in the pinned list
-		}
-		stateless = append(stateless, t)
+	for _, t := range tiles {
+		pinned = append(pinned, pinnedTile{Tile: t})
 	}
 	return stateless, pinned, nil
 }
 
 // Drain moves stateless tasks off and leaves the node in the swarm.
 func (h *handler) Drain(c echo.Context) error {
-	if err := h.refusePinned(c); err != nil {
-		return err
-	}
-	return h.setAvailability(c, "drain", "Draining. Stateless tasks are moving off; the node stays in the swarm.")
-}
-
-// refusePinned is the server side of the guard the Drain modal renders as a
-// disabled button. A disabled attribute is a hint to a browser and nothing
-// else: curl, a replayed form, or a page rendered before the tile was pinned
-// all get through it, and draining a node a volume tile is pinned to takes
-// that tile down with nowhere to reschedule, because the node it is allowed
-// to run on is the one that just drained.
-//
-// Names the tiles. "Cannot drain" without saying what is in the way leaves
-// the operator to guess, and the modal that refused already knows.
-func (h *handler) refusePinned(c echo.Context) error {
-	ctx := c.Request().Context()
-	sv, err := h.store.GetServer(ctx, c.Param("id"))
-	if err != nil || sv == nil {
-		return echo.NewHTTPError(http.StatusNotFound, "server not found")
-	}
-	_, pinned, err := h.tasksOn(ctx, sv.NodeID)
-	if err != nil {
-		return err
-	}
-	if len(pinned) == 0 {
-		return nil
-	}
-	names := make([]string, len(pinned))
-	for i, p := range pinned {
-		names[i] = p.Tile.Name
-	}
-	return echo.NewHTTPError(http.StatusConflict,
-		"these tiles hold volumes on "+sv.Name+" and would have nowhere to run: "+
-			strings.Join(names, ", ")+". Move each one to another server first.")
+	return h.nodeAction(c, "Draining. Stateless tasks are moving off; the node stays in the swarm.",
+		func(ctx context.Context, sv *repo.Server) error { return h.nodeSvc.Drain(ctx, sv) })
 }
 
 // confirmed reports whether the operator typed the word the modal asked for.
@@ -307,17 +260,20 @@ func confirmed(c echo.Context, want string) bool { return components.Confirmed(c
 
 // Activate puts a drained node back into service.
 func (h *handler) Activate(c echo.Context) error {
-	return h.setAvailability(c, "active", "Node is active again.")
+	return h.nodeAction(c, "Node is active again.",
+		func(ctx context.Context, sv *repo.Server) error { return h.nodeSvc.Activate(ctx, sv) })
 }
 
-func (h *handler) setAvailability(c echo.Context, availability, msg string) error {
+// nodeAction is the shape every node button shares: load the row, call the
+// service, flash and come back to the node.
+func (h *handler) nodeAction(c echo.Context, msg string, do func(context.Context, *repo.Server) error) error {
 	ctx := c.Request().Context()
-	sv, err := h.store.GetServer(ctx, c.Param("id"))
-	if err != nil || sv == nil {
-		return echo.NewHTTPError(http.StatusNotFound, "server not found")
+	sv, err := h.nodeSvc.Get(ctx, c.Param("id"))
+	if err != nil {
+		return stackrmw.HTTP(err)
 	}
-	if err := h.rt.SetNodeAvailability(ctx, sv.NodeID, availability); err != nil {
-		return err
+	if err := do(ctx, sv); err != nil {
+		return stackrmw.HTTP(err)
 	}
 	middleware.SetFlash(c, msg, middleware.FlashSuccess)
 	return respond.Redirect(c, "/servers/"+sv.ID)
@@ -328,38 +284,12 @@ func (h *handler) setAvailability(c echo.Context, availability, msg string) erro
 // acknowledge.
 func (h *handler) Remove(c echo.Context) error {
 	ctx := c.Request().Context()
-	sv, err := h.store.GetServer(ctx, c.Param("id"))
-	if err != nil || sv == nil {
-		return echo.NewHTTPError(http.StatusNotFound, "server not found")
+	sv, err := h.nodeSvc.Get(ctx, c.Param("id"))
+	if err != nil {
+		return stackrmw.HTTP(err)
 	}
-	if sv.Role == "manager" {
-		return echo.NewHTTPError(http.StatusBadRequest,
-			"the manager runs traefik, the registry and stackr itself; it cannot be removed")
-	}
-	// The modal names the volumes that become unreachable and asks for the
-	// node's name back. Pinned tiles are a warning here rather than a refusal,
-	// which is the modal's own policy: typing the name is the acknowledgement.
-	if !confirmed(c, sv.Name) {
-		return echo.NewHTTPError(http.StatusBadRequest,
-			"type "+sv.Name+" to confirm: removing it leaves the volumes on that machine unreachable")
-	}
-	if sv.NodeID != "" {
-		if err := h.rt.SetNodeAvailability(ctx, sv.NodeID, "drain"); err != nil {
-			return err
-		}
-		if err := h.rt.RemoveNode(ctx, sv.NodeID); err != nil {
-			return err
-		}
-	}
-	// Before the row goes, so a pending node removed because its join command
-	// leaked cannot still be joined with. The row
-	// is the only thing that ties a key to a node, and deleting it without
-	// this would leave a live key pointing at nothing the operator can see.
-	if _, err := h.store.BurnServerJoinKeys(ctx, sv.ID); err != nil {
-		return err
-	}
-	if err := h.store.DeleteServer(ctx, sv.ID); err != nil {
-		return err
+	if err := h.nodeSvc.Remove(ctx, sv, confirmed(c, sv.Name)); err != nil {
+		return stackrmw.HTTP(err)
 	}
 	middleware.SetFlash(c, sv.Name+" removed from the swarm.", middleware.FlashSuccess)
 	// The pending row's Remove is an htmx swap of the table, not a navigation:
@@ -374,16 +304,13 @@ func (h *handler) Remove(c echo.Context) error {
 // is matched against.
 func (h *handler) SaveGroup(c echo.Context) error {
 	ctx := c.Request().Context()
-	sv, err := h.store.GetServer(ctx, c.Param("id"))
-	if err != nil || sv == nil {
-		return echo.NewHTTPError(http.StatusNotFound, "server not found")
+	sv, err := h.nodeSvc.Get(ctx, c.Param("id"))
+	if err != nil {
+		return stackrmw.HTTP(err)
 	}
 	group := strings.TrimSpace(c.FormValue("group"))
-	if sv.NodeID == "" {
-		return echo.NewHTTPError(http.StatusBadRequest, "this node has not joined yet")
-	}
-	if err := h.rt.SetNodeGroup(ctx, sv.NodeID, group); err != nil {
-		return err
+	if err := h.nodeSvc.SetGroup(ctx, sv, group); err != nil {
+		return stackrmw.HTTP(err)
 	}
 	if group == "" {
 		middleware.SetFlash(c, "Group cleared. Tiles with no group requirement can run here.", middleware.FlashSuccess)
@@ -398,9 +325,9 @@ func (h *handler) SaveGroup(c echo.Context) error {
 // MoveForm opens the Move modal, or reopens it on a move already running.
 func (h *handler) MoveForm(c echo.Context) error {
 	ctx := c.Request().Context()
-	t, err := h.store.GetTile(ctx, c.Param("id"))
-	if err != nil || t == nil {
-		return echo.NewHTTPError(http.StatusNotFound, "tile not found")
+	t, err := h.tiles.Get(ctx, c.Param("id"))
+	if err != nil {
+		return stackrmw.HTTP(err)
 	}
 	if mv := h.mover.ForTile(ctx, t.ID); mv != nil {
 		return respond.HTML(c, http.StatusOK, moveModal(c, t, nil, nil, 0, "", mv))
@@ -424,7 +351,7 @@ func (h *handler) moveTargets(ctx context.Context, t *repo.Tile) ([]runtime.Node
 	if err != nil {
 		return nil, err
 	}
-	plan, err := placement.For(ctx, h.store, h.rt, t)
+	plan, err := placement.For(ctx, h.store, h.tiles, h.rt, t)
 	if err != nil {
 		// A tile whose home node has left the swarm still has to be movable
 		// somewhere; the group is all that matters here.
@@ -446,9 +373,9 @@ func (h *handler) moveTargets(ctx context.Context, t *repo.Tile) ([]runtime.Node
 // Move starts the copy. The modal turns into a progress bar and polls.
 func (h *handler) Move(c echo.Context) error {
 	ctx := c.Request().Context()
-	t, err := h.store.GetTile(ctx, c.Param("id"))
-	if err != nil || t == nil {
-		return echo.NewHTTPError(http.StatusNotFound, "tile not found")
+	t, err := h.tiles.Get(ctx, c.Param("id"))
+	if err != nil {
+		return stackrmw.HTTP(err)
 	}
 	target := c.FormValue("target")
 	// Checked against the list that decided the dropdown, not just handed to

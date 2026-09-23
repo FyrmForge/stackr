@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/deploy"
+	"github.com/FyrmForge/stackr/internal/stackrd/service"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/testdb"
 	"github.com/google/uuid"
@@ -160,7 +161,7 @@ environments:
     tiles:
       app: {image: nginx}
 `)}}
-	a := Applier{Planner: pl}
+	a := applier(pl)
 
 	cp, err := runStack(ctx, pl, seed.Stack)
 	require.NoError(t, err, "Run")
@@ -194,7 +195,7 @@ func TestPromoteNeedsAnUpperRung(t *testing.T) {
 		Type: "static", CreatedAt: time.Now().UTC().Add(time.Second)}
 	require.NoError(t, s.CreateEnvironment(ctx, staging))
 
-	a := Applier{Planner: Planner{Store: s}}
+	a := applier(Planner{Store: s})
 	assert.Error(t, a.Promote(ctx, seed.Stack, seed.Env.Slug, "abc1234"), "the first rung builds on push")
 	assert.Error(t, a.Promote(ctx, seed.Stack, "nope", "abc1234"))
 	assert.Error(t, a.Promote(ctx, seed.Stack, "staging", ""), "a promote is always of a commit")
@@ -223,7 +224,8 @@ environments:
 	require.NoError(t, store.UpdateEnvironment(ctx, seed.Env), "opt the env into auto")
 
 	deployed := map[string]bool{}
-	a := Applier{Planner: pl, Deployed: deployed}
+	a := applier(pl)
+	a.Deployed = deployed
 
 	cp, err := runStack(ctx, pl, seed.Stack)
 	require.NoError(t, err, "Run")
@@ -244,9 +246,10 @@ func TestDeployDropsTileWhenEnqueueFails(t *testing.T) {
 	store := testdb.New(t)
 	// A volume tile is the cheapest guaranteed Enqueue error: it refuses
 	// before touching the store or the queue.
-	eng := deploy.NewEngine(store, nil, nil, nil, t.TempDir(), nil)
+	eng := deploy.NewEngine(store, nil, nil, nil, t.TempDir(), nil, wiredOps(store).Rows(), nil)
 	deployed := map[string]bool{}
-	a := Applier{Planner: Planner{Store: store}, Engine: eng, deployed: deployed}
+	a := applier(Planner{Store: store})
+	a.Engine, a.deployed = eng, deployed
 
 	a.deploy(ctx, &repo.Tile{ID: "vol1", Kind: "volume"}, "test")
 	assert.Empty(t, deployed, "a failed enqueue stayed in Deployed: %v", deployed)
@@ -298,7 +301,7 @@ func TestHoldManualKeepsTheAutoEnvsMoving(t *testing.T) {
 	require.NoError(t, s.CreateEnvironment(ctx, &repo.Environment{ID: "env3", StackID: seed.Stack.ID,
 		Name: "Canary", Slug: "canary", Type: "static", ApplyPolicy: "auto", CreatedAt: now.Add(2 * time.Second)}))
 
-	a := Applier{Planner: Planner{Store: s}}
+	a := applier(Planner{Store: s})
 	r := &Resolved{
 		EnvOrder: []string{seed.Env.Slug, "staging", "canary", "locked"},
 		Envs: map[string]ResolvedEnv{
@@ -334,7 +337,7 @@ func TestPreflightRefusesSlicesWithNoInstance(t *testing.T) {
 	ctx := context.Background()
 	s := testdb.New(t)
 	seed := testdb.SeedStack(t, s, true)
-	a := Applier{Planner: Planner{Store: s}}
+	a := applier(Planner{Store: s})
 
 	tiles := func(from string) map[string]TileConf {
 		return map[string]TileConf{"app-db": {From: from}}
@@ -377,7 +380,8 @@ func TestRefBrokenOnlyMatchesAnUnresolvedReference(t *testing.T) {
 	ctx := context.Background()
 	store := testdb.New(t)
 	seed := testdb.SeedStack(t, store, true)
-	a := Applier{Planner: Planner{Store: store}, deployed: map[string]bool{}}
+	a := applier(Planner{Store: store})
+	a.deployed = map[string]bool{}
 
 	last := func(status, errMsg string) {
 		require.NoError(t, store.CreateDeployment(ctx, &repo.Deployment{
@@ -410,12 +414,12 @@ func TestRefBrokenOnlyMatchesAnUnresolvedReference(t *testing.T) {
 // to have left.
 func TestNeedsDBRedeployCoversPlacementNotJustLimits(t *testing.T) {
 	for _, f := range []string{"external_port", "cpu_limit", "memory_mb", "env", "image", "shm_size_mb", "node_group", "replicas"} {
-		if !needsDBRedeploy(map[string]bool{f: true}) {
+		if !service.Changed(map[string]bool{f: true}).NeedsDBRedeploy() {
 			t.Errorf("%s does not redeploy the instance, but it is in the service spec", f)
 		}
 	}
 	// Scope governs who may provision and no container knows about it.
-	if needsDBRedeploy(map[string]bool{"scope": true}) {
+	if service.Changed(map[string]bool{"scope": true}).NeedsDBRedeploy() {
 		t.Error("scope redeploys the instance, but nothing in the spec changed")
 	}
 }
@@ -444,7 +448,9 @@ environments:
 	first := Planner{Store: store, Src: staticSrc{file: []byte(tiles)}}
 	cp, err := runStack(ctx, first, seed.Stack)
 	require.NoError(t, err, "first Run")
-	_, err = (Applier{Planner: first, Deployed: map[string]bool{}}).ApplyPlan(ctx, seed.Stack, cp, true)
+	firstApplier := applier(first)
+	firstApplier.Deployed = map[string]bool{}
+	_, err = firstApplier.ApplyPlan(ctx, seed.Stack, cp, true)
 	require.NoError(t, err, "first apply")
 
 	pl := Planner{Store: store, Src: staticSrc{file: []byte(`version: 1
@@ -459,7 +465,9 @@ environments:
 	cp, err = runStack(ctx, pl, seed.Stack)
 	require.NoError(t, err, "Run")
 
-	ok, err := (Applier{Planner: pl, Deployed: map[string]bool{}}).ApplyPlan(ctx, seed.Stack, cp, true)
+	second := applier(pl)
+	second.Deployed = map[string]bool{}
+	ok, err := second.ApplyPlan(ctx, seed.Stack, cp, true)
 	require.NoError(t, err, "apply")
 	require.True(t, ok, "apply did not run")
 
@@ -509,7 +517,11 @@ environments:
       web: {image: nginx}
 `)}}
 	deployed := map[string]bool{}
-	a := Applier{Planner: pl, Deployed: deployed}
+	// A rename is the tile service's now: it tears the old swarm service
+	// down, moves the slug and rewrites the route, in that order. Its own
+	// dependencies are nil-safe, so here it moves the row and skips the rest.
+	a := applier(pl)
+	a.Deployed = deployed
 
 	cp, err := runStack(ctx, pl, seed.Stack)
 	require.NoError(t, err, "Run")
@@ -547,7 +559,8 @@ func TestRenameStackStopsAndRedeploysWhatWasRunning(t *testing.T) {
 	require.NoError(t, store.CreateTile(ctx, idle), "seed an idle tile")
 
 	deployed := map[string]bool{}
-	a := Applier{Planner: Planner{Store: store}, Deployed: deployed, deployed: deployed}
+	a := applier(Planner{Store: store})
+	a.Deployed, a.deployed = deployed, deployed
 
 	require.NoError(t, a.RenameStack(ctx, seed.Stack, "New Name", &Plan{}), "rename")
 

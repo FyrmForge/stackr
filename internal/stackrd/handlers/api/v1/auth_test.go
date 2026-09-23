@@ -1,9 +1,14 @@
 package v1
 
 import (
+	"database/sql"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
+	"github.com/labstack/echo/v4"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 )
@@ -42,4 +47,41 @@ func TestAPIKeyHasScope(t *testing.T) {
 	empty := &repo.APIKey{Scopes: ""}
 	assert.False(t, empty.HasScope("apps:read"), "empty scopes should grant nothing")
 	assert.Len(t, empty.ScopeList(), 0, "empty scopes should grant nothing")
+}
+
+// A key minted in one org carries its scopes nowhere else. Unbound keys —
+// every key that existed before the org column — are untouched, which is the
+// whole point of not making the binding retroactive.
+func TestKeyOrgAllows(t *testing.T) {
+	a := &API{}
+	cases := []struct {
+		name   string
+		key    *repo.APIKey
+		target string
+		ok     bool
+	}{
+		{"unbound key goes anywhere", &repo.APIKey{}, "o2", true},
+		{"bound key in its own org", &repo.APIKey{OrgID: sql.NullString{String: "o1", Valid: true}}, "o1", true},
+		{"bound key in another org", &repo.APIKey{OrgID: sql.NullString{String: "o1", Valid: true}}, "o2", false},
+		{"server-wide route has no org to bind", &repo.APIKey{OrgID: sql.NullString{String: "o1", Valid: true}}, "", true},
+		{"session, not a key", nil, "o2", true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			c := echo.New().NewContext(httptest.NewRequest(http.MethodGet, "/", nil), httptest.NewRecorder())
+			if tc.key != nil {
+				c.Set(ctxKey, tc.key)
+			}
+			err := a.keyOrgAllows(c, tc.target)
+			if tc.ok {
+				assert.NoError(t, err)
+				return
+			}
+			// 404, not 403: a key that may not act here does not learn the
+			// org exists.
+			var he *echo.HTTPError
+			require.ErrorAs(t, err, &he)
+			assert.Equal(t, http.StatusNotFound, he.Code)
+		})
+	}
 }

@@ -3,21 +3,22 @@ package stackconf
 import (
 	"testing"
 
+	"github.com/FyrmForge/stackr/internal/stackrd/infra/runtime"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestParseDep(t *testing.T) {
-	s, c, err := ParseDep("db")
+	s, c, err := runtime.ParseDep("db")
 	require.NoError(t, err)
 	assert.Equal(t, "db", s)
 	assert.Equal(t, "started", c)
-	s, c, err = ParseDep("db:healthy")
+	s, c, err = runtime.ParseDep("db:healthy")
 	require.NoError(t, err)
 	assert.True(t, s == "db" && c == "healthy")
-	_, _, err = ParseDep("db:sometimes")
+	_, _, err = runtime.ParseDep("db:sometimes")
 	require.Error(t, err)
-	_, _, err = ParseDep(":healthy")
+	_, _, err = runtime.ParseDep(":healthy")
 	require.Error(t, err)
 }
 

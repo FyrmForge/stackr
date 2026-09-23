@@ -7,7 +7,6 @@ package v1
 // and nothing about which level to change to move it.
 
 import (
-	"log/slog"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -15,6 +14,7 @@ import (
 	"github.com/labstack/echo/v4"
 
 	"github.com/FyrmForge/stackr/internal/stackrd/config/settings"
+	stackrmw "github.com/FyrmForge/stackr/internal/stackrd/handlers/middleware"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 )
 
@@ -29,48 +29,36 @@ type settingsTarget struct {
 	current settings.Settings
 }
 
-// resolveSettingsTarget reads the level the route addresses, checking access
-// the same way every other route on that object does.
-func (a *API) resolveSettingsTarget(c echo.Context, kind string, write bool) (*settingsTarget, error) {
+// resolveSettingsTarget loads the level the route addresses. It used to take a
+// `write bool` and check harder for a write — owner on the org, content-write
+// on the stack, admin on the server. All four routes name a verb now
+// (VerbOrgRead on the reads, VerbOrgDefaults and VerbAdminRead on the writes),
+// so the flag had nothing left to guard and is gone rather than left meaning
+// nothing.
+func (a *API) resolveSettingsTarget(c echo.Context, kind string) (*settingsTarget, error) {
 	ctx := c.Request().Context()
 	t := &settingsTarget{kind: kind}
 	switch kind {
 	case "server":
-		if !a.isAdmin(c) {
-			return nil, echo.NewHTTPError(http.StatusForbidden, "server defaults are admin-only")
-		}
-		sv, err := a.store.GetServer(ctx, "local")
-		if err != nil || sv == nil {
-			return nil, echo.NewHTTPError(http.StatusNotFound, "not found")
+		sv, err := a.nodeSvc.Get(ctx, "local")
+		if err != nil {
+			return nil, stackrmw.HTTP(err)
 		}
 		t.server, t.current = sv, settings.Parse(sv.Settings)
 	case "org":
-		o, err := a.requireOrg(c, c.Param("id"))
+		o, err := a.org(c, c.Param("id"))
 		if err != nil {
 			return nil, err
-		}
-		if write {
-			if err := a.requireOrgWrite(ctx, c, o.ID); err != nil {
-				return nil, err
-			}
 		}
 		t.org, t.current = o, settings.Parse(o.Settings)
 	case "stack":
-		s, err := a.requireStackAccess(c, c.Param("id"))
+		s, err := a.stack(c, c.Param("id"))
 		if err != nil {
 			return nil, err
 		}
-		if write {
-			if err := a.requireOrgWrite(ctx, c, s.OrgID); err != nil {
-				return nil, err
-			}
-		}
 		t.stack, t.current = s, settings.Parse(s.Settings)
 	default:
-		env, _, err := a.requireEnvWrite(c, c.Param("id"))
-		if !write {
-			env, err = a.requireEnvAccess(c, c.Param("id"))
-		}
+		env, err := a.env(c, c.Param("id"))
 		if err != nil {
 			return nil, err
 		}
@@ -96,7 +84,7 @@ func (a *API) settingsLevels(c echo.Context, t *settingsTarget) ([]settings.Leve
 
 func (a *API) settingsFor(kind string) echo.HandlerFunc {
 	return func(c echo.Context) error {
-		t, err := a.resolveSettingsTarget(c, kind, false)
+		t, err := a.resolveSettingsTarget(c, kind)
 		if err != nil {
 			return err
 		}
@@ -113,7 +101,7 @@ func (a *API) settingsFor(kind string) echo.HandlerFunc {
 // which is how a level gives a value back to the one above it.
 func (a *API) patchSettingsFor(kind string) echo.HandlerFunc {
 	return func(c echo.Context) error {
-		t, err := a.resolveSettingsTarget(c, kind, true)
+		t, err := a.resolveSettingsTarget(c, kind)
 		if err != nil {
 			return err
 		}
@@ -131,36 +119,24 @@ func (a *API) patchSettingsFor(kind string) echo.HandlerFunc {
 			}
 			vals.Set(k, *v)
 		}
-		next := settings.Merge(t.current, vals)
-		if err := next.Check(); err != nil {
-			return echo.NewHTTPError(http.StatusBadRequest, err.Error())
-		}
-		merged := next.JSON()
 		ctx := c.Request().Context()
 		switch t.kind {
 		case "server":
-			t.server.Settings = merged
-			err = a.store.UpdateServer(ctx, t.server)
+			// The API never carried a name; keeping the one on the row means
+			// the service's "a name is required" cannot fire here, which is
+			// right — this request did not ask to rename anything.
+			err = a.settings.SaveServer(ctx, t.server, t.server.Name, vals)
 		case "org":
-			t.org.Settings = merged
-			err = a.store.UpdateOrg(ctx, t.org)
+			err = a.settings.SaveOrg(ctx, t.org, vals)
 		case "stack":
-			t.stack.Settings = merged
-			err = a.store.UpdateStack(ctx, t.stack)
+			err = a.settings.SaveStack(ctx, t.stack, vals)
 		default:
-			t.env.Settings = merged
-			err = a.store.UpdateEnvironment(ctx, t.env)
+			err = a.settings.SaveEnv(ctx, t.env, vals)
 		}
 		if err != nil {
-			return err
+			return stackrmw.HTTP(err)
 		}
-		t.current = settings.Parse(merged)
-		// Protection feeds the rendered routes.
-		if a.px != nil {
-			if err := a.px.Resync(ctx); err != nil {
-				slog.Error("proxy resync after settings patch", "error", err)
-			}
-		}
+		t.current = settings.Parse(a.blobOf(t))
 		out, err := a.toSettingsOut(c, t)
 		if err != nil {
 			return err
@@ -186,6 +162,20 @@ func (a *API) toSettingsOut(c echo.Context, t *settingsTarget) (settingsOut, err
 		add(k.key, k.resolved(res), own, source)
 	}
 	return out, nil
+}
+
+// blobOf reads back the level the service just wrote, so the response body
+// renders what is stored rather than what was posted.
+func (a *API) blobOf(t *settingsTarget) string {
+	switch t.kind {
+	case "server":
+		return t.server.Settings
+	case "org":
+		return t.org.Settings
+	case "stack":
+		return t.stack.Settings
+	}
+	return t.env.Settings
 }
 
 func chainOf(levels []settings.Level) []settings.Settings {

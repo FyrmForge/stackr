@@ -35,6 +35,11 @@ const (
 	KindDeployDone   = "deploy_done"
 	KindCronFailed   = "cron_failed"
 	KindImageUpdate  = "image_update"
+	// KindImageCheckFailed is separate from KindImageUpdate on purpose. They
+	// shared a kind, so anyone who turned "New image version" off also stopped
+	// hearing that the check itself was broken — a notification system must not
+	// let an opt-out silence an alert.
+	KindImageCheckFailed = "image_check_failed"
 )
 
 // Kinds lists every kind with its label and default state (for settings UI
@@ -48,6 +53,14 @@ var Kinds = []struct {
 	{KindCronFailed, "Cron run failed", true},
 	{KindDeployDone, "Deployment succeeded", false},
 	{KindImageUpdate, "New image version", true},
+	{KindImageCheckFailed, "Image check failed", true},
+}
+
+// DeployFailed is the one title and body for a deploy that will not happen,
+// however it failed. The engine said "Deploy failed: x" and the CI gate said
+// "Deploy blocked: x" for what is one event to the person reading it.
+func DeployFailed(tileName, reason string) (title, body string) {
+	return "Deploy failed: " + tileName, reason
 }
 
 func ProjectRoom(projectID string) string { return "project:" + projectID }
@@ -155,3 +168,22 @@ func (n *Notifier) Server() { n.send(RoomServer, "server") }
 
 // Flows signals a fresh inter-tile traffic sample.
 func (n *Notifier) Flows() { n.send(RoomFlows, "flows") }
+
+// AccessChanged tells one person's open pages that their standing changed.
+//
+// It exists because a websocket room is checked when it is joined and never
+// again (cmd/stackrd/ws.go), so a socket outlives the membership that let it
+// in. The client answers by leaving and re-joining every room it declares,
+// which runs the join check again and drops the rooms it may no longer read.
+//
+// ponytail: this trusts the client to re-join. A socket that ignores the
+// event keeps its rooms until it disconnects, and what that leaks is event
+// kinds with no payload — that something in an org changed, never what.
+// Closing it from the server needs a Disconnect(subjectID) on hamr's Hub,
+// which does not exist in v0.35.0.
+func (n *Notifier) AccessChanged(userID string) {
+	if n == nil || userID == "" {
+		return
+	}
+	n.em.ToSubject(userID, websocket.NewEvent("access", nil))
+}

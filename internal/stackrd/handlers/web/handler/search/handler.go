@@ -18,14 +18,29 @@ import (
 
 	"github.com/FyrmForge/stackr/internal/stackrd/handlers/middleware"
 	"github.com/FyrmForge/stackr/internal/stackrd/handlers/web/graph"
+	"github.com/FyrmForge/stackr/internal/stackrd/service"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 )
 
 type handler struct {
-	store repo.Store
+	store      repo.Store
+	envs       *service.EnvironmentService
+	stacks     *service.StackService
+	tiles      *service.TileService
+	members    *service.MemberService
+	orgs       *service.OrgService
+	domains    *service.DomainService
+	plans      *service.PlanService
+	schedules  *service.BackupScheduleService
+	connectors *service.ConnectorService
+	instances  *service.ManagedInstanceService
+	vars       *service.VariableService
 }
 
-func NewHandler(store repo.Store) *handler { return &handler{store: store} }
+func NewHandler(store repo.Store, envs *service.EnvironmentService,
+	stacks *service.StackService, tiles *service.TileService) *handler {
+	return &handler{store: store, envs: envs, stacks: stacks, tiles: tiles}
+}
 
 // result is one palette row.
 type result struct {
@@ -75,7 +90,7 @@ func (h *handler) Search(c echo.Context) error {
 	}
 
 	// Stacks, and the maps everything below resolves through.
-	stacks, err := h.store.ListStacks(ctx)
+	stacks, err := h.stacks.ListAll(ctx)
 	if err != nil {
 		return err
 	}
@@ -95,7 +110,7 @@ func (h *handler) Search(c echo.Context) error {
 	envByID := map[string]repo.Environment{}
 	envPath := map[string]string{} // env id -> "/org/stack/env"
 	for id, sp := range stackPath {
-		envs, err := h.store.ListEnvironmentsByStack(ctx, id)
+		envs, err := h.envs.ListForStack(ctx, id)
 		if err != nil {
 			return err
 		}
@@ -110,7 +125,7 @@ func (h *handler) Search(c echo.Context) error {
 	// instance (which draws no card of its own) can focus its first slice.
 	slicesOf := map[string][]repo.ManagedResource{} // provider tile id -> slices
 	for id := range envByID {
-		res, err := h.store.ListResourcesByEnv(ctx, id)
+		res, err := h.instances.Resources(ctx, id)
 		if err != nil {
 			return err
 		}
@@ -124,7 +139,7 @@ func (h *handler) Search(c echo.Context) error {
 	// Tiles. The focus target depends on how the canvas draws the tile: an
 	// attached volume rides under its service, a slice-hosting instance is
 	// replaced by its slices, everything else has its own card.
-	tiles, err := h.store.ListTiles(ctx)
+	tiles, err := h.tiles.ListAll(ctx)
 	if err != nil {
 		return err
 	}
@@ -144,7 +159,7 @@ func (h *handler) Search(c echo.Context) error {
 	}
 
 	// Domains, land on the owning tile's card.
-	domains, err := h.store.ListDomains(ctx)
+	domains, err := h.domains.ListAll(ctx)
 	if err != nil {
 		return err
 	}
@@ -157,7 +172,7 @@ func (h *handler) Search(c echo.Context) error {
 	}
 
 	// Connectors, cards on the org canvas.
-	connectors, err := h.store.ListConnectors(ctx)
+	connectors, err := h.connectors.ListAll(ctx)
 	if err != nil {
 		return err
 	}
@@ -171,7 +186,7 @@ func (h *handler) Search(c echo.Context) error {
 	}
 
 	// Variable names, never values (see ListVariableNames).
-	vars, err := h.store.ListVariableNames(ctx)
+	vars, err := h.vars.Names(ctx)
 	if err != nil {
 		return err
 	}
@@ -202,7 +217,7 @@ func (h *handler) Search(c echo.Context) error {
 	}
 
 	// Backups, named by what they back up.
-	backups, err := h.store.ListBackups(ctx)
+	backups, err := h.schedules.ListAll(ctx)
 	if err != nil {
 		return err
 	}
@@ -217,7 +232,7 @@ func (h *handler) Search(c echo.Context) error {
 
 	// Members and config plans, per-org / per-stack queries, both small.
 	for _, o := range orgByID {
-		members, err := h.store.ListOrgMembers(ctx, o.ID)
+		members, err := h.members.ListMembers(ctx, o.ID)
 		if err != nil {
 			return err
 		}
@@ -229,7 +244,7 @@ func (h *handler) Search(c echo.Context) error {
 		if !s.ConfigManaged() {
 			continue
 		}
-		plans, err := h.store.ListConfigPlans(ctx, id, 10)
+		plans, err := h.plans.ForStack(ctx, id, 10)
 		if err != nil {
 			return err
 		}
@@ -340,3 +355,30 @@ func tileKind(t repo.Tile) string {
 		return "service"
 	}
 }
+
+// WithMembers gives the page the membership service.
+func (h *handler) WithMembers(v *service.MemberService) *handler { h.members = v; return h }
+
+// WithOrgs gives the page the organization service.
+func (h *handler) WithOrgs(v *service.OrgService) *handler { h.orgs = v; return h }
+
+// WithDomains gives the page the domain service.
+func (h *handler) WithDomains(v *service.DomainService) *handler { h.domains = v; return h }
+
+// WithPlans gives the page the config-plan service.
+func (h *handler) WithPlans(v *service.PlanService) *handler { h.plans = v; return h }
+
+// WithSchedules gives the page the backup-schedule service.
+func (h *handler) WithSchedules(v *service.BackupScheduleService) *handler { h.schedules = v; return h }
+
+// WithConnectors gives the page the connector service.
+func (h *handler) WithConnectors(v *service.ConnectorService) *handler { h.connectors = v; return h }
+
+// WithInstances gives the page the managed-resource service.
+func (h *handler) WithInstances(v *service.ManagedInstanceService) *handler {
+	h.instances = v
+	return h
+}
+
+// WithVariables gives the page the variable service.
+func (h *handler) WithVariables(v *service.VariableService) *handler { h.vars = v; return h }

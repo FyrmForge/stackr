@@ -24,11 +24,13 @@ package v1
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"strings"
 
 	"github.com/labstack/echo/v4"
 
+	"github.com/FyrmForge/stackr/internal/stackrd/service/svcerr"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 )
 
@@ -61,7 +63,11 @@ func (a *API) orgByPath(ctx context.Context, ref string) (*repo.Org, error) {
 	if !ok {
 		return nil, nil
 	}
-	return a.store.GetOrgBySlug(ctx, parts[0])
+	org, err := a.orgs.BySlug(ctx, parts[0])
+	if errors.Is(err, svcerr.ErrNotFound) {
+		return nil, nil // a path miss is the caller's to interpret
+	}
+	return org, err
 }
 
 // stackByPath resolves org/stack.
@@ -70,11 +76,15 @@ func (a *API) stackByPath(ctx context.Context, ref string) (*repo.Stack, error) 
 	if !ok {
 		return nil, nil
 	}
-	org, err := a.store.GetOrgBySlug(ctx, parts[0])
+	org, err := a.orgByPath(ctx, parts[0])
 	if err != nil || org == nil {
 		return nil, err
 	}
-	return a.store.GetStackBySlug(ctx, org.ID, parts[1])
+	st, err := a.stacks.BySlug(ctx, org.ID, parts[1])
+	if errors.Is(err, svcerr.ErrNotFound) {
+		return nil, nil // see envByPath: a path miss is the caller's to interpret
+	}
+	return st, err
 }
 
 // envByPath resolves org/stack/env.
@@ -87,7 +97,13 @@ func (a *API) envByPath(ctx context.Context, ref string) (*repo.Environment, err
 	if err != nil || st == nil {
 		return nil, err
 	}
-	return a.store.GetEnvironmentBySlug(ctx, st.ID, parts[2])
+	env, err := a.envs.BySlug(ctx, st.ID, parts[2])
+	if errors.Is(err, svcerr.ErrNotFound) {
+		// A path that resolves to nothing is not an error here: every caller
+		// of this resolver decides for itself what a miss means.
+		return nil, nil
+	}
+	return env, err
 }
 
 // tileByPath resolves org/stack/env/tile.
@@ -100,7 +116,11 @@ func (a *API) tileByPath(ctx context.Context, ref string) (*repo.Tile, error) {
 	if err != nil || env == nil {
 		return nil, err
 	}
-	return a.store.GetTileBySlug(ctx, env.ID, parts[3])
+	t, err := a.tiles.BySlug(ctx, env.ID, parts[3])
+	if errors.Is(err, svcerr.ErrNotFound) {
+		return nil, nil // a path miss is the caller's to interpret
+	}
+	return t, err
 }
 
 // listOrgs is the entry point for slug addressing: without it a caller holding
@@ -111,9 +131,9 @@ func (a *API) listOrgs(c echo.Context) error {
 	var orgs []repo.Org
 	var err error
 	if a.isAdmin(c) {
-		orgs, err = a.store.ListOrgs(ctx)
+		orgs, err = a.orgs.ListAll(ctx)
 	} else {
-		orgs, err = a.store.ListOrgsForUser(ctx, a.user(c).ID)
+		orgs, err = a.orgs.ListForUser(ctx, a.user(c).ID)
 	}
 	if err != nil {
 		return err
@@ -122,8 +142,8 @@ func (a *API) listOrgs(c echo.Context) error {
 	for i := range orgs {
 		o := &orgs[i]
 		role := "admin" // an admin is not a member row; say so rather than blank
-		if m, err := a.store.GetOrgMember(ctx, o.ID, a.user(c).ID); err == nil && m != nil {
-			role = m.Role
+		if r, err := a.members.RoleOf(ctx, o.ID, a.user(c).ID); err == nil && r != "" {
+			role = r
 		}
 		out = append(out, orgOut{ID: o.ID, Slug: o.Slug, Name: o.Name, Role: role})
 	}

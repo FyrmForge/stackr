@@ -65,7 +65,7 @@ func s3Provision(s *Service, ctx context.Context, instance, consumer *repo.Tile,
 		Public:         public,
 		CreatedAt:      time.Now().UTC(),
 	}
-	if err := s.store.CreateProvision(ctx, p); err != nil {
+	if err := s.rows.RecordProvision(ctx, p); err != nil {
 		return nil, err
 	}
 	if err := s.SyncResource(ctx, instance, p); err != nil {
@@ -229,7 +229,7 @@ func (s *Service) SetBucketPublic(ctx context.Context, instance *repo.Tile, p *r
 		return err
 	}
 	p.Public = public
-	if err := s.store.UpdateProvision(ctx, p); err != nil {
+	if err := s.rows.UpdateProvision(ctx, p); err != nil {
 		return err
 	}
 	return s.SyncResource(ctx, instance, p)

@@ -47,7 +47,7 @@ func TestStackGraphMapsTrafficEndpointsToCards(t *testing.T) {
 			Status: "active", CreatedAt: now, UpdatedAt: now}), "create resource %s", r.id)
 	}
 
-	h := &handler{store: s}
+	h := testHandler(s)
 	_, nodeOf, err := h.buildStackGraph(ctx, seed.Stack, graph.ArrangeClusters)
 	require.NoError(t, err, "buildStackGraph")
 

@@ -235,7 +235,7 @@ func orgPlansPage(c echo.Context, o *repo.Org, groups []planGroup) templ.Compone
 // orgPlanPage reviews one org plan. The stack equivalent is planPage in
 // handler/project; they read alike on purpose, because they answer the same
 // question at two levels.
-func orgPlanPage(c echo.Context, o *repo.Org, cp *repo.ConfigPlan) templ.Component {
+func orgPlanPage(c echo.Context, o *repo.Org, cp *repo.ConfigPlan, work *repo.WorkItem) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
@@ -319,7 +319,7 @@ func orgPlanPage(c echo.Context, o *repo.Org, cp *repo.ConfigPlan) templ.Compone
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = components.PlanBody(c, orgPlanCfg(o, cp, "/orgs/"+o.Slug+"/plans/"+cp.ID), stackconf.ParsePlan(cp)).Render(ctx, templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = components.PlanBody(c, orgPlanWorkCfg(o, cp, work), stackconf.ParsePlan(cp)).Render(ctx, templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -331,6 +331,27 @@ func orgPlanPage(c echo.Context, o *repo.Org, cp *repo.ConfigPlan) templ.Compone
 		}
 		return nil
 	})
+}
+
+// orgPlanWorkCfg is the settings plan page's config: this org's endpoints plus
+// the apply banner. The page is addressed by id while an apply is live, because
+// the apply can rename the org out from under the slug it was opened on.
+func orgPlanWorkCfg(o *repo.Org, cp *repo.ConfigPlan, work *repo.WorkItem) components.PlanViewCfg {
+	cfg := orgPlanCfg(o, cp, "/orgs/"+o.Slug+"/plans/"+cp.ID)
+	cfg.Work, cfg.PollURL = work, "/orgs/"+o.ID+"/plans/"+cp.ID
+	return withoutButtonsWhileApplying(cfg, work)
+}
+
+// withoutButtonsWhileApplying takes the decision away for as long as one is
+// already being carried out. The plan stays "pending" for the whole apply, so
+// both buttons would otherwise stay live: a Reject clicked mid-run is written
+// and then overwritten by the apply's own "applied" at the end, and the org is
+// built anyway by something the operator just said no to.
+func withoutButtonsWhileApplying(cfg components.PlanViewCfg, work *repo.WorkItem) components.PlanViewCfg {
+	if work != nil && !work.Done() {
+		cfg.ApproveURL, cfg.RejectURL, cfg.InputURL = "", "", ""
+	}
+	return cfg
 }
 
 // orgPlanCfg points the shared plan view at this org's endpoints. base is the
@@ -402,7 +423,7 @@ func planStatus(status string) templ.Component {
 		var templ_7745c5c3_Var20 string
 		templ_7745c5c3_Var20, templ_7745c5c3_Err = templ.JoinStringErrs(status)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/stackrd/handlers/web/handler/org/plans.templ`, Line: 103, Col: 10}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/stackrd/handlers/web/handler/org/plans.templ`, Line: 124, Col: 10}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var20))
 		if templ_7745c5c3_Err != nil {
@@ -447,7 +468,7 @@ func orgPlanBanner(o *repo.Org, plan *repo.ConfigPlan, pending int, selfURL stri
 		var templ_7745c5c3_Var22 string
 		templ_7745c5c3_Var22, templ_7745c5c3_Err = templ.JoinStringErrs(selfURL)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/stackrd/handlers/web/handler/org/plans.templ`, Line: 113, Col: 18}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/stackrd/handlers/web/handler/org/plans.templ`, Line: 134, Col: 18}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var22))
 		if templ_7745c5c3_Err != nil {
@@ -472,7 +493,7 @@ func orgPlanBanner(o *repo.Org, plan *repo.ConfigPlan, pending int, selfURL stri
 			var templ_7745c5c3_Var24 templ.SafeURL
 			templ_7745c5c3_Var24, templ_7745c5c3_Err = templ.JoinURLErrs(templ.SafeURL(bannerHref(o, plan, pending, selfURL)))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/stackrd/handlers/web/handler/org/plans.templ`, Line: 121, Col: 63}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/stackrd/handlers/web/handler/org/plans.templ`, Line: 142, Col: 63}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var24))
 			if templ_7745c5c3_Err != nil {
@@ -508,7 +529,7 @@ func orgPlanBanner(o *repo.Org, plan *repo.ConfigPlan, pending int, selfURL stri
 				var templ_7745c5c3_Var26 string
 				templ_7745c5c3_Var26, templ_7745c5c3_Err = templ.JoinStringErrs(plan.Summary)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/stackrd/handlers/web/handler/org/plans.templ`, Line: 129, Col: 46}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/stackrd/handlers/web/handler/org/plans.templ`, Line: 150, Col: 46}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var26))
 				if templ_7745c5c3_Err != nil {
@@ -526,7 +547,7 @@ func orgPlanBanner(o *repo.Org, plan *repo.ConfigPlan, pending int, selfURL stri
 				var templ_7745c5c3_Var27 string
 				templ_7745c5c3_Var27, templ_7745c5c3_Err = templ.JoinStringErrs(planCount(pending))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/stackrd/handlers/web/handler/org/plans.templ`, Line: 131, Col: 31}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/stackrd/handlers/web/handler/org/plans.templ`, Line: 152, Col: 31}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var27))
 				if templ_7745c5c3_Err != nil {

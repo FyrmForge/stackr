@@ -43,8 +43,16 @@ import (
 // needs the signer to name.
 const defaultRegion = "us-east-1"
 
+// Runs is the backup_runs table's owner. service.BackupScheduleService
+// satisfies it; an interface because that package is built on this one.
+type Runs interface {
+	OpenRun(ctx context.Context, r *repo.BackupRun) error
+	SaveRun(ctx context.Context, r *repo.BackupRun) error
+}
+
 type Service struct {
 	store repo.Store
+	runs  Runs
 	dbs   *managedtiles.Service
 	// c is every docker call. A tile's volume and its container are on one
 	// node's disk; a backup taken through the manager's own socket for a tile
@@ -67,9 +75,15 @@ func (s *Service) on(ctx context.Context, t *repo.Tile) (string, error) {
 	return s.c.NodeOf(ctx, t)
 }
 
-func NewService(store repo.Store, dbs *managedtiles.Service, c *cluster.Cluster, db *sqlx.DB, dataDir, version string) *Service {
+// WithRuns hands over the service that owns backup_runs. A setter for the
+// same reason as the job runner's: BackupScheduleService is built on this
+// one, so it cannot exist at construction time. Nothing dereferences it
+// until a backup actually runs.
+func (s *Service) WithRuns(r Runs) *Service { s.runs = r; return s }
+
+func NewService(store repo.Store, runs Runs, dbs *managedtiles.Service, c *cluster.Cluster, db *sqlx.DB, dataDir, version string) *Service {
 	s := &Service{
-		store: store, dbs: dbs, c: c, db: db, dataDir: dataDir, version: version,
+		store: store, runs: runs, dbs: dbs, c: c, db: db, dataDir: dataDir, version: version,
 		cron:    cron.New(),
 		entries: map[string]cron.EntryID{},
 		running: map[string]bool{},
@@ -187,7 +201,7 @@ func (s *Service) openRun(ctx context.Context, b *repo.Backup, trigger, status s
 		ID: uuid.New().String(), BackupID: b.ID, Trigger: trigger,
 		Status: status, CreatedAt: time.Now().UTC(),
 	}
-	return run, s.store.CreateBackupRun(ctx, run)
+	return run, s.runs.OpenRun(ctx, run)
 }
 
 // closeRun records a run's outcome.
@@ -200,7 +214,7 @@ func (s *Service) closeRun(run *repo.BackupRun, err error) {
 	}
 	// context.Background: the run row must be closed out even when the job's
 	// own context has timed out or been cancelled.
-	if uerr := s.store.UpdateBackupRun(context.Background(), run); uerr != nil {
+	if uerr := s.runs.SaveRun(context.Background(), run); uerr != nil {
 		slog.Error("backup run not closed out", "run", run.ID, "status", run.Status, "error", uerr)
 	}
 }
@@ -211,7 +225,7 @@ func (s *Service) closeRun(run *repo.BackupRun, err error) {
 // the claim itself. step records how far it got, for restart cleanup.
 func (s *Service) run(ctx context.Context, b *repo.Backup, run *repo.BackupRun, step func(string)) (*repo.BackupRun, error) {
 	run.Status = "running"
-	if err := s.store.UpdateBackupRun(ctx, run); err != nil {
+	if err := s.runs.SaveRun(ctx, run); err != nil {
 		return run, err
 	}
 	finish := func(err error, key string, size int64) (*repo.BackupRun, error) {

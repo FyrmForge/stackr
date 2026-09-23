@@ -6,93 +6,57 @@ package v1
 // handler calls the same service the panel handler calls.
 
 import (
-	"crypto/tls"
-	"log/slog"
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 
-	"github.com/FyrmForge/stackr/internal/stackrd/config/envops"
-	"github.com/FyrmForge/stackr/internal/stackrd/config/secrets"
-	"github.com/FyrmForge/stackr/internal/stackrd/config/stackconf"
-	"github.com/FyrmForge/stackr/internal/stackrd/infra/envnet"
-	"github.com/FyrmForge/stackr/internal/stackrd/infra/managedtiles"
+	stackrmw "github.com/FyrmForge/stackr/internal/stackrd/handlers/middleware"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/storagetiles"
+	"github.com/FyrmForge/stackr/internal/stackrd/service"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 )
 
-// stopApp scales the tile's service to zero. Deliberately not a delete: the
-// row, its volumes and its replica count all stay, so a later restart brings it
-// back as it was.
+// stopApp takes the tile out of service. Deliberately not a delete: the row,
+// its volumes and its replica count all stay, so a later restart brings it
+// back as it was. A cron parks as "paused" — see TileLifecycleService.Stop
+// for why "stopped" was the wrong state for a schedule.
 func (a *API) stopApp(c echo.Context) error {
-	t, err := a.requireTile(c, c.Param("id"), true)
+	t, err := a.tile(c, c.Param("id"))
 	if err != nil {
 		return err
 	}
-	ctx := c.Request().Context()
-	if err := a.clus.ScaleService(ctx, envnet.ServiceFor(ctx, a.store, t), 0); err != nil {
-		return err
+	if err := a.life.Stop(c.Request().Context(), t); err != nil {
+		return stackrmw.HTTP(err)
 	}
-	if err := a.store.UpdateTileStatus(ctx, t.ID, "stopped"); err != nil {
-		return err
-	}
-	t.Status = "stopped"
 	return c.JSON(http.StatusOK, toAppOut(t))
 }
 
 // restartApp bounces the tile in place: a forced service update, not scale 0
 // then 1, which would drop the replica count a stopped tile is meant to keep.
 func (a *API) restartApp(c echo.Context) error {
-	t, err := a.requireTile(c, c.Param("id"), true)
+	t, err := a.tile(c, c.Param("id"))
 	if err != nil {
 		return err
 	}
-	ctx := c.Request().Context()
-	name := envnet.ServiceFor(ctx, a.store, t)
-	if name == "" {
-		return echo.NewHTTPError(http.StatusBadRequest, "nothing deployed to restart")
+	if err := a.life.Restart(c.Request().Context(), t); err != nil {
+		return stackrmw.HTTP(err)
 	}
-	if err := a.clus.RestartService(ctx, name, t.Replicas); err != nil {
-		// Bounced but not back up: record what is true, or the tile keeps
-		// claiming "running" over a dead one.
-		if serr := a.store.UpdateTileStatus(ctx, t.ID, "stopped"); serr != nil {
-			slog.Error("tile status not saved", "tile", t.ID, "status", "stopped", "error", serr)
-		}
-		return err
-	}
-	if err := a.store.UpdateTileStatus(ctx, t.ID, "running"); err != nil {
-		return err
-	}
-	t.Status = "running"
 	return c.JSON(http.StatusOK, toAppOut(t))
 }
 
-// toggleCron pauses or resumes a schedule. Idempotent per call in the sense
-// that the answer says which state it landed in; a script that wants a
-// particular state should read it back rather than count flips.
+// toggleCron pauses or resumes a schedule. The answer says which state it
+// landed in; a script that wants a particular state should read it back
+// rather than count flips.
 func (a *API) toggleCron(c echo.Context) error {
-	t, err := a.requireTile(c, c.Param("id"), true)
+	t, err := a.tile(c, c.Param("id"))
 	if err != nil {
 		return err
 	}
-	if t.Kind != "cron" {
-		return echo.NewHTTPError(http.StatusBadRequest, "only cron tiles have a schedule to pause")
+	if _, err := a.life.ToggleCron(c.Request().Context(), t); err != nil {
+		return stackrmw.HTTP(err)
 	}
-	ctx := c.Request().Context()
-	status := "paused"
-	if t.Status == "paused" {
-		status = "idle"
-	}
-	if err := a.store.UpdateTileStatus(ctx, t.ID, status); err != nil {
-		return err
-	}
-	if a.jobs != nil {
-		_ = a.jobs.LoadSchedules(ctx)
-	}
-	t.Status = status
 	return c.JSON(http.StatusOK, toAppOut(t))
 }
 
@@ -100,7 +64,7 @@ func (a *API) toggleCron(c echo.Context) error {
 // caller's: nothing here guesses a previous one, because "the last good build"
 // is a judgement the deployment list is there to support.
 func (a *API) rollbackApp(c echo.Context) error {
-	t, err := a.requireTile(c, c.Param("id"), true)
+	t, err := a.tile(c, c.Param("id"))
 	if err != nil {
 		return err
 	}
@@ -121,7 +85,7 @@ func (a *API) cancelDeployment(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	a.engine.Cancel(c.Request().Context(), d.ID)
+	a.deploys.Cancel(c.Request().Context(), d.ID)
 	return c.JSON(http.StatusOK, toDeploymentOut(d))
 }
 
@@ -129,18 +93,15 @@ func (a *API) cancelDeployment(c echo.Context) error {
 // graphs. Same windows the panel offers, so the numbers match what a person
 // would be looking at.
 func (a *API) appMetrics(c echo.Context) error {
-	t, err := a.requireTile(c, c.Param("id"), false)
+	t, err := a.tile(c, c.Param("id"))
 	if err != nil {
 		return err
 	}
-	dur := time.Hour
-	switch c.QueryParam("range") {
-	case "6h":
-		dur = 6 * time.Hour
-	case "24h":
-		dur = 24 * time.Hour
-	}
-	ms, err := a.store.ListMetrics(c.Request().Context(), "app:"+t.ID, time.Now().Add(-dur))
+	// One range parser and one samples key, shared with the panel's picker:
+	// these were two switches over the same three strings, so a window added
+	// to one of them left the other quietly answering 1h.
+	_, dur := service.MetricRange(c.QueryParam("range"))
+	ms, err := a.telemetry.Samples(c.Request().Context(), service.TileRef(t.ID), dur)
 	if err != nil {
 		return err
 	}
@@ -157,25 +118,19 @@ func (a *API) appMetrics(c echo.Context) error {
 // is reported rather than answered 201: the caller would otherwise read an
 // empty success as a domain it does not have.
 func (a *API) createAutoDomain(c echo.Context) error {
-	t, err := a.requireTile(c, c.Param("id"), true)
+	t, err := a.tile(c, c.Param("id"))
 	if err != nil {
 		return err
 	}
 	ctx := c.Request().Context()
-	if err := a.rejectManaged(ctx, t.StackID); err != nil {
-		return err
+	env, err := a.envs.Get(ctx, t.EnvironmentID)
+	if err != nil {
+		return stackrmw.HTTP(err)
 	}
-	if t.Kind != "service" || t.ContainerPort == 0 {
-		return echo.NewHTTPError(http.StatusBadRequest, "auto domains need a service with a container port")
+	if err := a.domains.AddAuto(ctx, env, t, a.actor(c)); err != nil {
+		return stackrmw.HTTP(err)
 	}
-	env, err := a.store.GetEnvironment(ctx, t.EnvironmentID)
-	if err != nil || env == nil {
-		return echo.NewHTTPError(http.StatusNotFound, "environment not found")
-	}
-	if err := (envops.Ops{Store: a.store, RT: a.clus.Runtime(), Cluster: a.clus, PX: a.px}).EnsureAutoDomain(ctx, env, t); err != nil {
-		return err
-	}
-	ds, err := a.store.ListDomainsByTile(ctx, t.ID)
+	ds, err := a.domains.ForTile(ctx, t.ID)
 	if err != nil {
 		return err
 	}
@@ -193,50 +148,27 @@ func (a *API) createAutoDomain(c echo.Context) error {
 // here rather than at the proxy, where the failure is a silent 5xx on one host.
 func (a *API) patchDomain(c echo.Context) error {
 	ctx := c.Request().Context()
-	d, err := a.store.GetDomain(ctx, c.Param("id"))
-	if err != nil || d == nil {
-		return echo.NewHTTPError(http.StatusNotFound, "not found")
-	}
-	t, err := a.requireTile(c, d.TileID, true)
+	d, err := a.domains.Get(ctx, c.Param("id"))
 	if err != nil {
-		return err
+		return stackrmw.HTTP(err)
 	}
-	if err := a.rejectManaged(ctx, t.StackID); err != nil {
+	t, err := a.tile(c, d.TileID)
+	if err != nil {
 		return err
 	}
 	var in domainPatch
 	if err := c.Bind(&in); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, "invalid body")
 	}
-	if in.HTTPS != nil {
-		if err := a.store.SetDomainHTTPS(ctx, d.ID, *in.HTTPS); err != nil {
-			return err
-		}
-		d.HTTPS = *in.HTTPS
-	}
-	if in.ForceHTTPS != nil {
-		if err := a.store.SetDomainForceHTTPS(ctx, d.ID, *in.ForceHTTPS); err != nil {
-			return err
-		}
-		d.ForceHTTPS = *in.ForceHTTPS
-	}
-	if in.CertPEM != nil || in.KeyPEM != nil {
-		cert, key := strings.TrimSpace(deref(in.CertPEM)), strings.TrimSpace(deref(in.KeyPEM))
-		if cert != "" || key != "" {
-			if _, err := tls.X509KeyPair([]byte(cert), []byte(key)); err != nil {
-				return echo.NewHTTPError(http.StatusBadRequest, "invalid certificate/key pair: "+err.Error())
-			}
-		}
-		if err := a.store.SetDomainCert(ctx, d.ID, cert, key); err != nil {
-			return err
-		}
-	}
-	ds, err := a.store.ListDomainsByTile(ctx, t.ID)
+	d, staged, err := a.domains.SetTLS(ctx, t, d.ID, service.TLSPatch{
+		HTTPS: in.HTTPS, ForceHTTPS: in.ForceHTTPS, CertPEM: in.CertPEM, KeyPEM: in.KeyPEM,
+	}, a.actor(c))
 	if err != nil {
-		return err
+		return stackrmw.HTTP(err)
 	}
-	if err := a.px.WriteApp(t, ds); err != nil {
-		return err
+	if staged {
+		return echo.NewHTTPError(http.StatusConflict,
+			"this stack stages edits for review; change the domain from the canvas")
 	}
 	return c.JSON(http.StatusOK, toDomainOut(d))
 }
@@ -252,7 +184,7 @@ func deref(s *string) string {
 // slice itself, and every other consumer of it, is untouched; dropping it is
 // DELETE /provisions/{id}.
 func (a *API) detachProvision(c echo.Context) error {
-	t, err := a.requireTile(c, c.Param("id"), true)
+	t, err := a.tile(c, c.Param("id"))
 	if err != nil {
 		return err
 	}
@@ -260,12 +192,8 @@ func (a *API) detachProvision(c echo.Context) error {
 	if err := a.rejectManaged(ctx, t.StackID); err != nil {
 		return err
 	}
-	p, err := a.store.GetProvision(ctx, c.Param("pid"))
-	if err != nil || p == nil || p.ConsumerTileID != t.ID {
-		return echo.NewHTTPError(http.StatusNotFound, "provision not found")
-	}
-	if err := managedtiles.NewService(a.clus, a.store).Detach(ctx, p); err != nil {
-		return err
+	if err := a.slices.Detach(ctx, t, c.Param("pid")); err != nil {
+		return stackrmw.HTTP(err)
 	}
 	return c.NoContent(http.StatusNoContent)
 }
@@ -273,11 +201,11 @@ func (a *API) detachProvision(c echo.Context) error {
 // setProvisionPublic exposes or hides a slice outside its own network.
 func (a *API) setProvisionPublic(c echo.Context) error {
 	ctx := c.Request().Context()
-	p, err := a.store.GetProvision(ctx, c.Param("id"))
-	if err != nil || p == nil {
-		return echo.NewHTTPError(http.StatusNotFound, "not found")
+	p, err := a.slices.Get(ctx, c.Param("id"))
+	if err != nil {
+		return stackrmw.HTTP(err)
 	}
-	inst, err := a.requireTile(c, p.InstanceTileID, true)
+	inst, err := a.tile(c, p.InstanceTileID)
 	if err != nil {
 		return err
 	}
@@ -285,17 +213,9 @@ func (a *API) setProvisionPublic(c echo.Context) error {
 	if err := c.Bind(&in); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, "invalid body")
 	}
-	// Every row sharing the bucket name shares its policy, so they move
-	// together: one consumer public and its neighbour private is not a state
-	// the bucket can actually be in.
-	rows := a.provisionRows(ctx, inst.ID, p.DBName)
-	svc := managedtiles.NewService(a.clus, a.store)
-	for i := range rows {
-		if err := svc.SetBucketPublic(ctx, inst, &rows[i], in.Public); err != nil {
-			return echo.NewHTTPError(http.StatusBadRequest, err.Error())
-		}
+	if err := a.slices.SetPublic(ctx, inst, p, in.Public); err != nil {
+		return stackrmw.HTTP(err)
 	}
-	p.Public = in.Public
 	return c.JSON(http.StatusOK, a.toSliceOut(c, inst, p))
 }
 
@@ -304,9 +224,9 @@ func (a *API) setProvisionPublic(c echo.Context) error {
 // the manager for a share hung off a worker proves nothing about the worker.
 func (a *API) probeStorage(c echo.Context) error {
 	ctx := c.Request().Context()
-	st, err := a.store.GetStorage(ctx, c.Param("id"))
-	if err != nil || st == nil {
-		return echo.NewHTTPError(http.StatusNotFound, "not found")
+	st, err := a.storage.Get(ctx, c.Param("id"))
+	if err != nil {
+		return stackrmw.HTTP(err)
 	}
 	node, err := a.clus.NodeOfStorage(ctx, st)
 	if err == nil {
@@ -319,7 +239,7 @@ func (a *API) probeStorage(c echo.Context) error {
 	} else {
 		st.Status, st.StatusMsg = "ok", ""
 	}
-	if err := a.store.UpdateStorage(ctx, st); err != nil {
+	if err := a.storage.Save(ctx, st); err != nil {
 		return err
 	}
 	return c.JSON(http.StatusOK, a.storageOut(c, st))
@@ -335,45 +255,21 @@ func (a *API) probeStorage(c echo.Context) error {
 // the new one. Writing the slug alone left them serving under a name nothing
 // resolved any more.
 func (a *API) patchStack(c echo.Context) error {
-	s, err := a.requireStackAccess(c, c.Param("id"))
+	s, err := a.stack(c, c.Param("id"))
 	if err != nil {
 		return err
 	}
 	ctx := c.Request().Context()
-	if err := a.requireOrgWrite(ctx, c, s.OrgID); err != nil {
-		return err
-	}
-	if err := a.rejectManaged(ctx, s.ID); err != nil {
-		return err
-	}
 	var in stackPatch
 	if err := c.Bind(&in); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, "invalid body")
 	}
-	if in.Name != nil {
-		name := strings.TrimSpace(*in.Name)
-		slug := repo.Slugify(name)
-		if slug == "" {
-			return echo.NewHTTPError(http.StatusBadRequest, "name needs at least one letter or number")
-		}
-		if other, _ := a.store.GetStackBySlug(ctx, s.OrgID, slug); other != nil && other.ID != s.ID {
-			return echo.NewHTTPError(http.StatusConflict, "a stack with that name already exists in this organization")
-		}
-		if slug != s.Slug {
-			// Writes the row itself, stops and redeploys. Inline is fine: the
-			// redeploy only enqueues.
-			if err := a.applier.RenameStack(ctx, s, name, &stackconf.Plan{}); err != nil {
-				return err
-			}
-		} else {
-			s.Name = name
-		}
-	}
-	if in.Description != nil {
-		s.Description = *in.Description
-	}
-	if err := a.store.UpdateStack(ctx, s); err != nil {
-		return err
+	// The managed refusal, the slug rules and the whole-way rename are the
+	// service's; rejectManaged here would ask the same question twice.
+	if err := a.stacks.Update(ctx, s, service.StackPatch{
+		Name: in.Name, Description: in.Description,
+	}, a.actor(c)); err != nil {
+		return stackrmw.HTTP(err)
 	}
 	return c.JSON(http.StatusOK, stackOut{ID: s.ID, Name: s.Name, Description: s.Description})
 }
@@ -382,41 +278,34 @@ func (a *API) patchStack(c echo.Context) error {
 // The webhook secret is write-only here: it is a credential, and the panel is
 // where it is read once after rotation.
 func (a *API) getPREnv(c echo.Context) error {
-	s, err := a.requireStackAccess(c, c.Param("id"))
+	s, err := a.stack(c, c.Param("id"))
 	if err != nil {
 		return err
 	}
-	cfg := envops.LoadPRConfig(c.Request().Context(), a.store, s.ID)
+	cfg := repo.LoadPRConfig(c.Request().Context(), a.store, s.ID)
 	return c.JSON(http.StatusOK, prEnvOut{Enabled: cfg.Enabled,
 		Comment: !cfg.NoComment, Status: !cfg.NoStatus, SecretSet: cfg.Secret != ""})
 }
 
 func (a *API) putPREnv(c echo.Context) error {
-	s, err := a.requireStackAccess(c, c.Param("id"))
+	s, err := a.stack(c, c.Param("id"))
 	if err != nil {
 		return err
 	}
 	ctx := c.Request().Context()
-	if err := a.requireOrgWrite(ctx, c, s.OrgID); err != nil {
-		return err
-	}
 	var in prEnvIn
 	if err := c.Bind(&in); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, "invalid body")
 	}
-	cfg := envops.LoadPRConfig(ctx, a.store, s.ID)
-	cfg.Enabled = in.Enabled
-	if in.Comment != nil {
-		cfg.NoComment = !*in.Comment
-	}
-	if in.Status != nil {
-		cfg.NoStatus = !*in.Status
-	}
-	if in.RotateSecret || cfg.Secret == "" {
-		cfg.Secret = secrets.RandomHex(24)
-	}
-	if err := envops.SavePRConfig(ctx, a.store, s.ID, cfg); err != nil {
-		return err
+	// Sparse: `enabled` is a pointer now, so omitting it leaves it alone.
+	// This replaced it whatever the caller sent, which is why the CLI
+	// read-merge-writes around the route.
+	cfg, err := a.prenvs.Update(ctx, s, service.PREnvPatch{
+		Enabled: in.Enabled, Comment: in.Comment, Status: in.Status,
+		RotateSecret: in.RotateSecret,
+	}, a.actor(c))
+	if err != nil {
+		return stackrmw.HTTP(err)
 	}
 	return c.JSON(http.StatusOK, prEnvOut{Enabled: cfg.Enabled,
 		Comment: !cfg.NoComment, Status: !cfg.NoStatus, SecretSet: cfg.Secret != ""})

@@ -4,52 +4,70 @@ package server
 
 import (
 	"context"
-	"log/slog"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/FyrmForge/hamr/pkg/middleware"
 	"github.com/FyrmForge/hamr/pkg/respond"
-	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 
-	"github.com/FyrmForge/stackr/internal/stackrd/config/envops"
-	"github.com/FyrmForge/stackr/internal/stackrd/config/settings"
+	stackrmw "github.com/FyrmForge/stackr/internal/stackrd/handlers/middleware"
 	"github.com/FyrmForge/stackr/internal/stackrd/handlers/web/components"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/cluster"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/nodes"
-	"github.com/FyrmForge/stackr/internal/stackrd/infra/proxy"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/runtime"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/volmove"
+	"github.com/FyrmForge/stackr/internal/stackrd/service"
+	svcproxy "github.com/FyrmForge/stackr/internal/stackrd/service/proxy"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 )
 
 type handler struct {
-	store repo.Store
-	rt    *runtime.Runtime
-	px    *proxy.Proxy
+	// resources owns the hostnames stackr may generate names under.
+	resources *service.DomainResourceService
+	store     repo.Store
+	rt        *runtime.Runtime
+	px        *svcproxy.Service
 	// The swarm half (nodes.go). nodes keeps the table in step with the
 	// swarm and issues join keys, clus is every docker call on any node, mover runs volume moves.
 	nodes   *nodes.Service
 	clus    *cluster.Cluster
 	mover   *volmove.Service
 	baseURL string
-	dataDir string
 	version string
+	// storage owns the share and sub-path rules, which this page and the API
+	// each had their own version of.
+	storage *service.StorageService
+	// settings owns every rung of the defaults cascade.
+	settings *service.SettingsService
+	// nodeSvc owns a node's life after it joins: drain, remove, group label.
+	nodeSvc *service.NodeService
+	// tiles owns the tile rows the node pages read when they show what runs
+	// where.
+	tiles      *service.TileService
+	telemetry  *service.TileTelemetryService
+	registries *service.RegistryService
 }
+
+// WithNodeService attaches the node service.
+func (h *handler) WithNodeService(n *service.NodeService) *handler { h.nodeSvc = n; return h }
+
+// WithStorage attaches the storage service.
+func (h *handler) WithStorage(st *service.StorageService) *handler { h.storage = st; return h }
+
+// WithSettings attaches the settings service.
+func (h *handler) WithSettings(st *service.SettingsService) *handler { h.settings = st; return h }
 
 // Deps is what the servers screens need. A struct rather than nine positional
 // arguments, which is what it had grown to.
 type Deps struct {
 	Store   repo.Store
 	Runtime *runtime.Runtime
-	Proxy   *proxy.Proxy
+	Proxy   *svcproxy.Service
 	Nodes   *nodes.Service
 	Cluster *cluster.Cluster
 	Mover   *volmove.Service
 	BaseURL string
-	DataDir string
 	Version string
 }
 
@@ -58,19 +76,16 @@ func NewHandler(d Deps) *handler {
 	return &handler{
 		store: d.Store, rt: d.Runtime, px: d.Proxy,
 		nodes: d.Nodes, clus: d.Cluster, mover: d.Mover,
-		baseURL: d.BaseURL, dataDir: d.DataDir, version: d.Version,
+		baseURL: d.BaseURL, version: d.Version,
 	}
 }
 
 // GET /servers/:id?range=..., stats history + docker info + settings.
 func (h *handler) Detail(c echo.Context) error {
 	ctx := c.Request().Context()
-	sv, err := h.store.GetServer(ctx, c.Param("id"))
+	sv, err := h.nodeSvc.Get(ctx, c.Param("id"))
 	if err != nil {
-		return err
-	}
-	if sv == nil {
-		return echo.NewHTTPError(http.StatusNotFound, "server not found")
+		return stackrmw.HTTP(err)
 	}
 	rangeKey, dur := metricRange(c.QueryParam("range"))
 	cpu, mem, rx, tx := h.points(ctx, "server:"+sv.ID, dur)
@@ -101,7 +116,7 @@ func (h *handler) Detail(c echo.Context) error {
 	}
 	// This server's own domain resources.
 	var domainRes []repo.DomainResource
-	if res, err := h.store.ListDomainResources(ctx); err == nil {
+	if res, err := h.resources.ListAll(ctx); err == nil {
 		for _, r := range res {
 			if r.Level == "instance" && r.OwnerID == sv.ID {
 				domainRes = append(domainRes, r)
@@ -110,7 +125,7 @@ func (h *handler) Detail(c echo.Context) error {
 	}
 	// This server's own, not every server's: each one is a directory on this
 	// machine, and the page's Add form writes this server's id.
-	all, _ := h.store.ListStorage(ctx)
+	all, _ := h.storage.ListAll(ctx)
 	storages := make([]repo.Storage, 0, len(all))
 	spaths := map[string][]repo.StoragePath{}
 	for i := range all {
@@ -118,7 +133,7 @@ func (h *handler) Detail(c echo.Context) error {
 			continue
 		}
 		storages = append(storages, all[i])
-		ps, _ := h.store.ListStoragePaths(ctx, all[i].ID)
+		ps, _ := h.storage.Paths(ctx, all[i].ID)
 		spaths[all[i].ID] = ps
 	}
 	return respond.HTML(c, http.StatusOK, serverPage(c, sv, node, here, groups, ping,
@@ -142,8 +157,8 @@ func (h *handler) Detail(c echo.Context) error {
 // GET /servers/:id/host, the docker stat tiles.
 func (h *handler) Host(c echo.Context) error {
 	ctx := c.Request().Context()
-	sv, err := h.store.GetServer(ctx, c.Param("id"))
-	if err != nil || sv == nil || sv.NodeID == "" {
+	sv, err := h.nodeSvc.Get(ctx, c.Param("id"))
+	if err != nil || sv.NodeID == "" {
 		return echo.NewHTTPError(http.StatusNotFound, "server not found")
 	}
 	// Bounded, so a hung agent renders "no answer" rather than a request
@@ -157,9 +172,9 @@ func (h *handler) Host(c echo.Context) error {
 // GET /servers/:id/volumes, the volumes section.
 func (h *handler) Volumes(c echo.Context) error {
 	ctx := c.Request().Context()
-	sv, err := h.store.GetServer(ctx, c.Param("id"))
-	if err != nil || sv == nil {
-		return echo.NewHTTPError(http.StatusNotFound, "server not found")
+	sv, err := h.nodeSvc.Get(ctx, c.Param("id"))
+	if err != nil {
+		return stackrmw.HTTP(err)
 	}
 	var vols []runtime.VolumeInfo
 	msg := ""
@@ -195,28 +210,16 @@ func (h *handler) knownGroups(ctx context.Context) ([]string, error) {
 // POST /servers/:id/domains, add an instance-level domain resource.
 func (h *handler) CreateDomainResource(c echo.Context) error {
 	ctx := c.Request().Context()
-	sv, err := h.store.GetServer(ctx, c.Param("id"))
-	if err != nil || sv == nil {
-		return echo.NewHTTPError(http.StatusNotFound, "server not found")
-	}
-	host := strings.TrimSpace(c.FormValue("host"))
-	if err := envops.ValidateResourceHost(host); err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
-	}
-	all, err := h.store.ListDomainResources(ctx)
+	sv, err := h.nodeSvc.Get(ctx, c.Param("id"))
 	if err != nil {
-		return err
+		return stackrmw.HTTP(err)
 	}
-	if envops.HostTaken(all, host) {
-		return echo.NewHTTPError(http.StatusConflict, "that host is already a domain resource")
-	}
-	r := &repo.DomainResource{
-		ID: uuid.New().String(), Level: "instance", OwnerID: sv.ID, Host: host,
+	host := c.FormValue("host")
+	if _, err := h.resources.Create(ctx, "instance", sv.ID, host, service.ResourceOpts{
 		IncludeEnvOnDefault: c.FormValue("include_env_on_default") != "",
-		CreatedAt:           time.Now().UTC(),
-	}
-	if err := h.store.CreateDomainResource(ctx, r); err != nil {
-		return err
+		ACMEEmail:           c.FormValue("acme_email"),
+	}); err != nil {
+		return stackrmw.HTTP(err)
 	}
 	middleware.SetFlash(c, "Domain "+host+" added. Tiles can now claim auto hostnames under it.", middleware.FlashSuccess)
 	return respond.Redirect(c, "/servers/"+sv.ID)
@@ -224,8 +227,19 @@ func (h *handler) CreateDomainResource(c echo.Context) error {
 
 // POST /servers/:id/domains/delete
 func (h *handler) DeleteDomainResource(c echo.Context) error {
-	if err := h.store.DeleteDomainResource(c.Request().Context(), c.FormValue("id")); err != nil {
-		return err
+	ctx := c.Request().Context()
+	r, err := h.resources.Get(ctx, c.FormValue("id"))
+	if err != nil {
+		return stackrmw.HTTP(err)
+	}
+	// This page owns the instance level and nothing else. It used to delete
+	// whatever id the form carried, which meant an org's or a stack's
+	// resource could be removed from here.
+	if r.Level != "instance" {
+		return echo.NewHTTPError(http.StatusNotFound, "not found")
+	}
+	if err := h.resources.Delete(ctx, r.ID); err != nil {
+		return stackrmw.HTTP(err)
 	}
 	middleware.SetFlash(c, "Domain resource removed. Existing generated hostnames keep working until their tile redeploys.", middleware.FlashSuccess)
 	return respond.Redirect(c, "/servers/"+c.Param("id"))
@@ -242,12 +256,9 @@ func (h *handler) DeleteDomainResource(c echo.Context) error {
 // machine, so it is refused here rather than being allowed to collapse onto
 // the manager.
 func (h *handler) volumeNode(c echo.Context) (string, error) {
-	sv, err := h.store.GetServer(c.Request().Context(), c.Param("id"))
+	sv, err := h.nodeSvc.Get(c.Request().Context(), c.Param("id"))
 	if err != nil {
-		return "", err
-	}
-	if sv == nil {
-		return "", echo.NewHTTPError(http.StatusNotFound, "server not found")
+		return "", stackrmw.HTTP(err)
 	}
 	if sv.NodeID == "" {
 		return "", echo.NewHTTPError(http.StatusConflict,
@@ -311,31 +322,19 @@ func (h *handler) DeleteVolume(c echo.Context) error {
 // POST /servers/:id/settings, save the default-settings blob.
 func (h *handler) SaveSettings(c echo.Context) error {
 	ctx := c.Request().Context()
-	sv, err := h.store.GetServer(ctx, c.Param("id"))
-	if err != nil || sv == nil {
-		return echo.NewHTTPError(http.StatusNotFound, "server not found")
+	sv, err := h.nodeSvc.Get(ctx, c.Param("id"))
+	if err != nil {
+		return stackrmw.HTTP(err)
 	}
 	vals, err := c.FormParams()
 	if err != nil {
 		return err
 	}
-	sv.Name = c.FormValue("name")
-	next := settings.Merge(settings.Parse(sv.Settings), vals)
-	if err := next.Check(); err != nil {
-		middleware.SetFlash(c, err.Error(), middleware.FlashError)
-		return respond.Redirect(c, "/servers/"+sv.ID)
-	}
-	sv.Settings = next.JSON()
-	if err := h.store.UpdateServer(ctx, sv); err != nil {
-		return err
-	}
-	// Settings feed the rendered proxy routes (protect), which are
-	// otherwise only rewritten on domain changes, a toggle here must take
-	// effect now, not on the next deploy.
-	if h.px != nil {
-		if err := h.px.Resync(ctx); err != nil {
-			slog.Error("proxy resync after settings save", "error", err)
+	if err := h.settings.SaveServer(ctx, sv, c.FormValue("name"), vals); err != nil {
+		if !stackrmw.FlashRefusal(c, err) {
+			return err
 		}
+		return respond.Redirect(c, "/servers/"+sv.ID)
 	}
 	middleware.SetFlash(c, "Server settings saved.", middleware.FlashSuccess)
 	return respond.Redirect(c, "/servers/"+sv.ID)
@@ -353,7 +352,7 @@ func metricRange(key string) (string, time.Duration) {
 
 // points loads bucket-averaged samples (same shape as the app charts).
 func (h *handler) points(ctx context.Context, ref string, dur time.Duration) (cpu, mem, rx, tx []components.TimePoint) {
-	ms, _ := h.store.ListMetrics(ctx, ref, time.Now().Add(-dur))
+	ms, _ := h.telemetry.SamplesSince(ctx, ref, time.Now().Add(-dur))
 	step := len(ms)/240 + 1
 	for i := 0; i < len(ms); i += step {
 		end := i + step
@@ -375,3 +374,18 @@ func (h *handler) points(ctx context.Context, ref string, dur time.Duration) (cp
 	}
 	return
 }
+
+// WithDomainResources gives the page the domain-resource service.
+func (h *handler) WithDomainResources(r *service.DomainResourceService) *handler {
+	h.resources = r
+	return h
+}
+
+// WithTiles gives the page the tile service.
+func (h *handler) WithTiles(t *service.TileService) *handler { h.tiles = t; return h }
+
+// WithTelemetry gives the page the metric window.
+func (h *handler) WithTelemetry(v *service.TileTelemetryService) *handler { h.telemetry = v; return h }
+
+// WithRegistries gives the page the registry service.
+func (h *handler) WithRegistries(v *service.RegistryService) *handler { h.registries = v; return h }

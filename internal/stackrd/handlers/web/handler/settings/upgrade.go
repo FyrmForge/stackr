@@ -17,7 +17,7 @@ import (
 // GET /admin/update. Renders at once; the release check loads into it.
 func (h *handler) Update(c echo.Context) error {
 	v := upgradeView{Version: h.admin.Version(), Upgradable: h.admin.Upgradable()}
-	v.Archive, _ = h.store.GetSetting(c.Request().Context(), service.SettingUpgradeArchive)
+	v.Archive, _ = h.settings.Value(c.Request().Context(), service.SettingUpgradeArchive)
 	return respond.HTML(c, http.StatusOK, upgradePage(c, v))
 }
 

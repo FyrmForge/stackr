@@ -36,6 +36,27 @@ const (
 	DBPoolSize  = 8
 )
 
+// EnvOwner and TileOwner are the two rows a claim writes: an environment's
+// network column, and a shared managed instance's.
+//
+// They are interfaces declared here rather than the services themselves
+// because the dependency runs the other way — the service package is built on
+// top of this one, so this one cannot name it. EnvironmentService and
+// TileService are what satisfy them.
+//
+// Two interfaces rather than one, so each caller passes the single service it
+// already holds instead of an adapter that exists only to carry the other.
+//
+// The pool decides which name is free. Who holds it is not the pool's to
+// write, and it used to write it anyway.
+type EnvOwner interface {
+	SetNetwork(ctx context.Context, envID, network string) error
+}
+
+type TileOwner interface {
+	SetSharedNet(ctx context.Context, tileID, name string) error
+}
+
 // One panel process owns the pool, so a mutex is the whole allocator: claim
 // reads the used set and writes the winner under it.
 // a DB unique index on the column is the upgrade path if a second
@@ -102,7 +123,7 @@ func firstFree(used map[string]bool, prefix string) string {
 
 // ClaimEnv returns the environment's overlay, taking a free one from the pool
 // the first time. Idempotent: an env that already holds one keeps it.
-func ClaimEnv(ctx context.Context, store repo.Store, rt *runtime.Runtime, envID string) (string, error) {
+func ClaimEnv(ctx context.Context, store repo.Store, own EnvOwner, rt *runtime.Runtime, envID string) (string, error) {
 	mu.Lock()
 	defer mu.Unlock()
 	env, err := store.GetEnvironment(ctx, envID)
@@ -121,11 +142,11 @@ func ClaimEnv(ctx context.Context, store repo.Store, rt *runtime.Runtime, envID 
 	if err != nil {
 		return "", err
 	}
-	return n, store.SetEnvironmentNetwork(ctx, envID, n)
+	return n, own.SetNetwork(ctx, envID, n)
 }
 
 // ClaimDB is ClaimEnv for a shared managed instance's own network.
-func ClaimDB(ctx context.Context, store repo.Store, rt *runtime.Runtime, t *repo.Tile) (string, error) {
+func ClaimDB(ctx context.Context, store repo.Store, own TileOwner, rt *runtime.Runtime, t *repo.Tile) (string, error) {
 	mu.Lock()
 	defer mu.Unlock()
 	if t.SharedNetName != "" {
@@ -135,7 +156,7 @@ func ClaimDB(ctx context.Context, store repo.Store, rt *runtime.Runtime, t *repo
 	if err != nil {
 		return "", err
 	}
-	if err := store.SetTileSharedNet(ctx, t.ID, n); err != nil {
+	if err := own.SetSharedNet(ctx, t.ID, n); err != nil {
 		return "", err
 	}
 	t.SharedNetName = n
@@ -170,18 +191,18 @@ func drain(ctx context.Context, rt *runtime.Runtime, name string) error {
 
 // ReleaseEnv gives an environment's network back. The network object itself
 // stays, it is pooled, not per-tenant, and traefik is on it.
-func ReleaseEnv(ctx context.Context, store repo.Store, rt *runtime.Runtime, env *repo.Environment) error {
+func ReleaseEnv(ctx context.Context, own EnvOwner, rt *runtime.Runtime, env *repo.Environment) error {
 	if env == nil || env.Network == "" {
 		return nil
 	}
 	if err := drain(ctx, rt, env.Network); err != nil {
 		return err
 	}
-	return store.SetEnvironmentNetwork(ctx, env.ID, "")
+	return own.SetNetwork(ctx, env.ID, "")
 }
 
 // ReleaseDB is ReleaseEnv for a shared managed instance.
-func ReleaseDB(ctx context.Context, store repo.Store, rt *runtime.Runtime, t *repo.Tile) error {
+func ReleaseDB(ctx context.Context, own TileOwner, rt *runtime.Runtime, t *repo.Tile) error {
 	if t == nil || t.SharedNetName == "" {
 		return nil
 	}
@@ -189,7 +210,7 @@ func ReleaseDB(ctx context.Context, store repo.Store, rt *runtime.Runtime, t *re
 		return err
 	}
 	t.SharedNetName = ""
-	return store.SetTileSharedNet(ctx, t.ID, "")
+	return own.SetSharedNet(ctx, t.ID, "")
 }
 
 // Sweep clears out pooled networks that no row holds any more. Shaped like
@@ -209,14 +230,14 @@ func ReleaseDB(ctx context.Context, store repo.Store, rt *runtime.Runtime, t *re
 // Runs at boot next to Sweep. A pool with nothing left is logged and skipped
 // rather than fatal, an install that cannot claim is still an install that
 // should come up and say so.
-func Backfill(ctx context.Context, store repo.Store, rt *runtime.Runtime) {
+func Backfill(ctx context.Context, store repo.Store, own EnvOwner, rt *runtime.Runtime) {
 	ids, err := store.EnvironmentsWithoutNetwork(ctx)
 	if err != nil {
 		slog.Error("overlay backfill: cannot list environments", "error", err)
 		return
 	}
 	for _, id := range ids {
-		net, err := ClaimEnv(ctx, store, rt, id)
+		net, err := ClaimEnv(ctx, store, own, rt, id)
 		if err != nil {
 			slog.Error("overlay backfill: no network for environment, its tiles stay off the overlay "+
 				"until it is deployed", "environment", id, "error", err)

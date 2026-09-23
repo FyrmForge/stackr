@@ -1068,6 +1068,74 @@ because none is a point on its own.
   `localhost` is refused by the installer and accepted by the panel today.
   Relay port 15000 is the same kind of shared constant.
 
+### 17. OrgPlanApply on the work queue
+
+Depends on: points 7 and 11. Added after 7–11 landed, because it is the one
+row from `1.8` those points did not close — the attempt is recorded in
+`04-progress.md` and `05-assumptions.md`.
+
+Rows closed: `2.5`'s `[B]` "org plan apply runs inline on the request
+context" (`api/orgconfig.go:125`, `web/org/config.go:214`).
+
+The stack-level apply went on the queue long ago. The org-level one did not,
+so approving an org plan still runs `orgconf.Runner.Apply` to completion on
+the request goroutine. What is inside it is not the whole installation, as
+first written — the declared stacks only *plan*, and their applies go on the
+queue as usual — but it is unbounded network work all the same: one bucket
+probe per declared org share, and one repository fetch per declared stack
+(twice for the ones that need the second middleware pass), plus a teardown
+per stack the file has stopped declaring.
+
+The damage is not the wait. It is that `SetOrgConfigPlanError` writes through
+the same context: a request that dies mid-apply loses the record of the
+failure, and the plan row keeps the *previous* run's message and stays
+`pending` for ever. That is the exact failure `stackconf/job.go` was written
+to stop.
+
+**Why it was not done in point 11.** Both approve handlers redirect to the
+org's *post-apply* slug, because an org plan can rename the org and the old
+slug 404s. The setup wizard is worse: its next step lives under that new
+slug. Queuing it was tried, the wizard's own journey tests failed on exactly
+that coupling, and it was reverted rather than left half done.
+
+Picks — decided:
+
+- **The redirect uses the org id, not the slug.** `loadOrg` already accepts
+  an id — that is why a bookmark from before a rename still resolves — so
+  `/orgs/<id>/plans/<planID>` survives whatever the file renames the org to.
+  This is what unblocks the whole point, and it is invisible to the user.
+- **Requeue on restart, not fail.** An org apply re-loads the file, re-diffs
+  against whatever exists now, and reconciles, which is the same convergent
+  property that decided `stackconf.RegisterApply`. Unlike a promote, it is
+  not a decision that could be re-taken wrongly.
+- **Dedupe on the plan id**, matching `stackconf.EnqueueApply`: two people
+  pressing Apply on one plan is one apply.
+- **The progress banner is the stack plan page's, lifted.**
+  `project/configplan.templ` already loads the plan's `WorkItem` and renders
+  a banner that polls itself every 2s through `hx-select` and stops when the
+  job is done, with the step text coming from the job rather than guessed
+  from the plan status. Both org plan pages get it — `orgPlanPage`
+  (settings) and `setupPlanPage` (the wizard).
+- **The wizard stays on the plan screen and advances itself.** It polls like
+  the settings page; when the job finishes the poll answers `HX-Redirect` to
+  the next step, built from the org id. Same end state as today, one
+  "Applying: …" screen in between. Not a Continue button: approving already
+  means "get on with it", and an extra click is a step the wizard never had.
+- **The API answers 202 with the plan still pending**, matching
+  `POST /config/plans/:id/approve`. `stackr org config approve` reports it
+  as queued and points at the plan, which is what `stackr plan approve`
+  already does.
+
+Not in scope: `Runner.Apply` itself, which does not change. Nor the org
+share probe and the per-stack fetch inside it — those are what make it slow,
+and making them concurrent is a separate question from where they run.
+
+Files: `config/orgconf/job.go` (new, ~70 lines, modelled on
+`config/stackconf/job.go`); `cmd/stackrd/main.go` (one registration);
+`api/v1/orgconfig.go`, `web/org/config.go`, `web/org/setup.go` (approve
+paths and their two redirects); `web/org/plans.templ`, `web/org/setup.templ`
+(the banner); `internal/cli/cmd/org.go` (the approve's output line).
+
 ### Pick tally
 
 Across points 3 to 16: **66 picks, all made.** 42 by the three standing

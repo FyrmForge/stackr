@@ -18,16 +18,15 @@ import (
 
 	"github.com/FyrmForge/hamr/pkg/middleware"
 	"github.com/FyrmForge/hamr/pkg/respond"
-	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 
 	"github.com/FyrmForge/hamr/pkg/storage"
 
 	v1 "github.com/FyrmForge/stackr/internal/stackrd/handlers/api/v1"
 	stackrmw "github.com/FyrmForge/stackr/internal/stackrd/handlers/middleware"
-	"github.com/FyrmForge/stackr/internal/stackrd/handlers/notify"
 	"github.com/FyrmForge/stackr/internal/stackrd/handlers/web/avatar"
 	"github.com/FyrmForge/stackr/internal/stackrd/service"
+	"github.com/FyrmForge/stackr/internal/stackrd/service/notify"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 )
 
@@ -35,21 +34,21 @@ type handler struct {
 	store repo.Store
 	auth  *service.AuthService
 	files storage.FileStorage
+	// keys owns the token format and the key row, which this page, the CLI
+	// login's grant step and its exchange each wrote out for themselves.
+	keys *service.APIKeyService
 }
 
 // NewHandler creates a new account handler.
 func NewHandler(store repo.Store, auth *service.AuthService, files storage.FileStorage) *handler {
-	return &handler{store: store, auth: auth, files: files}
+	return &handler{store: store, auth: auth, files: files, keys: service.NewAPIKeyService(store)}
 }
 
 // me loads the signed-in user.
 func (h *handler) me(c echo.Context) (*repo.User, error) {
-	u, err := h.store.GetUserByID(c.Request().Context(), middleware.GetSubjectID(c))
+	u, err := h.auth.User(c.Request().Context(), middleware.GetSubjectID(c))
 	if err != nil {
-		return nil, err
-	}
-	if u == nil {
-		return nil, echo.NewHTTPError(http.StatusNotFound, "user not found")
+		return nil, stackrmw.HTTP(err)
 	}
 	return u, nil
 }
@@ -81,7 +80,7 @@ func (h *handler) SaveProfile(c echo.Context) error {
 	}
 	// Email is the login identifier, so a collision would lock someone out.
 	if email != u.Email {
-		if existing, _ := h.store.GetUserByEmail(ctx, email); existing != nil {
+		if existing, _ := h.auth.UserByEmail(ctx, email); existing != nil {
 			middleware.SetFlash(c, "That email is already registered.", middleware.FlashError)
 			return respond.Redirect(c, "/account/profile")
 		}
@@ -103,7 +102,7 @@ func (h *handler) SaveProfile(c echo.Context) error {
 		u.AvatarPath = ""
 	}
 	u.UpdatedAt = time.Now().UTC()
-	if err := h.store.UpdateUser(ctx, u); err != nil {
+	if err := h.auth.SaveUser(ctx, u); err != nil {
 		return err
 	}
 	middleware.SetFlash(c, "Profile saved.", middleware.FlashSuccess)
@@ -176,7 +175,7 @@ func (h *handler) takeNewKey(c echo.Context) string {
 // never shows one person another's keys, not even for an admin, who has their
 // own list here and the audit trail elsewhere.
 func (h *handler) myKeys(c echo.Context) ([]repo.APIKey, error) {
-	all, err := h.store.ListAPIKeys(c.Request().Context())
+	all, err := h.keys.ListAll(c.Request().Context())
 	if err != nil {
 		return nil, err
 	}
@@ -192,36 +191,14 @@ func (h *handler) myKeys(c echo.Context) ([]repo.APIKey, error) {
 
 // POST /account/apikeys, create a key; the token is shown once.
 func (h *handler) CreateAPIKey(c echo.Context) error {
-	name := strings.TrimSpace(c.FormValue("name"))
-	if name == "" {
-		return echo.NewHTTPError(http.StatusBadRequest, "name required")
-	}
-	// Write scopes require content-write in the active org (or server admin),
+	// Write scopes require content-write in the active org (or server admin):
 	// a key must never grant more than the person minting it already has.
-	canWrite := CanGrantWrite(c)
 	form, _ := c.FormParams()
-	granted := make([]string, 0)
-	for _, s := range form["scopes"] {
-		if !v1.ValidScope(s) || (v1.WriteScope(s) && !canWrite) {
-			continue
-		}
-		granted = append(granted, s)
-	}
-	if len(granted) == 0 {
-		return echo.NewHTTPError(http.StatusBadRequest, "select at least one permission")
-	}
-	scopesJSON, _ := json.Marshal(granted)
-	raw := "sk_" + uuid.New().String()
-	k := &repo.APIKey{
-		ID:        uuid.New().String(),
-		UserID:    middleware.GetSubjectID(c),
-		Name:      name,
-		TokenHash: v1.HashKey(raw),
-		Scopes:    string(scopesJSON),
-		CreatedAt: time.Now().UTC(),
-	}
-	if err := h.store.CreateAPIKey(c.Request().Context(), k); err != nil {
-		return err
+	granted := v1.GrantableScopes(form["scopes"], CanGrantWrite(c))
+	_, raw, err := h.keys.Mint(c.Request().Context(), middleware.GetSubjectID(c),
+		MintOrg(c), c.FormValue("name"), granted)
+	if err != nil {
+		return stackrmw.HTTP(err)
 	}
 	h.setNewKey(c, raw)
 	middleware.SetFlash(c, "API key created.", middleware.FlashSuccess)
@@ -234,7 +211,7 @@ func (h *handler) DeleteAPIKey(c echo.Context) error {
 	if !h.ownsAPIKey(c, c.Param("id")) && !stackrmw.IsAdmin(c) {
 		return echo.NewHTTPError(http.StatusNotFound, "not found")
 	}
-	if err := h.store.DeleteAPIKey(c.Request().Context(), c.Param("id")); err != nil {
+	if err := h.keys.Delete(c.Request().Context(), c.Param("id")); err != nil {
 		return err
 	}
 	middleware.SetFlash(c, "API key revoked.", middleware.FlashSuccess)
@@ -242,7 +219,7 @@ func (h *handler) DeleteAPIKey(c echo.Context) error {
 }
 
 func (h *handler) ownsAPIKey(c echo.Context, id string) bool {
-	keys, err := h.store.ListAPIKeys(c.Request().Context())
+	keys, err := h.keys.ListAll(c.Request().Context())
 	if err != nil {
 		return false
 	}
@@ -259,6 +236,45 @@ func (h *handler) ownsAPIKey(c echo.Context, id string) bool {
 // keys. Exported so the CLI authorize page applies the identical rule.
 func CanGrantWrite(c echo.Context) bool {
 	return stackrmw.CanWrite(c) || stackrmw.IsAdmin(c)
+}
+
+// MintOrg is the org a new key is bound to: the active one, which is what
+// CanGrantWrite just answered against.
+//
+// Empty for a server admin. Their write scopes come from the admin badge and
+// no org justified the grant, so binding the key to whichever org their cookie
+// happened to point at would narrow a credential on a premise that was never
+// true. Empty too when there is no active org (onboarding), which leaves the
+// key unbound — see repo.APIKey. Shared with the CLI login, which grants
+// against the same rule.
+func MintOrg(c echo.Context) string {
+	if stackrmw.IsAdmin(c) {
+		return ""
+	}
+	o, ok := stackrmw.ActiveOrg(c)
+	if !ok {
+		return ""
+	}
+	return o.ID
+}
+
+// keyOrgName names the org a key is bound to, for the list. Empty for an
+// unbound key (every key minted before the column, and every admin's), which
+// the page renders as nothing rather than as a claim about its reach.
+//
+// Read off the session's own orgs: a key is bound to an org its owner belonged
+// to at mint time, and a name that no longer resolves is one they have since
+// left, where the key is dead anyway.
+func keyOrgName(c echo.Context, k repo.APIKey) string {
+	if !k.OrgID.Valid {
+		return ""
+	}
+	for _, o := range stackrmw.Orgs(c) {
+		if o.ID == k.OrgID.String {
+			return o.Name
+		}
+	}
+	return "another organization"
 }
 
 // GET /account/notifications
@@ -289,7 +305,7 @@ func (h *handler) SaveNotifications(c echo.Context) error {
 	blob, _ := json.Marshal(prefs)
 	u.NotifyPrefs = string(blob)
 	u.UpdatedAt = time.Now().UTC()
-	if err := h.store.UpdateUser(c.Request().Context(), u); err != nil {
+	if err := h.auth.SaveUser(c.Request().Context(), u); err != nil {
 		return err
 	}
 	middleware.SetFlash(c, "Notification preferences saved.", middleware.FlashSuccess)
@@ -328,7 +344,7 @@ func (h *handler) SaveAppearance(c echo.Context) error {
 	}
 	u.Theme = theme
 	u.UpdatedAt = time.Now().UTC()
-	if err := h.store.UpdateUser(c.Request().Context(), u); err != nil {
+	if err := h.auth.SaveUser(c.Request().Context(), u); err != nil {
 		return err
 	}
 	middleware.SetFlash(c, "Theme saved.", middleware.FlashSuccess)
@@ -364,8 +380,14 @@ func (h *handler) SaveGraphPrefs(c echo.Context) error {
 	}
 	u.GraphPrefs = string(body)
 	u.UpdatedAt = time.Now().UTC()
-	if err := h.store.UpdateUser(c.Request().Context(), u); err != nil {
+	if err := h.auth.SaveUser(c.Request().Context(), u); err != nil {
 		return err
 	}
 	return c.NoContent(http.StatusNoContent)
 }
+
+// WithAuth gives the page the account service.
+func (h *handler) WithAuth(v *service.AuthService) *handler { h.auth = v; return h }
+
+// WithKeys gives the page the API-key service.
+func (h *handler) WithKeys(v *service.APIKeyService) *handler { h.keys = v; return h }

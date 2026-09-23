@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/FyrmForge/stackr/internal/stackrd/service"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/testdb"
 )
@@ -22,7 +23,7 @@ func TestEditGate(t *testing.T) {
 	t.Run("ui-managed stages", func(t *testing.T) {
 		store := testdb.New(t)
 		seed := testdb.SeedStack(t, store, false)
-		h := &handler{store: store}
+		h := &handler{store: store, gate: service.NewGateService(store)}
 		stage, err := h.editGate(ctx, seed.Stack.ID)
 		require.NoError(t, err, "ui-managed stack was refused")
 		assert.True(t, stage, "ui-managed stack did not stage")
@@ -31,7 +32,7 @@ func TestEditGate(t *testing.T) {
 	t.Run("config-managed refuses by default", func(t *testing.T) {
 		store := testdb.New(t)
 		seed := testdb.SeedStack(t, store, true)
-		h := &handler{store: store}
+		h := &handler{store: store, gate: service.NewGateService(store)}
 		stage, err := h.editGate(ctx, seed.Stack.ID)
 		assert.False(t, stage, "a blocked stack must not stage")
 		he, ok := err.(*echo.HTTPError)
@@ -44,7 +45,7 @@ func TestEditGate(t *testing.T) {
 		seed := testdb.SeedStack(t, store, true)
 		seed.Stack.UIEditsMode = repo.UIEditsStage
 		require.NoError(t, store.UpdateStack(ctx, seed.Stack), "update stack")
-		h := &handler{store: store}
+		h := &handler{store: store, gate: service.NewGateService(store)}
 		stage, err := h.editGate(ctx, seed.Stack.ID)
 		require.NoError(t, err, "ui_edits: stage was still refused")
 		assert.True(t, stage, "ui_edits: stage did not stage")
@@ -53,7 +54,7 @@ func TestEditGate(t *testing.T) {
 	// Fails closed: a stack that cannot be read is not an allowed write.
 	t.Run("missing stack refuses", func(t *testing.T) {
 		store := testdb.New(t)
-		h := &handler{store: store}
+		h := &handler{store: store, gate: service.NewGateService(store)}
 		_, err := h.editGate(ctx, "nope")
 		he, ok := err.(*echo.HTTPError)
 		require.True(t, ok, "want an HTTP error, got %v", err)

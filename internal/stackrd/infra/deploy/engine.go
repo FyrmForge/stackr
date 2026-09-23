@@ -17,12 +17,13 @@ import (
 	"sync"
 	"time"
 
+	"github.com/FyrmForge/stackr/internal/deploystate"
+
 	"github.com/google/uuid"
 
 	"github.com/FyrmForge/stackr/internal/stackrd/config/runpolicy"
 	"github.com/FyrmForge/stackr/internal/stackrd/config/settings"
 	"github.com/FyrmForge/stackr/internal/stackrd/config/varref"
-	"github.com/FyrmForge/stackr/internal/stackrd/handlers/notify"
 	"github.com/FyrmForge/stackr/internal/stackrd/handlers/stream"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/cluster"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/envnet"
@@ -32,6 +33,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/runtime"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/storagetiles"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/workqueue"
+	"github.com/FyrmForge/stackr/internal/stackrd/service/notify"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 )
 
@@ -47,6 +49,16 @@ type Engine struct {
 	hub      *stream.Hub
 	notifier *notify.Notifier
 	dataDir  string
+	// rows is the services that own the rows a deploy writes: the deployment
+	// itself, the tile's status, the environment's overlay, a shared
+	// instance's overlay, the proxy address.
+	//
+	// Rows is the superset of managedtiles.Rows so one field serves both this
+	// package and the managed-tile service it builds. service.Rows satisfies
+	// it; nothing else should.
+	rows Rows
+	// regs owns the registry row and the credential the panel issues itself.
+	regs registry.Registries
 
 	// GitAuth optionally returns extra environment lines (GIT_CONFIG_*) that
 	// authenticate the tile's fetch/clone (e.g. a GitHub App installation
@@ -120,14 +132,14 @@ func (e *Engine) WithWork(q *workqueue.Queue) *Engine {
 			if err := j.Payload(&p); err != nil {
 				return
 			}
-			d, err := e.store.GetDeployment(ctx, p.DeploymentID)
+			d, err := e.rows.Row(ctx, p.DeploymentID)
 			if err != nil || d == nil || d.Status != "queued" {
 				return
 			}
 			d.Status = "cancelled"
 			d.Error = "superseded by a newer deploy"
 			d.FinishedAt = sql.NullTime{Time: time.Now().UTC(), Valid: true}
-			if err := e.store.UpdateDeployment(ctx, d); err != nil {
+			if err := e.rows.DeploymentProgress(ctx, d); err != nil {
 				slog.Error("superseded deploy not marked cancelled", "deployment", d.ID, "error", err)
 			}
 			e.hub.Publish("deploy-status:"+d.ID, "cancelled")
@@ -141,7 +153,7 @@ func (e *Engine) WithWork(q *workqueue.Queue) *Engine {
 // newer deploy) is left exactly as it is: the work item is stale then, and
 // run() declines it on the status check.
 func (e *Engine) reopen(ctx context.Context, deploymentID string) error {
-	d, err := e.store.GetDeployment(ctx, deploymentID)
+	d, err := e.rows.Row(ctx, deploymentID)
 	if err != nil || d == nil {
 		return err
 	}
@@ -153,7 +165,7 @@ func (e *Engine) reopen(ctx context.Context, deploymentID string) error {
 	d.Status = "queued"
 	d.Error = ""
 	d.FinishedAt = sql.NullTime{}
-	return e.store.UpdateDeployment(ctx, d)
+	return e.rows.DeploymentProgress(ctx, d)
 }
 
 // dispatch hands a queued deployment to whichever runner is wired.
@@ -177,13 +189,33 @@ func (e *Engine) dispatch(ctx context.Context, d *repo.Deployment) error {
 func (e *Engine) failQueued(ctx context.Context, d *repo.Deployment, msg string) error {
 	d.Status = "error"
 	d.Error = msg
-	if err := e.store.UpdateDeployment(ctx, d); err != nil {
+	if err := e.rows.DeploymentProgress(ctx, d); err != nil {
 		slog.Error("queued deploy not marked failed", "deployment", d.ID, "error", err)
 	}
 	return fmt.Errorf("%s", msg)
 }
 
-func NewEngine(store repo.Store, rt *runtime.Runtime, clus *cluster.Cluster, hub *stream.Hub, dataDir string, notifier *notify.Notifier) *Engine {
+// Rows is what a deploy writes that is not this package's to own. Declared
+// here rather than imported because service/ is built on top of this package.
+//
+// A deployment row and a tile status are state, not config — there is no rule
+// on the other side of these. What the indirection buys is one owner per
+// table, so the next writer has a door to find instead of a store handle.
+type Rows interface {
+	managedtiles.Rows
+	RecordDeployment(ctx context.Context, d *repo.Deployment) error
+	DeploymentProgress(ctx context.Context, d *repo.Deployment) error
+	// The read half of the same table. The engine is below the service that
+	// owns it, so it asks through here rather than through the store — the
+	// point being that "what image is this tile running" has one answer, not
+	// one per package that wants it.
+	Row(ctx context.Context, id string) (*repo.Deployment, error)
+	ForTile(ctx context.Context, tileID string, limit int) ([]repo.Deployment, error)
+	CurrentImage(ctx context.Context, tileID string) (string, error)
+	Waiting(ctx context.Context) ([]repo.Deployment, error)
+}
+
+func NewEngine(store repo.Store, rt *runtime.Runtime, clus *cluster.Cluster, hub *stream.Hub, dataDir string, notifier *notify.Notifier, rows Rows, regs registry.Registries) *Engine {
 	e := &Engine{
 		store:    store,
 		rt:       rt,
@@ -191,6 +223,8 @@ func NewEngine(store repo.Store, rt *runtime.Runtime, clus *cluster.Cluster, hub
 		hub:      hub,
 		notifier: notifier,
 		dataDir:  dataDir,
+		rows:     rows,
+		regs:     regs,
 		queue:    make(chan string, 256),
 		cancels:  map[string]context.CancelFunc{},
 	}
@@ -222,7 +256,7 @@ func (e *Engine) Enqueue(ctx context.Context, app *repo.Tile, trigger string) (s
 		Trigger:   trigger,
 		CreatedAt: time.Now().UTC(),
 	}
-	if err := e.store.CreateDeployment(ctx, d); err != nil {
+	if err := e.rows.RecordDeployment(ctx, d); err != nil {
 		return "", err
 	}
 	if err := e.dispatch(ctx, d); err != nil {
@@ -252,18 +286,14 @@ func (e *Engine) EnqueuePromote(ctx context.Context, app *repo.Tile, commitSHA s
 }
 
 // CurrentImage is the tag of the tile's newest successful deployment, "" when
-// it has never deployed.
+// it has never deployed. The loop itself belongs to the service that owns the
+// table; infra/jobs had its own copy of it, byte for byte.
 func (e *Engine) CurrentImage(ctx context.Context, app *repo.Tile) string {
-	deps, err := e.store.ListDeploymentsByTile(ctx, app.ID, 20)
+	tag, err := e.rows.CurrentImage(ctx, app.ID)
 	if err != nil {
 		return ""
 	}
-	for _, d := range deps {
-		if d.Status == "done" && d.ImageTag != "" {
-			return d.ImageTag
-		}
-	}
-	return ""
+	return tag
 }
 
 // EnqueueCurrent restarts the tile on the image it already runs, with the
@@ -289,7 +319,7 @@ func (e *Engine) enqueueImage(ctx context.Context, app *repo.Tile, trigger, imag
 		CommitSHA: commitSHA,
 		CreatedAt: time.Now().UTC(),
 	}
-	if err := e.store.CreateDeployment(ctx, d); err != nil {
+	if err := e.rows.RecordDeployment(ctx, d); err != nil {
 		return "", err
 	}
 	if err := e.dispatch(ctx, d); err != nil {
@@ -306,13 +336,13 @@ func (e *Engine) Cancel(ctx context.Context, deploymentID string) {
 		cancel()
 		return
 	}
-	d, err := e.store.GetDeployment(ctx, deploymentID)
-	if err != nil || d == nil || (d.Status != "queued" && d.Status != "waiting_ci") {
+	d, err := e.rows.Row(ctx, deploymentID)
+	if err != nil || d == nil || !deploystate.IsCancellable(d.Status) {
 		return
 	}
 	d.Status = "cancelled"
 	d.FinishedAt = sql.NullTime{Time: time.Now().UTC(), Valid: true}
-	if err := e.store.UpdateDeployment(ctx, d); err != nil {
+	if err := e.rows.DeploymentProgress(ctx, d); err != nil {
 		slog.Error("deploy not marked cancelled", "deployment", d.ID, "error", err)
 	}
 }
@@ -330,7 +360,7 @@ func (e *Engine) Park(ctx context.Context, app *repo.Tile, trigger, commitSHA st
 		CommitSHA: commitSHA,
 		CreatedAt: time.Now().UTC(),
 	}
-	if err := e.store.CreateDeployment(ctx, d); err != nil {
+	if err := e.rows.RecordDeployment(ctx, d); err != nil {
 		return "", err
 	}
 	e.hub.Publish("deploy-status:"+d.ID, "waiting_ci")
@@ -340,7 +370,7 @@ func (e *Engine) Park(ctx context.Context, app *repo.Tile, trigger, commitSHA st
 // Release moves a parked deployment into the build queue.
 func (e *Engine) Release(ctx context.Context, d *repo.Deployment) error {
 	d.Status = "queued"
-	if err := e.store.UpdateDeployment(ctx, d); err != nil {
+	if err := e.rows.DeploymentProgress(ctx, d); err != nil {
 		return err
 	}
 	return e.dispatch(ctx, d)
@@ -352,7 +382,7 @@ func (e *Engine) FailWaiting(ctx context.Context, d *repo.Deployment, msg string
 	d.Status = "error"
 	d.Error = msg
 	d.FinishedAt = sql.NullTime{Time: time.Now().UTC(), Valid: true}
-	if err := e.store.UpdateDeployment(ctx, d); err != nil {
+	if err := e.rows.DeploymentProgress(ctx, d); err != nil {
 		slog.Error("parked deploy not marked failed", "deployment", d.ID, "error", err)
 	}
 	e.hub.Publish("deploy-status:"+d.ID, "error")
@@ -360,7 +390,7 @@ func (e *Engine) FailWaiting(ctx context.Context, d *repo.Deployment, msg string
 
 // SupersedeWaiting cancels a tile's parked waiting_ci deployments.
 func (e *Engine) SupersedeWaiting(ctx context.Context, tileID, note string) {
-	ds, err := e.store.ListDeploymentsByStatus(ctx, "waiting_ci")
+	ds, err := e.rows.Waiting(ctx)
 	if err != nil {
 		return
 	}
@@ -372,7 +402,7 @@ func (e *Engine) SupersedeWaiting(ctx context.Context, tileID, note string) {
 		d.Status = "cancelled"
 		d.Error = note
 		d.FinishedAt = sql.NullTime{Time: time.Now().UTC(), Valid: true}
-		if err := e.store.UpdateDeployment(ctx, d); err != nil {
+		if err := e.rows.DeploymentProgress(ctx, d); err != nil {
 			slog.Error("deploy not marked cancelled", "deployment", d.ID, "error", err)
 		}
 		e.hub.Publish("deploy-status:"+d.ID, "cancelled")
@@ -452,7 +482,7 @@ func (e *Engine) run(deploymentID string) {
 		e.mu.Unlock()
 	}()
 
-	d, err := e.store.GetDeployment(ctx, deploymentID)
+	d, err := e.rows.Row(ctx, deploymentID)
 	if err != nil || d == nil || d.Status != "queued" {
 		return
 	}
@@ -470,10 +500,10 @@ func (e *Engine) run(deploymentID string) {
 
 	d.Status = "running"
 	d.StartedAt = sql.NullTime{Time: time.Now().UTC(), Valid: true}
-	if err := e.store.UpdateDeployment(ctx, d); err != nil {
+	if err := e.rows.DeploymentProgress(ctx, d); err != nil {
 		slog.Error("deploy not marked running", "deployment", d.ID, "error", err)
 	}
-	if err := e.store.UpdateTileStatus(ctx, app.ID, "building"); err != nil {
+	if err := e.rows.SetTileStatus(ctx, app.ID, "building"); err != nil {
 		slog.Error("tile not marked building", "tile", app.ID, "error", err)
 	}
 	e.hub.Publish("deploy-status:"+d.ID, "running")
@@ -506,7 +536,7 @@ func (e *Engine) run(deploymentID string) {
 			// the whole fix.
 			tileStatus = WaitingPrefix + name
 		}
-		if err := e.store.UpdateTileStatus(context.Background(), app.ID, tileStatus); err != nil {
+		if err := e.rows.SetTileStatus(context.Background(), app.ID, tileStatus); err != nil {
 			slog.Error("tile status not saved", "tile", app.ID, "status", tileStatus, "error", err)
 		}
 	} else {
@@ -518,11 +548,11 @@ func (e *Engine) run(deploymentID string) {
 		if pol, ok := runpolicy.For(app.Kind); ok && !pol.KeepAlive {
 			status = "idle"
 		}
-		if err := e.store.UpdateTileStatus(context.Background(), app.ID, status); err != nil {
+		if err := e.rows.SetTileStatus(context.Background(), app.ID, status); err != nil {
 			slog.Error("tile status not saved", "tile", app.ID, "status", status, "error", err)
 		}
 	}
-	if err := e.store.UpdateDeployment(context.Background(), d); err != nil {
+	if err := e.rows.DeploymentProgress(context.Background(), d); err != nil {
 		slog.Error("final deploy status not saved", "deployment", d.ID, "status", d.Status, "error", err)
 	}
 	e.hub.Publish("deploy-status:"+d.ID, d.Status)
@@ -530,8 +560,8 @@ func (e *Engine) run(deploymentID string) {
 	e.notifier.Containers()
 	switch d.Status {
 	case "error":
-		e.notifier.Push(context.Background(), notify.KindDeployFailed,
-			"Deploy failed: "+app.Name, d.Error, "/deployments/"+d.ID)
+		title, body := notify.DeployFailed(app.Name, d.Error)
+		e.notifier.Push(context.Background(), notify.KindDeployFailed, title, body, "/deployments/"+d.ID)
 	case "done":
 		e.notifier.Push(context.Background(), notify.KindDeployDone,
 			"Deployed "+app.Name, "", "/deployments/"+d.ID)
@@ -607,7 +637,7 @@ func (e *Engine) pipeline(ctx context.Context, d *repo.Deployment, app *repo.Til
 		}
 		d.CommitSHA = sha
 		d.ImageTag = ""
-		if err := e.store.UpdateDeployment(ctx, d); err != nil {
+		if err := e.rows.DeploymentProgress(ctx, d); err != nil {
 			slog.Error("deploy commit not saved", "deployment", d.ID, "sha", sha, "error", err)
 		}
 
@@ -644,7 +674,7 @@ func (e *Engine) pipeline(ctx context.Context, d *repo.Deployment, app *repo.Til
 		}
 	}
 	d.ImageTag = imageRef
-	if err := e.store.UpdateDeployment(ctx, d); err != nil {
+	if err := e.rows.DeploymentProgress(ctx, d); err != nil {
 		slog.Error("deploy image tag not saved", "deployment", d.ID, "image", imageRef, "error", err)
 	}
 
@@ -658,7 +688,7 @@ func (e *Engine) pipeline(ctx context.Context, d *repo.Deployment, app *repo.Til
 	}
 
 	// Run the new container on its environment's network, then retire the old.
-	sc, netName, err := envnet.Ensure(ctx, e.store, e.clus, app)
+	sc, netName, err := envnet.Ensure(ctx, e.store, e.rows, e.clus, app)
 	if err != nil {
 		return fmt.Errorf("environment network: %w", err)
 	}
@@ -668,7 +698,7 @@ func (e *Engine) pipeline(ctx context.Context, d *repo.Deployment, app *repo.Til
 	// Reconcile provisioned deps from their rows (recreate a dropped db/bucket +
 	// republish its secret) before resolving secrets, so a self-healed secret is
 	// available in this same deploy.
-	managedtiles.NewService(e.clus, e.store).EnsureProvisions(ctx, app, w)
+	managedtiles.NewService(e.clus, e.store, e.rows).EnsureProvisions(ctx, app, w)
 	// A dependency parked on an unset value never comes up, so neither does
 	// this tile. Park it on the same name instead of starting it against a
 	// dependency that is not there.
@@ -726,7 +756,7 @@ func (e *Engine) pipeline(ctx context.Context, d *repo.Deployment, app *repo.Til
 	// here on first deploy and is refused outright if that node has left the
 	// swarm, never rescheduled onto an empty volume
 	// (docs/plans/30-docker-swarm.md, addendum).
-	place, err := placement.For(ctx, e.store, e.rt, app)
+	place, err := placement.For(ctx, e.store, e.rows, e.rt, app)
 	if err != nil {
 		return err
 	}
@@ -795,7 +825,7 @@ func (e *Engine) pruneImages(ctx context.Context, app *repo.Tile) {
 		if siblings[i].Slug != app.Slug {
 			continue
 		}
-		deps, err := e.store.ListDeploymentsByTile(ctx, siblings[i].ID, 100)
+		deps, err := e.rows.ForTile(ctx, siblings[i].ID, 100)
 		if err != nil {
 			continue
 		}
@@ -873,7 +903,7 @@ func shortSHA(sha, deployID string) string {
 func (e *Engine) pushToRegistry(ctx context.Context, app *repo.Tile, imageRef string, w io.Writer) (string, string, error) {
 	// One registry: the managed one. The per-tile override column never had a
 	// writer and is gone (migration 013).
-	reg, err := e.store.GetManagedRegistry(ctx)
+	reg, err := e.regs.ManagedOrNil(ctx)
 	if err != nil {
 		return "", "", err
 	}
@@ -889,7 +919,7 @@ func (e *Engine) pushToRegistry(ctx context.Context, app *repo.Tile, imageRef st
 	// `docker login`: the daemon config is shared by every org on the node, so
 	// logging in for one org would leave its push credential usable by the
 	// next org's build.
-	_, org, secret, err := registry.OrgCredential(ctx, e.store, app)
+	_, org, secret, err := registry.OrgCredential(ctx, e.store, e.regs, app)
 	if err != nil {
 		return "", "", err
 	}
@@ -922,7 +952,7 @@ func (e *Engine) managedAuth(ctx context.Context, app *repo.Tile, imageRef strin
 	if !ok || !strings.ContainsAny(host, ".:") {
 		return "" // docker hub, no host segment
 	}
-	at, auth, err := registry.OrgPullAuth(ctx, e.store, e.rt, app)
+	at, auth, err := registry.OrgPullAuth(ctx, e.store, e.regs, e.rt, app)
 	if err != nil || at != host {
 		return ""
 	}
@@ -1265,9 +1295,10 @@ func splitLines(s string) []string {
 func (e *Engine) volumeBinds(ctx context.Context, app *repo.Tile) []string {
 	binds := []string{}
 	if tiles, err := e.store.ListTilesByEnv(ctx, app.EnvironmentID); err == nil {
-		for i := range tiles {
-			t := &tiles[i]
-			if t.IsVolume() && t.AttachedTileID == app.ID && t.MountPath != "" {
+		for _, t := range repo.VolumesAttachedTo(tiles, app.ID) {
+			// A volume with no mount path is attached but not yet placed;
+			// binding it as "name:" would be a malformed bind string.
+			if t.MountPath != "" {
 				binds = append(binds, t.DockerVolume()+":"+t.MountPath)
 			}
 		}

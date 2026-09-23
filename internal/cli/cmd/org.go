@@ -15,7 +15,7 @@ func newOrgCmd(rt *Runtime) *cobra.Command {
 config binding is set in the panel (org settings → Config as code), and the
 rest of this covers the plan/approve loop.`,
 	}
-	cmd.AddCommand(orgLsCmd(rt), orgRegistryCmd(rt), orgDefaultsCmd(rt), orgExportCmd(rt), orgMembersCmd(rt), orgInvitesCmd(rt), orgPreviewCmd(rt), orgPlanCmd(rt), orgPlansCmd(rt), orgApproveCmd(rt), orgRejectCmd(rt))
+	cmd.AddCommand(orgLsCmd(rt), orgRegistryCmd(rt), orgDefaultsCmd(rt), orgExportCmd(rt), orgMembersCmd(rt), orgInvitesCmd(rt), orgPreviewCmd(rt), orgPlanCmd(rt), orgPlansCmd(rt), orgPlanShowCmd(rt), orgApproveCmd(rt), orgRejectCmd(rt))
 	return cmd
 }
 
@@ -103,30 +103,61 @@ func orgPlansCmd(rt *Runtime) *cobra.Command {
 	}
 }
 
-func orgApproveCmd(rt *Runtime) *cobra.Command {
+func orgPlanShowCmd(rt *Runtime) *cobra.Command {
 	return &cobra.Command{
-		Use:   "approve <plan-id>",
-		Short: "Apply an org config plan",
-		Long: `Apply an org plan. Always confirms: the API has no read-one-org-plan route,
-so the CLI cannot check what the plan does before applying it. Skip with
---yes / -y.`,
-		Args: cobra.ExactArgs(1),
+		Use:   "plan-show <plan-id>",
+		Short: "Read an org config plan",
+		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := rt.Confirm(fmt.Sprintf("Apply org plan %s? (its contents cannot be previewed here)", args[0])); err != nil {
-				return err
-			}
 			client, err := rt.Client()
 			if err != nil {
 				return err
 			}
-			p, err := client.ApproveOrgPlan(cmd.Context(), args[0])
+			p, err := client.OrgPlan(cmd.Context(), args[0])
+			if err != nil {
+				return err
+			}
+			return rt.emitPlan(p, "org")
+		},
+	}
+}
+
+func orgApproveCmd(rt *Runtime) *cobra.Command {
+	return &cobra.Command{
+		Use:   "approve <plan-id>",
+		Short: "Apply an org config plan",
+		Long: `Apply an org plan. Reads the plan first and confirms only when it
+deletes something, the same way ` + "`stackr plan approve`" + ` does. Skip with --yes / -y.`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			client, err := rt.Client()
+			if err != nil {
+				return err
+			}
+			// Fetch first: this used to confirm unconditionally, because
+			// there was no route to read an org plan and the CLI was
+			// approving something nobody could see.
+			p, err := client.OrgPlan(cmd.Context(), args[0])
+			if err != nil {
+				return err
+			}
+			if p.Destructive {
+				if err := rt.Confirm(fmt.Sprintf("Org plan %s deletes running things. Apply it?", args[0])); err != nil {
+					return err
+				}
+			}
+			p, err = client.ApproveOrgPlan(cmd.Context(), args[0])
 			if err != nil {
 				return err
 			}
 			if rt.JSON {
 				return rt.EmitJSON(p)
 			}
-			_, _ = fmt.Fprintf(rt.Stdout, "%s applied: %s\n", p.ID, p.Summary)
+			// Queued, not applied: the server answers 202 and the apply runs
+			// on its work queue, the same as `stackr plan approve`. The plan
+			// row is where the outcome lands.
+			_, _ = fmt.Fprintf(rt.Stdout, "%s queued: %s\n", p.ID, p.Summary)
+			_, _ = fmt.Fprintf(rt.Stdout, "Follow it with: stackr org plan-show %s\n", p.ID)
 			return nil
 		},
 	}

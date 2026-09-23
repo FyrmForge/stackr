@@ -66,32 +66,16 @@ func (a Applier) resolveFrom(ctx context.Context, stack *repo.Stack, env *repo.E
 // createSlice provisions (or adopts) a config-declared slice. The config key
 // is the resource slug; consumers are whichever tiles reference it.
 func (a Applier) createSlice(ctx context.Context, stack *repo.Stack, env *repo.Environment, slug string, tc TileConf) error {
-	if a.DBs == nil {
+	if a.Slices == nil {
 		return nil // no database service wired (tests, spec-only construction)
 	}
-	store := a.Planner.Store
 	inst, err := a.resolveFrom(ctx, stack, env, tc.From)
 	if err != nil {
 		return fmt.Errorf("slice %s: %w", slug, err)
 	}
-	// Eligible reads scope off the consumer's stack/env, which for a slice is
-	// the declaring env itself.
-	if !managedtiles.Eligible(ctx, store, inst, &repo.Tile{StackID: stack.ID, EnvironmentID: env.ID}) {
-		return fmt.Errorf("slice %s: %s is not shared widely enough to provision from here", slug, tc.From)
-	}
-	// Cutting a slice execs into the instance's container, so it has to be
-	// accepting connections first, one apply can create the instance and its
-	// slices together.
-	if err := a.DBs.WaitReady(ctx, inst, 90*time.Second); err != nil {
-		return fmt.Errorf("slice %s: %s: %w", slug, tc.From, err)
-	}
 	// An ephemeral (PR) env never adopts: it gets a fresh uniquified copy under
 	// the same reference slug, so previews can't touch another env's data.
-	provision := a.DBs.ProvisionSlice
-	if env.Type == "ephemeral" {
-		provision = a.DBs.CloneSlice
-	}
-	p, err := provision(ctx, inst, env.ID, slug, tc.SliceName(slug), tc.Public)
+	p, err := a.Slices.Cut(ctx, inst, env, slug, tc.SliceName(slug), tc.Public, env.Type == "ephemeral")
 	if err != nil {
 		return fmt.Errorf("slice %s: %w", slug, err)
 	}
@@ -101,7 +85,7 @@ func (a Applier) createSlice(ctx context.Context, stack *repo.Stack, env *repo.E
 // updateSlice applies in-place slice changes: on_remove policy and (s3) the
 // public flag. From/name changes never reach here, diffSlice replaces.
 func (a Applier) updateSlice(ctx context.Context, stack *repo.Stack, env *repo.Environment, slug string, tc TileConf, fields map[string]bool) error {
-	if a.DBs == nil {
+	if a.Slices == nil {
 		return nil
 	}
 	inst, p, err := a.findSlice(ctx, env, slug)
@@ -109,7 +93,10 @@ func (a Applier) updateSlice(ctx context.Context, stack *repo.Stack, env *repo.E
 		return fmt.Errorf("slice %s: not found in %s", slug, env.Slug)
 	}
 	if fields["public"] {
-		if err := a.DBs.SetBucketPublic(ctx, inst, p, tc.Public); err != nil {
+		// Every consumer's row moves, not just the representative one this
+		// found: the policy belongs to the bucket, and flipping one row left
+		// the others claiming the old visibility for ever.
+		if err := a.Slices.SetPublic(ctx, inst, p, tc.Public); err != nil {
 			return fmt.Errorf("slice %s: %w", slug, err)
 		}
 	}
@@ -133,7 +120,7 @@ func (a Applier) stampSlicePolicy(ctx context.Context, p *repo.Provision, tc Til
 // removeSlice is the strict-mode removal of a slice entry: the held on_remove
 // policy decides between orphaning (keep, default) and destroying the data.
 func (a Applier) removeSlice(ctx context.Context, env *repo.Environment, slug string) (bool, error) {
-	if a.DBs == nil {
+	if a.Slices == nil {
 		return false, nil
 	}
 	inst, p, err := a.findSlice(ctx, env, slug)
@@ -144,9 +131,12 @@ func (a Applier) removeSlice(ctx context.Context, env *repo.Environment, slug st
 		return false, nil // not a slice (or already gone)
 	}
 	if p.OnRemove == "drop" {
-		return true, a.DBs.DropDB(ctx, inst, p.DBName)
+		return true, a.Slices.Drop(ctx, inst, p.DBName)
 	}
-	return true, a.DBs.Detach(ctx, p)
+	// Detach by consumer id, which a config-declared slice does not have; the
+	// row is orphaned directly.
+	p.ConsumerTileID, p.Status = "", "orphaned"
+	return true, a.Planner.Store.UpdateProvision(ctx, p)
 }
 
 // findSlice locates the live slice a slug names in an env: its instance and a

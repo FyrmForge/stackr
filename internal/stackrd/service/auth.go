@@ -7,11 +7,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/FyrmForge/hamr/pkg/auth"
+	"github.com/FyrmForge/hamr/pkg/validate"
 	"github.com/google/uuid"
 
+	"github.com/FyrmForge/stackr/internal/stackrd/service/svcerr"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 )
 
@@ -19,6 +22,30 @@ var (
 	ErrEmailTaken         = errors.New("email already registered")
 	ErrInvalidCredentials = errors.New("invalid credentials")
 )
+
+// NormalizeEmail is how an address is spelled everywhere: trimmed and
+// lower-cased. Eight handlers did this and one did not — the profile save —
+// so changing your own name with a capital in the address wrote a row no
+// login could find again.
+//
+// The store folds too (repo.FoldEmail on the lookup), which is what makes
+// this belt and braces rather than the only thing standing between a user
+// and their account.
+func NormalizeEmail(email string) string {
+	return strings.ToLower(strings.TrimSpace(email))
+}
+
+// ValidatePassword is the one strength rule. It lived in three handlers as
+// two different rules: the register form ran hamr's full strength check and
+// the invite-accept and change-password forms asked for eight characters, so
+// the weakest password the product accepted depended on which form you used
+// to set it.
+func ValidatePassword(password string) error {
+	if msg := validate.PasswordStrength(password); msg != "" {
+		return invalid("password", msg)
+	}
+	return nil
+}
 
 // AuthService handles authentication logic.
 type AuthService struct {
@@ -32,6 +59,10 @@ func NewAuthService(store repo.Store) *AuthService {
 
 // Register creates a new user with a hashed password.
 func (s *AuthService) Register(ctx context.Context, email, password, name string) (*repo.User, error) {
+	if err := ValidatePassword(password); err != nil {
+		return nil, err
+	}
+	email = NormalizeEmail(email)
 	existing, err := s.store.GetUserByEmail(ctx, email)
 	if err != nil {
 		return nil, fmt.Errorf("check existing user: %w", err)
@@ -88,6 +119,9 @@ func (s *AuthService) ChangePassword(ctx context.Context, userID, current, next 
 	if !ok {
 		return ErrInvalidCredentials
 	}
+	if err := ValidatePassword(next); err != nil {
+		return err
+	}
 	hash, err := auth.HashPassword(next)
 	if err != nil {
 		return fmt.Errorf("hash password: %w", err)
@@ -102,7 +136,7 @@ func (s *AuthService) ChangePassword(ctx context.Context, userID, current, next 
 
 // Authenticate verifies credentials and returns the user.
 func (s *AuthService) Authenticate(ctx context.Context, email, password string) (*repo.User, error) {
-	user, err := s.store.GetUserByEmail(ctx, email)
+	user, err := s.store.GetUserByEmail(ctx, NormalizeEmail(email))
 	if err != nil {
 		return nil, fmt.Errorf("find user: %w", err)
 	}
@@ -119,4 +153,40 @@ func (s *AuthService) Authenticate(ctx context.Context, email, password string) 
 	}
 
 	return user, nil
+}
+
+// --- the user row ---
+
+// User is one account by id.
+func (s *AuthService) User(ctx context.Context, id string) (*repo.User, error) {
+	u, err := s.store.GetUserByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if u == nil {
+		return nil, svcerr.ErrNotFound
+	}
+	return u, nil
+}
+
+// Users is every account on the server. The admin user list and the two
+// pickers that need a name for an id; there is no org-scoped variant, because
+// an account is not org-scoped — membership is, and that is MemberService's.
+func (s *AuthService) Users(ctx context.Context) ([]repo.User, error) {
+	return s.store.ListUsers(ctx)
+}
+
+// SaveUser writes an account back. The rules that guard what may change —
+// the password, the role, the active flag — belong to the callers that own
+// them (ChangePassword here, the admin page's own checks); this is the write
+// itself, so no handler needs the store to make it.
+func (s *AuthService) SaveUser(ctx context.Context, u *repo.User) error {
+	return s.store.UpdateUser(ctx, u)
+}
+
+// UserByEmail is one account by address, nil when there is none. Nil rather
+// than ErrNotFound: its callers are asking "is this address taken", where
+// absent is the answer they want.
+func (s *AuthService) UserByEmail(ctx context.Context, email string) (*repo.User, error) {
+	return s.store.GetUserByEmail(ctx, email)
 }

@@ -20,7 +20,7 @@ import (
 // picked up either.
 func TestMatchReattachesARowWhoseNodeRejoined(t *testing.T) {
 	store := testdb.New(t)
-	s := &Service{Store: store}
+	s := &Service{Store: store, Rows: testdb.NodeRows{Store: store}}
 	ctx := context.Background()
 
 	sv := &repo.Server{
@@ -58,7 +58,7 @@ func TestMatchReattachesARowWhoseNodeRejoined(t *testing.T) {
 // real machine.
 func TestMatchRefusesToClaimANodeAnotherRowAlreadyHas(t *testing.T) {
 	store := testdb.New(t)
-	s := &Service{Store: store}
+	s := &Service{Store: store, Rows: testdb.NodeRows{Store: store}}
 	ctx := context.Background()
 
 	node := runtime.Node{
@@ -93,7 +93,7 @@ func TestMatchRefusesToClaimANodeAnotherRowAlreadyHas(t *testing.T) {
 // good while Sync's adoption loop stays disabled behind it.
 func TestAddNodeRefusesAnAddressAlreadyAdded(t *testing.T) {
 	store := testdb.New(t)
-	s := &Service{Store: store}
+	s := &Service{Store: store, Rows: testdb.NodeRows{Store: store}}
 	ctx := context.Background()
 
 	sv, key, err := s.AddNode(ctx, "worker-2", "10.0.0.20")

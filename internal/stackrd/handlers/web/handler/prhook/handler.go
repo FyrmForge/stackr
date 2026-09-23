@@ -9,33 +9,41 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
-	"time"
 
-	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 
 	"github.com/FyrmForge/stackr/internal/stackrd/config/envops"
 	"github.com/FyrmForge/stackr/internal/stackrd/config/orgconf"
+	"github.com/FyrmForge/stackr/internal/stackrd/config/settings"
 	"github.com/FyrmForge/stackr/internal/stackrd/config/stackconf"
-	"github.com/FyrmForge/stackr/internal/stackrd/handlers/notify"
+	stackrmw "github.com/FyrmForge/stackr/internal/stackrd/handlers/middleware"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/deploy"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/githubapp"
-	"github.com/FyrmForge/stackr/internal/stackrd/infra/jobs"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/workqueue"
+	"github.com/FyrmForge/stackr/internal/stackrd/service"
+	"github.com/FyrmForge/stackr/internal/stackrd/service/notify"
+	"github.com/FyrmForge/stackr/internal/stackrd/service/scheduler"
+	"github.com/FyrmForge/stackr/internal/stackrd/service/svcerr"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 )
 
 type handler struct {
-	store   repo.Store
-	engine  *deploy.Engine
-	jobs    *jobs.Service
+	store  repo.Store
+	engine *deploy.Engine
+	// sched re-registers the cron and backup tables after a write that
+	// changes or cascades their rows.
+	sched   *scheduler.Service
 	ops     envops.Ops
+	envs    *service.EnvironmentService
+	stacks  *service.StackService
+	tiles   *service.TileService
 	applier stackconf.Applier
 	gh      *githubapp.Client
 	// notifier exists only to nudge open canvases after a push re-plans: the
@@ -44,16 +52,38 @@ type handler struct {
 	notifier *notify.Notifier
 	// work is the durable job runner. An auto-apply goes on it rather than
 	// running inline on GitHub's delivery request.
-	work *workqueue.Queue
+	work       *workqueue.Queue      // prenvs owns the stored pull-request settings.
+	prenvs     *service.PREnvService // orgcfg is the org config runner, wired once in main.
+	orgcfg     *orgconf.Runner
+	orgs       *service.OrgService
+	settings   *service.SettingsService
+	connectors *service.ConnectorService
 }
 
-func NewHandler(store repo.Store, engine *deploy.Engine, jobsSvc *jobs.Service, ops envops.Ops, applier stackconf.Applier, gh *githubapp.Client, notifier *notify.Notifier) *handler {
-	return &handler{store: store, engine: engine, jobs: jobsSvc, ops: ops, applier: applier, gh: gh, notifier: notifier}
+func NewHandler(store repo.Store, engine *deploy.Engine, ops envops.Ops, applier stackconf.Applier, gh *githubapp.Client, notifier *notify.Notifier) *handler {
+	return &handler{store: store, engine: engine, ops: ops, applier: applier, gh: gh, notifier: notifier}
 }
 
 // WithWork gives the webhook the durable runner. Without it an auto-apply runs
 // inline on the delivery request, and GitHub hangs up after about ten seconds,
 // which cancelled almost every auto-apply on push.
+// WithEnvironments gives the hook the environment service, so a preview
+// environment is created under the same rules as every other one.
+func (h *handler) WithEnvironments(e *service.EnvironmentService) *handler { h.envs = e; return h }
+
+// WithStacks and WithTiles give the hook the rows it reads to decide what a
+// push touches.
+func (h *handler) WithStacks(s *service.StackService) *handler { h.stacks = s; return h }
+
+func (h *handler) WithTiles(t *service.TileService) *handler { h.tiles = t; return h }
+
+// WithOrgConfig gives the hook the org config runner.
+func (h *handler) WithOrgConfig(r *orgconf.Runner) *handler { h.orgcfg = r; return h }
+
+// WithPREnvs gives the hook the pull-request settings service, so the file's
+// comment:/status:/enabled: land through the same writer the panel uses.
+func (h *handler) WithPREnvs(p *service.PREnvService) *handler { h.prenvs = p; return h }
+
 func (h *handler) WithWork(q *workqueue.Queue) *handler { h.work = q; return h }
 
 func (h *handler) planner() stackconf.Planner { return h.applier.Planner }
@@ -81,14 +111,11 @@ type prPayload struct {
 // ignored.
 func (h *handler) Hook(c echo.Context) error {
 	ctx := c.Request().Context()
-	stack, err := h.store.GetStack(ctx, c.Param("stack"))
+	stack, err := h.stacks.Get(ctx, c.Param("stack"))
 	if err != nil {
-		return err
+		return stackrmw.HTTP(err)
 	}
-	if stack == nil {
-		return echo.NewHTTPError(http.StatusNotFound, "unknown stack")
-	}
-	cfg := envops.LoadPRConfig(ctx, h.store, stack.ID)
+	cfg := repo.LoadPRConfig(ctx, h.store, stack.ID)
 	if !cfg.Enabled {
 		return echo.NewHTTPError(http.StatusNotFound, "pr environments disabled")
 	}
@@ -106,7 +133,17 @@ func (h *handler) Hook(c echo.Context) error {
 	if err := json.Unmarshal(body, &p); err != nil || p.Number == 0 {
 		return echo.NewHTTPError(http.StatusBadRequest, "bad payload")
 	}
-
+	// Same repo check the connector route runs. Without it a webhook pointed
+	// at this stack by hand opens a pr-N environment for a repository none of
+	// its tiles track.
+	if !h.stackTracksRepo(ctx, stack.ID, &p) &&
+		!(stack.ConfigManaged() && stack.ConfigRepo == p.Repository.FullName) {
+		return c.JSON(http.StatusOK, map[string]string{"status": "ignored"})
+	}
+	// And the plan preview the connector route posts, which this one did not.
+	if stack.ConfigManaged() && stack.ConfigRepo == p.Repository.FullName {
+		h.updatePlanComment(ctx, stack, &p)
+	}
 	if err := h.dispatch(ctx, stack, cfg, &p); err != nil {
 		return err
 	}
@@ -119,12 +156,9 @@ func (h *handler) Hook(c echo.Context) error {
 // tiles track the payload repo.
 func (h *handler) HookConnector(c echo.Context) error {
 	ctx := c.Request().Context()
-	cn, err := h.store.GetConnector(ctx, c.Param("id"))
+	cn, err := h.connectors.Get(ctx, c.Param("id"))
 	if err != nil {
-		return err
-	}
-	if cn == nil {
-		return echo.NewHTTPError(http.StatusNotFound, "unknown connector")
+		return stackrmw.HTTP(err)
 	}
 	secret := githubapp.ParseConfig(cn.Config).WebhookSecret
 	if secret == "" {
@@ -143,7 +177,7 @@ func (h *handler) HookConnector(c echo.Context) error {
 		if err := json.Unmarshal(body, &p); err != nil || p.Number == 0 {
 			return echo.NewHTTPError(http.StatusBadRequest, "bad payload")
 		}
-		stacks, err := h.store.ListStacks(ctx)
+		stacks, err := h.stacks.ListAll(ctx)
 		if err != nil {
 			return err
 		}
@@ -157,7 +191,7 @@ func (h *handler) HookConnector(c echo.Context) error {
 			if stack.ConfigManaged() && stack.ConfigRepo == p.Repository.FullName {
 				h.updatePlanComment(ctx, stack, &p)
 			}
-			cfg := envops.LoadPRConfig(ctx, h.store, stack.ID)
+			cfg := repo.LoadPRConfig(ctx, h.store, stack.ID)
 			if !cfg.Enabled || !h.stackTracksRepo(ctx, stack.ID, &p) {
 				continue
 			}
@@ -256,24 +290,26 @@ func (h *handler) planConfigs(ctx context.Context, orgID string, p *pushPayload)
 	if branch == p.Ref || p.Deleted {
 		return 0
 	}
-	stacks, err := h.store.ListStacks(ctx)
+	stacks, err := h.stacks.ListAll(ctx)
 	if err != nil {
 		return 0
 	}
 	planned := 0
 	// Org config first: a push to the org file re-plans the org. Plans only,
 	// org applies are always human-approved, never webhook-driven.
-	if org, err := h.store.GetOrg(ctx, orgID); err == nil && org != nil &&
+	if org, err := h.orgs.Get(ctx, orgID); err == nil &&
 		org.ConfigManaged() && org.ConfigRepo == p.Repository.FullName {
 		orgBranch := org.ConfigBranch
 		if orgBranch == "" {
-			if cn, cerr := h.store.GetConnector(ctx, org.ConfigConnectorID); cerr == nil && cn != nil {
+			if cn, cerr := h.connectors.Get(ctx, org.ConfigConnectorID); cerr == nil {
 				orgBranch, _ = h.applier.Planner.Src.DefaultBranch(ctx, cn, org.ConfigRepo)
 			}
 		}
 		if orgBranch == branch {
-			r := orgconf.Runner{Store: h.store, Src: h.applier.Planner.Src, Stacks: h.applier.Planner, Applier: h.applier}
-			if _, err := r.Plan(ctx, org, p.After); err != nil && err != orgconf.ErrNoFile {
+			// The wired runner, not a fresh one: an inline construction
+			// leaves out the services the runner needs to create and bind a
+			// stack the way the panel does.
+			if _, err := h.orgcfg.Plan(ctx, org, p.After); err != nil && err != orgconf.ErrNoFile {
 				slog.Error("org config plan failed", "org", org.Slug, "error", err)
 			} else {
 				planned++
@@ -285,7 +321,7 @@ func (h *handler) planConfigs(ctx context.Context, orgID string, p *pushPayload)
 		if s.OrgID != orgID || !s.ConfigManaged() || s.ConfigRepo != p.Repository.FullName {
 			continue
 		}
-		envs, err := h.store.ListEnvironmentsByStack(ctx, s.ID)
+		envs, err := h.envs.ListForStack(ctx, s.ID)
 		if err != nil {
 			continue
 		}
@@ -341,7 +377,7 @@ func (h *handler) maybeAutoApply(ctx context.Context, s *repo.Stack, cp *repo.Co
 	if h.work == nil {
 		return
 	}
-	if _, err := stackconf.EnqueueApply(ctx, h.work, s, cp, false); err != nil {
+	if _, err := stackconf.EnqueueApply(ctx, h.work, s, cp, false, stackconf.PromoteWith{}); err != nil {
 		slog.Error("config auto-apply could not be queued", "stack", s.Slug, "plan", cp.ID, "error", err)
 	}
 }
@@ -355,7 +391,7 @@ func (h *handler) autoDeploy(ctx context.Context, orgID string, p *pushPayload, 
 	if branch == p.Ref || p.Deleted { // tag/other ref, or branch deletion
 		return 0
 	}
-	stacks, err := h.store.ListStacks(ctx)
+	stacks, err := h.stacks.ListAll(ctx)
 	if err != nil {
 		return 0
 	}
@@ -369,7 +405,7 @@ func (h *handler) autoDeploy(ctx context.Context, orgID string, p *pushPayload, 
 		if configOnlyPush(&stacks[i], p.changedFiles()) {
 			continue
 		}
-		envs, err := h.store.ListEnvironmentsByStack(ctx, stacks[i].ID)
+		envs, err := h.envs.ListForStack(ctx, stacks[i].ID)
 		if err != nil {
 			continue
 		}
@@ -377,7 +413,7 @@ func (h *handler) autoDeploy(ctx context.Context, orgID string, p *pushPayload, 
 			if env.Type != "static" || !isDefaultEnv(envs, &env) {
 				continue
 			}
-			tiles, err := h.store.ListTilesByEnv(ctx, env.ID)
+			tiles, err := h.tiles.ListForEnv(ctx, env.ID)
 			if err != nil {
 				continue
 			}
@@ -424,7 +460,7 @@ func isDefaultEnv(envs []repo.Environment, env *repo.Environment) bool {
 	return false
 }
 
-func (h *handler) dispatch(ctx context.Context, stack *repo.Stack, cfg envops.PRConfig, p *prPayload) error {
+func (h *handler) dispatch(ctx context.Context, stack *repo.Stack, cfg repo.PRConfig, p *prPayload) error {
 	slug := fmt.Sprintf("pr-%d", p.Number)
 	switch p.Action {
 	case "opened", "reopened":
@@ -441,12 +477,12 @@ func (h *handler) dispatch(ctx context.Context, stack *repo.Stack, cfg envops.PR
 // stackTracksRepo reports whether any git tile in any of the stack's
 // environments points at the webhook's repository.
 func (h *handler) stackTracksRepo(ctx context.Context, stackID string, p *prPayload) bool {
-	envs, err := h.store.ListEnvironmentsByStack(ctx, stackID)
+	envs, err := h.envs.ListForStack(ctx, stackID)
 	if err != nil {
 		return false
 	}
 	for _, env := range envs {
-		tiles, err := h.store.ListTilesByEnv(ctx, env.ID)
+		tiles, err := h.tiles.ListForEnv(ctx, env.ID)
 		if err != nil {
 			continue
 		}
@@ -459,11 +495,12 @@ func (h *handler) stackTracksRepo(ctx context.Context, stackID string, p *prPayl
 	return false
 }
 
-func (h *handler) openPR(ctx context.Context, stack *repo.Stack, cfg envops.PRConfig, slug string, p *prPayload) error {
-	if env, err := h.store.GetEnvironmentBySlug(ctx, stack.ID, slug); err != nil {
-		return err
-	} else if env != nil {
+func (h *handler) openPR(ctx context.Context, stack *repo.Stack, cfg repo.PRConfig, slug string, p *prPayload) error {
+	switch _, err := h.envs.BySlug(ctx, stack.ID, slug); {
+	case err == nil:
 		return h.syncPR(ctx, stack, slug) // reopened with env still around
+	case !errors.Is(err, svcerr.ErrNotFound):
+		return err
 	}
 	// A PR env is a template instantiation: base + pr_envs.tiles, built purely
 	// from the file through the ordinary apply engine, never a clone of a
@@ -485,29 +522,27 @@ func (h *handler) openPR(ctx context.Context, stack *repo.Stack, cfg envops.PRCo
 	// config-managed stack, where the file owns the settings.
 	// read-through instead if githubapp can reach the config
 	// without an import cycle.
-	if pre.Comment != nil || pre.Status != nil {
-		want := cfg
-		if pre.Comment != nil {
-			want.NoComment = !*pre.Comment
-		}
-		if pre.Status != nil {
-			want.NoStatus = !*pre.Status
-		}
-		if want != cfg {
-			cfg = want
-			_ = envops.SavePRConfig(ctx, h.store, stack.ID, cfg)
+	if pre.Enabled != nil || pre.Comment != nil || pre.Status != nil {
+		// enabled: too. It was read a few lines up to decide whether to build
+		// at all and then never written, so the panel toggle and the file
+		// disagreed with no way to see which was in force.
+		next, err := h.prenvs.Adopt(ctx, stack.ID, service.PREnvPatch{
+			Enabled: pre.Enabled, Comment: pre.Comment, Status: pre.Status,
+		})
+		if err == nil {
+			cfg = next
 		}
 	}
-	env := &repo.Environment{
-		ID:        uuid.New().String(),
-		StackID:   stack.ID,
-		Name:      strings.ToUpper(slug[:2]) + " " + slug[3:], // "PR 42"
-		Slug:      slug,
-		Type:      "ephemeral",
-		Settings:  "{}",
-		CreatedAt: time.Now().UTC(),
-	}
-	if err := h.store.CreateEnvironment(ctx, env); err != nil {
+	// Adopt, not Create: this is the config engine making a preview
+	// environment on a stack the file owns, which Create's gate refuses. It
+	// gets the rules (reserved slugs, the duplicate check) that this path
+	// never had — a branch colliding with an existing environment used to
+	// surface as a raw UNIQUE error.
+	env, err := h.envs.Adopt(ctx, stack, service.CreateEnv{
+		Name: strings.ToUpper(slug[:2]) + " " + slug[3:], // "PR 42"
+		Type: "ephemeral",
+	})
+	if err != nil {
 		return err
 	}
 	// One-env desired state from the template, reconciled by the apply engine:
@@ -528,10 +563,10 @@ func (h *handler) openPR(ctx context.Context, stack *repo.Stack, cfg envops.PRCo
 	}
 	// A PR env has no base env, its board starts from the default (oldest)
 	// env's layout so matching slugs land where the team arranged them.
-	if envs, err := h.store.ListEnvironmentsByStack(ctx, stack.ID); err == nil && len(envs) > 0 {
+	if envs, err := h.envs.ListForStack(ctx, stack.ID); err == nil && len(envs) > 0 {
 		envops.CopyLayout(ctx, h.store, envs[0].ID, env.ID)
 	}
-	_ = h.jobs.LoadSchedules(ctx)
+	h.sched.Reload(ctx)
 	return nil
 }
 
@@ -543,13 +578,13 @@ func (h *handler) updatePlanComment(ctx context.Context, stack *repo.Stack, p *p
 		return
 	}
 	pl := h.planner()
-	cn, err := h.store.GetConnector(ctx, stack.ConfigConnectorID)
-	if err != nil || cn == nil {
+	cn, err := h.connectors.Get(ctx, stack.ConfigConnectorID)
+	if err != nil {
 		return
 	}
 	num := strconv.Itoa(p.Number)
 	if p.Action == "closed" {
-		_ = h.store.SetSetting(ctx, githubapp.PlanKey(stack.ID, num), "")
+		_ = h.settings.SetValue(ctx, settings.PRPlanKey(stack.ID, num), "")
 		return
 	}
 	base := p.PullRequest.Base.Ref
@@ -588,8 +623,8 @@ func (h *handler) updatePlanComment(ctx context.Context, stack *repo.Stack, p *p
 	default:
 		md = planMarkdown(plan, base)
 	}
-	_ = h.store.SetSetting(ctx, githubapp.PlanKey(stack.ID, num), md)
-	env, _ := h.store.GetEnvironmentBySlug(ctx, stack.ID, "pr-"+num)
+	_ = h.settings.SetValue(ctx, settings.PRPlanKey(stack.ID, num), md)
+	env, _ := h.envs.BySlug(ctx, stack.ID, "pr-"+num)
 	h.gh.RefreshPRComment(ctx, cn, p.Repository.FullName, num, stack.ID, env)
 }
 
@@ -665,14 +700,14 @@ func contains(list []string, s string) bool {
 }
 
 func (h *handler) syncPR(ctx context.Context, stack *repo.Stack, slug string) error {
-	env, err := h.store.GetEnvironmentBySlug(ctx, stack.ID, slug)
+	env, err := h.envs.BySlug(ctx, stack.ID, slug)
+	if errors.Is(err, svcerr.ErrNotFound) {
+		return nil // PR was filtered at open (against/enabled), nothing to sync
+	}
 	if err != nil {
 		return err
 	}
-	if env == nil {
-		return nil // PR was filtered at open (against/enabled), nothing to sync
-	}
-	tiles, err := h.store.ListTilesByEnv(ctx, env.ID)
+	tiles, err := h.tiles.ListForEnv(ctx, env.ID)
 	if err != nil {
 		return err
 	}
@@ -689,17 +724,17 @@ func (h *handler) syncPR(ctx context.Context, stack *repo.Stack, slug string) er
 }
 
 func (h *handler) closePR(ctx context.Context, stack *repo.Stack, slug string) error {
-	env, err := h.store.GetEnvironmentBySlug(ctx, stack.ID, slug)
+	env, err := h.envs.BySlug(ctx, stack.ID, slug)
+	if errors.Is(err, svcerr.ErrNotFound) {
+		return nil // already gone
+	}
 	if err != nil {
 		return err
-	}
-	if env == nil {
-		return nil // already gone
 	}
 	if err := h.ops.Teardown(ctx, stack, env); err != nil {
 		return err
 	}
-	_ = h.jobs.LoadSchedules(ctx)
+	h.sched.Reload(ctx)
 	return nil
 }
 
@@ -735,3 +770,15 @@ func validSignature(secret, header string, body []byte) bool {
 	want := hex.EncodeToString(mac.Sum(nil))
 	return hmac.Equal([]byte(want), []byte(strings.TrimPrefix(header, "sha256=")))
 }
+
+// WithScheduler gives the handler the schedule reloader.
+func (h *handler) WithScheduler(s *scheduler.Service) *handler { h.sched = s; return h }
+
+// WithOrgs gives the page the organization service.
+func (h *handler) WithOrgs(v *service.OrgService) *handler { h.orgs = v; return h }
+
+// WithSettings gives the page the settings service.
+func (h *handler) WithSettings(v *service.SettingsService) *handler { h.settings = v; return h }
+
+// WithConnectors gives the page the connector service.
+func (h *handler) WithConnectors(v *service.ConnectorService) *handler { h.connectors = v; return h }

@@ -6,11 +6,11 @@ package v1
 // and the rest of the surface stays as it was.
 
 import (
-	"context"
 	"net/http"
 
 	"github.com/labstack/echo/v4"
 
+	stackrmw "github.com/FyrmForge/stackr/internal/stackrd/handlers/middleware"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/managedtiles"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 )
@@ -30,6 +30,9 @@ func (a *API) resolvePath(c echo.Context) error {
 		// The linked env enables relative paths, but only after confirming the
 		// caller may see it, or it becomes a way to resolve names inside
 		// someone else's environment.
+		// requireEnvAccess, NOT the bare loader: this route is KindDeferred,
+		// so the route's gate resolved no tenancy and checked nothing. The
+		// membership check has to be here or it happens nowhere.
 		if _, err := a.requireEnvAccess(c, in.EnvID); err != nil {
 			return err
 		}
@@ -54,14 +57,14 @@ func (a *API) resolvePath(c echo.Context) error {
 // passwords: this exists to resolve and enumerate, and credentials are read
 // through the resource outputs with secrets:read.
 func (a *API) listInstanceProvisions(c echo.Context) error {
-	inst, err := a.requireTile(c, c.Param("id"), false)
+	inst, err := a.tile(c, c.Param("id"))
 	if err != nil {
 		return err
 	}
 	if !inst.IsManaged() {
 		return echo.NewHTTPError(http.StatusNotFound, "not found")
 	}
-	ps, err := a.store.ListProvisionsByInstance(c.Request().Context(), inst.ID)
+	ps, err := a.slices.ForInstance(c.Request().Context(), inst.ID)
 	if err != nil {
 		return err
 	}
@@ -83,7 +86,7 @@ func (a *API) createInstanceProvision(c echo.Context) error {
 	if err := c.Bind(&in); err != nil || in.Name == "" {
 		return echo.NewHTTPError(http.StatusBadRequest, "name required")
 	}
-	inst, err := a.requireTile(c, c.Param("id"), true)
+	inst, err := a.tile(c, c.Param("id"))
 	if err != nil {
 		return err
 	}
@@ -99,23 +102,21 @@ func (a *API) createInstanceProvision(c echo.Context) error {
 	if envID == "" {
 		envID = inst.EnvironmentID
 	}
-	env, err := a.requireEnvAccess(c, envID)
+	env, err := a.env(c, envID)
 	if err != nil {
 		return err
 	}
-	if !managedtiles.ServesEnv(c.Request().Context(), a.store, inst, env) {
-		return echo.NewHTTPError(http.StatusBadRequest,
-			"this instance is not shared into that environment")
-	}
-	envID = env.ID
 	slug := in.Slug
 	if slug == "" {
 		slug = in.Name
 	}
-	ctx := c.Request().Context()
-	p, err := managedtiles.NewService(a.clus, a.store).ProvisionSlice(ctx, inst, envID, slug, in.Name, in.Public)
+	// Cut carries the checks this path never had: the sharing scope, the
+	// readiness wait (one call can create an instance and its slices
+	// together), and adopt-rather-than-uniquify, so asking twice for the same
+	// slice does not leave a silent second copy of it.
+	p, err := a.slices.Cut(c.Request().Context(), inst, env, slug, in.Name, in.Public, false)
 	if err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+		return stackrmw.HTTP(err)
 	}
 	return c.JSON(http.StatusCreated, a.toSliceOut(c, inst, p))
 }
@@ -131,17 +132,17 @@ func (a *API) forkProvision(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, "invalid body")
 	}
 	ctx := c.Request().Context()
-	src, err := a.store.GetProvision(ctx, c.Param("id"))
-	if err != nil || src == nil {
-		return echo.NewHTTPError(http.StatusNotFound, "not found")
+	src, err := a.slices.Get(ctx, c.Param("id"))
+	if err != nil {
+		return stackrmw.HTTP(err)
 	}
-	inst, err := a.requireTile(c, src.InstanceTileID, true)
+	inst, err := a.tile(c, src.InstanceTileID)
 	if err != nil {
 		return err
 	}
-	fork, err := managedtiles.NewService(a.clus, a.store).ForkSlice(ctx, inst, src, in.Slug, in.Name)
+	fork, err := a.slices.Fork(ctx, inst, src, in.Slug, in.Name)
 	if err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+		return stackrmw.HTTP(err)
 	}
 	return c.JSON(http.StatusCreated, a.toSliceOut(c, inst, fork))
 }
@@ -155,16 +156,16 @@ func (a *API) forkProvision(c echo.Context) error {
 // operation.
 func (a *API) deleteProvision(c echo.Context) error {
 	ctx := c.Request().Context()
-	p, err := a.store.GetProvision(ctx, c.Param("id"))
-	if err != nil || p == nil {
-		return echo.NewHTTPError(http.StatusNotFound, "not found")
+	p, err := a.slices.Get(ctx, c.Param("id"))
+	if err != nil {
+		return stackrmw.HTTP(err)
 	}
-	inst, err := a.requireTile(c, p.InstanceTileID, true)
+	inst, err := a.tile(c, p.InstanceTileID)
 	if err != nil {
 		return err
 	}
-	if err := managedtiles.NewService(a.clus, a.store).DropDB(ctx, inst, p.DBName); err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+	if err := a.slices.Drop(ctx, inst, p.DBName); err != nil {
+		return stackrmw.HTTP(err)
 	}
 	return c.NoContent(http.StatusNoContent)
 }
@@ -181,11 +182,11 @@ func (a *API) toSliceOut(c echo.Context, inst *repo.Tile, p *repo.Provision) sli
 		Status:     p.Status,
 		Public:     p.Public,
 	}
-	for _, row := range a.provisionRows(ctx, inst.ID, p.DBName) {
+	for _, row := range a.slices.Rows(ctx, inst.ID, p.DBName) {
 		if row.ConsumerTileID == "" {
 			continue
 		}
-		if t, _ := a.store.GetTile(ctx, row.ConsumerTileID); t != nil {
+		if t, _ := a.tiles.Get(ctx, row.ConsumerTileID); t != nil {
 			out.Consumers = append(out.Consumers, t.Name)
 		}
 	}
@@ -196,31 +197,15 @@ func (a *API) toSliceOut(c echo.Context, inst *repo.Tile, p *repo.Provision) sli
 // the stack it belongs to.
 func (a *API) requireEnvAccess(c echo.Context, envID string) (*repo.Environment, error) {
 	ctx := c.Request().Context()
-	env, err := a.store.GetEnvironment(ctx, envID)
-	if err != nil || env == nil {
+	env, err := a.envs.Get(ctx, envID)
+	if err != nil {
 		env, err = a.envByPath(ctx, envID) // org:stack:env
 	}
 	if err != nil || env == nil {
 		return nil, echo.NewHTTPError(http.StatusNotFound, "not found")
 	}
-	if _, err := a.requireStackAccess(c, env.StackID); err != nil {
+	if _, err := a.stack(c, env.StackID); err != nil {
 		return nil, err
 	}
 	return env, nil
-}
-
-// provisionRows returns every row sharing one slice on an instance, the same
-// set DropDB removes together.
-func (a *API) provisionRows(ctx context.Context, instanceID, dbName string) []repo.Provision {
-	ps, err := a.store.ListProvisionsByInstance(ctx, instanceID)
-	if err != nil {
-		return nil
-	}
-	var out []repo.Provision
-	for i := range ps {
-		if ps[i].DBName == dbName {
-			out = append(out, ps[i])
-		}
-	}
-	return out
 }

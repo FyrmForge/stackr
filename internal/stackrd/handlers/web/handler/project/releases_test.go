@@ -85,7 +85,7 @@ func TestReleaseViewTargets(t *testing.T) {
 		Type: "static", CreatedAt: now.Add(time.Second)}
 	require.NoError(t, s.CreateEnvironment(ctx, staging))
 	seed.Tile.SourceType, seed.Tile.GitURL = "git", "https://example.com/r.git"
-	require.NoError(t, s.UpdateTile(ctx, seed.Tile))
+	require.NoError(t, s.UpdateTile(ctx, seed.Tile.ID, seed.Tile.TileConfig))
 	stTile := &repo.Tile{ID: "tile2", StackID: seed.Stack.ID, EnvironmentID: staging.ID, Name: "app", Slug: "app",
 		Kind: "service", SourceType: "git", GitURL: "https://example.com/r.git", Status: "idle", CreatedAt: now, UpdatedAt: now}
 	require.NoError(t, s.CreateTile(ctx, stTile))
@@ -94,7 +94,7 @@ func TestReleaseViewTargets(t *testing.T) {
 
 	logCache.Store(seed.Stack.ID, logCacheEntry{checked: time.Now(), at: time.Now(), branch: "master",
 		source: "github", commits: []gitlog.Commit{{SHA: sha(0)}, {SHA: sha(1)}}})
-	h := &handler{store: s}
+	h := testHandler(s)
 	v := h.releaseView(ctx, seed.Stack)
 
 	require.Len(t, v.Rows, 2)

@@ -3,14 +3,12 @@ package v1
 import (
 	"net/http"
 	"sort"
-	"strings"
-	"time"
 
 	"github.com/labstack/echo/v4"
 
-	"github.com/FyrmForge/stackr/internal/stackrd/config/secrets"
 	"github.com/FyrmForge/stackr/internal/stackrd/config/varref"
-	"github.com/FyrmForge/stackr/internal/stackrd/infra/deploy"
+	stackrmw "github.com/FyrmForge/stackr/internal/stackrd/handlers/middleware"
+	"github.com/FyrmForge/stackr/internal/stackrd/service"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/audit"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 )
@@ -20,12 +18,34 @@ import (
 // secrets:read. Values may be ${{ ... }} references, stored as written and
 // resolved at deploy time, never at write time.
 
-const maskedValue = "•••"
+// maskedValue is the service's, so the mask a listing renders and the mask a
+// write refuses are the same string.
+const maskedValue = service.Masked
 
-// canReadSecrets reports whether this key may see secret values.
-func (a *API) canReadSecrets(c echo.Context) bool {
-	k, _ := c.Get(ctxKey).(*repo.APIKey)
-	return k != nil && k.HasScope(ScopeSecretsRead)
+// canReadSecrets reports whether this caller may see secret VALUES, as opposed
+// to the names and the fact that a value is secret.
+//
+// Two conditions, not one. The scope is what the key was granted; the level is
+// what its user has in the org right now. secrets:read is a write-grade scope,
+// so it can only be minted by somebody with content-write — but a key outlives
+// the role that minted it, and the route itself is read-level (a viewer may
+// list variables). Without the live check, a member who minted a key and was
+// then demoted to viewer kept reading every secret in the org, which is the
+// exact shape point 7 found on the deploy routes.
+//
+// It matches the panel, where the reveal and the Copy endpoint both ask for
+// write in the resource's own org. Decided when the reads were gated; see
+// docs/plans/service-extraction/06-points-18-20.md.
+func (a *API) canReadSecrets(c echo.Context, k service.Kind, ref string) bool {
+	key, _ := c.Get(ctxKey).(*repo.APIKey)
+	if key != nil && !key.HasScope(ScopeSecretsRead) {
+		return false
+	}
+	orgID, err := a.access.TenancyOf(c.Request().Context(), k, ref)
+	if err != nil || orgID == "" {
+		return false
+	}
+	return a.requireVerb(c.Request().Context(), c, service.VerbVariableWrite, orgID) == nil
 }
 
 // auditActor names the API key for the audit trail.
@@ -65,15 +85,15 @@ func (a *API) toVarEntries(vars []repo.Variable, reveal bool) []varEntry {
 // --- app (tile) variables ---
 
 func (a *API) getVars(c echo.Context) error {
-	t, err := a.requireTile(c, c.Param("id"), false)
+	t, err := a.tile(c, c.Param("id"))
 	if err != nil {
 		return err
 	}
-	vars, err := a.store.ListVariables(c.Request().Context(), repo.OwnerTile, t.ID)
+	vars, err := a.vars.List(c.Request().Context(), service.TileVars(t.ID))
 	if err != nil {
 		return err
 	}
-	reveal := a.canReadSecrets(c)
+	reveal := a.canReadSecrets(c, service.KindTile, t.ID)
 	if reveal {
 		auditSecretReads(c, a.store, vars, repo.OwnerTile, t.ID)
 	}
@@ -82,7 +102,7 @@ func (a *API) getVars(c echo.Context) error {
 
 // putVars replaces the app's whole variable set.
 func (a *API) putVars(c echo.Context) error {
-	t, err := a.requireTile(c, c.Param("id"), true)
+	t, err := a.tile(c, c.Param("id"))
 	if err != nil {
 		return err
 	}
@@ -96,104 +116,34 @@ func (a *API) putVars(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, "bad body")
 	}
 	if err := a.writeVars(c, repo.OwnerTile, t.ID, in.Vars, t); err != nil {
-		return err
+		return stackrmw.HTTP(err)
 	}
-	vars, err := a.store.ListVariables(c.Request().Context(), repo.OwnerTile, t.ID)
+	vars, err := a.vars.List(c.Request().Context(), service.TileVars(t.ID))
 	if err != nil {
 		return err
 	}
-	reveal := a.canReadSecrets(c)
+	reveal := a.canReadSecrets(c, service.KindTile, t.ID)
 	if reveal {
 		auditSecretReads(c, a.store, vars, repo.OwnerTile, t.ID)
 	}
 	return c.JSON(http.StatusOK, varsOut{Vars: a.toVarEntries(vars, reveal)}) // deploy to apply
 }
 
-// writeVars replaces an owner's variable set. tile is non-nil for tile owners:
-// its env blob is kept in step so the console and config plan still see the
-// non-secret variables. Secrets stay out of the blob, it is rendered in plain
-// UI surfaces and diffed into config plans.
+// writeVars replaces an owner's variable set through the service, so an API
+// write earns the same side effects a panel write does: the audit row, the
+// release of any deploy parked on the name, a replan when the stack is
+// config-managed, and a redeploy of a running consumer.
+//
+// None of those happened here before. `stackr vars set` on a running tile
+// wrote a row and changed nothing a user could see.
 func (a *API) writeVars(c echo.Context, ownerKind, ownerID string, entries []varEntry, tile *repo.Tile) error {
-	ctx := c.Request().Context()
-	seen := map[string]bool{}
+	writes := make([]service.VarWrite, 0, len(entries))
 	for _, e := range entries {
-		if e.Name == "" {
-			return echo.NewHTTPError(http.StatusBadRequest, "variable name required")
-		}
-		if e.Value == maskedValue {
-			return echo.NewHTTPError(http.StatusBadRequest,
-				"variable "+e.Name+" was sent back masked; read it with secrets:read or omit it to keep the stored value")
-		}
-		seen[e.Name] = true
+		writes = append(writes, service.VarWrite{Name: e.Name, Value: e.Value,
+			Secret: e.Secret, Generate: e.Generate, Length: e.Length})
 	}
-	if tile != nil {
-		var lines []string
-		for _, e := range entries {
-			if !e.Secret {
-				lines = append(lines, e.Name+"="+e.Value)
-			}
-		}
-		sort.Strings(lines)
-		tile.Env = strings.Join(lines, "\n")
-		if err := a.store.UpdateTile(ctx, tile); err != nil {
-			return err
-		}
-	}
-	// Existing values, so a generate request can leave a live secret alone.
-	existing := map[string]bool{}
-	if cur, err := a.store.ListVariables(ctx, ownerKind, ownerID); err == nil {
-		for _, v := range cur {
-			existing[v.Name] = v.Value != ""
-		}
-	}
-	now := time.Now().UTC()
-	for _, e := range entries {
-		value := e.Value
-		if e.Generate {
-			if existing[e.Name] {
-				// Generating over a live secret would break everything reading
-				// it, and the caller asked for a value, not for a rotation.
-				continue
-			}
-			length := e.Length
-			if length <= 0 {
-				length = 32
-			}
-			// The same generator the config file's `default: generated` uses,
-			// so a secret minted here and one minted by an apply are the same
-			// kind of thing.
-			value = secrets.Generate(length, true, false)
-		}
-		if err := a.store.UpsertVariable(ctx, &repo.Variable{OwnerKind: ownerKind, OwnerID: ownerID,
-			Name: e.Name, Value: value, Secret: e.Secret, CreatedAt: now, UpdatedAt: now}); err != nil {
-			return err
-		}
-		audit.Record(ctx, a.store, auditActor(c), audit.Set, ownerKind, ownerID, e.Name)
-		// Same release the web forms do: a tile parked on this name has its
-		// reason gone, and would otherwise read "Waiting for X" forever.
-		switch ownerKind {
-		case repo.OwnerEnv:
-			deploy.ClearWaitingEnv(ctx, a.store, ownerID, e.Name)
-		case repo.OwnerStack:
-			deploy.ClearWaiting(ctx, a.store, e.Name, ownerID)
-		case repo.OwnerOrg:
-			deploy.ClearWaitingOrg(ctx, a.store, ownerID, e.Name)
-		}
-	}
-	cur, err := a.store.ListVariables(ctx, ownerKind, ownerID)
-	if err != nil {
-		return err
-	}
-	for _, v := range cur {
-		if seen[v.Name] {
-			continue
-		}
-		if err := a.store.DeleteVariable(ctx, ownerKind, ownerID, v.Name); err != nil {
-			return err
-		}
-		audit.Record(ctx, a.store, auditActor(c), audit.Delete, ownerKind, ownerID, v.Name)
-	}
-	return nil
+	return a.vars.Replace(c.Request().Context(),
+		service.VarOwner{Kind: ownerKind, ID: ownerID}, writes, a.actor(c))
 }
 
 // resolvedVars returns the environment a deploy would produce. Scoped mode
@@ -201,12 +151,12 @@ func (a *API) writeVars(c echo.Context, ownerKind, ownerID string, entries []var
 // omitting it, so a caller can never mistake a partial environment for a
 // complete one.
 func (a *API) resolvedVars(c echo.Context) error {
-	t, err := a.requireTile(c, c.Param("id"), false)
+	t, err := a.tile(c, c.Param("id"))
 	if err != nil {
 		return err
 	}
 	mode := varref.Scoped
-	if a.canReadSecrets(c) {
+	if a.canReadSecrets(c, service.KindTile, t.ID) {
 		mode = varref.System
 		// The resolved environment folds in secrets from every scope; "*" marks
 		// a whole-environment read rather than naming each one.
@@ -227,15 +177,15 @@ func (a *API) resolvedVars(c echo.Context) error {
 // --- stack and org variables ---
 
 func (a *API) getStackVars(c echo.Context) error {
-	s, err := a.requireStackAccess(c, c.Param("id"))
+	s, err := a.stack(c, c.Param("id"))
 	if err != nil {
 		return err
 	}
-	vars, err := a.store.ListVariables(c.Request().Context(), repo.OwnerStack, s.ID)
+	vars, err := a.vars.List(c.Request().Context(), service.StackVars(s.ID))
 	if err != nil {
 		return err
 	}
-	reveal := a.canReadSecrets(c)
+	reveal := a.canReadSecrets(c, service.KindStack, s.ID)
 	if reveal {
 		auditSecretReads(c, a.store, vars, repo.OwnerStack, s.ID)
 	}
@@ -243,11 +193,8 @@ func (a *API) getStackVars(c echo.Context) error {
 }
 
 func (a *API) putStackVars(c echo.Context) error {
-	s, err := a.requireStackAccess(c, c.Param("id"))
+	s, err := a.stack(c, c.Param("id"))
 	if err != nil {
-		return err
-	}
-	if err := a.requireOrgWrite(c.Request().Context(), c, s.OrgID); err != nil {
 		return err
 	}
 	var in varsIn
@@ -257,8 +204,9 @@ func (a *API) putStackVars(c echo.Context) error {
 	// Stack/org values are server-managed by design, they are outside the repo
 	// config, so a config-managed stack doesn't lock them.
 	if err := a.writeVars(c, repo.OwnerStack, s.ID, in.Vars, nil); err != nil {
-		return err
+		return stackrmw.HTTP(err)
 	}
+	a.stackChanged(s.ID)
 	return a.getStackVars(c)
 }
 
@@ -266,11 +214,11 @@ func (a *API) putStackVars(c echo.Context) error {
 // not 403, so ids don't leak across tenants). The stack comes back too, it
 // carries the org id a write check needs.
 func (a *API) requireEnv(c echo.Context, envID string) (*repo.Environment, *repo.Stack, error) {
-	env, err := a.store.GetEnvironment(c.Request().Context(), envID)
-	if err != nil || env == nil {
-		return nil, nil, echo.NewHTTPError(http.StatusNotFound, "not found")
+	env, err := a.envs.Get(c.Request().Context(), envID)
+	if err != nil {
+		return nil, nil, stackrmw.HTTP(err)
 	}
-	s, err := a.requireStackAccess(c, env.StackID)
+	s, err := a.stack(c, env.StackID)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -282,11 +230,11 @@ func (a *API) getEnvVars(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	vars, err := a.store.ListVariables(c.Request().Context(), repo.OwnerEnv, env.ID)
+	vars, err := a.vars.List(c.Request().Context(), service.EnvVars(env.ID))
 	if err != nil {
 		return err
 	}
-	reveal := a.canReadSecrets(c)
+	reveal := a.canReadSecrets(c, service.KindEnv, env.ID)
 	if reveal {
 		auditSecretReads(c, a.store, vars, repo.OwnerEnv, env.ID)
 	}
@@ -294,11 +242,8 @@ func (a *API) getEnvVars(c echo.Context) error {
 }
 
 func (a *API) putEnvVars(c echo.Context) error {
-	env, s, err := a.requireEnv(c, c.Param("id"))
+	env, _, err := a.requireEnv(c, c.Param("id"))
 	if err != nil {
-		return err
-	}
-	if err := a.requireOrgWrite(c.Request().Context(), c, s.OrgID); err != nil {
 		return err
 	}
 	var in varsIn
@@ -309,8 +254,9 @@ func (a *API) putEnvVars(c echo.Context) error {
 	// stack/org values they live outside the repo config, so a config-managed
 	// stack doesn't lock them.
 	if err := a.writeVars(c, repo.OwnerEnv, env.ID, in.Vars, nil); err != nil {
-		return err
+		return stackrmw.HTTP(err)
 	}
+	a.stackChanged(env.StackID)
 	return a.getEnvVars(c)
 }
 
@@ -318,8 +264,8 @@ func (a *API) putEnvVars(c echo.Context) error {
 // leak across tenants).
 func (a *API) requireOrg(c echo.Context, orgID string) (*repo.Org, error) {
 	ctx := c.Request().Context()
-	o, err := a.store.GetOrg(ctx, orgID)
-	if err != nil || o == nil {
+	o, err := a.orgs.Get(ctx, orgID)
+	if err != nil {
 		o, err = a.orgByPath(ctx, orgID) // a bare org slug, see slugpath.go
 	}
 	if err != nil || o == nil || !a.orgMember(c, o.ID) {
@@ -332,15 +278,15 @@ func (a *API) requireOrg(c echo.Context, orgID string) (*repo.Org, error) {
 }
 
 func (a *API) getOrgVars(c echo.Context) error {
-	o, err := a.requireOrg(c, c.Param("id"))
+	o, err := a.org(c, c.Param("id"))
 	if err != nil {
 		return err
 	}
-	vars, err := a.store.ListVariables(c.Request().Context(), repo.OwnerOrg, o.ID)
+	vars, err := a.vars.List(c.Request().Context(), service.OrgVars(o.ID))
 	if err != nil {
 		return err
 	}
-	reveal := a.canReadSecrets(c)
+	reveal := a.canReadSecrets(c, service.KindOrg, o.ID)
 	if reveal {
 		auditSecretReads(c, a.store, vars, repo.OwnerOrg, o.ID)
 	}
@@ -348,11 +294,8 @@ func (a *API) getOrgVars(c echo.Context) error {
 }
 
 func (a *API) putOrgVars(c echo.Context) error {
-	o, err := a.requireOrg(c, c.Param("id"))
+	o, err := a.org(c, c.Param("id"))
 	if err != nil {
-		return err
-	}
-	if err := a.requireOrgWrite(c.Request().Context(), c, o.ID); err != nil {
 		return err
 	}
 	var in varsIn
@@ -360,7 +303,7 @@ func (a *API) putOrgVars(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, "bad body")
 	}
 	if err := a.writeVars(c, repo.OwnerOrg, o.ID, in.Vars, nil); err != nil {
-		return err
+		return stackrmw.HTTP(err)
 	}
 	return a.getOrgVars(c)
 }
@@ -371,7 +314,7 @@ func (a *API) putOrgVars(c echo.Context) error {
 // Metadata only: it never carries values, secret or otherwise, so it is safe
 // for autocomplete without secrets:read.
 func (a *API) referenceCatalogue(c echo.Context) error {
-	t, err := a.requireTile(c, c.Param("id"), false)
+	t, err := a.tile(c, c.Param("id"))
 	if err != nil {
 		return err
 	}
@@ -395,22 +338,22 @@ func (a *API) referenceCatalogue(c echo.Context) error {
 // listAppResources reports the resources this app is bound to and the names
 // they publish, identity and output names, never values.
 func (a *API) listAppResources(c echo.Context) error {
-	t, err := a.requireTile(c, c.Param("id"), false)
+	t, err := a.tile(c, c.Param("id"))
 	if err != nil {
 		return err
 	}
 	ctx := c.Request().Context()
-	binds, err := a.store.BindingsForConsumer(ctx, t.ID)
+	binds, err := a.instances.Bindings(ctx, t.ID)
 	if err != nil {
 		return err
 	}
 	out := []resourceOut{}
 	for _, b := range binds {
-		res, err := a.store.GetResource(ctx, b.ResourceID)
-		if err != nil || res == nil {
+		res, err := a.instances.Resource(ctx, b.ResourceID)
+		if err != nil {
 			continue
 		}
-		outs, err := a.store.ListOutputs(ctx, res.ID)
+		outs, err := a.instances.Outputs(ctx, res.ID)
 		if err != nil {
 			return err
 		}

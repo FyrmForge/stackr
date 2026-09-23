@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"errors"
 	"net/http"
 	"strings"
 
@@ -8,6 +9,8 @@ import (
 
 	hamrmw "github.com/FyrmForge/hamr/pkg/middleware"
 
+	"github.com/FyrmForge/stackr/internal/stackrd/service"
+	"github.com/FyrmForge/stackr/internal/stackrd/service/svcerr"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 )
 
@@ -215,6 +218,24 @@ func CanWriteOrg(c echo.Context, store repo.Store, orgID string) bool {
 	return err == nil && m != nil && (m.Role == "owner" || m.Role == "member")
 }
 
+// IsOwnerOf reports owner rights in one specific org, the owner-level twin of
+// CanWriteOrg and the same distinction: IsOwner answers for the active cookie
+// org, this one for the org the page is about.
+//
+// For deciding whether a page offers a control, not for authorizing the write
+// behind it — that is the route's verb.
+func IsOwnerOf(c echo.Context, store repo.Store, orgID string) bool {
+	if IsAdmin(c) {
+		return true
+	}
+	u := currentUser(c)
+	if u == nil {
+		return false
+	}
+	m, err := store.GetOrgMember(c.Request().Context(), orgID, u.ID)
+	return err == nil && m != nil && m.Role == "owner"
+}
+
 // RequireOrgWrite is membership plus write rights in that same org, for
 // org-addressed mutations.
 func RequireOrgWrite(c echo.Context, store repo.Store, orgID string) error {
@@ -292,6 +313,162 @@ func ReadOnlyGuard() echo.MiddlewareFunc {
 			}
 			if !CanWrite(c) {
 				return echo.NewHTTPError(http.StatusForbidden, "read-only access")
+			}
+			return next(c)
+		}
+	}
+}
+
+// RequireVerb gates a route on AccessService's level for one verb, resolving
+// the org from the :slug or :id param the route carries.
+//
+// It is the panel's adapter onto the one access table: the level lives in
+// service.Verbs, not in a closure here, so a verb both surfaces reach cannot
+// end up with two levels again.
+func RequireVerb(store repo.Store, access *service.AccessService, v service.Verb) echo.MiddlewareFunc {
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			u := currentUser(c)
+			if u == nil {
+				return echo.NewHTTPError(http.StatusNotFound, "not found")
+			}
+			o, err := orgFromRoute(c, store)
+			if err != nil {
+				return err
+			}
+			p, err := access.Principal(c.Request().Context(), u, nil, false)
+			if err != nil {
+				return err
+			}
+			if err := access.Require(p, v, o.ID); err != nil {
+				return HTTP(err)
+			}
+			return next(c)
+		}
+	}
+}
+
+// orgFromRoute reads the org a route addresses, by slug or by id.
+func orgFromRoute(c echo.Context, store repo.Store) (*repo.Org, error) {
+	ctx := c.Request().Context()
+	key := c.Param("slug")
+	if key == "" {
+		key = c.Param("id")
+	}
+	o, err := store.GetOrgBySlug(ctx, key)
+	if err != nil || o == nil {
+		o, err = store.GetOrg(ctx, key)
+	}
+	if err != nil {
+		return nil, err
+	}
+	if o == nil {
+		return nil, echo.NewHTTPError(http.StatusNotFound, "not found")
+	}
+	return o, nil
+}
+
+// Gate is point 18's one authorization path for the panel.
+//
+// It replaces the ~35 hand-written gate helpers with the same three steps for
+// every route: resolve who is asking, resolve which org the route is about,
+// ask AccessService whether that verb is allowed there. The level lives in
+// service.verbLevels and nowhere else, so a verb both surfaces reach cannot
+// end up with two levels again.
+//
+// v and k are declared at the route, not in the handler body, because the
+// body is where forgetting happens. param names which path parameter carries
+// the reference k resolves — ":id" on most routes, ":slug" on an org, and
+// ":planID" where a stack route addresses one of its plans.
+//
+// Refusals keep the panel's wording: a caller outside the org gets 404, not
+// 403, because a 403 confirms the id exists to someone who should not know
+// it. That is the surface's decision and it is deliberately not the API's.
+func Gate(store repo.Store, access *service.AccessService, v service.Verb, k service.Kind, param string) echo.MiddlewareFunc {
+	notFound := echo.NewHTTPError(http.StatusNotFound, "not found")
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			u := currentUser(c)
+			if u == nil {
+				return notFound
+			}
+			ctx := c.Request().Context()
+			p, err := access.Principal(ctx, u, nil, false)
+			if err != nil {
+				return err
+			}
+			// KindDeferred: the org is not addressable yet — it arrives in
+			// the body, or it is what the request is asking to resolve. The
+			// handler makes the check; see service.KindDeferred for the list.
+			if k == service.KindDeferred {
+				return next(c)
+			}
+			var orgID string
+			if k != service.KindNone {
+				orgID, err = access.TenancyOf(ctx, k, c.Param(param))
+				switch {
+				case errors.Is(err, service.ErrServerOwned):
+					// Exists, belongs to the installation rather than an org
+					// (the panel's own backup). Admin-only, and there is no
+					// org for the verb to be checked against.
+					if !p.Admin {
+						return notFound
+					}
+					return next(c)
+				case err != nil:
+					return err
+				case orgID == "":
+					return notFound // no such thing, or not one this route can address
+				}
+			}
+			// An org whose wizard is still open takes no writes. This is
+			// not a level, so it has no place in the verb table — but it is
+			// what RequireOrgAccess carried alongside membership, and the
+			// gate helpers are what point 18 removes. Without it here, an
+			// org mid-wizard starts accepting writes the moment its helper
+			// goes. The setup routes themselves are exempt (setupOpen).
+			if orgID != "" {
+				o, err := store.GetOrg(ctx, orgID)
+				if err != nil {
+					return err
+				}
+				if o != nil {
+					if err := RequireOrgSetup(c, *o); err != nil {
+						return err
+					}
+				}
+			}
+			if err := access.Require(p, v, orgID); err != nil {
+				// A page nobody below this level may see does not announce
+				// itself. The panel answers 404 for tenancy and 403 for
+				// level, and these two read verbs are where the two meet:
+				// the helpers they replace answered "not found" on purpose.
+				// ownedSettingsOrg 404'd a member, because the invite list,
+				// the org's plans and the wizard are not things a member
+				// should learn exist; adminOnly 404'd a non-admin for the
+				// same reason, and it still sits behind this gate.
+				//
+				// Writes keep the 403 — the caller already knows the org and
+				// asked to act in it, and so do the write-level reads (the
+				// var-value endpoints), which answered 403 before. The API
+				// keeps 403 for everything; that split is deliberate and is
+				// not to be flattened.
+				switch v {
+				case service.VerbOrgOwnerRead, service.VerbAdminRead:
+					if errors.Is(err, svcerr.ErrForbidden) {
+						return notFound
+					}
+				}
+				return HTTP(err)
+			}
+			// Templates ask CanWriteHere rather than CanWrite so a viewer in
+			// the resource's org is not offered buttons because their cookie
+			// points somewhere they can write. The gate helpers recorded this;
+			// it has to keep being recorded once they are gone.
+			if orgID != "" {
+				if lvl, ok := p.Level(orgID); ok {
+					c.Set(CtxWriteHere, lvl >= service.LevelWrite)
+				}
 			}
 			return next(c)
 		}

@@ -3,16 +3,15 @@ package org
 import (
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/FyrmForge/hamr/pkg/middleware"
 	"github.com/FyrmForge/hamr/pkg/respond"
 	"github.com/labstack/echo/v4"
 
 	"github.com/FyrmForge/stackr/internal/stackrd/config/orgconf"
-	"github.com/FyrmForge/stackr/internal/stackrd/infra/deploy"
+	stackrmw "github.com/FyrmForge/stackr/internal/stackrd/handlers/middleware"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/githubapp"
-	"github.com/FyrmForge/stackr/internal/stackrd/store/audit"
+	"github.com/FyrmForge/stackr/internal/stackrd/service"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 )
 
@@ -23,7 +22,7 @@ import (
 // row with no app behind; counting it would show step 2 an install button for
 // an app that does not exist.
 func (h *handler) githubConnectors(c echo.Context, o *repo.Org) []repo.Connector {
-	conns, err := h.store.ListConnectorsByOrg(c.Request().Context(), o.ID)
+	conns, err := h.connectors.ForOrg(c.Request().Context(), o.ID)
 	if err != nil {
 		return nil
 	}
@@ -42,7 +41,7 @@ func (h *handler) SettingsConfig(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	plans, _ := h.store.ListOrgConfigPlans(c.Request().Context(), o.ID, 10)
+	plans, _ := h.plans.ForOrg(c.Request().Context(), o.ID, 10)
 	return respond.HTML(c, http.StatusOK, orgConfigPage(c, o, h.githubConnectors(c, o), plans))
 }
 
@@ -58,8 +57,8 @@ func (h *handler) SaveOrgConfig(c echo.Context) error {
 		if connID == "" {
 			o.ConfigConnectorID, o.ConfigRepo, o.ConfigBranch, o.ConfigPath = "", "", "", ""
 		} else {
-			cn, cerr := h.store.GetConnector(ctx, connID)
-			if cerr != nil || cn == nil || cn.OrgID != o.ID {
+			cn, cerr := h.connectors.Get(ctx, connID)
+			if cerr != nil || cn.OrgID != o.ID {
 				return echo.NewHTTPError(http.StatusBadRequest, "connector must belong to this organization")
 			}
 			repoFull := strings.TrimSuffix(strings.TrimPrefix(strings.TrimSpace(c.FormValue("repo")), "https://github.com/"), ".git")
@@ -71,7 +70,7 @@ func (h *handler) SaveOrgConfig(c echo.Context) error {
 			o.ConfigBranch = strings.TrimSpace(c.FormValue("branch"))
 			o.ConfigPath = strings.TrimSpace(c.FormValue("path"))
 		}
-		if err := h.store.UpdateOrg(ctx, o); err != nil {
+		if err := h.orgs.Save(ctx, o); err != nil {
 			return err
 		}
 	}
@@ -114,26 +113,27 @@ func (h *handler) loadOrgPlan(c echo.Context) (*repo.Org, *repo.ConfigPlan, erro
 	if err != nil {
 		return nil, nil, err
 	}
-	cp, err := h.store.GetOrgConfigPlan(c.Request().Context(), c.Param("planID"))
-	if err != nil || cp == nil || cp.StackID != o.ID {
+	cp, err := h.plans.GetOrgPlan(c.Request().Context(), c.Param("planID"))
+	if err != nil || cp.StackID != o.ID {
 		return nil, nil, echo.NewHTTPError(http.StatusNotFound, "plan not found")
 	}
 	return o, cp, nil
 }
 
-// POST /orgs/:slug/plans/:planID/approve, applies synchronously.
+// POST /orgs/:slug/plans/:planID/approve, queues the apply.
+//
+// Always to the plan page, because the apply has not happened yet: that page
+// is where the progress banner lives and where the failure would be recorded.
+// Addressed by org id, not slug, because the apply can rename the org while
+// this page is still polling and the old slug would 404 under it. loadOrg and
+// settingsOrg both fall back to an id lookup, which is why a bookmark from
+// before a rename still resolves.
 func (h *handler) ApproveOrgPlan(c echo.Context) error {
-	o, applied, err := h.approvePlan(c)
+	o, err := h.approvePlan(c)
 	if err != nil {
 		return err
 	}
-	// o.Slug is the post-apply one: a plan that renames the org has already
-	// moved it, and redirecting to the slug in the URL would 404.
-	if !applied {
-		// The failure is on the plan row now; the page is where to read it.
-		return respond.Redirect(c, "/orgs/"+o.Slug+"/plans/"+c.Param("planID"))
-	}
-	return respond.Redirect(c, "/orgs/"+o.Slug+"/plans")
+	return respond.Redirect(c, "/orgs/"+o.ID+"/plans/"+c.Param("planID"))
 }
 
 // POST /orgs/:slug/plans/:planID/reject
@@ -169,15 +169,14 @@ func (h *handler) SetPlanInput(c echo.Context) error {
 	if val == "" {
 		return echo.NewHTTPError(http.StatusBadRequest, "a value is required")
 	}
-	now := time.Now().UTC()
-	if err := h.store.UpsertVariable(ctx, &repo.Variable{
-		OwnerKind: repo.OwnerOrg, OwnerID: o.ID, Name: name,
-		Value: val, Secret: true, CreatedAt: now, UpdatedAt: now,
-	}); err != nil {
+	// Set, not Upsert: this used to be an Upsert followed by the handler's own
+	// copy of the audit row and the waiting-release, which is the service's
+	// job written out a second time. Upsert is the raw door and skips both.
+	if err := h.vars.Set(ctx, service.OrgVars(o.ID),
+		[]service.VarWrite{{Name: name, Value: val, Secret: true}},
+		stackrmw.WebActor(c)); err != nil {
 		return err
 	}
-	audit.Record(ctx, h.store, audit.Actor(c), audit.Set, repo.OwnerOrg, o.ID, name)
-	deploy.ClearWaitingOrg(ctx, h.store, o.ID, name)
 	var np *repo.ConfigPlan
 	if h.orgcfg != nil {
 		var perr error
@@ -200,23 +199,25 @@ func (h *handler) SetPlanInput(c echo.Context) error {
 // approvePlan and rejectPlan are the decision itself, without the redirect,
 // the wizard's step 3 makes the same two decisions and then continues to step 4
 // instead of landing on the plans list.
-func (h *handler) approvePlan(c echo.Context) (o *repo.Org, applied bool, err error) {
+//
+// It no longer reports whether the apply worked, because it no longer waits to
+// find out: queuing it is the whole of the decision, and the outcome arrives on
+// the plan row and in the banner both surfaces now poll.
+func (h *handler) approvePlan(c echo.Context) (*repo.Org, error) {
 	o, cp, err := h.loadOrgPlan(c)
 	if err != nil {
-		return nil, false, err
+		return nil, err
 	}
 	if cp.Status != "pending" {
-		return nil, false, echo.NewHTTPError(http.StatusConflict, "plan is "+cp.Status)
+		return nil, echo.NewHTTPError(http.StatusConflict, "plan is "+cp.Status)
 	}
 	if h.orgcfg == nil {
-		return nil, false, echo.NewHTTPError(http.StatusServiceUnavailable, "org config runner unavailable")
+		return nil, echo.NewHTTPError(http.StatusServiceUnavailable, "org config runner unavailable")
 	}
-	if err := h.orgcfg.Apply(c.Request().Context(), o, cp); err != nil {
-		middleware.SetFlash(c, "Apply failed: "+err.Error(), middleware.FlashError)
-		return o, false, nil
+	if _, err := orgconf.EnqueueApply(c.Request().Context(), h.work, o, cp); err != nil {
+		return nil, echo.NewHTTPError(http.StatusServiceUnavailable, err.Error())
 	}
-	middleware.SetFlash(c, "Org plan applied.", middleware.FlashSuccess)
-	return o, true, nil
+	return o, nil
 }
 
 func (h *handler) rejectPlan(c echo.Context) (*repo.Org, error) {
@@ -227,7 +228,7 @@ func (h *handler) rejectPlan(c echo.Context) (*repo.Org, error) {
 	if cp.Status != "pending" {
 		return nil, echo.NewHTTPError(http.StatusConflict, "plan is "+cp.Status)
 	}
-	if err := h.store.SetOrgConfigPlanStatus(c.Request().Context(), cp.ID, "rejected"); err != nil {
+	if err := h.plans.SetOrgPlanStatus(c.Request().Context(), cp.ID, "rejected"); err != nil {
 		return nil, err
 	}
 	middleware.SetFlash(c, "Plan rejected.", middleware.FlashSuccess)
@@ -245,8 +246,8 @@ func (h *handler) pickerConnector(c echo.Context) (*repo.Connector, string, erro
 	if h.gh == nil {
 		return nil, "", echo.NewHTTPError(http.StatusNotFound, "no github client")
 	}
-	cn, err := h.store.GetConnector(c.Request().Context(), c.Param("connectorID"))
-	if err != nil || cn == nil || cn.OrgID != o.ID || cn.Provider != "github" {
+	cn, err := h.connectors.Get(c.Request().Context(), c.Param("connectorID"))
+	if err != nil || cn.OrgID != o.ID || cn.Provider != "github" {
 		return nil, "", echo.NewHTTPError(http.StatusNotFound, "connector not found")
 	}
 	full := c.QueryParam("repo")

@@ -4,24 +4,9 @@ import (
 	"fmt"
 	"sort"
 	"strings"
-)
 
-// ParseDep decodes one depends_on line: "slug" or "slug:condition".
-// Bare slug means started.
-func ParseDep(line string) (slug, cond string, err error) {
-	slug, cond = line, "started"
-	if i := strings.IndexByte(line, ':'); i >= 0 {
-		slug, cond = line[:i], line[i+1:]
-	}
-	if slug == "" {
-		return "", "", fmt.Errorf("depends_on %q: empty tile slug", line)
-	}
-	switch cond {
-	case "started", "healthy", "completed":
-		return slug, cond, nil
-	}
-	return "", "", fmt.Errorf("depends_on %q: condition must be started, healthy or completed", line)
-}
+	"github.com/FyrmForge/stackr/internal/stackrd/infra/runtime"
+)
 
 // validateDeps checks one environment's startup-order graph: every target
 // exists in the env, conditions fit the target's kind, no self-deps, no
@@ -30,7 +15,7 @@ func ParseDep(line string) (slug, cond string, err error) {
 func validateDeps(envName string, tiles map[string]TileConf) error {
 	for name, tc := range tiles {
 		for _, line := range tc.DependsOn {
-			slug, cond, err := ParseDep(line)
+			slug, cond, err := runtime.ParseDep(line)
 			if err != nil {
 				return fmt.Errorf("env %s tile %s: %w", envName, name, err)
 			}
@@ -66,7 +51,7 @@ func validateDeps(envName string, tiles map[string]TileConf) error {
 		color[n] = grey
 		stack = append(stack, n)
 		for _, line := range tiles[n].DependsOn {
-			slug, _, _ := ParseDep(line)
+			slug, _, _ := runtime.ParseDep(line)
 			if _, ok := tiles[slug]; !ok {
 				continue
 			}
@@ -115,7 +100,7 @@ func topoDeps(slugs []string, re ResolvedEnv) []string {
 	}
 	for _, s := range slugs {
 		for _, line := range re.Tiles[s].DependsOn {
-			dep, _, err := ParseDep(line)
+			dep, _, err := runtime.ParseDep(line)
 			if err != nil || !in[dep] || dep == s {
 				continue
 			}

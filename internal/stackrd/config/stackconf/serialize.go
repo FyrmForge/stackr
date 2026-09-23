@@ -81,6 +81,8 @@ func tileToConf(ts TileState, cur EnvState) TileConf {
 		tc.Type = "volume"
 		tc.Attach = attachedSlug(cur, t.AttachedTileID)
 		tc.Path = t.MountPath
+		tc.VolumeName = t.VolumeName
+		tc.MaxSizeMB = t.MaxSizeMB
 	case t.IsManaged():
 		tc.Type = "managed"
 		tc.Engine = t.Engine

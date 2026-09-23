@@ -30,7 +30,7 @@ func (h *handler) storageRows(a *repo.Tile) []storageRow {
 }
 
 func (h *handler) storageOptions(ctx context.Context, a *repo.Tile) []storageOption {
-	storages, err := h.store.ListStorage(ctx)
+	storages, err := h.storage.ListAll(ctx)
 	if err != nil {
 		return nil
 	}
@@ -41,7 +41,7 @@ func (h *handler) storageOptions(ctx context.Context, a *repo.Tile) []storageOpt
 	var out []storageOption
 	for i := range storages {
 		st := &storages[i]
-		paths, _ := h.store.ListStoragePaths(ctx, st.ID)
+		paths, _ := h.storage.Paths(ctx, st.ID)
 		for j := range paths {
 			val := st.Slug + "/" + paths[j].Name
 			if attached[val] {
@@ -84,29 +84,18 @@ func (h *handler) AttachStorage(c echo.Context) error {
 	if c.FormValue("ro") != "" {
 		line += ":ro"
 	}
-	slug, _, _, _, err := storagetiles.ParseAttachment(line)
-	if err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
-	}
-	st, err := h.store.GetStorageBySlug(ctx, slug)
-	if err != nil || st == nil {
-		return echo.NewHTTPError(http.StatusNotFound, "storage "+slug+" not found")
-	}
-	if err := storagetiles.ValidateAttach(st, a); err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
-	}
 	for _, existing := range splitNonEmpty(a.Storage) {
 		if existing == line {
 			return echo.NewHTTPError(http.StatusConflict, "already attached")
 		}
 	}
 	a.Storage = strings.TrimSpace(a.Storage + "\n" + line)
-	if err := h.store.UpdateTile(ctx, a); err != nil {
-		return err
-	}
-	// The mount exists only on the next container, redeploy if it runs.
-	if a.Status == "running" {
-		_, _ = h.engine.Enqueue(ctx, a, "storage")
+	// Through the tile service: the grammar, the "does that share exist"
+	// lookup, the local-backed rule for a managed instance and the kind rule
+	// are all in its validator, and it decides the redeploy. This handler had
+	// its own copy of the first three and no kind rule at all.
+	if _, err := h.tiles.Update(ctx, a, nil, stackrmw.WebActor(c)); err != nil {
+		return stackrmw.HTTP(err)
 	}
 	return respond.HTML(c, http.StatusOK, storageFrag(c, a, h.storageRows(a), h.storageOptions(ctx, a)))
 }
@@ -129,11 +118,8 @@ func (h *handler) DetachStorage(c echo.Context) error {
 		}
 	}
 	a.Storage = strings.Join(kept, "\n")
-	if err := h.store.UpdateTile(ctx, a); err != nil {
-		return err
-	}
-	if a.Status == "running" {
-		_, _ = h.engine.Enqueue(ctx, a, "storage")
+	if _, err := h.tiles.Update(ctx, a, nil, stackrmw.WebActor(c)); err != nil {
+		return stackrmw.HTTP(err)
 	}
 	return respond.HTML(c, http.StatusOK, storageFrag(c, a, h.storageRows(a), h.storageOptions(ctx, a)))
 }

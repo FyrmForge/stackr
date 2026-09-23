@@ -116,7 +116,7 @@ func (h *handler) loadBucket(c echo.Context) (*repo.Tile, bucketFS, bool, error)
 		return nil, bucketFS{}, false, echo.NewHTTPError(http.StatusNotFound, "this engine has no file browser")
 	}
 	bucket := c.Param("bucket")
-	ps, err := h.store.ListProvisionsByInstance(c.Request().Context(), d.ID)
+	ps, err := h.slices.ForInstance(c.Request().Context(), d.ID)
 	if err != nil {
 		return nil, bucketFS{}, false, err
 	}

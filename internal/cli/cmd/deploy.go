@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/FyrmForge/stackr/internal/deploystate"
 	"io"
 	"net"
 	"strconv"
@@ -201,8 +202,7 @@ func waitForDeployment(ctx context.Context, client *cli.Client, id string, timeo
 			return cli.Deployment{}, err
 		}
 		progress(d.Status)
-		switch d.Status {
-		case "done", "error", "cancelled":
+		if deploystate.IsTerminal(d.Status) {
 			clearLine()
 			return d, nil
 		}

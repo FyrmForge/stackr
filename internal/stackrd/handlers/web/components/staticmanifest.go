@@ -12,7 +12,7 @@ var StaticManifest = map[string]string{
 	"js/codearea.js": "js/codearea.92dd2a127302.js",
 	"js/graph.js": "js/graph.d5b43ba587e1.js",
 	"js/htmx.min.js": "js/htmx.min.e209dda5c823.js",
-	"js/live.js": "js/live.5db5b8066b4b.js",
+	"js/live.js": "js/live.43bd8d6334ed.js",
 	"js/logs.js": "js/logs.9f54f40bb54a.js",
 	"js/main.js": "js/main.74e11d7962d3.js",
 	"js/metrics.js": "js/metrics.70604865d5ad.js",

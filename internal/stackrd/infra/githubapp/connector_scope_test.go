@@ -39,7 +39,7 @@ func TestConnectorForTileRefusesAnotherOrgsConnector(t *testing.T) {
 		ConnectorID: theirs.ID, CreatedAt: now, UpdatedAt: now}
 	require.NoError(t, store.CreateTile(ctx, tile), "create tile")
 
-	c := New(store, "https://panel.example")
+	c := New(store, testdb.Connectors{Store: store}, "https://panel.example")
 	assert.Nil(t, c.connectorForTile(ctx, tile),
 		"a connector owned by another org must not resolve")
 

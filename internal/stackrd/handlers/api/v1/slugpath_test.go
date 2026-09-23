@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/FyrmForge/stackr/internal/stackrd/service"
+	"github.com/FyrmForge/stackr/internal/stackrd/service/svcerr"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/testdb"
 	"github.com/labstack/echo/v4"
@@ -108,25 +110,21 @@ func TestPromoteRefusesTheFirstRung(t *testing.T) {
 	ctx := context.Background()
 	s := testdb.New(t)
 	seed := testdb.SeedStack(t, s, false)
-	a := apiFor(s)
-	c := echoCtx(t)
+	rel := service.NewReleaseService(s, nil)
 
-	_, err := a.promoteEnv(ctx, seed.Stack, seed.Env.Slug)
-	var he *echo.HTTPError
-	require.ErrorAs(t, err, &he, "the first rung should be refused")
-	require.Equal(t, http.StatusBadRequest, he.Code)
+	_, err := rel.Target(ctx, seed.Stack, seed.Env.Slug)
+	var invalid svcerr.Invalid
+	require.ErrorAs(t, err, &invalid, "the first rung should be refused")
 
-	_, err = a.promoteEnv(ctx, seed.Stack, "nope")
-	require.ErrorAs(t, err, &he)
-	require.Equal(t, http.StatusNotFound, he.Code)
+	_, err = rel.Target(ctx, seed.Stack, "nope")
+	require.ErrorIs(t, err, svcerr.ErrNotFound)
 
 	now := time.Now().UTC()
 	require.NoError(t, s.CreateEnvironment(ctx, &repo.Environment{ID: "env2", StackID: seed.Stack.ID,
 		Name: "Staging", Slug: "staging", Type: "static", CreatedAt: now}))
-	env, err := a.promoteEnv(ctx, seed.Stack, "staging")
+	env, err := rel.Target(ctx, seed.Stack, "staging")
 	require.NoError(t, err, "a rung above the first one is a promote target")
 	require.Equal(t, "env2", env.ID)
-	_ = c
 }
 
 // An org needs somebody who can administer it. Removing or demoting the last
@@ -136,8 +134,7 @@ func TestLastOwnerCannotBeRemoved(t *testing.T) {
 	ctx := context.Background()
 	s := testdb.New(t)
 	seed := testdb.SeedStack(t, s, false)
-	a := apiFor(s)
-	c := echoCtx(t)
+	members := service.NewMemberService(s, nil, nil)
 
 	now := time.Now().UTC()
 	for _, id := range []string{"u1", "u2"} {
@@ -146,22 +143,34 @@ func TestLastOwnerCannotBeRemoved(t *testing.T) {
 	}
 	require.NoError(t, s.UpsertOrgMember(ctx, &repo.OrgMember{OrgID: seed.Org.ID,
 		UserID: "u1", Role: "owner", CreatedAt: now}))
-	err := a.lastOwnerGuard(c, seed.Org, "u1")
-	var he *echo.HTTPError
-	require.ErrorAs(t, err, &he, "the last owner should be refused")
-	require.Equal(t, http.StatusConflict, he.Code)
+	err := members.SetRole(ctx, seed.Org, "u1", "viewer")
+	var conflict svcerr.Conflict
+	require.ErrorAs(t, err, &conflict, "the last owner should be refused")
 
 	require.NoError(t, s.UpsertOrgMember(ctx, &repo.OrgMember{OrgID: seed.Org.ID,
 		UserID: "u2", Role: "owner", CreatedAt: now}))
-	require.NoError(t, a.lastOwnerGuard(c, seed.Org, "u1"),
-		"with a second owner the first one can go")
+	require.NoError(t, members.SetRole(ctx, seed.Org, "u1", "viewer"),
+		"with a second owner the first one can be demoted")
 }
 
-// An unknown role falls back to member: the least access that can still do
-// work, so a typo grants less than was meant rather than more.
-func TestUnknownRoleFallsBackToMember(t *testing.T) {
-	require.Equal(t, "member", validRole("administrator"))
-	require.Equal(t, "member", validRole(""))
-	require.Equal(t, "owner", validRole("owner"))
-	require.Equal(t, "viewer", validRole("viewer"))
+// An unknown role is refused, not folded to "member". Folding is why
+// `stackr members add --role admin` granted member access and said nothing:
+// the caller asked for something the product does not have and was told the
+// invite succeeded.
+func TestUnknownRoleIsRefused(t *testing.T) {
+	ctx := context.Background()
+	s := testdb.New(t)
+	seed := testdb.SeedStack(t, s, false)
+	members := service.NewMemberService(s, nil, nil)
+
+	_, err := members.Invite(ctx, seed.Org, "new@test", "administrator", 0, service.Actor{})
+	var invalid svcerr.Invalid
+	require.ErrorAs(t, err, &invalid, "an unknown role should be refused")
+
+	// And the expiry is bounded on both surfaces: an unbounded one is a
+	// credential, a negative one had already expired when it was minted.
+	_, err = members.Invite(ctx, seed.Org, "new@test", "member", -1, service.Actor{})
+	require.ErrorAs(t, err, &invalid, "a negative expiry should be refused")
+	_, err = members.Invite(ctx, seed.Org, "new@test", "member", 10000, service.Actor{})
+	require.ErrorAs(t, err, &invalid, "an unbounded expiry should be refused")
 }

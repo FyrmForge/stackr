@@ -10,6 +10,7 @@ import (
 
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/envnet"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/managedtiles"
+	"github.com/FyrmForge/stackr/internal/stackrd/service"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo/sqlite"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/testdb"
@@ -17,7 +18,26 @@ import (
 
 // svc builds a Service with no docker runtime: SyncResource and its helpers
 // only touch the store, and this keeps the mirror testable without a daemon.
-func svc(s *sqlite.Store) *managedtiles.Service { return managedtiles.NewService(nil, s) }
+// This file is the external test package, so it can name service/ — the
+// in-package tests cannot, and use a store-backed fake instead (rows_test.go).
+func svc(s *sqlite.Store) *managedtiles.Service {
+	return managedtiles.NewService(nil, s, svcRows(s))
+}
+
+// svcRows is the real bundle of row owners, which only this file can build:
+// the in-package tests would import service/ into its own dependency and
+// cycle.
+func svcRows(s *sqlite.Store) service.Rows {
+	gate := service.NewGateService(s)
+	tiles := service.NewTileService(s, nil, nil, nil, nil, nil, gate)
+	return service.Rows{
+		Envs:      service.NewEnvironmentService(s, nil, nil, nil, gate),
+		Tiles:     tiles,
+		Vars:      service.NewVariableService(s, nil, tiles, nil, nil),
+		Slices:    service.NewSliceService(s, nil, nil, nil),
+		Instances: service.NewManagedInstanceService(s, nil, tiles, gate, nil),
+	}
+}
 
 func instance(t *testing.T, s *sqlite.Store, seed testdb.Seed, engine string) *repo.Tile {
 	t.Helper()
@@ -141,7 +161,7 @@ func TestPublishConnection(t *testing.T) {
 	inst := instance(t, s, seed, "postgres")
 	inst.DBName, inst.DBUser, inst.DBPassword = "app", "app", "pw"
 
-	managedtiles.PublishConnection(ctx, s, inst)
+	managedtiles.PublishConnection(ctx, s, svcRows(s), inst)
 
 	vars, err := s.ListVariables(ctx, repo.OwnerTile, inst.ID)
 	require.NoError(t, err, "list")
@@ -163,8 +183,8 @@ func TestPublishConnection(t *testing.T) {
 	assert.Equal(t, alias, got["PGHOST"].Value, "PGHOST, want the tile alias")
 	before := got["DATABASE_URL"].Value
 	inst.Slug, inst.Name = "renamed", "renamed"
-	require.NoError(t, s.UpdateTile(ctx, inst), "rename")
-	managedtiles.PublishConnection(ctx, s, inst)
+	require.NoError(t, s.UpdateTile(ctx, inst.ID, inst.TileConfig), "rename")
+	managedtiles.PublishConnection(ctx, s, svcRows(s), inst)
 	after, err := s.ListVariables(ctx, repo.OwnerTile, inst.ID)
 	require.NoError(t, err, "list after rename")
 	for _, v := range after {
@@ -248,7 +268,7 @@ func TestAttachSharesOneResource(t *testing.T) {
 	// reference with it, an unbound reference is a hard resolve error, so
 	// leaving it behind would fail every later deploy of that tile.
 	second.Env = "DATABASE_URL=" + managedtiles.Ref(inst, &attached, "DATABASE_URL") + "\nKEEP=1"
-	require.NoError(t, s.UpdateTile(ctx, second), "set consumer env")
+	require.NoError(t, s.UpdateTile(ctx, second.ID, second.TileConfig), "set consumer env")
 	require.NoError(t, svc(s).Detach(ctx, &attached), "detach")
 	left, err := s.ListVariables(ctx, repo.OwnerTile, second.ID)
 	require.NoError(t, err, "list vars")

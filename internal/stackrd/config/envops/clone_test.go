@@ -8,7 +8,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/FyrmForge/stackr/internal/stackrd/config/envops"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/testdb"
 )
@@ -34,7 +33,7 @@ func TestCloneCopiesVariables(t *testing.T) {
 	clone := &repo.Environment{ID: "env2", StackID: seed.Stack.ID, Name: "pr-1", Slug: "pr-1",
 		Type: "ephemeral", BaseEnvID: seed.Env.ID, CreatedAt: now}
 	require.NoError(t, s.CreateEnvironment(ctx, clone), "create env")
-	require.NoError(t, (envops.Ops{Store: s}).CloneTiles(ctx, clone), "clone")
+	require.NoError(t, ops(t, s).CloneTiles(ctx, clone), "clone")
 
 	tiles, err := s.ListTilesByEnv(ctx, clone.ID)
 	require.NoError(t, err)
@@ -78,7 +77,7 @@ func TestCloneCopiesLayout(t *testing.T) {
 	clone := &repo.Environment{ID: "env2", StackID: seed.Stack.ID, Name: "pr-1", Slug: "pr-1",
 		Type: "ephemeral", BaseEnvID: seed.Env.ID, CreatedAt: time.Now().UTC()}
 	require.NoError(t, s.CreateEnvironment(ctx, clone), "create env")
-	require.NoError(t, (envops.Ops{Store: s}).CloneTiles(ctx, clone), "clone")
+	require.NoError(t, ops(t, s).CloneTiles(ctx, clone), "clone")
 
 	rows, err := s.ListNodePositions(ctx, repo.GraphOwner(repo.ScopeEnv, clone.ID))
 	require.NoError(t, err, "list positions")

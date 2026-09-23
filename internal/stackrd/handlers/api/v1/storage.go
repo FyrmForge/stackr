@@ -2,16 +2,14 @@ package v1
 
 import (
 	"context"
-	"log/slog"
 	"net/http"
 	"strings"
-	"time"
 
-	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 
-	"github.com/FyrmForge/stackr/internal/stackrd/config/varref"
+	stackrmw "github.com/FyrmForge/stackr/internal/stackrd/handlers/middleware"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/storagetiles"
+	"github.com/FyrmForge/stackr/internal/stackrd/service"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 )
 
@@ -27,6 +25,10 @@ type storageIn struct {
 	Password string `json:"password" description:"smb; encrypted at rest (docker volume metadata keeps a plaintext copy)"`
 	Opts     string `json:"opts" description:"extra mount opts"`
 	Org      string `json:"org" description:"org slug: makes an org network share (nfs/smb) its tiles mount as ${{ org.storage.NAME }}"`
+	// ServerID names the node a pool lives on. Defaults to the manager,
+	// which is what this route used to hard-code with no way to say
+	// otherwise, so every pool a CLI created landed there.
+	ServerID string `json:"server_id" description:"node id the pool is mounted on; defaults to the manager"`
 }
 
 type storagePathIn struct {
@@ -61,11 +63,11 @@ func (a *API) storageOut(c echo.Context, st *repo.Storage) storageOut {
 	out := storageOut{ID: st.ID, Name: st.Name, Slug: st.Slug, Backend: st.Backend,
 		Address: st.Address, Export: st.Export, Status: st.Status, StatusMsg: st.StatusMsg}
 	if st.OrgID != "" {
-		if org, _ := a.store.GetOrg(c.Request().Context(), st.OrgID); org != nil {
+		if org, _ := a.orgs.Get(c.Request().Context(), st.OrgID); org != nil {
 			out.Org = org.Slug
 		}
 	}
-	paths, _ := a.store.ListStoragePaths(c.Request().Context(), st.ID)
+	paths, _ := a.storage.Paths(c.Request().Context(), st.ID)
 	for _, p := range paths {
 		out.Paths = append(out.Paths, storagePathOut{ID: p.ID, Name: p.Name, Subpath: p.Subpath,
 			ForcedRO: p.ForcedRO, Volume: repo.StorageVolume(p.ID)})
@@ -74,7 +76,7 @@ func (a *API) storageOut(c echo.Context, st *repo.Storage) storageOut {
 }
 
 func (a *API) listStorage(c echo.Context) error {
-	sts, err := a.store.ListStorage(c.Request().Context())
+	sts, err := a.storage.ListAll(c.Request().Context())
 	if err != nil {
 		return err
 	}
@@ -88,116 +90,75 @@ func (a *API) listStorage(c echo.Context) error {
 func (a *API) createStorage(c echo.Context) error {
 	ctx := c.Request().Context()
 	var in storageIn
-	if err := c.Bind(&in); err != nil || in.Name == "" || !storagetiles.ValidBackend(in.Backend) {
-		return echo.NewHTTPError(http.StatusBadRequest, "name and a backend (nfs, smb or local) required")
+	if err := c.Bind(&in); err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid body")
 	}
-	if in.Backend == "local" && !strings.HasPrefix(in.Export, "/") {
-		return echo.NewHTTPError(http.StatusBadRequest, "a local pool needs an absolute host path")
+	spec := service.StorageSpec{
+		Name: in.Name, Backend: in.Backend, Address: in.Address, Export: in.Export,
+		Username: in.Username, Password: in.Password, Opts: in.Opts,
+		// The node the pool lives on, from the caller. This used to be
+		// hard-coded "local", which is why every pool a CLI created probed
+		// and mounted on the manager rather than on the machine meant for it.
+		ServerID: in.ServerID,
 	}
-	if in.Backend != "local" && in.Address == "" {
-		return echo.NewHTTPError(http.StatusBadRequest, in.Backend+" storage needs an address")
+	if spec.ServerID == "" && in.Org == "" {
+		spec.ServerID = "local"
 	}
-	slug := repo.Slugify(in.Name)
-	st := &repo.Storage{ID: uuid.New().String(), ServerID: "local", Name: in.Name, Slug: slug,
-		Backend: in.Backend, Address: in.Address, Export: in.Export, Username: in.Username,
-		Password: in.Password, Opts: in.Opts, Status: "unknown", CreatedAt: time.Now().UTC()}
 	if in.Org != "" {
 		org, err := a.orgShareOwner(ctx, in.Org)
 		if err != nil {
 			return err
 		}
-		if in.Backend == "local" {
-			return echo.NewHTTPError(http.StatusBadRequest, "an org share is nfs or smb; local pools belong to a server")
-		}
-		if existing, _ := a.store.GetOrgStorageBySlug(ctx, org.ID, slug); existing != nil {
-			return echo.NewHTTPError(http.StatusConflict, "storage "+slug+" already exists in "+org.Slug)
-		}
-		st.ServerID, st.OrgID = "", org.ID
-	} else if existing, _ := a.store.GetStorageBySlug(ctx, slug); existing != nil {
-		return echo.NewHTTPError(http.StatusConflict, "storage "+slug+" already exists")
+		spec.OrgID = org.ID
 	}
-	if err := a.store.CreateStorage(ctx, st); err != nil {
-		return err
-	}
-	// Probe on create, a broken share should fail here, not at first deploy.
-	// On the server's own node: probing the manager proves nothing about the
-	// machine that will do the mounting.
-	node, nerr := a.clus.NodeOfStorage(ctx, st)
-	probe := repo.StoragePath{ID: uuid.New().String(), StorageID: st.ID}
-	switch {
-	case nerr != nil:
-		st.Status, st.StatusMsg = "error", nerr.Error()
-	default:
-		if err := storagetiles.Probe(ctx, a.clus, node, st, &probe); err != nil {
-			st.Status, st.StatusMsg = "error", err.Error()
-		} else {
-			st.Status, st.StatusMsg = "ok", ""
-		}
-		_ = a.clus.RemoveVolume(ctx, node, repo.StorageVolume(probe.ID))
-	}
-	if err := a.store.UpdateStorage(ctx, st); err != nil {
-		slog.Error("storage probe result not saved", "storage", st.ID, "status", st.Status, "error", err)
+	st, err := a.storage.Create(ctx, spec)
+	if err != nil {
+		return stackrmw.HTTP(err)
 	}
 	return c.JSON(http.StatusCreated, a.storageOut(c, st))
 }
 
 func (a *API) deleteStorage(c echo.Context) error {
 	ctx := c.Request().Context()
-	st, err := a.store.GetStorage(ctx, c.Param("id"))
-	if err != nil || st == nil {
-		return echo.NewHTTPError(http.StatusNotFound, "storage not found")
+	st, err := a.storage.Get(ctx, c.Param("id"))
+	if err != nil {
+		return stackrmw.HTTP(err)
 	}
 	if st.OrgID != "" {
-		return a.deleteOrgShare(c, st)
-	}
-	tiles, _ := a.store.ListTiles(ctx)
-	for i := range tiles {
-		for _, l := range strings.Split(tiles[i].Storage, "\n") {
-			if slug, _, _, _, err := storagetiles.ParseAttachment(strings.TrimSpace(l)); err == nil && slug == st.Slug {
-				return echo.NewHTTPError(http.StatusConflict, "still attached to "+tiles[i].Name+"; detach first")
-			}
+		// Access first: an org share is the org's to remove. The consumer
+		// scan and the volume cleanup are the service's, for both kinds.
+		org, oerr := a.orgs.Get(ctx, st.OrgID)
+		if oerr != nil {
+			return stackrmw.HTTP(oerr)
+		}
+		if _, oerr := a.orgShareOwner(ctx, org.Slug); oerr != nil {
+			return oerr
 		}
 	}
-	paths, _ := a.store.ListStoragePaths(ctx, st.ID)
-	if node, err := a.clus.NodeOfStorage(ctx, st); err == nil {
-		for i := range paths {
-			_ = a.clus.RemoveVolume(ctx, node, repo.StorageVolume(paths[i].ID))
-		}
-	}
-	if err := a.store.DeleteStorage(ctx, st.ID); err != nil {
-		return err
+	if err := a.storage.Delete(ctx, st); err != nil {
+		return stackrmw.HTTP(err)
 	}
 	return c.JSON(http.StatusOK, struct{}{})
 }
 
 func (a *API) createStoragePath(c echo.Context) error {
 	ctx := c.Request().Context()
-	st, err := a.store.GetStorage(ctx, c.Param("id"))
-	if err != nil || st == nil {
-		return echo.NewHTTPError(http.StatusNotFound, "storage not found")
-	}
-	if st.OrgID != "" {
-		return echo.NewHTTPError(http.StatusBadRequest, "an org share takes any sub-path; mount ${{ org.storage."+st.Slug+" }}/sub/path directly")
+	st, err := a.storage.Get(ctx, c.Param("id"))
+	if err != nil {
+		return stackrmw.HTTP(err)
 	}
 	var in storagePathIn
-	if err := c.Bind(&in); err != nil || in.Name == "" {
-		return echo.NewHTTPError(http.StatusBadRequest, "sub-path name required")
+	if err := c.Bind(&in); err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid body")
 	}
-	sub := strings.Trim(in.Subpath, "/")
-	if strings.Contains(sub, "..") {
-		return echo.NewHTTPError(http.StatusBadRequest, "sub-path must stay inside the share")
+	p, err := a.storage.DeclarePath(ctx, st, in.Name, in.Subpath, in.ForcedRO)
+	if p == nil {
+		return stackrmw.HTTP(err)
 	}
-	p := &repo.StoragePath{ID: uuid.New().String(), StorageID: st.ID, Name: repo.Slugify(in.Name),
-		Subpath: sub, ForcedRO: in.ForcedRO, CreatedAt: time.Now().UTC()}
-	if err := a.store.CreateStoragePath(ctx, p); err != nil {
-		return err
-	}
-	node, err := a.clus.NodeOfStorage(ctx, st)
 	if err != nil {
+		// Declared, but not mountable. The row exists; say why it will not
+		// mount rather than pretending the declaration failed.
 		return echo.NewHTTPError(http.StatusUnprocessableEntity, err.Error())
-	}
-	if err := storagetiles.Probe(ctx, a.clus, node, st, p); err != nil {
-		return echo.NewHTTPError(http.StatusUnprocessableEntity, "sub-path declared but mounting it failed: "+err.Error())
 	}
 	return c.JSON(http.StatusCreated, storagePathOut{ID: p.ID, Name: p.Name, Subpath: p.Subpath,
 		ForcedRO: p.ForcedRO, Volume: repo.StorageVolume(p.ID)})
@@ -205,13 +166,13 @@ func (a *API) createStoragePath(c echo.Context) error {
 
 func (a *API) deleteStoragePath(c echo.Context) error {
 	ctx := c.Request().Context()
-	p, err := a.store.GetStoragePath(ctx, c.Param("id"))
-	if err != nil || p == nil {
-		return echo.NewHTTPError(http.StatusNotFound, "sub-path not found")
+	p, err := a.storage.Path(ctx, c.Param("id"))
+	if err != nil {
+		return stackrmw.HTTP(err)
 	}
-	st, _ := a.store.GetStorage(ctx, p.StorageID)
+	st, _ := a.storage.Get(ctx, p.StorageID)
 	if st != nil {
-		tiles, _ := a.store.ListTiles(ctx)
+		tiles, _ := a.tiles.ListAll(ctx)
 		for i := range tiles {
 			for _, l := range strings.Split(tiles[i].Storage, "\n") {
 				if slug, name, _, _, err := storagetiles.ParseAttachment(strings.TrimSpace(l)); err == nil && slug == st.Slug && name == p.Name {
@@ -223,7 +184,7 @@ func (a *API) deleteStoragePath(c echo.Context) error {
 	if node, err := a.clus.NodeOfStorage(ctx, st); err == nil {
 		_ = a.clus.RemoveVolume(ctx, node, repo.StorageVolume(p.ID))
 	}
-	if err := a.store.DeleteStoragePath(ctx, p.ID); err != nil {
+	if err := a.storage.DeletePath(ctx, p.ID); err != nil {
 		return err
 	}
 	return c.JSON(http.StatusOK, struct{}{})
@@ -233,41 +194,12 @@ func (a *API) deleteStoragePath(c echo.Context) error {
 // repo owns its shares in stackr-org.yml, and its next apply would delete one
 // added here.
 func (a *API) orgShareOwner(ctx context.Context, slug string) (*repo.Org, error) {
-	org, err := a.store.GetOrgBySlug(ctx, slug)
-	if err != nil || org == nil {
+	org, err := a.orgs.BySlug(ctx, slug)
+	if err != nil {
 		return nil, echo.NewHTTPError(http.StatusNotFound, "org "+slug+" not found")
 	}
 	if org.ConfigManaged() {
 		return nil, echo.NewHTTPError(http.StatusConflict, org.Slug+" is config-managed; declare the share under storage: in its org file")
 	}
 	return org, nil
-}
-
-func (a *API) deleteOrgShare(c echo.Context, st *repo.Storage) error {
-	ctx := c.Request().Context()
-	org, err := a.store.GetOrg(ctx, st.OrgID)
-	if err != nil || org == nil {
-		return echo.NewHTTPError(http.StatusNotFound, "org not found")
-	}
-	if _, err := a.orgShareOwner(ctx, org.Slug); err != nil {
-		return err
-	}
-	stacks, _ := a.store.ListStacksByOrg(ctx, org.ID)
-	for _, s := range stacks {
-		tiles, _ := a.store.ListTilesByStack(ctx, s.ID)
-		for i := range tiles {
-			for _, l := range strings.Split(tiles[i].Storage, "\n") {
-				if varref.OrgStorageRef(l) == st.Slug {
-					return echo.NewHTTPError(http.StatusConflict, "still attached to "+tiles[i].Name+"; detach first")
-				}
-			}
-		}
-	}
-	if err := storagetiles.DropOrgShareVolumes(ctx, a.clus, st); err != nil {
-		return echo.NewHTTPError(http.StatusConflict, err.Error())
-	}
-	if err := a.store.DeleteStorage(ctx, st.ID); err != nil {
-		return err
-	}
-	return c.JSON(http.StatusOK, struct{}{})
 }

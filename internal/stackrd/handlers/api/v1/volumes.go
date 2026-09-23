@@ -2,12 +2,10 @@ package v1
 
 import (
 	"net/http"
-	"strings"
-	"time"
 
-	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 
+	stackrmw "github.com/FyrmForge/stackr/internal/stackrd/handlers/middleware"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 )
 
@@ -17,19 +15,18 @@ func toVolumeOut(v *repo.Tile) volumeOut {
 }
 
 func (a *API) listVolumes(c echo.Context) error {
-	app, err := a.requireTile(c, c.Param("id"), false)
+	app, err := a.tile(c, c.Param("id"))
 	if err != nil {
 		return err
 	}
-	ts, err := a.store.ListTiles(c.Request().Context())
+	ts, err := a.tiles.ListAll(c.Request().Context())
 	if err != nil {
 		return err
 	}
-	out := make([]volumeOut, 0)
-	for i := range ts {
-		if ts[i].IsVolume() && ts[i].AttachedTileID == app.ID {
-			out = append(out, toVolumeOut(&ts[i]))
-		}
+	vols := repo.VolumesAttachedTo(ts, app.ID)
+	out := make([]volumeOut, 0, len(vols))
+	for i := range vols {
+		out = append(out, toVolumeOut(&vols[i]))
 	}
 	return c.JSON(http.StatusOK, out)
 }
@@ -37,49 +34,26 @@ func (a *API) listVolumes(c echo.Context) error {
 // createVolume creates a persistent volume mounted into the app and redeploys
 // it so the mount takes effect.
 func (a *API) createVolume(c echo.Context) error {
-	app, err := a.requireTile(c, c.Param("id"), true)
+	app, err := a.tile(c, c.Param("id"))
 	if err != nil {
 		return err
 	}
-	if app.IsManaged() || app.IsVolume() {
-		return echo.NewHTTPError(http.StatusBadRequest, "only services and crons can mount volumes")
-	}
-	if err := a.rejectManaged(c.Request().Context(), app.StackID); err != nil {
-		return err
-	}
 	var in volumeIn
-	if err := c.Bind(&in); err != nil || in.Name == "" {
-		return echo.NewHTTPError(http.StatusBadRequest, "name required")
+	if err := c.Bind(&in); err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid body")
 	}
-	if !strings.HasPrefix(in.MountPath, "/") {
-		return echo.NewHTTPError(http.StatusBadRequest, "mount_path must be an absolute path")
+	// A volume is a tile, so it is created the way every other tile is: the
+	// name rules, the reserved-slug check, the duplicate check, the target
+	// rule, the mount-path rule and the target's redeploy all live in the
+	// tile service. This path had its own version of five of those, and its
+	// target rule accepted a cron where the panel's accepted only a service.
+	v := &repo.Tile{
+		StackID: app.StackID, EnvironmentID: app.EnvironmentID,
+		Name: in.Name, Kind: "volume", AttachedTileID: app.ID,
+		MountPath: in.MountPath, VolumeName: in.VolumeName, MaxSizeMB: in.MaxSizeMB,
 	}
-	// Unchecked this lands in a bind string verbatim: "/" mounts the node's
-	// root filesystem. Empty is the normal case and means the id-derived name.
-	if in.VolumeName != "" && !repo.ValidVolumeName(in.VolumeName) {
-		return echo.NewHTTPError(http.StatusBadRequest, "volume_name: letters, digits, _ . - only")
-	}
-	ctx := c.Request().Context()
-	slug := repo.Slugify(in.Name)
-	if repo.ReservedSlug(slug) {
-		return echo.NewHTTPError(http.StatusBadRequest, "\""+slug+"\" is reserved for variable references; pick another name")
-	}
-	if existing, _ := a.store.GetTileBySlug(ctx, app.EnvironmentID, slug); existing != nil {
-		return echo.NewHTTPError(http.StatusConflict, "a tile with that name already exists in the environment")
-	}
-	now := time.Now().UTC()
-	if in.MaxSizeMB < 0 {
-		return echo.NewHTTPError(http.StatusBadRequest, "max_size_mb must not be negative")
-	}
-	v := &repo.Tile{ID: uuid.New().String(), StackID: app.StackID, EnvironmentID: app.EnvironmentID,
-		Name: in.Name, Slug: slug, Kind: "volume", AttachedTileID: app.ID, MountPath: in.MountPath,
-		VolumeName: in.VolumeName, MaxSizeMB: in.MaxSizeMB,
-		WebhookToken: uuid.New().String(), Status: "idle", CreatedAt: now, UpdatedAt: now}
-	if err := a.store.CreateTile(ctx, v); err != nil {
-		return err
-	}
-	if _, err := a.engine.Enqueue(ctx, app, "volume"); err != nil {
-		return err
+	if _, err := a.tiles.Create(c.Request().Context(), v, nil, a.actor(c)); err != nil {
+		return stackrmw.HTTP(err)
 	}
 	return c.JSON(http.StatusCreated, toVolumeOut(v))
 }
@@ -87,7 +61,7 @@ func (a *API) createVolume(c echo.Context) error {
 // deleteVolume removes a volume tile and redeploys its app to drop the mount.
 // The underlying docker volume (its data) is preserved.
 func (a *API) deleteVolume(c echo.Context) error {
-	v, err := a.requireTile(c, c.Param("id"), true)
+	v, err := a.tile(c, c.Param("id"))
 	if err != nil {
 		return err
 	}
@@ -102,9 +76,7 @@ func (a *API) deleteVolume(c echo.Context) error {
 		return err
 	}
 	if v.AttachedTileID != "" {
-		if app, _ := a.store.GetTile(ctx, v.AttachedTileID); app != nil {
-			_, _ = a.engine.Enqueue(ctx, app, "volume")
-		}
+		a.deploys.RedeployIfRunning(ctx, v.AttachedTileID, "volume")
 	}
 	return c.NoContent(http.StatusNoContent)
 }

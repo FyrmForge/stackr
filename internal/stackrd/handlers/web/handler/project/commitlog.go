@@ -3,6 +3,7 @@ package project
 import (
 	"context"
 	"fmt"
+	"github.com/FyrmForge/stackr/internal/deploystate"
 	"path/filepath"
 	"sort"
 	"sync"
@@ -203,8 +204,8 @@ func (h *handler) olderCommit(ctx context.Context, p *repo.Stack, e *logCacheEnt
 	var err error
 	switch e.source {
 	case "github":
-		cn, cerr := h.store.GetConnector(ctx, p.ConfigConnectorID)
-		if cerr != nil || cn == nil {
+		cn, cerr := h.connectors.Get(ctx, p.ConfigConnectorID)
+		if cerr != nil {
 			return remember(o)
 		}
 		if cm, cerr := h.gh.Commit(ctx, cn, p.ConfigRepo, sha); cerr == nil {
@@ -245,8 +246,8 @@ func (h *handler) olderCommit(ctx context.Context, p *repo.Stack, e *logCacheEnt
 // local clone of the reference env's first git tile when there is none.
 func (h *handler) loadCommits(ctx context.Context, p *repo.Stack) (commits []gitlog.Commit, branch, source, dir string, err error) {
 	if p.ConfigManaged() && h.gh != nil {
-		cn, cerr := h.store.GetConnector(ctx, p.ConfigConnectorID)
-		if cerr != nil || cn == nil {
+		cn, cerr := h.connectors.Get(ctx, p.ConfigConnectorID)
+		if cerr != nil {
 			return nil, "", "", "", fmt.Errorf("config connector: not found")
 		}
 		branch, _ = h.applier.Planner.StackBranch(ctx, p)
@@ -256,12 +257,12 @@ func (h *handler) loadCommits(ctx context.Context, p *repo.Stack) (commits []git
 	if h.engine() == nil {
 		return nil, "", "", "", nil
 	}
-	envs, _ := h.store.ListEnvironmentsByStack(ctx, p.ID)
+	envs, _ := h.envs.ListForStack(ctx, p.ID)
 	for _, e := range envs {
 		if e.Type == "ephemeral" {
 			continue
 		}
-		tiles, _ := h.store.ListTilesByEnv(ctx, e.ID)
+		tiles, _ := h.tiles.ListForEnv(ctx, e.ID)
 		for i := range tiles {
 			t := &tiles[i]
 			if t.SourceType != "git" {
@@ -324,10 +325,10 @@ func (h *handler) commitLog(ctx context.Context, p *repo.Stack) commitLog {
 	}
 	envHref := func(env repo.Environment) string { return stackURL(p) + "/" + env.Slug }
 
-	envs, _ := h.store.ListEnvironmentsByStack(ctx, p.ID)
+	envs, _ := h.envs.ListForStack(ctx, p.ID)
 	colors := h.envColorsByID(ctx, p, envs)
 	log.Colors = colors
-	plans, _ := h.store.ListConfigPlans(ctx, p.ID, 30)
+	plans, _ := h.plans.ForStack(ctx, p.ID, 30)
 	building := map[string]bool{} // commits that already carry a building chip
 	first := true
 	for _, env := range envs {
@@ -442,43 +443,45 @@ type envProgress struct {
 // something ran it.
 func (h *handler) envDeployments(ctx context.Context, envID string) (runs, live, failed *repo.Deployment, prog envProgress, built map[string]bool) {
 	built = map[string]bool{}
-	tiles, _ := h.store.ListTilesByEnv(ctx, envID)
+	tiles, _ := h.tiles.ListForEnv(ctx, envID)
 	for i := range tiles {
 		if tiles[i].SourceType != "git" {
 			continue
 		}
-		deps, _ := h.store.ListDeploymentsByTile(ctx, tiles[i].ID, 5)
+		deps, _ := h.deploys.ForTile(ctx, tiles[i].ID, 5)
 		// The tile's newest deploy is its part of the batch in flight.
 		if len(deps) > 0 {
 			switch deps[0].Status {
-			case "done":
+			case deploystate.Done:
 				prog.Done++
 				prog.Total++
-			case "queued", "running", "waiting_ci":
-				prog.Total++
-				if tiles[i].Status == "building" {
-					prog.Building = true
+			default:
+				if deploystate.IsLive(deps[0].Status) {
+					prog.Total++
+					if tiles[i].Status == "building" {
+						prog.Building = true
+					}
 				}
 			}
 		}
 		for j := range deps {
 			d := &deps[j]
 			switch d.Status {
-			case "done":
+			case deploystate.Done:
 				if d.CommitSHA != "" {
 					built[d.CommitSHA] = true
 				}
 				if d.CommitSHA != "" && (runs == nil || d.CreatedAt.After(runs.CreatedAt)) {
 					runs = d
 				}
-			case "queued", "running", "waiting_ci":
-				if live == nil || d.CreatedAt.After(live.CreatedAt) {
-					live = d
-				}
-			case "error":
+			case deploystate.Error:
 				// only the tile's newest attempt counts as "failed"
 				if j == 0 && d.CommitSHA != "" && (failed == nil || d.CreatedAt.After(failed.CreatedAt)) {
 					failed = d
+				}
+			default:
+				if deploystate.IsLive(d.Status) && (live == nil || d.CreatedAt.After(live.CreatedAt)) {
+					live = d
 				}
 			}
 		}

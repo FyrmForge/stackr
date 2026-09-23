@@ -61,7 +61,7 @@ func TestDiffStorage(t *testing.T) {
 	require.NoError(t, s.CreateStorage(ctx, &repo.Storage{ID: "0123456789ab", OrgID: seed.Org.ID, Name: "old", Slug: "old",
 		Backend: "nfs", Address: "nas", Export: "/srv", CreatedAt: time.Now()}))
 	seed.Tile.Storage = "${{ org.storage.old }}/tv:/tv"
-	require.NoError(t, s.UpdateTile(ctx, seed.Tile))
+	require.NoError(t, s.UpdateTile(ctx, seed.Tile.ID, seed.Tile.TileConfig))
 	p, err = r.diff(ctx, seed.Org, f)
 	require.NoError(t, err)
 	require.Len(t, p.Errors, 1)

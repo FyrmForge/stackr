@@ -214,10 +214,7 @@ func (a Applier) applyMiddlewares(ctx context.Context, stack *repo.Stack, r *Res
 		if err := a.Planner.Store.UpdateStack(ctx, stack); err != nil {
 			return err
 		}
-		if a.Ops.PX != nil {
-			return a.Ops.PX.WriteStackMiddlewares(stack)
-		}
-		return nil
+		return a.Ops.PX.SyncStackMiddlewares(stack)
 	}
 	if err := write(union); err != nil {
 		return nil, err

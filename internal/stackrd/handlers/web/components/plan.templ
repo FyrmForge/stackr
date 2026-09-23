@@ -7,6 +7,7 @@ import (
 
 	"github.com/FyrmForge/stackr/internal/stackrd/config/stackconf"
 	"github.com/FyrmForge/stackr/internal/stackrd/handlers/web/components/form"
+	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 )
 
 // PlanBody is one review of one plan, wherever it is being reviewed: the org
@@ -42,6 +43,44 @@ type PlanViewCfg struct {
 	// skipping is a wizard idea and not a plan one, and a screen with no way
 	// forward is a dead end.
 	Extra templ.Component
+
+	// Work is the apply this plan is running under, or nil when nothing has
+	// been queued for it. Every apply is queued now — the stack's and the
+	// org's — so the page cannot be rendered once and still be right a second
+	// later, and the banner below is how it catches up.
+	Work *repo.WorkItem
+	// PollURL is this page's own URL. The banner re-fetches it every 2s while
+	// the job is live and picks itself back out with hx-select.
+	PollURL string
+}
+
+// workRunning reports that the apply behind this plan is still going, which is
+// what decides whether the page keeps polling itself.
+func workRunning(w *repo.WorkItem) bool {
+	return w != nil && !w.Done()
+}
+
+// workLine is what the banner says. The step comes from the job itself, so it
+// is the real one rather than a guess made from the plan's status.
+func workLine(w *repo.WorkItem) string {
+	switch {
+	case w == nil:
+		return ""
+	case w.Status == "queued":
+		return "Queued, waiting to start."
+	case w.Status == "running":
+		if w.Step != "" {
+			return "Applying: " + w.Step + "."
+		}
+		return "Applying."
+	case w.Status == "error":
+		return "The apply failed: " + w.Error
+	case w.Status == "cancelled":
+		return "The apply was cancelled."
+	case w.Status == "superseded":
+		return "A newer apply replaced this one."
+	}
+	return ""
 }
 
 // planBlocked is why approve is disabled, or "" when it is not. A missing
@@ -105,6 +144,24 @@ func planSignClass(kind string) string {
 }
 
 templ PlanBody(c echo.Context, cfg PlanViewCfg, p *stackconf.Plan) {
+	if line := workLine(cfg.Work); line != "" {
+		// Polls itself while the job is live, then stops: the apply outlives
+		// the request that started it, so this is the only thing on the page
+		// that knows how far it got. hx-select picks this banner back out of
+		// the whole page the poll fetches.
+		<div
+			id="apply-state"
+			class={ "panel px-4 py-3 mb-4 text-sm", templ.KV("text-rw-danger", cfg.Work.Status == "error"), templ.KV("text-rw-muted", cfg.Work.Status != "error") }
+			if workRunning(cfg.Work) && cfg.PollURL != "" {
+				hx-get={ cfg.PollURL }
+				hx-trigger="every 2s"
+				hx-select="#apply-state"
+				hx-swap="outerHTML"
+			}
+		>
+			{ line }
+		</div>
+	}
 	<div class="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-rw-muted mb-5">
 		<span>{ cfg.Summary }</span>
 		if cfg.Commit != "" {

@@ -42,6 +42,29 @@ make lint           # Run linters
 make templint       # Lint .templ files for silent failures and a11y issues
 ```
 
+### Shell calls that stall an unattended run
+
+These shapes trip the permission classifier and stop the run dead waiting for
+a human. On a long autonomous task that is the difference between finishing
+and burning the night on one prompt.
+
+Do not use:
+
+- `sed -i` — any in-place edit
+- heredocs of any kind, including `python - <<'PY'` and `git commit -F -`
+- `git rm -f`
+- long `&&` chains, especially ones mixing reads with writes
+
+Use instead:
+
+- the Edit and Write tools for every file change, test fixtures and generated
+  allowlists included
+- `git commit -F <file>`, with the message written to a scratchpad file first
+- one plain command per call
+
+`git push` and `gh pr create` prompt regardless — they reach outside the
+machine. Everything else on that list is avoidable.
+
 ## Project Structure
 
 ```

@@ -12,11 +12,11 @@ import (
 
 	"github.com/FyrmForge/hamr/pkg/server"
 
+	"github.com/FyrmForge/stackr/internal/stackrd/config/orgconf"
 	"github.com/FyrmForge/stackr/internal/stackrd/config/stackconf"
 	"github.com/FyrmForge/stackr/internal/stackrd/handlers/api/handler/health"
 	v1 "github.com/FyrmForge/stackr/internal/stackrd/handlers/api/v1"
 	"github.com/FyrmForge/stackr/internal/stackrd/handlers/middleware"
-	"github.com/FyrmForge/stackr/internal/stackrd/handlers/notify"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/agent"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/backup"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/cluster"
@@ -25,22 +25,57 @@ import (
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/hostmetrics"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/jobs"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/nodes"
-	"github.com/FyrmForge/stackr/internal/stackrd/infra/proxy"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/registry"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/runtime"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/workqueue"
+	"github.com/FyrmForge/stackr/internal/stackrd/service"
+	svcmail "github.com/FyrmForge/stackr/internal/stackrd/service/mail"
+	"github.com/FyrmForge/stackr/internal/stackrd/service/notify"
+	svcproxy "github.com/FyrmForge/stackr/internal/stackrd/service/proxy"
+	"github.com/FyrmForge/stackr/internal/stackrd/service/scheduler"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 )
 
 // Deps holds the dependencies for API route registration.
 type Deps struct {
-	Store    repo.Store
-	Engine   *deploy.Engine
-	Runtime  *runtime.Runtime
-	Cluster  *cluster.Cluster // one door for every docker call (docs/plans/35-cluster.md)
-	Proxy    *proxy.Proxy
-	Jobs     *jobs.Service
-	Backups  *backup.Service
+	Store   repo.Store
+	Engine  *deploy.Engine
+	Runtime *runtime.Runtime
+	Cluster *cluster.Cluster // one door for every docker call (docs/plans/35-cluster.md)
+	Proxy   *svcproxy.Service
+	Jobs    *jobs.Service
+	Backups *backup.Service
+	// Scheduler re-registers the cron and backup tables after a write.
+	Scheduler    *scheduler.Service
+	Lifecycle    *service.TileLifecycleService
+	Tiles        *service.TileService
+	Telemetry    *service.TileTelemetryService
+	Domains      *service.DomainService
+	Resources    *service.DomainResourceService
+	Variables    *service.VariableService
+	Environments *service.EnvironmentService
+	Stacks       *service.StackService
+	Deploys      *service.DeployService
+	Releases     *service.ReleaseService
+	Plans        *service.PlanService
+	Gate         *service.GateService
+	Schedules    *service.BackupScheduleService
+	Destinations *service.BackupDestinationService
+	Storage      *service.StorageService
+	Settings     *service.SettingsService
+	Access       *service.AccessService
+	Registries   *service.RegistryService
+	PREnvs       *service.PREnvService
+	Members      *service.MemberService
+	Orgs         *service.OrgService
+	NodeService  *service.NodeService
+	Audit        *service.AuditService
+	AuthService  *service.AuthService
+	OrgConfig    *orgconf.Runner
+	Instances    *service.ManagedInstanceService
+	Slices       *service.SliceService
+	// Mail sends the org invite. Nil when no provider is configured.
+	Mail     *svcmail.Service
 	Forwards *forward.Registry
 	Notifier *notify.Notifier
 	// Applier drives config-as-code. Shared with the web router so the plan
@@ -77,7 +112,35 @@ func RegisterRoutes(srv *server.Server, deps *Deps) {
 
 	apiV1 := v1.New(deps.Store, deps.Engine, deps.Runtime, deps.Cluster, deps.Proxy, deps.Jobs, deps.Backups, deps.Forwards, deps.Notifier, deps.Applier).
 		WithWork(deps.Work).
-		WithRegistrySigner(deps.RegistrySigner)
+		WithRegistrySigner(deps.RegistrySigner).
+		WithScheduler(deps.Scheduler).
+		WithLifecycle(deps.Lifecycle).
+		WithTiles(deps.Tiles).
+		WithTelemetry(deps.Telemetry).
+		WithDomains(deps.Domains).
+		WithDomainResources(deps.Resources).
+		WithVariables(deps.Variables).
+		WithEnvironments(deps.Environments).
+		WithStacks(deps.Stacks).
+		WithSettings(deps.Settings).
+		WithAccess(deps.Access).
+		WithDeploys(deps.Deploys).
+		WithReleases(deps.Releases).
+		WithPlans(deps.Plans).
+		WithBackupServices(deps.Schedules, deps.Destinations).
+		WithStorage(deps.Storage).
+		WithRegistries(deps.Registries).
+		WithPREnvs(deps.PREnvs).
+		WithOrgConfig(deps.OrgConfig).
+		WithMembers(deps.Members).
+		WithOrgs(deps.Orgs).
+		WithNodeService(deps.NodeService).
+		WithAuth(deps.AuthService).
+		WithKeys(service.NewAPIKeyService(deps.Store)).
+		WithConnectors(service.NewConnectorService(deps.Store)).
+		WithInstances(deps.Instances).
+		WithSlices(deps.Slices).
+		WithMail(deps.Mail)
 	api.GET("/openapi.json", apiV1.SpecHandler)
 	g := api.Group("/v1", apiV1.JSONErrors, apiV1.KeyAuth)
 	apiV1.Register(g)

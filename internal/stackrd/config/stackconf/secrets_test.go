@@ -145,7 +145,7 @@ func TestEnsureSecretsGeneratesOnceAndStays(t *testing.T) {
 		require.NoError(t, err)
 		return r
 	}
-	a := Applier{Planner: Planner{Store: store}}
+	a := applier(Planner{Store: store})
 	require.NoError(t, a.ensureSecrets(ctx, seed.Stack, load(14), "", nil))
 	vars, err := store.ListVariables(ctx, repo.OwnerEnv, seed.Env.ID)
 	require.NoError(t, err, "env vars = %v, want the minted secret", vars)

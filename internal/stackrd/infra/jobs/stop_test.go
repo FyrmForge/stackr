@@ -18,12 +18,12 @@ func TestStopAWaitingRun(t *testing.T) {
 	ctx := context.Background()
 	store := testdb.New(t)
 	seed := testdb.SeedStack(t, store, false)
-	q := workqueue.New(store) // never started, so the item stays queued
-	s := NewService(store, nil, nil).WithWork(q)
+	q := workqueue.New(store, testdb.WorkItems{Store: store}) // never started, so the item stays queued
+	s := NewService(store, nil, nil, nil, testdb.CronRuns{Store: store}, nil, nil).WithWork(q)
 
 	assert.False(t, s.Stop(ctx, "nobody"), "stopped a run that does not exist")
 
-	run, err := s.StartApp(ctx, seed.Tile.ID, TriggerManualAPI, "tester")
+	run, err := s.StartApp(ctx, seed.Tile.ID, TriggerManual, "tester")
 	require.NoError(t, err)
 	require.True(t, s.Stop(ctx, run.ID), "Stop found no run to cancel")
 

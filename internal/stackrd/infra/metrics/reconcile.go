@@ -104,7 +104,7 @@ func (s *Sampler) reconcile(ctx context.Context, cs []runtime.ManagedContainer) 
 		if !ok {
 			continue
 		}
-		if err := s.store.UpdateTileStatus(ctx, t.ID, next); err == nil {
+		if err := s.rows.SetTileStatus(ctx, t.ID, next); err == nil {
 			changed[t.StackID] = true
 		}
 	}

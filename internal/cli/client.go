@@ -1036,6 +1036,12 @@ func (c *Client) OrgPlanPreview(ctx context.Context, orgID, main string) (Plan, 
 		map[string]any{"main": main}, &out)
 }
 
+// OrgPlan reads one org plan with its diff.
+func (c *Client) OrgPlan(ctx context.Context, planID string) (Plan, error) {
+	var out Plan
+	return out, c.getJSON(ctx, "/api/v1/org-config/plans/"+planID, &out)
+}
+
 func (c *Client) ApproveOrgPlan(ctx context.Context, planID string) (Plan, error) {
 	var out Plan
 	return out, c.send(ctx, http.MethodPost, "/api/v1/org-config/plans/"+planID+"/approve", nil, &out)

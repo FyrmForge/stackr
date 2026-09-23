@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/FyrmForge/stackr/internal/stackrd/service"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo/sqlite"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/testdb"
@@ -45,6 +46,15 @@ func callAs(t *testing.T, a *API, h echo.HandlerFunc, method, target, body, id s
 	}
 	c.Set(ctxOrgIDs, ids)
 	return rec, h(c)
+}
+
+// callGated is callAs through the route's gate, which is where authorization
+// lives now. A handler called bare asserts nothing about who is asking — that
+// is the point of point 18 — so a test that calls one bare proves nothing.
+func callGated(t *testing.T, a *API, h echo.HandlerFunc, method, target, body, id string,
+	orgIDs []string, v service.Verb, k service.Kind, scopes ...string) (*httptest.ResponseRecorder, error) {
+	t.Helper()
+	return callAs(t, a, a.gate(v, k, "id", h), method, target, body, id, orgIDs, scopes...)
 }
 
 type twoOrgs struct {
@@ -118,21 +128,24 @@ func TestBackupRoutesRejectOtherOrg(t *testing.T) {
 		verb string
 		body string
 		scp  string
+		v    service.Verb
 	}{
-		{"list runs", a.listBackupRuns, http.MethodGet, "", ScopeBackupsRead},
-		{"run now", a.runBackup, http.MethodPost, "", ScopeBackupsWrite},
-		{"update", a.patchBackup, http.MethodPatch, `{"cron":"0 5 * * *"}`, ScopeBackupsWrite},
-		{"delete", a.deleteBackup, http.MethodDelete, "", ScopeBackupsWrite},
-		{"restore", a.restoreBackup, http.MethodPost, `{"run_id":"runA"}`, ScopeBackupsRestore},
+		{"list runs", a.listBackupRuns, http.MethodGet, "", ScopeBackupsRead, service.VerbOrgRead},
+		{"run now", a.runBackup, http.MethodPost, "", ScopeBackupsWrite, service.VerbBackupWrite},
+		{"update", a.patchBackup, http.MethodPatch, `{"cron":"0 5 * * *"}`, ScopeBackupsWrite, service.VerbBackupWrite},
+		{"delete", a.deleteBackup, http.MethodDelete, "", ScopeBackupsWrite, service.VerbBackupWrite},
+		{"restore", a.restoreBackup, http.MethodPost, `{"run_id":"runA"}`, ScopeBackupsRestore, service.VerbBackupWrite},
 	}
 	for _, r := range routes {
 		t.Run(r.name, func(t *testing.T) {
-			_, err := callAs(t, a, r.h, r.verb, "/", r.body, fx.backupA.ID, outsider, r.scp)
+			_, err := callGated(t, a, r.h, r.verb, "/", r.body, fx.backupA.ID, outsider,
+				r.v, service.KindBackup, r.scp)
 			wantStatus(t, err, http.StatusNotFound, r.name+" on another org's backup")
 		})
 	}
 	// And the tile-scoped listing/creation must not open either.
-	_, err := callAs(t, a, a.listBackups, http.MethodGet, "/", "", fx.seed.Tile.ID, outsider, ScopeBackupsRead)
+	_, err := callGated(t, a, a.listBackups, http.MethodGet, "/", "", fx.seed.Tile.ID, outsider,
+		service.VerbTileRead, service.KindTile, ScopeBackupsRead)
 	wantStatus(t, err, http.StatusNotFound, "list another org's tile backups")
 }
 

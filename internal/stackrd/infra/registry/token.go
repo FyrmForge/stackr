@@ -282,13 +282,13 @@ func HashSecret(raw string) string {
 
 // EnsureSystemCredential returns the org's stackr-owned push secret, creating
 // or repairing its row as needed.
-func EnsureSystemCredential(ctx context.Context, store repo.Store, reg *repo.Registry, org *repo.Org) (string, error) {
+func EnsureSystemCredential(ctx context.Context, regs Registries, reg *repo.Registry, org *repo.Org) (string, error) {
 	if reg == nil || org == nil {
 		return "", fmt.Errorf("no registry or organization")
 	}
 	secret := systemSecret(reg.Password, org.ID)
 	hash := HashSecret(secret)
-	creds, err := store.ListOrgRegistryCredentials(ctx, org.ID)
+	creds, err := regs.Credentials(ctx, org.ID)
 	if err != nil {
 		return "", err
 	}
@@ -301,12 +301,12 @@ func EnsureSystemCredential(ctx context.Context, store repo.Store, reg *repo.Reg
 		}
 		// The registry password changed under it: the old hash can never match
 		// again, so the row is replaced rather than left as a dead credential.
-		if err := store.DeleteSystemOrgRegistryCredential(ctx, creds[i].ID); err != nil {
+		if err := regs.RevokeSystemCredential(ctx, creds[i].ID); err != nil {
 			return "", err
 		}
 		break
 	}
-	if err := store.CreateOrgRegistryCredential(ctx, &repo.OrgRegistryCredential{
+	if err := regs.MintSystemCredential(ctx, &repo.OrgRegistryCredential{
 		ID: uuid.New().String(), OrgID: org.ID, Name: SystemCredentialName,
 		SecretHash: hash, Prefix: secret[:8], System: true, CreatedAt: time.Now().UTC(),
 	}); err != nil {
@@ -354,8 +354,8 @@ func GrantAgentPull(scopes []string) []Access {
 // secret, with the managed registry row. One place rather than per caller: a
 // caller that reaches for the registry's root pair instead hands that node a
 // credential good for every org's images.
-func OrgCredential(ctx context.Context, store repo.Store, t *repo.Tile) (*repo.Registry, *repo.Org, string, error) {
-	reg, err := store.GetManagedRegistry(ctx)
+func OrgCredential(ctx context.Context, store repo.Store, regs Registries, t *repo.Tile) (*repo.Registry, *repo.Org, string, error) {
+	reg, err := regs.ManagedOrNil(ctx)
 	if err != nil {
 		return nil, nil, "", err
 	}
@@ -370,7 +370,7 @@ func OrgCredential(ctx context.Context, store repo.Store, t *repo.Tile) (*repo.R
 	if err != nil || org == nil {
 		return nil, nil, "", fmt.Errorf("organization for %s: %w", t.Slug, errOr(err, "not found"))
 	}
-	secret, err := EnsureSystemCredential(ctx, store, reg, org)
+	secret, err := EnsureSystemCredential(ctx, regs, reg, org)
 	if err != nil {
 		return nil, nil, "", err
 	}
@@ -379,8 +379,8 @@ func OrgCredential(ctx context.Context, store repo.Store, t *repo.Tile) (*repo.R
 
 // OrgPullAuth is the pull address and the org-scoped auth blob for a tile's
 // image, which is what swarm hands the node that has to pull it.
-func OrgPullAuth(ctx context.Context, store repo.Store, rt *runtime.Runtime, t *repo.Tile) (string, string, error) {
-	reg, org, secret, err := OrgCredential(ctx, store, t)
+func OrgPullAuth(ctx context.Context, store repo.Store, regs Registries, rt *runtime.Runtime, t *repo.Tile) (string, string, error) {
+	reg, org, secret, err := OrgCredential(ctx, store, regs, t)
 	if err != nil {
 		return "", "", err
 	}
@@ -419,38 +419,3 @@ func Auth(orgSlug, secret, host string) string {
 	return base64.URLEncoding.EncodeToString(b)
 }
 
-// OrgHasImages reports whether anything has ever been pushed under the org's
-// registry namespace.
-//
-// Read from the deployments table rather than the registry's catalog API: the
-// namespace is the org slug and the registry has no rename, so a rename would
-// have to re-tag every image (a blob mount plus a manifest push per tag) or
-// orphan them. Refusing the rename is the smaller thing to be right about, and
-// refusing it needs an answer even while the registry is down.
-//
-// walks the org's stacks and tiles. Tens of rows; add a store query
-// if an org ever grows big enough to notice.
-func OrgHasImages(ctx context.Context, store repo.Store, orgID string) (bool, error) {
-	stacks, err := store.ListStacksByOrg(ctx, orgID)
-	if err != nil {
-		return false, err
-	}
-	for _, st := range stacks {
-		tiles, err := store.ListTilesByStack(ctx, st.ID)
-		if err != nil {
-			return false, err
-		}
-		for i := range tiles {
-			ds, err := store.ListDeploymentsByTile(ctx, tiles[i].ID, 1)
-			if err != nil {
-				return false, err
-			}
-			for _, d := range ds {
-				if d.ImageTag != "" {
-					return true, nil
-				}
-			}
-		}
-	}
-	return false, nil
-}

@@ -14,6 +14,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/FyrmForge/stackr/internal/installspec"
 )
 
 // relayLocal is the tag runtime.ProxyRelayImage looks the relay up by, so the
@@ -117,55 +119,21 @@ func Install(ctx context.Context, a *Answers, img Images, dry bool, out io.Write
 	return writeWrapper(r)
 }
 
-// serviceArgs is the panel's `docker service create`. The panel is a swarm
-// service like everything else stackr runs, pinned to the manager: it holds
-// the docker socket and the data dir, both this machine's.
-//
-// It publishes no port: reaching it is traefik's job, and when traefik or DNS
-// is broken the way in is ssh plus the `stackr` CLI. Swarm published ports
-// have no host IP anyway, so a loopback-only 127.0.0.1:8080 cannot exist on a
-// service.
+// serviceArgs is the panel's `docker service create`. The shape lives in
+// installspec, which AdminService.Upgrade builds from too — a new environment
+// variable added here reaches an upgraded install as well as a fresh one.
 func serviceArgs(a *Answers, image string) []string {
-	args := []string{"service", "create",
-		"--name", "stackr",
-		"--network", "stkr",
-		"--hostname", "stkr-panel",
-		"--constraint", "node.role == manager",
-		"--replicas", "1",
-	}
-	tls, trustCF := "off", ""
-	if a.TLS() {
-		tls = "on"
-	}
-	if a.Cloudflare {
-		trustCF = "1"
-	}
-	args = append(args,
-		"--mount", "type=bind,src=/var/run/docker.sock,dst=/var/run/docker.sock",
-		"--mount", "type=bind,src=/proc,dst=/host/proc,ro",
-		"--mount", "type=bind,src="+a.DataDir+",dst="+a.DataDir,
-	)
-	env := [][2]string{
-		{"BASE_URL", a.BaseURL()},
-		{"ACME_EMAIL", a.Email},
-		{"STACKR_TLS", tls},
-		{"ROOT_DOMAIN", a.Root},
-		{"TRUST_CLOUDFLARE", trustCF},
-		{"TRUSTED_PROXY_CIDRS", a.Proxies},
-		{"DATA_DIR", a.DataDir},
-		{"DATABASE_PATH", a.DataDir + "/stackr.db"},
-		{"TRAEFIK_HTTP_PORT", a.HTTPPort},
-		{"HOST_PROC", "/host/proc"},
-		{"STACKR_IMAGE", image},
-	}
-	// With HTTPS off there is no HTTPS port; traefik publishes none.
-	if a.HTTPSPort != "" {
-		env = append(env, [2]string{"TRAEFIK_HTTPS_PORT", a.HTTPSPort})
-	}
-	for _, kv := range env {
-		args = append(args, "--env", kv[0]+"="+kv[1])
-	}
-	return append(args, "--stop-grace-period", "120s", image)
+	return installspec.CreateArgs(image, installspec.Input{
+		BaseURL:   a.BaseURL(),
+		Email:     a.Email,
+		TLS:       a.TLS(),
+		Root:      a.Root,
+		TrustCF:   a.Cloudflare,
+		Proxies:   a.Proxies,
+		DataDir:   a.DataDir,
+		HTTPPort:  a.HTTPPort,
+		HTTPSPort: a.HTTPSPort,
+	})
 }
 
 // Every stackr install is a Swarm, one node or many

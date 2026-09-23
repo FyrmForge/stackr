@@ -144,7 +144,7 @@ type backupIn struct {
 	ContainerMode string `json:"container_mode" description:"volume only: pause (default) | stop | live"`
 	Cron          string `json:"cron" required:"true"`
 	Timezone      string `json:"timezone" description:"IANA zone the cron runs in (default: server time)"`
-	KeepLatest    int    `json:"keep_latest" description:"archives to keep; 0 keeps everything"`
+	KeepLatest    *int   `json:"keep_latest" description:"archives to keep; 0 keeps everything, omitted keeps 7"`
 	Enabled       *bool  `json:"enabled"`
 }
 
@@ -152,10 +152,12 @@ type backupPatch struct {
 	ID            string `path:"id"` // backup id
 	DestinationID string `json:"destination_id"`
 	ContainerMode string `json:"container_mode"`
-	Cron          string `json:"cron"`
-	Timezone      string `json:"timezone"`
-	KeepLatest    *int   `json:"keep_latest"`
-	Enabled       *bool  `json:"enabled"`
+	// Pointers, so "" is a clear rather than "leave it". A timezone, once
+	// set, could not be removed over the API or the CLI at all.
+	Cron       *string `json:"cron"`
+	Timezone   *string `json:"timezone" description:"IANA zone; empty string clears it"`
+	KeepLatest *int    `json:"keep_latest"`
+	Enabled    *bool   `json:"enabled"`
 }
 
 type backupOut struct {
@@ -205,6 +207,11 @@ type domainIn struct {
 	HTTPS         *bool  `json:"https" description:"terminate TLS (default true)"`
 	ForceHTTPS    *bool  `json:"force_https" description:"bounce plain HTTP onto the TLS router (default true)"`
 	RedirectTo    string `json:"redirect_to" description:"301 to this host instead of proxying"`
+	// Rule, Priority and Middlewares were panel-only, so a stack whose
+	// routing needed any of them could not be built by script at all.
+	Rule        string   `json:"rule" description:"raw traefik rule, replacing the generated Host()/PathPrefix()"`
+	Priority    int      `json:"priority" description:"router priority; higher wins between overlapping rules"`
+	Middlewares []string `json:"middlewares" description:"names from the stack file's proxy.middlewares, or stack/name for another stack in the org"`
 }
 
 type domainOut struct {
@@ -591,7 +598,7 @@ type stackPatch struct {
 // is never returned, only rotated.
 type prEnvIn struct {
 	ID           string `path:"id"`
-	Enabled      bool   `json:"enabled"`
+	Enabled      *bool  `json:"enabled"`
 	Comment      *bool  `json:"comment" description:"post a comment on the PR with the environment's URLs"`
 	Status       *bool  `json:"status" description:"report a commit status on the PR"`
 	RotateSecret bool   `json:"rotate_secret" description:"mint a new webhook secret; the old one stops validating at once"`

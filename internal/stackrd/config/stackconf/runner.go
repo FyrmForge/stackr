@@ -5,16 +5,19 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"sort"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
 
-	"github.com/FyrmForge/stackr/internal/stackrd/config/envops"
 	"github.com/FyrmForge/stackr/internal/stackrd/config/varref"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/envnet"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/managedtiles"
+	"github.com/FyrmForge/stackr/internal/stackrd/infra/runtime"
+	"github.com/FyrmForge/stackr/internal/stackrd/service"
+	svcproxy "github.com/FyrmForge/stackr/internal/stackrd/service/proxy"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 )
 
@@ -37,6 +40,36 @@ type FileSource interface {
 type Planner struct {
 	Store repo.Store
 	Src   FileSource
+}
+
+// PlanRows is the owner of config_plans and org_config_plans. The walk that
+// produces a plan is this package's; the row it produces is not, and the two
+// planners, the two appliers and two jobs were all writing it themselves.
+//
+// It is built from the store on demand rather than injected. PlanService's
+// write half needs nothing but the store, and the read half is built FROM
+// this planner — so a field would be a construction cycle, and threading one
+// through would mean wiring thirty-three test literals to get an object that
+// is three words to make. This returns the same owner either way, so there is
+// no second implementation for anything to drift against.
+func (pl Planner) PlanRows() *service.PlanService {
+	return service.NewPlanService(pl.Store, nil, nil)
+}
+
+// dnsProvider is the configured DNS-01 provider, "" when wildcard
+// certificates are off. It decides whether a `*.example.com` in a config file
+// is accepted at all, and the panel asks the same question through the same
+// owner — this used to be the key typed by hand here and again in the proxy,
+// so a rename in one place would have left the file surface accepting
+// wildcards the proxy could never get a certificate for.
+//
+// Built on demand for the same reason PlanRows is: the read needs nothing but
+// the store, and a field would mean wiring every Planner literal in the tests
+// for an object that is one line to make. The nil proxy is the documented
+// "nothing to write traefik config through" case; this only reads.
+func (pl Planner) dnsProvider(ctx context.Context) string {
+	p, _ := svcproxy.New(pl.Store, nil, nil, nil, nil, "", "", "").DNS(ctx)
+	return p
 }
 
 // StackBranch resolves the branch a stack-scoped plan reads from.
@@ -108,8 +141,9 @@ func (pl Planner) loadDomainContext(ctx context.Context, stack *repo.Stack, opts
 		opts.DefaultEnv = envs[0].Slug
 	}
 	if all, err := pl.Store.ListDomainResources(ctx); err == nil {
-		opts.DomainResources = envops.VisibleDomainResources(all, stack.ID, stack.OrgID)
+		opts.DomainResources = service.VisibleDomainResources(all, stack.ID, stack.OrgID)
 	}
+	opts.DNSProvider = pl.dnsProvider(ctx)
 	if orgs, err := pl.Store.ListOrgs(ctx); err == nil {
 		opts.ForeignOrgSlugs = map[string]bool{}
 		for _, o := range orgs {
@@ -284,14 +318,14 @@ func (pl Planner) diffSave(ctx context.Context, stack *repo.Stack, sha, branch s
 }
 
 func (pl Planner) save(ctx context.Context, stack *repo.Stack, sha string, p *repo.ConfigPlan) (*repo.ConfigPlan, error) {
-	if err := pl.Store.SupersedePendingPlans(ctx, stack.ID, p.EnvSlug); err != nil {
+	if err := pl.PlanRows().SupersedePending(ctx, stack.ID, p.EnvSlug); err != nil {
 		return nil, err
 	}
 	p.ID = uuid.New().String()
 	p.StackID = stack.ID
 	p.CommitSHA = sha
 	p.CreatedAt = time.Now().UTC()
-	if err := pl.Store.CreateConfigPlan(ctx, p); err != nil {
+	if err := pl.PlanRows().Create(ctx, p); err != nil {
 		return nil, err
 	}
 	return p, nil
@@ -623,7 +657,7 @@ func blockedTiles(re ResolvedEnv, name string) []string {
 				continue
 			}
 			for _, line := range tc.DependsOn {
-				if slug, _, err := ParseDep(line); err == nil && blocked[slug] {
+				if slug, _, err := runtime.ParseDep(line); err == nil && blocked[slug] {
 					blocked[tileName] = true
 					grew = true
 				}
@@ -796,6 +830,7 @@ func (pl Planner) Snapshot(ctx context.Context, stack *repo.Stack) (State, error
 	}
 	if cns, err := pl.Store.ListConnectorsByOrg(ctx, stack.OrgID); err == nil {
 		s.OrgConnectors = map[string]bool{}
+		s.ConnectorsKnown = true
 		for i := range cns {
 			s.OrgConnectors[cns[i].ID] = true
 		}
@@ -808,7 +843,7 @@ func (pl Planner) Snapshot(ctx context.Context, stack *repo.Stack) (State, error
 				s.DomainRes = append(s.DomainRes, r)
 			}
 		}
-		for _, r := range envops.VisibleDomainResources(all, stack.ID, stack.OrgID) {
+		for _, r := range service.VisibleDomainResources(all, stack.ID, stack.OrgID) {
 			apex[r.Host] = true
 		}
 	}
@@ -937,4 +972,26 @@ func (pl Planner) infraPath(ctx context.Context, inst *repo.Tile, paths map[stri
 	path := managedtiles.InfraPath(inst.ScopeKind, org.Slug, sc.StackSlug, sc.EnvSlug, inst.Slug)
 	paths[inst.ID] = path
 	return path, nil
+}
+
+// Replan refreshes every plan on a config-managed stack, in the background.
+//
+// Detached on purpose, and on its own context: a replan walks the whole
+// config tree and is far slower than the request that triggers it, and the
+// request's context is cancelled the moment that request returns. The panel
+// has always done it this way; the API did not replan at all, so doing it
+// inline there would have put a slow walk inside a 30-second budget.
+//
+// Satisfies service.Replanner.
+func (pl Planner) Replan(ctx context.Context, stack *repo.Stack) {
+	if stack == nil || !stack.ConfigManaged() {
+		return
+	}
+	s := *stack
+	go func() {
+		if _, err := pl.RunAll(context.Background(), &s, ""); err != nil &&
+			err != ErrNoFile && err != ErrNotBound {
+			slog.Error("replan after a change not completed", "stack", s.ID, "error", err)
+		}
+	}()
 }

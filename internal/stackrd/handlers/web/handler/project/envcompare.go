@@ -9,6 +9,7 @@ import (
 
 	"github.com/FyrmForge/stackr/internal/stackrd/config/envcompare"
 	"github.com/FyrmForge/stackr/internal/stackrd/config/stackconf"
+	stackrmw "github.com/FyrmForge/stackr/internal/stackrd/handlers/middleware"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 )
 
@@ -18,7 +19,7 @@ import (
 // compareStack builds the comparison for one stack: static envs in ladder
 // order, the planner's snapshot, and the intended marks.
 func (h *handler) compareStack(ctx context.Context, p *repo.Stack) (envcompare.Result, map[string]string, error) {
-	envs, err := h.store.ListEnvironmentsByStack(ctx, p.ID)
+	envs, err := h.envs.ListForStack(ctx, p.ID)
 	if err != nil {
 		return envcompare.Result{}, nil, err
 	}
@@ -35,7 +36,7 @@ func (h *handler) compareStack(ctx context.Context, p *repo.Stack) (envcompare.R
 	}
 	intended := map[string][]repo.Intended{}
 	for _, e := range statics {
-		rows, _ := h.store.ListIntended(ctx, e.ID)
+		rows, _ := h.instances.Intended(ctx, e.ID)
 		intended[e.ID] = rows
 	}
 	return envcompare.Compare(p.Name, statics, state, intended), colors, nil
@@ -63,12 +64,9 @@ func (h *handler) renderCompare(c echo.Context, p *repo.Stack) error {
 // compareEnv loads the env behind a panel action and the cell it acts on.
 func (h *handler) compareEnv(c echo.Context) (*repo.Stack, *repo.Environment, envcompare.Result, envcompare.Cell, error) {
 	ctx := c.Request().Context()
-	env, err := h.store.GetEnvironment(ctx, c.Param("id"))
+	env, err := h.envs.Get(ctx, c.Param("id"))
 	if err != nil {
-		return nil, nil, envcompare.Result{}, envcompare.Cell{}, err
-	}
-	if env == nil {
-		return nil, nil, envcompare.Result{}, envcompare.Cell{}, echo.NewHTTPError(http.StatusNotFound, "environment not found")
+		return nil, nil, envcompare.Result{}, envcompare.Cell{}, stackrmw.HTTP(err)
 	}
 	p, err := h.loadStack(c, env.StackID)
 	if err != nil {
@@ -105,7 +103,7 @@ func (h *handler) MarkIntended(c echo.Context) error {
 		if k.Intended {
 			continue
 		}
-		if err := h.store.SetIntended(ctx, &repo.Intended{EnvironmentID: env.ID, TileSlug: c.FormValue("tile"), Key: k.Name, Value: k.Val}); err != nil {
+		if err := h.instances.SetIntended(ctx, &repo.Intended{EnvironmentID: env.ID, TileSlug: c.FormValue("tile"), Key: k.Name, Value: k.Val}); err != nil {
 			return err
 		}
 	}
@@ -142,8 +140,6 @@ func (h *handler) CopyEnv(c echo.Context) error {
 	if err := h.applier.CopyTile(ctx, p, env, slug, tc, cell.Fields()); err != nil {
 		return err
 	}
-	if h.jobs != nil {
-		_ = h.jobs.LoadSchedules(ctx)
-	}
+	h.sched.Reload(ctx)
 	return h.renderCompare(c, p)
 }

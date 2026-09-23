@@ -16,6 +16,7 @@ import (
 	"encoding/pem"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
@@ -53,8 +54,23 @@ type cachedToken struct {
 	exp   time.Time
 }
 
+// Connectors is the connectors table's owner. service.ConnectorService
+// satisfies it; an interface because service/ is built on this package.
+type Connectors interface {
+	Create(ctx context.Context, cn *repo.Connector) error
+	Save(ctx context.Context, cn *repo.Connector) error
+}
+
 type Client struct {
-	store   repo.Store
+	store repo.Store
+	// conns owns the connector row this flow creates and then fills in with
+	// the credentials GitHub hands back.
+	conns Connectors
+	// set owns the settings row the rendered plan preview is parked in
+	// between the webhook that renders it and the comment that shows it.
+	set Settings
+	// deploys owns the deployments table the PR comment reports from.
+	deploys Deploys
 	baseURL string
 	http    *http.Client
 
@@ -62,10 +78,31 @@ type Client struct {
 	tokens map[string]cachedToken // connector id → installation token
 }
 
-func New(store repo.Store, baseURL string) *Client {
-	return &Client{store: store, baseURL: strings.TrimRight(baseURL, "/"),
+func New(store repo.Store, conns Connectors, baseURL string) *Client {
+	return &Client{store: store, conns: conns, baseURL: strings.TrimRight(baseURL, "/"),
 		http: &http.Client{Timeout: 15 * time.Second}, tokens: map[string]cachedToken{}}
 }
+
+// Settings is the owner of the settings row this reads the stored plan
+// preview back out of. service.SettingsService satisfies it; an interface
+// because that package is built on this one.
+type Settings interface {
+	Value(ctx context.Context, key string) (string, error)
+}
+
+// UseSettings hands over that owner. A setter because this client is built
+// during boot, before the services are, and the value is not read until a
+// pull-request webhook arrives.
+func (c *Client) UseSettings(s Settings) { c.set = s }
+
+// Deploys is the read the PR comment needs: what happened to each tile in the
+// preview environment. service.Rows satisfies it.
+type Deploys interface {
+	Latest(ctx context.Context, tileID string) (*repo.Deployment, error)
+}
+
+// UseDeploys hands over that owner, for the same reason as UseSettings.
+func (c *Client) UseDeploys(d Deploys) { c.deploys = d }
 
 // Begin creates a pending github connector in the org and returns the
 // GitHub form action plus the manifest JSON to POST there. The connector id
@@ -88,7 +125,7 @@ func (c *Client) Begin(ctx context.Context, orgID, ghOrg string) (action, manife
 	}
 	cfg, _ := json.Marshal(Config{State: nonce})
 	cn.Config = string(cfg)
-	if err = c.store.CreateConnector(ctx, cn); err != nil {
+	if err = c.conns.Create(ctx, cn); err != nil {
 		return "", "", err
 	}
 
@@ -185,7 +222,7 @@ func (c *Client) Complete(ctx context.Context, code, state string) (*repo.Connec
 	}
 	cn.Name = "GitHub · " + out.Slug
 	cn.Config = string(raw)
-	if err := c.store.UpdateConnector(ctx, cn); err != nil {
+	if err := c.conns.Save(ctx, cn); err != nil {
 		return nil, err
 	}
 	return cn, nil
@@ -328,6 +365,11 @@ func (c *Client) connectorForTile(ctx context.Context, tile *repo.Tile) *repo.Co
 		// org's private repositories. Every other reference in config is
 		// scoped; this one was not.
 		if cn == nil || cn.OrgID != stack.OrgID {
+			// Refused, not missing. Returning nil here makes the clone run
+			// unauthenticated, which fails on a private repository with a
+			// git error nobody can trace back to this decision — so say so.
+			slog.Error("connector refused: not this stack's organisation",
+				"tile", tile.ID, "connector", tile.ConnectorID, "org", stack.OrgID)
 			return nil
 		}
 		return cn

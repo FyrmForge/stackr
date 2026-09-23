@@ -8,6 +8,7 @@ import (
 	"github.com/FyrmForge/hamr/pkg/respond"
 	"github.com/labstack/echo/v4"
 
+	stackrmw "github.com/FyrmForge/stackr/internal/stackrd/handlers/middleware"
 	"github.com/FyrmForge/stackr/internal/stackrd/handlers/web/components"
 	"github.com/FyrmForge/stackr/internal/stackrd/handlers/web/wsterm"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/cluster"
@@ -21,11 +22,22 @@ func (h *handler) TermPage(c echo.Context) error {
 	if err != nil {
 		return err
 	}
+	// Refused here as well as on the socket, so the answer is a sentence
+	// rather than a terminal that opens and then fails its handshake.
+	if err := h.containers.EnsureExecAllowed(ctx, h.node(c), c.Param("id")); err != nil {
+		return stackrmw.HTTP(err)
+	}
 	return respond.HTML(c, http.StatusOK, termPage(c, d, h.node(c), down))
 }
 
 // GET /containers/:id/term/ws, websocket bridged to docker exec TTY.
 func (h *handler) TermWS(c echo.Context) error {
+	// A terminal is the strongest of the four verbs and was the only one with
+	// no guard at all: a shell inside the panel container holds the docker
+	// socket and every stack on the box.
+	if err := h.containers.EnsureExecAllowed(c.Request().Context(), h.node(c), c.Param("id")); err != nil {
+		return stackrmw.HTTP(err)
+	}
 	return wsterm.Serve(c, nodeExec{c: h.clus, node: h.node(c)}, c.Param("id"), nil)
 }
 

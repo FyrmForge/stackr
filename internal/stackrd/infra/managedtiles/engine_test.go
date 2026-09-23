@@ -61,7 +61,7 @@ func TestRegisteredEngineNeedsNoBranches(t *testing.T) {
 	inst := instance(t, s, seed, name)
 	require.NoError(t, managedtiles.NewDB(inst), "NewDB")
 	assert.Equal(t, "fake:1", inst.ImageRef, "image")
-	managedtiles.PublishConnection(ctx, s, inst)
+	managedtiles.PublishConnection(ctx, s, svcRows(s), inst)
 	vars, err := s.ListVariables(ctx, repo.OwnerTile, inst.ID)
 	require.NoError(t, err)
 	require.Len(t, vars, 1, "published vars = %+v", vars)

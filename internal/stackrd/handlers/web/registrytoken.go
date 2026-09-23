@@ -8,16 +8,21 @@ package web
 // Deliberately outside the site group: docker is not a browser, it carries no
 // session and no CSRF token, and a redirect to /login would come back as an
 // unreadable parse error on the client.
+//
+// Who the client is and what it may reach is RegistryService.Authenticate's —
+// three identities, two constant-time comparisons and an org check, none of
+// which is a handler's to hold. What is left here is the docker protocol: the
+// realm header that makes a client retry with credentials at all, and the
+// response shape it expects back.
 
 import (
-	"crypto/subtle"
 	"net/http"
 	"time"
 
 	"github.com/labstack/echo/v4"
 
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/registry"
-	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
+	"github.com/FyrmForge/stackr/internal/stackrd/service"
 )
 
 // tokenResponse is the shape the docker client expects back.
@@ -29,7 +34,7 @@ type tokenResponse struct {
 }
 
 // registryToken handles GET /v2/token?service=&scope=.
-func registryToken(store repo.Store, signer *registry.Signer) echo.HandlerFunc {
+func registryToken(regs *service.RegistryService, signer *registry.Signer) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		if signer == nil {
 			return echo.NewHTTPError(http.StatusServiceUnavailable, "registry token signing is not configured")
@@ -41,54 +46,14 @@ func registryToken(store repo.Store, signer *registry.Signer) echo.HandlerFunc {
 			c.Response().Header().Set("WWW-Authenticate", `Basic realm="stackr registry"`)
 			return echo.NewHTTPError(http.StatusUnauthorized, "credentials required")
 		}
-		ctx := c.Request().Context()
-		// The admin root credential first: the agent image and the garbage
-		// collector live outside every org's namespace, so a token scoped to
-		// one org cannot reach them. It is the managed registry row's own
-		// user, which is where the admin credential already lived.
-		if reg, err := store.GetManagedRegistry(ctx); err == nil && reg != nil &&
-			reg.Username != "" && user == reg.Username && subtle.ConstantTimeCompare([]byte(secret), []byte(reg.Password)) == 1 {
-			tok, exp, err := signer.Sign(user, registry.GrantAll(c.QueryParams()["scope"]))
-			if err != nil {
-				return err
-			}
-			return c.JSON(http.StatusOK, tokenResponse{Token: tok, AccessToken: tok,
-				ExpiresIn: int(time.Until(exp).Seconds()), IssuedAt: time.Now().UTC()})
-		}
-		// The agent's pull-only identity. Same derivation as an org's system
-		// credential, so there is no row to keep and rotating the registry
-		// password rotates it, and it reaches the agent image and nothing
-		// else.
-		if reg, err := store.GetManagedRegistry(ctx); err == nil && reg != nil && reg.Password != "" &&
-			user == registry.AgentUser &&
-			subtle.ConstantTimeCompare([]byte(secret), []byte(registry.AgentSecret(reg.Password))) == 1 {
-			tok, exp, err := signer.Sign(user, registry.GrantAgentPull(c.QueryParams()["scope"]))
-			if err != nil {
-				return err
-			}
-			return c.JSON(http.StatusOK, tokenResponse{Token: tok, AccessToken: tok,
-				ExpiresIn: int(time.Until(exp).Seconds()), IssuedAt: time.Now().UTC()})
-		}
-		cred, err := store.GetOrgRegistryCredentialByHash(ctx, registry.HashSecret(secret))
+		login, err := regs.Authenticate(c.Request().Context(), user, secret, c.QueryParams()["scope"])
 		if err != nil {
 			return err
 		}
-		// The username is the org slug, so a credential presented against the
-		// wrong org is refused even though the secret is real. Without this
-		// check the slug in the request would be decoration.
-		org, err := store.GetOrgBySlug(ctx, user)
-		if err != nil {
-			return err
-		}
-		if cred == nil || org == nil || cred.OrgID != org.ID {
+		if login == nil {
 			return echo.NewHTTPError(http.StatusUnauthorized, "invalid registry credentials")
 		}
-		_ = store.TouchOrgRegistryCredential(ctx, cred.ID)
-
-		// Narrowed, never echoed back: handing the client the scope it asked
-		// for is exactly the cross-tenant hole this replaces.
-		access := registry.GrantFor(org.Slug, c.QueryParams()["scope"])
-		tok, exp, err := signer.Sign(org.Slug+"/"+cred.Name, access)
+		tok, exp, err := signer.Sign(login.Subject, login.Access)
 		if err != nil {
 			return err
 		}

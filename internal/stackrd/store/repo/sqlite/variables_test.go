@@ -77,7 +77,7 @@ func TestEnvBlobProjection(t *testing.T) {
 
 	tile := seed.Tile
 	tile.Env = "FROM_BLOB=1"
-	require.NoError(t, store.UpdateTile(ctx, tile), "update")
+	require.NoError(t, store.UpdateTile(ctx, tile.ID, tile.TileConfig), "update")
 	// A structured write that never appears in the blob.
 	require.NoError(t, store.UpsertVariable(ctx, &repo.Variable{OwnerKind: repo.OwnerTile, OwnerID: tile.ID,
 		Name: "FROM_API", Value: "2", CreatedAt: now, UpdatedAt: now}), "api var")
@@ -97,7 +97,7 @@ func TestEnvBlobProjection(t *testing.T) {
 
 	// An unrelated tile save carries the old blob, it must not eat FROM_API.
 	tile.Name = "renamed"
-	require.NoError(t, store.UpdateTile(ctx, tile), "second update")
+	require.NoError(t, store.UpdateTile(ctx, tile.ID, tile.TileConfig), "second update")
 	got := names()
 	require.True(t, got["FROM_API"] && got["FROM_BLOB"] && got["TOKEN"], "plain update lost rows: %v", got)
 

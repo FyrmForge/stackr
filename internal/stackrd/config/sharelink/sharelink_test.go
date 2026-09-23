@@ -23,7 +23,7 @@ func mintDrop(t *testing.T, s *sqlite.Store, pass string, ttl time.Duration) (*r
 		Kind: repo.LinkDrop, OwnerKind: repo.OwnerStack, OwnerID: "stack1",
 		Fields: fields, ExpiresAt: time.Now().Add(ttl), CreatedBy: "user1",
 	}
-	token, err := Mint(context.Background(), s, l, pass)
+	token, err := Mint(context.Background(), s, testdb.Links{Store: s}, l, pass)
 	require.NoError(t, err)
 	return l, token
 }
@@ -34,10 +34,10 @@ func TestDropSubmitWritesVarsAndBurns(t *testing.T) {
 	testdb.SeedStack(t, s, false)
 	_, token := mintDrop(t, s, "", time.Hour)
 
-	l, err := Open(ctx, s, token)
+	l, err := Open(ctx, testdb.Links{Store: s}, token)
 	require.NoError(t, err)
 	vals := map[string]string{"STRIPE_KEY": "sk_live_x", "STRIPE_ACCOUNT": "acct_1"}
-	require.NoError(t, Submit(ctx, s, l, vals))
+	require.NoError(t, Submit(ctx, s, testdb.Links{Store: s}, l, vals))
 
 	vars, err := s.ListVariables(ctx, repo.OwnerStack, "stack1")
 	require.NoError(t, err)
@@ -51,9 +51,9 @@ func TestDropSubmitWritesVarsAndBurns(t *testing.T) {
 	require.False(t, byName["STRIPE_ACCOUNT"].Secret)
 
 	// Burned: the token no longer opens, and a replayed submit writes nothing.
-	_, err = Open(ctx, s, token)
+	_, err = Open(ctx, testdb.Links{Store: s}, token)
 	require.ErrorIs(t, err, ErrDead)
-	require.ErrorIs(t, Submit(ctx, s, l, map[string]string{
+	require.ErrorIs(t, Submit(ctx, s, testdb.Links{Store: s}, l, map[string]string{
 		"STRIPE_KEY": "sk_live_evil", "STRIPE_ACCOUNT": "acct_evil"}), ErrDead)
 	vars, err = s.ListVariables(ctx, repo.OwnerStack, "stack1")
 	require.NoError(t, err)
@@ -67,14 +67,14 @@ func TestDropPartialSubmitDoesNotBurn(t *testing.T) {
 	testdb.SeedStack(t, s, false)
 	_, token := mintDrop(t, s, "", time.Hour)
 
-	l, err := Open(ctx, s, token)
+	l, err := Open(ctx, testdb.Links{Store: s}, token)
 	require.NoError(t, err)
-	require.Error(t, Submit(ctx, s, l, map[string]string{"STRIPE_KEY": "sk_live_x"}))
+	require.Error(t, Submit(ctx, s, testdb.Links{Store: s}, l, map[string]string{"STRIPE_KEY": "sk_live_x"}))
 
 	// Still usable, a client who missed a field can come back and finish.
-	l, err = Open(ctx, s, token)
+	l, err = Open(ctx, testdb.Links{Store: s}, token)
 	require.NoError(t, err)
-	require.NoError(t, Submit(ctx, s, l, map[string]string{
+	require.NoError(t, Submit(ctx, s, testdb.Links{Store: s}, l, map[string]string{
 		"STRIPE_KEY": "sk_live_x", "STRIPE_ACCOUNT": "acct_1"}))
 }
 
@@ -85,7 +85,7 @@ func TestExpiredLinkIsDeadWhileStateStillOpen(t *testing.T) {
 	l, token := mintDrop(t, s, "", -time.Minute)
 
 	require.Equal(t, repo.LinkOpen, l.State) // no sweep has run
-	_, err := Open(ctx, s, token)
+	_, err := Open(ctx, testdb.Links{Store: s}, token)
 	require.ErrorIs(t, err, ErrDead)
 }
 
@@ -96,16 +96,16 @@ func TestPassphraseLocksAfterMaxAttempts(t *testing.T) {
 	_, token := mintDrop(t, s, "hunter2", time.Hour)
 
 	for i := 1; i < repo.MaxLinkAttempts; i++ {
-		l, err := Open(ctx, s, token)
+		l, err := Open(ctx, testdb.Links{Store: s}, token)
 		require.NoError(t, err)
-		require.ErrorIs(t, Unlock(ctx, s, l, "nope"), ErrPass)
+		require.ErrorIs(t, Unlock(ctx, testdb.Links{Store: s}, l, "nope"), ErrPass)
 	}
-	l, err := Open(ctx, s, token)
+	l, err := Open(ctx, testdb.Links{Store: s}, token)
 	require.NoError(t, err)
-	require.ErrorIs(t, Unlock(ctx, s, l, "nope"), ErrDead)
+	require.ErrorIs(t, Unlock(ctx, testdb.Links{Store: s}, l, "nope"), ErrDead)
 
 	// Locked stays locked, even for someone who now knows the passphrase.
-	_, err = Open(ctx, s, token)
+	_, err = Open(ctx, testdb.Links{Store: s}, token)
 	require.ErrorIs(t, err, ErrDead)
 }
 
@@ -115,12 +115,12 @@ func TestPassphraseAcceptedAndNotCountedAgainstAttempts(t *testing.T) {
 	testdb.SeedStack(t, s, false)
 	_, token := mintDrop(t, s, "hunter2", time.Hour)
 
-	l, err := Open(ctx, s, token)
+	l, err := Open(ctx, testdb.Links{Store: s}, token)
 	require.NoError(t, err)
-	require.ErrorIs(t, Unlock(ctx, s, l, "nope"), ErrPass)
-	l, err = Open(ctx, s, token)
+	require.ErrorIs(t, Unlock(ctx, testdb.Links{Store: s}, l, "nope"), ErrPass)
+	l, err = Open(ctx, testdb.Links{Store: s}, token)
 	require.NoError(t, err)
-	require.NoError(t, Unlock(ctx, s, l, "hunter2"))
+	require.NoError(t, Unlock(ctx, testdb.Links{Store: s}, l, "hunter2"))
 }
 
 func mintShare(t *testing.T, s *sqlite.Store, window int) (*repo.SecretLink, string) {
@@ -137,7 +137,7 @@ func mintShare(t *testing.T, s *sqlite.Store, window int) (*repo.SecretLink, str
 		Fields: fields, WindowMinutes: window,
 		ExpiresAt: time.Now().Add(time.Hour), CreatedBy: "user1",
 	}
-	token, err := Mint(ctx, s, l, "")
+	token, err := Mint(ctx, s, testdb.Links{Store: s}, l, "")
 	require.NoError(t, err)
 	return l, token
 }
@@ -148,14 +148,14 @@ func TestShareRevealsLiveValueAndBurns(t *testing.T) {
 	testdb.SeedStack(t, s, false)
 	_, token := mintShare(t, s, 0)
 
-	l, err := Open(ctx, s, token)
+	l, err := Open(ctx, testdb.Links{Store: s}, token)
 	require.NoError(t, err)
-	vars, err := Reveal(ctx, s, l)
+	vars, err := Reveal(ctx, s, testdb.Links{Store: s}, l)
 	require.NoError(t, err)
 	require.Len(t, vars, 1)
 	require.Equal(t, "postgres://x", vars[0].Value)
 
-	_, err = Open(ctx, s, token)
+	_, err = Open(ctx, testdb.Links{Store: s}, token)
 	require.ErrorIs(t, err, ErrDead)
 }
 
@@ -165,21 +165,21 @@ func TestShareWindowStaysOpenThenDies(t *testing.T) {
 	testdb.SeedStack(t, s, false)
 	_, token := mintShare(t, s, 10)
 
-	l, err := Open(ctx, s, token)
+	l, err := Open(ctx, testdb.Links{Store: s}, token)
 	require.NoError(t, err)
-	_, err = Reveal(ctx, s, l)
+	_, err = Reveal(ctx, s, testdb.Links{Store: s}, l)
 	require.NoError(t, err)
 
 	// Second read inside the window still works, that is what the grace is for.
-	l, err = Open(ctx, s, token)
+	l, err = Open(ctx, testdb.Links{Store: s}, token)
 	require.NoError(t, err)
-	_, err = Reveal(ctx, s, l)
+	_, err = Reveal(ctx, s, testdb.Links{Store: s}, l)
 	require.NoError(t, err)
 
 	// Once the window has closed the link is dead without any sweep.
 	l.OpenedAt.Time = time.Now().Add(-11 * time.Minute)
 	require.NoError(t, s.TouchSecretLink(ctx, l.ID, l.Attempts, l.OpenedAt))
-	_, err = Open(ctx, s, token)
+	_, err = Open(ctx, testdb.Links{Store: s}, token)
 	require.ErrorIs(t, err, ErrDead)
 }
 
@@ -189,13 +189,13 @@ func TestRevokeKillsLink(t *testing.T) {
 	testdb.SeedStack(t, s, false)
 	l, token := mintDrop(t, s, "", time.Hour)
 
-	require.NoError(t, Revoke(ctx, s, l.ID))
-	_, err := Open(ctx, s, token)
+	require.NoError(t, Revoke(ctx, testdb.Links{Store: s}, l.ID))
+	_, err := Open(ctx, testdb.Links{Store: s}, token)
 	require.ErrorIs(t, err, ErrDead)
 }
 
 func TestUnknownTokenIsDead(t *testing.T) {
 	s := testdb.New(t)
-	_, err := Open(context.Background(), s, "deadbeef")
+	_, err := Open(context.Background(), testdb.Links{Store: s}, "deadbeef")
 	require.ErrorIs(t, err, ErrDead)
 }

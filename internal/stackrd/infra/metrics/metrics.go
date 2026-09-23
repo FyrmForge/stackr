@@ -12,21 +12,32 @@ import (
 	"time"
 
 	"github.com/FyrmForge/stackr/internal/stackrd/config/settings"
-	"github.com/FyrmForge/stackr/internal/stackrd/handlers/notify"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/cluster"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/hostmetrics"
-	"github.com/FyrmForge/stackr/internal/stackrd/infra/managedtiles"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/runtime"
+	"github.com/FyrmForge/stackr/internal/stackrd/service/notify"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 )
 
 const sampleEvery = 30 * time.Second
 const flowEvery = 5 * time.Second
 
+// Rows is the owner of the metrics table and of a tile's status column.
+// Declared here rather than imported because service/ is built on top of this
+// package; service.Rows satisfies it.
+type Rows interface {
+	RecordSample(ctx context.Context, m *repo.Metric) error
+	PruneSamples(ctx context.Context, before time.Time) error
+	SetTileStatus(ctx context.Context, tileID, status string) error
+}
+
 type Sampler struct {
 	store    repo.Store
 	clus     *cluster.Cluster // every docker call; the local walk and the off-node pass both go through it
 	notifier *notify.Notifier
+	// rows owns the two tables this package writes: the metric points, and
+	// the tile status the reconciler corrects.
+	rows Rows
 
 	// previous cumulative network counters for rate deltas
 	prevNet map[string]netCounters // per container ref
@@ -39,11 +50,34 @@ type Sampler struct {
 	trafMu     sync.Mutex
 	traffic    Traffic
 
-	// per-logical-database counters, read from the engine (see managedtiles.SliceStats)
+	// per-logical-database counters, read from the engine
 	prevSlice  map[string]sliceCounters // resource id -> previous cumulative reading
 	sliceMu    sync.Mutex
 	sliceStats map[string]SliceStat // resource id -> latest derived stat
+	// readSlices asks one instance for its logical databases' counters.
+	//
+	// A function rather than an import of managedtiles. This package is the
+	// panel's sampler and the node agent's alike, and the managedtiles edge is
+	// the one that closed the cycle keeping managedtiles from importing the
+	// node-aware runtime (docs/plans/35-cluster.md). main supplies it; a
+	// sampler built without one simply reports no slice stats.
+	readSlices SliceReader
 }
+
+// SliceRead is one logical database's cumulative counters at a point in time,
+// as the engine reports them. It mirrors managedtiles.SliceStat, which is what
+// the wired reader actually returns.
+type SliceRead struct {
+	Xacts uint64
+	Size  int64
+}
+
+// SliceReader reads an instance's per-database counters. It reports (nil, nil)
+// for an engine that does not measure its slices.
+type SliceReader func(ctx context.Context, instance *repo.Tile, dbNames []string) (map[string]SliceRead, error)
+
+// WithSliceReader wires the per-database counter reader.
+func (s *Sampler) WithSliceReader(r SliceReader) *Sampler { s.readSlices = r; return s }
 
 // sliceCounters is one resource's previous cumulative reading, for rates.
 type sliceCounters struct {
@@ -101,8 +135,8 @@ func (prev netCounters) rates(cur netCounters) (rxBps, txBps float64) {
 	return float64(cur.rx-prev.rx) / dt, float64(cur.tx-prev.tx) / dt
 }
 
-func NewSampler(store repo.Store, clus *cluster.Cluster, notifier *notify.Notifier) *Sampler {
-	return &Sampler{store: store, clus: clus, notifier: notifier, prevNet: map[string]netCounters{},
+func NewSampler(store repo.Store, rows Rows, clus *cluster.Cluster, notifier *notify.Notifier) *Sampler {
+	return &Sampler{store: store, clus: clus, notifier: notifier, rows: rows, prevNet: map[string]netCounters{},
 		prevFlows: map[string][2]uint64{}, prevSlice: map[string]sliceCounters{}, sliceStats: map[string]SliceStat{}}
 }
 
@@ -168,14 +202,14 @@ func (s *Sampler) sample(ctx context.Context) {
 		cur := netCounters{rx: st.RxBytes, tx: st.TxBytes, at: now}
 		rx, tx := s.prevNet[ref].rates(cur)
 		s.prevNet[ref] = cur
-		_ = s.store.InsertMetric(ctx, &repo.Metric{Ref: ref, TS: now, CPUPct: st.CPUPct,
+		_ = s.rows.RecordSample(ctx, &repo.Metric{Ref: ref, TS: now, CPUPct: st.CPUPct,
 			MemBytes: int64(st.MemBytes), RxBps: rx, TxBps: tx})
 	}
 	s.sampleOffNode(ctx, seen, now)
 	s.sampleHost(ctx, now)
 	s.sampleSlices(ctx, cs, now)
 	retention := time.Duration(settings.ForServer(ctx, s.store).MetricRetentionHours) * time.Hour
-	_ = s.store.PruneMetrics(ctx, now.Add(-retention))
+	_ = s.rows.PruneSamples(ctx, now.Add(-retention))
 	s.notifier.Server()
 }
 
@@ -191,17 +225,17 @@ func (s *Sampler) sampleHost(ctx context.Context, now time.Time) {
 	if !ok {
 		return
 	}
-	StoreHostSample(ctx, s.store, "server:local", now, sample)
+	StoreHostSample(ctx, s.rows, "server:local", now, sample)
 }
 
 // StoreHostSample writes one host reading under a server ref. The manager
 // samples itself through sampleHost; a worker's arrives from its agent and
 // lands here too, so both nodes' graphs read the same rows.
-func StoreHostSample(ctx context.Context, store repo.Store, ref string, now time.Time, s hostmetrics.HostSample) {
-	_ = store.InsertMetric(ctx, &repo.Metric{Ref: ref, TS: now, CPUPct: s.CPUPct,
+func StoreHostSample(ctx context.Context, rows Rows, ref string, now time.Time, s hostmetrics.HostSample) {
+	_ = rows.RecordSample(ctx, &repo.Metric{Ref: ref, TS: now, CPUPct: s.CPUPct,
 		MemBytes: s.MemBytes, RxBps: s.RxBps, TxBps: s.TxBps})
 	if s.DiskUsed > 0 {
-		_ = store.InsertMetric(ctx, &repo.Metric{Ref: ref + ":disk", TS: now, MemBytes: s.DiskUsed})
+		_ = rows.RecordSample(ctx, &repo.Metric{Ref: ref + ":disk", TS: now, MemBytes: s.DiskUsed})
 	}
 }
 
@@ -213,7 +247,9 @@ func StoreHostSample(ctx context.Context, store repo.Store, ref string, now time
 // differently (mysql via information_schema, s3 via its own API), so each
 // earns its own branch when it lands.
 func (s *Sampler) sampleSlices(ctx context.Context, cs []runtime.ManagedContainer, now time.Time) {
-	svc := managedtiles.NewService(s.clus, s.store)
+	if s.readSlices == nil {
+		return
+	}
 	stats := map[string]SliceStat{}
 	for _, c := range cs {
 		id := c.Labels[runtime.LabelDB]
@@ -221,7 +257,7 @@ func (s *Sampler) sampleSlices(ctx context.Context, cs []runtime.ManagedContaine
 			continue
 		}
 		inst, err := s.store.GetTile(ctx, id)
-		if err != nil || inst == nil || !managedtiles.HasSliceStats(inst.Engine) {
+		if err != nil || inst == nil {
 			continue
 		}
 		resources, err := s.store.ListResourcesByProvider(ctx, inst.ID)
@@ -232,9 +268,9 @@ func (s *Sampler) sampleSlices(ctx context.Context, cs []runtime.ManagedContaine
 		for _, r := range resources {
 			names = append(names, r.Name)
 		}
-		read, err := svc.SliceStats(ctx, inst, names)
-		if err != nil {
-			continue // instance busy or down; keep the previous reading
+		read, err := s.readSlices(ctx, inst, names)
+		if err != nil || len(read) == 0 {
+			continue // instance busy, down, or an engine that does not count
 		}
 		for _, r := range resources {
 			cur, ok := read[r.Name]
@@ -399,7 +435,7 @@ func (s *Sampler) sampleOffNode(ctx context.Context, seen map[string]bool, now t
 		cur := netCounters{rx: st.RxBytes, tx: st.TxBytes, at: now}
 		rx, tx := s.prevNet[ref].rates(cur)
 		s.prevNet[ref] = cur
-		_ = s.store.InsertMetric(ctx, &repo.Metric{Ref: ref, TS: now, CPUPct: st.CPUPct,
+		_ = s.rows.RecordSample(ctx, &repo.Metric{Ref: ref, TS: now, CPUPct: st.CPUPct,
 			MemBytes: int64(st.MemBytes), RxBps: rx, TxBps: tx})
 	}
 }

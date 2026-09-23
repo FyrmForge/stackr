@@ -16,7 +16,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/FyrmForge/stackr/internal/stackrd/config/envops"
+	"github.com/FyrmForge/stackr/internal/stackrd/config/settings"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/gitlog"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 )
@@ -86,7 +86,7 @@ func (c *Client) DeployFinished(ctx context.Context, tile *repo.Tile, d *repo.De
 	if cn == nil {
 		return
 	}
-	prCfg := envops.LoadPRConfig(ctx, c.store, env.StackID)
+	prCfg := repo.LoadPRConfig(ctx, c.store, env.StackID)
 	if prCfg.NoComment && prCfg.NoStatus {
 		return
 	}
@@ -125,10 +125,6 @@ func (c *Client) DeployFinished(ctx context.Context, tile *repo.Tile, d *repo.De
 	c.upsertPRComment(ctx, tok, full, num, c.prComment(ctx, env.StackID, num, env, d))
 }
 
-// PlanKey is the settings key holding the rendered plan-preview markdown for
-// one PR (written by the webhook handler, cleared on PR close).
-func PlanKey(stackID, prNum string) string { return "prplan." + stackID + "." + prNum }
-
 // RefreshPRComment re-renders and upserts the sticky PR comment outside the
 // deploy path, used when a push updates the config plan preview. env is the
 // PR's ephemeral environment when it exists (nil is fine: plan-only comment).
@@ -161,7 +157,7 @@ func (c *Client) upsertPRComment(ctx context.Context, tok, full, num, body strin
 func (c *Client) prComment(ctx context.Context, stackID, prNum string, env *repo.Environment, d *repo.Deployment) string {
 	var b strings.Builder
 	b.WriteString(previewMarker + "\n")
-	if plan, _ := c.store.GetSetting(ctx, PlanKey(stackID, prNum)); plan != "" {
+	if plan, _ := c.set.Value(ctx, settings.PRPlanKey(stackID, prNum)); plan != "" {
 		b.WriteString(plan + "\n")
 	}
 	if env == nil {
@@ -190,10 +186,9 @@ func (c *Client) prComment(ctx context.Context, stackID, prNum string, env *repo
 	if d == nil {
 		// Plan-triggered refresh: report the env's latest deploy if any.
 		for i := range tiles {
-			if ds, err := c.store.ListDeploymentsByTile(ctx, tiles[i].ID, 1); err == nil && len(ds) > 0 {
-				if d == nil || ds[0].CreatedAt.After(d.CreatedAt) {
-					dd := ds[0]
-					d = &dd
+			if latest, err := c.deploys.Latest(ctx, tiles[i].ID); err == nil && latest != nil {
+				if d == nil || latest.CreatedAt.After(d.CreatedAt) {
+					d = latest
 				}
 			}
 		}

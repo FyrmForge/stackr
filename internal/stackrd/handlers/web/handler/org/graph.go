@@ -13,6 +13,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/stackrd/handlers/web/components/canvas"
 	"github.com/FyrmForge/stackr/internal/stackrd/handlers/web/graph"
 	"github.com/FyrmForge/stackr/internal/stackrd/handlers/web/handler/annotate"
+	"github.com/FyrmForge/stackr/internal/stackrd/service"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 )
 
@@ -26,7 +27,7 @@ func (h *handler) Home(c echo.Context) error {
 	// carry on. Every other route in that org already lands them on the wizard,
 	// so this is the one page that made them click through a picture of it.
 	if u := stackrmw.CurrentUser(c); u != nil {
-		if orgs, err := h.store.ListOrgsForUser(c.Request().Context(), u.ID); err == nil &&
+		if orgs, err := h.orgs.ListForUser(c.Request().Context(), u.ID); err == nil &&
 			len(orgs) == 1 && orgs[0].SetupDoneAt == nil && h.ownerOf(c, orgs[0].ID) {
 			return respond.Redirect(c, "/orgs/"+orgs[0].Slug+"/setup/done")
 		}
@@ -66,7 +67,7 @@ func (h *handler) SaveHomeNodePosition(c echo.Context) error {
 	if err := repo.ValidateNodePositions(owner, ps); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
-	if err := h.store.SaveNodePositions(c.Request().Context(), owner, ps); err != nil {
+	if err := h.graph.SavePositions(c.Request().Context(), owner, ps); err != nil {
 		return err
 	}
 	return c.NoContent(http.StatusNoContent)
@@ -79,7 +80,7 @@ func (h *handler) ResetHomeNodePositions(c echo.Context) error {
 	if u == nil {
 		return echo.NewHTTPError(http.StatusUnauthorized, "not signed in")
 	}
-	if err := h.store.DeleteNodePositions(c.Request().Context(), repo.GraphOwner(repo.ScopeUser, u.ID)); err != nil {
+	if err := h.graph.ResetPositions(c.Request().Context(), repo.GraphOwner(repo.ScopeUser, u.ID)); err != nil {
 		return err
 	}
 	return c.NoContent(http.StatusNoContent)
@@ -93,7 +94,7 @@ func (h *handler) SaveHomeAnnotation(c echo.Context) error {
 	if u == nil {
 		return echo.NewHTTPError(http.StatusUnauthorized, "not signed in")
 	}
-	return annotate.Save(c, h.store, repo.GraphOwner(repo.ScopeUser, u.ID))
+	return annotate.Save(c, h.graph, repo.GraphOwner(repo.ScopeUser, u.ID))
 }
 
 func (h *handler) DeleteHomeAnnotation(c echo.Context) error {
@@ -101,7 +102,7 @@ func (h *handler) DeleteHomeAnnotation(c echo.Context) error {
 	if u == nil {
 		return echo.NewHTTPError(http.StatusUnauthorized, "not signed in")
 	}
-	return annotate.Delete(c, h.store, repo.GraphOwner(repo.ScopeUser, u.ID))
+	return annotate.Delete(c, h.graph, repo.GraphOwner(repo.ScopeUser, u.ID))
 }
 
 // SaveAnnotation / DeleteAnnotation edit the org canvas's shared notes.
@@ -111,7 +112,7 @@ func (h *handler) SaveAnnotation(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	if err := annotate.Save(c, h.store, repo.GraphOwner(repo.ScopeOrg, o.ID)); err != nil {
+	if err := annotate.Save(c, h.graph, repo.GraphOwner(repo.ScopeOrg, o.ID)); err != nil {
 		return err
 	}
 	h.notifier.Org(o.ID)
@@ -123,7 +124,7 @@ func (h *handler) DeleteAnnotation(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	if err := annotate.Delete(c, h.store, repo.GraphOwner(repo.ScopeOrg, o.ID)); err != nil {
+	if err := annotate.Delete(c, h.graph, repo.GraphOwner(repo.ScopeOrg, o.ID)); err != nil {
 		return err
 	}
 	h.notifier.Org(o.ID)
@@ -138,7 +139,7 @@ func (h *handler) SaveHomeGraphGroup(c echo.Context) error {
 	if u == nil {
 		return echo.NewHTTPError(http.StatusUnauthorized, "not signed in")
 	}
-	return annotate.SaveGroup(c, h.store, repo.GraphOwner(repo.ScopeUser, u.ID))
+	return annotate.SaveGroup(c, h.graph, repo.GraphOwner(repo.ScopeUser, u.ID))
 }
 
 func (h *handler) DeleteHomeGraphGroup(c echo.Context) error {
@@ -146,7 +147,7 @@ func (h *handler) DeleteHomeGraphGroup(c echo.Context) error {
 	if u == nil {
 		return echo.NewHTTPError(http.StatusUnauthorized, "not signed in")
 	}
-	return annotate.DeleteGroup(c, h.store, repo.GraphOwner(repo.ScopeUser, u.ID))
+	return annotate.DeleteGroup(c, h.graph, repo.GraphOwner(repo.ScopeUser, u.ID))
 }
 
 // SaveGraphGroup / DeleteGraphGroup edit the org canvas's shared groups.
@@ -156,7 +157,7 @@ func (h *handler) SaveGraphGroup(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	if err := annotate.SaveGroup(c, h.store, repo.GraphOwner(repo.ScopeOrg, o.ID)); err != nil {
+	if err := annotate.SaveGroup(c, h.graph, repo.GraphOwner(repo.ScopeOrg, o.ID)); err != nil {
 		return err
 	}
 	h.notifier.Org(o.ID)
@@ -168,7 +169,7 @@ func (h *handler) DeleteGraphGroup(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	if err := annotate.DeleteGroup(c, h.store, repo.GraphOwner(repo.ScopeOrg, o.ID)); err != nil {
+	if err := annotate.DeleteGroup(c, h.graph, repo.GraphOwner(repo.ScopeOrg, o.ID)); err != nil {
 		return err
 	}
 	h.notifier.Org(o.ID)
@@ -183,11 +184,11 @@ func (h *handler) buildOrgsGraph(c echo.Context) (graph.Graph, error) {
 	if u == nil {
 		return graph.Graph{}, echo.NewHTTPError(http.StatusUnauthorized, "not signed in")
 	}
-	orgs, err := h.store.ListOrgsForUser(ctx, u.ID)
+	orgs, err := h.orgs.ListForUser(ctx, u.ID)
 	if err != nil {
 		return graph.Graph{}, err
 	}
-	rows, err := h.store.ListNodePositions(ctx, repo.GraphOwner(repo.ScopeUser, u.ID))
+	rows, err := h.graph.Positions(ctx, repo.GraphOwner(repo.ScopeUser, u.ID))
 	if err != nil {
 		return graph.Graph{}, err
 	}
@@ -197,14 +198,14 @@ func (h *handler) buildOrgsGraph(c echo.Context) (graph.Graph, error) {
 	}
 	summaries := make([]graph.OrgSummary, 0, len(orgs))
 	for i := range orgs {
-		stacks, err := h.store.ListStacksByOrg(ctx, orgs[i].ID)
+		stacks, err := h.stacks.ListForOrg(ctx, orgs[i].ID)
 		if err != nil {
 			return graph.Graph{}, err
 		}
 		// Membership is a count on the card, not a list: who they are lives in
 		// the org's own settings. A read failure leaves it at 0, which the card
 		// renders as "no member count" rather than "0 members".
-		members, err := h.store.ListOrgMembers(ctx, orgs[i].ID)
+		members, err := h.members.ListMembers(ctx, orgs[i].ID)
 		if err != nil {
 			return graph.Graph{}, err
 		}
@@ -215,8 +216,8 @@ func (h *handler) buildOrgsGraph(c echo.Context) (graph.Graph, error) {
 		})
 	}
 	g := graph.BuildOrgs(summaries, positions)
-	g.Annotations, _ = h.store.ListAnnotations(ctx, repo.GraphOwner(repo.ScopeUser, u.ID))
-	g.Groups, _ = h.store.ListGraphGroups(ctx, repo.GraphOwner(repo.ScopeUser, u.ID))
+	g.Annotations, _ = h.graph.Annotations(ctx, repo.GraphOwner(repo.ScopeUser, u.ID))
+	g.Groups, _ = h.graph.Groups(ctx, repo.GraphOwner(repo.ScopeUser, u.ID))
 	return g, nil
 }
 
@@ -303,7 +304,7 @@ func (h *handler) SaveNodePosition(c echo.Context) error {
 	if err := repo.ValidateNodePositions(owner, ps); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
-	if err := h.store.SaveNodePositions(c.Request().Context(), owner, ps); err != nil {
+	if err := h.graph.SavePositions(c.Request().Context(), owner, ps); err != nil {
 		return err
 	}
 	h.notifier.Org(o.ID) // other open org canvases re-fetch and move the card
@@ -317,7 +318,7 @@ func (h *handler) ResetNodePositions(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	if err := h.store.DeleteNodePositions(c.Request().Context(), repo.GraphOwner(repo.ScopeOrg, o.ID)); err != nil {
+	if err := h.graph.ResetPositions(c.Request().Context(), repo.GraphOwner(repo.ScopeOrg, o.ID)); err != nil {
 		return err
 	}
 	h.notifier.Org(o.ID)
@@ -335,20 +336,9 @@ func (h *handler) loadOrg(c echo.Context) (*repo.Org, error) {
 	// canvas and settings pages agree on what /orgs/<x> means.
 	ctx := c.Request().Context()
 	key := orgKey(c)
-	o, err := h.store.GetOrgBySlug(ctx, key)
+	o, err := h.orgs.Resolve(ctx, key)
 	if err != nil {
-		return nil, err
-	}
-	if o == nil {
-		if o, err = h.store.GetOrg(ctx, key); err != nil {
-			return nil, err
-		}
-	}
-	if o == nil {
-		return nil, echo.NewHTTPError(http.StatusNotFound, "org not found")
-	}
-	if err := stackrmw.RequireOrgWrite(c, h.store, o.ID); err != nil {
-		return nil, err
+		return nil, stackrmw.HTTP(err)
 	}
 	return o, nil
 }
@@ -369,11 +359,11 @@ func arrangeStyle(c echo.Context) graph.ArrangeStyle {
 }
 
 func (h *handler) buildOrgGraph(ctx context.Context, o *repo.Org, style graph.ArrangeStyle) (graph.Graph, map[string]string, error) {
-	stacks, err := h.store.ListStacksByOrg(ctx, o.ID)
+	stacks, err := h.stacks.ListForOrg(ctx, o.ID)
 	if err != nil {
 		return graph.Graph{}, nil, err
 	}
-	rows, err := h.store.ListNodePositions(ctx, repo.GraphOwner(repo.ScopeOrg, o.ID))
+	rows, err := h.graph.Positions(ctx, repo.GraphOwner(repo.ScopeOrg, o.ID))
 	if err != nil {
 		return graph.Graph{}, nil, err
 	}
@@ -384,7 +374,7 @@ func (h *handler) buildOrgGraph(ctx context.Context, o *repo.Org, style graph.Ar
 
 	// How much of each stack is reachable from outside, counted here, listed
 	// one level down.
-	allDomains, err := h.store.ListDomains(ctx)
+	allDomains, err := h.domains.ListAll(ctx)
 	if err != nil {
 		return graph.Graph{}, nil, err
 	}
@@ -431,11 +421,11 @@ func (h *handler) buildOrgGraph(ctx context.Context, o *repo.Org, style graph.Ar
 	var summaries []graph.StackSummary
 	for i := range stacks {
 		st := &stacks[i]
-		envs, err := h.store.ListEnvironmentsByStack(ctx, st.ID)
+		envs, err := h.envs.ListForStack(ctx, st.ID)
 		if err != nil {
 			return graph.Graph{}, nil, err
 		}
-		tiles, err := h.store.ListTilesByStack(ctx, st.ID)
+		tiles, err := h.tiles.ListForStack(ctx, st.ID)
 		if err != nil {
 			return graph.Graph{}, nil, err
 		}
@@ -467,12 +457,12 @@ func (h *handler) buildOrgGraph(ctx context.Context, o *repo.Org, style graph.Ar
 		// Instances this stack consumes that are shared org-wide, including
 		// ones owned by another stack.
 		for j := range tiles {
-			ps, err := h.store.ListProvisionsByConsumer(ctx, tiles[j].ID)
+			ps, err := h.slices.ForConsumer(ctx, tiles[j].ID)
 			if err != nil {
 				continue
 			}
 			for _, p := range ps {
-				inst, _ := h.store.GetTile(ctx, p.InstanceTileID)
+				inst, _ := h.tiles.Get(ctx, p.InstanceTileID)
 				if inst == nil || inst.ScopeKind != "org" {
 					continue
 				}
@@ -503,7 +493,7 @@ func (h *handler) buildOrgGraph(ctx context.Context, o *repo.Org, style graph.Ar
 	}
 
 	var connectors []graph.OrgConnector
-	if cs, err := h.store.ListConnectorsByOrg(ctx, o.ID); err == nil {
+	if cs, err := h.connectors.ForOrg(ctx, o.ID); err == nil {
 		for _, cn := range cs {
 			connectors = append(connectors, graph.OrgConnector{
 				ID: cn.ID, Name: cn.Name, Detail: cn.Provider, Provider: cn.Provider,
@@ -516,8 +506,8 @@ func (h *handler) buildOrgGraph(ctx context.Context, o *repo.Org, style graph.Ar
 	// the header's Settings link (graph.templ).
 	g := graph.BuildOrg(summaries, instances, connectors, h.orgVarCards(ctx, o, stacks), positions)
 	g.Arrange(style, positions)
-	g.Annotations, _ = h.store.ListAnnotations(ctx, repo.GraphOwner(repo.ScopeOrg, o.ID))
-	g.Groups, _ = h.store.ListGraphGroups(ctx, repo.GraphOwner(repo.ScopeOrg, o.ID))
+	g.Annotations, _ = h.graph.Annotations(ctx, repo.GraphOwner(repo.ScopeOrg, o.ID))
+	g.Groups, _ = h.graph.Groups(ctx, repo.GraphOwner(repo.ScopeOrg, o.ID))
 	return g, nodeOf, nil
 }
 
@@ -530,7 +520,7 @@ func (h *handler) orgVarCards(ctx context.Context, o *repo.Org, stacks []repo.St
 	// global settings page, which has never had a variables section, clicking
 	// an org variables card was a dead end.
 	cards := graph.VarCards{Scope: "org", Label: "Organization", Href: "/orgs/" + o.Slug + "/settings/variables"}
-	vars, err := h.store.ListVariables(ctx, repo.OwnerOrg, o.ID)
+	vars, err := h.vars.List(ctx, service.OrgVars(o.ID))
 	if err != nil || len(vars) == 0 {
 		return cards
 	}
@@ -544,7 +534,7 @@ func (h *handler) orgVarCards(ctx context.Context, o *repo.Org, stacks []repo.St
 		}
 	}
 	for i := range stacks {
-		tiles, err := h.store.ListTilesByStack(ctx, stacks[i].ID)
+		tiles, err := h.tiles.ListForStack(ctx, stacks[i].ID)
 		if err != nil {
 			continue
 		}

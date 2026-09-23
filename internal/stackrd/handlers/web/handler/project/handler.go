@@ -3,6 +3,7 @@ package project
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"html"
 	"log/slog"
@@ -18,12 +19,10 @@ import (
 	"github.com/FyrmForge/hamr/pkg/htmx"
 	"github.com/FyrmForge/hamr/pkg/middleware"
 	"github.com/FyrmForge/hamr/pkg/respond"
-	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 
 	"github.com/FyrmForge/stackr/internal/stackrd/config/envops"
 	"github.com/FyrmForge/stackr/internal/stackrd/config/runpolicy"
-	"github.com/FyrmForge/stackr/internal/stackrd/config/secrets"
 	"github.com/FyrmForge/stackr/internal/stackrd/config/settings"
 	"github.com/FyrmForge/stackr/internal/stackrd/config/sharelink"
 	"github.com/FyrmForge/stackr/internal/stackrd/config/stackconf"
@@ -31,7 +30,6 @@ import (
 	"github.com/FyrmForge/stackr/internal/stackrd/config/varref"
 	"github.com/FyrmForge/stackr/internal/stackrd/envcolor"
 	stackrmw "github.com/FyrmForge/stackr/internal/stackrd/handlers/middleware"
-	"github.com/FyrmForge/stackr/internal/stackrd/handlers/notify"
 	"github.com/FyrmForge/stackr/internal/stackrd/handlers/web/avatar"
 	"github.com/FyrmForge/stackr/internal/stackrd/handlers/web/components"
 	"github.com/FyrmForge/stackr/internal/stackrd/handlers/web/components/canvas"
@@ -41,36 +39,70 @@ import (
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/envnet"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/forward"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/githubapp"
-	"github.com/FyrmForge/stackr/internal/stackrd/infra/jobs"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/managedtiles"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/metrics"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/placement"
-	"github.com/FyrmForge/stackr/internal/stackrd/infra/proxy"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/runtime"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/volmove"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/workqueue"
+	"github.com/FyrmForge/stackr/internal/stackrd/service"
+	"github.com/FyrmForge/stackr/internal/stackrd/service/notify"
+	svcproxy "github.com/FyrmForge/stackr/internal/stackrd/service/proxy"
+	"github.com/FyrmForge/stackr/internal/stackrd/service/scheduler"
+	"github.com/FyrmForge/stackr/internal/stackrd/service/svcerr"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/audit"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 )
 
 type handler struct {
-	store    repo.Store
-	jobs     *jobs.Service
-	rt       *runtime.Runtime
-	clus     *cluster.Cluster
-	px       *proxy.Proxy
-	sampler  *metrics.Sampler
-	notifier *notify.Notifier
-	gh       *githubapp.Client
-	applier  stackconf.Applier
-	forwards *forward.Registry // live tunnel sessions; nil in tests
+	// resources owns the hostnames stackr may generate names under.
+	resources *service.DomainResourceService
+	store     repo.Store
+	rt        *runtime.Runtime
+	clus      *cluster.Cluster
+	px        *svcproxy.Service
+	sampler   *metrics.Sampler
+	notifier  *notify.Notifier
+	gh        *githubapp.Client
+	applier   stackconf.Applier
+	forwards  *forward.Registry // live tunnel sessions; nil in tests
+	// sched re-registers the cron and backup tables after a write that
+	// changes or cascades their rows.
+	sched *scheduler.Service
+	// tiles owns the tile row: create, delete and the cascade around each.
+	tiles *service.TileService
+	vars  *service.VariableService
+	envs  *service.EnvironmentService
+	// stacks owns the stack row: create, rename, delete, bind.
+	stacks *service.StackService
+	// deploys owns which tiles may be deployed; releases owns the ladder;
+	// plans owns a config plan after it exists.
+	deploys  *service.DeployService
+	releases *service.ReleaseService
+	plans    *service.PlanService
+	// prenvs owns the pull-request environment settings.
+	prenvs    *service.PREnvService
+	instances *service.ManagedInstanceService
+	// settings owns every rung of the defaults cascade.
+	settings *service.SettingsService
+	// domains owns the hostnames a tile answers on.
+	domains *service.DomainService
 	// mover is the volume-move service, so a card being moved can show it.
 	// nil in tests and on installs that have never added a node.
 	mover *volmove.Service
 	// work is the durable job runner. An apply is enqueued on it, never run on
 	// the request: it clones repos and builds images, so it routinely outlives
 	// the browser that asked for it.
-	work *workqueue.Queue
+	work       *workqueue.Queue
+	orgs       *service.OrgService
+	slices     *service.SliceService
+	nodeSvc    *service.NodeService
+	audit      *service.AuditService
+	revoke     *service.RevokeService
+	telemetry  *service.TileTelemetryService
+	graph      *service.GraphService
+	connectors *service.ConnectorService
+	life       *service.TileLifecycleService
 }
 
 // WithMover attaches the volume-move service. Set from the router rather than
@@ -80,22 +112,56 @@ func (h *handler) WithMover(m *volmove.Service) *handler { h.mover = m; return h
 
 func (h *handler) WithWork(q *workqueue.Queue) *handler { h.work = q; return h }
 
+// WithSettings attaches the settings service.
+func (h *handler) WithSettings(st *service.SettingsService) *handler { h.settings = st; return h }
+
 // NewHandler creates a new project handler.
-func NewHandler(store repo.Store, jobsSvc *jobs.Service, rt *runtime.Runtime, clus *cluster.Cluster, px *proxy.Proxy, sampler *metrics.Sampler, notifier *notify.Notifier, gh *githubapp.Client, applier stackconf.Applier, forwards *forward.Registry) *handler {
-	return &handler{store: store, jobs: jobsSvc, rt: rt, clus: clus, px: px, sampler: sampler, notifier: notifier, gh: gh, applier: applier, forwards: forwards}
+func NewHandler(store repo.Store, rt *runtime.Runtime, clus *cluster.Cluster, px *svcproxy.Service, sampler *metrics.Sampler, notifier *notify.Notifier, gh *githubapp.Client, applier stackconf.Applier, forwards *forward.Registry) *handler {
+	return &handler{store: store, rt: rt, clus: clus, px: px, sampler: sampler, notifier: notifier, gh: gh, applier: applier, forwards: forwards}
 }
+
+// WithScheduler gives the canvas the schedule reloader.
+func (h *handler) WithScheduler(s *scheduler.Service) *handler { h.sched = s; return h }
+
+// WithTiles gives the canvas the tile service, the same value the app page
+// and the API hold.
+func (h *handler) WithTiles(t *service.TileService) *handler { h.tiles = t; return h }
+
+// WithVariables gives the canvas the variable service.
+func (h *handler) WithVariables(v *service.VariableService) *handler { h.vars = v; return h }
+
+// WithEnvironments gives the canvas the environment service.
+func (h *handler) WithEnvironments(e *service.EnvironmentService) *handler { h.envs = e; return h }
+
+// WithStacks attaches the stack service.
+func (h *handler) WithStacks(st *service.StackService) *handler { h.stacks = st; return h }
+
+// WithPREnvs attaches the pull-request environment settings service.
+func (h *handler) WithPREnvs(p *service.PREnvService) *handler { h.prenvs = p; return h }
+
+// WithPlans attaches the plan service.
+func (h *handler) WithPlans(p *service.PlanService) *handler { h.plans = p; return h }
+
+// WithDeploys attaches the deploy service.
+func (h *handler) WithDeploys(d *service.DeployService) *handler { h.deploys = d; return h }
+
+// WithReleases attaches the release service, which owns the promotion ladder.
+func (h *handler) WithReleases(r *service.ReleaseService) *handler { h.releases = r; return h }
+
+// WithInstances gives the canvas the managed-instance service.
+func (h *handler) WithInstances(m *service.ManagedInstanceService) *handler {
+	h.instances = m
+	return h
+}
+
+// WithDomains gives the canvas the domain service.
+func (h *handler) WithDomains(d *service.DomainService) *handler { h.domains = d; return h }
 
 // loadStack fetches a stack by id with the org tenancy check applied.
 func (h *handler) loadStack(c echo.Context, id string) (*repo.Stack, error) {
-	p, err := h.store.GetStack(c.Request().Context(), id)
+	p, err := h.stacks.Get(c.Request().Context(), id)
 	if err != nil {
-		return nil, err
-	}
-	if p == nil {
-		return nil, echo.NewHTTPError(http.StatusNotFound, "stack not found")
-	}
-	if err := stackrmw.RequireOrgWrite(c, h.store, p.OrgID); err != nil {
-		return nil, err
+		return nil, stackrmw.HTTP(err)
 	}
 	// Every redirect built from stackURL needs the org slug; without it the
 	// URL carries the org id and 404s (approve / plan-again did exactly that).
@@ -114,7 +180,7 @@ func (h *handler) Repos(c echo.Context) error {
 	}
 	type pick struct{ Value, Label string }
 	var picks []pick
-	conns, _ := h.store.ListConnectorsByOrg(ctx, p.OrgID)
+	conns, _ := h.connectors.ForOrg(ctx, p.OrgID)
 	for i := range conns {
 		if conns[i].Provider != "github" || !githubapp.ParseConfig(conns[i].Config).Connected() {
 			continue
@@ -157,29 +223,11 @@ func (h *handler) Create(c echo.Context) error {
 	if err := stackrmw.RequireOrgWrite(c, h.store, orgID); err != nil {
 		return err
 	}
-	now := time.Now().UTC()
-	p := &repo.Stack{
-		ID:        uuid.New().String(),
-		OrgID:     orgID,
-		Name:      name,
-		Slug:      repo.Slugify(name),
-		Settings:  "{}",
-		CreatedAt: now,
-	}
-	if err := h.store.CreateStack(c.Request().Context(), p); err != nil {
-		return err
-	}
-	env := &repo.Environment{
-		ID:        uuid.New().String(),
-		StackID:   p.ID,
-		Name:      "Production",
-		Slug:      "production",
-		Type:      "static",
-		Settings:  "{}",
-		CreatedAt: now,
-	}
-	if err := h.store.CreateEnvironment(c.Request().Context(), env); err != nil {
-		return err
+	// The duplicate slug is the one that bit: this path let UNIQUE
+	// (org_id, slug) refuse it, which reached the user as a raw 500.
+	p, err := h.stacks.Create(c.Request().Context(), orgID, service.CreateStack{Name: name})
+	if err != nil {
+		return stackrmw.HTTP(err)
 	}
 	return respond.Redirect(c, "/projects/"+p.ID)
 }
@@ -188,7 +236,7 @@ func (h *handler) Create(c echo.Context) error {
 // operates on this one. Phase 3 (env switcher) replaces callers with an
 // explicit env from the URL.
 func (h *handler) defaultEnv(ctx context.Context, stackID string) (*repo.Environment, error) {
-	envs, err := h.store.ListEnvironmentsByStack(ctx, stackID)
+	envs, err := h.envs.ListForStack(ctx, stackID)
 	if err != nil {
 		return nil, err
 	}
@@ -202,8 +250,8 @@ func (h *handler) defaultEnv(ctx context.Context, stackID string) (*repo.Environ
 // when present, the stack's default env otherwise.
 func (h *handler) envFromForm(c echo.Context, stackID string) (*repo.Environment, error) {
 	if id := c.FormValue("env_id"); id != "" {
-		env, err := h.store.GetEnvironment(c.Request().Context(), id)
-		if err != nil {
+		env, err := h.envs.Get(c.Request().Context(), id)
+		if err != nil && !errors.Is(err, svcerr.ErrNotFound) {
 			return nil, err
 		}
 		if env == nil || env.StackID != stackID {
@@ -219,7 +267,7 @@ func (h *handler) fillOrg(ctx context.Context, p *repo.Stack) {
 	if p == nil || p.OrgSlug != "" {
 		return
 	}
-	if org, _ := h.store.GetOrg(ctx, p.OrgID); org != nil {
+	if org, _ := h.orgs.Get(ctx, p.OrgID); org != nil {
 		p.OrgSlug = org.Slug
 	}
 }
@@ -244,30 +292,18 @@ func (h *handler) envSettingsURL(ctx context.Context, p *repo.Stack, envSlug str
 // resolveSlugs maps /:org/:stack/:env path params to rows.
 func (h *handler) resolveSlugs(c echo.Context) (*repo.Stack, *repo.Environment, error) {
 	ctx := c.Request().Context()
-	org, err := h.store.GetOrgBySlug(ctx, c.Param("org"))
+	org, err := h.orgs.BySlug(ctx, c.Param("org"))
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, stackrmw.HTTP(err)
 	}
-	if org == nil {
-		return nil, nil, echo.NewHTTPError(http.StatusNotFound, "org not found")
-	}
-	p, err := h.store.GetStackBySlug(ctx, org.ID, c.Param("stack"))
+	p, err := h.stacks.BySlug(ctx, org.ID, c.Param("stack"))
 	if err != nil {
-		return nil, nil, err
-	}
-	if p == nil {
-		return nil, nil, echo.NewHTTPError(http.StatusNotFound, "stack not found")
+		return nil, nil, stackrmw.HTTP(err)
 	}
 	p.OrgSlug = org.Slug
-	if err := stackrmw.RequireOrgAccess(c, p.OrgID); err != nil {
-		return nil, nil, err
-	}
-	env, err := h.store.GetEnvironmentBySlug(ctx, p.ID, c.Param("env"))
+	env, err := h.envs.BySlug(ctx, p.ID, c.Param("env"))
 	if err != nil {
-		return nil, nil, err
-	}
-	if env == nil {
-		return nil, nil, echo.NewHTTPError(http.StatusNotFound, "environment not found")
+		return nil, nil, stackrmw.HTTP(err)
 	}
 	return p, env, nil
 }
@@ -277,23 +313,17 @@ func (h *handler) resolveSlugs(c echo.Context) (*repo.Stack, *repo.Environment, 
 // straight in an environment any more.
 func (h *handler) RedirectStack(c echo.Context) error {
 	ctx := c.Request().Context()
-	p, err := h.store.GetStack(ctx, c.Param("id"))
-	if err != nil {
-		return err
-	}
-	if p == nil {
+	p, err := h.stacks.Get(ctx, c.Param("id"))
+	if errors.Is(err, svcerr.ErrNotFound) {
 		// /:org/:stack form, resolve by slugs.
-		org, err := h.store.GetOrgBySlug(ctx, c.Param("org"))
-		if err != nil || org == nil {
+		org, oerr := h.orgs.BySlug(ctx, c.Param("org"))
+		if oerr != nil {
 			return echo.NewHTTPError(http.StatusNotFound, "not found")
 		}
-		p, err = h.store.GetStackBySlug(ctx, org.ID, c.Param("stack"))
-		if err != nil || p == nil {
-			return echo.NewHTTPError(http.StatusNotFound, "stack not found")
-		}
+		p, err = h.stacks.BySlug(ctx, org.ID, c.Param("stack"))
 	}
-	if err := stackrmw.RequireOrgAccess(c, p.OrgID); err != nil {
-		return err
+	if err != nil {
+		return stackrmw.HTTP(err)
 	}
 	h.fillOrg(ctx, p)
 	return c.Redirect(http.StatusSeeOther, stackURL(p))
@@ -308,52 +338,15 @@ func (h *handler) CreateEnvironment(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	if p.ConfigManaged() {
-		return managedErr(p)
-	}
-	name := c.FormValue("name")
-	if name == "" {
-		return echo.NewHTTPError(http.StatusBadRequest, "name required")
-	}
-	envType := "static"
-	if c.FormValue("type") == "ephemeral" {
-		envType = "ephemeral"
-	}
-	slug := repo.Slugify(name)
-	if slug == "settings" || slug == "list" {
-		return echo.NewHTTPError(http.StatusBadRequest, "reserved environment name")
-	}
-	env := &repo.Environment{
-		ID:        uuid.New().String(),
-		StackID:   p.ID,
-		Name:      name,
-		Slug:      slug,
-		Type:      envType,
+	env, err := h.envs.Create(ctx, p, service.CreateEnv{
+		Name: c.FormValue("name"), Type: c.FormValue("type"),
 		BaseEnvID: c.FormValue("base_env_id"),
-		Settings:  "{}",
-		CreatedAt: time.Now().UTC(),
-	}
-	if env.BaseEnvID != "" {
-		base, err := h.store.GetEnvironment(ctx, env.BaseEnvID)
-		if err != nil {
-			return err
-		}
-		if base == nil || base.StackID != p.ID {
-			return echo.NewHTTPError(http.StatusBadRequest, "invalid base environment")
-		}
-		env.Settings = base.Settings
-	}
-	if err := h.store.CreateEnvironment(ctx, env); err != nil {
-		return err
-	}
-	if env.BaseEnvID != "" {
-		if err := h.ops().CloneTiles(ctx, env); err != nil {
-			return err
-		}
-		_ = h.jobs.LoadSchedules(ctx)
+	}, stackrmw.WebActor(c))
+	if err != nil {
+		return stackrmw.HTTP(err)
 	}
 	middleware.SetFlash(c, "Environment created. Nothing is deployed yet. Deploy tiles when ready.", middleware.FlashSuccess)
-	return respond.Redirect(c, h.envSettingsURL(c.Request().Context(), p, env.Slug))
+	return respond.Redirect(c, h.envSettingsURL(ctx, p, env.Slug))
 }
 
 // DeleteEnvironment tears an environment down: containers, proxy routes, the
@@ -362,36 +355,25 @@ func (h *handler) CreateEnvironment(c echo.Context) error {
 // POST /envs/:id/delete
 func (h *handler) DeleteEnvironment(c echo.Context) error {
 	ctx := c.Request().Context()
-	env, err := h.store.GetEnvironment(ctx, c.Param("id"))
+	env, err := h.envs.Get(ctx, c.Param("id"))
 	if err != nil {
-		return err
-	}
-	if env == nil {
-		return echo.NewHTTPError(http.StatusNotFound, "environment not found")
+		return stackrmw.HTTP(err)
 	}
 	p, err := h.loadStack(c, env.StackID)
 	if err != nil {
 		return err
 	}
-	if p.ConfigManaged() {
-		return managedErr(p)
-	}
-	envs, err := h.store.ListEnvironmentsByStack(ctx, p.ID)
-	if err != nil {
-		return err
-	}
-	if len(envs) <= 1 {
-		return echo.NewHTTPError(http.StatusBadRequest, "a stack needs at least one environment")
-	}
 	if err := components.RequireConfirm(c, env.Slug); err != nil {
 		return err
 	}
-	if err := h.ops().Teardown(ctx, p, env); err != nil {
-		return err
+	// Typing the slug to confirm is this surface's force: the dialog spells
+	// out what goes, so the running check has already been answered by a
+	// person. The API and the CLI take a flag instead.
+	if err := h.envs.Delete(ctx, p, env, true, stackrmw.WebActor(c)); err != nil {
+		return stackrmw.HTTP(err)
 	}
-	_ = h.jobs.LoadSchedules(ctx)
 	middleware.SetFlash(c, "Environment deleted. DB volumes were kept.", middleware.FlashSuccess)
-	return respond.Redirect(c, h.settingsSection(c.Request().Context(), p, "environments"))
+	return respond.Redirect(c, h.settingsSection(ctx, p, "environments"))
 }
 
 // ResetEnvironment tears a config-managed stack's environment down so the next
@@ -408,31 +390,25 @@ func (h *handler) DeleteEnvironment(c echo.Context) error {
 // POST /envs/:id/reset
 func (h *handler) ResetEnvironment(c echo.Context) error {
 	ctx := c.Request().Context()
-	env, err := h.store.GetEnvironment(ctx, c.Param("id"))
+	env, err := h.envs.Get(ctx, c.Param("id"))
 	if err != nil {
-		return err
-	}
-	if env == nil {
-		return echo.NewHTTPError(http.StatusNotFound, "environment not found")
+		return stackrmw.HTTP(err)
 	}
 	p, err := h.loadStack(c, env.StackID)
 	if err != nil {
 		return err
 	}
-	if !p.ConfigManaged() {
-		return echo.NewHTTPError(http.StatusBadRequest,
-			"reset is for config-managed stacks; delete the environment instead")
-	}
 	if err := components.RequireConfirm(c, env.Slug); err != nil {
 		return err
 	}
-	if err := h.ops().Teardown(ctx, p, env); err != nil {
-		return err
+	// Confirmed by typing the slug, so the running check is already answered.
+	if err := h.envs.Reset(ctx, p, env, true, stackrmw.WebActor(c)); err != nil {
+		return stackrmw.HTTP(err)
 	}
-	_ = h.jobs.LoadSchedules(ctx)
-	// Re-plan straight away: the environment is gone, so the live plan's diff
-	// is stale and its Apply would be read as "finish what broke" when it is
-	// really "build the whole thing again".
+	// Re-planned again, synchronously: the service kicks a background replan,
+	// but this page wants the new plan to exist before it redirects, or the
+	// stale diff would read as "finish what broke" when it is really "build
+	// the whole thing again".
 	if _, err := h.planner().RunAll(ctx, p, ""); err != nil && err != stackconf.ErrNoFile {
 		middleware.SetFlash(c, "Environment reset, but re-planning failed: "+err.Error(), middleware.FlashError)
 		return respond.Redirect(c, h.settingsSection(ctx, p, "environments"))
@@ -453,34 +429,24 @@ func (h *handler) Delete(c echo.Context) error {
 	if err := components.RequireConfirm(c, p.Slug); err != nil {
 		return err
 	}
-	// The rows go on cascade, but the services have to be stopped and the
-	// pooled overlays handed back by name first: a freed network that still
-	// has services on it is handed to the next claim, possibly another org's.
-	// The error is returned rather than swallowed; delete again is the retry.
-	if err := h.ops().TeardownStack(c.Request().Context(), p); err != nil {
-		return err
-	}
-	if err := h.store.DeleteStack(c.Request().Context(), p.ID); err != nil {
-		return err
+	if err := h.stacks.Delete(c.Request().Context(), p); err != nil {
+		return stackrmw.HTTP(err)
 	}
 	middleware.SetFlash(c, "Stack deleted.", middleware.FlashSuccess)
 	return respond.Redirect(c, "/")
 }
 
 // POST /projects/:id/apps, create an app in this project.
+//
+// Binds the form onto a fresh row and hands it to the tile service: the slug,
+// the cron expression, the source, the connector's org, the volume's attach
+// target and the decision to stage are all rules, and rules are not this
+// function's business.
 func (h *handler) CreateTile(c echo.Context) error {
 	ctx := c.Request().Context()
 	p, err := h.loadStack(c, c.Param("id"))
 	if err != nil {
 		return err
-	}
-	name := c.FormValue("name")
-	if name == "" {
-		return echo.NewHTTPError(http.StatusBadRequest, "name required")
-	}
-	slug := repo.Slugify(name)
-	if slug == "" {
-		return echo.NewHTTPError(http.StatusBadRequest, "name needs at least one letter or number")
 	}
 	sourceType := c.FormValue("source_type")
 	switch sourceType {
@@ -488,133 +454,60 @@ func (h *handler) CreateTile(c echo.Context) error {
 	default:
 		sourceType = "git"
 	}
-	kind := "service"
-	switch c.FormValue("kind") {
-	case "cron":
-		kind = "cron"
-		if err := jobs.ValidateCron(c.FormValue("cron")); err != nil {
-			return echo.NewHTTPError(http.StatusBadRequest, "invalid cron expression")
-		}
-	case "function":
-		kind = "function"
-	case "volume":
-		kind = "volume"
-		sourceType = "image"
+	kind := c.FormValue("kind")
+	switch kind {
+	case "cron", "function", "volume":
+	default:
+		kind = "service"
 	}
-	// A runnable tile needs a usable source at creation, an imageless cron
-	// used to slip through here and sit unrunnable while looking configured.
-	if kind == "service" || kind == "cron" || kind == "function" {
-		if sourceType == "image" && strings.TrimSpace(c.FormValue("image_ref")) == "" {
-			return echo.NewHTTPError(http.StatusBadRequest, "image required")
-		}
-		if sourceType == "git" {
-			if strings.TrimSpace(c.FormValue("git_url")) == "" {
-				return echo.NewHTTPError(http.StatusBadRequest, "git URL required")
-			}
-			if !repo.ValidGitURL(c.FormValue("git_url")) {
-				return echo.NewHTTPError(http.StatusBadRequest, "Use a GitHub URL: https://github.com/owner/repo or git@github.com:owner/repo")
-			}
-		}
+	if kind == "volume" {
+		// A volume has no build of its own; the field is not on its form.
+		sourceType = "image"
 	}
 	env, err := h.envFromForm(c, p.ID)
 	if err != nil {
 		return err
 	}
-	// Slugs are the tile's identity (DNS alias, config key), one per env.
-	if repo.ReservedSlug(slug) {
-		return echo.NewHTTPError(http.StatusBadRequest, "\""+slug+"\" is reserved for variable references; pick another name")
-	}
-	if existing, _ := h.store.GetTileBySlug(ctx, env.ID, slug); existing != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, "a tile named \""+existing.Name+"\" ("+slug+") already exists in this environment")
-	}
-	// Volume attach target must be a service in the same environment.
-	attachID, mountPath, attachSlug := "", "", ""
-	if kind == "volume" {
-		attachID = c.FormValue("attach_tile_id")
-		mountPath = strings.TrimSpace(c.FormValue("mount_path"))
-		if attachID != "" {
-			target, err := h.store.GetTile(ctx, attachID)
-			if err != nil || target == nil || target.EnvironmentID != env.ID || target.Kind != "service" || target.IsManaged() {
-				return echo.NewHTTPError(http.StatusBadRequest, "invalid attach target")
-			}
-			if mountPath == "" || !strings.HasPrefix(mountPath, "/") {
-				return echo.NewHTTPError(http.StatusBadRequest, "mount path must be absolute (e.g. /data)")
-			}
-			attachSlug = target.Slug
-		}
-	}
-	branch := c.FormValue("git_branch")
-	if branch == "" {
-		branch = "main"
-	}
-	connectorID := c.FormValue("connector_id")
-	if connectorID != "" { // credentials, only the stack org's own connectors
-		if cn, err := h.store.GetConnector(ctx, connectorID); err != nil || cn == nil || cn.OrgID != p.OrgID {
-			connectorID = ""
-		}
-	}
-	now := time.Now().UTC()
 	a := &repo.Tile{
-		ID:             uuid.New().String(),
 		StackID:        p.ID,
 		EnvironmentID:  env.ID,
-		Slug:           slug,
-		Name:           name,
+		Name:           c.FormValue("name"),
 		Kind:           kind,
 		Cron:           c.FormValue("cron"),
 		Command:        c.FormValue("command"),
 		RunOnDeploy:    kind == "function" && c.FormValue("run_on_deploy") != "",
 		ImageRef:       c.FormValue("image_ref"),
-		TimeoutMinutes: 30,
 		SourceType:     sourceType,
 		ContainerPort:  atoiOr(c.FormValue("container_port"), 0),
 		GitURL:         strings.TrimSpace(c.FormValue("git_url")),
-		GitBranch:      branch,
-		ConnectorID:    connectorID,
-		DockerfilePath: "Dockerfile",
-		BuildContext:   ".",
-		WebhookToken:   secrets.RandomHex(24),
-		Status:         "idle",
-		CreatedAt:      now,
-		UpdatedAt:      now,
-		AttachedTileID: attachID,
-		MountPath:      mountPath,
+		GitBranch:      c.FormValue("git_branch"),
+		ConnectorID:    c.FormValue("connector_id"),
+		AttachedTileID: c.FormValue("attach_tile_id"),
+		MountPath:      strings.TrimSpace(c.FormValue("mount_path")),
 	}
-	// UI-managed stacks stage the tile creation into the per-env pending set,
-	// nothing is created until the set is applied. Compose tiles used to be
-	// exempt because the config engine could not model them; it can now.
+	// The staged payload is a full config object, which is the config
+	// engine's shape and so this handler's to build. Only the canvas ever
+	// stages a create, so only the canvas builds one.
+	var patch any
 	if !p.ConfigManaged() {
 		tc := stackconf.TileConfOf(stackconf.TileState{Tile: *a}, stackconf.EnvState{})
 		if kind == "volume" {
-			tc.Attach = attachSlug
-			tc.Path = mountPath
+			tc.Path = a.MountPath
+			if target, terr := h.tiles.Get(ctx, a.AttachedTileID); terr == nil {
+				tc.Attach = target.Slug
+			}
 		}
-		if err := h.stageChange(c, a, "create", staging.OpCreate, tc); err != nil {
-			return err
-		}
+		patch = tc
+	}
+	staged, err := h.tiles.Create(ctx, a, patch, stackrmw.WebActor(c))
+	if err != nil {
+		return stackrmw.HTTP(err)
+	}
+	if staged {
+		// Nothing exists until the pending set is applied.
 		middleware.SetFlash(c, "Tile creation staged. Review & apply on the canvas to deploy.", middleware.FlashSuccess)
 		h.fillOrg(ctx, p)
 		return respond.Redirect(c, envURL(p, env))
-	}
-	// Config-managed stacks own their tiles in the file, reject direct creates
-	// (a plan would delete the undeclared tile). Compose is no exception: Snapshot
-	// includes every tile and Diff strict-deletes any tile the file doesn't
-	// declare, so a compose tile created here dies on the next plan.
-	if p.ConfigManaged() {
-		return managedErr(p)
-	}
-
-	if err := h.store.CreateTile(ctx, a); err != nil {
-		return err
-	}
-	if kind == "cron" {
-		_ = h.jobs.LoadSchedules(ctx)
-	}
-	// Attaching a volume changes the target's mounts, redeploy it.
-	if kind == "volume" && attachID != "" {
-		if target, err := h.store.GetTile(ctx, attachID); err == nil && target != nil {
-			_, _ = h.engine().Enqueue(ctx, target, "volume")
-		}
 	}
 	if c.FormValue("from") == "canvas" {
 		h.fillOrg(ctx, p)
@@ -631,7 +524,7 @@ func (h *handler) Graph(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	envs, err := h.store.ListEnvironmentsByStack(ctx, p.ID)
+	envs, err := h.envs.ListForStack(ctx, p.ID)
 	if err != nil {
 		return err
 	}
@@ -639,11 +532,11 @@ func (h *handler) Graph(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	pendingPlan, _ := h.store.LatestConfigPlan(ctx, p.ID)
+	pendingPlan, _ := h.plans.Latest(ctx, p.ID)
 	if pendingPlan != nil && pendingPlan.Status != "pending" && pendingPlan.Status != "error" {
 		pendingPlan = nil
 	}
-	stagedCount, _ := h.store.CountStagedByEnv(ctx, env.ID)
+	stagedCount, _ := h.tiles.StagedCount(ctx, env.ID)
 	cmp, _, err := h.compareStack(ctx, p)
 	if err != nil {
 		return err
@@ -653,7 +546,7 @@ func (h *handler) Graph(c echo.Context) error {
 
 // envColorsByID resolves every env's colour for one stack, as CSS values.
 func (h *handler) envColorsByID(ctx context.Context, p *repo.Stack, envs []repo.Environment) map[string]string {
-	org, _ := h.store.GetOrg(ctx, p.OrgID)
+	org, _ := h.orgs.Get(ctx, p.OrgID)
 	out := map[string]string{}
 	for id, r := range envcolor.Map(envs, org, p.ConfigManaged()) {
 		out[id] = r.CSS
@@ -663,7 +556,7 @@ func (h *handler) envColorsByID(ctx context.Context, p *repo.Stack, envs []repo.
 
 // envColorsBySlug is envColorsByID keyed by slug, for plan rows.
 func (h *handler) envColorsBySlug(ctx context.Context, p *repo.Stack) map[string]string {
-	envs, err := h.store.ListEnvironmentsByStack(ctx, p.ID)
+	envs, err := h.envs.ListForStack(ctx, p.ID)
 	if err != nil {
 		return nil
 	}
@@ -695,7 +588,7 @@ func (h *handler) stageChange(c echo.Context, t *repo.Tile, summary, op string, 
 	if u := stackrmw.CurrentUser(c); u != nil {
 		authorID, authorName = u.ID, u.Name
 	}
-	return staging.Stage(c.Request().Context(), h.store, t, authorID, authorName, summary, op, patch)
+	return staging.Stage(c.Request().Context(), h.store, h.tiles, t, authorID, authorName, summary, op, patch)
 }
 
 // POST /projects/:id/config, bind (or unbind) the stack's config repo.
@@ -705,40 +598,23 @@ func (h *handler) SaveConfigBinding(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	connID := c.FormValue("connector_id")
-	if connID == "" {
-		p.ConfigConnectorID, p.ConfigRepo, p.ConfigBranch, p.ConfigPath = "", "", "", ""
-		if err := h.store.UpdateStack(ctx, p); err != nil {
-			return err
+	if c.FormValue("connector_id") == "" {
+		if err := h.stacks.Unbind(ctx, p); err != nil {
+			return stackrmw.HTTP(err)
 		}
 		middleware.SetFlash(c, "Config repo unbound. Stack is UI-managed again.", middleware.FlashSuccess)
 		return respond.Redirect(c, h.settingsSection(ctx, p, "config"))
 	}
-	// A connector grants credentials, only accept one from the stack's own org.
-	cn, err := h.store.GetConnector(ctx, connID)
-	if err != nil || cn == nil || cn.OrgID != p.OrgID {
-		return echo.NewHTTPError(http.StatusBadRequest, "unknown connector")
-	}
-	repoFull := strings.TrimSpace(c.FormValue("repo"))
-	if repoFull == "" {
-		return echo.NewHTTPError(http.StatusBadRequest, "repository required (owner/name)")
-	}
-	p.ConfigConnectorID = connID
-	p.ConfigRepo = strings.TrimSuffix(strings.TrimPrefix(repoFull, "https://github.com/"), ".git")
-	p.ConfigBranch = strings.TrimSpace(c.FormValue("branch"))
-	p.ConfigPath = strings.TrimSpace(c.FormValue("path"))
-	if err := h.store.UpdateStack(ctx, p); err != nil {
-		return err
-	}
-	// Staged rows were recorded while the stack was UI-managed. The file owns
-	// the stack now, so applying them would be a structural write the lock is
-	// meant to block, drop them instead of leaving a loaded gun.
-	if envs, err := h.store.ListEnvironmentsByStack(ctx, p.ID); err == nil {
-		for _, e := range envs {
-			if err := h.store.DeleteStagedByEnv(ctx, e.ID); err != nil {
-				slog.Error("staged rows not dropped on config lock", "stack", p.ID, "env", e.ID, "error", err)
-			}
-		}
+	// The connector-in-org check, the repo normalisation, the staged drop and
+	// the plan run all live in the service now: a config apply binding the
+	// same stack did none of them.
+	if err := h.stacks.Bind(ctx, p, service.BindConfig{
+		ConnectorID: c.FormValue("connector_id"),
+		Repo:        c.FormValue("repo"),
+		Branch:      c.FormValue("branch"),
+		Path:        c.FormValue("path"),
+	}); err != nil {
+		return stackrmw.HTTP(err)
 	}
 	h.runPlan(c, p)
 	return respond.Redirect(c, h.settingsSection(ctx, p, "config"))
@@ -761,12 +637,17 @@ func (h *handler) PlanNow(c echo.Context) error {
 
 func (h *handler) runPlan(c echo.Context, p *repo.Stack) []*repo.ConfigPlan {
 	ctx := c.Request().Context()
-	plans, err := h.planner().RunAll(ctx, p, "")
+	// Through the service, for the binding check this path never had: on an
+	// unbound stack it ran a planner that could only fail and reported the
+	// failure as a plan.
+	plans, err := h.plans.Run(ctx, p)
 	switch {
 	case err == stackconf.ErrNoFile:
 		middleware.SetFlash(c, "No config file found in the bound repo. Nothing planned.", middleware.FlashError)
 	case err != nil:
 		middleware.SetFlash(c, "Plan failed: "+err.Error(), middleware.FlashError)
+	case len(plans) == 0:
+		middleware.SetFlash(c, "Nothing planned.", middleware.FlashError)
 	case plans[0].Status == "error":
 		middleware.SetFlash(c, "Config invalid: "+plans[0].Error, middleware.FlashError)
 	default:
@@ -783,14 +664,12 @@ func (h *handler) ApprovePlan(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	if cp.Status != "pending" {
-		return echo.NewHTTPError(http.StatusBadRequest, "plan is not pending")
-	}
 	// Enqueued, not run here. An apply clones repos and builds images, so it
 	// routinely outlives the request; on the request's context it died wherever
 	// it had got to and the failure was written through the same dead context
-	// and lost.
-	if _, err := stackconf.EnqueueApply(ctx, h.work, p, cp, true); err != nil {
+	// and lost. The pending check is the service's, and answers 409 on both
+	// surfaces now — two people pressing Apply is a race, not a bad request.
+	if _, err := h.plans.Approve(ctx, p, cp); err != nil {
 		middleware.SetFlash(c, "Could not queue the apply: "+err.Error(), middleware.FlashError)
 		return respond.Redirect(c, stackURL(p)+"/plans/"+cp.ID)
 	}
@@ -811,11 +690,8 @@ func (h *handler) RejectPlan(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	if cp.Status != "pending" {
-		return echo.NewHTTPError(http.StatusBadRequest, "plan is not pending")
-	}
-	if err := h.store.SetConfigPlanStatus(ctx, cp.ID, "rejected"); err != nil {
-		return err
+	if err := h.plans.Reject(ctx, cp); err != nil {
+		return stackrmw.HTTP(err)
 	}
 	middleware.SetFlash(c, "Plan rejected.", middleware.FlashSuccess)
 	if ret := localPath(c.FormValue("return")); ret != "" {
@@ -830,8 +706,8 @@ func (h *handler) loadPlan(c echo.Context) (*repo.Stack, *repo.ConfigPlan, error
 	if err != nil {
 		return nil, nil, err
 	}
-	cp, err := h.store.GetConfigPlan(ctx, c.Param("planID"))
-	if err != nil || cp == nil || cp.StackID != p.ID {
+	cp, err := h.plans.Get(ctx, c.Param("planID"))
+	if err != nil || cp.StackID != p.ID {
 		return nil, nil, echo.NewHTTPError(http.StatusNotFound, "plan not found")
 	}
 	return p, cp, nil
@@ -840,9 +716,9 @@ func (h *handler) loadPlan(c echo.Context) (*repo.Stack, *repo.ConfigPlan, error
 // POST /envs/:id/config, per-env config branch + apply policy.
 func (h *handler) SaveEnvConfig(c echo.Context) error {
 	ctx := c.Request().Context()
-	env, err := h.store.GetEnvironment(ctx, c.Param("id"))
-	if err != nil || env == nil {
-		return echo.NewHTTPError(http.StatusNotFound, "environment not found")
+	env, err := h.envs.Get(ctx, c.Param("id"))
+	if err != nil {
+		return stackrmw.HTTP(err)
 	}
 	p, err := h.loadStack(c, env.StackID)
 	if err != nil {
@@ -853,14 +729,15 @@ func (h *handler) SaveEnvConfig(c echo.Context) error {
 	if !p.ConfigManaged() {
 		return echo.NewHTTPError(http.StatusConflict, "bind a config repository first")
 	}
-	env.ConfigBranch = strings.TrimSpace(c.FormValue("config_branch"))
+	// SP1: an apply policy the form did not offer is refused, not folded to
+	// "". This coerced, so a stale or hand-posted value silently reset the
+	// policy to inherit.
+	branch := strings.TrimSpace(c.FormValue("config_branch"))
 	policy := c.FormValue("apply_policy")
-	if policy != "auto" && policy != "manual" {
-		policy = ""
-	}
-	env.ApplyPolicy = policy
-	if err := h.store.UpdateEnvironment(ctx, env); err != nil {
-		return err
+	if err := h.envs.Update(ctx, env, service.EnvPatch{
+		ApplyPolicy: &policy, ConfigBranch: &branch,
+	}, stackrmw.WebActor(c)); err != nil {
+		return stackrmw.HTTP(err)
 	}
 	if env.ConfigBranch != "" && p.ConfigManaged() {
 		if _, err := h.planner().RunEnv(ctx, p, env, ""); err != nil && err != stackconf.ErrNoFile {
@@ -875,6 +752,14 @@ func (h *handler) SaveEnvConfig(c echo.Context) error {
 // stackPlanCfg points the shared plan view at this stack's endpoints. The
 // return-to path rides the button URLs rather than a hidden field, so the
 // component needs to know nothing about it.
+// stackPlanWorkCfg is stackPlanCfg plus the apply banner, which the plan page
+// polls and the canvas's own plan links do not.
+func stackPlanWorkCfg(p *repo.Stack, cp *repo.ConfigPlan, work *repo.WorkItem, returnURL, envColor string) components.PlanViewCfg {
+	cfg := stackPlanCfg(p, cp, returnURL, envColor)
+	cfg.Work, cfg.PollURL = work, "/projects/"+p.ID+"/config/plans/"+cp.ID
+	return cfg
+}
+
 func stackPlanCfg(p *repo.Stack, cp *repo.ConfigPlan, returnURL, envColor string) components.PlanViewCfg {
 	cfg := components.PlanViewCfg{
 		Summary:   cp.Summary,
@@ -910,7 +795,7 @@ func (h *handler) SetPlanInput(c echo.Context) error {
 		return err
 	}
 	name := strings.TrimSpace(c.FormValue("name"))
-	if !secretNameRe.MatchString(name) {
+	if !varNameOK(name) {
 		return echo.NewHTTPError(http.StatusBadRequest, "variable name: letters, digits, _ . - only")
 	}
 	// An empty value would count as set: the row leaves the plan and the tiles
@@ -919,15 +804,13 @@ func (h *handler) SetPlanInput(c echo.Context) error {
 	if val == "" {
 		return echo.NewHTTPError(http.StatusBadRequest, "a value is required")
 	}
-	now := time.Now().UTC()
-	if err := h.store.UpsertVariable(ctx, &repo.Variable{
-		OwnerKind: repo.OwnerStack, OwnerID: p.ID, Name: name,
-		Value: val, Secret: true, CreatedAt: now, UpdatedAt: now,
-	}); err != nil {
-		return err
+	// Set, not the service's own replan: this page wants the *new* plan in
+	// hand to redirect to, so it runs one synchronously below instead.
+	if err := h.vars.Set(ctx, service.StackVars(p.ID), []service.VarWrite{{
+		Name: name, Value: val, Secret: true,
+	}}, stackrmw.WebActor(c)); err != nil {
+		return stackrmw.HTTP(err)
 	}
-	audit.Record(ctx, h.store, audit.Actor(c), audit.Set, repo.OwnerStack, p.ID, name)
-	deploy.ClearWaiting(ctx, h.store, name, p.ID)
 	middleware.SetFlash(c, name+" set.", middleware.FlashSuccess)
 	h.fillOrg(ctx, p)
 	plans, perr := h.planner().RunAll(ctx, p, "")
@@ -948,22 +831,18 @@ func (h *handler) PlanView(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	cp, err := h.store.GetConfigPlan(ctx, c.Param("planID"))
-	if err != nil || cp == nil || cp.StackID != p.ID {
+	cp, err := h.plans.Get(ctx, c.Param("planID"))
+	if err != nil || cp.StackID != p.ID {
 		return echo.NewHTTPError(http.StatusNotFound, "plan not found")
 	}
 	var plan stackconf.Plan
 	_ = json.Unmarshal([]byte(cp.Plan), &plan)
 	// The apply runs on the work queue now, so the page has to say where it
-	// got to. Newest item for this stack, and only when it is this plan's:
-	// an older plan's page must not narrate the apply of a newer one.
-	var work *repo.WorkItem
-	if w, werr := h.store.LatestWorkItem(ctx, stackconf.ApplyKind, p.ID); werr == nil && w != nil {
-		var job stackconf.ApplyJob
-		if json.Unmarshal([]byte(w.Payload), &job) == nil && job.PlanID == cp.ID {
-			work = w
-		}
-	}
+	// got to. Keyed on the plan, which is the key the enqueue uses: this asked
+	// for the stack's id, so it never matched a row and the banner never
+	// rendered at all. An older plan's page cannot narrate a newer plan's
+	// apply, because the key is the plan.
+	work, _ := h.plans.Work(ctx, stackconf.ApplyKind, cp.ID)
 	// Move blocks are re-checked against live placement, then named.
 	//
 	// Re-checked because the stored plan is a snapshot: once the operator
@@ -977,11 +856,11 @@ func (h *handler) PlanView(c echo.Context) error {
 	live := plan.Moves[:0]
 	for i := range plan.Moves {
 		m := plan.Moves[i]
-		if t, terr := h.store.GetTile(ctx, m.TileID); terr == nil && t != nil &&
+		if t, terr := h.tiles.Get(ctx, m.TileID); terr == nil &&
 			placement.InGroup(ctx, h.store, h.rt, t, m.ToGroup) {
 			continue // the data is already on a node in the wanted group
 		}
-		if sv, serr := h.store.GetServerByNodeID(ctx, m.FromNode); serr == nil && sv != nil {
+		if sv, serr := h.nodeSvc.ByNodeID(ctx, m.FromNode); serr == nil {
 			m.FromNode = sv.Name
 		}
 		live = append(live, m)
@@ -1029,16 +908,12 @@ func (h *handler) SaveSettings(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	next := settings.Merge(settings.Parse(p.Settings), vals)
-	if err := next.Check(); err != nil {
-		middleware.SetFlash(c, err.Error(), middleware.FlashError)
+	if err := h.settings.SaveStack(ctx, p, vals); err != nil {
+		if !stackrmw.FlashRefusal(c, err) {
+			return err
+		}
 		return respond.Redirect(c, h.settingsSection(ctx, p, "general"))
 	}
-	p.Settings = next.JSON()
-	if err := h.store.UpdateStack(ctx, p); err != nil {
-		return err
-	}
-	h.resyncProxy(ctx)
 	middleware.SetFlash(c, "Stack defaults saved.", middleware.FlashSuccess)
 	return respond.Redirect(c, h.settingsSection(ctx, p, "general"))
 }
@@ -1067,7 +942,7 @@ func (h *handler) GraphStatus(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	tiles, _ := h.store.ListTilesByEnv(ctx, envID)
+	tiles, _ := h.tiles.ListForEnv(ctx, envID)
 	return c.JSON(http.StatusOK, map[string]any{
 		"nodes":   canvas.StatusNodes(ctx, g.Nodes),
 		"traffic": h.envTraffic(tiles),
@@ -1097,14 +972,11 @@ func (h *handler) SaveNodePosition(c echo.Context) error {
 		in.Nodes = append(in.Nodes, in.pos)
 	}
 	ctx := c.Request().Context()
-	env, err := h.store.GetEnvironment(ctx, c.Param("id"))
-	if err != nil || env == nil {
-		return echo.NewHTTPError(http.StatusNotFound, "environment not found")
+	env, err := h.envs.Get(ctx, c.Param("id"))
+	if err != nil {
+		return stackrmw.HTTP(err)
 	}
-	if err := stackrmw.RequireStackAccess(c, h.store, env.StackID); err != nil {
-		return err
-	}
-	tiles, err := h.store.ListTilesByEnv(ctx, env.ID)
+	tiles, err := h.tiles.ListForEnv(ctx, env.ID)
 	if err != nil {
 		return err
 	}
@@ -1116,7 +988,7 @@ func (h *handler) SaveNodePosition(c echo.Context) error {
 	if err := repo.ValidateNodePositions(owner, ps); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
-	if err := h.store.SaveNodePositions(ctx, owner, ps); err != nil {
+	if err := h.graph.SavePositions(ctx, owner, ps); err != nil {
 		return err
 	}
 	h.notifier.Project(env.StackID) // other open canvases re-fetch and move the card
@@ -1126,14 +998,11 @@ func (h *handler) SaveNodePosition(c echo.Context) error {
 // POST /envs/:id/graph/positions/reset, drop all saved positions so the
 // canvas falls back to the auto-layout.
 func (h *handler) ResetNodePositions(c echo.Context) error {
-	env, err := h.store.GetEnvironment(c.Request().Context(), c.Param("id"))
-	if err != nil || env == nil {
-		return echo.NewHTTPError(http.StatusNotFound, "environment not found")
+	env, err := h.envs.Get(c.Request().Context(), c.Param("id"))
+	if err != nil {
+		return stackrmw.HTTP(err)
 	}
-	if err := stackrmw.RequireStackAccess(c, h.store, env.StackID); err != nil {
-		return err
-	}
-	if err := h.store.DeleteNodePositions(c.Request().Context(), repo.GraphOwner(repo.ScopeEnv, env.ID)); err != nil {
+	if err := h.graph.ResetPositions(c.Request().Context(), repo.GraphOwner(repo.ScopeEnv, env.ID)); err != nil {
 		return err
 	}
 	h.notifier.Project(env.StackID)
@@ -1155,14 +1024,11 @@ func (h *handler) EnvLogs(c echo.Context) error {
 // GET /envs/:id/logs/stream
 func (h *handler) EnvLogsStream(c echo.Context) error {
 	ctx := c.Request().Context()
-	env, err := h.store.GetEnvironment(ctx, c.Param("id"))
-	if err != nil || env == nil {
-		return echo.NewHTTPError(http.StatusNotFound, "environment not found")
+	env, err := h.envs.Get(ctx, c.Param("id"))
+	if err != nil {
+		return stackrmw.HTTP(err)
 	}
-	if err := stackrmw.RequireStackAccess(c, h.store, env.StackID); err != nil {
-		return err
-	}
-	tiles, err := h.store.ListTilesByEnv(ctx, env.ID)
+	tiles, err := h.tiles.ListForEnv(ctx, env.ID)
 	if err != nil {
 		return err
 	}
@@ -1301,14 +1167,14 @@ func arrangeStyle(c echo.Context) graph.ArrangeStyle {
 }
 
 func (h *handler) buildGraph(ctx context.Context, envID string, style graph.ArrangeStyle) (graph.Graph, error) {
-	tiles, err := h.store.ListTilesByEnv(ctx, envID)
+	tiles, err := h.tiles.ListForEnv(ctx, envID)
 	if err != nil {
 		return graph.Graph{}, err
 	}
 	apps, dbs := splitTiles(tiles)
 	// Layouts are per-environment: dragging a card in one environment used to
 	// rearrange every sibling environment of the same stack.
-	rows, err := h.store.ListNodePositions(ctx, repo.GraphOwner(repo.ScopeEnv, envID))
+	rows, err := h.graph.Positions(ctx, repo.GraphOwner(repo.ScopeEnv, envID))
 	if err != nil {
 		return graph.Graph{}, err
 	}
@@ -1325,12 +1191,12 @@ func (h *handler) buildGraph(ctx context.Context, envID string, style graph.Arra
 		if tiles[i].IsManaged() {
 			prefix = "db:"
 		}
-		if ms, err := h.store.ListMetrics(ctx, prefix+tiles[i].ID, since); err == nil && len(ms) > 0 {
+		if ms, err := h.telemetry.SamplesSince(ctx, prefix+tiles[i].ID, since); err == nil && len(ms) > 0 {
 			last := ms[len(ms)-1]
 			rates[tiles[i].ID] = [2]float64{last.RxBps, last.TxBps}
 		}
 	}
-	allDomains, err := h.store.ListDomains(ctx)
+	allDomains, err := h.domains.ListAll(ctx)
 	if err != nil {
 		return graph.Graph{}, err
 	}
@@ -1338,7 +1204,7 @@ func (h *handler) buildGraph(ctx context.Context, envID string, style graph.Arra
 	for _, d := range allDomains {
 		domains[d.TileID] = append(domains[d.TileID], d.Host)
 	}
-	resources, err := h.store.ListResourcesByEnv(ctx, envID)
+	resources, err := h.instances.Resources(ctx, envID)
 	if err != nil {
 		return graph.Graph{}, err
 	}
@@ -1349,7 +1215,7 @@ func (h *handler) buildGraph(ctx context.Context, envID string, style graph.Arra
 	markStaged(&g, tiles, h.stagedMarkers(ctx, envID))
 	// A cron mid-run: its footer says so until the row closes. The status
 	// endpoint re-renders footers on every poll, so it flips back on its own.
-	if open, err := h.store.ListOpenCronRuns(ctx); err == nil {
+	if open, err := h.life.OpenRuns(ctx); err == nil {
 		graph.MarkRunning(&g, open)
 	}
 	h.markSliceStats(&g)
@@ -1359,8 +1225,8 @@ func (h *handler) buildGraph(ctx context.Context, envID string, style graph.Arra
 	// (docs/plans/32-multi-node-ui.md, canvas).
 	h.markPlacement(ctx, &g, tiles)
 	h.addForwards(ctx, &g, tiles)
-	g.Annotations, _ = h.store.ListAnnotations(ctx, repo.GraphOwner(repo.ScopeEnv, envID))
-	g.Groups, _ = h.store.ListGraphGroups(ctx, repo.GraphOwner(repo.ScopeEnv, envID))
+	g.Annotations, _ = h.graph.Annotations(ctx, repo.GraphOwner(repo.ScopeEnv, envID))
+	g.Groups, _ = h.graph.Groups(ctx, repo.GraphOwner(repo.ScopeEnv, envID))
 	return g, nil
 }
 
@@ -1486,7 +1352,7 @@ func (h *handler) markSliceStats(g *graph.Graph) {
 // teardown, "pending" for any other staged edit). Creates have no committed
 // tile/node, so they don't appear here (shown in the pending box + review).
 func (h *handler) stagedMarkers(ctx context.Context, envID string) map[string]string {
-	changes, err := h.store.ListStagedByEnv(ctx, envID)
+	changes, err := h.tiles.Staged(ctx, envID)
 	if err != nil {
 		return nil
 	}
@@ -1565,13 +1431,13 @@ func (h *handler) sharedRefs(ctx context.Context, envID string, tiles []repo.Til
 	// consumer -> slice -> instance says it, so a second consumer -> instance
 	// edge would draw the same dependency twice.
 	viaSlice := map[string]bool{} // "<consumer tile>|<instance tile>"
-	if resources, err := h.store.ListResourcesByEnv(ctx, envID); err == nil {
+	if resources, err := h.instances.Resources(ctx, envID); err == nil {
 		provider := make(map[string]string, len(resources))
 		for _, r := range resources {
 			provider[r.ID] = r.ProviderTileID
 		}
 		for i := range tiles {
-			binds, err := h.store.BindingsForConsumer(ctx, tiles[i].ID)
+			binds, err := h.instances.Bindings(ctx, tiles[i].ID)
 			if err != nil {
 				continue
 			}
@@ -1587,12 +1453,12 @@ func (h *handler) sharedRefs(ctx context.Context, envID string, tiles []repo.Til
 		if t.IsManaged() || t.IsVolume() {
 			continue
 		}
-		ps, err := h.store.ListProvisionsByConsumer(ctx, t.ID)
+		ps, err := h.slices.ForConsumer(ctx, t.ID)
 		if err != nil {
 			continue
 		}
 		for _, p := range ps {
-			inst, _ := h.store.GetTile(ctx, p.InstanceTileID)
+			inst, _ := h.tiles.Get(ctx, p.InstanceTileID)
 			if inst == nil || inst.EnvironmentID == envID {
 				continue // missing, or already a real node on this canvas
 			}
@@ -1606,7 +1472,7 @@ func (h *handler) sharedRefs(ctx context.Context, envID string, tiles []repo.Til
 					Href:         "/dbs/" + inst.ID,
 					ExternalPort: inst.ExternalPort,
 				}
-				if doms, err := h.store.ListDomainsByTile(ctx, inst.ID); err == nil {
+				if doms, err := h.domains.ForTile(ctx, inst.ID); err == nil {
 					for _, d := range doms {
 						ref.Domains = append(ref.Domains, d.Host)
 					}
@@ -1662,66 +1528,30 @@ func (h *handler) CreateDB(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	name, engine := c.FormValue("name"), c.FormValue("engine")
-	if name == "" || engine == "" {
-		return echo.NewHTTPError(http.StatusBadRequest, "name and engine required")
-	}
-	slug := repo.Slugify(name)
-	if slug == "" {
-		return echo.NewHTTPError(http.StatusBadRequest, "name needs at least one letter or number")
-	}
 	env, err := h.envFromForm(c, p.ID)
 	if err != nil {
 		return err
 	}
-	if repo.ReservedSlug(slug) {
-		return echo.NewHTTPError(http.StatusBadRequest, "\""+slug+"\" is reserved for variable references; pick another name")
-	}
-	if existing, _ := h.store.GetTileBySlug(ctx, env.ID, slug); existing != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, "a tile named \""+existing.Name+"\" ("+slug+") already exists in this environment")
-	}
-	now := time.Now().UTC()
-	d := &repo.Tile{
-		ID:            uuid.New().String(),
-		StackID:       p.ID,
-		EnvironmentID: env.ID,
-		Slug:          slug,
-		Name:          name,
-		Engine:        engine,
-		SourceType:    "image",
-		Kind:          "service",
-		WebhookToken:  secrets.RandomHex(24),
-		Status:        "idle",
-		CreatedAt:     now,
-		UpdatedAt:     now,
-	}
+	engine := c.FormValue("engine")
+	d := &repo.Tile{StackID: p.ID, EnvironmentID: env.ID, Name: c.FormValue("name"), Engine: engine}
 	// Scope choice mirrors the file's structure: shared: = stack, in-env =
 	// env. Org stays CLI/API-only.
+	scope := "env"
 	if c.FormValue("scope") == "stack" {
-		d.ScopeKind, d.ScopeID = "stack", p.ID
+		scope = "stack"
 	}
-	if err := managedtiles.NewDB(d); err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+	staged, err := h.instances.Create(ctx, d, scope, stackconf.TileConf{
+		Type: "managed", Engine: engine, Scope: scope,
+	}, stackrmw.WebActor(c))
+	if err != nil {
+		return stackrmw.HTTP(err)
 	}
-	// UI-managed: stage the db creation (credentials + url secret are generated
-	// at apply time by the reconcile engine, same as config-managed creates).
-	if !p.ConfigManaged() {
-		if err := h.stageChange(c, d, "create", staging.OpCreate, stackconf.TileConf{Type: "managed", Engine: engine, Scope: d.ScopeKind}); err != nil {
-			return err
-		}
+	h.fillOrg(ctx, p)
+	if staged {
 		middleware.SetFlash(c, "Database creation staged. Review & apply on the canvas to deploy.", middleware.FlashSuccess)
-		h.fillOrg(ctx, p)
 		return respond.Redirect(c, envURL(p, env))
 	}
-	if p.ConfigManaged() {
-		return managedErr(p)
-	}
-	if err := h.store.CreateTile(ctx, d); err != nil {
-		return err
-	}
-	managedtiles.PublishConnection(ctx, h.store, d)
 	if c.FormValue("from") == "canvas" {
-		h.fillOrg(ctx, p)
 		return respond.Redirect(c, envURL(p, env))
 	}
 	return respond.Redirect(c, "/dbs/"+d.ID)
@@ -1742,19 +1572,13 @@ func atoiOr(s string, def int) int {
 // settings section starts here.
 func (h *handler) settingsStack(c echo.Context) (*repo.Stack, error) {
 	ctx := c.Request().Context()
-	org, err := h.store.GetOrgBySlug(ctx, c.Param("org"))
-	if err != nil || org == nil {
-		return nil, echo.NewHTTPError(http.StatusNotFound, "org not found")
-	}
-	p, err := h.store.GetStackBySlug(ctx, org.ID, c.Param("stack"))
+	org, err := h.orgs.BySlug(ctx, c.Param("org"))
 	if err != nil {
-		return nil, err
+		return nil, stackrmw.HTTP(err)
 	}
-	if p == nil {
-		return nil, echo.NewHTTPError(http.StatusNotFound, "stack not found")
-	}
-	if err := stackrmw.RequireOrgAccess(c, p.OrgID); err != nil {
-		return nil, err
+	p, err := h.stacks.BySlug(ctx, org.ID, c.Param("stack"))
+	if err != nil {
+		return nil, stackrmw.HTTP(err)
 	}
 	p.OrgSlug = org.Slug
 	return p, nil
@@ -1816,7 +1640,7 @@ func (h *handler) SettingsConfig(c echo.Context) error {
 
 // githubConnectors lists the org's connectors that finished their setup.
 func (h *handler) githubConnectors(ctx context.Context, orgID string) ([]repo.Connector, error) {
-	conns, err := h.store.ListConnectorsByOrg(ctx, orgID)
+	conns, err := h.connectors.ForOrg(ctx, orgID)
 	if err != nil {
 		return nil, err
 	}
@@ -1856,7 +1680,7 @@ func (h *handler) StackVarsPanel(c echo.Context) error {
 // re-renders exactly the surface it was made on.
 func (h *handler) renderStackVars(c echo.Context, p *repo.Stack) error {
 	ctx := c.Request().Context()
-	vars, err := h.store.ListVariables(ctx, repo.OwnerStack, p.ID)
+	vars, err := h.vars.List(ctx, service.StackVars(p.ID))
 	if err != nil {
 		return err
 	}
@@ -1865,7 +1689,7 @@ func (h *handler) renderStackVars(c echo.Context, p *repo.Stack) error {
 		blankSecrets(vars)
 	}
 	class, editName, editValue := panelParams(c, vars)
-	audit.PanelViews(c, h.store, vars, repo.OwnerStack, p.ID)
+	stackrmw.AuditPanelViews(c, h.store, vars, repo.OwnerStack, p.ID)
 	surface := varsSurface(c)
 	cfg := components.VarsEditCfg{
 		PostURL:    "/projects/" + p.ID + "/vars",
@@ -1884,11 +1708,11 @@ func (h *handler) renderStackVars(c echo.Context, p *repo.Stack) error {
 		cfg.PanelURL = stackURL(p) + "/settings/variables/panel"
 		return respond.HTML(c, http.StatusOK, stackVarsPanel(c, p, filterVarsClass(vars, class), cfg))
 	}
-	cp, err := h.store.LatestSettledConfigPlan(ctx, p.ID)
+	cp, err := h.plans.LatestSettled(ctx, p.ID)
 	if err != nil {
 		return err
 	}
-	orgVars, err := h.store.ListVariables(ctx, repo.OwnerOrg, p.OrgID)
+	orgVars, err := h.vars.List(ctx, service.OrgVars(p.OrgID))
 	if err != nil {
 		return err
 	}
@@ -1900,11 +1724,11 @@ func (h *handler) renderStackVars(c echo.Context, p *repo.Stack) error {
 	if surface == surfaceEditor {
 		return respond.HTML(c, http.StatusOK, components.VarsEditor(c, vars, cfg))
 	}
-	links, err := h.store.ListSecretLinks(ctx, repo.OwnerStack, p.ID)
+	links, err := h.revoke.Links(ctx, repo.OwnerStack, p.ID)
 	if err != nil {
 		return err
 	}
-	events, err := h.store.ListAuditEvents(ctx, repo.OwnerStack, p.ID, auditPageSize)
+	events, err := h.audit.For(ctx, repo.OwnerStack, p.ID, auditPageSize)
 	if err != nil {
 		return err
 	}
@@ -1920,18 +1744,11 @@ func (h *handler) StackVarValue(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	// Handing out plaintext needs the write rights that gate the unmasked
-	// view, read-only members see masked rows and must not be able to fetch
-	// around them. Checked explicitly: RequireOrgWrite only refuses mutating
-	// requests, and this is a GET.
-	if !stackrmw.CanWriteOrg(c, h.store, p.OrgID) {
-		return echo.NewHTTPError(http.StatusForbidden, "read-only")
-	}
-	vars, err := h.store.ListVariables(ctx, repo.OwnerStack, p.ID)
+	vars, err := h.vars.List(ctx, service.StackVars(p.ID))
 	if err != nil {
 		return err
 	}
-	return audit.ServeValue(c, h.store, vars, repo.OwnerStack, p.ID, audit.Copy)
+	return stackrmw.AuditServeValue(c, h.store, vars, repo.OwnerStack, p.ID, audit.Copy)
 }
 
 // auditPageSize bounds the secret-activity list on a settings page.
@@ -1971,13 +1788,13 @@ func blankSecrets(vars []repo.Variable) {
 // keyed by environment id. An environment with none still gets an entry: it is
 // exactly the one that leaves a stack-declared secret unset.
 func (h *handler) envVariables(ctx context.Context, stackID string) (map[string][]repo.Variable, error) {
-	envs, err := h.store.ListEnvironmentsByStack(ctx, stackID)
+	envs, err := h.envs.ListForStack(ctx, stackID)
 	if err != nil {
 		return nil, err
 	}
 	out := make(map[string][]repo.Variable, len(envs))
 	for _, e := range envs {
-		vars, err := h.store.ListVariables(ctx, repo.OwnerEnv, e.ID)
+		vars, err := h.vars.List(ctx, service.EnvVars(e.ID))
 		if err != nil {
 			return nil, err
 		}
@@ -2092,17 +1909,17 @@ func (h *handler) SettingsEnvironments(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	envs, err := h.store.ListEnvironmentsByStack(ctx, p.ID)
+	envs, err := h.envs.ListForStack(ctx, p.ID)
 	if err != nil {
 		return err
 	}
 	counts := map[string]int{}
 	for _, e := range envs {
-		if tiles, err := h.store.ListTilesByEnv(ctx, e.ID); err == nil {
+		if tiles, err := h.tiles.ListForEnv(ctx, e.ID); err == nil {
 			counts[e.ID] = len(tiles)
 		}
 	}
-	org, _ := h.store.GetOrg(ctx, p.OrgID)
+	org, _ := h.orgs.Get(ctx, p.OrgID)
 	return respond.HTML(c, http.StatusOK, stackEnvironmentsPage(c, p, envs, counts, envcolor.Map(envs, org, p.ConfigManaged())))
 }
 
@@ -2111,27 +1928,23 @@ func (h *handler) SettingsEnvironments(c echo.Context) error {
 // POST /envs/:id/color
 func (h *handler) SaveEnvColor(c echo.Context) error {
 	ctx := c.Request().Context()
-	env, err := h.store.GetEnvironment(ctx, c.Param("id"))
+	env, err := h.envs.Get(ctx, c.Param("id"))
 	if err != nil {
-		return err
-	}
-	if env == nil {
-		return echo.NewHTTPError(http.StatusNotFound, "environment not found")
+		return stackrmw.HTTP(err)
 	}
 	p, err := h.loadStack(c, env.StackID)
 	if err != nil {
 		return err
 	}
-	if p.ConfigManaged() {
-		return managedErr(p)
-	}
+	// No managed refusal any more: a colour is not declared in a stack file,
+	// so it was never the file's to own. It used to be refused here and
+	// accepted over the API, and the next apply overwrote whichever won.
 	v, ok := components.EnvColorFromForm(c.FormValue("color"), c.FormValue("custom"))
 	if !ok {
 		return echo.NewHTTPError(http.StatusBadRequest, "pick a palette colour or a #rrggbb value")
 	}
-	env.Color = v
-	if err := h.store.UpdateEnvironment(ctx, env); err != nil {
-		return err
+	if err := h.envs.Update(ctx, env, service.EnvPatch{Color: &v}, stackrmw.WebActor(c)); err != nil {
+		return stackrmw.HTTP(err)
 	}
 	middleware.SetFlash(c, "Colour saved.", middleware.FlashSuccess)
 	return respond.Redirect(c, h.settingsSection(ctx, p, "environments"))
@@ -2146,7 +1959,7 @@ func (h *handler) SettingsEnvironment(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	envs, err := h.store.ListEnvironmentsByStack(ctx, p.ID)
+	envs, err := h.envs.ListForStack(ctx, p.ID)
 	if err != nil {
 		return err
 	}
@@ -2176,18 +1989,15 @@ func (h *handler) EnvVarsPanel(c echo.Context) error {
 // EnvVarValue is the env drawer's Copy endpoint, plaintext plus audit row.
 // GET /:org/:stack/settings/environments/:env/variables/value?name=X
 func (h *handler) EnvVarValue(c echo.Context) error {
-	p, env, err := h.settingsEnv(c)
+	_, env, err := h.settingsEnv(c)
 	if err != nil {
 		return err
 	}
-	if !stackrmw.CanWriteOrg(c, h.store, p.OrgID) {
-		return echo.NewHTTPError(http.StatusForbidden, "read-only")
-	}
-	vars, err := h.store.ListVariables(c.Request().Context(), repo.OwnerEnv, env.ID)
+	vars, err := h.vars.List(c.Request().Context(), service.EnvVars(env.ID))
 	if err != nil {
 		return err
 	}
-	return audit.ServeValue(c, h.store, vars, repo.OwnerEnv, env.ID, audit.Copy)
+	return stackrmw.AuditServeValue(c, h.store, vars, repo.OwnerEnv, env.ID, audit.Copy)
 }
 
 // settingsEnv resolves /:org/:stack/settings/environments/:env to its rows.
@@ -2196,12 +2006,9 @@ func (h *handler) settingsEnv(c echo.Context) (*repo.Stack, *repo.Environment, e
 	if err != nil {
 		return nil, nil, err
 	}
-	env, err := h.store.GetEnvironmentBySlug(c.Request().Context(), p.ID, c.Param("env"))
+	env, err := h.envs.BySlug(c.Request().Context(), p.ID, c.Param("env"))
 	if err != nil {
-		return nil, nil, err
-	}
-	if env == nil {
-		return nil, nil, echo.NewHTTPError(http.StatusNotFound, "environment not found")
+		return nil, nil, stackrmw.HTTP(err)
 	}
 	return p, env, nil
 }
@@ -2210,7 +2017,7 @@ func (h *handler) settingsEnv(c echo.Context) (*repo.Stack, *repo.Environment, e
 // same way renderStackVars does for the stack.
 func (h *handler) renderEnvVars(c echo.Context, p *repo.Stack, env *repo.Environment, only bool) error {
 	ctx := c.Request().Context()
-	vars, err := h.store.ListVariables(ctx, repo.OwnerEnv, env.ID)
+	vars, err := h.vars.List(ctx, service.EnvVars(env.ID))
 	if err != nil {
 		return err
 	}
@@ -2219,7 +2026,7 @@ func (h *handler) renderEnvVars(c echo.Context, p *repo.Stack, env *repo.Environ
 		blankSecrets(vars)
 	}
 	class, editName, editValue := panelParams(c, vars)
-	audit.PanelViews(c, h.store, vars, repo.OwnerEnv, env.ID)
+	stackrmw.AuditPanelViews(c, h.store, vars, repo.OwnerEnv, env.ID)
 	base := h.envSettingsURL(ctx, p, env.Slug)
 	cfg := components.VarsEditCfg{
 		PostURL:  "/envs/" + env.ID + "/vars",
@@ -2242,12 +2049,12 @@ func (h *handler) renderEnvVars(c echo.Context, p *repo.Stack, env *repo.Environ
 	case surfaceEditor:
 		return respond.HTML(c, http.StatusOK, components.VarsEditor(c, vars, cfg))
 	}
-	tiles, _ := h.store.ListTilesByEnv(ctx, env.ID)
-	envs, err := h.store.ListEnvironmentsByStack(ctx, p.ID)
+	tiles, _ := h.tiles.ListForEnv(ctx, env.ID)
+	envs, err := h.envs.ListForStack(ctx, p.ID)
 	if err != nil {
 		return err
 	}
-	events, err := h.store.ListAuditEvents(ctx, repo.OwnerEnv, env.ID, auditPageSize)
+	events, err := h.audit.For(ctx, repo.OwnerEnv, env.ID, auditPageSize)
 	if err != nil {
 		return err
 	}
@@ -2267,7 +2074,7 @@ func (h *handler) SettingsPREnv(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	envs, err := h.store.ListEnvironmentsByStack(ctx, p.ID)
+	envs, err := h.envs.ListForStack(ctx, p.ID)
 	if err != nil {
 		return err
 	}
@@ -2275,7 +2082,7 @@ func (h *handler) SettingsPREnv(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	return respond.HTML(c, http.StatusOK, stackPREnvPage(c, p, envs, envops.LoadPRConfig(ctx, h.store, p.ID), ghConns))
+	return respond.HTML(c, http.StatusOK, stackPREnvPage(c, p, envs, repo.LoadPRConfig(ctx, h.store, p.ID), ghConns))
 }
 
 // SaveStackVar upserts one stack-scoped variable. Stack values are shared by
@@ -2289,18 +2096,11 @@ func (h *handler) SaveStackVar(c echo.Context) error {
 		return err
 	}
 	name := strings.TrimSpace(c.FormValue("name"))
-	if !secretNameRe.MatchString(name) {
-		return echo.NewHTTPError(http.StatusBadRequest, "variable name: letters, digits, _ . - only")
-	}
-	now := time.Now().UTC()
-	if err := h.store.UpsertVariable(ctx, &repo.Variable{OwnerKind: repo.OwnerStack, OwnerID: p.ID,
+	if err := h.vars.Set(ctx, service.StackVars(p.ID), []service.VarWrite{{
 		Name: name, Value: components.VarValue(c), Secret: c.FormValue("secret") != "",
-		CreatedAt: now, UpdatedAt: now}); err != nil {
-		return err
+	}}, stackrmw.WebActor(c)); err != nil {
+		return stackrmw.HTTP(err)
 	}
-	audit.Record(ctx, h.store, audit.Actor(c), audit.Set, repo.OwnerStack, p.ID, name)
-	deploy.ClearWaiting(ctx, h.store, name, p.ID)
-	h.replanAsync(p)
 	if inEditor(c) {
 		return h.renderStackVars(c, p)
 	}
@@ -2316,17 +2116,22 @@ func (h *handler) DeleteStackVar(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	if err := h.store.DeleteVariable(ctx, repo.OwnerStack, p.ID, c.FormValue("name")); err != nil {
-		return err
+	if err := h.vars.Unset(ctx, service.StackVars(p.ID),
+		[]string{c.FormValue("name")}, stackrmw.WebActor(c)); err != nil {
+		return stackrmw.HTTP(err)
 	}
-	audit.Record(ctx, h.store, audit.Actor(c), audit.Delete, repo.OwnerStack, p.ID, c.FormValue("name"))
-	h.replanAsync(p)
 	if inEditor(c) {
 		return h.renderStackVars(c, p)
 	}
 	middleware.SetFlash(c, "Variable deleted.", middleware.FlashSuccess)
 	return respond.Redirect(c, h.settingsSection(ctx, p, "variables"))
 }
+
+// varNameOK is the panel's spelling of the one variable-name rule, which now
+// lives in the variable service. Kept as a local check only where the form
+// refuses before it has anything to hand the service (a plan input names the
+// declared secret it fills in).
+func varNameOK(name string) bool { return secretNameRe.MatchString(name) }
 
 var secretNameRe = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_.-]*$`)
 
@@ -2344,9 +2149,6 @@ func (h *handler) MintStackLink(c echo.Context) error {
 	// Minting is a write-level act even for a share link, arguably especially
 	// then, since the variables page blanks secret values and a share link
 	// hands them over in the clear. Read access to the stack is not enough.
-	if err := stackrmw.RequireOrgWrite(c, h.store, p.OrgID); err != nil {
-		return err
-	}
 
 	kind := repo.LinkDrop
 	if c.FormValue("kind") == repo.LinkShare {
@@ -2365,7 +2167,7 @@ func (h *handler) MintStackLink(c echo.Context) error {
 			if name == "" {
 				continue
 			}
-			if !secretNameRe.MatchString(name) {
+			if !varNameOK(name) {
 				return echo.NewHTTPError(http.StatusBadRequest, name+": letters, digits, _ . - only")
 			}
 			fields = append(fields, repo.SecretLinkField{
@@ -2399,7 +2201,7 @@ func (h *handler) MintStackLink(c echo.Context) error {
 		ExpiresAt:     time.Now().Add(time.Duration(hours) * time.Hour),
 		CreatedBy:     middleware.GetSubjectID(c),
 	}
-	token, err := sharelink.Mint(ctx, h.store, l, c.FormValue("passphrase"))
+	token, err := sharelink.Mint(ctx, h.store, h.revoke, l, c.FormValue("passphrase"))
 	if err != nil {
 		return err
 	}
@@ -2418,18 +2220,15 @@ func (h *handler) RevokeStackLink(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	if err := stackrmw.RequireOrgWrite(c, h.store, p.OrgID); err != nil {
-		return err
-	}
 	// Scope check: a link id from another stack must not be revocable here.
-	links, err := h.store.ListSecretLinks(ctx, repo.OwnerStack, p.ID)
+	links, err := h.revoke.Links(ctx, repo.OwnerStack, p.ID)
 	if err != nil {
 		return err
 	}
 	id := c.FormValue("id")
 	for _, l := range links {
 		if l.ID == id {
-			if err := sharelink.Revoke(ctx, h.store, id); err != nil {
+			if err := sharelink.Revoke(ctx, h.revoke, id); err != nil {
 				return err
 			}
 			middleware.SetFlash(c, "Link revoked.", middleware.FlashSuccess)
@@ -2445,48 +2244,34 @@ func (h *handler) SettingsDomains(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	all, err := h.store.ListDomainResources(c.Request().Context())
+	all, err := h.resources.ListAll(c.Request().Context())
 	if err != nil {
 		return err
 	}
 	// Everything the stack can claim under, not just its own rows: a stack
 	// with no domains of its own still generates hostnames under its org's.
-	res := envops.VisibleDomainResources(all, p.ID, p.OrgID)
+	res := service.VisibleDomainResources(all, p.ID, p.OrgID)
 	return respond.HTML(c, http.StatusOK, stackDomainsPage(c, p, res))
 }
 
 // SaveStackDomain adds a stack-level domain resource.
 // POST /projects/:id/domain-resources
+//
+// A domain resource is not a tile, so there is no staged patch that can carry
+// it: on a config-managed stack it is refused in both ui_edits modes, which
+// the service answers from the stack row.
 func (h *handler) SaveStackDomain(c echo.Context) error {
 	ctx := c.Request().Context()
 	p, err := h.loadStack(c, c.Param("id"))
 	if err != nil {
 		return err
 	}
-	// The file models domains: now, so a managed stack's resources are its
-	// file's. Blocked in both ui_edits modes: a domain resource is not a tile,
-	// so there is no staged patch that can carry it.
-	if p.ConfigManaged() {
-		return managedErr(p)
-	}
-	host := strings.TrimSpace(c.FormValue("host"))
-	if err := envops.ValidateResourceHost(host); err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
-	}
-	all, err := h.store.ListDomainResources(ctx)
-	if err != nil {
-		return err
-	}
-	if envops.HostTaken(all, host) {
-		return echo.NewHTTPError(http.StatusConflict, "that host is already a domain resource")
-	}
-	r := &repo.DomainResource{
-		ID: uuid.New().String(), Level: "stack", OwnerID: p.ID, Host: host,
+	host := c.FormValue("host")
+	if _, err := h.resources.Create(ctx, "stack", p.ID, host, service.ResourceOpts{
 		IncludeEnvOnDefault: c.FormValue("include_env_on_default") != "",
-		CreatedAt:           time.Now().UTC(),
-	}
-	if err := h.store.CreateDomainResource(ctx, r); err != nil {
-		return err
+		ACMEEmail:           c.FormValue("acme_email"),
+	}); err != nil {
+		return stackrmw.HTTP(err)
 	}
 	middleware.SetFlash(c, "Domain "+host+" added. This stack's tiles can now claim auto hostnames under it.", middleware.FlashSuccess)
 	return respond.Redirect(c, h.settingsSection(ctx, p, "domains"))
@@ -2500,53 +2285,29 @@ func (h *handler) DeleteStackDomain(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	if p.ConfigManaged() {
-		return managedErr(p)
-	}
-	all, err := h.store.ListDomainResources(ctx)
+	r, err := h.resources.Get(ctx, c.FormValue("id"))
 	if err != nil {
-		return err
+		return stackrmw.HTTP(err)
 	}
-	for _, r := range all {
-		if r.ID == c.FormValue("id") && r.Level == "stack" && r.OwnerID == p.ID {
-			if err := h.store.DeleteDomainResource(ctx, r.ID); err != nil {
-				return err
-			}
-			middleware.SetFlash(c, "Domain resource removed. Existing generated hostnames keep working until their tile redeploys.", middleware.FlashSuccess)
-			break
-		}
+	// This page owns this stack's own rows and nothing else; the id comes
+	// from a form field.
+	if r.Level != "stack" || r.OwnerID != p.ID {
+		return echo.NewHTTPError(http.StatusNotFound, "not found")
 	}
+	if err := h.resources.Delete(ctx, r.ID); err != nil {
+		return stackrmw.HTTP(err)
+	}
+	middleware.SetFlash(c, "Domain resource removed. Existing generated hostnames keep working until their tile redeploys.", middleware.FlashSuccess)
 	return respond.Redirect(c, h.settingsSection(ctx, p, "domains"))
-}
-
-// replanAsync refreshes a config-managed stack's plans in the background,
-// secret changes alter plan validity (missing-value errors) and the canvas
-// banner should heal without a manual "Plan now".
-func (h *handler) replanAsync(p *repo.Stack) {
-	if !p.ConfigManaged() {
-		return
-	}
-	stack := *p
-	go func() {
-		ctx := context.Background()
-		_, _ = h.planner().RunAll(ctx, &stack, "")
-		// The banner is server-rendered at page load; without this the new
-		// plan sits in the database while every open canvas keeps showing the
-		// old one (or none).
-		h.notifier.Project(stack.ID)
-	}()
 }
 
 // SaveEnvSettings stores one environment's cascade overrides.
 // POST /envs/:id/settings
 func (h *handler) SaveEnvSettings(c echo.Context) error {
 	ctx := c.Request().Context()
-	env, err := h.store.GetEnvironment(ctx, c.Param("id"))
+	env, err := h.envs.Get(ctx, c.Param("id"))
 	if err != nil {
-		return err
-	}
-	if env == nil {
-		return echo.NewHTTPError(http.StatusNotFound, "environment not found")
+		return stackrmw.HTTP(err)
 	}
 	p, err := h.loadStack(c, env.StackID)
 	if err != nil {
@@ -2556,16 +2317,12 @@ func (h *handler) SaveEnvSettings(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	next := settings.Merge(settings.Parse(env.Settings), vals)
-	if err := next.Check(); err != nil {
-		middleware.SetFlash(c, err.Error(), middleware.FlashError)
+	if err := h.settings.SaveEnv(ctx, env, vals); err != nil {
+		if !stackrmw.FlashRefusal(c, err) {
+			return err
+		}
 		return respond.Redirect(c, h.envSettingsURL(ctx, p, env.Slug))
 	}
-	env.Settings = next.JSON()
-	if err := h.store.UpdateEnvironment(ctx, env); err != nil {
-		return err
-	}
-	h.resyncProxy(ctx)
 	middleware.SetFlash(c, "Environment overrides saved.", middleware.FlashSuccess)
 	return respond.Redirect(c, h.envSettingsURL(ctx, p, env.Slug))
 }
@@ -2577,30 +2334,20 @@ func (h *handler) SaveEnvSettings(c echo.Context) error {
 // POST /envs/:id/vars
 func (h *handler) SaveEnvVar(c echo.Context) error {
 	ctx := c.Request().Context()
-	env, err := h.store.GetEnvironment(ctx, c.Param("id"))
+	env, err := h.envs.Get(ctx, c.Param("id"))
 	if err != nil {
-		return err
-	}
-	if env == nil {
-		return echo.NewHTTPError(http.StatusNotFound, "environment not found")
+		return stackrmw.HTTP(err)
 	}
 	p, err := h.loadStack(c, env.StackID)
 	if err != nil {
 		return err
 	}
 	name := strings.TrimSpace(c.FormValue("name"))
-	if !secretNameRe.MatchString(name) {
-		return echo.NewHTTPError(http.StatusBadRequest, "variable name: letters, digits, _ . - only")
-	}
-	now := time.Now().UTC()
-	if err := h.store.UpsertVariable(ctx, &repo.Variable{OwnerKind: repo.OwnerEnv, OwnerID: env.ID,
+	if err := h.vars.Set(ctx, service.EnvVars(env.ID), []service.VarWrite{{
 		Name: name, Value: components.VarValue(c), Secret: c.FormValue("secret") != "",
-		CreatedAt: now, UpdatedAt: now}); err != nil {
-		return err
+	}}, stackrmw.WebActor(c)); err != nil {
+		return stackrmw.HTTP(err)
 	}
-	audit.Record(ctx, h.store, audit.Actor(c), audit.Set, repo.OwnerEnv, env.ID, name)
-	deploy.ClearWaitingEnv(ctx, h.store, env.ID, name)
-	h.replanAsync(p)
 	if inEditor(c) {
 		return h.renderEnvVars(c, p, env, false)
 	}
@@ -2612,22 +2359,18 @@ func (h *handler) SaveEnvVar(c echo.Context) error {
 // POST /envs/:id/vars/delete
 func (h *handler) DeleteEnvVar(c echo.Context) error {
 	ctx := c.Request().Context()
-	env, err := h.store.GetEnvironment(ctx, c.Param("id"))
+	env, err := h.envs.Get(ctx, c.Param("id"))
 	if err != nil {
-		return err
-	}
-	if env == nil {
-		return echo.NewHTTPError(http.StatusNotFound, "environment not found")
+		return stackrmw.HTTP(err)
 	}
 	p, err := h.loadStack(c, env.StackID)
 	if err != nil {
 		return err
 	}
-	if err := h.store.DeleteVariable(ctx, repo.OwnerEnv, env.ID, c.FormValue("name")); err != nil {
-		return err
+	if err := h.vars.Unset(ctx, service.EnvVars(env.ID),
+		[]string{c.FormValue("name")}, stackrmw.WebActor(c)); err != nil {
+		return stackrmw.HTTP(err)
 	}
-	audit.Record(ctx, h.store, audit.Actor(c), audit.Delete, repo.OwnerEnv, env.ID, c.FormValue("name"))
-	h.replanAsync(p)
 	if inEditor(c) {
 		return h.renderEnvVars(c, p, env, false)
 	}
@@ -2638,7 +2381,16 @@ func (h *handler) DeleteEnvVar(c echo.Context) error {
 // ops bundles env lifecycle deps for the shared envops package.
 func (h *handler) ops() envops.Ops {
 	// DBs is what lets Teardown reclaim an ephemeral env's provisioned slices.
-	return envops.Ops{Store: h.store, RT: h.rt, Cluster: h.clus, PX: h.px, DBs: managedtiles.NewService(h.clus, h.store)}
+	//
+	// Envs and Vars are not optional: every row this writes goes through one
+	// of them, so a missing one is a nil pointer at the first write rather
+	// than a compile error. They were absent when the writes still went
+	// straight to the store.
+	rows := service.Rows{Envs: h.envs, Tiles: h.tiles}
+	return envops.Ops{Store: h.store, RT: h.rt, Cluster: h.clus, PX: h.px,
+		DBs:   managedtiles.NewService(h.clus, h.store, rows),
+		Tiles: h.tiles, Sched: h.sched, Domains: h.domains, Resources: h.resources,
+		Envs: h.envs, Vars: h.vars}
 }
 
 // SavePREnv stores the stack's PR-environment webhook config.
@@ -2649,15 +2401,17 @@ func (h *handler) SavePREnv(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	cfg := envops.LoadPRConfig(ctx, h.store, p.ID)
-	cfg.Enabled = c.FormValue("enabled") != ""
-	cfg.NoComment = c.FormValue("comment") == ""
-	cfg.NoStatus = c.FormValue("status") == ""
-	if cfg.Secret == "" {
-		cfg.Secret = secrets.RandomHex(24)
-	}
-	if err := envops.SavePRConfig(ctx, h.store, p.ID, cfg); err != nil {
-		return err
+	// comment: and status: are keys the config file writes — the PR-open hook
+	// copies its choice onto the stored config, because that is what the
+	// deploy feedback reads — so editing them goes through the gate. Neither
+	// surface had it, and the edit silently reverted at the next pull request.
+	enabled := c.FormValue("enabled") != ""
+	comment := c.FormValue("comment") != ""
+	status := c.FormValue("status") != ""
+	if _, err := h.prenvs.Update(ctx, p, service.PREnvPatch{
+		Enabled: &enabled, Comment: &comment, Status: &status,
+	}, stackrmw.WebActor(c)); err != nil {
+		return stackrmw.HTTP(err)
 	}
 	middleware.SetFlash(c, "PR environment settings saved.", middleware.FlashSuccess)
 	return respond.Redirect(c, h.settingsSection(ctx, p, "pr"))
@@ -2672,11 +2426,42 @@ func (h *handler) RotatePRSecret(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	cfg := envops.LoadPRConfig(ctx, h.store, p.ID)
-	cfg.Secret = secrets.RandomHex(24)
-	if err := envops.SavePRConfig(ctx, h.store, p.ID, cfg); err != nil {
-		return err
+	if _, err := h.prenvs.Update(ctx, p, service.PREnvPatch{RotateSecret: true}, stackrmw.WebActor(c)); err != nil {
+		return stackrmw.HTTP(err)
 	}
 	middleware.SetFlash(c, "Webhook secret regenerated. Update it in GitHub.", middleware.FlashSuccess)
 	return respond.Redirect(c, h.settingsSection(ctx, p, "pr"))
 }
+
+// WithDomainResources gives the page the domain-resource service.
+func (h *handler) WithDomainResources(r *service.DomainResourceService) *handler {
+	h.resources = r
+	return h
+}
+
+// WithOrgs gives the page the organization service.
+func (h *handler) WithOrgs(v *service.OrgService) *handler { h.orgs = v; return h }
+
+// WithSlices gives the page the provision service.
+func (h *handler) WithSlices(v *service.SliceService) *handler { h.slices = v; return h }
+
+// WithNodeService gives the page the node service.
+func (h *handler) WithNodeService(v *service.NodeService) *handler { h.nodeSvc = v; return h }
+
+// WithAudit gives the page the audit trail.
+func (h *handler) WithAudit(v *service.AuditService) *handler { h.audit = v; return h }
+
+// WithRevoke gives the page the share-link service.
+func (h *handler) WithRevoke(v *service.RevokeService) *handler { h.revoke = v; return h }
+
+// WithTelemetry gives the page the metric window.
+func (h *handler) WithTelemetry(v *service.TileTelemetryService) *handler { h.telemetry = v; return h }
+
+// WithGraph gives the canvas its saved layout.
+func (h *handler) WithGraph(g *service.GraphService) *handler { h.graph = g; return h }
+
+// WithConnectors gives the page the connector service.
+func (h *handler) WithConnectors(v *service.ConnectorService) *handler { h.connectors = v; return h }
+
+// WithLifecycle gives the page the tile lifecycle service.
+func (h *handler) WithLifecycle(v *service.TileLifecycleService) *handler { h.life = v; return h }

@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/FyrmForge/stackr/internal/stackrd/service"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/testdb"
 	"github.com/stretchr/testify/assert"
@@ -97,7 +98,8 @@ func TestApplyBackupsWritesAndRemoves(t *testing.T) {
 
 	r, err := Load([]byte(backupFile), nil)
 	require.NoError(t, err)
-	a := Applier{Planner: Planner{Store: store}}
+	a := applier(Planner{Store: store})
+	a.Schedules = service.NewBackupScheduleService(store, service.NewBackupDestinationService(store, nil), nil, service.NewGateService(store))
 	require.NoError(t, a.applyBackups(ctx, seed.Stack, r, "", nil))
 
 	bs, err := store.ListBackupsByTile(ctx, db.ID)

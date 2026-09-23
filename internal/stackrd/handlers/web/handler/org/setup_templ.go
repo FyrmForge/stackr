@@ -1112,7 +1112,7 @@ func setupConfigBody(c echo.Context, o *repo.Org, conns []repo.Connector, repos 
 // decision, so it belongs to the step that made it rather than to a settings
 // page the wizard has not let anyone reach yet. Same review component the plans
 // page uses; only the buttons differ.
-func setupPlanPage(c echo.Context, o *repo.Org, cp *repo.ConfigPlan) templ.Component {
+func setupPlanPage(c echo.Context, o *repo.Org, cp *repo.ConfigPlan, work *repo.WorkItem) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
@@ -1145,7 +1145,7 @@ func setupPlanPage(c echo.Context, o *repo.Org, cp *repo.ConfigPlan) templ.Compo
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = components.PlanBody(c, setupPlanCfg(o, cp), stackconf.ParsePlan(cp)).Render(ctx, templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = components.PlanBody(c, setupPlanCfg(o, cp, work), stackconf.ParsePlan(cp)).Render(ctx, templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

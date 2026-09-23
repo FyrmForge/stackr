@@ -248,12 +248,21 @@ templ promoteStepPlan(c echo.Context, d promoteDialogue) {
 
 // promoteForm is one button that actually promotes. planID empty deploys the
 // images alone; set, the whole plan applies first (Applier.ApplyPlan).
+//
+// The force checkbox is off by default, and only shown where it means
+// something. This form used to post force: true unconditionally, so the panel
+// overrode a per-environment apply policy that the API and the CLI respect —
+// an override that is always on is not an override.
 templ promoteForm(c echo.Context, d promoteDialogue, planID, label string, primary bool) {
 	<form hx-post={ d.PostURL }>
 		<input type="hidden" name="csrf_token" value={ csrf(c) }/>
 		<input type="hidden" name="commit" value={ d.Commit }/>
 		if planID != "" {
 			<input type="hidden" name="plan" value={ planID }/>
+			<label class="flex items-center gap-1.5 text-xs text-rw-muted mb-2 cursor-pointer">
+				<input type="checkbox" name="force" value="1" class="accent-rw-accent"/>
+				Apply environments whose policy asks for approval
+			</label>
 		}
 		if d.Return != "" {
 			<input type="hidden" name="return" value={ d.Return }/>

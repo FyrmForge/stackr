@@ -32,7 +32,7 @@ func waitFor(t *testing.T, what string, cond func() bool) {
 func TestAJobRunsAndRecordsWhatHappened(t *testing.T) {
 	ctx := context.Background()
 	store := testdb.New(t)
-	q := New(store)
+	q := New(store, testdb.WorkItems{Store: store})
 
 	ran := make(chan string, 4)
 	q.Register("ok", func(ctx context.Context, j *Job) error {
@@ -98,7 +98,7 @@ func TestAJobRunsAndRecordsWhatHappened(t *testing.T) {
 func TestEnqueueSupersedesTheOlderWaitingItem(t *testing.T) {
 	ctx := context.Background()
 	store := testdb.New(t)
-	q := New(store)
+	q := New(store, testdb.WorkItems{Store: store})
 	q.Register("slow", func(context.Context, *Job) error { return nil }, KindOpts{})
 
 	first, err := q.Enqueue(ctx, "slow", "stack-1", nil)
@@ -131,7 +131,7 @@ func TestBootRecoveryDealsWithWhatTheLastRunLeft(t *testing.T) {
 
 	// Enqueue and claim without ever running, which is exactly the state a
 	// crash leaves behind.
-	seed := New(store)
+	seed := New(store, testdb.WorkItems{Store: store})
 	seed.Register("convergent", func(context.Context, *Job) error { return nil }, KindOpts{})
 	seed.Register("one-shot", func(context.Context, *Job) error { return nil }, KindOpts{})
 	conv, err := seed.Enqueue(ctx, "convergent", "", nil)
@@ -147,7 +147,7 @@ func TestBootRecoveryDealsWithWhatTheLastRunLeft(t *testing.T) {
 	}
 
 	cleaned := false
-	q := New(store)
+	q := New(store, testdb.WorkItems{Store: store})
 	q.Register("convergent", func(context.Context, *Job) error { return nil },
 		KindOpts{OnRestart: Requeue})
 	q.Register("one-shot", func(context.Context, *Job) error { return nil }, KindOpts{
@@ -175,7 +175,7 @@ func TestBootRecoveryDealsWithWhatTheLastRunLeft(t *testing.T) {
 func TestRecoveryFailsWorkWithNoHandlerLeft(t *testing.T) {
 	ctx := context.Background()
 	store := testdb.New(t)
-	seed := New(store)
+	seed := New(store, testdb.WorkItems{Store: store})
 	seed.Register("retired", func(context.Context, *Job) error { return nil }, KindOpts{})
 	id, err := seed.Enqueue(ctx, "retired", "", nil)
 	require.NoError(t, err)
@@ -183,7 +183,7 @@ func TestRecoveryFailsWorkWithNoHandlerLeft(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, claimed)
 
-	New(store).recover(ctx)
+	New(store, testdb.WorkItems{Store: store}).recover(ctx)
 	w, _ := store.GetWorkItem(ctx, id)
 	assert.Equal(t, "error", w.Status)
 	assert.Contains(t, w.Error, "retired")
@@ -194,7 +194,7 @@ func TestRecoveryFailsWorkWithNoHandlerLeft(t *testing.T) {
 func TestOnlyOneClaimerWins(t *testing.T) {
 	ctx := context.Background()
 	store := testdb.New(t)
-	q := New(store)
+	q := New(store, testdb.WorkItems{Store: store})
 	q.Register("k", func(context.Context, *Job) error { return nil }, KindOpts{})
 	id, err := q.Enqueue(ctx, "k", "", nil)
 	require.NoError(t, err)
@@ -212,7 +212,7 @@ func TestOnlyOneClaimerWins(t *testing.T) {
 func TestCancelStopsARunningJob(t *testing.T) {
 	ctx := context.Background()
 	store := testdb.New(t)
-	q := New(store)
+	q := New(store, testdb.WorkItems{Store: store})
 	started := make(chan struct{})
 	q.Register("long", func(ctx context.Context, j *Job) error {
 		close(started)
@@ -236,7 +236,7 @@ func TestCancelStopsARunningJob(t *testing.T) {
 func TestLimitComesFromSettings(t *testing.T) {
 	ctx := context.Background()
 	store := testdb.New(t)
-	q := New(store)
+	q := New(store, testdb.WorkItems{Store: store})
 
 	started := make(chan struct{}, 4)
 	release := make(chan struct{})

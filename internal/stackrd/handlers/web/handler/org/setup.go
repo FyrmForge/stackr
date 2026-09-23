@@ -13,9 +13,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 
-	"github.com/FyrmForge/stackr/internal/stackrd/config/envops"
 	"github.com/FyrmForge/stackr/internal/stackrd/handlers/web/components"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/githubapp"
+	"github.com/FyrmForge/stackr/internal/stackrd/service"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 )
 
@@ -145,13 +145,13 @@ func (h *handler) Setup(c echo.Context) error {
 		return respond.HTML(c, http.StatusOK, setupDomainPage(c, o, res, h.setupDomainPrefill(c.Request().Context(), o)))
 	case "team":
 		ctx := c.Request().Context()
-		members, err := h.store.ListOrgMembers(ctx, o.ID)
+		members, err := h.members.ListMembers(ctx, o.ID)
 		if err != nil {
 			return err
 		}
 		// Only owners reach the wizard at all, so the invites (and their
 		// tokens) are safe to render here without a second permission check.
-		invites, err := h.store.ListInvitesByOrg(ctx, o.ID)
+		invites, err := h.members.ListInvites(ctx, o.ID)
 		if err != nil {
 			return err
 		}
@@ -183,7 +183,7 @@ func (h *handler) SetupDone(c echo.Context) error {
 	if o.SetupDoneAt == nil {
 		now := time.Now().UTC()
 		o.SetupDoneAt = &now
-		if err := h.store.UpdateOrg(c.Request().Context(), o); err != nil {
+		if err := h.orgs.Save(c.Request().Context(), o); err != nil {
 			return err
 		}
 		if err := h.ensureDefaultDomain(c, o); err != nil {
@@ -211,16 +211,16 @@ func (h *handler) ensureDefaultDomain(c echo.Context, o *repo.Org) error {
 	if host == "" {
 		return nil // a LAN install has no base domain to build one from
 	}
-	all, err := h.store.ListDomainResources(ctx)
+	all, err := h.resources.ListAll(ctx)
 	if err != nil {
 		return err
 	}
 	// Anything already visible to this org's stacks is enough, including a
 	// server-wide resource every org inherits.
-	if len(envops.VisibleDomainResources(all, "", o.ID)) > 0 {
+	if len(service.VisibleDomainResources(all, "", o.ID)) > 0 {
 		return nil
 	}
-	return h.store.CreateDomainResource(ctx, &repo.DomainResource{
+	return h.resources.Save(ctx, &repo.DomainResource{
 		ID: uuid.New().String(), Level: "org", OwnerID: o.ID, Host: host,
 		CreatedAt: time.Now().UTC(),
 	})
@@ -242,27 +242,52 @@ func (h *handler) SetupConfigPlan(c echo.Context) error {
 	if o.SetupDoneAt != nil {
 		return respond.Redirect(c, "/orgs/"+o.Slug+"/plans")
 	}
-	cp, _ := h.pendingOrgPlans(c, o)
+	cp := h.setupPlan(c, o)
 	if cp == nil {
 		return respond.Redirect(c, "/orgs/"+o.Slug+"/setup/config")
 	}
-	return respond.HTML(c, http.StatusOK, setupPlanPage(c, o, cp))
+	// The apply landed while this screen was polling: on to step 4, built from
+	// the slug the org has now rather than the one the poll arrived on. The
+	// redirect reaches htmx as HX-Redirect, so the page navigates itself.
+	work := h.orgPlanWork(c, cp)
+	if work != nil && work.Done() {
+		if cp.Status == "applied" {
+			return respond.Redirect(c, setupNextURL(o, "config"))
+		}
+		// It failed. Stay on the plan, but as a navigation rather than a
+		// banner swap, so the screen comes back carrying the error and the
+		// Plan again the failed plan needs.
+		if c.Request().Header.Get("HX-Request") == "true" {
+			return respond.Redirect(c, setupPlanURL(o, cp.ID))
+		}
+	}
+	return respond.HTML(c, http.StatusOK, setupPlanPage(c, o, cp, work))
 }
 
 // POST /orgs/:slug/setup/config/plan/:planID/approve
+//
+// Back to the plan screen, which then advances itself: the apply is queued, so
+// there is nothing to report yet, and walking on to step 4 would be walking on
+// from an org that is still being built. The screen shows the banner, polls,
+// and redirects to the next step when the job lands.
+//
+// Addressed by org id: the apply this queues can rename the org, and by the
+// time the poll comes back the slug this request arrived on is gone.
 func (h *handler) SetupApprovePlan(c echo.Context) error {
-	o, applied, err := h.approvePlan(c)
+	o, err := h.approvePlan(c)
 	if err != nil {
 		return err
 	}
-	// The apply may have renamed the org, so the next step is built from the
-	// slug it has now, not the one this request arrived on. A failed apply
-	// stays on the plan: the error is on it, and moving on would leave the
-	// org half built with nothing saying so.
-	if !applied {
-		return respond.Redirect(c, "/orgs/"+o.Slug+"/setup/config/plan")
-	}
-	return respond.Redirect(c, setupNextURL(o, "config"))
+	return respond.Redirect(c, setupPlanURL(o, c.Param("planID")))
+}
+
+// setupPlanURL is the wizard's plan screen for one named plan. The id in the
+// query is what keeps the screen on its own plan: pendingOrgPlans answers with
+// the newest plan still waiting, and the moment the apply lands this one stops
+// waiting, so a poll without it would find nothing pending and bounce back to
+// the binding form instead of moving on.
+func setupPlanURL(o *repo.Org, planID string) string {
+	return "/orgs/" + o.ID + "/setup/config/plan?plan=" + planID
 }
 
 // POST /orgs/:slug/setup/config/plan/:planID/reject
@@ -279,10 +304,26 @@ func (h *handler) SetupRejectPlan(c echo.Context) error {
 // setupPlanCfg is the plan screen's buttons: the same approve and reject as the
 // plans page. There is no way past it, this branch's org is named and built by
 // the apply, so walking on would leave an org that only exists as a binding.
-func setupPlanCfg(o *repo.Org, cp *repo.ConfigPlan) components.PlanViewCfg {
+func setupPlanCfg(o *repo.Org, cp *repo.ConfigPlan, work *repo.WorkItem) components.PlanViewCfg {
 	cfg := orgPlanCfg(o, cp, "/orgs/"+o.Slug+"/setup/config/plan/"+cp.ID)
 	cfg.ReplanURL = "/orgs/" + o.Slug + "/setup/config"
-	return cfg
+	cfg.Work, cfg.PollURL = work, setupPlanURL(o, cp.ID)
+	return withoutButtonsWhileApplying(cfg, work)
+}
+
+// setupPlan is the plan this screen is about: the one named in the query when
+// the screen is polling itself, and otherwise whatever is still waiting, which
+// is how step 3 is first arrived at.
+func (h *handler) setupPlan(c echo.Context, o *repo.Org) *repo.ConfigPlan {
+	if id := c.QueryParam("plan"); id != "" {
+		cp, err := h.plans.GetOrgPlan(c.Request().Context(), id)
+		if err != nil || cp.StackID != o.ID {
+			return nil
+		}
+		return cp
+	}
+	cp, _ := h.pendingOrgPlans(c, o)
+	return cp
 }
 
 // setupSummary is the step 6 checklist: what the wizard actually set up. Each
@@ -292,8 +333,8 @@ func (h *handler) setupSummary(c echo.Context, o *repo.Org) []setupItem {
 	ctx := c.Request().Context()
 	base := "/orgs/" + o.Slug + "/setup/"
 	res, _ := h.orgDomains(c, o.ID)
-	members, _ := h.store.ListOrgMembers(ctx, o.ID)
-	invites, _ := h.store.ListInvitesByOrg(ctx, o.ID)
+	members, _ := h.members.ListMembers(ctx, o.ID)
+	invites, _ := h.members.ListInvites(ctx, o.ID)
 	// A bound config has already produced a plan by the time step 6 renders,
 	// and that plan is what someone has to act on, so the summary points at it
 	// rather than at the binding form that made it.
@@ -395,7 +436,10 @@ func backTo(c echo.Context, o *repo.Org, def string) string {
 // a nameless special case; the cost is an abandoned draft showing up in the
 // switcher under this. "New organization" is the switcher's own create action
 // (components/shell.templ), so the draft does not borrow that wording.
-const setupDraftName = "Untitled organization"
+// setupDraftName is service.DraftOrgName under the name the pages already
+// use. The value belongs to the service that writes it; the pages only
+// compare against it to decide whether an org has been named yet.
+const setupDraftName = service.DraftOrgName
 
 // setupNamePrefill leaves the name step empty rather than asking the owner to
 // clear a placeholder they never typed.
@@ -427,14 +471,14 @@ func (h *handler) SetupMode(c echo.Context) error {
 	ctx := c.Request().Context()
 	if mode == "ui" {
 		if cp, _ := h.pendingOrgPlans(c, o); cp != nil && cp.Status == "pending" {
-			if err := h.store.SetOrgConfigPlanStatus(ctx, cp.ID, "rejected"); err != nil {
+			if err := h.plans.SetOrgPlanStatus(ctx, cp.ID, "rejected"); err != nil {
 				return err
 			}
 		}
 		o.ConfigConnectorID, o.ConfigRepo, o.ConfigBranch, o.ConfigPath = "", "", "", ""
 	}
 	o.SetupMode = mode
-	if err := h.store.UpdateOrg(ctx, o); err != nil {
+	if err := h.orgs.Save(ctx, o); err != nil {
 		return err
 	}
 	return respond.Redirect(c, setupFirstURL(o))
@@ -444,7 +488,7 @@ func (h *handler) SetupMode(c echo.Context) error {
 // installer's root domain seeded, else BASE_URL's host. A LAN or test install
 // has neither and gets an empty field rather than a guess.
 func (h *handler) setupDomainPrefill(ctx context.Context, o *repo.Org) string {
-	if all, err := h.store.ListDomainResources(ctx); err == nil {
+	if all, err := h.resources.ListAll(ctx); err == nil {
 		for _, r := range all {
 			if r.Level == "instance" {
 				return o.Slug + "." + r.Host

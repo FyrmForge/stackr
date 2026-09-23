@@ -6,13 +6,15 @@ package main
 import (
 	"flag"
 	"log"
+	"strconv"
 	"time"
 
+	"github.com/FyrmForge/stackr/internal/installspec"
 	"github.com/FyrmForge/stackr/internal/proxyrelay"
 )
 
 func main() {
-	listen := flag.String("listen", ":15000", "address to listen on")
+	listen := flag.String("listen", ":"+strconv.Itoa(installspec.RelayPort), "address to listen on")
 	target := flag.String("target", "", "host:port to relay to (required)")
 	idle := flag.Duration("idle", 60*time.Second, "exit after this long with no connections")
 	flag.Parse()

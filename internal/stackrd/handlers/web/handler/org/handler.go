@@ -6,58 +6,91 @@ package org
 
 import (
 	"net/http"
-	"time"
 
 	"github.com/FyrmForge/hamr/pkg/middleware"
 	"github.com/FyrmForge/hamr/pkg/respond"
-	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 
 	"github.com/FyrmForge/hamr/pkg/storage"
 
 	"github.com/FyrmForge/stackr/internal/stackrd/config/orgconf"
 	stackrmw "github.com/FyrmForge/stackr/internal/stackrd/handlers/middleware"
-	"github.com/FyrmForge/stackr/internal/stackrd/handlers/notify"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/forward"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/githubapp"
-	"github.com/FyrmForge/stackr/internal/stackrd/infra/mail"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/metrics"
-	"github.com/FyrmForge/stackr/internal/stackrd/infra/proxy"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/registry"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/runtime"
+	"github.com/FyrmForge/stackr/internal/stackrd/infra/workqueue"
+	"github.com/FyrmForge/stackr/internal/stackrd/service"
+	svcmail "github.com/FyrmForge/stackr/internal/stackrd/service/mail"
+	"github.com/FyrmForge/stackr/internal/stackrd/service/notify"
+	svcproxy "github.com/FyrmForge/stackr/internal/stackrd/service/proxy"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 )
 
 type handler struct {
-	store    repo.Store
-	notifier *notify.Notifier
-	sampler  *metrics.Sampler    // traffic lanes on the org canvas; nil in tests
-	files    storage.FileStorage // org logos; nil in tests
-	rt       *runtime.Runtime    // live forward-relay counts; nil in tests
-	forwards *forward.Registry   // open CLI forward sessions; nil in tests
-	orgcfg   *orgconf.Runner     // org config-as-code plans/applies; nil in tests
-	gh       *githubapp.Client   // connector repo lists and install state; nil in tests
-	mail     *mail.Mailer        // invite emails; nil when no provider is configured
-	regsign  *registry.Signer    // managed-registry tokens for the catalog reads; nil in tests
-	px       *proxy.Proxy        // re-renders routes when org defaults change; nil in tests
+	// resources owns the hostnames stackr may generate names under.
+	resources  *service.DomainResourceService
+	vars       *service.VariableService
+	stacks     *service.StackService       // the stack row; a move between orgs is its call
+	registries *service.RegistryService    // org push/pull credentials and image tags
+	members    *service.MemberService      // who is in the org and at what level
+	envs       *service.EnvironmentService // a stack's environments, for the canvas
+	tiles      *service.TileService        // the tiles the canvas draws
+	store      repo.Store
+	notifier   *notify.Notifier
+	sampler    *metrics.Sampler    // traffic lanes on the org canvas; nil in tests
+	files      storage.FileStorage // org logos; nil in tests
+	rt         *runtime.Runtime    // live forward-relay counts; nil in tests
+	forwards   *forward.Registry   // open CLI forward sessions; nil in tests
+	orgcfg     *orgconf.Runner     // org config-as-code plans/applies; nil in tests
+	gh         *githubapp.Client   // connector repo lists and install state; nil in tests
+	mail       *svcmail.Service    // invite emails; nil when no provider is configured
+	regsign    *registry.Signer    // managed-registry tokens for the catalog reads; nil in tests
+	px         *svcproxy.Service   // re-renders routes when org defaults change; nil in tests
+	// work is the durable job runner. An org apply goes on it, never on the
+	// request: it creates and binds stacks, each of which plans in turn.
+	work *workqueue.Queue
+	// settings owns every rung of the defaults cascade.
+	settings   *service.SettingsService
+	orgs       *service.OrgService
+	domains    *service.DomainService
+	slices     *service.SliceService
+	storage    *service.StorageService
+	plans      *service.PlanService
+	deploys    *service.DeployService
+	audit      *service.AuditService
+	auth       *service.AuthService
+	graph      *service.GraphService
+	connectors *service.ConnectorService
 }
 
-func NewHandler(store repo.Store, notifier *notify.Notifier, sampler *metrics.Sampler, files storage.FileStorage, rt *runtime.Runtime, forwards *forward.Registry, orgcfg *orgconf.Runner, gh *githubapp.Client, mailer *mail.Mailer, regsign *registry.Signer, px *proxy.Proxy) *handler {
-	return &handler{store: store, notifier: notifier, sampler: sampler, files: files, rt: rt, forwards: forwards, orgcfg: orgcfg, gh: gh, mail: mailer, regsign: regsign, px: px}
+// WithSettings attaches the settings service.
+func (h *handler) WithSettings(st *service.SettingsService) *handler { h.settings = st; return h }
+
+// WithWork attaches the durable job runner.
+func (h *handler) WithWork(q *workqueue.Queue) *handler { h.work = q; return h }
+
+// WithStacks attaches the stack service, which owns the slug collision a
+// move has to refuse.
+func (h *handler) WithStacks(st *service.StackService) *handler { h.stacks = st; return h }
+
+func NewHandler(store repo.Store, notifier *notify.Notifier, sampler *metrics.Sampler, files storage.FileStorage, rt *runtime.Runtime, forwards *forward.Registry, orgcfg *orgconf.Runner, gh *githubapp.Client, mailer *svcmail.Service, regsign *registry.Signer, px *svcproxy.Service) *handler {
+	return &handler{store: store, notifier: notifier, sampler: sampler, files: files, rt: rt,
+		forwards: forwards, orgcfg: orgcfg, gh: gh, mail: mailer, regsign: regsign, px: px,
+		// Built here rather than injected: it is stateless, every caller of
+		// this constructor has both of its dependencies already, and a nil
+		// one would be a silent loss of the membership rules.
+		members:    service.NewMemberService(store, mailer, service.NewRevokeService(store, notifier)),
+		orgs:       service.NewOrgService(store),
+		registries: service.NewRegistryService(store)}
 }
 
-// POST /orgs, step 1's answer. The org is created empty and named later, by
-// whichever branch the owner picked: the config file names a managed org, the
-// name step names a hand-built one. Asking for a name here and letting the file
-// overwrite it seconds afterwards is what this replaced.
-//
-// The creator becomes the org's owner.
+// POST /orgs, step 1's answer. Everything this used to decide — one draft
+// per person, the placeholder name, the creator's owner row — is
+// OrgService.StartDraft now; what is left here is who may ask and where they
+// land.
 func (h *handler) Create(c echo.Context) error {
-	ctx := c.Request().Context()
-	mode := c.FormValue("mode")
-	if mode != "config" && mode != "ui" {
-		return echo.NewHTTPError(http.StatusBadRequest, "pick how to set the organization up")
-	}
 	u := stackrmw.CurrentUser(c)
 	if u == nil {
 		return echo.NewHTTPError(http.StatusUnauthorized, "sign in first")
@@ -68,71 +101,13 @@ func (h *handler) Create(c echo.Context) error {
 	if !stackrmw.IsAdmin(c) {
 		return echo.NewHTTPError(http.StatusNotFound, "not found")
 	}
-	// One draft per person. Coming back to /setup and picking the other branch
-	// is the same organization changing its mind, not a second one, matched on
-	// "unfinished and owned", not on the placeholder name, because the UI branch
-	// renames at its very first step.
-	if o := h.unfinishedDraft(c, u.ID); o != nil {
-		o.SetupMode = mode
-		if err := h.store.UpdateOrg(ctx, o); err != nil {
-			return err
-		}
-		h.setActive(c, o.ID)
-		return respond.Redirect(c, setupFirstURL(o))
-	}
-	o := &repo.Org{
-		ID:        uuid.New().String(),
-		Name:      setupDraftName,
-		Slug:      draftSlug(),
-		CreatedAt: time.Now().UTC(),
-		SetupMode: mode,
-	}
-	if err := h.store.CreateOrg(ctx, o); err != nil {
-		return err
-	}
-	if err := h.store.UpsertOrgMember(ctx, &repo.OrgMember{
-		OrgID: o.ID, UserID: u.ID, Role: "owner", CreatedAt: time.Now().UTC(),
-	}); err != nil {
-		return err
+	o, err := h.orgs.StartDraft(c.Request().Context(), u.ID, c.FormValue("mode"))
+	if err != nil {
+		return stackrmw.HTTP(err)
 	}
 	h.setActive(c, o.ID)
 	return respond.Redirect(c, setupFirstURL(o))
 }
-
-// unfinishedDraft is the org this user is already halfway through setting up,
-// if there is one. Nil is the normal answer.
-//
-// The newest wins. ListOrgsForUser orders by name, so taking the first match
-// would make "the draft" a store-order accident the moment someone owns two,
-// an org they were invited to as owner and never finished, say.
-func (h *handler) unfinishedDraft(c echo.Context, userID string) *repo.Org {
-	orgs, err := h.store.ListOrgsForUser(c.Request().Context(), userID)
-	if err != nil {
-		return nil
-	}
-	ctx := c.Request().Context()
-	var newest *repo.Org
-	for i := range orgs {
-		if orgs[i].SetupDoneAt != nil {
-			continue
-		}
-		// The caller's own role, not ownerOf: that one says yes to any admin,
-		// which would make a stranger's half-finished org, one this admin was
-		// invited to as a viewer, the draft their next answer to step 1 moves.
-		m, err := h.store.GetOrgMember(ctx, orgs[i].ID, userID)
-		if err != nil || m == nil || m.Role != "owner" {
-			continue
-		}
-		if newest == nil || orgs[i].CreatedAt.After(newest.CreatedAt) {
-			newest = &orgs[i]
-		}
-	}
-	return newest
-}
-
-// draftSlug is a URL for an org with no name yet. Random rather than counted:
-// two people starting at once must not collide on the same slug.
-func draftSlug() string { return "org-" + uuid.New().String()[:6] }
 
 // POST /orgs/switch, only into orgs the user belongs to.
 func (h *handler) Switch(c echo.Context) error {
@@ -147,41 +122,36 @@ func (h *handler) Switch(c echo.Context) error {
 // POST /orgs/stacks/:id/move
 func (h *handler) MoveStack(c echo.Context) error {
 	ctx := c.Request().Context()
-	target, err := h.store.GetOrg(ctx, c.FormValue("org_id"))
+	target, err := h.orgs.Get(ctx, c.FormValue("org_id"))
 	if err != nil {
-		return err
+		return stackrmw.HTTP(err)
 	}
-	// A move edits both orgs' contents, it takes the stack out of one and
-	// puts it in the other, so it needs write rights in each, in that org
-	// rather than in whichever one the cookie has selected.
+	// A move edits BOTH orgs' contents: it takes the stack out of one and
+	// puts it in the other, so it needs write rights in each.
+	//
+	// The route's gate answers for the org the stack is leaving (KindStack on
+	// :id). The org it is moving INTO arrives in the form, which the gate
+	// cannot see, so that half is checked here and has to stay — see
+	// stillBodyGated in handlers/web/gatefree_test.go.
 	if target == nil {
 		return echo.NewHTTPError(http.StatusNotFound, "org not found")
 	}
 	if err := stackrmw.RequireOrgWrite(c, h.store, target.ID); err != nil {
 		return err
 	}
-	stack, err := h.store.GetStack(ctx, c.Param("id"))
+	stack, err := h.stacks.Get(ctx, c.Param("id"))
 	if err != nil {
-		return err
-	}
-	if stack == nil {
-		return echo.NewHTTPError(http.StatusNotFound, "stack not found")
-	}
-	if err := stackrmw.RequireOrgWrite(c, h.store, stack.OrgID); err != nil {
-		return err
+		return stackrmw.HTTP(err)
 	}
 	// The form lives on the stack's own settings page, so failures go back
 	// there rather than to the org that no longer lists its stacks.
-	from, err := h.store.GetOrg(ctx, stack.OrgID)
-	if err != nil || from == nil {
-		return echo.NewHTTPError(http.StatusNotFound, "org not found")
+	from, err := h.orgs.Get(ctx, stack.OrgID)
+	if err != nil {
+		return stackrmw.HTTP(err)
 	}
-	if other, _ := h.store.GetStackBySlug(ctx, target.ID, stack.Slug); other != nil {
-		middleware.SetFlash(c, "That org already has a stack with this slug.", middleware.FlashError)
+	if err := h.stacks.Move(ctx, stack, target.ID); err != nil {
+		middleware.SetFlash(c, err.Error(), middleware.FlashError)
 		return respond.Redirect(c, "/"+from.Slug+"/"+stack.Slug+"/settings")
-	}
-	if err := h.store.SetStackOrg(ctx, stack.ID, target.ID); err != nil {
-		return err
 	}
 	middleware.SetFlash(c, "Moved "+stack.Name+" to "+target.Name+". Its connector-based clones now use "+target.Name+"'s connectors.", middleware.FlashSuccess)
 	return respond.Redirect(c, "/"+target.Slug+"/"+stack.Slug+"/settings")
@@ -198,3 +168,52 @@ func (h *handler) setActive(c echo.Context, id string) {
 		SameSite: http.SameSiteLaxMode,
 	})
 }
+
+// WithDomainResources gives the page the domain-resource service.
+// WithVariables gives the org settings page the variable service.
+func (h *handler) WithVariables(v *service.VariableService) *handler { h.vars = v; return h }
+
+// WithTiles gives the canvas the tile service.
+func (h *handler) WithTiles(t *service.TileService) *handler { h.tiles = t; return h }
+
+// WithEnvironments gives the canvas the environment service.
+func (h *handler) WithEnvironments(e *service.EnvironmentService) *handler { h.envs = e; return h }
+
+func (h *handler) WithDomainResources(r *service.DomainResourceService) *handler {
+	h.resources = r
+	return h
+}
+
+// WithOrgs gives the page the organization service.
+func (h *handler) WithOrgs(v *service.OrgService) *handler { h.orgs = v; return h }
+
+// WithMembers gives the page the membership service.
+func (h *handler) WithMembers(v *service.MemberService) *handler { h.members = v; return h }
+
+// WithDomains gives the page the domain service.
+func (h *handler) WithDomains(v *service.DomainService) *handler { h.domains = v; return h }
+
+// WithSlices gives the page the provision service.
+func (h *handler) WithSlices(v *service.SliceService) *handler { h.slices = v; return h }
+
+// WithStorage gives the page the storage service.
+func (h *handler) WithStorage(v *service.StorageService) *handler { h.storage = v; return h }
+
+// WithPlans gives the page the config-plan service.
+func (h *handler) WithPlans(v *service.PlanService) *handler { h.plans = v; return h }
+
+// WithDeploys gives the page the deploy service.
+func (h *handler) WithDeploys(v *service.DeployService) *handler { h.deploys = v; return h }
+
+// WithAudit gives the page the audit trail.
+func (h *handler) WithAudit(v *service.AuditService) *handler { h.audit = v; return h }
+
+// WithAuth gives the page the account service, for the user names an org
+// settings page shows beside its members.
+func (h *handler) WithAuth(a *service.AuthService) *handler { h.auth = a; return h }
+
+// WithGraph gives the canvas its saved layout.
+func (h *handler) WithGraph(g *service.GraphService) *handler { h.graph = g; return h }
+
+// WithConnectors gives the page the connector service.
+func (h *handler) WithConnectors(v *service.ConnectorService) *handler { h.connectors = v; return h }

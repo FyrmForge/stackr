@@ -60,7 +60,7 @@ func TestNodeOfNamesTheTileItCannotPlace(t *testing.T) {
 	assert.Contains(t, err.Error(), "not pinned")
 
 	pinned.HomeNode = "node-a"
-	require.NoError(t, store.UpdateTile(ctx, pinned))
+	require.NoError(t, store.UpdateTile(ctx, pinned.ID, pinned.TileConfig))
 	got, err := c.NodeOf(ctx, pinned)
 	require.NoError(t, err)
 	assert.Equal(t, "node-a", got)

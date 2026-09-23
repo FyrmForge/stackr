@@ -59,7 +59,7 @@ func (s *Store) CreateTile(ctx context.Context, t *repo.Tile) error {
 	if err != nil {
 		return err
 	}
-	return s.projectEnvVars(ctx, t)
+	return s.projectEnvVars(ctx, t.ID, t.Env)
 }
 
 // projectEnvVars mirrors the tile's env blob into `variables` rows. The blob is
@@ -73,13 +73,13 @@ func (s *Store) CreateTile(ctx context.Context, t *repo.Tile) error {
 //
 // delete this once R7 makes structured rows the write surface; the
 // blob column goes with it.
-func (s *Store) projectEnvVars(ctx context.Context, t *repo.Tile) error {
+func (s *Store) projectEnvVars(ctx context.Context, tileID, env string) error {
 	now := time.Now().UTC()
-	for _, v := range envutil.Parse(t.Env) {
+	for _, v := range envutil.Parse(env) {
 		if v.Key == "" {
 			continue
 		}
-		if err := s.UpsertVariable(ctx, &repo.Variable{OwnerKind: repo.OwnerTile, OwnerID: t.ID,
+		if err := s.UpsertVariable(ctx, &repo.Variable{OwnerKind: repo.OwnerTile, OwnerID: tileID,
 			Name: v.Key, Value: v.Value, CreatedAt: now, UpdatedAt: now}); err != nil {
 			return err
 		}
@@ -95,7 +95,7 @@ func (s *Store) projectEnvVars(ctx context.Context, t *repo.Tile) error {
 //
 // goes away with projectEnvVars at R7.
 func (s *Store) ReplaceTileVars(ctx context.Context, t *repo.Tile) error {
-	if err := s.projectEnvVars(ctx, t); err != nil {
+	if err := s.projectEnvVars(ctx, t.ID, t.Env); err != nil {
 		return err
 	}
 	declared := map[string]bool{}
@@ -157,23 +157,11 @@ func (s *Store) ListTiles(ctx context.Context) ([]repo.Tile, error) {
 	return decryptTiles(list[repo.Tile](ctx, s, `SELECT * FROM tiles ORDER BY name`))
 }
 
-// UpdateTile writes the whole editable row. Deliberately NOT status: a
-// settings save carries whatever status the form was rendered with, so
-// saving after a deploy finished used to revert the tile to its old state.
-// Status moves only through UpdateTileStatus/RecordTileRun.
-//
-// shared_net and home_node are out for the same reason: both are infrastructure
-// facts the panel discovers (which db-pool overlay the instance holds, which
-// node its volume is on), not fields any form renders, so a settings save would
-// write back whatever stale value it was rendered with. They move only through
-// SetTileSharedNet and SetTileHomeNode.
-// RenameTile writes the two columns UpdateTile deliberately leaves alone.
-//
-// Slug is not in UpdateTile for the same reason status is not: it is identity,
-// not settings, and a general save carrying a stale copy of it would rename
-// the tile behind whoever asked. The cost of that was that the config engine's
-// moved: entries set t.Slug and called UpdateTile, so a declared rename tore
-// the service down and then wrote nothing at all.
+// RenameTile writes the two columns UpdateTile leaves alone. Slug is identity,
+// not settings, and a general save carrying a stale copy of it would rename the
+// tile behind whoever asked. The cost of leaving it out was that the config
+// engine's moved: entries set t.Slug and called UpdateTile, so a declared
+// rename tore the service down and then wrote nothing at all — hence this.
 func (s *Store) RenameTile(ctx context.Context, id, name, slug string) error {
 	_, err := s.db.ExecContext(ctx,
 		`UPDATE tiles SET name = ?, slug = ?, updated_at = ? WHERE id = ?`,
@@ -181,10 +169,38 @@ func (s *Store) RenameTile(ctx context.Context, id, name, slug string) error {
 	return err
 }
 
-func (s *Store) UpdateTile(ctx context.Context, t *repo.Tile) error {
-	t.UpdatedAt = time.Now().UTC()
-	enc := *t
-	enc.Env = secrets.Encrypt(t.Env)
+// tileConfigWrite is UpdateTile's bind struct. The SQL names :id and
+// :updated_at, which are not config and so are not in TileConfig; a named exec
+// against a struct missing a parameter it names fails at RUN time, not compile
+// time, so they are added here rather than widened into TileConfig — a second
+// `db:"id"` at another depth is the duplicated-field-list trap this point
+// rejected option C for.
+type tileConfigWrite struct {
+	repo.TileConfig
+	ID        string    `db:"id"`
+	UpdatedAt time.Time `db:"updated_at"`
+}
+
+// UpdateTile writes the declared half of a tile and nothing else. It takes a
+// repo.TileConfig rather than a *repo.Tile, which is point 20: the parameter
+// type cannot name status, home_node, shared_net, the digests or the last-run
+// fields, so a settings save physically cannot carry them.
+//
+// It used to take the whole row, and every state column was simply absent from
+// the SQL. That was correct and invisible: `t.Status = "running"` followed by
+// UpdateTile compiled, ran, returned nil and persisted nothing — a write that
+// looked like it worked. State moves only through UpdateTileStatus,
+// SetTileHomeNode, SetTileImageDigest, SetTileLatestDigest, RecordTileRun and
+// SetTileSharedNet, and now that is the only thing that will compile.
+//
+// The reasons those columns were excluded in the first place still hold: a
+// settings save carries whatever the form was rendered with, so it would
+// revert a tile that finished deploying while the form was open, and it would
+// write back a stale overlay name or home node the panel never rendered.
+// Losing a home node is how swarm schedules a database onto an empty volume.
+func (s *Store) UpdateTile(ctx context.Context, id string, cfg repo.TileConfig) error {
+	enc := tileConfigWrite{TileConfig: cfg, ID: id, UpdatedAt: time.Now().UTC()}
+	enc.Env = secrets.Encrypt(cfg.Env)
 	_, err := s.db.NamedExecContext(ctx,
 		`UPDATE tiles SET name = :name, source_type = :source_type, git_url = :git_url,
 		 git_branch = :git_branch, connector_id = :connector_id, image_ref = :image_ref,
@@ -213,7 +229,7 @@ func (s *Store) UpdateTile(ctx context.Context, t *repo.Tile) error {
 	if err != nil {
 		return err
 	}
-	return s.projectEnvVars(ctx, t)
+	return s.projectEnvVars(ctx, id, cfg.Env)
 }
 
 // SetTileHomeNode records which swarm node a pinned tile's volume lives on.

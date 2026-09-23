@@ -17,12 +17,14 @@ import (
 	"github.com/FyrmForge/hamr/pkg/websocket"
 	"github.com/stretchr/testify/require"
 
+	"github.com/FyrmForge/stackr/internal/stackrd/config/envops"
 	"github.com/FyrmForge/stackr/internal/stackrd/config/orgconf"
 	"github.com/FyrmForge/stackr/internal/stackrd/config/stackconf"
-	"github.com/FyrmForge/stackr/internal/stackrd/handlers/notify"
 	"github.com/FyrmForge/stackr/internal/stackrd/handlers/web"
 	"github.com/FyrmForge/stackr/internal/stackrd/handlers/web/components"
+	"github.com/FyrmForge/stackr/internal/stackrd/infra/workqueue"
 	"github.com/FyrmForge/stackr/internal/stackrd/service"
+	"github.com/FyrmForge/stackr/internal/stackrd/service/notify"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo/sqlite"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/testdb"
@@ -87,7 +89,27 @@ func newJourney(t *testing.T) *journey {
 	)
 	require.NoError(t, err, "server")
 	hub := websocket.NewHub()
-	applier := stackconf.Applier{Planner: stackconf.Planner{Store: store, Src: src}}
+	// Ops carries the services an apply writes its rows through. Leaving it
+	// zero used to be fine, because the applier wrote the store itself; now a
+	// missing service is a nil pointer inside a work-queue job, which surfaces
+	// as "the apply never finished" rather than as a stack trace.
+	gate := service.NewGateService(store)
+	ops := envops.Ops{
+		Store: store,
+		Tiles: service.NewTileService(store, nil, nil, nil, nil, nil, gate),
+		Vars:  service.NewVariableService(store, nil, nil, nil, nil),
+	}
+	ops.Envs = service.NewEnvironmentService(store, &ops, nil, nil, gate)
+	applier := stackconf.Applier{Planner: stackconf.Planner{Store: store, Src: src}, Ops: ops}
+	// A real work queue, because the applies run on it now: an approve that
+	// cannot reach the runner is a 503, and the wizard's own plan screen is
+	// what waits for the job and then moves on.
+	orgRunner := &orgconf.Runner{Store: store, Src: src, Stacks: applier.Planner, Applier: applier}
+	work := workqueue.New(store, service.NewWorkItemService(store))
+	stackconf.RegisterApply(work, applier)
+	stackconf.RegisterPromote(work, applier)
+	orgconf.RegisterApply(work, orgRunner)
+	work.Start(context.Background())
 	// The pages reference /static/..., same as the binary does.
 	components.StaticBaseURL = "/static"
 	web.RegisterRoutes(srv, &web.Deps{
@@ -99,7 +121,30 @@ func newJourney(t *testing.T) *journey {
 		Hub:            hub,
 		Notifier:       notify.New(hub, store),
 		Applier:        applier,
-		OrgConfig:      &orgconf.Runner{Store: store, Src: src, Stacks: applier.Planner, Applier: applier},
+		// The pages write through services now; their own dependencies are
+		// nil-safe, so the rows land and the docker/proxy half is skipped.
+		Tiles:         service.NewTileService(store, nil, nil, nil, nil, nil, service.NewGateService(store)),
+		Domains:       service.NewDomainService(store, nil, service.NewGateService(store)),
+		Resources:     service.NewDomainResourceService(store, nil),
+		Lifecycle:     service.NewTileLifecycleService(store, nil, nil, nil, nil, nil),
+		Telemetry:     service.NewTileTelemetryService(store, nil),
+		Environments:  service.NewEnvironmentService(store, nil, nil, nil, service.NewGateService(store)),
+		Orgs:          service.NewOrgService(store),
+		Plans:         service.NewPlanService(store, nil, nil),
+		Graph:         service.NewGraphService(store),
+		Connectors:    service.NewConnectorService(store),
+		Notifications: service.NewNotificationService(store),
+		Deploys:       service.NewDeployService(store, nil),
+		Slices:        service.NewSliceService(store, nil, nil, nil),
+		Storage:       service.NewStorageService(store, nil),
+		Members:       service.NewMemberService(store, nil, service.NewRevokeService(store, nil)),
+		Stacks: service.NewStackService(store, nil, nil,
+			service.NewEnvironmentService(store, nil, nil, nil, service.NewGateService(store)),
+			nil, service.NewGateService(store), nil),
+		Variables: service.NewVariableService(store, nil, nil, nil, nil),
+		OrgConfig: orgRunner,
+		Work:      work,
+		Access:    service.NewAccessService(store),
 	})
 
 	ts := httptest.NewServer(srv.Echo())

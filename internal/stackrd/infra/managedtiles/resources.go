@@ -83,7 +83,7 @@ func (s *Service) SyncResource(ctx context.Context, instance *repo.Tile, p *repo
 		}
 		if res == nil {
 			res = &existing[i]
-		} else if err := s.store.DeleteResource(ctx, existing[i].ID); err != nil {
+		} else if err := s.rows.RemoveResource(ctx, existing[i].ID); err != nil {
 			return err
 		}
 	}
@@ -91,25 +91,25 @@ func (s *Service) SyncResource(ctx context.Context, instance *repo.Tile, p *repo
 		res = &repo.ManagedResource{ID: uuid.NewString(), EnvironmentID: p.EnvID,
 			ProviderTileID: instance.ID, Name: p.DBName, Slug: slug, Kind: instance.Engine,
 			Status: p.Status, Public: p.Public, CreatedAt: now, UpdatedAt: now}
-		if err := s.store.CreateResource(ctx, res); err != nil {
+		if err := s.rows.SaveResource(ctx, res, true); err != nil {
 			return err
 		}
 	} else {
 		res.Slug, res.Name, res.ProviderTileID, res.Kind, res.Status, res.Public, res.UpdatedAt = slug, p.DBName, instance.ID, instance.Engine, p.Status, p.Public, now
-		if err := s.store.UpdateResource(ctx, res); err != nil {
+		if err := s.rows.SaveResource(ctx, res, false); err != nil {
 			return err
 		}
 	}
 	for _, o := range s.outputsFor(ctx, instance, p) {
 		o.ResourceID = res.ID
-		if err := s.store.UpsertOutput(ctx, &o); err != nil {
+		if err := s.rows.SaveOutput(ctx, &o); err != nil {
 			return err
 		}
 	}
 	if p.ConsumerTileID == "" {
 		return nil
 	}
-	return s.store.CreateBinding(ctx, &repo.ResourceBinding{ResourceID: res.ID,
+	return s.rows.Bind(ctx, &repo.ResourceBinding{ResourceID: res.ID,
 		ConsumerTileID: p.ConsumerTileID, CreatedAt: now})
 }
 
@@ -142,7 +142,7 @@ func (s *Service) unbindResource(ctx context.Context, instance *repo.Tile, p *re
 	if err != nil || res == nil {
 		return
 	}
-	if err := s.store.DeleteBinding(ctx, res.ID, p.ConsumerTileID); err != nil {
+	if err := s.rows.Unbind(ctx, res.ID, p.ConsumerTileID); err != nil {
 		slog.Error("resource binding not deleted", "resource", res.ID, "tile", p.ConsumerTileID, "error", err)
 	}
 	s.dropConsumerRefs(ctx, res, p.ConsumerTileID)
@@ -171,12 +171,12 @@ func (s *Service) dropConsumerRefs(ctx context.Context, res *repo.ManagedResourc
 		return
 	}
 	t.Env = strings.Join(kept, "\n")
-	if err := s.store.UpdateTile(ctx, t); err != nil {
+	if err := s.rows.SaveTile(ctx, t); err != nil {
 		return
 	}
 	// The blob projection only ever adds, so the rows have to go explicitly.
 	for _, name := range dropped {
-		if err := s.store.DeleteVariable(ctx, repo.OwnerTile, t.ID, name); err != nil {
+		if err := s.rows.RemoveVariable(ctx, repo.OwnerTile, t.ID, name); err != nil {
 			slog.Error("dropped reference variable not deleted", "tile", t.ID, "name", name, "error", err)
 		}
 	}
@@ -199,7 +199,7 @@ func (s *Service) dropResource(ctx context.Context, instance *repo.Tile, p *repo
 	for _, id := range s.consumersOf(ctx, instance, p) {
 		s.dropConsumerRefs(ctx, res, id)
 	}
-	if err := s.store.DeleteResource(ctx, res.ID); err != nil {
+	if err := s.rows.RemoveResource(ctx, res.ID); err != nil {
 		slog.Error("resource row not deleted", "resource", res.ID, "error", err)
 	}
 }

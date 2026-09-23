@@ -23,12 +23,12 @@ import (
 
 	"github.com/FyrmForge/stackr/internal/stackrd/config/settings"
 	"github.com/FyrmForge/stackr/internal/stackrd/config/varref"
-	"github.com/FyrmForge/stackr/internal/stackrd/handlers/notify"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/cluster"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/envnet"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/registry"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/runtime"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/workqueue"
+	"github.com/FyrmForge/stackr/internal/stackrd/service/notify"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 )
 
@@ -39,6 +39,17 @@ type Service struct {
 	c        *cluster.Cluster // every docker call: a job in "exec" mode runs inside the tile's container, wherever that is
 	notifier *notify.Notifier
 	work     *workqueue.Queue
+	// envs owns the environment row's network columns. Running a job in a
+	// fresh environment claims that environment's overlay, and the claim
+	// writes a row this package does not own.
+	envs envnet.Envs
+	// regs owns the credential a job pulls its image with.
+	regs registry.Registries
+	// runs owns cron_runs and the tile's last-run summary.
+	runs Runs
+	// deploys owns the deployments table. A job runs the image the tile is
+	// actually running, which is that table's question and not this one's.
+	deploys Deploys
 
 	mu      sync.Mutex
 	cron    *cron.Cron
@@ -47,11 +58,41 @@ type Service struct {
 	held    map[string]int          // stack ids mid config-apply; schedule ticks skip
 }
 
-func NewService(store repo.Store, c *cluster.Cluster, notifier *notify.Notifier) *Service {
+// Runs is the owner of cron_runs and of the tile's last-run summary.
+// service.TileLifecycleService satisfies it; an interface because that
+// package is built on this one.
+type Runs interface {
+	StartRun(ctx context.Context, r *repo.CronRun) error
+	FinishRun(ctx context.Context, r *repo.CronRun) error
+	PruneRuns(ctx context.Context, before time.Time) error
+	RecordTileRun(ctx context.Context, tileID, status, output string) error
+}
+
+// Deploys is the read a job needs from the deployments table.
+// service.Rows satisfies it; an interface because service/ is built on this
+// package.
+type Deploys interface {
+	CurrentImage(ctx context.Context, tileID string) (string, error)
+}
+
+// WithRuns hands over the service that owns cron_runs.
+//
+// A setter, not a constructor argument, because of the order main.go is
+// forced into: TileLifecycleService is built ON this service, so it cannot
+// exist when this one is constructed. Nothing dereferences runs until a job
+// actually fires, which is long after.
+func (s *Service) WithRuns(r Runs) *Service { s.runs = r; return s }
+
+func NewService(store repo.Store, c *cluster.Cluster, notifier *notify.Notifier,
+	envs envnet.Envs, runs Runs, regs registry.Registries, deploys Deploys) *Service {
 	s := &Service{
 		store:    store,
 		c:        c,
 		notifier: notifier,
+		envs:     envs,
+		runs:     runs,
+		regs:     regs,
+		deploys:  deploys,
 		cron:     cron.New(),
 		entries:  map[string]cron.EntryID{},
 		running:  map[string]bool{},
@@ -254,12 +295,14 @@ func (s *Service) Stop(ctx context.Context, runID string) bool {
 }
 
 // Triggers a run can be started by; recorded on the row so the history says
-// who asked for it, the way deployments.trigger does.
+// what kind of run it was, the way deployments.trigger does. There is one
+// "manual" rather than a member per surface: who and where from live in the
+// actor column (service.Actor), so adding a surface no longer adds a trigger
+// that every "was this manual?" query has to learn.
 const (
-	TriggerSchedule  = "schedule"
-	TriggerManualWeb = "manual web"
-	TriggerManualAPI = "manual api"
-	TriggerDeploy    = "deploy"
+	TriggerSchedule = "schedule"
+	TriggerManual   = "manual"
+	TriggerDeploy   = "deploy"
 )
 
 // startRun opens a run row before the work starts, with finished_at NULL so
@@ -273,7 +316,7 @@ func (s *Service) startRun(ctx context.Context, ref, trigger, actor string, star
 		Actor:     actor,
 		StartedAt: started,
 	}
-	if err := s.store.CreateCronRun(ctx, r); err != nil {
+	if err := s.runs.StartRun(ctx, r); err != nil {
 		slog.Error("cron run not opened", "run", r.ID, "ref", ref, "error", err)
 	}
 	return r
@@ -284,11 +327,11 @@ func (s *Service) startRun(ctx context.Context, ref, trigger, actor string, star
 func (s *Service) finishRun(ctx context.Context, r *repo.CronRun, status, output string) {
 	r.Status, r.Output = status, output
 	r.FinishedAt = sql.NullTime{Time: time.Now().UTC(), Valid: true}
-	if err := s.store.FinishCronRun(ctx, r); err != nil {
+	if err := s.runs.FinishRun(ctx, r); err != nil {
 		slog.Error("cron run not closed", "run", r.ID, "ref", r.Ref, "status", status, "error", err)
 	}
 	days := settings.ForServer(ctx, s.store).RunRetentionDays
-	_ = s.store.PruneCronRuns(ctx, time.Now().Add(-time.Duration(days)*24*time.Hour))
+	_ = s.runs.PruneRuns(ctx, time.Now().Add(-time.Duration(days)*24*time.Hour))
 }
 
 // LoadSchedules (re)registers cron entries for all enabled jobs and all
@@ -372,7 +415,7 @@ func (s *Service) runApp(jobCtx context.Context, app *repo.Tile, run *repo.CronR
 
 	image := s.appImage(ctx, app)
 	if image == "" {
-		_ = s.store.RecordTileRun(ctx, app.ID, "error", "no image set")
+		_ = s.runs.RecordTileRun(ctx, app.ID, "error", "no image set")
 		s.finishRun(ctx, run, "error", "no image set")
 		s.notifier.Project(app.StackID)
 		return
@@ -412,7 +455,7 @@ func (s *Service) runApp(jobCtx context.Context, app *repo.Tile, run *repo.CronR
 		out = out[len(out)-maxOutput:]
 	}
 	out = strings.TrimSpace(out)
-	_ = s.store.RecordTileRun(ctx, app.ID, status, out)
+	_ = s.runs.RecordTileRun(ctx, app.ID, status, out)
 	s.finishRun(ctx, run, status, out)
 	s.notifier.Project(app.StackID)
 	// Notify on the ok→error transition only, a cron that keeps failing on
@@ -451,7 +494,7 @@ func (s *Service) envLines(ctx context.Context, app *repo.Tile) ([]string, []str
 // Both empty only on lookup failure, jobSpec then falls back to the
 // shared network and a random name rather than dying on a naming error.
 func (s *Service) runNames(ctx context.Context, app *repo.Tile, kind, runID string) (string, string) {
-	sc, netName, err := envnet.Ensure(ctx, s.store, s.c, app)
+	sc, netName, err := envnet.Ensure(ctx, s.store, s.envs, s.c, app)
 	if err != nil {
 		return "", ""
 	}
@@ -470,16 +513,15 @@ func (s *Service) RunService(ctx context.Context, app *repo.Tile, runID string) 
 	return name
 }
 
-// appImage resolves the image a one-shot job should run: the last successful
-// deployment's tag, falling back to the app's configured image ref.
+// appImage resolves the image a one-shot job should run: the image the tile
+// is actually running, falling back to its configured ref.
+//
+// The first half used to be this package's own copy of the deploy engine's
+// CurrentImage, loop for loop. Only the fallback differs, and that part is
+// genuinely a job's: a deploy has nothing to fall back to.
 func (s *Service) appImage(ctx context.Context, app *repo.Tile) string {
-	deps, err := s.store.ListDeploymentsByTile(ctx, app.ID, 20)
-	if err == nil {
-		for _, d := range deps {
-			if d.Status == "done" && d.ImageTag != "" {
-				return d.ImageTag
-			}
-		}
+	if tag, err := s.deploys.CurrentImage(ctx, app.ID); err == nil && tag != "" {
+		return tag
 	}
 	return app.ImageRef
 }
@@ -537,7 +579,7 @@ func (s *Service) pullAuth(ctx context.Context, app *repo.Tile, image string) st
 	if !ok || !strings.ContainsAny(host, ".:") {
 		return "" // docker hub, no host segment
 	}
-	at, auth, err := registry.OrgPullAuth(ctx, s.store, s.c.Runtime(), app)
+	at, auth, err := registry.OrgPullAuth(ctx, s.store, s.regs, s.c.Runtime(), app)
 	if err != nil || at != host {
 		return ""
 	}

@@ -8,9 +8,9 @@ import (
 	"errors"
 	"time"
 
-	"github.com/FyrmForge/stackr/internal/stackrd/handlers/notify"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/deploy"
 	"github.com/FyrmForge/stackr/internal/stackrd/infra/githubapp"
+	"github.com/FyrmForge/stackr/internal/stackrd/service/notify"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 )
 
@@ -28,16 +28,27 @@ const (
 // Gate is the janitor task. One tick scans every parked row; verdicts are
 // deduped per commit within a tick (several tiles often track one repo).
 type Gate struct {
-	Store    repo.Store
+	Store repo.Store
+	// Deploys owns the deployments table. "Which deploys are parked on a CI
+	// check" is the engine's question too — it releases them when a check
+	// arrives, this times them out — so both ask the same owner rather than
+	// each spelling the status string.
+	Deploys  Deploys
 	Engine   *deploy.Engine
 	GH       *githubapp.Client
 	Notifier *notify.Notifier
 }
 
+// Deploys is the read this task needs. service.Rows satisfies it; an
+// interface because service/ is built on top of this package's neighbours.
+type Deploys interface {
+	Waiting(ctx context.Context) ([]repo.Deployment, error)
+}
+
 func (g *Gate) Name() string { return "ci-gate" }
 
 func (g *Gate) Run(ctx context.Context) (int64, error) {
-	ds, err := g.Store.ListDeploymentsByStatus(ctx, "waiting_ci")
+	ds, err := g.Deploys.Waiting(ctx)
 	if err != nil || len(ds) == 0 {
 		return 0, err
 	}
@@ -114,5 +125,6 @@ func (g *Gate) fail(ctx context.Context, d *repo.Deployment, t *repo.Tile, msg s
 	if t != nil {
 		name = t.Name
 	}
-	g.Notifier.Push(ctx, notify.KindDeployFailed, "Deploy blocked: "+name, msg, "/deployments/"+d.ID)
+	title, body := notify.DeployFailed(name, msg)
+	g.Notifier.Push(ctx, notify.KindDeployFailed, title, body, "/deployments/"+d.ID)
 }

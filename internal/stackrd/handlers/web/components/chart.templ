@@ -4,14 +4,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
-	"time"
+
+	"github.com/FyrmForge/stackr/internal/stackrd/service"
 )
 
-// TimePoint is one sample on a metric chart.
-type TimePoint struct {
-	T time.Time
-	V float64
-}
+// TimePoint is one sample on a metric chart. An alias, not a copy: the
+// bucketing that produces these lives in the service now (point 19), and two
+// identical structs either side of the boundary is a conversion loop waiting
+// to be written.
+type TimePoint = service.TimePoint
 
 // Chart geometry: fixed viewBox so gridlines/labels stay crisp; the svg
 // scales to its container width preserving aspect. Mirrored in metrics.js

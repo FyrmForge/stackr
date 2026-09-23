@@ -11,6 +11,7 @@ import (
 
 	"github.com/FyrmForge/stackr/internal/stackrd/config/orgconf"
 	"github.com/FyrmForge/stackr/internal/stackrd/config/stackconf"
+	stackrmw "github.com/FyrmForge/stackr/internal/stackrd/handlers/middleware"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 )
 
@@ -36,16 +37,15 @@ const (
 // Reads deliberately skip the binding check: unbinding a repo does not erase
 // the plans that were applied under it, and the history stays readable.
 func (a *API) requireConfigStack(c echo.Context, stackID string, write bool) (*repo.Stack, error) {
-	s, err := a.requireStackAccess(c, stackID)
+	s, err := a.stack(c, stackID)
 	if err != nil {
 		return nil, err
 	}
 	if !write {
 		return s, nil
 	}
-	if err := a.requireOrgWrite(c.Request().Context(), c, s.OrgID); err != nil {
-		return nil, err
-	}
+	// Not authorization — the route's gate owns that. A stack with no config
+	// repo bound has nothing to plan or apply, which is a 409, not a refusal.
 	if !s.ConfigManaged() {
 		return nil, echo.NewHTTPError(http.StatusConflict, "stack has no config repo bound")
 	}
@@ -54,9 +54,9 @@ func (a *API) requireConfigStack(c echo.Context, stackID string, write bool) (*r
 
 // requirePlan loads a plan and the stack it belongs to, 404ing across tenants.
 func (a *API) requirePlan(c echo.Context, write bool) (*repo.Stack, *repo.ConfigPlan, error) {
-	cp, err := a.store.GetConfigPlan(c.Request().Context(), c.Param("id"))
-	if err != nil || cp == nil {
-		return nil, nil, echo.NewHTTPError(http.StatusNotFound, "not found")
+	cp, err := a.plans.Get(c.Request().Context(), c.Param("id"))
+	if err != nil {
+		return nil, nil, stackrmw.HTTP(err)
 	}
 	s, err := a.requireConfigStack(c, cp.StackID, write)
 	if err != nil {
@@ -75,7 +75,7 @@ func (a *API) listPlans(c echo.Context) error {
 	if n, cerr := strconv.Atoi(c.QueryParam("limit")); cerr == nil && n > 0 {
 		limit = min(n, maxPlanLimit)
 	}
-	plans, err := a.store.ListConfigPlans(c.Request().Context(), s.ID, limit)
+	plans, err := a.plans.ForStack(c.Request().Context(), s.ID, limit)
 	if err != nil {
 		return err
 	}
@@ -98,7 +98,7 @@ func (a *API) getPlan(c echo.Context) error {
 // POST /stacks/:id/config/plan, re-plan now, the same sweep the panel's
 // "Plan now" runs (stack branch plus every env pinned to its own).
 func (a *API) planStack(c echo.Context) error {
-	s, err := a.requireConfigStack(c, c.Param("id"), true)
+	s, err := a.stack(c, c.Param("id"))
 	if err != nil {
 		return err
 	}
@@ -128,7 +128,7 @@ func (a *API) planStack(c echo.Context) error {
 // action like planStack, so it takes the write path, which also brings the
 // bound-check: an unbound stack has no branch context to diff against.
 func (a *API) previewPlan(c echo.Context) error {
-	s, err := a.requireConfigStack(c, c.Param("id"), true)
+	s, err := a.stack(c, c.Param("id"))
 	if err != nil {
 		return err
 	}
@@ -172,15 +172,12 @@ func (a *API) approvePlan(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	if cp.Status != "pending" {
-		return echo.NewHTTPError(http.StatusConflict, "plan is not pending (status: "+cp.Status+")")
-	}
 	// Queued, and the answer says so. An apply builds images and can run for
 	// minutes; holding a CI job's HTTP connection open for it is what used to
 	// kill it when either end gave up. Poll the plan for the outcome, the row
 	// carries the error when it fails.
-	if _, err := stackconf.EnqueueApply(ctx, a.work, s, cp, true); err != nil {
-		return echo.NewHTTPError(http.StatusUnprocessableEntity, "could not queue the apply: "+err.Error())
+	if _, err := a.plans.Approve(ctx, s, cp); err != nil {
+		return stackrmw.HTTP(err)
 	}
 	return c.JSON(http.StatusAccepted, toPlanDetail(cp))
 }
@@ -192,13 +189,9 @@ func (a *API) rejectPlan(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	if cp.Status != "pending" {
-		return echo.NewHTTPError(http.StatusConflict, "plan is not pending (status: "+cp.Status+")")
+	if err := a.plans.Reject(ctx, cp); err != nil {
+		return stackrmw.HTTP(err)
 	}
-	if err := a.store.SetConfigPlanStatus(ctx, cp.ID, "rejected"); err != nil {
-		return err
-	}
-	cp.Status = "rejected"
 	return c.JSON(http.StatusOK, toPlanDetail(cp))
 }
 
@@ -259,29 +252,11 @@ func toPlanDetail(cp *repo.ConfigPlan) planDetailOut {
 // same serializer the UI-staging path uses, so exporting a stack and planning
 // that file against the same stack is an empty diff.
 func (a *API) exportStackConfig(c echo.Context) error {
-	s, err := a.requireStackAccess(c, c.Param("id"))
+	s, err := a.stack(c, c.Param("id"))
 	if err != nil {
 		return err
 	}
-	ctx := c.Request().Context()
-	state, err := stackconf.Planner{Store: a.store}.Snapshot(ctx, s)
-	if err != nil {
-		return err
-	}
-	r := stackconf.StateToResolved(s.Name, state)
-	// The ladder order is the store's, which Snapshot does not carry.
-	if envs, err := a.store.ListEnvironmentsByStack(ctx, s.ID); err == nil {
-		var order []string
-		for i := range envs {
-			if envs[i].Type == "static" {
-				order = append(order, envs[i].Slug)
-			}
-		}
-		if len(order) > 0 {
-			r.EnvOrder = order
-		}
-	}
-	out, err := stackconf.ExportYAML(r)
+	out, err := stackconf.ExportStack(c.Request().Context(), a.store, s)
 	if err != nil {
 		return err
 	}
@@ -291,7 +266,7 @@ func (a *API) exportStackConfig(c echo.Context) error {
 // exportOrgConfig renders the organization as its config file. Stacks are
 // listed as declarations; each one's body lives in its own file.
 func (a *API) exportOrgConfig(c echo.Context) error {
-	o, err := a.requireOrg(c, c.Param("id"))
+	o, err := a.org(c, c.Param("id"))
 	if err != nil {
 		return err
 	}

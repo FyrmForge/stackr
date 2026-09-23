@@ -127,7 +127,8 @@ func TestRestartFailsAnInterruptedBackup(t *testing.T) {
 		Cron: "0 4 * * *", KeepLatest: 7, Enabled: true, CreatedAt: time.Now().UTC()}
 	require.NoError(t, store.CreateBackup(ctx, b))
 
-	s := &Service{store: store, dataDir: t.TempDir(), running: map[string]bool{}}
+	s := &Service{store: store, runs: testdb.BackupRuns{Store: store},
+		dataDir: t.TempDir(), running: map[string]bool{}}
 	run, err := s.openRun(ctx, b, "manual", "running")
 	require.NoError(t, err)
 	scratch, err := s.scratchFile(b.ID)
@@ -138,7 +139,7 @@ func TestRestartFailsAnInterruptedBackup(t *testing.T) {
 	require.NoError(t, store.CreateWorkItem(ctx, &repo.WorkItem{ID: "w1", Kind: RunKind, DedupeKey: run.ID,
 		Payload: string(payload), Status: "running", Step: "uploading", CreatedAt: time.Now().UTC()}))
 
-	q := workqueue.New(store)
+	q := workqueue.New(store, testdb.WorkItems{Store: store})
 	s.WithWork(q)
 	cctx, cancel := context.WithCancel(ctx)
 	defer cancel()

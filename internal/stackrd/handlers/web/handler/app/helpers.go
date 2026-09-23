@@ -2,6 +2,7 @@ package app
 
 import (
 	"encoding/json"
+
 	"github.com/FyrmForge/stackr/internal/stackrd/config/varref"
 )
 

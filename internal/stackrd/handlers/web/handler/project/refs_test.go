@@ -46,7 +46,7 @@ func TestTileRefsEdgePerSliceDeduplicated(t *testing.T) {
 		Name: "ORDERS_URL_ALIAS", Value: "${{ tile.sharedpg-orders.DATABASE_URL }}",
 		CreatedAt: now, UpdatedAt: now}), "dup var")
 
-	h := &handler{store: s}
+	h := testHandler(s)
 	refs := h.tileRefs(ctx, []repo.Tile{*seed.Tile, *instance})
 	got := append([]string(nil), refs[seed.Tile.ID]...)
 	sort.Strings(got)

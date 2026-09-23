@@ -11,8 +11,8 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/stretchr/testify/require"
 
-	"github.com/FyrmForge/stackr/internal/stackrd/config/envops"
 	"github.com/FyrmForge/stackr/internal/stackrd/handlers/web/components"
+	"github.com/FyrmForge/stackr/internal/stackrd/service"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo/sqlite"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/testdb"
@@ -50,7 +50,11 @@ func TestAddMemberAlwaysInvites(t *testing.T) {
 	org := orgs[0]
 	joiner := &repo.User{ID: "u2", Email: "joiner@example.com", Name: "Joiner", Role: "user", Active: true, CreatedAt: now, UpdatedAt: now}
 	require.NoError(t, s.CreateUser(ctx, joiner))
-	h := NewHandler(s, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	h := NewHandler(s, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil).
+		WithDomainResources(service.NewDomainResourceService(s, nil)).
+		WithPlans(service.NewPlanService(s, nil, nil)).
+		WithGraph(service.NewGraphService(s)).
+		WithConnectors(service.NewConnectorService(s))
 
 	add := func(email string) error {
 		c := asUser(t, http.MethodPost, "email="+url.QueryEscape(email)+"&role=viewer", owner, orgs, "owner")
@@ -78,7 +82,11 @@ func TestAddMemberAlwaysInvites(t *testing.T) {
 func TestSetupDomainPrefill(t *testing.T) {
 	s := testdb.New(t)
 	ctx := context.Background()
-	h := NewHandler(s, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	h := NewHandler(s, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil).
+		WithDomainResources(service.NewDomainResourceService(s, nil)).
+		WithPlans(service.NewPlanService(s, nil, nil)).
+		WithGraph(service.NewGraphService(s)).
+		WithConnectors(service.NewConnectorService(s))
 	o := &repo.Org{Slug: "acme"}
 	components.BaseURL = ""
 	require.Equal(t, "", h.setupDomainPrefill(ctx, o))
@@ -98,11 +106,11 @@ func TestCheckOrgSquat(t *testing.T) {
 	other := &repo.Org{ID: "orgX", Name: "Other", Slug: "other", CreatedAt: time.Now().UTC()}
 	require.NoError(t, s.CreateOrg(ctx, other))
 
-	require.Error(t, envops.CheckOrgSquat(ctx, s, "other.example.com", "mine"), "another org's slug as first label")
-	require.Error(t, envops.CheckOrgSquat(ctx, s, "*.other.example.com", "mine"), "wildcard hides the same claim")
-	require.NoError(t, envops.CheckOrgSquat(ctx, s, "other.example.com", other.ID), "the org's own slug is fine")
-	require.NoError(t, envops.CheckOrgSquat(ctx, s, "unrelated.example.com", "mine"))
-	require.NoError(t, envops.CheckOrgSquat(ctx, s, "example.com", "mine"), "single-label hosts have no org prefix")
+	require.Error(t, service.CheckOrgSquat(ctx, s, "other.example.com", "mine"), "another org's slug as first label")
+	require.Error(t, service.CheckOrgSquat(ctx, s, "*.other.example.com", "mine"), "wildcard hides the same claim")
+	require.NoError(t, service.CheckOrgSquat(ctx, s, "other.example.com", other.ID), "the org's own slug is fine")
+	require.NoError(t, service.CheckOrgSquat(ctx, s, "unrelated.example.com", "mine"))
+	require.NoError(t, service.CheckOrgSquat(ctx, s, "example.com", "mine"), "single-label hosts have no org prefix")
 }
 
 // The People list is one list built from two tables, so it is the only place
@@ -141,7 +149,11 @@ func TestReinviteMintsANewToken(t *testing.T) {
 		CreatedAt: time.Now().UTC().AddDate(0, 0, -30), ExpiresAt: time.Now().UTC().AddDate(0, 0, -16),
 	}
 	require.NoError(t, s.CreateInvite(ctx, dead))
-	h := NewHandler(s, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	h := NewHandler(s, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil).
+		WithDomainResources(service.NewDomainResourceService(s, nil)).
+		WithPlans(service.NewPlanService(s, nil, nil)).
+		WithGraph(service.NewGraphService(s)).
+		WithConnectors(service.NewConnectorService(s))
 
 	c := asUser(t, http.MethodPost, "", owner, orgs, "owner")
 	c.SetParamNames("id", "inviteID")
@@ -174,7 +186,11 @@ func TestSetupDoneOnlyOnPost(t *testing.T) {
 	org.SetupDoneAt = nil
 	require.NoError(t, s.UpdateOrg(ctx, &org))
 	orgs[0] = org
-	h := NewHandler(s, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	h := NewHandler(s, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil).
+		WithDomainResources(service.NewDomainResourceService(s, nil)).
+		WithPlans(service.NewPlanService(s, nil, nil)).
+		WithGraph(service.NewGraphService(s)).
+		WithConnectors(service.NewConnectorService(s))
 
 	get := asUser(t, http.MethodGet, "", u, orgs, "owner")
 	get.Set("csrf", "test-token") // the summary carries the Finish form
@@ -219,7 +235,11 @@ func TestSetupDoneCreatesDefaultDomain(t *testing.T) {
 		if seed != nil {
 			seed(t, s, &org)
 		}
-		h := NewHandler(s, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+		h := NewHandler(s, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil).
+			WithDomainResources(service.NewDomainResourceService(s, nil)).
+			WithPlans(service.NewPlanService(s, nil, nil)).
+			WithGraph(service.NewGraphService(s)).
+			WithConnectors(service.NewConnectorService(s))
 		c := asUser(t, http.MethodPost, "", u, orgs, "owner")
 		c.SetPath("/orgs/:slug/setup/done")
 		c.SetParamNames("slug")

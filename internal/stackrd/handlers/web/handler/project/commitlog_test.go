@@ -25,7 +25,7 @@ func TestCommitLogPlacesChips(t *testing.T) {
 	staging := &repo.Environment{ID: "env2", StackID: seed.Stack.ID, Name: "Staging", Slug: "staging", Type: "static", CreatedAt: now.Add(time.Second)}
 	require.NoError(t, s.CreateEnvironment(ctx, staging))
 	seed.Tile.SourceType, seed.Tile.GitURL = "git", "https://example.com/r.git"
-	require.NoError(t, s.UpdateTile(ctx, seed.Tile))
+	require.NoError(t, s.UpdateTile(ctx, seed.Tile.ID, seed.Tile.TileConfig))
 	stTile := &repo.Tile{ID: "tile2", StackID: seed.Stack.ID, EnvironmentID: staging.ID, Name: "app", Slug: "app",
 		Kind: "service", SourceType: "git", GitURL: "https://example.com/r.git", Status: "idle", CreatedAt: now, UpdatedAt: now}
 	require.NoError(t, s.CreateTile(ctx, stTile))
@@ -45,7 +45,7 @@ func TestCommitLogPlacesChips(t *testing.T) {
 		{SHA: "aaaaaaa0", Message: "head"},
 		{SHA: "aaaaaaa1", Message: "one back"},
 	}})
-	h := &handler{store: s}
+	h := testHandler(s)
 	log := h.commitLog(ctx, seed.Stack)
 
 	require.Len(t, log.Rows, 2)

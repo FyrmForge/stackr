@@ -88,12 +88,7 @@ func IsPinned(ctx context.Context, store repo.Store, t *repo.Tile) bool {
 		// runs, a stateful one spread across nodes loses data.
 		return true
 	}
-	for i := range siblings {
-		if siblings[i].IsVolume() && siblings[i].AttachedTileID == t.ID {
-			return true
-		}
-	}
-	return false
+	return len(repo.VolumesAttachedTo(siblings, t.ID)) > 0
 }
 
 // InGroup reports whether a pinned tile's data already sits on a node in the
@@ -112,8 +107,16 @@ func InGroup(ctx context.Context, store repo.Store, rt *runtime.Runtime, t *repo
 	}
 	probe := *t
 	probe.NodeGroup = group
-	_, err := For(ctx, store, rt, &probe)
+	// nil Tiles, deliberately: the guard above means this call cannot reach a
+	// write, and passing a writer to a predicate is how it later grows one.
+	_, err := For(ctx, store, nil, rt, &probe)
 	return err == nil
+}
+
+// Tiles owns the home-node column this chooser pins. Declared here rather
+// than imported: service/ is built on top of this package.
+type Tiles interface {
+	SetHomeNode(ctx context.Context, tileID, nodeID string) error
 }
 
 // For resolves a tile's placement, assigning and persisting a home node the
@@ -123,7 +126,7 @@ func InGroup(ctx context.Context, store repo.Store, rt *runtime.Runtime, t *repo
 // rescheduled: rescheduling it is exactly the silent data loss above. The
 // operator's way out is Remove on the dead node, which says which volumes go
 // with it.
-func For(ctx context.Context, store repo.Store, rt *runtime.Runtime, t *repo.Tile) (Plan, error) {
+func For(ctx context.Context, store repo.Store, tiles Tiles, rt *runtime.Runtime, t *repo.Tile) (Plan, error) {
 	res := settings.ForTile(ctx, store, t)
 	p := Plan{
 		Group:    res.EffectiveGroup(t.NodeGroup),
@@ -171,7 +174,7 @@ func For(ctx context.Context, store repo.Store, rt *runtime.Runtime, t *repo.Til
 				return p, fmt.Errorf("%s attaches a local pool on node %s, which is not in group %q; move the pool or drop the group",
 					t.Slug, n.Hostname, p.Group)
 			}
-			if err := store.SetTileHomeNode(ctx, t.ID, n.ID); err != nil {
+			if err := tiles.SetHomeNode(ctx, t.ID, n.ID); err != nil {
 				return p, err
 			}
 			t.HomeNode, p.HomeNode = n.ID, n.ID
@@ -201,7 +204,7 @@ func For(ctx context.Context, store repo.Store, rt *runtime.Runtime, t *repo.Til
 		}
 		return p, fmt.Errorf("no ready node for %s", t.Slug)
 	}
-	if err := store.SetTileHomeNode(ctx, t.ID, pick); err != nil {
+	if err := tiles.SetHomeNode(ctx, t.ID, pick); err != nil {
 		return p, err
 	}
 	t.HomeNode = pick

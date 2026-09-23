@@ -63,18 +63,24 @@ func DepWaiting(ctx context.Context, store repo.Store, app *repo.Tile) error {
 //
 // Scoped to stacks because a variable name is not unique across tenants; one
 // org setting DATABASE_URL must not touch another org's cards.
-func ClearWaiting(ctx context.Context, store repo.Store, name string, stackIDs ...string) {
+// Tiles is the tile service's status door. Declared here for the usual
+// reason: service/ is built on top of this package.
+type Tiles interface {
+	SetStatus(ctx context.Context, tileID, status string) error
+}
+
+func ClearWaiting(ctx context.Context, store repo.Store, tiles Tiles, name string, stackIDs ...string) {
 	if name == "" {
 		return
 	}
 	for _, sid := range stackIDs {
-		tiles, err := store.ListTilesByStack(ctx, sid)
+		ts, err := store.ListTilesByStack(ctx, sid)
 		if err != nil {
 			continue
 		}
-		for _, t := range tiles {
+		for _, t := range ts {
 			if WaitingFor(t.Status) == name {
-				if err := store.UpdateTileStatus(ctx, t.ID, "stopped"); err != nil {
+				if err := tiles.SetStatus(ctx, t.ID, "stopped"); err != nil {
 					slog.Error("tile not released from waiting", "tile", t.ID, "waiting_for", name, "error", err)
 				}
 			}
@@ -85,17 +91,17 @@ func ClearWaiting(ctx context.Context, store repo.Store, name string, stackIDs .
 // ClearWaitingEnv releases only the tiles of one environment. An env-scoped
 // value satisfies nothing outside its env: the other envs are still parked on
 // the same name and have to keep saying so.
-func ClearWaitingEnv(ctx context.Context, store repo.Store, envID, name string) {
+func ClearWaitingEnv(ctx context.Context, store repo.Store, tiles Tiles, envID, name string) {
 	if name == "" {
 		return
 	}
-	tiles, err := store.ListTilesByEnv(ctx, envID)
+	ts, err := store.ListTilesByEnv(ctx, envID)
 	if err != nil {
 		return
 	}
-	for _, t := range tiles {
+	for _, t := range ts {
 		if WaitingFor(t.Status) == name {
-			if err := store.UpdateTileStatus(ctx, t.ID, "stopped"); err != nil {
+			if err := tiles.SetStatus(ctx, t.ID, "stopped"); err != nil {
 				slog.Error("tile not released from waiting", "tile", t.ID, "waiting_for", name, "error", err)
 			}
 		}
@@ -104,7 +110,7 @@ func ClearWaitingEnv(ctx context.Context, store repo.Store, envID, name string) 
 
 // ClearWaitingOrg is ClearWaiting over every stack in an org, for org-scoped
 // variables.
-func ClearWaitingOrg(ctx context.Context, store repo.Store, orgID, name string) {
+func ClearWaitingOrg(ctx context.Context, store repo.Store, tiles Tiles, orgID, name string) {
 	stacks, err := store.ListStacksByOrg(ctx, orgID)
 	if err != nil {
 		return
@@ -113,5 +119,5 @@ func ClearWaitingOrg(ctx context.Context, store repo.Store, orgID, name string) 
 	for _, s := range stacks {
 		ids = append(ids, s.ID)
 	}
-	ClearWaiting(ctx, store, name, ids...)
+	ClearWaiting(ctx, store, tiles, name, ids...)
 }

@@ -6,7 +6,7 @@ import (
 	"github.com/labstack/echo/v4"
 	v1 "github.com/FyrmForge/stackr/internal/stackrd/handlers/api/v1"
 	"github.com/FyrmForge/stackr/internal/stackrd/handlers/web/avatar"
-	"github.com/FyrmForge/stackr/internal/stackrd/handlers/notify"
+	"github.com/FyrmForge/stackr/internal/stackrd/service/notify"
 	"github.com/FyrmForge/stackr/internal/stackrd/store/repo"
 	"github.com/FyrmForge/stackr/internal/stackrd/handlers/web/components"
 	"github.com/FyrmForge/stackr/internal/stackrd/handlers/web/components/form"
@@ -151,6 +151,9 @@ templ apiKeysPage(c echo.Context, keys []repo.APIKey, newKey string) {
 						<li class="panel px-4 py-3 flex items-center justify-between gap-3">
 							<span class="text-sm text-rw-text min-w-0">
 								{ k.Name } <span class="text-rw-faint text-xs">{ k.CreatedAt.Format("Jan 2 2006") }</span>
+								if org := keyOrgName(c, k); org != "" {
+									<span class="text-rw-faint text-xs">&middot; { org } only</span>
+								}
 								if scopes := strings.Join(k.ScopeList(), " "); scopes != "" {
 									<div class="text-rw-faint text-xs font-mono truncate mt-0.5">{ scopes }</div>
 								}

@@ -110,17 +110,20 @@ environments:
       web:
         type: service
         image: nginx
+        port: 8080
         domains:
           - host: app.example.com
       api:
         type: service
         image: nginx
+        port: 8080
         domains:
           - host: api.example.com
           - host: dup.example.com
       admin:
         type: service
         image: nginx
+        port: 8080
         domains:
           - host: dup.example.com
 `
