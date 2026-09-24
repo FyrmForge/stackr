@@ -98,7 +98,7 @@ func TestRoundTrip(t *testing.T) {
 		func(i *store.Invite) { i.UsedAt = ptr(t1) })
 	roundTrip(t, s.APIKeys, store.APIKey{ID: "k1", UserID: "u1", OrgID: ptr("o1"), Name: "ci", TokenHash: "th", CreatedAt: t0},
 		func(k *store.APIKey) { k.Name, k.OrgID = "ci2", nil })
-	roundTrip(t, s.Stacks, store.Stack{ID: "s1", OrgID: "o1", Name: "S", Slug: "s", Description: "d", Settings: "{}", ConfigConnectorID: "c", ConfigRepo: "r", ConfigBranch: "main", ConfigPath: "stackr.yml", CreatedAt: t0},
+	roundTrip(t, s.Stacks, store.Stack{ID: "s1", OrgID: "o1", Name: "S", Slug: "s", Description: "d", Settings: "{}", ConfigConnectorID: "c", ConfigRepo: "r", ConfigBranch: "main", ConfigPath: "stackr.yml", Domains: "[]", CreatedAt: t0},
 		func(st *store.Stack) { st.Description, st.ConfigBranch = "d2", "dev" })
 	roundTrip(t, s.Releases, store.Release{ID: "r1", StackID: "s1", Number: 1, CreatedAt: t0, CreatedBy: "u1"},
 		func(r *store.Release) { r.Number = 2 })
