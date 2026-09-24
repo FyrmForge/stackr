@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"time"
 
 	"github.com/FyrmForge/hamr/pkg/auth"
@@ -17,6 +18,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/environment"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/org"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/settings"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/stack"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/user"
@@ -60,6 +62,7 @@ type Orchestrator struct {
 	stacks   *stack.Leaf
 	envs     *environment.Leaf
 	tiles    *tile.Leaf
+	settings *settings.Leaf
 }
 
 // onBuild is a test hook: every constructor New calls reports its name here,
@@ -125,7 +128,25 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 		stacks: build("leaf/stack", func() *stack.Leaf { return stack.New(st.Stacks) }),
 		envs:   build("leaf/environment", func() *environment.Leaf { return environment.New(st.Environments) }),
 		tiles:  build("leaf/tile", func() *tile.Leaf { return tile.New(st.Tiles) }),
+		settings: build("leaf/settings", func() *settings.Leaf {
+			return settings.New(st.Settings, bootSettings(cfg))
+		}),
 	}, nil
+}
+
+// bootSettings turns the Config knobs that are set into settings values.
+func bootSettings(cfg Config) map[string]string {
+	boot := map[string]string{}
+	if cfg.Workers > 0 {
+		boot["workers"] = strconv.Itoa(cfg.Workers)
+	}
+	if cfg.ImageWatchInterval > 0 {
+		boot["image_check_interval"] = strconv.Itoa(int(cfg.ImageWatchInterval / time.Minute))
+	}
+	if cfg.OrphanRetentionDays > 0 {
+		boot["orphan_retention_days"] = strconv.Itoa(cfg.OrphanRetentionDays)
+	}
+	return boot
 }
 
 // Close releases the database.

@@ -23,7 +23,7 @@ func TestNewBuildsEachOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = o.Close() })
-	for _, name := range []string{"store", "sessions", "leaf/user"} {
+	for _, name := range []string{"store", "sessions", "leaf/user", "leaf/settings"} {
 		if counts[name] == 0 {
 			t.Errorf("%s never built", name)
 		}
