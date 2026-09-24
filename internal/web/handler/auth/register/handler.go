@@ -1,11 +1,9 @@
 package register
 
 import (
-	"errors"
 	"net/http"
 	"strings"
 
-	hamrauth "github.com/FyrmForge/hamr/pkg/auth"
 	"github.com/FyrmForge/hamr/pkg/logging"
 	"github.com/FyrmForge/hamr/pkg/middleware"
 	"github.com/FyrmForge/hamr/pkg/respond"
@@ -14,6 +12,7 @@ import (
 
 	"github.com/FyrmForge/stackr/internal/auth"
 	"github.com/FyrmForge/stackr/internal/service"
+	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/web/components/form"
 )
 
@@ -25,17 +24,15 @@ type RegisterForm struct {
 }
 
 type handler struct {
-	authService    *service.AuthService
-	sessionManager *hamrauth.SessionManager
+	svc *service.Orchestrator
 
 	FormRules validate.Form
 }
 
 // NewHandler creates a new register handler.
-func NewHandler(authService *service.AuthService, sm *hamrauth.SessionManager) *handler {
+func NewHandler(svc *service.Orchestrator) *handler {
 	return &handler{
-		authService:    authService,
-		sessionManager: sm,
+		svc: svc,
 		FormRules: validate.NewForm(
 			validate.WithOOBRenderer(form.OOBValidator),
 			validate.WithGeneralError("Please fix the errors below and try again."),
@@ -65,10 +62,10 @@ func (h *handler) Submit(c echo.Context) error {
 
 	log := logging.FromContext(c.Request().Context())
 
-	user, err := h.authService.Register(c.Request().Context(), f.Email, f.Password, f.Name)
+	session, err := h.svc.Register(c.Request().Context(), f.Email, f.Password, f.Name)
 	if err != nil {
 		log.Warn("registration failed", "email", f.Email, "error", err)
-		if errors.Is(err, service.ErrEmailTaken) {
+		if v, ok := errs.IsInvalid(err); ok && v.Field == "email" {
 			return respond.HTML(c, http.StatusUnprocessableEntity, registerForm(c, f, map[string]string{
 				"email": "An account with this email already exists",
 			}))
@@ -78,13 +75,7 @@ func (h *handler) Submit(c echo.Context) error {
 		}))
 	}
 
-	session, err := h.sessionManager.CreateSession(c.Request().Context(), user.ID, nil)
-	if err != nil {
-		log.Error("create session failed", "error", err)
-		return echo.NewHTTPError(http.StatusInternalServerError, "session error")
-	}
-
-	auth.SetSession(c, h.sessionManager, session)
+	auth.SetSession(c, h.svc.Sessions(), session)
 	middleware.SetFlash(c, "Welcome! Your account has been created.", middleware.FlashSuccess)
 	return respond.Redirect(c, "/")
 }

@@ -86,8 +86,12 @@ func (f *Fake) Inspect(_ context.Context, id string) (docker.Detail, error) {
 	return f.Details[id], f.rec("Inspect", id)
 }
 
-func (f *Fake) EnsureNetwork(_ context.Context, name string) error { return f.rec("EnsureNetwork", name) }
-func (f *Fake) RemoveNetwork(_ context.Context, name string) error { return f.rec("RemoveNetwork", name) }
+func (f *Fake) EnsureNetwork(_ context.Context, name string) error {
+	return f.rec("EnsureNetwork", name)
+}
+func (f *Fake) RemoveNetwork(_ context.Context, name string) error {
+	return f.rec("RemoveNetwork", name)
+}
 func (f *Fake) Connect(_ context.Context, network, id string, aliases []string) error {
 	return f.rec("Connect", network, id, strings.Join(aliases, ","))
 }

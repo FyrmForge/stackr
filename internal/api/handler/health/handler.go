@@ -5,21 +5,21 @@ import (
 
 	"github.com/labstack/echo/v4"
 
-	"github.com/FyrmForge/stackr/internal/repo"
+	"github.com/FyrmForge/stackr/internal/service"
 )
 
 type handler struct {
-	store repo.Store
+	svc *service.Orchestrator
 }
 
 // NewHandler creates a new API health handler.
-func NewHandler(store repo.Store) *handler {
-	return &handler{store: store}
+func NewHandler(svc *service.Orchestrator) *handler {
+	return &handler{svc: svc}
 }
 
 // GET /api/health
 func (h *handler) Health(c echo.Context) error {
-	if err := h.store.Health(c.Request().Context()); err != nil {
+	if err := h.svc.Ping(c.Request().Context()); err != nil {
 		return c.JSON(http.StatusServiceUnavailable, map[string]string{
 			"status": "unhealthy",
 			"error":  err.Error(),

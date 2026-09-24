@@ -2,33 +2,29 @@ package web
 
 import (
 	"context"
+	"errors"
 
+	"github.com/FyrmForge/hamr/pkg/email"
 	hamrmw "github.com/FyrmForge/hamr/pkg/middleware"
 	"github.com/FyrmForge/hamr/pkg/server"
-	"github.com/FyrmForge/hamr/pkg/auth"
-	"github.com/FyrmForge/hamr/pkg/storage"
-	"github.com/FyrmForge/hamr/pkg/email"
 
 	"github.com/FyrmForge/stackr/internal/middleware"
-	"github.com/FyrmForge/stackr/internal/repo"
 	"github.com/FyrmForge/stackr/internal/service"
+	"github.com/FyrmForge/stackr/internal/service/errs"
+	"github.com/FyrmForge/stackr/internal/web/components"
+	"github.com/FyrmForge/stackr/internal/web/handler/about"
 	"github.com/FyrmForge/stackr/internal/web/handler/auth/login"
 	"github.com/FyrmForge/stackr/internal/web/handler/auth/register"
-	"github.com/FyrmForge/stackr/internal/web/handler/about"
 	"github.com/FyrmForge/stackr/internal/web/handler/devemail"
 	"github.com/FyrmForge/stackr/internal/web/handler/home"
-	"github.com/FyrmForge/stackr/internal/web/components"
 )
 
 // Deps holds the dependencies for route registration.
 type Deps struct {
-	Store          repo.Store
-	BaseURL        string
-	StaticBaseURL  string
-	DevMode        bool
-	SessionManager *auth.SessionManager
-	AuthService *service.AuthService
-	FileStorage storage.FileStorage
+	Service       *service.Orchestrator
+	BaseURL       string
+	StaticBaseURL string
+	DevMode       bool
 	// EmailSender is the outbound mail transport. In dev it points at the
 	// hamr email inbox at /__hamr/mail (via pkg/emailmock); in production
 	// swap in a real provider adapter that satisfies email.Sender.
@@ -52,9 +48,17 @@ func RegisterRoutes(srv *server.Server, deps *Deps) {
 	site.Use(hamrmw.FlashWithConfig(hamrmw.FlashConfig{Secure: !deps.DevMode}))
 	site.Use(hamrmw.CSRFWithConfig(hamrmw.CSRFConfig{Secure: !deps.DevMode}))
 
-	auth := hamrmw.NewBrowserAuth(deps.SessionManager,
+	sm := deps.Service.Sessions()
+	auth := hamrmw.NewBrowserAuth(sm,
 		hamrmw.WithSubjectLoader(func(reqCtx context.Context, id string) (any, error) {
-			return deps.Store.GetUserByID(reqCtx, id)
+			u, err := deps.Service.User(reqCtx, id)
+			if errors.Is(err, errs.ErrNotFound) {
+				return nil, nil // stale session: hamr clears the cookie
+			}
+			if err != nil {
+				return nil, err
+			}
+			return &u, nil
 		}),
 		hamrmw.WithLoginRedirect("/login"),
 		hamrmw.WithHomeRedirect("/"),
@@ -73,13 +77,13 @@ func RegisterRoutes(srv *server.Server, deps *Deps) {
 	}
 
 	// Auth routes — one page-package per page (login owns logout as its inverse action).
-	loginHandler := login.NewHandler(deps.AuthService, deps.SessionManager)
+	loginHandler := login.NewHandler(deps.Service)
 	site.GET("/login", loginHandler.Page, auth.RequireNotAuth())
 	site.POST("/login", loginHandler.Submit, auth.RequireNotAuth())
 	site.POST("/login/validate/:field", loginHandler.FormRules.ValidationHandler("field"), auth.RequireNotAuth())
 	site.POST("/logout", loginHandler.Logout, auth.RequireAuth())
 
-	registerHandler := register.NewHandler(deps.AuthService, deps.SessionManager)
+	registerHandler := register.NewHandler(deps.Service)
 	site.GET("/register", registerHandler.Page, auth.RequireNotAuth())
 	site.POST("/register", registerHandler.Submit, auth.RequireNotAuth())
 	site.POST("/register/validate/:field", registerHandler.FormRules.ValidationHandler("field"), auth.RequireNotAuth())

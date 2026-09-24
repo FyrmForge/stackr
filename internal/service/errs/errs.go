@@ -60,7 +60,7 @@ type Unset struct{ Param string }
 
 func (e Unset) Error() string { return "param " + e.Param + " is not set" }
 
-func Refusedf(format string, a ...any) error { return Refused{Msg: fmt.Sprintf(format, a...)} }
+func Refusedf(format string, a ...any) error  { return Refused{Msg: fmt.Sprintf(format, a...)} }
 func Conflictf(format string, a ...any) error { return Conflict{Msg: fmt.Sprintf(format, a...)} }
 func Invalidf(field, format string, a ...any) error {
 	return Invalid{Field: field, Msg: fmt.Sprintf(format, a...)}

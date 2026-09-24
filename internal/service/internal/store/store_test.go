@@ -107,7 +107,9 @@ func TestRoundTrip(t *testing.T) {
 	ctx := context.Background()
 
 	roundTrip(t, s.Users, store.User{ID: "u1", Email: "a@x", PasswordHash: "h", Name: "A", Role: "user", Active: true, AvatarPath: "a.png", Theme: "dark", CreatedAt: t0, UpdatedAt: t0},
-		func(u *store.User) { u.Email, u.Role, u.Active, u.Theme, u.UpdatedAt = "b@x", "admin", false, "light", t1 })
+		func(u *store.User) {
+			u.Email, u.Role, u.Active, u.Theme, u.UpdatedAt = "b@x", "admin", false, "light", t1
+		})
 	roundTrip(t, s.Orgs, store.Org{ID: "o1", Name: "Org", Slug: "org", AvatarPath: "o.png", EnvColors: `{"prod":"red"}`, Settings: "{}", SetupDoneAt: nil, CreatedAt: t0},
 		func(o *store.Org) { o.Name, o.SetupDoneAt = "Org 2", ptr(t1) })
 	roundTrip(t, s.OrgMembers, store.OrgMember{ID: "m1", OrgID: "o1", UserID: "u1", Role: "owner", CreatedAt: t0},
@@ -121,11 +123,15 @@ func TestRoundTrip(t *testing.T) {
 	roundTrip(t, s.Releases, store.Release{ID: "r1", StackID: "s1", Number: 1, CreatedAt: t0, CreatedBy: "u1"},
 		func(r *store.Release) { r.Number = 2 })
 	roundTrip(t, s.Environments, store.Environment{ID: "e1", StackID: "s1", Name: "Prod", Slug: "prod", Type: "static", Settings: "{}", Color: "red", Position: 1, Network: "net1", FromKind: "branch", FromBranch: "main", Auto: true, CreatedAt: t0},
-		func(e *store.Environment) { e.ReleaseID, e.FromKind, e.Auto, e.Position = ptr("r1"), "promote", false, 2 })
+		func(e *store.Environment) {
+			e.ReleaseID, e.FromKind, e.Auto, e.Position = ptr("r1"), "promote", false, 2
+		})
 	roundTrip(t, s.Environments, store.Environment{ID: "e2", StackID: "s1", Name: "PR 7", Slug: "pr-7", Type: "ephemeral", BaseEnvID: ptr("e1"), Settings: "{}", Color: "", Position: 3, Network: "net2", FromKind: "branch", FromBranch: "pr-7", CreatedAt: t0},
 		func(e *store.Environment) { e.BaseEnvID = nil })
 	roundTrip(t, s.Tiles, store.Tile{ID: "t1", StackID: "s1", EnvironmentID: "e1", Name: "Web", Slug: "web", Kind: "service", GitURL: "https://g/x", GitBranch: "main", ImageRef: "", DockerfilePath: "Dockerfile", BuildContext: ".", WatchPaths: "src/**", EnvJSON: `{"A":"1"}`, BuildArgs: "{}", Volumes: "data:/data", Command: "run", ContainerPort: 8080, PublishedPorts: "80:8080", EndpointProtocol: "http", HealthPath: "/health", HealthcheckCmd: "true", HealthcheckIntervalS: 10, HealthcheckTimeoutS: 5, HealthcheckRetries: 3, HealthcheckStartPeriodS: 15, CPULimit: 1.5, MemLimitMB: 512, User: "1000", ShmSizeMB: 64, Privileged: true, Devices: "/dev/x", RestartPolicy: "always", DependsOn: "db", Files: "{}", SharedNet: "shared", Replicas: 2, UpdatePolicy: "auto", TagPolicy: "semver", CreatedAt: t0, UpdatedAt: t0},
-		func(ti *store.Tile) { ti.Kind, ti.CPULimit, ti.Privileged, ti.UpdatePolicy, ti.UpdatedAt = "image", 0.25, false, "manual", t1 })
+		func(ti *store.Tile) {
+			ti.Kind, ti.CPULimit, ti.Privileged, ti.UpdatePolicy, ti.UpdatedAt = "image", 0.25, false, "manual", t1
+		})
 	roundTrip(t, s.Tiles, store.Tile{ID: "t2", StackID: "s1", EnvironmentID: "e1", Name: "DB", Slug: "db", Kind: "managed", UpdatePolicy: "manual", CreatedAt: t0, UpdatedAt: t0},
 		func(ti *store.Tile) { ti.Replicas = 1 })
 	roundTrip(t, s.Images, store.Image{ID: "img1", Ref: "reg/x:1", Digest: "sha256:a", BuiltAt: ptr(t0), LastDigest: "sha256:b", LastTag: "1", LastError: "", CheckedAt: nil, CreatedAt: t0},
@@ -153,7 +159,9 @@ func TestRoundTrip(t *testing.T) {
 	roundTrip(t, s.BackupRuns, store.BackupRun{ID: "br1", Kind: "volume", VolumeID: ptr("v1"), ScheduleID: ptr("bs1"), DestID: "bd1", Trigger: "cron", Status: "running", ObjectKey: "k", SizeBytes: 1 << 40, CreatedAt: t0},
 		func(b *store.BackupRun) { b.Status, b.FinishedAt, b.VolumeID = "done", ptr(t1), nil })
 	roundTrip(t, s.Jobs, store.Job{ID: "j1", Kind: "deploy", State: "queued", ReleaseID: ptr("r1"), LockSet: store.StringList{"t1", "t2"}, Payload: `{"x":1}`, LogPath: "/j1.log", CreatedAt: t0},
-		func(j *store.Job) { j.State, j.WaitingParam, j.StartedAt, j.LockSet = "waiting", ptr("db/password"), ptr(t1), store.StringList{} })
+		func(j *store.Job) {
+			j.State, j.WaitingParam, j.StartedAt, j.LockSet = "waiting", ptr("db/password"), ptr(t1), store.StringList{}
+		})
 
 	// Settings and sessions have no id-keyed CRUD.
 	if _, ok, err := s.Settings.Get(ctx, "workers"); ok || err != nil {
