@@ -57,7 +57,11 @@ func (a *app) path(c *cobra.Command, lv level, tile string) (string, error) {
 		lv           level
 		name, linked string
 		seg          string
-	}{{atStack, "stack", l.Stack, "/stacks/"}, {atEnv, "env", l.Env, "/envs/"}, {atTile, "tile", l.Tile, "/tiles/"}} {
+	}{
+		{atStack, "stack", l.Stack, "/stacks/"},
+		{atEnv, "env", l.Env, "/envs/"},
+		{atTile, "tile", l.Tile, "/tiles/"},
+	} {
 		if s.lv > lv {
 			break
 		}

@@ -8,24 +8,53 @@ import (
 )
 
 func TestCheck(t *testing.T) {
-	ok := installspec.Input{Root: "https://Example.com/", HTTPS: true, Email: "Ops@Example.com",
-		Proxies: "192.168.1.100, 10.0.0.0/8,10.0.0.0/8", HTTPPort: "80", HTTPSPort: "443", DataDir: "/var/lib/stackr/"}
+	ok := installspec.Input{
+		Root:      "https://Example.com/",
+		HTTPS:     true,
+		Email:     "Ops@Example.com",
+		Proxies:   "192.168.1.100, 10.0.0.0/8,10.0.0.0/8",
+		HTTPPort:  "80",
+		HTTPSPort: "443",
+		DataDir:   "/var/lib/stackr/",
+	}
 	if err := check(&ok, nil); err != nil {
 		t.Fatal(err)
 	}
-	want := installspec.Input{Root: "example.com", PanelHost: "stkr.example.com", HTTPS: true, Email: "ops@example.com",
-		Proxies: "192.168.1.100/32,10.0.0.0/8", HTTPPort: "80", HTTPSPort: "443", DataDir: "/var/lib/stackr"}
+	want := installspec.Input{
+		Root:      "example.com",
+		PanelHost: "stkr.example.com",
+		HTTPS:     true,
+		Email:     "ops@example.com",
+		Proxies:   "192.168.1.100/32,10.0.0.0/8",
+		HTTPPort:  "80",
+		HTTPSPort: "443",
+		DataDir:   "/var/lib/stackr",
+	}
 	if ok != want {
 		t.Fatalf("got %+v", ok)
 	}
 
-	plain := installspec.Input{Root: "example.com", Email: "x", HTTPSPort: "443", DNS01: true, HTTPPort: "8080", DataDir: "/d"}
+	plain := installspec.Input{
+		Root:      "example.com",
+		Email:     "x",
+		HTTPSPort: "443",
+		DNS01:     true,
+		HTTPPort:  "8080",
+		DataDir:   "/d",
+	}
 	if err := check(&plain, nil); err != nil || plain.Email != "" || plain.HTTPSPort != "" || plain.DNS01 {
 		t.Fatalf("plain HTTP keeps TLS answers: %+v %v", plain, err)
 	}
 
 	base := func() installspec.Input {
-		return installspec.Input{Root: "example.com", HTTPS: true, Email: "a@example.com", HTTPPort: "80", HTTPSPort: "443", DataDir: "/d"}
+		return installspec.Input{
+			Root:      "example.com",
+			HTTPS:     true,
+			Email:     "a@example.com",
+			HTTPPort:  "80",
+			HTTPSPort: "443",
+			DataDir:   "/d",
+		}
 	}
 	for name, mut := range map[string]func(*installspec.Input){
 		"ip domain":       func(in *installspec.Input) { in.Root = "1.2.3.4" },
@@ -52,7 +81,8 @@ func TestCheck(t *testing.T) {
 	}
 
 	in := base()
-	if err := check(&in, func(p string) bool { return p == "443" }); err == nil || !strings.Contains(err.Error(), "https port") {
+	if err := check(&in, func(p string) bool { return p == "443" }); err == nil ||
+		!strings.Contains(err.Error(), "https port") {
 		t.Errorf("busy port: %v", err)
 	}
 }
@@ -69,7 +99,12 @@ func TestCheckVersion(t *testing.T) {
 			t.Errorf("%v: %q %v", in, got, err)
 		}
 	}
-	for _, bad := range [][2]string{{"", "dev"}, {"1.2", "dev"}, {"1.2.3;rm", "dev"}, {"latest", "abc123"}} {
+	for _, bad := range [][2]string{
+		{"", "dev"},
+		{"1.2", "dev"},
+		{"1.2.3;rm", "dev"},
+		{"latest", "abc123"},
+	} {
 		if got, err := checkVersion(bad[0], bad[1]); err == nil {
 			t.Errorf("%v accepted as %q", bad, got)
 		}
@@ -77,7 +112,13 @@ func TestCheckVersion(t *testing.T) {
 }
 
 func TestDoneText(t *testing.T) {
-	in := installspec.Input{Root: "example.com", PanelHost: "stkr.example.com", HTTPS: true, HTTPSPort: "443", DataDir: "/d"}
+	in := installspec.Input{
+		Root:      "example.com",
+		PanelHost: "stkr.example.com",
+		HTTPS:     true,
+		HTTPSPort: "443",
+		DataDir:   "/d",
+	}
 	s := doneText(in, "k3y", false)
 	for _, want := range []string{"https://stkr.example.com", "k3y", "*.example.com", "Caddy"} {
 		if !strings.Contains(s, want) {

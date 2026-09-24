@@ -92,7 +92,8 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	if err := r.write(filepath.Join(in.DataDir, installspec.File), func() error { return installspec.Save(in) }); err != nil {
+	if err := r.write(filepath.Join(in.DataDir, installspec.File),
+		func() error { return installspec.Save(in) }); err != nil {
 		return err
 	}
 	r.conntrackAcct()
@@ -116,7 +117,8 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 	} else if err := r.docker(ctx, installspec.Panel(image, in).RunArgs()...); err != nil {
 		return err
 	}
-	if err := r.write(wrapperPath, func() error { return os.WriteFile(wrapperPath, []byte(wrapper), 0o755) }); err != nil {
+	if err := r.write(wrapperPath,
+		func() error { return os.WriteFile(wrapperPath, []byte(wrapper), 0o755) }); err != nil {
 		return err
 	}
 	_, _ = fmt.Fprint(out, doneText(in, newKey, r.dry))
@@ -229,7 +231,10 @@ const (
 )
 
 func (r runner) conntrackAcct() {
-	for _, f := range [][2]string{{acctKnob, "1\n"}, {acctConf, "net.netfilter.nf_conntrack_acct=1\n"}} {
+	for _, f := range [][2]string{
+		{acctKnob, "1\n"},
+		{acctConf, "net.netfilter.nf_conntrack_acct=1\n"},
+	} {
 		path, body := f[0], f[1]
 		if err := r.write(path, func() error { return os.WriteFile(path, []byte(body), 0o644) }); err != nil {
 			r.say("  warning: tile traffic stays empty:", err)

@@ -12,7 +12,11 @@ import (
 )
 
 const (
-	GET, POST, PUT, PATCH, DELETE = http.MethodGet, http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete
+	GET    = http.MethodGet
+	POST   = http.MethodPost
+	PUT    = http.MethodPut
+	PATCH  = http.MethodPatch
+	DELETE = http.MethodDelete
 )
 
 var (
@@ -36,8 +40,18 @@ var skipped = map[string]string{
 
 func (a *app) commands() []*cobra.Command {
 	return append([]*cobra.Command{
-		a.login(), a.logout(), a.linkCmd(), a.unlink(), a.status(), a.password(), a.knobs(),
-		a.keys(), a.orgs(), a.dests(), a.jobs(), a.admin(),
+		a.login(),
+		a.logout(),
+		a.linkCmd(),
+		a.unlink(),
+		a.status(),
+		a.password(),
+		a.knobs(),
+		a.keys(),
+		a.orgs(),
+		a.dests(),
+		a.jobs(),
+		a.admin(),
 	}, a.stackCommands()...)
 }
 
@@ -45,51 +59,53 @@ func (a *app) commands() []*cobra.Command {
 
 func (a *app) login() *cobra.Command {
 	var key, org, name string
-	c := leaf("login <url>", "key.exchange,org.list", "Log in to a stackr server", exact(1), func(c *cobra.Command, args []string) error {
-		server := strings.TrimRight(args[0], "/")
-		if !strings.HasPrefix(server, "http://") && !strings.HasPrefix(server, "https://") {
-			return usage("the server is a URL: https://stackr.example.com")
-		}
-		a.cfg.Server = server
-		keyOrg := ""
-		if key == "" {
-			code, err := a.browserLogin(server, name)
+	c := leaf("login <url>", "key.exchange,org.list", "Log in to a stackr server", exact(1),
+		func(c *cobra.Command, args []string) error {
+			server := strings.TrimRight(args[0], "/")
+			if !strings.HasPrefix(server, "http://") && !strings.HasPrefix(server, "https://") {
+				return usage("the server is a URL: https://stackr.example.com")
+			}
+			a.cfg.Server = server
+			keyOrg := ""
+			if key == "" {
+				code, err := a.browserLogin(server, name)
+				if err != nil {
+					return err
+				}
+				a.cfg.Key = ""
+				v, err := a.call(POST, "/auth/exchange", map[string]string{"code": code})
+				if err != nil {
+					return err
+				}
+				m, _ := v.(map[string]any)
+				a.cfg.Key, _ = m["token"].(string)
+				k, _ := m["key"].(map[string]any)
+				keyOrg, _ = k["org_id"].(string)
+			} else {
+				a.cfg.Key = key
+			}
+			v, err := a.call(GET, "/orgs", nil)
 			if err != nil {
 				return err
 			}
-			a.cfg.Key = ""
-			v, err := a.call(POST, "/auth/exchange", map[string]string{"code": code})
-			if err != nil {
+			orgs, _ := v.([]any)
+			a.cfg.Org = ""
+			for _, o := range orgs {
+				m, _ := o.(map[string]any)
+				if slug := cell(m["slug"]); slug == org || m["id"] == keyOrg ||
+					(org == "" && keyOrg == "" && len(orgs) == 1) {
+					a.cfg.Org = slug
+				}
+			}
+			if a.cfg.Org == "" && (org != "" || len(orgs) > 0) {
+				return usage("which org? pass --org <slug> (stackr org ls after login lists them)")
+			}
+			if err := a.save(); err != nil {
 				return err
 			}
-			m, _ := v.(map[string]any)
-			a.cfg.Key, _ = m["token"].(string)
-			k, _ := m["key"].(map[string]any)
-			keyOrg, _ = k["org_id"].(string)
-		} else {
-			a.cfg.Key = key
-		}
-		v, err := a.call(GET, "/orgs", nil)
-		if err != nil {
-			return err
-		}
-		orgs, _ := v.([]any)
-		a.cfg.Org = ""
-		for _, o := range orgs {
-			m, _ := o.(map[string]any)
-			if slug := cell(m["slug"]); slug == org || m["id"] == keyOrg || (org == "" && keyOrg == "" && len(orgs) == 1) {
-				a.cfg.Org = slug
-			}
-		}
-		if a.cfg.Org == "" && (org != "" || len(orgs) > 0) {
-			return usage("which org? pass --org <slug> (stackr org ls after login lists them)")
-		}
-		if err := a.save(); err != nil {
-			return err
-		}
-		a.say("logged in to %s, org %s", server, cell(a.cfg.Org))
-		return nil
-	})
+			a.say("logged in to %s, org %s", server, cell(a.cfg.Org))
+			return nil
+		})
 	c.Flags().StringVar(&key, "with-key", "", "an API key made in the panel, instead of the browser flow")
 	c.Flags().StringVar(&org, "org", "", "the org to work in (its slug)")
 	host, _ := os.Hostname()
@@ -105,28 +121,33 @@ func (a *app) logout() *cobra.Command {
 }
 
 func (a *app) linkCmd() *cobra.Command {
-	c := leaf("link", "", "Bind this directory to a stack, env and tile", exact(0), func(c *cobra.Command, _ []string) error {
-		dir, l := a.here()
-		if wd, err := os.Getwd(); err == nil {
-			dir = wd
-		}
-		for _, f := range []struct {
-			name string
-			to   *string
-		}{{"stack", &l.Stack}, {"env", &l.Env}, {"tile", &l.Tile}} {
-			if v := flag(c, f.name); v != "" {
-				*f.to = v
+	c := leaf("link", "", "Bind this directory to a stack, env and tile", exact(0),
+		func(c *cobra.Command, _ []string) error {
+			dir, l := a.here()
+			if wd, err := os.Getwd(); err == nil {
+				dir = wd
 			}
-		}
-		if l == (link{}) {
-			return usage("nothing to link; pass --stack, --env and/or --tile")
-		}
-		if a.cfg.Links == nil {
-			a.cfg.Links = map[string]link{}
-		}
-		a.cfg.Links[dir] = l
-		return a.save()
-	})
+			for _, f := range []struct {
+				name string
+				to   *string
+			}{
+				{"stack", &l.Stack},
+				{"env", &l.Env},
+				{"tile", &l.Tile},
+			} {
+				if v := flag(c, f.name); v != "" {
+					*f.to = v
+				}
+			}
+			if l == (link{}) {
+				return usage("nothing to link; pass --stack, --env and/or --tile")
+			}
+			if a.cfg.Links == nil {
+				a.cfg.Links = map[string]link{}
+			}
+			a.cfg.Links[dir] = l
+			return a.save()
+		})
 	// ponytail: flags only; a picker for the missing level when asked for.
 	return scoped(c, true)
 }
@@ -140,16 +161,23 @@ func (a *app) unlink() *cobra.Command {
 }
 
 func (a *app) status() *cobra.Command {
-	return leaf("status", "me.get", "Show the server, the user and this directory's link", exact(0), func(*cobra.Command, []string) error {
-		me, err := a.call(GET, "/me", nil)
-		if err != nil {
-			return err
-		}
-		m, _ := me.(map[string]any)
-		_, l := a.here()
-		return a.show(map[string]any{"server": a.cfg.Server, "org": a.cfg.Org, "user": m["email"],
-			"stack": l.Stack, "env": l.Env, "tile": l.Tile}, "server", "org", "user", "stack", "env", "tile")
-	})
+	return leaf("status", "me.get", "Show the server, the user and this directory's link", exact(0),
+		func(*cobra.Command, []string) error {
+			me, err := a.call(GET, "/me", nil)
+			if err != nil {
+				return err
+			}
+			m, _ := me.(map[string]any)
+			_, l := a.here()
+			return a.show(map[string]any{
+				"server": a.cfg.Server,
+				"org":    a.cfg.Org,
+				"user":   m["email"],
+				"stack":  l.Stack,
+				"env":    l.Env,
+				"tile":   l.Tile,
+			}, "server", "org", "user", "stack", "env", "tile")
+		})
 }
 
 func (a *app) password() *cobra.Command {
@@ -168,13 +196,14 @@ func (a *app) password() *cobra.Command {
 }
 
 func (a *app) knobs() *cobra.Command {
-	return leaf("knobs", "settings.catalogue", "List the settings knobs every defaults level takes", exact(0), func(*cobra.Command, []string) error {
-		v, err := a.call(GET, "/settings", nil)
-		if err != nil {
-			return err
-		}
-		return a.show(v, "key", "type", "default", "scopes", "desc")
-	})
+	return leaf("knobs", "settings.catalogue", "List the settings knobs every defaults level takes", exact(0),
+		func(*cobra.Command, []string) error {
+			v, err := a.call(GET, "/settings", nil)
+			if err != nil {
+				return err
+			}
+			return a.show(v, "key", "type", "default", "scopes", "desc")
+		})
 }
 
 func (a *app) keys() *cobra.Command {
@@ -186,13 +215,14 @@ func (a *app) keys() *cobra.Command {
 			}
 			return a.show(v, keyCols...)
 		}),
-		leaf("add <name>", "key.mint", "Make a key for this org; the token is shown once", exact(1), func(_ *cobra.Command, args []string) error {
-			op, err := a.orgPath()
-			if err != nil {
-				return err
-			}
-			return a.token(a.call(POST, op+"/keys", map[string]string{"name": args[0]}))
-		}),
+		leaf("add <name>", "key.mint", "Make a key for this org; the token is shown once", exact(1),
+			func(_ *cobra.Command, args []string) error {
+				op, err := a.orgPath()
+				if err != nil {
+					return err
+				}
+				return a.token(a.call(POST, op+"/keys", map[string]string{"name": args[0]}))
+			}),
 		leaf("rm <id>", "key.revoke", "Revoke a key", exact(1), func(_ *cobra.Command, args []string) error {
 			if err := a.confirm("Revoke API key " + args[0] + "? Anything using it stops working."); err != nil {
 				return err
@@ -238,63 +268,87 @@ func (a *app) orgs() *cobra.Command {
 		}
 	}
 	var role, email, url, user string
-	invite := leaf("add", "invite.create", "Invite someone; the link is a credential", exact(0), func(*cobra.Command, []string) error {
-		return org(func(p string) error {
-			v, err := a.call(POST, p+"/invites", map[string]string{"email": email, "role": role})
-			if err != nil {
-				return err
-			}
-			return a.show(v, "id", "email", "role", "expires_at")
+	invite := leaf("add", "invite.create", "Invite someone; the link is a credential", exact(0),
+		func(*cobra.Command, []string) error {
+			return org(func(p string) error {
+				v, err := a.call(POST, p+"/invites", map[string]string{"email": email, "role": role})
+				if err != nil {
+					return err
+				}
+				return a.show(v, "id", "email", "role", "expires_at")
+			})
 		})
-	})
 	invite.Flags().StringVar(&email, "email", "", "who it is for (empty: anyone holding the link)")
 	invite.Flags().StringVar(&role, "role", "member", "owner or member")
-	setRole := leaf("set <user-id>", "member.role", "Change a member's role", exact(1), func(_ *cobra.Command, args []string) error {
-		return org(func(p string) error {
-			_, err := a.call(PUT, p+"/members/"+args[0], map[string]string{"role": role})
-			return err
+	setRole := leaf("set <user-id>", "member.role", "Change a member's role", exact(1),
+		func(_ *cobra.Command, args []string) error {
+			return org(func(p string) error {
+				_, err := a.call(PUT, p+"/members/"+args[0], map[string]string{"role": role})
+				return err
+			})
 		})
-	})
 	setRole.Flags().StringVar(&role, "role", "", "owner or member")
 	_ = setRole.MarkFlagRequired("role")
 
-	credAdd := leaf("add <name>", "credential.create", "Add a registry credential", exact(1), func(c *cobra.Command, args []string) error {
-		return org(func(p string) error {
-			pw, err := a.secret(flag(c, "password"), "STACKR_REGISTRY_PASSWORD", "Registry password")
-			if err != nil {
-				return err
-			}
-			v, err := a.call(POST, p+"/credentials", map[string]string{"name": args[0], "url": url, "username": user, "password": pw})
-			if err != nil {
-				return err
-			}
-			return a.show(v, "id", "name", "url", "username")
-		})
-	})
-	credSet := leaf("set <id>", "credential.list,credential.update", "Change a registry credential; unset flags keep their value", exact(1), func(c *cobra.Command, args []string) error {
-		return org(func(p string) error {
-			cur, err := a.find(p+"/credentials", "credential", args[0], "id", "name")
-			if err != nil {
-				return err
-			}
-			ch, err := changed(c, map[string]string{"name": "name", "url": "url", "username": "username", "password": "password"})
-			if err != nil || ch == nil {
-				if err == nil {
-					err = usage("nothing to set; pass --name, --url, --username or --password")
+	credAdd := leaf("add <name>", "credential.create", "Add a registry credential", exact(1),
+		func(c *cobra.Command, args []string) error {
+			return org(func(p string) error {
+				pw, err := a.secret(flag(c, "password"), "STACKR_REGISTRY_PASSWORD", "Registry password")
+				if err != nil {
+					return err
 				}
-				return err
-			}
-			body := map[string]any{"name": cur["name"], "url": cur["url"], "username": cur["username"], "password": ""}
-			for k, v := range ch {
-				body[k] = v
-			}
-			v, err := a.call(PUT, p+"/credentials/"+cell(cur["id"]), body)
-			if err != nil {
-				return err
-			}
-			return a.show(v, "id", "name", "url", "username")
+				v, err := a.call(POST, p+"/credentials", map[string]string{
+					"name":     args[0],
+					"url":      url,
+					"username": user,
+					"password": pw,
+				})
+				if err != nil {
+					return err
+				}
+				return a.show(v, "id", "name", "url", "username")
+			})
 		})
-	})
+	credSet := leaf(
+		"set <id>",
+		"credential.list,credential.update",
+		"Change a registry credential; unset flags keep their value",
+		exact(1),
+		func(c *cobra.Command, args []string) error {
+			return org(func(p string) error {
+				cur, err := a.find(p+"/credentials", "credential", args[0], "id", "name")
+				if err != nil {
+					return err
+				}
+				ch, err := changed(c, map[string]string{
+					"name":     "name",
+					"url":      "url",
+					"username": "username",
+					"password": "password",
+				})
+				if err != nil || ch == nil {
+					if err == nil {
+						err = usage("nothing to set; pass --name, --url, --username or --password")
+					}
+					return err
+				}
+				body := map[string]any{
+					"name":     cur["name"],
+					"url":      cur["url"],
+					"username": cur["username"],
+					"password": "",
+				}
+				for k, v := range ch {
+					body[k] = v
+				}
+				v, err := a.call(PUT, p+"/credentials/"+cell(cur["id"]), body)
+				if err != nil {
+					return err
+				}
+				return a.show(v, "id", "name", "url", "username")
+			})
+		},
+	)
 	for _, c := range []*cobra.Command{credAdd, credSet} {
 		c.Flags().StringVar(&url, "url", "", "the registry host, e.g. ghcr.io")
 		c.Flags().StringVar(&user, "username", "", "the registry user")
@@ -302,28 +356,29 @@ func (a *app) orgs() *cobra.Command {
 	}
 	credSet.Flags().String("name", "", "a new name")
 
-	create := leaf("create <name>", "org.create,org.rename,org.finish", "Make an org and switch to it", exact(1), func(_ *cobra.Command, args []string) error {
-		v, err := a.call(POST, "/orgs", nil)
-		if err != nil {
-			return err
-		}
-		m, _ := v.(map[string]any)
-		p := "/orgs/" + cell(m["slug"])
-		if v, err = a.call(PUT, p+"/name", map[string]string{"name": args[0]}); err != nil {
-			return err
-		}
-		m, _ = v.(map[string]any)
-		p = "/orgs/" + cell(m["slug"])
-		if v, err = a.call(POST, p+"/finish", nil); err != nil {
-			return err
-		}
-		m, _ = v.(map[string]any)
-		a.cfg.Org = cell(m["slug"])
-		if err := a.save(); err != nil {
-			return err
-		}
-		return a.show(v, orgCols...)
-	})
+	create := leaf("create <name>", "org.create,org.rename,org.finish", "Make an org and switch to it", exact(1),
+		func(_ *cobra.Command, args []string) error {
+			v, err := a.call(POST, "/orgs", nil)
+			if err != nil {
+				return err
+			}
+			m, _ := v.(map[string]any)
+			p := "/orgs/" + cell(m["slug"])
+			if v, err = a.call(PUT, p+"/name", map[string]string{"name": args[0]}); err != nil {
+				return err
+			}
+			m, _ = v.(map[string]any)
+			p = "/orgs/" + cell(m["slug"])
+			if v, err = a.call(POST, p+"/finish", nil); err != nil {
+				return err
+			}
+			m, _ = v.(map[string]any)
+			a.cfg.Org = cell(m["slug"])
+			if err := a.save(); err != nil {
+				return err
+			}
+			return a.show(v, orgCols...)
+		})
 
 	return noun("org", "Orgs, members, invites, credentials, connectors",
 		leaf("ls", "org.list", "List your orgs", exact(0), func(*cobra.Command, []string) error {
@@ -335,10 +390,11 @@ func (a *app) orgs() *cobra.Command {
 		}),
 		leaf("get", "org.get", "Show this org", exact(0), get("", orgCols...)),
 		create,
-		leaf("use <slug>", "", "Work in another org (the key must reach it)", exact(1), func(_ *cobra.Command, args []string) error {
-			a.cfg.Org = args[0]
-			return a.save()
-		}),
+		leaf("use <slug>", "", "Work in another org (the key must reach it)", exact(1),
+			func(_ *cobra.Command, args []string) error {
+				a.cfg.Org = args[0]
+				return a.save()
+			}),
 		leaf("rename <name>", "org.rename", "Rename this org", exact(1), func(_ *cobra.Command, args []string) error {
 			return org(func(p string) error {
 				v, err := a.call(PUT, p+"/name", map[string]string{"name": args[0]})
@@ -362,50 +418,73 @@ func (a *app) orgs() *cobra.Command {
 		noun("members", "Org members",
 			leaf("ls", "member.list", "List members", exact(0), get("/members", "user_id", "role", "created_at")),
 			setRole,
-			leaf("rm <user-id>", "member.remove", "Remove a member", exact(1), func(_ *cobra.Command, args []string) error {
-				return org(func(p string) error {
-					if err := a.confirm("Remove member " + args[0] + " from " + a.cfg.Org + "? Their keys for it stop working."); err != nil {
+			leaf("rm <user-id>", "member.remove", "Remove a member", exact(1),
+				func(_ *cobra.Command, args []string) error {
+					return org(func(p string) error {
+						if err := a.confirm("Remove member " + args[0] + " from " + a.cfg.Org + "? Their keys for it stop working."); err != nil {
+							return err
+						}
+						_, err := a.call(DELETE, p+"/members/"+args[0], nil)
 						return err
-					}
-					_, err := a.call(DELETE, p+"/members/"+args[0], nil)
-					return err
-				})
-			}),
+					})
+				}),
 		),
 		noun("invites", "Pending invites",
-			leaf("ls", "invite.list", "List invites", exact(0), get("/invites", "email", "role", "expires_at", "used_at", "id")),
+			leaf(
+				"ls",
+				"invite.list",
+				"List invites",
+				exact(0),
+				get("/invites", "email", "role", "expires_at", "used_at", "id"),
+			),
 			invite,
 		),
 		noun("creds", "Registry credentials",
-			leaf("ls", "credential.list", "List registry credentials", exact(0), get("/credentials", "id", "name", "url", "username")),
-			credAdd, credSet,
-			leaf("rm <id>", "credential.delete", "Delete a registry credential", exact(1), func(_ *cobra.Command, args []string) error {
-				return org(func(p string) error {
-					if err := a.confirm("Delete registry credential " + args[0] + "? Pulls that need it will fail."); err != nil {
+			leaf(
+				"ls",
+				"credential.list",
+				"List registry credentials",
+				exact(0),
+				get("/credentials", "id", "name", "url", "username"),
+			),
+			credAdd,
+			credSet,
+			leaf("rm <id>", "credential.delete", "Delete a registry credential", exact(1),
+				func(_ *cobra.Command, args []string) error {
+					return org(func(p string) error {
+						if err := a.confirm("Delete registry credential " + args[0] + "? Pulls that need it will fail."); err != nil {
+							return err
+						}
+						_, err := a.call(DELETE, p+"/credentials/"+args[0], nil)
 						return err
-					}
-					_, err := a.call(DELETE, p+"/credentials/"+args[0], nil)
-					return err
-				})
-			}),
+					})
+				}),
 		),
 		noun("connectors", "Git connectors (GitHub Apps)",
-			leaf("ls", "connector.list", "List connectors", exact(0), get("/connectors", "id", "name", "provider", "host")),
-			leaf("rename <id> <name>", "connector.rename", "Rename a connector", exact(2), func(_ *cobra.Command, args []string) error {
-				return org(func(p string) error {
-					_, err := a.call(PUT, p+"/connectors/"+args[0]+"/name", map[string]string{"name": args[1]})
-					return err
-				})
-			}),
-			leaf("rm <id>", "connector.delete", "Remove a connector", exact(1), func(_ *cobra.Command, args []string) error {
-				return org(func(p string) error {
-					if err := a.confirm("Remove connector " + args[0] + "? Stacks cloning through it stop getting pushes."); err != nil {
+			leaf(
+				"ls",
+				"connector.list",
+				"List connectors",
+				exact(0),
+				get("/connectors", "id", "name", "provider", "host"),
+			),
+			leaf("rename <id> <name>", "connector.rename", "Rename a connector", exact(2),
+				func(_ *cobra.Command, args []string) error {
+					return org(func(p string) error {
+						_, err := a.call(PUT, p+"/connectors/"+args[0]+"/name", map[string]string{"name": args[1]})
 						return err
-					}
-					_, err := a.call(DELETE, p+"/connectors/"+args[0], nil)
-					return err
-				})
-			}),
+					})
+				}),
+			leaf("rm <id>", "connector.delete", "Remove a connector", exact(1),
+				func(_ *cobra.Command, args []string) error {
+					return org(func(p string) error {
+						if err := a.confirm("Remove connector " + args[0] + "? Stacks cloning through it stop getting pushes."); err != nil {
+							return err
+						}
+						_, err := a.call(DELETE, p+"/connectors/"+args[0], nil)
+						return err
+					})
+				}),
 		),
 	)
 }
@@ -422,26 +501,39 @@ func (a *app) dests() *cobra.Command {
 	}
 	var name, endpoint, region, bucket string
 	var shared bool
-	add := leaf("add <name>", "dest.create,admin.dest-create", "Add an S3 destination; the bucket is dialled first", exact(1), func(c *cobra.Command, args []string) error {
-		p, err := base()
-		if err != nil {
-			return err
-		}
-		ak, err := a.secret(flag(c, "access-key"), "STACKR_BACKUP_ACCESS_KEY", "Access key")
-		if err != nil {
-			return err
-		}
-		sk, err := a.secret(flag(c, "secret-key"), "STACKR_BACKUP_SECRET_KEY", "Secret key")
-		if err != nil {
-			return err
-		}
-		v, err := a.call(POST, p+"/backup-dests", map[string]any{"name": args[0], "endpoint": endpoint, "region": region,
-			"bucket": bucket, "access_key": ak, "secret_key": sk, "shared": shared})
-		if err != nil {
-			return err
-		}
-		return a.show(v, destCols...)
-	})
+	add := leaf(
+		"add <name>",
+		"dest.create,admin.dest-create",
+		"Add an S3 destination; the bucket is dialled first",
+		exact(1),
+		func(c *cobra.Command, args []string) error {
+			p, err := base()
+			if err != nil {
+				return err
+			}
+			ak, err := a.secret(flag(c, "access-key"), "STACKR_BACKUP_ACCESS_KEY", "Access key")
+			if err != nil {
+				return err
+			}
+			sk, err := a.secret(flag(c, "secret-key"), "STACKR_BACKUP_SECRET_KEY", "Secret key")
+			if err != nil {
+				return err
+			}
+			v, err := a.call(POST, p+"/backup-dests", map[string]any{
+				"name":       args[0],
+				"endpoint":   endpoint,
+				"region":     region,
+				"bucket":     bucket,
+				"access_key": ak,
+				"secret_key": sk,
+				"shared":     shared,
+			})
+			if err != nil {
+				return err
+			}
+			return a.show(v, destCols...)
+		},
+	)
 	add.Flags().StringVar(&endpoint, "endpoint", "", "the S3 endpoint URL")
 	add.Flags().StringVar(&region, "region", "", "the region")
 	add.Flags().StringVar(&bucket, "bucket", "", "the bucket")
@@ -466,8 +558,15 @@ func (a *app) dests() *cobra.Command {
 				}
 				return err
 			}
-			body := map[string]any{"name": cur["name"], "endpoint": cur["endpoint"], "region": cur["region"],
-				"bucket": cur["bucket"], "shared": cur["shared"], "access_key": "", "secret_key": ""}
+			body := map[string]any{
+				"name":       cur["name"],
+				"endpoint":   cur["endpoint"],
+				"region":     cur["region"],
+				"bucket":     cur["bucket"],
+				"shared":     cur["shared"],
+				"access_key": "",
+				"secret_key": "",
+			}
 			for k, v := range ch {
 				body[k] = v
 			}
@@ -491,18 +590,25 @@ func (a *app) dests() *cobra.Command {
 			}
 			return a.show(v, destCols...)
 		}),
-		add, set,
-		leaf("rm <id>", "dest.delete,admin.dest-delete", "Remove a destination; archives in the bucket are kept", exact(1), func(_ *cobra.Command, args []string) error {
-			p, err := base()
-			if err != nil {
+		add,
+		set,
+		leaf(
+			"rm <id>",
+			"dest.delete,admin.dest-delete",
+			"Remove a destination; archives in the bucket are kept",
+			exact(1),
+			func(_ *cobra.Command, args []string) error {
+				p, err := base()
+				if err != nil {
+					return err
+				}
+				if err := a.confirm("Remove backup destination " + args[0] + "? Archives already in the bucket are kept."); err != nil {
+					return err
+				}
+				_, err = a.call(DELETE, p+"/backup-dests/"+args[0], nil)
 				return err
-			}
-			if err := a.confirm("Remove backup destination " + args[0] + "? Archives already in the bucket are kept."); err != nil {
-				return err
-			}
-			_, err = a.call(DELETE, p+"/backup-dests/"+args[0], nil)
-			return err
-		}),
+			},
+		),
 	)
 	c.PersistentFlags().BoolVar(&server, "server", false, "the server-wide destinations (admin)")
 	return c
@@ -517,25 +623,31 @@ func (a *app) jobs() *cobra.Command {
 		}
 		return a.orgPath()
 	}
-	log := leaf("log <id>", "job.log,job.events,admin.job-log,admin.job-events", "Print a job's log; --follow waits for its end", exact(1), func(c *cobra.Command, args []string) error {
-		b, err := base()
-		if err != nil {
-			return err
-		}
-		if follow {
-			return a.follow(b, map[string]any{"id": args[0]}, "job")
-		}
-		v, err := a.call(GET, b+"/jobs/"+args[0]+"/log", nil)
-		if err != nil || a.json {
-			if err == nil {
-				err = a.show(v)
+	log := leaf(
+		"log <id>",
+		"job.log,job.events,admin.job-log,admin.job-events",
+		"Print a job's log; --follow waits for its end",
+		exact(1),
+		func(c *cobra.Command, args []string) error {
+			b, err := base()
+			if err != nil {
+				return err
 			}
+			if follow {
+				return a.follow(b, map[string]any{"id": args[0]}, "job")
+			}
+			v, err := a.call(GET, b+"/jobs/"+args[0]+"/log", nil)
+			if err != nil || a.json {
+				if err == nil {
+					err = a.show(v)
+				}
+				return err
+			}
+			m, _ := v.(map[string]any)
+			_, err = fmt.Fprint(a.out, m["log"])
 			return err
-		}
-		m, _ := v.(map[string]any)
-		_, err = fmt.Fprint(a.out, m["log"])
-		return err
-	})
+		},
+	)
 	log.Flags().BoolVarP(&follow, "follow", "f", false, "stream until the job ends")
 	var states []string
 	ls := leaf("ls", "admin.jobs", "List every job (admin)", exact(0), func(*cobra.Command, []string) error {
@@ -564,17 +676,18 @@ func (a *app) jobs() *cobra.Command {
 			return a.show(v, jobCols...)
 		}),
 		log,
-		leaf("cancel <id>", "job.cancel,admin.job-cancel", "Cancel a queued or running job", exact(1), func(_ *cobra.Command, args []string) error {
-			b, err := base()
-			if err != nil {
+		leaf("cancel <id>", "job.cancel,admin.job-cancel", "Cancel a queued or running job", exact(1),
+			func(_ *cobra.Command, args []string) error {
+				b, err := base()
+				if err != nil {
+					return err
+				}
+				if err := a.confirm("Cancel job " + args[0] + "? Work it already did stays done."); err != nil {
+					return err
+				}
+				_, err = a.call(POST, b+"/jobs/"+args[0]+"/cancel", nil)
 				return err
-			}
-			if err := a.confirm("Cancel job " + args[0] + "? Work it already did stays done."); err != nil {
-				return err
-			}
-			_, err = a.call(POST, b+"/jobs/"+args[0]+"/cancel", nil)
-			return err
-		}),
+			}),
 	)
 	c.PersistentFlags().BoolVar(&admin, "admin", false, "a job of any org (admin)")
 	return c
@@ -607,64 +720,81 @@ func (a *app) admin() *cobra.Command {
 		}))
 	}
 	var on bool
-	setAdmin := leaf("admin <user-id>", "admin.user-admin", "Make a user a stackr admin, or not (--on=false)", exact(1), func(_ *cobra.Command, args []string) error {
-		_, err := a.call(PUT, "/admin/users/"+args[0]+"/admin", map[string]bool{"admin": on})
-		return err
-	})
+	setAdmin := leaf("admin <user-id>", "admin.user-admin", "Make a user a stackr admin, or not (--on=false)", exact(1),
+		func(_ *cobra.Command, args []string) error {
+			_, err := a.call(PUT, "/admin/users/"+args[0]+"/admin", map[string]bool{"admin": on})
+			return err
+		})
 	setAdmin.Flags().BoolVar(&on, "on", true, "admin or not")
 	upgrade := adminJob("upgrade", "admin.upgrade", "Upgrade stackr to a release", "/admin/upgrade", "upgrade",
 		"Upgrade this stackr server? The panel restarts; tiles keep running.")
 	upgrade.Flags().String("tag", "", "the release tag (stackr admin upgrade-check names the newest)")
 	_ = upgrade.MarkFlagRequired("tag")
 	var set, clear []string
-	defaults := leaf("defaults", "admin.defaults,admin.defaults-set", "Show or change the server's settings defaults", exact(0), func(*cobra.Command, []string) error {
-		if len(set)+len(clear) == 0 {
-			v, err := a.call(GET, "/admin/defaults", nil)
-			if err != nil {
-				return err
+	defaults := leaf(
+		"defaults",
+		"admin.defaults,admin.defaults-set",
+		"Show or change the server's settings defaults",
+		exact(0),
+		func(*cobra.Command, []string) error {
+			if len(set)+len(clear) == 0 {
+				v, err := a.call(GET, "/admin/defaults", nil)
+				if err != nil {
+					return err
+				}
+				return a.show(v)
 			}
-			return a.show(v)
-		}
-		body := map[string]string{}
-		for _, s := range set {
-			k, v, err := kv(s)
-			if err != nil {
-				return err
+			body := map[string]string{}
+			for _, s := range set {
+				k, v, err := kv(s)
+				if err != nil {
+					return err
+				}
+				body[k] = v
 			}
-			body[k] = v
-		}
-		for _, k := range clear {
-			body[k] = ""
-		}
-		_, err := a.call(PATCH, "/admin/defaults", body)
-		return err
-	})
+			for _, k := range clear {
+				body[k] = ""
+			}
+			_, err := a.call(PATCH, "/admin/defaults", body)
+			return err
+		},
+	)
 	defaults.Flags().StringArrayVar(&set, "set", nil, "knob=value (stackr knobs lists them)")
 	defaults.Flags().StringArrayVar(&clear, "clear", nil, "give a knob back to the built-in default")
 	return noun("admin", "Server administration (stackr admins)",
 		list("orgs", "admin.orgs", "List every org", "/admin/orgs", orgCols...),
 		list("users", "admin.users", "List users", "/admin/users", userCols...),
 		setAdmin,
-		leaf("disable <user-id>", "admin.user-disable", "Disable a user; their sessions and keys close", exact(1), func(_ *cobra.Command, args []string) error {
-			if err := a.confirm("Disable user " + args[0] + "? Their sessions and API keys stop working; their orgs stay."); err != nil {
+		leaf("disable <user-id>", "admin.user-disable", "Disable a user; their sessions and keys close", exact(1),
+			func(_ *cobra.Command, args []string) error {
+				if err := a.confirm("Disable user " + args[0] + "? Their sessions and API keys stop working; their orgs stay."); err != nil {
+					return err
+				}
+				_, err := a.call(POST, "/admin/users/"+args[0]+"/disable", nil)
 				return err
-			}
-			_, err := a.call(POST, "/admin/users/"+args[0]+"/disable", nil)
-			return err
-		}),
-		leaf("password <user-id>", "admin.user-password", "Set a user's password", exact(1), func(_ *cobra.Command, args []string) error {
-			pw, err := a.secret("", "STACKR_NEW_PASSWORD", "New password")
-			if err != nil {
+			}),
+		leaf("password <user-id>", "admin.user-password", "Set a user's password", exact(1),
+			func(_ *cobra.Command, args []string) error {
+				pw, err := a.secret("", "STACKR_NEW_PASSWORD", "New password")
+				if err != nil {
+					return err
+				}
+				_, err = a.call(PUT, "/admin/users/"+args[0]+"/password", map[string]string{"password": pw})
 				return err
-			}
-			_, err = a.call(PUT, "/admin/users/"+args[0]+"/password", map[string]string{"password": pw})
-			return err
-		}),
-		leaf("key <name>", "admin.key-mint", "Make an admin key bound to no org; the token is shown once", exact(1), func(_ *cobra.Command, args []string) error {
-			return a.token(a.call(POST, "/admin/keys", map[string]string{"name": args[0]}))
-		}),
+			}),
+		leaf("key <name>", "admin.key-mint", "Make an admin key bound to no org; the token is shown once", exact(1),
+			func(_ *cobra.Command, args []string) error {
+				return a.token(a.call(POST, "/admin/keys", map[string]string{"name": args[0]}))
+			}),
 		list("images", "admin.images", "List the images stackr knows", "/admin/images", imageCols...),
-		adminJob("image-check", "admin.image-check", "Check every image for a newer tag", "/admin/image-check", "image check", ""),
+		adminJob(
+			"image-check",
+			"admin.image-check",
+			"Check every image for a newer tag",
+			"/admin/image-check",
+			"image check",
+			"",
+		),
 		leaf("version", "admin.version", "Show the server's version", exact(0), func(*cobra.Command, []string) error {
 			v, err := a.call(GET, "/admin/version", nil)
 			if err != nil {
@@ -672,35 +802,60 @@ func (a *app) admin() *cobra.Command {
 			}
 			return a.show(v)
 		}),
-		leaf("upgrade-check", "admin.upgrade-check", "Is there a newer stackr?", exact(0), func(*cobra.Command, []string) error {
-			v, err := a.call(GET, "/admin/upgrade", nil)
-			if err != nil {
-				return err
-			}
-			return a.show(v)
-		}),
-		upgrade,
-		list("panel-backups", "admin.panel-backups", "List backups of stackr's own database", "/admin/panel-backups", "id", "status", "created_at", "size_bytes", "error"),
-		adminJob("panel-backup", "admin.panel-backup", "Back up stackr's own database now", "/admin/panel-backups", "panel backup", ""),
-		leaf("proxy-sync", "admin.proxy-sync", "Push the routing table to Caddy again", exact(0), func(*cobra.Command, []string) error {
-			_, err := a.call(POST, "/admin/proxy/sync", nil)
-			return err
-		}),
-		leaf("setting <key> [value]", "admin.setting-get,admin.setting-set", "Read or write one server setting", atLeast(1), func(_ *cobra.Command, args []string) error {
-			if len(args) > 2 {
-				return usage("setting takes a key and at most one value")
-			}
-			if len(args) == 1 {
-				v, err := a.call(GET, "/admin/settings/"+args[0], nil)
+		leaf("upgrade-check", "admin.upgrade-check", "Is there a newer stackr?", exact(0),
+			func(*cobra.Command, []string) error {
+				v, err := a.call(GET, "/admin/upgrade", nil)
 				if err != nil {
 					return err
 				}
-				m, _ := v.(map[string]any)
-				return a.show(m["value"])
-			}
-			_, err := a.call(PUT, "/admin/settings/"+args[0], map[string]string{"value": args[1]})
-			return err
-		}),
+				return a.show(v)
+			}),
+		upgrade,
+		list(
+			"panel-backups",
+			"admin.panel-backups",
+			"List backups of stackr's own database",
+			"/admin/panel-backups",
+			"id",
+			"status",
+			"created_at",
+			"size_bytes",
+			"error",
+		),
+		adminJob(
+			"panel-backup",
+			"admin.panel-backup",
+			"Back up stackr's own database now",
+			"/admin/panel-backups",
+			"panel backup",
+			"",
+		),
+		leaf("proxy-sync", "admin.proxy-sync", "Push the routing table to Caddy again", exact(0),
+			func(*cobra.Command, []string) error {
+				_, err := a.call(POST, "/admin/proxy/sync", nil)
+				return err
+			}),
+		leaf(
+			"setting <key> [value]",
+			"admin.setting-get,admin.setting-set",
+			"Read or write one server setting",
+			atLeast(1),
+			func(_ *cobra.Command, args []string) error {
+				if len(args) > 2 {
+					return usage("setting takes a key and at most one value")
+				}
+				if len(args) == 1 {
+					v, err := a.call(GET, "/admin/settings/"+args[0], nil)
+					if err != nil {
+						return err
+					}
+					m, _ := v.(map[string]any)
+					return a.show(m["value"])
+				}
+				_, err := a.call(PUT, "/admin/settings/"+args[0], map[string]string{"value": args[1]})
+				return err
+			},
+		),
 		defaults,
 	)
 }

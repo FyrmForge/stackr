@@ -218,7 +218,16 @@ func panelSpec(in installspec.Input) func(string) service.ContainerSpec {
 		c := installspec.Panel(image, in)
 		// ponytail: Ports and ExtraHosts are not carried; the panel runs on
 		// the host network and has neither (the spec test holds that).
-		return service.ContainerSpec{Name: c.Name, Image: c.Image, Cmd: c.Cmd, Env: c.Env, Labels: c.Labels,
-			Volumes: c.Volumes, HostNetwork: c.HostNetwork, CapAdd: c.CapAdd, Restart: c.Restart}
+		return service.ContainerSpec{
+			Name:        c.Name,
+			Image:       c.Image,
+			Cmd:         c.Cmd,
+			Env:         c.Env,
+			Labels:      c.Labels,
+			Volumes:     c.Volumes,
+			HostNetwork: c.HostNetwork,
+			CapAdd:      c.CapAdd,
+			Restart:     c.Restart,
+		}
 	}
 }

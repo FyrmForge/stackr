@@ -105,9 +105,13 @@ func (a *app) here() (string, link) {
 // usageErr exits 2: the command line was wrong, not the request.
 type usageErr struct{ msg string }
 
-func (e usageErr) Error() string { return e.msg }
+func (e usageErr) Error() string {
+	return e.msg
+}
 
-func usage(format string, a ...any) error { return usageErr{fmt.Sprintf(format, a...)} }
+func usage(format string, a ...any) error {
+	return usageErr{fmt.Sprintf(format, a...)}
+}
 
 // apiErr is the API's typed refusal, printed as the server wrote it.
 type apiErr struct {

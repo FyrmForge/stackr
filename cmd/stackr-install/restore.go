@@ -82,7 +82,8 @@ func restore(ctx context.Context, args []string, out io.Writer) error {
 		}
 	}
 	db := filepath.Join(dataDir, "stackr.db")
-	if err := os.Rename(db, filepath.Join(stage, "stackr.db.before-restore")); err != nil && !errors.Is(err, os.ErrNotExist) {
+	if err := os.Rename(db, filepath.Join(stage, "stackr.db.before-restore")); err != nil &&
+		!errors.Is(err, os.ErrNotExist) {
 		return err
 	}
 	_ = os.Remove(db + "-wal")
