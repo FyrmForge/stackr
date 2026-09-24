@@ -1,6 +1,7 @@
 package docker
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/docker/go-connections/nat"
@@ -32,5 +33,17 @@ func TestPortBindings(t *testing.T) {
 	}
 	if e, b := portBindings(nil); e != nil || b != nil {
 		t.Error("no ports should give nil sets")
+	}
+}
+
+func TestIsTarChanged(t *testing.T) {
+	for msg, want := range map[string]bool{
+		"exit status 1: tar: ./db: file changed as we read it": true,
+		"exit status 1: tar: short read":                       true,
+		"exit status 2: tar: permission denied":                false,
+	} {
+		if got := isTarChanged(errors.New(msg)); got != want {
+			t.Errorf("isTarChanged(%q) = %v", msg, got)
+		}
 	}
 }

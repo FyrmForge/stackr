@@ -24,18 +24,20 @@ type Docker interface {
 	Inspect(ctx context.Context, id string) (docker.Detail, error)
 
 	// Networks.
-	EnsureNetwork(ctx context.Context, name string) error
+	EnsureNetwork(ctx context.Context, name string, labels map[string]string) error
 	RemoveNetwork(ctx context.Context, name string) error
+	ListNetworks(ctx context.Context, labels map[string]string) ([]string, error)
 	Connect(ctx context.Context, network, containerID string, aliases []string) error
 	Disconnect(ctx context.Context, network, containerID string) error
 	NetworkMembers(ctx context.Context, network string) ([]string, error)
 	MemberAddr(ctx context.Context, network, containerID string) (ip, cidr string, err error)
 
 	// Volumes.
-	CreateVolume(ctx context.Context, name, driver string, opts map[string]string) error
+	CreateVolume(ctx context.Context, name, driver string, opts, labels map[string]string) error
 	RemoveVolume(ctx context.Context, name string) error
 	InspectVolume(ctx context.Context, name string) (docker.VolumeInfo, error)
-	ListVolumes(ctx context.Context) ([]docker.VolumeInfo, error)
+	ListVolumes(ctx context.Context, labels map[string]string) ([]docker.VolumeInfo, error)
+	EnsureTool(ctx context.Context) error
 	TarVolume(ctx context.Context, name string, w io.Writer, live bool) error
 	UntarVolume(ctx context.Context, name string, r io.Reader) error
 

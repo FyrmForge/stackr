@@ -33,6 +33,7 @@ type Fake struct {
 	Volumes    []docker.VolumeInfo
 	Digests    map[string]string // ref -> digest
 	Members    map[string][]string
+	Networks   []string
 	ExecOut    string
 	LogsOut    string
 }
@@ -86,8 +87,11 @@ func (f *Fake) Inspect(_ context.Context, id string) (docker.Detail, error) {
 	return f.Details[id], f.rec("Inspect", id)
 }
 
-func (f *Fake) EnsureNetwork(_ context.Context, name string) error {
+func (f *Fake) EnsureNetwork(_ context.Context, name string, _ map[string]string) error {
 	return f.rec("EnsureNetwork", name)
+}
+func (f *Fake) ListNetworks(context.Context, map[string]string) ([]string, error) {
+	return f.Networks, f.rec("ListNetworks")
 }
 func (f *Fake) RemoveNetwork(_ context.Context, name string) error {
 	return f.rec("RemoveNetwork", name)
@@ -105,7 +109,7 @@ func (f *Fake) MemberAddr(_ context.Context, network, id string) (string, string
 	return "", "", f.rec("MemberAddr", network, id)
 }
 
-func (f *Fake) CreateVolume(_ context.Context, name, _ string, _ map[string]string) error {
+func (f *Fake) CreateVolume(_ context.Context, name, _ string, _, _ map[string]string) error {
 	return f.rec("CreateVolume", name)
 }
 func (f *Fake) RemoveVolume(_ context.Context, name string) error { return f.rec("RemoveVolume", name) }
@@ -117,9 +121,16 @@ func (f *Fake) InspectVolume(_ context.Context, name string) (docker.VolumeInfo,
 	}
 	return docker.VolumeInfo{}, f.rec("InspectVolume", name)
 }
-func (f *Fake) ListVolumes(context.Context) ([]docker.VolumeInfo, error) {
-	return f.Volumes, f.rec("ListVolumes")
+func (f *Fake) ListVolumes(_ context.Context, labels map[string]string) ([]docker.VolumeInfo, error) {
+	var out []docker.VolumeInfo
+	for _, v := range f.Volumes {
+		if matches(v.Labels, labels) {
+			out = append(out, v)
+		}
+	}
+	return out, f.rec("ListVolumes")
 }
+func (f *Fake) EnsureTool(context.Context) error { return f.rec("EnsureTool") }
 func (f *Fake) TarVolume(_ context.Context, name string, _ io.Writer, _ bool) error {
 	return f.rec("TarVolume", name)
 }

@@ -162,3 +162,105 @@ func TestHostNetwork(t *testing.T) {
 		t.Fatalf("not on host network: %v", det.Networks)
 	}
 }
+
+func TestNetworksAndVolumes(t *testing.T) {
+	d, ctx := newClient(t)
+	net := uniq("stkr-it-net")
+	labels := map[string]string{"stkr.test": net}
+	for range 2 {
+		if err := d.EnsureNetwork(ctx, net, labels); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Cleanup(func() { _ = d.RemoveNetwork(context.Background(), net) })
+	if names, err := d.ListNetworks(ctx, labels); err != nil || len(names) != 1 || names[0] != net {
+		t.Fatalf("list networks: %v %v", names, err)
+	}
+
+	id, err := d.Run(ctx, ContainerSpec{Name: uniq("stkr-it"), Image: testImage, Cmd: []string{"sleep", "300"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = d.StopRemove(context.Background(), id) })
+	for range 2 {
+		if err := d.Connect(ctx, net, id, []string{"svc"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if ip, cidr, err := d.MemberAddr(ctx, net, id); err != nil || ip == "" || cidr == "" {
+		t.Fatalf("member addr: %q %q %v", ip, cidr, err)
+	}
+	if ids, err := d.NetworkMembers(ctx, net); err != nil || len(ids) != 1 || ids[0] != id {
+		t.Fatalf("members: %v %v", ids, err)
+	}
+	if out, err := d.Exec(ctx, id, []string{"nslookup", "svc"}); err != nil {
+		t.Fatalf("alias does not resolve: %q %v", out, err)
+	}
+	for range 2 {
+		if err := d.Disconnect(ctx, net, id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for range 2 {
+		if err := d.RemoveNetwork(ctx, net); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	vol := uniq("stkr-it-vol")
+	for range 2 {
+		if err := d.CreateVolume(ctx, vol, "", nil, labels); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Cleanup(func() { _ = d.RemoveVolume(context.Background(), vol) })
+	vols, err := d.ListVolumes(ctx, labels)
+	if err != nil || len(vols) != 1 || vols[0].Name != vol {
+		t.Fatalf("list volumes: %+v %v", vols, err)
+	}
+
+	// Seed a file and a dotfile, tar it out, wipe-and-untar a changed volume
+	// back, and check the originals are back and the stray is gone.
+	if _, wait, err := d.volumeTool(ctx, vol, false,
+		[]string{"sh", "-c", "echo a > /data/a; echo b > /data/.b"}, nil); err != nil {
+		t.Fatal(err)
+	} else if err := wait(); err != nil {
+		t.Fatal(err)
+	}
+	var archive strings.Builder
+	if err := d.TarVolume(ctx, vol, &archive, false); err != nil {
+		t.Fatal(err)
+	}
+	if _, wait, err := d.volumeTool(ctx, vol, false, []string{"sh", "-c", "echo x > /data/stray"}, nil); err != nil {
+		t.Fatal(err)
+	} else if err := wait(); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.UntarVolume(ctx, vol, strings.NewReader(archive.String())); err != nil {
+		t.Fatal(err)
+	}
+	out, wait, err := d.volumeTool(ctx, vol, true, []string{"sh", "-c", "cat /data/a /data/.b; ls /data"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := io.ReadAll(out)
+	if err := wait(); err != nil || string(b) != "a\nb\na\n" {
+		t.Fatalf("after untar: %q %v", b, err)
+	}
+	if _, wait, err := d.volumeTool(ctx, vol, true, []string{"sh", "-c", "exit 4"}, nil); err != nil {
+		t.Fatal(err)
+	} else if e, ok := IsExit(wait()); !ok || e.Code != 4 {
+		t.Fatalf("tool exit: %v", e)
+	}
+	if info, err := d.InspectVolume(ctx, vol); err != nil || info.Name != vol || len(info.UsedBy)+len(info.HeldBy) != 0 {
+		t.Fatalf("inspect volume: %+v %v", info, err)
+	}
+	for range 2 {
+		if err := d.RemoveVolume(ctx, vol); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := d.InspectVolume(ctx, vol); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("inspect removed volume: %v", err)
+	}
+}
