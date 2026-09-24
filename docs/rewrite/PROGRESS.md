@@ -131,7 +131,12 @@ tick `[x] step 0` below when the done gate passes, open the PR `rewrite`
 
 ## Build steps (Opus, one fresh session + one stacked PR each)
 
-- [ ] step 0 scaffold and docs
+- [x] step 0 scaffold and docs
+  - [x] step 0 / task 7: `make build`, `make lint`, `make test` pass; skill
+    runs. Still owed: `hamr dev` start check (builder may not start it).
+    Known, not step 0: `make templint` fails on the scaffold's login and
+    register forms (`no-native-form-actions`), and `ci.yml` calls `make
+    migrate`, which is not a Makefile target, so PR CI goes red.
   - [x] step 0 / task 1: `cmd/stackrd`, `cmd/stackr`, `cmd/stackr-install`;
     `run() error` + `--version` fix both lint findings. `installcli` =
     `go install ./cmd/stackr`, `installer` = `bin/stackr-install`. `hamr dev`
