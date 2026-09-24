@@ -132,8 +132,8 @@ func TestEveryRouteGated(t *testing.T) {
 func TestReadsLeakNoSecret(t *testing.T) {
 	w := newWorld(t)
 	ctx := context.Background()
-	o := w.env.Orch
-	if _, err := o.CreateCredential(ctx, w.acme, service.CredentialSpec{
+	orch := w.env.Orch
+	if _, err := orch.CreateCredential(ctx, w.acme, service.CredentialSpec{
 		Name:     "hub",
 		URL:      "r.io",
 		Username: "u",
@@ -141,7 +141,7 @@ func TestReadsLeakNoSecret(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := o.CreateBackupDest(ctx, &w.acme, service.BackupDestSpec{
+	if _, err := orch.CreateBackupDest(ctx, &w.acme, service.BackupDestSpec{
 		Name:      "s3",
 		Endpoint:  "https://s3.example.com",
 		Bucket:    "b",
@@ -150,7 +150,7 @@ func TestReadsLeakNoSecret(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if err := o.SetParams(ctx, service.ParamScope{Kind: "org", ID: w.acme}, []service.ParamEntry{
+	if err := orch.SetParams(ctx, service.ParamScope{Kind: "org", ID: w.acme}, []service.ParamEntry{
 		{
 			Collection: "app",
 			Name:       "token",
