@@ -31,9 +31,9 @@ type world struct {
 	owner, stranger, admin string
 }
 
-func newWorld(t *testing.T) *world {
+func newWorld(t *testing.T, opts ...service.Option) *world {
 	t.Helper()
-	env := servicetest.New(t)
+	env := servicetest.NewWith(t, opts)
 	srv, err := server.New(server.WithDevMode(true))
 	if err != nil {
 		t.Fatal(err)

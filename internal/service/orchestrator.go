@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -95,7 +96,15 @@ type options struct {
 	docker Docker
 	vip    tile.VIP
 	push   func(context.Context, json.RawMessage) error
+	build  BuildFunc
 }
+
+// BuildFunc builds one git tile at a commit and returns the image row id.
+type BuildFunc func(ctx context.Context, st Stack, t Tile, commit string, log io.Writer) (string, error)
+
+// WithBuild replaces the clone-and-build of git tiles, so a push lands a
+// release without GitHub or a daemon.
+func WithBuild(f BuildFunc) Option { return func(o *options) { o.build = f } }
 
 // WithDocker replaces the daemon client, with the fake in tests.
 func WithDocker(d Docker) Option { return func(o *options) { o.docker = d } }
@@ -254,7 +263,11 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 			Jobs: svc.jobRows, Sync: svc.sync.Sync, Engines: svc.engines}
 	})
 	svc.promote = build("flow/promote", func() *promote.Flow {
-		return &promote.Flow{D: svc.deploy, Config: svc.stackFile, Build: svc.buildTile,
+		b := svc.buildTile
+		if o.build != nil {
+			b = o.build
+		}
+		return &promote.Flow{D: svc.deploy, Config: svc.stackFile, Build: b,
 			DNS01: svc.dns01}
 	})
 	svc.backup = build("flow/backup", func() *fbackup.Flow {

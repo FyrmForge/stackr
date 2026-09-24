@@ -25,8 +25,11 @@ func RegisterRoutes(srv *server.Server, deps *Deps) {
 	healthHandler := health.NewHandler(deps.Service)
 	api.GET("/health", healthHandler.Health)
 
+	h := &v1.H{S: deps.Service}
+	srv.Echo().POST("/hooks/connectors/:connector", h.Hook, middleware.Logging(), middleware.JSONErrors())
+
 	g := api.Group("/v1", middleware.JSONErrors(), deps.Access.Load(), middleware.APICSRF(!deps.DevMode))
-	for _, r := range Routes(&v1.H{S: deps.Service}) {
+	for _, r := range Routes(h) {
 		g.Add(r.Method, r.Path, r.E.Handle, gate(deps.Access, r))
 	}
 }

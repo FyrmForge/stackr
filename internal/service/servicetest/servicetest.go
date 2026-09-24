@@ -38,14 +38,20 @@ type Env struct {
 // New builds a fresh orchestrator. edit, if given, adjusts the config.
 func New(t *testing.T, edit ...func(*service.Config)) *Env {
 	t.Helper()
+	return NewWith(t, nil, edit...)
+}
+
+// NewWith is New with extra options (WithBuild) after the harness's own.
+func NewWith(t *testing.T, opts []service.Option, edit ...func(*service.Config)) *Env {
+	t.Helper()
 	dir := t.TempDir()
 	cfg := service.Config{DataDir: dir, DBPath: filepath.Join(dir, "stackr.db"), SecretsKey: Key}
 	for _, f := range edit {
 		f(&cfg)
 	}
 	fake := dockerfake.New()
-	o, err := service.New(cfg, service.WithDocker(fake),
-		service.WithProxy(func(context.Context, json.RawMessage) error { return nil }))
+	o, err := service.New(cfg, append([]service.Option{service.WithDocker(fake),
+		service.WithProxy(func(context.Context, json.RawMessage) error { return nil })}, opts...)...)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -142,4 +148,25 @@ func (e *Env) Tile(t *testing.T, orgID string) Tile {
 		ImageRef: "nginx:1", ContainerPort: 80})
 	must(t, err)
 	return Tile{Stack: st.ID, Env: en.ID, ID: tl.ID}
+}
+
+// Image seeds an image row and returns its id.
+func (e *Env) Image(t *testing.T, ref string) string {
+	t.Helper()
+	id := uuid.NewString()
+	must(t, e.Store.Images.Create(context.Background(), store.Image{ID: id, Ref: ref, BuiltAt: &now, CreatedAt: now}))
+	return id
+}
+
+// Connector seeds a connected GitHub connector whose webhook secret is
+// secret and returns its id.
+func (e *Env) Connector(t *testing.T, orgID, secret string) string {
+	t.Helper()
+	id := uuid.NewString()
+	cfg, err := json.Marshal(map[string]any{"app": map[string]any{"id": 1, "slug": "stackr-test", "webhook_secret": secret}})
+	must(t, err)
+	must(t, e.Store.Connectors.Create(context.Background(), store.Connector{
+		ID: id, OrgID: orgID, Provider: "github", Name: "github", Host: "github.com", Config: string(cfg), CreatedAt: now,
+	}))
+	return id
 }
