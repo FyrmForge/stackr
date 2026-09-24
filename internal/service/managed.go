@@ -90,9 +90,19 @@ func (o *Orchestrator) Slices(ctx context.Context, consumerID string) ([]Provisi
 
 // AttachSlice queues cutting a slice of an instance for a consumer, then
 // its redeploy with the bindings.
-func (o *Orchestrator) AttachSlice(ctx context.Context, consumerID, instanceTileID, name string, public bool, onRemove string) (Job, error) {
-	return o.enqueue(ctx, kindAttach, attachJob{ConsumerID: consumerID, InstanceID: instanceTileID, Name: name,
-		Public: public, OnRemove: onRemove}, consumerID, instanceTileID)
+func (o *Orchestrator) AttachSlice(
+	ctx context.Context,
+	consumerID, instanceTileID, name string,
+	public bool,
+	onRemove string,
+) (Job, error) {
+	return o.enqueue(ctx, kindAttach, attachJob{
+		ConsumerID: consumerID,
+		InstanceID: instanceTileID,
+		Name:       name,
+		Public:     public,
+		OnRemove:   onRemove,
+	}, consumerID, instanceTileID)
 }
 
 // DetachSlice queues letting go of a slice and the consumer's redeploy.
@@ -158,7 +168,10 @@ func (o *Orchestrator) home(ctx context.Context, envID string) (managed.Home, er
 }
 
 // InstanceSlices is a managed tile's instance and every slice cut from it.
-func (o *Orchestrator) InstanceSlices(ctx context.Context, instanceTileID string) (ManagedInstance, []Provision, error) {
+func (o *Orchestrator) InstanceSlices(
+	ctx context.Context,
+	instanceTileID string,
+) (ManagedInstance, []Provision, error) {
 	m, err := o.managed.GetByTile(ctx, instanceTileID)
 	if err != nil {
 		return m, nil, err

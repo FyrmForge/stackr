@@ -47,7 +47,12 @@ func (o *Orchestrator) CLICode(ctx context.Context, userID, orgID, name string) 
 			delete(c.m, k)
 		}
 	}
-	c.m[code] = cliCode{userID: userID, orgID: orgID, name: name, exp: now.Add(CLICodeTTL)}
+	c.m[code] = cliCode{
+		userID: userID,
+		orgID:  orgID,
+		name:   name,
+		exp:    now.Add(CLICodeTTL),
+	}
 	return code, nil
 }
 

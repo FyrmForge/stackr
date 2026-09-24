@@ -86,62 +86,324 @@ func TestRoundTrip(t *testing.T) {
 	s := servicetest.Store(t)
 	ctx := context.Background()
 
-	roundTrip(t, s.Users, store.User{ID: "u1", Email: "a@x", PasswordHash: "h", Name: "A", Role: "user", Active: true, AvatarPath: "a.png", Theme: "dark", CreatedAt: t0, UpdatedAt: t0},
-		func(u *store.User) {
-			u.Email, u.Role, u.Active, u.Theme, u.UpdatedAt = "b@x", "admin", false, "light", t1
-		})
-	roundTrip(t, s.Orgs, store.Org{ID: "o1", Name: "Org", Slug: "org", AvatarPath: "o.png", EnvColors: `{"prod":"red"}`, Settings: "{}", SetupDoneAt: nil, CreatedAt: t0},
-		func(o *store.Org) { o.Name, o.SetupDoneAt = "Org 2", ptr(t1) })
-	roundTrip(t, s.OrgMembers, store.OrgMember{ID: "m1", OrgID: "o1", UserID: "u1", Role: "owner", CreatedAt: t0},
-		func(m *store.OrgMember) { m.Role = "member" })
-	roundTrip(t, s.Invites, store.Invite{ID: "i1", OrgID: "o1", Email: "c@x", Role: "owner", CreatedBy: "u1", CreatedAt: t0, ExpiresAt: t1},
-		func(i *store.Invite) { i.UsedAt = ptr(t1) })
-	roundTrip(t, s.APIKeys, store.APIKey{ID: "k1", UserID: "u1", OrgID: ptr("o1"), Name: "ci", TokenHash: "th", CreatedAt: t0},
-		func(k *store.APIKey) { k.Name, k.OrgID = "ci2", nil })
-	roundTrip(t, s.Stacks, store.Stack{ID: "s1", OrgID: "o1", Name: "S", Slug: "s", Description: "d", Settings: "{}", ConfigConnectorID: "c", ConfigRepo: "r", ConfigBranch: "main", ConfigPath: "stackr.yml", Domains: "[]", CreatedAt: t0},
-		func(st *store.Stack) { st.Description, st.ConfigBranch = "d2", "dev" })
-	roundTrip(t, s.Releases, store.Release{ID: "r1", StackID: "s1", Number: 1, CreatedAt: t0, CreatedBy: "u1"},
-		func(r *store.Release) { r.Number = 2 })
-	roundTrip(t, s.Environments, store.Environment{ID: "e1", StackID: "s1", Name: "Prod", Slug: "prod", Type: "static", Settings: "{}", Color: "red", Position: 1, Network: "net1", FromKind: "branch", FromBranch: "main", Auto: true, CreatedAt: t0},
-		func(e *store.Environment) {
-			e.ReleaseID, e.FromKind, e.Auto, e.Position = ptr("r1"), "promote", false, 2
-		})
-	roundTrip(t, s.Environments, store.Environment{ID: "e2", StackID: "s1", Name: "PR 7", Slug: "pr-7", Type: "ephemeral", BaseEnvID: ptr("e1"), Settings: "{}", Color: "", Position: 3, Network: "net2", FromKind: "branch", FromBranch: "pr-7", CreatedAt: t0},
-		func(e *store.Environment) { e.BaseEnvID = nil })
-	roundTrip(t, s.Tiles, store.Tile{ID: "t1", StackID: "s1", EnvironmentID: "e1", Name: "Web", Slug: "web", Kind: "service", GitURL: "https://g/x", GitBranch: "main", ImageRef: "", DockerfilePath: "Dockerfile", BuildContext: ".", WatchPaths: "src/**", EnvJSON: `{"A":"1"}`, BuildArgs: "{}", Volumes: "data:/data", Command: "run", ContainerPort: 8080, PublishedPorts: "80:8080", EndpointProtocol: "http", HealthPath: "/health", HealthcheckCmd: "true", HealthcheckIntervalS: 10, HealthcheckTimeoutS: 5, HealthcheckRetries: 3, HealthcheckStartPeriodS: 15, CPULimit: 1.5, MemLimitMB: 512, User: "1000", ShmSizeMB: 64, Privileged: true, Devices: "/dev/x", RestartPolicy: "always", DependsOn: "db", Files: "{}", SharedNet: "shared", Replicas: 2, UpdatePolicy: "auto", TagPolicy: "semver", CreatedAt: t0, UpdatedAt: t0},
-		func(ti *store.Tile) {
-			ti.Kind, ti.CPULimit, ti.Privileged, ti.UpdatePolicy, ti.UpdatedAt = "image", 0.25, false, "manual", t1
-		})
-	roundTrip(t, s.Tiles, store.Tile{ID: "t2", StackID: "s1", EnvironmentID: "e1", Name: "DB", Slug: "db", Kind: "managed", UpdatePolicy: "manual", CreatedAt: t0, UpdatedAt: t0},
-		func(ti *store.Tile) { ti.Replicas = 1 })
-	roundTrip(t, s.Images, store.Image{ID: "img1", Ref: "reg/x:1", Digest: "sha256:a", BuiltAt: ptr(t0), LastDigest: "sha256:b", LastTag: "1", LastError: "", CheckedAt: nil, CreatedAt: t0},
-		func(i *store.Image) { i.LastError, i.CheckedAt, i.BuiltAt = "timeout", ptr(t1), nil })
-	roundTrip(t, s.ReleaseTiles, store.ReleaseTile{ID: "rt1", ReleaseID: "r1", Slug: "web", Repo: "g/x", Branch: "main", CommitSHA: "abc", ImageID: ptr("img1"), Digest: "sha256:a"},
-		func(r *store.ReleaseTile) { r.ImageID, r.CommitSHA = nil, "def" })
-	roundTrip(t, s.Params, store.Param{ID: "p1", ScopeKind: "env", ScopeID: "e1", Collection: "db", Name: "password", Kind: "secret", Value: "hunter2", CreatedAt: t0, UpdatedAt: t0},
-		func(p *store.Param) { p.Value, p.UpdatedAt = "hunter3", t1 })
-	roundTrip(t, s.ManagedInstances, store.ManagedInstance{ID: "mi1", TileID: "t2", Engine: "postgres", ScopeKind: "env", ScopeID: "e1", AdminUser: "root", AdminPassword: "pw", Endpoint: "db:5432", CreatedAt: t0},
-		func(m *store.ManagedInstance) { m.AdminPassword = "pw2" })
-	roundTrip(t, s.Provisions, store.Provision{ID: "pr1", InstanceID: "mi1", ConsumerTileID: ptr("t1"), Slug: "web", DBName: "web", DBUser: "web", DBPassword: "pw", Outputs: `{"url":"x"}`, Public: true, OnRemove: "keep", CreatedAt: t0},
-		func(p *store.Provision) { p.ConsumerTileID, p.Outputs, p.Public = nil, "{}", false })
-	roundTrip(t, s.Volumes, store.Volume{ID: "v1", ScopeKind: "env", ScopeID: "e1", InstanceID: ptr("mi1"), Slug: "data", Name: "stackr_data", MaxSizeMB: 100, CreatedAt: t0},
-		func(v *store.Volume) { v.InstanceID, v.OrphanedAt = nil, ptr(t1) })
-	roundTrip(t, s.Domains, store.Domain{ID: "d1", TileID: "t1", Host: "x.io", Path: "/", ContainerPort: 8080, HTTPS: true, ForceHTTPS: true, RedirectTo: "", Auto: true, Position: 1, ProxyJSON: "{}", RawCaddy: "", CreatedAt: t0},
-		func(d *store.Domain) { d.RedirectTo, d.HTTPS, d.RawCaddy = "y.io", false, "header X 1" })
-	roundTrip(t, s.Credentials, store.Credential{ID: "c1", OrgID: "o1", Name: "ghcr", URL: "ghcr.io", Username: "me", Password: "tok", CreatedAt: t0},
-		func(c *store.Credential) { c.Password = "tok2" })
-	roundTrip(t, s.Connectors, store.Connector{ID: "cn1", OrgID: "o1", Provider: "github", Name: "gh", Host: "github.com", Config: `{"key":"PEM"}`, CreatedAt: t0},
-		func(c *store.Connector) { c.Config = "{}" })
-	roundTrip(t, s.BackupDests, store.BackupDest{ID: "bd1", OrgID: ptr("o1"), Kind: "s3", Name: "b2", Endpoint: "e", Region: "r", Bucket: "b", AccessKey: "ak", SecretKey: "sk", ArchiveKey: "age1", Shared: true, CreatedAt: t0},
-		func(d *store.BackupDest) { d.OrgID, d.SecretKey, d.Shared = nil, "sk2", false })
-	roundTrip(t, s.BackupSchedules, store.BackupSchedule{ID: "bs1", VolumeID: "v1", Method: "tar", DestID: ptr("bd1"), Cron: "0 3 * * *", Timezone: "UTC", Keep: 7, Mode: "hot", CreatedAt: t0},
-		func(b *store.BackupSchedule) { b.DestID, b.Keep = nil, 3 })
-	roundTrip(t, s.BackupRuns, store.BackupRun{ID: "br1", Kind: "volume", VolumeID: ptr("v1"), ScheduleID: ptr("bs1"), DestID: "bd1", Trigger: "cron", Status: "running", ObjectKey: "k", SizeBytes: 1 << 40, CreatedAt: t0},
-		func(b *store.BackupRun) { b.Status, b.FinishedAt, b.VolumeID = "done", ptr(t1), nil })
-	roundTrip(t, s.Jobs, store.Job{ID: "j1", Kind: "deploy", State: "queued", ReleaseID: ptr("r1"), LockSet: store.StringList{"t1", "t2"}, Payload: `{"x":1}`, LogPath: "/j1.log", CreatedAt: t0},
-		func(j *store.Job) {
-			j.State, j.WaitingParam, j.StartedAt, j.LockSet = "waiting", ptr("db/password"), ptr(t1), store.StringList{}
-		})
+	roundTrip(t, s.Users, store.User{
+		ID:           "u1",
+		Email:        "a@x",
+		PasswordHash: "h",
+		Name:         "A",
+		Role:         "user",
+		Active:       true,
+		AvatarPath:   "a.png",
+		Theme:        "dark",
+		CreatedAt:    t0,
+		UpdatedAt:    t0,
+	}, func(u *store.User) {
+		u.Email = "b@x"
+		u.Role = "admin"
+		u.Active = false
+		u.Theme = "light"
+		u.UpdatedAt = t1
+	})
+	roundTrip(t, s.Orgs, store.Org{
+		ID:          "o1",
+		Name:        "Org",
+		Slug:        "org",
+		AvatarPath:  "o.png",
+		EnvColors:   `{"prod":"red"}`,
+		Settings:    "{}",
+		SetupDoneAt: nil,
+		CreatedAt:   t0,
+	}, func(o *store.Org) { o.Name, o.SetupDoneAt = "Org 2", ptr(t1) })
+	roundTrip(t, s.OrgMembers, store.OrgMember{
+		ID:        "m1",
+		OrgID:     "o1",
+		UserID:    "u1",
+		Role:      "owner",
+		CreatedAt: t0,
+	}, func(m *store.OrgMember) { m.Role = "member" })
+	roundTrip(t, s.Invites, store.Invite{
+		ID:        "i1",
+		OrgID:     "o1",
+		Email:     "c@x",
+		Role:      "owner",
+		CreatedBy: "u1",
+		CreatedAt: t0,
+		ExpiresAt: t1,
+	}, func(i *store.Invite) { i.UsedAt = ptr(t1) })
+	roundTrip(t, s.APIKeys, store.APIKey{
+		ID:        "k1",
+		UserID:    "u1",
+		OrgID:     ptr("o1"),
+		Name:      "ci",
+		TokenHash: "th",
+		CreatedAt: t0,
+	}, func(k *store.APIKey) { k.Name, k.OrgID = "ci2", nil })
+	roundTrip(t, s.Stacks, store.Stack{
+		ID:                "s1",
+		OrgID:             "o1",
+		Name:              "S",
+		Slug:              "s",
+		Description:       "d",
+		Settings:          "{}",
+		ConfigConnectorID: "c",
+		ConfigRepo:        "r",
+		ConfigBranch:      "main",
+		ConfigPath:        "stackr.yml",
+		Domains:           "[]",
+		CreatedAt:         t0,
+	}, func(st *store.Stack) { st.Description, st.ConfigBranch = "d2", "dev" })
+	roundTrip(t, s.Releases, store.Release{
+		ID:        "r1",
+		StackID:   "s1",
+		Number:    1,
+		CreatedAt: t0,
+		CreatedBy: "u1",
+	}, func(r *store.Release) { r.Number = 2 })
+	roundTrip(t, s.Environments, store.Environment{
+		ID:         "e1",
+		StackID:    "s1",
+		Name:       "Prod",
+		Slug:       "prod",
+		Type:       "static",
+		Settings:   "{}",
+		Color:      "red",
+		Position:   1,
+		Network:    "net1",
+		FromKind:   "branch",
+		FromBranch: "main",
+		Auto:       true,
+		CreatedAt:  t0,
+	}, func(e *store.Environment) {
+		e.ReleaseID = ptr("r1")
+		e.FromKind = "promote"
+		e.Auto = false
+		e.Position = 2
+	})
+	roundTrip(t, s.Environments, store.Environment{
+		ID:         "e2",
+		StackID:    "s1",
+		Name:       "PR 7",
+		Slug:       "pr-7",
+		Type:       "ephemeral",
+		BaseEnvID:  ptr("e1"),
+		Settings:   "{}",
+		Color:      "",
+		Position:   3,
+		Network:    "net2",
+		FromKind:   "branch",
+		FromBranch: "pr-7",
+		CreatedAt:  t0,
+	}, func(e *store.Environment) { e.BaseEnvID = nil })
+	roundTrip(t, s.Tiles, store.Tile{
+		ID:                      "t1",
+		StackID:                 "s1",
+		EnvironmentID:           "e1",
+		Name:                    "Web",
+		Slug:                    "web",
+		Kind:                    "service",
+		GitURL:                  "https://g/x",
+		GitBranch:               "main",
+		ImageRef:                "",
+		DockerfilePath:          "Dockerfile",
+		BuildContext:            ".",
+		WatchPaths:              "src/**",
+		EnvJSON:                 `{"A":"1"}`,
+		BuildArgs:               "{}",
+		Volumes:                 "data:/data",
+		Command:                 "run",
+		ContainerPort:           8080,
+		PublishedPorts:          "80:8080",
+		EndpointProtocol:        "http",
+		HealthPath:              "/health",
+		HealthcheckCmd:          "true",
+		HealthcheckIntervalS:    10,
+		HealthcheckTimeoutS:     5,
+		HealthcheckRetries:      3,
+		HealthcheckStartPeriodS: 15,
+		CPULimit:                1.5,
+		MemLimitMB:              512,
+		User:                    "1000",
+		ShmSizeMB:               64,
+		Privileged:              true,
+		Devices:                 "/dev/x",
+		RestartPolicy:           "always",
+		DependsOn:               "db",
+		Files:                   "{}",
+		SharedNet:               "shared",
+		Replicas:                2,
+		UpdatePolicy:            "auto",
+		TagPolicy:               "semver",
+		CreatedAt:               t0,
+		UpdatedAt:               t0,
+	}, func(ti *store.Tile) {
+		ti.Kind = "image"
+		ti.CPULimit = 0.25
+		ti.Privileged = false
+		ti.UpdatePolicy = "manual"
+		ti.UpdatedAt = t1
+	})
+	roundTrip(t, s.Tiles, store.Tile{
+		ID:            "t2",
+		StackID:       "s1",
+		EnvironmentID: "e1",
+		Name:          "DB",
+		Slug:          "db",
+		Kind:          "managed",
+		UpdatePolicy:  "manual",
+		CreatedAt:     t0,
+		UpdatedAt:     t0,
+	}, func(ti *store.Tile) { ti.Replicas = 1 })
+	roundTrip(t, s.Images, store.Image{
+		ID:         "img1",
+		Ref:        "reg/x:1",
+		Digest:     "sha256:a",
+		BuiltAt:    ptr(t0),
+		LastDigest: "sha256:b",
+		LastTag:    "1",
+		LastError:  "",
+		CheckedAt:  nil,
+		CreatedAt:  t0,
+	}, func(i *store.Image) { i.LastError, i.CheckedAt, i.BuiltAt = "timeout", ptr(t1), nil })
+	roundTrip(t, s.ReleaseTiles, store.ReleaseTile{
+		ID:        "rt1",
+		ReleaseID: "r1",
+		Slug:      "web",
+		Repo:      "g/x",
+		Branch:    "main",
+		CommitSHA: "abc",
+		ImageID:   ptr("img1"),
+		Digest:    "sha256:a",
+	}, func(r *store.ReleaseTile) { r.ImageID, r.CommitSHA = nil, "def" })
+	roundTrip(t, s.Params, store.Param{
+		ID:         "p1",
+		ScopeKind:  "env",
+		ScopeID:    "e1",
+		Collection: "db",
+		Name:       "password",
+		Kind:       "secret",
+		Value:      "hunter2",
+		CreatedAt:  t0,
+		UpdatedAt:  t0,
+	}, func(p *store.Param) { p.Value, p.UpdatedAt = "hunter3", t1 })
+	roundTrip(t, s.ManagedInstances, store.ManagedInstance{
+		ID:            "mi1",
+		TileID:        "t2",
+		Engine:        "postgres",
+		ScopeKind:     "env",
+		ScopeID:       "e1",
+		AdminUser:     "root",
+		AdminPassword: "pw",
+		Endpoint:      "db:5432",
+		CreatedAt:     t0,
+	}, func(m *store.ManagedInstance) { m.AdminPassword = "pw2" })
+	roundTrip(t, s.Provisions, store.Provision{
+		ID:             "pr1",
+		InstanceID:     "mi1",
+		ConsumerTileID: ptr("t1"),
+		Slug:           "web",
+		DBName:         "web",
+		DBUser:         "web",
+		DBPassword:     "pw",
+		Outputs:        `{"url":"x"}`,
+		Public:         true,
+		OnRemove:       "keep",
+		CreatedAt:      t0,
+	}, func(p *store.Provision) { p.ConsumerTileID, p.Outputs, p.Public = nil, "{}", false })
+	roundTrip(t, s.Volumes, store.Volume{
+		ID:         "v1",
+		ScopeKind:  "env",
+		ScopeID:    "e1",
+		InstanceID: ptr("mi1"),
+		Slug:       "data",
+		Name:       "stackr_data",
+		MaxSizeMB:  100,
+		CreatedAt:  t0,
+	}, func(v *store.Volume) { v.InstanceID, v.OrphanedAt = nil, ptr(t1) })
+	roundTrip(t, s.Domains, store.Domain{
+		ID:            "d1",
+		TileID:        "t1",
+		Host:          "x.io",
+		Path:          "/",
+		ContainerPort: 8080,
+		HTTPS:         true,
+		ForceHTTPS:    true,
+		RedirectTo:    "",
+		Auto:          true,
+		Position:      1,
+		ProxyJSON:     "{}",
+		RawCaddy:      "",
+		CreatedAt:     t0,
+	}, func(d *store.Domain) { d.RedirectTo, d.HTTPS, d.RawCaddy = "y.io", false, "header X 1" })
+	roundTrip(t, s.Credentials, store.Credential{
+		ID:        "c1",
+		OrgID:     "o1",
+		Name:      "ghcr",
+		URL:       "ghcr.io",
+		Username:  "me",
+		Password:  "tok",
+		CreatedAt: t0,
+	}, func(c *store.Credential) { c.Password = "tok2" })
+	roundTrip(t, s.Connectors, store.Connector{
+		ID:        "cn1",
+		OrgID:     "o1",
+		Provider:  "github",
+		Name:      "gh",
+		Host:      "github.com",
+		Config:    `{"key":"PEM"}`,
+		CreatedAt: t0,
+	}, func(c *store.Connector) { c.Config = "{}" })
+	roundTrip(t, s.BackupDests, store.BackupDest{
+		ID:         "bd1",
+		OrgID:      ptr("o1"),
+		Kind:       "s3",
+		Name:       "b2",
+		Endpoint:   "e",
+		Region:     "r",
+		Bucket:     "b",
+		AccessKey:  "ak",
+		SecretKey:  "sk",
+		ArchiveKey: "age1",
+		Shared:     true,
+		CreatedAt:  t0,
+	}, func(d *store.BackupDest) { d.OrgID, d.SecretKey, d.Shared = nil, "sk2", false })
+	roundTrip(t, s.BackupSchedules, store.BackupSchedule{
+		ID:        "bs1",
+		VolumeID:  "v1",
+		Method:    "tar",
+		DestID:    ptr("bd1"),
+		Cron:      "0 3 * * *",
+		Timezone:  "UTC",
+		Keep:      7,
+		Mode:      "hot",
+		CreatedAt: t0,
+	}, func(b *store.BackupSchedule) { b.DestID, b.Keep = nil, 3 })
+	roundTrip(t, s.BackupRuns, store.BackupRun{
+		ID:         "br1",
+		Kind:       "volume",
+		VolumeID:   ptr("v1"),
+		ScheduleID: ptr("bs1"),
+		DestID:     "bd1",
+		Trigger:    "cron",
+		Status:     "running",
+		ObjectKey:  "k",
+		SizeBytes:  1 << 40,
+		CreatedAt:  t0,
+	}, func(b *store.BackupRun) { b.Status, b.FinishedAt, b.VolumeID = "done", ptr(t1), nil })
+	roundTrip(t, s.Jobs, store.Job{
+		ID:        "j1",
+		Kind:      "deploy",
+		State:     "queued",
+		ReleaseID: ptr("r1"),
+		LockSet:   store.StringList{"t1", "t2"},
+		Payload:   `{"x":1}`,
+		LogPath:   "/j1.log",
+		CreatedAt: t0,
+	}, func(j *store.Job) {
+		j.State = "waiting"
+		j.WaitingParam = ptr("db/password")
+		j.StartedAt = ptr(t1)
+		j.LockSet = store.StringList{}
+	})
 
 	// Settings and sessions have no id-keyed CRUD.
 	if _, ok, err := s.Settings.Get(ctx, "workers"); ok || err != nil {
@@ -155,7 +417,13 @@ func TestRoundTrip(t *testing.T) {
 			t.Fatalf("settings = %q %v %v, want %q", got, ok, err, v)
 		}
 	}
-	se := &auth.Session{ID: "se1", SubjectID: "u1", Token: "tok", ExpiresAt: t1, CreatedAt: t0}
+	se := &auth.Session{
+		ID:        "se1",
+		SubjectID: "u1",
+		Token:     "tok",
+		ExpiresAt: t1,
+		CreatedAt: t0,
+	}
 	if err := s.Sessions.Create(ctx, se); err != nil {
 		t.Fatal(err)
 	}
@@ -174,15 +442,24 @@ func TestRoundTrip(t *testing.T) {
 		del  func(context.Context, string) error
 		id   string
 	}{
-		{"jobs", s.Jobs.Delete, "j1"}, {"backup_runs", s.BackupRuns.Delete, "br1"},
-		{"backup_schedules", s.BackupSchedules.Delete, "bs1"}, {"backup_destinations", s.BackupDests.Delete, "bd1"},
-		{"connectors", s.Connectors.Delete, "cn1"}, {"credentials", s.Credentials.Delete, "c1"},
-		{"domains", s.Domains.Delete, "d1"}, {"volumes", s.Volumes.Delete, "v1"},
-		{"provisions", s.Provisions.Delete, "pr1"}, {"managed_instances", s.ManagedInstances.Delete, "mi1"},
-		{"params", s.Params.Delete, "p1"}, {"release_tiles", s.ReleaseTiles.Delete, "rt1"},
-		{"images", s.Images.Delete, "img1"}, {"tiles", s.Tiles.Delete, "t2"},
-		{"environments", s.Environments.Delete, "e2"}, {"releases", s.Releases.Delete, "r1"},
-		{"api_keys", s.APIKeys.Delete, "k1"}, {"invites", s.Invites.Delete, "i1"},
+		{"jobs", s.Jobs.Delete, "j1"},
+		{"backup_runs", s.BackupRuns.Delete, "br1"},
+		{"backup_schedules", s.BackupSchedules.Delete, "bs1"},
+		{"backup_destinations", s.BackupDests.Delete, "bd1"},
+		{"connectors", s.Connectors.Delete, "cn1"},
+		{"credentials", s.Credentials.Delete, "c1"},
+		{"domains", s.Domains.Delete, "d1"},
+		{"volumes", s.Volumes.Delete, "v1"},
+		{"provisions", s.Provisions.Delete, "pr1"},
+		{"managed_instances", s.ManagedInstances.Delete, "mi1"},
+		{"params", s.Params.Delete, "p1"},
+		{"release_tiles", s.ReleaseTiles.Delete, "rt1"},
+		{"images", s.Images.Delete, "img1"},
+		{"tiles", s.Tiles.Delete, "t2"},
+		{"environments", s.Environments.Delete, "e2"},
+		{"releases", s.Releases.Delete, "r1"},
+		{"api_keys", s.APIKeys.Delete, "k1"},
+		{"invites", s.Invites.Delete, "i1"},
 		{"org_members", s.OrgMembers.Delete, "m1"},
 	} {
 		if err := d.del(ctx, d.id); err != nil {
@@ -198,7 +475,13 @@ func TestEncryptedAtRest(t *testing.T) {
 	s := servicetest.Store(t)
 	ctx := context.Background()
 	mustSeedOrg(t, s)
-	if err := s.Credentials.Create(ctx, store.Credential{ID: "c1", OrgID: "o1", Name: "n", Password: "hunter2", CreatedAt: t0}); err != nil {
+	if err := s.Credentials.Create(ctx, store.Credential{
+		ID:        "c1",
+		OrgID:     "o1",
+		Name:      "n",
+		Password:  "hunter2",
+		CreatedAt: t0,
+	}); err != nil {
 		t.Fatal(err)
 	}
 	var raw string
@@ -254,7 +537,12 @@ func TestTxRollsBack(t *testing.T) {
 
 func mustSeedOrg(t *testing.T, s *store.Store) {
 	t.Helper()
-	if err := s.Orgs.Create(context.Background(), store.Org{ID: "o1", Name: "Org", Slug: "org", CreatedAt: t0}); err != nil {
+	if err := s.Orgs.Create(context.Background(), store.Org{
+		ID:        "o1",
+		Name:      "Org",
+		Slug:      "org",
+		CreatedAt: t0,
+	}); err != nil {
 		t.Fatal(err)
 	}
 }

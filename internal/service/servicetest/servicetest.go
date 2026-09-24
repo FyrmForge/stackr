@@ -48,14 +48,21 @@ func NewWith(t *testing.T, opts []service.Option, edit ...func(*service.Config))
 	dir := t.TempDir()
 	// No conntrack table: the 5 s traffic tick bails before any Docker call,
 	// so the fake's call log stays the test's own.
-	cfg := service.Config{DataDir: dir, DBPath: filepath.Join(dir, "stackr.db"), SecretsKey: Key,
-		Conntrack: filepath.Join(dir, "nf_conntrack")}
+	cfg := service.Config{
+		DataDir:    dir,
+		DBPath:     filepath.Join(dir, "stackr.db"),
+		SecretsKey: Key,
+		Conntrack:  filepath.Join(dir, "nf_conntrack"),
+	}
 	for _, f := range edit {
 		f(&cfg)
 	}
 	fake := dockerfake.New()
-	orch, err := service.New(cfg, append([]service.Option{service.WithDocker(fake), service.WithVIP(noVIP{}),
-		service.WithProxy(func(context.Context, json.RawMessage) error { return nil })}, opts...)...)
+	orch, err := service.New(cfg, append([]service.Option{
+		service.WithDocker(fake),
+		service.WithVIP(noVIP{}),
+		service.WithProxy(func(context.Context, json.RawMessage) error { return nil }),
+	}, opts...)...)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,13 +70,22 @@ func NewWith(t *testing.T, opts []service.Option, edit ...func(*service.Config))
 
 	// A second pool on the same file: the orchestrator keeps its store to
 	// itself, the harness gets its own.
-	return &Env{Orch: orch, Docker: fake, Store: open(t, cfg.DBPath), Config: cfg}
+	return &Env{
+		Orch:   orch,
+		Docker: fake,
+		Store:  open(t, cfg.DBPath),
+		Config: cfg,
+	}
 }
 
 // Store is a fresh migrated store with no orchestrator (storetest.Store).
-func Store(t *testing.T) *store.Store { return storetest.Store(t) }
+func Store(t *testing.T) *store.Store {
+	return storetest.Store(t)
+}
 
-func open(t *testing.T, path string) *store.Store { return storetest.Open(t, path) }
+func open(t *testing.T, path string) *store.Store {
+	return storetest.Open(t, path)
+}
 
 var now = time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 
@@ -89,8 +105,15 @@ func (e *Env) User(t *testing.T, email string, admin bool) string {
 	}
 	id := uuid.NewString()
 	must(t, e.Store.Users.Create(context.Background(), store.User{
-		ID: id, Email: email, PasswordHash: "x", Name: email, Role: role, Active: true,
-		Theme: "system", CreatedAt: now, UpdatedAt: now,
+		ID:           id,
+		Email:        email,
+		PasswordHash: "x",
+		Name:         email,
+		Role:         role,
+		Active:       true,
+		Theme:        "system",
+		CreatedAt:    now,
+		UpdatedAt:    now,
 	}))
 	return id
 }
@@ -100,7 +123,12 @@ func (e *Env) Org(t *testing.T, slug string) string {
 	t.Helper()
 	id := uuid.NewString()
 	must(t, e.Store.Orgs.Create(context.Background(), store.Org{
-		ID: id, Name: slug, Slug: slug, EnvColors: "{}", Settings: "{}", CreatedAt: now,
+		ID:        id,
+		Name:      slug,
+		Slug:      slug,
+		EnvColors: "{}",
+		Settings:  "{}",
+		CreatedAt: now,
 	}))
 	return id
 }
@@ -109,7 +137,11 @@ func (e *Env) Org(t *testing.T, slug string) string {
 func (e *Env) Member(t *testing.T, orgID, userID, role string) {
 	t.Helper()
 	must(t, e.Store.OrgMembers.Create(context.Background(), store.OrgMember{
-		ID: uuid.NewString(), OrgID: orgID, UserID: userID, Role: role, CreatedAt: now,
+		ID:        uuid.NewString(),
+		OrgID:     orgID,
+		UserID:    userID,
+		Role:      role,
+		CreatedAt: now,
 	}))
 }
 
@@ -124,7 +156,12 @@ func (e *Env) APIKey(t *testing.T, userID, orgID string) string {
 		org = &orgID
 	}
 	must(t, e.Store.APIKeys.Create(context.Background(), store.APIKey{
-		ID: uuid.NewString(), UserID: userID, OrgID: org, Name: "test", TokenHash: user.HashToken(token), CreatedAt: now,
+		ID:        uuid.NewString(),
+		UserID:    userID,
+		OrgID:     org,
+		Name:      "test",
+		TokenHash: user.HashToken(token),
+		CreatedAt: now,
 	}))
 	return token
 }
@@ -146,10 +183,21 @@ func (e *Env) Tile(t *testing.T, orgID string) Tile {
 	ctx := context.Background()
 	st, err := e.Orch.CreateStack(ctx, orgID, "shop", "")
 	must(t, err)
-	en, err := e.Orch.CreateEnv(ctx, st.ID, "dev", service.EnvSpec{Type: "static", FromKind: "branch", FromBranch: "main"})
+	en, err := e.Orch.CreateEnv(
+		ctx,
+		st.ID,
+		"dev",
+		service.EnvSpec{Type: "static", FromKind: "branch", FromBranch: "main"},
+	)
 	must(t, err)
-	tl, err := e.Orch.CreateTile(ctx, service.Tile{StackID: st.ID, EnvironmentID: en.ID, Name: "api", Kind: "image",
-		ImageRef: "nginx:1", ContainerPort: 80})
+	tl, err := e.Orch.CreateTile(ctx, service.Tile{
+		StackID:       st.ID,
+		EnvironmentID: en.ID,
+		Name:          "api",
+		Kind:          "image",
+		ImageRef:      "nginx:1",
+		ContainerPort: 80,
+	})
 	must(t, err)
 	return Tile{Stack: st.ID, Env: en.ID, ID: tl.ID}
 }
@@ -158,7 +206,12 @@ func (e *Env) Tile(t *testing.T, orgID string) Tile {
 func (e *Env) Image(t *testing.T, ref string) string {
 	t.Helper()
 	id := uuid.NewString()
-	must(t, e.Store.Images.Create(context.Background(), store.Image{ID: id, Ref: ref, BuiltAt: &now, CreatedAt: now}))
+	must(t, e.Store.Images.Create(context.Background(), store.Image{
+		ID:        id,
+		Ref:       ref,
+		BuiltAt:   &now,
+		CreatedAt: now,
+	}))
 	return id
 }
 
@@ -167,10 +220,18 @@ func (e *Env) Image(t *testing.T, ref string) string {
 func (e *Env) Connector(t *testing.T, orgID, secret string) string {
 	t.Helper()
 	id := uuid.NewString()
-	cfg, err := json.Marshal(map[string]any{"app": map[string]any{"id": 1, "slug": "stackr-test", "webhook_secret": secret}})
+	cfg, err := json.Marshal(map[string]any{
+		"app": map[string]any{"id": 1, "slug": "stackr-test", "webhook_secret": secret},
+	})
 	must(t, err)
 	must(t, e.Store.Connectors.Create(context.Background(), store.Connector{
-		ID: id, OrgID: orgID, Provider: "github", Name: "github", Host: "github.com", Config: string(cfg), CreatedAt: now,
+		ID:        id,
+		OrgID:     orgID,
+		Provider:  "github",
+		Name:      "github",
+		Host:      "github.com",
+		Config:    string(cfg),
+		CreatedAt: now,
 	}))
 	return id
 }
@@ -179,8 +240,13 @@ func (e *Env) Connector(t *testing.T, orgID, secret string) string {
 // healthy on the env's network, so a deploy into envID succeeds.
 func (e *Env) Healthy(envID string) {
 	e.Docker.RunID = "c-healthy"
-	e.Docker.Details = map[string]docker.Detail{"c-healthy": {Running: true, Health: "healthy",
-		Networks: map[string]string{"stackr-env-" + envID: "10.0.0.5"}}}
+	e.Docker.Details = map[string]docker.Detail{
+		"c-healthy": {
+			Running:  true,
+			Health:   "healthy",
+			Networks: map[string]string{"stackr-env-" + envID: "10.0.0.5"},
+		},
+	}
 }
 
 // FailedJob records a finished, failed deploy of the tile: its status
@@ -188,12 +254,24 @@ func (e *Env) Healthy(envID string) {
 func (e *Env) FailedJob(t *testing.T, tileID string) {
 	t.Helper()
 	fin := time.Now()
-	must(t, e.Store.Jobs.Create(context.Background(), store.Job{ID: uuid.NewString(), Kind: "deploy", State: "failed",
-		LockSet: store.StringList{tileID}, Payload: "{}", CreatedAt: fin, FinishedAt: &fin}))
+	must(t, e.Store.Jobs.Create(context.Background(), store.Job{
+		ID:         uuid.NewString(),
+		Kind:       "deploy",
+		State:      "failed",
+		LockSet:    store.StringList{tileID},
+		Payload:    "{}",
+		CreatedAt:  fin,
+		FinishedAt: &fin,
+	}))
 }
 
 // noVIP stands in for the iptables VIP table, which needs root.
 type noVIP struct{}
 
-func (noVIP) Set(context.Context, string, []string) error { return nil }
-func (noVIP) Remove(context.Context, string) error        { return nil }
+func (noVIP) Set(context.Context, string, []string) error {
+	return nil
+}
+
+func (noVIP) Remove(context.Context, string) error {
+	return nil
+}

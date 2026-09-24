@@ -23,8 +23,13 @@ type positions struct{ q querier }
 
 func (s positions) ListByScope(ctx context.Context, scopeKind, scopeID string) ([]Position, error) {
 	var rows []Position
-	err := s.q.SelectContext(ctx, &rows,
-		`SELECT scope_kind, scope_id, node_id, x, y FROM positions WHERE scope_kind = ? AND scope_id = ?`, scopeKind, scopeID)
+	err := s.q.SelectContext(
+		ctx,
+		&rows,
+		`SELECT scope_kind, scope_id, node_id, x, y FROM positions WHERE scope_kind = ? AND scope_id = ?`,
+		scopeKind,
+		scopeID,
+	)
 	return rows, mapErr(err)
 }
 

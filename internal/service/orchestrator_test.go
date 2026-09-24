@@ -27,8 +27,13 @@ import (
 
 type vipStub struct{}
 
-func (vipStub) Set(context.Context, string, []string) error { return nil }
-func (vipStub) Remove(context.Context, string) error        { return nil }
+func (vipStub) Set(context.Context, string, []string) error {
+	return nil
+}
+
+func (vipStub) Remove(context.Context, string) error {
+	return nil
+}
 
 type world struct {
 	orch   *Orchestrator
@@ -56,13 +61,17 @@ func newWorld(t *testing.T) *world {
 	t.Helper()
 	dir := t.TempDir()
 	w := &world{fake: dockerfake.New()}
-	orch, err := New(Config{DataDir: dir, SecretsKey: testKey, Conntrack: dir + "/nf_conntrack"}, WithDocker(w.fake), WithVIP(vipStub{}),
+	orch, err := New(
+		Config{DataDir: dir, SecretsKey: testKey, Conntrack: dir + "/nf_conntrack"},
+		WithDocker(w.fake),
+		WithVIP(vipStub{}),
 		WithProxy(func(_ context.Context, cfg json.RawMessage) error {
 			w.mu.Lock()
 			w.pushed = append(w.pushed, string(cfg))
 			w.mu.Unlock()
 			return nil
-		}))
+		}),
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,10 +80,35 @@ func newWorld(t *testing.T) *world {
 	ctx := context.Background()
 	now := time.Now()
 	w.org, w.stack, w.env = uuid.NewString(), uuid.NewString(), uuid.NewString()
-	must(t, w.st.Orgs.Create(ctx, store.Org{ID: w.org, Name: "acme", Slug: "acme", EnvColors: "{}", Settings: "{}", CreatedAt: now}))
-	must(t, w.st.Stacks.Create(ctx, store.Stack{ID: w.stack, OrgID: w.org, Name: "shop", Slug: "shop", Settings: "{}", Domains: "[]", CreatedAt: now}))
-	must(t, w.st.Environments.Create(ctx, store.Environment{ID: w.env, StackID: w.stack, Name: "dev", Slug: "dev", Type: "static",
-		Settings: "{}", Network: "n", FromKind: "branch", FromBranch: "main", CreatedAt: now}))
+	must(t, w.st.Orgs.Create(ctx, store.Org{
+		ID:        w.org,
+		Name:      "acme",
+		Slug:      "acme",
+		EnvColors: "{}",
+		Settings:  "{}",
+		CreatedAt: now,
+	}))
+	must(t, w.st.Stacks.Create(ctx, store.Stack{
+		ID:        w.stack,
+		OrgID:     w.org,
+		Name:      "shop",
+		Slug:      "shop",
+		Settings:  "{}",
+		Domains:   "[]",
+		CreatedAt: now,
+	}))
+	must(t, w.st.Environments.Create(ctx, store.Environment{
+		ID:         w.env,
+		StackID:    w.stack,
+		Name:       "dev",
+		Slug:       "dev",
+		Type:       "static",
+		Settings:   "{}",
+		Network:    "n",
+		FromKind:   "branch",
+		FromBranch: "main",
+		CreatedAt:  now,
+	}))
 	return w
 }
 
@@ -87,12 +121,22 @@ func must(t *testing.T, err error) {
 
 func (w *world) tile(t *testing.T, name string, running bool) Tile {
 	t.Helper()
-	tl, err := w.orch.CreateTile(context.Background(), Tile{StackID: w.stack, EnvironmentID: w.env, Name: name,
-		Kind: tile.Image, ImageRef: "nginx:1", ContainerPort: 80})
+	tl, err := w.orch.CreateTile(context.Background(), Tile{
+		StackID:       w.stack,
+		EnvironmentID: w.env,
+		Name:          name,
+		Kind:          tile.Image,
+		ImageRef:      "nginx:1",
+		ContainerPort: 80,
+	})
 	must(t, err)
 	if running {
-		w.fake.Containers = append(w.fake.Containers, docker.Container{ID: "c-" + name, Name: "c-" + name, State: "running",
-			Labels: map[string]string{tile.LabelTile: tl.ID, tile.LabelRole: "replica"}})
+		w.fake.Containers = append(w.fake.Containers, docker.Container{
+			ID:     "c-" + name,
+			Name:   "c-" + name,
+			State:  "running",
+			Labels: map[string]string{tile.LabelTile: tl.ID, tile.LabelRole: "replica"},
+		})
 	}
 	return tl
 }
@@ -119,8 +163,14 @@ func TestParamChangeRedeploysRunningTiles(t *testing.T) {
 	ctx := context.Background()
 	up := w.tile(t, "api", true)
 	down := w.tile(t, "worker", false)
-	must(t, w.orch.SetParams(ctx, ParamScope{Kind: "stack", ID: w.stack},
-		[]ParamEntry{{Collection: "app", Name: "mode", Kind: "param", Value: "fast"}}))
+	must(t, w.orch.SetParams(ctx, ParamScope{Kind: "stack", ID: w.stack}, []ParamEntry{
+		{
+			Collection: "app",
+			Name:       "mode",
+			Kind:       "param",
+			Value:      "fast",
+		},
+	}))
 	js, err := w.orch.TileJobs(ctx, []string{up.ID, down.ID}, 10)
 	must(t, err)
 	if len(js) != 1 || js[0].Kind != string(kindDeploy) || !slices.Contains(js[0].LockSet, up.ID) {
@@ -134,7 +184,15 @@ func TestPromoteBlockersOneAnswer(t *testing.T) {
 	w := newWorld(t)
 	ctx := context.Background()
 	other := uuid.NewString()
-	must(t, w.st.Stacks.Create(ctx, store.Stack{ID: other, OrgID: w.org, Name: "blog", Slug: "blog", Settings: "{}", Domains: "[]", CreatedAt: time.Now()}))
+	must(t, w.st.Stacks.Create(ctx, store.Stack{
+		ID:        other,
+		OrgID:     w.org,
+		Name:      "blog",
+		Slug:      "blog",
+		Settings:  "{}",
+		Domains:   "[]",
+		CreatedAt: time.Now(),
+	}))
 	rel, err := w.orch.releases.Create(ctx, other, "test", nil)
 	must(t, err)
 
@@ -170,7 +228,10 @@ func TestUpdateTileKeepsUntouchedFields(t *testing.T) {
 	w := newWorld(t)
 	ctx := context.Background()
 	api := w.tile(t, "api", false)
-	got, _, err := w.orch.UpdateTile(ctx, api.ID, func(t *Tile) error { t.HealthPath = "/up"; return nil })
+	got, _, err := w.orch.UpdateTile(ctx, api.ID, func(t *Tile) error {
+		t.HealthPath = "/up"
+		return nil
+	})
 	must(t, err)
 	if got.HealthPath != "/up" || got.ImageRef != "nginx:1" || got.ContainerPort != 80 {
 		t.Errorf("after update: %+v", got)
@@ -328,7 +389,10 @@ func TestRunVerbs(t *testing.T) {
 		t.Fatalf("status = %+v, want a last and a next run", st)
 	}
 
-	msg := func(err error) string { v, _ := errs.IsInvalid(err); return v.Msg }
+	msg := func(err error) string {
+		v, _ := errs.IsInvalid(err)
+		return v.Msg
+	}
 	if _, err := w.orch.RestartTile(ctx, cron.ID); msg(err) != "a cron has no long-running container to restart; use run instead" {
 		t.Fatalf("restart a cron = %v", err)
 	}
@@ -364,7 +428,10 @@ func TestDrawerReads(t *testing.T) {
 	must(t, err)
 	_, err = w.orch.DeclareVolume(ctx, scope, "cache", 0)
 	must(t, err)
-	_, _, err = w.orch.UpdateTile(ctx, api.ID, func(t *Tile) error { t.Volumes = "uploads:/data"; return nil })
+	_, _, err = w.orch.UpdateTile(ctx, api.ID, func(t *Tile) error {
+		t.Volumes = "uploads:/data"
+		return nil
+	})
 	must(t, err)
 	vs, err := w.orch.TileVolumes(ctx, api.ID)
 	must(t, err)

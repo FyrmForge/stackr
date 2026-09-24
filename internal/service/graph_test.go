@@ -34,8 +34,21 @@ type world struct {
 }
 
 func tileRow(stackID, envID, slug, kind string, edit func(*store.Tile)) store.Tile {
-	t := store.Tile{ID: uuid.NewString(), StackID: stackID, EnvironmentID: envID, Name: slug, Slug: slug, Kind: kind,
-		ImageRef: "nginx:1", EnvJSON: "{}", BuildArgs: "{}", Replicas: 1, UpdatePolicy: "manual", CreatedAt: time.Now(), UpdatedAt: time.Now()}
+	t := store.Tile{
+		ID:            uuid.NewString(),
+		StackID:       stackID,
+		EnvironmentID: envID,
+		Name:          slug,
+		Slug:          slug,
+		Kind:          kind,
+		ImageRef:      "nginx:1",
+		EnvJSON:       "{}",
+		BuildArgs:     "{}",
+		Replicas:      1,
+		UpdatePolicy:  "manual",
+		CreatedAt:     time.Now(),
+		UpdatedAt:     time.Now(),
+	}
 	if edit != nil {
 		edit(&t)
 	}
@@ -64,23 +77,56 @@ func seedWorld(t *testing.T) world {
 	w.shop = st.ID
 	st.ConfigConnectorID, st.ConfigRepo = w.conn, "https://github.com/acme/config.git"
 	must(e.Store.Stacks.Update(ctx, st))
-	dev, err := e.Orch.CreateEnv(ctx, w.shop, "dev", service.EnvSpec{Type: "static", FromKind: "branch", FromBranch: "main", Color: "#0a0"})
+	dev, err := e.Orch.CreateEnv(ctx, w.shop, "dev", service.EnvSpec{
+		Type:       "static",
+		FromKind:   "branch",
+		FromBranch: "main",
+		Color:      "#0a0",
+	})
 	must(err)
-	prod, err := e.Orch.CreateEnv(ctx, w.shop, "prod", service.EnvSpec{Type: "static", FromKind: "branch", FromBranch: "main"})
+	prod, err := e.Orch.CreateEnv(
+		ctx,
+		w.shop,
+		"prod",
+		service.EnvSpec{Type: "static", FromKind: "branch", FromBranch: "main"},
+	)
 	must(err)
 	w.dev, w.prod = dev.ID, prod.ID
 	for n, env := range map[int]string{2: w.dev, 1: w.prod} {
 		rid := uuid.NewString()
-		must(e.Store.Releases.Create(ctx, store.Release{ID: rid, StackID: w.shop, Number: n, CreatedAt: time.Now()}))
+		must(e.Store.Releases.Create(ctx, store.Release{
+			ID:        rid,
+			StackID:   w.shop,
+			Number:    n,
+			CreatedAt: time.Now(),
+		}))
 		row, err := e.Store.Environments.Get(ctx, env)
 		must(err)
 		row.ReleaseID = &rid
 		must(e.Store.Environments.Update(ctx, row))
 	}
 	must(e.Orch.SetParams(ctx, service.ParamScope{Kind: "env", ID: w.dev}, []service.ParamEntry{
-		{Collection: "app", Name: "key", Kind: "param", Value: "v"}, {Collection: "app", Name: "pw", Kind: "secret", Value: "s"}}))
+		{
+			Collection: "app",
+			Name:       "key",
+			Kind:       "param",
+			Value:      "v",
+		},
+		{
+			Collection: "app",
+			Name:       "pw",
+			Kind:       "secret",
+			Value:      "s",
+		},
+	}))
 	must(e.Orch.SetParams(ctx, service.ParamScope{Kind: "stack", ID: w.shop}, []service.ParamEntry{
-		{Collection: "app", Name: "region", Kind: "param", Value: "eu"}}))
+		{
+			Collection: "app",
+			Name:       "region",
+			Kind:       "param",
+			Value:      "eu",
+		},
+	}))
 
 	api := tileRow(w.shop, w.dev, "api", "service", func(t *store.Tile) {
 		t.GitURL = "https://github.com/acme/api.git"
@@ -94,24 +140,62 @@ func seedWorld(t *testing.T) world {
 	for _, tl := range []store.Tile{api, worker, web, pg} {
 		must(e.Store.Tiles.Create(ctx, tl))
 	}
-	w.api, w.worker, w.web, w.pg = api.ID, worker.ID, web.ID, pg.ID
-	inst := store.ManagedInstance{ID: uuid.NewString(), TileID: pg.ID, Engine: "postgres", ScopeKind: "env", ScopeID: w.dev,
-		AdminUser: "a", AdminPassword: "p", CreatedAt: time.Now()}
+	w.api = api.ID
+	w.worker = worker.ID
+	w.web = web.ID
+	w.pg = pg.ID
+	inst := store.ManagedInstance{
+		ID:            uuid.NewString(),
+		TileID:        pg.ID,
+		Engine:        "postgres",
+		ScopeKind:     "env",
+		ScopeID:       w.dev,
+		AdminUser:     "a",
+		AdminPassword: "p",
+		CreatedAt:     time.Now(),
+	}
 	must(e.Store.ManagedInstances.Create(ctx, inst))
 	w.provision = uuid.NewString()
-	must(e.Store.Provisions.Create(ctx, store.Provision{ID: w.provision, InstanceID: inst.ID, ConsumerTileID: &w.api,
-		Slug: "main", DBName: "main", Outputs: "{}", OnRemove: "keep", CreatedAt: time.Now()}))
+	must(e.Store.Provisions.Create(ctx, store.Provision{
+		ID:             w.provision,
+		InstanceID:     inst.ID,
+		ConsumerTileID: &w.api,
+		Slug:           "main",
+		DBName:         "main",
+		Outputs:        "{}",
+		OnRemove:       "keep",
+		CreatedAt:      time.Now(),
+	}))
 	w.vols = map[string]string{}
 	for _, sl := range []string{"uploads", "old"} {
 		w.vols[sl] = uuid.NewString()
-		must(e.Store.Volumes.Create(ctx, store.Volume{ID: w.vols[sl], ScopeKind: "env", ScopeID: w.dev, Slug: sl,
-			Name: sl, CreatedAt: time.Now()}))
+		must(e.Store.Volumes.Create(ctx, store.Volume{
+			ID:        w.vols[sl],
+			ScopeKind: "env",
+			ScopeID:   w.dev,
+			Slug:      sl,
+			Name:      sl,
+			CreatedAt: time.Now(),
+		}))
 	}
-	must(e.Store.Domains.Create(ctx, store.Domain{ID: uuid.NewString(), TileID: w.api, Host: "api.acme.io", HTTPS: true,
-		ProxyJSON: "{}", CreatedAt: time.Now()}))
+	must(e.Store.Domains.Create(ctx, store.Domain{
+		ID:        uuid.NewString(),
+		TileID:    w.api,
+		Host:      "api.acme.io",
+		HTTPS:     true,
+		ProxyJSON: "{}",
+		CreatedAt: time.Now(),
+	}))
 	fin := time.Now()
-	must(e.Store.Jobs.Create(ctx, store.Job{ID: uuid.NewString(), Kind: "deploy", State: "failed", LockSet: store.StringList{w.api},
-		Payload: "{}", CreatedAt: time.Now(), FinishedAt: &fin}))
+	must(e.Store.Jobs.Create(ctx, store.Job{
+		ID:         uuid.NewString(),
+		Kind:       "deploy",
+		State:      "failed",
+		LockSet:    store.StringList{w.api},
+		Payload:    "{}",
+		CreatedAt:  time.Now(),
+		FinishedAt: &fin,
+	}))
 	return w
 }
 
@@ -143,7 +227,11 @@ func ids(v service.GraphView) string {
 
 func TestCanvasHome(t *testing.T) {
 	w := seedWorld(t)
-	v, err := w.e.Orch.Canvas(context.Background(), service.CanvasScope{Kind: service.CanvasHome, ID: w.user}, service.ShowAll)
+	v, err := w.e.Orch.Canvas(
+		context.Background(),
+		service.CanvasScope{Kind: service.CanvasHome, ID: w.user},
+		service.ShowAll,
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -164,7 +252,11 @@ func TestCanvasHome(t *testing.T) {
 
 func TestCanvasOrg(t *testing.T) {
 	w := seedWorld(t)
-	v, err := w.e.Orch.Canvas(context.Background(), service.CanvasScope{Kind: service.CanvasOrg, ID: w.acme}, service.ShowAll)
+	v, err := w.e.Orch.Canvas(
+		context.Background(),
+		service.CanvasScope{Kind: service.CanvasOrg, ID: w.acme},
+		service.ShowAll,
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -176,7 +268,10 @@ func TestCanvasOrg(t *testing.T) {
 	if c := ns["connector:"+w.conn]; c.Kind != "connector" || c.X >= st.X {
 		t.Errorf("connector = %+v, want a card left of the stacks", c)
 	}
-	want := []string{"config connector:" + w.conn + " stack:" + w.shop, "source connector:" + w.conn + " stack:" + w.shop}
+	want := []string{
+		"config connector:" + w.conn + " stack:" + w.shop,
+		"source connector:" + w.conn + " stack:" + w.shop,
+	}
 	if got := edges(v); strings.Join(got, "|") != strings.Join(want, "|") {
 		t.Errorf("org edges = %v, want %v", got, want)
 	}
@@ -184,7 +279,11 @@ func TestCanvasOrg(t *testing.T) {
 
 func TestCanvasStack(t *testing.T) {
 	w := seedWorld(t)
-	v, err := w.e.Orch.Canvas(context.Background(), service.CanvasScope{Kind: service.CanvasStack, ID: w.shop}, service.ShowAll)
+	v, err := w.e.Orch.Canvas(
+		context.Background(),
+		service.CanvasScope{Kind: service.CanvasStack, ID: w.shop},
+		service.ShowAll,
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -201,7 +300,8 @@ func TestCanvasStack(t *testing.T) {
 	if got := edges(v); len(got) != 1 || got[0] != "shared vars env:"+w.dev {
 		t.Errorf("stack edges = %v, want vars -> dev only (prod reads nothing)", got)
 	}
-	if len(v.Compare) != 2 || v.Compare[0].Release != 2 || v.Compare[1].Release != 1 || !v.Compare[1].Behind || v.Compare[0].Behind {
+	if len(v.Compare) != 2 || v.Compare[0].Release != 2 || v.Compare[1].Release != 1 || !v.Compare[1].Behind ||
+		v.Compare[0].Behind {
 		t.Errorf("compare = %+v, want dev #2 then prod #1, prod behind dev", v.Compare)
 	}
 }
@@ -310,7 +410,10 @@ func TestCanvasPositions(t *testing.T) {
 	for _, c := range []struct {
 		id   string
 		want error
-	}{{"nope", errs.ErrNotFound}, {"ref:stack.cache", nil}} {
+	}{
+		{"nope", errs.ErrNotFound},
+		{"ref:stack.cache", nil},
+	} {
 		err := orch.SetPosition(ctx, s, c.id, service.Point{X: 1, Y: 1})
 		if c.want != nil && !errors.Is(err, c.want) {
 			t.Errorf("%s: %v, want %v", c.id, err, c.want)
@@ -322,7 +425,12 @@ func TestCanvasPositions(t *testing.T) {
 		}
 	}
 	// Another canvas keeps its own rows; reset forgets only this one.
-	if err := orch.SetPosition(ctx, service.CanvasScope{Kind: service.CanvasStack, ID: w.shop}, "env:"+w.dev, service.Point{X: 0, Y: 0}); err != nil {
+	if err := orch.SetPosition(
+		ctx,
+		service.CanvasScope{Kind: service.CanvasStack, ID: w.shop},
+		"env:"+w.dev,
+		service.Point{X: 0, Y: 0},
+	); err != nil {
 		t.Fatal(err)
 	}
 	if err := orch.ResetPositions(ctx, s); err != nil {
@@ -344,7 +452,14 @@ func TestCanvasAnnotations(t *testing.T) {
 	orch := w.e.Orch
 	s := service.CanvasScope{Kind: service.CanvasOrg, ID: w.acme}
 	other := service.CanvasScope{Kind: service.CanvasOrg, ID: w.beta}
-	n, _, err := orch.SetAnnotation(ctx, s, service.Annotation{Kind: "note", Text: "hello", X: 10, Y: 20, W: 160, H: 60})
+	n, _, err := orch.SetAnnotation(ctx, s, service.Annotation{
+		Kind: "note",
+		Text: "hello",
+		X:    10,
+		Y:    20,
+		W:    160,
+		H:    60,
+	})
 	if err != nil || n.ID == "" {
 		t.Fatalf("create note: %+v %v", n, err)
 	}
@@ -383,8 +498,13 @@ func TestCanvasEnvFooterFacts(t *testing.T) {
 		t.Fatal(err)
 	}
 	now := time.Now()
-	if err := e.Store.Images.Create(ctx, store.Image{ID: uuid.NewString(), Ref: "nginx:1", LastDigest: "sha256:b",
-		CheckedAt: &now, CreatedAt: now}); err != nil {
+	if err := e.Store.Images.Create(ctx, store.Image{
+		ID:         uuid.NewString(),
+		Ref:        "nginx:1",
+		LastDigest: "sha256:b",
+		CheckedAt:  &now,
+		CreatedAt:  now,
+	}); err != nil {
 		t.Fatal(err)
 	}
 	// What runs is the env's release pin, not the images row (DECIDE 140).
@@ -394,8 +514,19 @@ func TestCanvasEnvFooterFacts(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	must(e.Store.Releases.Create(ctx, store.Release{ID: rid, StackID: tl.Stack, Number: 1, CreatedAt: now}))
-	must(e.Store.ReleaseTiles.Create(ctx, store.ReleaseTile{ID: uuid.NewString(), ReleaseID: rid, Slug: "api", Repo: "nginx:1", Digest: "sha256:a"}))
+	must(e.Store.Releases.Create(ctx, store.Release{
+		ID:        rid,
+		StackID:   tl.Stack,
+		Number:    1,
+		CreatedAt: now,
+	}))
+	must(e.Store.ReleaseTiles.Create(ctx, store.ReleaseTile{
+		ID:        uuid.NewString(),
+		ReleaseID: rid,
+		Slug:      "api",
+		Repo:      "nginx:1",
+		Digest:    "sha256:a",
+	}))
 	env, err := e.Store.Environments.Get(ctx, tl.Env)
 	must(err)
 	env.ReleaseID = &rid

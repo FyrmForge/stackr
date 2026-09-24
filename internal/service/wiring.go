@@ -26,10 +26,17 @@ import (
 // proxyConfig is the Syncer's Build: install facts from settings, stack
 // ACME accounts, then every domain row through flow/deploy.
 func (o *Orchestrator) proxyConfig(ctx context.Context) (json.RawMessage, error) {
-	get := func(k string) string { v, _ := o.settings.Get(ctx, k); return v }
+	get := func(k string) string {
+		v, _ := o.settings.Get(ctx, k)
+		return v
+	}
 	in := domain.Install{
-		AdminListen: ProxyAdmin, ACMEEmail: get("acme_email"), DNSProvider: get("dns_provider"),
-		TLSOff: o.cfg.TLSOff, PanelHost: get("panel_domain"), PanelUpstream: o.cfg.PanelUpstream,
+		AdminListen:    ProxyAdmin,
+		ACMEEmail:      get("acme_email"),
+		DNSProvider:    get("dns_provider"),
+		TLSOff:         o.cfg.TLSOff,
+		PanelHost:      get("panel_domain"),
+		PanelUpstream:  o.cfg.PanelUpstream,
 		TrustedProxies: splitList(get("trusted_proxies")),
 	}
 	orgs, err := o.orgs.ListAll(ctx)
@@ -62,7 +69,11 @@ func (o *Orchestrator) repoLock(dir string) func() {
 }
 
 // clone checks out url at commit into dir through the org's connector.
-func (o *Orchestrator) clone(ctx context.Context, orgID, url, branch, dir, commit string, log io.Writer) (git.Repo, error) {
+func (o *Orchestrator) clone(
+	ctx context.Context,
+	orgID, url, branch, dir, commit string,
+	log io.Writer,
+) (git.Repo, error) {
 	c, err := o.conns.For(ctx, orgID, url)
 	if err != nil {
 		return git.Repo{}, err
@@ -71,14 +82,24 @@ func (o *Orchestrator) clone(ctx context.Context, orgID, url, branch, dir, commi
 	if err != nil {
 		return git.Repo{}, err
 	}
-	r := git.Repo{Dir: dir, URL: url, Branch: branch, Auth: func(context.Context) []string { return env }}
+	r := git.Repo{
+		Dir:    dir,
+		URL:    url,
+		Branch: branch,
+		Auth:   func(context.Context) []string { return env },
+	}
 	_, err = r.Checkout(ctx, commit, log)
 	return r, err
 }
 
 // stackFile is promote's Config: the stack file at commit of the config repo,
 // and a fetcher for its includes at the same commit.
-func (o *Orchestrator) stackFile(ctx context.Context, st store.Stack, commit string, log io.Writer) ([]byte, promote.Fetcher, error) {
+func (o *Orchestrator) stackFile(
+	ctx context.Context,
+	st store.Stack,
+	commit string,
+	log io.Writer,
+) ([]byte, promote.Fetcher, error) {
 	if st.ConfigRepo == "" {
 		return nil, nil, errors.New("this stack has no config repo")
 	}
@@ -100,7 +121,13 @@ func (o *Orchestrator) stackFile(ctx context.Context, st store.Stack, commit str
 
 // buildTile is promote's Build: clone the tile's repo at commit, build its
 // Dockerfile, return the image row id.
-func (o *Orchestrator) buildTile(ctx context.Context, st store.Stack, t store.Tile, commit string, log io.Writer) (string, error) {
+func (o *Orchestrator) buildTile(
+	ctx context.Context,
+	st store.Stack,
+	t store.Tile,
+	commit string,
+	log io.Writer,
+) (string, error) {
 	og, err := o.orgs.Get(ctx, st.OrgID)
 	if err != nil {
 		return "", err

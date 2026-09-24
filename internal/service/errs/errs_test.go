@@ -36,7 +36,8 @@ func TestAs(t *testing.T) {
 	if _, ok := IsConflict(err); ok {
 		t.Error("an Invalid read as a Conflict")
 	}
-	if v, ok := IsConflict(fmt.Errorf("x: %w", Conflictf("stack is config-managed"))); !ok || v.Msg != "stack is config-managed" {
+	if v, ok := IsConflict(fmt.Errorf("x: %w", Conflictf("stack is config-managed"))); !ok ||
+		v.Msg != "stack is config-managed" {
 		t.Errorf("IsConflict = %+v, %v", v, ok)
 	}
 	if v, ok := IsUnset(fmt.Errorf("x: %w", Unset{Param: "db/password"})); !ok || v.Param != "db/password" {

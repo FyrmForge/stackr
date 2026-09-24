@@ -79,7 +79,10 @@ func (o *Orchestrator) volumeIDOrg(ctx context.Context, id string) (string, erro
 // jobOrg reads the org off a job payload's first id, at enqueue time, so a
 // job outlives the tile or env it was about and still polls under its org.
 func (o *Orchestrator) jobOrg(ctx context.Context, p map[string]any) string {
-	str := func(k string) string { s, _ := p[k].(string); return s }
+	str := func(k string) string {
+		s, _ := p[k].(string)
+		return s
+	}
 	var org string
 	var err error
 	switch {

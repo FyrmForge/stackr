@@ -98,8 +98,16 @@ func (o *Orchestrator) SetRawCaddy(ctx context.Context, id, raw string) (Domain,
 	if err != nil {
 		return d, err
 	}
-	s := DomainSpec{Host: d.Host, Path: d.Path, Port: d.ContainerPort, HTTPS: &d.HTTPS, ForceHTTPS: &d.ForceHTTPS,
-		RedirectTo: d.RedirectTo, Auto: d.Auto, RawCaddy: raw}
+	s := DomainSpec{
+		Host:       d.Host,
+		Path:       d.Path,
+		Port:       d.ContainerPort,
+		HTTPS:      &d.HTTPS,
+		ForceHTTPS: &d.ForceHTTPS,
+		RedirectTo: d.RedirectTo,
+		Auto:       d.Auto,
+		RawCaddy:   raw,
+	}
 	if err := json.Unmarshal([]byte(d.ProxyJSON), &s.Extras); err != nil {
 		return d, err
 	}

@@ -60,7 +60,10 @@ func (r Repo) Checkout(ctx context.Context, ref string, w io.Writer) (string, er
 	env := r.env(ctx)
 	run := func(dir string, args ...string) error {
 		cmd := exec.CommandContext(ctx, "git", args...)
-		cmd.Dir, cmd.Env, cmd.Stdout, cmd.Stderr = dir, env, w, w
+		cmd.Dir = dir
+		cmd.Env = env
+		cmd.Stdout = w
+		cmd.Stderr = w
 		return cmd.Run()
 	}
 	if _, err := os.Stat(filepath.Join(r.Dir, ".git")); err != nil {

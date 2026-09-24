@@ -81,7 +81,8 @@ func (d *Client) Connect(ctx context.Context, netName, containerID string, alias
 		cfg = &network.EndpointSettings{Aliases: aliases}
 	}
 	err := d.cli.NetworkConnect(ctx, netName, containerID, cfg)
-	if err != nil && (strings.Contains(err.Error(), "already exists") || strings.Contains(err.Error(), "already attached")) {
+	if err != nil && (strings.Contains(err.Error(), "already exists") ||
+		strings.Contains(err.Error(), "already attached")) {
 		return nil
 	}
 	return wrap(err)

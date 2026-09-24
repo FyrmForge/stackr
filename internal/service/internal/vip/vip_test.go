@@ -38,7 +38,10 @@ func TestTable(t *testing.T) {
 	var argvs []string
 	jumped := false
 	tb := New()
-	tb.Restore = func(_ context.Context, s string) error { scripts = append(scripts, s); return nil }
+	tb.Restore = func(_ context.Context, s string) error {
+		scripts = append(scripts, s)
+		return nil
+	}
 	tb.Exec = func(_ context.Context, argv ...string) error {
 		argvs = append(argvs, strings.Join(argv, " "))
 		if argv[3] == "-C" && !jumped {
@@ -60,13 +63,17 @@ func TestTable(t *testing.T) {
 		t.Fatal(err)
 	}
 	last := scripts[len(scripts)-1]
-	if strings.Contains(last, "-d 10.0.0.5/32") || !strings.Contains(last, "-X STKR-10.0.0.5") || !strings.Contains(last, "10.0.0.10") {
+	if strings.Contains(last, "-d 10.0.0.5/32") || !strings.Contains(last, "-X STKR-10.0.0.5") ||
+		!strings.Contains(last, "10.0.0.10") {
 		t.Fatalf("after remove:\n%s", last)
 	}
 	wantArgv := []string{
-		"iptables -t nat -C PREROUTING -j STACKR-VIP", "iptables -t nat -I PREROUTING -j STACKR-VIP",
-		"iptables -t nat -C OUTPUT -j STACKR-VIP", "iptables -t nat -I OUTPUT -j STACKR-VIP",
-		"iptables -t nat -C PREROUTING -j STACKR-VIP", "iptables -t nat -C OUTPUT -j STACKR-VIP",
+		"iptables -t nat -C PREROUTING -j STACKR-VIP",
+		"iptables -t nat -I PREROUTING -j STACKR-VIP",
+		"iptables -t nat -C OUTPUT -j STACKR-VIP",
+		"iptables -t nat -I OUTPUT -j STACKR-VIP",
+		"iptables -t nat -C PREROUTING -j STACKR-VIP",
+		"iptables -t nat -C OUTPUT -j STACKR-VIP",
 	}
 	if strings.Join(argvs[:6], "\n") != strings.Join(wantArgv, "\n") {
 		t.Fatalf("argv:\n%s", strings.Join(argvs, "\n"))

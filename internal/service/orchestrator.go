@@ -119,13 +119,19 @@ type BuildFunc func(ctx context.Context, st Stack, t Tile, commit string, log io
 
 // WithBuild replaces the clone-and-build of git tiles, so a push lands a
 // release without GitHub or a daemon.
-func WithBuild(f BuildFunc) Option { return func(o *options) { o.build = f } }
+func WithBuild(f BuildFunc) Option {
+	return func(o *options) { o.build = f }
+}
 
 // WithDocker replaces the daemon client, with the fake in tests.
-func WithDocker(d Docker) Option { return func(o *options) { o.docker = d } }
+func WithDocker(d Docker) Option {
+	return func(o *options) { o.docker = d }
+}
 
 // WithVIP replaces the iptables VIP table (it needs root and a netns).
-func WithVIP(v tile.VIP) Option { return func(o *options) { o.vip = v } }
+func WithVIP(v tile.VIP) Option {
+	return func(o *options) { o.vip = v }
+}
 
 // WithProxy replaces the push to Caddy's admin API.
 func WithProxy(push func(context.Context, json.RawMessage) error) Option {
@@ -251,7 +257,12 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 	d := o.docker
 
 	st := build("store", func() *store.Store { return store.New(db, box) })
-	orch := &Orchestrator{cfg: cfg, db: db, store: st, docker: d}
+	orch := &Orchestrator{
+		cfg:    cfg,
+		db:     db,
+		store:  st,
+		docker: d,
+	}
 	orch.sessions = build("sessions", func() *auth.SessionManager {
 		return auth.NewSessionManager(st.Sessions,
 			auth.WithCookieSecure(cfg.CookieSecure),
@@ -270,60 +281,128 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 	orch.conns = build("leaf/connector", func() *connector.Leaf {
 		return connector.New(st.Connectors, githubapp.New(cfg.BaseURL))
 	})
-	orch.managed = build("leaf/managed", func() *managed.Leaf { return managed.New(st.ManagedInstances, st.Provisions) })
+	orch.managed = build("leaf/managed",
+		func() *managed.Leaf { return managed.New(st.ManagedInstances, st.Provisions) })
 	orch.releases = build("leaf/release", func() *release.Leaf { return release.New(st.Releases, st.ReleaseTiles) })
 	orch.jobRows = build("leaf/job", func() *job.Leaf { return job.New(st.Jobs) })
-	orch.backups = build("leaf/backup", func() *backup.Leaf { return backup.New(st.BackupDests, st.BackupSchedules, st.BackupRuns) })
-	orch.settings = build("leaf/settings", func() *settings.Leaf { return settings.New(st.Settings, bootSettings(cfg)) })
+	orch.backups = build("leaf/backup",
+		func() *backup.Leaf { return backup.New(st.BackupDests, st.BackupSchedules, st.BackupRuns) })
+	orch.settings = build("leaf/settings",
+		func() *settings.Leaf { return settings.New(st.Settings, bootSettings(cfg)) })
 	orch.runs = build("leaf/run", func() *lrun.Leaf { return lrun.New(st.Runs, filepath.Join(cfg.DataDir, "runs")) })
 	orch.traffic = build("leaf/traffic", ltraffic.New)
 	orch.canvas = build("leaf/canvas", func() *canvas.Leaf { return canvas.New(st.Positions, st.Annotations) })
 
 	orch.engines = build("flow/managed", func() *mflow.Flow {
-		return &mflow.Flow{Tiles: orch.tiles, Instances: orch.managed, Volumes: orch.volumes, Envs: orch.envs,
+		return &mflow.Flow{
+			Tiles:     orch.tiles,
+			Instances: orch.managed,
+			Volumes:   orch.volumes,
+			Envs:      orch.envs,
 			S3: func(endpoint, access, secret string) mflow.S3Admin {
 				return s3.Admin{Endpoint: endpoint, AccessKey: access, SecretKey: secret}
-			}}
+			},
+		}
 	})
 	orch.sync = build("leaf/domain.Syncer", func() *domain.Syncer {
 		return &domain.Syncer{Build: orch.proxyConfig, Push: o.push}
 	})
 	orch.deploy = build("flow/deploy", func() *deploy.Flow {
-		return &deploy.Flow{Tiles: orch.tiles, Envs: orch.envs, Stacks: orch.stacks, Orgs: orch.orgs,
-			Volumes: orch.volumes, Images: orch.images, Releases: orch.releases, Params: orch.params,
-			Managed: orch.managed, Domains: orch.domains, Creds: orch.creds, Settings: orch.settings,
-			Jobs: orch.jobRows, Sync: orch.sync.Sync, Engines: orch.engines}
+		return &deploy.Flow{
+			Tiles:    orch.tiles,
+			Envs:     orch.envs,
+			Stacks:   orch.stacks,
+			Orgs:     orch.orgs,
+			Volumes:  orch.volumes,
+			Images:   orch.images,
+			Releases: orch.releases,
+			Params:   orch.params,
+			Managed:  orch.managed,
+			Domains:  orch.domains,
+			Creds:    orch.creds,
+			Settings: orch.settings,
+			Jobs:     orch.jobRows,
+			Sync:     orch.sync.Sync,
+			Engines:  orch.engines,
+		}
 	})
 	orch.promote = build("flow/promote", func() *promote.Flow {
 		b := orch.buildTile
 		if o.build != nil {
 			b = o.build
 		}
-		return &promote.Flow{D: orch.deploy, Config: orch.stackFile, Build: b,
-			DNS01: orch.dns01}
+		return &promote.Flow{
+			D:      orch.deploy,
+			Config: orch.stackFile,
+			Build:  b,
+			DNS01:  orch.dns01,
+		}
 	})
 	orch.backup = build("flow/backup", func() *fbackup.Flow {
-		return &fbackup.Flow{Backups: orch.backups, Volumes: orch.volumes, Tiles: orch.tiles,
-			Scratch: filepath.Join(cfg.DataDir, "backups", "scratch")}
+		return &fbackup.Flow{
+			Backups: orch.backups,
+			Volumes: orch.volumes,
+			Tiles:   orch.tiles,
+			Scratch: filepath.Join(cfg.DataDir, "backups", "scratch"),
+		}
 	})
 	orch.container = build("flow/container", func() *container.Flow { return &container.Flow{Tiles: orch.tiles} })
 	orch.watch = build("flow/imagewatch", func() *imagewatch.Flow {
-		return &imagewatch.Flow{Orgs: orch.orgs, Stacks: orch.stacks, Envs: orch.envs, Tiles: orch.tiles,
-			Images: orch.images, Releases: orch.releases, Creds: orch.creds, Settings: orch.settings}
+		return &imagewatch.Flow{
+			Orgs:     orch.orgs,
+			Stacks:   orch.stacks,
+			Envs:     orch.envs,
+			Tiles:    orch.tiles,
+			Images:   orch.images,
+			Releases: orch.releases,
+			Creds:    orch.creds,
+			Settings: orch.settings,
+		}
 	})
 	orch.upgrade = build("flow/upgrade", func() *upgrade.Flow {
-		return &upgrade.Flow{Panel: panel.New(d), Version: cfg.Version, Archive: orch.upgradeArchive, Spec: orch.panelSpec}
+		return &upgrade.Flow{
+			Panel:   panel.New(d),
+			Version: cfg.Version,
+			Archive: orch.upgradeArchive,
+			Spec:    orch.panelSpec,
+		}
 	})
 	orch.run = build("flow/run", func() *frun.Flow {
-		return &frun.Flow{Tiles: orch.tiles, Envs: orch.envs, Runs: orch.runs, Jobs: orch.jobRows, Deploy: orch.deploy}
+		return &frun.Flow{
+			Tiles:  orch.tiles,
+			Envs:   orch.envs,
+			Runs:   orch.runs,
+			Jobs:   orch.jobRows,
+			Deploy: orch.deploy,
+		}
 	})
 	orch.sample = build("flow/traffic", func() *ftraffic.Flow {
-		return &ftraffic.Flow{Tiles: orch.tiles, Envs: orch.envs, Domains: orch.domains, Managed: orch.managed, Traffic: orch.traffic, Path: cfg.Conntrack}
+		return &ftraffic.Flow{
+			Tiles:   orch.tiles,
+			Envs:    orch.envs,
+			Domains: orch.domains,
+			Managed: orch.managed,
+			Traffic: orch.traffic,
+			Path:    cfg.Conntrack,
+		}
 	})
 	orch.graph = build("flow/graph", func() *graph.Flow {
-		return &graph.Flow{Orgs: orch.orgs, Stacks: orch.stacks, Envs: orch.envs, Tiles: orch.tiles, Params: orch.params,
-			Volumes: orch.volumes, Domains: orch.domains, Managed: orch.managed, Conns: orch.conns, Releases: orch.releases,
-			Jobs: orch.jobRows, Runs: orch.runs, Canvas: orch.canvas, Images: orch.images}
+		return &graph.Flow{
+			Orgs:     orch.orgs,
+			Stacks:   orch.stacks,
+			Envs:     orch.envs,
+			Tiles:    orch.tiles,
+			Params:   orch.params,
+			Volumes:  orch.volumes,
+			Domains:  orch.domains,
+			Managed:  orch.managed,
+			Conns:    orch.conns,
+			Releases: orch.releases,
+			Jobs:     orch.jobRows,
+			Runs:     orch.runs,
+			Canvas:   orch.canvas,
+			Images:   orch.images,
+		}
 	})
 	orch.jobs = build("flow/jobs", func() *jobs.Runner {
 		// ponytail: no ParamSet, a parked job is requeued every poll and its
@@ -338,12 +417,20 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 		return schedule.New(schedule.Drivers{
 			Schedules: orch.backups.AllSchedules,
 			Backup: func(ctx context.Context, s store.BackupSchedule) error {
-				_, err := orch.enqueue(ctx, kindBackup, backupJob{ScheduleID: s.ID, VolumeID: s.VolumeID}, "volume:"+s.VolumeID)
+				_, err := orch.enqueue(
+					ctx,
+					kindBackup,
+					backupJob{ScheduleID: s.ID, VolumeID: s.VolumeID},
+					"volume:"+s.VolumeID,
+				)
 				return err
 			},
-			Orphans: func(ctx context.Context) error { _, err := orch.enqueue(ctx, kindOrphans, nil, "orphans"); return err },
-			Watch:   orch.watchTick,
-			Crons:   orch.deployedCrons,
+			Orphans: func(ctx context.Context) error {
+				_, err := orch.enqueue(ctx, kindOrphans, nil, "orphans")
+				return err
+			},
+			Watch: orch.watchTick,
+			Crons: orch.deployedCrons,
 			Cron: func(ctx context.Context, t store.Tile) error {
 				_, _, err := orch.queueRun(ctx, t.ID, lrun.Schedule)
 				return err
@@ -391,8 +478,12 @@ func bootSettings(cfg Config) map[string]string {
 	if cfg.OrphanRetentionDays > 0 {
 		boot["orphan_retention_days"] = strconv.Itoa(cfg.OrphanRetentionDays)
 	}
-	for k, v := range map[string]string{"panel_domain": cfg.PanelDomain, "acme_email": cfg.ACMEEmail,
-		"trusted_proxies": cfg.TrustedProxies, "dns_provider": cfg.DNSProvider} {
+	for k, v := range map[string]string{
+		"panel_domain":    cfg.PanelDomain,
+		"acme_email":      cfg.ACMEEmail,
+		"trusted_proxies": cfg.TrustedProxies,
+		"dns_provider":    cfg.DNSProvider,
+	} {
 		if v != "" {
 			boot[k] = v
 		}

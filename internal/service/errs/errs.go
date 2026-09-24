@@ -29,16 +29,22 @@ var (
 // sentence: both surfaces render it verbatim.
 type Conflict struct{ Msg string }
 
-func (e Conflict) Error() string { return e.Msg }
+func (e Conflict) Error() string {
+	return e.Msg
+}
 
 // Refused is a refusal that may say why. Use bare ErrRefused whenever the
 // reason would confirm something the caller should not know exists.
 type Refused struct{ Msg string }
 
-func (e Refused) Error() string { return e.Msg }
+func (e Refused) Error() string {
+	return e.Msg
+}
 
 // Is makes errors.Is(err, ErrRefused) true for a Refused as well.
-func (e Refused) Is(target error) bool { return target == ErrRefused }
+func (e Refused) Is(target error) bool {
+	return target == ErrRefused
+}
 
 // Invalid is a rejected input. Field is the request key the caller can fix,
 // empty when the fault is the request as a whole.
@@ -58,10 +64,18 @@ func (e Invalid) Error() string {
 // on Param instead of failing.
 type Unset struct{ Param string }
 
-func (e Unset) Error() string { return "param " + e.Param + " is not set" }
+func (e Unset) Error() string {
+	return "param " + e.Param + " is not set"
+}
 
-func Refusedf(format string, a ...any) error  { return Refused{Msg: fmt.Sprintf(format, a...)} }
-func Conflictf(format string, a ...any) error { return Conflict{Msg: fmt.Sprintf(format, a...)} }
+func Refusedf(format string, a ...any) error {
+	return Refused{Msg: fmt.Sprintf(format, a...)}
+}
+
+func Conflictf(format string, a ...any) error {
+	return Conflict{Msg: fmt.Sprintf(format, a...)}
+}
+
 func Invalidf(field, format string, a ...any) error {
 	return Invalid{Field: field, Msg: fmt.Sprintf(format, a...)}
 }

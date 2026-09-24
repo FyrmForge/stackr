@@ -75,7 +75,11 @@ func (o *Orchestrator) Annotations(ctx context.Context, s CanvasScope) ([]Annota
 
 // SetAnnotation creates (ID "") or rewrites a note or box. A note saved
 // with no text is deleted; deleted says so.
-func (o *Orchestrator) SetAnnotation(ctx context.Context, s CanvasScope, a Annotation) (out Annotation, deleted bool, err error) {
+func (o *Orchestrator) SetAnnotation(
+	ctx context.Context,
+	s CanvasScope,
+	a Annotation,
+) (out Annotation, deleted bool, err error) {
 	return o.canvas.Put(ctx, s, a)
 }
 

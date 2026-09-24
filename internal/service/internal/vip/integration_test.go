@@ -46,7 +46,8 @@ func TestIptables(t *testing.T) {
 	if err := tb.Remove(ctx, "10.99.0.1"); err != nil {
 		t.Fatal(err)
 	}
-	if got := rules(vipChain("10.99.0.1")); !strings.Contains(got, "No chain") && !strings.Contains(got, "does not exist") {
+	if got := rules(vipChain("10.99.0.1")); !strings.Contains(got, "No chain") &&
+		!strings.Contains(got, "does not exist") {
 		t.Fatalf("chain still there:\n%s", got)
 	}
 }

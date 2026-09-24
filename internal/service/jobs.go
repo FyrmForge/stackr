@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"path/filepath"
 	"io"
+	"path/filepath"
 	"strconv"
 	"time"
 
@@ -305,7 +305,8 @@ func (o *Orchestrator) runDelete(ctx context.Context, r *jobs.Run, p tileJob) er
 // container restarted (it boots from its autosave, which may be stale), and
 // queue an image-watch sweep when the interval is due.
 func (o *Orchestrator) watchTick(ctx context.Context) error {
-	if d, err := o.docker.Inspect(ctx, ProxyContainer); err == nil && d.Started != "" && d.Started != o.proxyStarted.Swap(d.Started) {
+	if d, err := o.docker.Inspect(ctx, ProxyContainer); err == nil && d.Started != "" &&
+		d.Started != o.proxyStarted.Swap(d.Started) {
 		if err := o.sync.Sync(ctx); err != nil {
 			return err
 		}

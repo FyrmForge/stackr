@@ -151,7 +151,10 @@ func (o *Orchestrator) AcceptInvite(ctx context.Context, token, userID string) e
 
 // RegisterInvited creates the account and joins through the invite in one
 // transaction, then opens a session.
-func (o *Orchestrator) RegisterInvited(ctx context.Context, token, email, password, name string) (*auth.Session, error) {
+func (o *Orchestrator) RegisterInvited(
+	ctx context.Context,
+	token, email, password, name string,
+) (*auth.Session, error) {
 	var id string
 	err := o.store.Tx(ctx, func(tx store.Tx) error {
 		u, err := user.New(tx.Users, tx.Sessions, tx.APIKeys).Register(ctx, email, password, name)
@@ -193,7 +196,10 @@ func (o *Orchestrator) Connectors(ctx context.Context, orgID string) ([]Connecto
 }
 
 // BeginConnector makes the pending row; the browser POSTs manifest to action.
-func (o *Orchestrator) BeginConnector(ctx context.Context, orgID, ghOrg string) (c Connector, action, manifest string, err error) {
+func (o *Orchestrator) BeginConnector(
+	ctx context.Context,
+	orgID, ghOrg string,
+) (c Connector, action, manifest string, err error) {
 	return o.conns.Begin(ctx, orgID, ghOrg)
 }
 

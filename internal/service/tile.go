@@ -171,12 +171,21 @@ func (o *Orchestrator) Logs(ctx context.Context, tileID, containerID string, tai
 	return o.tiles.Logs(ctx, tileID, containerID, tail)
 }
 
-func (o *Orchestrator) FollowLogs(ctx context.Context, tileID, containerID string, tail int) (<-chan string, func(), error) {
+func (o *Orchestrator) FollowLogs(
+	ctx context.Context,
+	tileID, containerID string,
+	tail int,
+) (<-chan string, func(), error) {
 	return o.tiles.Follow(ctx, tileID, containerID, tail)
 }
 
 // Terminal is an interactive exec in one replica.
-func (o *Orchestrator) Terminal(ctx context.Context, tileID, containerID string, cmd []string, stdin io.Reader) (io.Reader, func() error, error) {
+func (o *Orchestrator) Terminal(
+	ctx context.Context,
+	tileID, containerID string,
+	cmd []string,
+	stdin io.Reader,
+) (io.Reader, func() error, error) {
 	return o.tiles.Terminal(ctx, tileID, containerID, cmd, stdin)
 }
 

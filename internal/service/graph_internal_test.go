@@ -16,13 +16,24 @@ import (
 // internet gets an edge to the internet system card; Traffic off drops both.
 func TestCanvasEgress(t *testing.T) {
 	ctx := context.Background()
-	orch, err := New(Config{DataDir: t.TempDir(), SecretsKey: testKey, Conntrack: "/nonexistent"}, WithDocker(dockerfake.New()),
-		WithVIP(vipStub{}), WithProxy(func(context.Context, json.RawMessage) error { return nil }))
+	orch, err := New(
+		Config{DataDir: t.TempDir(), SecretsKey: testKey, Conntrack: "/nonexistent"},
+		WithDocker(dockerfake.New()),
+		WithVIP(vipStub{}),
+		WithProxy(func(context.Context, json.RawMessage) error { return nil }),
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = orch.Close() })
-	og := store.Org{ID: "o1", Name: "acme", Slug: "acme", EnvColors: "{}", Settings: "{}", CreatedAt: time.Now()}
+	og := store.Org{
+		ID:        "o1",
+		Name:      "acme",
+		Slug:      "acme",
+		EnvColors: "{}",
+		Settings:  "{}",
+		CreatedAt: time.Now(),
+	}
 	if err := orch.store.Orgs.Create(ctx, og); err != nil {
 		t.Fatal(err)
 	}
@@ -34,12 +45,21 @@ func TestCanvasEgress(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	tl, err := orch.CreateTile(ctx, Tile{StackID: st.ID, EnvironmentID: en.ID, Name: "api", Kind: "image", ImageRef: "nginx:1"})
+	tl, err := orch.CreateTile(ctx, Tile{
+		StackID:       st.ID,
+		EnvironmentID: en.ID,
+		Name:          "api",
+		Kind:          "image",
+		ImageRef:      "nginx:1",
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	s := CanvasScope{Kind: CanvasEnv, ID: en.ID}
-	lanes := []ltraffic.Edge{{From: tl.ID, To: ltraffic.Internet, BPS: 10}, {From: tl.ID, To: ltraffic.Internet, BPS: 5}}
+	lanes := []ltraffic.Edge{
+		{From: tl.ID, To: ltraffic.Internet, BPS: 10},
+		{From: tl.ID, To: ltraffic.Internet, BPS: 5},
+	}
 	v, err := orch.graph.Build(ctx, s, graph.In{Show: graph.All, Traffic: lanes})
 	if err != nil {
 		t.Fatal(err)
@@ -48,7 +68,8 @@ func TestCanvasEgress(t *testing.T) {
 	for _, n := range v.Nodes {
 		sys = sys || (n.ID == "internet" && n.System)
 	}
-	if !sys || len(v.Edges) != 1 || v.Edges[0] != (graph.Edge{Kind: "egress", From: tl.ID, To: "internet"}) || v.Divider == 0 {
+	if !sys || len(v.Edges) != 1 || v.Edges[0] != (graph.Edge{Kind: "egress", From: tl.ID, To: "internet"}) ||
+		v.Divider == 0 {
 		t.Errorf("egress: nodes %+v edges %+v divider %d", v.Nodes, v.Edges, v.Divider)
 	}
 	off := graph.All
