@@ -18,6 +18,7 @@ linters:
           list-mode: lax
           files:
             - "**/internal/service/internal/leaf/**"
+            - "!$test"
           deny:
             - pkg: github.com/FyrmForge/stackr/internal/service/internal/leaf
               desc: a leaf never calls another leaf; pass facts in as arguments
@@ -29,6 +30,7 @@ linters:
             - "**/internal/service/internal/flow/**"
             - "!**/internal/service/internal/flow/promote/**"
             - "!**/internal/service/internal/flow/deploy/**"
+            - "!$test"
           deny:
             - pkg: github.com/FyrmForge/stackr/internal/service/internal/flow
               desc: flow -> flow only on listed edges (promote -> deploy, deploy -> managed)
@@ -36,6 +38,7 @@ linters:
           list-mode: lax
           files:
             - "**/internal/service/internal/flow/promote/**"
+            - "!$test"
           allow:
             - github.com/FyrmForge/stackr/internal/service/internal/flow/deploy
           deny:
@@ -45,6 +48,7 @@ linters:
           list-mode: lax
           files:
             - "**/internal/service/internal/flow/deploy/**"
+            - "!$test"
           allow:
             - github.com/FyrmForge/stackr/internal/service/internal/flow/managed
           deny:

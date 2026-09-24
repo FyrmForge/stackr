@@ -132,11 +132,6 @@ tick `[x] step 0` below when the done gate passes, open the PR `rewrite`
 ## Build steps (Opus, one fresh session + one stacked PR each)
 
 - [x] step 0 scaffold and docs
-  - [x] step 0 / task 7: `make build`, `make lint`, `make test` pass; skill
-    runs. Still owed: `hamr dev` start check (builder may not start it).
-    Known, not step 0: `make templint` fails on the scaffold's login and
-    register forms (`no-native-form-actions`), and `ci.yml` calls `make
-    migrate`, which is not a Makefile target, so PR CI goes red.
   - [x] step 0 / task 1: `cmd/stackrd`, `cmd/stackr`, `cmd/stackr-install`;
     `run() error` + `--version` fix both lint findings. `installcli` =
     `go install ./cmd/stackr`, `installer` = `bin/stackr-install`. `hamr dev`
@@ -157,8 +152,9 @@ tick `[x] step 0` below when the done gate passes, open the PR `rewrite`
     `.claude/skills/` (DECIDE 11).
   - [x] step 0 / task 5: `depguard` rules in `.golangci.yml`. Throwaway
     check: leaf → leaf, backup → deploy, promote → managed fail;
-    promote → deploy, deploy → managed pass. Throwaways deleted. `flow/jobs`
-    edges not covered (DECIDE 12).
+    promote → deploy, deploy → managed pass. `_test.go` files are exempt
+    (`!$test`) so a package's black-box test may import itself. Throwaways
+    deleted. `flow/jobs` edges not covered (DECIDE 12).
   - [x] step 0 / task 6: empty tree under `internal/` (`service/
     orchestrator.go`, `service/internal/{store,docker,proxy,git,s3,leaf,
     flow}`, `authz`, `ui/components`, `ui/pages/{org,stack,env,tile}`),
@@ -167,6 +163,11 @@ tick `[x] step 0` below when the done gate passes, open the PR `rewrite`
     Makefile, `hamr.vendor.json`, `main.go`, Dockerfile, CI, `.gitignore`.
     `./bin/stackrd` served `/` and all three assets with 200; `hamr dev`
     check still owed.
+  - [x] step 0 / task 7: `make build`, `make lint`, `make test` pass; skill
+    runs. Still owed: `hamr dev` start check (builder may not start it).
+    Known, not step 0: `make templint` fails on the scaffold's login and
+    register forms (`no-native-form-actions`), and `ci.yml` calls `make
+    migrate`, which is not a Makefile target, so PR CI goes red.
 - [ ] step 1 groundwork
 - [ ] step 2 docker wrapper
 - [ ] step 3 services
@@ -201,16 +202,6 @@ you disagree with:
    `!.claude/skills/` (settings.local.json stays ignored). Options: (a)
    keep; (b) revert and `git add -f` skill files; (c) move the skill to
    `.agents/skills/`.
-12. **`flow/jobs` edges vs depguard.** REWRITE.md says every flow that
-   starts work does it through `flow/jobs`, and step 1 says jobs run flows.
-   Both are flow → flow edges the two listed edges (promote → deploy,
-   deploy → managed) do not allow, and both directions at once would be an
-   import cycle. Step 0 lint enforces only the two listed edges. Options:
-   (a) the orchestrator enqueues, `flow/jobs` gets the flow funcs injected
-   as handlers (no flow imports jobs, jobs imports no flow; lint unchanged);
-   (b) add a `* → flow/jobs` exception and inject handlers into jobs;
-   (c) move jobs out of `flow/` (e.g. `internal/service/internal/jobs`).
-   Planner of step 0 leans (a).
 
 Raised by the extract agents, real decisions, not settled:
 
@@ -239,6 +230,16 @@ Raised by the extract agents, real decisions, not settled:
    `ContainerSpec` has one `NetworkName`. Options: (a) `Networks []` on
    the spec (planner leans (a), the pause/ingress networks need it too);
    (b) connect after start via a second wrapper call.
+12. **`flow/jobs` edges vs depguard** (raised by step 0, blocks step 1
+   task 10). REWRITE.md says every flow that starts work does it through
+   `flow/jobs`, and step 1 says jobs run flows. Both are flow → flow edges
+   the two listed edges (promote → deploy, deploy → managed) do not allow,
+   and both directions at once would be an import cycle. Step 0 lint
+   enforces only the two listed edges. Options: (a) the orchestrator
+   enqueues, `flow/jobs` gets the flow funcs injected as handlers (no flow
+   imports jobs, jobs imports no flow; lint unchanged); (b) add a
+   `* → flow/jobs` exception and inject handlers into jobs; (c) move jobs
+   out of `flow/` (e.g. `internal/service/internal/jobs`). Step 0 leans (a).
 
 Settled silently, listed so you can flip them: label key is `stackr.tile`
 (was `stackr.app`); restart policy stays the three old values, not a bool;
