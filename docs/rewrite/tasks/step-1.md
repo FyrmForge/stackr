@@ -48,9 +48,13 @@ the fake is enough. Commit per task.
    `provisions` (slice per consumer tile), `backup_destinations` (kind
    `local|s3`, key encrypted, org or admin-global + shared flag),
    `backup_schedules` (volume_id, method, dest_id nullable, cron, keep,
-   mode), `backup_runs`, `api_keys` with `org_id` (extract 002), `invites`
-   (email, org, expires_at, used_at). Foreign keys on, cascades declared in
-   SQL, checked with `PRAGMA foreign_keys` in the harness.
+   mode), `backup_runs` (`volume_id` nullable + `kind` so the panel
+   self-backup has a row), `api_keys` with `org_id` (extract 002),
+   `invites` (email, org, expires_at, used_at). `credentials` get an
+   `org_id` (the old `registries` table had none). `acme_email` is a
+   settings key. Foreign keys on every parent id, including the managed
+   tables (the old ones had none), cascades declared in SQL,
+   `PRAGMA foreign_keys` checked in the harness.
    Done when: migration applies; a delete on an org cascades in a test
    without any Go code doing it.
 
@@ -67,7 +71,11 @@ the fake is enough. Commit per task.
 5. **Secrets at rest** `service/internal/secrets`: AES-GCM from the
    `secrets` extract, key from config, used by the store for param secrets,
    credentials, instance creds, destination keys.
-   Done when: encrypt/decrypt round-trips and a wrong key fails typed.
+   The old `Encrypt` failed open (no key loaded = plaintext stored,
+   `Decrypt` returned it with nil error). The new one refuses: no key is a
+   startup error, never a silent plaintext write.
+   Done when: encrypt/decrypt round-trips, a wrong key fails typed, and a
+   missing key fails `service.New`.
 
 6. **Typed errors** `service/errs` (exported: handlers map them to HTTP):
    from the `svcerr` extract. `NotFound`, `Conflict`, `Invalid` (with field),

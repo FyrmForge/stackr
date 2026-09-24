@@ -14,7 +14,8 @@ with its tests before the next starts. Commit per task.
 ## Leaves (`service/internal/leaf/<name>`)
 
 1. **`leaf/org`.** Create, rename, delete with the rules from the
-   `org-rules` extract (has stacks, last org, squat check), memberships,
+   `org-rules` and `org-handler-rules` extracts (the panel held has-stacks,
+   last-org, squat check and slug grammar; they move here), memberships,
    invites (create, accept atomically burning the invite, 7-day expiry, B14
    B15), API keys (mint bound to org, never more than the minter holds,
    B36).
@@ -39,7 +40,10 @@ with its tests before the next starts. Commit per task.
 5. **`leaf/tile`.** Row + its containers: replicas and the pause container
    (network alias = tile name), VIP rules through `internal/vip`,
    `Start(spec)`, `Stop`, `Remove`, `Logs`, `Exec` (engine commands),
-   `State()` from Docker first then the last job row, no `status` column.
+   `State()` from Docker only (container truth; the orchestrator layers
+   the last job row on top, a leaf never reads the jobs table), no
+   `status` column. Create/update/delete order, slug rules and delete
+   refusals from the `tile-crud` extract.
    Create/update/delete and the per-field refusal vocabulary from the
    `tilelifecycle` extract; one whitelist of what each kind may carry from
    the `runpolicy` extract (B26); the one guard over start/stop/remove/
@@ -84,7 +88,10 @@ with its tests before the next starts. Commit per task.
 10. **`leaf/credential`.** Registry pull credentials, encrypted.
 11. **`leaf/connector`.** One GitHub App per org, resolved by `git_url`
     host; webhook registration; PR env create/remove requests come out as
-    facts for the flow. No connector for a host = typed error.
+    facts for the flow. No connector for a host = typed error. Security
+    rule from the extract: a tile's `connector` (it comes from the stack
+    file) is refused when the connector's org is not the stack's org, or a
+    file could clone another org's private repos. Keep its regression test.
 12. **`leaf/managed`.** `managed_instances` + `provisions`, scope rules from
     the `managedinstance` extract, slice naming from the `managedtiles`
     extract.
@@ -162,8 +169,11 @@ with its tests before the next starts. Commit per task.
     Done when: tests for both modes and "no update on registry error".
 
 22. **`flow/upgrade`.** Self-upgrade from the `admin-upgrade` extract:
-    check newer tag, pre-upgrade backup, swap the panel container via the
-    installer spec, "already running" guard. Also `stackrd proxy` mode:
+    check GitHub's latest-release tag (as today, not a registry list),
+    pre-upgrade backup, swap the panel container via the installer spec,
+    "already running" guard, dev builds refuse. Plain containers do not
+    roll back a failed swap like Swarm did: gate the new panel with the
+    same health check as a tile and keep the old container until it passes. Also `stackrd proxy` mode:
     Caddy as a library, admin API on the container network, named volume
     for data/config, no Docker socket; stackrd re-pushes the full route
     config whenever the proxy container starts.
