@@ -296,11 +296,25 @@ func (l *Leaf) Lookup(ctx context.Context, token string, now time.Time) (store.I
 	if err != nil {
 		return i, err
 	}
-	if i.UsedAt != nil || !now.Before(i.ExpiresAt) {
+	if !open(i, now) {
 		return store.Invite{}, errs.ErrNotFound
 	}
 	return i, nil
 }
+
+// Pending is the org's invites still redeemable at now.
+func (l *Leaf) Pending(ctx context.Context, orgID string, now time.Time) ([]store.Invite, error) {
+	is, err := l.invites.ListByOrg(ctx, orgID)
+	var out []store.Invite
+	for _, i := range is {
+		if open(i, now) {
+			out = append(out, i)
+		}
+	}
+	return out, err
+}
+
+func open(i store.Invite, now time.Time) bool { return i.UsedAt == nil && now.Before(i.ExpiresAt) }
 
 // Accept burns the invite and adds the member (B14, B15). The burn is one
 // conditional UPDATE, before the join: of two clicks exactly one wins. Run it

@@ -126,6 +126,11 @@ func (o *Orchestrator) Invites(ctx context.Context, orgID string) ([]Invite, err
 	return o.orgs.Invites(ctx, orgID)
 }
 
+// PendingInvites are the org's invites not yet used or expired.
+func (o *Orchestrator) PendingInvites(ctx context.Context, orgID string) ([]Invite, error) {
+	return o.orgs.Pending(ctx, orgID, time.Now())
+}
+
 // LookupInvite is the invite behind a link, refused when used or expired.
 func (o *Orchestrator) LookupInvite(ctx context.Context, token string) (Invite, error) {
 	return o.orgs.Lookup(ctx, token, time.Now())

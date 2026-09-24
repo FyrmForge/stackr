@@ -76,11 +76,9 @@ func (h *handler) membersView(c echo.Context, cd card, base string) (orgui.Membe
 	if !v.Manage {
 		return v, nil
 	}
-	is, err := h.orch.Invites(ctx, id)
+	is, err := h.orch.PendingInvites(ctx, id)
 	for _, i := range is {
-		if i.UsedAt == nil && i.ExpiresAt.After(time.Now()) {
-			v.Invites = append(v.Invites, orgui.InviteRow{Email: i.Email, Role: i.Role, Expires: day(i.ExpiresAt)})
-		}
+		v.Invites = append(v.Invites, orgui.InviteRow{Email: i.Email, Role: i.Role, Expires: day(i.ExpiresAt)})
 	}
 	return v, err
 }
