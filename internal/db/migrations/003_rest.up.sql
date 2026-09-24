@@ -279,3 +279,21 @@ CREATE TRIGGER environments_scope_cascade AFTER DELETE ON environments BEGIN
     DELETE FROM managed_instances WHERE scope_kind = 'env' AND scope_id = old.id;
     DELETE FROM volumes           WHERE scope_kind = 'env' AND scope_id = old.id;
 END;
+
+-- runs: one row per run of a cron or function tile. The leaf keeps the last
+-- 50 per tile; the log is a file under DATA_DIR/runs/<tile_id>/<id>.log.
+CREATE TABLE runs (
+    id           TEXT      PRIMARY KEY,
+    tile_id      TEXT      NOT NULL REFERENCES tiles (id) ON DELETE CASCADE,
+    release_id   TEXT      REFERENCES releases (id) ON DELETE SET NULL,
+    job_id       TEXT      NOT NULL, -- '' when the run never got a job (cancelled at the door)
+    trigger      TEXT      NOT NULL CHECK (trigger IN ('schedule', 'manual', 'deploy')),
+    status       TEXT      NOT NULL CHECK (status IN ('queued', 'running', 'ok', 'failed', 'cancelled')),
+    exit_code    INTEGER,
+    reason       TEXT      NOT NULL,
+    created_at   DATETIME  NOT NULL,
+    started_at   DATETIME,
+    finished_at  DATETIME
+);
+
+CREATE INDEX runs_tile ON runs (tile_id, created_at);

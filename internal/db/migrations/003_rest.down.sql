@@ -1,6 +1,7 @@
 DROP TRIGGER IF EXISTS environments_scope_cascade;
 DROP TRIGGER IF EXISTS stacks_scope_cascade;
 DROP TRIGGER IF EXISTS orgs_scope_cascade;
+DROP TABLE IF EXISTS runs;
 DROP TABLE IF EXISTS backup_runs;
 DROP TABLE IF EXISTS backup_schedules;
 DROP TABLE IF EXISTS backup_destinations;
