@@ -1,4 +1,4 @@
-.PHONY: build installcli installer test test-integration lint templint db-sh clean install check-templ generate check-node-modules css-build
+.PHONY: build installcli installer release test test-integration lint templint db-sh clean install check-templ generate check-node-modules css-build
 
 # Force bash so the ENV_LOAD eval below works cross-shell (sh on Debian/Ubuntu
 # is dash, which doesn't grok `eval "$(...)"` quoting consistently).
@@ -57,6 +57,15 @@ installcli:
 ## installer: Build the installer binary (bin/stackr-install)
 installer:
 	go build -ldflags "-X main.version=$(VERSION)" -o bin/stackr-install ./cmd/stackr-install
+
+## release: stackrd image + stackr-install for linux/amd64, e.g. make release RELEASE=v0.1.0
+## The image is tagged without the v (ghcr.io/fyrmforge/stackr:0.1.0), as
+## the installer and the self-upgrade look it up.
+release:
+	@[[ "$(RELEASE)" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$$ ]] || { echo "usage: make release RELEASE=vX.Y.Z" >&2; exit 1; }
+	$(MAKE) build
+	docker build --platform linux/amd64 --build-arg VERSION=$(RELEASE) -f cmd/stackrd/Dockerfile -t ghcr.io/fyrmforge/stackr:$(RELEASE:v%=%) .
+	GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "-X main.version=$(RELEASE)" -o bin/stackr-install-linux-amd64 ./cmd/stackr-install
 
 ## generate: Generate static pages
 generate:
