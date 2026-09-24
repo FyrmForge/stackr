@@ -4,14 +4,15 @@ go 1.27.1
 
 require (
 	github.com/FyrmForge/hamr v0.38.1
+	github.com/a-h/templ v0.3.1001
 	github.com/google/uuid v1.6.0
 	github.com/jmoiron/sqlx v1.4.0
 	github.com/joho/godotenv v1.5.1
 	github.com/labstack/echo/v4 v4.15.4
+	modernc.org/sqlite v1.49.1
 )
 
 require (
-	github.com/a-h/templ v0.3.1001 // indirect
 	github.com/aws/aws-sdk-go-v2 v1.41.2 // indirect
 	github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.7.5 // indirect
 	github.com/aws/aws-sdk-go-v2/credentials v1.19.10 // indirect
@@ -42,5 +43,4 @@ require (
 	modernc.org/libc v1.72.0 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect
-	modernc.org/sqlite v1.49.1 // indirect
 )
