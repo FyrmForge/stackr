@@ -91,7 +91,7 @@ func TestDrawerTabs(t *testing.T) {
 	for path, tabs := range map[string][]string{
 		"/acme/-/drawer":          {"settings", "members", "keys", "params", "backups"},
 		"/acme/shop/-/drawer":     {"settings", "params", "releases"},
-		"/acme/shop/dev/-/drawer": {"settings", "params", "order", "logs"},
+		"/acme/shop/dev/-/drawer": {"settings", "releases", "params", "order", "logs"},
 		"/acme/-/vars":            {"editor"},
 		"/acme/shop/-/vars":       {"editor"},
 	} {

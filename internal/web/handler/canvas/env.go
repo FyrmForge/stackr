@@ -2,6 +2,7 @@ package canvas
 
 import (
 	"slices"
+	"strconv"
 
 	"github.com/a-h/templ"
 	"github.com/labstack/echo/v4"
@@ -11,6 +12,7 @@ import (
 	comp "github.com/FyrmForge/stackr/internal/ui/components"
 	"github.com/FyrmForge/stackr/internal/ui/dialog"
 	envui "github.com/FyrmForge/stackr/internal/ui/drawer/env"
+	"github.com/FyrmForge/stackr/internal/web/render"
 )
 
 func (h *handler) envTab(c echo.Context, cd card, f *comp.DrawerView) (templ.Component, error) {
@@ -20,6 +22,8 @@ func (h *handler) envTab(c echo.Context, cd card, f *comp.DrawerView) (templ.Com
 		return h.vars(c, cd.s, "", "")
 	case "logs":
 		return envui.Logs(), nil
+	case "releases":
+		return h.releases(c, cd, f, write)
 	case "order":
 		es, err := h.orch.Ladder(c.Request().Context(), e.StackID)
 		v := orderView(es)
@@ -57,6 +61,55 @@ func orderView(es []service.Environment) envui.OrderView {
 	return v
 }
 
+// jobKey carries the job an env action queued to the tab that answers it.
+const jobKey = "env-drawer-job"
+
+// releases lists the stack's releases; ?plan= adds the dry run of taking
+// one into this env and, when nothing blocks it, the confirm that does.
+func (h *handler) releases(c echo.Context, cd card, f *comp.DrawerView, write bool) (templ.Component, error) {
+	ctx, e := c.Request().Context(), cd.s.Env
+	rs, err := h.orch.Releases(ctx, e.StackID)
+	if err != nil {
+		return nil, err
+	}
+	var v envui.ReleasesView
+	cur, plan := 0, c.QueryParam("plan")
+	for _, r := range rs {
+		row := envui.ReleaseRow{Number: strconv.Itoa(r.Number), By: r.CreatedBy, Created: day(r.CreatedAt),
+			Current: e.ReleaseID != nil && *e.ReleaseID == r.ID, DryRun: f.Base + "?tab=releases&plan=" + r.ID}
+		if row.Current {
+			cur = r.Number
+		}
+		v.Rows = append(v.Rows, row)
+	}
+	if j, ok := c.Get(jobKey).(service.Job); ok {
+		jv := render.JobView(urlOf(cd.s), j)
+		v.Job = &jv
+	}
+	i := slices.IndexFunc(rs, func(r service.Release) bool { return r.ID == plan })
+	if i < 0 {
+		return envui.Releases(v), nil
+	}
+	p, err := h.orch.PlanPromote(ctx, e.ID, plan)
+	if err != nil {
+		return nil, err
+	}
+	n, verb := strconv.Itoa(rs[i].Number), "Promote"
+	if rs[i].Number < cur {
+		verb = "Roll back"
+	}
+	pv := comp.PlanView{Title: verb + " " + e.Name + " to release #" + n, Blockers: p.Plan.Blockers, Warnings: p.Plan.Warnings, CanDeploy: p.CanDeploy}
+	for _, ch := range p.Plan.Changes {
+		pv.Changes = append(pv.Changes, comp.ChangeView{Kind: ch.Kind, Tile: ch.Tile, Field: ch.Field, Old: ch.Old, New: ch.New, Note: ch.Note})
+	}
+	v.Plan = &pv
+	if write && p.CanDeploy {
+		v.Take = comp.ConfirmView{Button: verb + " to #" + n, Title: pv.Title, Warning: "The plan above is applied; tiles it changes redeploy.",
+			Action: f.Base + "/promote/" + plan, Target: "#" + comp.DrawerRoot}
+	}
+	return envui.Releases(v), nil
+}
+
 func (h *handler) envAction(tab string, do func(echo.Context, card) (string, error)) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		cd, _ := h.cardOf(c, "env")
@@ -91,6 +144,14 @@ func (h *handler) mountEnv(site *echo.Group, a *middleware.Access) {
 	site.POST(e+"/order", h.envAction("order", func(c echo.Context, cd card) (string, error) {
 		form, _ := c.FormParams()
 		return "Order saved.", h.orch.ReorderEnvs(c.Request().Context(), cd.s.Stack.ID, form["ids"])
+	}), write)
+	site.POST(e+"/promote/:release", h.envAction("releases", func(c echo.Context, cd card) (string, error) {
+		j, err := h.orch.Promote(c.Request().Context(), cd.s.Env.ID, c.Param("release"))
+		if err != nil {
+			return "", err
+		}
+		c.Set(jobKey, j)
+		return "Queued: the job below follows it.", nil
 	}), write)
 	site.POST(e+"/delete", h.envAction("settings", func(c echo.Context, cd card) (string, error) {
 		if err := h.orch.DeleteEnv(c.Request().Context(), cd.s.Env.ID); err != nil {
