@@ -39,7 +39,9 @@ var (
 // RateLimited is a 429. RetryAfter is zero when the registry did not say.
 type RateLimited struct{ RetryAfter time.Duration }
 
-func (e RateLimited) Error() string { return "registry: rate limited, retry after " + e.RetryAfter.String() }
+func (e RateLimited) Error() string {
+	return "registry: rate limited, retry after " + e.RetryAfter.String()
+}
 
 // ParseRef splits an image reference into registry host, repository path and
 // tag. Digest-pinned refs (name@sha256:…) return ok=false: nothing to watch.
