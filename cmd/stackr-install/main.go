@@ -124,6 +124,9 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 
 // wrapper runs the CLI inside the panel: with a domain the panel publishes
 // nothing, so when the proxy or DNS is broken this is the way in.
+// step 4: the CLI speaks HTTP only, so /stackr must dial $HOST:$PORT from
+// the panel's env (the bridge gateway, not localhost) and needs a way to
+// authenticate from inside the container.
 const wrapperPath = "/usr/local/bin/stackr"
 
 const wrapper = `#!/bin/sh
@@ -274,7 +277,7 @@ func doneText(in installspec.Input, key string, dry bool) string {
 
   setup     %s   (the first account becomes the admin)
   data      %s
-  admin     stackr <command>          (works even when the panel is unreachable)
+  admin     stackr <command>          (works when DNS or the proxy is broken)
   upgrade   Admin, Update in the panel
 `, status, in.BaseURL(), in.DataDir)
 	if key != "" {
