@@ -7,18 +7,18 @@ import (
 
 // BackupDest is a row of backup_destinations. OrgID nil = admin-global.
 type BackupDest struct {
-	ID         string    `db:"id"`
-	OrgID      *string   `db:"org_id"`
-	Kind       string    `db:"kind"`
-	Name       string    `db:"name"`
-	Endpoint   string    `db:"endpoint"`
-	Region     string    `db:"region"`
-	Bucket     string    `db:"bucket"`
-	AccessKey  string    `db:"access_key"`
-	SecretKey  string    `db:"secret_key"`
-	ArchiveKey string    `db:"archive_key"`
-	Shared     bool      `db:"shared"`
-	CreatedAt  time.Time `db:"created_at"`
+	ID         string    `db:"id" json:"id"`
+	OrgID      *string   `db:"org_id" json:"org_id"`
+	Kind       string    `db:"kind" json:"kind"`
+	Name       string    `db:"name" json:"name"`
+	Endpoint   string    `db:"endpoint" json:"endpoint"`
+	Region     string    `db:"region" json:"region"`
+	Bucket     string    `db:"bucket" json:"bucket"`
+	AccessKey  string    `db:"access_key" json:"-"`
+	SecretKey  string    `db:"secret_key" json:"-"`
+	ArchiveKey string    `db:"archive_key" json:"-"`
+	Shared     bool      `db:"shared" json:"shared"`
+	CreatedAt  time.Time `db:"created_at" json:"created_at"`
 }
 
 type BackupDestStore interface {
@@ -45,15 +45,15 @@ func (s backupDests) ListByOrg(ctx context.Context, orgID *string) ([]BackupDest
 
 // BackupSchedule is a row of backup_schedules. DestID nil = local default.
 type BackupSchedule struct {
-	ID        string    `db:"id"`
-	VolumeID  string    `db:"volume_id"`
-	Method    string    `db:"method"`
-	DestID    *string   `db:"dest_id"`
-	Cron      string    `db:"cron"`
-	Timezone  string    `db:"timezone"`
-	Keep      int       `db:"keep"`
-	Mode      string    `db:"mode"`
-	CreatedAt time.Time `db:"created_at"`
+	ID        string    `db:"id" json:"id"`
+	VolumeID  string    `db:"volume_id" json:"volume_id"`
+	Method    string    `db:"method" json:"method"`
+	DestID    *string   `db:"dest_id" json:"dest_id"`
+	Cron      string    `db:"cron" json:"cron"`
+	Timezone  string    `db:"timezone" json:"timezone"`
+	Keep      int       `db:"keep" json:"keep"`
+	Mode      string    `db:"mode" json:"mode"`
+	CreatedAt time.Time `db:"created_at" json:"created_at"`
 }
 
 type BackupScheduleStore interface {
@@ -80,18 +80,18 @@ func (s backupSchedules) List(ctx context.Context) ([]BackupSchedule, error) {
 // BackupRun is a row of backup_runs. VolumeID nil on a panel run or once the
 // volume is gone.
 type BackupRun struct {
-	ID         string     `db:"id"`
-	Kind       string     `db:"kind"`
-	VolumeID   *string    `db:"volume_id"`
-	ScheduleID *string    `db:"schedule_id"`
-	DestID     string     `db:"dest_id"`
-	Trigger    string     `db:"trigger"`
-	Status     string     `db:"status"`
-	ObjectKey  string     `db:"object_key"`
-	SizeBytes  int64      `db:"size_bytes"`
-	Error      string     `db:"error"`
-	CreatedAt  time.Time  `db:"created_at"`
-	FinishedAt *time.Time `db:"finished_at"`
+	ID         string     `db:"id" json:"id"`
+	Kind       string     `db:"kind" json:"kind"`
+	VolumeID   *string    `db:"volume_id" json:"volume_id"`
+	ScheduleID *string    `db:"schedule_id" json:"schedule_id"`
+	DestID     string     `db:"dest_id" json:"dest_id"`
+	Trigger    string     `db:"trigger" json:"trigger"`
+	Status     string     `db:"status" json:"status"`
+	ObjectKey  string     `db:"object_key" json:"object_key"`
+	SizeBytes  int64      `db:"size_bytes" json:"size_bytes"`
+	Error      string     `db:"error" json:"error"`
+	CreatedAt  time.Time  `db:"created_at" json:"created_at"`
+	FinishedAt *time.Time `db:"finished_at" json:"finished_at"`
 }
 
 type BackupRunStore interface {

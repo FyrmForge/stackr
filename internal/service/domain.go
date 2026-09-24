@@ -2,14 +2,16 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/domain"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
 
 type (
-	Domain     = store.Domain
-	DomainSpec = domain.Spec // RawCaddy is admin-only: the handler gates it
+	Domain       = store.Domain
+	DomainSpec   = domain.Spec // RawCaddy is admin-only: only SetRawCaddy writes it
+	DomainExtras = domain.Extras
 )
 
 func (o *Orchestrator) Domains(ctx context.Context, tileID string) ([]Domain, error) {
@@ -17,8 +19,9 @@ func (o *Orchestrator) Domains(ctx context.Context, tileID string) ([]Domain, er
 }
 
 // AttachDomain adds a host to a tile and pushes the proxy config. Port 0 =
-// the tile's container port.
+// the tile's container port. RawCaddy is ignored: SetRawCaddy writes it.
 func (o *Orchestrator) AttachDomain(ctx context.Context, tileID string, s DomainSpec) (Domain, error) {
+	s.RawCaddy = ""
 	t, err := o.tiles.Get(ctx, tileID)
 	if err != nil {
 		return Domain{}, err
@@ -41,6 +44,8 @@ func (o *Orchestrator) AttachDomain(ctx context.Context, tileID string, s Domain
 	return d, o.sync.Sync(ctx)
 }
 
+// UpdateDomain replaces the domain's spec; the stored raw Caddy route stays
+// (only SetRawCaddy, an admin verb, writes it).
 func (o *Orchestrator) UpdateDomain(ctx context.Context, id string, s DomainSpec) (Domain, error) {
 	d, err := o.domains.Get(ctx, id)
 	if err != nil {
@@ -48,6 +53,25 @@ func (o *Orchestrator) UpdateDomain(ctx context.Context, id string, s DomainSpec
 	}
 	if s.Port == 0 {
 		s.Port = d.ContainerPort
+	}
+	s.RawCaddy = d.RawCaddy
+	if d, err = o.domains.Update(ctx, d, s, o.dns01(ctx)); err != nil {
+		return d, err
+	}
+	return d, o.sync.Sync(ctx)
+}
+
+// SetRawCaddy replaces the domain's generated route with raw, verbatim; ""
+// goes back to the generated one. Admin only.
+func (o *Orchestrator) SetRawCaddy(ctx context.Context, id, raw string) (Domain, error) {
+	d, err := o.domains.Get(ctx, id)
+	if err != nil {
+		return d, err
+	}
+	s := DomainSpec{Host: d.Host, Path: d.Path, Port: d.ContainerPort, HTTPS: &d.HTTPS, ForceHTTPS: &d.ForceHTTPS,
+		RedirectTo: d.RedirectTo, Auto: d.Auto, RawCaddy: raw}
+	if err := json.Unmarshal([]byte(d.ProxyJSON), &s.Extras); err != nil {
+		return d, err
 	}
 	if d, err = o.domains.Update(ctx, d, s, o.dns01(ctx)); err != nil {
 		return d, err

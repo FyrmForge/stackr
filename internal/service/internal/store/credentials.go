@@ -7,13 +7,13 @@ import (
 
 // Credential is a row of credentials: registry pull creds for one org.
 type Credential struct {
-	ID        string    `db:"id"`
-	OrgID     string    `db:"org_id"`
-	Name      string    `db:"name"`
-	URL       string    `db:"url"`
-	Username  string    `db:"username"`
-	Password  string    `db:"password"`
-	CreatedAt time.Time `db:"created_at"`
+	ID        string    `db:"id" json:"id"`
+	OrgID     string    `db:"org_id" json:"org_id"`
+	Name      string    `db:"name" json:"name"`
+	URL       string    `db:"url" json:"url"`
+	Username  string    `db:"username" json:"username"`
+	Password  string    `db:"password" json:"-"`
+	CreatedAt time.Time `db:"created_at" json:"created_at"`
 }
 
 type CredentialStore interface {
@@ -34,13 +34,13 @@ func (s credentials) ListByOrg(ctx context.Context, orgID string) ([]Credential,
 
 // Connector is a row of connectors: one git App per org and host.
 type Connector struct {
-	ID        string    `db:"id"`
-	OrgID     string    `db:"org_id"`
-	Provider  string    `db:"provider"`
-	Name      string    `db:"name"`
-	Host      string    `db:"host"`
-	Config    string    `db:"config"`
-	CreatedAt time.Time `db:"created_at"`
+	ID        string    `db:"id" json:"id"`
+	OrgID     string    `db:"org_id" json:"org_id"`
+	Provider  string    `db:"provider" json:"provider"`
+	Name      string    `db:"name" json:"name"`
+	Host      string    `db:"host" json:"host"`
+	Config    string    `db:"config" json:"-"`
+	CreatedAt time.Time `db:"created_at" json:"created_at"`
 }
 
 type ConnectorStore interface {

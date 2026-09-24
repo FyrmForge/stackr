@@ -8,15 +8,15 @@ import (
 // Volume is a row of volumes. InstanceID is set when a managed instance
 // owns it; OrphanedAt when its owner is gone and the retention clock runs.
 type Volume struct {
-	ID         string     `db:"id"`
-	ScopeKind  string     `db:"scope_kind"`
-	ScopeID    string     `db:"scope_id"`
-	InstanceID *string    `db:"instance_id"`
-	Slug       string     `db:"slug"`
-	Name       string     `db:"name"`
-	MaxSizeMB  int        `db:"max_size_mb"`
-	OrphanedAt *time.Time `db:"orphaned_at"`
-	CreatedAt  time.Time  `db:"created_at"`
+	ID         string     `db:"id" json:"id"`
+	ScopeKind  string     `db:"scope_kind" json:"scope_kind"`
+	ScopeID    string     `db:"scope_id" json:"scope_id"`
+	InstanceID *string    `db:"instance_id" json:"instance_id"`
+	Slug       string     `db:"slug" json:"slug"`
+	Name       string     `db:"name" json:"name"`
+	MaxSizeMB  int        `db:"max_size_mb" json:"max_size_mb"`
+	OrphanedAt *time.Time `db:"orphaned_at" json:"orphaned_at"`
+	CreatedAt  time.Time  `db:"created_at" json:"created_at"`
 }
 
 type VolumeStore interface {

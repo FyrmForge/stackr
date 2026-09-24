@@ -64,12 +64,15 @@ type Device struct{ Host, Container, Perms string }
 
 // Container is one row of a list.
 type Container struct {
-	ID, Name, Image, State string
+	ID    string `json:"id"`
+	Name  string `json:"name"`
+	Image string `json:"image"`
+	State string `json:"state"`
 	// Health is docker's own word (healthy | unhealthy | starting), "" when
 	// the container declares no HEALTHCHECK.
-	Health string
-	Labels map[string]string
-	IPs    []string
+	Health string            `json:"health"`
+	Labels map[string]string `json:"labels"`
+	IPs    []string          `json:"ips"`
 }
 
 // Detail is the curated inspect: everything a health gate reads comes off

@@ -34,8 +34,15 @@ func (o *Orchestrator) CreateBackupDest(ctx context.Context, orgID *string, s Ba
 	return o.backups.Create(ctx, orgID, s)
 }
 
+// GlobalBackupDests lists the admin-global destinations, shared or not.
+func (o *Orchestrator) GlobalBackupDests(ctx context.Context) ([]BackupDest, error) {
+	return o.backups.Global(ctx)
+}
+
+// UpdateBackupDest changes a destination orgID owns; orgID "" = a global
+// one (admin). A shared global is visible to an org, never its to change.
 func (o *Orchestrator) UpdateBackupDest(ctx context.Context, orgID, id string, s BackupDestSpec) (BackupDest, error) {
-	d, err := o.backups.For(ctx, orgID, id)
+	d, err := o.ownDest(ctx, orgID, id)
 	if err != nil {
 		return d, err
 	}
@@ -43,11 +50,26 @@ func (o *Orchestrator) UpdateBackupDest(ctx context.Context, orgID, id string, s
 }
 
 func (o *Orchestrator) DeleteBackupDest(ctx context.Context, orgID, id string) error {
-	d, err := o.backups.For(ctx, orgID, id)
+	d, err := o.ownDest(ctx, orgID, id)
 	if err != nil {
 		return err
 	}
 	return o.backups.Delete(ctx, d)
+}
+
+func (o *Orchestrator) ownDest(ctx context.Context, orgID, id string) (BackupDest, error) {
+	d, err := o.backups.Get(ctx, id)
+	if err != nil {
+		return d, err
+	}
+	owner := ""
+	if d.OrgID != nil {
+		owner = *d.OrgID
+	}
+	if owner != orgID {
+		return BackupDest{}, errs.ErrNotFound
+	}
+	return d, nil
 }
 
 // BackupMethods are what a volume can be backed up with: its engine's

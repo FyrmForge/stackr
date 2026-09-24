@@ -3,6 +3,7 @@ package middleware
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -131,6 +132,10 @@ var byVerb = map[string]bool{
 	"collection": true, "name": true, "token": true, "setting": true,
 }
 
+// KnownParam reports whether a route param is org-checked or verb-scoped;
+// the route test holds every /api/v1 path to it.
+func KnownParam(name string) bool { _, child := childKinds[name]; return child || byVerb[name] }
+
 // children refuses a child id from another org with the same 404 as a
 // missing one. An unlisted param fails closed.
 // ponytail: org-level only; v1 roles are per org, so an id of another tile
@@ -189,6 +194,10 @@ func HTTPError(err error) error {
 	if v, ok := errs.IsInvalid(err); ok {
 		return echo.NewHTTPError(http.StatusBadRequest, v.Error())
 	}
+	var be *echo.BindingError
+	if errors.As(err, &be) {
+		return echo.NewHTTPError(http.StatusBadRequest, be.Field+": "+fmt.Sprint(be.Message))
+	}
 	if v, ok := errs.IsConflict(err); ok {
 		return echo.NewHTTPError(http.StatusConflict, v.Msg)
 	}
@@ -229,6 +238,22 @@ func JSONErrors() echo.MiddlewareFunc {
 				logging.FromContext(c.Request().Context()).Error("api", "error", err.Error())
 			}
 			return c.JSON(body.Status, body)
+		}
+	}
+}
+
+// APICSRF is the web's CSRF check for API calls a browser session makes.
+// Mount after Load: a bearer key is not ambient and an anonymous call
+// carries nothing to ride on, so both skip it.
+func APICSRF(secure bool) echo.MiddlewareFunc {
+	csrf := hamrmw.CSRFWithConfig(hamrmw.CSRFConfig{Secure: secure})
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		checked := csrf(next)
+		return func(c echo.Context) error {
+			if Principal(c) == nil || strings.HasPrefix(c.Request().Header.Get(echo.HeaderAuthorization), "Bearer ") {
+				return next(c)
+			}
+			return checked(c)
 		}
 	}
 }

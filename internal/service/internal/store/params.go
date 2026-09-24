@@ -7,15 +7,15 @@ import (
 
 // Param is a row of params. Value is plaintext here; the column is sealed.
 type Param struct {
-	ID         string    `db:"id"`
-	ScopeKind  string    `db:"scope_kind"`
-	ScopeID    string    `db:"scope_id"`
-	Collection string    `db:"collection"`
-	Name       string    `db:"name"`
-	Kind       string    `db:"kind"`
-	Value      string    `db:"value"`
-	CreatedAt  time.Time `db:"created_at"`
-	UpdatedAt  time.Time `db:"updated_at"`
+	ID         string    `db:"id" json:"id"`
+	ScopeKind  string    `db:"scope_kind" json:"scope_kind"`
+	ScopeID    string    `db:"scope_id" json:"scope_id"`
+	Collection string    `db:"collection" json:"collection"`
+	Name       string    `db:"name" json:"name"`
+	Kind       string    `db:"kind" json:"kind"`
+	Value      string    `db:"value" json:"value"`
+	CreatedAt  time.Time `db:"created_at" json:"created_at"`
+	UpdatedAt  time.Time `db:"updated_at" json:"updated_at"`
 }
 
 type ParamStore interface {

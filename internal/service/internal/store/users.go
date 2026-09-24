@@ -7,16 +7,16 @@ import (
 
 // User is a row of users. Role "admin" is the stackr admin.
 type User struct {
-	ID           string    `db:"id"`
-	Email        string    `db:"email"`
-	PasswordHash string    `db:"password_hash"`
-	Name         string    `db:"name"`
-	Role         string    `db:"role"`
-	Active       bool      `db:"active"`
-	AvatarPath   string    `db:"avatar_path"`
-	Theme        string    `db:"theme"`
-	CreatedAt    time.Time `db:"created_at"`
-	UpdatedAt    time.Time `db:"updated_at"`
+	ID           string    `db:"id" json:"id"`
+	Email        string    `db:"email" json:"email"`
+	PasswordHash string    `db:"password_hash" json:"-"`
+	Name         string    `db:"name" json:"name"`
+	Role         string    `db:"role" json:"role"`
+	Active       bool      `db:"active" json:"active"`
+	AvatarPath   string    `db:"avatar_path" json:"avatar_path"`
+	Theme        string    `db:"theme" json:"theme"`
+	CreatedAt    time.Time `db:"created_at" json:"created_at"`
+	UpdatedAt    time.Time `db:"updated_at" json:"updated_at"`
 }
 
 type UserStore interface {

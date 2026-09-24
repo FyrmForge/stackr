@@ -11,18 +11,18 @@ import (
 
 // Job is a row of jobs.
 type Job struct {
-	ID           string     `db:"id"`
-	Kind         string     `db:"kind"`
-	State        string     `db:"state"`
-	ReleaseID    *string    `db:"release_id"`
-	LockSet      StringList `db:"lock_set"`
-	Payload      string     `db:"payload"`
-	WaitingParam *string    `db:"waiting_param"`
-	LogPath      string     `db:"log_path"`
-	Error        string     `db:"error"`
-	CreatedAt    time.Time  `db:"created_at"`
-	StartedAt    *time.Time `db:"started_at"`
-	FinishedAt   *time.Time `db:"finished_at"`
+	ID           string     `db:"id" json:"id"`
+	Kind         string     `db:"kind" json:"kind"`
+	State        string     `db:"state" json:"state"`
+	ReleaseID    *string    `db:"release_id" json:"release_id"`
+	LockSet      StringList `db:"lock_set" json:"lock_set"`
+	Payload      string     `db:"payload" json:"payload"`
+	WaitingParam *string    `db:"waiting_param" json:"waiting_param"`
+	LogPath      string     `db:"log_path" json:"-"`
+	Error        string     `db:"error" json:"error"`
+	CreatedAt    time.Time  `db:"created_at" json:"created_at"`
+	StartedAt    *time.Time `db:"started_at" json:"started_at"`
+	FinishedAt   *time.Time `db:"finished_at" json:"finished_at"`
 }
 
 type JobStore interface {

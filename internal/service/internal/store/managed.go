@@ -7,15 +7,15 @@ import (
 
 // ManagedInstance is a row of managed_instances. Its container is its tile.
 type ManagedInstance struct {
-	ID            string    `db:"id"`
-	TileID        string    `db:"tile_id"`
-	Engine        string    `db:"engine"`
-	ScopeKind     string    `db:"scope_kind"`
-	ScopeID       string    `db:"scope_id"`
-	AdminUser     string    `db:"admin_user"`
-	AdminPassword string    `db:"admin_password"`
-	Endpoint      string    `db:"endpoint"`
-	CreatedAt     time.Time `db:"created_at"`
+	ID            string    `db:"id" json:"id"`
+	TileID        string    `db:"tile_id" json:"tile_id"`
+	Engine        string    `db:"engine" json:"engine"`
+	ScopeKind     string    `db:"scope_kind" json:"scope_kind"`
+	ScopeID       string    `db:"scope_id" json:"scope_id"`
+	AdminUser     string    `db:"admin_user" json:"admin_user"`
+	AdminPassword string    `db:"admin_password" json:"-"`
+	Endpoint      string    `db:"endpoint" json:"endpoint"`
+	CreatedAt     time.Time `db:"created_at" json:"created_at"`
 }
 
 type ManagedInstanceStore interface {
@@ -44,17 +44,17 @@ func (s managedInstances) ListByScope(ctx context.Context, scopeKind, scopeID st
 // Provision is a row of provisions: one consumer's slice of an instance.
 // ConsumerTileID nil = the consumer is gone and OnRemove is pending.
 type Provision struct {
-	ID             string    `db:"id"`
-	InstanceID     string    `db:"instance_id"`
-	ConsumerTileID *string   `db:"consumer_tile_id"`
-	Slug           string    `db:"slug"`
-	DBName         string    `db:"db_name"`
-	DBUser         string    `db:"db_user"`
-	DBPassword     string    `db:"db_password"`
-	Outputs        string    `db:"outputs"`
-	Public         bool      `db:"public"`
-	OnRemove       string    `db:"on_remove"`
-	CreatedAt      time.Time `db:"created_at"`
+	ID             string    `db:"id" json:"id"`
+	InstanceID     string    `db:"instance_id" json:"instance_id"`
+	ConsumerTileID *string   `db:"consumer_tile_id" json:"consumer_tile_id"`
+	Slug           string    `db:"slug" json:"slug"`
+	DBName         string    `db:"db_name" json:"db_name"`
+	DBUser         string    `db:"db_user" json:"db_user"`
+	DBPassword     string    `db:"db_password" json:"-"`
+	Outputs        string    `db:"outputs" json:"outputs"`
+	Public         bool      `db:"public" json:"public"`
+	OnRemove       string    `db:"on_remove" json:"on_remove"`
+	CreatedAt      time.Time `db:"created_at" json:"created_at"`
 }
 
 type ProvisionStore interface {

@@ -8,46 +8,46 @@ import (
 // Tile is a row of tiles. JSON-shaped columns stay strings: the tile leaf
 // parses them.
 type Tile struct {
-	ID                      string    `db:"id"`
-	StackID                 string    `db:"stack_id"`
-	EnvironmentID           string    `db:"environment_id"`
-	Name                    string    `db:"name"`
-	Slug                    string    `db:"slug"`
-	Kind                    string    `db:"kind"`
-	GitURL                  string    `db:"git_url"`
-	GitBranch               string    `db:"git_branch"`
-	ImageRef                string    `db:"image_ref"`
-	DockerfilePath          string    `db:"dockerfile_path"`
-	BuildContext            string    `db:"build_context"`
-	WatchPaths              string    `db:"watch_paths"`
-	EnvJSON                 string    `db:"env_json"`
-	BuildArgs               string    `db:"build_args"`
-	Volumes                 string    `db:"volumes"`
-	Command                 string    `db:"command"`
-	ContainerPort           int       `db:"container_port"`
-	PublishedPorts          string    `db:"published_ports"`
-	EndpointProtocol        string    `db:"endpoint_protocol"`
-	HealthPath              string    `db:"health_path"`
-	HealthcheckCmd          string    `db:"healthcheck_cmd"`
-	HealthcheckIntervalS    int       `db:"healthcheck_interval_s"`
-	HealthcheckTimeoutS     int       `db:"healthcheck_timeout_s"`
-	HealthcheckRetries      int       `db:"healthcheck_retries"`
-	HealthcheckStartPeriodS int       `db:"healthcheck_start_period_s"`
-	CPULimit                float64   `db:"cpu_limit"`
-	MemLimitMB              int       `db:"mem_limit_mb"`
-	User                    string    `db:"user"`
-	ShmSizeMB               int       `db:"shm_size_mb"`
-	Privileged              bool      `db:"privileged"`
-	Devices                 string    `db:"devices"`
-	RestartPolicy           string    `db:"restart_policy"`
-	DependsOn               string    `db:"depends_on"`
-	Files                   string    `db:"files"`
-	SharedNet               string    `db:"shared_net"`
-	Replicas                int       `db:"replicas"`
-	UpdatePolicy            string    `db:"update_policy"`
-	TagPolicy               string    `db:"tag_policy"`
-	CreatedAt               time.Time `db:"created_at"`
-	UpdatedAt               time.Time `db:"updated_at"`
+	ID                      string    `db:"id" json:"id"`
+	StackID                 string    `db:"stack_id" json:"stack_id"`
+	EnvironmentID           string    `db:"environment_id" json:"environment_id"`
+	Name                    string    `db:"name" json:"name"`
+	Slug                    string    `db:"slug" json:"slug"`
+	Kind                    string    `db:"kind" json:"kind"`
+	GitURL                  string    `db:"git_url" json:"git_url"`
+	GitBranch               string    `db:"git_branch" json:"git_branch"`
+	ImageRef                string    `db:"image_ref" json:"image_ref"`
+	DockerfilePath          string    `db:"dockerfile_path" json:"dockerfile_path"`
+	BuildContext            string    `db:"build_context" json:"build_context"`
+	WatchPaths              string    `db:"watch_paths" json:"watch_paths"`
+	EnvJSON                 string    `db:"env_json" json:"env_json"`
+	BuildArgs               string    `db:"build_args" json:"build_args"`
+	Volumes                 string    `db:"volumes" json:"volumes"`
+	Command                 string    `db:"command" json:"command"`
+	ContainerPort           int       `db:"container_port" json:"container_port"`
+	PublishedPorts          string    `db:"published_ports" json:"published_ports"`
+	EndpointProtocol        string    `db:"endpoint_protocol" json:"endpoint_protocol"`
+	HealthPath              string    `db:"health_path" json:"health_path"`
+	HealthcheckCmd          string    `db:"healthcheck_cmd" json:"healthcheck_cmd"`
+	HealthcheckIntervalS    int       `db:"healthcheck_interval_s" json:"healthcheck_interval_s"`
+	HealthcheckTimeoutS     int       `db:"healthcheck_timeout_s" json:"healthcheck_timeout_s"`
+	HealthcheckRetries      int       `db:"healthcheck_retries" json:"healthcheck_retries"`
+	HealthcheckStartPeriodS int       `db:"healthcheck_start_period_s" json:"healthcheck_start_period_s"`
+	CPULimit                float64   `db:"cpu_limit" json:"cpu_limit"`
+	MemLimitMB              int       `db:"mem_limit_mb" json:"mem_limit_mb"`
+	User                    string    `db:"user" json:"user"`
+	ShmSizeMB               int       `db:"shm_size_mb" json:"shm_size_mb"`
+	Privileged              bool      `db:"privileged" json:"privileged"`
+	Devices                 string    `db:"devices" json:"devices"`
+	RestartPolicy           string    `db:"restart_policy" json:"restart_policy"`
+	DependsOn               string    `db:"depends_on" json:"depends_on"`
+	Files                   string    `db:"files" json:"files"`
+	SharedNet               string    `db:"shared_net" json:"shared_net"`
+	Replicas                int       `db:"replicas" json:"replicas"`
+	UpdatePolicy            string    `db:"update_policy" json:"update_policy"`
+	TagPolicy               string    `db:"tag_policy" json:"tag_policy"`
+	CreatedAt               time.Time `db:"created_at" json:"created_at"`
+	UpdatedAt               time.Time `db:"updated_at" json:"updated_at"`
 }
 
 type TileStore interface {
@@ -78,15 +78,15 @@ func (s tiles) ListByStack(ctx context.Context, stackID string) ([]Tile, error) 
 
 // Image is a row of images: a built image and the watch cache, by ref.
 type Image struct {
-	ID         string     `db:"id"`
-	Ref        string     `db:"ref"`
-	Digest     string     `db:"digest"`
-	BuiltAt    *time.Time `db:"built_at"`
-	LastDigest string     `db:"last_digest"`
-	LastTag    string     `db:"last_tag"`
-	LastError  string     `db:"last_error"`
-	CheckedAt  *time.Time `db:"checked_at"`
-	CreatedAt  time.Time  `db:"created_at"`
+	ID         string     `db:"id" json:"id"`
+	Ref        string     `db:"ref" json:"ref"`
+	Digest     string     `db:"digest" json:"digest"`
+	BuiltAt    *time.Time `db:"built_at" json:"built_at"`
+	LastDigest string     `db:"last_digest" json:"last_digest"`
+	LastTag    string     `db:"last_tag" json:"last_tag"`
+	LastError  string     `db:"last_error" json:"last_error"`
+	CheckedAt  *time.Time `db:"checked_at" json:"checked_at"`
+	CreatedAt  time.Time  `db:"created_at" json:"created_at"`
 }
 
 type ImageStore interface {
@@ -110,19 +110,19 @@ func (s images) List(ctx context.Context) ([]Image, error) { return s.many(ctx, 
 
 // Domain is a row of domains.
 type Domain struct {
-	ID            string    `db:"id"`
-	TileID        string    `db:"tile_id"`
-	Host          string    `db:"host"`
-	Path          string    `db:"path"`
-	ContainerPort int       `db:"container_port"`
-	HTTPS         bool      `db:"https"`
-	ForceHTTPS    bool      `db:"force_https"`
-	RedirectTo    string    `db:"redirect_to"`
-	Auto          bool      `db:"auto"`
-	Position      int       `db:"position"`
-	ProxyJSON     string    `db:"proxy_json"`
-	RawCaddy      string    `db:"raw_caddy"`
-	CreatedAt     time.Time `db:"created_at"`
+	ID            string    `db:"id" json:"id"`
+	TileID        string    `db:"tile_id" json:"tile_id"`
+	Host          string    `db:"host" json:"host"`
+	Path          string    `db:"path" json:"path"`
+	ContainerPort int       `db:"container_port" json:"container_port"`
+	HTTPS         bool      `db:"https" json:"https"`
+	ForceHTTPS    bool      `db:"force_https" json:"force_https"`
+	RedirectTo    string    `db:"redirect_to" json:"redirect_to"`
+	Auto          bool      `db:"auto" json:"auto"`
+	Position      int       `db:"position" json:"position"`
+	ProxyJSON     string    `db:"proxy_json" json:"proxy_json"`
+	RawCaddy      string    `db:"raw_caddy" json:"raw_caddy"`
+	CreatedAt     time.Time `db:"created_at" json:"created_at"`
 }
 
 type DomainStore interface {

@@ -19,8 +19,8 @@ type (
 // PromotePlan is the dry run and its verdict: CanDeploy is false exactly
 // when Plan.Blockers is not empty, the same list Promote refuses with (B20).
 type PromotePlan struct {
-	Plan      *Plan
-	CanDeploy bool
+	Plan      *Plan `json:"plan"`
+	CanDeploy bool  `json:"can_deploy"`
 }
 
 func (o *Orchestrator) Releases(ctx context.Context, stackID string) ([]Release, error) {

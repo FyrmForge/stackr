@@ -7,14 +7,14 @@ import (
 
 // Org is a row of orgs.
 type Org struct {
-	ID          string     `db:"id"`
-	Name        string     `db:"name"`
-	Slug        string     `db:"slug"`
-	AvatarPath  string     `db:"avatar_path"`
-	EnvColors   string     `db:"env_colors"`
-	Settings    string     `db:"settings"`
-	SetupDoneAt *time.Time `db:"setup_done_at"`
-	CreatedAt   time.Time  `db:"created_at"`
+	ID          string     `db:"id" json:"id"`
+	Name        string     `db:"name" json:"name"`
+	Slug        string     `db:"slug" json:"slug"`
+	AvatarPath  string     `db:"avatar_path" json:"avatar_path"`
+	EnvColors   string     `db:"env_colors" json:"env_colors"`
+	Settings    string     `db:"settings" json:"settings"`
+	SetupDoneAt *time.Time `db:"setup_done_at" json:"setup_done_at"`
+	CreatedAt   time.Time  `db:"created_at" json:"created_at"`
 }
 
 type OrgStore interface {
@@ -38,11 +38,11 @@ func (s orgs) List(ctx context.Context) ([]Org, error) { return s.many(ctx, "1 =
 
 // OrgMember is a row of org_members.
 type OrgMember struct {
-	ID        string    `db:"id"`
-	OrgID     string    `db:"org_id"`
-	UserID    string    `db:"user_id"`
-	Role      string    `db:"role"`
-	CreatedAt time.Time `db:"created_at"`
+	ID        string    `db:"id" json:"id"`
+	OrgID     string    `db:"org_id" json:"org_id"`
+	UserID    string    `db:"user_id" json:"user_id"`
+	Role      string    `db:"role" json:"role"`
+	CreatedAt time.Time `db:"created_at" json:"created_at"`
 }
 
 type OrgMemberStore interface {
@@ -73,14 +73,14 @@ func (s orgMembers) ListByUser(ctx context.Context, userID string) ([]OrgMember,
 
 // Invite is a row of invites. ID doubles as the link token.
 type Invite struct {
-	ID        string     `db:"id"`
-	OrgID     string     `db:"org_id"`
-	Email     string     `db:"email"`
-	Role      string     `db:"role"`
-	CreatedBy string     `db:"created_by"`
-	CreatedAt time.Time  `db:"created_at"`
-	ExpiresAt time.Time  `db:"expires_at"`
-	UsedAt    *time.Time `db:"used_at"`
+	ID        string     `db:"id" json:"id"`
+	OrgID     string     `db:"org_id" json:"org_id"`
+	Email     string     `db:"email" json:"email"`
+	Role      string     `db:"role" json:"role"`
+	CreatedBy string     `db:"created_by" json:"created_by"`
+	CreatedAt time.Time  `db:"created_at" json:"created_at"`
+	ExpiresAt time.Time  `db:"expires_at" json:"expires_at"`
+	UsedAt    *time.Time `db:"used_at" json:"used_at"`
 }
 
 type InviteStore interface {

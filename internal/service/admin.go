@@ -13,6 +13,8 @@ import (
 type (
 	APIKey = store.APIKey
 	Knob   = settings.Knob
+	// SettingsBlob is one rung of the settings cascade.
+	SettingsBlob = settings.Settings
 )
 
 // ---- users and keys ----

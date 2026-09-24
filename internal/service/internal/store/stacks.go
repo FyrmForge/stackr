@@ -7,18 +7,18 @@ import (
 
 // Stack is a row of stacks.
 type Stack struct {
-	ID                string    `db:"id"`
-	OrgID             string    `db:"org_id"`
-	Name              string    `db:"name"`
-	Slug              string    `db:"slug"`
-	Description       string    `db:"description"`
-	Settings          string    `db:"settings"`
-	ConfigConnectorID string    `db:"config_connector_id"`
-	ConfigRepo        string    `db:"config_repo"`
-	ConfigBranch      string    `db:"config_branch"`
-	ConfigPath        string    `db:"config_path"`
-	Domains           string    `db:"domains"` // JSON, parsed by leaf/stack
-	CreatedAt         time.Time `db:"created_at"`
+	ID                string    `db:"id" json:"id"`
+	OrgID             string    `db:"org_id" json:"org_id"`
+	Name              string    `db:"name" json:"name"`
+	Slug              string    `db:"slug" json:"slug"`
+	Description       string    `db:"description" json:"description"`
+	Settings          string    `db:"settings" json:"settings"`
+	ConfigConnectorID string    `db:"config_connector_id" json:"config_connector_id"`
+	ConfigRepo        string    `db:"config_repo" json:"config_repo"`
+	ConfigBranch      string    `db:"config_branch" json:"config_branch"`
+	ConfigPath        string    `db:"config_path" json:"config_path"`
+	Domains           string    `db:"domains" json:"domains"` // JSON, parsed by leaf/stack
+	CreatedAt         time.Time `db:"created_at" json:"created_at"`
 }
 
 type StackStore interface {
@@ -44,21 +44,21 @@ func (s stacks) ListByOrg(ctx context.Context, orgID string) ([]Stack, error) {
 
 // Environment is a row of environments.
 type Environment struct {
-	ID         string    `db:"id"`
-	StackID    string    `db:"stack_id"`
-	Name       string    `db:"name"`
-	Slug       string    `db:"slug"`
-	Type       string    `db:"type"`
-	BaseEnvID  *string   `db:"base_env_id"`
-	Settings   string    `db:"settings"`
-	Color      string    `db:"color"`
-	Position   int       `db:"position"`
-	Network    string    `db:"network"`
-	ReleaseID  *string   `db:"release_id"`
-	FromKind   string    `db:"from_kind"`
-	FromBranch string    `db:"from_branch"`
-	Auto       bool      `db:"auto"`
-	CreatedAt  time.Time `db:"created_at"`
+	ID         string    `db:"id" json:"id"`
+	StackID    string    `db:"stack_id" json:"stack_id"`
+	Name       string    `db:"name" json:"name"`
+	Slug       string    `db:"slug" json:"slug"`
+	Type       string    `db:"type" json:"type"`
+	BaseEnvID  *string   `db:"base_env_id" json:"base_env_id"`
+	Settings   string    `db:"settings" json:"settings"`
+	Color      string    `db:"color" json:"color"`
+	Position   int       `db:"position" json:"position"`
+	Network    string    `db:"network" json:"network"`
+	ReleaseID  *string   `db:"release_id" json:"release_id"`
+	FromKind   string    `db:"from_kind" json:"from_kind"`
+	FromBranch string    `db:"from_branch" json:"from_branch"`
+	Auto       bool      `db:"auto" json:"auto"`
+	CreatedAt  time.Time `db:"created_at" json:"created_at"`
 }
 
 type EnvironmentStore interface {

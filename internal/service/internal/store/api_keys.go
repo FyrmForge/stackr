@@ -7,12 +7,12 @@ import (
 
 // APIKey is a row of api_keys. OrgID nil = unbound (admin-only, DECIDE 13).
 type APIKey struct {
-	ID        string    `db:"id"`
-	UserID    string    `db:"user_id"`
-	OrgID     *string   `db:"org_id"`
-	Name      string    `db:"name"`
-	TokenHash string    `db:"token_hash"`
-	CreatedAt time.Time `db:"created_at"`
+	ID        string    `db:"id" json:"id"`
+	UserID    string    `db:"user_id" json:"user_id"`
+	OrgID     *string   `db:"org_id" json:"org_id"`
+	Name      string    `db:"name" json:"name"`
+	TokenHash string    `db:"token_hash" json:"-"`
+	CreatedAt time.Time `db:"created_at" json:"created_at"`
 }
 
 type APIKeyStore interface {

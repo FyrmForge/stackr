@@ -25,7 +25,7 @@ func setup(t *testing.T) (*servicetest.Env, http.Handler) {
 	}
 	access := middleware.NewAccess(env.O)
 	web.RegisterStaticPages(srv)
-	api.RegisterRoutes(srv, &api.Deps{Service: env.O, Access: access})
+	api.RegisterRoutes(srv, &api.Deps{Service: env.O, Access: access, DevMode: true})
 	web.RegisterRoutes(srv, &web.Deps{Service: env.O, Access: access, DevMode: true})
 	return env, srv.Echo()
 }

@@ -34,9 +34,12 @@ const ConfigSlug = "_config"
 // managed tiles carry the digest (never just a tag); the config repo's pin
 // carries only its commit.
 type Pin struct {
-	Slug, Repo, Branch, CommitSHA string
-	ImageID                       *string
-	Digest                        string
+	Slug      string  `json:"slug"`
+	Repo      string  `json:"repo"`
+	Branch    string  `json:"branch"`
+	CommitSHA string  `json:"commit_sha"`
+	ImageID   *string `json:"image_id"`
+	Digest    string  `json:"digest"`
 }
 
 func (l *Leaf) Get(ctx context.Context, id string) (store.Release, error) { return l.releases.Get(ctx, id) }

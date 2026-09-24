@@ -48,12 +48,12 @@ func (s Scope) String() string {
 }
 
 type Knob struct {
-	Key       string
-	Type      Type
-	Default   string
-	Scopes    Scope
-	AllowZero bool // an explicit 0 is a real value, not "clear"
-	Desc      string
+	Key       string `json:"key"`
+	Type      Type   `json:"type"`
+	Default   string `json:"default"`
+	Scopes    Scope  `json:"scopes"`
+	AllowZero bool   `json:"allow_zero"` // an explicit 0 is a real value, not "clear"
+	Desc      string `json:"desc"`
 }
 
 // DefaultsKey is the settings-table row holding the server rung of the

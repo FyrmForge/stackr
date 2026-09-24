@@ -155,6 +155,7 @@ func run(log *slog.Logger, generate bool) error {
 	api.RegisterRoutes(srv, &api.Deps{
 		Service: svc,
 		Access:  access,
+		DevMode: envDevMode,
 	})
 
 	web.RegisterRoutes(srv, &web.Deps{

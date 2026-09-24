@@ -7,11 +7,11 @@ import (
 
 // Release is a row of releases.
 type Release struct {
-	ID        string    `db:"id"`
-	StackID   string    `db:"stack_id"`
-	Number    int       `db:"number"`
-	CreatedAt time.Time `db:"created_at"`
-	CreatedBy string    `db:"created_by"`
+	ID        string    `db:"id" json:"id"`
+	StackID   string    `db:"stack_id" json:"stack_id"`
+	Number    int       `db:"number" json:"number"`
+	CreatedAt time.Time `db:"created_at" json:"created_at"`
+	CreatedBy string    `db:"created_by" json:"created_by"`
 }
 
 type ReleaseStore interface {
@@ -37,14 +37,14 @@ func (s releases) ListByStack(ctx context.Context, stackID string) ([]Release, e
 
 // ReleaseTile is a row of release_tiles: one tile's pinned source and image.
 type ReleaseTile struct {
-	ID        string  `db:"id"`
-	ReleaseID string  `db:"release_id"`
-	Slug      string  `db:"slug"`
-	Repo      string  `db:"repo"`
-	Branch    string  `db:"branch"`
-	CommitSHA string  `db:"commit_sha"`
-	ImageID   *string `db:"image_id"`
-	Digest    string  `db:"digest"`
+	ID        string  `db:"id" json:"id"`
+	ReleaseID string  `db:"release_id" json:"release_id"`
+	Slug      string  `db:"slug" json:"slug"`
+	Repo      string  `db:"repo" json:"repo"`
+	Branch    string  `db:"branch" json:"branch"`
+	CommitSHA string  `db:"commit_sha" json:"commit_sha"`
+	ImageID   *string `db:"image_id" json:"image_id"`
+	Digest    string  `db:"digest" json:"digest"`
 }
 
 type ReleaseTileStore interface {

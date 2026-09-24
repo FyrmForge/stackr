@@ -159,9 +159,9 @@ const MaxChunk = 64 << 10
 // next; End means the job is terminal and the whole log has been read, so
 // the client can stop polling.
 type Log struct {
-	Chunk []byte
-	Next  int64
-	End   bool
+	Chunk []byte `json:"chunk"` // base64 in JSON
+	Next  int64  `json:"next"`
+	End   bool   `json:"end"`
 }
 
 // Poll is the job row plus its log from offset (B25: every job is a row to

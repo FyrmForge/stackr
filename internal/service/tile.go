@@ -14,9 +14,9 @@ type Image = store.Image
 
 // TileStatus is the box's word for a tile plus its newest job (DECIDE 8).
 type TileStatus struct {
-	Word     string // running | stopped | partial | … (leaf/tile)
-	Replicas []Container
-	LastJob  *Job
+	Word     string      `json:"word"` // running | stopped | partial | … (leaf/tile)
+	Replicas []Container `json:"replicas"`
+	LastJob  *Job        `json:"last_job"`
 }
 
 func (o *Orchestrator) Tiles(ctx context.Context, envID string) ([]Tile, error) {
