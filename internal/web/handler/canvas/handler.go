@@ -23,6 +23,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/middleware"
 	"github.com/FyrmForge/stackr/internal/service"
 	ui "github.com/FyrmForge/stackr/internal/ui/graph"
+	"github.com/FyrmForge/stackr/internal/ui/graph/cards"
 	"github.com/FyrmForge/stackr/internal/web/render"
 )
 
@@ -62,12 +63,33 @@ func show(c echo.Context) service.GraphShow {
 }
 
 func (h *handler) view(c echo.Context) (ui.View, error) {
-	l, sh := where(c), show(c)
-	gv, err := h.orch.Canvas(c.Request().Context(), l.scope, sh)
+	return h.build(c.Request().Context(), where(c), show(c), c.QueryParam("focus"))
+}
+
+// build is the canvas as drawn, the env's traffic lanes at the last
+// sample included (so a "graph" swap keeps them).
+func (h *handler) build(ctx context.Context, l level, sh service.GraphShow, focus string) (ui.View, error) {
+	gv, err := h.orch.Canvas(ctx, l.scope, sh)
 	if err != nil {
 		return ui.View{}, err
 	}
-	return mapView(gv, l, sh, c.QueryParam("focus")), nil
+	v := mapView(gv, l, sh, focus)
+	if v.Lanes != nil {
+		es, err := h.orch.Traffic(ctx, l.scope.ID)
+		if err != nil {
+			return v, err
+		}
+		v.Lanes = lanes(es)
+	}
+	return v, nil
+}
+
+func lanes(es []service.Edge) []cards.Lane {
+	out := make([]cards.Lane, 0, len(es))
+	for _, e := range es {
+		out = append(out, cards.Lane{From: e.From, To: e.To, BPS: e.BPS})
+	}
+	return out
 }
 
 // GET /, /:org, /:org/:stack, /:org/:stack/:env. A fresh load of
@@ -152,14 +174,51 @@ func (h *handler) canvas(c echo.Context) error {
 // GET …/-/events?n=<sig>: the canvas's stream. "footer:<id>" when a card's
 // footer changes (every footer once at connect), "graph" with the whole
 // canvas when the set of cards, edges or notes moves away from the one
-// the page drew (n).
+// the page drew (n); on the env canvas also "traffic", the lanes after
+// each sample.
 func (h *handler) Events(c echo.Context) error {
-	return stream.Watch(c, h.Poll(c))
+	poll := h.Poll(c)
+	if l := where(c); l.scope.Kind == service.CanvasEnv && show(c).Traffic {
+		poll = both(poll, h.traffic(l.scope.ID))
+	}
+	return stream.Watch(c, poll)
 }
 
-// Poll is the canvas stream's producer, for a stream that carries more
-// (the env stream folds it in beside its traffic lanes).
-func (h *handler) Poll(c echo.Context) func(context.Context) ([]stream.Msg, error) {
+type producer = func(context.Context) ([]stream.Msg, error)
+
+func both(a, b producer) producer {
+	return func(ctx context.Context) ([]stream.Msg, error) {
+		ma, err := a(ctx)
+		if err != nil {
+			return nil, err
+		}
+		mb, err := b(ctx)
+		return append(ma, mb...), err
+	}
+}
+
+// traffic sends the rendered lanes at connect and whenever a new sample
+// lands.
+func (h *handler) traffic(env string) producer {
+	last := int64(-1)
+	return func(ctx context.Context) ([]stream.Msg, error) {
+		seq := h.orch.TrafficSeq()
+		if seq == last {
+			return nil, nil
+		}
+		es, err := h.orch.Traffic(ctx, env)
+		if err != nil {
+			return nil, err
+		}
+		last = seq
+		body, err := render.Event(ctx, cards.Lanes(lanes(es)))
+		return []stream.Msg{{Name: "traffic", Body: body}}, err
+	}
+}
+
+// Poll is the canvas stream's producer: its cards' footers and the whole
+// canvas when its shape moves.
+func (h *handler) Poll(c echo.Context) producer {
 	l, sh, drawn := where(c), show(c), c.QueryParam("n")
 	sent := map[string]stream.HTML{}
 	var last time.Time
@@ -168,11 +227,10 @@ func (h *handler) Poll(c echo.Context) func(context.Context) ([]stream.Msg, erro
 			return nil, nil
 		}
 		last = time.Now()
-		gv, err := h.orch.Canvas(ctx, l.scope, sh)
+		v, err := h.build(ctx, l, sh, "")
 		if err != nil {
 			return nil, err
 		}
-		v := mapView(gv, l, sh, "")
 		if sig := Sig(v); sig != drawn {
 			drawn = sig
 			clear(sent)

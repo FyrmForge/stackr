@@ -115,5 +115,5 @@ func EnvURL(c echo.Context) string {
 // the drawers' one job stream lives.
 func JobView(env string, j service.Job) components.JobStatusView {
 	return components.JobStatusView{Kind: j.Kind, State: j.State, Error: j.Error,
-		StreamURL: env + "/drawer/jobs/" + j.ID + "/events", Live: j.FinishedAt == nil}
+		StreamURL: env + "/-/jobs/" + j.ID + "/events", Live: j.FinishedAt == nil}
 }

@@ -177,8 +177,8 @@ handler for the four levels.
 - `#graph` wraps the canvas with `sse-connect` and `sse-swap="graph"`; the
   stream sends `graph` (whole `Canvas`) when the node, edge or note set
   moves off the page's `n`, and `footer:<id>` (every footer at connect,
-  then on change). `canvas.(*handler).Poll` is that producer; the env
-  stream (`/:org/:stack/:env/events`) folds it in at the merge.
+  then on change). `canvas.(*handler).Poll` is that producer; on the env
+  canvas the same `/-/events` also sends `traffic` (merged 2026-09-24).
 - `ui.Node.Card` / `ui.Node.Footer` replace the generic body and footer:
   the env mapping sets them from `cards.Card`/`cards.Subs`/`cards.Footer`.
 - A fresh load of `?drawer=<node id>&tab=` renders `<side-drawer open
@@ -241,24 +241,24 @@ and stream must match:
   outerHTML; the stream sends `cards.Footer(id, f)` rendered.
 - Lanes: `<svg data-edges data-lanes id="graph-lanes">` swapped whole by
   event `traffic`; paths `data-edge-kind="traffic"`, labels on a
-  `<textPath>`. Stream: `GET /:org/:stack/:env/events`
-  (`internal/web/handler/env`), which task 7 folds its `graph` and
-  `footer:<id>` events into. SSE bodies go out as `stream.HTML` via
-  `render.Event`, never raw text.
-- **Merge need:** `<graph-canvas>` repaths only on node attribute
-  changes; it must also watch `childList` on itself so a swapped-in lanes
-  svg gets its `d` (DECIDE 100).
+  `<textPath>`. Stream: the canvas's `GET /:org/:stack/:env/-/events`
+  (merged: one stream, `graph`, `footer:<id>` and `traffic`); the page
+  draws the lanes it loaded with, so a `graph` swap keeps them. SSE
+  bodies go out as `stream.HTML` via `render.Event`, never raw text.
+- `<graph-canvas>` watches `childList` on its subtree (B's observer), so
+  a swapped-in lanes svg gets its `d` (DECIDE 100, done at the merge).
 
 **Added by task 10 (session C, 2026-09-24)** — the env-level drawer URLs
-task 7's cards and the env page point at (all under `/:org/:stack/:env`):
+task 7's cards and the env page point at (all under `/:org/:stack/:env/-/`
+since the merge, DECIDE 86):
 
-- `drawer/tile/:tile?tab=` (tabs by kind: `tile.Tabs`),
-  `drawer/instance/:tile`, `drawer/slice/:provision?tab=bindings`,
-  `drawer/volume/:volume?tab=backups`, `drawer/proxy?tab=routes`,
-  `drawer/new-tile` (the create form, opened into the drawer),
-  `drawer/rollback/:release` (POST, answers a live `JobStatus`),
-  `drawer/jobs/:job/events` (every drawer's job stream). The vars and
-  secrets cards open session B's `drawer/vars`.
+- `tiles/:tile?tab=` (tabs by kind: `tile.Tabs`),
+  `instances/:tile`, `slices/:provision?tab=bindings`,
+  `volumes/:volume?tab=backups`, `proxy?tab=routes`,
+  `new-tile` (the create form, opened into the drawer from "+ tile"),
+  `rollback/:release` (POST, answers a live `JobStatus`),
+  `jobs/:job/events` (every drawer's job stream). The vars card opens
+  session B's `-/vars`.
 - Every drawer answer is one `<div id="drawer-view">`; tabs, actions
   and confirms replace it outerHTML, so nothing ever targets
   `#drawer-body` but a card click.

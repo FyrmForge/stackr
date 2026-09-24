@@ -3,6 +3,7 @@ package canvas
 import (
 	"github.com/FyrmForge/stackr/internal/service"
 	ui "github.com/FyrmForge/stackr/internal/ui/graph"
+	"github.com/FyrmForge/stackr/internal/ui/graph/cards"
 )
 
 // drawerPath is where a card's drawer lives, relative to the canvas it
@@ -53,16 +54,13 @@ func mapView(gv service.GraphView, l level, sh service.GraphShow, focus string) 
 	for _, r := range gv.Compare {
 		v.Compare = append(v.Compare, ui.Rung{Name: r.Name, Color: r.Color, Href: l.base + "/" + r.Slug, Release: r.Release, Behind: r.Behind})
 	}
-	// ponytail: the env canvas streams from the env package's /events
-	// (traffic lanes), which folds Poll in at the merge with session C.
-	events := v.Route("events")
-	if l.scope.Kind == service.CanvasEnv {
-		events = l.base + "/events" + v.Query
+	if l.scope.Kind == service.CanvasEnv && sh.Traffic {
+		v.Lanes = []cards.Lane{} // non-nil: draw the lanes layer; build fills it
 	}
 	sep := "?"
 	if v.Query != "" {
 		sep = "&"
 	}
-	v.Events = events + sep + "n=" + Sig(v)
+	v.Events = v.Route("events") + sep + "n=" + Sig(v)
 	return v
 }

@@ -9,6 +9,8 @@ import (
 	"strconv"
 
 	"github.com/a-h/templ"
+
+	"github.com/FyrmForge/stackr/internal/ui/graph/cards"
 )
 
 // View is one canvas.
@@ -24,7 +26,8 @@ type View struct {
 	Notes   []Note
 	Divider int // world x of the system column's wall; 0 = none
 	Compare []Rung
-	Create  []Create // the level's create dialogs the viewer may open
+	Create  []Create     // the level's create dialogs the viewer may open
+	Lanes   []cards.Lane // env traffic at the last sample; nil = no lanes layer
 }
 
 // Create opens a create dialog in the drawer.

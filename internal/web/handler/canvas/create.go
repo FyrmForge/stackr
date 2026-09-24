@@ -25,6 +25,7 @@ var creates = map[string][]struct {
 	service.CanvasHome:  {{"org", "+ org", "org.create"}},
 	service.CanvasOrg:   {{"stack", "+ stack", "stack.create"}, {"connector", "+ connector", "connector.write"}},
 	service.CanvasStack: {{"env", "+ env", "env.write"}},
+	service.CanvasEnv:   {{"tile", "+ tile", "tile.write"}}, // the env package serves it
 }
 
 func createButtons(c echo.Context, l level) []ui.Create {

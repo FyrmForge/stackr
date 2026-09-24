@@ -1,6 +1,9 @@
 package graph
 
-import c "github.com/FyrmForge/stackr/internal/ui/components"
+import (
+	c "github.com/FyrmForge/stackr/internal/ui/components"
+	"github.com/FyrmForge/stackr/internal/ui/graph/cards"
+)
 
 // Page is a canvas page: the env-compare pill (stack), then #graph. #graph
 // holds the stream and swaps its inside on "graph", so the stream outlives
@@ -55,6 +58,9 @@ templ Canvas(v View) {
 				<path data-edge-kind={ e.Kind } data-from={ e.From } data-to={ e.To } d="M0,0"></path>
 			}
 		</svg>
+		if v.Lanes != nil {
+			@cards.Lanes(v.Lanes)
+		}
 		for _, n := range v.Nodes {
 			@node(v, n)
 		}

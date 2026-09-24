@@ -30,7 +30,7 @@ func NewHandler(orch *service.Orchestrator) *handler { return &handler{orch: orc
 
 // Mount registers the drawer on g; every path is under /:org/:stack/:env.
 func (h *handler) Mount(g *echo.Group, a *middleware.Access) {
-	d := "/:org/:stack/:env/drawer/tile/:tile"
+	d := "/:org/:stack/:env/-/tiles/:tile"
 	require := a.Require
 	read, write := require("tile.read"), require("tile.write")
 	g.GET(d, h.Drawer, read)
@@ -55,7 +55,7 @@ func (h *handler) Mount(g *echo.Group, a *middleware.Access) {
 
 func tileOf(c echo.Context) *service.Tile { return middleware.ScopeOf(c).Tile }
 
-func base(c echo.Context) string { return render.EnvURL(c) + "/drawer/tile/" + tileOf(c).Slug }
+func base(c echo.Context) string { return render.EnvURL(c) + "/-/tiles/" + tileOf(c).Slug }
 
 func view(c echo.Context, tab string) ui.View {
 	t := tileOf(c)
@@ -65,7 +65,7 @@ func view(c echo.Context, tab string) ui.View {
 	return ui.View{Node: t.ID, Name: t.Name, Kind: t.Kind, Base: base(c), Tab: tab}
 }
 
-// GET …/drawer/tile/:tile?tab=
+// GET …/-/tiles/:tile?tab=
 func (h *handler) Drawer(c echo.Context) error { return h.show(c, http.StatusOK, view(c, c.QueryParam("tab"))) }
 
 // show renders v's tab: each case is one read verb and its view.

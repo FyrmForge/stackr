@@ -8,7 +8,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/web/webtest"
 )
 
-const drawer = "/acme/shop/dev/drawer/tile/api"
+const drawer = "/acme/shop/dev/-/tiles/api"
 
 // Every tab of an image tile answers a drawer fragment, never a page.
 func TestEveryTabServes(t *testing.T) {
@@ -27,7 +27,7 @@ func TestEveryTabServes(t *testing.T) {
 func TestActions(t *testing.T) {
 	s := webtest.New(t)
 	rec := s.Do(t, "POST", drawer+"/deploy", url.Values{})
-	if rec.Code != 200 || !strings.Contains(rec.Body.String(), "deploy queued") || !strings.Contains(rec.Body.String(), "/drawer/jobs/") {
+	if rec.Code != 200 || !strings.Contains(rec.Body.String(), "deploy queued") || !strings.Contains(rec.Body.String(), "/-/jobs/") {
 		t.Errorf("deploy = %d\n%s", rec.Code, rec.Body)
 	}
 	rec = s.Do(t, "POST", drawer+"/pause", url.Values{"paused": {"true"}})

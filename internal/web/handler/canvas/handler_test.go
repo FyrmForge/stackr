@@ -124,3 +124,23 @@ func TestCanvasEventsSwapGraph(t *testing.T) {
 		t.Fatalf("no graph event with the new stack:\n%s", body)
 	}
 }
+
+// The env canvas draws a lanes layer and its one stream carries the
+// footers and the rendered lanes ("traffic", HTML, not JSON).
+func TestEnvEventsCarryLanes(t *testing.T) {
+	stream.PollEvery, canvas.Every = 10*time.Millisecond, 0
+	s := webtest.New(t)
+	page := get(t, s, "/acme/shop/dev")
+	if !strings.Contains(page, `id="graph-lanes"`) || !strings.Contains(page, `sse-connect="/acme/shop/dev/-/events?n=`) {
+		t.Fatalf("env page has no lanes layer or stream under /-/:\n%s", page)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	time.AfterFunc(100*time.Millisecond, cancel)
+	body := s.DoCtx(ctx, t, "GET", "/acme/shop/dev/-/events", nil).Body.String()
+	if !strings.Contains(body, "event: traffic\ndata: <svg data-edges data-lanes id=\"graph-lanes\"") || !strings.Contains(body, "event: footer:"+s.Tile.ID) {
+		t.Fatalf("env events:\n%s", body)
+	}
+	if strings.Contains(get(t, s, "/acme/shop/dev?traffic=0"), `id="graph-lanes"`) {
+		t.Error("traffic=0 still draws lanes")
+	}
+}

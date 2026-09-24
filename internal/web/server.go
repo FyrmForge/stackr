@@ -100,9 +100,7 @@ func RegisterRoutes(srv *server.Server, deps *Deps) {
 		} else { // deeper pages answer 401/404 like the API (the access test)
 			site.GET(l.path, cv.Page, l.read)
 		}
-		if l.path != "/:org/:stack/:env" { // the env stream is the env package's
-			site.GET(l.path+"/-/events", cv.Events, l.read)
-		}
+		site.GET(l.path+"/-/events", cv.Events, l.read)
 		site.POST(l.path+"/-/positions", cv.Positions, l.write)
 		site.POST(l.path+"/-/reset", cv.Reset, l.write)
 		site.POST(l.path+"/-/notes", cv.Notes, l.write)
@@ -115,7 +113,7 @@ func RegisterRoutes(srv *server.Server, deps *Deps) {
 	scopeHandler := scope.NewHandler()
 	site.GET("/:org/:stack/:env/:tile", scopeHandler.Page, deps.Access.Require("tile.read"))
 
-	// The env canvas's stream, drawers and dialogs (tasks 9 and 10).
+	// The env canvas's drawers and dialogs (tasks 9 and 10), under /-/ too.
 	env.NewHandler(deps.Service).Mount(site, deps.Access)
 	tile.NewHandler(deps.Service).Mount(site, deps.Access)
 }

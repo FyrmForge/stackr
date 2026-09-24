@@ -124,7 +124,7 @@ func backupsView(env string, vs []service.Volume) ui.BackupsView {
 		if x.OrphanedAt != nil {
 			state = "orphaned"
 		}
-		v.Rows = append(v.Rows, ui.VolumeRow{ID: x.ID, Name: x.Name, State: state, Drawer: env + "/drawer/volume/" + x.ID + "?tab=backups"})
+		v.Rows = append(v.Rows, ui.VolumeRow{ID: x.ID, Name: x.Name, State: state, Drawer: env + "/-/volumes/" + x.ID + "?tab=backups"})
 	}
 	return v
 }

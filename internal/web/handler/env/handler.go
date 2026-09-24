@@ -1,6 +1,6 @@
 // Package env is the env canvas's routes that are not the canvas itself:
-// its events stream and the env-level drawers and dialogs (slice, volume,
-// proxy, create tile, rollback). Every handler is one verb call and a
+// the env-level drawers and dialogs (slice, volume, proxy, create tile,
+// rollback) and the drawers' job stream. Every handler is one verb call and a
 // view struct.
 package env
 
@@ -26,7 +26,6 @@ import (
 	"github.com/FyrmForge/stackr/internal/ui/drawer/proxy"
 	"github.com/FyrmForge/stackr/internal/ui/drawer/slice"
 	"github.com/FyrmForge/stackr/internal/ui/drawer/volume"
-	"github.com/FyrmForge/stackr/internal/ui/graph/cards"
 	"github.com/FyrmForge/stackr/internal/web/render"
 )
 
@@ -36,24 +35,22 @@ func NewHandler(orch *service.Orchestrator) *handler { return &handler{orch: orc
 
 func scope(c echo.Context) service.Scope { return middleware.ScopeOf(c) }
 
-// Mount registers the env's stream, drawers and dialogs on g. A static
-// segment wins over :tile in echo, so "events" and "drawer" shadow a tile
-// of that slug (DECIDE).
+// Mount registers the env's drawers and dialogs on g, under the env
+// page's "/-/" (never a slug). The env stream is the canvas's.
 func (h *handler) Mount(g *echo.Group, a *middleware.Access) {
-	e := "/:org/:stack/:env"
-	g.GET(e+"/events", h.Events, a.Require("tile.read"))
-	g.GET(e+"/drawer/jobs/:job/events", h.JobEvents, a.Require("deployment.read"))
-	g.POST(e+"/drawer/rollback/:release", h.Rollback, a.Require("env.write"))
-	g.GET(e+"/drawer/new-tile", h.NewTile, a.Require("tile.write"))
-	g.POST(e+"/drawer/new-tile", h.CreateTile, a.Require("tile.write"))
-	g.GET(e+"/drawer/instance/:tile", h.Instance, a.Require("tile.read"))
-	g.GET(e+"/drawer/slice/:provision", h.Slice, a.Require("tile.read"))
-	g.POST(e+"/drawer/slice/:provision/detach", h.DetachSlice, a.Require("tile.write"))
-	g.GET(e+"/drawer/volume/:volume", h.Volume, a.Require("org.read"))
-	g.POST(e+"/drawer/volume/:volume/backup", h.BackupNow, a.Require("backup.write"))
-	g.POST(e+"/drawer/volume/:volume/restore", h.Restore, a.Require("backup.write"))
-	g.POST(e+"/drawer/volume/:volume/delete", h.DeleteVolume, a.Require("tile.write"))
-	g.GET(e+"/drawer/proxy", h.Proxy, a.Require("tile.read"))
+	e := "/:org/:stack/:env/-"
+	g.GET(e+"/jobs/:job/events", h.JobEvents, a.Require("deployment.read"))
+	g.POST(e+"/rollback/:release", h.Rollback, a.Require("env.write"))
+	g.GET(e+"/new-tile", h.NewTile, a.Require("tile.write"))
+	g.POST(e+"/new-tile", h.CreateTile, a.Require("tile.write"))
+	g.GET(e+"/instances/:tile", h.Instance, a.Require("tile.read"))
+	g.GET(e+"/slices/:provision", h.Slice, a.Require("tile.read"))
+	g.POST(e+"/slices/:provision/detach", h.DetachSlice, a.Require("tile.write"))
+	g.GET(e+"/volumes/:volume", h.Volume, a.Require("org.read"))
+	g.POST(e+"/volumes/:volume/backup", h.BackupNow, a.Require("backup.write"))
+	g.POST(e+"/volumes/:volume/restore", h.Restore, a.Require("backup.write"))
+	g.POST(e+"/volumes/:volume/delete", h.DeleteVolume, a.Require("tile.write"))
+	g.GET(e+"/proxy", h.Proxy, a.Require("tile.read"))
 }
 
 func when(t *time.Time) string {
@@ -76,37 +73,7 @@ func refused(err error) (msg string, status int, fail error) {
 	return msg, http.StatusUnprocessableEntity, nil
 }
 
-// GET /:org/:stack/:env/events: the env canvas's stream. Today one event,
-// "traffic": the rendered lanes after each 5 s sample, the first at
-// connect. ponytail: the canvas (task 7) folds its "footer:<id>" and
-// "graph" events into this one stream.
-func (h *handler) Events(c echo.Context) error {
-	env := scope(c).Env.ID
-	last, body := int64(-1), stream.HTML("")
-	return stream.PollAs(c, "traffic", func(ctx context.Context, _ int64) (any, int64, bool, error) {
-		if seq := h.orch.TrafficSeq(); seq != last {
-			es, err := h.orch.Traffic(ctx, env)
-			if err != nil {
-				return nil, 0, false, err
-			}
-			if body, err = render.Event(ctx, cards.Lanes(lanes(es))); err != nil {
-				return nil, 0, false, err
-			}
-			last = seq
-		}
-		return body, last, false, nil
-	})
-}
-
-func lanes(es []service.Edge) []cards.Lane {
-	out := make([]cards.Lane, 0, len(es))
-	for _, e := range es {
-		out = append(out, cards.Lane{From: e.From, To: e.To, BPS: e.BPS})
-	}
-	return out
-}
-
-// GET …/drawer/jobs/:job/events: the job's status body as "update"
+// GET …/-/jobs/:job/events: the job's status body as "update"
 // whenever it changes, the final one included, then "end".
 func (h *handler) JobEvents(c echo.Context) error {
 	id, env := c.Param("job"), render.EnvURL(c)
@@ -131,7 +98,7 @@ func (h *handler) JobEvents(c echo.Context) error {
 	})
 }
 
-// POST …/drawer/rollback/:release answers with the job's live status for
+// POST …/-/rollback/:release answers with the job's live status for
 // the caller's target.
 func (h *handler) Rollback(c echo.Context) error {
 	j, err := h.orch.Rollback(c.Request().Context(), scope(c).Env.ID, c.Param("release"))
@@ -144,7 +111,7 @@ func (h *handler) Rollback(c echo.Context) error {
 // ---- create tile ----
 
 func createView(c echo.Context) dialog.CreateTileView {
-	url := render.EnvURL(c) + "/drawer/new-tile"
+	url := render.EnvURL(c) + "/-/new-tile"
 	v := dialog.CreateTileView{Action: url, Switch: url, Source: c.FormValue("source"), Name: c.FormValue("name"),
 		Image: c.FormValue("image_ref"), GitURL: c.FormValue("git_url"), Branch: c.FormValue("git_branch"),
 		Schedule: c.FormValue("schedule"), Trigger: c.FormValue("trigger"), Engine: c.FormValue("engine")}
@@ -154,7 +121,7 @@ func createView(c echo.Context) dialog.CreateTileView {
 	return v
 }
 
-// GET …/drawer/new-tile: the form, or it again for another source (the
+// GET …/-/new-tile: the form, or it again for another source (the
 // switch re-sends what was typed).
 func (h *handler) NewTile(c echo.Context) error {
 	cs, err := h.orch.Connectors(c.Request().Context(), scope(c).Org.ID)
@@ -170,7 +137,7 @@ func (h *handler) NewTile(c echo.Context) error {
 	return respond.HTML(c, http.StatusOK, dialog.CreateTile(v))
 }
 
-// POST …/drawer/new-tile creates the tile and opens its drawer on the env
+// POST …/-/new-tile creates the tile and opens its drawer on the env
 // page; a refusal re-renders the form with the field marked (422).
 func (h *handler) CreateTile(c echo.Context) error {
 	v, s := createView(c), scope(c)
@@ -209,7 +176,7 @@ func (h *handler) CreateTile(c echo.Context) error {
 
 // ---- managed instance, slice, proxy ----
 
-// GET …/drawer/instance/:tile
+// GET …/-/instance/:tile
 func (h *handler) Instance(c echo.Context) error {
 	t := scope(c).Tile
 	m, ps, err := h.orch.InstanceSlices(c.Request().Context(), t.ID)
@@ -219,12 +186,12 @@ func (h *handler) Instance(c echo.Context) error {
 	v := instance.View{Name: t.Name, Engine: m.Engine, Scope: m.ScopeKind, Endpoint: m.Endpoint, AdminUser: m.AdminUser}
 	for _, p := range ps {
 		v.Slices = append(v.Slices, instance.SliceRow{ID: p.ID, Name: p.Slug, DB: p.DBName, OnRemove: p.OnRemove,
-			Public: p.Public, Orphan: p.ConsumerTileID == nil, Drawer: render.EnvURL(c) + "/drawer/slice/" + p.ID + "?tab=bindings"})
+			Public: p.Public, Orphan: p.ConsumerTileID == nil, Drawer: render.EnvURL(c) + "/-/slices/" + p.ID + "?tab=bindings"})
 	}
 	return respond.HTML(c, http.StatusOK, instance.Slices(v))
 }
 
-// GET …/drawer/slice/:provision
+// GET …/-/slice/:provision
 func (h *handler) Slice(c echo.Context) error { return h.slice(c, nil) }
 
 func (h *handler) DetachSlice(c echo.Context) error {
@@ -250,12 +217,12 @@ func (h *handler) slice(c echo.Context, actErr error) error {
 	}
 	slices.Sort(v.Outputs)
 	if v.Consumer {
-		v.Detach = render.EnvURL(c) + "/drawer/slice/" + p.ID + "/detach"
+		v.Detach = render.EnvURL(c) + "/-/slices/" + p.ID + "/detach"
 	}
 	return respond.HTML(c, status, slice.Bindings(v))
 }
 
-// GET …/drawer/proxy
+// GET …/-/proxy
 func (h *handler) Proxy(c echo.Context) error {
 	rs, err := h.orch.Routes(c.Request().Context(), scope(c).Env.ID)
 	if err != nil {
@@ -271,7 +238,7 @@ func (h *handler) Proxy(c echo.Context) error {
 
 // ---- volume ----
 
-// GET …/drawer/volume/:volume
+// GET …/-/volume/:volume
 func (h *handler) Volume(c echo.Context) error { return h.volume(c, "", nil) }
 
 func (h *handler) BackupNow(c echo.Context) error {
@@ -322,7 +289,7 @@ func (h *handler) volume(c echo.Context, note string, actErr error) error {
 		return middleware.HTTPError(err)
 	}
 	v := volume.View{Name: vol.Name, Scope: vol.ScopeKind, Orphaned: when(vol.OrphanedAt), Methods: methods,
-		Base: render.EnvURL(c) + "/drawer/volume/" + id, Error: msg,
+		Base: render.EnvURL(c) + "/-/volumes/" + id, Error: msg,
 		Dests: []volume.Option{{Value: "", Label: "local disk"}}}
 	if msg == "" {
 		v.Note = note
