@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/robfig/cron/v3"
+
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	"github.com/FyrmForge/stackr/internal/service/internal/registry"
@@ -15,13 +17,36 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
 
-// The three kinds. service builds from git, image runs a pulled image,
-// managed is an instance whose definition comes from its engine.
+// The kinds. service builds from git, image runs a pulled image, managed
+// is an instance whose definition comes from its engine. cron and function
+// are run-to-completion tiles: built from git or run from an image, they
+// keep no container up; a schedule (cron) or a trigger (function) runs one.
 const (
-	Service = "service"
-	Image   = "image"
-	Managed = "managed"
+	Service  = "service"
+	Image    = "image"
+	Managed  = "managed"
+	Cron     = "cron"
+	Function = "function"
 )
+
+// RunToCompletion: the kind's deploy stops at the artifact and a run starts
+// the container (runpolicy's KeepAlive false).
+func RunToCompletion(kind string) bool { return kind == Cron || kind == Function }
+
+// Builds: the tile's artifact is a git build (a service, or a run kind with
+// a git_url). The rest pull an image.
+func Builds(t store.Tile) bool {
+	return t.Kind == Service || (RunToCompletion(t.Kind) && t.GitURL != "")
+}
+
+// Function triggers.
+const (
+	Manual   = "manual"
+	OnDeploy = "on_deploy"
+)
+
+// DefaultTimeout is a run's timeout when the row says 0 (stackconf: 0 = 30).
+const DefaultTimeout = 30
 
 // field is one request key and whether a row carries it.
 type field struct {
@@ -67,6 +92,34 @@ var fields = []field{
 	{"env", obj(func(t *store.Tile) string { return t.EnvJSON })},
 	{"limits", func(t *store.Tile) bool { return t.CPULimit != 0 || t.MemLimitMB != 0 }},
 	{"shm_size_mb", func(t *store.Tile) bool { return t.ShmSizeMB != 0 }},
+	{"schedule", str(func(t *store.Tile) string { return t.Schedule })},
+	{"trigger", str(func(t *store.Tile) string { return t.Trigger })},
+	{"paused", func(t *store.Tile) bool { return t.Paused }},
+	{"timeout_minutes", func(t *store.Tile) bool { return t.TimeoutMinutes != 0 }},
+}
+
+// refusals are the kind refusals tilelifecycle words itself; any other key
+// gets "<kind> tiles do not take <key>".
+var refusals = map[string]string{
+	"schedule":    "schedule applies to cron tiles only",
+	"trigger":     "run_on_deploy applies to function tiles only",
+	"paused":      "only cron tiles have a schedule to pause",
+	"command":     "command does not apply to a %s",
+	"port":        "a %s has no endpoint; port does not apply",
+	"user":        "user applies to service tiles only",
+	"privileged":  "privileged applies to service tiles only",
+	"devices":     "devices apply to service tiles only",
+	"healthcheck": "healthcheck applies to service tiles only",
+}
+
+func refuse(kind, key string) error {
+	if msg, ok := refusals[key]; ok {
+		if strings.Contains(msg, "%s") {
+			return errs.Invalidf(key, msg, kind)
+		}
+		return errs.Invalidf(key, "%s", msg)
+	}
+	return errs.Invalidf(key, "%s tiles do not take %s", kind, key)
 }
 
 func keys(ks ...[]string) map[string]bool {
@@ -85,6 +138,10 @@ var (
 	runKeys   = []string{"command", "port", "published_ports", "endpoint_protocol", "health_path", "healthcheck",
 		"user", "privileged", "devices", "files", "volumes", "depends_on", "shared_net", "replicas", "env",
 		"limits", "shm_size_mb"}
+	// oneShotKeys: what a run-to-completion container takes. No endpoint, no
+	// health gate, one container; the source is a git build or an image.
+	oneShotKeys = []string{"image", "command", "timeout_minutes", "files", "volumes", "depends_on", "shared_net",
+		"env", "limits", "shm_size_mb"}
 )
 
 // Carries is B26: the one whitelist of what each kind may carry. Restart
@@ -92,9 +149,11 @@ var (
 // port and volumes come from its engine; the row carries only the knobs
 // the engine leaves open (an image override, env, limits, published ports).
 var Carries = map[string]map[string]bool{
-	Service: keys(buildKeys, runKeys),
-	Image:   keys(watchKeys, runKeys),
-	Managed: keys([]string{"image", "env", "limits", "shm_size_mb", "published_ports"}),
+	Service:  keys(buildKeys, runKeys),
+	Image:    keys(watchKeys, runKeys),
+	Managed:  keys([]string{"image", "env", "limits", "shm_size_mb", "published_ports"}),
+	Cron:     keys(buildKeys, oneShotKeys, []string{"schedule", "paused"}),
+	Function: keys(buildKeys, oneShotKeys, []string{"trigger"}),
 }
 
 // Validate is one gate over the finished row, create and update alike; first
@@ -103,11 +162,11 @@ var Carries = map[string]map[string]bool{
 func Validate(t *store.Tile) error {
 	allowed, ok := Carries[t.Kind]
 	if !ok {
-		return errs.Invalidf("kind", "kind must be service, image or managed")
+		return errs.Invalidf("kind", "kind must be service, image, managed, cron or function")
 	}
 	for _, f := range fields {
 		if f.set(t) && !allowed[f.key] {
-			return errs.Invalidf(f.key, "%s tiles do not take %s", t.Kind, f.key)
+			return refuse(t.Kind, f.key)
 		}
 	}
 	switch t.Kind {
@@ -121,6 +180,10 @@ func Validate(t *store.Tile) error {
 	case Image:
 		if t.ImageRef == "" {
 			return errs.Invalidf("image", "an image source needs an image (set git_url to switch to a git build)")
+		}
+	case Cron, Function:
+		if err := checkRun(t); err != nil {
+			return err
 		}
 	}
 	if t.ImageRef != "" {
@@ -151,6 +214,8 @@ func Validate(t *store.Tile) error {
 		return errs.Invalidf("healthcheck", "healthcheck knobs must not be negative")
 	case t.Replicas < 0:
 		return errs.Invalidf("replicas", "replicas: a whole number, at least 1")
+	case t.TimeoutMinutes < 0:
+		return errs.Invalidf("timeout_minutes", "timeout_minutes must not be negative")
 	case t.ContainerPort < 0 || t.ContainerPort > 65535:
 		return errs.Invalidf("port", "port must be between 1 and 65535")
 	}
@@ -161,6 +226,39 @@ func Validate(t *store.Tile) error {
 		return errs.Invalidf("replicas", "this tile holds a volume, so it can only run one replica: two writers on one volume corrupt it")
 	}
 	return checkLists(t)
+}
+
+// checkRun: a cron or function builds from git or runs an image, exactly
+// one; a cron's schedule parses; a function's trigger is a known word.
+// Normalises trigger "" → manual and timeout 0 → the default.
+func checkRun(t *store.Tile) error {
+	switch {
+	case t.GitURL != "" && t.ImageRef != "":
+		return errs.Invalidf("image", "a %s builds from git_url or runs an image, not both", t.Kind)
+	case t.GitURL == "" && t.ImageRef == "":
+		return errs.Invalidf("git_url", "a %s needs a git_url or an image", t.Kind)
+	case t.GitURL != "" && !gitURL.MatchString(t.GitURL):
+		return errs.Invalidf("git_url", "use a GitHub URL: https://github.com/owner/repo or git@github.com:owner/repo")
+	}
+	if t.TimeoutMinutes == 0 {
+		t.TimeoutMinutes = DefaultTimeout
+	}
+	if t.Kind == Cron {
+		if strings.TrimSpace(t.Schedule) == "" {
+			return errs.Invalidf("schedule", "a cron needs a schedule")
+		}
+		if _, err := cron.ParseStandard(t.Schedule); err != nil {
+			return errs.Invalidf("schedule", "%s", err.Error())
+		}
+		return nil
+	}
+	if t.Trigger == "" {
+		t.Trigger = Manual
+	}
+	if t.Trigger != Manual && t.Trigger != OnDeploy {
+		return errs.Invalidf("trigger", "trigger must be manual or on_deploy")
+	}
+	return nil
 }
 
 var gitURL = regexp.MustCompile(`^(https://github\.com/|git@github\.com:)[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$`)

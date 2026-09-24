@@ -22,7 +22,7 @@ var ctx = context.Background()
 type vipStub struct{ set map[string][]string }
 
 func (v *vipStub) Set(_ context.Context, ip string, rs []string) error { v.set[ip] = rs; return nil }
-func (v *vipStub) Remove(_ context.Context, ip string) error       { delete(v.set, ip); return nil }
+func (v *vipStub) Remove(_ context.Context, ip string) error           { delete(v.set, ip); return nil }
 
 // seed makes an org, stack and env and returns the env's ids.
 func seed(t *testing.T, st *store.Store) (stackID, envID string) {
@@ -109,7 +109,7 @@ func TestKindWhitelist(t *testing.T) {
 		{"managed ok", func(t *store.Tile) { t.Kind, t.GitURL, t.MemLimitMB = tile.Managed, "", 512 }, ""},
 		{"managed with a port", func(t *store.Tile) { t.Kind, t.GitURL, t.ContainerPort = tile.Managed, "", 5432 }, "port"},
 		{"managed with replicas", func(t *store.Tile) { t.Kind, t.GitURL, t.Replicas = tile.Managed, "", 2 }, "replicas"},
-		{"unknown kind", func(t *store.Tile) { t.Kind = "cron" }, "kind"},
+		{"unknown kind", func(t *store.Tile) { t.Kind = "batch" }, "kind"},
 		{"bad env key", func(t *store.Tile) { t.EnvJSON = `{"1BAD":"x"}` }, "env"},
 		{"bad restart", func(t *store.Tile) { t.RestartPolicy = "sometimes" }, "restart"},
 		{"negative cpu", func(t *store.Tile) { t.CPULimit = -1 }, "limits.cpu"},
@@ -124,6 +124,58 @@ func TestKindWhitelist(t *testing.T) {
 		err := tile.Validate(&row)
 		if got := field(err); got != c.field || (c.field == "" && err != nil) {
 			t.Errorf("%s: err = %v (field %q), want field %q", c.name, err, got, c.field)
+		}
+	}
+}
+
+// B26 for the run-to-completion kinds, refusals worded as tilelifecycle has them.
+func TestRunKinds(t *testing.T) {
+	cronRow := func(t *store.Tile) { t.Kind, t.Schedule, t.Command = tile.Cron, "*/5 * * * *", "./sweep" }
+	fnRow := func(t *store.Tile) { t.Kind, t.GitURL, t.ImageRef = tile.Function, "", "alpine:3" }
+	then := func(a, b func(*store.Tile)) func(*store.Tile) { return func(t *store.Tile) { a(t); b(t) } }
+	for _, c := range []struct {
+		name, msg string
+		edit      func(*store.Tile)
+	}{
+		{"cron ok", "", cronRow},
+		{"cron with CRON_TZ", "", then(cronRow, func(t *store.Tile) { t.Schedule = "CRON_TZ=Europe/London 0 3 * * *" })},
+		{"cron paused", "", then(cronRow, func(t *store.Tile) { t.Paused = true })},
+		{"cron from an image", "", then(cronRow, func(t *store.Tile) { t.GitURL, t.ImageRef = "", "alpine:3" })},
+		{"cron without a schedule", "a cron needs a schedule", then(cronRow, func(t *store.Tile) { t.Schedule = "" })},
+		{"cron with a bad schedule", "expected exactly 5 fields, found 2: [every day]", then(cronRow, func(t *store.Tile) { t.Schedule = "every day" })},
+		{"cron with a port", "a cron has no endpoint; port does not apply", then(cronRow, func(t *store.Tile) { t.ContainerPort = 80 })},
+		{"cron with replicas", "cron tiles do not take replicas", then(cronRow, func(t *store.Tile) { t.Replicas = 2 })},
+		{"cron with a healthcheck", "healthcheck applies to service tiles only", then(cronRow, func(t *store.Tile) { t.HealthcheckCmd = "true" })},
+		{"cron with a user", "user applies to service tiles only", then(cronRow, func(t *store.Tile) { t.User = "1000" })},
+		{"cron with devices", "devices apply to service tiles only", then(cronRow, func(t *store.Tile) { t.Devices = "/dev/x" })},
+		{"cron with a trigger", "run_on_deploy applies to function tiles only", then(cronRow, func(t *store.Tile) { t.Trigger = "on_deploy" })},
+		{"cron with git and an image", "a cron builds from git_url or runs an image, not both", then(cronRow, func(t *store.Tile) { t.ImageRef = "alpine:3" })},
+		{"cron with neither source", "a cron needs a git_url or an image", then(cronRow, func(t *store.Tile) { t.GitURL = "" })},
+		{"negative timeout", "timeout_minutes must not be negative", then(cronRow, func(t *store.Tile) { t.TimeoutMinutes = -1 })},
+		{"function ok", "", fnRow},
+		{"function on deploy", "", then(fnRow, func(t *store.Tile) { t.Trigger = "on_deploy" })},
+		{"function with a bad trigger", "trigger must be manual or on_deploy", then(fnRow, func(t *store.Tile) { t.Trigger = "hourly" })},
+		{"function with a schedule", "schedule applies to cron tiles only", then(fnRow, func(t *store.Tile) { t.Schedule = "* * * * *" })},
+		{"function paused", "only cron tiles have a schedule to pause", then(fnRow, func(t *store.Tile) { t.Paused = true })},
+		{"function with a port", "a function has no endpoint; port does not apply", then(fnRow, func(t *store.Tile) { t.ContainerPort = 80 })},
+		{"function with privileged", "privileged applies to service tiles only", then(fnRow, func(t *store.Tile) { t.Privileged = true })},
+		{"service with a schedule", "schedule applies to cron tiles only", func(t *store.Tile) { t.Schedule = "* * * * *" }},
+		{"service with a trigger", "run_on_deploy applies to function tiles only", func(t *store.Tile) { t.Trigger = "manual" }},
+		{"service with a timeout", "service tiles do not take timeout_minutes", func(t *store.Tile) { t.TimeoutMinutes = 5 }},
+		{"managed with a command", "command does not apply to a managed", func(t *store.Tile) { t.Kind, t.GitURL, t.Command = tile.Managed, "", "x" }},
+	} {
+		row := store.Tile{Name: "x", Kind: tile.Service, GitURL: "https://github.com/a/b"}
+		c.edit(&row)
+		err := tile.Validate(&row)
+		v, _ := errs.IsInvalid(err)
+		if got := v.Msg; got != c.msg || (c.msg == "" && err != nil) {
+			t.Errorf("%s: err = %v, want %q", c.name, err, c.msg)
+		}
+		if err == nil && tile.RunToCompletion(row.Kind) && row.TimeoutMinutes != tile.DefaultTimeout {
+			t.Errorf("%s: timeout = %d, want the default", c.name, row.TimeoutMinutes)
+		}
+		if err == nil && row.Kind == tile.Function && row.Trigger == "" {
+			t.Errorf("%s: trigger not defaulted", c.name)
 		}
 	}
 }
@@ -159,6 +211,22 @@ func TestSideEffects(t *testing.T) {
 	}
 	if e := tile.Effects(tile.Managed, tile.Changed{"limits": true}); !slices.Equal(e, []tile.Effect{tile.Redeploy}) {
 		t.Errorf("managed limits = %v", e)
+	}
+	for _, c := range []struct {
+		kind string
+		c    tile.Changed
+		want []tile.Effect
+	}{
+		{tile.Cron, tile.Changed{"schedule": true}, []tile.Effect{tile.CronReload}},
+		{tile.Cron, tile.Changed{"paused": true}, []tile.Effect{tile.CronReload}},
+		{tile.Cron, tile.Changed{"command": true, "timeout_minutes": true}, nil},
+		{tile.Cron, tile.Changed{"git_url": true}, []tile.Effect{tile.Redeploy}},
+		{tile.Function, tile.Changed{"trigger": true, "env": true}, nil},
+		{tile.Function, tile.Changed{"branch": true}, []tile.Effect{tile.Redeploy}},
+	} {
+		if e := tile.Effects(c.kind, c.c); !slices.Equal(e, c.want) {
+			t.Errorf("%s %v = %v, want %v", c.kind, c.c, e, c.want)
+		}
 	}
 }
 

@@ -46,6 +46,10 @@ type Tile struct {
 	Replicas                int       `db:"replicas" json:"replicas"`
 	UpdatePolicy            string    `db:"update_policy" json:"update_policy"`
 	TagPolicy               string    `db:"tag_policy" json:"tag_policy"`
+	Schedule                string    `db:"schedule" json:"schedule"`               // cron: the cron expression
+	Trigger                 string    `db:"trigger" json:"trigger"`                 // function: manual | on_deploy
+	Paused                  bool      `db:"paused" json:"paused"`                   // cron: the schedule is off
+	TimeoutMinutes          int       `db:"timeout_minutes" json:"timeout_minutes"` // cron, function: a run's timeout
 	CreatedAt               time.Time `db:"created_at" json:"created_at"`
 	UpdatedAt               time.Time `db:"updated_at" json:"updated_at"`
 }

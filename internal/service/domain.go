@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 
+	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/domain"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
 
@@ -44,6 +46,9 @@ func (o *Orchestrator) AttachDomain(ctx context.Context, tileID string, s Domain
 	t, err := o.tiles.Get(ctx, tileID)
 	if err != nil {
 		return Domain{}, err
+	}
+	if tile.RunToCompletion(t.Kind) {
+		return Domain{}, errs.Invalidf("domains", "a %s has no endpoint; domains do not apply", t.Kind)
 	}
 	if s.Port == 0 {
 		s.Port = t.ContainerPort

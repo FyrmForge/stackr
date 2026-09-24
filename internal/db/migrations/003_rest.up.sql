@@ -65,7 +65,7 @@ CREATE TABLE tiles (
     environment_id              TEXT      NOT NULL REFERENCES environments (id) ON DELETE CASCADE,
     name                        TEXT      NOT NULL,
     slug                        TEXT      NOT NULL,
-    kind                        TEXT      NOT NULL CHECK (kind IN ('service', 'image', 'managed')),
+    kind                        TEXT      NOT NULL CHECK (kind IN ('service', 'image', 'managed', 'cron', 'function')),
     git_url                     TEXT      NOT NULL,
     git_branch                  TEXT      NOT NULL,
     image_ref                   TEXT      NOT NULL,
@@ -98,6 +98,10 @@ CREATE TABLE tiles (
     replicas                    INTEGER   NOT NULL,
     update_policy               TEXT      NOT NULL CHECK (update_policy IN ('manual', 'auto')),
     tag_policy                  TEXT      NOT NULL,
+    schedule                    TEXT      NOT NULL, -- cron: the cron expression (CRON_TZ= allowed)
+    trigger                     TEXT      NOT NULL CHECK (trigger IN ('', 'manual', 'on_deploy')), -- function only
+    paused                      INTEGER   NOT NULL, -- cron only: stored intent, the schedule is off
+    timeout_minutes             INTEGER   NOT NULL, -- cron, function: a run's timeout, no cap
     created_at                  DATETIME  NOT NULL,
     updated_at                  DATETIME  NOT NULL,
     UNIQUE (environment_id, slug)

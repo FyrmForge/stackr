@@ -36,6 +36,12 @@ func (c Changed) NeedsBuild() bool {
 	return false
 }
 
+// NeedsCronReload: the scheduler's view of the tile moved. Command and
+// timeouts are read off the row at each run, so they need no reload; a
+// kind change ("source") adds a cron. One leaving cron is the caller's to
+// see (it holds the old kind).
+func (c Changed) NeedsCronReload() bool { return c["schedule"] || c["paused"] || c["source"] }
+
 // watcherOnly keys feed the image watcher or the build path and nothing that
 // runs: they earn no effect (the old differ redeployed on them, a wart).
 var watcherOnly = map[string]bool{"watch_paths": true, "update_policy": true, "tag_policy": true}
@@ -44,30 +50,43 @@ var watcherOnly = map[string]bool{"watch_paths": true, "update_policy": true, "t
 type Effect string
 
 const (
-	Route    Effect = "route"    // rewrite the proxy route only
-	Redeploy Effect = "redeploy" // recreate the containers from the image on disk
+	Route      Effect = "route"       // rewrite the proxy route only
+	Redeploy   Effect = "redeploy"    // recreate the containers from the image on disk
+	CronReload Effect = "cron-reload" // rebuild the schedule table
 )
 
 // Effects: nothing moved (or only watcher keys) → nothing. A serving tile
 // (service, image) always rewrites its route and redeploys unless only
-// route keys moved. A managed instance has no route of its own.
+// route keys moved. A managed instance has no route of its own. A run-to-
+// completion tile reads schedule, command and timeouts off the row at each
+// run: it earns a redeploy only for a build key, and a cron reload when
+// the schedule table's view moved.
 func Effects(kind string, c Changed) []Effect {
+	var out []Effect
+	if kind == Cron && c.NeedsCronReload() {
+		out = append(out, CronReload)
+	}
+	if RunToCompletion(kind) {
+		if c.NeedsBuild() {
+			out = append(out, Redeploy)
+		}
+		return out
+	}
 	rest := Changed{}
 	for k := range c {
 		if !watcherOnly[k] {
 			rest[k] = true
 		}
 	}
-	if !rest.Any() {
-		return nil
+	switch {
+	case !rest.Any():
+		return out
+	case kind == Managed:
+		return append(out, Redeploy)
+	case rest.ProxyOnly():
+		return append(out, Route)
 	}
-	if kind == Managed {
-		return []Effect{Redeploy}
-	}
-	if rest.ProxyOnly() {
-		return []Effect{Route}
-	}
-	return []Effect{Route, Redeploy}
+	return append(out, Route, Redeploy)
 }
 
 // Diff names what moved between the stored row and the edited one. Both must
@@ -113,6 +132,10 @@ func Diff(old, cur store.Tile) Changed {
 	mark("files", old.Files == cur.Files)
 	mark("shared_net", old.SharedNet == cur.SharedNet)
 	mark("replicas", old.Replicas == cur.Replicas)
+	mark("schedule", old.Schedule == cur.Schedule)
+	mark("trigger", old.Trigger == cur.Trigger)
+	mark("paused", old.Paused == cur.Paused)
+	mark("timeout_minutes", old.TimeoutMinutes == cur.TimeoutMinutes)
 	return c
 }
 
