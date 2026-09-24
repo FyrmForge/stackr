@@ -39,6 +39,9 @@ type Fake struct {
 	Images     []docker.Image
 	BuildID    string
 	ExecOut    string
+	TarOut     []byte // what TarVolume writes
+	Untarred   []byte // what UntarVolume last read
+	ExecIn     []byte // what ExecStream's stdin last carried
 	LogsOut    string
 }
 
@@ -142,10 +145,20 @@ func (f *Fake) ListVolumes(_ context.Context, labels map[string]string) ([]docke
 	return out, f.rec("ListVolumes")
 }
 func (f *Fake) EnsureTool(context.Context) error { return f.rec("EnsureTool") }
-func (f *Fake) TarVolume(_ context.Context, name string, _ io.Writer, _ bool) error {
+func (f *Fake) TarVolume(_ context.Context, name string, w io.Writer, _ bool) error {
+	if _, err := w.Write(f.TarOut); err != nil {
+		return err
+	}
 	return f.rec("TarVolume", name)
 }
-func (f *Fake) UntarVolume(_ context.Context, name string, _ io.Reader) error {
+func (f *Fake) UntarVolume(_ context.Context, name string, src io.Reader) error {
+	b, err := io.ReadAll(src)
+	if err != nil {
+		return err
+	}
+	f.mu.Lock()
+	f.Untarred = b
+	f.mu.Unlock()
 	return f.rec("UntarVolume", name)
 }
 
@@ -185,7 +198,16 @@ func (f *Fake) StreamLogs(_ context.Context, id string, _ int) (<-chan string, f
 func (f *Fake) Exec(_ context.Context, id string, cmd []string) (string, error) {
 	return f.ExecOut, f.rec("Exec", append([]string{id}, cmd...)...)
 }
-func (f *Fake) ExecStream(_ context.Context, id string, cmd []string, _ io.Reader) (io.Reader, func() error, error) {
+func (f *Fake) ExecStream(_ context.Context, id string, cmd []string, stdin io.Reader) (io.Reader, func() error, error) {
+	if stdin != nil {
+		b, err := io.ReadAll(stdin)
+		if err != nil {
+			return nil, nil, err
+		}
+		f.mu.Lock()
+		f.ExecIn = b
+		f.mu.Unlock()
+	}
 	err := f.rec("ExecStream", append([]string{id}, cmd...)...)
 	return strings.NewReader(f.ExecOut), func() error { return nil }, err
 }

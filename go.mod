@@ -3,6 +3,7 @@ module github.com/FyrmForge/stackr
 go 1.27.1
 
 require (
+	filippo.io/age v1.3.2
 	github.com/FyrmForge/hamr v0.38.1
 	github.com/a-h/templ v0.3.1001
 	github.com/aws/aws-sdk-go-v2 v1.43.0
@@ -21,6 +22,7 @@ require (
 )
 
 require (
+	filippo.io/hpke v0.4.0 // indirect
 	github.com/Microsoft/go-winio v0.6.2 // indirect
 	github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.7.14 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/configsources v1.4.31 // indirect

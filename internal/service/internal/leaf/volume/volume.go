@@ -9,6 +9,7 @@ package volume
 import (
 	"context"
 	"errors"
+	"io"
 	"strings"
 	"time"
 
@@ -24,6 +25,9 @@ type Docker interface {
 	CreateVolume(ctx context.Context, name, driver string, opts, labels map[string]string) error
 	RemoveVolume(ctx context.Context, name string) error
 	InspectVolume(ctx context.Context, name string) (docker.VolumeInfo, error)
+	EnsureTool(ctx context.Context) error
+	TarVolume(ctx context.Context, name string, w io.Writer, live bool) error
+	UntarVolume(ctx context.Context, name string, src io.Reader) error
 }
 
 // Scope is where a volume lives: env, stack or org, and that row's id.
@@ -133,4 +137,27 @@ func (l *Leaf) Delete(ctx context.Context, v store.Volume, mountedBy []string) e
 		return err
 	}
 	return l.volumes.Delete(ctx, v.ID)
+}
+
+// SizeBytes is the volume's uncompressed size; -1 when Docker cannot tell.
+func (l *Leaf) SizeBytes(ctx context.Context, v store.Volume) int64 {
+	info, err := l.docker.InspectVolume(ctx, v.Name)
+	if err != nil {
+		return -1
+	}
+	return info.SizeBytes
+}
+
+// EnsureTool pulls the tar helper; call it before freezing anything.
+func (l *Leaf) EnsureTool(ctx context.Context) error { return l.docker.EnsureTool(ctx) }
+
+// Tar streams a gzipped tar of the volume into w.
+func (l *Leaf) Tar(ctx context.Context, v store.Volume, w io.Writer, live bool) error {
+	return l.docker.TarVolume(ctx, v.Name, w, live)
+}
+
+// Untar WIPES the volume and extracts src into it. The caller verifies the
+// archive first: there is no way back from the wipe.
+func (l *Leaf) Untar(ctx context.Context, v store.Volume, src io.Reader) error {
+	return l.docker.UntarVolume(ctx, v.Name, src)
 }
