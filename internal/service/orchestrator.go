@@ -131,7 +131,7 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 		users:    build("leaf/user", func() *user.Leaf { return user.New(st.Users, st.Sessions, st.APIKeys) }),
 		orgs:     build("leaf/org", func() *org.Leaf { return org.New(st.Orgs, st.OrgMembers, st.Invites) }),
 		stacks:   build("leaf/stack", func() *stack.Leaf { return stack.New(st.Stacks) }),
-		envs:     build("leaf/environment", func() *environment.Leaf { return environment.New(st.Environments) }),
+		envs:     build("leaf/environment", func() *environment.Leaf { return environment.New(st.Environments, o.docker) }),
 		tiles:    build("leaf/tile", func() *tile.Leaf { return tile.New(st.Tiles) }),
 		settings: sets,
 		jobs: build("flow/jobs", func() *jobs.Runner {
