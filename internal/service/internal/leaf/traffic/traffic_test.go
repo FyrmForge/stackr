@@ -73,3 +73,30 @@ func TestSampleSums(t *testing.T) {
 		t.Fatalf("sum = %v, want only web->api 200", s)
 	}
 }
+
+// 3b: two consumers on one instance each get their own slice, both lanes;
+// a tile with no binding keeps the instance as its end.
+func TestSlices(t *testing.T) {
+	pairs := map[Pair]float64{
+		{"web", "pg"}: 10, {"pg", "web"}: 100,
+		{"jobs", "pg"}: 20, {"pg", "jobs"}: 200,
+		{"cron", "pg"}: 30,
+		{"proxy", "web"}: 5,
+	}
+	bind := map[Pair]string{{"web", "pg"}: "slice-web", {"jobs", "pg"}: "slice-jobs"}
+	got := Slices(pairs, bind)
+	want := map[Pair]float64{
+		{"web", "slice-web"}: 10, {"slice-web", "web"}: 100,
+		{"jobs", "slice-jobs"}: 20, {"slice-jobs", "jobs"}: 200,
+		{"cron", "pg"}: 30,
+		{"proxy", "web"}: 5,
+	}
+	if len(got) != len(want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	for p, v := range want {
+		if got[p] != v {
+			t.Errorf("%v = %v, want %v", p, got[p], v)
+		}
+	}
+}

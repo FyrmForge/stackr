@@ -313,7 +313,7 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 		return &frun.Flow{Tiles: svc.tiles, Envs: svc.envs, Runs: svc.runs, Jobs: svc.jobRows, Deploy: svc.deploy}
 	})
 	svc.sample = build("flow/traffic", func() *ftraffic.Flow {
-		return &ftraffic.Flow{Tiles: svc.tiles, Envs: svc.envs, Domains: svc.domains, Traffic: svc.traffic, Path: cfg.Conntrack}
+		return &ftraffic.Flow{Tiles: svc.tiles, Envs: svc.envs, Domains: svc.domains, Managed: svc.managed, Traffic: svc.traffic, Path: cfg.Conntrack}
 	})
 	svc.jobs = build("flow/jobs", func() *jobs.Runner {
 		// ponytail: no ParamSet, a parked job is requeued every poll and its

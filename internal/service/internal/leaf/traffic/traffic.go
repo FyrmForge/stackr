@@ -25,6 +25,14 @@ const Every = 5 * time.Second
 // Pair is one lane: bytes moving From -> To.
 type Pair struct{ From, To string }
 
+// Edge is one lane as the API and the graph see it: tile, slice or pseudo
+// ids, bytes per second.
+type Edge struct {
+	From string  `json:"from"`
+	To   string  `json:"to"`
+	BPS  float64 `json:"bps"`
+}
+
 // Leaf holds the counters between ticks and the latest snapshot.
 type Leaf struct {
 	mu    sync.Mutex
@@ -124,6 +132,22 @@ func (l *Leaf) Seq() int64 {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	return l.seq
+}
+
+// Slices renames consumer <-> managed instance lanes to consumer <-> slice.
+// bind maps {consumer tile, instance tile} to the consumer's provision id on
+// that instance; a pair without a binding keeps the instance as its end.
+func Slices(pairs map[Pair]float64, bind map[Pair]string) map[Pair]float64 {
+	out := make(map[Pair]float64, len(pairs))
+	for p, v := range pairs {
+		if s, ok := bind[p]; ok {
+			p.To = s
+		} else if s, ok := bind[Pair{p.To, p.From}]; ok {
+			p.From = s
+		}
+		out[p] += v
+	}
+	return out
 }
 
 // flowFields pulls the nth (0=original, 1=reply) src/sport/dst/dport/bytes
