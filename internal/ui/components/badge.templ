@@ -1,0 +1,68 @@
+package components
+
+import "strings"
+
+// TileBadge and JobBadge colour one status word. The set of words is the
+// service's (leaf/tile State.Word, leaf/job states); the badge only picks a
+// colour and spells it for humans ("waiting_ci" -> "waiting ci").
+templ TileBadge(word string) {
+	@badge(word, tileTone[word])
+}
+
+templ JobBadge(state string) {
+	@badge(state, jobTone[state])
+}
+
+// EnvBadge is an environment's name in its colour, so prod looks like prod
+// everywhere. Color is one of EnvColors; anything else is neutral.
+templ EnvBadge(name, color string) {
+	<span class={ "inline-flex rounded px-2 py-0.5 text-xs font-semibold", envClass(color) }>{ name }</span>
+}
+
+templ badge(word, tone string) {
+	<span class={ "inline-flex rounded-full px-2 py-0.5 text-xs font-medium", toneClass(tone) }>{ strings.ReplaceAll(word, "_", " ") }</span>
+}
+
+var tileTone = map[string]string{"running": "ok", "degraded": "warn", "unhealthy": "bad"}
+
+var jobTone = map[string]string{"queued": "busy", "running": "busy", "waiting": "warn", "done": "ok", "failed": "bad"}
+
+func toneClass(tone string) string {
+	switch tone {
+	case "ok":
+		return "bg-green-100 text-green-800 dark:bg-green-900/50 dark:text-green-300"
+	case "warn":
+		return "bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-300"
+	case "bad":
+		return "bg-red-100 text-red-800 dark:bg-red-900/50 dark:text-red-300"
+	case "busy":
+		return "bg-blue-100 text-blue-800 dark:bg-blue-900/50 dark:text-blue-300"
+	}
+	return "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300"
+}
+
+// EnvColors is the palette an environment's colour is picked from.
+var EnvColors = []string{"slate", "red", "orange", "amber", "green", "teal", "blue", "violet", "pink"}
+
+// envClass spells every class in full so tailwind's scanner keeps them.
+func envClass(color string) string {
+	switch color {
+	case "red":
+		return "bg-red-200 text-red-900 dark:bg-red-800 dark:text-red-100"
+	case "orange":
+		return "bg-orange-200 text-orange-900 dark:bg-orange-800 dark:text-orange-100"
+	case "amber":
+		return "bg-amber-200 text-amber-900 dark:bg-amber-800 dark:text-amber-100"
+	case "green":
+		return "bg-green-200 text-green-900 dark:bg-green-800 dark:text-green-100"
+	case "teal":
+		return "bg-teal-200 text-teal-900 dark:bg-teal-800 dark:text-teal-100"
+	case "blue":
+		return "bg-blue-200 text-blue-900 dark:bg-blue-800 dark:text-blue-100"
+	case "violet":
+		return "bg-violet-200 text-violet-900 dark:bg-violet-800 dark:text-violet-100"
+	case "pink":
+		return "bg-pink-200 text-pink-900 dark:bg-pink-800 dark:text-pink-100"
+	}
+	return "bg-slate-200 text-slate-800 dark:bg-slate-700 dark:text-slate-100"
+}

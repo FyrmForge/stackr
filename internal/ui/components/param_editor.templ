@@ -1,0 +1,101 @@
+package components
+
+import "encoding/json"
+
+// ParamEditorView edits one scope's params. The form posts every row;
+// the handler turns them into service.ParamEntry and SetParams merges
+// (B35): rows not sent are untouched, and an empty secret is "declared,
+// keep the stored value", never a blank.
+type ParamEditorView struct {
+	Action       string // hx-post for the whole form
+	DeleteAction string // hx-post with collection and name; "" = no delete
+	Params       []ParamRowView
+	Secrets      []SecretRowView
+	ReadOnly     bool
+	Why          string // why ReadOnly
+}
+
+// ParamRowView is a plain param: its value is shown and editable.
+type ParamRowView struct {
+	Collection string
+	Name       string
+	Value      string
+	DecidedBy  string // the level whose value applies here
+	Overrides  bool   // this level overrides the one above
+	Warn       string // e.g. "Will not deploy: referenced by api, not set"
+}
+
+// SecretRowView has no value field at all: secret plaintext never reaches
+// the DOM. Set says whether one is stored.
+type SecretRowView struct {
+	Collection string
+	Name       string
+	Set        bool
+	DecidedBy  string
+	Overrides  bool
+	Warn       string
+}
+
+templ ParamEditor(v ParamEditorView) {
+	<form id="param-editor" hx-post={ v.Action } hx-target="#param-editor" hx-swap="outerHTML" class="space-y-4">
+		if v.ReadOnly {
+			<p class="banner">{ v.Why }</p>
+		}
+		<fieldset disabled?={ v.ReadOnly } class="space-y-2">
+			<legend class="sr-only">Params</legend>
+			for _, p := range v.Params {
+				@paramRow(p.Collection, p.Name, p.DecidedBy, p.Overrides, p.Warn, v.DeleteAction) {
+					<input class="input" name={ "param." + p.Collection + "." + p.Name } value={ p.Value } aria-label={ p.Collection + "." + p.Name }/>
+				}
+			}
+			for _, s := range v.Secrets {
+				@paramRow(s.Collection, s.Name, s.DecidedBy, s.Overrides, s.Warn, v.DeleteAction) {
+					<input class="input" type="password" autocomplete="off" name={ "secret." + s.Collection + "." + s.Name } placeholder={ secretPlaceholder(s.Set) } aria-label={ s.Collection + "." + s.Name + " (secret)" }/>
+				}
+			}
+			<div class="grid grid-cols-[1fr_1fr_8rem_2fr] gap-2 pt-2">
+				<input class="input" name="new_collection" placeholder="collection" aria-label="New param collection"/>
+				<input class="input" name="new_name" placeholder="name" aria-label="New param name"/>
+				<select class="input" name="new_kind" aria-label="New param kind">
+					<option value="param">param</option>
+					<option value="secret">secret</option>
+				</select>
+				<input class="input" name="new_value" placeholder="value" autocomplete="off" aria-label="New param value"/>
+			</div>
+			@Submit("Save")
+		</fieldset>
+	</form>
+}
+
+templ paramRow(collection, name, decidedBy string, overrides bool, warn, deleteAction string) {
+	<div class="grid grid-cols-[2fr_3fr_auto] items-start gap-2">
+		<div class="pt-2 text-sm">
+			<span class="font-mono">{ collection }.{ name }</span>
+			<span class="block text-xs text-slate-500">
+				from { decidedBy }
+				if overrides {
+					· overrides
+				}
+			</span>
+			if warn != "" {
+				<span class="block text-xs text-amber-700 dark:text-amber-400">{ warn }</span>
+			}
+		</div>
+		{ children... }
+		if deleteAction != "" {
+			<button type="button" class="btn" hx-post={ deleteAction } hx-vals={ paramKey(collection, name) } hx-target="#param-editor" hx-swap="outerHTML" aria-label={ "Delete " + collection + "." + name }>Delete</button>
+		}
+	</div>
+}
+
+func secretPlaceholder(set bool) string {
+	if set {
+		return "unchanged"
+	}
+	return "not set"
+}
+
+func paramKey(collection, name string) string {
+	b, _ := json.Marshal(map[string]string{"collection": collection, "name": name})
+	return string(b)
+}

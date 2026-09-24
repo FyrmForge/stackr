@@ -12,6 +12,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/web/handler/auth/login"
 	"github.com/FyrmForge/stackr/internal/web/handler/auth/register"
 	"github.com/FyrmForge/stackr/internal/web/handler/devemail"
+	"github.com/FyrmForge/stackr/internal/web/handler/devgallery"
 	"github.com/FyrmForge/stackr/internal/web/handler/home"
 	"github.com/FyrmForge/stackr/internal/web/handler/scope"
 )
@@ -58,6 +59,11 @@ func RegisterRoutes(srv *server.Server, deps *Deps) {
 	if deps.EmailSender != nil {
 		devmailHandler := devemail.NewHandler(deps.EmailSender, deps.DevMode)
 		site.GET("/dev/send-test-email", devmailHandler.SendTest)
+	}
+
+	// Every shared component with sample views (dev only).
+	if deps.DevMode {
+		site.GET("/dev/components", devgallery.NewHandler().Page)
 	}
 
 	// Auth routes — one page-package per page (login owns logout as its inverse action).

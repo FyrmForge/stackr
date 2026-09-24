@@ -1,0 +1,25 @@
+package components
+
+// PageNav is a list's position. Prev/Next are full URLs carrying the page
+// in the query (the URL is the state); "" = no such page.
+type PageNav struct {
+	Label string // "Page 2", "41-60 of 212"
+	Prev  string
+	Next  string
+}
+
+templ Pagination(p PageNav) {
+	<nav aria-label="Pagination" class="mt-4 flex items-center justify-between text-sm">
+		if p.Prev != "" {
+			@NavLink(Link{Label: "Previous", Href: p.Prev})
+		} else {
+			<span></span>
+		}
+		<span class="text-slate-500">{ p.Label }</span>
+		if p.Next != "" {
+			@NavLink(Link{Label: "Next", Href: p.Next})
+		} else {
+			<span></span>
+		}
+	</nav>
+}

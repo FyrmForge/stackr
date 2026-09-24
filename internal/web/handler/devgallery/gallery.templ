@@ -1,0 +1,105 @@
+package devgallery
+
+import c "github.com/FyrmForge/stackr/internal/ui/components"
+
+templ gallery() {
+	<div class="space-y-10">
+		@section("Form") {
+			@c.Form("gallery-form", "/dev/components") {
+				@c.FormError("Please fix the errors below.")
+				@c.Field(c.FieldView{Name: "name", Label: "Name", Value: "shop", Help: "Lowercase letters, digits and dashes.", Required: true})
+				@c.Field(c.FieldView{Name: "email", Label: "Email", Type: "email", Error: "Invalid email address"})
+				@c.Field(c.FieldView{Name: "image", Label: "Image", Value: "nginx:1", Disabled: true, Why: "Owned by stackr-compose.yml; edit the file."})
+				@c.Submit("Save")
+			}
+		}
+		@section("Table, empty state, pagination") {
+			@c.Table(c.TableView{
+				Headers: []string{"Tile", "State"},
+				Rows: [][]templ.Component{
+					{c.Text("api"), c.TileBadge("running")},
+					{c.Text("worker"), c.TileBadge("degraded")},
+				},
+			})
+			@c.Table(c.TableView{Headers: []string{"Tile"}, Empty: c.EmptyView{Title: "No tiles yet", Body: "Deploy an image or a repo.", Action: c.Link{Label: "New tile", Href: "/dev/components"}}})
+			@c.Pagination(c.PageNav{Label: "Page 2 of 5", Prev: "/dev/components?page=1", Next: "/dev/components?page=3"})
+		}
+		@section("Badges") {
+			<div class="flex flex-wrap gap-2">
+				@c.TileBadge("running")
+				@c.TileBadge("degraded")
+				@c.TileBadge("unhealthy")
+				@c.TileBadge("stopped")
+				@c.JobBadge("queued")
+				@c.JobBadge("running")
+				@c.JobBadge("waiting")
+				@c.JobBadge("done")
+				@c.JobBadge("failed")
+				@c.JobBadge("superseded")
+				for _, color := range c.EnvColors {
+					@c.EnvBadge(color, color)
+				}
+			</div>
+		}
+		@section("Cards") {
+			<div class="grid gap-4 sm:grid-cols-3">
+				@c.TileCard(c.TileCardView{Name: "api", Href: "/dev/components", Kind: "image", State: "running", Source: "nginx:1",
+					Volumes: []c.VolumeCardView{{Name: "uploads", Href: "/dev/components", Size: "1.2 GB"}}})
+				@c.TileCard(c.TileCardView{Name: "db", Href: "/dev/components", Kind: "managed", State: "stopped", Source: "postgres 16"})
+				@c.VolumeCard(c.VolumeCardView{Name: "old-cache", Href: "/dev/components", Size: "80 MB", Orphaned: true})
+			</div>
+		}
+		@section("Confirm") {
+			<div class="flex gap-4">
+				@c.Confirm(c.ConfirmView{Button: "Restart", Title: "Restart api?", Warning: "Requests fail while it starts.", Action: "/dev/components"})
+				@c.Confirm(c.ConfirmView{Button: "Delete volume", Title: "Delete uploads?", Warning: "Nothing snapshots what is deleted.",
+					Kept: []string{"archives already in the bucket"}, Word: "uploads", Action: "/dev/components"})
+			</div>
+		}
+		@section("Log pane") {
+			@c.LogPane(c.LogPaneView{StreamURL: "/dev/components/nowhere", Level: "info"})
+			@c.LogLine(c.LogLineView{Time: "12:00:01", Level: "info", Text: "listening on :80"})
+		}
+		@section("Job status") {
+			@c.JobStatus(c.JobStatusView{Kind: "deploy", State: "failed", Error: "health check timed out after 60s", Href: "/dev/components"})
+			@c.JobStatus(c.JobStatusView{Kind: "promote", State: "running", StreamURL: "/dev/components/nowhere", Live: true})
+		}
+		@section("Plan") {
+			@c.Plan(c.PlanView{
+				Title:    "Promote release 12 to prod",
+				Changes:  []c.ChangeView{{Kind: "update", Tile: "api", Field: "image", Old: "nginx:1.25", New: "nginx:1.27"}, {Kind: "param", Field: "app.mode", New: "prod"}},
+				Warnings: []string{"secret app.token is declared but not set"},
+				Blockers: []string{"staging does not run release 12 yet"},
+			})
+		}
+		@section("Param editor") {
+			@c.ParamEditor(c.ParamEditorView{
+				Action:       "/dev/components",
+				DeleteAction: "/dev/components",
+				Params:       []c.ParamRowView{{Collection: "app", Name: "mode", Value: "prod", DecidedBy: "env", Overrides: true}},
+				Secrets: []c.SecretRowView{
+					{Collection: "app", Name: "token", Set: true, DecidedBy: "stack"},
+					{Collection: "db", Name: "password", DecidedBy: "env", Warn: "Will not deploy: referenced by api, not set"},
+				},
+			})
+		}
+		@section("Settings form") {
+			@c.SettingsForm(c.SettingsFormView{
+				ID: "gallery-settings", Action: "/dev/components", Scope: "Stack",
+				Rows: []c.SettingRowView{
+					{Key: "orphan_retention_days", Desc: "Days an orphaned volume is kept.", Type: "int", Effective: "30", DecidedBy: "server"},
+					{Key: "force_https", Desc: "Redirect HTTP to HTTPS.", Type: "bool", Value: "true", Effective: "true", DecidedBy: "stack"},
+				},
+			})
+		}
+	</div>
+}
+
+templ section(title string) {
+	<section>
+		<h2 class="mb-3 text-lg font-semibold">{ title }</h2>
+		<div class="space-y-4">
+			{ children... }
+		</div>
+	</section>
+}

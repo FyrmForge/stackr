@@ -1,0 +1,60 @@
+package components
+
+// PlanView is a promote or rollback dry run (service.PromotePlan), or a
+// release diff: what would change, what blocks it, what to watch.
+// CanDeploy is the service's verdict; the page greys its button on it.
+type PlanView struct {
+	Title     string // "Promote release 12 to prod"
+	Changes   []ChangeView
+	Blockers  []string
+	Warnings  []string
+	CanDeploy bool
+}
+
+// ChangeView mirrors promote.Change.
+type ChangeView struct {
+	Kind  string // env | stack | param | volume | orphan | create | update | delete | domain | slice | detach | image
+	Tile  string
+	Field string
+	Old   string
+	New   string
+	Note  string
+}
+
+templ Plan(p PlanView) {
+	<section class="space-y-3" aria-label={ p.Title }>
+		<h2 class="font-semibold">{ p.Title }</h2>
+		if len(p.Blockers) > 0 {
+			<div class="banner border-red-300 bg-red-50 text-red-800 dark:border-red-800 dark:bg-red-950 dark:text-red-300" role="alert">
+				<p class="font-medium">Blocked:</p>
+				<ul class="list-disc pl-5">
+					for _, b := range p.Blockers {
+						<li>{ b }</li>
+					}
+				</ul>
+			</div>
+		}
+		if len(p.Warnings) > 0 {
+			<div class="banner border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-300">
+				<ul class="list-disc pl-5">
+					for _, w := range p.Warnings {
+						<li>{ w }</li>
+					}
+				</ul>
+			</div>
+		}
+		@Table(TableView{
+			Headers: []string{"Change", "Tile", "Field", "Was", "Becomes", "Note"},
+			Rows:    changeRows(p.Changes),
+			Empty:   EmptyView{Title: "Nothing changes"},
+		})
+	</section>
+}
+
+func changeRows(cs []ChangeView) [][]templ.Component {
+	rows := make([][]templ.Component, 0, len(cs))
+	for _, c := range cs {
+		rows = append(rows, []templ.Component{Text(c.Kind), Text(c.Tile), Text(c.Field), Text(c.Old), Text(c.New), Text(c.Note)})
+	}
+	return rows
+}

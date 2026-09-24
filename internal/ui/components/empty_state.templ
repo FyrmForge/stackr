@@ -1,0 +1,21 @@
+package components
+
+// EmptyView says what is missing and, when the viewer may fix it, how.
+// Action.Href "" = no button.
+type EmptyView struct {
+	Title  string
+	Body   string
+	Action Link
+}
+
+templ EmptyState(e EmptyView) {
+	<div class="rounded-lg border border-dashed border-slate-300 px-6 py-10 text-center dark:border-slate-700">
+		<p class="font-medium">{ e.Title }</p>
+		if e.Body != "" {
+			<p class="mt-1 text-sm text-slate-500">{ e.Body }</p>
+		}
+		if e.Action.Href != "" {
+			<a href={ templ.SafeURL(e.Action.Href) } hx-get={ e.Action.Href } hx-target="#main" hx-push-url="true" class="btn btn-primary mt-4">{ e.Action.Label }</a>
+		}
+	</div>
+}
