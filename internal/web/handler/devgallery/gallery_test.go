@@ -58,6 +58,22 @@ func TestGalleryRendersEveryComponent(t *testing.T) {
 		"move trigger":  `hx-trigger="node-moved"`,
 		"no inherit":    `hx-disinherit="*"`,
 		"side drawer":   `id="drawer-body"`,
+		"service card":  `data-kind="service"`,
+		"cron card":     `data-kind="cron"`,
+		"function card": `data-kind="function"`,
+		"managed card":  `data-kind="managed"`,
+		"slice card":    `data-kind="slice"`,
+		"ref card":      `data-kind="ref"`,
+		"volume card 2": `data-kind="volume"`,
+		"proxy card":    `data-kind="proxy"`,
+		"internet card": `data-kind="internet"`,
+		"vars card":     `data-kind="vars"`,
+		"secrets card":  `data-kind="secrets"`,
+		"sub-tile":      `data-kind="instance"`,
+		"host chip":     ">host<",
+		"cron footer":   "next Jul 25 03:00",
+		"lane":          `data-edge-kind="traffic"`,
+		"lane rate":     "2.2 MB/s",
 	} {
 		if !strings.Contains(body, marker) {
 			t.Errorf("%s: gallery lacks %q", component, marker)

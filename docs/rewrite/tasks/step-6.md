@@ -222,6 +222,33 @@ verb, then its tab again (422 with the refusal over it).
   (`graph.view.<path>`), so a `graph` swap or a reload keeps the view, and
   re-paths on `childList` too (a swapped-in lanes svg).
 
+**Added by task 9 (session C, 2026-09-24)** — what task 7's node wrapper
+and stream must match:
+
+- Cards live in `internal/ui/graph/cards` with their own views
+  (`CardView`, `FooterView`, `SubView`, `Lane`). The task 7 wrapper
+  renders `<graph-node node-id={v.ID} system?={cards.System(v.Kind)}>`,
+  its three hidden inputs, then `@cards.Card(v)` and `@cards.Subs(v)` as
+  siblings (the gallery's `envNode` is the model).
+- Node ids: tile id (service, cron, function, managed, ref), provision
+  id (slice), volume id, and the words `proxy`, `internet`, `vars`,
+  `secrets`. These are the ends the Traffic verb names, so a lane needs
+  no mapping.
+- Card click: `hx-get={v.Drawer}` into `#drawer-body`, pushing
+  `?drawer=<id>&tab=<v.Tab>`. Sub-tiles are `<graph-node static>` with
+  their own drawer GET.
+- Footer: one `div[sse-swap="footer:<id>"][hx-target=this]` swapped
+  outerHTML; the stream sends `cards.Footer(id, f)` rendered.
+- Lanes: `<svg data-edges data-lanes id="graph-lanes">` swapped whole by
+  event `traffic`; paths `data-edge-kind="traffic"`, labels on a
+  `<textPath>`. Stream: `GET /:org/:stack/:env/events`
+  (`internal/web/handler/env`), which task 7 folds its `graph` and
+  `footer:<id>` events into. SSE bodies go out as `stream.HTML` via
+  `render.Event`, never raw text.
+- **Merge need:** `<graph-canvas>` repaths only on node attribute
+  changes; it must also watch `childList` on itself so a swapped-in lanes
+  svg gets its `d` (DECIDE 100).
+
 ### Session B (`../stackr-step-6b`)
 
 5. **Contract + elements.** Write the contract above into

@@ -1,6 +1,9 @@
 package devgallery
 
-import c "github.com/FyrmForge/stackr/internal/ui/components"
+import (
+	c "github.com/FyrmForge/stackr/internal/ui/components"
+	"github.com/FyrmForge/stackr/internal/ui/graph/cards"
+)
 
 templ gallery() {
 	<div class="space-y-10">
@@ -81,6 +84,15 @@ templ gallery() {
 				</div>
 			</graph-canvas>
 		}
+		@section("Env canvas cards") {
+			<p class="text-sm text-slate-500">One card of every env kind (task 9), with sub-tiles and traffic lanes.</p>
+			<graph-canvas scale="1" divider="240" class="h-[36rem] rounded-lg border border-slate-200 bg-slate-100 dark:border-slate-800 dark:bg-slate-950">
+				@cards.Lanes(envLanes)
+				for _, p := range envCards() {
+					@envNode(p)
+				}
+			</graph-canvas>
+		}
 		@section("Confirm") {
 			<div class="flex gap-4">
 				@c.Confirm(c.ConfirmView{Button: "Restart", Title: "Restart api?", Warning: "Requests fail while it starts.", Action: "/dev/components"})
@@ -153,6 +165,32 @@ templ galleryNode(id, name, detail, x, y string, system bool) {
 			<p class="text-xs text-slate-500">{ detail }</p>
 		</div>
 		{ children... }
+	</graph-node>
+}
+
+// envNode is a stand-in for the task 7 node wrapper around a task 9 card:
+// the card body and its sub-tiles go in as siblings.
+templ envNode(p placed) {
+	<graph-node
+		node-id={ p.card.ID }
+		x={ p.x }
+		y={ p.y }
+		w={ p.w }
+		h={ p.h }
+		if cards.System(p.card.Kind) {
+			system
+		}
+		hx-post="/dev/components/positions"
+		hx-trigger="node-moved"
+		hx-include="this"
+		hx-swap="none"
+		hx-disinherit="*"
+	>
+		<input type="hidden" name="node_id" value={ p.card.ID }/>
+		<input type="hidden" name="x" value={ p.x }/>
+		<input type="hidden" name="y" value={ p.y }/>
+		@cards.Card(p.card)
+		@cards.Subs(p.card)
 	</graph-node>
 }
 
