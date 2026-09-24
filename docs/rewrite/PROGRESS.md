@@ -121,13 +121,13 @@ extracts/, this file.
 
 - [x] this file updated with a "start here" line for the Opus step 0 session
 
-**START HERE (Opus, step 0):** you are on branch `rewrite`, a fresh hamr
-scaffold plus `docs/rewrite/`. Read `REWRITE.md` "Method" and
-`docs/rewrite/tasks/step-0.md`, do its tasks in order, commit per task,
-tick `[x] step 0` below when the done gate passes, open the PR `rewrite`
-→ `master`. Do not read `../stackr-old`; the extracts in
-`docs/rewrite/extracts/` are the only view of the old code. Start
-`hamr dev` if it is not running. Next step reads `tasks/step-1.md`.
+**START HERE (Opus, step 1):** branch `rewrite-step-1`, stacked on
+`rewrite` (step 0 merged into it as PR #6). Read `REWRITE.md` "Method"
+and `docs/rewrite/tasks/step-1.md`, do its tasks in order, commit per
+task, tick `[x] step 1` below when the done gate passes, open the PR
+`rewrite-step-1` → `rewrite`. Do not read `../stackr-old`; the extracts
+in `docs/rewrite/extracts/` are the only view of the old code. `hamr dev`
+check from step 0 is still owed to darhvader.
 
 ## Build steps (Opus, one fresh session + one stacked PR each)
 
@@ -239,7 +239,8 @@ Raised by the extract agents, real decisions, not settled:
    enqueues, `flow/jobs` gets the flow funcs injected as handlers (no flow
    imports jobs, jobs imports no flow; lint unchanged); (b) add a
    `* → flow/jobs` exception and inject handlers into jobs; (c) move jobs
-   out of `flow/` (e.g. `internal/service/internal/jobs`). Step 0 leans (a).
+   out of `flow/` (e.g. `internal/service/internal/jobs`). Step 0 leans (a). Planner took (a) so step 1 could run; flip later if
+   you want (b) or (c).
 
 Settled silently, listed so you can flip them: label key is `stackr.tile`
 (was `stackr.app`); restart policy stays the three old values, not a bool;

@@ -123,6 +123,10 @@ the fake is enough. Commit per task.
     own context with a 30-minute cap, detached from the request. Rebuild
     the runnable set from the table on start (crashed `running` jobs become
     `failed`). Log path per job. Jobs run flows with no user.
+    Wiring (DECIDE 12, option a): `flow/jobs` imports no other flow and
+    no flow imports `flow/jobs`. `jobs.New(store, handlers map[Kind]Handler)`
+    takes the flow functions injected by `service.New`; the orchestrator
+    is the only thing that enqueues. depguard stays as step 0 left it.
     Done when: tests cover lock-set exclusion, disjoint parallelism,
     supersede in each phase, waiting → runnable, cap, restart recovery
     (B25).
