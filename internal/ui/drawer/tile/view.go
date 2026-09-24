@@ -82,6 +82,7 @@ type JobRow struct{ Kind, State, When, Error string }
 type ImageView struct {
 	Ref, Digest, LastDigest, LastTag, Checked, LastError string
 	NewVersion                                           bool
+	Pulls                                                bool // the ref is editable: an image tile, not built or managed
 	UpdatePolicy, TagPolicy                              string
 }
 

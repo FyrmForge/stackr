@@ -139,7 +139,9 @@ templ Jobs(v View, j JobsView) {
 templ Image(v View, i ImageView) {
 	<div class="space-y-4" id="tab-image">
 		<dl class="grid grid-cols-[8rem_1fr] gap-1 text-sm">
-			<dt class="text-slate-500">ref</dt><dd class="font-mono">{ i.Ref }</dd>
+			if !i.Pulls {
+				<dt class="text-slate-500">ref</dt><dd class="font-mono">{ i.Ref }</dd>
+			}
 			<dt class="text-slate-500">running digest</dt><dd class="truncate font-mono">{ orNone(i.Digest) }</dd>
 			<dt class="text-slate-500">latest seen</dt><dd class="truncate font-mono">{ orNone(i.LastDigest) } { i.LastTag }</dd>
 			<dt class="text-slate-500">checked</dt><dd>{ orNone(i.Checked) }</dd>
@@ -152,6 +154,9 @@ templ Image(v View, i ImageView) {
 		}
 		@c.PostButton("Check now", v.Base+"/image/check")
 		<form hx-post={ v.Base + "/image" } hx-target={ "#" + Root } hx-swap="outerHTML" class="space-y-3">
+			if i.Pulls {
+				@c.Field(c.FieldView{Name: "image_ref", Label: "Image", Value: i.Ref, Help: "A new tag runs on the next deploy."})
+			}
 			<div>
 				<label class="label" for="update-policy">On a new version</label>
 				<select id="update-policy" name="update_policy" class="input">

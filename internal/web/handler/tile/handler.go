@@ -213,8 +213,14 @@ func (h *handler) SetEnv(c echo.Context) error {
 }
 
 func (h *handler) SetImagePolicy(c echo.Context) error {
-	up, tag := c.FormValue("update_policy"), c.FormValue("tag_policy")
-	return h.update(c, "image", func(t *service.Tile) error { t.UpdatePolicy, t.TagPolicy = up, tag; return nil })
+	up, tag, ref := c.FormValue("update_policy"), c.FormValue("tag_policy"), strings.TrimSpace(c.FormValue("image_ref"))
+	return h.update(c, "image", func(t *service.Tile) error {
+		t.UpdatePolicy, t.TagPolicy = up, tag
+		if ref != "" {
+			t.ImageRef = ref
+		}
+		return nil
+	})
 }
 
 func (h *handler) CheckImage(c echo.Context) error {

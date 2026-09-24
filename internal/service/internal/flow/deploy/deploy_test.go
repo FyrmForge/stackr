@@ -169,7 +169,7 @@ func TestParkOnUnset(t *testing.T) {
 // tag or a branch head. B29: it goes through the same gate as a deploy.
 func TestRedeployRunsTheReleaseImage(t *testing.T) {
 	w := setup(t)
-	r, err := w.f.Releases.Create(ctx, w.tile.StackID, "test", []release.Pin{{Slug: "api", Repo: "nginx", Digest: "sha256:pinned"}})
+	r, err := w.f.Releases.Create(ctx, w.tile.StackID, "test", []release.Pin{{Slug: "api", Repo: "nginx:1", Digest: "sha256:pinned"}})
 	must(t, err)
 	_, err = w.f.Envs.SetRelease(ctx, w.env, r.ID)
 	must(t, err)
@@ -197,7 +197,32 @@ func TestFirstImageRunPinsARelease(t *testing.T) {
 	}
 	pins, err := w.f.Releases.Pins(ctx, *e.ReleaseID)
 	must(t, err)
-	if p := pins["api"]; p.Digest != "sha256:now" || p.Repo != "nginx" {
+	if p := pins["api"]; p.Digest != "sha256:now" || p.Repo != "nginx:1" {
 		t.Errorf("pin = %+v", p)
+	}
+}
+
+// DECIDE 140: editing an image tile's tag makes the next redeploy run the
+// new tag and pin it, one release.
+func TestEditedTagRedeploysAndRepins(t *testing.T) {
+	w := setup(t)
+	w.fake.Digests = map[string]string{"nginx:1": "sha256:one", "nginx:2": "sha256:two"}
+	must(t, w.f.Redeploy(ctx, w.tile.ID, io.Discard, nil))
+	cur := w.tile
+	cur.ImageRef = "nginx:2"
+	_, _, err := w.f.Tiles.Update(ctx, w.tile, cur)
+	must(t, err)
+	w.fake.RunIDs = []string{"new2"}
+	w.fake.Details["new2"] = w.fake.Details["new"]
+	must(t, w.f.Redeploy(ctx, w.tile.ID, io.Discard, nil))
+	if got := w.fake.Specs[len(w.fake.Specs)-1].Image; got != "nginx:2" {
+		t.Errorf("redeploy ran %q, want the edited tag", got)
+	}
+	e, err := w.f.Envs.Get(ctx, w.env.ID)
+	must(t, err)
+	pins, err := w.f.Releases.Pins(ctx, *e.ReleaseID)
+	must(t, err)
+	if p := pins["api"]; p.Digest != "sha256:two" || p.Repo != "nginx:2" {
+		t.Errorf("pin = %+v, want nginx:2 at sha256:two", p)
 	}
 }

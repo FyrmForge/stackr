@@ -741,6 +741,15 @@ func (f *Flow) tileCard(ctx context.Context, t store.Tile, vols map[string]strin
 			if err != nil && !errors.Is(err, errs.ErrNotFound) {
 				return n, err
 			}
+			if tile.Pulls(t) {
+				e, err := f.Envs.Get(ctx, t.EnvironmentID)
+				if err != nil {
+					return n, err
+				}
+				if i.Digest, err = f.Releases.Digest(ctx, e.ReleaseID, t.Slug); err != nil {
+					return n, err
+				}
+			}
 			n.NewVersion = i.Newer()
 		}
 	}

@@ -303,7 +303,7 @@ func (f *Flow) rollout(ctx context.Context, w *work, e store.Environment, log io
 		}
 		w.deployed = append(w.deployed, t.ID)
 		if tile.Pulls(t) && !pinned && digest != "" {
-			repin = append(repin, release.Pin{Slug: s, Repo: deploy.RepoOf(t.ImageRef), Digest: digest})
+			repin = append(repin, release.Pin{Slug: s, Repo: t.ImageRef, Digest: digest})
 		}
 	}
 	if len(repin) == 0 {

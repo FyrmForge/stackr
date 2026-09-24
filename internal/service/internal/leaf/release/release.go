@@ -31,7 +31,8 @@ func New(releases store.ReleaseStore, tiles store.ReleaseTileStore) *Leaf {
 const ConfigSlug = "_config"
 
 // Pin is one tile in a release. Built tiles carry ImageID; image and
-// managed tiles carry the digest (never just a tag); the config repo's pin
+// managed tiles carry the digest (never just a tag), and an image tile's
+// Repo is the ref it was pinned from, tag included; the config repo's pin
 // carries only its commit.
 type Pin struct {
 	Slug      string  `json:"slug"`
@@ -53,6 +54,16 @@ func (l *Leaf) List(ctx context.Context, stackID string) ([]store.Release, error
 	rs, err := l.releases.ListByStack(ctx, stackID)
 	sort.Slice(rs, func(i, j int) bool { return rs[i].Number > rs[j].Number })
 	return rs, err
+}
+
+// Digest is the digest a release pins for slug: what a pulled tile runs
+// (the images table only knows builds). "" when nothing is pinned.
+func (l *Leaf) Digest(ctx context.Context, releaseID *string, slug string) (string, error) {
+	if releaseID == nil {
+		return "", nil
+	}
+	pins, err := l.Pins(ctx, *releaseID)
+	return pins[slug].Digest, err
 }
 
 // Pins are a release's tiles, by slug.

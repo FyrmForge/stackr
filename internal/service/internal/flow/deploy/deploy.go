@@ -77,13 +77,23 @@ func (f *Flow) Redeploy(ctx context.Context, tileID string, log io.Writer, swap 
 	if err != nil {
 		return err
 	}
+	if pinned && tile.Pulls(t) {
+		pins, err := f.Releases.Pins(ctx, *e.ReleaseID)
+		if err != nil {
+			return err
+		}
+		if stale(t, pins[t.Slug]) {
+			ref, pinned = t.ImageRef, false
+		}
+	}
 	digest, err := f.Run(ctx, t, ref, log, swap)
 	if err != nil || pinned || !tile.Pulls(t) {
 		return err
 	}
-	// An image tile's first run: pin what the tag meant, as a release.
+	// An image tile's first run, or its first after a tag edit: pin what the
+	// tag meant, as a release.
 	r, err := f.Releases.Derive(ctx, t.StackID, deref(e.ReleaseID), "deploy",
-		release.Pin{Slug: t.Slug, Repo: RepoOf(t.ImageRef), Digest: digest})
+		release.Pin{Slug: t.Slug, Repo: t.ImageRef, Digest: digest})
 	if err != nil {
 		return err
 	}
@@ -105,7 +115,7 @@ func (f *Flow) Current(ctx context.Context, t store.Tile, e store.Environment) (
 				im, err := f.Images.Get(ctx, *p.ImageID)
 				return im.Ref, true, err
 			case p.Digest != "":
-				repo := p.Repo
+				repo := RepoOf(p.Repo)
 				if repo == "" {
 					repo = RepoOf(t.ImageRef)
 				}
@@ -451,6 +461,14 @@ func deref(p *string) string {
 // registry port would read as the tag.
 // RepoOf strips the tag and any digest ("ghcr.io/a/b:1" -> "ghcr.io/a/b"):
 // what a release pin's Repo holds.
+// stale: the image tile's ref was edited since the pin was taken (an image
+// pin's Repo holds the ref it came from, tag included), so a redeploy runs
+// the tag and pins it anew (DECIDE 140). Promote and rollback never ask:
+// they run the release as pinned.
+func stale(t store.Tile, p release.Pin) bool {
+	return tile.Pulls(t) && p.Repo != "" && p.Repo != t.ImageRef
+}
+
 func RepoOf(ref string) string {
 	ref, _, _ = strings.Cut(ref, "@")
 	if i := strings.LastIndex(ref, ":"); i > strings.LastIndex(ref, "/") {

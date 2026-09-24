@@ -383,14 +383,25 @@ func TestCanvasEnvFooterFacts(t *testing.T) {
 		t.Fatal(err)
 	}
 	now := time.Now()
-	if err := e.Store.Images.Create(ctx, store.Image{ID: uuid.NewString(), Ref: "nginx:1", Digest: "sha256:a", LastDigest: "sha256:b",
+	if err := e.Store.Images.Create(ctx, store.Image{ID: uuid.NewString(), Ref: "nginx:1", LastDigest: "sha256:b",
 		CheckedAt: &now, CreatedAt: now}); err != nil {
 		t.Fatal(err)
 	}
-	v, err := e.O.Canvas(ctx, service.CanvasScope{Kind: service.CanvasEnv, ID: tl.Env}, service.ShowAll)
-	if err != nil {
-		t.Fatal(err)
+	// What runs is the env's release pin, not the images row (DECIDE 140).
+	rid := uuid.NewString()
+	must := func(err error) {
+		if err != nil {
+			t.Fatal(err)
+		}
 	}
+	must(e.Store.Releases.Create(ctx, store.Release{ID: rid, StackID: tl.Stack, Number: 1, CreatedAt: now}))
+	must(e.Store.ReleaseTiles.Create(ctx, store.ReleaseTile{ID: uuid.NewString(), ReleaseID: rid, Slug: "api", Repo: "nginx:1", Digest: "sha256:a"}))
+	env, err := e.Store.Environments.Get(ctx, tl.Env)
+	must(err)
+	env.ReleaseID = &rid
+	must(e.Store.Environments.Update(ctx, env))
+	v, err := e.O.Canvas(ctx, service.CanvasScope{Kind: service.CanvasEnv, ID: tl.Env}, service.ShowAll)
+	must(err)
 	ns := nodes(v)
 	if api := ns[tl.ID]; !api.NewVersion || api.NextRun != nil {
 		t.Errorf("api = %+v, want a new version and no next run", api)

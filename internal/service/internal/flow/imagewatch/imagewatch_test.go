@@ -103,7 +103,7 @@ func TestCheck(t *testing.T) {
 	}
 	pins, err := f.Releases.Pins(ctx, ups[0].ReleaseID)
 	must(t, err)
-	if pins["api"].Digest != "sha256:n1" || pins["web"].Repo != "nginx" || pins["cache"].Digest != "sha256:r72" {
+	if pins["api"].Digest != "sha256:n1" || pins["web"].Repo != "nginx:1" || pins["cache"].Digest != "sha256:r72" {
 		t.Errorf("pins = %+v", pins)
 	}
 	if img, _ := f.Images.GetByRef(ctx, "redis:7.0.1"); img.LastTag != "7.2.0" {

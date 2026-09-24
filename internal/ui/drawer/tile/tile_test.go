@@ -28,7 +28,7 @@ func TestEveryTabRenders(t *testing.T) {
 		"env":      {Env(v, EnvView{JSON: `{"A":"1"}`}), []string{`name="env_json"`, `{&#34;A&#34;:&#34;1&#34;}`}},
 		"settings": {Settings(v, c.SettingsFormView{ID: "tile-settings", Action: "/x", Scope: "Tile", Rows: []c.SettingRowView{{Key: "cpu_limit", Type: "float"}}}), []string{`id="tile-settings"`, "cpu_limit"}},
 		"jobs":     {Jobs(v, JobsView{Rows: []JobRow{{Kind: "deploy", State: "failed", Error: "health check timed out"}}}), []string{"health check timed out"}},
-		"image":    {Image(v, ImageView{Ref: "nginx:1", Digest: "sha256:a", LastDigest: "sha256:b", NewVersion: true}), []string{"A new version is out.", "/image/check", `name="update_policy"`}},
+		"image":    {Image(v, ImageView{Ref: "nginx:1", Digest: "sha256:a", LastDigest: "sha256:b", NewVersion: true, Pulls: true}), []string{"A new version is out.", "/image/check", `name="update_policy"`, `name="image_ref"`}},
 		"runs": {Runs(v, RunsView{Cron: true, Rows: []RunRow{{ID: "r1", Status: "running", Live: true}}}),
 			[]string{"/run\"", "Pause schedule", `{&#34;paused&#34;:&#34;true&#34;}`, "/runs/r1/stop", "tab=logs&amp;run=r1"}},
 		"backups": {Backups(v, BackupsView{Rows: []VolumeRow{{ID: "v1", Name: "uploads", Drawer: "/o/s/e/-/volumes/v1?tab=backups"}}}), []string{"uploads", "-/volumes/v1"}},
