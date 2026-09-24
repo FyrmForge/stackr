@@ -2,6 +2,8 @@ package service
 
 import (
 	"context"
+	"net/netip"
+	"strings"
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/settings"
@@ -68,6 +70,16 @@ func (o *Orchestrator) Setting(ctx context.Context, key string) (string, error) 
 // re-pushed, since several flat knobs live in its config; workers and the
 // watch interval are re-read live.
 func (o *Orchestrator) SetSetting(ctx context.Context, key, raw string) error {
+	if key == "trusted_proxies" {
+		for _, r := range splitList(raw) {
+			if _, err := netip.ParsePrefix(r); err != nil {
+				if _, err := netip.ParseAddr(r); err != nil {
+					// ponytail: no "cloudflare" keyword; list its ranges by hand until the proxy fetches them.
+					return errs.Invalidf("trusted_proxies", "%q is not an IP or CIDR.", r)
+				}
+			}
+		}
+	}
 	if err := o.settings.Set(ctx, key, raw); err != nil {
 		return err
 	}
@@ -119,4 +131,9 @@ func (o *Orchestrator) Upgrade(ctx context.Context, tag string) (Job, error) {
 		return Job{}, errs.Conflictf("dev build, no upgrades")
 	}
 	return o.enqueue(ctx, kindUpgrade, upgradeJob{Tag: tag}, "panel")
+}
+
+// splitList reads a comma, space or newline separated setting.
+func splitList(s string) []string {
+	return strings.FieldsFunc(s, func(r rune) bool { return r == ',' || r == ' ' || r == '\n' })
 }

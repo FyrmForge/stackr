@@ -171,3 +171,33 @@ func TestUpdateTileKeepsUntouchedFields(t *testing.T) {
 		t.Errorf("after update: %+v", got)
 	}
 }
+
+// B25: every deploy is a job row the caller polls; the verb returns before
+// the work and the row finishes on its own.
+func TestDeployIsAJobRow(t *testing.T) {
+	w := newWorld(t)
+	ctx := context.Background()
+	tl := w.tile(t, "api", false)
+	j, err := w.o.Deploy(ctx, tl.ID)
+	must(t, err)
+	if j.ID == "" || j.Kind != string(kindDeploy) || !slices.Contains(j.LockSet, tl.ID) {
+		t.Fatalf("Deploy returned %+v, want a deploy row for %s", j, tl.ID)
+	}
+	if got := w.wait(t, j.ID); got.ID != j.ID {
+		t.Fatalf("polled %s, got %s", j.ID, got.ID)
+	}
+}
+
+// A trusted_proxies value Caddy would reject is refused before it can break
+// every proxy push.
+func TestTrustedProxiesRefusesNonCIDR(t *testing.T) {
+	w := newWorld(t)
+	ctx := context.Background()
+	if err := w.o.SetSetting(ctx, "trusted_proxies", "10.0.0.0/8, cloudflare"); err == nil {
+		t.Fatal("cloudflare accepted as a CIDR")
+	}
+	must(t, w.o.SetSetting(ctx, "trusted_proxies", "10.0.0.0/8, 192.168.1.1"))
+	if !strings.Contains(w.lastPush(), `"10.0.0.0/8"`) {
+		t.Errorf("push lacks the range: %s", w.lastPush())
+	}
+}

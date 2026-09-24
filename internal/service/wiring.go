@@ -30,9 +30,7 @@ func (o *Orchestrator) proxyConfig(ctx context.Context) (json.RawMessage, error)
 	in := domain.Install{
 		AdminListen: ProxyAdmin, ACMEEmail: get("acme_email"), DNSProvider: get("dns_provider"),
 		TLSOff: o.cfg.TLSOff, PanelHost: get("panel_domain"), PanelUpstream: o.cfg.PanelUpstream,
-		TrustedProxies: strings.FieldsFunc(get("trusted_proxies"), func(r rune) bool {
-			return r == ',' || r == ' ' || r == '\n'
-		}),
+		TrustedProxies: splitList(get("trusted_proxies")),
 	}
 	orgs, err := o.orgs.ListAll(ctx)
 	if err != nil {

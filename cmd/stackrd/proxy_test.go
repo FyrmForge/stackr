@@ -20,7 +20,11 @@ import (
 // that keeps the admin listener, from a host name like stackr-proxy.
 func TestProxyAcceptsPush(t *testing.T) {
 	// Both paths are fixed at init from XDG_*; point them at the test.
-	dir := t.TempDir()
+	// Not t.TempDir: Caddy's async storage cleaner can still be writing
+	// when the test ends, and a failed removal would fail the test.
+	dir, err := os.MkdirTemp("", "stackr-proxy")
+	must(t, err)
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
 	caddy.ConfigAutosavePath = dir + "/autosave.json"
 	caddy.DefaultStorage.Path = dir
 	t.Setenv("XDG_DATA_HOME", dir)

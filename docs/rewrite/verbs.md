@@ -2,7 +2,7 @@
 
 Every v1 scope bullet in REWRITE.md maps to `*service.Orchestrator` methods
 below (files under `internal/service/`). Step 4 handlers call these and
-nothing else.
+nothing else. Signatures: `go doc -all ./internal/service Orchestrator`.
 
 ## Conventions for step 4
 
@@ -72,4 +72,4 @@ serialises the jobs.
 | orphans | daily cron | `orphans` |
 | panel-backup | `PanelBackupNow` | `panel-backup` |
 | upgrade | `Upgrade` | `panel` |
-| imagewatch | `CheckImages`, the interval sweep | `imagewatch` + scope |
+| imagewatch | `CheckImages`, the interval sweep | `imagewatch`, `imagewatch:<stack>/<tile>` (`imagewatch:all` for the sweep) |

@@ -212,7 +212,7 @@ session started by darhvader from the START HERE line, no Fable.
     carry the admin listener (Caddy drops to localhost otherwise).
   - `vip` integration test needs NET_ADMIN; passes under `unshare -rn`.
     `make test-integration` added (Docker, Docker Hub, MinIO, Caddy).
-- [ ] [F+O] step 3 services
+- [x] [F+O] step 3 services
   - session A (leaves 1–15) done: 2026-09-24
     - org: API key minting lives in leaf/user; invite TTL 7d; only the owner role is writable.
     - user: password minimum 8.
@@ -226,6 +226,17 @@ session started by darhvader from the START HERE line, no Fable.
     - managed: env scope_id is the env id; on_remove is keep|drop.
     - release: `ReleaseTileStore.ImageIDs` added. job: `JobStore.ListTouching` added.
     - backup: `BackupRunStore.ListByPrefix` added; prefix is `stackr/<org>/<volume>/<schedule>` (was org/stack/tile/backup); `VolumeFor` not built (every schedule hangs off a volume row, leaf/volume names it); the dest-ref parser (`Resolve`) lives here; deleting a destination a schedule uses is refused.
+  - session B (flows 16–25) done: 2026-09-24
+    - stack file: `files:` mounts and `shared:` are refused (not built).
+    - promote: no per-tile rollback helpers; a failed apply leaves done tiles on the new release.
+    - backup: restore skips the old restart-cleanup steps.
+    - proxy: `proxy_custom` is not fed to the builder yet; the proxy container needs `DNS_API_TOKEN` and its XDG dirs on a volume (step 5).
+    - proxy: `trusted_proxies` takes IPs and CIDRs only; the `cloudflare` keyword (edge-range fetch) is not built.
+    - upgrade: `Config.PanelSpec` is the installer's to supply (step 5); `stackrd upgrade-swap` runs the swap.
+    - new `storetest` package, so in-package flow tests can seed a store without an import cycle.
+    - promote exports `NormalizeRepo` and `Remove` for the service's webhook and delete jobs.
+    - jobs get no `ParamSet` (DECIDE 17 b); DECIDE 35–39 added.
+    - verb list and job lock sets: `docs/rewrite/verbs.md`.
 - [ ] [F+O] step 4 API + CLI
 - [ ] [F+O] step 5 installer + self-upgrade
 - [ ] [F+O] step 6 UI
