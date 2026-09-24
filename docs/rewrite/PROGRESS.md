@@ -259,6 +259,16 @@ session started by darhvader from the START HERE line, no Fable.
     - waits on step 4: no API route or CLI verb starts an upgrade yet, so the VM run queued the job row by hand; the `stackr` host wrapper execs a CLI that is still the step 4 stub.
     - an upgrade swaps the panel only; the proxy stays on the image it was installed with (DECIDE 49).
     - the `cloudflare` keyword for `--proxy` is not built; the flag takes IPs and CIDRs.
+- [x] [F+O] step 3b cron and function tiles — done: 2026-09-24 (branch `rewrite-step-3b`, stacked on step 5)
+    - kinds `cron` and `function` on `tiles` with `schedule`, `trigger`, `paused`, `timeout_minutes`; B26 refusals verbatim from tilelifecycle.md; a run kind builds from `git_url` or runs `image:`, one of the two.
+    - `leaf/run`: `runs` table (keep 50 per tile), log file `$DATA_DIR/runs/<tile>/<run>.log` capped to the last 1 MiB; runs left `running` at boot are failed.
+    - `flow/run` (edge run -> deploy): row first, then the job; the container is built by `deploy.Spec`, waited on, removed; ok / exit code / timeout / stopped.
+    - deploy of a run kind starts no container; a cron reloads the schedule table, an on_deploy function queues a run (after `Deploy` and after promote).
+    - job kind `run`: lock set tile + `run:<id>`, no 30-minute cap (`jobs.Options.Uncapped`), the tile's timeout instead.
+    - verbs `RunTile`, `PauseTile`, `Runs`, `Run`, `StopRun`, `RunLog`, `FollowRunLog`; `TileStatus` adds `last_run`, `next_run`, `paused`; Stop on a cron pauses, on a function refuses; Restart refuses both.
+    - routes `POST tile/run`, `POST tile/pause`, `GET tile/runs`, `GET tile/runs/:run`, `DELETE tile/runs/:run`; `?run=` on logs and the log stream. CLI `stackr tile run|pause|resume|runs`, `logs --run`, `stop --run`, `--schedule/--trigger/--timeout`.
+    - stack file: `kind: cron` + `schedule:`, `kind: function` + `trigger:`, `timeout_minutes:`; the plan prints old and new schedule, trigger and timeout.
+    - no stacked PR opened (the builder was told not to push); DECIDE 52 to 63 added.
 - [ ] [F+O] step 6 UI
 
 ## DECIDE:
@@ -539,3 +549,54 @@ Raised by step 5 (builder took the lean; flip any):
    answer means editing it (or a clean reinstall). Options: (a) keep;
    (b) a `stackr-install --reconfigure` that rewrites it and recreates
    both containers.
+
+Raised by step 3b (builder took the lean; flip any):
+
+52. (step 3b) **A cron or function may run an image.** The spec says deploy
+   builds from git; the tile also takes `image:` instead (one of the two,
+   like service vs image tiles), pinned by digest on deploy. Options:
+   (a) keep; (b) git only. Lean (a).
+53. (step 3b) **`timeout_minutes` is a fourth column.** The spec lists three
+   columns but a run's timeout has to live somewhere; 0 is stored as 30, no
+   upper bound (tilelifecycle.md). Options: (a) keep; (b) a setting instead
+   of a column. Lean (a).
+54. (step 3b) **`runs` has `job_id`, `reason`, `created_at` too.** Needed for
+   StopRun (the job to cancel), the overlap and timeout wording, and order.
+   Options: (a) keep; (b) trim to the spec list. Lean (a).
+55. (step 3b) **A run holds its tile's lock.** The lock set is the tile plus
+   `run:<id>`, so a long run makes a deploy or promote of that tile wait
+   for it (never the other way round mid-run). Options: (a) keep; (b) lock
+   only `run:<tile>` so a deploy may swap the image under a running run.
+   Lean (a).
+56. (step 3b) **Overlap is refused at queue time.** The spec says "superseded
+   by the lock set"; lock-set superseding would cancel the older queued
+   job instead. Built as: a second run while one is queued or running is
+   written `cancelled` with "previous run still going" and gets no job.
+   Options: (a) keep; (b) queue it behind the first. Lean (a).
+57. (step 3b) **Stop on a cron answers an empty job.** `StopTile` pauses a
+   cron with no job, so `POST tile/stop` answers 202 with a zero job and
+   the CLI prints it. Options: (a) keep; (b) the handler answers the tile
+   (200) for a cron. Lean (b), small follow-up.
+58. (step 3b) **Start on a cron or function is not guarded.** It queues a
+   start job that finds no replicas. Options: (a) Start on a cron resumes
+   it, on a function refuses; (b) keep. Lean (a).
+59. (step 3b) **`kind:` and `type:` are one stack-file key.** Either spelling
+   works; both given and different is a plan blocker. Options: (a) keep;
+   (b) `kind:` only. Lean (a).
+60. (step 3b) **Each run re-prepares like a deploy.** `deploy.Spec` runs the
+   managed-slice reconcile and the image pull check before every run, so
+   slices and credentials are current. Options: (a) keep; (b) reuse what
+   the deploy prepared. Lean (a).
+61. (step 3b) **A source edit on a cron waits for the next deploy.** The
+   Redeploy effect only redeploys a tile with replicas; a run kind has
+   none, so it keeps the pinned image until Deploy or a promote (as a
+   stopped service does, B34). Options: (a) keep; (b) redeploy run kinds
+   on a source edit. Lean (a).
+62. (step 3b) **`trigger` on a non-function uses the extract's wording**
+   "run_on_deploy applies to function tiles only" (verbatim rule), though
+   the key is now `trigger`. Options: (a) keep; (b) "trigger applies to
+   function tiles only". Lean (b) once the UI says "trigger".
+63. (step 3b) **Runs cut short by a restart are failed, not retried.** A run
+   left `running` at boot is closed failed "stackrd restarted while this
+   run was going"; its job is not re-run. Options: (a) keep; (b) re-queue
+   it. Lean (a).
