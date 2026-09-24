@@ -7,3 +7,54 @@ linters:
   enable:
     - gocritic
     - misspell
+    - depguard
+  settings:
+    # Service tree rules (AGENTS.md "Layering rules"). The compiler covers
+    # imports into internal/service/internal from outside; depguard covers
+    # the sibling rules the compiler cannot see.
+    depguard:
+      rules:
+        leaf-no-sibling:
+          list-mode: lax
+          files:
+            - "**/internal/service/internal/leaf/**"
+          deny:
+            - pkg: github.com/FyrmForge/stackr/internal/service/internal/leaf
+              desc: a leaf never calls another leaf; pass facts in as arguments
+            - pkg: github.com/FyrmForge/stackr/internal/service/internal/flow
+              desc: a leaf never calls a flow
+        flow-no-sibling:
+          list-mode: lax
+          files:
+            - "**/internal/service/internal/flow/**"
+            - "!**/internal/service/internal/flow/promote/**"
+            - "!**/internal/service/internal/flow/deploy/**"
+          deny:
+            - pkg: github.com/FyrmForge/stackr/internal/service/internal/flow
+              desc: flow -> flow only on listed edges (promote -> deploy, deploy -> managed)
+        flow-promote-edges:
+          list-mode: lax
+          files:
+            - "**/internal/service/internal/flow/promote/**"
+          allow:
+            - github.com/FyrmForge/stackr/internal/service/internal/flow/deploy
+          deny:
+            - pkg: github.com/FyrmForge/stackr/internal/service/internal/flow
+              desc: promote may only call flow/deploy
+        flow-deploy-edges:
+          list-mode: lax
+          files:
+            - "**/internal/service/internal/flow/deploy/**"
+          allow:
+            - github.com/FyrmForge/stackr/internal/service/internal/flow/managed
+          deny:
+            - pkg: github.com/FyrmForge/stackr/internal/service/internal/flow
+              desc: deploy may only call flow/managed
+        service-internal-stays-inside:
+          list-mode: lax
+          files:
+            - "$all"
+            - "!**/internal/service/**"
+          deny:
+            - pkg: github.com/FyrmForge/stackr/internal/service/internal
+              desc: only the orchestrator (internal/service) may use service internals

@@ -150,6 +150,10 @@ tick `[x] step 0` below when the done gate passes, open the PR `rewrite`
     form.GetError(...) != ""`, form plumbing, false positive). Scaffold
     handlers get rewritten in steps 4/6. `.gitignore` changed to track
     `.claude/skills/` (DECIDE 11).
+  - [x] step 0 / task 5: `depguard` rules in `.golangci.yml`. Throwaway
+    check: leaf → leaf, backup → deploy, promote → managed fail;
+    promote → deploy, deploy → managed pass. Throwaways deleted. `flow/jobs`
+    edges not covered (DECIDE 12).
 - [ ] step 1 groundwork
 - [ ] step 2 docker wrapper
 - [ ] step 3 services
@@ -184,6 +188,16 @@ you disagree with:
    `!.claude/skills/` (settings.local.json stays ignored). Options: (a)
    keep; (b) revert and `git add -f` skill files; (c) move the skill to
    `.agents/skills/`.
+12. **`flow/jobs` edges vs depguard.** REWRITE.md says every flow that
+   starts work does it through `flow/jobs`, and step 1 says jobs run flows.
+   Both are flow → flow edges the two listed edges (promote → deploy,
+   deploy → managed) do not allow, and both directions at once would be an
+   import cycle. Step 0 lint enforces only the two listed edges. Options:
+   (a) the orchestrator enqueues, `flow/jobs` gets the flow funcs injected
+   as handlers (no flow imports jobs, jobs imports no flow; lint unchanged);
+   (b) add a `* → flow/jobs` exception and inject handlers into jobs;
+   (c) move jobs out of `flow/` (e.g. `internal/service/internal/jobs`).
+   Planner of step 0 leans (a).
 
 Raised by the extract agents, real decisions, not settled:
 
