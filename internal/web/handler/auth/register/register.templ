@@ -21,8 +21,6 @@ templ registerForm(c echo.Context, f RegisterForm, errors map[string]string) {
 		hx-post="/register"
 		hx-swap="outerHTML"
 		hx-target="#register-form"
-		method="POST"
-		action="/register"
 	>
 		@form.CSRFField(c)
 		if form.GetError(errors, "general") != "" {

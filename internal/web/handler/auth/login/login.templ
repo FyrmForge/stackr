@@ -21,8 +21,6 @@ templ loginForm(c echo.Context, f LoginForm, errors map[string]string) {
 		hx-post="/login"
 		hx-swap="outerHTML"
 		hx-target="#login-form"
-		method="POST"
-		action="/login"
 	>
 		@form.CSRFField(c)
 		if form.GetError(errors, "general") != "" {
