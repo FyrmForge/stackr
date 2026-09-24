@@ -132,6 +132,11 @@ tick `[x] step 0` below when the done gate passes, open the PR `rewrite`
 ## Build steps (Opus, one fresh session + one stacked PR each)
 
 - [ ] step 0 scaffold and docs
+  - [x] step 0 / task 1: `cmd/stackrd`, `cmd/stackr`, `cmd/stackr-install`;
+    `run() error` + `--version` fix both lint findings. `installcli` =
+    `go install ./cmd/stackr`, `installer` = `bin/stackr-install`. `hamr dev`
+    check still owed (not running); `./bin/stackrd` served `/` and a static
+    asset with 200.
 - [ ] step 1 groundwork
 - [ ] step 2 docker wrapper
 - [ ] step 3 services

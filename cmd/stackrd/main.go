@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"flag"
+	"fmt"
 	"log/slog"
 	"os"
 	"time"
@@ -48,18 +49,30 @@ var (
 
 func main() {
 	generateFlag := flag.Bool("generate", false, "generate static pages and exit")
+	versionFlag := flag.Bool("version", false, "print the version and exit")
 	flag.Parse()
+
+	if *versionFlag {
+		fmt.Println(version)
+		return
+	}
 
 	log := logging.New(!envDevMode)
 	slog.SetDefault(log)
 
+	if err := run(log, *generateFlag); err != nil {
+		log.Error("stackrd stopped", "error", err)
+		os.Exit(1)
+	}
+}
+
+func run(log *slog.Logger, generate bool) error {
 	components.StaticBaseURL = envStaticBaseURL
 
 	// Base URL (cookie domain & CORS).
 	baseOrigin, baseDomain, err := config.ParseBaseURL(envBaseURL)
 	if err != nil {
-		log.Error("invalid BASE_URL", "error", err)
-		os.Exit(1)
+		return fmt.Errorf("invalid BASE_URL: %w", err)
 	}
 	components.BaseURL = baseOrigin
 
@@ -78,8 +91,7 @@ func main() {
 		server.WithTrustedProxies(envTrustedProxies...),
 	)
 	if err != nil {
-		log.Error("failed to create server", "error", err)
-		os.Exit(1)
+		return fmt.Errorf("create server: %w", err)
 	}
 
 	if baseOrigin != "" {
@@ -91,12 +103,11 @@ func main() {
 
 	// Static page generation — no heavy deps needed.
 	web.RegisterStaticPages(srv)
-	if *generateFlag {
+	if generate {
 		if err := srv.GenerateStatic("generated"); err != nil {
-			log.Error("generate static pages failed", "error", err)
-			os.Exit(1)
+			return fmt.Errorf("generate static pages: %w", err)
 		}
-		return
+		return nil
 	}
 
 	// Database.
@@ -104,14 +115,12 @@ func main() {
 	defer cancel()
 	database, err := db.ConnectContext(connectCtx, envDatabasePath)
 	if err != nil {
-		log.Error("failed to connect to database", "error", err)
-		os.Exit(1)
+		return fmt.Errorf("connect to database: %w", err)
 	}
 
 	// Run migrations at startup.
 	if err := db.Migrate(database, appdb.MigrateConfig()); err != nil {
-		log.Error("migration failed", "error", err)
-		os.Exit(1)
+		return fmt.Errorf("migrate: %w", err)
 	}
 	log.Info("migrations completed")
 	store := sqlite.NewStore(database)
@@ -128,8 +137,7 @@ func main() {
 	// File storage (local).
 	fileStorage, err := storage.NewLocalStorage(envStoragePath)
 	if err != nil {
-		log.Error("failed to init storage", "error", err)
-		os.Exit(1)
+		return fmt.Errorf("init storage: %w", err)
 	}
 
 	// Email sender. In dev (EMAIL_MOCK=true), ships messages to the hamr dev
@@ -157,8 +165,5 @@ func main() {
 	})
 
 	log.Info("starting server", "port", envPort, "devMode", envDevMode)
-	if err := srv.Start(); err != nil {
-		log.Error("server stopped", "error", err)
-		os.Exit(1)
-	}
+	return srv.Start()
 }

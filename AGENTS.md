@@ -17,7 +17,9 @@ make templint       # Lint .templ files for silent failures and a11y issues
 ## Project Structure
 
 ```
-cmd/site/              Application entry point (env config loaded here)
+cmd/stackrd/             Panel entry point (env config loaded here)
+cmd/stackr/              CLI entry point
+cmd/stackr-install/      Installer entry point
 internal/db/            Database connection + embedded migrations
 internal/repo/           Data access layer (Store interface + SQLite impl)
 internal/web/            HTTP layer

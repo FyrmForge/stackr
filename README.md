@@ -24,7 +24,9 @@ The server starts at [http://localhost:3000](http://localhost:3000) (proxied fro
 
 ```bash
 hamr dev            # Run dev server (live reload)
-make build          # Build binary to bin/site
+make build          # Build the panel to bin/stackrd
+make installcli     # Install the stackr CLI
+make installer      # Build bin/stackr-install
 make test           # Run tests
 make lint           # Run golangci-lint
 make templint       # Lint .templ files
@@ -36,7 +38,9 @@ make db-sh          # Open sqlite3 shell to local dev DB
 ## Project Structure
 
 ```
-cmd/site/              Application entry point
+cmd/stackrd/             Panel (web UI + API), later also `stackrd proxy`
+cmd/stackr/              CLI
+cmd/stackr-install/      Installer
 internal/
   config/                Environment configuration
   db/                    Database + migrations

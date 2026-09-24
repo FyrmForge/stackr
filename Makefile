@@ -1,4 +1,4 @@
-.PHONY: build test lint templint db-sh clean install check-templ generate check-node-modules css-build
+.PHONY: build installcli installer test lint templint db-sh clean install check-templ generate check-node-modules css-build
 
 # Force bash so the ENV_LOAD eval below works cross-shell (sh on Debian/Ubuntu
 # is dash, which doesn't grok `eval "$(...)"` quoting consistently).
@@ -42,17 +42,25 @@ VERSION := $(shell git rev-parse --short HEAD 2>/dev/null || echo "dev")
 fmt:
 	go fmt ./...
 
-## build: Build the site binary
+## build: Build the panel binary (bin/stackrd)
 build: check-templ check-node-modules
 	templ generate
 	cd frontend && npm run css:build
 	hamr gen static
-	go build -ldflags "-X main.version=$(VERSION)" -o bin/site ./cmd/site
+	go build -ldflags "-X main.version=$(VERSION)" -o bin/stackrd ./cmd/stackrd
 	$(MAKE) generate
+
+## installcli: Install the stackr CLI into GOBIN
+installcli:
+	go install -ldflags "-X main.version=$(VERSION)" ./cmd/stackr
+
+## installer: Build the installer binary (bin/stackr-install)
+installer:
+	go build -ldflags "-X main.version=$(VERSION)" -o bin/stackr-install ./cmd/stackr-install
 
 ## generate: Generate static pages
 generate:
-	$(ENV_LOAD) ./bin/site --generate
+	$(ENV_LOAD) ./bin/stackrd --generate
 
 ## test: Run all tests
 test: check-templ

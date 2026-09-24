@@ -60,11 +60,11 @@ cmd = "npm run css:build"
 debounce = 200
 
 [[dev.watch]]
-name = "site"
+name = "stackrd"
 watch = ["**/*.go", "**/*.templ", ".env"]
 ignore = ["*_templ.go", "*_test.go"]
-cmd = "go build -o ./bin/site ./cmd/site && ./bin/site --generate"
-run = "./bin/site"
+cmd = "go build -o ./bin/stackrd ./cmd/stackrd && ./bin/stackrd --generate"
+run = "./bin/stackrd"
 depends = ["templ"]
 reload = "full"
 
