@@ -21,7 +21,8 @@ cmd/stackrd/             Panel entry point (env config loaded here)
 cmd/stackr/              CLI entry point
 cmd/stackr-install/      Installer entry point
 internal/db/            Database connection + embedded migrations
-internal/repo/           Data access layer (Store interface + SQLite impl)
+internal/repo/           Scaffold users table; replaced in step 1 by the
+                         per-table store under internal/service/internal/store/
 internal/web/            HTTP layer
 internal/web/server.go   Route registration + middleware groups
 internal/web/handler/    One package per page, mirroring URL path
@@ -76,8 +77,10 @@ handler tree, in `internal/auth/` or similar.
 ### Creating a New Page Package
 
 1. Create a directory at `internal/web/handler/<path>/<page>/`
-2. `handler.go` (package `<page>`) — `NewHandler(deps)` returning `*handler`,
-   methods like `Page` (GET) and `Submit` (POST), plus any HTMX helper methods
+2. `handler.go` (package `<page>`) — `NewHandler(orch)` returning `*handler`,
+   methods like `Page` (GET) and `Submit` (POST), plus any HTMX helper methods.
+   The handler's only dependency is `*service.Orchestrator`; it never holds a
+   store, a Docker client or any other service.
 3. `<page>.templ` (same package) — the page's templates
 4. Register routes in `internal/web/server.go` — page route + every HTMX
    helper route the page exposes
@@ -93,32 +96,43 @@ import (
     "github.com/FyrmForge/hamr/pkg/respond"
     "github.com/labstack/echo/v4"
 
-    "github.com/FyrmForge/stackr/internal/repo"
+    "github.com/FyrmForge/stackr/internal/service"
 )
 
 type handler struct {
-    store repo.Store
+    orch      *service.Orchestrator
+    FormRules validate.Form
 }
 
-func NewHandler(store repo.Store) *handler {
-    return &handler{store: store}
+func NewHandler(orch *service.Orchestrator) *handler {
+    return &handler{orch: orch, FormRules: newFormRules()}
 }
 
 // GET /things
 func (h *handler) Page(c echo.Context) error {
-    return respond.HTML(c, http.StatusOK, ThingsPage(c))
+    things, err := h.orch.ListThings(c.Request().Context())
+    if err != nil {
+        return err
+    }
+    return respond.HTML(c, http.StatusOK, ThingsPage(c, toView(things)))
 }
 
 // POST /things
 func (h *handler) Submit(c echo.Context) error {
     var f CreateForm
-    c.Bind(&f)
+    if err := c.Bind(&f); err != nil {
+        return echo.NewHTTPError(http.StatusBadRequest, "invalid form data")
+    }
 
+    // Form shape only (required, type, length). Domain rules live in the service.
     if errs := h.FormRules.Validate(c); errs != nil {
         return respond.HTML(c, http.StatusUnprocessableEntity, createForm(c, f, errs))
     }
 
-    // Save to database...
+    // One service call. The service decides, checks domain rules and saves.
+    if err := h.orch.CreateThing(c.Request().Context(), f.Name); err != nil {
+        return err
+    }
 
     middleware.SetFlash(c, "Created successfully!", middleware.FlashSuccess)
     return respond.Redirect(c, "/things")
@@ -179,12 +193,20 @@ validate.In("admin", "user")    // func(string) string
 validate.AgeMin(18)              // func(string) string
 ```
 
+### Who validates what
+
+- **Handlers check form shape only:** required, type (email, number, URL),
+  length. Nothing that needs the database or a domain fact.
+- **Services own every domain rule:** uniqueness, slug grammar, "may this
+  env be deleted", permissions-derived defaults, status. The service returns
+  a typed error; the handler maps it to a field error or a status code.
+- **The store validates nothing** beyond schema constraints (FK, unique, not
+  null).
+
 ### Two-Level Validation
 
 1. **Blur** (inline): HTMX `hx-post` to validate a single field, return OOB swap
 2. **Submit** (full): Validate all fields, return 422 with form re-render
-
-Never validate in the repo/store layer.
 
 ### Form API — Define Rules Once
 
@@ -198,13 +220,13 @@ type CreateForm struct {
 }
 
 type Handler struct {
-    store          repo.Store
+    orch            *service.Orchestrator
     CreateFormRules validate.Form
 }
 
-func NewHandler(store repo.Store) *Handler {
+func NewHandler(orch *service.Orchestrator) *Handler {
     return &Handler{
-        store: store,
+        orch: orch,
         CreateFormRules: validate.NewForm(
             validate.WithOOBRenderer(form.OOBValidator),
             validate.WithGeneralError("Please fix the errors below."),
@@ -218,13 +240,25 @@ func NewHandler(store repo.Store) *Handler {
 // POST /things
 func (h *Handler) Create(c echo.Context) error {
     var f CreateForm
-    c.Bind(&f)
+    if err := c.Bind(&f); err != nil {
+        return echo.NewHTTPError(http.StatusBadRequest, "invalid form data")
+    }
 
+    // Shape check: required, email format.
     if errs := h.CreateFormRules.Validate(c); errs != nil {
         return respond.HTML(c, http.StatusUnprocessableEntity, createForm(c, f, errs))
     }
 
-    // Save to database...
+    // Domain rules (e.g. "email already taken") come back as typed errors.
+    err := h.orch.CreateThing(c.Request().Context(), f.Name, f.Email)
+    if errors.Is(err, service.ErrEmailTaken) {
+        errs := map[string]string{"email": "Email already registered"}
+        return respond.HTML(c, http.StatusUnprocessableEntity, createForm(c, f, errs))
+    }
+    if err != nil {
+        return err
+    }
+
     middleware.SetFlash(c, "Created successfully!", middleware.FlashSuccess)
     return respond.Redirect(c, "/things")
 }
@@ -246,7 +280,8 @@ validate.Field("email",
 )
 ```
 
-Context-aware rules for cross-field validation:
+Context-aware rules for cross-field validation (still form shape: two fields
+of the same form agreeing, never a lookup):
 
 ```go
 validate.Field("password_confirm", validate.Required).
@@ -401,9 +436,19 @@ Custom components via `@apply` in `frontend/css/input.css`:
 
 ## Database
 - Migrations in `internal/db/migrations/` (sequential numbering)
-- Use `sqlx` for queries in repo implementations
+- Use `sqlx` for queries in the store
 - Migrations run during server startup via `db.Migrate(...)`
-- Store interface in `internal/repo/repo.go`
+- **The store is split by table.** It lives in
+  `internal/service/internal/store/`: one file and one small interface per
+  table (`tiles.go` → `TileStore`), one shared `Tx` so a flow can write
+  several tables in one transaction. There is no single store interface. A
+  table file only writes SQL against its own table; a join lives in the
+  query file of the flow that owns the question, with a one-line reason.
+  (The scaffold's `internal/repo/` is replaced by this in step 1.)
+- **Migrations stay editable until the first real install.** Until then,
+  edit `001_initial` in place instead of stacking fix-up migrations. After
+  the first real install the baseline is frozen and changes are additive
+  only (new numbered migrations).
 
 ## Auth
 
@@ -433,7 +478,7 @@ func (h *handler) Submit(c echo.Context) error {
         return echo.NewHTTPError(http.StatusBadRequest, "invalid form data")
     }
 
-    user, err := h.authService.Authenticate(c.Request().Context(), f.Email, f.Password)
+    user, err := h.orch.Authenticate(c.Request().Context(), f.Email, f.Password)
     if err != nil { /* return form error */ }
 
     session, err := h.sessionManager.CreateSession(c.Request().Context(), user.ID, nil)
@@ -468,4 +513,4 @@ Pluggable file storage with `hamr/pkg/storage`:
 - Use `hamr/pkg` helpers instead of reimplementing
 - Prefer `respond.HTML`/`respond.JSON` over raw `c.HTML()`
 - Add `// GET /path` comments above handler methods
-- Keep handlers thin — business logic in service layer
+- Keep handlers thin — business logic in service layer (see "Layering rules")

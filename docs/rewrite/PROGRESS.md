@@ -137,6 +137,9 @@ tick `[x] step 0` below when the done gate passes, open the PR `rewrite`
     `go install ./cmd/stackr`, `installer` = `bin/stackr-install`. `hamr dev`
     check still owed (not running); `./bin/stackrd` served `/` and a static
     asset with 200.
+  - [x] step 0 / task 2: `AGENTS.md` examples call `*service.Orchestrator`;
+    "Who validates what", store split by table, migrations editable until
+    first install.
 - [ ] step 1 groundwork
 - [ ] step 2 docker wrapper
 - [ ] step 3 services
