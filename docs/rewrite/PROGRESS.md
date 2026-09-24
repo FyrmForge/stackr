@@ -121,13 +121,15 @@ extracts/, this file.
 
 - [x] this file updated with a "start here" line for the Opus step 0 session
 
-**START HERE (Opus, step 4):** branch `rewrite-step-4`, stacked on
-`rewrite-step-3` (PR #10, GitHub stack #9). Read `REWRITE.md` "Method",
-`docs/rewrite/verbs.md`, then `docs/rewrite/tasks/step-4.md`, do its tasks
-in order, commit per task, tick `[x] step 4` when the done gate passes, PR
-`rewrite-step-4` → `rewrite-step-3`, then `gh stack link 9 <pr>`. Do not
-read `../stackr-old`; the extracts in `docs/rewrite/extracts/` are the
-only view of the old code.
+**START HERE (Opus, step 6):** branch `rewrite-step-6`, stacked on
+`rewrite-step-4` (PR #11, GitHub stack #9); step 5 runs in parallel on
+`rewrite-step-5` and is re-stacked after. Step 6 runs as: session A =
+tasks 1–4 (foundation), then sessions B (auth/org/stack pages) and C
+(env/tile/admin pages) in parallel worktrees, then session D = tasks
+11–13. Read `REWRITE.md` "Method", `docs/rewrite/verbs.md`,
+`docs/openapi.json`, then `docs/rewrite/tasks/step-6.md`. Do not read
+`../stackr-old`; `docs/rewrite/extracts/templ-ref.md` is the only view of
+the old screens.
 
 ## Build steps (one fresh Opus session + one stacked PR each)
 
