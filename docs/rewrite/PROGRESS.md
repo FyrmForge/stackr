@@ -121,13 +121,12 @@ extracts/, this file.
 
 - [x] this file updated with a "start here" line for the Opus step 0 session
 
-**START HERE (Opus, step 1):** branch `rewrite-step-1`, stacked on
-`rewrite` (step 0 merged into it as PR #6). Read `REWRITE.md` "Method"
-and `docs/rewrite/tasks/step-1.md`, do its tasks in order, commit per
-task, tick `[x] step 1` below when the done gate passes, open the PR
-`rewrite-step-1` → `rewrite`. Do not read `../stackr-old`; the extracts
-in `docs/rewrite/extracts/` are the only view of the old code. `hamr dev`
-check from step 0 is still owed to darhvader.
+**START HERE (Opus, step 2):** branch `rewrite-step-2`, stacked on
+`rewrite-step-1` (PR #7). Read `REWRITE.md` "Method" and
+`docs/rewrite/tasks/step-2.md`, do its tasks in order, commit per task,
+tick `[x] step 2` below when the done gate passes, open the PR
+`rewrite-step-2` → `rewrite-step-1`. Do not read `../stackr-old`; the
+extracts in `docs/rewrite/extracts/` are the only view of the old code.
 
 ## Build steps (one fresh Opus session + one stacked PR each)
 
