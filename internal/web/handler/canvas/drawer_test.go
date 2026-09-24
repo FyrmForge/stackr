@@ -169,6 +169,12 @@ func TestDrawerActions(t *testing.T) {
 	if len(ps) != 1 || ps[0].Name != "pass" {
 		t.Errorf("params = %+v", ps)
 	}
+	b := newBrowser(t, "owner")
+	rec = b.do(t, "POST", "/acme/-/drawer/rename", url.Values{"name": {"Acme Two"}}, true)
+	to := rec.Header().Get("HX-Redirect")
+	if body := b.do(t, "GET", to, nil, false).Body.String(); !strings.Contains(body, `<side-drawer open tab="settings">`) || !strings.Contains(body, `value="Acme Two"`) {
+		t.Errorf("rename lands on %q without its drawer open", to)
+	}
 	rec = s.Do(t, "POST", "/acme/shop/dev/-/drawer/color", url.Values{"color": {"teal"}})
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `value="teal" checked`) {
 		t.Errorf("colour = %d %s", rec.Code, rec.Body)

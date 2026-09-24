@@ -1,7 +1,6 @@
 package canvas
 
 import (
-	"net/http"
 	"time"
 
 	"github.com/a-h/templ"
@@ -104,18 +103,16 @@ func (h *handler) mountOrg(site *echo.Group, a *middleware.Access) {
 	owner, manage := a.Require("org.write"), a.Require("member.manage")
 	site.POST(o+"/rename", h.orgAction("settings", func(c echo.Context, og *service.Org) (string, error) {
 		n, err := h.orch.RenameOrg(c.Request().Context(), og.ID, c.FormValue("name"))
-		if err == nil { // the slug moved: the page and its drawer follow
-			c.Response().Header().Set("HX-Redirect", "/"+n.Slug+"?drawer=org:"+n.ID+"&tab=settings")
-			return "", c.NoContent(http.StatusOK)
+		if err != nil {
+			return "", err
 		}
-		return "", err
+		return redirect(c, "/?drawer=org:"+n.ID+"&tab=settings") // org cards are on home
 	}), owner)
 	site.POST(o+"/delete", h.orgAction("settings", func(c echo.Context, og *service.Org) (string, error) {
 		if err := h.orch.DeleteOrg(c.Request().Context(), og.ID); err != nil {
 			return "", err
 		}
-		c.Response().Header().Set("HX-Redirect", "/")
-		return "", c.NoContent(http.StatusOK)
+		return redirect(c, "/")
 	}), owner)
 	site.POST(o+"/invite", h.orgAction("members", func(c echo.Context, og *service.Org) (string, error) {
 		i, err := h.orch.Invite(c.Request().Context(), og.ID, c.FormValue("email"), c.FormValue("role"), middleware.Principal(c).User.ID)
