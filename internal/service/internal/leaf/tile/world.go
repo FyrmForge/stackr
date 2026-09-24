@@ -77,36 +77,10 @@ func (l *Leaf) Start(ctx context.Context, t store.Tile, spec docker.ContainerSpe
 	return id, nil
 }
 
-// gate reads two fields off one inspect: healthy (or running past the grace
-// period when the container has no HEALTHCHECK, the image's own included)
-// AND restart count still zero. A crash loop is "running" between crashes.
+// gate is docker.Healthy with the tile's timings; the start period is
+// added to the deadline.
 func (l *Leaf) gate(ctx context.Context, id string, startPeriod time.Duration) error {
-	start := time.Now()
-	deadline := start.Add(l.Gate.Deadline + startPeriod)
-	for {
-		d, err := l.docker.Inspect(ctx, id)
-		switch {
-		case err != nil:
-			return err
-		case d.RestartCount > 0:
-			return errors.New("the container restarted during the health check")
-		case !d.Running:
-			return errors.New("the container exited during the health check")
-		case d.Health == "unhealthy":
-			return errors.New("the container reported unhealthy")
-		case d.Health == "healthy":
-			return nil
-		case d.Health == "" && time.Since(start) >= l.Gate.Grace:
-			return nil
-		case time.Now().After(deadline):
-			return errors.New("the container was not healthy before the deadline")
-		}
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(l.Gate.Poll):
-		}
-	}
+	return docker.Healthy(ctx, l.docker.Inspect, id, l.Gate.Poll, l.Gate.Grace, l.Gate.Deadline+startPeriod)
 }
 
 // Replicas are the tile's replica containers, any state.

@@ -53,6 +53,13 @@ func main() {
 		fmt.Println(version)
 		return
 	}
+	if flag.Arg(0) == "proxy" {
+		if err := runProxy(); err != nil {
+			fmt.Fprintln(os.Stderr, "stackrd proxy:", err)
+			os.Exit(1)
+		}
+		return
+	}
 
 	log := logging.New(!envDevMode)
 	slog.SetDefault(log)

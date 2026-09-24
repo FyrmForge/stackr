@@ -410,3 +410,13 @@ Raised by step 3 session B (builder took the lean; flip any):
    only when every tile it swaps is `update_policy: auto`; a mixed env
    waits for the button. Options: (a) keep; (b) a regex policy too.
    Lean (a).
+33. **Panel swap runs in a helper.** A process cannot gate its successor
+   after stopping its own container, so `Upgrade` pulls, archives, then
+   runs a one-shot `stackr-upgrader` container from the new image
+   (`stackrd upgrade-swap`, spec as JSON in `STACKR_SWAP_SPEC`). It stops
+   the old panel (kept), runs the new one as `stackr-<version>`, gates it
+   like a tile, then removes the old or puts it back. The panel is found
+   by the `stackr.role=panel` label, not its name. `upgrade_archive` is
+   recorded at launch: the old panel is gone by the time the swap ends,
+   and the archive restores either way. Options: (a) keep; (b) the new
+   panel records the outcome on boot. Lean (a).
