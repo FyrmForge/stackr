@@ -51,6 +51,8 @@ type ReleaseTileStore interface {
 	Create(ctx context.Context, r ReleaseTile) error
 	Get(ctx context.Context, id string) (ReleaseTile, error)
 	ListByRelease(ctx context.Context, releaseID string) ([]ReleaseTile, error)
+	// ImageIDs is every image any release pins: image cleanup keeps them.
+	ImageIDs(ctx context.Context) ([]string, error)
 	Update(ctx context.Context, r ReleaseTile) error
 	Delete(ctx context.Context, id string) error
 }
@@ -61,4 +63,10 @@ type releaseTiles struct{ crud[ReleaseTile] }
 
 func (s releaseTiles) ListByRelease(ctx context.Context, releaseID string) ([]ReleaseTile, error) {
 	return s.many(ctx, "release_id = ?", releaseID)
+}
+
+func (s releaseTiles) ImageIDs(ctx context.Context) ([]string, error) {
+	var ids []string
+	err := s.q.SelectContext(ctx, &ids, "SELECT DISTINCT image_id FROM release_tiles WHERE image_id IS NOT NULL")
+	return ids, mapErr(err)
 }
