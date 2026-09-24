@@ -129,9 +129,13 @@ task, tick `[x] step 1` below when the done gate passes, open the PR
 in `docs/rewrite/extracts/` are the only view of the old code. `hamr dev`
 check from step 0 is still owed to darhvader.
 
-## Build steps (Opus, one fresh session + one stacked PR each)
+## Build steps (one fresh Opus session + one stacked PR each)
 
-- [x] step 0 scaffold and docs
+Runner key: `[F+O]` = Fable planning session drives an Opus sub-agent,
+Fable verifies the gates and launches the next step; `[O]` = a plain Opus
+session started by darhvader from the START HERE line, no Fable.
+
+- [x] [F+O] step 0 scaffold and docs
   - [x] step 0 / task 1: `cmd/stackrd`, `cmd/stackr`, `cmd/stackr-install`;
     `run() error` + `--version` fix both lint findings. `installcli` =
     `go install ./cmd/stackr`, `installer` = `bin/stackr-install`. `hamr dev`
@@ -168,12 +172,12 @@ check from step 0 is still owed to darhvader.
     Known, not step 0: `make templint` fails on the scaffold's login and
     register forms (`no-native-form-actions`), and `ci.yml` calls `make
     migrate`, which is not a Makefile target, so PR CI goes red.
-- [ ] step 1 groundwork
-- [ ] step 2 docker wrapper
-- [ ] step 3 services
-- [ ] step 4 API + CLI
-- [ ] step 5 installer + self-upgrade
-- [ ] step 6 UI
+- [ ] [F+O] step 1 groundwork
+- [ ] [F+O] step 2 docker wrapper
+- [ ] [F+O] step 3 services
+- [ ] [F+O] step 4 API + CLI
+- [ ] [F+O] step 5 installer + self-upgrade
+- [ ] [F+O] step 6 UI
 
 ## DECIDE:
 
