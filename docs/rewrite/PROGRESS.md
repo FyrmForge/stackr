@@ -375,3 +375,11 @@ Raised by step 3 session A (builder took the lean; flip any):
    restored from the panel. Options: (a) keep, admin restores by hand;
    (b) record the org on the run so its owner can restore it into
    another volume.
+
+Raised by step 3 session B (builder took the lean; flip any):
+
+27. **`files:` mounts.** Materializing repo files needs the tile's clone at
+   the pinned commit, which only the build path has. flow/deploy refuses a
+   tile with `files:` ("not supported yet"). Options: (a) keep refused in
+   v1 (not in the v1 scope list); (b) the build job copies the files into
+   `<data>/files/<tile>/<commit>` and deploy binds them read-only. Lean (a).

@@ -82,6 +82,11 @@ func (l *Leaf) GetByTile(ctx context.Context, tileID string) (store.ManagedInsta
 	return l.instances.GetByTile(ctx, tileID)
 }
 
+// Network is a stack- or org-scoped instance's shared network: the instance
+// and each consumer outside its env join it. An env-scoped instance is
+// reached on its env's own network.
+func Network(instanceID string) string { return "stackr-shared-" + instanceID }
+
 // Visible is every instance a tile at h may provision from: its env's,
 // its stack's and its org's.
 func (l *Leaf) Visible(ctx context.Context, h Home) ([]store.ManagedInstance, error) {

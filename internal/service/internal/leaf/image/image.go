@@ -5,7 +5,9 @@ package image
 import (
 	"context"
 	"errors"
+	"io"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -26,6 +28,8 @@ const Grace = time.Hour
 
 type Docker interface {
 	PruneImages(ctx context.Context, labels map[string]string, keep []string) ([]string, error)
+	Pull(ctx context.Context, ref, auth string, log io.Writer) error
+	LocalDigest(ctx context.Context, ref string) (string, error)
 }
 
 type Leaf struct {
@@ -56,6 +60,26 @@ func (l *Leaf) Name(ctx context.Context, repoName, sha, jobID string) (string, e
 		return "", err
 	}
 	return ref + "-" + jobID[:min(8, len(jobID))], nil
+}
+
+// Ensure makes ref present on the box and returns its registry digest ("" for
+// an image built here). A build of ours is never pulled (it was never
+// pushed), nor is a digest-pinned ref already here (it cannot have moved);
+// a tag is pulled every time, so a first deploy gets what the tag means now.
+// auth is the X-Registry-Auth blob, "" = anonymous.
+func (l *Leaf) Ensure(ctx context.Context, ref, auth string, log io.Writer) (string, error) {
+	if i, err := l.images.GetByRef(ctx, ref); err == nil && i.BuiltAt != nil {
+		return "", nil
+	}
+	if strings.Contains(ref, "@sha256:") {
+		if d, err := l.docker.LocalDigest(ctx, ref); err == nil && d != "" {
+			return d, nil
+		}
+	}
+	if err := l.docker.Pull(ctx, ref, auth, log); err != nil {
+		return "", err
+	}
+	return l.docker.LocalDigest(ctx, ref)
 }
 
 // Built records a finished build; digest is the local image id.

@@ -28,6 +28,8 @@ type Fake struct {
 	Err map[string]error
 	// Scripted answers.
 	RunID      string
+	RunIDs     []string               // when set, each Run takes the next one instead of RunID
+	Specs      []docker.ContainerSpec // every spec Run was given
 	Containers []docker.Container
 	Details    map[string]docker.Detail
 	Volumes    []docker.VolumeInfo
@@ -57,7 +59,14 @@ func (f *Fake) rec(method string, args ...string) error {
 }
 
 func (f *Fake) Run(_ context.Context, s docker.ContainerSpec) (string, error) {
-	return f.RunID, f.rec("Run", s.Name, s.Image)
+	f.mu.Lock()
+	f.Specs = append(f.Specs, s)
+	id := f.RunID
+	if len(f.RunIDs) > 0 {
+		id, f.RunIDs = f.RunIDs[0], f.RunIDs[1:]
+	}
+	f.mu.Unlock()
+	return id, f.rec("Run", s.Name, s.Image)
 }
 func (f *Fake) Start(_ context.Context, id string) error      { return f.rec("Start", id) }
 func (f *Fake) Stop(_ context.Context, id string) error       { return f.rec("Stop", id) }
