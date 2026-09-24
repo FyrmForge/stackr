@@ -207,3 +207,25 @@ func TestDeployFollows(t *testing.T) {
 		t.Errorf("rollback without --tag = %d %s", code, errw)
 	}
 }
+
+// Step 3b: the run verbs reach their routes.
+func TestRunVerbsRoutes(t *testing.T) {
+	r := &recorder{}
+	r.serve(t)
+	at := []string{"--stack", "shop", "--env", "dev"}
+	const p = "/api/v1/orgs/acme/stacks/shop/envs/dev/tiles/nightly"
+	for args, want := range map[string]string{
+		"pause":         "POST " + p + `/pause {"paused":true}`,
+		"resume":        "POST " + p + `/pause {"paused":false}`,
+		"runs --run r1": "GET " + p + "/runs/r1 ",
+		"stop --run r1": "DELETE " + p + "/runs/r1 ",
+		"run":           "POST " + p + "/run ",
+	} {
+		r.reqs = nil
+		f := strings.Fields(args)
+		cli(t, append(append([]string{"tile", f[0], "nightly"}, f[1:]...), at...)...)
+		if len(r.reqs) != 1 || r.reqs[0] != want {
+			t.Errorf("tile %s sent %q, want %q", args, r.reqs, want)
+		}
+	}
+}

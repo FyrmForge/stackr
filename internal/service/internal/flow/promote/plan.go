@@ -51,6 +51,14 @@ type Plan struct {
 	Removed []string `json:"-"`
 }
 
+// shownValues are the tile keys whose old and new values the plan prints:
+// never a credential, and what a reader of a cron or function diff needs.
+var shownValues = map[string]func(store.Tile) string{
+	"schedule":        func(t store.Tile) string { return t.Schedule },
+	"trigger":         func(t store.Tile) string { return t.Trigger },
+	"timeout_minutes": func(t store.Tile) string { return strconv.Itoa(t.TimeoutMinutes) },
+}
+
 func (p *Plan) Blocked() bool { return len(p.Blockers) > 0 }
 
 func (p *Plan) block(format string, a ...any) {
@@ -309,7 +317,11 @@ func (f *Flow) planUpdate(ctx context.Context, p *Plan, w *work, old, row store.
 		return nil
 	}
 	for _, k := range sortedKeys(c) {
-		p.add(Change{Kind: "update", Tile: name, Field: k})
+		ch := Change{Kind: "update", Tile: name, Field: k}
+		if v, ok := shownValues[k]; ok {
+			ch.Old, ch.New = v(old), v(row)
+		}
+		p.add(ch)
 	}
 	w.updates = append(w.updates, [2]store.Tile{old, row})
 	for _, fx := range tile.Effects(row.Kind, c) {

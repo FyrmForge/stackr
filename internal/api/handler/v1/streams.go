@@ -23,20 +23,28 @@ func (h *H) JobEvents() Endpoint {
 	})
 }
 
-// LogStream follows one replica's log (?container=, ?tail=): a "line"
-// event per line.
+// LogStream follows one replica's log (?container=, ?tail=), or with
+// ?run= a cron or function run's log until the run ends: a "line" event
+// per line.
 func (h *H) LogStream() Endpoint {
 	return Streamed(eventStream, func(c echo.Context) error {
 		tail := 100
 		if err := echo.QueryParamsBinder(c).Int("tail", &tail).BindError(); err != nil {
 			return err
 		}
-		lines, stop, err := h.S.FollowLogs(context.WithoutCancel(rc(c)), tileID(c), c.QueryParam("container"), tail)
+		ctx := context.WithoutCancel(rc(c))
+		follow := func() (<-chan string, func(), error) {
+			return h.S.FollowLogs(ctx, tileID(c), c.QueryParam("container"), tail)
+		}
+		if run := c.QueryParam("run"); run != "" {
+			follow = func() (<-chan string, func(), error) { return h.S.FollowRunLog(ctx, tileID(c), run, tail) }
+		}
+		lines, stop, err := follow()
 		if err != nil {
 			return err
 		}
 		return stream.Lines(c, lines, stop)
-	}).Q("container", "tail")
+	}).Q("container", "run", "tail")
 }
 
 // Exec runs ?cmd= (repeated, one argv word each) in one replica

@@ -130,6 +130,7 @@ var byVerb = map[string]bool{
 	"org": true, "stack": true, "env": true, "tile": true,
 	"user": true, "credential": true, "connector": true, "dest": true, "key": true,
 	"collection": true, "name": true, "token": true, "setting": true,
+	"run": true, // the verb takes the tile too and refuses another tile's run
 }
 
 // KnownParam reports whether a route param is org-checked or verb-scoped;

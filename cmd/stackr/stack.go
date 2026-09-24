@@ -23,6 +23,7 @@ var (
 	volumeCols  = []string{"slug", "name", "max_size_mb", "scope_kind", "orphaned_at", "id"}
 	schedCols   = []string{"id", "method", "cron", "timezone", "keep", "mode", "dest_id"}
 	runCols     = []string{"id", "status", "trigger", "created_at", "size_bytes", "object_key", "error"}
+	tileRunCols = []string{"id", "status", "trigger", "exit_code", "reason", "created_at", "finished_at"}
 )
 
 // tileFlags are the tile settings a create or set takes: flag -> PATCH key.
@@ -37,6 +38,7 @@ func tileFlags(c *cobra.Command) map[string]string {
 		{"health-path", "HTTP health path"}, {"healthcheck", "health check command"}, {"user", "run as user"},
 		{"devices", "devices"}, {"restart", "restart policy"}, {"depends-on", "tiles to start first"}, {"files", "files to mount"},
 		{"shared-net", "shared network"}, {"update-policy", "update policy"}, {"tag-policy", "tag policy"},
+		{"schedule", "cron expression, CRON_TZ= prefix allowed (cron tiles)"}, {"trigger", "manual or on_deploy (function tiles)"},
 	} {
 		f.String(s[0], "", s[1])
 	}
@@ -44,6 +46,7 @@ func tileFlags(c *cobra.Command) map[string]string {
 		{"port", "container port"}, {"health-interval", "health check interval, seconds"}, {"health-timeout", "health check timeout, seconds"},
 		{"health-retries", "health check retries"}, {"health-start-period", "health check start period, seconds"},
 		{"memory", "memory limit, MB"}, {"shm-size", "shm size, MB"}, {"replicas", "replica count"},
+		{"timeout", "a run's timeout, minutes (cron and function tiles; 0 = 30)"},
 	} {
 		f.Int(s[0], 0, s[1])
 	}
@@ -57,7 +60,7 @@ func tileFlags(c *cobra.Command) map[string]string {
 		"shared-net": "shared_net", "update-policy": "update_policy", "tag-policy": "tag_policy", "port": "container_port",
 		"health-interval": "healthcheck_interval_s", "health-timeout": "healthcheck_timeout_s", "health-retries": "healthcheck_retries",
 		"health-start-period": "healthcheck_start_period_s", "memory": "mem_limit_mb", "shm-size": "shm_size_mb", "replicas": "replicas",
-		"cpus": "cpu_limit", "privileged": "privileged",
+		"cpus": "cpu_limit", "privileged": "privileged", "schedule": "schedule", "trigger": "trigger", "timeout": "timeout_minutes",
 	}
 }
 
@@ -330,17 +333,20 @@ func (a *app) restart() *cobra.Command {
 func (a *app) logs() *cobra.Command {
 	var follow bool
 	var tail int
-	var container string
-	c := leaf("logs [tile]", "tile.status,tile.logs,tile.logs-stream", "Print a replica's log; --follow streams it", upTo(1),
+	var container, run string
+	c := leaf("logs [tile]", "tile.status,tile.logs,tile.logs-stream", "Print a replica's or a run's log; --follow streams it", upTo(1),
 		a.at(atTile, func(_ *cobra.Command, p string, _ []string) error {
-			if container == "" {
-				id, err := a.firstReplica(p)
-				if err != nil {
-					return err
+			q := fmt.Sprintf("?run=%s&tail=%d", url.QueryEscape(run), tail)
+			if run == "" {
+				if container == "" {
+					id, err := a.firstReplica(p)
+					if err != nil {
+						return err
+					}
+					container = id
 				}
-				container = id
+				q = fmt.Sprintf("?container=%s&tail=%d", url.QueryEscape(container), tail)
 			}
-			q := fmt.Sprintf("?container=%s&tail=%d", url.QueryEscape(container), tail)
 			if !follow {
 				v, err := a.call(GET, p+"/logs"+q, nil)
 				if err != nil || a.json {
@@ -379,6 +385,79 @@ func (a *app) logs() *cobra.Command {
 	c.Flags().BoolVarP(&follow, "follow", "f", false, "keep streaming")
 	c.Flags().IntVar(&tail, "tail", 200, "lines of history")
 	c.Flags().StringVar(&container, "container", "", "the replica (default: the first)")
+	c.Flags().StringVar(&run, "run", "", "a cron or function run's log instead (stackr tile runs lists them)")
+	return scoped(c, true)
+}
+
+// ---- runs (cron and function tiles) ----
+
+// runNow queues a run and follows its job; a run refused because the last
+// one is still going prints the cancelled row and fails.
+func (a *app) runNow() *cobra.Command {
+	return scoped(waits(leaf("run [tile]", "tile.run", "Run a cron or function tile now and follow it", upTo(1),
+		a.at(atTile, func(c *cobra.Command, p string, _ []string) error {
+			v, err := a.call(POST, p+"/run", nil)
+			if err != nil {
+				return err
+			}
+			m, _ := v.(map[string]any)
+			r, _ := m["run"].(map[string]any)
+			if m["job"] == nil {
+				return fmt.Errorf("run %s %s: %s", cell(r["id"]), cell(r["status"]), cell(r["reason"]))
+			}
+			_, _ = fmt.Fprintf(a.errw, "run %s: stackr tile logs --run %s\n", cell(r["id"]), cell(r["id"]))
+			if nw, _ := c.Flags().GetBool("no-wait"); nw {
+				return a.show(r, tileRunCols...)
+			}
+			base, err := a.orgPath()
+			if err != nil {
+				return err
+			}
+			return a.follow(base, m["job"], "run")
+		}))), true)
+}
+
+func (a *app) pause(use, short string, paused bool) *cobra.Command {
+	return scoped(leaf(use, "tile.pause", short, upTo(1), a.at(atTile, func(_ *cobra.Command, p string, _ []string) error {
+		v, err := a.call(POST, p+"/pause", map[string]bool{"paused": paused})
+		if err != nil {
+			return err
+		}
+		return a.show(v, tileCols...)
+	})), true)
+}
+
+// runs lists the tile's runs; --run shows one.
+func (a *app) runs() *cobra.Command {
+	var run string
+	c := leaf("runs [tile]", "run.list,run.get", "List a cron or function tile's runs, newest first; --run shows one", upTo(1),
+		a.at(atTile, func(_ *cobra.Command, p string, _ []string) error {
+			sub := "/runs"
+			if run != "" {
+				sub += "/" + url.PathEscape(run)
+			}
+			v, err := a.call(GET, p+sub, nil)
+			if err != nil {
+				return err
+			}
+			return a.show(v, tileRunCols...)
+		}))
+	c.Flags().StringVar(&run, "run", "", "the run id")
+	return scoped(c, true)
+}
+
+// stop stops the tile's containers (a cron pauses instead); --run stops one run.
+func (a *app) stop() *cobra.Command {
+	var run string
+	c := waits(leaf("stop [tile]", "tile.stop,run.stop", "Stop the tile's containers; --run stops one run of a cron or function", upTo(1),
+		a.at(atTile, func(c *cobra.Command, p string, _ []string) error {
+			if run != "" {
+				_, err := a.call(DELETE, p+"/runs/"+url.PathEscape(run), nil)
+				return err
+			}
+			return a.orgJob(c, POST, p+"/stop", nil, "stop")
+		})))
+	c.Flags().StringVar(&run, "run", "", "the run to stop")
 	return scoped(c, true)
 }
 
@@ -401,7 +480,7 @@ func (a *app) tiles() *cobra.Command {
 	var kind string
 	create := leaf("create <name>", "tile.create", "Make a tile in --env", exact(1), nil)
 	createKeys := tileFlags(create)
-	create.Flags().StringVar(&kind, "kind", "image", "image or service (built from git)")
+	create.Flags().StringVar(&kind, "kind", "image", "image, service (built from git), cron or function")
 	create.RunE = a.at(atEnv, func(c *cobra.Command, p string, args []string) error {
 		body, err := changed(c, createKeys)
 		if err != nil {
@@ -481,11 +560,13 @@ func (a *app) tiles() *cobra.Command {
 		})),
 		a.tileJob("rm [tile]", "tile.delete", "Remove a tile", "", "removal", "Remove tile %s and its containers? Its volumes are kept until removed."),
 		a.deploy(), a.restart(),
-		a.tileJob("stop [tile]", "tile.stop", "Stop the tile's containers", "/stop", "stop", ""),
+		a.stop(),
 		a.tileJob("start [tile]", "tile.start", "Start the tile's containers", "/start", "start", ""),
 		a.tileJob("image-check [tile]", "tile.image-check", "Check the tile's image for a newer tag", "/image-check", "image check", ""),
-		a.get("status [tile]", "tile.status", "Show the tile's state and replicas", atTile, "/status", "word", "last_job"),
+		a.get("status [tile]", "tile.status", "Show the tile's state and replicas", atTile, "/status", "word", "last_job", "last_run", "next_run", "paused"),
 		a.logs(), exec,
+		a.runNow(), a.pause("pause [tile]", "Pause a cron tile's schedule", true),
+		a.pause("resume [tile]", "Resume a cron tile's schedule", false), a.runs(),
 		a.get("jobs [tile]", "tile.jobs", "List the tile's recent jobs", atTile, "/jobs", jobCols...),
 		a.domains(),
 		a.slices(),

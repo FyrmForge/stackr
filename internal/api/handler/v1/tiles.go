@@ -45,6 +45,9 @@ type TilePatch struct {
 	Replicas                *int     `json:"replicas,omitempty"`
 	UpdatePolicy            *string  `json:"update_policy,omitempty"`
 	TagPolicy               *string  `json:"tag_policy,omitempty"`
+	Schedule                *string  `json:"schedule,omitempty"`
+	Trigger                 *string  `json:"trigger,omitempty"`
+	TimeoutMinutes          *int     `json:"timeout_minutes,omitempty"`
 }
 
 // apply writes the sent fields onto t: the patch and the row share json
@@ -60,7 +63,7 @@ func (p TilePatch) apply(t *service.Tile) error {
 type (
 	TileIn struct {
 		Name string `json:"name"`
-		Kind string `json:"kind"` // service | image
+		Kind string `json:"kind"` // service | image | cron | function
 		TilePatch
 	}
 	ManagedIn struct {
@@ -74,6 +77,13 @@ type (
 	}
 	LogOut struct {
 		Log string `json:"log"`
+	}
+	RunStarted struct {
+		Job *service.Job `json:"job"` // nil: refused, the last run is still going
+		Run service.Run  `json:"run"`
+	}
+	PauseIn struct {
+		Paused bool `json:"paused"`
 	}
 	DomainIn struct {
 		Host       string               `json:"host"`
@@ -179,16 +189,58 @@ func (h *H) TileStatus() Endpoint {
 }
 
 // Logs is the tail of one replica; ?container= picks it ("" = the first),
-// ?tail= the line count.
+// ?run= reads a cron or function run's log instead, ?tail= the line count.
 func (h *H) Logs() Endpoint {
 	return Get(func(c echo.Context) (LogOut, error) {
 		tail := 200
 		if err := echo.QueryParamsBinder(c).Int("tail", &tail).BindError(); err != nil {
 			return LogOut{}, err
 		}
+		if run := c.QueryParam("run"); run != "" {
+			s, err := h.S.RunLog(rc(c), tileID(c), run, tail)
+			return LogOut{s}, err
+		}
 		s, err := h.S.Logs(rc(c), tileID(c), c.QueryParam("container"), tail)
 		return LogOut{s}, err
-	}).Q("container", "tail")
+	}).Q("container", "run", "tail")
+}
+
+// ---- runs (cron and function tiles) ----
+
+func (h *H) RunTile() Endpoint {
+	return JSON(202, func(c echo.Context, _ None) (RunStarted, error) {
+		j, r, err := h.S.RunTile(rc(c), tileID(c))
+		out := RunStarted{Run: r}
+		if j.ID != "" {
+			out.Job = &j
+		}
+		return out, err
+	})
+}
+
+func (h *H) PauseTile() Endpoint {
+	return JSON(200, func(c echo.Context, in PauseIn) (service.Tile, error) {
+		return h.S.PauseTile(rc(c), tileID(c), in.Paused)
+	})
+}
+
+// Runs is the tile's kept runs, newest first; ?limit= caps them.
+func (h *H) Runs() Endpoint {
+	return Get(func(c echo.Context) ([]service.Run, error) {
+		limit := 20
+		if err := echo.QueryParamsBinder(c).Int("limit", &limit).BindError(); err != nil {
+			return nil, err
+		}
+		return list(h.S.Runs(rc(c), tileID(c), limit))
+	}).Q("limit")
+}
+
+func (h *H) Run() Endpoint {
+	return Get(func(c echo.Context) (service.Run, error) { return h.S.Run(rc(c), tileID(c), c.Param("run")) })
+}
+
+func (h *H) StopRun() Endpoint {
+	return Done(func(c echo.Context, _ None) error { return h.S.StopRun(rc(c), tileID(c), c.Param("run")) })
 }
 
 // TileJobs is the tile's newest jobs; ?limit= caps them.

@@ -347,3 +347,40 @@ func TestPushBuildsAndReleases(t *testing.T) {
 		t.Errorf("watch paths ignored: built %v", built)
 	}
 }
+
+// Step 3b grammar: kind: cron + schedule:, kind: function + trigger:; the
+// plan diff names what moved.
+func TestPlanShowsRunKinds(t *testing.T) {
+	w := setup(t)
+	file := func(sched, trigger string) string {
+		return "version: 1\nstack: shop\nladder: [dev, prd]\nhead: main\nbase:\n  tiles:\n" +
+			"    nightly:\n      kind: cron\n      image: busybox:1\n      schedule: \"" + sched + "\"\n      command: \"true\"\n" +
+			"    migrate:\n      kind: function\n      image: busybox:1\n      trigger: " + trigger + "\n"
+	}
+	w.files["c1"] = file("0 3 * * *", "manual")
+	w.fake.Digests = map[string]string{"busybox:1": "sha256:b1"}
+	p, err := w.f.Apply(ctx, w.dev.ID, w.release(t, "c1").ID, io.Discard, nil)
+	must(t, err)
+	if got := kinds(p); !strings.Contains(got, "create:nightly") || !strings.Contains(got, "create:migrate") {
+		t.Fatalf("first plan = %s", got)
+	}
+	n, err := w.f.D.Tiles.GetBySlug(ctx, w.dev.ID, "nightly")
+	must(t, err)
+	if n.Kind != tile.Cron || n.Schedule != "0 3 * * *" || n.TimeoutMinutes != tile.DefaultTimeout {
+		t.Fatalf("cron row = %+v", n)
+	}
+	w.files["c2"] = file("0 4 * * *", "on_deploy")
+	p, err = w.f.Plan(ctx, w.dev.ID, w.release(t, "c2").ID, io.Discard)
+	must(t, err)
+	got := kinds(p)
+	if !strings.Contains(got, "update:nightlyschedule0 4 * * *0 3 * * *") || !strings.Contains(got, "update:migratetriggeron_deploymanual") {
+		t.Fatalf("plan = %s, want the schedule and trigger moves", got)
+	}
+	w.files["c3"] = "version: 1\nstack: shop\nladder: [dev, prd]\nhead: main\nbase:\n  tiles:\n" +
+		"    nightly:\n      kind: cron\n      type: service\n      image: busybox:1\n"
+	p, err = w.f.Plan(ctx, w.dev.ID, w.release(t, "c3").ID, io.Discard)
+	must(t, err)
+	if !strings.Contains(strings.Join(p.Blockers, ";"), "kind: cron and type: service disagree") {
+		t.Fatalf("kind and type disagreeing = %v", p.Blockers)
+	}
+}
