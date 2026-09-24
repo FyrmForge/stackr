@@ -1,0 +1,26 @@
+// Package vars is the params and secrets editor of one scope: the vars
+// card's drawer, and the params tab of the org, stack and env drawers.
+package vars
+
+import c "github.com/FyrmForge/stackr/internal/ui/components"
+
+// Root is what a save answers into (outerHTML), wherever the editor sits.
+const Root = "vars-editor"
+
+type View struct {
+	Scope  string // "org acme", for the heading
+	Error  string
+	Note   string
+	Editor c.ParamEditorView
+}
+
+templ Editor(v View) {
+	<div id={ Root } class="space-y-3">
+		<p class="text-sm text-slate-500">Params and secrets of { v.Scope }. A save redeploys the running tiles that read them.</p>
+		@c.FormError(v.Error)
+		if v.Note != "" {
+			<p class="banner" role="status">{ v.Note }</p>
+		}
+		@c.ParamEditor(v.Editor)
+	</div>
+}

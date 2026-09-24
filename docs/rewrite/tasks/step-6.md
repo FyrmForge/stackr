@@ -169,8 +169,7 @@ the card templates read (`internal/service/internal/flow/graph`).
 handler for the four levels.
 
 - Pages: `/`, `/:org`, `/:org/:stack`, `/:org/:stack/:env`. Helper
-  routes under `<page>/-/` (`-` is never a slug): `GET drawer?drawer=<id>&tab=`,
-  `GET events?n=<sig>`, `POST positions` (node_id, x, y), `POST reset`,
+  routes under `<page>/-/` (`-` is never a slug): `GET events?n=<sig>`, `POST positions` (node_id, x, y), `POST reset`,
   `POST notes` (id?, kind, text, x, y, w, h), `POST notes/delete` (id).
   Reads need `org.read` (home: signed in); writes `org.graph.write`,
   `stack.write`, `env.write`.
@@ -182,8 +181,43 @@ handler for the four levels.
   stream (`/:org/:stack/:env/events`) folds it in at the merge.
 - `ui.Node.Card` / `ui.Node.Footer` replace the generic body and footer:
   the env mapping sets them from `cards.Card`/`cards.Subs`/`cards.Footer`.
-- A fresh load of `?drawer=&tab=` renders `<side-drawer open tab>` with
-  the tab inside (`render.PageWith`, `components.Shell.Drawer`).
+- A fresh load of `?drawer=<node id>&tab=` renders `<side-drawer open
+  tab>` with the tab inside (`render.PageWith`, `components.Shell.Drawer`):
+  the node is looked up in the canvas just drawn, its scope resolved from
+  its slug, then the same render as the drawer route (task 8). An id not
+  on the canvas, or one the viewer may not open, leaves it closed.
+
+**Drawers and dialogs (task 8, session B)**: a card's drawer lives at the
+card's own path, so the access middleware resolves and checks it; tabs
+are `?tab=`, each tab's own verb is asked in the handler. Every answer is
+`components.Drawer` (`#drawer-view`, header, tab strip pushing
+`?drawer=<node id>&tab=`, error or note banner) around one tab templ from
+`internal/ui/drawer/{org,stack,env,connector,vars}`; an action is one
+verb, then its tab again (422 with the refusal over it).
+
+- `GET /:org/-/drawer` org: settings (rename, delete) `org.write`,
+  members + invites (`member.list`; role, remove, invite `member.manage`),
+  keys (the viewer's own, mint and revoke), params, backups
+  (`destination.write`).
+- `GET /:org/:stack/-/drawer` stack: settings (rename, config repo,
+  delete) `stack.write`, params, releases (list).
+- `GET /:org/:stack/:env/-/drawer` env: settings (rename, from/auto,
+  colour, delete), params, order (the ladder, one move per post), logs
+  (placeholder); `env.write`.
+- `GET /:org/-/connectors/:connector`: settings (rename, delete)
+  `connector.write`, repos (placeholder).
+- `GET <level>/-/vars` at org, stack and env: the vars card, the same
+  editor as every params tab; `POST <level>/-/vars` and `/-/vars/delete`
+  (`variable.write`) answer `#vars-editor` via `HX-Retarget`. Secrets are
+  read only with `variable.write` and only "set" reaches the view.
+- Create dialogs open in the drawer from buttons beside the compare pill
+  (`graph.View.Create`, only the ones the viewer's verbs pass):
+  `/-/new-org` (`org.create`: draft, rename, finish), `/:org/-/new-stack`
+  (`stack.create`), `/:org/:stack/-/new-env` (`env.write`),
+  `/:org/-/new-connector` (`connector.write`: begin, then a plain form
+  posting the manifest to GitHub). Create answers `HX-Redirect` to the new
+  card's page, a refusal re-renders the form (422). Delete confirms
+  (`dialog.DeleteOrg/Stack/Env/Connector`) redirect to the canvas above.
 - `<graph-canvas>` keeps pan/zoom per path in `sessionStorage`
   (`graph.view.<path>`), so a `graph` swap or a reload keeps the view, and
   re-paths on `childList` too (a swapped-in lanes svg).

@@ -24,7 +24,11 @@ type View struct {
 	Notes   []Note
 	Divider int // world x of the system column's wall; 0 = none
 	Compare []Rung
+	Create  []Create // the level's create dialogs the viewer may open
 }
+
+// Create opens a create dialog in the drawer.
+type Create struct{ Label, URL string }
 
 // Show is what the server draws; each off flag is a "=0" query param.
 type Show struct{ System, Refs, Startup, Traffic bool }
@@ -32,6 +36,7 @@ type Show struct{ System, Refs, Startup, Traffic bool }
 // Node is one card.
 type Node struct {
 	ID, Kind, Name, Detail string
+	Slug                   string // the drill-down path segment; a connector's id
 	Status                 string // one word, "" = nothing to show
 	X, Y, W, H             int    // H includes 30 px per sub-tile
 	System, Static         bool

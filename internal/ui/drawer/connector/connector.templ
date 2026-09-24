@@ -1,0 +1,38 @@
+// Package connector is a connector card's drawer (org canvas): settings
+// (rename, delete) and repos.
+package connector
+
+import c "github.com/FyrmForge/stackr/internal/ui/components"
+
+var Tabs = []string{"settings", "repos"}
+
+type SettingsView struct {
+	Base   string // POST /rename; "" = read-only
+	Name   string
+	Host   string
+	Delete c.ConfirmView
+}
+
+templ Settings(v SettingsView) {
+	<div class="space-y-6" id="tab-settings">
+		<p class="text-sm text-slate-500">GitHub App on { v.Host }.</p>
+		<form hx-post={ v.Base + "/rename" } hx-target={ "#" + c.DrawerRoot } hx-swap="outerHTML" class="space-y-3">
+			@c.Field(c.FieldView{Name: "name", Label: "Name", Value: v.Name, Required: true, Disabled: v.Base == "", Why: "Renaming needs write."})
+			if v.Base != "" {
+				@c.Submit("Rename")
+			}
+		</form>
+		if v.Base != "" {
+			<section class="space-y-2">
+				<h3 class="font-semibold">Delete</h3>
+				<p class="text-sm text-slate-500">A stack or tile that clones through it stops building.</p>
+				@c.Confirm(v.Delete)
+			</section>
+		}
+	</div>
+}
+
+// ponytail: no verb lists an installation's repos yet.
+templ Repos() {
+	<p class="text-sm text-slate-500" id="tab-repos">The repos this app can reach are listed on GitHub, under the app's installation.</p>
+}

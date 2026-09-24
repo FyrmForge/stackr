@@ -1,7 +1,8 @@
 // Package canvas serves every level's canvas (ui-plan §2) from one
 // handler: the page at /, /:org, /:org/:stack and /:org/:stack/:env, and
 // under each a reserved "/-/" segment (never a slug) for its helper
-// routes: positions, reset, notes, drawer, events. The level comes from
+// routes: positions, reset, notes, events, and the drawers and create
+// dialogs of the cards on it (drawer.go). The level comes from
 // the path the access middleware resolved.
 package canvas
 
@@ -70,15 +71,16 @@ func (h *handler) view(c echo.Context) (ui.View, error) {
 }
 
 // GET /, /:org, /:org/:stack, /:org/:stack/:env. A fresh load of
-// ?drawer=<id>&tab= comes with that drawer open.
+// ?drawer=<node id>&tab= comes with that card's drawer open.
 func (h *handler) Page(c echo.Context) error {
 	v, err := h.view(c)
 	if err != nil {
 		return middleware.HTTPError(err)
 	}
+	v.Create = createButtons(c, where(c))
 	var drawer templ.Component
 	if id := c.QueryParam("drawer"); id != "" && !isHTMX(c) {
-		if drawer, err = h.drawer(c, id, c.QueryParam("tab")); err != nil {
+		if drawer, err = h.drawer(c, v, id, c.QueryParam("tab")); err != nil {
 			return middleware.HTTPError(err)
 		}
 	}
@@ -87,25 +89,6 @@ func (h *handler) Page(c echo.Context) error {
 
 func isHTMX(c echo.Context) bool {
 	return c.Request().Header.Get("HX-Request") == "true" && c.Request().Header.Get("HX-History-Restore-Request") != "true"
-}
-
-// GET …/-/drawer?drawer=<node id>&tab=: a card's drawer tab into #drawer-body.
-func (h *handler) Drawer(c echo.Context) error {
-	d, err := h.drawer(c, c.QueryParam("drawer"), c.QueryParam("tab"))
-	if err != nil {
-		return middleware.HTTPError(err)
-	}
-	if d == nil {
-		return echo.NewHTTPError(http.StatusNotFound)
-	}
-	return respond.HTML(c, http.StatusOK, d)
-}
-
-// drawer is the tab of the card id names; nil when that card has none.
-// ponytail: filled per kind by the drawer tasks (8 for home/org/stack; the
-// env kinds bring their own routes).
-func (h *handler) drawer(echo.Context, string, string) (templ.Component, error) {
-	return nil, nil
 }
 
 // POST …/-/positions (node_id, x, y): a card or note was dropped.
@@ -211,11 +194,12 @@ func (h *handler) Poll(c echo.Context) func(context.Context) ([]stream.Msg, erro
 	}
 }
 
-// Sig names what the canvas draws apart from positions and footers.
+// Sig names what the canvas draws apart from positions and footers: a
+// rename or recolour redraws too.
 func Sig(v ui.View) string {
 	var parts []string
 	for _, n := range v.Nodes {
-		parts = append(parts, "n "+n.ID)
+		parts = append(parts, "n "+n.ID+" "+n.Name+" "+n.Detail+" "+n.Color)
 	}
 	for _, e := range v.Edges {
 		parts = append(parts, "e "+e.Kind+" "+e.From+" "+e.To)

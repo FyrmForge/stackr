@@ -137,12 +137,13 @@ func TestAccess(t *testing.T) {
 	}
 }
 
-// Static routes win over /:org.
+// Static routes win over /:org; home (the org canvas) sends a visitor to
+// the login page.
 func TestFixedRoutesWin(t *testing.T) {
 	_, h := setup(t)
-	for _, path := range []string{"/", "/login", "/about", "/api/health"} {
-		if got := do(t, h, "", path, cred{}); got != http.StatusOK {
-			t.Errorf("GET %s = %d, want 200", path, got)
+	for path, want := range map[string]int{"/": http.StatusSeeOther, "/login": 200, "/about": 200, "/api/health": 200} {
+		if got := do(t, h, "", path, cred{}); got != want {
+			t.Errorf("GET %s = %d, want %d", path, got, want)
 		}
 	}
 }

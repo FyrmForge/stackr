@@ -171,7 +171,7 @@ helper routes that belong to it (validation endpoints, partials, modals).
 
 ```
 URL                     Package path
-/, /:org, /:org/:stack   internal/web/handler/canvas (every canvas level)
+/, /:org, /:org/:stack   internal/web/handler/canvas (every canvas level, the home/org/stack drawers and create dialogs)
 /login                  internal/web/handler/auth/login
 /register               internal/web/handler/auth/register
 /admin                  internal/web/handler/admin

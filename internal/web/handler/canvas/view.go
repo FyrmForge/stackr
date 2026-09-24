@@ -5,10 +5,18 @@ import (
 	ui "github.com/FyrmForge/stackr/internal/ui/graph"
 )
 
-// tabs is the tab a card's drawer opens on, by kind: only cards with a
-// drawer here get one (the env kinds bring their own, task 9).
-var tabs = map[string]string{
-	"org": "settings", "stack": "settings", "env": "settings", "connector": "settings", "vars": "editor",
+// drawerPath is where a card's drawer lives, relative to the canvas it
+// sits on (see drawer.go); "" = none here (the env kinds bring their own).
+func drawerPath(n service.GraphNode) string {
+	switch n.Kind {
+	case "org", "stack", "env":
+		return "/" + n.Slug + "/-/drawer"
+	case "connector":
+		return "/-/connectors/" + n.Slug
+	case "vars":
+		return "/-/vars"
+	}
+	return ""
 }
 
 // mapView is the service's view as the templ reads it: links, drawer
@@ -20,7 +28,7 @@ func mapView(gv service.GraphView, l level, sh service.GraphShow, focus string) 
 	}
 	v.Query = v.Show.Query()
 	for _, n := range gv.Nodes {
-		u := ui.Node{ID: n.ID, Kind: n.Kind, Name: n.Name, Detail: n.Detail, Status: n.Status, X: n.X, Y: n.Y, W: n.W, H: n.H,
+		u := ui.Node{ID: n.ID, Kind: n.Kind, Name: n.Name, Slug: n.Slug, Detail: n.Detail, Status: n.Status, X: n.X, Y: n.Y, W: n.W, H: n.H,
 			System: n.System, Static: n.Static, Color: n.Color, Deck: n.Deck}
 		switch n.Kind {
 		case "org":
@@ -28,9 +36,8 @@ func mapView(gv service.GraphView, l level, sh service.GraphShow, focus string) 
 		case "stack", "env":
 			u.Href = l.base + "/" + n.Slug
 		}
-		if tab, ok := tabs[n.Kind]; ok {
-			u.Push = "?drawer=" + n.ID + "&tab=" + tab
-			u.Drawer = v.Base + "/-/drawer" + u.Push
+		if p := drawerPath(n); p != "" {
+			u.Drawer, u.Push = l.base+p, "?drawer="+n.ID
 		}
 		for _, s := range n.Subs {
 			u.Subs = append(u.Subs, ui.Sub{ID: s.ID, Kind: s.Kind, Name: s.Name, Status: s.Status})

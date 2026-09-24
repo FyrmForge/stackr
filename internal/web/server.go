@@ -93,12 +93,11 @@ func RegisterRoutes(srv *server.Server, deps *Deps) {
 		{"/:org/:stack/:env", deps.Access.Require("org.read"), deps.Access.Require("env.write")},
 	}
 	for _, l := range levels {
-		page := l.path
-		if page == "" {
-			page = "/"
+		if l.path == "" { // home sends a visitor to the login page
+			site.GET("/", cv.Page, auth.RequireAuth(), l.read)
+		} else { // deeper pages answer 401/404 like the API (the access test)
+			site.GET(l.path, cv.Page, l.read)
 		}
-		site.GET(page, cv.Page, auth.RequireAuth(), l.read)
-		site.GET(l.path+"/-/drawer", cv.Drawer, l.read)
 		if l.path != "/:org/:stack/:env" { // the env stream is the env package's
 			site.GET(l.path+"/-/events", cv.Events, l.read)
 		}
@@ -107,6 +106,8 @@ func RegisterRoutes(srv *server.Server, deps *Deps) {
 		site.POST(l.path+"/-/notes", cv.Notes, l.write)
 		site.POST(l.path+"/-/notes/delete", cv.DeleteNote, l.write)
 	}
+
+	cv.Mount(site, deps.Access)
 
 	// ponytail: the tile page is a placeholder until the tile drawer takes it.
 	scopeHandler := scope.NewHandler()

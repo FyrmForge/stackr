@@ -6,8 +6,15 @@ import c "github.com/FyrmForge/stackr/internal/ui/components"
 // holds the stream and swaps its inside on "graph", so the stream outlives
 // the canvas it replaces; reset and notes answer into it too.
 templ Page(v View) {
-	if len(v.Compare) > 0 {
-		@compare(v.Compare)
+	if len(v.Compare) > 0 || len(v.Create) > 0 {
+		<div class="mb-2 flex flex-wrap items-center gap-2">
+			if len(v.Compare) > 0 {
+				@compare(v.Compare)
+			}
+			for _, cr := range v.Create {
+				<button type="button" class="btn" hx-get={ cr.URL } hx-target="#drawer-body">{ cr.Label }</button>
+			}
+		</div>
 	}
 	<div
 		id="graph"
@@ -251,7 +258,7 @@ templ legend(v View) {
 // compare is the env-compare pill: the ladder with each env's release,
 // amber where the rung below runs a newer one.
 templ compare(rs []Rung) {
-	<nav aria-label="Environments" class="mb-2 flex flex-wrap items-center gap-2 text-sm">
+	<nav aria-label="Environments" class="flex flex-wrap items-center gap-2 text-sm">
 		for i, r := range rs {
 			if i > 0 {
 				<span aria-hidden="true" class="text-slate-400">&gt;</span>
