@@ -81,23 +81,36 @@ func TestRoundTrip(t *testing.T) {
 
 func TestPrune(t *testing.T) {
 	l, tile, _ := setup(t)
-	var first store.Run
-	for i := range run.Keep + 1 {
+	var active, first store.Run
+	for i := range run.Keep + 2 {
 		r, err := l.Start(ctx, tile, nil, run.Schedule)
 		must(t, err)
-		if i == 0 {
+		switch i {
+		case 0: // the oldest is still going: never pruned
+			active, err = l.Begin(ctx, r.ID)
+			must(t, err)
+		case 1:
 			first = r
 			g, err := l.OpenLog(r)
 			must(t, err)
 			_, _ = g.Write([]byte("hello\n"))
 			must(t, g.Close())
+			fallthrough
+		default:
+			_, err = l.Finish(ctx, r.ID, nil, run.OK, "")
+			must(t, err)
 		}
 		time.Sleep(time.Millisecond) // created_at orders the list
 	}
 	rs, err := l.List(ctx, tile, 0)
 	must(t, err)
-	if len(rs) != run.Keep || rs[len(rs)-1].ID == first.ID {
-		t.Fatalf("kept %d runs, oldest %s (first %s)", len(rs), rs[len(rs)-1].ID, first.ID)
+	if len(rs) != run.Keep+1 || rs[len(rs)-1].ID != active.ID {
+		t.Fatalf("kept %d runs, oldest %s; want %d and the running one %s", len(rs), rs[len(rs)-1].ID, run.Keep+1, active.ID)
+	}
+	for _, r := range rs {
+		if r.ID == first.ID {
+			t.Fatal("the oldest finished run was kept")
+		}
 	}
 	if _, err := os.Stat(l.LogPath(first)); !os.IsNotExist(err) {
 		t.Errorf("pruned run's log: %v", err)

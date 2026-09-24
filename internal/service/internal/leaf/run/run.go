@@ -177,6 +177,9 @@ func (l *Leaf) prune(ctx context.Context, tileID string) error {
 		return err
 	}
 	for _, r := range rs[Keep:] {
+		if !Done(r) {
+			continue // a run still going keeps its row and log
+		}
 		if err := l.runs.Delete(ctx, r.ID); err != nil && !errors.Is(err, errs.ErrNotFound) {
 			return err
 		}

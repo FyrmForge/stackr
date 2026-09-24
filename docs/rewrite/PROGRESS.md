@@ -576,10 +576,11 @@ Raised by step 3b (builder took the lean; flip any):
 57. (step 3b) **Stop on a cron answers an empty job.** `StopTile` pauses a
    cron with no job, so `POST tile/stop` answers 202 with a zero job and
    the CLI prints it. Options: (a) keep; (b) the handler answers the tile
-   (200) for a cron. Lean (b), small follow-up.
+   (200) for a cron. Lean (a) as built; (b) is a few lines if wanted.
 58. (step 3b) **Start on a cron or function is not guarded.** It queues a
    start job that finds no replicas. Options: (a) Start on a cron resumes
-   it, on a function refuses; (b) keep. Lean (a).
+   it, on a function refuses (a new refusal string, none in the
+   extract); (b) keep. Lean (b) as built, until the wording is chosen.
 59. (step 3b) **`kind:` and `type:` are one stack-file key.** Either spelling
    works; both given and different is a plan blocker. Options: (a) keep;
    (b) `kind:` only. Lean (a).
@@ -595,7 +596,8 @@ Raised by step 3b (builder took the lean; flip any):
 62. (step 3b) **`trigger` on a non-function uses the extract's wording**
    "run_on_deploy applies to function tiles only" (verbatim rule), though
    the key is now `trigger`. Options: (a) keep; (b) "trigger applies to
-   function tiles only". Lean (b) once the UI says "trigger".
+   function tiles only". Lean (a): the task asks for the extract's strings
+   verbatim.
 63. (step 3b) **Runs cut short by a restart are failed, not retried.** A run
    left `running` at boot is closed failed "stackrd restarted while this
    run was going"; its job is not re-run. Options: (a) keep; (b) re-queue
