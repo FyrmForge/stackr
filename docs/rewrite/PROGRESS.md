@@ -11,7 +11,9 @@ the builder rules. Commits: plain, no co-author, no AI attribution, ever.
 ## Overnight run (Fable, planning session, 2026-09-24)
 
 Approved by darhvader as "option A": write everything, park decisions, do not
-wait. Sub-agents run on `model: "opus"`.
+wait. Sub-agents run on `model: "opus"`. Run finished 2026-09-24: sections
+1–4 below are done; DECIDE items 1–10 wait for darhvader; build steps not
+started.
 
 ### 1. Task lists → `docs/rewrite/tasks/step-N.md`
 
@@ -117,7 +119,15 @@ extracts/, this file.
 
 ### 4. Hand-off
 
-- [ ] this file updated with a "start here" line for the Opus step 0 session
+- [x] this file updated with a "start here" line for the Opus step 0 session
+
+**START HERE (Opus, step 0):** you are on branch `rewrite`, a fresh hamr
+scaffold plus `docs/rewrite/`. Read `REWRITE.md` "Method" and
+`docs/rewrite/tasks/step-0.md`, do its tasks in order, commit per task,
+tick `[x] step 0` below when the done gate passes, open the PR `rewrite`
+→ `master`. Do not read `../stackr-old`; the extracts in
+`docs/rewrite/extracts/` are the only view of the old code. Start
+`hamr dev` if it is not running. Next step reads `tasks/step-1.md`.
 
 ## Build steps (Opus, one fresh session + one stacked PR each)
 
