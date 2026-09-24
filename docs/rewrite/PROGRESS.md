@@ -154,6 +154,14 @@ tick `[x] step 0` below when the done gate passes, open the PR `rewrite`
     check: leaf → leaf, backup → deploy, promote → managed fail;
     promote → deploy, deploy → managed pass. Throwaways deleted. `flow/jobs`
     edges not covered (DECIDE 12).
+  - [x] step 0 / task 6: empty tree under `internal/` (`service/
+    orchestrator.go`, `service/internal/{store,docker,proxy,git,s3,leaf,
+    flow}`, `authz`, `ui/components`, `ui/pages/{org,stack,env,tile}`),
+    one `doc.go` each. `frontend/` → `ui/` (static, css, npm, tailwind;
+    tailwind also scans `internal/ui/`); paths fixed in `hamr.toml`,
+    Makefile, `hamr.vendor.json`, `main.go`, Dockerfile, CI, `.gitignore`.
+    `./bin/stackrd` served `/` and all three assets with 200; `hamr dev`
+    check still owed.
 - [ ] step 1 groundwork
 - [ ] step 2 docker wrapper
 - [ ] step 3 services

@@ -27,9 +27,13 @@ internal/web/            HTTP layer
 internal/web/server.go   Route registration + middleware groups
 internal/web/handler/    One package per page, mirroring URL path
                          (e.g. /admin/users → handler/admin/user/)
-internal/web/components/ Shared templ components (layout, form helpers)
-frontend/                Everything frontend: static assets, CSS source,
-                         npm config, generated dist/
+internal/web/components/ Shared templ components (layout, form helpers);
+                         step 6 moves screens into internal/ui/
+internal/service/        The orchestrator; everything below it in internal/
+internal/authz/          can(user, verb, resource), used by middleware only
+internal/ui/             components/ and pages/{org,stack,env,tile}/ (step 6)
+ui/                      Non-Go frontend: static/ (js, css, images), css/
+                         source, npm + tailwind config, generated dist/
 ```
 
 ## Layering rules
@@ -500,10 +504,10 @@ renders.
 
 ## CSS
 
-Tailwind CSS — classes directly in templ components. Config in `frontend/tailwind.config.js`.
+Tailwind CSS — classes directly in templ components. Config in `ui/tailwind.config.js`.
 
 ```bash
-make install     # installs npm deps in frontend/
+make install     # installs npm deps in ui/
 make css-build   # one-shot production build
 ```
 
@@ -511,12 +515,12 @@ make css-build   # one-shot production build
 daemon.
 
 ```
-frontend/css/input.css          Tailwind directives (@tailwind base, components, utilities)
-frontend/static/css/output.css  Generated CSS (do not edit)
-frontend/dist/                  Fingerprinted output of `hamr gen static`
+ui/css/input.css          Tailwind directives (@tailwind base, components, utilities)
+ui/static/css/output.css  Generated CSS (do not edit)
+ui/dist/                  Fingerprinted output of `hamr gen static`
 ```
 
-Custom components via `@apply` in `frontend/css/input.css`:
+Custom components via `@apply` in `ui/css/input.css`:
 
 ```css
 @layer components {

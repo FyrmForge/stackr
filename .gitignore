@@ -43,7 +43,7 @@ coverage.html
 
 # Node (if tailwind)
 **/node_modules/
-frontend/dist/
+ui/dist/
 generated/
 
 # CLI per-repo link (machine-local, like railway's .railway)

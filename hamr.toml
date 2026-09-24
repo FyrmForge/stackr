@@ -17,8 +17,8 @@ storage = "local"
 alpine = false
 
 [static]
-dir = "frontend/static"
-dist = "frontend/dist"
+dir = "ui/static"
+dist = "ui/dist"
 manifest = "internal/web/components/staticmanifest.go"
 package = "components"
 
@@ -54,8 +54,8 @@ debounce = 100
 # project-root-relative; dir only sets the working directory for cmd.
 [[dev.watch]]
 name = "tailwind"
-watch = ["**/*.templ", "frontend/css/input.css"]
-dir = "frontend"
+watch = ["**/*.templ", "ui/css/input.css"]
+dir = "ui"
 cmd = "npm run css:build"
 debounce = 200
 
@@ -70,7 +70,7 @@ reload = "full"
 
 [[dev.watch]]
 name = "static"
-watch = ["frontend/static/**/*"]
+watch = ["ui/static/**/*"]
 cmd = "hamr gen static"
 debounce = 200
 

@@ -4,6 +4,8 @@ module.exports = {
   content: [
     "../internal/web/**/*.templ",
     "../internal/web/**/*.go",
+    "../internal/ui/**/*.templ",
+    "../internal/ui/**/*.go",
     "!../internal/web/components/staticmanifest.go",
   ],
   theme: {

@@ -46,7 +46,7 @@ internal/
   db/                    Database + migrations
   repo/                  Data access layer
   web/                   HTTP handlers + components
-frontend/                Static assets, CSS source, npm config, dist/
+ui/                      Static assets, CSS source, npm config, dist/
 docs/                    Documentation
 ```
 

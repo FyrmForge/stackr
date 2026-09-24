@@ -22,7 +22,7 @@ ENV_LOAD := eval "$$(hamr env --export 2>/dev/null || true)";
 install:
 	go install github.com/FyrmForge/hamr/cmd/hamr@$(HAMR_VERSION)
 	go install github.com/a-h/templ/cmd/templ@$(TEMPL_VERSION)
-	cd frontend && npm install
+	cd ui && npm install
 
 ## check-templ: Verify templ is installed
 check-templ:
@@ -30,11 +30,11 @@ check-templ:
 
 ## check-node-modules: Auto-install npm deps if missing
 check-node-modules:
-	@[ -d frontend/node_modules ] || (cd frontend && npm install)
+	@[ -d ui/node_modules ] || (cd ui && npm install)
 
 ## css-build: Build Tailwind CSS for production (minified)
 css-build: check-node-modules
-	cd frontend && npm run css:build
+	cd ui && npm run css:build
 
 VERSION := $(shell git rev-parse --short HEAD 2>/dev/null || echo "dev")
 
@@ -45,7 +45,7 @@ fmt:
 ## build: Build the panel binary (bin/stackrd)
 build: check-templ check-node-modules
 	templ generate
-	cd frontend && npm run css:build
+	cd ui && npm run css:build
 	hamr gen static
 	go build -ldflags "-X main.version=$(VERSION)" -o bin/stackrd ./cmd/stackrd
 	$(MAKE) generate

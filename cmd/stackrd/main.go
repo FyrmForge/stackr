@@ -80,8 +80,8 @@ func run(log *slog.Logger, generate bool) error {
 	srv, err := server.New(
 		server.WithPort(envPort),
 		server.WithDevMode(envDevMode),
-		server.WithStaticDir("frontend/static"),
-		server.WithStaticDistDir("frontend/dist"),
+		server.WithStaticDir("ui/static"),
+		server.WithStaticDistDir("ui/dist"),
 		server.WithGeneratedDir("generated"),
 		// TRUSTED_PROXIES: comma-separated CIDRs of upstream proxies/load
 		// balancers allowed to set X-Forwarded-For (drives client-IP detection
