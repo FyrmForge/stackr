@@ -39,6 +39,12 @@ func Builds(t store.Tile) bool {
 	return t.Kind == Service || (RunToCompletion(t.Kind) && t.GitURL != "")
 }
 
+// Pulls: the tile's artifact is a registry image it names (an image tile,
+// or a run kind with an image). Managed pulls its engine's, not this.
+func Pulls(t store.Tile) bool {
+	return t.Kind == Image || (RunToCompletion(t.Kind) && t.GitURL == "")
+}
+
 // Function triggers.
 const (
 	Manual   = "manual"

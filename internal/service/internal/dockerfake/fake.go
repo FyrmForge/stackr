@@ -43,6 +43,9 @@ type Fake struct {
 	Untarred   []byte // what UntarVolume last read
 	ExecIn     []byte // what ExecStream's stdin last carried
 	LogsOut    string
+	StreamOut  []string // the lines StreamLogs sends
+	ExitCode   int      // what Wait answers
+	WaitBlock  bool     // Wait blocks until its ctx ends
 }
 
 func New() *Fake { return &Fake{} }
@@ -95,6 +98,17 @@ func matches(have, want map[string]string) bool {
 		}
 	}
 	return true
+}
+
+func (f *Fake) Wait(ctx context.Context, id string) (int, error) {
+	if err := f.rec("Wait", id); err != nil {
+		return -1, err
+	}
+	if f.WaitBlock {
+		<-ctx.Done()
+		return -1, ctx.Err()
+	}
+	return f.ExitCode, nil
 }
 
 func (f *Fake) Inspect(_ context.Context, id string) (docker.Detail, error) {
@@ -191,7 +205,10 @@ func (f *Fake) Logs(_ context.Context, id string, _ int) (string, error) {
 	return f.LogsOut, f.rec("Logs", id)
 }
 func (f *Fake) StreamLogs(_ context.Context, id string, _ int) (<-chan string, func(), error) {
-	ch := make(chan string)
+	ch := make(chan string, len(f.StreamOut))
+	for _, l := range f.StreamOut {
+		ch <- l
+	}
 	close(ch)
 	return ch, func() {}, f.rec("StreamLogs", id)
 }

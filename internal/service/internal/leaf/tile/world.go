@@ -17,7 +17,8 @@ import (
 // proxy containers (stackrd and the installer set it); the guard below reads it.
 const (
 	LabelTile   = "stackr.tile"
-	LabelRole   = "stackr.role" // replica | pause
+	LabelRole   = "stackr.role" // replica | pause | run
+	LabelRun    = "stackr.run"  // a run container's run id
 	LabelSystem = "stackr.system"
 
 	// PauseImage holds the VIP: a do-nothing container whose only job is an
@@ -41,6 +42,7 @@ type Docker interface {
 	Pause(ctx context.Context, id string) error
 	Unpause(ctx context.Context, id string) error
 	StreamLogs(ctx context.Context, id string, tail int) (<-chan string, func(), error)
+	Wait(ctx context.Context, id string) (int, error)
 }
 
 // VIP is the slice of internal/vip this leaf needs.
@@ -75,6 +77,45 @@ func (l *Leaf) Start(ctx context.Context, t store.Tile, spec docker.ContainerSpe
 		return "", fmt.Errorf("%s: %w", t.Slug, err)
 	}
 	return id, nil
+}
+
+// RunOnce runs one run-to-completion container: no health gate, no restart,
+// its log lines copied into log. It waits for the exit and removes the
+// container on every path (docker run --rm). ctx ending (timeout, cancel)
+// stops it and returns ctx.Err().
+func (l *Leaf) RunOnce(ctx context.Context, t store.Tile, spec docker.ContainerSpec, runID string, log io.Writer) (int, error) {
+	spec.Labels = maps.Clone(spec.Labels)
+	if spec.Labels == nil {
+		spec.Labels = map[string]string{}
+	}
+	spec.Labels[LabelTile], spec.Labels[LabelRole], spec.Labels[LabelRun] = t.ID, "run", runID
+	spec.Restart = "no"
+	id, err := l.docker.Run(ctx, spec)
+	if err != nil {
+		return -1, err
+	}
+	defer func() { _ = l.docker.StopRemove(context.WithoutCancel(ctx), id) }()
+	lines, stop, err := l.docker.StreamLogs(context.WithoutCancel(ctx), id, -1)
+	if err != nil {
+		return -1, err
+	}
+	defer stop()
+	copied := make(chan struct{})
+	go func() {
+		defer close(copied)
+		for s := range lines {
+			_, _ = io.WriteString(log, s+"\n")
+		}
+	}()
+	code, err := l.docker.Wait(ctx, id)
+	if ctx.Err() != nil {
+		return -1, ctx.Err()
+	}
+	select { // the stream ends with the container; don't hang on a stuck one
+	case <-copied:
+	case <-time.After(5 * time.Second):
+	}
+	return code, err
 }
 
 // gate is docker.Healthy with the tile's timings; the start period is

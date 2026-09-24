@@ -2223,6 +2223,9 @@
           "name": {
             "type": "string"
           },
+          "paused": {
+            "type": "boolean"
+          },
           "privileged": {
             "type": "boolean"
           },
@@ -2233,6 +2236,9 @@
             "type": "integer"
           },
           "restart_policy": {
+            "type": "string"
+          },
+          "schedule": {
             "type": "string"
           },
           "shared_net": {
@@ -2248,6 +2254,12 @@
             "type": "string"
           },
           "tag_policy": {
+            "type": "string"
+          },
+          "timeout_minutes": {
+            "type": "integer"
+          },
+          "trigger": {
             "type": "string"
           },
           "update_policy": {
@@ -2306,6 +2318,10 @@
           "replicas",
           "update_policy",
           "tag_policy",
+          "schedule",
+          "trigger",
+          "paused",
+          "timeout_minutes",
           "created_at",
           "updated_at"
         ],

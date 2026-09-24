@@ -2,6 +2,7 @@ package docker
 
 import (
 	"context"
+	"errors"
 	"maps"
 	"strings"
 	"time"
@@ -73,6 +74,21 @@ func (d *Client) Run(ctx context.Context, spec ContainerSpec) (string, error) {
 		return "", err
 	}
 	return resp.ID, nil
+}
+
+// Wait blocks until the container is not running and returns its exit
+// code. A container that already exited answers at once.
+func (d *Client) Wait(ctx context.Context, id string) (int, error) {
+	okC, errC := d.cli.ContainerWait(ctx, id, container.WaitConditionNotRunning)
+	select {
+	case r := <-okC:
+		if r.Error != nil {
+			return -1, errors.New(r.Error.Message)
+		}
+		return int(r.StatusCode), nil
+	case err := <-errC:
+		return -1, wrap(err)
+	}
 }
 
 func portBindings(ports map[string]string) (nat.PortSet, nat.PortMap) {

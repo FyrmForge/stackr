@@ -30,10 +30,11 @@ linters:
             - "**/internal/service/internal/flow/**"
             - "!**/internal/service/internal/flow/promote/**"
             - "!**/internal/service/internal/flow/deploy/**"
+            - "!**/internal/service/internal/flow/run/**"
             - "!$test"
           deny:
             - pkg: github.com/FyrmForge/stackr/internal/service/internal/flow
-              desc: flow -> flow only on listed edges (promote -> deploy, deploy -> managed)
+              desc: flow -> flow only on listed edges (promote -> deploy, deploy -> managed, run -> deploy)
         flow-promote-edges:
           list-mode: lax
           files:
@@ -44,6 +45,16 @@ linters:
           deny:
             - pkg: github.com/FyrmForge/stackr/internal/service/internal/flow
               desc: promote may only call flow/deploy
+        flow-run-edges:
+          list-mode: lax
+          files:
+            - "**/internal/service/internal/flow/run/**"
+            - "!$test"
+          allow:
+            - github.com/FyrmForge/stackr/internal/service/internal/flow/deploy
+          deny:
+            - pkg: github.com/FyrmForge/stackr/internal/service/internal/flow
+              desc: run may only call flow/deploy
         flow-deploy-edges:
           list-mode: lax
           files:

@@ -91,9 +91,10 @@ func (l *Leaf) Finish(ctx context.Context, id string, exit *int, status, reason 
 func Done(r store.Run) bool { return r.Status != Queued && r.Status != Running }
 
 // Get is the run if it belongs to tileID; another tile's run is not found.
+// tileID "" skips the check (the worker, which holds only the run id).
 func (l *Leaf) Get(ctx context.Context, tileID, id string) (store.Run, error) {
 	r, err := l.runs.Get(ctx, id)
-	if err == nil && r.TileID != tileID {
+	if err == nil && tileID != "" && r.TileID != tileID {
 		return store.Run{}, errs.ErrNotFound
 	}
 	return r, err

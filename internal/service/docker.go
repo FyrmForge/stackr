@@ -22,6 +22,7 @@ type Docker interface {
 	Unpause(ctx context.Context, id string) error
 	List(ctx context.Context, labels map[string]string) ([]docker.Container, error)
 	Inspect(ctx context.Context, id string) (docker.Detail, error)
+	Wait(ctx context.Context, id string) (exitCode int, err error)
 
 	// Networks.
 	EnsureNetwork(ctx context.Context, name string, labels map[string]string) error

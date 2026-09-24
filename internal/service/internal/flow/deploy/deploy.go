@@ -78,7 +78,7 @@ func (f *Flow) Redeploy(ctx context.Context, tileID string, log io.Writer, swap 
 		return err
 	}
 	digest, err := f.Run(ctx, t, ref, log, swap)
-	if err != nil || pinned || t.Kind != tile.Image {
+	if err != nil || pinned || !tile.Pulls(t) {
 		return err
 	}
 	// An image tile's first run: pin what the tag meant, as a release.
@@ -113,10 +113,10 @@ func (f *Flow) Current(ctx context.Context, t store.Tile, e store.Environment) (
 			}
 		}
 	}
-	switch t.Kind {
-	case tile.Image:
+	switch {
+	case tile.Pulls(t):
 		return t.ImageRef, false, nil
-	case tile.Managed:
+	case t.Kind == tile.Managed:
 		return "", false, nil // the engine's image
 	}
 	return "", false, errs.Conflictf("%s has nothing built yet: build a commit first", t.Slug)
@@ -130,62 +130,15 @@ func (f *Flow) Run(ctx context.Context, t store.Tile, ref string, log io.Writer,
 	if swap == nil {
 		swap = func() error { return nil }
 	}
-	e, err := f.Envs.Get(ctx, t.EnvironmentID)
-	if err != nil {
-		return "", err
-	}
-	st, err := f.Stacks.Get(ctx, t.StackID)
-	if err != nil {
-		return "", err
-	}
-	o, err := f.Orgs.Get(ctx, st.OrgID)
-	if err != nil {
-		return "", err
-	}
-	var def mflow.Container
-	if t.Kind == tile.Managed {
-		if f.Engines == nil {
-			return "", fmt.Errorf("%s: no managed engines are wired", t.Slug)
-		}
-		if def, err = f.Engines.Container(ctx, t); err != nil {
-			return "", err
-		}
-		if ref == "" {
-			ref = def.Image
-		}
-	}
-	if ref == "" {
-		return "", fmt.Errorf("%s: no image to run", t.Slug)
-	}
-	if strings.TrimSpace(t.Files) != "" {
-		// ponytail: files: mounts are not materialized yet (DECIDE 27).
-		return "", errs.Conflictf("%s: files: mounts are not supported yet", t.Slug)
-	}
-	if f.Engines != nil {
-		if err := f.Engines.Reconcile(ctx, t, log); err != nil {
-			return "", err
-		}
-	}
-
-	r, err := f.resolve(ctx, t, e, st, o, def, log)
-	if err != nil {
-		return "", err
-	}
-	auth := ""
-	if c, ok, err := f.Creds.For(ctx, o.ID, ref); err != nil {
-		return "", err
-	} else if ok {
-		auth = credential.Auth(c)
-	}
-	logf(log, "pulling %s\n", ref)
-	digest, err := f.Images.Ensure(ctx, ref, auth, log)
-	if err != nil {
-		return "", fmt.Errorf("pull %s: %w", ref, err)
+	r, e, digest, err := f.prepare(ctx, t, ref, log)
+	if err != nil || tile.RunToCompletion(t.Kind) {
+		// A cron or function deploy stops at the pulled artifact: a run
+		// starts its container.
+		return digest, err
 	}
 	if _, err := f.Images.Ensure(ctx, tile.PauseImage, "", log); err != nil {
 		return "", fmt.Errorf("pull %s: %w", tile.PauseImage, err)
 	}
-	r.image = ref
 	if err := f.rollout(ctx, t, e, r, log, swap); err != nil {
 		return "", err
 	}
@@ -194,6 +147,77 @@ func (f *Flow) Run(ctx context.Context, t store.Tile, ref string, log io.Writer,
 		return digest, f.Engines.Ready(ctx, t)
 	}
 	return digest, nil
+}
+
+// Spec is the container a run of t starts on ref: the same facts, networks,
+// params and volumes a service replica gets, from the same builder, pulled.
+func (f *Flow) Spec(ctx context.Context, t store.Tile, ref string, log io.Writer) (docker.ContainerSpec, error) {
+	r, _, _, err := f.prepare(ctx, t, ref, log)
+	if err != nil {
+		return docker.ContainerSpec{}, err
+	}
+	s := spec(t, r)
+	s.Name = r.name
+	return s, nil
+}
+
+// prepare resolves t's facts and pulls ref: everything a container needs
+// short of starting one.
+func (f *Flow) prepare(ctx context.Context, t store.Tile, ref string, log io.Writer) (resolved, store.Environment, string, error) {
+	e, err := f.Envs.Get(ctx, t.EnvironmentID)
+	if err != nil {
+		return resolved{}, e, "", err
+	}
+	st, err := f.Stacks.Get(ctx, t.StackID)
+	if err != nil {
+		return resolved{}, e, "", err
+	}
+	o, err := f.Orgs.Get(ctx, st.OrgID)
+	if err != nil {
+		return resolved{}, e, "", err
+	}
+	var def mflow.Container
+	if t.Kind == tile.Managed {
+		if f.Engines == nil {
+			return resolved{}, e, "", fmt.Errorf("%s: no managed engines are wired", t.Slug)
+		}
+		if def, err = f.Engines.Container(ctx, t); err != nil {
+			return resolved{}, e, "", err
+		}
+		if ref == "" {
+			ref = def.Image
+		}
+	}
+	if ref == "" {
+		return resolved{}, e, "", fmt.Errorf("%s: no image to run", t.Slug)
+	}
+	if strings.TrimSpace(t.Files) != "" {
+		// ponytail: files: mounts are not materialized yet (DECIDE 27).
+		return resolved{}, e, "", errs.Conflictf("%s: files: mounts are not supported yet", t.Slug)
+	}
+	if f.Engines != nil {
+		if err := f.Engines.Reconcile(ctx, t, log); err != nil {
+			return resolved{}, e, "", err
+		}
+	}
+
+	r, err := f.resolve(ctx, t, e, st, o, def, log)
+	if err != nil {
+		return r, e, "", err
+	}
+	auth := ""
+	if c, ok, err := f.Creds.For(ctx, o.ID, ref); err != nil {
+		return r, e, "", err
+	} else if ok {
+		auth = credential.Auth(c)
+	}
+	logf(log, "pulling %s\n", ref)
+	digest, err := f.Images.Ensure(ctx, ref, auth, log)
+	if err != nil {
+		return r, e, "", fmt.Errorf("pull %s: %w", ref, err)
+	}
+	r.image = ref
+	return r, e, digest, nil
 }
 
 // rollout swaps the tile's replicas for ones running r.
