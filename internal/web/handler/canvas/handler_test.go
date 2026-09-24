@@ -56,7 +56,7 @@ func TestCanvasHomeNeedsLogin(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	web.RegisterRoutes(srv, &web.Deps{Service: env.O, Access: middleware.NewAccess(env.O), DevMode: true})
+	web.RegisterRoutes(srv, &web.Deps{Orch: env.Orch, Access: middleware.NewAccess(env.Orch), DevMode: true})
 	rec := httptest.NewRecorder()
 	srv.Echo().ServeHTTP(rec, httptest.NewRequest("GET", "/", nil))
 	if rec.Code != http.StatusSeeOther && rec.Code != http.StatusFound || rec.Header().Get("Location") != "/login" {
@@ -117,7 +117,7 @@ func TestCanvasEventsSwapGraph(t *testing.T) {
 	s := webtest.New(t)
 	events := html.UnescapeString(regexp.MustCompile(`sse-connect="([^"]+)"`).FindStringSubmatch(get(t, s, "/acme"))[1])
 	ctx, cancel := context.WithCancel(context.Background())
-	time.AfterFunc(60*time.Millisecond, func() { _, _ = s.O.CreateStack(context.Background(), s.Org, "blog", "") })
+	time.AfterFunc(60*time.Millisecond, func() { _, _ = s.Orch.CreateStack(context.Background(), s.Org, "blog", "") })
 	time.AfterFunc(250*time.Millisecond, cancel)
 	body := s.DoCtx(ctx, t, "GET", events, nil).Body.String()
 	if !strings.Contains(body, "event: graph\ndata: <graph-canvas") || !strings.Contains(body, ">blog</a>") {

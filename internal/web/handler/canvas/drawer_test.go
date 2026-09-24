@@ -33,7 +33,7 @@ func newBrowser(t *testing.T, role string) browser {
 	if err != nil {
 		t.Fatal(err)
 	}
-	web.RegisterRoutes(srv, &web.Deps{Service: env.O, Access: middleware.NewAccess(env.O), DevMode: true})
+	web.RegisterRoutes(srv, &web.Deps{Orch: env.Orch, Access: middleware.NewAccess(env.Orch), DevMode: true})
 	org := env.Org(t, "acme")
 	u := env.User(t, role+"@acme.test", role == "admin")
 	if role != "admin" {
@@ -53,7 +53,7 @@ func (b browser) do(t *testing.T, method, path string, form url.Values, htmx boo
 	}
 	req.Header.Set("X-CSRF-Token", "tok")
 	req.AddCookie(&http.Cookie{Name: "csrf", Value: "tok"})
-	req.AddCookie(&http.Cookie{Name: b.env.O.Sessions().CookieName(), Value: b.session})
+	req.AddCookie(&http.Cookie{Name: b.env.Orch.Sessions().CookieName(), Value: b.session})
 	rec := httptest.NewRecorder()
 	b.h.ServeHTTP(rec, req)
 	return rec
@@ -124,7 +124,7 @@ func TestCreateDialogs(t *testing.T) {
 	if rec.Header().Get("HX-Redirect") != "/acme/blog" {
 		t.Fatalf("create stack = %d %q %s", rec.Code, rec.Header().Get("HX-Redirect"), rec.Body)
 	}
-	sts, _ := s.O.Stacks(ctx, s.Org)
+	sts, _ := s.Orch.Stacks(ctx, s.Org)
 	if len(sts) != 2 {
 		t.Errorf("stacks = %d", len(sts))
 	}
@@ -135,7 +135,7 @@ func TestCreateDialogs(t *testing.T) {
 	if rec.Header().Get("HX-Redirect") != "/acme/shop/prod" {
 		t.Fatalf("create env = %d %q %s", rec.Code, rec.Header().Get("HX-Redirect"), rec.Body)
 	}
-	if es, _ := s.O.Ladder(ctx, s.Tile.Stack); len(es) != 2 || es[1].FromKind != "promote" {
+	if es, _ := s.Orch.Ladder(ctx, s.Tile.Stack); len(es) != 2 || es[1].FromKind != "promote" {
 		t.Errorf("ladder = %+v", es)
 	}
 	if rec := s.Do(t, "POST", "/-/new-org", url.Values{"name": {"beta"}}); rec.Code != http.StatusForbidden {
@@ -165,7 +165,7 @@ func TestDrawerActions(t *testing.T) {
 	if rec.Code != http.StatusOK || rec.Header().Get("HX-Retarget") != "#vars-editor" || strings.Contains(rec.Body.String(), "hunter2") {
 		t.Fatalf("save a secret = %d %s", rec.Code, rec.Body)
 	}
-	ps, _ := s.O.Params(ctx, service.ParamScope{Kind: "org", ID: s.Org}, true)
+	ps, _ := s.Orch.Params(ctx, service.ParamScope{Kind: "org", ID: s.Org}, true)
 	if len(ps) != 1 || ps[0].Name != "pass" {
 		t.Errorf("params = %+v", ps)
 	}

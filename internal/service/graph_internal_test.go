@@ -16,31 +16,31 @@ import (
 // internet gets an edge to the internet system card; Traffic off drops both.
 func TestCanvasEgress(t *testing.T) {
 	ctx := context.Background()
-	o, err := New(Config{DataDir: t.TempDir(), SecretsKey: testKey, Conntrack: "/nonexistent"}, WithDocker(dockerfake.New()),
+	orch, err := New(Config{DataDir: t.TempDir(), SecretsKey: testKey, Conntrack: "/nonexistent"}, WithDocker(dockerfake.New()),
 		WithVIP(vipStub{}), WithProxy(func(context.Context, json.RawMessage) error { return nil }))
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = o.Close() })
+	t.Cleanup(func() { _ = orch.Close() })
 	og := store.Org{ID: "o1", Name: "acme", Slug: "acme", EnvColors: "{}", Settings: "{}", CreatedAt: time.Now()}
-	if err := o.store.Orgs.Create(ctx, og); err != nil {
+	if err := orch.store.Orgs.Create(ctx, og); err != nil {
 		t.Fatal(err)
 	}
-	st, err := o.CreateStack(ctx, og.ID, "shop", "")
+	st, err := orch.CreateStack(ctx, og.ID, "shop", "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	en, err := o.CreateEnv(ctx, st.ID, "dev", EnvSpec{Type: "static", FromKind: "branch", FromBranch: "main"})
+	en, err := orch.CreateEnv(ctx, st.ID, "dev", EnvSpec{Type: "static", FromKind: "branch", FromBranch: "main"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	tl, err := o.CreateTile(ctx, Tile{StackID: st.ID, EnvironmentID: en.ID, Name: "api", Kind: "image", ImageRef: "nginx:1"})
+	tl, err := orch.CreateTile(ctx, Tile{StackID: st.ID, EnvironmentID: en.ID, Name: "api", Kind: "image", ImageRef: "nginx:1"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	s := CanvasScope{Kind: CanvasEnv, ID: en.ID}
 	lanes := []ltraffic.Edge{{From: tl.ID, To: ltraffic.Internet, BPS: 10}, {From: tl.ID, To: ltraffic.Internet, BPS: 5}}
-	v, err := o.graph.Build(ctx, s, graph.In{Show: graph.All, Traffic: lanes})
+	v, err := orch.graph.Build(ctx, s, graph.In{Show: graph.All, Traffic: lanes})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -53,7 +53,7 @@ func TestCanvasEgress(t *testing.T) {
 	}
 	off := graph.All
 	off.Traffic = false
-	v, _ = o.graph.Build(ctx, s, graph.In{Show: off, Traffic: lanes})
+	v, _ = orch.graph.Build(ctx, s, graph.In{Show: off, Traffic: lanes})
 	if len(v.Edges) != 0 || len(v.Nodes) != 2 || v.Divider != 0 {
 		t.Errorf("traffic off: nodes %+v edges %+v divider %d, want api and vars only", v.Nodes, v.Edges, v.Divider)
 	}

@@ -16,7 +16,7 @@ import (
 
 func owner(t *testing.T, s *webtest.Site) string {
 	t.Helper()
-	us, err := s.O.Users(context.Background())
+	us, err := s.Orch.Users(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,7 +83,7 @@ func TestSetup(t *testing.T) {
 func TestInvite(t *testing.T) {
 	s := webtest.New(t)
 	ctx := context.Background()
-	inv, err := s.O.Invite(ctx, s.Org, "new@x.test", "owner", owner(t, s))
+	inv, err := s.Orch.Invite(ctx, s.Org, "new@x.test", "owner", owner(t, s))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -99,7 +99,7 @@ func TestInvite(t *testing.T) {
 	}
 
 	other := s.User(t, "other@x.test", false)
-	inv, err = s.O.Invite(ctx, s.Org, "other@x.test", "owner", owner(t, s))
+	inv, err = s.Orch.Invite(ctx, s.Org, "other@x.test", "owner", owner(t, s))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -131,7 +131,7 @@ func TestCLIAuthorize(t *testing.T) {
 	if err != nil || to.Host != "127.0.0.1:4711" || to.Query().Get("state") != "a&b" {
 		t.Fatalf("approve = %d %q", rec.Code, rec.Header().Get("HX-Redirect"))
 	}
-	if _, _, err := s.O.ExchangeCLICode(context.Background(), to.Query().Get("code")); err != nil {
+	if _, _, err := s.Orch.ExchangeCLICode(context.Background(), to.Query().Get("code")); err != nil {
 		t.Errorf("the code does not exchange: %v", err)
 	}
 }

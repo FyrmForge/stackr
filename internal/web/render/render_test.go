@@ -22,7 +22,7 @@ func TestPageRendersBothWays(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	web.RegisterRoutes(srv, &web.Deps{Service: env.O, Access: middleware.NewAccess(env.O), DevMode: true})
+	web.RegisterRoutes(srv, &web.Deps{Orch: env.Orch, Access: middleware.NewAccess(env.Orch), DevMode: true})
 	acme := env.Org(t, "acme")
 	owner := env.User(t, "owner@x", false)
 	env.Member(t, acme, owner, "owner")
@@ -31,7 +31,7 @@ func TestPageRendersBothWays(t *testing.T) {
 
 	get := func(headers map[string]string) (int, string) {
 		req := httptest.NewRequest(http.MethodGet, "/acme/shop/dev/api", nil)
-		req.AddCookie(&http.Cookie{Name: env.O.Sessions().CookieName(), Value: session})
+		req.AddCookie(&http.Cookie{Name: env.Orch.Sessions().CookieName(), Value: session})
 		for k, v := range headers {
 			req.Header.Set(k, v)
 		}

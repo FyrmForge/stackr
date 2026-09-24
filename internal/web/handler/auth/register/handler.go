@@ -27,15 +27,15 @@ type RegisterForm struct {
 }
 
 type handler struct {
-	svc *service.Orchestrator
+	orch *service.Orchestrator
 
 	FormRules validate.Form
 }
 
 // NewHandler creates a new register handler.
-func NewHandler(svc *service.Orchestrator) *handler {
+func NewHandler(orch *service.Orchestrator) *handler {
 	return &handler{
-		svc: svc,
+		orch: orch,
 		FormRules: validate.NewForm(
 			validate.WithOOBRenderer(components.OOBValidator),
 			validate.WithGeneralError("Please fix the errors below and try again."),
@@ -65,7 +65,7 @@ func (h *handler) Submit(c echo.Context) error {
 
 	log := logging.FromContext(c.Request().Context())
 
-	session, err := h.svc.Register(c.Request().Context(), f.Email, f.Password, f.Name)
+	session, err := h.orch.Register(c.Request().Context(), f.Email, f.Password, f.Name)
 	if err != nil {
 		log.Warn("registration failed", "email", f.Email, "error", err)
 		if v, ok := errs.IsInvalid(err); ok && v.Field == "email" {
@@ -78,7 +78,7 @@ func (h *handler) Submit(c echo.Context) error {
 		}))
 	}
 
-	auth.SetSession(c, h.svc.Sessions(), session)
+	auth.SetSession(c, h.orch.Sessions(), session)
 	hamrmw.SetFlash(c, "Welcome! Your account has been created.", hamrmw.FlashSuccess)
 	return respond.Redirect(c, cmp.Or(f.Next, "/setup"))
 }

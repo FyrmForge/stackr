@@ -15,19 +15,19 @@ func TestEnvReleases(t *testing.T) {
 	s := webtest.New(t)
 	s.Healthy(s.Tile.Env)
 	ctx := context.Background()
-	j, err := s.O.Deploy(ctx, s.Tile.ID)
+	j, err := s.Orch.Deploy(ctx, s.Tile.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	for end := time.Now().Add(10 * time.Second); ; time.Sleep(20 * time.Millisecond) {
-		if j, err = s.O.GetJob(ctx, j.ID); err != nil || j.FinishedAt != nil || time.Now().After(end) {
+		if j, err = s.Orch.GetJob(ctx, j.ID); err != nil || j.FinishedAt != nil || time.Now().After(end) {
 			break
 		}
 	}
 	if j.State != "done" {
 		t.Fatalf("deploy = %s", j.State)
 	}
-	rs, err := s.O.Releases(ctx, s.Tile.Stack)
+	rs, err := s.Orch.Releases(ctx, s.Tile.Stack)
 	if err != nil || len(rs) != 1 {
 		t.Fatalf("releases = %v, %v", rs, err)
 	}

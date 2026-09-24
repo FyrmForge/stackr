@@ -32,7 +32,7 @@ func New(t *testing.T) *Site {
 	if err != nil {
 		t.Fatal(err)
 	}
-	web.RegisterRoutes(srv, &web.Deps{Service: env.O, Access: middleware.NewAccess(env.O), DevMode: true})
+	web.RegisterRoutes(srv, &web.Deps{Orch: env.Orch, Access: middleware.NewAccess(env.Orch), DevMode: true})
 	org := env.Org(t, "acme")
 	owner := env.User(t, "owner@acme.test", false)
 	env.Member(t, org, owner, "owner")
@@ -69,7 +69,7 @@ func (s *Site) send(ctx context.Context, session, method, path string, form url.
 	req.Header.Set("X-CSRF-Token", "tok")
 	req.AddCookie(&http.Cookie{Name: "csrf", Value: "tok"})
 	if session != "" {
-		req.AddCookie(&http.Cookie{Name: s.O.Sessions().CookieName(), Value: session})
+		req.AddCookie(&http.Cookie{Name: s.Orch.Sessions().CookieName(), Value: session})
 	}
 	rec := httptest.NewRecorder()
 	s.h.ServeHTTP(rec, req)
@@ -80,7 +80,7 @@ func (s *Site) send(ctx context.Context, session, method, path string, form url.
 func (s *Site) DoNoCSRF(t *testing.T, method, path string) *httptest.ResponseRecorder {
 	t.Helper()
 	req := httptest.NewRequest(method, path, nil)
-	req.AddCookie(&http.Cookie{Name: s.O.Sessions().CookieName(), Value: s.session})
+	req.AddCookie(&http.Cookie{Name: s.Orch.Sessions().CookieName(), Value: s.session})
 	rec := httptest.NewRecorder()
 	s.h.ServeHTTP(rec, req)
 	return rec

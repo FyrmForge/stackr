@@ -23,10 +23,10 @@ func setup(t *testing.T) (*servicetest.Env, http.Handler) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	access := middleware.NewAccess(env.O)
+	access := middleware.NewAccess(env.Orch)
 	web.RegisterStaticPages(srv)
-	api.RegisterRoutes(srv, &api.Deps{Service: env.O, Access: access, DevMode: true})
-	web.RegisterRoutes(srv, &web.Deps{Service: env.O, Access: access, DevMode: true})
+	api.RegisterRoutes(srv, &api.Deps{Orch: env.Orch, Access: access, DevMode: true})
+	web.RegisterRoutes(srv, &web.Deps{Orch: env.Orch, Access: access, DevMode: true})
 	return env, srv.Echo()
 }
 
@@ -49,7 +49,7 @@ func do(t *testing.T, h http.Handler, cookie string, path string, c cred) int {
 func TestAccess(t *testing.T) {
 	env, h := setup(t)
 	ctx := context.Background()
-	cookie := env.O.Sessions().CookieName()
+	cookie := env.Orch.Sessions().CookieName()
 
 	acme := env.Org(t, "acme")
 	other := env.Org(t, "other")
@@ -76,10 +76,10 @@ func TestAccess(t *testing.T) {
 	}
 
 	// Revoke through the verbs: both close sessions and keys (B16).
-	if err := env.O.DisableUser(ctx, disabled); err != nil {
+	if err := env.Orch.DisableUser(ctx, disabled); err != nil {
 		t.Fatal(err)
 	}
-	if err := env.O.RemoveMember(ctx, acme, removed); err != nil {
+	if err := env.Orch.RemoveMember(ctx, acme, removed); err != nil {
 		t.Fatal(err)
 	}
 	// A membership gone without the revoke verb: the key is still there,
@@ -157,7 +157,7 @@ func TestChildIDsStayInTheirOrg(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	access := middleware.NewAccess(env.O)
+	access := middleware.NewAccess(env.Orch)
 	ok := func(c echo.Context) error { return c.NoContent(http.StatusNoContent) }
 	srv.Echo().GET("/orgs/:org/jobs/:job", ok, access.Load(), access.Require("org.read"))
 	srv.Echo().GET("/orgs/:org/things/:thing", ok, access.Load(), access.Require("org.read"))
@@ -166,12 +166,12 @@ func TestChildIDsStayInTheirOrg(t *testing.T) {
 	owner := env.User(t, "owner@x", false)
 	env.Member(t, acme, owner, "owner")
 	key := env.APIKey(t, owner, acme)
-	mine, err := env.O.Deploy(ctx, env.Tile(t, acme).ID)
+	mine, err := env.Orch.Deploy(ctx, env.Tile(t, acme).ID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	theirTile := env.Tile(t, other)
-	theirs, err := env.O.Deploy(ctx, theirTile.ID)
+	theirs, err := env.Orch.Deploy(ctx, theirTile.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -191,11 +191,11 @@ func TestChildIDsStayInTheirOrg(t *testing.T) {
 	}
 
 	// The job keeps its org after its tile is gone.
-	del, err := env.O.DeleteTile(ctx, theirTile.ID)
+	del, err := env.Orch.DeleteTile(ctx, theirTile.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if org, err := env.O.OrgOf(ctx, "job", del.ID); err != nil || org != other {
+	if org, err := env.Orch.OrgOf(ctx, "job", del.ID); err != nil || org != other {
 		t.Errorf("OrgOf(deleted tile's job) = %q, %v; want %q", org, err, other)
 	}
 }

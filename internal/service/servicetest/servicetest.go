@@ -30,7 +30,7 @@ var _ service.Docker = (*dockerfake.Fake)(nil)
 var Key = storetest.Key
 
 type Env struct {
-	O      *service.Orchestrator
+	Orch   *service.Orchestrator
 	Docker *dockerfake.Fake
 	Store  *store.Store // for seeding and for asserting rows
 	Config service.Config
@@ -54,16 +54,16 @@ func NewWith(t *testing.T, opts []service.Option, edit ...func(*service.Config))
 		f(&cfg)
 	}
 	fake := dockerfake.New()
-	o, err := service.New(cfg, append([]service.Option{service.WithDocker(fake), service.WithVIP(noVIP{}),
+	orch, err := service.New(cfg, append([]service.Option{service.WithDocker(fake), service.WithVIP(noVIP{}),
 		service.WithProxy(func(context.Context, json.RawMessage) error { return nil })}, opts...)...)
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = o.Close() })
+	t.Cleanup(func() { _ = orch.Close() })
 
 	// A second pool on the same file: the orchestrator keeps its store to
 	// itself, the harness gets its own.
-	return &Env{O: o, Docker: fake, Store: open(t, cfg.DBPath), Config: cfg}
+	return &Env{Orch: orch, Docker: fake, Store: open(t, cfg.DBPath), Config: cfg}
 }
 
 // Store is a fresh migrated store with no orchestrator (storetest.Store).
@@ -132,7 +132,7 @@ func (e *Env) APIKey(t *testing.T, userID, orgID string) string {
 // Session opens a browser session for the user and returns its cookie token.
 func (e *Env) Session(t *testing.T, userID string) string {
 	t.Helper()
-	s, err := e.O.Sessions().CreateSession(context.Background(), userID, nil)
+	s, err := e.Orch.Sessions().CreateSession(context.Background(), userID, nil)
 	must(t, err)
 	return s.Token
 }
@@ -144,11 +144,11 @@ type Tile struct{ Stack, Env, ID string }
 func (e *Env) Tile(t *testing.T, orgID string) Tile {
 	t.Helper()
 	ctx := context.Background()
-	st, err := e.O.CreateStack(ctx, orgID, "shop", "")
+	st, err := e.Orch.CreateStack(ctx, orgID, "shop", "")
 	must(t, err)
-	en, err := e.O.CreateEnv(ctx, st.ID, "dev", service.EnvSpec{Type: "static", FromKind: "branch", FromBranch: "main"})
+	en, err := e.Orch.CreateEnv(ctx, st.ID, "dev", service.EnvSpec{Type: "static", FromKind: "branch", FromBranch: "main"})
 	must(t, err)
-	tl, err := e.O.CreateTile(ctx, service.Tile{StackID: st.ID, EnvironmentID: en.ID, Name: "api", Kind: "image",
+	tl, err := e.Orch.CreateTile(ctx, service.Tile{StackID: st.ID, EnvironmentID: en.ID, Name: "api", Kind: "image",
 		ImageRef: "nginx:1", ContainerPort: 80})
 	must(t, err)
 	return Tile{Stack: st.ID, Env: en.ID, ID: tl.ID}

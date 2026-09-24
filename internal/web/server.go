@@ -29,7 +29,7 @@ import (
 
 // Deps holds the dependencies for route registration.
 type Deps struct {
-	Service       *service.Orchestrator
+	Orch          *service.Orchestrator
 	Access        *middleware.Access // shared with the API router
 	BaseURL       string
 	StaticBaseURL string
@@ -77,13 +77,13 @@ func RegisterRoutes(srv *server.Server, deps *Deps) {
 	}
 
 	// Auth routes — one page-package per page (login owns logout as its inverse action).
-	loginHandler := login.NewHandler(deps.Service)
+	loginHandler := login.NewHandler(deps.Orch)
 	site.GET("/login", loginHandler.Page, auth.RequireNotAuth())
 	site.POST("/login", loginHandler.Submit, auth.RequireNotAuth())
 	site.POST("/login/validate/:field", loginHandler.FormRules.ValidationHandler("field"), auth.RequireNotAuth())
 	site.POST("/logout", loginHandler.Logout, auth.RequireAuth())
 
-	registerHandler := register.NewHandler(deps.Service)
+	registerHandler := register.NewHandler(deps.Orch)
 	site.GET("/register", registerHandler.Page, auth.RequireNotAuth())
 	site.POST("/register", registerHandler.Submit, auth.RequireNotAuth())
 	site.POST("/register/validate/:field", registerHandler.FormRules.ValidationHandler("field"), auth.RequireNotAuth())
@@ -91,29 +91,29 @@ func RegisterRoutes(srv *server.Server, deps *Deps) {
 	// A page a visitor may not see sends them to log in and back.
 	page, authed := deps.Access.LoginFirst(), deps.Access.Authed()
 
-	site.GET("/setup", setup.NewHandler(deps.Service).Page, page, authed)
+	site.GET("/setup", setup.NewHandler(deps.Orch).Page, page, authed)
 
-	inv := invite.NewHandler(deps.Service)
+	inv := invite.NewHandler(deps.Orch)
 	site.GET("/invite/:token", inv.Page)
 	site.POST("/invite/:token", inv.Accept, authed)
 	site.POST("/invite/:token/register", inv.Register, auth.RequireNotAuth())
 
-	cli := cliauth.NewHandler(deps.Service)
+	cli := cliauth.NewHandler(deps.Orch)
 	site.GET("/cli/authorize", cli.Page, page, authed)
 	site.POST("/cli/authorize/:org", cli.Approve, deps.Access.Require("org.read"))
 
-	acct := account.NewHandler(deps.Service)
+	acct := account.NewHandler(deps.Orch)
 	site.GET("/account", acct.Page, page, authed)
 	site.POST("/account/password", acct.Password, authed)
 	site.POST("/account/keys/:key/revoke", acct.Revoke, authed)
 
 	// The admin drawer, opened from the nav on any page.
-	admin.NewHandler(deps.Service).Mount(site, deps.Access)
+	admin.NewHandler(deps.Orch).Mount(site, deps.Access)
 
 	// The canvases, one per level. Require resolves each slug, 404s early
 	// and leaves org, stack and env in the context; home is the caller's.
 	// Each level's helper routes sit under "/-/", which no slug can be.
-	cv := canvas.NewHandler(deps.Service)
+	cv := canvas.NewHandler(deps.Orch)
 	levels := []struct {
 		path        string
 		read, write echo.MiddlewareFunc
@@ -139,8 +139,8 @@ func RegisterRoutes(srv *server.Server, deps *Deps) {
 	site.GET("/:org/:stack/:env/:tile", scopeHandler.Page, page, deps.Access.Require("tile.read"))
 
 	// The env canvas's drawers and dialogs (tasks 9 and 10), under /-/ too.
-	env.NewHandler(deps.Service).Mount(site, deps.Access)
-	tile.NewHandler(deps.Service).Mount(site, deps.Access)
+	env.NewHandler(deps.Orch).Mount(site, deps.Access)
+	tile.NewHandler(deps.Orch).Mount(site, deps.Access)
 }
 
 // RegisterStaticPages registers handlers for static generation and runtime

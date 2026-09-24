@@ -28,15 +28,15 @@ type LoginForm struct {
 // handler owns the login page plus its sibling logout action. Logout lives
 // here because it's the inverse of login, not a page of its own.
 type handler struct {
-	svc *service.Orchestrator
+	orch *service.Orchestrator
 
 	FormRules validate.Form
 }
 
 // NewHandler creates a new login handler.
-func NewHandler(svc *service.Orchestrator) *handler {
+func NewHandler(orch *service.Orchestrator) *handler {
 	return &handler{
-		svc: svc,
+		orch: orch,
 		FormRules: validate.NewForm(
 			validate.WithOOBRenderer(components.OOBValidator),
 			validate.Field("email", validate.Required, validate.Email),
@@ -64,7 +64,7 @@ func (h *handler) Submit(c echo.Context) error {
 
 	log := logging.FromContext(c.Request().Context())
 
-	session, err := h.svc.Login(c.Request().Context(), f.Email, f.Password)
+	session, err := h.orch.Login(c.Request().Context(), f.Email, f.Password)
 	if _, bad := errs.IsInvalid(err); bad {
 		log.Warn("login failed", "email", f.Email)
 		return respond.HTML(c, http.StatusUnauthorized, loginForm(f, map[string]string{
@@ -76,15 +76,15 @@ func (h *handler) Submit(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, "session error")
 	}
 
-	auth.SetSession(c, h.svc.Sessions(), session)
+	auth.SetSession(c, h.orch.Sessions(), session)
 	return respond.Redirect(c, cmp.Or(f.Next, "/"))
 }
 
 // POST /logout
 func (h *handler) Logout(c echo.Context) error {
-	sm := h.svc.Sessions()
+	sm := h.orch.Sessions()
 	if cookie, err := c.Cookie(sm.CookieName()); err == nil {
-		_ = h.svc.Logout(c.Request().Context(), cookie.Value)
+		_ = h.orch.Logout(c.Request().Context(), cookie.Value)
 	}
 
 	auth.ClearSession(c, sm)

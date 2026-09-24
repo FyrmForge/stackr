@@ -20,7 +20,7 @@ import (
 )
 
 // H holds the one orchestrator every handler calls.
-type H struct{ S *service.Orchestrator }
+type H struct{ Orch *service.Orchestrator }
 
 // list renders a nil slice as [], never null.
 func list[T any](xs []T, err error) ([]T, error) {

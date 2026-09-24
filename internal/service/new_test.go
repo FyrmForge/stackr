@@ -19,12 +19,12 @@ func TestNewBuildsEachOnce(t *testing.T) {
 	onBuild = func(name string) { counts[name]++ }
 	t.Cleanup(func() { onBuild = func(string) {} })
 
-	o, err := New(Config{DataDir: t.TempDir(), SecretsKey: testKey, Conntrack: "/nonexistent"}, WithDocker(dockerfake.New()), WithVIP(vipStub{}),
+	orch, err := New(Config{DataDir: t.TempDir(), SecretsKey: testKey, Conntrack: "/nonexistent"}, WithDocker(dockerfake.New()), WithVIP(vipStub{}),
 		WithProxy(func(context.Context, json.RawMessage) error { return nil }))
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = o.Close() })
+	t.Cleanup(func() { _ = orch.Close() })
 	for _, name := range []string{"store", "sessions", "leaf/user", "leaf/org", "leaf/stack", "leaf/environment",
 		"leaf/tile", "leaf/image", "leaf/params", "leaf/volume", "leaf/domain", "leaf/credential", "leaf/connector",
 		"leaf/managed", "leaf/release", "leaf/job", "leaf/backup", "leaf/settings", "flow/managed",
@@ -39,7 +39,7 @@ func TestNewBuildsEachOnce(t *testing.T) {
 			t.Errorf("%s built %d times, want 1", name, n)
 		}
 	}
-	if err := o.Ping(context.Background()); err != nil {
+	if err := orch.Ping(context.Background()); err != nil {
 		t.Errorf("Ping: %v", err)
 	}
 }

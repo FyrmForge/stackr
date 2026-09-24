@@ -58,12 +58,12 @@ func envID(c echo.Context) string   { return scope(c).Env.ID }
 // ---- stacks ----
 
 func (h *H) Stacks() Endpoint {
-	return Get(func(c echo.Context) ([]service.Stack, error) { return list(h.S.Stacks(rc(c), orgID(c))) })
+	return Get(func(c echo.Context) ([]service.Stack, error) { return list(h.Orch.Stacks(rc(c), orgID(c))) })
 }
 
 func (h *H) CreateStack() Endpoint {
 	return JSON(201, func(c echo.Context, in StackIn) (service.Stack, error) {
-		return h.S.CreateStack(rc(c), orgID(c), in.Name, in.Description)
+		return h.Orch.CreateStack(rc(c), orgID(c), in.Name, in.Description)
 	})
 }
 
@@ -73,13 +73,13 @@ func (h *H) GetStack() Endpoint {
 
 func (h *H) RenameStack() Endpoint {
 	return JSON(200, func(c echo.Context, in NameIn) (service.Stack, error) {
-		return h.S.RenameStack(rc(c), stackID(c), in.Name)
+		return h.Orch.RenameStack(rc(c), stackID(c), in.Name)
 	})
 }
 
 func (h *H) SetConfigRepo() Endpoint {
 	return JSON(200, func(c echo.Context, in ConfigRepoIn) (service.Stack, error) {
-		return h.S.SetConfigRepo(rc(c), stackID(c), in.ConnectorID, in.Repo, in.Branch, in.Path)
+		return h.Orch.SetConfigRepo(rc(c), stackID(c), in.ConnectorID, in.Repo, in.Branch, in.Path)
 	})
 }
 
@@ -89,33 +89,33 @@ func (h *H) SetReservations() Endpoint {
 		for _, r := range in {
 			rs = append(rs, service.Reservation(r))
 		}
-		return h.S.SetReservations(rc(c), stackID(c), rs)
+		return h.Orch.SetReservations(rc(c), stackID(c), rs)
 	})
 }
 
 func (h *H) SetStackSettings() Endpoint {
 	return JSON(200, func(c echo.Context, in Blob) (service.Stack, error) {
-		return h.S.SetStackSettings(rc(c), stackID(c), string(in))
+		return h.Orch.SetStackSettings(rc(c), stackID(c), string(in))
 	})
 }
 
 func (h *H) DeleteStack() Endpoint {
-	return Done(func(c echo.Context, _ None) error { return h.S.DeleteStack(rc(c), stackID(c)) })
+	return Done(func(c echo.Context, _ None) error { return h.Orch.DeleteStack(rc(c), stackID(c)) })
 }
 
 func (h *H) CheckStackImages() Endpoint {
-	return Job(func(c echo.Context, _ None) (service.Job, error) { return h.S.CheckImages(rc(c), stackID(c), "") })
+	return Job(func(c echo.Context, _ None) (service.Job, error) { return h.Orch.CheckImages(rc(c), stackID(c), "") })
 }
 
 // ---- releases and promote ----
 
 func (h *H) Releases() Endpoint {
-	return Get(func(c echo.Context) ([]service.Release, error) { return list(h.S.Releases(rc(c), stackID(c))) })
+	return Get(func(c echo.Context) ([]service.Release, error) { return list(h.Orch.Releases(rc(c), stackID(c))) })
 }
 
 func (h *H) Release() Endpoint {
 	return Get(func(c echo.Context) (ReleaseOut, error) {
-		r, pins, err := h.S.Release(rc(c), c.Param("release"))
+		r, pins, err := h.Orch.Release(rc(c), c.Param("release"))
 		return ReleaseOut{r, pins}, err
 	})
 }
@@ -124,41 +124,41 @@ func (h *H) Release() Endpoint {
 // Rollback refuse with (B2, B20).
 func (h *H) PlanPromote() Endpoint {
 	return Get(func(c echo.Context) (service.PromotePlan, error) {
-		return h.S.PlanPromote(rc(c), envID(c), c.Param("release"))
+		return h.Orch.PlanPromote(rc(c), envID(c), c.Param("release"))
 	})
 }
 
 func (h *H) Promote() Endpoint {
 	return Job(func(c echo.Context, _ None) (service.Job, error) {
-		return h.S.Promote(rc(c), envID(c), c.Param("release"))
+		return h.Orch.Promote(rc(c), envID(c), c.Param("release"))
 	})
 }
 
 func (h *H) Rollback() Endpoint {
 	return Job(func(c echo.Context, _ None) (service.Job, error) {
-		return h.S.Rollback(rc(c), envID(c), c.Param("release"))
+		return h.Orch.Rollback(rc(c), envID(c), c.Param("release"))
 	})
 }
 
 // ---- envs ----
 
 func (h *H) Envs() Endpoint {
-	return Get(func(c echo.Context) ([]service.Environment, error) { return list(h.S.Envs(rc(c), stackID(c))) })
+	return Get(func(c echo.Context) ([]service.Environment, error) { return list(h.Orch.Envs(rc(c), stackID(c))) })
 }
 
 func (h *H) Ladder() Endpoint {
-	return Get(func(c echo.Context) ([]service.Environment, error) { return list(h.S.Ladder(rc(c), stackID(c))) })
+	return Get(func(c echo.Context) ([]service.Environment, error) { return list(h.Orch.Ladder(rc(c), stackID(c))) })
 }
 
 func (h *H) CreateEnv() Endpoint {
 	return JSON(201, func(c echo.Context, in EnvIn) (service.Environment, error) {
-		return h.S.CreateEnv(rc(c), stackID(c), in.Name, service.EnvSpec{Type: in.Type, Base: in.Base, Color: in.Color,
+		return h.Orch.CreateEnv(rc(c), stackID(c), in.Name, service.EnvSpec{Type: in.Type, Base: in.Base, Color: in.Color,
 			FromKind: in.FromKind, FromBranch: in.FromBranch, Auto: in.Auto})
 	})
 }
 
 func (h *H) ReorderEnvs() Endpoint {
-	return Done(func(c echo.Context, in OrderIn) error { return h.S.ReorderEnvs(rc(c), stackID(c), in.IDs) })
+	return Done(func(c echo.Context, in OrderIn) error { return h.Orch.ReorderEnvs(rc(c), stackID(c), in.IDs) })
 }
 
 func (h *H) GetEnv() Endpoint {
@@ -167,33 +167,33 @@ func (h *H) GetEnv() Endpoint {
 
 // Traffic is the env's tile-to-tile lanes at the last sample.
 func (h *H) Traffic() Endpoint {
-	return Get(func(c echo.Context) ([]service.Edge, error) { return list(h.S.Traffic(rc(c), envID(c))) })
+	return Get(func(c echo.Context) ([]service.Edge, error) { return list(h.Orch.Traffic(rc(c), envID(c))) })
 }
 
 func (h *H) RenameEnv() Endpoint {
 	return JSON(200, func(c echo.Context, in NameIn) (service.Environment, error) {
-		return h.S.RenameEnv(rc(c), envID(c), in.Name)
+		return h.Orch.RenameEnv(rc(c), envID(c), in.Name)
 	})
 }
 
 func (h *H) SetEnvColor() Endpoint {
 	return JSON(200, func(c echo.Context, in ColorIn) (service.Environment, error) {
-		return h.S.SetEnvColor(rc(c), envID(c), in.Color)
+		return h.Orch.SetEnvColor(rc(c), envID(c), in.Color)
 	})
 }
 
 func (h *H) SetEnvFrom() Endpoint {
 	return JSON(200, func(c echo.Context, in FromIn) (service.Environment, error) {
-		return h.S.SetEnvFrom(rc(c), envID(c), in.Kind, in.Branch, in.Auto)
+		return h.Orch.SetEnvFrom(rc(c), envID(c), in.Kind, in.Branch, in.Auto)
 	})
 }
 
 func (h *H) SetEnvSettings() Endpoint {
 	return JSON(200, func(c echo.Context, in Blob) (service.Environment, error) {
-		return h.S.SetEnvSettings(rc(c), envID(c), string(in))
+		return h.Orch.SetEnvSettings(rc(c), envID(c), string(in))
 	})
 }
 
 func (h *H) DeleteEnv() Endpoint {
-	return Done(func(c echo.Context, _ None) error { return h.S.DeleteEnv(rc(c), envID(c)) })
+	return Done(func(c echo.Context, _ None) error { return h.Orch.DeleteEnv(rc(c), envID(c)) })
 }

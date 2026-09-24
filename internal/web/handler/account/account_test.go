@@ -17,10 +17,10 @@ func TestAccount(t *testing.T) {
 	u := s.User(t, "me@x.test", false)
 	s.Member(t, s.Org, u, "owner")
 	sess := s.Session(t, u)
-	if err := s.O.SetPassword(ctx, u, "0ld!Password"); err != nil {
+	if err := s.Orch.SetPassword(ctx, u, "0ld!Password"); err != nil {
 		t.Fatal(err)
 	}
-	_, k, err := s.O.MintKey(ctx, u, s.Org, "laptop")
+	_, k, err := s.Orch.MintKey(ctx, u, s.Org, "laptop")
 	if err != nil {
 		t.Fatal(err)
 	}

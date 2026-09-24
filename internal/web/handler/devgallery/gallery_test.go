@@ -20,7 +20,7 @@ func TestGalleryRendersEveryComponent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	web.RegisterRoutes(srv, &web.Deps{Service: env.O, Access: middleware.NewAccess(env.O), DevMode: true})
+	web.RegisterRoutes(srv, &web.Deps{Orch: env.Orch, Access: middleware.NewAccess(env.Orch), DevMode: true})
 	rec := httptest.NewRecorder()
 	srv.Echo().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/dev/components", nil))
 	if rec.Code != http.StatusOK {
@@ -88,7 +88,7 @@ func TestGalleryDrawer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	web.RegisterRoutes(srv, &web.Deps{Service: env.O, Access: middleware.NewAccess(env.O), DevMode: true})
+	web.RegisterRoutes(srv, &web.Deps{Orch: env.Orch, Access: middleware.NewAccess(env.Orch), DevMode: true})
 	rec := httptest.NewRecorder()
 	srv.Echo().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/dev/components/drawer?node=tile:api&tab=logs", nil))
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "Sample logs tab") || strings.Contains(rec.Body.String(), "<html") {
@@ -103,7 +103,7 @@ func TestGalleryIsDevOnly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	web.RegisterRoutes(srv, &web.Deps{Service: env.O, Access: middleware.NewAccess(env.O)})
+	web.RegisterRoutes(srv, &web.Deps{Orch: env.Orch, Access: middleware.NewAccess(env.Orch)})
 	rec := httptest.NewRecorder()
 	srv.Echo().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/dev/components", nil))
 	if rec.Code == http.StatusOK {

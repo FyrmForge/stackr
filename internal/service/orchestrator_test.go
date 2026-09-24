@@ -31,7 +31,7 @@ func (vipStub) Set(context.Context, string, []string) error { return nil }
 func (vipStub) Remove(context.Context, string) error        { return nil }
 
 type world struct {
-	o      *Orchestrator
+	orch   *Orchestrator
 	fake   *dockerfake.Fake
 	st     *store.Store
 	mu     sync.Mutex
@@ -56,7 +56,7 @@ func newWorld(t *testing.T) *world {
 	t.Helper()
 	dir := t.TempDir()
 	w := &world{fake: dockerfake.New()}
-	o, err := New(Config{DataDir: dir, SecretsKey: testKey, Conntrack: dir + "/nf_conntrack"}, WithDocker(w.fake), WithVIP(vipStub{}),
+	orch, err := New(Config{DataDir: dir, SecretsKey: testKey, Conntrack: dir + "/nf_conntrack"}, WithDocker(w.fake), WithVIP(vipStub{}),
 		WithProxy(func(_ context.Context, cfg json.RawMessage) error {
 			w.mu.Lock()
 			w.pushed = append(w.pushed, string(cfg))
@@ -66,8 +66,8 @@ func newWorld(t *testing.T) *world {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = o.Close() })
-	w.o, w.st = o, storetest.Open(t, filepath.Join(dir, "stackr.db"))
+	t.Cleanup(func() { _ = orch.Close() })
+	w.orch, w.st = orch, storetest.Open(t, filepath.Join(dir, "stackr.db"))
 	ctx := context.Background()
 	now := time.Now()
 	w.org, w.stack, w.env = uuid.NewString(), uuid.NewString(), uuid.NewString()
@@ -87,7 +87,7 @@ func must(t *testing.T, err error) {
 
 func (w *world) tile(t *testing.T, name string, running bool) Tile {
 	t.Helper()
-	tl, err := w.o.CreateTile(context.Background(), Tile{StackID: w.stack, EnvironmentID: w.env, Name: name,
+	tl, err := w.orch.CreateTile(context.Background(), Tile{StackID: w.stack, EnvironmentID: w.env, Name: name,
 		Kind: tile.Image, ImageRef: "nginx:1", ContainerPort: 80})
 	must(t, err)
 	if running {
@@ -101,7 +101,7 @@ func (w *world) tile(t *testing.T, name string, running bool) Tile {
 func (w *world) wait(t *testing.T, id string) Job {
 	t.Helper()
 	for range 500 {
-		j, err := w.o.GetJob(context.Background(), id)
+		j, err := w.orch.GetJob(context.Background(), id)
 		must(t, err)
 		if j.State == job.Done || j.State == job.Failed || j.State == job.Cancelled {
 			return j
@@ -119,9 +119,9 @@ func TestParamChangeRedeploysRunningTiles(t *testing.T) {
 	ctx := context.Background()
 	up := w.tile(t, "api", true)
 	down := w.tile(t, "worker", false)
-	must(t, w.o.SetParams(ctx, ParamScope{Kind: "stack", ID: w.stack},
+	must(t, w.orch.SetParams(ctx, ParamScope{Kind: "stack", ID: w.stack},
 		[]ParamEntry{{Collection: "app", Name: "mode", Kind: "param", Value: "fast"}}))
-	js, err := w.o.TileJobs(ctx, []string{up.ID, down.ID}, 10)
+	js, err := w.orch.TileJobs(ctx, []string{up.ID, down.ID}, 10)
 	must(t, err)
 	if len(js) != 1 || js[0].Kind != string(kindDeploy) || !slices.Contains(js[0].LockSet, up.ID) {
 		t.Fatalf("jobs after a param change = %+v, want one deploy of %s", js, up.Slug)
@@ -135,15 +135,15 @@ func TestPromoteBlockersOneAnswer(t *testing.T) {
 	ctx := context.Background()
 	other := uuid.NewString()
 	must(t, w.st.Stacks.Create(ctx, store.Stack{ID: other, OrgID: w.org, Name: "blog", Slug: "blog", Settings: "{}", Domains: "[]", CreatedAt: time.Now()}))
-	rel, err := w.o.releases.Create(ctx, other, "test", nil)
+	rel, err := w.orch.releases.Create(ctx, other, "test", nil)
 	must(t, err)
 
-	pp, err := w.o.PlanPromote(ctx, w.env, rel.ID)
+	pp, err := w.orch.PlanPromote(ctx, w.env, rel.ID)
 	must(t, err)
 	if pp.CanDeploy || len(pp.Plan.Blockers) != 1 {
 		t.Fatalf("plan = %+v, want one blocker", pp)
 	}
-	for _, verb := range []func(context.Context, string, string) (Job, error){w.o.Promote, w.o.Rollback} {
+	for _, verb := range []func(context.Context, string, string) (Job, error){w.orch.Promote, w.orch.Rollback} {
 		j, err := verb(ctx, w.env, rel.ID)
 		must(t, err)
 		if j = w.wait(t, j.ID); j.State != job.Failed || !strings.Contains(j.Error, pp.Plan.Blockers[0]) {
@@ -157,7 +157,7 @@ func TestDomainPushesProxy(t *testing.T) {
 	w := newWorld(t)
 	ctx := context.Background()
 	api := w.tile(t, "api", true)
-	_, err := w.o.AttachDomain(ctx, api.ID, DomainSpec{Host: "api.example.com"})
+	_, err := w.orch.AttachDomain(ctx, api.ID, DomainSpec{Host: "api.example.com"})
 	must(t, err)
 	cfg := w.lastPush()
 	if !strings.Contains(cfg, "api.example.com") || !strings.Contains(cfg, ProxyAdmin) {
@@ -170,7 +170,7 @@ func TestUpdateTileKeepsUntouchedFields(t *testing.T) {
 	w := newWorld(t)
 	ctx := context.Background()
 	api := w.tile(t, "api", false)
-	got, _, err := w.o.UpdateTile(ctx, api.ID, func(t *Tile) error { t.HealthPath = "/up"; return nil })
+	got, _, err := w.orch.UpdateTile(ctx, api.ID, func(t *Tile) error { t.HealthPath = "/up"; return nil })
 	must(t, err)
 	if got.HealthPath != "/up" || got.ImageRef != "nginx:1" || got.ContainerPort != 80 {
 		t.Errorf("after update: %+v", got)
@@ -183,7 +183,7 @@ func TestDeployIsAJobRow(t *testing.T) {
 	w := newWorld(t)
 	ctx := context.Background()
 	tl := w.tile(t, "api", false)
-	j, err := w.o.Deploy(ctx, tl.ID)
+	j, err := w.orch.Deploy(ctx, tl.ID)
 	must(t, err)
 	if j.ID == "" || j.Kind != string(kindDeploy) || !slices.Contains(j.LockSet, tl.ID) {
 		t.Fatalf("Deploy returned %+v, want a deploy row for %s", j, tl.ID)
@@ -198,10 +198,10 @@ func TestDeployIsAJobRow(t *testing.T) {
 func TestTrustedProxiesRefusesNonCIDR(t *testing.T) {
 	w := newWorld(t)
 	ctx := context.Background()
-	if err := w.o.SetSetting(ctx, "trusted_proxies", "10.0.0.0/8, cloudflare"); err == nil {
+	if err := w.orch.SetSetting(ctx, "trusted_proxies", "10.0.0.0/8, cloudflare"); err == nil {
 		t.Fatal("cloudflare accepted as a CIDR")
 	}
-	must(t, w.o.SetSetting(ctx, "trusted_proxies", "10.0.0.0/8, 192.168.1.1"))
+	must(t, w.orch.SetSetting(ctx, "trusted_proxies", "10.0.0.0/8, 192.168.1.1"))
 	if !strings.Contains(w.lastPush(), `"10.0.0.0/8"`) {
 		t.Errorf("push lacks the range: %s", w.lastPush())
 	}
@@ -223,18 +223,18 @@ func (w *world) promoteTile(t *testing.T, slug, tiles string) Tile {
 	must(t, err)
 	st.ConfigRepo, st.ConfigBranch = "https://github.com/acme/shop", "main"
 	must(t, w.st.Stacks.Update(ctx, st))
-	w.o.promote.Config = func(context.Context, store.Stack, string, io.Writer) ([]byte, promote.Fetcher, error) {
+	w.orch.promote.Config = func(context.Context, store.Stack, string, io.Writer) ([]byte, promote.Fetcher, error) {
 		return []byte("version: 1\nstack: shop\nladder: [dev]\nhead: main\nbase:\n  tiles:\n" + tiles), nil, nil
 	}
-	rel, err := w.o.releases.Create(ctx, w.stack, "test",
+	rel, err := w.orch.releases.Create(ctx, w.stack, "test",
 		[]release.Pin{{Slug: release.ConfigSlug, Repo: st.ConfigRepo, CommitSHA: "c1"}})
 	must(t, err)
-	j, err := w.o.Promote(ctx, w.env, rel.ID)
+	j, err := w.orch.Promote(ctx, w.env, rel.ID)
 	must(t, err)
 	if j = w.wait(t, j.ID); j.State != job.Done {
 		t.Fatalf("promote = %s: %s", j.State, j.Error)
 	}
-	tl, err := w.o.tiles.GetBySlug(ctx, w.env, slug)
+	tl, err := w.orch.tiles.GetBySlug(ctx, w.env, slug)
 	must(t, err)
 	return tl
 }
@@ -244,13 +244,13 @@ func TestOnDeployRuns(t *testing.T) {
 	w := newWorld(t)
 	fn := w.promoteTile(t, "migrate",
 		"    migrate:\n      kind: function\n      image: busybox:1\n      trigger: on_deploy\n")
-	rs, err := w.o.Runs(context.Background(), fn.ID, 0)
+	rs, err := w.orch.Runs(context.Background(), fn.ID, 0)
 	must(t, err)
 	if len(rs) != 1 || rs[0].Trigger != "deploy" {
 		t.Fatalf("runs after promote = %+v, want one deploy run", rs)
 	}
 	j := w.wait(t, rs[0].JobID)
-	if r, _ := w.o.Run(context.Background(), fn.ID, rs[0].ID); j.State != job.Done || r.Status != "ok" {
+	if r, _ := w.orch.Run(context.Background(), fn.ID, rs[0].ID); j.State != job.Done || r.Status != "ok" {
 		t.Fatalf("on_deploy run = %s / %+v", j.State, r)
 	}
 }
@@ -261,22 +261,22 @@ func TestPromoteRegistersCron(t *testing.T) {
 	w := newWorld(t)
 	ctx := context.Background()
 	cron := w.promoteCron(t)
-	if !slices.Contains(w.o.sched.Names(), "cron "+cron.ID) {
-		t.Fatalf("entries after promote = %v, want cron %s", w.o.sched.Names(), cron.ID)
+	if !slices.Contains(w.orch.sched.Names(), "cron "+cron.ID) {
+		t.Fatalf("entries after promote = %v, want cron %s", w.orch.sched.Names(), cron.ID)
 	}
-	_, err := w.o.PauseTile(ctx, cron.ID, true)
+	_, err := w.orch.PauseTile(ctx, cron.ID, true)
 	must(t, err)
-	if slices.Contains(w.o.sched.Names(), "cron "+cron.ID) {
-		t.Fatalf("entries after pause = %v, want no cron entry", w.o.sched.Names())
+	if slices.Contains(w.orch.sched.Names(), "cron "+cron.ID) {
+		t.Fatalf("entries after pause = %v, want no cron entry", w.orch.sched.Names())
 	}
-	st, err := w.o.TileStatus(ctx, cron.ID)
+	st, err := w.orch.TileStatus(ctx, cron.ID)
 	must(t, err)
 	if !st.Paused || st.NextRun != nil {
 		t.Fatalf("status of a paused cron = %+v, want paused and no next run", st)
 	}
-	_, err = w.o.PauseTile(ctx, cron.ID, false)
+	_, err = w.orch.PauseTile(ctx, cron.ID, false)
 	must(t, err)
-	if st, _ = w.o.TileStatus(ctx, cron.ID); st.Paused || st.NextRun == nil {
+	if st, _ = w.orch.TileStatus(ctx, cron.ID); st.Paused || st.NextRun == nil {
 		t.Fatalf("status after resume = %+v, want a next run", st)
 	}
 }
@@ -290,13 +290,13 @@ func TestRunVerbs(t *testing.T) {
 	cron := w.promoteCron(t)
 	other := w.tile(t, "api", false)
 
-	j, r, err := w.o.RunTile(ctx, cron.ID)
+	j, r, err := w.orch.RunTile(ctx, cron.ID)
 	must(t, err)
 	if j.ID == "" || r.JobID != j.ID || r.Trigger != "manual" {
 		t.Fatalf("RunTile = %+v, %+v", j, r)
 	}
 	for range 500 {
-		if r, _ = w.o.Run(ctx, cron.ID, r.ID); r.Status == "running" {
+		if r, _ = w.orch.Run(ctx, cron.ID, r.ID); r.Status == "running" {
 			break
 		}
 		time.Sleep(10 * time.Millisecond)
@@ -304,44 +304,44 @@ func TestRunVerbs(t *testing.T) {
 	if r.Status != "running" {
 		t.Fatalf("run = %+v, want running", r)
 	}
-	j2, r2, err := w.o.RunTile(ctx, cron.ID)
+	j2, r2, err := w.orch.RunTile(ctx, cron.ID)
 	must(t, err)
 	if j2.ID != "" || r2.Status != "cancelled" || r2.Reason != "previous run still going" {
 		t.Fatalf("overlapping run = %+v, %+v", j2, r2)
 	}
-	if err := w.o.StopRun(ctx, other.ID, r.ID); !errors.Is(err, errs.ErrNotFound) {
+	if err := w.orch.StopRun(ctx, other.ID, r.ID); !errors.Is(err, errs.ErrNotFound) {
 		t.Fatalf("StopRun through another tile = %v, want not found", err)
 	}
-	must(t, w.o.StopRun(ctx, cron.ID, r.ID))
+	must(t, w.orch.StopRun(ctx, cron.ID, r.ID))
 	if j = w.wait(t, j.ID); j.State != job.Cancelled {
 		t.Fatalf("run job after StopRun = %s", j.State)
 	}
-	if r, _ = w.o.Run(ctx, cron.ID, r.ID); r.Status != "cancelled" || r.Reason != "stopped" {
+	if r, _ = w.orch.Run(ctx, cron.ID, r.ID); r.Status != "cancelled" || r.Reason != "stopped" {
 		t.Fatalf("run after StopRun = %+v", r)
 	}
-	if rs, _ := w.o.Runs(ctx, cron.ID, 0); len(rs) != 2 {
+	if rs, _ := w.orch.Runs(ctx, cron.ID, 0); len(rs) != 2 {
 		t.Fatalf("runs = %d, want 2", len(rs))
 	}
-	st, err := w.o.TileStatus(ctx, cron.ID)
+	st, err := w.orch.TileStatus(ctx, cron.ID)
 	must(t, err)
 	if st.LastRun == nil || st.NextRun == nil {
 		t.Fatalf("status = %+v, want a last and a next run", st)
 	}
 
 	msg := func(err error) string { v, _ := errs.IsInvalid(err); return v.Msg }
-	if _, err := w.o.RestartTile(ctx, cron.ID); msg(err) != "a cron has no long-running container to restart; use run instead" {
+	if _, err := w.orch.RestartTile(ctx, cron.ID); msg(err) != "a cron has no long-running container to restart; use run instead" {
 		t.Fatalf("restart a cron = %v", err)
 	}
-	if _, err := w.o.StartTile(ctx, cron.ID); msg(err) != "a cron has no long-running container to start; use run instead" {
+	if _, err := w.orch.StartTile(ctx, cron.ID); msg(err) != "a cron has no long-running container to start; use run instead" {
 		t.Fatalf("start a cron = %v", err)
 	}
-	if _, _, err := w.o.RunTile(ctx, other.ID); msg(err) != "run applies to cron and function tiles" {
+	if _, _, err := w.orch.RunTile(ctx, other.ID); msg(err) != "run applies to cron and function tiles" {
 		t.Fatalf("run an image tile = %v", err)
 	}
-	if _, err := w.o.StopTile(ctx, cron.ID); err != nil {
+	if _, err := w.orch.StopTile(ctx, cron.ID); err != nil {
 		t.Fatal(err)
 	}
-	if st, _ = w.o.TileStatus(ctx, cron.ID); !st.Paused {
+	if st, _ = w.orch.TileStatus(ctx, cron.ID); !st.Paused {
 		t.Fatal("stop on a cron did not pause it")
 	}
 }
@@ -352,21 +352,21 @@ func TestDrawerReads(t *testing.T) {
 	w := newWorld(t)
 	ctx := context.Background()
 	api := w.tile(t, "api", true)
-	_, err := w.o.AttachDomain(ctx, api.ID, DomainSpec{Host: "api.example.com"})
+	_, err := w.orch.AttachDomain(ctx, api.ID, DomainSpec{Host: "api.example.com"})
 	must(t, err)
-	rs, err := w.o.Routes(ctx, w.env)
+	rs, err := w.orch.Routes(ctx, w.env)
 	must(t, err)
 	if len(rs) != 1 || rs[0].Host != "api.example.com" || rs[0].Tile != "api" {
 		t.Errorf("routes = %+v", rs)
 	}
 	scope := VolumeScope{Kind: "env", ID: w.env}
-	_, err = w.o.DeclareVolume(ctx, scope, "uploads", 0)
+	_, err = w.orch.DeclareVolume(ctx, scope, "uploads", 0)
 	must(t, err)
-	_, err = w.o.DeclareVolume(ctx, scope, "cache", 0)
+	_, err = w.orch.DeclareVolume(ctx, scope, "cache", 0)
 	must(t, err)
-	_, _, err = w.o.UpdateTile(ctx, api.ID, func(t *Tile) error { t.Volumes = "uploads:/data"; return nil })
+	_, _, err = w.orch.UpdateTile(ctx, api.ID, func(t *Tile) error { t.Volumes = "uploads:/data"; return nil })
 	must(t, err)
-	vs, err := w.o.TileVolumes(ctx, api.ID)
+	vs, err := w.orch.TileVolumes(ctx, api.ID)
 	must(t, err)
 	if len(vs) != 1 || vs[0].Slug != "uploads" {
 		t.Errorf("tile volumes = %+v", vs)

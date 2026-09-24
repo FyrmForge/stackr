@@ -8,9 +8,9 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/servicetest"
 )
 
-func byKey(t *testing.T, o *service.Orchestrator) map[string]service.ServerSetting {
+func byKey(t *testing.T, orch *service.Orchestrator) map[string]service.ServerSetting {
 	t.Helper()
-	ss, err := o.ServerSettings(context.Background())
+	ss, err := orch.ServerSettings(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -25,22 +25,22 @@ func byKey(t *testing.T, o *service.Orchestrator) map[string]service.ServerSetti
 // secret is never echoed nor cleared by an empty field.
 func TestServerSettings(t *testing.T) {
 	env := servicetest.New(t)
-	o, ctx := env.O, context.Background()
+	orch, ctx := env.Orch, context.Background()
 	all := map[string]string{}
-	for k, s := range byKey(t, o) {
+	for k, s := range byKey(t, orch) {
 		all[k] = s.Value
 	}
-	if err := o.SetServerSettings(ctx, all); err != nil {
+	if err := orch.SetServerSettings(ctx, all); err != nil {
 		t.Fatal(err)
 	}
-	if d, _ := o.SettingDefaults(ctx); d.JSON() != "{}" {
+	if d, _ := orch.SettingDefaults(ctx); d.JSON() != "{}" {
 		t.Errorf("an untouched form wrote the server rung: %s", d.JSON())
 	}
 	all["workers"], all["mem_limit_mb"], all["dns_env"] = "4", "512", "TOKEN=x"
-	if err := o.SetServerSettings(ctx, all); err != nil {
+	if err := orch.SetServerSettings(ctx, all); err != nil {
 		t.Fatal(err)
 	}
-	got := byKey(t, o)
+	got := byKey(t, orch)
 	if got["workers"].Value != "4" || got["mem_limit_mb"].Value != "512" || got["mem_limit_mb"].DecidedBy != "server" {
 		t.Errorf("not written: %+v %+v", got["workers"], got["mem_limit_mb"])
 	}
@@ -48,14 +48,14 @@ func TestServerSettings(t *testing.T) {
 		t.Errorf("secret echoed: %+v", s)
 	}
 	all["dns_env"] = ""
-	if err := o.SetServerSettings(ctx, all); err != nil {
+	if err := orch.SetServerSettings(ctx, all); err != nil {
 		t.Fatal(err)
 	}
-	if v, _ := o.Setting(ctx, "dns_env"); v != "TOKEN=x" {
+	if v, _ := orch.Setting(ctx, "dns_env"); v != "TOKEN=x" {
 		t.Errorf("an empty secret field cleared it: %q", v)
 	}
 	all["workers"] = "x"
-	if err := o.SetServerSettings(ctx, all); err == nil {
+	if err := orch.SetServerSettings(ctx, all); err == nil {
 		t.Error("a bad value was taken")
 	}
 }

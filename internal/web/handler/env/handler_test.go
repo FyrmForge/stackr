@@ -29,7 +29,7 @@ func TestCreateTileRoundTrip(t *testing.T) {
 	if rec.Code != 200 || !strings.HasPrefix(rec.Header().Get("HX-Redirect"), "/acme/shop/dev?drawer=") {
 		t.Fatalf("create = %d %q\n%s", rec.Code, rec.Header().Get("HX-Redirect"), rec.Body)
 	}
-	ts, err := s.O.Tiles(context.Background(), s.Tile.Env)
+	ts, err := s.Orch.Tiles(context.Background(), s.Tile.Env)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -46,7 +46,7 @@ func TestCreateTileRoundTrip(t *testing.T) {
 // routes.
 func TestVolumeAndProxyDrawers(t *testing.T) {
 	s := webtest.New(t)
-	v, err := s.O.DeclareVolume(context.Background(), service.VolumeScope{Kind: "env", ID: s.Tile.Env}, "uploads", 0)
+	v, err := s.Orch.DeclareVolume(context.Background(), service.VolumeScope{Kind: "env", ID: s.Tile.Env}, "uploads", 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,7 +66,7 @@ func TestJobEvents(t *testing.T) {
 	stream.PollEvery = 10 * time.Millisecond
 	s := webtest.New(t)
 	s.Healthy(s.Tile.Env)
-	j, err := s.O.Deploy(context.Background(), s.Tile.ID)
+	j, err := s.Orch.Deploy(context.Background(), s.Tile.ID)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -25,7 +25,7 @@ func hookWorld(t *testing.T) (*world, string) {
 		return img, nil
 	}))
 	img = w.env.Image(t, "stkr/acme_shop_web:abc")
-	if _, err := w.env.O.CreateTile(context.Background(), service.Tile{StackID: w.tile.Stack, EnvironmentID: w.tile.Env,
+	if _, err := w.env.Orch.CreateTile(context.Background(), service.Tile{StackID: w.tile.Stack, EnvironmentID: w.tile.Env,
 		Name: "web", Kind: "service", GitURL: repo, GitBranch: "main", ContainerPort: 80}); err != nil {
 		t.Fatal(err)
 	}
@@ -73,7 +73,7 @@ func TestWebhookPush(t *testing.T) {
 		t.Fatalf("push = %d, want 204", code)
 	}
 	eventually(t, "a release", func() bool {
-		rs, err := w.env.O.Releases(context.Background(), w.tile.Stack)
+		rs, err := w.env.Orch.Releases(context.Background(), w.tile.Stack)
 		return err == nil && len(rs) == 1
 	})
 }
@@ -86,7 +86,7 @@ func TestWebhookPR(t *testing.T) {
 			`"pull_request":{"head":{"ref":"feat","sha":"def5678"},"base":{"ref":"main"}}}`
 	}
 	has := func() bool {
-		es, err := w.env.O.Envs(context.Background(), w.tile.Stack)
+		es, err := w.env.Orch.Envs(context.Background(), w.tile.Stack)
 		if err != nil {
 			t.Fatal(err)
 		}

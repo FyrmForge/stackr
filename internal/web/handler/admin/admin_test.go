@@ -41,7 +41,7 @@ func TestAdminDrawer(t *testing.T) {
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "Saved.") {
 		t.Fatalf("save = %d %s", rec.Code, rec.Body)
 	}
-	if v, _ := s.O.Setting(ctx, "workers"); v != "3" {
+	if v, _ := s.Orch.Setting(ctx, "workers"); v != "3" {
 		t.Errorf("workers = %q", v)
 	}
 	if rec := s.As(t, root, "POST", "/-/admin/settings", url.Values{"workers": {"lots"}}); rec.Code != http.StatusUnprocessableEntity || !strings.Contains(rec.Body.String(), "not a whole number") {
@@ -49,7 +49,7 @@ func TestAdminDrawer(t *testing.T) {
 	}
 
 	var owner string
-	us, _ := s.O.Users(ctx)
+	us, _ := s.Orch.Users(ctx)
 	for _, u := range us {
 		if u.Email == "owner@acme.test" {
 			owner = u.ID
@@ -67,7 +67,7 @@ func TestAdminDrawer(t *testing.T) {
 	cctx, cancel := context.WithTimeout(ctx, 100*time.Millisecond)
 	defer cancel()
 	req := httptest.NewRequest("GET", m[1], nil).WithContext(cctx)
-	req.AddCookie(&http.Cookie{Name: s.O.Sessions().CookieName(), Value: root})
+	req.AddCookie(&http.Cookie{Name: s.Orch.Sessions().CookieName(), Value: root})
 	w := httptest.NewRecorder()
 	s.Handler().ServeHTTP(w, req)
 	if !strings.Contains(w.Body.String(), "event: update") {
@@ -76,7 +76,7 @@ func TestAdminDrawer(t *testing.T) {
 
 	// A fresh load of ?drawer=admin opens it on any page.
 	req = httptest.NewRequest("GET", "/acme?drawer=admin&tab=users", nil)
-	req.AddCookie(&http.Cookie{Name: s.O.Sessions().CookieName(), Value: root})
+	req.AddCookie(&http.Cookie{Name: s.Orch.Sessions().CookieName(), Value: root})
 	w = httptest.NewRecorder()
 	s.Handler().ServeHTTP(w, req)
 	if !strings.Contains(w.Body.String(), `hx-get="/-/admin?tab=users"`) {

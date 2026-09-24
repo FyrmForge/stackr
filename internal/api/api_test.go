@@ -38,7 +38,7 @@ func newWorld(t *testing.T, opts ...service.Option) *world {
 	if err != nil {
 		t.Fatal(err)
 	}
-	api.RegisterRoutes(srv, &api.Deps{Service: env.O, Access: middleware.NewAccess(env.O), DevMode: true})
+	api.RegisterRoutes(srv, &api.Deps{Orch: env.Orch, Access: middleware.NewAccess(env.Orch), DevMode: true})
 	w := &world{env: env, h: srv.Echo(), acme: env.Org(t, "acme")}
 	other := env.Org(t, "other")
 	w.other = other
@@ -132,7 +132,7 @@ func TestEveryRouteGated(t *testing.T) {
 func TestReadsLeakNoSecret(t *testing.T) {
 	w := newWorld(t)
 	ctx := context.Background()
-	o := w.env.O
+	o := w.env.Orch
 	if _, err := o.CreateCredential(ctx, w.acme, service.CredentialSpec{Name: "hub", URL: "r.io", Username: "u", Password: "LEAK-cred"}); err != nil {
 		t.Fatal(err)
 	}

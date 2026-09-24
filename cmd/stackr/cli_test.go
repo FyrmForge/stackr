@@ -182,7 +182,7 @@ func TestDeployFollows(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	api.RegisterRoutes(srv, &api.Deps{Service: env.O, Access: middleware.NewAccess(env.O), DevMode: true})
+	api.RegisterRoutes(srv, &api.Deps{Orch: env.Orch, Access: middleware.NewAccess(env.Orch), DevMode: true})
 	ts := httptest.NewServer(srv.Echo())
 	t.Cleanup(ts.Close)
 	org := env.Org(t, "acme")

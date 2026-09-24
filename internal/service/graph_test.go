@@ -59,14 +59,14 @@ func seedWorld(t *testing.T) world {
 	e.Member(t, w.beta, w.user, "owner")
 	w.conn = e.Connector(t, w.acme, "s")
 
-	st, err := e.O.CreateStack(ctx, w.acme, "shop", "")
+	st, err := e.Orch.CreateStack(ctx, w.acme, "shop", "")
 	must(err)
 	w.shop = st.ID
 	st.ConfigConnectorID, st.ConfigRepo = w.conn, "https://github.com/acme/config.git"
 	must(e.Store.Stacks.Update(ctx, st))
-	dev, err := e.O.CreateEnv(ctx, w.shop, "dev", service.EnvSpec{Type: "static", FromKind: "branch", FromBranch: "main", Color: "#0a0"})
+	dev, err := e.Orch.CreateEnv(ctx, w.shop, "dev", service.EnvSpec{Type: "static", FromKind: "branch", FromBranch: "main", Color: "#0a0"})
 	must(err)
-	prod, err := e.O.CreateEnv(ctx, w.shop, "prod", service.EnvSpec{Type: "static", FromKind: "branch", FromBranch: "main"})
+	prod, err := e.Orch.CreateEnv(ctx, w.shop, "prod", service.EnvSpec{Type: "static", FromKind: "branch", FromBranch: "main"})
 	must(err)
 	w.dev, w.prod = dev.ID, prod.ID
 	for n, env := range map[int]string{2: w.dev, 1: w.prod} {
@@ -77,9 +77,9 @@ func seedWorld(t *testing.T) world {
 		row.ReleaseID = &rid
 		must(e.Store.Environments.Update(ctx, row))
 	}
-	must(e.O.SetParams(ctx, service.ParamScope{Kind: "env", ID: w.dev}, []service.ParamEntry{
+	must(e.Orch.SetParams(ctx, service.ParamScope{Kind: "env", ID: w.dev}, []service.ParamEntry{
 		{Collection: "app", Name: "key", Kind: "param", Value: "v"}, {Collection: "app", Name: "pw", Kind: "secret", Value: "s"}}))
-	must(e.O.SetParams(ctx, service.ParamScope{Kind: "stack", ID: w.shop}, []service.ParamEntry{
+	must(e.Orch.SetParams(ctx, service.ParamScope{Kind: "stack", ID: w.shop}, []service.ParamEntry{
 		{Collection: "app", Name: "region", Kind: "param", Value: "eu"}}))
 
 	api := tileRow(w.shop, w.dev, "api", "service", func(t *store.Tile) {
@@ -143,7 +143,7 @@ func ids(v service.GraphView) string {
 
 func TestCanvasHome(t *testing.T) {
 	w := seedWorld(t)
-	v, err := w.e.O.Canvas(context.Background(), service.CanvasScope{Kind: service.CanvasHome, ID: w.user}, service.ShowAll)
+	v, err := w.e.Orch.Canvas(context.Background(), service.CanvasScope{Kind: service.CanvasHome, ID: w.user}, service.ShowAll)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -164,7 +164,7 @@ func TestCanvasHome(t *testing.T) {
 
 func TestCanvasOrg(t *testing.T) {
 	w := seedWorld(t)
-	v, err := w.e.O.Canvas(context.Background(), service.CanvasScope{Kind: service.CanvasOrg, ID: w.acme}, service.ShowAll)
+	v, err := w.e.Orch.Canvas(context.Background(), service.CanvasScope{Kind: service.CanvasOrg, ID: w.acme}, service.ShowAll)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -184,7 +184,7 @@ func TestCanvasOrg(t *testing.T) {
 
 func TestCanvasStack(t *testing.T) {
 	w := seedWorld(t)
-	v, err := w.e.O.Canvas(context.Background(), service.CanvasScope{Kind: service.CanvasStack, ID: w.shop}, service.ShowAll)
+	v, err := w.e.Orch.Canvas(context.Background(), service.CanvasScope{Kind: service.CanvasStack, ID: w.shop}, service.ShowAll)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -210,7 +210,7 @@ func TestCanvasEnv(t *testing.T) {
 	w := seedWorld(t)
 	ctx := context.Background()
 	s := service.CanvasScope{Kind: service.CanvasEnv, ID: w.dev}
-	v, err := w.e.O.Canvas(ctx, s, service.ShowAll)
+	v, err := w.e.Orch.Canvas(ctx, s, service.ShowAll)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -266,7 +266,7 @@ func TestCanvasEnv(t *testing.T) {
 	}
 
 	// The query params: no system column, no startup edges.
-	v2, err := w.e.O.Canvas(ctx, s, service.GraphShow{Refs: true, Traffic: true})
+	v2, err := w.e.Orch.Canvas(ctx, s, service.GraphShow{Refs: true, Traffic: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -283,16 +283,16 @@ func TestCanvasEnv(t *testing.T) {
 func TestCanvasPositions(t *testing.T) {
 	w := seedWorld(t)
 	ctx := context.Background()
-	o := w.e.O
+	orch := w.e.Orch
 	s := service.CanvasScope{Kind: service.CanvasEnv, ID: w.dev}
-	before, err := o.Canvas(ctx, s, service.ShowAll)
+	before, err := orch.Canvas(ctx, s, service.ShowAll)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := o.SetPosition(ctx, s, w.web, service.Point{X: 1100, Y: 880}); err != nil {
+	if err := orch.SetPosition(ctx, s, w.web, service.Point{X: 1100, Y: 880}); err != nil {
 		t.Fatal(err)
 	}
-	after, err := o.Canvas(ctx, s, service.ShowAll)
+	after, err := orch.Canvas(ctx, s, service.ShowAll)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -311,7 +311,7 @@ func TestCanvasPositions(t *testing.T) {
 		id   string
 		want error
 	}{{"nope", errs.ErrNotFound}, {"ref:stack.cache", nil}} {
-		err := o.SetPosition(ctx, s, c.id, service.Point{X: 1, Y: 1})
+		err := orch.SetPosition(ctx, s, c.id, service.Point{X: 1, Y: 1})
 		if c.want != nil && !errors.Is(err, c.want) {
 			t.Errorf("%s: %v, want %v", c.id, err, c.want)
 		}
@@ -322,17 +322,17 @@ func TestCanvasPositions(t *testing.T) {
 		}
 	}
 	// Another canvas keeps its own rows; reset forgets only this one.
-	if err := o.SetPosition(ctx, service.CanvasScope{Kind: service.CanvasStack, ID: w.shop}, "env:"+w.dev, service.Point{X: 0, Y: 0}); err != nil {
+	if err := orch.SetPosition(ctx, service.CanvasScope{Kind: service.CanvasStack, ID: w.shop}, "env:"+w.dev, service.Point{X: 0, Y: 0}); err != nil {
 		t.Fatal(err)
 	}
-	if err := o.ResetPositions(ctx, s); err != nil {
+	if err := orch.ResetPositions(ctx, s); err != nil {
 		t.Fatal(err)
 	}
-	again, _ := o.Canvas(ctx, s, service.ShowAll)
+	again, _ := orch.Canvas(ctx, s, service.ShowAll)
 	if n := nodes(again)[w.web]; n.Saved || n.X != b[w.web].X {
 		t.Errorf("after reset web = %+v, want arranged again", n)
 	}
-	st, _ := o.Canvas(ctx, service.CanvasScope{Kind: service.CanvasStack, ID: w.shop}, service.ShowAll)
+	st, _ := orch.Canvas(ctx, service.CanvasScope{Kind: service.CanvasStack, ID: w.shop}, service.ShowAll)
 	if !nodes(st)["env:"+w.dev].Saved {
 		t.Error("reset of dev forgot the stack canvas's rows")
 	}
@@ -341,34 +341,34 @@ func TestCanvasPositions(t *testing.T) {
 func TestCanvasAnnotations(t *testing.T) {
 	w := seedWorld(t)
 	ctx := context.Background()
-	o := w.e.O
+	orch := w.e.Orch
 	s := service.CanvasScope{Kind: service.CanvasOrg, ID: w.acme}
 	other := service.CanvasScope{Kind: service.CanvasOrg, ID: w.beta}
-	n, _, err := o.SetAnnotation(ctx, s, service.Annotation{Kind: "note", Text: "hello", X: 10, Y: 20, W: 160, H: 60})
+	n, _, err := orch.SetAnnotation(ctx, s, service.Annotation{Kind: "note", Text: "hello", X: 10, Y: 20, W: 160, H: 60})
 	if err != nil || n.ID == "" {
 		t.Fatalf("create note: %+v %v", n, err)
 	}
-	if _, _, err := o.SetAnnotation(ctx, s, service.Annotation{Kind: "box", W: 10, H: 10}); err == nil {
+	if _, _, err := orch.SetAnnotation(ctx, s, service.Annotation{Kind: "box", W: 10, H: 10}); err == nil {
 		t.Error("a 10x10 box was accepted")
 	}
-	if err := o.SetPosition(ctx, s, "note:"+n.ID, service.Point{X: 300, Y: 400}); err != nil {
+	if err := orch.SetPosition(ctx, s, "note:"+n.ID, service.Point{X: 300, Y: 400}); err != nil {
 		t.Fatal(err)
 	}
-	if err := o.SetPosition(ctx, other, "note:"+n.ID, service.Point{X: 1, Y: 1}); !errors.Is(err, errs.ErrNotFound) {
+	if err := orch.SetPosition(ctx, other, "note:"+n.ID, service.Point{X: 1, Y: 1}); !errors.Is(err, errs.ErrNotFound) {
 		t.Errorf("moving acme's note from beta's canvas: %v, want not found", err)
 	}
-	v, _ := o.Canvas(ctx, s, service.ShowAll)
+	v, _ := orch.Canvas(ctx, s, service.ShowAll)
 	if len(v.Notes) != 1 || v.Notes[0].X != 300 || v.Notes[0].Text != "hello" {
 		t.Errorf("notes = %+v", v.Notes)
 	}
 	n.Text = "  "
-	if _, deleted, err := o.SetAnnotation(ctx, s, n); err != nil || !deleted {
+	if _, deleted, err := orch.SetAnnotation(ctx, s, n); err != nil || !deleted {
 		t.Errorf("emptied note: deleted %v, %v", deleted, err)
 	}
-	if as, _ := o.Annotations(ctx, s); len(as) != 0 {
+	if as, _ := orch.Annotations(ctx, s); len(as) != 0 {
 		t.Errorf("annotations left = %+v", as)
 	}
-	if err := o.DeleteAnnotation(ctx, s, n.ID); err != nil {
+	if err := orch.DeleteAnnotation(ctx, s, n.ID); err != nil {
 		t.Errorf("deleting a gone note: %v", err)
 	}
 }
@@ -400,7 +400,7 @@ func TestCanvasEnvFooterFacts(t *testing.T) {
 	must(err)
 	env.ReleaseID = &rid
 	must(e.Store.Environments.Update(ctx, env))
-	v, err := e.O.Canvas(ctx, service.CanvasScope{Kind: service.CanvasEnv, ID: tl.Env}, service.ShowAll)
+	v, err := e.Orch.Canvas(ctx, service.CanvasScope{Kind: service.CanvasEnv, ID: tl.Env}, service.ShowAll)
 	must(err)
 	ns := nodes(v)
 	if api := ns[tl.ID]; !api.NewVersion || api.NextRun != nil {

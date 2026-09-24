@@ -23,16 +23,16 @@ import (
 // /:org/:stack/:env/:tile, asks authz.Can, and leaves the rows in the
 // context so handlers never re-fetch.
 type Access struct {
-	svc     *service.Orchestrator
+	orch    *service.Orchestrator
 	browser *hamrmw.BrowserAuth
 }
 
 var scopeKey = ctx.NewKey[service.Scope]("scope")
 
-func NewAccess(svc *service.Orchestrator) *Access {
-	return &Access{svc: svc, browser: hamrmw.NewBrowserAuth(svc.Sessions(),
+func NewAccess(orch *service.Orchestrator) *Access {
+	return &Access{orch: orch, browser: hamrmw.NewBrowserAuth(orch.Sessions(),
 		hamrmw.WithSubjectLoader(func(c context.Context, id string) (any, error) {
-			p, err := svc.SessionPrincipal(c, id)
+			p, err := orch.SessionPrincipal(c, id)
 			if errors.Is(err, errs.ErrNotFound) {
 				return nil, nil // user gone: hamr treats the session as stale
 			}
@@ -60,7 +60,7 @@ func (a *Access) Load() echo.MiddlewareFunc {
 			if !ok {
 				return viaSession(c)
 			}
-			p, err := a.svc.KeyPrincipal(c.Request().Context(), strings.TrimSpace(token))
+			p, err := a.orch.KeyPrincipal(c.Request().Context(), strings.TrimSpace(token))
 			if errors.Is(err, errs.ErrNotFound) {
 				return echo.NewHTTPError(http.StatusUnauthorized, "invalid API key")
 			}
@@ -82,7 +82,7 @@ func (a *Access) Require(v authz.Verb) echo.MiddlewareFunc {
 			if p == nil {
 				return echo.NewHTTPError(http.StatusUnauthorized)
 			}
-			s, err := a.svc.Resolve(c.Request().Context(), c.Param("org"), c.Param("stack"), c.Param("env"), c.Param("tile"))
+			s, err := a.orch.Resolve(c.Request().Context(), c.Param("org"), c.Param("stack"), c.Param("env"), c.Param("tile"))
 			if err != nil {
 				return HTTPError(err)
 			}
@@ -184,7 +184,7 @@ func (a *Access) children(c echo.Context, s service.Scope) error {
 		if s.Org == nil {
 			continue // an org-less route: its verb is admin-level
 		}
-		org, err := a.svc.OrgOf(c.Request().Context(), kind, c.Param(name))
+		org, err := a.orch.OrgOf(c.Request().Context(), kind, c.Param(name))
 		if err != nil && !errors.Is(err, errs.ErrNotFound) {
 			return err
 		}
