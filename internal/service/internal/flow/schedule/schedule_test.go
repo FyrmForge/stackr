@@ -52,3 +52,11 @@ func TestScheduleToCall(t *testing.T) {
 		t.Errorf("after reload: %d cron entries", len(r.cron.Entries()))
 	}
 }
+
+// The traffic sample gets its own 5 s entry when wired.
+func TestTrafficEntry(t *testing.T) {
+	es := Entries(Drivers{Traffic: func(context.Context) error { return nil }}, nil, nil)
+	if last := es[len(es)-1]; last.Name != "traffic" || last.Spec != "@every 5s" {
+		t.Errorf("entries = %+v", es)
+	}
+}

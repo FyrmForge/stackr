@@ -30,6 +30,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/promote"
 	frun "github.com/FyrmForge/stackr/internal/service/internal/flow/run"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/schedule"
+	ftraffic "github.com/FyrmForge/stackr/internal/service/internal/flow/traffic"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/upgrade"
 	"github.com/FyrmForge/stackr/internal/service/internal/githubapp"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/backup"
@@ -48,6 +49,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/settings"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/stack"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
+	ltraffic "github.com/FyrmForge/stackr/internal/service/internal/leaf/traffic"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/user"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/volume"
 	"github.com/FyrmForge/stackr/internal/service/internal/proxy"
@@ -95,6 +97,9 @@ type Config struct {
 	// PanelSpec is the panel's container spec for an image, the installer's
 	// one spec; nil refuses self-upgrade.
 	PanelSpec func(image string) ContainerSpec
+	// Conntrack is the host conntrack table the traffic sample reads;
+	// "" = /proc/net/nf_conntrack (the panel is host-network).
+	Conntrack string
 }
 
 // Option changes how New builds the tree; tests use it.
@@ -151,6 +156,7 @@ type Orchestrator struct {
 	backups  *backup.Leaf
 	settings *settings.Leaf
 	runs     *lrun.Leaf
+	traffic  *ltraffic.Leaf
 
 	deploy    *deploy.Flow
 	engines   *mflow.Flow
@@ -160,6 +166,7 @@ type Orchestrator struct {
 	watch     *imagewatch.Flow
 	upgrade   *upgrade.Flow
 	run       *frun.Flow
+	sample    *ftraffic.Flow
 	jobs      *jobs.Runner
 	sched     *schedule.Runner
 	sync      *domain.Syncer
@@ -201,6 +208,9 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 		// ponytail: the installer (step 5) gives the panel this network alias,
 		// so the route survives the upgrade's stackr-<version> rename.
 		cfg.PanelUpstream = "stackr:8080"
+	}
+	if cfg.Conntrack == "" {
+		cfg.Conntrack = ftraffic.DefaultPath
 	}
 	if cfg.Passphrase == "" {
 		cfg.Passphrase = cfg.SecretsKey
@@ -262,6 +272,7 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 	svc.backups = build("leaf/backup", func() *backup.Leaf { return backup.New(st.BackupDests, st.BackupSchedules, st.BackupRuns) })
 	svc.settings = build("leaf/settings", func() *settings.Leaf { return settings.New(st.Settings, bootSettings(cfg)) })
 	svc.runs = build("leaf/run", func() *lrun.Leaf { return lrun.New(st.Runs, filepath.Join(cfg.DataDir, "runs")) })
+	svc.traffic = build("leaf/traffic", ltraffic.New)
 
 	svc.engines = build("flow/managed", func() *mflow.Flow {
 		return &mflow.Flow{Tiles: svc.tiles, Instances: svc.managed, Volumes: svc.volumes, Envs: svc.envs,
@@ -301,6 +312,9 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 	svc.run = build("flow/run", func() *frun.Flow {
 		return &frun.Flow{Tiles: svc.tiles, Envs: svc.envs, Runs: svc.runs, Jobs: svc.jobRows, Deploy: svc.deploy}
 	})
+	svc.sample = build("flow/traffic", func() *ftraffic.Flow {
+		return &ftraffic.Flow{Tiles: svc.tiles, Traffic: svc.traffic, Path: cfg.Conntrack}
+	})
 	svc.jobs = build("flow/jobs", func() *jobs.Runner {
 		// ponytail: no ParamSet, a parked job is requeued every poll and its
 		// handler re-checks (DECIDE 17 (b)).
@@ -324,6 +338,7 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 				_, _, err := svc.queueRun(ctx, t.ID, lrun.Schedule)
 				return err
 			},
+			Traffic: svc.sample.Tick,
 		})
 	})
 
@@ -342,6 +357,9 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 	if err := svc.sched.Boot(ctx); err != nil {
 		// A bad schedule row is reported, never fatal: the rest still run.
 		slog.Warn("scheduler: entries skipped", "err", err)
+	}
+	if w := ftraffic.Check(cfg.Conntrack); w != "" {
+		slog.Warn(w, "path", cfg.Conntrack)
 	}
 	go func() {
 		if err := svc.sync.Sync(context.Background()); err != nil {

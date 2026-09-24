@@ -1,0 +1,1 @@
+ipv4     2 tcp      6 431999 ESTABLISHED src=192.168.1.10 dst=192.168.1.106 sport=51544 dport=22 packets=80 [ASSURED] mark=0 zone=0 use=2

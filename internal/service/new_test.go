@@ -19,7 +19,7 @@ func TestNewBuildsEachOnce(t *testing.T) {
 	onBuild = func(name string) { counts[name]++ }
 	t.Cleanup(func() { onBuild = func(string) {} })
 
-	o, err := New(Config{DataDir: t.TempDir(), SecretsKey: testKey}, WithDocker(dockerfake.New()), WithVIP(vipStub{}),
+	o, err := New(Config{DataDir: t.TempDir(), SecretsKey: testKey, Conntrack: "/nonexistent"}, WithDocker(dockerfake.New()), WithVIP(vipStub{}),
 		WithProxy(func(context.Context, json.RawMessage) error { return nil }))
 	if err != nil {
 		t.Fatal(err)
@@ -29,7 +29,7 @@ func TestNewBuildsEachOnce(t *testing.T) {
 		"leaf/tile", "leaf/image", "leaf/params", "leaf/volume", "leaf/domain", "leaf/credential", "leaf/connector",
 		"leaf/managed", "leaf/release", "leaf/job", "leaf/backup", "leaf/settings", "flow/managed",
 		"leaf/domain.Syncer", "flow/deploy", "flow/promote", "flow/backup", "flow/container", "flow/imagewatch",
-		"flow/upgrade", "flow/jobs", "flow/schedule"} {
+		"flow/upgrade", "flow/jobs", "flow/schedule", "leaf/traffic", "flow/traffic"} {
 		if counts[name] == 0 {
 			t.Errorf("%s never built", name)
 		}

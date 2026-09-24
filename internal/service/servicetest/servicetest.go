@@ -46,7 +46,10 @@ func New(t *testing.T, edit ...func(*service.Config)) *Env {
 func NewWith(t *testing.T, opts []service.Option, edit ...func(*service.Config)) *Env {
 	t.Helper()
 	dir := t.TempDir()
-	cfg := service.Config{DataDir: dir, DBPath: filepath.Join(dir, "stackr.db"), SecretsKey: Key}
+	// No conntrack table: the 5 s traffic tick bails before any Docker call,
+	// so the fake's call log stays the test's own.
+	cfg := service.Config{DataDir: dir, DBPath: filepath.Join(dir, "stackr.db"), SecretsKey: Key,
+		Conntrack: filepath.Join(dir, "nf_conntrack")}
 	for _, f := range edit {
 		f(&cfg)
 	}

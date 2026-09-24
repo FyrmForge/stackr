@@ -129,6 +129,24 @@ func (l *Leaf) Replicas(ctx context.Context, t store.Tile) ([]docker.Container, 
 	return l.docker.List(ctx, map[string]string{LabelTile: t.ID, LabelRole: "replica"})
 }
 
+// Addresses maps every IP of every running tile container (replicas, runs
+// and the pause container that holds the VIP) to its tile id.
+func (l *Leaf) Addresses(ctx context.Context) (map[string]string, error) {
+	cs, err := l.docker.List(ctx, map[string]string{docker.LabelManaged: "true"})
+	if err != nil {
+		return nil, err
+	}
+	out := map[string]string{}
+	for _, c := range cs {
+		if id := c.Labels[LabelTile]; id != "" && c.State == "running" {
+			for _, ip := range c.IPs {
+				out[ip] = id
+			}
+		}
+	}
+	return out, nil
+}
+
 // Pause ensures the tile's pause container on network and returns its IP,
 // which is the tile's VIP.
 func (l *Leaf) Pause(ctx context.Context, t store.Tile, network string) (string, error) {

@@ -1,7 +1,9 @@
 // Package schedule is the cron runner: backup schedules, cron tiles, the
-// daily orphan retention job and the image-watch tick, on one robfig/cron. A tick
-// enqueues through the func it was given and returns; it never runs the
-// work. A missed tick is missed: nothing catches up after a restart.
+// daily orphan retention job, the image-watch tick and the traffic sample,
+// on one robfig/cron. A tick enqueues through the func it was given and
+// returns; it never runs the work, except the traffic sample, which is a
+// read and runs inline. A missed tick is missed: nothing catches up after a
+// restart.
 package schedule
 
 import (
@@ -28,6 +30,8 @@ type Drivers struct {
 	// of one. A paused tile gets no entry.
 	Crons func(ctx context.Context) ([]store.Tile, error)
 	Cron  func(ctx context.Context, t store.Tile) error
+	// Traffic samples conntrack every 5 s (flow/traffic); nil = no entry.
+	Traffic func(ctx context.Context) error
 }
 
 type Entry struct {
@@ -40,6 +44,9 @@ func Entries(d Drivers, scheds []store.BackupSchedule, crons []store.Tile) []Ent
 	out := []Entry{
 		{Name: "orphans", Spec: "@daily", Fire: d.Orphans},
 		{Name: "image-watch", Spec: "@every 1m", Fire: d.Watch},
+	}
+	if d.Traffic != nil {
+		out = append(out, Entry{Name: "traffic", Spec: "@every 5s", Fire: d.Traffic})
 	}
 	for _, s := range scheds {
 		spec := s.Cron
