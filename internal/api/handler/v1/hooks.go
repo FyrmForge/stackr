@@ -23,8 +23,13 @@ func (h *H) Hook(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusRequestEntityTooLarge)
 	}
 	r := c.Request()
-	if err := h.Orch.Webhook(rc(c), c.Param("connector"), r.Header.Get("X-GitHub-Event"),
-		r.Header.Get("X-Hub-Signature-256"), body); err != nil {
+	if err := h.Orch.Webhook(
+		rc(c),
+		c.Param("connector"),
+		r.Header.Get("X-GitHub-Event"),
+		r.Header.Get("X-Hub-Signature-256"),
+		body,
+	); err != nil {
 		return err
 	}
 	return c.NoContent(http.StatusNoContent)

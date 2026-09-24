@@ -130,7 +130,13 @@ func TestAccess(t *testing.T) {
 		t.Errorf("owner session on api = %d, want 200", got)
 	}
 	// The caller-only routes: any live principal, an unbound key only for an admin.
-	for who, want := range map[string]int{"owner": 200, "admin": 200, "unbound": 403, "anonymous": 401, "disabled": 401} {
+	for who, want := range map[string]int{
+		"owner":     200,
+		"admin":     200,
+		"unbound":   403,
+		"anonymous": 401,
+		"disabled":  401,
+	} {
 		if got := do(t, h, cookie, "/api/v1/orgs", cred{key: creds[who].key}); got != want {
 			t.Errorf("%s GET /api/v1/orgs = %d, want %d", who, got, want)
 		}
@@ -141,7 +147,12 @@ func TestAccess(t *testing.T) {
 // the login page.
 func TestFixedRoutesWin(t *testing.T) {
 	_, h := setup(t)
-	for path, want := range map[string]int{"/": http.StatusSeeOther, "/login": 200, "/about": 200, "/api/health": 200} {
+	for path, want := range map[string]int{
+		"/":           http.StatusSeeOther,
+		"/login":      200,
+		"/about":      200,
+		"/api/health": 200,
+	} {
 		if got := do(t, h, "", path, cred{}); got != want {
 			t.Errorf("GET %s = %d, want %d", path, got, want)
 		}

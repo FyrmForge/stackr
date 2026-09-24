@@ -11,10 +11,26 @@ import (
 
 var update = flag.Bool("update", false, "rewrite golden files")
 
-var tlsIn = Input{Root: "example.com", PanelHost: "stkr.example.com", HTTPS: true, Email: "ops@example.com",
-	Proxies: "203.0.113.0/24", DNS01: true, HTTPPort: "80", HTTPSPort: "443", DataDir: "/var/lib/stackr", Bind: "172.17.0.1"}
+var tlsIn = Input{
+	Root:      "example.com",
+	PanelHost: "stkr.example.com",
+	HTTPS:     true,
+	Email:     "ops@example.com",
+	Proxies:   "203.0.113.0/24",
+	DNS01:     true,
+	HTTPPort:  "80",
+	HTTPSPort: "443",
+	DataDir:   "/var/lib/stackr",
+	Bind:      "172.17.0.1",
+}
 
-var plainIn = Input{Root: "example.com", PanelHost: "stkr.example.com", HTTPPort: "8081", DataDir: "/srv/stackr", Bind: "172.18.0.1"}
+var plainIn = Input{
+	Root:      "example.com",
+	PanelHost: "stkr.example.com",
+	HTTPPort:  "8081",
+	DataDir:   "/srv/stackr",
+	Bind:      "172.18.0.1",
+}
 
 // The docker run lines are the contract with the box; a changed flag shows
 // up as a golden diff.
@@ -70,8 +86,18 @@ func TestSaveLoad(t *testing.T) {
 }
 
 func TestCheckRoot(t *testing.T) {
-	for _, bad := range []string{"", "localhost", "127.0.0.1", "::1", "example", "ex ample.com",
-		"-bad.com", "a..b.com", "example.123", strings.Repeat("a", 64) + ".com"} {
+	for _, bad := range []string{
+		"",
+		"localhost",
+		"127.0.0.1",
+		"::1",
+		"example",
+		"ex ample.com",
+		"-bad.com",
+		"a..b.com",
+		"example.123",
+		strings.Repeat("a", 64) + ".com",
+	} {
 		if got, err := CheckRoot(bad); err == nil {
 			t.Errorf("%q accepted as %q", bad, got)
 		}

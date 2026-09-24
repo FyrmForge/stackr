@@ -22,12 +22,20 @@ const repo = "https://github.com/acme/app.git"
 func hookWorld(t *testing.T) (*world, string) {
 	t.Helper()
 	var img string
-	w := newWorld(t, service.WithBuild(func(context.Context, service.Stack, service.Tile, string, io.Writer) (string, error) {
-		return img, nil
-	}))
+	w := newWorld(t,
+		service.WithBuild(func(context.Context, service.Stack, service.Tile, string, io.Writer) (string, error) {
+			return img, nil
+		}))
 	img = w.env.Image(t, "stkr/acme_shop_web:abc")
-	if _, err := w.env.Orch.CreateTile(context.Background(), service.Tile{StackID: w.tile.Stack, EnvironmentID: w.tile.Env,
-		Name: "web", Kind: "service", GitURL: repo, GitBranch: "main", ContainerPort: 80}); err != nil {
+	if _, err := w.env.Orch.CreateTile(context.Background(), service.Tile{
+		StackID:       w.tile.Stack,
+		EnvironmentID: w.tile.Env,
+		Name:          "web",
+		Kind:          "service",
+		GitURL:        repo,
+		GitBranch:     "main",
+		ContainerPort: 80,
+	}); err != nil {
 		t.Fatal(err)
 	}
 	return w, w.env.Connector(t, w.acme, "whsec")

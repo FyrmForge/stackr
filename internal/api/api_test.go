@@ -133,22 +133,40 @@ func TestReadsLeakNoSecret(t *testing.T) {
 	w := newWorld(t)
 	ctx := context.Background()
 	o := w.env.Orch
-	if _, err := o.CreateCredential(ctx, w.acme, service.CredentialSpec{Name: "hub", URL: "r.io", Username: "u", Password: "LEAK-cred"}); err != nil {
+	if _, err := o.CreateCredential(ctx, w.acme, service.CredentialSpec{
+		Name:     "hub",
+		URL:      "r.io",
+		Username: "u",
+		Password: "LEAK-cred",
+	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := o.CreateBackupDest(ctx, &w.acme, service.BackupDestSpec{Name: "s3", Endpoint: "https://s3.example.com", Bucket: "b",
-		AccessKey: "LEAK-ak", SecretKey: "LEAK-sk"}); err != nil {
+	if _, err := o.CreateBackupDest(ctx, &w.acme, service.BackupDestSpec{
+		Name:      "s3",
+		Endpoint:  "https://s3.example.com",
+		Bucket:    "b",
+		AccessKey: "LEAK-ak",
+		SecretKey: "LEAK-sk",
+	}); err != nil {
 		t.Fatal(err)
 	}
-	if err := o.SetParams(ctx, service.ParamScope{Kind: "org", ID: w.acme},
-		[]service.ParamEntry{{Collection: "app", Name: "token", Kind: "secret", Value: "LEAK-param"}}); err != nil {
+	if err := o.SetParams(ctx, service.ParamScope{Kind: "org", ID: w.acme}, []service.ParamEntry{
+		{
+			Collection: "app",
+			Name:       "token",
+			Kind:       "secret",
+			Value:      "LEAK-param",
+		},
+	}); err != nil {
 		t.Fatal(err)
 	}
 	if code, body := w.do(t, w.owner, "POST", "/orgs/acme/stacks/shop/envs/dev/tiles/api/domains",
-		`{"host":"a.example.com","proxy":{"basic_auth":{"user":"u","password":"LEAK-basic"}}}`); code != 201 || strings.Contains(body, "LEAK") {
+		`{"host":"a.example.com","proxy":{"basic_auth":{"user":"u","password":"LEAK-basic"}}}`); code != 201 ||
+		strings.Contains(body, "LEAK") {
 		t.Fatalf("attach = %d %s", code, body)
 	}
-	if code, body := w.do(t, w.owner, "POST", "/orgs/acme/keys", `{"name":"ci"}`); code != 201 || !strings.Contains(body, `"token"`) {
+	if code, body := w.do(t, w.owner, "POST", "/orgs/acme/keys", `{"name":"ci"}`); code != 201 ||
+		!strings.Contains(body, `"token"`) {
 		t.Fatalf("mint = %d %s", code, body)
 	}
 	for _, r := range api.Routes(&v1.H{}) {
@@ -158,7 +176,8 @@ func TestReadsLeakNoSecret(t *testing.T) {
 		}
 		path := fill(r.Path)
 		code, body := w.do(t, w.owner, r.Method, path, "")
-		if code >= 500 || strings.Contains(body, "LEAK") || strings.Contains(body, "token_hash") || strings.HasPrefix(body, "null") {
+		if code >= 500 || strings.Contains(body, "LEAK") || strings.Contains(body, "token_hash") ||
+			strings.HasPrefix(body, "null") {
 			t.Errorf("GET %s = %d %s", path, code, body)
 		}
 	}
@@ -201,7 +220,8 @@ func TestDeployIsAccepted(t *testing.T) {
 	if err := json.Unmarshal([]byte(body), &j); err != nil || code != 202 || j.ID == "" {
 		t.Fatalf("deploy = %d %s", code, body)
 	}
-	if code, body := w.do(t, w.owner, "GET", "/orgs/acme/jobs/"+j.ID+"/log?offset=0", ""); code != 200 || !strings.Contains(body, `"next"`) {
+	if code, body := w.do(t, w.owner, "GET", "/orgs/acme/jobs/"+j.ID+"/log?offset=0", ""); code != 200 ||
+		!strings.Contains(body, `"next"`) {
 		t.Errorf("poll = %d %s", code, body)
 	}
 	if code, _ := w.do(t, w.owner, "GET", "/orgs/acme/jobs/"+j.ID+"/log?offset=abc", ""); code != 400 {
@@ -214,7 +234,8 @@ func TestDeployIsAccepted(t *testing.T) {
 func TestEnvEvents(t *testing.T) {
 	stream.PollEvery = 10 * time.Millisecond
 	w := newWorld(t)
-	if code, body := w.do(t, w.owner, "GET", "/orgs/acme/stacks/shop/envs/dev/traffic", ""); code != 200 || body != "[]\n" {
+	if code, body := w.do(t, w.owner, "GET", "/orgs/acme/stacks/shop/envs/dev/traffic", ""); code != 200 ||
+		body != "[]\n" {
 		t.Fatalf("traffic = %d %q", code, body)
 	}
 	ctx, cancel := context.WithCancel(context.Background())

@@ -43,7 +43,12 @@ type (
 )
 
 func (in CredentialIn) spec() service.CredentialSpec {
-	return service.CredentialSpec{Name: in.Name, URL: in.URL, Username: in.Username, Password: in.Password}
+	return service.CredentialSpec{
+		Name:     in.Name,
+		URL:      in.URL,
+		Username: in.Username,
+		Password: in.Password,
+	}
 }
 
 func orgID(c echo.Context) string { return scope(c).Org.ID }

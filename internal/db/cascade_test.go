@@ -42,8 +42,20 @@ func TestOrgDeleteCascades(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	for _, table := range []string{"org_members", "invites", "api_keys", "stacks", "environments",
-		"params", "volumes", "credentials", "connectors", "backup_destinations", "positions", "annotations"} {
+	for _, table := range []string{
+		"org_members",
+		"invites",
+		"api_keys",
+		"stacks",
+		"environments",
+		"params",
+		"volumes",
+		"credentials",
+		"connectors",
+		"backup_destinations",
+		"positions",
+		"annotations",
+	} {
 		var n int
 		if err := db.Get(&n, "SELECT count(*) FROM "+table); err != nil {
 			t.Fatal(err)

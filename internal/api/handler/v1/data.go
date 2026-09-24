@@ -46,20 +46,42 @@ type (
 )
 
 func (in ScheduleIn) spec() service.ScheduleSpec {
-	return service.ScheduleSpec{Method: in.Method, DestID: in.DestID, Cron: in.Cron, Timezone: in.Timezone, Keep: in.Keep, Mode: in.Mode}
+	return service.ScheduleSpec{
+		Method:   in.Method,
+		DestID:   in.DestID,
+		Cron:     in.Cron,
+		Timezone: in.Timezone,
+		Keep:     in.Keep,
+		Mode:     in.Mode,
+	}
 }
 
 func (in DestIn) spec() service.BackupDestSpec {
-	return service.BackupDestSpec{Name: in.Name, Endpoint: in.Endpoint, Region: in.Region, Bucket: in.Bucket,
-		AccessKey: in.AccessKey, SecretKey: in.SecretKey, Shared: in.Shared}
+	return service.BackupDestSpec{
+		Name:      in.Name,
+		Endpoint:  in.Endpoint,
+		Region:    in.Region,
+		Bucket:    in.Bucket,
+		AccessKey: in.AccessKey,
+		SecretKey: in.SecretKey,
+		Shared:    in.Shared,
+	}
 }
 
 // At names the scope a params or volumes route works on.
 type At func(c echo.Context) (kind, id string)
 
-func AtOrg(c echo.Context) (string, string)   { return "org", orgID(c) }
-func AtStack(c echo.Context) (string, string) { return "stack", stackID(c) }
-func AtEnv(c echo.Context) (string, string)   { return "env", envID(c) }
+func AtOrg(c echo.Context) (string, string) {
+	return "org", orgID(c)
+}
+
+func AtStack(c echo.Context) (string, string) {
+	return "stack", stackID(c)
+}
+
+func AtEnv(c echo.Context) (string, string) {
+	return "env", envID(c)
+}
 
 func paramScope(c echo.Context, at At) service.ParamScope {
 	k, id := at(c)
@@ -106,7 +128,9 @@ func (h *H) DeleteParam(at At) Endpoint {
 // ---- volumes and backups ----
 
 func (h *H) Volumes(at At) Endpoint {
-	return Get(func(c echo.Context) ([]service.Volume, error) { return list(h.Orch.Volumes(rc(c), volumeScope(c, at))) })
+	return Get(func(c echo.Context) ([]service.Volume, error) {
+		return list(h.Orch.Volumes(rc(c), volumeScope(c, at)))
+	})
 }
 
 func (h *H) DeclareVolume(at At) Endpoint {

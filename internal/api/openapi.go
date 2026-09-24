@@ -25,12 +25,21 @@ func OpenAPI() ([]byte, error) {
 		for _, seg := range strings.Split(strings.TrimPrefix(r.Path, "/"), "/") {
 			if name, ok := strings.CutPrefix(seg, ":"); ok {
 				seg = "{" + name + "}"
-				params = append(params, map[string]any{"name": name, "in": "path", "required": true, "schema": map[string]any{"type": "string"}})
+				params = append(params, map[string]any{
+					"name":     name,
+					"in":       "path",
+					"required": true,
+					"schema":   map[string]any{"type": "string"},
+				})
 			}
 			path += "/" + seg
 		}
 		for _, q := range r.E.Query {
-			params = append(params, map[string]any{"name": q, "in": "query", "schema": map[string]any{"type": "string"}})
+			params = append(params, map[string]any{
+				"name":   q,
+				"in":     "query",
+				"schema": map[string]any{"type": "string"},
+			})
 		}
 		ok := map[string]any{"description": http.StatusText(r.E.Status)}
 		switch {
@@ -60,11 +69,14 @@ func OpenAPI() ([]byte, error) {
 		paths[path][strings.ToLower(r.Method)] = op
 	}
 	return json.MarshalIndent(map[string]any{
-		"openapi":    "3.1.0",
-		"info":       map[string]any{"title": "stackr", "version": "v1"},
-		"paths":      paths,
-		"security":   []any{map[string]any{"bearer": []any{}}},
-		"components": map[string]any{"schemas": s.defs, "securitySchemes": map[string]any{"bearer": map[string]any{"type": "http", "scheme": "bearer"}}},
+		"openapi":  "3.1.0",
+		"info":     map[string]any{"title": "stackr", "version": "v1"},
+		"paths":    paths,
+		"security": []any{map[string]any{"bearer": []any{}}},
+		"components": map[string]any{
+			"schemas":         s.defs,
+			"securitySchemes": map[string]any{"bearer": map[string]any{"type": "http", "scheme": "bearer"}},
+		},
 	}, "", "  ")
 }
 
@@ -72,7 +84,10 @@ func jsonBody(schema any) map[string]any {
 	return map[string]any{"application/json": map[string]any{"schema": schema}}
 }
 
-func itoa(n int) string { b, _ := json.Marshal(n); return string(b) }
+func itoa(n int) string {
+	b, _ := json.Marshal(n)
+	return string(b)
+}
 
 type schemas struct {
 	defs  map[string]any

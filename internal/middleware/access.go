@@ -30,20 +30,24 @@ type Access struct {
 var scopeKey = ctx.NewKey[service.Scope]("scope")
 
 func NewAccess(orch *service.Orchestrator) *Access {
-	return &Access{orch: orch, browser: hamrmw.NewBrowserAuth(orch.Sessions(),
-		hamrmw.WithSubjectLoader(func(c context.Context, id string) (any, error) {
-			p, err := orch.SessionPrincipal(c, id)
-			if errors.Is(err, errs.ErrNotFound) {
-				return nil, nil // user gone: hamr treats the session as stale
-			}
-			if err != nil {
-				return nil, err
-			}
-			return p, nil
-		}),
-		hamrmw.WithLoginRedirect("/login"),
-		hamrmw.WithHomeRedirect("/"),
-	)}
+	return &Access{
+		orch: orch,
+		browser: hamrmw.NewBrowserAuth(
+			orch.Sessions(),
+			hamrmw.WithSubjectLoader(func(c context.Context, id string) (any, error) {
+				p, err := orch.SessionPrincipal(c, id)
+				if errors.Is(err, errs.ErrNotFound) {
+					return nil, nil // user gone: hamr treats the session as stale
+				}
+				if err != nil {
+					return nil, err
+				}
+				return p, nil
+			}),
+			hamrmw.WithLoginRedirect("/login"),
+			hamrmw.WithHomeRedirect("/"),
+		),
+	}
 }
 
 // Browser is hamr's session auth, for RequireAuth/RequireNotAuth on pages.
@@ -82,7 +86,13 @@ func (a *Access) Require(v authz.Verb) echo.MiddlewareFunc {
 			if p == nil {
 				return echo.NewHTTPError(http.StatusUnauthorized)
 			}
-			s, err := a.orch.Resolve(c.Request().Context(), c.Param("org"), c.Param("stack"), c.Param("env"), c.Param("tile"))
+			s, err := a.orch.Resolve(
+				c.Request().Context(),
+				c.Param("org"),
+				c.Param("stack"),
+				c.Param("env"),
+				c.Param("tile"),
+			)
 			if err != nil {
 				return HTTPError(err)
 			}
@@ -151,22 +161,39 @@ func SafeNext(next string) string {
 // childKinds are the path params naming a row the verb takes on trust; each
 // must sit in the route's org. The value is the kind OrgOf knows.
 var childKinds = map[string]string{
-	"job": "job", "release": "release", "domain": "domain", "volume": "volume",
-	"schedule": "schedule", "provision": "provision",
+	"job":       "job",
+	"release":   "release",
+	"domain":    "domain",
+	"volume":    "volume",
+	"schedule":  "schedule",
+	"provision": "provision",
 }
 
 // byVerb are path params the verb itself scopes (it takes the org or the
 // user alongside the id), or that name no row.
 var byVerb = map[string]bool{
-	"org": true, "stack": true, "env": true, "tile": true,
-	"user": true, "credential": true, "connector": true, "dest": true, "key": true,
-	"collection": true, "name": true, "token": true, "setting": true,
-	"run": true, // the verb takes the tile too and refuses another tile's run
+	"org":        true,
+	"stack":      true,
+	"env":        true,
+	"tile":       true,
+	"user":       true,
+	"credential": true,
+	"connector":  true,
+	"dest":       true,
+	"key":        true,
+	"collection": true,
+	"name":       true,
+	"token":      true,
+	"setting":    true,
+	"run":        true, // the verb takes the tile too and refuses another tile's run
 }
 
 // KnownParam reports whether a route param is org-checked or verb-scoped;
 // the route test holds every /api/v1 path to it.
-func KnownParam(name string) bool { _, child := childKinds[name]; return child || byVerb[name] }
+func KnownParam(name string) bool {
+	_, child := childKinds[name]
+	return child || byVerb[name]
+}
 
 // children refuses a child id from another org with the same 404 as a
 // missing one. An unlisted param fails closed.

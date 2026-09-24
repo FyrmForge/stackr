@@ -72,8 +72,13 @@ func (h *H) LogStream() Endpoint {
 // (?container=): the request body is its stdin, the response its output.
 func (h *H) Exec() Endpoint {
 	return Streamed("application/octet-stream", func(c echo.Context) error {
-		out, wait, err := h.Orch.Terminal(context.WithoutCancel(rc(c)), tileID(c), c.QueryParam("container"),
-			c.QueryParams()["cmd"], c.Request().Body)
+		out, wait, err := h.Orch.Terminal(
+			context.WithoutCancel(rc(c)),
+			tileID(c),
+			c.QueryParam("container"),
+			c.QueryParams()["cmd"],
+			c.Request().Body,
+		)
 		if err != nil {
 			return err
 		}

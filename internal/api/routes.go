@@ -36,7 +36,11 @@ func Routes(h *v1.H) []Route {
 
 func routes(h *v1.H) []Route {
 	const (
-		GET, POST, PUT, PATCH, DELETE = http.MethodGet, http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete
+		GET    = http.MethodGet
+		POST   = http.MethodPost
+		PUT    = http.MethodPut
+		PATCH  = http.MethodPatch
+		DELETE = http.MethodDelete
 	)
 	return []Route{
 		// the caller
@@ -192,7 +196,11 @@ func scoped(h *v1.H) []Route {
 	for _, s := range []struct {
 		base, name string
 		at         v1.At
-	}{{org, "org", v1.AtOrg}, {stack, "stack", v1.AtStack}, {env, "env", v1.AtEnv}} {
+	}{
+		{org, "org", v1.AtOrg},
+		{stack, "stack", v1.AtStack},
+		{env, "env", v1.AtEnv},
+	} {
 		out = append(out,
 			Route{http.MethodGet, s.base + "/params", s.name + ".params", "tile.read", h.Params(s.at)},
 			Route{http.MethodGet, s.base + "/params/secrets", s.name + ".secrets", "variable.write", h.Secrets(s.at)},

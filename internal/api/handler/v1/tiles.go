@@ -109,8 +109,15 @@ type (
 )
 
 func (in DomainIn) spec() service.DomainSpec {
-	return service.DomainSpec{Host: in.Host, Path: in.Path, Port: in.Port, HTTPS: in.HTTPS, ForceHTTPS: in.ForceHTTPS,
-		RedirectTo: in.RedirectTo, Extras: in.Extras}
+	return service.DomainSpec{
+		Host:       in.Host,
+		Path:       in.Path,
+		Port:       in.Port,
+		HTTPS:      in.HTTPS,
+		ForceHTTPS: in.ForceHTTPS,
+		RedirectTo: in.RedirectTo,
+		Extras:     in.Extras,
+	}
 }
 
 func tileID(c echo.Context) string { return scope(c).Tile.ID }
@@ -123,7 +130,12 @@ func (h *H) Tiles() Endpoint {
 
 func (h *H) CreateTile() Endpoint {
 	return JSON(201, func(c echo.Context, in TileIn) (service.Tile, error) {
-		t := service.Tile{StackID: stackID(c), EnvironmentID: envID(c), Name: in.Name, Kind: in.Kind}
+		t := service.Tile{
+			StackID:       stackID(c),
+			EnvironmentID: envID(c),
+			Name:          in.Name,
+			Kind:          in.Kind,
+		}
 		if err := in.apply(&t); err != nil {
 			return t, err
 		}
@@ -173,10 +185,21 @@ func tileJob(f func(ctx context.Context, id string) (service.Job, error)) Endpoi
 	return Job(func(c echo.Context, _ None) (service.Job, error) { return f(rc(c), tileID(c)) })
 }
 
-func (h *H) Deploy() Endpoint      { return tileJob(h.Orch.Deploy) }
-func (h *H) RestartTile() Endpoint { return tileJob(h.Orch.RestartTile) }
-func (h *H) StopTile() Endpoint    { return tileJob(h.Orch.StopTile) }
-func (h *H) StartTile() Endpoint   { return tileJob(h.Orch.StartTile) }
+func (h *H) Deploy() Endpoint {
+	return tileJob(h.Orch.Deploy)
+}
+
+func (h *H) RestartTile() Endpoint {
+	return tileJob(h.Orch.RestartTile)
+}
+
+func (h *H) StopTile() Endpoint {
+	return tileJob(h.Orch.StopTile)
+}
+
+func (h *H) StartTile() Endpoint {
+	return tileJob(h.Orch.StartTile)
+}
 
 func (h *H) CheckTileImages() Endpoint {
 	return Job(func(c echo.Context, _ None) (service.Job, error) {

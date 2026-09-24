@@ -52,8 +52,13 @@ type (
 	} // bottom rung first
 )
 
-func stackID(c echo.Context) string { return scope(c).Stack.ID }
-func envID(c echo.Context) string   { return scope(c).Env.ID }
+func stackID(c echo.Context) string {
+	return scope(c).Stack.ID
+}
+
+func envID(c echo.Context) string {
+	return scope(c).Env.ID
+}
 
 // ---- stacks ----
 
@@ -152,8 +157,14 @@ func (h *H) Ladder() Endpoint {
 
 func (h *H) CreateEnv() Endpoint {
 	return JSON(201, func(c echo.Context, in EnvIn) (service.Environment, error) {
-		return h.Orch.CreateEnv(rc(c), stackID(c), in.Name, service.EnvSpec{Type: in.Type, Base: in.Base, Color: in.Color,
-			FromKind: in.FromKind, FromBranch: in.FromBranch, Auto: in.Auto})
+		return h.Orch.CreateEnv(rc(c), stackID(c), in.Name, service.EnvSpec{
+			Type:       in.Type,
+			Base:       in.Base,
+			Color:      in.Color,
+			FromKind:   in.FromKind,
+			FromBranch: in.FromBranch,
+			Auto:       in.Auto,
+		})
 	})
 }
 

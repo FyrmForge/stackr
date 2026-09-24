@@ -50,7 +50,10 @@ func gate(a *middleware.Access, r Route) echo.MiddlewareFunc {
 
 // Gzip is the server's compression, off for the streams: a compressor may
 // hold back bytes a follow must see now.
-var Gzip = server.GzipConfig{Enabled: true, Skipper: func(c echo.Context) bool {
-	p := c.Request().URL.Path
-	return strings.HasSuffix(p, "/events") || strings.HasSuffix(p, "/logs/stream") || strings.HasSuffix(p, "/exec")
-}}
+var Gzip = server.GzipConfig{
+	Enabled: true,
+	Skipper: func(c echo.Context) bool {
+		p := c.Request().URL.Path
+		return strings.HasSuffix(p, "/events") || strings.HasSuffix(p, "/logs/stream") || strings.HasSuffix(p, "/exec")
+	},
+}

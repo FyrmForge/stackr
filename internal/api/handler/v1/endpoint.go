@@ -40,7 +40,10 @@ type Endpoint struct {
 }
 
 // Q names the query params the handler reads, for the OpenAPI dump.
-func (e Endpoint) Q(names ...string) Endpoint { e.Query = names; return e }
+func (e Endpoint) Q(names ...string) Endpoint {
+	e.Query = names
+	return e
+}
 
 // None is the input or output of an endpoint without a body.
 type None struct{}
@@ -48,20 +51,23 @@ type None struct{}
 // JSON makes an endpoint that decodes In strictly (an unknown field is a
 // 400, so a typo never silently sets nothing), calls f and renders Out.
 func JSON[In, Out any](status int, f func(c echo.Context, in In) (Out, error)) Endpoint {
-	e := Endpoint{Status: status, Handle: func(c echo.Context) error {
-		var in In
-		if err := decode(c, &in); err != nil {
-			return err
-		}
-		out, err := f(c, in)
-		if err != nil {
-			return err
-		}
-		if _, empty := any(out).(None); empty {
-			return c.NoContent(status)
-		}
-		return c.JSON(status, out)
-	}}
+	e := Endpoint{
+		Status: status,
+		Handle: func(c echo.Context) error {
+			var in In
+			if err := decode(c, &in); err != nil {
+				return err
+			}
+			out, err := f(c, in)
+			if err != nil {
+				return err
+			}
+			if _, empty := any(out).(None); empty {
+				return c.NoContent(status)
+			}
+			return c.JSON(status, out)
+		},
+	}
 	if t := reflect.TypeFor[In](); t != reflect.TypeFor[None]() {
 		e.In = t
 	}
@@ -113,6 +119,14 @@ func decode(c echo.Context, v any) error {
 }
 
 // scope and who read what the middleware resolved.
-func scope(c echo.Context) service.Scope { return middleware.ScopeOf(c) }
-func who(c echo.Context) string          { return middleware.Principal(c).User.ID }
-func rc(c echo.Context) context.Context  { return c.Request().Context() }
+func scope(c echo.Context) service.Scope {
+	return middleware.ScopeOf(c)
+}
+
+func who(c echo.Context) string {
+	return middleware.Principal(c).User.ID
+}
+
+func rc(c echo.Context) context.Context {
+	return c.Request().Context()
+}

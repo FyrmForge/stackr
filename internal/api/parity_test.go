@@ -31,7 +31,12 @@ func TestPromoteParity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := w.env.Orch.CreateEnv(ctx, st.ID, "dev", service.EnvSpec{Type: "static", FromKind: "branch", FromBranch: "main"}); err != nil {
+	if _, err := w.env.Orch.CreateEnv(
+		ctx,
+		st.ID,
+		"dev",
+		service.EnvSpec{Type: "static", FromKind: "branch", FromBranch: "main"},
+	); err != nil {
 		t.Fatal(err)
 	}
 	const env = "/orgs/acme/stacks/blog/envs/dev"

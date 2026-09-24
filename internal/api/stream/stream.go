@@ -76,7 +76,11 @@ func Poll(c echo.Context, poll func(ctx context.Context, offset int64) (v any, n
 }
 
 // PollAs is Poll with the moving event named name.
-func PollAs(c echo.Context, name string, poll func(ctx context.Context, offset int64) (v any, next int64, end bool, err error)) error {
+func PollAs(
+	c echo.Context,
+	name string,
+	poll func(ctx context.Context, offset int64) (v any, next int64, end bool, err error),
+) error {
 	ctx, gone := detach(c)
 	v, next, end, err := poll(ctx, 0)
 	if err != nil {

@@ -93,7 +93,9 @@ func (h *H) Setting() Endpoint {
 }
 
 func (h *H) SetSetting() Endpoint {
-	return Done(func(c echo.Context, in ValueIn) error { return h.Orch.SetSetting(rc(c), c.Param("setting"), in.Value) })
+	return Done(func(c echo.Context, in ValueIn) error {
+		return h.Orch.SetSetting(rc(c), c.Param("setting"), in.Value)
+	})
 }
 
 func (h *H) SettingDefaults() Endpoint {

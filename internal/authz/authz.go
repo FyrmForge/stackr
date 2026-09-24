@@ -24,23 +24,47 @@ const (
 // record of which contested verbs were decided which way. Where the old
 // panel and API disagreed, the higher level is the entry.
 var verbLevels = map[Verb]Level{
-	"org.read": LevelRead, "member.list": LevelRead, "registry.image.list": LevelRead,
-	"org.config.export": LevelRead, "deployment.read": LevelRead, "tile.read": LevelRead,
+	"org.read":            LevelRead,
+	"member.list":         LevelRead,
+	"registry.image.list": LevelRead,
+	"org.config.export":   LevelRead,
+	"deployment.read":     LevelRead,
+	"tile.read":           LevelRead,
 
-	"stack.create": LevelWrite, "stack.write": LevelWrite, "env.write": LevelWrite,
-	"tile.write": LevelWrite, "variable.write": LevelWrite, "domain.write": LevelWrite,
-	"backup.write": LevelWrite, "destination.write": LevelWrite, "sharelink.mint": LevelWrite,
-	"stackplan.plan": LevelWrite, "stackplan.approve": LevelWrite, "org.graph.write": LevelWrite,
-	"connector.write": LevelWrite, "deployment.cancel": LevelWrite,
+	"stack.create":      LevelWrite,
+	"stack.write":       LevelWrite,
+	"env.write":         LevelWrite,
+	"tile.write":        LevelWrite,
+	"variable.write":    LevelWrite,
+	"domain.write":      LevelWrite,
+	"backup.write":      LevelWrite,
+	"destination.write": LevelWrite,
+	"sharelink.mint":    LevelWrite,
+	"stackplan.plan":    LevelWrite,
+	"stackplan.approve": LevelWrite,
+	"org.graph.write":   LevelWrite,
+	"connector.write":   LevelWrite,
+	"deployment.cancel": LevelWrite,
 
-	"org.owner.read": LevelOwner, "org.write": LevelOwner, "member.manage": LevelOwner,
-	"org.config.bind": LevelOwner, "orgdefaults.set": LevelOwner, "orgplan.approve": LevelOwner,
-	"registry.credential.write": LevelOwner, "registry.tag.delete": LevelOwner,
-	"org.setup.step": LevelOwner, "org.setup.domain": LevelOwner, "org.setup.connector": LevelOwner,
+	"org.owner.read":            LevelOwner,
+	"org.write":                 LevelOwner,
+	"member.manage":             LevelOwner,
+	"org.config.bind":           LevelOwner,
+	"orgdefaults.set":           LevelOwner,
+	"orgplan.approve":           LevelOwner,
+	"registry.credential.write": LevelOwner,
+	"registry.tag.delete":       LevelOwner,
+	"org.setup.step":            LevelOwner,
+	"org.setup.domain":          LevelOwner,
+	"org.setup.connector":       LevelOwner,
 
-	"admin.read": LevelAdmin, "serverdefaults.set": LevelAdmin, "node.manage": LevelAdmin,
-	"container.admin": LevelAdmin, "proxy.admin": LevelAdmin, "user.admin": LevelAdmin,
-	"org.create": LevelAdmin,
+	"admin.read":         LevelAdmin,
+	"serverdefaults.set": LevelAdmin,
+	"node.manage":        LevelAdmin,
+	"container.admin":    LevelAdmin,
+	"proxy.admin":        LevelAdmin,
+	"user.admin":         LevelAdmin,
+	"org.create":         LevelAdmin,
 }
 
 // User is the request's principal, loaded once per request from live rows:
@@ -130,7 +154,10 @@ func LevelOf(v Verb) Level {
 }
 
 // KnownVerb backs the route test: every mutating route names a known verb.
-func KnownVerb(v Verb) bool { _, ok := verbLevels[v]; return ok }
+func KnownVerb(v Verb) bool {
+	_, ok := verbLevels[v]
+	return ok
+}
 
 // StandingChanged is one rule for demote, remove and disable. to is "" when
 // the membership is gone; orgID is "" when the account was disabled. A drop
