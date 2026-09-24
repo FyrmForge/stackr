@@ -269,6 +269,14 @@ session started by darhvader from the START HERE line, no Fable.
     - routes `POST tile/run`, `POST tile/pause`, `GET tile/runs`, `GET tile/runs/:run`, `DELETE tile/runs/:run`; `?run=` on logs and the log stream. CLI `stackr tile run|pause|resume|runs`, `logs --run`, `stop --run`, `--schedule/--trigger/--timeout`.
     - stack file: `kind: cron` + `schedule:`, `kind: function` + `trigger:`, `timeout_minutes:`; the plan prints old and new schedule, trigger and timeout.
     - no stacked PR opened (the builder was told not to push); DECIDE 52 to 62 added.
+- [x] [F+O] step 3c tile-to-tile traffic — done: 2026-09-24 (branch `rewrite-step-3c`, stacked on step 3b)
+    - `leaf/traffic`: memory only; `Sample(ipTile, conntrack, now)`, `Snapshot()`, `Seq()`, `Slices(pairs, bind)`; kept `flowFields` and the rate math; a tuple's first sight counts 0.
+    - ends: tile ids; `proxy` = the proxy container's IPs plus every stackr network's gateway; `internet` = a tile-side connection's unknown far end; outside <-> proxy and host-only lines drop; zero lanes drop.
+    - `flow/traffic`: `Tick` (read the table first, then tile leaf `Addresses`, domain leaf `ProxyAddrs`, environment leaf `Gateways`), `Edges(env)` (slice rename through the consumer's provision row, then lanes touching the env); `Check` logs one boot warning (no table / no `bytes=`), never fails boot.
+    - scheduler entry `traffic`, `@every 5s`, runs inline (a read, not a job). Docker wrapper gains `Gateways(labels)`. `Config.Conntrack` (default `/proc/net/nf_conntrack`); servicetest points it at a missing file so the tick never touches the fake.
+    - verb `Traffic(env) []Edge{from,to,bps}` + `TrafficSeq`; routes `GET env/traffic` (`env.traffic`), `GET env/events` (`env.events`, SSE, one `traffic` event per sample, first one at connect); `stream.PollAs`; CLI `stackr env traffic`.
+    - installer writes `1` to `/proc/sys/net/netfilter/nf_conntrack_acct` and `/etc/sysctl.d/99-conntrack-acct.conf`; a refusal warns.
+    - still owed: task 4's "install on the VM shows rates between two tiles" (not run); no stacked PR opened (the builder was told not to push); DECIDE 63 to 70 added.
 - [ ] [F+O] step 6 UI
 
 ## DECIDE:
@@ -598,3 +606,38 @@ Raised by step 3b (builder took the lean; flip any):
    left `running` at boot is closed failed "stackrd restarted while this
    run was going"; its job is not re-run. Options: (a) keep; (b) re-queue
    it. Lean (a).
+
+Raised by step 3c (builder took the lean; flip any):
+
+63. (step 3c) **The proxy end is the proxy container too.** The spec says
+   Caddy is host-network, but `stackr-proxy` is a bridge container joined
+   to every ingress network, so proxy -> tile comes from its container IP.
+   Both its IPs and every stackr network gateway map to `proxy`.
+   Options: (a) keep both; (b) gateways only (ingress would show as
+   internet). Lean (a).
+64. (step 3c) **Host traffic counts as proxy.** The host-network panel
+   (health gates, managed admin) reaches tiles from the network gateway,
+   so it lands on the proxy lane too. Options: (a) keep; (b) a third
+   pseudo id `host` for gateways. Lean (a).
+65. (step 3c) **A slice end is the consumer's provision row id.** A shared
+   slice (`Share` copies the row) shows once per consumer, not as one
+   card. Options: (a) keep; (b) key shared rows by the original slice.
+   Lean (a).
+66. (step 3c) **Zero lanes are dropped.** An open idle connection draws no
+   lane. Options: (a) keep; (b) keep 0 lanes so the graph can show idle
+   links. Lean (a).
+67. (step 3c) **No boot warning on an empty table.** "No line carries
+   `bytes=`" only warns when the file has lines. Options: (a) keep;
+   (b) warn on empty too. Lean (a).
+68. (step 3c) **IPs come from the container list, not inspect.** The list
+   already carries every network IP; no per-container inspect each tick
+   (`Detail.Networks` is only used for the proxy). Options: (a) keep;
+   (b) inspect each. Lean (a).
+69. (step 3c) **Events stream URL and verb.** `GET .../envs/:env/events`,
+   authz verb `tile.read`, one event `traffic` (the env's full lane list,
+   not a ping). Step 6 adds its card events on the same stream. Options:
+   (a) keep; (b) step 6 picks another URL. Lean (a).
+70. (step 3c) **Installer writes /proc/sys directly.** No `sysctl` binary
+   call; a refusal (no conntrack module, read-only /proc) prints a warning
+   and the install goes on. Options: (a) keep; (b) fail the install.
+   Lean (a).
