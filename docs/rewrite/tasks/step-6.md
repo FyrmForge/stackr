@@ -155,7 +155,7 @@ the card templates read (`internal/service/internal/flow/graph`).
   queued | waiting > unhealthy > degraded > stopped > running > done >
   none`; "" = nothing to roll up.
 - `Sub`: `ID Kind Name Status` (volume, the hosting instance under a
-  slice as `tile:<slug>`, replicas 2+ as `replica:<tile id>:<n>`, cap 3).
+  slice as its tile id, replicas 2+ as `replica:<tile id>:<n>`, cap 3).
 - `Edge`: `Kind From To`, kinds `ref ingress egress shared startup config
   source`. A startup edge is dropped when a ref already joins the pair.
 - `View`: `Nodes Edges Notes Divider Compare`; `Divider` 0 = no system
