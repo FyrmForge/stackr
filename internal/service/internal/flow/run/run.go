@@ -14,6 +14,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/deploy"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/environment"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/job"
 	lrun "github.com/FyrmForge/stackr/internal/service/internal/leaf/run"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
@@ -23,6 +24,7 @@ type Flow struct {
 	Tiles  *tile.Leaf
 	Envs   *environment.Leaf
 	Runs   *lrun.Leaf
+	Jobs   *job.Leaf
 	Deploy *deploy.Flow
 	// Minute is one timeout_minutes unit; tests shorten it. 0 = a minute.
 	Minute time.Duration
@@ -47,7 +49,7 @@ func (f *Flow) Queue(ctx context.Context, tileID, trigger string) (r store.Run, 
 	if err != nil {
 		return r, false, err
 	}
-	_, busy, err := f.Runs.Active(ctx, tileID)
+	busy, err := f.busy(ctx, tileID)
 	if err != nil {
 		return r, false, err
 	}
@@ -56,6 +58,22 @@ func (f *Flow) Queue(ctx context.Context, tileID, trigger string) (r store.Run, 
 	}
 	r, err = f.Runs.Finish(ctx, r.ID, nil, lrun.Cancelled, Overlap)
 	return r, false, err
+}
+
+// busy: the tile has a run still going. A queued or running row whose job
+// already ended (cancelled while queued, lost) is closed here instead, so
+// one lost job never blocks the tile's runs for good.
+func (f *Flow) busy(ctx context.Context, tileID string) (bool, error) {
+	a, ok, err := f.Runs.Active(ctx, tileID)
+	if err != nil || !ok || a.JobID == "" {
+		return ok, err
+	}
+	j, err := f.Jobs.Get(ctx, a.JobID)
+	if errors.Is(err, errs.ErrNotFound) || (err == nil && job.Terminal(j.State)) {
+		_, err = f.Runs.Finish(ctx, a.ID, nil, lrun.Cancelled, "its job ended before the run did")
+		return false, err
+	}
+	return err == nil, err
 }
 
 // Do is the job body for run runID: build the spec on the image the env's

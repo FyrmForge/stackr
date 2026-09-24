@@ -16,6 +16,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/promote"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/environment"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/job"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
 
@@ -42,7 +43,13 @@ const (
 	kindImageWatch  jobs.Kind = "imagewatch"
 	kindAttach      jobs.Kind = "attach"
 	kindDetach      jobs.Kind = "detach"
+	kindRun         jobs.Kind = "run"
 )
+
+type runJob struct {
+	TileID string `json:"tile_id"`
+	RunID  string `json:"run_id"`
+}
 
 type tileJob struct {
 	TileID string `json:"tile_id"`
@@ -103,11 +110,20 @@ func payload[P any](f func(context.Context, *jobs.Run, P) error) jobs.Handler {
 func (o *Orchestrator) handlers() map[jobs.Kind]jobs.Handler {
 	return map[jobs.Kind]jobs.Handler{
 		kindDeploy: payload(func(ctx context.Context, r *jobs.Run, p tileJob) error {
-			return o.deploy.Redeploy(ctx, p.TileID, r.Log, r.Swap)
+			if err := o.deploy.Redeploy(ctx, p.TileID, r.Log, r.Swap); err != nil {
+				return err
+			}
+			return o.afterDeploy(ctx, []string{p.TileID}, false)
 		}),
 		kindPromote: payload(func(ctx context.Context, r *jobs.Run, p promoteJob) error {
-			_, err := o.promote.Apply(ctx, p.EnvID, p.ReleaseID, r.Log, r.Swap)
+			plan, err := o.promote.Apply(ctx, p.EnvID, p.ReleaseID, r.Log, r.Swap)
+			if plan != nil {
+				err = errors.Join(err, o.dropRuns(plan.Removed), o.afterDeploy(ctx, plan.Deployed, true))
+			}
 			return err
+		}),
+		kindRun: payload(func(ctx context.Context, r *jobs.Run, p runJob) error {
+			return o.run.Do(ctx, p.RunID, r.Log)
 		}),
 		kindPush: payload(func(ctx context.Context, r *jobs.Run, p pushJob) error {
 			return o.runPush(ctx, p.StackID, p.Event, r.Log)
@@ -232,6 +248,10 @@ func (o *Orchestrator) runPR(ctx context.Context, r *jobs.Run, p prJob) error {
 		if err := o.promote.Remove(ctx, e, ts, r.Log); err != nil {
 			return err
 		}
+		if err := o.dropRuns(ids(ts)); err != nil {
+			return err
+		}
+		o.sched.Reload(ctx)
 		if err := o.envs.Delete(ctx, e, 0); err != nil {
 			return err
 		}
@@ -271,6 +291,12 @@ func (o *Orchestrator) runDelete(ctx context.Context, r *jobs.Run, p tileJob) er
 	}
 	if err := o.promote.Remove(ctx, e, []store.Tile{t}, r.Log); err != nil {
 		return err
+	}
+	if tile.RunToCompletion(t.Kind) {
+		if err := o.dropRuns([]string{t.ID}); err != nil {
+			return err
+		}
+		o.sched.Reload(ctx)
 	}
 	return o.sync.Sync(ctx)
 }

@@ -28,6 +28,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/jobs"
 	mflow "github.com/FyrmForge/stackr/internal/service/internal/flow/managed"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/promote"
+	frun "github.com/FyrmForge/stackr/internal/service/internal/flow/run"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/schedule"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/upgrade"
 	"github.com/FyrmForge/stackr/internal/service/internal/githubapp"
@@ -43,6 +44,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/panel"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/params"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/release"
+	lrun "github.com/FyrmForge/stackr/internal/service/internal/leaf/run"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/settings"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/stack"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
@@ -148,6 +150,7 @@ type Orchestrator struct {
 	jobRows  *job.Leaf
 	backups  *backup.Leaf
 	settings *settings.Leaf
+	runs     *lrun.Leaf
 
 	deploy    *deploy.Flow
 	engines   *mflow.Flow
@@ -156,6 +159,7 @@ type Orchestrator struct {
 	container *container.Flow
 	watch     *imagewatch.Flow
 	upgrade   *upgrade.Flow
+	run       *frun.Flow
 	jobs      *jobs.Runner
 	sched     *schedule.Runner
 	sync      *domain.Syncer
@@ -257,6 +261,7 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 	svc.jobRows = build("leaf/job", func() *job.Leaf { return job.New(st.Jobs) })
 	svc.backups = build("leaf/backup", func() *backup.Leaf { return backup.New(st.BackupDests, st.BackupSchedules, st.BackupRuns) })
 	svc.settings = build("leaf/settings", func() *settings.Leaf { return settings.New(st.Settings, bootSettings(cfg)) })
+	svc.runs = build("leaf/run", func() *lrun.Leaf { return lrun.New(st.Runs, filepath.Join(cfg.DataDir, "runs")) })
 
 	svc.engines = build("flow/managed", func() *mflow.Flow {
 		return &mflow.Flow{Tiles: svc.tiles, Instances: svc.managed, Volumes: svc.volumes, Envs: svc.envs,
@@ -293,11 +298,16 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 	svc.upgrade = build("flow/upgrade", func() *upgrade.Flow {
 		return &upgrade.Flow{Panel: panel.New(d), Version: cfg.Version, Archive: svc.upgradeArchive, Spec: svc.panelSpec}
 	})
+	svc.run = build("flow/run", func() *frun.Flow {
+		return &frun.Flow{Tiles: svc.tiles, Envs: svc.envs, Runs: svc.runs, Jobs: svc.jobRows, Deploy: svc.deploy}
+	})
 	svc.jobs = build("flow/jobs", func() *jobs.Runner {
 		// ponytail: no ParamSet, a parked job is requeued every poll and its
 		// handler re-checks (DECIDE 17 (b)).
 		return jobs.New(svc.jobRows, svc.handlers(), cfg.DataDir, jobs.Options{
 			Workers: func(ctx context.Context) (int, error) { return svc.settings.Int(ctx, "workers") },
+			// A run holds its own clock: the tile's timeout_minutes.
+			Uncapped: map[jobs.Kind]bool{kindRun: true},
 		})
 	})
 	svc.sched = build("flow/schedule", func() *schedule.Runner {
@@ -309,12 +319,21 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 			},
 			Orphans: func(ctx context.Context) error { _, err := svc.enqueue(ctx, kindOrphans, nil, "orphans"); return err },
 			Watch:   svc.watchTick,
+			Crons:   svc.deployedCrons,
+			Cron: func(ctx context.Context, t store.Tile) error {
+				_, _, err := svc.queueRun(ctx, t.ID, lrun.Schedule)
+				return err
+			},
 		})
 	})
 
 	if _, err := svc.localDest(ctx); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("local backup destination: %w", err)
+	}
+	if err := svc.runs.Interrupted(ctx); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("close interrupted runs: %w", err)
 	}
 	if err := svc.jobs.Start(ctx); err != nil {
 		_ = db.Close()

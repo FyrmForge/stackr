@@ -44,6 +44,11 @@ type Plan struct {
 	Changes  []Change `json:"changes"`
 	Blockers []string `json:"blockers,omitempty"`
 	Warnings []string `json:"warnings,omitempty"`
+	// Deployed is the ids of the tiles Apply rolled out, in order (the
+	// orchestrator queues on_deploy runs from it). Empty on a dry run.
+	Deployed []string `json:"-"`
+	// Removed is the ids of the tiles Apply took out (their run logs go).
+	Removed []string `json:"-"`
 }
 
 func (p *Plan) Blocked() bool { return len(p.Blockers) > 0 }
@@ -78,6 +83,7 @@ type work struct {
 	redeploy  map[string]bool
 	unpin     map[string]bool // image tiles whose tag moved: run the tag, pin again
 	sync      bool
+	deployed  []string // tile ids rolled out, filled by apply
 }
 
 type domainWork struct {
@@ -257,7 +263,8 @@ func (f *Flow) planConfig(ctx context.Context, p *Plan, w *work, r *Resolved) er
 		row := toRow(name, tc, w.st, e)
 		old, exists := byslug[name]
 		if exists {
-			row.ID, row.Name, row.CreatedAt = old.ID, old.Name, old.CreatedAt
+			// paused is the panel's stored intent, never the file's.
+			row.ID, row.Name, row.CreatedAt, row.Paused = old.ID, old.Name, old.CreatedAt, old.Paused
 		}
 		if err := tile.Validate(&row); err != nil {
 			p.block("tile %s: %v", name, err)
@@ -267,7 +274,7 @@ func (f *Flow) planConfig(ctx context.Context, p *Plan, w *work, r *Resolved) er
 			p.add(Change{Kind: "create", Tile: name, New: row.Kind})
 			w.creates = append(w.creates, row)
 			w.redeploy[name] = true
-			w.unpin[name] = row.Kind == tile.Image
+			w.unpin[name] = tile.Pulls(row)
 		} else if err := f.planUpdate(ctx, p, w, old, row, tc); err != nil {
 			return err
 		}
@@ -313,7 +320,7 @@ func (f *Flow) planUpdate(ctx context.Context, p *Plan, w *work, old, row store.
 			w.sync = true
 		}
 	}
-	if c["image"] && row.Kind == tile.Image {
+	if c["image"] && tile.Pulls(row) {
 		w.unpin[name] = true
 	}
 	return nil
@@ -589,27 +596,34 @@ func (f *Flow) planImages(ctx context.Context, p *Plan, w *work, pins map[string
 		w.redeploy[c.Slug] = true
 	}
 	for _, n := range sortedKeys(tiles) {
-		if tiles[n] == tile.Service && pins[n].ImageID == nil {
+		if tiles[n] && pins[n].ImageID == nil {
 			p.block("tile %s has no build in release #%d; build a commit first", n, w.rel.Number)
 		}
 	}
 	return nil
 }
 
-// desiredTiles is slug → kind of what the env will run after the promote.
-func (f *Flow) desiredTiles(ctx context.Context, w *work) (map[string]string, error) {
-	out := map[string]string{}
+// desiredTiles is slug → "builds from git" of what the env will run after
+// the promote.
+func (f *Flow) desiredTiles(ctx context.Context, w *work) (map[string]bool, error) {
+	out := map[string]bool{}
 	if w.re != nil {
 		for n, tc := range w.re.Tiles {
-			out[n] = tc.Type
+			out[n] = builds(tc)
 		}
 		return out, nil
 	}
 	live, err := f.D.Tiles.List(ctx, w.e.ID)
 	for _, t := range live {
-		out[t.Slug] = t.Kind
+		out[t.Slug] = tile.Builds(t)
 	}
 	return out, err
+}
+
+// builds: the file's tile is a git build (a service, or a cron or function
+// without an image).
+func builds(tc TileConf) bool {
+	return tc.Type == tile.Service || (tile.RunToCompletion(tc.Type) && tc.Image == "")
 }
 
 func (f *Flow) resolver(ctx context.Context, w *work) (*params.Resolver, error) {
@@ -641,11 +655,11 @@ func toRow(name string, tc TileConf, st store.Stack, e store.Environment) store.
 		User: tc.User, ShmSizeMB: tc.ShmSizeMB, Privileged: tc.Privileged, Devices: lines(tc.Devices),
 		RestartPolicy: tc.Restart, DependsOn: lines(tc.DependsOn), Files: lines(tc.Files),
 		Volumes: lines(tc.Volumes), Replicas: tc.Replicas, UpdatePolicy: tc.UpdatePolicy, TagPolicy: tc.TagPolicy,
-		EnvJSON: jsonMap(tc.Env)}
+		EnvJSON: jsonMap(tc.Env), Schedule: tc.Schedule, Trigger: tc.Trigger, TimeoutMinutes: tc.TimeoutMinutes}
 	if tc.Limits != nil {
 		t.CPULimit, t.MemLimitMB = tc.Limits.CPU, tc.Limits.MemoryMB
 	}
-	if tc.Type == tile.Service {
+	if builds(tc) {
 		t.GitURL, t.GitBranch = or(tc.GitURL, st.ConfigRepo), or(tc.Branch, st.ConfigBranch)
 		t.BuildArgs, t.WatchPaths = jsonMap(tc.BuildArgs), lines(tc.WatchPaths)
 		if tc.Build != nil {

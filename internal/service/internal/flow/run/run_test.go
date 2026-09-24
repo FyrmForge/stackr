@@ -70,7 +70,7 @@ func setup(t *testing.T) (*run.Flow, *dockerfake.Fake, store.Tile) {
 	sweep, err := tiles.Create(ctx, store.Tile{StackID: s, EnvironmentID: e, Name: "sweep", Kind: tile.Cron,
 		ImageRef: "alpine:3", Schedule: "*/5 * * * *", Command: "sh -c 'echo hi'"})
 	must(t, err)
-	f := &run.Flow{Tiles: tiles, Envs: envs, Runs: lrun.New(st.Runs, t.TempDir()), Deploy: d, Minute: 20 * time.Millisecond}
+	f := &run.Flow{Tiles: tiles, Envs: envs, Runs: lrun.New(st.Runs, t.TempDir()), Jobs: d.Jobs, Deploy: d, Minute: 20 * time.Millisecond}
 	return f, fake, sweep
 }
 
@@ -153,6 +153,21 @@ func TestOverlap(t *testing.T) {
 	}
 	if a, _, _ := f.Runs.Active(ctx, sweep.ID); a.ID != first.ID {
 		t.Errorf("active = %s, want the first", a.ID)
+	}
+}
+
+// A queued row whose job was cancelled does not block the next run.
+func TestLostJobUnblocks(t *testing.T) {
+	f, _, sweep := setup(t)
+	first := queue(t, f, sweep.ID)
+	j, err := f.Jobs.Create(ctx, "run", []string{sweep.ID}, "{}", nil, t.TempDir())
+	must(t, err)
+	_, err = f.Runs.SetJob(ctx, first.ID, j.ID)
+	must(t, err)
+	must(t, f.Jobs.Finish(ctx, j, job.Cancelled, ""))
+	queue(t, f, sweep.ID)
+	if r, _ := f.Runs.Get(ctx, sweep.ID, first.ID); r.Status != lrun.Cancelled {
+		t.Errorf("first = %+v", r)
 	}
 }
 

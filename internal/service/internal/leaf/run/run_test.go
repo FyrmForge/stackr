@@ -51,7 +51,7 @@ func TestRoundTrip(t *testing.T) {
 	if a, ok, _ := l.Active(ctx, tile); !ok || a.ID != r.ID {
 		t.Fatalf("active = %+v %v", a, ok)
 	}
-	r, err = l.SetJob(ctx, r, "job-1")
+	r, err = l.SetJob(ctx, r.ID, "job-1")
 	must(t, err)
 	r, err = l.Begin(ctx, r.ID)
 	must(t, err)

@@ -65,6 +65,9 @@ type active struct {
 type Options struct {
 	Poll time.Duration // how often waiting and queued jobs are re-read; 3s
 	Cap  time.Duration // one job's wall-clock limit; 30 minutes
+	// Uncapped kinds have no wall-clock limit: their handler holds its own
+	// (a cron or function run's timeout_minutes).
+	Uncapped map[Kind]bool
 	// Workers is re-read every pass, so a settings change applies within
 	// one poll. nil = 2.
 	Workers func(ctx context.Context) (int, error)
@@ -238,7 +241,10 @@ func (r *Runner) start(j store.Job) error {
 }
 
 func (r *Runner) run(parent context.Context, j store.Job, a *active) {
-	ctx, cancel := context.WithTimeout(parent, r.opt.Cap)
+	ctx, cancel := parent, context.CancelFunc(func() {})
+	if !r.opt.Uncapped[Kind(j.Kind)] {
+		ctx, cancel = context.WithTimeout(parent, r.opt.Cap)
+	}
 	defer cancel()
 	state, reason, param := r.call(ctx, j, a)
 

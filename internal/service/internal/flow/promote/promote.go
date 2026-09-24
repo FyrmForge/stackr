@@ -57,10 +57,12 @@ func (f *Flow) Apply(ctx context.Context, envID, releaseID string, log io.Writer
 			return p, err
 		}
 	}
-	if err := f.apply(ctx, w, log); err != nil {
-		return p, err
+	err = f.apply(ctx, w, log)
+	p.Deployed = w.deployed
+	for _, t := range w.deletes {
+		p.Removed = append(p.Removed, t.ID)
 	}
-	return p, nil
+	return p, err
 }
 
 func (f *Flow) apply(ctx context.Context, w *work, log io.Writer) error {
@@ -299,7 +301,8 @@ func (f *Flow) rollout(ctx context.Context, w *work, e store.Environment, log io
 		if err != nil {
 			return fmt.Errorf("deploy %s: %w", s, err)
 		}
-		if t.Kind == tile.Image && !pinned && digest != "" {
+		w.deployed = append(w.deployed, t.ID)
+		if tile.Pulls(t) && !pinned && digest != "" {
 			repin = append(repin, release.Pin{Slug: s, Repo: deploy.RepoOf(t.ImageRef), Digest: digest})
 		}
 	}

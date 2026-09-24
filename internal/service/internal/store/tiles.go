@@ -60,6 +60,7 @@ type TileStore interface {
 	GetBySlug(ctx context.Context, envID, slug string) (Tile, error)
 	ListByEnv(ctx context.Context, envID string) ([]Tile, error)
 	ListByStack(ctx context.Context, stackID string) ([]Tile, error)
+	ListByKind(ctx context.Context, kind string) ([]Tile, error)
 	Update(ctx context.Context, t Tile) error
 	Delete(ctx context.Context, id string) error
 }
@@ -78,6 +79,10 @@ func (s tiles) ListByEnv(ctx context.Context, envID string) ([]Tile, error) {
 
 func (s tiles) ListByStack(ctx context.Context, stackID string) ([]Tile, error) {
 	return s.many(ctx, "stack_id = ?", stackID)
+}
+
+func (s tiles) ListByKind(ctx context.Context, kind string) ([]Tile, error) {
+	return s.many(ctx, "kind = ?", kind)
 }
 
 // Image is a row of images: a built image and the watch cache, by ref.

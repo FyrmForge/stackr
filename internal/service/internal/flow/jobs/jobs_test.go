@@ -308,6 +308,23 @@ func TestFailures(t *testing.T) {
 	}
 }
 
+// An uncapped kind outlives the cap; its handler holds its own clock.
+func TestUncapped(t *testing.T) {
+	r, l := setup(t, map[jobs.Kind]jobs.Handler{
+		"run": func(ctx context.Context, _ *jobs.Run) error {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(150 * time.Millisecond):
+				return nil
+			}
+		},
+	}, jobs.Options{Cap: 50 * time.Millisecond, Uncapped: map[jobs.Kind]bool{"run": true}})
+	start(t, r)
+	id := enqueue(t, r, "run", "t1")
+	waitState(t, l, id, job.Done)
+}
+
 // A row left running by a dead process is failed at boot, not resumed.
 func TestRestartRecovery(t *testing.T) {
 	r, l := setup(t, nil, jobs.Options{})

@@ -179,11 +179,13 @@ func excluded(n *yaml.Node) bool {
 	return n.Kind == yaml.ScalarNode && (n.Tag == "!!null" || (n.Decode(&b) == nil && !b))
 }
 
-// TileConf is one merged tile. Kinds are service (a git build), image and
-// managed; with no type:, engine: makes it managed and a lone image: makes
-// it an image tile.
+// TileConf is one merged tile. Kinds are service (a git build), image,
+// managed, cron and function; with no type:, engine: makes it managed and a
+// lone image: makes it an image tile. kind: is type:'s other spelling. A
+// cron or function builds from git like a service unless it names an image.
 type TileConf struct {
 	Type   string `yaml:"type"`
+	Kind   string `yaml:"kind"`
 	Image  string `yaml:"image"`
 	Engine string `yaml:"engine"`
 	Build  *struct {
@@ -222,6 +224,11 @@ type TileConf struct {
 	Env        EnvMap       `yaml:"env"`
 	Domains    []DomainConf `yaml:"domains"`
 	Slices     []SliceConf  `yaml:"slices"`
+	// cron: schedule (a cron expression, CRON_TZ= allowed); function:
+	// trigger (manual | on_deploy); both: timeout_minutes (0 = 30).
+	Schedule       string `yaml:"schedule"`
+	Trigger        string `yaml:"trigger"`
+	TimeoutMinutes int    `yaml:"timeout_minutes"`
 }
 
 // DomainConf is one claim; the first listed is the primary. Host takes
@@ -342,10 +349,8 @@ var removedKeys = map[string]string{
 	"traefik_override": "raw proxy config is admin-only",
 	"secrets":          "declare them under params: with type: secret",
 	"vars":             "declare them under params:",
-	"schedule":         "cron tiles are not in v1",
-	"run_on_deploy":    "function tiles are not in v1",
-	"timeout_minutes":  "cron tiles are not in v1",
-	"allow_overlap":    "cron tiles are not in v1",
+	"run_on_deploy":    "use trigger: on_deploy on a function tile",
+	"allow_overlap":    "runs of one tile never overlap; a run that would is recorded cancelled",
 	"basic_auth_user":  "use proxy: basic_auth: on the domain",
 	"security_headers": "use proxy: security_headers: on the domain",
 	"backup":           "backup: goes under the volume in volumes:",
@@ -555,6 +560,12 @@ func decodeTile(raw RawMap) (TileConf, error) {
 	if err := strictYAML(b, &tc); err != nil {
 		return tc, err
 	}
+	if tc.Kind != "" {
+		if tc.Type != "" && tc.Type != tc.Kind {
+			return tc, fmt.Errorf("kind: %s and type: %s disagree; kind: and type: are one key, give one", tc.Kind, tc.Type)
+		}
+		tc.Type, tc.Kind = tc.Kind, ""
+	}
 	if tc.Type == "" {
 		switch {
 		case tc.Engine != "":
@@ -581,6 +592,13 @@ func checkTile(name string, tc TileConf) error {
 		if tc.Engine != "" {
 			return fmt.Errorf("tile %s: engine: is a managed key", name)
 		}
+	case "cron", "function":
+		if tc.Engine != "" {
+			return fmt.Errorf("tile %s: engine: is a managed key", name)
+		}
+		if len(tc.Domains) > 0 {
+			return fmt.Errorf("tile %s: a %s has no endpoint; domains do not apply", name, tc.Type)
+		}
 	case "managed":
 		if tc.Engine == "" {
 			return fmt.Errorf("tile %s: a managed tile names its engine", name)
@@ -589,7 +607,7 @@ func checkTile(name string, tc TileConf) error {
 			return fmt.Errorf("tile %s: a managed instance takes no domains or slices", name)
 		}
 	default:
-		return fmt.Errorf("tile %s: unknown type %q (service, image or managed)", name, tc.Type)
+		return fmt.Errorf("tile %s: unknown type %q (service, image, managed, cron or function)", name, tc.Type)
 	}
 	for k := range tc.Env {
 		if !envKeyRe.MatchString(k) {

@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -14,7 +15,9 @@ import (
 
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	"github.com/FyrmForge/stackr/internal/service/internal/dockerfake"
+	"github.com/FyrmForge/stackr/internal/service/internal/flow/promote"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/job"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/release"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 	"github.com/FyrmForge/stackr/internal/service/internal/storetest"
@@ -199,5 +202,39 @@ func TestTrustedProxiesRefusesNonCIDR(t *testing.T) {
 	must(t, w.o.SetSetting(ctx, "trusted_proxies", "10.0.0.0/8, 192.168.1.1"))
 	if !strings.Contains(w.lastPush(), `"10.0.0.0/8"`) {
 		t.Errorf("push lacks the range: %s", w.lastPush())
+	}
+}
+
+// Step 3b: a promote of a stack file with a cron tile registers its
+// schedule entry; pausing the tile takes the entry out.
+func TestPromoteRegistersCron(t *testing.T) {
+	w := newWorld(t)
+	w.fake.Digests = map[string]string{"busybox:1": "sha256:b1"}
+	ctx := context.Background()
+	st, err := w.st.Stacks.Get(ctx, w.stack)
+	must(t, err)
+	st.ConfigRepo, st.ConfigBranch = "https://github.com/acme/shop", "main"
+	must(t, w.st.Stacks.Update(ctx, st))
+	w.o.promote.Config = func(context.Context, store.Stack, string, io.Writer) ([]byte, promote.Fetcher, error) {
+		return []byte("version: 1\nstack: shop\nladder: [dev]\nhead: main\nbase:\n  tiles:\n" +
+			"    nightly:\n      kind: cron\n      image: busybox:1\n      schedule: \"0 3 * * *\"\n      command: \"true\"\n"), nil, nil
+	}
+	rel, err := w.o.releases.Create(ctx, w.stack, "test",
+		[]release.Pin{{Slug: release.ConfigSlug, Repo: st.ConfigRepo, CommitSHA: "c1"}})
+	must(t, err)
+	j, err := w.o.Promote(ctx, w.env, rel.ID)
+	must(t, err)
+	if j = w.wait(t, j.ID); j.State != job.Done {
+		t.Fatalf("promote = %s: %s", j.State, j.Error)
+	}
+	cron, err := w.o.tiles.GetBySlug(ctx, w.env, "nightly")
+	must(t, err)
+	if !slices.Contains(w.o.sched.Names(), "cron "+cron.ID) {
+		t.Fatalf("entries after promote = %v, want cron %s", w.o.sched.Names(), cron.ID)
+	}
+	_, _, err = w.o.UpdateTile(ctx, cron.ID, func(t *Tile) error { t.Paused = true; return nil })
+	must(t, err)
+	if slices.Contains(w.o.sched.Names(), "cron "+cron.ID) {
+		t.Fatalf("entries after pause = %v, want no cron entry", w.o.sched.Names())
 	}
 }

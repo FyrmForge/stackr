@@ -95,14 +95,14 @@ func (f *Flow) Push(ctx context.Context, stackID string, ev Event, log io.Writer
 	return r, auto, nil
 }
 
-// candidates are the service tiles the push may build: the envs' live rows,
+// candidates are the git-built tiles the push may build: the envs' live rows,
 // and on a config push the rows the stack file at this commit asks for (so
 // a tile added in this very commit gets its first build).
 func (f *Flow) candidates(ctx context.Context, st store.Stack, envs []store.Environment, ev Event, isConfig bool, log io.Writer) ([]store.Tile, error) {
 	seen := map[string]bool{}
 	var out []store.Tile
 	keep := func(t store.Tile) {
-		if t.Kind == tile.Service && !seen[t.Slug] {
+		if tile.Builds(t) && !seen[t.Slug] {
 			seen[t.Slug] = true
 			out = append(out, t)
 		}

@@ -73,10 +73,15 @@ func (o *Orchestrator) UpdateTile(ctx context.Context, id string, edit func(*Til
 			err = o.sync.Sync(ctx)
 		case tile.Redeploy:
 			j, err = o.redeployIfRunning(ctx, t)
+		case tile.CronReload:
+			o.sched.Reload(ctx)
 		}
 		if err != nil {
 			return t, j, err
 		}
+	}
+	if old.Kind == tile.Cron && t.Kind != tile.Cron {
+		o.sched.Reload(ctx) // its entry goes
 	}
 	return t, j, nil
 }

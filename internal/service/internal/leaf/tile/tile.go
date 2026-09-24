@@ -45,6 +45,10 @@ func (l *Leaf) ListByStack(ctx context.Context, stackID string) ([]store.Tile, e
 	return l.tiles.ListByStack(ctx, stackID)
 }
 
+func (l *Leaf) ListByKind(ctx context.Context, kind string) ([]store.Tile, error) {
+	return l.tiles.ListByKind(ctx, kind)
+}
+
 // Create is name → defaults → validate → write. A caller may supply the slug
 // (the stack file's key); otherwise it comes from the name.
 func (l *Leaf) Create(ctx context.Context, t store.Tile) (store.Tile, error) {
@@ -60,7 +64,7 @@ func (l *Leaf) Create(ctx context.Context, t store.Tile) (store.Tile, error) {
 	}
 	now := time.Now().UTC()
 	t.ID, t.CreatedAt, t.UpdatedAt = uuid.NewString(), now, now
-	if t.Kind == Service {
+	if Builds(t) {
 		if t.GitBranch == "" {
 			t.GitBranch = "main"
 		}

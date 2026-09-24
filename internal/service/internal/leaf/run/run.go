@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -44,6 +45,10 @@ const (
 type Leaf struct {
 	runs store.RunStore
 	dir  string // $DATA_DIR/runs
+	// mu makes each read-modify-write of a row atomic: the enqueuer's
+	// SetJob and the worker's Begin/Finish race on the same row.
+	// ponytail: one lock for every run; per-row if it ever shows up.
+	mu sync.Mutex
 }
 
 func New(runs store.RunStore, dir string) *Leaf { return &Leaf{runs: runs, dir: dir} }
@@ -59,13 +64,21 @@ func (l *Leaf) Start(ctx context.Context, tileID string, releaseID *string, trig
 }
 
 // SetJob records the job that carries the run.
-func (l *Leaf) SetJob(ctx context.Context, r store.Run, jobID string) (store.Run, error) {
+func (l *Leaf) SetJob(ctx context.Context, id, jobID string) (store.Run, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	r, err := l.runs.Get(ctx, id)
+	if err != nil {
+		return r, err
+	}
 	r.JobID = jobID
 	return r, l.runs.Update(ctx, r)
 }
 
 // Begin moves a queued run to running.
 func (l *Leaf) Begin(ctx context.Context, id string) (store.Run, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
 	r, err := l.runs.Get(ctx, id)
 	if err != nil {
 		return r, err
@@ -78,6 +91,8 @@ func (l *Leaf) Begin(ctx context.Context, id string) (store.Run, error) {
 // Finish closes a run. exit nil = the container never exited (timeout,
 // cancel, no container). A run already closed stays as it is.
 func (l *Leaf) Finish(ctx context.Context, id string, exit *int, status, reason string) (store.Run, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
 	r, err := l.runs.Get(ctx, id)
 	if err != nil || Done(r) {
 		return r, err
