@@ -110,7 +110,12 @@ func (s Show) Query() string {
 	for _, f := range []struct {
 		on   bool
 		name string
-	}{{s.System, "system"}, {s.Refs, "refs"}, {s.Startup, "startup"}, {s.Traffic, "traffic"}} {
+	}{
+		{s.System, "system"},
+		{s.Refs, "refs"},
+		{s.Startup, "startup"},
+		{s.Traffic, "traffic"},
+	} {
 		if !f.on {
 			q += "&" + f.name + "=0"
 		}
@@ -122,8 +127,13 @@ func (s Show) Query() string {
 }
 
 var edgeLabels = map[string]string{
-	"ref": "uses", "ingress": "ingress", "egress": "egress", "shared": "shared config",
-	"startup": "starts after", "config": "config repo", "source": "source repo",
+	"ref":     "uses",
+	"ingress": "ingress",
+	"egress":  "egress",
+	"shared":  "shared config",
+	"startup": "starts after",
+	"config":  "config repo",
+	"source":  "source repo",
 }
 
 // legend is the edge kinds on this canvas, in a fixed order.
@@ -140,9 +150,13 @@ func (v View) legend() []string {
 	return out
 }
 
-func itoa(n int) string { return strconv.Itoa(n) }
+func itoa(n int) string {
+	return strconv.Itoa(n)
+}
 
-func boolStr(b bool) string { return strconv.FormatBool(b) }
+func boolStr(b bool) string {
+	return strconv.FormatBool(b)
+}
 
 // deck is the look of 1 or 2 cards stacked under a drill-down card.
 func deck(n int) string {

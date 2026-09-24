@@ -41,7 +41,13 @@ func (h *handler) orgTab(c echo.Context, cd card, f *comp.DrawerView) (templ.Com
 		ds, err := h.orch.BackupDests(ctx, og.ID)
 		v := orgui.BackupsView{Base: f.Base, Write: can(c, cd.s, "destination.write")}
 		for _, d := range ds {
-			v.Dests = append(v.Dests, orgui.DestRow{ID: d.ID, Name: d.Name, Kind: d.Kind, Bucket: d.Bucket, Global: d.OrgID == nil})
+			v.Dests = append(v.Dests, orgui.DestRow{
+				ID:     d.ID,
+				Name:   d.Name,
+				Kind:   d.Kind,
+				Bucket: d.Bucket,
+				Global: d.OrgID == nil,
+			})
 		}
 		return orgui.Backups(v), err
 	}
@@ -113,7 +119,13 @@ func (h *handler) mountOrg(site *echo.Group, a *middleware.Access) {
 		return redirect(c, "/")
 	}), owner)
 	site.POST(o+"/invite", h.orgAction("members", func(c echo.Context, og *service.Org) (string, error) {
-		i, err := h.orch.Invite(c.Request().Context(), og.ID, c.FormValue("email"), c.FormValue("role"), middleware.Principal(c).User.ID)
+		i, err := h.orch.Invite(
+			c.Request().Context(),
+			og.ID,
+			c.FormValue("email"),
+			c.FormValue("role"),
+			middleware.Principal(c).User.ID,
+		)
 		return "Invite link: /invite/" + i.ID, err
 	}), manage)
 	site.POST(o+"/members/:user/role", h.orgAction("members", func(c echo.Context, og *service.Org) (string, error) {
@@ -123,7 +135,12 @@ func (h *handler) mountOrg(site *echo.Group, a *middleware.Access) {
 		return "Member removed.", h.orch.RemoveMember(c.Request().Context(), og.ID, c.Param("user"))
 	}), manage)
 	site.POST(o+"/keys", h.orgAction("keys", func(c echo.Context, og *service.Org) (string, error) {
-		tok, _, err := h.orch.MintKey(c.Request().Context(), middleware.Principal(c).User.ID, og.ID, c.FormValue("key_name"))
+		tok, _, err := h.orch.MintKey(
+			c.Request().Context(),
+			middleware.Principal(c).User.ID,
+			og.ID,
+			c.FormValue("key_name"),
+		)
 		return "Copy it now, it is not shown again: " + tok, err
 	}), a.Require("org.read"))
 	site.POST(o+"/keys/:key/revoke", h.orgAction("keys", func(c echo.Context, _ *service.Org) (string, error) {
@@ -131,8 +148,14 @@ func (h *handler) mountOrg(site *echo.Group, a *middleware.Access) {
 	}), a.Require("org.read"))
 	site.POST(o+"/backups", h.orgAction("backups", func(c echo.Context, og *service.Org) (string, error) {
 		f := c.FormValue
-		_, err := h.orch.CreateBackupDest(c.Request().Context(), &og.ID, service.BackupDestSpec{Name: f("dest_name"),
-			Endpoint: f("endpoint"), Region: f("region"), Bucket: f("bucket"), AccessKey: f("access_key"), SecretKey: f("secret_key")})
+		_, err := h.orch.CreateBackupDest(c.Request().Context(), &og.ID, service.BackupDestSpec{
+			Name:      f("dest_name"),
+			Endpoint:  f("endpoint"),
+			Region:    f("region"),
+			Bucket:    f("bucket"),
+			AccessKey: f("access_key"),
+			SecretKey: f("secret_key"),
+		})
 		return "Destination added.", err
 	}), a.Require("destination.write"))
 	site.POST(o+"/backups/:dest/delete", h.orgAction("backups", func(c echo.Context, og *service.Org) (string, error) {

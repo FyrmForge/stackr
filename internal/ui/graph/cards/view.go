@@ -73,7 +73,11 @@ func Rate(bps float64) string {
 
 // System says a kind lives in the column behind the divider: the node
 // wrapper sets <graph-node system> from it.
-func System(kind string) bool { return kind == "proxy" || kind == "internet" }
+func System(kind string) bool {
+	return kind == "proxy" || kind == "internet"
+}
 
 // dashed cards are not the env's own: system cards and ghost refs.
-func dashed(kind string) bool { return System(kind) || kind == "ref" }
+func dashed(kind string) bool {
+	return System(kind) || kind == "ref"
+}

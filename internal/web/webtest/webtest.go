@@ -36,7 +36,13 @@ func New(t *testing.T) *Site {
 	org := env.Org(t, "acme")
 	owner := env.User(t, "owner@acme.test", false)
 	env.Member(t, org, owner, "owner")
-	return &Site{Env: env, Org: org, Tile: env.Tile(t, org), h: srv.Echo(), session: env.Session(t, owner)}
+	return &Site{
+		Env:     env,
+		Org:     org,
+		Tile:    env.Tile(t, org),
+		h:       srv.Echo(),
+		session: env.Session(t, owner),
+	}
 }
 
 // Do sends a request as the owner, CSRF token included; form, if any, is
@@ -46,7 +52,12 @@ func (s *Site) Do(t *testing.T, method, path string, form url.Values) *httptest.
 }
 
 // DoCtx is Do under ctx, for streams: cancel it to end the response.
-func (s *Site) DoCtx(ctx context.Context, t *testing.T, method, path string, form url.Values) *httptest.ResponseRecorder {
+func (s *Site) DoCtx(
+	ctx context.Context,
+	t *testing.T,
+	method, path string,
+	form url.Values,
+) *httptest.ResponseRecorder {
 	t.Helper()
 	return s.send(ctx, s.session, method, path, form)
 }

@@ -22,8 +22,11 @@ var creates = map[string][]struct {
 	label string
 	verb  authz.Verb
 }{
-	service.CanvasHome:  {{"org", "+ org", "org.create"}},
-	service.CanvasOrg:   {{"stack", "+ stack", "stack.create"}, {"connector", "+ connector", "connector.write"}},
+	service.CanvasHome: {{"org", "+ org", "org.create"}},
+	service.CanvasOrg: {
+		{"stack", "+ stack", "stack.create"},
+		{"connector", "+ connector", "connector.write"},
+	},
 	service.CanvasStack: {{"env", "+ env", "env.write"}},
 	service.CanvasEnv:   {{"tile", "+ tile", "tile.write"}}, // the env package serves it
 }
@@ -44,8 +47,13 @@ func createButtons(c echo.Context, l level) []ui.Create {
 }
 
 func levelForm(c echo.Context, kind string) dialog.CreateLevelView {
-	return dialog.CreateLevelView{Kind: kind, Action: where(c).base + "/-/new-" + kind,
-		Name: c.FormValue("name"), From: c.FormValue("from"), Branch: c.FormValue("branch")}
+	return dialog.CreateLevelView{
+		Kind:   kind,
+		Action: where(c).base + "/-/new-" + kind,
+		Name:   c.FormValue("name"),
+		From:   c.FormValue("from"),
+		Branch: c.FormValue("branch"),
+	}
 }
 
 // GET <page>/-/new-<org|stack|env>: the empty form into the drawer.
@@ -77,7 +85,12 @@ func (h *handler) createLevel(kind string) echo.HandlerFunc {
 			url = "/" + s.Org.Slug + "/" + st.Slug
 		case "env":
 			var e service.Environment
-			e, err = h.orch.CreateEnv(ctx, s.Stack.ID, v.Name, service.EnvSpec{Type: "static", FromKind: v.From, FromBranch: v.Branch})
+			e, err = h.orch.CreateEnv(
+				ctx,
+				s.Stack.ID,
+				v.Name,
+				service.EnvSpec{Type: "static", FromKind: v.From, FromBranch: v.Branch},
+			)
 			url = "/" + s.Org.Slug + "/" + s.Stack.Slug + "/" + e.Slug
 		}
 		if err != nil {
@@ -100,12 +113,20 @@ func (h *handler) createLevel(kind string) echo.HandlerFunc {
 // GET /:org/-/new-connector, then POST it: the pending connector, and the
 // form that hands its manifest to GitHub.
 func (h *handler) newConnector(c echo.Context) error {
-	return respond.HTML(c, http.StatusOK, dialog.InstallConnector(dialog.InstallConnectorView{Begin: where(c).base + "/-/new-connector"}))
+	return respond.HTML(
+		c,
+		http.StatusOK,
+		dialog.InstallConnector(dialog.InstallConnectorView{Begin: where(c).base + "/-/new-connector"}),
+	)
 }
 
 func (h *handler) beginConnector(c echo.Context) error {
 	v := dialog.InstallConnectorView{Begin: where(c).base + "/-/new-connector"}
-	_, action, manifest, err := h.orch.BeginConnector(c.Request().Context(), middleware.ScopeOf(c).Org.ID, c.FormValue("github_org"))
+	_, action, manifest, err := h.orch.BeginConnector(
+		c.Request().Context(),
+		middleware.ScopeOf(c).Org.ID,
+		c.FormValue("github_org"),
+	)
 	if err != nil {
 		msg, ok := refused(err)
 		if !ok {
@@ -154,7 +175,11 @@ func (h *handler) Mount(site *echo.Group, a *middleware.Access) {
 	for _, cr := range []struct {
 		page, kind string
 		verb       authz.Verb
-	}{{"", "org", "org.create"}, {"/:org", "stack", "stack.create"}, {"/:org/:stack", "env", "env.write"}} {
+	}{
+		{"", "org", "org.create"},
+		{"/:org", "stack", "stack.create"},
+		{"/:org/:stack", "env", "env.write"},
+	} {
 		site.GET(cr.page+"/-/new-"+cr.kind, h.newLevel(cr.kind), a.Require(cr.verb))
 		site.POST(cr.page+"/-/new-"+cr.kind, h.createLevel(cr.kind), a.Require(cr.verb))
 	}

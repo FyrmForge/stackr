@@ -18,14 +18,27 @@ import (
 func TestCreateTileRoundTrip(t *testing.T) {
 	s := webtest.New(t)
 	rec := s.Do(t, "GET", "/acme/shop/dev/-/new-tile?source=cron&name=nightly", nil)
-	if rec.Code != 200 || !strings.Contains(rec.Body.String(), `name="schedule"`) || !strings.Contains(rec.Body.String(), `value="nightly"`) {
+	if rec.Code != 200 || !strings.Contains(rec.Body.String(), `name="schedule"`) ||
+		!strings.Contains(rec.Body.String(), `value="nightly"`) {
 		t.Fatalf("form = %d\n%s", rec.Code, rec.Body)
 	}
-	rec = s.Do(t, "POST", "/acme/shop/dev/-/new-tile", url.Values{"source": {"cron"}, "name": {"nightly"}, "image_ref": {"busybox:1"}, "schedule": {"not cron"}})
-	if rec.Code != 422 || !strings.Contains(rec.Body.String(), `id="create-tile"`) || !strings.Contains(rec.Body.String(), `id="error-schedule"`) {
+	rec = s.Do(t, "POST", "/acme/shop/dev/-/new-tile", url.Values{
+		"source":    {"cron"},
+		"name":      {"nightly"},
+		"image_ref": {"busybox:1"},
+		"schedule":  {"not cron"},
+	})
+	if rec.Code != 422 || !strings.Contains(rec.Body.String(), `id="create-tile"`) ||
+		!strings.Contains(rec.Body.String(), `id="error-schedule"`) {
 		t.Fatalf("bad schedule = %d\n%s", rec.Code, rec.Body)
 	}
-	rec = s.Do(t, "POST", "/acme/shop/dev/-/new-tile", url.Values{"source": {"cron"}, "name": {"nightly"}, "image_ref": {"busybox:1"}, "schedule": {"0 3 * * *"}, "command": {"echo hi"}})
+	rec = s.Do(t, "POST", "/acme/shop/dev/-/new-tile", url.Values{
+		"source":    {"cron"},
+		"name":      {"nightly"},
+		"image_ref": {"busybox:1"},
+		"schedule":  {"0 3 * * *"},
+		"command":   {"echo hi"},
+	})
 	if rec.Code != 200 || !strings.HasPrefix(rec.Header().Get("HX-Redirect"), "/acme/shop/dev?drawer=") {
 		t.Fatalf("create = %d %q\n%s", rec.Code, rec.Header().Get("HX-Redirect"), rec.Body)
 	}
@@ -51,7 +64,8 @@ func TestVolumeAndProxyDrawers(t *testing.T) {
 		t.Fatal(err)
 	}
 	rec := s.Do(t, "GET", "/acme/shop/dev/-/volumes/"+v.ID+"?tab=backups", nil)
-	if rec.Code != 200 || !strings.Contains(rec.Body.String(), "local disk") || !strings.Contains(rec.Body.String(), "/-/volumes/"+v.ID+"/backup") {
+	if rec.Code != 200 || !strings.Contains(rec.Body.String(), "local disk") ||
+		!strings.Contains(rec.Body.String(), "/-/volumes/"+v.ID+"/backup") {
 		t.Errorf("volume drawer = %d\n%s", rec.Code, rec.Body)
 	}
 	rec = s.Do(t, "GET", "/acme/shop/dev/-/proxy?tab=routes", nil)
@@ -74,7 +88,8 @@ func TestJobEvents(t *testing.T) {
 	defer cancel()
 	body := s.DoCtx(ctx, t, "GET", "/acme/shop/dev/-/jobs/"+j.ID+"/events", nil).Body.String()
 	end := strings.Index(body, "event: end")
-	if end < 0 || !strings.Contains(body[:end], "event: update\ndata: <div") || !strings.Contains(body[:end], ">done<") {
+	if end < 0 || !strings.Contains(body[:end], "event: update\ndata: <div") ||
+		!strings.Contains(body[:end], ">done<") {
 		t.Errorf("job events:\n%s", body)
 	}
 }

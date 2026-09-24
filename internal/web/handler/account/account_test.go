@@ -24,13 +24,21 @@ func TestAccount(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if body := s.As(t, sess, "GET", "/account", nil).Body.String(); !strings.Contains(body, "laptop") || !strings.Contains(body, "/account/keys/"+k.ID+"/revoke") {
+	if body := s.As(t, sess, "GET", "/account", nil).Body.String(); !strings.Contains(body, "laptop") ||
+		!strings.Contains(body, "/account/keys/"+k.ID+"/revoke") {
 		t.Fatalf("account page:\n%s", body)
 	}
-	if rec := s.As(t, sess, "POST", "/account/password", url.Values{"current_password": {"wrong"}, "password": {"N3w!password"}}); rec.Code != http.StatusUnprocessableEntity || !strings.Contains(rec.Body.String(), "current password is wrong") {
+	if rec := s.As(t, sess, "POST", "/account/password", url.Values{
+		"current_password": {"wrong"},
+		"password":         {"N3w!password"},
+	}); rec.Code != http.StatusUnprocessableEntity ||
+		!strings.Contains(rec.Body.String(), "current password is wrong") {
 		t.Errorf("wrong current = %d %s", rec.Code, rec.Body)
 	}
-	if rec := s.As(t, sess, "POST", "/account/password", url.Values{"current_password": {"0ld!Password"}, "password": {"N3w!password"}}); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "Password changed") {
+	if rec := s.As(t, sess, "POST", "/account/password", url.Values{
+		"current_password": {"0ld!Password"},
+		"password":         {"N3w!password"},
+	}); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "Password changed") {
 		t.Errorf("change = %d %s", rec.Code, rec.Body)
 	}
 	rec := s.As(t, sess, "POST", "/account/keys/"+k.ID+"/revoke", nil)

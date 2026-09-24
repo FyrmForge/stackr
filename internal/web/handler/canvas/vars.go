@@ -38,15 +38,33 @@ func (h *handler) vars(c echo.Context, s service.Scope, errMsg, note string) (te
 		return nil, err
 	}
 	base := urlOf(s) + "/-/vars"
-	v := vars.View{Scope: name, Error: errMsg, Note: note, Editor: comp.ParamEditorView{Action: base, DeleteAction: base + "/delete"}}
+	v := vars.View{
+		Scope:  name,
+		Error:  errMsg,
+		Note:   note,
+		Editor: comp.ParamEditorView{Action: base, DeleteAction: base + "/delete"},
+	}
 	if !write {
-		v.Editor = comp.ParamEditorView{ReadOnly: true, Why: "Your role reads params; changing them, and seeing secrets, needs write."}
+		v.Editor = comp.ParamEditorView{
+			ReadOnly: true,
+			Why:      "Your role reads params; changing them, and seeing secrets, needs write.",
+		}
 	}
 	for _, p := range rows {
 		if p.Kind == "secret" {
-			v.Editor.Secrets = append(v.Editor.Secrets, comp.SecretRowView{Collection: p.Collection, Name: p.Name, Set: p.Value != "", DecidedBy: ps.Kind})
+			v.Editor.Secrets = append(v.Editor.Secrets, comp.SecretRowView{
+				Collection: p.Collection,
+				Name:       p.Name,
+				Set:        p.Value != "",
+				DecidedBy:  ps.Kind,
+			})
 		} else {
-			v.Editor.Params = append(v.Editor.Params, comp.ParamRowView{Collection: p.Collection, Name: p.Name, Value: p.Value, DecidedBy: ps.Kind})
+			v.Editor.Params = append(v.Editor.Params, comp.ParamRowView{
+				Collection: p.Collection,
+				Name:       p.Name,
+				Value:      p.Value,
+				DecidedBy:  ps.Kind,
+			})
 		}
 	}
 	return vars.Editor(v), nil
@@ -62,12 +80,23 @@ func entries(form map[string][]string) []service.ParamEntry {
 		if !ok || !ok2 || (kind != "param" && kind != "secret") {
 			continue
 		}
-		out = append(out, service.ParamEntry{Collection: coll, Name: name, Kind: kind, Value: vs[0]})
+		out = append(out, service.ParamEntry{
+			Collection: coll,
+			Name:       name,
+			Kind:       kind,
+			Value:      vs[0],
+		})
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Collection+"."+out[i].Name < out[j].Collection+"."+out[j].Name })
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].Collection+"."+out[i].Name < out[j].Collection+"."+out[j].Name
+	})
 	if n := strings.TrimSpace(first(form["new_name"])); n != "" {
-		out = append(out, service.ParamEntry{Collection: strings.TrimSpace(first(form["new_collection"])), Name: n,
-			Kind: first(form["new_kind"]), Value: first(form["new_value"])})
+		out = append(out, service.ParamEntry{
+			Collection: strings.TrimSpace(first(form["new_collection"])),
+			Name:       n,
+			Kind:       first(form["new_kind"]),
+			Value:      first(form["new_value"]),
+		})
 	}
 	return out
 }
@@ -94,7 +123,12 @@ func (h *handler) SetVars(c echo.Context) error {
 func (h *handler) DeleteVar(c echo.Context) error {
 	s := middleware.ScopeOf(c)
 	ps, _ := paramScope(s)
-	return h.varsAfter(c, s, "Deleted.", h.orch.DeleteParam(c.Request().Context(), ps, c.FormValue("collection"), c.FormValue("name")))
+	return h.varsAfter(
+		c,
+		s,
+		"Deleted.",
+		h.orch.DeleteParam(c.Request().Context(), ps, c.FormValue("collection"), c.FormValue("name")),
+	)
 }
 
 func (h *handler) varsAfter(c echo.Context, s service.Scope, note string, err error) error {

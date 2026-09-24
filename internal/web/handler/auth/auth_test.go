@@ -47,7 +47,14 @@ func TestLoginFirst(t *testing.T) {
 	if rec := s.As(t, "", "GET", "/acme/shop", nil); rec.Code != http.StatusUnauthorized {
 		t.Errorf("htmx visitor = %d, want 401", rec.Code)
 	}
-	for in, want := range map[string]string{"/acme": "/acme", "//evil.test": "", "/\\evil.test": "", "/\t/evil.test": "", "https://evil.test": "", "": ""} {
+	for in, want := range map[string]string{
+		"/acme":             "/acme",
+		"//evil.test":       "",
+		"/\\evil.test":      "",
+		"/\t/evil.test":     "",
+		"https://evil.test": "",
+		"":                  "",
+	} {
 		if got := middleware.SafeNext(in); got != want {
 			t.Errorf("SafeNext(%q) = %q, want %q", in, got, want)
 		}
@@ -73,7 +80,8 @@ func TestSetup(t *testing.T) {
 		t.Errorf("create first org = %d %v", rec.Code, rec.Header())
 	}
 	lone := s.Session(t, s.User(t, "lone@x.test", false))
-	if body := s.As(t, lone, "GET", "/setup", nil).Body.String(); !strings.Contains(body, "invite link") || strings.Contains(body, "new-org") {
+	if body := s.As(t, lone, "GET", "/setup", nil).Body.String(); !strings.Contains(body, "invite link") ||
+		strings.Contains(body, "new-org") {
 		t.Errorf("non-admin setup:\n%s", body)
 	}
 }
@@ -87,14 +95,20 @@ func TestInvite(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if body := s.As(t, "", "GET", "/invite/"+inv.ID, nil).Body.String(); !strings.Contains(body, "new@x.test") || !strings.Contains(body, "/invite/"+inv.ID+"/register") {
+	if body := s.As(t, "", "GET", "/invite/"+inv.ID, nil).Body.String(); !strings.Contains(body, "new@x.test") ||
+		!strings.Contains(body, "/invite/"+inv.ID+"/register") {
 		t.Fatalf("visitor invite page:\n%s", body)
 	}
-	rec := s.As(t, "", "POST", "/invite/"+inv.ID+"/register", url.Values{"name": {"New"}, "email": {"new@x.test"}, "password": {"Str0ng!pass"}})
+	rec := s.As(t, "", "POST", "/invite/"+inv.ID+"/register", url.Values{
+		"name":     {"New"},
+		"email":    {"new@x.test"},
+		"password": {"Str0ng!pass"},
+	})
 	if rec.Header().Get("HX-Redirect") != "/acme" {
 		t.Fatalf("register through invite = %d %v %s", rec.Code, rec.Header(), rec.Body)
 	}
-	if rec := s.As(t, "", "GET", "/invite/"+inv.ID, nil); rec.Code != http.StatusNotFound || !strings.Contains(rec.Body.String(), "used or expired") {
+	if rec := s.As(t, "", "GET", "/invite/"+inv.ID, nil); rec.Code != http.StatusNotFound ||
+		!strings.Contains(rec.Body.String(), "used or expired") {
 		t.Errorf("used invite = %d", rec.Code)
 	}
 
@@ -104,7 +118,13 @@ func TestInvite(t *testing.T) {
 		t.Fatal(err)
 	}
 	sess := s.Session(t, other)
-	if body := s.As(t, sess, "GET", "/invite/"+inv.ID, nil).Body.String(); !strings.Contains(body, `hx-post="/invite/`+inv.ID+`"`) {
+	if body := s.As(
+		t,
+		sess,
+		"GET",
+		"/invite/"+inv.ID,
+		nil,
+	).Body.String(); !strings.Contains(body, `hx-post="/invite/`+inv.ID+`"`) {
 		t.Fatalf("signed-in invite page has no accept:\n%s", body)
 	}
 	if rec := s.As(t, sess, "POST", "/invite/"+inv.ID, nil); rec.Header().Get("HX-Redirect") != "/acme" {
@@ -123,7 +143,10 @@ func TestCLIAuthorize(t *testing.T) {
 	if rec := s.Do(t, "GET", "/cli/authorize?port=evil.test&state=abc", nil); rec.Code != http.StatusBadRequest {
 		t.Errorf("bad port page = %d", rec.Code)
 	}
-	if rec := s.Do(t, "POST", "/cli/authorize/acme", url.Values{"port": {"80@evil.test"}, "state": {"abc"}}); rec.Code != http.StatusBadRequest {
+	if rec := s.Do(t, "POST", "/cli/authorize/acme", url.Values{
+		"port":  {"80@evil.test"},
+		"state": {"abc"},
+	}); rec.Code != http.StatusBadRequest {
 		t.Errorf("bad port approve = %d", rec.Code)
 	}
 	rec := s.Do(t, "POST", "/cli/authorize/acme", url.Values{"port": {"4711"}, "state": {"a&b"}, "name": {"laptop"}})

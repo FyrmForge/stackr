@@ -25,15 +25,24 @@ func TestAdminDrawer(t *testing.T) {
 	}
 	root := s.Session(t, s.User(t, "root@x.test", true))
 	for tab, want := range map[string]string{
-		"settings": `id="admin-settings"`, "users": "owner@acme.test", "update": "/-/admin/update/check",
-		"caddy": `name="proxy_custom"`, "backups": "No panel backups yet",
+		"settings": `id="admin-settings"`,
+		"users":    "owner@acme.test",
+		"update":   "/-/admin/update/check",
+		"caddy":    `name="proxy_custom"`,
+		"backups":  "No panel backups yet",
 	} {
 		rec := s.As(t, root, "GET", "/-/admin?tab="+tab, nil)
 		if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), want) {
 			t.Errorf("tab %s = %d, no %s in\n%s", tab, rec.Code, want, rec.Body)
 		}
 	}
-	if body := s.As(t, root, "GET", "/acme", nil).Body.String(); !strings.Contains(body, `hx-get="/-/admin?tab=settings"`) {
+	if body := s.As(
+		t,
+		root,
+		"GET",
+		"/acme",
+		nil,
+	).Body.String(); !strings.Contains(body, `hx-get="/-/admin?tab=settings"`) {
 		t.Error("no admin button in the nav")
 	}
 
@@ -44,7 +53,9 @@ func TestAdminDrawer(t *testing.T) {
 	if v, _ := s.Orch.Setting(ctx, "workers"); v != "3" {
 		t.Errorf("workers = %q", v)
 	}
-	if rec := s.As(t, root, "POST", "/-/admin/settings", url.Values{"workers": {"lots"}}); rec.Code != http.StatusUnprocessableEntity || !strings.Contains(rec.Body.String(), "not a whole number") {
+	if rec := s.As(t, root, "POST", "/-/admin/settings", url.Values{
+		"workers": {"lots"},
+	}); rec.Code != http.StatusUnprocessableEntity || !strings.Contains(rec.Body.String(), "not a whole number") {
 		t.Errorf("bad value = %d %s", rec.Code, rec.Body)
 	}
 
@@ -55,7 +66,8 @@ func TestAdminDrawer(t *testing.T) {
 			owner = u.ID
 		}
 	}
-	if rec := s.As(t, root, "POST", "/-/admin/users/"+owner+"/admin?admin=true", nil); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "Remove admin") {
+	if rec := s.As(t, root, "POST", "/-/admin/users/"+owner+"/admin?admin=true", nil); rec.Code != http.StatusOK ||
+		!strings.Contains(rec.Body.String(), "Remove admin") {
 		t.Errorf("make admin = %d", rec.Code)
 	}
 

@@ -116,8 +116,13 @@ func EnvURL(c echo.Context) string {
 // JobView is a job's status line; page is the path its job stream hangs
 // under (an env page, or "" for the admin drawer's panel jobs).
 func JobView(page string, j service.Job) components.JobStatusView {
-	return components.JobStatusView{Kind: j.Kind, State: j.State, Error: j.Error,
-		StreamURL: page + "/-/jobs/" + j.ID + "/events", Live: j.FinishedAt == nil}
+	return components.JobStatusView{
+		Kind:      j.Kind,
+		State:     j.State,
+		Error:     j.Error,
+		StreamURL: page + "/-/jobs/" + j.ID + "/events",
+		Live:      j.FinishedAt == nil,
+	}
 }
 
 // JobStream answers GET <page>/-/jobs/:job/events: the job's status body as

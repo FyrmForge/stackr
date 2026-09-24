@@ -45,7 +45,8 @@ func TestEnvReleases(t *testing.T) {
 		t.Errorf("an unknown release was planned:\n%s", body)
 	}
 	rec := s.Do(t, "POST", base+"/promote/"+id, nil)
-	if rec.Code != 200 || !strings.Contains(rec.Body.String(), "Queued") || !strings.Contains(rec.Body.String(), "/-/jobs/") ||
+	if rec.Code != 200 || !strings.Contains(rec.Body.String(), "Queued") ||
+		!strings.Contains(rec.Body.String(), "/-/jobs/") ||
 		!strings.Contains(rec.Body.String(), `hx-get="`+base+`?tab=releases" hx-trigger="sse:end"`) {
 		t.Errorf("promote = %d\n%s", rec.Code, rec.Body)
 	}

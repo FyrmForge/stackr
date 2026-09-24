@@ -24,17 +24,68 @@ func TestTabs(t *testing.T) {
 		x        templ.Component
 		want, no []string
 	}{
-		"owner settings": {Settings(SettingsView{Name: "acme", Rename: "/acme/-/drawer/rename",
-			Delete: c.ConfirmView{Button: "Delete org", Word: "acme", Kept: []string{"x"}, Action: "/acme/-/drawer/delete"}}),
-			[]string{`hx-post="/acme/-/drawer/rename"`, "<confirm-dialog", `hx-post="/acme/-/drawer/delete"`}, nil},
-		"viewer settings": {Settings(SettingsView{Name: "acme"}), []string{`value="acme"`, "disabled"}, []string{"<confirm-dialog"}},
-		"members": {Members(MembersView{Base: "/o", Manage: true, Members: []MemberRow{{UserID: "u1", Email: "a@b.c", Role: "owner"}},
-			Invites: []InviteRow{{Email: "new@b.c", Role: "member"}}}),
-			[]string{"a@b.c", `hx-post="/o/members/u1/role"`, `<option value="owner" selected>`, "new@b.c", `hx-post="/o/invite"`}, nil},
-		"members read": {Members(MembersView{Members: []MemberRow{{Email: "a@b.c", Role: "viewer"}}}), []string{"viewer"}, []string{"invite", "<select"}},
-		"keys":         {Keys(KeysView{Base: "/o", Keys: []KeyRow{{ID: "k1", Name: "laptop"}}}), []string{"laptop", `hx-post="/o/keys/k1/revoke"`, `hx-post="/o/keys"`}, nil},
-		"backups": {Backups(BackupsView{Base: "/o", Write: true, Dests: []DestRow{{ID: "d1", Name: "local", Global: true}, {ID: "d2", Name: "s3"}}}),
-			[]string{"install-wide", `hx-post="/o/backups/d2/delete"`, `name="secret_key"`}, []string{"/o/backups/d1/delete"}},
+		"owner settings": {
+			Settings(SettingsView{
+				Name:   "acme",
+				Rename: "/acme/-/drawer/rename",
+				Delete: c.ConfirmView{
+					Button: "Delete org",
+					Word:   "acme",
+					Kept:   []string{"x"},
+					Action: "/acme/-/drawer/delete",
+				},
+			}),
+			[]string{`hx-post="/acme/-/drawer/rename"`, "<confirm-dialog", `hx-post="/acme/-/drawer/delete"`},
+			nil,
+		},
+		"viewer settings": {
+			Settings(SettingsView{Name: "acme"}),
+			[]string{`value="acme"`, "disabled"},
+			[]string{"<confirm-dialog"},
+		},
+		"members": {
+			Members(MembersView{
+				Base:    "/o",
+				Manage:  true,
+				Members: []MemberRow{{UserID: "u1", Email: "a@b.c", Role: "owner"}},
+				Invites: []InviteRow{{Email: "new@b.c", Role: "member"}},
+			}),
+			[]string{
+				"a@b.c",
+				`hx-post="/o/members/u1/role"`,
+				`<option value="owner" selected>`,
+				"new@b.c",
+				`hx-post="/o/invite"`,
+			},
+			nil,
+		},
+		"members read": {
+			Members(MembersView{Members: []MemberRow{{Email: "a@b.c", Role: "viewer"}}}),
+			[]string{"viewer"},
+			[]string{"invite", "<select"},
+		},
+		"keys": {
+			Keys(KeysView{
+				Base: "/o",
+				Keys: []KeyRow{
+					{ID: "k1", Name: "laptop"},
+				},
+			}),
+			[]string{"laptop", `hx-post="/o/keys/k1/revoke"`, `hx-post="/o/keys"`},
+			nil,
+		},
+		"backups": {
+			Backups(BackupsView{
+				Base:  "/o",
+				Write: true,
+				Dests: []DestRow{
+					{ID: "d1", Name: "local", Global: true},
+					{ID: "d2", Name: "s3"},
+				},
+			}),
+			[]string{"install-wide", `hx-post="/o/backups/d2/delete"`, `name="secret_key"`},
+			[]string{"/o/backups/d1/delete"},
+		},
 	} {
 		got := html(t, tc.x)
 		for _, w := range tc.want {

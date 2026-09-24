@@ -8,7 +8,15 @@ import (
 
 func TestRoutesRenders(t *testing.T) {
 	var b strings.Builder
-	err := Routes(View{Rows: []Route{{Host: "api.acme.dev", Path: "/", Tile: "api", Port: "80", Raw: true}}}).Render(context.Background(), &b)
+	err := Routes(View{
+		Rows: []Route{{
+			Host: "api.acme.dev",
+			Path: "/",
+			Tile: "api",
+			Port: "80",
+			Raw:  true,
+		}},
+	}).Render(context.Background(), &b)
 	if err != nil {
 		t.Fatal(err)
 	}

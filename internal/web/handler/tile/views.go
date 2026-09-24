@@ -23,13 +23,23 @@ func when(t *time.Time) string {
 func replicas(s service.TileStatus) []ui.ReplicaView {
 	out := make([]ui.ReplicaView, 0, len(s.Replicas))
 	for _, r := range s.Replicas {
-		out = append(out, ui.ReplicaView{ID: r.ID, Name: r.Name, State: r.State, Health: r.Health})
+		out = append(out, ui.ReplicaView{
+			ID:     r.ID,
+			Name:   r.Name,
+			State:  r.State,
+			Health: r.Health,
+		})
 	}
 	return out
 }
 
 func statusView(env string, s service.TileStatus) ui.StatusView {
-	v := ui.StatusView{Word: s.Word, Replicas: replicas(s), NextRun: when(s.NextRun), Stopped: s.Word == "stopped"}
+	v := ui.StatusView{
+		Word:     s.Word,
+		Replicas: replicas(s),
+		NextRun:  when(s.NextRun),
+		Stopped:  s.Word == "stopped",
+	}
 	if s.LastJob != nil {
 		j := render.JobView(env, *s.LastJob)
 		v.Job = &j
@@ -56,8 +66,15 @@ func logsView(c echo.Context, base string, s service.TileStatus) ui.LogsView {
 func domainsView(ds []service.Domain, admin bool) ui.DomainsView {
 	v := ui.DomainsView{Admin: admin}
 	for _, d := range ds {
-		v.Rows = append(v.Rows, ui.DomainRow{ID: d.ID, Host: d.Host, Path: d.Path, Port: strconv.Itoa(d.ContainerPort),
-			HTTPS: d.HTTPS, Auto: d.Auto, Raw: d.RawCaddy})
+		v.Rows = append(v.Rows, ui.DomainRow{
+			ID:    d.ID,
+			Host:  d.Host,
+			Path:  d.Path,
+			Port:  strconv.Itoa(d.ContainerPort),
+			HTTPS: d.HTTPS,
+			Auto:  d.Auto,
+			Raw:   d.RawCaddy,
+		})
 	}
 	return v
 }
@@ -67,7 +84,15 @@ func domainsView(ds []service.Domain, admin bool) ui.DomainsView {
 // value or the server default.
 func settingsView(base string, t service.Tile, errors map[string]string) comp.SettingsFormView {
 	row := func(key, desc, typ, val string) comp.SettingRowView {
-		r := comp.SettingRowView{Key: key, Desc: desc, Type: typ, Value: val, Effective: val, DecidedBy: "tile", Error: errors[key]}
+		r := comp.SettingRowView{
+			Key:       key,
+			Desc:      desc,
+			Type:      typ,
+			Value:     val,
+			Effective: val,
+			DecidedBy: "tile",
+			Error:     errors[key],
+		}
 		if val == "" {
 			r.Effective, r.DecidedBy = "no limit", "default"
 		}
@@ -80,33 +105,55 @@ func settingsView(base string, t service.Tile, errors map[string]string) comp.Se
 	if t.MemLimitMB != 0 {
 		mem = strconv.Itoa(t.MemLimitMB)
 	}
-	return comp.SettingsFormView{ID: "tile-settings", Action: base + "/settings", Scope: "Tile", Rows: []comp.SettingRowView{
-		row("cpu_limit", "CPUs each replica may use.", "float", cpu),
-		row("mem_limit_mb", "Memory each replica may use, in MB.", "int", mem),
-	}}
+	return comp.SettingsFormView{
+		ID:     "tile-settings",
+		Action: base + "/settings",
+		Scope:  "Tile",
+		Rows: []comp.SettingRowView{
+			row("cpu_limit", "CPUs each replica may use.", "float", cpu),
+			row("mem_limit_mb", "Memory each replica may use, in MB.", "int", mem),
+		},
+	}
 }
 
 func jobsView(js []service.Job) ui.JobsView {
 	var v ui.JobsView
 	for _, j := range js {
-		v.Rows = append(v.Rows, ui.JobRow{Kind: j.Kind, State: j.State, When: when(&j.CreatedAt), Error: j.Error})
+		v.Rows = append(v.Rows, ui.JobRow{
+			Kind:  j.Kind,
+			State: j.State,
+			When:  when(&j.CreatedAt),
+			Error: j.Error,
+		})
 	}
 	return v
 }
 
 func imageView(t service.Tile, i service.Image) ui.ImageView {
-	return ui.ImageView{Ref: t.ImageRef, Digest: i.Digest, LastDigest: i.LastDigest, LastTag: i.LastTag,
-		Checked: when(i.CheckedAt), LastError: i.LastError,
+	return ui.ImageView{
+		Ref:          t.ImageRef,
+		Digest:       i.Digest,
+		LastDigest:   i.LastDigest,
+		LastTag:      i.LastTag,
+		Checked:      when(i.CheckedAt),
+		LastError:    i.LastError,
 		NewVersion:   i.Newer(),
 		Pulls:        t.ImageRef != "" && t.GitURL == "" && t.Kind != "managed",
-		UpdatePolicy: t.UpdatePolicy, TagPolicy: t.TagPolicy}
+		UpdatePolicy: t.UpdatePolicy,
+		TagPolicy:    t.TagPolicy,
+	}
 }
 
 func runsView(base string, t service.Tile, rs []service.Run) ui.RunsView {
 	v := ui.RunsView{Cron: t.Kind == "cron", Paused: t.Paused}
 	for _, r := range rs {
-		row := ui.RunRow{ID: r.ID, Status: r.Status, Trigger: r.Trigger, Started: when(r.StartedAt),
-			Live: r.Status == "queued" || r.Status == "running"}
+		row := ui.RunRow{
+			ID:      r.ID,
+			Status:  r.Status,
+			Trigger: r.Trigger,
+			Started: when(r.StartedAt),
+			Live:    r.Status == "queued" || r.Status == "running",
+		}
 		if r.StartedAt != nil && r.FinishedAt != nil {
 			row.Took = r.FinishedAt.Sub(*r.StartedAt).Round(time.Second).String()
 		}
@@ -128,7 +175,12 @@ func backupsView(env string, vs []service.Volume) ui.BackupsView {
 		if x.OrphanedAt != nil {
 			state = "orphaned"
 		}
-		v.Rows = append(v.Rows, ui.VolumeRow{ID: x.ID, Name: x.Name, State: state, Drawer: env + "/-/volumes/" + x.ID + "?tab=backups"})
+		v.Rows = append(v.Rows, ui.VolumeRow{
+			ID:     x.ID,
+			Name:   x.Name,
+			State:  state,
+			Drawer: env + "/-/volumes/" + x.ID + "?tab=backups",
+		})
 	}
 	return v
 }

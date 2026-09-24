@@ -53,7 +53,13 @@ func TestPageRendersBothWays(t *testing.T) {
 		if code != http.StatusOK {
 			t.Fatalf("%s: status %d", tt.name, code)
 		}
-		for _, want := range []string{"Nothing here yet.", "owner@x", `href="/acme/shop/dev/api"`, `aria-current="page"`, "<title>Overview - stackr</title>"} {
+		for _, want := range []string{
+			"Nothing here yet.",
+			"owner@x",
+			`href="/acme/shop/dev/api"`,
+			`aria-current="page"`,
+			"<title>Overview - stackr</title>",
+		} {
 			if !strings.Contains(body, want) {
 				t.Errorf("%s: body lacks %q", tt.name, want)
 			}

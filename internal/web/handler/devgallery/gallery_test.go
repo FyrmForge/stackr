@@ -91,7 +91,8 @@ func TestGalleryDrawer(t *testing.T) {
 	web.RegisterRoutes(srv, &web.Deps{Orch: env.Orch, Access: middleware.NewAccess(env.Orch), DevMode: true})
 	rec := httptest.NewRecorder()
 	srv.Echo().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/dev/components/drawer?node=tile:api&tab=logs", nil))
-	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "Sample logs tab") || strings.Contains(rec.Body.String(), "<html") {
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "Sample logs tab") ||
+		strings.Contains(rec.Body.String(), "<html") {
 		t.Fatalf("GET drawer = %d\n%s", rec.Code, rec.Body)
 	}
 }

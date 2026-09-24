@@ -54,7 +54,12 @@ func (h *handler) Approve(c echo.Context) error {
 	if p == "" || state == "" {
 		return echo.NewHTTPError(http.StatusBadRequest, "not a CLI login")
 	}
-	code, err := h.orch.CLICode(c.Request().Context(), middleware.Principal(c).User.ID, middleware.ScopeOf(c).Org.ID, c.FormValue("name"))
+	code, err := h.orch.CLICode(
+		c.Request().Context(),
+		middleware.Principal(c).User.ID,
+		middleware.ScopeOf(c).Org.ID,
+		c.FormValue("name"),
+	)
 	if err != nil {
 		return middleware.HTTPError(err)
 	}

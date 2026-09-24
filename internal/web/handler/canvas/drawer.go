@@ -59,7 +59,10 @@ func (cd card) frame(tab string) comp.DrawerView {
 		f.Node, f.Title, f.Tabs = "connector:"+cd.conn.ID, cd.conn.Name, connui.Tabs
 		f.Base = urlOf(s) + "/-/connectors/" + cd.conn.ID
 	case "vars":
-		f.Node, f.Title, f.Tabs, f.Base = "vars", "Vars", []string{"editor"}, urlOf(s)+"/-/vars"
+		f.Node = "vars"
+		f.Title = "Vars"
+		f.Tabs = []string{"editor"}
+		f.Base = urlOf(s) + "/-/vars"
 	}
 	f.Tab = tab
 	if !slices.Contains(f.Tabs, tab) {

@@ -48,7 +48,12 @@ func NewHandler(orch *service.Orchestrator) *handler {
 
 // GET /register
 func (h *handler) Page(c echo.Context) error {
-	return render.Page(c, http.StatusOK, "Register", registerPage(RegisterForm{Next: middleware.SafeNext(c.QueryParam("next"))}, nil))
+	return render.Page(
+		c,
+		http.StatusOK,
+		"Register",
+		registerPage(RegisterForm{Next: middleware.SafeNext(c.QueryParam("next"))}, nil),
+	)
 }
 
 // POST /register

@@ -31,7 +31,12 @@ func (h *handler) mountConnector(site *echo.Group, a *middleware.Access) {
 		if err != nil {
 			return middleware.HTTPError(err)
 		}
-		if cd.conn, err = h.orch.RenameConnector(c.Request().Context(), cd.s.Org.ID, cd.conn.ID, c.FormValue("name")); err != nil {
+		if cd.conn, err = h.orch.RenameConnector(
+			c.Request().Context(),
+			cd.s.Org.ID,
+			cd.conn.ID,
+			c.FormValue("name"),
+		); err != nil {
 			cd, _ = h.cardOf(c, "connector")
 		}
 		return h.after(c, cd, "settings", "Renamed.", err)

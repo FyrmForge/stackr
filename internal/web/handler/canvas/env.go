@@ -32,7 +32,13 @@ func (h *handler) envTab(c echo.Context, cd card, f *comp.DrawerView) (templ.Com
 		}
 		return envui.Order(v), err
 	}
-	v := envui.SettingsView{Name: e.Name, From: e.FromKind, Branch: e.FromBranch, Auto: e.Auto, Color: e.Color}
+	v := envui.SettingsView{
+		Name:   e.Name,
+		From:   e.FromKind,
+		Branch: e.FromBranch,
+		Auto:   e.Auto,
+		Color:  e.Color,
+	}
 	if write {
 		v.Base = f.Base
 		v.Delete = dialog.DeleteEnv(e.Name, f.Base+"/delete", "#"+comp.DrawerRoot)
@@ -56,7 +62,13 @@ func orderView(es []service.Environment) envui.OrderView {
 		return o
 	}
 	for i, e := range es {
-		v.Rungs = append(v.Rungs, envui.Rung{ID: e.ID, Name: e.Name, Color: e.Color, Up: swap(i, i+1), Down: swap(i, i-1)})
+		v.Rungs = append(v.Rungs, envui.Rung{
+			ID:    e.ID,
+			Name:  e.Name,
+			Color: e.Color,
+			Up:    swap(i, i+1),
+			Down:  swap(i, i-1),
+		})
 	}
 	return v
 }
@@ -75,8 +87,13 @@ func (h *handler) releases(c echo.Context, cd card, f *comp.DrawerView, write bo
 	var v envui.ReleasesView
 	cur, plan := 0, c.QueryParam("plan")
 	for _, r := range rs {
-		row := envui.ReleaseRow{Number: strconv.Itoa(r.Number), By: r.CreatedBy, Created: day(r.CreatedAt),
-			Current: e.ReleaseID != nil && *e.ReleaseID == r.ID, DryRun: f.Base + "?tab=releases&plan=" + r.ID}
+		row := envui.ReleaseRow{
+			Number:  strconv.Itoa(r.Number),
+			By:      r.CreatedBy,
+			Created: day(r.CreatedAt),
+			Current: e.ReleaseID != nil && *e.ReleaseID == r.ID,
+			DryRun:  f.Base + "?tab=releases&plan=" + r.ID,
+		}
 		if row.Current {
 			cur = r.Number
 		}
@@ -99,14 +116,31 @@ func (h *handler) releases(c echo.Context, cd card, f *comp.DrawerView, write bo
 	if rs[i].Number < cur {
 		verb = "Roll back"
 	}
-	pv := comp.PlanView{Title: verb + " " + e.Name + " to release #" + n, Blockers: p.Plan.Blockers, Warnings: p.Plan.Warnings, CanDeploy: p.CanDeploy}
+	pv := comp.PlanView{
+		Title:     verb + " " + e.Name + " to release #" + n,
+		Blockers:  p.Plan.Blockers,
+		Warnings:  p.Plan.Warnings,
+		CanDeploy: p.CanDeploy,
+	}
 	for _, ch := range p.Plan.Changes {
-		pv.Changes = append(pv.Changes, comp.ChangeView{Kind: ch.Kind, Tile: ch.Tile, Field: ch.Field, Old: ch.Old, New: ch.New, Note: ch.Note})
+		pv.Changes = append(pv.Changes, comp.ChangeView{
+			Kind:  ch.Kind,
+			Tile:  ch.Tile,
+			Field: ch.Field,
+			Old:   ch.Old,
+			New:   ch.New,
+			Note:  ch.Note,
+		})
 	}
 	v.Plan = &pv
 	if write && p.CanDeploy {
-		v.Take = comp.ConfirmView{Button: verb + " to #" + n, Title: pv.Title, Warning: "The plan above is applied; tiles it changes redeploy.",
-			Action: f.Base + "/promote/" + plan, Target: "#" + comp.DrawerRoot}
+		v.Take = comp.ConfirmView{
+			Button:  verb + " to #" + n,
+			Title:   pv.Title,
+			Warning: "The plan above is applied; tiles it changes redeploy.",
+			Action:  f.Base + "/promote/" + plan,
+			Target:  "#" + comp.DrawerRoot,
+		}
 	}
 	return envui.Releases(v), nil
 }
@@ -135,7 +169,13 @@ func (h *handler) mountEnv(site *echo.Group, a *middleware.Access) {
 		return redirect(c, stackURL(cd)+"?drawer=env:"+en.ID+"&tab=settings")
 	}), write)
 	site.POST(e+"/from", h.envAction("settings", func(c echo.Context, cd card) (string, error) {
-		_, err := h.orch.SetEnvFrom(c.Request().Context(), cd.s.Env.ID, c.FormValue("from"), c.FormValue("branch"), c.FormValue("auto") != "")
+		_, err := h.orch.SetEnvFrom(
+			c.Request().Context(),
+			cd.s.Env.ID,
+			c.FormValue("from"),
+			c.FormValue("branch"),
+			c.FormValue("auto") != "",
+		)
 		return "Saved.", err
 	}), write)
 	site.POST(e+"/color", h.envAction("settings", func(c echo.Context, cd card) (string, error) {

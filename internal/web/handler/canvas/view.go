@@ -29,13 +29,35 @@ func drawerPath(n service.GraphNode) string {
 // routes and the stream URL added.
 func mapView(gv service.GraphView, l level, sh service.GraphShow, focus string) ui.View {
 	v := ui.View{
-		Base: l.base, Toggles: l.scope.Kind == service.CanvasEnv, Focus: focus, Divider: gv.Divider,
-		Show: ui.Show{System: sh.System, Refs: sh.Refs, Startup: sh.Startup, Traffic: sh.Traffic},
+		Base:    l.base,
+		Toggles: l.scope.Kind == service.CanvasEnv,
+		Focus:   focus,
+		Divider: gv.Divider,
+		Show: ui.Show{
+			System:  sh.System,
+			Refs:    sh.Refs,
+			Startup: sh.Startup,
+			Traffic: sh.Traffic,
+		},
 	}
 	v.Query = v.Show.Query()
 	for _, n := range gv.Nodes {
-		u := ui.Node{ID: n.ID, Kind: n.Kind, Name: n.Name, Slug: n.Slug, Detail: n.Detail, Status: n.Status, X: n.X, Y: n.Y, W: n.W, H: n.H,
-			System: n.System, Static: n.Static, Color: n.Color, Deck: n.Deck}
+		u := ui.Node{
+			ID:     n.ID,
+			Kind:   n.Kind,
+			Name:   n.Name,
+			Slug:   n.Slug,
+			Detail: n.Detail,
+			Status: n.Status,
+			X:      n.X,
+			Y:      n.Y,
+			W:      n.W,
+			H:      n.H,
+			System: n.System,
+			Static: n.Static,
+			Color:  n.Color,
+			Deck:   n.Deck,
+		}
 		switch n.Kind {
 		case "org":
 			u.Href = "/" + n.Slug
@@ -46,7 +68,12 @@ func mapView(gv service.GraphView, l level, sh service.GraphShow, focus string) 
 			u.Drawer, u.Push = l.base+p, "?drawer="+n.ID
 		}
 		for _, s := range n.Subs {
-			u.Subs = append(u.Subs, ui.Sub{ID: s.ID, Kind: s.Kind, Name: s.Name, Status: s.Status})
+			u.Subs = append(u.Subs, ui.Sub{
+				ID:     s.ID,
+				Kind:   s.Kind,
+				Name:   s.Name,
+				Status: s.Status,
+			})
 		}
 		if l.scope.Kind == service.CanvasEnv {
 			envCard(&u, n, l.base)
@@ -57,10 +84,24 @@ func mapView(gv service.GraphView, l level, sh service.GraphShow, focus string) 
 		v.Edges = append(v.Edges, ui.Edge{Kind: e.Kind, From: e.From, To: e.To})
 	}
 	for _, a := range gv.Notes {
-		v.Notes = append(v.Notes, ui.Note{ID: a.ID, Kind: a.Kind, Text: a.Text, X: a.X, Y: a.Y, W: a.W, H: a.H})
+		v.Notes = append(v.Notes, ui.Note{
+			ID:   a.ID,
+			Kind: a.Kind,
+			Text: a.Text,
+			X:    a.X,
+			Y:    a.Y,
+			W:    a.W,
+			H:    a.H,
+		})
 	}
 	for _, r := range gv.Compare {
-		v.Compare = append(v.Compare, ui.Rung{Name: r.Name, Color: r.Color, Href: l.base + "/" + r.Slug, Release: r.Release, Behind: r.Behind})
+		v.Compare = append(v.Compare, ui.Rung{
+			Name:    r.Name,
+			Color:   r.Color,
+			Href:    l.base + "/" + r.Slug,
+			Release: r.Release,
+			Behind:  r.Behind,
+		})
 	}
 	if l.scope.Kind == service.CanvasEnv && sh.Traffic {
 		v.Lanes = []cards.Lane{} // non-nil: draw the lanes layer; build fills it
@@ -99,7 +140,14 @@ func envDrawer(base, kind, id, slug string) (url, tab string) {
 // envCard gives an env node session C's card (internal/ui/graph/cards):
 // body, chips, sub-tiles and the live footer the stream re-sends.
 func envCard(u *ui.Node, n service.GraphNode, base string) {
-	cv := cards.CardView{ID: n.ID, Kind: n.Kind, Name: n.Name, Detail: n.Detail, Host: n.Host, NewVersion: n.NewVersion}
+	cv := cards.CardView{
+		ID:         n.ID,
+		Kind:       n.Kind,
+		Name:       n.Name,
+		Detail:     n.Detail,
+		Host:       n.Host,
+		NewVersion: n.NewVersion,
+	}
 	if url, tab := envDrawer(base, n.Kind, n.ID, n.Slug); url != "" {
 		cv.Drawer, cv.Tab = url+"?tab="+tab, tab
 	}
@@ -109,7 +157,13 @@ func envCard(u *ui.Node, n service.GraphNode, base string) {
 			cv.Volumes += " +" + strconv.Itoa(len(n.Volumes)-1)
 		}
 	}
-	f := cards.FooterView{Status: n.Status, Waiting: n.Waiting, Up: n.Running, Want: n.Replicas, Count: n.Params + n.Secrets}
+	f := cards.FooterView{
+		Status:  n.Status,
+		Waiting: n.Waiting,
+		Up:      n.Running,
+		Want:    n.Replicas,
+		Count:   n.Params + n.Secrets,
+	}
 	if n.Status == "none" {
 		f.Status = ""
 	}
@@ -143,7 +197,13 @@ func envCard(u *ui.Node, n service.GraphNode, base string) {
 			sv.Drawer, sv.Tab = url+"?tab="+tab, tab
 		}
 		cv.Subs = append(cv.Subs, sv)
-		u.Subs = append(u.Subs, ui.Sub{ID: s.ID, Kind: s.Kind, Name: s.Name, Status: s.Status, Drawer: sv.Drawer})
+		u.Subs = append(u.Subs, ui.Sub{
+			ID:     s.ID,
+			Kind:   s.Kind,
+			Name:   s.Name,
+			Status: s.Status,
+			Drawer: sv.Drawer,
+		})
 	}
 	u.Drawer, u.Push = cv.Drawer, "?drawer="+n.ID
 	u.Card = templ.Join(cards.Card(cv), cards.Subs(cv))

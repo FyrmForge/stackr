@@ -44,7 +44,11 @@ func TestCanvasLevels(t *testing.T) {
 			t.Errorf("%s: no canvas with %s in\n%s", path, want, body)
 		}
 	}
-	if body := get(t, s, "/acme/shop/dev?system=0"); !strings.Contains(body, `hx-post="/acme/shop/dev/-/positions?system=0"`) {
+	if body := get(
+		t,
+		s,
+		"/acme/shop/dev?system=0",
+	); !strings.Contains(body, `hx-post="/acme/shop/dev/-/positions?system=0"`) {
 		t.Error("the show params are not kept on the helper routes")
 	}
 }
@@ -59,7 +63,8 @@ func TestCanvasHomeNeedsLogin(t *testing.T) {
 	web.RegisterRoutes(srv, &web.Deps{Orch: env.Orch, Access: middleware.NewAccess(env.Orch), DevMode: true})
 	rec := httptest.NewRecorder()
 	srv.Echo().ServeHTTP(rec, httptest.NewRequest("GET", "/", nil))
-	if rec.Code != http.StatusSeeOther && rec.Code != http.StatusFound || rec.Header().Get("Location") != "/login" {
+	if rec.Code != http.StatusSeeOther && rec.Code != http.StatusFound ||
+		rec.Header().Get("Location") != "/login" {
 		t.Errorf("anonymous / = %d %s", rec.Code, rec.Header().Get("Location"))
 	}
 }
@@ -67,17 +72,30 @@ func TestCanvasHomeNeedsLogin(t *testing.T) {
 // A drop saves; notes round-trip and answer the canvas.
 func TestCanvasPositionsAndNotes(t *testing.T) {
 	s := webtest.New(t)
-	rec := s.Do(t, "POST", "/acme/-/positions", url.Values{"node_id": {"stack:" + s.Tile.Stack}, "x": {"440"}, "y": {"88"}})
+	rec := s.Do(t, "POST", "/acme/-/positions", url.Values{
+		"node_id": {"stack:" + s.Tile.Stack},
+		"x":       {"440"},
+		"y":       {"88"},
+	})
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("positions = %d %s", rec.Code, rec.Body)
 	}
 	if body := get(t, s, "/acme"); !strings.Contains(body, `x="440" y="88"`) {
 		t.Error("the drop did not stick")
 	}
-	if rec := s.Do(t, "POST", "/acme/-/positions", url.Values{"node_id": {"stack:nope"}, "x": {"1"}, "y": {"1"}}); rec.Code != http.StatusNotFound {
+	if rec := s.Do(t, "POST", "/acme/-/positions", url.Values{
+		"node_id": {"stack:nope"},
+		"x":       {"1"},
+		"y":       {"1"},
+	}); rec.Code != http.StatusNotFound {
 		t.Errorf("unknown card = %d", rec.Code)
 	}
-	rec = s.Do(t, "POST", "/acme/-/notes", url.Values{"kind": {"note"}, "text": {"hello there"}, "w": {"160"}, "h": {"80"}})
+	rec = s.Do(t, "POST", "/acme/-/notes", url.Values{
+		"kind": {"note"},
+		"text": {"hello there"},
+		"w":    {"160"},
+		"h":    {"80"},
+	})
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "hello there</textarea>") {
 		t.Fatalf("note = %d %s", rec.Code, rec.Body)
 	}
@@ -86,7 +104,8 @@ func TestCanvasPositionsAndNotes(t *testing.T) {
 	if rec.Code != http.StatusOK || strings.Contains(rec.Body.String(), "note:"+id) {
 		t.Errorf("delete note = %d, still drawn: %v", rec.Code, strings.Contains(rec.Body.String(), id))
 	}
-	if rec := s.Do(t, "POST", "/acme/-/reset", nil); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "<graph-canvas") {
+	if rec := s.Do(t, "POST", "/acme/-/reset", nil); rec.Code != http.StatusOK ||
+		!strings.Contains(rec.Body.String(), "<graph-canvas") {
 		t.Errorf("reset = %d", rec.Code)
 	}
 }
@@ -96,7 +115,9 @@ func TestCanvasPositionsAndNotes(t *testing.T) {
 func TestCanvasEventsSwapFooter(t *testing.T) {
 	stream.PollEvery, canvas.Every = 10*time.Millisecond, 0
 	s := webtest.New(t)
-	events := html.UnescapeString(regexp.MustCompile(`sse-connect="([^"]+)"`).FindStringSubmatch(get(t, s, "/acme/shop"))[1])
+	events := html.UnescapeString(
+		regexp.MustCompile(`sse-connect="([^"]+)"`).FindStringSubmatch(get(t, s, "/acme/shop"))[1],
+	)
 	ctx, cancel := context.WithCancel(context.Background())
 	time.AfterFunc(60*time.Millisecond, func() { s.FailedJob(t, s.Tile.ID) })
 	time.AfterFunc(250*time.Millisecond, cancel)
@@ -131,13 +152,15 @@ func TestEnvEventsCarryLanes(t *testing.T) {
 	stream.PollEvery, canvas.Every = 10*time.Millisecond, 0
 	s := webtest.New(t)
 	page := get(t, s, "/acme/shop/dev")
-	if !strings.Contains(page, `id="graph-lanes"`) || !strings.Contains(page, `sse-connect="/acme/shop/dev/-/events?n=`) {
+	if !strings.Contains(page, `id="graph-lanes"`) ||
+		!strings.Contains(page, `sse-connect="/acme/shop/dev/-/events?n=`) {
 		t.Fatalf("env page has no lanes layer or stream under /-/:\n%s", page)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	time.AfterFunc(100*time.Millisecond, cancel)
 	body := s.DoCtx(ctx, t, "GET", "/acme/shop/dev/-/events", nil).Body.String()
-	if !strings.Contains(body, "event: traffic\ndata: <svg data-edges data-lanes id=\"graph-lanes\"") || !strings.Contains(body, "event: footer:"+s.Tile.ID) {
+	if !strings.Contains(body, "event: traffic\ndata: <svg data-edges data-lanes id=\"graph-lanes\"") ||
+		!strings.Contains(body, "event: footer:"+s.Tile.ID) {
 		t.Fatalf("env events:\n%s", body)
 	}
 	if strings.Contains(get(t, s, "/acme/shop/dev?traffic=0"), `id="graph-lanes"`) {
@@ -150,8 +173,12 @@ func TestEnvEventsCarryLanes(t *testing.T) {
 func TestEnvCardsAreTileCards(t *testing.T) {
 	s := webtest.New(t)
 	body := get(t, s, "/acme/shop/dev")
-	for _, want := range []string{`hx-get="/acme/shop/dev/-/tiles/api?tab=status"`, `hx-push-url="?drawer=` + s.Tile.ID + `&amp;tab=status"`,
-		`sse-swap="footer:` + s.Tile.ID + `"`, `hx-get="/acme/shop/dev/-/new-tile"`} {
+	for _, want := range []string{
+		`hx-get="/acme/shop/dev/-/tiles/api?tab=status"`,
+		`hx-push-url="?drawer=` + s.Tile.ID + `&amp;tab=status"`,
+		`sse-swap="footer:` + s.Tile.ID + `"`,
+		`hx-get="/acme/shop/dev/-/new-tile"`,
+	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("env page lacks %s", want)
 		}
@@ -164,7 +191,8 @@ func TestEnvFreshLoadOpensTileDrawer(t *testing.T) {
 	s := webtest.New(t)
 	load := func(path string) string { return s.DoNoCSRF(t, "GET", path).Body.String() } // no HX-Request: a full load
 	body := load("/acme/shop/dev?drawer=" + s.Tile.ID + "&tab=logs")
-	if !regexp.MustCompile(`<side-drawer open tab="logs"`).MatchString(body) || !strings.Contains(body, `hx-get="/acme/shop/dev/-/tiles/api?tab=logs" hx-trigger="load"`) {
+	if !regexp.MustCompile(`<side-drawer open tab="logs"`).MatchString(body) ||
+		!strings.Contains(body, `hx-get="/acme/shop/dev/-/tiles/api?tab=logs" hx-trigger="load"`) {
 		t.Errorf("drawer not open on the tile's logs:\n%s", body)
 	}
 	if body := load("/acme/shop/dev?drawer=nope"); strings.Contains(body, "<side-drawer open") {

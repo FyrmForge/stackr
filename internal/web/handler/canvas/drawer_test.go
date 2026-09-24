@@ -66,11 +66,18 @@ func TestDrawerFreshLoad(t *testing.T) {
 	b := newBrowser(t, "owner")
 	rec := b.do(t, "GET", "/?drawer=org:"+b.org+"&tab=settings", nil, false)
 	body := rec.Body.String()
-	if rec.Code != http.StatusOK || !strings.Contains(body, `<side-drawer open tab="settings">`) || !strings.Contains(body, `id="tab-settings"`) ||
+	if rec.Code != http.StatusOK || !strings.Contains(body, `<side-drawer open tab="settings">`) ||
+		!strings.Contains(body, `id="tab-settings"`) ||
 		!strings.Contains(body, `<graph-canvas`) {
 		t.Fatalf("fresh load = %d\n%s", rec.Code, body)
 	}
-	if body := b.do(t, "GET", "/?drawer=org:nope&tab=settings", nil, false).Body.String(); !strings.Contains(body, "<side-drawer>") {
+	if body := b.do(
+		t,
+		"GET",
+		"/?drawer=org:nope&tab=settings",
+		nil,
+		false,
+	).Body.String(); !strings.Contains(body, "<side-drawer>") {
 		t.Error("an unknown card opened a drawer")
 	}
 
@@ -107,7 +114,8 @@ func TestDrawerTabs(t *testing.T) {
 		}
 	}
 	// the cards on the canvases point at them
-	if body := get(t, s, "/acme"); !strings.Contains(body, `hx-get="/acme/shop/-/drawer"`) || !strings.Contains(body, `hx-get="/acme/-/vars"`) {
+	if body := get(t, s, "/acme"); !strings.Contains(body, `hx-get="/acme/shop/-/drawer"`) ||
+		!strings.Contains(body, `hx-get="/acme/-/vars"`) {
 		t.Error("the org canvas's cards do not open their drawers")
 	}
 }
@@ -117,7 +125,8 @@ func TestDrawerTabs(t *testing.T) {
 func TestCreateDialogs(t *testing.T) {
 	s := webtest.New(t)
 	ctx := context.Background()
-	if body := get(t, s, "/acme"); !strings.Contains(body, `hx-get="/acme/-/new-stack"`) || strings.Contains(body, "new-org") {
+	if body := get(t, s, "/acme"); !strings.Contains(body, `hx-get="/acme/-/new-stack"`) ||
+		strings.Contains(body, "new-org") {
 		t.Error("the org canvas offers the wrong create buttons")
 	}
 	rec := s.Do(t, "POST", "/acme/-/new-stack", url.Values{"name": {"blog"}})
@@ -128,7 +137,9 @@ func TestCreateDialogs(t *testing.T) {
 	if len(sts) != 2 {
 		t.Errorf("stacks = %d", len(sts))
 	}
-	if rec := s.Do(t, "POST", "/acme/-/new-stack", url.Values{"name": {"blog"}}); rec.Code != http.StatusUnprocessableEntity || !strings.Contains(rec.Body.String(), `id="create-stack"`) {
+	if rec := s.Do(t, "POST", "/acme/-/new-stack", url.Values{
+		"name": {"blog"},
+	}); rec.Code != http.StatusUnprocessableEntity || !strings.Contains(rec.Body.String(), `id="create-stack"`) {
 		t.Errorf("a taken name = %d %s", rec.Code, rec.Body)
 	}
 	rec = s.Do(t, "POST", "/acme/shop/-/new-env", url.Values{"name": {"prod"}, "from": {"promote"}})
@@ -161,8 +172,14 @@ func TestDrawerActions(t *testing.T) {
 	if rec.Code != http.StatusUnprocessableEntity || !strings.Contains(rec.Body.String(), "environments first") {
 		t.Errorf("delete a stack with envs = %d %s", rec.Code, rec.Body)
 	}
-	rec = s.Do(t, "POST", "/acme/-/vars", url.Values{"new_collection": {"db"}, "new_name": {"pass"}, "new_kind": {"secret"}, "new_value": {"hunter2"}})
-	if rec.Code != http.StatusOK || rec.Header().Get("HX-Retarget") != "#vars-editor" || strings.Contains(rec.Body.String(), "hunter2") {
+	rec = s.Do(t, "POST", "/acme/-/vars", url.Values{
+		"new_collection": {"db"},
+		"new_name":       {"pass"},
+		"new_kind":       {"secret"},
+		"new_value":      {"hunter2"},
+	})
+	if rec.Code != http.StatusOK || rec.Header().Get("HX-Retarget") != "#vars-editor" ||
+		strings.Contains(rec.Body.String(), "hunter2") {
 		t.Fatalf("save a secret = %d %s", rec.Code, rec.Body)
 	}
 	ps, _ := s.Orch.Params(ctx, service.ParamScope{Kind: "org", ID: s.Org}, true)
@@ -172,7 +189,14 @@ func TestDrawerActions(t *testing.T) {
 	b := newBrowser(t, "owner")
 	rec = b.do(t, "POST", "/acme/-/drawer/rename", url.Values{"name": {"Acme Two"}}, true)
 	to := rec.Header().Get("HX-Redirect")
-	if body := b.do(t, "GET", to, nil, false).Body.String(); !strings.Contains(body, `<side-drawer open tab="settings">`) || !strings.Contains(body, `value="Acme Two"`) {
+	if body := b.do(
+		t,
+		"GET",
+		to,
+		nil,
+		false,
+	).Body.String(); !strings.Contains(body, `<side-drawer open tab="settings">`) ||
+		!strings.Contains(body, `value="Acme Two"`) {
 		t.Errorf("rename lands on %q without its drawer open", to)
 	}
 	rec = s.Do(t, "POST", "/acme/shop/dev/-/drawer/color", url.Values{"color": {"teal"}})

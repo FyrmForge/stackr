@@ -22,12 +22,22 @@ func (h *handler) stackTab(c echo.Context, cd card, f *comp.DrawerView) (templ.C
 		rs, err := h.orch.Releases(ctx, st.ID)
 		var v stackui.ReleasesView
 		for _, r := range rs {
-			v.Rows = append(v.Rows, stackui.ReleaseRow{Number: strconv.Itoa(r.Number), Created: day(r.CreatedAt), By: r.CreatedBy})
+			v.Rows = append(v.Rows, stackui.ReleaseRow{
+				Number:  strconv.Itoa(r.Number),
+				Created: day(r.CreatedAt),
+				By:      r.CreatedBy,
+			})
 		}
 		return stackui.Releases(v), err
 	}
 	cs, err := h.orch.Connectors(ctx, cd.s.Org.ID)
-	v := stackui.SettingsView{Name: st.Name, Connector: st.ConfigConnectorID, Repo: st.ConfigRepo, Branch: st.ConfigBranch, Path: st.ConfigPath}
+	v := stackui.SettingsView{
+		Name:      st.Name,
+		Connector: st.ConfigConnectorID,
+		Repo:      st.ConfigRepo,
+		Branch:    st.ConfigBranch,
+		Path:      st.ConfigPath,
+	}
 	for _, k := range cs {
 		v.Connectors = append(v.Connectors, stackui.Option{Value: k.ID, Label: k.Name + " (" + k.Host + ")"})
 	}
@@ -68,7 +78,14 @@ func (h *handler) mountStack(site *echo.Group, a *middleware.Access) {
 	}), write)
 	site.POST(s+"/config", h.stackAction("settings", func(c echo.Context, cd card) (string, error) {
 		f := c.FormValue
-		_, err := h.orch.SetConfigRepo(c.Request().Context(), cd.s.Stack.ID, f("connector"), f("repo"), f("branch"), f("path"))
+		_, err := h.orch.SetConfigRepo(
+			c.Request().Context(),
+			cd.s.Stack.ID,
+			f("connector"),
+			f("repo"),
+			f("branch"),
+			f("path"),
+		)
 		return "Config repo saved.", err
 	}), write)
 	site.POST(s+"/delete", h.stackAction("settings", func(c echo.Context, cd card) (string, error) {

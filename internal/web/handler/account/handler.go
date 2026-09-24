@@ -16,9 +16,13 @@ import (
 
 type handler struct{ orch *service.Orchestrator }
 
-func NewHandler(orch *service.Orchestrator) *handler { return &handler{orch: orch} }
+func NewHandler(orch *service.Orchestrator) *handler {
+	return &handler{orch: orch}
+}
 
-func me(c echo.Context) service.User { return middleware.Principal(c).User }
+func me(c echo.Context) service.User {
+	return middleware.Principal(c).User
+}
 
 // GET /account
 func (h *handler) Page(c echo.Context) error {
@@ -31,7 +35,12 @@ func (h *handler) Page(c echo.Context) error {
 
 // POST /account/password (current_password, password)
 func (h *handler) Password(c echo.Context) error {
-	err := h.orch.ChangePassword(c.Request().Context(), me(c).ID, c.FormValue("current_password"), c.FormValue("password"))
+	err := h.orch.ChangePassword(
+		c.Request().Context(),
+		me(c).ID,
+		c.FormValue("current_password"),
+		c.FormValue("password"),
+	)
 	if err == nil {
 		return respond.HTML(c, http.StatusOK, password(PasswordView{Done: true}))
 	}
@@ -81,7 +90,12 @@ func (h *handler) keys(c echo.Context) (KeysView, error) {
 		if k.OrgID != nil {
 			org = names[*k.OrgID]
 		}
-		v.Rows = append(v.Rows, Key{ID: k.ID, Name: k.Name, Org: org, Created: k.CreatedAt.Local().Format("Jan 2 2006")})
+		v.Rows = append(v.Rows, Key{
+			ID:      k.ID,
+			Name:    k.Name,
+			Org:     org,
+			Created: k.CreatedAt.Local().Format("Jan 2 2006"),
+		})
 	}
 	return v, nil
 }

@@ -8,10 +8,26 @@ import (
 
 func TestSlicesRenders(t *testing.T) {
 	var b strings.Builder
-	err := Slices(View{Name: "pg", Engine: "postgres", Scope: "stack", Slices: []SliceRow{
-		{ID: "p1", Name: "shop", DB: "shop", Drawer: "/o/s/e/-/slices/p1?tab=bindings", Public: true},
-		{ID: "p2", Name: "old", OnRemove: "drop", Orphan: true},
-	}}).Render(context.Background(), &b)
+	err := Slices(View{
+		Name:   "pg",
+		Engine: "postgres",
+		Scope:  "stack",
+		Slices: []SliceRow{
+			{
+				ID:     "p1",
+				Name:   "shop",
+				DB:     "shop",
+				Drawer: "/o/s/e/-/slices/p1?tab=bindings",
+				Public: true,
+			},
+			{
+				ID:       "p2",
+				Name:     "old",
+				OnRemove: "drop",
+				Orphan:   true,
+			},
+		},
+	}).Render(context.Background(), &b)
 	if err != nil {
 		t.Fatal(err)
 	}

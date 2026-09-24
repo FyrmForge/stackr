@@ -29,9 +29,13 @@ import (
 
 type handler struct{ orch *service.Orchestrator }
 
-func NewHandler(orch *service.Orchestrator) *handler { return &handler{orch: orch} }
+func NewHandler(orch *service.Orchestrator) *handler {
+	return &handler{orch: orch}
+}
 
-func scope(c echo.Context) service.Scope { return middleware.ScopeOf(c) }
+func scope(c echo.Context) service.Scope {
+	return middleware.ScopeOf(c)
+}
 
 // Mount registers the env's drawers and dialogs on g, under the env
 // page's "/-/" (never a slug). The env stream is the canvas's.
@@ -90,9 +94,19 @@ func (h *handler) Rollback(c echo.Context) error {
 
 func createView(c echo.Context) dialog.CreateTileView {
 	url := render.EnvURL(c) + "/-/new-tile"
-	v := dialog.CreateTileView{Action: url, Switch: url, Source: c.FormValue("source"), Name: c.FormValue("name"),
-		Image: c.FormValue("image_ref"), GitURL: c.FormValue("git_url"), Branch: c.FormValue("git_branch"),
-		Schedule: c.FormValue("schedule"), Trigger: c.FormValue("trigger"), Engine: c.FormValue("engine"), Command: c.FormValue("command")}
+	v := dialog.CreateTileView{
+		Action:   url,
+		Switch:   url,
+		Source:   c.FormValue("source"),
+		Name:     c.FormValue("name"),
+		Image:    c.FormValue("image_ref"),
+		GitURL:   c.FormValue("git_url"),
+		Branch:   c.FormValue("git_branch"),
+		Schedule: c.FormValue("schedule"),
+		Trigger:  c.FormValue("trigger"),
+		Engine:   c.FormValue("engine"),
+		Command:  c.FormValue("command"),
+	}
 	if !slices.ContainsFunc(dialog.Sources, func(o dialog.Option) bool { return o.Value == v.Source }) {
 		v.Source = "image"
 	}
@@ -119,13 +133,22 @@ func (h *handler) NewTile(c echo.Context) error {
 // page; a refusal re-renders the form with the field marked (422).
 func (h *handler) CreateTile(c echo.Context) error {
 	v, s := createView(c), scope(c)
-	t := service.Tile{StackID: s.Stack.ID, EnvironmentID: s.Env.ID, Name: v.Name, Kind: v.Source}
+	t := service.Tile{
+		StackID:       s.Stack.ID,
+		EnvironmentID: s.Env.ID,
+		Name:          v.Name,
+		Kind:          v.Source,
+	}
 	var err error
 	switch v.Source {
 	case "managed":
 		t, err = h.orch.CreateManagedTile(c.Request().Context(), t, v.Engine)
 	default:
-		t.ImageRef, t.GitURL, t.GitBranch, t.Schedule, t.Trigger = v.Image, v.GitURL, v.Branch, v.Schedule, v.Trigger
+		t.ImageRef = v.Image
+		t.GitURL = v.GitURL
+		t.GitBranch = v.Branch
+		t.Schedule = v.Schedule
+		t.Trigger = v.Trigger
 		t.Command = v.Command
 		if v.Source == "service" {
 			t.ImageRef = ""
@@ -144,7 +167,8 @@ func (h *handler) CreateTile(c echo.Context) error {
 			field, msg = inv.Field, inv.Msg
 		}
 		v.Errors = map[string]string{field: msg}
-		if field != "general" && !slices.Contains([]string{"name", "image_ref", "git_url", "git_branch", "schedule", "engine"}, field) {
+		if field != "general" &&
+			!slices.Contains([]string{"name", "image_ref", "git_url", "git_branch", "schedule", "engine"}, field) {
 			v.Errors["general"] = field + ": " + msg // a field the form does not show
 		}
 		return respond.HTML(c, http.StatusUnprocessableEntity, dialog.CreateTile(v))
@@ -162,10 +186,23 @@ func (h *handler) Instance(c echo.Context) error {
 	if err != nil {
 		return middleware.HTTPError(err)
 	}
-	v := instance.View{Name: t.Name, Engine: m.Engine, Scope: m.ScopeKind, Endpoint: m.Endpoint, AdminUser: m.AdminUser}
+	v := instance.View{
+		Name:      t.Name,
+		Engine:    m.Engine,
+		Scope:     m.ScopeKind,
+		Endpoint:  m.Endpoint,
+		AdminUser: m.AdminUser,
+	}
 	for _, p := range ps {
-		v.Slices = append(v.Slices, instance.SliceRow{ID: p.ID, Name: p.Slug, DB: p.DBName, OnRemove: p.OnRemove,
-			Public: p.Public, Orphan: p.ConsumerTileID == nil, Drawer: render.EnvURL(c) + "/-/slices/" + p.ID + "?tab=bindings"})
+		v.Slices = append(v.Slices, instance.SliceRow{
+			ID:       p.ID,
+			Name:     p.Slug,
+			DB:       p.DBName,
+			OnRemove: p.OnRemove,
+			Public:   p.Public,
+			Orphan:   p.ConsumerTileID == nil,
+			Drawer:   render.EnvURL(c) + "/-/slices/" + p.ID + "?tab=bindings",
+		})
 	}
 	return respond.HTML(c, http.StatusOK, instance.Slices(v))
 }
@@ -189,8 +226,15 @@ func (h *handler) slice(c echo.Context, actErr error) error {
 	}
 	var outs map[string]json.RawMessage
 	_ = json.Unmarshal([]byte(p.Outputs), &outs) // names only; a bad blob shows none
-	v := slice.View{Name: p.Slug, DB: p.DBName, User: p.DBUser, OnRemove: p.OnRemove, Public: p.Public,
-		Consumer: p.ConsumerTileID != nil, Error: msg}
+	v := slice.View{
+		Name:     p.Slug,
+		DB:       p.DBName,
+		User:     p.DBUser,
+		OnRemove: p.OnRemove,
+		Public:   p.Public,
+		Consumer: p.ConsumerTileID != nil,
+		Error:    msg,
+	}
 	for k := range outs {
 		v.Outputs = append(v.Outputs, k)
 	}
@@ -209,8 +253,15 @@ func (h *handler) Proxy(c echo.Context) error {
 	}
 	var v proxy.View
 	for _, r := range rs {
-		v.Rows = append(v.Rows, proxy.Route{Host: r.Host, Path: r.Path, Tile: r.Tile, Port: fmt.Sprint(r.ContainerPort),
-			HTTPS: r.HTTPS, Auto: r.Auto, Raw: r.RawCaddy != ""})
+		v.Rows = append(v.Rows, proxy.Route{
+			Host:  r.Host,
+			Path:  r.Path,
+			Tile:  r.Tile,
+			Port:  fmt.Sprint(r.ContainerPort),
+			HTTPS: r.HTTPS,
+			Auto:  r.Auto,
+			Raw:   r.RawCaddy != "",
+		})
 	}
 	return respond.HTML(c, http.StatusOK, proxy.Routes(v))
 }
@@ -267,9 +318,15 @@ func (h *handler) volume(c echo.Context, note string, actErr error) error {
 	if err != nil {
 		return middleware.HTTPError(err)
 	}
-	v := volume.View{Name: vol.Name, Scope: vol.ScopeKind, Orphaned: when(vol.OrphanedAt), Methods: methods,
-		Base: render.EnvURL(c) + "/-/volumes/" + id, Error: msg,
-		Dests: []volume.Option{{Value: "", Label: "local disk"}}}
+	v := volume.View{
+		Name:     vol.Name,
+		Scope:    vol.ScopeKind,
+		Orphaned: when(vol.OrphanedAt),
+		Methods:  methods,
+		Base:     render.EnvURL(c) + "/-/volumes/" + id,
+		Error:    msg,
+		Dests:    []volume.Option{{Value: "", Label: "local disk"}},
+	}
 	if msg == "" {
 		v.Note = note
 	}
@@ -283,11 +340,23 @@ func (h *handler) volume(c echo.Context, note string, actErr error) error {
 		if s.DestID != nil {
 			dest = *s.DestID
 		}
-		v.Schedules = append(v.Schedules, volume.Schedule{Method: s.Method, Cron: s.Cron, Dest: names[dest], Keep: fmt.Sprint(s.Keep)})
+		v.Schedules = append(v.Schedules, volume.Schedule{
+			Method: s.Method,
+			Cron:   s.Cron,
+			Dest:   names[dest],
+			Keep:   fmt.Sprint(s.Keep),
+		})
 	}
 	for _, r := range runs {
-		v.Runs = append(v.Runs, volume.Run{ID: r.ID, Status: r.Status, Trigger: r.Trigger, When: when(&r.CreatedAt),
-			Size: render.Size(r.SizeBytes), Error: r.Error, Restorable: r.Status == "done" && r.ObjectKey != ""})
+		v.Runs = append(v.Runs, volume.Run{
+			ID:         r.ID,
+			Status:     r.Status,
+			Trigger:    r.Trigger,
+			When:       when(&r.CreatedAt),
+			Size:       render.Size(r.SizeBytes),
+			Error:      r.Error,
+			Restorable: r.Status == "done" && r.ObjectKey != "",
+		})
 	}
 	return respond.HTML(c, status, volume.Backups(v))
 }

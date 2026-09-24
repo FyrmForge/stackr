@@ -46,10 +46,17 @@ func where(c echo.Context) level {
 	sc := middleware.ScopeOf(c)
 	switch {
 	case sc.Env != nil:
-		return level{service.CanvasScope{Kind: service.CanvasEnv, ID: sc.Env.ID},
-			"/" + sc.Org.Slug + "/" + sc.Stack.Slug + "/" + sc.Env.Slug, sc.Env.Name}
+		return level{
+			service.CanvasScope{Kind: service.CanvasEnv, ID: sc.Env.ID},
+			"/" + sc.Org.Slug + "/" + sc.Stack.Slug + "/" + sc.Env.Slug,
+			sc.Env.Name,
+		}
 	case sc.Stack != nil:
-		return level{service.CanvasScope{Kind: service.CanvasStack, ID: sc.Stack.ID}, "/" + sc.Org.Slug + "/" + sc.Stack.Slug, sc.Stack.Name}
+		return level{
+			service.CanvasScope{Kind: service.CanvasStack, ID: sc.Stack.ID},
+			"/" + sc.Org.Slug + "/" + sc.Stack.Slug,
+			sc.Stack.Name,
+		}
 	case sc.Org != nil:
 		return level{service.CanvasScope{Kind: service.CanvasOrg, ID: sc.Org.ID}, "/" + sc.Org.Slug, sc.Org.Name}
 	}
@@ -59,7 +66,12 @@ func where(c echo.Context) level {
 // show reads the query params: "<name>=0" turns a kind off.
 func show(c echo.Context) service.GraphShow {
 	on := func(k string) bool { return c.QueryParam(k) != "0" }
-	return service.GraphShow{System: on("system"), Refs: on("refs"), Startup: on("startup"), Traffic: on("traffic")}
+	return service.GraphShow{
+		System:  on("system"),
+		Refs:    on("refs"),
+		Startup: on("startup"),
+		Traffic: on("traffic"),
+	}
 }
 
 func (h *handler) view(c echo.Context) (ui.View, error) {
@@ -110,7 +122,8 @@ func (h *handler) Page(c echo.Context) error {
 }
 
 func isHTMX(c echo.Context) bool {
-	return c.Request().Header.Get("HX-Request") == "true" && c.Request().Header.Get("HX-History-Restore-Request") != "true"
+	return c.Request().Header.Get("HX-Request") == "true" &&
+		c.Request().Header.Get("HX-History-Restore-Request") != "true"
 }
 
 // POST …/-/positions (node_id, x, y): a card or note was dropped.
@@ -148,7 +161,15 @@ func (h *handler) Notes(c echo.Context) error {
 			}
 		}
 	}
-	a := service.Annotation{ID: c.FormValue("id"), Kind: c.FormValue("kind"), Text: c.FormValue("text"), X: n[0], Y: n[1], W: n[2], H: n[3]}
+	a := service.Annotation{
+		ID:   c.FormValue("id"),
+		Kind: c.FormValue("kind"),
+		Text: c.FormValue("text"),
+		X:    n[0],
+		Y:    n[1],
+		W:    n[2],
+		H:    n[3],
+	}
 	if _, _, err := h.orch.SetAnnotation(c.Request().Context(), where(c).scope, a); err != nil {
 		return middleware.HTTPError(err)
 	}

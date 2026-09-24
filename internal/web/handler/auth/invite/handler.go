@@ -19,9 +19,13 @@ import (
 
 type handler struct{ orch *service.Orchestrator }
 
-func NewHandler(orch *service.Orchestrator) *handler { return &handler{orch: orch} }
+func NewHandler(orch *service.Orchestrator) *handler {
+	return &handler{orch: orch}
+}
 
-func base(c echo.Context) string { return "/invite/" + c.Param("token") }
+func base(c echo.Context) string {
+	return "/invite/" + c.Param("token")
+}
 
 // GET /invite/:token
 func (h *handler) Page(c echo.Context) error {
@@ -32,7 +36,13 @@ func (h *handler) Page(c echo.Context) error {
 	if err != nil {
 		return middleware.HTTPError(err)
 	}
-	v := View{Base: base(c), Role: inv.Role, Email: inv.Email, Signed: middleware.Principal(c) != nil, Form: Form{Email: inv.Email}}
+	v := View{
+		Base:   base(c),
+		Role:   inv.Role,
+		Email:  inv.Email,
+		Signed: middleware.Principal(c) != nil,
+		Form:   Form{Email: inv.Email},
+	}
 	return render.Page(c, http.StatusOK, "Invite", page(v))
 }
 

@@ -27,7 +27,11 @@ func NewHandler(orch *service.Orchestrator) *handler { return &handler{orch: orc
 func (h *handler) Mount(g *echo.Group, a *middleware.Access) {
 	b := ui.Base
 	g.GET(b, h.Drawer, a.Require("admin.read"))
-	g.GET("/-/jobs/:job/events", func(c echo.Context) error { return render.JobStream(c, h.orch, "") }, a.Require("admin.read"))
+	g.GET(
+		"/-/jobs/:job/events",
+		func(c echo.Context) error { return render.JobStream(c, h.orch, "") },
+		a.Require("admin.read"),
+	)
 	g.POST(b+"/settings", h.SaveSettings, a.Require("serverdefaults.set"))
 	g.POST(b+"/users/:user/admin", h.act("users", func(c echo.Context) (string, *service.Job, error) {
 		return "Saved.", nil, h.orch.SetAdmin(c.Request().Context(), c.Param("user"), c.QueryParam("admin") == "true")
@@ -53,7 +57,14 @@ func (h *handler) Mount(g *echo.Group, a *middleware.Access) {
 }
 
 func frame(tab string) comp.DrawerView {
-	f := comp.DrawerView{Node: "admin", Title: "Admin", Kind: "server", Base: ui.Base, Tabs: ui.Tabs, Tab: tab}
+	f := comp.DrawerView{
+		Node:  "admin",
+		Title: "Admin",
+		Kind:  "server",
+		Base:  ui.Base,
+		Tabs:  ui.Tabs,
+		Tab:   tab,
+	}
 	if !slices.Contains(ui.Tabs, tab) {
 		f.Tab = ui.Tabs[0]
 	}
@@ -124,8 +135,13 @@ func (h *handler) tab(c echo.Context, tab string, x extra) (templ.Component, err
 		us, err := h.orch.Users(ctx)
 		var v ui.UsersView
 		for _, u := range us {
-			r := ui.User{Email: u.Email, Name: u.Name, Admin: u.Admin(), Active: u.Active,
-				Promote: ui.Base + "/users/" + u.ID + "/admin?admin=" + url.QueryEscape(boolWord(!u.Admin()))}
+			r := ui.User{
+				Email:   u.Email,
+				Name:    u.Name,
+				Admin:   u.Admin(),
+				Active:  u.Active,
+				Promote: ui.Base + "/users/" + u.ID + "/admin?admin=" + url.QueryEscape(boolWord(!u.Admin())),
+			}
 			if u.Active {
 				r.Disable = ui.Base + "/users/" + u.ID + "/disable"
 			}
@@ -139,9 +155,13 @@ func (h *handler) tab(c echo.Context, tab string, x extra) (templ.Component, err
 		}
 		v.Version, v.Job = h.orch.Version(), job
 		if v.Newer {
-			v.Run = comp.ConfirmView{Button: "Upgrade to " + v.Latest, Title: "Upgrade stackr to " + v.Latest,
+			v.Run = comp.ConfirmView{
+				Button:  "Upgrade to " + v.Latest,
+				Title:   "Upgrade stackr to " + v.Latest,
 				Warning: "The panel archives its database, then restarts on the new image. Running tiles keep running.",
-				Action:  ui.Base + "/update/run?tag=" + url.QueryEscape(v.Latest), Target: "#" + comp.DrawerRoot}
+				Action:  ui.Base + "/update/run?tag=" + url.QueryEscape(v.Latest),
+				Target:  "#" + comp.DrawerRoot,
+			}
 		}
 		return ui.Update(v), nil
 	case "caddy":
@@ -151,8 +171,13 @@ func (h *handler) tab(c echo.Context, tab string, x extra) (templ.Component, err
 		rs, err := h.orch.PanelBackups(ctx)
 		v := ui.BackupsView{Now: ui.Base + "/backups", Job: job}
 		for _, r := range rs {
-			v.Rows = append(v.Rows, ui.Backup{Status: r.Status, Trigger: r.Trigger, When: r.CreatedAt.Local().Format("Jan 2 15:04"),
-				Size: render.Size(r.SizeBytes), Error: r.Error})
+			v.Rows = append(v.Rows, ui.Backup{
+				Status:  r.Status,
+				Trigger: r.Trigger,
+				When:    r.CreatedAt.Local().Format("Jan 2 15:04"),
+				Size:    render.Size(r.SizeBytes),
+				Error:   r.Error,
+			})
 		}
 		return ui.Backups(v), err
 	}
@@ -175,7 +200,14 @@ func (h *handler) settings(c echo.Context, refused error) (comp.SettingsFormView
 	bad, invalid := errs.IsInvalid(refused)
 	marked := false
 	for _, s := range ss {
-		r := comp.SettingRowView{Key: s.Key, Desc: s.Desc, Type: string(s.Type), Value: s.Value, Effective: s.Effective, DecidedBy: s.DecidedBy}
+		r := comp.SettingRowView{
+			Key:       s.Key,
+			Desc:      s.Desc,
+			Type:      string(s.Type),
+			Value:     s.Value,
+			Effective: s.Effective,
+			DecidedBy: s.DecidedBy,
+		}
 		if invalid && bad.Field == s.Key {
 			r.Error, marked = bad.Msg, true
 		}

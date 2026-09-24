@@ -36,8 +36,11 @@ func (h *handler) Mount(g *echo.Group, a *middleware.Access) {
 	g.GET(d, h.Drawer, read)
 	g.GET(d+"/logs/stream", h.LogStream, read)
 	for verb, f := range map[string]func(context.Context, string) (service.Job, error){
-		"deploy": h.orch.Deploy, "restart": h.orch.RestartTile, "stop": h.orch.StopTile,
-		"start": h.orch.StartTile, "delete": h.orch.DeleteTile,
+		"deploy":  h.orch.Deploy,
+		"restart": h.orch.RestartTile,
+		"stop":    h.orch.StopTile,
+		"start":   h.orch.StartTile,
+		"delete":  h.orch.DeleteTile,
 	} {
 		g.POST(d+"/"+verb, h.tileJob(verb, f), write)
 	}
@@ -53,20 +56,32 @@ func (h *handler) Mount(g *echo.Group, a *middleware.Access) {
 	g.POST(d+"/image/check", h.CheckImage, write)
 }
 
-func tileOf(c echo.Context) *service.Tile { return middleware.ScopeOf(c).Tile }
+func tileOf(c echo.Context) *service.Tile {
+	return middleware.ScopeOf(c).Tile
+}
 
-func base(c echo.Context) string { return render.EnvURL(c) + "/-/tiles/" + tileOf(c).Slug }
+func base(c echo.Context) string {
+	return render.EnvURL(c) + "/-/tiles/" + tileOf(c).Slug
+}
 
 func view(c echo.Context, tab string) ui.View {
 	t := tileOf(c)
 	if !slices.Contains(ui.Tabs(t.Kind), tab) {
 		tab = "status"
 	}
-	return ui.View{Node: t.ID, Name: t.Name, Kind: t.Kind, Base: base(c), Tab: tab}
+	return ui.View{
+		Node: t.ID,
+		Name: t.Name,
+		Kind: t.Kind,
+		Base: base(c),
+		Tab:  tab,
+	}
 }
 
 // GET …/-/tiles/:tile?tab=
-func (h *handler) Drawer(c echo.Context) error { return h.show(c, http.StatusOK, view(c, c.QueryParam("tab"))) }
+func (h *handler) Drawer(c echo.Context) error {
+	return h.show(c, http.StatusOK, view(c, c.QueryParam("tab")))
+}
 
 // show renders v's tab: each case is one read verb and its view.
 func (h *handler) show(c echo.Context, status int, v ui.View) error {
@@ -209,7 +224,10 @@ func (h *handler) update(c echo.Context, tab string, edit func(*service.Tile) er
 
 func (h *handler) SetEnv(c echo.Context) error {
 	env := c.FormValue("env_json")
-	return h.update(c, "env", func(t *service.Tile) error { t.EnvJSON = env; return nil })
+	return h.update(c, "env", func(t *service.Tile) error {
+		t.EnvJSON = env
+		return nil
+	})
 }
 
 func (h *handler) SetImagePolicy(c echo.Context) error {
@@ -294,7 +312,10 @@ func (h *handler) LogStream(e echo.Context) error {
 			}
 		}
 	}()
-	return stream.Lines(e, out, func() { close(done); stop() })
+	return stream.Lines(e, out, func() {
+		close(done)
+		stop()
+	})
 }
 
 // logLine splits docker's RFC 3339 timestamp off a line when there is

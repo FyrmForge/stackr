@@ -29,16 +29,57 @@ var contract = map[string][]string{
 	"confirm-dialog": {`"confirmed"`, `"word"`, "[data-open]", "[data-cancel]", "[data-confirm]", "[data-word]"},
 	"flash-toast":    {`"kind"`, "htmx:responseError"},
 	"graph-canvas": {
-		`"selection-changed"`, "detail: { ids:", `"scale"`, `"snap"`, `"straight"`, `"fan-out"`, `"arrows"`, `"focus"`,
-		`"selected"`, `"lit"`, `"data-lit"`, `"focusing"`, "svg[data-edges] path[data-from]", "dataset.from", "dataset.to",
-		`"node-id"`, "input[data-look]", "[data-zoom]", `"data-marquee"`, "--px", "--py", "--s",
+		`"selection-changed"`,
+		"detail: { ids:",
+		`"scale"`,
+		`"snap"`,
+		`"straight"`,
+		`"fan-out"`,
+		`"arrows"`,
+		`"focus"`,
+		`"selected"`,
+		`"lit"`,
+		`"data-lit"`,
+		`"focusing"`,
+		"svg[data-edges] path[data-from]",
+		"dataset.from",
+		"dataset.to",
+		`"node-id"`,
+		"input[data-look]",
+		"[data-zoom]",
+		`"data-marquee"`,
+		"--px",
+		"--py",
+		"--s",
 	},
 	"graph-node": {
-		`"node-moved"`, `"x"`, `"y"`, `"w"`, `"h"`, `"system"`, `"static"`, `"selected"`, `"dragging"`, `"snap"`, `"divider"`,
-		":scope > input[name=${k}]", "stopImmediatePropagation", "--x", "--y",
+		`"node-moved"`,
+		`"x"`,
+		`"y"`,
+		`"w"`,
+		`"h"`,
+		`"system"`,
+		`"static"`,
+		`"selected"`,
+		`"dragging"`,
+		`"snap"`,
+		`"divider"`,
+		":scope > input[name=${k}]",
+		"stopImmediatePropagation",
+		"--x",
+		"--y",
 	},
-	"log-pane":     {`"level"`, `"search"`, "[data-lines]"},
-	"side-drawer":  {`"drawer-closed"`, `"open"`, `"tab"`, "#drawer-body", "[data-close]", "[data-backdrop]", "history.replaceState", `"drawer"`},
+	"log-pane": {`"level"`, `"search"`, "[data-lines]"},
+	"side-drawer": {
+		`"drawer-closed"`,
+		`"open"`,
+		`"tab"`,
+		"#drawer-body",
+		"[data-close]",
+		"[data-backdrop]",
+		"history.replaceState",
+		`"drawer"`,
+	},
 	"theme-toggle": {`"theme"`},
 }
 
@@ -65,12 +106,22 @@ func TestElementWhitelist(t *testing.T) {
 		if n := strings.Count(src, "\n"); n >= elements[tag] {
 			t.Errorf("%s: %d lines, the budget is under %d", f, n, elements[tag])
 		}
-		for _, banned := range []string{"import ", "import(", "fetch(", "XMLHttpRequest", "attachShadow", "innerHTML", "outerHTML", "eval("} {
+		for _, banned := range []string{
+			"import ",
+			"import(",
+			"fetch(",
+			"XMLHttpRequest",
+			"attachShadow",
+			"innerHTML",
+			"outerHTML",
+			"eval(",
+		} {
 			if strings.Contains(src, banned) {
 				t.Errorf("%s contains %q", f, banned)
 			}
 		}
-		if strings.Count(src, "customElements.define(") != 1 || !strings.Contains(src, `customElements.define("`+tag+`"`) {
+		if strings.Count(src, "customElements.define(") != 1 ||
+			!strings.Contains(src, `customElements.define("`+tag+`"`) {
 			t.Errorf("%s must define exactly one tag, %q", f, tag)
 		}
 		for _, name := range contract[tag] {
