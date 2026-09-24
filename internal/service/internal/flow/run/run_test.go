@@ -36,8 +36,13 @@ var ctx = context.Background()
 
 type vipStub struct{}
 
-func (vipStub) Set(context.Context, string, []string) error { return nil }
-func (vipStub) Remove(context.Context, string) error        { return nil }
+func (vipStub) Set(context.Context, string, []string) error {
+	return nil
+}
+
+func (vipStub) Remove(context.Context, string) error {
+	return nil
+}
 
 func must(t *testing.T, err error) {
 	t.Helper()
@@ -54,23 +59,69 @@ func setup(t *testing.T) (*run.Flow, *dockerfake.Fake, store.Tile) {
 	tiles := tile.New(st.Tiles, fake, vipStub{})
 	envs := environment.New(st.Environments, fake)
 	d := &deploy.Flow{
-		Tiles: tiles, Envs: envs, Stacks: stack.New(st.Stacks),
-		Orgs: org.New(st.Orgs, st.OrgMembers, st.Invites), Volumes: volume.New(st.Volumes, fake),
-		Images: image.New(st.Images, fake), Releases: release.New(st.Releases, st.ReleaseTiles),
-		Params: params.New(st.Params), Managed: managed.New(st.ManagedInstances, st.Provisions),
-		Domains: domain.New(st.Domains, fake, "proxy"), Creds: credential.New(st.Credentials),
-		Settings: settings.New(st.Settings, nil), Jobs: job.New(st.Jobs),
+		Tiles:    tiles,
+		Envs:     envs,
+		Stacks:   stack.New(st.Stacks),
+		Orgs:     org.New(st.Orgs, st.OrgMembers, st.Invites),
+		Volumes:  volume.New(st.Volumes, fake),
+		Images:   image.New(st.Images, fake),
+		Releases: release.New(st.Releases, st.ReleaseTiles),
+		Params:   params.New(st.Params),
+		Managed:  managed.New(st.ManagedInstances, st.Provisions),
+		Domains:  domain.New(st.Domains, fake, "proxy"),
+		Creds:    credential.New(st.Credentials),
+		Settings: settings.New(st.Settings, nil),
+		Jobs:     job.New(st.Jobs),
 	}
 	o, s, e := uuid.NewString(), uuid.NewString(), uuid.NewString()
 	now := time.Now()
-	must(t, st.Orgs.Create(ctx, store.Org{ID: o, Name: "acme", Slug: "acme", EnvColors: "{}", Settings: "{}", CreatedAt: now}))
-	must(t, st.Stacks.Create(ctx, store.Stack{ID: s, OrgID: o, Name: "shop", Slug: "shop", Settings: "{}", Domains: "[]", CreatedAt: now}))
-	must(t, st.Environments.Create(ctx, store.Environment{ID: e, StackID: s, Name: "dev", Slug: "dev", Type: "static",
-		Settings: "{}", Network: "n", FromKind: "branch", FromBranch: "main", CreatedAt: now}))
-	sweep, err := tiles.Create(ctx, store.Tile{StackID: s, EnvironmentID: e, Name: "sweep", Kind: tile.Cron,
-		ImageRef: "alpine:3", Schedule: "*/5 * * * *", Command: "sh -c 'echo hi'"})
+	must(t, st.Orgs.Create(ctx, store.Org{
+		ID:        o,
+		Name:      "acme",
+		Slug:      "acme",
+		EnvColors: "{}",
+		Settings:  "{}",
+		CreatedAt: now,
+	}))
+	must(t, st.Stacks.Create(ctx, store.Stack{
+		ID:        s,
+		OrgID:     o,
+		Name:      "shop",
+		Slug:      "shop",
+		Settings:  "{}",
+		Domains:   "[]",
+		CreatedAt: now,
+	}))
+	must(t, st.Environments.Create(ctx, store.Environment{
+		ID:         e,
+		StackID:    s,
+		Name:       "dev",
+		Slug:       "dev",
+		Type:       "static",
+		Settings:   "{}",
+		Network:    "n",
+		FromKind:   "branch",
+		FromBranch: "main",
+		CreatedAt:  now,
+	}))
+	sweep, err := tiles.Create(ctx, store.Tile{
+		StackID:       s,
+		EnvironmentID: e,
+		Name:          "sweep",
+		Kind:          tile.Cron,
+		ImageRef:      "alpine:3",
+		Schedule:      "*/5 * * * *",
+		Command:       "sh -c 'echo hi'",
+	})
 	must(t, err)
-	f := &run.Flow{Tiles: tiles, Envs: envs, Runs: lrun.New(st.Runs, t.TempDir()), Jobs: d.Jobs, Deploy: d, Minute: 20 * time.Millisecond}
+	f := &run.Flow{
+		Tiles:  tiles,
+		Envs:   envs,
+		Runs:   lrun.New(st.Runs, t.TempDir()),
+		Jobs:   d.Jobs,
+		Deploy: d,
+		Minute: 20 * time.Millisecond,
+	}
 	return f, fake, sweep
 }
 
@@ -96,7 +147,8 @@ func TestRunOK(t *testing.T) {
 		t.Errorf("log = %q", b)
 	}
 	s := fake.Specs[0]
-	if s.Image != "alpine:3" || s.Restart != "no" || s.Labels[tile.LabelRole] != "run" || s.Labels[tile.LabelRun] != r.ID ||
+	if s.Image != "alpine:3" || s.Restart != "no" || s.Labels[tile.LabelRole] != "run" ||
+		s.Labels[tile.LabelRun] != r.ID ||
 		!slices.Equal(s.Cmd, []string{"sh", "-c", "echo hi"}) || len(s.Networks) == 0 {
 		t.Errorf("spec = %+v", s)
 	}
@@ -173,10 +225,16 @@ func TestLostJobUnblocks(t *testing.T) {
 
 func TestQueueRefusesAService(t *testing.T) {
 	f, _, sweep := setup(t)
-	api, err := f.Tiles.Create(ctx, store.Tile{StackID: sweep.StackID, EnvironmentID: sweep.EnvironmentID, Name: "api",
-		Kind: tile.Image, ImageRef: "nginx:1"})
+	api, err := f.Tiles.Create(ctx, store.Tile{
+		StackID:       sweep.StackID,
+		EnvironmentID: sweep.EnvironmentID,
+		Name:          "api",
+		Kind:          tile.Image,
+		ImageRef:      "nginx:1",
+	})
 	must(t, err)
-	if _, _, err := f.Queue(ctx, api.ID, lrun.Manual); err == nil || !strings.Contains(err.Error(), "run applies to cron and function tiles") {
+	if _, _, err := f.Queue(ctx, api.ID, lrun.Manual); err == nil ||
+		!strings.Contains(err.Error(), "run applies to cron and function tiles") {
 		t.Errorf("queue a service = %v", err)
 	}
 }

@@ -33,19 +33,45 @@ func labelled(labels map[string]string) map[string]string {
 func world() (*traffic.Flow, *dockerfake.Fake, *time.Time) {
 	f := dockerfake.New()
 	f.Containers = []docker.Container{
-		{ID: "w1", State: "running", IPs: []string{"172.20.0.3", "172.21.0.6"}, Labels: labelled(map[string]string{tile.LabelTile: "web", tile.LabelRole: "replica"})},
-		{ID: "dp", State: "running", IPs: []string{"172.20.0.2"}, Labels: labelled(map[string]string{tile.LabelTile: "db", tile.LabelRole: "pause"})},
-		{ID: "d1", State: "running", IPs: []string{"172.20.0.4"}, Labels: labelled(map[string]string{tile.LabelTile: "db", tile.LabelRole: "replica"})},
-		{ID: "old", State: "exited", IPs: []string{"172.20.0.9"}, Labels: labelled(map[string]string{tile.LabelTile: "gone"})},
+		{
+			ID:     "w1",
+			State:  "running",
+			IPs:    []string{"172.20.0.3", "172.21.0.6"},
+			Labels: labelled(map[string]string{tile.LabelTile: "web", tile.LabelRole: "replica"}),
+		},
+		{
+			ID:     "dp",
+			State:  "running",
+			IPs:    []string{"172.20.0.2"},
+			Labels: labelled(map[string]string{tile.LabelTile: "db", tile.LabelRole: "pause"}),
+		},
+		{
+			ID:     "d1",
+			State:  "running",
+			IPs:    []string{"172.20.0.4"},
+			Labels: labelled(map[string]string{tile.LabelTile: "db", tile.LabelRole: "replica"}),
+		},
+		{
+			ID:     "old",
+			State:  "exited",
+			IPs:    []string{"172.20.0.9"},
+			Labels: labelled(map[string]string{tile.LabelTile: "gone"}),
+		},
 	}
 	// The proxy is on the default bridge and web's ingress network.
-	f.Details = map[string]docker.Detail{"stackr-proxy": {Networks: map[string]string{
-		"bridge": "172.17.0.2", "stackr-ingress-web": "172.21.0.5"}}}
+	f.Details = map[string]docker.Detail{
+		"stackr-proxy": {Networks: map[string]string{"bridge": "172.17.0.2", "stackr-ingress-web": "172.21.0.5"}},
+	}
 	f.GatewayIPs = []string{"172.20.0.1", "172.21.0.1"}
 	now := time.Unix(1000, 0)
-	fl := &traffic.Flow{Tiles: tile.New(nil, f, nil), Envs: environment.New(nil, f),
-		Domains: domain.New(nil, f, "stackr-proxy"), Traffic: ltraffic.New(),
-		Path: filepath.Join("testdata", "tick1"), Now: func() time.Time { return now }}
+	fl := &traffic.Flow{
+		Tiles:   tile.New(nil, f, nil),
+		Envs:    environment.New(nil, f),
+		Domains: domain.New(nil, f, "stackr-proxy"),
+		Traffic: ltraffic.New(),
+		Path:    filepath.Join("testdata", "tick1"),
+		Now:     func() time.Time { return now },
+	}
 	return fl, f, &now
 }
 
@@ -60,7 +86,10 @@ func TestTick(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := fl.Traffic.Snapshot()
-	want := map[ltraffic.Pair]float64{{From: "web", To: "db"}: 1000, {From: "db", To: "web"}: 10000}
+	want := map[ltraffic.Pair]float64{
+		{From: "web", To: "db"}: 1000,
+		{From: "db", To: "web"}: 10000,
+	}
 	if len(got) != len(want) {
 		t.Fatalf("snapshot = %v, want %v", got, want)
 	}
@@ -86,8 +115,10 @@ func TestTickSystemEnds(t *testing.T) {
 	}
 	got := fl.Traffic.Snapshot()
 	want := map[ltraffic.Pair]float64{
-		{From: "proxy", To: "web"}: 200, {From: "web", To: "proxy"}: 1100,
-		{From: "web", To: "internet"}: 200, {From: "internet", To: "web"}: 400,
+		{From: "proxy", To: "web"}:    200,
+		{From: "web", To: "proxy"}:    1100,
+		{From: "web", To: "internet"}: 200,
+		{From: "internet", To: "web"}: 400,
 	}
 	if len(got) != len(want) {
 		t.Fatalf("snapshot = %v, want %v", got, want)
@@ -128,19 +159,58 @@ func TestEdgesSlices(t *testing.T) {
 	s := storetest.Store(t)
 	now := time.Now()
 	org, stk, env := uuid.NewString(), uuid.NewString(), uuid.NewString()
-	must(t, s.Orgs.Create(ctx, store.Org{ID: org, Name: "acme", Slug: "acme", EnvColors: "{}", Settings: "{}", CreatedAt: now}))
-	must(t, s.Stacks.Create(ctx, store.Stack{ID: stk, OrgID: org, Name: "shop", Slug: "shop", Settings: "{}", Domains: "[]", CreatedAt: now}))
-	must(t, s.Environments.Create(ctx, store.Environment{ID: env, StackID: stk, Name: "dev", Slug: "dev", Type: "static",
-		Settings: "{}", Network: "n", FromKind: "branch", FromBranch: "main", CreatedAt: now}))
+	must(t, s.Orgs.Create(ctx, store.Org{
+		ID:        org,
+		Name:      "acme",
+		Slug:      "acme",
+		EnvColors: "{}",
+		Settings:  "{}",
+		CreatedAt: now,
+	}))
+	must(t, s.Stacks.Create(ctx, store.Stack{
+		ID:        stk,
+		OrgID:     org,
+		Name:      "shop",
+		Slug:      "shop",
+		Settings:  "{}",
+		Domains:   "[]",
+		CreatedAt: now,
+	}))
+	must(t, s.Environments.Create(ctx, store.Environment{
+		ID:         env,
+		StackID:    stk,
+		Name:       "dev",
+		Slug:       "dev",
+		Type:       "static",
+		Settings:   "{}",
+		Network:    "n",
+		FromKind:   "branch",
+		FromBranch: "main",
+		CreatedAt:  now,
+	}))
 	tiles := tile.New(s.Tiles, dockerfake.New(), nil)
 	ids := map[string]string{}
 	for _, n := range []string{"web", "jobs", "cron", "pg"} {
-		tl, err := tiles.Create(ctx, store.Tile{StackID: stk, EnvironmentID: env, Name: n, Kind: tile.Image, ImageRef: n + ":1"})
+		tl, err := tiles.Create(ctx, store.Tile{
+			StackID:       stk,
+			EnvironmentID: env,
+			Name:          n,
+			Kind:          tile.Image,
+			ImageRef:      n + ":1",
+		})
 		must(t, err)
 		ids[n] = tl.ID
 	}
 	ml := managed.New(s.ManagedInstances, s.Provisions)
-	m, err := ml.Create(ctx, ids["pg"], "postgres", "", managed.Home{EnvID: env, StackID: stk, OrgID: org}, "admin", "pg:5432")
+	m, err := ml.Create(
+		ctx,
+		ids["pg"],
+		"postgres",
+		"",
+		managed.Home{EnvID: env, StackID: stk, OrgID: org},
+		"admin",
+		"pg:5432",
+	)
 	must(t, err)
 	slice := map[string]string{}
 	for _, n := range []string{"web", "jobs"} {
@@ -149,8 +219,14 @@ func TestEdgesSlices(t *testing.T) {
 		slice[n] = p.ID
 	}
 	fl := &traffic.Flow{Tiles: tiles, Managed: ml, Traffic: ltraffic.New()}
-	ipMap := map[string]string{"10.0.0.2": ids["web"], "10.0.0.3": ids["jobs"], "10.0.0.4": ids["cron"],
-		"10.0.0.9": ids["pg"], "10.1.0.2": "elsewhere", "10.1.0.3": "elsewhere-too"}
+	ipMap := map[string]string{
+		"10.0.0.2": ids["web"],
+		"10.0.0.3": ids["jobs"],
+		"10.0.0.4": ids["cron"],
+		"10.0.0.9": ids["pg"],
+		"10.1.0.2": "elsewhere",
+		"10.1.0.3": "elsewhere-too",
+	}
 	dump := func(n int) []byte {
 		var b strings.Builder
 		for i, src := range []string{"10.0.0.2", "10.0.0.3", "10.0.0.4", "10.1.0.2"} {
@@ -169,9 +245,12 @@ func TestEdgesSlices(t *testing.T) {
 	got, err := fl.Edges(ctx, env)
 	must(t, err)
 	want := map[ltraffic.Pair]float64{
-		{From: ids["web"], To: slice["web"]}: 100, {From: slice["web"], To: ids["web"]}: 200,
-		{From: ids["jobs"], To: slice["jobs"]}: 100, {From: slice["jobs"], To: ids["jobs"]}: 200,
-		{From: ids["cron"], To: ids["pg"]}: 100, {From: ids["pg"], To: ids["cron"]}: 200,
+		{From: ids["web"], To: slice["web"]}:   100,
+		{From: slice["web"], To: ids["web"]}:   200,
+		{From: ids["jobs"], To: slice["jobs"]}: 100,
+		{From: slice["jobs"], To: ids["jobs"]}: 200,
+		{From: ids["cron"], To: ids["pg"]}:     100,
+		{From: ids["pg"], To: ids["cron"]}:     200,
 	}
 	if len(got) != len(want) {
 		t.Fatalf("edges = %+v, want %v", got, want)

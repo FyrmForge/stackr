@@ -94,8 +94,13 @@ func (f *Flow) Redeploy(ctx context.Context, tileID string, log io.Writer, swap 
 	}
 	// An image tile's first run, or its first after a tag edit: pin what the
 	// tag meant, as a release.
-	r, err := f.Releases.Derive(ctx, t.StackID, deref(e.ReleaseID), "deploy",
-		release.Pin{Slug: t.Slug, Repo: t.ImageRef, Digest: digest})
+	r, err := f.Releases.Derive(
+		ctx,
+		t.StackID,
+		deref(e.ReleaseID),
+		"deploy",
+		release.Pin{Slug: t.Slug, Repo: t.ImageRef, Digest: digest},
+	)
 	if err != nil {
 		return err
 	}
@@ -175,7 +180,12 @@ func (f *Flow) Spec(ctx context.Context, t store.Tile, ref string, log io.Writer
 
 // prepare resolves t's facts and pulls ref: everything a container needs
 // short of starting one.
-func (f *Flow) prepare(ctx context.Context, t store.Tile, ref string, log io.Writer) (resolved, store.Environment, string, error) {
+func (f *Flow) prepare(
+	ctx context.Context,
+	t store.Tile,
+	ref string,
+	log io.Writer,
+) (resolved, store.Environment, string, error) {
 	e, err := f.Envs.Get(ctx, t.EnvironmentID)
 	if err != nil {
 		return resolved{}, e, "", err
@@ -233,7 +243,14 @@ func (f *Flow) prepare(ctx context.Context, t store.Tile, ref string, log io.Wri
 }
 
 // rollout swaps the tile's replicas for ones running r.
-func (f *Flow) rollout(ctx context.Context, t store.Tile, e store.Environment, r resolved, log io.Writer, swap func() error) error {
+func (f *Flow) rollout(
+	ctx context.Context,
+	t store.Tile,
+	e store.Environment,
+	r resolved,
+	log io.Writer,
+	swap func() error,
+) error {
 	old, err := f.Tiles.Replicas(ctx, t)
 	if err != nil {
 		return err
@@ -304,7 +321,15 @@ func (f *Flow) route(ctx context.Context, t store.Tile, e store.Environment) err
 
 // resolve gathers every fact the spec needs, in the order that matters:
 // values, then volume lines, then the command, then networks.
-func (f *Flow) resolve(ctx context.Context, t store.Tile, e store.Environment, st store.Stack, o store.Org, def mflow.Container, log io.Writer) (resolved, error) {
+func (f *Flow) resolve(
+	ctx context.Context,
+	t store.Tile,
+	e store.Environment,
+	st store.Stack,
+	o store.Org,
+	def mflow.Container,
+	log io.Writer,
+) (resolved, error) {
 	snap, err := f.snapshot(ctx, t, e, st)
 	if err != nil {
 		return resolved{}, err
@@ -481,7 +506,12 @@ func RepoOf(ref string) string {
 
 // KnownEngine reports whether flow/managed runs the engine; promote checks
 // the file with it (promote may not import flow/managed).
-func KnownEngine(name string) bool { _, ok := mflow.Engines[name]; return ok }
+func KnownEngine(name string) bool {
+	_, ok := mflow.Engines[name]
+	return ok
+}
 
 // logf writes a line to the job log; a log write failing never fails a deploy.
-func logf(w io.Writer, format string, a ...any) { _, _ = fmt.Fprintf(w, format, a...) }
+func logf(w io.Writer, format string, a ...any) {
+	_, _ = fmt.Fprintf(w, format, a...)
+}

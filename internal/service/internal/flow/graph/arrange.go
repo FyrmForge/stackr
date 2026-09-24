@@ -170,7 +170,13 @@ func beside(v *View, n *Node, nbr []int, taken *[]box) bool {
 		if !m.Saved {
 			continue
 		}
-		for _, d := range [][2]int{{-pitchX, 0}, {pitchX, 0}, {0, -pitchY}, {0, m.H + GapY}} {
+		steps := [][2]int{
+			{-pitchX, 0},
+			{pitchX, 0},
+			{0, -pitchY},
+			{0, m.H + GapY},
+		}
+		for _, d := range steps {
 			b := box{snap(m.X + d[0]), snap(m.Y + d[1]), n.W, n.H}
 			if free(b, *taken) && (v.Divider == 0 || b.x >= v.Divider) {
 				n.X, n.Y = b.x, b.y

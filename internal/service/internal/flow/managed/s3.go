@@ -99,5 +99,10 @@ func (s3e) Bindings(i Instance, s Slice) []Binding {
 }
 
 // s3 restores by volume, not by dump.
-func (s3e) Backup(string, Instance) []string          { return nil }
-func (s3e) Restore(string, string, Instance) []string { return nil }
+func (s3e) Backup(string, Instance) []string {
+	return nil
+}
+
+func (s3e) Restore(string, string, Instance) []string {
+	return nil
+}

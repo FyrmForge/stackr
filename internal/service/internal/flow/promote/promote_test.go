@@ -35,8 +35,13 @@ var ctx = context.Background()
 
 type vipStub struct{}
 
-func (vipStub) Set(context.Context, string, []string) error { return nil }
-func (vipStub) Remove(context.Context, string) error        { return nil }
+func (vipStub) Set(context.Context, string, []string) error {
+	return nil
+}
+
+func (vipStub) Remove(context.Context, string) error {
+	return nil
+}
 
 func must(t *testing.T, err error) {
 	t.Helper()
@@ -59,35 +64,84 @@ func setup(t *testing.T) *world {
 	s := storetest.Store(t)
 	fake := dockerfake.New()
 	fake.RunID = "new"
-	fake.Details = map[string]docker.Detail{"new": {Running: true, Health: "healthy", Networks: map[string]string{"n": "10.0.0.5"}}}
+	fake.Details = map[string]docker.Detail{
+		"new": {Running: true, Health: "healthy", Networks: map[string]string{"n": "10.0.0.5"}},
+	}
 	tiles := tile.New(s.Tiles, fake, vipStub{})
 	tiles.Gate = tile.Gate{Poll: time.Millisecond, Grace: 2 * time.Millisecond, Deadline: 30 * time.Millisecond}
 	d := &deploy.Flow{
-		Tiles: tiles, Envs: environment.New(s.Environments, fake), Stacks: stack.New(s.Stacks),
-		Orgs: org.New(s.Orgs, s.OrgMembers, s.Invites), Volumes: volume.New(s.Volumes, fake),
-		Images: image.New(s.Images, fake), Releases: release.New(s.Releases, s.ReleaseTiles),
-		Params: params.New(s.Params), Managed: managed.New(s.ManagedInstances, s.Provisions),
-		Domains: domain.New(s.Domains, fake, "proxy"), Creds: credential.New(s.Credentials),
-		Settings: settings.New(s.Settings, nil), Jobs: job.New(s.Jobs),
+		Tiles:    tiles,
+		Envs:     environment.New(s.Environments, fake),
+		Stacks:   stack.New(s.Stacks),
+		Orgs:     org.New(s.Orgs, s.OrgMembers, s.Invites),
+		Volumes:  volume.New(s.Volumes, fake),
+		Images:   image.New(s.Images, fake),
+		Releases: release.New(s.Releases, s.ReleaseTiles),
+		Params:   params.New(s.Params),
+		Managed:  managed.New(s.ManagedInstances, s.Provisions),
+		Domains:  domain.New(s.Domains, fake, "proxy"),
+		Creds:    credential.New(s.Credentials),
+		Settings: settings.New(s.Settings, nil),
+		Jobs:     job.New(s.Jobs),
 	}
 	w := &world{fake: fake, files: map[string]string{}}
-	w.f = &Flow{D: d, Config: func(_ context.Context, _ store.Stack, commit string, _ io.Writer) ([]byte, Fetcher, error) {
-		f, ok := w.files[commit]
-		if !ok {
-			return nil, nil, errors.New("no such commit")
-		}
-		return []byte(f), nil, nil
-	}}
+	w.f = &Flow{
+		D: d,
+		Config: func(_ context.Context, _ store.Stack, commit string, _ io.Writer) ([]byte, Fetcher, error) {
+			f, ok := w.files[commit]
+			if !ok {
+				return nil, nil, errors.New("no such commit")
+			}
+			return []byte(f), nil, nil
+		},
+	}
 	now := time.Now()
 	o := uuid.NewString()
-	w.st = store.Stack{ID: uuid.NewString(), OrgID: o, Name: "shop", Slug: "shop", Settings: "{}", Domains: "[]",
-		ConfigRepo: "https://github.com/acme/shop", ConfigBranch: "main", CreatedAt: now}
-	must(t, s.Orgs.Create(ctx, store.Org{ID: o, Name: "acme", Slug: "acme", EnvColors: "{}", Settings: "{}", CreatedAt: now}))
+	w.st = store.Stack{
+		ID:           uuid.NewString(),
+		OrgID:        o,
+		Name:         "shop",
+		Slug:         "shop",
+		Settings:     "{}",
+		Domains:      "[]",
+		ConfigRepo:   "https://github.com/acme/shop",
+		ConfigBranch: "main",
+		CreatedAt:    now,
+	}
+	must(t, s.Orgs.Create(ctx, store.Org{
+		ID:        o,
+		Name:      "acme",
+		Slug:      "acme",
+		EnvColors: "{}",
+		Settings:  "{}",
+		CreatedAt: now,
+	}))
 	must(t, s.Stacks.Create(ctx, w.st))
-	w.dev = store.Environment{ID: uuid.NewString(), StackID: w.st.ID, Name: "dev", Slug: "dev", Type: "static", Settings: "{}",
-		Network: "n", FromKind: "branch", FromBranch: "main", Auto: true, CreatedAt: now}
-	w.prd = store.Environment{ID: uuid.NewString(), StackID: w.st.ID, Name: "prd", Slug: "prd", Type: "static", Settings: "{}",
-		Network: "n", Position: 1, FromKind: "promote", CreatedAt: now}
+	w.dev = store.Environment{
+		ID:         uuid.NewString(),
+		StackID:    w.st.ID,
+		Name:       "dev",
+		Slug:       "dev",
+		Type:       "static",
+		Settings:   "{}",
+		Network:    "n",
+		FromKind:   "branch",
+		FromBranch: "main",
+		Auto:       true,
+		CreatedAt:  now,
+	}
+	w.prd = store.Environment{
+		ID:        uuid.NewString(),
+		StackID:   w.st.ID,
+		Name:      "prd",
+		Slug:      "prd",
+		Type:      "static",
+		Settings:  "{}",
+		Network:   "n",
+		Position:  1,
+		FromKind:  "promote",
+		CreatedAt: now,
+	}
 	must(t, s.Environments.Create(ctx, w.dev))
 	must(t, s.Environments.Create(ctx, w.prd))
 	return w
@@ -154,7 +208,8 @@ func TestGrammar(t *testing.T) {
 	}
 
 	inc := "version: 1\nbase:\n  tiles:\n    db: {engine: postgres}\n"
-	r, err = Load([]byte("version: 1\nstack: s\ninclude: [more.yml]\n"), func(string) ([]byte, error) { return []byte(inc), nil })
+	r, err = Load([]byte("version: 1\nstack: s\ninclude: [more.yml]\n"),
+		func(string) ([]byte, error) { return []byte(inc), nil })
 	must(t, err)
 	if r.Envs["production"].Tiles["db"].Type != tile.Managed {
 		t.Errorf("include: %+v", r.Envs["production"].Tiles)
@@ -216,7 +271,12 @@ func TestPlanThenApply(t *testing.T) {
 
 	// Dropping the tile orphans nothing it did not own and removes it.
 	w.files["c2"] = strings.Replace(shopFile, "    api:\n      image: nginx:1", "    web:\n      image: nginx:1", 1)
-	w.files["c2"] = strings.Replace(w.files["c2"], "      api:\n        image: nginx:2", "      web:\n        image: nginx:2", 1)
+	w.files["c2"] = strings.Replace(
+		w.files["c2"],
+		"      api:\n        image: nginx:2",
+		"      web:\n        image: nginx:2",
+		1,
+	)
 	w.files["c2"] = strings.Replace(w.files["c2"], "api.example.com", "web.example.com", 1)
 	r2 := w.release(t, "c2")
 	p2, err := w.f.Apply(ctx, w.dev.ID, r2.ID, io.Discard, nil)
@@ -230,7 +290,14 @@ func TestPlanThenApply(t *testing.T) {
 // an older release may still land (rollback).
 func TestLadderRule(t *testing.T) {
 	w := setup(t)
-	_, err := w.f.D.Tiles.Create(ctx, store.Tile{StackID: w.st.ID, EnvironmentID: w.prd.ID, Name: "api", Kind: tile.Image, ImageRef: "nginx:1", ContainerPort: 80})
+	_, err := w.f.D.Tiles.Create(ctx, store.Tile{
+		StackID:       w.st.ID,
+		EnvironmentID: w.prd.ID,
+		Name:          "api",
+		Kind:          tile.Image,
+		ImageRef:      "nginx:1",
+		ContainerPort: 80,
+	})
 	must(t, err)
 	r1 := w.release(t, "", release.Pin{Slug: "api", Repo: "nginx", Digest: "sha256:one"})
 	r2 := w.release(t, "", release.Pin{Slug: "api", Repo: "nginx", Digest: "sha256:two"})
@@ -278,7 +345,14 @@ func TestLadderRule(t *testing.T) {
 // file puts the pinned tag back on the row.
 func TestRollbackRestoresTheTag(t *testing.T) {
 	w := setup(t)
-	api, err := w.f.D.Tiles.Create(ctx, store.Tile{StackID: w.st.ID, EnvironmentID: w.prd.ID, Name: "api", Kind: tile.Image, ImageRef: "nginx:2", ContainerPort: 80})
+	api, err := w.f.D.Tiles.Create(ctx, store.Tile{
+		StackID:       w.st.ID,
+		EnvironmentID: w.prd.ID,
+		Name:          "api",
+		Kind:          tile.Image,
+		ImageRef:      "nginx:2",
+		ContainerPort: 80,
+	})
 	must(t, err)
 	r1 := w.release(t, "", release.Pin{Slug: "api", Repo: "nginx:1", Digest: "sha256:one"})
 	_, err = w.f.D.Envs.SetRelease(ctx, w.dev, r1.ID)
@@ -347,8 +421,17 @@ func TestPushBuildsAndReleases(t *testing.T) {
 		im, err := w.f.D.Images.Built(ctx, "stackr/api:"+commit, "")
 		return im.ID, err
 	}
-	r, auto, err := w.f.Push(ctx, w.st.ID, Event{Repo: "git@github.com:acme/shop.git", Branch: "main", Commit: "c9",
-		Changed: []string{"api/main.go"}}, io.Discard)
+	r, auto, err := w.f.Push(
+		ctx,
+		w.st.ID,
+		Event{
+			Repo:    "git@github.com:acme/shop.git",
+			Branch:  "main",
+			Commit:  "c9",
+			Changed: []string{"api/main.go"},
+		},
+		io.Discard,
+	)
 	must(t, err)
 	if len(built) != 1 || built[0] != "api@c9" || len(auto) != 1 || auto[0].Slug != "dev" {
 		t.Fatalf("built %v auto %v", built, auto)
@@ -359,7 +442,17 @@ func TestPushBuildsAndReleases(t *testing.T) {
 		t.Errorf("pins = %+v", pins)
 	}
 	built = nil
-	_, _, err = w.f.Push(ctx, w.st.ID, Event{Repo: "acme/shop", Branch: "main", Commit: "c9", Changed: []string{"docs/x"}}, io.Discard)
+	_, _, err = w.f.Push(
+		ctx,
+		w.st.ID,
+		Event{
+			Repo:    "acme/shop",
+			Branch:  "main",
+			Commit:  "c9",
+			Changed: []string{"docs/x"},
+		},
+		io.Discard,
+	)
 	must(t, err)
 	if len(built) != 0 {
 		t.Errorf("watch paths ignored: built %v", built)
@@ -391,7 +484,8 @@ func TestPlanShowsRunKinds(t *testing.T) {
 	p, err = w.f.Plan(ctx, w.dev.ID, w.release(t, "c2").ID, io.Discard)
 	must(t, err)
 	got := kinds(p)
-	if !strings.Contains(got, "update:nightlyschedule0 4 * * *0 3 * * *") || !strings.Contains(got, "update:migratetriggeron_deploymanual") {
+	if !strings.Contains(got, "update:nightlyschedule0 4 * * *0 3 * * *") ||
+		!strings.Contains(got, "update:migratetriggeron_deploymanual") {
 		t.Fatalf("plan = %s, want the schedule and trigger moves", got)
 	}
 	w.files["c3"] = "version: 1\nstack: shop\nladder: [dev, prd]\nhead: main\nbase:\n  tiles:\n" +

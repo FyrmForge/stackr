@@ -16,15 +16,23 @@ import (
 
 type vipStub struct{}
 
-func (vipStub) Set(context.Context, string, []string) error { return nil }
-func (vipStub) Remove(context.Context, string) error        { return nil }
+func (vipStub) Set(context.Context, string, []string) error {
+	return nil
+}
+
+func (vipStub) Remove(context.Context, string) error {
+	return nil
+}
 
 func TestTileVerbsAndGuard(t *testing.T) {
 	ctx := context.Background()
 	fake := dockerfake.New()
 	lbl := map[string]string{tile.LabelTile: "t1", tile.LabelRole: "replica"}
-	fake.Containers = []docker.Container{{ID: "a", Name: "api-1", Labels: lbl}, {ID: "b", Name: "api-2", Labels: lbl},
-		{ID: "panel", Name: "stackr", Labels: map[string]string{tile.LabelSystem: "true"}}}
+	fake.Containers = []docker.Container{
+		{ID: "a", Name: "api-1", Labels: lbl},
+		{ID: "b", Name: "api-2", Labels: lbl},
+		{ID: "panel", Name: "stackr", Labels: map[string]string{tile.LabelSystem: "true"}},
+	}
 	f := &Flow{Tiles: tile.New(storetest.Store(t).Tiles, fake, vipStub{})}
 	api := store.Tile{ID: "t1", Slug: "api"}
 	if err := f.Restart(ctx, api, io.Discard); err != nil {

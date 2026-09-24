@@ -66,6 +66,7 @@ func (p *Plan) Blocked() bool { return len(p.Blockers) > 0 }
 func (p *Plan) block(format string, a ...any) {
 	p.Blockers = append(p.Blockers, fmt.Sprintf(format, a...))
 }
+
 func (p *Plan) add(c Change) { p.Changes = append(p.Changes, c) }
 
 // work is everything the real run needs, computed once by plan so the dry
@@ -117,9 +118,22 @@ func (f *Flow) plan(ctx context.Context, envID, releaseID string, log io.Writer)
 	if err != nil {
 		return nil, nil, err
 	}
-	p := &Plan{Stack: st.Slug, Env: e.Slug, Release: rel.Number, Changes: []Change{}}
-	w := &work{e: e, st: st, rel: rel, domains: map[string]domainWork{}, attach: map[string][]SliceConf{},
-		declare: map[string]VolumeConf{}, redeploy: map[string]bool{}, unpin: map[string]bool{}}
+	p := &Plan{
+		Stack:   st.Slug,
+		Env:     e.Slug,
+		Release: rel.Number,
+		Changes: []Change{},
+	}
+	w := &work{
+		e:        e,
+		st:       st,
+		rel:      rel,
+		domains:  map[string]domainWork{},
+		attach:   map[string][]SliceConf{},
+		declare:  map[string]VolumeConf{},
+		redeploy: map[string]bool{},
+		unpin:    map[string]bool{},
+	}
 	if rel.StackID != e.StackID {
 		p.block("release #%d belongs to another stack", rel.Number)
 		return p, w, nil
@@ -196,8 +210,14 @@ func (f *Flow) ladderRule(ctx context.Context, p *Plan, e store.Environment, rel
 		return err
 	}
 	if rel.Number > br.Number {
-		p.block("release #%d has not reached %s yet (it runs #%d); %s promotes from %s",
-			rel.Number, below.Slug, br.Number, e.Slug, below.Slug)
+		p.block(
+			"release #%d has not reached %s yet (it runs #%d); %s promotes from %s",
+			rel.Number,
+			below.Slug,
+			br.Number,
+			e.Slug,
+			below.Slug,
+		)
 	}
 	return nil
 }
@@ -208,12 +228,21 @@ func (f *Flow) planConfig(ctx context.Context, p *Plan, w *work, r *Resolved) er
 	// The env's own knobs and settings.
 	ed := e
 	if re.Color != "" && re.Color != e.Color {
-		p.add(Change{Kind: "env", Field: "color", Old: e.Color, New: re.Color})
+		p.add(Change{
+			Kind:  "env",
+			Field: "color",
+			Old:   e.Color,
+			New:   re.Color,
+		})
 		ed.Color = re.Color
 	}
 	if re.FromKind != "" && (re.FromKind != e.FromKind || re.FromBranch != e.FromBranch || re.Auto != e.Auto) {
-		p.add(Change{Kind: "env", Field: "from", Old: fromLabel(e.FromKind, e.FromBranch, e.Auto),
-			New: fromLabel(re.FromKind, re.FromBranch, re.Auto)})
+		p.add(Change{
+			Kind:  "env",
+			Field: "from",
+			Old:   fromLabel(e.FromKind, e.FromBranch, e.Auto),
+			New:   fromLabel(re.FromKind, re.FromBranch, re.Auto),
+		})
 		ed.FromKind, ed.FromBranch, ed.Auto = re.FromKind, re.FromBranch, re.Auto
 	}
 	if ed != e {
@@ -274,7 +303,10 @@ func (f *Flow) planConfig(ctx context.Context, p *Plan, w *work, r *Resolved) er
 		old, exists := byslug[name]
 		if exists {
 			// paused is the panel's stored intent, never the file's.
-			row.ID, row.Name, row.CreatedAt, row.Paused = old.ID, old.Name, old.CreatedAt, old.Paused
+			row.ID = old.ID
+			row.Name = old.Name
+			row.CreatedAt = old.CreatedAt
+			row.Paused = old.Paused
 		}
 		if err := tile.Validate(&row); err != nil {
 			p.block("tile %s: %v", name, err)
@@ -301,7 +333,12 @@ func (f *Flow) planConfig(ctx context.Context, p *Plan, w *work, r *Resolved) er
 func (f *Flow) planUpdate(ctx context.Context, p *Plan, w *work, old, row store.Tile, tc TileConf) error {
 	name := old.Slug
 	if old.Kind != row.Kind {
-		p.block("tile %s changes kind (%s to %s); remove it in one release and add it back in the next", name, old.Kind, row.Kind)
+		p.block(
+			"tile %s changes kind (%s to %s); remove it in one release and add it back in the next",
+			name,
+			old.Kind,
+			row.Kind,
+		)
 		return nil
 	}
 	if old.Kind == tile.Managed {
@@ -310,7 +347,12 @@ func (f *Flow) planUpdate(ctx context.Context, p *Plan, w *work, old, row store.
 			return err
 		}
 		if err == nil && m.Engine != tc.Engine {
-			p.block("tile %s changes engine (%s to %s); a new engine is a new instance, add it under another name", name, m.Engine, tc.Engine)
+			p.block(
+				"tile %s changes engine (%s to %s); a new engine is a new instance, add it under another name",
+				name,
+				m.Engine,
+				tc.Engine,
+			)
 			return nil
 		}
 	}
@@ -342,7 +384,15 @@ func (f *Flow) planUpdate(ctx context.Context, p *Plan, w *work, old, row store.
 
 // planDomains: the file's domains vs the tile's rows, by host+path. Hosts
 // expand params. refs only (the resolver refuses anything else there).
-func (f *Flow) planDomains(ctx context.Context, p *Plan, w *work, name string, tc TileConf, old store.Tile, exists bool) error {
+func (f *Flow) planDomains(
+	ctx context.Context,
+	p *Plan,
+	w *work,
+	name string,
+	tc TileConf,
+	old store.Tile,
+	exists bool,
+) error {
 	if tc.Type == tile.Managed {
 		return nil
 	}
@@ -388,7 +438,13 @@ func (f *Flow) planDomains(ctx context.Context, p *Plan, w *work, name string, t
 			p.add(Change{Kind: "domain", Tile: name, New: key})
 			dw.add = append(dw.add, sp)
 		case sigOf(sp) != sigRow(row):
-			p.add(Change{Kind: "domain", Tile: name, Old: key, New: key, Note: "settings change"})
+			p.add(Change{
+				Kind: "domain",
+				Tile: name,
+				Old:  key,
+				New:  key,
+				Note: "settings change",
+			})
 			dw.update[row.ID] = sp
 		}
 	}
@@ -408,7 +464,15 @@ func (f *Flow) planDomains(ctx context.Context, p *Plan, w *work, name string, t
 // planSlices: the tile's slices: vs the provisions it holds, by instance.
 // ponytail: on_remove and public changes on a held slice are not
 // reconciled; they take effect when the slice is attached again.
-func (f *Flow) planSlices(ctx context.Context, p *Plan, w *work, name string, tc TileConf, old store.Tile, exists bool) error {
+func (f *Flow) planSlices(
+	ctx context.Context,
+	p *Plan,
+	w *work,
+	name string,
+	tc TileConf,
+	old store.Tile,
+	exists bool,
+) error {
 	if tc.Type == tile.Managed {
 		return nil
 	}
@@ -455,7 +519,12 @@ func (f *Flow) planSlices(ctx context.Context, p *Plan, w *work, name string, tc
 			continue
 		}
 		pr := held[from]
-		c := Change{Kind: "detach", Tile: name, Old: from, Note: "the slice is orphaned and its data kept"}
+		c := Change{
+			Kind: "detach",
+			Tile: name,
+			Old:  from,
+			Note: "the slice is orphaned and its data kept",
+		}
 		if pr.OnRemove == "drop" {
 			c.Note = "on_remove: drop. The data behind this slice is destroyed"
 		}
@@ -542,11 +611,19 @@ func (f *Flow) planParams(ctx context.Context, p *Plan, w *work, r *Resolved) er
 				w.params = append(w.params, params.Entry{Collection: c, Name: n, Kind: params.Secret})
 			case decl.Type == params.Secret && !ok:
 				if _, atStack := stackHave[key]; !atStack {
-					p.Warnings = append(p.Warnings, "params."+key+" is declared and not set; tiles that read it wait until it is")
+					p.Warnings = append(
+						p.Warnings,
+						"params."+key+" is declared and not set; tiles that read it wait until it is",
+					)
 				}
 			case decl.Type == params.Param && decl.Value != nil && (!ok || old.V != *decl.Value):
 				p.add(Change{Kind: "param", Field: key})
-				w.params = append(w.params, params.Entry{Collection: c, Name: n, Kind: params.Param, Value: *decl.Value})
+				w.params = append(w.params, params.Entry{
+					Collection: c,
+					Name:       n,
+					Kind:       params.Param,
+					Value:      *decl.Value,
+				})
 			}
 		}
 	}
@@ -574,7 +651,13 @@ func (f *Flow) planVolumes(ctx context.Context, p *Plan, w *work) error {
 		case v.OrphanedAt != nil:
 			p.add(Change{Kind: "volume", New: n, Note: "re-adopts the orphaned volume and its data"})
 		case v.MaxSizeMB != vc.MaxSizeMB:
-			p.add(Change{Kind: "volume", Field: "max_size_mb", Old: strconv.Itoa(v.MaxSizeMB), New: strconv.Itoa(vc.MaxSizeMB), Tile: n})
+			p.add(Change{
+				Kind:  "volume",
+				Field: "max_size_mb",
+				Old:   strconv.Itoa(v.MaxSizeMB),
+				New:   strconv.Itoa(vc.MaxSizeMB),
+				Tile:  n,
+			})
 		default:
 			continue
 		}
@@ -661,15 +744,39 @@ func (f *Flow) resolver(ctx context.Context, w *work) (*params.Resolver, error) 
 // toRow is the tile row the file asks for. A built tile with no git_url
 // builds from the config repo, on the config branch unless it names one.
 func toRow(name string, tc TileConf, st store.Stack, e store.Environment) store.Tile {
-	t := store.Tile{StackID: e.StackID, EnvironmentID: e.ID, Name: name, Slug: name, Kind: tc.Type,
-		ImageRef: tc.Image, Command: tc.Command, ContainerPort: tc.Port, PublishedPorts: lines(tc.PublishedPorts),
-		EndpointProtocol: tc.EndpointProtocol, HealthPath: tc.HealthPath, HealthcheckCmd: tc.Healthcheck,
-		HealthcheckIntervalS: tc.HealthInterval, HealthcheckTimeoutS: tc.HealthTimeout,
-		HealthcheckRetries: tc.HealthRetries, HealthcheckStartPeriodS: tc.HealthStart,
-		User: tc.User, ShmSizeMB: tc.ShmSizeMB, Privileged: tc.Privileged, Devices: lines(tc.Devices),
-		RestartPolicy: tc.Restart, DependsOn: lines(tc.DependsOn), Files: lines(tc.Files),
-		Volumes: lines(tc.Volumes), Replicas: tc.Replicas, UpdatePolicy: tc.UpdatePolicy, TagPolicy: tc.TagPolicy,
-		EnvJSON: jsonMap(tc.Env), Schedule: tc.Schedule, Trigger: tc.Trigger, TimeoutMinutes: tc.TimeoutMinutes}
+	t := store.Tile{
+		StackID:                 e.StackID,
+		EnvironmentID:           e.ID,
+		Name:                    name,
+		Slug:                    name,
+		Kind:                    tc.Type,
+		ImageRef:                tc.Image,
+		Command:                 tc.Command,
+		ContainerPort:           tc.Port,
+		PublishedPorts:          lines(tc.PublishedPorts),
+		EndpointProtocol:        tc.EndpointProtocol,
+		HealthPath:              tc.HealthPath,
+		HealthcheckCmd:          tc.Healthcheck,
+		HealthcheckIntervalS:    tc.HealthInterval,
+		HealthcheckTimeoutS:     tc.HealthTimeout,
+		HealthcheckRetries:      tc.HealthRetries,
+		HealthcheckStartPeriodS: tc.HealthStart,
+		User:                    tc.User,
+		ShmSizeMB:               tc.ShmSizeMB,
+		Privileged:              tc.Privileged,
+		Devices:                 lines(tc.Devices),
+		RestartPolicy:           tc.Restart,
+		DependsOn:               lines(tc.DependsOn),
+		Files:                   lines(tc.Files),
+		Volumes:                 lines(tc.Volumes),
+		Replicas:                tc.Replicas,
+		UpdatePolicy:            tc.UpdatePolicy,
+		TagPolicy:               tc.TagPolicy,
+		EnvJSON:                 jsonMap(tc.Env),
+		Schedule:                tc.Schedule,
+		Trigger:                 tc.Trigger,
+		TimeoutMinutes:          tc.TimeoutMinutes,
+	}
 	if tc.Limits != nil {
 		t.CPULimit, t.MemLimitMB = tc.Limits.CPU, tc.Limits.MemoryMB
 	}
@@ -684,11 +791,23 @@ func toRow(name string, tc TileConf, st store.Stack, e store.Environment) store.
 }
 
 func specOf(dc DomainConf, host string, port int) domain.Spec {
-	sp := domain.Spec{Host: host, Path: dc.Path, Port: or(dc.Port, port), HTTPS: dc.HTTPS, ForceHTTPS: dc.ForceHTTPS,
-		RedirectTo: dc.RedirectTo}
+	sp := domain.Spec{
+		Host:       host,
+		Path:       dc.Path,
+		Port:       or(dc.Port, port),
+		HTTPS:      dc.HTTPS,
+		ForceHTTPS: dc.ForceHTTPS,
+		RedirectTo: dc.RedirectTo,
+	}
 	if x := dc.Proxy; x != nil {
-		sp.Extras = domain.Extras{Websockets: x.Websockets, MaxBodyMB: x.MaxBodyMB, Headers: x.Headers,
-			Methods: x.Methods, StripPrefix: x.StripPrefix, SecHeaders: x.SecHeaders}
+		sp.Extras = domain.Extras{
+			Websockets:  x.Websockets,
+			MaxBodyMB:   x.MaxBodyMB,
+			Headers:     x.Headers,
+			Methods:     x.Methods,
+			StripPrefix: x.StripPrefix,
+			SecHeaders:  x.SecHeaders,
+		}
 		if x.BasicAuth != nil {
 			sp.Extras.BasicAuth = &domain.BasicAuth{User: x.BasicAuth.User, Password: x.BasicAuth.Password}
 		}
@@ -746,7 +865,10 @@ func fromLabel(kind, branch string, auto bool) string {
 	return s
 }
 
-func jsonOf(v any) string { b, _ := json.Marshal(v); return string(b) }
+func jsonOf(v any) string {
+	b, _ := json.Marshal(v)
+	return string(b)
+}
 
 func jsonMap(m map[string]string) string {
 	if len(m) == 0 {

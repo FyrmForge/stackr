@@ -87,7 +87,11 @@ func (f *Flow) tileRoute(ctx context.Context, id string, server settings.Setting
 		dst  *map[string]params.Value
 		kind string
 		id   string
-	}{{&snap.EnvParams, "env", e.ID}, {&snap.StackParams, "stack", st.ID}, {&snap.OrgParams, "org", o.ID}} {
+	}{
+		{&snap.EnvParams, "env", e.ID},
+		{&snap.StackParams, "stack", st.ID},
+		{&snap.OrgParams, "org", o.ID},
+	} {
 		if *sc.dst, err = f.Params.Values(ctx, params.Scope{Kind: sc.kind, ID: sc.id}, false); err != nil {
 			return r, err
 		}

@@ -145,7 +145,12 @@ type Rung struct {
 type Show struct{ System, Refs, Startup, Traffic bool }
 
 // All draws everything.
-var All = Show{System: true, Refs: true, Startup: true, Traffic: true}
+var All = Show{
+	System:  true,
+	Refs:    true,
+	Startup: true,
+	Traffic: true,
+}
 
 // In is one build: status=false skips every Docker read (positions and the
 // SSE node-set check need structure only). Traffic is the env's last
@@ -186,7 +191,13 @@ func (f *Flow) Build(ctx context.Context, s canvas.Scope, in In) (View, error) {
 }
 
 func card(id, kind, name string) Node {
-	return Node{ID: id, Kind: kind, Name: name, W: CardW, H: CardH}
+	return Node{
+		ID:   id,
+		Kind: kind,
+		Name: name,
+		W:    CardW,
+		H:    CardH,
+	}
 }
 
 func deck(children int) int { return max(0, min(children, 3)-1) }
@@ -301,7 +312,10 @@ func (f *Flow) stack(ctx context.Context, v *View, stackID string, in In) error 
 			return err
 		}
 		n := card("env:"+e.ID, KindEnv, e.Name)
-		n.Slug, n.Color, n.Detail, n.Deck = e.Slug, e.Color, from(e), deck(len(ts))
+		n.Slug = e.Slug
+		n.Color = e.Color
+		n.Detail = from(e)
+		n.Deck = deck(len(ts))
 		if in.Status {
 			if n.Status, err = f.worstOf(ctx, "", ts); err != nil {
 				return err
@@ -311,7 +325,12 @@ func (f *Flow) stack(ctx context.Context, v *View, stackID string, in In) error 
 		if reads(ts, params.KindParam) {
 			v.Edges = append(v.Edges, Edge{EdgeShared, vars.ID, n.ID})
 		}
-		r := Rung{EnvID: e.ID, Name: e.Name, Slug: e.Slug, Color: e.Color}
+		r := Rung{
+			EnvID: e.ID,
+			Name:  e.Name,
+			Slug:  e.Slug,
+			Color: e.Color,
+		}
 		if e.ReleaseID != nil {
 			rel, err := f.Releases.Get(ctx, *e.ReleaseID)
 			if err != nil {
@@ -408,8 +427,19 @@ func refs(t store.Tile) []params.Ref {
 
 // rank orders the words for the worst-of roll-up (graph-ref §1): error >
 // building/queued > unhealthy > the rest.
-var rank = map[string]int{"error": 7, "building": 6, "queued": 6, "waiting": 6, "unhealthy": 5,
-	"degraded": 4, "stopped": 3, "running": 2, "done": 1, "none": 0, "": -1}
+var rank = map[string]int{
+	"error":     7,
+	"building":  6,
+	"queued":    6,
+	"waiting":   6,
+	"unhealthy": 5,
+	"degraded":  4,
+	"stopped":   3,
+	"running":   2,
+	"done":      1,
+	"none":      0,
+	"":          -1,
+}
 
 func worse(a, b string) string {
 	if rank[b] > rank[a] {
@@ -452,7 +482,12 @@ func (f *Flow) status(ctx context.Context, t store.Tile) (status, error) {
 			return s, err
 		} else if ok {
 			s.lastRun = &r
-			s.word = map[string]string{"queued": "queued", "running": "running", "ok": "done", "failed": "error"}[r.Status]
+			s.word = map[string]string{
+				"queued":  "queued",
+				"running": "running",
+				"ok":      "done",
+				"failed":  "error",
+			}[r.Status]
 		}
 	} else {
 		if s.state, err = f.Tiles.State(ctx, t); err != nil {
@@ -463,8 +498,12 @@ func (f *Flow) status(ctx context.Context, t store.Tile) (status, error) {
 			if i >= 3 {
 				break
 			}
-			s.replicas = append(s.replicas, Sub{ID: fmt.Sprintf("replica:%s:%d", t.ID, i+1), Kind: KindReplica,
-				Name: c.Name, Status: c.State})
+			s.replicas = append(s.replicas, Sub{
+				ID:     fmt.Sprintf("replica:%s:%d", t.ID, i+1),
+				Kind:   KindReplica,
+				Name:   c.Name,
+				Status: c.State,
+			})
 		}
 	}
 	switch {
@@ -533,7 +572,12 @@ func (f *Flow) env(ctx context.Context, v *View, envID string, in In) error {
 			}
 			if host.EnvironmentID == envID {
 				hosted[host.ID] = true
-				n.Subs = append(n.Subs, Sub{ID: host.ID, Kind: tile.Managed, Name: host.Name, Slug: host.Slug})
+				n.Subs = append(n.Subs, Sub{
+					ID:   host.ID,
+					Kind: tile.Managed,
+					Name: host.Name,
+					Slug: host.Slug,
+				})
 			} else {
 				g := ghost(v, host.ID, host.Name, inst.ScopeKind+" · "+inst.Engine)
 				v.Edges = append(v.Edges, Edge{EdgeShared, n.ID, g})
@@ -629,7 +673,10 @@ func (f *Flow) env(ctx context.Context, v *View, envID string, in In) error {
 	for _, sys := range []struct {
 		on         bool
 		id, detail string
-	}{{proxied, KindProxy, "Caddy"}, {len(egress) > 0, KindInternet, "outbound"}} {
+	}{
+		{proxied, KindProxy, "Caddy"},
+		{len(egress) > 0, KindInternet, "outbound"},
+	} {
 		if sys.on {
 			n := card(sys.id, sys.id, strings.ToUpper(sys.id[:1])+sys.id[1:])
 			n.Detail, n.System = sys.detail, true

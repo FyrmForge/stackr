@@ -27,7 +27,12 @@ type Event struct {
 // branch whose repo and watch paths match is built. Returns the zero
 // release when nothing followed from the push, and the envs that take it
 // automatically (the caller promotes into those).
-func (f *Flow) Push(ctx context.Context, stackID string, ev Event, log io.Writer) (store.Release, []store.Environment, error) {
+func (f *Flow) Push(
+	ctx context.Context,
+	stackID string,
+	ev Event,
+	log io.Writer,
+) (store.Release, []store.Environment, error) {
 	d := f.D
 	st, err := d.Stacks.Get(ctx, stackID)
 	if err != nil {
@@ -50,7 +55,12 @@ func (f *Flow) Push(ctx context.Context, stackID string, ev Event, log io.Writer
 	isConfig := st.ConfigRepo != "" && NormalizeRepo(st.ConfigRepo) == repo
 	var pins []release.Pin
 	if isConfig {
-		pins = append(pins, release.Pin{Slug: release.ConfigSlug, Repo: st.ConfigRepo, Branch: ev.Branch, CommitSHA: ev.Commit})
+		pins = append(pins, release.Pin{
+			Slug:      release.ConfigSlug,
+			Repo:      st.ConfigRepo,
+			Branch:    ev.Branch,
+			CommitSHA: ev.Commit,
+		})
 	}
 	rows, err := f.candidates(ctx, st, from, ev, isConfig, log)
 	if err != nil {
@@ -70,7 +80,13 @@ func (f *Flow) Push(ctx context.Context, stackID string, ev Event, log io.Writer
 		if err != nil {
 			return store.Release{}, nil, fmt.Errorf("build %s: %w", t.Slug, err)
 		}
-		pins = append(pins, release.Pin{Slug: t.Slug, Repo: t.GitURL, Branch: ev.Branch, CommitSHA: ev.Commit, ImageID: &id})
+		pins = append(pins, release.Pin{
+			Slug:      t.Slug,
+			Repo:      t.GitURL,
+			Branch:    ev.Branch,
+			CommitSHA: ev.Commit,
+			ImageID:   &id,
+		})
 	}
 	if len(pins) == 0 {
 		return store.Release{}, nil, nil
@@ -100,7 +116,14 @@ func (f *Flow) Push(ctx context.Context, stackID string, ev Event, log io.Writer
 // candidates are the git-built tiles the push may build: the envs' live rows,
 // and on a config push the rows the stack file at this commit asks for (so
 // a tile added in this very commit gets its first build).
-func (f *Flow) candidates(ctx context.Context, st store.Stack, envs []store.Environment, ev Event, isConfig bool, log io.Writer) ([]store.Tile, error) {
+func (f *Flow) candidates(
+	ctx context.Context,
+	st store.Stack,
+	envs []store.Environment,
+	ev Event,
+	isConfig bool,
+	log io.Writer,
+) ([]store.Tile, error) {
 	seen := map[string]bool{}
 	var out []store.Tile
 	keep := func(t store.Tile) {

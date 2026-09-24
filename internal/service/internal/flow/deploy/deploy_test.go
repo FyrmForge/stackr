@@ -34,8 +34,13 @@ var ctx = context.Background()
 
 type vipStub struct{}
 
-func (vipStub) Set(context.Context, string, []string) error { return nil }
-func (vipStub) Remove(context.Context, string) error        { return nil }
+func (vipStub) Set(context.Context, string, []string) error {
+	return nil
+}
+
+func (vipStub) Remove(context.Context, string) error {
+	return nil
+}
 
 type world struct {
 	f    *deploy.Flow
@@ -60,31 +65,81 @@ func setup(t *testing.T) *world {
 	tiles := tile.New(st.Tiles, fake, vipStub{})
 	tiles.Gate = tile.Gate{Poll: time.Millisecond, Grace: 5 * time.Millisecond, Deadline: 30 * time.Millisecond}
 	f := &deploy.Flow{
-		Tiles: tiles, Envs: environment.New(st.Environments, fake), Stacks: stack.New(st.Stacks),
-		Orgs: org.New(st.Orgs, st.OrgMembers, st.Invites), Volumes: volume.New(st.Volumes, fake),
-		Images: image.New(st.Images, fake), Releases: release.New(st.Releases, st.ReleaseTiles),
-		Params: params.New(st.Params), Managed: managed.New(st.ManagedInstances, st.Provisions),
-		Domains: domain.New(st.Domains, fake, "proxy"), Creds: credential.New(st.Credentials),
-		Settings: settings.New(st.Settings, nil), Jobs: job.New(st.Jobs),
+		Tiles:    tiles,
+		Envs:     environment.New(st.Environments, fake),
+		Stacks:   stack.New(st.Stacks),
+		Orgs:     org.New(st.Orgs, st.OrgMembers, st.Invites),
+		Volumes:  volume.New(st.Volumes, fake),
+		Images:   image.New(st.Images, fake),
+		Releases: release.New(st.Releases, st.ReleaseTiles),
+		Params:   params.New(st.Params),
+		Managed:  managed.New(st.ManagedInstances, st.Provisions),
+		Domains:  domain.New(st.Domains, fake, "proxy"),
+		Creds:    credential.New(st.Credentials),
+		Settings: settings.New(st.Settings, nil),
+		Jobs:     job.New(st.Jobs),
 	}
 	o, s, e := uuid.NewString(), uuid.NewString(), uuid.NewString()
 	now := time.Now()
-	must(t, st.Orgs.Create(ctx, store.Org{ID: o, Name: "acme", Slug: "acme", EnvColors: "{}", Settings: "{}", CreatedAt: now}))
-	must(t, st.Stacks.Create(ctx, store.Stack{ID: s, OrgID: o, Name: "shop", Slug: "shop", Settings: "{}", Domains: "[]", CreatedAt: now}))
-	env := store.Environment{ID: e, StackID: s, Name: "dev", Slug: "dev", Type: "static", Settings: "{}", Network: "n",
-		FromKind: "branch", FromBranch: "main", CreatedAt: now}
+	must(t, st.Orgs.Create(ctx, store.Org{
+		ID:        o,
+		Name:      "acme",
+		Slug:      "acme",
+		EnvColors: "{}",
+		Settings:  "{}",
+		CreatedAt: now,
+	}))
+	must(t, st.Stacks.Create(ctx, store.Stack{
+		ID:        s,
+		OrgID:     o,
+		Name:      "shop",
+		Slug:      "shop",
+		Settings:  "{}",
+		Domains:   "[]",
+		CreatedAt: now,
+	}))
+	env := store.Environment{
+		ID:         e,
+		StackID:    s,
+		Name:       "dev",
+		Slug:       "dev",
+		Type:       "static",
+		Settings:   "{}",
+		Network:    "n",
+		FromKind:   "branch",
+		FromBranch: "main",
+		CreatedAt:  now,
+	}
 	must(t, st.Environments.Create(ctx, env))
-	api, err := tiles.Create(ctx, store.Tile{StackID: s, EnvironmentID: e, Name: "api", Kind: tile.Image, ImageRef: "nginx:1", ContainerPort: 80})
+	api, err := tiles.Create(ctx, store.Tile{
+		StackID:       s,
+		EnvironmentID: e,
+		Name:          "api",
+		Kind:          tile.Image,
+		ImageRef:      "nginx:1",
+		ContainerPort: 80,
+	})
 	must(t, err)
-	lbl := func(role string) map[string]string { return map[string]string{tile.LabelTile: api.ID, tile.LabelRole: role} }
-	fake.Containers = []docker.Container{{ID: "old", Labels: lbl("replica")}, {ID: "p", Labels: lbl("pause")}}
+	lbl := func(role string) map[string]string {
+		return map[string]string{tile.LabelTile: api.ID, tile.LabelRole: role}
+	}
+	fake.Containers = []docker.Container{
+		{ID: "old", Labels: lbl("replica")},
+		{ID: "p", Labels: lbl("pause")},
+	}
 	fake.RunIDs = []string{"new"}
 	fake.Details = map[string]docker.Detail{
 		"new": {Running: true, Health: "healthy", Networks: map[string]string{"n": "10.0.0.5"}},
 		"old": {Running: true, Networks: map[string]string{"n": "10.0.0.4"}},
 		"p":   {Running: true, Networks: map[string]string{"n": "10.0.0.2"}},
 	}
-	return &world{f: f, st: st, fake: fake, env: env, tile: api}
+	return &world{
+		f:    f,
+		st:   st,
+		fake: fake,
+		env:  env,
+		tile: api,
+	}
 }
 
 // at is the index of the first call matching method and first arg, or -1.
@@ -105,7 +160,8 @@ func TestOverlapRollout(t *testing.T) {
 		t.Fatalf("want the new replica up before the old one goes: %v", c)
 	}
 	s := w.fake.Specs[0]
-	if s.Image != "nginx@sha256:aa" || s.Restart != "unless-stopped" || s.Networks[0].Name != "n" || len(s.Networks[0].Aliases) != 0 {
+	if s.Image != "nginx@sha256:aa" || s.Restart != "unless-stopped" || s.Networks[0].Name != "n" ||
+		len(s.Networks[0].Aliases) != 0 {
 		t.Errorf("spec = %+v", s)
 	}
 }
@@ -153,7 +209,13 @@ func TestParkOnUnset(t *testing.T) {
 
 	// A dependency parked on a param parks this tile on the same name.
 	w2 := setup(t)
-	db, err := w2.f.Tiles.Create(ctx, store.Tile{StackID: w2.tile.StackID, EnvironmentID: w2.env.ID, Name: "db", Kind: tile.Image, ImageRef: "postgres:16"})
+	db, err := w2.f.Tiles.Create(ctx, store.Tile{
+		StackID:       w2.tile.StackID,
+		EnvironmentID: w2.env.ID,
+		Name:          "db",
+		Kind:          tile.Image,
+		ImageRef:      "postgres:16",
+	})
 	must(t, err)
 	j, err := w2.f.Jobs.Create(ctx, "deploy", job.LockSet(db.ID), "{}", nil, t.TempDir())
 	must(t, err)
@@ -169,7 +231,12 @@ func TestParkOnUnset(t *testing.T) {
 // tag or a branch head. B29: it goes through the same gate as a deploy.
 func TestRedeployRunsTheReleaseImage(t *testing.T) {
 	w := setup(t)
-	r, err := w.f.Releases.Create(ctx, w.tile.StackID, "test", []release.Pin{{Slug: "api", Repo: "nginx:1", Digest: "sha256:pinned"}})
+	r, err := w.f.Releases.Create(
+		ctx,
+		w.tile.StackID,
+		"test",
+		[]release.Pin{{Slug: "api", Repo: "nginx:1", Digest: "sha256:pinned"}},
+	)
 	must(t, err)
 	_, err = w.f.Envs.SetRelease(ctx, w.env, r.ID)
 	must(t, err)

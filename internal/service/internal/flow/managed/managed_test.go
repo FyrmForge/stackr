@@ -27,20 +27,28 @@ var ctx = context.Background()
 
 type vipStub struct{}
 
-func (vipStub) Set(context.Context, string, []string) error { return nil }
-func (vipStub) Remove(context.Context, string) error        { return nil }
+func (vipStub) Set(context.Context, string, []string) error {
+	return nil
+}
+
+func (vipStub) Remove(context.Context, string) error {
+	return nil
+}
 
 type s3Fake struct{ made, dropped []string }
 
 func (s *s3Fake) Ping(context.Context) error { return nil }
+
 func (s *s3Fake) CreateBucket(_ context.Context, n string) error {
 	s.made = append(s.made, n)
 	return nil
 }
+
 func (s *s3Fake) DropBucket(_ context.Context, n string) error {
 	s.dropped = append(s.dropped, n)
 	return nil
 }
+
 func (s *s3Fake) SetPublic(context.Context, string, bool) error { return nil }
 
 func must(t *testing.T, err error) {
@@ -64,24 +72,77 @@ func setup(t *testing.T, engine string) *world {
 	st := servicetest.Store(t)
 	fake, s3 := dockerfake.New(), &s3Fake{}
 	tiles := tile.New(st.Tiles, fake, vipStub{})
-	f := &mflow.Flow{Tiles: tiles, Instances: managed.New(st.ManagedInstances, st.Provisions),
-		Volumes: volume.New(st.Volumes, fake), Envs: environment.New(st.Environments, fake),
+	f := &mflow.Flow{
+		Tiles:     tiles,
+		Instances: managed.New(st.ManagedInstances, st.Provisions),
+		Volumes:   volume.New(st.Volumes, fake),
+		Envs:      environment.New(st.Environments, fake),
 		S3:        func(string, string, string) mflow.S3Admin { return s3 },
-		ReadyWait: 20 * time.Millisecond, ReadyPoll: time.Millisecond}
+		ReadyWait: 20 * time.Millisecond,
+		ReadyPoll: time.Millisecond,
+	}
 	h := managed.Home{OrgID: uuid.NewString(), StackID: uuid.NewString(), EnvID: uuid.NewString()}
 	now := time.Now()
-	must(t, st.Orgs.Create(ctx, store.Org{ID: h.OrgID, Name: "o", Slug: "o", EnvColors: "{}", Settings: "{}", CreatedAt: now}))
-	must(t, st.Stacks.Create(ctx, store.Stack{ID: h.StackID, OrgID: h.OrgID, Name: "s", Slug: "s", Settings: "{}", Domains: "[]", CreatedAt: now}))
-	must(t, st.Environments.Create(ctx, store.Environment{ID: h.EnvID, StackID: h.StackID, Name: "dev", Slug: "dev", Type: "static",
-		Settings: "{}", Network: "n", FromKind: "branch", FromBranch: "main", CreatedAt: now}))
-	db, err := tiles.Create(ctx, store.Tile{StackID: h.StackID, EnvironmentID: h.EnvID, Name: "db", Kind: tile.Managed})
+	must(t, st.Orgs.Create(ctx, store.Org{
+		ID:        h.OrgID,
+		Name:      "o",
+		Slug:      "o",
+		EnvColors: "{}",
+		Settings:  "{}",
+		CreatedAt: now,
+	}))
+	must(t, st.Stacks.Create(ctx, store.Stack{
+		ID:        h.StackID,
+		OrgID:     h.OrgID,
+		Name:      "s",
+		Slug:      "s",
+		Settings:  "{}",
+		Domains:   "[]",
+		CreatedAt: now,
+	}))
+	must(t, st.Environments.Create(ctx, store.Environment{
+		ID:         h.EnvID,
+		StackID:    h.StackID,
+		Name:       "dev",
+		Slug:       "dev",
+		Type:       "static",
+		Settings:   "{}",
+		Network:    "n",
+		FromKind:   "branch",
+		FromBranch: "main",
+		CreatedAt:  now,
+	}))
+	db, err := tiles.Create(ctx, store.Tile{
+		StackID:       h.StackID,
+		EnvironmentID: h.EnvID,
+		Name:          "db",
+		Kind:          tile.Managed,
+	})
 	must(t, err)
-	api, err := tiles.Create(ctx, store.Tile{StackID: h.StackID, EnvironmentID: h.EnvID, Name: "api", Kind: tile.Image, ImageRef: "a:1"})
+	api, err := tiles.Create(ctx, store.Tile{
+		StackID:       h.StackID,
+		EnvironmentID: h.EnvID,
+		Name:          "api",
+		Kind:          tile.Image,
+		ImageRef:      "a:1",
+	})
 	must(t, err)
 	m, err := f.Instances.Create(ctx, db.ID, engine, "env", h, "stackr", "")
 	must(t, err)
-	fake.Containers = []docker.Container{{ID: "c1", State: "running", Labels: map[string]string{tile.LabelTile: db.ID, tile.LabelRole: "replica"}}}
-	return &world{f: f, fake: fake, s3: s3, home: h, db: db, api: api, instance: m}
+	fake.Containers = []docker.Container{{
+		ID:     "c1",
+		State:  "running",
+		Labels: map[string]string{tile.LabelTile: db.ID, tile.LabelRole: "replica"},
+	}}
+	return &world{
+		f:        f,
+		fake:     fake,
+		s3:       s3,
+		home:     h,
+		db:       db,
+		api:      api,
+		instance: m,
+	}
 }
 
 func execs(f *dockerfake.Fake) string {
@@ -104,12 +165,19 @@ func TestPostgresProvisionAndDrop(t *testing.T) {
 		!strings.Contains(ex, "SET log_min_error_statement = PANIC") {
 		t.Errorf("provision execs:\n%s", ex)
 	}
-	if u := managed.Outputs(p)["DATABASE_URL"]; !strings.HasPrefix(u, "postgres://api:") || !strings.HasSuffix(u, "@db:5432/api") {
+	if u := managed.Outputs(p)["DATABASE_URL"]; !strings.HasPrefix(u, "postgres://api:") ||
+		!strings.HasSuffix(u, "@db:5432/api") {
 		t.Errorf("DATABASE_URL = %q", u)
 	}
 
 	// A second consumer asking for the same name gets its own, suffixed slice.
-	web, err := w.f.Tiles.Create(ctx, store.Tile{StackID: w.home.StackID, EnvironmentID: w.home.EnvID, Name: "web", Kind: tile.Image, ImageRef: "w:1"})
+	web, err := w.f.Tiles.Create(ctx, store.Tile{
+		StackID:       w.home.StackID,
+		EnvironmentID: w.home.EnvID,
+		Name:          "web",
+		Kind:          tile.Image,
+		ImageRef:      "w:1",
+	})
 	must(t, err)
 	w.fake.ExecOut = "0,0"
 	q, err := w.f.Attach(ctx, web, w.db, w.home, "api", false, "")
@@ -161,7 +229,10 @@ func TestKeepOrphansAndTeardownNeedsForce(t *testing.T) {
 	}
 }
 
-func isConflict(err error) bool { _, ok := errs.IsConflict(err); return ok }
+func isConflict(err error) bool {
+	_, ok := errs.IsConflict(err)
+	return ok
+}
 
 func TestS3BucketPerConsumer(t *testing.T) {
 	w := setup(t, "s3")

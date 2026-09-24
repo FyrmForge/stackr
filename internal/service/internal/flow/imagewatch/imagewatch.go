@@ -364,6 +364,10 @@ func deref(p *string) string {
 	return *p
 }
 
-func short(d string) string { return d[:min(19, len(d))] }
+func short(d string) string {
+	return d[:min(19, len(d))]
+}
 
-func logf(w io.Writer, format string, a ...any) { _, _ = fmt.Fprintf(w, format, a...) }
+func logf(w io.Writer, format string, a ...any) {
+	_, _ = fmt.Fprintf(w, format, a...)
+}

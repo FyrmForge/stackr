@@ -19,9 +19,15 @@ func TestNewer(t *testing.T) {
 		a, b string
 		want bool
 	}{
-		{"v0.1.1", "v0.1.0", true}, {"v0.2.0", "v0.1.9", true}, {"v0.10.0", "v0.9.0", true},
-		{"v0.1.0", "v0.1.0", false}, {"v0.1.0", "v0.2.0", false},
-		{"dev", "v0.1.0", false}, {"v0.1.0", "dev", false}, {"0.2.0", "v0.1.0", false}, {"", "v0.1.0", false},
+		{"v0.1.1", "v0.1.0", true},
+		{"v0.2.0", "v0.1.9", true},
+		{"v0.10.0", "v0.9.0", true},
+		{"v0.1.0", "v0.1.0", false},
+		{"v0.1.0", "v0.2.0", false},
+		{"dev", "v0.1.0", false},
+		{"v0.1.0", "dev", false},
+		{"0.2.0", "v0.1.0", false},
+		{"", "v0.1.0", false},
 	} {
 		if got := Newer(c.a, c.b); got != c.want {
 			t.Errorf("Newer(%q, %q) = %v", c.a, c.b, got)
@@ -41,12 +47,16 @@ func TestCheckAndUpgrade(t *testing.T) {
 	fake := dockerfake.New()
 	fake.Err = map[string]error{"LocalDigest": errors.New("no such image")}
 	var order []string
-	f := &Flow{Panel: panel.New(fake), Version: "v0.1.0", URL: gh.URL,
+	f := &Flow{
+		Panel:   panel.New(fake),
+		Version: "v0.1.0",
+		URL:     gh.URL,
 		Archive: func(context.Context, io.Writer) (string, error) {
 			order = append(order, "archive")
 			return "/data/backups/pre-upgrade-v0.1.0.tar.gz", nil
 		},
-		Spec: func(image string) docker.ContainerSpec { return docker.ContainerSpec{Name: "stackr", Image: image} }}
+		Spec: func(image string) docker.ContainerSpec { return docker.ContainerSpec{Name: "stackr", Image: image} },
+	}
 
 	tag, err := f.Check(ctx)
 	if err != nil || tag != "v0.2.0" {
@@ -74,7 +84,8 @@ func TestCheckAndUpgrade(t *testing.T) {
 	}
 	var sp docker.ContainerSpec
 	t.Setenv(panel.SpecEnv, strings.TrimPrefix(fake.Specs[0].Env[0], panel.SpecEnv+"="))
-	if sp, err = panel.SpecFromEnv(); err != nil || sp.Name != "stackr-0.2.0" || sp.Env[0] != "STACKR_IMAGE=ghcr.io/fyrmforge/stackr:0.2.0" {
+	if sp, err = panel.SpecFromEnv(); err != nil || sp.Name != "stackr-0.2.0" ||
+		sp.Env[0] != "STACKR_IMAGE=ghcr.io/fyrmforge/stackr:0.2.0" {
 		t.Errorf("new panel spec = %+v %v", sp, err)
 	}
 

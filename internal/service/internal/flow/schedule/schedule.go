@@ -53,15 +53,21 @@ func Entries(d Drivers, scheds []store.BackupSchedule, crons []store.Tile) []Ent
 		if s.Timezone != "" {
 			spec = "CRON_TZ=" + s.Timezone + " " + s.Cron
 		}
-		out = append(out, Entry{Name: "backup " + s.ID, Spec: spec,
-			Fire: func(ctx context.Context) error { return d.Backup(ctx, s) }})
+		out = append(out, Entry{
+			Name: "backup " + s.ID,
+			Spec: spec,
+			Fire: func(ctx context.Context) error { return d.Backup(ctx, s) },
+		})
 	}
 	for _, t := range crons {
 		if t.Paused {
 			continue
 		}
-		out = append(out, Entry{Name: "cron " + t.ID, Spec: t.Schedule,
-			Fire: func(ctx context.Context) error { return d.Cron(ctx, t) }})
+		out = append(out, Entry{
+			Name: "cron " + t.ID,
+			Spec: t.Schedule,
+			Fire: func(ctx context.Context) error { return d.Cron(ctx, t) },
+		})
 	}
 	return out
 }

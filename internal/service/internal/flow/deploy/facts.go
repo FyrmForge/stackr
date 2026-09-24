@@ -17,7 +17,12 @@ import (
 // scopes, every tile of its env and the shared instances it can reach.
 // ponytail: stackr.PROXY_IP and org.backups are not filled; a ref to either
 // fails the deploy with the resolver's own message until they are.
-func (f *Flow) snapshot(ctx context.Context, t store.Tile, e store.Environment, st store.Stack) (params.Snapshot, error) {
+func (f *Flow) snapshot(
+	ctx context.Context,
+	t store.Tile,
+	e store.Environment,
+	st store.Stack,
+) (params.Snapshot, error) {
 	var s params.Snapshot
 	var err error
 	if s.EnvParams, err = f.Params.Values(ctx, params.Scope{Kind: "env", ID: e.ID}, true); err != nil {

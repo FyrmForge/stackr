@@ -24,8 +24,13 @@ var ctx = context.Background()
 
 type vipStub struct{}
 
-func (vipStub) Set(context.Context, string, []string) error { return nil }
-func (vipStub) Remove(context.Context, string) error        { return nil }
+func (vipStub) Set(context.Context, string, []string) error {
+	return nil
+}
+
+func (vipStub) Remove(context.Context, string) error {
+	return nil
+}
 
 func must(t *testing.T, err error) {
 	t.Helper()
@@ -48,16 +53,30 @@ func setup(t *testing.T) *world {
 	s := storetest.Store(t)
 	fake := dockerfake.New()
 	dir := t.TempDir()
-	f := &Flow{Backups: bk.New(s.BackupDests, s.BackupSchedules, s.BackupRuns), Volumes: volume.New(s.Volumes, fake),
-		Tiles: tile.New(s.Tiles, fake, vipStub{}), Scratch: filepath.Join(dir, "scratch")}
+	f := &Flow{
+		Backups: bk.New(s.BackupDests, s.BackupSchedules, s.BackupRuns),
+		Volumes: volume.New(s.Volumes, fake),
+		Tiles:   tile.New(s.Tiles, fake, vipStub{}),
+		Scratch: filepath.Join(dir, "scratch"),
+	}
 	dest, err := f.Backups.EnsureLocal(ctx, filepath.Join(dir, "archives"))
 	must(t, err)
 	v, _, err := f.Volumes.Declare(ctx, volume.Scope{Kind: "env", ID: "e1"}, "data", 0, nil)
 	must(t, err)
 	api := store.Tile{ID: "t1", Slug: "api"}
-	fake.Containers = []docker.Container{{ID: "r1", State: "running", Labels: map[string]string{tile.LabelTile: "t1", tile.LabelRole: "replica"}}}
+	fake.Containers = []docker.Container{{
+		ID:     "r1",
+		State:  "running",
+		Labels: map[string]string{tile.LabelTile: "t1", tile.LabelRole: "replica"},
+	}}
 	fake.TarOut = tarGz(t, "hello.txt", "hi")
-	return &world{f: f, fake: fake, dest: dest, vol: v, api: api}
+	return &world{
+		f:    f,
+		fake: fake,
+		dest: dest,
+		vol:  v,
+		api:  api,
+	}
 }
 
 func tarGz(t *testing.T, name, body string) []byte {
@@ -73,7 +92,12 @@ func tarGz(t *testing.T, name, body string) []byte {
 }
 
 func (w *world) spec(keep int) Spec {
-	return Spec{Dest: w.dest, Prefix: bk.Prefix("o1", w.vol.ID, "s1"), Trigger: "schedule", Keep: keep}
+	return Spec{
+		Dest:    w.dest,
+		Prefix:  bk.Prefix("o1", w.vol.ID, "s1"),
+		Trigger: "schedule",
+		Keep:    keep,
+	}
 }
 
 func order(f *dockerfake.Fake) []string {
@@ -107,8 +131,12 @@ func TestLocalRoundTripAndRestoreOrder(t *testing.T) {
 	}
 
 	before := len(w.fake.Calls())
-	must(t, w.f.Restore(ctx, Restore{RunID: r.ID, SourceVolumeID: w.vol.ID, Target: sub,
-		Pre: Spec{Dest: w.dest, Prefix: bk.Prefix("o1", w.vol.ID, "")}}, io.Discard))
+	must(t, w.f.Restore(ctx, Restore{
+		RunID:          r.ID,
+		SourceVolumeID: w.vol.ID,
+		Target:         sub,
+		Pre:            Spec{Dest: w.dest, Prefix: bk.Prefix("o1", w.vol.ID, "")},
+	}, io.Discard))
 	var got []string
 	for _, c := range w.fake.Calls()[before:] {
 		switch c.Method {
@@ -138,8 +166,12 @@ func TestCorruptArchiveTouchesNothing(t *testing.T) {
 	must(t, err)
 	w.fake.TarOut = tarGz(t, "x", "y") // the pre-restore backup is fine
 	before := len(w.fake.Calls())
-	err = w.f.Restore(ctx, Restore{RunID: r.ID, SourceVolumeID: w.vol.ID, Target: sub,
-		Pre: Spec{Dest: w.dest, Prefix: bk.Prefix("o1", w.vol.ID, "")}}, io.Discard)
+	err = w.f.Restore(ctx, Restore{
+		RunID:          r.ID,
+		SourceVolumeID: w.vol.ID,
+		Target:         sub,
+		Pre:            Spec{Dest: w.dest, Prefix: bk.Prefix("o1", w.vol.ID, "")},
+	}, io.Discard)
 	if err == nil {
 		t.Fatal("a corrupt archive restored")
 	}
@@ -153,7 +185,12 @@ func TestCorruptArchiveTouchesNothing(t *testing.T) {
 func TestDumpRoundTripAndPrune(t *testing.T) {
 	w := setup(t)
 	w.fake.ExecOut = "CREATE TABLE t();"
-	sub := Subject{Volume: w.vol, Engine: w.api, Dump: []string{"pg_dump"}, Load: []string{"psql"}}
+	sub := Subject{
+		Volume: w.vol,
+		Engine: w.api,
+		Dump:   []string{"pg_dump"},
+		Load:   []string{"psql"},
+	}
 	_, err := w.f.Backup(ctx, sub, w.spec(1), io.Discard)
 	must(t, err)
 	r, err := w.f.Backup(ctx, sub, w.spec(1), io.Discard)
@@ -163,22 +200,35 @@ func TestDumpRoundTripAndPrune(t *testing.T) {
 	if len(keys) != 1 || keys[0] != r.ObjectKey {
 		t.Errorf("after prune: %v", keys)
 	}
-	must(t, w.f.Restore(ctx, Restore{RunID: r.ID, SourceVolumeID: w.vol.ID, Target: sub,
-		Pre: Spec{Dest: w.dest, Prefix: bk.Prefix("o1", w.vol.ID, "")}}, io.Discard))
+	must(t, w.f.Restore(ctx, Restore{
+		RunID:          r.ID,
+		SourceVolumeID: w.vol.ID,
+		Target:         sub,
+		Pre:            Spec{Dest: w.dest, Prefix: bk.Prefix("o1", w.vol.ID, "")},
+	}, io.Discard))
 	if string(w.fake.ExecIn) != "CREATE TABLE t();" {
 		t.Errorf("psql got %q", w.fake.ExecIn)
 	}
 	// A dump never restores into a plain volume.
-	if err := w.f.Restore(ctx, Restore{RunID: r.ID, SourceVolumeID: w.vol.ID, Target: Subject{Volume: w.vol},
-		Pre: w.spec(0)}, io.Discard); err == nil {
+	if err := w.f.Restore(ctx, Restore{
+		RunID:          r.ID,
+		SourceVolumeID: w.vol.ID,
+		Target:         Subject{Volume: w.vol},
+		Pre:            w.spec(0),
+	}, io.Discard); err == nil {
 		t.Error("a dump restored as a tarball")
 	}
 }
 
 func TestPanelArchive(t *testing.T) {
 	w := setup(t)
-	p := Panel{MasterKey: "mk", Version: "v1.2.3", Passphrase: "correct horse", InstallID: "i1",
-		Vacuum: func(_ context.Context, path string) error { return os.WriteFile(path, []byte("sqlite"), 0o600) }}
+	p := Panel{
+		MasterKey:  "mk",
+		Version:    "v1.2.3",
+		Passphrase: "correct horse",
+		InstallID:  "i1",
+		Vacuum:     func(_ context.Context, path string) error { return os.WriteFile(path, []byte("sqlite"), 0o600) },
+	}
 	r, err := w.f.PanelBackup(ctx, p, w.dest, 0, io.Discard)
 	must(t, err)
 	f, err := os.Open(filepath.Join(w.dest.Endpoint, r.ObjectKey))

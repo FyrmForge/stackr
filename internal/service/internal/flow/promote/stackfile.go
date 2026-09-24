@@ -473,8 +473,13 @@ func resolve(f *File) (*Resolved, error) {
 	if f.Stack == "" {
 		return nil, fmt.Errorf("stack name required")
 	}
-	r := &Resolved{Stack: f.Stack, Params: f.Params, Defaults: f.Defaults, Domains: f.Domains,
-		Envs: map[string]ResolvedEnv{}}
+	r := &Resolved{
+		Stack:    f.Stack,
+		Params:   f.Params,
+		Defaults: f.Defaults,
+		Domains:  f.Domains,
+		Envs:     map[string]ResolvedEnv{},
+	}
 	if err := checkParams(f.Params); err != nil {
 		return nil, err
 	}
@@ -497,7 +502,12 @@ func resolve(f *File) (*Resolved, error) {
 		if err := ec.Defaults.check(); err != nil {
 			return nil, fmt.Errorf("environment %s defaults: %w", name, err)
 		}
-		re := ResolvedEnv{Color: ec.Color, Defaults: ec.Defaults, Tiles: map[string]TileConf{}, Volumes: map[string]VolumeConf{}}
+		re := ResolvedEnv{
+			Color:    ec.Color,
+			Defaults: ec.Defaults,
+			Tiles:    map[string]TileConf{},
+			Volumes:  map[string]VolumeConf{},
+		}
 		if err := knobs(&re, ec, f, i); err != nil {
 			return nil, fmt.Errorf("environment %s: %w", name, err)
 		}
@@ -617,8 +627,11 @@ func checkTile(name string, tc TileConf) error {
 		}
 	}
 	if tc.Replicas > 1 && len(tc.Volumes) > 0 {
-		return fmt.Errorf("tile %s: replicas: %d, but it mounts a volume; one writer per volume. Drop the volume or set replicas: 1",
-			name, tc.Replicas)
+		return fmt.Errorf(
+			"tile %s: replicas: %d, but it mounts a volume; one writer per volume. Drop the volume or set replicas: 1",
+			name,
+			tc.Replicas,
+		)
 	}
 	for _, s := range tc.Slices {
 		switch {
