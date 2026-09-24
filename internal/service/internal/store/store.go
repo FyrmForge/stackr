@@ -56,6 +56,8 @@ type Tables struct {
 	BackupSchedules  BackupScheduleStore
 	BackupRuns       BackupRunStore
 	Runs             RunStore
+	Positions        PositionStore
+	Annotations      AnnotationStore
 }
 
 func bind(q querier, box *secrets.Box) Tables {
@@ -85,6 +87,8 @@ func bind(q querier, box *secrets.Box) Tables {
 		BackupSchedules:  backupSchedules{crud[BackupSchedule]{q, box, backupSchedulesT}},
 		BackupRuns:       backupRuns{crud[BackupRun]{q, box, backupRunsT}},
 		Runs:             runs{crud[Run]{q, box, runsT}},
+		Positions:        positions{q},
+		Annotations:      annotations{crud[Annotation]{q, box, annotationsT}},
 	}
 }
 

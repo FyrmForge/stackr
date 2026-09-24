@@ -134,6 +134,34 @@ or may style; `elements_test.go` checks each one is in the source:
   `#drawer-body` and copies `?tab=` into `tab`. Wrapper:
   `components.SideDrawer()`, in `Layout` after `#main`.
 
+**`graph.View` (task 6, session B)**: what `service.Canvas` returns and
+the card templates read (`internal/service/internal/flow/graph`).
+
+- Node ids: `org:<id>`, `stack:<id>`, `env:<id>`, `connector:<id>`,
+  `vars` (one card per canvas, counts only), `tile:<slug>` (by slug, as
+  v0, so a rebuilt tile keeps its place), `slice:<provision id>`,
+  `ref:<instance tile id>` or `ref:stack.<slug>` / `ref:org.<slug>`
+  (ghosts, `Static`), `volume:<slug>` (detached only; attached ones are
+  sub-tiles), `proxy`, `internet` (`System`), `note:<id>` (annotations).
+- `Node`: `ID Kind Name Slug Detail Status X Y W H Saved System Static
+  Color Deck Subs`; tile facts `Replicas Running Domains Volumes Host
+  LastRun Waiting`; vars counts `Params Secrets`. `Kind` is the tile kind
+  for tiles (`service image managed cron function`), else `org stack env
+  connector vars slice ref volume proxy internet`. `H` already includes
+  30 px per sub-tile; a detached volume is 62 tall, the rest 96.
+- `Status` is one word, worst-of on drill-down cards: `error > building |
+  queued | waiting > unhealthy > degraded > stopped > running > done >
+  none`; "" = nothing to roll up.
+- `Sub`: `ID Kind Name Status` (volume, the hosting instance under a
+  slice as `tile:<slug>`, replicas 2+ as `replica:<slug>:<n>`, cap 3).
+- `Edge`: `Kind From To`, kinds `ref ingress egress shared startup config
+  source`. A startup edge is dropped when a ref already joins the pair.
+- `View`: `Nodes Edges Notes Divider Compare`; `Divider` 0 = no system
+  column. `Compare` (stack canvas) is the ladder in order with each env's
+  release number and `Behind` (the rung below runs a newer one).
+- `Show{System, Refs, Startup, Traffic}` is what the query params turn
+  off; `Traffic` off drops the egress edges and the internet card.
+
 ### Session B (`../stackr-step-6b`)
 
 5. **Contract + elements.** Write the contract above into

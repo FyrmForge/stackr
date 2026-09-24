@@ -24,6 +24,7 @@ import (
 	fbackup "github.com/FyrmForge/stackr/internal/service/internal/flow/backup"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/container"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/deploy"
+	"github.com/FyrmForge/stackr/internal/service/internal/flow/graph"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/imagewatch"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/jobs"
 	mflow "github.com/FyrmForge/stackr/internal/service/internal/flow/managed"
@@ -34,6 +35,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/upgrade"
 	"github.com/FyrmForge/stackr/internal/service/internal/githubapp"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/backup"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/canvas"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/connector"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/credential"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/domain"
@@ -157,6 +159,7 @@ type Orchestrator struct {
 	settings *settings.Leaf
 	runs     *lrun.Leaf
 	traffic  *ltraffic.Leaf
+	canvas   *canvas.Leaf
 
 	deploy    *deploy.Flow
 	engines   *mflow.Flow
@@ -167,6 +170,7 @@ type Orchestrator struct {
 	upgrade   *upgrade.Flow
 	run       *frun.Flow
 	sample    *ftraffic.Flow
+	graph     *graph.Flow
 	jobs      *jobs.Runner
 	sched     *schedule.Runner
 	sync      *domain.Syncer
@@ -273,6 +277,7 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 	svc.settings = build("leaf/settings", func() *settings.Leaf { return settings.New(st.Settings, bootSettings(cfg)) })
 	svc.runs = build("leaf/run", func() *lrun.Leaf { return lrun.New(st.Runs, filepath.Join(cfg.DataDir, "runs")) })
 	svc.traffic = build("leaf/traffic", ltraffic.New)
+	svc.canvas = build("leaf/canvas", func() *canvas.Leaf { return canvas.New(st.Positions, st.Annotations) })
 
 	svc.engines = build("flow/managed", func() *mflow.Flow {
 		return &mflow.Flow{Tiles: svc.tiles, Instances: svc.managed, Volumes: svc.volumes, Envs: svc.envs,
@@ -314,6 +319,11 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 	})
 	svc.sample = build("flow/traffic", func() *ftraffic.Flow {
 		return &ftraffic.Flow{Tiles: svc.tiles, Envs: svc.envs, Domains: svc.domains, Managed: svc.managed, Traffic: svc.traffic, Path: cfg.Conntrack}
+	})
+	svc.graph = build("flow/graph", func() *graph.Flow {
+		return &graph.Flow{Orgs: svc.orgs, Stacks: svc.stacks, Envs: svc.envs, Tiles: svc.tiles, Params: svc.params,
+			Volumes: svc.volumes, Domains: svc.domains, Managed: svc.managed, Conns: svc.conns, Releases: svc.releases,
+			Jobs: svc.jobRows, Runs: svc.runs, Canvas: svc.canvas}
 	})
 	svc.jobs = build("flow/jobs", func() *jobs.Runner {
 		// ponytail: no ParamSet, a parked job is requeued every poll and its

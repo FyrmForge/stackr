@@ -29,7 +29,7 @@ func TestNewBuildsEachOnce(t *testing.T) {
 		"leaf/tile", "leaf/image", "leaf/params", "leaf/volume", "leaf/domain", "leaf/credential", "leaf/connector",
 		"leaf/managed", "leaf/release", "leaf/job", "leaf/backup", "leaf/settings", "flow/managed",
 		"leaf/domain.Syncer", "flow/deploy", "flow/promote", "flow/backup", "flow/container", "flow/imagewatch",
-		"flow/upgrade", "flow/jobs", "flow/schedule", "leaf/traffic", "flow/traffic"} {
+		"flow/upgrade", "flow/jobs", "flow/schedule", "leaf/traffic", "flow/traffic", "leaf/canvas", "flow/graph"} {
 		if counts[name] == 0 {
 			t.Errorf("%s never built", name)
 		}
