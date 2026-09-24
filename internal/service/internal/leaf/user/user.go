@@ -4,6 +4,8 @@ package user
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"strings"
@@ -71,4 +73,59 @@ func (l *Leaf) Authenticate(ctx context.Context, email, password string) (store.
 		return store.User{}, ErrBadLogin
 	}
 	return u, nil
+}
+
+// HashToken is how an API key's secret is stored: never the token itself.
+func HashToken(token string) string {
+	sum := sha256.Sum256([]byte(token))
+	return hex.EncodeToString(sum[:])
+}
+
+// ByKey finds the key behind a bearer token and its owner, live.
+func (l *Leaf) ByKey(ctx context.Context, token string) (store.User, store.APIKey, error) {
+	k, err := l.keys.GetByHash(ctx, HashToken(token))
+	if err != nil {
+		return store.User{}, store.APIKey{}, err
+	}
+	u, err := l.users.Get(ctx, k.UserID)
+	return u, k, err
+}
+
+// SetActive flips the account on or off.
+func (l *Leaf) SetActive(ctx context.Context, id string, active bool) error {
+	return l.update(ctx, id, func(u *store.User) { u.Active = active })
+}
+
+// SetAdmin grants or takes the stackr admin role.
+func (l *Leaf) SetAdmin(ctx context.Context, id string, admin bool) error {
+	return l.update(ctx, id, func(u *store.User) {
+		u.Role = "user"
+		if admin {
+			u.Role = "admin"
+		}
+	})
+}
+
+func (l *Leaf) update(ctx context.Context, id string, f func(*store.User)) error {
+	u, err := l.users.Get(ctx, id)
+	if err != nil {
+		return err
+	}
+	f(&u)
+	u.UpdatedAt = time.Now().UTC()
+	return l.users.Update(ctx, u)
+}
+
+// CloseAccess is the one revoke function (B16): it ends every session of
+// the user and deletes their keys bound to orgID, or all their keys when
+// orgID is "". Both are attempted; the errors are joined.
+func (l *Leaf) CloseAccess(ctx context.Context, userID, orgID string) error {
+	var org *string
+	if orgID != "" {
+		org = &orgID
+	}
+	return errors.Join(
+		l.sessions.DeleteBySubjectID(ctx, userID),
+		l.keys.DeleteByUser(ctx, userID, org),
+	)
 }

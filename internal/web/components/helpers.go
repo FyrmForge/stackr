@@ -66,6 +66,8 @@ func AbsoluteURL(path string) string {
 // GetUser returns the authenticated user from the Echo context, or nil
 // if no user is loaded (e.g. guest pages).
 func GetUser(c echo.Context) *service.User {
-	u, _ := middleware.GetSubject(c).(*service.User)
-	return u
+	if p, _ := middleware.GetSubject(c).(*service.Principal); p != nil {
+		return &p.User
+	}
+	return nil
 }

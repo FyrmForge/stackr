@@ -1,16 +1,15 @@
 package web
 
 import (
-	"context"
-	"errors"
+	"net/http"
 
 	"github.com/FyrmForge/hamr/pkg/email"
 	hamrmw "github.com/FyrmForge/hamr/pkg/middleware"
 	"github.com/FyrmForge/hamr/pkg/server"
+	"github.com/labstack/echo/v4"
 
 	"github.com/FyrmForge/stackr/internal/middleware"
 	"github.com/FyrmForge/stackr/internal/service"
-	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/web/components"
 	"github.com/FyrmForge/stackr/internal/web/handler/about"
 	"github.com/FyrmForge/stackr/internal/web/handler/auth/login"
@@ -22,6 +21,7 @@ import (
 // Deps holds the dependencies for route registration.
 type Deps struct {
 	Service       *service.Orchestrator
+	Access        *middleware.Access // shared with the API router
 	BaseURL       string
 	StaticBaseURL string
 	DevMode       bool
@@ -48,22 +48,8 @@ func RegisterRoutes(srv *server.Server, deps *Deps) {
 	site.Use(hamrmw.FlashWithConfig(hamrmw.FlashConfig{Secure: !deps.DevMode}))
 	site.Use(hamrmw.CSRFWithConfig(hamrmw.CSRFConfig{Secure: !deps.DevMode}))
 
-	sm := deps.Service.Sessions()
-	auth := hamrmw.NewBrowserAuth(sm,
-		hamrmw.WithSubjectLoader(func(reqCtx context.Context, id string) (any, error) {
-			u, err := deps.Service.User(reqCtx, id)
-			if errors.Is(err, errs.ErrNotFound) {
-				return nil, nil // stale session: hamr clears the cookie
-			}
-			if err != nil {
-				return nil, err
-			}
-			return &u, nil
-		}),
-		hamrmw.WithLoginRedirect("/login"),
-		hamrmw.WithHomeRedirect("/"),
-	)
-	site.Use(auth.Load())
+	site.Use(deps.Access.Load())
+	auth := deps.Access.Browser()
 
 	homeHandler := home.NewHandler()
 	site.GET("/", homeHandler.Index)
@@ -87,6 +73,11 @@ func RegisterRoutes(srv *server.Server, deps *Deps) {
 	site.GET("/register", registerHandler.Page, auth.RequireNotAuth())
 	site.POST("/register", registerHandler.Submit, auth.RequireNotAuth())
 	site.POST("/register/validate/:field", registerHandler.FormRules.ValidationHandler("field"), auth.RequireNotAuth())
+
+	// ponytail: placeholder so the middleware is mounted and tested; the org
+	// page replaces it.
+	site.GET("/:org", func(c echo.Context) error { return c.NoContent(http.StatusNoContent) },
+		deps.Access.Require("org.read"))
 }
 
 // RegisterStaticPages registers handlers for static generation and runtime

@@ -15,6 +15,7 @@ import (
 	"github.com/FyrmForge/hamr/pkg/middleware"
 	"github.com/FyrmForge/hamr/pkg/server"
 	"github.com/FyrmForge/stackr/internal/api"
+	appmw "github.com/FyrmForge/stackr/internal/middleware"
 	"github.com/FyrmForge/stackr/internal/service"
 	"github.com/FyrmForge/stackr/internal/web"
 	"github.com/FyrmForge/stackr/internal/web/components"
@@ -128,12 +129,17 @@ func run(log *slog.Logger, generate bool) error {
 		log.Info("email mock enabled", "inbox", envHamrDevURL+"/__hamr/mail")
 	}
 
+	// One access middleware for both routers.
+	access := appmw.NewAccess(svc)
+
 	api.RegisterRoutes(srv, &api.Deps{
 		Service: svc,
+		Access:  access,
 	})
 
 	web.RegisterRoutes(srv, &web.Deps{
 		Service:       svc,
+		Access:        access,
 		BaseURL:       baseOrigin,
 		StaticBaseURL: envStaticBaseURL,
 		DevMode:       envDevMode,

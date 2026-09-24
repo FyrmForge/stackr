@@ -37,8 +37,3 @@ func (o *Orchestrator) Logout(ctx context.Context, token string) error {
 	}
 	return o.sessions.DeleteSession(ctx, s.ID)
 }
-
-// User returns one user by id.
-func (o *Orchestrator) User(ctx context.Context, id string) (User, error) {
-	return o.users.Get(ctx, id)
-}

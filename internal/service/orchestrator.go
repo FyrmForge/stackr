@@ -15,6 +15,10 @@ import (
 	appdb "github.com/FyrmForge/stackr/internal/db"
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/environment"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/org"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/stack"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/user"
 	"github.com/FyrmForge/stackr/internal/service/internal/secrets"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
@@ -52,6 +56,10 @@ type Orchestrator struct {
 	sessions *auth.SessionManager
 	docker   Docker
 	users    *user.Leaf
+	orgs     *org.Leaf
+	stacks   *stack.Leaf
+	envs     *environment.Leaf
+	tiles    *tile.Leaf
 }
 
 // onBuild is a test hook: every constructor New calls reports its name here,
@@ -113,6 +121,10 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 		}),
 		docker: o.docker,
 		users:  build("leaf/user", func() *user.Leaf { return user.New(st.Users, st.Sessions, st.APIKeys) }),
+		orgs:   build("leaf/org", func() *org.Leaf { return org.New(st.Orgs, st.OrgMembers) }),
+		stacks: build("leaf/stack", func() *stack.Leaf { return stack.New(st.Stacks) }),
+		envs:   build("leaf/environment", func() *environment.Leaf { return environment.New(st.Environments) }),
+		tiles:  build("leaf/tile", func() *tile.Leaf { return tile.New(st.Tiles) }),
 	}, nil
 }
 
