@@ -4,6 +4,7 @@ package user
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -89,6 +90,50 @@ func (l *Leaf) ByKey(ctx context.Context, token string) (store.User, store.APIKe
 	}
 	u, err := l.users.Get(ctx, k.UserID)
 	return u, k, err
+}
+
+// MintKey creates an API key and returns its bearer token, shown once; only
+// the hash is stored. A key never holds more than its minter (B36): it is
+// bound to orgID, where the minter must hold roleInOrg (the caller reads the
+// membership); an unbound key (orgID "") is admin-only (DECIDE 13).
+func (l *Leaf) MintKey(ctx context.Context, u store.User, orgID, roleInOrg, name string) (string, store.APIKey, error) {
+	admin := u.Role == "admin"
+	switch {
+	case !u.Active:
+		return "", store.APIKey{}, errs.ErrRefused
+	case orgID == "" && !admin:
+		return "", store.APIKey{}, errs.Refusedf("only a stackr admin can mint a key bound to no organization")
+	case orgID != "" && roleInOrg == "" && !admin:
+		return "", store.APIKey{}, errs.ErrNotFound
+	}
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		return "", store.APIKey{}, err
+	}
+	token := hex.EncodeToString(b)
+	k := store.APIKey{ID: uuid.NewString(), UserID: u.ID, Name: strings.TrimSpace(name),
+		TokenHash: HashToken(token), CreatedAt: time.Now().UTC()}
+	if orgID != "" {
+		k.OrgID = &orgID
+	}
+	return token, k, l.keys.Create(ctx, k)
+}
+
+// Keys lists a user's keys (hashes only).
+func (l *Leaf) Keys(ctx context.Context, userID string) ([]store.APIKey, error) {
+	return l.keys.ListByUser(ctx, userID)
+}
+
+// RevokeKey deletes one of the user's keys; someone else's is ErrNotFound.
+func (l *Leaf) RevokeKey(ctx context.Context, userID, keyID string) error {
+	k, err := l.keys.Get(ctx, keyID)
+	if err != nil {
+		return err
+	}
+	if k.UserID != userID {
+		return errs.ErrNotFound
+	}
+	return l.keys.Delete(ctx, keyID)
 }
 
 // SetActive flips the account on or off.

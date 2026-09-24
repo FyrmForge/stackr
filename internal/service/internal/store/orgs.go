@@ -89,11 +89,19 @@ type InviteStore interface {
 	ListByOrg(ctx context.Context, orgID string) ([]Invite, error)
 	Update(ctx context.Context, i Invite) error
 	Delete(ctx context.Context, id string) error
+	// Burn marks an unused invite used in one statement; ErrNotFound when it
+	// is missing or already used, so two clicks cannot both win.
+	Burn(ctx context.Context, id string, at time.Time) error
 }
 
 var invitesT = newTable[Invite]("invites", nil)
 
 type invites struct{ crud[Invite] }
+
+func (s invites) Burn(ctx context.Context, id string, at time.Time) error {
+	res, err := s.q.ExecContext(ctx, `UPDATE invites SET used_at = ? WHERE id = ? AND used_at IS NULL`, at, id)
+	return affected(res, err)
+}
 
 func (s invites) ListByOrg(ctx context.Context, orgID string) ([]Invite, error) {
 	return s.many(ctx, "org_id = ?", orgID)
