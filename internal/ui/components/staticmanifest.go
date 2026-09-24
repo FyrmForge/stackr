@@ -4,13 +4,13 @@ package components
 
 // StaticManifest maps original asset paths to fingerprinted paths.
 var StaticManifest = map[string]string{
-	"css/output.css": "css/output.4d4681239dde.css",
+	"css/output.css": "css/output.8561f32e15ea.css",
 	"js/elements/confirm-dialog.js": "js/elements/confirm-dialog.8d714d0529d4.js",
 	"js/elements/flash-toast.js": "js/elements/flash-toast.066271828161.js",
-	"js/elements/graph-canvas.js": "js/elements/graph-canvas.645e41a95b51.js",
-	"js/elements/graph-node.js": "js/elements/graph-node.624b6ed005c6.js",
+	"js/elements/graph-canvas.js": "js/elements/graph-canvas.96638bbc32e4.js",
+	"js/elements/graph-node.js": "js/elements/graph-node.ba9b88448f2c.js",
 	"js/elements/log-pane.js": "js/elements/log-pane.edd6e62b4802.js",
-	"js/elements/side-drawer.js": "js/elements/side-drawer.7911d2becf77.js",
+	"js/elements/side-drawer.js": "js/elements/side-drawer.3b80102bb667.js",
 	"js/elements/theme-toggle.js": "js/elements/theme-toggle.3bad8f86991f.js",
 	"js/main.js": "js/main.e682a47a0e18.js",
 	"js/vendor/htmx.min.js": "js/vendor/htmx.min.e209dda5c823.js",

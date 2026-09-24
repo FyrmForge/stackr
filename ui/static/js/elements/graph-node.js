@@ -18,16 +18,25 @@ class GraphNode extends HTMLElement {
         this.addEventListener("pointerdown", this.onDown);
         this.addEventListener("click", this.onClick, true);
         this.addEventListener("dragstart", this.onNativeDrag);
+        this.addEventListener("keydown", this.onKey);
     }
     disconnectedCallback() {
         this.end();
         this.removeEventListener("pointerdown", this.onDown);
         this.removeEventListener("click", this.onClick, true);
         this.removeEventListener("dragstart", this.onNativeDrag);
+        this.removeEventListener("keydown", this.onKey);
     }
     num = (name) => Number(this.getAttribute(name)) || 0;
     canvas = () => this.closest("graph-canvas");
     onNativeDrag = (e) => e.preventDefault();
+    onKey = (e) => {
+        const t = e.target;
+        if ((e.key !== "Enter" && e.key !== " ") || t.getAttribute("role") !== "button" || t.closest("graph-node") !== this)
+            return;
+        e.preventDefault();
+        t.click();
+    };
     onClick = (e) => {
         if (!this.swallow)
             return;

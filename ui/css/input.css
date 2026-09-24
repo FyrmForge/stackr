@@ -68,5 +68,7 @@ side-drawer:not([open]) { display: none; }
 /* Traffic lanes (task 9): a teal dashed flow per direction, labelled on the path. */
 graph-canvas path[data-edge-kind="traffic"] { stroke: #14b8a6; stroke-dasharray: 3 7; animation: lane-flow 1s linear infinite; }
 graph-canvas svg[data-lanes] text { font-size: 10px; fill: #0d9488; }
+graph-canvas path[data-edge-kind="traffic"][data-rev] { animation-direction: reverse; }
+graph-canvas[arrows] path[data-rev] { marker-end: none; marker-start: url(#graph-arrow); }
 @keyframes lane-flow { to { stroke-dashoffset: -10; } }
 @media (prefers-reduced-motion: reduce) { graph-canvas path[data-edge-kind="traffic"] { animation: none; } }

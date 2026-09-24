@@ -141,7 +141,7 @@ func (h *handler) tab(c echo.Context, tab string, x extra) (templ.Component, err
 		if v.Newer {
 			v.Run = comp.ConfirmView{Button: "Upgrade to " + v.Latest, Title: "Upgrade stackr to " + v.Latest,
 				Warning: "The panel archives its database, then restarts on the new image. Running tiles keep running.",
-				Action: ui.Base + "/update/run?tag=" + url.QueryEscape(v.Latest), Target: "#" + comp.DrawerRoot}
+				Action:  ui.Base + "/update/run?tag=" + url.QueryEscape(v.Latest), Target: "#" + comp.DrawerRoot}
 		}
 		return ui.Update(v), nil
 	case "caddy":

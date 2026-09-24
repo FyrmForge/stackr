@@ -111,14 +111,12 @@ class GraphCanvas extends HTMLElement {
     if (!b) return this.apply();
     const [W, H] = [this.clientWidth, this.clientHeight];
     this.s = clamp(Math.min(this.s, (W - 2 * MARGIN) / (b.w || 1), (H - 2 * MARGIN) / (b.h || 1)));
-    this.px = (W - b.w * this.s) / 2 - b.x * this.s;
-    this.py = (H - b.h * this.s) / 2 - b.y * this.s;
+    [this.px, this.py] = [(W - b.w * this.s) / 2 - b.x * this.s, (H - b.h * this.s) / 2 - b.y * this.s];
     this.apply();
   }
   private zoomAt([cx, cy]: Pt, factor: number): void {
     const s = clamp(this.s * factor);
-    this.px = cx - ((cx - this.px) * s) / this.s;
-    this.py = cy - ((cy - this.py) * s) / this.s;
+    [this.px, this.py] = [cx - ((cx - this.px) * s) / this.s, cy - ((cy - this.py) * s) / this.s];
     this.s = s;
     this.apply();
   }
@@ -126,8 +124,7 @@ class GraphCanvas extends HTMLElement {
     const n = this.node(id);
     if (!n) return;
     const b = this.box(n);
-    this.px = this.clientWidth / 2 - (b.x + b.w / 2) * this.s;
-    this.py = this.clientHeight / 2 - (b.y + b.h / 2) * this.s;
+    [this.px, this.py] = [this.clientWidth / 2 - (b.x + b.w / 2) * this.s, this.clientHeight / 2 - (b.y + b.h / 2) * this.s];
     this.apply();
     this.light(this.top(n));
   }
@@ -280,9 +277,13 @@ class GraphCanvas extends HTMLElement {
     }
     for (let i = 0; i < ends.length; i += 2) this.draw(ends[i], ends[i + 1]);
   }
+  // Right-to-left lanes draw from the far end (data-rev) so labels read upright.
   private draw(a: End, b: End): void {
-    const [ax, ay] = this.anchor(a);
-    const [bx, by] = this.anchor(b);
+    const rev = a.path.dataset.edgeKind === "traffic" && this.anchor(b)[0] < this.anchor(a)[0];
+    if (rev) [a, b] = [b, a];
+    a.path.toggleAttribute("data-rev", rev);
+    a.path.nextElementSibling?.firstElementChild?.setAttribute("startOffset", rev ? "70%" : "30%");
+    const [[ax, ay], [bx, by]] = [this.anchor(a), this.anchor(b)];
     if (this.hasAttribute("straight")) return a.path.setAttribute("d", `M${ax},${ay} L${bx},${by}`);
     const c = Math.max((across(a.side) ? Math.abs(bx - ax) : Math.abs(by - ay)) / 2, 60);
     const [[anx, any], [bnx, bny]] = [NORMAL[a.side], NORMAL[b.side]];
