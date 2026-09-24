@@ -248,7 +248,17 @@ session started by darhvader from the START HERE line, no Fable.
   - Backup dest: an empty access key keeps the stored one (as the secret key did).
   - Config repo refuses another org's connector; domain reads blank the basic-auth password (empty + same user keeps it on update).
   - Modules: cobra, pflag, x/term moved from indirect to direct; none new.
-- [ ] [F+O] step 5 installer + self-upgrade
+- [x] [F+O] step 5 installer + self-upgrade — done: 2026-09-24
+    - `stackr-install` (cmd/stackr-install) and `internal/installspec`: one spec renders the installer's `docker run` lines and stackrd's `Config.PanelSpec` (a test reads one back into the other).
+    - answers saved to `<data>/install.json`; a re-run converges, other answers are refused; the master key lives in `<data>/keys/master.key`.
+    - proxy is its own container (`stackrd proxy`, 80/443, admin on 127.0.0.1:2019, certs on volume `stackr-caddy`); the panel runs host-network, bound to the docker bridge gateway, no public port.
+    - fixed from step 3: the upgrade helper's Cmd is `upgrade-swap` (the image entrypoint is stackrd), and a pull is skipped when the image is already local.
+    - `stackr-install restore <archive>` puts a panel archive back (db, key, build); the upgrade job log prints this line.
+    - `make release RELEASE=vX.Y.Z` plus `.github/workflows/release.yml` on a tag; image tags drop the `v`.
+    - verified on the test VM: install with a Let's Encrypt cert, upgrade 0.0.1 → 0.0.2, restore back to 0.0.1, admin user kept each time.
+    - waits on step 4: no API route or CLI verb starts an upgrade yet, so the VM run queued the job row by hand; the `stackr` host wrapper execs a CLI that is still the step 4 stub.
+    - an upgrade swaps the panel only; the proxy stays on the image it was installed with (DECIDE 49).
+    - the `cloudflare` keyword for `--proxy` is not built; the flag takes IPs and CIDRs.
 - [ ] [F+O] step 6 UI
 
 ## DECIDE:
@@ -502,3 +512,30 @@ Raised by step 3 session B (builder took the lean; flip any):
    param fails closed (500). Options: (a) keep, the verb rejects a
    mismatch (a release of another stack is a promote blocker); (b) check
    the full path. Lean (a).
+
+Raised by step 5 (builder took the lean; flip any):
+
+47. (step 5) **Recovery passphrase is the master key.** Panel archives are
+   age-encrypted with `Config.Passphrase`, which defaults to the master
+   key, so the installer prints the key once as the recovery passphrase.
+   Options: (a) keep, one secret to keep off the box; (b) a separate
+   passphrase asked at install.
+48. (step 5) **Panel on host networking.** The panel needs iptables in the
+   host netns (VIPs) and the proxy reaches it as `stackr:8080` through
+   `host-gateway`. Host networking means stackrd cannot resolve container
+   names, which breaks DECIDE 28 (a) (`http://<slug>:9000`) and anything
+   else that dials a tile by name. Options: (a) keep, dial by container IP
+   from inspect; (b) panel on a bridge with `--network`s joined per env.
+49. (step 5) **Upgrade leaves the proxy alone.** Only the panel is swapped;
+   `stackr-proxy` stays on its install image, so Caddy changes in a
+   release need a re-install. Options: (a) keep; (b) the helper also
+   recreates the proxy after the panel gate passes.
+50. (step 5) **Panel bind and trust.** The panel listens on the docker
+   bridge gateway (not public) and trusts X-Forwarded-For from the RFC1918
+   ranges, since the proxy's source address is a bridge address.
+   Options: (a) keep; (b) pin trust to the proxy container's address.
+51. (step 5) **install.json is the one source of install answers.** The
+   installer, stackrd's upgrade spec and restore all read it; changing an
+   answer means editing it (or a clean reinstall). Options: (a) keep;
+   (b) a `stackr-install --reconfigure` that rewrites it and recreates
+   both containers.
