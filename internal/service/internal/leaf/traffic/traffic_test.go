@@ -80,7 +80,7 @@ func TestSlices(t *testing.T) {
 	pairs := map[Pair]float64{
 		{"web", "pg"}: 10, {"pg", "web"}: 100,
 		{"jobs", "pg"}: 20, {"pg", "jobs"}: 200,
-		{"cron", "pg"}: 30,
+		{"cron", "pg"}:   30,
 		{"proxy", "web"}: 5,
 	}
 	bind := map[Pair]string{{"web", "pg"}: "slice-web", {"jobs", "pg"}: "slice-jobs"}
@@ -88,7 +88,7 @@ func TestSlices(t *testing.T) {
 	want := map[Pair]float64{
 		{"web", "slice-web"}: 10, {"slice-web", "web"}: 100,
 		{"jobs", "slice-jobs"}: 20, {"slice-jobs", "jobs"}: 200,
-		{"cron", "pg"}: 30,
+		{"cron", "pg"}:   30,
 		{"proxy", "web"}: 5,
 	}
 	if len(got) != len(want) {

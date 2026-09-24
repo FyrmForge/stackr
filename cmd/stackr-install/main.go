@@ -95,6 +95,7 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 	if err := r.write(filepath.Join(in.DataDir, installspec.File), func() error { return installspec.Save(in) }); err != nil {
 		return err
 	}
+	r.conntrackAcct()
 	if err := r.pull(ctx, image); err != nil {
 		return err
 	}
@@ -216,6 +217,24 @@ func (r runner) masterKey(dataDir string) (string, error) {
 	return key, r.write(path, func() error {
 		return os.WriteFile(path, []byte(key+"\n"), 0o600)
 	})
+}
+
+// Conntrack byte counters feed the tile traffic lanes: on now, and after a
+// reboot. Only connections opened from here on are counted. A box that
+// refuses (no conntrack module, a read-only /proc) still installs; the panel
+// warns at boot.
+const (
+	acctKnob = "/proc/sys/net/netfilter/nf_conntrack_acct"
+	acctConf = "/etc/sysctl.d/99-conntrack-acct.conf"
+)
+
+func (r runner) conntrackAcct() {
+	for _, f := range [][2]string{{acctKnob, "1\n"}, {acctConf, "net.netfilter.nf_conntrack_acct=1\n"}} {
+		path, body := f[0], f[1]
+		if err := r.write(path, func() error { return os.WriteFile(path, []byte(body), 0o644) }); err != nil {
+			r.say("  warning: tile traffic stays empty:", err)
+		}
+	}
 }
 
 // pull skips an image already here: a release tag never changes, and it lets
