@@ -44,17 +44,24 @@ func TestSample(t *testing.T) {
 		t.Fatalf("after reset = %v, want web->api 100", s)
 	}
 
-	// A closed tuple is forgotten: when it shows up again it is first sight.
+	// A closed tuple is forgotten.
 	l.Sample(ipMap, nil, t0.Add(25*time.Second))
 	if len(l.prev) != 0 {
 		t.Fatalf("closed tuple kept: %v", l.prev)
 	}
-	l.Sample(ipMap, []byte(line("10.0.0.2", "10.0.0.3", 5000, 9999, 9999)), t0.Add(30*time.Second))
-	if s := l.Snapshot(); len(s) != 0 {
-		t.Fatalf("reopened = %v, want nothing", s)
+	// After the seed, a tuple first seen counts in full: a short request
+	// shows up already closed with its final counters.
+	l.Sample(ipMap, []byte(line("10.0.0.2", "10.0.0.3", 5001, 1000, 5000)), t0.Add(30*time.Second))
+	if s := l.Snapshot(); s[Pair{"web", "api"}] != 200 || s[Pair{"api", "web"}] != 1000 {
+		t.Fatalf("new tuple = %v, want web->api 200, api->web 1000", s)
 	}
-	if l.Seq() != 6 {
-		t.Errorf("seq = %d, want 6", l.Seq())
+	// Still there next tick with the same counters: counted once.
+	l.Sample(ipMap, []byte(line("10.0.0.2", "10.0.0.3", 5001, 1000, 5000)), t0.Add(35*time.Second))
+	if s := l.Snapshot(); len(s) != 0 {
+		t.Fatalf("lingering = %v, want nothing", s)
+	}
+	if l.Seq() != 7 {
+		t.Errorf("seq = %d, want 7", l.Seq())
 	}
 }
 

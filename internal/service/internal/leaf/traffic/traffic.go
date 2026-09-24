@@ -45,13 +45,19 @@ type Leaf struct {
 func New() *Leaf { return &Leaf{prev: map[string][2]uint64{}, pairs: map[Pair]float64{}} }
 
 // Sample reads one conntrack dump. ipTile maps a container IP to its tile
-// id, or to Proxy. A tuple seen for the first time only seeds its counters:
-// its lifetime bytes are not this tick's.
+// id, or to Proxy. The first sample only seeds counters (a connection's
+// lifetime bytes are not this tick's). After that a tuple seen for the first
+// time counts in full: a short request opens and closes between two ticks,
+// so its first sight is its whole life.
+// ponytail: a long-lived tuple whose end only now maps to a tile (a new
+// container) also counts in full once; track unmapped tuples if that spike
+// shows.
 func (l *Leaf) Sample(ipTile map[string]string, conntrack []byte, now time.Time) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	interval := Every.Seconds()
-	if !l.last.IsZero() {
+	seed := l.last.IsZero()
+	if !seed {
 		if dt := now.Sub(l.last).Seconds(); dt > 0 {
 			interval = dt
 		}
@@ -77,7 +83,10 @@ func (l *Leaf) Sample(ipTile map[string]string, conntrack []byte, now time.Time)
 		l.prev[tuple] = cur
 		seen[tuple] = true
 		var dOrig, dReply uint64
-		if existed && b1 >= prev[0] && b2 >= prev[1] {
+		switch {
+		case !existed && !seed:
+			dOrig, dReply = b1, b2
+		case existed && b1 >= prev[0] && b2 >= prev[1]:
 			dOrig, dReply = b1-prev[0], b2-prev[1]
 		}
 		// requests ride from->to, responses ride the return lane
