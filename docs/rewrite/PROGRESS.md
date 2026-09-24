@@ -63,8 +63,12 @@ Fable skims each one; darhvader skims in the morning.
   keep the library), tar-mechanics (bodies live in `infra/runtime`, not
   `infra/cluster`; `VerifyTar` is a local-file check, belongs in
   `flow/backup`)
-- [ ] gap extracts still running: cli-ref, templ-ref
-- [ ] skimmed (Fable)
+- [x] gap extracts: cli-ref (385 lines of 6523), templ-ref (276 of 12958; what each screen shows, never how)
+- [x] skimmed (Fable): headers, cut lists and sizes of all 33; every one
+  under its source except the three tiny rows where the header outweighs
+  the code. `stackconf.md` is 50% of its source, the grammar is the spec.
+  darhvader: skim `varref`, `stackconf`, `managedtiles` yourself, they
+  carry the most rewritten code.
 
 Findings from the extracts that changed a task list (already applied):
 - `secrets`: old `Encrypt` fails open (no key = plaintext stored). Step 1
