@@ -82,3 +82,12 @@ func inputType(t string) string {
 	}
 	return t
 }
+
+// AuthCard is the narrow centred card the signed-out and first-run pages
+// (login, register, setup, invite, CLI authorize) sit in.
+templ AuthCard(title string) {
+	<section class="card mx-auto mt-12 max-w-md space-y-4 p-6">
+		<h1 class="text-xl font-semibold">{ title }</h1>
+		{ children... }
+	</section>
+}

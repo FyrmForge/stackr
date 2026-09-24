@@ -48,6 +48,19 @@ func (s *Site) Do(t *testing.T, method, path string, form url.Values) *httptest.
 // DoCtx is Do under ctx, for streams: cancel it to end the response.
 func (s *Site) DoCtx(ctx context.Context, t *testing.T, method, path string, form url.Values) *httptest.ResponseRecorder {
 	t.Helper()
+	return s.send(ctx, s.session, method, path, form)
+}
+
+// As is Do with another session; "" = a visitor.
+func (s *Site) As(t *testing.T, session, method, path string, form url.Values) *httptest.ResponseRecorder {
+	t.Helper()
+	return s.send(context.Background(), session, method, path, form)
+}
+
+// Handler is the site, for a request the helpers do not shape.
+func (s *Site) Handler() http.Handler { return s.h }
+
+func (s *Site) send(ctx context.Context, session, method, path string, form url.Values) *httptest.ResponseRecorder {
 	req := httptest.NewRequest(method, path, strings.NewReader(form.Encode())).WithContext(ctx)
 	if form != nil {
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -55,7 +68,9 @@ func (s *Site) DoCtx(ctx context.Context, t *testing.T, method, path string, for
 	req.Header.Set("HX-Request", "true")
 	req.Header.Set("X-CSRF-Token", "tok")
 	req.AddCookie(&http.Cookie{Name: "csrf", Value: "tok"})
-	req.AddCookie(&http.Cookie{Name: s.O.Sessions().CookieName(), Value: s.session})
+	if session != "" {
+		req.AddCookie(&http.Cookie{Name: s.O.Sessions().CookieName(), Value: session})
+	}
 	rec := httptest.NewRecorder()
 	s.h.ServeHTTP(rec, req)
 	return rec

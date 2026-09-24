@@ -1,6 +1,8 @@
 package web
 
 import (
+	"cmp"
+
 	"github.com/FyrmForge/hamr/pkg/email"
 	hamrmw "github.com/FyrmForge/hamr/pkg/middleware"
 	"github.com/FyrmForge/hamr/pkg/server"
@@ -10,8 +12,12 @@ import (
 	"github.com/FyrmForge/stackr/internal/service"
 	"github.com/FyrmForge/stackr/internal/ui/components"
 	"github.com/FyrmForge/stackr/internal/web/handler/about"
+	"github.com/FyrmForge/stackr/internal/web/handler/account"
+	"github.com/FyrmForge/stackr/internal/web/handler/auth/cliauth"
+	"github.com/FyrmForge/stackr/internal/web/handler/auth/invite"
 	"github.com/FyrmForge/stackr/internal/web/handler/auth/login"
 	"github.com/FyrmForge/stackr/internal/web/handler/auth/register"
+	"github.com/FyrmForge/stackr/internal/web/handler/auth/setup"
 	"github.com/FyrmForge/stackr/internal/web/handler/canvas"
 	"github.com/FyrmForge/stackr/internal/web/handler/devemail"
 	"github.com/FyrmForge/stackr/internal/web/handler/devgallery"
@@ -81,6 +87,25 @@ func RegisterRoutes(srv *server.Server, deps *Deps) {
 	site.POST("/register", registerHandler.Submit, auth.RequireNotAuth())
 	site.POST("/register/validate/:field", registerHandler.FormRules.ValidationHandler("field"), auth.RequireNotAuth())
 
+	// A page a visitor may not see sends them to log in and back.
+	page, authed := deps.Access.LoginFirst(), deps.Access.Authed()
+
+	site.GET("/setup", setup.NewHandler(deps.Service).Page, page, authed)
+
+	inv := invite.NewHandler(deps.Service)
+	site.GET("/invite/:token", inv.Page)
+	site.POST("/invite/:token", inv.Accept, authed)
+	site.POST("/invite/:token/register", inv.Register, auth.RequireNotAuth())
+
+	cli := cliauth.NewHandler(deps.Service)
+	site.GET("/cli/authorize", cli.Page, page, authed)
+	site.POST("/cli/authorize/:org", cli.Approve, deps.Access.Require("org.read"))
+
+	acct := account.NewHandler(deps.Service)
+	site.GET("/account", acct.Page, page, authed)
+	site.POST("/account/password", acct.Password, authed)
+	site.POST("/account/keys/:key/revoke", acct.Revoke, authed)
+
 	// The canvases, one per level. Require resolves each slug, 404s early
 	// and leaves org, stack and env in the context; home is the caller's.
 	// Each level's helper routes sit under "/-/", which no slug can be.
@@ -95,11 +120,7 @@ func RegisterRoutes(srv *server.Server, deps *Deps) {
 		{"/:org/:stack/:env", deps.Access.Require("org.read"), deps.Access.Require("env.write")},
 	}
 	for _, l := range levels {
-		if l.path == "" { // home sends a visitor to the login page
-			site.GET("/", cv.Page, auth.RequireAuth(), l.read)
-		} else { // deeper pages answer 401/404 like the API (the access test)
-			site.GET(l.path, cv.Page, l.read)
-		}
+		site.GET(cmp.Or(l.path, "/"), cv.Page, page, l.read)
 		site.GET(l.path+"/-/events", cv.Events, l.read)
 		site.POST(l.path+"/-/positions", cv.Positions, l.write)
 		site.POST(l.path+"/-/reset", cv.Reset, l.write)
@@ -111,7 +132,7 @@ func RegisterRoutes(srv *server.Server, deps *Deps) {
 
 	// ponytail: the tile page is a placeholder until the tile drawer takes it.
 	scopeHandler := scope.NewHandler()
-	site.GET("/:org/:stack/:env/:tile", scopeHandler.Page, deps.Access.Require("tile.read"))
+	site.GET("/:org/:stack/:env/:tile", scopeHandler.Page, page, deps.Access.Require("tile.read"))
 
 	// The env canvas's drawers and dialogs (tasks 9 and 10), under /-/ too.
 	env.NewHandler(deps.Service).Mount(site, deps.Access)

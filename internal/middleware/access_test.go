@@ -95,7 +95,7 @@ func TestAccess(t *testing.T) {
 	tests := []struct {
 		who      string
 		path     string
-		sessWant int // web, with the session cookie
+		sessWant int // web, with the session cookie; a page load with no live session goes to log in (303)
 		keyWant  int // api, with the bearer key
 	}{
 		{"admin", "acme", 200, 200},
@@ -103,11 +103,11 @@ func TestAccess(t *testing.T) {
 		{"owner", "nope", 404, 404},
 		{"owner", "other", 404, 404},
 		{"non-member", "acme", 404, 404},
-		{"disabled", "acme", 401, 401},
-		{"removed", "acme", 401, 401},
+		{"disabled", "acme", 303, 401},
+		{"removed", "acme", 303, 401},
 		{"drifted", "acme", 404, 404},
 		{"unbound", "acme", 0, 403},
-		{"anonymous", "acme", 401, 401},
+		{"anonymous", "acme", 303, 401},
 	}
 	for _, tt := range tests {
 		c := creds[tt.who]

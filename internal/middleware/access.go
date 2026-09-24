@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/FyrmForge/hamr/pkg/ctx"
@@ -115,6 +116,36 @@ func (a *Access) Authed() echo.MiddlewareFunc {
 			return next(c)
 		}
 	}
+}
+
+// LoginFirst sends an anonymous page load to the login page, which comes
+// back here after (DECIDE 96). htmx, stream and API requests keep their 401:
+// only a full GET is a page. Mount before Require/Authed.
+func (a *Access) LoginFirst() echo.MiddlewareFunc {
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			r := c.Request()
+			if Principal(c) != nil || r.Method != http.MethodGet || r.Header.Get("HX-Request") != "" {
+				return next(c)
+			}
+			to := "/login"
+			if u := r.URL.RequestURI(); u != "/" {
+				to += "?next=" + url.QueryEscape(u)
+			}
+			return c.Redirect(http.StatusSeeOther, to)
+		}
+	}
+}
+
+// SafeNext is a login's way back: a path on this site, never another host
+// ("//x", a backslash or a control character a browser would fold into
+// one) or a scheme; "" when it is not one.
+func SafeNext(next string) string {
+	if !strings.HasPrefix(next, "/") || strings.HasPrefix(next, "//") ||
+		strings.ContainsFunc(next, func(r rune) bool { return r == '\\' || r < 0x20 || r == 0x7f }) {
+		return ""
+	}
+	return next
 }
 
 // childKinds are the path params naming a row the verb takes on trust; each

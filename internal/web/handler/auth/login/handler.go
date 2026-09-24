@@ -1,16 +1,17 @@
 package login
 
 import (
+	"cmp"
 	"net/http"
-	"strings"
 
 	"github.com/FyrmForge/hamr/pkg/logging"
-	"github.com/FyrmForge/hamr/pkg/middleware"
+	hamrmw "github.com/FyrmForge/hamr/pkg/middleware"
 	"github.com/FyrmForge/hamr/pkg/respond"
 	"github.com/FyrmForge/hamr/pkg/validate"
 	"github.com/labstack/echo/v4"
 
 	"github.com/FyrmForge/stackr/internal/auth"
+	"github.com/FyrmForge/stackr/internal/middleware"
 	"github.com/FyrmForge/stackr/internal/service"
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/ui/components"
@@ -21,6 +22,7 @@ import (
 type LoginForm struct {
 	Email    string `form:"email"`
 	Password string `form:"password"`
+	Next     string `form:"next"`
 }
 
 // handler owns the login page plus its sibling logout action. Logout lives
@@ -45,7 +47,7 @@ func NewHandler(svc *service.Orchestrator) *handler {
 
 // GET /login
 func (h *handler) Page(c echo.Context) error {
-	return render.Page(c, http.StatusOK, "Log In", loginPage(c, LoginForm{}, nil))
+	return render.Page(c, http.StatusOK, "Log in", loginPage(LoginForm{Next: middleware.SafeNext(c.QueryParam("next"))}, nil))
 }
 
 // POST /login
@@ -54,10 +56,10 @@ func (h *handler) Submit(c echo.Context) error {
 	if err := c.Bind(&f); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, "invalid form data")
 	}
-	f.Email = strings.ToLower(f.Email)
+	f.Next = middleware.SafeNext(f.Next)
 
 	if errs := h.FormRules.Validate(c); errs != nil {
-		return respond.HTML(c, http.StatusUnprocessableEntity, loginForm(c, f, errs))
+		return respond.HTML(c, http.StatusUnprocessableEntity, loginForm(f, errs))
 	}
 
 	log := logging.FromContext(c.Request().Context())
@@ -65,7 +67,7 @@ func (h *handler) Submit(c echo.Context) error {
 	session, err := h.svc.Login(c.Request().Context(), f.Email, f.Password)
 	if _, bad := errs.IsInvalid(err); bad {
 		log.Warn("login failed", "email", f.Email)
-		return respond.HTML(c, http.StatusUnauthorized, loginForm(c, f, map[string]string{
+		return respond.HTML(c, http.StatusUnauthorized, loginForm(f, map[string]string{
 			"general": "Invalid email or password",
 		}))
 	}
@@ -75,7 +77,7 @@ func (h *handler) Submit(c echo.Context) error {
 	}
 
 	auth.SetSession(c, h.svc.Sessions(), session)
-	return respond.Redirect(c, "/")
+	return respond.Redirect(c, cmp.Or(f.Next, "/"))
 }
 
 // POST /logout
@@ -86,6 +88,6 @@ func (h *handler) Logout(c echo.Context) error {
 	}
 
 	auth.ClearSession(c, sm)
-	middleware.SetFlash(c, "You have been logged out", middleware.FlashInfo)
+	hamrmw.SetFlash(c, "You have been logged out", hamrmw.FlashInfo)
 	return respond.Redirect(c, "/login")
 }

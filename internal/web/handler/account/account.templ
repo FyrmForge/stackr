@@ -1,0 +1,65 @@
+package account
+
+import c "github.com/FyrmForge/stackr/internal/ui/components"
+
+// PasswordView is the change-password form; Done says it worked.
+type PasswordView struct {
+	Errors map[string]string
+	Done   bool
+}
+
+// KeysView is the caller's API keys across orgs. Minting stays in each
+// org's drawer (a key is bound to one org); here a key is only revoked.
+type KeysView struct {
+	Rows  []Key
+	Error string
+}
+
+type Key struct{ ID, Name, Org, Created string }
+
+templ page(email string, pw PasswordView, keys KeysView) {
+	<div class="mx-auto max-w-3xl space-y-8">
+		<h1 class="text-xl font-semibold">Account</h1>
+		<p class="text-sm text-slate-500">Signed in as { email }.</p>
+		<section class="card space-y-4">
+			<h2 class="font-semibold">Password</h2>
+			@password(pw)
+		</section>
+		<section class="card space-y-4">
+			<h2 class="font-semibold">API keys</h2>
+			<p class="text-sm text-slate-500">Mint a key from an org's drawer (keys tab) or with <code>stackr login</code>.</p>
+			@keyList(keys)
+		</section>
+	</div>
+}
+
+templ password(v PasswordView) {
+	@c.Form("account-password", "/account/password") {
+		@c.FormError(v.Errors["general"])
+		if v.Done {
+			<p class="text-sm text-emerald-700 dark:text-emerald-400" role="status">Password changed.</p>
+		}
+		@c.Field(c.FieldView{Name: "current_password", Label: "Current password", Type: "password", Required: true, Error: v.Errors["current_password"]})
+		@c.Field(c.FieldView{Name: "password", Label: "New password", Type: "password", Required: true, Error: v.Errors["password"],
+			Help: "At least 8 characters with upper and lower case, a number and a symbol."})
+		@c.Submit("Change password")
+	}
+}
+
+templ keyList(v KeysView) {
+	<div id="account-keys" class="space-y-2">
+		@c.FormError(v.Error)
+		@c.Table(c.TableView{Headers: []string{"Name", "Org", "Created", ""}, Rows: keyRows(v.Rows),
+			Empty: c.EmptyView{Title: "No API keys"}})
+	</div>
+}
+
+func keyRows(ks []Key) [][]templ.Component {
+	rows := make([][]templ.Component, 0, len(ks))
+	for _, k := range ks {
+		rows = append(rows, []templ.Component{c.Text(k.Name), c.Text(k.Org), c.Text(k.Created), c.Confirm(c.ConfirmView{
+			Button: "Revoke", Title: "Revoke " + k.Name, Warning: "Anything using this key stops working at once.",
+			Action: "/account/keys/" + k.ID + "/revoke", Target: "#account-keys"})})
+	}
+	return rows
+}
