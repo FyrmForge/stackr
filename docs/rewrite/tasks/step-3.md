@@ -81,7 +81,11 @@ with its tests before the next starts. Commit per task.
    `websockets`, `max_body`, `timeouts`, `headers`, `methods`,
    `strip_prefix`), admin-only raw snippets, ACME, trusted proxies from the
    `proxy-ref` extract. `FullConfig()` for the re-push on proxy start. One
-   nil-vs-false convention for HTTPS (B31).
+   nil-vs-false convention for HTTPS (B31). Every config pushed must carry
+   Caddy's admin listen address (step 2 finding: without it Caddy moves its
+   admin API to container-localhost even on a rejected push, and stackrd
+   loses the proxy). Coalesce pushes: while one push runs, later requests
+   collapse into one follow-up push of the latest full config.
    Done when: config golden tests per extra; ingress network lifecycle
    through the fake.
 
