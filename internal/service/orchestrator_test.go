@@ -56,7 +56,7 @@ func newWorld(t *testing.T) *world {
 	t.Helper()
 	dir := t.TempDir()
 	w := &world{fake: dockerfake.New()}
-	o, err := New(Config{DataDir: dir, SecretsKey: testKey}, WithDocker(w.fake), WithVIP(vipStub{}),
+	o, err := New(Config{DataDir: dir, SecretsKey: testKey, Conntrack: dir + "/nf_conntrack"}, WithDocker(w.fake), WithVIP(vipStub{}),
 		WithProxy(func(_ context.Context, cfg json.RawMessage) error {
 			w.mu.Lock()
 			w.pushed = append(w.pushed, string(cfg))

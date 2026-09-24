@@ -621,7 +621,10 @@ Raised by step 3c (builder took the lean; flip any):
    pseudo id `host` for gateways. Lean (a).
 65. (step 3c) **A slice end is the consumer's provision row id.** A shared
    slice (`Share` copies the row) shows once per consumer, not as one
-   card. Options: (a) keep; (b) key shared rows by the original slice.
+   card. The rename runs for the env's own consumers only: on the
+   instance's env canvas, a consumer from another env shows as
+   `<tile> -> instance` (a card that env does not draw; step 6 drops it).
+   Options: (a) keep; (b) key shared rows by the original slice.
    Lean (a).
 66. (step 3c) **Zero lanes are dropped.** An open idle connection draws no
    lane. Options: (a) keep; (b) keep 0 lanes so the graph can show idle
