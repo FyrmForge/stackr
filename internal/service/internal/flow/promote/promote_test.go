@@ -274,6 +274,24 @@ func TestLadderRule(t *testing.T) {
 	}
 }
 
+// DECIDE 140: a rollback of a tile whose tag was edited outside the stack
+// file puts the pinned tag back on the row.
+func TestRollbackRestoresTheTag(t *testing.T) {
+	w := setup(t)
+	api, err := w.f.D.Tiles.Create(ctx, store.Tile{StackID: w.st.ID, EnvironmentID: w.prd.ID, Name: "api", Kind: tile.Image, ImageRef: "nginx:2", ContainerPort: 80})
+	must(t, err)
+	r1 := w.release(t, "", release.Pin{Slug: "api", Repo: "nginx:1", Digest: "sha256:one"})
+	_, err = w.f.D.Envs.SetRelease(ctx, w.dev, r1.ID)
+	must(t, err)
+	_, err = w.f.Apply(ctx, w.prd.ID, r1.ID, io.Discard, nil)
+	must(t, err)
+	got, err := w.f.D.Tiles.Get(ctx, api.ID)
+	must(t, err)
+	if got.ImageRef != "nginx:1" {
+		t.Errorf("tile ref = %q, want the pinned nginx:1", got.ImageRef)
+	}
+}
+
 func TestFileBlockers(t *testing.T) {
 	w := setup(t)
 	w.files["c1"] = strings.Replace(shopFile, "api.example.com", "${{ params.web.host }}", 1)

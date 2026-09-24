@@ -287,12 +287,26 @@ func (f *Flow) rollout(ctx context.Context, w *work, e store.Environment, log io
 			}
 		}
 	}
+	pins, err := d.Releases.Pins(ctx, w.rel.ID)
+	if err != nil {
+		return err
+	}
 	var repin []release.Pin
 	for _, s := range run {
 		t := bySlug[s]
 		ref, pinned := t.ImageRef, false
 		if !w.unpin[s] {
 			if ref, pinned, err = d.Current(ctx, t, e); err != nil {
+				return err
+			}
+		}
+		// A tile whose tag was edited outside the stack file takes the
+		// pinned tag back, so a later redeploy stays on what the release
+		// runs (DECIDE 140). A bare-repo pin names no tag to take.
+		if p := pins[s]; pinned && tile.Pulls(t) && p.Repo != t.ImageRef && deploy.RepoOf(p.Repo) != p.Repo {
+			cur := t
+			cur.ImageRef = p.Repo
+			if t, _, err = d.Tiles.Update(ctx, t, cur); err != nil {
 				return err
 			}
 		}
