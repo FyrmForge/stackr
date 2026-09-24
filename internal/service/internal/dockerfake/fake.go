@@ -34,6 +34,8 @@ type Fake struct {
 	Digests    map[string]string // ref -> digest
 	Members    map[string][]string
 	Networks   []string
+	Images     []docker.Image
+	BuildID    string
 	ExecOut    string
 	LogsOut    string
 }
@@ -147,8 +149,20 @@ func (f *Fake) RemoveImage(_ context.Context, ref string) error { return f.rec("
 func (f *Fake) EnsureBuilder(_ context.Context, name string, _ int) error {
 	return f.rec("EnsureBuilder", name)
 }
-func (f *Fake) Build(_ context.Context, builder, dir, dockerfile, tag string, _, _ map[string]string, _ io.Writer) error {
-	return f.rec("Build", builder, dir, dockerfile, tag)
+func (f *Fake) ListImages(_ context.Context, labels map[string]string) ([]docker.Image, error) {
+	var out []docker.Image
+	for _, im := range f.Images {
+		if matches(im.Labels, labels) {
+			out = append(out, im)
+		}
+	}
+	return out, f.rec("ListImages")
+}
+func (f *Fake) PruneImages(_ context.Context, _ map[string]string, keep []string) ([]string, error) {
+	return nil, f.rec("PruneImages", keep...)
+}
+func (f *Fake) Build(_ context.Context, builder, dir, dockerfile, tag string, _, _ map[string]string, _ io.Writer) (string, error) {
+	return f.BuildID, f.rec("Build", builder, dir, dockerfile, tag)
 }
 
 func (f *Fake) Logs(_ context.Context, id string, _ int) (string, error) {

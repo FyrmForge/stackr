@@ -8,6 +8,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -262,5 +265,57 @@ func TestNetworksAndVolumes(t *testing.T) {
 	}
 	if _, err := d.InspectVolume(ctx, vol); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("inspect removed volume: %v", err)
+	}
+}
+
+func TestImages(t *testing.T) {
+	d, ctx := newClient(t)
+	var log strings.Builder
+
+	// Pull a small public image by digest.
+	dg, err := d.LocalDigest(ctx, testImage)
+	if err != nil || !strings.HasPrefix(dg, "sha256:") {
+		t.Fatalf("local digest: %q %v", dg, err)
+	}
+	if err := d.Pull(ctx, "alpine@"+dg, "", &log); err != nil {
+		t.Fatalf("pull by digest: %v\n%s", err, log.String())
+	}
+	if err := d.Pull(ctx, "stackr-no-such-image-xyz:1", "", io.Discard); err == nil {
+		t.Fatal("pull of a missing image succeeded")
+	}
+
+	// Build a hello Dockerfile.
+	if exec.Command("docker", "buildx", "version").Run() != nil {
+		t.Skip("no buildx")
+	}
+	dir := t.TempDir()
+	df := "FROM " + testImage + "\nARG MSG\nRUN echo \"$MSG\" > /hello\n"
+	if err := os.WriteFile(filepath.Join(dir, "Dockerfile"), []byte(df), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	tag := uniq("stkr-it-img") + ":1"
+	labels := map[string]string{"stkr.test": tag}
+	id, err := d.Build(ctx, "default", dir, "Dockerfile", tag, map[string]string{"MSG": "hi"}, labels, &log)
+	if err != nil || !strings.HasPrefix(id, "sha256:") {
+		t.Fatalf("build: %q %v\n%s", id, err, log.String())
+	}
+	t.Cleanup(func() { _ = d.RemoveImage(context.Background(), id) })
+	ims, err := d.ListImages(ctx, labels)
+	if err != nil || len(ims) != 1 || ims[0].ID != id {
+		t.Fatalf("list images: %+v %v", ims, err)
+	}
+	second := strings.TrimSuffix(tag, ":1") + ":2"
+	if err := d.Tag(ctx, tag, second); err != nil {
+		t.Fatal(err)
+	}
+	if removed, err := d.PruneImages(ctx, labels, []string{second}); err != nil || len(removed) != 0 {
+		t.Fatalf("prune kept by tag: %v %v", removed, err)
+	}
+	removed, err := d.PruneImages(ctx, labels, nil)
+	if err != nil || len(removed) != 2 {
+		t.Fatalf("prune: %v %v", removed, err)
+	}
+	if ims, _ := d.ListImages(ctx, labels); len(ims) != 0 {
+		t.Fatalf("still there: %+v", ims)
 	}
 }

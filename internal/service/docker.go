@@ -46,8 +46,10 @@ type Docker interface {
 	LocalDigest(ctx context.Context, ref string) (string, error)
 	Tag(ctx context.Context, src, dst string) error
 	RemoveImage(ctx context.Context, ref string) error
+	ListImages(ctx context.Context, labels map[string]string) ([]docker.Image, error)
+	PruneImages(ctx context.Context, labels map[string]string, keep []string) (removed []string, err error)
 	EnsureBuilder(ctx context.Context, name string, memMB int) error
-	Build(ctx context.Context, builder, dir, dockerfile, tag string, buildArgs, labels map[string]string, log io.Writer) error
+	Build(ctx context.Context, builder, dir, dockerfile, tag string, buildArgs, labels map[string]string, log io.Writer) (imageID string, err error)
 
 	// Logs and exec.
 	Logs(ctx context.Context, id string, tail int) (string, error)
