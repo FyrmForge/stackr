@@ -102,6 +102,16 @@ func TestLadder(t *testing.T) {
 	if err != nil || pr.Type != environment.Ephemeral || pr.BaseEnvID == nil || *pr.BaseEnvID != dev.ID || pr.Position != 3 {
 		t.Errorf("clone row = %+v, %v", pr, err)
 	}
+	qa, err := l.Create(ctx, s, "qa", promote)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b, err := l.Below(ctx, qa); err != nil || b.Slug != "staging" {
+		t.Errorf("below qa = %s, %v; a PR env is not a rung", b.Slug, err)
+	}
+	if ladder, _ := l.Ladder(ctx, s); len(ladder) != 4 {
+		t.Errorf("ladder has %d rungs, want 4 (the PR env is off it)", len(ladder))
+	}
 }
 
 func TestNetworkAndDelete(t *testing.T) {

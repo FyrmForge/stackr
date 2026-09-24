@@ -329,3 +329,14 @@ Raised by step 2 (builder took the lean; flip any):
    replica gets 1/n per new connection. Options: (a) keep; (b)
    `--mode nth` round-robin (even counts, but per-rule counters reset on
    every rewrite).
+
+Raised by step 3 session A (builder took the lean; flip any):
+
+21. **Org roles.** `leaf/org` writes only `owner` (the plan's two roles:
+   stackr admin, org owner); `authz` already ranks member/viewer. Options:
+   (a) keep owner-only; (b) open member/viewer on members and invites now.
+22. **Stack domain reservations.** The stack file's `domains:` (host,
+   acme_email, include_env_on_default) had no home in the schema. Stored as
+   a JSON column `stacks.domains`; server-wide host uniqueness is the
+   flow's check against `domains`. Options: (a) keep; (b) its own table
+   with a unique host index.

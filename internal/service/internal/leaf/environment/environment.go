@@ -45,10 +45,29 @@ func (l *Leaf) GetBySlug(ctx context.Context, stackID, slug string) (store.Envir
 	return l.envs.GetBySlug(ctx, stackID, slug)
 }
 
-// Ladder is the stack's envs bottom rung first. The first is the default env.
+// Ladder is the stack's static envs bottom rung first; the first is the
+// default env. PR envs are never rungs: nothing promotes from or to them.
 func (l *Leaf) Ladder(ctx context.Context, stackID string) ([]store.Environment, error) {
-	es, err := l.envs.ListByStack(ctx, stackID)
+	all, err := l.envs.ListByStack(ctx, stackID)
+	es := all[:0]
+	for _, e := range all {
+		if e.Type == Static {
+			es = append(es, e)
+		}
+	}
 	sort.SliceStable(es, func(i, j int) bool { return es[i].Position < es[j].Position })
+	return es, err
+}
+
+// List is every env of the stack, PR envs included, ladder order first.
+func (l *Leaf) List(ctx context.Context, stackID string) ([]store.Environment, error) {
+	es, err := l.envs.ListByStack(ctx, stackID)
+	sort.SliceStable(es, func(i, j int) bool {
+		if es[i].Type != es[j].Type {
+			return es[i].Type == Static
+		}
+		return es[i].Position < es[j].Position
+	})
 	return es, err
 }
 
@@ -56,8 +75,11 @@ func (l *Leaf) Ladder(ctx context.Context, stackID string) ([]store.Environment,
 func Above(a, b store.Environment) bool { return a.Position > b.Position }
 
 // Below is the env a `from: promote` env promotes from: the next rung down.
-// ErrNotFound on the bottom rung.
+// ErrNotFound on the bottom rung and for a PR env.
 func (l *Leaf) Below(ctx context.Context, e store.Environment) (store.Environment, error) {
+	if e.Type != Static {
+		return store.Environment{}, errs.ErrNotFound
+	}
 	es, err := l.Ladder(ctx, e.StackID)
 	if err != nil {
 		return store.Environment{}, err
@@ -80,7 +102,8 @@ type Spec struct {
 	Auto       bool
 }
 
-// Create puts the env on top of the ladder. Its network is made on the first
+// Create puts a static env on top of the ladder; a PR env takes the same
+// number but is never on it. Its network is made on the first
 // Network call, not here.
 func (l *Leaf) Create(ctx context.Context, stackID, name string, sp Spec) (store.Environment, error) {
 	ladder, err := l.Ladder(ctx, stackID)
@@ -109,7 +132,7 @@ func (l *Leaf) Create(ctx context.Context, stackID, name string, sp Spec) (store
 }
 
 // CloneRow is a PR env made from base: same settings and color, its own
-// branch, ephemeral, on top of the ladder. Tiles, params and slices are the
+// branch, ephemeral, off the ladder. Tiles, params and slices are the
 // flow's (see the envops rules), never this row's.
 func (l *Leaf) CloneRow(ctx context.Context, base store.Environment, name, branch string) (store.Environment, error) {
 	e, err := l.Create(ctx, base.StackID, name, Spec{Type: Ephemeral, Base: &base.ID, Color: base.Color,
@@ -177,10 +200,10 @@ func (l *Leaf) SetFrom(ctx context.Context, e store.Environment, kind, branch st
 	return e, l.envs.Update(ctx, e)
 }
 
-// Reorder rewrites positions: ids bottom rung first, every env of the stack
-// exactly once. The new bottom rung must build from a branch.
+// Reorder rewrites positions: ids bottom rung first, every static env of the
+// stack exactly once. The new bottom rung must build from a branch.
 func (l *Leaf) Reorder(ctx context.Context, stackID string, ids []string) error {
-	es, err := l.envs.ListByStack(ctx, stackID)
+	es, err := l.Ladder(ctx, stackID)
 	if err != nil {
 		return err
 	}
