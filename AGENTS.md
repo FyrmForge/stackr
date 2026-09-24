@@ -32,6 +32,111 @@ frontend/                Everything frontend: static assets, CSS source,
                          npm config, generated dist/
 ```
 
+## Layering rules
+
+These are repo rules from the first commit. The compiler enforces most of
+them, `depguard` in `make lint` the rest, and the `handler-audit` skill spot
+checks handlers.
+
+### Service tree
+
+Handler → orchestrator → flow or leaf → store / infra wrapper. Nothing skips
+a level.
+
+```
+internal/service/
+  orchestrator.go         New(config) and the Orchestrator: the only thing
+                          main, the API and the web handlers see. One method
+                          per user-facing verb.
+  tile.go, org.go, ...    small verbs, one file per area; most are one line
+                          calling a leaf
+  internal/store/         CRUD, one file and one small interface per table
+  internal/docker/        the Docker wrapper, no rules
+  internal/proxy/         the Caddy admin client
+  internal/git/           clone, checkout
+  internal/s3/            backup destinations
+  internal/leaf/<name>/   one row kind and the world object it stands for
+  internal/flow/<name>/   the big verbs that sequence several leaves
+internal/authz/           can(user, verb, resource), called by middleware
+internal/ui/              components/ and pages/{org,stack,env,tile}/
+ui/static/                static assets (not Go)
+```
+
+### The rules
+
+1. **Services are the only home for business logic.** Handlers, the API,
+   the CLI, `main`, the store and the Docker package decide nothing about
+   the domain.
+2. **Handlers and `main` see only `service.Orchestrator`.** The store,
+   Docker, proxy, git and s3 wrappers, the leaves and the flows all live
+   under `internal/service/internal/`, so Go refuses any import of them
+   from outside `internal/service/`.
+3. **Dependency injection:** `main` calls `service.New(cfg)`; the service
+   builds its own store and Docker client. Tests pass a fake Docker through
+   the exported `service.Docker` interface (`service.WithDocker(fake)`).
+   Services take a user only for audit fields.
+4. **The store is CRUD plus type mapping.** Only schema constraints (FK,
+   unique, not null). No defaults, no ordering policy, no status decisions.
+5. **The Docker wrapper receives fully resolved specs.** Variables already
+   filled in; it never needs a domain rule.
+6. **Handlers are dumb.** Bind input, check form shape, call one
+   orchestrator method, render. When a screen needs a decision the service
+   returns it (e.g. a `CanDeploy` field). `.templ` files never compute a
+   decision either.
+7. **Errors are typed.** Never branch on an error's wording.
+8. **Anything built once is constructed once.** No double wiring in `main`.
+9. **Anything not written down behaves as it does today, for domain rules
+   only.** The plan (`REWRITE.md`) lists what changes; the extracts in
+   `docs/rewrite/extracts/` are the spec for the rest. Mechanics that were
+   never ours (rollout, replicas, service DNS, health gating, load
+   balancing) are built only as written in the plan, never guessed.
+10. **Every container op is a job.** Deploy, promote, rollback, restart,
+    stop, backup, image-watch redeploy: all go through `flow/jobs`. Nothing
+    starts any of them another way.
+
+### Leaves
+
+- **A leaf is the real thing:** one row kind *and* the world object it
+  stands for (`volume` = row + Docker volume, `environment` = row + its
+  network, `tile` = row + its containers). Every table has exactly one leaf.
+- **A leaf reads and writes its own table only.** Its constructor gets its
+  table interface and the slice of the Docker wrapper it needs, nothing
+  else. It **never calls another leaf and never a flow**. Facts from other
+  tables come in as arguments: `environment.Delete(env, tileCount)`. The
+  leaf still owns the decision; the caller only fetches.
+- **A leaf runs a spec, never builds one.** `tile.Start(spec)` takes a fully
+  resolved spec; spec building lives in `flow/deploy`.
+
+### Flows
+
+- **A flow sequences several leaves.** It computes facts and passes them
+  down; it holds no Docker handle (the leaves do).
+- **Flow → flow only on the listed edges:** `flow/promote` → `flow/deploy`
+  and `flow/deploy` → `flow/managed`. Never a cycle, never a new edge
+  without a plan change.
+- Every flow that starts work does it through `flow/jobs`.
+
+### Leaf or flow?
+
+One question: does it stand for one row kind and its world object? **Leaf.**
+Does it sequence several? **Flow.**
+
+### Auth
+
+Auth is middleware calling `authz.can(user, verb, resource)`. **Never a
+handler, never a service, never a leaf or flow.** Both routers (web and API)
+mount the same middleware; handlers below it already have org, stack, env
+and tile loaded.
+
+### Enforced how
+
+- `internal/service/internal/...` cannot be imported from outside
+  `internal/service/` (compiler).
+- Leaf → flow is an import cycle (compiler).
+- Leaf → leaf and flow → flow (except the listed edges) fail `make lint`
+  (`depguard` in `.golangci.yml`).
+- Handlers: run the `handler-audit` skill (`.claude/skills/handler-audit/`).
+
 ## Framework Reference
 
 This project uses the HAMR framework (`github.com/FyrmForge/hamr`). Key packages:

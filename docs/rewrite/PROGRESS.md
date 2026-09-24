@@ -140,6 +140,9 @@ tick `[x] step 0` below when the done gate passes, open the PR `rewrite`
   - [x] step 0 / task 2: `AGENTS.md` examples call `*service.Orchestrator`;
     "Who validates what", store split by table, migrations editable until
     first install.
+  - [x] step 0 / task 3: `AGENTS.md` "Layering rules": ten rules, service
+    tree (paths under `internal/`, DECIDE 10), leaves, flows, leaf-or-flow
+    test, auth in middleware.
 - [ ] step 1 groundwork
 - [ ] step 2 docker wrapper
 - [ ] step 3 services
