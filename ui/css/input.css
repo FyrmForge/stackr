@@ -29,3 +29,37 @@ flash-toast {
 flash-toast[kind="success"] { background: #f0fdf4; border-color: #86efac; color: #14532d; }
 flash-toast[kind="warning"] { background: #fffbeb; border-color: #fcd34d; color: #78350f; }
 flash-toast[kind="error"] { background: #fef2f2; border-color: #fca5a5; color: #7f1d1d; }
+
+/* graph-canvas writes --px/--py/--s, each card writes --x/--y: cards and
+   the edge layer are transformed, nested sub-tiles ride inside their card. */
+graph-canvas {
+    display: block; position: relative; overflow: hidden; touch-action: none; user-select: none;
+    --px: 0px; --py: 0px; --s: 1;
+}
+graph-canvas > svg[data-edges], graph-canvas > graph-node { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
+graph-canvas > svg[data-edges] {
+    width: 1px; height: 1px; overflow: visible; pointer-events: none;
+    transform: translate(var(--px), var(--py)) scale(var(--s));
+}
+graph-node { display: block; }
+graph-canvas > graph-node {
+    cursor: grab;
+    transform: translate(calc(var(--px) + var(--x, 0px) * var(--s)), calc(var(--py) + var(--y, 0px) * var(--s))) scale(var(--s));
+}
+graph-canvas > graph-node[static] { cursor: default; }
+graph-canvas > graph-node[dragging] { z-index: 10; cursor: grabbing; }
+graph-canvas > graph-node[selected] { outline: 2px solid #3b82f6; outline-offset: 3px; border-radius: 0.5rem; }
+graph-canvas[focusing] > graph-node:not([lit]) { opacity: 0.35; }
+graph-canvas[focusing] path[data-edge-kind]:not([data-lit]) { opacity: 0.15; }
+graph-canvas path[data-edge-kind] { fill: none; stroke: #94a3b8; stroke-width: 1.5; }
+graph-canvas path[data-edge-kind="ref"] { stroke: #64748b; stroke-dasharray: 4 5; }
+graph-canvas path[data-edge-kind="ingress"] { stroke: #3b82f6; }
+graph-canvas path[data-edge-kind="egress"] { stroke: #0ea5e9; }
+graph-canvas path[data-edge-kind="shared"] { stroke: #3b82f6; stroke-dasharray: 5 4; }
+graph-canvas path[data-edge-kind="startup"] { stroke: #f59e0b; stroke-dasharray: 1 5; opacity: 0.6; }
+graph-canvas path[data-edge-kind="config"] { stroke: #a855f7; }
+graph-canvas path[data-edge-kind="source"] { stroke: #a855f7; stroke-dasharray: 4 6; }
+graph-canvas[arrows] path[data-edge-kind] { marker-end: url(#graph-arrow); }
+graph-canvas [data-marquee] { position: absolute; border: 1px dashed #3b82f6; background: rgb(59 130 246 / 0.1); pointer-events: none; }
+
+side-drawer:not([open]) { display: none; }

@@ -63,7 +63,10 @@ func RegisterRoutes(srv *server.Server, deps *Deps) {
 
 	// Every shared component with sample views (dev only).
 	if deps.DevMode {
-		site.GET("/dev/components", devgallery.NewHandler().Page)
+		gallery := devgallery.NewHandler()
+		site.GET("/dev/components", gallery.Page)
+		site.POST("/dev/components/positions", gallery.Positions)
+		site.GET("/dev/components/drawer", gallery.Drawer)
 	}
 
 	// Auth routes — one page-package per page (login owns logout as its inverse action).

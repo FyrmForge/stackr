@@ -15,7 +15,10 @@ templ Layout(s Shell, body templ.Component) {
 			<script src={ StaticURL("js/vendor/sse.min.js") }></script>
 			<script type="module" src={ StaticURL("js/elements/confirm-dialog.js") }></script>
 			<script type="module" src={ StaticURL("js/elements/flash-toast.js") }></script>
+			<script type="module" src={ StaticURL("js/elements/graph-canvas.js") }></script>
+			<script type="module" src={ StaticURL("js/elements/graph-node.js") }></script>
 			<script type="module" src={ StaticURL("js/elements/log-pane.js") }></script>
+			<script type="module" src={ StaticURL("js/elements/side-drawer.js") }></script>
 			<script type="module" src={ StaticURL("js/elements/theme-toggle.js") }></script>
 			<script src={ StaticURL("js/main.js") } defer></script>
 		</head>
@@ -25,6 +28,7 @@ templ Layout(s Shell, body templ.Component) {
 			<main id="main" class="max-w-6xl mx-auto px-4 py-6">
 				@body
 			</main>
+			@SideDrawer()
 		</body>
 	</html>
 }

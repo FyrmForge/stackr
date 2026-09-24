@@ -306,6 +306,8 @@ session started by darhvader from the START HERE line, no Fable.
     - `ParamEditor(v ParamEditorView)`; `ParamEditorView{Action, DeleteAction string; Params []ParamRowView; Secrets []SecretRowView; ReadOnly bool; Why string}`, `ParamRowView{Collection, Name, Value, DecidedBy string; Overrides bool; Warn string}`, `SecretRowView{Collection, Name string; Set bool; DecidedBy string; Overrides bool; Warn string}`; posts `param.<c>.<n>`, `secret.<c>.<n>` (empty = keep), `new_collection/new_name/new_kind/new_value`; delete posts `collection,name`.
     - `SettingsForm(v SettingsFormView)`; `SettingsFormView{ID, Action, Scope string; Rows []SettingRowView; ReadOnly bool; Why string}`, `SettingRowView{Key, Desc, Type, Value, Effective, DecidedBy, Error string}`; posts one field per key, "" = inherit.
   - Elements: `<log-pane level search>`, `<confirm-dialog word>` (fires bubbling `confirmed`), `<flash-toast kind>` (also shows htmx request errors), `<theme-toggle>` (localStorage `theme`).
+  - session B task 5 done (branch `rewrite-step-6b`): `<graph-canvas>`, `<graph-node>`, `<side-drawer>` in `ui/ts/`; `elements_test.go` holds the seven tags, a line budget each (canvas 300, rest 150) and the contract names each source must carry. Additions to the contract are in step-6.md "Added by task 5": canvas `divider`, `[data-look]`/`[data-zoom]` chrome, `#graph-arrow` marker, a `node_id` hidden input, `hx-disinherit="*"` on the node (else the card's drawer GET inherits `hx-swap="none"`). `components.SideDrawer()` sits in `Layout` after `#main`. Gallery: fake canvas at `/dev/components`, `POST /dev/components/positions` (204), `GET /dev/components/drawer`. Checked in a browser: drag, wall, marquee, multi-drag, drawer tabs/Escape/backdrop/URL, wheel zoom, pan, fit, hover, fan-out, arrows. Not checked: pinch, touch slop, snap, nudge, straight, localStorage, `focus`, sub-tile click. DECIDE 76–83.
+    - Owed to task 7/8: `SideDrawer()` takes no view, so a full load of `?drawer=&tab=` renders it closed; the shell must server-render `open`, `tab` and the body.
 
 ## DECIDE:
 
@@ -695,3 +697,31 @@ Raised by step 6 session A (builder took the lean; flip any):
 75. **(step 6) Flash dismissal.** Success/info/warning toasts go after 5 s;
    errors (including htmx request failures, shown as "Request failed:
    <status>") stay until clicked. Options: (a) keep; (b) all stay. Lean (a).
+
+Raised by step 6 session B task 5 (builder took the lean; flip any):
+
+76. **(step 6) A `graph` SSE swap resets pan and zoom.** Replacing the whole
+   canvas on add/remove re-runs fit. Options: (a) keep; (b) the element
+   keeps its viewport in sessionStorage keyed by path. Lean (b), in task 7.
+77. **(step 6) Line budgets are full.** Canvas 298/300, node 149/150, and
+   only because the canvas class has no blank lines and some one-line
+   statements. Options: (a) accept the dense style, no growth; (b) raise
+   the canvas to 350 and the node to 180. Lean (b).
+78. **(step 6) Multi-drag clamps each card at the wall on its own.** A
+   system card stops at the divider while the rest keep moving, so the
+   group's spacing changes. Options: (a) keep; (b) clamp the shared
+   delta. Lean (a).
+79. **(step 6) No-overlap nudge and hover focus are always on.** v0 had
+   both as view toggles. Options: (a) keep; (b) add them to `data-look`.
+   Lean (a).
+80. **(step 6) Marquee replaces the selection.** Shift+drag again does not
+   add. Options: (a) keep; (b) add to it. Lean (a).
+81. **(step 6) Close during an in-flight open reopens the drawer** when the
+   response lands. Options: (a) keep; (b) the element ignores a swap after
+   a close until the next card click. Lean (a).
+82. **(step 6) Drawer focus.** Opening focuses Close; no focus trap and no
+   focus return, though the aside says `aria-modal="true"`. Options:
+   (a) keep; (b) trap and return focus (lines in `side-drawer`). Lean (b)
+   in session D's a11y pass.
+83. **(step 6) Every page loads all seven element scripts.** Modules, cached,
+   a few KB. Options: (a) keep; (b) canvas pages only. Lean (a).

@@ -99,6 +99,41 @@ Sub-tiles (attached volume, hosting instance, replicas 2+) are ordinary
 `<graph-node static>` children of their parent node, offset by CSS;
 they move with it because they are inside it.
 
+**Added by task 5 (session B, 2026-09-24)** — names the templ must render
+or may style; `elements_test.go` checks each one is in the source:
+
+- `<graph-canvas divider="<x>">`: world x of the system-column wall.
+  `system` cards keep `x + w <= divider`, the rest `x >= divider`. No
+  attribute = no wall. The divider line itself is the server's (an SVG
+  `<line>` in `svg[data-edges]`).
+- Canvas children besides the SVG and the nodes are overlay chrome, not
+  transformed: `input[type=checkbox][data-look="snap|straight|fan-out|arrows"]`
+  (the element syncs them to its attributes and to `localStorage`
+  `graph.<look>` = `"1"`/`"0"`) and `button[data-zoom="in|out|fit"]`.
+- Arrows: the SVG carries `<marker id="graph-arrow">` (fill
+  `context-stroke`); CSS `graph-canvas[arrows] path[data-edge-kind]`
+  sets `marker-end`. The element only flips the attribute.
+- Set by the elements, for CSS only: `selected` and `lit` on top-level
+  nodes, `focusing` on the canvas while a card is hovered or focused,
+  `data-lit` on lit paths, `dragging` on the node being dragged, a
+  transient `div[data-marquee]` child during shift+drag. The canvas
+  writes `--px`, `--py`, `--s`; a node writes `--x`, `--y` and its
+  `width`/`height` from `w`/`h` (so `w`/`h` are required on top-level
+  cards). The transforms live in `ui/css/input.css`.
+- Multi-drag is run by the dragged `<graph-node>`: when it is
+  `selected` it moves every `graph-node[selected]` child of its canvas.
+  Each still fires its own `node-moved`.
+- The position POST learns the card from a third hidden input,
+  `<input type="hidden" name="node_id">`, next to `x` and `y` (all three
+  direct children of the `<graph-node>`; `hx-include="this"` sends them).
+- The `<graph-node>` also carries `hx-disinherit="*"`: without it the
+  card's drawer `hx-get` inherits `hx-swap="none"` (the drawer opens
+  empty) and `hx-include="this"` (x/y/node_id ride on the GET).
+- `<side-drawer>` light DOM: `[data-backdrop]`, `[data-close]`,
+  `#drawer-body`. It opens on any `htmx:afterSwap` whose target is inside
+  `#drawer-body` and copies `?tab=` into `tab`. Wrapper:
+  `components.SideDrawer()`, in `Layout` after `#main`.
+
 ### Session B (`../stackr-step-6b`)
 
 5. **Contract + elements.** Write the contract above into

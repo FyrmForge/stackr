@@ -51,10 +51,32 @@ func TestGalleryRendersEveryComponent(t *testing.T) {
 		"param editor":  `name="param.app.mode"`,
 		"secret masked": `placeholder="unchanged"`,
 		"settings form": "inherit (30)",
+		"graph canvas":  "<graph-canvas",
+		"graph node":    `<graph-node node-id="tile:api"`,
+		"edge":          `data-from="tile:api" data-to="tile:db"`,
+		"hidden x":      `name="x"`,
+		"move trigger":  `hx-trigger="node-moved"`,
+		"no inherit":    `hx-disinherit="*"`,
+		"side drawer":   `id="drawer-body"`,
 	} {
 		if !strings.Contains(body, marker) {
 			t.Errorf("%s: gallery lacks %q", component, marker)
 		}
+	}
+}
+
+// The fake canvas's drawer route answers with a tab body, not a page.
+func TestGalleryDrawer(t *testing.T) {
+	env := servicetest.New(t)
+	srv, err := server.New(server.WithDevMode(true))
+	if err != nil {
+		t.Fatal(err)
+	}
+	web.RegisterRoutes(srv, &web.Deps{Service: env.O, Access: middleware.NewAccess(env.O), DevMode: true})
+	rec := httptest.NewRecorder()
+	srv.Echo().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/dev/components/drawer?node=tile:api&tab=logs", nil))
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "Sample logs tab") || strings.Contains(rec.Body.String(), "<html") {
+		t.Fatalf("GET drawer = %d\n%s", rec.Code, rec.Body)
 	}
 }
 
