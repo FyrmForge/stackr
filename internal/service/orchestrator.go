@@ -16,7 +16,9 @@ import (
 	appdb "github.com/FyrmForge/stackr/internal/db"
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
+	"github.com/FyrmForge/stackr/internal/service/internal/flow/jobs"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/environment"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/job"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/org"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/settings"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/stack"
@@ -63,6 +65,7 @@ type Orchestrator struct {
 	envs     *environment.Leaf
 	tiles    *tile.Leaf
 	settings *settings.Leaf
+	jobs     *jobs.Runner
 }
 
 // onBuild is a test hook: every constructor New calls reports its name here,
@@ -114,7 +117,9 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 	}
 
 	st := build("store", func() *store.Store { return store.New(db, box) })
-	return &Orchestrator{
+	sets := build("leaf/settings", func() *settings.Leaf { return settings.New(st.Settings, bootSettings(cfg)) })
+	jobLeaf := build("leaf/job", func() *job.Leaf { return job.New(st.Jobs) })
+	svc := &Orchestrator{
 		db:    db,
 		store: st,
 		sessions: build("sessions", func() *auth.SessionManager {
@@ -122,16 +127,26 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 				auth.WithCookieSecure(cfg.CookieSecure),
 				auth.WithCookieDomain(cfg.CookieDomain))
 		}),
-		docker: o.docker,
-		users:  build("leaf/user", func() *user.Leaf { return user.New(st.Users, st.Sessions, st.APIKeys) }),
-		orgs:   build("leaf/org", func() *org.Leaf { return org.New(st.Orgs, st.OrgMembers) }),
-		stacks: build("leaf/stack", func() *stack.Leaf { return stack.New(st.Stacks) }),
-		envs:   build("leaf/environment", func() *environment.Leaf { return environment.New(st.Environments) }),
-		tiles:  build("leaf/tile", func() *tile.Leaf { return tile.New(st.Tiles) }),
-		settings: build("leaf/settings", func() *settings.Leaf {
-			return settings.New(st.Settings, bootSettings(cfg))
+		docker:   o.docker,
+		users:    build("leaf/user", func() *user.Leaf { return user.New(st.Users, st.Sessions, st.APIKeys) }),
+		orgs:     build("leaf/org", func() *org.Leaf { return org.New(st.Orgs, st.OrgMembers) }),
+		stacks:   build("leaf/stack", func() *stack.Leaf { return stack.New(st.Stacks) }),
+		envs:     build("leaf/environment", func() *environment.Leaf { return environment.New(st.Environments) }),
+		tiles:    build("leaf/tile", func() *tile.Leaf { return tile.New(st.Tiles) }),
+		settings: sets,
+		jobs: build("flow/jobs", func() *jobs.Runner {
+			// ponytail: no handlers and no ParamSet yet; the deploy, promote
+			// and cleanup flows register theirs as they land (steps 2+).
+			return jobs.New(jobLeaf, map[jobs.Kind]jobs.Handler{}, cfg.DataDir, jobs.Options{
+				Workers: func(ctx context.Context) (int, error) { return sets.Int(ctx, "workers") },
+			})
 		}),
-	}, nil
+	}
+	if err := svc.jobs.Start(ctx); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("start job runner: %w", err)
+	}
+	return svc, nil
 }
 
 // bootSettings turns the Config knobs that are set into settings values.
@@ -149,8 +164,11 @@ func bootSettings(cfg Config) map[string]string {
 	return boot
 }
 
-// Close releases the database.
-func (o *Orchestrator) Close() error { return o.db.Close() }
+// Close stops the job runner, then releases the database.
+func (o *Orchestrator) Close() error {
+	o.jobs.Close()
+	return o.db.Close()
+}
 
 // Ping reports whether the service can answer: the database is reachable.
 func (o *Orchestrator) Ping(ctx context.Context) error {

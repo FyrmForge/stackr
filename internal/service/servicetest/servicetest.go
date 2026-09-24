@@ -16,6 +16,7 @@ import (
 	"github.com/FyrmForge/hamr/pkg/db/sqlite"
 	"github.com/google/uuid"
 
+	appdb "github.com/FyrmForge/stackr/internal/db"
 	"github.com/FyrmForge/stackr/internal/service"
 	"github.com/FyrmForge/stackr/internal/service/internal/dockerfake"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/user"
@@ -50,7 +51,24 @@ func New(t *testing.T, edit ...func(*service.Config)) *Env {
 
 	// A second pool on the same file: the orchestrator keeps its store to
 	// itself, the harness gets its own.
-	db, err := sqlite.Connect(cfg.DBPath)
+	return &Env{O: o, Docker: fake, Store: open(t, cfg.DBPath), Config: cfg}
+}
+
+// Store is a fresh migrated store with no orchestrator, for tests of the
+// layers below it (store, leaves, flows).
+func Store(t *testing.T) *store.Store {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "stackr.db")
+	st := open(t, path)
+	if err := sqlite.Migrate(st.DB(), appdb.MigrateConfig()); err != nil {
+		t.Fatal(err)
+	}
+	return st
+}
+
+func open(t *testing.T, path string) *store.Store {
+	t.Helper()
+	db, err := sqlite.Connect(path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,7 +81,7 @@ func New(t *testing.T, edit ...func(*service.Config)) *Env {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &Env{O: o, Docker: fake, Store: store.New(db, box), Config: cfg}
+	return store.New(db, box)
 }
 
 var now = time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
