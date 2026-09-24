@@ -188,7 +188,29 @@ session started by darhvader from the START HERE line, no Fable.
     `service`, the harness would be an import cycle.
   - `make templint` passes now; AGENTS.md: testify → stdlib, repo line,
     access middleware, env vars.
-- [ ] [F+O] step 2 docker wrapper
+- [x] [F+O] step 2 docker wrapper
+  - `ContainerSpec`: `Networks []NetAttach` (all joined at create, no
+    default bridge; DECIDE 9 a), `Restart` is docker's string, plus
+    `HostNetwork`, `CapAdd`. No 5s health-interval default (flow/deploy).
+  - `Detail` gains `Running` and `Networks` (network → IP).
+    `EnsureNetwork`/`CreateVolume` take labels; `ListNetworks`,
+    `EnsureTool`, `ListImages`, `PruneImages` (keep list) added; `Build`
+    returns the image id. Missing network/volume on remove = nil;
+    missing container = typed `ErrNotFound`.
+  - Tag → digest resolution lives only in `registry.Digest` (index
+    digest, DECIDE 6 a); the Docker wrapper has no remote resolver.
+  - `git`: token goes to git as `GIT_CONFIG_*` env, never in the URL;
+    `ImageName` lives in `git` (the "tag exists → -jobID" rule is noted
+    for `leaf/image`).
+  - Webhook verify + decode sit in `githubapp` (from the webhook
+    extract); `PullRequest` also decodes `head.sha`.
+  - `s3`: `Put` takes an `io.ReadSeeker` (S3 needs the length; the
+    archive is a scratch file). Single PUT, 5 GiB ceiling (ponytail).
+  - `proxy`: pushes are serialized, not coalesced; coalescing needs the
+    config builder, so it belongs to step 3. Every pushed config must
+    carry the admin listener (Caddy drops to localhost otherwise).
+  - `vip` integration test needs NET_ADMIN; passes under `unshare -rn`.
+    `make test-integration` added (Docker, Docker Hub, MinIO, Caddy).
 - [ ] [F+O] step 3 services
 - [ ] [F+O] step 4 API + CLI
 - [ ] [F+O] step 5 installer + self-upgrade
