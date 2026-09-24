@@ -1,12 +1,11 @@
 package api
 
 import (
-	"net/http"
-
 	"github.com/FyrmForge/hamr/pkg/server"
 	"github.com/labstack/echo/v4"
 
 	"github.com/FyrmForge/stackr/internal/api/handler/health"
+	"github.com/FyrmForge/stackr/internal/api/handler/v1"
 	"github.com/FyrmForge/stackr/internal/middleware"
 	"github.com/FyrmForge/stackr/internal/service"
 )
@@ -25,9 +24,20 @@ func RegisterRoutes(srv *server.Server, deps *Deps) {
 	healthHandler := health.NewHandler(deps.Service)
 	api.GET("/health", healthHandler.Health)
 
-	authed := api.Group("", deps.Access.Load())
-	// ponytail: placeholder so the middleware is mounted and tested; the org
-	// endpoints replace it.
-	authed.GET("/:org", func(c echo.Context) error { return c.NoContent(http.StatusNoContent) },
-		deps.Access.Require("org.read"))
+	g := api.Group("/v1", middleware.JSONErrors(), deps.Access.Load())
+	for _, r := range Routes(&v1.H{S: deps.Service}) {
+		g.Add(r.Method, r.Path, r.E.Handle, gate(deps.Access, r))
+	}
+}
+
+func gate(a *middleware.Access, r Route) echo.MiddlewareFunc {
+	switch r.Verb {
+	case Public:
+		return func(next echo.HandlerFunc) echo.HandlerFunc { return next }
+	case Self:
+		return a.Authed()
+	case "":
+		panic("api: route " + r.Method + " " + r.Path + " names no verb")
+	}
+	return a.Require(r.Verb)
 }

@@ -126,3 +126,20 @@ func (e *Env) Session(t *testing.T, userID string) string {
 	must(t, err)
 	return s.Token
 }
+
+// Tile is a seeded stack "shop", env "dev" and image tile "api" in an org.
+type Tile struct{ Stack, Env, ID string }
+
+// Tile seeds shop/dev/api in the org through the verbs.
+func (e *Env) Tile(t *testing.T, orgID string) Tile {
+	t.Helper()
+	ctx := context.Background()
+	st, err := e.O.CreateStack(ctx, orgID, "shop", "")
+	must(t, err)
+	en, err := e.O.CreateEnv(ctx, st.ID, "dev", service.EnvSpec{Type: "static", FromKind: "branch", FromBranch: "main"})
+	must(t, err)
+	tl, err := e.O.CreateTile(ctx, service.Tile{StackID: st.ID, EnvironmentID: en.ID, Name: "api", Kind: "image",
+		ImageRef: "nginx:1", ContainerPort: 80})
+	must(t, err)
+	return Tile{Stack: st.ID, Env: en.ID, ID: tl.ID}
+}

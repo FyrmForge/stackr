@@ -62,12 +62,8 @@ type Resource struct{ OrgID string }
 // for outside the org (a 403 would confirm the id exists), errs.ErrRefused
 // for inside the org below the level.
 func Can(u User, v Verb, r Resource) error {
-	if u.ID == "" || !u.Active {
-		return errs.ErrRefused
-	}
-	// An unbound key acts only for a stackr admin (DECIDE 13).
-	if u.Key && u.KeyOrg == "" && !u.Admin {
-		return errs.ErrRefused
+	if err := Self(u); err != nil {
+		return err
 	}
 	need := LevelOf(v)
 	if need == LevelAdmin {
@@ -85,6 +81,19 @@ func Can(u User, v Verb, r Resource) error {
 		return errs.ErrNotFound
 	}
 	if have < need {
+		return errs.ErrRefused
+	}
+	return nil
+}
+
+// Self gates the routes about the caller alone (/me, their org list): a
+// live, active account, and an unbound key only for a stackr admin
+// (DECIDE 13).
+func Self(u User) error {
+	if u.ID == "" || !u.Active {
+		return errs.ErrRefused
+	}
+	if u.Key && u.KeyOrg == "" && !u.Admin {
 		return errs.ErrRefused
 	}
 	return nil

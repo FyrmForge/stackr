@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/FyrmForge/hamr/pkg/server"
+	"github.com/labstack/echo/v4"
 
 	"github.com/FyrmForge/stackr/internal/api"
 	"github.com/FyrmForge/stackr/internal/middleware"
@@ -97,8 +98,8 @@ func TestAccess(t *testing.T) {
 		sessWant int // web, with the session cookie
 		keyWant  int // api, with the bearer key
 	}{
-		{"admin", "acme", 204, 204},
-		{"owner", "acme", 204, 204},
+		{"admin", "acme", 204, 200},
+		{"owner", "acme", 204, 200},
 		{"owner", "nope", 404, 404},
 		{"owner", "other", 404, 404},
 		{"non-member", "acme", 404, 404},
@@ -115,7 +116,7 @@ func TestAccess(t *testing.T) {
 				t.Errorf("%s web /%s = %d, want %d", tt.who, tt.path, got, tt.sessWant)
 			}
 		}
-		if got := do(t, h, cookie, "/api/"+tt.path, cred{key: c.key}); got != tt.keyWant {
+		if got := do(t, h, cookie, "/api/v1/orgs/"+tt.path, cred{key: c.key}); got != tt.keyWant {
 			t.Errorf("%s api /%s = %d, want %d", tt.who, tt.path, got, tt.keyWant)
 		}
 	}
@@ -125,8 +126,14 @@ func TestAccess(t *testing.T) {
 		t.Errorf("owner key on web = %d, want 204", got)
 	}
 	// Session on the API router too.
-	if got := do(t, h, cookie, "/api/acme", cred{session: creds["owner"].session}); got != 204 {
-		t.Errorf("owner session on api = %d, want 204", got)
+	if got := do(t, h, cookie, "/api/v1/orgs/acme", cred{session: creds["owner"].session}); got != 200 {
+		t.Errorf("owner session on api = %d, want 200", got)
+	}
+	// The caller-only routes: any live principal, an unbound key only for an admin.
+	for who, want := range map[string]int{"owner": 200, "admin": 200, "unbound": 403, "anonymous": 401, "disabled": 401} {
+		if got := do(t, h, cookie, "/api/v1/orgs", cred{key: creds[who].key}); got != want {
+			t.Errorf("%s GET /api/v1/orgs = %d, want %d", who, got, want)
+		}
 	}
 }
 
@@ -137,5 +144,57 @@ func TestFixedRoutesWin(t *testing.T) {
 		if got := do(t, h, "", path, cred{}); got != http.StatusOK {
 			t.Errorf("GET %s = %d, want 200", path, got)
 		}
+	}
+}
+
+// A child id in the path must sit in the route's org: another org's job is
+// the same 404 as a missing one, and a job outlives its tile.
+func TestChildIDsStayInTheirOrg(t *testing.T) {
+	env := servicetest.New(t)
+	ctx := context.Background()
+	srv, err := server.New(server.WithDevMode(true))
+	if err != nil {
+		t.Fatal(err)
+	}
+	access := middleware.NewAccess(env.O)
+	ok := func(c echo.Context) error { return c.NoContent(http.StatusNoContent) }
+	srv.Echo().GET("/orgs/:org/jobs/:job", ok, access.Load(), access.Require("org.read"))
+	srv.Echo().GET("/orgs/:org/things/:thing", ok, access.Load(), access.Require("org.read"))
+
+	acme, other := env.Org(t, "acme"), env.Org(t, "other")
+	owner := env.User(t, "owner@x", false)
+	env.Member(t, acme, owner, "owner")
+	key := env.APIKey(t, owner, acme)
+	mine, err := env.O.Deploy(ctx, env.Tile(t, acme).ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	theirTile := env.Tile(t, other)
+	theirs, err := env.O.Deploy(ctx, theirTile.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := srv.Echo()
+	for _, tt := range []struct {
+		path string
+		want int
+	}{
+		{"/orgs/acme/jobs/" + mine.ID, 204},
+		{"/orgs/acme/jobs/" + theirs.ID, 404},
+		{"/orgs/acme/jobs/nope", 404},
+		{"/orgs/acme/things/x", 500}, // an unlisted param fails closed
+	} {
+		if got := do(t, h, "", tt.path, cred{key: key}); got != tt.want {
+			t.Errorf("GET %s = %d, want %d", tt.path, got, tt.want)
+		}
+	}
+
+	// The job keeps its org after its tile is gone.
+	del, err := env.O.DeleteTile(ctx, theirTile.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if org, err := env.O.OrgOf(ctx, "job", del.ID); err != nil || org != other {
+		t.Errorf("OrgOf(deleted tile's job) = %q, %v; want %q", org, err, other)
 	}
 }

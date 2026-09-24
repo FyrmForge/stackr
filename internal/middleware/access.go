@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/FyrmForge/hamr/pkg/ctx"
+	"github.com/FyrmForge/hamr/pkg/logging"
 	hamrmw "github.com/FyrmForge/hamr/pkg/middleware"
 	"github.com/labstack/echo/v4"
 
@@ -90,10 +91,71 @@ func (a *Access) Require(v authz.Verb) echo.MiddlewareFunc {
 			if err := authz.Can(p.Access, v, r); err != nil {
 				return HTTPError(err)
 			}
+			if err := a.children(c, s); err != nil {
+				return err
+			}
 			ctx.Set(c, scopeKey, s)
 			return next(c)
 		}
 	}
+}
+
+// Authed gates the routes about the caller alone: /me, the org list.
+func (a *Access) Authed() echo.MiddlewareFunc {
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			p := Principal(c)
+			if p == nil {
+				return echo.NewHTTPError(http.StatusUnauthorized)
+			}
+			if err := authz.Self(p.Access); err != nil {
+				return HTTPError(err)
+			}
+			return next(c)
+		}
+	}
+}
+
+// childKinds are the path params naming a row the verb takes on trust; each
+// must sit in the route's org. The value is the kind OrgOf knows.
+var childKinds = map[string]string{
+	"job": "job", "release": "release", "domain": "domain", "volume": "volume",
+	"schedule": "schedule", "provision": "provision",
+}
+
+// byVerb are path params the verb itself scopes (it takes the org or the
+// user alongside the id), or that name no row.
+var byVerb = map[string]bool{
+	"org": true, "stack": true, "env": true, "tile": true,
+	"user": true, "credential": true, "connector": true, "dest": true, "key": true,
+	"collection": true, "name": true, "token": true, "setting": true,
+}
+
+// children refuses a child id from another org with the same 404 as a
+// missing one. An unlisted param fails closed.
+// ponytail: org-level only; v1 roles are per org, so an id of another tile
+// in the same org reaches nothing the caller cannot already reach.
+func (a *Access) children(c echo.Context, s service.Scope) error {
+	for _, name := range c.ParamNames() {
+		kind, child := childKinds[name]
+		if !child {
+			if byVerb[name] {
+				continue
+			}
+			return echo.NewHTTPError(http.StatusInternalServerError, "route param "+name+" has no org check")
+		}
+		if s.Org == nil {
+			continue // an org-less route: its verb is admin-level
+		}
+		org, err := a.svc.OrgOf(c.Request().Context(), kind, c.Param(name))
+		if err != nil && !errors.Is(err, errs.ErrNotFound) {
+			return err
+		}
+		if err != nil || org != s.Org.ID {
+			return echo.NewHTTPError(http.StatusNotFound)
+		}
+	}
+	return nil
 }
 
 // Principal is the loaded principal, nil for an anonymous request.
@@ -119,6 +181,10 @@ func HTTPError(err error) error {
 		return echo.NewHTTPError(http.StatusForbidden, err.Error())
 	case errors.Is(err, errs.ErrBusy):
 		return echo.NewHTTPError(http.StatusServiceUnavailable)
+	case errors.Is(err, service.ErrBadSignature):
+		return echo.NewHTTPError(http.StatusUnauthorized, "bad signature")
+	case errors.Is(err, service.ErrBadPayload):
+		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 	if v, ok := errs.IsInvalid(err); ok {
 		return echo.NewHTTPError(http.StatusBadRequest, v.Error())
@@ -130,4 +196,39 @@ func HTTPError(err error) error {
 		return echo.NewHTTPError(http.StatusConflict, v.Error())
 	}
 	return err
+}
+
+// APIError is every API error body.
+type APIError struct {
+	Error  string `json:"error"`
+	Status int    `json:"status"`
+	Field  string `json:"field,omitempty"`
+}
+
+// JSONErrors renders every error under /api as an APIError, through
+// HTTPError, so the CLI prints the service's typed message.
+func JSONErrors() echo.MiddlewareFunc {
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			err := next(c)
+			if err == nil || c.Response().Committed {
+				return err
+			}
+			body := APIError{Status: http.StatusInternalServerError, Error: "internal error"}
+			if v, ok := errs.IsInvalid(err); ok {
+				body.Field = v.Field
+			}
+			var he *echo.HTTPError
+			if errors.As(HTTPError(err), &he) {
+				body.Status = he.Code
+				body.Error = http.StatusText(he.Code)
+				if m, ok := he.Message.(string); ok && m != "" {
+					body.Error = m
+				}
+			} else {
+				logging.FromContext(c.Request().Context()).Error("api", "error", err.Error())
+			}
+			return c.JSON(body.Status, body)
+		}
+	}
 }

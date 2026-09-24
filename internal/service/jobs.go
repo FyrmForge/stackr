@@ -169,7 +169,7 @@ func (o *Orchestrator) enqueue(ctx context.Context, kind jobs.Kind, p any, lock 
 	if err != nil {
 		return Job{}, err
 	}
-	return o.jobs.Enqueue(ctx, kind, lock, string(b), nil)
+	return o.jobs.Enqueue(ctx, kind, lock, string(o.withOrg(ctx, b)), nil)
 }
 
 // enqueuePromote locks the env and every tile it runs now.
@@ -183,7 +183,7 @@ func (o *Orchestrator) enqueuePromote(ctx context.Context, envID, releaseID stri
 		lock = append(lock, t.ID)
 	}
 	b, _ := json.Marshal(promoteJob{EnvID: envID, ReleaseID: releaseID})
-	return o.jobs.Enqueue(ctx, kindPromote, lock, string(b), &releaseID)
+	return o.jobs.Enqueue(ctx, kindPromote, lock, string(o.withOrg(ctx, b)), &releaseID)
 }
 
 func (o *Orchestrator) onTile(ctx context.Context, id string, f func(Tile) error) error {
