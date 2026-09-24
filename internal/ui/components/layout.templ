@@ -28,7 +28,7 @@ templ Layout(s Shell, body templ.Component) {
 			<main id="main" class="max-w-6xl mx-auto px-4 py-6">
 				@body
 			</main>
-			@SideDrawer()
+			@SideDrawer(s.Drawer, s.Tab)
 		</body>
 	</html>
 }

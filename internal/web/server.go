@@ -4,6 +4,7 @@ import (
 	"github.com/FyrmForge/hamr/pkg/email"
 	hamrmw "github.com/FyrmForge/hamr/pkg/middleware"
 	"github.com/FyrmForge/hamr/pkg/server"
+	"github.com/labstack/echo/v4"
 
 	"github.com/FyrmForge/stackr/internal/middleware"
 	"github.com/FyrmForge/stackr/internal/service"
@@ -11,9 +12,9 @@ import (
 	"github.com/FyrmForge/stackr/internal/web/handler/about"
 	"github.com/FyrmForge/stackr/internal/web/handler/auth/login"
 	"github.com/FyrmForge/stackr/internal/web/handler/auth/register"
+	"github.com/FyrmForge/stackr/internal/web/handler/canvas"
 	"github.com/FyrmForge/stackr/internal/web/handler/devemail"
 	"github.com/FyrmForge/stackr/internal/web/handler/devgallery"
-	"github.com/FyrmForge/stackr/internal/web/handler/home"
 	"github.com/FyrmForge/stackr/internal/web/handler/scope"
 )
 
@@ -50,9 +51,6 @@ func RegisterRoutes(srv *server.Server, deps *Deps) {
 	site.Use(deps.Access.Load())
 	auth := deps.Access.Browser()
 
-	homeHandler := home.NewHandler()
-	site.GET("/", homeHandler.Index)
-
 	// Dev-only sample email endpoint. Sends a test message through the
 	// configured email.Sender so you can smoke-test the /__hamr/mail inbox.
 	// Gated on DevMode; no-op in production regardless of route registration.
@@ -81,13 +79,37 @@ func RegisterRoutes(srv *server.Server, deps *Deps) {
 	site.POST("/register", registerHandler.Submit, auth.RequireNotAuth())
 	site.POST("/register/validate/:field", registerHandler.FormRules.ValidationHandler("field"), auth.RequireNotAuth())
 
-	// The nested scope: Require resolves each slug, 404s early and leaves
-	// org, stack, env and tile in the context. ponytail: one placeholder
-	// page until the org/stack/env/tile pages take these routes.
+	// The canvases, one per level. Require resolves each slug, 404s early
+	// and leaves org, stack and env in the context; home is the caller's.
+	// Each level's helper routes sit under "/-/", which no slug can be.
+	cv := canvas.NewHandler(deps.Service)
+	levels := []struct {
+		path        string
+		read, write echo.MiddlewareFunc
+	}{
+		{"", deps.Access.Authed(), deps.Access.Authed()},
+		{"/:org", deps.Access.Require("org.read"), deps.Access.Require("org.graph.write")},
+		{"/:org/:stack", deps.Access.Require("org.read"), deps.Access.Require("stack.write")},
+		{"/:org/:stack/:env", deps.Access.Require("org.read"), deps.Access.Require("env.write")},
+	}
+	for _, l := range levels {
+		page := l.path
+		if page == "" {
+			page = "/"
+		}
+		site.GET(page, cv.Page, auth.RequireAuth(), l.read)
+		site.GET(l.path+"/-/drawer", cv.Drawer, l.read)
+		if l.path != "/:org/:stack/:env" { // the env stream is the env package's
+			site.GET(l.path+"/-/events", cv.Events, l.read)
+		}
+		site.POST(l.path+"/-/positions", cv.Positions, l.write)
+		site.POST(l.path+"/-/reset", cv.Reset, l.write)
+		site.POST(l.path+"/-/notes", cv.Notes, l.write)
+		site.POST(l.path+"/-/notes/delete", cv.DeleteNote, l.write)
+	}
+
+	// ponytail: the tile page is a placeholder until the tile drawer takes it.
 	scopeHandler := scope.NewHandler()
-	site.GET("/:org", scopeHandler.Page, deps.Access.Require("org.read"))
-	site.GET("/:org/:stack", scopeHandler.Page, deps.Access.Require("org.read"))
-	site.GET("/:org/:stack/:env", scopeHandler.Page, deps.Access.Require("org.read"))
 	site.GET("/:org/:stack/:env/:tile", scopeHandler.Page, deps.Access.Require("tile.read"))
 }
 

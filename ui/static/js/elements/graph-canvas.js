@@ -6,14 +6,14 @@ const clamp = (s) => Math.min(MAX, Math.max(MIN, s));
 const num = (el, name) => Number(el.getAttribute(name)) || 0;
 const idOf = (el) => el.getAttribute("node-id") ?? "";
 const across = (s) => s === "l" || s === "r";
-const stored = (key) => { try {
-    return localStorage.getItem(`graph.${key}`);
+const stored = (key, tab = false) => { try {
+    return (tab ? sessionStorage : localStorage).getItem(`graph.${key}`);
 }
 catch {
     return null;
 } };
-const store = (key, on) => { try {
-    localStorage.setItem(`graph.${key}`, on ? "1" : "0");
+const store = (key, v, tab = false) => { try {
+    (tab ? sessionStorage : localStorage).setItem(`graph.${key}`, v);
 }
 catch { } };
 class GraphCanvas extends HTMLElement {
@@ -45,8 +45,14 @@ class GraphCanvas extends HTMLElement {
                 this.toggleAttribute(look, stored(look) === "1");
         this.querySelectorAll("input[data-look]").forEach((i) => (i.checked = this.hasAttribute(i.dataset.look ?? "")));
         this.wire(true);
-        this.observer.observe(this, { subtree: true, attributes: true, attributeFilter: ["x", "y", "w", "h"] });
-        this.fit();
+        this.observer.observe(this, { subtree: true, childList: true, attributes: true, attributeFilter: ["x", "y", "w", "h"] });
+        const [px, py, s] = (stored(`view.${location.pathname}`, true) ?? "").split(",").map(Number);
+        if (s) {
+            [this.px, this.py, this.s] = [px, py, s];
+            this.apply();
+        }
+        else
+            this.fit();
         this.repath();
         const focus = this.getAttribute("focus");
         if (focus)
@@ -96,6 +102,7 @@ class GraphCanvas extends HTMLElement {
         this.style.setProperty("--px", `${this.px}px`);
         this.style.setProperty("--py", `${this.py}px`);
         this.style.setProperty("--s", String(this.s));
+        store(`view.${location.pathname}`, `${this.px},${this.py},${this.s}`, true);
     }
     fit() {
         this.s = clamp(Number(this.getAttribute("scale")) || 0.8);
@@ -227,14 +234,14 @@ class GraphCanvas extends HTMLElement {
         if (!LOOKS.includes(look))
             return;
         this.toggleAttribute(look, input.checked);
-        store(look, input.checked);
+        store(look, input.checked ? "1" : "0");
         this.repath();
     };
     onKey = (e) => {
-        if (e.key !== "Escape")
-            return;
-        this.select(new Set());
-        this.light(null);
+        if (e.key === "Escape") {
+            this.select(new Set());
+            this.light(null);
+        }
     };
     onOver = (e) => {
         if (this.pan || this.marquee || this.querySelector("graph-node[dragging]"))

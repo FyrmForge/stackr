@@ -1,6 +1,10 @@
 package components
 
-import "encoding/json"
+import (
+	"encoding/json"
+
+	"github.com/a-h/templ"
+)
 
 // Shell is what the layout needs: built once per request by render.Page
 // from the URL and the principal, never by a page.
@@ -11,6 +15,10 @@ type Shell struct {
 	Crumbs []Link // org / stack / env / tile, from the URL
 	Nav    []Link // top-level sections; Active marks the one the URL is in
 	Flash  Flash
+	// Drawer is the drawer body a fresh load of ?drawer=&tab= opens with;
+	// nil = closed. Tab is the ?tab= it shows.
+	Drawer templ.Component
+	Tab    string
 }
 
 // Link is one navigation target.

@@ -164,6 +164,30 @@ the card templates read (`internal/service/internal/flow/graph`).
 - `Show{System, Refs, Startup, Traffic}` is what the query params turn
   off; `Traffic` off drops the egress edges and the internet card.
 
+**Canvas pages (task 7, session B)**: `internal/ui/graph` (`Page`,
+`Canvas`, `Footer`, view structs) and `internal/web/handler/canvas`, one
+handler for the four levels.
+
+- Pages: `/`, `/:org`, `/:org/:stack`, `/:org/:stack/:env`. Helper
+  routes under `<page>/-/` (`-` is never a slug): `GET drawer?drawer=<id>&tab=`,
+  `GET events?n=<sig>`, `POST positions` (node_id, x, y), `POST reset`,
+  `POST notes` (id?, kind, text, x, y, w, h), `POST notes/delete` (id).
+  Reads need `org.read` (home: signed in); writes `org.graph.write`,
+  `stack.write`, `env.write`.
+- Show params `system|refs|startup|traffic=0` ride on every helper route.
+- `#graph` wraps the canvas with `sse-connect` and `sse-swap="graph"`; the
+  stream sends `graph` (whole `Canvas`) when the node, edge or note set
+  moves off the page's `n`, and `footer:<id>` (every footer at connect,
+  then on change). `canvas.(*handler).Poll` is that producer; the env
+  stream (`/:org/:stack/:env/events`) folds it in at the merge.
+- `ui.Node.Card` / `ui.Node.Footer` replace the generic body and footer:
+  the env mapping sets them from `cards.Card`/`cards.Subs`/`cards.Footer`.
+- A fresh load of `?drawer=&tab=` renders `<side-drawer open tab>` with
+  the tab inside (`render.PageWith`, `components.Shell.Drawer`).
+- `<graph-canvas>` keeps pan/zoom per path in `sessionStorage`
+  (`graph.view.<path>`), so a `graph` swap or a reload keeps the view, and
+  re-paths on `childList` too (a swapped-in lanes svg).
+
 ### Session B (`../stackr-step-6b`)
 
 5. **Contract + elements.** Write the contract above into

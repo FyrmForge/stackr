@@ -20,9 +20,9 @@ const idOf = (el: Element): string => el.getAttribute("node-id") ?? "";
 const across = (s: Side): boolean => s === "l" || s === "r";
 
 // Storage can throw (private mode, blocked site data); the look then lasts
-// until the next page load.
-const stored = (key: string): string | null => { try { return localStorage.getItem(`graph.${key}`); } catch { return null; } };
-const store = (key: string, on: boolean): void => { try { localStorage.setItem(`graph.${key}`, on ? "1" : "0"); } catch { /* not kept */ } };
+// until the next page load. Pan/zoom is per page and per tab (session).
+const stored = (key: string, tab = false): string | null => { try { return (tab ? sessionStorage : localStorage).getItem(`graph.${key}`); } catch { return null; } };
+const store = (key: string, v: string, tab = false): void => { try { (tab ? sessionStorage : localStorage).setItem(`graph.${key}`, v); } catch { /* not kept */ } };
 
 class GraphCanvas extends HTMLElement {
   private s = 1;
@@ -51,8 +51,9 @@ class GraphCanvas extends HTMLElement {
     for (const look of LOOKS) if (stored(look) !== null) this.toggleAttribute(look, stored(look) === "1");
     this.querySelectorAll<HTMLInputElement>("input[data-look]").forEach((i) => (i.checked = this.hasAttribute(i.dataset.look ?? "")));
     this.wire(true);
-    this.observer.observe(this, { subtree: true, attributes: true, attributeFilter: ["x", "y", "w", "h"] });
-    this.fit();
+    this.observer.observe(this, { subtree: true, childList: true, attributes: true, attributeFilter: ["x", "y", "w", "h"] });
+    const [px, py, s] = (stored(`view.${location.pathname}`, true) ?? "").split(",").map(Number);
+    if (s) { [this.px, this.py, this.s] = [px, py, s]; this.apply(); } else this.fit();
     this.repath();
     const focus = this.getAttribute("focus");
     if (focus) this.centre(focus);
@@ -101,6 +102,7 @@ class GraphCanvas extends HTMLElement {
     this.style.setProperty("--px", `${this.px}px`);
     this.style.setProperty("--py", `${this.py}px`);
     this.style.setProperty("--s", String(this.s));
+    store(`view.${location.pathname}`, `${this.px},${this.py},${this.s}`, true);
   }
   // Back to the initial scale, shrunk if needed so every card fits, centred.
   private fit(): void {
@@ -222,13 +224,11 @@ class GraphCanvas extends HTMLElement {
     const look = input.dataset.look ?? "";
     if (!LOOKS.includes(look)) return;
     this.toggleAttribute(look, input.checked);
-    store(look, input.checked);
+    store(look, input.checked ? "1" : "0");
     this.repath();
   };
   private onKey = (e: KeyboardEvent): void => {
-    if (e.key !== "Escape") return;
-    this.select(new Set());
-    this.light(null);
+    if (e.key === "Escape") { this.select(new Set()); this.light(null); }
   };
   // Also runs on pointerleave (target = the canvas: nothing lit). Hover
   // focus is off while anything is being dragged.

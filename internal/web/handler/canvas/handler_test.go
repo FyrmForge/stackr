@@ -1,0 +1,126 @@
+package canvas_test
+
+import (
+	"context"
+	"html"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"regexp"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/FyrmForge/hamr/pkg/server"
+
+	"github.com/FyrmForge/stackr/internal/api/stream"
+	"github.com/FyrmForge/stackr/internal/middleware"
+	"github.com/FyrmForge/stackr/internal/service/servicetest"
+	"github.com/FyrmForge/stackr/internal/web"
+	"github.com/FyrmForge/stackr/internal/web/handler/canvas"
+	"github.com/FyrmForge/stackr/internal/web/webtest"
+)
+
+func get(t *testing.T, s *webtest.Site, path string) string {
+	t.Helper()
+	rec := s.Do(t, "GET", path, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET %s = %d %s", path, rec.Code, rec.Body)
+	}
+	return rec.Body.String()
+}
+
+// Every level renders its canvas with the cards the service decided.
+func TestCanvasLevels(t *testing.T) {
+	s := webtest.New(t)
+	for path, want := range map[string]string{
+		"/":              `node-id="org:` + s.Org + `"`,
+		"/acme":          `node-id="stack:` + s.Tile.Stack + `"`,
+		"/acme/shop":     `node-id="env:` + s.Tile.Env + `"`,
+		"/acme/shop/dev": `node-id="` + s.Tile.ID + `"`,
+	} {
+		body := get(t, s, path)
+		if !strings.Contains(body, "<graph-canvas") || !strings.Contains(body, want) {
+			t.Errorf("%s: no canvas with %s in\n%s", path, want, body)
+		}
+	}
+	if body := get(t, s, "/acme/shop/dev?system=0"); !strings.Contains(body, `hx-post="/acme/shop/dev/-/positions?system=0"`) {
+		t.Error("the show params are not kept on the helper routes")
+	}
+}
+
+// Home is the caller's own canvas: anonymous goes to the login page.
+func TestCanvasHomeNeedsLogin(t *testing.T) {
+	env := servicetest.New(t)
+	srv, err := server.New(server.WithDevMode(true))
+	if err != nil {
+		t.Fatal(err)
+	}
+	web.RegisterRoutes(srv, &web.Deps{Service: env.O, Access: middleware.NewAccess(env.O), DevMode: true})
+	rec := httptest.NewRecorder()
+	srv.Echo().ServeHTTP(rec, httptest.NewRequest("GET", "/", nil))
+	if rec.Code != http.StatusSeeOther && rec.Code != http.StatusFound || rec.Header().Get("Location") != "/login" {
+		t.Errorf("anonymous / = %d %s", rec.Code, rec.Header().Get("Location"))
+	}
+}
+
+// A drop saves; notes round-trip and answer the canvas.
+func TestCanvasPositionsAndNotes(t *testing.T) {
+	s := webtest.New(t)
+	rec := s.Do(t, "POST", "/acme/-/positions", url.Values{"node_id": {"stack:" + s.Tile.Stack}, "x": {"440"}, "y": {"88"}})
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("positions = %d %s", rec.Code, rec.Body)
+	}
+	if body := get(t, s, "/acme"); !strings.Contains(body, `x="440" y="88"`) {
+		t.Error("the drop did not stick")
+	}
+	if rec := s.Do(t, "POST", "/acme/-/positions", url.Values{"node_id": {"stack:nope"}, "x": {"1"}, "y": {"1"}}); rec.Code != http.StatusNotFound {
+		t.Errorf("unknown card = %d", rec.Code)
+	}
+	rec = s.Do(t, "POST", "/acme/-/notes", url.Values{"kind": {"note"}, "text": {"hello there"}, "w": {"160"}, "h": {"80"}})
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "hello there</textarea>") {
+		t.Fatalf("note = %d %s", rec.Code, rec.Body)
+	}
+	id := regexp.MustCompile(`node-id="note:([^"]+)"`).FindStringSubmatch(rec.Body.String())[1]
+	rec = s.Do(t, "POST", "/acme/-/notes/delete", url.Values{"id": {id}})
+	if rec.Code != http.StatusOK || strings.Contains(rec.Body.String(), "note:"+id) {
+		t.Errorf("delete note = %d, still drawn: %v", rec.Code, strings.Contains(rec.Body.String(), id))
+	}
+	if rec := s.Do(t, "POST", "/acme/-/reset", nil); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "<graph-canvas") {
+		t.Errorf("reset = %d", rec.Code)
+	}
+}
+
+// The stream sends every footer at connect, then only the ones that move:
+// a failed job turns the env card's footer to "error".
+func TestCanvasEventsSwapFooter(t *testing.T) {
+	stream.PollEvery, canvas.Every = 10*time.Millisecond, 0
+	s := webtest.New(t)
+	events := html.UnescapeString(regexp.MustCompile(`sse-connect="([^"]+)"`).FindStringSubmatch(get(t, s, "/acme/shop"))[1])
+	ctx, cancel := context.WithCancel(context.Background())
+	time.AfterFunc(60*time.Millisecond, func() { s.FailedJob(t, s.Tile.ID) })
+	time.AfterFunc(250*time.Millisecond, cancel)
+	body := s.DoCtx(ctx, t, "GET", events, nil).Body.String()
+	name := "event: footer:env:" + s.Tile.Env + "\n"
+	if strings.Count(body, name) != 2 || strings.Contains(body, "event: graph") {
+		t.Fatalf("want the env footer at connect and once more on change, no graph event:\n%s", body)
+	}
+	last := body[strings.LastIndex(body, name):]
+	if !strings.Contains(last, `sse-swap="footer:env:`+s.Tile.Env+`"`) || !strings.Contains(last, ">error<") {
+		t.Errorf("second footer is not the error one:\n%s", last)
+	}
+}
+
+// A card added under the page swaps the whole canvas.
+func TestCanvasEventsSwapGraph(t *testing.T) {
+	stream.PollEvery, canvas.Every = 10*time.Millisecond, 0
+	s := webtest.New(t)
+	events := html.UnescapeString(regexp.MustCompile(`sse-connect="([^"]+)"`).FindStringSubmatch(get(t, s, "/acme"))[1])
+	ctx, cancel := context.WithCancel(context.Background())
+	time.AfterFunc(60*time.Millisecond, func() { _, _ = s.O.CreateStack(context.Background(), s.Org, "blog", "") })
+	time.AfterFunc(250*time.Millisecond, cancel)
+	body := s.DoCtx(ctx, t, "GET", events, nil).Body.String()
+	if !strings.Contains(body, "event: graph\ndata: <graph-canvas") || !strings.Contains(body, ">blog</a>") {
+		t.Fatalf("no graph event with the new stack:\n%s", body)
+	}
+}

@@ -4,6 +4,7 @@
 package render
 
 import (
+	"context"
 	"strings"
 
 	"github.com/FyrmForge/hamr/pkg/htmx"
@@ -12,6 +13,7 @@ import (
 	"github.com/a-h/templ"
 	"github.com/labstack/echo/v4"
 
+	"github.com/FyrmForge/stackr/internal/api/stream"
 	"github.com/FyrmForge/stackr/internal/middleware"
 	"github.com/FyrmForge/stackr/internal/ui/components"
 )
@@ -20,7 +22,17 @@ import (
 // fragment (title, header and flash out of band) for an htmx navigation. A
 // history restore asks for the whole page, so it gets one.
 func Page(c echo.Context, status int, title string, body templ.Component) error {
+	return PageWith(c, status, title, body, nil)
+}
+
+// PageWith is Page with the drawer a fresh load of ?drawer=&tab= opens
+// (nil = none). An htmx navigation leaves the drawer to its own GET.
+func PageWith(c echo.Context, status int, title string, body, drawer templ.Component) error {
 	s := Shell(c, title)
+	s.Drawer, s.Tab = drawer, c.QueryParam("tab")
+	if drawer == nil {
+		s.Tab = ""
+	}
 	c.Response().Header().Add("Vary", htmx.HeaderRequest)
 	r := c.Request()
 	if htmx.IsHTMX(r) && r.Header.Get(htmx.HeaderHistoryRestore) != "true" {
@@ -70,4 +82,11 @@ func Shell(c echo.Context, title string) components.Shell {
 func link(label, href, path string) components.Link {
 	active := path == href || (href != "/" && strings.HasPrefix(path, href+"/"))
 	return components.Link{Label: label, Href: href, Active: active}
+}
+
+// Event renders a component as an SSE event body for htmx to swap.
+func Event(ctx context.Context, body templ.Component) (stream.HTML, error) {
+	var b strings.Builder
+	err := body.Render(ctx, &b)
+	return stream.HTML(b.String()), err
 }

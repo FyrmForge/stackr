@@ -183,6 +183,15 @@ func (e *Env) Healthy(envID string) {
 		Networks: map[string]string{"stackr-env-" + envID: "10.0.0.5"}}}
 }
 
+// FailedJob records a finished, failed deploy of the tile: its status
+// word reads "error" until it runs.
+func (e *Env) FailedJob(t *testing.T, tileID string) {
+	t.Helper()
+	fin := time.Now()
+	must(t, e.Store.Jobs.Create(context.Background(), store.Job{ID: uuid.NewString(), Kind: "deploy", State: "failed",
+		LockSet: store.StringList{tileID}, Payload: "{}", CreatedAt: fin, FinishedAt: &fin}))
+}
+
 // noVIP stands in for the iptables VIP table, which needs root.
 type noVIP struct{}
 
