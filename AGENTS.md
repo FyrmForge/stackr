@@ -21,8 +21,7 @@ cmd/stackrd/             Panel entry point (env config loaded here)
 cmd/stackr/              CLI entry point
 cmd/stackr-install/      Installer entry point
 internal/db/            Database connection + embedded migrations
-internal/repo/           Scaffold users table; replaced in step 1 by the
-                         per-table store under internal/service/internal/store/
+internal/middleware/     Access: session or API key → principal; Require(verb)
 internal/web/            HTTP layer
 internal/web/server.go   Route registration + middleware groups
 internal/web/handler/    One package per page, mirroring URL path
@@ -541,7 +540,10 @@ Custom components via `@apply` in `ui/css/input.css`:
 ## Testing
 
 - Unit tests alongside source files: `*_test.go`
-- Use `testify/assert` and `testify/require`
+- stdlib `testing` only, table-driven; no testify
+- Real SQLite in `t.TempDir()`, never mocks: `servicetest.New(t)` gives an
+  orchestrator with the Docker fake and seed helpers; `servicetest.Store(t)`
+  gives a bare migrated store for store, leaf and flow tests
 
 ## Database
 - Migrations in `internal/db/migrations/` (sequential numbering)
@@ -553,7 +555,6 @@ Custom components via `@apply` in `ui/css/input.css`:
   several tables in one transaction. There is no single store interface. A
   table file only writes SQL against its own table; a join lives in the
   query file of the flow that owns the question, with a one-line reason.
-  (The scaffold's `internal/repo/` is replaced by this in step 1.)
 - **Migrations stay editable until the first real install.** Until then,
   edit `001_initial` in place instead of stacking fix-up migrations. After
   the first real install the baseline is frozen and changes are additive
@@ -567,7 +568,10 @@ Session-based authentication using `hamr/pkg/auth` and `hamr/pkg/middleware`.
 
 Middleware is configured in `internal/web/server.go`:
 
-- `auth.Load()` — group-level, populates context from session (the only DB call)
+- `access.Load()` — group-level on both routers: a bearer API key or the
+  session cookie becomes a `*service.Principal` (the only DB call)
+- `access.Require(verb)` — per-route: resolves `:org/:stack/:env/:tile`,
+  checks `authz.Can`; 401 anonymous, 404 not a member, 403 too low
 - `auth.RequireAuth()` — per-route, redirects unauthenticated users to login
 - `auth.RequireNotAuth()` — per-route, redirects authenticated users away from login/register
 
@@ -587,13 +591,11 @@ func (h *handler) Submit(c echo.Context) error {
         return echo.NewHTTPError(http.StatusBadRequest, "invalid form data")
     }
 
-    user, err := h.orch.Authenticate(c.Request().Context(), f.Email, f.Password)
-    if err != nil { /* return form error */ }
-
-    session, err := h.sessionManager.CreateSession(c.Request().Context(), user.ID, nil)
+    session, err := h.svc.Login(c.Request().Context(), f.Email, f.Password)
+    if _, bad := errs.IsInvalid(err); bad { /* return form error */ }
     if err != nil { /* return 500 */ }
 
-    auth.SetSession(c, h.sessionManager, session)  // from github.com/FyrmForge/stackr/internal/auth
+    auth.SetSession(c, h.svc.Sessions(), session)  // from github.com/FyrmForge/stackr/internal/auth
     return respond.Redirect(c, "/")
 }
 ```
@@ -605,16 +607,13 @@ func (h *handler) Submit(c echo.Context) error {
 - `middleware.GetSubjectID(c) string` — get authenticated user ID
 - `middleware.GetSubject(c) any` — get loaded user object (needs SubjectLoader)
 
-## Storage
+## Environment
 
-Pluggable file storage with `hamr/pkg/storage`:
-
-- `storage.FileStorage` interface: `Save`, `Open`, `Delete`, `Exists`, `List`
-- `storage.NewLocalStorage(basePath)` — local filesystem backend
-- `storage.NewS3Storage(cfg)` — S3-compatible backend (AWS, RustFS, R2)
-
-### Environment Variables
-- `STORAGE_PATH` — local directory for file uploads
+- `DATA_DIR` — database, job logs and other state (default `./data`)
+- `DATABASE_PATH` — overrides `$DATA_DIR/stackr.db`
+- `STACKR_MASTER_KEY` — 64 hex chars, encrypts secrets at rest. Required;
+  stackrd refuses to start without it and never generates one (the
+  installer writes it). Dev: `openssl rand -hex 32` into `.env`.
 
 ## Code Style
 

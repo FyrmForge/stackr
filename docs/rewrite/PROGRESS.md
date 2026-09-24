@@ -172,7 +172,23 @@ session started by darhvader from the START HERE line, no Fable.
     Known, not step 0: `make templint` fails on the scaffold's login and
     register forms (`no-native-form-actions`), and `ci.yml` calls `make
     migrate`, which is not a Makefile target, so PR CI goes red.
-- [ ] [F+O] step 1 groundwork
+- [x] [F+O] step 1 groundwork
+  - Order: secrets and errs landed before the store (it seals with both);
+    the harness came with authz (the middleware test needs it), task 11
+    added `servicetest.Store` and moved the other tests onto it.
+  - Schema: surrogate ids on `org_members` and `release_tiles` (one CRUD
+    shape); `commit` is `commit_sha` (reserved word). See `schema.md`.
+  - `FileStorage` / `STORAGE_PATH` removed from `stackrd` (no v1 user).
+    New env: `DATA_DIR`, `DATABASE_PATH`, `STACKR_MASTER_KEY`. `hamr dev`
+    now needs `STACKR_MASTER_KEY` in `.env` (`openssl rand -hex 32`); the
+    `hamr dev` start check is still owed to darhvader.
+  - `flow/jobs` runs with no handlers and no param check wired: kinds and
+    `enqueue` land with the first flow (step 3). Orchestrator exposes
+    `GetJob`, `CancelJob` only.
+  - `service/new_test.go` keeps its own DB: it is inside package
+    `service`, the harness would be an import cycle.
+  - `make templint` passes now; AGENTS.md: testify → stdlib, repo line,
+    access middleware, env vars.
 - [ ] [F+O] step 2 docker wrapper
 - [ ] [F+O] step 3 services
 - [ ] [F+O] step 4 API + CLI
@@ -253,3 +269,33 @@ fixed entries (`@daily`, `@every Nm`) not schedule rows, backup schedules
 keep their `timezone` column composed into `CRON_TZ=`; `release-tilediff` dual
 field vocabulary collapses to one (config plans are gone); `ToggleCron`
 pause intent has no home and cron tiles are Later anyway.
+
+Raised by step 1 (builder took the lean; flip any):
+
+13. **Unbound API keys.** `api_keys.org_id` is `ON DELETE CASCADE` (a key
+   of a deleted org must not turn unbound), and an unbound key (no org)
+   is admin-only: `authz.Can` refuses it for a non-admin. Options: (a)
+   keep; (b) unbound keys act as the user across all their orgs.
+14. **Master key source.** `stackrd` refuses to start without
+   `STACKR_MASTER_KEY` and never generates one; the installer writes it.
+   Options: (a) keep; (b) generate into `DATA_DIR` on first boot.
+15. **Settings precedence.** For install-wide knobs: a `settings` row >
+   the `Config` boot value (env) > catalogue default. So a UI change beats
+   the env var. Options: (a) keep; (b) env pins the value, UI read-only.
+16. **Supersede rule.** A newer job supersedes an older one only when
+   same kind AND its lock set covers every tile of the older one; any
+   other overlap queues behind. Options: (a) keep; (b) any overlap on the
+   same kind supersedes.
+17. **Parked jobs re-run blind.** With no param check wired, every
+   `waiting` job is requeued each poll (3s) and the handler re-checks.
+   Step 3 should pass `ParamSet` so they wake only when the param
+   resolves. Options: (a) wire it in step 3; (b) keep the blind poll.
+18. **Revoke breadth.** Losing standing in one org (removed, demoted)
+   closes all of the user's sessions install-wide (sessions carry no org)
+   and that org's API keys; losing stackr admin or being disabled closes
+   every session and key. Options: (a) keep; (b) close sessions only on
+   disable/admin loss.
+19. **Schema calls.** Connector `config` encrypted (holds the App private
+   key; not in the task's list); volumes carry their own
+   `scope_kind`/`scope_id` instead of `env_id` or instance (a shared
+   instance's volume follows its scope). Options: (a) keep; (b) revisit.
