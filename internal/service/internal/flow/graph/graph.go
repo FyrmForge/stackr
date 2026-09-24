@@ -95,7 +95,7 @@ type View struct {
 }
 
 type Node struct {
-	ID     string // org:<id> stack:<id> env:<id> connector:<id> vars tile:<slug> slice:<id> ref:<key> volume:<slug> proxy internet
+	ID     string // org:<id> stack:<id> env:<id> connector:<id> vars; env: tile id, provision id (slice), instance tile id or ref:<kind>.<slug> (ghost), volume id, proxy, internet
 	Kind   string
 	Name   string
 	Slug   string // drill-down and drawer address
@@ -468,7 +468,7 @@ func (f *Flow) status(ctx context.Context, t store.Tile) (status, error) {
 			if i >= 3 {
 				break
 			}
-			s.replicas = append(s.replicas, Sub{ID: fmt.Sprintf("replica:%s:%d", t.Slug, i+1), Kind: KindReplica,
+			s.replicas = append(s.replicas, Sub{ID: fmt.Sprintf("replica:%s:%d", t.ID, i+1), Kind: KindReplica,
 				Name: c.Name, Status: c.State})
 		}
 	}
@@ -507,6 +507,14 @@ func (f *Flow) env(ctx context.Context, v *View, envID string, in In) error {
 		return err
 	}
 	v.Nodes = append(v.Nodes, vars)
+	vs, err := f.Volumes.List(ctx, volume.Scope{Kind: "env", ID: envID})
+	if err != nil {
+		return err
+	}
+	vols := map[string]string{}
+	for _, vol := range vs {
+		vols[vol.Slug] = vol.ID
+	}
 
 	// Slices first: an instance of this env that hosts one rides under it
 	// and loses its own card.
@@ -518,7 +526,7 @@ func (f *Flow) env(ctx context.Context, v *View, envID string, in In) error {
 			return err
 		}
 		for _, p := range ps {
-			n := card("slice:"+p.ID, KindSlice, p.Slug)
+			n := card(p.ID, KindSlice, p.Slug)
 			n.Slug, n.Detail = p.ID, p.DBName
 			inst, err := f.Managed.Get(ctx, p.InstanceID)
 			if err != nil {
@@ -530,12 +538,12 @@ func (f *Flow) env(ctx context.Context, v *View, envID string, in In) error {
 			}
 			if host.EnvironmentID == envID {
 				hosted[host.ID] = true
-				n.Subs = append(n.Subs, Sub{ID: "tile:" + host.Slug, Kind: tile.Managed, Name: host.Name})
+				n.Subs = append(n.Subs, Sub{ID: host.ID, Kind: tile.Managed, Name: host.Name})
 			} else {
-				g := ghost(v, "ref:"+host.ID, host.Name, inst.ScopeKind+" · "+inst.Engine)
+				g := ghost(v, host.ID, host.Name, inst.ScopeKind+" · "+inst.Engine)
 				v.Edges = append(v.Edges, Edge{EdgeShared, n.ID, g})
 			}
-			v.Edges = append(v.Edges, Edge{EdgeRef, "tile:" + t.Slug, n.ID})
+			v.Edges = append(v.Edges, Edge{EdgeRef, t.ID, n.ID})
 			slices = append(slices, n)
 		}
 	}
@@ -546,7 +554,7 @@ func (f *Flow) env(ctx context.Context, v *View, envID string, in In) error {
 		if hosted[t.ID] {
 			continue
 		}
-		n, err := f.tileCard(ctx, t, in.Status)
+		n, err := f.tileCard(ctx, t, vols, in.Status)
 		if err != nil {
 			return err
 		}
@@ -564,14 +572,14 @@ func (f *Flow) env(ctx context.Context, v *View, envID string, in In) error {
 	// Refs, then startup edges where no ref already joins the pair.
 	joined := map[[2]string]bool{}
 	for _, t := range ts {
-		id := "tile:" + t.Slug
+		id := t.ID
 		readsVars := false
 		for _, r := range refs(t) {
 			switch r.Kind {
 			case params.KindTile:
-				if to, ok := bySlug[r.Slug]; ok && !hosted[to.ID] && to.ID != t.ID && !joined[[2]string{id, "tile:" + r.Slug}] {
-					v.Edges = append(v.Edges, Edge{EdgeRef, id, "tile:" + r.Slug})
-					joined[[2]string{id, "tile:" + r.Slug}] = true
+				if to, ok := bySlug[r.Slug]; ok && !hosted[to.ID] && to.ID != t.ID && !joined[[2]string{id, to.ID}] {
+					v.Edges = append(v.Edges, Edge{EdgeRef, id, to.ID})
+					joined[[2]string{id, to.ID}] = true
 				}
 			case params.KindStack, params.KindOrg:
 				g := ghost(v, "ref:"+string(r.Kind)+"."+r.Slug, r.Slug, string(r.Kind)+" tile")
@@ -594,7 +602,7 @@ func (f *Flow) env(ctx context.Context, v *View, envID string, in In) error {
 			if err != nil || !ok || hosted[to.ID] {
 				continue
 			}
-			a, b := "tile:"+t.Slug, "tile:"+dep
+			a, b := t.ID, to.ID
 			if !joined[[2]string{a, b}] && !joined[[2]string{b, a}] {
 				v.Edges = append(v.Edges, Edge{EdgeStartup, a, b})
 			}
@@ -602,15 +610,11 @@ func (f *Flow) env(ctx context.Context, v *View, envID string, in In) error {
 	}
 
 	// Detached volumes: declared here, mounted by nothing.
-	vs, err := f.Volumes.List(ctx, volume.Scope{Kind: "env", ID: envID})
-	if err != nil {
-		return err
-	}
 	for _, vol := range vs {
 		if vol.InstanceID != nil || mounted[vol.Slug] {
 			continue
 		}
-		n := card("volume:"+vol.Slug, KindVolume, vol.Name)
+		n := card(vol.ID, KindVolume, vol.Name)
 		n.Slug, n.H, n.Detail = vol.Slug, ShortH, "detached"
 		if vol.OrphanedAt != nil {
 			n.Detail = "orphaned"
@@ -624,7 +628,7 @@ func (f *Flow) env(ctx context.Context, v *View, envID string, in In) error {
 	for _, l := range in.Traffic {
 		if t, ok := byID[l.From]; ok && l.To == ltraffic.Internet && !hosted[t.ID] && !egress[t.Slug] {
 			egress[t.Slug] = true
-			v.Edges = append(v.Edges, Edge{EdgeEgress, "tile:" + t.Slug, KindInternet})
+			v.Edges = append(v.Edges, Edge{EdgeEgress, t.ID, KindInternet})
 		}
 	}
 	for _, sys := range []struct {
@@ -654,8 +658,11 @@ func ghost(v *View, id, name, detail string) string {
 	return id
 }
 
-func (f *Flow) tileCard(ctx context.Context, t store.Tile, withStatus bool) (Node, error) {
-	n := card("tile:"+t.Slug, t.Kind, t.Name)
+// tileCard is one tile's card; vols are the env's volumes by slug, so a
+// mount's sub-tile carries the volume id (a mount of an undeclared slug
+// keeps "volume:<slug>").
+func (f *Flow) tileCard(ctx context.Context, t store.Tile, vols map[string]string, withStatus bool) (Node, error) {
+	n := card(t.ID, t.Kind, t.Name)
 	n.Slug, n.Replicas = t.Slug, max(t.Replicas, 1)
 	n.Host = t.Privileged || strings.TrimSpace(t.Devices) != ""
 	switch {
@@ -684,7 +691,11 @@ func (f *Flow) tileCard(ctx context.Context, t store.Tile, withStatus bool) (Nod
 	for _, l := range tile.Lines(t.Volumes) {
 		sl, _, _ := strings.Cut(l, ":")
 		n.Volumes = append(n.Volumes, sl)
-		n.Subs = append(n.Subs, Sub{ID: "volume:" + sl, Kind: KindVolume, Name: sl})
+		id, ok := vols[sl]
+		if !ok {
+			id = "volume:" + sl
+		}
+		n.Subs = append(n.Subs, Sub{ID: id, Kind: KindVolume, Name: sl})
 	}
 	if t.Kind == tile.Managed {
 		if in, err := f.Managed.GetByTile(ctx, t.ID); err == nil {
@@ -694,7 +705,7 @@ func (f *Flow) tileCard(ctx context.Context, t store.Tile, withStatus bool) (Nod
 			}
 			for _, vol := range vs {
 				if vol.InstanceID != nil && *vol.InstanceID == in.ID {
-					n.Subs = append(n.Subs, Sub{ID: "volume:" + vol.Slug, Kind: KindVolume, Name: vol.Name})
+					n.Subs = append(n.Subs, Sub{ID: vol.ID, Kind: KindVolume, Name: vol.Name})
 				}
 			}
 		}

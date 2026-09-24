@@ -48,7 +48,7 @@ func TestCanvasEgress(t *testing.T) {
 	for _, n := range v.Nodes {
 		sys = sys || (n.ID == "internet" && n.System)
 	}
-	if !sys || len(v.Edges) != 1 || v.Edges[0] != (graph.Edge{Kind: "egress", From: "tile:api", To: "internet"}) || v.Divider == 0 {
+	if !sys || len(v.Edges) != 1 || v.Edges[0] != (graph.Edge{Kind: "egress", From: tl.ID, To: "internet"}) || v.Divider == 0 {
 		t.Errorf("egress: nodes %+v edges %+v divider %d", v.Nodes, v.Edges, v.Divider)
 	}
 	off := graph.All

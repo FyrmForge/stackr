@@ -138,11 +138,13 @@ or may style; `elements_test.go` checks each one is in the source:
 the card templates read (`internal/service/internal/flow/graph`).
 
 - Node ids: `org:<id>`, `stack:<id>`, `env:<id>`, `connector:<id>`,
-  `vars` (one card per canvas, counts only), `tile:<slug>` (by slug, as
-  v0, so a rebuilt tile keeps its place), `slice:<provision id>`,
-  `ref:<instance tile id>` or `ref:stack.<slug>` / `ref:org.<slug>`
-  (ghosts, `Static`), `volume:<slug>` (detached only; attached ones are
-  sub-tiles), `proxy`, `internet` (`System`), `note:<id>` (annotations).
+  `vars` (one card per canvas, counts only). On the env canvas, row ids
+  as task 9 asks (the Traffic verb's lane ends): the tile id, the
+  provision id (slice), the instance tile id (ghost of an instance in
+  another scope), the volume id (detached only; attached ones are
+  sub-tiles), plus `ref:stack.<slug>` / `ref:org.<slug>` ghosts
+  (`Static`), `proxy`, `internet` (`System`). `note:<id>` (annotations)
+  on every canvas.
 - `Node`: `ID Kind Name Slug Detail Status X Y W H Saved System Static
   Color Deck Subs`; tile facts `Replicas Running Domains Volumes Host
   LastRun Waiting`; vars counts `Params Secrets`. `Kind` is the tile kind
@@ -153,7 +155,7 @@ the card templates read (`internal/service/internal/flow/graph`).
   queued | waiting > unhealthy > degraded > stopped > running > done >
   none`; "" = nothing to roll up.
 - `Sub`: `ID Kind Name Status` (volume, the hosting instance under a
-  slice as `tile:<slug>`, replicas 2+ as `replica:<slug>:<n>`, cap 3).
+  slice as `tile:<slug>`, replicas 2+ as `replica:<tile id>:<n>`, cap 3).
 - `Edge`: `Kind From To`, kinds `ref ingress egress shared startup config
   source`. A startup edge is dropped when a ref already joins the pair.
 - `View`: `Nodes Edges Notes Divider Compare`; `Divider` 0 = no system

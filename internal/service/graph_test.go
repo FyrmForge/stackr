@@ -30,6 +30,7 @@ type world struct {
 	user, acme, beta, conn          string
 	shop, dev, prod                 string
 	api, worker, web, pg, provision string
+	vols                            map[string]string // slug -> id
 }
 
 func tileRow(stackID, envID, slug, kind string, edit func(*store.Tile)) store.Tile {
@@ -100,8 +101,10 @@ func seedWorld(t *testing.T) world {
 	w.provision = uuid.NewString()
 	must(e.Store.Provisions.Create(ctx, store.Provision{ID: w.provision, InstanceID: inst.ID, ConsumerTileID: &w.api,
 		Slug: "main", DBName: "main", Outputs: "{}", OnRemove: "keep", CreatedAt: time.Now()}))
+	w.vols = map[string]string{}
 	for _, sl := range []string{"uploads", "old"} {
-		must(e.Store.Volumes.Create(ctx, store.Volume{ID: uuid.NewString(), ScopeKind: "env", ScopeID: w.dev, Slug: sl,
+		w.vols[sl] = uuid.NewString()
+		must(e.Store.Volumes.Create(ctx, store.Volume{ID: w.vols[sl], ScopeKind: "env", ScopeID: w.dev, Slug: sl,
 			Name: sl, CreatedAt: time.Now()}))
 	}
 	must(e.Store.Domains.Create(ctx, store.Domain{ID: uuid.NewString(), TileID: w.api, Host: "api.acme.io", HTTPS: true,
@@ -211,32 +214,37 @@ func TestCanvasEnv(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	slice := "slice:" + w.provision
-	if got, want := ids(v), strings.Join(func() []string {
-		l := []string{"proxy", "ref:stack.cache", slice, "tile:api", "tile:web", "tile:worker", "vars", "volume:old"}
-		sort.Strings(l)
-		return l
-	}(), " "); got != want {
+	// Env node ids are row ids (the Traffic verb's lane ends); name them back.
+	name := strings.NewReplacer(w.api, "api", w.worker, "worker", w.web, "web", w.pg, "pg", w.provision, "slice",
+		w.vols["uploads"], "uploads", w.vols["old"], "old")
+	named := strings.Fields(name.Replace(ids(v)))
+	sort.Strings(named)
+	if got, want := strings.Join(named, " "), "api old proxy ref:stack.cache slice vars web worker"; got != want {
 		t.Fatalf("env cards = %s\nwant       %s (pg rides under its slice)", got, want)
 	}
 	want := []string{
-		"ingress proxy tile:api",
-		"ref tile:api " + slice,
-		"ref tile:api tile:worker",
-		"shared tile:api ref:stack.cache",
-		"shared vars tile:api",
-		"startup tile:web tile:api",
+		"ingress proxy api",
+		"ref api slice",
+		"ref api worker",
+		"shared api ref:stack.cache",
+		"shared vars api",
+		"startup web api",
 	}
-	if got := edges(v); strings.Join(got, "|") != strings.Join(want, "|") {
+	got := edges(v)
+	for i := range got {
+		got[i] = name.Replace(got[i])
+	}
+	sort.Strings(got)
+	if strings.Join(got, "|") != strings.Join(want, "|") {
 		t.Errorf("env edges =\n%v\nwant\n%v (api->worker startup is covered by the ref)", got, want)
 	}
 	ns := nodes(v)
-	api := ns["tile:api"]
-	if api.Status != "error" || len(api.Domains) != 1 || len(api.Subs) != 1 || api.Subs[0].ID != "volume:uploads" ||
+	api := ns[w.api]
+	if api.Status != "error" || len(api.Domains) != 1 || len(api.Subs) != 1 || api.Subs[0].ID != w.vols["uploads"] ||
 		api.H != 96+30 || api.Detail != "api" {
 		t.Errorf("api = %+v", api)
 	}
-	if sl := ns[slice]; len(sl.Subs) != 1 || sl.Subs[0].ID != "tile:pg" {
+	if sl := ns[w.provision]; len(sl.Subs) != 1 || sl.Subs[0].ID != w.pg {
 		t.Errorf("slice = %+v, want pg as its sub-tile", sl)
 	}
 	if g := ns["ref:stack.cache"]; !g.Static || g.Kind != "ref" {
@@ -253,8 +261,8 @@ func TestCanvasEnv(t *testing.T) {
 			t.Errorf("%s at %d,%d, off the 22 px grid", n.ID, n.X, n.Y)
 		}
 	}
-	if api.X >= ns["tile:worker"].X {
-		t.Errorf("api (%d) should sit left of worker (%d), which it uses", api.X, ns["tile:worker"].X)
+	if api.X >= ns[w.worker].X {
+		t.Errorf("api (%d) should sit left of worker (%d), which it uses", api.X, ns[w.worker].X)
 	}
 
 	// The query params: no system column, no startup edges.
@@ -281,7 +289,7 @@ func TestCanvasPositions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := o.SetPosition(ctx, s, "tile:web", service.Point{X: 1100, Y: 880}); err != nil {
+	if err := o.SetPosition(ctx, s, w.web, service.Point{X: 1100, Y: 880}); err != nil {
 		t.Fatal(err)
 	}
 	after, err := o.Canvas(ctx, s, service.ShowAll)
@@ -291,18 +299,18 @@ func TestCanvasPositions(t *testing.T) {
 	b, a := nodes(before), nodes(after)
 	for id, n := range a {
 		switch {
-		case id == "tile:web" && (n.X != 1100 || n.Y != 880 || !n.Saved):
+		case id == w.web && (n.X != 1100 || n.Y != 880 || !n.Saved):
 			t.Errorf("web = %d,%d saved %v, want the drop", n.X, n.Y, n.Saved)
-		case id != "tile:web" && (n.X != b[id].X || n.Y != b[id].Y):
+		case id != w.web && (n.X != b[id].X || n.Y != b[id].Y):
 			t.Errorf("%s jumped from %d,%d to %d,%d: the first drop saves every card", id, b[id].X, b[id].Y, n.X, n.Y)
-		case id != "tile:web" && !n.Saved:
+		case id != w.web && !n.Saved:
 			t.Errorf("%s not saved by the first drop", id)
 		}
 	}
 	for _, c := range []struct {
 		id   string
 		want error
-	}{{"tile:nope", errs.ErrNotFound}, {"ref:stack.cache", nil}} {
+	}{{"nope", errs.ErrNotFound}, {"ref:stack.cache", nil}} {
 		err := o.SetPosition(ctx, s, c.id, service.Point{X: 1, Y: 1})
 		if c.want != nil && !errors.Is(err, c.want) {
 			t.Errorf("%s: %v, want %v", c.id, err, c.want)
@@ -321,7 +329,7 @@ func TestCanvasPositions(t *testing.T) {
 		t.Fatal(err)
 	}
 	again, _ := o.Canvas(ctx, s, service.ShowAll)
-	if n := nodes(again)["tile:web"]; n.Saved || n.X != b["tile:web"].X {
+	if n := nodes(again)[w.web]; n.Saved || n.X != b[w.web].X {
 		t.Errorf("after reset web = %+v, want arranged again", n)
 	}
 	st, _ := o.Canvas(ctx, service.CanvasScope{Kind: service.CanvasStack, ID: w.shop}, service.ShowAll)
