@@ -20,13 +20,13 @@ step, numbered tasks, each with a "done when". Read one REWRITE.md section at
 a time. Mark real decisions `DECIDE:` in the file and copy them to the block
 at the bottom of this file.
 
-- [ ] step-0.md (agreed list below)
-- [ ] step-1.md groundwork: releases/release_tiles/environments/jobs schema first, rest of schema, package tree, store + docker under service/internal, depguard, service.New + orchestrator, authz.can + middleware, typed errors, flow/jobs, test harness
-- [ ] step-2.md docker wrapper: containers, networks, volumes, images, builds, logs, exec; resolved specs only
-- [ ] step-3.md services: every v1 feature as orchestrator methods, managed tiles, Caddy routes, `stackrd proxy`, backups, image watch, param store
-- [ ] step-4.md API + CLI: API the only door, CLI plain HTTP client
-- [ ] step-5.md installer + self-upgrade
-- [ ] step-6.md UI: templ+htmx, shared components first; MUST include the custom-element whitelist (REWRITE.md "UI stack")
+- [x] step-0.md (agreed list below; task 1 and 6 re-checked against the real scaffold after the wipe)
+- [x] step-1.md groundwork: schema design note first, then migrations A (releases/release_tiles/environments/jobs) and B, store, secrets, errs, Docker interface + fake, service.New, authz + middleware, flow/jobs, harness, settings catalogue
+- [x] step-2.md infra wrappers: Docker (containers/networks/volumes/images/build/logs/exec), plus registry, git, vip (iptables DNAT), s3 + local destination, githubapp, Caddy admin client. Planner note: Build order row 2 says "Docker wrapper"; the other wrappers are the same rule-free kind and were put here so step 3 is only services.
+- [x] step-3.md services: 15 leaves, 7 flows + scheduler, orchestrator verbs listed in `docs/rewrite/verbs.md`; includes self-upgrade flow (old `service/admin.go`, no carry-over row existed, added under rule 9) and `stackrd proxy`
+- [x] step-4.md API + CLI
+- [x] step-5.md installer + self-upgrade
+- [x] step-6.md UI, whitelist: `log-pane`, `confirm-dialog`, `flash-toast`, `theme-toggle`. Dropped old JS: canvas/graph, metrics, xterm terminal, YAML code editor (see step-6.md "Not in v1")
 
 Step 0 list (agreed with darhvader):
 1. Rename binaries to `stackrd`, `stackr`, `stackr-install`: three `cmd/` dirs, Makefile, watch rule.
@@ -82,4 +82,19 @@ extracts/, this file.
 
 ## DECIDE:
 
-(nothing yet)
+Silent calls the planner made under rule 9 / "fix obvious gaps"; flip any
+you disagree with:
+
+1. Step 6 drops the terminal (xterm + websocket exec) and the YAML code
+   editor from v1. v1 scope lists "container logs and restart" only.
+   Options: (a) keep dropped, (b) add `<term-pane>` to the whitelist as a
+   plan item for step 6.
+2. Self-upgrade had no carry-over row. Added `service/admin.go` as extract
+   `admin-upgrade.md` and a `flow/upgrade` task in step 3. Options: (a)
+   keep, (b) redesign upgrade in a later round.
+3. Scaffold options for `hamr new`: sqlite, sqlx, session auth, tailwind
+   (as today; needs Node at build time like `tsc` does), no websockets (SSE
+   chosen), migrate on startup, email mock (invites), no e2e, no alpine.
+   Module path `github.com/FyrmForge/stackr` (as today).
+4. Step 2 holds every infra wrapper (git, registry, vip, s3, githubapp,
+   Caddy client), not only Docker, so step 3 is pure services.
