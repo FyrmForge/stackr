@@ -37,7 +37,8 @@ coverage.html
 
 # Agent / browser-QA artifacts (screenshots, snapshots, console logs)
 .playwright-mcp/
-.claude/
+.claude/*
+!.claude/skills/
 /artifacts/
 
 # Node (if tailwind)

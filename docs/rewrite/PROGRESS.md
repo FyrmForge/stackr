@@ -143,6 +143,13 @@ tick `[x] step 0` below when the done gate passes, open the PR `rewrite`
   - [x] step 0 / task 3: `AGENTS.md` "Layering rules": ten rules, service
     tree (paths under `internal/`, DECIDE 10), leaves, flows, leaf-or-flow
     test, auth in middleware.
+  - [x] step 0 / task 4: `.claude/skills/handler-audit/` (`SKILL.md` +
+    read-only `audit.sh`). Run on the scaffold: store 4 hits (api health
+    handler holds `repo.Store`), auth 5 (login/register/logout drive the
+    session manager), domain 2 (`strings.ToLower` email), templ 2 (`if
+    form.GetError(...) != ""`, form plumbing, false positive). Scaffold
+    handlers get rewritten in steps 4/6. `.gitignore` changed to track
+    `.claude/skills/` (DECIDE 11).
 - [ ] step 1 groundwork
 - [ ] step 2 docker wrapper
 - [ ] step 3 services
@@ -172,6 +179,11 @@ you disagree with:
    `internal/` (the scaffold's convention; `internal/service` already
    exists). Static assets stay at `ui/static/`. Options: (a) keep, (b)
    root-level packages, delete the scaffold's `internal/` layout.
+11. `.gitignore` ignored all of `.claude/`, so the handler-audit skill
+   would never be committed. Step 0 changed it to `.claude/*` +
+   `!.claude/skills/` (settings.local.json stays ignored). Options: (a)
+   keep; (b) revert and `git add -f` skill files; (c) move the skill to
+   `.agents/skills/`.
 
 Raised by the extract agents, real decisions, not settled:
 
