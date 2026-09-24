@@ -45,6 +45,7 @@ func routes(h *v1.H) []Route {
 		{GET, "/me/keys", "key.list", Self, h.Keys()},
 		{DELETE, "/me/keys/:key", "key.revoke", Self, h.RevokeKey()},
 		{GET, "/settings", "settings.catalogue", Self, h.Settings()},
+		{POST, "/auth/exchange", "key.exchange", Public, h.ExchangeCLICode()},
 		{GET, "/invites/:token", "invite.get", Public, h.LookupInvite()},
 		{POST, "/invites/:token/accept", "invite.accept", Self, h.AcceptInvite()},
 
@@ -61,6 +62,7 @@ func routes(h *v1.H) []Route {
 		{GET, org + "/invites", "invite.list", "member.manage", h.Invites()},
 		{POST, org + "/invites", "invite.create", "member.manage", h.Invite()},
 		{POST, org + "/keys", "key.mint", "org.read", h.MintKey()},
+		{POST, org + "/cli-codes", "key.cli_code", "org.read", h.CLICode()},
 		{GET, org + "/credentials", "credential.list", "org.read", h.Credentials()},
 		{POST, org + "/credentials", "credential.create", "registry.credential.write", h.CreateCredential()},
 		{PUT, org + "/credentials/:credential", "credential.update", "registry.credential.write", h.UpdateCredential()},

@@ -156,6 +156,7 @@ type Orchestrator struct {
 
 	proxyStarted atomic.Value // the proxy container's last seen start time
 	repoLocks    sync.Map     // clone dir -> *sync.Mutex
+	cli          cliCodes
 }
 
 // onBuild is a test hook: every constructor New calls reports its name here,

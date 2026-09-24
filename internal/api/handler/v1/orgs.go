@@ -175,6 +175,28 @@ func (h *H) MintKey() Endpoint {
 	})
 }
 
+// CodeIn is a CLI login exchange.
+type CodeIn struct {
+	Code string `json:"code"`
+}
+
+// CLICode answers the browser that approved a CLI login with the one-time
+// code it hands to the CLI's loopback listener.
+func (h *H) CLICode() Endpoint {
+	return JSON(201, func(c echo.Context, in NameIn) (CodeIn, error) {
+		code, err := h.S.CLICode(rc(c), who(c), orgID(c), in.Name)
+		return CodeIn{code}, err
+	})
+}
+
+// ExchangeCLICode swaps a code for the key, once.
+func (h *H) ExchangeCLICode() Endpoint {
+	return JSON(201, func(c echo.Context, in CodeIn) (KeyOut, error) {
+		tok, k, err := h.S.ExchangeCLICode(rc(c), in.Code)
+		return KeyOut{tok, k}, err
+	})
+}
+
 // MintUnboundKey is the admin's key for no org in particular.
 func (h *H) MintUnboundKey() Endpoint {
 	return JSON(201, func(c echo.Context, in NameIn) (KeyOut, error) {

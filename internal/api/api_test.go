@@ -232,3 +232,28 @@ func TestJobEvents(t *testing.T) {
 		t.Errorf("no update before the end: %q", body)
 	}
 }
+
+// CLI login: the approving caller gets a code, the CLI swaps it once for an
+// org-bound key; a used code is refused.
+func TestCLILogin(t *testing.T) {
+	w := newWorld(t)
+	code, body := w.do(t, w.owner, "POST", "/orgs/acme/cli-codes", `{"name":"laptop"}`)
+	var c v1.CodeIn
+	if err := json.Unmarshal([]byte(body), &c); err != nil || code != 201 || c.Code == "" {
+		t.Fatalf("code = %d %s", code, body)
+	}
+	code, body = w.do(t, "", "POST", "/auth/exchange", `{"code":"`+c.Code+`"}`)
+	var k v1.KeyOut
+	if err := json.Unmarshal([]byte(body), &k); err != nil || code != 201 || k.Token == "" {
+		t.Fatalf("exchange = %d %s", code, body)
+	}
+	if k.Key.OrgID == nil || *k.Key.OrgID != w.acme {
+		t.Errorf("key org = %v, want acme", k.Key.OrgID)
+	}
+	if code, _ := w.do(t, k.Token, "GET", "/orgs/acme", ""); code != 200 {
+		t.Errorf("new key on acme = %d", code)
+	}
+	if code, body := w.do(t, "", "POST", "/auth/exchange", `{"code":"`+c.Code+`"}`); code != 400 {
+		t.Errorf("used code = %d %s, want 400", code, body)
+	}
+}
