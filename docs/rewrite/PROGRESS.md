@@ -298,3 +298,11 @@ Raised by step 1 (builder took the lean; flip any):
    key; not in the task's list); volumes carry their own
    `scope_kind`/`scope_id` instead of `env_id` or instance (a shared
    instance's volume follows its scope). Options: (a) keep; (b) revisit.
+
+Raised by step 2 (builder took the lean; flip any):
+
+20. **Replica spread.** A VIP spreads over its replicas with
+   `-m statistic --mode random`, rule i of n taking 1/(n-i), so each
+   replica gets 1/n per new connection. Options: (a) keep; (b)
+   `--mode nth` round-robin (even counts, but per-rule counters reset on
+   every rewrite).
