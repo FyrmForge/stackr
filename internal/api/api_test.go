@@ -26,7 +26,7 @@ import (
 type world struct {
 	env                    *servicetest.Env
 	h                      http.Handler
-	acme                   string
+	acme, other            string
 	tile                   servicetest.Tile
 	owner, stranger, admin string
 }
@@ -41,6 +41,7 @@ func newWorld(t *testing.T, opts ...service.Option) *world {
 	api.RegisterRoutes(srv, &api.Deps{Service: env.O, Access: middleware.NewAccess(env.O), DevMode: true})
 	w := &world{env: env, h: srv.Echo(), acme: env.Org(t, "acme")}
 	other := env.Org(t, "other")
+	w.other = other
 	o, s := env.User(t, "owner@x", false), env.User(t, "stranger@x", false)
 	env.Member(t, w.acme, o, "owner")
 	env.Member(t, other, s, "owner")
@@ -142,6 +143,10 @@ func TestReadsLeakNoSecret(t *testing.T) {
 	if err := o.SetParams(ctx, service.ParamScope{Kind: "org", ID: w.acme},
 		[]service.ParamEntry{{Collection: "app", Name: "token", Kind: "secret", Value: "LEAK-param"}}); err != nil {
 		t.Fatal(err)
+	}
+	if code, body := w.do(t, w.owner, "POST", "/orgs/acme/stacks/shop/envs/dev/tiles/api/domains",
+		`{"host":"a.example.com","proxy":{"basic_auth":{"user":"u","password":"LEAK-basic"}}}`); code != 201 || strings.Contains(body, "LEAK") {
+		t.Fatalf("attach = %d %s", code, body)
 	}
 	if code, body := w.do(t, w.owner, "POST", "/orgs/acme/keys", `{"name":"ci"}`); code != 201 || !strings.Contains(body, `"token"`) {
 		t.Fatalf("mint = %d %s", code, body)
@@ -255,5 +260,40 @@ func TestCLILogin(t *testing.T) {
 	}
 	if code, body := w.do(t, "", "POST", "/auth/exchange", `{"code":"`+c.Code+`"}`); code != 400 {
 		t.Errorf("used code = %d %s, want 400", code, body)
+	}
+}
+
+// A domain read never carries its basic-auth password, and writing the read
+// back keeps the stored one.
+func TestDomainPasswordRoundTrip(t *testing.T) {
+	w := newWorld(t)
+	const tile = "/orgs/acme/stacks/shop/envs/dev/tiles/api"
+	code, body := w.do(t, w.owner, "POST", tile+"/domains",
+		`{"host":"a.example.com","proxy":{"basic_auth":{"user":"u","password":"s3cret"}}}`)
+	var d service.Domain
+	if err := json.Unmarshal([]byte(body), &d); err != nil || code != 201 || strings.Contains(body, "s3cret") {
+		t.Fatalf("attach = %d %s", code, body)
+	}
+	if code, body := w.do(t, w.owner, "PUT", tile+"/domains/"+d.ID,
+		`{"host":"a.example.com","proxy":`+d.ProxyJSON+`}`); code != 200 || strings.Contains(body, "s3cret") {
+		t.Fatalf("update = %d %s", code, body)
+	}
+	stored, err := w.env.Store.Domains.Get(context.Background(), d.ID)
+	if err != nil || !strings.Contains(stored.ProxyJSON, `"password":"s3cret"`) {
+		t.Errorf("stored after round trip = %s %v", stored.ProxyJSON, err)
+	}
+}
+
+// A stack cannot point its config repo at another org's connector.
+func TestConfigRepoConnectorIsOrgs(t *testing.T) {
+	w := newWorld(t)
+	theirs, ours := w.env.Connector(t, w.other, "x"), w.env.Connector(t, w.acme, "x")
+	const path = "/orgs/acme/stacks/shop/config-repo"
+	body := `{"connector_id":"%s","repo":"https://github.com/acme/cfg.git","branch":"main","path":"stackr.yml"}`
+	if code, b := w.do(t, w.owner, "PUT", path, strings.Replace(body, "%s", theirs, 1)); code != 404 {
+		t.Errorf("other org's connector = %d %s, want 404", code, b)
+	}
+	if code, b := w.do(t, w.owner, "PUT", path, strings.Replace(body, "%s", ours, 1)); code != 200 {
+		t.Errorf("own connector = %d %s", code, b)
 	}
 }

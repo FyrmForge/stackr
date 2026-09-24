@@ -48,6 +48,11 @@ func (o *Orchestrator) SetConfigRepo(ctx context.Context, id, connectorID, repo,
 	if err != nil {
 		return st, err
 	}
+	if connectorID != "" && repo != "" {
+		if _, err := o.conns.Get(ctx, st.OrgID, connectorID); err != nil {
+			return st, err // another org's connector is not there
+		}
+	}
 	return o.stacks.SetConfigRepo(ctx, st, connectorID, repo, branch, path)
 }
 

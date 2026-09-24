@@ -15,7 +15,26 @@ type (
 )
 
 func (o *Orchestrator) Domains(ctx context.Context, tileID string) ([]Domain, error) {
-	return o.domains.ListByTile(ctx, tileID)
+	ds, err := o.domains.ListByTile(ctx, tileID)
+	for i := range ds {
+		ds[i] = redact(ds[i])
+	}
+	return ds, err
+}
+
+// redact blanks a basic-auth password on the way out: reads never carry a
+// secret. UpdateDomain keeps the stored password when the same user comes
+// back with an empty one, so a read-then-write round trip changes nothing.
+func redact(d Domain) Domain {
+	var x DomainExtras
+	if json.Unmarshal([]byte(d.ProxyJSON), &x) != nil || x.BasicAuth == nil || x.BasicAuth.Password == "" {
+		return d
+	}
+	x.BasicAuth.Password = ""
+	if b, err := json.Marshal(x); err == nil {
+		d.ProxyJSON = string(b)
+	}
+	return d
 }
 
 // AttachDomain adds a host to a tile and pushes the proxy config. Port 0 =
@@ -41,7 +60,7 @@ func (o *Orchestrator) AttachDomain(ctx context.Context, tileID string, s Domain
 	if err != nil {
 		return d, err
 	}
-	return d, o.sync.Sync(ctx)
+	return redact(d), o.sync.Sync(ctx)
 }
 
 // UpdateDomain replaces the domain's spec; the stored raw Caddy route stays
@@ -55,10 +74,16 @@ func (o *Orchestrator) UpdateDomain(ctx context.Context, id string, s DomainSpec
 		s.Port = d.ContainerPort
 	}
 	s.RawCaddy = d.RawCaddy
+	if a := s.Extras.BasicAuth; a != nil && a.Password == "" {
+		var old DomainExtras
+		if json.Unmarshal([]byte(d.ProxyJSON), &old) == nil && old.BasicAuth != nil && old.BasicAuth.User == a.User {
+			a.Password = old.BasicAuth.Password
+		}
+	}
 	if d, err = o.domains.Update(ctx, d, s, o.dns01(ctx)); err != nil {
 		return d, err
 	}
-	return d, o.sync.Sync(ctx)
+	return redact(d), o.sync.Sync(ctx)
 }
 
 // SetRawCaddy replaces the domain's generated route with raw, verbatim; ""
@@ -76,7 +101,7 @@ func (o *Orchestrator) SetRawCaddy(ctx context.Context, id, raw string) (Domain,
 	if d, err = o.domains.Update(ctx, d, s, o.dns01(ctx)); err != nil {
 		return d, err
 	}
-	return d, o.sync.Sync(ctx)
+	return redact(d), o.sync.Sync(ctx)
 }
 
 func (o *Orchestrator) DetachDomain(ctx context.Context, id string) error {

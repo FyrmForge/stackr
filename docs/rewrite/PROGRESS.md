@@ -244,6 +244,7 @@ session started by darhvader from the START HERE line, no Fable.
   - Not mounted, step 6 owns it: `GET /settings/github/callback` -> `CompleteConnector`.
   - Harness: servicetest now stubs the VIP table by default and has `Healthy`, `Image`, `Connector`, `NewWith`.
   - Backup dest: an empty access key keeps the stored one (as the secret key did).
+  - Config repo refuses another org's connector; domain reads blank the basic-auth password (empty + same user keeps it on update).
   - Modules: cobra, pflag, x/term moved from indirect to direct; none new.
 - [ ] [F+O] step 5 installer + self-upgrade
 - [ ] [F+O] step 6 UI
@@ -480,11 +481,12 @@ Raised by step 3 session B (builder took the lean; flip any):
    detach from the 30s request timeout and skip gzip. Logs and exec take
    `?container=` (the CLI picks the first replica). Options: (a) keep;
    (b) a replica flag in the CLI. Lean (a).
-43. **Known gaps, not fixed in step 4.** `SetConfigRepo` does not check the
-   connector is the org's; `AttachSlice` checks instance visibility only
-   inside the job; a domain's `proxy` JSON can carry basic-auth passwords
-   in reads. Options: (a) fix in the service before step 6; (b) leave.
-   Lean (a).
+43. **Slice visibility checked late.** `AttachSlice` checks the instance
+   is visible to the consumer only inside the job, so a bad id is a failed
+   job, not a 4xx. (Fixed in step 4 instead: `SetConfigRepo` refuses
+   another org's connector as 404; domain reads blank the basic-auth
+   password and an update with the same user and an empty password keeps
+   the stored one.) Options: (a) keep; (b) check at request time. Lean (a).
 44. **CLI login codes in memory.** One-time codes live in the process
    (2 min TTL); a restart drops pending logins. Options: (a) keep;
    (b) a table. Lean (a).
