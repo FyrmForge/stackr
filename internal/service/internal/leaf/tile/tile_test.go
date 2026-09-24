@@ -21,18 +21,50 @@ var ctx = context.Background()
 
 type vipStub struct{ set map[string][]string }
 
-func (v *vipStub) Set(_ context.Context, ip string, rs []string) error { v.set[ip] = rs; return nil }
-func (v *vipStub) Remove(_ context.Context, ip string) error           { delete(v.set, ip); return nil }
+func (v *vipStub) Set(_ context.Context, ip string, rs []string) error {
+	v.set[ip] = rs
+	return nil
+}
+
+func (v *vipStub) Remove(_ context.Context, ip string) error {
+	delete(v.set, ip)
+	return nil
+}
 
 // seed makes an org, stack and env and returns the env's ids.
 func seed(t *testing.T, st *store.Store) (stackID, envID string) {
 	t.Helper()
 	org, stackID, envID := uuid.NewString(), uuid.NewString(), uuid.NewString()
 	now := time.Now()
-	must(t, st.Orgs.Create(ctx, store.Org{ID: org, Name: org, Slug: org[:8], EnvColors: "{}", Settings: "{}", CreatedAt: now}))
-	must(t, st.Stacks.Create(ctx, store.Stack{ID: stackID, OrgID: org, Name: "s", Slug: "s", Settings: "{}", Domains: "[]", CreatedAt: now}))
-	must(t, st.Environments.Create(ctx, store.Environment{ID: envID, StackID: stackID, Name: "dev", Slug: "dev", Type: "static",
-		Settings: "{}", Network: "n", FromKind: "branch", FromBranch: "main", CreatedAt: now}))
+	must(t, st.Orgs.Create(ctx, store.Org{
+		ID:        org,
+		Name:      org,
+		Slug:      org[:8],
+		EnvColors: "{}",
+		Settings:  "{}",
+		CreatedAt: now,
+	}))
+	must(t, st.Stacks.Create(ctx, store.Stack{
+		ID:        stackID,
+		OrgID:     org,
+		Name:      "s",
+		Slug:      "s",
+		Settings:  "{}",
+		Domains:   "[]",
+		CreatedAt: now,
+	}))
+	must(t, st.Environments.Create(ctx, store.Environment{
+		ID:         envID,
+		StackID:    stackID,
+		Name:       "dev",
+		Slug:       "dev",
+		Type:       "static",
+		Settings:   "{}",
+		Network:    "n",
+		FromKind:   "branch",
+		FromBranch: "main",
+		CreatedAt:  now,
+	}))
 	return stackID, envID
 }
 
@@ -84,7 +116,10 @@ func TestCreateRename(t *testing.T) {
 	}
 }
 
-func isConflict(err error) bool { _, ok := errs.IsConflict(err); return ok }
+func isConflict(err error) bool {
+	_, ok := errs.IsConflict(err)
+	return ok
+}
 
 func field(err error) string {
 	v, _ := errs.IsInvalid(err)
@@ -103,12 +138,26 @@ func TestKindWhitelist(t *testing.T) {
 		{"service with a gitlab url", func(t *store.Tile) { t.GitURL = "https://gitlab.com/a/b" }, "git_url"},
 		{"service with an image", func(t *store.Tile) { t.ImageRef = "nginx:1" }, "image"},
 		{"service on auto update", func(t *store.Tile) { t.UpdatePolicy = "auto" }, "update_policy"},
-		{"image ok", func(t *store.Tile) { t.Kind, t.GitURL, t.ImageRef, t.UpdatePolicy = tile.Image, "", "nginx:1", "auto" }, ""},
+		{"image ok", func(t *store.Tile) {
+			t.Kind = tile.Image
+			t.GitURL = ""
+			t.ImageRef = "nginx:1"
+			t.UpdatePolicy = "auto"
+		}, ""},
 		{"image without an image", func(t *store.Tile) { t.Kind, t.GitURL = tile.Image, "" }, "image"},
-		{"image with a dockerfile", func(t *store.Tile) { t.Kind, t.GitURL, t.ImageRef, t.DockerfilePath = tile.Image, "", "nginx:1", "D" }, "dockerfile"},
+		{"image with a dockerfile", func(t *store.Tile) {
+			t.Kind = tile.Image
+			t.GitURL = ""
+			t.ImageRef = "nginx:1"
+			t.DockerfilePath = "D"
+		}, "dockerfile"},
 		{"managed ok", func(t *store.Tile) { t.Kind, t.GitURL, t.MemLimitMB = tile.Managed, "", 512 }, ""},
-		{"managed with a port", func(t *store.Tile) { t.Kind, t.GitURL, t.ContainerPort = tile.Managed, "", 5432 }, "port"},
-		{"managed with replicas", func(t *store.Tile) { t.Kind, t.GitURL, t.Replicas = tile.Managed, "", 2 }, "replicas"},
+		{"managed with a port", func(t *store.Tile) {
+			t.Kind, t.GitURL, t.ContainerPort = tile.Managed, "", 5432
+		}, "port"},
+		{"managed with replicas", func(t *store.Tile) {
+			t.Kind, t.GitURL, t.Replicas = tile.Managed, "", 2
+		}, "replicas"},
 		{"unknown kind", func(t *store.Tile) { t.Kind = "batch" }, "kind"},
 		{"bad env key", func(t *store.Tile) { t.EnvJSON = `{"1BAD":"x"}` }, "env"},
 		{"bad restart", func(t *store.Tile) { t.RestartPolicy = "sometimes" }, "restart"},
@@ -132,37 +181,146 @@ func TestKindWhitelist(t *testing.T) {
 func TestRunKinds(t *testing.T) {
 	cronRow := func(t *store.Tile) { t.Kind, t.Schedule, t.Command = tile.Cron, "*/5 * * * *", "./sweep" }
 	fnRow := func(t *store.Tile) { t.Kind, t.GitURL, t.ImageRef = tile.Function, "", "alpine:3" }
-	then := func(a, b func(*store.Tile)) func(*store.Tile) { return func(t *store.Tile) { a(t); b(t) } }
+	then := func(a, b func(*store.Tile)) func(*store.Tile) {
+		return func(t *store.Tile) {
+			a(t)
+			b(t)
+		}
+	}
 	for _, c := range []struct {
 		name, msg string
 		edit      func(*store.Tile)
 	}{
-		{"cron ok", "", cronRow},
-		{"cron with CRON_TZ", "", then(cronRow, func(t *store.Tile) { t.Schedule = "CRON_TZ=Europe/London 0 3 * * *" })},
-		{"cron paused", "", then(cronRow, func(t *store.Tile) { t.Paused = true })},
-		{"cron from an image", "", then(cronRow, func(t *store.Tile) { t.GitURL, t.ImageRef = "", "alpine:3" })},
-		{"cron without a schedule", "a cron needs a schedule", then(cronRow, func(t *store.Tile) { t.Schedule = "" })},
-		{"cron with a bad schedule", "expected exactly 5 fields, found 2: [every day]", then(cronRow, func(t *store.Tile) { t.Schedule = "every day" })},
-		{"cron with a port", "a cron has no endpoint; port does not apply", then(cronRow, func(t *store.Tile) { t.ContainerPort = 80 })},
-		{"cron with replicas", "cron tiles do not take replicas", then(cronRow, func(t *store.Tile) { t.Replicas = 2 })},
-		{"cron with a healthcheck", "healthcheck applies to service tiles only", then(cronRow, func(t *store.Tile) { t.HealthcheckCmd = "true" })},
-		{"cron with a user", "user applies to service tiles only", then(cronRow, func(t *store.Tile) { t.User = "1000" })},
-		{"cron with devices", "devices apply to service tiles only", then(cronRow, func(t *store.Tile) { t.Devices = "/dev/x" })},
-		{"cron with a trigger", "run_on_deploy applies to function tiles only", then(cronRow, func(t *store.Tile) { t.Trigger = "on_deploy" })},
-		{"cron with git and an image", "a cron builds from git_url or runs an image, not both", then(cronRow, func(t *store.Tile) { t.ImageRef = "alpine:3" })},
-		{"cron with neither source", "a cron needs a git_url or an image", then(cronRow, func(t *store.Tile) { t.GitURL = "" })},
-		{"negative timeout", "timeout_minutes must not be negative", then(cronRow, func(t *store.Tile) { t.TimeoutMinutes = -1 })},
-		{"function ok", "", fnRow},
-		{"function on deploy", "", then(fnRow, func(t *store.Tile) { t.Trigger = "on_deploy" })},
-		{"function with a bad trigger", "trigger must be manual or on_deploy", then(fnRow, func(t *store.Tile) { t.Trigger = "hourly" })},
-		{"function with a schedule", "schedule applies to cron tiles only", then(fnRow, func(t *store.Tile) { t.Schedule = "* * * * *" })},
-		{"function paused", "only cron tiles have a schedule to pause", then(fnRow, func(t *store.Tile) { t.Paused = true })},
-		{"function with a port", "a function has no endpoint; port does not apply", then(fnRow, func(t *store.Tile) { t.ContainerPort = 80 })},
-		{"function with privileged", "privileged applies to service tiles only", then(fnRow, func(t *store.Tile) { t.Privileged = true })},
-		{"service with a schedule", "schedule applies to cron tiles only", func(t *store.Tile) { t.Schedule = "* * * * *" }},
-		{"service with a trigger", "run_on_deploy applies to function tiles only", func(t *store.Tile) { t.Trigger = "manual" }},
-		{"service with a timeout", "service tiles do not take timeout_minutes", func(t *store.Tile) { t.TimeoutMinutes = 5 }},
-		{"managed with a command", "command does not apply to a managed", func(t *store.Tile) { t.Kind, t.GitURL, t.Command = tile.Managed, "", "x" }},
+		{
+			"cron ok",
+			"",
+			cronRow,
+		},
+		{
+			"cron with CRON_TZ",
+			"",
+			then(cronRow, func(t *store.Tile) { t.Schedule = "CRON_TZ=Europe/London 0 3 * * *" }),
+		},
+		{
+			"cron paused",
+			"",
+			then(cronRow, func(t *store.Tile) { t.Paused = true }),
+		},
+		{
+			"cron from an image",
+			"",
+			then(cronRow, func(t *store.Tile) { t.GitURL, t.ImageRef = "", "alpine:3" }),
+		},
+		{
+			"cron without a schedule",
+			"a cron needs a schedule",
+			then(cronRow, func(t *store.Tile) { t.Schedule = "" }),
+		},
+		{
+			"cron with a bad schedule",
+			"expected exactly 5 fields, found 2: [every day]",
+			then(cronRow, func(t *store.Tile) { t.Schedule = "every day" }),
+		},
+		{
+			"cron with a port",
+			"a cron has no endpoint; port does not apply",
+			then(cronRow, func(t *store.Tile) { t.ContainerPort = 80 }),
+		},
+		{
+			"cron with replicas",
+			"cron tiles do not take replicas",
+			then(cronRow, func(t *store.Tile) { t.Replicas = 2 }),
+		},
+		{
+			"cron with a healthcheck",
+			"healthcheck applies to service tiles only",
+			then(cronRow, func(t *store.Tile) { t.HealthcheckCmd = "true" }),
+		},
+		{
+			"cron with a user",
+			"user applies to service tiles only",
+			then(cronRow, func(t *store.Tile) { t.User = "1000" }),
+		},
+		{
+			"cron with devices",
+			"devices apply to service tiles only",
+			then(cronRow, func(t *store.Tile) { t.Devices = "/dev/x" }),
+		},
+		{
+			"cron with a trigger",
+			"run_on_deploy applies to function tiles only",
+			then(cronRow, func(t *store.Tile) { t.Trigger = "on_deploy" }),
+		},
+		{
+			"cron with git and an image",
+			"a cron builds from git_url or runs an image, not both",
+			then(cronRow, func(t *store.Tile) { t.ImageRef = "alpine:3" }),
+		},
+		{
+			"cron with neither source",
+			"a cron needs a git_url or an image",
+			then(cronRow, func(t *store.Tile) { t.GitURL = "" }),
+		},
+		{
+			"negative timeout",
+			"timeout_minutes must not be negative",
+			then(cronRow, func(t *store.Tile) { t.TimeoutMinutes = -1 }),
+		},
+		{
+			"function ok",
+			"",
+			fnRow,
+		},
+		{
+			"function on deploy",
+			"",
+			then(fnRow, func(t *store.Tile) { t.Trigger = "on_deploy" }),
+		},
+		{
+			"function with a bad trigger",
+			"trigger must be manual or on_deploy",
+			then(fnRow, func(t *store.Tile) { t.Trigger = "hourly" }),
+		},
+		{
+			"function with a schedule",
+			"schedule applies to cron tiles only",
+			then(fnRow, func(t *store.Tile) { t.Schedule = "* * * * *" }),
+		},
+		{
+			"function paused",
+			"only cron tiles have a schedule to pause",
+			then(fnRow, func(t *store.Tile) { t.Paused = true }),
+		},
+		{
+			"function with a port",
+			"a function has no endpoint; port does not apply",
+			then(fnRow, func(t *store.Tile) { t.ContainerPort = 80 }),
+		},
+		{
+			"function with privileged",
+			"privileged applies to service tiles only",
+			then(fnRow, func(t *store.Tile) { t.Privileged = true }),
+		},
+		{
+			"service with a schedule",
+			"schedule applies to cron tiles only",
+			func(t *store.Tile) { t.Schedule = "* * * * *" },
+		},
+		{
+			"service with a trigger",
+			"run_on_deploy applies to function tiles only",
+			func(t *store.Tile) { t.Trigger = "manual" },
+		},
+		{
+			"service with a timeout",
+			"service tiles do not take timeout_minutes",
+			func(t *store.Tile) { t.TimeoutMinutes = 5 },
+		},
+		{
+			"managed with a command",
+			"command does not apply to a managed",
+			func(t *store.Tile) { t.Kind, t.GitURL, t.Command = tile.Managed, "", "x" },
+		},
 	} {
 		row := store.Tile{Name: "x", Kind: tile.Service, GitURL: "https://github.com/a/b"}
 		c.edit(&row)
@@ -196,7 +354,9 @@ func TestSideEffects(t *testing.T) {
 		{"watch paths only", func(t *store.Tile) { t.WatchPaths = "src/**" }, nil, nil},
 		{"domain only", func(*store.Tile) {}, []string{"domain +api.x.io"}, []tile.Effect{tile.Route}},
 		{"port", func(t *store.Tile) { t.ContainerPort = 8080 }, nil, []tile.Effect{tile.Route, tile.Redeploy}},
-		{"healthcheck", func(t *store.Tile) { t.HealthcheckRetries = 3 }, nil, []tile.Effect{tile.Route, tile.Redeploy}},
+		{"healthcheck", func(t *store.Tile) {
+			t.HealthcheckRetries = 3
+		}, nil, []tile.Effect{tile.Route, tile.Redeploy}},
 		{"slug is identity", func(t *store.Tile) { t.Slug = "other" }, nil, nil},
 	} {
 		cur := api

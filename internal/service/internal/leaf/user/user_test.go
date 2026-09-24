@@ -24,8 +24,17 @@ func seed(t *testing.T, st *store.Store, email string, admin bool) store.User {
 		role = "admin"
 	}
 	now := time.Now().UTC()
-	u := store.User{ID: uuid.NewString(), Email: email, PasswordHash: "x", Name: email, Role: role,
-		Active: true, Theme: "system", CreatedAt: now, UpdatedAt: now}
+	u := store.User{
+		ID:           uuid.NewString(),
+		Email:        email,
+		PasswordHash: "x",
+		Name:         email,
+		Role:         role,
+		Active:       true,
+		Theme:        "system",
+		CreatedAt:    now,
+		UpdatedAt:    now,
+	}
 	if err := st.Users.Create(ctx, u); err != nil {
 		t.Fatal(err)
 	}
@@ -35,7 +44,14 @@ func seed(t *testing.T, st *store.Store, email string, admin bool) store.User {
 func seedOrg(t *testing.T, st *store.Store) string {
 	t.Helper()
 	id := uuid.NewString()
-	if err := st.Orgs.Create(ctx, store.Org{ID: id, Name: id, Slug: id[:8], EnvColors: "{}", Settings: "{}", CreatedAt: time.Now()}); err != nil {
+	if err := st.Orgs.Create(ctx, store.Org{
+		ID:        id,
+		Name:      id,
+		Slug:      id[:8],
+		EnvColors: "{}",
+		Settings:  "{}",
+		CreatedAt: time.Now(),
+	}); err != nil {
 		t.Fatal(err)
 	}
 	return id
@@ -137,7 +153,13 @@ func TestLosePowers(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		se := &auth.Session{ID: uuid.NewString(), SubjectID: b.ID, Token: uuid.NewString(), ExpiresAt: time.Now().Add(time.Hour), CreatedAt: time.Now()}
+		se := &auth.Session{
+			ID:        uuid.NewString(),
+			SubjectID: b.ID,
+			Token:     uuid.NewString(),
+			ExpiresAt: time.Now().Add(time.Hour),
+			CreatedAt: time.Now(),
+		}
 		if err := st.Sessions.Create(ctx, se); err != nil {
 			t.Fatal(err)
 		}

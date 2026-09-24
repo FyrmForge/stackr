@@ -21,7 +21,14 @@ var ctx = context.Background()
 func seedOrg(t *testing.T, st *store.Store) string {
 	t.Helper()
 	id := uuid.NewString()
-	if err := st.Orgs.Create(ctx, store.Org{ID: id, Name: id, Slug: id[:8], EnvColors: "{}", Settings: "{}", CreatedAt: time.Now()}); err != nil {
+	if err := st.Orgs.Create(ctx, store.Org{
+		ID:        id,
+		Name:      id,
+		Slug:      id[:8],
+		EnvColors: "{}",
+		Settings:  "{}",
+		CreatedAt: time.Now(),
+	}); err != nil {
 		t.Fatal(err)
 	}
 	return id
@@ -32,14 +39,29 @@ func TestCredentials(t *testing.T) {
 	l := credential.New(st.Credentials)
 	org, other := seedOrg(t, st), seedOrg(t, st)
 
-	c, err := l.Create(ctx, org, credential.Spec{Name: "ghcr", URL: "https://GHCR.io/v2/", Username: "bot", Password: "tok"})
+	c, err := l.Create(ctx, org, credential.Spec{
+		Name:     "ghcr",
+		URL:      "https://GHCR.io/v2/",
+		Username: "bot",
+		Password: "tok",
+	})
 	if err != nil || c.URL != "ghcr.io" {
 		t.Fatalf("create = %+v, %v", c, err)
 	}
-	if _, err := l.Create(ctx, org, credential.Spec{Name: "again", URL: "ghcr.io", Username: "x", Password: "y"}); err == nil {
+	if _, err := l.Create(ctx, org, credential.Spec{
+		Name:     "again",
+		URL:      "ghcr.io",
+		Username: "x",
+		Password: "y",
+	}); err == nil {
 		t.Error("second credential for one host accepted")
 	}
-	hub, err := l.Create(ctx, org, credential.Spec{Name: "hub", URL: "docker.io", Username: "me", Password: "pw"})
+	hub, err := l.Create(ctx, org, credential.Spec{
+		Name:     "hub",
+		URL:      "docker.io",
+		Username: "me",
+		Password: "pw",
+	})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -62,7 +62,12 @@ func secret() string {
 
 // Create makes the instance row for a managed tile, with a fresh admin
 // password. endpoint is where slices reach it (the flow knows the alias).
-func (l *Leaf) Create(ctx context.Context, tileID, engine, scopeKind string, h Home, adminUser, endpoint string) (store.ManagedInstance, error) {
+func (l *Leaf) Create(
+	ctx context.Context,
+	tileID, engine, scopeKind string,
+	h Home,
+	adminUser, endpoint string,
+) (store.ManagedInstance, error) {
 	kind, id, err := scope(scopeKind, h)
 	if err != nil {
 		return store.ManagedInstance{}, err
@@ -70,8 +75,17 @@ func (l *Leaf) Create(ctx context.Context, tileID, engine, scopeKind string, h H
 	if engine == "" || adminUser == "" {
 		return store.ManagedInstance{}, errs.Invalidf("engine", "an instance needs an engine and an admin user")
 	}
-	m := store.ManagedInstance{ID: uuid.NewString(), TileID: tileID, Engine: engine, ScopeKind: kind, ScopeID: id,
-		AdminUser: adminUser, AdminPassword: secret(), Endpoint: endpoint, CreatedAt: time.Now().UTC()}
+	m := store.ManagedInstance{
+		ID:            uuid.NewString(),
+		TileID:        tileID,
+		Engine:        engine,
+		ScopeKind:     kind,
+		ScopeID:       id,
+		AdminUser:     adminUser,
+		AdminPassword: secret(),
+		Endpoint:      endpoint,
+		CreatedAt:     time.Now().UTC(),
+	}
 	return m, l.instances.Create(ctx, m)
 }
 
@@ -92,7 +106,11 @@ func Network(instanceID string) string { return "stackr-shared-" + instanceID }
 // its stack's and its org's.
 func (l *Leaf) Visible(ctx context.Context, h Home) ([]store.ManagedInstance, error) {
 	var out []store.ManagedInstance
-	for _, s := range [][2]string{{Env, h.EnvID}, {Stack, h.StackID}, {Org, h.OrgID}} {
+	for _, s := range [][2]string{
+		{Env, h.EnvID},
+		{Stack, h.StackID},
+		{Org, h.OrgID},
+	} {
 		ms, err := l.instances.ListByScope(ctx, s[0], s[1])
 		if err != nil {
 			return nil, err
@@ -104,7 +122,12 @@ func (l *Leaf) Visible(ctx context.Context, h Home) ([]store.ManagedInstance, er
 
 // SetScope widens or narrows who may provision. It never touches the
 // container: the running engine knows nothing about scope.
-func (l *Leaf) SetScope(ctx context.Context, m store.ManagedInstance, scopeKind string, h Home) (store.ManagedInstance, error) {
+func (l *Leaf) SetScope(
+	ctx context.Context,
+	m store.ManagedInstance,
+	scopeKind string,
+	h Home,
+) (store.ManagedInstance, error) {
 	kind, id, err := scope(scopeKind, h)
 	if err != nil {
 		return m, err
@@ -113,7 +136,11 @@ func (l *Leaf) SetScope(ctx context.Context, m store.ManagedInstance, scopeKind 
 	return m, l.instances.Update(ctx, m)
 }
 
-func (l *Leaf) SetEndpoint(ctx context.Context, m store.ManagedInstance, endpoint string) (store.ManagedInstance, error) {
+func (l *Leaf) SetEndpoint(
+	ctx context.Context,
+	m store.ManagedInstance,
+	endpoint string,
+) (store.ManagedInstance, error) {
 	m.Endpoint = endpoint
 	return m, l.instances.Update(ctx, m)
 }
@@ -169,7 +196,12 @@ func (l *Leaf) SliceNames(ctx context.Context, instanceID string) ([]string, err
 
 // Provision records a consumer's slice after the engine made it. One slice
 // per consumer per instance.
-func (l *Leaf) Provision(ctx context.Context, m store.ManagedInstance, consumerTileID string, s Slice) (store.Provision, error) {
+func (l *Leaf) Provision(
+	ctx context.Context,
+	m store.ManagedInstance,
+	consumerTileID string,
+	s Slice,
+) (store.Provision, error) {
 	if s.OnRemove == "" {
 		s.OnRemove = Keep
 	}
@@ -185,15 +217,30 @@ func (l *Leaf) Provision(ctx context.Context, m store.ManagedInstance, consumerT
 		}
 		return store.Provision{}, err
 	}
-	p := store.Provision{ID: uuid.NewString(), InstanceID: m.ID, ConsumerTileID: &consumerTileID, Slug: s.Slug,
-		DBName: s.DBName, DBUser: s.DBUser, DBPassword: s.DBPassword, Outputs: "{}", Public: s.Public,
-		OnRemove: s.OnRemove, CreatedAt: time.Now().UTC()}
+	p := store.Provision{
+		ID:             uuid.NewString(),
+		InstanceID:     m.ID,
+		ConsumerTileID: &consumerTileID,
+		Slug:           s.Slug,
+		DBName:         s.DBName,
+		DBUser:         s.DBUser,
+		DBPassword:     s.DBPassword,
+		Outputs:        "{}",
+		Public:         s.Public,
+		OnRemove:       s.OnRemove,
+		CreatedAt:      time.Now().UTC(),
+	}
 	return p, l.provisions.Create(ctx, p)
 }
 
 // Share attaches a consumer to an existing slice. Same env only (fact):
 // the slice's url secret is env-scoped.
-func (l *Leaf) Share(ctx context.Context, of store.Provision, consumerTileID string, sameEnv bool) (store.Provision, error) {
+func (l *Leaf) Share(
+	ctx context.Context,
+	of store.Provision,
+	consumerTileID string,
+	sameEnv bool,
+) (store.Provision, error) {
 	if !sameEnv {
 		return store.Provision{}, errs.Refusedf("an existing slice can only be shared inside its environment")
 	}
@@ -245,7 +292,12 @@ func (l *Leaf) SetOutputs(ctx context.Context, p store.Provision, out map[string
 
 // SetPublic flips public read. A public slice needs the instance to have a
 // public base URL (fact), or browsers could not reach it anyway.
-func (l *Leaf) SetPublic(ctx context.Context, p store.Provision, public bool, publicBase string) (store.Provision, error) {
+func (l *Leaf) SetPublic(
+	ctx context.Context,
+	p store.Provision,
+	public bool,
+	publicBase string,
+) (store.Provision, error) {
 	if public && publicBase == "" {
 		return p, errs.Refusedf("give the instance a public domain before making a slice public")
 	}

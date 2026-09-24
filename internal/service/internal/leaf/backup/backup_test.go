@@ -22,7 +22,14 @@ var ctx = context.Background()
 func seedOrg(t *testing.T, st *store.Store) string {
 	t.Helper()
 	id := uuid.NewString()
-	if err := st.Orgs.Create(ctx, store.Org{ID: id, Name: id, Slug: id[:8], EnvColors: "{}", Settings: "{}", CreatedAt: time.Now()}); err != nil {
+	if err := st.Orgs.Create(ctx, store.Org{
+		ID:        id,
+		Name:      id,
+		Slug:      id[:8],
+		EnvColors: "{}",
+		Settings:  "{}",
+		CreatedAt: time.Now(),
+	}); err != nil {
 		t.Fatal(err)
 	}
 	return id
@@ -31,7 +38,14 @@ func seedOrg(t *testing.T, st *store.Store) string {
 func seedVolume(t *testing.T, st *store.Store, org string) string {
 	t.Helper()
 	id := uuid.NewString()
-	if err := st.Volumes.Create(ctx, store.Volume{ID: id, ScopeKind: "org", ScopeID: org, Slug: id[:8], Name: id[:8], CreatedAt: time.Now()}); err != nil {
+	if err := st.Volumes.Create(ctx, store.Volume{
+		ID:        id,
+		ScopeKind: "org",
+		ScopeID:   org,
+		Slug:      id[:8],
+		Name:      id[:8],
+		CreatedAt: time.Now(),
+	}); err != nil {
 		t.Fatal(err)
 	}
 	return id
@@ -42,7 +56,14 @@ func leaf(st *store.Store) *backup.Leaf {
 }
 
 func s3(name string, shared bool) backup.Dest {
-	return backup.Dest{Name: name, Endpoint: "https://s3.example.com", Bucket: "b", AccessKey: "ak", SecretKey: "sk", Shared: shared}
+	return backup.Dest{
+		Name:      name,
+		Endpoint:  "https://s3.example.com",
+		Bucket:    "b",
+		AccessKey: "ak",
+		SecretKey: "sk",
+		Shared:    shared,
+	}
 }
 
 func TestVisibility(t *testing.T) {
@@ -71,8 +92,11 @@ func TestVisibility(t *testing.T) {
 		org, id string
 		ok      bool
 	}{
-		{org, own.ID, true}, {other, own.ID, false},
-		{other, shared.ID, true}, {org, private.ID, false}, {org, local.ID, true},
+		{org, own.ID, true},
+		{other, own.ID, false},
+		{other, shared.ID, true},
+		{org, private.ID, false},
+		{org, local.ID, true},
 	} {
 		_, err := l.For(ctx, c.org, c.id)
 		if c.ok != (err == nil) || (!c.ok && !errors.Is(err, errs.ErrNotFound)) {
@@ -93,7 +117,9 @@ func TestVisibility(t *testing.T) {
 	}
 
 	for ref, want := range map[string]string{
-		"": local.ID, "${{ org.backups.hetzner }}": own.ID, "${{stackr.backups.offsite}}": shared.ID,
+		"":                            local.ID,
+		"${{ org.backups.hetzner }}":  own.ID,
+		"${{stackr.backups.offsite}}": shared.ID,
 	} {
 		if d, err := l.Resolve(ctx, org, ref); err != nil || d.ID != want {
 			t.Errorf("Resolve(%q) = %s, %v", ref, d.Name, err)
@@ -142,7 +168,13 @@ func TestSchedules(t *testing.T) {
 			t.Errorf("%s: %v", name, err)
 		}
 	}
-	if _, err := l.AddSchedule(ctx, vol, org, methods, backup.Schedule{Cron: "@daily", DestID: &theirs.ID}); !errors.Is(err, errs.ErrNotFound) {
+	if _, err := l.AddSchedule(
+		ctx,
+		vol,
+		org,
+		methods,
+		backup.Schedule{Cron: "@daily", DestID: &theirs.ID},
+	); !errors.Is(err, errs.ErrNotFound) {
 		t.Errorf("another org's destination = %v", err)
 	}
 	if _, err := l.AddSchedule(ctx, vol, org, methods, backup.Schedule{Cron: "@daily", DestID: &mine.ID}); err != nil {

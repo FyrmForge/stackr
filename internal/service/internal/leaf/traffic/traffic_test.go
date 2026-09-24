@@ -8,8 +8,18 @@ import (
 
 // line is one conntrack entry: original src->dst, reply dst->src.
 func line(src, dst string, sport, orig, reply int) string {
-	return fmt.Sprintf("ipv4 2 tcp 6 86399 ESTABLISHED src=%s dst=%s sport=%d dport=80 packets=3 bytes=%d "+
-		"src=%s dst=%s sport=80 dport=%d packets=3 bytes=%d [ASSURED] mark=0 use=1\n", src, dst, sport, orig, dst, src, sport, reply)
+	return fmt.Sprintf(
+		"ipv4 2 tcp 6 86399 ESTABLISHED src=%s dst=%s sport=%d dport=80 packets=3 bytes=%d "+
+			"src=%s dst=%s sport=80 dport=%d packets=3 bytes=%d [ASSURED] mark=0 use=1\n",
+		src,
+		dst,
+		sport,
+		orig,
+		dst,
+		src,
+		sport,
+		reply,
+	)
 }
 
 var (
@@ -85,18 +95,22 @@ func TestSampleSums(t *testing.T) {
 // a tile with no binding keeps the instance as its end.
 func TestSlices(t *testing.T) {
 	pairs := map[Pair]float64{
-		{"web", "pg"}: 10, {"pg", "web"}: 100,
-		{"jobs", "pg"}: 20, {"pg", "jobs"}: 200,
+		{"web", "pg"}:    10,
+		{"pg", "web"}:    100,
+		{"jobs", "pg"}:   20,
+		{"pg", "jobs"}:   200,
 		{"cron", "pg"}:   30,
 		{"proxy", "web"}: 5,
 	}
 	bind := map[Pair]string{{"web", "pg"}: "slice-web", {"jobs", "pg"}: "slice-jobs"}
 	got := Slices(pairs, bind)
 	want := map[Pair]float64{
-		{"web", "slice-web"}: 10, {"slice-web", "web"}: 100,
-		{"jobs", "slice-jobs"}: 20, {"slice-jobs", "jobs"}: 200,
-		{"cron", "pg"}:   30,
-		{"proxy", "web"}: 5,
+		{"web", "slice-web"}:   10,
+		{"slice-web", "web"}:   100,
+		{"jobs", "slice-jobs"}: 20,
+		{"slice-jobs", "jobs"}: 200,
+		{"cron", "pg"}:         30,
+		{"proxy", "web"}:       5,
 	}
 	if len(got) != len(want) {
 		t.Fatalf("got %v, want %v", got, want)

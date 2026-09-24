@@ -48,7 +48,8 @@ func TestOrphanReadopt(t *testing.T) {
 	}
 
 	back, adopted, err := l.Declare(ctx, env, "pgdata", 512, nil)
-	if err != nil || !adopted || back.ID != v.ID || back.Name != v.Name || back.OrphanedAt != nil || back.MaxSizeMB != 512 {
+	if err != nil || !adopted || back.ID != v.ID || back.Name != v.Name || back.OrphanedAt != nil ||
+		back.MaxSizeMB != 512 {
 		t.Fatalf("re-adopt = %+v, %v, %v", back, adopted, err)
 	}
 	other, _, _ := l.Declare(ctx, volume.Scope{Kind: "env", ID: "e2"}, "pgdata", 0, nil)
@@ -103,5 +104,12 @@ func TestDeleteAndHoldsData(t *testing.T) {
 	}
 }
 
-func isInvalid(err error) bool  { _, ok := errs.IsInvalid(err); return ok }
-func isConflict(err error) bool { _, ok := errs.IsConflict(err); return ok }
+func isInvalid(err error) bool {
+	_, ok := errs.IsInvalid(err)
+	return ok
+}
+
+func isConflict(err error) bool {
+	_, ok := errs.IsConflict(err)
+	return ok
+}

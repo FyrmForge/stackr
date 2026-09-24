@@ -21,17 +21,37 @@ func seedStack(t *testing.T, st *store.Store) string {
 	t.Helper()
 	org, id := uuid.NewString(), uuid.NewString()
 	now := time.Now()
-	if err := st.Orgs.Create(ctx, store.Org{ID: org, Name: org, Slug: org[:8], EnvColors: "{}", Settings: "{}", CreatedAt: now}); err != nil {
+	if err := st.Orgs.Create(ctx, store.Org{
+		ID:        org,
+		Name:      org,
+		Slug:      org[:8],
+		EnvColors: "{}",
+		Settings:  "{}",
+		CreatedAt: now,
+	}); err != nil {
 		t.Fatal(err)
 	}
-	if err := st.Stacks.Create(ctx, store.Stack{ID: id, OrgID: org, Name: "s", Slug: "s", Settings: "{}", Domains: "[]", CreatedAt: now}); err != nil {
+	if err := st.Stacks.Create(ctx, store.Stack{
+		ID:        id,
+		OrgID:     org,
+		Name:      "s",
+		Slug:      "s",
+		Settings:  "{}",
+		Domains:   "[]",
+		CreatedAt: now,
+	}); err != nil {
 		t.Fatal(err)
 	}
 	return id
 }
 
 func branch(b string) environment.Spec {
-	return environment.Spec{Type: environment.Static, FromKind: environment.FromBranch, FromBranch: b, Auto: true}
+	return environment.Spec{
+		Type:       environment.Static,
+		FromKind:   environment.FromBranch,
+		FromBranch: b,
+		Auto:       true,
+	}
 }
 
 var promote = environment.Spec{Type: environment.Static, FromKind: environment.FromPromote}
@@ -99,7 +119,8 @@ func TestLadder(t *testing.T) {
 	}
 
 	pr, err := l.CloneRow(ctx, dev, "pr-7", "feature")
-	if err != nil || pr.Type != environment.Ephemeral || pr.BaseEnvID == nil || *pr.BaseEnvID != dev.ID || pr.Position != 3 {
+	if err != nil || pr.Type != environment.Ephemeral || pr.BaseEnvID == nil || *pr.BaseEnvID != dev.ID ||
+		pr.Position != 3 {
 		t.Errorf("clone row = %+v, %v", pr, err)
 	}
 	qa, err := l.Create(ctx, s, "qa", promote)
@@ -156,7 +177,10 @@ func TestCloneRules(t *testing.T) {
 	if environment.Reclaim(environment.Ephemeral) != "drop" || environment.Reclaim(environment.Static) != "detach" {
 		t.Error("reclaim")
 	}
-	if got := environment.Rewrite("postgres://u:old@db/x", map[string]string{"old": "new"}); got != "postgres://u:new@db/x" {
+	if got := environment.Rewrite(
+		"postgres://u:old@db/x",
+		map[string]string{"old": "new"},
+	); got != "postgres://u:new@db/x" {
 		t.Errorf("rewrite = %s", got)
 	}
 }

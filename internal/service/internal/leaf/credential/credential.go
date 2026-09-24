@@ -104,7 +104,10 @@ func (l *Leaf) fill(ctx context.Context, c *store.Credential, s Spec) error {
 			return errs.Conflictf("%s already has a credential (%s)", host, o.Name)
 		}
 	}
-	c.Name, c.URL, c.Username, c.Password = name, host, strings.TrimSpace(s.Username), s.Password
+	c.Name = name
+	c.URL = host
+	c.Username = strings.TrimSpace(s.Username)
+	c.Password = s.Password
 	return nil
 }
 

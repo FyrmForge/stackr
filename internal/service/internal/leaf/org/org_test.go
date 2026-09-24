@@ -30,8 +30,17 @@ func seedUser(t *testing.T, st *store.Store, email string, admin bool) store.Use
 		role = "admin"
 	}
 	now := time.Now().UTC()
-	u := store.User{ID: uuid.NewString(), Email: email, PasswordHash: "x", Name: email, Role: role,
-		Active: true, Theme: "system", CreatedAt: now, UpdatedAt: now}
+	u := store.User{
+		ID:           uuid.NewString(),
+		Email:        email,
+		PasswordHash: "x",
+		Name:         email,
+		Role:         role,
+		Active:       true,
+		Theme:        "system",
+		CreatedAt:    now,
+		UpdatedAt:    now,
+	}
 	if err := st.Users.Create(ctx, u); err != nil {
 		t.Fatal(err)
 	}

@@ -39,9 +39,13 @@ type Leaf struct {
 	net  Networks
 }
 
-func New(envs store.EnvironmentStore, net Networks) *Leaf { return &Leaf{envs: envs, net: net} }
+func New(envs store.EnvironmentStore, net Networks) *Leaf {
+	return &Leaf{envs: envs, net: net}
+}
 
-func (l *Leaf) Get(ctx context.Context, id string) (store.Environment, error) { return l.envs.Get(ctx, id) }
+func (l *Leaf) Get(ctx context.Context, id string) (store.Environment, error) {
+	return l.envs.Get(ctx, id)
+}
 
 func (l *Leaf) GetBySlug(ctx context.Context, stackID, slug string) (store.Environment, error) {
 	return l.envs.GetBySlug(ctx, stackID, slug)
@@ -120,9 +124,17 @@ func (l *Leaf) Create(ctx context.Context, stackID, name string, sp Spec) (store
 		return store.Environment{}, errs.Invalidf("type", "Unknown environment type %q.", sp.Type)
 	}
 	id := uuid.NewString()
-	e := store.Environment{ID: id, StackID: stackID, Type: sp.Type, BaseEnvID: sp.Base,
-		Settings: "{}", Color: sp.Color, Position: pos, Network: "stackr-env-" + id,
-		CreatedAt: time.Now().UTC()}
+	e := store.Environment{
+		ID:        id,
+		StackID:   stackID,
+		Type:      sp.Type,
+		BaseEnvID: sp.Base,
+		Settings:  "{}",
+		Color:     sp.Color,
+		Position:  pos,
+		Network:   "stackr-env-" + id,
+		CreatedAt: time.Now().UTC(),
+	}
 	if err := l.name(ctx, &e, name); err != nil {
 		return e, err
 	}
@@ -137,8 +149,14 @@ func (l *Leaf) Create(ctx context.Context, stackID, name string, sp Spec) (store
 // branch, ephemeral, off the ladder. Tiles, params and slices are the
 // flow's (see the envops rules), never this row's.
 func (l *Leaf) CloneRow(ctx context.Context, base store.Environment, name, branch string) (store.Environment, error) {
-	e, err := l.Create(ctx, base.StackID, name, Spec{Type: Ephemeral, Base: &base.ID, Color: base.Color,
-		FromKind: FromBranch, FromBranch: branch, Auto: true})
+	e, err := l.Create(ctx, base.StackID, name, Spec{
+		Type:       Ephemeral,
+		Base:       &base.ID,
+		Color:      base.Color,
+		FromKind:   FromBranch,
+		FromBranch: branch,
+		Auto:       true,
+	})
 	if err != nil {
 		return e, err
 	}
@@ -187,7 +205,12 @@ func checkFrom(e store.Environment, kind, branch string, bottom bool) error {
 }
 
 // SetFrom sets the two knobs. promote drops the branch.
-func (l *Leaf) SetFrom(ctx context.Context, e store.Environment, kind, branch string, auto bool) (store.Environment, error) {
+func (l *Leaf) SetFrom(
+	ctx context.Context,
+	e store.Environment,
+	kind, branch string,
+	auto bool,
+) (store.Environment, error) {
 	if kind == FromPromote {
 		branch = ""
 	}

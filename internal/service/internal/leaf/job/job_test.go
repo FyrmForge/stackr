@@ -29,11 +29,41 @@ func TestLockRules(t *testing.T) {
 		newer, older  store.Job
 		overlap, supd bool
 	}{
-		{"same tile same kind", store.Job{Kind: "deploy", LockSet: []string{"a"}}, store.Job{Kind: "deploy", LockSet: []string{"a"}}, true, true},
-		{"covers the older", store.Job{Kind: "deploy", LockSet: []string{"a", "b"}}, store.Job{Kind: "deploy", LockSet: []string{"a"}}, true, true},
-		{"covers only part", store.Job{Kind: "deploy", LockSet: []string{"a"}}, store.Job{Kind: "deploy", LockSet: []string{"a", "b"}}, true, false},
-		{"other kind waits", store.Job{Kind: "deploy", LockSet: []string{"a"}}, store.Job{Kind: "backup", LockSet: []string{"a"}}, true, false},
-		{"disjoint", store.Job{Kind: "deploy", LockSet: []string{"a"}}, store.Job{Kind: "deploy", LockSet: []string{"b"}}, false, false},
+		{
+			"same tile same kind",
+			store.Job{Kind: "deploy", LockSet: []string{"a"}},
+			store.Job{Kind: "deploy", LockSet: []string{"a"}},
+			true,
+			true,
+		},
+		{
+			"covers the older",
+			store.Job{Kind: "deploy", LockSet: []string{"a", "b"}},
+			store.Job{Kind: "deploy", LockSet: []string{"a"}},
+			true,
+			true,
+		},
+		{
+			"covers only part",
+			store.Job{Kind: "deploy", LockSet: []string{"a"}},
+			store.Job{Kind: "deploy", LockSet: []string{"a", "b"}},
+			true,
+			false,
+		},
+		{
+			"other kind waits",
+			store.Job{Kind: "deploy", LockSet: []string{"a"}},
+			store.Job{Kind: "backup", LockSet: []string{"a"}},
+			true,
+			false,
+		},
+		{
+			"disjoint",
+			store.Job{Kind: "deploy", LockSet: []string{"a"}},
+			store.Job{Kind: "deploy", LockSet: []string{"b"}},
+			false,
+			false,
+		},
 	}
 	for _, tt := range tests {
 		if got := Overlaps(tt.newer.LockSet, tt.older.LockSet); got != tt.overlap {

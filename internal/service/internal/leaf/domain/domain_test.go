@@ -30,22 +30,60 @@ func setup(t *testing.T) (*domain.Leaf, *dockerfake.Fake, string, string) {
 	st := servicetest.Store(t)
 	org, stack, env := uuid.NewString(), uuid.NewString(), uuid.NewString()
 	now := time.Now()
-	must(t, st.Orgs.Create(ctx, store.Org{ID: org, Name: org, Slug: org[:8], EnvColors: "{}", Settings: "{}", CreatedAt: now}))
-	must(t, st.Stacks.Create(ctx, store.Stack{ID: stack, OrgID: org, Name: "s", Slug: "s", Settings: "{}", Domains: "[]", CreatedAt: now}))
-	must(t, st.Environments.Create(ctx, store.Environment{ID: env, StackID: stack, Name: "dev", Slug: "dev", Type: "static",
-		Settings: "{}", Network: "n", FromKind: "branch", FromBranch: "main", CreatedAt: now}))
+	must(t, st.Orgs.Create(ctx, store.Org{
+		ID:        org,
+		Name:      org,
+		Slug:      org[:8],
+		EnvColors: "{}",
+		Settings:  "{}",
+		CreatedAt: now,
+	}))
+	must(t, st.Stacks.Create(ctx, store.Stack{
+		ID:        stack,
+		OrgID:     org,
+		Name:      "s",
+		Slug:      "s",
+		Settings:  "{}",
+		Domains:   "[]",
+		CreatedAt: now,
+	}))
+	must(t, st.Environments.Create(ctx, store.Environment{
+		ID:         env,
+		StackID:    stack,
+		Name:       "dev",
+		Slug:       "dev",
+		Type:       "static",
+		Settings:   "{}",
+		Network:    "n",
+		FromKind:   "branch",
+		FromBranch: "main",
+		CreatedAt:  now,
+	}))
 	var ids []string
 	for _, s := range []string{"web", "api"} {
 		id := uuid.NewString()
-		must(t, st.Tiles.Create(ctx, store.Tile{ID: id, StackID: stack, EnvironmentID: env, Name: s, Slug: s, Kind: "image",
-			UpdatePolicy: "manual", Replicas: 1, CreatedAt: now, UpdatedAt: now}))
+		must(t, st.Tiles.Create(ctx, store.Tile{
+			ID:            id,
+			StackID:       stack,
+			EnvironmentID: env,
+			Name:          s,
+			Slug:          s,
+			Kind:          "image",
+			UpdatePolicy:  "manual",
+			Replicas:      1,
+			CreatedAt:     now,
+			UpdatedAt:     now,
+		}))
 		ids = append(ids, id)
 	}
 	fake := dockerfake.New()
 	return domain.New(st.Domains, fake, "stackr-proxy"), fake, ids[0], ids[1]
 }
 
-func no() *bool { b := false; return &b }
+func no() *bool {
+	b := false
+	return &b
+}
 
 // B31: nil means on, on both Attach and Update; an explicit false stays false.
 func TestHTTPSNilIsOn(t *testing.T) {
@@ -54,7 +92,12 @@ func TestHTTPSNilIsOn(t *testing.T) {
 	if err != nil || !d.HTTPS || !d.ForceHTTPS || d.Host != "app.example.com" {
 		t.Fatalf("nil = %+v, %v", d, err)
 	}
-	d, err = l.Update(ctx, d, domain.Spec{Host: d.Host, Port: 80, HTTPS: no(), ForceHTTPS: no()}, false)
+	d, err = l.Update(ctx, d, domain.Spec{
+		Host:       d.Host,
+		Port:       80,
+		HTTPS:      no(),
+		ForceHTTPS: no(),
+	}, false)
 	if err != nil || d.HTTPS || d.ForceHTTPS {
 		t.Fatalf("false = %+v, %v", d, err)
 	}
@@ -83,8 +126,16 @@ func TestAttachRules(t *testing.T) {
 		{"wildcard without dns-01", api, domain.Spec{Host: "*.example.com", Port: 80}, false, "host"},
 		{"no port", api, domain.Spec{Host: "b.example.com"}, false, "port"},
 		{"bad path", api, domain.Spec{Host: "b.example.com", Path: "api", Port: 80}, false, "path"},
-		{"bad method", api, domain.Spec{Host: "b.example.com", Port: 80, Extras: domain.Extras{Methods: []string{"propfind"}}}, false, "proxy.methods"},
-		{"auth without user", api, domain.Spec{Host: "b.example.com", Port: 80, Extras: domain.Extras{BasicAuth: &domain.BasicAuth{}}}, false, "proxy.basic_auth.user"},
+		{"bad method", api, domain.Spec{
+			Host:   "b.example.com",
+			Port:   80,
+			Extras: domain.Extras{Methods: []string{"propfind"}},
+		}, false, "proxy.methods"},
+		{"auth without user", api, domain.Spec{
+			Host:   "b.example.com",
+			Port:   80,
+			Extras: domain.Extras{BasicAuth: &domain.BasicAuth{}},
+		}, false, "proxy.basic_auth.user"},
 		{"raw not json", api, domain.Spec{Host: "b.example.com", Port: 80, RawCaddy: "{"}, false, "raw_caddy"},
 		{"taken host", api, domain.Spec{Host: "A.example.com", Port: 80}, false, ""},
 	} {
@@ -96,8 +147,8 @@ func TestAttachRules(t *testing.T) {
 		}
 	}
 	for _, s := range []domain.Spec{
-		{Host: "*.example.com", Port: 80, HTTPS: no()},        // no certificate needed
-		{Host: "a.example.com", Path: "/api", Port: 80},       // same host, other path
+		{Host: "*.example.com", Port: 80, HTTPS: no()},         // no certificate needed
+		{Host: "a.example.com", Path: "/api", Port: 80},        // same host, other path
 		{Host: "old.example.com", RedirectTo: "a.example.com"}, // a redirect needs no port
 	} {
 		if _, err := l.Attach(ctx, api, s, false, nil); err != nil {

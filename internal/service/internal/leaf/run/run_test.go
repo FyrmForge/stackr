@@ -30,15 +30,52 @@ func setup(t *testing.T) (*run.Leaf, string, string) {
 	st := servicetest.Store(t)
 	org, stack, env := uuid.NewString(), uuid.NewString(), uuid.NewString()
 	now := time.Now()
-	must(t, st.Orgs.Create(ctx, store.Org{ID: org, Name: org, Slug: org[:8], EnvColors: "{}", Settings: "{}", CreatedAt: now}))
-	must(t, st.Stacks.Create(ctx, store.Stack{ID: stack, OrgID: org, Name: "s", Slug: "s", Settings: "{}", Domains: "[]", CreatedAt: now}))
-	must(t, st.Environments.Create(ctx, store.Environment{ID: env, StackID: stack, Name: "dev", Slug: "dev", Type: "static",
-		Settings: "{}", Network: "n", FromKind: "branch", FromBranch: "main", CreatedAt: now}))
+	must(t, st.Orgs.Create(ctx, store.Org{
+		ID:        org,
+		Name:      org,
+		Slug:      org[:8],
+		EnvColors: "{}",
+		Settings:  "{}",
+		CreatedAt: now,
+	}))
+	must(t, st.Stacks.Create(ctx, store.Stack{
+		ID:        stack,
+		OrgID:     org,
+		Name:      "s",
+		Slug:      "s",
+		Settings:  "{}",
+		Domains:   "[]",
+		CreatedAt: now,
+	}))
+	must(t, st.Environments.Create(ctx, store.Environment{
+		ID:         env,
+		StackID:    stack,
+		Name:       "dev",
+		Slug:       "dev",
+		Type:       "static",
+		Settings:   "{}",
+		Network:    "n",
+		FromKind:   "branch",
+		FromBranch: "main",
+		CreatedAt:  now,
+	}))
 	var ids []string
 	for _, s := range []string{"sweep", "other"} {
 		id := uuid.NewString()
-		must(t, st.Tiles.Create(ctx, store.Tile{ID: id, StackID: stack, EnvironmentID: env, Name: s, Slug: s, Kind: "cron",
-			ImageRef: "alpine:3", Schedule: "* * * * *", TimeoutMinutes: 30, UpdatePolicy: "manual", CreatedAt: now, UpdatedAt: now}))
+		must(t, st.Tiles.Create(ctx, store.Tile{
+			ID:             id,
+			StackID:        stack,
+			EnvironmentID:  env,
+			Name:           s,
+			Slug:           s,
+			Kind:           "cron",
+			ImageRef:       "alpine:3",
+			Schedule:       "* * * * *",
+			TimeoutMinutes: 30,
+			UpdatePolicy:   "manual",
+			CreatedAt:      now,
+			UpdatedAt:      now,
+		}))
 		ids = append(ids, id)
 	}
 	return run.New(st.Runs, t.TempDir()), ids[0], ids[1]

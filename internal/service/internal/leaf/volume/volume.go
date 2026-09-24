@@ -64,7 +64,13 @@ func (l *Leaf) BySlug(ctx context.Context, s Scope, sl string) (store.Volume, er
 // Declare is the row for a volume the stack file (or an instance) names.
 // An orphan with the same slug in the same scope is re-adopted, data and
 // all; adopted says so. instanceID is the owning managed instance, if any.
-func (l *Leaf) Declare(ctx context.Context, s Scope, sl string, maxSizeMB int, instanceID *string) (v store.Volume, adopted bool, err error) {
+func (l *Leaf) Declare(
+	ctx context.Context,
+	s Scope,
+	sl string,
+	maxSizeMB int,
+	instanceID *string,
+) (v store.Volume, adopted bool, err error) {
 	if !slug.Valid(sl) {
 		return v, false, errs.Invalidf("volume", "%q: a volume name is lower-case letters, digits and single hyphens", sl)
 	}
@@ -75,8 +81,16 @@ func (l *Leaf) Declare(ctx context.Context, s Scope, sl string, maxSizeMB int, i
 	switch {
 	case errors.Is(err, errs.ErrNotFound):
 		id := uuid.NewString()
-		v = store.Volume{ID: id, ScopeKind: s.Kind, ScopeID: s.ID, InstanceID: instanceID, Slug: sl,
-			Name: "stackr-vol-" + id, MaxSizeMB: maxSizeMB, CreatedAt: time.Now().UTC()}
+		v = store.Volume{
+			ID:         id,
+			ScopeKind:  s.Kind,
+			ScopeID:    s.ID,
+			InstanceID: instanceID,
+			Slug:       sl,
+			Name:       "stackr-vol-" + id,
+			MaxSizeMB:  maxSizeMB,
+			CreatedAt:  time.Now().UTC(),
+		}
 		return v, false, l.volumes.Create(ctx, v)
 	case err != nil:
 		return v, false, err

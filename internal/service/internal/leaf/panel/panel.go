@@ -41,7 +41,12 @@ type Leaf struct {
 }
 
 func New(d Docker) *Leaf {
-	return &Leaf{docker: d, Poll: time.Second, Grace: 10 * time.Second, Deadline: 3 * time.Minute}
+	return &Leaf{
+		docker:   d,
+		Poll:     time.Second,
+		Grace:    10 * time.Second,
+		Deadline: 3 * time.Minute,
+	}
 }
 
 // Pull fetches a panel image (public, anonymous). One already here is
@@ -73,7 +78,9 @@ func (l *Leaf) Launch(ctx context.Context, spec docker.ContainerSpec) error {
 	}
 	_, err = l.docker.Run(ctx, docker.ContainerSpec{
 		// The image's entrypoint is /stackrd; Cmd is only its argument.
-		Name: "stackr-upgrader", Image: spec.Image, Cmd: []string{"upgrade-swap"},
+		Name:    "stackr-upgrader",
+		Image:   spec.Image,
+		Cmd:     []string{"upgrade-swap"},
 		Env:     []string{SpecEnv + "=" + string(body)},
 		Labels:  map[string]string{LabelRole: "upgrader"},
 		Volumes: []string{"/var/run/docker.sock:/var/run/docker.sock"},

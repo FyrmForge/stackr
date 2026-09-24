@@ -65,7 +65,10 @@ func str(f func(t *store.Tile) string) func(t *store.Tile) bool {
 }
 
 func obj(f func(t *store.Tile) string) func(t *store.Tile) bool {
-	return func(t *store.Tile) bool { s := strings.TrimSpace(f(t)); return s != "" && s != "{}" }
+	return func(t *store.Tile) bool {
+		s := strings.TrimSpace(f(t))
+		return s != "" && s != "{}"
+	}
 }
 
 var fields = []field{
@@ -141,13 +144,39 @@ func keys(ks ...[]string) map[string]bool {
 var (
 	buildKeys = []string{"git_url", "branch", "dockerfile", "build_context", "build_args", "watch_paths"}
 	watchKeys = []string{"image", "update_policy", "tag_policy"}
-	runKeys   = []string{"command", "port", "published_ports", "endpoint_protocol", "health_path", "healthcheck",
-		"user", "privileged", "devices", "files", "volumes", "depends_on", "shared_net", "replicas", "env",
-		"limits", "shm_size_mb"}
+	runKeys   = []string{
+		"command",
+		"port",
+		"published_ports",
+		"endpoint_protocol",
+		"health_path",
+		"healthcheck",
+		"user",
+		"privileged",
+		"devices",
+		"files",
+		"volumes",
+		"depends_on",
+		"shared_net",
+		"replicas",
+		"env",
+		"limits",
+		"shm_size_mb",
+	}
 	// oneShotKeys: what a run-to-completion container takes. No endpoint, no
 	// health gate, one container; the source is a git build or an image.
-	oneShotKeys = []string{"image", "command", "timeout_minutes", "files", "volumes", "depends_on", "shared_net",
-		"env", "limits", "shm_size_mb"}
+	oneShotKeys = []string{
+		"image",
+		"command",
+		"timeout_minutes",
+		"files",
+		"volumes",
+		"depends_on",
+		"shared_net",
+		"env",
+		"limits",
+		"shm_size_mb",
+	}
 )
 
 // Carries is B26: the one whitelist of what each kind may carry. Restart
@@ -216,7 +245,8 @@ func Validate(t *store.Tile) error {
 		return errs.Invalidf("limits.memory_mb", "memory limit must not be negative")
 	case t.ShmSizeMB < 0:
 		return errs.Invalidf("shm_size_mb", "shm_size_mb must not be negative")
-	case t.HealthcheckIntervalS < 0 || t.HealthcheckTimeoutS < 0 || t.HealthcheckRetries < 0 || t.HealthcheckStartPeriodS < 0:
+	case t.HealthcheckIntervalS < 0 || t.HealthcheckTimeoutS < 0 || t.HealthcheckRetries < 0 ||
+		t.HealthcheckStartPeriodS < 0:
 		return errs.Invalidf("healthcheck", "healthcheck knobs must not be negative")
 	case t.Replicas < 0:
 		return errs.Invalidf("replicas", "replicas: a whole number, at least 1")
@@ -285,7 +315,10 @@ func checkLists(t *store.Tile) error {
 	for _, blob := range []struct {
 		key string
 		v   *string
-	}{{"env", &t.EnvJSON}, {"build_args", &t.BuildArgs}} {
+	}{
+		{"env", &t.EnvJSON},
+		{"build_args", &t.BuildArgs},
+	} {
 		if strings.TrimSpace(*blob.v) == "" {
 			*blob.v = "{}"
 		}
@@ -307,9 +340,18 @@ func checkLists(t *store.Tile) error {
 		parse func(string) error
 	}{
 		{"volumes", t.Volumes, parseMount},
-		{"files", t.Files, func(l string) error { _, _, err := ParseFileMount(l); return err }},
-		{"devices", t.Devices, func(l string) error { _, err := ParseDevice(l); return err }},
-		{"depends_on", t.DependsOn, func(l string) error { _, _, err := ParseDep(l); return err }},
+		{"files", t.Files, func(l string) error {
+			_, _, err := ParseFileMount(l)
+			return err
+		}},
+		{"devices", t.Devices, func(l string) error {
+			_, err := ParseDevice(l)
+			return err
+		}},
+		{"depends_on", t.DependsOn, func(l string) error {
+			_, _, err := ParseDep(l)
+			return err
+		}},
 		{"published_ports", t.PublishedPorts, parsePorts},
 	} {
 		for _, l := range Lines(list.v) {
@@ -351,7 +393,10 @@ func parsePorts(l string) error {
 	return nil
 }
 
-func port(s string) bool { n, err := strconv.Atoi(s); return err == nil && n > 0 && n < 65536 }
+func port(s string) bool {
+	n, err := strconv.Atoi(s)
+	return err == nil && n > 0 && n < 65536
+}
 
 // ParseDevice: "host[:container[:perms]]"; container defaults to host,
 // perms to rwm; both paths absolute.

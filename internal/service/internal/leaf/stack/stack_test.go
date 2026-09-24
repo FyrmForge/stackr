@@ -19,7 +19,14 @@ var ctx = context.Background()
 func seedOrg(t *testing.T, st *store.Store) string {
 	t.Helper()
 	id := uuid.NewString()
-	if err := st.Orgs.Create(ctx, store.Org{ID: id, Name: id, Slug: id[:8], EnvColors: "{}", Settings: "{}", CreatedAt: time.Now()}); err != nil {
+	if err := st.Orgs.Create(ctx, store.Org{
+		ID:        id,
+		Name:      id,
+		Slug:      id[:8],
+		EnvColors: "{}",
+		Settings:  "{}",
+		CreatedAt: time.Now(),
+	}); err != nil {
 		t.Fatal(err)
 	}
 	return id
@@ -66,7 +73,9 @@ func TestRoundTrip(t *testing.T) {
 	if _, err := l.SetReservations(ctx, s, []stack.Reservation{{Host: " "}}); err == nil {
 		t.Error("empty host accepted")
 	}
-	if s, err = l.SetReservations(ctx, s, []stack.Reservation{{Host: "API.a.io", IncludeEnvOnDefault: true}}); err != nil {
+	if s, err = l.SetReservations(ctx, s, []stack.Reservation{
+		{Host: "API.a.io", IncludeEnvOnDefault: true},
+	}); err != nil {
 		t.Fatal(err)
 	}
 

@@ -124,8 +124,14 @@ func (l *Leaf) StartDraft(ctx context.Context, userID string) (store.Org, error)
 	}
 	now := time.Now().UTC()
 	// Random, not counted: two people starting at once must not collide.
-	o := store.Org{ID: uuid.NewString(), Name: DraftName, Slug: "org-" + uuid.NewString()[:6],
-		EnvColors: "{}", Settings: "{}", CreatedAt: now}
+	o := store.Org{
+		ID:        uuid.NewString(),
+		Name:      DraftName,
+		Slug:      "org-" + uuid.NewString()[:6],
+		EnvColors: "{}",
+		Settings:  "{}",
+		CreatedAt: now,
+	}
 	if err := l.orgs.Create(ctx, o); err != nil {
 		return store.Org{}, err
 	}
@@ -208,7 +214,11 @@ func (l *Leaf) AddMember(ctx context.Context, orgID, userID, role string) error 
 		return err
 	}
 	return l.members.Create(ctx, store.OrgMember{
-		ID: uuid.NewString(), OrgID: orgID, UserID: userID, Role: role, CreatedAt: time.Now().UTC(),
+		ID:        uuid.NewString(),
+		OrgID:     orgID,
+		UserID:    userID,
+		Role:      role,
+		CreatedAt: time.Now().UTC(),
 	})
 }
 
@@ -260,7 +270,12 @@ func (l *Leaf) lastOwner(ctx context.Context, orgID, userID string) error {
 
 // Invite mints an invite; the id is the link token (24 random bytes, hex).
 // alreadyMember is whether the email belongs to a member of the org.
-func (l *Leaf) Invite(ctx context.Context, orgID, email, role, by string, alreadyMember bool, now time.Time) (store.Invite, error) {
+func (l *Leaf) Invite(
+	ctx context.Context,
+	orgID, email, role, by string,
+	alreadyMember bool,
+	now time.Time,
+) (store.Invite, error) {
 	email = strings.ToLower(strings.TrimSpace(email))
 	if email == "" {
 		return store.Invite{}, errs.Invalidf("email", "an email is required")
@@ -278,8 +293,15 @@ func (l *Leaf) Invite(ctx context.Context, orgID, email, role, by string, alread
 	if _, err := rand.Read(b); err != nil {
 		return store.Invite{}, err
 	}
-	i := store.Invite{ID: hex.EncodeToString(b), OrgID: orgID, Email: email, Role: role,
-		CreatedBy: by, CreatedAt: now, ExpiresAt: now.Add(InviteTTL)}
+	i := store.Invite{
+		ID:        hex.EncodeToString(b),
+		OrgID:     orgID,
+		Email:     email,
+		Role:      role,
+		CreatedBy: by,
+		CreatedAt: now,
+		ExpiresAt: now.Add(InviteTTL),
+	}
 	return i, l.invites.Create(ctx, i)
 }
 

@@ -36,10 +36,14 @@ func Live(state string) bool {
 }
 
 // Terminal is the exact complement of Live, never its own list.
-func Terminal(state string) bool { return !Live(state) }
+func Terminal(state string) bool {
+	return !Live(state)
+}
 
 // Cancellable without touching a running context.
-func Cancellable(state string) bool { return state == Queued || state == Waiting }
+func Cancellable(state string) bool {
+	return state == Queued || state == Waiting
+}
 
 // LockSet is the one function that turns the tiles a job touches into its
 // lock: sorted, deduplicated. A priority lane later changes only this.
@@ -71,9 +75,13 @@ func Supersedes(newer, older store.Job) bool {
 
 type Leaf struct{ jobs store.JobStore }
 
-func New(jobs store.JobStore) *Leaf { return &Leaf{jobs: jobs} }
+func New(jobs store.JobStore) *Leaf {
+	return &Leaf{jobs: jobs}
+}
 
-func (l *Leaf) Get(ctx context.Context, id string) (store.Job, error) { return l.jobs.Get(ctx, id) }
+func (l *Leaf) Get(ctx context.Context, id string) (store.Job, error) {
+	return l.jobs.Get(ctx, id)
+}
 
 func (l *Leaf) List(ctx context.Context, states ...string) ([]store.Job, error) {
 	js, err := l.jobs.ListByState(ctx, states...)
@@ -82,11 +90,24 @@ func (l *Leaf) List(ctx context.Context, states ...string) ([]store.Job, error) 
 }
 
 // Create writes a queued job; logPath names its output file.
-func (l *Leaf) Create(ctx context.Context, kind string, lock []string, payload string, releaseID *string, logDir string) (store.Job, error) {
+func (l *Leaf) Create(
+	ctx context.Context,
+	kind string,
+	lock []string,
+	payload string,
+	releaseID *string,
+	logDir string,
+) (store.Job, error) {
 	id := uuid.NewString()
 	j := store.Job{
-		ID: id, Kind: kind, State: Queued, ReleaseID: releaseID, LockSet: LockSet(lock...),
-		Payload: payload, LogPath: logDir + "/" + id + ".log", CreatedAt: time.Now().UTC(),
+		ID:        id,
+		Kind:      kind,
+		State:     Queued,
+		ReleaseID: releaseID,
+		LockSet:   LockSet(lock...),
+		Payload:   payload,
+		LogPath:   logDir + "/" + id + ".log",
+		CreatedAt: time.Now().UTC(),
 	}
 	return j, l.jobs.Create(ctx, j)
 }
@@ -94,7 +115,10 @@ func (l *Leaf) Create(ctx context.Context, kind string, lock []string, payload s
 // Start marks a job running.
 func (l *Leaf) Start(ctx context.Context, j store.Job) (store.Job, error) {
 	now := time.Now().UTC()
-	j.State, j.StartedAt, j.WaitingParam, j.Error = Running, &now, nil, ""
+	j.State = Running
+	j.StartedAt = &now
+	j.WaitingParam = nil
+	j.Error = ""
 	return j, l.jobs.Update(ctx, j)
 }
 

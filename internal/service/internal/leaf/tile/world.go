@@ -83,7 +83,13 @@ func (l *Leaf) Start(ctx context.Context, t store.Tile, spec docker.ContainerSpe
 // its log lines copied into log. It waits for the exit and removes the
 // container on every path (docker run --rm). ctx ending (timeout, cancel)
 // stops it and returns ctx.Err().
-func (l *Leaf) RunOnce(ctx context.Context, t store.Tile, spec docker.ContainerSpec, runID string, log io.Writer) (int, error) {
+func (l *Leaf) RunOnce(
+	ctx context.Context,
+	t store.Tile,
+	spec docker.ContainerSpec,
+	runID string,
+	log io.Writer,
+) (int, error) {
 	spec.Labels = maps.Clone(spec.Labels)
 	if spec.Labels == nil {
 		spec.Labels = map[string]string{}
@@ -159,7 +165,9 @@ func (l *Leaf) Pause(ctx context.Context, t store.Tile, network string) (string,
 		id = cs[0].ID
 	} else {
 		id, err = l.docker.Run(ctx, docker.ContainerSpec{
-			Name: "stackr-pause-" + t.ID, Image: PauseImage, Restart: "always",
+			Name:     "stackr-pause-" + t.ID,
+			Image:    PauseImage,
+			Restart:  "always",
 			Labels:   map[string]string{LabelTile: t.ID, LabelRole: "pause"},
 			Networks: []docker.NetAttach{{Name: network, Aliases: []string{t.Slug}}},
 		})
@@ -293,7 +301,12 @@ func (l *Leaf) Exec(ctx context.Context, tileID, id string, cmd []string) (strin
 }
 
 // Terminal streams a command (a shell) with stdin; the guard as Exec.
-func (l *Leaf) Terminal(ctx context.Context, tileID, id string, cmd []string, stdin io.Reader) (io.Reader, func() error, error) {
+func (l *Leaf) Terminal(
+	ctx context.Context,
+	tileID, id string,
+	cmd []string,
+	stdin io.Reader,
+) (io.Reader, func() error, error) {
 	if err := l.guard(ctx, tileID, id, "opened a terminal into"); err != nil {
 		return nil, nil, err
 	}
@@ -434,7 +447,12 @@ func (l *Leaf) Quiesce(ctx context.Context, ts []store.Tile) (resume func(), err
 
 // Stream execs cmd in the tile's first running replica with stdin, handing
 // back stdout and a wait the caller must call on every path.
-func (l *Leaf) Stream(ctx context.Context, t store.Tile, cmd []string, stdin io.Reader) (io.Reader, func() error, error) {
+func (l *Leaf) Stream(
+	ctx context.Context,
+	t store.Tile,
+	cmd []string,
+	stdin io.Reader,
+) (io.Reader, func() error, error) {
 	ids, err := l.running(ctx, []store.Tile{t})
 	if err != nil {
 		return nil, nil, err

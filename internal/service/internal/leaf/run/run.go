@@ -55,8 +55,14 @@ func New(runs store.RunStore, dir string) *Leaf { return &Leaf{runs: runs, dir: 
 
 // Start writes a queued run and prunes the tile past Keep (row and log).
 func (l *Leaf) Start(ctx context.Context, tileID string, releaseID *string, trigger string) (store.Run, error) {
-	r := store.Run{ID: uuid.NewString(), TileID: tileID, ReleaseID: releaseID, Trigger: trigger,
-		Status: Queued, CreatedAt: time.Now().UTC()}
+	r := store.Run{
+		ID:        uuid.NewString(),
+		TileID:    tileID,
+		ReleaseID: releaseID,
+		Trigger:   trigger,
+		Status:    Queued,
+		CreatedAt: time.Now().UTC(),
+	}
 	if err := l.runs.Create(ctx, r); err != nil {
 		return r, err
 	}
@@ -99,7 +105,10 @@ func (l *Leaf) Finish(ctx context.Context, id string, exit *int, status, reason 
 		return r, err
 	}
 	now := time.Now().UTC()
-	r.ExitCode, r.Status, r.Reason, r.FinishedAt = exit, status, reason, &now
+	r.ExitCode = exit
+	r.Status = status
+	r.Reason = reason
+	r.FinishedAt = &now
 	return r, l.runs.Update(ctx, r)
 }
 

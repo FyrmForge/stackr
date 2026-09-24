@@ -43,7 +43,9 @@ type Pin struct {
 	Digest    string  `json:"digest"`
 }
 
-func (l *Leaf) Get(ctx context.Context, id string) (store.Release, error) { return l.releases.Get(ctx, id) }
+func (l *Leaf) Get(ctx context.Context, id string) (store.Release, error) {
+	return l.releases.Get(ctx, id)
+}
 
 func (l *Leaf) GetByNumber(ctx context.Context, stackID string, n int) (store.Release, error) {
 	return l.releases.GetByNumber(ctx, stackID, n)
@@ -71,7 +73,14 @@ func (l *Leaf) Pins(ctx context.Context, releaseID string) (map[string]Pin, erro
 	rts, err := l.tiles.ListByRelease(ctx, releaseID)
 	out := make(map[string]Pin, len(rts))
 	for _, r := range rts {
-		out[r.Slug] = Pin{Slug: r.Slug, Repo: r.Repo, Branch: r.Branch, CommitSHA: r.CommitSHA, ImageID: r.ImageID, Digest: r.Digest}
+		out[r.Slug] = Pin{
+			Slug:      r.Slug,
+			Repo:      r.Repo,
+			Branch:    r.Branch,
+			CommitSHA: r.CommitSHA,
+			ImageID:   r.ImageID,
+			Digest:    r.Digest,
+		}
 	}
 	return out, err
 }
@@ -99,13 +108,27 @@ func (l *Leaf) Create(ctx context.Context, stackID, by string, pins []Pin) (stor
 	for _, r := range rs {
 		n = max(n, r.Number)
 	}
-	r := store.Release{ID: uuid.NewString(), StackID: stackID, Number: n + 1, CreatedAt: time.Now().UTC(), CreatedBy: by}
+	r := store.Release{
+		ID:        uuid.NewString(),
+		StackID:   stackID,
+		Number:    n + 1,
+		CreatedAt: time.Now().UTC(),
+		CreatedBy: by,
+	}
 	if err := l.releases.Create(ctx, r); err != nil {
 		return r, err
 	}
 	for _, p := range pins {
-		rt := store.ReleaseTile{ID: uuid.NewString(), ReleaseID: r.ID, Slug: p.Slug, Repo: p.Repo, Branch: p.Branch,
-			CommitSHA: p.CommitSHA, ImageID: p.ImageID, Digest: p.Digest}
+		rt := store.ReleaseTile{
+			ID:        uuid.NewString(),
+			ReleaseID: r.ID,
+			Slug:      p.Slug,
+			Repo:      p.Repo,
+			Branch:    p.Branch,
+			CommitSHA: p.CommitSHA,
+			ImageID:   p.ImageID,
+			Digest:    p.Digest,
+		}
 		if err := l.tiles.Create(ctx, rt); err != nil {
 			return r, err
 		}

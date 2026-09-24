@@ -81,7 +81,13 @@ func (l *Leaf) Save(ctx context.Context, s Scope, nodeID string, p Point) error 
 	if err := inReach(p.X, p.Y); err != nil {
 		return err
 	}
-	return l.positions.Put(ctx, store.Position{ScopeKind: s.Kind, ScopeID: s.ID, NodeID: nodeID, X: p.X, Y: p.Y})
+	return l.positions.Put(ctx, store.Position{
+		ScopeKind: s.Kind,
+		ScopeID:   s.ID,
+		NodeID:    nodeID,
+		X:         p.X,
+		Y:         p.Y,
+	})
 }
 
 // Reset forgets every card position on the canvas; annotations stay.
@@ -126,7 +132,10 @@ func (l *Leaf) Put(ctx context.Context, s Scope, a store.Annotation) (out store.
 		if a.Kind == Note && a.Text == "" {
 			return a, false, errs.Invalidf("text", "a note needs text")
 		}
-		a.ID, a.ScopeKind, a.ScopeID, a.CreatedAt = uuid.NewString(), s.Kind, s.ID, time.Now().UTC()
+		a.ID = uuid.NewString()
+		a.ScopeKind = s.Kind
+		a.ScopeID = s.ID
+		a.CreatedAt = time.Now().UTC()
 		return a, false, l.annotations.Create(ctx, a)
 	}
 	old, err := l.get(ctx, s, a.ID)

@@ -94,7 +94,9 @@ func Ingress(tileID string) string { return "stackr-ingress-" + tileID }
 func (l *Leaf) Get(ctx context.Context, id string) (store.Domain, error) {
 	return l.domains.Get(ctx, id)
 }
+
 func (l *Leaf) List(ctx context.Context) ([]store.Domain, error) { return l.domains.List(ctx) }
+
 func (l *Leaf) ListByTile(ctx context.Context, tileID string) ([]store.Domain, error) {
 	return l.domains.ListByTile(ctx, tileID)
 }
@@ -236,8 +238,15 @@ func (l *Leaf) fill(ctx context.Context, d *store.Domain, s Spec, dns01 bool) er
 		return errs.Conflictf("%s%s is already attached to a tile", host, path)
 	}
 	extras, _ := json.Marshal(s.Extras)
-	d.Host, d.Path, d.ContainerPort, d.HTTPS, d.ForceHTTPS = host, path, s.Port, https, force
-	d.RedirectTo, d.Auto, d.ProxyJSON, d.RawCaddy = redirect, s.Auto, string(extras), raw
+	d.Host = host
+	d.Path = path
+	d.ContainerPort = s.Port
+	d.HTTPS = https
+	d.ForceHTTPS = force
+	d.RedirectTo = redirect
+	d.Auto = s.Auto
+	d.ProxyJSON = string(extras)
+	d.RawCaddy = raw
 	return nil
 }
 
