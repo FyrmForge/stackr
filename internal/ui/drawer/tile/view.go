@@ -89,6 +89,7 @@ type RunsView struct {
 	Cron   bool
 	Paused bool
 	Rows   []RunRow
+	Poll   string // re-fetched every 2 s while a run is live; "" = idle
 }
 
 type RunRow struct {

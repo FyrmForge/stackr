@@ -78,7 +78,11 @@ func (h *handler) show(c echo.Context, status int, v ui.View) error {
 		if err != nil {
 			return middleware.HTTPError(err)
 		}
-		body = ui.Status(v, statusView(render.EnvURL(c), s))
+		sv := statusView(render.EnvURL(c), s)
+		if sv.Job != nil {
+			sv.Job.Refresh = v.Base + "?tab=status"
+		}
+		body = ui.Status(v, sv)
 	case "logs":
 		s, err := h.orch.TileStatus(ctx, t.ID)
 		if err != nil {
@@ -113,7 +117,7 @@ func (h *handler) show(c echo.Context, status int, v ui.View) error {
 		if err != nil {
 			return middleware.HTTPError(err)
 		}
-		body = ui.Runs(v, runsView(*t, rs))
+		body = ui.Runs(v, runsView(v.Base, *t, rs))
 	case "backups":
 		vs, err := h.orch.TileVolumes(ctx, t.ID)
 		if err != nil {

@@ -11,12 +11,16 @@ type JobStatusView struct {
 	Href      string // the job page; "" = none
 	StreamURL string
 	Live      bool
+	Refresh   string // re-fetched into the drawer when the stream ends; "" = none
 }
 
 templ JobStatus(v JobStatusView) {
 	if v.Live {
 		<div hx-ext="sse" sse-connect={ v.StreamURL } sse-swap="update" sse-close="end">
 			@JobStatusBody(v)
+			if v.Refresh != "" {
+				<span hidden hx-get={ v.Refresh } hx-trigger="sse:end" hx-target={ "#" + DrawerRoot } hx-swap="outerHTML"></span>
+			}
 		</div>
 	} else {
 		<div>

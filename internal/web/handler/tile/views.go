@@ -101,7 +101,7 @@ func imageView(t service.Tile, i service.Image) ui.ImageView {
 		UpdatePolicy: t.UpdatePolicy, TagPolicy: t.TagPolicy}
 }
 
-func runsView(t service.Tile, rs []service.Run) ui.RunsView {
+func runsView(base string, t service.Tile, rs []service.Run) ui.RunsView {
 	v := ui.RunsView{Cron: t.Kind == "cron", Paused: t.Paused}
 	for _, r := range rs {
 		row := ui.RunRow{ID: r.ID, Status: r.Status, Trigger: r.Trigger, Started: when(r.StartedAt),
@@ -113,6 +113,9 @@ func runsView(t service.Tile, rs []service.Run) ui.RunsView {
 			row.Exit = strconv.Itoa(*r.ExitCode)
 		}
 		v.Rows = append(v.Rows, row)
+		if row.Live {
+			v.Poll = base + "?tab=runs"
+		}
 	}
 	return v
 }

@@ -84,6 +84,7 @@ func (h *handler) releases(c echo.Context, cd card, f *comp.DrawerView, write bo
 	}
 	if j, ok := c.Get(jobKey).(service.Job); ok {
 		jv := render.JobView(urlOf(cd.s), j)
+		jv.Refresh = f.Base + "?tab=releases"
 		v.Job = &jv
 	}
 	i := slices.IndexFunc(rs, func(r service.Release) bool { return r.ID == plan })
