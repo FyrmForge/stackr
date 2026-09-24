@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"path/filepath"
 	"slices"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	"github.com/FyrmForge/stackr/internal/service/internal/dockerfake"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/promote"
@@ -205,10 +207,16 @@ func TestTrustedProxiesRefusesNonCIDR(t *testing.T) {
 	}
 }
 
-// Step 3b: a promote of a stack file with a cron tile registers its
-// schedule entry; pausing the tile takes the entry out.
-func TestPromoteRegistersCron(t *testing.T) {
-	w := newWorld(t)
+const nightly = "    nightly:\n      kind: cron\n      image: busybox:1\n      schedule: \"0 3 * * *\"\n      command: \"true\"\n"
+
+// promoteCron promotes a stack file holding one image cron, nightly, into
+// dev and returns the tile.
+func (w *world) promoteCron(t *testing.T) Tile { return w.promoteTile(t, "nightly", nightly) }
+
+// promoteTile promotes a stack file whose base holds tiles (yaml) into dev
+// and returns the tile slug.
+func (w *world) promoteTile(t *testing.T, slug, tiles string) Tile {
+	t.Helper()
 	w.fake.Digests = map[string]string{"busybox:1": "sha256:b1"}
 	ctx := context.Background()
 	st, err := w.st.Stacks.Get(ctx, w.stack)
@@ -216,8 +224,7 @@ func TestPromoteRegistersCron(t *testing.T) {
 	st.ConfigRepo, st.ConfigBranch = "https://github.com/acme/shop", "main"
 	must(t, w.st.Stacks.Update(ctx, st))
 	w.o.promote.Config = func(context.Context, store.Stack, string, io.Writer) ([]byte, promote.Fetcher, error) {
-		return []byte("version: 1\nstack: shop\nladder: [dev]\nhead: main\nbase:\n  tiles:\n" +
-			"    nightly:\n      kind: cron\n      image: busybox:1\n      schedule: \"0 3 * * *\"\n      command: \"true\"\n"), nil, nil
+		return []byte("version: 1\nstack: shop\nladder: [dev]\nhead: main\nbase:\n  tiles:\n" + tiles), nil, nil
 	}
 	rel, err := w.o.releases.Create(ctx, w.stack, "test",
 		[]release.Pin{{Slug: release.ConfigSlug, Repo: st.ConfigRepo, CommitSHA: "c1"}})
@@ -227,14 +234,111 @@ func TestPromoteRegistersCron(t *testing.T) {
 	if j = w.wait(t, j.ID); j.State != job.Done {
 		t.Fatalf("promote = %s: %s", j.State, j.Error)
 	}
-	cron, err := w.o.tiles.GetBySlug(ctx, w.env, "nightly")
+	tl, err := w.o.tiles.GetBySlug(ctx, w.env, slug)
 	must(t, err)
+	return tl
+}
+
+// Step 3b: a function with trigger on_deploy gets one run per deploy.
+func TestOnDeployRuns(t *testing.T) {
+	w := newWorld(t)
+	fn := w.promoteTile(t, "migrate",
+		"    migrate:\n      kind: function\n      image: busybox:1\n      trigger: on_deploy\n")
+	rs, err := w.o.Runs(context.Background(), fn.ID, 0)
+	must(t, err)
+	if len(rs) != 1 || rs[0].Trigger != "deploy" {
+		t.Fatalf("runs after promote = %+v, want one deploy run", rs)
+	}
+	j := w.wait(t, rs[0].JobID)
+	if r, _ := w.o.Run(context.Background(), fn.ID, rs[0].ID); j.State != job.Done || r.Status != "ok" {
+		t.Fatalf("on_deploy run = %s / %+v", j.State, r)
+	}
+}
+
+// Step 3b: a promote of a stack file with a cron tile registers its
+// schedule entry; pausing the tile takes the entry out.
+func TestPromoteRegistersCron(t *testing.T) {
+	w := newWorld(t)
+	ctx := context.Background()
+	cron := w.promoteCron(t)
 	if !slices.Contains(w.o.sched.Names(), "cron "+cron.ID) {
 		t.Fatalf("entries after promote = %v, want cron %s", w.o.sched.Names(), cron.ID)
 	}
-	_, _, err = w.o.UpdateTile(ctx, cron.ID, func(t *Tile) error { t.Paused = true; return nil })
+	_, err := w.o.PauseTile(ctx, cron.ID, true)
 	must(t, err)
 	if slices.Contains(w.o.sched.Names(), "cron "+cron.ID) {
 		t.Fatalf("entries after pause = %v, want no cron entry", w.o.sched.Names())
+	}
+	st, err := w.o.TileStatus(ctx, cron.ID)
+	must(t, err)
+	if !st.Paused || st.NextRun != nil {
+		t.Fatalf("status of a paused cron = %+v, want paused and no next run", st)
+	}
+	_, err = w.o.PauseTile(ctx, cron.ID, false)
+	must(t, err)
+	if st, _ = w.o.TileStatus(ctx, cron.ID); st.Paused || st.NextRun == nil {
+		t.Fatalf("status after resume = %+v, want a next run", st)
+	}
+}
+
+// Step 3b verbs: a manual run, the overlap refusal, StopRun (ownership
+// first), and the Stop/Restart guards.
+func TestRunVerbs(t *testing.T) {
+	w := newWorld(t)
+	w.fake.WaitBlock = true // a run goes until it is stopped
+	ctx := context.Background()
+	cron := w.promoteCron(t)
+	other := w.tile(t, "api", false)
+
+	j, r, err := w.o.RunTile(ctx, cron.ID)
+	must(t, err)
+	if j.ID == "" || r.JobID != j.ID || r.Trigger != "manual" {
+		t.Fatalf("RunTile = %+v, %+v", j, r)
+	}
+	for range 500 {
+		if r, _ = w.o.Run(ctx, cron.ID, r.ID); r.Status == "running" {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if r.Status != "running" {
+		t.Fatalf("run = %+v, want running", r)
+	}
+	j2, r2, err := w.o.RunTile(ctx, cron.ID)
+	must(t, err)
+	if j2.ID != "" || r2.Status != "cancelled" || r2.Reason != "previous run still going" {
+		t.Fatalf("overlapping run = %+v, %+v", j2, r2)
+	}
+	if err := w.o.StopRun(ctx, other.ID, r.ID); !errors.Is(err, errs.ErrNotFound) {
+		t.Fatalf("StopRun through another tile = %v, want not found", err)
+	}
+	must(t, w.o.StopRun(ctx, cron.ID, r.ID))
+	if j = w.wait(t, j.ID); j.State != job.Cancelled {
+		t.Fatalf("run job after StopRun = %s", j.State)
+	}
+	if r, _ = w.o.Run(ctx, cron.ID, r.ID); r.Status != "cancelled" || r.Reason != "stopped" {
+		t.Fatalf("run after StopRun = %+v", r)
+	}
+	if rs, _ := w.o.Runs(ctx, cron.ID, 0); len(rs) != 2 {
+		t.Fatalf("runs = %d, want 2", len(rs))
+	}
+	st, err := w.o.TileStatus(ctx, cron.ID)
+	must(t, err)
+	if st.LastRun == nil || st.NextRun == nil {
+		t.Fatalf("status = %+v, want a last and a next run", st)
+	}
+
+	msg := func(err error) string { v, _ := errs.IsInvalid(err); return v.Msg }
+	if _, err := w.o.RestartTile(ctx, cron.ID); msg(err) != "a cron has no long-running container to restart; use run instead" {
+		t.Fatalf("restart a cron = %v", err)
+	}
+	if _, _, err := w.o.RunTile(ctx, other.ID); msg(err) != "run applies to cron and function tiles" {
+		t.Fatalf("run an image tile = %v", err)
+	}
+	if _, err := w.o.StopTile(ctx, cron.ID); err != nil {
+		t.Fatal(err)
+	}
+	if st, _ = w.o.TileStatus(ctx, cron.ID); !st.Paused {
+		t.Fatal("stop on a cron did not pause it")
 	}
 }

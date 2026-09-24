@@ -89,6 +89,9 @@ func (f *Flow) Do(ctx context.Context, runID string, log io.Writer) error {
 		return err
 	}
 	fail := func(status, reason string, exit *int) error {
+		if ctx.Err() != nil {
+			status, reason = lrun.Cancelled, "stopped"
+		}
 		_, ferr := f.Runs.Finish(context.WithoutCancel(ctx), r.ID, exit, status, reason)
 		return errors.Join(errors.New(reason), ferr)
 	}
@@ -112,7 +115,7 @@ func (f *Flow) Do(ctx context.Context, runID string, log io.Writer) error {
 	if err != nil {
 		return fail(lrun.Failed, err.Error(), nil)
 	}
-	if r, err = f.Runs.Begin(ctx, r.ID); err != nil {
+	if r, err = f.Runs.Begin(ctx, r.ID); err != nil || lrun.Done(r) {
 		return err
 	}
 	out, err := f.Runs.OpenLog(r)

@@ -75,12 +75,13 @@ func (l *Leaf) SetJob(ctx context.Context, id, jobID string) (store.Run, error) 
 	return r, l.runs.Update(ctx, r)
 }
 
-// Begin moves a queued run to running.
+// Begin moves a queued run to running; a run closed meanwhile (stopped
+// while queued) comes back as it is.
 func (l *Leaf) Begin(ctx context.Context, id string) (store.Run, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	r, err := l.runs.Get(ctx, id)
-	if err != nil {
+	if err != nil || Done(r) {
 		return r, err
 	}
 	now := time.Now().UTC()

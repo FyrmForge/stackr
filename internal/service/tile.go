@@ -3,9 +3,11 @@ package service
 import (
 	"context"
 	"io"
+	"time"
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/imagewatch"
+	lrun "github.com/FyrmForge/stackr/internal/service/internal/leaf/run"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
@@ -13,10 +15,14 @@ import (
 type Image = store.Image
 
 // TileStatus is the box's word for a tile plus its newest job (DECIDE 8).
+// A cron or function adds its newest run; a cron its next tick and pause.
 type TileStatus struct {
 	Word     string      `json:"word"` // running | stopped | partial | … (leaf/tile)
 	Replicas []Container `json:"replicas"`
 	LastJob  *Job        `json:"last_job"`
+	LastRun  *Run        `json:"last_run,omitempty"`
+	NextRun  *time.Time  `json:"next_run,omitempty"` // unpaused cron only
+	Paused   bool        `json:"paused"`
 }
 
 func (o *Orchestrator) Tiles(ctx context.Context, envID string) ([]Tile, error) {
@@ -37,6 +43,20 @@ func (o *Orchestrator) TileStatus(ctx context.Context, id string) (TileStatus, e
 		return out, err
 	} else if ok {
 		out.LastJob = &j
+	}
+	if !tile.RunToCompletion(t.Kind) {
+		return out, nil
+	}
+	if r, ok, err := o.runs.Last(ctx, id); err != nil {
+		return out, err
+	} else if ok {
+		out.LastRun = &r
+	}
+	out.Paused = t.Paused
+	if t.Kind == tile.Cron && !t.Paused {
+		if n, err := lrun.Next(t.Schedule, time.Now()); err == nil {
+			out.NextRun = &n
+		}
 	}
 	return out, nil
 }
@@ -106,11 +126,32 @@ func (o *Orchestrator) Deploy(ctx context.Context, id string) (Job, error) {
 	return o.enqueue(ctx, kindDeploy, tileJob{TileID: id}, id)
 }
 
+// RestartTile: a cron or function has runs, not replicas; refused.
 func (o *Orchestrator) RestartTile(ctx context.Context, id string) (Job, error) {
+	t, err := o.tiles.Get(ctx, id)
+	if err != nil {
+		return Job{}, err
+	}
+	if tile.RunToCompletion(t.Kind) {
+		return Job{}, errs.Invalidf("kind", "a %s has no long-running container to restart; use run instead", t.Kind)
+	}
 	return o.enqueue(ctx, kindRestart, tileJob{TileID: id}, id)
 }
 
+// StopTile: a cron parks (paused, no job: the zero Job comes back); a
+// function has nothing to stop (StopRun stops a run).
 func (o *Orchestrator) StopTile(ctx context.Context, id string) (Job, error) {
+	t, err := o.tiles.Get(ctx, id)
+	if err != nil {
+		return Job{}, err
+	}
+	switch t.Kind {
+	case tile.Cron:
+		_, err = o.PauseTile(ctx, id, true)
+		return Job{}, err
+	case tile.Function:
+		return Job{}, errs.Invalidf("kind", "nothing to stop")
+	}
 	return o.enqueue(ctx, kindStop, tileJob{TileID: id}, id)
 }
 

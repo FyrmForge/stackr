@@ -43,6 +43,7 @@ nothing else. Signatures: `go doc -all ./internal/service Orchestrator`.
 | Git connectors (GitHub App) | `Connectors`, `BeginConnector`, `CompleteConnector`, `RenameConnector`, `DeleteConnector`, `Webhook` |
 | Registry credentials | `Credentials`, `CreateCredential`, `UpdateCredential`, `DeleteCredential` |
 | Container logs and restart | `Logs`, `FollowLogs`, `Terminal`, `RestartTile`, `StopTile`, `StartTile` |
+| Cron and function tiles (step 3b) | `RunTile` (row first, then the job), `PauseTile`, `Runs`, `Run`, `StopRun`, `RunLog`, `FollowRunLog`; `TileStatus` adds `LastRun`, `NextRun`, `Paused`; `StopTile` on a cron pauses, on a function refuses; `RestartTile` refuses both; cron ticks on the scheduler |
 | Zero-downtime deploys and replicas | `Deploy` (overlap rollout and health gate in flow/deploy; `Tile.Replicas`) |
 | Backups | `BackupDests`, `CreateBackupDest`, `UpdateBackupDest`, `DeleteBackupDest`, `BackupMethods`, `BackupSchedules`, `AddBackupSchedule`, `UpdateBackupSchedule`, `DeleteBackupSchedule`, `BackupNow`, `BackupRuns`, `RestoreBackup` (cross-volume), `PanelBackups`, `PanelBackupNow`; scheduled runs and orphan retention on the scheduler |
 | Installer and self-upgrade | `Version`, `CheckUpgrade`, `Upgrade`; `service.RunPanelSwap` (`stackrd upgrade-swap`); `service.ProxyAdmin` (`stackrd proxy`) |
@@ -73,4 +74,5 @@ serialises the jobs.
 | orphans | daily cron | `orphans` |
 | panel-backup | `PanelBackupNow` | `panel-backup` |
 | upgrade | `Upgrade` | `panel` |
+| run | `RunTile`, a cron tick, a deploy or promote of an on_deploy function | tile, `run:<id>` (never supersedes; no 30-minute cap, the tile's `timeout_minutes` instead) |
 | imagewatch | `CheckImages`, the interval sweep | `imagewatch`, `imagewatch:<stack>/<tile>` (`imagewatch:all` for the sweep) |
