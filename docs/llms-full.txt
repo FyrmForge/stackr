@@ -1,0 +1,3618 @@
+# HAMR Framework — Complete Package Reference
+
+> Full API documentation for hamr/pkg packages.
+> Import base: github.com/FyrmForge/hamr/pkg/<name>
+
+## Glossary
+
+- **templ**: Go HTML templating language (NOT Go's html/template). Compiled to Go.
+  Files use .templ extension. Components are Go functions returning templ.Component.
+- **HTMX**: JavaScript library for HTML-over-the-wire. Attributes like hx-post,
+  hx-swap, hx-target drive server interaction without writing JS.
+- **OOB swap**: HTMX out-of-band swap. Element with hx-swap-oob="true" replaces
+  a matching element by ID anywhere in the DOM, independent of the main swap target.
+- **PRG pattern**: Post-Redirect-Get. POST handlers redirect with 303 to prevent
+  form resubmission.
+- **PHC format**: Password Hash Competition format string for Argon2id hashes.
+- **Echo context (echo.Context)**: The request/response wrapper in Echo v4.
+  NOT Go's context.Context. Use c.Request().Context() for the stdlib context.
+- **functional options**: Constructor pattern using variadic Option functions
+  (e.g., server.New(server.WithPort(8080))).
+- **Store interface**: Repository pattern used in scaffolded projects.
+  Generated projects define a Store interface in their internal/repo/repo.go;
+  it is not part of the hamr framework itself.
+- **hamr dev**: Dev server with file watching, auto-rebuild, and live reload. Any file event on a watched path reruns its `[[dev.watch]]` rule, including timestamp-only ones (`touch .env` restarts the app) but not a bare `chmod`/`chown`.
+  `--headless` (automatic when stdout is not a terminal) skips the TUI and
+  streams every line — hamr, rules, daemons, docker logs — to stdout, for
+  agents/CI running `hamr dev --headless > dev.log &`; no hotkeys, stop
+  with SIGTERM. Mirrors its recent output to a rolling log file (default
+  `.hamr/dev_logs.txt`, 200 lines) for LLM consumption. The file contains
+  `[hamr dev]` messages plus watched command/daemon stdout-stderr with terminal
+  escapes stripped. The injected reload script also pipes browser
+  `window.console.*` calls + uncaught JS errors + unhandled promise
+  rejections + resource-load failures (`<img>`/`<script>`/`<link>` 404s)
+  + CSP violations back to the dev server over a WebSocket at
+  `/__hamr/console`; the dev server logs them tagged `[site:console]`
+  in the same TUI tab and `dev_logs.txt` as backend output, in arrival
+  order. Wire format is JSON `{level, msg, src?}` per frame, batched
+  client-side every ~100ms (`level` ∈ `log`/`info`/`debug`/`warn`/
+  `error`/`rejection`/`resource`/`csp`; `src` populated only for
+  uncaught errors with file:line:col). Browser-engine warnings printed
+  directly to DevTools (deprecation notices, mixed-content, autoplay
+  blocked, the formatted "Failed to load resource" lines) and
+  `fetch`/`XHR` network errors are not catchable from page JS, so they
+  aren't captured. Gated by `[dev].hamr_console_capture` (default
+  true): the SSE config payload carries a `console_capture` flag and
+  the JS patches console + opens the WS only when true; setting
+  `[dev].hamr_console_capture = false` also prevents the server from
+  mounting the `/__hamr/console` endpoint. Set
+  `[dev].hamr_console_filter = true` to drop frames whose message
+  contains `[hamr]` (the reload script's own chatter — `[hamr] page
+  swapped`, `[hamr] CSS reloaded`, etc.); default false shows
+  everything. `[dev].dark_filter` (default false) seeds the dev panel's
+  "Dark filter" checkbox: an `invert(1) hue-rotate(180deg)` filter on
+  `<html>` (media, iframes and hamr's own overlay re-inverted) so a
+  light-mode app is bearable to work on. The SSE config payload carries
+  a `dark_filter` flag for the initial state; the checkbox POSTs
+  `/__hamr/dark`, which flips an in-process `atomic.Bool` and broadcasts
+  a `dark_filter` SSE event (`on`/`off`) to every open tab. The state
+  dies with the `hamr dev` process and is never written back to
+  `hamr.toml` — put it in `.pref.hamr.toml` for a per-developer
+  default. Configure via `log_file` and `log_file_max_lines` in
+  `[dev]`; set `log_file = "none"` to disable. The TUI adds an `M` hotkey to
+  toggle the MCP gateway (see **hamr mcp**); status bar shows `MCP on/<n>` or
+  `MCP off`. A `T` hotkey toggles a public tunnel from `[dev.tunnel]`
+  (`provider` = `cloudflared` default | `ngrok`, `args` appended to the built-in
+  command, or `cmd` with a `{port}` placeholder whose first printed https URL is
+  used; `env` default `["BASE_URL"]`). On: a loopback tunnel listener serves the
+  proxy handler with an allow-list (`tunnelAllowedPrefixes`: `/__hamr/reload`,
+  `/__hamr/logo.png`, `/__hamr/mail`, `/__hamr/sms`, `/__hamr/stripe`); every
+  other `/__hamr/*` route, including ones added later, returns 403 and
+  tunnel requests flagged in context so `/__hamr/reload` drops `output` events,
+  sends a names-only config, and the reload stream and error page hide build
+  error output; the `env` vars are set to
+  the public URL, and running `run` rules + daemons restart (no rebuild). Off,
+  or the tunnel process exiting, reverts. Off at every start. Progress goes out
+  on the event bus (`EvTunnelStart` "starting"/"stopping", `EvTunnelUp` with the
+  URL, `EvTunnelDown`): the ticker shows `tunnel starting`/`tunnel stopping`, and
+  while on the public URL replaces the localhost URL in the status bar (`o`
+  opens it). Injected env is composed from layers (`envLayers`: base
+  port-walk/hamr vars, then stripe, then tunnel; last wins), so a tunnel
+  toggle never wipes Stripe vars and vice versa. An `S` hotkey flips
+  `[dev.stripe]` between mock and listen (see **Stripe listen mode**); the
+  status bar shows `stripe: mock` / `stripe: listen` / `stripe: switching…`
+  off `EvStripeMode`, and the hint shows `S stripe` unless Stripe is off.
+- **hamr mcp**: MCP (Model Context Protocol) bridge that lets an AI agent
+  (Claude Code, Codex, opencode) drive a running `hamr dev`. Two hops:
+  agent ⟷ `hamr mcp` over stdio, then `hamr mcp` ⟷ `hamr dev` over localhost
+  HTTP at `/__hamr/mcp/{tool}`. Enabled via `[dev.mcp]` (default off) + the `M`
+  runtime kill-switch in the TUI. When enabled the gateway writes a per-run
+  bearer token + resolved proxy URL to `.hamr/dev.json` (0600, gitignored); the
+  bridge reads it (resolving the project via `--project` or the nearest
+  `hamr.toml` from cwd) and authenticates each call. Auth is token-only and the
+  `/__hamr/mcp/*` namespace is separate from the browser `/__hamr/*` routes, so
+  the kill-switch and permissions never affect the dev panel. Permissions are
+  per-area in `[dev.mcp.access]` (`read`/`write`/omit=deny; `write` implies
+  `read`): `dev` (dev.info read; dev.restart write), `logs` (logs.read [ANSI-stripped, timestamped,
+  rule prefix-matched so rule="site" catches site:build/site:run], console.read
+  [structured timestamped frames: time/level/msg/src], http.read [dev-proxy
+  request log: method/path/status/durationMs incl /__hamr/*, static, SSE/WS —
+  the proxy-level view the app's own access log can't give]), `docker`
+  (logs/status read; restart/wipe write), `mail` (list/get read; clear/ingest
+  write), `sms` (list/get read; clear/ingest write), `build` (rule.run,
+  rebuild.all, make.run — write-only), `stripe`
+  (list read; complete/expire/refund write). The gateway advertises only
+  granted tools and re-checks permission per call (the security boundary; the
+  bridge's filtering is UX). Async semantics: reads return immediately;
+  docker.restart/wipe and rule.run/rebuild.all dispatch (poll docker.status /
+  logs.read); dev.restart replies before it restarts anything (the handler writes
+  and flushes `{"ok":true}`, then fires the restart) because it tears down the
+  very proxy the call arrived on — so the reply always lands, but reports only
+  acceptance, never the outcome; a restart is refused outright while the run has
+  been up <5s (`restartCooldown`), measured from the ready flip so it survives
+  the Runner being rebuilt, capping an agent that loops on dev.restart at one
+  teardown-and-rebuild per cooldown — the bridge re-reads
+  `.hamr/dev.json` per call so it finds the new port/token, but calls during the
+  few-second teardown fail with a connection error, so wait and poll dev.info — or pass `wait:true` (+ `wait_timeout`, default 60s) to
+  docker.restart/wipe to block until running/healthy and get final statuses;
+  make.run returns inline `output` for fast targets, else waits `make_wait`
+  (default 20s) and returns `status:running` for slow ones, and is constrained
+  by `make_targets` (empty=all allowed). Every call is audit-logged to `.hamr/mcp_logs.txt`
+  (`log_file`; `"none"` disables); a dedicated `mcp` TUI tab (last in the `Tab`
+  cycle) shows one line per request (reads included), and mutations are also
+  tagged `[mcp]` in the main log tab. Setup: `hamr setup` walks agents, per-area
+  permissions, and skill install in one interactive pass, writing `[dev.mcp]` +
+  `[dev.mcp.access]` and the per-agent configs (`--dry-run` previews).
+  `hamr mcp install --client claude|codex|opencode` (auto-detects
+  installed agents when omitted; `--dry-run` previews) writes the per-client
+  config, merging existing entries and idempotent — Claude `.mcp.json` and
+  opencode `opencode.json` are project-scoped; Codex `~/.codex/config.toml` is
+  global and gets `--project` pinned to this project. Requires `hamr` on PATH
+  and `[proxy]` configured (the gateway lives on the proxy mux).
+- **hamr mock-serve**: Runs the dev mocks (mail, sms, stripe) standalone — no proxy,
+  TUI, build, or watch — built for a dedicated container in a dev environment.
+  Each release publishes the image `ghcr.io/fyrmforge/hamr:v<version>` (+ `:latest`,
+  linux/amd64 + arm64) with `mock-serve` as its default command — use `image:` in compose
+  rather than building hamr from source.
+  Unlike the mocks embedded in `hamr dev` (which mount on the proxy mux and read
+  `[dev.email]`/`[dev.sms]`/`[dev.stripe]` from hamr.toml), this command depends on no config
+  file: selection and all tuning come from env vars. `HAMR_MOCKS` (csv, required,
+  e.g. `mail,sms,stripe`) selects which to start; unknown names fail loudly.
+  Two listeners: `HAMR_MOCK_PORT` (default 4500) carries the app-facing surface
+  (stripe `/v1/*` + `/v2/*` API + mail `/__hamr/mail/ingest` + sms `/__hamr/sms/ingest`
+  sinks); optional
+  `HAMR_MOCK_UI_PORT` splits the human dashboards (stripe `/__hamr/stripe/*`,
+  mail inbox `/__hamr/mail`, SMS inbox `/__hamr/sms`) onto a second listener you can bind to loopback or
+  firewall separately (unset → UI shares the app-facing port). Invalid or out-of-range port values
+  error loudly rather than silently falling back to a default. Both listeners bind all interfaces by
+  default (correct in a container, where siblings reach it by service name); `HAMR_MOCK_BIND` restricts
+  the bind host — set `127.0.0.1` when running outside a container on a shared host, because the mock
+  surfaces are unauthenticated (the UI serves every captured email, which may contain reset tokens /
+  magic links, over plain GET, and the Stripe surface fires a correctly-signed webhook at the app on
+  request). Stripe needs
+  `HAMR_STRIPE_BASE_URL` (browser-reachable origin of the mock UI — required
+  because `localhost:<port>` has no container-safe default: not reachable via the
+  host's published port or from sibling containers), plus `HAMR_STRIPE_WEBHOOK_URL`
+  and `HAMR_STRIPE_WEBHOOK_SECRET` (must match the app's `STRIPE_WEBHOOK_SECRET`);
+  optional `HAMR_STRIPE_THIN_WEBHOOK_URL` for v2 thin events.
+  Mail tuning: `HAMR_MAIL_MAX_MESSAGES` (500), `HAMR_MAIL_MAX_MESSAGE_BYTES`
+  (10MiB), `HAMR_MAIL_PERSIST_PATH` (empty → in-memory only); SMS tuning:
+  `HAMR_SMS_MAX_MESSAGES` (500), `HAMR_SMS_PERSIST_PATH` (empty → in-memory
+  only); stripe persist:
+  `HAMR_STRIPE_PERSIST_PATH`. Graceful shutdown on SIGINT/SIGTERM. Reuses the
+  same mock implementations as `hamr dev` via split route-registration methods.
+- **hamr ai capture**: Browser screenshot capture with HTML/text/metadata sidecars.
+- **hamr ai upgrade**: Git-based scaffold upgrade report. Clones the HAMR repo and diffs between version tags to produce a unified diff and stat summary of all changes between the project's baseline and current HAMR.
+- **.pref.hamr.toml**: Optional per-developer override file sitting next to `hamr.toml`, merged over it at load time. Gitignored by the scaffold so local preferences never reach the team's committed config. Covers the dev-server config (`[proxy]`, `[dev]`, `[dev.*]`) read by `hamr dev`/`compose`/`mcp`/`add service`, plus `[static].dir`. Does NOT cover `[lint.templ]` (loaded via `pkg/templint`) or `[hamr]`/`[options]`/`[ai]` (scaffold metadata, not preferences); `hamr setup` ignores it too, since it writes the values it shows back into hamr.toml (`devserver.LoadConfigNoPrefs`). Merge is per-key at any depth — write only the keys you want changed. Arrays of tables (`[[dev.watch]]`, `[[dev.daemon]]`, `[[dev.docker_compose]]`) replace the whole list rather than merging, so a `hamr add service` rule appended to hamr.toml is invisible while the override defines watch rules. An override must use the same spelling as the base file: `[proxy].listen` vs `[dev].proxy_listen` across the two files is a load error. Editing it hot-reloads `hamr dev`.
+- **.hamr/ai/**: Playground directory for all AI command artifacts (captures, upgrade reports). Gitignored. Configurable via `[ai] dir` in hamr.toml.
+- **hamr gen locale**: Code generator for type-safe i18n accessors.
+- **hamr gen static**: Content-based static asset fingerprinting. Reads from
+  frontend/static/, writes fingerprinted copies to frontend/dist/, and generates a Go source file
+  with the manifest baked in at compile time. Config in [static] section of
+  hamr.toml. `--clean` removes the dist dir and resets the manifest.
+- **hamr completion install**: Installs shell completion scripts for bash, zsh, or fish. Auto-detects shell from $SHELL. Supports --system for system-wide install (requires root) and --shell to override detection.
+- **respond.Redirect**: HTMX-aware redirect that sets HX-Redirect for HTMX
+  requests and falls back to HTTP 303.
+
+---
+
+## Directives
+
+How hamr is meant to be used. Lean rules with rationale, do/don't examples, and tracked gaps where the codebase doesn't yet match.
+
+- `docs/guide/directives/` — directory of directives, one per file
+- `docs/guide/directives/gaps.md` — known drifts between code and directives
+
+---
+
+## Core Packages
+
+### config
+
+> Package config provides typed accessors for environment variables with
+> sensible defaults and panic-on-missing semantics.
+> For .env file loading, use the godotenv/autoload blank import in your main
+> package: `import _ "github.com/joho/godotenv/autoload"`
+
+```go
+func ParseBaseURL(raw string) (origin, hostname string, err error)
+```
+Validates a raw base URL string and returns the origin (scheme://host, including
+port if present) and the hostname (without port). An empty input is valid and
+returns zero values (optional in dev).
+
+```go
+func GetEnvOrDefault(key, def string) string
+```
+Returns the value of the environment variable named by key, or `def` if the
+variable is unset or empty.
+
+```go
+func GetEnvOrPanic(key string) string
+```
+Returns the value of the environment variable named by key. Panics if the
+variable is unset or empty.
+
+```go
+func GetEnvOrDefaultInt(key string, def int) int
+```
+Returns the environment variable as an int, falling back to `def` if unset,
+empty, or not a valid integer.
+
+```go
+func GetEnvOrDefaultBool(key string, def bool) bool
+```
+Returns the environment variable as a bool, falling back to `def` if unset,
+empty, or not a valid boolean.
+
+```go
+func GetEnvOrDefaultDuration(key string, def time.Duration) time.Duration
+```
+Returns the environment variable as a time.Duration, falling back to `def` if
+unset, empty, or not a valid duration string.
+
+```go
+func GetEnvCSV(key string) []string
+```
+Returns the environment variable parsed as a comma-separated list (whitespace
+trimmed, empty entries dropped). Returns `nil` when unset/empty.
+
+---
+
+### server
+
+> Package server wraps Echo v4 with functional options, production-safe
+> defaults, and graceful shutdown.
+
+#### Types
+
+```go
+type Server struct{ /* unexported fields */ }
+type Option func(*Server)
+```
+
+#### Constructor
+
+```go
+func New(opts ...Option) (*Server, error)
+```
+Creates a Server with sensible defaults, applies options, and configures
+production middleware. Returns an error if any option value is invalid.
+
+#### Option Functions
+
+```go
+func WithHost(host string) Option                        // bind address
+func WithPort(port int) Option                           // listen port (1-65535)
+func WithDevMode(dev bool) Option                        // dev: skip security headers, disable all response caching (no-cache on everything)
+func WithMiddleware(mw ...echo.MiddlewareFunc) Option    // append global middleware
+func WithStaticDir(path string) Option                   // serve the static dir at /static
+func WithStaticDistDir(path string) Option               // dist dir takes priority over the static dir
+func WithEmbeddedStatic(fsys fs.FS, prefix string) Option // serve from embed.FS
+func WithErrorHandler(h echo.HTTPErrorHandler) Option    // custom error handler
+func WithTimeout(d time.Duration) Option                 // request context timeout
+func WithMaxBodySize(size string) Option                 // e.g. "2M", "500K"
+func WithShutdownTimeout(d time.Duration) Option         // graceful shutdown (default 10s)
+func WithGeneratedDir(dir string) Option                 // pre-rendered static pages dir
+func WithTrustedProxies(cidrs ...string) Option          // proxy CIDRs trusted for X-Forwarded-For; unset = ignore XFF (RealIP unspoofable); "cloudflare" = Cloudflare ranges, refreshed 24h
+var CloudflareCIDRs []string                             // Cloudflare edge ranges pinned at release (static)
+```
+
+Behind a proxy you MUST pass its range (`WithTrustedProxies` / `TRUSTED_PROXIES`
+env, comma-separated CIDRs) or `RealIP()` returns the proxy IP, not the client:
+nginx/Caddy on-host → `127.0.0.1/32` (loopback is NOT auto-trusted); Docker →
+the proxy's subnet; AWS ALB/GCP LB → the VPC/subnet CIDR; PaaS (Railway/Fly/
+Render) → the platform's internal proxy range, which you often can't pin and may
+change, so verify it. Requirements: the proxy must actually emit
+`X-Forwarded-For`; never trust `0.0.0.0/0` (re-enables IP spoofing). Verify by
+dumping `c.Request().RemoteAddr` (the peer → CIDR to trust) vs `c.RealIP()`.
+
+Cloudflare proxy → `cloudflare` entry: trusts `CloudflareCIDRs` at startup;
+`Start()` refetches `api.cloudflare.com/client/v4/ips` immediately and every 24h
+(needs outbound HTTPS). A failed/implausible fetch (non-200, bad JSON, empty
+v4/v6, invalid CIDR, wider than /8 v4 or /16 v6) logs a warning and keeps the
+current list. No egress → pass `CloudflareCIDRs...` (static). Stacked proxies
+(Cloudflare → nginx → app): `cloudflare,<nginx CIDR>`, and nginx must append
+XFF (`$proxy_add_x_forwarded_for`), not overwrite it. Cloudflare Tunnel
+(`cloudflared`)/ngrok on-host → `127.0.0.1/32`; unset, every client is
+`127.0.0.1` and shares one rate-limit bucket. Never trust `CF-Connecting-IP`
+alone (forgeable by direct origin hits).
+
+#### Methods
+
+```go
+func (s *Server) Echo() *echo.Echo                       // underlying Echo instance
+func (s *Server) Addr() string                           // "host:port"
+func (s *Server) Start() error                           // blocks, graceful shutdown on signal
+func (s *Server) Shutdown(ctx context.Context) error     // manual shutdown
+
+// Route registration
+func (s *Server) GET(path string, h echo.HandlerFunc, m ...echo.MiddlewareFunc) *echo.Route
+func (s *Server) POST(path string, h echo.HandlerFunc, m ...echo.MiddlewareFunc) *echo.Route
+func (s *Server) PUT(path string, h echo.HandlerFunc, m ...echo.MiddlewareFunc) *echo.Route
+func (s *Server) DELETE(path string, h echo.HandlerFunc, m ...echo.MiddlewareFunc) *echo.Route
+func (s *Server) PATCH(path string, h echo.HandlerFunc, m ...echo.MiddlewareFunc) *echo.Route
+func (s *Server) Group(prefix string, m ...echo.MiddlewareFunc) *echo.Group
+
+// Static page generation
+func (s *Server) StaticPage(path string, handler echo.HandlerFunc)
+func (s *Server) GenerateStatic(dir string) error
+```
+
+---
+
+### logging
+
+> Package logging provides context-aware structured logging wrapping log/slog.
+> Production mode uses JSON handler; dev mode uses coloured tint handler.
+
+```go
+func New(production bool) *slog.Logger
+```
+Creates a new logger. JSON handler for production, tint handler for dev.
+
+```go
+func FromContext(ctx context.Context) *slog.Logger
+```
+Extracts the logger from ctx. Falls back to the package-level default.
+
+```go
+func WithLogger(ctx context.Context, l *slog.Logger) context.Context
+```
+Returns a copy of ctx carrying l.
+
+```go
+func With(ctx context.Context, args ...any) context.Context
+```
+Returns a copy of ctx whose logger has the supplied slog attributes appended.
+
+---
+
+### ctx
+
+> Package ctx provides type-safe context key helpers for Echo handlers.
+> Wraps Echo's context Set/Get with generics to avoid type assertion boilerplate.
+
+#### Types
+
+```go
+type Key[T any] struct{ /* unexported: name string */ }
+```
+
+#### Functions
+
+```go
+func NewKey[T any](name string) Key[T]
+func (k Key[T]) String() string
+
+func Set[T any](c echo.Context, key Key[T], value T)
+func Get[T any](c echo.Context, key Key[T]) (T, bool)
+func MustGet[T any](c echo.Context, key Key[T]) T
+
+func GetAs[T any](c echo.Context, key Key[any]) (T, bool)
+func MustGetAs[T any](c echo.Context, key Key[any]) T
+```
+
+`Get`/`GetAs` tolerate a nil `echo.Context`, returning `(zero, false)`:
+components render outside a request in normal use — `middleware.ErrorPages`
+renders from a `func(code int, message string)`, so the scaffold's error page
+calls `@Layout(nil, ...)` and every accessor built on `Get` (`GetFlash`,
+`GetSubject`, `GetSubjectID`) hits it. `MustGet`/`MustGetAs` still panic, with
+`ctx: nil echo.Context for key <name>`.
+
+#### Pre-defined Keys
+
+```go
+var (
+    SubjectIDKey  = NewKey[string]("subject_id")
+    SubjectKey    = NewKey[any]("subject")
+    SessionKey    = NewKey[any]("session")
+    RequestIDKey  = NewKey[string]("request_id")
+    FlashKey      = NewKey[any]("flash")
+    TranslatorKey = NewKey[any]("i18n_translator")
+    LocaleKey     = NewKey[string]("i18n_locale")
+)
+```
+
+---
+
+### respond
+
+> Package respond provides HTTP response helpers for HTMX-first applications.
+> Renders templ components or JSON payloads via Echo.
+
+#### Functions
+
+```go
+func HTML(c echo.Context, status int, component templ.Component) error
+```
+Renders a templ component with the given status code.
+
+```go
+func JSON(c echo.Context, status int, data any) error
+```
+Sends a JSON response with the given status code.
+
+```go
+func Redirect(c echo.Context, url string) error
+```
+HTMX-aware redirect. For HTMX requests: sets HX-Redirect header, returns 200.
+For regular requests: returns 303.
+
+#### Pagination
+
+```go
+func ParsePagination(c echo.Context, defaultSize int) (page, size int)
+```
+Reads page and size query params. Defaults page to 1, clamps size to [1, 100].
+
+```go
+func NewPage(page, size, total int) Page
+```
+Computes pagination metadata.
+
+```go
+type Page struct {
+    Number     int  `json:"number"`
+    Size       int  `json:"size"`
+    Total      int  `json:"total"`
+    TotalPages int  `json:"total_pages"`
+    HasNext    bool `json:"has_next"`
+    HasPrev    bool `json:"has_prev"`
+}
+
+type PagedResponse[T any] struct {
+    Data []T  `json:"data"`
+    Page Page `json:"page"`
+}
+```
+
+---
+
+### validate
+
+> Package validate provides pure-function validators that return "" on success
+> or a human-readable error message string on failure. The Form API lets you
+> define field rules once and reuse them for full-form and HTMX per-field validation.
+
+#### Constants
+
+```go
+const (
+    MsgRequired          = "This field is required"
+    MsgEmailInvalid      = "Invalid email address"
+    MsgPhoneInvalid      = "Invalid phone number"
+    MsgURLInvalid        = "Invalid URL"
+    MsgMinLength         = "Too short"
+    MsgMaxLength         = "Too long"
+    MsgOneOf             = "Invalid selection"
+    MsgIntRange          = "Value out of range"
+    MsgMinAge            = "Does not meet minimum age requirement"
+    MsgMaxAge            = "Exceeds maximum age"
+    MsgPasswordWeak      = "Password is too weak"
+    MsgHasUpper          = "Must contain an uppercase letter"
+    MsgHasLower          = "Must contain a lowercase letter"
+    MsgHasDigit          = "Must contain a digit"
+    MsgHasSpecial        = "Must contain a special character"
+    MsgValidatorNotFound = "Unknown validator"
+)
+```
+
+#### Type Aliases and Types
+
+```go
+type Rule = func(string) string                          // alias — existing validators satisfy it
+type CtxRule = func(echo.Context, string) string          // context-aware rule
+type FieldRenderer func(c echo.Context, field, errMsg string) error
+
+type PasswordRequirement struct {
+    Description string
+    Met         bool
+}
+```
+
+#### Core Validators
+
+Each validator returns "" for valid, error string for invalid.
+Every validator has a `*Msg` variant that accepts a custom error message.
+
+```go
+func Required(value string) string
+func RequiredMsg(value, msg string) string
+
+func EmptyOr(fn func(string) string) func(string) string  // wraps validator for optional fields
+
+func Email(value string) string
+func EmailMsg(value, msg string) string
+
+func Phone(value string) string                // accepts optional '+' + 7-15 digits
+func PhoneMsg(value, msg string) string
+
+func URL(value string) string         // absolute http/https only (rejects javascript:/data:/vbscript: XSS schemes)
+func URLMsg(value, msg string) string
+
+func MinLength(value string, min int) string
+func MinLengthMsg(value string, min int, msg string) string
+
+func MaxLength(value string, max int) string
+func MaxLengthMsg(value string, max int, msg string) string
+
+func OneOf(value string, options ...string) string
+func OneOfMsg(value, msg string, options ...string) string
+
+func IntRange(value int, min, max int) string
+func IntRangeMsg(value, min, max int, msg string) string
+```
+
+#### Curried Constructors
+
+Return `func(string) string` for use as Form rules:
+
+```go
+func MinLen(n int) Rule
+func MaxLen(n int) Rule
+func In(options ...string) Rule
+func AgeMin(minAge int) Rule
+func AgeMax(maxAge int) Rule
+```
+
+#### Rule Helpers
+
+```go
+func WithMsg(rule Rule, msg string) Rule       // wraps rule to override error message
+func RunRules(value string, rules ...Rule) string  // runs rules in order, returns first error
+```
+
+#### Date/Age Validators
+
+```go
+func MinAge(birthDate string, minAge int) string      // birthDate: YYYY-MM-DD
+func MinAgeMsg(birthDate string, minAge int, msg string) string
+func MaxAge(birthDate string, maxAge int) string
+func MaxAgeMsg(birthDate string, maxAge int, msg string) string
+```
+
+#### Character-Class Validators
+
+Individual checks for composable password rules:
+
+```go
+func HasUpper(value string) string       // "Must contain an uppercase letter"
+func HasUpperMsg(value, msg string) string
+
+func HasLower(value string) string       // "Must contain a lowercase letter"
+func HasLowerMsg(value, msg string) string
+
+func HasDigit(value string) string       // "Must contain a digit"
+func HasDigitMsg(value, msg string) string
+
+func HasSpecial(value string) string     // "Must contain a special character"
+func HasSpecialMsg(value, msg string) string
+```
+
+#### Password Strength
+
+```go
+func CheckPasswordRequirements(password string) []PasswordRequirement
+func PasswordStrength(password string) string
+func PasswordStrengthMsg(password, msg string) string
+```
+
+#### URL Normalisation
+
+```go
+func NormalizeURL(value string) string  // prepends "https://" when no scheme
+```
+
+#### Custom Validator Registry
+
+```go
+func Register(name string, fn func(string) string)
+func Run(name, value string) string  // returns MsgValidatorNotFound if not registered
+```
+
+#### Form API
+
+Define field rules once, use for both full-form and HTMX per-field validation:
+
+```go
+type FormOption interface{ apply(*formConfig) }
+
+func NewForm(opts ...FormOption) Form
+func WithOOBRenderer(fn FieldRenderer) FormOption
+func WithGeneralError(msg string) FormOption
+func WithTrim(on bool) FormOption
+func WithShortCircuit(on bool) FormOption
+```
+
+Field definitions return FieldBuilder (satisfies FormOption):
+
+```go
+func Field(name string, rules ...Rule) FieldBuilder
+func FieldMsg(name, msg string, rules ...Rule) FieldBuilder
+func (fb FieldBuilder) WithRenderer(fn FieldRenderer) FieldBuilder
+func (fb FieldBuilder) WithCtx(rules ...CtxRule) FieldBuilder
+```
+
+Form methods:
+
+```go
+func (f Form) Validate(c echo.Context) map[string]string          // nil when all pass
+func (f Form) ValidationHandler(paramName string) echo.HandlerFunc // HTMX per-field endpoint
+```
+
+Usage pattern:
+
+```go
+formRules := validate.NewForm(
+    validate.WithOOBRenderer(form.OOBValidator),
+    validate.WithTrim(true),
+    validate.Field("name", validate.Required, validate.MinLen(2)),
+    validate.Field("email", validate.Required, validate.Email),
+    validate.FieldMsg("password", "Password too weak", validate.Required, validate.PasswordStrength),
+)
+
+// Full form validation
+errs := formRules.Validate(c)  // map[string]string or nil
+
+// HTMX per-field (one route for all fields)
+group.POST("/validate/:field", formRules.ValidationHandler("field"))
+```
+
+Short-circuit: per-field always on (first rule failure stops). Per-form configurable
+via WithShortCircuit (default off — validates all fields).
+
+Cross-field via WithCtx (runs after standard rules, only if all pass):
+
+```go
+validate.Field("password_confirm", validate.Required).
+    WithCtx(func(c echo.Context, value string) string {
+        if value != c.FormValue("password") {
+            return "Passwords do not match"
+        }
+        return ""
+    })
+```
+
+WithTrim only trims the field being validated — values read via `c.FormValue` inside
+a CtxRule are untrimmed; apply `strings.TrimSpace` manually if needed.
+
+When the field is exposed via `ValidationHandler`, the per-field HTMX request only
+sends the triggering input's value by default. Other fields referenced inside the
+CtxRule must be pulled in with `hx-include`:
+
+```html
+<input name="password_confirm" hx-post="/register/validate/password_confirm"
+       hx-include="[name='password']" hx-swap="none" />
+```
+
+Without `hx-include`, `c.FormValue("password")` returns "". The validation is also
+asymmetric — editing the password field doesn't re-validate the confirm field unless
+its input is wired with a matching cross-trigger, or you rely on full-form
+`Validate(c)` at submit time.
+
+---
+
+### htmx
+
+> Package htmx provides request detection and response header helpers for htmx.
+> All functions operate on standard net/http types.
+
+#### Request Headers (constants)
+
+```go
+const (
+    HeaderRequest        = "HX-Request"
+    HeaderBoosted        = "HX-Boosted"
+    HeaderTrigger        = "HX-Trigger"
+    HeaderTarget         = "HX-Target"
+    HeaderCurrentURL     = "HX-Current-URL"
+    HeaderPrompt         = "HX-Prompt"
+    HeaderHistoryRestore = "HX-History-Restore-Request"
+)
+```
+
+#### Response Headers (constants)
+
+```go
+const (
+    HeaderRedirect           = "HX-Redirect"
+    HeaderTriggerResponse    = "HX-Trigger"
+    HeaderTriggerAfterSettle = "HX-Trigger-After-Settle"
+    HeaderTriggerAfterSwap   = "HX-Trigger-After-Swap"
+    HeaderReswap             = "HX-Reswap"
+    HeaderRetarget           = "HX-Retarget"
+    HeaderRefresh            = "HX-Refresh"
+    HeaderPushURL            = "HX-Push-Url"
+    HeaderReplaceURL         = "HX-Replace-Url"
+)
+```
+
+#### Request Detection
+
+```go
+func IsHTMX(r *http.Request) bool
+func IsBoosted(r *http.Request) bool
+func GetTrigger(r *http.Request) string
+func GetTarget(r *http.Request) string
+```
+
+#### Response Helpers
+
+```go
+func Redirect(w http.ResponseWriter, url string)
+func Trigger(w http.ResponseWriter, events ...string)
+func TriggerAfterSettle(w http.ResponseWriter, events ...string)
+func TriggerAfterSwap(w http.ResponseWriter, events ...string)
+func Reswap(w http.ResponseWriter, strategy string)
+func Retarget(w http.ResponseWriter, selector string)
+func Refresh(w http.ResponseWriter)
+func PushURL(w http.ResponseWriter, url string)
+func ReplaceURL(w http.ResponseWriter, url string)
+```
+
+---
+
+### db
+
+> Package db provides PostgreSQL connection management with retry, keep-alive,
+> and schema migration utilities.
+
+#### Types
+
+```go
+type OnRetryFunc func(attempt int, err error, backoff time.Duration)
+
+type ConnectConfig struct {
+    MaxOpenConns    int
+    MaxIdleConns    int
+    ConnMaxIdleTime time.Duration
+    ConnMaxLifetime time.Duration
+    MaxRetries      int
+    AttemptTimeout  time.Duration
+    PgBouncerSafe   bool
+    Logger          *slog.Logger
+    OnRetry         OnRetryFunc
+}
+
+type ConnectOption func(*ConnectConfig)
+
+type KeepAliveConfig struct {
+    Interval time.Duration
+    Timeout  time.Duration
+}
+
+type MigrateConfig struct {
+    FS        embed.FS
+    Directory string
+    Driver    string
+}
+```
+
+#### Connection
+
+```go
+func Connect(databaseURL string, opts ...ConnectOption) (*sqlx.DB, error)
+```
+Opens a PostgreSQL connection using context.Background().
+
+```go
+func ConnectContext(ctx context.Context, databaseURL string, opts ...ConnectOption) (*sqlx.DB, error)
+```
+Opens a PostgreSQL connection with retry and exponential backoff + jitter.
+
+#### Connection Options
+
+```go
+func WithMaxOpenConns(n int) ConnectOption
+func WithMaxIdleConns(n int) ConnectOption
+func WithConnMaxIdleTime(d time.Duration) ConnectOption
+func WithConnMaxLifetime(d time.Duration) ConnectOption
+func WithMaxRetries(n int) ConnectOption
+func WithAttemptTimeout(d time.Duration) ConnectOption
+func WithPgBouncerSafe(enabled bool) ConnectOption      // forces pgx simple protocol
+func WithLogger(l *slog.Logger) ConnectOption
+func WithOnRetry(fn OnRetryFunc) ConnectOption
+```
+
+#### Keep-Alive
+
+```go
+func StartKeepAlive(ctx context.Context, db *sqlx.DB, interval time.Duration, _ int)
+```
+Backward-compatible keep-alive loop. poolSize parameter is ignored.
+
+```go
+func StartKeepAliveWithConfig(ctx context.Context, db *sqlx.DB, cfg KeepAliveConfig)
+```
+Launches a goroutine that periodically runs PingContext with a timeout.
+
+#### Migration
+
+```go
+func Migrate(db *sqlx.DB, cfg MigrateConfig) error          // run all up migrations
+func MigrateDown(db *sqlx.DB, cfg MigrateConfig) error      // roll back all
+func MigrateSteps(db *sqlx.DB, cfg MigrateConfig, n int) error  // +n up, -n down
+func MigrateVersion(db *sqlx.DB, cfg MigrateConfig) (version uint, dirty bool, err error)
+func MigrateForce(db *sqlx.DB, cfg MigrateConfig, version int) error  // fix dirty state
+```
+
+---
+
+### db/sqlite
+
+> Package sqlite provides SQLite connection management and schema migration
+> utilities for hamr-scaffolded projects. It uses the pure-Go
+> `modernc.org/sqlite` driver so projects compile without CGO. Mirrors
+> `pkg/db`'s API shape with simpler semantics for a local-file database: no
+> retries, no pool tuning, safe pragmas by default.
+>
+> Import path: github.com/FyrmForge/hamr/pkg/db/sqlite
+
+#### Types
+
+```go
+type ConnectConfig struct {
+    JournalMode  string        // default "WAL"
+    ForeignKeys  bool          // default true
+    BusyTimeout  time.Duration // default 5s
+    MaxOpenConns int           // default 1 (SQLite is single-writer)
+}
+
+type ConnectOption func(*ConnectConfig)
+
+type MigrateConfig struct {
+    FS        embed.FS
+    Directory string
+}
+```
+
+#### Connection
+
+```go
+func Connect(path string, opts ...ConnectOption) (*sqlx.DB, error)
+```
+Opens a SQLite database file using context.Background(). Pass `:memory:` for
+an in-memory DB (handy for tests).
+
+```go
+func ConnectContext(ctx context.Context, path string, opts ...ConnectOption) (*sqlx.DB, error)
+```
+Creates the parent directory if missing, applies the configured pragmas on
+every pooled connection, and validates connectivity via PingContext.
+
+#### Connection Options
+
+```go
+func WithJournalMode(mode string) ConnectOption  // PRAGMA journal_mode
+func WithForeignKeys(enabled bool) ConnectOption // PRAGMA foreign_keys
+func WithBusyTimeout(d time.Duration) ConnectOption // PRAGMA busy_timeout
+func WithMaxOpenConns(n int) ConnectOption
+```
+
+#### Migration
+
+```go
+func Migrate(db *sqlx.DB, cfg MigrateConfig) error          // run all up migrations
+func MigrateDown(db *sqlx.DB, cfg MigrateConfig) error      // roll back all
+func MigrateSteps(db *sqlx.DB, cfg MigrateConfig, n int) error  // +n up, -n down
+func MigrateVersion(db *sqlx.DB, cfg MigrateConfig) (version uint, dirty bool, err error)
+func MigrateForce(db *sqlx.DB, cfg MigrateConfig, version int) error
+```
+
+Wraps golang-migrate's official pure-Go `database/sqlite` driver (distinct
+from `database/sqlite3`, which requires CGO via `mattn/go-sqlite3`).
+
+#### SQL Dialect Notes
+
+- Placeholders are `?`, not `$1`/`$2`.
+- Prefer `TEXT PRIMARY KEY` or `INTEGER PRIMARY KEY` — no `SERIAL`.
+- Use `DATETIME` (`CURRENT_TIMESTAMP` default) instead of `TIMESTAMPTZ`/`NOW()`.
+- Booleans are stored as `INTEGER` (0/1).
+- Do not wrap migration files in `BEGIN/COMMIT` — golang-migrate runs each
+  file in its own transaction.
+
+#### Scaffolded Project Conventions
+
+- Env var: `DATABASE_PATH` (default `./data/<name>.db`), not `DATABASE_URL`.
+- `data/` is gitignored; the Dockerfile declares `/data` as a `VOLUME`.
+- No Docker Compose is generated when storage is local (nothing needs
+  orchestration). S3 storage still emits a compose file for RustFS.
+- GORM projects use `github.com/glebarez/sqlite` (pure-Go GORM driver
+  wrapping `modernc.org/sqlite`).
+
+---
+
+### middleware
+
+> Package middleware provides HTTP middleware for the HAMR framework.
+
+#### Error Pages
+
+```go
+type ErrorPage func(code int, message string) templ.Component
+
+type PageOverride struct {
+    Code int
+    Page ErrorPage
+}
+
+func Page(code int, page ErrorPage) PageOverride
+func ErrorPages(defaultPage ErrorPage, overrides ...PageOverride) echo.MiddlewareFunc
+```
+Per-group middleware that catches errors and renders error pages. Extracts
+code/message from `*echo.HTTPError` (default 500), skips committed responses,
+logs 5xx via `logging.FromContext`, looks up per-code overrides, and renders
+via `respond.HTML`. Place after Logging so Logging sees the correct status.
+
+#### Auth Types
+
+```go
+type SubjectLoader func(ctx context.Context, subjectID string) (any, error)
+
+type BrowserAuthOption func(*BrowserAuth)
+
+func NewBrowserAuth(sm *auth.SessionManager, opts ...BrowserAuthOption) *BrowserAuth
+func WithSubjectLoader(loader SubjectLoader) BrowserAuthOption
+func WithLoginRedirect(url string) BrowserAuthOption   // default: "/login"
+func WithHomeRedirect(url string) BrowserAuthOption    // default: "/dashboard"
+func WithHXRedirect() BrowserAuthOption                // use HX-Redirect for HTMX requests, 303 for browsers
+```
+
+#### Auth Middleware
+
+Auth is split into a loader (DB access, group-level) and policy checks (pure ctx reads, per-route).
+
+```go
+func (b *BrowserAuth) Load() echo.MiddlewareFunc
+```
+Validates session cookie, populates ctx (SubjectIDKey, SessionKey, SubjectKey). The only middleware that touches the DB. Never blocks — no cookie or invalid cookie just continues without auth state.
+Usage: `site.Use(auth.Load())`
+
+```go
+func (b *BrowserAuth) RequireAuth() echo.MiddlewareFunc
+```
+Pure ctx check. Redirects to LoginRedirect when no subject in ctx (303 or HX-Redirect).
+Usage: `site.GET("/dashboard", handler.Index, auth.RequireAuth())`
+
+```go
+func (b *BrowserAuth) RequireNotAuth() echo.MiddlewareFunc
+```
+Pure ctx check. Redirects to HomeRedirect when subject is in ctx (303 or HX-Redirect).
+Usage: `site.GET("/login", loginHandler.Page, auth.RequireNotAuth())`
+
+#### Subject Helpers
+
+```go
+func GetSubjectID(c echo.Context) string   // from session or trusted header
+func GetSubject(c echo.Context) any        // only when SubjectLoader is configured
+func TrustedSubject() echo.MiddlewareFunc  // reads X-Subject-ID with NO verification — internal networks only
+
+// Gated variant: ignores X-Subject-ID unless the request passes the configured
+// gate(s); on failure the subject is left unset (downstream RBAC fails closed).
+type TrustedSubjectConfig struct {
+    SharedSecret   string   // required in SecretHeader (constant-time compared)
+    SecretHeader   string   // default: "X-Internal-Secret"
+    TrustedProxies []string // c.RealIP() must be within one of these CIDRs
+}
+func TrustedSubjectWithConfig(cfg TrustedSubjectConfig) echo.MiddlewareFunc
+```
+
+#### CSRF
+
+```go
+type CSRFConfig struct {
+    CookieName  string         // default: "csrf"
+    TokenLookup string         // default: "form:csrf_token,header:X-CSRF-Token"
+    Secure      bool           // default: true
+    SameSite    http.SameSite  // default: Lax
+}
+
+func CSRF() echo.MiddlewareFunc
+func CSRFWithConfig(cfg CSRFConfig) echo.MiddlewareFunc
+```
+
+#### CORS
+
+```go
+type CORSConfig struct {
+    AllowOrigins     []string
+    AllowMethods     []string
+    AllowHeaders     []string
+    AllowCredentials bool
+}
+
+func CORS() echo.MiddlewareFunc
+// With no AllowOrigins configured, cross-origin requests are DENIED (no "*").
+func CORSWithConfig(cfg CORSConfig) echo.MiddlewareFunc
+```
+
+#### Flash
+
+```go
+type FlashType string
+
+const (
+    FlashInfo    FlashType = "info"
+    FlashSuccess FlashType = "success"
+    FlashWarning FlashType = "warning"
+    FlashError   FlashType = "error"
+)
+
+type FlashMessage struct {
+    Message string    `json:"message"`
+    Type    FlashType `json:"type"`
+}
+
+type FlashConfig struct {
+    Path   string  // default: "/"
+    Secure bool    // default: true
+}
+
+const FlashCookieName = "hamr_flash"
+
+func Flash() echo.MiddlewareFunc
+func FlashWithConfig(cfg FlashConfig) echo.MiddlewareFunc
+func SetFlash(c echo.Context, message string, flashType FlashType)
+func GetFlash(c echo.Context) *FlashMessage  // nil if none
+```
+
+#### Cache Control
+
+```go
+type CacheConfig struct {
+    ImmutableExtensions []string  // default: DefaultImmutableExtensions
+    ImmutableMaxAge     int       // seconds, default: 31536000 (1 year)
+    StaticExtensions    []string  // default: DefaultStaticExtensions
+    StaticMaxAge        int       // seconds, default: 86400 (1 day)
+    DisableCaching      bool
+    AllowDynamicCaching bool      // default false: dynamic responses get "no-store, private"
+}
+
+var DefaultImmutableExtensions = []string{".webp", ".jpg", ".jpeg", ".png", ".gif", ".svg", ".ico", ".woff2", ".woff", ".ttf", ".eot"}
+var DefaultStaticExtensions    = []string{".css", ".js"}
+
+func CacheControl(disableCaching bool) echo.MiddlewareFunc
+func CacheControlWithConfig(cfg CacheConfig) echo.MiddlewareFunc
+```
+`CacheControl` delegates to `CacheControlWithConfig`. Sets Cache-Control headers
+based on asset type. Fingerprinted assets (URLs matching `*.HASH.*` pattern) are
+automatically served with immutable headers regardless of extension. When
+DisableCaching is true, every response gets no-cache directives.
+
+#### Security Headers
+
+```go
+type SecureConfig struct {
+    ContentSecurityPolicy string  // default: "default-src 'self'"
+    XFrameOptions         string  // default: "DENY"
+    ReferrerPolicy        string  // default: "strict-origin-when-cross-origin"
+    XSSProtection         string  // default: "0"
+    ContentTypeNosniff    string  // default: "nosniff"
+}
+
+func Secure() echo.MiddlewareFunc
+func SecureWithConfig(cfg SecureConfig) echo.MiddlewareFunc
+```
+Zero-value fields use defaults. Backwards-compatible — existing code that only sets
+`ContentSecurityPolicy` continues to work unchanged.
+
+#### RBAC
+
+RBAC middleware is applied per-route alongside auth middleware:
+`site.GET("/admin", handler.Dashboard, requireAuth, requireAdmin)`
+
+```go
+type RoleChecker func(subject any, roles []string) bool
+type ActiveChecker func(subject any) bool
+
+func RequireRoles(checker RoleChecker, roles ...string) echo.MiddlewareFunc
+```
+Returns 401 if no subject, 403 if role check fails.
+
+```go
+func RequireActive(checker ActiveChecker) echo.MiddlewareFunc
+```
+Returns 401 if no subject, 403 if account not active.
+
+#### Audit
+
+```go
+type AuditEntry struct {
+    ActorID    string         `json:"actor_id"`
+    Action     string         `json:"action"`
+    EntityType string         `json:"entity_type"`
+    Data       map[string]any `json:"data"`
+    Timestamp  time.Time      `json:"timestamp"`
+}
+
+type AuditLogger interface {
+    Log(ctx context.Context, entry *AuditEntry) error
+}
+
+type AuditConfig struct {
+    Logger      AuditLogger
+    ActorIDFunc func(c echo.Context) string  // default: GetSubjectID
+}
+
+func Audit(logger AuditLogger) echo.MiddlewareFunc
+func AuditWithConfig(cfg AuditConfig) echo.MiddlewareFunc
+```
+
+#### Rate Limiting
+
+```go
+type DB interface {
+    ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+    QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+}
+
+type RateLimitStore interface {
+    Allow(ctx context.Context, key string, rate int, window time.Duration) (allowed bool, remaining int, resetAt time.Time, err error)
+}
+
+type RateLimitConfig struct {
+    Store      RateLimitStore
+    Rate       int                                   // max requests per window (default: 60)
+    Burst      int                                   // additional burst (default: 10)
+    Window     time.Duration                         // sliding window (default: 1 minute)
+    KeyFunc    func(c echo.Context) (string, error)  // default: c.RealIP()
+    FailClosed bool                                  // deny on store errors (default: false)
+}
+
+func RateLimit(store RateLimitStore) echo.MiddlewareFunc
+func RateLimitWithConfig(cfg RateLimitConfig) echo.MiddlewareFunc
+```
+
+##### Memory Store
+
+```go
+type MemoryStore struct{ /* unexported */ }
+type MemoryStoreOption func(*MemoryStore)
+
+func NewMemoryStore(opts ...MemoryStoreOption) *MemoryStore
+func WithMaxSize(n int) MemoryStoreOption
+func WithAutoCleanup(ctx context.Context, interval time.Duration) MemoryStoreOption
+func WithWindow(d time.Duration) MemoryStoreOption
+
+func (s *MemoryStore) Allow(_ context.Context, key string, rate int, dur time.Duration) (bool, int, time.Time, error)
+func (s *MemoryStore) CleanupExpired(window time.Duration)
+```
+
+##### PostgreSQL Store
+
+```go
+type PGStore struct{ /* unexported */ }
+
+func NewPGStore(db DB) *PGStore
+func (s *PGStore) CreateTable(ctx context.Context) error         // creates _rate_limits table
+func (s *PGStore) Allow(ctx context.Context, key string, rate int, dur time.Duration) (bool, int, time.Time, error)
+func (s *PGStore) Cleanup(ctx context.Context, dur time.Duration) (int64, error)
+```
+
+#### Locale
+
+```go
+type LocaleConfig struct {
+    Bundle         *i18n.Bundle
+    CookieName     string                       // default: "hamr_locale"
+    CookieMaxAge   int                          // default: 31536000 (1 year)
+    CookieSecure   bool
+    DefaultLocale  string                       // from bundle if empty
+    UserLocaleFunc func(c echo.Context) string  // optional: user preference
+}
+
+func LocaleFromPath(cfg LocaleConfig) echo.MiddlewareFunc
+```
+Pre-router middleware (register with e.Pre()). Extracts locale from first URL
+path segment. Redirects to /{defaultLocale}/... if no valid prefix found.
+
+```go
+func LocaleFromPreference(cfg LocaleConfig) echo.MiddlewareFunc
+```
+Resolves locale from: UserLocaleFunc > cookie > Accept-Language > default.
+
+```go
+func GetLocale(c echo.Context) string
+func GetDirection(c echo.Context) string
+```
+
+---
+
+### ptr
+
+> Package ptr provides generic and concrete helpers for working with pointers.
+
+```go
+func To[T any](v T) *T                // returns pointer to v
+func From[T any](p *T) T              // dereferences, zero value if nil
+func FromOr[T any](p *T, def T) T     // dereferences, def if nil
+
+func String(p *string) string          // "" if nil
+func Int(p *int) int                   // 0 if nil
+func Bool(p *bool) bool               // false if nil
+
+func IntToStr(p *int) string           // "" if nil, else strconv.Itoa
+func BoolToYesNo(p *bool) string       // "" if nil, "Yes"/"No"
+```
+
+---
+
+## Utility Packages
+
+### janitor
+
+> Package janitor provides a cron-based background task runner with per-task
+> schedules, timeouts, and pre/post hooks.
+
+#### Task Interface
+
+```go
+type Task interface {
+    Name() string
+    Run(ctx context.Context) (int64, error)
+}
+```
+
+#### Hook Types
+
+```go
+type PreRunFunc  func(ctx context.Context, taskName string) error
+type PostRunFunc func(ctx context.Context, taskName string, affected int64, taskErr error)
+type PreTickFunc func(ctx context.Context) error
+type PostTickFunc func(ctx context.Context)
+```
+
+#### Janitor
+
+```go
+type Janitor struct{ /* unexported */ }
+type Option func(*Janitor)
+
+func New(opts ...Option) *Janitor
+func (j *Janitor) AddTask(schedule string, task Task) *Janitor
+func (j *Janitor) Start(ctx context.Context) error
+func (j *Janitor) Stop()
+```
+
+Schedules support standard cron syntax and robfig/cron descriptors
+("@every 5m", "@daily", "@hourly").
+
+#### Options
+
+```go
+func WithTimeout(d time.Duration) Option   // per-task timeout (default 30s)
+func WithLogger(l *slog.Logger) Option
+func WithPreRun(fn PreRunFunc) Option      // runs before each task
+func WithPostRun(fn PostRunFunc) Option    // runs after each task
+func WithPreTick(fn PreTickFunc) Option    // runs before scheduled execution
+func WithPostTick(fn PostTickFunc) Option  // runs after scheduled execution
+func WithRunImmediately() Option           // fire all tasks once on Start
+```
+
+---
+
+### async
+
+> Package async provides concurrency primitives with panic recovery.
+
+#### Concurrency Functions
+
+```go
+func All(ctx context.Context, fns ...func(context.Context) error) error
+```
+Runs fns concurrently. First error cancels remaining work via derived context.
+Panics recovered and converted to errors.
+
+```go
+func Settle(ctx context.Context, fns ...func(context.Context) error) []error
+```
+Runs fns concurrently. Never short-circuits — all functions run to completion.
+
+```go
+func Map[T, R any](ctx context.Context, items []T, fn func(context.Context, T) (R, error)) ([]R, error)
+```
+Applies fn to every item concurrently, returns results in order. First error
+cancels remaining.
+
+```go
+func Fire(fn func())
+```
+Spawns a goroutine with panic recovery. Panics logged to slog.Default().
+
+#### Group
+
+```go
+type Group struct{ /* unexported */ }
+type GroupOption func(*Group)
+
+func NewGroup(opts ...GroupOption) *Group
+func (g *Group) Go(fn func())    // spawns work; blocks at limit; no-op after Close
+func (g *Group) Close()          // waits for all in-flight goroutines
+
+func WithGroupLogger(l *slog.Logger) GroupOption
+func WithLimit(n int) GroupOption  // caps concurrent goroutines (clamped to >= 1)
+func WithMetrics(m GroupMetrics) GroupOption
+
+// Warning: callbacks run synchronously on the Group hot path and during worker
+// teardown. Implementations must not block, do slow I/O, or panic.
+// Every Dispatched is followed by exactly one Completed or Panicked.
+// No callbacks fire for calls to Go after Close.
+type GroupMetrics interface {
+    Blocked()                            // semaphore contention occurred (fired after the wait completes)
+    Dispatched(blocked time.Duration)    // job accepted; worker goroutine about to spawn (blocked=0 if no wait)
+    Completed(duration time.Duration)    // job finished without panic recovery
+    Panicked(duration time.Duration)     // job finished via panic recovery
+}
+```
+
+---
+
+### templint
+
+> Package templint provides a static linter for .templ files.
+> Checks for inline control flow (silently dropped by templ), missing
+> accessibility attributes, and style anti-patterns.
+
+#### Types
+
+```go
+type Severity int
+
+const (
+    Warning Severity = iota
+    Error
+)
+
+func (s Severity) String() string
+func ParseSeverity(s string) (Severity, error)
+
+type Diagnostic struct {
+    File     string
+    Line     int
+    Col      int
+    Rule     string
+    Severity Severity
+    Message  string
+}
+
+func (d Diagnostic) String() string  // "file:line:col: severity[rule] message"
+
+type Rule interface {
+    ID() string
+    Check(filename string, lines []string) []Diagnostic
+}
+```
+
+#### Configuration
+
+```go
+type Config struct {
+    Rules map[string]Severity  // rule ID -> severity to report at; rules absent from the map are disabled
+}
+
+func LoadConfig(path string) (*Config, error)
+// Reads [lint.templ] from hamr.toml as a flat `rule = "warning"|"error"|"off"` map.
+// Returns nil if the file is missing or [lint.templ] is empty.
+// Unknown rule IDs and invalid severities return an error.
+
+func AllRuleIDs() []string                     // sorted IDs of every known rule
+func DefaultSeverity(id string) Severity       // recommended default; Warning for unknown IDs
+```
+
+#### Inline suppression
+
+`LintFile` post-filters diagnostics against `templint:ignore` directives found
+in `//` comments. Rules never see them.
+
+```
+// templint:ignore <rule-id>[,<rule-id>...] [-- optional reason]
+// templint:ignore                          (suppresses every rule)
+```
+
+- Own-line directive targets the line below; a directive trailing source
+  content targets the line it sits on. Only the adjacent line — no cascading
+  lookback.
+- Rules anchor diagnostics to the line a tag *opens* on, so for a multi-line
+  tag the directive goes above the `<form`, not above the offending attribute.
+- Everything after ` -- ` is a human reason, ignored by the parser.
+- `unknown-rule` (Error) is emitted for a rule ID that is not in the registry,
+  so a typo cannot silently suppress nothing.
+- `unused-suppression` (Warning) is emitted for a directive that suppressed no
+  diagnostic, so stale directives get cleaned up.
+- Both are meta diagnostics: not in `AllRuleIDs()`, not configurable via
+  `[lint.templ]`. A directive naming a known-but-disabled rule reports neither.
+
+```toml
+# Example [lint.templ] block. Rules omitted from this section are disabled;
+# "off" is equivalent to omitting the rule.
+[lint.templ]
+inline-if              = "error"
+no-native-form-actions = "error"
+img-alt                = "warning"
+inline-style           = "off"
+```
+
+#### Linter
+
+```go
+type Linter struct{ /* unexported */ }
+
+func New(cfg *Config) *Linter  // nil cfg or empty Rules = nothing runs; only listed rules are enabled
+func (l *Linter) LintFile(path string) ([]Diagnostic, error)
+func (l *Linter) LintDir(dir string) ([]Diagnostic, error)
+
+func FilterBySeverity(diags []Diagnostic, minSev Severity) []Diagnostic
+func HasErrors(diags []Diagnostic) bool
+```
+
+#### Built-in Rules
+
+| ID | Default Severity | Detects |
+|---|---|---|
+| `inline-if` | Error | `if cond { <html>` on same line (silently dropped by templ) |
+| `inline-for` | Error | `for expr { <html>` on same line |
+| `inline-switch` | Error | `switch expr { <html>` on same line |
+| `no-native-form-actions` | Error | `action=`, `method=`, or `formaction=` attribute on any element — use `hx-*` instead |
+| `htmx-conflict` | Error | Same element has both an `hx-*` attribute and a native form attribute |
+| `img-alt` | Warning | `<img>` tags missing `alt` attribute |
+| `no-href` | Warning | `<a>` tags missing `href` attribute |
+| `inline-style` | Warning | `style="..."` or `style={` attributes |
+| `empty-class` | Warning | `class=""` attributes |
+| `js-href` | Warning | `href="javascript:..."` |
+
+---
+
+## Optional Packages
+
+### e2e
+
+> Package e2e provides reusable go-rod browser helpers for E2E testing.
+> Projects import this package in their e2e/ test files.
+
+#### Config & Options
+
+```go
+type Config struct {
+    Headless            bool          // default: true,  env: E2E_HEADLESS
+    NoSandbox           bool          // default: true,  env: E2E_NO_SANDBOX
+    SlowMotion          time.Duration // default: 0,     env: E2E_SLOW_MOTION
+    Timeout             time.Duration // default: 10s,   env: E2E_TIMEOUT
+    ArtifactDir         string        // default: "testdata/e2e-artifacts", env: E2E_ARTIFACT_DIR
+    ScreenshotOnFailure bool          // default: true,  env: E2E_SCREENSHOT_ON_FAIL
+    HTMLDumpOnFailure   bool          // default: true,  env: E2E_HTML_DUMP_ON_FAIL
+    GPU                 bool          // default: false, env: E2E_GPU (false passes --disable-gpu)
+    BrowserPath         string        // default: "",    env: E2E_BROWSER_PATH (empty = rod's managed Chromium)
+    WindowWidth         int           // default: 0,     env: E2E_WINDOW_SIZE as "WxH" (0 = Chrome default)
+    WindowHeight        int
+}
+
+type Option func(*Config)
+
+func WithHeadless(b bool) Option
+func WithSlowMotion(d time.Duration) Option
+func WithTimeout(d time.Duration) Option
+func WithArtifactDir(path string) Option
+func WithScreenshotOnFailure(b bool) Option
+func WithHTMLDumpOnFailure(b bool) Option
+func WithNoSandbox(b bool) Option
+func WithGPU(b bool) Option
+func WithBrowserPath(path string) Option
+func WithWindowSize(w, h int) Option
+```
+
+#### Browser Lifecycle
+
+```go
+func SetupBrowser(t *testing.T, opts ...Option) *rod.Browser
+```
+Launches Chromium configured via opts and env vars. Registers t.Cleanup to
+close browser.
+
+```go
+func NewPage(t *testing.T, browser *rod.Browser, url string) *rod.Page
+```
+Creates a tab, navigates to url, waits for load. Captures screenshot/HTML on
+failure. Closed via t.Cleanup.
+
+#### Element Actions
+
+```go
+func Input(t *testing.T, page *rod.Page, selector, value string)      // clear + type
+func Click(t *testing.T, page *rod.Page, selector string)
+func SelectOption(t *testing.T, page *rod.Page, selector, value string)
+```
+
+#### Element Queries
+
+```go
+func ElementExists(t *testing.T, page *rod.Page, selector string) bool
+func ElementNotExists(t *testing.T, page *rod.Page, selector string) bool
+func ElementText(t *testing.T, page *rod.Page, selector string) string
+func ElementAttribute(t *testing.T, page *rod.Page, selector, attr string) string
+func ElementCount(t *testing.T, page *rod.Page, selector string) int
+```
+
+#### Waiters
+
+```go
+func WaitForElement(t *testing.T, page *rod.Page, selector string, timeout time.Duration) *rod.Element
+func WaitForURLChange(t *testing.T, page *rod.Page, currentURL string, timeout time.Duration)
+func WaitForElementRemoved(t *testing.T, page *rod.Page, selector string, timeout time.Duration)
+```
+
+#### HTMX Helpers
+
+```go
+func WaitForHTMXIdle(t *testing.T, page *rod.Page, timeout time.Duration)
+```
+Waits until no elements carry the htmx-request class.
+
+```go
+func WaitForHTMXSwap(t *testing.T, page *rod.Page, selector string, timeout time.Duration)
+```
+Waits until the HTML of selector changes (indicating an HTMX swap).
+
+```go
+func ClickAndWaitHTMX(t *testing.T, page *rod.Page, selector string, timeout time.Duration)
+```
+Clicks selector and waits for all HTMX requests to settle.
+
+#### Assertions
+
+```go
+func AssertElementExists(t *testing.T, page *rod.Page, selector string)
+func AssertElementNotExists(t *testing.T, page *rod.Page, selector string)
+func AssertElementNotVisible(t *testing.T, page *rod.Page, selector string)
+func AssertElementContainsText(t *testing.T, page *rod.Page, selector, text string)
+func AssertElementHasClass(t *testing.T, page *rod.Page, selector, class string)
+func AssertElementCount(t *testing.T, page *rod.Page, selector string, expected int)
+func AssertURL(t *testing.T, page *rod.Page, expected string)
+func AssertURLContains(t *testing.T, page *rod.Page, substring string)
+```
+
+#### Artifacts
+
+```go
+func SaveScreenshot(t *testing.T, page *rod.Page, name string)  // logs warning on failure
+func SavePageHTML(t *testing.T, page *rod.Page, name string)    // logs warning on failure
+```
+
+---
+
+### auth
+
+> Package auth provides password hashing with Argon2id and
+> cryptographically-secure token generation.
+
+#### Password Hashing
+
+```go
+type HashConfig struct {
+    Time        uint32
+    Memory      uint32
+    Parallelism uint8
+    KeyLength   uint32
+    SaltLength  uint32
+}
+
+var DefaultHashConfig = HashConfig{
+    Time: 3, Memory: 64 * 1024, Parallelism: 2,
+    KeyLength: 32, SaltLength: 16,
+}
+
+func HashPassword(password string) (string, error)
+```
+Hashes using DefaultHashConfig. Returns PHC-format encoded string.
+
+```go
+func HashPasswordWithConfig(password string, cfg HashConfig) (string, error)
+```
+
+```go
+func CheckPassword(password, encodedHash string) (bool, error)
+```
+(true, nil) on match, (false, nil) on mismatch, error if hash cannot be parsed.
+
+```go
+func NeedsRehash(encodedHash string) (bool, error)
+```
+Reports whether hash was created with different parameters than DefaultHashConfig.
+
+#### Token Generation
+
+```go
+func GenerateToken() (string, error)      // 32-byte, base64 raw-URL encoded
+func GenerateTokenN(n int) (string, error) // n-byte variant
+```
+
+#### Session Types
+
+```go
+type Session struct {
+    ID        string
+    SubjectID string
+    Token     string
+    ExpiresAt time.Time
+    CreatedAt time.Time
+    // unexported: metadata any
+}
+
+func (s *Session) SetMetadata(v any)       // for SessionStore implementations
+func (s *Session) RawMetadata() any
+func SessionMetadata[T any](s *Session) (T, error)  // type-safe extraction
+```
+
+#### Session Store Interface
+
+```go
+type SessionStore interface {
+    Create(ctx context.Context, s *Session) error
+    GetByToken(ctx context.Context, token string) (*Session, error)  // (nil, nil) = not found
+    Delete(ctx context.Context, id string) error
+    DeleteBySubjectID(ctx context.Context, subjectID string) error
+}
+
+type SessionToucher interface {
+    Touch(ctx context.Context, id string, newExpiresAt time.Time) error
+}
+```
+
+#### Session Manager
+
+```go
+type SessionManager struct{ /* unexported */ }
+type SessionOption func(*SessionManager)
+
+func NewSessionManager(store SessionStore, opts ...SessionOption) *SessionManager
+```
+Defaults: 7-day duration, cookie "session_token", path "/", Secure, SameSiteLax.
+
+```go
+func (m *SessionManager) CreateSession(ctx context.Context, subjectID string, metadata any) (*Session, error)
+func (m *SessionManager) ValidateSession(ctx context.Context, token string) (*Session, error)
+func (m *SessionManager) DeleteSession(ctx context.Context, id string) error
+func (m *SessionManager) DeleteSubjectSessions(ctx context.Context, subjectID string) error
+
+func (m *SessionManager) CookieName() string
+func (m *SessionManager) CookiePath() string
+func (m *SessionManager) CookieDomain() string
+func (m *SessionManager) CookieSecure() bool
+func (m *SessionManager) SameSite() http.SameSite
+func (m *SessionManager) Duration() time.Duration
+```
+
+#### Session Options
+
+```go
+func WithDuration(d time.Duration) SessionOption
+func WithCookieName(name string) SessionOption
+func WithCookiePath(path string) SessionOption
+func WithCookieDomain(domain string) SessionOption
+func WithCookieSecure(secure bool) SessionOption
+func WithSameSite(ss http.SameSite) SessionOption
+func WithSlidingRefresh(threshold time.Duration) SessionOption
+```
+WithSlidingRefresh: when session age exceeds threshold, type-asserts store to
+SessionToucher and calls Touch to extend expiry.
+
+---
+
+### i18n
+
+> Package i18n provides internationalisation support: JSON translation files,
+> CLDR plural rules, text/template interpolation, and a Bundle that holds
+> per-locale Translators.
+
+#### Plural Types
+
+```go
+type PluralCategory string
+
+const (
+    Zero  PluralCategory = "zero"
+    One   PluralCategory = "one"
+    Two   PluralCategory = "two"
+    Few   PluralCategory = "few"
+    Many  PluralCategory = "many"
+    Other PluralCategory = "other"
+)
+
+type PluralRule func(n int) PluralCategory
+```
+
+#### Plural Functions
+
+```go
+func RegisterRule(lang string, rule PluralRule)
+func RuleFor(lang string) PluralRule
+```
+Tries full tag (e.g. "fr-CA"), then base language ("fr"), then custom rules,
+then builtins, falling back to English.
+
+#### Direction
+
+```go
+func DirectionFor(lang string) string  // "rtl" for RTL languages, "ltr" otherwise
+```
+
+#### JSON Helpers
+
+```go
+func IsPluralObject(obj map[string]any) bool
+func InterpolationVars(s string) []string  // extracts {{.VarName}} placeholders
+```
+
+#### Validation
+
+```go
+type ValidationError struct {
+    Locale  string
+    Key     string
+    Message string
+}
+
+func (e ValidationError) Error() string  // "[locale] key: message"
+```
+
+#### Bundle
+
+```go
+type BundleConfig struct {
+    LocaleDir         string       // directory containing *.json files
+    DefaultLocale     string       // e.g. "en"
+    FallbackToDefault *bool        // default true; nil = true
+    Logger            *slog.Logger // missing/extra-key warnings; nil = slog.Default()
+}
+
+type Bundle struct{ /* unexported */ }
+
+func NewBundle(cfg BundleConfig) (*Bundle, error)
+func (b *Bundle) Translator(locale string) *Translator
+func (b *Bundle) SupportedLocales() []string
+func (b *Bundle) HasLocale(locale string) bool
+func (b *Bundle) ResolveLocale(code string) (string, bool)  // handles region tags
+func (b *Bundle) DefaultLocale() string
+```
+
+#### Translator
+
+```go
+type Translator struct{ /* unexported */ }
+
+func (t *Translator) Locale() string
+func (t *Translator) Direction() string   // "ltr" or "rtl"
+func (t *Translator) Has(key string) bool
+func (t *Translator) T(key string, args ...any) string
+```
+T argument patterns:
+- No args: return plain string
+- int arg: use as plural count; remaining args for interpolation
+- map[string]any arg: use as interpolation data
+Falls back to fallback translator, then returns key as-is.
+
+#### Context Helpers
+
+```go
+func FromContext(c echo.Context) *Translator   // panics if not set
+func LocaleFromContext(c echo.Context) string
+func DirectionFromContext(c echo.Context) string
+```
+
+---
+
+### storage
+
+> Package storage provides a pluggable file storage abstraction with local
+> filesystem and S3-compatible backends (AWS S3, RustFS, Cloudflare R2).
+
+#### Interfaces
+
+```go
+type FileStorage interface {
+    Save(ctx context.Context, path string, r io.Reader) error
+    Open(ctx context.Context, path string) (io.ReadCloser, error)
+    Delete(ctx context.Context, path string) error
+    Exists(ctx context.Context, path string) (bool, error)
+    List(ctx context.Context, prefix string) ([]string, error)
+}
+
+type SignableStorage interface {
+    FileStorage
+    SignURL(ctx context.Context, path string, expiry time.Duration, opts ...SignOption) (string, error)
+}
+
+type SignOption func(*signConfig)
+func WithAttachment(filename string) SignOption  // sign with Content-Disposition: attachment; filename=... to force download (RFC 6266; non-ASCII names get authoritative UTF-8 filename* plus ASCII fallback; empty name emits bare "attachment")
+```
+Save overwrites existing files. Delete is idempotent. List returns all file
+paths under the given prefix.
+
+#### Local Storage
+
+```go
+type LocalStorage struct{ /* unexported */ }
+type LocalOption func(*LocalStorage)
+
+func NewLocalStorage(basePath string, opts ...LocalOption) (*LocalStorage, error)
+func WithLocalLogger(l *slog.Logger) LocalOption
+```
+Methods: Save, Open, Delete, Exists, List (implementing FileStorage).
+
+#### S3 Storage
+
+```go
+type S3Config struct {
+    Endpoint       string  // e.g. "http://localhost:9000" for RustFS
+    Bucket         string
+    Region         string
+    AccessKeyID    string
+    SecretAccessKey string
+    UsePathStyle   bool    // true for RustFS / path-style addressing
+}
+
+type S3Storage struct{ /* unexported */ }
+type S3Option func(*S3Storage)
+
+func NewS3Storage(cfg S3Config, opts ...S3Option) (*S3Storage, error)
+func WithS3Logger(l *slog.Logger) S3Option
+func WithPublicRead(v bool) S3Option  // applies public-read policy on EnsureBucket
+func WithMaxUploadBuffer(n int64) S3Option  // cap for buffering non-seekable Save bodies (default 64 MiB)
+
+func (s *S3Storage) EnsureBucket(ctx context.Context) error
+```
+Methods: Save, Open, Delete, Exists, List, SignURL (implementing SignableStorage).
+`Save` streams seekable bodies straight to S3; a non-seekable body (e.g. an `Open` result piped into `Save`) is buffered into memory first because the AWS signer needs a seekable body to hash it. The buffer is bounded by `WithMaxUploadBuffer` (default 64 MiB) — a larger non-seekable body fails the upload rather than allocating unbounded memory.
+
+---
+
+### media
+
+> Package media provides high-level image and video upload, processing, and
+> serving on top of the storage package.
+
+#### Constants
+
+```go
+const (
+    KB int64 = 1024
+    MB int64 = 1024 * 1024
+    GB int64 = 1024 * 1024 * 1024
+)
+
+const (
+    FormatWebP = "webp"
+    FormatJPEG = "jpeg"
+    FormatPNG  = "png"
+)
+
+const (
+    TypeImage = "image"
+    TypeVideo = "video"
+)
+```
+
+#### Errors
+
+```go
+var (
+    ErrFileTooLarge   = errors.New("media: file too large")
+    ErrUnknownType    = errors.New("media: unsupported file type")
+    ErrVideoTooLong   = errors.New("media: video exceeds maximum duration")
+    ErrFFmpegNotFound = errors.New("media: ffmpeg not found in PATH")
+    // *FromReaderWithID variants
+    ErrInvalidID = errors.New("media: invalid id (must be a canonical UUID)")
+    ErrIDExists  = errors.New("media: id already exists")
+)
+```
+
+#### Types
+
+```go
+type ImageSize struct {
+    Name   string
+    Width  int
+    Height int
+}
+
+type ImageStoreConfig struct {
+    Category    string
+    Sizes       []ImageSize
+    Quality     int
+    Format      string
+    MaxSize     int64
+    SignedExpiry time.Duration
+    BaseURL     string
+}
+
+type VideoStoreConfig struct {
+    Category          string
+    MaxSize           int64
+    MaxDuration       float64
+    GenerateThumbnail bool
+    ThumbnailWidth    int
+    BaseURL           string
+    SignedExpiry       time.Duration
+    Transcode         VideoTranscodeOptions
+}
+
+// Activation by population: zero-valued struct = no transcode (save raw
+// bytes); any non-zero field flips the store into "re-encode every
+// upload to H.264/AAC MP4 with +faststart, -pix_fmt yuv420p,
+// -profile:v high" mode. validate() fills in defaults — CRF=23,
+// Preset="medium", AudioBitrate="128k", MaxWidth/MaxHeight=0 (no clamp).
+// MaxSize is checked against the input bytes (pre-transcode); thumbnail
+// still extracted from raw upload. Note: setting only MaxWidth/MaxHeight
+// also activates the full re-encode — there is no "clamp size, don't
+// re-encode" mode.
+type VideoTranscodeOptions struct {
+    CRF          int    // effective 1..51, default 23; CRF=0 is treated as "use default", NOT lossless
+    Preset       string // x264 preset; default "medium"
+    AudioBitrate string // ffmpeg -b:a, default "128k"
+    MaxWidth     int    // 0 = no clamp (preserve source)
+    MaxHeight    int    // 0 = no clamp (preserve source)
+}
+
+func (o VideoTranscodeOptions) IsZero() bool
+
+type Option func(*options)
+```
+
+#### Preset Size Sets
+
+```go
+var SizesAvatar = []ImageSize{
+    {Name: "thumb", Width: 64, Height: 64},
+    {Name: "small", Width: 150, Height: 150},
+    {Name: "medium", Width: 400, Height: 400},
+}
+
+var SizesCard = []ImageSize{
+    {Name: "thumb", Width: 64, Height: 64},
+    {Name: "small", Width: 150, Height: 150},
+    {Name: "medium", Width: 400, Height: 400},
+    {Name: "large", Width: 800, Height: 800},
+    {Name: "xlarge", Width: 1200, Height: 1200},
+}
+
+var SizesIcon = []ImageSize{
+    {Name: "small", Width: 100, Height: 100},
+    {Name: "medium", Width: 200, Height: 200},
+    {Name: "large", Width: 400, Height: 400},
+}
+
+var SizeOriginal = []ImageSize{
+    {Name: "original", Width: 0, Height: 0},
+}
+```
+
+#### Detection
+
+```go
+func DetectType(fh *multipart.FileHeader) (mediaType string, mimeType string, err error)
+```
+
+#### Media Option
+
+```go
+func WithLogger(l *slog.Logger) Option
+```
+
+#### Image Store
+
+```go
+type ImageStore struct{ /* unexported */ }
+
+func NewLocalImageStore(store *storage.LocalStorage, urlPrefix string, cfg ImageStoreConfig, opts ...Option) (*ImageStore, error)
+func NewS3ImageStore(store *storage.S3Storage, cfg ImageStoreConfig, opts ...Option) (*ImageStore, error)
+
+func (s *ImageStore) Upload(ctx context.Context, fh *multipart.FileHeader) (*ImageUploadResult, error)
+func (s *ImageStore) UploadFromReader(ctx context.Context, r io.Reader, size int64) (*ImageUploadResult, error)
+func (s *ImageStore) UploadFromReaderWithID(ctx context.Context, id string, r io.Reader, size int64, overwrite bool) (*ImageUploadResult, error)
+func (s *ImageStore) Delete(ctx context.Context, id string) error
+func (s *ImageStore) GetMedia(id string) ImageRef
+func (s *ImageStore) GetMediaCtx(ctx context.Context, id string) ImageRef  // may use signed URLs
+func (s *ImageStore) SignedURL(ctx context.Context, path string, expiry time.Duration, opts ...storage.SignOption) (string, error)
+func (s *ImageStore) ServeHandler() echo.HandlerFunc
+```
+
+`UploadFromReaderWithID` stores bytes under the caller-supplied id instead of generating one. The id MUST be the **36-char canonical UUID form**; hyphenless 32-char, urn:uuid:..., {...} braced, and the empty string are all rejected with `ErrInvalidID` (canonical-only avoids silent bifurcation where the same logical UUID lands at two different storage keys). With `overwrite=false`, returns `ErrIDExists` if the prefix is already populated; pass `overwrite=true` for retry-after-failure paths. `ErrIDExists` is a best-effort precheck — concurrent `*WithID` callers can race on Save, and a losing call's `cleanupPartial` can erase a concurrent winner's writes; use DB-level unique constraints for hard exclusion. On `ErrFileTooLarge` (size pre-check), `ErrInvalidID`, and `ErrIDExists` the reader is not consumed (rejection happens before any read). Best-effort cleanup of any partial writes on error.
+
+#### Image Upload Result
+
+```go
+type ImageUploadResult struct {
+    ID        string
+    MediaType string
+    MimeType  string
+}
+
+func (r *ImageUploadResult) Path(size string) string
+```
+
+#### Image Ref
+
+```go
+type ImageRef struct{ /* unexported */ }
+
+func (r ImageRef) Size(name string) string   // URL for named size variant
+func (r ImageRef) Thumb() string             // "thumb" size or smallest
+func (r ImageRef) Smallest() string          // smallest by width
+func (r ImageRef) Biggest() string           // largest by width
+```
+
+#### Video Store
+
+```go
+type VideoStore struct{ /* unexported */ }
+
+func NewLocalVideoStore(store *storage.LocalStorage, urlPrefix string, cfg VideoStoreConfig, opts ...Option) (*VideoStore, error)
+func NewS3VideoStore(store *storage.S3Storage, cfg VideoStoreConfig, opts ...Option) (*VideoStore, error)
+
+func (s *VideoStore) Upload(ctx context.Context, fh *multipart.FileHeader) (*VideoUploadResult, error)
+func (s *VideoStore) UploadFromReader(ctx context.Context, r io.Reader, size int64) (*VideoUploadResult, error)
+func (s *VideoStore) UploadFromReaderWithID(ctx context.Context, id string, r io.Reader, size int64, overwrite bool) (*VideoUploadResult, error)
+func (s *VideoStore) Delete(ctx context.Context, id string) error
+func (s *VideoStore) GetMedia(id string) VideoRef
+func (s *VideoStore) GetMediaCtx(ctx context.Context, id string) VideoRef
+func (s *VideoStore) SignedURL(ctx context.Context, path string, expiry time.Duration, opts ...storage.SignOption) (string, error)
+func (s *VideoStore) ServeHandler() echo.HandlerFunc
+```
+
+`UploadFromReaderWithID` follows the same UUID-validation and existence-check rules as the image variant (strict 36-char canonical only; `ErrIDExists` is best-effort). Thumbnail generation/save failures are logged and ignored — the video bytes are stored regardless, and `result.ThumbnailPath` stays empty when this branch fails.
+
+When `VideoStoreConfig.Transcode` is populated, every `Upload*` call re-encodes the upload to H.264/AAC MP4 (with `+faststart` so the moov atom is at the front for progressive streaming, `-pix_fmt yuv420p` and `-profile:v high` for browser/QuickTime/smart-TV compatibility) before persisting. `result.FileSize` reflects whatever was actually saved — encoded bytes when transcoding, raw bytes otherwise. `result.MimeType` reports `video/mp4` when transcoding ran (regardless of input container) and the source MIME otherwise. The transcode pass is slow (tens of seconds for a one-minute clip on `medium` preset); call `Upload*` from a worker pool such as `pkg/async.Group` rather than from the request goroutine. Internally, transcoding writes to an `os.TempDir()` file and reads it back rather than streaming through stdout, because `+faststart` requires a seekable output. The scale filter uses a chained `scale=...,scale=trunc(iw/2)*2:trunc(ih/2)*2` pattern to satisfy libx264's even-dimension requirement on all ffmpeg versions, sidestepping `force_divisible_by` which only landed in ffmpeg 4.4.
+
+#### Video Upload Result
+
+```go
+type VideoUploadResult struct {
+    ID            string
+    MediaType     string
+    MimeType      string
+    Duration      float64
+    FileSize      int64
+    ThumbnailPath string
+}
+
+func (r *VideoUploadResult) Path() string
+```
+
+#### Video Ref
+
+```go
+type VideoRef struct{ /* unexported */ }
+
+func (r VideoRef) Video() string        // video file URL
+func (r VideoRef) Thumbnail() string    // thumbnail URL (empty if not generated)
+```
+
+---
+
+### websocket
+
+> WebSocket hub with session, subject, and room routing.
+> Pure mutex design with no background event-loop goroutine.
+
+#### Event Types
+
+```go
+type EventType string
+
+type Event struct {
+    Type    EventType       `json:"type"`
+    Payload json.RawMessage `json:"payload,omitempty"`
+    Target  string          `json:"target,omitempty"`   // CSS selector
+    Swap    string          `json:"swap,omitempty"`     // "innerHTML" or "outerHTML"
+    HTML    string          `json:"html,omitempty"`     // rendered HTML to swap in
+    Trigger string          `json:"trigger,omitempty"`  // HTMX event name
+}
+```
+Three delivery modes:
+1. HTML Direct: set Target + HTML, client swaps HTML into target
+2. HTMX Trigger: set Target + Trigger, client calls htmx.trigger()
+3. Data Only: set Payload only, client handles via registered callback
+
+#### Event Constructors
+
+```go
+func NewEvent(eventType EventType, payload any) *Event
+func NewHTMLEvent(eventType EventType, target, html string) *Event
+func NewOuterHTMLEvent(eventType EventType, target, html string) *Event
+func NewTriggerEvent(eventType EventType, target, trigger string) *Event
+func (e *Event) JSON() []byte
+```
+
+#### Client
+
+```go
+type Client struct {
+    SessionID string
+    SubjectID string
+    Rooms     map[string]bool
+    Meta      map[string]any
+}
+```
+
+#### Hub
+
+```go
+type Hub struct{ /* unexported */ }
+type HubOption func(*Hub)
+
+type HubStats struct {
+    Clients  int
+    Subjects int
+    Rooms    int
+}
+
+func NewHub(opts ...HubOption) *Hub
+func (h *Hub) Handler() echo.HandlerFunc     // upgrades HTTP to WebSocket
+func (h *Hub) Close()                        // cancels context, waits for pumps
+func (h *Hub) Stats() HubStats
+```
+
+#### Hub Options
+
+```go
+func WithSessionIDFunc(fn func(r *http.Request) string) HubOption
+func WithSubjectIDFunc(fn func(r *http.Request) string) HubOption
+func WithOnMessage(fn func(*Client, []byte)) HubOption       // nil = server-push-only
+func WithAcceptOptions(opts *ws.AcceptOptions) HubOption
+func WithLogger(l *slog.Logger) HubOption
+func WithSendBufferSize(n int) HubOption                     // default: 256, <=0 uses default
+```
+
+#### Hub Sending
+
+```go
+func (h *Hub) SendToSession(sessionID string, msg []byte) bool
+func (h *Hub) SendToSubject(subjectID string, msg []byte) int   // returns drop count
+func (h *Hub) SendToRoom(room string, msg []byte) int
+func (h *Hub) SendToRoomExcept(room string, msg []byte, exceptSessionID string) int
+func (h *Hub) Broadcast(msg []byte) int
+```
+
+#### Hub Room/Subject Management
+
+```go
+func (h *Hub) JoinRoom(c *Client, room string)
+func (h *Hub) LeaveRoom(c *Client, room string)
+func (h *Hub) AssociateSubject(sessionID, subjectID string)
+```
+
+#### Emitter
+
+```go
+type Emitter struct{ /* unexported */ }
+
+func NewEmitter(hub *Hub) *Emitter
+func (e *Emitter) ToSession(sessionID string, event *Event)
+func (e *Emitter) ToSubject(subjectID string, event *Event)
+func (e *Emitter) ToRoom(room string, event *Event)
+func (e *Emitter) ToRoomExcept(room string, event *Event, exceptSessionID string)
+func (e *Emitter) Broadcast(event *Event)
+```
+
+---
+
+### fingerprint
+
+> Package fingerprint provides content-based static asset fingerprinting.
+> Hashes file contents (SHA-256, 12 hex chars), writes fingerprinted copies
+> to a separate dist directory, and generates a Go source file with the
+> manifest baked in at compile time.
+
+```go
+func Fingerprint(srcDir, distDir string) (*Manifest, error)
+```
+Walks srcDir, hashes each file, writes fingerprinted copies to distDir (mirroring
+directory structure). Wipes distDir first. Validates distDir is safe to wipe
+(not `.`, not srcDir, must contain sentinel or be empty). Skips `.gitkeep`.
+
+```go
+func Clean(distDir string) error
+```
+Removes the dist directory entirely. Same safety validation as `Fingerprint`.
+
+```go
+func IsFingerprinted(path string) bool
+```
+Reports whether the URL path contains a fingerprint hash (`*.HASH.*` pattern).
+
+```go
+type Manifest struct {
+    Files map[string]string
+}
+func (m *Manifest) WriteGoManifest(path, pkg string) error
+```
+`WriteGoManifest` generates a Go source file with the manifest baked in as a
+compiled `map[string]string` literal. No runtime loading needed.
+
+CLI: `hamr gen static [--clean]`, config via `[static]` in hamr.toml
+
+---
+
+### sync
+
+> Package sync provides file-watching and S3-syncing for static assets.
+
+```go
+func SyncAll(ctx context.Context, store storage.FileStorage, dir string) error
+```
+One-shot upload of all files under dir. Creates bucket if store implements
+BucketEnsurer.
+
+```go
+func WatchAndSync(ctx context.Context, store storage.FileStorage, dir string) error
+```
+Watches dir for filesystem changes and syncs to storage. Blocks until ctx
+cancelled.
+
+```go
+func Key(dir, path string) string
+```
+Converts filesystem path to S3 key relative to dir. Returns "" for skippable
+files (e.g. .gitkeep).
+
+```go
+type BucketEnsurer interface {
+    EnsureBucket(ctx context.Context) error
+}
+```
+
+---
+
+### stripemock (local Stripe backend, hosted by `hamr dev`)
+
+> A local Stripe-compatible HTTP backend that the official `stripe-go` SDK
+> talks to in development. App code uses real `stripe-go` calls in both dev
+> and production — the only difference is whether `STRIPE_MOCK=true` is
+> set, which makes the scaffolded `main.go` point `stripe-go` at the proxy
+> URL instead of api.stripe.com. The previous `pkg/stripemock` package has
+> been **removed**; the mock lives entirely server-side in
+> `internal/devserver/stripemock*.go`.
+
+**Architecture.** Both the Stripe API surface (`/v1/*`, `/v2/*`) and the dev UI
+(`/__hamr/stripe/*`) mount on hamr's single proxy mux (default port
+`:3000`). `stripe-go` requires `req.URL.Path` to start with `/v1` — that's
+satisfied as long as paths begin with `/v1`, regardless of the listener.
+Earlier hamr versions used a dedicated `:3001` listener for the API; the
+single-mux model removes that port and the `[dev.stripe].api_listen`
+config knob. `http.ServeMux`'s longest-prefix matching keeps `/v1/*` and
+`/__hamr/*` from colliding with the catch-all `/` reverse-proxy to the
+app. **Caveat:** apps that version their own REST API at `/v1/*` (e.g.
+their own `/v1/accounts`, `/v1/refunds`, `/v1/payouts`, `/v1/transfers`,
+`/v1/balance_settings`, or `/v2/core/accounts`) and turn on
+`[dev.stripe]` will have those exact paths intercepted by the
+mock — the mock can't tell which `/v1/*` paths are Stripe's vs theirs.
+Workaround: serve the app's API under a different prefix (most projects
+already use `/api/v1/*`).
+
+**URL derivation.** `proxyClientBaseURL(cfg)` (in `stripemock.go`) builds
+`http://<normalized-host>:<port>` from `proxy.listen` and is used for the
+mock's `BaseURL` (rendered into checkout-session URLs) plus the
+`HAMR_DEV_URL` and `HAMR_STRIPE_MOCK_URL` env vars hamr injects into the
+spawned app. `normalizeHost` rewrites bind-only forms (`:port`,
+`0.0.0.0:port`, `[::]:port`) to `localhost:port` so the URL is
+client-reachable. Config validation rejects port `:0` (random-bind) plus
+absent `[proxy]` when either mock is enabled — the URL must be derivable
+from config alone, not from the runtime listener.
+
+**API surface (checkout sessions).**
+- `POST /v1/checkout/sessions` — create. Decodes Stripe's bracket-form body
+  (`line_items[0][price_data][currency]=gbp` etc.) into a stored session.
+  Returns a `checkout.session`-shaped JSON response with `URL` pointing at
+  `/__hamr/stripe/checkout?session=<id>` on the proxy.
+  `payment_intent_data.metadata` is stored and copied onto the PaymentIntent
+  and Charge the paid outcome creates (session `metadata` is the fallback);
+  `customer_email` is echoed and becomes the PI/Charge `receipt_email`.
+- `GET /v1/checkout/sessions/{id}` — retrieve. Same JSON shape.
+- `POST /v1/checkout/sessions/{id}/expire` — the SDK's `Expire`. Open →
+  expired, fires `checkout.session.expired`, returns the session. 400 when
+  the session is not open, 404 when unknown.
+
+**API surface (Connect accounts v2).** The default for new projects: Stripe
+refuses v1 Express account creation for new platforms. Implemented in
+`stripemock_v2account.go`; stored as `stripeV2Account` in its own map
+(`v2_accounts` in the state file).
+- `POST /v2/core/accounts` — JSON body (stripe-go sends v2 POSTs as JSON,
+  not bracket form). Reads `contact_email`, `display_name`, `dashboard`,
+  `identity.country`, `defaults.currency`,
+  `defaults.responsibilities.{fees,losses}_collector`, `metadata`, and
+  `configuration.{customer,merchant,recipient}`. Every
+  `{"requested": true}` leaf under a configuration's `capabilities` becomes
+  a capability at `<config>.<dotted path>` with status `pending`.
+  Requesting `recipient.stripe_balance.stripe_transfers` also adds
+  `recipient.stripe_balance.payouts` pending (Stripe grants it, it is not
+  requestable). Response: `object: "v2.core.account"`, RFC 3339 `created`,
+  `applied_configurations`, nested `configuration.<cfg>.capabilities...{status,
+  status_details}`, and `requirements.entries` (two `currently_due` entries
+  restricting the pending capabilities) while anything is pending.
+- `GET /v2/core/accounts/{id}` — retrieve. `include[]` is accepted and
+  ignored; configuration and requirements are always returned.
+- `POST /v2/core/account_links` — `account` + `use_case.type`
+  (`account_onboarding` | `account_update`). Stores
+  `use_case.<type>.return_url` on the account. URL →
+  `/__hamr/stripe/onboarding?account=<id>`; `expires_at` +5 min, RFC 3339.
+- Errors use the v2 shape (`{"error":{"type","code","message"}}`), which
+  stripe-go decodes into `*stripe.V2RawError`.
+- Onboarding: the same `/__hamr/stripe/onboarding` page renders a v2 view
+  (configurations, each capability and status). `POST
+  /__hamr/stripe/account/complete` sets every capability `active`, fires
+  thin events `v2.core.account[requirements].updated` and
+  `v2.core.account[configuration.<cfg>].capability_status_updated` (one per
+  configuration with capabilities), then 303s to the stored `return_url`
+  (http/https only) or renders a done page. 409 when already onboarded.
+
+**Thin events.** `fireEvent` with `thinRelatedID` builds
+`{"id","object":"v2.core.event","type","livemode":false,"created":<RFC 3339>,
+"related_object":{"id","type":"v2.core.account","url":"/v2/core/accounts/<id>"}}`
+— stripe-go's `ParseEventNotification` rejects `object: "event"`. Signed
+with the same HMAC scheme and secret as snapshot events and POSTed to
+`WebhookEndpoint.ThinURL` (`[dev.stripe].thin_webhook_url`). Empty ThinURL →
+logged, not delivered. This matches `stripe listen --forward-thin-to`,
+which also uses one secret for both forwards.
+
+**API surface (Connect accounts v1).**
+- `POST /v1/accounts` — create connected account. Defaults: type=express,
+  country=US, default_currency derived from country (GB→gbp, EU/DE/FR/IT/ES/NL→eur,
+  JP→jpy, otherwise usd). New accounts start in pre-onboarding state:
+  `charges_enabled=false`, `payouts_enabled=false`, `details_submitted=false`,
+  `requirements.currently_due=[business_type, external_account, tos_acceptance.date,
+  tos_acceptance.ip]`, `requirements.disabled_reason="requirements.past_due"`.
+- `GET /v1/accounts/{id}` — retrieve. Returns the same shape with current state.
+- `POST /v1/account_links` — generate hosted onboarding URL pointing at
+  `/__hamr/stripe/onboarding?account=<id>` on the proxy. `expires_at` set
+  to mirror Stripe's 5-minute TTL but not enforced.
+
+**Dev UI (account onboarding).**
+- `GET /__hamr/stripe/onboarding?account=<id>` — renders the account state
+  (type, country, currency, enabled flags, requirements list) and a
+  Complete button. Already-onboarded accounts show a green banner instead.
+- `POST /__hamr/stripe/account/complete` — flips `charges_enabled`,
+  `payouts_enabled`, `details_submitted` to true, clears `currently_due`
+  and `disabled_reason`, fires `account.updated`. 409 Conflict on
+  double-submit. Same-origin guard.
+
+**API surface (PaymentIntents — Connect-aware).**
+- `POST /v1/payment_intents` — create. Reads the `Stripe-Account` request
+  header (direct-charge model) and the body fields
+  `application_fee_amount`, `transfer_data[destination]`,
+  `transfer_data[amount]`, `on_behalf_of`, plus standard PI fields
+  (`amount`, `currency`, `capture_method`, `confirmation_method`,
+  `description`, `statement_descriptor`, `receipt_email`, `customer`,
+  `payment_method`, `metadata`). New PIs without a payment_method start in
+  `requires_payment_method`; with one, `requires_confirmation`.
+  **Validation**: `currency` required, `amount > 0`,
+  `application_fee_amount` non-negative and ≤ amount,
+  `transfer_data.destination` (if provided) must reference an existing
+  connected account.
+- `GET /v1/payment_intents/{id}` — retrieve. `latest_charge` is rendered as
+  an inline charge object once the outcome runs (caller doesn't need a
+  separate charge.Get round-trip).
+- `POST /v1/payment_intents/{id}/confirm` — advance from
+  `requires_payment_method` to `processing` for auto-capture (mirrors real
+  Stripe's sync card flow), or to `requires_capture` if
+  `capture_method=manual`. Defaults the payment_method to `pm_card_visa`
+  if absent so the rest of the flow doesn't error.
+- `POST /v1/payment_intents/{id}/capture` — capture a `requires_capture`
+  (manual-capture) PI: creates the Charge, advances to `succeeded`, fires
+  `payment_intent.succeeded` + `charge.succeeded` (+ `transfer.created` for
+  destination charges). Partial capture via `amount_to_capture`. While in
+  `requires_capture` the serialized PI reports `amount_capturable` (the
+  authorized amount); after capture `amount_received` is the captured amount.
+
+**Dev UI (PaymentIntent).**
+- `GET /__hamr/stripe/payment_intent?id=<pi_id>` — renders the amount,
+  application fee, transfer destination + transfer amount (for destination
+  charges), an "as <acct>" tag (for direct charges), and Succeed/Fail
+  buttons. Already-terminal PIs return 410 Gone.
+- `POST /__hamr/stripe/payment_intent/complete` — outcomes: `succeed` or
+  `fail`.
+
+**Cascade on PaymentIntent succeed (destination charge).**
+Three signed webhooks fire **in order** from a single goroutine, matching
+real Stripe's delivery order:
+1. `payment_intent.succeeded` — PI status now `succeeded`,
+   `amount_received = amount`, `latest_charge` populated.
+2. `charge.succeeded` — auto-created Charge with
+   `paid=true`, `captured=true`, `application_fee_amount`,
+   `destination` (the connected account), `transfer` (the auto-created
+   transfer ID), `payment_intent` (this PI).
+3. `transfer.created` — auto-created Transfer to the connected account.
+   `amount = pi.amount - application_fee_amount` by default; overridden
+   when `transfer_data.amount` was set explicitly. `source_transaction`
+   points at the Charge.
+
+**Cascade on PaymentIntent succeed (no destination).** Just events 1 + 2;
+no transfer is created.
+
+**Cascade on PaymentIntent fail.** Only `payment_intent.payment_failed`.
+No Charge is synthesised — mirrors real Stripe's sync card-decline path
+where no Charge object exists for a payment that never settled.
+
+**Connect models supported.** Both:
+- **Destination charge** — platform creates PI on its own account, sets
+  `transfer_data[destination]` to forward funds (minus fee) to the
+  connected account on success. Platform is the merchant of record.
+- **Direct charge** — platform creates PI AS the connected account via
+  the `Stripe-Account` header. Connected account is the merchant of
+  record; platform takes its cut via `application_fee_amount`.
+
+**API surface (Refunds — Connect-aware).**
+- `POST /v1/refunds` — sync-success model that matches real Stripe's card
+  refund behavior: status is `succeeded` immediately, the
+  `charge.refunded` webhook fires async. Caller passes **exactly one** of
+  `payment_intent` or `charge` (rejected if both or neither).
+  - `amount` (optional) — defaults to the charge's remaining unrefunded
+    balance, `amount_captured − amount_refunded` (full refund). Validated:
+    positive, ≤ remaining.
+  - `reverse_transfer` (optional bool) — for destination charges,
+    reverses the auto-created Transfer to the connected account.
+    Increments `Transfer.amount_reversed`, capped at the transfer's
+    remaining unreversed balance. Synthesises a `trr_test_<hex>` ID and
+    populates `Refund.source_transfer_reversal`.
+  - `refund_application_fee` (optional bool) — on a direct charge the
+    ledgers move `application_fee × amount / amount_captured` back from
+    the platform to the connected account; no separate ApplicationFee
+    resource.
+  - `reason` (optional) — free-text reason ("duplicate", "fraudulent",
+    etc.).
+- `GET /v1/refunds/{id}` — retrieve.
+- `GET /v1/refunds` — list filtered by `charge` and/or `payment_intent`,
+  newest first (ties broken by id), `limit` (default 10, max 100) +
+  `starting_after` so `List(...).All(ctx)` walks every page.
+- A refund on a fully refunded charge fails 400 with code
+  `charge_already_refunded` (`errChargeAlreadyRefunded` sentinel); on a
+  disputed charge with `charge_disputed` (`errChargeDisputed`).
+
+**Cascade on refund success.**
+1. `Charge.amount_refunded += refund.amount` (held under the same lock as
+   the validation so concurrent refunds can't double-spend).
+2. `Charge.refunded = true` if amount_refunded reaches charge.amount.
+3. If `reverse_transfer && charge.transfer != ""`: record a reversal of
+   min(refund.amount, remaining) on the transfer (`reverseTransferLocked`,
+   appends to `Transfer.Reversals` with `refund_id`) and set
+   `Refund.source_transfer_reversal` to its `trr_test_` id.
+4. Refund stored. Async webhook fanout: `charge.refunded` with the
+   *updated* Charge, then `transfer.reversed` with the updated transfer
+   when step 3 reversed anything.
+
+**What's not modelled.** Async-pending refunds (ACH, etc. — real Stripe
+returns status=`pending` and resolves later via `refund.updated`).
+Refund failures (no failure simulation on the create endpoint yet).
+ApplicationFeeRefund as a distinct resource.
+
+**API surface (Transfers).** `stripemock_transfer.go`.
+- `POST /v1/transfers` — `amount`, `currency`, `destination` required;
+  optional `source_transaction`, `transfer_group`, `description`,
+  `metadata`. Destination must be a v1 or v2 account; a v2 account needs
+  `recipient.stripe_balance.stripe_transfers` = `active`, else 400 code
+  `insufficient_capabilities_for_transfer` (v1 accounts are not
+  capability-checked). `source_transaction` must be an existing charge in
+  the same currency with `amount <= amount_captured - amount_refunded -
+  net transfers already drawn from it`; without `source_transaction` the
+  platform balance (derived ledger) must cover `amount`. Either shortfall
+  is 400, code `balance_insufficient`. Fires `transfer.created`.
+- `GET /v1/transfers/{id}` — retrieve; `reversals` is an inline list object.
+- `POST /v1/transfers/{id}/reversals` — `amount` (0/absent = everything
+  left), `metadata`. 400 when nothing is left or amount exceeds it. Returns
+  a `transfer_reversal`; fires `transfer.reversed` with the updated transfer.
+
+**API surface (Balance).** `stripemock_balance.go`.
+- Every serialized charge carries `balance_transaction: "txn_<charge id>"`,
+  `disputed`, and `payment_method_details.card` (visa, 4242, credit, US).
+- `GET /v1/balance_transactions/{id}` — ids are derived, not stored:
+  `txn_<charge id>` → type `charge`, fee `stripeFee(amount_captured)`
+  (1.5% + 20 for gbp/eur, 2.9% + 30 otherwise); `txn_<dispute id>_withdrawal`
+  → `adjustment`/`dispute`, amount −disputed, fee 2000;
+  `txn_<dispute id>_reinstatement` (won disputes only) → amount +disputed,
+  fee 0 (the dispute fee is never returned). `net = amount − fee`,
+  `fee_details[0].type = stripe_fee` (empty when fee is 0).
+- `GET`/`POST /v1/balance_settings` — scoped by `Stripe-Account` ("" =
+  platform; unknown account → 404). Stores `payments.debit_negative_balances`,
+  `payments.settlement_timing.delay_days`, and
+  `payments.payouts.schedule.{interval (manual|daily|weekly|monthly),
+  monthly_payout_days (1–31), weekly_payout_days}`. Defaults: daily, 2 days.
+- Derived balances (control page, payout control): connected =
+  transfers − reversals + direct charges − their refunds − non-failed
+  payouts; platform = captured charges − fees − refunds − net transfers −
+  platform payouts + application fees. Disputes (and the won reversal)
+  land on whoever holds the charge, and `refund_application_fee` moves the
+  pro-rata fee back. No pending/available split.
+
+**Disputes.** `stripemock_dispute.go`, dashboard-driven.
+- `POST /__hamr/stripe/dispute` (`payment_intent=`) — PI must be succeeded
+  with a charge not already disputed (409) and not fully refunded (400).
+  Creates `dp_test_` status `needs_response`, amount = `amount_captured −
+  amount_refunded`, reason `fraudulent`,
+  evidence due +7 days; sets the charge's dispute. Fires
+  `charge.dispute.created` + `charge.dispute.funds_withdrawn`.
+- `POST /__hamr/stripe/dispute/close` (`dispute=`, `outcome=won|lost`) —
+  409 when not `needs_response`. Fires `charge.dispute.closed` (+
+  `charge.dispute.funds_reinstated` when won).
+- Dispute objects inline `balance_transactions` (withdrawal; + reinstatement
+  when won) so apps can read the dispute fee.
+- `POST /__hamr/stripe/payout/account` (`account=`) — creates a pending
+  `automatic=true` payout of the account's whole balance in its first
+  positive currency (400 when nothing to pay out), then 303s to the payout
+  page. Stands in for Stripe's scheduled connected-account payouts.
+
+**Idempotency.** `RegisterAPIRoutes` wraps every API route
+(`idempotentRouter`). A POST with an `Idempotency-Key` records status,
+headers and body; a repeat with the same key, path and `Stripe-Account`
+replays it with `Idempotent-Replayed: true`, and a concurrent repeat waits
+for the first to finish. In memory, cache cleared at 1000 keys.
+
+**Event log.** Every event (snapshot or thin) goes through `fireEvent`,
+which records a `stripeEvent` (id, type, thin, account, object id, payload,
+attempts, delivered, last error) before delivery. Last 200, in memory only.
+`resendEvent(id)` redelivers the stored payload with a fresh signature, so
+the app sees the same event id again.
+
+**API surface (Payouts — Connect-aware).**
+- `POST /v1/payouts` — create a manually-triggered payout. Reads the
+  `Stripe-Account` request header to scope the payout to a connected
+  account; without the header, the payout is on the platform's own
+  balance. Stored in `pending` status with `automatic=false`.
+  Required: `amount` (positive int), `currency`. Optional: `method`
+  (standard|instant, default standard), `source_type` (default
+  bank_account), `description`, `statement_descriptor`, `metadata`.
+  `arrival_date` derived from method (now for instant, +48h for standard).
+  Validates: connected account exists if Stripe-Account header set
+  (mirrors real Stripe's 404 on typos).
+- `GET /v1/payouts/{id}` — retrieve.
+- `GET /v1/payouts` — list, scoped by `Stripe-Account` header. Honors
+  `?limit=` (1-100, default 10). Sorted newest-first. Cursor pagination
+  (`starting_after`) accepted but not honored — overkill for a dev mock.
+  This is the canonical marketplace dashboard query: "show all payouts to
+  this seller's connected account".
+
+**Dev UI (Payout).**
+- `GET /__hamr/stripe/payout?id=<po_id>` — renders amount, expected
+  arrival date, connected account tag (if any), method, and Mark
+  paid / Mark failed buttons. Already-terminal payouts return 410.
+- `POST /__hamr/stripe/payout/complete` — outcomes: `paid` or `fail`.
+
+**Outcome cascades.**
+| Button | Event | State after |
+|---|---|---|
+| Mark paid | `payout.paid` | status=`paid` |
+| Mark failed | `payout.failed` | status=`failed`, failure_code=`account_closed`, failure_message=`The bank account has been closed.` |
+
+(Failure code/message are hardcoded today; if you need to test other
+codes, the rule is in the `payoutOutcomes` map in
+`stripemock_payout_page.go` — extend with more outcomes or wire a form
+field through `handlePayoutComplete`.)
+
+**Connected-account payout events.** Payout events set the envelope's
+top-level `account` to the payout's `Stripe-Account` (`event.Account` in
+stripe-go), on the outcome page and on dashboard resend.
+
+**What's not modelled.** Automatic payouts on a schedule (the dashboard
+"Pay out balance" control stands in). Payout cancel / reverse endpoints.
+The `failed → paid` recovery path that some banks trigger after an initial
+failure. ReconciliationStatus, payout balance transactions.
+
+**Validation.**
+- All line items in a session must share the same currency. Mock surfaces
+  this as a 400 with a typed `*stripe.Error` shape so `stripe-go` callers
+  receive it as `&stripe.Error{...}`.
+- Unknown sessions on retrieve return a 404 in Stripe's canonical error shape.
+
+**Webhook delivery.** When the user clicks an outcome on the dev UI, the
+mock fires a real signed webhook (HMAC-SHA256 over `<unix>.<payload>`,
+header `Stripe-Signature: t=<unix>,v1=<hex>`) to the configured
+`webhook_url` (snapshot events) or `thin_webhook_url` (thin events) with
+`webhook_secret`. Connected-account events add a top-level `account`. The app's existing
+`webhook.ConstructEvent(body, sig, secret)` verifies it as production. The
+event envelope includes `api_version` (set to the mock's pinned version)
+which clears stripe-go's release-train compatibility check.
+
+**Outcome → event mapping (checkout).**
+| Button | Event(s) | Status, payment_status | Redirect |
+|---|---|---|---|
+| Pay Successfully | `checkout.session.completed`, `payment_intent.succeeded`, `charge.succeeded` (PI + Charge materialised) | complete, paid | success_url |
+| Card Declined | *(none — synchronous decline)* | stays open | back to checkout page |
+| Cancel Payment | `checkout.session.expired` | expired, unpaid | cancel_url |
+
+**Outcome → event mapping (account onboarding).**
+| Action | Event | State after |
+|---|---|---|
+| Complete Onboarding (v1 account) | `account.updated` | charges_enabled=true, payouts_enabled=true, details_submitted=true, currently_due=[] |
+| Complete Onboarding (v2 account) | thin `v2.core.account[requirements].updated`, thin `v2.core.account[configuration.<cfg>].capability_status_updated` | every capability `active`, requirements entries empty; redirect to link `return_url` |
+
+**Outcome → event mapping (PaymentIntent).**
+| Button | Cascade (in order) | PI status after |
+|---|---|---|
+| Succeed (destination charge) | `payment_intent.succeeded`, `charge.succeeded`, `transfer.created` | succeeded |
+| Succeed (no destination) | `payment_intent.succeeded`, `charge.succeeded` | succeeded |
+| Fail | `payment_intent.payment_failed` | requires_payment_method |
+
+**Outcome → event mapping (Refund).** No dev UI button — refunds are
+created by the app via `refund.New()`. The mock applies state changes
+synchronously and fires one webhook async.
+| Action | Event | State after |
+|---|---|---|
+| `refund.New(payment_intent=...)` (full) | `charge.refunded` | refund.status=succeeded, charge.refunded=true |
+| `refund.New(charge=..., amount=N)` (partial) | `charge.refunded` | refund.status=succeeded, charge.amount_refunded += N |
+| `refund.New(... reverse_transfer=true)` | `charge.refunded`, `transfer.reversed` | + reversal recorded, transfer.amount_reversed += min(refund.amount, remaining) |
+
+**Outcome → event mapping (Payout).**
+| Button | Event | State after |
+|---|---|---|
+| Mark paid | `payout.paid` | status=`paid` |
+| Mark failed | `payout.failed` | status=`failed`, failure_code+failure_message populated |
+
+**Race-safety.** Once a session leaves "open", subsequent outcome POSTs
+return 409 Conflict so a double-click can only fire one webhook. The
+checkout page also returns 410 Gone for already-completed sessions to
+prevent re-use from a stale browser tab.
+
+**API version pinning.** Constant `stripeAPIVersion` in
+`internal/devserver/stripemock.go` must equal `stripe.APIVersion` from the
+SDK in `go.mod`. A CI test (`TestStripeAPIVersionMatchesSDK`) enforces the
+link, so a `stripe-go` bump fails the build until the constant is bumped in
+lockstep. Current pinned value: `2026-08-26.dahlia` (matches `stripe-go/v86`).
+
+**CSRF guard.** Outcome-recording POST rejects requests whose `Origin`
+header is set and doesn't match the request's `Host`. Requests without an
+`Origin` (curl, tests) pass through.
+
+**Config (`hamr.toml`).**
+```toml
+[dev.stripe]
+mode                     = "mock"                                           # "off" (default) | "mock" | "listen"
+webhook_url              = "http://localhost:8080/api/webhooks/stripe"      # required unless off
+thin_webhook_url         = "http://localhost:8080/api/webhooks/stripe/v2"   # optional
+connect_webhook_url      = ""                                               # optional; empty = webhook_url
+thin_connect_webhook_url = ""                                               # optional; empty = thin_webhook_url
+thin_events              = ["v2.core.account[requirements].updated", "v2.core.account[configuration.recipient].capability_status_updated"]  # default; listen only
+webhook_secret           = "whsec_dev_..."                                  # required unless off; mock signs every event with it
+persist                  = true                                             # default; mock only
+persist_path             = ".hamr/stripe/state.json"                        # default
+```
+Every URL has its localhost port rewritten when `hamr dev` walks the app
+port. The mock sends events carrying a connected `account` to the connect
+URLs when set (`WebhookEndpoint.target`). Any mode but `off` requires both
+`webhook_url` and `webhook_secret`, plus a `[proxy]` section (the API and UI
+both live on the proxy mux); `hamr dev` refuses to start otherwise with a
+typed error. A config (or `.pref.hamr.toml`) that still sets
+`dev.stripe.enabled` fails to load: `dev.stripe.enabled was replaced by mode:
+use mode = "mock" (or "off")`.
+
+**Stripe listen mode.** `stripeSwitch` (`internal/devserver/stripelisten.go`)
+owns the runtime mode behind the `S` hotkey and the `stripe.mode` MCP tool
+(write, area `stripe`; `{"mode":"mock"|"listen"}`, empty flips; returns
+`{"mode"}`; blocks until done). The mock is constructed in both modes. Boot
+applies the configured mode before the initial build (no restart). Listen:
+read `STRIPE_KEY` from `.env` (fallback: hamr's env), refuse empty and
+`sk_live_`/`rk_live_`, start `stripe listen --skip-update --forward-to …
+--forward-connect-to …` plus `--forward-thin-to … --forward-thin-connect-to …
+--thin-events <thin_events>` when `thin_webhook_url` is set, as argv (no
+shell) with `STRIPE_API_KEY` in the child env, output prefixed `stripe` in the
+log; wait 30s for `whsec_…`. Then set the stripe env layer and restart running
+`run` rules + daemons. Injected in both modes: `STRIPE_MOCK` (`true`/`false`),
+`STRIPE_WEBHOOK_SECRET`, `_V2`, `_CONNECT`, `_V2_CONNECT` (mock:
+`webhook_secret`; listen: the CLI's secret); listen mode also injects
+`STRIPE_KEY` (mock leaves it to `.env`, where an injected copy would go stale);
+`HAMR_STRIPE_MOCK_URL` stays in the base layer. A running listener is stopped
+before any switch. A failed flip from mock keeps mock; a failed boot, failed
+key-change restart or a listener exiting on its own falls back to mock. An
+fsnotify watch on `.env` (300ms debounce; acts in listen mode only) restarts
+the listener when `STRIPE_KEY` changes. In listen mode every `.env` event first
+drops the injected `STRIPE_KEY` from the layer without a restart
+(`stripeSwitch.dropKey`), so the site rule's own `.env` restart gives the app
+its fresh `.env` key rather than the old one; `dotenvChanged` puts it back, at
+once when the key is unchanged, else with the new listener's secret. While listening, `StripeMock.listening` makes
+webhook delivery record and return `errStripeListening` ("stripe is in listen
+mode") instead of POSTing, and the MCP gateway returns it for every `stripe.*`
+tool except `stripe.mode`; dashboards and state stay up. `dev.info` reports
+`stripe.mode` (`off`|`mock`|`listen`). Events: `EvStripeMode` data
+`switching`/`mock`/`listen`.
+
+**Persistence.** Single JSON file at `persist_path`, atomically rewritten
+(tmp + rename) on every state mutation under the same lock that gates the
+mutation. Loaded on `NewStripeMock` if the path is set; corrupt files
+trigger the `OnPersistError` callback and the mock starts empty (no
+crash). Schema is forward-compatible — `encoding/json` ignores unknown
+fields and zeroes missing ones, so adding fields is safe. Set
+`persist = false` for in-memory-only mode. The file holds sessions,
+accounts, `v2_accounts`, payment intents, charges, transfers (with
+reversals), refunds, payouts, `balance_settings` and `disputes`. The event
+log and idempotency cache are memory-only (async webhook goroutines never
+write the file).
+
+Why JSON not mbox: Stripe state is plain Go structs (no MIME equivalent),
+so a single JSON document is the natural shape. The file is human-readable
+which helps LLM workflows that want to read prior state across restarts.
+
+**Dashboard.** `GET /__hamr/stripe` renders an index with tables for
+sessions, v1 accounts (with balance), v2 accounts (email, configurations,
+stripe_transfers status, balance), PaymentIntents, refunds, payouts,
+disputes and events (`#events`; type with a thin tag, object, account,
+delivered / failed with error on hover / not sent, attempt count) —
+newest-first, capped at 25 rows per table. Designed both for human dev use and for
+LLMs reading the page to inspect prior state.
+
+Per-row actions (all POST endpoints, same-origin guarded):
+- `POST /__hamr/stripe/resend` (`resource=`, `id=`) — re-fires the
+  natural event(s) for the resource's current state. PI succeed re-fires
+  the full 3-event cascade in order; refund re-fires `charge.refunded`
+  with the post-refund Charge state; payout re-fires the matching
+  `payout.paid` or `payout.failed`. Returns 400 if there's no natural
+  event for the current state (e.g., open session).
+- `POST /__hamr/stripe/refund` (`payment_intent=`, `amount=`,
+  `reverse_transfer`, `refund_application_fee`) — issues a refund directly
+  from the dashboard. Routes through the same `applyRefund` path
+  `refund.New` uses, so validation + Charge mutation + Transfer reversal
+  all behave identically.
+- `POST /__hamr/stripe/expire` (`session=`) — marks an open session as
+  expired and fires `checkout.session.expired`. 409 on already-terminal.
+- `POST /__hamr/stripe/resend` (`event=`) — redelivers a logged event by
+  id (synchronously, result shown on the row); 404 for an unknown id.
+- `POST /__hamr/stripe/dispute`, `/__hamr/stripe/dispute/close`,
+  `/__hamr/stripe/payout/account` — see Disputes above. Rendered as
+  "Dispute" on succeeded, undisputed PIs; "Close: won" / "Close: lost" on
+  open disputes; "Pay out balance" on connected accounts with a non-zero
+  balance; "Onboard" on v2 accounts not yet onboarded.
+
+**Read-only fake dashboards.** `stripemock_views.go`. Laid out like
+Stripe's dashboards so QA reads them the same way; hamr dark styling, a
+"hamr mock" badge, no Stripe logo or branding, and no forms (GET only;
+POST → 405). The control page links to them.
+- `GET /__hamr/stripe/dashboard[/<section>]` — platform. Sections: home
+  (balance cards, 10 recent payments, 5 recent payouts), `payments` (one row
+  per PaymentIntent joined with charge/refunds/dispute: status succeeded |
+  refunded | partially_refunded | disputed | failed | incomplete |
+  uncaptured | canceled, card, customer = receipt email, fee, Connect
+  destination or direct account, metadata), `balances` (balance per
+  currency + `platformLedger()` rows: type, amount, fee, net, description,
+  source), `connect` (v1 + v2 accounts: status complete/restricted, API,
+  dashboard type, country, balance, link to Express view), `transfers`,
+  `payouts` (platform only), `disputes`, `events` (event log with delivery
+  result and pretty payload). Unknown section → 404. 100 rows per table.
+- `GET /__hamr/stripe/express/<account>` — one connected account (v1 or
+  v2): balance, payout schedule text from `balanceSettingsFor`, payouts on
+  the account, activity (`connectedLedger()` minus payouts), capabilities
+  and outstanding requirements. Unknown account → 404.
+- Ledgers (`stripemock_ledger.go`) are derived from stored objects on every
+  read. Platform: charges (+captured, fee `stripeFee`), refunds, transfers
+  (−), reversals (+), dispute withdrawal (−amount, fee 2000) and reversal
+  when won (+amount, fee 0), platform payouts; direct charges (PI with `Stripe-Account`)
+  count on the connected account, with only the application fee on the
+  platform. Connected: transfers in (payment), reversals (payment_refund),
+  direct charges (fee = Stripe fee + application fee), their refunds,
+  payouts. Failed/canceled payouts net to zero. No pending/available split.
+  `connectedBalance` (used by the control page and "Pay out balance") sums
+  the connected ledger.
+
+**Dev panel button.** `sseConfig.StripeMock` (JSON key `stripe_mock`) is
+set when `[dev.stripe]` is on (either mode). The dev-panel JS in `reload.js`
+renders an "Open Stripe mock" shortcut alongside the existing "Open mail
+inbox" button when this flag is present.
+
+**Scaffold integration.** `hamr new --stripe` generates a single random
+`whsec_dev_<32 hex>` at scaffold time and writes it to `.env`
+(`STRIPE_WEBHOOK_SECRET=...` and `STRIPE_WEBHOOK_SECRET_V2=...`) and
+`hamr.toml` (`[dev.stripe].webhook_secret`) so they stay in sync;
+`hamr.toml` also gets `thin_webhook_url =
+"http://localhost:8080/api/webhooks/stripe/v2"`. The API package gets
+`Deps.WebhookSecret`, `Deps.WebhookSecretV2`, `Deps.StripeClient` and two
+routes: `POST /api/webhooks/stripe` → `HandleWebhook`
+(`webhook.ConstructEvent`, stubs for every snapshot event the mock fires,
+incl. `transfer.reversed` and the four `charge.dispute.*`) and
+`POST /api/webhooks/stripe/v2` → `HandleThinWebhook`
+(`client.ParseEventNotification`, stubs for the two v2 account thin events;
+the capability stub retrieves the account via `V2CoreAccounts.Retrieve`).
+The old `account.updated` stub is gone — v2 accounts never emit it.
+Generated `cmd/site/main.go` reads `STRIPE_MOCK`
+and conditionally calls `stripe.SetBackend(...)`:
+```go
+stripe.Key = envStripeKey
+if envStripeMock {
+    if !envDevMode {
+        log.Error("STRIPE_MOCK=true requires DEV_MODE=true (refusing to route Stripe calls to a local mock without dev mode)")
+        os.Exit(1)
+    }
+    stripe.SetBackend(stripe.APIBackend, stripe.GetBackendWithConfig(
+        stripe.APIBackend,
+        &stripe.BackendConfig{URL: stripe.String(envHamrStripeMockURL)},
+    ))
+}
+stripeClient := stripe.NewClient(envStripeKey) // after SetBackend, so it inherits the mock backend
+```
+`.env.example` ships with `STRIPE_MOCK=true` and a non-empty `STRIPE_KEY`.
+The mock URL is auto-injected by `hamr dev` as `HAMR_STRIPE_MOCK_URL`,
+derived from `hamr.toml` `[proxy].listen` — no hardcoded port to keep in
+sync. Production deployments leave `STRIPE_MOCK` unset so `stripe-go`
+reaches `api.stripe.com`, and `[dev.stripe]` is absent from production
+`hamr.toml`.
+
+**Production safety guard.** `STRIPE_MOCK=true && DEV_MODE=false` refuses
+to start. A leftover `STRIPE_MOCK=true` in a production `.env` would
+otherwise route real payment calls to a non-existent localhost endpoint
+and silently break checkouts. Staging that wants fake payments should
+also set `DEV_MODE=true`.
+
+**Hamr-injected env vars.** When `hamr dev` spawns the site process it
+sets two env vars derived from `hamr.toml` config:
+- `HAMR_DEV_URL=http://localhost:<proxy_port>` when `[dev.email]`,
+  `[dev.sms]`, or `[dev.stripe]` is enabled. The scaffold's email mock
+  client uses it, as does `smsmock.New`.
+- `HAMR_STRIPE_MOCK_URL=http://localhost:<proxy_port>` when
+  `[dev.stripe]` is on. Scaffolded `main.go` points stripe-go
+  at this URL when `STRIPE_MOCK=true`. The per-mode Stripe vars
+  (`STRIPE_MOCK`, `STRIPE_KEY`, `STRIPE_WEBHOOK_SECRET*`) come from the
+  stripe env layer (see **Stripe listen mode**).
+
+These pre-set vars win over `.env` (godotenv.Load doesn't overwrite
+already-set env), so users can't accidentally drift the mock URL from
+the actual proxy port. Hamr knows its own URL — nothing in `.env` should
+be more authoritative than that.
+
+**Known limits.** Mocked today: checkout sessions (incl. expire), Connect
+account onboarding on v1 (`Account` + `AccountLink`) and v2
+(`/v2/core/accounts`, `/v2/core/account_links`, thin events),
+Connect-aware PaymentIntents (with auto-cascade to Charge + Transfer on
+success), Refunds (create, retrieve, list; `reverse_transfer` and
+`refund_application_fee`), Transfers + reversals, balance transactions and
+balance settings, dashboard-driven disputes, and Payouts (manual create +
+paid/failed outcomes, scoped list, dashboard balance payout). Not yet
+mocked: Customer, Price, Subscription, Invoice, transfer/reversal list
+endpoints, v2 account update/close, dispute evidence, GET endpoints for
+Charge / ApplicationFee. Patterns are established in
+`internal/devserver/stripemock*.go` — add as needed. State is persisted
+by default to `.hamr/stripe/state.json` and reloaded across `hamr dev`
+restarts; set `persist = false` for ephemeral in-memory-only mode.
+
+**Logging.** Mock log lines are emitted via a dedicated logger tagged
+`[hamr:stripe]` (the standard `[hamr dev]` lines come from the proxy and
+file-watcher). Plumbed via a `component=stripe` slog attribute that
+hamr's `devHandler` interprets and strips before formatting, so attrs in
+the log line itself are unaffected. Most common emitted lines:
+`webhook delivery failed` (app server down or non-2xx response),
+`dashboard resend failed`, `dashboard refund webhook delivery failed`,
+`dashboard expire webhook delivery failed`, and a one-shot `mock enabled`
+at boot with the proxy URL the mock is reachable on.
+
+---
+
+### email
+
+> Package email defines a provider-agnostic `Sender` interface for
+> transactional email and the value types that flow through it. Apps depend on
+> the interface; concrete implementations (real provider adapters, emailmock,
+> plain SMTP) are chosen at startup.
+
+```go
+type Sender interface {
+    Send(ctx context.Context, msg Message) (*Result, error)
+}
+```
+Implementations must be safe for concurrent use. `Send` respects context
+cancellation.
+
+```go
+type Message struct {
+    From        Address
+    To, Cc, Bcc []Address
+    ReplyTo     *Address          // nil if not overriding From
+    Subject     string
+    Text        string            // plaintext body
+    HTML        string            // html body
+    Attachments []Attachment      // downloadable files
+    Inline      []Attachment      // cid-referenced; ContentID must be set
+    Headers     map[string]string // custom SMTP/HTTP headers
+    Tags        map[string]string // free-form correlation metadata
+}
+
+type Address    struct { Name, Email string }
+type Attachment struct { Filename, ContentType string; Data []byte; ContentID string }
+type Result     struct { ID string } // provider-assigned message id (may be empty)
+
+func Addr(name, email string) Address
+```
+
+**Body semantics.** Set `Text`, `HTML`, or both. Real adapters producing MIME
+emit `multipart/alternative` when both are present.
+
+**Inline images.** Reference as `<img src="cid:logo">` in HTML; add an
+Attachment to `Inline` with `ContentID = "logo"`. The emailmock viewer rewrites
+`cid:` to local URLs; real adapters include the parts in the MIME tree.
+
+**Extension points.** The interface is deliberately narrow. Provider-specific
+features belong in:
+- `Headers` — custom SMTP/RFC5322 headers (List-Unsubscribe, X-*, In-Reply-To)
+- `Tags` — correlation metadata (user_id, campaign_id) for provider webhooks
+- Your own adapter — templates, per-recipient substitutions, scheduled send,
+  tracking flags
+
+**Swap pattern.**
+```go
+var sender email.Sender
+if os.Getenv("EMAIL_MOCK") == "true" {
+    sender = emailmock.New(os.Getenv("HAMR_DEV_URL"))
+} else {
+    sender = myapp.NewRealSender(cfg)
+}
+```
+
+---
+
+### emailmock
+
+> Package emailmock is a dev-only `email.Sender` that ships messages to the
+> hamr dev server's in-memory inbox at `/__hamr/mail`. It does not construct
+> MIME, talk SMTP, or call any provider API — it POSTs JSON to the hamr dev
+> proxy's ingest endpoint.
+
+**What this mock tests.** How your application uses `email.Sender` — field
+population, recipient handling, attachment construction, HTML/text body
+rendering, inline image CIDs. It does NOT validate your production provider
+adapter's MIME construction, SMTP handshake, or HTTP wire format. Use your
+provider's test environment or integration tests for those.
+
+```go
+func New(baseURL string) *Client
+```
+`baseURL` is the hamr dev proxy origin (e.g. `http://localhost:3000`).
+Trailing slashes are stripped. Empty baseURL is accepted but every `Send` will
+fail until reconfigured. Default request timeout is 10 seconds.
+
+```go
+func (c *Client) Send(ctx context.Context, msg email.Message) (*email.Result, error)
+```
+JSON-encodes `msg` and POSTs to `<baseURL>/__hamr/mail/ingest`. On 200 returns
+the server-assigned `*email.Result{ID}`; on 422 with a magic-recipient body
+returns `ErrBounced` or `ErrRejected`; on 413 returns a size-limit error;
+otherwise returns a wrapped HTTP error.
+
+```go
+var (
+    ErrBounced  = errors.New("emailmock: recipient bounced")
+    ErrRejected = errors.New("emailmock: recipient rejected")
+)
+```
+Sentinel errors; use `errors.Is` to detect.
+
+**Failure simulation.** Any recipient whose local-part (case-insensitive)
+matches `bounce` or `reject` short-circuits storage:
+
+| Local-part | Returned error |
+|------------|----------------|
+| `bounce`   | `ErrBounced`   |
+| `reject`   | `ErrRejected`  |
+
+Checked across `To`, `Cc`, and `Bcc`. Nothing is stored in the inbox for
+rejected messages.
+
+**Dev inbox UI** (served at `/__hamr/mail` on the hamr dev proxy):
+
+- Inbox list — newest-first, substring search over subject, recipients, sender
+- Detail view — tabs: HTML / Plaintext / Raw / Headers / Attachments
+- HTML tab — sandboxed `<iframe sandbox="allow-popups allow-popups-to-escape-sandbox">`
+  (no JS, no forms, no top-nav, no same-origin) with restrictive CSP
+  (`default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'`),
+  mobile-viewport toggle (375px), images-blocked toggle. Link clicks open
+  in a new tab — every `<a>` is rewritten so its `target` is `_blank`, plus
+  `<base target="_blank">` in the iframe document as a fallback.
+- Raw tab — best-effort RFC822-shaped reconstruction (NOT real MIME; the
+  mock never receives MIME)
+- Outcome simulation — per-message Mark Failed / Mark Delayed for post-hoc
+  status tagging on already-captured messages
+- Inbox-wide Clear, per-message Delete
+
+**HTTP ingest API** (for non-Go clients):
+
+```
+POST /__hamr/mail/ingest
+Content-Type: application/json
+
+{"From":{"Email":"..."}, "To":[{"Email":"..."}], "Subject":"...", "HTML":"...", ...}
+
+→ 200  {"ID":"msg_..."}
+→ 413  {"error":"message too large"}
+→ 422  {"error":"bounced"}  or  {"error":"rejected"}
+```
+Attachment `Data` is base64-encoded per Go's JSON conventions.
+
+**Server-side config** (in `hamr.toml`):
+```toml
+[dev.email]
+enabled           = true                     # opt-in; default false
+max_messages      = 500                      # ring-buffer size; oldest evicted first
+max_message_bytes = 10485760                 # per-message cap; ingest returns 413 above this
+persist           = true                     # default; mirror inbox to mbox file
+persist_path      = ".hamr/mail/inbox.mbox"  # default
+```
+Requires `[proxy]` to be configured — inbox UI lives on the proxy mux.
+`hamr dev` refuses to start if `enabled = true` without a proxy.
+
+**Lifecycle.** Inbox survives app restarts triggered by file-watch rebuilds
+(the dev proxy keeps running). When persistence is enabled (default) it
+also survives restarts of `hamr dev` itself via the mbox file.
+
+**Persistence format.** Standard MBOXO mbox. Each message is a real RFC 822 /
+MIME document separated by a `From ` line, so Thunderbird, mutt, and Apple
+Mail can open the file directly. Runtime metadata (status, tags, received-at,
+internal id) round-trips via `X-Hamr-*` headers that real mail clients
+ignore. Bodies not ending in `\n` gain one trailing newline after round-trip
+(MBOXO separator requirement). Set `persist = false` to skip the file.
+
+**CSRF guard.** Mutating POST endpoints (`/clear`, `/:id/delete`,
+`/:id/fail`, `/:id/delay`) reject requests whose `Origin` header is set but
+doesn't match the request Host. Requests without an `Origin` header (curl,
+tests, non-browser clients) pass through. The mock is unauthenticated — do
+not bind `hamr dev`'s proxy to a public interface.
+
+**Dev-only.** No production guards. Gate on `EMAIL_MOCK=true` in `main.go`.
+
+**Known limits.**
+- In-memory; no persistence across `hamr dev` restart
+- Raw view is reconstructed, not true MIME wire bytes
+- Single shared inbox — no per-user segmentation
+- No webhook simulation, no open/click tracking simulation
+
+### sms
+
+> Package sms defines a provider-agnostic `Sender` interface for
+> transactional SMS and the value types that flow through it. Apps depend on
+> the interface; concrete implementations (real provider adapters, smsmock)
+> plug in at startup.
+
+```go
+type Sender interface {
+    Send(ctx context.Context, msg Message) (*Result, error) // concurrency-safe
+}
+
+type Message struct {
+    From string            // sender: E.164 number ("+15551230000") or short code
+    To   string            // recipient: E.164 number
+    Body string            // message text
+    Ref  string // correlation reference (Vonage client-ref, MessageBird reference)
+}
+
+type Result struct { ID string } // provider-assigned message id, may be empty
+```
+
+Provider-specific features (alphanumeric sender IDs, MMS media, delivery
+callbacks, messaging services) live in the app's own adapter — not the
+interface.
+
+**Typical wiring:**
+```go
+var sender sms.Sender
+if os.Getenv("SMS_MOCK") == "true" {
+    sender = smsmock.New(os.Getenv("HAMR_DEV_URL"))
+} else {
+    sender = myapp.NewTwilioSender(sid, token)
+}
+```
+
+### smsmock
+
+> Package smsmock is a dev-only `sms.Sender` that ships messages to the hamr
+> dev server's in-memory inbox at `/__hamr/sms`. It validates how the app
+> uses `sms.Sender`, not the production provider adapter's wire format.
+
+```go
+func New(baseURL string) *Client
+func (c *Client) Send(ctx context.Context, msg sms.Message) (*sms.Result, error)
+
+var (
+    ErrInvalidNumber = errors.New("smsmock: invalid recipient number")
+    ErrUndeliverable = errors.New("smsmock: recipient undeliverable")
+)
+```
+
+JSON-encodes `msg` and POSTs to `<baseURL>/__hamr/sms/ingest`. On 200 returns
+the server-assigned `*sms.Result{ID}`; on 422 maps the magic-number body to a
+sentinel error. Request timeout 10s. Trailing slashes on baseURL stripped.
+
+**Magic recipient numbers** (digits-only suffix of `To`; formatting like
+spaces/dashes ignored, so `+1 500 555-0001` matches; the fictional 555
+exchange keeps real numbers from matching):
+- ends `5550001` → `ErrInvalidNumber` (server refuses with `{"error":"invalid_number"}`)
+- ends `5550002` → `ErrUndeliverable` (`{"error":"undeliverable"}`)
+Matching messages are never stored.
+
+**Dev inbox UI** (served at `/__hamr/sms` on the hamr dev proxy):
+- Newest-first list, substring search across from/to/body
+- Detail view: full body, correlation ref, character count
+- Outcome simulation: per-message "mark failed" (with note) / "mark delayed"
+  (seconds) — post-hoc status tagging, distinct from send-time magic numbers
+- Per-message delete + full-inbox clear
+- Dev panel renders an "Open SMS inbox" shortcut when `sse_config.sms_mock`
+  is set
+
+**HTTP ingest** (plain HTTP, any language):
+```
+POST /__hamr/sms/ingest
+{"From":"+15551230000","To":"+15559870000","Body":"your code is 123456"}
+→ 200 {"ID":"sms_..."} | 413 {"error":"message too large"} (64 KiB cap)
+→ 422 {"error":"invalid_number"} | {"error":"undeliverable"}
+```
+
+**Server-side config** (in `hamr.toml`):
+```toml
+[dev.sms]
+enabled      = true                     # opt-in; default false
+max_messages = 500                      # ring-buffer size; oldest evicted first
+persist      = true                     # default; mirror inbox to JSONL file
+persist_path = ".hamr/sms/inbox.jsonl"  # default
+```
+Requires `[proxy]` — inbox UI lives on the proxy mux; `hamr dev` refuses to
+start otherwise.
+
+**Persistence format.** JSONL: one JSON message per line, oldest first.
+Atomic whole-file rewrite on evict/delete/clear/status change; O_APPEND fast
+path for new messages. Corrupt lines are skipped on load. Survives `hamr dev`
+restart; set `persist = false` for in-memory only.
+
+**CSRF guard.** Same as the mail mock: mutating POSTs reject cross-origin
+requests (Origin set and ≠ Host); absent Origin passes. Unauthenticated —
+don't bind the proxy to a public interface.
+
+**Dev-only.** No production guards. Gate on `SMS_MOCK=true` in `main.go`.
+
+**Known limits.**
+- Text only: no MMS media, delivery receipts, or inbound-reply simulation
+- Single shared inbox — no per-user segmentation
+
+---
+
+## CLI Commands
+
+### Version gating
+
+Two commands refuse to run on version mismatch (released CLI builds only):
+
+- **hamr new** — queries GitHub's latest release; if the local CLI is older,
+  refuses to scaffold so generated projects never lag the template. Network
+  errors only warn and fall through (offline/CI-friendly).
+- **hamr dev** — if `[hamr] version` in `hamr.toml` is newer than the CLI,
+  refuses to start. The opposite direction (CLI newer than scaffold) only
+  warns and the status bar shows the mismatch.
+
+Both accept `--skip-version-check` to bypass. Dev builds of the CLI (no
+release tag) skip both checks entirely.
+
+### `[dev].port_walk` and `hamr env`
+
+`hamr dev` walks +1 on busy for every port it manages — the proxy listen,
+the spawned-app `PORT`, and each `[[dev.docker_compose]]` service's host
+ports — so two `hamr dev` instances on one machine (or a stray local
+Postgres on 5432) don't collide. Default is on; set `[dev].port_walk =
+false` to fail fast on EADDRINUSE for CI / pinned-port deployments. Each
+shift logs a WARN.
+
+When a port walks, values in `.env` referencing it (`DATABASE_URL`,
+`S3_ENDPOINT`, etc.) get rewritten transparently:
+
+- **In-process** (spawned site daemon, `hamr sync` daemon, custom
+  daemons): hamr injects the rewritten KEY=VALUE into the child env on
+  top of `.env`. Rule-level `Env` still wins on key conflict.
+- **Out of process** (Makefile targets, shell scripts, standalone CLI
+  invocations): `hamr dev` writes `.hamr/walks.json` after walking;
+  `hamr env [--export]` reads it plus `.env` and emits the rewritten
+  pairs. The scaffold's `Makefile` ships an `ENV_LOAD := eval
+  "$(hamr env --export)"` prefix on `migrate`, `db-sh`, `generate`,
+  `e2e-local`. `hamr sync` invoked standalone reads `walks.json`
+  itself — no wrapping needed. For compose calls specifically, `hamr compose
+  [args...]` re-exports the same merged file set hamr uses (base +
+  `.hamr/compose.<name>.override.yaml`), so external `docker compose`
+  invocations don't reconcile the stack back onto un-walked ports.
+
+Match rules for which `.env` values get rewritten:
+
+- `(localhost|127.0.0.1|0.0.0.0|[::1]):<port>` anywhere in the value →
+  port swapped, host preserved.
+- whole-value `:<port>` (Go listener form) → port swapped.
+
+Values without an explicit port (e.g. `postgres://user@localhost/db`
+relying on the scheme default) are not rewritten — include the port in
+`.env` if you want auto-walking. Remote hosts (`db.prod.example.com:5432`)
+are also left alone. Userinfo-shaped colons in URLs
+(`postgres://user:5432pass@host:5432/db`) don't false-positive because
+the rule requires the local-host prefix.
+
+The whole-value `:<port>` rule rewrites connect and bind values
+uniformly. Dependency-port URLs (consumers connecting to walked
+publishers) work correctly. Bind-style values like `HEALTHCHECK_BIND=:8080`
+or `METRICS_ADDR=:9090` get the same treatment without per-var
+re-probing — the rewritten port could collide if multiple things in the
+project bind the same number. Use distinct ports per binder.
+
+`.hamr/walks.json` is regenerated on every `hamr dev` start and removed
+when no walks are needed. It's gitignored under the existing `.hamr/`
+rule. When `hamr dev` exits but the compose stack stays up
+(`keep_running = true`), the file persists so `make migrate` invocations
+that come later still resolve the right ports.
+
+### Compose adoption path
+
+On startup `hamr dev` queries each `[[dev.docker_compose]]` entry with
+`docker compose ps --format json` before doing anything else. Failures
+(daemon down, missing compose subcommand, parse errors) hard-fail
+`hamr dev` with the underlying error — running with stale or unknown
+state risks recreating containers the user wanted preserved.
+
+Per entry, hamr decides between two paths:
+
+- **Adopt** — every expected service (`dc.Services` if set; otherwise
+  every service in the compose file) is `running` AND ready (`healthy`
+  or no healthcheck defined). hamr skips `compose up -d` entirely and
+  leaves the override file alone. Shifts for env injection come from
+  diffing the `compose ps` published ports against the base compose
+  file, so `DATABASE_URL` on the spawned app still points at whatever
+  port a prior session walked the db to.
+- **Apply** — at least one expected service is missing, exited,
+  `unhealthy`, or `starting`. hamr walks only the non-running services
+  (peers stay on whatever ports they're already bound to), passes the
+  project's already-published ports as an "owned" set so the walk
+  doesn't shift away from a port held by one of our own running
+  containers, then runs `compose up -d`. The override file is rewritten
+  to capture every running service's actual published port plus the
+  walked ports for missing services. Running-unhealthy / starting peers
+  fall in the "running" bucket too: their published port is preserved
+  in the override so `compose up -d` doesn't see drift and recreate
+  them — env injection still points consumers at where the container
+  actually is. The user wipes the stack to force a recreate of an
+  unhealthy peer.
+
+Override management is state-aware: a stale `.hamr/compose.<name>.override.yaml`
+is only auto-removed when the project has zero running containers AND
+nothing drifted. Anything running → leave the override alone. This
+keeps `keep_running` containers from bouncing on the next session.
+
+Adoption applies regardless of `keep_running` — that flag governs
+shutdown only. If a `keep_running = false` stack is somehow already up
+at startup (manual `docker compose up`, prior crash recovery), hamr
+adopts it just as it would a `keep_running = true` stack.
+
+Adoption does not reconcile compose-file edits. If the user changes a
+base port (or any other compose-file content) while a stack is still
+up, the running containers keep their old config; hamr logs a `WARN`
+per adopted-on-non-base-port service. To apply edits, wipe the stack
+from the browser dev panel, run `docker compose down -v` directly, or
+wire it into a Makefile target and trigger it via the TUI's `m`
+fuzzy palette.
+
+The file is the contract surface between the writer (hamr dev) and the
+readers (`hamr env`, `hamr sync`, scaffold Makefile, scaffold
+`db-shell.sh`). Schema is a flat `shifts` array of
+`{kind, old, new, ...}` records — `kind` is one of `proxy`, `app`, or
+`compose`; compose entries also carry `service` and `compose_name`.
+Schema agreement between the two sides is pinned by the round-trip test
+in `internal/devserver/walks_roundtrip_test.go`, which produces the
+file via the writer and consumes it via the public resolver — schema
+drift on either side breaks that test.
+
+### hamr env
+
+Print env-var rewrites derived from the running dev server's port walks.
+
+```bash
+hamr env                       # KEY=VALUE (cwd as project root)
+hamr env --export              # export KEY=VALUE (single-quoted)
+hamr env --dir "$ROOT"         # resolve walks/.env from $ROOT, not cwd
+```
+
+Reads `.hamr/walks.json` + `.env`, applies the same match rules `hamr dev`
+uses internally, prints rewrites only for values that changed. When no
+walks are recorded the command exits 0 with no output — sourcing it is a
+no-op and the consumer falls through to `.env` unchanged.
+
+Designed for embedding in Makefiles / shell scripts that run outside
+`hamr dev` but need walked port values. The scaffold's `Makefile` does
+this automatically.
+
+### hamr dev (terminal hotkeys)
+
+`hamr dev` runs as a bubbletea-driven TUI with a scrollable log viewport,
+a status bar, modal overlays, and an `m` hotkey opening a fuzzy palette
+over the project's `./Makefile` targets so docker wipes, migrations,
+and any other project-defined scripts can be triggered from inside dev.
+
+| Key                | Action                                                 |
+|--------------------|--------------------------------------------------------|
+| `r`                | Rebuild all watch rules in topological order           |
+| `R`                | Restart the dev server (full startup lifecycle, 5s cooldown) |
+| `R` (parked)       | Retry now when stuck on a `hamr.toml` parse error      |
+| `o`                | Open the proxy URL (the tunnel URL while it's on)      |
+| `c`                | Clear the active tab's log buffer                      |
+| `m`                | Run a Makefile target (fuzzy palette over `./Makefile`)|
+| `T`                | Toggle the public tunnel (`[dev.tunnel]`)              |
+| `S`                | Flip Stripe mock ⇄ `stripe listen` (`[dev.stripe]`)    |
+| `Tab` / Shift+Tab  | Cycle log tabs (hamr ↔ docker stacks)                  |
+| `/`                | Search active tab (case-insensitive substring, live)   |
+| `n` / `N`          | Next / previous search match                           |
+| `f`                | Toggle filter view (only matching lines)               |
+| `Esc`              | Clear active selection (if any), else clear search     |
+| `?`                | Toggle help overlay listing every binding              |
+| `q` / Ctrl+C       | Quit gracefully                                        |
+| ↑ / ↓              | Scroll log viewport line by line                       |
+| PgUp / PgDn        | Scroll log viewport by page                            |
+| mouse wheel        | Scroll log viewport                                    |
+| click              | Select a log line (whole logical line, even wrapped)   |
+| click + drag       | Extend selection across lines; auto-scrolls past edges |
+| Shift+click        | Extend selection from anchor to clicked line           |
+| Ctrl+click         | Toggle one line in/out of the selection                |
+| `y`                | Copy selected lines to clipboard (raw text)            |
+
+### hamr dev (event bus)
+
+The dev server has exactly one event stream — `SSEBroker` in
+`internal/devserver/sse.go` — and every consumer subscribes to it: the
+browser dev panel over HTTP (`Handler()`), the TUI in-process
+(`Subscribe()`, which returns a buffered channel and a cancel func).
+Events are typed constants (`EvBuilding`, `EvBuildOK`, `EvBuildError`,
+`EvOutput`, `EvReload`, `EvShutdown`, `EvDarkFilter`, `EvRestarting`,
+`EvMakeStart`, `EvMakeDone`, `EvComposeUp`, `EvComposeOK`,
+`EvTunnelStart`, `EvTunnelUp`, `EvTunnelDown`), never
+string literals.
+
+The rule, recorded in `docs/adr/004-dev-event-bus.md`:
+
+- **State goes out on the broker.** New dev-server state means a new
+  `Ev*` constant and a `case` in the consumers that care — never a new
+  `WithXHook` runner option.
+- **Actions go in through `DevActions`.** `RebuildAll`, `RestartServer`,
+  `RunMake`, the docker operations. A consumer never spawns a process
+  itself; one that does is the only consumer that can see the output,
+  which is exactly the bug this replaced (TUI-launched make runs used to
+  be invisible to MCP `logs.read`).
+
+MCP access control stays at the edge: `[dev.mcp] make_targets` is
+checked in the `make.run` handler, not inside `RunMake`, so the
+whitelist that governs agents doesn't silently restrict the developer's
+own `m` hotkey.
+
+The TUI hint bar carries a single system indicator, pinned bottom-right
+(the hints to its left truncate first on a narrow terminal), fed entirely by
+these events, so it lights up for work triggered from anywhere (file
+save, hotkey, browser, agent). It is a stock-ticker marquee, not a
+priority chain: every item in flight — `building <rule>` (the initial
+build included), `starting <name>` for a compose entry coming up,
+`make <target>`, `tunnel starting`/`tunnel stopping` — is joined with ` • ` and scrolls right-to-left
+through a window of `max(min(32, width/3), 10)` cells, wrapping around.
+Content that fits the window does not scroll. Each item carries a
+braille spinner frame (`⠋⠙⠹…`, 100ms cadence); travel is one cell per
+two frames (5 cells/sec), driven off the same counter so there is one
+timer, and the tick chain starts when the bar goes busy and stops the
+moment it goes idle, so an idle TUI repaints nothing.
+
+`restarting` is exclusive and shows alone (the server is unwinding).
+`ERR: <rules>` joins as a final item without a spinner and turns the
+whole strip red, so a rebuild fixing a failing rule stays visible
+instead of being hidden behind the error — one style per frame, because
+slicing ANSI mid-escape as the window moves isn't worth it. Idle and
+healthy is `● OK`. Concurrent runs are allowed; an item leaves the
+ticker only when the rule or target it names reports done, and
+`EvBuildError` is matched by the `rule` field of its JSON payload so a
+failure clears only the entry that failed.
+
+The TUI model holds this as one flat `active []string` of formatted
+labels rather than a field per kind: the ticker only ever needs "what
+is happening", and every kind shares the same add-on-start /
+remove-on-finish lifecycle. Startup events are not a race — the actions
+hook (and so the TUI's `Subscribe()`) fires at devserver.go:405, well
+before the compose loop and the initial-build loop, and
+`program.Send(actionsReadyMsg)` on the runner goroutine blocks until
+the bubbletea program is actually running.
+
+The runner also spawns one `docker compose --ansi=always -f <file> logs -f --tail=50` follower per `[[dev.docker_compose]]` entry. Output flows into a dedicated per-entry buffer that Tab cycles through; the status bar's left badge switches between 🔨 `hamr dev` and 🐳 `<stack-name>` to indicate which buffer the viewport is showing. Followers self-restart after a wipe so the stream resumes once `up -d` brings the project back. `--ansi=always` is the top-level compose flag that forces colour through despite the no-TTY pipe target, so per-service prefix colours and any container ANSI render correctly inside the bubbles viewport.
+
+Search (`/`) is per-tab, case-insensitive substring, and incremental — matches recompute on every keystroke and the viewport jumps to the first hit as you type, with yellow highlights for matches and a brighter orange for the cursored one. `↩` locks the query in so `n`/`N` start navigating instead of being treated as more query characters; `Esc` cancels. After commit, `f` toggles a filter view that shows only lines containing the search term (press `f` again to restore the full view); n/N still navigates inside the filtered view. New log lines arriving while a search is in progress are scanned and the `[k/n]` counter updates automatically.
+
+`m` opens a fuzzy palette listing every target in the project-root
+`./Makefile` (parsed lazily on press; targets appear in declaration
+order on empty query, ranked by `sahilm/fuzzy` as the user types).
+The hotkey is hidden from the hint bar and ignored when no Makefile
+exists. Selecting a target closes the palette and asks the dev server to
+run `make <target>` from the
+project root via `DevActions.RunMake` — the TUI never spawns make
+itself, so the output fans out through the ProcessManager to the hamr
+tab line-prefixed `[make:<target>] `, the browser log overlay, and the
+shared log buffer MCP `logs.read` serves (rule `make:<target>`,
+terminated by a `[make:<target>] exited <n>` marker). The status indicator
+shows a spinner and `make <target>` for the duration, whoever started it.
+Nothing is modal: the TUI stays fully usable while the target runs, and
+the run is reported entirely by the status indicator plus the streaming
+output — the `[make:<target>] exited <n>` marker is the result. There is
+no cancel key; `Ctrl+C` quits the TUI, which cancels the runner context
+the run hangs off and kills its process group. The earlier dedicated `d` docker
+wipe hotkey was removed in favour of letting projects define their own
+`docker-wipe`, `migrate`, etc. Makefile targets and chain whatever
+recovery they need — the browser dev panel's `/__hamr/docker/{name}/wipe`
+HTTP route still exists for projects that prefer that surface.
+
+Long log lines soft-wrap to the viewport width (CSI escapes are passed through and don't count toward width); resizing the terminal re-wraps in place while preserving scroll-bottom-tracking. `q` and `Ctrl+C` quit cleanly even when the dev server is parked on a `hamr.toml` parse error — the config-error wait selects on the hotkey channel as well as fsnotify, so the user is never stuck on "waiting for config fix...".
+
+Mouse-click selection: a left-press inside the viewport selects the whole logical line (reverse-video, including every wrap row of the same line). Holding the button and dragging extends the selection — and dragging past the top or bottom viewport edge auto-scrolls (one line per ~50 ms via tea.Tick) so the user can pick a range larger than the viewport. The auto-scroll loop stops once the cursor moves back inside or the viewport hits its scroll limit. Shift+click extends from the existing anchor; Ctrl+click toggles one line and disables drag-extend (ctrl is a single-line gesture, not a range). Selection is **global, not per-tab** — switching tabs drops it because the stored buffer indices wouldn't translate to the destination tab's buffer. While at least one line is selected, the bottom hint bar swaps to `[N selected]   y copy   esc clear` and log auto-scroll is paused so the picked lines aren't yanked off-screen by incoming output. `y` joins the selected lines (in original buffer order), strips ANSI escapes, and writes the result to the system clipboard via `atotto/clipboard` (`xclip`/`xsel`/`wl-copy` on Linux, `pbcopy` on macOS, `clip.exe` on Windows). On clipboard error the failure is appended as a `[hamr:tui] clipboard: <err>` line on the hamr tab so the user can see why instead of getting silence; otherwise the selection clears post-copy. The bounded log buffer eviction shifts selection indices in lockstep, dropping anything that scrolls off the start.
+
+### hamr add service
+
+> Add a new Go binary (service) to an existing HAMR project.
+
+Creates `cmd/<name>/` (main.go + Dockerfile) and `internal/<name>/`, appends a
+`[[dev.watch]]` rule to `hamr.toml` so `hamr dev` builds and runs the binary
+alongside the site, and — for HTTP types — appends a `<NAME>_PORT` entry to
+`.env` and `.env.example`. Must be run from a HAMR project root. Any option not
+provided as a flag is asked interactively, mirroring `hamr new`.
+
+```text
+hamr add service [name] [flags]
+```
+
+Service types:
+- `worker` — background worker: signal handling, graceful shutdown, ticker loop stub, optional DB.
+- `api` — JSON API server: `pkg/server` on its own port, `/api/health` route, optional DB and session auth.
+- `html` — HTML web server: `pkg/server` + templ on its own port, reuses the project's `internal/web/components` layout, optional DB/auth/locale.
+- `empty` — bare binary: env/logging bootstrap and a `Run()` stub in `internal/<name>/`.
+
+Flags:
+- `--type` — service type: `empty`, `worker`, `api`, or `html` (prompted if omitted)
+- `--db` — wire the project's repo store; the database and connector come from `hamr.toml [options]` so the wiring matches the site
+- `--auth` — wire session auth middleware against the shared store (`api`/`html` only; requires `--db` and a project scaffolded with session auth). The site keeps owning login; the service only validates sessions.
+- `--locale` — load the project's locale bundle + middleware (`html` only; requires a project scaffolded with locale)
+- `--port` — listen port for `api`/`html` (default `8081`), read from `<NAME>_PORT` (name upper-snake-cased: `billing-svc` → `BILLING_SVC_PORT`)
+
+Examples:
+```bash
+hamr add service                                   # fully interactive
+hamr add service mailer --type worker --db
+hamr add service billing --type api --db --auth --port 8081
+hamr add service admin --type html --db --auth=false --port 8082
+```
+
+Behavior notes:
+- HTTP services are **not** behind the `hamr dev` proxy (`:3000` targets the site only) — hit them directly at `http://localhost:<port>`. Live-reload injection and browser console capture apply to the proxied site; the appended watch rule still rebuilds and restarts the service on file changes.
+- The service name becomes the binary (`bin/<name>`), the watch-rule name, and the env prefix. Names colliding with an existing `cmd/`/`internal/` directory or a `[[dev.watch]]`/`[[dev.daemon]]` name are rejected.
+- Migrations stay owned by the site / `cmd/migrate`; services connect to the schema as-is.
+- The `html` type's home page renders through the project's shared `components.Layout`, so it picks up the project CSS and static asset pipeline.
+
+### hamr add skill
+
+> Install AI agent skills for working on a HAMR project.
+
+Three skills are available, each a self-contained directory the target AI coding tool can load:
+- `hamr` — the framework skill: the `hamr` CLI, the `github.com/FyrmForge/hamr/pkg/*` packages, and HAMR's Go + templ + HTMX coding practices (plus Alpine.js guidance when the project opted in via `hamr new --alpine`). Rendered per project: project installs read `hamr.toml` to decide which sections to include; `--global` installs default Alpine off. Contains `SKILL.md` plus three progressive-disclosure references under `references/` (CLI, packages, practices).
+- `qa-loop` — an iterative QA test-and-fix loop: drives the app with Playwright MCP across device profiles, checks functional + UI/UX watch-lists, scores each round on a 1–10 scorecard, fixes findings root-cause-first, and loops (3 rounds default). All server-side actions go through hamr MCP (`dev.info`, `logs.read`, `make.run`, `mail.*`, `sms.*`, `stripe.*`).
+- `pr-publish` — creates or refreshes a GitHub PR with a short structured body, gist-hosted screenshots (uploaded via the gist's git remote — the gist API is text-only), and a stepped flow GIF captured live at 1440×900.
+
+```text
+hamr add skill [target] [flags]
+```
+
+With no arguments, an interactive picker asks which agents and which skills to install; detected agents and already-installed skills start ticked (an explicit `--skills` seeds the selection instead) and selected skills overwrite existing installs. Requires a HAMR project root (or `--global`) — checked before the picker opens. With a target argument it runs non-interactively.
+
+Supported targets: `claude`, `codex`, `opencode`. The SKILL.md format is a cross-tool standard, so every target gets identical content — only the destination differs. opencode natively reads `.claude/skills/` too, so a claude install already covers opencode.
+
+Flags:
+- `--skills` — comma-separated list of skills to install (default: all of `hamr,qa-loop,pr-publish`)
+- `--global` — install under the home directory instead of the project (default: `false`)
+- `--force` — overwrite existing skill directories in non-interactive mode (default: `false`)
+
+Destination resolution:
+- `claude`: `./.claude/skills/<dir>/` (global: `~/.claude/skills/<dir>/`).
+- `codex` / `opencode`: the shared `./.agents/skills/<dir>/` (global: `~/.agents/skills/<dir>/`); selecting both targets writes once.
+- Project installs **must** run from a HAMR project root (directory containing `hamr.toml`); `--global` runs from anywhere.
+- Directory names: `hamr` installs as `hamr/`; the workflow skills are prefixed — `hamr-qa-loop/`, `hamr-pr-publish/`.
+
+Examples:
+```bash
+hamr add skill                        # interactive picker
+hamr add skill claude                 # all skills, non-interactive
+hamr add skill codex --skills qa-loop # one skill → .agents/skills/
+hamr add skill claude --global --force
+```
+
+### hamr ai capture
+
+> Browser screenshot capture with HTML/text/metadata sidecars.
+
+Launches a browser, navigates to the target URL, and saves a PNG screenshot.
+Optional sidecars: visible page text (.txt), page HTML (.html), JSON metadata.
+
+```text
+hamr ai capture <url> [flags]
+```
+
+Flags:
+- `--out <path>` — output PNG path; if omitted a per-capture folder is created
+- `--dir <path>` — root directory for per-capture folders (default: `.hamr/ai/captures`)
+- `--browser <path>` — browser binary path (auto-detects Chromium/Chrome/Brave)
+- `--text` — save visible page text alongside the screenshot
+- `--html` — save page HTML alongside the screenshot
+- `--json` — print capture metadata as JSON
+- `--selector <css>` — capture only the first element matching a CSS selector
+- `--full-page` — capture the full scrollable page as one image
+- `--tiles` — capture viewport-sized tiles from top to bottom (mutually exclusive with `--full-page` and `--selector`)
+- `--tile-overlap <px>` — pixels of overlap between tiles (default: 120 when `--tiles` is set)
+- `--width <px>` — viewport width in pixels (default: 1440)
+- `--height <px>` — viewport height in pixels (default: 1024)
+- `--scale <factor>` — device scale factor (default: 1)
+- `--scroll-to <preset>` — scroll before capture: top, middle, or bottom
+- `--scroll-x <px>` — horizontal scroll offset before capture
+- `--scroll-y <px>` — vertical scroll offset before capture
+- `--scroll-selector <css>` — CSS selector for a scroll container
+- `--headless` — run browser in headless mode (default: true)
+- `--no-sandbox` — launch with --no-sandbox (default: true)
+- `--timeout <duration>` — timeout for page operations (default: 15s)
+- `--wait <duration>` — extra delay after page load (default: 1s)
+
+Capture modes:
+- **viewport** (default) — captures exactly what the browser shows
+- **full-page** (`--full-page`) — captures the entire scrollable page as one image
+- **tiled** (`--tiles`) — captures viewport-sized screenshots top-to-bottom with configurable overlap; produces multiple PNGs (tile_001.png, tile_002.png, ...) ideal for LLM consumption of long pages
+
+Tile output: when `--tiles` is used, individual tile PNGs are written to the
+bundle directory. The meta.json includes `tile_paths`, `tile_count`,
+`tile_overlap`, and `total_height` fields.
+
+### hamr ai upgrade
+
+> Git-based scaffold upgrade report comparing the project's baseline
+> version to the current HAMR version.
+
+Reads `[hamr]` and `[options]` sections from `hamr.toml` to determine the
+project's scaffold baseline and options. Clones the HAMR repo (bare, partial
+clone) and diffs between version tags to produce a unified diff and stat summary.
+
+```text
+hamr ai upgrade [flags]
+```
+
+Flags:
+- `--json` — output as structured JSON
+- `--from <version>` — override the base version to diff from (instead of reading hamr.toml)
+- `--applied` — update `[hamr] version` in hamr.toml to the current HAMR version
+- `--dir <path>` — directory to save the upgrade report (defaults to `.hamr/ai/upgrades/`)
+
+Reports are automatically saved to `.hamr/ai/upgrades/` as JSON files with the
+naming pattern `upgrade_{base}_to_{current}_{timestamp}.json`.
+
+#### hamr.toml metadata
+
+Scaffolded projects include metadata sections:
+
+```toml
+[hamr]
+version = "0.3.2"
+scaffolded_at = "2026-03-11"
+
+[options]
+database = "postgres"
+db_connector = "sqlx"
+auth = "session"
+css = "tailwind"
+websockets = false
+e2e = false
+stripe = false
+locale = false
+storage = "local"
+alpine = false
+
+[ai]
+# dir = ".hamr/ai"
+```
+
+#### `[ai]` configuration
+
+The `[ai]` section configures the AI command playground directory:
+
+- `dir` — base directory for AI artifacts (default: `.hamr/ai`). Captures are
+  written to `{dir}/captures/`, upgrade reports to `{dir}/upgrades/`.
+
+#### JSON output shape
+
+```json
+{
+  "project": {
+    "base_version": "0.3.2",
+    "current_version": "0.5.0",
+    "scaffolded_at": "2026-03-11",
+    "options": { ... }
+  },
+  "changes": [
+    {
+      "category": "structural",
+      "title": "Change title",
+      "since": "0.4.0",
+      "summary": "Description of the change",
+      "affected_scaffold_files": ["internal/web/server.go"],
+      "relevant": true,
+      "relevance_reason": ""
+    }
+  ]
+}
+```
+
+#### Upgrade workflow
+
+1. Run `hamr ai upgrade --json` to get the change report
+2. Review and apply relevant changes
+3. Run `hamr ai upgrade --applied` to bump the baseline version forward

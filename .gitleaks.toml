@@ -1,6 +1,0 @@
-[extend]
-useDefault = true
-
-[[allowlists]]
-description = "Vendored xterm build; integrity is pinned in hamr.vendor.json"
-paths = ['''^frontend/static/js/xterm\.min\.js$''']

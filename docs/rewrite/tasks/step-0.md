@@ -16,7 +16,11 @@ Branch: `rewrite`. PR: `rewrite` → `master`. Commit per task, plain messages.
    for now). Fix the Makefile targets (`build` → `bin/stackrd`, `installcli`,
    `installer`) and the `[[dev.watch]]` rule in `hamr.toml` (`name =
    "stackrd"`, builds and runs `./bin/stackrd`). Any Dockerfile the scaffold
-   put under `cmd/site/` moves with `cmd/stackrd`.
+   put under `cmd/site/` moves with `cmd/stackrd`. The scaffold's `main.go`
+   fails `make lint` as shipped (`exitAfterDefer` at the `os.Exit` after
+   `defer cancel()`, and `var version` unused because only `-ldflags` sets
+   it); fix both while moving it (return from `run()` instead of `os.Exit`,
+   print `version` in a `--version` flag).
    Done when: `make build` produces `bin/stackrd`, `hamr dev` starts it, the
    two other `cmd/` dirs compile.
 
@@ -61,12 +65,19 @@ Branch: `rewrite`. PR: `rewrite` → `master`. Commit per task, plain messages.
    Done when: `make lint` passes and a throwaway sibling-leaf import fails
    lint (then delete the throwaway).
 
-6. **Empty tree.** Create with a `doc.go` (one line) per package so Go
-   accepts them: `service/` (`orchestrator.go` with `type Orchestrator
-   struct{}` and `func New(cfg Config) (*Orchestrator, error)`),
-   `service/internal/{store,docker,proxy,git,s3}`,
-   `service/internal/leaf/`, `service/internal/flow/`, `authz/`,
-   `ui/components/`, `ui/pages/{org,stack,env,tile}/`, `ui/static/js/`.
+6. **Empty tree.** Every path REWRITE.md writes as `service/`, `authz/`,
+   `ui/` lives under `internal/` (scaffold convention: `internal/api`,
+   `internal/web`, `internal/service` already exist). Create with a
+   `doc.go` (one line) per package so Go accepts them: `internal/service/`
+   (`orchestrator.go` with `type Orchestrator struct{}` and `func New(cfg
+   Config) (*Orchestrator, error)`; the scaffold's `auth.go` there stays
+   until step 1 replaces it), `internal/service/internal/{store,docker,
+   proxy,git,s3}`, `internal/service/internal/leaf/`,
+   `internal/service/internal/flow/`, `internal/authz/`,
+   `internal/ui/components/`, `internal/ui/pages/{org,stack,env,tile}/`,
+   `ui/static/js/` (static assets, not Go, stay at repo root). The
+   scaffold's `internal/repo/` (users table, sqlx) is replaced by the store
+   in step 1; leave it.
    Point `hamr.toml` `[static]` at `ui/static` and the CSS watch rule at
    `ui/css`; move the scaffold's `frontend/` content there and delete
    `frontend/`. The scaffold's web handlers stay where the scaffold put them

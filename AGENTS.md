@@ -1,35 +1,5 @@
 # stackr — Project Conventions
 
-## Replying
-
-- Answer in short bullet points. No walls of prose.
-- One idea per bullet, shortest form that is still clear.
-- Prose paragraphs only when explicitly asked for (a written plan, a doc, a
-  commit message).
-- Lead with the outcome bullet, detail below it.
-- Don't restate the question, don't recap what was already agreed.
-
-## Project Stage
-
-- Pre-release. There are no production installs or compatibility promises.
-- Test deployments are disposable. Their addresses and credentials belong in
-  local environment variables, never in tracked files.
-- Remote test helpers require `STACKR_DEPLOY_HOST` and live under
-  `scripts/dev/`:
-
-  ```bash
-  STACKR_DEPLOY_HOST=manager.example.test \
-      ./scripts/dev/wipe-test.sh --nodes worker.example.test
-  STACKR_DEPLOY_HOST=manager.example.test ./scripts/dev/deploy-test.sh
-  ```
-
-- No backwards compatibility, no data migrations for existing installs, no
-  upgrade paths. Break APIs and config freely; a test VM is wiped and
-  reinstalled.
-- Do not raise "what about existing users" questions.
-- The one exception is the database schema: `001_initial` is frozen as of
-  2026-09-18. See Database below.
-
 ## Build & Test
 
 ```bash
@@ -42,40 +12,19 @@ make lint           # Run linters
 make templint       # Lint .templ files for silent failures and a11y issues
 ```
 
-### Shell calls that stall an unattended run
-
-These shapes trip the permission classifier and stop the run dead waiting for
-a human. On a long autonomous task that is the difference between finishing
-and burning the night on one prompt.
-
-Do not use:
-
-- `sed -i` — any in-place edit
-- heredocs of any kind, including `python - <<'PY'` and `git commit -F -`
-- `git rm -f`
-- long `&&` chains, especially ones mixing reads with writes
-
-Use instead:
-
-- the Edit and Write tools for every file change, test fixtures and generated
-  allowlists included
-- `git commit -F <file>`, with the message written to a scratchpad file first
-- one plain command per call
-
-`git push` and `gh pr create` prompt regardless — they reach outside the
-machine. Everything else on that list is avoidable.
+`T` in the `hamr dev` TUI opens a public tunnel (`[dev.tunnel]` in `hamr.toml`) and sets `BASE_URL` to the public URL for the app it runs. Build absolute URLs from `BASE_URL`; don't hardcode `localhost`.
 
 ## Project Structure
 
 ```
-cmd/stackrd/              Application entry point (env config loaded here)
-internal/stackrd/store/db/            Database connection + embedded migrations
-internal/stackrd/store/repo/           Data access layer (Store interface + SQLite impl)
-internal/stackrd/handlers/web/            HTTP layer
-internal/stackrd/handlers/web/server.go   Route registration + middleware groups
-internal/stackrd/handlers/web/handler/    One package per page, mirroring URL path
+cmd/site/              Application entry point (env config loaded here)
+internal/db/            Database connection + embedded migrations
+internal/repo/           Data access layer (Store interface + SQLite impl)
+internal/web/            HTTP layer
+internal/web/server.go   Route registration + middleware groups
+internal/web/handler/    One package per page, mirroring URL path
                          (e.g. /admin/users → handler/admin/user/)
-internal/stackrd/handlers/web/components/ Shared templ components (layout, form helpers)
+internal/web/components/ Shared templ components (layout, form helpers)
 frontend/                Everything frontend: static assets, CSS source,
                          npm config, generated dist/
 ```
@@ -93,8 +42,8 @@ This project uses the HAMR framework (`github.com/FyrmForge/hamr`). Key packages
 - `hamr/pkg/logging` — Structured logging (slog)
 - `hamr/pkg/htmx` — HTMX request/response helpers
 
-See the [HAMR repository](https://github.com/FyrmForge/hamr) for framework
-documentation matching the version in `go.mod`.
+See `docs/llms.txt` for a compact API reference and `docs/llms-full.txt` for
+complete package documentation.
 
 ## Handler Pattern
 
@@ -104,15 +53,13 @@ helper routes that belong to it (validation endpoints, partials, modals).
 
 ```
 URL                     Package path
-/:org                   internal/stackrd/handlers/web/handler/org
-/:org/:stack            internal/stackrd/handlers/web/handler/project
-/servers/:id            internal/stackrd/handlers/web/handler/server
-/admin/proxy            internal/stackrd/handlers/web/handler/settings
-/tiles/:id/backups      internal/stackrd/handlers/web/handler/backups
+/                       internal/web/handler/home
+/login                  internal/web/handler/auth/login
+/register               internal/web/handler/auth/register
+/admin                  internal/web/handler/admin
+/admin/users            internal/web/handler/admin/user
+/admin/users/:id/edit   internal/web/handler/admin/user/edit
 ```
-
-(The live list is the directory itself —
-`internal/stackrd/handlers/web/handler/`.)
 
 URL segments are typically plural (`/users`); package names are singular Go
 identifiers (`user`). When a parent path doesn't have its own page, the
@@ -122,15 +69,15 @@ Pure-action endpoints with no view (e.g. `POST /logout`) hang off the most
 related page package — Logout lives in `handler/auth/login/` because it's
 the inverse of Login. Helpers shared across page packages in a section
 (e.g. session-cookie helpers used by login + register) live outside the
-handler tree, in `internal/stackrd/handlers/web/handler/auth/` or similar.
+handler tree, in `internal/auth/` or similar.
 
 ### Creating a New Page Package
 
-1. Create a directory at `internal/stackrd/handlers/web/handler/<path>/<page>/`
+1. Create a directory at `internal/web/handler/<path>/<page>/`
 2. `handler.go` (package `<page>`) — `NewHandler(deps)` returning `*handler`,
    methods like `Page` (GET) and `Submit` (POST), plus any HTMX helper methods
 3. `<page>.templ` (same package) — the page's templates
-4. Register routes in `internal/stackrd/handlers/web/server.go` — page route + every HTMX
+4. Register routes in `internal/web/server.go` — page route + every HTMX
    helper route the page exposes
 
 ### Example
@@ -144,7 +91,7 @@ import (
     "github.com/FyrmForge/hamr/pkg/respond"
     "github.com/labstack/echo/v4"
 
-    "github.com/FyrmForge/stackr/internal/stackrd/store/repo"
+    "github.com/FyrmForge/stackr/internal/repo"
 )
 
 type handler struct {
@@ -359,7 +306,7 @@ templ createForm(c echo.Context, f CreateForm, errors map[string]string) {
             <label for="name">Name</label>
             <input type="text" id="name" name="name" value={ f.Name }
                 hx-post="/things/validate/name"
-                hx-trigger="blur, input[this.closest('.form-group').querySelector('[data-has-error=true]')] delay:300ms"
+                hx-trigger="blur, hamr:revalidate"
                 hx-swap="none"/>
             @form.FieldError("name", form.GetError(errors, "name"))
         </div>
@@ -373,7 +320,8 @@ Key HTMX attributes:
 - `hx-swap="outerHTML"` — Replace the entire form on validation errors
 - `hx-target="#create-form"` — Target the form element
 - `hx-swap="none"` on inputs — Field validation uses OOB swaps, no explicit target
-- `hx-trigger` — Validate on blur; re-validate on input only if an error is showing
+- `hx-trigger="blur, hamr:revalidate"` — Validate on blur; re-validate while typing only if an error is showing
+- `hamr:revalidate` — Custom event fired by `static/js/main.js`, 300ms after the last keystroke, and only while the field's `error-<name>` span has `data-has-error="true"`. Do NOT use an `hx-trigger` `[...]` filter for this: htmx compiles those with `Function()`, which the CSP blocks. Add `data-hamr-watch="other_field"` to gate on another field's error instead.
 
 ### Field Error Components
 
@@ -417,12 +365,13 @@ make install     # installs npm deps in frontend/
 make css-build   # one-shot production build
 ```
 
-`hamr dev` rebuilds the CSS on every `.templ` change — there is no watch daemon.
+`hamr dev` rebuilds the CSS on every `.templ` change — there is no watch
+daemon.
 
 ```
 frontend/css/input.css          Tailwind directives (@tailwind base, components, utilities)
 frontend/static/css/output.css  Generated CSS (do not edit)
-frontend/dist/                  Fingerprinted output of `hamr gen static` (gitignored)
+frontend/dist/                  Fingerprinted output of `hamr gen static`
 ```
 
 Custom components via `@apply` in `frontend/css/input.css`:
@@ -449,20 +398,10 @@ Custom components via `@apply` in `frontend/css/input.css`:
 - Use `testify/assert` and `testify/require`
 
 ## Database
-- Migrations in `internal/stackrd/store/db/migrations/` (sequential numbering)
-- **`001_initial` is frozen (2026-09-18).** A schema change is a new `002_*`
-  on top of it, never an edit to the baseline. Up to that date every change
-  edited the baseline and the rig got wiped; that is over, because the next
-  install may hold data nobody can recreate.
-- Migrations after the baseline are **additive only**: no `DROP`, no `RENAME`,
-  no `TRUNCATE`, no `DELETE FROM`. `migrate_guard_test.go` enforces it, and
-  pins the baseline's hash so an edit to `001_initial` fails the build. A deliberate drop needs
-  a `-- migration-guard: allow <reason>` line above the statement, and is
-  normally two releases: stop writing the column, remove it once no running
-  version reads it.
+- Migrations in `internal/db/migrations/` (sequential numbering)
 - Use `sqlx` for queries in repo implementations
 - Migrations run during server startup via `db.Migrate(...)`
-- Store interface in `internal/stackrd/store/repo/repo.go`
+- Store interface in `internal/repo/repo.go`
 
 ## Auth
 
@@ -470,7 +409,7 @@ Session-based authentication using `hamr/pkg/auth` and `hamr/pkg/middleware`.
 
 ### Middleware Wiring
 
-Middleware is configured in `internal/stackrd/handlers/web/server.go`:
+Middleware is configured in `internal/web/server.go`:
 
 - `auth.Load()` — group-level, populates context from session (the only DB call)
 - `auth.RequireAuth()` — per-route, redirects unauthenticated users to login
@@ -479,10 +418,10 @@ Middleware is configured in `internal/stackrd/handlers/web/server.go`:
 ### Handler Pattern
 
 Login and register each get their own page package
-(`internal/stackrd/handlers/web/handler/auth/login/`, `internal/stackrd/handlers/web/handler/auth/register/`).
+(`internal/web/handler/auth/login/`, `internal/web/handler/auth/register/`).
 Logout is a sibling action on the login package — it's the inverse of login,
 not its own page. Session-cookie helpers shared between login and register
-live in `internal/stackrd/handlers/web/handler/auth/`.
+live in `internal/auth/`.
 
 ```go
 // Login handler — POST /login
@@ -498,7 +437,7 @@ func (h *handler) Submit(c echo.Context) error {
     session, err := h.sessionManager.CreateSession(c.Request().Context(), user.ID, nil)
     if err != nil { /* return 500 */ }
 
-    auth.SetSession(c, h.sessionManager, session)  // from github.com/FyrmForge/stackr/internal/stackrd/handlers/web/handler/auth
+    auth.SetSession(c, h.sessionManager, session)  // from github.com/FyrmForge/stackr/internal/auth
     return respond.Redirect(c, "/")
 }
 ```
@@ -521,49 +460,6 @@ Pluggable file storage with `hamr/pkg/storage`:
 ### Environment Variables
 - `STORAGE_PATH` — local directory for file uploads
 
-## WebSockets
-
-WebSocket support via `hamr/pkg/websocket`:
-
-### Hub Setup
-
-```go
-hub := websocket.NewHub()
-defer hub.Close()
-```
-
-If subject-based routing is needed, pass `websocket.WithSubjectIDFunc(...)` and
-derive the subject ID from request data available during the WebSocket upgrade.
-
-### Sending Messages
-
-```go
-emitter := websocket.NewEmitter(hub)
-
-// Send HTML to a specific user
-emitter.ToSubject(userID, websocket.NewHTMLEvent("update", "#target", htmlStr))
-
-// Broadcast to a room
-emitter.ToRoom("chat", websocket.NewEvent("message", payload))
-
-// Trigger HTMX event
-emitter.ToSession(sessionID, websocket.NewTriggerEvent("refresh", "#list", "reload"))
-```
-
-### Rooms
-
-```go
-hub.JoinRoom(client, "chat:123")
-hub.LeaveRoom(client, "chat:123")
-hub.SendToRoom("chat:123", msg)
-```
-
-### Event Types
-
-1. **HTML Direct**: set Target + HTML — client swaps HTML into target
-2. **HTMX Trigger**: set Target + Trigger — client calls htmx.trigger()
-3. **Data Only**: set Payload — client handles via registered callback
-
 ## Code Style
 
 - Follow existing patterns in the codebase
@@ -571,24 +467,3 @@ hub.SendToRoom("chat:123", msg)
 - Prefer `respond.HTML`/`respond.JSON` over raw `c.HTML()`
 - Add `// GET /path` comments above handler methods
 - Keep handlers thin — business logic in service layer
-
-## hamr MCP
-
-`hamr dev` exposes these tools over MCP. Prefer them over doing the same
-thing by hand — they read the live dev server, so their answers are current
-and cost the developer nothing.
-
-- Never ask the developer to paste logs, and never tail a log file — `logs.read` (app + build output), `console.read` (browser console, uncaught errors, CSP violations), `http.read` (request log).
-- The dev server is already running. Never run `make build`, `go build`, or start a second server — `rule.run` rebuilds one watch rule, `rebuild.all` rebuilds everything, `make.run` runs a Makefile target.
-- Check dependency containers with `docker.status` / `docker.logs` before assuming a connection error is app-side.
-- `docker.restart` restarts a service; `docker.wipe` resets its volumes.
-- Never ask what an email said — `mail.list` and `mail.get` read the dev inbox.
-- `mail.clear` empties it; `mail.ingest` injects a message.
-- Never ask what an SMS said — `sms.list` and `sms.get` read the dev inbox.
-- `sms.clear` empties it; `sms.ingest` injects a message.
-- Never guess at payment state — `stripe.list` reads the mock's objects.
-- `stripe.complete` / `stripe.expire` / `stripe.refund` drive a payment to an outcome.
-- `dev.info` reports the running rules, ports (including walked ones), and versions — read it before assuming a port.
-
-If a call fails with "dev not running / gateway off", say so instead of
-falling back to manual steps — the developer needs to start `hamr dev`.

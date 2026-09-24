@@ -1,5 +1,0 @@
-# Development runtime image. The local build supplies the static binary.
-FROM scratch
-COPY proxyrelay /proxyrelay
-USER 65532:65532
-ENTRYPOINT ["/proxyrelay"]

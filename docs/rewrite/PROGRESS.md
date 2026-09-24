@@ -101,9 +101,19 @@ Verify before push: `make build`, `make lint`, `make test` pass;
 files untouched; `docs/rewrite/` has REWRITE.md copy or link, tasks/,
 extracts/, this file.
 
-- [ ] wiped and scaffolded
-- [ ] verified
-- [ ] committed and pushed (`git push -u origin rewrite`)
+- [x] wiped and scaffolded: hamr 0.38.0 (`make install` then pinned the
+  CLI to 0.38.1), command needed `--locale=false --websocket=false
+  --alpine=false --stripe=false` on top of the agreed flags or it blocks on
+  a TTY prompt. `.agents/skills/` (hamr's own agent skills) is gone and the
+  scaffold did not recreate it; hamr docs now sit in `docs/llms.txt`.
+  `.github/workflows/release.yml`, `.gitleaks.toml`, `.semrelrc`, `LICENSE`
+  went with the wipe; step 5 `make release` brings release CI back.
+- [x] verified: `make build` and `make test` pass (17 packages, no tests
+  yet); `make lint` fails on two lines of the scaffold's `cmd/site/main.go`,
+  fixed by step 0 task 1 when the file moves. Kept files byte-identical.
+  `git diff master --stat`: 909 files, old code gone. `hamr dev` is NOT
+  running; darhvader starts it.
+- [x] committed and pushed (`git push -u origin rewrite`)
 
 ### 4. Hand-off
 
@@ -137,6 +147,10 @@ you disagree with:
    Module path `github.com/FyrmForge/stackr` (as today).
 4. Step 2 holds every infra wrapper (git, registry, vip, s3, githubapp,
    Caddy client), not only Docker, so step 3 is pure services.
+10. The plan's `service/`, `authz/`, `ui/` Go packages live under
+   `internal/` (the scaffold's convention; `internal/service` already
+   exists). Static assets stay at `ui/static/`. Options: (a) keep, (b)
+   root-level packages, delete the scaffold's `internal/` layout.
 
 Raised by the extract agents, real decisions, not settled:
 
