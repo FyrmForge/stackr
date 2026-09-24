@@ -23,9 +23,14 @@ Adding a tag is a plan item, not a build decision.
 | `<flash-toast>` | shows htmx error responses and flashes, auto-dismiss | `@Flash()` in the layout |
 | `<theme-toggle>` | light/dark, `localStorage` only | `@ThemeToggle()` |
 
-Not in v1 (old JS dropped): canvas/graph, metrics charts, terminal (xterm +
-websocket), the YAML code editor with autocomplete (raw Caddy snippets and
-any file view use a plain `<textarea>` / `<pre>`).
+**Superseded 2026-09-24 for tasks 5 to 13:** the graph is v1. Read
+`docs/rewrite/ui-plan.md`; it adds `<graph-canvas>`, `<graph-node>` and
+`<side-drawer>` to this whitelist and replaces the page lists below with
+four canvases plus drawers and dialogs. Tasks 1 to 4 (session A) stand.
+
+Not in v1 (old JS dropped): metrics charts, terminal (xterm + websocket),
+the YAML code editor with autocomplete (raw Caddy snippets and any file
+view use a plain `<textarea>` / `<pre>`).
 
 ## Tasks
 

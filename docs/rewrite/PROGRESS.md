@@ -277,7 +277,9 @@ session started by darhvader from the START HERE line, no Fable.
     - verb `Traffic(env) []Edge{from,to,bps}` + `TrafficSeq`; routes `GET env/traffic` (`env.traffic`), `GET env/events` (`env.events`, SSE, one `traffic` event per sample, first one at connect); `stream.PollAs`; CLI `stackr env traffic`.
     - installer writes `1` to `/proc/sys/net/netfilter/nf_conntrack_acct` and `/etc/sysctl.d/99-conntrack-acct.conf`; a refusal warns.
     - still owed: task 4's "install on the VM shows rates between two tiles" (not run); no stacked PR opened (the builder was told not to push); DECIDE 63 to 70 added.
-- [ ] [F+O] step 6 UI
+- [ ] [F+O] step 6 UI (sessions B–D follow `docs/rewrite/ui-plan.md`:
+  four canvases, drawers and dialogs, seven elements; decisions settled
+  2026-09-24; session A DECIDE items are 71–75)
   - session A (tasks 1–4) done:
     - Components live in `internal/ui/components` (DECIDE 10), not `ui/components`; depguard `ui-sees-view-structs` keeps them off service/middleware.
     - templint has no allowlist; `internal/ui/components/elements_test.go` enforces the four tags (one define each, no import/fetch/XMLHttpRequest/shadow DOM/innerHTML, <300 lines).
