@@ -7,15 +7,18 @@ package graph
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/canvas"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/connector"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/domain"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/environment"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/image"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/job"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/managed"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/org"
@@ -43,6 +46,7 @@ type Flow struct {
 	Jobs     *job.Leaf
 	Runs     *lrun.Leaf
 	Canvas   *canvas.Leaf
+	Images   *image.Leaf
 }
 
 // Node kinds besides the tile kinds (service, image, managed, cron,
@@ -111,13 +115,15 @@ type Node struct {
 	Subs   []Sub
 
 	// Tile facts (session C's footers and chips).
-	Replicas int
-	Running  int
-	Domains  []string
-	Volumes  []string
-	Host     bool // privileged or devices
-	LastRun  *store.Run
-	Waiting  string // the param a parked job waits for
+	Replicas   int
+	Running    int
+	Domains    []string
+	Volumes    []string
+	Host       bool // privileged or devices
+	LastRun    *store.Run
+	NextRun    *time.Time // unpaused cron only
+	NewVersion bool       // image watch saw a newer digest
+	Waiting    string     // the param a parked job waits for
 	// Vars card counts; never a value.
 	Params, Secrets int
 }
@@ -724,6 +730,18 @@ func (f *Flow) tileCard(ctx context.Context, t store.Tile, vols map[string]strin
 		}
 		if len(st.replicas) > 1 {
 			n.Subs = append(n.Subs, st.replicas...)
+		}
+		if t.Kind == tile.Cron && !t.Paused {
+			if at, err := lrun.Next(t.Schedule, time.Now()); err == nil {
+				n.NextRun = &at
+			}
+		}
+		if t.ImageRef != "" {
+			i, err := f.Images.GetByRef(ctx, t.ImageRef)
+			if err != nil && !errors.Is(err, errs.ErrNotFound) {
+				return n, err
+			}
+			n.NewVersion = i.Newer()
 		}
 	}
 	n.H += SubH * len(n.Subs)

@@ -99,7 +99,7 @@ func envDrawer(base, kind, id, slug string) (url, tab string) {
 // envCard gives an env node session C's card (internal/ui/graph/cards):
 // body, chips, sub-tiles and the live footer the stream re-sends.
 func envCard(u *ui.Node, n service.GraphNode, base string) {
-	cv := cards.CardView{ID: n.ID, Kind: n.Kind, Name: n.Name, Detail: n.Detail, Host: n.Host}
+	cv := cards.CardView{ID: n.ID, Kind: n.Kind, Name: n.Name, Detail: n.Detail, Host: n.Host, NewVersion: n.NewVersion}
 	if url, tab := envDrawer(base, n.Kind, n.ID, n.Slug); url != "" {
 		cv.Drawer, cv.Tab = url+"?tab="+tab, tab
 	}
@@ -117,6 +117,9 @@ func envCard(u *ui.Node, n service.GraphNode, base string) {
 		f.LastRun = r.Status + " · " + r.CreatedAt.Local().Format("Jan 2 15:04")
 	} else if n.Kind == "cron" || n.Kind == "function" {
 		f.LastRun = "never run"
+	}
+	if n.NextRun != nil {
+		f.NextRun = n.NextRun.Local().Format("Jan 2 15:04")
 	}
 	if len(n.Domains) > 0 {
 		f.Domain, f.More = n.Domains[0], len(n.Domains)-1

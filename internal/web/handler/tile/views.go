@@ -97,7 +97,7 @@ func jobsView(js []service.Job) ui.JobsView {
 func imageView(t service.Tile, i service.Image) ui.ImageView {
 	return ui.ImageView{Ref: t.ImageRef, Digest: i.Digest, LastDigest: i.LastDigest, LastTag: i.LastTag,
 		Checked: when(i.CheckedAt), LastError: i.LastError,
-		NewVersion:   i.LastDigest != "" && i.Digest != "" && i.LastDigest != i.Digest,
+		NewVersion:   i.Newer(),
 		UpdatePolicy: t.UpdatePolicy, TagPolicy: t.TagPolicy}
 }
 

@@ -323,7 +323,7 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 	svc.graph = build("flow/graph", func() *graph.Flow {
 		return &graph.Flow{Orgs: svc.orgs, Stacks: svc.stacks, Envs: svc.envs, Tiles: svc.tiles, Params: svc.params,
 			Volumes: svc.volumes, Domains: svc.domains, Managed: svc.managed, Conns: svc.conns, Releases: svc.releases,
-			Jobs: svc.jobRows, Runs: svc.runs, Canvas: svc.canvas}
+			Jobs: svc.jobRows, Runs: svc.runs, Canvas: svc.canvas, Images: svc.images}
 	})
 	svc.jobs = build("flow/jobs", func() *jobs.Runner {
 		// ponytail: no ParamSet, a parked job is requeued every poll and its

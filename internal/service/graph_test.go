@@ -372,3 +372,30 @@ func TestCanvasAnnotations(t *testing.T) {
 		t.Errorf("deleting a gone note: %v", err)
 	}
 }
+
+// A tile card carries its cron's next tick and image watch's newer digest.
+func TestCanvasEnvFooterFacts(t *testing.T) {
+	e := servicetest.New(t)
+	ctx := context.Background()
+	tl := e.Tile(t, e.Org(t, "acme"))
+	cron := tileRow(tl.Stack, tl.Env, "nightly", "cron", func(t *store.Tile) { t.Schedule = "0 3 * * *" })
+	if err := e.Store.Tiles.Create(ctx, cron); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	if err := e.Store.Images.Create(ctx, store.Image{ID: uuid.NewString(), Ref: "nginx:1", Digest: "sha256:a", LastDigest: "sha256:b",
+		CheckedAt: &now, CreatedAt: now}); err != nil {
+		t.Fatal(err)
+	}
+	v, err := e.O.Canvas(ctx, service.CanvasScope{Kind: service.CanvasEnv, ID: tl.Env}, service.ShowAll)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ns := nodes(v)
+	if api := ns[tl.ID]; !api.NewVersion || api.NextRun != nil {
+		t.Errorf("api = %+v, want a new version and no next run", api)
+	}
+	if c := ns[cron.ID]; c.NextRun == nil || !c.NextRun.After(now) || c.NextRun.Hour() != 3 {
+		t.Errorf("cron next run = %v", c.NextRun)
+	}
+}
