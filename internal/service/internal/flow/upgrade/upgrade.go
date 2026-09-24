@@ -13,15 +13,13 @@ import (
 	"sync"
 	"time"
 
+	"github.com/FyrmForge/stackr/internal/installspec"
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/panel"
 )
 
-const (
-	PanelRepo   = "ghcr.io/fyrmforge/stackr"
-	ReleasesURL = "https://api.github.com/repos/FyrmForge/stackr/releases/latest"
-)
+const ReleasesURL = "https://api.github.com/repos/FyrmForge/stackr/releases/latest"
 
 type Flow struct {
 	Panel   *panel.Leaf
@@ -122,8 +120,8 @@ func (f *Flow) Upgrade(ctx context.Context, tag string, log io.Writer) (string, 
 	return archive, nil
 }
 
-// ImageRef maps a release tag (v0.1.1) to its image; CI tags without the v.
-func ImageRef(tag string) string { return PanelRepo + ":" + strings.TrimPrefix(tag, "v") }
+// ImageRef maps a release tag (v0.1.1) to its image, as the installer does.
+func ImageRef(tag string) string { return installspec.Image(tag) }
 
 // parseTag reads vMAJOR.MINOR.PATCH, nil for anything else.
 func parseTag(tag string) []int {

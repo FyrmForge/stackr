@@ -25,6 +25,7 @@ type Docker interface {
 	List(ctx context.Context, labels map[string]string) ([]docker.Container, error)
 	Inspect(ctx context.Context, id string) (docker.Detail, error)
 	Pull(ctx context.Context, ref, auth string, log io.Writer) error
+	LocalDigest(ctx context.Context, ref string) (string, error)
 }
 
 const (
@@ -43,8 +44,12 @@ func New(d Docker) *Leaf {
 	return &Leaf{docker: d, Poll: time.Second, Grace: 10 * time.Second, Deadline: 3 * time.Minute}
 }
 
-// Pull fetches a panel image (public, anonymous).
+// Pull fetches a panel image (public, anonymous). One already here is
+// kept: a release tag never changes, and a box can be fed images by hand.
 func (l *Leaf) Pull(ctx context.Context, image string, log io.Writer) error {
+	if _, err := l.docker.LocalDigest(ctx, image); err == nil {
+		return nil
+	}
 	return l.docker.Pull(ctx, image, "", log)
 }
 
@@ -67,7 +72,8 @@ func (l *Leaf) Launch(ctx context.Context, spec docker.ContainerSpec) error {
 		return err
 	}
 	_, err = l.docker.Run(ctx, docker.ContainerSpec{
-		Name: "stackr-upgrader", Image: spec.Image, Cmd: []string{"/stackrd", "upgrade-swap"},
+		// The image's entrypoint is /stackrd; Cmd is only its argument.
+		Name: "stackr-upgrader", Image: spec.Image, Cmd: []string{"upgrade-swap"},
 		Env:     []string{SpecEnv + "=" + string(body)},
 		Labels:  map[string]string{LabelRole: "upgrader"},
 		Volumes: []string{"/var/run/docker.sock:/var/run/docker.sock"},

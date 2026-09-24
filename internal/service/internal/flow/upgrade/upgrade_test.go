@@ -39,6 +39,7 @@ func TestCheckAndUpgrade(t *testing.T) {
 	}))
 	defer gh.Close()
 	fake := dockerfake.New()
+	fake.Err = map[string]error{"LocalDigest": errors.New("no such image")}
 	var order []string
 	f := &Flow{Panel: panel.New(fake), Version: "v0.1.0", URL: gh.URL,
 		Archive: func(context.Context, io.Writer) (string, error) {

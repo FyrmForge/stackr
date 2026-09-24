@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"io"
 	"strconv"
 	"time"
@@ -144,7 +145,10 @@ func (o *Orchestrator) handlers() map[jobs.Kind]jobs.Handler {
 		kindUpgrade: payload(func(ctx context.Context, r *jobs.Run, p upgradeJob) error {
 			archive, err := o.upgrade.Upgrade(ctx, p.Tag, r.Log)
 			if err == nil {
-				_, _ = fmt.Fprintf(r.Log, "pre-upgrade archive %s; the helper swaps the panel now\n", archive)
+				// The local destination is <data>/backups; the key is the path under it.
+				_, _ = fmt.Fprintf(r.Log, "pre-upgrade archive %s; the helper swaps the panel now\n"+
+					"way back if the new panel misbehaves, on the host: stackr-install restore %s\n",
+					archive, filepath.Join(o.cfg.DataDir, "backups", archive))
 			}
 			return err
 		}),

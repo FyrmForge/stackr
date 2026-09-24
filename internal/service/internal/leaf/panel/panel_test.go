@@ -2,6 +2,7 @@ package panel
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -57,7 +58,7 @@ func TestLaunchGuardAndSpecRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	h := fake.Specs[0]
-	if h.Image != "img:0.2.0" || h.Cmd[1] != "upgrade-swap" {
+	if h.Image != "img:0.2.0" || !slices.Equal(h.Cmd, []string{"upgrade-swap"}) {
 		t.Errorf("helper = %+v", h)
 	}
 	t.Setenv(SpecEnv, strings.TrimPrefix(h.Env[0], SpecEnv+"="))
@@ -67,5 +68,18 @@ func TestLaunchGuardAndSpecRoundTrip(t *testing.T) {
 	fake.Containers = []docker.Container{{ID: "h", State: "running", Labels: map[string]string{LabelRole: "upgrader"}}}
 	if err := l.Launch(ctx, spec); err == nil {
 		t.Error("second launch while the helper runs")
+	}
+}
+
+// An image already on the box is not pulled again.
+func TestPullSkipsPresent(t *testing.T) {
+	fake := dockerfake.New()
+	if err := New(fake).Pull(context.Background(), "img:0.2.0", nil); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range fake.Calls() {
+		if c.Method == "Pull" {
+			t.Error("pulled an image already present")
+		}
 	}
 }
