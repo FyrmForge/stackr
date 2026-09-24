@@ -15,9 +15,9 @@ func withNext(path, next string) string {
 }
 
 templ loginPage(f LoginForm, errors map[string]string) {
-	@c.AuthCard("Log in") {
+	@c.AuthCard("Log in to your account") {
 		@loginForm(f, errors)
-		<p class="text-sm text-slate-500">No account? <a class="link" href={ templ.SafeURL(withNext("/register", f.Next)) }>Register</a></p>
+		<p class="text-sm text-rw-muted text-center">No account? <a class="link" href={ templ.SafeURL(withNext("/register", f.Next)) }>Register</a></p>
 	}
 }
 

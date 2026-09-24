@@ -71,8 +71,8 @@ func JobBadge(state string) templ.Component {
 	})
 }
 
-// EnvBadge is an environment's name in its colour, so prod looks like prod
-// everywhere. Color is one of EnvColors; anything else is neutral.
+// EnvBadge is an environment's name beside its colour dot, so prod looks
+// like prod everywhere. Color is one of EnvColors; anything else, no dot.
 func EnvBadge(name, color string) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
@@ -94,38 +94,48 @@ func EnvBadge(name, color string) templ.Component {
 			templ_7745c5c3_Var3 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		var templ_7745c5c3_Var4 = []any{"inline-flex rounded px-2 py-0.5 text-xs font-semibold", envClass(color)}
-		templ_7745c5c3_Err = templ.RenderCSSItems(ctx, templ_7745c5c3_Buffer, templ_7745c5c3_Var4...)
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<span class=\"inline-flex items-center gap-1.5 text-xs text-rw-text\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<span class=\"")
-		if templ_7745c5c3_Err != nil {
-			return templ_7745c5c3_Err
+		if dot := envClass(color); dot != "" {
+			var templ_7745c5c3_Var4 = []any{"env-dot", dot}
+			templ_7745c5c3_Err = templ.RenderCSSItems(ctx, templ_7745c5c3_Buffer, templ_7745c5c3_Var4...)
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "<span class=\"")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			var templ_7745c5c3_Var5 string
+			templ_7745c5c3_Var5, templ_7745c5c3_Err = templ.JoinStringErrs(templ.CSSClasses(templ_7745c5c3_Var4).String())
+			if templ_7745c5c3_Err != nil {
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/badge.templ`, Line: 1, Col: 0}
+			}
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var5))
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "\"></span> ")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
 		}
-		var templ_7745c5c3_Var5 string
-		templ_7745c5c3_Var5, templ_7745c5c3_Err = templ.JoinStringErrs(templ.CSSClasses(templ_7745c5c3_Var4).String())
-		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/badge.templ`, Line: 1, Col: 0}
-		}
-		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var5))
-		if templ_7745c5c3_Err != nil {
-			return templ_7745c5c3_Err
-		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, "<span>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var6 string
 		templ_7745c5c3_Var6, templ_7745c5c3_Err = templ.JoinStringErrs(name)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/badge.templ`, Line: 19, Col: 96}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/badge.templ`, Line: 23, Col: 14}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var6))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "</span>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 5, "</span></span>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -163,6 +173,8 @@ func Pill(word, tone string) templ.Component {
 	})
 }
 
+// badge is v0's StatusBadge as it rendered: coloured text and dot on no
+// fill (its bg-*/12 tint never compiled).
 func badge(word, tone string) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
@@ -184,12 +196,12 @@ func badge(word, tone string) templ.Component {
 			templ_7745c5c3_Var8 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		var templ_7745c5c3_Var9 = []any{"inline-flex rounded-full px-2 py-0.5 text-xs font-medium", toneClass(tone)}
+		var templ_7745c5c3_Var9 = []any{"inline-flex items-center gap-1.5 text-xs px-2 py-0.5 rounded-full", toneClass(tone)}
 		templ_7745c5c3_Err = templ.RenderCSSItems(ctx, templ_7745c5c3_Buffer, templ_7745c5c3_Var9...)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, "<span class=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, "<span class=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -202,20 +214,42 @@ func badge(word, tone string) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 5, "\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 7, "\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		var templ_7745c5c3_Var11 string
-		templ_7745c5c3_Var11, templ_7745c5c3_Err = templ.JoinStringErrs(strings.ReplaceAll(word, "_", " "))
-		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/badge.templ`, Line: 28, Col: 129}
-		}
-		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var11))
+		var templ_7745c5c3_Var11 = []any{"h-1.5 w-1.5 rounded-full", dotClass(tone)}
+		templ_7745c5c3_Err = templ.RenderCSSItems(ctx, templ_7745c5c3_Buffer, templ_7745c5c3_Var11...)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, "</span>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 8, "<span class=\"")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		var templ_7745c5c3_Var12 string
+		templ_7745c5c3_Var12, templ_7745c5c3_Err = templ.JoinStringErrs(templ.CSSClasses(templ_7745c5c3_Var11).String())
+		if templ_7745c5c3_Err != nil {
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/badge.templ`, Line: 1, Col: 0}
+		}
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var12))
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 9, "\"></span>")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		var templ_7745c5c3_Var13 string
+		templ_7745c5c3_Var13, templ_7745c5c3_Err = templ.JoinStringErrs(strings.ReplaceAll(word, "_", " "))
+		if templ_7745c5c3_Err != nil {
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/badge.templ`, Line: 36, Col: 104}
+		}
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var13))
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 10, "</span>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -227,44 +261,54 @@ var tileTone = map[string]string{"running": "ok", "degraded": "warn", "unhealthy
 
 var jobTone = map[string]string{"queued": "busy", "running": "busy", "waiting": "warn", "done": "ok", "failed": "bad"}
 
+// toneClass and dotClass spell every class in full so tailwind keeps them.
+// busy has no v0 twin; v0 painted queued and building warn, so busy is warn.
 func toneClass(tone string) string {
 	switch tone {
 	case "ok":
-		return "bg-green-100 text-green-800 dark:bg-green-900/50 dark:text-green-300"
-	case "warn":
-		return "bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-300"
+		return "text-rw-success"
+	case "warn", "busy":
+		return "text-rw-warn"
 	case "bad":
-		return "bg-red-100 text-red-800 dark:bg-red-900/50 dark:text-red-300"
-	case "busy":
-		return "bg-blue-100 text-blue-800 dark:bg-blue-900/50 dark:text-blue-300"
+		return "text-rw-danger"
 	}
-	return "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300"
+	return "bg-rw-inset text-rw-muted"
 }
 
-// EnvColors is the palette an environment's colour is picked from.
-var EnvColors = []string{"slate", "red", "orange", "amber", "green", "teal", "blue", "violet", "pink"}
+func dotClass(tone string) string {
+	switch tone {
+	case "ok":
+		return "bg-rw-success"
+	case "warn", "busy":
+		return "bg-rw-warn"
+	case "bad":
+		return "bg-rw-danger"
+	}
+	return "bg-rw-faint"
+}
 
-// envClass spells every class in full so tailwind's scanner keeps them.
+// EnvColors is the palette an environment's colour is picked from: v0's
+// six hues, in its ladder order.
+var EnvColors = []string{"teal", "sky", "lime", "amber", "rose", "violet"}
+
+// envClass is the class that sets --env-c for a hue (input.css); "" for
+// anything outside EnvColors.
 func envClass(color string) string {
 	switch color {
-	case "red":
-		return "bg-red-200 text-red-900 dark:bg-red-800 dark:text-red-100"
-	case "orange":
-		return "bg-orange-200 text-orange-900 dark:bg-orange-800 dark:text-orange-100"
-	case "amber":
-		return "bg-amber-200 text-amber-900 dark:bg-amber-800 dark:text-amber-100"
-	case "green":
-		return "bg-green-200 text-green-900 dark:bg-green-800 dark:text-green-100"
 	case "teal":
-		return "bg-teal-200 text-teal-900 dark:bg-teal-800 dark:text-teal-100"
-	case "blue":
-		return "bg-blue-200 text-blue-900 dark:bg-blue-800 dark:text-blue-100"
+		return "env-c-teal"
+	case "sky":
+		return "env-c-sky"
+	case "lime":
+		return "env-c-lime"
+	case "amber":
+		return "env-c-amber"
+	case "rose":
+		return "env-c-rose"
 	case "violet":
-		return "bg-violet-200 text-violet-900 dark:bg-violet-800 dark:text-violet-100"
-	case "pink":
-		return "bg-pink-200 text-pink-900 dark:bg-pink-800 dark:text-pink-100"
+		return "env-c-violet"
 	}
-	return "bg-slate-200 text-slate-800 dark:bg-slate-700 dark:text-slate-100"
+	return ""
 }
 
 var _ = templruntime.GeneratedTemplate

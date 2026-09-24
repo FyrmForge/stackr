@@ -6,7 +6,7 @@ import (
 )
 
 templ gallery() {
-	<div class="space-y-10">
+	<div class="page space-y-10">
 		@section("Form") {
 			@c.Form("gallery-form", "/dev/components") {
 				@c.FormError("Please fix the errors below.")
@@ -26,6 +26,9 @@ templ gallery() {
 			})
 			@c.Table(c.TableView{Headers: []string{"Tile"}, Empty: c.EmptyView{Title: "No tiles yet", Body: "Deploy an image or a repo.", Action: c.Link{Label: "New tile", Href: "/dev/components"}}})
 			@c.Pagination(c.PageNav{Label: "Page 2 of 5", Prev: "/dev/components?page=1", Next: "/dev/components?page=3"})
+		}
+		@section("Theme toggle") {
+			@c.ThemeToggle()
 		}
 		@section("Badges") {
 			<div class="flex flex-wrap gap-2">
@@ -196,8 +199,8 @@ templ envNode(p placed) {
 
 // drawerBody is a sample drawer: tab links are plain hx-get + hx-push-url.
 templ drawerBody(node, tab string) {
-	<h2 class="text-lg font-semibold">{ node }</h2>
-	<nav class="my-3 flex gap-3 text-sm">
+	@c.DrawerHead(node, "")
+	<nav class="mx-6 my-3 flex gap-3 text-sm">
 		for _, t := range []string{"status", "logs", "backups"} {
 			<a
 				href={ templ.SafeURL("?drawer=" + node + "&tab=" + t) }
@@ -211,7 +214,7 @@ templ drawerBody(node, tab string) {
 			>{ t }</a>
 		}
 	</nav>
-	<p class="text-sm">Sample { tab } tab for { node }.</p>
+	<p class="mx-6 text-sm">Sample { tab } tab for { node }.</p>
 }
 
 templ section(title string) {

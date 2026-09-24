@@ -5,22 +5,23 @@ import (
 	"github.com/FyrmForge/stackr/internal/ui/graph/cards"
 )
 
-// Page is a canvas page: the env-compare pill (stack), then #graph. #graph
-// holds the stream and swaps its inside on "graph", so the stream outlives
-// the canvas it replaces; reset and notes answer into it too.
+// Page is a canvas page: the env-compare pill (stack) and, where no top
+// bar holds them (home), the create buttons; then #graph, which fills the
+// shell's column. #graph holds the stream and swaps its inside on "graph",
+// so the stream outlives the canvas it replaces; reset and notes answer
+// into it too.
 templ Page(v View) {
 	if len(v.Compare) > 0 || len(v.Create) > 0 {
-		<div class="mb-2 flex flex-wrap items-center gap-2">
+		<div class="flex flex-wrap items-center gap-2 px-4 py-2 sm:px-6 border-b border-rw-border bg-rw-surface shrink-0">
 			if len(v.Compare) > 0 {
 				@compare(v.Compare)
 			}
-			for _, cr := range v.Create {
-				<button type="button" class="btn" hx-get={ cr.URL } hx-target="#drawer-body">{ cr.Label }</button>
-			}
+			@Actions(v.Create)
 		</div>
 	}
 	<div
 		id="graph"
+		class="flex min-h-0 flex-1 flex-col"
 		if v.Events != "" {
 			hx-ext="sse"
 			sse-connect={ v.Events }
@@ -29,6 +30,20 @@ templ Page(v View) {
 	>
 		@Canvas(v)
 	</div>
+}
+
+// Actions are the level's create buttons (v0's "+ Create"): the first is
+// the primary, the rest ghosts. The top bar shows them; home, which has no
+// bar, shows them over the canvas.
+templ Actions(cs []Create) {
+	for i, cr := range cs {
+		<button
+			type="button"
+			class={ "btn btn-sm", templ.KV("btn-primary", i == 0), templ.KV("btn-ghost", i > 0) }
+			hx-get={ cr.URL }
+			hx-target="#drawer-body"
+		>{ cr.Label }</button>
+	}
 }
 
 // Canvas is the swap unit: every card, edge and note, with its chrome.
@@ -43,7 +58,7 @@ templ Canvas(v View) {
 		if v.Focus != "" {
 			focus={ v.Focus }
 		}
-		class="h-[calc(100vh-9rem)] rounded-lg border border-slate-200 bg-slate-100 dark:border-slate-800 dark:bg-slate-950"
+		class="min-h-0 flex-1 bg-rw-bg"
 	>
 		<svg data-edges aria-hidden="true">
 			<defs>

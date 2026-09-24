@@ -24,77 +24,82 @@ type Run struct {
 type Option struct{ Value, Label string }
 
 templ Backups(v View) {
-	<div id="drawer-view" class="space-y-4">
-		<h2 class="text-lg font-semibold">{ v.Name } <span class="text-sm font-normal text-slate-500">volume · { v.Scope }</span></h2>
-		if v.Error != "" {
-			<p class="banner border-red-300 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300" role="alert">{ v.Error }</p>
-		}
-		if v.Note != "" {
-			<p class="banner" role="status">{ v.Note }</p>
-		}
-		<h3 class="font-semibold">Schedules</h3>
-		if len(v.Schedules) == 0 {
-			<p class="text-sm text-slate-500">None: this volume is backed up only by hand.</p>
-		}
-		<ul class="text-sm">
-			for _, s := range v.Schedules {
-				<li><span class="font-mono">{ s.Cron }</span> · { s.Method } → { s.Dest } · keep { s.Keep }</li>
+	<div id="drawer-view">
+		@c.DrawerHead(v.Name, "volume · "+v.Scope)
+		<div class="p-6 space-y-4">
+			if v.Error != "" {
+				<p class="banner border-red-300 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300" role="alert">{ v.Error }</p>
 			}
-		</ul>
-		<form hx-post={ v.Base + "/backup" } hx-target="#drawer-view" hx-swap="outerHTML" class="flex flex-wrap items-end gap-2">
-			<div>
-				<label class="label" for="backup-dest">To</label>
-				<select id="backup-dest" name="dest" class="input">
-					for _, d := range v.Dests {
-						<option value={ d.Value }>{ d.Label }</option>
-					}
-				</select>
-			</div>
-			<div>
-				<label class="label" for="backup-method">Method</label>
-				<select id="backup-method" name="method" class="input">
-					for _, m := range v.Methods {
-						<option value={ m }>{ m }</option>
-					}
-				</select>
-			</div>
-			@c.Submit("Back up now")
-		</form>
-		<h3 class="font-semibold">Runs</h3>
-		if len(v.Runs) == 0 {
-			<p class="text-sm text-slate-500">No backups yet.</p>
-		}
-		<ul class="space-y-2 text-sm">
-			for _, r := range v.Runs {
-				<li class="flex flex-wrap items-center gap-2">
-					@c.JobBadge(r.Status)
-					<span>{ r.When }</span>
-					<span class="text-slate-500">{ r.Trigger } · { r.Size }</span>
-					if r.Error != "" {
-						<span class="text-red-700 dark:text-red-400">{ r.Error }</span>
-					}
-					if r.Restorable {
-						@c.Confirm(c.ConfirmView{Button: "Restore", Title: "Restore " + v.Name + " from " + r.When + "?",
-							Warning: "What the volume holds now is replaced; its tiles stop while it restores.",
-							Kept:    []string{"this backup and every other in the destination"},
-							Word:    v.Name, Action: v.Base + "/restore?run=" + r.ID, Target: "#drawer-view"})
-					}
-				</li>
+			if v.Note != "" {
+				<p class="banner" role="status">{ v.Note }</p>
 			}
-		</ul>
-		if v.Orphaned != "" {
-			<p class="text-sm text-amber-700 dark:text-amber-400">Orphaned since { v.Orphaned }: no tile mounts it.</p>
-			@c.Confirm(c.ConfirmView{Button: "Delete volume", Title: "Delete " + v.Name + "?",
-				Warning: "Its data goes now, before the retention window ends.",
-				Kept:    []string{"backups already in a destination"}, Word: v.Name,
-				Action:  v.Base + "/delete", Target: "#drawer-view"})
-		}
+			<h3 class="font-semibold">Schedules</h3>
+			if len(v.Schedules) == 0 {
+				<p class="text-sm text-slate-500">None: this volume is backed up only by hand.</p>
+			}
+			<ul class="text-sm">
+				for _, s := range v.Schedules {
+					<li><span class="font-mono">{ s.Cron }</span> · { s.Method } → { s.Dest } · keep { s.Keep }</li>
+				}
+			</ul>
+			<form hx-post={ v.Base + "/backup" } hx-target="#drawer-view" hx-swap="outerHTML" class="flex flex-wrap items-end gap-2">
+				<div>
+					<label class="label" for="backup-dest">To</label>
+					<select id="backup-dest" name="dest" class="input">
+						for _, d := range v.Dests {
+							<option value={ d.Value }>{ d.Label }</option>
+						}
+					</select>
+				</div>
+				<div>
+					<label class="label" for="backup-method">Method</label>
+					<select id="backup-method" name="method" class="input">
+						for _, m := range v.Methods {
+							<option value={ m }>{ m }</option>
+						}
+					</select>
+				</div>
+				@c.Submit("Back up now")
+			</form>
+			<h3 class="font-semibold">Runs</h3>
+			if len(v.Runs) == 0 {
+				<p class="text-sm text-slate-500">No backups yet.</p>
+			}
+			<ul class="space-y-2 text-sm">
+				for _, r := range v.Runs {
+					<li class="flex flex-wrap items-center gap-2">
+						@c.JobBadge(r.Status)
+						<span>{ r.When }</span>
+						<span class="text-slate-500">{ r.Trigger } · { r.Size }</span>
+						if r.Error != "" {
+							<span class="text-red-700 dark:text-red-400">{ r.Error }</span>
+						}
+						if r.Restorable {
+							@c.Confirm(c.ConfirmView{Button: "Restore", Title: "Restore " + v.Name + " from " + r.When + "?",
+								Warning: "What the volume holds now is replaced; its tiles stop while it restores.",
+								Kept:    []string{"this backup and every other in the destination"},
+								Word:    v.Name, Action: v.Base + "/restore?run=" + r.ID, Target: "#drawer-view"})
+						}
+					</li>
+				}
+			</ul>
+			if v.Orphaned != "" {
+				<p class="text-sm text-amber-700 dark:text-amber-400">Orphaned since { v.Orphaned }: no tile mounts it.</p>
+				@c.Confirm(c.ConfirmView{Button: "Delete volume", Title: "Delete " + v.Name + "?",
+					Warning: "Its data goes now, before the retention window ends.",
+					Kept:    []string{"backups already in a destination"}, Word: v.Name,
+					Action:  v.Base + "/delete", Target: "#drawer-view"})
+			}
+		</div>
 	</div>
 }
 
 // Deleted replaces the drawer once the volume is gone.
 templ Deleted() {
 	<div id="drawer-view">
-		<p class="banner" role="status">Volume deleted.</p>
+		@c.DrawerHead("volume", "")
+		<div class="p-6">
+			<p class="banner" role="status">Volume deleted.</p>
+		</div>
 	</div>
 }

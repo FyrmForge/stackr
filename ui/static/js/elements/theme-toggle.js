@@ -14,17 +14,23 @@ function store(theme) {
     catch {
     }
 }
+function apply(theme) {
+    const root = document.documentElement;
+    root.classList.toggle("dark", theme === "dark");
+    root.classList.toggle("light", theme !== "dark");
+}
+const initial = stored();
+if (initial)
+    apply(initial);
 class ThemeToggle extends HTMLElement {
     onClick = (e) => {
         if (!e.target.closest("button"))
             return;
-        const dark = document.documentElement.classList.toggle("dark");
-        store(dark ? "dark" : "light");
+        const theme = document.documentElement.classList.contains("dark") ? "light" : "dark";
+        apply(theme);
+        store(theme);
     };
     connectedCallback() {
-        const theme = stored();
-        if (theme)
-            document.documentElement.classList.toggle("dark", theme === "dark");
         this.addEventListener("click", this.onClick);
     }
     disconnectedCallback() {

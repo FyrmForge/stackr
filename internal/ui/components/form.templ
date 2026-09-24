@@ -29,7 +29,7 @@ templ Form(id, action string) {
 // FormError is the form-wide message (the "general" key of the errors map).
 templ FormError(msg string) {
 	if msg != "" {
-		<div class="banner border-red-300 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300" role="alert">{ msg }</div>
+		<div class="banner banner-danger" role="alert">{ msg }</div>
 	}
 }
 
@@ -52,9 +52,9 @@ templ Field(f FieldView) {
 			}
 		/>
 		if f.Disabled {
-			<p class="mt-1 text-xs text-slate-500">{ f.Why }</p>
+			<p class="mt-1.5 text-xs text-rw-faint">{ f.Why }</p>
 		} else if f.Help != "" {
-			<p class="mt-1 text-xs text-slate-500">{ f.Help }</p>
+			<p class="mt-1.5 text-xs text-rw-faint">{ f.Help }</p>
 		}
 		@FieldError(f.Name, f.Error)
 	</div>
@@ -84,10 +84,19 @@ func inputType(t string) string {
 }
 
 // AuthCard is the narrow centred card the signed-out and first-run pages
-// (login, register, setup, invite, CLI authorize) sit in.
+// (login, register, setup, invite, CLI authorize) sit in: v0's login look,
+// the logo row over a panel. .auth-card spaces its form like v0's.
 templ AuthCard(title string) {
-	<section class="card mx-auto mt-12 max-w-md space-y-4 p-6">
-		<h1 class="text-xl font-semibold">{ title }</h1>
-		{ children... }
-	</section>
+	<div class="w-full max-w-md mx-auto pt-24 px-6">
+		<div class="flex items-center gap-2.5 justify-center mb-8">
+			<img src={ StaticURL("images/logo-mark.png") } alt="" class="h-10 w-10"/>
+			<span class="text-xl font-semibold text-rw-text">stackr</span>
+		</div>
+		<section class="auth-card panel p-8 shadow-rw">
+			<h1 class="text-lg font-semibold text-rw-text mb-6 text-center">{ title }</h1>
+			<div class="space-y-4">
+				{ children... }
+			</div>
+		</section>
+	</div>
 }

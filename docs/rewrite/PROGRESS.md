@@ -330,6 +330,72 @@ session started by darhvader from the START HERE line, no Fable.
     - Gates: `make build`, `make lint`, `make test`, `make templint` clean. Elements: canvas 299/300, node 144/150, drawer 77, log-pane 85, confirm-dialog 57, flash-toast 53, theme-toggle 42.
     - No push or PR (builder told not to). DECIDE 120–140.
 
+## Step 6e: UI clone of v0 (branch `rewrite-step-6e`, stacked on 6d, 2026-09-24)
+
+darthvader: the rewrite's web UI must be v0's, exactly (theme, layout, dot
+grid, cards, lines, drawers). Where v0's look and a step-6 / ui-plan rule
+clash, v0 wins and the clash is a DECIDE item. Source of truth: v0 on
+`master` (worktree `../stackr-old`); the capture and gap reports live in the
+session scratchpad `v0-ui/` (`REPORT.md`, `styles.md`, `gap-*.md`, `shots/`).
+
+Phases, one Opus agent each; gates, a VM release and a shot-by-shot
+comparison against `shots/` after each:
+
+1. [x] Theme + shell (`gap-theme-shell.md` P1–P12, P15): rw tokens and
+   tailwind config, v0 component classes, the 56px left icon rail (bottom
+   bar on phones), canvas top bar with crumbs and the 3px env band,
+   full-bleed `#main`, drawer / flash / confirm / auth / error / badge
+   chrome, v0's six env hues.
+2. [ ] Canvas (`gap-canvas.md`): 22px dot grid that follows pan and zoom,
+   cards per kind, edges per kind, controls column, legend, settings
+   drawer, layout constants.
+3. [ ] Drawers + pages (`gap-drawers-pages.md`): panel header and underline
+   tabs, forms, lists, each tab's content.
+4. [ ] Sweep + theme: every stock-Tailwind / `dark:` utility replaced by rw
+   tokens (P13); theme per user as v0 does it (P14 option b: `users.theme`,
+   Appearance on the account page, `<html>` class server-written;
+   supersedes DECIDE 73).
+
+Calls made under "assume the best" (darthvader, 2026-09-24): confirm
+dialogs take v0's typed-Modal look only; the status badge is cloned as v0
+rendered it (no tint); the drawer's close X sits in the header; `#main`
+scrolls inside a fixed-height column; env palette is v0's six hues
+(supersedes DECIDE 72); the header theme toggle stays until phase 4.
+
+Phase 1 done (2026-09-25, uncommitted in the `rewrite-step-6e` tree; VM runs
+v0.0.16, shots in scratchpad `v0-ui/after-phase1/`, dark and light):
+- Landed: v0 tokens, tailwind config and component classes
+  (`ui/css/input.css`, `ui/tailwind.config.js`); the rail with logo, Orgs,
+  admin gear, theme toggle, Account and logout (`layout.templ`); the top bar
+  with crumbs, `←`, org initials head, `stack` tag, 3px env band and
+  actions (`Shell.Actions`, `render.PageWith`); full-bleed `#main` in an
+  `h-dvh` column; `DrawerHead` with the X; underline tabs; v0 flash,
+  confirm, auth card, error page and badge; six env hues as `.env-c-*`.
+- Matches v0 in the shots: login (button at the same pixel), rail, top bar,
+  env band colour, drawer width, slide, backdrop and header, both themes;
+  at 390px the rail is a 56px bottom bar with no sideways scroll.
+- Still differs, later phases: canvas grid, cards, toolbar, controls and
+  legend (phase 2); drawer bodies and page internals such as the account
+  page (phase 3); bare `.btn` has no border, static `.card`s glow on
+  hover, the signed-in auth pages keep slate text (P13, phase 4).
+- Still differs, needs a call: the root canvas has no top bar (DECIDE 142);
+  the theme toggle sits in the rail (143); the top bar has no env picker,
+  Logs or Settings link (144); an env with no colour gets no band, v0's
+  `envcolor` resolver is not ported (145); password eye (141); login
+  shows a Register link v0's did not (page content). The rail leaves out
+  v0's org switcher, search, containers, servers and notifications (no
+  rewrite feature).
+- Gates: `make build`, `make lint` (0 issues), `make test`, `make
+  templint` all clean. Element lines (budget): confirm-dialog 57,
+  flash-toast 60, graph-canvas 299 (400), graph-node 144, log-pane 85,
+  side-drawer 77, theme-toggle 54 (rest 150).
+
+141. **(step 6e) v0 behaviour that needs JS outside the seven elements is
+   not ported:** password show/hide, the settings "unsaved changes" hint,
+   the search palette and its `/` key, the drill view-transition, copy
+   buttons, the combobox and repo picker. Options: (a) keep them out;
+   (b) whitelist a tag each. Lean (b) for search and the password eye.
+
 ## DECIDE:
 
 Silent calls the planner made under rule 9 / "fix obvious gaps"; flip any

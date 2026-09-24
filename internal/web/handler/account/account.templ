@@ -18,7 +18,7 @@ type KeysView struct {
 type Key struct{ ID, Name, Org, Created string }
 
 templ page(email string, pw PasswordView, keys KeysView) {
-	<div class="mx-auto max-w-3xl space-y-8">
+	<div class="page space-y-8">
 		<h1 class="text-xl font-semibold">Account</h1>
 		<p class="text-sm text-slate-500">Signed in as { email }.</p>
 		<section class="card space-y-4">

@@ -111,14 +111,20 @@ func (h *handler) Page(c echo.Context) error {
 	if err != nil {
 		return middleware.HTTPError(err)
 	}
-	v.Create = createButtons(c, where(c))
+	// The top bar holds the create buttons; home has no bar, so its canvas does.
+	var actions templ.Component
+	if l := where(c); l.scope.Kind == service.CanvasHome {
+		v.Create = createButtons(c, l)
+	} else if cs := createButtons(c, l); len(cs) > 0 {
+		actions = ui.Actions(cs)
+	}
 	var drawer templ.Component
 	if id := c.QueryParam("drawer"); id != "" && !isHTMX(c) {
 		if drawer, err = h.drawer(c, v, id, c.QueryParam("tab")); err != nil {
 			return middleware.HTTPError(err)
 		}
 	}
-	return render.PageWith(c, http.StatusOK, where(c).title, ui.Page(v), drawer)
+	return render.PageWith(c, http.StatusOK, where(c).title, ui.Page(v), actions, drawer)
 }
 
 func isHTMX(c echo.Context) bool {

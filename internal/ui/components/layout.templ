@@ -2,6 +2,9 @@ package components
 
 // Layout is the full page: the shell around body. render.Page picks it for
 // a plain request and Fragment for an htmx one; pages never call either.
+// Signed in, v0's shell: the icon rail (a bottom bar on phones) and a
+// fixed-height column whose #main scrolls; canvases fill it, plain pages
+// wrap themselves in .page. Signed out: no rail, no bar.
 templ Layout(s Shell, body templ.Component) {
 	<!DOCTYPE html>
 	<html lang="en" class="dark">
@@ -10,6 +13,8 @@ templ Layout(s Shell, body templ.Component) {
 			<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 			<meta name="htmx-config" content={ htmxConfig }/>
 			<title>{ s.Title } - stackr</title>
+			<link rel="icon" type="image/png" sizes="32x32" href={ StaticURL("images/favicon-32.png") }/>
+			<link rel="apple-touch-icon" href={ StaticURL("images/apple-touch-icon.png") }/>
 			<link rel="stylesheet" href={ StaticURL("css/output.css") }/>
 			<script src={ StaticURL("js/vendor/htmx.min.js") }></script>
 			<script src={ StaticURL("js/vendor/sse.min.js") }></script>
@@ -22,59 +27,176 @@ templ Layout(s Shell, body templ.Component) {
 			<script type="module" src={ StaticURL("js/elements/theme-toggle.js") }></script>
 			<script src={ StaticURL("js/main.js") } defer></script>
 		</head>
-		<body class="min-h-screen bg-slate-50 text-slate-900 dark:bg-slate-950 dark:text-slate-200" hx-headers={ csrfHeaders(s.CSRF) }>
-			@shellHeader(s, false)
+		<body class="bg-rw-bg text-rw-text min-h-screen font-sans antialiased" hx-headers={ csrfHeaders(s.CSRF) }>
 			@flash(s.Flash, false)
-			<main id="main" class="max-w-6xl mx-auto px-4 py-6">
-				@body
-			</main>
+			if s.User != "" {
+				@rail(s, false)
+			}
+			<div class={ "flex h-dvh min-w-0 flex-col", templ.KV("sm:ml-14 pb-14 sm:pb-0", s.User != "") }>
+				@topBar(s, false)
+				<main id="main" class="flex min-h-0 flex-1 flex-col overflow-y-auto">
+					@body
+				</main>
+			</div>
 			@SideDrawer(s.Drawer, s.Tab)
 		</body>
 	</html>
 }
 
 // Fragment is what an htmx navigation swaps into #main: the new title, the
-// header and flash out of band (so the crumbs follow the URL), then body.
+// rail and top bar and flash out of band (so the active icon and the crumbs
+// follow the URL), then body.
 templ Fragment(s Shell, body templ.Component) {
 	<title>{ s.Title } - stackr</title>
-	@shellHeader(s, true)
+	if s.User != "" {
+		@rail(s, true)
+	}
+	@topBar(s, true)
 	@flash(s.Flash, true)
 	@body
 }
 
-templ shellHeader(s Shell, oob bool) {
-	<header
-		id="shell-header"
-		class="border-b border-slate-200 dark:border-slate-800"
+// rail is v0's icon rail (shell.templ): logo, sections, then theme,
+// account and log out at the foot. Labels are titles, as v0 had them.
+templ rail(s Shell, oob bool) {
+	<aside
+		id="shell-rail"
+		class="fixed z-20 bg-rw-surface flex items-center bottom-0 inset-x-0 h-14 flex-row border-t border-rw-border sm:top-0 sm:right-auto sm:h-auto sm:w-14 sm:flex-col sm:border-t-0 sm:border-r"
 		if oob {
 			hx-swap-oob="true"
 		}
 	>
-		<div class="max-w-6xl mx-auto px-4 h-12 flex items-center gap-4 text-sm">
-			<a href="/" class="font-bold">stackr</a>
-			<nav aria-label="Breadcrumb" class="flex items-center gap-1 text-slate-500">
-				for _, l := range s.Crumbs {
-					<span aria-hidden="true">/</span>
-					@NavLink(l)
+		<a href="/" hx-get="/" hx-target="#main" hx-push-url="true" class="h-14 hidden sm:flex items-center justify-center w-full border-b border-rw-border" title="stackr">
+			<img src={ StaticURL("images/logo-mark.png") } alt="stackr" class="h-8 w-8"/>
+		</a>
+		<nav aria-label="Sections" class="flex-1 flex flex-row justify-around sm:py-3 sm:flex-col sm:justify-start items-center gap-1">
+			if l, ok := s.nav("/"); ok {
+				@railLink(l) {
+					<path d="M3 3h7v7H3zM14 3h7v7h-7zM14 14h7v7h-7zM3 14h7v7H3z"></path>
 				}
-			</nav>
-			<nav aria-label="Sections" class="ml-auto flex items-center gap-3">
-				for _, l := range s.Nav {
-					@NavLink(l)
+			}
+			if s.Admin {
+				<button type="button" title="Admin" aria-label="Admin" class={ railIdle } hx-get="/-/admin?tab=settings" hx-target="#drawer-body" hx-push-url="?drawer=admin&tab=settings">
+					<svg class="h-[18px] w-[18px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+						<circle cx="12" cy="12" r="3"></circle>
+						<path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+					</svg>
+				</button>
+			}
+		</nav>
+		<div class="pr-2 sm:pr-0 sm:py-3 flex flex-row sm:flex-col items-center gap-1">
+			@ThemeToggle()
+			if l, ok := s.nav("/account"); ok {
+				@railLink(l) {
+					<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+					<circle cx="12" cy="7" r="4"></circle>
 				}
-				if s.Admin {
-					<button type="button" class="link" hx-get="/-/admin?tab=settings" hx-target="#drawer-body" hx-push-url="?drawer=admin&tab=settings">Admin</button>
-				}
-				@ThemeToggle()
-				if s.User != "" {
-					<span class="text-slate-500">{ s.User }</span>
-					<button type="button" class="link" hx-post="/logout">Log out</button>
-				} else {
-					<a href="/login" class="link">Log in</a>
-				}
-			</nav>
+			}
+			<button type="button" hx-post="/logout" title="Log out" aria-label="Log out" class={ railIdle }>
+				<svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+					<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"></path>
+				</svg>
+			</button>
 		</div>
+	</aside>
+}
+
+// railIdle is a rail button at rest (v0 railIcon, not active).
+const railIdle = "flex h-9 w-9 items-center justify-center rounded-lg transition-colors text-rw-muted hover:text-rw-text hover:bg-rw-raised"
+
+// railLink is one rail section: an 18px icon (children are its paths),
+// lit while the URL is in it.
+templ railLink(l Link) {
+	<a
+		href={ templ.SafeURL(l.Href) }
+		hx-get={ l.Href }
+		hx-target="#main"
+		hx-push-url="true"
+		title={ l.Label }
+		aria-label={ l.Label }
+		class={ "flex h-9 w-9 items-center justify-center rounded-lg transition-colors",
+			templ.KV("bg-rw-accent/15 text-rw-accentHi", l.Active),
+			templ.KV("text-rw-muted hover:text-rw-text hover:bg-rw-raised", !l.Active) }
+		if l.Active {
+			aria-current="page"
+		}
+	>
+		<svg class="h-[18px] w-[18px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+			{ children... }
+		</svg>
+	</a>
+}
+
+// topBar is v0's canvas bar, shown wherever the URL has crumbs: the env's
+// colour band, then ← (the last crumb's parent), the crumbs, and the
+// page's actions on the right. At the org it is v0's org head instead:
+// initials badge, name, /slug. Always rendered (empty without crumbs) so
+// a navigation has an out-of-band target.
+templ topBar(s Shell, oob bool) {
+	<header
+		id="shell-header"
+		class="shrink-0"
+		if oob {
+			hx-swap-oob="true"
+		}
+	>
+		if len(s.Crumbs) > 0 {
+			if band := envClass(s.EnvColor); band != "" {
+				<div class={ "env-band", band }></div>
+			}
+			<div class="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 sm:px-6 py-3 min-h-14 border-b border-rw-border bg-rw-surface">
+				if len(s.Crumbs) == 1 {
+					@orgHead(s.Crumbs[0])
+				} else {
+					<a href={ templ.SafeURL(up(s.Crumbs)) } hx-get={ up(s.Crumbs) } hx-target="#main" hx-push-url="true" class="text-rw-muted hover:text-rw-text transition-colors" title="Up one level" aria-label="Up one level">&larr;</a>
+					@crumbs(s)
+				}
+				if len(s.Crumbs) == 2 {
+					<span class="text-xs text-rw-faint">stack</span>
+				}
+				if s.Actions != nil {
+					<div class="ml-auto flex items-center gap-2">
+						@s.Actions
+					</div>
+				}
+			</div>
+		}
 	</header>
+}
+
+templ orgHead(l Link) {
+	<span class="flex items-center justify-center rounded bg-rw-inset font-bold uppercase text-rw-accentHi shrink-0 h-7 w-7 text-xs" aria-hidden="true">{ Initials(l.Label) }</span>
+	<h1 class="text-lg font-semibold text-rw-text tracking-tight">{ l.Label }</h1>
+	<span class="text-xs text-rw-faint font-mono">{ l.Href }</span>
+}
+
+// crumbs is the bar's path: every segment a link, the current one in text
+// colour; the env segment carries its colour dot.
+templ crumbs(s Shell) {
+	<nav aria-label="Breadcrumb" class="flex items-center gap-1.5 text-lg font-semibold tracking-tight min-w-0">
+		for i, l := range s.Crumbs {
+			if i > 0 {
+				<span class="text-rw-faint" aria-hidden="true">/</span>
+			}
+			<a
+				href={ templ.SafeURL(l.Href) }
+				hx-get={ l.Href }
+				hx-target="#main"
+				hx-push-url="true"
+				class={ "flex items-center gap-1.5 min-w-0 transition-colors",
+					templ.KV("text-rw-text", i == len(s.Crumbs)-1),
+					templ.KV("text-rw-muted hover:text-rw-text", i != len(s.Crumbs)-1) }
+				if i == len(s.Crumbs)-1 {
+					aria-current="page"
+				}
+			>
+				if dot := envClass(s.EnvColor); i == 2 && dot != "" {
+					<span class={ "env-dot", dot }></span>
+				}
+				<span class="truncate">{ l.Label }</span>
+			</a>
+		}
+	</nav>
 }
 
 // NavLink is an in-app link: htmx swaps #main and pushes the URL, a plain
@@ -85,7 +207,7 @@ templ NavLink(l Link) {
 		hx-get={ l.Href }
 		hx-target="#main"
 		hx-push-url="true"
-		class="link aria-[current=page]:font-semibold aria-[current=page]:text-slate-900 dark:aria-[current=page]:text-white"
+		class="link aria-[current=page]:font-semibold aria-[current=page]:text-rw-text"
 		if l.Active {
 			aria-current="page"
 		}

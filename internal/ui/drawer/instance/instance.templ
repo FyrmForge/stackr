@@ -1,6 +1,8 @@
 // Package instance is the managed instance drawer: one tab, its slices.
 package instance
 
+import c "github.com/FyrmForge/stackr/internal/ui/components"
+
 // View is a managed tile's instance and the slices cut from it.
 type View struct {
 	Name, Engine, Scope, Endpoint, AdminUser string
@@ -14,36 +16,38 @@ type SliceRow struct {
 }
 
 templ Slices(v View) {
-	<div id="drawer-view" class="space-y-4">
-		<h2 class="text-lg font-semibold">{ v.Name } <span class="text-sm font-normal text-slate-500">{ v.Engine }</span></h2>
-		<dl class="grid grid-cols-[8rem_1fr] gap-1 text-sm">
-			<dt class="text-slate-500">slices from</dt><dd>{ v.Scope }</dd>
-			<dt class="text-slate-500">endpoint</dt><dd class="font-mono">{ v.Endpoint }</dd>
-			<dt class="text-slate-500">admin user</dt><dd class="font-mono">{ v.AdminUser }</dd>
-		</dl>
-		<h3 class="font-semibold">Slices</h3>
-		if len(v.Slices) == 0 {
-			<p class="text-sm text-slate-500">No tile has a slice of it yet.</p>
-		}
-		<ul class="space-y-2 text-sm">
-			for _, s := range v.Slices {
-				<li class="flex flex-wrap items-center gap-2">
-					<a
-						href={ templ.SafeURL("?drawer=" + s.ID + "&tab=bindings") }
-						hx-get={ s.Drawer }
-						hx-target="#drawer-body"
-						hx-push-url={ "?drawer=" + s.ID + "&tab=bindings" }
-						class="link font-mono"
-					>{ s.Name }</a>
-					<span class="text-slate-500">{ s.DB }</span>
-					if s.Public {
-						<span class="rounded bg-blue-100 px-1.5 text-xs text-blue-800 dark:bg-blue-900/50 dark:text-blue-300">public</span>
-					}
-					if s.Orphan {
-						<span class="text-xs text-amber-700 dark:text-amber-400">consumer gone, { s.OnRemove } pending</span>
-					}
-				</li>
+	<div id="drawer-view">
+		@c.DrawerHead(v.Name, v.Engine)
+		<div class="p-6 space-y-4">
+			<dl class="grid grid-cols-[8rem_1fr] gap-1 text-sm">
+				<dt class="text-slate-500">slices from</dt><dd>{ v.Scope }</dd>
+				<dt class="text-slate-500">endpoint</dt><dd class="font-mono">{ v.Endpoint }</dd>
+				<dt class="text-slate-500">admin user</dt><dd class="font-mono">{ v.AdminUser }</dd>
+			</dl>
+			<h3 class="font-semibold">Slices</h3>
+			if len(v.Slices) == 0 {
+				<p class="text-sm text-slate-500">No tile has a slice of it yet.</p>
 			}
-		</ul>
+			<ul class="space-y-2 text-sm">
+				for _, s := range v.Slices {
+					<li class="flex flex-wrap items-center gap-2">
+						<a
+							href={ templ.SafeURL("?drawer=" + s.ID + "&tab=bindings") }
+							hx-get={ s.Drawer }
+							hx-target="#drawer-body"
+							hx-push-url={ "?drawer=" + s.ID + "&tab=bindings" }
+							class="link font-mono"
+						>{ s.Name }</a>
+						<span class="text-slate-500">{ s.DB }</span>
+						if s.Public {
+							<span class="rounded bg-blue-100 px-1.5 text-xs text-blue-800 dark:bg-blue-900/50 dark:text-blue-300">public</span>
+						}
+						if s.Orphan {
+							<span class="text-xs text-amber-700 dark:text-amber-400">consumer gone, { s.OnRemove } pending</span>
+						}
+					</li>
+				}
+			</ul>
+		</div>
 	</div>
 }

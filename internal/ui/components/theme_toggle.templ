@@ -1,8 +1,17 @@
 package components
 
-// ThemeToggle flips light/dark; the choice lives in localStorage only.
+// ThemeToggle flips light/dark; the choice lives in localStorage only. A
+// rail icon: the sun shows in dark (click for light), the moon in light.
 templ ThemeToggle() {
 	<theme-toggle>
-		<button type="button" class="link" aria-label="Toggle light and dark theme">Theme</button>
+		<button type="button" title="Theme" aria-label="Toggle light and dark theme" class={ railIdle }>
+			<svg class="hidden dark:block h-[18px] w-[18px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+				<circle cx="12" cy="12" r="5"></circle>
+				<path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"></path>
+			</svg>
+			<svg class="block dark:hidden h-[18px] w-[18px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+				<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+			</svg>
+		</button>
 	</theme-toggle>
 }

@@ -4,14 +4,17 @@ package components
 
 // StaticManifest maps original asset paths to fingerprinted paths.
 var StaticManifest = map[string]string{
-	"css/output.css": "css/output.8561f32e15ea.css",
+	"css/output.css": "css/output.a06a3b84e9c9.css",
+	"images/apple-touch-icon.png": "images/apple-touch-icon.bf7ad3fd7ca1.png",
+	"images/favicon-32.png": "images/favicon-32.714289f559fa.png",
+	"images/logo-mark.png": "images/logo-mark.c7991eef2bbb.png",
 	"js/elements/confirm-dialog.js": "js/elements/confirm-dialog.8d714d0529d4.js",
-	"js/elements/flash-toast.js": "js/elements/flash-toast.066271828161.js",
+	"js/elements/flash-toast.js": "js/elements/flash-toast.265f3c596055.js",
 	"js/elements/graph-canvas.js": "js/elements/graph-canvas.96638bbc32e4.js",
 	"js/elements/graph-node.js": "js/elements/graph-node.ba9b88448f2c.js",
 	"js/elements/log-pane.js": "js/elements/log-pane.edd6e62b4802.js",
 	"js/elements/side-drawer.js": "js/elements/side-drawer.3b80102bb667.js",
-	"js/elements/theme-toggle.js": "js/elements/theme-toggle.3bad8f86991f.js",
+	"js/elements/theme-toggle.js": "js/elements/theme-toggle.2b6c88b4c400.js",
 	"js/main.js": "js/main.e682a47a0e18.js",
 	"js/vendor/htmx.min.js": "js/vendor/htmx.min.e209dda5c823.js",
 	"js/vendor/sse.min.js": "js/vendor/sse.min.98a46496de0c.js",

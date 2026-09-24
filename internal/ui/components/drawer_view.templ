@@ -20,9 +20,9 @@ type DrawerView struct {
 
 templ Drawer(v DrawerView, body templ.Component) {
 	<div id={ DrawerRoot }>
-		<h2 class="text-lg font-semibold">{ v.Title } <span class="text-sm font-normal text-slate-500">{ v.Kind }</span></h2>
+		@DrawerHead(v.Title, v.Kind)
 		if len(v.Tabs) > 1 {
-			<nav class="my-3 flex flex-wrap gap-3 text-sm" aria-label="Tabs">
+			<nav class="flex gap-1 px-4 sm:px-6 border-b border-rw-border overflow-x-auto scrollbar-none" aria-label="Tabs">
 				for _, t := range v.Tabs {
 					<a
 						href={ templ.SafeURL("?drawer=" + v.Node + "&tab=" + t) }
@@ -30,7 +30,9 @@ templ Drawer(v DrawerView, body templ.Component) {
 						hx-target={ "#" + DrawerRoot }
 						hx-swap="outerHTML"
 						hx-push-url={ "?drawer=" + v.Node + "&tab=" + t }
-						class="link aria-[current=page]:font-semibold"
+						class={ "px-3 py-2.5 text-sm border-b-2 -mb-px transition-colors",
+							templ.KV("border-rw-accent text-rw-text font-medium", t == v.Tab),
+							templ.KV("border-transparent text-rw-muted hover:text-rw-text", t != v.Tab) }
 						if t == v.Tab {
 							aria-current="page"
 						}
@@ -38,18 +40,20 @@ templ Drawer(v DrawerView, body templ.Component) {
 				}
 			</nav>
 		}
-		if v.Error != "" {
-			<p class="banner my-3 border-red-300 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300" role="alert">{ v.Error }</p>
-		}
-		if v.Note != "" {
-			// a note may hold a one-time token: keep it out of htmx's history cache
-			<p class="banner my-3" role="status" hx-history="false">{ v.Note }</p>
-		}
-		@body
+		<div class="p-6 space-y-4">
+			if v.Error != "" {
+				<p class="banner banner-danger" role="alert">{ v.Error }</p>
+			}
+			if v.Note != "" {
+				// a note may hold a one-time token: keep it out of htmx's history cache
+				<p class="banner" role="status" hx-history="false">{ v.Note }</p>
+			}
+			@body
+		</div>
 	</div>
 }
 
 // PostButton is a one-button POST answered with the drawer.
 templ PostButton(label, action string) {
-	<button type="button" class="btn" hx-post={ action } hx-target={ "#" + DrawerRoot } hx-swap="outerHTML">{ label }</button>
+	<button type="button" class="btn btn-ghost" hx-post={ action } hx-target={ "#" + DrawerRoot } hx-swap="outerHTML">{ label }</button>
 }

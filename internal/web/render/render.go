@@ -23,16 +23,18 @@ import (
 )
 
 // Page renders body inside the layout for a plain request, and as the #main
-// fragment (title, header and flash out of band) for an htmx navigation. A
-// history restore asks for the whole page, so it gets one.
+// fragment (title, rail, top bar and flash out of band) for an htmx
+// navigation. A history restore asks for the whole page, so it gets one.
 func Page(c echo.Context, status int, title string, body templ.Component) error {
-	return PageWith(c, status, title, body, nil)
+	return PageWith(c, status, title, body, nil, nil)
 }
 
-// PageWith is Page with the drawer a fresh load of ?drawer=&tab= opens
+// PageWith is Page with the top bar's actions (nil = none; they show only
+// where the bar does) and the drawer a fresh load of ?drawer=&tab= opens
 // (nil = none). An htmx navigation leaves the drawer to its own GET.
-func PageWith(c echo.Context, status int, title string, body, drawer templ.Component) error {
+func PageWith(c echo.Context, status int, title string, body, actions, drawer templ.Component) error {
 	s := Shell(c, title)
+	s.Actions = actions
 	if drawer == nil && s.Admin && c.QueryParam("drawer") == "admin" {
 		drawer = components.DrawerLoad("/-/admin?tab=" + url.QueryEscape(c.QueryParam("tab")))
 	}
@@ -75,6 +77,7 @@ func Shell(c echo.Context, title string) components.Shell {
 	if sc.Env != nil {
 		href += "/" + sc.Env.Slug
 		s.Crumbs = append(s.Crumbs, link(sc.Env.Name, href, path))
+		s.EnvColor = sc.Env.Color
 	}
 	if sc.Tile != nil {
 		href += "/" + sc.Tile.Slug
