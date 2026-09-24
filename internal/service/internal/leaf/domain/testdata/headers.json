@@ -1,0 +1,105 @@
+{
+  "admin": {
+    "listen": "0.0.0.0:2019"
+  },
+  "apps": {
+    "http": {
+      "servers": {
+        "http": {
+          "listen": [
+            ":80"
+          ],
+          "routes": [
+            {
+              "handle": [
+                {
+                  "handler": "static_response",
+                  "headers": {
+                    "Location": [
+                      "https://{http.request.host}{http.request.uri}"
+                    ]
+                  },
+                  "status_code": 308
+                }
+              ],
+              "match": [
+                {
+                  "host": [
+                    "app.example.com"
+                  ]
+                }
+              ],
+              "terminal": true
+            }
+          ]
+        },
+        "https": {
+          "automatic_https": {
+            "disable_redirects": true
+          },
+          "listen": [
+            ":443"
+          ],
+          "routes": [
+            {
+              "handle": [
+                {
+                  "handler": "headers",
+                  "response": {
+                    "set": {
+                      "Strict-Transport-Security": [
+                        "max-age=31536000; includeSubDomains"
+                      ],
+                      "X-Content-Type-Options": [
+                        "nosniff"
+                      ],
+                      "X-Frame-Options": [
+                        "DENY"
+                      ],
+                      "X-Robots-Tag": [
+                        "noindex"
+                      ]
+                    }
+                  }
+                },
+                {
+                  "handler": "reverse_proxy",
+                  "upstreams": [
+                    {
+                      "dial": "web-r1:8080"
+                    },
+                    {
+                      "dial": "web-r2:8080"
+                    }
+                  ]
+                }
+              ],
+              "match": [
+                {
+                  "host": [
+                    "app.example.com"
+                  ]
+                }
+              ],
+              "terminal": true
+            }
+          ]
+        }
+      }
+    },
+    "tls": {
+      "automation": {
+        "policies": [
+          {
+            "issuers": [
+              {
+                "email": "ops@stackr.io",
+                "module": "acme"
+              }
+            ]
+          }
+        ]
+      }
+    }
+  }
+}

@@ -346,3 +346,12 @@ Raised by step 3 session A (builder took the lean; flip any):
    engine owns command, port, volumes; one replica). git_url stays
    GitHub-only (the old message). Options: (a) keep; (b) let managed rows
    carry more run keys.
+24. **Where proxy pushes coalesce.** `leaf/domain.Syncer`: one run at a
+   time, callers during a run collapse into exactly one follow-up, the run
+   ignores the request context (2 min cap), every caller gets its run's
+   error. It takes `Build` (the flow: rows + facts → `domain.Build`) and
+   `Push` (`proxy.Client.Push`) as funcs, since the config needs other
+   tables. Options: (a) keep in leaf/domain; (b) move to a `flow/proxy`.
+25. **`proxy.methods` extra.** Caddy blocks no verb, so WebDAV/CalDAV
+   already pass. Built as an allowlist (a `method` matcher: other verbs
+   miss the route). Options: (a) keep allowlist; (b) drop the extra.

@@ -1,0 +1,246 @@
+{
+  "admin": {
+    "listen": "0.0.0.0:2019"
+  },
+  "apps": {
+    "http": {
+      "servers": {
+        "http": {
+          "listen": [
+            ":80"
+          ],
+          "routes": [
+            {
+              "handle": [
+                {
+                  "handler": "static_response",
+                  "headers": {
+                    "Location": [
+                      "https://{http.request.host}{http.request.uri}"
+                    ]
+                  },
+                  "status_code": 308
+                }
+              ],
+              "match": [
+                {
+                  "host": [
+                    "a.shop.example.com"
+                  ]
+                }
+              ],
+              "terminal": true
+            },
+            {
+              "handle": [
+                {
+                  "handler": "static_response",
+                  "headers": {
+                    "Location": [
+                      "https://{http.request.host}{http.request.uri}"
+                    ]
+                  },
+                  "status_code": 308
+                }
+              ],
+              "match": [
+                {
+                  "host": [
+                    "example.com"
+                  ]
+                }
+              ],
+              "terminal": true
+            },
+            {
+              "handle": [
+                {
+                  "handler": "static_response",
+                  "headers": {
+                    "Location": [
+                      "https://{http.request.host}{http.request.uri}"
+                    ]
+                  },
+                  "status_code": 308
+                }
+              ],
+              "match": [
+                {
+                  "host": [
+                    "other.io"
+                  ]
+                }
+              ],
+              "terminal": true
+            },
+            {
+              "handle": [
+                {
+                  "handler": "static_response",
+                  "headers": {
+                    "Location": [
+                      "https://{http.request.host}{http.request.uri}"
+                    ]
+                  },
+                  "status_code": 308
+                }
+              ],
+              "match": [
+                {
+                  "host": [
+                    "*.example.com"
+                  ]
+                }
+              ],
+              "terminal": true
+            }
+          ]
+        },
+        "https": {
+          "automatic_https": {
+            "disable_redirects": true
+          },
+          "listen": [
+            ":443"
+          ],
+          "routes": [
+            {
+              "handle": [
+                {
+                  "handler": "reverse_proxy",
+                  "upstreams": [
+                    {
+                      "dial": "web-r1:8080"
+                    }
+                  ]
+                }
+              ],
+              "match": [
+                {
+                  "host": [
+                    "a.shop.example.com"
+                  ]
+                }
+              ],
+              "terminal": true
+            },
+            {
+              "handle": [
+                {
+                  "handler": "reverse_proxy",
+                  "upstreams": [
+                    {
+                      "dial": "web-r1:8080"
+                    }
+                  ]
+                }
+              ],
+              "match": [
+                {
+                  "host": [
+                    "example.com"
+                  ]
+                }
+              ],
+              "terminal": true
+            },
+            {
+              "handle": [
+                {
+                  "handler": "reverse_proxy",
+                  "upstreams": [
+                    {
+                      "dial": "web-r1:8080"
+                    }
+                  ]
+                }
+              ],
+              "match": [
+                {
+                  "host": [
+                    "other.io"
+                  ]
+                }
+              ],
+              "terminal": true
+            },
+            {
+              "handle": [
+                {
+                  "handler": "reverse_proxy",
+                  "upstreams": [
+                    {
+                      "dial": "web-r1:8080"
+                    }
+                  ]
+                }
+              ],
+              "match": [
+                {
+                  "host": [
+                    "*.example.com"
+                  ]
+                }
+              ],
+              "terminal": true
+            }
+          ]
+        }
+      }
+    },
+    "tls": {
+      "automation": {
+        "policies": [
+          {
+            "issuers": [
+              {
+                "challenges": {
+                  "dns": {
+                    "provider": {
+                      "name": "cloudflare"
+                    }
+                  }
+                },
+                "email": "a@example.com",
+                "module": "acme"
+              }
+            ],
+            "subjects": [
+              "*.example.com"
+            ]
+          },
+          {
+            "issuers": [
+              {
+                "email": "a@example.com",
+                "module": "acme"
+              }
+            ],
+            "subjects": [
+              "example.com"
+            ]
+          },
+          {
+            "issuers": [
+              {
+                "email": "shop@example.com",
+                "module": "acme"
+              }
+            ],
+            "subjects": [
+              "a.shop.example.com"
+            ]
+          },
+          {
+            "issuers": [
+              {
+                "email": "ops@stackr.io",
+                "module": "acme"
+              }
+            ]
+          }
+        ]
+      }
+    }
+  }
+}
