@@ -149,6 +149,12 @@ func run(log *slog.Logger, generate bool) error {
 		masterKey = strings.TrimSpace(string(b))
 	}
 	tlsOff := config.GetEnvOrDefault("STACKR_TLS", "") == "off"
+	// The installer's saved answers: the upgrade rebuilds the panel from
+	// the same spec the installer ran. None (dev) = no self-upgrade.
+	var spec func(string) service.ContainerSpec
+	if in, err := installspec.Load(envDataDir); err == nil {
+		spec = panelSpec(in)
+	}
 
 	// The service tree: store, migrations, Docker, leaves and flows.
 	svc, err := service.New(service.Config{
@@ -163,6 +169,7 @@ func run(log *slog.Logger, generate bool) error {
 		InstallID:    config.GetEnvOrDefault("STACKR_INSTALL_ID", "default"),
 		TLSOff:       tlsOff,
 		ProxyAdmin:   config.GetEnvOrDefault("STACKR_PROXY_ADMIN", ""),
+		PanelSpec:    spec,
 
 		PanelDomain:    config.GetEnvOrDefault("PANEL_DOMAIN", ""),
 		ACMEEmail:      config.GetEnvOrDefault("ACME_EMAIL", ""),
@@ -203,4 +210,15 @@ func run(log *slog.Logger, generate bool) error {
 
 	log.Info("starting server", "port", envPort, "devMode", envDevMode)
 	return srv.Start()
+}
+
+// panelSpec builds the upgrade's panel container from the install spec.
+func panelSpec(in installspec.Input) func(string) service.ContainerSpec {
+	return func(image string) service.ContainerSpec {
+		c := installspec.Panel(image, in)
+		// ponytail: Ports and ExtraHosts are not carried; the panel runs on
+		// the host network and has neither (the spec test holds that).
+		return service.ContainerSpec{Name: c.Name, Image: c.Image, Cmd: c.Cmd, Env: c.Env, Labels: c.Labels,
+			Volumes: c.Volumes, HostNetwork: c.HostNetwork, CapAdd: c.CapAdd, Restart: c.Restart}
+	}
 }
