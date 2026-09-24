@@ -278,6 +278,32 @@ session started by darhvader from the START HERE line, no Fable.
     - installer writes `1` to `/proc/sys/net/netfilter/nf_conntrack_acct` and `/etc/sysctl.d/99-conntrack-acct.conf`; a refusal warns.
     - still owed: task 4's "install on the VM shows rates between two tiles" (not run); no stacked PR opened (the builder was told not to push); DECIDE 63 to 70 added.
 - [ ] [F+O] step 6 UI
+  - session A (tasks 1–4) done:
+    - Components live in `internal/ui/components` (DECIDE 10), not `ui/components`; depguard `ui-sees-view-structs` keeps them off service/middleware.
+    - templint has no allowlist; `internal/ui/components/elements_test.go` enforces the four tags (one define each, no import/fetch/XMLHttpRequest/shadow DOM/innerHTML, <300 lines).
+    - TS sources in `ui/ts/`, compiled JS committed in `ui/static/js/elements/` (CI checks it is fresh); `make build` runs tsc, `make lint` runs `tsc --noEmit`; hamr watch rule `ts`.
+    - Vendored htmx 2.0.4 + htmx-ext-sse 2.2.4 in `ui/static/js/vendor/`; idiomorph dropped.
+    - No inline script: htmx config in `<meta name="htmx-config">`, CSRF token in `hx-headers` on `<body>`; `CSRFField` removed.
+    - Placeholder page on `/:org`, `/:org/:stack`, `/:org/:stack/:env` (`org.read`) and `/:org/:stack/:env/:tile` (`tile.read`) in `internal/web/handler/scope`.
+    - Gallery at `GET /dev/components` (DevMode only), `internal/web/handler/devgallery`.
+  - API (package `internal/web/render`):
+    - `render.Page(c echo.Context, status int, title string, body templ.Component) error`: full page when no `HX-Request` or on history restore, else the fragment; sets `Vary: HX-Request`.
+    - `render.Shell(c echo.Context, title string) components.Shell`: CSRF, flash, user, nav, crumbs from the scope.
+  - API (package `internal/ui/components`):
+    - Shell: `Layout(s Shell, body templ.Component)`, `Fragment(s Shell, body templ.Component)` (title + OOB `#shell-header` + OOB `#flash` + body for `#main`), `NavLink(l Link)`, `ThemeToggle()`, `ErrorPage(code int, message string)`; `Shell{Title, CSRF, User string; Crumbs, Nav []Link; Flash Flash}`, `Link{Label, Href string; Active bool}`, `Flash{Message, Kind string}`.
+    - Form: `Form(id, action string)` (children; hx-post, swaps `#id` outerHTML), `FormError(msg string)`, `Field(f FieldView)`, `Submit(label string)`, `FieldError(field, err string)`, `FieldErrorOOB(field, err string)`, `GetError(errors map[string]string, field string) string`, `OOBValidator(c echo.Context, field, errMsg string) error`; `FieldView{Name, Label, Type, Value, Placeholder, Help, Error, ValidateURL string; Required, Disabled bool; Why string}`.
+    - Table: `Table(t TableView)`, `Text(s string)`; `TableView{Headers []string; Rows [][]templ.Component; Empty EmptyView}`.
+    - `EmptyState(e EmptyView)`; `EmptyView{Title, Body string; Action Link}`.
+    - `Pagination(p PageNav)`; `PageNav{Label, Prev, Next string}` ("" = no link).
+    - Badges: `TileBadge(word string)`, `JobBadge(state string)`, `EnvBadge(name, color string)`; `EnvColors []string`.
+    - Cards: `TileCard(t TileCardView)`, `VolumeCard(v VolumeCardView)`; `TileCardView{Name, Href, Kind, State, Source string; Volumes []VolumeCardView}`, `VolumeCardView{Name, Href, Size string; Orphaned bool}`.
+    - `Confirm(v ConfirmView)` (panics if Word set and Kept empty); `ConfirmView{Button, Title, Warning string; Kept []string; Word, Action, Target string}`; posts `Action` on the element's `confirmed` event; `Target` "" = swap none.
+    - Logs: `LogPane(v LogPaneView)`, `LogLine(l LogLineView)`; `LogPaneView{StreamURL, Level, Search string}`, `LogLineView{Time, Level, Text string}`; SSE events `line` (one rendered LogLine) and `end`.
+    - Jobs: `JobStatus(v JobStatusView)`, `JobStatusBody(v JobStatusView)`; `JobStatusView{Kind, State, Error, Href, StreamURL string; Live bool}`; SSE events `update` (a rendered JobStatusBody) and `end`.
+    - `Plan(p PlanView)`; `PlanView{Title string; Changes []ChangeView; Blockers, Warnings []string; CanDeploy bool}`, `ChangeView{Kind, Tile, Field, Old, New, Note string}`.
+    - `ParamEditor(v ParamEditorView)`; `ParamEditorView{Action, DeleteAction string; Params []ParamRowView; Secrets []SecretRowView; ReadOnly bool; Why string}`, `ParamRowView{Collection, Name, Value, DecidedBy string; Overrides bool; Warn string}`, `SecretRowView{Collection, Name string; Set bool; DecidedBy string; Overrides bool; Warn string}`; posts `param.<c>.<n>`, `secret.<c>.<n>` (empty = keep), `new_collection/new_name/new_kind/new_value`; delete posts `collection,name`.
+    - `SettingsForm(v SettingsFormView)`; `SettingsFormView{ID, Action, Scope string; Rows []SettingRowView; ReadOnly bool; Why string}`, `SettingRowView{Key, Desc, Type, Value, Effective, DecidedBy, Error string}`; posts one field per key, "" = inherit.
+  - Elements: `<log-pane level search>`, `<confirm-dialog word>` (fires bubbling `confirmed`), `<flash-toast kind>` (also shows htmx request errors), `<theme-toggle>` (localStorage `theme`).
 
 ## DECIDE:
 
@@ -644,3 +670,26 @@ Raised by step 3c (builder took the lean; flip any):
    call; a refusal (no conntrack module, read-only /proc) prints a warning
    and the install goes on. Options: (a) keep; (b) fail the install.
    Lean (a).
+
+Raised by step 6 session A (builder took the lean; flip any):
+
+71. **(step 6) main.js stays.** `ui/static/js/main.js` (hamr's
+   revalidate-while-typing listener, scroll to the first field error,
+   console logging) is the one script besides the four elements. Options:
+   (a) keep; (b) fold it into an element. Lean (a).
+72. **(step 6) Env colour is a palette name.** `EnvBadge` takes one of
+   `components.EnvColors`; anything else renders neutral, hex is not
+   supported. Options: (a) keep, the env form offers a select; (b) accept
+   hex with an inline style. Lean (a).
+73. **(step 6) Dark by default.** The server renders `<html class="dark">`;
+   `<theme-toggle>` applies a stored "light" when its module runs, so a
+   light user sees dark for a moment on a full load (no inline script
+   under the CSP). Options: (a) keep; (b) a theme cookie read by
+   `render.Shell`. Lean (a).
+74. **(step 6) Log filters are not in the URL.** `<log-pane>` starts from
+   the `level`/`search` the handler put in the view; changing them does
+   not rewrite the URL. Options: (a) keep; (b) the element pushes them
+   with `history.replaceState`. Lean (a).
+75. **(step 6) Flash dismissal.** Success/info/warning toasts go after 5 s;
+   errors (including htmx request failures, shown as "Request failed:
+   <status>") stay until clicked. Options: (a) keep; (b) all stay. Lean (a).
