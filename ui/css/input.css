@@ -43,6 +43,7 @@ graph-canvas > svg[data-edges] {
 }
 graph-node { display: block; }
 graph-canvas > graph-node {
+    display: flex; flex-direction: column; /* the card flexes, sub-tiles keep their height */
     cursor: grab;
     transform: translate(calc(var(--px) + var(--x, 0px) * var(--s)), calc(var(--py) + var(--y, 0px) * var(--s))) scale(var(--s));
 }

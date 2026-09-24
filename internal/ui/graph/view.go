@@ -141,8 +141,6 @@ func (v View) legend() []string {
 
 func itoa(n int) string { return strconv.Itoa(n) }
 
-func px(n int) templ.SafeCSS { return templ.SafeCSS("height:" + itoa(n) + "px") }
-
 func boolStr(b bool) string { return strconv.FormatBool(b) }
 
 // deck is the look of 1 or 2 cards stacked under a drill-down card.

@@ -110,10 +110,9 @@ templ node(v View, n Node) {
 // page below opens it on click; a drill-down card opens it from its button.
 templ card(n Node) {
 	<div
-		class={ "card relative overflow-hidden p-3 text-sm", deck(n.Deck),
+		class={ "card relative min-h-0 flex-1 overflow-hidden p-3 text-sm", deck(n.Deck),
 			templ.KV("border-dashed", n.System || n.Static),
 			templ.KV("cursor-pointer", n.Drawer != "" && n.Href == "") }
-		style={ px(n.H - 30*len(n.Subs)) }
 		data-kind={ n.Kind }
 		if n.Drawer != "" && n.Href == "" {
 			hx-get={ n.Drawer }
@@ -158,7 +157,7 @@ templ Footer(id, status string) {
 
 templ subs(n Node) {
 	for _, s := range n.Subs {
-		<graph-node node-id={ s.ID } static class="mt-1">
+		<graph-node node-id={ s.ID } static class="mt-1 shrink-0">
 			<div class="card flex items-center justify-between gap-2 px-2 py-1 text-xs" data-kind={ s.Kind }>
 				<span class="truncate"><span class="text-slate-500">{ s.Kind }</span> { s.Name }</span>
 				if s.Status != "" {
