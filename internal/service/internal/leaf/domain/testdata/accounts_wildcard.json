@@ -197,6 +197,7 @@
                 "challenges": {
                   "dns": {
                     "provider": {
+                      "api_token": "{env.DNS_API_TOKEN}",
                       "name": "cloudflare"
                     }
                   }

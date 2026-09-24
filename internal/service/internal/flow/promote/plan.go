@@ -136,6 +136,12 @@ func (f *Flow) plan(ctx context.Context, envID, releaseID string, log io.Writer)
 			return p, w, nil
 		}
 		re, ok := r.Envs[e.Slug]
+		if !ok && e.BaseEnvID != nil {
+			// A PR env is shaped like its base env's section.
+			if base, err := d.Envs.Get(ctx, *e.BaseEnvID); err == nil {
+				re, ok = r.Envs[base.Slug]
+			}
+		}
 		if !ok {
 			p.block("the stack file at %s has no environment %s", short(cp.CommitSHA), e.Slug)
 			return p, w, nil

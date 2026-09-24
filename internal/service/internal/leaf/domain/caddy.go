@@ -18,6 +18,9 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
 
+// DNSTokenEnv is the proxy container's env var holding the DNS-01 API token.
+const DNSTokenEnv = "DNS_API_TOKEN"
+
 // Install is the install-wide half of the config: facts from settings and
 // the stack reservations.
 type Install struct {
@@ -42,6 +45,7 @@ type TileRoute struct {
 	HealthPath string     // "" = no active health check
 	Protect    *BasicAuth // the settings cascade's answer, when a domain carries none
 	Domains    []store.Domain
+	Expand     Expand // this tile's refs; nil = Build's
 }
 
 // Expand resolves ${{ }} refs in a basic-auth password (params' resolver).
@@ -182,6 +186,9 @@ func forceRoute(host, path string) route {
 }
 
 func domainRoute(d store.Domain, t TileRoute, expand Expand) (any, error) {
+	if t.Expand != nil {
+		expand = t.Expand
+	}
 	if d.RawCaddy != "" {
 		return json.RawMessage(d.RawCaddy), nil
 	}
@@ -291,7 +298,12 @@ func policies(in Install, hosts map[string]bool) []route {
 	for _, k := range keys {
 		iss := issuer(k.email)
 		if k.dns {
-			iss["challenges"] = route{"dns": route{"provider": route{"name": in.DNSProvider}}}
+			// The token stays in the proxy container's env, never in the
+			// config stackrd pushes and Caddy autosaves.
+			// ponytail: cloudflare is the one provider compiled into
+			// `stackrd proxy`; another needs its module and its field.
+			iss["challenges"] = route{"dns": route{"provider": route{"name": in.DNSProvider,
+				"api_token": "{env." + DNSTokenEnv + "}"}}}
 		}
 		sort.Strings(groups[k])
 		out = append(out, route{"subjects": groups[k], "issuers": []route{iss}})

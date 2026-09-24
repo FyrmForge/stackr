@@ -198,8 +198,15 @@ func (f *Flow) apply(ctx context.Context, w *work, log io.Writer) error {
 
 // deleteTiles: consumers first, so an instance goes after its slices.
 func (f *Flow) deleteTiles(ctx context.Context, w *work, e store.Environment, log io.Writer) error {
+	return f.Remove(ctx, e, w.deletes, log)
+}
+
+// Remove takes tiles of env e off the box and out of the store: containers,
+// ingress, slices (dropped or kept by their on_remove), a managed tile's
+// volumes orphaned. Managed tiles go last so their consumers detach first.
+func (f *Flow) Remove(ctx context.Context, e store.Environment, ts []store.Tile, log io.Writer) error {
 	d := f.D
-	order := append([]store.Tile{}, w.deletes...)
+	order := append([]store.Tile{}, ts...)
 	for i, t := range order { // managed last
 		if t.Kind == tile.Managed {
 			order = append(append(order[:i:i], order[i+1:]...), t)

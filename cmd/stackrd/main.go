@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -56,6 +57,14 @@ func main() {
 	if flag.Arg(0) == "proxy" {
 		if err := runProxy(); err != nil {
 			fmt.Fprintln(os.Stderr, "stackrd proxy:", err)
+			os.Exit(1)
+		}
+		return
+	}
+	if flag.Arg(0) == "upgrade-swap" {
+		// The one-shot helper the self-upgrade launches from the new image.
+		if err := service.RunPanelSwap(context.Background()); err != nil {
+			fmt.Fprintln(os.Stderr, "stackrd upgrade-swap:", err)
 			os.Exit(1)
 		}
 		return
@@ -121,6 +130,10 @@ func run(log *slog.Logger, generate bool) error {
 		SecretsKey:   envMasterKey,
 		CookieSecure: !envDevMode,
 		CookieDomain: baseDomain,
+		Version:      version,
+		BaseURL:      envBaseURL,
+		InstallID:    config.GetEnvOrDefault("STACKR_INSTALL_ID", "default"),
+		TLSOff:       config.GetEnvOrDefault("STACKR_TLS", "") == "off",
 	})
 	if err != nil {
 		return fmt.Errorf("start service: %w", err)

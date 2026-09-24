@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -18,12 +19,17 @@ func TestNewBuildsEachOnce(t *testing.T) {
 	onBuild = func(name string) { counts[name]++ }
 	t.Cleanup(func() { onBuild = func(string) {} })
 
-	o, err := New(Config{DataDir: t.TempDir(), SecretsKey: testKey}, WithDocker(dockerfake.New()))
+	o, err := New(Config{DataDir: t.TempDir(), SecretsKey: testKey}, WithDocker(dockerfake.New()), WithVIP(vipStub{}),
+		WithProxy(func(context.Context, json.RawMessage) error { return nil }))
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = o.Close() })
-	for _, name := range []string{"store", "sessions", "leaf/user", "leaf/settings", "leaf/job", "flow/jobs"} {
+	for _, name := range []string{"store", "sessions", "leaf/user", "leaf/org", "leaf/stack", "leaf/environment",
+		"leaf/tile", "leaf/image", "leaf/params", "leaf/volume", "leaf/domain", "leaf/credential", "leaf/connector",
+		"leaf/managed", "leaf/release", "leaf/job", "leaf/backup", "leaf/settings", "flow/managed",
+		"leaf/domain.Syncer", "flow/deploy", "flow/promote", "flow/backup", "flow/container", "flow/imagewatch",
+		"flow/upgrade", "flow/jobs", "flow/schedule"} {
 		if counts[name] == 0 {
 			t.Errorf("%s never built", name)
 		}

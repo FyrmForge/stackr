@@ -8,27 +8,25 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
-	"github.com/FyrmForge/hamr/pkg/db/sqlite"
 	"github.com/google/uuid"
 
-	appdb "github.com/FyrmForge/stackr/internal/db"
 	"github.com/FyrmForge/stackr/internal/service"
 	"github.com/FyrmForge/stackr/internal/service/internal/dockerfake"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/user"
-	"github.com/FyrmForge/stackr/internal/service/internal/secrets"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
+	"github.com/FyrmForge/stackr/internal/service/internal/storetest"
 )
 
 // The fake stands in for the daemon everywhere.
 var _ service.Docker = (*dockerfake.Fake)(nil)
 
 // Key is the master key every harness uses.
-var Key = strings.Repeat("ab", 32)
+var Key = storetest.Key
 
 type Env struct {
 	O      *service.Orchestrator
@@ -46,7 +44,8 @@ func New(t *testing.T, edit ...func(*service.Config)) *Env {
 		f(&cfg)
 	}
 	fake := dockerfake.New()
-	o, err := service.New(cfg, service.WithDocker(fake))
+	o, err := service.New(cfg, service.WithDocker(fake),
+		service.WithProxy(func(context.Context, json.RawMessage) error { return nil }))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -57,35 +56,10 @@ func New(t *testing.T, edit ...func(*service.Config)) *Env {
 	return &Env{O: o, Docker: fake, Store: open(t, cfg.DBPath), Config: cfg}
 }
 
-// Store is a fresh migrated store with no orchestrator, for tests of the
-// layers below it (store, leaves, flows).
-func Store(t *testing.T) *store.Store {
-	t.Helper()
-	path := filepath.Join(t.TempDir(), "stackr.db")
-	st := open(t, path)
-	if err := sqlite.Migrate(st.DB(), appdb.MigrateConfig()); err != nil {
-		t.Fatal(err)
-	}
-	return st
-}
+// Store is a fresh migrated store with no orchestrator (storetest.Store).
+func Store(t *testing.T) *store.Store { return storetest.Store(t) }
 
-func open(t *testing.T, path string) *store.Store {
-	t.Helper()
-	db, err := sqlite.Connect(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = db.Close() })
-	var fk int
-	if err := db.Get(&fk, "PRAGMA foreign_keys"); err != nil || fk != 1 {
-		t.Fatalf("foreign_keys = %d, %v; want 1", fk, err)
-	}
-	box, err := secrets.New(Key)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return store.New(db, box)
-}
+func open(t *testing.T, path string) *store.Store { return storetest.Open(t, path) }
 
 var now = time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 

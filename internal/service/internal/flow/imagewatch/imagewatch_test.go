@@ -20,7 +20,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/stack"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
-	"github.com/FyrmForge/stackr/internal/service/servicetest"
+	"github.com/FyrmForge/stackr/internal/service/internal/storetest"
 )
 
 var ctx = context.Background()
@@ -59,7 +59,7 @@ func (r *fakeRegistry) Tags(_ context.Context, ref, _, _ string) ([]string, erro
 }
 
 func TestCheck(t *testing.T) {
-	s := servicetest.Store(t)
+	s := storetest.Store(t)
 	fake := dockerfake.New()
 	reg := &fakeRegistry{
 		digests: map[string]string{"nginx:1": "sha256:n1", "redis:7.2.0": "sha256:r72"},

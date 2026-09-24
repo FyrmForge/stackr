@@ -7,15 +7,13 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/caddyserver/caddy/v2"
 	_ "github.com/caddy-dns/cloudflare"
+	"github.com/caddyserver/caddy/v2"
 	_ "github.com/caddyserver/caddy/v2/modules/caddyhttp/standard"
 	_ "github.com/caddyserver/caddy/v2/modules/caddytls"
-)
 
-// proxyAdmin is where `stackrd proxy` serves Caddy's admin API: on the
-// proxy container's network, where stackrd reaches it as stackr-proxy:2019.
-const proxyAdmin = "0.0.0.0:2019"
+	"github.com/FyrmForge/stackr/internal/service"
+)
 
 // runProxy is `stackrd proxy`: Caddy as a library, a config sink with no
 // Docker socket. Caddy's data and config dirs come from XDG_DATA_HOME and
@@ -23,7 +21,7 @@ const proxyAdmin = "0.0.0.0:2019"
 // so a restart resumes the autosaved routes and keeps its certificates.
 // stackrd re-pushes the full config whenever it sees this container start.
 func runProxy() error {
-	if err := startProxy(proxyAdmin); err != nil {
+	if err := startProxy(service.ProxyAdmin); err != nil {
 		return err
 	}
 	sig := make(chan os.Signal, 1)

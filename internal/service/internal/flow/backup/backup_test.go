@@ -17,7 +17,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/volume"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
-	"github.com/FyrmForge/stackr/internal/service/servicetest"
+	"github.com/FyrmForge/stackr/internal/service/internal/storetest"
 )
 
 var ctx = context.Background()
@@ -45,7 +45,7 @@ type world struct {
 // setup: a volume "data" mounted by tile "api" (one running replica "r1"),
 // and the install's local destination.
 func setup(t *testing.T) *world {
-	s := servicetest.Store(t)
+	s := storetest.Store(t)
 	fake := dockerfake.New()
 	dir := t.TempDir()
 	f := &Flow{Backups: bk.New(s.BackupDests, s.BackupSchedules, s.BackupRuns), Volumes: volume.New(s.Volumes, fake),

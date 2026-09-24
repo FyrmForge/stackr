@@ -1,14 +1,19 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
 	"io"
 	"net"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/caddyserver/caddy/v2"
+	"golang.org/x/crypto/bcrypt"
 )
 
 // stackrd proxy comes up with its admin API off loopback and takes a push
@@ -68,5 +73,27 @@ func must(t *testing.T, err error) {
 	t.Helper()
 	if err != nil {
 		t.Fatal(err)
+	}
+}
+
+// Every config the domain builder emits loads with the modules compiled in.
+func TestProxyModulesCoverBuilder(t *testing.T) {
+	files, _ := filepath.Glob("../../internal/service/internal/leaf/domain/testdata/*.json")
+	if len(files) == 0 {
+		t.Fatal("no builder fixtures")
+	}
+	// The fixtures mask bcrypt hashes; the env token is the proxy's.
+	hash, err := bcrypt.GenerateFromPassword([]byte("pw"), bcrypt.MinCost)
+	must(t, err)
+	t.Setenv("DNS_API_TOKEN", strings.Repeat("a", 40))
+	for _, f := range files {
+		raw, err := os.ReadFile(f)
+		must(t, err)
+		raw = bytes.ReplaceAll(raw, []byte("<bcrypt>"), hash)
+		var cfg caddy.Config
+		must(t, json.Unmarshal(raw, &cfg))
+		if err := caddy.Validate(&cfg); err != nil {
+			t.Errorf("%s: %v", filepath.Base(f), err)
+		}
 	}
 }

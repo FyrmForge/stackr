@@ -28,7 +28,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/volume"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
-	"github.com/FyrmForge/stackr/internal/service/servicetest"
+	"github.com/FyrmForge/stackr/internal/service/internal/storetest"
 )
 
 var ctx = context.Background()
@@ -56,7 +56,7 @@ type world struct {
 // setup: stack "shop" with a two-rung ladder, dev (branch main) under prd
 // (from promote). Config reads files[commit].
 func setup(t *testing.T) *world {
-	s := servicetest.Store(t)
+	s := storetest.Store(t)
 	fake := dockerfake.New()
 	fake.RunID = "new"
 	fake.Details = map[string]docker.Detail{"new": {Running: true, Health: "healthy", Networks: map[string]string{"n": "10.0.0.5"}}}
@@ -295,8 +295,8 @@ func TestFileBlockers(t *testing.T) {
 
 func TestPushHelpers(t *testing.T) {
 	for _, s := range []string{"https://github.com/Acme/Shop.git", "git@github.com:acme/shop.git", "acme/shop/"} {
-		if got := normalizeRepo(s); got != "acme/shop" {
-			t.Errorf("normalizeRepo(%q) = %q", s, got)
+		if got := NormalizeRepo(s); got != "acme/shop" {
+			t.Errorf("NormalizeRepo(%q) = %q", s, got)
 		}
 	}
 	cases := []struct {

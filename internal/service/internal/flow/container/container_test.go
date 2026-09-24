@@ -11,7 +11,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/dockerfake"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
-	"github.com/FyrmForge/stackr/internal/service/servicetest"
+	"github.com/FyrmForge/stackr/internal/service/internal/storetest"
 )
 
 type vipStub struct{}
@@ -25,7 +25,7 @@ func TestTileVerbsAndGuard(t *testing.T) {
 	lbl := map[string]string{tile.LabelTile: "t1", tile.LabelRole: "replica"}
 	fake.Containers = []docker.Container{{ID: "a", Name: "api-1", Labels: lbl}, {ID: "b", Name: "api-2", Labels: lbl},
 		{ID: "panel", Name: "stackr", Labels: map[string]string{tile.LabelSystem: "true"}}}
-	f := &Flow{Tiles: tile.New(servicetest.Store(t).Tiles, fake, vipStub{})}
+	f := &Flow{Tiles: tile.New(storetest.Store(t).Tiles, fake, vipStub{})}
 	api := store.Tile{ID: "t1", Slug: "api"}
 	if err := f.Restart(ctx, api, io.Discard); err != nil {
 		t.Fatal(err)

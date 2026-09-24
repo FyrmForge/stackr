@@ -325,6 +325,8 @@ Raised by step 1 (builder took the lean; flip any):
    `waiting` job is requeued each poll (3s) and the handler re-checks.
    Step 3 should pass `ParamSet` so they wake only when the param
    resolves. Options: (a) wire it in step 3; (b) keep the blind poll.
+   Session B took (b): jobs get no `ParamSet`; a `ponytail:` in
+   orchestrator.go marks it.
 18. **Revoke breadth.** Losing standing in one org (removed, demoted)
    closes all of the user's sessions install-wide (sessions carry no org)
    and that org's API keys; losing stackr admin or being disabled closes
@@ -426,3 +428,26 @@ Raised by step 3 session B (builder took the lean; flip any):
    0 = off), so a setting change needs no reload. Backup time zones are
    composed from the column as `CRON_TZ=`. Options: (a) keep; (b) a second
    entry kind. Lean (a).
+35. **PR env lifecycle.** A pull_request opens `pr-<n>` cloned from the
+   lowest ladder env built from the PR's base branch, then runs a push
+   for the head commit; closing removes its tiles and the env. Only
+   stacks whose tiles or config repo use that repo get one.
+   `pr_envs.enabled`/`against` in the stack file are not read yet.
+   Options: (a) keep; (b) honour `pr_envs` in step 3. Lean (a), and
+   honour it with the stack file work in step 4.
+36. **Param and settings changes redeploy right away.** `SetParams`,
+   `DeleteParam`, `SetStackSettings`, `SetEnvSettings` and a redeploy
+   edit through `UpdateTile` queue a deploy for every running tile in
+   scope. `SetSettingDefaults` redeploys every org. Options: (a) keep;
+   (b) mark tiles stale and let the user deploy. Lean (a) (B34).
+37. **Panel archives.** Panel self-backups go to the local dest only,
+   and the newest 14 are kept. The install id comes from
+   `STACKR_INSTALL_ID` (default `default`). Options: (a) keep; (b) a
+   setting for the dest and count. Lean (a).
+38. **Stack delete refuses while envs exist.** Options: (a) keep;
+   (b) cascade-delete the envs as jobs. Lean (a).
+39. **Promote has no request-time dry run.** `Promote` and `Rollback`
+   queue the job at once; the job fails with the blocker text.
+   `PlanPromote` is the pre-check a handler or UI calls first. Options:
+   (a) keep; (b) plan inside `Promote` and refuse before queueing.
+   Lean (a).

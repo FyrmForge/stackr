@@ -44,8 +44,8 @@ func (f *Flow) Push(ctx context.Context, stackID string, ev Event, log io.Writer
 	if len(from) == 0 {
 		return store.Release{}, nil, nil
 	}
-	repo := normalizeRepo(ev.Repo)
-	isConfig := st.ConfigRepo != "" && normalizeRepo(st.ConfigRepo) == repo
+	repo := NormalizeRepo(ev.Repo)
+	isConfig := st.ConfigRepo != "" && NormalizeRepo(st.ConfigRepo) == repo
 	var pins []release.Pin
 	if isConfig {
 		pins = append(pins, release.Pin{Slug: release.ConfigSlug, Repo: st.ConfigRepo, Branch: ev.Branch, CommitSHA: ev.Commit})
@@ -56,7 +56,7 @@ func (f *Flow) Push(ctx context.Context, stackID string, ev Event, log io.Writer
 	}
 	onlyConfig := isConfig && configOnly(ev.Changed, st.ConfigPath)
 	for _, t := range rows {
-		if onlyConfig || normalizeRepo(t.GitURL) != repo || t.GitBranch != ev.Branch ||
+		if onlyConfig || NormalizeRepo(t.GitURL) != repo || t.GitBranch != ev.Branch ||
 			!watchMatch(tile.Lines(t.WatchPaths), ev.Changed) {
 			continue
 		}
@@ -75,7 +75,14 @@ func (f *Flow) Push(ctx context.Context, stackID string, ev Event, log io.Writer
 	}
 	// ponytail: the base is the first matching env's release; two envs on
 	// one branch drifting apart on other pins is not reconciled here.
-	r, err := d.Releases.Derive(ctx, stackID, deref(from[0].ReleaseID), "push", pins...)
+	base := deref(from[0].ReleaseID)
+	if base == "" && from[0].BaseEnvID != nil {
+		// A new PR env starts from what its base env runs.
+		if be, err := d.Envs.Get(ctx, *from[0].BaseEnvID); err == nil {
+			base = deref(be.ReleaseID)
+		}
+	}
+	r, err := d.Releases.Derive(ctx, stackID, base, "push", pins...)
 	if err != nil {
 		return store.Release{}, nil, err
 	}
@@ -129,8 +136,8 @@ func (f *Flow) candidates(ctx context.Context, st store.Stack, envs []store.Envi
 	return out, nil
 }
 
-// normalizeRepo folds the spellings of one GitHub repo to owner/name.
-func normalizeRepo(s string) string {
+// NormalizeRepo folds the spellings of one GitHub repo to owner/name.
+func NormalizeRepo(s string) string {
 	s = strings.ToLower(strings.TrimSpace(s))
 	s = strings.TrimSuffix(strings.TrimSuffix(s, "/"), ".git")
 	for _, p := range []string{"https://", "http://", "ssh://", "git://"} {

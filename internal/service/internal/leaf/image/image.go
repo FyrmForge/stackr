@@ -30,7 +30,12 @@ type Docker interface {
 	PruneImages(ctx context.Context, labels map[string]string, keep []string) ([]string, error)
 	Pull(ctx context.Context, ref, auth string, log io.Writer) error
 	LocalDigest(ctx context.Context, ref string) (string, error)
+	EnsureBuilder(ctx context.Context, name string, memMB int) error
+	Build(ctx context.Context, builder, dir, dockerfile, tag string, buildArgs, labels map[string]string, log io.Writer) (string, error)
 }
+
+// Builder is the one buildx builder every build shares.
+const Builder = "stackr-builder"
 
 type Leaf struct {
 	images store.ImageStore
@@ -80,6 +85,18 @@ func (l *Leaf) Ensure(ctx context.Context, ref, auth string, log io.Writer) (str
 		return "", err
 	}
 	return l.docker.LocalDigest(ctx, ref)
+}
+
+// Build builds dir into ref and records it. The label lets Cleanup find it.
+func (l *Leaf) Build(ctx context.Context, dir, dockerfile, ref string, args map[string]string, log io.Writer) (store.Image, error) {
+	if err := l.docker.EnsureBuilder(ctx, Builder, 0); err != nil {
+		return store.Image{}, err
+	}
+	id, err := l.docker.Build(ctx, Builder, dir, dockerfile, ref, args, map[string]string{LabelBuilt: "true"}, log)
+	if err != nil {
+		return store.Image{}, err
+	}
+	return l.Built(ctx, ref, id)
 }
 
 // Built records a finished build; digest is the local image id.
