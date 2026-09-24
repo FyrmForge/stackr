@@ -99,7 +99,6 @@ func (h *handler) createLevel(kind string) echo.HandlerFunc {
 
 // GET /:org/-/new-connector, then POST it: the pending connector, and the
 // form that hands its manifest to GitHub.
-// ponytail: GitHub's callback lands on the page session D builds.
 func (h *handler) newConnector(c echo.Context) error {
 	return respond.HTML(c, http.StatusOK, dialog.InstallConnector(dialog.InstallConnectorView{Begin: where(c).base + "/-/new-connector"}))
 }
@@ -117,6 +116,27 @@ func (h *handler) beginConnector(c echo.Context) error {
 	}
 	v.Action, v.Manifest = action, manifest
 	return respond.HTML(c, http.StatusOK, dialog.InstallConnector(v))
+}
+
+// GET /settings/github/callback?code=&state=: GitHub made the app. The
+// state's nonce is the proof the caller began this install; the connector
+// drawer then opens on its org's canvas.
+func (h *handler) githubCallback(c echo.Context) error {
+	ctx := c.Request().Context()
+	k, err := h.orch.CompleteConnector(ctx, c.QueryParam("state"), c.QueryParam("code"))
+	if err != nil {
+		return middleware.HTTPError(err)
+	}
+	orgs, err := h.orch.Orgs(ctx, middleware.Principal(c).User.ID)
+	if err != nil {
+		return middleware.HTTPError(err)
+	}
+	for _, o := range orgs {
+		if o.ID == k.OrgID {
+			return c.Redirect(http.StatusSeeOther, "/"+o.Slug+"?drawer=connector:"+k.ID+"&tab=settings")
+		}
+	}
+	return c.Redirect(http.StatusSeeOther, "/")
 }
 
 // Mount registers the drawers and create dialogs of the home, org and
@@ -140,4 +160,5 @@ func (h *handler) Mount(site *echo.Group, a *middleware.Access) {
 	}
 	site.GET("/:org/-/new-connector", h.newConnector, a.Require("connector.write"))
 	site.POST("/:org/-/new-connector", h.beginConnector, a.Require("connector.write"))
+	site.GET("/settings/github/callback", h.githubCallback, a.LoginFirst(), a.Authed())
 }
