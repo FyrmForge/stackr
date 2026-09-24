@@ -72,6 +72,12 @@ func Get[Out any](f func(c echo.Context) (Out, error)) Endpoint {
 	return JSON(http.StatusOK, func(c echo.Context, _ None) (Out, error) { return f(c) })
 }
 
+// Streamed is an endpoint whose response is a stream of mediaType, not
+// one JSON body.
+func Streamed(mediaType string, f echo.HandlerFunc) Endpoint {
+	return Endpoint{Handle: f, Status: http.StatusOK, Stream: mediaType}
+}
+
 // Job answers 202 with the queued job: the caller follows it with PollJob.
 func Job[In any](f func(c echo.Context, in In) (service.Job, error)) Endpoint {
 	return JSON(http.StatusAccepted, f)

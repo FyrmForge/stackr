@@ -8,11 +8,13 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/FyrmForge/hamr/pkg/server"
 
 	"github.com/FyrmForge/stackr/internal/api"
 	"github.com/FyrmForge/stackr/internal/api/handler/v1"
+	"github.com/FyrmForge/stackr/internal/api/stream"
 	"github.com/FyrmForge/stackr/internal/authz"
 	"github.com/FyrmForge/stackr/internal/middleware"
 	"github.com/FyrmForge/stackr/internal/service"
@@ -198,5 +200,35 @@ func TestDeployIsAccepted(t *testing.T) {
 	}
 	if code, _ := w.do(t, w.owner, "GET", "/orgs/acme/jobs/"+j.ID+"/log?offset=abc", ""); code != 400 {
 		t.Errorf("offset typo = %d, want 400 (B24)", code)
+	}
+}
+
+// A job's events read end to end: updates as its log grows, then one end
+// event with the finished job.
+func TestJobEvents(t *testing.T) {
+	stream.PollEvery = 10 * time.Millisecond
+	w := newWorld(t)
+	_, body := w.do(t, w.owner, "POST", "/orgs/acme/stacks/shop/envs/dev/tiles/api/deploy", "")
+	var j service.Job
+	if err := json.Unmarshal([]byte(body), &j); err != nil {
+		t.Fatal(err)
+	}
+	code, body := w.do(t, w.owner, "GET", "/orgs/acme/jobs/"+j.ID+"/events", "")
+	if code != 200 {
+		t.Fatalf("events = %d %s", code, body)
+	}
+	i := strings.Index(body, "event: end\ndata: ")
+	if i < 0 {
+		t.Fatalf("no end event in %q", body)
+	}
+	var end v1.JobLogOut
+	if err := json.Unmarshal([]byte(strings.TrimSpace(body[i+len("event: end\ndata: "):])), &end); err != nil {
+		t.Fatal(err)
+	}
+	if end.Job.ID != j.ID || !end.End || end.Job.FinishedAt == nil {
+		t.Errorf("end event = %+v", end)
+	}
+	if !strings.Contains(body, "event: update") {
+		t.Errorf("no update before the end: %q", body)
 	}
 }
