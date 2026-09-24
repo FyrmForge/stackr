@@ -98,8 +98,8 @@ func TestAccess(t *testing.T) {
 		sessWant int // web, with the session cookie
 		keyWant  int // api, with the bearer key
 	}{
-		{"admin", "acme", 204, 200},
-		{"owner", "acme", 204, 200},
+		{"admin", "acme", 200, 200},
+		{"owner", "acme", 200, 200},
 		{"owner", "nope", 404, 404},
 		{"owner", "other", 404, 404},
 		{"non-member", "acme", 404, 404},
@@ -122,8 +122,8 @@ func TestAccess(t *testing.T) {
 	}
 
 	// The key path works on the web router too: one middleware.
-	if got := do(t, h, cookie, "/acme", cred{key: creds["owner"].key}); got != 204 {
-		t.Errorf("owner key on web = %d, want 204", got)
+	if got := do(t, h, cookie, "/acme", cred{key: creds["owner"].key}); got != 200 {
+		t.Errorf("owner key on web = %d, want 200", got)
 	}
 	// Session on the API router too.
 	if got := do(t, h, cookie, "/api/v1/orgs/acme", cred{session: creds["owner"].session}); got != 200 {

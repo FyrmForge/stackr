@@ -13,7 +13,8 @@ import (
 	"github.com/FyrmForge/stackr/internal/auth"
 	"github.com/FyrmForge/stackr/internal/service"
 	"github.com/FyrmForge/stackr/internal/service/errs"
-	"github.com/FyrmForge/stackr/internal/web/components/form"
+	"github.com/FyrmForge/stackr/internal/ui/components"
+	"github.com/FyrmForge/stackr/internal/web/render"
 )
 
 // RegisterForm holds the registration form values.
@@ -34,7 +35,7 @@ func NewHandler(svc *service.Orchestrator) *handler {
 	return &handler{
 		svc: svc,
 		FormRules: validate.NewForm(
-			validate.WithOOBRenderer(form.OOBValidator),
+			validate.WithOOBRenderer(components.OOBValidator),
 			validate.WithGeneralError("Please fix the errors below and try again."),
 			validate.Field("name", validate.Required),
 			validate.Field("email", validate.Required, validate.Email),
@@ -45,7 +46,7 @@ func NewHandler(svc *service.Orchestrator) *handler {
 
 // GET /register
 func (h *handler) Page(c echo.Context) error {
-	return respond.HTML(c, http.StatusOK, registerPage(c, RegisterForm{}, nil))
+	return render.Page(c, http.StatusOK, "Register", registerPage(c, RegisterForm{}, nil))
 }
 
 // POST /register

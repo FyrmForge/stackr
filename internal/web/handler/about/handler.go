@@ -3,8 +3,9 @@ package about
 import (
 	"net/http"
 
-	"github.com/FyrmForge/hamr/pkg/respond"
 	"github.com/labstack/echo/v4"
+
+	"github.com/FyrmForge/stackr/internal/web/render"
 )
 
 // Handler handles about page requests.
@@ -17,5 +18,5 @@ func NewHandler() *handler {
 
 // GET /about
 func (h *handler) About(c echo.Context) error {
-	return respond.HTML(c, http.StatusOK, aboutPage(c))
+	return render.Page(c, http.StatusOK, "About", aboutPage())
 }

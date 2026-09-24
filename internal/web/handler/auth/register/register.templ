@@ -2,17 +2,14 @@ package register
 
 import (
 	"github.com/labstack/echo/v4"
-	"github.com/FyrmForge/stackr/internal/web/components"
-	"github.com/FyrmForge/stackr/internal/web/components/form"
+	"github.com/FyrmForge/stackr/internal/ui/components"
 )
 
 templ registerPage(c echo.Context, f RegisterForm, errors map[string]string) {
-	@components.Layout(c, "Register") {
-		<div class="max-w-md mx-auto mt-16 bg-slate-800 border border-slate-700 rounded-lg p-8">
-			<h2 class="text-2xl font-bold text-slate-100 mb-6 text-center">Register</h2>
-			@registerForm(c, f, errors)
-		</div>
-	}
+	<div class="max-w-md mx-auto mt-16 bg-slate-800 border border-slate-700 rounded-lg p-8">
+		<h2 class="text-2xl font-bold text-slate-100 mb-6 text-center">Register</h2>
+		@registerForm(c, f, errors)
+	</div>
 }
 
 templ registerForm(c echo.Context, f RegisterForm, errors map[string]string) {
@@ -22,10 +19,9 @@ templ registerForm(c echo.Context, f RegisterForm, errors map[string]string) {
 		hx-swap="outerHTML"
 		hx-target="#register-form"
 	>
-		@form.CSRFField(c)
-		if form.GetError(errors, "general") != "" {
+		if components.GetError(errors, "general") != "" {
 			<div class="mb-4 px-4 py-3 rounded-md border bg-red-900/50 border-red-700 text-red-300 text-sm">
-				{ form.GetError(errors, "general") }
+				{ components.GetError(errors, "general") }
 			</div>
 		}
 		<div class="mb-6">
@@ -40,7 +36,7 @@ templ registerForm(c echo.Context, f RegisterForm, errors map[string]string) {
 				hx-trigger="blur, hamr:revalidate"
 				hx-swap="none"
 			/>
-			@form.FieldError("name", form.GetError(errors, "name"))
+			@components.FieldError("name", components.GetError(errors, "name"))
 		</div>
 		<div class="mb-6">
 			<label for="email" class="block text-sm font-medium text-slate-400 mb-1">Email</label>
@@ -54,7 +50,7 @@ templ registerForm(c echo.Context, f RegisterForm, errors map[string]string) {
 				hx-trigger="blur, hamr:revalidate"
 				hx-swap="none"
 			/>
-			@form.FieldError("email", form.GetError(errors, "email"))
+			@components.FieldError("email", components.GetError(errors, "email"))
 		</div>
 		<div class="mb-6">
 			<label for="password" class="block text-sm font-medium text-slate-400 mb-1">Password</label>
@@ -67,7 +63,7 @@ templ registerForm(c echo.Context, f RegisterForm, errors map[string]string) {
 				hx-trigger="blur, hamr:revalidate"
 				hx-swap="none"
 			/>
-			@form.FieldError("password", form.GetError(errors, "password"))
+			@components.FieldError("password", components.GetError(errors, "password"))
 			<p class="mt-1 text-xs text-slate-500">At least 8 characters with uppercase, lowercase, a number, and a special character</p>
 		</div>
 		<button type="submit" class="w-full py-2 px-4 bg-blue-500 hover:bg-blue-400 text-white font-medium rounded-md transition-colors">Register</button>

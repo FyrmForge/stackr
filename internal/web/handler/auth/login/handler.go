@@ -13,7 +13,8 @@ import (
 	"github.com/FyrmForge/stackr/internal/auth"
 	"github.com/FyrmForge/stackr/internal/service"
 	"github.com/FyrmForge/stackr/internal/service/errs"
-	"github.com/FyrmForge/stackr/internal/web/components/form"
+	"github.com/FyrmForge/stackr/internal/ui/components"
+	"github.com/FyrmForge/stackr/internal/web/render"
 )
 
 // LoginForm holds the login form values.
@@ -35,7 +36,7 @@ func NewHandler(svc *service.Orchestrator) *handler {
 	return &handler{
 		svc: svc,
 		FormRules: validate.NewForm(
-			validate.WithOOBRenderer(form.OOBValidator),
+			validate.WithOOBRenderer(components.OOBValidator),
 			validate.Field("email", validate.Required, validate.Email),
 			validate.Field("password", validate.Required),
 		),
@@ -44,7 +45,7 @@ func NewHandler(svc *service.Orchestrator) *handler {
 
 // GET /login
 func (h *handler) Page(c echo.Context) error {
-	return respond.HTML(c, http.StatusOK, loginPage(c, LoginForm{}, nil))
+	return render.Page(c, http.StatusOK, "Log In", loginPage(c, LoginForm{}, nil))
 }
 
 // POST /login

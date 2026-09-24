@@ -21,8 +21,8 @@ import (
 	"github.com/FyrmForge/stackr/internal/installspec"
 	appmw "github.com/FyrmForge/stackr/internal/middleware"
 	"github.com/FyrmForge/stackr/internal/service"
+	"github.com/FyrmForge/stackr/internal/ui/components"
 	"github.com/FyrmForge/stackr/internal/web"
-	"github.com/FyrmForge/stackr/internal/web/components"
 )
 
 // version is set at build time via ldflags.

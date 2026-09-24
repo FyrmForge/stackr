@@ -1,4 +1,4 @@
-package form
+package components
 
 import (
 	"net/http"
@@ -15,16 +15,8 @@ func GetError(errors map[string]string, field string) string {
 	return errors[field]
 }
 
-// IsSelected returns "selected" if the value matches the current value.
-func IsSelected(current, value string) string {
-	if current == value {
-		return "selected"
-	}
-	return ""
-}
-
 // OOBValidator renders per-field validation errors as OOB HTML swaps.
-// Use with validate.WithOOBRenderer(form.OOBValidator).
+// Use with validate.WithOOBRenderer(components.OOBValidator).
 func OOBValidator(c echo.Context, field, errMsg string) error {
 	status := http.StatusOK
 	if errMsg != "" {

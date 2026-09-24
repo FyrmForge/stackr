@@ -26,13 +26,16 @@ internal/web/            HTTP layer
 internal/web/server.go   Route registration + middleware groups
 internal/web/handler/    One package per page, mirroring URL path
                          (e.g. /admin/users → handler/admin/user/)
-internal/web/components/ Shared templ components (layout, form helpers);
-                         step 6 moves screens into internal/ui/
+internal/web/render/     render.Page: shell from the request, full page or
+                         #main fragment by HX-Request
 internal/service/        The orchestrator; everything below it in internal/
 internal/authz/          can(user, verb, resource), used by middleware only
-internal/ui/             components/ and pages/{org,stack,env,tile}/ (step 6)
+internal/ui/components/  Shared templ components + view structs (layout,
+                         form, table, …); never imports service or middleware
+internal/ui/pages/       {org,stack,env,tile}/ (step 6)
 ui/                      Non-Go frontend: static/ (js, css, images), css/
-                         source, npm + tailwind config, generated dist/
+                         source, ts/ (the four custom elements, compiled to
+                         static/js/elements/), npm + tailwind + tsc config
 ```
 
 ## Layering rules
@@ -209,6 +212,7 @@ import (
     "github.com/labstack/echo/v4"
 
     "github.com/FyrmForge/stackr/internal/service"
+    "github.com/FyrmForge/stackr/internal/web/render"
 )
 
 type handler struct {
@@ -226,7 +230,8 @@ func (h *handler) Page(c echo.Context) error {
     if err != nil {
         return err
     }
-    return respond.HTML(c, http.StatusOK, ThingsPage(c, toView(things)))
+    // Full page or #main fragment, decided by HX-Request (internal/web/render).
+    return render.Page(c, http.StatusOK, "Things", thingsPage(toView(things)))
 }
 
 // POST /things
@@ -253,7 +258,9 @@ func (h *handler) Submit(c echo.Context) error {
 
 ### Response Functions
 
-- `respond.HTML(c, status, component)` — Render a templ component
+- `render.Page(c, status, title, body)` — A page: layout for a plain request,
+  the `#main` fragment for an htmx navigation (`internal/web/render`)
+- `respond.HTML(c, status, component)` — A partial (form re-render, OOB swap)
 - `respond.JSON(c, status, data)` — Return JSON
 - `respond.Redirect(c, url)` — HTMX-aware (sets HX-Redirect for HTMX, 303 otherwise)
 - `echo.NewHTTPError(code, msg)` — Return an error (caught by ErrorPages middleware)
@@ -340,7 +347,7 @@ func NewHandler(orch *service.Orchestrator) *Handler {
     return &Handler{
         orch: orch,
         CreateFormRules: validate.NewForm(
-            validate.WithOOBRenderer(form.OOBValidator),
+            validate.WithOOBRenderer(components.OOBValidator),
             validate.WithGeneralError("Please fix the errors below."),
             validate.WithTrim(true),
             validate.Field("name", validate.Required, validate.MinLen(2)),
@@ -416,7 +423,7 @@ group.POST("/things/validate/:field", h.CreateFormRules.ValidationHandler("field
 
 No need for manual switch statements. Unknown fields return an empty response.
 
-The `form.OOBValidator` helper renders OOB error swaps:
+The `components.OOBValidator` helper renders OOB error swaps:
 
 ```go
 func OOBValidator(c echo.Context, field, errMsg string) error {
@@ -447,17 +454,14 @@ templ createForm(c echo.Context, f CreateForm, errors map[string]string) {
         hx-post="/things"
         hx-swap="outerHTML"
         hx-target="#create-form"
-        method="POST"
-        action="/things"
     >
-        @form.CSRFField(c)
         <div class="form-group">
             <label for="name">Name</label>
             <input type="text" id="name" name="name" value={ f.Name }
                 hx-post="/things/validate/name"
                 hx-trigger="blur, hamr:revalidate"
                 hx-swap="none"/>
-            @form.FieldError("name", form.GetError(errors, "name"))
+            @components.FieldError("name", components.GetError(errors, "name"))
         </div>
         <button type="submit" class="btn btn-primary">Create</button>
     </form>
@@ -474,17 +478,19 @@ Key HTMX attributes:
 
 ### Field Error Components
 
-- `form.FieldError(field, err)` — Renders inline; always present in DOM for OOB targeting
-- `form.FieldErrorOOB(field, err)` — Same but with `hx-swap-oob="true"` for blur validation
-- `form.GetError(errors, field)` — Safe map lookup, returns `""` if nil or missing
-- `form.OOBValidator(c, field, errMsg)` — Default OOB renderer for `ValidationHandler`
+All in `internal/ui/components`:
+
+- `components.FieldError(field, err)` — Renders inline; always present in DOM for OOB targeting
+- `components.FieldErrorOOB(field, err)` — Same but with `hx-swap-oob="true"` for blur validation
+- `components.GetError(errors, field)` — Safe map lookup, returns `""` if nil or missing
+- `components.OOBValidator(c, field, errMsg)` — Default OOB renderer for `ValidationHandler`
 
 ### CSRF Token
 
-The CSRF middleware stores the token in `c.Get("csrf")`. Pass `echo.Context`
-to templ components and use `@form.CSRFField(c)` — the component extracts the
-token internally. The `htmx:configRequest` listener in `layout.templ`
-automatically attaches it to HTMX requests via the `X-CSRF-Token` header.
+`render.Page` puts the token from `c.Get("csrf")` into the layout's
+`<body hx-headers>`, so every htmx request carries `X-CSRF-Token`. Forms are
+htmx-only (`hx-post`, never `method`/`action`: templint's `htmx-conflict`),
+so no form needs a hidden token field.
 
 ### Flash Messages
 
@@ -493,8 +499,8 @@ middleware.SetFlash(c, "Saved!", middleware.FlashSuccess)
 return respond.Redirect(c, "/things")
 ```
 
-Read in templates via `middleware.GetFlash(c)` — returns `*middleware.FlashMessage`
-with `.Message` and `.Type` fields. Layout renders these automatically.
+`render.Page` reads it into the shell; the layout shows it in `<flash-toast>`,
+which also shows htmx error responses.
 
 ## Responses
 

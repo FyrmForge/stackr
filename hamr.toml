@@ -19,7 +19,7 @@ alpine = false
 [static]
 dir = "ui/static"
 dist = "ui/dist"
-manifest = "internal/web/components/staticmanifest.go"
+manifest = "internal/ui/components/staticmanifest.go"
 package = "components"
 
 [dev]

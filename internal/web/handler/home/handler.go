@@ -3,8 +3,9 @@ package home
 import (
 	"net/http"
 
-	"github.com/FyrmForge/hamr/pkg/respond"
 	"github.com/labstack/echo/v4"
+
+	"github.com/FyrmForge/stackr/internal/web/render"
 )
 
 // Handler handles home page requests.
@@ -17,5 +18,5 @@ func NewHandler() *handler {
 
 // GET /
 func (h *handler) Index(c echo.Context) error {
-	return respond.HTML(c, http.StatusOK, homePage(c))
+	return render.Page(c, http.StatusOK, "Home", homePage())
 }

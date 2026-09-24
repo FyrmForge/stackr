@@ -1,0 +1,14 @@
+package components
+
+import "strconv"
+
+// FieldError renders a validation error for a form field.
+// Always renders the element so it can be targeted by OOB swaps.
+templ FieldError(field string, err string) {
+	<span class="field-error" id={ "error-" + field } data-has-error={ strconv.FormatBool(err != "") } aria-live="polite">{ err }</span>
+}
+
+// FieldErrorOOB renders an out-of-band swap for a field error (used with HTMX blur validation).
+templ FieldErrorOOB(field string, err string) {
+	<span class="field-error" id={ "error-" + field } data-has-error={ strconv.FormatBool(err != "") } aria-live="polite" hx-swap-oob="true">{ err }</span>
+}

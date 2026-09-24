@@ -65,6 +65,15 @@ linters:
           deny:
             - pkg: github.com/FyrmForge/stackr/internal/service/internal/flow
               desc: deploy may only call flow/managed
+        ui-sees-view-structs:
+          list-mode: lax
+          files:
+            - "**/internal/ui/**"
+          deny:
+            - pkg: github.com/FyrmForge/stackr/internal/service
+              desc: templ takes view structs built by the handler, never a domain type
+            - pkg: github.com/FyrmForge/stackr/internal/middleware
+              desc: the shell is built by internal/web/render, components only render it
         service-internal-stays-inside:
           list-mode: lax
           files:

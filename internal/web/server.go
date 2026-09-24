@@ -1,21 +1,19 @@
 package web
 
 import (
-	"net/http"
-
 	"github.com/FyrmForge/hamr/pkg/email"
 	hamrmw "github.com/FyrmForge/hamr/pkg/middleware"
 	"github.com/FyrmForge/hamr/pkg/server"
-	"github.com/labstack/echo/v4"
 
 	"github.com/FyrmForge/stackr/internal/middleware"
 	"github.com/FyrmForge/stackr/internal/service"
-	"github.com/FyrmForge/stackr/internal/web/components"
+	"github.com/FyrmForge/stackr/internal/ui/components"
 	"github.com/FyrmForge/stackr/internal/web/handler/about"
 	"github.com/FyrmForge/stackr/internal/web/handler/auth/login"
 	"github.com/FyrmForge/stackr/internal/web/handler/auth/register"
 	"github.com/FyrmForge/stackr/internal/web/handler/devemail"
 	"github.com/FyrmForge/stackr/internal/web/handler/home"
+	"github.com/FyrmForge/stackr/internal/web/handler/scope"
 )
 
 // Deps holds the dependencies for route registration.
@@ -74,10 +72,14 @@ func RegisterRoutes(srv *server.Server, deps *Deps) {
 	site.POST("/register", registerHandler.Submit, auth.RequireNotAuth())
 	site.POST("/register/validate/:field", registerHandler.FormRules.ValidationHandler("field"), auth.RequireNotAuth())
 
-	// ponytail: placeholder so the middleware is mounted and tested; the org
-	// page replaces it.
-	site.GET("/:org", func(c echo.Context) error { return c.NoContent(http.StatusNoContent) },
-		deps.Access.Require("org.read"))
+	// The nested scope: Require resolves each slug, 404s early and leaves
+	// org, stack, env and tile in the context. ponytail: one placeholder
+	// page until the org/stack/env/tile pages take these routes.
+	scopeHandler := scope.NewHandler()
+	site.GET("/:org", scopeHandler.Page, deps.Access.Require("org.read"))
+	site.GET("/:org/:stack", scopeHandler.Page, deps.Access.Require("org.read"))
+	site.GET("/:org/:stack/:env", scopeHandler.Page, deps.Access.Require("org.read"))
+	site.GET("/:org/:stack/:env/:tile", scopeHandler.Page, deps.Access.Require("tile.read"))
 }
 
 // RegisterStaticPages registers handlers for static generation and runtime
