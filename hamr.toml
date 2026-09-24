@@ -1,15 +1,15 @@
 # Schema reference: https://github.com/FyrmForge/hamr/blob/master/docs/guide/hamr-toml.md
 
 [hamr]
-version = "0.35.0"
-scaffolded_at = "2026-07-18"
+version = "0.38.0"
+scaffolded_at = "2026-09-24"
 
 [options]
 database = "sqlite"
 db_connector = "sqlx"
 auth = "session"
 css = "tailwind"
-websockets = true
+websockets = false
 e2e = false
 stripe = false
 locale = false
@@ -17,9 +17,9 @@ storage = "local"
 alpine = false
 
 [static]
-dir = "frontend/static"
-dist = "frontend/dist"
-manifest = "internal/stackrd/handlers/web/components/staticmanifest.go"
+dir = "ui/static"
+dist = "ui/dist"
+manifest = "internal/web/components/staticmanifest.go"
 package = "components"
 
 [dev]
@@ -30,17 +30,17 @@ inject_reload = true
 hamr_console_capture = true
 hamr_console_filter = false
 
-[dev.mcp]
-enabled = true
+# Press T in hamr dev to open a public tunnel to the dev proxy (webhooks, OAuth
+# callbacks, demos). Defaults to a local cloudflared quick tunnel; BASE_URL is
+# set to the public URL.
+# [dev.tunnel]
+# provider = "cloudflared"  # or "ngrok"
+# args = []                 # extra flags for the provider command
+# cmd = ""                  # custom command instead; must contain {port}
+# env = ["BASE_URL"]
 
-[dev.mcp.access]
-build = "write"
-dev = "write"
-docker = "write"
-logs = "write"
-mail = "write"
-sms = "write"
-stripe = "write"
+[dev.email]
+enabled = true
 
 [[dev.watch]]
 name = "templ"
@@ -49,15 +49,15 @@ ignore = "*_templ.go"
 cmd = "templ generate"
 debounce = 100
 
-# one-shot tailwind rebuild on change, watched by hamr itself — the tailwind
-# --watch daemon kept OOM-crashing node. watch globs stay project-root-relative;
-# dir only sets the working directory for cmd.
+# One-shot build per change rather than `npx tailwindcss --watch` as a daemon:
+# the long-lived watcher leaks memory over a working day. watch globs stay
+# project-root-relative; dir only sets the working directory for cmd.
 [[dev.watch]]
 name = "tailwind"
-watch = ["frontend/css/**/*", "frontend/tailwind.config.js", "internal/stackrd/handlers/web/**/*.templ", "frontend/static/js/*.js"]
-dir = "frontend"
+watch = ["**/*.templ", "ui/css/input.css"]
+dir = "ui"
 cmd = "npm run css:build"
-debounce = 300
+debounce = 200
 
 [[dev.watch]]
 name = "stackrd"
@@ -70,7 +70,7 @@ reload = "full"
 
 [[dev.watch]]
 name = "static"
-watch = ["frontend/static/**/*"]
+watch = ["ui/static/**/*"]
 cmd = "hamr gen static"
 debounce = 200
 
@@ -82,8 +82,8 @@ inline-for             = "error"
 inline-switch          = "error"
 no-native-form-actions = "error"
 htmx-conflict          = "error"
-img-alt                = "error"
-no-href                = "error"
-inline-style           = "error"
-empty-class            = "error"
-js-href                = "error"
+img-alt                = "warning"
+no-href                = "warning"
+inline-style           = "warning"
+empty-class            = "warning"
+js-href                = "warning"

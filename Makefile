@@ -1,4 +1,4 @@
-.PHONY: deploy-test build test e2e lint templint openapi db-refresh clean install check-templ generate check-node-modules css-build proxyrelay installcli installer
+.PHONY: build installcli installer test lint templint db-sh clean install check-templ generate check-node-modules css-build
 
 # Force bash so the ENV_LOAD eval below works cross-shell (sh on Debian/Ubuntu
 # is dash, which doesn't grok `eval "$(...)"` quoting consistently).
@@ -22,7 +22,7 @@ ENV_LOAD := eval "$$(hamr env --export 2>/dev/null || true)";
 install:
 	go install github.com/FyrmForge/hamr/cmd/hamr@$(HAMR_VERSION)
 	go install github.com/a-h/templ/cmd/templ@$(TEMPL_VERSION)
-	cd frontend && npm ci
+	cd ui && npm install
 
 ## check-templ: Verify templ is installed
 check-templ:
@@ -30,11 +30,11 @@ check-templ:
 
 ## check-node-modules: Auto-install npm deps if missing
 check-node-modules:
-	@[ -d frontend/node_modules ] || (cd frontend && npm install)
+	@[ -d ui/node_modules ] || (cd ui && npm install)
 
 ## css-build: Build Tailwind CSS for production (minified)
 css-build: check-node-modules
-	cd frontend && npm run css:build
+	cd ui && npm run css:build
 
 VERSION := $(shell git rev-parse --short HEAD 2>/dev/null || echo "dev")
 
@@ -42,28 +42,21 @@ VERSION := $(shell git rev-parse --short HEAD 2>/dev/null || echo "dev")
 fmt:
 	go fmt ./...
 
-## build: Build the stackrd binary
+## build: Build the panel binary (bin/stackrd)
 build: check-templ check-node-modules
 	templ generate
-	cd frontend && npm run css:build
+	cd ui && npm run css:build
 	hamr gen static
 	go build -ldflags "-X main.version=$(VERSION)" -o bin/stackrd ./cmd/stackrd
 	$(MAKE) generate
 
-## installcli: Build and install the stackr CLI to GOBIN (~/go/bin by default)
+## installcli: Install the stackr CLI into GOBIN
 installcli:
-	go install -ldflags "-X github.com/FyrmForge/stackr/internal/cli/cmd.version=$(VERSION)" ./cmd/stackr
+	go install -ldflags "-X main.version=$(VERSION)" ./cmd/stackr
 
-## installer: Build stackr-install for linux amd64 (bin/stackr-install). Pass --version when running it
+## installer: Build the installer binary (bin/stackr-install)
 installer:
-	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "-s -w" -o bin/stackr-install ./cmd/stackr-install
-
-## proxyrelay: Build the proxyrelay binary and its image (stkr-proxyrelay:local)
-# stackr creates one of these per active `stackr forward` target; it looks the
-# image up by name and errors if missing, so run this once per dev machine.
-proxyrelay:
-	CGO_ENABLED=0 go build -ldflags "-s -w" -o bin/proxyrelay ./cmd/proxyrelay
-	docker build -q -f cmd/proxyrelay/Dockerfile.runtime -t stkr-proxyrelay:local bin/
+	go build -ldflags "-X main.version=$(VERSION)" -o bin/stackr-install ./cmd/stackr-install
 
 ## generate: Generate static pages
 generate:
@@ -74,33 +67,18 @@ test: check-templ
 	templ generate
 	go test ./...
 
-## e2e: Browser tests (Chromium, headed). E2E_HEADLESS=1 for CI. Not in `make test`.
-e2e: check-templ
-	templ generate
-	go test -tags e2e -count=1 -run TestE2E ./internal/stackrd/handlers/web/
-
-## db-refresh: Delete the dev database; migrations recreate it on next server start
-db-refresh:
-	rm -f data/stackr.db data/stackr.db-wal data/stackr.db-shm data/stackr.db-journal
-
-## openapi: Regenerate docs/openapi.json from the code-first spec
-openapi:
-	go run ./cmd/stackrd --dump-openapi
+## db-sh: Open an interactive shell to the local dev database
+db-sh:
+	$(ENV_LOAD) ./scripts/db-shell.sh
 
 ## lint: Run linters
 lint:
 	golangci-lint run
 
 ## templint: Lint .templ files for common issues
-# Run from internal/ — every real .templ lives there, and the repo root's
-# data/ holds dev-server build clones the linter must not sweep.
 templint:
-	cd internal && hamr lint templ --config ../hamr.toml
+	hamr lint templ
 
 ## clean: Remove build artifacts
 clean:
 	rm -rf bin/ coverage.out coverage.html
-
-## deploy-test: Build and deploy to a disposable test VM
-deploy-test:
-	./scripts/dev/deploy-test.sh

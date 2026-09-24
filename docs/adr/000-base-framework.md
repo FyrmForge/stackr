@@ -9,7 +9,7 @@ This project was scaffolded using the HAMR framework (`github.com/FyrmForge/hamr
 
 ## Stack
 
-- **Language**: Go 1.26.3
+- **Language**: Go 1.27.1
 - **HTTP**: Echo v4 (via `hamr/pkg/server`)
 - **Templates**: Templ + HTMX
 - **Database**: SQLite (via `hamr/pkg/db/sqlite`, pure-Go `modernc.org/sqlite` driver)
@@ -17,7 +17,6 @@ This project was scaffolded using the HAMR framework (`github.com/FyrmForge/hamr
 - **Sessions**: Cookie-based (via `hamr/pkg/auth`)
 - **Auth**: Argon2id password hashing + session management
 - **Storage**: Local filesystem (via `hamr/pkg/storage`)
-- **WebSocket**: Session-based hub (via `hamr/pkg/websocket`)
 
 ## Project Structure
 
@@ -26,7 +25,7 @@ cmd/site/          Entry point + Dockerfile (env config loaded here)
 internal/db/         Database connection + migrations
 internal/repo/       Data access layer (Store interface)
 internal/web/        HTTP handlers + components
-static/              CSS, JS, images
+frontend/            Static assets, CSS source, npm config, dist/
 docs/                Documentation
 ```
 

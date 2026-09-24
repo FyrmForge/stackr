@@ -1,11 +1,4 @@
-// Command stackr is the command-line client for a stackr server. The whole
-// command surface lives in internal/cli/cmd; this is only the entry point.
+// Command stackr is the CLI, a plain HTTP client of the stackrd API.
 package main
 
-import (
-	"os"
-
-	"github.com/FyrmForge/stackr/internal/cli/cmd"
-)
-
-func main() { os.Exit(cmd.Execute()) }
+func main() {}

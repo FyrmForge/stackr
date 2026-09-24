@@ -1,35 +1,5 @@
 # stackr — Project Conventions
 
-## Replying
-
-- Answer in short bullet points. No walls of prose.
-- One idea per bullet, shortest form that is still clear.
-- Prose paragraphs only when explicitly asked for (a written plan, a doc, a
-  commit message).
-- Lead with the outcome bullet, detail below it.
-- Don't restate the question, don't recap what was already agreed.
-
-## Project Stage
-
-- Pre-release. There are no production installs or compatibility promises.
-- Test deployments are disposable. Their addresses and credentials belong in
-  local environment variables, never in tracked files.
-- Remote test helpers require `STACKR_DEPLOY_HOST` and live under
-  `scripts/dev/`:
-
-  ```bash
-  STACKR_DEPLOY_HOST=manager.example.test \
-      ./scripts/dev/wipe-test.sh --nodes worker.example.test
-  STACKR_DEPLOY_HOST=manager.example.test ./scripts/dev/deploy-test.sh
-  ```
-
-- No backwards compatibility, no data migrations for existing installs, no
-  upgrade paths. Break APIs and config freely; a test VM is wiped and
-  reinstalled.
-- Do not raise "what about existing users" questions.
-- The one exception is the database schema: `001_initial` is frozen as of
-  2026-09-18. See Database below.
-
 ## Build & Test
 
 ```bash
@@ -42,43 +12,134 @@ make lint           # Run linters
 make templint       # Lint .templ files for silent failures and a11y issues
 ```
 
-### Shell calls that stall an unattended run
-
-These shapes trip the permission classifier and stop the run dead waiting for
-a human. On a long autonomous task that is the difference between finishing
-and burning the night on one prompt.
-
-Do not use:
-
-- `sed -i` — any in-place edit
-- heredocs of any kind, including `python - <<'PY'` and `git commit -F -`
-- `git rm -f`
-- long `&&` chains, especially ones mixing reads with writes
-
-Use instead:
-
-- the Edit and Write tools for every file change, test fixtures and generated
-  allowlists included
-- `git commit -F <file>`, with the message written to a scratchpad file first
-- one plain command per call
-
-`git push` and `gh pr create` prompt regardless — they reach outside the
-machine. Everything else on that list is avoidable.
+`T` in the `hamr dev` TUI opens a public tunnel (`[dev.tunnel]` in `hamr.toml`) and sets `BASE_URL` to the public URL for the app it runs. Build absolute URLs from `BASE_URL`; don't hardcode `localhost`.
 
 ## Project Structure
 
 ```
-cmd/stackrd/              Application entry point (env config loaded here)
-internal/stackrd/store/db/            Database connection + embedded migrations
-internal/stackrd/store/repo/           Data access layer (Store interface + SQLite impl)
-internal/stackrd/handlers/web/            HTTP layer
-internal/stackrd/handlers/web/server.go   Route registration + middleware groups
-internal/stackrd/handlers/web/handler/    One package per page, mirroring URL path
+cmd/stackrd/             Panel entry point (env config loaded here)
+cmd/stackr/              CLI entry point
+cmd/stackr-install/      Installer entry point
+internal/db/            Database connection + embedded migrations
+internal/repo/           Scaffold users table; replaced in step 1 by the
+                         per-table store under internal/service/internal/store/
+internal/web/            HTTP layer
+internal/web/server.go   Route registration + middleware groups
+internal/web/handler/    One package per page, mirroring URL path
                          (e.g. /admin/users → handler/admin/user/)
-internal/stackrd/handlers/web/components/ Shared templ components (layout, form helpers)
-frontend/                Everything frontend: static assets, CSS source,
-                         npm config, generated dist/
+internal/web/components/ Shared templ components (layout, form helpers);
+                         step 6 moves screens into internal/ui/
+internal/service/        The orchestrator; everything below it in internal/
+internal/authz/          can(user, verb, resource), used by middleware only
+internal/ui/             components/ and pages/{org,stack,env,tile}/ (step 6)
+ui/                      Non-Go frontend: static/ (js, css, images), css/
+                         source, npm + tailwind config, generated dist/
 ```
+
+## Layering rules
+
+These are repo rules from the first commit. The compiler enforces most of
+them, `depguard` in `make lint` the rest, and the `handler-audit` skill spot
+checks handlers.
+
+### Service tree
+
+Handler → orchestrator → flow or leaf → store / infra wrapper. Nothing skips
+a level.
+
+```
+internal/service/
+  orchestrator.go         New(config) and the Orchestrator: the only thing
+                          main, the API and the web handlers see. One method
+                          per user-facing verb.
+  tile.go, org.go, ...    small verbs, one file per area; most are one line
+                          calling a leaf
+  internal/store/         CRUD, one file and one small interface per table
+  internal/docker/        the Docker wrapper, no rules
+  internal/proxy/         the Caddy admin client
+  internal/git/           clone, checkout
+  internal/s3/            backup destinations
+  internal/leaf/<name>/   one row kind and the world object it stands for
+  internal/flow/<name>/   the big verbs that sequence several leaves
+internal/authz/           can(user, verb, resource), called by middleware
+internal/ui/              components/ and pages/{org,stack,env,tile}/
+ui/static/                static assets (not Go)
+```
+
+### The rules
+
+1. **Services are the only home for business logic.** Handlers, the API,
+   the CLI, `main`, the store and the Docker package decide nothing about
+   the domain.
+2. **Handlers and `main` see only `service.Orchestrator`.** The store,
+   Docker, proxy, git and s3 wrappers, the leaves and the flows all live
+   under `internal/service/internal/`, so Go refuses any import of them
+   from outside `internal/service/`.
+3. **Dependency injection:** `main` calls `service.New(cfg)`; the service
+   builds its own store and Docker client. Tests pass a fake Docker through
+   the exported `service.Docker` interface (`service.WithDocker(fake)`).
+   Services take a user only for audit fields.
+4. **The store is CRUD plus type mapping.** Only schema constraints (FK,
+   unique, not null). No defaults, no ordering policy, no status decisions.
+5. **The Docker wrapper receives fully resolved specs.** Variables already
+   filled in; it never needs a domain rule.
+6. **Handlers are dumb.** Bind input, check form shape, call one
+   orchestrator method, render. When a screen needs a decision the service
+   returns it (e.g. a `CanDeploy` field). `.templ` files never compute a
+   decision either.
+7. **Errors are typed.** Never branch on an error's wording.
+8. **Anything built once is constructed once.** No double wiring in `main`.
+9. **Anything not written down behaves as it does today, for domain rules
+   only.** The plan (`REWRITE.md`) lists what changes; the extracts in
+   `docs/rewrite/extracts/` are the spec for the rest. Mechanics that were
+   never ours (rollout, replicas, service DNS, health gating, load
+   balancing) are built only as written in the plan, never guessed.
+10. **Every container op is a job.** Deploy, promote, rollback, restart,
+    stop, backup, image-watch redeploy: all go through `flow/jobs`. Nothing
+    starts any of them another way.
+
+### Leaves
+
+- **A leaf is the real thing:** one row kind *and* the world object it
+  stands for (`volume` = row + Docker volume, `environment` = row + its
+  network, `tile` = row + its containers). Every table has exactly one leaf.
+- **A leaf reads and writes its own table only.** Its constructor gets its
+  table interface and the slice of the Docker wrapper it needs, nothing
+  else. It **never calls another leaf and never a flow**. Facts from other
+  tables come in as arguments: `environment.Delete(env, tileCount)`. The
+  leaf still owns the decision; the caller only fetches.
+- **A leaf runs a spec, never builds one.** `tile.Start(spec)` takes a fully
+  resolved spec; spec building lives in `flow/deploy`.
+
+### Flows
+
+- **A flow sequences several leaves.** It computes facts and passes them
+  down; it holds no Docker handle (the leaves do).
+- **Flow → flow only on the listed edges:** `flow/promote` → `flow/deploy`
+  and `flow/deploy` → `flow/managed`. Never a cycle, never a new edge
+  without a plan change.
+- Every flow that starts work does it through `flow/jobs`.
+
+### Leaf or flow?
+
+One question: does it stand for one row kind and its world object? **Leaf.**
+Does it sequence several? **Flow.**
+
+### Auth
+
+Auth is middleware calling `authz.can(user, verb, resource)`. **Never a
+handler, never a service, never a leaf or flow.** Both routers (web and API)
+mount the same middleware; handlers below it already have org, stack, env
+and tile loaded.
+
+### Enforced how
+
+- `internal/service/internal/...` cannot be imported from outside
+  `internal/service/` (compiler).
+- Leaf → flow is an import cycle (compiler).
+- Leaf → leaf and flow → flow (except the listed edges) fail `make lint`
+  (`depguard` in `.golangci.yml`).
+- Handlers: run the `handler-audit` skill (`.claude/skills/handler-audit/`).
 
 ## Framework Reference
 
@@ -93,8 +154,8 @@ This project uses the HAMR framework (`github.com/FyrmForge/hamr`). Key packages
 - `hamr/pkg/logging` — Structured logging (slog)
 - `hamr/pkg/htmx` — HTMX request/response helpers
 
-See the [HAMR repository](https://github.com/FyrmForge/hamr) for framework
-documentation matching the version in `go.mod`.
+See `docs/llms.txt` for a compact API reference and `docs/llms-full.txt` for
+complete package documentation.
 
 ## Handler Pattern
 
@@ -104,15 +165,13 @@ helper routes that belong to it (validation endpoints, partials, modals).
 
 ```
 URL                     Package path
-/:org                   internal/stackrd/handlers/web/handler/org
-/:org/:stack            internal/stackrd/handlers/web/handler/project
-/servers/:id            internal/stackrd/handlers/web/handler/server
-/admin/proxy            internal/stackrd/handlers/web/handler/settings
-/tiles/:id/backups      internal/stackrd/handlers/web/handler/backups
+/                       internal/web/handler/home
+/login                  internal/web/handler/auth/login
+/register               internal/web/handler/auth/register
+/admin                  internal/web/handler/admin
+/admin/users            internal/web/handler/admin/user
+/admin/users/:id/edit   internal/web/handler/admin/user/edit
 ```
-
-(The live list is the directory itself —
-`internal/stackrd/handlers/web/handler/`.)
 
 URL segments are typically plural (`/users`); package names are singular Go
 identifiers (`user`). When a parent path doesn't have its own page, the
@@ -122,15 +181,17 @@ Pure-action endpoints with no view (e.g. `POST /logout`) hang off the most
 related page package — Logout lives in `handler/auth/login/` because it's
 the inverse of Login. Helpers shared across page packages in a section
 (e.g. session-cookie helpers used by login + register) live outside the
-handler tree, in `internal/stackrd/handlers/web/handler/auth/` or similar.
+handler tree, in `internal/auth/` or similar.
 
 ### Creating a New Page Package
 
-1. Create a directory at `internal/stackrd/handlers/web/handler/<path>/<page>/`
-2. `handler.go` (package `<page>`) — `NewHandler(deps)` returning `*handler`,
-   methods like `Page` (GET) and `Submit` (POST), plus any HTMX helper methods
+1. Create a directory at `internal/web/handler/<path>/<page>/`
+2. `handler.go` (package `<page>`) — `NewHandler(orch)` returning `*handler`,
+   methods like `Page` (GET) and `Submit` (POST), plus any HTMX helper methods.
+   The handler's only dependency is `*service.Orchestrator`; it never holds a
+   store, a Docker client or any other service.
 3. `<page>.templ` (same package) — the page's templates
-4. Register routes in `internal/stackrd/handlers/web/server.go` — page route + every HTMX
+4. Register routes in `internal/web/server.go` — page route + every HTMX
    helper route the page exposes
 
 ### Example
@@ -144,32 +205,43 @@ import (
     "github.com/FyrmForge/hamr/pkg/respond"
     "github.com/labstack/echo/v4"
 
-    "github.com/FyrmForge/stackr/internal/stackrd/store/repo"
+    "github.com/FyrmForge/stackr/internal/service"
 )
 
 type handler struct {
-    store repo.Store
+    orch      *service.Orchestrator
+    FormRules validate.Form
 }
 
-func NewHandler(store repo.Store) *handler {
-    return &handler{store: store}
+func NewHandler(orch *service.Orchestrator) *handler {
+    return &handler{orch: orch, FormRules: newFormRules()}
 }
 
 // GET /things
 func (h *handler) Page(c echo.Context) error {
-    return respond.HTML(c, http.StatusOK, ThingsPage(c))
+    things, err := h.orch.ListThings(c.Request().Context())
+    if err != nil {
+        return err
+    }
+    return respond.HTML(c, http.StatusOK, ThingsPage(c, toView(things)))
 }
 
 // POST /things
 func (h *handler) Submit(c echo.Context) error {
     var f CreateForm
-    c.Bind(&f)
+    if err := c.Bind(&f); err != nil {
+        return echo.NewHTTPError(http.StatusBadRequest, "invalid form data")
+    }
 
+    // Form shape only (required, type, length). Domain rules live in the service.
     if errs := h.FormRules.Validate(c); errs != nil {
         return respond.HTML(c, http.StatusUnprocessableEntity, createForm(c, f, errs))
     }
 
-    // Save to database...
+    // One service call. The service decides, checks domain rules and saves.
+    if err := h.orch.CreateThing(c.Request().Context(), f.Name); err != nil {
+        return err
+    }
 
     middleware.SetFlash(c, "Created successfully!", middleware.FlashSuccess)
     return respond.Redirect(c, "/things")
@@ -230,12 +302,20 @@ validate.In("admin", "user")    // func(string) string
 validate.AgeMin(18)              // func(string) string
 ```
 
+### Who validates what
+
+- **Handlers check form shape only:** required, type (email, number, URL),
+  length. Nothing that needs the database or a domain fact.
+- **Services own every domain rule:** uniqueness, slug grammar, "may this
+  env be deleted", permissions-derived defaults, status. The service returns
+  a typed error; the handler maps it to a field error or a status code.
+- **The store validates nothing** beyond schema constraints (FK, unique, not
+  null).
+
 ### Two-Level Validation
 
 1. **Blur** (inline): HTMX `hx-post` to validate a single field, return OOB swap
 2. **Submit** (full): Validate all fields, return 422 with form re-render
-
-Never validate in the repo/store layer.
 
 ### Form API — Define Rules Once
 
@@ -249,13 +329,13 @@ type CreateForm struct {
 }
 
 type Handler struct {
-    store          repo.Store
+    orch            *service.Orchestrator
     CreateFormRules validate.Form
 }
 
-func NewHandler(store repo.Store) *Handler {
+func NewHandler(orch *service.Orchestrator) *Handler {
     return &Handler{
-        store: store,
+        orch: orch,
         CreateFormRules: validate.NewForm(
             validate.WithOOBRenderer(form.OOBValidator),
             validate.WithGeneralError("Please fix the errors below."),
@@ -269,13 +349,25 @@ func NewHandler(store repo.Store) *Handler {
 // POST /things
 func (h *Handler) Create(c echo.Context) error {
     var f CreateForm
-    c.Bind(&f)
+    if err := c.Bind(&f); err != nil {
+        return echo.NewHTTPError(http.StatusBadRequest, "invalid form data")
+    }
 
+    // Shape check: required, email format.
     if errs := h.CreateFormRules.Validate(c); errs != nil {
         return respond.HTML(c, http.StatusUnprocessableEntity, createForm(c, f, errs))
     }
 
-    // Save to database...
+    // Domain rules (e.g. "email already taken") come back as typed errors.
+    err := h.orch.CreateThing(c.Request().Context(), f.Name, f.Email)
+    if errors.Is(err, service.ErrEmailTaken) {
+        errs := map[string]string{"email": "Email already registered"}
+        return respond.HTML(c, http.StatusUnprocessableEntity, createForm(c, f, errs))
+    }
+    if err != nil {
+        return err
+    }
+
     middleware.SetFlash(c, "Created successfully!", middleware.FlashSuccess)
     return respond.Redirect(c, "/things")
 }
@@ -297,7 +389,8 @@ validate.Field("email",
 )
 ```
 
-Context-aware rules for cross-field validation:
+Context-aware rules for cross-field validation (still form shape: two fields
+of the same form agreeing, never a lookup):
 
 ```go
 validate.Field("password_confirm", validate.Required).
@@ -359,7 +452,7 @@ templ createForm(c echo.Context, f CreateForm, errors map[string]string) {
             <label for="name">Name</label>
             <input type="text" id="name" name="name" value={ f.Name }
                 hx-post="/things/validate/name"
-                hx-trigger="blur, input[this.closest('.form-group').querySelector('[data-has-error=true]')] delay:300ms"
+                hx-trigger="blur, hamr:revalidate"
                 hx-swap="none"/>
             @form.FieldError("name", form.GetError(errors, "name"))
         </div>
@@ -373,7 +466,8 @@ Key HTMX attributes:
 - `hx-swap="outerHTML"` — Replace the entire form on validation errors
 - `hx-target="#create-form"` — Target the form element
 - `hx-swap="none"` on inputs — Field validation uses OOB swaps, no explicit target
-- `hx-trigger` — Validate on blur; re-validate on input only if an error is showing
+- `hx-trigger="blur, hamr:revalidate"` — Validate on blur; re-validate while typing only if an error is showing
+- `hamr:revalidate` — Custom event fired by `static/js/main.js`, 300ms after the last keystroke, and only while the field's `error-<name>` span has `data-has-error="true"`. Do NOT use an `hx-trigger` `[...]` filter for this: htmx compiles those with `Function()`, which the CSP blocks. Add `data-hamr-watch="other_field"` to gate on another field's error instead.
 
 ### Field Error Components
 
@@ -410,22 +504,23 @@ renders.
 
 ## CSS
 
-Tailwind CSS — classes directly in templ components. Config in `frontend/tailwind.config.js`.
+Tailwind CSS — classes directly in templ components. Config in `ui/tailwind.config.js`.
 
 ```bash
-make install     # installs npm deps in frontend/
+make install     # installs npm deps in ui/
 make css-build   # one-shot production build
 ```
 
-`hamr dev` rebuilds the CSS on every `.templ` change — there is no watch daemon.
+`hamr dev` rebuilds the CSS on every `.templ` change — there is no watch
+daemon.
 
 ```
-frontend/css/input.css          Tailwind directives (@tailwind base, components, utilities)
-frontend/static/css/output.css  Generated CSS (do not edit)
-frontend/dist/                  Fingerprinted output of `hamr gen static` (gitignored)
+ui/css/input.css          Tailwind directives (@tailwind base, components, utilities)
+ui/static/css/output.css  Generated CSS (do not edit)
+ui/dist/                  Fingerprinted output of `hamr gen static`
 ```
 
-Custom components via `@apply` in `frontend/css/input.css`:
+Custom components via `@apply` in `ui/css/input.css`:
 
 ```css
 @layer components {
@@ -449,20 +544,20 @@ Custom components via `@apply` in `frontend/css/input.css`:
 - Use `testify/assert` and `testify/require`
 
 ## Database
-- Migrations in `internal/stackrd/store/db/migrations/` (sequential numbering)
-- **`001_initial` is frozen (2026-09-18).** A schema change is a new `002_*`
-  on top of it, never an edit to the baseline. Up to that date every change
-  edited the baseline and the rig got wiped; that is over, because the next
-  install may hold data nobody can recreate.
-- Migrations after the baseline are **additive only**: no `DROP`, no `RENAME`,
-  no `TRUNCATE`, no `DELETE FROM`. `migrate_guard_test.go` enforces it, and
-  pins the baseline's hash so an edit to `001_initial` fails the build. A deliberate drop needs
-  a `-- migration-guard: allow <reason>` line above the statement, and is
-  normally two releases: stop writing the column, remove it once no running
-  version reads it.
-- Use `sqlx` for queries in repo implementations
+- Migrations in `internal/db/migrations/` (sequential numbering)
+- Use `sqlx` for queries in the store
 - Migrations run during server startup via `db.Migrate(...)`
-- Store interface in `internal/stackrd/store/repo/repo.go`
+- **The store is split by table.** It lives in
+  `internal/service/internal/store/`: one file and one small interface per
+  table (`tiles.go` → `TileStore`), one shared `Tx` so a flow can write
+  several tables in one transaction. There is no single store interface. A
+  table file only writes SQL against its own table; a join lives in the
+  query file of the flow that owns the question, with a one-line reason.
+  (The scaffold's `internal/repo/` is replaced by this in step 1.)
+- **Migrations stay editable until the first real install.** Until then,
+  edit `001_initial` in place instead of stacking fix-up migrations. After
+  the first real install the baseline is frozen and changes are additive
+  only (new numbered migrations).
 
 ## Auth
 
@@ -470,7 +565,7 @@ Session-based authentication using `hamr/pkg/auth` and `hamr/pkg/middleware`.
 
 ### Middleware Wiring
 
-Middleware is configured in `internal/stackrd/handlers/web/server.go`:
+Middleware is configured in `internal/web/server.go`:
 
 - `auth.Load()` — group-level, populates context from session (the only DB call)
 - `auth.RequireAuth()` — per-route, redirects unauthenticated users to login
@@ -479,10 +574,10 @@ Middleware is configured in `internal/stackrd/handlers/web/server.go`:
 ### Handler Pattern
 
 Login and register each get their own page package
-(`internal/stackrd/handlers/web/handler/auth/login/`, `internal/stackrd/handlers/web/handler/auth/register/`).
+(`internal/web/handler/auth/login/`, `internal/web/handler/auth/register/`).
 Logout is a sibling action on the login package — it's the inverse of login,
 not its own page. Session-cookie helpers shared between login and register
-live in `internal/stackrd/handlers/web/handler/auth/`.
+live in `internal/auth/`.
 
 ```go
 // Login handler — POST /login
@@ -492,13 +587,13 @@ func (h *handler) Submit(c echo.Context) error {
         return echo.NewHTTPError(http.StatusBadRequest, "invalid form data")
     }
 
-    user, err := h.authService.Authenticate(c.Request().Context(), f.Email, f.Password)
+    user, err := h.orch.Authenticate(c.Request().Context(), f.Email, f.Password)
     if err != nil { /* return form error */ }
 
     session, err := h.sessionManager.CreateSession(c.Request().Context(), user.ID, nil)
     if err != nil { /* return 500 */ }
 
-    auth.SetSession(c, h.sessionManager, session)  // from github.com/FyrmForge/stackr/internal/stackrd/handlers/web/handler/auth
+    auth.SetSession(c, h.sessionManager, session)  // from github.com/FyrmForge/stackr/internal/auth
     return respond.Redirect(c, "/")
 }
 ```
@@ -521,74 +616,10 @@ Pluggable file storage with `hamr/pkg/storage`:
 ### Environment Variables
 - `STORAGE_PATH` — local directory for file uploads
 
-## WebSockets
-
-WebSocket support via `hamr/pkg/websocket`:
-
-### Hub Setup
-
-```go
-hub := websocket.NewHub()
-defer hub.Close()
-```
-
-If subject-based routing is needed, pass `websocket.WithSubjectIDFunc(...)` and
-derive the subject ID from request data available during the WebSocket upgrade.
-
-### Sending Messages
-
-```go
-emitter := websocket.NewEmitter(hub)
-
-// Send HTML to a specific user
-emitter.ToSubject(userID, websocket.NewHTMLEvent("update", "#target", htmlStr))
-
-// Broadcast to a room
-emitter.ToRoom("chat", websocket.NewEvent("message", payload))
-
-// Trigger HTMX event
-emitter.ToSession(sessionID, websocket.NewTriggerEvent("refresh", "#list", "reload"))
-```
-
-### Rooms
-
-```go
-hub.JoinRoom(client, "chat:123")
-hub.LeaveRoom(client, "chat:123")
-hub.SendToRoom("chat:123", msg)
-```
-
-### Event Types
-
-1. **HTML Direct**: set Target + HTML — client swaps HTML into target
-2. **HTMX Trigger**: set Target + Trigger — client calls htmx.trigger()
-3. **Data Only**: set Payload — client handles via registered callback
-
 ## Code Style
 
 - Follow existing patterns in the codebase
 - Use `hamr/pkg` helpers instead of reimplementing
 - Prefer `respond.HTML`/`respond.JSON` over raw `c.HTML()`
 - Add `// GET /path` comments above handler methods
-- Keep handlers thin — business logic in service layer
-
-## hamr MCP
-
-`hamr dev` exposes these tools over MCP. Prefer them over doing the same
-thing by hand — they read the live dev server, so their answers are current
-and cost the developer nothing.
-
-- Never ask the developer to paste logs, and never tail a log file — `logs.read` (app + build output), `console.read` (browser console, uncaught errors, CSP violations), `http.read` (request log).
-- The dev server is already running. Never run `make build`, `go build`, or start a second server — `rule.run` rebuilds one watch rule, `rebuild.all` rebuilds everything, `make.run` runs a Makefile target.
-- Check dependency containers with `docker.status` / `docker.logs` before assuming a connection error is app-side.
-- `docker.restart` restarts a service; `docker.wipe` resets its volumes.
-- Never ask what an email said — `mail.list` and `mail.get` read the dev inbox.
-- `mail.clear` empties it; `mail.ingest` injects a message.
-- Never ask what an SMS said — `sms.list` and `sms.get` read the dev inbox.
-- `sms.clear` empties it; `sms.ingest` injects a message.
-- Never guess at payment state — `stripe.list` reads the mock's objects.
-- `stripe.complete` / `stripe.expire` / `stripe.refund` drive a payment to an outcome.
-- `dev.info` reports the running rules, ports (including walked ones), and versions — read it before assuming a port.
-
-If a call fails with "dev not running / gateway off", say so instead of
-falling back to manual steps — the developer needs to start `hamr dev`.
+- Keep handlers thin — business logic in service layer (see "Layering rules")

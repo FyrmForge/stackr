@@ -1,0 +1,20 @@
+# Uncomment this workflow to enable automatic deploys to Railway.
+# Required secrets:
+#   RAILWAY_TOKEN   — your Railway API token
+#   RAILWAY_SERVICE — the Railway service ID to deploy to
+#
+# name: Deploy
+# on:
+#   push:
+#     branches: [production]
+# jobs:
+#   deploy:
+#     runs-on: ubuntu-latest
+#     steps:
+#       - uses: actions/checkout@v4
+#       - name: Install Railway CLI
+#         run: npm i -g @railway/cli
+#       - name: Deploy to Railway
+#         run: railway up --service {{ secrets.RAILWAY_SERVICE }}
+#         env:
+#           RAILWAY_TOKEN: {{ secrets.RAILWAY_TOKEN }}

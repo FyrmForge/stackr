@@ -30,6 +30,40 @@ Nothing is deployed anywhere, so there is no data to migrate.
 4. **No "strip the old repo down".** Trimming the old code keeps the tangled
    parts we don't want.
 
+### How the builder works (agreed 2026-09-24)
+
+The builder never opens the old worktree. Its context holds this plan, the
+step's task list and the extracts, nothing else.
+
+- **Extracts.** Every row of "What comes over" becomes one small file in
+  `docs/rewrite/extracts/`, made by a separate narrow sub-agent that reads
+  only that row's files. Five-line header: source path, commit, what was
+  taken, what was cut, where the cut parts belong. Three filters, in order:
+  the row (only the listed files, the take and leave columns); the layering
+  rules (no store call, no Docker call outside the wrapper, no auth check, no
+  status decision; each cut marked `// extract: dropped X, belongs in
+  leaf/Y`); size (an extract bigger than its source was copied, not filtered,
+  and goes back). A human skims every extract before the builder sees it.
+- **Sessions.** One fresh builder session per build step, one stacked PR per
+  step. Planning, the extracts and the wipe happen in the planning session
+  and its sub-agents; building never does.
+- **The wipe.** A sub-agent deletes everything on the `rewrite` branch except
+  `.claude/`, `.mcp.json`, `CLAUDE.md` and `.gitignore`, runs `hamr new`
+  (in a temp dir and moves it in if `hamr new` refuses a non-empty dir),
+  copies this plan, the task lists and the extracts into `docs/rewrite/`.
+  Checked before push: `make build`, `make lint`, `make test` pass; `git
+  diff master --stat` shows only the old code gone and the scaffold added.
+- **The worktree path** stays out of the new `AGENTS.md`. Anything the
+  builder needs and cannot find in the plan or an extract is a plan gap,
+  raised, not guessed.
+- **Progress file.** `docs/rewrite/PROGRESS.md` is the only source of "where
+  are we". Every session, planning or building, fresh or after a compact,
+  reads it first and never asks. Whoever works ticks each item as it
+  finishes (`[x] step 0 / task 3: AGENTS.md examples fixed`) and commits the
+  file with the code. Anything that needs darhvader goes under a `DECIDE:`
+  block at the bottom, with the options, instead of being guessed; work
+  continues on everything that does not depend on it.
+
 ## Rules from the first commit
 
 These go into `AGENTS.md` on day one. Most of the old repo's drift came from
@@ -891,5 +925,7 @@ rollout for anything with a mount, lock set per job, volumes are their own
 table and leaf (drawn as a card, not a tile), leaves for release/job/
 backup/connector and no `deployments` table, auth struck from flows,
 `leaf/tile.Exec()`, chip-only image watch, `dest` ref allowed, grace
-period and proxy volume written. Design rounds are closed. Next: per-step
-task lists.
+period and proxy volume written. Design rounds are closed. 2026-09-24: the
+builder's working method is written under "Method" (extracts per row, fresh
+session per step, wipe by sub-agent). Next: per-step task lists, then the
+extracts, then the wipe.

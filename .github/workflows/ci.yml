@@ -1,41 +1,39 @@
 name: CI
 
 on:
-  workflow_dispatch:
   push:
     branches: [master, main]
     paths-ignore:
       - "*.md"
+      - LICENSE
       - .gitignore
       - "docs/**"
   pull_request:
     branches: [master, main]
     paths-ignore:
       - "*.md"
+      - LICENSE
       - .gitignore
       - "docs/**"
-
-permissions:
-  contents: read
 
 jobs:
   ci:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@v4
 
-      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+      - uses: actions/setup-go@v5
         with:
-          go-version-file: go.mod
+          go-version: "1.27.1"
 
       - name: Download Go modules
         run: go mod download
 
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+      - uses: actions/setup-node@v4
         with:
           node-version: "20"
           cache: npm
-          cache-dependency-path: frontend/package-lock.json
+          cache-dependency-path: ui/package-lock.json
 
       - name: Install deps
         run: make install
@@ -53,51 +51,24 @@ jobs:
 
       - name: Verify compiled CSS is committed
         run: |
-          if ! git diff --quiet -- 'frontend/static/css/output.css'; then
+          if ! git diff --quiet -- 'ui/static/css/output.css'; then
             echo "::error::Compiled CSS is out of date. Run 'make css-build' and commit."
-            git diff --stat -- 'frontend/static/css/output.css'
+            git diff --stat -- 'ui/static/css/output.css'
             exit 1
           fi
 
-      - name: Verify static manifest is committed
+      - name: Verify generated static pages are committed
         run: |
-          if ! git diff --quiet -- 'internal/stackrd/handlers/web/components/staticmanifest.go'; then
-            echo "::error::Static manifest is out of date. Run 'hamr gen static' and commit."
-            git diff --stat -- 'internal/stackrd/handlers/web/components/staticmanifest.go'
+          if ! git diff --quiet -- 'generated/'; then
+            echo "::error::Generated static pages are out of date. Run 'make generate' and commit."
+            git diff --stat -- 'generated/'
             exit 1
           fi
-
       - name: Run tests
         run: make test
 
       - name: Lint
-        uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9
+        uses: golangci/golangci-lint-action@v9
 
       - name: Lint templ files
         run: make templint
-
-  images:
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        include:
-          - name: stackr
-            dockerfile: cmd/stackrd/Dockerfile
-          - name: stackr-proxyrelay
-            dockerfile: cmd/proxyrelay/Dockerfile
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-
-      - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
-
-      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
-
-      - name: Build ${{ matrix.name }} image
-        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
-        with:
-          context: .
-          file: ${{ matrix.dockerfile }}
-          platforms: linux/amd64,linux/arm64
-          push: false
-          cache-from: type=gha,scope=${{ matrix.name }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.name }}
