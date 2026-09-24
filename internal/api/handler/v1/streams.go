@@ -6,6 +6,7 @@ import (
 	"github.com/labstack/echo/v4"
 
 	"github.com/FyrmForge/stackr/internal/api/stream"
+	"github.com/FyrmForge/stackr/internal/service"
 )
 
 const eventStream = "text/event-stream"
@@ -19,6 +20,26 @@ func (h *H) JobEvents() Endpoint {
 		return stream.Poll(c, func(ctx context.Context, offset int64) (any, int64, bool, error) {
 			j, l, err := h.S.PollJob(ctx, id, max(offset, 0))
 			return JobLogOut{j, string(l.Chunk), l.Next, l.End}, l.Next, l.End, err
+		})
+	})
+}
+
+// EnvEvents is the env canvas's live stream. Today one event: "traffic",
+// the env's lanes ([]Edge) after each 5 s sample.
+func (h *H) EnvEvents() Endpoint {
+	return Streamed(eventStream, func(c echo.Context) error {
+		env := envID(c)
+		last, edges := int64(-1), []service.Edge{}
+		return stream.PollAs(c, "traffic", func(ctx context.Context, _ int64) (any, int64, bool, error) {
+			// the lanes are re-read only when a sample landed
+			if seq := h.S.TrafficSeq(); seq != last {
+				es, err := list(h.S.Traffic(ctx, env))
+				if err != nil {
+					return nil, 0, false, err
+				}
+				last, edges = seq, es
+			}
+			return edges, last, false, nil
 		})
 	})
 }

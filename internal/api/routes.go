@@ -111,6 +111,8 @@ func routes(h *v1.H) []Route {
 
 		// envs
 		{GET, env, "env.get", "org.read", h.GetEnv()},
+		{GET, env + "/traffic", "env.traffic", "tile.read", h.Traffic()},
+		{GET, env + "/events", "env.events", "tile.read", h.EnvEvents()},
 		{PUT, env + "/name", "env.rename", "env.write", h.RenameEnv()},
 		{PUT, env + "/color", "env.color", "env.write", h.SetEnvColor()},
 		{PUT, env + "/from", "env.from", "env.write", h.SetEnvFrom()},

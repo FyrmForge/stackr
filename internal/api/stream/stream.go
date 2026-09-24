@@ -61,9 +61,14 @@ func ping(c echo.Context) error {
 }
 
 // Poll follows something read by offset: poll returns what to send, the
-// next offset and whether it has ended. An event goes out whenever the
-// offset moves, and once more at the end ("end").
+// next offset and whether it has ended. An "update" event goes out whenever
+// the offset moves, and once more at the end ("end").
 func Poll(c echo.Context, poll func(ctx context.Context, offset int64) (v any, next int64, end bool, err error)) error {
+	return PollAs(c, "update", poll)
+}
+
+// PollAs is Poll with the moving event named name.
+func PollAs(c echo.Context, name string, poll func(ctx context.Context, offset int64) (v any, next int64, end bool, err error)) error {
 	ctx, gone := detach(c)
 	v, next, end, err := poll(ctx, 0)
 	if err != nil {
@@ -77,7 +82,7 @@ func Poll(c echo.Context, poll func(ctx context.Context, offset int64) (v any, n
 		case end:
 			return event(c, "end", v)
 		case next != offset:
-			if err := event(c, "update", v); err != nil {
+			if err := event(c, name, v); err != nil {
 				return nil
 			}
 			offset, lastWrite = next, time.Now()

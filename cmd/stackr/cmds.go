@@ -31,6 +31,7 @@ var skipped = map[string]string{
 	"invite.get":      "an invite link is opened in a browser",
 	"invite.accept":   "an invite link is accepted in a browser",
 	"connector.begin": "the GitHub App handshake runs in a browser (the manifest form posts to GitHub)",
+	"env.events":      "the env canvas's live stream; stackr env traffic reads the same lanes",
 }
 
 func (a *app) commands() []*cobra.Command {

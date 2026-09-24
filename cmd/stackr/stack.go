@@ -212,6 +212,7 @@ func (a *app) envs() *cobra.Command {
 		a.get("ls", "env.list", "List environments", atStack, "/envs", envCols...),
 		a.get("ladder", "env.ladder", "List environments in promote order", atStack, "/ladder", envCols...),
 		a.get("get", "env.get", "Show the environment", atEnv, "", envCols...),
+		a.get("traffic", "env.traffic", "Show tile-to-tile bytes per second at the last 5 s sample", atEnv, "/traffic", "from", "to", "bps"),
 		create,
 		a.put("rename <name>", "env.rename", "Rename the environment", atEnv, "/name", "name"),
 		a.put("color <color>", "env.color", "Set the environment's panel colour", atEnv, "/color", "color"),

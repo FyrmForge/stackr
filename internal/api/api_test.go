@@ -152,7 +152,8 @@ func TestReadsLeakNoSecret(t *testing.T) {
 		t.Fatalf("mint = %d %s", code, body)
 	}
 	for _, r := range api.Routes(&v1.H{}) {
-		if r.Method != http.MethodGet || r.Verb == "variable.write" {
+		// env.events never ends on its own (TestEnvEvents reads it)
+		if r.Method != http.MethodGet || r.Verb == "variable.write" || r.Op == "env.events" {
 			continue
 		}
 		path := fill(r.Path)
@@ -205,6 +206,25 @@ func TestDeployIsAccepted(t *testing.T) {
 	}
 	if code, _ := w.do(t, w.owner, "GET", "/orgs/acme/jobs/"+j.ID+"/log?offset=abc", ""); code != 400 {
 		t.Errorf("offset typo = %d, want 400 (B24)", code)
+	}
+}
+
+// The env's events stream opens with a traffic event (no sample yet: an
+// empty list, never null) and runs until the client leaves.
+func TestEnvEvents(t *testing.T) {
+	stream.PollEvery = 10 * time.Millisecond
+	w := newWorld(t)
+	if code, body := w.do(t, w.owner, "GET", "/orgs/acme/stacks/shop/envs/dev/traffic", ""); code != 200 || body != "[]\n" {
+		t.Fatalf("traffic = %d %q", code, body)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	time.AfterFunc(100*time.Millisecond, cancel)
+	req := httptest.NewRequest("GET", "/api/v1/orgs/acme/stacks/shop/envs/dev/events", nil).WithContext(ctx)
+	req.Header.Set("Authorization", "Bearer "+w.owner)
+	rec := httptest.NewRecorder()
+	w.h.ServeHTTP(rec, req)
+	if rec.Code != 200 || !strings.HasPrefix(rec.Body.String(), "event: traffic\ndata: []\n\n") {
+		t.Errorf("events = %d %q", rec.Code, rec.Body.String())
 	}
 }
 

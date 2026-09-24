@@ -165,6 +165,11 @@ func (h *H) GetEnv() Endpoint {
 	return Get(func(c echo.Context) (service.Environment, error) { return *scope(c).Env, nil })
 }
 
+// Traffic is the env's tile-to-tile lanes at the last sample.
+func (h *H) Traffic() Endpoint {
+	return Get(func(c echo.Context) ([]service.Edge, error) { return list(h.S.Traffic(rc(c), envID(c))) })
+}
+
 func (h *H) RenameEnv() Endpoint {
 	return JSON(200, func(c echo.Context, in NameIn) (service.Environment, error) {
 		return h.S.RenameEnv(rc(c), envID(c), in.Name)

@@ -50,6 +50,7 @@ nothing else. Signatures: `go doc -all ./internal/service Orchestrator`.
 | API and CLI first | all of the above |
 | Settings: one catalogue | `Settings` (the catalogue), `Setting`, `SetSetting`, `SettingDefaults`, `SetSettingDefaults`; the cascade rungs are `SetStackSettings`, `SetEnvSettings`, and tile fields through `UpdateTile` |
 | Org delete and rename rules | `RenameOrg` (squat check over every domain), `DeleteOrg` (has stacks, last org) |
+| Tile-to-tile traffic (step 3c) | `Traffic(env) []Edge{From, To, BPS}` (the env's lanes at the last sample; ends are tile ids, slice (provision) ids, `proxy`, `internet`), `TrafficSeq` (sample counter the env events stream watches); the 5 s conntrack sample runs inline on the scheduler, never as a job (a read) |
 | (stacks) | `Stacks`, `CreateStack`, `RenameStack`, `DeleteStack` |
 | (jobs) | `GetJob`, `PollJob`, `Jobs`, `TileJobs`, `CancelJob` |
 | (health) | `Ping`, `Sessions` |
