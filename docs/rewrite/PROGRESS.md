@@ -307,6 +307,7 @@ session started by darhvader from the START HERE line, no Fable.
     - `SettingsForm(v SettingsFormView)`; `SettingsFormView{ID, Action, Scope string; Rows []SettingRowView; ReadOnly bool; Why string}`, `SettingRowView{Key, Desc, Type, Value, Effective, DecidedBy, Error string}`; posts one field per key, "" = inherit.
   - Elements: `<log-pane level search>`, `<confirm-dialog word>` (fires bubbling `confirmed`), `<flash-toast kind>` (also shows htmx request errors), `<theme-toggle>` (localStorage `theme`).
   - session B task 5 done (branch `rewrite-step-6b`): `<graph-canvas>`, `<graph-node>`, `<side-drawer>` in `ui/ts/`; `elements_test.go` holds the seven tags, a line budget each (canvas 300, rest 150) and the contract names each source must carry. Additions to the contract are in step-6.md "Added by task 5": canvas `divider`, `[data-look]`/`[data-zoom]` chrome, `#graph-arrow` marker, a `node_id` hidden input, `hx-disinherit="*"` on the node (else the card's drawer GET inherits `hx-swap="none"`). `components.SideDrawer()` sits in `Layout` after `#main`. Gallery: fake canvas at `/dev/components`, `POST /dev/components/positions` (204), `GET /dev/components/drawer`. Checked in a browser: drag, wall, marquee, multi-drag, drawer tabs/Escape/backdrop/URL, wheel zoom, pan, fit, hover, fan-out, arrows. Not checked: pinch, touch slop, snap, nudge, straight, localStorage, `focus`, sub-tile click. DECIDE 76–83.
+  - session B tasks 6–8 done (branch `rewrite-step-6b`): `graph` service (`Canvas`, positions, annotations; env node ids are row ids as C's cards expect); `internal/ui/graph` + one `internal/web/handler/canvas` for the four levels (helper routes under `<page>/-/`, one SSE producer `Poll` the env stream folds in); drawers `internal/ui/drawer/{org,stack,env,connector,vars}` at each card's own path in `components.Drawer`, create org/stack/env + install connector in `internal/ui/dialog`, delete confirms. Owed items done: a fresh `?drawer=&tab=` load renders the drawer open with its tab (same render as the route, per-tab verbs), pan/zoom kept per path in sessionStorage (DECIDE 76 took (b)). C's shared files (`stream.go` HTML events, `render.Event`, `webtest`) applied byte-identical from 3a43130. Routes in step-6.md "Canvas pages" and "Drawers and dialogs". DECIDE 84–99. Not checked in a browser.
     - Owed to task 7/8: `SideDrawer()` takes no view, so a full load of `?drawer=&tab=` renders it closed; the shell must server-render `open`, `tab` and the body.
 
 ## DECIDE:
@@ -725,3 +726,61 @@ Raised by step 6 session B task 5 (builder took the lean; flip any):
    in session D's a11y pass.
 83. **(step 6) Every page loads all seven element scripts.** Modules, cached,
    a few KB. Options: (a) keep; (b) canvas pages only. Lean (a).
+
+Raised by step 6 session B tasks 6–8 (builder took the lean; flip any):
+
+84. **(step 6) Graph verbs are web-only.** `Canvas`, positions and notes
+   have no `/api/v1` routes. Options: (a) keep; (b) add them for the CLI.
+   Lean (a).
+85. **(step 6) One canvas handler, not `handler/<level>`.** The four levels
+   and their drawers share `internal/web/handler/canvas`; the level comes
+   from the resolved scope. Options: (a) keep; (b) split per level as
+   ui-plan §6 says. Lean (a).
+86. **(step 6) Two route spellings.** B's helper routes and drawers sit
+   under `<page>/-/` (`-` is never a slug); C's env routes are
+   `/:org/:stack/:env/drawer/...` and `/events`, which shadow a tile named
+   `drawer` or `events`. Options: (a) keep both; (b) move C's under `/-/`
+   at the merge. Lean (b).
+87. **(step 6) The env canvas streams from C's `/events`.** On B alone
+   that URL is a 404 until the merge folds `canvas.Poll` in. Options:
+   (a) keep; (b) B serves `/-/events` at env too. Lean (a).
+88. **(step 6) Params editor shows this level's rows only.** No verb
+   returns the resolved chain, so "decided by" is the level itself and
+   "overrides" is never set. The vars card and every params tab are the
+   same editor. Options: (a) keep; (b) add a resolve verb. Lean (b),
+   later.
+89. **(step 6) Member emails come from the user list.** `Members` returns
+   user ids only; the tab reads `Users()` and maps. Options: (a) keep;
+   (b) a verb that joins members to users. Lean (b).
+90. **(step 6) Invite and key tokens show in the drawer's note.** An
+   invite answers "Invite link: /invite/<id>" (session D's page); a
+   minted key shows once in the note. Options: (a) keep; (b) a copy box.
+   Lean (a).
+91. **(step 6) Placeholders where no verb exists.** Connector repos, env
+   logs (per tile instead), the PR badge and stack defaults. Options:
+   (a) keep; (b) add verbs. Lean (a) for v1.
+92. **(step 6) Releases tab lists only.** Diff, promote plan and rollback
+   are env actions (C's rollback confirm). Options: (a) keep; (b) a
+   per-row "promote to" on the stack drawer. Lean (a).
+93. **(step 6) Remove member has no confirm.** One button. Options:
+   (a) keep; (b) a confirm. Lean (b), small.
+94. **(step 6) "+ org" is admin-only.** It mirrors the API's `org.create`;
+   an owner sees no button. Options: (a) keep; (b) any user may create.
+   Lean (a).
+95. **(step 6) Connector install posts a plain form to GitHub**
+   (`templint:ignore no-native-form-actions`, as the old panel did). The
+   callback page is session D's. Options: (a) keep; (b) none. Lean (a).
+96. **(step 6) Anonymous on a deep page gets 401, home redirects.** `/`
+   sends a visitor to `/login`; `/:org...` answers 401/404 as the access
+   test holds (task 7 had broken it; fixed). Options: (a) keep;
+   (b) every page redirects to login. Lean (b) in session D.
+97. **(step 6) Notes land at 0,0 and redraw for the typist.** A new note
+   has no drop point, and its text is in `Sig`, so the author's own tab
+   gets a `graph` swap after saving. Options: (a) keep; (b) leave text out
+   of `Sig`. Lean (b).
+98. **(step 6) Upper canvases read Docker every 3 s per open stream** for
+   the worst-status roll-up. Options: (a) keep; (b) cache status per
+   tile for the interval. Lean (a) until it shows.
+99. **(step 6) Ghost refs keep `ref:stack.X` ids** and the compare pill is
+   names, releases and "behind" only. Options: (a) keep; (b) resolve
+   ghosts to the target's id so a click opens it. Lean (a).
