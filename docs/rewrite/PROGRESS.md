@@ -270,14 +270,14 @@ session started by darhvader from the START HERE line, no Fable.
     - stack file: `kind: cron` + `schedule:`, `kind: function` + `trigger:`, `timeout_minutes:`; the plan prints old and new schedule, trigger and timeout.
     - no stacked PR opened (the builder was told not to push); DECIDE 52 to 62 added.
 - [x] [F+O] step 3c tile-to-tile traffic — done: 2026-09-24 (branch `rewrite-step-3c`, stacked on step 3b)
-    - `leaf/traffic`: memory only; `Sample(ipTile, conntrack, now)`, `Snapshot()`, `Seq()`, `Slices(pairs, bind)`; kept `flowFields` and the rate math; a tuple's first sight counts 0.
+    - `leaf/traffic`: memory only; `Sample(ipTile, conntrack, now)`, `Snapshot()`, `Seq()`, `Slices(pairs, bind)`; kept `flowFields` and the rate math; a tuple's first sight counts 0 (session D: only the first sample seeds now, DECIDE 136).
     - ends: tile ids; `proxy` = the proxy container's IPs plus every stackr network's gateway; `internet` = a tile-side connection's unknown far end; outside <-> proxy and host-only lines drop; zero lanes drop.
     - `flow/traffic`: `Tick` (read the table first, then tile leaf `Addresses`, domain leaf `ProxyAddrs`, environment leaf `Gateways`), `Edges(env)` (slice rename through the consumer's provision row, then lanes touching the env); `Check` logs one boot warning (no table / no `bytes=`), never fails boot.
     - scheduler entry `traffic`, `@every 5s`, runs inline (a read, not a job). Docker wrapper gains `Gateways(labels)`. `Config.Conntrack` (default `/proc/net/nf_conntrack`); servicetest points it at a missing file so the tick never touches the fake.
     - verb `Traffic(env) []Edge{from,to,bps}` + `TrafficSeq`; routes `GET env/traffic` (`env.traffic`), `GET env/events` (`env.events`, SSE, one `traffic` event per sample, first one at connect); `stream.PollAs`; CLI `stackr env traffic`.
     - installer writes `1` to `/proc/sys/net/netfilter/nf_conntrack_acct` and `/etc/sysctl.d/99-conntrack-acct.conf`; a refusal warns.
     - still owed: task 4's "install on the VM shows rates between two tiles" (not run); no stacked PR opened (the builder was told not to push); DECIDE 63 to 70 added.
-- [ ] [F+O] step 6 UI (sessions B–D follow `docs/rewrite/ui-plan.md`:
+- [x] [F+O] step 6 UI — done: 2026-09-24 (sessions B–D follow `docs/rewrite/ui-plan.md`:
   four canvases, drawers and dialogs, seven elements; decisions settled
   2026-09-24; session A DECIDE items are 71–75)
   - session A (tasks 1–4) done:
@@ -320,6 +320,15 @@ session started by darhvader from the START HERE line, no Fable.
     - Tile drawer uses `components.Drawer` and `PostButton`; one tab strip.
     - `+ tile` on the env canvas.
     - Browser-checked on the built binary: four canvases render; drag persists after reload (positions 204); tile card opens its drawer with 8 tabs; fresh `?drawer=&tab=` opens it; Escape closes and cleans the URL; a swapped-in lanes svg gets real paths. Fixed there: logs tab without a container no longer opens a failing stream; `main.js` afterSwap tolerates SSE swaps. DECIDE 115–119.
+  - [x] session D tasks 11–13 done (branch `rewrite-step-6d`, stacked on `rewrite-step-6c`, released to the VM as v0.0.12):
+    - Task 11: auth pages (login/register, setup, invite accept, CLI authorize, account) from the shared components; a page load without a session redirects to login with a same-site `next`; `GET /settings/github/callback` finishes the install and opens the connector drawer; admin drawer from the nav (settings, users, update check/run, raw Caddy, panel backup) with its job stream at `/-/jobs/:job/events`.
+    - DECIDE fixes: 82 (drawer traps Tab and gives focus back to the opener), 101 (a right-to-left lane draws from its far end, labels at 30% so a pair's two labels sit apart), 108 (cards are `tabindex=0 role=button`, Enter/Space opens), 118 (tile cards carry cron next run and image-watch new version). Env drawer releases tab gains dry run, promote and roll back (supersedes 92).
+    - Task 12 audit: `handler-audit/audit.sh internal/web internal/ui` still prints hits; the one real one (pending invites filtered in a handler) moved to `org.Leaf.Pending`; the rest are false positives, explained by category in commit a013293.
+    - Task 12 smoke on the VM, all nine steps green after fixes: register → setup → org canvas; stack `shop`, env `dev`; `traefik/whoami` tile; deploy → footer running; drag and reload keeps the spot; logs tab streams; function tile (`alpine`, `echo hi`) runs and its log reads `hi`; promote dry run → promote → roll back (dev whoami moved to `v1.10.3`, image watch derived #4, dev and then prod promoted to #4 from their releases tabs, prod rolled back to #1; the ladder blocks a release that has not reached the rung below); admin → check for update finds v0.5.0 (not run).
+    - Fixed by the smoke: create-tile had no command field; the status tab stayed on the old word after a job ended (a hidden `sse:end` refresher, on an inner swap div so updates do not wipe it); the runs tab stayed on `queued` (polls every 2 s while a run is live).
+    - Traffic lane: a `client` tile wgetting `whoami` every minute drew no lane. The sampler only counted deltas on tuples it had seen, and a one-shot request first shows up already closed. After the first (seed) tick a new tuple now counts in full (step 3c's "first sight counts 0" is gone). Checked on v0.0.12: lanes client→whoami 81 B/s and back 105 B/s.
+    - Gates: `make build`, `make lint`, `make test`, `make templint` clean. Elements: canvas 299/300, node 144/150, drawer 77, log-pane 85, confirm-dialog 57, flash-toast 53, theme-toggle 42.
+    - No push or PR (builder told not to). DECIDE 120–140.
 
 ## DECIDE:
 
@@ -823,3 +832,27 @@ Raised by the step 6 B+C merge (builder took the lean; flip any):
 117. **(step 6) `graph-canvas.ts` stays packed.** 298/300 lines with blank lines stripped, same as B; unpacking would break the budget. Ties to DECIDE 77. Options: (a) keep; (b) raise the canvas budget and unpack. Lean (a) until 77 is settled.
 118. **(step 6) Every tile card opens on the status tab.** Cron and function cards too; the graph view does not feed `NewVersion` or `NextRun`, so those footer bits stay empty. Options: (a) keep; (b) feed them from the graph service. Lean (b), session D.
 119. **(step 6) Logs tab without a container shows a line.** A tile with no run and no container gets "No container is running yet." instead of a `<log-pane>` whose stream 404s and retries. Options: (a) keep; (b) the stream answers an empty `end`. Lean (a).
+
+Raised by step 6 session D (builder took the lean; flip any):
+
+120. **(step 6) Page loads log in first.** A page GET without a session redirects to login with a same-site `next`; htmx, stream and API requests keep the 401. Options: (a) keep; (b) 401 everywhere. Lean (a).
+121. **(step 6) Register lands on /setup.** The first user sets the server up; a later non-admin with no org is told to ask for an invite. Options: (a) keep; (b) let anyone create an org. Lean (a).
+122. **(step 6) CLI authorize is a web route.** The page hx-posts and answers `HX-Redirect` to the CLI's 127.0.0.1 callback. Options: (a) keep; (b) an API route. Lean (a).
+123. **(step 6) Account revokes keys only.** Minting stays in the org drawer. Options: (a) keep; (b) mint from account too. Lean (a).
+124. **(step 6) Top-level words shadow org slugs.** `account`, `cli`, `dev`, `invite`, `login`, `logout`, `register`, `settings`, `setup` win over an org of that slug; org slugs are not checked against `slug.Reserved` at all. Options: (a) reserve them for orgs; (b) keep. Lean (a).
+125. **(step 6) The invite page does not name the org.** No verb reads an invite's org before accept. Options: (a) keep; (b) a lookup verb. Lean (a).
+126. **(step 6) The update badge shows only in the update tab**, not on the nav. Options: (a) keep; (b) a nav badge from a cached check. Lean (a).
+127. **(step 6) `proxy_custom` is stored but not read.** The raw Caddy tab saves it; the proxy flow ignores it. Options: (a) wire it in; (b) drop the tab field. Lean (a), later.
+128. **(step 6) A secret setting can't be cleared from the admin form**; empty keeps the old value. Options: (a) keep; (b) a clear checkbox. Lean (a).
+129. **(step 6) The GitHub callback trusts the state nonce.** Any signed-in user holding it completes the install; no `connector.write` check, and a caller outside the org lands on `/`. Options: (a) keep; (b) also match the session user who started it. Lean (b), later.
+130. **(step 6) Env drawer releases tab supersedes DECIDE 92.** Dry run, promote and roll back live there; the old tile rollback route is kept. Options: (a) keep both; (b) drop the old route. Lean (a).
+131. **(step 6) The promote job reaches the tab through the echo context**, not a return value. Options: (a) keep; (b) return the job id. Lean (a).
+132. **(step 6) The admin job stream lives at `/-/jobs/:job/events`.** Options: (a) keep; (b) under `/settings`. Lean (a).
+133. **(step 6) Roll back vs Promote is chosen by release number.** When the target env derived its own newer release (a direct deploy there), moving it to a lower number from the rung below reads "Roll back". Options: (a) keep; (b) decide by whether the release has been current in the target. Lean (b).
+134. **(step 6) Create-tile takes a command** for every source except managed. Options: (a) keep; (b) image and function only. Lean (a).
+135. **(step 6) Live tabs refetch themselves.** A live job refetches its tab on `sse:end`; the runs tab polls every 2 s while a run is live. Options: (a) keep; (b) a run SSE stream. Lean (a).
+136. **(step 6) Traffic counts a new tuple in full after the seed tick.** A long-lived connection whose end only now maps to a tile (a new container) spikes once. Options: (a) keep; (b) also track unmapped tuples. Lean (a).
+137. **(step 6) Re-running the installer does not upgrade.** It is a no-op while `stackr` and `stackr-proxy` exist; the smoke removes them first. Options: (a) keep, upgrade is the admin route; (b) the installer swaps an older image. Lean (a).
+138. **(step 6) Small UI misses from the smoke, not fixed:** the function status tab offers Restart/Stop; an admin can disable themselves; log lines show docker's E/O prefix; htmx logs an `Event` console error when a page's SSE stream is torn down on navigation. Options: (a) fix in step 7; (b) keep. Lean (a).
+139. **(step 6) Handler audit output is not empty.** Every remaining hit is a false positive, explained in commits a013293 and the progress commit (three new templ `if set` hits: job refresher, create-tile command, runs poller). Options: (a) keep; (b) teach the script those shapes. Lean (b).
+140. **(step 6) Editing an image tile's tag does nothing on redeploy.** Once a release pins the tile, `deploy.Redeploy` runs the pinned digest; a new `image_ref` (API PATCH; the web has no field for it) only lands when image watch's "Check now" derives a release and that release is promoted. The image tab also shows "running digest: none" for a running tile. Options: (a) keep, image watch is the path; (b) `UpdateTile` derives a release when `image_ref` changes, and the web gets an image field. Lean (b), step 7.

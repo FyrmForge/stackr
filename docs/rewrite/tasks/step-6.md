@@ -319,16 +319,16 @@ since the merge, DECIDE 86):
 
 ### Session D (after B and C are stacked)
 
-11. **Full pages + admin drawer.** Login, setup, invite accept, CLI
+11. **Full pages + admin drawer.** (done 2026-09-24) Login, setup, invite accept, CLI
     authorize (DECIDE 44), account; `GET /settings/github/callback`;
     admin drawer from the nav: server settings, users, update
     (check/run/badge, the upgrade route step 5 left), raw Caddy, panel
     backup.
 
-12. **Handler audit + Playwright smoke** on the VM: login → create org →
+12. **Handler audit + Playwright smoke** (done 2026-09-24) on the VM: login → create org →
     stack → env → deploy an image tile → drag a card and reload (position
     kept) → open its drawer → promote dry run → promote → rollback →
     run a function tile and read its log.
 
-13. **Done gate.** build/lint/test/templint; every element under budget;
+13. **Done gate.** (done 2026-09-24; no PRs, builder told not to push) build/lint/test/templint; every element under budget;
     audit empty; smoke green; PROGRESS.md ticked; stacked PRs.
