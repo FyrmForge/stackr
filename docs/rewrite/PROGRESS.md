@@ -355,3 +355,10 @@ Raised by step 3 session A (builder took the lean; flip any):
 25. **`proxy.methods` extra.** Caddy blocks no verb, so WebDAV/CalDAV
    already pass. Built as an allowlist (a `method` matcher: other verbs
    miss the route). Options: (a) keep allowlist; (b) drop the extra.
+26. **Restoring an orphan's archive.** Runs outlive their volume
+   (volume_id SET NULL), but `leaf/backup.Restorable(run, sourceVolume)`
+   needs the run to belong to the source volume, so an orphan's last
+   archive (prefix `stackr/_orphan/<volume>`, no org in it) cannot be
+   restored from the panel. Options: (a) keep, admin restores by hand;
+   (b) record the org on the run so its owner can restore it into
+   another volume.

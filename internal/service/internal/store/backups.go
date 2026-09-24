@@ -99,6 +99,8 @@ type BackupRunStore interface {
 	Get(ctx context.Context, id string) (BackupRun, error)
 	ListByVolume(ctx context.Context, volumeID string) ([]BackupRun, error)
 	ListByKind(ctx context.Context, kind string) ([]BackupRun, error)
+	// ListByPrefix lists the runs whose object key sits under prefix.
+	ListByPrefix(ctx context.Context, prefix string) ([]BackupRun, error)
 	Update(ctx context.Context, b BackupRun) error
 	Delete(ctx context.Context, id string) error
 }
@@ -113,4 +115,8 @@ func (s backupRuns) ListByVolume(ctx context.Context, volumeID string) ([]Backup
 
 func (s backupRuns) ListByKind(ctx context.Context, kind string) ([]BackupRun, error) {
 	return s.many(ctx, "kind = ?", kind)
+}
+
+func (s backupRuns) ListByPrefix(ctx context.Context, prefix string) ([]BackupRun, error) {
+	return s.many(ctx, "substr(object_key, 1, ?) = ?", len(prefix), prefix)
 }
