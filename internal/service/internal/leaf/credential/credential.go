@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"slices"
 	"strings"
 	"time"
 
@@ -131,12 +132,11 @@ func (l *Leaf) For(ctx context.Context, orgID, ref string) (c store.Credential, 
 		return c, false, nil
 	}
 	cs, err := l.creds.ListByOrg(ctx, orgID)
-	for _, c := range cs {
-		if c.URL == host {
-			return c, true, err
-		}
+	i := slices.IndexFunc(cs, func(c store.Credential) bool { return c.URL == host })
+	if i < 0 {
+		return c, false, err
 	}
-	return c, false, err
+	return cs[i], true, err
 }
 
 // Auth is the X-Registry-Auth blob Docker takes per pull.

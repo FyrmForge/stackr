@@ -7,10 +7,12 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/FyrmForge/stackr/internal/middleware"
+	"github.com/FyrmForge/stackr/internal/service"
 	"github.com/FyrmForge/stackr/internal/web/webtest"
 )
 
@@ -20,13 +22,11 @@ func owner(t *testing.T, s *webtest.Site) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, u := range us {
-		if u.Email == "owner@acme.test" {
-			return u.ID
-		}
+	i := slices.IndexFunc(us, func(u service.User) bool { return u.Email == "owner@acme.test" })
+	if i < 0 {
+		t.Fatal("no owner")
 	}
-	t.Fatal("no owner")
-	return ""
+	return us[i].ID
 }
 
 // A visitor's page load goes to log in and names the way back; htmx and

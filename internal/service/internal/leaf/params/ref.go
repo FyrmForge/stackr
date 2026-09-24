@@ -2,8 +2,9 @@ package params
 
 import (
 	"fmt"
+	"maps"
 	"regexp"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -177,8 +178,13 @@ func NewResolver(s Snapshot) *Resolver {
 }
 
 // Deps are the slugs referenced; Networks the shared networks to join.
-func (rr *Resolver) Deps() []string     { return sortedKeys(rr.deps) }
-func (rr *Resolver) Networks() []string { return sortedKeys(rr.nets) }
+func (rr *Resolver) Deps() []string {
+	return slices.Sorted(maps.Keys(rr.deps))
+}
+
+func (rr *Resolver) Networks() []string {
+	return slices.Sorted(maps.Keys(rr.nets))
+}
 
 // Expand substitutes every ref in one string sitting at w. Any failure is an
 // error and no value, never a half-expanded string.
@@ -278,15 +284,6 @@ func (rr *Resolver) source(r Ref, in map[string]Source, what string) (string, er
 		rr.nets[src.Network] = true
 	}
 	return v, nil
-}
-
-func sortedKeys(m map[string]bool) []string {
-	out := make([]string, 0, len(m))
-	for k := range m {
-		out = append(out, k)
-	}
-	sort.Strings(out)
-	return out
 }
 
 // Endpoint is a service tile's address as stackr knows it.

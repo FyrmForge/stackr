@@ -10,6 +10,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
+	"slices"
 	"strings"
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
@@ -102,7 +104,7 @@ func (f *Flow) apply(ctx context.Context, w *work, log io.Writer) error {
 		}
 	}
 	scope := volume.Scope{Kind: "env", ID: e.ID}
-	for _, n := range sortedKeys(w.declare) {
+	for _, n := range slices.Sorted(maps.Keys(w.declare)) {
 		if _, _, err := d.Volumes.Declare(ctx, scope, n, w.declare[n].MaxSizeMB, nil); err != nil {
 			return err
 		}
@@ -132,7 +134,7 @@ func (f *Flow) apply(ctx context.Context, w *work, log io.Writer) error {
 		}
 	}
 	dns01 := f.DNS01 != nil && f.DNS01(ctx)
-	for _, name := range sortedKeys(w.domains) {
+	for _, name := range slices.Sorted(maps.Keys(w.domains)) {
 		t, err := d.Tiles.GetBySlug(ctx, e.ID, name)
 		if err != nil {
 			return err
@@ -168,7 +170,7 @@ func (f *Flow) apply(ctx context.Context, w *work, log io.Writer) error {
 			return err
 		}
 	}
-	for _, name := range sortedKeys(w.attach) {
+	for _, name := range slices.Sorted(maps.Keys(w.attach)) {
 		consumer, err := d.Tiles.GetBySlug(ctx, e.ID, name)
 		if err != nil {
 			return err

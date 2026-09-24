@@ -3,6 +3,8 @@
 // of the settings table. A knob's Key is the only spelling of its name.
 package settings
 
+import "slices"
+
 type Type string
 
 const (
@@ -87,10 +89,9 @@ var Catalogue = []Knob{
 }
 
 func lookup(key string) (Knob, bool) {
-	for _, k := range Catalogue {
-		if k.Key == key {
-			return k, true
-		}
+	i := slices.IndexFunc(Catalogue, func(k Knob) bool { return k.Key == key })
+	if i < 0 {
+		return Knob{}, false
 	}
-	return Knob{}, false
+	return Catalogue[i], true
 }

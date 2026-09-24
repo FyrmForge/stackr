@@ -1,6 +1,7 @@
 package graph
 
 import (
+	"slices"
 	"sort"
 
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/canvas"
@@ -38,12 +39,7 @@ func (a box) hits(b box) bool {
 }
 
 func free(b box, taken []box) bool {
-	for _, t := range taken {
-		if b.hits(t) {
-			return false
-		}
-	}
-	return true
+	return !slices.ContainsFunc(taken, b.hits)
 }
 
 func snap(v int) int {

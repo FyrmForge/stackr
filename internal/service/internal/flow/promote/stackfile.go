@@ -3,7 +3,9 @@ package promote
 import (
 	"fmt"
 	"io"
+	"maps"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 
@@ -661,7 +663,7 @@ func checkVolume(name string, v VolumeConf) error {
 // checkRefs: every volume line names a declared volume, depends_on names a
 // tile of the env, no cycles.
 func checkRefs(env string, re ResolvedEnv) error {
-	for _, n := range sortedKeys(re.Tiles) {
+	for _, n := range slices.Sorted(maps.Keys(re.Tiles)) {
 		tc := re.Tiles[n]
 		for _, l := range tc.Volumes {
 			v, _, _ := strings.Cut(l, ":")
@@ -679,7 +681,7 @@ func checkRefs(env string, re ResolvedEnv) error {
 			}
 		}
 	}
-	if order := topo(sortedKeys(re.Tiles), re.Tiles); len(order) == 0 && len(re.Tiles) > 0 {
+	if order := topo(slices.Sorted(maps.Keys(re.Tiles)), re.Tiles); len(order) == 0 && len(re.Tiles) > 0 {
 		return fmt.Errorf("environment %s: depends_on has a cycle", env)
 	}
 	return nil
@@ -853,13 +855,4 @@ func sameSet(a, b []string) bool {
 		}
 	}
 	return true
-}
-
-func sortedKeys[V any](m map[string]V) []string {
-	out := make([]string, 0, len(m))
-	for k := range m {
-		out = append(out, k)
-	}
-	sort.Strings(out)
-	return out
 }

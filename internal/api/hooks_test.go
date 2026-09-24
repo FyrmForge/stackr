@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"io"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -90,12 +91,7 @@ func TestWebhookPR(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		for _, e := range es {
-			if e.Name == "pr-7" {
-				return true
-			}
-		}
-		return false
+		return slices.ContainsFunc(es, func(e service.Environment) bool { return e.Name == "pr-7" })
 	}
 	if code := w.hook(t, conn, "pull_request", "whsec", pr("opened")); code != 204 {
 		t.Fatalf("opened = %d", code)

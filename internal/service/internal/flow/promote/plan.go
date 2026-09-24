@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -258,7 +260,7 @@ func (f *Flow) planConfig(ctx context.Context, p *Plan, w *work, r *Resolved) er
 	for _, t := range live {
 		byslug[t.Slug] = t
 	}
-	for _, name := range sortedKeys(re.Tiles) {
+	for _, name := range slices.Sorted(maps.Keys(re.Tiles)) {
 		tc := re.Tiles[name]
 		if len(tc.Files) > 0 { // DECIDE 27
 			p.block("tile %s: files: is not supported yet", name)
@@ -316,7 +318,7 @@ func (f *Flow) planUpdate(ctx context.Context, p *Plan, w *work, old, row store.
 	if !c.Any() {
 		return nil
 	}
-	for _, k := range sortedKeys(c) {
+	for _, k := range slices.Sorted(maps.Keys(c)) {
 		ch := Change{Kind: "update", Tile: name, Field: k}
 		if v, ok := shownValues[k]; ok {
 			ch.Old, ch.New = v(old), v(row)
@@ -448,7 +450,7 @@ func (f *Flow) planSlices(ctx context.Context, p *Plan, w *work, name string, tc
 		w.attach[name] = append(w.attach[name], s)
 		w.redeploy[name] = true
 	}
-	for _, from := range sortedKeys(held) {
+	for _, from := range slices.Sorted(maps.Keys(held)) {
 		if want[from] {
 			continue
 		}
@@ -528,8 +530,8 @@ func (f *Flow) planParams(ctx context.Context, p *Plan, w *work, r *Resolved) er
 	if err != nil {
 		return err
 	}
-	for _, c := range sortedKeys(r.Params) {
-		for _, n := range sortedKeys(r.Params[c]) {
+	for _, c := range slices.Sorted(maps.Keys(r.Params)) {
+		for _, n := range slices.Sorted(maps.Keys(r.Params[c])) {
 			decl, key := r.Params[c][n], c+"."+n
 			old, ok := have[key]
 			switch {
@@ -563,7 +565,7 @@ func (f *Flow) planVolumes(ctx context.Context, p *Plan, w *work) error {
 			byslug[v.Slug] = v
 		}
 	}
-	for _, n := range sortedKeys(w.re.Volumes) {
+	for _, n := range slices.Sorted(maps.Keys(w.re.Volumes)) {
 		vc := w.re.Volumes[n]
 		v, ok := byslug[n]
 		switch {
@@ -578,7 +580,7 @@ func (f *Flow) planVolumes(ctx context.Context, p *Plan, w *work) error {
 		}
 		w.declare[n] = vc
 	}
-	for _, n := range sortedKeys(byslug) {
+	for _, n := range slices.Sorted(maps.Keys(byslug)) {
 		if _, ok := w.re.Volumes[n]; !ok && byslug[n].OrphanedAt == nil {
 			p.add(Change{Kind: "orphan", Old: n, Note: "the volume and its data stay; retention deletes it later"})
 			w.orphan = append(w.orphan, byslug[n])
@@ -607,7 +609,7 @@ func (f *Flow) planImages(ctx context.Context, p *Plan, w *work, pins map[string
 		p.add(Change{Kind: "image", Tile: c.Slug, Note: c.Kind})
 		w.redeploy[c.Slug] = true
 	}
-	for _, n := range sortedKeys(tiles) {
+	for _, n := range slices.Sorted(maps.Keys(tiles)) {
 		if tiles[n] && pins[n].ImageID == nil {
 			p.block("tile %s has no build in release #%d; build a commit first", n, w.rel.Number)
 		}
@@ -708,12 +710,11 @@ func sigRow(d store.Domain) string {
 }
 
 func findDomain(ds []store.Domain, key string) (store.Domain, bool) {
-	for _, d := range ds {
-		if d.Host+d.Path == key {
-			return d, true
-		}
+	i := slices.IndexFunc(ds, func(d store.Domain) bool { return d.Host+d.Path == key })
+	if i < 0 {
+		return store.Domain{}, false
 	}
-	return store.Domain{}, false
+	return ds[i], true
 }
 
 func normPath(p string) string {

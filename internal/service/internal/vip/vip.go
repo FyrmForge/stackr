@@ -7,6 +7,7 @@ package vip
 import (
 	"context"
 	"fmt"
+	"maps"
 	"net/netip"
 	"os/exec"
 	"slices"
@@ -91,9 +92,9 @@ func (t *Table) apply(ctx context.Context, next map[string][]string) error {
 func Render(prev, next map[string][]string) string {
 	var b strings.Builder
 	b.WriteString("*nat\n:" + Chain + " - [0:0]\n")
-	vips := sortedKeys(next)
+	vips := slices.Sorted(maps.Keys(next))
 	var gone []string
-	for _, v := range sortedKeys(prev) {
+	for _, v := range slices.Sorted(maps.Keys(prev)) {
 		if _, ok := next[v]; !ok {
 			gone = append(gone, v)
 		}
@@ -134,15 +135,6 @@ func run(ctx context.Context, argv ...string) error {
 		return fmt.Errorf("%s: %w: %s", strings.Join(argv, " "), err, strings.TrimSpace(string(out)))
 	}
 	return nil
-}
-
-func sortedKeys(m map[string][]string) []string {
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-	slices.Sort(keys)
-	return keys
 }
 
 func clone(m map[string][]string) map[string][]string {

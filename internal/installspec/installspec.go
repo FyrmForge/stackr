@@ -9,10 +9,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"net/netip"
 	"os"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strings"
 )
 
@@ -160,12 +161,7 @@ func (c Container) RunArgs() []string {
 	for _, v := range c.CapAdd {
 		a = append(a, "--cap-add", v)
 	}
-	keys := make([]string, 0, len(c.Labels))
-	for k := range c.Labels {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	for _, k := range keys {
+	for _, k := range slices.Sorted(maps.Keys(c.Labels)) {
 		a = append(a, "--label", k+"="+c.Labels[k])
 	}
 	for _, v := range c.Volumes {

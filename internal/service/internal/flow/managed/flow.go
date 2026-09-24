@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 	"strconv"
 	"time"
 
@@ -332,10 +333,5 @@ func outputs(bs []Binding) map[string]string {
 }
 
 func visible(ms []store.ManagedInstance, id string) bool {
-	for _, m := range ms {
-		if m.ID == id {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(ms, func(m store.ManagedInstance) bool { return m.ID == id })
 }

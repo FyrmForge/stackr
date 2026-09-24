@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"maps"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/environment"
@@ -118,7 +120,7 @@ func (f *Flow) candidates(ctx context.Context, st store.Stack, envs []store.Envi
 		}
 		for _, e := range envs {
 			re := r.Envs[e.Slug]
-			for _, n := range sortedKeys(re.Tiles) {
+			for _, n := range slices.Sorted(maps.Keys(re.Tiles)) {
 				keep(toRow(n, re.Tiles[n], st, e))
 			}
 		}
@@ -169,21 +171,13 @@ func watchMatch(watch, changed []string) bool {
 			in = append(in, re)
 		}
 	}
-	for _, c := range changed {
-		if (len(in) == 0 || anyMatch(in, c)) && !anyMatch(out, c) {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(changed, func(c string) bool {
+		return (len(in) == 0 || anyMatch(in, c)) && !anyMatch(out, c)
+	})
 }
 
 func anyMatch(rs []*regexp.Regexp, s string) bool {
-	for _, r := range rs {
-		if r.MatchString(s) {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(rs, func(r *regexp.Regexp) bool { return r.MatchString(s) })
 }
 
 // configOnly: every changed path is the stack file, so nothing rebuilds.

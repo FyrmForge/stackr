@@ -9,7 +9,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"sort"
+	"maps"
+	"slices"
 	"strings"
 	"time"
 
@@ -367,12 +368,9 @@ func (f *Flow) vars(ctx context.Context, s params.Scope) (Node, error) {
 }
 
 func buildsFrom(ts []store.Tile, host string) bool {
-	for _, t := range ts {
-		if t.GitURL != "" && connector.Host(t.GitURL) == host {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(ts, func(t store.Tile) bool {
+		return t.GitURL != "" && connector.Host(t.GitURL) == host
+	})
 }
 
 // reads: any tile of ts uses a ref of kind k.
@@ -392,7 +390,7 @@ func refs(t store.Tile) []params.Ref {
 	var env map[string]string
 	_ = json.Unmarshal([]byte(t.EnvJSON), &env)
 	src := []string{t.Command}
-	for _, k := range sortedKeys(env) {
+	for _, k := range slices.Sorted(maps.Keys(env)) {
 		src = append(src, env[k])
 	}
 	var out []params.Ref
@@ -404,15 +402,6 @@ func refs(t store.Tile) []params.Ref {
 		}
 	}
 	return out
-}
-
-func sortedKeys[V any](m map[string]V) []string {
-	ks := make([]string, 0, len(m))
-	for k := range m {
-		ks = append(ks, k)
-	}
-	sort.Strings(ks)
-	return ks
 }
 
 // ---- status ---------------------------------------------------------------
@@ -653,10 +642,8 @@ func (f *Flow) env(ctx context.Context, v *View, envID string, in In) error {
 
 // ghost adds a ref card once and returns its id.
 func ghost(v *View, id, name, detail string) string {
-	for _, n := range v.Nodes {
-		if n.ID == id {
-			return id
-		}
+	if slices.ContainsFunc(v.Nodes, func(n Node) bool { return n.ID == id }) {
+		return id
 	}
 	n := card(id, KindRef, name)
 	n.Detail, n.Static = detail, true

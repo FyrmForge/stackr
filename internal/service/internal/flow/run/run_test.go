@@ -182,10 +182,5 @@ func TestQueueRefusesAService(t *testing.T) {
 }
 
 func called(f *dockerfake.Fake, method string) bool {
-	for _, c := range f.Calls() {
-		if c.Method == method {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(f.Calls(), func(c dockerfake.Call) bool { return c.Method == method })
 }

@@ -9,6 +9,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
+	"slices"
 	"strings"
 	"time"
 
@@ -251,10 +252,8 @@ func (l *Leaf) lastOwner(ctx context.Context, orgID, userID string) error {
 	if err != nil {
 		return err
 	}
-	for _, m := range ms {
-		if m.Role == Owner && m.UserID != userID {
-			return nil
-		}
+	if slices.ContainsFunc(ms, func(m store.OrgMember) bool { return m.Role == Owner && m.UserID != userID }) {
+		return nil
 	}
 	return errs.Conflictf("an organization needs at least one owner")
 }

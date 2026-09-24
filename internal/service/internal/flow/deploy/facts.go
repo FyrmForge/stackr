@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"sort"
 	"strings"
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
@@ -107,13 +106,4 @@ func envMap(blob string) (map[string]string, error) {
 		return m, nil
 	}
 	return m, json.Unmarshal([]byte(blob), &m)
-}
-
-func sortedKeys(m map[string]string) []string {
-	out := make([]string, 0, len(m))
-	for k := range m {
-		out = append(out, k)
-	}
-	sort.Strings(out)
-	return out
 }

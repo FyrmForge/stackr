@@ -16,6 +16,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
+	"slices"
 	"strings"
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
@@ -317,7 +319,7 @@ func (f *Flow) resolve(ctx context.Context, t store.Tile, e store.Environment, s
 		return r, err
 	}
 	r.env = append(r.env, def.Env...)
-	for _, k := range sortedKeys(env) {
+	for _, k := range slices.Sorted(maps.Keys(env)) {
 		v, err := rr.Expand(params.InEnv, env[k])
 		if err != nil {
 			return r, err

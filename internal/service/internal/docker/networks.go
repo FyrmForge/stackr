@@ -3,6 +3,7 @@ package docker
 import (
 	"context"
 	"maps"
+	"slices"
 	"strings"
 
 	cerrdefs "github.com/containerd/errdefs"
@@ -18,10 +19,8 @@ func (d *Client) EnsureNetwork(ctx context.Context, name string, labels map[stri
 	if err != nil {
 		return err
 	}
-	for _, n := range nets {
-		if n.Name == name {
-			return nil
-		}
+	if slices.ContainsFunc(nets, func(n network.Summary) bool { return n.Name == name }) {
+		return nil
 	}
 	all := map[string]string{LabelManaged: "true"}
 	maps.Copy(all, labels)

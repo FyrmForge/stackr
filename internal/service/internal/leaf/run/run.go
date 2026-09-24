@@ -141,12 +141,11 @@ func (l *Leaf) Last(ctx context.Context, tileID string) (store.Run, bool, error)
 // Active is the tile's queued or running run, if any.
 func (l *Leaf) Active(ctx context.Context, tileID string) (store.Run, bool, error) {
 	rs, err := l.List(ctx, tileID, 0)
-	for _, r := range rs {
-		if !Done(r) {
-			return r, true, err
-		}
+	i := slices.IndexFunc(rs, func(r store.Run) bool { return !Done(r) })
+	if i < 0 {
+		return store.Run{}, false, err
 	}
-	return store.Run{}, false, err
+	return rs[i], true, err
 }
 
 // Interrupted fails every run left running (the process died under it);

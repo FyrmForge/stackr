@@ -51,12 +51,7 @@ func LockSet(tileIDs ...string) []string {
 
 // Overlaps reports whether two lock sets share a tile.
 func Overlaps(a, b []string) bool {
-	for _, t := range a {
-		if slices.Contains(b, t) {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(a, func(t string) bool { return slices.Contains(b, t) })
 }
 
 // Supersedes is the Railway rule's other half, next to the lock key: a newer
@@ -144,12 +139,11 @@ func (l *Leaf) Last(ctx context.Context, tileID string) (store.Job, bool, error)
 // row reads as never deployed. Push the state into the query if that bites.
 func (l *Leaf) LastDone(ctx context.Context, tileID, kind string) (store.Job, bool, error) {
 	js, err := l.jobs.ListTouching(ctx, []string{tileID}, kind, 100)
-	for _, j := range js {
-		if j.State == Done {
-			return j, true, err
-		}
+	i := slices.IndexFunc(js, func(j store.Job) bool { return j.State == Done })
+	if i < 0 {
+		return store.Job{}, false, err
 	}
-	return store.Job{}, false, err
+	return js[i], true, err
 }
 
 // MaxChunk caps one poll's slice of the log.

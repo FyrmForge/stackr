@@ -1,6 +1,7 @@
 package components
 
 import (
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -50,11 +51,7 @@ func TestElementWhitelist(t *testing.T) {
 	for _, f := range files {
 		got = append(got, strings.TrimSuffix(filepath.Base(f), ".ts"))
 	}
-	want := make([]string, 0, len(elements))
-	for tag := range elements {
-		want = append(want, tag)
-	}
-	slices.Sort(want)
+	want := slices.Sorted(maps.Keys(elements))
 	if !slices.Equal(got, want) {
 		t.Fatalf("ui/ts holds %v, the whitelist is %v", got, want)
 	}

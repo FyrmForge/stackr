@@ -7,7 +7,9 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -284,15 +286,14 @@ func policies(in Install, hosts map[string]bool) []route {
 		}
 		groups[k] = append(groups[k], h)
 	}
-	keys := make([]key, 0, len(groups))
-	for k := range groups {
-		keys = append(keys, k)
-	}
-	sort.Slice(keys, func(i, j int) bool {
-		if keys[i].dns != keys[j].dns {
-			return keys[i].dns
+	keys := slices.SortedFunc(maps.Keys(groups), func(a, b key) int {
+		if a.dns != b.dns {
+			if a.dns {
+				return -1
+			}
+			return 1
 		}
-		return keys[i].email < keys[j].email
+		return strings.Compare(a.email, b.email)
 	})
 	var out []route
 	for _, k := range keys {

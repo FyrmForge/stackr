@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -149,10 +150,8 @@ func (o *Orchestrator) usesRepo(ctx context.Context, st store.Stack, repo string
 		return true, nil
 	}
 	ts, err := o.tiles.ListByStack(ctx, st.ID)
-	for _, t := range ts {
-		if t.GitURL != "" && promote.NormalizeRepo(t.GitURL) == key {
-			return true, nil
-		}
+	if slices.ContainsFunc(ts, func(t store.Tile) bool { return t.GitURL != "" && promote.NormalizeRepo(t.GitURL) == key }) {
+		return true, nil
 	}
 	return false, err
 }

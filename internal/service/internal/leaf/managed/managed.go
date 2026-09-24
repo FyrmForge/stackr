@@ -9,6 +9,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"slices"
 	"time"
 
 	"github.com/google/uuid"
@@ -209,12 +210,11 @@ func (l *Leaf) Share(ctx context.Context, of store.Provision, consumerTileID str
 
 func (l *Leaf) find(ctx context.Context, instanceID, tileID string) (store.Provision, bool, error) {
 	ps, err := l.provisions.ListByConsumer(ctx, tileID)
-	for _, p := range ps {
-		if p.InstanceID == instanceID {
-			return p, true, err
-		}
+	i := slices.IndexFunc(ps, func(p store.Provision) bool { return p.InstanceID == instanceID })
+	if i < 0 {
+		return store.Provision{}, false, err
 	}
-	return store.Provision{}, false, err
+	return ps[i], true, err
 }
 
 func (l *Leaf) GetProvision(ctx context.Context, id string) (store.Provision, error) {

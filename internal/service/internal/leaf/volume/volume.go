@@ -10,6 +10,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"slices"
 	"strings"
 	"time"
 
@@ -40,7 +41,9 @@ type Leaf struct {
 
 func New(volumes store.VolumeStore, d Docker) *Leaf { return &Leaf{volumes: volumes, docker: d} }
 
-func (l *Leaf) Get(ctx context.Context, id string) (store.Volume, error) { return l.volumes.Get(ctx, id) }
+func (l *Leaf) Get(ctx context.Context, id string) (store.Volume, error) {
+	return l.volumes.Get(ctx, id)
+}
 
 func (l *Leaf) List(ctx context.Context, s Scope) ([]store.Volume, error) {
 	return l.volumes.ListByScope(ctx, s.Kind, s.ID)
@@ -51,12 +54,11 @@ func (l *Leaf) BySlug(ctx context.Context, s Scope, sl string) (store.Volume, er
 	if err != nil {
 		return store.Volume{}, err
 	}
-	for _, v := range vs {
-		if v.Slug == sl {
-			return v, nil
-		}
+	i := slices.IndexFunc(vs, func(v store.Volume) bool { return v.Slug == sl })
+	if i < 0 {
+		return store.Volume{}, errs.ErrNotFound
 	}
-	return store.Volume{}, errs.ErrNotFound
+	return vs[i], nil
 }
 
 // Declare is the row for a volume the stack file (or an instance) names.

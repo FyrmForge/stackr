@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -90,8 +91,10 @@ var (
 // Ingress is the tile's ingress network: its replicas and the proxy, nothing else.
 func Ingress(tileID string) string { return "stackr-ingress-" + tileID }
 
-func (l *Leaf) Get(ctx context.Context, id string) (store.Domain, error) { return l.domains.Get(ctx, id) }
-func (l *Leaf) List(ctx context.Context) ([]store.Domain, error)        { return l.domains.List(ctx) }
+func (l *Leaf) Get(ctx context.Context, id string) (store.Domain, error) {
+	return l.domains.Get(ctx, id)
+}
+func (l *Leaf) List(ctx context.Context) ([]store.Domain, error) { return l.domains.List(ctx) }
 func (l *Leaf) ListByTile(ctx context.Context, tileID string) ([]store.Domain, error) {
 	return l.domains.ListByTile(ctx, tileID)
 }
@@ -226,10 +229,11 @@ func (l *Leaf) fill(ctx context.Context, d *store.Domain, s Spec, dns01 bool) er
 	if err != nil {
 		return err
 	}
-	for _, o := range all {
-		if o.ID != d.ID && o.Host == host && o.Path == path {
-			return errs.Conflictf("%s%s is already attached to a tile", host, path)
-		}
+	taken := slices.ContainsFunc(all, func(o store.Domain) bool {
+		return o.ID != d.ID && o.Host == host && o.Path == path
+	})
+	if taken {
+		return errs.Conflictf("%s%s is already attached to a tile", host, path)
 	}
 	extras, _ := json.Marshal(s.Extras)
 	d.Host, d.Path, d.ContainerPort, d.HTTPS, d.ForceHTTPS = host, path, s.Port, https, force

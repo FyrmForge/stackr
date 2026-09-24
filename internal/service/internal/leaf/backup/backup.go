@@ -120,10 +120,11 @@ func (l *Leaf) Delete(ctx context.Context, d store.BackupDest) error {
 	if err != nil {
 		return err
 	}
-	for _, s := range all {
-		if s.DestID != nil && *s.DestID == d.ID {
-			return errs.Conflictf("a volume's backup schedule still uses %s", d.Name)
-		}
+	inUse := slices.ContainsFunc(all, func(s store.BackupSchedule) bool {
+		return s.DestID != nil && *s.DestID == d.ID
+	})
+	if inUse {
+		return errs.Conflictf("a volume's backup schedule still uses %s", d.Name)
 	}
 	return l.dests.Delete(ctx, d.ID)
 }
@@ -239,10 +240,8 @@ func (l *Leaf) fill(ctx context.Context, d *store.BackupDest, s Dest) error {
 	if err != nil {
 		return err
 	}
-	for _, p := range peers {
-		if p.ID != d.ID && p.Name == name {
-			return errs.Conflictf("a destination named %s already exists", name)
-		}
+	if slices.ContainsFunc(peers, func(p store.BackupDest) bool { return p.ID != d.ID && p.Name == name }) {
+		return errs.Conflictf("a destination named %s already exists", name)
 	}
 	d.Name, d.Endpoint, d.Region, d.Bucket = name, endpoint, strings.TrimSpace(s.Region), bucket
 	d.AccessKey, d.SecretKey, d.Shared = strings.TrimSpace(s.AccessKey), s.SecretKey, s.Shared && d.OrgID == nil
