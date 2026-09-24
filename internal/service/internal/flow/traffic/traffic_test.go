@@ -10,6 +10,8 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	"github.com/FyrmForge/stackr/internal/service/internal/dockerfake"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/traffic"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/domain"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/environment"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
 	ltraffic "github.com/FyrmForge/stackr/internal/service/internal/leaf/traffic"
 )
@@ -25,13 +27,18 @@ func managed(labels map[string]string) map[string]string {
 func world() (*traffic.Flow, *dockerfake.Fake, *time.Time) {
 	f := dockerfake.New()
 	f.Containers = []docker.Container{
-		{ID: "w1", State: "running", IPs: []string{"172.20.0.3"}, Labels: managed(map[string]string{tile.LabelTile: "web", tile.LabelRole: "replica"})},
+		{ID: "w1", State: "running", IPs: []string{"172.20.0.3", "172.21.0.6"}, Labels: managed(map[string]string{tile.LabelTile: "web", tile.LabelRole: "replica"})},
 		{ID: "dp", State: "running", IPs: []string{"172.20.0.2"}, Labels: managed(map[string]string{tile.LabelTile: "db", tile.LabelRole: "pause"})},
 		{ID: "d1", State: "running", IPs: []string{"172.20.0.4"}, Labels: managed(map[string]string{tile.LabelTile: "db", tile.LabelRole: "replica"})},
 		{ID: "old", State: "exited", IPs: []string{"172.20.0.9"}, Labels: managed(map[string]string{tile.LabelTile: "gone"})},
 	}
+	// The proxy is on the default bridge and web's ingress network.
+	f.Details = map[string]docker.Detail{"stackr-proxy": {Networks: map[string]string{
+		"bridge": "172.17.0.2", "stackr-ingress-web": "172.21.0.5"}}}
+	f.GatewayIPs = []string{"172.20.0.1", "172.21.0.1"}
 	now := time.Unix(1000, 0)
-	fl := &traffic.Flow{Tiles: tile.New(nil, f, nil), Traffic: ltraffic.New(),
+	fl := &traffic.Flow{Tiles: tile.New(nil, f, nil), Envs: environment.New(nil, f),
+		Domains: domain.New(nil, f, "stackr-proxy"), Traffic: ltraffic.New(),
 		Path: filepath.Join("testdata", "tick1"), Now: func() time.Time { return now }}
 	return fl, f, &now
 }
@@ -48,6 +55,34 @@ func TestTick(t *testing.T) {
 	}
 	got := fl.Traffic.Snapshot()
 	want := map[ltraffic.Pair]float64{{From: "web", To: "db"}: 1000, {From: "db", To: "web"}: 10000}
+	if len(got) != len(want) {
+		t.Fatalf("snapshot = %v, want %v", got, want)
+	}
+	for p, v := range want {
+		if got[p] != v {
+			t.Errorf("%v = %v, want %v", p, got[p], v)
+		}
+	}
+}
+
+// Task 3: the proxy container and a gateway source are the proxy; a
+// tile's unknown far end is the internet; outside <-> proxy is nobody's.
+func TestTickSystemEnds(t *testing.T) {
+	ctx := context.Background()
+	fl, _, now := world()
+	fl.Path = filepath.Join("testdata", "ingress1")
+	if err := fl.Tick(ctx); err != nil {
+		t.Fatal(err)
+	}
+	fl.Path, *now = filepath.Join("testdata", "ingress2"), now.Add(5*time.Second)
+	if err := fl.Tick(ctx); err != nil {
+		t.Fatal(err)
+	}
+	got := fl.Traffic.Snapshot()
+	want := map[ltraffic.Pair]float64{
+		{From: "proxy", To: "web"}: 200, {From: "web", To: "proxy"}: 1100,
+		{From: "web", To: "internet"}: 200, {From: "internet", To: "web"}: 400,
+	}
 	if len(got) != len(want) {
 		t.Fatalf("snapshot = %v, want %v", got, want)
 	}

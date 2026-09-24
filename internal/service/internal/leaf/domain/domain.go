@@ -15,6 +15,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
+	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
 
@@ -25,6 +26,7 @@ type Docker interface {
 	Connect(ctx context.Context, netName, containerID string, aliases []string) error
 	Disconnect(ctx context.Context, netName, containerID string) error
 	NetworkMembers(ctx context.Context, name string) ([]string, error)
+	Inspect(ctx context.Context, id string) (docker.Detail, error)
 }
 
 type Leaf struct {
@@ -149,6 +151,25 @@ func (l *Leaf) OpenIngress(ctx context.Context, tileID string, replicas []string
 		}
 	}
 	return nil
+}
+
+// ProxyAddrs are the proxy container's IPs, one per network it has joined;
+// none when it is not there.
+func (l *Leaf) ProxyAddrs(ctx context.Context) ([]string, error) {
+	d, err := l.docker.Inspect(ctx, l.proxy)
+	if errors.Is(err, docker.ErrNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	out := make([]string, 0, len(d.Networks))
+	for _, ip := range d.Networks {
+		if ip != "" {
+			out = append(out, ip)
+		}
+	}
+	return out, nil
 }
 
 // CloseIngress disconnects every member of the tile's ingress network and

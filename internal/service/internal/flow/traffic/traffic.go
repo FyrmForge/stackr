@@ -1,5 +1,6 @@
 // Package traffic is the 5 s sampling tick: which IP is which tile (tile
-// leaf), the host conntrack table (the panel is host-network, so
+// leaf) and which is the proxy (its container, domain leaf; every stackr
+// network's gateway, environment leaf), the host conntrack table (the panel is host-network, so
 // /proc/net/nf_conntrack is the host's), one leaf/traffic Sample. A read,
 // not a container op, so it runs inline on the scheduler, never as a job.
 package traffic
@@ -12,8 +13,10 @@ import (
 	"os"
 	"time"
 
-	ltraffic "github.com/FyrmForge/stackr/internal/service/internal/leaf/traffic"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/domain"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/environment"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
+	ltraffic "github.com/FyrmForge/stackr/internal/service/internal/leaf/traffic"
 )
 
 // DefaultPath is the host conntrack table as a host-network process sees it.
@@ -21,6 +24,8 @@ const DefaultPath = "/proc/net/nf_conntrack"
 
 type Flow struct {
 	Tiles   *tile.Leaf
+	Envs    *environment.Leaf
+	Domains *domain.Leaf
 	Traffic *ltraffic.Leaf
 	Path    string           // the conntrack file
 	Now     func() time.Time // nil = time.Now
@@ -36,6 +41,20 @@ func (f *Flow) Tick(ctx context.Context) error {
 	ips, err := f.Tiles.Addresses(ctx)
 	if err != nil {
 		return err
+	}
+	// Ingress: Caddy reaches a tile from its own container on the ingress
+	// network; anything host-side (the host-network panel, docker's userland
+	// port proxy) arrives from the network's gateway.
+	proxy, err := f.Domains.ProxyAddrs(ctx)
+	if err != nil {
+		return err
+	}
+	gws, err := f.Envs.Gateways(ctx)
+	if err != nil {
+		return err
+	}
+	for _, ip := range append(proxy, gws...) {
+		ips[ip] = ltraffic.Proxy
 	}
 	now := time.Now
 	if f.Now != nil {

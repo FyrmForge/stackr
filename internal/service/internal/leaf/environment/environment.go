@@ -14,6 +14,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
+	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	"github.com/FyrmForge/stackr/internal/service/internal/slug"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
@@ -30,6 +31,7 @@ const (
 type Networks interface {
 	EnsureNetwork(ctx context.Context, name string, labels map[string]string) error
 	RemoveNetwork(ctx context.Context, name string) error
+	Gateways(ctx context.Context, labels map[string]string) ([]string, error)
 }
 
 type Leaf struct {
@@ -256,6 +258,12 @@ func (l *Leaf) SetColor(ctx context.Context, e store.Environment, color string) 
 // Network ensures the env's Docker network and returns its name.
 func (l *Leaf) Network(ctx context.Context, e store.Environment) (string, error) {
 	return e.Network, l.net.EnsureNetwork(ctx, e.Network, map[string]string{"stackr.env": e.ID})
+}
+
+// Gateways are the gateway IPs of every stackr network (env, shared,
+// ingress): where the host, and so the host-network panel, meets them.
+func (l *Leaf) Gateways(ctx context.Context) ([]string, error) {
+	return l.net.Gateways(ctx, map[string]string{docker.LabelManaged: "true"})
 }
 
 // Shared ensures a network that crosses envs (a stack- or org-scoped

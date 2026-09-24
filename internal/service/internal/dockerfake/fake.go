@@ -36,6 +36,7 @@ type Fake struct {
 	Digests    map[string]string // ref -> digest
 	Members    map[string][]string
 	Networks   []string
+	GatewayIPs []string // what Gateways answers
 	Images     []docker.Image
 	BuildID    string
 	ExecOut    string
@@ -120,6 +121,9 @@ func (f *Fake) EnsureNetwork(_ context.Context, name string, _ map[string]string
 }
 func (f *Fake) ListNetworks(context.Context, map[string]string) ([]string, error) {
 	return f.Networks, f.rec("ListNetworks")
+}
+func (f *Fake) Gateways(context.Context, map[string]string) ([]string, error) {
+	return f.GatewayIPs, f.rec("Gateways")
 }
 func (f *Fake) RemoveNetwork(_ context.Context, name string) error {
 	return f.rec("RemoveNetwork", name)

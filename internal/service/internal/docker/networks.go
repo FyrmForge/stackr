@@ -56,6 +56,23 @@ func (d *Client) ListNetworks(ctx context.Context, labels map[string]string) ([]
 	return out, nil
 }
 
+// Gateways returns the gateway IPs of the networks carrying all of labels.
+func (d *Client) Gateways(ctx context.Context, labels map[string]string) ([]string, error) {
+	nets, err := d.cli.NetworkList(ctx, network.ListOptions{Filters: labelFilter(labels)})
+	if err != nil {
+		return nil, err
+	}
+	var out []string
+	for _, n := range nets {
+		for _, c := range n.IPAM.Config {
+			if c.Gateway != "" {
+				out = append(out, c.Gateway)
+			}
+		}
+	}
+	return out, nil
+}
+
 // Connect joins a container to a network with optional DNS aliases.
 // Already-connected is not an error: treating it as one made a reattach
 // abandon the rest of its networks halfway through.

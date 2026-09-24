@@ -28,6 +28,7 @@ type Docker interface {
 	EnsureNetwork(ctx context.Context, name string, labels map[string]string) error
 	RemoveNetwork(ctx context.Context, name string) error
 	ListNetworks(ctx context.Context, labels map[string]string) ([]string, error)
+	Gateways(ctx context.Context, labels map[string]string) ([]string, error)
 	Connect(ctx context.Context, network, containerID string, aliases []string) error
 	Disconnect(ctx context.Context, network, containerID string) error
 	NetworkMembers(ctx context.Context, network string) ([]string, error)
