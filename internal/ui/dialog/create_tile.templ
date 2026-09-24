@@ -19,6 +19,7 @@ type CreateTileView struct {
 	Branch     string
 	Schedule   string
 	Trigger    string
+	Command    string
 	Engine     string
 	Errors     map[string]string // field -> message; "general" = the form's
 }
@@ -63,6 +64,9 @@ templ CreateTile(v CreateTileView) {
 				</div>
 			default:
 				@c.Field(c.FieldView{Name: "image_ref", Label: "Image", Value: v.Image, Placeholder: "nginx:1", Required: true, Error: v.Errors["image_ref"]})
+		}
+		if v.Source != "managed" {
+			@c.Field(c.FieldView{Name: "command", Label: "Command", Value: v.Command, Placeholder: "echo hi", Help: "Optional; replaces the image's command. Split like a shell line.", Error: v.Errors["command"]})
 		}
 		if v.Source == "cron" {
 			@c.Field(c.FieldView{Name: "schedule", Label: "Schedule", Value: v.Schedule, Placeholder: "0 3 * * *", Required: true, Help: "Cron, five fields.", Error: v.Errors["schedule"]})

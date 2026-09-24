@@ -25,7 +25,7 @@ func TestCreateTileRoundTrip(t *testing.T) {
 	if rec.Code != 422 || !strings.Contains(rec.Body.String(), `id="create-tile"`) || !strings.Contains(rec.Body.String(), `id="error-schedule"`) {
 		t.Fatalf("bad schedule = %d\n%s", rec.Code, rec.Body)
 	}
-	rec = s.Do(t, "POST", "/acme/shop/dev/-/new-tile", url.Values{"source": {"cron"}, "name": {"nightly"}, "image_ref": {"busybox:1"}, "schedule": {"0 3 * * *"}})
+	rec = s.Do(t, "POST", "/acme/shop/dev/-/new-tile", url.Values{"source": {"cron"}, "name": {"nightly"}, "image_ref": {"busybox:1"}, "schedule": {"0 3 * * *"}, "command": {"echo hi"}})
 	if rec.Code != 200 || !strings.HasPrefix(rec.Header().Get("HX-Redirect"), "/acme/shop/dev?drawer=") {
 		t.Fatalf("create = %d %q\n%s", rec.Code, rec.Header().Get("HX-Redirect"), rec.Body)
 	}
@@ -35,9 +35,9 @@ func TestCreateTileRoundTrip(t *testing.T) {
 	}
 	var got []string
 	for _, x := range ts {
-		got = append(got, x.Name+":"+x.Kind+":"+x.Schedule)
+		got = append(got, x.Name+":"+x.Kind+":"+x.Schedule+":"+x.Command)
 	}
-	if !strings.Contains(strings.Join(got, " "), "nightly:cron:0 3 * * *") {
+	if !strings.Contains(strings.Join(got, " "), "nightly:cron:0 3 * * *:echo hi") {
 		t.Errorf("tiles after create = %v", got)
 	}
 }

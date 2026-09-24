@@ -92,7 +92,7 @@ func createView(c echo.Context) dialog.CreateTileView {
 	url := render.EnvURL(c) + "/-/new-tile"
 	v := dialog.CreateTileView{Action: url, Switch: url, Source: c.FormValue("source"), Name: c.FormValue("name"),
 		Image: c.FormValue("image_ref"), GitURL: c.FormValue("git_url"), Branch: c.FormValue("git_branch"),
-		Schedule: c.FormValue("schedule"), Trigger: c.FormValue("trigger"), Engine: c.FormValue("engine")}
+		Schedule: c.FormValue("schedule"), Trigger: c.FormValue("trigger"), Engine: c.FormValue("engine"), Command: c.FormValue("command")}
 	if !slices.ContainsFunc(dialog.Sources, func(o dialog.Option) bool { return o.Value == v.Source }) {
 		v.Source = "image"
 	}
@@ -126,6 +126,7 @@ func (h *handler) CreateTile(c echo.Context) error {
 		t, err = h.orch.CreateManagedTile(c.Request().Context(), t, v.Engine)
 	default:
 		t.ImageRef, t.GitURL, t.GitBranch, t.Schedule, t.Trigger = v.Image, v.GitURL, v.Branch, v.Schedule, v.Trigger
+		t.Command = v.Command
 		if v.Source == "service" {
 			t.ImageRef = ""
 		} else {
