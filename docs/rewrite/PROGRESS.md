@@ -340,3 +340,9 @@ Raised by step 3 session A (builder took the lean; flip any):
    a JSON column `stacks.domains`; server-wide host uniqueness is the
    flow's check against `domains`. Options: (a) keep; (b) its own table
    with a unique host index.
+23. **B26 whitelist.** `leaf/tile.Carries`: service = build keys + run
+   keys; image = image, update_policy auto, tag_policy + run keys; managed
+   = image override, env, limits, shm_size_mb, published_ports only (the
+   engine owns command, port, volumes; one replica). git_url stays
+   GitHub-only (the old message). Options: (a) keep; (b) let managed rows
+   carry more run keys.

@@ -26,6 +26,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/user"
 	"github.com/FyrmForge/stackr/internal/service/internal/secrets"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
+	"github.com/FyrmForge/stackr/internal/service/internal/vip"
 )
 
 // Config is everything service.New needs to build the service tree.
@@ -132,7 +133,7 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 		orgs:     build("leaf/org", func() *org.Leaf { return org.New(st.Orgs, st.OrgMembers, st.Invites) }),
 		stacks:   build("leaf/stack", func() *stack.Leaf { return stack.New(st.Stacks) }),
 		envs:     build("leaf/environment", func() *environment.Leaf { return environment.New(st.Environments, o.docker) }),
-		tiles:    build("leaf/tile", func() *tile.Leaf { return tile.New(st.Tiles) }),
+		tiles:    build("leaf/tile", func() *tile.Leaf { return tile.New(st.Tiles, o.docker, vip.New()) }),
 		settings: sets,
 		jobs: build("flow/jobs", func() *jobs.Runner {
 			// ponytail: no handlers and no ParamSet yet; the deploy, promote
