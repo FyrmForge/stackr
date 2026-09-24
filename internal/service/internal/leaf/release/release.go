@@ -26,6 +26,10 @@ func New(releases store.ReleaseStore, tiles store.ReleaseTileStore) *Leaf {
 	return &Leaf{releases: releases, tiles: tiles}
 }
 
+// ConfigSlug is the config repo's pin: a tile slug is [a-z0-9-], so it can
+// never collide with one.
+const ConfigSlug = "_config"
+
 // Pin is one tile in a release. Built tiles carry ImageID; image and
 // managed tiles carry the digest (never just a tag); the config repo's pin
 // carries only its commit.

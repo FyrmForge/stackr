@@ -388,3 +388,18 @@ Raised by step 3 session B (builder took the lean; flip any):
    so stackrd must be routable to it. Options: (a) keep, stackrd joins the
    env/shared networks it manages; (b) exec an `mc` sidecar on the
    instance's network. Lean (a).
+29. **What may land in a `from: promote` env.** One rule serves promote
+   and rollback (B2): the release's number must not be above the one the
+   env below runs, and the env below must run something. No history
+   lookup, so any older release may come back. Options: (a) keep;
+   (b) only releases the env below has actually run. Lean (a).
+30. **`shared:` in the stack file.** Stack- and org-scoped managed
+   instances from the file need scope changes on promote and ownership
+   across envs. `Parse` refuses a non-empty `shared:`. Options: (a) keep
+   refused in v1, share from the panel/CLI; (b) build it. Lean (a).
+31. **Where stack-file keys land.** Params land in the promoted env's
+   scope (secrets are declared only, a warning while unset); stack
+   `defaults:` and `domains:` reservations apply only when promoting into
+   the bottom rung, so a rollback higher up never rewrites them. Slices
+   sit on the consumer (`slices: [db]` or `{from, name, on_remove,
+   public}`). Options: (a) keep; (b) params at stack scope. Lean (a).

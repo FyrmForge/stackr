@@ -83,7 +83,7 @@ func (f *Flow) Redeploy(ctx context.Context, tileID string, log io.Writer, swap 
 	}
 	// An image tile's first run: pin what the tag meant, as a release.
 	r, err := f.Releases.Derive(ctx, t.StackID, deref(e.ReleaseID), "deploy",
-		release.Pin{Slug: t.Slug, Repo: repoOf(t.ImageRef), Digest: digest})
+		release.Pin{Slug: t.Slug, Repo: RepoOf(t.ImageRef), Digest: digest})
 	if err != nil {
 		return err
 	}
@@ -107,7 +107,7 @@ func (f *Flow) Current(ctx context.Context, t store.Tile, e store.Environment) (
 			case p.Digest != "":
 				repo := p.Repo
 				if repo == "" {
-					repo = repoOf(t.ImageRef)
+					repo = RepoOf(t.ImageRef)
 				}
 				return repo + "@" + p.Digest, true, nil
 			}
@@ -423,16 +423,21 @@ func deref(p *string) string {
 	return *p
 }
 
-// repoOf strips the tag and any digest: "ghcr.io/a/b:1" -> "ghcr.io/a/b".
 // The tag is after the last ":" only when that is after the last "/", or a
 // registry port would read as the tag.
-func repoOf(ref string) string {
+// RepoOf strips the tag and any digest ("ghcr.io/a/b:1" -> "ghcr.io/a/b"):
+// what a release pin's Repo holds.
+func RepoOf(ref string) string {
 	ref, _, _ = strings.Cut(ref, "@")
 	if i := strings.LastIndex(ref, ":"); i > strings.LastIndex(ref, "/") {
 		return ref[:i]
 	}
 	return ref
 }
+
+// KnownEngine reports whether flow/managed runs the engine; promote checks
+// the file with it (promote may not import flow/managed).
+func KnownEngine(name string) bool { _, ok := mflow.Engines[name]; return ok }
 
 // logf writes a line to the job log; a log write failing never fails a deploy.
 func logf(w io.Writer, format string, a ...any) { _, _ = fmt.Fprintf(w, format, a...) }

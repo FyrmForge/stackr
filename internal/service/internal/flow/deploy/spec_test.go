@@ -22,7 +22,7 @@ func TestSplitCommandAndPorts(t *testing.T) {
 	if p["8080"] != "80" || p["5353"] != "53/udp" || len(warn) != 1 {
 		t.Errorf("ports = %v, warn %v", p, warn)
 	}
-	if repoOf("localhost:5000/a/b:1") != "localhost:5000/a/b" || repoOf("nginx@sha256:x") != "nginx" {
+	if RepoOf("localhost:5000/a/b:1") != "localhost:5000/a/b" || RepoOf("nginx@sha256:x") != "nginx" {
 		t.Error("repoOf")
 	}
 }
