@@ -4,7 +4,9 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	neturl "net/url"
 	"slices"
+	"strings"
 
 	"github.com/FyrmForge/hamr/pkg/respond"
 	"github.com/a-h/templ"
@@ -175,6 +177,11 @@ func (h *handler) drawer(c echo.Context, v ui.View, id, tab string) (templ.Compo
 		if v.Nodes[i].ID == id {
 			n = &v.Nodes[i]
 		}
+		for _, s := range v.Nodes[i].Subs {
+			if s.ID == id && s.Drawer != "" {
+				return envDrawerLoad(s.Drawer, tab), nil
+			}
+		}
 	}
 	if n == nil {
 		return nil, nil
@@ -195,8 +202,11 @@ func (h *handler) drawer(c echo.Context, v ui.View, id, tab string) (templ.Compo
 		if s.Org == nil {
 			return nil, nil
 		}
-	default:
-		return nil, nil // the env canvas's kinds open their own drawers
+	default: // the env canvas's kinds: their own route loads into the open drawer
+		if n.Drawer == "" {
+			return nil, nil
+		}
+		return envDrawerLoad(n.Drawer, tab), nil
 	}
 	if err != nil || !can(c, cd.s, "org.read") {
 		return nil, ignoreRefusal(err)
@@ -222,4 +232,16 @@ func ignoreRefusal(err error) error {
 		return nil
 	}
 	return err
+}
+
+// envDrawerLoad opens the drawer with its route fetched on load (url
+// carries the card's default ?tab=; tab, when set, wins), so the route's
+// own middleware and render answer it.
+// ponytail: one extra request; render server-side if the flash shows.
+func envDrawerLoad(url, tab string) templ.Component {
+	if tab != "" {
+		url, _, _ = strings.Cut(url, "?")
+		url += "?tab=" + neturl.QueryEscape(tab)
+	}
+	return comp.DrawerLoad(url)
 }

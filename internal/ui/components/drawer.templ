@@ -30,3 +30,9 @@ templ SideDrawer(body templ.Component, tab string) {
 		</aside>
 	</side-drawer>
 }
+
+// DrawerLoad is a drawer body that fetches itself: a fresh load of
+// ?drawer= for a card whose drawer another handler serves.
+templ DrawerLoad(url string) {
+	<div hx-get={ url } hx-trigger="load" hx-target="this" hx-swap="outerHTML" hx-push-url="false" aria-busy="true">Loading…</div>
+}

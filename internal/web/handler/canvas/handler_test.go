@@ -157,3 +157,17 @@ func TestEnvCardsAreTileCards(t *testing.T) {
 		}
 	}
 }
+
+// A fresh load of ?drawer=<tile id>&tab= on the env page comes with the
+// drawer open, its route loading the asked tab.
+func TestEnvFreshLoadOpensTileDrawer(t *testing.T) {
+	s := webtest.New(t)
+	load := func(path string) string { return s.DoNoCSRF(t, "GET", path).Body.String() } // no HX-Request: a full load
+	body := load("/acme/shop/dev?drawer=" + s.Tile.ID + "&tab=logs")
+	if !regexp.MustCompile(`<side-drawer open tab="logs"`).MatchString(body) || !strings.Contains(body, `hx-get="/acme/shop/dev/-/tiles/api?tab=logs" hx-trigger="load"`) {
+		t.Errorf("drawer not open on the tile's logs:\n%s", body)
+	}
+	if body := load("/acme/shop/dev?drawer=nope"); strings.Contains(body, "<side-drawer open") {
+		t.Error("an unknown id opened the drawer")
+	}
+}
