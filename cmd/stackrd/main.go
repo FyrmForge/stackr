@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
+	"strings"
 
 	_ "github.com/joho/godotenv/autoload"
 
@@ -16,6 +18,7 @@ import (
 	"github.com/FyrmForge/hamr/pkg/middleware"
 	"github.com/FyrmForge/hamr/pkg/server"
 	"github.com/FyrmForge/stackr/internal/api"
+	"github.com/FyrmForge/stackr/internal/installspec"
 	appmw "github.com/FyrmForge/stackr/internal/middleware"
 	"github.com/FyrmForge/stackr/internal/service"
 	"github.com/FyrmForge/stackr/internal/web"
@@ -27,6 +30,9 @@ var version = "dev"
 
 var (
 	envPort = config.GetEnvOrDefaultInt("PORT", 8080)
+	// HOST: the installer binds the host-network panel to the bridge
+	// gateway, so it is reachable from the proxy and not from outside.
+	envHost = config.GetEnvOrDefault("HOST", "")
 	// DEV_MODE defaults to false (fail closed in prod). Local dev sets
 	// DEV_MODE=true via .env so the scaffolded `.env` ships with it set
 	// explicitly. This makes the STRIPE_MOCK production guard actually
@@ -37,7 +43,8 @@ var (
 	envDataDir      = config.GetEnvOrDefault("DATA_DIR", "./data")
 	envDatabasePath = config.GetEnvOrDefault("DATABASE_PATH", "")
 	// STACKR_MASTER_KEY encrypts secrets at rest: 64 hex chars. stackrd
-	// never makes one up; the installer writes it (DECIDE 14).
+	// never makes one up; the installer writes it to $DATA_DIR/keys/master.key,
+	// read when the env is unset (DECIDE 14).
 	envMasterKey      = config.GetEnvOrDefault("STACKR_MASTER_KEY", "")
 	envStaticBaseURL  = config.GetEnvOrDefault("STATIC_BASE_URL", "/static")
 	envEmailMock      = config.GetEnvOrDefaultBool("EMAIL_MOCK", false)
@@ -102,6 +109,7 @@ func run(log *slog.Logger, generate bool) error {
 
 	// Server.
 	srv, err := server.New(
+		server.WithHost(envHost),
 		server.WithPort(envPort),
 		server.WithDevMode(envDevMode),
 		server.WithStaticDir("ui/static"),
@@ -135,17 +143,31 @@ func run(log *slog.Logger, generate bool) error {
 		return nil
 	}
 
+	masterKey := envMasterKey
+	if masterKey == "" {
+		b, _ := os.ReadFile(filepath.Join(envDataDir, installspec.KeyFile))
+		masterKey = strings.TrimSpace(string(b))
+	}
+	tlsOff := config.GetEnvOrDefault("STACKR_TLS", "") == "off"
+
 	// The service tree: store, migrations, Docker, leaves and flows.
 	svc, err := service.New(service.Config{
-		DataDir:      envDataDir,
-		DBPath:       envDatabasePath,
-		SecretsKey:   envMasterKey,
-		CookieSecure: !envDevMode,
+		DataDir:    envDataDir,
+		DBPath:     envDatabasePath,
+		SecretsKey: masterKey,
+		// A Secure cookie never comes back over plain HTTP.
+		CookieSecure: !envDevMode && !tlsOff,
 		CookieDomain: baseDomain,
 		Version:      version,
 		BaseURL:      envBaseURL,
 		InstallID:    config.GetEnvOrDefault("STACKR_INSTALL_ID", "default"),
-		TLSOff:       config.GetEnvOrDefault("STACKR_TLS", "") == "off",
+		TLSOff:       tlsOff,
+		ProxyAdmin:   config.GetEnvOrDefault("STACKR_PROXY_ADMIN", ""),
+
+		PanelDomain:    config.GetEnvOrDefault("PANEL_DOMAIN", ""),
+		ACMEEmail:      config.GetEnvOrDefault("ACME_EMAIL", ""),
+		TrustedProxies: config.GetEnvOrDefault("CADDY_TRUSTED_PROXIES", ""),
+		DNSProvider:    config.GetEnvOrDefault("DNS_PROVIDER", ""),
 	})
 	if err != nil {
 		return fmt.Errorf("start service: %w", err)

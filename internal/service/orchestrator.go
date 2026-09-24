@@ -74,6 +74,11 @@ type Config struct {
 	Workers             int
 	ImageWatchInterval  time.Duration
 	OrphanRetentionDays int
+	// The installer's answers (env on the panel container), same rule.
+	PanelDomain    string
+	ACMEEmail      string
+	TrustedProxies string // CIDRs Caddy trusts X-Forwarded-For from
+	DNSProvider    string // "cloudflare" = DNS-01, the token sits on the proxy
 
 	CookieSecure bool
 	CookieDomain string
@@ -84,6 +89,7 @@ type Config struct {
 	Passphrase    string // age passphrase on the panel archive; "" = the secrets key
 	TLSOff        bool   // STACKR_TLS=off: plain HTTP only
 	PanelUpstream string // the panel's dial address for its own route; "" = stackr:8080
+	ProxyAdmin    string // Caddy's admin API as the panel reaches it; "" = http://stackr-proxy:2019
 	// PanelSpec is the panel's container spec for an image, the installer's
 	// one spec; nil refuses self-upgrade.
 	PanelSpec func(image string) ContainerSpec
@@ -218,7 +224,11 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 		o.vip = vip.New()
 	}
 	if o.push == nil {
-		o.push = proxy.New("http://" + ProxyContainer + ":2019").Push
+		admin := cfg.ProxyAdmin
+		if admin == "" {
+			admin = "http://" + ProxyContainer + ":2019"
+		}
+		o.push = proxy.New(admin).Push
 	}
 	d := o.docker
 
@@ -333,6 +343,12 @@ func bootSettings(cfg Config) map[string]string {
 	}
 	if cfg.OrphanRetentionDays > 0 {
 		boot["orphan_retention_days"] = strconv.Itoa(cfg.OrphanRetentionDays)
+	}
+	for k, v := range map[string]string{"panel_domain": cfg.PanelDomain, "acme_email": cfg.ACMEEmail,
+		"trusted_proxies": cfg.TrustedProxies, "dns_provider": cfg.DNSProvider} {
+		if v != "" {
+			boot[k] = v
+		}
 	}
 	return boot
 }
