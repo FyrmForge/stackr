@@ -24,6 +24,9 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
 
+// The fake stands in for the daemon everywhere.
+var _ service.Docker = (*dockerfake.Fake)(nil)
+
 // Key is the master key every harness uses.
 var Key = strings.Repeat("ab", 32)
 

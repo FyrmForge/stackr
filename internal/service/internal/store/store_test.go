@@ -3,37 +3,17 @@ package store_test
 import (
 	"context"
 	"errors"
-	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/FyrmForge/hamr/pkg/auth"
-	"github.com/FyrmForge/hamr/pkg/db/sqlite"
 
-	appdb "github.com/FyrmForge/stackr/internal/db"
 	"github.com/FyrmForge/stackr/internal/service/errs"
-	"github.com/FyrmForge/stackr/internal/service/internal/secrets"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
+	"github.com/FyrmForge/stackr/internal/service/servicetest"
 )
-
-func open(t *testing.T) *store.Store {
-	t.Helper()
-	db, err := sqlite.Connect(filepath.Join(t.TempDir(), "t.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = db.Close() })
-	if err := sqlite.Migrate(db, appdb.MigrateConfig()); err != nil {
-		t.Fatal(err)
-	}
-	box, err := secrets.New(strings.Repeat("ab", 32))
-	if err != nil {
-		t.Fatal(err)
-	}
-	return store.New(db, box)
-}
 
 var (
 	t0 = time.Date(2026, 9, 24, 10, 11, 12, 123456789, time.UTC)
@@ -103,7 +83,7 @@ func same[T any](t *testing.T, step string, want, got T) {
 }
 
 func TestRoundTrip(t *testing.T) {
-	s := open(t)
+	s := servicetest.Store(t)
 	ctx := context.Background()
 
 	roundTrip(t, s.Users, store.User{ID: "u1", Email: "a@x", PasswordHash: "h", Name: "A", Role: "user", Active: true, AvatarPath: "a.png", Theme: "dark", CreatedAt: t0, UpdatedAt: t0},
@@ -215,7 +195,7 @@ func TestRoundTrip(t *testing.T) {
 }
 
 func TestEncryptedAtRest(t *testing.T) {
-	s := open(t)
+	s := servicetest.Store(t)
 	ctx := context.Background()
 	mustSeedOrg(t, s)
 	if err := s.Credentials.Create(ctx, store.Credential{ID: "c1", OrgID: "o1", Name: "n", Password: "hunter2", CreatedAt: t0}); err != nil {
@@ -231,7 +211,7 @@ func TestEncryptedAtRest(t *testing.T) {
 }
 
 func TestErrors(t *testing.T) {
-	s := open(t)
+	s := servicetest.Store(t)
 	ctx := context.Background()
 	if _, err := s.Orgs.Get(ctx, "nope"); !errors.Is(err, errs.ErrNotFound) {
 		t.Errorf("get missing: %v", err)
@@ -247,7 +227,7 @@ func TestErrors(t *testing.T) {
 }
 
 func TestTxRollsBack(t *testing.T) {
-	s := open(t)
+	s := servicetest.Store(t)
 	ctx := context.Background()
 	boom := errors.New("boom")
 	err := s.Tx(ctx, func(tx store.Tx) error {

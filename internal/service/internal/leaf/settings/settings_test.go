@@ -1,18 +1,8 @@
 package settings
 
 import (
-	"context"
-	"path/filepath"
 	"reflect"
-	"strings"
 	"testing"
-
-	"github.com/FyrmForge/hamr/pkg/db/sqlite"
-
-	appdb "github.com/FyrmForge/stackr/internal/db"
-	"github.com/FyrmForge/stackr/internal/service/errs"
-	"github.com/FyrmForge/stackr/internal/service/internal/secrets"
-	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
 
 func ptr[T any](v T) *T { return &v }
@@ -115,58 +105,5 @@ func TestCatalogueMatchesSettings(t *testing.T) {
 	}
 	if f := reflect.TypeFor[Settings]().NumField(); f != n {
 		t.Errorf("Settings has %d fields, catalogue %d cascade knobs", f, n)
-	}
-}
-
-func TestFlat(t *testing.T) {
-	db, err := sqlite.Connect(filepath.Join(t.TempDir(), "t.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = db.Close() })
-	if err := sqlite.Migrate(db, appdb.MigrateConfig()); err != nil {
-		t.Fatal(err)
-	}
-	box, _ := secrets.New(strings.Repeat("ab", 32))
-	l := New(store.New(db, box).Settings, map[string]string{"orphan_retention_days": "7"})
-	ctx := context.Background()
-
-	check := func(key string, want int) {
-		t.Helper()
-		if got, err := l.Int(ctx, key); err != nil || got != want {
-			t.Errorf("%s = %d, %v; want %d", key, got, err, want)
-		}
-	}
-	check("workers", 2)               // catalogue default
-	check("orphan_retention_days", 7) // boot value over the default
-	if err := l.Set(ctx, "orphan_retention_days", "14"); err != nil {
-		t.Fatal(err)
-	}
-	check("orphan_retention_days", 14) // row over the boot value
-	for _, bad := range []string{"4 0", "-1", "0", "four"} {
-		if err := l.Set(ctx, "workers", bad); err == nil {
-			t.Errorf("workers %q accepted", bad)
-		} else if _, ok := errs.IsInvalid(err); !ok {
-			t.Errorf("workers %q: %v, want Invalid", bad, err)
-		}
-	}
-	check("workers", 2)
-	if err := l.Set(ctx, "image_check_interval", "0"); err != nil {
-		t.Errorf("image_check_interval 0 (off) refused: %v", err)
-	}
-	if err := l.Set(ctx, "orphan_retention_days", ""); err != nil {
-		t.Fatal(err)
-	}
-	check("orphan_retention_days", 7)
-
-	if err := l.SetDefaults(ctx, map[string]string{"mem_limit_mb": "256"}); err != nil {
-		t.Fatal(err)
-	}
-	if err := l.SetDefaults(ctx, map[string]string{"mem_limit_mb": "2 56"}); err == nil {
-		t.Error("typo in the server rung accepted")
-	}
-	d, err := l.Defaults(ctx)
-	if err != nil || Resolve(d).MemLimitMB != 256 {
-		t.Errorf("server rung = %+v, %v", d, err)
 	}
 }

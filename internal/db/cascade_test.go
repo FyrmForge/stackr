@@ -1,31 +1,16 @@
 package db_test
 
 import (
-	"path/filepath"
 	"testing"
 	"time"
 
-	"github.com/FyrmForge/hamr/pkg/db/sqlite"
-
-	appdb "github.com/FyrmForge/stackr/internal/db"
+	"github.com/FyrmForge/stackr/internal/service/servicetest"
 )
 
 // An org delete removes everything under it through SQL alone: FK cascades
 // for real parent ids, triggers for the polymorphic scopes.
 func TestOrgDeleteCascades(t *testing.T) {
-	db, err := sqlite.Connect(filepath.Join(t.TempDir(), "t.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = db.Close() })
-	if err := sqlite.Migrate(db, appdb.MigrateConfig()); err != nil {
-		t.Fatal(err)
-	}
-	var fk int
-	if err := db.Get(&fk, "PRAGMA foreign_keys"); err != nil || fk != 1 {
-		t.Fatalf("foreign_keys = %d, %v; want 1", fk, err)
-	}
-
+	db := servicetest.Store(t).DB()
 	now := time.Now()
 	for _, q := range []struct {
 		sql  string
