@@ -1,4 +1,4 @@
-.PHONY: build installcli installer test lint templint db-sh clean install check-templ generate check-node-modules css-build
+.PHONY: build installcli installer test test-integration lint templint db-sh clean install check-templ generate check-node-modules css-build
 
 # Force bash so the ENV_LOAD eval below works cross-shell (sh on Debian/Ubuntu
 # is dash, which doesn't grok `eval "$(...)"` quoting consistently).
@@ -66,6 +66,11 @@ generate:
 test: check-templ
 	templ generate
 	go test ./...
+
+## test-integration: Unit tests plus the build-tagged ones against the local Docker daemon
+test-integration: check-templ
+	templ generate
+	go test -tags integration -count=1 ./...
 
 ## db-sh: Open an interactive shell to the local dev database
 db-sh:

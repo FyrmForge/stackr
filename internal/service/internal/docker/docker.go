@@ -1,41 +1,63 @@
-// Package docker wraps the Docker daemon. Step 1 ships the types and a stub
-// that satisfies service.Docker; step 2 fills it in. No Docker SDK type ever
-// appears in a signature here.
+// Package docker wraps the Docker daemon. It is the only place the Docker SDK
+// is imported, and no SDK type appears in a signature here. It takes resolved
+// specs and returns Docker's own words: it reads no row, decides no status and
+// chooses no default of its own.
 package docker
 
 import (
-	"context"
 	"errors"
-	"io"
+	"fmt"
+
+	cerrdefs "github.com/containerd/errdefs"
+	"github.com/docker/docker/client"
 )
+
+// LabelManaged is the only label this package owns: every container it
+// creates carries it, so a sweep can find its own droppings.
+const LabelManaged = "stackr.managed"
 
 // ContainerSpec is a resolved container: every value is final, nothing here
 // is looked up, defaulted from a row, or validated against a domain rule.
 type ContainerSpec struct {
-	Name        string
-	Image       string
-	Cmd         []string // override image CMD (nil = image default)
-	Env         []string // KEY=VALUE
-	Labels      map[string]string
-	Volumes     []string          // "name-or-hostpath:/container/path"
-	Ports       map[string]string // hostPort -> containerPort (published)
-	Aliases     []string          // stable DNS names on the network
-	NetworkName string
-	CPULimit    float64 // cores, 0 = unlimited
-	MemLimitMB  int     // MB, 0 = unlimited
+	Name     string
+	Image    string            // by digest when the caller pins one
+	Cmd      []string          // override image CMD (nil = image default)
+	Env      []string          // KEY=VALUE
+	Labels   map[string]string //
+	Volumes  []string          // "name-or-hostpath:/container/path[:ro]"
+	Ports    map[string]string // hostPort -> containerPort (published)
+	Networks []NetAttach       // every network, joined at create
+	// HostNetwork runs in the host's network namespace; Networks and Ports
+	// are ignored (the proxy and stackrd itself).
+	HostNetwork bool
+	CapAdd      []string // e.g. NET_ADMIN
+	CPULimit    float64  // cores, 0 = unlimited
+	MemLimitMB  int      // MB, 0 = unlimited
 
-	User          string   // "uid[:gid]" ("" = image default)
-	ShmSizeMB     int      // 0 = docker default (64MB)
-	Privileged    bool     // the caller gates who may set it
-	Devices       []Device // already parsed
-	RestartAlways bool     // else unless-stopped
+	User       string   // "uid[:gid]" ("" = image default)
+	ShmSizeMB  int      // 0 = docker default (64MB)
+	Privileged bool     // the caller gates who may set it
+	Devices    []Device // already parsed
+	// Restart is docker's word: no | always | on-failure | unless-stopped.
+	// "" = docker's default (no).
+	// extract: dropped RestartAlways bool + NormalizeRestart, belongs in leaf/tile.
+	Restart string
 
 	// Docker-native HEALTHCHECK, run as CMD-SHELL. Empty HealthCmd = none.
+	// Zero values are docker's defaults.
+	// extract: dropped the 5s interval default (docker's is 30s, the deploy
+	// gate waits on the first check), belongs in flow/deploy spec build.
 	HealthCmd          string
 	HealthIntervalS    int
 	HealthTimeoutS     int
 	HealthRetries      int
 	HealthStartPeriodS int
+}
+
+// NetAttach is one network the container joins, with its DNS aliases there.
+type NetAttach struct {
+	Name    string
+	Aliases []string
 }
 
 type Device struct{ Host, Container, Perms string }
@@ -50,84 +72,67 @@ type Container struct {
 	IPs    []string
 }
 
-// Detail is the curated inspect.
+// Detail is the curated inspect: everything a health gate reads comes off
+// this one call.
 type Detail struct {
 	ID, Name, Image, State, Started string
+	Running                         bool
 	Health                          string
 	RestartCount                    int
-	Ports, Mounts, Networks         []string
+	Ports, Mounts                   []string
+	Networks                        map[string]string // network name -> IP
 }
 
 type VolumeInfo struct {
 	Name, Driver, Created, Mountpoint string
+	Labels                            map[string]string
 	SizeBytes                         int64    // -1 = unknown
 	UsedBy                            []string // running containers mounting it
 	HeldBy                            []string // stopped containers mounting it
 }
 
-// ErrNotImplemented is every stub answer.
-var ErrNotImplemented = errors.New("docker: not implemented")
+// Image is one local image.
+type Image struct {
+	ID     string
+	Tags   []string // repo:tag
+	Labels map[string]string
+}
+
+// ErrNotFound: the container, network, volume or image does not exist.
+var ErrNotFound = errors.New("docker: no such object")
+
+// ErrStillRunning: an exec's output ended while the command was still running,
+// so its exit code (0) means nothing.
+var ErrStillRunning = errors.New("docker: command still running when its output ended")
+
+// ExitError is a command (exec or tool container) that exited non-zero.
+type ExitError struct {
+	Code   int
+	Stderr string
+}
+
+func (e ExitError) Error() string {
+	if e.Stderr == "" {
+		return fmt.Sprintf("exit status %d", e.Code)
+	}
+	return fmt.Sprintf("exit status %d: %s", e.Code, e.Stderr)
+}
+
+// wrap turns the SDK's not-found into ErrNotFound; everything else passes.
+func wrap(err error) error {
+	if err != nil && cerrdefs.IsNotFound(err) {
+		return fmt.Errorf("%w: %v", ErrNotFound, err)
+	}
+	return err
+}
 
 // Client is the daemon wrapper.
-// ponytail: compile-only stub, every call fails; step 2 replaces the bodies.
-type Client struct{}
+type Client struct{ cli *client.Client }
 
-func New() (*Client, error) { return &Client{}, nil }
-
-func (*Client) Run(context.Context, ContainerSpec) (string, error) { return "", ErrNotImplemented }
-func (*Client) Start(context.Context, string) error                { return ErrNotImplemented }
-func (*Client) Stop(context.Context, string) error                 { return ErrNotImplemented }
-func (*Client) Restart(context.Context, string) error              { return ErrNotImplemented }
-func (*Client) StopRemove(context.Context, string) error           { return ErrNotImplemented }
-func (*Client) Pause(context.Context, string) error                { return ErrNotImplemented }
-func (*Client) Unpause(context.Context, string) error              { return ErrNotImplemented }
-func (*Client) List(context.Context, map[string]string) ([]Container, error) {
-	return nil, ErrNotImplemented
-}
-func (*Client) Inspect(context.Context, string) (Detail, error) { return Detail{}, ErrNotImplemented }
-
-func (*Client) EnsureNetwork(context.Context, string) error { return ErrNotImplemented }
-func (*Client) RemoveNetwork(context.Context, string) error { return ErrNotImplemented }
-func (*Client) Connect(context.Context, string, string, []string) error {
-	return ErrNotImplemented
-}
-func (*Client) Disconnect(context.Context, string, string) error { return ErrNotImplemented }
-func (*Client) NetworkMembers(context.Context, string) ([]string, error) {
-	return nil, ErrNotImplemented
-}
-func (*Client) MemberAddr(context.Context, string, string) (string, string, error) {
-	return "", "", ErrNotImplemented
-}
-
-func (*Client) CreateVolume(context.Context, string, string, map[string]string) error {
-	return ErrNotImplemented
-}
-func (*Client) RemoveVolume(context.Context, string) error { return ErrNotImplemented }
-func (*Client) InspectVolume(context.Context, string) (VolumeInfo, error) {
-	return VolumeInfo{}, ErrNotImplemented
-}
-func (*Client) ListVolumes(context.Context) ([]VolumeInfo, error) { return nil, ErrNotImplemented }
-func (*Client) TarVolume(context.Context, string, io.Writer, bool) error {
-	return ErrNotImplemented
-}
-func (*Client) UntarVolume(context.Context, string, io.Reader) error { return ErrNotImplemented }
-
-func (*Client) Pull(context.Context, string, string, io.Writer) error { return ErrNotImplemented }
-func (*Client) LocalDigest(context.Context, string) (string, error)   { return "", ErrNotImplemented }
-func (*Client) Tag(context.Context, string, string) error             { return ErrNotImplemented }
-func (*Client) RemoveImage(context.Context, string) error             { return ErrNotImplemented }
-func (*Client) EnsureBuilder(context.Context, string, int) error      { return ErrNotImplemented }
-func (*Client) Build(context.Context, string, string, string, string, map[string]string, map[string]string, io.Writer) error {
-	return ErrNotImplemented
-}
-
-func (*Client) Logs(context.Context, string, int) (string, error) { return "", ErrNotImplemented }
-func (*Client) StreamLogs(context.Context, string, int) (<-chan string, func(), error) {
-	return nil, nil, ErrNotImplemented
-}
-func (*Client) Exec(context.Context, string, []string) (string, error) {
-	return "", ErrNotImplemented
-}
-func (*Client) ExecStream(context.Context, string, []string, io.Reader) (io.Reader, func() error, error) {
-	return nil, nil, ErrNotImplemented
+func New() (*Client, error) {
+	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+	if err != nil {
+		return nil, fmt.Errorf("docker client: %w", err)
+	}
+	return &Client{cli: cli}, nil
 }
