@@ -39,7 +39,7 @@ type (
 		Endpoint  string `json:"endpoint"`
 		Region    string `json:"region"`
 		Bucket    string `json:"bucket"`
-		AccessKey string `json:"access_key"`
+		AccessKey string `json:"access_key"` // "" keeps the stored one on update
 		SecretKey string `json:"secret_key"` // "" keeps the stored one on update
 		Shared    bool   `json:"shared"`
 	}

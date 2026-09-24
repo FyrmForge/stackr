@@ -100,6 +100,9 @@ func (l *Leaf) Update(ctx context.Context, d store.BackupDest, s Dest) (store.Ba
 	if s.SecretKey == "" {
 		s.SecretKey = d.SecretKey
 	}
+	if s.AccessKey == "" {
+		s.AccessKey = d.AccessKey
+	}
 	if err := l.fill(ctx, &d, s); err != nil {
 		return d, err
 	}

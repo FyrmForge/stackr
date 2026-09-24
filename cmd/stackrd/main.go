@@ -113,6 +113,7 @@ func run(log *slog.Logger, generate bool) error {
 		// direct client can't spoof its IP; set it to your LB ranges behind one.
 		// "cloudflare" trusts Cloudflare's edge ranges, refreshed every 24h.
 		server.WithTrustedProxies(envTrustedProxies...),
+		server.WithGzipConfig(api.Gzip),
 	)
 	if err != nil {
 		return fmt.Errorf("create server: %w", err)

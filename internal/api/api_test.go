@@ -34,7 +34,7 @@ type world struct {
 func newWorld(t *testing.T, opts ...service.Option) *world {
 	t.Helper()
 	env := servicetest.NewWith(t, opts)
-	srv, err := server.New(server.WithDevMode(true))
+	srv, err := server.New(server.WithDevMode(true), server.WithGzipConfig(api.Gzip))
 	if err != nil {
 		t.Fatal(err)
 	}

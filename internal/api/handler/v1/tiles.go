@@ -60,7 +60,7 @@ func (p TilePatch) apply(t *service.Tile) error {
 type (
 	TileIn struct {
 		Name string `json:"name"`
-		Kind string `json:"kind"` // git | image
+		Kind string `json:"kind"` // service | image
 		TilePatch
 	}
 	ManagedIn struct {

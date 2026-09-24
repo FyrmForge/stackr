@@ -16,6 +16,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/FyrmForge/stackr/internal/service"
+	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	"github.com/FyrmForge/stackr/internal/service/internal/dockerfake"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/user"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
@@ -50,7 +51,7 @@ func NewWith(t *testing.T, opts []service.Option, edit ...func(*service.Config))
 		f(&cfg)
 	}
 	fake := dockerfake.New()
-	o, err := service.New(cfg, append([]service.Option{service.WithDocker(fake),
+	o, err := service.New(cfg, append([]service.Option{service.WithDocker(fake), service.WithVIP(noVIP{}),
 		service.WithProxy(func(context.Context, json.RawMessage) error { return nil })}, opts...)...)
 	if err != nil {
 		t.Fatal(err)
@@ -170,3 +171,17 @@ func (e *Env) Connector(t *testing.T, orgID, secret string) string {
 	}))
 	return id
 }
+
+// Healthy makes every container the fake runs come up running and
+// healthy on the env's network, so a deploy into envID succeeds.
+func (e *Env) Healthy(envID string) {
+	e.Docker.RunID = "c-healthy"
+	e.Docker.Details = map[string]docker.Detail{"c-healthy": {Running: true, Health: "healthy",
+		Networks: map[string]string{"stackr-env-" + envID: "10.0.0.5"}}}
+}
+
+// noVIP stands in for the iptables VIP table, which needs root.
+type noVIP struct{}
+
+func (noVIP) Set(context.Context, string, []string) error { return nil }
+func (noVIP) Remove(context.Context, string) error        { return nil }
