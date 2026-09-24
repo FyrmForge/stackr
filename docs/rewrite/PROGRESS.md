@@ -383,3 +383,8 @@ Raised by step 3 session B (builder took the lean; flip any):
    tile with `files:` ("not supported yet"). Options: (a) keep refused in
    v1 (not in the v1 scope list); (b) the build job copies the files into
    `<data>/files/<tile>/<commit>` and deploy binds them read-only. Lean (a).
+28. **How stackrd reaches an s3 instance.** The s3 engine speaks the S3
+   API from stackrd at the instance's endpoint, else `http://<slug>:9000`,
+   so stackrd must be routable to it. Options: (a) keep, stackrd joins the
+   env/shared networks it manages; (b) exec an `mc` sidecar on the
+   instance's network. Lean (a).

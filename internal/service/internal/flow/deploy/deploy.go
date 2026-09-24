@@ -20,6 +20,7 @@ import (
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
+	mflow "github.com/FyrmForge/stackr/internal/service/internal/flow/managed"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/credential"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/domain"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/environment"
@@ -54,22 +55,10 @@ type Flow struct {
 
 	// Sync re-pushes the proxy config (leaf/domain Syncer.Sync); nil = none.
 	Sync func(context.Context) error
-	// Engine is a managed tile's definition (flow/managed); nil = no
+	// Engines is flow/managed (the deploy -> managed edge): a managed
+	// tile's container and readiness, and every tile's slices; nil = no
 	// managed tiles here.
-	Engine func(ctx context.Context, t store.Tile) (Definition, error)
-	// Reconcile re-provisions the tile's dropped slices before its values
-	// resolve, so a self-healed secret is visible to this same deploy
-	// (flow/managed); nil = nothing to reconcile.
-	Reconcile func(ctx context.Context, t store.Tile, log io.Writer) error
-}
-
-// Definition is what a managed engine fixes for its instance's container.
-type Definition struct {
-	Image  string
-	Cmd    []string
-	Env    []string
-	Mounts []string // "volume-slug:/path", declared by the engine
-	Health string
+	Engines *mflow.Flow
 }
 
 // Redeploy runs the tile on the image its env's current release pins (B34:
@@ -153,12 +142,12 @@ func (f *Flow) Run(ctx context.Context, t store.Tile, ref string, log io.Writer,
 	if err != nil {
 		return "", err
 	}
-	var def Definition
+	var def mflow.Container
 	if t.Kind == tile.Managed {
-		if f.Engine == nil {
+		if f.Engines == nil {
 			return "", fmt.Errorf("%s: no managed engines are wired", t.Slug)
 		}
-		if def, err = f.Engine(ctx, t); err != nil {
+		if def, err = f.Engines.Container(ctx, t); err != nil {
 			return "", err
 		}
 		if ref == "" {
@@ -172,8 +161,8 @@ func (f *Flow) Run(ctx context.Context, t store.Tile, ref string, log io.Writer,
 		// ponytail: files: mounts are not materialized yet (DECIDE 27).
 		return "", errs.Conflictf("%s: files: mounts are not supported yet", t.Slug)
 	}
-	if f.Reconcile != nil {
-		if err := f.Reconcile(ctx, t, log); err != nil {
+	if f.Engines != nil {
+		if err := f.Engines.Reconcile(ctx, t, log); err != nil {
 			return "", err
 		}
 	}
@@ -197,7 +186,14 @@ func (f *Flow) Run(ctx context.Context, t store.Tile, ref string, log io.Writer,
 		return "", fmt.Errorf("pull %s: %w", tile.PauseImage, err)
 	}
 	r.image = ref
-	return digest, f.rollout(ctx, t, e, r, log, swap)
+	if err := f.rollout(ctx, t, e, r, log, swap); err != nil {
+		return "", err
+	}
+	if t.Kind == tile.Managed {
+		logf(log, "waiting for %s to accept connections\n", t.Slug)
+		return digest, f.Engines.Ready(ctx, t)
+	}
+	return digest, nil
 }
 
 // rollout swaps the tile's replicas for ones running r.
@@ -272,7 +268,7 @@ func (f *Flow) route(ctx context.Context, t store.Tile, e store.Environment) err
 
 // resolve gathers every fact the spec needs, in the order that matters:
 // values, then volume lines, then the command, then networks.
-func (f *Flow) resolve(ctx context.Context, t store.Tile, e store.Environment, st store.Stack, o store.Org, def Definition, log io.Writer) (resolved, error) {
+func (f *Flow) resolve(ctx context.Context, t store.Tile, e store.Environment, st store.Stack, o store.Org, def mflow.Container, log io.Writer) (resolved, error) {
 	snap, err := f.snapshot(ctx, t, e, st)
 	if err != nil {
 		return resolved{}, err
@@ -298,8 +294,8 @@ func (f *Flow) resolve(ctx context.Context, t store.Tile, e store.Environment, s
 		return r, err
 	}
 
-	mounts := append(append([]string{}, def.Mounts...), tile.Lines(t.Volumes)...)
-	for _, l := range mounts {
+	r.binds = append(r.binds, def.Binds...)
+	for _, l := range tile.Lines(t.Volumes) {
 		l, err := rr.Expand(params.InEnv, l)
 		if err != nil {
 			return r, err
@@ -364,8 +360,11 @@ func (f *Flow) resolve(ctx context.Context, t store.Tile, e store.Environment, s
 	}
 	// No alias on the env network: the slug is the pause container's, so
 	// DNS answers with the VIP and never a single replica.
-	r.networks = []docker.NetAttach{{Name: net}}
+	r.networks = append([]docker.NetAttach{{Name: net}}, def.Networks...)
 	for _, n := range rr.Networks() {
+		if err := f.Envs.Shared(ctx, n); err != nil {
+			return r, err
+		}
 		r.networks = append(r.networks, docker.NetAttach{Name: n})
 	}
 	ds, err := f.Domains.ListByTile(ctx, t.ID)

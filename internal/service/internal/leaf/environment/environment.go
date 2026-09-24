@@ -258,6 +258,12 @@ func (l *Leaf) Network(ctx context.Context, e store.Environment) (string, error)
 	return e.Network, l.net.EnsureNetwork(ctx, e.Network, map[string]string{"stackr.env": e.ID})
 }
 
+// Shared ensures a network that crosses envs (a stack- or org-scoped
+// managed instance's); the name is the caller's.
+func (l *Leaf) Shared(ctx context.Context, name string) error {
+	return l.net.EnsureNetwork(ctx, name, map[string]string{"stackr.shared": "true"})
+}
+
 // Delete refuses while the env has tiles; the teardown flow empties it
 // first. The network goes before the row, so a failure leaves a row to retry
 // the delete from.
