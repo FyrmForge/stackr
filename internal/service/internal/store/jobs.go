@@ -29,6 +29,9 @@ type JobStore interface {
 	Create(ctx context.Context, j Job) error
 	Get(ctx context.Context, id string) (Job, error)
 	ListByState(ctx context.Context, states ...string) ([]Job, error)
+	// ListTouching is the newest jobs whose lock set holds any of tileIDs,
+	// optionally of one kind ("" = any), newest first, at most limit.
+	ListTouching(ctx context.Context, tileIDs []string, kind string, limit int) ([]Job, error)
 	Update(ctx context.Context, j Job) error
 	Delete(ctx context.Context, id string) error
 }
@@ -46,6 +49,22 @@ func (s jobs) ListByState(ctx context.Context, states ...string) ([]Job, error) 
 		args[i] = st
 	}
 	return s.many(ctx, "state IN (?"+strings.Repeat(", ?", len(states)-1)+")", args...)
+}
+
+func (s jobs) ListTouching(ctx context.Context, tileIDs []string, kind string, limit int) ([]Job, error) {
+	if len(tileIDs) == 0 {
+		return nil, nil
+	}
+	args := make([]any, 0, len(tileIDs)+2)
+	for _, id := range tileIDs {
+		args = append(args, id)
+	}
+	where := "EXISTS (SELECT 1 FROM json_each(lock_set) WHERE value IN (?" + strings.Repeat(", ?", len(tileIDs)-1) + "))"
+	if kind != "" {
+		where += " AND kind = ?"
+		args = append(args, kind)
+	}
+	return s.many(ctx, where+" ORDER BY created_at DESC LIMIT ?", append(args, limit)...)
 }
 
 // StringList is a JSON array column.

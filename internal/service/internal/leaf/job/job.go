@@ -4,6 +4,10 @@ package job
 
 import (
 	"context"
+	"errors"
+	"io"
+	"io/fs"
+	"os"
 	"slices"
 	"time"
 
@@ -116,4 +120,74 @@ func (l *Leaf) Park(ctx context.Context, j store.Job, param string) error {
 func (l *Leaf) Requeue(ctx context.Context, j store.Job) error {
 	j.State, j.WaitingParam = Queued, nil
 	return l.jobs.Update(ctx, j)
+}
+
+// History is the newest jobs touching any of tileIDs (one tile, or every
+// tile of an env), newest first, at most limit.
+func (l *Leaf) History(ctx context.Context, tileIDs []string, limit int) ([]store.Job, error) {
+	return l.jobs.ListTouching(ctx, tileIDs, "", limit)
+}
+
+// Last is the newest job touching the tile, in any state: what the
+// orchestrator layers over tile.State (DECIDE 8). ok=false: none yet.
+func (l *Leaf) Last(ctx context.Context, tileID string) (store.Job, bool, error) {
+	js, err := l.jobs.ListTouching(ctx, []string{tileID}, "", 1)
+	if err != nil || len(js) == 0 {
+		return store.Job{}, false, err
+	}
+	return js[0], true, nil
+}
+
+// LastDone is the tile's newest finished job of kind; with the deploy kind
+// that is "what does this tile run" (its release_id).
+// ponytail: scans the newest 100 of that kind; a tile with 100 failures in a
+// row reads as never deployed. Push the state into the query if that bites.
+func (l *Leaf) LastDone(ctx context.Context, tileID, kind string) (store.Job, bool, error) {
+	js, err := l.jobs.ListTouching(ctx, []string{tileID}, kind, 100)
+	for _, j := range js {
+		if j.State == Done {
+			return j, true, err
+		}
+	}
+	return store.Job{}, false, err
+}
+
+// MaxChunk caps one poll's slice of the log.
+const MaxChunk = 64 << 10
+
+// Log is one poll's slice of a job's log. Next is the offset to ask for
+// next; End means the job is terminal and the whole log has been read, so
+// the client can stop polling.
+type Log struct {
+	Chunk []byte
+	Next  int64
+	End   bool
+}
+
+// Poll is the job row plus its log from offset (B25: every job is a row to
+// poll). A log that does not exist yet reads as empty.
+func (l *Leaf) Poll(ctx context.Context, id string, offset int64) (store.Job, Log, error) {
+	j, err := l.jobs.Get(ctx, id)
+	if err != nil {
+		return j, Log{}, err
+	}
+	out := Log{Next: offset}
+	f, err := os.Open(j.LogPath)
+	if errors.Is(err, fs.ErrNotExist) {
+		out.End = Terminal(j.State)
+		return j, out, nil
+	}
+	if err != nil {
+		return j, out, err
+	}
+	defer func() { _ = f.Close() }()
+	buf := make([]byte, MaxChunk)
+	n, err := f.ReadAt(buf, offset)
+	if err != nil && !errors.Is(err, io.EOF) {
+		return j, out, err
+	}
+	out.Chunk, out.Next = buf[:n], offset+int64(n)
+	// The state was read before the file: a terminal job has written its last line.
+	out.End = Terminal(j.State) && errors.Is(err, io.EOF)
+	return j, out, nil
 }
