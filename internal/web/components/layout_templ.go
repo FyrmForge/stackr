@@ -110,9 +110,9 @@ func Layout(c echo.Context, title string) templ.Component {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var7 string
-		templ_7745c5c3_Var7, templ_7745c5c3_Err = templ.JoinStringErrs(StaticURL("js/htmx.min.js"))
+		templ_7745c5c3_Var7, templ_7745c5c3_Err = templ.JoinStringErrs(StaticURL("js/vendor/htmx.min.js"))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/components/layout.templ`, Line: 25, Col: 43}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/components/layout.templ`, Line: 25, Col: 50}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var7))
 		if templ_7745c5c3_Err != nil {
@@ -123,15 +123,28 @@ func Layout(c echo.Context, title string) templ.Component {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var8 string
-		templ_7745c5c3_Var8, templ_7745c5c3_Err = templ.JoinStringErrs(StaticURL("js/main.js"))
+		templ_7745c5c3_Var8, templ_7745c5c3_Err = templ.JoinStringErrs(StaticURL("js/vendor/sse.min.js"))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/components/layout.templ`, Line: 26, Col: 39}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/components/layout.templ`, Line: 26, Col: 49}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var8))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 9, "\"></script><script>\n\t\t\thtmx.config.responseHandling = [\n\t\t\t\t{code:\"204\", swap: false},\n\t\t\t\t{code:\"[23]..\", swap: true},\n\t\t\t\t{code:\"400\", swap: true, error: false},\n\t\t\t\t{code:\"422\", swap: true, error: false},\n\t\t\t\t{code:\"429\", swap: true, error: false},\n\t\t\t\t{code:\"[45]..\", swap: false, error: true}\n\t\t\t];\n\t\t\tdocument.addEventListener('htmx:configRequest', function(evt) {\n\t\t\t\tvar csrfToken = document.querySelector('input[name=\"csrf_token\"]');\n\t\t\t\tif (csrfToken) evt.detail.headers['X-CSRF-Token'] = csrfToken.value;\n\t\t\t});\n\t\t</script></body></html>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 9, "\"></script><script src=\"")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		var templ_7745c5c3_Var9 string
+		templ_7745c5c3_Var9, templ_7745c5c3_Err = templ.JoinStringErrs(StaticURL("js/main.js"))
+		if templ_7745c5c3_Err != nil {
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/components/layout.templ`, Line: 27, Col: 39}
+		}
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var9))
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 10, "\"></script><script>\n\t\t\thtmx.config.responseHandling = [\n\t\t\t\t{code:\"204\", swap: false},\n\t\t\t\t{code:\"[23]..\", swap: true},\n\t\t\t\t{code:\"400\", swap: true, error: false},\n\t\t\t\t{code:\"422\", swap: true, error: false},\n\t\t\t\t{code:\"429\", swap: true, error: false},\n\t\t\t\t{code:\"[45]..\", swap: false, error: true}\n\t\t\t];\n\t\t\tdocument.addEventListener('htmx:configRequest', function(evt) {\n\t\t\t\tvar csrfToken = document.querySelector('input[name=\"csrf_token\"]');\n\t\t\t\tif (csrfToken) evt.detail.headers['X-CSRF-Token'] = csrfToken.value;\n\t\t\t});\n\t\t</script></body></html>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

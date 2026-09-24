@@ -19,6 +19,7 @@ Thumbs.db
 
 # Go
 vendor/
+!ui/static/js/vendor/
 
 # SQLite database files and WAL sidecars
 data/

@@ -57,6 +57,13 @@ jobs:
             exit 1
           fi
 
+      - name: Verify compiled elements are committed
+        run: |
+          if ! git diff --quiet -- 'ui/static/js/elements/'; then
+            echo "::error::Compiled custom elements are out of date. Run 'cd ui && npm run ts:build' and commit."
+            exit 1
+          fi
+
       - name: Verify generated static pages are committed
         run: |
           if ! git diff --quiet -- 'generated/'; then

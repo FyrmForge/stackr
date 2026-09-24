@@ -46,6 +46,7 @@ fmt:
 build: check-templ check-node-modules
 	templ generate
 	cd ui && npm run css:build
+	cd ui && npm run ts:build
 	hamr gen static
 	go build -ldflags "-X main.version=$(VERSION)" -o bin/stackrd ./cmd/stackrd
 	$(MAKE) generate
@@ -86,8 +87,9 @@ db-sh:
 	$(ENV_LOAD) ./scripts/db-shell.sh
 
 ## lint: Run linters
-lint:
+lint: check-node-modules
 	golangci-lint run
+	cd ui && npm run ts:check
 	go run ./cmd/stackrd --dump-openapi | diff -u docs/openapi.json - || (echo "docs/openapi.json is stale: go run ./cmd/stackrd --dump-openapi > docs/openapi.json" && exit 1)
 
 ## templint: Lint .templ files for common issues

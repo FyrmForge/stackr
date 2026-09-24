@@ -22,7 +22,8 @@ templ Layout(c echo.Context, title string) {
 		}
 		{ children... }
 
-		<script src={ StaticURL("js/htmx.min.js") }></script>
+		<script src={ StaticURL("js/vendor/htmx.min.js") }></script>
+		<script src={ StaticURL("js/vendor/sse.min.js") }></script>
 		<script src={ StaticURL("js/main.js") }></script>
 		<script>
 			htmx.config.responseHandling = [

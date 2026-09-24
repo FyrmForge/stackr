@@ -5,7 +5,11 @@ package components
 // StaticManifest maps original asset paths to fingerprinted paths.
 var StaticManifest = map[string]string{
 	"css/output.css": "css/output.3de745504d73.css",
-	"js/htmx.min.js": "js/htmx.min.e209dda5c823.js",
-	"js/idiomorph.min.js": "js/idiomorph.min.cfbc37ff80a7.js",
+	"js/elements/confirm-dialog.js": "js/elements/confirm-dialog.258f985966fa.js",
+	"js/elements/flash-toast.js": "js/elements/flash-toast.50754a11c0b9.js",
+	"js/elements/log-pane.js": "js/elements/log-pane.c310bbae2582.js",
+	"js/elements/theme-toggle.js": "js/elements/theme-toggle.c4558cd3af42.js",
 	"js/main.js": "js/main.5f089edbb84f.js",
+	"js/vendor/htmx.min.js": "js/vendor/htmx.min.e209dda5c823.js",
+	"js/vendor/sse.min.js": "js/vendor/sse.min.98a46496de0c.js",
 }

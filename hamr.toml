@@ -59,6 +59,15 @@ dir = "ui"
 cmd = "npm run css:build"
 debounce = 200
 
+# The custom elements (ui/ts/) compile to ui/static/js/elements/, which the
+# static rule then picks up.
+[[dev.watch]]
+name = "ts"
+watch = "ui/ts/*.ts"
+dir = "ui"
+cmd = "npm run ts:build"
+debounce = 200
+
 [[dev.watch]]
 name = "stackrd"
 watch = ["**/*.go", "**/*.templ", ".env"]
