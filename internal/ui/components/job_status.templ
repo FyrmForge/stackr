@@ -16,8 +16,10 @@ type JobStatusView struct {
 
 templ JobStatus(v JobStatusView) {
 	if v.Live {
-		<div hx-ext="sse" sse-connect={ v.StreamURL } sse-swap="update" sse-close="end">
-			@JobStatusBody(v)
+		<div hx-ext="sse" sse-connect={ v.StreamURL } sse-close="end">
+			<div sse-swap="update">
+				@JobStatusBody(v)
+			</div>
 			if v.Refresh != "" {
 				<span hidden hx-get={ v.Refresh } hx-trigger="sse:end" hx-target={ "#" + DrawerRoot } hx-swap="outerHTML"></span>
 			}
