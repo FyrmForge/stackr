@@ -420,3 +420,9 @@ Raised by step 3 session B (builder took the lean; flip any):
    recorded at launch: the old panel is gone by the time the swap ends,
    and the archive restores either way. Options: (a) keep; (b) the new
    panel records the outcome on boot. Lean (a).
+34. **Non-cron drivers on the cron.** Orphan retention is an `@daily`
+   entry and image watch an `@every 1m` entry through the same registry;
+   the watch flow's `Due` holds the real interval (`image_check_interval`,
+   0 = off), so a setting change needs no reload. Backup time zones are
+   composed from the column as `CRON_TZ=`. Options: (a) keep; (b) a second
+   entry kind. Lean (a).
