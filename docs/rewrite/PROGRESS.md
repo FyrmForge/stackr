@@ -237,7 +237,14 @@ session started by darhvader from the START HERE line, no Fable.
     - promote exports `NormalizeRepo` and `Remove` for the service's webhook and delete jobs.
     - jobs get no `ParamSet` (DECIDE 17 b); DECIDE 35–39 added.
     - verb list and job lock sets: `docs/rewrite/verbs.md`.
-- [ ] [F+O] step 4 API + CLI
+- [x] [F+O] step 4 API + CLI
+  - Routes: one table in `internal/api/routes.go` (op, verb or Self/Public); spec from `stackrd --dump-openapi` in `docs/openapi.json`, diffed by `make lint`.
+  - Webhook is `POST /hooks/connectors/:connector`, not `/hooks/github/:org` (DECIDE 40).
+  - CLI login: `/cli/authorize?port&state&name` (step 6 page) POSTs `/api/v1/orgs/:org/cli-codes` with session + `X-CSRF-Token`, redirects to `http://127.0.0.1:<port>/?code&state`; the CLI swaps the code at `POST /auth/exchange` (DECIDE 44).
+  - Not mounted, step 6 owns it: `GET /settings/github/callback` -> `CompleteConnector`.
+  - Harness: servicetest now stubs the VIP table by default and has `Healthy`, `Image`, `Connector`, `NewWith`.
+  - Backup dest: an empty access key keeps the stored one (as the secret key did).
+  - Modules: cobra, pflag, x/term moved from indirect to direct; none new.
 - [ ] [F+O] step 5 installer + self-upgrade
 - [ ] [F+O] step 6 UI
 
@@ -462,3 +469,32 @@ Raised by step 3 session B (builder took the lean; flip any):
    `PlanPromote` is the pre-check a handler or UI calls first. Options:
    (a) keep; (b) plan inside `Promote` and refuse before queueing.
    Lean (a).
+40. **Webhook path.** `POST /hooks/connectors/:connector`, not
+   `/hooks/github/:org`: the App manifest registers one URL per connector
+   and `Webhook` takes a connector id. Options: (a) keep; (b) per-org path
+   that looks the connector up. Lean (a).
+41. **API accepts the session cookie.** A browser session works on
+   `/api/v1` with `X-CSRF-Token`; bearer keys skip CSRF. Options: (a) keep
+   (step 6 pages call the API); (b) keys only. Lean (a).
+42. **Streams.** SSE for job events, log follow and one-shot exec; streams
+   detach from the 30s request timeout and skip gzip. Logs and exec take
+   `?container=` (the CLI picks the first replica). Options: (a) keep;
+   (b) a replica flag in the CLI. Lean (a).
+43. **Known gaps, not fixed in step 4.** `SetConfigRepo` does not check the
+   connector is the org's; `AttachSlice` checks instance visibility only
+   inside the job; a domain's `proxy` JSON can carry basic-auth passwords
+   in reads. Options: (a) fix in the service before step 6; (b) leave.
+   Lean (a).
+44. **CLI login codes in memory.** One-time codes live in the process
+   (2 min TTL); a restart drops pending logins. Options: (a) keep;
+   (b) a table. Lean (a).
+45. **CLI shape.** Tables are tabwriter (TSV when piped), not lipgloss;
+   `link` takes flags, no picker; nouns are `params`, `managed`, `key`;
+   the old aliases and the forward/storage/image/proxy nouns are gone;
+   `tile set` prints the redeploy job's log command instead of following
+   it. Options: (a) keep; (b) restore any of them. Lean (a).
+46. **Child-id org check.** `:release`, `:domain`, etc. are checked
+   against the org only, not the stack or env in the path; an unknown
+   param fails closed (500). Options: (a) keep, the verb rejects a
+   mismatch (a release of another stack is a promote blocker); (b) check
+   the full path. Lean (a).
