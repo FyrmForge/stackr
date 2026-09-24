@@ -12,7 +12,7 @@ var StaticManifest = map[string]string{
 	"js/elements/log-pane.js": "js/elements/log-pane.edd6e62b4802.js",
 	"js/elements/side-drawer.js": "js/elements/side-drawer.7911d2becf77.js",
 	"js/elements/theme-toggle.js": "js/elements/theme-toggle.3bad8f86991f.js",
-	"js/main.js": "js/main.5f089edbb84f.js",
+	"js/main.js": "js/main.e682a47a0e18.js",
 	"js/vendor/htmx.min.js": "js/vendor/htmx.min.e209dda5c823.js",
 	"js/vendor/sse.min.js": "js/vendor/sse.min.98a46496de0c.js",
 }

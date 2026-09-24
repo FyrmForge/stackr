@@ -51,7 +51,11 @@ templ Logs(v View, l LogsView) {
 				}
 			</select>
 		}
-		@c.LogPane(l.Pane)
+		if l.Run == "" && l.Container == "" {
+			<p class="text-sm text-slate-500">No container is running yet.</p>
+		} else {
+			@c.LogPane(l.Pane)
+		}
 	</div>
 }
 
