@@ -37,7 +37,24 @@ func (l *Leaf) Get(ctx context.Context, id string) (store.User, error) {
 	return l.users.Get(ctx, id)
 }
 
-// Register creates an active, non-admin user.
+// MinPassword is the one password rule ("Auth mechanics": minimum length only).
+const MinPassword = 8
+
+func hashPassword(pw string) (string, error) {
+	if len(pw) < MinPassword {
+		return "", errs.Invalidf("password", "must be at least %d characters", MinPassword)
+	}
+	h, err := auth.HashPassword(pw)
+	if err != nil {
+		return "", fmt.Errorf("hash password: %w", err)
+	}
+	return h, nil
+}
+
+// Register creates an active user. The first account on a fresh install
+// becomes the stackr admin.
+// ponytail: two concurrent first registrations can both become admin; the
+// installer's setup URL is opened once.
 func (l *Leaf) Register(ctx context.Context, email, password, name string) (store.User, error) {
 	email = strings.ToLower(strings.TrimSpace(email))
 	if _, err := l.users.GetByEmail(ctx, email); err == nil {
@@ -45,16 +62,50 @@ func (l *Leaf) Register(ctx context.Context, email, password, name string) (stor
 	} else if !errors.Is(err, errs.ErrNotFound) {
 		return store.User{}, err
 	}
-	hash, err := auth.HashPassword(password)
+	hash, err := hashPassword(password)
 	if err != nil {
-		return store.User{}, fmt.Errorf("hash password: %w", err)
+		return store.User{}, err
+	}
+	all, err := l.users.List(ctx)
+	if err != nil {
+		return store.User{}, err
+	}
+	role := "user"
+	if len(all) == 0 {
+		role = "admin"
 	}
 	now := time.Now().UTC()
 	u := store.User{
 		ID: uuid.NewString(), Email: email, PasswordHash: hash, Name: name,
-		Role: "user", Active: true, Theme: "system", CreatedAt: now, UpdatedAt: now,
+		Role: role, Active: true, Theme: "system", CreatedAt: now, UpdatedAt: now,
 	}
 	return u, l.users.Create(ctx, u)
+}
+
+// List is every account (admin screens).
+func (l *Leaf) List(ctx context.Context) ([]store.User, error) { return l.users.List(ctx) }
+
+// ChangePassword is the user's own change: it needs the current password.
+func (l *Leaf) ChangePassword(ctx context.Context, id, current, next string) error {
+	u, err := l.users.Get(ctx, id)
+	if err != nil {
+		return err
+	}
+	if ok, err := auth.CheckPassword(current, u.PasswordHash); err != nil {
+		return fmt.Errorf("check password: %w", err)
+	} else if !ok {
+		return errs.Invalidf("current_password", "the current password is wrong")
+	}
+	return l.SetPassword(ctx, id, next)
+}
+
+// SetPassword is the admin's reset (no reset flow in v1).
+func (l *Leaf) SetPassword(ctx context.Context, id, next string) error {
+	hash, err := hashPassword(next)
+	if err != nil {
+		return err
+	}
+	return l.update(ctx, id, func(u *store.User) { u.PasswordHash = hash })
 }
 
 // Authenticate checks the password of an active user.
@@ -136,19 +187,53 @@ func (l *Leaf) RevokeKey(ctx context.Context, userID, keyID string) error {
 	return l.keys.Delete(ctx, keyID)
 }
 
-// SetActive flips the account on or off.
+// SetActive flips the account on or off. Disabling goes through the one
+// "loses powers" rule.
 func (l *Leaf) SetActive(ctx context.Context, id string, active bool) error {
-	return l.update(ctx, id, func(u *store.User) { u.Active = active })
+	if !active {
+		return l.losePowers(ctx, id, func(u *store.User) { u.Active = false })
+	}
+	return l.update(ctx, id, func(u *store.User) { u.Active = true })
 }
 
-// SetAdmin grants or takes the stackr admin role.
+// SetAdmin grants or takes the stackr admin role. Taking it goes through the
+// one "loses powers" rule.
 func (l *Leaf) SetAdmin(ctx context.Context, id string, admin bool) error {
-	return l.update(ctx, id, func(u *store.User) {
-		u.Role = "user"
-		if admin {
-			u.Role = "admin"
+	if !admin {
+		return l.losePowers(ctx, id, func(u *store.User) { u.Role = "user" })
+	}
+	return l.update(ctx, id, func(u *store.User) { u.Role = "admin" })
+}
+
+// losePowers is B16: one rule for demote and disable. The install's last
+// active admin cannot lose its powers (nobody could give them back); anyone
+// else gets the change and every session and key closed.
+func (l *Leaf) losePowers(ctx context.Context, id string, change func(*store.User)) error {
+	u, err := l.users.Get(ctx, id)
+	if err != nil {
+		return err
+	}
+	if u.Role == "admin" && u.Active {
+		all, err := l.users.List(ctx)
+		if err != nil {
+			return err
 		}
-	})
+		others := 0
+		for _, o := range all {
+			if o.ID != id && o.Role == "admin" && o.Active {
+				others++
+			}
+		}
+		if others == 0 {
+			return errs.Conflictf("the last stackr admin cannot be demoted or disabled")
+		}
+	}
+	change(&u)
+	u.UpdatedAt = time.Now().UTC()
+	if err := l.users.Update(ctx, u); err != nil {
+		return err
+	}
+	return l.CloseAccess(ctx, id, "")
 }
 
 func (l *Leaf) update(ctx context.Context, id string, f func(*store.User)) error {

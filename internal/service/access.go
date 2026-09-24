@@ -106,19 +106,13 @@ func (o *Orchestrator) Resolve(ctx context.Context, org, stack, env, tile string
 
 // DisableUser turns the account off and closes all its access (B16).
 func (o *Orchestrator) DisableUser(ctx context.Context, userID string) error {
-	if err := o.users.SetActive(ctx, userID, false); err != nil {
-		return err
-	}
-	return o.users.CloseAccess(ctx, userID, "")
+	return o.users.SetActive(ctx, userID, false)
 }
 
 // SetAdmin grants or takes the stackr admin role. Taking it closes the
 // user's sessions and keys (B16).
 func (o *Orchestrator) SetAdmin(ctx context.Context, userID string, admin bool) error {
-	if err := o.users.SetAdmin(ctx, userID, admin); err != nil || admin {
-		return err
-	}
-	return o.users.CloseAccess(ctx, userID, "")
+	return o.users.SetAdmin(ctx, userID, admin)
 }
 
 // RemoveMember takes a user out of an org and applies the revoke rule.
