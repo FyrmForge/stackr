@@ -95,7 +95,9 @@ ui/static/                static assets (not Go)
    balancing) are built only as written in the plan, never guessed.
 10. **Every container op is a job.** Deploy, promote, rollback, restart,
     stop, backup, image-watch redeploy: all go through `flow/jobs`. Nothing
-    starts any of them another way.
+    starts any of them another way. The orchestrator is the only enqueuer;
+    `flow/jobs` gets the flow functions injected by `service.New`, no flow
+    imports jobs and jobs imports no flow (DECIDE 12).
 
 ### Leaves
 
@@ -117,7 +119,8 @@ ui/static/                static assets (not Go)
 - **Flow → flow only on the listed edges:** `flow/promote` → `flow/deploy`
   and `flow/deploy` → `flow/managed`. Never a cycle, never a new edge
   without a plan change.
-- Every flow that starts work does it through `flow/jobs`.
+- A flow never enqueues; the orchestrator verb queues the job and the
+  worker calls the flow.
 
 ### Leaf or flow?
 

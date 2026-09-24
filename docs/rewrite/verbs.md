@@ -6,7 +6,8 @@ nothing else. Signatures: `go doc -all ./internal/service Orchestrator`.
 
 ## Conventions for step 4
 
-- **Authorization is the handler's.** Verbs take ids and trust them. Load a
+- **Authorization is the middleware's, never a handler's.** Verbs take ids
+  and trust them. The one middleware (step 1) does all of this: load a
   `Principal` (`SessionPrincipal` / `KeyPrincipal`), resolve the route with
   `Resolve(org, stack, env, tile)`, check `authz`, then call the verb with
   the resolved ids. Two exceptions: `MintKey` reads the minter's live role
