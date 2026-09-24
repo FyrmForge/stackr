@@ -36,7 +36,7 @@ func (h *H) LogStream() Endpoint {
 			return err
 		}
 		return stream.Lines(c, lines, stop)
-	})
+	}).Q("container", "tail")
 }
 
 // Exec runs ?cmd= (repeated, one argv word each) in one replica
@@ -50,5 +50,5 @@ func (h *H) Exec() Endpoint {
 		}
 		defer func() { _ = wait() }()
 		return stream.Pipe(c, "application/octet-stream", out)
-	})
+	}).Q("cmd", "container")
 }

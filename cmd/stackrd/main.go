@@ -48,7 +48,18 @@ var (
 func main() {
 	generateFlag := flag.Bool("generate", false, "generate static pages and exit")
 	versionFlag := flag.Bool("version", false, "print the version and exit")
+	openapiFlag := flag.Bool("dump-openapi", false, "print the API's OpenAPI spec and exit")
 	flag.Parse()
+
+	if *openapiFlag {
+		b, err := api.OpenAPI()
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "stackrd:", err)
+			os.Exit(1)
+		}
+		fmt.Println(string(b))
+		return
+	}
 
 	if *versionFlag {
 		fmt.Println(version)

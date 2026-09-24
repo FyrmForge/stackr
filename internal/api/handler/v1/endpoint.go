@@ -36,7 +36,11 @@ type Endpoint struct {
 	In, Out reflect.Type // nil = no body
 	Status  int          // the success code
 	Stream  string       // non-empty: the response media type (SSE, raw)
+	Query   []string     // the query params the handler reads
 }
+
+// Q names the query params the handler reads, for the OpenAPI dump.
+func (e Endpoint) Q(names ...string) Endpoint { e.Query = names; return e }
 
 // None is the input or output of an endpoint without a body.
 type None struct{}

@@ -188,7 +188,7 @@ func (h *H) Logs() Endpoint {
 		}
 		s, err := h.S.Logs(rc(c), tileID(c), c.QueryParam("container"), tail)
 		return LogOut{s}, err
-	})
+	}).Q("container", "tail")
 }
 
 // TileJobs is the tile's newest jobs; ?limit= caps them.
@@ -199,7 +199,7 @@ func (h *H) TileJobs() Endpoint {
 			return nil, err
 		}
 		return list(h.S.TileJobs(rc(c), []string{tileID(c)}, limit))
-	})
+	}).Q("limit")
 }
 
 // ---- domains ----

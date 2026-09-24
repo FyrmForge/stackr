@@ -79,6 +79,7 @@ db-sh:
 ## lint: Run linters
 lint:
 	golangci-lint run
+	go run ./cmd/stackrd --dump-openapi | diff -u docs/openapi.json - || (echo "docs/openapi.json is stale: go run ./cmd/stackrd --dump-openapi > docs/openapi.json" && exit 1)
 
 ## templint: Lint .templ files for common issues
 templint:

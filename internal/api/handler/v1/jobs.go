@@ -28,7 +28,7 @@ func (h *H) PollJob() Endpoint {
 		}
 		j, l, err := h.S.PollJob(rc(c), c.Param("job"), offset)
 		return JobLogOut{j, string(l.Chunk), l.Next, l.End}, err
-	})
+	}).Q("offset")
 }
 
 func (h *H) CancelJob() Endpoint {
@@ -37,5 +37,5 @@ func (h *H) CancelJob() Endpoint {
 
 // Jobs is every job, ?state= repeated to filter.
 func (h *H) Jobs() Endpoint {
-	return Get(func(c echo.Context) ([]service.Job, error) { return list(h.S.Jobs(rc(c), c.QueryParams()["state"]...)) })
+	return Get(func(c echo.Context) ([]service.Job, error) { return list(h.S.Jobs(rc(c), c.QueryParams()["state"]...)) }).Q("state")
 }
