@@ -127,3 +127,29 @@ func (o *Orchestrator) dns01(ctx context.Context) bool {
 	p, _ := o.settings.Get(ctx, "dns_provider")
 	return p != ""
 }
+
+// Route is one domain the env's proxy serves, with the tile it lands on.
+type Route struct {
+	Domain
+	Tile string `json:"tile"` // the tile's name
+}
+
+// Routes are the env's domains, every tile's, in tile order (the proxy
+// card's drawer).
+func (o *Orchestrator) Routes(ctx context.Context, envID string) ([]Route, error) {
+	ts, err := o.tiles.List(ctx, envID)
+	if err != nil {
+		return nil, err
+	}
+	var out []Route
+	for _, t := range ts {
+		ds, err := o.Domains(ctx, t.ID)
+		if err != nil {
+			return nil, err
+		}
+		for _, d := range ds {
+			out = append(out, Route{d, t.Name})
+		}
+	}
+	return out, nil
+}

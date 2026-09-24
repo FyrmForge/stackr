@@ -60,3 +60,13 @@ func (s *Site) DoCtx(ctx context.Context, t *testing.T, method, path string, for
 	s.h.ServeHTTP(rec, req)
 	return rec
 }
+
+// DoNoCSRF is Do without the CSRF token.
+func (s *Site) DoNoCSRF(t *testing.T, method, path string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(method, path, nil)
+	req.AddCookie(&http.Cookie{Name: s.O.Sessions().CookieName(), Value: s.session})
+	rec := httptest.NewRecorder()
+	s.h.ServeHTTP(rec, req)
+	return rec
+}

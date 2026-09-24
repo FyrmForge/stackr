@@ -17,6 +17,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/web/handler/devgallery"
 	"github.com/FyrmForge/stackr/internal/web/handler/env"
 	"github.com/FyrmForge/stackr/internal/web/handler/scope"
+	"github.com/FyrmForge/stackr/internal/web/handler/tile"
 )
 
 // Deps holds the dependencies for route registration.
@@ -114,11 +115,9 @@ func RegisterRoutes(srv *server.Server, deps *Deps) {
 	scopeHandler := scope.NewHandler()
 	site.GET("/:org/:stack/:env/:tile", scopeHandler.Page, deps.Access.Require("tile.read"))
 
-	// The env canvas's stream, drawers and dialogs (tasks 9 and 10). A
-	// static segment wins over :tile in echo, so these words shadow a tile
-	// of the same slug (DECIDE).
-	envH := env.NewHandler(deps.Service)
-	site.GET("/:org/:stack/:env/events", envH.Events, deps.Access.Require("tile.read"))
+	// The env canvas's stream, drawers and dialogs (tasks 9 and 10).
+	env.NewHandler(deps.Service).Mount(site, deps.Access)
+	tile.NewHandler(deps.Service).Mount(site, deps.Access)
 }
 
 // RegisterStaticPages registers handlers for static generation and runtime

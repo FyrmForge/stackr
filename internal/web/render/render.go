@@ -5,6 +5,8 @@ package render
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/FyrmForge/hamr/pkg/htmx"
@@ -15,6 +17,7 @@ import (
 
 	"github.com/FyrmForge/stackr/internal/api/stream"
 	"github.com/FyrmForge/stackr/internal/middleware"
+	"github.com/FyrmForge/stackr/internal/service"
 	"github.com/FyrmForge/stackr/internal/ui/components"
 )
 
@@ -89,4 +92,28 @@ func Event(ctx context.Context, body templ.Component) (stream.HTML, error) {
 	var b strings.Builder
 	err := body.Render(ctx, &b)
 	return stream.HTML(b.String()), err
+}
+
+// Refused is the message of an error the user can act on (a 4xx other
+// than not found), shown inline over a drawer or form; ok false = a real
+// failure for the error page.
+func Refused(err error) (msg string, ok bool) {
+	var he *echo.HTTPError
+	if errors.As(middleware.HTTPError(err), &he) && he.Code < 500 && he.Code != 404 {
+		return fmt.Sprint(he.Message), true
+	}
+	return "", false
+}
+
+// EnvURL is the env page's path from the request's scope: /org/stack/env.
+func EnvURL(c echo.Context) string {
+	s := middleware.ScopeOf(c)
+	return "/" + s.Org.Slug + "/" + s.Stack.Slug + "/" + s.Env.Slug
+}
+
+// JobView is a job's status line; env is the env page's path, under which
+// the drawers' one job stream lives.
+func JobView(env string, j service.Job) components.JobStatusView {
+	return components.JobStatusView{Kind: j.Kind, State: j.State, Error: j.Error,
+		StreamURL: env + "/drawer/jobs/" + j.ID + "/events", Live: j.FinishedAt == nil}
 }

@@ -1,0 +1,275 @@
+package tile
+
+import (
+	c "github.com/FyrmForge/stackr/internal/ui/components"
+	"github.com/FyrmForge/stackr/internal/ui/dialog"
+)
+
+// Drawer is every tile drawer answer: header, tabs, then the tab body.
+templ Drawer(v View, body templ.Component) {
+	<div id={ Root }>
+		<h2 class="text-lg font-semibold">{ v.Name } <span class="text-sm font-normal text-slate-500">{ v.Kind }</span></h2>
+		<nav class="my-3 flex flex-wrap gap-3 text-sm" aria-label="Tabs">
+			for _, t := range Tabs(v.Kind) {
+				<a
+					href={ templ.SafeURL("?drawer=" + v.Node + "&tab=" + t) }
+					hx-get={ v.Base + "?tab=" + t }
+					hx-target={ "#" + Root }
+					hx-swap="outerHTML"
+					hx-push-url={ "?drawer=" + v.Node + "&tab=" + t }
+					class="link aria-[current=page]:font-semibold"
+					if t == v.Tab {
+						aria-current="page"
+					}
+				>{ t }</a>
+			}
+		</nav>
+		if v.Error != "" {
+			<p class="banner mb-3 border-red-300 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300" role="alert">{ v.Error }</p>
+		}
+		if v.Note != "" {
+			<p class="banner mb-3" role="status">{ v.Note }</p>
+		}
+		@body
+	</div>
+}
+
+// post is a one-button action answered with the drawer.
+templ post(label, action string) {
+	<button type="button" class="btn" hx-post={ action } hx-target={ "#" + Root } hx-swap="outerHTML">{ label }</button>
+}
+
+templ Status(v View, s StatusView) {
+	<div class="space-y-4" id="tab-status">
+		<div class="flex items-center gap-2">
+			@c.TileBadge(s.Word)
+			if s.LastRun != "" {
+				<span class="text-sm text-slate-500">last run { s.LastRun }</span>
+			}
+			if s.NextRun != "" {
+				<span class="text-sm text-slate-500">next { s.NextRun }</span>
+			}
+		</div>
+		if s.Job != nil {
+			@c.JobStatus(*s.Job)
+		}
+		if len(s.Replicas) > 0 {
+			<ul class="space-y-1 text-sm">
+				for _, r := range s.Replicas {
+					<li class="flex gap-2"><span class="font-mono">{ r.Name }</span><span>{ r.State }</span><span class="text-slate-500">{ r.Health }</span></li>
+				}
+			</ul>
+		}
+		<div class="flex flex-wrap gap-2">
+			@post("Deploy", v.Base+"/deploy")
+			if s.Stopped {
+				@post("Start", v.Base+"/start")
+			} else {
+				@c.Confirm(dialog.Restart(v.Name, v.Base+"/restart", "#"+Root))
+				@c.Confirm(dialog.Stop(v.Name, v.Base+"/stop", "#"+Root))
+			}
+			@c.Confirm(dialog.Delete(v.Name, v.Base+"/delete", "#"+Root))
+		</div>
+	</div>
+}
+
+templ Logs(v View, l LogsView) {
+	<div class="space-y-3" id="tab-logs">
+		if l.Run != "" {
+			<p class="text-sm">Run <span class="font-mono">{ l.Run }</span></p>
+		} else if len(l.Replicas) > 1 {
+			<label class="label" for="log-container">Replica</label>
+			<select id="log-container" name="container" class="input w-60" hx-get={ v.Base + "?tab=logs" } hx-target={ "#" + Root } hx-swap="outerHTML">
+				for _, r := range l.Replicas {
+					<option value={ r.ID } selected?={ r.ID == l.Container }>{ r.Name }</option>
+				}
+			</select>
+		}
+		@c.LogPane(l.Pane)
+	</div>
+}
+
+templ Domains(v View, d DomainsView) {
+	<div class="space-y-4" id="tab-domains">
+		if len(d.Rows) == 0 {
+			<p class="text-sm text-slate-500">No domains yet.</p>
+		}
+		for _, r := range d.Rows {
+			<div class="card space-y-2 p-3 text-sm">
+				<div class="flex items-center justify-between gap-2">
+					<a href={ templ.SafeURL(scheme(r.HTTPS) + r.Host + r.Path) } target="_blank" rel="noopener" class="link font-mono">{ r.Host }{ r.Path }</a>
+					<span class="text-xs text-slate-500">
+						→ :{ r.Port }
+						if r.Auto {
+							· generated
+						}
+					</span>
+					@c.Confirm(c.ConfirmView{Button: "Detach", Title: "Detach " + r.Host + "?", Warning: "The proxy stops routing it.",
+						Action: v.Base + "/domains/" + r.ID + "/detach", Target: "#" + Root})
+				</div>
+				if d.Admin {
+					<form hx-post={ v.Base + "/domains/" + r.ID + "/raw" } hx-target={ "#" + Root } hx-swap="outerHTML" class="space-y-2">
+						<label class="label" for={ "raw-" + r.ID }>Raw Caddy (admin): replaces the generated route</label>
+						<textarea id={ "raw-" + r.ID } name="raw_caddy" rows="4" class="input font-mono text-xs">{ r.Raw }</textarea>
+						@c.Submit("Save snippet")
+					</form>
+				}
+			</div>
+		}
+		<form hx-post={ v.Base + "/domains" } hx-target={ "#" + Root } hx-swap="outerHTML" class="space-y-3">
+			<h3 class="font-semibold">Attach a domain</h3>
+			@c.Field(c.FieldView{Name: "host", Label: "Host", Placeholder: "api.example.com", Required: true})
+			@c.Field(c.FieldView{Name: "path", Label: "Path", Placeholder: "/"})
+			@c.Field(c.FieldView{Name: "port", Label: "Port", Type: "number", Help: "Empty = the tile's container port."})
+			@c.Submit("Attach")
+		</form>
+	</div>
+}
+
+func scheme(https bool) string {
+	if https {
+		return "https://"
+	}
+	return "http://"
+}
+
+templ Env(v View, e EnvView) {
+	<form id="tab-env" hx-post={ v.Base + "/env" } hx-target={ "#" + Root } hx-swap="outerHTML" class="space-y-3">
+		<label class="label" for="env-json">Environment (a JSON object; values may reference params)</label>
+		<textarea id="env-json" name="env_json" rows="12" class="input font-mono text-xs">{ e.JSON }</textarea>
+		<p class="text-xs text-slate-500">Saving redeploys a running tile.</p>
+		@c.Submit("Save")
+	</form>
+}
+
+templ Settings(v View, s c.SettingsFormView) {
+	<div id="tab-settings">
+		@c.SettingsForm(s)
+	</div>
+}
+
+templ Jobs(v View, j JobsView) {
+	<div id="tab-jobs">
+		if len(j.Rows) == 0 {
+			<p class="text-sm text-slate-500">No jobs yet.</p>
+		}
+		<ul class="space-y-2 text-sm">
+			for _, r := range j.Rows {
+				<li>
+					<div class="flex items-center gap-2"><span class="w-24 text-slate-500">{ r.Kind }</span>@c.JobBadge(r.State)<span class="text-slate-500">{ r.When }</span></div>
+					if r.Error != "" {
+						<p class="text-red-700 dark:text-red-400">{ r.Error }</p>
+					}
+				</li>
+			}
+		</ul>
+	</div>
+}
+
+templ Image(v View, i ImageView) {
+	<div class="space-y-4" id="tab-image">
+		<dl class="grid grid-cols-[8rem_1fr] gap-1 text-sm">
+			<dt class="text-slate-500">ref</dt><dd class="font-mono">{ i.Ref }</dd>
+			<dt class="text-slate-500">running digest</dt><dd class="truncate font-mono">{ orNone(i.Digest) }</dd>
+			<dt class="text-slate-500">latest seen</dt><dd class="truncate font-mono">{ orNone(i.LastDigest) } { i.LastTag }</dd>
+			<dt class="text-slate-500">checked</dt><dd>{ orNone(i.Checked) }</dd>
+		</dl>
+		if i.NewVersion {
+			<p class="banner" role="status">A new version is out.</p>
+		}
+		if i.LastError != "" {
+			<p class="text-sm text-red-700 dark:text-red-400">{ i.LastError }</p>
+		}
+		@post("Check now", v.Base+"/image/check")
+		<form hx-post={ v.Base + "/image" } hx-target={ "#" + Root } hx-swap="outerHTML" class="space-y-3">
+			<div>
+				<label class="label" for="update-policy">On a new version</label>
+				<select id="update-policy" name="update_policy" class="input">
+					<option value="manual" selected?={ i.UpdatePolicy != "auto" }>show the chip, I deploy</option>
+					<option value="auto" selected?={ i.UpdatePolicy == "auto" }>redeploy by itself</option>
+				</select>
+			</div>
+			@c.Field(c.FieldView{Name: "tag_policy", Label: "Tag policy", Value: i.TagPolicy, Help: "Empty = watch the digest of this tag only."})
+			@c.Submit("Save")
+		</form>
+	</div>
+}
+
+func orNone(s string) string {
+	if s == "" {
+		return "none"
+	}
+	return s
+}
+
+templ Runs(v View, r RunsView) {
+	<div class="space-y-4" id="tab-runs">
+		<div class="flex gap-2">
+			@post("Run now", v.Base+"/run")
+			if r.Cron {
+				<button type="button" class="btn" hx-post={ v.Base + "/pause" } hx-vals={ pauseVals(!r.Paused) } hx-target={ "#" + Root } hx-swap="outerHTML">
+					if r.Paused {
+						Resume schedule
+					} else {
+						Pause schedule
+					}
+				</button>
+			}
+		</div>
+		if len(r.Rows) == 0 {
+			<p class="text-sm text-slate-500">Never run.</p>
+		}
+		<ul class="space-y-2 text-sm">
+			for _, x := range r.Rows {
+				<li class="flex flex-wrap items-center gap-2">
+					@c.JobBadge(x.Status)
+					<span class="text-slate-500">{ x.Trigger }</span>
+					<span>{ x.Started }</span>
+					<span class="text-slate-500">{ x.Took }</span>
+					if x.Exit != "" {
+						<span class="text-slate-500">exit { x.Exit }</span>
+					}
+					<a
+						href={ templ.SafeURL("?drawer=" + v.Node + "&tab=logs&run=" + x.ID) }
+						hx-get={ v.Base + "?tab=logs&run=" + x.ID }
+						hx-target={ "#" + Root }
+						hx-swap="outerHTML"
+						class="link"
+					>log</a>
+					if x.Live {
+						@post("Stop", v.Base+"/runs/"+x.ID+"/stop")
+					}
+				</li>
+			}
+		</ul>
+	</div>
+}
+
+func pauseVals(paused bool) string {
+	if paused {
+		return `{"paused":"true"}`
+	}
+	return `{"paused":"false"}`
+}
+
+templ Backups(v View, b BackupsView) {
+	<div id="tab-backups">
+		if len(b.Rows) == 0 {
+			<p class="text-sm text-slate-500">This tile mounts no volumes.</p>
+		}
+		<ul class="space-y-2 text-sm">
+			for _, r := range b.Rows {
+				<li class="flex items-center gap-2">
+					<a
+						href={ templ.SafeURL("?drawer=" + r.ID + "&tab=backups") }
+						hx-get={ r.Drawer }
+						hx-target="#drawer-body"
+						hx-push-url={ "?drawer=" + r.ID + "&tab=backups" }
+						class="link font-mono"
+					>{ r.Name }</a>
+					<span class="text-slate-500">{ r.State }</span>
+				</li>
+			}
+		</ul>
+	</div>
+}

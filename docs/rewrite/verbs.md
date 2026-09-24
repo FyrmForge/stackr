@@ -52,6 +52,7 @@ nothing else. Signatures: `go doc -all ./internal/service Orchestrator`.
 | Org delete and rename rules | `RenameOrg` (squat check over every domain), `DeleteOrg` (has stacks, last org) |
 | Tile-to-tile traffic (step 3c) | `Traffic(env) []Edge{From, To, BPS}` (the env's lanes at the last sample; ends are tile ids, slice (provision) ids, `proxy`, `internet`), `TrafficSeq` (sample counter the env events stream watches); the 5 s conntrack sample runs inline on the scheduler, never as a job (a read) |
 | The canvas (step 6, ui-plan) | `Canvas(scope, show) GraphView` (cards, edges, worst-of status, ghost refs, arranged or saved positions, annotations, the stack canvas's compare rungs), `SetPosition` (the first drop saves every card), `ResetPositions`, `Annotations`, `SetAnnotation` (an emptied note is deleted), `DeleteAnnotation`; web only, no API route yet (DECIDE 84) |
+| Env drawers (step 6 task 10, reads only) | `TileImage` (image watch's row for the tile's ref, zero when never seen), `TileVolumes` (the env volumes a tile mounts), `Volume` (by id), `InstanceSlices` (a managed tile's instance and its provisions), `Provision` (by id), `Routes(env)` (every domain in the env with its tile's name) |
 | (stacks) | `Stacks`, `CreateStack`, `RenameStack`, `DeleteStack` |
 | (jobs) | `GetJob`, `PollJob`, `Jobs`, `TileJobs`, `CancelJob` |
 | (health) | `Ping`, `Sessions` |

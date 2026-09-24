@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"io"
 	"time"
 
@@ -207,4 +208,18 @@ func (o *Orchestrator) redeployRunning(ctx context.Context, ts []Tile) error {
 		}
 	}
 	return nil
+}
+
+// TileImage is what image watch knows of the tile's image ref; the zero
+// Image when it was never built, pulled or checked.
+func (o *Orchestrator) TileImage(ctx context.Context, tileID string) (Image, error) {
+	t, err := o.tiles.Get(ctx, tileID)
+	if err != nil || t.ImageRef == "" {
+		return Image{}, err
+	}
+	i, err := o.images.GetByRef(ctx, t.ImageRef)
+	if errors.Is(err, errs.ErrNotFound) {
+		return Image{Ref: t.ImageRef}, nil
+	}
+	return i, err
 }

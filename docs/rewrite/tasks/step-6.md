@@ -249,6 +249,22 @@ and stream must match:
   changes; it must also watch `childList` on itself so a swapped-in lanes
   svg gets its `d` (DECIDE 100).
 
+**Added by task 10 (session C, 2026-09-24)** — the env-level drawer URLs
+task 7's cards and the env page point at (all under `/:org/:stack/:env`):
+
+- `drawer/tile/:tile?tab=` (tabs by kind: `tile.Tabs`),
+  `drawer/instance/:tile`, `drawer/slice/:provision?tab=bindings`,
+  `drawer/volume/:volume?tab=backups`, `drawer/proxy?tab=routes`,
+  `drawer/new-tile` (the create form, opened into the drawer),
+  `drawer/rollback/:release` (POST, answers a live `JobStatus`),
+  `drawer/jobs/:job/events` (every drawer's job stream). The vars and
+  secrets cards open session B's `drawer/vars`.
+- Every drawer answer is one `<div id="drawer-view">`; tabs, actions
+  and confirms replace it outerHTML, so nothing ever targets
+  `#drawer-body` but a card click.
+- The env page must open `?drawer=&tab=` on a full load itself (a
+  create redirects to `…?drawer=<tile id>&tab=status`).
+
 ### Session B (`../stackr-step-6b`)
 
 5. **Contract + elements.** Write the contract above into

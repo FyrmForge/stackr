@@ -345,3 +345,30 @@ func TestRunVerbs(t *testing.T) {
 		t.Fatal("stop on a cron did not pause it")
 	}
 }
+
+// The drawer reads: Routes names each domain's tile, TileVolumes finds the
+// env volumes a tile mounts and no other.
+func TestDrawerReads(t *testing.T) {
+	w := newWorld(t)
+	ctx := context.Background()
+	api := w.tile(t, "api", true)
+	_, err := w.o.AttachDomain(ctx, api.ID, DomainSpec{Host: "api.example.com"})
+	must(t, err)
+	rs, err := w.o.Routes(ctx, w.env)
+	must(t, err)
+	if len(rs) != 1 || rs[0].Host != "api.example.com" || rs[0].Tile != "api" {
+		t.Errorf("routes = %+v", rs)
+	}
+	scope := VolumeScope{Kind: "env", ID: w.env}
+	_, err = w.o.DeclareVolume(ctx, scope, "uploads", 0)
+	must(t, err)
+	_, err = w.o.DeclareVolume(ctx, scope, "cache", 0)
+	must(t, err)
+	_, _, err = w.o.UpdateTile(ctx, api.ID, func(t *Tile) error { t.Volumes = "uploads:/data"; return nil })
+	must(t, err)
+	vs, err := w.o.TileVolumes(ctx, api.ID)
+	must(t, err)
+	if len(vs) != 1 || vs[0].Slug != "uploads" {
+		t.Errorf("tile volumes = %+v", vs)
+	}
+}
