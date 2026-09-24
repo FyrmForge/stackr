@@ -10,7 +10,7 @@ import (
 // A card with a drawer opens it on click and pushes ?drawer=&tab=.
 templ Card(v CardView) {
 	<div
-		class={ "card h-full overflow-hidden p-3 text-sm", templ.KV("border-dashed", dashed(v.Kind)), templ.KV("cursor-pointer", v.Drawer != "") }
+		class={ "card min-h-0 flex-1 overflow-hidden p-3 text-sm", templ.KV("border-dashed", dashed(v.Kind)), templ.KV("cursor-pointer", v.Drawer != "") }
 		data-kind={ v.Kind }
 		if v.Drawer != "" {
 			hx-get={ v.Drawer }
@@ -77,11 +77,12 @@ templ Footer(id string, f FooterView) {
 	</div>
 }
 
-// Subs are a card's sub-tiles, stacked under it. Each is a static
-// <graph-node> with its own drawer; the canvas measures them in place.
+// Subs are a card's sub-tiles, stacked under it inside the node (its h
+// counts 30 px each). Each is a static <graph-node> with its own drawer;
+// the canvas measures them in place.
 templ Subs(v CardView) {
 	if len(v.Subs) > 0 {
-		<div class="absolute left-2 top-full mt-1 w-48 space-y-1">
+		<div class="mt-1 shrink-0 space-y-1">
 			for _, s := range v.Subs {
 				<graph-node node-id={ s.ID } static>
 					<div

@@ -2,7 +2,8 @@ package devgallery
 
 import "github.com/FyrmForge/stackr/internal/ui/graph/cards"
 
-// placed is a sample card and where the fake env canvas puts it.
+// placed is a sample card and where the fake env canvas puts it; h
+// counts 30 px per sub-tile, as the graph service's does.
 type placed struct {
 	card       cards.CardView
 	x, y, w, h string
@@ -30,14 +31,14 @@ func envCards() []placed {
 	return []placed{
 		{sample("proxy", "proxy", "proxy", "caddy", "routes", cards.FooterView{Note: "4 routes"}), "20", "40", "180", "92"},
 		{sample("internet", "internet", "internet", "outside the map", "", cards.FooterView{}), "20", "300", "180", "92"},
-		{api, "300", "20", "220", "110"},
+		{api, "300", "20", "220", "170"},
 		{sample("t-nightly", "cron", "nightly", "0 3 * * *", "runs",
 			cards.FooterView{LastRun: "ok · Jul 24 03:00", NextRun: "Jul 25 03:00"}), "580", "20", "220", "110"},
 		{sample("t-migrate", "function", "migrate", "on deploy", "runs",
 			cards.FooterView{LastRun: "running · since 13:02"}), "580", "180", "220", "110"},
 		{sample("t-report", "function", "report", "manual", "runs", cards.FooterView{LastRun: "never run"}), "580", "340", "220", "110"},
-		{db, "300", "220", "220", "92"},
-		{pg, "300", "420", "220", "92"},
+		{db, "300", "220", "220", "122"},
+		{pg, "300", "420", "220", "122"},
 		{sample("t-shared", "ref", "shared-pg", "org · postgres 16", "", cards.FooterView{Note: "managed tile, open home"}), "860", "220", "220", "92"},
 		{sample("v-old", "volume", "old-cache", "80 MB · orphaned", "backups", cards.FooterView{}), "860", "380", "220", "62"},
 		{sample("vars", "vars", "vars", "env", "params", cards.FooterView{Count: 6}), "860", "20", "160", "72"},

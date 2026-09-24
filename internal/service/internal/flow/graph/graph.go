@@ -122,7 +122,7 @@ type Node struct {
 	Params, Secrets int
 }
 
-type Sub struct{ ID, Kind, Name, Status string }
+type Sub struct{ ID, Kind, Name, Status, Slug string } // Slug: the hosting instance's tile slug
 
 type Edge struct{ Kind, From, To string }
 
@@ -538,7 +538,7 @@ func (f *Flow) env(ctx context.Context, v *View, envID string, in In) error {
 			}
 			if host.EnvironmentID == envID {
 				hosted[host.ID] = true
-				n.Subs = append(n.Subs, Sub{ID: host.ID, Kind: tile.Managed, Name: host.Name})
+				n.Subs = append(n.Subs, Sub{ID: host.ID, Kind: tile.Managed, Name: host.Name, Slug: host.Slug})
 			} else {
 				g := ghost(v, host.ID, host.Name, inst.ScopeKind+" · "+inst.Engine)
 				v.Edges = append(v.Edges, Edge{EdgeShared, n.ID, g})

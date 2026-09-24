@@ -53,8 +53,9 @@ type Node struct {
 	Footer                 templ.Component // replaces the generic footer; the stream sends it too
 }
 
-// Sub is a sub-tile under a card.
-type Sub struct{ ID, Kind, Name, Status string }
+// Sub is a sub-tile under a card; Drawer is its own drawer GET (env
+// cards), which a fresh load of ?drawer=<sub id> opens.
+type Sub struct{ ID, Kind, Name, Status, Drawer string }
 
 // Edge is one server-drawn edge; the canvas re-paths it.
 type Edge struct{ Kind, From, To string }

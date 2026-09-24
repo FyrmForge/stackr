@@ -144,3 +144,16 @@ func TestEnvEventsCarryLanes(t *testing.T) {
 		t.Error("traffic=0 still draws lanes")
 	}
 }
+
+// Env nodes wear session C's cards: the body opens the tile drawer under
+// /-/, and the footer is the card's own (the stream re-sends it).
+func TestEnvCardsAreTileCards(t *testing.T) {
+	s := webtest.New(t)
+	body := get(t, s, "/acme/shop/dev")
+	for _, want := range []string{`hx-get="/acme/shop/dev/-/tiles/api?tab=status"`, `hx-push-url="?drawer=` + s.Tile.ID + `&amp;tab=status"`,
+		`sse-swap="footer:` + s.Tile.ID + `"`, `hx-get="/acme/shop/dev/-/new-tile"`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("env page lacks %s", want)
+		}
+	}
+}
