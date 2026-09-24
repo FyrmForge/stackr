@@ -265,10 +265,10 @@ session started by darhvader from the START HERE line, no Fable.
     - `flow/run` (edge run -> deploy): row first, then the job; the container is built by `deploy.Spec`, waited on, removed; ok / exit code / timeout / stopped.
     - deploy of a run kind starts no container; a cron reloads the schedule table, an on_deploy function queues a run (after `Deploy` and after promote).
     - job kind `run`: lock set tile + `run:<id>`, no 30-minute cap (`jobs.Options.Uncapped`), the tile's timeout instead.
-    - verbs `RunTile`, `PauseTile`, `Runs`, `Run`, `StopRun`, `RunLog`, `FollowRunLog`; `TileStatus` adds `last_run`, `next_run`, `paused`; Stop on a cron pauses, on a function refuses; Restart refuses both.
+    - verbs `RunTile`, `PauseTile`, `Runs`, `Run`, `StopRun`, `RunLog`, `FollowRunLog`; `TileStatus` adds `last_run`, `next_run`, `paused`; Stop on a cron pauses, on a function refuses; Restart and Start refuse both.
     - routes `POST tile/run`, `POST tile/pause`, `GET tile/runs`, `GET tile/runs/:run`, `DELETE tile/runs/:run`; `?run=` on logs and the log stream. CLI `stackr tile run|pause|resume|runs`, `logs --run`, `stop --run`, `--schedule/--trigger/--timeout`.
     - stack file: `kind: cron` + `schedule:`, `kind: function` + `trigger:`, `timeout_minutes:`; the plan prints old and new schedule, trigger and timeout.
-    - no stacked PR opened (the builder was told not to push); DECIDE 52 to 63 added.
+    - no stacked PR opened (the builder was told not to push); DECIDE 52 to 62 added.
 - [ ] [F+O] step 6 UI
 
 ## DECIDE:
@@ -577,28 +577,24 @@ Raised by step 3b (builder took the lean; flip any):
    cron with no job, so `POST tile/stop` answers 202 with a zero job and
    the CLI prints it. Options: (a) keep; (b) the handler answers the tile
    (200) for a cron. Lean (a) as built; (b) is a few lines if wanted.
-58. (step 3b) **Start on a cron or function is not guarded.** It queues a
-   start job that finds no replicas. Options: (a) Start on a cron resumes
-   it, on a function refuses (a new refusal string, none in the
-   extract); (b) keep. Lean (b) as built, until the wording is chosen.
-59. (step 3b) **`kind:` and `type:` are one stack-file key.** Either spelling
+58. (step 3b) **`kind:` and `type:` are one stack-file key.** Either spelling
    works; both given and different is a plan blocker. Options: (a) keep;
    (b) `kind:` only. Lean (a).
-60. (step 3b) **Each run re-prepares like a deploy.** `deploy.Spec` runs the
+59. (step 3b) **Each run re-prepares like a deploy.** `deploy.Spec` runs the
    managed-slice reconcile and the image pull check before every run, so
    slices and credentials are current. Options: (a) keep; (b) reuse what
    the deploy prepared. Lean (a).
-61. (step 3b) **A source edit on a cron waits for the next deploy.** The
+60. (step 3b) **A source edit on a cron waits for the next deploy.** The
    Redeploy effect only redeploys a tile with replicas; a run kind has
    none, so it keeps the pinned image until Deploy or a promote (as a
    stopped service does, B34). Options: (a) keep; (b) redeploy run kinds
    on a source edit. Lean (a).
-62. (step 3b) **`trigger` on a non-function uses the extract's wording**
+61. (step 3b) **`trigger` on a non-function uses the extract's wording**
    "run_on_deploy applies to function tiles only" (verbatim rule), though
    the key is now `trigger`. Options: (a) keep; (b) "trigger applies to
    function tiles only". Lean (a): the task asks for the extract's strings
    verbatim.
-63. (step 3b) **Runs cut short by a restart are failed, not retried.** A run
+62. (step 3b) **Runs cut short by a restart are failed, not retried.** A run
    left `running` at boot is closed failed "stackrd restarted while this
    run was going"; its job is not re-run. Options: (a) keep; (b) re-queue
    it. Lean (a).

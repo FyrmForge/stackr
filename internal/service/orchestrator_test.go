@@ -332,6 +332,9 @@ func TestRunVerbs(t *testing.T) {
 	if _, err := w.o.RestartTile(ctx, cron.ID); msg(err) != "a cron has no long-running container to restart; use run instead" {
 		t.Fatalf("restart a cron = %v", err)
 	}
+	if _, err := w.o.StartTile(ctx, cron.ID); msg(err) != "a cron has no long-running container to start; use run instead" {
+		t.Fatalf("start a cron = %v", err)
+	}
 	if _, _, err := w.o.RunTile(ctx, other.ID); msg(err) != "run applies to cron and function tiles" {
 		t.Fatalf("run an image tile = %v", err)
 	}

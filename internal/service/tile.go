@@ -7,6 +7,7 @@ import (
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/imagewatch"
+	"github.com/FyrmForge/stackr/internal/service/internal/flow/jobs"
 	lrun "github.com/FyrmForge/stackr/internal/service/internal/leaf/run"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
@@ -126,16 +127,25 @@ func (o *Orchestrator) Deploy(ctx context.Context, id string) (Job, error) {
 	return o.enqueue(ctx, kindDeploy, tileJob{TileID: id}, id)
 }
 
-// RestartTile: a cron or function has runs, not replicas; refused.
+// RestartTile and StartTile: a cron or function has runs, not replicas;
+// refused (tilelifecycle.md wording).
 func (o *Orchestrator) RestartTile(ctx context.Context, id string) (Job, error) {
+	return o.replicaVerb(ctx, id, "restart", kindRestart)
+}
+
+func (o *Orchestrator) StartTile(ctx context.Context, id string) (Job, error) {
+	return o.replicaVerb(ctx, id, "start", kindStart)
+}
+
+func (o *Orchestrator) replicaVerb(ctx context.Context, id, verb string, kind jobs.Kind) (Job, error) {
 	t, err := o.tiles.Get(ctx, id)
 	if err != nil {
 		return Job{}, err
 	}
 	if tile.RunToCompletion(t.Kind) {
-		return Job{}, errs.Invalidf("kind", "a %s has no long-running container to restart; use run instead", t.Kind)
+		return Job{}, errs.Invalidf("kind", "a %s has no long-running container to %s; use run instead", t.Kind, verb)
 	}
-	return o.enqueue(ctx, kindRestart, tileJob{TileID: id}, id)
+	return o.enqueue(ctx, kind, tileJob{TileID: id}, id)
 }
 
 // StopTile: a cron parks (paused, no job: the zero Job comes back); a
@@ -153,10 +163,6 @@ func (o *Orchestrator) StopTile(ctx context.Context, id string) (Job, error) {
 		return Job{}, errs.Invalidf("kind", "nothing to stop")
 	}
 	return o.enqueue(ctx, kindStop, tileJob{TileID: id}, id)
-}
-
-func (o *Orchestrator) StartTile(ctx context.Context, id string) (Job, error) {
-	return o.enqueue(ctx, kindStart, tileJob{TileID: id}, id)
 }
 
 // Logs is the tail of one replica's log; FollowLogs streams it.
