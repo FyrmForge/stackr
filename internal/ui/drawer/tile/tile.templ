@@ -5,40 +5,6 @@ import (
 	"github.com/FyrmForge/stackr/internal/ui/dialog"
 )
 
-// Drawer is every tile drawer answer: header, tabs, then the tab body.
-templ Drawer(v View, body templ.Component) {
-	<div id={ Root }>
-		<h2 class="text-lg font-semibold">{ v.Name } <span class="text-sm font-normal text-slate-500">{ v.Kind }</span></h2>
-		<nav class="my-3 flex flex-wrap gap-3 text-sm" aria-label="Tabs">
-			for _, t := range Tabs(v.Kind) {
-				<a
-					href={ templ.SafeURL("?drawer=" + v.Node + "&tab=" + t) }
-					hx-get={ v.Base + "?tab=" + t }
-					hx-target={ "#" + Root }
-					hx-swap="outerHTML"
-					hx-push-url={ "?drawer=" + v.Node + "&tab=" + t }
-					class="link aria-[current=page]:font-semibold"
-					if t == v.Tab {
-						aria-current="page"
-					}
-				>{ t }</a>
-			}
-		</nav>
-		if v.Error != "" {
-			<p class="banner mb-3 border-red-300 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300" role="alert">{ v.Error }</p>
-		}
-		if v.Note != "" {
-			<p class="banner mb-3" role="status">{ v.Note }</p>
-		}
-		@body
-	</div>
-}
-
-// post is a one-button action answered with the drawer.
-templ post(label, action string) {
-	<button type="button" class="btn" hx-post={ action } hx-target={ "#" + Root } hx-swap="outerHTML">{ label }</button>
-}
-
 templ Status(v View, s StatusView) {
 	<div class="space-y-4" id="tab-status">
 		<div class="flex items-center gap-2">
@@ -61,9 +27,9 @@ templ Status(v View, s StatusView) {
 			</ul>
 		}
 		<div class="flex flex-wrap gap-2">
-			@post("Deploy", v.Base+"/deploy")
+			@c.PostButton("Deploy", v.Base+"/deploy")
 			if s.Stopped {
-				@post("Start", v.Base+"/start")
+				@c.PostButton("Start", v.Base+"/start")
 			} else {
 				@c.Confirm(dialog.Restart(v.Name, v.Base+"/restart", "#"+Root))
 				@c.Confirm(dialog.Stop(v.Name, v.Base+"/stop", "#"+Root))
@@ -180,7 +146,7 @@ templ Image(v View, i ImageView) {
 		if i.LastError != "" {
 			<p class="text-sm text-red-700 dark:text-red-400">{ i.LastError }</p>
 		}
-		@post("Check now", v.Base+"/image/check")
+		@c.PostButton("Check now", v.Base+"/image/check")
 		<form hx-post={ v.Base + "/image" } hx-target={ "#" + Root } hx-swap="outerHTML" class="space-y-3">
 			<div>
 				<label class="label" for="update-policy">On a new version</label>
@@ -205,7 +171,7 @@ func orNone(s string) string {
 templ Runs(v View, r RunsView) {
 	<div class="space-y-4" id="tab-runs">
 		<div class="flex gap-2">
-			@post("Run now", v.Base+"/run")
+			@c.PostButton("Run now", v.Base+"/run")
 			if r.Cron {
 				<button type="button" class="btn" hx-post={ v.Base + "/pause" } hx-vals={ pauseVals(!r.Paused) } hx-target={ "#" + Root } hx-swap="outerHTML">
 					if r.Paused {
@@ -237,7 +203,7 @@ templ Runs(v View, r RunsView) {
 						class="link"
 					>log</a>
 					if x.Live {
-						@post("Stop", v.Base+"/runs/"+x.ID+"/stop")
+						@c.PostButton("Stop", v.Base+"/runs/"+x.ID+"/stop")
 					}
 				</li>
 			}

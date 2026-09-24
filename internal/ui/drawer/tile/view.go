@@ -4,10 +4,21 @@
 // confirms all target it.
 package tile
 
-import c "github.com/FyrmForge/stackr/internal/ui/components"
+import (
+	"github.com/a-h/templ"
+
+	c "github.com/FyrmForge/stackr/internal/ui/components"
+)
 
 // Root is the id every drawer answer replaces (outerHTML).
-const Root = "drawer-view"
+const Root = c.DrawerRoot
+
+// Drawer is every tile drawer answer: the shared drawer frame (header, tab
+// strip, refusal or note) around one tab.
+func Drawer(v View, body templ.Component) templ.Component {
+	return c.Drawer(c.DrawerView{Node: v.Node, Title: v.Name, Kind: v.Kind, Base: v.Base, Tabs: Tabs(v.Kind), Tab: v.Tab,
+		Error: v.Error, Note: v.Note}, body)
+}
 
 // View is the drawer around one tab.
 type View struct {
