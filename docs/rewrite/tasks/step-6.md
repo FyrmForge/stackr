@@ -56,36 +56,113 @@ view use a plain `<textarea>` / `<pre>`).
 4. **Custom elements**, the four above, TypeScript.
    Done when: each under budget, no fetch, no import, events only.
 
-5. **Auth pages:** login, setup (first admin), invite accept, CLI authorize,
-   account (password change, keys).
+## Tasks 5 to 13 (rewritten 2026-09-24, see `docs/rewrite/ui-plan.md`)
 
-6. **Org pages** `ui/pages/org/`: list/switch, settings (rename/delete with
-   rule verdicts), members + invites, API keys, connector (GitHub App
-   install), org params, backup destinations.
+Everything below is a canvas, a drawer or a dialog. No page lists a
+thing a drawer also shows. Session B and C run in parallel worktrees;
+the element contract in task 5 is the only thing they share, so it is
+written and committed before either starts.
 
-7. **Stack pages** `ui/pages/stack/`: overview (envs across, tiles down),
-   releases (list, diff, promote button with dry-run plan, rollback),
-   settings (`from`/`auto` per env, defaults), stack params, config file
-   pointer.
+### Element contract (the three graph tags)
 
-8. **Env pages** `ui/pages/env/`: tile + volume cards, env params, logs,
-   settings, PR env badge.
+`<graph-canvas>` wraps one canvas. Children: one `<svg data-edges>` with
+a `<path data-edge-kind="…" data-from="<id>" data-to="<id>">` per edge
+(server-drawn straight lines; the element re-paths), then one
+`<graph-node>` per card. Attributes, all set by templ: `scale` (initial),
+`snap`, `straight`, `fan-out`, `arrows`, `focus="<id>"`; the look ones
+are overridden from `localStorage` by the element. Events it fires:
+`selection-changed` with `detail.ids`. It never fetches, never touches
+anything outside its subtree.
 
-9. **Tile pages** `ui/pages/tile/`: state + last job (SSE), logs, domains
-   (+ named extras, admin raw snippet), env block editor, settings,
-   jobs, image-watch chip + "check now" + apply, managed instance tab
-   (provisions/slices, bindings), volumes mounted, backups (schedules,
-   runs, restore with target picker), restart/stop/deploy actions.
+`<graph-node>` wraps one card. Attributes: `node-id`, `x`, `y`, `w`, `h`,
+`system` (lives in the column behind the divider, cannot cross it),
+`static` (not draggable: vars cards, ghost refs). Its light DOM holds the
+templ card plus `<input type="hidden" name="x">` and `name="y"`, which the
+element writes on drop, then fires `node-moved` (bubbles). The templ
+wrapper carries `hx-post="…/positions" hx-trigger="node-moved"
+hx-include="this" hx-swap="none"`. Click after a drag is swallowed
+(`stopImmediatePropagation` inside its own subtree). Card click is
+`hx-get="…/drawer/<kind>/<id>?tab=…" hx-target="#drawer-body"
+hx-push-url="?drawer=<id>&tab=…"`; drill-down cards are `<a href>`.
+Multi-select drag: the canvas moves every selected node and each fires
+its own `node-moved`; the server takes them one by one.
 
-10. **Admin pages:** server settings from the catalogue, users, update
-    (check/run/badge), raw Caddy, panel backup.
+`<side-drawer>` is in the layout once. Attributes: `open`, `tab`. Its
+light DOM has `#drawer-body` (the htmx target) and a close button.
+Escape and backdrop close it and fire `drawer-closed`; the wrapper's
+`hx-on::drawer-closed` is not allowed (inline), so the element itself
+removes `?drawer` and `?tab` from the URL with `history.replaceState`,
+the one place an element touches the URL. Tab links inside the body
+are plain `hx-get` with `hx-push-url`.
 
-11. **Handler audit.** Run the skill over `ui/`; empty report. templint
-    clean.
+Sub-tiles (attached volume, hosting instance, replicas 2+) are ordinary
+`<graph-node static>` children of their parent node, offset by CSS;
+they move with it because they are inside it.
 
-12. **Playwright smoke** (see memory `verify-ui-with-playwright`): login →
-    create org → stack → env → deploy an image tile → promote dry run →
-    promote → rollback, on the VM.
+### Session B (`../stackr-step-6b`)
 
-13. **Done gate.** build/lint/test/templint pass; smoke green on the VM;
-    PROGRESS.md ticked; stacked PR.
+5. **Contract + elements.** Write the contract above into
+   `internal/ui/components/elements_test.go` (seven tags), build
+   `<graph-canvas>`, `<graph-node>`, `<side-drawer>` in `ui/ts/`.
+   Done when: gallery shows a fake canvas with three cards, drag saves
+   into the hidden inputs, marquee selects, drawer opens and closes.
+
+6. **`graph` service** (`internal/service/graph.go` + `internal/service/
+   internal/flow/graph`): `Canvas(scope) graph.View` for the four levels.
+   Cards, sub-tiles, edges (ref, ingress, egress, shared, startup,
+   config, source), worst-status roll-up, ghost refs, env-compare pill,
+   arrange for unsaved cards. Positions: `positions(scope, node_id, x, y)`
+   table, shared per canvas. Annotations: `annotations(scope, id, kind
+   note|box, x, y, w, h, text)`. Verbs `Canvas`, `SetPosition`,
+   `ResetPositions`, `Annotations`, `SetAnnotation`, `DeleteAnnotation`.
+   Done when: view tests per level with a fixture tree.
+
+7. **Canvas templ + handlers.** `internal/ui/graph/` (canvas, node,
+   edge, legend, note, box from `graph.View`); handlers in
+   `internal/web/handler/<level>/`: `GET` canvas (full page or fragment),
+   `POST positions`, `POST reset`, annotations CRUD, `GET events` SSE
+   (per-card footer swaps, a `graph` event that swaps the whole
+   fragment on add/remove). Query params for what the server draws
+   (system cards, ref/startup edges, traffic).
+   Done when: all four levels render from the fixture tree; SSE swaps a
+   footer in a test.
+
+8. **Home, org, stack drawers + dialogs** under `internal/ui/drawer/
+   {org,stack,env,connector,vars}` and `internal/ui/dialog/`: the rows
+   for home, org and stack in ui-plan §5. Every tab is one templ, one
+   handler, one verb call.
+   Done when: each tab renders from a view struct in a test; create
+   dialogs round-trip through the API in a handler test.
+
+### Session C (`../stackr-step-6c`, needs task 5 merged into its base)
+
+9. **Env canvas cards.** Card templates for service, cron, function
+   (schedule / "manual" / "on deploy" detail, last and next run footer),
+   managed instance, slice, ghost ref, detached volume, proxy, internet,
+   vars/secrets; chips: host, new version, volumes, replica roll-up,
+   exposure; traffic lanes from the `traffic` SSE event (step 3c).
+   Done when: every card kind in the gallery; lanes repaint in a test.
+
+10. **Env and tile drawers + dialogs**: the env row of ui-plan §5.
+    Tile drawer tabs: status + last job (SSE), logs, domains (+ admin raw
+    snippet), env block, settings (catalogue), jobs, image watch, runs
+    (cron/function: list, run now, pause), backups. Instance, slice,
+    volume, proxy, vars drawers. Create-tile dialog (source switch, repo
+    pick), confirm for restart/stop/delete/rollback.
+    Done when: same as task 8.
+
+### Session D (after B and C are stacked)
+
+11. **Full pages + admin drawer.** Login, setup, invite accept, CLI
+    authorize (DECIDE 44), account; `GET /settings/github/callback`;
+    admin drawer from the nav: server settings, users, update
+    (check/run/badge, the upgrade route step 5 left), raw Caddy, panel
+    backup.
+
+12. **Handler audit + Playwright smoke** on the VM: login → create org →
+    stack → env → deploy an image tile → drag a card and reload (position
+    kept) → open its drawer → promote dry run → promote → rollback →
+    run a function tile and read its log.
+
+13. **Done gate.** build/lint/test/templint; every element under budget;
+    audit empty; smoke green; PROGRESS.md ticked; stacked PRs.
