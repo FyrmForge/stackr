@@ -10,6 +10,8 @@ type SettingsFormView struct {
 	Rows     []SettingRowView
 	ReadOnly bool
 	Why      string
+	Error    string // a refusal no one row owns
+	Note     string // what a save did
 }
 
 // SettingRowView mirrors a settings.Knob plus the cascade's answer.
@@ -28,6 +30,10 @@ templ SettingsForm(v SettingsFormView) {
 		<h2 class="font-semibold">{ v.Scope } settings</h2>
 		if v.ReadOnly {
 			<p class="banner">{ v.Why }</p>
+		}
+		@FormError(v.Error)
+		if v.Note != "" {
+			<p class="banner" role="status">{ v.Note }</p>
 		}
 		<fieldset disabled?={ v.ReadOnly } class="space-y-4">
 			<legend class="sr-only">{ v.Scope } settings</legend>

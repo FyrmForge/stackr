@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
 	"strings"
 
 	"github.com/FyrmForge/hamr/pkg/htmx"
@@ -32,6 +33,9 @@ func Page(c echo.Context, status int, title string, body templ.Component) error 
 // (nil = none). An htmx navigation leaves the drawer to its own GET.
 func PageWith(c echo.Context, status int, title string, body, drawer templ.Component) error {
 	s := Shell(c, title)
+	if drawer == nil && s.Admin && c.QueryParam("drawer") == "admin" {
+		drawer = components.DrawerLoad("/-/admin?tab=" + url.QueryEscape(c.QueryParam("tab")))
+	}
 	s.Drawer, s.Tab = drawer, c.QueryParam("tab")
 	if drawer == nil {
 		s.Tab = ""
@@ -56,9 +60,7 @@ func Shell(c echo.Context, title string) components.Shell {
 	if p := middleware.Principal(c); p != nil {
 		s.User = p.User.Email
 		s.Nav = append(s.Nav, link("Orgs", "/", path), link("Account", "/account", path))
-		if p.Access.Admin {
-			s.Nav = append(s.Nav, link("Admin", "/admin", path))
-		}
+		s.Admin = p.Access.Admin
 	}
 	sc := middleware.ScopeOf(c)
 	href := ""
@@ -111,9 +113,45 @@ func EnvURL(c echo.Context) string {
 	return "/" + s.Org.Slug + "/" + s.Stack.Slug + "/" + s.Env.Slug
 }
 
-// JobView is a job's status line; env is the env page's path, under which
-// the drawers' one job stream lives.
-func JobView(env string, j service.Job) components.JobStatusView {
+// JobView is a job's status line; page is the path its job stream hangs
+// under (an env page, or "" for the admin drawer's panel jobs).
+func JobView(page string, j service.Job) components.JobStatusView {
 	return components.JobStatusView{Kind: j.Kind, State: j.State, Error: j.Error,
-		StreamURL: env + "/-/jobs/" + j.ID + "/events", Live: j.FinishedAt == nil}
+		StreamURL: page + "/-/jobs/" + j.ID + "/events", Live: j.FinishedAt == nil}
+}
+
+// JobStream answers GET <page>/-/jobs/:job/events: the job's status body as
+// "update" whenever it changes, the final one included, then "end".
+func JobStream(c echo.Context, orch *service.Orchestrator, page string) error {
+	id := c.Param("job")
+	last, seq, ended := stream.HTML(""), int64(0), false
+	return stream.PollAs(c, "update", func(ctx context.Context, _ int64) (any, int64, bool, error) {
+		if ended {
+			return last, seq, true, nil
+		}
+		j, err := orch.GetJob(ctx, id)
+		if err != nil {
+			return nil, 0, false, err
+		}
+		b, err := Event(ctx, components.JobStatusBody(JobView(page, j)))
+		if err != nil {
+			return nil, 0, false, err
+		}
+		if b != last {
+			last, seq = b, seq+1
+		}
+		ended = j.FinishedAt != nil
+		return last, seq, false, nil
+	})
+}
+
+// Size is a byte count for people.
+func Size(b int64) string {
+	switch {
+	case b >= 1<<30:
+		return fmt.Sprintf("%.1f GB", float64(b)/(1<<30))
+	case b >= 1<<20:
+		return fmt.Sprintf("%.1f MB", float64(b)/(1<<20))
+	}
+	return fmt.Sprintf("%d KB", b>>10)
 }

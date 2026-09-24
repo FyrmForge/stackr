@@ -14,6 +14,7 @@ type Shell struct {
 	User   string // signed-in email; "" = anonymous
 	Crumbs []Link // org / stack / env / tile, from the URL
 	Nav    []Link // top-level sections; Active marks the one the URL is in
+	Admin  bool   // the nav opens the admin drawer
 	Flash  Flash
 	// Drawer is the drawer body a fresh load of ?drawer=&tab= opens with;
 	// nil = closed. Tab is the ?tab= it shows.

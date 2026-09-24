@@ -19,6 +19,11 @@ templ EnvBadge(name, color string) {
 	<span class={ "inline-flex rounded px-2 py-0.5 text-xs font-semibold", envClass(color) }>{ name }</span>
 }
 
+// Pill is a word in a named tone (ok, warn, bad, busy; else neutral).
+templ Pill(word, tone string) {
+	@badge(word, tone)
+}
+
 templ badge(word, tone string) {
 	<span class={ "inline-flex rounded-full px-2 py-0.5 text-xs font-medium", toneClass(tone) }>{ strings.ReplaceAll(word, "_", " ") }</span>
 }

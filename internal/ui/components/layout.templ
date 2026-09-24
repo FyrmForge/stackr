@@ -62,6 +62,9 @@ templ shellHeader(s Shell, oob bool) {
 				for _, l := range s.Nav {
 					@NavLink(l)
 				}
+				if s.Admin {
+					<button type="button" class="link" hx-get="/-/admin?tab=settings" hx-target="#drawer-body" hx-push-url="?drawer=admin&tab=settings">Admin</button>
+				}
 				@ThemeToggle()
 				if s.User != "" {
 					<span class="text-slate-500">{ s.User }</span>

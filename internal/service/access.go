@@ -51,7 +51,7 @@ func (o *Orchestrator) principal(ctx context.Context, u User, key bool, keyOrg s
 		return nil, err
 	}
 	return &Principal{User: u, Access: authz.User{
-		ID: u.ID, Admin: u.Role == "admin", Active: u.Active,
+		ID: u.ID, Admin: u.Admin(), Active: u.Active,
 		Roles: roles, Key: key, KeyOrg: keyOrg,
 	}}, nil
 }

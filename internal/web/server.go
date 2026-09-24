@@ -13,6 +13,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/ui/components"
 	"github.com/FyrmForge/stackr/internal/web/handler/about"
 	"github.com/FyrmForge/stackr/internal/web/handler/account"
+	"github.com/FyrmForge/stackr/internal/web/handler/admin"
 	"github.com/FyrmForge/stackr/internal/web/handler/auth/cliauth"
 	"github.com/FyrmForge/stackr/internal/web/handler/auth/invite"
 	"github.com/FyrmForge/stackr/internal/web/handler/auth/login"
@@ -105,6 +106,9 @@ func RegisterRoutes(srv *server.Server, deps *Deps) {
 	site.GET("/account", acct.Page, page, authed)
 	site.POST("/account/password", acct.Password, authed)
 	site.POST("/account/keys/:key/revoke", acct.Revoke, authed)
+
+	// The admin drawer, opened from the nav on any page.
+	admin.NewHandler(deps.Service).Mount(site, deps.Access)
 
 	// The canvases, one per level. Require resolves each slug, 404s early
 	// and leaves org, stack and env in the context; home is the caller's.

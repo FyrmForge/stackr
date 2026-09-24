@@ -19,6 +19,9 @@ type User struct {
 	UpdatedAt    time.Time `db:"updated_at" json:"updated_at"`
 }
 
+// Admin says the user is a stackr admin (owner in every org).
+func (u User) Admin() bool { return u.Role == "admin" }
+
 type UserStore interface {
 	Create(ctx context.Context, u User) error
 	Get(ctx context.Context, id string) (User, error)

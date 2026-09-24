@@ -5,7 +5,6 @@
 package env
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -16,7 +15,6 @@ import (
 	"github.com/FyrmForge/hamr/pkg/respond"
 	"github.com/labstack/echo/v4"
 
-	"github.com/FyrmForge/stackr/internal/api/stream"
 	"github.com/FyrmForge/stackr/internal/middleware"
 	"github.com/FyrmForge/stackr/internal/service"
 	"github.com/FyrmForge/stackr/internal/service/errs"
@@ -73,29 +71,9 @@ func refused(err error) (msg string, status int, fail error) {
 	return msg, http.StatusUnprocessableEntity, nil
 }
 
-// GET …/-/jobs/:job/events: the job's status body as "update"
-// whenever it changes, the final one included, then "end".
+// GET …/-/jobs/:job/events
 func (h *handler) JobEvents(c echo.Context) error {
-	id, env := c.Param("job"), render.EnvURL(c)
-	last, seq, ended := stream.HTML(""), int64(0), false
-	return stream.PollAs(c, "update", func(ctx context.Context, _ int64) (any, int64, bool, error) {
-		if ended {
-			return last, seq, true, nil
-		}
-		j, err := h.orch.GetJob(ctx, id)
-		if err != nil {
-			return nil, 0, false, err
-		}
-		b, err := render.Event(ctx, comp.JobStatusBody(render.JobView(env, j)))
-		if err != nil {
-			return nil, 0, false, err
-		}
-		if b != last {
-			last, seq = b, seq+1
-		}
-		ended = j.FinishedAt != nil
-		return last, seq, false, nil
-	})
+	return render.JobStream(c, h.orch, render.EnvURL(c))
 }
 
 // POST …/-/rollback/:release answers with the job's live status for
@@ -308,17 +286,7 @@ func (h *handler) volume(c echo.Context, note string, actErr error) error {
 	}
 	for _, r := range runs {
 		v.Runs = append(v.Runs, volume.Run{ID: r.ID, Status: r.Status, Trigger: r.Trigger, When: when(&r.CreatedAt),
-			Size: size(r.SizeBytes), Error: r.Error, Restorable: r.Status == "done" && r.ObjectKey != ""})
+			Size: render.Size(r.SizeBytes), Error: r.Error, Restorable: r.Status == "done" && r.ObjectKey != ""})
 	}
 	return respond.HTML(c, status, volume.Backups(v))
-}
-
-func size(b int64) string {
-	switch {
-	case b >= 1<<30:
-		return fmt.Sprintf("%.1f GB", float64(b)/(1<<30))
-	case b >= 1<<20:
-		return fmt.Sprintf("%.1f MB", float64(b)/(1<<20))
-	}
-	return fmt.Sprintf("%d KB", b>>10)
 }
