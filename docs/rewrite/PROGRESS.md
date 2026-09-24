@@ -403,3 +403,10 @@ Raised by step 3 session B (builder took the lean; flip any):
    the bottom rung, so a rollback higher up never rewrites them. Slices
    sit on the consumer (`slices: [db]` or `{from, name, on_remove,
    public}`). Options: (a) keep; (b) params at stack scope. Lean (a).
+32. **Image-watch tag policy grammar.** `tag_policy` is `[semver]
+   <constraint>`: `^1.2`, `~1.2`, a prefix `1` / `1.2`, or `*`; bare
+   `semver` means `^` the ref's own tag, so a watch never jumps a major
+   unasked. Pre-releases never match. A release from the watch is `Auto`
+   only when every tile it swaps is `update_policy: auto`; a mixed env
+   waits for the button. Options: (a) keep; (b) a regex policy too.
+   Lean (a).
