@@ -40,6 +40,7 @@ type Docker interface {
 	Start(ctx context.Context, id string) error
 	Pause(ctx context.Context, id string) error
 	Unpause(ctx context.Context, id string) error
+	StreamLogs(ctx context.Context, id string, tail int) (<-chan string, func(), error)
 }
 
 // VIP is the slice of internal/vip this leaf needs.
@@ -236,6 +237,13 @@ func (l *Leaf) Stop(ctx context.Context, tileID, id string) error {
 	return l.docker.Stop(ctx, id)
 }
 
+func (l *Leaf) StartContainer(ctx context.Context, tileID, id string) error {
+	if err := l.guard(ctx, tileID, id, "started"); err != nil {
+		return err
+	}
+	return l.docker.Start(ctx, id)
+}
+
 func (l *Leaf) Restart(ctx context.Context, tileID, id string) error {
 	if err := l.guard(ctx, tileID, id, "stopped"); err != nil {
 		return err
@@ -249,6 +257,22 @@ func (l *Leaf) Exec(ctx context.Context, tileID, id string, cmd []string) (strin
 		return "", err
 	}
 	return l.docker.Exec(ctx, id, cmd)
+}
+
+// Terminal streams a command (a shell) with stdin; the guard as Exec.
+func (l *Leaf) Terminal(ctx context.Context, tileID, id string, cmd []string, stdin io.Reader) (io.Reader, func() error, error) {
+	if err := l.guard(ctx, tileID, id, "opened a terminal into"); err != nil {
+		return nil, nil, err
+	}
+	return l.docker.ExecStream(ctx, id, cmd, stdin)
+}
+
+// Follow streams the container's log lines until stop is called.
+func (l *Leaf) Follow(ctx context.Context, tileID, id string, tail int) (<-chan string, func(), error) {
+	if _, err := l.find(ctx, tileID, id); err != nil {
+		return nil, nil, err
+	}
+	return l.docker.StreamLogs(ctx, id, tail)
 }
 
 func (l *Leaf) Logs(ctx context.Context, tileID, id string, tail int) (string, error) {
