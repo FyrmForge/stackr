@@ -213,6 +213,19 @@ session started by darhvader from the START HERE line, no Fable.
   - `vip` integration test needs NET_ADMIN; passes under `unshare -rn`.
     `make test-integration` added (Docker, Docker Hub, MinIO, Caddy).
 - [ ] [F+O] step 3 services
+  - session A (leaves 1–15) done: 2026-09-24
+    - org: API key minting lives in leaf/user; invite TTL 7d; only the owner role is writable.
+    - user: password minimum 8.
+    - stack: new `slug` package; new `stacks.domains` column (reservations).
+    - environment: PR envs stay off the ladder; network is `stackr-env-<id>`.
+    - tile: volume attach/detach refusals moved to leaf/volume; ToggleCron and RunNow dropped; watcher-key wart fixed.
+    - params: `ParamSet` for flow/jobs still unwired (DECIDE 17).
+    - volume: max_size_mb recorded, not enforced.
+    - domain: priority, rule, middlewares and custom certs gone; ACME account per email via Caddy issuers; force HTTPS is a 308; trusted-proxy parsing and the Cloudflare IP fetch left to session B; `golang.org/x/crypto` now a direct dependency.
+    - connector: another org's connector is not found; no sole-connector fallback.
+    - managed: env scope_id is the env id; on_remove is keep|drop.
+    - release: `ReleaseTileStore.ImageIDs` added. job: `JobStore.ListTouching` added.
+    - backup: `BackupRunStore.ListByPrefix` added; prefix is `stackr/<org>/<volume>/<schedule>` (was org/stack/tile/backup); `VolumeFor` not built (every schedule hangs off a volume row, leaf/volume names it); the dest-ref parser (`Resolve`) lives here; deleting a destination a schedule uses is refused.
 - [ ] [F+O] step 4 API + CLI
 - [ ] [F+O] step 5 installer + self-upgrade
 - [ ] [F+O] step 6 UI
