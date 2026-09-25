@@ -208,6 +208,11 @@ func (o *Orchestrator) CompleteConnector(ctx context.Context, state, code string
 	return o.conns.Complete(ctx, state, code)
 }
 
+// ConnectorInstallURL is GitHub's install page for the app; "" while pending.
+func (o *Orchestrator) ConnectorInstallURL(ctx context.Context, orgID, id string) (string, error) {
+	return o.conns.InstallURL(ctx, orgID, id)
+}
+
 func (o *Orchestrator) RenameConnector(ctx context.Context, orgID, id, name string) (Connector, error) {
 	return o.conns.Rename(ctx, orgID, id, name)
 }

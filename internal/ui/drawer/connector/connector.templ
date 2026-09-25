@@ -7,15 +7,27 @@ import c "github.com/FyrmForge/stackr/internal/ui/components"
 var Tabs = []string{"settings", "repos"}
 
 type SettingsView struct {
-	Base   string // POST /rename; "" = read-only
-	Name   string
-	Host   string
-	Delete c.ConfirmView
+	Base       string // POST /rename; "" = read-only
+	Name       string
+	Host       string
+	InstallURL string // GitHub's install page; "" = handshake not finished
+	Delete     c.ConfirmView
 }
 
 templ Settings(v SettingsView) {
 	<div id="tab-settings">
 		@c.Section("Connector", "organization", "A private GitHub App for this organization, so there are no tokens to copy around.") {
+			<div class="panel px-4 py-3 flex flex-wrap items-center gap-3 mb-5">
+				<span class="text-sm text-rw-text">{ v.Name }</span>
+				if v.InstallURL != "" {
+					<a href={ templ.SafeURL(v.InstallURL) } target="_blank" rel="noopener" class="btn btn-ghost btn-sm ml-auto">Manage installation</a>
+				} else {
+					<span class="text-rw-faint text-xs ml-auto">setup not finished</span>
+				}
+			</div>
+			if v.InstallURL != "" {
+				<p class="text-sm text-rw-muted mb-4">The app must be installed on your GitHub account or org before a repo can be cloned through it. Manage installation opens GitHub's page for that; pick the repos there.</p>
+			}
 			<form hx-post={ v.Base + "/rename" } hx-target={ "#" + c.DrawerRoot } hx-swap="outerHTML" class="space-y-4">
 				@c.Field(c.FieldView{Name: "name", Label: "Name", Value: v.Name, Required: true, Help: "GitHub App on " + v.Host + ".", Disabled: v.Base == "", Why: "GitHub App on " + v.Host + ". Renaming needs write."})
 				if v.Base != "" {

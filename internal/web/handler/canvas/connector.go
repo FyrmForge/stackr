@@ -14,7 +14,15 @@ func (h *handler) connectorTab(c echo.Context, cd card, f *comp.DrawerView) (tem
 	if f.Tab == "repos" {
 		return connui.Repos(), nil
 	}
-	v := connui.SettingsView{Name: cd.conn.Name, Host: cd.conn.Host}
+	install, err := h.orch.ConnectorInstallURL(c.Request().Context(), cd.s.Org.ID, cd.conn.ID)
+	if err != nil {
+		return nil, err
+	}
+	v := connui.SettingsView{
+		Name:       cd.conn.Name,
+		Host:       cd.conn.Host,
+		InstallURL: install,
+	}
 	if can(c, cd.s, "connector.write") {
 		v.Base = f.Base
 		v.Delete = dialog.DeleteConnector(cd.conn.Name, f.Base+"/delete", "#"+comp.DrawerRoot)

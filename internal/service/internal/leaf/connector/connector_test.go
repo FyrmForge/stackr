@@ -76,6 +76,9 @@ func TestHandshake(t *testing.T) {
 	if err != nil || !strings.Contains(action, c.ID+".") || connector.Connected(c) {
 		t.Fatalf("begin = %+v %s %v", c, action, err)
 	}
+	if u, err := l.InstallURL(ctx, org, c.ID); err != nil || u != "" {
+		t.Errorf("pending connector install url = %q %v", u, err)
+	}
 	if _, err := l.For(ctx, org, "https://github.com/acme/api"); !errors.As(err, &connector.NoConnector{}) {
 		t.Errorf("pending connector resolved: %v", err)
 	}
@@ -88,6 +91,12 @@ func TestHandshake(t *testing.T) {
 	c, err = l.Complete(ctx, f.state, "code")
 	if err != nil || !connector.Connected(c) || c.Name != "GitHub · stackr-x" {
 		t.Fatalf("complete = %+v %v", c, err)
+	}
+	if u, err := l.InstallURL(ctx, org, c.ID); err != nil || u != "https://github.com/apps/stackr-x/installations/new" {
+		t.Errorf("install url = %q %v", u, err)
+	}
+	if _, err := l.InstallURL(ctx, "other-org", c.ID); err == nil {
+		t.Error("another org read the install url")
 	}
 	if _, err := l.Complete(ctx, f.state, "code"); !errors.Is(err, errs.ErrRefused) {
 		t.Errorf("replayed callback = %v", err)
