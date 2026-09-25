@@ -295,7 +295,9 @@ func (f *Flow) org(ctx context.Context, v *View, orgID string, in In) error {
 	if err != nil {
 		return err
 	}
-	v.Nodes = append(v.Nodes, vars)
+	if vars.shown() {
+		v.Nodes = append(v.Nodes, vars)
+	}
 	proxied := false
 	for _, st := range sts {
 		es, err := f.Envs.List(ctx, st.ID)
@@ -329,7 +331,7 @@ func (f *Flow) org(ctx context.Context, v *View, orgID string, in In) error {
 				v.Edges = append(v.Edges, Edge{EdgeSource, "connector:" + c.ID, n.ID})
 			}
 		}
-		if reads(ts, params.KindOrgParam) {
+		if vars.shown() && reads(ts, params.KindOrgParam) {
 			v.Edges = append(v.Edges, Edge{EdgeShared, vars.ID, n.ID})
 		}
 	}
@@ -349,7 +351,9 @@ func (f *Flow) stack(ctx context.Context, v *View, stackID string, in In) error 
 	if err != nil {
 		return err
 	}
-	v.Nodes = append(v.Nodes, vars)
+	if vars.shown() {
+		v.Nodes = append(v.Nodes, vars)
+	}
 	proxied := false
 	for i, e := range es {
 		ts, err := f.Tiles.List(ctx, e.ID)
@@ -374,7 +378,7 @@ func (f *Flow) stack(ctx context.Context, v *View, stackID string, in In) error 
 			proxied = true
 		}
 		v.Nodes = append(v.Nodes, n)
-		if reads(ts, params.KindParam) {
+		if vars.shown() && reads(ts, params.KindParam) {
 			v.Edges = append(v.Edges, Edge{EdgeShared, vars.ID, n.ID})
 		}
 	}
@@ -434,6 +438,12 @@ func rest(all, ladder []store.Environment) []store.Environment {
 		}
 	}
 	return out
+}
+
+// shown: v0 drew no vars card for a scope with nothing in it; the drawer's
+// params tab is where the first one gets added.
+func (n Node) shown() bool {
+	return n.Params+n.Secrets > 0
 }
 
 func (f *Flow) vars(ctx context.Context, s params.Scope) (Node, error) {
@@ -613,7 +623,9 @@ func (f *Flow) env(ctx context.Context, v *View, envID string, in In) error {
 	if err != nil {
 		return err
 	}
-	v.Nodes = append(v.Nodes, vars)
+	if vars.shown() {
+		v.Nodes = append(v.Nodes, vars)
+	}
 	vs, err := f.Volumes.List(ctx, volume.Scope{Kind: "env", ID: envID})
 	if err != nil {
 		return err
@@ -704,7 +716,7 @@ func (f *Flow) env(ctx context.Context, v *View, envID string, in In) error {
 				readsVars = true
 			}
 		}
-		if readsVars {
+		if readsVars && vars.shown() {
 			v.Edges = append(v.Edges, Edge{EdgeShared, vars.ID, id})
 		}
 	}

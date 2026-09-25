@@ -278,6 +278,9 @@ func TestCanvasOrg(t *testing.T) {
 	if len(st.Domains) != 1 {
 		t.Errorf("shop domains = %v, want its one tile domain", st.Domains)
 	}
+	if _, ok := ns["vars"]; ok {
+		t.Error("org has no params, yet a vars card is drawn (v0 drew none)")
+	}
 	want := []string{
 		"config connector:" + w.conn + " stack:" + w.shop,
 		"ingress proxy stack:" + w.shop,
