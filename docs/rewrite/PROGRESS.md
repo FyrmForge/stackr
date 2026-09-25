@@ -946,6 +946,30 @@ sweep, P14 theme per user, DECIDE 159 and the DECIDE 138 leftovers.
 200. **(step 7b) Removing an instance that still holds slices is refused.**
    No force verb drops them all. Options: (a) keep; the user removes the
    slices first; (b) `--force` on the instance delete. Lean (a) for v1.
+201. **(step 7b) `on_remove` lives on the slice tile only** (a stack-file
+   key, `tiles.on_remove`); the provision row keeps no copy, so
+   `SetSliceOnRemove` works before the first deploy. Accepted 2026-09-26.
+202. **(step 7b) A member can widen an allow list by approving a stack
+   plan.** `PUT …/allow` is owner-only, but `stackplan.approve` is write
+   level and the promote applies the file's `allow:`. Moot while everyone
+   is an owner (DECIDE 171). Options: (a) approving a plan that changes
+   `allow` needs owner; (b) accept. Lean (a) when member comes back.
+203. **(step 7b) `SetSliceAccess` re-grants inline, not as a job.** psql
+   over docker exec inside the request, no job lock, so it can race a
+   deploy of the consumer or the instance; a stopped instance answers 500
+   after the row is saved. Options: (a) keep inline, answer 409 "saved;
+   re-grants at the next deploy" when the instance is down; (b) a job
+   locked on the consumer and the instance. Lean (b); left for the QA
+   loops to hit first.
+204. **(step 7b) The consumer's Access tab shows explicit `slice_access`
+   entries plus bindings.** A slice reached only through an env ref has
+   no read verb before its first deploy. Options: (a) expose deploy's
+   `uses` through the orchestrator; (b) explicit entries plus bindings.
+   Lean (b), 2026-09-26.
+205. **(step 7b) Slice names never suffix.** Two slices whose
+   `<stack>_<env>_<slice>` names collide after truncation or hyphen
+   folding are refused as a conflict (ponytail: hash suffix when it
+   happens).
 ## DECIDE:
 
 Silent calls the planner made under rule 9 / "fix obvious gaps"; flip any
