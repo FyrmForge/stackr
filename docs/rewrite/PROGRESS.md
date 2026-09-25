@@ -717,6 +717,15 @@ sweep, P14 theme per user, DECIDE 159 and the DECIDE 138 leftovers.
    attach job failed at the consumer deploy, yet the slice row and role
    stayed. Options: (a) keep, a redeploy retries; (b) roll the slice back
    when the job fails. Lean (b).
+180. **(scope) Org config files are v1.** REWRITE.md said "org config
+   files are later"; that was the planner's cut on 2026-09-22, never
+   darthvader's call. darthvader put them back in v1 on 2026-09-25. What
+   v0 had: a binding (repo + path through a GitHub connector) and org
+   config plans, approved or rejected, the stack pattern one level up
+   (`stackr-old .../config/orgconf`, `handler/org/config.go`, `stackr org
+   approve`; phase A wave 6). Owed: a REWRITE.md design section and a
+   task list. Options for where it lands: (a) its own step after 6e; (b)
+   folded into the connector work. Lean (a).
 
 ## DECIDE:
 

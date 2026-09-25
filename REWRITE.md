@@ -695,7 +695,8 @@ Filesystem snapshots were explored and parked (see "Later").
 - Environments, **promote (the main focus)**, rollback, releases (see
   "Promote and releases").
 - Config-as-code: the stack file `stackr-compose.yml` (see "Promote and
-  releases"). Org config files are later.
+  releases") and org config files (darthvader put them back in v1 on
+  2026-09-25, DECIDE 180; the design section is owed).
 - PR environments: an env `from <pr branch>` with a `base_env`, made and
   removed by the connector.
 - The param store: params and secrets in collections at org/stack/env,
@@ -870,7 +871,7 @@ Bugs from the register that become v1 test cases:
 ## Later (not v1)
 
 **Features:** managed-tile forks, SQL/S3 browse and stats, more managed
-engines and engine plugins, org config files, CI gate, GitLab and other
+engines and engine plugins, CI gate, GitLab and other
 connectors, per-repo git tokens and deploy keys, built-in registry, storage
 shares, collection links (stack collection → org collection), an `env.`
 ref scope, volume moves, metrics (CPU, memory, disk, slice stats), search,
