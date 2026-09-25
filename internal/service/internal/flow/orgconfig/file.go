@@ -20,44 +20,48 @@ import (
 // binding names no path; flows do not import flows.
 const stackFilePath = "stackr-compose.yml"
 
-// File is the org file as written.
+// DefaultPath is where the org file lives when the binding names no path.
+const DefaultPath = "stackr-org.yml"
+
+// File is the org file as written. The omitempty tags are for export: an
+// empty map or a nil pointer would print as flow style or null.
 type File struct {
 	Version   int                         `yaml:"version"` // must be 1
 	Org       string                      `yaml:"org"`     // the name; a slug change is a rename
-	Params    map[string]map[string]Param `yaml:"params"`
-	Defaults  *Defaults                   `yaml:"defaults"`   // nil: the key is absent, say nothing
-	EnvColors map[string]string           `yaml:"env_colors"` // nil: the key is absent, say nothing
-	Stacks    map[string]StackRef         `yaml:"stacks"`
-	Shared    map[string]SharedConf       `yaml:"shared"`
-	Domains   []Reservation               `yaml:"domains"`
-	Moved     []Move                      `yaml:"moved"`
+	Params    map[string]map[string]Param `yaml:"params,omitempty"`
+	Defaults  *Defaults                   `yaml:"defaults,omitempty"`   // nil: the key is absent, say nothing
+	EnvColors map[string]string           `yaml:"env_colors,omitempty"` // nil: the key is absent, say nothing
+	Stacks    map[string]StackRef         `yaml:"stacks,omitempty"`
+	Shared    map[string]SharedConf       `yaml:"shared,omitempty"`
+	Domains   []Reservation               `yaml:"domains,omitempty"`
+	Moved     []Move                      `yaml:"moved,omitempty"`
 }
 
 // Param is one declaration, the stack file's grammar. A secret is name and
 // type only: the file is in git.
 type Param struct {
 	Type  string  `yaml:"type"` // param | secret
-	Value *string `yaml:"value"`
+	Value *string `yaml:"value,omitempty"`
 }
 
 // Defaults is the org rung of the settings cascade, leaf/settings.Settings
 // with yaml keys; nil = say nothing here.
 type Defaults struct {
-	CPULimit        *float64 `yaml:"cpu_limit" json:"cpu_limit,omitempty"`
-	MemLimitMB      *int     `yaml:"mem_limit_mb" json:"mem_limit_mb,omitempty"`
-	Protect         *bool    `yaml:"protect" json:"protect,omitempty"`
-	ProtectUser     *string  `yaml:"protect_user" json:"protect_user,omitempty"`
-	ProtectPassword *string  `yaml:"protect_password" json:"protect_password,omitempty"`
+	CPULimit        *float64 `yaml:"cpu_limit,omitempty" json:"cpu_limit,omitempty"`
+	MemLimitMB      *int     `yaml:"mem_limit_mb,omitempty" json:"mem_limit_mb,omitempty"`
+	Protect         *bool    `yaml:"protect,omitempty" json:"protect,omitempty"`
+	ProtectUser     *string  `yaml:"protect_user,omitempty" json:"protect_user,omitempty"`
+	ProtectPassword *string  `yaml:"protect_password,omitempty" json:"protect_password,omitempty"`
 }
 
 // StackRef says where a stack's file is and nothing else (DECIDE 182):
 // repo (with branch, path, connector) for the stack's own repo, or path
 // alone for a file inside the org repo.
 type StackRef struct {
-	Repo      string `yaml:"repo"`
-	Branch    string `yaml:"branch"`
-	Path      string `yaml:"path"`
-	Connector string `yaml:"connector"` // a connector id; "" = the org's connector for the repo's host
+	Repo      string `yaml:"repo,omitempty"`
+	Branch    string `yaml:"branch,omitempty"`
+	Path      string `yaml:"path,omitempty"`
+	Connector string `yaml:"connector,omitempty"` // a connector id; "" = the org's connector for the repo's host
 }
 
 // UnmarshalYAML refuses every key but the four: anything else is v0's
@@ -106,16 +110,16 @@ func (r StackRef) Binding(org store.Org) Binding {
 
 // SharedConf is one org-scoped managed instance (DECIDE 183).
 type SharedConf struct {
-	Engine    string `yaml:"engine"`      // postgres | s3
-	Host      string `yaml:"host"`        // <stack>/<env>, the env whose container runs it
-	Image     string `yaml:"image"`       // "" = the engine's default, never compared
-	ShmSizeMB *int   `yaml:"shm_size_mb"` // nil = never compared
+	Engine    string `yaml:"engine"`                // postgres | s3
+	Host      string `yaml:"host"`                  // <stack>/<env>, the env whose container runs it
+	Image     string `yaml:"image,omitempty"`       // "" = the engine's default, never compared
+	ShmSizeMB *int   `yaml:"shm_size_mb,omitempty"` // nil = never compared
 }
 
 // Reservation is one org domain resource (DECIDE 191).
 type Reservation struct {
 	Host                string `yaml:"host"`
-	ACMEEmail           string `yaml:"acme_email"`
+	ACMEEmail           string `yaml:"acme_email,omitempty"`
 	IncludeEnvOnDefault bool   `yaml:"include_env_on_default"`
 }
 

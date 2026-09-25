@@ -35,6 +35,7 @@ func TestNewBuildsEachOnce(t *testing.T) {
 		"sessions",
 		"leaf/user",
 		"leaf/org",
+		"leaf/orgplan",
 		"leaf/stack",
 		"leaf/environment",
 		"leaf/tile",

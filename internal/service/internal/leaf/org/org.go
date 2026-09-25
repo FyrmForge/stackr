@@ -17,6 +17,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
+	"github.com/FyrmForge/stackr/internal/service/internal/githubapp"
 	"github.com/FyrmForge/stackr/internal/service/internal/slug"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
@@ -202,6 +203,28 @@ func (l *Leaf) SetEnvColors(ctx context.Context, o store.Org, colors string) (st
 		return o, err
 	}
 	o.EnvColors = string(b)
+	return o, l.orgs.Update(ctx, o)
+}
+
+// SetConfigRepo binds the org to its config file: repo as githubapp.RepoURL
+// spells it, "" unbinds and clears the other four columns too.
+func (l *Leaf) SetConfigRepo(
+	ctx context.Context,
+	o store.Org,
+	connectorID, repo, branch, path string,
+	auto bool,
+) (store.Org, error) {
+	o.ConfigRepo = githubapp.RepoURL(repo)
+	o.ConfigConnectorID = ""
+	o.ConfigBranch = ""
+	o.ConfigPath = ""
+	o.ConfigAuto = false
+	if o.ConfigRepo != "" {
+		o.ConfigConnectorID = connectorID
+		o.ConfigBranch = branch
+		o.ConfigPath = path
+		o.ConfigAuto = auto
+	}
 	return o, l.orgs.Update(ctx, o)
 }
 

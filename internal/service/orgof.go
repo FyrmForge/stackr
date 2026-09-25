@@ -99,6 +99,8 @@ func (o *Orchestrator) jobOrg(ctx context.Context, p map[string]any) string {
 	var org string
 	var err error
 	switch {
+	case str("org_id") != "": // the org config jobs
+		org = str("org_id")
 	case str("tile_id") != "":
 		org, err = o.tileOrg(ctx, str("tile_id"))
 	case str("consumer_id") != "":

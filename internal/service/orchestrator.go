@@ -45,6 +45,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/job"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/managed"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/org"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/orgplan"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/panel"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/params"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/release"
@@ -159,6 +160,7 @@ type Orchestrator struct {
 
 	users     *user.Leaf
 	orgs      *org.Leaf
+	orgPlans  *orgplan.Leaf
 	stacks    *stack.Leaf
 	envs      *environment.Leaf
 	tiles     *tile.Leaf
@@ -283,6 +285,7 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 	})
 	orch.users = build("leaf/user", func() *user.Leaf { return user.New(st.Users, st.Sessions, st.APIKeys) })
 	orch.orgs = build("leaf/org", func() *org.Leaf { return org.New(st.Orgs, st.OrgMembers, st.Invites) })
+	orch.orgPlans = build("leaf/orgplan", func() *orgplan.Leaf { return orgplan.New(st.OrgPlans) })
 	orch.stacks = build("leaf/stack", func() *stack.Leaf { return stack.New(st.Stacks) })
 	orch.envs = build("leaf/environment", func() *environment.Leaf { return environment.New(st.Environments, d) })
 	orch.tiles = build("leaf/tile", func() *tile.Leaf { return tile.New(st.Tiles, d, o.vip) })

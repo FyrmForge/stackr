@@ -127,6 +127,12 @@ func TestCheckoutReadDiff(t *testing.T) {
 	if br := r.Branches(ctx); !slices.Equal(br, []string{"main"}) {
 		t.Fatalf("branches: %v", br)
 	}
+	if b, sha, err := (Repo{URL: bare}).Head(ctx); err != nil || b != "main" || sha != second {
+		t.Fatalf("default head: %q %q %v", b, sha, err)
+	}
+	if _, _, err := (Repo{URL: bare, Branch: "nope"}).Head(ctx); err == nil {
+		t.Fatal("head of a missing branch")
+	}
 
 	// A half-written clone (no .git) is thrown away and redone.
 	broken := Repo{Dir: filepath.Join(t.TempDir(), "broken"), URL: bare}

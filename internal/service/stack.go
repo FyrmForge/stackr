@@ -78,7 +78,9 @@ var (
 )
 
 // Webhook takes one GitHub delivery for a connector: a push queues a push
-// job per stack of the org that uses the repo, a pull_request a PR-env job.
+// job per stack of the org that uses the repo, and a plan of the org's
+// config file when it lands on the org's binding; a pull_request queues a
+// PR-env job.
 // The caller maps ErrBadSignature to 401 and ErrBadPayload to 400.
 func (o *Orchestrator) Webhook(ctx context.Context, connectorID, event, signature string, body []byte) error {
 	c, secret, err := o.conns.WebhookSecret(ctx, connectorID)
@@ -98,6 +100,12 @@ func (o *Orchestrator) Webhook(ctx context.Context, connectorID, event, signatur
 	default:
 		return nil
 	}
+	if p := ev.Push; p != nil {
+		branch := strings.TrimPrefix(p.Ref, "refs/heads/")
+		if err := o.queueOrgPlan(ctx, c.OrgID, repo, branch, p.Repository.DefaultBranch); err != nil {
+			return err
+		}
+	}
 	sts, err := o.stacks.List(ctx, c.OrgID)
 	if err != nil {
 		return err
@@ -110,23 +118,16 @@ func (o *Orchestrator) Webhook(ctx context.Context, connectorID, event, signatur
 			continue
 		}
 		if p := ev.Push; p != nil {
-			branch := strings.TrimPrefix(p.Ref, "refs/heads/")
-			_, err = o.enqueue(
-				ctx,
-				kindPush,
-				pushJob{
-					StackID: st.ID,
-					Event: promote.Event{
-						Repo:    repo,
-						Branch:  branch,
-						Commit:  p.After,
-						Changed: p.ChangedFiles(),
-					},
-					DefaultBranch: p.Repository.DefaultBranch,
+			_, err = o.enqueuePush(ctx, pushJob{
+				StackID: st.ID,
+				Event: promote.Event{
+					Repo:    repo,
+					Branch:  strings.TrimPrefix(p.Ref, "refs/heads/"),
+					Commit:  p.After,
+					Changed: p.ChangedFiles(),
 				},
-				"push:"+st.ID,
-				"push:"+st.ID+":"+promote.NormalizeRepo(repo)+"@"+branch,
-			)
+				DefaultBranch: p.Repository.DefaultBranch,
+			})
 		} else {
 			pr := ev.PR
 			_, err = o.enqueue(
@@ -150,6 +151,18 @@ func (o *Orchestrator) Webhook(ctx context.Context, connectorID, event, signatur
 		}
 	}
 	return nil
+}
+
+// enqueuePush queues a push job; a newer push of the same stack, repo and
+// branch supersedes a queued one.
+func (o *Orchestrator) enqueuePush(ctx context.Context, p pushJob) (Job, error) {
+	return o.enqueue(
+		ctx,
+		kindPush,
+		p,
+		"push:"+p.StackID,
+		"push:"+p.StackID+":"+promote.NormalizeRepo(p.Event.Repo)+"@"+p.Event.Branch,
+	)
 }
 
 // usesRepo: the stack's config repo or any of its tiles builds from repo.

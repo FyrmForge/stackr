@@ -46,6 +46,8 @@ const (
 	kindAttach      jobs.Kind = "attach"
 	kindDetach      jobs.Kind = "detach"
 	kindRun         jobs.Kind = "run"
+	kindOrgPlan     jobs.Kind = "org-plan"
+	kindOrgApply    jobs.Kind = "org-apply"
 )
 
 type runJob struct {
@@ -187,6 +189,11 @@ func (o *Orchestrator) handlers() map[jobs.Kind]jobs.Handler {
 			}
 			return err
 		}),
+		kindOrgPlan: payload(func(ctx context.Context, r *jobs.Run, p orgPlanJob) error {
+			_, err := o.planOrg(ctx, p.OrgID, r.Log)
+			return err
+		}),
+		kindOrgApply: payload(o.runOrgApply),
 	}
 }
 
@@ -239,10 +246,9 @@ func (o *Orchestrator) runPush(ctx context.Context, stackID string, ev promote.E
 
 // ladderEnvs makes the envs the stack file's ladder names and the stack
 // lacks, bottom rung first, on a push to the config repo's branch (DECIDE
-// 189). It never deletes one. A file that does not load is logged and the
-// push goes on; the promote plan reports it.
-// ponytail: a missing rung lands on top of the ladder, not at its place in
-// the file; a rung added under existing ones is reordered by hand.
+// 189), then puts the ladder in the file's order. It never deletes one. A
+// file that does not load is logged and the push goes on; the promote plan
+// reports it.
 func (o *Orchestrator) ladderEnvs(ctx context.Context, p pushJob, log io.Writer) error {
 	st, err := o.stacks.Get(ctx, p.StackID)
 	if err != nil {
@@ -266,6 +272,7 @@ func (o *Orchestrator) ladderEnvs(ctx context.Context, p pushJob, log io.Writer)
 	if err != nil {
 		return err
 	}
+	made := false
 	for _, name := range file.Order {
 		if slices.ContainsFunc(have, func(e store.Environment) bool { return e.Slug == name }) {
 			continue
@@ -290,9 +297,30 @@ func (o *Orchestrator) ladderEnvs(ctx context.Context, p pushJob, log io.Writer)
 			return err
 		}
 		have = append(have, e)
+		made = true
 		_, _ = fmt.Fprintf(log, "env %s made from the stack file (%s %s)\n", e.Slug, e.FromKind, e.FromBranch)
 	}
-	return nil
+	if !made {
+		return nil
+	}
+	var ids []string
+	for _, name := range file.Order {
+		if i := slices.IndexFunc(have, func(e store.Environment) bool { return e.Slug == name }); i >= 0 {
+			ids = append(ids, have[i].ID)
+		}
+	}
+	if len(ids) != len(have) {
+		// ponytail: a ladder with rungs the file does not name keeps the new
+		// ones on top; reorder by hand, or name every rung in the file.
+		_, _ = fmt.Fprintf(log, "the ladder has envs the file does not name; new envs stay on top\n")
+		return nil
+	}
+	err = o.envs.Reorder(ctx, st.ID, ids)
+	if bad, ok := errs.IsInvalid(err); ok {
+		_, _ = fmt.Fprintf(log, "ladder order: %s; left as made\n", bad.Msg)
+		return nil
+	}
+	return err
 }
 
 // runPR makes, refreshes or removes the pr-<n> env of one stack.

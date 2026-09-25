@@ -120,6 +120,11 @@ func (l *Leaf) Visible(ctx context.Context, h Home) ([]store.ManagedInstance, er
 	return out, nil
 }
 
+// ByScope is the instances scoped to kind and id: an org's shared ones.
+func (l *Leaf) ByScope(ctx context.Context, kind, id string) ([]store.ManagedInstance, error) {
+	return l.instances.ListByScope(ctx, kind, id)
+}
+
 // SetScope widens or narrows who may provision. It never touches the
 // container: the running engine knows nothing about scope.
 func (l *Leaf) SetScope(

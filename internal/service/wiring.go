@@ -1,6 +1,7 @@
 package service
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
+	"github.com/FyrmForge/stackr/internal/service/internal/flow/orgconfig"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/promote"
 	"github.com/FyrmForge/stackr/internal/service/internal/git"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/domain"
@@ -122,16 +124,17 @@ func (o *Orchestrator) repoLock(dir string) func() {
 	return mu.Unlock
 }
 
-// clone checks out url at commit into dir through the org's connector: the
-// one connectorID names when set, the one for url's host otherwise.
+// clone checks out url at commit ("" = the branch's head) into dir
+// through the org's connector: the one connectorID names when set, the one
+// for url's host otherwise. It returns the commit checked out.
 func (o *Orchestrator) clone(
 	ctx context.Context,
 	orgID, connectorID, url, branch, dir, commit string,
 	log io.Writer,
-) (git.Repo, error) {
+) (git.Repo, string, error) {
 	env, err := o.cloneEnv(ctx, orgID, connectorID, url)
 	if err != nil {
-		return git.Repo{}, err
+		return git.Repo{}, "", err
 	}
 	r := git.Repo{
 		Dir:    dir,
@@ -139,8 +142,23 @@ func (o *Orchestrator) clone(
 		Branch: branch,
 		Auth:   func(context.Context) []string { return env },
 	}
-	_, err = r.Checkout(ctx, commit, log)
-	return r, err
+	sha, err := r.Checkout(ctx, commit, log)
+	return r, sha, err
+}
+
+// configHead is the tip of the stack's config branch, or of the repo's
+// default branch when it names none: the branch and its commit.
+func (o *Orchestrator) configHead(ctx context.Context, st store.Stack) (branch, sha string, err error) {
+	env, err := o.cloneEnv(ctx, st.OrgID, st.ConfigConnectorID, st.ConfigRepo)
+	if err != nil {
+		return "", "", err
+	}
+	r := git.Repo{
+		URL:    st.ConfigRepo,
+		Branch: st.ConfigBranch,
+		Auth:   func(context.Context) []string { return env },
+	}
+	return r.Head(ctx)
 }
 
 // cloneEnv is the connector's auth env lines for url, or WithGit's.
@@ -175,7 +193,7 @@ func (o *Orchestrator) stackFile(
 	dir := filepath.Join(o.cfg.DataDir, "repos", "config-"+st.ID)
 	unlock := o.repoLock(dir)
 	defer unlock()
-	r, err := o.clone(ctx, st.OrgID, st.ConfigConnectorID, st.ConfigRepo, st.ConfigBranch, dir, commit, log)
+	r, _, err := o.clone(ctx, st.OrgID, st.ConfigConnectorID, st.ConfigRepo, st.ConfigBranch, dir, commit, log)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -186,6 +204,20 @@ func (o *Orchestrator) stackFile(
 	data, err := r.ReadFile(ctx, commit, path)
 	fetch := func(p string) ([]byte, error) { return r.ReadFile(ctx, commit, p) }
 	return data, fetch, err
+}
+
+// orgFile is the org's config file at commit ("" = the bound branch's
+// head) and the commit it was read at; "" when the clone itself failed.
+func (o *Orchestrator) orgFile(ctx context.Context, og store.Org, commit string, log io.Writer) ([]byte, string, error) {
+	dir := filepath.Join(o.cfg.DataDir, "repos", "orgconfig-"+og.ID)
+	unlock := o.repoLock(dir)
+	defer unlock()
+	r, sha, err := o.clone(ctx, og.ID, og.ConfigConnectorID, og.ConfigRepo, og.ConfigBranch, dir, commit, log)
+	if err != nil {
+		return nil, "", err
+	}
+	data, err := r.ReadFile(ctx, sha, cmp.Or(og.ConfigPath, orgconfig.DefaultPath))
+	return data, sha, err
 }
 
 // buildTile is promote's Build: clone the tile's repo at commit, build its
@@ -204,7 +236,7 @@ func (o *Orchestrator) buildTile(
 	dir := filepath.Join(o.cfg.DataDir, "repos", t.ID)
 	unlock := o.repoLock(dir)
 	defer unlock()
-	r, err := o.clone(ctx, st.OrgID, "", t.GitURL, t.GitBranch, dir, commit, log)
+	r, _, err := o.clone(ctx, st.OrgID, "", t.GitURL, t.GitBranch, dir, commit, log)
 	if err != nil {
 		return "", err
 	}

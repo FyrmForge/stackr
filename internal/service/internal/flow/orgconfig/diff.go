@@ -101,6 +101,7 @@ type StackLive struct {
 
 // Instance is one org-scoped managed instance tile.
 type Instance struct {
+	TileID    string // the apply's handle on it; Diff never reads it
 	Slug      string
 	Engine    string
 	Host      string // <stack>/<env> of the env that runs it

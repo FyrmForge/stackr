@@ -84,6 +84,22 @@ func TestPushMakesLadderEnvs(t *testing.T) {
 	if !slices.Equal(ids(es), []string{dev.ID, prod.ID}) {
 		t.Errorf("after the second push the ladder is %+v, want dev and prod as they were", es)
 	}
+
+	// A rung added under existing ones takes its place in the file, not the top.
+	push("version: 1\nstack: shop\nladder:\n  - dev\n  - staging\n  - prod\nhead: main\n")
+	slugs := func() []string {
+		var out []string
+		for _, e := range ladder() {
+			out = append(out, e.Slug)
+		}
+		return out
+	}
+	eventually(t, "staging between dev and prod", func() bool {
+		return slices.Equal(slugs(), []string{"dev", "staging", "prod"})
+	})
+	if top := ladder()[2]; top.ID != prod.ID {
+		t.Errorf("top rung = %s, want prod as it was", top.Slug)
+	}
 }
 
 func eventually(t *testing.T, what string, ok func() bool) {
