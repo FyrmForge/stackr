@@ -12,6 +12,7 @@ import (
 
 	"github.com/FyrmForge/stackr/internal/service"
 	"github.com/FyrmForge/stackr/internal/service/servicetest"
+	pages "github.com/FyrmForge/stackr/internal/ui/pages/setup"
 	"github.com/FyrmForge/stackr/internal/web/webtest"
 )
 
@@ -65,6 +66,19 @@ func page(t *testing.T, s *webtest.Site, session, path string, want ...string) s
 	return body
 }
 
+// browse is a plain navigation, no HX-Request, and its body.
+func browse(t *testing.T, s *webtest.Site, session, path string) string {
+	t.Helper()
+	req := httptest.NewRequest("GET", path, nil)
+	req.AddCookie(&http.Cookie{Name: s.Orch.Sessions().CookieName(), Value: session})
+	rec := httptest.NewRecorder()
+	s.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET %s = %d\n%s", path, rec.Code, rec.Body)
+	}
+	return rec.Body.String()
+}
+
 // By hand: the branch question, a name, a domain, an invite, Finish.
 // The steps close once it is finished.
 func TestByHand(t *testing.T) {
@@ -111,8 +125,17 @@ func TestByHand(t *testing.T) {
 	if err != nil || !slices.ContainsFunc(rs, func(r service.DomainResource) bool { return r.Host == "globex.example.com" }) {
 		t.Errorf("domains = %+v %v", rs, err)
 	}
+	// the people panel: everyone else on the server, the add form with
+	// member picked, and a pending invite's link to copy
+	page(
+		t, s, sess, b+"/team",
+		"People on this server",
+		"owner@acme.test",
+		`name="role" value="member" checked`,
+		"Add to organization",
+	)
 	redirect(t, s, sess, b+"/team/members", url.Values{"email": {"new@x.test"}, "role": {"owner"}}, b+"/team")
-	page(t, s, sess, b+"/team", "new@x.test", "Invited")
+	page(t, s, sess, b+"/team", "new@x.test", "Invited, expires", "Copy invite", `data-copy="/invite/`)
 
 	page(t, s, sess, b+"/done", "Finish and go to Globex", b+"/domain", b+"/team")
 	redirect(t, s, sess, b+"/done", nil, "/globex")
@@ -175,7 +198,16 @@ func TestFromConfig(t *testing.T) {
 	pl := plans[0]
 	plan := "/" + og.ID + "/-/setup/config/plan?plan=" + pl.ID
 	approve := b + "/config/plan/" + pl.ID + "/approve"
-	page(t, s, sess, plan, "Review the plan", "Globex", approve)
+	// v0's rows: the org's rename, the stack it creates
+	page(
+		t, s, sess, plan,
+		"Review the plan",
+		approve,
+		`<span class="text-rw-success">Globex</span>`,
+		`<span class="text-rw-success shrink-0 w-4">+</span> <span class="text-rw-faint">shop</span>`,
+		"Plan again",
+		`name="plan_only"`,
+	)
 
 	rec = s.As(t, sess, "POST", approve, nil)
 	wait := rec.Header().Get("HX-Redirect")
@@ -266,5 +298,101 @@ func TestStartNonAdmin(t *testing.T) {
 	}
 	if rec := s.As(t, lone, "POST", "/setup", url.Values{"mode": {"ui"}}); rec.Code != http.StatusForbidden {
 		t.Errorf("non-admin POST /setup = %d", rec.Code)
+	}
+}
+
+// An apply the live org refuses: the poll navigates back to the plan with
+// its job, which now says why.
+func TestPlanApplyFails(t *testing.T) {
+	g := servicetest.NewGit(t)
+	s := webtest.NewWith(t, []service.Option{g.Option()})
+	ctx := context.Background()
+	uid, sess := admin(t, s)
+	og, _ := draft(t, s, uid, sess, "config")
+	b := "/" + og.Slug + "/-/setup"
+	conn := s.Connector(t, og.ID, "whsec")
+	g.Commit(t, "acme/org", "main", map[string]string{
+		"stackr-org.yml": "version: 1\norg: Globex\n",
+	})
+	bind := url.Values{
+		"connector_id": {conn},
+		"repo":         {"acme/org"},
+		"branch":       {"main"},
+		"path":         {"stackr-org.yml"},
+	}
+	s.As(t, sess, "POST", b+"/config", bind)
+	plans, err := s.Orch.OrgPlans(ctx, og.ID, 1)
+	if err != nil || len(plans) != 1 {
+		t.Fatalf("plans = %+v %v", plans, err)
+	}
+	pl := plans[0]
+	plan := "/" + og.ID + "/-/setup/config/plan?plan=" + pl.ID
+	// another org takes the slug between the plan and its apply
+	if _, err := s.Orch.RenameOrg(ctx, s.Org, "Globex"); err != nil {
+		t.Fatal(err)
+	}
+	wait := s.As(t, sess, "POST", b+"/config/plan/"+pl.ID+"/approve", nil).Header().Get("HX-Redirect")
+	if !strings.HasPrefix(wait, plan+"&job=") {
+		t.Fatalf("approve sent to %q", wait)
+	}
+	for end := time.Now().Add(10 * time.Second); ; time.Sleep(20 * time.Millisecond) {
+		p, err := s.Orch.OrgPlan(ctx, pl.ID)
+		if err != nil || p.Status == "error" {
+			break
+		}
+		if p.Status == "applied" || time.Now().After(end) {
+			t.Fatalf("plan = %s", p.Status)
+		}
+	}
+	if got := s.As(t, sess, "GET", wait, nil).Header().Get("HX-Redirect"); got != wait {
+		t.Errorf("failed apply's poll sent to %q, want %q", got, wait)
+	}
+	body := browse(t, s, sess, wait)
+	for _, w := range []string{"The apply failed", "another organization already uses the slug"} {
+		if !strings.Contains(body, w) {
+			t.Errorf("want %q in:\n%s", w, body)
+		}
+	}
+	if strings.Contains(body, "every 2s") || strings.Contains(body, "Approve &amp; apply") {
+		t.Errorf("a failed plan still polls or offers approve:\n%s", body)
+	}
+}
+
+// The config step's repository combobox is v0's markup: main.js reads
+// these hooks.
+func TestRepoPicker(t *testing.T) {
+	v := pages.GitHubView{
+		Base:      "/globex/-/setup",
+		Connected: true,
+		Repos: []pages.Repo{
+			{
+				FullName:      "acme/org",
+				DefaultBranch: "main",
+			},
+		},
+		Connectors: []pages.Option{
+			{
+				Value: "k1",
+				Label: "acme",
+			},
+		},
+	}
+	var sb strings.Builder
+	if err := pages.ConfigBody(v).Render(context.Background(), &sb); err != nil {
+		t.Fatal(err)
+	}
+	for _, w := range []string{
+		"data-repo-picker",
+		`role="combobox"`,
+		`aria-controls="setup-repo-list"`,
+		`data-combo-list class="combo-list"`,
+		`data-value="acme/org" data-branch="main" class="combo-option"`,
+		`list="setup-branch-list"`,
+		"data-path-note",
+		`name="connector_id"`,
+	} {
+		if !strings.Contains(sb.String(), w) {
+			t.Errorf("want %q in:\n%s", w, sb.String())
+		}
 	}
 }

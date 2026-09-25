@@ -19,7 +19,8 @@ func TestGitHubCallback(t *testing.T) {
 		rec.Header().Get("Location") != "/login?next=%2Fsettings%2Fgithub%2Fcallback%3Fcode%3Dc%26state%3Ds.n" {
 		t.Errorf("visitor = %d %q", rec.Code, rec.Header().Get("Location"))
 	}
-	if rec := s.Do(t, "GET", "/settings/github/callback?code=c&state=nope.n", nil); rec.Code != http.StatusNotFound {
-		t.Errorf("unknown connector = %d", rec.Code)
+	// v0: a refused handshake is a flash on the home canvas
+	if rec := s.Do(t, "GET", "/settings/github/callback?code=c&state=nope.n", nil); rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/" {
+		t.Errorf("unknown connector = %d %q", rec.Code, rec.Header().Get("Location"))
 	}
 }

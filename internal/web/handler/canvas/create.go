@@ -1,9 +1,12 @@
 package canvas
 
 import (
+	"errors"
+	"fmt"
 	"net/http"
 	"slices"
 
+	hamrmw "github.com/FyrmForge/hamr/pkg/middleware"
 	"github.com/FyrmForge/hamr/pkg/respond"
 	"github.com/labstack/echo/v4"
 
@@ -141,12 +144,18 @@ func (h *handler) beginConnector(c echo.Context) error {
 // state's nonce is the proof the caller began this install; the connector
 // drawer then opens on its org's canvas, or the setup wizard's connector
 // step takes it back while the org is unfinished (v0's setup cookie: only
-// the wizard reaches an unfinished org).
+// the wizard reaches an unfinished org). A refused handshake is v0's
+// flash on the home canvas; a real failure is the error page.
 func (h *handler) githubCallback(c echo.Context) error {
 	ctx := c.Request().Context()
 	k, err := h.orch.CompleteConnector(ctx, c.QueryParam("state"), c.QueryParam("code"))
 	if err != nil {
-		return middleware.HTTPError(err)
+		var he *echo.HTTPError
+		if !errors.As(middleware.HTTPError(err), &he) {
+			return err
+		}
+		hamrmw.SetFlash(c, "GitHub connection failed: "+fmt.Sprint(he.Message), hamrmw.FlashError)
+		return c.Redirect(http.StatusSeeOther, "/")
 	}
 	orgs, err := h.orch.Orgs(ctx, middleware.Principal(c).User.ID)
 	if err != nil {
@@ -157,6 +166,7 @@ func (h *handler) githubCallback(c echo.Context) error {
 			continue
 		}
 		if o.SetupDoneAt == nil {
+			hamrmw.SetFlash(c, "GitHub App created. Now install it on the repos you want to deploy.", hamrmw.FlashSuccess)
 			return c.Redirect(http.StatusSeeOther, "/"+o.Slug+"/-/setup/connector")
 		}
 		return c.Redirect(http.StatusSeeOther, "/"+o.Slug+"?drawer=connector:"+k.ID+"&tab=settings")

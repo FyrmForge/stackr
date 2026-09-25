@@ -527,6 +527,26 @@ flash-toast[leaving] { opacity: 0; }
   .people-add:has(input[type=email]:valid) .people-add-submit {
     @apply bg-rw-accentDeep text-white border-transparent hover:bg-rw-accentPress shadow-rw;
   }
+  /* combobox: the repo picker's own list, because a native datalist cannot be
+     styled, cannot highlight what matched, and renders differently in every
+     browser. Five rows tall, then it scrolls. */
+  .combo-list {
+    @apply absolute z-20 mt-1 w-full max-h-[11.5rem] overflow-y-auto rounded-lg border border-rw-border
+           bg-rw-surface shadow-lg py-1;
+  }
+  .combo-list[hidden] {
+    display: none;
+  }
+  .combo-option {
+    @apply px-3 py-1.5 font-mono text-xs text-rw-muted cursor-pointer;
+  }
+  .combo-option[aria-selected="true"],
+  .combo-option:hover {
+    @apply bg-rw-inset text-rw-text;
+  }
+  .combo-option mark {
+    @apply bg-transparent text-rw-accentHi font-semibold;
+  }
 }
 summary.list-none::-webkit-details-marker { display: none; }
 log-pane [data-lines] > div { border-left: 2px solid transparent; padding-left: 0.5rem; margin-left: -0.25rem; color: rgb(var(--rw-text)); }

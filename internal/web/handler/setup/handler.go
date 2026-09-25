@@ -5,12 +5,14 @@
 package setup
 
 import (
+	"cmp"
 	"encoding/json"
 	"errors"
 	"net/http"
 	"net/url"
 	"slices"
 	"strings"
+	"time"
 
 	hamrmw "github.com/FyrmForge/hamr/pkg/middleware"
 	"github.com/FyrmForge/hamr/pkg/respond"
@@ -22,7 +24,6 @@ import (
 	"github.com/FyrmForge/stackr/internal/service"
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	comp "github.com/FyrmForge/stackr/internal/ui/components"
-	orgui "github.com/FyrmForge/stackr/internal/ui/drawer/org"
 	pages "github.com/FyrmForge/stackr/internal/ui/pages/setup"
 	"github.com/FyrmForge/stackr/internal/web/render"
 )
@@ -40,7 +41,6 @@ func (h *handler) Mount(site *echo.Group, a *middleware.Access) {
 	s, step := "/:org/-/setup", a.Require("org.setup.step")
 	site.GET(s+"/:step", h.step, page, step)
 	site.GET(s+"/config/plan", h.plan, page, step)
-	site.GET(s+"/jobs/:job/events", h.events, step)
 	site.POST(s+"/name", h.name, step)
 	site.POST(s+"/mode", h.mode, step)
 	site.POST(s+"/done", h.done, step)
@@ -165,7 +165,7 @@ func (h *handler) github(c echo.Context, og *service.Org, st string) error {
 		CSRF:      render.Shell(c, "").CSRF,
 		Connected: len(conns) > 0,
 		Loaded:    len(conns) == 0 || body,
-		Repo:      og.ConfigRepo,
+		Repo:      strings.TrimPrefix(og.ConfigRepo, "https://github.com/"),
 		Branch:    og.ConfigBranch,
 		Path:      og.ConfigPath,
 	}
@@ -178,7 +178,10 @@ func (h *handler) github(c echo.Context, og *service.Org, st string) error {
 			return middleware.HTTPError(err)
 		}
 		for _, r := range repos {
-			v.Repos = append(v.Repos, r.FullName)
+			v.Repos = append(v.Repos, pages.Repo{
+				FullName:      r.FullName,
+				DefaultBranch: r.DefaultBranch,
+			})
 		}
 		if v.InstallURL, err = h.orch.ConnectorInstallURL(ctx, og.ID, conns[0].ID); err != nil {
 			return middleware.HTTPError(err)
@@ -229,7 +232,9 @@ func (h *handler) domainPage(c echo.Context, og *service.Org) (pages.Frame, temp
 	return v.Frame, pages.Domain(v), nil
 }
 
-// team is the org's members and open invites in one list.
+// team is the org's members, its open invites and the ones that ran out,
+// in one list; a server admin also gets the accounts not in it yet (v0
+// addCandidates).
 // ponytail: names come from the user list (one read), as the Members tab's.
 func (h *handler) team(c echo.Context, og *service.Org) (pages.Frame, templ.Component, error) {
 	ctx := c.Request().Context()
@@ -238,7 +243,6 @@ func (h *handler) team(c echo.Context, og *service.Org) (pages.Frame, templ.Comp
 		Base:  base(og),
 		Next:  next(og, "team"),
 		Org:   og.Name,
-		Roles: orgui.Roles,
 	}
 	ms, err := h.orch.Members(ctx, og.ID)
 	if err != nil {
@@ -248,33 +252,54 @@ func (h *handler) team(c echo.Context, og *service.Org) (pages.Frame, templ.Comp
 	if err != nil {
 		return v.Frame, nil, err
 	}
-	ins, err := h.orch.PendingInvites(ctx, og.ID)
+	ins, err := h.orch.Invites(ctx, og.ID)
 	if err != nil {
 		return v.Frame, nil, err
 	}
-	self := middleware.Principal(c).User.ID
+	me := middleware.Principal(c).User
+	in := map[string]bool{}
 	for _, m := range ms {
-		p := pages.Person{UserID: m.UserID, Role: m.Role, Self: m.UserID == self}
+		in[m.UserID] = true
+		p := pages.Person{
+			UserID: m.UserID,
+			Role:   m.Role,
+			State:  "member",
+			Self:   m.UserID == me.ID,
+		}
 		if i := slices.IndexFunc(us, func(u service.User) bool { return u.ID == m.UserID }); i >= 0 {
-			p.Name, p.Email = cmpOr(us[i].Name, us[i].Email), us[i].Email
+			p.Name, p.Email = cmp.Or(us[i].Name, us[i].Email), us[i].Email
 		}
 		v.People = append(v.People, p)
 	}
+	now := time.Now()
 	for _, i := range ins {
-		v.People = append(v.People, pages.Person{
+		if i.UsedAt != nil {
+			continue
+		}
+		p := pages.Person{
 			Name:    i.Email,
+			Email:   i.Email,
 			Role:    i.Role,
+			State:   "pending",
 			Expires: i.ExpiresAt.Local().Format("Jan 2 2006"),
-		})
+			Link:    comp.AbsoluteURL("/invite/" + i.ID),
+		}
+		if i.ExpiresAt.Before(now) {
+			p.State = "expired"
+		}
+		v.People = append(v.People, p)
+	}
+	if me.Admin() {
+		for _, u := range us {
+			if u.Active && !in[u.ID] {
+				v.Candidates = append(v.Candidates, pages.Candidate{
+					Name:  cmp.Or(u.Name, u.Email),
+					Email: u.Email,
+				})
+			}
+		}
 	}
 	return v.Frame, pages.Team(v), nil
-}
-
-func cmpOr(a, b string) string {
-	if a != "" {
-		return a
-	}
-	return b
 }
 
 // summary is the done step: what the wizard set up, each row linking back
@@ -283,11 +308,12 @@ func (h *handler) summary(c echo.Context, og *service.Org) (pages.Frame, templ.C
 	ctx := c.Request().Context()
 	b := base(og) + "/"
 	v := pages.DoneView{
-		Frame:  frame(og, "done", doneHeading(og), "Nothing else in this organization opens until you do."),
-		Base:   base(og),
-		Name:   og.Name,
-		Draft:  og.Name == service.DraftOrgName,
-		Config: og.SetupMode == service.SetupConfig,
+		Frame:    frame(og, "done", doneHeading(og), doneSubtitle(og)),
+		Base:     base(og),
+		Name:     og.Name,
+		Draft:    og.Name == service.DraftOrgName,
+		Config:   og.SetupMode == service.SetupConfig,
+		Finished: og.SetupDoneAt != nil,
 	}
 	conns, err := h.orch.ConnectedConnectors(ctx, og.ID)
 	if err != nil {
@@ -331,16 +357,27 @@ func (h *handler) summary(c echo.Context, og *service.Org) (pages.Frame, templ.C
 // doneHeading: "Finish setting up Untitled organization" over a body that
 // says it has no name yet would be the page arguing with itself.
 func doneHeading(og *service.Org) string {
+	if og.SetupDoneAt != nil {
+		return og.Name + " is ready"
+	}
 	if og.Name == service.DraftOrgName {
 		return "Finish setting up this organization"
 	}
 	return "Finish setting up " + og.Name
 }
 
+func doneSubtitle(og *service.Org) string {
+	if og.SetupDoneAt != nil {
+		return "Anything skipped is one tab away in settings."
+	}
+	return "Nothing else in this organization opens until you do."
+}
+
 // GET /:org/-/setup/config/plan?plan=&job=, the config step's second
 // screen. The plan in the query keeps the screen on its own plan while its
 // apply runs; without one it is the latest plan still waiting. The org is
-// addressed by id there: the apply renames it under the wait.
+// addressed by id there: the apply renames it under the wait. While the
+// apply runs the banner polls this URL every 2s (v0's PlanBody).
 func (h *handler) plan(c echo.Context) error {
 	og, ctx := middleware.ScopeOf(c).Org, c.Request().Context()
 	if og.SetupDoneAt != nil {
@@ -354,40 +391,49 @@ func (h *handler) plan(c echo.Context) error {
 		return respond.Redirect(c, base(og)+"/config")
 	}
 	// The apply landed: on to the next step, from the slug the org has now.
+	// The poll gets it as HX-Redirect, so the page navigates itself.
 	if pl.Status == "applied" {
 		return respond.Redirect(c, next(og, "config"))
 	}
+	job := c.QueryParam("job")
+	applying := pl.Status == "pending" && pl.DecidedAt != nil
+	// It ended without applying: stay on the plan, as a navigation rather
+	// than a banner swap, so the screen comes back carrying why.
+	if isHTMX(c) && pl.DecidedAt != nil && !applying {
+		return respond.Redirect(c, planURL(og, pl.ID, job))
+	}
 	v := pages.PlanView{
-		Frame:    frame(og, "config", "Review the plan", "This is what applying the config file does to this organization."),
-		Base:     base(og),
-		Summary:  pl.Summary,
-		Commit:   pl.Commit[:min(8, len(pl.Commit))],
-		When:     pl.CreatedAt.Local().Format("Jan 2 15:04"),
-		Error:    pl.Error,
-		Applying: pl.Status == "pending" && pl.DecidedAt != nil,
+		Frame:   frame(og, "config", "Review the plan", "This is what applying the config file does to this organization."),
+		Summary: pl.Summary,
+		Commit:  pl.Commit[:min(8, len(pl.Commit))],
+		When:    pl.CreatedAt.Local().Format("Jan 2 15:04:05"),
+		Error:   pl.Error,
+		Replan:  base(og) + "/config",
+	}
+	if applying {
+		v.Work, v.Poll = "Applying.", planURL(og, pl.ID, job)
+	}
+	if job != "" {
+		j, err := h.orch.GetJob(ctx, job)
+		if err != nil {
+			return middleware.HTTPError(err)
+		}
+		// only this plan's apply speaks on its screen
+		if line := workLine(j); line != "" && slices.Contains(j.LockSet, "orgplan:"+pl.ID) {
+			v.Work, v.Failed = line, j.State == "failed"
+		}
 	}
 	var p service.OrgConfigPlan
 	if pl.Plan != "" {
 		if err := json.Unmarshal([]byte(pl.Plan), &p); err != nil {
 			return middleware.HTTPError(err)
 		}
-		v.Ask = &comp.PromoteAsk{Target: og.Name, Plan: render.OrgPlanView(p)}
+		v.Parsed = true
+		v.Errors = p.Blockers
+		v.Warnings = p.Notes
+		v.Changes = planRows(p)
 	}
-	if id := c.QueryParam("job"); id != "" && v.Applying {
-		j, err := h.orch.GetJob(ctx, id)
-		if err != nil {
-			return middleware.HTTPError(err)
-		}
-		// It ended without applying: stay on the plan, as a navigation, so
-		// the screen comes back carrying why.
-		if j.FinishedAt != nil && isHTMX(c) {
-			return respond.Redirect(c, planURL(og, pl.ID, ""))
-		}
-		jv := render.JobView("", j)
-		jv.StreamURL = "/" + og.ID + "/-/setup/jobs/" + j.ID + "/events"
-		v.Job, v.Wait = &jv, planURL(og, pl.ID, j.ID)
-	}
-	if pl.Status == "pending" && !v.Applying {
+	if pl.Status == "pending" && !applying {
 		v.Approve = base(og) + "/config/plan/" + pl.ID + "/approve"
 		v.Reject = base(og) + "/config/plan/" + pl.ID + "/reject"
 		if p.Blocked() {
@@ -395,6 +441,59 @@ func (h *handler) plan(c echo.Context) error {
 		}
 	}
 	return render.Bare(c, http.StatusOK, "Setup: "+v.Title, pages.Plan(v))
+}
+
+// workLine is what the apply banner says, from the job's own state.
+func workLine(j service.Job) string {
+	switch j.State {
+	case "queued":
+		return "Queued, waiting to start."
+	case "running":
+		return "Applying."
+	case "failed":
+		return "The apply failed: " + j.Error
+	case "cancelled":
+		return "The apply was cancelled."
+	case "superseded":
+		return "A newer apply replaced this one."
+	}
+	return ""
+}
+
+// planRows is the org plan in v0's row shape: the env column says "org",
+// or the stack's name on a stack's own rows, and a moved: rename is a slug
+// change on the old name. The org file never deletes, so no row is a "-"
+// and Destroys stays empty.
+func planRows(p service.OrgConfigPlan) []pages.Change {
+	var rows []pages.Change
+	for _, ch := range p.Changes {
+		row := pages.Change{
+			Kind:  "update",
+			Env:   "org",
+			Tile:  ch.Tile,
+			Field: ch.Field,
+			Old:   ch.Old,
+			New:   ch.New,
+			Note:  ch.Note,
+		}
+		switch ch.Kind {
+		case "create":
+			row.Kind, row.Env, row.Tile = "create", ch.Tile, ""
+		case "rebind":
+			row.Env, row.Tile = ch.Tile, "config"
+		case "rename", "instance-rename":
+			row.Tile, row.Field = ch.Old, "slug"
+		case "instance":
+			row.Kind = "create"
+		case "domain":
+			row.Kind, row.Field = "create", "domain"
+		case "domain-update":
+			row.Tile, row.Field = "domain", ch.Tile
+			row.Old, row.New = ch.Field+"="+ch.Old, ch.Field+"="+ch.New
+		}
+		rows = append(rows, row)
+	}
+	return rows
 }
 
 // pickPlan is the plan named in the query, or the latest while it waits
@@ -422,11 +521,6 @@ func planURL(og *service.Org, planID, jobID string) string {
 		u += "&job=" + jobID
 	}
 	return u
-}
-
-// GET /:org/-/setup/jobs/:job/events: the apply's status stream.
-func (h *handler) events(c echo.Context) error {
-	return render.JobStream(c, h.orch, "/"+middleware.ScopeOf(c).Org.ID+"/-/setup")
 }
 
 // POST /:org/-/setup/name: the first name the org has had, so the step
@@ -498,11 +592,16 @@ func (h *handler) bind(c echo.Context) error {
 	if len(ps) == 0 {
 		return respond.Redirect(c, base(og)+"/config")
 	}
-	switch pl := ps[0]; pl.Status {
-	case "error":
+	// Plan again comes from the plan screen, so it goes back to one even
+	// when the fresh plan is clean; a clean bind stays on the form.
+	switch pl := ps[0]; {
+	case pl.Status == "error":
 		hamrmw.SetFlash(c, "Binding saved, but planning failed: "+pl.Error, hamrmw.FlashError)
 		return respond.Redirect(c, base(og)+"/config")
-	case "clean":
+	case pl.Status == "clean" && f("plan_only") == "":
+		hamrmw.SetFlash(c, "Planned. Nothing to change.", hamrmw.FlashSuccess)
+		return respond.Redirect(c, base(og)+"/config")
+	case pl.Status == "clean":
 		hamrmw.SetFlash(c, "Planned. Nothing to change.", hamrmw.FlashSuccess)
 		return respond.Redirect(c, planURL(og, pl.ID, ""))
 	default:
@@ -529,6 +628,7 @@ func (h *handler) reject(c echo.Context) error {
 	if _, err := h.orch.RejectOrgPlan(c.Request().Context(), id); err != nil {
 		return back(c, err, planURL(og, id, ""))
 	}
+	hamrmw.SetFlash(c, "Plan rejected.", hamrmw.FlashSuccess)
 	return respond.Redirect(c, base(og)+"/config")
 }
 
@@ -551,8 +651,8 @@ func (h *handler) domain(c echo.Context) error {
 	return respond.Redirect(c, next(og, "domain"))
 }
 
-// POST /:org/-/setup/team/members (email, role): an invite link, shown
-// once, as the Members tab does.
+// POST /:org/-/setup/team/members (email, role): an invite, whoever the
+// address is. Its link is on the row's Copy invite.
 func (h *handler) invite(c echo.Context) error {
 	og := middleware.ScopeOf(c).Org
 	i, err := h.orch.Invite(
@@ -565,7 +665,7 @@ func (h *handler) invite(c echo.Context) error {
 	if err != nil {
 		return back(c, err, base(og)+"/team")
 	}
-	hamrmw.SetFlash(c, "Invite link: /invite/"+i.ID, hamrmw.FlashSuccess)
+	hamrmw.SetFlash(c, "Invite created for "+i.Email+". This server sends no mail, so use Copy invite on their row and send the link yourself.", hamrmw.FlashSuccess)
 	return respond.Redirect(c, base(og)+"/team")
 }
 
@@ -574,7 +674,7 @@ func (h *handler) role(c echo.Context) error {
 	if err := h.orch.SetRole(c.Request().Context(), og.ID, c.Param("user"), c.FormValue("role")); err != nil {
 		return back(c, err, base(og)+"/team")
 	}
-	hamrmw.SetFlash(c, "Role changed.", hamrmw.FlashSuccess)
+	hamrmw.SetFlash(c, "Role updated.", hamrmw.FlashSuccess)
 	return respond.Redirect(c, base(og)+"/team")
 }
 
