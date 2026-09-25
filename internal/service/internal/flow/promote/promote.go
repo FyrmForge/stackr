@@ -250,10 +250,18 @@ func (f *Flow) Remove(ctx context.Context, e store.Environment, ts []store.Tile,
 			m, err := d.Managed.GetByTile(ctx, t.ID)
 			switch {
 			case err == nil:
+				// Refused before anything moves: an instance still holding
+				// slices keeps its volumes, container and rows.
+				// ponytail: refuse, never drain; removing the slice tiles first
+				// (or a forced Engines.Teardown) is the way out, a UI verb for
+				// the forced drop when someone needs it.
+				if _, err := d.Managed.Teardown(ctx, m, false); err != nil {
+					return err
+				}
 				if err := f.orphan(ctx, e, m); err != nil {
 					return err
 				}
-				// Before the container: a refusal leaves the instance running.
+				// Before the container, so the engine can still reach it.
 				if err := d.Engines.Teardown(ctx, t, false, log); err != nil {
 					return err
 				}

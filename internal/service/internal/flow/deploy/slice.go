@@ -151,32 +151,25 @@ func (f *Flow) provision(ctx context.Context, s store.Tile, log io.Writer) error
 	return nil
 }
 
-// bind gives consumer t its own cred on every slice of its env it uses: the
-// ones slice_access names, at that access, and the ones its env or command
-// refs, at the slice's default. Each slice's target is re-resolved first
-// (target), so a consumer the instance no longer admits fails here and
-// keeps running as it was. Bindings it no longer uses go once every bind
-// held; a failed unbind is logged, not fatal.
-func (f *Flow) bind(
-	ctx context.Context,
-	t store.Tile,
-	e store.Environment,
-	st store.Stack,
-	o store.Org,
-	log io.Writer,
-) error {
-	if f.Engines == nil || t.Kind == tile.Managed {
-		return nil
-	}
+// use is one slice of a consumer's env it uses, at the access it gets.
+type use struct {
+	slice  store.Tile
+	access string
+}
+
+// uses are the slices of env e consumer t uses: the ones slice_access
+// names, at that access, and the ones its env or command refs, at the
+// slice's default.
+func (f *Flow) uses(ctx context.Context, t store.Tile, e store.Environment) ([]use, error) {
 	env, err := envMap(t.EnvJSON)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	tiles, err := f.Tiles.List(ctx, e.ID)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	used := map[string]bool{} // slice tile id
+	var out []use
 	for _, s := range tiles {
 		if s.Kind != tile.Slice {
 			continue
@@ -194,34 +187,77 @@ func (f *Flow) bind(
 		case !Refs(env, t.Command, s.Slug):
 			continue
 		}
-		it, err := f.target(ctx, s, e, st, o)
-		if err != nil {
-			return err
-		}
-		p, err := f.Engines.Provision(ctx, it, s)
-		if err != nil {
-			return err
-		}
-		b, err := f.Engines.Bind(ctx, p, t, access)
-		if err != nil {
-			return err
-		}
-		logf(log, "slice %s: %s as %s (%s)\n", s.Slug, p.DBName, b.DBUser, b.Access)
-		used[s.ID] = true
+		out = append(out, use{
+			slice:  s,
+			access: access,
+		})
 	}
-	bound, err := f.Managed.Bound(ctx, t.ID)
+	return out, nil
+}
+
+// bind gives consumer t its own cred on every slice it uses. Each slice's
+// target is re-resolved first (target), so a consumer the instance no
+// longer admits fails here and keeps running as it was.
+func (f *Flow) bind(
+	ctx context.Context,
+	t store.Tile,
+	e store.Environment,
+	st store.Stack,
+	o store.Org,
+	log io.Writer,
+) error {
+	if f.Engines == nil || t.Kind == tile.Managed {
+		return nil
+	}
+	us, err := f.uses(ctx, t, e)
 	if err != nil {
 		return err
 	}
+	for _, u := range us {
+		it, err := f.target(ctx, u.slice, e, st, o)
+		if err != nil {
+			return err
+		}
+		p, err := f.Engines.Provision(ctx, it, u.slice)
+		if err != nil {
+			return err
+		}
+		b, err := f.Engines.Bind(ctx, p, t, u.access)
+		if err != nil {
+			return err
+		}
+		logf(log, "slice %s: %s as %s (%s)\n", u.slice.Slug, p.DBName, b.DBUser, b.Access)
+	}
+	return nil
+}
+
+// prune unbinds the slices consumer t no longer uses. Run calls it once
+// the new replicas are up, so a failed rollout leaves the old ones their
+// cred. A failure is logged, never fatal: the deploy already happened.
+func (f *Flow) prune(ctx context.Context, t store.Tile, e store.Environment, log io.Writer) {
+	if f.Engines == nil || t.Kind == tile.Managed {
+		return
+	}
+	us, err := f.uses(ctx, t, e)
+	if err != nil {
+		logf(log, "warning: unbind unused slices: %v\n", err)
+		return
+	}
+	bound, err := f.Managed.Bound(ctx, t.ID)
+	if err != nil {
+		logf(log, "warning: unbind unused slices: %v\n", err)
+		return
+	}
 	for id, b := range bound {
-		if used[id] {
+		if slices.ContainsFunc(us, func(u use) bool {
+			return u.slice.ID == id
+		}) {
 			continue
 		}
 		if err := f.Engines.Unbind(ctx, b); err != nil {
 			logf(log, "warning: unbind %s: %v\n", b.DBUser, err)
 		}
 	}
-	return nil
 }
 
 // Refs reports whether a tile's env or command refs

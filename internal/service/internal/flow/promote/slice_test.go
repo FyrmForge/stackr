@@ -1,6 +1,7 @@
 package promote
 
 import (
+	"errors"
 	"io"
 	"slices"
 	"strings"
@@ -647,6 +648,61 @@ func TestSliceKeep(t *testing.T) {
 	must(t, err)
 	if len(p.Changes) != 0 || p.Blocked() {
 		t.Errorf("re-plan = %s, blockers %q, want clean", kinds(p), p.Blockers)
+	}
+}
+
+// api stops reffing api-db: its user goes only once its new replicas are
+// up, so a failed rollout leaves the old ones their cred.
+func TestSliceUnbindAfterSwap(t *testing.T) {
+	w := newSliceWorld(t)
+	d := w.f.D
+	_, err := w.f.Apply(ctx, w.dev.ID, w.shopRelease(t, "c1", sliceShopFile).ID, io.Discard, nil)
+	must(t, err)
+	api, err := d.Tiles.GetBySlug(ctx, w.dev.ID, "api")
+	must(t, err)
+	ref := "      env:\n        DATABASE_URL: ${{ tile.api-db.DATABASE_URL }}\n"
+	if !strings.Contains(sliceShopFile, ref) {
+		t.Fatal("no api ref in sliceShopFile")
+	}
+	w.fake.Err = map[string]error{
+		"Run": errors.New("no room"),
+	}
+	_, err = w.f.Apply(ctx, w.dev.ID, w.shopRelease(t, "c2", strings.Replace(sliceShopFile, ref, "", 1)).ID, io.Discard, nil)
+	if err == nil {
+		t.Fatal("apply with a failing rollout succeeded")
+	}
+	if bound, _ := d.Managed.Bound(ctx, api.ID); len(bound) != 1 {
+		t.Fatalf("after a failed rollout bindings = %v, want api's kept", bound)
+	}
+	w.fake.Err = nil
+	n := len(w.fake.Calls())
+	must(t, d.Redeploy(ctx, api.ID, io.Discard, nil))
+	if ex := execs(w, n); !strings.Contains(ex, `DROP ROLE IF EXISTS "api_db_api"`) {
+		t.Errorf("redeploy execs:\n%s", ex)
+	}
+	if bound, _ := d.Managed.Bound(ctx, api.ID); len(bound) != 0 {
+		t.Errorf("after the swap bindings = %v, want none", bound)
+	}
+}
+
+// An instance still holding a slice is refused and left as it was.
+func TestSliceInstanceRemovalRefused(t *testing.T) {
+	w := newSliceWorld(t)
+	d := w.f.D
+	_, err := w.f.Apply(ctx, w.dev.ID, w.shopRelease(t, "c1", sliceShopFile).ID, io.Discard, nil)
+	must(t, err)
+	n := len(w.fake.Calls())
+	err = w.f.Remove(ctx, w.envs["staging"], []store.Tile{w.pg["staging"]}, io.Discard)
+	if _, ok := errs.IsConflict(err); !ok {
+		t.Fatalf("remove = %v, want a conflict", err)
+	}
+	if _, err := d.Managed.GetByTile(ctx, w.pg["staging"].ID); err != nil {
+		t.Errorf("instance row after a refusal: %v", err)
+	}
+	for _, c := range w.fake.Calls()[n:] {
+		if c.Method != "Exec" {
+			t.Errorf("a refusal touched docker: %s %v", c.Method, c.Args)
+		}
 	}
 }
 

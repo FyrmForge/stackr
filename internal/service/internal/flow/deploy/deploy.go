@@ -153,10 +153,14 @@ func (f *Flow) Run(ctx context.Context, t store.Tile, ref string, log io.Writer,
 		return "", f.provision(ctx, t, log)
 	}
 	r, e, digest, err := f.prepare(ctx, t, ref, log)
-	if err != nil || tile.RunToCompletion(t.Kind) {
+	if err != nil {
+		return digest, err
+	}
+	if tile.RunToCompletion(t.Kind) {
 		// A cron or function deploy stops at the pulled artifact: a run
 		// starts its container.
-		return digest, err
+		f.prune(ctx, t, e, log)
+		return digest, nil
 	}
 	if _, err := f.Images.Ensure(ctx, tile.PauseImage, "", log); err != nil {
 		return "", fmt.Errorf("pull %s: %w", tile.PauseImage, err)
@@ -168,6 +172,7 @@ func (f *Flow) Run(ctx context.Context, t store.Tile, ref string, log io.Writer,
 		logf(log, "waiting for %s to accept connections\n", t.Slug)
 		return digest, f.Engines.Ready(ctx, t)
 	}
+	f.prune(ctx, t, e, log)
 	return digest, nil
 }
 
