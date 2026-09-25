@@ -430,6 +430,10 @@ calls).
       host: shop/prod         # the env whose container runs it
       image: postgres:16      # optional, the engine's default otherwise
       shm_size_mb: 256        # optional
+  domains:                    # org domain resources (DECIDE 191)
+    - host: acme.example.com
+      include_env_on_default: false
+      acme_email: ops@acme.test   # optional
   moved:                      # renames, read first; drop once applied
     - from: stack.weblog
       to: stack.blog
@@ -441,8 +445,8 @@ calls).
   Strict decode, `version: 1`, `org:` required, the stack file's hints for
   removed keys. Not in the file: inline stacks (v0 applied an existing one
   with `force=true` and never showed its changes in the org plan; the
-  rewrite has no apply-without-release path), domains and storage shares
-  (not v1 objects). DECIDE 182.
+  rewrite has no apply-without-release path) and storage shares (not a
+  v1 object). DECIDE 182.
 - **The diff.** `flow/orgconfig` parses the file and diffs it against a
   `Live` snapshot the orchestrator hands in: the org, its stacks with
   their bindings, the org's params, settings and
@@ -464,6 +468,9 @@ calls).
   missing → blocker (DECIDE 189); image or shm changed → update, a
   redeploy; engine or host changed → blocker (delete it by hand, the
   volume stays; moves are Later); gone from the file → left alone.
+  Domains (DECIDE 191): an entry missing → create an org domain
+  resource; env flag or ACME differs → update; gone from the file → left
+  alone; the host taken elsewhere or squatting another org → blocker.
 - **A plan is a row.** Table `org_config_plans`: id, org (FK, cascade),
   commit, summary, plan (the diff as JSON), status, error, created_at,
   decided_at. Statuses `pending`, `clean` (no changes), `error` (the file
@@ -490,7 +497,8 @@ calls).
   then `RenameOrg`, `SetParams`, `SetOrgSettings`,
   `SetOrgEnvColors`, `CreateStack` + `SetConfigRepo`, then the shared
   instances: `CreateManagedTile` in the host env + `SetInstanceScope`
-  (org) + `Deploy`, or `UpdateTile` for an image or shm change. Each
+  (org) + `Deploy`, or `UpdateTile` for an image or shm change, and
+  `CreateDomainResource` / `UpdateDomainResource` for `domains:`. Each
   bound stack's own file then rides push → release → promote; a stack the
   apply creates or rebinds gets the webhook's push job at its branch head
   right away, so one push creates and binds every stack the org file
@@ -508,8 +516,9 @@ calls).
   stacks. Off, the plan waits for an owner.
 - **Export.** `stackr-org.yml` from live state: the name, params (values
   for params, declarations for secrets), defaults, env colors, and the
-  config-managed stacks as repo references, and the org-scoped instances
-  with their `host` (v0 skipped them, so its export never round-tripped).
+  config-managed stacks as repo references, the org-scoped instances
+  with their `host` (v0 skipped them, so its export never round-tripped)
+  and the org's domain resources.
   Read level, as v0.
 - **Verbs.** `SetOrgConfigRepo` (owner, `org.config.bind`; empty repo
   unbinds and rejects the pending plan), `PlanOrgConfig` and
@@ -531,8 +540,9 @@ calls).
   back (DECIDE 187): v0's pages, a branch question (by hand or from a
   config file), then connector → config (bind; the plan on the same
   step, approve or reject; the file names the org) → team → done, or
-  name → connector → team → done by hand; no domain step (org domains
-  are not v1 objects). An unfinished org sends its owner to the summary
+  name → connector → domain → team → done by hand, one to one with v0
+  (the domain step needs the org domain, DECIDE 190). An unfinished org
+  sends its owner to the summary
   and shows anyone else a holding page. The drawer's Config tab is for a
   rebind after setup.
 
@@ -847,6 +857,34 @@ Filesystem snapshots were explored and parked (see "Later").
 - **Built images stay on the machine.** A single node needs no built-in
   registry.
 
+## Domain resources
+
+**darthvader 2026-09-25 (DECIDE 190): v0's model, ported as it is.**
+
+- **One table, three levels.** `domain_resources`: instance (the server,
+  seeded from the installer's root domain), org, stack. `host` is unique
+  across the server. Each row carries `include_env_on_default` and an
+  `acme_email`. A stack's reservations (`domains:` in the stack file)
+  are its stack rows; the JSON column goes.
+- **Visible, nearest first.** A stack sees its own rows, then its org's,
+  then the instance's. `AutoHost` builds a tile's name from the nearest:
+  `tile[.env].stack.org.<instance host>`, `tile[.env].stack.<org host>`,
+  `tile[.env].<stack host>`; the env label is dropped on the stack's
+  default env unless the resource says `include_env_on_default`.
+- **The stack file.** A tile domain is a literal, a `params.` ref,
+  `auto: true` (the nearest resource names it) or `apex: <resource
+  host>` (the tile takes the resource's host itself). The promote plan
+  resolves both when it plans; no visible resource is a blocker.
+- **Squat.** A host whose first label is another org's slug is refused,
+  on resources and on tile domains alike; the reverse check on org
+  rename stays. An org's own stacks never count against it.
+- **Where they are made.** The wizard's domain step (prefill
+  `<slug>.<instance host>`; Finish makes an undeclared org row when the
+  org sees none), the org drawer's Domains section, `POST
+  /domain-resources`, `stackr domain add`. Owner level. Deleting a
+  resource that names live tiles is refused.
+- **Managed tiles' `PublicBase`** comes from `AutoHost` too.
+
 ## v1 scope
 
 - Deploy from git and from an image. Image watch, digest and tag-policy
@@ -861,7 +899,10 @@ Filesystem snapshots were explored and parked (see "Later").
 - The param store: params and secrets in collections at org/stack/env,
   tile env as literals plus refs (see "Param store and refs").
 - Domains and automatic TLS on Caddy, plus admin-only extra Caddy config:
-  unprotected routes, WebDAV (e.g. ownCloud), routes to LAN IPs.
+  unprotected routes, WebDAV (e.g. ownCloud), routes to LAN IPs. Domain
+  resources at instance, org and stack level with automatic hostnames
+  (`auto:`, `apex:`), v0's model as it is (see "Domain resources";
+  darthvader 2026-09-25, DECIDE 190).
 - Orgs, users, the two roles, API keys.
 - Volumes.
 - Managed tiles: Postgres and S3 instances, slices, bindings (see "Managed

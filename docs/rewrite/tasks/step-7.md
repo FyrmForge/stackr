@@ -54,7 +54,7 @@ Branch `rewrite-step-7`, stacked on `rewrite-step-6e`.
    Settings, EnvColors}` and `Plan{Changes, Blockers, Notes}` reusing
    promote's `Change` shape (kinds: `org`, `param`, `defaults`, `colors`,
    `create`, `rebind`, `instance`, `instance-update`, `rename`,
-   `instance-rename`), `Summary()` as v0's
+   `instance-rename`, `domain`, `domain-update`), `Summary()` as v0's
    plan had. The rules are the design's "The diff" bullet, verbatim.
    Pure: no store, no clone.
    Done when: table tests: rename; rename collides → blocker; param
@@ -68,7 +68,9 @@ Branch `rewrite-step-7`, stacked on `rewrite-step-6e`.
    without `engine` or `host` → parse error; `moved:` stack → rename and
    the `stacks.<to>` entry diffs against it (no create); `to` exists and
    `from` gone → no change; both exist → blocker; neither → blocker;
-   `stack.` to `shared.` → parse error; a JSON round trip of `Plan`.
+   `stack.` to `shared.` → parse error; `domains:` entry missing → domain
+   create; env flag or ACME differs → domain update; entry gone → no
+   change; host taken or squatting → blocker; a JSON round trip of `Plan`.
 
 4. **`leaf/orgplan`.** Owns `org_config_plans`: `Create(ctx, p)` (marks
    the org's pending and clean rows superseded in the same tx), `Get`,
@@ -121,7 +123,8 @@ Branch `rewrite-step-7`, stacked on `rewrite-step-6e`.
    `CreateStack` + `SetConfigRepo`, then per shared instance
    `CreateManagedTile` (in the `host` env, `Kind` managed, the slug as
    name) + `SetInstanceScope(org)` + `Deploy`, or `UpdateTile` for image
-   and shm,
+   and shm, then `CreateDomainResource` (org level) or
+   `UpdateDomainResource` per `domains:` entry,
    then enqueues the webhook's push job for every created or rebound
    stack at its branch head (the plan's commit for a `path:` stack), then
    `applied`; any error → `SetError`. `RejectOrgPlan(ctx, id)`.
@@ -177,7 +180,9 @@ Branch `rewrite-step-7`, stacked on `rewrite-step-6e`.
    no Approve, approve posts and shows the job, reject; canvas snapshot
    with the edge and each banner; `make templint` clean.
 
-11. **Org setup wizard (DECIDE 187).** v0's `handler/org/setup.go` +
+11. **Org setup wizard (DECIDE 187).** A one-to-one copy of v0: the same
+    pages, copy, stepper, switch links and skip paths, nothing
+    redesigned. v0's `handler/org/setup.go` +
     `setup.templ` cloned as `internal/web/handler/setup/` + `internal/ui/
     pages/setup/`: `GET /setup` (the branch question, by hand or from a
     config file; "+ Create organization" links here and the `/-/new-org`
@@ -190,7 +195,9 @@ Branch `rewrite-step-7`, stacked on `rewrite-step-6e`.
     step waits on it through `render.JobView`; the file names the org) →
     `team` (v0's people panel over the members tab's routes) → `done`
     (the summary rows and Finish → `FinishOrg`); by hand `name`
-    (`RenameOrg`) → `connector` → `team` → `done`. v0's switch links
+    (`RenameOrg`) → `connector` → `domain` (v0's `setupDomainPage` and
+    `SaveOrgDomain` over step 7a's domain resources) → `team` →
+    `done`. v0's switch links
     between the branches (switching to by hand clears the binding and
     rejects the pending plan). The gate: a request into an unfinished org
     sends an owner to `/:org/-/setup/done` and shows anyone else v0's
@@ -210,8 +217,10 @@ Branch `rewrite-step-7`, stacked on `rewrite-step-6e`.
     it lands without a click; make a stack by hand and drop the declared
     stack from the file → the next plan touches neither; rename the
     declared stack's key with a `moved:` entry → renamed, nothing created.
-    Then a new org through the wizard's config branch: bound, planned,
-    approved, named from the file, finished. Playwright, deep links,
+    A `domains:` entry comes up as an org domain resource and a tile with
+    `auto: true` is named under it. Then a new org through the wizard's
+    config branch: bound, planned, approved, named from the file,
+    finished. Playwright, deep links,
     snapshot asserts.
 
 13. **Done gate.** `make build`, `make lint`, `make test`, `make
@@ -220,7 +229,6 @@ Branch `rewrite-step-7`, stacked on `rewrite-step-6e`.
 
 ## Not in this step
 
-Inline stacks, org domains and
-storage shares, a second approval for a bound stack's own file, PR
+Inline stacks, storage shares, a second approval for a bound stack's own file, PR
 comments or check runs on the org repo. Each has a DECIDE item (182,
 185) or is Later.

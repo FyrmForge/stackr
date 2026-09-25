@@ -29,7 +29,8 @@ at the bottom of this file.
 - [x] step-4.md API + CLI
 - [x] step-5.md installer + self-upgrade
 - [x] step-6.md UI, whitelist: `log-pane`, `confirm-dialog`, `flash-toast`, `theme-toggle`. Dropped old JS: canvas/graph, metrics, xterm terminal, YAML code editor (see step-6.md "Not in v1")
-- [ ] step-7.md org config file: `stackr-org.yml` bound to the org, plans as rows an owner approves or an Auto switch applies, apply = one job through the orchestrator's verbs, never deletes a stack; planned 2026-09-25 (DECIDE 180 to 189), not started
+- [ ] step-7a.md domains backend: v0's domain resources at instance, org and stack level, `AutoHost`, `auto:`/`apex:` on tile domains, the squat check, root domain from the installer, org drawer Domains section, API + CLI; darthvader 2026-09-25 (DECIDE 190), built before step 7, not started
+- [ ] step-7.md org config file: `stackr-org.yml` bound to the org, plans as rows an owner approves or an Auto switch applies, apply = one job through the orchestrator's verbs, never deletes a stack; plus v0's new-org wizard one to one; planned 2026-09-25 (DECIDE 180 to 191), not started
 
 Step 0 list (agreed with darhvader):
 1. Rename binaries to `stackrd`, `stackr`, `stackr-install`: three `cmd/` dirs, Makefile, watch rule.
@@ -797,9 +798,10 @@ sweep, P14 theme per user, DECIDE 159 and the DECIDE 138 leftovers.
    org (`StartDraft`, `DraftName`, `FinishOrg`) but step 6 folded the
    wizard into one `/-/new-org` dialog. The planner leaned "bind from
    the drawer only". **darthvader 2026-09-25: reintroduce the new-org
-   wizard and bind there.** v0's pages, cloned, minus the domain step
-   (org domains are not v1 objects); the drawer's Config tab stays for
-   a rebind after setup. The `/-/new-org` dialog goes.
+   wizard and bind there. Then: a literal one-to-one copy of v0's
+   wizard, nothing changed, the domain step included; the domains
+   backend comes with it (DECIDE 190).** The drawer's Config tab stays
+   for a rebind after setup. The `/-/new-org` dialog goes.
 188. **(step 7) The org file never deletes a stack.** The planner's draft
    deleted a file-created stack once it left the file (blocked while it
    had envs) and left hand-made stacks alone. **darthvader 2026-09-25:
@@ -821,6 +823,38 @@ sweep, P14 theme per user, DECIDE 159 and the DECIDE 138 leftovers.
    `from`, `branch`, `auto` and `color` from the file → the release lands
    in the auto envs and the rest wait for a promote. Envs are never
    deleted by the file (DECIDE 188's rule, same reason). In step 7.
+190. **(step 7a) The domains backend is v1: v0's domain resources, ported
+   as they are.** The rewrite has tile domains (the `domains` table,
+   Caddy) and stack-level reservations as JSON on `stacks.domains`, used
+   only for ACME accounts; nothing makes a hostname (the stack file's
+   tile domains are literals or `params.` refs, `auto:`/`apex:` are
+   gone), nothing is org-level, the installer's `--domain` never reaches
+   `stackrd`, and the only squat check is the reverse one on org rename.
+   v0: one `domain_resources` table at three levels (instance, org,
+   stack; `host` unique; `include_env_on_default`, `acme_email`,
+   `declared`), the installer seeds the instance row from the root
+   domain, `AutoHost` makes `tile[.env].stack.org.<instance>` /
+   `tile[.env].stack.<org>` / `tile[.env].<stack>` from the nearest
+   visible resource, `auto: true` and `apex:` on a tile domain resolve
+   through it, `CheckOrgSquat` refuses a host whose first label is
+   another org's slug, the wizard's domain step prefills
+   `<slug>.<instance host>` and Finish makes an undeclared org row when
+   the org sees none. **darthvader 2026-09-25: first and foremost, we
+   want the domains backend.** Its own step, 7a, built before step 7
+   (the wizard's domain step and managed tiles' `PublicBase` need it);
+   the stack reservations move into the table as stack rows.
+191. **(step 7) `domains:` in the org file.** v0's org file declared org
+   domain resources (`declared` rows; the plan created, adopted panel-made
+   rows, updated env/ACME, and deleted only declared rows). The design
+   left `domains:` out because org domains were not v1 objects; DECIDE
+   190 makes them objects. Options: (a) in, with this file's rule: the
+   file never deletes a domain (as params, 185, and stacks, 188), `declared`
+   dropped; (b) out, domains are made in the wizard, drawer, API or CLI
+   only. **darthvader 2026-09-25: (a), the file never deletes domains.**
+   A `domains:` list of host, `include_env_on_default`, `acme_email`:
+   missing → create an org row; env flag or ACME differs → update; gone
+   from the file → left alone; host taken elsewhere or squatting → blocker.
+   Export writes them.
 
 ## DECIDE:
 
