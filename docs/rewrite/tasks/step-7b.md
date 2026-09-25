@@ -24,7 +24,7 @@ Infra stack:
 ```yaml
 base:
   tiles:
-    pg_db:
+    pg-db:
       kind: managed
       engine: postgres
       env_pairs:
@@ -43,7 +43,7 @@ base:
   tiles:
     api-db:
       kind: slice
-      provision_from: infra:${{ env.name }}:pg_db
+      provision_from: infra:${{ env.name }}:pg-db
       default_access: write
     api:
       image: ghcr.io/acme/api:1.4
@@ -67,7 +67,7 @@ Rules:
   another slug is refused at parse. No list = the tile's own env only.
 - `env_pairs:` maps a consumer's env name to one of this stack's env
   names. A consumer whose env name is not a key is a blocker on its
-  promote plan ("infra's pg_db has no env pair for dev"). No map = the
+  promote plan ("infra's pg-db has no env pair for dev"). No map = the
   consumer's env name must exist in this stack as written.
 - `provision_from:` is `<stack>:<env>:<tile>` in the consumer's own org.
   `${{ env.name }}` and `${{ params.<c>.<n> }}` refs are allowed in it;
@@ -111,7 +111,11 @@ Rules:
    (own-org rule), `Match(patterns, addr Address) bool`,
    `ParseTarget(s) (Target, error)` for `provision_from`. Pure, table
    tests: trailing star, middle star, own-org refusal, exact match, the
-   examples in DECIDE 194.
+   examples in DECIDE 194. Lives in `internal/service/internal/address`
+   (the lint config keeps flows from importing each other; `slug` sits
+   there for the same reason). A tile slug is a DNS alias, so `pg_db` is
+   refused; the grammar uses `pg-db`. An `allow:` list replaces the
+   own-env default, it does not add to it (DECIDE 195).
    Done when: tests green; a fuzz-free but exhaustive table.
 
 3. **Stack file.** `flow/promote/stackfile.go`: `allow`, `env_pairs` on
@@ -124,7 +128,7 @@ Rules:
    env pair missing (after the PR env → base env fallback), tile not
    managed, or not allowed are blockers with
    the exact reason; the plan's `Change` rows show a slice as `slice
-   api-db → infra/staging/pg_db (write)`.
+   api-db → infra/staging/pg-db (write)`.
    Done when: table tests for every blocker and the happy path; the file
    round-trips through the promote apply into tile rows.
 
@@ -178,7 +182,7 @@ Rules:
    Done when: drawer tests for the three drawers; `make templint` clean.
 
 8. **VM proof.** Two stacks bound to two repos (the test repo and a
-   second branch of it as the infra stack): infra pushes pg_db with the
+   second branch of it as the infra stack): infra pushes pg-db with the
    allow list and env pairs; shop pushes api-db + api + reporter; the
    promote plan shows the slice row; deploy; api writes a table, reporter
    can read it and cannot write (psql through `stackr tile exec` or the

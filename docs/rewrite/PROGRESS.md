@@ -909,6 +909,12 @@ sweep, P14 theme per user, DECIDE 159 and the DECIDE 138 leftovers.
    is; per-consumer network policy inside an env (S3 not on Grafana's
    network) is Later, own DECIDE. Plan: `docs/rewrite/tasks/step-7b.md`.
 
+195. **(step 7b) An `allow:` list replaces the own-env default.** DECIDE
+   194 says no list = the tile's own env only. With a list, the parser
+   (`internal/service/internal/address`) lets in only what the list names:
+   an infra tile that allows `smoke:shop:*` no longer admits infra's own
+   env unless the list says so. Options: (a) replaces, explicit; (b) adds
+   to the own-env default. Lean (a), one line to flip.
 ## DECIDE:
 
 Silent calls the planner made under rule 9 / "fix obvious gaps"; flip any
