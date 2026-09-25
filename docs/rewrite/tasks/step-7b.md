@@ -172,7 +172,7 @@ Rules:
    As built: s3 hands out the root key for owner and every binding; `access` is recorded, not enforced.
    As built: plan and deploy share `address.Resolve`; a consumer deploy re-resolves every slice it uses and fails with the plan's blocker text.
    As built: removing an instance tile that still holds slices is refused; its network goes after its container.
-   As built: `AttachSlice`/`DetachSlice` refuse until task 6; the graph skips a slice tile's own card until task 7.
+   As built: `AttachSlice`/`DetachSlice` are gone (task 6); the graph skips a slice tile's own card until task 7.
 
 6. **Verbs, API, CLI.** `SetManagedAllow(ctx, tileID, list)`,
    `SetManagedEnvPairs(ctx, tileID, pairs)`, `CreateSliceTile(ctx, envID,
@@ -184,6 +184,12 @@ Rules:
    `stackr tile access <consumer> --slice <slug> --access read|write`;
    `docs/openapi.json` regenerated; `docs/rewrite/verbs.md`.
    Done when: api tests incl. a member 403 on allow edits; cli tests.
+   As built: `SetSliceAccess(ctx, consumerID, sliceSlug, access)` takes the slice's slug (what `slice_access` stores); same env is the lookup.
+   As built: `SetSliceOnRemove`, `SliceOf` and `SetSliceAccess` re-granting a bound consumer in place were added; no verb redeploys.
+   As built: `stackr slice add <slug> --env <env> --from <stack:env:tile>`, not a positional env; `slice` is a top-level noun.
+   As built: allow edits need the owner-level `managed.allow` verb; env pairs and slice writes are `tile.write`.
+   As built: `CreateSliceTile` is refused on a config-managed stack; the other verbs write through (the next promote sets the file's values).
+   As built: `leaf/managed` `ForConsumer` stays: the graph and traffic still read it until task 7.
 
 7. **UI.** Managed tile drawer: Allow list (rows, add pattern with the
    own-org prefix filled, remove) and Env pairs (rows, add) replace the

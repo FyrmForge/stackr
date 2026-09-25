@@ -51,9 +51,7 @@ func (h *handler) Mount(g *echo.Group, a *middleware.Access) {
 	g.POST(e+"/instances/:tile/deploy", h.instanceJob("deploy queued", h.orch.Deploy), a.Require("tile.write"))
 	g.POST(e+"/instances/:tile/stop", h.instanceJob("stop queued", h.orch.StopTile), a.Require("tile.write"))
 	g.POST(e+"/instances/:tile/delete", h.instanceJob("delete queued", h.orch.DeleteTile), a.Require("tile.write"))
-	g.POST(e+"/instances/:tile/scope", h.InstanceScope, a.Require("tile.write"))
 	g.GET(e+"/slices/:provision", h.Slice, a.Require("tile.read"))
-	g.POST(e+"/slices/:provision/detach", h.DetachSlice, a.Require("tile.write"))
 	g.GET(e+"/volumes/:volume", h.Volume, a.Require("org.read"))
 	g.POST(e+"/volumes/:volume/backup", h.BackupNow, a.Require("backup.write"))
 	g.POST(e+"/volumes/:volume/restore", h.Restore, a.Require("backup.write"))
@@ -199,11 +197,6 @@ func (h *handler) instanceJob(note string, f func(context.Context, string) (serv
 	}
 }
 
-func (h *handler) InstanceScope(c echo.Context) error {
-	_, err := h.orch.SetInstanceScope(c.Request().Context(), scope(c).Tile.ID, c.FormValue("scope_kind"))
-	return h.instance(c, "settings", "scope saved", err)
-}
-
 // instance is the managed instance drawer on tab; each tab is one read.
 func (h *handler) instance(c echo.Context, tab, note string, actErr error) error {
 	msg, status, fail := refused(actErr)
@@ -228,7 +221,7 @@ func (h *handler) instance(c echo.Context, tab, note string, actErr error) error
 		Tab:      instance.Tab(tab),
 		Status:   st.Word,
 		Running:  st.Word == "running",
-		Scope:    "env", // step 7b task 6 replaces this: the allow list, not a scope
+		Scope:    "env", // step 7b task 7 replaces this: the allow list and env pairs, not a scope
 		Location: s.Stack.Name + " / " + s.Env.Name,
 		EnvColor: s.Env.Color,
 		Error:    msg,
@@ -264,7 +257,7 @@ func (h *handler) instance(c echo.Context, tab, note string, actErr error) error
 		}
 		o := instance.OverviewView{Endpoint: m.Endpoint, AdminUser: m.AdminUser}
 		for _, p := range ps {
-			// step 7b task 6 replaces this: the row is the slice tile and its bindings.
+			// step 7b task 7 replaces this: the row is the slice tile and its bindings.
 			r := instance.SliceRow{
 				ID:       p.ID,
 				Name:     p.DBName,
@@ -343,11 +336,6 @@ func (h *handler) Slice(c echo.Context) error {
 	return h.slice(c, c.QueryParam("tab"), nil)
 }
 
-func (h *handler) DetachSlice(c echo.Context) error {
-	_, err := h.orch.DetachSlice(c.Request().Context(), c.Param("provision"))
-	return h.slice(c, "bindings", err)
-}
-
 func (h *handler) slice(c echo.Context, tab string, actErr error) error {
 	msg, status, fail := refused(actErr)
 	if fail != nil {
@@ -362,7 +350,7 @@ func (h *handler) slice(c echo.Context, tab string, actErr error) error {
 	if err != nil {
 		return middleware.HTTPError(err)
 	}
-	// step 7b task 6 replaces this: outputs are the bindings' and the drawer
+	// step 7b task 7 replaces this: outputs are the bindings' and the drawer
 	// is the slice tile's; until then it lists none.
 	v := slice.View{
 		Node:     p.ID,
@@ -376,9 +364,6 @@ func (h *handler) slice(c echo.Context, tab string, actErr error) error {
 		Location: s.Stack.Name + " / " + s.Env.Name,
 		EnvColor: s.Env.Color,
 		Error:    msg,
-	}
-	if v.Consumer {
-		v.Detach = v.Base + "/detach"
 	}
 	it, err := h.sliceInstance(c, p.InstanceID)
 	if err != nil {

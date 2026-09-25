@@ -55,6 +55,7 @@ var verbLevels = map[Verb]Level{
 	"registry.credential.write": LevelOwner,
 	"registry.tag.delete":       LevelOwner,
 	"domain.resource":           LevelOwner,
+	"managed.allow":             LevelOwner, // who outside the env may cut slices
 	"org.setup.step":            LevelOwner,
 	"org.setup.domain":          LevelOwner,
 	"org.setup.connector":       LevelOwner,

@@ -40,7 +40,7 @@ nothing else. Signatures: `go doc -all ./internal/service Orchestrator`.
 | Domain resources (instance, org, stack) | `DomainResources(orgID)` (the org's rows, then the instance's), `AllDomainResources` (admin), `CreateDomainResource` (instance level is admin), `UpdateDomainResource`, `DeleteDomainResource` (refused while tile domains carry its name, with the count); stack rows come from the stack file's `domains:` on promote |
 | Orgs, users, the two roles, API keys | `Register`, `Login`, `Logout`, `SessionPrincipal`, `KeyPrincipal`, `Resolve`, `Orgs`, `AllOrgs`, `CreateOrg`, `FinishOrg` (adds the undeclared `<slug>.<instance host>` resource when the org has none), `Members`, `SetRole`, `RemoveMember`, `Invite`, `Invites`, `LookupInvite`, `AcceptInvite`, `RegisterInvited`, `Users`, `SetAdmin`, `DisableUser`, `ChangePassword`, `SetPassword`, `MintKey`, `Keys`, `RevokeKey` |
 | Volumes | `Volumes`, `DeclareVolume`, `DeleteVolume` |
-| Managed tiles: Postgres and S3, slices, bindings | `CreateManagedTile`, `ManagedInstances`, `SetInstanceScope`, `Slices`, `AttachSlice`, `DetachSlice` (slices also come from the stack file on promote) |
+| Managed tiles: Postgres and S3, slices, bindings | `CreateManagedTile`, `ManagedInstances`, `SetManagedAllow(tile, list)` (owner: `managed.allow`; nothing redeploys), `SetManagedEnvPairs(tile, pairs)` (values are envs of the stack), `CreateSliceTile(env, slug, provisionFrom, defaultAccess)` (refused on a config-managed stack; the target is checked by the plan and at deploy), `SetSliceAccess(consumer, sliceSlug, access)` (a bound consumer is re-granted in place, no redeploy), `SetSliceOnRemove(slice, keep\|drop)`, `Bindings(slice) []SliceBinding` (consumer, kind, access, user, since; never the password or outputs), `SliceOf(slice) SliceView` (target as the deploy resolves it, or the blocker; provisioned name; instance network). Slice tiles, allow and env pairs also come from the stack file on promote. |
 | Git connectors (GitHub App) | `Connectors`, `BeginConnector`, `CompleteConnector`, `RenameConnector`, `DeleteConnector`, `Webhook` |
 | Registry credentials | `Credentials`, `CreateCredential`, `UpdateCredential`, `DeleteCredential` |
 | Container logs and restart | `Logs`, `FollowLogs`, `Terminal`, `RestartTile`, `StopTile`, `StartTile` |
@@ -73,7 +73,6 @@ serialises the jobs.
 | pr | `Webhook` pull_request | `push:<stack>`, `pr:<stack>:<n>` |
 | delete | `DeleteTile` | tile |
 | restart, stop, start | tile verbs | tile |
-| attach, detach | slice verbs | consumer (+ instance tile) |
 | backup | `BackupNow`, schedules | `volume:<id>` |
 | restore | `RestoreBackup` | `volume:<target>` |
 | orphans | daily cron | `orphans` |

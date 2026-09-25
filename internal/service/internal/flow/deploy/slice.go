@@ -121,25 +121,31 @@ func (f *Flow) target(
 	return f.Tiles.Get(ctx, pl.Envs[env].TileID)
 }
 
+// Target is slice tile s's instance tile as a deploy resolves it now; the
+// errors are target's (a Conflict with the reason, errs.Unset for a param).
+func (f *Flow) Target(ctx context.Context, s store.Tile) (store.Tile, error) {
+	e, err := f.Envs.Get(ctx, s.EnvironmentID)
+	if err != nil {
+		return store.Tile{}, err
+	}
+	st, err := f.Stacks.Get(ctx, s.StackID)
+	if err != nil {
+		return store.Tile{}, err
+	}
+	o, err := f.Orgs.Get(ctx, st.OrgID)
+	if err != nil {
+		return store.Tile{}, err
+	}
+	return f.target(ctx, s, e, st, o)
+}
+
 // provision is a slice tile's deploy: no container, only its database or
 // bucket on the instance it resolves to.
 func (f *Flow) provision(ctx context.Context, s store.Tile, log io.Writer) error {
 	if f.Engines == nil {
 		return fmt.Errorf("%s: no managed engines are wired", s.Slug)
 	}
-	e, err := f.Envs.Get(ctx, s.EnvironmentID)
-	if err != nil {
-		return err
-	}
-	st, err := f.Stacks.Get(ctx, s.StackID)
-	if err != nil {
-		return err
-	}
-	o, err := f.Orgs.Get(ctx, st.OrgID)
-	if err != nil {
-		return err
-	}
-	it, err := f.target(ctx, s, e, st, o)
+	it, err := f.Target(ctx, s)
 	if err != nil {
 		return err
 	}

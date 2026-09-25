@@ -20,6 +20,7 @@ import (
 
 	"github.com/FyrmForge/stackr/internal/api"
 	"github.com/FyrmForge/stackr/internal/middleware"
+	"github.com/FyrmForge/stackr/internal/service"
 	"github.com/FyrmForge/stackr/internal/service/servicetest"
 )
 
@@ -239,7 +240,7 @@ func TestRunVerbsRoutes(t *testing.T) {
 }
 
 // DECIDE 159: the first arg is the tile only where the verb's Use puts it
-// there; "domain add <host>" and "slice attach <id>" take --tile.
+// there; "domain add <host>" takes --tile.
 func TestTileArgOnlyWhereUseNamesIt(t *testing.T) {
 	r := &recorder{}
 	r.serve(t)
@@ -249,12 +250,14 @@ func TestTileArgOnlyWhereUseNamesIt(t *testing.T) {
 		"domain add a.example.com":           "POST " + p + "api/domains ",
 		"domain caddy a.example.com":         "GET " + p + "api/domains ",
 		"domain rm a.example.com":            "GET " + p + "api/domains ",
-		"slice attach inst1":                 "POST " + p + "api/slices ",
 		"get web":                            "GET " + p + "web ",
 		"rename web www":                     "PUT " + p + "web/name ",
 		"domain ls web":                      "GET " + p + "web/domains ",
 		"set web --port 8080":                "PATCH " + p + "web ",
 		"domain set a.example.com --path /x": "GET " + p + "api/domains ",
+		"allow --set acme:*":                 "PUT " + p + "api/allow ",
+		"access --slice db --access read":    "PUT " + p + "api/slice-access ",
+		"env-pairs pg dev=dev":               "PUT " + p + "pg/env-pairs ",
 	} {
 		r.reqs = nil
 		cli(t, append(append([]string{"tile"}, strings.Fields(args)...), at...)...)
@@ -387,5 +390,137 @@ func TestDomainLsTable(t *testing.T) {
 				t.Errorf("domain ls (tty %v) line %d = %q, want %q", tty, i, got, want[i])
 			}
 		}
+	}
+}
+
+// Step 7b task 6: the managed and slice verbs send the whole list or map;
+// a verb given nothing to send fails with no request.
+func TestSliceVerbsRoutes(t *testing.T) {
+	r := &recorder{}
+	r.serve(t)
+	at := []string{"--stack", "shop", "--env", "dev"}
+	const env = "/api/v1/orgs/acme/stacks/shop/envs/dev"
+	for _, c := range []struct {
+		args []string
+		want string
+	}{
+		{
+			[]string{"tile", "allow", "pg", "--set", "acme:shop:*", "--set", "acme:blog:*:api"},
+			"PUT " + env + `/tiles/pg/allow {"allow":["acme:shop:*","acme:blog:*:api"]}`,
+		},
+		{
+			[]string{"tile", "allow", "pg", "--set", ""},
+			"PUT " + env + `/tiles/pg/allow {"allow":[]}`,
+		},
+		{
+			[]string{"tile", "env-pairs", "pg", "staging=dev", "prod=prod"},
+			"PUT " + env + `/tiles/pg/env-pairs {"env_pairs":{"prod":"prod","staging":"dev"}}`,
+		},
+		{
+			[]string{"tile", "env-pairs", "pg", "--clear"},
+			"PUT " + env + `/tiles/pg/env-pairs {"env_pairs":{}}`,
+		},
+		{
+			[]string{"tile", "access", "api", "--slice", "db", "--access", "read"},
+			"PUT " + env + `/tiles/api/slice-access {"access":"read","slice":"db"}`,
+		},
+		{
+			[]string{"slice", "add", "db", "--from", "infra:dev:pg", "--access", "read"},
+			"POST " + env + `/slices {"default_access":"read","provision_from":"infra:dev:pg","slug":"db"}`,
+		},
+		{
+			[]string{"slice", "get", "db"},
+			"GET " + env + "/tiles/db/slice ",
+		},
+		{
+			[]string{"slice", "bindings", "db"},
+			"GET " + env + "/tiles/db/bindings ",
+		},
+		{
+			[]string{"slice", "on-remove", "db", "drop"},
+			"PUT " + env + `/tiles/db/on-remove {"on_remove":"drop"}`,
+		},
+	} {
+		r.reqs = nil
+		if code, _, errw := cli(t, append(c.args, at...)...); code != 0 {
+			t.Errorf("%s = %d %s", c.args, code, errw)
+		}
+		if len(r.reqs) != 1 || r.reqs[0] != c.want {
+			t.Errorf("%s sent %q, want %q", c.args, r.reqs, c.want)
+		}
+	}
+	for _, args := range [][]string{
+		{"tile", "allow", "pg"},
+		{"tile", "env-pairs", "pg"},
+		{"tile", "env-pairs", "pg", "--clear", "dev=dev"},
+		{"tile", "env-pairs", "pg", "dev"},
+		{"slice", "add", "db"},
+		{"tile", "access", "api", "--slice", "db"},
+	} {
+		r.reqs = nil
+		if code, _, _ := cli(t, append(args, at...)...); code == 0 || len(r.reqs) != 0 {
+			t.Errorf("%s = %d, sent %q; want an error and no request", args, code, r.reqs)
+		}
+	}
+}
+
+// Against a real server: --add and --rm read the allow list and send it
+// whole; a pattern that is not there is a usage error.
+func TestAllowEditsTheWholeList(t *testing.T) {
+	env := servicetest.New(t)
+	srv, err := server.New(server.WithDevMode(true), server.WithGzipConfig(api.Gzip))
+	if err != nil {
+		t.Fatal(err)
+	}
+	api.RegisterRoutes(srv, &api.Deps{Orch: env.Orch, Access: middleware.NewAccess(env.Orch), DevMode: true})
+	ts := httptest.NewServer(srv.Echo())
+	t.Cleanup(ts.Close)
+	org := env.Org(t, "acme")
+	u := env.User(t, "o@x", false)
+	env.Member(t, org, u, "owner")
+	key := env.APIKey(t, u, org)
+	tl := env.Tile(t, org)
+	pg, err := env.Orch.CreateManagedTile(context.Background(), service.Tile{EnvironmentID: tl.Env, Name: "pg"}, "postgres")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("STACKR_CONFIG", filepath.Join(t.TempDir(), "config.json"))
+	if code, _, errw := cli(t, "login", ts.URL, "--with-key", key); code != 0 {
+		t.Fatalf("login = %d %s", code, errw)
+	}
+	at := []string{"--stack", "shop", "--env", "dev"}
+	allow := func() []string {
+		t.Helper()
+		ms, err := env.Orch.ManagedInstances(context.Background(), tl.Env)
+		if err != nil || len(ms) != 1 || ms[0].TileID != pg.ID {
+			t.Fatalf("instances = %v, %v", ms, err)
+		}
+		return ms[0].Allow
+	}
+	for _, c := range []struct {
+		args []string
+		want []string
+	}{
+		{[]string{"--add", "acme:shop:*"}, []string{"acme:shop:*"}},
+		{[]string{"--add", "acme:blog:*", "--add", "acme:shop:*"}, []string{"acme:shop:*", "acme:blog:*"}},
+		{[]string{"--rm", "acme:shop:*"}, []string{"acme:blog:*"}},
+	} {
+		if code, _, errw := cli(t, append(append([]string{"tile", "allow", "pg"}, c.args...), at...)...); code != 0 {
+			t.Fatalf("allow %s = %d %s", c.args, code, errw)
+		}
+		if got := allow(); !slices.Equal(got, c.want) {
+			t.Errorf("allow %s = %v, want %v", c.args, got, c.want)
+		}
+	}
+	if code, _, errw := cli(t, append([]string{"tile", "allow", "pg", "--rm", "acme:shop:*"}, at...)...); code != 2 ||
+		!strings.Contains(errw, "not in the allow list") {
+		t.Errorf("rm a missing pattern = %d %s", code, errw)
+	}
+	code, out, errw := cli(t, append([]string{"slice", "add", "db", "--from", "shop:dev:pg"}, at...)...)
+	if code != 0 || !strings.Contains(out, "shop:dev:pg") {
+		t.Fatalf("slice add = %d %s %s", code, out, errw)
+	}
+	if code, _, errw := cli(t, append([]string{"slice", "bindings", "db"}, at...)...); code != 0 || !strings.Contains(errw, "(none)") {
+		t.Errorf("slice bindings = %d %s", code, errw)
 	}
 }

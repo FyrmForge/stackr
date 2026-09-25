@@ -88,8 +88,8 @@ func TestVolumeAndProxyDrawers(t *testing.T) {
 	}
 }
 
-// The instance drawer draws v0's four tabs; a scope save answers
-// Settings with the new chip, a bad scope is refused inline.
+// The instance drawer draws v0's four tabs.
+// step 7b task 7 replaces this: Settings draws the allow list and env pairs.
 func TestInstanceDrawer(t *testing.T) {
 	s := webtest.New(t)
 	pg, err := s.Orch.CreateManagedTile(context.Background(), service.Tile{EnvironmentID: s.Tile.Env, Name: "pg"}, "postgres")
@@ -107,16 +107,6 @@ func TestInstanceDrawer(t *testing.T) {
 		if rec.Code != 200 || !strings.Contains(rec.Body.String(), want) || !strings.Contains(rec.Body.String(), "env-scoped") {
 			t.Errorf("%s = %d, want %q\n%s", tab, rec.Code, want, rec.Body)
 		}
-	}
-	// step 7b task 6 replaces this: scope is gone (DECIDE 194), env is the
-	// only value left and a wider one is refused.
-	rec := s.Do(t, "POST", d+"/scope", url.Values{"scope_kind": {"env"}})
-	if rec.Code != 200 || !strings.Contains(rec.Body.String(), "scope saved") || !strings.Contains(rec.Body.String(), "env-scoped") {
-		t.Errorf("scope = %d\n%s", rec.Code, rec.Body)
-	}
-	rec = s.Do(t, "POST", d+"/scope", url.Values{"scope_kind": {"stack"}})
-	if rec.Code != 422 || !strings.Contains(rec.Body.String(), "banner-danger") {
-		t.Errorf("bad scope = %d\n%s", rec.Code, rec.Body)
 	}
 }
 
