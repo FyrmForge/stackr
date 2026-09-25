@@ -321,12 +321,24 @@ func TestPlanApplyFails(t *testing.T) {
 		"path":         {"stackr-org.yml"},
 	}
 	s.As(t, sess, "POST", b+"/config", bind)
+	first, err := s.Orch.OrgPlans(ctx, og.ID, 1)
+	if err != nil || len(first) != 1 {
+		t.Fatalf("plans = %+v %v", first, err)
+	}
+	// Plan again re-plans the bound file and keeps the binding
+	rec := s.As(t, sess, "POST", b+"/config", url.Values{"plan_only": {"1"}})
 	plans, err := s.Orch.OrgPlans(ctx, og.ID, 1)
-	if err != nil || len(plans) != 1 {
-		t.Fatalf("plans = %+v %v", plans, err)
+	if err != nil || len(plans) != 1 || plans[0].ID == first[0].ID {
+		t.Fatalf("plans after plan again = %+v %v\n%s", plans, err, rec.Body)
 	}
 	pl := plans[0]
 	plan := "/" + og.ID + "/-/setup/config/plan?plan=" + pl.ID
+	if got := rec.Header().Get("HX-Redirect"); got != plan {
+		t.Errorf("plan again sent to %q, want %q", got, plan)
+	}
+	if got := org(t, s, uid).ConfigRepo; got != "https://github.com/acme/org" {
+		t.Errorf("plan again left the binding %q", got)
+	}
 	// another org takes the slug between the plan and its apply
 	if _, err := s.Orch.RenameOrg(ctx, s.Org, "Globex"); err != nil {
 		t.Fatal(err)
@@ -337,7 +349,10 @@ func TestPlanApplyFails(t *testing.T) {
 	}
 	for end := time.Now().Add(10 * time.Second); ; time.Sleep(20 * time.Millisecond) {
 		p, err := s.Orch.OrgPlan(ctx, pl.ID)
-		if err != nil || p.Status == "error" {
+		if err != nil {
+			t.Fatal(err)
+		}
+		if p.Status == "error" {
 			break
 		}
 		if p.Status == "applied" || time.Now().After(end) {
