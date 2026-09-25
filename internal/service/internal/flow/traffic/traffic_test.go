@@ -200,7 +200,7 @@ func TestEdgesSlices(t *testing.T) {
 		must(t, err)
 		ids[n] = tl.ID
 	}
-	ml := managed.New(s.ManagedInstances, s.Provisions)
+	ml := managed.New(s.ManagedInstances, s.Provisions, s.Bindings)
 	m, err := ml.Create(
 		ctx,
 		ids["pg"],

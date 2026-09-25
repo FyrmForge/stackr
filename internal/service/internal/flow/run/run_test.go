@@ -67,7 +67,7 @@ func setup(t *testing.T) (*run.Flow, *dockerfake.Fake, store.Tile) {
 		Images:   image.New(st.Images, fake),
 		Releases: release.New(st.Releases, st.ReleaseTiles),
 		Params:   params.New(st.Params),
-		Managed:  managed.New(st.ManagedInstances, st.Provisions),
+		Managed:  managed.New(st.ManagedInstances, st.Provisions, st.Bindings),
 		Domains:  domain.New(st.Domains, fake, "proxy"),
 		Creds:    credential.New(st.Credentials),
 		Settings: settings.New(st.Settings, nil),

@@ -144,6 +144,9 @@ Rules:
    `Source.Slice`, `Attached` means a binding exists for this consumer).
    `Where` learns the slice tile is allowed in `provision_from` only.
    Done when: resolver tests; the never-run-unresolved contract holds.
+   As built: tile and self output names are env-key shaped (`DATABASE_URL`); param names stay lower-case.
+   As built: `stack.<slug>.x` and `org.<slug>.x` fail Parse with `params.Removed`; the graph's ref ghost for them is gone.
+   As built: a managed tile is no ref source at all; `managed.New` takes the binding store, `Bound` maps slice tile id → binding, `Outputs(binding)` decodes it; a slice source's `Network` is task 5's.
 
 5. **Deploy and placement.** `flow/managed`: `Provision(instance, slice)`
    on slice tile deploy (create the database with the owner cred, once);

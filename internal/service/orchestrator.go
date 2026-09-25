@@ -299,7 +299,7 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 		return connector.New(st.Connectors, githubapp.New(cfg.BaseURL))
 	})
 	orch.managed = build("leaf/managed",
-		func() *managed.Leaf { return managed.New(st.ManagedInstances, st.Provisions) })
+		func() *managed.Leaf { return managed.New(st.ManagedInstances, st.Provisions, st.Bindings) })
 	orch.releases = build("leaf/release", func() *release.Leaf { return release.New(st.Releases, st.ReleaseTiles) })
 	orch.jobRows = build("leaf/job", func() *job.Leaf { return job.New(st.Jobs) })
 	orch.backups = build("leaf/backup",

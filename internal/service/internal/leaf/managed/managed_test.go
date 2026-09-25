@@ -76,7 +76,7 @@ func setup(t *testing.T) (*managed.Leaf, *store.Store, home, map[string]string) 
 			UpdatedAt:     now,
 		}))
 	}
-	return managed.New(st.ManagedInstances, st.Provisions), st, h, tiles
+	return managed.New(st.ManagedInstances, st.Provisions, st.Bindings), st, h, tiles
 }
 
 func TestCreate(t *testing.T) {

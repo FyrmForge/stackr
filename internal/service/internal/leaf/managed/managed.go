@@ -12,6 +12,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"time"
 
@@ -31,10 +32,19 @@ const (
 type Leaf struct {
 	instances  store.ManagedInstanceStore
 	provisions store.ProvisionStore
+	bindings   store.BindingStore
 }
 
-func New(instances store.ManagedInstanceStore, provisions store.ProvisionStore) *Leaf {
-	return &Leaf{instances: instances, provisions: provisions}
+func New(
+	instances store.ManagedInstanceStore,
+	provisions store.ProvisionStore,
+	bindings store.BindingStore,
+) *Leaf {
+	return &Leaf{
+		instances:  instances,
+		provisions: provisions,
+		bindings:   bindings,
+	}
 }
 
 func secret() string {
@@ -248,11 +258,32 @@ func (l *Leaf) ByInstance(ctx context.Context, instanceID string) ([]store.Provi
 	return l.provisions.ListByInstance(ctx, instanceID)
 }
 
-// Outputs are a slice's published values. The provision no longer holds
-// them; they are the consumer's binding's.
-// step 7b task 5 replaces this: a ref to a slice output resolves to nothing
-// until Bind mints the consumer's outputs.
-func Outputs(store.Provision) map[string]string { return map[string]string{} }
+// Bound are the consumer's bindings, by slice tile id.
+func (l *Leaf) Bound(ctx context.Context, consumerTileID string) (map[string]store.Binding, error) {
+	bs, err := l.bindings.ListByConsumer(ctx, consumerTileID)
+	if err != nil {
+		return nil, err
+	}
+	out := map[string]store.Binding{}
+	for _, b := range bs {
+		p, err := l.provisions.Get(ctx, b.ProvisionID)
+		if err != nil {
+			return nil, err
+		}
+		out[p.TileID] = b
+	}
+	return out, nil
+}
+
+// Outputs are the values minted for one binding's cred (DATABASE_URL and
+// the rest), what the consumer's refs to its slice resolve to.
+func Outputs(b store.Binding) (map[string]string, error) {
+	out := map[string]string{}
+	if b.Outputs == "" {
+		return out, nil
+	}
+	return out, json.Unmarshal([]byte(b.Outputs), &out)
+}
 
 // SetOutputs is a no-op until the binding holds the outputs.
 // step 7b task 5 replaces this.

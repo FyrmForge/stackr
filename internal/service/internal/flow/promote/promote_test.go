@@ -80,7 +80,7 @@ func setup(t *testing.T) *world {
 		Images:   image.New(s.Images, fake),
 		Releases: release.New(s.Releases, s.ReleaseTiles),
 		Params:   params.New(s.Params),
-		Managed:  managed.New(s.ManagedInstances, s.Provisions),
+		Managed:  managed.New(s.ManagedInstances, s.Provisions, s.Bindings),
 		Domains:  domain.New(s.Domains, fake, "proxy"),
 		Creds:    credential.New(s.Credentials),
 		Settings: settings.New(s.Settings, nil),

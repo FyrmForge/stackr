@@ -3,10 +3,8 @@ package deploy
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"strings"
 
-	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/managed"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/params"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
@@ -14,7 +12,8 @@ import (
 )
 
 // snapshot is everything the resolver may see for tile t: the three param
-// scopes and every tile of its env, managed instances included.
+// scopes and every tile of its env, a slice tile as t's binding sees it. A
+// managed instance is reached through a slice tile, never by name.
 // ponytail: stackr.PROXY_IP and org.backups are not filled; a ref to either
 // fails the deploy with the resolver's own message until they are.
 func (f *Flow) snapshot(
@@ -35,36 +34,33 @@ func (f *Flow) snapshot(
 		return s, err
 	}
 
-	mine, err := f.Managed.ForConsumer(ctx, t.ID)
+	bound, err := f.Managed.Bound(ctx, t.ID) // by slice tile id
 	if err != nil {
 		return s, err
-	}
-	slices := map[string]store.Provision{} // by instance id
-	for _, p := range mine {
-		slices[p.InstanceID] = p
 	}
 
 	tiles, err := f.Tiles.List(ctx, e.ID)
 	if err != nil {
 		return s, err
 	}
+	s.Env = e.Slug
 	s.Tiles = map[string]params.Source{}
 	for _, x := range tiles {
-		if x.Kind == tile.Managed {
-			// step 7b task 4 replaces this: the slice tile is the source, an
-			// instance is reached from its own env only until then.
-			m, err := f.Managed.GetByTile(ctx, x.ID)
-			if errors.Is(err, errs.ErrNotFound) {
-				continue
-			}
+		switch x.Kind {
+		case tile.Managed:
+			continue
+		case tile.Slice:
+			b, ok := bound[x.ID]
+			out, err := managed.Outputs(b)
 			if err != nil {
 				return s, err
 			}
-			p, attached := slices[m.ID]
+			// step 7b task 5 fills Network: the instance's network, which
+			// the consumer joins when the instance sits in another stack.
 			s.Tiles[x.Slug] = params.Source{
-				Managed:  true,
-				Attached: attached,
-				Outputs:  managed.Outputs(p),
+				Slice:    true,
+				Attached: ok,
+				Outputs:  out,
 			}
 			continue
 		}

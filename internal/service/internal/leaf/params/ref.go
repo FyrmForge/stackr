@@ -17,16 +17,15 @@ import (
 //	${{ params.<collection>.<name> }}      env then stack, nearest wins, stops at stack
 //	${{ org.params.<collection>.<name> }}  org, deliberately
 //	${{ self.<output> }}                   the consumer's own outputs
-//	${{ tile.<slug>.<output> }}            sibling tile or managed instance, same env
-//	${{ stack.<slug>.<output> }}           shared tile at stack scope
-//	${{ org.<slug>.<output> }}             shared tile at org scope
+//	${{ tile.<slug>.<output> }}            sibling tile or slice tile, same env
 //	${{ stackr.<NAME> }}                   what the server says about itself
 //	${{ org.backups.<name> }}              a backup destination
 //	${{ env.name }}                        the consumer's env slug (provision_from only)
 //
 // An unset param is errs.Unset (the job parks); every other failure is a
 // hard error carrying the ref as written. Nothing unresolved ever reaches a
-// container.
+// container. stack.<slug> and org.<slug> tile refs are gone (Removed): an
+// instance elsewhere is reached through a slice tile in this env.
 
 // refRe captures the body loosely: a malformed body must be an error, never
 // left in place as literal text.
@@ -50,8 +49,6 @@ const (
 	KindOrgParam Kind = "org_param"
 	KindSelf     Kind = "self"
 	KindTile     Kind = "tile"
-	KindStack    Kind = "stack"
-	KindOrg      Kind = "org"
 	KindStackr   Kind = "stackr"
 	KindBackup   Kind = "backup"
 	KindEnv      Kind = "env"
@@ -71,6 +68,17 @@ const (
 )
 
 var platformNames = map[string]bool{ProxyIP: true, ProxyCIDR: true}
+
+// Removed is a ref form DECIDE 194 took out; the message names what
+// replaces it.
+type Removed struct {
+	Source string // the ref as written
+	Form   string // "stack.<slug>" or "org.<slug>"
+}
+
+func (e Removed) Error() string {
+	return e.Source + ": " + e.Form + " refs are gone; declare a slice tile, see DECIDE 194"
+}
 
 // Parse decodes one body (the text between ${{ and }}).
 func Parse(body string) (Ref, error) {
@@ -107,18 +115,29 @@ func Parse(body string) (Ref, error) {
 		if p[1] == "params" {
 			return r, fmt.Errorf("%s: params is reserved; write ${{ %s.params.<collection>.<name> }}", r.Source, p[0])
 		}
-		r.Kind, r.Slug, r.Name = Kind(p[0]), p[1], p[2]
+		if p[0] != "tile" {
+			return r, Removed{
+				Source: r.Source,
+				Form:   p[0] + "." + p[1],
+			}
+		}
+		r.Kind, r.Slug, r.Name = KindTile, p[1], p[2]
 		if !slug.Valid(r.Slug) {
 			return r, fmt.Errorf("%s: %q is not a valid tile name", r.Source, r.Slug)
 		}
 	default:
 		return r, fmt.Errorf("%s: want params.<collection>.<name>, org.params.<collection>.<name>, "+
-			"self.<output>, tile|stack|org.<slug>.<output>, stackr.<NAME> or org.backups.<name>", r.Source)
+			"self.<output>, tile.<slug>.<output>, stackr.<NAME>, org.backups.<name> or env.name", r.Source)
 	}
 	if (r.Kind == KindParam || r.Kind == KindOrgParam) && !slug.ValidName(r.Slug) {
 		return r, fmt.Errorf("%s: %q is not a valid collection name", r.Source, r.Slug)
 	}
-	if !slug.ValidName(r.Name) {
+	// A tile's outputs are env-key shaped: DATABASE_URL beside host and port.
+	valid := slug.ValidName
+	if r.Kind == KindTile || r.Kind == KindSelf {
+		valid = slug.ValidEnvKey
+	}
+	if !valid(r.Name) {
 		return r, fmt.Errorf("%s: %q is not a valid name", r.Source, r.Name)
 	}
 	return r, nil
@@ -170,16 +189,15 @@ type Snapshot struct {
 	Backups     map[string]string // backup name -> destination
 	Self        Source
 	Tiles       map[string]Source // by slug, the consumer's env
-	Stack       map[string]Source // stack-scoped shared tiles
-	Org         map[string]Source // org-scoped shared tiles
 }
 
-// Source is one referenceable tile. Outputs are the built-ins only.
+// Source is one referenceable tile: a service's built-in outputs, or a
+// slice tile's as the consumer's binding holds them.
 type Source struct {
 	Outputs  map[string]string
-	Managed  bool
-	Attached bool   // managed only: the consumer has a binding
-	Network  string // shared network the consumer must join; "" on its own env network
+	Slice    bool
+	Attached bool   // slice only: a binding exists for this consumer
+	Network  string // network the consumer must join; "" on its own env network
 }
 
 type Resolver struct {
@@ -275,30 +293,26 @@ func (rr *Resolver) lookup(w Where, r Ref) (string, error) {
 		}
 		return "", fmt.Errorf("%s: this tile publishes no output named %q", r.Source, r.Name)
 	case KindTile:
-		return rr.source(r, rr.snap.Tiles, "tile or managed instance in this environment")
-	case KindStack:
-		return rr.source(r, rr.snap.Stack, "stack-scoped source")
-	case KindOrg:
-		return rr.source(r, rr.snap.Org, "org-scoped source")
+		return rr.tile(r)
 	}
 	return "", fmt.Errorf("%s: unsupported reference", r.Source)
 }
 
-func (rr *Resolver) source(r Ref, in map[string]Source, what string) (string, error) {
-	src, ok := in[r.Slug]
+func (rr *Resolver) tile(r Ref) (string, error) {
+	src, ok := rr.snap.Tiles[r.Slug]
 	if !ok {
-		return "", fmt.Errorf("%s: no %s named %q", r.Source, what, r.Slug)
+		return "", fmt.Errorf("%s: no tile or slice in this environment named %q", r.Source, r.Slug)
 	}
-	// Referencing is not access.
-	if src.Managed && !src.Attached {
-		return "", fmt.Errorf("%s: %s is not attached to this tile; attach it first", r.Source, r.Slug)
+	// Referencing is not access: the consumer's deploy mints its binding.
+	if src.Slice && !src.Attached {
+		return "", fmt.Errorf("%s: slice %s is not bound to this tile", r.Source, r.Slug)
 	}
 	v, ok := src.Outputs[r.Name]
 	if !ok {
 		return "", fmt.Errorf("%s: %s publishes no output named %q", r.Source, r.Slug, r.Name)
 	}
 	rr.deps[r.Slug] = true
-	// Blank: the shared source never deployed; joining "" would fail on the
+	// Blank: the instance never deployed; joining "" would fail on the
 	// network instead of on the dependency.
 	if src.Network != "" {
 		rr.nets[src.Network] = true

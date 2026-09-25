@@ -51,7 +51,7 @@ func (o *Orchestrator) CreateManagedTile(ctx context.Context, t Tile, engine str
 		if out, err = tile.New(tx.Tiles, o.docker, nil).Create(ctx, t); err != nil {
 			return err
 		}
-		_, err = managed.New(tx.ManagedInstances, tx.Provisions).Create(ctx, out.ID, engine, "stackr", "")
+		_, err = managed.New(tx.ManagedInstances, tx.Provisions, tx.Bindings).Create(ctx, out.ID, engine, "stackr", "")
 		return err
 	})
 	return out, err

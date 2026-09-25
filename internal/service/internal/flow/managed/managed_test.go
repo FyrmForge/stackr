@@ -73,7 +73,7 @@ func setup(t *testing.T, engine string) *world {
 	tiles := tile.New(st.Tiles, fake, vipStub{})
 	f := &mflow.Flow{
 		Tiles:     tiles,
-		Instances: managed.New(st.ManagedInstances, st.Provisions),
+		Instances: managed.New(st.ManagedInstances, st.Provisions, st.Bindings),
 		Volumes:   volume.New(st.Volumes, fake),
 		Envs:      environment.New(st.Environments, fake),
 		S3:        func(string, string, string) mflow.S3Admin { return s3 },

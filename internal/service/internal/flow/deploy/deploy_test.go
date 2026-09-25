@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -73,7 +74,7 @@ func setup(t *testing.T) *world {
 		Images:   image.New(st.Images, fake),
 		Releases: release.New(st.Releases, st.ReleaseTiles),
 		Params:   params.New(st.Params),
-		Managed:  managed.New(st.ManagedInstances, st.Provisions),
+		Managed:  managed.New(st.ManagedInstances, st.Provisions, st.Bindings),
 		Domains:  domain.New(st.Domains, fake, "proxy"),
 		Creds:    credential.New(st.Credentials),
 		Settings: settings.New(st.Settings, nil),
@@ -223,6 +224,67 @@ func TestParkOnUnset(t *testing.T) {
 	_, err = w2.f.Run(ctx, w2.tile, "nginx@sha256:aa", io.Discard, nil)
 	if u, ok := errs.IsUnset(err); !ok || u.Param != "db.password" {
 		t.Fatalf("err = %v, want parked on the dependency's db.password", err)
+	}
+}
+
+// A slice ref resolves to the consumer's own binding: none, and nothing
+// runs; one, and its outputs land in the env.
+func TestSliceRef(t *testing.T) {
+	w := setup(t)
+	from := "infra:dev:pg-db"
+	sl, err := w.f.Tiles.Create(ctx, store.Tile{
+		StackID:       w.tile.StackID,
+		EnvironmentID: w.env.ID,
+		Name:          "api-db",
+		Kind:          tile.Slice,
+		ProvisionFrom: &from,
+	})
+	must(t, err)
+	w.tile.EnvJSON = `{"DATABASE_URL":"${{ tile.api-db.DATABASE_URL }}"}`
+	_, err = w.f.Run(ctx, w.tile, "nginx@sha256:aa", io.Discard, nil)
+	if err == nil || !strings.Contains(err.Error(), "slice api-db is not bound to this tile") {
+		t.Fatalf("err = %v, want the unbound slice", err)
+	}
+	if at(w.fake.Calls(), "Run", "") >= 0 {
+		t.Fatal("an unbound slice ref started a container")
+	}
+
+	pg, err := w.f.Tiles.Create(ctx, store.Tile{
+		StackID:       w.tile.StackID,
+		EnvironmentID: w.env.ID,
+		Name:          "pg-db",
+		Kind:          tile.Managed,
+	})
+	must(t, err)
+	m, err := w.f.Managed.Create(ctx, pg.ID, "postgres", "stackr", "")
+	must(t, err)
+	now := time.Now()
+	p := store.Provision{
+		ID:         uuid.NewString(),
+		TileID:     sl.ID,
+		InstanceID: m.ID,
+		DBName:     "api_db",
+		DBUser:     "api_db",
+		DBPassword: "owner",
+		OnRemove:   managed.Keep,
+		CreatedAt:  now,
+	}
+	must(t, w.st.Provisions.Create(ctx, p))
+	must(t, w.st.Bindings.Create(ctx, store.Binding{
+		ID:             uuid.NewString(),
+		ProvisionID:    p.ID,
+		ConsumerTileID: w.tile.ID,
+		Access:         tile.Write,
+		DBUser:         "api",
+		DBPassword:     "pw",
+		Outputs:        `{"DATABASE_URL":"postgres://api:pw@pg-db:5432/api_db"}`,
+		CreatedAt:      now,
+	}))
+	if _, err := w.f.Run(ctx, w.tile, "nginx@sha256:aa", io.Discard, nil); err != nil {
+		t.Fatal(err)
+	}
+	if env := w.fake.Specs[0].Env; !slices.Contains(env, "DATABASE_URL=postgres://api:pw@pg-db:5432/api_db") {
+		t.Errorf("env = %v, want the binding's url", env)
 	}
 }
 

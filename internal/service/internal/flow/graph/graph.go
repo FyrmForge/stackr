@@ -106,7 +106,7 @@ type View struct {
 }
 
 type Node struct {
-	ID     string // org:<id> stack:<id> env:<id> connector:<id> vars; env: tile id, provision id (slice), instance tile id or ref:<kind>.<slug> (ghost), volume id, proxy, internet
+	ID     string // org:<id> stack:<id> env:<id> connector:<id> vars; env: tile id, provision id (slice), instance tile id (a ghost when in another env), volume id, proxy, internet
 	Kind   string
 	Name   string
 	Slug   string // drill-down and drawer address
@@ -116,7 +116,7 @@ type Node struct {
 	W, H   int
 	Saved  bool // the position is a row, not arranged
 	System bool // behind the divider
-	Static bool // not draggable (ghost refs)
+	Static bool // not draggable (ghosts, vars)
 	Color  string
 	Deck   int // 0-2 layers behind a drill-down card
 	Subs   []Sub
@@ -708,12 +708,6 @@ func (f *Flow) env(ctx context.Context, v *View, envID string, in In) error {
 				if to, ok := bySlug[r.Slug]; ok && !hosted[to.ID] && to.ID != t.ID && !joined[[2]string{id, to.ID}] {
 					v.Edges = append(v.Edges, Edge{EdgeRef, id, to.ID})
 					joined[[2]string{id, to.ID}] = true
-				}
-			case params.KindStack, params.KindOrg:
-				g := ghost(v, "ref:"+string(r.Kind)+"."+r.Slug, r.Slug, string(r.Kind)+" tile")
-				if !joined[[2]string{id, g}] {
-					v.Edges = append(v.Edges, Edge{EdgeShared, id, g})
-					joined[[2]string{id, g}] = true
 				}
 			case params.KindParam:
 				readsVars = true

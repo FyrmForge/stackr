@@ -132,7 +132,7 @@ func seedWorld(t *testing.T) world {
 
 	api := tileRow(w.shop, w.dev, "api", "service", func(t *store.Tile) {
 		t.GitURL = "https://github.com/acme/api.git"
-		t.EnvJSON = `{"W":"${{ tile.worker.url }}","K":"${{ params.app.key }}","C":"${{ stack.cache.url }}"}`
+		t.EnvJSON = `{"W":"${{ tile.worker.url }}","K":"${{ params.app.key }}"}`
 		t.Volumes = "uploads:/data"
 		t.DependsOn = "worker"
 	})
@@ -332,14 +332,13 @@ func TestCanvasEnv(t *testing.T) {
 		w.vols["uploads"], "uploads", w.vols["old"], "old")
 	named := strings.Fields(name.Replace(ids(v)))
 	sort.Strings(named)
-	if got, want := strings.Join(named, " "), "api old proxy ref:stack.cache slice vars web worker"; got != want {
+	if got, want := strings.Join(named, " "), "api old proxy slice vars web worker"; got != want {
 		t.Fatalf("env cards = %s\nwant       %s (pg rides under its slice)", got, want)
 	}
 	want := []string{
 		"ingress proxy api",
 		"ref api slice",
 		"ref api worker",
-		"shared api ref:stack.cache",
 		"shared vars api",
 		"startup web api",
 	}
@@ -359,9 +358,6 @@ func TestCanvasEnv(t *testing.T) {
 	}
 	if sl := ns[w.provision]; len(sl.Subs) != 1 || sl.Subs[0].ID != w.pg {
 		t.Errorf("slice = %+v, want pg as its sub-tile", sl)
-	}
-	if g := ns["ref:stack.cache"]; !g.Static || g.Kind != "ref" {
-		t.Errorf("ghost = %+v, want a static ref card", g)
 	}
 	if p := ns["proxy"]; !p.System || !v.Walled || p.X+p.W > v.Divider || p.Status != "running" {
 		t.Errorf("proxy = %+v divider %d, want a system card behind the wall", p, v.Divider)
@@ -431,7 +427,7 @@ func TestCanvasPositions(t *testing.T) {
 		want error
 	}{
 		{"nope", errs.ErrNotFound},
-		{"ref:stack.cache", nil},
+		{"vars", nil},
 	} {
 		err := orch.SetPosition(ctx, s, c.id, service.Point{X: 1, Y: 1})
 		if c.want != nil && !errors.Is(err, c.want) {
@@ -439,7 +435,7 @@ func TestCanvasPositions(t *testing.T) {
 		}
 		if c.want == nil {
 			if _, ok := errs.IsInvalid(err); !ok {
-				t.Errorf("%s: %v, want invalid (a ghost does not move)", c.id, err)
+				t.Errorf("%s: %v, want invalid (a static card does not move)", c.id, err)
 			}
 		}
 	}

@@ -153,12 +153,19 @@ func snap() params.Snapshot {
 		Backups:   map[string]string{"s3-main": "s3://b"},
 		Self:      params.Source{Outputs: map[string]string{"host": "api"}},
 		Tiles: map[string]params.Source{
-			"db":  {Managed: true, Attached: true, Outputs: map[string]string{"url": "pg://db"}},
-			"mq":  {Managed: true, Outputs: map[string]string{"url": "amqp://mq"}},
-			"api": {Outputs: params.Endpoint{Alias: "api", Port: 80}.Outputs()},
-		},
-		Stack: map[string]params.Source{
-			"cache": {Network: "net-cache", Outputs: map[string]string{"host": "cache"}},
+			"api-db": {
+				Slice:    true,
+				Attached: true,
+				Network:  "net-pg",
+				Outputs:  map[string]string{"DATABASE_URL": "pg://api-db"},
+			},
+			"mq": {
+				Slice:   true,
+				Outputs: map[string]string{"url": "amqp://mq"},
+			},
+			"api": {
+				Outputs: params.Endpoint{Alias: "api", Port: 80}.Outputs(),
+			},
 		},
 	}
 }
@@ -178,12 +185,14 @@ func TestResolve(t *testing.T) {
 		{params.InEnv, "${{ org.params.email.org_only }}", "org", ""}, // deliberately
 		{params.InEnv, "${{ params.email.nope }}", "", "unset"},
 		{params.InEnv, "${{ self.host }}", "api", ""},
-		{params.InEnv, "${{ tile.db.url }}", "pg://db", ""},
-		{params.InEnv, "${{ tile.mq.url }}", "", "not attached"},
+		{params.InEnv, "${{ tile.api-db.DATABASE_URL }}", "pg://api-db", ""},
+		{params.InEnv, "${{ tile.mq.url }}", "", "slice mq is not bound to this tile"},
+		{params.InEnv, "${{ tile.api-db.database-url }}", "", "not a valid name"},
 		{params.InEnv, "${{ tile.api.url }}", "http://api:80", ""},
 		{params.InEnv, "${{ tile.api.public_url }}", "", "no output"},
 		{params.InEnv, "${{ tile.ghost.url }}", "", "no tile"},
-		{params.InEnv, "${{ stack.cache.host }}", "cache", ""},
+		{params.InEnv, "${{ stack.cache.host }}", "", "stack.cache refs are gone; declare a slice tile, see DECIDE 194"},
+		{params.InEnv, "${{ org.cache.host }}", "", "org.cache refs are gone; declare a slice tile, see DECIDE 194"},
 		{params.InEnv, "${{ stackr.PROXY_IP }}", "10.0.0.1", ""},
 		{params.InEnv, "${{ stackr.PROXY_CIDR }}", "", "not known yet"},
 		{params.InEnv, "${{ stackr.HOME }}", "", "not a stackr value"},
@@ -200,7 +209,7 @@ func TestResolve(t *testing.T) {
 		{params.InDomain, "api.${{ params.domains.base }}", "api.x.io", ""},
 		{params.InDomain, "${{ params.db.pass }}", "", "is a secret"},
 		{params.InDomain, "${{ tile.api.host }}", "", "not allowed in domain"},
-		{params.InCommand, "run --db ${{ tile.db.url }} ${{ params.email.sender }}", "run --db pg://db env@x.io", ""},
+		{params.InCommand, "run --db ${{ tile.api-db.DATABASE_URL }} ${{ params.email.sender }}", "run --db pg://api-db env@x.io", ""},
 		{params.InEnv, "${{ params.email.sender }}-${{ params.email.nope }}", "", "unset"}, // never half-expanded
 	} {
 		got, err := params.NewResolver(snap()).Expand(c.where, c.in)
@@ -217,9 +226,13 @@ func TestResolve(t *testing.T) {
 		}
 	}
 	rr := params.NewResolver(snap())
-	_, _ = rr.Expand(params.InEnv, "${{ stack.cache.host }} ${{ tile.db.url }}")
-	if d, n := rr.Deps(), rr.Networks(); strings.Join(d, ",") != "cache,db" || strings.Join(n, ",") != "net-cache" {
+	_, _ = rr.Expand(params.InEnv, "${{ tile.api.host }} ${{ tile.api-db.DATABASE_URL }}")
+	if d, n := rr.Deps(), rr.Networks(); strings.Join(d, ",") != "api,api-db" || strings.Join(n, ",") != "net-pg" {
 		t.Errorf("deps %v, networks %v", d, n)
+	}
+	var gone params.Removed
+	if _, err := params.Parse("stack.cache.host"); !errors.As(err, &gone) || gone.Form != "stack.cache" {
+		t.Errorf("stack ref = %v, want Removed", err)
 	}
 }
 
