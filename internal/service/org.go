@@ -164,6 +164,10 @@ func (o *Orchestrator) claims(ctx context.Context) ([]org.Claim, error) {
 	return out, nil
 }
 
+// Roles is every role a member or an invite can hold, in the pickers'
+// order.
+func (o *Orchestrator) Roles() []string { return org.AssignableRoles() }
+
 func (o *Orchestrator) Members(ctx context.Context, orgID string) ([]OrgMember, error) {
 	return o.orgs.Members(ctx, orgID)
 }

@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -126,16 +127,26 @@ func TestByHand(t *testing.T) {
 		t.Errorf("domains = %+v %v", rs, err)
 	}
 	// the people panel: everyone else on the server, the add form with
-	// member picked, and a pending invite's link to copy
-	page(
+	// owner picked, and a pending invite's link to copy
+	body = page(
 		t, s, sess, b+"/team",
 		"People on this server",
 		"owner@acme.test",
-		`name="role" value="member" checked`,
+		`name="role" value="owner" checked`,
 		"Add to organization",
 	)
 	redirect(t, s, sess, b+"/team/members", url.Values{"email": {"new@x.test"}, "role": {"owner"}}, b+"/team")
 	page(t, s, sess, b+"/team", "new@x.test", "Invited, expires", "Copy invite", `data-copy="/invite/`)
+	// every role the page offers is one the org takes
+	offered := offeredRoles(body)
+	if len(offered) == 0 {
+		t.Fatalf("the team step offers no role:\n%s", body)
+	}
+	for _, r := range offered {
+		email := r + "@x.test"
+		redirect(t, s, sess, b+"/team/members", url.Values{"email": {email}, "role": {r}}, b+"/team")
+		page(t, s, sess, b+"/team", email)
+	}
 
 	page(t, s, sess, b+"/done", "Finish and go to Globex", b+"/domain", b+"/team")
 	redirect(t, s, sess, b+"/done", nil, "/globex")
@@ -145,6 +156,26 @@ func TestByHand(t *testing.T) {
 	if got := s.As(t, sess, "GET", b+"/team", nil).Header().Get("HX-Redirect"); got != "/globex?drawer=org:"+og.ID+"&tab=members" {
 		t.Errorf("a finished org's step = %q", got)
 	}
+}
+
+var (
+	roleRadio  = regexp.MustCompile(`name="role" value="([^"]*)"`)
+	roleSelect = regexp.MustCompile(`(?s)<select name="role"[^>]*>(.*?)</select>`)
+	option     = regexp.MustCompile(`<option value="([^"]*)"`)
+)
+
+// offeredRoles is every role the page's role radios and role selects offer.
+func offeredRoles(body string) []string {
+	var out []string
+	for _, m := range roleRadio.FindAllStringSubmatch(body, -1) {
+		out = append(out, m[1])
+	}
+	for _, sel := range roleSelect.FindAllStringSubmatch(body, -1) {
+		for _, m := range option.FindAllStringSubmatch(sel[1], -1) {
+			out = append(out, m[1])
+		}
+	}
+	return out
 }
 
 // From a config file: bind and plan, switch to by hand and back (which

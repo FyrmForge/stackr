@@ -126,6 +126,7 @@ type TeamView struct {
 	Base       string
 	Next       string
 	Org        string
+	Roles      []string // what the org takes, the pickers' options
 	People     []Person
 	Candidates []Candidate // server admins only
 }
@@ -150,7 +151,7 @@ type DoneView struct {
 
 // shell is the bare centred page every step shares.
 templ shell(f Frame) {
-	<div class="max-w-xl mx-auto mt-16 px-6 pb-16">
+	<div class="w-full max-w-xl mx-auto mt-16 px-6 pb-16">
 		<div class="flex items-center gap-2.5 justify-center mb-7">
 			<img src={ c.StaticURL("images/logo-mark.png") } alt="" class="h-9 w-9"/>
 			<span class="text-xl font-semibold text-rw-text">stackr</span>
@@ -691,9 +692,9 @@ templ peoplePanel(v TeamView) {
 						<form hx-post={ v.Base + "/team/members" } class="flex items-center gap-1.5">
 							<input type="hidden" name="email" value={ u.Email }/>
 							<select name="role" aria-label={ "Role for " + u.Name } class="input !w-24 !py-1 text-xs">
-								<option value="member">member</option>
-								<option value="viewer">viewer</option>
-								<option value="owner">owner</option>
+								for _, r := range v.Roles {
+									<option value={ r } selected?={ r == "owner" }>{ r }</option>
+								}
 							</select>
 							<button type="submit" class="btn btn-ghost btn-sm">Invite</button>
 						</form>
@@ -708,7 +709,7 @@ templ peoplePanel(v TeamView) {
 			<input type="email" id="people-email" name="email" required placeholder="person@example.com" class="input"/>
 			<p class="mt-1.5 text-xs text-rw-faint">They get an invitation to accept. This server sends no mail, so the link is yours to send.</p>
 		</div>
-		@roleButtons()
+		@roleButtons(v.Roles)
 		<div class="flex items-end gap-3">
 			<button type="submit" class="btn btn-ghost btn-sm people-add-submit">Add to organization</button>
 		</div>
@@ -737,9 +738,9 @@ templ peopleList(v TeamView) {
 				if p.State == "member" && !p.Self {
 					<form hx-post={ v.Base + "/team/members/" + p.UserID + "/role" } class="flex items-center gap-1.5">
 						<select name="role" aria-label={ "Role for " + p.Name } class="input !w-24 !py-1 text-xs">
-							<option value="owner" selected?={ p.Role == "owner" }>owner</option>
-							<option value="member" selected?={ p.Role == "member" }>member</option>
-							<option value="viewer" selected?={ p.Role == "viewer" }>viewer</option>
+							for _, r := range v.Roles {
+								<option value={ r } selected?={ r == p.Role }>{ r }</option>
+							}
 						</select>
 						<button type="submit" class="btn btn-ghost btn-sm">Set</button>
 					</form>
@@ -757,22 +758,15 @@ templ peopleList(v TeamView) {
 	</ul>
 }
 
-// roles is the role picker's order, v0's.
-var roles = []string{
-	"owner",
-	"member",
-	"viewer",
-}
-
 // roleButtons is the role picker as a segmented control: the radio hides
 // and its label carries the checked state.
-templ roleButtons() {
+templ roleButtons(roles []string) {
 	<fieldset>
 		<legend class="label">Role</legend>
 		<div class="flex gap-2">
 			for _, r := range roles {
 				<label class="flex-1 cursor-pointer">
-					<input type="radio" name="role" value={ r } checked?={ r == "member" } class="peer sr-only"/>
+					<input type="radio" name="role" value={ r } checked?={ r == "owner" } class="peer sr-only"/>
 					<span class="block text-center rounded-lg border border-rw-border bg-rw-inset px-3 py-1.5 text-sm text-rw-muted transition-colors hover:text-rw-text peer-checked:border-rw-accent peer-checked:bg-rw-accent/10 peer-checked:text-rw-text peer-focus-visible:ring-2 peer-focus-visible:ring-rw-accent/40">{ r }</span>
 				</label>
 			}

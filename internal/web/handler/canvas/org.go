@@ -146,7 +146,12 @@ func (h *handler) orgDomains(c echo.Context, cd card, base string) (templ.Compon
 // members to users replaces it.
 func (h *handler) membersView(c echo.Context, cd card, base string) (orgui.MembersView, error) {
 	ctx, id := c.Request().Context(), cd.s.Org.ID
-	v := orgui.MembersView{Base: base, Manage: can(c, cd.s, "member.manage"), Self: middleware.Principal(c).User.ID}
+	v := orgui.MembersView{
+		Base:   base,
+		Manage: can(c, cd.s, "member.manage"),
+		Self:   middleware.Principal(c).User.ID,
+		Roles:  h.orch.Roles(),
+	}
 	ms, err := h.orch.Members(ctx, id)
 	if err != nil {
 		return v, err

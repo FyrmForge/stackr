@@ -25,6 +25,7 @@ func (h *handler) configTab(c echo.Context, cd card, f *comp.DrawerView) (templ.
 	}
 	v := orgui.ConfigView{
 		Export:    "/api/v1/orgs/" + og.Slug + "/config/export",
+		Canvas:    "/" + og.Slug,
 		Connector: og.ConfigConnectorID,
 		Repo:      og.ConfigRepo,
 		Branch:    og.ConfigBranch,

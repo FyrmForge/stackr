@@ -243,6 +243,7 @@ func (h *handler) team(c echo.Context, og *service.Org) (pages.Frame, templ.Comp
 		Base:  base(og),
 		Next:  next(og, "team"),
 		Org:   og.Name,
+		Roles: h.orch.Roles(),
 	}
 	ms, err := h.orch.Members(ctx, og.ID)
 	if err != nil {

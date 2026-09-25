@@ -47,6 +47,7 @@ func TestTabs(t *testing.T) {
 			Members(MembersView{
 				Base:    "/o",
 				Manage:  true,
+				Roles:   []string{"owner"},
 				Members: []MemberRow{{UserID: "u1", Email: "a@b.c", Role: "owner"}},
 				Invites: []InviteRow{{Email: "new@b.c", Role: "member"}},
 			}),

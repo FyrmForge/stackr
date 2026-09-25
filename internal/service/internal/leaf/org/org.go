@@ -36,11 +36,19 @@ const (
 const InviteTTL = 7 * 24 * time.Hour
 
 // Owner is the one role v1 writes (two roles: stackr admin and org owner).
-// ponytail: authz already ranks member/viewer; open this list when a third
-// role ships.
 const Owner = "owner"
 
-func validRole(r string) bool { return r == Owner }
+// roles is every role the leaf writes, in the pickers' order.
+// ponytail: owner only; member and viewer come back when DECIDE 171 (roles)
+// settles. authz already ranks them.
+var roles = []string{
+	Owner,
+}
+
+// AssignableRoles is every role AddMember, SetRole and Invite take.
+func AssignableRoles() []string { return slices.Clone(roles) }
+
+func validRole(r string) bool { return slices.Contains(roles, r) }
 
 type Leaf struct {
 	orgs    store.OrgStore
