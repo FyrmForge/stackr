@@ -915,6 +915,13 @@ sweep, P14 theme per user, DECIDE 159 and the DECIDE 138 leftovers.
    an infra tile that allows `smoke:shop:*` no longer admits infra's own
    env unless the list says so. Options: (a) replaces, explicit; (b) adds
    to the own-env default. Lean (a), one line to flip.
+196. **(step 7b) Which `env_pairs` map counts.** The file puts `env_pairs`
+   on the managed tile under `base:`, but an instance row is per env, so
+   every env of the infra stack holds a copy. For a target in another
+   stack the plan reads the first non-empty map walking that stack's envs
+   from the bottom (`planSlice`, ponytail). Options: (a) keep; (b) one map
+   per stack, stored on the stack. Lean (a); the copies are equal unless a
+   per-env override differs, and then (b) cannot express it anyway.
 ## DECIDE:
 
 Silent calls the planner made under rule 9 / "fix obvious gaps"; flip any
