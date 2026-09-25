@@ -648,7 +648,7 @@ func (f *Flow) env(ctx context.Context, v *View, envID string, in In) error {
 			return err
 		}
 		for _, p := range ps {
-			n := card(p.ID, KindSlice, p.Slug)
+			n := card(p.ID, KindSlice, p.DBName)
 			n.Slug, n.Detail = p.ID, p.DBName
 			inst, err := f.Managed.Get(ctx, p.InstanceID)
 			if err != nil {
@@ -668,7 +668,7 @@ func (f *Flow) env(ctx context.Context, v *View, envID string, in In) error {
 					Detail: inst.Engine,
 				})
 			} else {
-				g := ghost(v, host.ID, host.Name, inst.ScopeKind+" · "+inst.Engine)
+				g := ghost(v, host.ID, host.Name, inst.Engine)
 				v.Edges = append(v.Edges, Edge{EdgeShared, n.ID, g})
 			}
 			v.Edges = append(v.Edges, Edge{EdgeRef, t.ID, n.ID})
@@ -851,7 +851,7 @@ func (f *Flow) tileCard(ctx context.Context, t store.Tile, vols map[string]strin
 	}
 	if t.Kind == tile.Managed {
 		if in, err := f.Managed.GetByTile(ctx, t.ID); err == nil {
-			vs, err := f.Volumes.List(ctx, volume.Scope{Kind: in.ScopeKind, ID: in.ScopeID})
+			vs, err := f.Volumes.List(ctx, volume.Scope{Kind: "env", ID: t.EnvironmentID})
 			if err != nil {
 				return n, err
 			}

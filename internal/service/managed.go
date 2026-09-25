@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/deploy"
@@ -50,37 +51,49 @@ func (o *Orchestrator) CreateManagedTile(ctx context.Context, t Tile, engine str
 		if out, err = tile.New(tx.Tiles, o.docker, nil).Create(ctx, t); err != nil {
 			return err
 		}
-		_, err = managed.New(tx.ManagedInstances, tx.Provisions).Create(ctx, out.ID, engine, managed.Env,
-			managed.Home{EnvID: e.ID, StackID: st.ID, OrgID: st.OrgID}, "stackr", "")
+		_, err = managed.New(tx.ManagedInstances, tx.Provisions).Create(ctx, out.ID, engine, "stackr", "")
 		return err
 	})
 	return out, err
 }
 
-// ManagedInstances are the instances visible from an env.
+// ManagedInstances are the env's own instances.
+// step 7b task 3 replaces this: an instance is reached through the allow
+// list, not only from its own env.
 func (o *Orchestrator) ManagedInstances(ctx context.Context, envID string) ([]ManagedInstance, error) {
-	h, err := o.home(ctx, envID)
+	ts, err := o.tiles.List(ctx, envID)
 	if err != nil {
 		return nil, err
 	}
-	return o.managed.Visible(ctx, h)
+	var out []ManagedInstance
+	for _, t := range ts {
+		if t.Kind != tile.Managed {
+			continue
+		}
+		m, err := o.managed.GetByTile(ctx, t.ID)
+		if errors.Is(err, errs.ErrNotFound) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, m)
+	}
+	return out, nil
 }
 
-// SetInstanceScope widens or narrows who may cut slices: env | stack | org.
+// SetInstanceScope is gone with scope (DECIDE 194): an instance is env-scoped
+// and its allow list says who may cut slices. env is accepted as a no-op.
+// step 7b task 6 replaces this: the verb, route and command go.
 func (o *Orchestrator) SetInstanceScope(ctx context.Context, instanceTileID, scope string) (ManagedInstance, error) {
 	m, err := o.managed.GetByTile(ctx, instanceTileID)
 	if err != nil {
 		return m, err
 	}
-	t, err := o.tiles.Get(ctx, instanceTileID)
-	if err != nil {
-		return m, err
+	if scope != "" && scope != "env" {
+		return m, errs.Invalidf("scope", "instances are env-scoped; share one with its allow list (DECIDE 194)")
 	}
-	h, err := o.home(ctx, t.EnvironmentID)
-	if err != nil {
-		return m, err
-	}
-	return o.managed.SetScope(ctx, m, scope, h)
+	return m, nil
 }
 
 // Slices are the consumer's provisions (its bindings come from them).
@@ -111,10 +124,7 @@ func (o *Orchestrator) DetachSlice(ctx context.Context, provisionID string) (Job
 	if err != nil {
 		return Job{}, err
 	}
-	if p.ConsumerTileID == nil {
-		return Job{}, errs.Conflictf("this slice has no consumer left")
-	}
-	return o.enqueue(ctx, kindDetach, detachJob{ProvisionID: p.ID}, *p.ConsumerTileID)
+	return o.enqueue(ctx, kindDetach, detachJob{ProvisionID: p.ID}, p.TileID)
 }
 
 func (o *Orchestrator) runAttach(ctx context.Context, r *jobs.Run, p attachJob) error {
@@ -126,11 +136,7 @@ func (o *Orchestrator) runAttach(ctx context.Context, r *jobs.Run, p attachJob) 
 	if err != nil {
 		return err
 	}
-	h, err := o.home(ctx, c.EnvironmentID)
-	if err != nil {
-		return err
-	}
-	if _, err := o.engines.Attach(ctx, c, it, h, p.Name, p.Public, p.OnRemove); err != nil {
+	if _, err := o.engines.Attach(ctx, c, it, p.Name, p.Public, p.OnRemove); err != nil {
 		return err
 	}
 	return o.deploy.Redeploy(ctx, c.ID, r.Log, r.Swap)
@@ -141,10 +147,7 @@ func (o *Orchestrator) runDetach(ctx context.Context, r *jobs.Run, p detachJob) 
 	if err != nil {
 		return err
 	}
-	if pr.ConsumerTileID == nil {
-		return errs.Conflictf("this slice has no consumer left")
-	}
-	c, err := o.tiles.Get(ctx, *pr.ConsumerTileID)
+	c, err := o.tiles.Get(ctx, pr.TileID)
 	if err != nil {
 		return err
 	}
@@ -156,15 +159,6 @@ func (o *Orchestrator) runDetach(ctx context.Context, r *jobs.Run, p detachJob) 
 		return err
 	}
 	return o.deploy.Redeploy(ctx, c.ID, r.Log, r.Swap)
-}
-
-func (o *Orchestrator) home(ctx context.Context, envID string) (managed.Home, error) {
-	e, err := o.envs.Get(ctx, envID)
-	if err != nil {
-		return managed.Home{}, err
-	}
-	st, err := o.stacks.Get(ctx, e.StackID)
-	return managed.Home{EnvID: e.ID, StackID: st.ID, OrgID: st.OrgID}, err
 }
 
 // InstanceSlices is a managed tile's instance and every slice cut from it.

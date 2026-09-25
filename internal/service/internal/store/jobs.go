@@ -79,6 +79,25 @@ func (l StringList) Value() (driver.Value, error) {
 }
 
 func (l *StringList) Scan(src any) error {
+	return scanJSON("StringList", src, (*[]string)(l))
+}
+
+// StringMap is a JSON object column.
+type StringMap map[string]string
+
+func (m StringMap) Value() (driver.Value, error) {
+	if m == nil {
+		return "{}", nil
+	}
+	b, err := json.Marshal(map[string]string(m))
+	return string(b), err
+}
+
+func (m *StringMap) Scan(src any) error {
+	return scanJSON("StringMap", src, (*map[string]string)(m))
+}
+
+func scanJSON(name string, src, dst any) error {
 	var b []byte
 	switch v := src.(type) {
 	case string:
@@ -86,7 +105,7 @@ func (l *StringList) Scan(src any) error {
 	case []byte:
 		b = v
 	default:
-		return fmt.Errorf("StringList: cannot scan %T", src)
+		return fmt.Errorf("%s: cannot scan %T", name, src)
 	}
-	return json.Unmarshal(b, (*[]string)(l))
+	return json.Unmarshal(b, dst)
 }

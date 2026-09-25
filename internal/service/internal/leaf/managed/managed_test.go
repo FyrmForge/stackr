@@ -23,10 +23,14 @@ func must(t *testing.T, err error) {
 	}
 }
 
+type home struct {
+	OrgID, StackID, EnvID string
+}
+
 // setup seeds one env with tiles db, api and web.
-func setup(t *testing.T) (*managed.Leaf, *store.Store, managed.Home, map[string]string) {
+func setup(t *testing.T) (*managed.Leaf, *store.Store, home, map[string]string) {
 	st := servicetest.Store(t)
-	h := managed.Home{OrgID: uuid.NewString(), StackID: uuid.NewString(), EnvID: uuid.NewString()}
+	h := home{OrgID: uuid.NewString(), StackID: uuid.NewString(), EnvID: uuid.NewString()}
 	now := time.Now()
 	must(t, st.Orgs.Create(ctx, store.Org{
 		ID:        h.OrgID,
@@ -75,35 +79,29 @@ func setup(t *testing.T) (*managed.Leaf, *store.Store, managed.Home, map[string]
 	return managed.New(st.ManagedInstances, st.Provisions), st, h, tiles
 }
 
-func TestScope(t *testing.T) {
-	l, _, h, tiles := setup(t)
-	if _, err := l.Create(ctx, tiles["db"], "postgres", "global", h, "root", "db:5432"); err == nil {
-		t.Error("unknown scope coerced")
+func TestCreate(t *testing.T) {
+	l, _, _, tiles := setup(t)
+	if _, err := l.Create(ctx, tiles["db"], "postgres", "", "db:5432"); err == nil {
+		t.Error("instance without an admin user")
 	}
-	m, err := l.Create(ctx, tiles["db"], "postgres", "", h, "root", "db:5432")
-	if err != nil || m.ScopeKind != managed.Env || m.ScopeID != h.EnvID || len(m.AdminPassword) != 48 {
+	m, err := l.Create(ctx, tiles["db"], "postgres", "root", "db:5432")
+	if err != nil || len(m.AdminPassword) != 48 {
 		t.Fatalf("create = %+v %v", m, err)
 	}
-	other := managed.Home{EnvID: uuid.NewString(), StackID: h.StackID, OrgID: h.OrgID}
-	if vs, _ := l.Visible(ctx, other); len(vs) != 0 {
-		t.Errorf("env-scoped instance visible from another env: %v", vs)
-	}
-	if m, err = l.SetScope(ctx, m, managed.Org, h); err != nil || m.ScopeID != h.OrgID {
-		t.Fatalf("org scope = %+v %v", m, err)
-	}
-	if vs, _ := l.Visible(ctx, other); len(vs) != 1 {
-		t.Errorf("org-scoped instance not visible across envs: %v", vs)
-	}
-	if got, _ := l.Get(ctx, m.ID); got.AdminPassword != m.AdminPassword {
+	got, err := l.Get(ctx, m.ID)
+	must(t, err)
+	if got.AdminPassword != m.AdminPassword {
 		t.Error("admin password did not round-trip")
+	}
+	if len(got.Allow) != 0 || len(got.EnvPairs) != 0 {
+		t.Errorf("a new instance allows nothing: %+v", got)
 	}
 }
 
 func TestSlices(t *testing.T) {
-	l, _, h, tiles := setup(t)
-	m, _ := l.Create(ctx, tiles["db"], "postgres", "", h, "root", "db:5432")
+	l, _, _, tiles := setup(t)
+	m, _ := l.Create(ctx, tiles["db"], "postgres", "root", "db:5432")
 	slice := managed.Slice{
-		Slug:       "api",
 		DBName:     "api",
 		DBUser:     "api",
 		DBPassword: managed.Password(),
@@ -135,18 +133,15 @@ func TestSlices(t *testing.T) {
 	if _, err := l.SetPublic(ctx, p, true, ""); !errors.Is(err, errs.ErrRefused) {
 		t.Errorf("public without a domain = %v", err)
 	}
-	p, _ = l.SetOutputs(ctx, p, map[string]string{"DATABASE_URL": "postgres://x"})
-	if managed.Outputs(p)["DATABASE_URL"] != "postgres://x" {
-		t.Error("outputs")
-	}
+	// step 7b task 5 replaces this: outputs live on the binding, and a
+	// release unbinds rather than orphaning the provision.
 
-	// keep: orphaned, binding gone; ephemeral env: dropped whatever it says.
+	// keep: the row stays; ephemeral env: dropped whatever it says.
 	if drop, err := l.Release(ctx, p, false); err != nil || drop {
 		t.Fatalf("release keep = %v %v", drop, err)
 	}
-	got, _ := l.GetProvision(ctx, p.ID)
-	if got.ConsumerTileID != nil || len(managed.Outputs(got)) != 0 {
-		t.Errorf("orphan = %+v", got)
+	if got, err := l.GetProvision(ctx, p.ID); err != nil || got.TileID != tiles["api"] {
+		t.Errorf("kept = %+v %v", got, err)
 	}
 	if drop, _ := l.Release(ctx, shared, true); !drop {
 		t.Error("ephemeral env kept its slice")

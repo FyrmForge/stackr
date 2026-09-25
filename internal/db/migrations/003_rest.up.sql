@@ -88,7 +88,7 @@ CREATE TABLE tiles (
     environment_id              TEXT      NOT NULL REFERENCES environments (id) ON DELETE CASCADE,
     name                        TEXT      NOT NULL,
     slug                        TEXT      NOT NULL,
-    kind                        TEXT      NOT NULL CHECK (kind IN ('service', 'image', 'managed', 'cron', 'function')),
+    kind                        TEXT      NOT NULL CHECK (kind IN ('service', 'image', 'managed', 'cron', 'function', 'slice')),
     git_url                     TEXT      NOT NULL,
     git_branch                  TEXT      NOT NULL,
     image_ref                   TEXT      NOT NULL,
@@ -125,6 +125,8 @@ CREATE TABLE tiles (
     trigger                     TEXT      NOT NULL CHECK (trigger IN ('', 'manual', 'on_deploy')), -- function only
     paused                      INTEGER   NOT NULL, -- cron only: stored intent, the schedule is off
     timeout_minutes             INTEGER   NOT NULL, -- cron, function: a run's timeout, no cap
+    provision_from              TEXT, -- slice only: <stack>:<env>:<tile> as written, refs and all
+    default_access              TEXT      CHECK (default_access IN ('read', 'write')), -- slice only
     created_at                  DATETIME  NOT NULL,
     updated_at                  DATETIME  NOT NULL,
     UNIQUE (environment_id, slug)
@@ -160,33 +162,50 @@ CREATE TABLE settings (
     value  TEXT  NOT NULL
 );
 
+-- allow: org:stack:env:tile patterns that may take a slice ([] = the tile's
+-- own env); env_pairs: consumer env name -> this stack's env (DECIDE 194).
 CREATE TABLE managed_instances (
     id              TEXT      PRIMARY KEY,
     tile_id         TEXT      NOT NULL REFERENCES tiles (id) ON DELETE CASCADE,
     engine          TEXT      NOT NULL,
-    scope_kind      TEXT      NOT NULL CHECK (scope_kind IN ('env', 'stack', 'org')),
-    scope_id        TEXT      NOT NULL,
+    allow           TEXT      NOT NULL DEFAULT '[]', -- JSON list
+    env_pairs       TEXT      NOT NULL DEFAULT '{}', -- JSON object
     admin_user      TEXT      NOT NULL,
     admin_password  TEXT      NOT NULL, -- encrypted
     endpoint        TEXT      NOT NULL,
     created_at      DATETIME  NOT NULL
 );
 
+-- provisions: one per slice tile, the database or bucket on the instance,
+-- held by its owner cred.
 CREATE TABLE provisions (
+    id           TEXT      PRIMARY KEY,
+    tile_id      TEXT      NOT NULL UNIQUE REFERENCES tiles (id) ON DELETE CASCADE,
+    instance_id  TEXT      NOT NULL REFERENCES managed_instances (id) ON DELETE CASCADE,
+    db_name      TEXT      NOT NULL,
+    db_user      TEXT      NOT NULL,
+    db_password  TEXT      NOT NULL, -- encrypted
+    public       INTEGER   NOT NULL,
+    on_remove    TEXT      NOT NULL,
+    created_at   DATETIME  NOT NULL
+);
+
+-- bindings: one consumer's own cred on a slice, at read or write.
+CREATE TABLE bindings (
     id                TEXT      PRIMARY KEY,
-    instance_id       TEXT      NOT NULL REFERENCES managed_instances (id) ON DELETE CASCADE,
-    consumer_tile_id  TEXT      REFERENCES tiles (id) ON DELETE SET NULL,
-    slug              TEXT      NOT NULL,
-    db_name           TEXT      NOT NULL,
+    provision_id      TEXT      NOT NULL REFERENCES provisions (id) ON DELETE CASCADE,
+    consumer_tile_id  TEXT      NOT NULL REFERENCES tiles (id) ON DELETE CASCADE,
+    access            TEXT      NOT NULL CHECK (access IN ('read', 'write')),
     db_user           TEXT      NOT NULL,
     db_password       TEXT      NOT NULL, -- encrypted
     outputs           TEXT      NOT NULL, -- encrypted JSON
-    public            INTEGER   NOT NULL,
-    on_remove         TEXT      NOT NULL,
-    created_at        DATETIME  NOT NULL
+    created_at        DATETIME  NOT NULL,
+    UNIQUE (provision_id, consumer_tile_id)
 );
 
 -- A volume holds data: removing its owning instance never removes the row.
+-- A managed tile's volume is env-scoped; stack and org scopes are storage
+-- shares (DECIDE 194).
 CREATE TABLE volumes (
     id           TEXT      PRIMARY KEY,
     scope_kind   TEXT      NOT NULL CHECK (scope_kind IN ('env', 'stack', 'org')),
@@ -342,7 +361,6 @@ CREATE INDEX annotations_scope ON annotations (scope_kind, scope_id);
 -- cascade. SQLite fires them for rows an FK cascade removes as well.
 CREATE TRIGGER orgs_scope_cascade AFTER DELETE ON orgs BEGIN
     DELETE FROM params            WHERE scope_kind = 'org' AND scope_id = old.id;
-    DELETE FROM managed_instances WHERE scope_kind = 'org' AND scope_id = old.id;
     DELETE FROM volumes           WHERE scope_kind = 'org' AND scope_id = old.id;
     DELETE FROM positions         WHERE scope_kind = 'org' AND scope_id = old.id;
     DELETE FROM annotations       WHERE scope_kind = 'org' AND scope_id = old.id;
@@ -350,7 +368,6 @@ END;
 
 CREATE TRIGGER stacks_scope_cascade AFTER DELETE ON stacks BEGIN
     DELETE FROM params            WHERE scope_kind = 'stack' AND scope_id = old.id;
-    DELETE FROM managed_instances WHERE scope_kind = 'stack' AND scope_id = old.id;
     DELETE FROM volumes           WHERE scope_kind = 'stack' AND scope_id = old.id;
     DELETE FROM positions         WHERE scope_kind = 'stack' AND scope_id = old.id;
     DELETE FROM annotations       WHERE scope_kind = 'stack' AND scope_id = old.id;
@@ -358,7 +375,6 @@ END;
 
 CREATE TRIGGER environments_scope_cascade AFTER DELETE ON environments BEGIN
     DELETE FROM params            WHERE scope_kind = 'env' AND scope_id = old.id;
-    DELETE FROM managed_instances WHERE scope_kind = 'env' AND scope_id = old.id;
     DELETE FROM volumes           WHERE scope_kind = 'env' AND scope_id = old.id;
     DELETE FROM positions         WHERE scope_kind = 'env' AND scope_id = old.id;
     DELETE FROM annotations       WHERE scope_kind = 'env' AND scope_id = old.id;

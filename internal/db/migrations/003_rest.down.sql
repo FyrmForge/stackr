@@ -12,6 +12,7 @@ DROP TABLE IF EXISTS credentials;
 DROP TABLE IF EXISTS domains;
 DROP TABLE IF EXISTS domain_resources;
 DROP TABLE IF EXISTS volumes;
+DROP TABLE IF EXISTS bindings;
 DROP TABLE IF EXISTS provisions;
 DROP TABLE IF EXISTS managed_instances;
 DROP TABLE IF EXISTS settings;

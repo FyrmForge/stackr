@@ -205,15 +205,13 @@ func TestEdgesSlices(t *testing.T) {
 		ctx,
 		ids["pg"],
 		"postgres",
-		"",
-		managed.Home{EnvID: env, StackID: stk, OrgID: org},
 		"admin",
 		"pg:5432",
 	)
 	must(t, err)
 	slice := map[string]string{}
 	for _, n := range []string{"web", "jobs"} {
-		p, err := ml.Provision(ctx, m, ids[n], managed.Slice{Slug: n, DBName: n, DBUser: n})
+		p, err := ml.Provision(ctx, m, ids[n], managed.Slice{DBName: n, DBUser: n})
 		must(t, err)
 		slice[n] = p.ID
 	}

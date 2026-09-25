@@ -50,6 +50,8 @@ type Tile struct {
 	Trigger                 string    `db:"trigger" json:"trigger"`                 // function: manual | on_deploy
 	Paused                  bool      `db:"paused" json:"paused"`                   // cron: the schedule is off
 	TimeoutMinutes          int       `db:"timeout_minutes" json:"timeout_minutes"` // cron, function: a run's timeout
+	ProvisionFrom           *string   `db:"provision_from" json:"provision_from"`   // slice: <stack>:<env>:<tile> as written
+	DefaultAccess           *string   `db:"default_access" json:"default_access"`   // slice: read | write
 	CreatedAt               time.Time `db:"created_at" json:"created_at"`
 	UpdatedAt               time.Time `db:"updated_at" json:"updated_at"`
 }

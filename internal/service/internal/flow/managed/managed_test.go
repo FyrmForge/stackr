@@ -62,7 +62,6 @@ type world struct {
 	f        *mflow.Flow
 	fake     *dockerfake.Fake
 	s3       *s3Fake
-	home     managed.Home
 	db, api  store.Tile
 	instance store.ManagedInstance
 }
@@ -81,7 +80,7 @@ func setup(t *testing.T, engine string) *world {
 		ReadyWait: 20 * time.Millisecond,
 		ReadyPoll: time.Millisecond,
 	}
-	h := managed.Home{OrgID: uuid.NewString(), StackID: uuid.NewString(), EnvID: uuid.NewString()}
+	h := struct{ OrgID, StackID, EnvID string }{uuid.NewString(), uuid.NewString(), uuid.NewString()}
 	now := time.Now()
 	must(t, st.Orgs.Create(ctx, store.Org{
 		ID:        h.OrgID,
@@ -126,7 +125,7 @@ func setup(t *testing.T, engine string) *world {
 		ImageRef:      "a:1",
 	})
 	must(t, err)
-	m, err := f.Instances.Create(ctx, db.ID, engine, "env", h, "stackr", "")
+	m, err := f.Instances.Create(ctx, db.ID, engine, "stackr", "")
 	must(t, err)
 	fake.Containers = []docker.Container{{
 		ID:     "c1",
@@ -137,7 +136,6 @@ func setup(t *testing.T, engine string) *world {
 		f:        f,
 		fake:     fake,
 		s3:       s3,
-		home:     h,
 		db:       db,
 		api:      api,
 		instance: m,
@@ -157,29 +155,27 @@ func execs(f *dockerfake.Fake) string {
 func TestPostgresProvisionAndDrop(t *testing.T) {
 	w := setup(t, "postgres")
 	w.fake.ExecOut = "0,0"
-	p, err := w.f.Attach(ctx, w.api, w.db, w.home, "", false, managed.Drop)
+	p, err := w.f.Attach(ctx, w.api, w.db, "", false, managed.Drop)
 	must(t, err)
 	ex := execs(w.fake)
 	if !strings.Contains(ex, `CREATE ROLE "api"`) || !strings.Contains(ex, `CREATE DATABASE "api" OWNER "api"`) ||
 		!strings.Contains(ex, "SET log_min_error_statement = PANIC") {
 		t.Errorf("provision execs:\n%s", ex)
 	}
-	if u := managed.Outputs(p)["DATABASE_URL"]; !strings.HasPrefix(u, "postgres://api:") ||
-		!strings.HasSuffix(u, "@db:5432/api") {
-		t.Errorf("DATABASE_URL = %q", u)
-	}
+	// step 7b task 5 replaces this: DATABASE_URL is asserted on the binding's
+	// outputs once Bind stores them.
 
 	// A second consumer asking for the same name gets its own, suffixed slice.
 	web, err := w.f.Tiles.Create(ctx, store.Tile{
-		StackID:       w.home.StackID,
-		EnvironmentID: w.home.EnvID,
+		StackID:       w.api.StackID,
+		EnvironmentID: w.api.EnvironmentID,
 		Name:          "web",
 		Kind:          tile.Image,
 		ImageRef:      "w:1",
 	})
 	must(t, err)
 	w.fake.ExecOut = "0,0"
-	q, err := w.f.Attach(ctx, web, w.db, w.home, "api", false, "")
+	q, err := w.f.Attach(ctx, web, w.db, "api", false, "")
 	must(t, err)
 	if q.DBName != "api_2" {
 		t.Errorf("second slice = %q, want api_2", q.DBName)
@@ -214,7 +210,7 @@ func TestPostgresProvisionAndDrop(t *testing.T) {
 func TestKeepOrphansAndTeardownNeedsForce(t *testing.T) {
 	w := setup(t, "postgres")
 	w.fake.ExecOut = "0,0"
-	p, err := w.f.Attach(ctx, w.api, w.db, w.home, "orders", false, "")
+	p, err := w.f.Attach(ctx, w.api, w.db, "orders", false, "")
 	must(t, err)
 	if p.DBName != "orders" {
 		t.Errorf("slice name = %q", p.DBName)
@@ -240,19 +236,20 @@ func isConflict(err error) bool {
 func TestS3BucketPerConsumer(t *testing.T) {
 	w := setup(t, "s3")
 	w.api.Slug = "my_api"
-	p, err := w.f.Attach(ctx, w.api, w.db, w.home, "", false, managed.Drop)
+	p, err := w.f.Attach(ctx, w.api, w.db, "", false, managed.Drop)
 	must(t, err)
 	if !slices.Equal(w.s3.made, []string{"my-api"}) || p.DBUser != "stackr" {
 		t.Errorf("made %v, user %q", w.s3.made, p.DBUser)
 	}
-	if o := managed.Outputs(p); o["S3_ENDPOINT"] != "http://db:9000" || o["S3_BUCKET"] != "my-api" {
-		t.Errorf("outputs = %v", o)
-	}
+	// step 7b task 5 replaces this: S3_ENDPOINT and S3_BUCKET are asserted on
+	// the binding's outputs once Bind stores them.
 	must(t, w.f.Detach(ctx, p, false))
 	if !slices.Equal(w.s3.dropped, []string{"my-api"}) {
 		t.Errorf("dropped %v", w.s3.dropped)
 	}
-	if _, err := w.f.Attach(ctx, w.api, w.db, managed.Home{EnvID: "elsewhere"}, "", false, ""); err == nil {
+	elsewhere := w.api
+	elsewhere.EnvironmentID = "elsewhere"
+	if _, err := w.f.Attach(ctx, elsewhere, w.db, "", false, ""); err == nil {
 		t.Error("an env-scoped instance served another env")
 	}
 }

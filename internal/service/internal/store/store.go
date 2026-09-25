@@ -51,6 +51,7 @@ type Tables struct {
 	Connectors       ConnectorStore
 	ManagedInstances ManagedInstanceStore
 	Provisions       ProvisionStore
+	Bindings         BindingStore
 	Releases         ReleaseStore
 	ReleaseTiles     ReleaseTileStore
 	Jobs             JobStore
@@ -84,6 +85,7 @@ func bind(q querier, box *secrets.Box) Tables {
 		Connectors:       connectors{crud[Connector]{q, box, connectorsT}},
 		ManagedInstances: managedInstances{crud[ManagedInstance]{q, box, managedInstancesT}},
 		Provisions:       provisions{crud[Provision]{q, box, provisionsT}},
+		Bindings:         bindings{crud[Binding]{q, box, bindingsT}},
 		Releases:         releases{crud[Release]{q, box, releasesT}},
 		ReleaseTiles:     releaseTiles{crud[ReleaseTile]{q, box, releaseTilesT}},
 		Jobs:             jobs{crud[Job]{q, box, jobsT}},

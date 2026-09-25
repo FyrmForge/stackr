@@ -18,7 +18,6 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/deploy"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/domainres"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/environment"
-	"github.com/FyrmForge/stackr/internal/service/internal/leaf/managed"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/params"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/release"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
@@ -133,14 +132,13 @@ func (f *Flow) apply(ctx context.Context, w *work, log io.Writer) error {
 		}
 	}
 
-	home := managed.Home{EnvID: e.ID, StackID: st.ID, OrgID: st.OrgID}
 	for _, row := range w.creates {
 		t, err := d.Tiles.Create(ctx, row)
 		if err != nil {
 			return fmt.Errorf("create %s: %w", row.Slug, err)
 		}
 		if t.Kind == tile.Managed {
-			if _, err := d.Managed.Create(ctx, t.ID, w.re.Tiles[t.Slug].Engine, "env", home, "stackr", ""); err != nil {
+			if _, err := d.Managed.Create(ctx, t.ID, w.re.Tiles[t.Slug].Engine, "stackr", ""); err != nil {
 				return err
 			}
 		}
@@ -194,11 +192,11 @@ func (f *Flow) apply(ctx context.Context, w *work, log io.Writer) error {
 			return err
 		}
 		for _, s := range w.attach[name] {
-			it, err := f.instanceTile(ctx, home, e.ID, s.From)
+			it, err := d.Tiles.GetBySlug(ctx, e.ID, s.From)
 			if err != nil {
 				return err
 			}
-			if _, err := d.Engines.Attach(ctx, consumer, it, home, s.Name, s.Public, s.OnRemove); err != nil {
+			if _, err := d.Engines.Attach(ctx, consumer, it, s.Name, s.Public, s.OnRemove); err != nil {
 				return fmt.Errorf("%s: slice from %s: %w", name, s.From, err)
 			}
 		}
@@ -244,7 +242,7 @@ func (f *Flow) Remove(ctx context.Context, e store.Environment, ts []store.Tile,
 		if t.Kind == tile.Managed {
 			m, err := d.Managed.GetByTile(ctx, t.ID)
 			if err == nil {
-				vs, err := d.Volumes.List(ctx, volume.Scope{Kind: m.ScopeKind, ID: m.ScopeID})
+				vs, err := d.Volumes.List(ctx, volume.Scope{Kind: "env", ID: e.ID})
 				if err != nil {
 					return err
 				}
@@ -349,24 +347,6 @@ func (f *Flow) rollout(ctx context.Context, w *work, e store.Environment, log io
 	}
 	_, err = d.Envs.SetRelease(ctx, e, r.ID)
 	return err
-}
-
-// instanceTile finds the managed tile a slice's from: names: the env's own
-// first, then anything visible from here.
-func (f *Flow) instanceTile(ctx context.Context, h managed.Home, envID, name string) (store.Tile, error) {
-	if t, err := f.D.Tiles.GetBySlug(ctx, envID, name); err == nil && t.Kind == tile.Managed {
-		return t, nil
-	}
-	ms, err := f.D.Managed.Visible(ctx, h)
-	if err != nil {
-		return store.Tile{}, err
-	}
-	for _, m := range ms {
-		if t, err := f.D.Tiles.Get(ctx, m.TileID); err == nil && t.Slug == name {
-			return t, nil
-		}
-	}
-	return store.Tile{}, errs.ErrNotFound
 }
 
 func replicaIDs(ctx context.Context, d *deploy.Flow, t store.Tile) ([]string, error) {

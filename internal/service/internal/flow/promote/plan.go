@@ -16,7 +16,6 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/domain"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/domainres"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/environment"
-	"github.com/FyrmForge/stackr/internal/service/internal/leaf/managed"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/params"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/release"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/settings"
@@ -652,18 +651,12 @@ func (f *Flow) planSlices(
 	return nil
 }
 
-// visible: a managed instance of that tile slug the env may attach to.
+// visible: a managed tile of that slug in this env.
+// step 7b task 3 replaces this: a slice tile's provision_from reaches any
+// instance whose allow list admits it.
 func (f *Flow) visible(ctx context.Context, w *work, slugName string) bool {
-	ms, err := f.D.Managed.Visible(ctx, managed.Home{EnvID: w.e.ID, StackID: w.st.ID, OrgID: w.st.OrgID})
-	if err != nil {
-		return false
-	}
-	for _, m := range ms {
-		if it, err := f.D.Tiles.Get(ctx, m.TileID); err == nil && it.Slug == slugName {
-			return true
-		}
-	}
-	return false
+	it, err := f.D.Tiles.GetBySlug(ctx, w.e.ID, slugName)
+	return err == nil && it.Kind == tile.Managed
 }
 
 // planDeletes: live tiles the file no longer declares. Never destructive:
@@ -692,7 +685,7 @@ func (f *Flow) planDeletes(ctx context.Context, p *Plan, w *work, live []store.T
 					return err
 				}
 				for _, pr := range ps {
-					if pr.ConsumerTileID != nil && !gone[*pr.ConsumerTileID] {
+					if !gone[pr.TileID] {
 						p.block("tile %s still serves a slice to another tile; detach it first", t.Slug)
 						break
 					}

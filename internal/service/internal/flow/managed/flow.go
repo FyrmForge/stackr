@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"slices"
 	"strconv"
 	"time"
 
@@ -41,12 +40,12 @@ type Container struct {
 	Cmd      []string
 	Env      []string
 	Binds    []string           // resolved "volume:/path"
-	Networks []docker.NetAttach // the shared network, for a stack or org instance
+	Networks []docker.NetAttach // none until step 7b task 5's per-instance network
 }
 
 // Container gives flow/deploy the instance's container: the engine's
-// definition, its credentials as first-boot env, its volumes (following the
-// instance's scope) and, when shared, its shared network.
+// definition, its credentials as first-boot env and its volumes (env-scoped,
+// DECIDE 194).
 func (f *Flow) Container(ctx context.Context, t store.Tile) (Container, error) {
 	m, e, err := f.instance(ctx, t.ID)
 	if err != nil {
@@ -62,7 +61,7 @@ func (f *Flow) Container(ctx context.Context, t store.Tile) (Container, error) {
 		if i > 0 {
 			sl += "-" + strconv.Itoa(i+1)
 		}
-		v, _, err := f.Volumes.Declare(ctx, volume.Scope{Kind: m.ScopeKind, ID: m.ScopeID}, sl, 0, &m.ID)
+		v, _, err := f.Volumes.Declare(ctx, volume.Scope{Kind: "env", ID: t.EnvironmentID}, sl, 0, &m.ID)
 		if err != nil {
 			return c, err
 		}
@@ -72,13 +71,8 @@ func (f *Flow) Container(ctx context.Context, t store.Tile) (Container, error) {
 		}
 		c.Binds = append(c.Binds, name+":"+path)
 	}
-	if m.ScopeKind != managed.Env {
-		n := managed.Network(m.ID)
-		if err := f.Envs.Shared(ctx, n); err != nil {
-			return c, err
-		}
-		c.Networks = []docker.NetAttach{{Name: n, Aliases: []string{t.Slug}}}
-	}
+	// step 7b task 5 replaces this: the per-instance network that slices in
+	// other stacks join. Until then an instance is reached on its env's own.
 	return c, nil
 }
 
@@ -112,13 +106,12 @@ func (f *Flow) Ready(ctx context.Context, t store.Tile) error {
 }
 
 // Attach cuts a slice for consumer on the instance tile it, named after the
-// consumer unless name is given, and records its outputs. The instance must
-// be visible from the consumer's env.
+// consumer unless name is given. The instance must be in the consumer's env.
+// step 7b task 5 replaces this with Provision and Bind on the allow list.
 func (f *Flow) Attach(
 	ctx context.Context,
 	consumer store.Tile,
 	it store.Tile,
-	home managed.Home,
 	name string,
 	public bool,
 	onRemove string,
@@ -127,11 +120,7 @@ func (f *Flow) Attach(
 	if err != nil {
 		return store.Provision{}, err
 	}
-	vis, err := f.Instances.Visible(ctx, home)
-	if err != nil {
-		return store.Provision{}, err
-	}
-	if !visible(vis, m.ID) {
+	if it.EnvironmentID != consumer.EnvironmentID {
 		return store.Provision{}, errs.Refusedf("%s is not shared with this environment", it.Slug)
 	}
 	def := e.Definition()
@@ -159,7 +148,6 @@ func (f *Flow) Attach(
 		return store.Provision{}, fmt.Errorf("provision %s on %s: %w", s.Name, it.Slug, err)
 	}
 	p, err := f.Instances.Provision(ctx, m, consumer.ID, managed.Slice{
-		Slug:       name,
 		DBName:     s.Name,
 		DBUser:     s.User,
 		DBPassword: s.Password,
@@ -368,8 +356,4 @@ func outputs(bs []Binding) map[string]string {
 		out[b.Name] = b.Value
 	}
 	return out
-}
-
-func visible(ms []store.ManagedInstance, id string) bool {
-	return slices.ContainsFunc(ms, func(m store.ManagedInstance) bool { return m.ID == id })
 }

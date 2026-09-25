@@ -14,7 +14,7 @@ import (
 )
 
 // snapshot is everything the resolver may see for tile t: the three param
-// scopes, every tile of its env and the shared instances it can reach.
+// scopes and every tile of its env, managed instances included.
 // ponytail: stackr.PROXY_IP and org.backups are not filled; a ref to either
 // fails the deploy with the resolver's own message until they are.
 func (f *Flow) snapshot(
@@ -51,7 +51,22 @@ func (f *Flow) snapshot(
 	s.Tiles = map[string]params.Source{}
 	for _, x := range tiles {
 		if x.Kind == tile.Managed {
-			continue // listed with the instances below
+			// step 7b task 4 replaces this: the slice tile is the source, an
+			// instance is reached from its own env only until then.
+			m, err := f.Managed.GetByTile(ctx, x.ID)
+			if errors.Is(err, errs.ErrNotFound) {
+				continue
+			}
+			if err != nil {
+				return s, err
+			}
+			p, attached := slices[m.ID]
+			s.Tiles[x.Slug] = params.Source{
+				Managed:  true,
+				Attached: attached,
+				Outputs:  managed.Outputs(p),
+			}
+			continue
 		}
 		src, err := f.endpoint(ctx, x)
 		if err != nil {
@@ -60,33 +75,6 @@ func (f *Flow) snapshot(
 		s.Tiles[x.Slug] = src
 		if x.ID == t.ID {
 			s.Self = src
-		}
-	}
-
-	insts, err := f.Managed.Visible(ctx, managed.Home{EnvID: e.ID, StackID: st.ID, OrgID: st.OrgID})
-	if err != nil {
-		return s, err
-	}
-	s.Stack, s.Org = map[string]params.Source{}, map[string]params.Source{}
-	for _, m := range insts {
-		it, err := f.Tiles.Get(ctx, m.TileID)
-		if errors.Is(err, errs.ErrNotFound) {
-			continue
-		}
-		if err != nil {
-			return s, err
-		}
-		p, attached := slices[m.ID]
-		src := params.Source{Managed: true, Attached: attached, Outputs: managed.Outputs(p)}
-		switch m.ScopeKind {
-		case managed.Env:
-			s.Tiles[it.Slug] = src
-		case managed.Stack:
-			src.Network = managed.Network(m.ID)
-			s.Stack[it.Slug] = src
-		case managed.Org:
-			src.Network = managed.Network(m.ID)
-			s.Org[it.Slug] = src
 		}
 	}
 	return s, nil

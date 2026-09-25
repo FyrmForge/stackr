@@ -230,7 +230,7 @@ a second; they still queue so the per-tile lock sees them.
   `leaf/volume`, own `volumes:` block in the stack file. Scoped to its
   environment (as today); promote never carries a volume across
   environments; prod gets its own. A managed instance owns its volume(s)
-  and the volume follows the instance's scope (env, stack or org). A
+  and that volume is env-scoped like the instance tile (DECIDE 194). A
   service tile *mounts* a volume. The UI still draws a volume as a card:
   stacked under the tile that mounts it, on its own when unmounted.
 - `leaf/volume` has the only `HoldsData` in the repo. The old code had
@@ -574,27 +574,32 @@ the old `variables` table and the four-owner cascade.
     override from stack or env.
   - `${{ self.<output> }}`: the consumer tile's own outputs. Replaces
     writing your own slug, which broke on rename.
-  - `${{ tile.<slug>.<output> }}`: a sibling tile or managed instance in
-    the consumer's env. Same ref gives the dev api in dev, the prod api in
-    prod.
-  - `${{ stack.<slug>.<output> }}`, `${{ org.<slug>.<output> }}`: shared
-    tiles at that scope, as today; the consumer joins the shared tile's
-    network. `params` is the only reserved slug.
+  - `${{ tile.<slug>.<output> }}`: a sibling tile in the consumer's env.
+    Same ref gives the dev api in dev, the prod api in prod. On a slice
+    tile it resolves to the consumer's own binding (see "Managed tiles").
+  - `${{ env.name }}`: the consumer's env name. Allowed only in a slice
+    tile's `provision_from`, where it goes through the managed tile's
+    `env_pairs`. The `${{ stack.<slug>.<output> }}` and
+    `${{ org.<slug>.<output> }}` tile refs are gone with scope: a shared
+    instance is reached through a slice tile. `params` is the only
+    reserved slug. (DECIDE 194, 2026-09-25)
   - `${{ stackr.<NAME> }}`, `${{ org.backups.<name> }}`: as today.
 - **Tile outputs are the built-ins only.** Nothing reads another tile's
   env. Service tile: `host`, `port`, `url` (service DNS on the env
   network), `public_domain`, `public_url` (first non-redirect domain;
-  unset refuses the deploy). Managed tiles publish their own set (`url`,
-  `user`, `password`, `database`, …). Managed refs fail unless the consumer
-  is attached: referencing is not access.
-- **Where refs are allowed:** env values, command override, domains, and a
-  volume's backup `dest` (`org.backups.` refs only). Domains take `params.`
+  unset refuses the deploy). A slice publishes its engine's set (postgres:
+  `DATABASE_URL`, `PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER`,
+  `PGPASSWORD`; s3 as today), minted for each consumer's own cred.
+  Referencing a slice is what gets the consumer its binding.
+- **Where refs are allowed:** env values, command override, domains, a
+  volume's backup `dest` (`org.backups.` refs only), and a slice tile's
+  `provision_from` (`env.name` and `params.` refs only). Domains take `params.`
   refs only (`api.${{ params.domains.base }}`), never tile outputs (cycle)
   and never secrets. Nowhere else. Org storage shares
   get their own tile key instead of a ref in a volume line.
 - **Unresolved refs.** An unset param parks the tile as `waiting` (see
   "Job queue"); setting the param triggers the redeploy. Every other
-  failure (typo, unknown tile, not attached, secret in a domain) fails the
+  failure (typo, unknown tile, no binding, secret in a domain) fails the
   deploy with the message. Nothing unresolved ever reaches a container.
 - **Declassify: never.** Writing `type: param` over a secret is refused.
   Delete it and create a param. Param → secret is allowed, one way. Config
@@ -608,24 +613,42 @@ the old `variables` table and the four-owner cascade.
   (never loaded, not redacted); encryption at rest.
 
 Later: linking a stack collection to an org collection (symlink style, so
-tiles keep `params.` refs); an `env.` ref scope if anyone needs it.
+tiles keep `params.` refs); `env.` refs beyond `env.name` if anyone needs
+them.
 
 ## Managed tiles
 
-In v1: Postgres and S3 instances, slices and bindings, as today.
+In v1: Postgres and S3 instances, slice tiles, and a binding per consumer.
 
 - **The instance container is a plain tile** (`kind = managed`). It
   deploys, restarts, mounts its volume, gets health, logs and a network
   through `flow/deploy` like any tile. There is one deploy path. The old
   `infra/managedtiles` had its own `Deploy`/`Start`/`Stop`/`Remove`; that
   duplication does not come over.
-- **Scope** as today: an instance is env-, stack- or org-scoped
-  (`scope_kind`). The per-shared-tile network from "Infrastructure" is what
-  makes a stack- or org-scoped instance reachable from every environment.
+- **Allow list, not scope** (DECIDE 194, 2026-09-25). A managed tile is
+  env-scoped like any tile and says who may connect with `allow:`, a list
+  of `org:stack:env:tile` patterns (a trailing `*` swallows the rest, a `*`
+  in the middle matches one segment). The first segment is the tile's own
+  org: no cross-org sharing. No list means the tile's own env only.
+  `env_pairs:` maps a consumer's env name to one of this stack's envs; a
+  consumer env not in the map blocks its promote. A PR env with no pair of
+  its own maps as its base env, the way the promote plan falls back to the
+  base env's file section; its address for `allow:` stays its own slug
+  (`smoke:shop:pr-12:api`). The per-instance network from "Infrastructure"
+  is what makes an instance reachable from another stack.
+- **A slice is a tile** (`kind: slice`) in the consumer's stack file: one
+  database or bucket many tiles use. `provision_from: <stack>:<env>:<tile>`
+  names the managed tile in the same org (`${{ env.name }}` in the env
+  segment goes through `env_pairs`); `default_access: read|write`
+  (default write). The instance side declares nothing per slice. Every
+  consumer that refs `${{ tile.<slice>.<output> }}` gets its own binding
+  (own user, own outputs) at the slice's default access, or at what its
+  `slice_access:` entry (`from`, `access`) names. The per-consumer `slices:` list,
+  `scope` and `SetInstanceScope` are gone.
 - **One interface per engine, `ManagedTile`:** `Definition()` (image,
   command and config, port, volumes (one or more), deps, defaults, what the
   instance needs), `Ready()`, `Provision()`, `Drop()`, `Bindings()`
-  (per-slice credentials and their perms), `Backup(method)`,
+  (a consumer's credentials at read or write), `Backup(method)`,
   `Restore(method, target)`; an engine may offer several methods (Postgres:
   `dump` in v1, `pitr` later; see "Backups"). Engines produce commands;
   `flow/managed` hands them to `leaf/tile.Exec()`. The flow never holds a
@@ -635,16 +658,20 @@ In v1: Postgres and S3 instances, slices and bindings, as today.
   and one line. Plugins later write into the same map.
 - **Placement:** `flow/managed` (`engine.go` with the interface and the
   map, `postgres.go`, `s3.go`) holds the rules once, engine-blind: one
-  slice per consumer, what happens to slices when the consumer goes. Who
-  may provision is `can()` in middleware like every other verb. `leaf/managed` owns `managed_instances` (engine, admin
-  creds, endpoint) plus the provisions table. `leaf/tile` never sees the
+  provision per slice tile, one binding per consumer, what happens to the
+  data when the slice tile goes (`on_remove`). Who may provision is
+  `can()` in middleware like every other verb. `leaf/managed` owns
+  `managed_instances` (engine, admin creds, endpoint, allow list, env
+  pairs) plus the provisions and bindings tables. `leaf/tile` never sees the
   word Postgres; it knows the kind exists for the per-kind whitelist (B26).
 - **Wiring:** instance deploy: `flow/deploy` sees `kind = managed`, asks
   `flow/managed` for `Definition()`, builds a normal spec, runs it, then
-  waits on `Ready()`. Consumer deploy: `flow/deploy` asks `flow/managed`
-  "slice for this tile"; it provisions, writes the provision row and the
-  slice's outputs, returns; deploy resolves the consumer's
-  `${{ tile.<slug>.<output> }}` refs as normal (see "Param store and
+  waits on `Ready()`. Slice tile deploy: no container; `flow/managed`
+  provisions the database or bucket once with the owner cred. Consumer
+  deploy: `flow/deploy` asks `flow/managed` for the consumer's binding; it
+  mints the user at its access, writes the binding row and its outputs,
+  returns; the consumer joins the instance's network and deploy resolves
+  its `${{ tile.<slice>.<output> }}` refs as normal (see "Param store and
   refs"). `flow/managed` never starts a container.
 
 ### Scaffold fixes (step 0)

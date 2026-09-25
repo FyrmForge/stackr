@@ -6,7 +6,6 @@ package env
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"slices"
@@ -229,7 +228,7 @@ func (h *handler) instance(c echo.Context, tab, note string, actErr error) error
 		Tab:      instance.Tab(tab),
 		Status:   st.Word,
 		Running:  st.Word == "running",
-		Scope:    m.ScopeKind,
+		Scope:    "env", // step 7b task 6 replaces this: the allow list, not a scope
 		Location: s.Stack.Name + " / " + s.Env.Name,
 		EnvColor: s.Env.Color,
 		Error:    msg,
@@ -265,17 +264,15 @@ func (h *handler) instance(c echo.Context, tab, note string, actErr error) error
 		}
 		o := instance.OverviewView{Endpoint: m.Endpoint, AdminUser: m.AdminUser}
 		for _, p := range ps {
+			// step 7b task 6 replaces this: the row is the slice tile and its bindings.
 			r := instance.SliceRow{
 				ID:       p.ID,
-				Name:     p.Slug,
+				Name:     p.DBName,
 				DB:       p.DBName,
 				OnRemove: p.OnRemove,
 				Public:   p.Public,
-				Orphan:   p.ConsumerTileID == nil,
+				UsedBy:   names[p.TileID],
 				Drawer:   render.EnvURL(c) + "/-/slices/" + p.ID + "?tab=bindings",
-			}
-			if p.ConsumerTileID != nil {
-				r.UsedBy = names[*p.ConsumerTileID]
 			}
 			o.Slices = append(o.Slices, r)
 		}
@@ -353,25 +350,21 @@ func (h *handler) slice(c echo.Context, tab string, actErr error) error {
 	if err != nil {
 		return middleware.HTTPError(err)
 	}
-	var outs map[string]json.RawMessage
-	_ = json.Unmarshal([]byte(p.Outputs), &outs) // names only; a bad blob shows none
+	// step 7b task 6 replaces this: outputs are the bindings' and the drawer
+	// is the slice tile's; until then it lists none.
 	v := slice.View{
 		Node:     p.ID,
-		Name:     p.Slug,
+		Name:     p.DBName,
 		DB:       p.DBName,
 		User:     p.DBUser,
 		OnRemove: p.OnRemove,
 		Base:     render.EnvURL(c) + "/-/slices/" + p.ID,
 		Public:   p.Public,
-		Consumer: p.ConsumerTileID != nil,
+		Consumer: true,
 		Location: s.Stack.Name + " / " + s.Env.Name,
 		EnvColor: s.Env.Color,
 		Error:    msg,
 	}
-	for k := range outs {
-		v.Outputs = append(v.Outputs, k)
-	}
-	slices.Sort(v.Outputs)
 	if v.Consumer {
 		v.Detach = v.Base + "/detach"
 	}

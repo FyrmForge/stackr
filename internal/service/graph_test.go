@@ -150,8 +150,6 @@ func seedWorld(t *testing.T) world {
 		ID:            uuid.NewString(),
 		TileID:        pg.ID,
 		Engine:        "postgres",
-		ScopeKind:     "env",
-		ScopeID:       w.dev,
 		AdminUser:     "a",
 		AdminPassword: "p",
 		CreatedAt:     time.Now(),
@@ -159,14 +157,12 @@ func seedWorld(t *testing.T) world {
 	must(e.Store.ManagedInstances.Create(ctx, inst))
 	w.provision = uuid.NewString()
 	must(e.Store.Provisions.Create(ctx, store.Provision{
-		ID:             w.provision,
-		InstanceID:     inst.ID,
-		ConsumerTileID: &w.api,
-		Slug:           "main",
-		DBName:         "main",
-		Outputs:        "{}",
-		OnRemove:       "keep",
-		CreatedAt:      time.Now(),
+		ID:         w.provision,
+		TileID:     w.api,
+		InstanceID: inst.ID,
+		DBName:     "main",
+		OnRemove:   "keep",
+		CreatedAt:  time.Now(),
 	}))
 	w.vols = map[string]string{}
 	for _, sl := range []string{"uploads", "old"} {

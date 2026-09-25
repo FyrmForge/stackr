@@ -1606,6 +1606,12 @@
           "admin_user": {
             "type": "string"
           },
+          "allow": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
           "created_at": {
             "format": "date-time",
             "type": "string"
@@ -1616,13 +1622,13 @@
           "engine": {
             "type": "string"
           },
+          "env_pairs": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
+          },
           "id": {
-            "type": "string"
-          },
-          "scope_id": {
-            "type": "string"
-          },
-          "scope_kind": {
             "type": "string"
           },
           "tile_id": {
@@ -1633,8 +1639,8 @@
           "id",
           "tile_id",
           "engine",
-          "scope_kind",
-          "scope_id",
+          "allow",
+          "env_pairs",
           "admin_user",
           "endpoint",
           "created_at"
@@ -2034,16 +2040,6 @@
       },
       "Provision": {
         "properties": {
-          "consumer_tile_id": {
-            "oneOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
           "created_at": {
             "format": "date-time",
             "type": "string"
@@ -2063,23 +2059,19 @@
           "on_remove": {
             "type": "string"
           },
-          "outputs": {
-            "type": "string"
-          },
           "public": {
             "type": "boolean"
           },
-          "slug": {
+          "tile_id": {
             "type": "string"
           }
         },
         "required": [
           "id",
+          "tile_id",
           "instance_id",
-          "slug",
           "db_name",
           "db_user",
-          "outputs",
           "public",
           "on_remove",
           "created_at"
@@ -2504,6 +2496,16 @@
             "format": "date-time",
             "type": "string"
           },
+          "default_access": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "depends_on": {
             "type": "string"
           },
@@ -2569,6 +2571,16 @@
           },
           "privileged": {
             "type": "boolean"
+          },
+          "provision_from": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "published_ports": {
             "type": "string"

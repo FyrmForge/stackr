@@ -49,14 +49,7 @@ func (o *Orchestrator) OrgOf(ctx context.Context, kind, id string) (string, erro
 		if err != nil {
 			return "", err
 		}
-		if p.ConsumerTileID != nil {
-			return o.tileOrg(ctx, *p.ConsumerTileID)
-		}
-		t, err := o.instanceTile(ctx, p.InstanceID)
-		if err != nil {
-			return "", err
-		}
-		return o.scopeOrg(ctx, "stack", t.StackID)
+		return o.tileOrg(ctx, p.TileID)
 	case "domain-resource":
 		r, err := o.domainres.Get(ctx, id)
 		if err != nil {

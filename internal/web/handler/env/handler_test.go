@@ -108,11 +108,13 @@ func TestInstanceDrawer(t *testing.T) {
 			t.Errorf("%s = %d, want %q\n%s", tab, rec.Code, want, rec.Body)
 		}
 	}
-	rec := s.Do(t, "POST", d+"/scope", url.Values{"scope_kind": {"stack"}})
-	if rec.Code != 200 || !strings.Contains(rec.Body.String(), "scope saved") || !strings.Contains(rec.Body.String(), "stack-scoped") {
+	// step 7b task 6 replaces this: scope is gone (DECIDE 194), env is the
+	// only value left and a wider one is refused.
+	rec := s.Do(t, "POST", d+"/scope", url.Values{"scope_kind": {"env"}})
+	if rec.Code != 200 || !strings.Contains(rec.Body.String(), "scope saved") || !strings.Contains(rec.Body.String(), "env-scoped") {
 		t.Errorf("scope = %d\n%s", rec.Code, rec.Body)
 	}
-	rec = s.Do(t, "POST", d+"/scope", url.Values{"scope_kind": {"galaxy"}})
+	rec = s.Do(t, "POST", d+"/scope", url.Values{"scope_kind": {"stack"}})
 	if rec.Code != 422 || !strings.Contains(rec.Body.String(), "banner-danger") {
 		t.Errorf("bad scope = %d\n%s", rec.Code, rec.Body)
 	}

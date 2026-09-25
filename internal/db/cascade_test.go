@@ -1,6 +1,7 @@
 package db_test
 
 import (
+	"slices"
 	"testing"
 	"time"
 
@@ -39,7 +40,7 @@ func tileWithDomains(now time.Time) []stmt {
 		{`INSERT INTO domain_resources VALUES ('dr0','instance',NULL,NULL,'example.com',0,'',0,?)`, []any{now}},
 		{`INSERT INTO domain_resources VALUES ('dr1','org','o1',NULL,'acme.example.com',0,'',1,?)`, []any{now}},
 		{`INSERT INTO domain_resources VALUES ('dr2','stack',NULL,'s1','shop.io',0,'',1,?)`, []any{now}},
-		{`INSERT INTO tiles VALUES ('t1','s1','e1','api','api','image','','','nginx:1','','','','{}','','','',80,'','','','',0,0,0,0,0,0,'',0,0,'','','','','',1,'manual','','','',0,0,?,?)`, []any{now, now}},
+		{`INSERT INTO tiles VALUES ('t1','s1','e1','api','api','image','','','nginx:1','','','','{}','','','',80,'','','','',0,0,0,0,0,0,'',0,0,'','','','','',1,'manual','','','',0,0,NULL,NULL,?,?)`, []any{now, now}},
 		{`INSERT INTO domains VALUES ('dm1','t1','api.shop.io','/',80,1,0,'',1,'dr2',0,'{}','',?)`, []any{now}},
 		{`INSERT INTO domains VALUES ('dm2','t1','api.shop.acme.example.com','/',80,1,0,'',1,'dr1',1,'{}','',?)`, []any{now}},
 	}
@@ -162,6 +163,94 @@ func TestDomainResourceGuards(t *testing.T) {
 	} {
 		if _, err := db.Exec(bad, now); err == nil {
 			t.Errorf("accepted %s", bad)
+		}
+	}
+}
+
+// tileRow is a tiles row in shop/dev named id; from and access are the
+// slice columns (nil = NULL).
+func tileRow(id, kind string, from, access any, now time.Time) stmt {
+	return stmt{
+		`INSERT INTO tiles VALUES (?,'s1','e1',?,?,?,'','','','','','','{}','','','',0,'','','','',0,0,0,0,0,0,'',0,0,'','','','','',1,'manual','','','',0,0,?,?,?,?)`,
+		[]any{id, id, id, kind, from, access, now, now},
+	}
+}
+
+// sliceWorld is shop/dev with instance tile pg, slice tile api-db on it,
+// and consumers api (write) and reporter (read) bound to the slice.
+func sliceWorld(t *testing.T) *sqlx.DB {
+	t.Helper()
+	db := servicetest.Store(t).DB()
+	now := time.Now()
+	execAll(t, db, []stmt{
+		{`INSERT INTO orgs VALUES ('o1','Acme','acme','','','{}',NULL,'',?,'','','','',0)`, []any{now}},
+		{`INSERT INTO stacks VALUES ('s1','o1','Shop','shop','','{}','','','','',?)`, []any{now}},
+		{`INSERT INTO environments VALUES ('e1','s1','Dev','dev','static',NULL,'{}','',0,'net',NULL,'branch','main',1,?)`, []any{now}},
+		tileRow("pg", "managed", nil, nil, now),
+		tileRow("api-db", "slice", "infra:${{ env.name }}:pg", "write", now),
+		tileRow("api", "image", nil, nil, now),
+		tileRow("reporter", "cron", nil, nil, now),
+		{`INSERT INTO managed_instances VALUES ('mi1','pg','postgres','["acme:shop:*"]','{"dev":"dev"}','stackr','x','',?)`, []any{now}},
+		{`INSERT INTO provisions VALUES ('pr1','api-db','mi1','api_db','api_db','x',0,'keep',?)`, []any{now}},
+		{`INSERT INTO bindings VALUES ('b1','pr1','api','write','api_db_api','x','{}',?)`, []any{now}},
+		{`INSERT INTO bindings VALUES ('b2','pr1','reporter','read','api_db_reporter','x','{}',?)`, []any{now}},
+	})
+	return db
+}
+
+func ids(t *testing.T, db *sqlx.DB, table string) []string {
+	t.Helper()
+	var out []string
+	if err := db.Select(&out, "SELECT id FROM "+table+" ORDER BY id"); err != nil {
+		t.Fatal(err)
+	}
+	return out
+}
+
+// A slice's rows go with whatever they hang off: a consumer takes its own
+// binding, the slice tile its provision and every binding, the instance (or
+// its tile, or the org) everything cut from it.
+func TestSliceCascades(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		del        string
+		provisions []string
+		bindings   []string
+	}{
+		{"consumer tile", `DELETE FROM tiles WHERE id = 'reporter'`, []string{"pr1"}, []string{"b1"}},
+		{"slice tile", `DELETE FROM tiles WHERE id = 'api-db'`, nil, nil},
+		{"instance", `DELETE FROM managed_instances WHERE id = 'mi1'`, nil, nil},
+		{"instance tile", `DELETE FROM tiles WHERE id = 'pg'`, nil, nil},
+		{"org", `DELETE FROM orgs WHERE id = 'o1'`, nil, nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			db := sliceWorld(t)
+			if _, err := db.Exec(tc.del); err != nil {
+				t.Fatal(err)
+			}
+			if got := ids(t, db, "provisions"); !slices.Equal(got, tc.provisions) {
+				t.Errorf("provisions = %v, want %v", got, tc.provisions)
+			}
+			if got := ids(t, db, "bindings"); !slices.Equal(got, tc.bindings) {
+				t.Errorf("bindings = %v, want %v", got, tc.bindings)
+			}
+		})
+	}
+}
+
+// The slice schema refuses what it can: a second provision on one slice
+// tile, a second binding per consumer, access outside read and write.
+func TestSliceGuards(t *testing.T) {
+	db := sliceWorld(t)
+	now := time.Now()
+	for _, bad := range []stmt{
+		{`INSERT INTO provisions VALUES ('pr2','api-db','mi1','x','x','x',0,'keep',?)`, []any{now}},
+		{`INSERT INTO bindings VALUES ('b3','pr1','api','read','u','x','{}',?)`, []any{now}},
+		{`INSERT INTO bindings VALUES ('b4','pr1','pg','admin','u','x','{}',?)`, []any{now}},
+		tileRow("bad", "slice", "infra:dev:pg", "admin", now),
+	} {
+		if _, err := db.Exec(bad.sql, bad.args...); err == nil {
+			t.Errorf("accepted %s %v", bad.sql, bad.args)
 		}
 	}
 }
