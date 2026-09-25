@@ -28,9 +28,6 @@ templ gallery() {
 			@c.Table(c.TableView{Headers: []string{"Tile"}, Empty: c.EmptyView{Title: "No tiles yet", Body: "Deploy an image or a repo.", Action: c.Link{Label: "New tile", Href: "/dev/components"}}})
 			@c.Pagination(c.PageNav{Label: "Page 2 of 5", Prev: "/dev/components?page=1", Next: "/dev/components?page=3"})
 		}
-		@section("Theme toggle") {
-			@c.ThemeToggle()
-		}
 		@section("Badges") {
 			<div class="flex flex-wrap gap-2">
 				@c.TileBadge("running")
@@ -57,7 +54,7 @@ templ gallery() {
 			</div>
 		}
 		@section("Graph canvas") {
-			<p class="text-sm text-slate-500">Drag cards (the proxy stays left of the divider), shift+drag to select, wheel to zoom, click a card for its drawer.</p>
+			<p class="text-sm text-rw-muted">Drag cards (the proxy stays left of the divider), shift+drag to select, wheel to zoom, click a card for its drawer.</p>
 			<graph-canvas scale="1" divider="240" fan-out arrows hover-focus boundary class="h-[28rem] rounded-lg border border-rw-border bg-rw-bg">
 				<svg data-edges aria-hidden="true">
 					<defs>
@@ -95,7 +92,7 @@ templ gallery() {
 			</graph-canvas>
 		}
 		@section("Env canvas cards") {
-			<p class="text-sm text-slate-500">One card of every env kind (task 9), with sub-tiles and traffic lanes.</p>
+			<p class="text-sm text-rw-muted">One card of every env kind (task 9), with sub-tiles and traffic lanes.</p>
 			<graph-canvas scale="1" divider="240" badges class="h-[36rem] rounded-lg border border-rw-border bg-rw-bg">
 				<svg data-edges aria-hidden="true">
 					<path data-edge-kind="ingress" data-from="proxy" data-to="t-api" d="M0,0" { graph.EdgeAttrs("ingress")... }></path>
@@ -176,8 +173,8 @@ templ galleryNode(id, name, detail, x, y string, system bool) {
 		<input type="hidden" name="x" value={ x }/>
 		<input type="hidden" name="y" value={ y }/>
 		<div class="card h-full cursor-pointer" hx-get={ "/dev/components/drawer?node=" + id + "&tab=status" } hx-target="#drawer-body" hx-push-url={ "?drawer=" + id + "&tab=status" }>
-			<p class="font-semibold">{ name }</p>
-			<p class="text-xs text-slate-500">{ detail }</p>
+			<p class="font-semibold text-rw-text">{ name }</p>
+			<p class="text-xs text-rw-faint">{ detail }</p>
 		</div>
 		{ children... }
 	</graph-node>

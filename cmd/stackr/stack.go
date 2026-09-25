@@ -130,14 +130,17 @@ func (a *app) stackCommands() []*cobra.Command {
 	}
 }
 
-// at runs f with the path down to lv (tile from the first arg, if any).
+// at runs f with the path down to lv. The tile is the first arg when the
+// verb's Use names it there ("get [tile]", "rename <tile> <name>"); a verb
+// whose first arg is something else ("domain add <host>") takes the tile
+// from --tile or the link.
 func (a *app) at(
 	lv level,
 	f func(c *cobra.Command, p string, args []string) error,
 ) func(*cobra.Command, []string) error {
 	return func(c *cobra.Command, args []string) error {
 		tile := ""
-		if lv == atTile && len(args) > 0 {
+		if lv == atTile && len(args) > 0 && tileFirst(c.Use) {
 			tile = args[0]
 		}
 		p, err := a.path(c, lv, tile)
@@ -146,6 +149,11 @@ func (a *app) at(
 		}
 		return f(c, p, args)
 	}
+}
+
+func tileFirst(use string) bool {
+	f := strings.Fields(use)
+	return len(f) > 1 && (f[1] == "[tile]" || f[1] == "<tile>")
 }
 
 // get is a leaf that shows one GET under lv.

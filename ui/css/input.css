@@ -4,9 +4,9 @@
 
 /* Palette, copied verbatim from v0 (stackr-old frontend/css/input.css).
    Every rw-* token in tailwind.config.js is rgb(var(--rw-x)), so the whole
-   look swaps on one class on <html>: `dark` is dark, `light` is light.
-   <theme-toggle> keeps exactly one of the two on <html>; the no-class OS
-   block below only matters before its module runs. */
+   look swaps on one class on <html>: `dark` is dark, `light` is light, no
+   class follows the OS (the media block below). The server writes it from
+   the viewer's users.theme (components.Layout). */
 :root {
   --rw-bg: 10 10 12;
   --rw-surface: 19 19 23;

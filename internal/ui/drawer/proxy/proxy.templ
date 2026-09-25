@@ -11,29 +11,34 @@ type Route struct {
 }
 
 templ Routes(v View) {
-	<div id="drawer-view">
-		@c.DrawerHead("proxy", "routes")
-		<div class="p-6 space-y-4">
-			if len(v.Rows) == 0 {
-				<p class="text-sm text-slate-500">No tile in this env has a domain.</p>
-			}
-			<ul class="space-y-1 text-sm">
-				for _, r := range v.Rows {
-					<li class="flex flex-wrap gap-2">
-						<span class="font-mono">{ r.Host }{ r.Path }</span>
-						<span class="text-slate-500">→ { r.Tile }:{ r.Port }</span>
-						if !r.HTTPS {
-							<span class="text-amber-700 dark:text-amber-400">http only</span>
+	@c.Drawer(c.DrawerView{Title: "Proxy", Kind: "caddy", Icon: "proxy"}, routes(v))
+}
+
+templ routes(v View) {
+	@c.Section("Routes", "env", "Every host this environment's tiles answer on. Add or change one in the tile's Settings.") {
+		if len(v.Rows) == 0 {
+			<p class="text-sm text-rw-muted">No tile in this env has a domain.</p>
+		}
+		<ul class="space-y-2">
+			for _, r := range v.Rows {
+				<li class="flex flex-wrap items-center gap-2 rounded-lg border border-rw-border px-3 py-2.5 text-sm">
+					<span class="font-mono text-rw-text">{ r.Host }{ r.Path }</span>
+					<span class="text-rw-muted">→ { r.Tile }:{ r.Port }</span>
+					<span class="ml-auto flex items-center gap-1.5">
+						if r.HTTPS {
+							@c.Chip("https", "accent")
+						} else {
+							@c.Chip("http only", "warn")
 						}
 						if r.Auto {
-							<span class="text-slate-500">generated</span>
+							@c.Chip("generated", "")
 						}
 						if r.Raw {
-							<span class="text-slate-500">raw Caddy</span>
+							@c.Chip("raw Caddy", "")
 						}
-					</li>
-				}
-			</ul>
-		</div>
-	</div>
+					</span>
+				</li>
+			}
+		</ul>
+	}
 }

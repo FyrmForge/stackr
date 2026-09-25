@@ -100,4 +100,11 @@ class LogPane extends HTMLElement {
     }
 }
 customElements.define("log-pane", LogPane);
+addEventListener("pagehide", (e) => {
+    if (e.persisted)
+        return;
+    for (const el of document.querySelectorAll("[sse-connect]")) {
+        el["htmx-internal-data"]?.sseEventSource?.close();
+    }
+});
 export {};

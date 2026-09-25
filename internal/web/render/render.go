@@ -61,6 +61,7 @@ func Shell(c echo.Context, title string) components.Shell {
 	path := c.Request().URL.Path
 	if p := middleware.Principal(c); p != nil {
 		s.User = p.User.Email
+		s.Theme = p.User.Theme
 		s.Nav = append(s.Nav, link("Orgs", "/", path), link("Account", "/account", path))
 		s.Admin = p.Access.Admin
 	}
@@ -96,6 +97,19 @@ func Shell(c echo.Context, title string) components.Shell {
 		s.Settings = href + "/-/drawer"
 	}
 	return s
+}
+
+// Theme puts the viewer's theme on the request context, so the error page
+// (hamr renders it with no echo.Context) draws in it too. Mount after
+// Access.Load.
+func Theme(next echo.HandlerFunc) echo.HandlerFunc {
+	return func(c echo.Context) error {
+		if p := middleware.Principal(c); p != nil {
+			r := c.Request()
+			c.SetRequest(r.WithContext(components.WithTheme(r.Context(), p.User.Theme)))
+		}
+		return next(c)
+	}
 }
 
 // link is active when the URL is its page or below it; "/" only on itself.

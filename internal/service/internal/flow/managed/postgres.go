@@ -79,11 +79,14 @@ func (e pg) Drop(ctx context.Context, i Instance, s Slice, x Tools) error {
 const noStatementLogging = `SET log_min_error_statement = PANIC`
 
 // psql runs each statement as the superuser in one session, ON_ERROR_STOP.
+// Quiet: without -q the SET prints its "SET" tag ahead of Provision's
+// existence row, the check misreads it and re-provision CREATEs a live role.
 func (pg) psql(i Instance, stmts []string) []string {
 	args := []string{
 		"env",
 		"PGPASSWORD=" + i.AdminPassword,
 		"psql",
+		"-q",
 		"-U",
 		i.AdminUser,
 		"-d",

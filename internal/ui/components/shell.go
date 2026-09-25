@@ -1,6 +1,7 @@
 package components
 
 import (
+	"context"
 	"encoding/json"
 	"strings"
 	"unicode"
@@ -34,6 +35,29 @@ type Shell struct {
 	// nil = closed. Tab is the ?tab= it shows.
 	Drawer templ.Component
 	Tab    string
+	// Theme is the viewer's users.theme: light or dark pin the look, system
+	// leaves it to the OS. "" = read it off the context (the error page).
+	Theme string
+}
+
+type themeKey struct{}
+
+// WithTheme leaves the viewer's theme on ctx, where the error page (hamr
+// renders it with no request) still finds it: v0's ThemeContext.
+func WithTheme(ctx context.Context, theme string) context.Context {
+	return context.WithValue(ctx, themeKey{}, theme)
+}
+
+// themeClass is v0's class on <html>: "dark", "light", or "" for no class,
+// which hands the look to prefers-color-scheme (system, signed out).
+func themeClass(ctx context.Context, theme string) string {
+	if theme == "" {
+		theme, _ = ctx.Value(themeKey{}).(string)
+	}
+	if theme == "light" || theme == "dark" {
+		return theme
+	}
+	return ""
 }
 
 // Link is one navigation target.

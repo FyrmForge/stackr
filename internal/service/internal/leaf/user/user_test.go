@@ -113,6 +113,25 @@ func TestFirstAccountIsAdmin(t *testing.T) {
 	}
 }
 
+// A theme is one of three words; anything else is refused and the stored
+// one kept.
+func TestSetTheme(t *testing.T) {
+	st := servicetest.Store(t)
+	l := user.New(st.Users, st.Sessions, st.APIKeys)
+	u := seed(t, st, "a@x.io", false)
+	if err := l.SetTheme(ctx, u.ID, "light"); err != nil {
+		t.Fatal(err)
+	}
+	for _, bad := range []string{"", "blue", "Dark", "system "} {
+		if _, ok := errs.IsInvalid(l.SetTheme(ctx, u.ID, bad)); !ok {
+			t.Errorf("SetTheme(%q) not refused as invalid", bad)
+		}
+	}
+	if got, _ := l.Get(ctx, u.ID); got.Theme != "light" {
+		t.Errorf("theme = %q, want light", got.Theme)
+	}
+}
+
 // B16: one "loses powers" rule for demote and disable. Both close every
 // session and key; the last admin cannot lose them.
 func TestLosePowers(t *testing.T) {

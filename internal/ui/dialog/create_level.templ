@@ -59,7 +59,7 @@ templ InstallConnector(v InstallConnectorView) {
 				// templint:ignore no-native-form-actions -- GitHub's manifest flow requires a browser form POST
 				<form method="post" action={ templ.SafeURL(v.Action) } class="space-y-4">
 					<input type="hidden" name="manifest" value={ v.Manifest }/>
-					<p class="text-sm text-slate-500">GitHub creates the app, then sends you back here.</p>
+					<p class="text-sm text-rw-muted">GitHub creates the app, then sends you back here.</p>
 					@c.Submit("Continue on GitHub")
 				</form>
 			}

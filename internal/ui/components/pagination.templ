@@ -15,7 +15,7 @@ templ Pagination(p PageNav) {
 		} else {
 			<span></span>
 		}
-		<span class="text-slate-500">{ p.Label }</span>
+		<span class="text-rw-muted">{ p.Label }</span>
 		if p.Next != "" {
 			@NavLink(Link{Label: "Next", Href: p.Next})
 		} else {

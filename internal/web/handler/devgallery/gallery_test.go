@@ -30,7 +30,6 @@ func TestGalleryRendersEveryComponent(t *testing.T) {
 	for component, marker := range map[string]string{
 		"layout":        `id="shell-header"`,
 		"flash":         "<flash-toast",
-		"theme toggle":  "<theme-toggle",
 		"form field":    `id="error-email"`,
 		"form error":    "Please fix the errors below.",
 		"disabled why":  "Owned by stackr-compose.yml",

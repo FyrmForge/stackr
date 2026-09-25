@@ -107,3 +107,16 @@ class LogPane extends HTMLElement {
 }
 
 customElements.define("log-pane", LogPane);
+
+// A page going away closes its streams itself: left to the browser, the sse
+// extension logs each torn-down stream as an `Event` console error (DECIDE
+// 138). Every [sse-connect] on the page, the graph's and job status's too.
+// A page kept for back/forward (persisted) keeps them, so a restore
+// reconnects.
+type Internal = { "htmx-internal-data"?: { sseEventSource?: EventSource } };
+addEventListener("pagehide", (e: PageTransitionEvent) => {
+  if (e.persisted) return;
+  for (const el of document.querySelectorAll("[sse-connect]")) {
+    (el as Element & Internal)["htmx-internal-data"]?.sseEventSource?.close();
+  }
+});

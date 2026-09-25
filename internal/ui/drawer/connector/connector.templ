@@ -14,25 +14,28 @@ type SettingsView struct {
 }
 
 templ Settings(v SettingsView) {
-	<div class="space-y-6" id="tab-settings">
-		<p class="text-sm text-slate-500">GitHub App on { v.Host }.</p>
-		<form hx-post={ v.Base + "/rename" } hx-target={ "#" + c.DrawerRoot } hx-swap="outerHTML" class="space-y-3">
-			@c.Field(c.FieldView{Name: "name", Label: "Name", Value: v.Name, Required: true, Disabled: v.Base == "", Why: "Renaming needs write."})
-			if v.Base != "" {
-				@c.Submit("Rename")
-			}
-		</form>
+	<div id="tab-settings">
+		@c.Section("Connector", "organization", "A private GitHub App for this organization, so there are no tokens to copy around.") {
+			<form hx-post={ v.Base + "/rename" } hx-target={ "#" + c.DrawerRoot } hx-swap="outerHTML" class="space-y-4">
+				@c.Field(c.FieldView{Name: "name", Label: "Name", Value: v.Name, Required: true, Help: "GitHub App on " + v.Host + ".", Disabled: v.Base == "", Why: "GitHub App on " + v.Host + ". Renaming needs write."})
+				if v.Base != "" {
+					<button type="submit" class="btn btn-primary btn-sm">Rename</button>
+				}
+			</form>
+		}
 		if v.Base != "" {
-			<section class="space-y-2">
-				<h3 class="font-semibold">Delete</h3>
-				<p class="text-sm text-slate-500">A stack or tile that clones through it stops building.</p>
+			@c.DangerSection("A stack or tile that clones through it stops building.", v.Host, "The app stays installed on GitHub; uninstall it there too.") {
 				@c.Confirm(v.Delete)
-			</section>
+			}
 		}
 	</div>
 }
 
 // ponytail: no verb lists an installation's repos yet.
 templ Repos() {
-	<p class="text-sm text-slate-500" id="tab-repos">The repos this app can reach are listed on GitHub, under the app's installation.</p>
+	<div id="tab-repos">
+		@c.Section("Repositories", "organization", "The repos this app can reach are listed on GitHub, under the app's installation.") {
+			<p class="text-sm text-rw-faint">Pick a repo when you create a service tile.</p>
+		}
+	</div>
 }

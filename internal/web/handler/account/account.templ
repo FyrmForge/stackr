@@ -2,11 +2,13 @@ package account
 
 import c "github.com/FyrmForge/stackr/internal/ui/components"
 
-// PageView is v0's account settings: a nav beside one tab (profile or keys).
+// PageView is v0's account settings: a nav beside one tab (profile, keys
+// or appearance).
 type PageView struct {
-	Tab   string // profile | keys
+	Tab   string // profile | keys | appearance
 	Name  string
 	Email string
+	Theme string // system | light | dark
 	Pw    PasswordView
 	Keys  KeysView
 }
@@ -29,6 +31,14 @@ type Key struct{ ID, Name, Org, Created string }
 var tabs = []struct{ Key, Label, Sub string }{
 	{"profile", "Profile", "Your details and sign-in credentials."},
 	{"keys", "API keys", "Programmatic access for the CLI and CI."},
+	{"appearance", "Appearance", "How stackr looks for you."},
+}
+
+// themes are v0's three choices, in its order and words.
+var themes = []struct{ Value, Label string }{
+	{"system", "Match my system"},
+	{"light", "Light"},
+	{"dark", "Dark"},
 }
 
 func sub(tab string) string {
@@ -58,7 +68,11 @@ templ page(v PageView) {
 				}
 			</nav>
 			<div class="settings-body">
-				if v.Tab == "keys" {
+				if v.Tab == "appearance" {
+					@c.Section("Theme", "you", "Applies wherever you sign in.") {
+						@appearance(v.Theme)
+					}
+				} else if v.Tab == "keys" {
 					@c.Section("Your keys", "you", "Mint a key from an organization's drawer (keys tab) or with stackr login. A key is bound to that organization.") {
 						@keyList(v.Keys)
 					}
@@ -101,6 +115,22 @@ templ password(v PasswordView) {
 		@c.Field(c.FieldView{Name: "confirm_password", Label: "Confirm new password", Type: "password", Required: true, Error: v.Errors["confirm_password"]})
 		<button type="submit" class="btn btn-primary btn-sm">Change password</button>
 	}
+}
+
+// appearance is v0's theme radio. Saving reloads the page (the handler
+// redirects), the only way the <html> class changes.
+templ appearance(theme string) {
+	<form hx-post="/account/appearance" class="space-y-4">
+		<div class="space-y-2" role="radiogroup" aria-label="Theme">
+			for _, o := range themes {
+				<label class="flex items-center gap-2 text-sm text-rw-muted cursor-pointer">
+					<input type="radio" name="theme" value={ o.Value } checked?={ theme == o.Value } class="accent-rw-accent"/>
+					{ o.Label }
+				</label>
+			}
+		</div>
+		<button type="submit" class="btn btn-primary btn-sm">Save</button>
+	</form>
 }
 
 templ keyList(v KeysView) {

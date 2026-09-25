@@ -351,7 +351,7 @@ comparison against `shots/` after each:
    drawer, layout constants.
 3. [x] Drawers + pages (`gap-drawers-pages.md`): panel header and underline
    tabs, forms, lists, each tab's content.
-4. [ ] Sweep + theme: every stock-Tailwind / `dark:` utility replaced by rw
+4. [x] Sweep + theme: every stock-Tailwind / `dark:` utility replaced by rw
    tokens (P13); theme per user as v0 does it (P14 option b: `users.theme`,
    Appearance on the account page, `<html>` class server-written;
    supersedes DECIDE 73).
@@ -476,7 +476,8 @@ with rates are in `p2-env-dark-r2.png`):
    `args[0]` as the tile for every tile-level verb, so `tile domain add
    <host>`, `set`, `caddy`, `rm` and `slice attach <tile>` 404. Options:
    (a) fix: only when the Use's first arg is `[tile]`/`<tile>`; (b) leave.
-   Lean (a), not canvas work so not done here.
+   Lean (a), not canvas work so not done here. **Fixed in phase 4 (a),
+   `TestTileArgOnlyWhereUseNamesIt`; checked on the VM.**
 160. **(step 6e) Create buttons v0 did not have:** "+ Create environment"
    on the stack bar and "+ Create connector" on the org bar. Options:
    (a) keep; (b) drop, create from Settings. Lean (a).
@@ -640,6 +641,82 @@ the org, stack, env and admin drawers, the account page and the auth pages
 172. **(step 6e) The invite link shows once, as a path.** v0 toasted the
    full URL and kept a Copy invite on the row; the token is not kept.
    Options: (a) keep; (b) print the full URL. Lean (b).
+
+Phase 4 done (2026-09-25, uncommitted in the `rewrite-step-6e` tree; VM
+runs v0.0.29 (adds only the psql fix); shots and UI checks on v0.0.28 in
+scratchpad `v0-ui/after-phase4/`, dark and light at 1440x900, plus
+`*-system-os{light,dark}` for the system theme): the P13
+sweep, P14 theme per user, DECIDE 159 and the DECIDE 138 leftovers.
+- Landed: the sweep (stock-Tailwind and `dark:` utilities gone from
+  pagination, empty state, card, about, the create-level dialog and the
+  gallery); the connector drawer (Settings as a `Section` plus Danger
+  zone, the connector kind icon, "github app") and the proxy drawer (a
+  Routes section, rows with chips) in v0's look. Theme per user (P14
+  option b): `SetTheme` (dark, light or system; the one new verb), `POST
+  /account/appearance`, an Appearance tab on the account page (three
+  radios, "Theme saved."), the `<html>` class written by `render.Shell`
+  from `users.theme` (none for system, so the OS decides), and the
+  `render.Theme` middleware puts it on the context so error pages match.
+  The rail's theme toggle and `theme_toggle.templ` are gone. CLI: `at()`
+  takes the tile from `args[0]` only when the verb's Use names `<tile>`
+  first (`cmd/stackr/stack.go`). `<log-pane>` closes every
+  `[sse-connect]` stream on `pagehide` (not for a back/forward keep), so
+  leaving a streaming page no longer logs an `Event` error.
+- Fixed on the way (found by the CLI proof): re-provisioning a postgres
+  slice always failed with "role already exists". psql printed the SET's
+  tag ahead of the existence row, the check misread it and CREATEd the
+  live role, so every deploy of a tile holding a slice failed. Fix:
+  `psql -q` (`flow/managed/postgres.go`), asserted in `managed_test.go`.
+- Checked on the VM: dark gives `class="dark"`, light `class="light"`,
+  system no class and follows the OS (`30-env-canvas-system-os*`,
+  `70d-account-appearance-system-os*`); a 404 takes the user's theme,
+  signed-out pages carry none; admin is left on system. CLI with a minted
+  key: `tile domain add` / `rm` work and `tile slice attach` answers 202
+  (both 404 before); on v0.0.29 the whoami redeploy logs "slice p4proof
+  on db is in place" and detach drops the role; the key is revoked. No
+  `Event` console error when leaving a streaming page.
+- Still differs, needs a call: DECIDE 173 to 178 (179 is from the CLI
+  proof, not the UI). Filed earlier: password
+  eye (141, `01-login`), Register link (170, `01-login`). No feature: the
+  rail's org switcher, search and notifications (`62-root-canvas`);
+  Notifications on the account page (`70a-account-profile`); v0's scope
+  checkboxes on CLI authorize (keys carry a role, `77-cli-authorize`).
+- Resolved: DECIDE 73 (P14 option b), 143 (the toggle is gone), 159 and
+  138 (marked where they sit).
+- Slip: an early `git rm --cached` on the theme_toggle files staged their
+  deletion; undone at once with `git restore --staged`. No other git
+  writes.
+- Gates: `make build`, `make lint` (0 issues), `make test`, `make
+  templint` all clean, before v0.0.28 and again before v0.0.29. Element
+  lines: log-pane 122 (was 109), theme-toggle 55 (unused, DECIDE 174); the
+  rest unchanged.
+
+173. **(step 6e) The theme is web-only.** `SetTheme` has no API route and
+   no CLI verb. Options: (a) keep; (b) add an API route and a CLI flag.
+   Lean (a).
+174. **(step 6e) `<theme-toggle>` is unused** but still in `ui/ts/`, the
+   element whitelist (`elements_test.go`) and `ui-plan.md`. Options: (a)
+   delete it and drop it from the whitelist; (b) keep. Lean (a).
+175. **(step 6e) The proxy drawer is the rewrite's own:** v0 only focused
+   the proxy card. It now wears v0's look (`57-proxy-routes`). Options:
+   (a) keep; (b) drop it, focus the card as v0 did. Lean (a).
+176. **(step 6e) The connector's Repos tab is a placeholder:** no verb
+   lists an installation's repos (`58-connector-repos`). Options: (a)
+   keep the placeholder; (b) hide the tab until a verb exists. Lean (b).
+177. **(step 6e) Signed-in auth pages show the rail:** CLI authorize, and
+   the invite page when signed in; v0 drew a bare auth card
+   (`77-cli-authorize`). Options: (a) keep; (b) render them without the
+   rail. Lean (b).
+178. **(step 6e) `/about` logs a CSP error:** the static page sends
+   `default-src 'self'` only, so htmx's indicator `<style>` is blocked
+   (`75-about`; predates phase 4). The gallery's sample streams answer
+   HTML and log MIME and `Event` errors (dev only, keep). Options: (a)
+   `includeIndicatorStyles: false` in the htmx config; (b) send the
+   dynamic pages' CSP on static pages too. Lean (a).
+179. **(step 6e) A failed attach stays attached:** the phase 4 proof's
+   attach job failed at the consumer deploy, yet the slice row and role
+   stayed. Options: (a) keep, a redeploy retries; (b) roll the slice back
+   when the job fails. Lean (b).
 
 ## DECIDE:
 
@@ -1021,7 +1098,8 @@ Raised by step 6 session A (builder took the lean; flip any):
    `<theme-toggle>` applies a stored "light" when its module runs, so a
    light user sees dark for a moment on a full load (no inline script
    under the CSP). Options: (a) keep; (b) a theme cookie read by
-   `render.Shell`. Lean (a).
+   `render.Shell`. Lean (a). **Resolved in step 6e phase 4 by P14 option
+   b: `users.theme` written as the `<html>` class, no flash, no toggle.**
 74. **(step 6) Log filters are not in the URL.** `<log-pane>` starts from
    the `level`/`search` the handler put in the view; changing them does
    not rewrite the URL. Options: (a) keep; (b) the element pushes them
@@ -1164,6 +1242,6 @@ Raised by step 6 session D (builder took the lean; flip any):
 135. **(step 6) Live tabs refetch themselves.** A live job refetches its tab on `sse:end`; the runs tab polls every 2 s while a run is live. Options: (a) keep; (b) a run SSE stream. Lean (a).
 136. **(step 6) Traffic counts a new tuple in full after the seed tick.** A long-lived connection whose end only now maps to a tile (a new container) spikes once. Options: (a) keep; (b) also track unmapped tuples. Lean (a).
 137. **(step 6) Re-running the installer does not upgrade.** It is a no-op while `stackr` and `stackr-proxy` exist; the smoke removes them first. Options: (a) keep, upgrade is the admin route; (b) the installer swaps an older image. Lean (a).
-138. **(step 6) Small UI misses from the smoke, not fixed:** the function status tab offers Restart/Stop; an admin can disable themselves; log lines show docker's E/O prefix; htmx logs an `Event` console error when a page's SSE stream is torn down on navigation. Options: (a) fix in step 7; (b) keep. Lean (a).
+138. **(step 6) Small UI misses from the smoke, not fixed:** the function status tab offers Restart/Stop; an admin can disable themselves; log lines show docker's E/O prefix; htmx logs an `Event` console error when a page's SSE stream is torn down on navigation. Options: (a) fix in step 7; (b) keep. Lean (a). **Resolved in step 6e: the E/O prefix in phase 3a, admin self-disable in 3b; in phase 4 the function tile offers no Restart/Stop and `<log-pane>` closes the page's streams on `pagehide`, so no `Event` error (checked on the VM).**
 139. **(step 6) Handler audit output is not empty.** Every remaining hit is a false positive, explained in commits a013293 and the progress commit (three new templ `if set` hits: job refresher, create-tile command, runs poller). Options: (a) keep; (b) teach the script those shapes. Lean (b).
 140. **(step 6) Editing an image tile's tag does nothing on redeploy.** Once a release pins the tile, `deploy.Redeploy` runs the pinned digest; a new `image_ref` (API PATCH; the web has no field for it) only lands when image watch's "Check now" derives a release and that release is promoted. The image tab also shows "running digest: none" for a running tile. Options: (a) keep, image watch is the path; (b) `UpdateTile` derives a release when `image_ref` changes, and the web gets an image field. Lean (b), step 7. **Fixed 2026-09-24 (v0.0.14, checked on the VM):** an image pin's `repo` now holds the ref it came from, tag included; a plain deploy/redeploy whose pin no longer matches the tile's ref runs the tag and pins it (one release); promote and rollback still run the release as pinned. The image tab has an Image field. "Running digest" and the graph's new-version chip read the env's release pin (the images table only knows builds, so the chip never lit for pulled tiles). Promote and rollback also write a pin's tag back onto a tile edited outside the stack file, so a redeploy after a rollback stays put (v0.0.15, checked on the VM: roll back #6→#5, then Deploy, stays on v1.10.1).

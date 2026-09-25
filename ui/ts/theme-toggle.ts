@@ -1,3 +1,4 @@
+// Unused since the theme is per user (Account > Appearance, <html> class server-written); kept for the element whitelist.
 // <theme-toggle> flips the theme. <html> always carries exactly one of
 // "dark" / "light": the v0 palette reads no class as follow-the-OS, and the
 // unswept dark: utilities key on "dark", so a bare <html> would paint one

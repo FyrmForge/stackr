@@ -1,10 +1,12 @@
 // Package account is the signed-in user's own page, v0's account
-// settings: the profile (read-only), the password, and their API keys.
+// settings: the profile (read-only), the password, their API keys and the
+// theme.
 package account
 
 import (
 	"net/http"
 
+	hamrmw "github.com/FyrmForge/hamr/pkg/middleware"
 	"github.com/FyrmForge/hamr/pkg/respond"
 	"github.com/labstack/echo/v4"
 
@@ -24,10 +26,13 @@ func me(c echo.Context) service.User {
 	return middleware.Principal(c).User
 }
 
-// GET /account?tab=profile|keys
+// GET /account?tab=profile|keys|appearance
 func (h *handler) Page(c echo.Context) error {
 	v := PageView{Tab: "profile", Name: me(c).Name, Email: me(c).Email}
-	if c.QueryParam("tab") == "keys" {
+	switch c.QueryParam("tab") {
+	case "appearance":
+		v.Tab, v.Theme = "appearance", me(c).Theme
+	case "keys":
 		keys, err := h.keys(c)
 		if err != nil {
 			return middleware.HTTPError(err)
@@ -35,6 +40,16 @@ func (h *handler) Page(c echo.Context) error {
 		v.Tab, v.Keys = "keys", keys
 	}
 	return render.Page(c, http.StatusOK, "Account", page(v))
+}
+
+// POST /account/appearance (theme) saves and reloads the page, so the new
+// class lands on <html>.
+func (h *handler) Appearance(c echo.Context) error {
+	if err := h.orch.SetTheme(c.Request().Context(), me(c).ID, c.FormValue("theme")); err != nil {
+		return middleware.HTTPError(err)
+	}
+	hamrmw.SetFlash(c, "Theme saved.", hamrmw.FlashSuccess)
+	return respond.Redirect(c, "/account?tab=appearance")
 }
 
 // POST /account/password (current_password, password, confirm_password)

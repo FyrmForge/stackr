@@ -23,12 +23,12 @@ type VolumeCardView struct {
 
 templ TileCard(t TileCardView) {
 	<div class="space-y-1">
-		<a href={ templ.SafeURL(t.Href) } hx-get={ t.Href } hx-target="#main" hx-push-url="true" class="card block hover:border-slate-400 dark:hover:border-slate-600">
+		<a href={ templ.SafeURL(t.Href) } hx-get={ t.Href } hx-target="#main" hx-push-url="true" class="card block">
 			<div class="flex items-center justify-between gap-2">
-				<span class="font-medium">{ t.Name }</span>
+				<span class="font-medium text-rw-text">{ t.Name }</span>
 				@TileBadge(t.State)
 			</div>
-			<p class="mt-1 truncate text-xs text-slate-500">{ t.Kind } · { t.Source }</p>
+			<p class="mt-1 truncate text-xs text-rw-faint">{ t.Kind } · { t.Source }</p>
 		</a>
 		for _, v := range t.Volumes {
 			<div class="ml-4">
@@ -39,13 +39,13 @@ templ TileCard(t TileCardView) {
 }
 
 templ VolumeCard(v VolumeCardView) {
-	<a href={ templ.SafeURL(v.Href) } hx-get={ v.Href } hx-target="#main" hx-push-url="true" class="card block py-2 text-sm hover:border-slate-400 dark:hover:border-slate-600">
+	<a href={ templ.SafeURL(v.Href) } hx-get={ v.Href } hx-target="#main" hx-push-url="true" class="card block py-2 text-sm">
 		<div class="flex items-center justify-between gap-2">
 			<span>{ v.Name }</span>
-			<span class="text-xs text-slate-500">{ v.Size }</span>
+			<span class="text-xs text-rw-faint">{ v.Size }</span>
 		</div>
 		if v.Orphaned {
-			<p class="mt-1 text-xs text-amber-700 dark:text-amber-400">orphaned: kept until retention runs out</p>
+			<p class="mt-1 text-xs text-rw-warn">orphaned: kept until retention runs out</p>
 		}
 	</a>
 }
