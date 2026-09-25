@@ -13,6 +13,8 @@ type ConfirmView struct {
 	Word    string // type this to enable Confirm; "" = a plain confirm
 	Action  string // hx-post on "confirmed"
 	Target  string
+	Quiet   bool   // the opener is a ghost button (a header Stop / Restart)
+	Vals    string // hx-vals JSON posted with the action; "" = none
 }
 
 // Confirm wraps <confirm-dialog>. The element fires "confirmed" (bubbling)
@@ -34,9 +36,17 @@ func swapOf(target string) string {
 // confirm is v0's typed Modal look (.modal-panel/head/body/foot) on a
 // native <dialog>; the X in the head is a second [data-cancel].
 templ confirm(v ConfirmView, swap string) {
-	<div hx-post={ v.Action } hx-trigger="confirmed" hx-target={ v.Target } hx-swap={ swap }>
+	<div
+		hx-post={ v.Action }
+		hx-trigger="confirmed"
+		hx-target={ v.Target }
+		hx-swap={ swap }
+		if v.Vals != "" {
+			hx-vals={ v.Vals }
+		}
+	>
 		<confirm-dialog word={ v.Word }>
-			<button type="button" class="btn btn-danger btn-sm" data-open>{ v.Button }</button>
+			<button type="button" class={ "btn btn-sm", templ.KV("btn-ghost", v.Quiet), templ.KV("btn-danger", !v.Quiet) } data-open>{ v.Button }</button>
 			<dialog class="modal-panel text-rw-text">
 				<div class="modal-head">
 					<div class="min-w-0">

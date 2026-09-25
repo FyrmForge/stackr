@@ -1,31 +1,37 @@
 package components
 
 // TableView is a plain table. Cells are components so a cell can be a
-// link, a badge or a button; Text wraps a string. No rows shows Empty.
+// link, a badge or a button; Text wraps a string. No rows shows EmptyText
+// (v0's one sentence) when set, else Empty.
 type TableView struct {
-	Headers []string
-	Rows    [][]templ.Component
-	Empty   EmptyView
+	Headers   []string
+	Rows      [][]templ.Component
+	Empty     EmptyView
+	EmptyText string
 }
 
+// Table is v0's list table: faint headers over a hairline, rows split by
+// a fainter one, a raised wash on hover.
 templ Table(t TableView) {
-	if len(t.Rows) == 0 {
+	if len(t.Rows) == 0 && t.EmptyText != "" {
+		<p class="text-sm text-rw-faint">{ t.EmptyText }</p>
+	} else if len(t.Rows) == 0 {
 		@EmptyState(t.Empty)
 	} else {
-		<div class="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-800">
-			<table class="w-full text-left text-sm">
-				<thead class="bg-slate-100 text-slate-600 dark:bg-slate-900 dark:text-slate-400">
-					<tr>
+		<div class="panel overflow-x-auto">
+			<table class="w-full text-sm">
+				<thead>
+					<tr class="text-left text-rw-faint border-b border-rw-border">
 						for _, h := range t.Headers {
-							<th scope="col" class="px-3 py-2 font-medium">{ h }</th>
+							<th scope="col" class="py-3 px-4 font-medium">{ h }</th>
 						}
 					</tr>
 				</thead>
-				<tbody class="divide-y divide-slate-200 dark:divide-slate-800">
+				<tbody>
 					for _, row := range t.Rows {
-						<tr>
+						<tr class="border-b border-rw-border/60 last:border-0 hover:bg-rw-raised/50 transition-colors">
 							for _, cell := range row {
-								<td class="px-3 py-2">
+								<td class="py-3 px-4 text-rw-text">
 									@cell
 								</td>
 							}
@@ -40,4 +46,21 @@ templ Table(t TableView) {
 // Text is a string as a table cell.
 templ Text(s string) {
 	{ s }
+}
+
+// Facts is v0's connection panel: label / value rows in a mono panel.
+templ Facts() {
+	<div class="panel p-5 space-y-3 text-sm font-mono">
+		{ children... }
+	</div>
+}
+
+// Fact is one row of Facts (v0 connRow); an empty value draws nothing.
+templ Fact(label, value string) {
+	if value != "" {
+		<div class="flex gap-4">
+			<span class="w-36 shrink-0 text-rw-muted">{ label }</span>
+			<span class="min-w-0 text-rw-text break-all">{ value }</span>
+		</div>
+	}
 }

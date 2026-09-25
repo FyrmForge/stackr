@@ -36,56 +36,167 @@ type SecretRowView struct {
 	Warn       string
 }
 
+// ParamEditor is v0's variables editor (VarsEdit, page mode): Variables
+// then Secrets, one panel row each, Edit opening the row in place, a
+// dashed "+ Add variable" at the bottom. No reveal, copy or generate: a
+// secret row is a mask and a chip, and its box is blank (blank keeps it).
+// Every row's Save posts the one form.
 templ ParamEditor(v ParamEditorView) {
-	<form id="param-editor" hx-post={ v.Action } hx-target="#param-editor" hx-swap="outerHTML" class="space-y-4">
+	<form id="param-editor" hx-post={ v.Action } hx-target="#param-editor" hx-swap="outerHTML">
 		if v.ReadOnly {
-			<p class="banner">{ v.Why }</p>
+			<p class="banner mb-4">{ v.Why }</p>
 		}
-		<fieldset disabled?={ v.ReadOnly } class="space-y-2">
-			<legend class="sr-only">Params</legend>
-			for _, p := range v.Params {
-				@paramRow(p.Collection, p.Name, p.DecidedBy, p.Overrides, p.Warn, v.DeleteAction) {
-					<input class="input" name={ "param." + p.Collection + "." + p.Name } value={ p.Value } aria-label={ p.Collection + "." + p.Name }/>
-				}
+		<fieldset disabled?={ v.ReadOnly }>
+			<legend class="sr-only">Params and secrets</legend>
+			<h4 class="text-xs uppercase tracking-wide text-rw-faint mb-2">Variables</h4>
+			if len(v.Params) == 0 {
+				<p class="text-sm text-rw-faint mb-5">Nothing here yet.</p>
+			} else {
+				<ul class="space-y-2 mb-5">
+					for _, p := range v.Params {
+						@paramRow(v, p)
+					}
+				</ul>
 			}
-			for _, s := range v.Secrets {
-				@paramRow(s.Collection, s.Name, s.DecidedBy, s.Overrides, s.Warn, v.DeleteAction) {
-					<input class="input" type="password" autocomplete="off" name={ "secret." + s.Collection + "." + s.Name } placeholder={ secretPlaceholder(s.Set) } aria-label={ s.Collection + "." + s.Name + " (secret)" }/>
-				}
+			<h4 class="text-xs uppercase tracking-wide text-rw-faint mb-2">Secrets</h4>
+			if len(v.Secrets) == 0 {
+				<p class="text-sm text-rw-faint mb-5">Nothing here yet.</p>
+			} else {
+				<ul class="space-y-2 mb-5">
+					for _, s := range v.Secrets {
+						@secretRow(v, s)
+					}
+				</ul>
 			}
-			<div class="grid grid-cols-[1fr_1fr_8rem_2fr] gap-2 pt-2">
-				<input class="input" name="new_collection" placeholder="collection" aria-label="New param collection"/>
-				<input class="input" name="new_name" placeholder="name" aria-label="New param name"/>
-				<select class="input" name="new_kind" aria-label="New param kind">
-					<option value="param">param</option>
-					<option value="secret">secret</option>
-				</select>
-				<input class="input" name="new_value" placeholder="value" autocomplete="off" aria-label="New param value"/>
-			</div>
-			@Submit("Save")
+			if !v.ReadOnly {
+				@newRow()
+			}
 		</fieldset>
 	</form>
 }
 
-templ paramRow(collection, name, decidedBy string, overrides bool, warn, deleteAction string) {
-	<div class="grid grid-cols-[2fr_3fr_auto] items-start gap-2">
-		<div class="pt-2 text-sm">
-			<span class="font-mono">{ collection }.{ name }</span>
-			<span class="block text-xs text-slate-500">
-				from { decidedBy }
-				if overrides {
-					· overrides
-				}
-			</span>
-			if warn != "" {
-				<span class="block text-xs text-amber-700 dark:text-amber-400">{ warn }</span>
-			}
-		</div>
-		{ children... }
-		if deleteAction != "" {
-			<button type="button" class="btn" hx-post={ deleteAction } hx-vals={ paramKey(collection, name) } hx-target="#param-editor" hx-swap="outerHTML" aria-label={ "Delete " + collection + "." + name }>Delete</button>
+templ paramRow(v ParamEditorView, p ParamRowView) {
+	<li class="panel px-3 py-2.5 flex items-start gap-2 has-[details[open]]:border-rw-accent/60">
+		if v.ReadOnly {
+			<div class="flex-1 min-w-0 flex flex-wrap items-center gap-2">
+				@rowName(p.Collection, p.Name, false)
+				<span class="font-mono text-xs text-rw-muted truncate">{ p.Value }</span>
+				@rowFrom(p.DecidedBy, p.Overrides)
+			</div>
+		} else {
+			<details class="group flex-1 min-w-0">
+				<summary class="flex flex-wrap items-center gap-2 cursor-pointer list-none select-none">
+					@rowName(p.Collection, p.Name, false)
+					<span class="font-mono text-xs text-rw-muted truncate">{ p.Value }</span>
+					@rowFrom(p.DecidedBy, p.Overrides)
+					@editLabel("Edit")
+				</summary>
+				<div class="flex flex-wrap items-center gap-2 mt-2">
+					<input class="input font-mono flex-1 min-w-32" name={ "param." + p.Collection + "." + p.Name } value={ p.Value } autocomplete="off" aria-label={ p.Collection + "." + p.Name }/>
+					<button type="submit" class="btn btn-primary btn-sm">Save</button>
+				</div>
+			</details>
+			@deleteRow(v, p.Collection, p.Name)
 		}
-	</div>
+		if p.Warn != "" {
+			<p class="basis-full text-xs text-rw-warn">{ p.Warn }</p>
+		}
+	</li>
+}
+
+// secretRow is a mask and a chip, or v0's danger row when none is stored.
+templ secretRow(v ParamEditorView, s SecretRowView) {
+	<li class={ "panel px-3 py-2.5 flex flex-wrap items-start gap-2 has-[details[open]]:border-rw-accent/60", templ.KV("border-rw-danger/60", !s.Set) }>
+		if v.ReadOnly {
+			<div class="flex-1 min-w-0 flex flex-wrap items-center gap-2">
+				@secretSummary(s)
+			</div>
+		} else {
+			<details class="group flex-1 min-w-0">
+				<summary class="flex flex-wrap items-center gap-2 cursor-pointer list-none select-none">
+					@secretSummary(s)
+					if s.Set {
+						@editLabel("Edit")
+					} else {
+						@editLabel("Set")
+					}
+				</summary>
+				<div class="flex flex-wrap items-center gap-2 mt-2">
+					<input class="input font-mono flex-1 min-w-32" type="password" autocomplete="new-password" name={ "secret." + s.Collection + "." + s.Name } placeholder={ secretPlaceholder(s.Set) } aria-label={ s.Collection + "." + s.Name + " (secret)" }/>
+					<button type="submit" class="btn btn-primary btn-sm">Save</button>
+				</div>
+			</details>
+			@deleteRow(v, s.Collection, s.Name)
+		}
+		if s.Warn != "" {
+			<p class="basis-full text-xs text-rw-muted">{ s.Warn }</p>
+		}
+	</li>
+}
+
+templ secretSummary(s SecretRowView) {
+	@rowName(s.Collection, s.Name, !s.Set)
+	if s.Set {
+		<span class="font-mono text-xs text-rw-muted select-none" aria-label="hidden">••••••••</span>
+		@Chip("secret", "warn")
+	} else {
+		@Chip("not set", "danger")
+	}
+	@rowFrom(s.DecidedBy, s.Overrides)
+}
+
+templ rowName(collection, name string, unset bool) {
+	<span class={ "font-mono text-sm", templ.KV("text-rw-text", !unset), templ.KV("text-rw-danger", unset) }>{ collection }.{ name }</span>
+}
+
+templ rowFrom(decidedBy string, overrides bool) {
+	if decidedBy != "" {
+		<span class="text-[10px] text-rw-faint">
+			from { decidedBy }
+			if overrides {
+				· overrides
+			}
+		</span>
+	}
+}
+
+// editLabel is the summary's button look: Edit (or Set) closed, Close open.
+templ editLabel(word string) {
+	<span class="ml-auto btn btn-ghost btn-sm">
+		<span class="group-open:hidden">{ word }</span>
+		<span class="hidden group-open:inline">Close</span>
+	</span>
+}
+
+templ deleteRow(v ParamEditorView, collection, name string) {
+	if v.DeleteAction != "" {
+		@Confirm(ConfirmView{
+			Button:  "Delete",
+			Title:   "Delete " + collection + "." + name + "?",
+			Warning: "Anything referencing it fails on the next deploy.",
+			Action:  v.DeleteAction,
+			Target:  "#param-editor",
+			Quiet:   true,
+			Vals:    paramKey(collection, name),
+		})
+	}
+}
+
+// newRow is v0's dashed "+ Add variable": the new row opens under it.
+templ newRow() {
+	<details class="group">
+		<summary class="btn btn-ghost btn-sm w-full border border-dashed border-rw-border cursor-pointer list-none select-none">+ Add variable</summary>
+		<div class="panel px-3 py-2.5 mt-2 border-rw-accent/60 flex flex-wrap items-center gap-2">
+			<input class="input font-mono !w-32" name="new_collection" placeholder="collection" aria-label="New param collection"/>
+			<input class="input font-mono flex-1 min-w-32" name="new_name" placeholder="NAME" aria-label="New param name"/>
+			<input class="input font-mono flex-1 min-w-32" name="new_value" placeholder="value" autocomplete="off" aria-label="New param value"/>
+			<select class="input !w-28" name="new_kind" aria-label="New param kind">
+				<option value="param">variable</option>
+				<option value="secret">secret</option>
+			</select>
+			<button type="submit" class="btn btn-primary btn-sm ml-auto">Save</button>
+		</div>
+	</details>
 }
 
 func secretPlaceholder(set bool) string {

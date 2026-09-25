@@ -1,12 +1,18 @@
 package tile
 
 import (
+	"bytes"
+	"encoding/json"
+	"maps"
+	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/labstack/echo/v4"
 
 	"github.com/FyrmForge/stackr/internal/service"
+	"github.com/FyrmForge/stackr/internal/service/errs"
 	comp "github.com/FyrmForge/stackr/internal/ui/components"
 	ui "github.com/FyrmForge/stackr/internal/ui/drawer/tile"
 	"github.com/FyrmForge/stackr/internal/web/render"
@@ -18,6 +24,27 @@ func when(t *time.Time) string {
 		return ""
 	}
 	return t.Local().Format("Jan 2 15:04")
+}
+
+// runKind: a cron or function keeps no container up; its runs are its life.
+func runKind(kind string) bool {
+	return kind == "cron" || kind == "function"
+}
+
+// pulls mirrors the tile leaf's Pulls: the artifact is a registry image the
+// row names, so the watcher has something to say about it.
+func pulls(t service.Tile) bool {
+	return t.Kind == "image" || (runKind(t.Kind) && t.GitURL == "")
+}
+
+// source is the header subtitle (v0 appSubtitle): the image a tile runs,
+// or the repo it builds.
+func source(t service.Tile) string {
+	if t.GitURL == "" {
+		return t.ImageRef
+	}
+	s := strings.TrimPrefix(t.GitURL, "https://")
+	return strings.TrimPrefix(s, "git@")
 }
 
 func replicas(s service.TileStatus) []ui.ReplicaView {
@@ -33,26 +60,37 @@ func replicas(s service.TileStatus) []ui.ReplicaView {
 	return out
 }
 
-func statusView(env string, s service.TileStatus) ui.StatusView {
+func statusView(env string, t service.Tile, s service.TileStatus, ds []service.Domain) ui.StatusView {
 	v := ui.StatusView{
 		Word:     s.Word,
 		Replicas: replicas(s),
-		NextRun:  when(s.NextRun),
-		Stopped:  s.Word == "stopped",
+		URLs:     domainRows(ds),
+		Ports:    strings.Fields(t.PublishedPorts),
+	}
+	if t.ContainerPort != 0 {
+		v.Port = strconv.Itoa(t.ContainerPort)
 	}
 	if s.LastJob != nil {
 		j := render.JobView(env, *s.LastJob)
 		v.Job = &j
-	}
-	if s.LastRun != nil {
-		v.LastRun = s.LastRun.Status + " · " + when(&s.LastRun.CreatedAt)
+		v.JobWhen = when(&s.LastJob.CreatedAt)
 	}
 	return v
 }
 
-func logsView(c echo.Context, base string, s service.TileStatus) ui.LogsView {
-	v := ui.LogsView{Replicas: replicas(s), Container: c.QueryParam("container"), Run: c.QueryParam("run")}
-	if v.Container == "" && len(v.Replicas) > 0 {
+// logsView follows a replica, or a run: the one asked for, else a run
+// kind's latest.
+func logsView(c echo.Context, base string, t service.Tile, s service.TileStatus, lastRun string) ui.LogsView {
+	v := ui.LogsView{
+		Replicas:  replicas(s),
+		Container: c.QueryParam("container"),
+		Run:       c.QueryParam("run"),
+		Runs:      runKind(t.Kind),
+	}
+	if v.Runs && v.Run == "" {
+		v.Run = lastRun
+	}
+	if !v.Runs && v.Container == "" && len(v.Replicas) > 0 {
 		v.Container = v.Replicas[0].ID
 	}
 	url := base + "/logs/stream?container=" + v.Container
@@ -63,57 +101,91 @@ func logsView(c echo.Context, base string, s service.TileStatus) ui.LogsView {
 	return v
 }
 
-func domainsView(ds []service.Domain, admin bool) ui.DomainsView {
-	v := ui.DomainsView{Admin: admin}
+func domainRows(ds []service.Domain) []ui.DomainRow {
+	var out []ui.DomainRow
 	for _, d := range ds {
-		v.Rows = append(v.Rows, ui.DomainRow{
-			ID:    d.ID,
-			Host:  d.Host,
-			Path:  d.Path,
-			Port:  strconv.Itoa(d.ContainerPort),
-			HTTPS: d.HTTPS,
-			Auto:  d.Auto,
-			Raw:   d.RawCaddy,
+		out = append(out, ui.DomainRow{
+			ID:       d.ID,
+			Host:     d.Host,
+			Path:     d.Path,
+			Port:     strconv.Itoa(d.ContainerPort),
+			HTTPS:    d.HTTPS,
+			Auto:     d.Auto,
+			Redirect: d.RedirectTo,
+			Raw:      d.RawCaddy,
 		})
 	}
+	return out
+}
+
+// envView is the tile's env as rows and as the editor's lines.
+func envView(blob string) ui.EnvView {
+	m := envMap(blob)
+	var v ui.EnvView
+	var lines []string
+	for _, k := range slices.Sorted(maps.Keys(m)) {
+		val := m[k]
+		v.Rows = append(v.Rows, ui.EnvRow{Name: k, Value: val, Ref: strings.Contains(val, "${{")})
+		if strings.Contains(val, "\n") {
+			v.Kept = append(v.Kept, k)
+			continue
+		}
+		lines = append(lines, k+"="+val)
+	}
+	v.Text = strings.Join(lines, "\n")
 	return v
 }
 
-// settingsView is the tile rung of the two tile-scope knobs. ponytail: no
-// verb answers the cascade at tile level, so "applies" is the tile's own
-// value or the server default.
-func settingsView(base string, t service.Tile, errors map[string]string) comp.SettingsFormView {
-	row := func(key, desc, typ, val string) comp.SettingRowView {
-		r := comp.SettingRowView{
-			Key:       key,
-			Desc:      desc,
-			Type:      typ,
-			Value:     val,
-			Effective: val,
-			DecidedBy: "tile",
-			Error:     errors[key],
+// envMap reads a tile's JSON map column; Validate keeps it a map of
+// strings, so a bad blob reads as empty.
+func envMap(blob string) map[string]string {
+	m := map[string]string{}
+	_ = json.Unmarshal([]byte(blob), &m)
+	return m
+}
+
+func encode(m map[string]string) string {
+	var b bytes.Buffer
+	e := json.NewEncoder(&b)
+	e.SetEscapeHTML(false)
+	_ = e.Encode(m)
+	return strings.TrimSpace(b.String())
+}
+
+// withLines is blob after the editor saved text (KEY=VALUE per line): the
+// lines replace the map, except a value on more than one line, which no
+// line could hold, stays. An unchanged map keeps the stored text, so an
+// untouched save is no change at all.
+func withLines(key, blob, text string) (string, error) {
+	next := map[string]string{}
+	for i, l := range strings.Split(text, "\n") {
+		l = strings.TrimRight(l, "\r")
+		if strings.TrimSpace(l) == "" || strings.HasPrefix(strings.TrimSpace(l), "#") {
+			continue
 		}
-		if val == "" {
-			r.Effective, r.DecidedBy = "no limit", "default"
+		k, val, ok := strings.Cut(l, "=")
+		if !ok {
+			return "", errs.Invalidf(key, "line %d: want KEY=VALUE", i+1)
 		}
-		return r
+		next[strings.TrimSpace(k)] = val
 	}
-	cpu, mem := "", ""
-	if t.CPULimit != 0 {
-		cpu = strconv.FormatFloat(t.CPULimit, 'f', -1, 64)
+	cur := envMap(blob)
+	for k, val := range cur {
+		if _, set := next[k]; !set && strings.Contains(val, "\n") {
+			next[k] = val
+		}
 	}
-	if t.MemLimitMB != 0 {
-		mem = strconv.Itoa(t.MemLimitMB)
+	if maps.Equal(cur, next) {
+		return blob, nil
 	}
-	return comp.SettingsFormView{
-		ID:     "tile-settings",
-		Action: base + "/settings",
-		Scope:  "Tile",
-		Rows: []comp.SettingRowView{
-			row("cpu_limit", "CPUs each replica may use.", "float", cpu),
-			row("mem_limit_mb", "Memory each replica may use, in MB.", "int", mem),
-		},
-	}
+	return encode(next), nil
+}
+
+// without is blob with name dropped.
+func without(blob, name string) string {
+	m := envMap(blob)
+	delete(m, name)
+	return encode(m)
 }
 
 func jobsView(js []service.Job) ui.JobsView {
@@ -131,21 +203,17 @@ func jobsView(js []service.Job) ui.JobsView {
 
 func imageView(t service.Tile, i service.Image) ui.ImageView {
 	return ui.ImageView{
-		Ref:          t.ImageRef,
-		Digest:       i.Digest,
-		LastDigest:   i.LastDigest,
-		LastTag:      i.LastTag,
-		Checked:      when(i.CheckedAt),
-		LastError:    i.LastError,
-		NewVersion:   i.Newer(),
-		Pulls:        t.ImageRef != "" && t.GitURL == "" && t.Kind != "managed",
-		UpdatePolicy: t.UpdatePolicy,
-		TagPolicy:    t.TagPolicy,
+		Ref:        t.ImageRef,
+		Digest:     i.Digest,
+		LastDigest: i.LastDigest,
+		LastTag:    i.LastTag,
+		Checked:    when(i.CheckedAt),
+		LastError:  i.LastError,
 	}
 }
 
-func runsView(base string, t service.Tile, rs []service.Run) ui.RunsView {
-	v := ui.RunsView{Cron: t.Kind == "cron", Paused: t.Paused}
+func runsView(base string, s service.TileStatus, rs []service.Run) ui.RunsView {
+	v := ui.RunsView{Next: when(s.NextRun)}
 	for _, r := range rs {
 		row := ui.RunRow{
 			ID:      r.ID,

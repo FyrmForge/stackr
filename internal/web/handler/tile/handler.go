@@ -5,6 +5,7 @@ package tile
 
 import (
 	"context"
+	"maps"
 	"net/http"
 	"slices"
 	"strconv"
@@ -52,7 +53,6 @@ func (h *handler) Mount(g *echo.Group, a *middleware.Access) {
 	g.POST(d+"/domains/:domain/raw", h.SetRawCaddy, require("proxy.admin"))
 	g.POST(d+"/env", h.SetEnv, write)
 	g.POST(d+"/settings", h.SetSettings, write)
-	g.POST(d+"/image", h.SetImagePolicy, write)
 	g.POST(d+"/image/check", h.CheckImage, write)
 }
 
@@ -64,75 +64,114 @@ func base(c echo.Context) string {
 	return render.EnvURL(c) + "/-/tiles/" + tileOf(c).Slug
 }
 
-func view(c echo.Context, tab string) ui.View {
-	t := tileOf(c)
-	if !slices.Contains(ui.Tabs(t.Kind), tab) {
-		tab = "status"
+// head is what every answer's header reads, once per request.
+type head struct {
+	status service.TileStatus
+	image  service.Image // a pulled tile's watch; zero otherwise
+}
+
+// typed is a refused settings save: what was posted and why, drawn over
+// the stored row.
+type typed struct {
+	vals, errors map[string]string
+}
+
+// view is the drawer frame for tab: v0's header (status, source, where it
+// runs, the image strip) over the tab the kind has.
+func (h *handler) view(c echo.Context, tab string) (ui.View, head, error) {
+	ctx, s := c.Request().Context(), middleware.ScopeOf(c)
+	t := s.Tile
+	st, err := h.orch.TileStatus(ctx, t.ID)
+	if err != nil {
+		return ui.View{}, head{}, err
 	}
-	return ui.View{
-		Node: t.ID,
-		Name: t.Name,
-		Kind: t.Kind,
-		Base: base(c),
-		Tab:  tab,
+	v := ui.View{
+		Node:     t.ID,
+		Name:     t.Name,
+		Kind:     t.Kind,
+		Source:   source(*t),
+		Base:     base(c),
+		Tab:      ui.Tab(t.Kind, tab),
+		Status:   st.Word,
+		Stopped:  st.Word == "stopped",
+		Paused:   t.Paused,
+		Location: s.Stack.Name + " / " + s.Env.Name,
+		EnvColor: s.Env.Color,
 	}
+	hd := head{status: st}
+	if !pulls(*t) {
+		return v, hd, nil
+	}
+	if hd.image, err = h.orch.TileImage(ctx, t.ID); err != nil {
+		return v, hd, err
+	}
+	if hd.image.Newer() {
+		v.NewDigest = hd.image.LastDigest
+		v.AutoUpdate = t.UpdatePolicy == "auto"
+	}
+	return v, hd, nil
 }
 
 // GET …/-/tiles/:tile?tab=
 func (h *handler) Drawer(c echo.Context) error {
-	return h.show(c, http.StatusOK, view(c, c.QueryParam("tab")))
+	v, hd, err := h.view(c, c.QueryParam("tab"))
+	if err != nil {
+		return middleware.HTTPError(err)
+	}
+	return h.show(c, http.StatusOK, v, hd, nil)
 }
 
 // show renders v's tab: each case is one read verb and its view.
-func (h *handler) show(c echo.Context, status int, v ui.View) error {
+func (h *handler) show(c echo.Context, status int, v ui.View, hd head, ty *typed) error {
 	ctx, t := c.Request().Context(), tileOf(c)
 	var body templ.Component
 	switch v.Tab {
 	case "status":
-		s, err := h.orch.TileStatus(ctx, t.ID)
+		ds, err := h.orch.Domains(ctx, t.ID)
 		if err != nil {
 			return middleware.HTTPError(err)
 		}
-		sv := statusView(render.EnvURL(c), s)
+		sv := statusView(render.EnvURL(c), *t, hd.status, ds)
 		if sv.Job != nil {
 			sv.Job.Refresh = v.Base + "?tab=status"
 		}
 		body = ui.Status(v, sv)
 	case "logs":
-		s, err := h.orch.TileStatus(ctx, t.ID)
-		if err != nil {
-			return middleware.HTTPError(err)
+		last := ""
+		if runKind(t.Kind) {
+			rs, err := h.orch.Runs(ctx, t.ID, 1)
+			if err != nil {
+				return middleware.HTTPError(err)
+			}
+			if len(rs) > 0 {
+				last = rs[0].ID
+			}
 		}
-		body = ui.Logs(v, logsView(c, v.Base, s))
-	case "domains":
-		ds, err := h.orch.Domains(ctx, t.ID)
-		if err != nil {
-			return middleware.HTTPError(err)
-		}
-		p := middleware.Principal(c)
-		body = ui.Domains(v, domainsView(ds, p != nil && p.Access.Admin))
+		body = ui.Logs(v, logsView(c, v.Base, *t, hd.status, last))
 	case "env":
-		body = ui.Env(v, ui.EnvView{JSON: t.EnvJSON})
+		body = ui.Env(v, envView(t.EnvJSON))
 	case "settings":
-		body = ui.Settings(v, settingsView(v.Base, *t, nil))
+		sv, err := h.settings(c, *t, hd)
+		if err != nil {
+			return middleware.HTTPError(err)
+		}
+		if ty != nil {
+			maps.Copy(sv.Vals, ty.vals)
+			sv.Errors = ty.errors
+		}
+		body = ui.Settings(v, sv)
 	case "jobs":
 		js, err := h.orch.TileJobs(ctx, []string{t.ID}, 20)
 		if err != nil {
 			return middleware.HTTPError(err)
 		}
 		body = ui.Jobs(v, jobsView(js))
-	case "image":
-		i, err := h.orch.TileImage(ctx, t.ID)
-		if err != nil {
-			return middleware.HTTPError(err)
-		}
-		body = ui.Image(v, imageView(*t, i))
 	case "runs":
 		rs, err := h.orch.Runs(ctx, t.ID, 20)
 		if err != nil {
 			return middleware.HTTPError(err)
 		}
-		body = ui.Runs(v, runsView(v.Base, *t, rs))
+		body = ui.Runs(v, runsView(v.Base, hd.status, rs))
 	case "backups":
 		vs, err := h.orch.TileVolumes(ctx, t.ID)
 		if err != nil {
@@ -143,20 +182,42 @@ func (h *handler) show(c echo.Context, status int, v ui.View) error {
 	return respond.HTML(c, status, ui.Drawer(v, body))
 }
 
+// settings is the Settings tab: the form over the row, the domains of a
+// kind with an endpoint, a pulled image's watch.
+func (h *handler) settings(c echo.Context, t service.Tile, hd head) (ui.SettingsView, error) {
+	sv := settingsView(t)
+	if !runKind(t.Kind) {
+		ds, err := h.orch.Domains(c.Request().Context(), t.ID)
+		if err != nil {
+			return sv, err
+		}
+		p := middleware.Principal(c)
+		sv.Domains = &ui.DomainsView{Rows: domainRows(ds), Admin: p != nil && p.Access.Admin}
+	}
+	if pulls(t) {
+		iv := imageView(t, hd.image)
+		sv.Image = &iv
+	}
+	return sv, nil
+}
+
 // after answers an action with its tab: a refusal shows over it (422), a
 // done action says what it did.
 func (h *handler) after(c echo.Context, tab, note string, err error) error {
-	v := view(c, tab)
+	v, hd, verr := h.view(c, tab)
+	if verr != nil {
+		return middleware.HTTPError(verr)
+	}
 	if err != nil {
 		msg, ok := render.Refused(err)
 		if !ok {
 			return middleware.HTTPError(err)
 		}
 		v.Error = msg
-		return h.show(c, http.StatusUnprocessableEntity, v)
+		return h.show(c, http.StatusUnprocessableEntity, v, hd, nil)
 	}
 	v.Note = note
-	return h.show(c, http.StatusOK, v)
+	return h.show(c, http.StatusOK, v, hd, nil)
 }
 
 func (h *handler) tileJob(verb string, f func(context.Context, string) (service.Job, error)) echo.HandlerFunc {
@@ -177,7 +238,10 @@ func (h *handler) Run(c echo.Context) error {
 
 func (h *handler) Pause(c echo.Context) error {
 	paused := c.FormValue("paused") == "true"
-	_, err := h.orch.PauseTile(c.Request().Context(), tileOf(c).ID, paused)
+	t, err := h.orch.PauseTile(c.Request().Context(), tileOf(c).ID, paused)
+	if err == nil {
+		*tileOf(c) = t // the header offers the other one
+	}
 	return h.after(c, "runs", map[bool]string{true: "schedule paused", false: "schedule resumed"}[paused], err)
 }
 
@@ -187,26 +251,32 @@ func (h *handler) StopRun(c echo.Context) error {
 }
 
 func (h *handler) AttachDomain(c echo.Context) error {
-	s := service.DomainSpec{Host: strings.TrimSpace(c.FormValue("host")), Path: c.FormValue("path")}
+	https := c.FormValue("https") != ""
+	s := service.DomainSpec{
+		Host:       strings.TrimSpace(c.FormValue("host")),
+		Path:       c.FormValue("path"),
+		RedirectTo: strings.TrimSpace(c.FormValue("redirect_to")),
+		HTTPS:      &https,
+	}
 	if p := c.FormValue("port"); p != "" {
 		n, err := strconv.Atoi(p)
 		if err != nil {
-			return h.after(c, "domains", "", errs.Invalidf("port", "must be a number"))
+			return h.after(c, "settings", "", errs.Invalidf("port", "must be a number"))
 		}
 		s.Port = n
 	}
 	_, err := h.orch.AttachDomain(c.Request().Context(), tileOf(c).ID, s)
-	return h.after(c, "domains", "attached "+s.Host, err)
+	return h.after(c, "settings", "attached "+s.Host, err)
 }
 
 func (h *handler) DetachDomain(c echo.Context) error {
 	err := h.orch.DetachDomain(c.Request().Context(), c.Param("domain"))
-	return h.after(c, "domains", "detached", err)
+	return h.after(c, "settings", "detached", err)
 }
 
 func (h *handler) SetRawCaddy(c echo.Context) error {
 	_, err := h.orch.SetRawCaddy(c.Request().Context(), c.Param("domain"), c.FormValue("raw_caddy"))
-	return h.after(c, "domains", "snippet saved", err)
+	return h.after(c, "settings", "snippet saved", err)
 }
 
 // update applies edit through UpdateTile and says whether it redeploys.
@@ -222,21 +292,19 @@ func (h *handler) update(c echo.Context, tab string, edit func(*service.Tile) er
 	return h.after(c, tab, note, err)
 }
 
+// POST …/env: the editor's KEY=VALUE lines, or one row's × (drop).
 func (h *handler) SetEnv(c echo.Context) error {
-	env := c.FormValue("env_json")
+	drop, text := c.FormValue("drop"), c.FormValue("env")
 	return h.update(c, "env", func(t *service.Tile) error {
-		t.EnvJSON = env
-		return nil
-	})
-}
-
-func (h *handler) SetImagePolicy(c echo.Context) error {
-	up, tag, ref := c.FormValue("update_policy"), c.FormValue("tag_policy"), strings.TrimSpace(c.FormValue("image_ref"))
-	return h.update(c, "image", func(t *service.Tile) error {
-		t.UpdatePolicy, t.TagPolicy = up, tag
-		if ref != "" {
-			t.ImageRef = ref
+		if drop != "" {
+			t.EnvJSON = without(t.EnvJSON, drop)
+			return nil
 		}
+		blob, err := withLines("env", t.EnvJSON, text)
+		if err != nil {
+			return err
+		}
+		t.EnvJSON = blob
 		return nil
 	})
 }
@@ -244,42 +312,50 @@ func (h *handler) SetImagePolicy(c echo.Context) error {
 func (h *handler) CheckImage(c echo.Context) error {
 	s := middleware.ScopeOf(c)
 	_, err := h.orch.CheckImages(c.Request().Context(), s.Stack.ID, s.Tile.ID)
-	return h.after(c, "image", "check queued", err)
+	return h.after(c, "settings", "check queued", err)
 }
 
-// POST …/settings answers the settings form alone (it swaps itself).
+// POST …/settings: the one settings form. A refusal draws the form again
+// with what was typed, the reason under its field when the form has it.
 func (h *handler) SetSettings(c echo.Context) error {
-	cpu, mem := c.FormValue("cpu_limit"), c.FormValue("mem_limit_mb")
-	t, _, err := h.orch.UpdateTile(c.Request().Context(), tileOf(c).ID, func(t *service.Tile) error {
-		t.CPULimit, t.MemLimitMB = 0, 0
-		if cpu != "" {
-			f, err := strconv.ParseFloat(cpu, 64)
-			if err != nil {
-				return errs.Invalidf("cpu_limit", "must be a number")
-			}
-			t.CPULimit = f
-		}
-		if mem != "" {
-			n, err := strconv.Atoi(mem)
-			if err != nil {
-				return errs.Invalidf("mem_limit_mb", "must be a whole number")
-			}
-			t.MemLimitMB = n
-		}
-		return nil
-	})
+	form, err := c.FormParams()
 	if err != nil {
-		v, ok := errs.IsInvalid(err)
-		if !ok {
-			return middleware.HTTPError(err)
-		}
-		t = *tileOf(c)
-		t.CPULimit, t.MemLimitMB = 0, 0 // show what was typed, not the stored row
-		sv := settingsView(base(c), t, map[string]string{v.Field: v.Msg})
-		sv.Rows[0].Value, sv.Rows[1].Value = cpu, mem
-		return respond.HTML(c, http.StatusUnprocessableEntity, comp.SettingsForm(sv))
+		return echo.NewHTTPError(http.StatusBadRequest, "bad form")
 	}
-	return respond.HTML(c, http.StatusOK, comp.SettingsForm(settingsView(base(c), t, nil)))
+	keys := posted(form)
+	t, j, err := h.orch.UpdateTile(c.Request().Context(), tileOf(c).ID, func(t *service.Tile) error {
+		return apply(t, keys, form)
+	})
+	if err == nil {
+		*tileOf(c) = t
+		note := "saved"
+		if j != nil {
+			note = "saved; redeploy queued"
+		}
+		return h.after(c, "settings", note, nil)
+	}
+	msg, ok := render.Refused(err)
+	if !ok {
+		return middleware.HTTPError(err)
+	}
+	v, hd, verr := h.view(c, "settings")
+	if verr != nil {
+		return middleware.HTTPError(verr)
+	}
+	shown := carries[tileOf(c).Kind]
+	ty := &typed{vals: map[string]string{}, errors: map[string]string{}}
+	for _, k := range keys {
+		if slices.Contains(shown, k) {
+			ty.vals[k] = strings.TrimSpace(form.Get(k))
+		}
+	}
+	bad, invalid := errs.IsInvalid(err)
+	if k := formKey(bad.Field); invalid && slices.Contains(shown, k) {
+		ty.errors[k] = bad.Msg
+	} else {
+		v.Error = msg
+	}
+	return h.show(c, http.StatusUnprocessableEntity, v, hd, ty)
 }
 
 // GET …/logs/stream?container=&run=: one rendered LogLine per "line".
@@ -319,12 +395,18 @@ func (h *handler) LogStream(e echo.Context) error {
 }
 
 // logLine splits docker's RFC 3339 timestamp off a line when there is
-// one. ponytail: the level is not parsed; the pane's level filter sees "".
+// one; NewLogLine reads the level.
 func logLine(l string) comp.LogLineView {
-	if ts, rest, ok := strings.Cut(l, " "); ok {
-		if at, err := time.Parse(time.RFC3339Nano, ts); err == nil {
-			return comp.LogLineView{Time: at.Format("15:04:05"), Text: rest}
+	rest := l
+	for _, stream := range []string{"O ", "E "} { // docker's stdout / stderr mark
+		if s, ok := strings.CutPrefix(l, stream); ok {
+			rest = s
 		}
 	}
-	return comp.LogLineView{Text: l}
+	if ts, msg, ok := strings.Cut(rest, " "); ok {
+		if at, err := time.Parse(time.RFC3339Nano, ts); err == nil {
+			return comp.NewLogLine(at.Format("15:04:05"), msg)
+		}
+	}
+	return comp.NewLogLine("", l)
 }

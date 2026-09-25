@@ -1,26 +1,53 @@
 package components
 
+import "strings"
+
 // DrawerRoot is the id every drawer answer replaces (outerHTML).
 const DrawerRoot = "drawer-view"
 
-// DrawerView is the frame of a home, org or stack level drawer: the card's
-// name, its tab strip, a refused action's message or what an action did,
+// DrawerView is the frame of a drawer: v0's PanelHeader (icon, title,
+// status, scope chip, subtitle and location, actions, the X), an optional
+// strip, the tab strip, a refused action's message or what an action did,
 // then the tab. Tabs hx-get Base?tab= and push ?drawer=Node&tab=, which a
-// fresh load reads back.
+// fresh load reads back. Every header part is optional: "" or nil draws
+// nothing.
 type DrawerView struct {
-	Node  string
-	Title string
-	Kind  string
-	Base  string
-	Tabs  []string
-	Tab   string
-	Error string
-	Note  string
+	Node   string
+	Title  string
+	Kind   string // the subtitle, in mono ("nginx:1", "slice")
+	Base   string
+	Tabs   []string          // ?tab= keys, in strip order
+	Labels map[string]string // key → label; a missing key shows capitalised
+	Tab    string
+	Error  string
+	Note   string
+
+	Icon     string // a kindIcon name: service, cron, function, managed, slice, volume, vars
+	Status   string // a TileBadge word
+	Scope    string // the chip after the title: how far it is shared
+	Location string // "stack / env"
+	EnvColor string // one of EnvColors, the dot before Location
+	Actions  templ.Component
+	Strip    templ.Component // full width under the header (the image-update strip)
+}
+
+// TabLabel is how the strip spells a tab key.
+func (v DrawerView) TabLabel(key string) string {
+	if l, ok := v.Labels[key]; ok {
+		return l
+	}
+	if key == "" {
+		return ""
+	}
+	return strings.ToUpper(key[:1]) + key[1:]
 }
 
 templ Drawer(v DrawerView, body templ.Component) {
 	<div id={ DrawerRoot }>
-		@DrawerHead(v.Title, v.Kind)
+		@panelHeader(v)
+		if v.Strip != nil {
+			@v.Strip
+		}
 		if len(v.Tabs) > 1 {
 			<nav class="flex gap-1 px-4 sm:px-6 border-b border-rw-border overflow-x-auto scrollbar-none" aria-label="Tabs">
 				for _, t := range v.Tabs {
@@ -30,13 +57,13 @@ templ Drawer(v DrawerView, body templ.Component) {
 						hx-target={ "#" + DrawerRoot }
 						hx-swap="outerHTML"
 						hx-push-url={ "?drawer=" + v.Node + "&tab=" + t }
-						class={ "px-3 py-2.5 text-sm border-b-2 -mb-px transition-colors",
+						class={ "px-3 py-2.5 text-sm border-b-2 -mb-px transition-colors whitespace-nowrap",
 							templ.KV("border-rw-accent text-rw-text font-medium", t == v.Tab),
 							templ.KV("border-transparent text-rw-muted hover:text-rw-text", t != v.Tab) }
 						if t == v.Tab {
 							aria-current="page"
 						}
-					>{ t }</a>
+					>{ v.TabLabel(t) }</a>
 				}
 			</nav>
 		}
@@ -53,7 +80,97 @@ templ Drawer(v DrawerView, body templ.Component) {
 	</div>
 }
 
+// panelHeader is v0's PanelHeader: identity on the left, actions and the
+// close X on the right.
+templ panelHeader(v DrawerView) {
+	<div class="flex flex-wrap items-center gap-y-2 justify-between px-4 sm:px-6 py-5 border-b border-rw-border">
+		<div class="flex items-center gap-3 min-w-0">
+			if v.Icon != "" {
+				<span class="flex h-9 w-9 items-center justify-center rounded-lg bg-rw-inset text-rw-muted shrink-0">
+					@KindIcon(v.Icon)
+				</span>
+			}
+			<div class="min-w-0">
+				<div class="flex items-center gap-2">
+					<h2 class="text-lg font-semibold text-rw-text truncate">{ v.Title }</h2>
+					if v.Status != "" {
+						@TileBadge(v.Status)
+					}
+					if v.Scope != "" {
+						<span class="shrink-0 rounded-md border border-rw-border bg-rw-inset px-1.5 py-0.5 text-[10px] text-rw-muted" title="how far this is shared">{ v.Scope }</span>
+					}
+				</div>
+				if v.Kind != "" || v.Location != "" {
+					<div class="flex items-center gap-1.5 min-w-0 text-xs text-rw-faint">
+						if v.Kind != "" {
+							<span class="truncate font-mono">{ v.Kind }</span>
+						}
+						if v.Kind != "" && v.Location != "" {
+							<span class="shrink-0">·</span>
+						}
+						if v.Location != "" {
+							if dot := envClass(v.EnvColor); dot != "" {
+								<span class={ "env-dot", dot }></span>
+							}
+							<span class="truncate">{ v.Location }</span>
+						}
+					</div>
+				}
+			</div>
+		</div>
+		<div class="flex items-center gap-2 shrink-0">
+			if v.Actions != nil {
+				@v.Actions
+			}
+			<button type="button" data-close class="flex h-8 w-8 items-center justify-center rounded-lg text-rw-muted hover:text-rw-text hover:bg-rw-raised transition-colors" aria-label="Close">
+				<svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"></path></svg>
+			</button>
+		</div>
+	</div>
+}
+
+// KindIcon is v0's stroke glyph per card kind (canvas strokeIcon): the
+// same tile reads as the same thing on the card and in its drawer.
+templ KindIcon(kind string) {
+	<svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+		switch kind {
+			case "cron":
+				<circle cx="12" cy="12" r="10"></circle>
+				<path d="M12 6v6l4 2"></path>
+			case "function":
+				<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+			case "managed":
+				<ellipse cx="12" cy="5" rx="9" ry="3"></ellipse>
+				<path d="M3 5v14a9 3 0 0 0 18 0V5"></path>
+				<path d="M3 12a9 3 0 0 0 18 0"></path>
+			case "slice":
+				<ellipse cx="12" cy="7" rx="9" ry="3"></ellipse>
+				<path d="M3 7v10a9 3 0 0 0 18 0V7"></path>
+			case "volume":
+				<path d="M22 12H2"></path>
+				<path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"></path>
+				<line x1="6" x2="6.01" y1="16" y2="16"></line>
+			case "proxy":
+				<circle cx="12" cy="12" r="10"></circle>
+				<path d="M2 12h20M12 2a15.3 15.3 0 0 1 0 20 15.3 15.3 0 0 1 0-20z"></path>
+			case "vars":
+				<path d="M4 7V5a1 1 0 0 1 1-1h14a1 1 0 0 1 1 1v2"></path>
+				<path d="M9 20h6"></path>
+				<path d="M12 4v16"></path>
+			default:
+				<path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"></path>
+				<path d="m3.3 7 8.7 5 8.7-5"></path>
+				<path d="M12 22V12"></path>
+		}
+	</svg>
+}
+
 // PostButton is a one-button POST answered with the drawer.
 templ PostButton(label, action string) {
-	<button type="button" class="btn btn-ghost" hx-post={ action } hx-target={ "#" + DrawerRoot } hx-swap="outerHTML">{ label }</button>
+	<button type="button" class="btn btn-ghost btn-sm" hx-post={ action } hx-target={ "#" + DrawerRoot } hx-swap="outerHTML">{ label }</button>
+}
+
+// PrimaryPost is PostButton as the one primary act (Deploy, Run now).
+templ PrimaryPost(label, action string) {
+	<button type="button" class="btn btn-primary btn-sm" hx-post={ action } hx-target={ "#" + DrawerRoot } hx-swap="outerHTML">{ label }</button>
 }

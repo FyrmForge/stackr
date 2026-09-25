@@ -469,6 +469,47 @@ flash-toast[kind="warning"] { --flash-c: var(--rw-warn); --flash-t: var(--rw-war
 flash-toast[kind="error"] { --flash-c: var(--rw-danger); --flash-t: var(--rw-danger); }
 flash-toast[leaving] { opacity: 0; }
 
+/* ---- panels ---- */
+/* Drawer bodies (phase 3a): v0 panel.templ, app/panel.templ, form/*.templ.
+   Runtime looks of <log-pane> are attribute selectors: tailwind does not
+   scan ui/ts, and the server marks each line's level and token. */
+@layer components {
+  .section-title {
+    @apply text-sm font-semibold uppercase tracking-wide text-rw-faint mt-8 mb-4;
+  }
+  .section-title:first-child {
+    @apply mt-0;
+  }
+  .settings-scope {
+    @apply rounded-full border border-rw-border px-2 py-0.5 text-[10px] uppercase tracking-wide text-rw-faint;
+  }
+  .settings-label {
+    @apply block text-xs font-medium text-rw-muted mb-1.5;
+  }
+  .settings-help {
+    @apply mt-1.5 block text-xs text-rw-faint;
+  }
+  .chip {
+    @apply inline-flex items-center rounded px-1.5 py-0.5 text-[10px] leading-4 shrink-0;
+  }
+}
+summary.list-none::-webkit-details-marker { display: none; }
+log-pane [data-lines] > div { border-left: 2px solid transparent; padding-left: 0.5rem; margin-left: -0.25rem; color: rgb(var(--rw-text)); }
+log-pane [data-lines] [data-ts] { color: rgb(var(--rw-faint)); }
+log-pane [data-lines] [data-tok] { font-weight: 600; }
+log-pane [data-level="error"] { border-left-color: rgb(var(--rw-danger)) !important; color: rgb(var(--rw-danger)) !important; }
+log-pane [data-level="warn"] { border-left-color: rgb(var(--rw-warn)) !important; color: rgb(var(--rw-warn)) !important; }
+log-pane [data-level="info"] [data-tok] { color: rgb(var(--rw-accent)); }
+log-pane [data-level="debug"] { color: rgb(var(--rw-faint)) !important; }
+log-pane [data-lines]:not([data-wrap]) { overflow-x: auto; }
+log-pane [data-lines][data-wrap] { word-break: break-all; }
+log-pane [data-status] { margin-left: auto; font-size: 0.75rem; color: rgb(var(--rw-faint)); }
+log-pane [data-status]:empty::after { content: "connecting\2026"; }
+log-pane[state="open"] [data-status]:empty::after { content: "live"; }
+log-pane[state="closed"] [data-status]:empty::after { content: "ended"; }
+log-pane[state="error"] [data-status]:empty::after { content: "reconnecting\2026"; }
+/* ---- end panels ---- */
+
 /* ---- canvas ---- */
 /* v0's canvas look (css/input.css .graph-*), keyed on the elements.
    graph-canvas writes --px/--py/--s, each card --x/--y: the grid, the

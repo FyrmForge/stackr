@@ -15,8 +15,8 @@ type View struct {
 }
 
 templ Editor(v View) {
-	<div id={ Root } class="space-y-3">
-		<p class="text-sm text-slate-500">Params and secrets of { v.Scope }. A save redeploys the running tiles that read them.</p>
+	<div id={ Root } class="space-y-4">
+		<p class="text-sm text-rw-muted">Params and secrets of { v.Scope }. A save redeploys the running tiles that read them.</p>
 		@c.FormError(v.Error)
 		if v.Note != "" {
 			<p class="banner" role="status">{ v.Note }</p>

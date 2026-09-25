@@ -68,9 +68,53 @@ func TestVolumeAndProxyDrawers(t *testing.T) {
 		!strings.Contains(rec.Body.String(), "/-/volumes/"+v.ID+"/backup") {
 		t.Errorf("volume drawer = %d\n%s", rec.Code, rec.Body)
 	}
+	rec = s.Do(t, "POST", "/acme/shop/dev/-/volumes/"+v.ID+"/backup", url.Values{"method": {"volume"}})
+	if rec.Code != 200 || !strings.Contains(rec.Body.String(), "backup queued") ||
+		!strings.Contains(rec.Body.String(), "?tab=backups&amp;poll=4") {
+		t.Errorf("backup now = %d\n%s", rec.Code, rec.Body)
+	}
+	for tab, want := range map[string]string{
+		"overview": "stackr-vol-" + v.ID,
+		"settings": "Delete volume",
+	} {
+		rec = s.Do(t, "GET", "/acme/shop/dev/-/volumes/"+v.ID+"?tab="+tab, nil)
+		if rec.Code != 200 || !strings.Contains(rec.Body.String(), want) {
+			t.Errorf("volume %s = %d, want %q\n%s", tab, rec.Code, want, rec.Body)
+		}
+	}
 	rec = s.Do(t, "GET", "/acme/shop/dev/-/proxy?tab=routes", nil)
 	if rec.Code != 200 || !strings.Contains(rec.Body.String(), "No tile in this env has a domain.") {
 		t.Errorf("proxy drawer = %d\n%s", rec.Code, rec.Body)
+	}
+}
+
+// The instance drawer draws v0's four tabs; a scope save answers
+// Settings with the new chip, a bad scope is refused inline.
+func TestInstanceDrawer(t *testing.T) {
+	s := webtest.New(t)
+	pg, err := s.Orch.CreateManagedTile(context.Background(), service.Tile{EnvironmentID: s.Tile.Env, Name: "pg"}, "postgres")
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := "/acme/shop/dev/-/instances/" + pg.Slug
+	for tab, want := range map[string]string{
+		"slices":   "No tile has a slice of it yet.",
+		"logs":     "No container is running yet.",
+		"backups":  "has no volume yet",
+		"settings": `name="scope_kind"`,
+	} {
+		rec := s.Do(t, "GET", d+"?tab="+tab, nil)
+		if rec.Code != 200 || !strings.Contains(rec.Body.String(), want) || !strings.Contains(rec.Body.String(), "env-scoped") {
+			t.Errorf("%s = %d, want %q\n%s", tab, rec.Code, want, rec.Body)
+		}
+	}
+	rec := s.Do(t, "POST", d+"/scope", url.Values{"scope_kind": {"stack"}})
+	if rec.Code != 200 || !strings.Contains(rec.Body.String(), "scope saved") || !strings.Contains(rec.Body.String(), "stack-scoped") {
+		t.Errorf("scope = %d\n%s", rec.Code, rec.Body)
+	}
+	rec = s.Do(t, "POST", d+"/scope", url.Values{"scope_kind": {"galaxy"}})
+	if rec.Code != 422 || !strings.Contains(rec.Body.String(), "banner-danger") {
+		t.Errorf("bad scope = %d\n%s", rec.Code, rec.Body)
 	}
 }
 

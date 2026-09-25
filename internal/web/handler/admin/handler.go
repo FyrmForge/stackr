@@ -207,6 +207,7 @@ func (h *handler) settings(c echo.Context, refused error) (comp.SettingsFormView
 			Value:     s.Value,
 			Effective: s.Effective,
 			DecidedBy: s.DecidedBy,
+			Secret:    s.Secret,
 		}
 		if invalid && bad.Field == s.Key {
 			r.Error, marked = bad.Msg, true

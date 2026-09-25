@@ -1,17 +1,118 @@
-// Package volume is the volume drawer: one tab, backups (schedules, runs,
-// backup now, restore) and deleting an orphan.
+// Package volume is the volume drawer in v0's tabs: Overview (what it is
+// and who mounts it), Backups (schedules, back up now, history, restore)
+// and Settings (delete an orphan). v0's Tree tab reads files: out of v1.
 package volume
 
-import c "github.com/FyrmForge/stackr/internal/ui/components"
+import (
+	"slices"
+	"strconv"
 
+	c "github.com/FyrmForge/stackr/internal/ui/components"
+)
+
+// Root is the id every drawer answer replaces (outerHTML).
+const Root = c.DrawerRoot
+
+var Tabs = []string{"overview", "backups", "settings"}
+
+// Tab is the tab a request asks for; an unknown one opens Overview.
+func Tab(tab string) string {
+	if !slices.Contains(Tabs, tab) {
+		return Tabs[0]
+	}
+	return tab
+}
+
+// View is the drawer around one tab.
 type View struct {
-	Name, Scope, Orphaned string // Orphaned: since when; "" = in use
-	Base                  string // actions add /<verb>
-	Error, Note           string
-	Schedules             []Schedule
-	Runs                  []Run
-	Dests                 []Option // "" = local
-	Methods               []string
+	Node, Name         string
+	Scope              string // env | stack | org
+	Base               string // the drawer URL: tabs add ?tab=, actions add /<verb>
+	Tab                string
+	Status             string // idle, or a backup run's state while one is live
+	Location, EnvColor string
+	Error, Note        string
+}
+
+func Drawer(v View, body templ.Component) templ.Component {
+	d := c.DrawerView{
+		Node:     v.Node,
+		Title:    v.Name,
+		Kind:     "volume",
+		Base:     v.Base,
+		Tabs:     Tabs,
+		Tab:      v.Tab,
+		Error:    v.Error,
+		Note:     v.Note,
+		Icon:     "volume",
+		Status:   v.Status,
+		Location: v.Location,
+		EnvColor: v.EnvColor,
+	}
+	if v.Scope != "env" {
+		d.Scope = v.Scope + "-scoped"
+	}
+	return c.Drawer(d, body)
+}
+
+type OverviewView struct {
+	Docker, MaxSize, Created, Orphaned string // Orphaned: since when; "" = in use
+	Mounts                             []Mount
+}
+
+// Mount is a tile that mounts the volume, and where.
+type Mount struct{ Tile, Path string }
+
+// Overview is v0's stat cards.
+templ Overview(o OverviewView) {
+	<div id="tab-overview">
+		<div class="grid gap-3 sm:grid-cols-2">
+			@stat("Attached to") {
+				if len(o.Mounts) == 0 {
+					<p class="text-sm text-rw-muted">nothing</p>
+				}
+				for _, m := range o.Mounts {
+					<p class="text-sm text-rw-text">{ m.Tile }</p>
+					<p class="text-xs text-rw-faint font-mono">{ m.Path }</p>
+				}
+			}
+			@stat("Docker volume") {
+				<p class="text-sm text-rw-text font-mono break-all">{ o.Docker }</p>
+			}
+			if o.MaxSize != "" {
+				@stat("Expected size") {
+					<p class="text-sm text-rw-text">{ o.MaxSize }</p>
+				}
+			}
+			@stat("Created") {
+				<p class="text-sm text-rw-text">{ o.Created }</p>
+			}
+		</div>
+		<p class="mt-3 text-xs text-rw-muted">Data persists across redeploys and tile deletion.</p>
+		if o.Orphaned != "" {
+			<p class="mt-1 text-xs text-rw-warn">Orphaned since { o.Orphaned }: no tile mounts it.</p>
+		}
+	</div>
+}
+
+templ stat(label string) {
+	<div class="panel p-4">
+		<p class="text-xs text-rw-muted mb-1.5">{ label }</p>
+		{ children... }
+	</div>
+}
+
+// BackupsView is one volume's backups, drawn in its own drawer and in its
+// instance's Backups tab. Every action answers the volume's drawer.
+type BackupsView struct {
+	ID, Name  string
+	Base      string // the volume's drawer URL
+	Schedules []Schedule
+	Runs      []Run
+	Dests     []Option // "" = local disk
+	Methods   []string
+	Live      bool // a run is queued or running: History polls
+	Poll      int  // polls left while a just-queued job has no run row yet
 }
 
 type Schedule struct{ Method, Cron, Dest, Keep string }
@@ -23,83 +124,144 @@ type Run struct {
 
 type Option struct{ Value, Label string }
 
-templ Backups(v View) {
-	<div id="drawer-view">
-		@c.DrawerHead(v.Name, "volume · "+v.Scope)
-		<div class="p-6 space-y-4">
-			if v.Error != "" {
-				<p class="banner border-red-300 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300" role="alert">{ v.Error }</p>
-			}
-			if v.Note != "" {
-				<p class="banner" role="status">{ v.Note }</p>
-			}
-			<h3 class="font-semibold">Schedules</h3>
-			if len(v.Schedules) == 0 {
-				<p class="text-sm text-slate-500">None: this volume is backed up only by hand.</p>
-			}
-			<ul class="text-sm">
-				for _, s := range v.Schedules {
-					<li><span class="font-mono">{ s.Cron }</span> · { s.Method } → { s.Dest } · keep { s.Keep }</li>
-				}
-			</ul>
-			<form hx-post={ v.Base + "/backup" } hx-target="#drawer-view" hx-swap="outerHTML" class="flex flex-wrap items-end gap-2">
-				<div>
-					<label class="label" for="backup-dest">To</label>
-					<select id="backup-dest" name="dest" class="input">
-						for _, d := range v.Dests {
+// methodLabel is how v0 spells a backup kind.
+func methodLabel(m string) string {
+	switch m {
+	case "dump":
+		return "Database dump"
+	case "volume":
+		return "Volume archive"
+	}
+	return m
+}
+
+// Backups is v0's backup panel: a panel per schedule, Back up now, the
+// history. Schedules are read-only here (the CLI and API edit them).
+templ Backups(b BackupsView) {
+	<div class="space-y-4">
+		for _, s := range b.Schedules {
+			<div class="panel p-5 space-y-2">
+				<div class="flex items-center gap-2">
+					<span class="text-sm font-medium text-rw-text">{ methodLabel(s.Method) }</span>
+					<span class="text-xs text-rw-faint">{ s.Dest }</span>
+				</div>
+				<p class="text-xs text-rw-muted"><span class="font-mono text-rw-text">{ s.Cron }</span> · keeps the newest { s.Keep }</p>
+			</div>
+		}
+		<form hx-post={ b.Base + "/backup" } hx-target={ "#" + Root } hx-swap="outerHTML" class="panel p-5 space-y-4">
+			<h4 class="text-sm font-medium text-rw-text">Back up now</h4>
+			<div class="grid gap-4 sm:grid-cols-2">
+				<label class="block">
+					<span class="block text-xs text-rw-faint mb-1">What to back up</span>
+					<select name="method" class="input">
+						for _, m := range b.Methods {
+							<option value={ m }>{ methodLabel(m) }</option>
+						}
+					</select>
+				</label>
+				<label class="block">
+					<span class="block text-xs text-rw-faint mb-1">Destination</span>
+					<select name="dest" class="input">
+						for _, d := range b.Dests {
 							<option value={ d.Value }>{ d.Label }</option>
 						}
 					</select>
-				</div>
-				<div>
-					<label class="label" for="backup-method">Method</label>
-					<select id="backup-method" name="method" class="input">
-						for _, m := range v.Methods {
-							<option value={ m }>{ m }</option>
+				</label>
+			</div>
+			<button type="submit" class="btn btn-primary btn-sm">Back up now</button>
+		</form>
+		@History(b)
+	</div>
+}
+
+// History polls its own drawer every 2 s while a run is live, or a few
+// times after Back up now / Restore (the job writes its run row when it
+// starts), and keeps only itself from the answer.
+templ History(b BackupsView) {
+	<div
+		id={ "backup-history-" + b.ID }
+		class="panel p-5"
+		if b.Live || b.Poll > 0 {
+			hx-get={ b.Base + "?tab=backups&poll=" + strconv.Itoa(max(b.Poll-1, 0)) }
+			hx-trigger="every 2s"
+			hx-select={ "#backup-history-" + b.ID }
+			hx-target="this"
+			hx-swap="outerHTML"
+		}
+	>
+		<h4 class="text-xs font-semibold uppercase tracking-wide text-rw-faint mb-2">History</h4>
+		if len(b.Runs) == 0 {
+			<p class="text-xs text-rw-faint">No runs yet.</p>
+		} else {
+			<ul class="space-y-1.5">
+				for _, r := range b.Runs {
+					<li class="flex flex-wrap items-center gap-2 text-xs">
+						<span class="text-rw-muted font-mono">{ r.When }</span>
+						switch r.Status {
+							case "done":
+								<span class="text-rw-muted">{ r.Size }</span>
+							case "queued", "running":
+								<span class="text-rw-muted">{ r.Status }</span>
+							default:
+								<span class="text-rw-danger">{ r.Status }</span>
 						}
-					</select>
-				</div>
-				@c.Submit("Back up now")
-			</form>
-			<h3 class="font-semibold">Runs</h3>
-			if len(v.Runs) == 0 {
-				<p class="text-sm text-slate-500">No backups yet.</p>
-			}
-			<ul class="space-y-2 text-sm">
-				for _, r := range v.Runs {
-					<li class="flex flex-wrap items-center gap-2">
-						@c.JobBadge(r.Status)
-						<span>{ r.When }</span>
-						<span class="text-slate-500">{ r.Trigger } · { r.Size }</span>
+						if r.Trigger != "schedule" {
+							<span class="text-rw-faint">{ r.Trigger }</span>
+						}
 						if r.Error != "" {
-							<span class="text-red-700 dark:text-red-400">{ r.Error }</span>
+							<span class="text-rw-danger truncate">{ r.Error }</span>
 						}
 						if r.Restorable {
-							@c.Confirm(c.ConfirmView{Button: "Restore", Title: "Restore " + v.Name + " from " + r.When + "?",
-								Warning: "What the volume holds now is replaced; its tiles stop while it restores.",
-								Kept:    []string{"this backup and every other in the destination"},
-								Word:    v.Name, Action: v.Base + "/restore?run=" + r.ID, Target: "#drawer-view"})
+							<span class="ml-auto">
+								@c.Confirm(restore(b, r))
+							</span>
 						}
 					</li>
 				}
 			</ul>
-			if v.Orphaned != "" {
-				<p class="text-sm text-amber-700 dark:text-amber-400">Orphaned since { v.Orphaned }: no tile mounts it.</p>
-				@c.Confirm(c.ConfirmView{Button: "Delete volume", Title: "Delete " + v.Name + "?",
+		}
+	</div>
+}
+
+func restore(b BackupsView, r Run) c.ConfirmView {
+	return c.ConfirmView{
+		Button:  "Restore",
+		Title:   "Restore " + b.Name + " from " + r.When + "?",
+		Warning: "The current data is overwritten; its tiles stop while it restores.",
+		Kept:    []string{"this backup and every other in the destination"},
+		Action:  b.Base + "/restore?run=" + r.ID,
+		Target:  "#" + Root,
+		Quiet:   true,
+	}
+}
+
+// Settings is the delete. blocked says why it cannot go ("" = it can):
+// v0's "Detach before deleting".
+templ Settings(v View, blocked string) {
+	<div id="tab-settings">
+		if blocked != "" {
+			<p class="text-sm text-rw-muted">{ blocked }</p>
+		} else {
+			@c.DangerZone("Deleting this volume removes its data now, before the retention window ends.", v.Name, "Backups already in a destination are kept.") {
+				@c.Confirm(c.ConfirmView{
+					Button:  "Delete volume",
+					Title:   "Delete " + v.Name + "?",
 					Warning: "Its data goes now, before the retention window ends.",
-					Kept:    []string{"backups already in a destination"}, Word: v.Name,
-					Action:  v.Base + "/delete", Target: "#drawer-view"})
+					Kept:    []string{"backups already in a destination"},
+					Word:    v.Name,
+					Action:  v.Base + "/delete",
+					Target:  "#" + Root,
+				})
 			}
-		</div>
+		}
 	</div>
 }
 
 // Deleted replaces the drawer once the volume is gone.
 templ Deleted() {
-	<div id="drawer-view">
-		@c.DrawerHead("volume", "")
-		<div class="p-6">
-			<p class="banner" role="status">Volume deleted.</p>
-		</div>
-	</div>
+	@c.Drawer(c.DrawerView{Title: "Volume deleted", Icon: "volume"}, deleted())
+}
+
+templ deleted() {
+	<p class="banner" role="status">The volume and its data are gone. Backups in a destination are kept.</p>
 }

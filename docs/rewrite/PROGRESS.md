@@ -481,6 +481,79 @@ with rates are in `p2-env-dark-r2.png`):
    on the stack bar and "+ Create connector" on the org bar. Options:
    (a) keep; (b) drop, create from Settings. Lean (a).
 
+Phase 3a done (2026-09-25, uncommitted in the `rewrite-step-6f` tree; VM
+runs v0.0.20, shots in scratchpad `v0-ui/after-phase3a/`, dark and light):
+the tile, vars, managed-instance, slice and volume drawers.
+- Landed: tile tabs take v0's names and order (service and image:
+  Overview, Deployments, Logs, Variables, Settings, Backups; cron and
+  function: Runs, Logs, Deployments, Variables, Settings, Backups); Domains
+  and Image sit in Settings; v0's panel header (icon, status, scope chip,
+  location, actions, X); v0's VarsEdit rows; the instance drawer (Overview
+  with admin user and provisioned slices, Logs, Backups, Settings with
+  sharing scope and delete); the slice drawer (Overview with bindings and
+  Detach, Logs only when its instance has a container); the volume drawer
+  (Overview stat cards, Backups with Back up now, History and Restore,
+  Settings with delete); shared `Facts`/`Fact`, `Chip`, `PanelSection`,
+  `DangerZone` and quiet confirms.
+- New web routes on existing verbs (`tile.write`): instance deploy, stop,
+  delete and scope.
+- Fixed on the way: log lines kept docker's `O `/`E ` mark and lost their
+  time (the prefix in DECIDE 138); backup History polls every 2 s for
+  about 10 s after Back up now and while a run is live, because the run
+  row only appears when the job starts.
+- Checked on the VM: every tab above in both themes; scope save updates
+  the chip; tab links push `?drawer=&tab=`; slice and instance link to
+  each other; Back up now adds its History row in about 2 s with no
+  reload, then the polling stops; param add, plain and secret (the secret
+  value never reaches the DOM), and param Delete through its confirm;
+  instance Stop and Deploy from the header; cron Run now adds a runs row;
+  log panes show the time in its own span and no `O `/`E ` mark.
+- Still differs, needs a call: DECIDE 161 to 149.
+- For phase 2 (its paths, not touched): the canvas volume sub-link pushes
+  `?drawer=volume:uploads` (a slug, not a volume id); the volume card title is the docker name, not the slug; the vars drawer
+  header still reads "Vars" with no icon (`canvas/drawer.go`).
+- Gates: `make build`, `make lint` (0 issues), `make test`, `make
+  templint` all clean. Element lines (budget): confirm-dialog 57,
+  flash-toast 60, graph-canvas 299 (400), graph-node 144, log-pane 109
+  (was 85), side-drawer 77, theme-toggle 54 (rest 150).
+
+161. **(step 6e) v0 drawer parts no service verb backs, left out:**
+   per-tile rollback (`Rollback` is env-wide, by release) and a deployment
+   row's Logs; HTTPS toggle on an attached domain, custom certificate,
+   auto domain; tile-level secrets; the HTTP and Metrics tabs; the
+   instance's connection block (URL, host, port, user, password, with Copy:
+   the stored endpoint is empty for an internal instance and the service
+   does not expose the engine's host and port), its Database tab (the
+   engine's database list), notify and domains; slice Public/Private toggle, Drop
+   and Fork; volume size on disk, host path and the Tree tab; the volume
+   settings form (attached tile, mount path, expected size). Options: (a)
+   keep out of v1; (b) add verbs in step 7, one by one. Lean (a).
+162. **(step 6e) Verbs that exist but no drawer wires yet:** backup
+   schedule add, update and delete (`service/backup.go`; the Backups tab
+   shows schedules read-only, gap steps 30 to 37 were not in 3a); the
+   instance's INSTANCE section (external port, limits, shm, image, update
+   policy) through the generic `UpdateTile`, not checked that a managed
+   deploy honours those fields; volume declare is API-only (v0 made
+   volumes in the UI), so a tile mounting an undeclared volume fails its
+   first deploy; the instance's shared network is not shown. Options: (a)
+   wire in step 7; (b) keep. Lean (a).
+163. **(step 6e) Back up now and Restore on the instance's Backups tab
+   answer the volume drawer:** the embedded forms post to the volume
+   routes, so the body turns into the volume while the URL still names the
+   instance. Options: (a) instance routes that call the same verbs and
+   answer the instance; (b) keep. Lean (a).
+164. **(step 6e) Small looks that differ from v0:** the volume drawer opens
+   on Backups from the canvas (the canvas key's tab); header actions
+   answer their home tab, not the one you were on; a param edits through a
+   `<details>` row, Generate and Copy ref are left out (copy is JS, DECIDE
+   141); a select whose stored value matches no option shows the default;
+   a cron's header status reads "none", even after a run (v0 "idle");
+   backup sizes read "0 KB" (v0 "0 B"); deletes use the typed dialog, not v0's inline typed
+   input; tile protect and basic auth are set through the settings cascade
+   only; the log pane has no JSON expand and no saved prefs. Options: (a)
+   fix in the phase 4 sweep; (b) keep. Lean (a) for the cron word and the
+   sizes, (b) for the rest.
+
 ## DECIDE:
 
 Silent calls the planner made under rule 9 / "fix obvious gaps"; flip any

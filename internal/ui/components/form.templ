@@ -100,3 +100,72 @@ templ AuthCard(title string) {
 		</section>
 	</div>
 }
+
+// Section is v0's settings card (form.Section): a titled panel, its scope
+// chip ("org", "stack") and one help line over the controls.
+templ Section(title, scope, help string) {
+	<section class="panel p-6 mb-6">
+		<div class="flex items-baseline gap-3 mb-1">
+			<h2 class="text-base font-semibold text-rw-text tracking-tight">{ title }</h2>
+			if scope != "" {
+				<span class="settings-scope">{ scope }</span>
+			}
+		</div>
+		if help != "" {
+			<p class="text-sm text-rw-muted mb-4 max-w-2xl">{ help }</p>
+		} else {
+			<div class="mb-4"></div>
+		}
+		{ children... }
+	</section>
+}
+
+// DangerSection is Section in the danger palette, always last on a page.
+templ DangerSection(help string) {
+	<section class="panel p-6 mb-6 border-rw-danger/40">
+		<h2 class="text-base font-semibold text-rw-danger tracking-tight mb-1">Danger zone</h2>
+		if help != "" {
+			<p class="text-sm text-rw-muted mb-4 max-w-2xl">{ help }</p>
+		} else {
+			<div class="mb-4"></div>
+		}
+		{ children... }
+	</section>
+}
+
+// PanelSection is a titled block inside a drawer's settings tab (v0
+// panelSection): a hairline over each block after the first.
+templ PanelSection(id, title, help string) {
+	<section id={ id } class="pt-6 mt-6 border-t border-rw-border first:pt-0 first:mt-0 first:border-0">
+		<h4 class="text-xs font-semibold uppercase tracking-wide text-rw-faint mb-1">{ title }</h4>
+		if help != "" {
+			<p class="text-xs text-rw-faint mb-3">{ help }</p>
+		} else {
+			<div class="mb-3"></div>
+		}
+		<div class="space-y-4">
+			{ children... }
+		</div>
+	</section>
+}
+
+// DangerZone is a drawer's inline delete (v0 ConfirmDanger's place and
+// words); its button opens the typed confirm (children).
+templ DangerZone(warning, path, kept string) {
+	<div class="mt-8 pt-6 border-t border-rw-border">
+		<p class="text-sm text-rw-text mb-1">{ warning }</p>
+		if path != "" {
+			<p class="text-xs text-rw-faint font-mono mb-1">{ path }</p>
+		}
+		if kept != "" {
+			<p class="text-xs text-rw-faint mb-3">{ kept }</p>
+		}
+		{ children... }
+	</div>
+}
+
+// Inherited is the line under a field left empty: what applies and where
+// it comes from.
+templ Inherited(value, from string) {
+	<span class="settings-help">inherits { value } from { from }</span>
+}

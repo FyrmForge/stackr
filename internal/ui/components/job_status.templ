@@ -34,13 +34,13 @@ templ JobStatus(v JobStatusView) {
 // JobStatusBody is what the stream re-renders in place.
 templ JobStatusBody(v JobStatusView) {
 	<div class="flex items-center gap-2 text-sm">
-		<span class="text-slate-500">{ v.Kind }</span>
+		<span class="text-rw-faint font-mono">{ v.Kind }</span>
 		@JobBadge(v.State)
 		if v.Href != "" {
 			@NavLink(Link{Label: "details", Href: v.Href})
 		}
 	</div>
 	if v.Error != "" {
-		<p class="mt-1 text-sm text-red-700 dark:text-red-400">{ v.Error }</p>
+		<p class="mt-1 text-xs text-rw-danger">{ v.Error }</p>
 	}
 }

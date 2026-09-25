@@ -1,5 +1,7 @@
 package components
 
+import "strings"
+
 // LogPaneView is a followed log. The SSE stream sends "line" events, each
 // one rendered LogLine, and "end" when the source is done. Level and
 // Search are the starting filters, read from the page URL by the handler.
@@ -9,27 +11,32 @@ type LogPaneView struct {
 	Search    string
 }
 
-// LogPane wraps <log-pane>: the element owns follow, filter, search and the
-// toggles over the lines htmx appends; htmx owns the stream.
+// LogPane wraps <log-pane> in v0's LogView look: the element owns follow,
+// filter, search, the toggles and the stream state ([state], shown by
+// [data-status]); htmx owns the stream.
 templ LogPane(v LogPaneView) {
 	<log-pane level={ v.Level } search={ v.Search }>
-		<div class="mb-2 flex flex-wrap items-center gap-2 text-sm">
-			<input type="search" class="input w-48" placeholder="Search" value={ v.Search } data-search aria-label="Search the log"/>
-			<select class="input w-32" data-level aria-label="Minimum level">
+		<div class="flex flex-wrap items-center gap-3 mb-2">
+			<div class="relative">
+				<svg class="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-rw-faint pointer-events-none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"></circle><path d="m21 21-4.3-4.3"></path></svg>
+				<input type="search" class="input !pl-9 !py-1.5 text-sm font-mono !w-64" placeholder="Filter and search logs" value={ v.Search } data-search aria-label="Filter and search logs"/>
+			</div>
+			<select class="input !w-auto !py-1.5 text-xs" data-level aria-label="Minimum level">
 				<option value="">all levels</option>
-				<option value="error">error</option>
-				<option value="warn">warn</option>
-				<option value="info">info</option>
-				<option value="debug">debug</option>
+				<option value="info">info+</option>
+				<option value="warn">warn+</option>
+				<option value="error">errors</option>
 			</select>
-			<label class="flex items-center gap-1"><input type="checkbox" data-toggle="timestamps" checked/> timestamps</label>
-			<label class="flex items-center gap-1"><input type="checkbox" data-toggle="wrap"/> wrap</label>
-			<label class="flex items-center gap-1"><input type="checkbox" data-toggle="follow" checked/> follow</label>
+			<label class="flex items-center gap-1.5 text-xs text-rw-muted cursor-pointer"><input type="checkbox" class="accent-rw-accent" data-toggle="timestamps" checked/> timestamps</label>
+			<label class="flex items-center gap-1.5 text-xs text-rw-muted cursor-pointer"><input type="checkbox" class="accent-rw-accent" data-toggle="wrap" checked/> wrap</label>
+			<label class="flex items-center gap-1.5 text-xs text-rw-muted cursor-pointer"><input type="checkbox" class="accent-rw-accent" data-toggle="follow" checked/> follow</label>
+			<span data-status aria-live="polite"></span>
 		</div>
 		<div
-			class="h-96 overflow-auto rounded-lg bg-slate-950 p-3 font-mono text-xs text-slate-200"
+			class="panel p-3 h-[65vh] overflow-y-auto font-mono text-xs leading-5"
 			role="log"
 			data-lines
+			data-wrap
 			hx-ext="sse"
 			sse-connect={ v.StreamURL }
 			sse-swap="line"
@@ -40,13 +47,33 @@ templ LogPane(v LogPaneView) {
 }
 
 // LogLineView is one line as the stream sends it. Level is the parsed
-// level ("" = unknown); the element filters on it.
+// level ("" = unknown); the element filters on it and the CSS colours the
+// edge by it. Tok is the level word as Text spells it, drawn bold.
 type LogLineView struct {
 	Time  string
 	Level string
 	Text  string
+	Tok   string
 }
 
+// LogLine is one line on one line: the lines box is white-space: pre, so
+// templ's spacing around statements would show.
 templ LogLine(l LogLineView) {
-	<div data-level={ l.Level }><span data-ts class="text-slate-500">{ l.Time } </span>{ l.Text }</div>
+	<div data-level={ l.Level }><span data-ts>{ l.stamp() }</span>{ l.part(0) }<span data-tok>{ l.part(1) }</span>{ l.part(2) }</div>
+}
+
+func (l LogLineView) stamp() string {
+	if l.Time == "" {
+		return ""
+	}
+	return l.Time + " "
+}
+
+// part is Text split around its first Tok: before, the token, after.
+func (l LogLineView) part(i int) string {
+	pre, post, ok := strings.Cut(l.Text, l.Tok)
+	if !ok || l.Tok == "" {
+		return []string{l.Text, "", ""}[i]
+	}
+	return []string{pre, l.Tok, post}[i]
 }

@@ -31,20 +31,10 @@ templ SideDrawer(body templ.Component, tab string) {
 	</side-drawer>
 }
 
-// DrawerHead is the top of every drawer body (v0 PanelHeader): the title,
-// what it is, and the 32px close X.
+// DrawerHead is the top of a drawer body drawn outside Drawer: the
+// title, what it is, and the 32px close X (v0 PanelHeader, no extras).
 templ DrawerHead(title, kind string) {
-	<div class="flex flex-wrap items-center gap-y-2 justify-between px-4 sm:px-6 py-5 border-b border-rw-border">
-		<div class="min-w-0">
-			<h2 class="text-lg font-semibold text-rw-text truncate">{ title }</h2>
-			if kind != "" {
-				<p class="text-xs text-rw-faint truncate font-mono">{ kind }</p>
-			}
-		</div>
-		<button type="button" data-close class="flex h-8 w-8 items-center justify-center rounded-lg text-rw-muted hover:text-rw-text hover:bg-rw-raised transition-colors" aria-label="Close">
-			<svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"></path></svg>
-		</button>
-	</div>
+	@panelHeader(DrawerView{Title: title, Kind: kind})
 }
 
 // DrawerLoad is a drawer body that fetches itself: a fresh load of

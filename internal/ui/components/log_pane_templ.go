@@ -8,6 +8,8 @@ package components
 import "github.com/a-h/templ"
 import templruntime "github.com/a-h/templ/runtime"
 
+import "strings"
+
 // LogPaneView is a followed log. The SSE stream sends "line" events, each
 // one rendered LogLine, and "end" when the source is done. Level and
 // Search are the starting filters, read from the page URL by the handler.
@@ -17,8 +19,9 @@ type LogPaneView struct {
 	Search    string
 }
 
-// LogPane wraps <log-pane>: the element owns follow, filter, search and the
-// toggles over the lines htmx appends; htmx owns the stream.
+// LogPane wraps <log-pane> in v0's LogView look: the element owns follow,
+// filter, search, the toggles and the stream state ([state], shown by
+// [data-status]); htmx owns the stream.
 func LogPane(v LogPaneView) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
@@ -47,7 +50,7 @@ func LogPane(v LogPaneView) templ.Component {
 		var templ_7745c5c3_Var2 string
 		templ_7745c5c3_Var2, templ_7745c5c3_Err = templ.JoinStringErrs(v.Level)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/log_pane.templ`, Line: 15, Col: 26}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/log_pane.templ`, Line: 18, Col: 26}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var2))
 		if templ_7745c5c3_Err != nil {
@@ -60,33 +63,33 @@ func LogPane(v LogPaneView) templ.Component {
 		var templ_7745c5c3_Var3 string
 		templ_7745c5c3_Var3, templ_7745c5c3_Err = templ.JoinStringErrs(v.Search)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/log_pane.templ`, Line: 15, Col: 46}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/log_pane.templ`, Line: 18, Col: 46}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var3))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "\"><div class=\"mb-2 flex flex-wrap items-center gap-2 text-sm\"><input type=\"search\" class=\"input w-48\" placeholder=\"Search\" value=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "\"><div class=\"flex flex-wrap items-center gap-3 mb-2\"><div class=\"relative\"><svg class=\"absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-rw-faint pointer-events-none\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><circle cx=\"11\" cy=\"11\" r=\"8\"></circle><path d=\"m21 21-4.3-4.3\"></path></svg> <input type=\"search\" class=\"input !pl-9 !py-1.5 text-sm font-mono !w-64\" placeholder=\"Filter and search logs\" value=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var4 string
 		templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.JoinStringErrs(v.Search)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/log_pane.templ`, Line: 17, Col: 80}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/log_pane.templ`, Line: 22, Col: 130}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var4))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, "\" data-search aria-label=\"Search the log\"> <select class=\"input w-32\" data-level aria-label=\"Minimum level\"><option value=\"\">all levels</option> <option value=\"error\">error</option> <option value=\"warn\">warn</option> <option value=\"info\">info</option> <option value=\"debug\">debug</option></select> <label class=\"flex items-center gap-1\"><input type=\"checkbox\" data-toggle=\"timestamps\" checked> timestamps</label> <label class=\"flex items-center gap-1\"><input type=\"checkbox\" data-toggle=\"wrap\"> wrap</label> <label class=\"flex items-center gap-1\"><input type=\"checkbox\" data-toggle=\"follow\" checked> follow</label></div><div class=\"h-96 overflow-auto rounded-lg bg-slate-950 p-3 font-mono text-xs text-slate-200\" role=\"log\" data-lines hx-ext=\"sse\" sse-connect=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, "\" data-search aria-label=\"Filter and search logs\"></div><select class=\"input !w-auto !py-1.5 text-xs\" data-level aria-label=\"Minimum level\"><option value=\"\">all levels</option> <option value=\"info\">info+</option> <option value=\"warn\">warn+</option> <option value=\"error\">errors</option></select> <label class=\"flex items-center gap-1.5 text-xs text-rw-muted cursor-pointer\"><input type=\"checkbox\" class=\"accent-rw-accent\" data-toggle=\"timestamps\" checked> timestamps</label> <label class=\"flex items-center gap-1.5 text-xs text-rw-muted cursor-pointer\"><input type=\"checkbox\" class=\"accent-rw-accent\" data-toggle=\"wrap\" checked> wrap</label> <label class=\"flex items-center gap-1.5 text-xs text-rw-muted cursor-pointer\"><input type=\"checkbox\" class=\"accent-rw-accent\" data-toggle=\"follow\" checked> follow</label> <span data-status aria-live=\"polite\"></span></div><div class=\"panel p-3 h-[65vh] overflow-y-auto font-mono text-xs leading-5\" role=\"log\" data-lines data-wrap hx-ext=\"sse\" sse-connect=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var5 string
 		templ_7745c5c3_Var5, templ_7745c5c3_Err = templ.JoinStringErrs(v.StreamURL)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/log_pane.templ`, Line: 34, Col: 28}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/log_pane.templ`, Line: 41, Col: 28}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var5))
 		if templ_7745c5c3_Err != nil {
@@ -101,13 +104,17 @@ func LogPane(v LogPaneView) templ.Component {
 }
 
 // LogLineView is one line as the stream sends it. Level is the parsed
-// level ("" = unknown); the element filters on it.
+// level ("" = unknown); the element filters on it and the CSS colours the
+// edge by it. Tok is the level word as Text spells it, drawn bold.
 type LogLineView struct {
 	Time  string
 	Level string
 	Text  string
+	Tok   string
 }
 
+// LogLine is one line on one line: the lines box is white-space: pre, so
+// templ's spacing around statements would show.
 func LogLine(l LogLineView) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
@@ -136,20 +143,20 @@ func LogLine(l LogLineView) templ.Component {
 		var templ_7745c5c3_Var7 string
 		templ_7745c5c3_Var7, templ_7745c5c3_Err = templ.JoinStringErrs(l.Level)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/log_pane.templ`, Line: 51, Col: 26}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/log_pane.templ`, Line: 62, Col: 26}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var7))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 7, "\"><span data-ts class=\"text-slate-500\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 7, "\"><span data-ts>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var8 string
-		templ_7745c5c3_Var8, templ_7745c5c3_Err = templ.JoinStringErrs(l.Time)
+		templ_7745c5c3_Var8, templ_7745c5c3_Err = templ.JoinStringErrs(l.stamp())
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/log_pane.templ`, Line: 51, Col: 74}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/log_pane.templ`, Line: 62, Col: 54}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var8))
 		if templ_7745c5c3_Err != nil {
@@ -160,20 +167,62 @@ func LogLine(l LogLineView) templ.Component {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var9 string
-		templ_7745c5c3_Var9, templ_7745c5c3_Err = templ.JoinStringErrs(l.Text)
+		templ_7745c5c3_Var9, templ_7745c5c3_Err = templ.JoinStringErrs(l.part(0))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/log_pane.templ`, Line: 51, Col: 92}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/log_pane.templ`, Line: 62, Col: 74}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var9))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 9, "</div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 9, "<span data-tok>")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		var templ_7745c5c3_Var10 string
+		templ_7745c5c3_Var10, templ_7745c5c3_Err = templ.JoinStringErrs(l.part(1))
+		if templ_7745c5c3_Err != nil {
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/log_pane.templ`, Line: 62, Col: 102}
+		}
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var10))
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 10, "</span>")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		var templ_7745c5c3_Var11 string
+		templ_7745c5c3_Var11, templ_7745c5c3_Err = templ.JoinStringErrs(l.part(2))
+		if templ_7745c5c3_Err != nil {
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/log_pane.templ`, Line: 62, Col: 122}
+		}
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var11))
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 11, "</div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		return nil
 	})
+}
+
+func (l LogLineView) stamp() string {
+	if l.Time == "" {
+		return ""
+	}
+	return l.Time + " "
+}
+
+// part is Text split around its first Tok: before, the token, after.
+func (l LogLineView) part(i int) string {
+	pre, post, ok := strings.Cut(l.Text, l.Tok)
+	if !ok || l.Tok == "" {
+		return []string{l.Text, "", ""}[i]
+	}
+	return []string{pre, l.Tok, post}[i]
 }
 
 var _ = templruntime.GeneratedTemplate
