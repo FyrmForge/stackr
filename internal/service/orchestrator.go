@@ -488,6 +488,9 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 		slog.Warn(w, "path", cfg.Conntrack)
 	}
 	go func() {
+		if err := orch.domains.ReopenIngress(context.Background()); err != nil {
+			slog.Warn("proxy: ingress rejoin failed", "err", err)
+		}
 		if err := orch.sync.Sync(context.Background()); err != nil {
 			slog.Warn("proxy: boot push failed", "err", err)
 		}

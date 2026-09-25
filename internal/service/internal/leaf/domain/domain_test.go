@@ -161,6 +161,30 @@ func TestAttachRules(t *testing.T) {
 
 // The first domain opens the ingress network (proxy + running replicas),
 // the last one disconnects every member and removes it.
+// A recreated proxy rejoins every tile's ingress network once, whatever the
+// number of domain rows the tile has.
+func TestReopenIngress(t *testing.T) {
+	l, fake, web, _ := setup(t)
+	net := domain.Ingress(web)
+	_, err := l.Attach(ctx, web, domain.Spec{Host: "a.io", Port: 80}, false, nil)
+	must(t, err)
+	_, err = l.Attach(ctx, web, domain.Spec{Host: "b.io", Port: 80}, false, nil)
+	must(t, err)
+	n := len(fake.Calls())
+	must(t, l.ReopenIngress(ctx))
+	var got []string
+	for _, c := range fake.Calls()[n:] {
+		got = append(got, c.String())
+	}
+	want := []string{
+		"EnsureNetwork(" + net + ")",
+		"Connect(" + net + ", stackr-proxy, )",
+	}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Errorf("calls:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+}
+
 func TestIngressLifecycle(t *testing.T) {
 	l, fake, web, _ := setup(t)
 	net := domain.Ingress(web)
