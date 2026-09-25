@@ -860,9 +860,11 @@ sweep, P14 theme per user, DECIDE 159 and the DECIDE 138 leftovers.
    `api.prod.stack.org`) unless the resource says
    `include_env_on_default`; v0 had a default env per stack, the rewrite
    has only the ladder. **darthvader 2026-09-25: top rung.** A tile
-   domain row remembers the resource that named it (`resource_id`, FK
-   RESTRICT), so deleting a resource that still names one is refused
-   with a count, not a guess.
+   domain row remembers the resource that named it (`resource_id`, a
+   plain FK: RESTRICT broke org and stack deletes, whose cascade removes
+   both sides in one statement), so deleting a resource that still names
+   one is refused by the leaf with a count; the FK, checked at statement
+   end, is the backstop.
 
 ## DECIDE:
 

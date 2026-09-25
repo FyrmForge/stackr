@@ -576,6 +576,16 @@
           "redirect_to": {
             "type": "string"
           },
+          "resource_id": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "tile_id": {
             "type": "string"
           }
@@ -1106,6 +1116,9 @@
           "key": {
             "type": "string"
           },
+          "read_only": {
+            "type": "boolean"
+          },
           "scopes": {},
           "type": {
             "type": "string"
@@ -1117,6 +1130,7 @@
           "default",
           "scopes",
           "allow_zero",
+          "read_only",
           "desc"
         ],
         "type": "object"

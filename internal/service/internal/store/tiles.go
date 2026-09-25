@@ -131,6 +131,7 @@ type Domain struct {
 	ForceHTTPS    bool      `db:"force_https" json:"force_https"`
 	RedirectTo    string    `db:"redirect_to" json:"redirect_to"`
 	Auto          bool      `db:"auto" json:"auto"`
+	ResourceID    *string   `db:"resource_id" json:"resource_id"` // the resource that named an auto or apex host
 	Position      int       `db:"position" json:"position"`
 	ProxyJSON     string    `db:"proxy_json" json:"proxy_json"`
 	RawCaddy      string    `db:"raw_caddy" json:"raw_caddy"`

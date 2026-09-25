@@ -25,7 +25,7 @@ var tlsIn = Input{
 }
 
 var plainIn = Input{
-	Root:      "example.com",
+	Root:      "*.example.com", // the panel env carries it bare
 	PanelHost: "stkr.example.com",
 	HTTPPort:  "8081",
 	DataDir:   "/srv/stackr",

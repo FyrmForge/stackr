@@ -177,6 +177,27 @@ CREATE TABLE volumes (
     UNIQUE (scope_kind, scope_id, slug)
 );
 
+-- domain_resources: the hosts stackr names tiles under, at instance, org or
+-- stack level (REWRITE.md "Domain resources"). The level says which owner id
+-- is set. declared: someone asked for the row; the ones stackr makes itself
+-- (the root seed, an org's default) are not, and lose to one that is.
+CREATE TABLE domain_resources (
+    id                      TEXT      PRIMARY KEY,
+    level                   TEXT      NOT NULL CHECK (level IN ('instance', 'org', 'stack')),
+    org_id                  TEXT      REFERENCES orgs (id) ON DELETE CASCADE,
+    stack_id                TEXT      REFERENCES stacks (id) ON DELETE CASCADE,
+    host                    TEXT      NOT NULL UNIQUE,
+    include_env_on_default  INTEGER   NOT NULL,
+    acme_email              TEXT      NOT NULL,
+    declared                INTEGER   NOT NULL,
+    created_at              DATETIME  NOT NULL,
+    CHECK (
+        (level = 'instance' AND org_id IS NULL AND stack_id IS NULL)
+        OR (level = 'org' AND org_id IS NOT NULL AND stack_id IS NULL)
+        OR (level = 'stack' AND org_id IS NULL AND stack_id IS NOT NULL)
+    )
+);
+
 CREATE TABLE domains (
     id              TEXT      PRIMARY KEY,
     tile_id         TEXT      NOT NULL REFERENCES tiles (id) ON DELETE CASCADE,
@@ -187,6 +208,11 @@ CREATE TABLE domains (
     force_https     INTEGER   NOT NULL,
     redirect_to     TEXT      NOT NULL,
     auto            INTEGER   NOT NULL,
+    -- the resource that named an auto or apex host; NULL for a literal.
+    -- A resource that names one cannot be deleted. NO ACTION, not RESTRICT:
+    -- RESTRICT fires mid-cascade, so an org or stack delete would fail on
+    -- its own resource before the cascade reached the tile's domains.
+    resource_id     TEXT      REFERENCES domain_resources (id),
     position        INTEGER   NOT NULL,
     proxy_json      TEXT      NOT NULL,
     raw_caddy       TEXT      NOT NULL, -- admin-only

@@ -9,6 +9,7 @@ import (
 
 	"github.com/FyrmForge/stackr/internal/service/internal/dockerfake"
 	"github.com/FyrmForge/stackr/internal/service/internal/secrets"
+	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
 
 var testKey = strings.Repeat("ab", 32)
@@ -41,6 +42,7 @@ func TestNewBuildsEachOnce(t *testing.T) {
 		"leaf/params",
 		"leaf/volume",
 		"leaf/domain",
+		"leaf/domainres",
 		"leaf/credential",
 		"leaf/connector",
 		"leaf/managed",
@@ -81,5 +83,39 @@ func TestNewRefusesWithoutKey(t *testing.T) {
 	_, err := New(Config{DataDir: t.TempDir()}, WithDocker(dockerfake.New()))
 	if !errors.Is(err, secrets.ErrNoKey) {
 		t.Errorf("New without key: %v, want ErrNoKey", err)
+	}
+}
+
+// The installer's root domain becomes the instance domain resource on the
+// first boot; a later boot adds nothing, even with another root.
+func TestBootSeedsRootDomainOnce(t *testing.T) {
+	dir := t.TempDir()
+	boot := func(root string) []store.DomainResource {
+		t.Helper()
+		orch, err := New(
+			Config{DataDir: dir, SecretsKey: testKey, Conntrack: dir + "/nf_conntrack", RootDomain: root},
+			WithDocker(dockerfake.New()),
+			WithVIP(vipStub{}),
+			WithProxy(func(context.Context, json.RawMessage) error { return nil }),
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		rows, err := orch.domainres.ListAll(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := orch.Close(); err != nil {
+			t.Fatal(err)
+		}
+		return rows
+	}
+	first := boot("example.com")
+	if len(first) != 1 || first[0].Level != "instance" || first[0].Host != "example.com" || first[0].Declared {
+		t.Fatalf("first boot = %+v, want one undeclared instance row for example.com", first)
+	}
+	second := boot("other.com")
+	if len(second) != 1 || second[0].ID != first[0].ID || second[0].Host != "example.com" {
+		t.Errorf("second boot = %+v, want the first row alone", second)
 	}
 }

@@ -106,6 +106,7 @@ func Panel(image string, in Input) Container {
 			"BASE_URL=" + in.BaseURL(),
 			"STACKR_TLS=" + tls,
 			"PANEL_DOMAIN=" + in.PanelHost,
+			"ROOT_DOMAIN=" + strings.TrimPrefix(in.Root, "*."), // tiles get names under it
 			"ACME_EMAIL=" + in.Email,
 			"CADDY_TRUSTED_PROXIES=" + in.Proxies,
 			"DNS_PROVIDER=" + dns,

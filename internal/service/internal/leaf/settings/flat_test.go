@@ -54,3 +54,20 @@ func TestFlat(t *testing.T) {
 		t.Errorf("server rung = %+v, %v", d, err)
 	}
 }
+
+// root_domain is the installer's: read from the boot value, never written.
+func TestRootDomainReadOnly(t *testing.T) {
+	l := settings.New(servicetest.Store(t).Settings, map[string]string{"root_domain": "example.com"})
+	ctx := context.Background()
+	for _, v := range []string{"other.com", ""} {
+		err := l.Set(ctx, "root_domain", v)
+		invalid, ok := errs.IsInvalid(err)
+		if !ok || invalid.Field != "root_domain" {
+			t.Errorf("set root_domain %q: %v, want Invalid", v, err)
+		}
+	}
+	got, err := l.Get(ctx, "root_domain")
+	if err != nil || got != "example.com" {
+		t.Errorf("root_domain = %q, %v; want the boot value", got, err)
+	}
+}

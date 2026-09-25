@@ -55,6 +55,7 @@ type Knob struct {
 	Default   string `json:"default"`
 	Scopes    Scope  `json:"scopes"`
 	AllowZero bool   `json:"allow_zero"` // an explicit 0 is a real value, not "clear"
+	ReadOnly  bool   `json:"read_only"`  // the installer sets it; Set refuses
 	Desc      string `json:"desc"`
 }
 
@@ -145,6 +146,13 @@ var Catalogue = []Knob{
 		Type:   TStr,
 		Scopes: Flat,
 		Desc:   "the domain the panel answers on",
+	},
+	{
+		Key:      "root_domain",
+		Type:     TStr,
+		Scopes:   Flat,
+		ReadOnly: true,
+		Desc:     "the installer's root domain; tiles get names under it",
 	},
 	{
 		Key:    "acme_email",

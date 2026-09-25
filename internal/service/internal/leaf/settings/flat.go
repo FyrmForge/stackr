@@ -49,12 +49,16 @@ func (l *Leaf) Int(ctx context.Context, key string) (int, error) {
 	return strconv.Atoi(v)
 }
 
-// Set writes a flat knob, refusing what does not parse (B24). The empty
-// string removes the row, falling back to the boot value or default.
+// Set writes a flat knob, refusing what does not parse (B24) and a read-only
+// knob outright. The empty string removes the row, falling back to the boot
+// value or default.
 func (l *Leaf) Set(ctx context.Context, key, raw string) error {
 	k, ok := lookup(key)
 	if !ok || k.Scopes != Flat {
 		return errs.Invalidf(key, "no install setting named %q", key)
+	}
+	if k.ReadOnly {
+		return errs.Invalidf(key, "%s comes from the installer and cannot be changed here", key)
 	}
 	raw = strings.TrimSpace(raw)
 	if raw == "" {

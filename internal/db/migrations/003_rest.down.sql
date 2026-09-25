@@ -10,6 +10,7 @@ DROP TABLE IF EXISTS backup_destinations;
 DROP TABLE IF EXISTS connectors;
 DROP TABLE IF EXISTS credentials;
 DROP TABLE IF EXISTS domains;
+DROP TABLE IF EXISTS domain_resources;
 DROP TABLE IF EXISTS volumes;
 DROP TABLE IF EXISTS provisions;
 DROP TABLE IF EXISTS managed_instances;

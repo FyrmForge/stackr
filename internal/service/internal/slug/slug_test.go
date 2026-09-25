@@ -49,3 +49,18 @@ func TestGrammar(t *testing.T) {
 		}
 	}
 }
+
+func TestOfHost(t *testing.T) {
+	for host, want := range map[string]string{
+		"acme.example.com":   "acme",
+		"*.acme.example.com": "acme",
+		"acme":               "",
+		"*.acme":             "",
+		".example.com":       "",
+		"":                   "",
+	} {
+		if got := OfHost(host); got != want {
+			t.Errorf("OfHost(%q) = %q, want %q", host, got, want)
+		}
+	}
+}
