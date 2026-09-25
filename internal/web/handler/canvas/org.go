@@ -38,32 +38,66 @@ func (h *handler) orgTab(c echo.Context, cd card, f *comp.DrawerView) (templ.Com
 	case "params":
 		return h.vars(c, cd.s, "", "")
 	case "backups":
-		ds, err := h.orch.BackupDests(ctx, og.ID)
-		v := orgui.BackupsView{Base: f.Base, Write: can(c, cd.s, "destination.write")}
-		for _, d := range ds {
-			v.Dests = append(v.Dests, orgui.DestRow{
-				ID:     d.ID,
-				Name:   d.Name,
-				Kind:   d.Kind,
-				Bucket: d.Bucket,
-				Global: d.OrgID == nil,
-			})
-		}
-		return orgui.Backups(v), err
+		return h.orgDests(c, cd, f.Base)
 	}
-	v := orgui.SettingsView{Name: og.Name}
-	if can(c, cd.s, "org.write") {
-		v.Rename = f.Base + "/rename"
-		v.Delete = dialog.DeleteOrg(og.Name, f.Base+"/delete", "#"+comp.DrawerRoot)
+	cascade, err := h.cascadeForm(c, cd, og.Settings)
+	if err != nil {
+		return nil, err
 	}
+	// ponytail: no verb sets an org's rung (web or API); read-only until one lands
+	cascade.ReadOnly, cascade.Why = true, "Organization defaults can not be changed here yet."
+	v := orgui.SettingsView{Name: og.Name, Slug: og.Slug, Cascade: cascade}
+	if !can(c, cd.s, "org.write") {
+		return orgui.Settings(v), nil
+	}
+	sts, err := h.orch.Stacks(ctx, og.ID)
+	if err != nil {
+		return nil, err
+	}
+	v.Stacks = len(sts)
+	v.Rename = f.Base + "/rename"
+	v.Delete = dialog.DeleteOrg(og.Name, f.Base+"/delete", "#"+comp.DrawerRoot)
 	return orgui.Settings(v), nil
+}
+
+// orgDests is the org's own destinations and the install's shared ones,
+// which it may use but never change.
+func (h *handler) orgDests(c echo.Context, cd card, base string) (templ.Component, error) {
+	ds, err := h.orch.BackupDests(c.Request().Context(), cd.s.Org.ID)
+	if err != nil {
+		return nil, err
+	}
+	write := can(c, cd.s, "destination.write")
+	v := comp.DestsView{Scope: "organization", ListHelp: "This organization's own buckets, and the ones the server shares with every organization."}
+	if write {
+		v.Add = base + "/backups"
+	}
+	for _, d := range ds {
+		r := comp.DestView{Name: d.Name, Bucket: d.Bucket, Endpoint: d.Endpoint}
+		switch {
+		case d.Kind == "local":
+			r.Note = "local disk"
+		case d.OrgID == nil:
+			r.Note = "install-wide"
+		case write:
+			r.Remove = comp.ConfirmView{
+				Button:  "Remove",
+				Title:   "Remove " + d.Name + "?",
+				Warning: "stackr forgets this destination. Archives already in the bucket stay there.",
+				Action:  base + "/backups/" + d.ID + "/delete",
+				Target:  "#" + comp.DrawerRoot,
+			}
+		}
+		v.Rows = append(v.Rows, r)
+	}
+	return orgui.Backups(v), nil
 }
 
 // ponytail: emails come from the user list (one read); a verb that joins
 // members to users replaces it.
 func (h *handler) membersView(c echo.Context, cd card, base string) (orgui.MembersView, error) {
 	ctx, id := c.Request().Context(), cd.s.Org.ID
-	v := orgui.MembersView{Base: base, Manage: can(c, cd.s, "member.manage")}
+	v := orgui.MembersView{Base: base, Manage: can(c, cd.s, "member.manage"), Self: middleware.Principal(c).User.ID}
 	ms, err := h.orch.Members(ctx, id)
 	if err != nil {
 		return v, err
@@ -72,19 +106,20 @@ func (h *handler) membersView(c echo.Context, cd card, base string) (orgui.Membe
 	if err != nil {
 		return v, err
 	}
-	email := map[string]string{}
+	byID := map[string]service.User{}
 	for _, u := range us {
-		email[u.ID] = u.Email
+		byID[u.ID] = u
 	}
 	for _, m := range ms {
-		v.Members = append(v.Members, orgui.MemberRow{UserID: m.UserID, Email: email[m.UserID], Role: m.Role})
+		u := byID[m.UserID]
+		v.Members = append(v.Members, orgui.MemberRow{UserID: m.UserID, Name: u.Name, Email: u.Email, Role: m.Role})
 	}
 	if !v.Manage {
 		return v, nil
 	}
 	is, err := h.orch.PendingInvites(ctx, id)
 	for _, i := range is {
-		v.Invites = append(v.Invites, orgui.InviteRow{Email: i.Email, Role: i.Role, Expires: day(i.ExpiresAt)})
+		v.Invites = append(v.Invites, orgui.InviteRow{Email: i.Email, Role: i.Role, Expires: i.ExpiresAt.Format("Jan 2 2006")})
 	}
 	return v, err
 }

@@ -492,6 +492,41 @@ flash-toast[leaving] { opacity: 0; }
   .chip {
     @apply inline-flex items-center rounded px-1.5 py-0.5 text-[10px] leading-4 shrink-0;
   }
+  /* phase 3b: v0 settings pages, env colours, release chips, add people */
+  .settings-layout {
+    @apply flex flex-col gap-6 md:flex-row md:gap-10;
+  }
+  .settings-nav {
+    @apply flex gap-1 overflow-x-auto pb-2 md:w-52 md:shrink-0 md:flex-col md:overflow-visible md:pb-0;
+  }
+  .settings-nav-item {
+    @apply whitespace-nowrap rounded-lg px-3 py-2 text-sm text-rw-muted transition-colors hover:bg-rw-inset hover:text-rw-text;
+  }
+  .settings-nav-item.is-active {
+    @apply bg-rw-inset text-rw-text font-medium;
+  }
+  .settings-body {
+    @apply min-w-0 flex-1 max-w-3xl;
+  }
+  .settings-field {
+    @apply block;
+  }
+  .env-swatch {
+    @apply relative h-6 w-6 rounded-full cursor-pointer overflow-hidden ring-1 ring-rw-border transition-shadow;
+    background: var(--env-c);
+  }
+  .env-swatch:has(input:checked) {
+    @apply ring-2 ring-rw-text ring-offset-2 ring-offset-rw-surface;
+  }
+  .log-chip {
+    @apply inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[10px] font-medium shrink-0 whitespace-nowrap;
+    border-color: var(--env-c);
+    color: var(--env-c);
+    background: color-mix(in srgb, var(--env-c) 14%, transparent);
+  }
+  .people-add:has(input[type=email]:valid) .people-add-submit {
+    @apply bg-rw-accentDeep text-white border-transparent hover:bg-rw-accentPress shadow-rw;
+  }
 }
 summary.list-none::-webkit-details-marker { display: none; }
 log-pane [data-lines] > div { border-left: 2px solid transparent; padding-left: 0.5rem; margin-left: -0.25rem; color: rgb(var(--rw-text)); }

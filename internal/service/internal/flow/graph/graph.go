@@ -727,7 +727,7 @@ func (f *Flow) env(ctx context.Context, v *View, envID string, in In) error {
 		if vol.InstanceID != nil || mounted[vol.Slug] {
 			continue
 		}
-		n := card(vol.ID, KindVolume, vol.Name)
+		n := card(vol.ID, KindVolume, vol.Slug)
 		n.Slug, n.H, n.Detail = vol.Slug, ShortH, "detached"
 		if vol.OrphanedAt != nil {
 			n.Detail = "orphaned"
@@ -842,7 +842,7 @@ func (f *Flow) tileCard(ctx context.Context, t store.Tile, vols map[string]strin
 			}
 			for _, vol := range vs {
 				if vol.InstanceID != nil && *vol.InstanceID == in.ID {
-					n.Subs = append(n.Subs, Sub{ID: vol.ID, Kind: KindVolume, Name: vol.Name})
+					n.Subs = append(n.Subs, Sub{ID: vol.ID, Kind: KindVolume, Name: vol.Slug})
 				}
 			}
 		}

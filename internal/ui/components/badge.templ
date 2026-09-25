@@ -90,3 +90,11 @@ func envClass(color string) string {
 	}
 	return ""
 }
+
+// EnvSwatch is v0's colour picker dot: one hue as a radio named color.
+// A disabled fieldset around it makes it read-only.
+templ EnvSwatch(color string, checked bool) {
+	<label class={ "env-swatch", envClass(color) } title={ color }>
+		<input type="radio" name="color" value={ color } checked?={ checked } class="sr-only" aria-label={ color }/>
+	</label>
+}

@@ -100,15 +100,16 @@ func TestInvite(t *testing.T) {
 		t.Fatalf("visitor invite page:\n%s", body)
 	}
 	rec := s.As(t, "", "POST", "/invite/"+inv.ID+"/register", url.Values{
-		"name":     {"New"},
-		"email":    {"new@x.test"},
-		"password": {"Str0ng!pass"},
+		"name":             {"New"},
+		"email":            {"new@x.test"},
+		"password":         {"Str0ng!pass"},
+		"confirm_password": {"Str0ng!pass"},
 	})
 	if rec.Header().Get("HX-Redirect") != "/acme" {
 		t.Fatalf("register through invite = %d %v %s", rec.Code, rec.Header(), rec.Body)
 	}
 	if rec := s.As(t, "", "GET", "/invite/"+inv.ID, nil); rec.Code != http.StatusNotFound ||
-		!strings.Contains(rec.Body.String(), "used or expired") {
+		!strings.Contains(rec.Body.String(), "no longer valid") {
 		t.Errorf("used invite = %d", rec.Code)
 	}
 

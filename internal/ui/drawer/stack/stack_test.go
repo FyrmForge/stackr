@@ -18,7 +18,7 @@ func TestTabs(t *testing.T) {
 		Repo:       "acme/infra",
 		Delete:     c.ConfirmView{Word: "shop", Kept: []string{"x"}, Action: "/o/s/-/drawer/delete"},
 	}).Render(context.Background(), &b)
-	_ = Releases(ReleasesView{Rows: []ReleaseRow{{Number: "3", By: "dev"}}}).Render(context.Background(), &b)
+	_ = c.Releases(c.ReleasesView{Rows: []c.ReleaseRow{{Number: "3", By: "dev"}}}).Render(context.Background(), &b)
 	_ = Settings(SettingsView{Name: "ro"}).Render(context.Background(), &b)
 	got := b.String()
 	for _, w := range []string{

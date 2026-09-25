@@ -30,6 +30,10 @@ class ConfirmDialog extends HTMLElement {
     connectedCallback() {
         this.addEventListener("click", this.onClick);
         this.addEventListener("input", this.onInput);
+        if (this.hasAttribute("open")) {
+            this.reset();
+            this.querySelector("dialog")?.showModal();
+        }
     }
     disconnectedCallback() {
         this.removeEventListener("click", this.onClick);

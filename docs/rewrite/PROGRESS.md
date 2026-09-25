@@ -349,7 +349,7 @@ comparison against `shots/` after each:
 2. [x] Canvas (`gap-canvas.md`): 22px dot grid that follows pan and zoom,
    cards per kind, edges per kind, controls column, legend, settings
    drawer, layout constants.
-3. [ ] Drawers + pages (`gap-drawers-pages.md`): panel header and underline
+3. [x] Drawers + pages (`gap-drawers-pages.md`): panel header and underline
    tabs, forms, lists, each tab's content.
 4. [ ] Sweep + theme: every stock-Tailwind / `dark:` utility replaced by rw
    tokens (P13); theme per user as v0 does it (P14 option b: `users.theme`,
@@ -553,6 +553,93 @@ the tile, vars, managed-instance, slice and volume drawers.
    only; the log pane has no JSON expand and no saved prefs. Options: (a)
    fix in the phase 4 sweep; (b) keep. Lean (a) for the cron word and the
    sizes, (b) for the rest.
+
+Phase 3b done (2026-09-25, uncommitted in the `rewrite-step-6e` tree; VM
+runs v0.0.26, shots in scratchpad `v0-ui/after-phase3b/`, dark and light;
+tab shots from v0.0.24, hues, users, role default, settings order and the
+promote ask re-checked on v0.0.25/26):
+the org, stack, env and admin drawers, the account page and the auth pages
+(gap steps 23 to 29 and 33; 30 to 32 and 34 to 37 skipped, see DECIDE
+161 and 162).
+- Landed: v0's settings cards (`Section`, `DangerSection`, scope chips)
+  in every drawer's settings tab; the settings cascade at org (read-only),
+  stack and env as one flat card each, the inherited line over the help;
+  the org drawer (Organization, Defaults, Danger zone; Add people with the
+  segmented role picker, People rows; keys; Backups as v0's Add a
+  destination + Destinations); stack settings (Stack, Resource defaults,
+  Config as code, Danger zone); the releases tab on stack and env (the
+  ladder with each env's number, rows newest first with who and when, the
+  env chips in v0's hues, Promote / Roll back per env, the two-step modal
+  with the carried releases and the plan); env settings (Environment,
+  Resource overrides, Releases, Colour swatches, Danger zone with "N
+  tiles"); admin Users rows, Update text, Caddy, Backups (destinations +
+  Stackr's own database); the account page (Profile and API keys nav,
+  avatar initials, confirm password); auth copy (v0 titles and
+  subtitles, first-user register, confirm password on register and
+  invite, invite names the org and locks the email, the gone state).
+- New web routes on existing verbs: stack `/unbind` and `/settings`
+  (`stack.write`), stack `/promote/:env/:release` and env `/settings`
+  (`env.write`), admin `/dests`, `/dests/:dest/share`,
+  `/dests/:dest/delete` (`serverdefaults.set`, as the API's
+  `/admin/backup-dests`).
+- Fixed on the way: an admin row no longer offers Disable (v0; closes
+  that part of DECIDE 138); the ladder, the rows and the order tab drew an
+  env with no stored colour uncoloured, they now take its resolved hue
+  (`service.EnvHues`); the invite role picker defaulted to "member", which
+  the org leaf refuses, it now defaults to owner (DECIDE 171); the
+  invite page names the org, closing DECIDE 125 (`AllOrgs`, ponytail:
+  the whole list per render).
+- Checked on the VM: every tab above in both themes; the Promote ask
+  opens as a modal ("Promote #5 to prod?", carried #2 to #5, the plan);
+  prod reads rose, dev violet; an invite made with the default role shows
+  its link, the visitor page reads "Join Smoke" with the email read-only;
+  a bogus token reads "no longer valid"; login, register and CLI
+  authorize copy; the volume card opens its drawer by volume id and the
+  deep link survives a reload (the 3a note about `volume:uploads` is
+  stale).
+- Left out, no verb: user Enable; invite revoke, resend, copy and expiry
+  days; profile edit and avatar upload; an org settings setter, org logo
+  and org env colours; config plans (Plan now, Save & plan, Review); a
+  custom hex env colour; the panel backup schedule; stack move; env reset;
+  a release's commit sha and message; key minting on the account page
+  (DECIDE 123); Notifications and Appearance (Appearance is phase 4).
+- Still differs, needs a call: DECIDE 165 to 172. Also seen, not a call:
+  the Update tab checks on click (v0 on load; a check reaches GitHub, so
+  a tab open never runs one);
+  password fields have no eye toggle (JS, DECIDE 141); no "Cron timeout"
+  knob in the cascade (not in the catalogue); on the dev canvas the
+  whoami card covers the volume card (layout, not touched here).
+- Gates: `make build`, `make lint` (0 issues), `make test`, `make
+  templint` all clean. Element lines: confirm-dialog 62 (was 57, `open`
+  shows the server's question).
+
+165. **(step 6e) Settings blobs are only checked by the web form.**
+   `canvas/cascade.go` parses each rung; `SetStackSettings` and
+   `SetEnvSettings` store what they are given. Options: (a) move the
+   parse into the service; (b) keep. Lean (a).
+166. **(step 6e) Org defaults are read-only.** No org settings setter, so
+   the org drawer shows the cascade with "can not be changed here yet".
+   Options: (a) add `SetOrgSettings`; (b) keep. Lean (a), step 7.
+167. **(step 6e) Release rows read "Release N"**, not v0's commit sha and
+   message: releases carry neither. Options: (a) keep; (b) store them at
+   derive. Lean (b) once git tiles land.
+168. **(step 6e) The stack drawer promotes through its own route**
+   (`/promote/:env/:release`), the env drawer through its own. Options:
+   (a) keep; (b) one route. Lean (a).
+169. **(step 6e) The bottom rung gets Promote / Roll back.** v0 gave it
+   none, which left a one-env stack no way to roll back. Options: (a)
+   keep; (b) v0's rule. Lean (a).
+170. **(step 6e) Login keeps a Register link**; v0's had none.
+   Registration is open in the rewrite (DECIDE 121). Options: (a) keep;
+   (b) drop it. Lean (a).
+171. **(step 6e) The role picker offers member and viewer, the org leaf
+   writes only owner** (`validRole`), so those two answer "unknown role";
+   the per-member role `<select>` in People fails the same way.
+   Options: (a) open `validRole` to member and viewer (authz already
+   ranks them); (b) show owner only. Lean (a), v0 had three.
+172. **(step 6e) The invite link shows once, as a path.** v0 toasted the
+   full URL and kept a Copy invite on the row; the token is not kept.
+   Options: (a) keep; (b) print the full URL. Lean (b).
 
 ## DECIDE:
 

@@ -14,6 +14,7 @@ type SettingsFormView struct {
 	Why      string
 	Error    string // a refusal no one row owns
 	Note     string // what a save did
+	Flat     bool   // one list, no section heads: a Section around it titles it
 }
 
 // SettingRowView mirrors a settings.Knob plus the cascade's answer.
@@ -101,8 +102,8 @@ func sentence(s string) string {
 
 // from names the rung a value comes from, as v0's Inherited says it.
 func from(rung string) string {
-	if rung == "" {
-		return "the default"
+	if rung == "" || rung == "default" {
+		return "the built-in default"
 	}
 	return "the " + rung
 }
@@ -128,16 +129,26 @@ templ SettingsForm(v SettingsFormView) {
 		}
 		<fieldset disabled?={ v.ReadOnly }>
 			<legend class="sr-only">{ v.Scope } settings</legend>
-			for _, rows := range sectioned(v.Rows) {
-				@PanelSection(v.ID+"-"+strings.ReplaceAll(strings.ToLower(sectionOf(rows)), " ", "-"), sectionOf(rows), "") {
-					for _, r := range rows {
+			if v.Flat {
+				<div class="space-y-4">
+					for _, r := range v.Rows {
 						@settingRow(v.ID, r)
+					}
+				</div>
+			} else {
+				for _, rows := range sectioned(v.Rows) {
+					@PanelSection(v.ID+"-"+strings.ReplaceAll(strings.ToLower(sectionOf(rows)), " ", "-"), sectionOf(rows), "") {
+						for _, r := range rows {
+							@settingRow(v.ID, r)
+						}
 					}
 				}
 			}
-			<div class="flex items-center gap-3 pt-6">
-				<button type="submit" class="btn btn-primary btn-sm">Save</button>
-			</div>
+			if !v.ReadOnly {
+				<div class="flex items-center gap-3 pt-6">
+					<button type="submit" class="btn btn-primary btn-sm">Save</button>
+				</div>
+			}
 		</fieldset>
 	</form>
 }
@@ -157,13 +168,13 @@ templ settingRow(form string, r SettingRowView) {
 			default:
 				<input id={ form + "-" + r.Key } name={ r.Key } type={ knobInput(r.Type) } step={ knobStep(r.Type) } value={ r.Value } placeholder="inherit" class="input"/>
 		}
-		if r.Desc != "" {
-			<span class="settings-help">{ sentence(r.Desc) }</span>
-		}
 		if r.Secret {
 			<span class="settings-help">{ secretHelp(r.Effective) }</span>
 		} else if r.Value == "" && r.Effective != "" {
 			@Inherited(onOff(r.Effective), from(r.DecidedBy))
+		}
+		if r.Desc != "" {
+			<span class="settings-help">{ sentence(r.Desc) }</span>
 		}
 		@FieldError(r.Key, r.Error)
 	</div>

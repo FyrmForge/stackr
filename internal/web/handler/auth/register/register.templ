@@ -13,11 +13,16 @@ func withNext(path, next string) string {
 	return path + "?next=" + url.QueryEscape(next)
 }
 
-templ registerPage(f RegisterForm, errors map[string]string) {
-	@c.AuthCard("Register") {
-		<p class="text-sm text-rw-muted text-center">The first account on a new server is its admin.</p>
-		@registerForm(f, errors)
-		<p class="text-sm text-rw-muted text-center">Have an account? <a class="link" href={ templ.SafeURL(withNext("/login", f.Next)) }>Log in</a></p>
+templ registerPage(f RegisterForm, errors map[string]string, first bool) {
+	if first {
+		@c.AuthCard("Create your admin account", c.Text("You own this install. Setting up your organization comes next.")) {
+			@registerForm(f, errors)
+		}
+	} else {
+		@c.AuthCard("Create your account", nil) {
+			@registerForm(f, errors)
+			<p class="text-xs text-rw-faint text-center">Already have an account? <a class="link" href={ templ.SafeURL(withNext("/login", f.Next)) }>Log in</a></p>
+		}
 	}
 }
 
@@ -28,7 +33,8 @@ templ registerForm(f RegisterForm, errors map[string]string) {
 		@c.Field(c.FieldView{Name: "name", Label: "Name", Value: f.Name, Required: true, Error: errors["name"], ValidateURL: "/register/validate/name"})
 		@c.Field(c.FieldView{Name: "email", Label: "Email", Type: "email", Value: f.Email, Required: true, Error: errors["email"], ValidateURL: "/register/validate/email"})
 		@c.Field(c.FieldView{Name: "password", Label: "Password", Type: "password", Required: true, Error: errors["password"], ValidateURL: "/register/validate/password",
-			Help: "At least 8 characters with upper and lower case, a number and a symbol."})
-		@c.Submit("Register")
+			Help: "At least 8 characters with uppercase, lowercase, a number, and a special character."})
+		@c.Field(c.FieldView{Name: "confirm_password", Label: "Confirm password", Type: "password", Required: true, Error: errors["confirm_password"]})
+		@c.Submit("Create account")
 	}
 }

@@ -9,7 +9,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/web/webtest"
 )
 
-// The env drawer's releases tab lists the stack's releases, marks the one
+// The env drawer's releases tab lists the stack's releases, chips the one
 // the env runs, dry-runs taking one and queues the promote it confirms.
 func TestEnvReleases(t *testing.T) {
 	s := webtest.New(t)
@@ -34,14 +34,14 @@ func TestEnvReleases(t *testing.T) {
 	id := rs[0].ID
 	base := "/acme/shop/dev/-/drawer"
 	body := get(t, s, base+"?tab=releases")
-	if !strings.Contains(body, ">current<") || !strings.Contains(body, ">#1<") {
+	if !strings.Contains(body, `log-chip env-c-violet">dev<`) || !strings.Contains(body, ">#1<") {
 		t.Errorf("releases tab:\n%s", body)
 	}
 	body = get(t, s, base+"?tab=releases&plan="+id)
-	if !strings.Contains(body, "release #1") || !strings.Contains(body, base+"/promote/"+id) {
+	if !strings.Contains(body, "Promote #1 to dev?") || !strings.Contains(body, base+"/promote/"+id) {
 		t.Errorf("dry run:\n%s", body)
 	}
-	if body = get(t, s, base+"?tab=releases&plan=nope"); strings.Contains(body, "release #") {
+	if body = get(t, s, base+"?tab=releases&plan=nope"); strings.Contains(body, "Promote #") {
 		t.Errorf("an unknown release was planned:\n%s", body)
 	}
 	rec := s.Do(t, "POST", base+"/promote/"+id, nil)

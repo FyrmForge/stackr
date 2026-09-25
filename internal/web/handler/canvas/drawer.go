@@ -60,7 +60,8 @@ func (cd card) frame(tab string) comp.DrawerView {
 		f.Base = urlOf(s) + "/-/connectors/" + cd.conn.ID
 	case "vars":
 		f.Node = "vars"
-		f.Title = "Vars"
+		f.Title = "Environment variables"
+		f.Icon = "vars"
 		f.Tabs = []string{"editor"}
 		f.Base = urlOf(s) + "/-/vars"
 	}

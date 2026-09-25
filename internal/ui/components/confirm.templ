@@ -15,6 +15,10 @@ type ConfirmView struct {
 	Target  string
 	Quiet   bool   // the opener is a ghost button (a header Stop / Restart)
 	Vals    string // hx-vals JSON posted with the action; "" = none
+
+	Open    bool            // asked on arrival, no opener (the promote question)
+	Primary bool            // the yes is not destructive: primary, not danger
+	Body    templ.Component // more than Warning (a plan), under it
 }
 
 // Confirm wraps <confirm-dialog>. The element fires "confirmed" (bubbling)
@@ -37,16 +41,20 @@ func swapOf(target string) string {
 // native <dialog>; the X in the head is a second [data-cancel].
 templ confirm(v ConfirmView, swap string) {
 	<div
-		hx-post={ v.Action }
-		hx-trigger="confirmed"
-		hx-target={ v.Target }
-		hx-swap={ swap }
+		if v.Action != "" {
+			hx-post={ v.Action }
+			hx-trigger="confirmed"
+			hx-target={ v.Target }
+			hx-swap={ swap }
+		}
 		if v.Vals != "" {
 			hx-vals={ v.Vals }
 		}
 	>
-		<confirm-dialog word={ v.Word }>
-			<button type="button" class={ "btn btn-sm", templ.KV("btn-ghost", v.Quiet), templ.KV("btn-danger", !v.Quiet) } data-open>{ v.Button }</button>
+		<confirm-dialog word={ v.Word } open?={ v.Open }>
+			if !v.Open {
+				<button type="button" class={ "btn btn-sm", templ.KV("btn-ghost", v.Quiet), templ.KV("btn-primary", !v.Quiet && v.Primary), templ.KV("btn-danger", !v.Quiet && !v.Primary) } data-open>{ v.Button }</button>
+			}
 			<dialog class="modal-panel text-rw-text">
 				<div class="modal-head">
 					<div class="min-w-0">
@@ -60,7 +68,12 @@ templ confirm(v ConfirmView, swap string) {
 					</button>
 				</div>
 				<div class="modal-body">
-					<p>{ v.Warning }</p>
+					if v.Warning != "" {
+						<p>{ v.Warning }</p>
+					}
+					if v.Body != nil {
+						@v.Body
+					}
 					if len(v.Kept) > 0 {
 						<div>
 							<p class="mb-1.5 text-xs font-medium text-rw-muted">Kept:</p>
@@ -80,7 +93,9 @@ templ confirm(v ConfirmView, swap string) {
 				</div>
 				<div class="modal-foot">
 					<button type="button" class="btn btn-ghost btn-sm" data-cancel>Cancel</button>
-					<button type="button" class="btn btn-danger btn-sm" data-confirm>{ v.Button }</button>
+					if v.Action != "" {
+						<button type="button" class={ "btn btn-sm", templ.KV("btn-primary", v.Primary), templ.KV("btn-danger", !v.Primary) } data-confirm>{ v.Button }</button>
+					}
 				</div>
 			</dialog>
 		</confirm-dialog>

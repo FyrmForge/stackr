@@ -1,0 +1,85 @@
+package components
+
+// DestsView is v0's backups settings (org and admin): the add form, then
+// the destinations. A destination's keys never reach a view.
+type DestsView struct {
+	Scope    string // the chip: organization | instance
+	Add      string // POST the new destination; "" = read-only
+	Share    bool   // the form offers "every organization" (admin)
+	ListHelp string
+	Rows     []DestView
+}
+
+type DestView struct {
+	Name     string
+	Bucket   string
+	Endpoint string // "" = AWS
+	Note     string // a chip: "install-wide", "local disk"
+	Shared   bool
+	Toggle   string      // POST flips sharing; "" = none
+	Remove   ConfirmView // Action "" = none
+}
+
+func endpointWord(e string) string {
+	if e == "" {
+		return "AWS"
+	}
+	return e
+}
+
+func sharedWord(shared bool) string {
+	if shared {
+		return "Shared"
+	}
+	return "Not shared"
+}
+
+templ Dests(v DestsView) {
+	if v.Add != "" {
+		@Section("Add a destination", v.Scope, "Any S3-compatible bucket: AWS, MinIO, Backblaze B2, a RustFS instance.") {
+			<form hx-post={ v.Add } hx-target={ "#" + DrawerRoot } hx-swap="outerHTML" class="space-y-4">
+				@Field(FieldView{Name: "dest_name", Label: "Name", Placeholder: "offsite", Required: true})
+				@Field(FieldView{Name: "endpoint", Label: "Endpoint", Placeholder: "https://s3.eu-west-1.amazonaws.com", Help: "Full URL, including the scheme. Empty is AWS."})
+				@Field(FieldView{Name: "bucket", Label: "Bucket", Placeholder: "stackr-backups", Required: true})
+				@Field(FieldView{Name: "region", Label: "Region", Placeholder: "us-east-1", Help: "Optional: servers that ignore regions still need one for signing."})
+				@Field(FieldView{Name: "access_key", Label: "Access key", Required: true})
+				@Field(FieldView{Name: "secret_key", Label: "Secret key", Type: "password", Required: true, Help: "Stored encrypted and never shown again."})
+				if v.Share {
+					<div>
+						<span class="label">Sharing</span>
+						<label class="flex items-center gap-2 text-sm text-rw-text"><input type="checkbox" name="shared" value="1" class="accent-rw-accent"/> Offer it to every organization</label>
+						<p class="mt-1.5 text-xs text-rw-faint">The bucket credentials go with it, so this is off unless you say otherwise.</p>
+					</div>
+				}
+				<button type="submit" class="btn btn-primary btn-sm">Add destination</button>
+			</form>
+		}
+	}
+	@Section("Destinations", v.Scope, v.ListHelp) {
+		if len(v.Rows) == 0 {
+			<p class="text-sm text-rw-muted">None yet.</p>
+		} else {
+			<ul class="space-y-2">
+				for _, d := range v.Rows {
+					<li class="panel px-4 py-3 text-sm flex flex-wrap items-center gap-2">
+						<span class="text-rw-text">{ d.Name }</span>
+						if d.Bucket != "" {
+							<span class="font-mono text-xs text-rw-faint truncate">{ d.Bucket } at { endpointWord(d.Endpoint) }</span>
+						}
+						if d.Note != "" {
+							@Chip(d.Note, "")
+						}
+						<span class="ml-auto flex items-center gap-2">
+							if d.Toggle != "" {
+								<button type="button" class="btn btn-ghost btn-sm" hx-post={ d.Toggle } hx-target={ "#" + DrawerRoot } hx-swap="outerHTML" title="Offer it to every organization, or stop">{ sharedWord(d.Shared) }</button>
+							}
+							if d.Remove.Action != "" {
+								@Confirm(d.Remove)
+							}
+						</span>
+					</li>
+				}
+			</ul>
+		}
+	}
+}

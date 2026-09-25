@@ -13,12 +13,13 @@ type View struct {
 }
 
 templ page(v View) {
-	@c.AuthCard("Set up stackr") {
-		if v.Create != nil {
-			<p class="text-sm text-slate-500">You are this server's admin. Name the first org: stacks, envs and tiles live in it.</p>
+	if v.Create != nil {
+		@c.AuthCard("Set up stackr", c.Text("You are this server's admin. Name the first organization: stacks, environments and tiles live in it.")) {
 			@dialog.CreateLevel(*v.Create)
-		} else {
-			<p class="text-sm">You are not in an org yet. Ask an org owner for an invite link.</p>
+		}
+	} else {
+		@c.AuthCard("Set up stackr", nil) {
+			<p class="text-sm text-rw-muted text-center">You are not in an organization yet. Ask an organization owner for an invite link.</p>
 		}
 	}
 }

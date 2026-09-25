@@ -85,15 +85,23 @@ func inputType(t string) string {
 
 // AuthCard is the narrow centred card the signed-out and first-run pages
 // (login, register, setup, invite, CLI authorize) sit in: v0's login look,
-// the logo row over a panel. .auth-card spaces its form like v0's.
-templ AuthCard(title string) {
+// the logo row over a panel, the title and v0's one-line subtitle (sub,
+// nil = none). .auth-card spaces its form like v0's.
+templ AuthCard(title string, sub templ.Component) {
 	<div class="w-full max-w-md mx-auto pt-24 px-6">
 		<div class="flex items-center gap-2.5 justify-center mb-8">
 			<img src={ StaticURL("images/logo-mark.png") } alt="" class="h-10 w-10"/>
 			<span class="text-xl font-semibold text-rw-text">stackr</span>
 		</div>
 		<section class="auth-card panel p-8 shadow-rw">
-			<h1 class="text-lg font-semibold text-rw-text mb-6 text-center">{ title }</h1>
+			if sub != nil {
+				<h1 class="text-lg font-semibold text-rw-text mb-1 text-center">{ title }</h1>
+				<p class="text-sm text-rw-muted text-center mb-6">
+					@sub
+				</p>
+			} else {
+				<h1 class="text-lg font-semibold text-rw-text mb-6 text-center">{ title }</h1>
+			}
 			<div class="space-y-4">
 				{ children... }
 			</div>
@@ -120,16 +128,22 @@ templ Section(title, scope, help string) {
 	</section>
 }
 
-// DangerSection is Section in the danger palette, always last on a page.
-templ DangerSection(help string) {
+// DangerSection is Section in the danger palette, always last on a page
+// (v0 ConfirmDanger): what goes, the path it lives at, what is kept, then
+// the button that opens the typed confirm (children).
+templ DangerSection(warning, path, kept string) {
 	<section class="panel p-6 mb-6 border-rw-danger/40">
-		<h2 class="text-base font-semibold text-rw-danger tracking-tight mb-1">Danger zone</h2>
-		if help != "" {
-			<p class="text-sm text-rw-muted mb-4 max-w-2xl">{ help }</p>
-		} else {
-			<div class="mb-4"></div>
+		<h2 class="text-base font-semibold text-rw-danger tracking-tight mb-4">Danger zone</h2>
+		<p class="text-sm text-rw-text mb-1">{ warning }</p>
+		if path != "" {
+			<p class="text-xs text-rw-faint font-mono mb-1">{ path }</p>
 		}
-		{ children... }
+		if kept != "" {
+			<p class="text-xs text-rw-faint mb-3">{ kept }</p>
+		}
+		<div class="mt-3">
+			{ children... }
+		</div>
 	</section>
 }
 

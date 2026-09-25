@@ -1,0 +1,156 @@
+package components
+
+import "strconv"
+
+// ReleasesView is v0's releases page as a drawer tab (stack and env): the
+// ladder strip (what each env runs), one row per release with the envs
+// running it and a Promote / Roll back per env, and the promote question
+// when a row's button asked for it.
+// ponytail: v0's config plans list, Plan now and Review have no verb here.
+type ReleasesView struct {
+	Ladder []EnvRun
+	Rows   []ReleaseRow
+	Job    *JobStatusView
+	Ask    *ConfirmView // the promote question, open on arrival
+}
+
+// EnvRun is one env and the release it runs ("" = nothing deployed).
+type EnvRun struct{ Name, Color, Runs string }
+
+type ReleaseRow struct {
+	Number string
+	By     string // who or what cut it
+	When   string
+	Envs   []EnvRun // the envs running it
+	Moves  []ReleaseMove
+}
+
+// ReleaseMove is one env's button on a row; it fetches the question.
+type ReleaseMove struct {
+	Env  string
+	Back bool   // the env runs a newer release: Roll back, in danger
+	Ask  string // GET the tab with the question open
+}
+
+// PromoteAsk is the question's body (v0 promoteStepOne): what the move
+// skips or removes, the releases it carries, then the dry run.
+type PromoteAsk struct {
+	Back    bool
+	Skipped string // the rung below that does not run it yet
+	Target  string // the env
+	Carried []ReleaseRow
+	Plan    PlanView
+}
+
+// askRows is how many carried releases show before the rest fold.
+const askRows = 5
+
+templ Releases(v ReleasesView) {
+	<div id="tab-releases">
+		if v.Job != nil {
+			<div class="mb-4">
+				@JobStatus(*v.Job)
+			</div>
+		}
+		if v.Ask != nil {
+			@Confirm(*v.Ask)
+		}
+		if len(v.Ladder) > 0 {
+			<ul class="flex flex-wrap gap-2 mb-6">
+				for _, e := range v.Ladder {
+					<li class="panel px-3 py-2 flex items-center gap-2 text-sm">
+						<span class={ "env-dot", envClass(e.Color) }></span>
+						<span class="text-rw-text">{ e.Name }</span>
+						if e.Runs != "" {
+							<span class="font-mono text-xs text-rw-muted">#{ e.Runs }</span>
+						} else {
+							<span class="text-xs text-rw-faint">nothing deployed</span>
+						}
+					</li>
+				}
+			</ul>
+		}
+		<h2 class="text-sm font-medium text-rw-muted mb-2">Releases</h2>
+		if len(v.Rows) == 0 {
+			<p class="panel px-4 py-3 text-sm text-rw-faint">No releases yet. The first deploy makes one.</p>
+		} else {
+			<ul class="panel divide-y divide-rw-border">
+				for _, r := range v.Rows {
+					<li class="flex flex-wrap items-center gap-2 px-4 py-2.5 text-sm min-w-0">
+						<span class="flex h-5 w-5 items-center justify-center rounded bg-rw-inset text-[9px] font-bold uppercase text-rw-accentHi shrink-0">{ Initials(r.By) }</span>
+						<span class="font-mono text-xs text-rw-muted">#{ r.Number }</span>
+						<span class="min-w-0 flex-1">
+							<span class="block text-rw-text truncate">Release { r.Number }</span>
+							<span class="block text-[10px] text-rw-faint truncate">{ r.By } · { r.When }</span>
+						</span>
+						for _, e := range r.Envs {
+							<span class={ "log-chip", envClass(e.Color) }>{ e.Name }</span>
+						}
+						for _, m := range r.Moves {
+							<button
+								type="button"
+								class={ "btn btn-sm shrink-0", templ.KV("btn-danger", m.Back), templ.KV("btn-ghost", !m.Back) }
+								hx-get={ m.Ask }
+								hx-target={ "#" + DrawerRoot }
+								hx-swap="outerHTML"
+							>
+								if m.Back {
+									Roll back { m.Env }
+								} else {
+									Promote to { m.Env }
+								}
+							</button>
+						}
+					</li>
+				}
+			</ul>
+		}
+	</div>
+}
+
+// Ask is the promote question's body.
+templ Ask(a PromoteAsk) {
+	if a.Back {
+		<p class="text-xs text-rw-danger">Removes { strconv.Itoa(len(a.Carried)) } release{ plural(len(a.Carried)) } from { a.Target }.</p>
+	} else if a.Skipped != "" {
+		<p class="text-xs text-rw-warn">{ a.Skipped } does not run this release yet.</p>
+	}
+	if len(a.Carried) > 0 {
+		<ul class="text-xs divide-y divide-rw-border border-y border-rw-border">
+			for i, r := range a.Carried {
+				if i < askRows {
+					@askRow(r)
+				}
+			}
+		</ul>
+		if len(a.Carried) > askRows {
+			<details class="text-xs">
+				<summary class="px-1 py-1.5 text-rw-faint cursor-pointer">{ strconv.Itoa(len(a.Carried) - askRows) } more</summary>
+				<ul class="divide-y divide-rw-border border-b border-rw-border">
+					for i, r := range a.Carried {
+						if i >= askRows {
+							@askRow(r)
+						}
+					}
+				</ul>
+			</details>
+		}
+	}
+	@Plan(a.Plan)
+}
+
+templ askRow(r ReleaseRow) {
+	<li class="flex items-center gap-2 px-1 py-1.5 min-w-0">
+		<span class="font-mono text-rw-muted">#{ r.Number }</span>
+		<span class="flex h-4 w-4 items-center justify-center rounded bg-rw-inset text-[8px] font-bold uppercase text-rw-accentHi shrink-0">{ Initials(r.By) }</span>
+		<span class="min-w-0 flex-1 truncate text-rw-text">{ r.By }</span>
+		<span class="text-rw-faint shrink-0">{ r.When }</span>
+	</li>
+}
+
+func plural(n int) string {
+	if n == 1 {
+		return ""
+	}
+	return "s"
+}

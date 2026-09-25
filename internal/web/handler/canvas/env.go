@@ -1,8 +1,8 @@
 package canvas
 
 import (
+	"context"
 	"slices"
-	"strconv"
 
 	"github.com/a-h/templ"
 	"github.com/labstack/echo/v4"
@@ -12,36 +12,49 @@ import (
 	comp "github.com/FyrmForge/stackr/internal/ui/components"
 	"github.com/FyrmForge/stackr/internal/ui/dialog"
 	envui "github.com/FyrmForge/stackr/internal/ui/drawer/env"
-	"github.com/FyrmForge/stackr/internal/web/render"
 )
 
 func (h *handler) envTab(c echo.Context, cd card, f *comp.DrawerView) (templ.Component, error) {
-	e, write := cd.s.Env, can(c, cd.s, "env.write")
+	ctx, e, write := c.Request().Context(), cd.s.Env, can(c, cd.s, "env.write")
 	switch f.Tab {
 	case "params":
 		return h.vars(c, cd.s, "", "")
 	case "logs":
 		return envui.Logs(), nil
 	case "releases":
-		return h.releases(c, cd, f, write)
+		return h.releasesTab(c, cd, f)
 	case "order":
-		es, err := h.orch.Ladder(c.Request().Context(), e.StackID)
+		es, err := h.orch.Ladder(ctx, e.StackID)
 		v := orderView(es)
 		if write {
 			v.Action = f.Base + "/order"
 		}
 		return envui.Order(v), err
 	}
+	ts, err := h.orch.Tiles(ctx, e.ID)
+	if err != nil {
+		return nil, err
+	}
+	cascade, err := h.cascadeForm(c, cd, e.Settings)
+	if err != nil {
+		return nil, err
+	}
 	v := envui.SettingsView{
-		Name:   e.Name,
-		From:   e.FromKind,
-		Branch: e.FromBranch,
-		Auto:   e.Auto,
-		Color:  e.Color,
+		Name:    e.Name,
+		Tiles:   len(ts),
+		Canvas:  urlOf(cd.s),
+		Path:    cd.s.Org.Slug + " / " + cd.s.Stack.Slug + " / " + e.Slug,
+		From:    e.FromKind,
+		Branch:  e.FromBranch,
+		Auto:    e.Auto,
+		Color:   e.Color,
+		Cascade: cascade,
 	}
 	if write {
 		v.Base = f.Base
 		v.Delete = dialog.DeleteEnv(e.Name, f.Base+"/delete", "#"+comp.DrawerRoot)
+	} else {
+		v.Cascade.ReadOnly, v.Cascade.Why = true, "Changing overrides needs write access to this environment."
 	}
 	return envui.Settings(v), nil
 }
@@ -52,6 +65,7 @@ func orderView(es []service.Environment) envui.OrderView {
 	for i, e := range es {
 		ids[i] = e.ID
 	}
+	hues := service.EnvHues(es)
 	var v envui.OrderView
 	swap := func(i, j int) []string {
 		if j < 0 || j >= len(ids) {
@@ -65,84 +79,12 @@ func orderView(es []service.Environment) envui.OrderView {
 		v.Rungs = append(v.Rungs, envui.Rung{
 			ID:    e.ID,
 			Name:  e.Name,
-			Color: e.Color,
+			Color: hues[e.ID],
 			Up:    swap(i, i+1),
 			Down:  swap(i, i-1),
 		})
 	}
 	return v
-}
-
-// jobKey carries the job an env action queued to the tab that answers it.
-const jobKey = "env-drawer-job"
-
-// releases lists the stack's releases; ?plan= adds the dry run of taking
-// one into this env and, when nothing blocks it, the confirm that does.
-func (h *handler) releases(c echo.Context, cd card, f *comp.DrawerView, write bool) (templ.Component, error) {
-	ctx, e := c.Request().Context(), cd.s.Env
-	rs, err := h.orch.Releases(ctx, e.StackID)
-	if err != nil {
-		return nil, err
-	}
-	var v envui.ReleasesView
-	cur, plan := 0, c.QueryParam("plan")
-	for _, r := range rs {
-		row := envui.ReleaseRow{
-			Number:  strconv.Itoa(r.Number),
-			By:      r.CreatedBy,
-			Created: day(r.CreatedAt),
-			Current: e.ReleaseID != nil && *e.ReleaseID == r.ID,
-			DryRun:  f.Base + "?tab=releases&plan=" + r.ID,
-		}
-		if row.Current {
-			cur = r.Number
-		}
-		v.Rows = append(v.Rows, row)
-	}
-	if j, ok := c.Get(jobKey).(service.Job); ok {
-		jv := render.JobView(urlOf(cd.s), j)
-		jv.Refresh = f.Base + "?tab=releases"
-		v.Job = &jv
-	}
-	i := slices.IndexFunc(rs, func(r service.Release) bool { return r.ID == plan })
-	if i < 0 {
-		return envui.Releases(v), nil
-	}
-	p, err := h.orch.PlanPromote(ctx, e.ID, plan)
-	if err != nil {
-		return nil, err
-	}
-	n, verb := strconv.Itoa(rs[i].Number), "Promote"
-	if rs[i].Number < cur {
-		verb = "Roll back"
-	}
-	pv := comp.PlanView{
-		Title:     verb + " " + e.Name + " to release #" + n,
-		Blockers:  p.Plan.Blockers,
-		Warnings:  p.Plan.Warnings,
-		CanDeploy: p.CanDeploy,
-	}
-	for _, ch := range p.Plan.Changes {
-		pv.Changes = append(pv.Changes, comp.ChangeView{
-			Kind:  ch.Kind,
-			Tile:  ch.Tile,
-			Field: ch.Field,
-			Old:   ch.Old,
-			New:   ch.New,
-			Note:  ch.Note,
-		})
-	}
-	v.Plan = &pv
-	if write && p.CanDeploy {
-		v.Take = comp.ConfirmView{
-			Button:  verb + " to #" + n,
-			Title:   pv.Title,
-			Warning: "The plan above is applied; tiles it changes redeploy.",
-			Action:  f.Base + "/promote/" + plan,
-			Target:  "#" + comp.DrawerRoot,
-		}
-	}
-	return envui.Releases(v), nil
 }
 
 func (h *handler) envAction(tab string, do func(echo.Context, card) (string, error)) echo.HandlerFunc {
@@ -191,9 +133,17 @@ func (h *handler) mountEnv(site *echo.Group, a *middleware.Access) {
 		if err != nil {
 			return "", err
 		}
-		c.Set(jobKey, j)
+		c.Set(jobKey, queued{job: j, page: urlOf(cd.s)})
 		return "Queued: the job below follows it.", nil
 	}), write)
+	site.POST(e+"/settings", h.saveRung(
+		"env",
+		func(s service.Scope) string { return s.Env.Settings },
+		func(ctx context.Context, s service.Scope, blob string) error {
+			_, err := h.orch.SetEnvSettings(ctx, s.Env.ID, blob)
+			return err
+		},
+	), write)
 	site.POST(e+"/delete", h.envAction("settings", func(c echo.Context, cd card) (string, error) {
 		if err := h.orch.DeleteEnv(c.Request().Context(), cd.s.Env.ID); err != nil {
 			return "", err

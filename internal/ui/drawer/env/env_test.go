@@ -14,15 +14,16 @@ func TestTabs(t *testing.T) {
 		From:  "promote",
 		Color: "teal",
 	}).Render(context.Background(), &b)
+	var ob strings.Builder
 	_ = Order(OrderView{
 		Action: "/e/order",
 		Rungs: []Rung{
 			{ID: "a", Name: "dev", Up: []string{"b", "a"}},
 			{ID: "b", Name: "prod", Down: []string{"b", "a"}},
 		},
-	}).Render(context.Background(), &b)
+	}).Render(context.Background(), &ob)
 	_ = Logs().Render(context.Background(), &b)
-	got := b.String()
+	got := b.String() + ob.String()
 	for _, w := range []string{
 		`value="promote" checked`,
 		`value="teal" checked`,
@@ -35,7 +36,7 @@ func TestTabs(t *testing.T) {
 			t.Errorf("no %s in\n%s", w, got)
 		}
 	}
-	if strings.Count(got, "<button type=\"submit\" class=\"btn\">") != 2 {
+	if strings.Count(ob.String(), `<button type="submit"`) != 2 {
 		t.Error("the ends of the ladder offer a move off it")
 	}
 }

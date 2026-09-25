@@ -1,9 +1,14 @@
 // Package org is the org card's drawer tabs (home canvas): settings,
-// members + invites, keys, backups. Params is the vars editor, composed by
-// the handler. Each tab is drawn inside components.Drawer.
+// members + invites, keys, backups, drawn as v0's organization settings.
+// Params is the vars editor, composed by the handler. Each tab is drawn
+// inside components.Drawer.
 package org
 
-import c "github.com/FyrmForge/stackr/internal/ui/components"
+import (
+	"strconv"
+
+	c "github.com/FyrmForge/stackr/internal/ui/components"
+)
 
 // Tabs in strip order.
 var Tabs = []string{"settings", "members", "keys", "params", "backups"}
@@ -12,19 +17,23 @@ var Tabs = []string{"settings", "members", "keys", "params", "backups"}
 var Roles = []string{"owner", "member", "viewer"}
 
 type SettingsView struct {
-	Name   string
-	Rename string        // POST name; "" = not an owner
-	Delete c.ConfirmView // shown when Rename is set
+	Name    string
+	Slug    string
+	Rename  string // POST name; "" = not an owner
+	Cascade c.SettingsFormView
+	Stacks  int           // a delete is refused while any remain
+	Delete  c.ConfirmView // shown when Rename is set
 }
 
 type MembersView struct {
 	Base    string // actions: /invite, /members/<user>/role, /members/<user>/remove
 	Manage  bool   // member.manage: change roles, remove, invite
+	Self    string // the viewer's user id: no role change or remove on their own row
 	Members []MemberRow
 	Invites []InviteRow
 }
 
-type MemberRow struct{ UserID, Email, Role string }
+type MemberRow struct{ UserID, Name, Email, Role string }
 
 type InviteRow struct{ Email, Role, Expires string }
 
@@ -35,132 +44,152 @@ type KeysView struct {
 
 type KeyRow struct{ ID, Name, Created string }
 
-type BackupsView struct {
-	Base  string // POST /backups, /backups/<id>/delete
-	Write bool   // destination.write
-	Dests []DestRow
-}
-
-type DestRow struct {
-	ID, Name, Kind, Bucket string
-	Global                 bool // the install's, not this org's: read-only here
-}
-
 func target() string { return "#" + c.DrawerRoot }
 
-templ form(action string) {
-	<form hx-post={ action } hx-target={ target() } hx-swap="outerHTML" class="space-y-3">
-		{ children... }
-	</form>
+func stacks(n int) string {
+	if n == 1 {
+		return "1 stack"
+	}
+	return strconv.Itoa(n) + " stacks"
 }
 
 templ Settings(v SettingsView) {
-	<div class="space-y-6" id="tab-settings">
-		@form(v.Rename) {
-			@c.Field(c.FieldView{Name: "name", Label: "Name", Value: v.Name, Required: true, Disabled: v.Rename == "", Why: "Only an owner renames the org."})
-			if v.Rename != "" {
-				@c.Submit("Rename")
-			}
+	<div id="tab-settings">
+		@c.Section("Organization", "organization", "The name is the slug in every URL below it, so renaming moves them.") {
+			<form hx-post={ v.Rename } hx-target={ target() } hx-swap="outerHTML" class="space-y-4">
+				@c.Field(c.FieldView{Name: "name", Label: "Name", Value: v.Name, Required: true, Help: "Renaming breaks existing links.", Disabled: v.Rename == "", Why: "Only an owner can rename this organization."})
+				if v.Rename != "" {
+					<button type="submit" class="btn btn-primary btn-sm">Rename</button>
+				}
+			</form>
+		}
+		@c.Section("Resource defaults", "organization", "Applied to every service in this organization that does not set its own. Stacks, environments and services can still override them.") {
+			@c.SettingsForm(v.Cascade)
 		}
 		if v.Rename != "" {
-			<section class="space-y-2">
-				<h3 class="font-semibold">Delete</h3>
-				<p class="text-sm text-slate-500">Refused while the org has stacks.</p>
-				@c.Confirm(v.Delete)
-			</section>
+			if v.Stacks > 0 {
+				@c.DangerSection("This organization still holds "+stacks(v.Stacks)+". Move or delete them before it can be deleted.", "/"+v.Slug, "")
+			} else {
+				@c.DangerSection("Deleting this organization removes its members, keys, connectors and params.", "/"+v.Slug, "Backups already in a destination are kept.") {
+					@c.Confirm(v.Delete)
+				}
+			}
 		}
 	</div>
+}
+
+// roleButtons is v0's segmented role picker: three radios as one control.
+templ roleButtons(name, picked string) {
+	<div class="flex gap-2" role="radiogroup" aria-label="Role">
+		for _, r := range Roles {
+			<label class="flex-1">
+				<input type="radio" name={ name } value={ r } checked?={ r == picked } class="peer sr-only"/>
+				<span class="block text-center rounded-lg border border-rw-border bg-rw-inset px-3 py-1.5 text-sm text-rw-muted transition-colors hover:text-rw-text cursor-pointer peer-checked:border-rw-accent peer-checked:bg-rw-accent/10 peer-checked:text-rw-text peer-focus-visible:ring-2 peer-focus-visible:ring-rw-accent/40">{ r }</span>
+			</label>
+		}
+	</div>
+}
+
+templ avatar(name string) {
+	<span class="flex items-center justify-center rounded bg-rw-inset font-bold uppercase text-rw-accentHi shrink-0 h-8 w-8 text-xs" aria-hidden="true">{ c.Initials(name) }</span>
 }
 
 templ Members(v MembersView) {
-	<div class="space-y-6" id="tab-members">
-		<ul class="divide-y divide-slate-200 text-sm dark:divide-slate-800">
-			for _, m := range v.Members {
-				<li class="flex items-center gap-2 py-2">
-					<span class="flex-1">{ m.Email }</span>
-					if v.Manage {
-						<form hx-post={ v.Base + "/members/" + m.UserID + "/role" } hx-trigger="change" hx-target={ target() } hx-swap="outerHTML">
-							<select name="role" class="input" aria-label={ "Role of " + m.Email }>
-								for _, r := range Roles {
-									<option value={ r } selected?={ r == m.Role }>{ r }</option>
-								}
-							</select>
-						</form>
-						@c.PostButton("Remove", v.Base+"/members/"+m.UserID+"/remove")
-					} else {
-						<span class="text-slate-500">{ m.Role }</span>
-					}
-				</li>
-			}
-		</ul>
+	<div id="tab-members">
 		if v.Manage {
-			<section class="space-y-2">
-				<h3 class="font-semibold">Invites</h3>
-				if len(v.Invites) == 0 {
-					<p class="text-sm text-slate-500">No open invites.</p>
-				}
-				<ul class="text-sm">
-					for _, i := range v.Invites {
-						<li>{ i.Email } <span class="text-slate-500">{ i.Role }, until { i.Expires }</span></li>
-					}
-				</ul>
-				@form(v.Base + "/invite") {
-					@c.Field(c.FieldView{Name: "email", Label: "Email", Type: "email", Required: true})
-					<select name="role" class="input" aria-label="Role">
-						for _, r := range Roles {
-							<option value={ r } selected?={ r == "member" }>{ r }</option>
+			@c.Section("Add people", "organization", "Everyone gets an invite link to accept, and that link is a credential.") {
+				<form hx-post={ v.Base + "/invite" } hx-target={ target() } hx-swap="outerHTML" class="people-add space-y-4">
+					<div>
+						<label for="people-email" class="label">Email address</label>
+						<input id="people-email" name="email" type="email" required placeholder="person@example.com" class="input"/>
+						<p class="mt-1.5 text-xs text-rw-faint">They get an invitation to accept. This server sends no mail, so the link is yours to send.</p>
+					</div>
+					<div>
+						<span class="label">Role</span>
+						@roleButtons("role", "owner")
+					</div>
+					<button type="submit" class="btn btn-ghost btn-sm people-add-submit">Add to organization</button>
+				</form>
+			}
+		}
+		@c.Section("People", "organization", "Owners manage the organization. Members have full access to its stacks, viewers are read-only.") {
+			<ul class="space-y-2">
+				for _, m := range v.Members {
+					<li class="panel px-3 py-2.5 flex flex-wrap items-center gap-2">
+						@avatar(nameOr(m.Name, m.Email))
+						<span class="min-w-[12rem] flex-1">
+							<span class="block text-sm text-rw-text">{ nameOr(m.Name, m.Email) }</span>
+							if m.Name != "" {
+								<span class="block text-xs text-rw-muted">{ m.Email }</span>
+							}
+						</span>
+						if v.Manage && m.UserID != v.Self {
+							<form hx-post={ v.Base + "/members/" + m.UserID + "/role" } hx-target={ target() } hx-swap="outerHTML" class="flex items-center gap-2">
+								<select name="role" class="input !w-24 !py-1 text-xs" aria-label={ "Role of " + m.Email }>
+									for _, r := range Roles {
+										<option value={ r } selected?={ r == m.Role }>{ r }</option>
+									}
+								</select>
+								<button type="submit" class="btn btn-ghost btn-sm">Set</button>
+							</form>
+							<button type="button" class="btn btn-danger btn-sm" hx-post={ v.Base + "/members/" + m.UserID + "/remove" } hx-target={ target() } hx-swap="outerHTML">Remove</button>
+						} else {
+							<span class="text-xs px-1.5 py-0.5 rounded bg-rw-inset text-rw-muted">{ m.Role }</span>
 						}
-					</select>
-					@c.Submit("Invite")
+					</li>
 				}
-			</section>
+				for _, i := range v.Invites {
+					<li class="panel px-3 py-2.5 flex flex-wrap items-center gap-2">
+						@avatar(i.Email)
+						<span class="min-w-[12rem] flex-1">
+							<span class="block text-sm text-rw-text">{ i.Email }</span>
+							<span class="block text-xs text-rw-warning">Invited, expires { i.Expires }</span>
+						</span>
+						<span class="text-xs px-1.5 py-0.5 rounded bg-rw-inset text-rw-muted">{ i.Role }</span>
+					</li>
+				}
+			</ul>
 		}
 	</div>
+}
+
+func nameOr(name, email string) string {
+	if name != "" {
+		return name
+	}
+	return email
 }
 
 templ Keys(v KeysView) {
-	<div class="space-y-6" id="tab-keys">
-		<p class="text-sm text-slate-500">Your API keys for this org. A key is shown once, when minted.</p>
-		<ul class="divide-y divide-slate-200 text-sm dark:divide-slate-800">
-			for _, k := range v.Keys {
-				<li class="flex items-center gap-2 py-2">
-					<span class="flex-1">{ k.Name } <span class="text-slate-500">{ k.Created }</span></span>
-					@c.PostButton("Revoke", v.Base+"/keys/"+k.ID+"/revoke")
-				</li>
+	<div id="tab-keys">
+		@c.Section("Mint a key", "organization", "An API key for the stackr CLI, scoped to this organization. It is shown once, when minted.") {
+			<form hx-post={ v.Base + "/keys" } hx-target={ target() } hx-swap="outerHTML" class="space-y-4">
+				@c.Field(c.FieldView{Name: "key_name", Label: "Name", Placeholder: "laptop", Required: true})
+				<button type="submit" class="btn btn-primary btn-sm">Mint key</button>
+			</form>
+		}
+		@c.Section("Your keys", "organization", "") {
+			if len(v.Keys) == 0 {
+				<p class="text-sm text-rw-muted">No API keys yet.</p>
+			} else {
+				<ul class="space-y-2">
+					for _, k := range v.Keys {
+						<li class="panel px-4 py-3 flex items-center justify-between gap-3">
+							<span class="min-w-0">
+								<span class="text-sm text-rw-text">{ k.Name }</span>
+								<span class="text-rw-faint text-xs">{ k.Created }</span>
+							</span>
+							<button type="button" class="btn btn-danger btn-sm" hx-post={ v.Base + "/keys/" + k.ID + "/revoke" } hx-target={ target() } hx-swap="outerHTML">Revoke</button>
+						</li>
+					}
+				</ul>
 			}
-		</ul>
-		@form(v.Base + "/keys") {
-			@c.Field(c.FieldView{Name: "key_name", Label: "New key", Placeholder: "laptop", Required: true})
-			@c.Submit("Mint")
 		}
 	</div>
 }
 
-templ Backups(v BackupsView) {
-	<div class="space-y-6" id="tab-backups">
-		<ul class="divide-y divide-slate-200 text-sm dark:divide-slate-800">
-			for _, d := range v.Dests {
-				<li class="flex items-center gap-2 py-2">
-					<span class="flex-1">{ d.Name } <span class="text-slate-500">{ d.Kind } { d.Bucket }</span></span>
-					if d.Global {
-						<span class="text-slate-500">install-wide</span>
-					} else if v.Write {
-						@c.PostButton("Delete", v.Base+"/backups/"+d.ID+"/delete")
-					}
-				</li>
-			}
-		</ul>
-		if v.Write {
-			@form(v.Base + "/backups") {
-				<h3 class="font-semibold">Add an S3 destination</h3>
-				@c.Field(c.FieldView{Name: "dest_name", Label: "Name", Required: true})
-				@c.Field(c.FieldView{Name: "endpoint", Label: "Endpoint", Placeholder: "https://s3.example.com", Required: true})
-				@c.Field(c.FieldView{Name: "region", Label: "Region"})
-				@c.Field(c.FieldView{Name: "bucket", Label: "Bucket", Required: true})
-				@c.Field(c.FieldView{Name: "access_key", Label: "Access key", Required: true})
-				@c.Field(c.FieldView{Name: "secret_key", Label: "Secret key", Type: "password", Required: true})
-				@c.Submit("Add")
-			}
-		}
+templ Backups(v c.DestsView) {
+	<div id="tab-backups">
+		@c.Dests(v)
 	</div>
 }

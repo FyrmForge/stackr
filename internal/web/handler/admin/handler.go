@@ -54,6 +54,50 @@ func (h *handler) Mount(g *echo.Group, a *middleware.Access) {
 		j, err := h.orch.PanelBackupNow(c.Request().Context())
 		return "Backup queued.", &j, err
 	}), a.Require("container.admin"))
+	dests := a.Require("serverdefaults.set")
+	g.POST(b+"/dests", h.act("backups", func(c echo.Context) (string, *service.Job, error) {
+		f := c.FormValue
+		_, err := h.orch.CreateBackupDest(c.Request().Context(), nil, service.BackupDestSpec{
+			Name:      f("dest_name"),
+			Endpoint:  f("endpoint"),
+			Region:    f("region"),
+			Bucket:    f("bucket"),
+			AccessKey: f("access_key"),
+			SecretKey: f("secret_key"),
+			Shared:    f("shared") != "",
+		})
+		return "Destination added.", nil, err
+	}), dests)
+	g.POST(b+"/dests/:dest/share", h.act("backups", h.share), dests)
+	g.POST(b+"/dests/:dest/delete", h.act("backups", func(c echo.Context) (string, *service.Job, error) {
+		return "Destination removed.", nil, h.orch.DeleteBackupDest(c.Request().Context(), "", c.Param("dest"))
+	}), dests)
+}
+
+// share flips a global destination's sharing; blank keys keep the stored
+// ones, so no key leaves the service.
+func (h *handler) share(c echo.Context) (string, *service.Job, error) {
+	ctx := c.Request().Context()
+	ds, err := h.orch.GlobalBackupDests(ctx)
+	if err != nil {
+		return "", nil, err
+	}
+	i := slices.IndexFunc(ds, func(d service.BackupDest) bool { return d.ID == c.Param("dest") })
+	if i < 0 {
+		return "", nil, errs.ErrNotFound
+	}
+	d := ds[i]
+	_, err = h.orch.UpdateBackupDest(ctx, "", d.ID, service.BackupDestSpec{
+		Name:     d.Name,
+		Endpoint: d.Endpoint,
+		Region:   d.Region,
+		Bucket:   d.Bucket,
+		Shared:   !d.Shared,
+	})
+	if d.Shared {
+		return "No longer offered to other organizations.", nil, err
+	}
+	return "Offered to every organization.", nil, err
 }
 
 func frame(tab string) comp.DrawerView {
@@ -142,7 +186,8 @@ func (h *handler) tab(c echo.Context, tab string, x extra) (templ.Component, err
 				Active:  u.Active,
 				Promote: ui.Base + "/users/" + u.ID + "/admin?admin=" + url.QueryEscape(boolWord(!u.Admin())),
 			}
-			if u.Active {
+			// v0: an admin is never disabled, remove the admin first
+			if u.Active && !u.Admin() {
 				r.Disable = ui.Base + "/users/" + u.ID + "/disable"
 			}
 			v.Rows = append(v.Rows, r)
@@ -168,8 +213,12 @@ func (h *handler) tab(c echo.Context, tab string, x extra) (templ.Component, err
 		val, err := h.orch.Setting(ctx, "proxy_custom")
 		return ui.Caddy(ui.CaddyView{Action: ui.Base + "/caddy", Sync: ui.Base + "/caddy/sync", Value: val}), err
 	case "backups":
+		ds, err := h.orch.GlobalBackupDests(ctx)
+		if err != nil {
+			return nil, err
+		}
 		rs, err := h.orch.PanelBackups(ctx)
-		v := ui.BackupsView{Now: ui.Base + "/backups", Job: job}
+		v := ui.BackupsView{Dests: destsView(ds), Now: ui.Base + "/backups", Job: job}
 		for _, r := range rs {
 			v.Rows = append(v.Rows, ui.Backup{
 				Status:  r.Status,
@@ -183,6 +232,35 @@ func (h *handler) tab(c echo.Context, tab string, x extra) (templ.Component, err
 	}
 	v, err := h.settings(c, nil)
 	return comp.SettingsForm(v), err
+}
+
+// destsView is the install's own destinations; the local one is part of
+// the install, so it has no actions.
+func destsView(ds []service.BackupDest) comp.DestsView {
+	v := comp.DestsView{
+		Scope:    "instance",
+		Add:      ui.Base + "/dests",
+		Share:    true,
+		ListHelp: "A shared server-wide destination can be chosen from every organization. An unshared one is yours alone; the panel's own backup uses it either way.",
+	}
+	for _, d := range ds {
+		r := comp.DestView{Name: d.Name, Bucket: d.Bucket, Endpoint: d.Endpoint, Shared: d.Shared}
+		if d.Kind == "local" {
+			r.Note = "local disk"
+			v.Rows = append(v.Rows, r)
+			continue
+		}
+		r.Toggle = ui.Base + "/dests/" + d.ID + "/share"
+		r.Remove = comp.ConfirmView{
+			Button:  "Remove",
+			Title:   "Remove " + d.Name + "?",
+			Warning: "stackr forgets this destination. Archives already in the bucket stay there.",
+			Action:  ui.Base + "/dests/" + d.ID + "/delete",
+			Target:  "#" + comp.DrawerRoot,
+		}
+		v.Rows = append(v.Rows, r)
+	}
+	return v
 }
 
 func boolWord(b bool) string {
