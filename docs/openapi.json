@@ -1671,6 +1671,21 @@
           "avatar_path": {
             "type": "string"
           },
+          "config_auto": {
+            "type": "boolean"
+          },
+          "config_branch": {
+            "type": "string"
+          },
+          "config_connector_id": {
+            "type": "string"
+          },
+          "config_path": {
+            "type": "string"
+          },
+          "config_repo": {
+            "type": "string"
+          },
           "created_at": {
             "format": "date-time",
             "type": "string"
@@ -1709,7 +1724,12 @@
           "avatar_path",
           "env_colors",
           "settings",
-          "created_at"
+          "created_at",
+          "config_connector_id",
+          "config_repo",
+          "config_branch",
+          "config_path",
+          "config_auto"
         ],
         "type": "object"
       },

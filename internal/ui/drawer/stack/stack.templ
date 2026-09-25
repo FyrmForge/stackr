@@ -59,7 +59,7 @@ templ Settings(v SettingsView) {
 						</select>
 						<p class="mt-1.5 text-xs text-rw-faint">Which GitHub App supplies the credentials.</p>
 					</div>
-					@c.Field(c.FieldView{Name: "repo", Label: "Repository", Value: v.Repo, Placeholder: "acme/infra", Help: "In owner/name form."})
+					@c.Field(c.FieldView{Name: "repo", Label: "Repository", Value: v.Repo, Placeholder: "acme/infra", Help: "owner/name or the https URL, either works."})
 					@c.Field(c.FieldView{Name: "branch", Label: "Branch", Value: v.Branch, Placeholder: "main", Help: "Empty uses the repository's default branch."})
 					@c.Field(c.FieldView{Name: "path", Label: "Config path", Value: v.Path, Placeholder: "stackr-compose.yml"})
 					if v.Base != "" {

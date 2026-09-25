@@ -122,13 +122,20 @@ func (o *Orchestrator) repoLock(dir string) func() {
 	return mu.Unlock
 }
 
-// clone checks out url at commit into dir through the org's connector.
+// clone checks out url at commit into dir through the org's connector: the
+// one connectorID names when set, the one for url's host otherwise.
 func (o *Orchestrator) clone(
 	ctx context.Context,
-	orgID, url, branch, dir, commit string,
+	orgID, connectorID, url, branch, dir, commit string,
 	log io.Writer,
 ) (git.Repo, error) {
-	c, err := o.conns.For(ctx, orgID, url)
+	var c store.Connector
+	var err error
+	if connectorID != "" {
+		c, err = o.conns.Get(ctx, orgID, connectorID)
+	} else {
+		c, err = o.conns.For(ctx, orgID, url)
+	}
 	if err != nil {
 		return git.Repo{}, err
 	}
@@ -160,7 +167,7 @@ func (o *Orchestrator) stackFile(
 	dir := filepath.Join(o.cfg.DataDir, "repos", "config-"+st.ID)
 	unlock := o.repoLock(dir)
 	defer unlock()
-	r, err := o.clone(ctx, st.OrgID, st.ConfigRepo, st.ConfigBranch, dir, commit, log)
+	r, err := o.clone(ctx, st.OrgID, st.ConfigConnectorID, st.ConfigRepo, st.ConfigBranch, dir, commit, log)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -189,7 +196,7 @@ func (o *Orchestrator) buildTile(
 	dir := filepath.Join(o.cfg.DataDir, "repos", t.ID)
 	unlock := o.repoLock(dir)
 	defer unlock()
-	r, err := o.clone(ctx, st.OrgID, t.GitURL, t.GitBranch, dir, commit, log)
+	r, err := o.clone(ctx, st.OrgID, "", t.GitURL, t.GitBranch, dir, commit, log)
 	if err != nil {
 		return "", err
 	}

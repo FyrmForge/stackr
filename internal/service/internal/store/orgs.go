@@ -7,14 +7,19 @@ import (
 
 // Org is a row of orgs.
 type Org struct {
-	ID          string     `db:"id" json:"id"`
-	Name        string     `db:"name" json:"name"`
-	Slug        string     `db:"slug" json:"slug"`
-	AvatarPath  string     `db:"avatar_path" json:"avatar_path"`
-	EnvColors   string     `db:"env_colors" json:"env_colors"`
-	Settings    string     `db:"settings" json:"settings"`
-	SetupDoneAt *time.Time `db:"setup_done_at" json:"setup_done_at"`
-	CreatedAt   time.Time  `db:"created_at" json:"created_at"`
+	ID                string     `db:"id" json:"id"`
+	Name              string     `db:"name" json:"name"`
+	Slug              string     `db:"slug" json:"slug"`
+	AvatarPath        string     `db:"avatar_path" json:"avatar_path"`
+	EnvColors         string     `db:"env_colors" json:"env_colors"`
+	Settings          string     `db:"settings" json:"settings"`
+	SetupDoneAt       *time.Time `db:"setup_done_at" json:"setup_done_at"`
+	CreatedAt         time.Time  `db:"created_at" json:"created_at"`
+	ConfigConnectorID string     `db:"config_connector_id" json:"config_connector_id"`
+	ConfigRepo        string     `db:"config_repo" json:"config_repo"`
+	ConfigBranch      string     `db:"config_branch" json:"config_branch"`
+	ConfigPath        string     `db:"config_path" json:"config_path"`
+	ConfigAuto        bool       `db:"config_auto" json:"config_auto"`
 }
 
 type OrgStore interface {

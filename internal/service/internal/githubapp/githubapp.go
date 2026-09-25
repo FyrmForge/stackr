@@ -250,6 +250,18 @@ func signJWT(appID, pemKey string) (string, error) {
 	return unsigned + "." + base64.RawURLEncoding.EncodeToString(sig), nil
 }
 
+// RepoURL is the one stored spelling of a repo: owner/name becomes
+// https://github.com/owner/name, anything else is kept as typed. The
+// connector lookup reads the host off the URL, so owner/name cloned nothing.
+func RepoURL(repo string) string {
+	repo = strings.TrimSpace(repo)
+	owner, name, ok := strings.Cut(repo, "/")
+	if !ok || owner == "" || name == "" || strings.Contains(owner, ":") || strings.ContainsAny(name, "/:") {
+		return repo
+	}
+	return "https://github.com/" + repo
+}
+
 // CloneAuth returns GIT_CONFIG_* environment lines that authenticate an HTTPS
 // github.com fetch: env, not -c flags, so the token never lands in
 // /proc/*/cmdline or in .git/config.

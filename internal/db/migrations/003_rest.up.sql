@@ -2,15 +2,37 @@
 -- names each table's leaf and what changed against the old schema.
 
 CREATE TABLE orgs (
-    id             TEXT      PRIMARY KEY,
-    name           TEXT      NOT NULL,
-    slug           TEXT      NOT NULL UNIQUE,
-    avatar_path    TEXT      NOT NULL,
-    env_colors     TEXT      NOT NULL,
-    settings       TEXT      NOT NULL,
-    setup_done_at  DATETIME,
-    created_at     DATETIME  NOT NULL
+    id                   TEXT      PRIMARY KEY,
+    name                 TEXT      NOT NULL,
+    slug                 TEXT      NOT NULL UNIQUE,
+    avatar_path          TEXT      NOT NULL,
+    env_colors           TEXT      NOT NULL,
+    settings             TEXT      NOT NULL,
+    setup_done_at        DATETIME,
+    created_at           DATETIME  NOT NULL,
+    -- the org config file's binding, the same four stacks has; '' = unbound
+    config_connector_id  TEXT      NOT NULL,
+    config_repo          TEXT      NOT NULL,
+    config_branch        TEXT      NOT NULL,
+    config_path          TEXT      NOT NULL,
+    config_auto          INTEGER   NOT NULL DEFAULT 0
 );
+
+-- org_config_plans: one row per plan of the org config file; leaf/orgplan.
+-- commit_sha, not commit: COMMIT is an SQL keyword.
+CREATE TABLE org_config_plans (
+    id          TEXT      PRIMARY KEY,
+    org_id      TEXT      NOT NULL REFERENCES orgs (id) ON DELETE CASCADE,
+    commit_sha  TEXT      NOT NULL,
+    summary     TEXT      NOT NULL,
+    plan        TEXT      NOT NULL, -- JSON orgconfig.Plan
+    status      TEXT      NOT NULL CHECK (status IN ('pending', 'clean', 'error', 'superseded', 'applied', 'rejected')),
+    error       TEXT      NOT NULL,
+    created_at  DATETIME  NOT NULL,
+    decided_at  DATETIME
+);
+
+CREATE INDEX org_config_plans_org ON org_config_plans (org_id, created_at DESC);
 
 CREATE TABLE org_members (
     id          TEXT      PRIMARY KEY,
