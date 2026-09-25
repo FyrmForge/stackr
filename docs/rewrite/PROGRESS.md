@@ -34,6 +34,7 @@ at the bottom of this file.
   - Fixed on the way: a page's own drawer (`?drawer=org:<id>`) vanished on reload; auto-domain refusal leaked the field name; `domain ls` lacked OWNER and DECLARED.
   - Unproven on the VM: `auto: true` inside a stack file (needs a bound stack and an installed connector; unit-tested; step 7's proof covers it).
 - [ ] step-7.md org config file: `stackr-org.yml` bound to the org, plans as rows an owner approves or an Auto switch applies, apply = one job through the orchestrator's verbs, never deletes a stack; plus v0's new-org wizard one to one; planned 2026-09-25 (DECIDE 180 to 193), not started
+- [ ] step-7b.md managed tiles: allow list replaces scope, slice tiles, env pairs, read or write per consumer, `${{ env.name }}`; darthvader 2026-09-25 (DECIDE 194), planned, not started
 
 Step 0 list (agreed with darhvader):
 1. Rename binaries to `stackrd`, `stackr`, `stackr-install`: three `cmd/` dirs, Makefile, watch rule.
@@ -877,6 +878,30 @@ sweep, P14 theme per user, DECIDE 159 and the DECIDE 138 leftovers.
    file never declares shared instances.** A shared database is a normal
    managed tile in a normal stack's own file (an "infra" stack); who may
    connect and how consumers name it are DECIDE 194.
+194. **(step 7b) Scope goes; managed tiles carry an allow list, a slice is
+   a tile of its own, consumers get read or write.** darthvader
+   2026-09-25, in five calls. (1) `scope_kind` (env, stack, org) on a
+   managed instance is replaced by `allow:`, a list of `org:stack:env:tile`
+   patterns with `*` (a trailing `*` swallows the rest, a `*` in the middle
+   matches one segment); no list means the tile's own env, as env scope did.
+   (2) The first segment is always the tile's own org in v1: `*` or another
+   org's slug is refused. No cross-org sharing. (3) A slice is a tile
+   (`kind: slice`) in the consumer's stack file: one logical unit (a
+   database, a bucket) many tiles use, with `provision_from:
+   <stack>:<env>:<managed tile>` (own org implied) and `default_access:
+   read|write`. The instance side declares nothing per slice. (4) The
+   managed tile carries `env_pairs:` (consumer env name → its env), so
+   `provision_from: infra:${{ env.name }}:pg_db` resolves through it; a
+   consumer env not in the map is a blocker. `${{ env.name }}` is a new ref
+   kind. (5) Access is on the consumer: a tile that refs `${{
+   tile.<slice>.<output> }}` gets its own cred on the slice at the slice's
+   default access, or at the access its `slice_access: {from, access}`
+   names. Every consumer gets its own user. The old per-consumer `slices:`
+   grammar, `SetInstanceScope`, the `${{ stack.<slug>.<output> }}` and `${{
+   org.<slug>.<output> }}` refs and the org file's `shared:` (DECIDE 193)
+   go. Name lists per consumer (darthvader's first idea) are what `allow:`
+   is; per-consumer network policy inside an env (S3 not on Grafana's
+   network) is Later, own DECIDE. Plan: `docs/rewrite/tasks/step-7b.md`.
 
 ## DECIDE:
 
