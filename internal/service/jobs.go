@@ -1,12 +1,14 @@
 package service
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"time"
 
@@ -63,6 +65,9 @@ type promoteJob struct {
 type pushJob struct {
 	StackID string        `json:"stack_id"`
 	Event   promote.Event `json:"event"`
+	// DefaultBranch is the repo's, from the push: an empty ConfigBranch
+	// means it.
+	DefaultBranch string `json:"default_branch,omitempty"`
 }
 
 type prJob struct {
@@ -126,6 +131,9 @@ func (o *Orchestrator) handlers() map[jobs.Kind]jobs.Handler {
 			return o.run.Do(ctx, p.RunID, r.Log)
 		}),
 		kindPush: payload(func(ctx context.Context, r *jobs.Run, p pushJob) error {
+			if err := o.ladderEnvs(ctx, p, r.Log); err != nil {
+				return err
+			}
 			return o.runPush(ctx, p.StackID, p.Event, r.Log)
 		}),
 		kindPR:     payload(o.runPR),
@@ -225,6 +233,64 @@ func (o *Orchestrator) runPush(ctx context.Context, stackID string, ev promote.E
 		if _, err := o.enqueuePromote(ctx, e.ID, rel.ID); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+// ladderEnvs makes the envs the stack file's ladder names and the stack
+// lacks, bottom rung first, on a push to the config repo's branch (DECIDE
+// 189). It never deletes one. A file that does not load is logged and the
+// push goes on; the promote plan reports it.
+// ponytail: a missing rung lands on top of the ladder, not at its place in
+// the file; a rung added under existing ones is reordered by hand.
+func (o *Orchestrator) ladderEnvs(ctx context.Context, p pushJob, log io.Writer) error {
+	st, err := o.stacks.Get(ctx, p.StackID)
+	if err != nil {
+		return err
+	}
+	ev := p.Event
+	if st.ConfigRepo == "" || promote.NormalizeRepo(st.ConfigRepo) != promote.NormalizeRepo(ev.Repo) ||
+		ev.Branch != cmp.Or(st.ConfigBranch, p.DefaultBranch) {
+		return nil
+	}
+	data, fetch, err := o.stackFile(ctx, st, ev.Commit, log)
+	var file *promote.Resolved
+	if err == nil {
+		file, err = promote.Load(data, fetch)
+	}
+	if err != nil {
+		_, _ = fmt.Fprintf(log, "stack file: %v; no envs made\n", err)
+		return nil
+	}
+	have, err := o.envs.Ladder(ctx, st.ID)
+	if err != nil {
+		return err
+	}
+	for _, name := range file.Order {
+		if slices.ContainsFunc(have, func(e store.Environment) bool { return e.Slug == name }) {
+			continue
+		}
+		re := file.Envs[name]
+		if re.FromKind == "" {
+			_, _ = fmt.Fprintf(log, "env %s: the file gives it no branch or promote; not made\n", name)
+			continue
+		}
+		e, err := o.envs.Create(ctx, st.ID, name, environment.Spec{
+			Type:       environment.Static,
+			FromKind:   re.FromKind,
+			FromBranch: re.FromBranch,
+			Auto:       re.Auto,
+			Color:      re.Color,
+		})
+		if bad, ok := errs.IsInvalid(err); ok {
+			_, _ = fmt.Fprintf(log, "env %s: %s; not made\n", name, bad.Msg)
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		have = append(have, e)
+		_, _ = fmt.Fprintf(log, "env %s made from the stack file (%s %s)\n", e.Slug, e.FromKind, e.FromBranch)
 	}
 	return nil
 }

@@ -50,6 +50,34 @@ func (o *Orchestrator) RenameOrg(ctx context.Context, orgID, name string) (Org, 
 	return o.orgs.Rename(ctx, og, name, claims)
 }
 
+// SetOrgSettings writes the org's rung of the defaults cascade and
+// redeploys the running tiles of every stack in the org (B34).
+func (o *Orchestrator) SetOrgSettings(ctx context.Context, orgID, blob string) (Org, error) {
+	og, err := o.orgs.Get(ctx, orgID)
+	if err != nil {
+		return og, err
+	}
+	if og, err = o.orgs.SetSettings(ctx, og, blob); err != nil {
+		return og, err
+	}
+	return og, o.redeployScope(ctx, ParamScope{Kind: "org", ID: orgID})
+}
+
+// SetOrgEnvColors writes the org's env colours (a JSON object of env slug
+// to colour) and redeploys the org's running tiles, as SetOrgSettings does.
+// ponytail: a colour never reaches a container, so the redeploy restarts
+// for nothing; the step 7 task asks for it. Drop it once that is settled.
+func (o *Orchestrator) SetOrgEnvColors(ctx context.Context, orgID, colors string) (Org, error) {
+	og, err := o.orgs.Get(ctx, orgID)
+	if err != nil {
+		return og, err
+	}
+	if og, err = o.orgs.SetEnvColors(ctx, og, colors); err != nil {
+		return og, err
+	}
+	return og, o.redeployScope(ctx, ParamScope{Kind: "org", ID: orgID})
+}
+
 // FinishOrg completes setup, and gives an org with no domain resource of its
 // own the undeclared <slug>.<instance host> (v0's ensureDefaultDomain).
 func (o *Orchestrator) FinishOrg(ctx context.Context, orgID string) (Org, error) {

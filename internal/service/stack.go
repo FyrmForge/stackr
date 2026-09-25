@@ -122,6 +122,7 @@ func (o *Orchestrator) Webhook(ctx context.Context, connectorID, event, signatur
 						Commit:  p.After,
 						Changed: p.ChangedFiles(),
 					},
+					DefaultBranch: p.Repository.DefaultBranch,
 				},
 				"push:"+st.ID,
 				"push:"+st.ID+":"+promote.NormalizeRepo(repo)+"@"+branch,

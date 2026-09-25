@@ -626,6 +626,7 @@ the org, stack, env and admin drawers, the account page and the auth pages
 166. **(step 6e) Org defaults are read-only.** No org settings setter, so
    the org drawer shows the cascade with "can not be changed here yet".
    Options: (a) add `SetOrgSettings`; (b) keep. Lean (a), step 7.
+   **Resolved in step 7 task 5: (a), `SetOrgSettings` and the org drawer's Defaults save for an owner.**
 167. **(step 6e) Release rows read "Release N"**, not v0's commit sha and
    message: releases carry neither. Options: (a) keep; (b) store them at
    derive. Lean (b) once git tiles land.

@@ -129,17 +129,7 @@ func (o *Orchestrator) clone(
 	orgID, connectorID, url, branch, dir, commit string,
 	log io.Writer,
 ) (git.Repo, error) {
-	var c store.Connector
-	var err error
-	if connectorID != "" {
-		c, err = o.conns.Get(ctx, orgID, connectorID)
-	} else {
-		c, err = o.conns.For(ctx, orgID, url)
-	}
-	if err != nil {
-		return git.Repo{}, err
-	}
-	env, err := o.conns.CloneEnv(ctx, c, url)
+	env, err := o.cloneEnv(ctx, orgID, connectorID, url)
 	if err != nil {
 		return git.Repo{}, err
 	}
@@ -151,6 +141,24 @@ func (o *Orchestrator) clone(
 	}
 	_, err = r.Checkout(ctx, commit, log)
 	return r, err
+}
+
+// cloneEnv is the connector's auth env lines for url, or WithGit's.
+func (o *Orchestrator) cloneEnv(ctx context.Context, orgID, connectorID, url string) ([]string, error) {
+	if o.gitEnv != nil {
+		return o.gitEnv, nil
+	}
+	var c store.Connector
+	var err error
+	if connectorID != "" {
+		c, err = o.conns.Get(ctx, orgID, connectorID)
+	} else {
+		c, err = o.conns.For(ctx, orgID, url)
+	}
+	if err != nil {
+		return nil, err
+	}
+	return o.conns.CloneEnv(ctx, c, url)
 }
 
 // stackFile is promote's Config: the stack file at commit of the config repo,

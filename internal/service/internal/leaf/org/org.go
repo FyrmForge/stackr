@@ -8,6 +8,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"slices"
 	"strings"
@@ -179,6 +180,28 @@ func (l *Leaf) SetupDone(ctx context.Context, o store.Org) (store.Org, error) {
 	}
 	now := time.Now().UTC()
 	o.SetupDoneAt = &now
+	return o, l.orgs.Update(ctx, o)
+}
+
+// SetSettings stores the org's rung of the defaults cascade as given;
+// leaf/settings owns its shape and the merge.
+func (l *Leaf) SetSettings(ctx context.Context, o store.Org, blob string) (store.Org, error) {
+	o.Settings = blob
+	return o, l.orgs.Update(ctx, o)
+}
+
+// SetEnvColors stores the org's env colours: a JSON object of env slug to
+// hue, kept canonical (sorted keys) so a diff compares it as text.
+func (l *Leaf) SetEnvColors(ctx context.Context, o store.Org, colors string) (store.Org, error) {
+	m := map[string]string{}
+	if err := json.Unmarshal([]byte(colors), &m); err != nil {
+		return o, errs.Invalidf("env_colors", "Env colours are a JSON object of env slug to colour.")
+	}
+	b, err := json.Marshal(m)
+	if err != nil {
+		return o, err
+	}
+	o.EnvColors = string(b)
 	return o, l.orgs.Update(ctx, o)
 }
 

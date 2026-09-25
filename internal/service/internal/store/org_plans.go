@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"strings"
 	"time"
 )
 
@@ -21,6 +22,10 @@ type OrgPlan struct {
 type OrgPlanStore interface {
 	Create(ctx context.Context, p OrgPlan) error
 	Get(ctx context.Context, id string) (OrgPlan, error)
+	// ListByOrg is the org's newest plans, newest first, at most limit.
+	ListByOrg(ctx context.Context, orgID string, limit int) ([]OrgPlan, error)
+	// ListByStatus is the org's plans in any of statuses.
+	ListByStatus(ctx context.Context, orgID string, statuses ...string) ([]OrgPlan, error)
 	Update(ctx context.Context, p OrgPlan) error
 	Delete(ctx context.Context, id string) error
 }
@@ -28,3 +33,18 @@ type OrgPlanStore interface {
 var orgPlansT = newTable[OrgPlan]("org_config_plans", nil)
 
 type orgPlans struct{ crud[OrgPlan] }
+
+func (s orgPlans) ListByOrg(ctx context.Context, orgID string, limit int) ([]OrgPlan, error) {
+	return s.many(ctx, "org_id = ? ORDER BY created_at DESC LIMIT ?", orgID, limit)
+}
+
+func (s orgPlans) ListByStatus(ctx context.Context, orgID string, statuses ...string) ([]OrgPlan, error) {
+	if len(statuses) == 0 {
+		return nil, nil
+	}
+	args := []any{orgID}
+	for _, st := range statuses {
+		args = append(args, st)
+	}
+	return s.many(ctx, "org_id = ? AND status IN (?"+strings.Repeat(", ?", len(statuses)-1)+")", args...)
+}

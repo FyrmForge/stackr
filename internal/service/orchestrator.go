@@ -114,6 +114,7 @@ type options struct {
 	vip    tile.VIP
 	push   func(context.Context, json.RawMessage) error
 	build  BuildFunc
+	gitEnv []string
 }
 
 // BuildFunc builds one git tile at a commit and returns the image row id.
@@ -123,6 +124,13 @@ type BuildFunc func(ctx context.Context, st Stack, t Tile, commit string, log io
 // release without GitHub or a daemon.
 func WithBuild(f BuildFunc) Option {
 	return func(o *options) { o.build = f }
+}
+
+// WithGit clones with env instead of a connector's token: no connector
+// lookup, no GitHub. Tests point https://github.com/ at local bare repos
+// with it (servicetest.Git).
+func WithGit(env ...string) Option {
+	return func(o *options) { o.gitEnv = env }
 }
 
 // WithDocker replaces the daemon client, with the fake in tests.
@@ -184,6 +192,7 @@ type Orchestrator struct {
 	sched     *schedule.Runner
 	sync      *domain.Syncer
 
+	gitEnv       []string     // WithGit: clone env that replaces the connector's
 	proxyStarted atomic.Value // the proxy container's last seen start time
 	repoLocks    sync.Map     // clone dir -> *sync.Mutex
 	cli          cliCodes
@@ -265,6 +274,7 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 		db:     db,
 		store:  st,
 		docker: d,
+		gitEnv: o.gitEnv,
 	}
 	orch.sessions = build("sessions", func() *auth.SessionManager {
 		return auth.NewSessionManager(st.Sessions,

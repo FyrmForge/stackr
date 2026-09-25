@@ -298,3 +298,31 @@ func TestOrgDomains(t *testing.T) {
 		t.Errorf("viewer add = %d, want 403", rec.Code)
 	}
 }
+
+// The org drawer's defaults save (DECIDE 166): an owner posts the rung and
+// reads it back; a member sees it read-only and a post is refused.
+func TestOrgDefaultsSave(t *testing.T) {
+	ctx := context.Background()
+	b := newBrowser(t, "owner")
+	rec := b.do(t, "POST", "/acme/-/drawer/settings", url.Values{"cpu_limit": {"1.5"}}, true)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "Saved.") {
+		t.Fatalf("save = %d\n%s", rec.Code, rec.Body)
+	}
+	ogs, err := b.env.Orch.AllOrgs(ctx)
+	if err != nil || len(ogs) != 1 || !strings.Contains(ogs[0].Settings, `"cpu_limit":1.5`) {
+		t.Errorf("orgs = %+v %v, want acme's rung saved", ogs, err)
+	}
+	body := b.do(t, "GET", "/acme/-/drawer?tab=settings", nil, true).Body.String()
+	if !strings.Contains(body, `name="cpu_limit" type="number" step="any" value="1.5"`) || strings.Contains(body, "needs an owner") {
+		t.Errorf("the drawer does not read the rung back:\n%s", body)
+	}
+
+	m := newBrowser(t, "member")
+	body = m.do(t, "GET", "/acme/-/drawer?tab=settings", nil, true).Body.String()
+	if !strings.Contains(body, "Changing defaults needs an owner of this organization.") {
+		t.Errorf("a member's defaults are not read-only:\n%s", body)
+	}
+	if rec := m.do(t, "POST", "/acme/-/drawer/settings", url.Values{"cpu_limit": {"2"}}, true); rec.Code != http.StatusForbidden {
+		t.Errorf("member save = %d, want 403", rec.Code)
+	}
+}
