@@ -18,6 +18,8 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
+	"github.com/FyrmForge/stackr/internal/service/internal/address"
+	"github.com/FyrmForge/stackr/internal/service/internal/slug"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
 
@@ -77,6 +79,38 @@ func (l *Leaf) SetEndpoint(
 	endpoint string,
 ) (store.ManagedInstance, error) {
 	m.Endpoint = endpoint
+	return m, l.instances.Update(ctx, m)
+}
+
+// SetAllow replaces the instance's allow list. Every entry is checked
+// against the instance's own org first; a bad one leaves the row as it was.
+// Nothing is torn down: a slice the list no longer admits fails at its next
+// deploy (step 7b task 5).
+func (l *Leaf) SetAllow(
+	ctx context.Context,
+	m store.ManagedInstance,
+	orgSlug string,
+	list []string,
+) (store.ManagedInstance, error) {
+	if _, err := address.ParseAllow(orgSlug, list); err != nil {
+		return m, err
+	}
+	m.Allow = list
+	return m, l.instances.Update(ctx, m)
+}
+
+// SetEnvPairs replaces the instance's consumer env name → own env name map.
+func (l *Leaf) SetEnvPairs(
+	ctx context.Context,
+	m store.ManagedInstance,
+	pairs map[string]string,
+) (store.ManagedInstance, error) {
+	for k, v := range pairs {
+		if !slug.Valid(k) || !slug.Valid(v) {
+			return m, errs.Invalidf("env_pairs", "%s: %s: both are environment names", k, v)
+		}
+	}
+	m.EnvPairs = pairs
 	return m, l.instances.Update(ctx, m)
 }
 

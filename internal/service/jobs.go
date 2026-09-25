@@ -260,10 +260,14 @@ func (o *Orchestrator) ladderEnvs(ctx context.Context, p pushJob, log io.Writer)
 		ev.Branch != cmp.Or(st.ConfigBranch, p.DefaultBranch) {
 		return nil
 	}
+	org, err := o.orgs.Get(ctx, st.OrgID)
+	if err != nil {
+		return err
+	}
 	data, fetch, err := o.stackFile(ctx, st, ev.Commit, log)
 	var file *promote.Resolved
 	if err == nil {
-		file, err = promote.Load(data, fetch)
+		file, err = promote.Load(data, fetch, org.Slug)
 	}
 	if err != nil {
 		_, _ = fmt.Fprintf(log, "stack file: %v; no envs made\n", err)

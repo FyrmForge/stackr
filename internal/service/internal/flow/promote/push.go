@@ -137,7 +137,11 @@ func (f *Flow) candidates(
 		if err != nil {
 			return nil, err
 		}
-		r, err := Load(data, fetch)
+		o, err := f.D.Orgs.Get(ctx, st.OrgID)
+		if err != nil {
+			return nil, err
+		}
+		r, err := Load(data, fetch, o.Slug)
 		if err != nil {
 			return nil, err
 		}

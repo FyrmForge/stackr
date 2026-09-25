@@ -261,6 +261,12 @@ func TestRoundTrip(t *testing.T) {
 		ti.CPULimit = 0.25
 		ti.Privileged = false
 		ti.UpdatePolicy = "manual"
+		ti.SliceAccess = store.SliceAccessList{
+			{
+				From:   "api-db",
+				Access: "read",
+			},
+		}
 		ti.UpdatedAt = t1
 	})
 	roundTrip(t, s.Tiles, store.Tile{

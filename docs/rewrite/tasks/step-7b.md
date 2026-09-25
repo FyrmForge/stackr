@@ -131,6 +131,10 @@ Rules:
    api-db → infra/staging/pg-db (write)`.
    Done when: table tests for every blocker and the happy path; the file
    round-trips through the promote apply into tile rows.
+   As built: `slice_access` is refused on managed and slice tiles and lives in a new `tiles.slice_access` JSON column.
+   As built: `Load` takes the org slug, so `allow` is checked at parse; `${{ env.name }}` landed here, the plan needs it.
+   As built: three more blockers: "infra has no environment qa", "infra/staging/pg-db has no instance yet; deploy it first", "provision_from needs params.x set first".
+   As built: a moved target or default access redeploys every tile that refs the slice; allow and env_pairs rows write the instance and redeploy nothing.
 
 4. **Resolver.** `leaf/params/ref.go`: `${{ env.name }}` (`KindEnv`,
    from `Snapshot.Env`); `KindStack` and `KindOrg` tile refs removed

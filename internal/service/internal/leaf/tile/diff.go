@@ -1,6 +1,7 @@
 package tile
 
 import (
+	"slices"
 	"strings"
 
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
@@ -63,11 +64,17 @@ const (
 // the schedule table's view moved.
 func Effects(kind string, c Changed) []Effect {
 	var out []Effect
+	if kind == Slice {
+		// No container: a moved target or default reaches the consumers,
+		// and the plan redeploys them.
+		return nil
+	}
 	if kind == Cron && c.NeedsCronReload() {
 		out = append(out, CronReload)
 	}
 	if RunToCompletion(kind) {
-		if c.NeedsBuild() {
+		// slice_access: the binding's access is minted at deploy.
+		if c.NeedsBuild() || c["slice_access"] {
 			out = append(out, Redeploy)
 		}
 		return out
@@ -136,7 +143,17 @@ func Diff(old, cur store.Tile) Changed {
 	mark("trigger", old.Trigger == cur.Trigger)
 	mark("paused", old.Paused == cur.Paused)
 	mark("timeout_minutes", old.TimeoutMinutes == cur.TimeoutMinutes)
+	mark("provision_from", deref(old.ProvisionFrom) == deref(cur.ProvisionFrom))
+	mark("default_access", deref(old.DefaultAccess) == deref(cur.DefaultAccess))
+	mark("slice_access", slices.Equal(old.SliceAccess, cur.SliceAccess))
 	return c
+}
+
+func deref(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
 }
 
 func canonPolicy(v string) string {

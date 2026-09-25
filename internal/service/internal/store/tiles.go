@@ -2,58 +2,88 @@ package store
 
 import (
 	"context"
+	"database/sql/driver"
+	"encoding/json"
 	"time"
 )
 
 // Tile is a row of tiles. JSON-shaped columns stay strings: the tile leaf
 // parses them.
 type Tile struct {
-	ID                      string    `db:"id" json:"id"`
-	StackID                 string    `db:"stack_id" json:"stack_id"`
-	EnvironmentID           string    `db:"environment_id" json:"environment_id"`
-	Name                    string    `db:"name" json:"name"`
-	Slug                    string    `db:"slug" json:"slug"`
-	Kind                    string    `db:"kind" json:"kind"`
-	GitURL                  string    `db:"git_url" json:"git_url"`
-	GitBranch               string    `db:"git_branch" json:"git_branch"`
-	ImageRef                string    `db:"image_ref" json:"image_ref"`
-	DockerfilePath          string    `db:"dockerfile_path" json:"dockerfile_path"`
-	BuildContext            string    `db:"build_context" json:"build_context"`
-	WatchPaths              string    `db:"watch_paths" json:"watch_paths"`
-	EnvJSON                 string    `db:"env_json" json:"env_json"`
-	BuildArgs               string    `db:"build_args" json:"build_args"`
-	Volumes                 string    `db:"volumes" json:"volumes"`
-	Command                 string    `db:"command" json:"command"`
-	ContainerPort           int       `db:"container_port" json:"container_port"`
-	PublishedPorts          string    `db:"published_ports" json:"published_ports"`
-	EndpointProtocol        string    `db:"endpoint_protocol" json:"endpoint_protocol"`
-	HealthPath              string    `db:"health_path" json:"health_path"`
-	HealthcheckCmd          string    `db:"healthcheck_cmd" json:"healthcheck_cmd"`
-	HealthcheckIntervalS    int       `db:"healthcheck_interval_s" json:"healthcheck_interval_s"`
-	HealthcheckTimeoutS     int       `db:"healthcheck_timeout_s" json:"healthcheck_timeout_s"`
-	HealthcheckRetries      int       `db:"healthcheck_retries" json:"healthcheck_retries"`
-	HealthcheckStartPeriodS int       `db:"healthcheck_start_period_s" json:"healthcheck_start_period_s"`
-	CPULimit                float64   `db:"cpu_limit" json:"cpu_limit"`
-	MemLimitMB              int       `db:"mem_limit_mb" json:"mem_limit_mb"`
-	User                    string    `db:"user" json:"user"`
-	ShmSizeMB               int       `db:"shm_size_mb" json:"shm_size_mb"`
-	Privileged              bool      `db:"privileged" json:"privileged"`
-	Devices                 string    `db:"devices" json:"devices"`
-	RestartPolicy           string    `db:"restart_policy" json:"restart_policy"`
-	DependsOn               string    `db:"depends_on" json:"depends_on"`
-	Files                   string    `db:"files" json:"files"`
-	SharedNet               string    `db:"shared_net" json:"shared_net"`
-	Replicas                int       `db:"replicas" json:"replicas"`
-	UpdatePolicy            string    `db:"update_policy" json:"update_policy"`
-	TagPolicy               string    `db:"tag_policy" json:"tag_policy"`
-	Schedule                string    `db:"schedule" json:"schedule"`               // cron: the cron expression
-	Trigger                 string    `db:"trigger" json:"trigger"`                 // function: manual | on_deploy
-	Paused                  bool      `db:"paused" json:"paused"`                   // cron: the schedule is off
-	TimeoutMinutes          int       `db:"timeout_minutes" json:"timeout_minutes"` // cron, function: a run's timeout
-	ProvisionFrom           *string   `db:"provision_from" json:"provision_from"`   // slice: <stack>:<env>:<tile> as written
-	DefaultAccess           *string   `db:"default_access" json:"default_access"`   // slice: read | write
-	CreatedAt               time.Time `db:"created_at" json:"created_at"`
-	UpdatedAt               time.Time `db:"updated_at" json:"updated_at"`
+	ID                      string          `db:"id" json:"id"`
+	StackID                 string          `db:"stack_id" json:"stack_id"`
+	EnvironmentID           string          `db:"environment_id" json:"environment_id"`
+	Name                    string          `db:"name" json:"name"`
+	Slug                    string          `db:"slug" json:"slug"`
+	Kind                    string          `db:"kind" json:"kind"`
+	GitURL                  string          `db:"git_url" json:"git_url"`
+	GitBranch               string          `db:"git_branch" json:"git_branch"`
+	ImageRef                string          `db:"image_ref" json:"image_ref"`
+	DockerfilePath          string          `db:"dockerfile_path" json:"dockerfile_path"`
+	BuildContext            string          `db:"build_context" json:"build_context"`
+	WatchPaths              string          `db:"watch_paths" json:"watch_paths"`
+	EnvJSON                 string          `db:"env_json" json:"env_json"`
+	BuildArgs               string          `db:"build_args" json:"build_args"`
+	Volumes                 string          `db:"volumes" json:"volumes"`
+	Command                 string          `db:"command" json:"command"`
+	ContainerPort           int             `db:"container_port" json:"container_port"`
+	PublishedPorts          string          `db:"published_ports" json:"published_ports"`
+	EndpointProtocol        string          `db:"endpoint_protocol" json:"endpoint_protocol"`
+	HealthPath              string          `db:"health_path" json:"health_path"`
+	HealthcheckCmd          string          `db:"healthcheck_cmd" json:"healthcheck_cmd"`
+	HealthcheckIntervalS    int             `db:"healthcheck_interval_s" json:"healthcheck_interval_s"`
+	HealthcheckTimeoutS     int             `db:"healthcheck_timeout_s" json:"healthcheck_timeout_s"`
+	HealthcheckRetries      int             `db:"healthcheck_retries" json:"healthcheck_retries"`
+	HealthcheckStartPeriodS int             `db:"healthcheck_start_period_s" json:"healthcheck_start_period_s"`
+	CPULimit                float64         `db:"cpu_limit" json:"cpu_limit"`
+	MemLimitMB              int             `db:"mem_limit_mb" json:"mem_limit_mb"`
+	User                    string          `db:"user" json:"user"`
+	ShmSizeMB               int             `db:"shm_size_mb" json:"shm_size_mb"`
+	Privileged              bool            `db:"privileged" json:"privileged"`
+	Devices                 string          `db:"devices" json:"devices"`
+	RestartPolicy           string          `db:"restart_policy" json:"restart_policy"`
+	DependsOn               string          `db:"depends_on" json:"depends_on"`
+	Files                   string          `db:"files" json:"files"`
+	SharedNet               string          `db:"shared_net" json:"shared_net"`
+	Replicas                int             `db:"replicas" json:"replicas"`
+	UpdatePolicy            string          `db:"update_policy" json:"update_policy"`
+	TagPolicy               string          `db:"tag_policy" json:"tag_policy"`
+	Schedule                string          `db:"schedule" json:"schedule"`               // cron: the cron expression
+	Trigger                 string          `db:"trigger" json:"trigger"`                 // function: manual | on_deploy
+	Paused                  bool            `db:"paused" json:"paused"`                   // cron: the schedule is off
+	TimeoutMinutes          int             `db:"timeout_minutes" json:"timeout_minutes"` // cron, function: a run's timeout
+	ProvisionFrom           *string         `db:"provision_from" json:"provision_from"`   // slice: <stack>:<env>:<tile> as written
+	DefaultAccess           *string         `db:"default_access" json:"default_access"`   // slice: read | write
+	SliceAccess             SliceAccessList `db:"slice_access" json:"slice_access"`       // consumers: access per slice tile
+	CreatedAt               time.Time       `db:"created_at" json:"created_at"`
+	UpdatedAt               time.Time       `db:"updated_at" json:"updated_at"`
+}
+
+// SliceAccess is one consumer's access to a slice tile of its env.
+type SliceAccess struct {
+	From   string `json:"from"`   // the slice tile's slug
+	Access string `json:"access"` // read | write
+}
+
+// SliceAccessList is a JSON array column; no entries reads back as nil.
+type SliceAccessList []SliceAccess
+
+func (l SliceAccessList) Value() (driver.Value, error) {
+	if l == nil {
+		return "[]", nil
+	}
+	b, err := json.Marshal([]SliceAccess(l))
+	return string(b), err
+}
+
+func (l *SliceAccessList) Scan(src any) error {
+	if err := scanJSON("SliceAccessList", src, (*[]SliceAccess)(l)); err != nil {
+		return err
+	}
+	if len(*l) == 0 {
+		*l = nil
+	}
+	return nil
 }
 
 type TileStore interface {

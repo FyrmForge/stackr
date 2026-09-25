@@ -11,7 +11,9 @@ import (
 
 	"go.yaml.in/yaml/v3"
 
+	"github.com/FyrmForge/stackr/internal/service/internal/address"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/environment"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
 	"github.com/FyrmForge/stackr/internal/service/internal/slug"
 )
 
@@ -184,9 +186,11 @@ func excluded(n *yaml.Node) bool {
 }
 
 // TileConf is one merged tile. Kinds are service (a git build), image,
-// managed, cron and function; with no type:, engine: makes it managed and a
-// lone image: makes it an image tile. kind: is type:'s other spelling. A
-// cron or function builds from git like a service unless it names an image.
+// managed, cron, function and slice; with no type:, engine: makes it managed
+// and a lone image: makes it an image tile. kind: is type:'s other spelling.
+// A cron or function builds from git like a service unless it names an
+// image. A slice is one database or bucket cut from a managed tile
+// (DECIDE 194): provision_from and default_access, nothing that runs.
 type TileConf struct {
 	Type   string `yaml:"type"`
 	Kind   string `yaml:"kind"`
@@ -227,7 +231,17 @@ type TileConf struct {
 	Replicas   int          `yaml:"replicas"`
 	Env        EnvMap       `yaml:"env"`
 	Domains    []DomainConf `yaml:"domains"`
-	Slices     []SliceConf  `yaml:"slices"`
+	// Slices is gone (DECIDE 194); kept only to refuse it by name.
+	Slices any `yaml:"slices"`
+	// managed: who may cut slices (org:stack:env:tile patterns) and the
+	// consumer env name → this stack's env name map.
+	Allow    []string          `yaml:"allow"`
+	EnvPairs map[string]string `yaml:"env_pairs"`
+	// slice: <stack>:<env>:<tile>, refs allowed; read | write, "" = write.
+	ProvisionFrom string `yaml:"provision_from"`
+	DefaultAccess string `yaml:"default_access"`
+	// any other tile: its access per slice tile of the env.
+	SliceAccess []SliceAccessConf `yaml:"slice_access"`
 	// cron: schedule (a cron expression, CRON_TZ= allowed); function:
 	// trigger (manual | on_deploy); both: timeout_minutes (0 = 30).
 	Schedule       string `yaml:"schedule"`
@@ -271,23 +285,11 @@ type ProxyConf struct {
 	SecHeaders  bool              `yaml:"security_headers"`
 }
 
-// SliceConf attaches the tile to a managed instance: its own db or bucket.
-// From is the instance tile's slug, looked up among the instances visible
-// from the env.
-type SliceConf struct {
-	From     string `yaml:"from"`
-	Name     string `yaml:"name"`      // "" = the consumer's slug
-	OnRemove string `yaml:"on_remove"` // keep (default) | drop
-	Public   bool   `yaml:"public"`
-}
-
-func (s *SliceConf) UnmarshalYAML(n *yaml.Node) error {
-	if n.Kind == yaml.ScalarNode {
-		s.From = n.Value
-		return nil
-	}
-	type plain SliceConf
-	return strictNode(n, (*plain)(s))
+// SliceAccessConf is one slice_access entry: a slice tile of the env and
+// this tile's access to it.
+type SliceAccessConf struct {
+	From   string `yaml:"from"`
+	Access string `yaml:"access"` // read | write
 }
 
 // EnvMap stringifies scalars (PORT: 8080 unquoted).
@@ -400,7 +402,7 @@ func Parse(data []byte) (*File, error) {
 		return nil, fmt.Errorf("unsupported version %d (want 1)", f.Version)
 	}
 	if len(f.Shared) > 0 { // DECIDE 30
-		return nil, fmt.Errorf("shared: is not supported yet; declare the instance in an environment")
+		return nil, fmt.Errorf("shared: is gone; put the instance in its own stack and allow it, see DECIDE 193 and 194")
 	}
 	seen := map[string]bool{}
 	for _, d := range f.Domains {
@@ -420,8 +422,8 @@ func Parse(data []byte) (*File, error) {
 
 // Load parses data, merges includes in order (later wins) and resolves the
 // env overlays. An include contributes base tiles, volumes, params and
-// environments only.
-func Load(data []byte, fetch Fetcher) (*Resolved, error) {
+// environments only. orgSlug is the stack's org: an allow: entry must name it.
+func Load(data []byte, fetch Fetcher, orgSlug string) (*Resolved, error) {
 	f, err := Parse(data)
 	if err != nil {
 		return nil, err
@@ -472,10 +474,10 @@ func Load(data []byte, fetch Fetcher) (*Resolved, error) {
 			f.Envs.Envs[n] = mergeEnv(base, x.Envs.Envs[n])
 		}
 	}
-	return resolve(f)
+	return resolve(f, orgSlug)
 }
 
-func resolve(f *File) (*Resolved, error) {
+func resolve(f *File, orgSlug string) (*Resolved, error) {
 	if f.Stack == "" {
 		return nil, fmt.Errorf("stack name required")
 	}
@@ -522,7 +524,7 @@ func resolve(f *File) (*Resolved, error) {
 			if err != nil {
 				return nil, fmt.Errorf("environment %s tile %s: %w", name, n, err)
 			}
-			if err := checkTile(n, tc); err != nil {
+			if err := checkTile(n, tc, orgSlug); err != nil {
 				return nil, fmt.Errorf("environment %s: %w", name, err)
 			}
 			re.Tiles[n] = tc
@@ -601,9 +603,12 @@ var envKeyRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
 // checkTile is the file-level check; leaf/tile.Validate runs over the row
 // the plan builds from it, so the two cannot disagree on a column.
-func checkTile(name string, tc TileConf) error {
+func checkTile(name string, tc TileConf, orgSlug string) error {
 	if !slug.Valid(name) || slug.Reserved(name) {
 		return fmt.Errorf("tile %q: a tile name is lower-case letters, digits and single hyphens, not params", name)
+	}
+	if err := checkSliceKeys(name, tc); err != nil {
+		return err
 	}
 	switch tc.Type {
 	case "service", "image":
@@ -621,11 +626,23 @@ func checkTile(name string, tc TileConf) error {
 		if tc.Engine == "" {
 			return fmt.Errorf("tile %s: a managed tile names its engine", name)
 		}
-		if len(tc.Domains) > 0 || len(tc.Slices) > 0 {
-			return fmt.Errorf("tile %s: a managed instance takes no domains or slices", name)
+		if len(tc.Domains) > 0 {
+			return fmt.Errorf("tile %s: a managed instance takes no domains", name)
+		}
+		if _, err := address.ParseAllow(orgSlug, tc.Allow); err != nil {
+			return fmt.Errorf("tile %s: %w", name, err)
+		}
+		for _, k := range slices.Sorted(maps.Keys(tc.EnvPairs)) {
+			if !slug.Valid(k) || !slug.Valid(tc.EnvPairs[k]) {
+				return fmt.Errorf("tile %s: env_pairs %s: %s: both are environment names", name, k, tc.EnvPairs[k])
+			}
+		}
+	case "slice":
+		if err := checkSlice(name, tc); err != nil {
+			return err
 		}
 	default:
-		return fmt.Errorf("tile %s: unknown type %q (service, image, managed, cron or function)", name, tc.Type)
+		return fmt.Errorf("tile %s: unknown type %q (service, image, managed, cron, function or slice)", name, tc.Type)
 	}
 	for k := range tc.Env {
 		if !envKeyRe.MatchString(k) {
@@ -639,12 +656,12 @@ func checkTile(name string, tc TileConf) error {
 			tc.Replicas,
 		)
 	}
-	for _, s := range tc.Slices {
+	for _, a := range tc.SliceAccess {
 		switch {
-		case !slug.Valid(s.From):
-			return fmt.Errorf("tile %s: slice from %q is not an instance name", name, s.From)
-		case s.OnRemove != "" && s.OnRemove != "keep" && s.OnRemove != "drop":
-			return fmt.Errorf("tile %s: on_remove %q must be keep or drop", name, s.OnRemove)
+		case !slug.Valid(a.From):
+			return fmt.Errorf("tile %s: slice_access from %q is not a tile name", name, a.From)
+		case a.Access != tile.Read && a.Access != tile.Write:
+			return fmt.Errorf("tile %s: slice_access %s: access %q must be read or write", name, a.From, a.Access)
 		}
 	}
 	for _, d := range tc.Domains {
@@ -660,6 +677,60 @@ func checkTile(name string, tc TileConf) error {
 		if (d.Apex != "" || d.Auto) && (d.Path != "" || d.RedirectTo != "") {
 			return fmt.Errorf("tile %s: apex/auto domains take no path or redirect", name)
 		}
+	}
+	return nil
+}
+
+// checkSliceKeys: the DECIDE 194 keys each belong to one kind, and the
+// per-consumer slices: list is gone.
+func checkSliceKeys(name string, tc TileConf) error {
+	switch {
+	case tc.Slices != nil:
+		return fmt.Errorf("tile %s: slices: is gone; declare a slice tile, see DECIDE 194", name)
+	case len(tc.Allow) > 0 && tc.Type != "managed":
+		return fmt.Errorf("tile %s: allow: only a managed tile takes it", name)
+	case len(tc.EnvPairs) > 0 && tc.Type != "managed":
+		return fmt.Errorf("tile %s: env_pairs: only a managed tile takes it", name)
+	case tc.ProvisionFrom != "" && tc.Type != "slice":
+		return fmt.Errorf("tile %s: provision_from: only a slice tile takes it", name)
+	case tc.DefaultAccess != "" && tc.Type != "slice":
+		return fmt.Errorf("tile %s: default_access: only a slice tile takes it", name)
+	case len(tc.SliceAccess) > 0 && (tc.Type == "managed" || tc.Type == "slice"):
+		return fmt.Errorf("tile %s: slice_access: a %s tile binds to no slice", name, tc.Type)
+	}
+	return nil
+}
+
+// checkSlice: a slice tile is its target and default access, nothing that
+// runs. Its refs resolve at plan time, where the target is looked up.
+func checkSlice(name string, tc TileConf) error {
+	for _, k := range []struct {
+		key string
+		set bool
+	}{
+		{"engine", tc.Engine != ""},
+		{"image", tc.Image != ""},
+		{"build", tc.Build != nil || tc.GitURL != ""},
+		{"port", tc.Port != 0},
+		{"env", len(tc.Env) > 0},
+		{"domains", len(tc.Domains) > 0},
+		{"volumes", len(tc.Volumes) > 0},
+		{"command", tc.Command != ""},
+		{"schedule", tc.Schedule != ""},
+		{"trigger", tc.Trigger != ""},
+	} {
+		if k.set {
+			return fmt.Errorf("tile %s: a slice tile takes no %s; it is a database or bucket, not a container", name, k.key)
+		}
+	}
+	if tc.ProvisionFrom == "" {
+		return fmt.Errorf("tile %s: a slice tile needs provision_from: <stack>:<env>:<tile>", name)
+	}
+	if _, err := address.ParseTarget(tc.ProvisionFrom); err != nil {
+		return fmt.Errorf("tile %s: %w", name, err)
+	}
+	if tc.DefaultAccess != "" && tc.DefaultAccess != tile.Read && tc.DefaultAccess != tile.Write {
+		return fmt.Errorf("tile %s: default_access %q must be read or write", name, tc.DefaultAccess)
 	}
 	return nil
 }
@@ -689,7 +760,7 @@ func checkVolume(name string, v VolumeConf) error {
 }
 
 // checkRefs: every volume line names a declared volume, depends_on names a
-// tile of the env, no cycles.
+// tile of the env, slice_access a slice tile of the env, no cycles.
 func checkRefs(env string, re ResolvedEnv) error {
 	for _, n := range slices.Sorted(maps.Keys(re.Tiles)) {
 		tc := re.Tiles[n]
@@ -707,6 +778,21 @@ func checkRefs(env string, re ResolvedEnv) error {
 			case !ok:
 				return fmt.Errorf("environment %s tile %s: depends_on %q: no such tile in this environment", env, n, dep)
 			}
+		}
+		seen := map[string]bool{}
+		for _, a := range tc.SliceAccess {
+			switch {
+			case re.Tiles[a.From].Type != "slice":
+				return fmt.Errorf(
+					"environment %s tile %s: slice_access from %q: no slice tile of that name in this environment",
+					env,
+					n,
+					a.From,
+				)
+			case seen[a.From]:
+				return fmt.Errorf("environment %s tile %s: slice_access names %s twice", env, n, a.From)
+			}
+			seen[a.From] = true
 		}
 	}
 	if order := topo(slices.Sorted(maps.Keys(re.Tiles)), re.Tiles); len(order) == 0 && len(re.Tiles) > 0 {

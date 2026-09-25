@@ -22,6 +22,7 @@ import (
 //	${{ org.<slug>.<output> }}             shared tile at org scope
 //	${{ stackr.<NAME> }}                   what the server says about itself
 //	${{ org.backups.<name> }}              a backup destination
+//	${{ env.name }}                        the consumer's env slug (provision_from only)
 //
 // An unset param is errs.Unset (the job parks); every other failure is a
 // hard error carrying the ref as written. Nothing unresolved ever reaches a
@@ -53,6 +54,7 @@ const (
 	KindOrg      Kind = "org"
 	KindStackr   Kind = "stackr"
 	KindBackup   Kind = "backup"
+	KindEnv      Kind = "env"
 )
 
 type Ref struct {
@@ -85,6 +87,12 @@ func Parse(body string) (Ref, error) {
 		if !slug.Valid(r.Name) {
 			return r, fmt.Errorf("%s: %q is not a valid name", r.Source, r.Name)
 		}
+		return r, nil
+	case len(p) == 2 && p[0] == "env":
+		if p[1] != "name" {
+			return r, fmt.Errorf("%s: the only env ref is ${{ env.name }}", r.Source)
+		}
+		r.Kind, r.Name = KindEnv, p[1]
 		return r, nil
 	case len(p) == 2 && p[0] == "self":
 		r.Kind, r.Name = KindSelf, p[1]
@@ -124,12 +132,18 @@ const (
 	InCommand    Where = "command"
 	InDomain     Where = "domain"      // params only, never a secret, never a tile output (a cycle)
 	InBackupDest Where = "backup_dest" // org.backups only
+	// InProvisionFrom is a slice tile's target: params and env.name only.
+	InProvisionFrom Where = "provision_from"
 )
 
 func allowed(w Where, k Kind) bool {
 	switch w {
 	case InEnv, InCommand:
-		return k != KindBackup
+		// ponytail: env.name is for provision_from; an env value could take
+		// it too once someone needs the env's name in a container.
+		return k != KindBackup && k != KindEnv
+	case InProvisionFrom:
+		return k == KindParam || k == KindEnv
 	case InDomain:
 		return k == KindParam || k == KindOrgParam
 	case InBackupDest:
@@ -148,6 +162,7 @@ type Value struct {
 // the resolver makes no store call. Secret filtering happens while filling
 // it (Values with secrets=false), never in here.
 type Snapshot struct {
+	Env         string           // the consumer's env slug, for ${{ env.name }}
 	EnvParams   map[string]Value // "<collection>.<name>", the consumer's env
 	StackParams map[string]Value
 	OrgParams   map[string]Value
@@ -244,6 +259,11 @@ func (rr *Resolver) lookup(w Where, r Ref) (string, error) {
 			return v, nil
 		}
 		return "", fmt.Errorf("%s: not known yet; the proxy records it when it attaches to this environment's network", r.Source)
+	case KindEnv:
+		if rr.snap.Env == "" {
+			return "", fmt.Errorf("%s: no environment here", r.Source)
+		}
+		return rr.snap.Env, nil
 	case KindBackup:
 		if v, ok := rr.snap.Backups[r.Name]; ok {
 			return v, nil

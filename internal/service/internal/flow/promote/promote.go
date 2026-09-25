@@ -149,6 +149,9 @@ func (f *Flow) apply(ctx context.Context, w *work, log io.Writer) error {
 			return fmt.Errorf("update %s: %w", u[0].Slug, err)
 		}
 	}
+	if err := f.applyInstances(ctx, w, e); err != nil {
+		return err
+	}
 	dns01 := f.DNS01 != nil && f.DNS01(ctx)
 	for _, name := range slices.Sorted(maps.Keys(w.domains)) {
 		t, err := d.Tiles.GetBySlug(ctx, e.ID, name)
@@ -180,27 +183,6 @@ func (f *Flow) apply(ctx context.Context, w *work, log io.Writer) error {
 			}
 		}
 	}
-	ephemeral := e.Type == environment.Ephemeral
-	for _, pr := range w.detach {
-		if err := d.Engines.Detach(ctx, pr, ephemeral); err != nil {
-			return err
-		}
-	}
-	for _, name := range slices.Sorted(maps.Keys(w.attach)) {
-		consumer, err := d.Tiles.GetBySlug(ctx, e.ID, name)
-		if err != nil {
-			return err
-		}
-		for _, s := range w.attach[name] {
-			it, err := d.Tiles.GetBySlug(ctx, e.ID, s.From)
-			if err != nil {
-				return err
-			}
-			if _, err := d.Engines.Attach(ctx, consumer, it, s.Name, s.Public, s.OnRemove); err != nil {
-				return fmt.Errorf("%s: slice from %s: %w", name, s.From, err)
-			}
-		}
-	}
 	if err := f.deleteTiles(ctx, w, e, log); err != nil {
 		return err
 	}
@@ -214,6 +196,34 @@ func (f *Flow) apply(ctx context.Context, w *work, log io.Writer) error {
 		}
 	}
 	return f.rollout(ctx, w, e, log)
+}
+
+// applyInstances writes the file's allow list and env pairs onto each
+// managed tile's instance row whose either moved; nothing redeploys.
+func (f *Flow) applyInstances(ctx context.Context, w *work, e store.Environment) error {
+	d := f.D
+	o, err := d.Orgs.Get(ctx, w.st.OrgID)
+	if err != nil {
+		return err
+	}
+	for _, name := range slices.Sorted(maps.Keys(w.instances)) {
+		iw := w.instances[name]
+		t, err := d.Tiles.GetBySlug(ctx, e.ID, name)
+		if err != nil {
+			return err
+		}
+		m, err := d.Managed.GetByTile(ctx, t.ID)
+		if err != nil {
+			return err
+		}
+		if m, err = d.Managed.SetAllow(ctx, m, o.Slug, iw.allow); err != nil {
+			return fmt.Errorf("%s: %w", name, err)
+		}
+		if _, err = d.Managed.SetEnvPairs(ctx, m, iw.pairs); err != nil {
+			return fmt.Errorf("%s: %w", name, err)
+		}
+	}
+	return nil
 }
 
 // deleteTiles: consumers first, so an instance goes after its slices.
@@ -300,6 +310,11 @@ func (f *Flow) rollout(ctx context.Context, w *work, e store.Environment, log io
 	var run []string
 	for _, pass := range []bool{true, false} {
 		for _, s := range order {
+			// step 7b task 5 replaces this: a slice tile has no container;
+			// its deploy is Provision and a status.
+			if bySlug[s].Kind == tile.Slice {
+				continue
+			}
 			if w.redeploy[s] && (bySlug[s].Kind == tile.Managed) == pass {
 				run = append(run, s)
 			}

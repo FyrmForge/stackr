@@ -2374,6 +2374,21 @@
         },
         "type": "object"
       },
+      "SliceAccess": {
+        "properties": {
+          "access": {
+            "type": "string"
+          },
+          "from": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "from",
+          "access"
+        ],
+        "type": "object"
+      },
       "SliceIn": {
         "properties": {
           "instance_tile_id": {
@@ -2600,6 +2615,12 @@
           "shm_size_mb": {
             "type": "integer"
           },
+          "slice_access": {
+            "items": {
+              "$ref": "#/components/schemas/SliceAccess"
+            },
+            "type": "array"
+          },
           "slug": {
             "type": "string"
           },
@@ -2675,6 +2696,7 @@
           "trigger",
           "paused",
           "timeout_minutes",
+          "slice_access",
           "created_at",
           "updated_at"
         ],

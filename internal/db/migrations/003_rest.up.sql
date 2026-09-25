@@ -127,6 +127,7 @@ CREATE TABLE tiles (
     timeout_minutes             INTEGER   NOT NULL, -- cron, function: a run's timeout, no cap
     provision_from              TEXT, -- slice only: <stack>:<env>:<tile> as written, refs and all
     default_access              TEXT      CHECK (default_access IN ('read', 'write')), -- slice only
+    slice_access                TEXT      NOT NULL, -- consumers: JSON [{from, access}], from a slice tile slug in this env
     created_at                  DATETIME  NOT NULL,
     updated_at                  DATETIME  NOT NULL,
     UNIQUE (environment_id, slug)

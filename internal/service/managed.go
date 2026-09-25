@@ -57,9 +57,9 @@ func (o *Orchestrator) CreateManagedTile(ctx context.Context, t Tile, engine str
 	return out, err
 }
 
-// ManagedInstances are the env's own instances.
-// step 7b task 3 replaces this: an instance is reached through the allow
-// list, not only from its own env.
+// ManagedInstances are the env's own instances. Another env or stack reaches
+// one through a slice tile's provision_from, which the instance's allow list
+// gates at plan time.
 func (o *Orchestrator) ManagedInstances(ctx context.Context, envID string) ([]ManagedInstance, error) {
 	ts, err := o.tiles.List(ctx, envID)
 	if err != nil {
