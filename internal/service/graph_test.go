@@ -155,14 +155,29 @@ func seedWorld(t *testing.T) world {
 		CreatedAt:     time.Now(),
 	}
 	must(e.Store.ManagedInstances.Create(ctx, inst))
+	sl := tileRow(w.shop, w.dev, "main", "slice", func(t *store.Tile) {
+		from := "shop:dev:pg"
+		t.ImageRef = ""
+		t.ProvisionFrom = &from
+	})
+	must(e.Store.Tiles.Create(ctx, sl))
 	w.provision = uuid.NewString()
 	must(e.Store.Provisions.Create(ctx, store.Provision{
 		ID:         w.provision,
-		TileID:     w.api,
+		TileID:     sl.ID,
 		InstanceID: inst.ID,
 		DBName:     "main",
 		OnRemove:   "keep",
 		CreatedAt:  time.Now(),
+	}))
+	must(e.Store.Bindings.Create(ctx, store.Binding{
+		ID:             uuid.NewString(),
+		ProvisionID:    w.provision,
+		ConsumerTileID: w.api,
+		Access:         "write",
+		DBUser:         "main_api",
+		Outputs:        "{}",
+		CreatedAt:      time.Now(),
 	}))
 	w.vols = map[string]string{}
 	for _, sl := range []string{"uploads", "old"} {

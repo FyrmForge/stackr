@@ -14,6 +14,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	"github.com/FyrmForge/stackr/internal/service/internal/dockerfake"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/deploy"
+	mflow "github.com/FyrmForge/stackr/internal/service/internal/flow/managed"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/credential"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/domain"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/domainres"
@@ -85,6 +86,14 @@ func setup(t *testing.T) *world {
 		Creds:    credential.New(s.Credentials),
 		Settings: settings.New(s.Settings, nil),
 		Jobs:     job.New(s.Jobs),
+	}
+	d.Engines = &mflow.Flow{
+		Tiles:     tiles,
+		Instances: d.Managed,
+		Volumes:   d.Volumes,
+		Envs:      d.Envs,
+		ReadyWait: time.Millisecond,
+		ReadyPoll: time.Millisecond,
 	}
 	w := &world{s: s, fake: fake, files: map[string]string{}}
 	w.f = &Flow{

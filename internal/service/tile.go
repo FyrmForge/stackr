@@ -41,6 +41,12 @@ func (o *Orchestrator) TileStatus(ctx context.Context, id string) (TileStatus, e
 		return TileStatus{}, err
 	}
 	out := TileStatus{Word: s.Word, Replicas: s.Replicas}
+	if t.Kind == tile.Slice {
+		// No containers of its own: it is up when its instance is.
+		if out.Word, err = o.engines.SliceWord(ctx, t); err != nil {
+			return out, err
+		}
+	}
 	if j, ok, err := o.jobRows.Last(ctx, id); err != nil {
 		return out, err
 	} else if ok {
@@ -147,7 +153,10 @@ func (o *Orchestrator) replicaVerb(ctx context.Context, id, verb string, kind jo
 	if err != nil {
 		return Job{}, err
 	}
-	if tile.RunToCompletion(t.Kind) {
+	switch {
+	case t.Kind == tile.Slice:
+		return Job{}, errs.Invalidf("kind", "a slice has no containers")
+	case tile.RunToCompletion(t.Kind):
 		return Job{}, errs.Invalidf("kind", "a %s has no long-running container to %s; use run instead", t.Kind, verb)
 	}
 	return o.enqueue(ctx, kind, tileJob{TileID: id}, id)
@@ -166,6 +175,8 @@ func (o *Orchestrator) StopTile(ctx context.Context, id string) (Job, error) {
 		return Job{}, err
 	case tile.Function:
 		return Job{}, errs.Invalidf("kind", "nothing to stop")
+	case tile.Slice:
+		return Job{}, errs.Invalidf("kind", "a slice has no containers")
 	}
 	return o.enqueue(ctx, kindStop, tileJob{TileID: id}, id)
 }

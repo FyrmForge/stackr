@@ -12,8 +12,9 @@ const s3Region = "us-east-1"
 
 // s3e is RustFS. Its image may ship no shell, so it works over the S3 API
 // with the instance's root credentials.
-// ponytail: shared-root credentials; one bucket per consumer is the whole
-// isolation boundary until scoped keys are proven on RustFS.
+// ponytail: shared-root credentials; a consumer's read or write access is
+// recorded on its binding but not enforced, and the bucket per slice is the
+// whole isolation boundary until scoped keys are proven on RustFS.
 type s3e struct{}
 
 func (s3e) Definition() Definition {
@@ -31,10 +32,11 @@ func (s3e) Definition() Definition {
 		SliceNoun:     "bucket",
 		SliceName:     bucketName,
 		SliceSep:      "-",
+		RootCreds:     true,
 	}
 }
 
-// bucketName is DNS-safe: lowercase, digits and hyphens, 3+ chars.
+// bucketName is DNS-safe: lowercase, digits and hyphens, 3 to maxName chars.
 func bucketName(slug string) string {
 	n := strings.Map(func(r rune) rune {
 		switch {
@@ -48,7 +50,7 @@ func bucketName(slug string) string {
 	for len(n) < 3 {
 		n += "0"
 	}
-	return n
+	return n[:min(len(n), maxName)]
 }
 
 var errNoS3 = errors.New("s3 engine: no S3 client")
@@ -78,6 +80,15 @@ func (s3e) Drop(ctx context.Context, _ Instance, s Slice, x Tools) error {
 		return errNoS3
 	}
 	return x.S3.DropBucket(ctx, s.Name)
+}
+
+// Bind and Unbind have no key to mint or drop: RootCreds.
+func (s3e) Bind(context.Context, Instance, Slice, Grant, string, []Grant, Tools) error {
+	return nil
+}
+
+func (s3e) Unbind(context.Context, Instance, Slice, Grant, Tools) error {
+	return nil
 }
 
 func (s3e) Bindings(i Instance, s Slice) []Binding {

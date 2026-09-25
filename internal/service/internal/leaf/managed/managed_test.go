@@ -3,6 +3,7 @@ package managed_test
 import (
 	"context"
 	"errors"
+	"slices"
 	"testing"
 	"time"
 
@@ -27,7 +28,8 @@ type home struct {
 	OrgID, StackID, EnvID string
 }
 
-// setup seeds one env with tiles db, api and web.
+// setup seeds one env with tiles db (the instance), orders (a slice), api
+// and web (consumers).
 func setup(t *testing.T) (*managed.Leaf, *store.Store, home, map[string]string) {
 	st := servicetest.Store(t)
 	h := home{OrgID: uuid.NewString(), StackID: uuid.NewString(), EnvID: uuid.NewString()}
@@ -61,7 +63,7 @@ func setup(t *testing.T) (*managed.Leaf, *store.Store, home, map[string]string) 
 		CreatedAt:  now,
 	}))
 	tiles := map[string]string{}
-	for _, s := range []string{"db", "api", "web"} {
+	for _, s := range []string{"db", "orders", "api", "web"} {
 		tiles[s] = uuid.NewString()
 		must(t, st.Tiles.Create(ctx, store.Tile{
 			ID:            tiles[s],
@@ -102,58 +104,89 @@ func TestSlices(t *testing.T) {
 	l, _, _, tiles := setup(t)
 	m, _ := l.Create(ctx, tiles["db"], "postgres", "root", "db:5432")
 	slice := managed.Slice{
-		DBName:     "api",
-		DBUser:     "api",
+		DBName:     "orders",
+		DBUser:     "orders",
 		DBPassword: managed.Password(),
 	}
 
-	p, err := l.Provision(ctx, m, tiles["api"], slice)
+	p, err := l.CreateProvision(ctx, m, tiles["orders"], slice)
 	if err != nil || p.OnRemove != managed.Keep {
 		t.Fatalf("provision = %+v %v", p, err)
 	}
-	if _, err := l.Provision(ctx, m, tiles["api"], slice); err == nil {
-		t.Error("second slice for one consumer")
+	if _, err := l.CreateProvision(ctx, m, tiles["orders"], slice); err == nil {
+		t.Error("second provision for one slice tile")
 	}
-	if _, err := l.Provision(
+	if _, err := l.CreateProvision(
 		ctx,
 		m,
 		tiles["web"],
-		managed.Slice{DBName: "w", DBUser: "w", OnRemove: "detach"},
+		managed.Slice{
+			DBName:   "w",
+			DBUser:   "w",
+			OnRemove: "detach",
+		},
 	); err == nil {
 		t.Error("bad on_remove accepted")
 	}
-	if _, err := l.Share(ctx, p, tiles["web"], false); !errors.Is(err, errs.ErrRefused) {
-		t.Errorf("cross-env share = %v", err)
+	if got, ok, err := l.ProvisionOf(ctx, tiles["orders"]); err != nil || !ok || got.ID != p.ID {
+		t.Errorf("provision of = %+v %v %v", got, ok, err)
 	}
-	shared, err := l.Share(ctx, p, tiles["web"], true)
-	must(t, err)
-	if names, _ := l.SliceNames(ctx, m.ID); len(names) != 2 {
-		t.Errorf("names = %v", names)
+	if _, ok, err := l.ProvisionOf(ctx, tiles["api"]); err != nil || ok {
+		t.Errorf("a consumer has no provision: %v %v", ok, err)
 	}
 	if _, err := l.SetPublic(ctx, p, true, ""); !errors.Is(err, errs.ErrRefused) {
 		t.Errorf("public without a domain = %v", err)
 	}
-	// step 7b task 5 replaces this: outputs live on the binding, and a
-	// release unbinds rather than orphaning the provision.
 
-	// keep: the row stays; ephemeral env: dropped whatever it says.
-	if drop, err := l.Release(ctx, p, false); err != nil || drop {
-		t.Fatalf("release keep = %v %v", drop, err)
+	// A binding per consumer: its own user, access and outputs.
+	cred := managed.Cred{
+		Access:   "write",
+		User:     "orders_api",
+		Password: managed.Password(),
+		Outputs: map[string]string{
+			"PGUSER": "orders_api",
+		},
 	}
-	if got, err := l.GetProvision(ctx, p.ID); err != nil || got.TileID != tiles["api"] {
-		t.Errorf("kept = %+v %v", got, err)
+	b, err := l.Bind(ctx, p, tiles["api"], cred)
+	must(t, err)
+	if _, err := l.Bind(ctx, p, tiles["api"], cred); err == nil {
+		t.Error("second binding for one consumer on one slice")
 	}
-	if drop, _ := l.Release(ctx, shared, true); !drop {
-		t.Error("ephemeral env kept its slice")
+	bad := cred
+	bad.Access = "admin"
+	if _, err := l.Bind(ctx, p, tiles["web"], bad); err == nil {
+		t.Error("bad access accepted")
+	}
+	bound, err := l.Bound(ctx, tiles["api"])
+	must(t, err)
+	out, err := managed.Outputs(bound[tiles["orders"]])
+	must(t, err)
+	if bound[tiles["orders"]].DBPassword != cred.Password || out["PGUSER"] != "orders_api" {
+		t.Errorf("bound = %+v, outputs %v", bound, out)
+	}
+	if ps, _ := l.ForConsumer(ctx, tiles["api"]); len(ps) != 1 || ps[0].ID != p.ID {
+		t.Errorf("for consumer = %v", ps)
+	}
+	if names, _ := l.Names(ctx, m.ID); !slices.Equal(names, []string{"orders", "orders", "orders_api"}) {
+		t.Errorf("names = %v", names)
+	}
+	b, err = l.SetAccess(ctx, b, "read")
+	must(t, err)
+	if bs, _ := l.Bindings(ctx, p.ID); len(bs) != 1 || bs[0].Access != "read" || bs[0].DBUser != "orders_api" {
+		t.Errorf("after set access = %+v", bs)
+	}
+	must(t, l.Unbind(ctx, b.ID))
+	if bs, _ := l.Bindings(ctx, p.ID); len(bs) != 0 {
+		t.Errorf("after unbind = %+v", bs)
 	}
 
-	// Teardown refuses while slices are held; forced, each slice once.
+	// Teardown refuses while slices are held; forced, it hands them back.
 	if _, err := l.Teardown(ctx, m, false); err == nil {
 		t.Error("teardown with held slices")
 	}
-	drop, err := l.Teardown(ctx, m, true)
-	if err != nil || len(drop) != 1 {
-		t.Fatalf("forced teardown = %v %v", drop, err)
+	held, err := l.Teardown(ctx, m, true)
+	if err != nil || len(held) != 1 {
+		t.Fatalf("forced teardown = %v %v", held, err)
 	}
 	must(t, l.Delete(ctx, m.ID))
 	if ps, _ := l.ByInstance(ctx, m.ID); len(ps) != 0 {

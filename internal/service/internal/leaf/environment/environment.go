@@ -357,6 +357,12 @@ func (l *Leaf) Shared(ctx context.Context, name string) error {
 	return l.net.EnsureNetwork(ctx, name, map[string]string{"stackr.shared": "true"})
 }
 
+// DropShared removes a network Shared made; a missing one is fine, one with
+// containers still on it is refused by Docker.
+func (l *Leaf) DropShared(ctx context.Context, name string) error {
+	return l.net.RemoveNetwork(ctx, name)
+}
+
 // Delete refuses while the env has tiles; the teardown flow empties it
 // first. The network goes before the row, so a failure leaves a row to retry
 // the delete from.

@@ -50,18 +50,11 @@ func (f *Flow) snapshot(
 		case tile.Managed:
 			continue
 		case tile.Slice:
-			b, ok := bound[x.ID]
-			out, err := managed.Outputs(b)
+			src, err := f.sliceSource(ctx, bound, x)
 			if err != nil {
 				return s, err
 			}
-			// step 7b task 5 fills Network: the instance's network, which
-			// the consumer joins when the instance sits in another stack.
-			s.Tiles[x.Slug] = params.Source{
-				Slice:    true,
-				Attached: ok,
-				Outputs:  out,
-			}
+			s.Tiles[x.Slug] = src
 			continue
 		}
 		src, err := f.endpoint(ctx, x)
@@ -74,6 +67,31 @@ func (f *Flow) snapshot(
 		}
 	}
 	return s, nil
+}
+
+// sliceSource is slice tile x as the consumer's binding sees it: that cred's
+// outputs, and the instance's network, which every consumer joins (the
+// instance may sit in another env or stack).
+func (f *Flow) sliceSource(ctx context.Context, bound map[string]store.Binding, x store.Tile) (params.Source, error) {
+	b, ok := bound[x.ID]
+	src := params.Source{
+		Slice:    true,
+		Attached: ok,
+	}
+	if !ok {
+		return src, nil
+	}
+	out, err := managed.Outputs(b)
+	if err != nil {
+		return src, err
+	}
+	src.Outputs = out
+	p, err := f.Managed.GetProvision(ctx, b.ProvisionID)
+	if err != nil {
+		return src, err
+	}
+	src.Network = managed.Network(p.InstanceID)
+	return src, nil
 }
 
 // endpoint is a service or image tile's built-in outputs.

@@ -375,16 +375,7 @@ func (f *Flow) planConfig(ctx context.Context, p *Plan, w *work, r *Resolved) er
 
 // refsTile: tc's env or command refs ${{ tile.<slugName>.<output> }}.
 func refsTile(tc TileConf, slugName string) bool {
-	vals := slices.Collect(maps.Values(tc.Env))
-	vals = append(vals, tc.Command)
-	for _, v := range vals {
-		for _, body := range params.Refs(v) {
-			if strings.HasPrefix(body, "tile."+slugName+".") {
-				return true
-			}
-		}
-	}
-	return false
+	return deploy.Refs(tc.Env, tc.Command, slugName)
 }
 
 func (f *Flow) planUpdate(ctx context.Context, p *Plan, w *work, old, row store.Tile, tc TileConf) error {
@@ -418,6 +409,9 @@ func (f *Flow) planUpdate(ctx context.Context, p *Plan, w *work, old, row store.
 		return nil
 	}
 	for _, k := range slices.Sorted(maps.Keys(c)) {
+		if row.Kind == tile.Slice && (k == "provision_from" || k == "default_access") {
+			continue // planSlice's one row says both
+		}
 		ch := Change{Kind: "update", Tile: name, Field: k}
 		if v, ok := shownValues[k]; ok {
 			ch.Old, ch.New = v(old), v(row)
@@ -697,8 +691,9 @@ func signedDiff(old, cur []string) string {
 // instead of failing a deploy. A new slice, a moved target or a moved
 // default access is a row, and every tile that refs the slice redeploys.
 // ponytail: an env_pairs edit upstream that moves the target under an
-// unchanged provision_from shows no row; the slice's provision (step 7b
-// task 5) knows its instance and can compare.
+// unchanged provision_from shows no row; the slice's next deploy refuses
+// the move (flow/managed Provision). Compare the provision's instance here
+// if that surprise needs to come earlier.
 func (f *Flow) planSlice(ctx context.Context, p *Plan, w *work, row, old store.Tile, exists bool) error {
 	target, ok, err := f.sliceTarget(ctx, p, w, row)
 	if err != nil || !ok {
@@ -711,23 +706,28 @@ func (f *Flow) planSlice(ctx context.Context, p *Plan, w *work, row, old store.T
 		New:  now,
 	}
 	if exists {
-		if deref(old.ProvisionFrom) == deref(row.ProvisionFrom) && deref(old.DefaultAccess) == deref(row.DefaultAccess) {
+		sameFrom := deref(old.ProvisionFrom) == deref(row.ProvisionFrom)
+		if sameFrom && deref(old.DefaultAccess) == deref(row.DefaultAccess) {
 			return nil
 		}
-		c.Old = deref(old.ProvisionFrom) + " (" + deref(old.DefaultAccess) + ")"
+		c.Old = deref(old.ProvisionFrom)
+		if sameFrom {
+			c.Old = target
+		}
+		c.Old += " (" + deref(old.DefaultAccess) + ")"
 	}
 	p.add(c)
 	w.sliced = append(w.sliced, row.Slug)
 	return nil
 }
 
-// sliceTarget resolves row's provision_from to "stack/env/tile": refs
-// substituted, the stack by slug in this org, the env segment through the
-// instance's env_pairs (a PR env with no key of its own maps as its base
-// env), a managed tile there whose allow list admits the slice. false: a
-// blocker says why.
+// sliceTarget resolves row's provision_from to "stack/env/tile" by the
+// deploy's own rule (address.Resolve over deploy.Place), with this stack's
+// part laid over from the file: its env_pairs, and this env's instance,
+// which may land in this very promote. false: a blocker says why.
 func (f *Flow) sliceTarget(ctx context.Context, p *Plan, w *work, row store.Tile) (string, bool, error) {
-	d, name, o := f.D, row.Slug, orgSlug(w)
+	name := row.Slug
+	o := orgSlug(w)
 	block := func(format string, a ...any) (string, bool, error) {
 		p.block("slice %s: "+format, append([]any{name}, a...)...)
 		return "", false, nil
@@ -748,84 +748,31 @@ func (f *Flow) sliceTarget(ctx context.Context, p *Plan, w *work, row store.Tile
 	if err != nil {
 		return block("%v", err)
 	}
-	st, err := d.Stacks.GetBySlug(ctx, w.st.OrgID, tg.Stack)
+	st, err := f.D.Stacks.GetBySlug(ctx, w.st.OrgID, tg.Stack)
 	if errors.Is(err, errs.ErrNotFound) {
 		return block("stack %s not found", tg.Stack)
 	}
 	if err != nil {
 		return "", false, err
 	}
-	own := st.ID == w.st.ID
-	pairs, err := f.envPairs(ctx, w, st, tg.Tile)
+	pl, err := f.D.Place(ctx, st, tg.Tile)
 	if err != nil {
 		return "", false, err
 	}
-	names := []string{tg.Env}
-	if tg.Env == w.e.Slug && w.base != "" {
-		names = append(names, w.base)
-	}
-	var te store.Environment
-	switch {
-	case len(pairs) > 0:
-		i := slices.IndexFunc(names, func(n string) bool { return pairs[n] != "" })
-		if i < 0 {
-			return block("%s's %s has no env pair for %s", st.Slug, tg.Tile, tg.Env)
+	if st.ID == w.st.ID {
+		tc, ok := w.re.Tiles[tg.Tile]
+		if ok && tc.Type == tile.Managed {
+			pl.Pairs = tc.EnvPairs
 		}
-		if te, err = d.Envs.GetBySlug(ctx, st.ID, pairs[names[i]]); errors.Is(err, errs.ErrNotFound) {
-			return block("%s has no environment %s", st.Slug, pairs[names[i]])
-		}
-	default:
-		// No map: the env name as written must exist there.
-		for _, n := range names {
-			if te, err = d.Envs.GetBySlug(ctx, st.ID, n); !errors.Is(err, errs.ErrNotFound) {
-				break
+		var h *address.Host
+		if ok {
+			h = &address.Host{
+				Managed: tc.Type == tile.Managed,
+				Ready:   true,
+				Allow:   tc.Allow,
 			}
 		}
-		if errors.Is(err, errs.ErrNotFound) {
-			return block("%s has no environment %s", st.Slug, tg.Env)
-		}
-	}
-	if err != nil {
-		return "", false, err
-	}
-	at := st.Slug + "/" + te.Slug
-	var allow []string
-	if own && te.ID == w.e.ID {
-		// This env's own instance: the file is the truth, it may land in
-		// this very promote.
-		tc, ok := w.re.Tiles[tg.Tile]
-		switch {
-		case !ok:
-			return block("%s has no tile %s", at, tg.Tile)
-		case tc.Type != tile.Managed:
-			return block("%s/%s is not a managed tile", at, tg.Tile)
-		}
-		allow = tc.Allow
-	} else {
-		it, err := d.Tiles.GetBySlug(ctx, te.ID, tg.Tile)
-		if errors.Is(err, errs.ErrNotFound) {
-			return block("%s has no tile %s", at, tg.Tile)
-		}
-		if err != nil {
-			return "", false, err
-		}
-		if it.Kind != tile.Managed {
-			return block("%s/%s is not a managed tile", at, tg.Tile)
-		}
-		m, err := d.Managed.GetByTile(ctx, it.ID)
-		if errors.Is(err, errs.ErrNotFound) {
-			return block("%s/%s has no instance yet; deploy it first", at, tg.Tile)
-		}
-		if err != nil {
-			return "", false, err
-		}
-		allow = m.Allow
-	}
-	self := address.Address{
-		Org:   o,
-		Stack: st.Slug,
-		Env:   te.Slug,
-		Tile:  tg.Tile,
+		pl.Envs[w.e.Slug] = h
 	}
 	me := address.Address{
 		Org:   o,
@@ -833,48 +780,11 @@ func (f *Flow) sliceTarget(ctx context.Context, p *Plan, w *work, row store.Tile
 		Env:   w.e.Slug,
 		Tile:  name,
 	}
-	ok, err := address.Allowed(o, allow, self, me)
-	switch {
-	case err != nil:
-		return block("%s/%s: %v", at, tg.Tile, err)
-	case !ok:
-		return block("%s/%s does not allow %s", at, tg.Tile, me)
-	}
-	return at + "/" + tg.Tile, true, nil
-}
-
-// envPairs is the target instance's env_pairs. For this stack the file
-// says; for another, the instance rows do, bottom rung first.
-// ponytail: the first instance of that slug with a map wins; env overlays
-// that give one tile different maps per env are not reconciled.
-func (f *Flow) envPairs(ctx context.Context, w *work, st store.Stack, slugName string) (map[string]string, error) {
-	if tc, ok := w.re.Tiles[slugName]; ok && st.ID == w.st.ID && tc.Type == tile.Managed {
-		return tc.EnvPairs, nil
-	}
-	envs, err := f.D.Envs.Ladder(ctx, st.ID)
+	env, err := address.Resolve(o, me, w.base, tg, pl)
 	if err != nil {
-		return nil, err
+		return block("%v", err)
 	}
-	for _, e := range envs {
-		it, err := f.D.Tiles.GetBySlug(ctx, e.ID, slugName)
-		if errors.Is(err, errs.ErrNotFound) || (err == nil && it.Kind != tile.Managed) {
-			continue
-		}
-		if err != nil {
-			return nil, err
-		}
-		m, err := f.D.Managed.GetByTile(ctx, it.ID)
-		if errors.Is(err, errs.ErrNotFound) {
-			continue
-		}
-		if err != nil {
-			return nil, err
-		}
-		if len(m.EnvPairs) > 0 {
-			return m.EnvPairs, nil
-		}
-	}
-	return nil, nil
+	return st.Slug + "/" + env + "/" + tg.Tile, true, nil
 }
 
 // planDeletes: live tiles the file no longer declares. Never destructive:
@@ -904,7 +814,7 @@ func (f *Flow) planDeletes(ctx context.Context, p *Plan, w *work, live []store.T
 				}
 				for _, pr := range ps {
 					if !gone[pr.TileID] {
-						p.block("tile %s still serves a slice to another tile; detach it first", t.Slug)
+						p.block("tile %s still holds a slice this promote keeps; remove its slice tile first", t.Slug)
 						break
 					}
 				}
@@ -1107,7 +1017,8 @@ func toRow(name string, tc TileConf, st store.Stack, e store.Environment) store.
 	}
 	if tc.Type == tile.Slice {
 		access := cmp.Or(tc.DefaultAccess, tile.Write)
-		t.ProvisionFrom, t.DefaultAccess = &tc.ProvisionFrom, &access
+		t.ProvisionFrom = &tc.ProvisionFrom
+		t.DefaultAccess = &access
 	}
 	for _, a := range tc.SliceAccess {
 		t.SliceAccess = append(t.SliceAccess, store.SliceAccess{
@@ -1116,13 +1027,17 @@ func toRow(name string, tc TileConf, st store.Stack, e store.Environment) store.
 		})
 	}
 	if tc.Limits != nil {
-		t.CPULimit, t.MemLimitMB = tc.Limits.CPU, tc.Limits.MemoryMB
+		t.CPULimit = tc.Limits.CPU
+		t.MemLimitMB = tc.Limits.MemoryMB
 	}
 	if builds(tc) {
-		t.GitURL, t.GitBranch = or(tc.GitURL, st.ConfigRepo), or(tc.Branch, st.ConfigBranch)
-		t.BuildArgs, t.WatchPaths = jsonMap(tc.BuildArgs), lines(tc.WatchPaths)
+		t.GitURL = or(tc.GitURL, st.ConfigRepo)
+		t.GitBranch = or(tc.Branch, st.ConfigBranch)
+		t.BuildArgs = jsonMap(tc.BuildArgs)
+		t.WatchPaths = lines(tc.WatchPaths)
 		if tc.Build != nil {
-			t.BuildContext, t.DockerfilePath = tc.Build.Context, tc.Build.Dockerfile
+			t.BuildContext = tc.Build.Context
+			t.DockerfilePath = tc.Build.Dockerfile
 		}
 	}
 	return t

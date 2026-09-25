@@ -145,3 +145,78 @@ func ParseTarget(s string) (Target, error) {
 		Tile:  segs[2],
 	}, nil
 }
+
+// Place is the target stack as Resolve reads it: its slug, the target
+// tile's env_pairs, and every env of it by slug with the target tile there.
+type Place struct {
+	Stack string
+	Pairs map[string]string
+	Envs  map[string]*Host // nil value: the env has no tile of the target's slug
+}
+
+// Host is the target tile in one env of the target stack.
+type Host struct {
+	TileID  string // the caller's handle; Resolve never reads it
+	Managed bool
+	Ready   bool // its instance row exists (or lands in this very promote)
+	Allow   []string
+}
+
+// Resolve picks the env of pl a slice at me lands in and checks the allow
+// list there, the one rule plan and deploy share. tg is provision_from with
+// its refs expanded; base is a PR env's base env slug ("" otherwise): with
+// no env pair of its own the PR env maps as its base, and its address stays
+// its own. The error is the reason, as a conflict.
+func Resolve(orgSlug string, me Address, base string, tg Target, pl Place) (string, error) {
+	names := []string{tg.Env}
+	if tg.Env == me.Env && base != "" {
+		names = append(names, base)
+	}
+	var env string
+	if len(pl.Pairs) > 0 {
+		i := slices.IndexFunc(names, func(n string) bool {
+			return pl.Pairs[n] != ""
+		})
+		if i < 0 {
+			return "", errs.Conflictf("%s's %s has no env pair for %s", pl.Stack, tg.Tile, tg.Env)
+		}
+		env = pl.Pairs[names[i]]
+		if _, ok := pl.Envs[env]; !ok {
+			return "", errs.Conflictf("%s has no environment %s", pl.Stack, env)
+		}
+	} else {
+		// No map: the env name as written must exist there.
+		i := slices.IndexFunc(names, func(n string) bool {
+			_, ok := pl.Envs[n]
+			return ok
+		})
+		if i < 0 {
+			return "", errs.Conflictf("%s has no environment %s", pl.Stack, tg.Env)
+		}
+		env = names[i]
+	}
+	at := pl.Stack + "/" + env
+	h := pl.Envs[env]
+	switch {
+	case h == nil:
+		return "", errs.Conflictf("%s has no tile %s", at, tg.Tile)
+	case !h.Managed:
+		return "", errs.Conflictf("%s/%s is not a managed tile", at, tg.Tile)
+	case !h.Ready:
+		return "", errs.Conflictf("%s/%s has no instance yet; deploy it first", at, tg.Tile)
+	}
+	self := Address{
+		Org:   orgSlug,
+		Stack: pl.Stack,
+		Env:   env,
+		Tile:  tg.Tile,
+	}
+	ok, err := Allowed(orgSlug, h.Allow, self, me)
+	switch {
+	case err != nil:
+		return "", errs.Conflictf("%s/%s: %v", at, tg.Tile, err)
+	case !ok:
+		return "", errs.Conflictf("%s/%s does not allow %s", at, tg.Tile, me)
+	}
+	return env, nil
+}

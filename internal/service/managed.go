@@ -6,8 +6,6 @@ import (
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/deploy"
-	"github.com/FyrmForge/stackr/internal/service/internal/flow/jobs"
-	"github.com/FyrmForge/stackr/internal/service/internal/leaf/environment"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/managed"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
@@ -17,18 +15,6 @@ type (
 	ManagedInstance = store.ManagedInstance
 	Provision       = store.Provision
 )
-
-type attachJob struct {
-	ConsumerID string `json:"consumer_id"`
-	InstanceID string `json:"instance_tile_id"`
-	Name       string `json:"name,omitempty"`
-	Public     bool   `json:"public,omitempty"`
-	OnRemove   string `json:"on_remove,omitempty"`
-}
-
-type detachJob struct {
-	ProvisionID string `json:"provision_id"`
-}
 
 // CreateManagedTile makes a managed tile (postgres | s3) and its env-scoped
 // instance row. Nothing runs until Deploy.
@@ -96,69 +82,28 @@ func (o *Orchestrator) SetInstanceScope(ctx context.Context, instanceTileID, sco
 	return m, nil
 }
 
-// Slices are the consumer's provisions (its bindings come from them).
+// Slices are the provisions the consumer holds a binding on.
 func (o *Orchestrator) Slices(ctx context.Context, consumerID string) ([]Provision, error) {
 	return o.managed.ForConsumer(ctx, consumerID)
 }
 
-// AttachSlice queues cutting a slice of an instance for a consumer, then
-// its redeploy with the bindings.
+// AttachSlice is gone with per-consumer slices (DECIDE 194): a slice tile
+// and the consumer's slice_access (or a ref) bind it at deploy.
+// step 7b task 6 replaces this: the verb, route and command go.
 func (o *Orchestrator) AttachSlice(
 	ctx context.Context,
 	consumerID, instanceTileID, name string,
 	public bool,
 	onRemove string,
 ) (Job, error) {
-	return o.enqueue(ctx, kindAttach, attachJob{
-		ConsumerID: consumerID,
-		InstanceID: instanceTileID,
-		Name:       name,
-		Public:     public,
-		OnRemove:   onRemove,
-	}, consumerID, instanceTileID)
+	return Job{}, errs.Invalidf("slice", "declare a slice tile and ref it; attach is gone (DECIDE 194)")
 }
 
-// DetachSlice queues letting go of a slice and the consumer's redeploy.
+// DetachSlice is gone the same way: removing the consumer, or its ref and
+// slice_access entry, unbinds it.
+// step 7b task 6 replaces this: the verb, route and command go.
 func (o *Orchestrator) DetachSlice(ctx context.Context, provisionID string) (Job, error) {
-	p, err := o.managed.GetProvision(ctx, provisionID)
-	if err != nil {
-		return Job{}, err
-	}
-	return o.enqueue(ctx, kindDetach, detachJob{ProvisionID: p.ID}, p.TileID)
-}
-
-func (o *Orchestrator) runAttach(ctx context.Context, r *jobs.Run, p attachJob) error {
-	c, err := o.tiles.Get(ctx, p.ConsumerID)
-	if err != nil {
-		return err
-	}
-	it, err := o.tiles.Get(ctx, p.InstanceID)
-	if err != nil {
-		return err
-	}
-	if _, err := o.engines.Attach(ctx, c, it, p.Name, p.Public, p.OnRemove); err != nil {
-		return err
-	}
-	return o.deploy.Redeploy(ctx, c.ID, r.Log, r.Swap)
-}
-
-func (o *Orchestrator) runDetach(ctx context.Context, r *jobs.Run, p detachJob) error {
-	pr, err := o.managed.GetProvision(ctx, p.ProvisionID)
-	if err != nil {
-		return err
-	}
-	c, err := o.tiles.Get(ctx, pr.TileID)
-	if err != nil {
-		return err
-	}
-	e, err := o.envs.Get(ctx, c.EnvironmentID)
-	if err != nil {
-		return err
-	}
-	if err := o.engines.Detach(ctx, pr, e.Type == environment.Ephemeral); err != nil {
-		return err
-	}
-	return o.deploy.Redeploy(ctx, c.ID, r.Log, r.Swap)
+	return Job{}, errs.Invalidf("slice", "remove the slice tile or the consumer's ref; detach is gone (DECIDE 194)")
 }
 
 // InstanceSlices is a managed tile's instance and every slice cut from it.

@@ -44,7 +44,7 @@ func (e pg) Provision(ctx context.Context, i Instance, s Slice, x Tools) error {
 		s.User,
 		s.Name,
 	)
-	out, err := x.Exec(ctx, append(e.psql(i, nil), "-tA", "-c", q))
+	out, err := x.Exec(ctx, append(e.psql(i, i.AdminDB, nil), "-tA", "-c", q))
 	if err != nil {
 		return err
 	}
@@ -62,12 +62,12 @@ func (e pg) Provision(ctx context.Context, i Instance, s Slice, x Tools) error {
 			fmt.Sprintf(`REVOKE CONNECT ON DATABASE %q FROM PUBLIC`, s.Name),
 		)
 	}
-	_, err = x.Exec(ctx, e.psql(i, stmts))
+	_, err = x.Exec(ctx, e.psql(i, i.AdminDB, stmts))
 	return err
 }
 
 func (e pg) Drop(ctx context.Context, i Instance, s Slice, x Tools) error {
-	_, err := x.Exec(ctx, e.psql(i, []string{
+	_, err := x.Exec(ctx, e.psql(i, i.AdminDB, []string{
 		fmt.Sprintf(`DROP DATABASE IF EXISTS %q WITH (FORCE)`, s.Name),
 		fmt.Sprintf(`DROP ROLE IF EXISTS %q`, s.User),
 	}))
@@ -78,10 +78,162 @@ func (e pg) Drop(ctx context.Context, i Instance, s Slice, x Tools) error {
 // the instance's own log for the session.
 const noStatementLogging = `SET log_min_error_statement = PANIC`
 
-// psql runs each statement as the superuser in one session, ON_ERROR_STOP.
-// Quiet: without -q the SET prints its "SET" tag ahead of Provision's
-// existence row, the check misreads it and re-provision CREATEs a live role.
-func (pg) psql(i Instance, stmts []string) []string {
+// Bind is check-then-create for a new user, as Provision is, then the
+// grants; a moved access revokes first. It runs in the slice's database:
+// schema, table and default privileges are per database.
+func (e pg) Bind(
+	ctx context.Context,
+	i Instance,
+	s Slice,
+	g Grant,
+	prev string,
+	others []Grant,
+	x Tools,
+) error {
+	var stmts []string
+	if prev == "" {
+		q := fmt.Sprintf(`SELECT (EXISTS (SELECT FROM pg_roles WHERE rolname = '%s'))::int`, g.User)
+		out, err := x.Exec(ctx, append(e.psql(i, s.Name, nil), "-tA", "-c", q))
+		if err != nil {
+			return err
+		}
+		verb := "CREATE"
+		if strings.TrimSpace(out) == "1" {
+			verb = "ALTER"
+		}
+		stmts = append(stmts, fmt.Sprintf(`%s ROLE %q LOGIN PASSWORD '%s'`, verb, g.User, g.Password))
+	} else {
+		stmts = append(stmts, pgRevokes(s, g, prev, others)...)
+	}
+	stmts = append(stmts, pgGrants(s, g, others)...)
+	_, err := x.Exec(ctx, e.psql(i, s.Name, stmts))
+	return err
+}
+
+func (e pg) Unbind(ctx context.Context, i Instance, s Slice, g Grant, x Tools) error {
+	_, err := x.Exec(ctx, e.psql(i, s.Name, pgUnbind(s, g)))
+	return err
+}
+
+// pgGrants is what g gets on s. Write: everything on the database, schema
+// public and what is in it. Read: connect, usage and SELECT. Both reach the
+// tables the owner and every writer create later (default privileges are
+// per creating role), and a writer's later tables reach every other cred.
+// ponytail: schema public only; another schema, functions and types are not
+// granted, and a writer cannot ALTER or DROP another writer's table (owner
+// only in postgres). A shared owner role (SET ROLE) is the upgrade.
+func pgGrants(s Slice, g Grant, others []Grant) []string {
+	u := quote(g.User)
+	var out []string
+	if g.Access == "write" {
+		out = append(
+			out,
+			fmt.Sprintf(`GRANT ALL ON DATABASE %s TO %s`, quote(s.Name), u),
+			`GRANT ALL ON SCHEMA public TO `+u,
+			`GRANT ALL ON ALL TABLES IN SCHEMA public TO `+u,
+			`GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO `+u,
+		)
+	} else {
+		out = append(
+			out,
+			fmt.Sprintf(`GRANT CONNECT ON DATABASE %s TO %s`, quote(s.Name), u),
+			`GRANT USAGE ON SCHEMA public TO `+u,
+			`GRANT SELECT ON ALL TABLES IN SCHEMA public TO `+u,
+		)
+	}
+	out = append(out, reach(s.User, g)...)
+	for _, o := range others {
+		if o.Access == "write" {
+			out = append(out, reach(o.User, g)...) // what o makes later reaches g
+		}
+		if g.Access == "write" {
+			out = append(out, reach(g.User, o)...) // what g makes later reaches o
+		}
+	}
+	return out
+}
+
+// reach is the default privileges that let the tables (and, for a writer,
+// sequences) creator makes later reach g at its access.
+func reach(creator string, g Grant) []string {
+	on := func(what string) string {
+		return fmt.Sprintf(
+			`ALTER DEFAULT PRIVILEGES FOR ROLE %s IN SCHEMA public GRANT %s TO %s`,
+			quote(creator),
+			what,
+			quote(g.User),
+		)
+	}
+	if g.Access != "write" {
+		return []string{
+			on("SELECT ON TABLES"),
+		}
+	}
+	return []string{
+		on("ALL ON TABLES"),
+		on("ALL ON SEQUENCES"),
+	}
+}
+
+// pgRevokes takes back what g held at access prev, before pgGrants gives it
+// the new access. A writer turning reader hands what it made to the owner,
+// or it would keep writing its own tables.
+func pgRevokes(s Slice, g Grant, prev string, others []Grant) []string {
+	u := quote(g.User)
+	off := func(creator, what string) string {
+		return fmt.Sprintf(
+			`ALTER DEFAULT PRIVILEGES FOR ROLE %s IN SCHEMA public REVOKE ALL ON %s FROM %s`,
+			quote(creator),
+			what,
+			u,
+		)
+	}
+	var out []string
+	if prev == "write" {
+		out = append(out, fmt.Sprintf(`REASSIGN OWNED BY %s TO %s`, u, quote(s.User)))
+	}
+	out = append(
+		out,
+		fmt.Sprintf(`REVOKE ALL ON DATABASE %s FROM %s`, quote(s.Name), u),
+		`REVOKE ALL ON SCHEMA public FROM `+u,
+		`REVOKE ALL ON ALL TABLES IN SCHEMA public FROM `+u,
+		`REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM `+u,
+		off(s.User, "TABLES"),
+		off(s.User, "SEQUENCES"),
+	)
+	for _, o := range others {
+		if o.Access == "write" {
+			out = append(
+				out,
+				off(o.User, "TABLES"),
+				off(o.User, "SEQUENCES"),
+			)
+		}
+	}
+	return out
+}
+
+// pgUnbind drops g's user: what it made passes to the owner, what it was
+// granted (default privileges included) goes, then the role.
+func pgUnbind(s Slice, g Grant) []string {
+	return []string{
+		fmt.Sprintf(`REASSIGN OWNED BY %s TO %s`, quote(g.User), quote(s.User)),
+		`DROP OWNED BY ` + quote(g.User),
+		`DROP ROLE IF EXISTS ` + quote(g.User),
+	}
+}
+
+// quote is a SQL identifier in double quotes; names are sqlIdent-shaped, so
+// there is nothing to escape.
+func quote(ident string) string {
+	return `"` + ident + `"`
+}
+
+// psql runs each statement as the superuser in one session on db,
+// ON_ERROR_STOP. Quiet: without -q the SET prints its "SET" tag ahead of
+// Provision's existence row, the check misreads it and re-provision CREATEs
+// a live role.
+func (pg) psql(i Instance, db string, stmts []string) []string {
 	args := []string{
 		"env",
 		"PGPASSWORD=" + i.AdminPassword,
@@ -90,7 +242,7 @@ func (pg) psql(i Instance, stmts []string) []string {
 		"-U",
 		i.AdminUser,
 		"-d",
-		"postgres",
+		db,
 		"-v",
 		"ON_ERROR_STOP=1",
 		"-c",

@@ -286,6 +286,26 @@ func TestSliceRef(t *testing.T) {
 	if env := w.fake.Specs[0].Env; !slices.Contains(env, "DATABASE_URL=postgres://api:pw@pg-db:5432/api_db") {
 		t.Errorf("env = %v, want the binding's url", env)
 	}
+	// The consumer joins the instance's network, wherever the instance sits.
+	if !slices.ContainsFunc(w.fake.Specs[0].Networks, func(n docker.NetAttach) bool {
+		return n.Name == managed.Network(m.ID)
+	}) {
+		t.Errorf("networks = %+v, want %s", w.fake.Specs[0].Networks, managed.Network(m.ID))
+	}
+
+	// A slice has no containers: its deploy is a provision, and a spec of
+	// it is refused.
+	if _, err := w.f.Spec(ctx, sl, "", io.Discard); !isInvalid(err) {
+		t.Errorf("spec of a slice = %v, want invalid", err)
+	}
+	if ref, pinned, err := w.f.Current(ctx, sl, w.env); ref != "" || pinned || err != nil {
+		t.Errorf("current of a slice = %q %v %v", ref, pinned, err)
+	}
+}
+
+func isInvalid(err error) bool {
+	_, ok := errs.IsInvalid(err)
+	return ok
 }
 
 // B34: a redeploy runs the image the env's release pins, never the tile's

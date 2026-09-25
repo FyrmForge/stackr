@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 	"strconv"
 	"time"
 
@@ -40,19 +41,23 @@ type Container struct {
 	Cmd      []string
 	Env      []string
 	Binds    []string           // resolved "volume:/path"
-	Networks []docker.NetAttach // none until step 7b task 5's per-instance network
+	Networks []docker.NetAttach // the instance network, with its alias there
 }
 
 // Container gives flow/deploy the instance's container: the engine's
-// definition, its credentials as first-boot env and its volumes (env-scoped,
-// DECIDE 194).
+// definition, its credentials as first-boot env, its volumes (env-scoped,
+// DECIDE 194) and the instance network every consumer of its slices joins.
 func (f *Flow) Container(ctx context.Context, t store.Tile) (Container, error) {
 	m, e, err := f.instance(ctx, t.ID)
 	if err != nil {
 		return Container{}, err
 	}
 	def := e.Definition()
-	c := Container{Image: def.Image, Cmd: def.Command, Env: def.Config(f.facts(ctx, t, m, def))}
+	c := Container{
+		Image: def.Image,
+		Cmd:   def.Command,
+		Env:   def.Config(f.facts(ctx, t, m, def)),
+	}
 	if t.ImageRef != "" {
 		c.Image = t.ImageRef // the instance's own pin
 	}
@@ -71,9 +76,24 @@ func (f *Flow) Container(ctx context.Context, t store.Tile) (Container, error) {
 		}
 		c.Binds = append(c.Binds, name+":"+path)
 	}
-	// step 7b task 5 replaces this: the per-instance network that slices in
-	// other stacks join. Until then an instance is reached on its env's own.
+	net := managed.Network(m.ID)
+	if err := f.Envs.Shared(ctx, net); err != nil {
+		return c, err
+	}
+	c.Networks = []docker.NetAttach{
+		{
+			Name:    net,
+			Aliases: []string{alias(t, m)},
+		},
+	}
 	return c, nil
+}
+
+// alias is the instance's name on its network. Not the bare slug: a
+// consumer's own env may hold a tile of that slug, and the consumer sits on
+// both networks.
+func alias(t store.Tile, m store.ManagedInstance) string {
+	return t.Slug + "-" + m.ID[:min(8, len(m.ID))]
 }
 
 // Ready polls the engine's own probe until it answers or the wait runs out.
@@ -84,10 +104,11 @@ func (f *Flow) Ready(ctx context.Context, t store.Tile) error {
 	if err != nil {
 		return err
 	}
-	wait, poll := f.ReadyWait, f.ReadyPoll
+	wait := f.ReadyWait
 	if wait == 0 {
 		wait = time.Minute
 	}
+	poll := f.ReadyPoll
 	if poll == 0 {
 		poll = 2 * time.Second
 	}
@@ -105,155 +126,210 @@ func (f *Flow) Ready(ctx context.Context, t store.Tile) error {
 	}
 }
 
-// Attach cuts a slice for consumer on the instance tile it, named after the
-// consumer unless name is given. The instance must be in the consumer's env.
-// step 7b task 5 replaces this with Provision and Bind on the allow list.
-func (f *Flow) Attach(
-	ctx context.Context,
-	consumer store.Tile,
-	it store.Tile,
-	name string,
-	public bool,
-	onRemove string,
-) (store.Provision, error) {
+// Provision is slice tile s's deploy: its database or bucket on instance
+// tile it, made once, named after the slice's slug (uniquified on the
+// instance) with an owner cred. With the row present it re-syncs through
+// the engine's idempotent Provision (a database dropped behind stackr's
+// back comes back, empty).
+func (f *Flow) Provision(ctx context.Context, it store.Tile, s store.Tile) (store.Provision, error) {
 	m, e, err := f.instance(ctx, it.ID)
 	if err != nil {
 		return store.Provision{}, err
 	}
-	if it.EnvironmentID != consumer.EnvironmentID {
-		return store.Provision{}, errs.Refusedf("%s is not shared with this environment", it.Slug)
-	}
 	def := e.Definition()
-	if public && !def.PublicSlices {
-		return store.Provision{}, errs.Refusedf("a %s cannot be public", def.SliceNoun)
-	}
-	if name == "" {
-		name = consumer.Slug
-	}
-	taken, err := f.Instances.SliceNames(ctx, m.ID)
-	if err != nil {
-		return store.Provision{}, err
-	}
-	s := Slice{
-		Name:     uniqueSliceName(def.SliceName(name), taken, def.SliceSep),
-		Password: managed.Password(),
-		Public:   public,
-	}
-	s.User = s.Name
-	if def.PublicSlices { // ponytail: shared root keys, see s3.go
-		s.User, s.Password = m.AdminUser, m.AdminPassword
-	}
 	inst := f.facts(ctx, it, m, def)
-	if err := e.Provision(ctx, inst, s, f.tools(it, m)); err != nil {
-		return store.Provision{}, fmt.Errorf("provision %s on %s: %w", s.Name, it.Slug, err)
-	}
-	p, err := f.Instances.Provision(ctx, m, consumer.ID, managed.Slice{
-		DBName:     s.Name,
-		DBUser:     s.User,
-		DBPassword: s.Password,
-		Public:     public,
-		OnRemove:   onRemove,
-	})
+	p, ok, err := f.Instances.ProvisionOf(ctx, s.ID)
 	if err != nil {
 		return p, err
 	}
-	return f.Instances.SetOutputs(ctx, p, outputs(e.Bindings(inst, s)))
+	if ok {
+		if p.InstanceID != m.ID {
+			return p, errs.Conflictf(
+				"slice %s lives on another instance than %s; moving a slice is not supported, "+
+					"remove it in one release and add it back in the next",
+				s.Slug,
+				it.Slug,
+			)
+		}
+		return p, e.Provision(ctx, inst, slice(p), f.tools(it, m))
+	}
+	taken, err := f.Instances.Names(ctx, m.ID)
+	if err != nil {
+		return p, err
+	}
+	sl := Slice{
+		Name:     uniqueSliceName(def.SliceName(s.Slug), taken, def.SliceSep),
+		Password: managed.Password(),
+	}
+	sl.User = sl.Name
+	if def.RootCreds {
+		sl.User = m.AdminUser
+		sl.Password = m.AdminPassword
+	}
+	if err := e.Provision(ctx, inst, sl, f.tools(it, m)); err != nil {
+		return p, fmt.Errorf("provision %s on %s: %w", sl.Name, it.Slug, err)
+	}
+	return f.Instances.CreateProvision(ctx, m, s.ID, managed.Slice{
+		DBName:     sl.Name,
+		DBUser:     sl.User,
+		DBPassword: sl.Password,
+	})
 }
 
-// Reconcile re-provisions every slice the consumer holds (recreating one
-// dropped behind stackr's back) and republishes its outputs, before the
-// consumer's values resolve.
-func (f *Flow) Reconcile(ctx context.Context, consumer store.Tile, log io.Writer) error {
-	ps, err := f.Instances.ForConsumer(ctx, consumer.ID)
+// Bind gives consumer c its own cred on slice p at access (read | write)
+// and stores the outputs minted for it. A consumer holding one at another
+// access is re-granted in place (user and password stay); at the same
+// access nothing happens.
+func (f *Flow) Bind(ctx context.Context, p store.Provision, c store.Tile, access string) (store.Binding, error) {
+	bound, err := f.Instances.Bindings(ctx, p.ID)
 	if err != nil {
-		return err
+		return store.Binding{}, err
 	}
-	for _, p := range ps {
-		m, err := f.Instances.Get(ctx, p.InstanceID)
-		if err != nil {
-			return err
-		}
-		it, err := f.Tiles.Get(ctx, m.TileID)
-		if err != nil {
-			return err
-		}
-		e, err := engine(m.Engine)
-		if err != nil {
-			return err
-		}
-		inst, s := f.facts(ctx, it, m, e.Definition()), slice(p)
-		if err := e.Provision(ctx, inst, s, f.tools(it, m)); err != nil {
-			return fmt.Errorf("re-provision %s on %s: %w", p.DBName, it.Slug, err)
-		}
-		if _, err := f.Instances.SetOutputs(ctx, p, outputs(e.Bindings(inst, s))); err != nil {
-			return err
-		}
-		_, _ = fmt.Fprintf(log, "slice %s on %s is in place\n", p.DBName, it.Slug)
+	i := slices.IndexFunc(bound, func(b store.Binding) bool {
+		return b.ConsumerTileID == c.ID
+	})
+	if i >= 0 && bound[i].Access == access {
+		return bound[i], nil
 	}
-	return nil
+	m, it, e, err := f.of(ctx, p)
+	if err != nil {
+		return store.Binding{}, err
+	}
+	def := e.Definition()
+	inst := f.facts(ctx, it, m, def)
+	var others []Grant
+	for j, b := range bound {
+		if j != i {
+			others = append(others, grant(b))
+		}
+	}
+	if i >= 0 {
+		b := bound[i]
+		g := grant(b)
+		g.Access = access
+		if err := e.Bind(ctx, inst, slice(p), g, b.Access, others, f.tools(it, m)); err != nil {
+			return b, fmt.Errorf("re-grant %s on %s: %w", b.DBUser, p.DBName, err)
+		}
+		return f.Instances.SetAccess(ctx, b, access)
+	}
+	g := Grant{
+		User:     m.AdminUser,
+		Password: m.AdminPassword,
+		Access:   access,
+	}
+	if !def.RootCreds {
+		taken, err := f.Instances.Names(ctx, m.ID)
+		if err != nil {
+			return store.Binding{}, err
+		}
+		g.User = uniqueSliceName(def.SliceName(p.DBName+"_"+c.Slug), taken, def.SliceSep)
+		g.Password = managed.Password()
+	}
+	if err := e.Bind(ctx, inst, slice(p), g, "", others, f.tools(it, m)); err != nil {
+		return store.Binding{}, fmt.Errorf("bind %s on %s: %w", g.User, p.DBName, err)
+	}
+	as := slice(p)
+	as.User = g.User
+	as.Password = g.Password
+	return f.Instances.Bind(ctx, p, c.ID, managed.Cred{
+		Access:   access,
+		User:     g.User,
+		Password: g.Password,
+		Outputs:  outputs(e.Bindings(inst, as)),
+	})
 }
 
-// Detach is a consumer letting go of its slice: the binding goes; the slice
-// is dropped only when on_remove says drop or the env is ephemeral.
-func (f *Flow) Detach(ctx context.Context, p store.Provision, ephemeral bool) error {
-	drop, err := f.Instances.Release(ctx, p, ephemeral)
-	if err != nil || !drop {
-		return err
-	}
-	m, err := f.Instances.Get(ctx, p.InstanceID)
+// Unbind drops the consumer's cred on its slice and the binding row; what
+// the cred made in the database passes to the slice's owner.
+func (f *Flow) Unbind(ctx context.Context, b store.Binding) error {
+	p, err := f.Instances.GetProvision(ctx, b.ProvisionID)
 	if err != nil {
 		return err
 	}
-	it, err := f.Tiles.Get(ctx, m.TileID)
+	m, it, e, err := f.of(ctx, p)
 	if err != nil {
 		return err
 	}
-	e, err := engine(m.Engine)
+	inst := f.facts(ctx, it, m, e.Definition())
+	if err := e.Unbind(ctx, inst, slice(p), grant(b), f.tools(it, m)); err != nil {
+		return fmt.Errorf("unbind %s from %s: %w", b.DBUser, p.DBName, err)
+	}
+	return f.Instances.Unbind(ctx, b.ID)
+}
+
+// Drop is slice p's tile going: every binding goes, then the data when
+// on_remove says drop or the env is ephemeral (nothing else would ever
+// reclaim a PR env's), then the row. keep leaves the database or bucket on
+// the instance, held by no row; a slice of that name added later finds it.
+func (f *Flow) Drop(ctx context.Context, p store.Provision, ephemeral bool, log io.Writer) error {
+	bs, err := f.Instances.Bindings(ctx, p.ID)
 	if err != nil {
 		return err
 	}
-	// The rows share one slice: drop in the engine once, when the last goes.
-	others, err := f.Instances.ByInstance(ctx, m.ID)
-	if err != nil {
-		return err
-	}
-	shared := 0
-	for _, o := range others {
-		if o.DBName == p.DBName && o.ID != p.ID {
-			shared++
+	for _, b := range bs {
+		if err := f.Unbind(ctx, b); err != nil {
+			return err
 		}
 	}
-	if shared == 0 {
+	if p.OnRemove == managed.Drop || ephemeral {
+		m, it, e, err := f.of(ctx, p)
+		if err != nil {
+			return err
+		}
 		if err := e.Drop(ctx, f.facts(ctx, it, m, e.Definition()), slice(p), f.tools(it, m)); err != nil {
-			return err
+			return fmt.Errorf("drop %s: %w", p.DBName, err)
 		}
+		logf(log, "dropped %s\n", p.DBName)
+	} else {
+		logf(log, "kept %s on the instance (on_remove: keep)\n", p.DBName)
 	}
-	return f.Instances.DropRow(ctx, p.ID)
+	return f.Instances.DeleteProvision(ctx, p.ID)
 }
 
-// Teardown removes the instance's slices and row: refused while slices are
-// held unless force. Slices go before the container (the caller removes the
-// tile after), so the engine can still reach it. A failed drop is logged,
+// Teardown removes the instance's row: refused while slices live on it
+// unless force, which drops them all. It runs before the container goes,
+// so the engine can still reach it and a refusal leaves the instance
+// running; the caller removes the container, then the instance network
+// (Docker refuses that while anything sits on it). A failed drop is logged,
 // not fatal: the rows go either way.
 func (f *Flow) Teardown(ctx context.Context, it store.Tile, force bool, log io.Writer) error {
-	m, e, err := f.instance(ctx, it.ID)
+	m, _, err := f.instance(ctx, it.ID)
 	if errors.Is(err, errs.ErrNotFound) {
 		return nil
 	}
 	if err != nil {
 		return err
 	}
-	drop, err := f.Instances.Teardown(ctx, m, force)
+	held, err := f.Instances.Teardown(ctx, m, force)
 	if err != nil {
 		return err
 	}
-	inst := f.facts(ctx, it, m, e.Definition())
-	for _, p := range drop {
-		if err := e.Drop(ctx, inst, slice(p), f.tools(it, m)); err != nil {
-			_, _ = fmt.Fprintf(log, "drop %s: %v (the row goes anyway)\n", p.DBName, err)
+	for _, p := range held {
+		p.OnRemove = managed.Drop // forced: the data goes with its instance
+		if err := f.Drop(ctx, p, true, log); err != nil {
+			logf(log, "drop %s: %v (the row goes anyway)\n", p.DBName, err)
 		}
 	}
 	return f.Instances.Delete(ctx, m.ID)
+}
+
+// SliceWord is a slice tile's status word: its instance's (leaf/tile State)
+// once provisioned, "none" before.
+func (f *Flow) SliceWord(ctx context.Context, s store.Tile) (string, error) {
+	p, ok, err := f.Instances.ProvisionOf(ctx, s.ID)
+	if err != nil || !ok {
+		return "none", err
+	}
+	m, err := f.Instances.Get(ctx, p.InstanceID)
+	if err != nil {
+		return "", err
+	}
+	it, err := f.Tiles.Get(ctx, m.TileID)
+	if err != nil {
+		return "", err
+	}
+	st, err := f.Tiles.State(ctx, it)
+	return st.Word, err
 }
 
 // Backup and Restore expose the engine's argv for flow/backup.
@@ -286,6 +362,20 @@ func (f *Flow) Methods(ctx context.Context, it store.Tile) ([]string, error) {
 	return e.Definition().Backups, nil
 }
 
+// of is the instance a provision lives on: its row, its tile and engine.
+func (f *Flow) of(ctx context.Context, p store.Provision) (store.ManagedInstance, store.Tile, ManagedTile, error) {
+	m, err := f.Instances.Get(ctx, p.InstanceID)
+	if err != nil {
+		return m, store.Tile{}, nil, err
+	}
+	it, err := f.Tiles.Get(ctx, m.TileID)
+	if err != nil {
+		return m, it, nil, err
+	}
+	e, err := engine(m.Engine)
+	return m, it, e, err
+}
+
 func (f *Flow) instance(ctx context.Context, tileID string) (store.ManagedInstance, ManagedTile, error) {
 	m, err := f.Instances.GetByTile(ctx, tileID)
 	if err != nil {
@@ -295,8 +385,8 @@ func (f *Flow) instance(ctx context.Context, tileID string) (store.ManagedInstan
 	return m, e, err
 }
 
-// facts is the instance as an engine sees it. Consumers dial the tile's
-// alias; its port is the engine's.
+// facts is the instance as an engine sees it. Consumers dial its alias on
+// the instance network; its port is the engine's.
 func (f *Flow) facts(ctx context.Context, t store.Tile, m store.ManagedInstance, def Definition) Instance {
 	i := Instance{
 		Slug:          t.Slug,
@@ -304,7 +394,7 @@ func (f *Flow) facts(ctx context.Context, t store.Tile, m store.ManagedInstance,
 		AdminUser:     m.AdminUser,
 		AdminPassword: m.AdminPassword,
 		AdminDB:       def.AdminDB,
-		Host:          t.Slug,
+		Host:          alias(t, m),
 		Port:          def.Port,
 	}
 	if f.PublicBase != nil {
@@ -350,10 +440,23 @@ func slice(p store.Provision) Slice {
 	}
 }
 
+func grant(b store.Binding) Grant {
+	return Grant{
+		User:     b.DBUser,
+		Password: b.DBPassword,
+		Access:   b.Access,
+	}
+}
+
 func outputs(bs []Binding) map[string]string {
 	out := make(map[string]string, len(bs))
 	for _, b := range bs {
 		out[b.Name] = b.Value
 	}
 	return out
+}
+
+// logf writes a line to the job log; a log write failing never fails the work.
+func logf(w io.Writer, format string, a ...any) {
+	_, _ = fmt.Fprintf(w, format, a...)
 }

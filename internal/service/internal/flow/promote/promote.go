@@ -18,6 +18,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/deploy"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/domainres"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/environment"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/managed"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/params"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/release"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
@@ -232,51 +233,65 @@ func (f *Flow) deleteTiles(ctx context.Context, w *work, e store.Environment, lo
 }
 
 // Remove takes tiles of env e off the box and out of the store: containers,
-// ingress, slices (dropped or kept by their on_remove), a managed tile's
-// volumes orphaned. Managed tiles go last so their consumers detach first.
+// ingress, a consumer's bindings, a slice tile's provision (its data dropped
+// or kept by on_remove), a managed tile's instance (volumes orphaned, its
+// network last). Consumers go first, then slices, then managed tiles, so
+// nothing goes while something in this env still binds it. An engine
+// failure on a binding is logged, not fatal: its row goes with the tile.
 func (f *Flow) Remove(ctx context.Context, e store.Environment, ts []store.Tile, log io.Writer) error {
 	d := f.D
-	order := append([]store.Tile{}, ts...)
-	for i, t := range order { // managed last
-		if t.Kind == tile.Managed {
-			order = append(append(order[:i:i], order[i+1:]...), t)
-		}
-	}
+	order := slices.Clone(ts)
+	slices.SortStableFunc(order, func(a, b store.Tile) int {
+		return removeRank(a) - removeRank(b)
+	})
 	for _, t := range order {
+		net := ""
+		if t.Kind == tile.Managed {
+			m, err := d.Managed.GetByTile(ctx, t.ID)
+			switch {
+			case err == nil:
+				if err := f.orphan(ctx, e, m); err != nil {
+					return err
+				}
+				// Before the container: a refusal leaves the instance running.
+				if err := d.Engines.Teardown(ctx, t, false, log); err != nil {
+					return err
+				}
+				net = managed.Network(m.ID)
+			case !errors.Is(err, errs.ErrNotFound):
+				return err
+			}
+		}
 		if err := d.Tiles.Teardown(ctx, t, e.Network); err != nil {
 			return err
 		}
 		if err := d.Domains.CloseIngress(ctx, t.ID); err != nil {
 			return err
 		}
-		if t.Kind == tile.Managed {
-			m, err := d.Managed.GetByTile(ctx, t.ID)
-			if err == nil {
-				vs, err := d.Volumes.List(ctx, volume.Scope{Kind: "env", ID: e.ID})
-				if err != nil {
-					return err
-				}
-				for _, v := range vs {
-					if v.InstanceID != nil && *v.InstanceID == m.ID {
-						if _, err := d.Volumes.Orphan(ctx, v); err != nil {
-							return err
-						}
-					}
-				}
-				if err := d.Engines.Teardown(ctx, t, false, log); err != nil {
-					return err
-				}
-			} else if !errors.Is(err, errs.ErrNotFound) {
-				return err
+		switch {
+		case net != "":
+			if err := d.Envs.DropShared(ctx, net); err != nil {
+				logf(log, "warning: network %s stays: %v\n", net, err)
 			}
-		} else if d.Engines != nil {
-			ps, err := d.Managed.ForConsumer(ctx, t.ID)
+		case d.Engines == nil:
+		case t.Kind == tile.Slice:
+			p, ok, err := d.Managed.ProvisionOf(ctx, t.ID)
 			if err != nil {
 				return err
 			}
-			for _, pr := range ps {
-				if err := d.Engines.Detach(ctx, pr, e.Type == environment.Ephemeral); err != nil {
+			if ok {
+				if err := d.Engines.Drop(ctx, p, e.Type == environment.Ephemeral, log); err != nil {
 					return err
+				}
+			}
+		default:
+			bound, err := d.Managed.Bound(ctx, t.ID)
+			if err != nil {
+				return err
+			}
+			for _, id := range slices.Sorted(maps.Keys(bound)) {
+				if err := d.Engines.Unbind(ctx, bound[id]); err != nil {
+					logf(log, "warning: unbind %s: %v\n", bound[id].DBUser, err)
 				}
 			}
 		}
@@ -288,7 +303,37 @@ func (f *Flow) Remove(ctx context.Context, e store.Environment, ts []store.Tile,
 	return nil
 }
 
-// rollout runs every tile the plan touched: managed first, then in
+// removeRank: consumers, then slices, then managed tiles.
+func removeRank(t store.Tile) int {
+	switch t.Kind {
+	case tile.Slice:
+		return 1
+	case tile.Managed:
+		return 2
+	}
+	return 0
+}
+
+// orphan marks the instance's data volumes orphaned: kept, and reclaimed
+// only after retention.
+func (f *Flow) orphan(ctx context.Context, e store.Environment, m store.ManagedInstance) error {
+	vs, err := f.D.Volumes.List(ctx, volume.Scope{Kind: "env", ID: e.ID})
+	if err != nil {
+		return err
+	}
+	for _, v := range vs {
+		if v.InstanceID == nil || *v.InstanceID != m.ID {
+			continue
+		}
+		if _, err := f.D.Volumes.Orphan(ctx, v); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// rollout runs every tile the plan touched: managed tiles, then slice tiles
+// (their provision needs the instance up), then the rest, each pass in
 // depends_on order. Image tiles whose tag moved run the tag and are pinned
 // again in one derived release.
 func (f *Flow) rollout(ctx context.Context, w *work, e store.Environment, log io.Writer) error {
@@ -308,14 +353,9 @@ func (f *Flow) rollout(ctx context.Context, w *work, e store.Environment, log io
 		return errors.New("depends_on has a cycle")
 	}
 	var run []string
-	for _, pass := range []bool{true, false} {
+	for pass := range 3 {
 		for _, s := range order {
-			// step 7b task 5 replaces this: a slice tile has no container;
-			// its deploy is Provision and a status.
-			if bySlug[s].Kind == tile.Slice {
-				continue
-			}
-			if w.redeploy[s] && (bySlug[s].Kind == tile.Managed) == pass {
+			if w.redeploy[s] && rolloutPass(bySlug[s]) == pass {
 				run = append(run, s)
 			}
 		}
@@ -362,6 +402,17 @@ func (f *Flow) rollout(ctx context.Context, w *work, e store.Environment, log io
 	}
 	_, err = d.Envs.SetRelease(ctx, e, r.ID)
 	return err
+}
+
+// rolloutPass: managed tiles, then slices, then everything else.
+func rolloutPass(t store.Tile) int {
+	switch t.Kind {
+	case tile.Managed:
+		return 0
+	case tile.Slice:
+		return 1
+	}
+	return 2
 }
 
 func replicaIDs(ctx context.Context, d *deploy.Flow, t store.Tile) ([]string, error) {

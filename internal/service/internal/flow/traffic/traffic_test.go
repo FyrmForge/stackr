@@ -209,9 +209,26 @@ func TestEdgesSlices(t *testing.T) {
 		"pg:5432",
 	)
 	must(t, err)
-	slice := map[string]string{}
+	slice := map[string]string{} // consumer slug -> the provision it binds
 	for _, n := range []string{"web", "jobs"} {
-		p, err := ml.Provision(ctx, m, ids[n], managed.Slice{DBName: n, DBUser: n})
+		from := "s:dev:pg"
+		sl, err := tiles.Create(ctx, store.Tile{
+			StackID:       stk,
+			EnvironmentID: env,
+			Name:          n + "-db",
+			Kind:          tile.Slice,
+			ProvisionFrom: &from,
+		})
+		must(t, err)
+		p, err := ml.CreateProvision(ctx, m, sl.ID, managed.Slice{
+			DBName: n,
+			DBUser: n,
+		})
+		must(t, err)
+		_, err = ml.Bind(ctx, p, ids[n], managed.Cred{
+			Access: "write",
+			User:   n + "_app",
+		})
 		must(t, err)
 		slice[n] = p.ID
 	}

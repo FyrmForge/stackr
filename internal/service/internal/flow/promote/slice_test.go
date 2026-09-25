@@ -9,7 +9,10 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/FyrmForge/stackr/internal/service/errs"
+	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/environment"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/managed"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/release"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
@@ -184,7 +187,8 @@ func TestGrammarSlices(t *testing.T) {
 
 // sliceWorld is setup's shop in org testorg, plus stack infra with envs
 // staging and production, each with managed tile pg-db carrying the
-// grammar's allow list and env pairs.
+// grammar's allow list and env pairs, and a running replica to exec in. The
+// fake's psql answers "nothing exists yet" to every check.
 type sliceWorld struct {
 	*world
 	infra store.Stack
@@ -241,7 +245,16 @@ func newSliceWorld(t *testing.T) *sliceWorld {
 			"staging":    "staging",
 			"production": "production",
 		})
+		w.fake.Containers = append(w.fake.Containers, docker.Container{
+			ID:    "pg-" + name,
+			State: "running",
+			Labels: map[string]string{
+				tile.LabelTile: w.pg[name].ID,
+				tile.LabelRole: "replica",
+			},
+		})
 	}
+	w.fake.ExecOut = "0,0"
 	return w
 }
 
@@ -410,12 +423,8 @@ func TestSliceHappyPath(t *testing.T) {
 		}
 	}
 
-	// step 7b task 5 replaces this: api's deploy fails on the unresolved
-	// slice ref until its binding is minted; the rows land before rollout.
 	_, err = w.f.Apply(ctx, w.dev.ID, r.ID, io.Discard, nil)
-	if err == nil || !strings.Contains(err.Error(), "api-db") {
-		t.Fatalf("apply = %v, want api's deploy to fail on the api-db ref", err)
-	}
+	must(t, err)
 	sl, err := w.f.D.Tiles.GetBySlug(ctx, w.dev.ID, "api-db")
 	must(t, err)
 	if sl.Kind != tile.Slice || deref(sl.ProvisionFrom) != "infra:${{ env.name }}:pg-db" || deref(sl.DefaultAccess) != "write" {
@@ -437,8 +446,9 @@ func TestSliceHappyPath(t *testing.T) {
 	moved := strings.Replace(sliceShopFile, "default_access: write", "default_access: read", 1)
 	p, wk, err := w.f.plan(ctx, w.dev.ID, w.shopRelease(t, "c2", moved).ID, io.Discard)
 	must(t, err)
-	if got := kinds(p); !strings.Contains(got, "slice:api-dbinfra/staging/pg-db (read)infra:${{ env.name }}:pg-db (write)") {
-		t.Errorf("plan = %s, want the slice's access move", got)
+	if got := kinds(p); !strings.Contains(got, "slice:api-dbinfra/staging/pg-db (read)infra/staging/pg-db (write)") ||
+		strings.Contains(got, "update:api-db") {
+		t.Errorf("plan = %s, want the slice's access move as its one row", got)
 	}
 	if !wk.redeploy["api"] || !wk.redeploy["reporter"] {
 		t.Errorf("redeploy = %v, want api and reporter", wk.redeploy)
@@ -474,6 +484,200 @@ func TestSliceHappyPath(t *testing.T) {
 	must(t, err)
 	if want := "slice api-db: infra/staging/pg-db does not allow testorg:shop:pr-12:api-db"; !slices.Contains(p.Blockers, want) {
 		t.Errorf("pr blockers = %q, want %q", p.Blockers, want)
+	}
+}
+
+// sliceFile is sliceShopFile with reporter gone, or api-db gone too (and
+// api's ref to it with it).
+func sliceFile(t *testing.T, noReporter, noSlice bool) string {
+	t.Helper()
+	f := sliceShopFile
+	if noReporter {
+		before, _, ok := strings.Cut(f, "    reporter:\n")
+		if !ok {
+			t.Fatal("sliceFile: no reporter")
+		}
+		f = before
+	}
+	if noSlice {
+		for _, cut := range []string{
+			"    api-db:\n      kind: slice\n      provision_from: infra:${{ env.name }}:pg-db\n      default_access: write\n",
+			"      env:\n        DATABASE_URL: ${{ tile.api-db.DATABASE_URL }}\n",
+		} {
+			if !strings.Contains(f, cut) {
+				t.Fatalf("sliceFile: no %q", cut)
+			}
+			f = strings.Replace(f, cut, "", 1)
+		}
+	}
+	return f
+}
+
+// execs is every Exec from call n on, one per line.
+func execs(w *sliceWorld, n int) string {
+	var b strings.Builder
+	for _, c := range w.fake.Calls()[n:] {
+		if c.Method == "Exec" {
+			b.WriteString(strings.Join(c.Args, " ") + "\n")
+		}
+	}
+	return b.String()
+}
+
+func onNet(ns []docker.NetAttach, name string) bool {
+	return slices.ContainsFunc(ns, func(n docker.NetAttach) bool {
+		return n.Name == name
+	})
+}
+
+// The grammar's two stacks deployed: api-db lands on infra/staging/pg-db,
+// api gets a write user and reporter a read user, both on the instance's
+// network. Removing reporter drops its user; removing api-db with
+// on_remove drop drops the database and its bindings.
+func TestSliceDeploy(t *testing.T) {
+	w := newSliceWorld(t)
+	d := w.f.D
+	_, err := w.f.Apply(ctx, w.dev.ID, w.shopRelease(t, "c1", sliceShopFile).ID, io.Discard, nil)
+	must(t, err)
+	sl, err := d.Tiles.GetBySlug(ctx, w.dev.ID, "api-db")
+	must(t, err)
+	pr, ok, err := d.Managed.ProvisionOf(ctx, sl.ID)
+	must(t, err)
+	m, err := d.Managed.GetByTile(ctx, w.pg["staging"].ID)
+	must(t, err)
+	if !ok || pr.InstanceID != m.ID || pr.DBName != "api_db" {
+		t.Fatalf("provision = %+v %v, want api_db on staging's pg-db", pr, ok)
+	}
+	bs, err := d.Managed.Bindings(ctx, pr.ID)
+	must(t, err)
+	got := map[string]string{}
+	for _, b := range bs {
+		got[b.DBUser] = b.Access
+	}
+	if len(got) != 2 || got["api_db_api"] != "write" || got["api_db_reporter"] != "read" {
+		t.Fatalf("bindings = %v, want api write and reporter read", got)
+	}
+
+	// Both consumers sit on the instance's network and dial its alias there.
+	net := managed.Network(m.ID)
+	host := "pg-db-" + m.ID[:8]
+	i := slices.IndexFunc(w.fake.Specs, func(s docker.ContainerSpec) bool {
+		return strings.HasPrefix(s.Name, "stackr-api-")
+	})
+	if i < 0 || !onNet(w.fake.Specs[i].Networks, net) {
+		t.Fatalf("api spec not on %s: %+v", net, w.fake.Specs)
+	}
+	if !slices.ContainsFunc(w.fake.Specs[i].Env, func(e string) bool {
+		return strings.HasPrefix(e, "DATABASE_URL=postgres://api_db_api:") && strings.Contains(e, "@"+host+":5432/api_db")
+	}) {
+		t.Errorf("api env = %v", w.fake.Specs[i].Env)
+	}
+	rep, err := d.Tiles.GetBySlug(ctx, w.dev.ID, "reporter")
+	must(t, err)
+	dev, err := d.Envs.Get(ctx, w.dev.ID) // the release the apply set
+	must(t, err)
+	ref, _, err := d.Current(ctx, rep, dev)
+	must(t, err)
+	spec, err := d.Spec(ctx, rep, ref, io.Discard)
+	must(t, err)
+	if !onNet(spec.Networks, net) || !slices.ContainsFunc(spec.Env, func(e string) bool {
+		return strings.HasPrefix(e, "DATABASE_URL=postgres://api_db_reporter:")
+	}) {
+		t.Errorf("reporter spec = %+v", spec)
+	}
+
+	// reporter goes: its user goes.
+	n := len(w.fake.Calls())
+	_, err = w.f.Apply(ctx, w.dev.ID, w.shopRelease(t, "c2", sliceFile(t, true, false)).ID, io.Discard, nil)
+	must(t, err)
+	if ex := execs(w, n); !strings.Contains(ex, `DROP ROLE IF EXISTS "api_db_reporter"`) {
+		t.Errorf("reporter removal execs:\n%s", ex)
+	}
+	if bs, _ := d.Managed.Bindings(ctx, pr.ID); len(bs) != 1 || bs[0].DBUser != "api_db_api" {
+		t.Errorf("bindings after reporter = %+v", bs)
+	}
+
+	// api-db goes with on_remove drop: api's user, then the database.
+	_, err = d.Managed.SetOnRemove(ctx, pr, managed.Drop)
+	must(t, err)
+	n = len(w.fake.Calls())
+	_, err = w.f.Apply(ctx, w.dev.ID, w.shopRelease(t, "c3", sliceFile(t, true, true)).ID, io.Discard, nil)
+	must(t, err)
+	ex := execs(w, n)
+	for _, want := range []string{
+		`DROP ROLE IF EXISTS "api_db_api"`,
+		`DROP DATABASE IF EXISTS "api_db" WITH (FORCE)`,
+	} {
+		if !strings.Contains(ex, want) {
+			t.Errorf("api-db removal: no %q in\n%s", want, ex)
+		}
+	}
+	if _, err := d.Managed.GetProvision(ctx, pr.ID); err == nil {
+		t.Error("the dropped slice kept its provision")
+	}
+	if bs, _ := d.Managed.Bindings(ctx, pr.ID); len(bs) != 0 {
+		t.Errorf("bindings after drop = %+v", bs)
+	}
+}
+
+// keep (the default): the database stays on the instance, the rows go, and
+// the next plan of the same file is clean.
+func TestSliceKeep(t *testing.T) {
+	w := newSliceWorld(t)
+	d := w.f.D
+	_, err := w.f.Apply(ctx, w.dev.ID, w.shopRelease(t, "c1", sliceFile(t, true, false)).ID, io.Discard, nil)
+	must(t, err)
+	sl, err := d.Tiles.GetBySlug(ctx, w.dev.ID, "api-db")
+	must(t, err)
+	pr, ok, err := d.Managed.ProvisionOf(ctx, sl.ID)
+	if err != nil || !ok || pr.OnRemove != managed.Keep {
+		t.Fatalf("provision = %+v %v %v", pr, ok, err)
+	}
+	n := len(w.fake.Calls())
+	r := w.shopRelease(t, "c2", sliceFile(t, true, true))
+	_, err = w.f.Apply(ctx, w.dev.ID, r.ID, io.Discard, nil)
+	must(t, err)
+	if ex := execs(w, n); strings.Contains(ex, "DROP DATABASE") || !strings.Contains(ex, `DROP ROLE IF EXISTS "api_db_api"`) {
+		t.Errorf("keep execs:\n%s", ex)
+	}
+	if _, err := d.Managed.GetProvision(ctx, pr.ID); err == nil {
+		t.Error("the kept slice kept its provision row")
+	}
+	p, err := w.f.Plan(ctx, w.dev.ID, r.ID, io.Discard)
+	must(t, err)
+	if len(p.Changes) != 0 || p.Blocked() {
+		t.Errorf("re-plan = %s, blockers %q, want clean", kinds(p), p.Blockers)
+	}
+}
+
+// An allow list narrowed after the plan: the consumer's next deploy fails
+// with the plan's own reason and its binding stays.
+func TestSliceNotAllowedAtDeploy(t *testing.T) {
+	w := newSliceWorld(t)
+	d := w.f.D
+	_, err := w.f.Apply(ctx, w.dev.ID, w.shopRelease(t, "c1", sliceShopFile).ID, io.Discard, nil)
+	must(t, err)
+	w.instance(t, "staging", func(m *store.ManagedInstance) {
+		m.Allow = store.StringList{"testorg:blog:*"}
+	})
+	api, err := d.Tiles.GetBySlug(ctx, w.dev.ID, "api")
+	must(t, err)
+	runs := len(w.fake.Specs)
+	err = d.Redeploy(ctx, api.ID, io.Discard, nil)
+	want := "slice api-db: infra/staging/pg-db does not allow testorg:shop:dev:api-db"
+	if err == nil || err.Error() != want {
+		t.Fatalf("redeploy = %v, want %q", err, want)
+	}
+	if _, ok := errs.IsConflict(err); !ok {
+		t.Errorf("redeploy error is %T, want a conflict", err)
+	}
+	if len(w.fake.Specs) != runs {
+		t.Error("a refused consumer started a container")
+	}
+	bound, err := d.Managed.Bound(ctx, api.ID)
+	must(t, err)
+	if len(bound) != 1 {
+		t.Errorf("bindings = %v, want api's kept", bound)
 	}
 }
 

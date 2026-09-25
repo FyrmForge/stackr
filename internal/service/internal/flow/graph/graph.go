@@ -679,7 +679,9 @@ func (f *Flow) env(ctx context.Context, v *View, envID string, in In) error {
 	mounted := map[string]bool{}
 	proxied := false
 	for _, t := range ts {
-		if hosted[t.ID] {
+		// step 7b task 7 replaces this: a slice tile's own card; until then
+		// it shows as the slice card its bindings draw.
+		if hosted[t.ID] || t.Kind == tile.Slice {
 			continue
 		}
 		n, err := f.tileCard(ctx, t, vols, in.Status)
