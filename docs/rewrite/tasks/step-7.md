@@ -19,7 +19,7 @@ row; an owner approves or rejects it, or the binding's Auto switch
 approves unblocked plans on its own. Apply is one job that calls the
 orchestrator's own verbs.
 
-Branch `rewrite-step-7`, stacked on `rewrite-step-6e`.
+Branch `rewrite-step-7`, stacked on `rewrite-step-7a`.
 
 ## Tasks
 
