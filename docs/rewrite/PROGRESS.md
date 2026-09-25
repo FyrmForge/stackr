@@ -29,6 +29,7 @@ at the bottom of this file.
 - [x] step-4.md API + CLI
 - [x] step-5.md installer + self-upgrade
 - [x] step-6.md UI, whitelist: `log-pane`, `confirm-dialog`, `flash-toast`, `theme-toggle`. Dropped old JS: canvas/graph, metrics, xterm terminal, YAML code editor (see step-6.md "Not in v1")
+- [ ] step-7.md org config file: `stackr-org.yml` bound to the org, plans as rows an owner approves or an Auto switch applies, apply = one job through the orchestrator's verbs, never deletes a stack; planned 2026-09-25 (DECIDE 180 to 189), not started
 
 Step 0 list (agreed with darhvader):
 1. Rename binaries to `stackrd`, `stackr`, `stackr-install`: three `cmd/` dirs, Makefile, watch rule.
@@ -725,7 +726,101 @@ sweep, P14 theme per user, DECIDE 159 and the DECIDE 138 leftovers.
    (`stackr-old .../config/orgconf`, `handler/org/config.go`, `stackr org
    approve`; phase A wave 6). Owed: a REWRITE.md design section and a
    task list. Options for where it lands: (a) its own step after 6e; (b)
-   folded into the connector work. Lean (a).
+   folded into the connector work. Lean (a). **Resolved 2026-09-25: the
+   design is REWRITE.md "Org config file", the tasks `tasks/step-7.md`;
+   it lands as (a), step 7. Its own calls: DECIDE 181 to 189.**
+181. **(step 7) Org plans are rows.** v0 stored `org_config_plans`
+   (pending / applied / rejected / superseded, planned on every push,
+   approved later); the rewrite's stack side has no plan rows. The
+   planner leaned "diff on demand, no rows". **darthvader 2026-09-25:
+   plans as rows, v0's way.** Design and step-7 tasks written that way;
+   two v0 flaws fixed (an unparsable file stores `error`, not `pending`;
+   apply runs the plan's commit, not the branch tip; the table has a
+   real FK).
+182. **(step 7) Inline stacks are refused; a stack entry only says where
+   its file is.** v0 accepted a whole stack body under `stacks.<name>`;
+   edits to an existing one never showed in the org plan and were
+   force-applied on the next approval. **darthvader 2026-09-25: agree,
+   refuse inline. A stack entry points at its `stackr-compose.yml`,
+   either remote (a git repo) or local (a path inside the org repo).**
+   The homelab case: one org repo (`~/projects/server-config`) holds
+   `stackr-org.yml` (the org's name and settings) and one stack file per
+   service group (jellyfin with the *arr tiles, monitoring later once
+   stackr has what it needs), each declared as `path: <file>`. An edit to
+   a stack file rides that stack's own push → release → promote.
+183. **(step 7) Org-shared managed instances are in the org file.** v0's
+   `shared:` parked them in the first non-home env of the oldest stack
+   and failed on an org with no stacks; the planner leaned "out, make
+   them by hand" (and first claimed a stack file could declare one with
+   `scope: org`, which is wrong: the stack file refuses `shared:`, DECIDE
+   30). **darthvader 2026-09-25: in the file, we definitely need that.**
+   Shape: `shared.<slug>` with `engine`, `host: <stack>/<env>` (the env
+   whose container runs it, since an org has none), optional `image` and
+   `shm_size_mb`. Created in the host env, scope widened to org,
+   deployed. Engine or host change is a blocker (delete by hand; the
+   volume stays; moves are Later); image or shm change is an update;
+   gone from the file is left alone (DECIDE 188). Export writes it (v0's
+   export skipped `shared:` and so never round-tripped).
+184. **(step 7) `moved:` is in the org file.** Without it a renamed stack
+   key plans a create and the old stack stays (DECIDE 188): two stacks,
+   one silent. The planner leaned "rename in the UI first". **darthvader
+   2026-09-25: we need `moved:` back; that would be really bad UX that
+   will bite people.** A list of `from`/`to` pairs, `stack.<slug>` or
+   `shared.<slug>`, read before the rest of the diff: `from` exists and
+   `to` does not → rename (the stack, or the instance tile), and the
+   rest of the diff sees the object under its new slug; `to` exists and
+   `from` does not → already moved, no change, the entry may stay; both
+   or neither exist → blocker. v0 had the same list. The stack file's
+   own `moved:` (tile renames) stays cut, REWRITE.md "Promote and
+   releases"; its own DECIDE if wanted.
+185. **(step 7) The org file never deletes a param.** v0's rule: vars and
+   secrets are only added or updated by the file. The Terraform reading
+   (file = desired state) would delete a param that left the file.
+   Options: (a) v0's rule, never delete; (b) delete, blocked while a tile
+   in the org refs it. **darthvader 2026-09-25: (a), never delete
+   params.** A param gone from the file is left as it is; delete it in
+   the UI or CLI. A secret's value is not in git, so a deleted-and-
+   recreated secret would be a lost value.
+186. **(step 7) Auto apply is a switch on the binding.** v0 never
+   auto-applied an org plan. **darthvader 2026-09-25: allow an option to
+   just auto apply.** `config_auto`, off by default; on, the plan job
+   approves its own plan when it is pending and unblocked. The file never
+   deletes a stack (DECIDE 188), so auto never tears one down;
+   it does rename the org and create or rebind stacks.
+187. **(step 7) The new-org wizard comes back, and the org is bound to
+   its file there.** v0's wizard: a branch question (by hand or from a
+   config file), then connector → config (bind, the plan on the same
+   step, approve or reject; the file names the org) → team → done for
+   the config branch, and name → connector → domain → team → done by
+   hand, with a setup gate (an unfinished org sends its owner to the
+   summary and shows members a holding page). The rewrite kept the draft
+   org (`StartDraft`, `DraftName`, `FinishOrg`) but step 6 folded the
+   wizard into one `/-/new-org` dialog. The planner leaned "bind from
+   the drawer only". **darthvader 2026-09-25: reintroduce the new-org
+   wizard and bind there.** v0's pages, cloned, minus the domain step
+   (org domains are not v1 objects); the drawer's Config tab stays for
+   a rebind after setup. The `/-/new-org` dialog goes.
+188. **(step 7) The org file never deletes a stack.** The planner's draft
+   deleted a file-created stack once it left the file (blocked while it
+   had envs) and left hand-made stacks alone. **darthvader 2026-09-25:
+   (b), never delete anything.** A stack gone from the file is left as
+   it is, hand-made or file-made alike; deleting is a UI or CLI act. So
+   an org can be fully config-managed and still host a quick stack
+   clicked up by hand. `org_declared` is dropped: nothing reads it.
+189. **(step 7) The stack file's `ladder:` creates the stack's envs.**
+   Found while placing `shared.host`: `CreateEnv` (UI, CLI, API) and the
+   PR clone were the only places an env row is made, and `flow/promote`
+   `Push` returns nothing when no env tracks the pushed branch, so a
+   stack the org apply creates and binds sat at "bound, nothing runs"
+   until someone clicked its envs. **darthvader 2026-09-25: the stack
+   config defines the environments, so it creates them; the org file
+   only points at the stack file.** The chain: org plan (Auto or
+   approved) creates and binds the stack → the stack's push job reads
+   the file at the pushed commit, creates every env its `ladder:` (or
+   `environments:`) names that the stack lacks, bottom rung first, with
+   `from`, `branch`, `auto` and `color` from the file → the release lands
+   in the auto envs and the rest wait for a promote. Envs are never
+   deleted by the file (DECIDE 188's rule, same reason). In step 7.
 
 ## DECIDE:
 

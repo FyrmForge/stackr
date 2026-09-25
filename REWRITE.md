@@ -279,6 +279,12 @@ a second; they still queue so the per-tile lock sees them.
 - **One release per push.** A push of five commits builds the head once.
   The config comes from that same commit, so in the branch model each env
   runs its own branch's file.
+- **The file makes the envs.** A push to the config branch first creates
+  every env the file's `ladder:` (or `environments:`) names that the
+  stack lacks, bottom rung first, with the file's `from`/`branch`,
+  `auto` and `color`; then the release is derived as below. The file
+  never deletes an env (DECIDE 189). So a freshly bound stack runs from
+  its first push with no clicks.
 - **The release carries the config.** `stackr-compose.yml` lives in the
   stack's config repo and declares every tile, including tiles whose code
   is in another repo (`git_url` on the tile). Tile repos carry code only.
@@ -376,6 +382,159 @@ on the chip are UI work.
   admin-only, outside the file. **Cut:** `moved:` (orphaning covers the
   data-loss case; re-adding a slug re-adopts), `ui_edits`, `apply_policy`
   (replaced by `from`/`auto`), `traefik_override`.
+
+## Org config file
+
+**Step 7 (planned 2026-09-25).** darthvader put org config files back in v1
+(DECIDE 180). It is the stack pattern one level up, in v0's shape: the org
+is bound to a repo, every plan is a row an owner approves or rejects, and a
+binding can be set to apply on its own (DECIDE 181 and 186, darthvader's
+calls).
+
+- **Binding.** Four columns on `orgs`, the same four `stacks` has:
+  `config_connector_id`, `config_repo`, `config_branch`, `config_path`
+  (default `stackr-org.yml`), plus `config_auto` (apply every unblocked
+  plan without a click; off by default). An owner binds from the org
+  drawer, the API or the CLI (v0 was panel-only). The repo is typed as an
+  https URL or `owner/name` and stored as the URL, for org and stack
+  alike: today the stack drawer asks for `owner/name` and the connector
+  lookup needs the URL, so a bind from the drawer clones nothing. A stored
+  connector id wins over the host lookup.
+- **The file.**
+
+  ```yaml
+  version: 1
+  org: Acme                   # the name; a slug change is a rename
+  params:                     # org scope, the stack file's grammar
+    email:
+      api_key:
+        type: secret          # declared; the value is never in the file
+      sender:
+        type: param
+        value: noreply@acme.test
+  defaults:                   # the org rung of the settings cascade
+    cpu_limit: 1
+  env_colors:
+    prod: red
+  stacks:
+    shop:                     # the slug; the name is the key
+      repo: https://github.com/acme/shop
+      branch: main            # default: the repo's default branch
+      path: stackr-compose.yml
+      connector: c0fab773     # default: the org's connector for that host
+    blog:
+      path: stacks/blog.yml   # a stack file inside the org repo
+  shared:
+    db:                       # the slug; consumers ref ${{ org.db.<output> }}
+      engine: postgres        # postgres | s3
+      host: shop/prod         # the env whose container runs it
+      image: postgres:16      # optional, the engine's default otherwise
+      shm_size_mb: 256        # optional
+  moved:                      # renames, read first; drop once applied
+    - from: stack.weblog
+      to: stack.blog
+  ```
+
+  Two sources and nothing else: remote (`repo`, the stack's own git repo)
+  and local (`path`, a file in the org repo). A stack entry only says
+  where its file is (DECIDE 182).
+  Strict decode, `version: 1`, `org:` required, the stack file's hints for
+  removed keys. Not in the file: inline stacks (v0 applied an existing one
+  with `force=true` and never showed its changes in the org plan; the
+  rewrite has no apply-without-release path), domains and storage shares
+  (not v1 objects). DECIDE 182.
+- **The diff.** `flow/orgconfig` parses the file and diffs it against a
+  `Live` snapshot the orchestrator hands in: the org, its stacks with
+  their bindings, the org's params, settings and
+  env colors. Pure: no store, no clone. `moved:` runs first (DECIDE 184):
+  `from` exists and `to` does not → rename (`stack.` the stack, `shared.`
+  the instance tile), and the rest of the diff sees the object under its
+  new slug; `to` exists and `from` does not → already moved, no change,
+  the entry may stay; both or neither exist → blocker. Changes: `org:`
+  slug differs → rename; a param declared but missing → create (a param's value is set,
+  a secret's never; "declassify: never" holds; a secret with no value is
+  a note, not a blocker); params are never deleted by the file (v0's
+  rule, DECIDE 185); `defaults` and `env_colors` set when the key is
+  present; a stack missing → create + bind; a stack whose binding differs
+  → rebind; a stack gone from the file is left as it is: the file never
+  deletes a stack, hand-made or file-made (DECIDE 188; delete it in the
+  UI or CLI). Blockers: the rename squats a domain or collides, a stack's
+  host has no connector. Shared instances (DECIDE 183): one missing →
+  create in its `host` env, scope widened to org, deploy; the `host` env
+  missing → blocker (DECIDE 189); image or shm changed → update, a
+  redeploy; engine or host changed → blocker (delete it by hand, the
+  volume stays; moves are Later); gone from the file → left alone.
+- **A plan is a row.** Table `org_config_plans`: id, org (FK, cascade),
+  commit, summary, plan (the diff as JSON), status, error, created_at,
+  decided_at. Statuses `pending`, `clean` (no changes), `error` (the file
+  did not parse, or the apply failed; the message in `error`),
+  `superseded`, `applied`, `rejected`. Storing a plan supersedes the org's
+  older pending and clean rows. Two v0 flaws fixed: a file that does not
+  parse is stored as `error`, never `pending`; and the table has a real
+  foreign key, so deleting the org deletes its plans. `leaf/orgplan` owns
+  the table.
+- **Planning** = clone the org repo (`repos/orgconfig-<org>`, under the
+  repo lock), read the file at head, diff, store the row with that
+  commit. Three triggers, one function: the push webhook (a push to the
+  org's repo on its branch queues a plan job, lock `orgconfig:<org>`, so
+  the clone never runs inside GitHub's request), Plan now in the drawer
+  or `stackr org plan` (synchronous, as `PlanPromote` is), and a rebind.
+  Preview diffs a supplied file and stores nothing: `stackr org preview
+  -f` for CI, `--detailed-exitcode` as before.
+- **Approve = one job**, lock `orgconfig:<org>`, owner-only
+  (`orgplan.approve`), refused while the plan has blockers (B20) or is not
+  pending. The job refetches the file at the plan's commit (v0 re-read the
+  branch tip, so an approval could ship pushes nobody reviewed), re-diffs
+  against live state, then walks the changes in order through the
+  orchestrator's own verbs: `RenameStack` and `RenameTile` for `moved:`,
+  then `RenameOrg`, `SetParams`, `SetOrgSettings`,
+  `SetOrgEnvColors`, `CreateStack` + `SetConfigRepo`, then the shared
+  instances: `CreateManagedTile` in the host env + `SetInstanceScope`
+  (org) + `Deploy`, or `UpdateTile` for an image or shm change. Each
+  bound stack's own file then rides push → release → promote; a stack the
+  apply creates or rebinds gets the webhook's push job at its branch head
+  right away, so one push creates and binds every stack the org file
+  declares; each stack's own push then makes its envs from its file's
+  `ladder:` (DECIDE 189) and lands the first release. There is no
+  second approval, the rewrite has none for stacks. Success marks the
+  plan `applied`; a failure marks it `error` with the message and what
+  applied stays (the next plan shows what is left). One apply per plan:
+  a second approve of the same plan is refused. Reject marks it
+  `rejected`.
+- **Auto.** With `config_auto` on, the plan job approves its own plan
+  when the plan is pending and unblocked, so a push lands without a
+  click. The file never deletes a stack, so auto never tears one down; it
+  does rename the org and create or rebind
+  stacks. Off, the plan waits for an owner.
+- **Export.** `stackr-org.yml` from live state: the name, params (values
+  for params, declarations for secrets), defaults, env colors, and the
+  config-managed stacks as repo references, and the org-scoped instances
+  with their `host` (v0 skipped them, so its export never round-tripped).
+  Read level, as v0.
+- **Verbs.** `SetOrgConfigRepo` (owner, `org.config.bind`; empty repo
+  unbinds and rejects the pending plan), `PlanOrgConfig` and
+  `PreviewOrgConfig` and `OrgPlans` and `OrgPlan` (owner,
+  `org.config.bind` level, as v0), `ApproveOrgPlan` → `Job` and
+  `RejectOrgPlan` (owner, `orgplan.approve`), `ExportOrgConfig` (read,
+  `org.config.export`), `SetOrgSettings` and `SetOrgEnvColors` (owner,
+  `orgdefaults.set`; closes DECIDE 166). All six authz verbs are already
+  registered.
+- **UI.** The org drawer gets a Config tab: v0's Config as code section
+  (Export link; connector select, repository, branch, path, an Auto
+  apply switch; Save and plan / Plan now), the latest plan under it drawn
+  as the promote dry run is, with Approve and Reject for owners, the
+  queued job while it runs, and
+  the last plans as rows (v0's plans page, inside the tab). The org
+  canvas shows v0's banner while a plan is pending ("Config plan
+  pending") or errored ("Config invalid"). The connector card gets a
+  config edge to the org, as it has to a stack. The new-org wizard is
+  back (DECIDE 187): v0's pages, a branch question (by hand or from a
+  config file), then connector → config (bind; the plan on the same
+  step, approve or reject; the file names the org) → team → done, or
+  name → connector → team → done by hand; no domain step (org domains
+  are not v1 objects). An unfinished org sends its owner to the summary
+  and shows anyone else a holding page. The drawer's Config tab is for a
+  rebind after setup.
 
 ## Param store and refs
 
@@ -695,8 +854,8 @@ Filesystem snapshots were explored and parked (see "Later").
 - Environments, **promote (the main focus)**, rollback, releases (see
   "Promote and releases").
 - Config-as-code: the stack file `stackr-compose.yml` (see "Promote and
-  releases") and org config files (darthvader put them back in v1 on
-  2026-09-25, DECIDE 180; the design section is owed).
+  releases") and the org file `stackr-org.yml` (see "Org config file";
+  darthvader put it back in v1 on 2026-09-25, DECIDE 180).
 - PR environments: an env `from <pr branch>` with a `base_env`, made and
   removed by the connector.
 - The param store: params and secrets in collections at org/stack/env,
