@@ -73,6 +73,10 @@ Rules:
   `${{ env.name }}` and `${{ params.<c>.<n> }}` refs are allowed in it;
   the env segment goes through the instance's `env_pairs`. The target must
   be a managed tile whose allow list matches the slice tile's address.
+- A PR env (`base_env` set) that has no `env_pairs` key of its own maps as
+  its base env, the way the promote plan already falls back to the base
+  env's file section; its address for `allow:` stays its own slug
+  (`smoke:shop:pr-12:api`).
 - `default_access:` `read` or `write`, default `write`.
 - `slice_access:` on any consumer tile: `from` is a slice tile slug in the
   same env, `access` read or write. A consumer that refs a slice without a
@@ -117,7 +121,8 @@ Rules:
    a slice tile, see DECIDE 194"); `shared:` message updated. `plan.go`:
    a slice tile's target is resolved at plan time through the org's
    stacks, the target's `env_pairs`, and its allow list; unknown stack,
-   env pair missing, tile not managed, or not allowed are blockers with
+   env pair missing (after the PR env → base env fallback), tile not
+   managed, or not allowed are blockers with
    the exact reason; the plan's `Change` rows show a slice as `slice
    api-db → infra/staging/pg_db (write)`.
    Done when: table tests for every blocker and the happy path; the file
