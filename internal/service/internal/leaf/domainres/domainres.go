@@ -28,8 +28,10 @@ const (
 )
 
 // Spec is a resource someone asks for. OwnerID is the org or stack id; ""
-// at instance level.
+// at instance level. ID "" makes one; a promote plan sets it, so the row it
+// names tiles under before apply is the row apply writes.
 type Spec struct {
+	ID                  string
 	Level               string
 	OwnerID             string
 	Host                string
@@ -58,8 +60,23 @@ func (l *Leaf) ListAll(ctx context.Context) ([]store.DomainResource, error) {
 // the stack's org at stack level, "" at instance level); orgs is every org.
 // A taken host is the unique index's answer, not a pre-check.
 func (l *Leaf) Create(ctx context.Context, s Spec, ownOrgID string, orgs []store.Org) (store.DomainResource, error) {
+	r, err := Prepare(s, ownOrgID, orgs)
+	if err != nil {
+		return r, err
+	}
+	err = l.rows.Create(ctx, r)
+	_, taken := errs.IsConflict(err)
+	if taken {
+		return r, errs.Conflictf("%s is already a domain resource.", r.Host)
+	}
+	return r, err
+}
+
+// Prepare is the row Create would write, every check but the taken host
+// done: a promote plan blocks on it before apply writes anything.
+func Prepare(s Spec, ownOrgID string, orgs []store.Org) (store.DomainResource, error) {
 	r := store.DomainResource{
-		ID:                  uuid.NewString(),
+		ID:                  cmp.Or(s.ID, uuid.NewString()),
 		Level:               s.Level,
 		IncludeEnvOnDefault: s.IncludeEnvOnDefault,
 		ACMEEmail:           strings.ToLower(strings.TrimSpace(s.ACMEEmail)),
@@ -86,24 +103,23 @@ func (l *Leaf) Create(ctx context.Context, s Spec, ownOrgID string, orgs []store
 	if err := checkEmail(r.ACMEEmail); err != nil {
 		return r, err
 	}
-	if err := CheckOrgSquat(host, ownOrgID, orgs); err != nil {
-		return r, err
-	}
-	err = l.rows.Create(ctx, r)
-	_, taken := errs.IsConflict(err)
-	if taken {
-		return r, errs.Conflictf("%s is already a domain resource.", host)
-	}
-	return r, err
+	return r, CheckOrgSquat(host, ownOrgID, orgs)
 }
 
-// SetACME changes the account the resource's certificates are issued on.
-// "" puts them back on the instance account.
-func (l *Leaf) SetACME(ctx context.Context, r store.DomainResource, email string) (store.DomainResource, error) {
-	email = strings.ToLower(strings.TrimSpace(email))
+// Update sets the env flag and the account the resource's certificates are
+// issued on ("" puts them back on the instance account). The host and
+// level never move.
+func (l *Leaf) Update(
+	ctx context.Context,
+	r store.DomainResource,
+	includeEnvOnDefault bool,
+	acmeEmail string,
+) (store.DomainResource, error) {
+	email := strings.ToLower(strings.TrimSpace(acmeEmail))
 	if err := checkEmail(email); err != nil {
 		return r, err
 	}
+	r.IncludeEnvOnDefault = includeEnvOnDefault
 	r.ACMEEmail = email
 	return r, l.rows.Update(ctx, r)
 }
@@ -122,13 +138,26 @@ func (l *Leaf) Delete(ctx context.Context, r store.DomainResource, named int) er
 
 // Visible is what a stack in org orgID may name tiles under, nearest first:
 // its own rows, its org's, the instance's; declared before undeclared, then
-// oldest first.
+// oldest first. pending are rows a promote plan is about to write: each
+// stands in for the stored row with its id, or joins the list.
 // ponytail: scans every row on the server; a WHERE on the three owners when
 // resources run to thousands.
-func (l *Leaf) Visible(ctx context.Context, stackID, orgID string) ([]store.DomainResource, error) {
+func (l *Leaf) Visible(
+	ctx context.Context,
+	stackID, orgID string,
+	pending ...store.DomainResource,
+) ([]store.DomainResource, error) {
 	all, err := l.rows.List(ctx)
 	if err != nil {
 		return nil, err
+	}
+	for _, p := range pending {
+		i := slices.IndexFunc(all, func(r store.DomainResource) bool { return r.ID == p.ID })
+		if i < 0 {
+			all = append(all, p)
+			continue
+		}
+		all[i] = p
 	}
 	var out []store.DomainResource
 	for _, r := range all {
@@ -225,12 +254,46 @@ func (l *Leaf) SeedInstance(ctx context.Context, root string) error {
 	if err != nil {
 		return err
 	}
-	return l.rows.Create(ctx, store.DomainResource{
-		ID:        uuid.NewString(),
-		Level:     Instance,
-		Host:      strings.TrimPrefix(host, "*."),
-		CreatedAt: time.Now().UTC(),
+	return l.undeclared(ctx, store.DomainResource{
+		Level: Instance,
+		Host:  strings.TrimPrefix(host, "*."),
 	})
+}
+
+// EnsureOrg is v0's ensureDefaultDomain, run when an org finishes setup: an
+// org with no org row of its own gets the undeclared <slug>.<instance host>,
+// so its tiles are named under its own name. Nothing when it has one, when
+// there is no instance row to build from, or when a row already holds the
+// host (a draft org's config file can reserve it on a stack).
+func (l *Leaf) EnsureOrg(ctx context.Context, orgID, orgSlug string) error {
+	vis, err := l.Visible(ctx, "", orgID)
+	if err != nil || len(vis) == 0 || vis[0].Level != Instance {
+		return err
+	}
+	host := orgSlug + "." + vis[0].Host
+	all, err := l.rows.List(ctx)
+	if err != nil {
+		return err
+	}
+	taken := slices.ContainsFunc(all, func(r store.DomainResource) bool {
+		return r.Host == host
+	})
+	if taken {
+		return nil
+	}
+	return l.undeclared(ctx, store.DomainResource{
+		Level: Org,
+		OrgID: &orgID,
+		Host:  host,
+	})
+}
+
+// undeclared writes a row stackr made, not a person, from parts already
+// checked (the installer's root, an org slug).
+func (l *Leaf) undeclared(ctx context.Context, r store.DomainResource) error {
+	r.ID = uuid.NewString()
+	r.CreatedAt = time.Now().UTC()
+	return l.rows.Create(ctx, r)
 }
 
 // checkHost is v0's resource grammar: a bare hostname (no scheme, slash,

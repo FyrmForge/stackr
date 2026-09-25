@@ -50,12 +50,17 @@ func (o *Orchestrator) RenameOrg(ctx context.Context, orgID, name string) (Org, 
 	return o.orgs.Rename(ctx, og, name, claims)
 }
 
+// FinishOrg completes setup, and gives an org with no domain resource of its
+// own the undeclared <slug>.<instance host> (v0's ensureDefaultDomain).
 func (o *Orchestrator) FinishOrg(ctx context.Context, orgID string) (Org, error) {
 	og, err := o.orgs.Get(ctx, orgID)
 	if err != nil {
 		return og, err
 	}
-	return o.orgs.SetupDone(ctx, og)
+	if og, err = o.orgs.SetupDone(ctx, og); err != nil {
+		return og, err
+	}
+	return og, o.domainres.EnsureOrg(ctx, og.ID, og.Slug)
 }
 
 // DeleteOrg refuses while it has stacks, and the last org (leaf/org).
@@ -71,7 +76,8 @@ func (o *Orchestrator) DeleteOrg(ctx context.Context, orgID string) error {
 	return o.orgs.Delete(ctx, og, len(sts))
 }
 
-// claims is every domain host with its org.
+// claims is every host with its org: tile domains, and org and stack domain
+// resources.
 func (o *Orchestrator) claims(ctx context.Context) ([]org.Claim, error) {
 	ds, err := o.domains.List(ctx)
 	if err != nil {
@@ -88,6 +94,22 @@ func (o *Orchestrator) claims(ctx context.Context) ([]org.Claim, error) {
 			return nil, err
 		}
 		out = append(out, org.Claim{Host: d.Host, OrgID: st.OrgID})
+	}
+	rs, err := o.domainres.ListAll(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, r := range rs {
+		switch {
+		case r.OrgID != nil:
+			out = append(out, org.Claim{Host: r.Host, OrgID: *r.OrgID})
+		case r.StackID != nil:
+			st, err := o.stacks.Get(ctx, *r.StackID)
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, org.Claim{Host: r.Host, OrgID: st.OrgID})
+		}
 	}
 	return out, nil
 }

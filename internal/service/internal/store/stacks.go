@@ -17,7 +17,6 @@ type Stack struct {
 	ConfigRepo        string    `db:"config_repo" json:"config_repo"`
 	ConfigBranch      string    `db:"config_branch" json:"config_branch"`
 	ConfigPath        string    `db:"config_path" json:"config_path"`
-	Domains           string    `db:"domains" json:"domains"` // JSON, parsed by leaf/stack
 	CreatedAt         time.Time `db:"created_at" json:"created_at"`
 }
 

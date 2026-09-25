@@ -24,7 +24,7 @@ import (
 const DNSTokenEnv = "DNS_API_TOKEN"
 
 // Install is the install-wide half of the config: facts from settings and
-// the stack reservations.
+// the domain resources' ACME accounts.
 type Install struct {
 	AdminListen    string // required on every config, or Caddy falls back to its own localhost
 	ACMEEmail      string // the instance account
@@ -36,7 +36,7 @@ type Install struct {
 	PanelUpstream  string // the panel's internal dial address, e.g. stackrd:8080
 }
 
-// Account is a domain reservation that names its own ACME email. A host
+// Account is a domain resource that names its own ACME email. A host
 // uses the account of the longest base it equals or ends in.
 type Account struct{ Host, Email string }
 
@@ -283,7 +283,7 @@ func upstream(d store.Domain, t TileRoute, e Extras) route {
 	return rp
 }
 
-// policies: wildcards on the DNS-01 issuer, hosts under a reservation with
+// policies: wildcards on the DNS-01 issuer, hosts under a domain resource with
 // its own email on that account, everything else (raw routes included) on
 // the catch-all instance account.
 func policies(in Install, hosts map[string]bool) []route {

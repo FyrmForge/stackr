@@ -38,8 +38,8 @@ func world(t *testing.T) (*store.Store, *domainres.Leaf, []store.Org) {
 		must(t, st.Orgs.Create(ctx, o))
 	}
 	for _, s := range []store.Stack{
-		{ID: "s1", OrgID: "o1", Name: "Shop", Slug: "shop", Settings: "{}", Domains: "[]", CreatedAt: t0},
-		{ID: "s2", OrgID: "o2", Name: "Mart", Slug: "mart", Settings: "{}", Domains: "[]", CreatedAt: t0},
+		{ID: "s1", OrgID: "o1", Name: "Shop", Slug: "shop", Settings: "{}", CreatedAt: t0},
+		{ID: "s2", OrgID: "o2", Name: "Mart", Slug: "mart", Settings: "{}", CreatedAt: t0},
 	} {
 		must(t, st.Stacks.Create(ctx, s))
 	}
@@ -266,25 +266,76 @@ func TestDelete(t *testing.T) {
 	}
 }
 
-func TestSetACME(t *testing.T) {
+func TestUpdate(t *testing.T) {
 	_, l, orgs := world(t)
 	r, err := l.Create(ctx, domainres.Spec{Level: domainres.Org, OwnerID: "o1", Host: "acme.io"}, "o1", orgs)
 	must(t, err)
-	_, err = l.SetACME(ctx, r, "not an email")
+	_, err = l.Update(ctx, r, true, "not an email")
 	invalid(t, err, "acme_email")
-	r, err = l.SetACME(ctx, r, " Ops@Acme.io ")
+	r, err = l.Update(ctx, r, true, " Ops@Acme.io ")
 	must(t, err)
 	got, err := l.Get(ctx, r.ID)
 	must(t, err)
-	if got.ACMEEmail != "ops@acme.io" {
-		t.Errorf("acme email = %q", got.ACMEEmail)
+	if got.ACMEEmail != "ops@acme.io" || !got.IncludeEnvOnDefault {
+		t.Errorf("updated = %+v", got)
 	}
-	_, err = l.SetACME(ctx, got, "")
+	_, err = l.Update(ctx, got, false, "")
 	must(t, err)
 	got, err = l.Get(ctx, r.ID)
 	must(t, err)
-	if got.ACMEEmail != "" {
-		t.Errorf("cleared acme email = %q", got.ACMEEmail)
+	if got.ACMEEmail != "" || got.IncludeEnvOnDefault {
+		t.Errorf("cleared = %+v", got)
+	}
+}
+
+// A plan's pending rows stand in for stored ones by id, or join the list.
+func TestVisiblePending(t *testing.T) {
+	_, l, orgs := world(t)
+	r, err := l.Create(ctx, domainres.Spec{Level: domainres.Org, OwnerID: "o1", Host: "acme.io"}, "o1", orgs)
+	must(t, err)
+	r.IncludeEnvOnDefault = true
+	add, err := domainres.Prepare(domainres.Spec{ID: "new", Level: domainres.Stack, OwnerID: "s1", Host: "shop.io"}, "o1", orgs)
+	must(t, err)
+	got, err := l.Visible(ctx, "s1", "o1", r, add)
+	must(t, err)
+	if len(got) != 2 || got[0].ID != "new" || got[1].ID != r.ID || !got[1].IncludeEnvOnDefault {
+		t.Errorf("visible = %+v", got)
+	}
+}
+
+// An org with no org row gets the undeclared <slug>.<instance host>, once;
+// no instance row, nothing.
+func TestEnsureOrg(t *testing.T) {
+	_, l, orgs := world(t)
+	must(t, l.EnsureOrg(ctx, "o1", "acme"))
+	all, err := l.ListAll(ctx)
+	must(t, err)
+	if len(all) != 0 {
+		t.Fatalf("no instance row, made %+v", all)
+	}
+	must(t, l.SeedInstance(ctx, "example.com"))
+	must(t, l.EnsureOrg(ctx, "o1", "acme"))
+	must(t, l.EnsureOrg(ctx, "o1", "acme"))
+	all, err = l.ListAll(ctx)
+	must(t, err)
+	var made []store.DomainResource
+	for _, r := range all {
+		if r.Level == domainres.Org {
+			made = append(made, r)
+		}
+	}
+	if len(made) != 1 || made[0].Host != "acme.example.com" || made[0].Declared || *made[0].OrgID != "o1" {
+		t.Errorf("org rows = %+v", made)
+	}
+
+	// globex's stack already reserved globex.example.com: finishing adds nothing.
+	_, err = l.Create(ctx, domainres.Spec{Level: domainres.Stack, OwnerID: "s2", Host: "globex.example.com"}, "o2", orgs)
+	must(t, err)
+	must(t, l.EnsureOrg(ctx, "o2", "globex"))
+	all, err = l.ListAll(ctx)
+	must(t, err)
+	if len(all) != 3 {
+		t.Errorf("rows after a reserved default = %+v, want 3", all)
 	}
 }
 

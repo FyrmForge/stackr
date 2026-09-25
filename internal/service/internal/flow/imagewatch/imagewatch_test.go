@@ -99,7 +99,6 @@ func TestCheck(t *testing.T) {
 		Name:      "s",
 		Slug:      "s",
 		Settings:  "{}",
-		Domains:   "[]",
 		CreatedAt: now,
 	}))
 	dev := store.Environment{

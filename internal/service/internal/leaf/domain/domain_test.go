@@ -44,7 +44,6 @@ func setup(t *testing.T) (*domain.Leaf, *dockerfake.Fake, string, string) {
 		Name:      "s",
 		Slug:      "s",
 		Settings:  "{}",
-		Domains:   "[]",
 		CreatedAt: now,
 	}))
 	must(t, st.Environments.Create(ctx, store.Environment{

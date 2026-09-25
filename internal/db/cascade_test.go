@@ -56,7 +56,7 @@ func TestOrgDeleteCascades(t *testing.T) {
 		{`INSERT INTO org_members VALUES ('m1','o1','u1','owner',?)`, []any{now}},
 		{`INSERT INTO invites VALUES ('i1','o1','x@y.z','owner','u1',?,?,NULL)`, []any{now, now}},
 		{`INSERT INTO api_keys VALUES ('k1','u1','o1','ci','hash',?)`, []any{now}},
-		{`INSERT INTO stacks VALUES ('s1','o1','Shop','shop','','{}','','','','','[]',?)`, []any{now}},
+		{`INSERT INTO stacks VALUES ('s1','o1','Shop','shop','','{}','','','','',?)`, []any{now}},
 		{`INSERT INTO environments VALUES ('e1','s1','Dev','dev','static',NULL,'{}','',0,'net',NULL,'branch','main',1,?)`, []any{now}},
 		{`INSERT INTO params VALUES ('p1','org','o1','email','key','secret','enc1:x',?,?)`, []any{now, now}},
 		{`INSERT INTO params VALUES ('p2','stack','s1','email','key','secret','enc1:x',?,?)`, []any{now, now}},
@@ -109,7 +109,7 @@ func TestStackDeleteCascades(t *testing.T) {
 	now := time.Now()
 	execAll(t, db, []stmt{
 		{`INSERT INTO orgs VALUES ('o1','Acme','acme','','','{}',NULL,?)`, []any{now}},
-		{`INSERT INTO stacks VALUES ('s1','o1','Shop','shop','','{}','','','','','[]',?)`, []any{now}},
+		{`INSERT INTO stacks VALUES ('s1','o1','Shop','shop','','{}','','','','',?)`, []any{now}},
 		{`INSERT INTO environments VALUES ('e1','s1','Dev','dev','static',NULL,'{}','',0,'net',NULL,'branch','main',1,?)`, []any{now}},
 	})
 	execAll(t, db, tileWithDomains(now))
@@ -138,7 +138,7 @@ func TestDomainResourceGuards(t *testing.T) {
 	now := time.Now()
 	execAll(t, db, []stmt{
 		{`INSERT INTO orgs VALUES ('o1','Acme','acme','','','{}',NULL,?)`, []any{now}},
-		{`INSERT INTO stacks VALUES ('s1','o1','Shop','shop','','{}','','','','','[]',?)`, []any{now}},
+		{`INSERT INTO stacks VALUES ('s1','o1','Shop','shop','','{}','','','','',?)`, []any{now}},
 		{`INSERT INTO environments VALUES ('e1','s1','Dev','dev','static',NULL,'{}','',0,'net',NULL,'branch','main',1,?)`, []any{now}},
 	})
 	execAll(t, db, tileWithDomains(now))

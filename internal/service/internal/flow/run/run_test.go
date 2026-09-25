@@ -89,7 +89,6 @@ func setup(t *testing.T) (*run.Flow, *dockerfake.Fake, store.Tile) {
 		Name:      "shop",
 		Slug:      "shop",
 		Settings:  "{}",
-		Domains:   "[]",
 		CreatedAt: now,
 	}))
 	must(t, st.Environments.Create(ctx, store.Environment{

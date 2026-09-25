@@ -102,7 +102,7 @@ func routes(h *v1.H) []Route {
 		{GET, stack, "stack.get", "org.read", h.GetStack()},
 		{PUT, stack + "/name", "stack.rename", "stack.write", h.RenameStack()},
 		{PUT, stack + "/config-repo", "stack.config-repo", "stack.write", h.SetConfigRepo()},
-		{PUT, stack + "/reservations", "stack.reservations", "stack.write", h.SetReservations()},
+
 		{PUT, stack + "/settings", "stack.settings", "stack.write", h.SetStackSettings()},
 		{DELETE, stack, "stack.delete", "stack.write", h.DeleteStack()},
 		{POST, stack + "/image-check", "stack.image-check", "stack.write", h.CheckStackImages()},

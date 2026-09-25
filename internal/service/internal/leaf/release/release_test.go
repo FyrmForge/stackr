@@ -40,7 +40,6 @@ func TestReleases(t *testing.T) {
 		Name:      "s",
 		Slug:      "s",
 		Settings:  "{}",
-		Domains:   "[]",
 		CreatedAt: now,
 	}))
 	img1, img2 := "i1", "i2"

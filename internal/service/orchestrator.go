@@ -306,6 +306,7 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 			S3: func(endpoint, access, secret string) mflow.S3Admin {
 				return s3.Admin{Endpoint: endpoint, AccessKey: access, SecretKey: secret}
 			},
+			PublicBase: orch.publicBase,
 		}
 	})
 	orch.sync = build("leaf/domain.Syncer", func() *domain.Syncer {
@@ -336,10 +337,11 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 			b = o.build
 		}
 		return &promote.Flow{
-			D:      orch.deploy,
-			Config: orch.stackFile,
-			Build:  b,
-			DNS01:  orch.dns01,
+			D:         orch.deploy,
+			Resources: orch.domainres,
+			Config:    orch.stackFile,
+			Build:     b,
+			DNS01:     orch.dns01,
 		}
 	})
 	orch.backup = build("flow/backup", func() *fbackup.Flow {

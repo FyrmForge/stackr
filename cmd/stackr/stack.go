@@ -207,20 +207,7 @@ func (a *app) stacks() *cobra.Command {
 	configRepo.Flags().StringVar(&branch, "branch", "main", "the branch")
 	configRepo.Flags().StringVar(&path, "path", "stackr-compose.yml", "the stack file in the repo")
 	configRepo.Flags().StringVar(&conn, "connector", "", "the connector id (stackr org connectors ls)")
-	var host, email string
-	var withEnv bool
-	reserve := leaf("reserve", "stack.reservations", "Reserve the stack's domain", exact(0),
-		a.at(atStack, func(_ *cobra.Command, p string, _ []string) error {
-			_, err := a.call(PUT, p+"/reservations", map[string]any{
-				"host":                   host,
-				"acme_email":             email,
-				"include_env_on_default": withEnv,
-			})
-			return err
-		}))
-	reserve.Flags().StringVar(&host, "host", "", "the base host")
-	reserve.Flags().StringVar(&email, "acme-email", "", "the ACME account email")
-	reserve.Flags().BoolVar(&withEnv, "include-env-on-default", false, "the default env's hosts carry its name too")
+
 	return scoped(noun("stack", "Stacks",
 		leaf("ls", "stack.list", "List stacks", exact(0),
 			a.at(atOrg, func(_ *cobra.Command, p string, _ []string) error {
@@ -234,7 +221,6 @@ func (a *app) stacks() *cobra.Command {
 		create,
 		a.put("rename <name>", "stack.rename", "Rename the stack", atStack, "/name", "name"),
 		configRepo,
-		reserve,
 		a.settingsCmd("stack.get,stack.settings", "Show or change the stack's settings defaults", atStack),
 		waits(leaf("image-check", "stack.image-check", "Check the stack's images for a newer tag", exact(0),
 			a.at(atStack, func(c *cobra.Command, p string, _ []string) error {

@@ -149,7 +149,6 @@ func TestRoundTrip(t *testing.T) {
 		ConfigRepo:        "r",
 		ConfigBranch:      "main",
 		ConfigPath:        "stackr.yml",
-		Domains:           "[]",
 		CreatedAt:         t0,
 	}, func(st *store.Stack) { st.Description, st.ConfigBranch = "d2", "dev" })
 	roundTrip(t, s.Releases, store.Release{

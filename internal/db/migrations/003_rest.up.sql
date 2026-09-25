@@ -54,7 +54,6 @@ CREATE TABLE stacks (
     config_repo          TEXT      NOT NULL,
     config_branch        TEXT      NOT NULL,
     config_path          TEXT      NOT NULL,
-    domains              TEXT      NOT NULL, -- JSON: the stack file's domain reservations
     created_at           DATETIME  NOT NULL,
     UNIQUE (org_id, slug)
 );

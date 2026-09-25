@@ -1952,25 +1952,6 @@
         ],
         "type": "object"
       },
-      "ReservationIn": {
-        "properties": {
-          "acme_email": {
-            "type": "string"
-          },
-          "host": {
-            "type": "string"
-          },
-          "include_env_on_default": {
-            "type": "boolean"
-          }
-        },
-        "required": [
-          "host",
-          "acme_email",
-          "include_env_on_default"
-        ],
-        "type": "object"
-      },
       "RestoreIn": {
         "properties": {
           "run_id": {
@@ -2254,9 +2235,6 @@
           "description": {
             "type": "string"
           },
-          "domains": {
-            "type": "string"
-          },
           "id": {
             "type": "string"
           },
@@ -2284,7 +2262,6 @@
           "config_repo",
           "config_branch",
           "config_path",
-          "domains",
           "created_at"
         ],
         "type": "object"
@@ -10103,65 +10080,6 @@
           }
         },
         "x-verb": "org.read"
-      }
-    },
-    "/api/v1/orgs/{org}/stacks/{stack}/reservations": {
-      "put": {
-        "operationId": "stack.reservations",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "org",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "stack",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "items": {
-                  "$ref": "#/components/schemas/ReservationIn"
-                },
-                "type": "array"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Stack"
-                }
-              }
-            },
-            "description": "OK"
-          },
-          "default": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIError"
-                }
-              }
-            },
-            "description": "error"
-          }
-        },
-        "x-verb": "stack.write"
       }
     },
     "/api/v1/orgs/{org}/stacks/{stack}/settings": {

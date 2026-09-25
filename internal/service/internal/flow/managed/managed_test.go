@@ -97,7 +97,6 @@ func setup(t *testing.T, engine string) *world {
 		Name:      "s",
 		Slug:      "s",
 		Settings:  "{}",
-		Domains:   "[]",
 		CreatedAt: now,
 	}))
 	must(t, st.Environments.Create(ctx, store.Environment{

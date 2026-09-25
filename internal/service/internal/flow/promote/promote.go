@@ -16,6 +16,7 @@ import (
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/deploy"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/domainres"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/environment"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/managed"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/params"
@@ -29,6 +30,9 @@ import (
 // inside the caller's job.
 type Flow struct {
 	D *deploy.Flow
+	// Resources is leaf/domainres: the stack file's domains: rows and what
+	// auto and apex domains resolve against.
+	Resources *domainres.Leaf
 	// Config reads the stack file (and a fetcher for its includes) at a
 	// commit of the stack's config repo.
 	Config func(ctx context.Context, st store.Stack, commit string, log io.Writer) ([]byte, Fetcher, error)
@@ -93,9 +97,23 @@ func (f *Flow) apply(ctx context.Context, w *work, log io.Writer) error {
 			return err
 		}
 	}
-	if w.stackRes != nil {
-		if st, err = d.Stacks.SetReservations(ctx, st, w.stackRes); err != nil {
-			return err
+	// Resources before the tile domains that name them.
+	for _, r := range w.resCreate {
+		spec := domainres.Spec{
+			ID:                  r.ID,
+			Level:               domainres.Stack,
+			OwnerID:             st.ID,
+			Host:                r.Host,
+			IncludeEnvOnDefault: r.IncludeEnvOnDefault,
+			ACMEEmail:           r.ACMEEmail,
+		}
+		if _, err := f.Resources.Create(ctx, spec, st.OrgID, w.orgs); err != nil {
+			return fmt.Errorf("domains: %s: %w", r.Host, err)
+		}
+	}
+	for _, r := range w.resUpdate {
+		if _, err := f.Resources.Update(ctx, r, r.IncludeEnvOnDefault, r.ACMEEmail); err != nil {
+			return fmt.Errorf("domains: %s: %w", r.Host, err)
 		}
 	}
 	if len(w.params) > 0 {

@@ -19,11 +19,7 @@ type (
 		Branch      string `json:"branch"`
 		Path        string `json:"path"`
 	}
-	ReservationIn struct {
-		Host                string `json:"host"`
-		ACMEEmail           string `json:"acme_email"`
-		IncludeEnvOnDefault bool   `json:"include_env_on_default"`
-	}
+
 	// Blob is a settings rung, a JSON object the service checks.
 	Blob       = json.RawMessage
 	ReleaseOut struct {
@@ -85,16 +81,6 @@ func (h *H) RenameStack() Endpoint {
 func (h *H) SetConfigRepo() Endpoint {
 	return JSON(200, func(c echo.Context, in ConfigRepoIn) (service.Stack, error) {
 		return h.Orch.SetConfigRepo(rc(c), stackID(c), in.ConnectorID, in.Repo, in.Branch, in.Path)
-	})
-}
-
-func (h *H) SetReservations() Endpoint {
-	return JSON(200, func(c echo.Context, in []ReservationIn) (service.Stack, error) {
-		rs := make([]service.Reservation, 0, len(in))
-		for _, r := range in {
-			rs = append(rs, service.Reservation(r))
-		}
-		return h.Orch.SetReservations(rc(c), stackID(c), rs)
 	})
 }
 

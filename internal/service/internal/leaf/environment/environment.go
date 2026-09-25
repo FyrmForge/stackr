@@ -51,7 +51,17 @@ func (l *Leaf) GetBySlug(ctx context.Context, stackID, slug string) (store.Envir
 	return l.envs.GetBySlug(ctx, stackID, slug)
 }
 
-// Ladder is the stack's static envs bottom rung first; the first is the
+// IsDefault reports whether e is its stack's default env: the ladder's top
+// rung (DECIDE 192). A PR env never is.
+func (l *Leaf) IsDefault(ctx context.Context, e store.Environment) (bool, error) {
+	es, err := l.Ladder(ctx, e.StackID)
+	if err != nil || len(es) == 0 {
+		return false, err
+	}
+	return es[len(es)-1].ID == e.ID, nil
+}
+
+// Ladder is the stack's static envs bottom rung first; the last is the
 // default env. PR envs are never rungs: nothing promotes from or to them.
 func (l *Leaf) Ladder(ctx context.Context, stackID string) ([]store.Environment, error) {
 	all, err := l.envs.ListByStack(ctx, stackID)

@@ -9,11 +9,8 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/promote"
 	"github.com/FyrmForge/stackr/internal/service/internal/githubapp"
-	"github.com/FyrmForge/stackr/internal/service/internal/leaf/stack"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
-
-type Reservation = stack.Reservation
 
 func (o *Orchestrator) Stacks(ctx context.Context, orgID string) ([]Stack, error) {
 	return o.stacks.List(ctx, orgID)
@@ -55,19 +52,6 @@ func (o *Orchestrator) SetConfigRepo(ctx context.Context, id, connectorID, repo,
 		}
 	}
 	return o.stacks.SetConfigRepo(ctx, st, connectorID, repo, branch, path)
-}
-
-// SetReservations replaces the stack's domain reservations, then re-pushes
-// the proxy (ACME accounts come from them).
-func (o *Orchestrator) SetReservations(ctx context.Context, id string, rs []Reservation) (Stack, error) {
-	st, err := o.stacks.Get(ctx, id)
-	if err != nil {
-		return st, err
-	}
-	if st, err = o.stacks.SetReservations(ctx, st, rs); err != nil {
-		return st, err
-	}
-	return st, o.sync.Sync(ctx)
 }
 
 // SetStackSettings writes the stack's settings blob and redeploys its

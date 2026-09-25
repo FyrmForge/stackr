@@ -15,16 +15,17 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/promote"
 	"github.com/FyrmForge/stackr/internal/service/internal/git"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/domain"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/domainres"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/panel"
-	"github.com/FyrmForge/stackr/internal/service/internal/leaf/stack"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
 
 // Glue the flows take as funcs: the proxy config's install facts, the
 // stack file and tile builds from git, the panel's own spec and archive.
 
-// proxyConfig is the Syncer's Build: install facts from settings, stack
-// ACME accounts, then every domain row through flow/deploy.
+// proxyConfig is the Syncer's Build: install facts from settings, the
+// domain resources' ACME accounts, then every domain row through
+// flow/deploy.
 func (o *Orchestrator) proxyConfig(ctx context.Context) (json.RawMessage, error) {
 	get := func(k string) string {
 		v, _ := o.settings.Get(ctx, k)
@@ -39,25 +40,61 @@ func (o *Orchestrator) proxyConfig(ctx context.Context) (json.RawMessage, error)
 		PanelUpstream:  o.cfg.PanelUpstream,
 		TrustedProxies: splitList(get("trusted_proxies")),
 	}
-	orgs, err := o.orgs.ListAll(ctx)
+	rs, err := o.domainres.ListAll(ctx)
 	if err != nil {
 		return nil, err
 	}
-	for _, og := range orgs {
-		sts, err := o.stacks.List(ctx, og.ID)
-		if err != nil {
-			return nil, err
-		}
-		for _, st := range sts {
-			rs, _ := stack.Reservations(st)
-			for _, r := range rs {
-				if r.ACMEEmail != "" {
-					in.Accounts = append(in.Accounts, domain.Account{Host: r.Host, Email: r.ACMEEmail})
-				}
-			}
+	for _, r := range rs {
+		if r.ACMEEmail != "" {
+			in.Accounts = append(in.Accounts, domain.Account{Host: r.Host, Email: r.ACMEEmail})
 		}
 	}
 	return o.deploy.ProxyConfig(ctx, in)
+}
+
+// publicBase is a managed tile's public URL: its auto name under the
+// nearest resource visible to its stack (REWRITE.md "Domain resources"),
+// once a domain row routes that name to the tile. "" otherwise: an
+// unrouted name as S3_ENDPOINT would send every consumer to a host nothing
+// serves.
+// ponytail: bindings are not re-published when the visible resources move;
+// the next attach or reconcile carries the new name.
+func (o *Orchestrator) publicBase(ctx context.Context, t store.Tile) string {
+	e, err := o.envs.Get(ctx, t.EnvironmentID)
+	if err != nil {
+		return ""
+	}
+	st, err := o.stacks.Get(ctx, t.StackID)
+	if err != nil {
+		return ""
+	}
+	og, err := o.orgs.Get(ctx, st.OrgID)
+	if err != nil {
+		return ""
+	}
+	vis, err := o.domainres.Visible(ctx, st.ID, st.OrgID)
+	if err != nil || len(vis) == 0 {
+		return ""
+	}
+	def, err := o.envs.IsDefault(ctx, e)
+	if err != nil {
+		return ""
+	}
+	host := domainres.AutoHost(vis[0], og.Slug, st.Slug, e.Slug, t.Slug, def)
+	ds, err := o.domains.ListByTile(ctx, t.ID)
+	if err != nil {
+		return ""
+	}
+	for _, d := range ds {
+		if d.Host != host || d.RedirectTo != "" {
+			continue
+		}
+		if d.HTTPS {
+			return "https://" + host
+		}
+		return "http://" + host
+	}
+	return ""
 }
 
 // repoLock serialises git work on one clone dir.
