@@ -22,13 +22,13 @@ var creates = map[string][]struct {
 	label string
 	verb  authz.Verb
 }{
-	service.CanvasHome: {{"org", "+ org", "org.create"}},
+	service.CanvasHome: {{"org", "+ Create organization", "org.create"}},
 	service.CanvasOrg: {
-		{"stack", "+ stack", "stack.create"},
-		{"connector", "+ connector", "connector.write"},
+		{"stack", "+ Create stack", "stack.create"},
+		{"connector", "+ Create connector", "connector.write"},
 	},
-	service.CanvasStack: {{"env", "+ env", "env.write"}},
-	service.CanvasEnv:   {{"tile", "+ tile", "tile.write"}}, // the env package serves it
+	service.CanvasStack: {{"env", "+ Create environment", "env.write"}},
+	service.CanvasEnv:   {{"tile", "+ Create", "tile.write"}}, // the env package serves it
 }
 
 func createButtons(c echo.Context, l level) []ui.Create {

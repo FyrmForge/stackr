@@ -21,6 +21,12 @@ type Shell struct {
 	// EnvColor is the URL's env hue (one of EnvColors): the top bar's band
 	// and the env crumb's dot. "" = no env, or no hue picked.
 	EnvColor string
+	// Envs is the env crumb's picker: the stack's envs, each with its hue.
+	// Empty = a plain crumb.
+	Envs []Link
+	// Settings is the drawer GET the bar's "Settings" opens (the level's
+	// own card); "" = no link.
+	Settings string
 	// Actions is the top bar's right side (a canvas's create buttons);
 	// nil = none. It shows only where the bar does (Crumbs set).
 	Actions templ.Component
@@ -35,6 +41,7 @@ type Link struct {
 	Label  string
 	Href   string
 	Active bool
+	Color  string // an env link's hue; "" = none
 }
 
 // Flash is a one-shot message. Kind is success, error, warning or info.

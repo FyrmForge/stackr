@@ -1,11 +1,12 @@
 // <graph-node node-id x y w h [system] [static]> places one card from
 // x/y/w/h (CSS vars). Drag: slop, 22 px grid under a "snap" canvas,
 // "system" cards stay left of the canvas "divider" and the rest right,
-// a lone drop is nudged off other cards; then it writes its hidden x/y
-// inputs and fires a bubbling "node-moved". A "selected" card drags every
-// selected card, each fires its own. Static sub-tiles ride along inside.
-// Enter or Space on a card's [role=button] body clicks it.
-const [GRID, GAP, RINGS] = [22, 8, 12];
+// a lone drop on a "nooverlap" canvas is nudged off other cards (notes and
+// boxes don't count); then it writes its hidden x/y inputs and fires a
+// bubbling "node-moved". A "selected" card drags every selected card, each
+// fires its own. Static sub-tiles ride along inside. Enter or Space on a
+// card's [role=button] body clicks it.
+const [GRID, GAP, RINGS] = [22, 12, 12];
 
 type Start = [GraphNode, number, number];
 
@@ -88,7 +89,7 @@ class GraphNode extends HTMLElement {
     this.end();
     if (!d.moved) return;
     this.swallow = true;
-    if (d.start.length === 1) this.nudge();
+    if (d.start.length === 1 && this.canvas()?.hasAttribute("nooverlap")) this.nudge();
     for (const [n] of d.start) n.commit();
   };
   // A second finger means a pinch: put the cards back, the canvas zooms.
@@ -116,7 +117,9 @@ class GraphNode extends HTMLElement {
   // ponytail: boxes are w×h only; sub-tiles hang below and may overlap.
   private nudge(): void {
     const [x0, y0] = [this.num("x"), this.num("y")];
-    const others = [...(this.parentElement?.children ?? [])].filter((n): n is GraphNode => n instanceof GraphNode && n !== this);
+    const others = [...(this.parentElement?.children ?? [])].filter(
+      (n): n is GraphNode => n instanceof GraphNode && n !== this && !n.getAttribute("node-id")?.startsWith("note:"),
+    );
     for (let r = 0; r <= RINGS; r++) {
       const ring: [number, number][] = [];
       for (let i = -r; i <= r; i++) for (let j = -r; j <= r; j++) if (Math.max(Math.abs(i), Math.abs(j)) === r) ring.push([i * GRID, j * GRID]);

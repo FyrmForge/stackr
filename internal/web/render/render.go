@@ -75,13 +75,25 @@ func Shell(c echo.Context, title string) components.Shell {
 		s.Crumbs = append(s.Crumbs, link(sc.Stack.Name, href, path))
 	}
 	if sc.Env != nil {
+		hues := service.EnvHues(sc.Envs)
+		for _, e := range sc.Envs {
+			l := link(e.Name, href+"/"+e.Slug, path)
+			l.Color = hues[e.ID]
+			s.Envs = append(s.Envs, l)
+		}
 		href += "/" + sc.Env.Slug
 		s.Crumbs = append(s.Crumbs, link(sc.Env.Name, href, path))
-		s.EnvColor = sc.Env.Color
+		s.EnvColor = hues[sc.Env.ID]
+		if s.EnvColor == "" { // a scope built without its env list
+			s.EnvColor = sc.Env.Color
+		}
 	}
 	if sc.Tile != nil {
 		href += "/" + sc.Tile.Slug
 		s.Crumbs = append(s.Crumbs, link(sc.Tile.Name, href, path))
+	}
+	if sc.Tile == nil && href != "" && path == href { // a level's canvas: its own drawer
+		s.Settings = href + "/-/drawer"
 	}
 	return s
 }

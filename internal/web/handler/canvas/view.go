@@ -1,7 +1,8 @@
 package canvas
 
 import (
-	"strconv"
+	"path"
+	"slices"
 	"strings"
 
 	"github.com/a-h/templ"
@@ -32,6 +33,7 @@ func mapView(gv service.GraphView, l level, sh service.GraphShow, focus string) 
 		Base:    l.base,
 		Toggles: l.scope.Kind == service.CanvasEnv,
 		Focus:   focus,
+		Walled:  gv.Walled,
 		Divider: gv.Divider,
 		Show: ui.Show{
 			System:  sh.System,
@@ -77,6 +79,8 @@ func mapView(gv service.GraphView, l level, sh service.GraphShow, focus string) 
 		}
 		if l.scope.Kind == service.CanvasEnv {
 			envCard(&u, n, l.base)
+		} else if len(n.Domains) > 0 {
+			u.Footer = cards.Footer(n.ID, exposed(n, l.scope.Kind))
 		}
 		v.Nodes = append(v.Nodes, u)
 	}
@@ -94,11 +98,15 @@ func mapView(gv service.GraphView, l level, sh service.GraphShow, focus string) 
 			H:    a.H,
 		})
 	}
+	stack := l.base
+	if l.scope.Kind == service.CanvasEnv {
+		stack = path.Dir(l.base) // the pill links this env's siblings
+	}
 	for _, r := range gv.Compare {
 		v.Compare = append(v.Compare, ui.Rung{
 			Name:    r.Name,
 			Color:   r.Color,
-			Href:    l.base + "/" + r.Slug,
+			Href:    stack + "/" + r.Slug,
 			Release: r.Release,
 			Behind:  r.Behind,
 		})
@@ -106,12 +114,49 @@ func mapView(gv service.GraphView, l level, sh service.GraphShow, focus string) 
 	if l.scope.Kind == service.CanvasEnv && sh.Traffic {
 		v.Lanes = []cards.Lane{} // non-nil: draw the lanes layer; build fills it
 	}
+	if !slices.ContainsFunc(v.Nodes, content(l.scope.Kind)) {
+		v.Empty = l.empty
+	}
 	sep := "?"
 	if v.Query != "" {
 		sep = "&"
 	}
 	v.Events = v.Route("events") + sep + "n=" + Sig(v)
 	return v
+}
+
+// exposed is a drill-down card's footer with its domains: an env card on
+// the stack canvas names its first, a stack card on the org canvas counts
+// them (v0: the hosts belong to the level below).
+func exposed(n service.GraphNode, level string) cards.FooterView {
+	f := cards.FooterView{
+		Kind:   n.Kind,
+		Status: n.Status,
+		Nav:    true,
+	}
+	if level == service.CanvasOrg {
+		f.Domains = len(n.Domains)
+		return f
+	}
+	f.Domain, f.More = n.Domains[0], len(n.Domains)-1
+	return f
+}
+
+// content says a card is what the level holds, not its furniture (the
+// system column, the vars card, connectors): without one the canvas says
+// it is empty (v0 isEmpty).
+func content(k string) func(ui.Node) bool {
+	return func(n ui.Node) bool {
+		switch k {
+		case service.CanvasHome:
+			return n.Kind == "org"
+		case service.CanvasOrg:
+			return n.Kind == "stack"
+		case service.CanvasStack:
+			return n.Kind == "env"
+		}
+		return !n.System && n.Kind != "vars" && n.Kind != "secrets"
+	}
 }
 
 // envDrawer is where an env card's (or sub-tile's) drawer lives and the tab
@@ -151,29 +196,29 @@ func envCard(u *ui.Node, n service.GraphNode, base string) {
 	if url, tab := envDrawer(base, n.Kind, n.ID, n.Slug); url != "" {
 		cv.Drawer, cv.Tab = url+"?tab="+tab, tab
 	}
-	if len(n.Volumes) > 0 {
-		cv.Volumes = n.Volumes[0]
-		if len(n.Volumes) > 1 {
-			cv.Volumes += " +" + strconv.Itoa(len(n.Volumes)-1)
-		}
-	}
 	f := cards.FooterView{
+		Kind:    n.Kind,
 		Status:  n.Status,
 		Waiting: n.Waiting,
 		Up:      n.Running,
 		Want:    n.Replicas,
-		Count:   n.Params + n.Secrets,
 	}
 	if n.Status == "none" {
 		f.Status = ""
 	}
-	if r := n.LastRun; r != nil {
+	if n.Kind == "function" {
+		f.Trigger = n.Detail
+	}
+	switch r := n.LastRun; {
+	case r != nil && r.Status == "running":
+		f.LastRun = "running · since " + r.CreatedAt.Local().Format("15:04")
+	case r != nil:
 		f.LastRun = r.Status + " · " + r.CreatedAt.Local().Format("Jan 2 15:04")
-	} else if n.Kind == "cron" || n.Kind == "function" {
+	case n.Kind == "cron" || n.Kind == "function":
 		f.LastRun = "never run"
 	}
 	if n.NextRun != nil {
-		f.NextRun = n.NextRun.Local().Format("Jan 2 15:04")
+		f.NextRun = "next " + n.NextRun.Local().Format("15:04")
 	}
 	if len(n.Domains) > 0 {
 		f.Domain, f.More = n.Domains[0], len(n.Domains)-1
@@ -181,12 +226,17 @@ func envCard(u *ui.Node, n service.GraphNode, base string) {
 	cv.Footer = f
 	u.Subs = u.Subs[:0]
 	for _, s := range n.Subs {
-		sv := cards.SubView{ID: s.ID, Kind: s.Kind, Label: s.Name}
+		sv := cards.SubView{
+			ID:     s.ID,
+			Kind:   s.Kind,
+			Label:  s.Name,
+			Detail: s.Detail,
+			Status: s.Status,
+		}
 		var url, tab string
 		switch s.Kind {
 		case "replica": // its tile's drawer
 			url, tab = envDrawer(base, n.Kind, n.ID, n.Slug)
-			sv.Label += " · " + s.Status
 		case "managed": // the hosting instance under a slice
 			sv.Kind = "instance"
 			url, tab = envDrawer(base, "managed", s.ID, s.Slug)

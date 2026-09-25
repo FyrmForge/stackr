@@ -154,14 +154,28 @@ templ topBar(s Shell, oob bool) {
 				if len(s.Crumbs) == 2 {
 					<span class="text-xs text-rw-faint">stack</span>
 				}
-				if s.Actions != nil {
+				if len(s.Crumbs) == 3 && s.Settings != "" {
+					@settings(s.Settings)
+				}
+				if s.Actions != nil || (len(s.Crumbs) < 3 && s.Settings != "") {
 					<div class="ml-auto flex items-center gap-2">
-						@s.Actions
+						if len(s.Crumbs) < 3 && s.Settings != "" {
+							@settings(s.Settings)
+						}
+						if s.Actions != nil {
+							@s.Actions
+						}
 					</div>
 				}
 			</div>
 		}
 	</header>
+}
+
+// settings opens the level's own drawer (v0's bar link to its settings
+// page): beside the crumbs on an env, at the right elsewhere.
+templ settings(url string) {
+	<button type="button" hx-get={ url } hx-target="#drawer-body" class="text-sm text-rw-faint hover:text-rw-text transition-colors">Settings</button>
 }
 
 templ orgHead(l Link) {
@@ -171,32 +185,74 @@ templ orgHead(l Link) {
 }
 
 // crumbs is the bar's path: every segment a link, the current one in text
-// colour; the env segment carries its colour dot.
+// colour; the env segment carries its colour dot, and is v0's env picker
+// where the stack's envs are known.
 templ crumbs(s Shell) {
 	<nav aria-label="Breadcrumb" class="flex items-center gap-1.5 text-lg font-semibold tracking-tight min-w-0">
 		for i, l := range s.Crumbs {
 			if i > 0 {
 				<span class="text-rw-faint" aria-hidden="true">/</span>
 			}
-			<a
-				href={ templ.SafeURL(l.Href) }
-				hx-get={ l.Href }
-				hx-target="#main"
-				hx-push-url="true"
-				class={ "flex items-center gap-1.5 min-w-0 transition-colors",
-					templ.KV("text-rw-text", i == len(s.Crumbs)-1),
-					templ.KV("text-rw-muted hover:text-rw-text", i != len(s.Crumbs)-1) }
-				if i == len(s.Crumbs)-1 {
-					aria-current="page"
-				}
-			>
-				if dot := envClass(s.EnvColor); i == 2 && dot != "" {
-					<span class={ "env-dot", dot }></span>
-				}
-				<span class="truncate">{ l.Label }</span>
-			</a>
+			if i == 2 && len(s.Envs) > 0 {
+				@envPicker(s, l)
+			} else {
+				@crumb(s, i, l)
+			}
 		}
 	</nav>
+}
+
+templ crumb(s Shell, i int, l Link) {
+	<a
+		href={ templ.SafeURL(l.Href) }
+		hx-get={ l.Href }
+		hx-target="#main"
+		hx-push-url="true"
+		class={ "flex items-center gap-1.5 min-w-0 transition-colors",
+			templ.KV("text-rw-text", i == len(s.Crumbs)-1),
+			templ.KV("text-rw-muted hover:text-rw-text", i != len(s.Crumbs)-1) }
+		if i == len(s.Crumbs)-1 {
+			aria-current="page"
+		}
+	>
+		if dot := envClass(s.EnvColor); i == 2 && dot != "" {
+			<span class={ "env-dot", dot }></span>
+		}
+		<span class="truncate">{ l.Label }</span>
+	</a>
+}
+
+// envPicker is v0's env crumb: the current env, and a menu of its
+// siblings. A <details>, so the platform opens and closes it.
+templ envPicker(s Shell, cur Link) {
+	<details class="relative shrink-0">
+		<summary class="flex items-center gap-1.5 cursor-pointer list-none [&::-webkit-details-marker]:hidden text-rw-text hover:text-rw-accentHi transition-colors">
+			if dot := envClass(s.EnvColor); dot != "" {
+				<span class={ "env-dot", dot }></span>
+			}
+			{ cur.Label }
+			<svg class="h-3.5 w-3.5 text-rw-faint" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 8l4 4 4-4" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+		</summary>
+		<div class="absolute left-0 top-full mt-1.5 z-40 panel py-1 min-w-40 shadow-rw">
+			for _, e := range s.Envs {
+				<a
+					href={ templ.SafeURL(e.Href) }
+					hx-get={ e.Href }
+					hx-target="#main"
+					hx-push-url="true"
+					class={ "flex items-center gap-2 px-3 py-1.5 text-sm font-normal whitespace-nowrap transition-colors",
+						templ.KV("bg-rw-accent/15 text-rw-accentHi", e.Active),
+						templ.KV("text-rw-muted hover:text-rw-text", !e.Active) }
+					if e.Active {
+						aria-current="page"
+					}
+				>
+					<span class={ "env-dot", envClass(e.Color) }></span>
+					{ e.Label }
+				</a>
+			}
+		</div>
+	</details>
 }
 
 // NavLink is an in-app link: htmx swaps #main and pushes the URL, a plain

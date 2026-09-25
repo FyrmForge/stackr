@@ -40,6 +40,7 @@ type level struct {
 	scope service.CanvasScope
 	base  string // "" on home
 	title string
+	empty string // v0's line for a canvas with nothing on it yet
 }
 
 func where(c echo.Context) level {
@@ -47,20 +48,36 @@ func where(c echo.Context) level {
 	switch {
 	case sc.Env != nil:
 		return level{
-			service.CanvasScope{Kind: service.CanvasEnv, ID: sc.Env.ID},
-			"/" + sc.Org.Slug + "/" + sc.Stack.Slug + "/" + sc.Env.Slug,
-			sc.Env.Name,
+			scope: service.CanvasScope{Kind: service.CanvasEnv, ID: sc.Env.ID},
+			base:  "/" + sc.Org.Slug + "/" + sc.Stack.Slug + "/" + sc.Env.Slug,
+			title: sc.Env.Name,
+			empty: "No tiles in this environment yet.",
 		}
 	case sc.Stack != nil:
 		return level{
-			service.CanvasScope{Kind: service.CanvasStack, ID: sc.Stack.ID},
-			"/" + sc.Org.Slug + "/" + sc.Stack.Slug,
-			sc.Stack.Name,
+			scope: service.CanvasScope{Kind: service.CanvasStack, ID: sc.Stack.ID},
+			base:  "/" + sc.Org.Slug + "/" + sc.Stack.Slug,
+			title: sc.Stack.Name,
+			empty: "This stack has no environments yet.",
 		}
 	case sc.Org != nil:
-		return level{service.CanvasScope{Kind: service.CanvasOrg, ID: sc.Org.ID}, "/" + sc.Org.Slug, sc.Org.Name}
+		return level{
+			scope: service.CanvasScope{Kind: service.CanvasOrg, ID: sc.Org.ID},
+			base:  "/" + sc.Org.Slug,
+			title: sc.Org.Name,
+			empty: "This organization has no stacks yet. Create one to get started.",
+		}
 	}
-	return level{service.CanvasScope{Kind: service.CanvasHome, ID: middleware.Principal(c).User.ID}, "", "Orgs"}
+	p := middleware.Principal(c)
+	l := level{
+		scope: service.CanvasScope{Kind: service.CanvasHome, ID: p.User.ID},
+		title: "Organizations",
+		empty: "You are not in an organization yet. Ask an administrator to add you.",
+	}
+	if p.Access.Admin {
+		l.empty = "Welcome to stackr. Create your first organization with the button above."
+	}
+	return l
 }
 
 // show reads the query params: "<name>=0" turns a kind off.

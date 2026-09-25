@@ -77,17 +77,22 @@ const (
 	EdgeSource  = "source"
 )
 
-// Card sizes and gaps in world pixels (graph-ref §6).
+// Card sizes and gaps in world pixels, v0's geometry (graph-ref §6).
 const (
-	CardW   = 220
-	CardH   = 96
-	ShortH  = 62 // a detached volume
-	SubH    = 30 // each sub-tile adds this much
-	Grid    = 22
-	GapX    = 80
-	GapY    = 44
-	sysGap  = 40
-	Divider = CardW + sysGap // world x of the system wall
+	CardW  = 220
+	CardH  = 96
+	ShortH = 62 // a detached volume
+	SubH   = 30 // the room each sub-tile strip takes when placing (never drawn height)
+	Grid   = 22
+	GapX   = 40 // clear space a placement keeps around a card
+	GapY   = 30
+
+	colSystemX = -280
+	colGap     = 360
+	rowStart   = 80
+	rowGap     = 140
+	localGap   = CardW + 80 // column pitch inside a cluster
+	wallGap    = 60         // the divider stands this far right of the system column
 )
 
 type View struct {
@@ -95,8 +100,9 @@ type View struct {
 	Nodes   []Node
 	Edges   []Edge
 	Notes   []store.Annotation
-	Divider int    // world x of the system wall; 0 = no system column
-	Compare []Rung // stack canvas: the env-compare pill, ladder order
+	Walled  bool   // system and workload cards both drawn: a divider between them
+	Divider int    // world x of that divider (0 is a real place)
+	Compare []Rung // stack and env canvas: the env-compare pill, ladder order
 }
 
 type Node struct {
@@ -129,7 +135,9 @@ type Node struct {
 	Params, Secrets int
 }
 
-type Sub struct{ ID, Kind, Name, Status, Slug string } // Slug: the hosting instance's tile slug
+// Sub is a sub-tile; Slug is the hosting instance's tile slug, Detail the
+// strip's right-hand word (a mount path, an engine).
+type Sub struct{ ID, Kind, Name, Status, Slug, Detail string }
 
 type Edge struct{ Kind, From, To string }
 
@@ -180,14 +188,37 @@ func (f *Flow) Build(ctx context.Context, s canvas.Scope, in In) (View, error) {
 	if err != nil {
 		return v, err
 	}
-	filter(&v, in.Show)
+	// Arranged before the toggles filter, so turning one off never moves
+	// a card (v0), and Place saves the points a filtered canvas drew.
 	saved, err := f.Canvas.Positions(ctx, s)
 	if err != nil {
 		return v, err
 	}
 	arrange(&v, saved)
+	filter(&v, in.Show)
+	wall(&v)
 	v.Notes, err = f.Canvas.Annotations(ctx, s)
 	return v, err
+}
+
+// wall stands the divider right of the system column when both sides
+// have cards; it follows the system cards, never the workloads (v0).
+func wall(v *View) {
+	system, work := false, false
+	right := 0
+	for _, n := range v.Nodes {
+		switch {
+		case !n.System:
+			work = true
+		case !system || n.X+n.W > right:
+			right = n.X + n.W
+			system = true
+		}
+	}
+	v.Walled = system && work
+	if v.Walled {
+		v.Divider = right + wallGap
+	}
 }
 
 func card(id, kind, name string) Node {
@@ -200,7 +231,9 @@ func card(id, kind, name string) Node {
 	}
 }
 
-func deck(children int) int { return max(0, min(children, 3)-1) }
+// deck is the layers drawn behind a drill-down card: one per child, two at
+// most (v0's deckLayers).
+func deck(children int) int { return max(0, min(children, 2)) }
 
 func plural(n int, one string) string {
 	if n == 1 {
@@ -221,8 +254,13 @@ func (f *Flow) home(ctx context.Context, v *View, userID string, in In) error {
 		if err != nil {
 			return err
 		}
+		ms, err := f.Orgs.Members(ctx, og.ID)
+		if err != nil {
+			return err
+		}
 		n := card("org:"+og.ID, KindOrg, og.Name)
-		n.Slug, n.Detail, n.Deck = og.Slug, plural(len(sts), "stack"), deck(len(sts))
+		n.Slug, n.Deck = og.Slug, deck(len(sts))
+		n.Detail = plural(len(sts), "stack") + " · " + plural(len(ms), "member") // v0's org card line
 		if in.Status {
 			for _, st := range sts {
 				ts, err := f.Tiles.ListByStack(ctx, st.ID)
@@ -258,6 +296,7 @@ func (f *Flow) org(ctx context.Context, v *View, orgID string, in In) error {
 		return err
 	}
 	v.Nodes = append(v.Nodes, vars)
+	proxied := false
 	for _, st := range sts {
 		es, err := f.Envs.List(ctx, st.ID)
 		if err != nil {
@@ -268,11 +307,18 @@ func (f *Flow) org(ctx context.Context, v *View, orgID string, in In) error {
 			return err
 		}
 		n := card("stack:"+st.ID, KindStack, st.Name)
-		n.Slug, n.Detail, n.Deck = st.Slug, plural(len(es), "env"), deck(len(es))
+		n.Slug, n.Detail, n.Deck = st.Slug, plural(len(es), "environment"), deck(len(es))
 		if in.Status {
 			if n.Status, err = f.worstOf(ctx, "", ts); err != nil {
 				return err
 			}
+		}
+		if n.Domains, err = f.hosts(ctx, ts); err != nil {
+			return err
+		}
+		if len(n.Domains) > 0 {
+			v.Edges = append(v.Edges, Edge{EdgeIngress, KindProxy, n.ID})
+			proxied = true
 		}
 		v.Nodes = append(v.Nodes, n)
 		if st.ConfigConnectorID != "" && st.ConfigRepo != "" {
@@ -287,25 +333,24 @@ func (f *Flow) org(ctx context.Context, v *View, orgID string, in In) error {
 			v.Edges = append(v.Edges, Edge{EdgeShared, vars.ID, n.ID})
 		}
 	}
+	if proxied {
+		v.Nodes = append(v.Nodes, proxyCard())
+	}
 	return nil
 }
 
 func (f *Flow) stack(ctx context.Context, v *View, stackID string, in In) error {
-	es, err := f.Envs.Ladder(ctx, stackID)
+	es, rs, err := f.ladder(ctx, stackID)
 	if err != nil {
 		return err
 	}
-	all, err := f.Envs.List(ctx, stackID)
-	if err != nil {
-		return err
-	}
-	es = append(es, rest(all, es)...)
+	v.Compare = rs
 	vars, err := f.vars(ctx, params.Scope{Kind: "stack", ID: stackID})
 	if err != nil {
 		return err
 	}
 	v.Nodes = append(v.Nodes, vars)
-	prev := 0
+	proxied := false
 	for i, e := range es {
 		ts, err := f.Tiles.List(ctx, e.ID)
 		if err != nil {
@@ -313,36 +358,67 @@ func (f *Flow) stack(ctx context.Context, v *View, stackID string, in In) error 
 		}
 		n := card("env:"+e.ID, KindEnv, e.Name)
 		n.Slug = e.Slug
-		n.Color = e.Color
-		n.Detail = from(e)
+		n.Color = rs[i].Color
+		n.Detail = plural(len(ts), "tile") // v0's env card line
 		n.Deck = deck(len(ts))
 		if in.Status {
 			if n.Status, err = f.worstOf(ctx, "", ts); err != nil {
 				return err
 			}
 		}
+		if n.Domains, err = f.hosts(ctx, ts); err != nil {
+			return err
+		}
+		if len(n.Domains) > 0 {
+			v.Edges = append(v.Edges, Edge{EdgeIngress, KindProxy, n.ID})
+			proxied = true
+		}
 		v.Nodes = append(v.Nodes, n)
 		if reads(ts, params.KindParam) {
 			v.Edges = append(v.Edges, Edge{EdgeShared, vars.ID, n.ID})
 		}
+	}
+	if proxied {
+		v.Nodes = append(v.Nodes, proxyCard())
+	}
+	return nil
+}
+
+// ladder is a stack's envs, the ladder first and the envs off it (PR envs,
+// ...) after, and the env-compare pill's rung for each, in the same order.
+// The stack and the env canvas both draw the pill (v0 envCompareWidget).
+func (f *Flow) ladder(ctx context.Context, stackID string) ([]store.Environment, []Rung, error) {
+	es, err := f.Envs.Ladder(ctx, stackID)
+	if err != nil {
+		return nil, nil, err
+	}
+	all, err := f.Envs.List(ctx, stackID)
+	if err != nil {
+		return nil, nil, err
+	}
+	es = append(es, rest(all, es)...)
+	hues := environment.Hues(all)
+	rs := make([]Rung, 0, len(es))
+	prev := 0
+	for i, e := range es {
 		r := Rung{
 			EnvID: e.ID,
 			Name:  e.Name,
 			Slug:  e.Slug,
-			Color: e.Color,
+			Color: hues[e.ID],
 		}
 		if e.ReleaseID != nil {
 			rel, err := f.Releases.Get(ctx, *e.ReleaseID)
 			if err != nil {
-				return err
+				return nil, nil, err
 			}
 			r.Release = rel.Number
 		}
 		r.Behind = i > 0 && prev > r.Release
 		prev = r.Release
-		v.Compare = append(v.Compare, r)
+		rs = append(rs, r)
 	}
-	return nil
+	return es, rs, nil
 }
 
 // rest is the envs off the ladder (PR envs, ...), after it.
@@ -360,21 +436,10 @@ func rest(all, ladder []store.Environment) []store.Environment {
 	return out
 }
 
-func from(e store.Environment) string {
-	switch {
-	case e.FromKind == "branch" && e.Auto:
-		return e.FromBranch + " · auto"
-	case e.FromKind == "branch":
-		return e.FromBranch
-	case e.FromKind != "":
-		return "promoted"
-	}
-	return e.Type
-}
-
 func (f *Flow) vars(ctx context.Context, s params.Scope) (Node, error) {
 	ps, err := f.Params.List(ctx, s, true)
 	n := card(KindVars, KindVars, "Variables")
+	n.Static = true // v0's vars card is pinned where the layout puts it
 	for _, p := range ps {
 		if p.Kind == params.Secret {
 			n.Secrets++
@@ -494,14 +559,18 @@ func (f *Flow) status(ctx context.Context, t store.Tile) (status, error) {
 			return s, err
 		}
 		s.word = s.state.Word
+		// v0 deals replicas 2 to 4 under the card (the card is replica 1).
 		for i, c := range s.state.Replicas {
-			if i >= 3 {
+			if i == 0 {
+				continue
+			}
+			if i >= 4 {
 				break
 			}
 			s.replicas = append(s.replicas, Sub{
 				ID:     fmt.Sprintf("replica:%s:%d", t.ID, i+1),
 				Kind:   KindReplica,
-				Name:   c.Name,
+				Name:   fmt.Sprintf("replica %d", i+1),
 				Status: c.State,
 			})
 		}
@@ -525,7 +594,11 @@ func (f *Flow) status(ctx context.Context, t store.Tile) (status, error) {
 // ---- env -------------------------------------------------------------------
 
 func (f *Flow) env(ctx context.Context, v *View, envID string, in In) error {
-	if _, err := f.Envs.Get(ctx, envID); err != nil {
+	e, err := f.Envs.Get(ctx, envID)
+	if err != nil {
+		return err
+	}
+	if _, v.Compare, err = f.ladder(ctx, e.StackID); err != nil {
 		return err
 	}
 	ts, err := f.Tiles.List(ctx, envID)
@@ -573,10 +646,11 @@ func (f *Flow) env(ctx context.Context, v *View, envID string, in In) error {
 			if host.EnvironmentID == envID {
 				hosted[host.ID] = true
 				n.Subs = append(n.Subs, Sub{
-					ID:   host.ID,
-					Kind: tile.Managed,
-					Name: host.Name,
-					Slug: host.Slug,
+					ID:     host.ID,
+					Kind:   tile.Managed,
+					Name:   host.Name,
+					Slug:   host.Slug,
+					Detail: inst.Engine,
 				})
 			} else {
 				g := ghost(v, host.ID, host.Name, inst.ScopeKind+" · "+inst.Engine)
@@ -670,21 +744,39 @@ func (f *Flow) env(ctx context.Context, v *View, envID string, in In) error {
 			v.Edges = append(v.Edges, Edge{EdgeEgress, t.ID, KindInternet})
 		}
 	}
-	for _, sys := range []struct {
-		on         bool
-		id, detail string
-	}{
-		{proxied, KindProxy, "Caddy"},
-		{len(egress) > 0, KindInternet, "outbound"},
-	} {
-		if sys.on {
-			n := card(sys.id, sys.id, strings.ToUpper(sys.id[:1])+sys.id[1:])
-			n.Detail, n.System = sys.detail, true
-			v.Nodes = append(v.Nodes, n)
-			v.Divider = Divider
-		}
+	if proxied {
+		v.Nodes = append(v.Nodes, proxyCard())
+	}
+	if len(egress) > 0 {
+		n := card(KindInternet, KindInternet, "Internet")
+		n.Detail, n.System = "outbound", true
+		v.Nodes = append(v.Nodes, n)
 	}
 	return nil
+}
+
+// proxyCard is the system card in front of whatever has a domain, the
+// same card on the org, stack and env canvas (v0 proxyNode).
+func proxyCard() Node {
+	n := card(KindProxy, KindProxy, "Proxy")
+	n.Detail, n.System = "Caddy", true
+	n.Status = "running" // ponytail: as v0; this page came through it, a live Caddy probe if that ever lies
+	return n
+}
+
+// hosts is every domain the tiles answer on, in tile order.
+func (f *Flow) hosts(ctx context.Context, ts []store.Tile) ([]string, error) {
+	var out []string
+	for _, t := range ts {
+		ds, err := f.Domains.ListByTile(ctx, t.ID)
+		if err != nil {
+			return nil, err
+		}
+		for _, d := range ds {
+			out = append(out, d.Host)
+		}
+	}
+	return out, nil
 }
 
 // ghost adds a ref card once and returns its id.
@@ -729,13 +821,18 @@ func (f *Flow) tileCard(ctx context.Context, t store.Tile, vols map[string]strin
 		n.Domains = append(n.Domains, d.Host)
 	}
 	for _, l := range tile.Lines(t.Volumes) {
-		sl, _, _ := strings.Cut(l, ":")
+		sl, path, _ := strings.Cut(l, ":")
 		n.Volumes = append(n.Volumes, sl)
 		id, ok := vols[sl]
 		if !ok {
 			id = "volume:" + sl
 		}
-		n.Subs = append(n.Subs, Sub{ID: id, Kind: KindVolume, Name: sl})
+		n.Subs = append(n.Subs, Sub{
+			ID:     id,
+			Kind:   KindVolume,
+			Name:   sl,
+			Detail: path,
+		})
 	}
 	if t.Kind == tile.Managed {
 		if in, err := f.Managed.GetByTile(ctx, t.ID); err == nil {
@@ -762,9 +859,7 @@ func (f *Flow) tileCard(ctx context.Context, t store.Tile, vols map[string]strin
 				n.Running++
 			}
 		}
-		if len(st.replicas) > 1 {
-			n.Subs = append(n.Subs, st.replicas...)
-		}
+		n.Subs = append(n.Subs, st.replicas...)
 		if t.Kind == tile.Cron && !t.Paused {
 			if at, err := lrun.Next(t.Schedule, time.Now()); err == nil {
 				n.NextRun = &at
@@ -787,7 +882,6 @@ func (f *Flow) tileCard(ctx context.Context, t store.Tile, vols map[string]strin
 			n.NewVersion = i.Newer()
 		}
 	}
-	n.H += SubH * len(n.Subs)
 	return n, nil
 }
 
@@ -800,7 +894,6 @@ func filter(v *View, s Show) {
 				drop[n.ID] = true
 			}
 		}
-		v.Divider = 0
 	}
 	if !s.Traffic {
 		drop[KindInternet] = true
@@ -821,14 +914,6 @@ func filter(v *View, s Show) {
 		}
 	}
 	v.Edges = edges
-	if v.Divider != 0 {
-		for _, n := range v.Nodes {
-			if n.System {
-				return
-			}
-		}
-		v.Divider = 0
-	}
 }
 
 // Place saves one card's drop. The first drop on a canvas with unsaved

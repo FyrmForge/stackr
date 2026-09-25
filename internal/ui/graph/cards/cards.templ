@@ -1,16 +1,11 @@
 package cards
 
-import (
-	"strconv"
-
-	c "github.com/FyrmForge/stackr/internal/ui/components"
-)
-
-// Card is a card's body: name, kind chip, detail, chips and the footer.
-// A card with a drawer opens it on click and pushes ?drawer=&tab=.
+// Card is an env card's face (v0 nodeCardFace): a volume is its bottom
+// strip, anything else the head and the live footer. A card with a drawer
+// opens it on click and pushes ?drawer=&tab=.
 templ Card(v CardView) {
 	<div
-		class={ "card min-h-0 flex-1 overflow-hidden p-3 text-sm", templ.KV("border-dashed", dashed(v.Kind)), templ.KV("cursor-pointer", v.Drawer != "") }
+		class={ Class(v.Kind) }
 		data-kind={ v.Kind }
 		if v.Drawer != "" {
 			hx-get={ v.Drawer }
@@ -20,99 +15,229 @@ templ Card(v CardView) {
 			role="button"
 		}
 	>
-		<div class="flex items-center justify-between gap-2">
-			<span class="truncate font-semibold">{ v.Name }</span>
-			<span class="shrink-0 rounded bg-slate-100 px-1.5 text-xs text-slate-600 dark:bg-slate-800 dark:text-slate-300">{ v.Kind }</span>
-		</div>
-		if v.Detail != "" {
-			<p class="truncate text-xs text-slate-500">{ v.Detail }</p>
-		}
-		if v.Host || v.NewVersion || v.Volumes != "" {
-			<div class="mt-1 flex flex-wrap gap-1 text-xs">
-				if v.Host {
-					<span class="rounded bg-red-100 px-1.5 text-red-800 dark:bg-red-900/50 dark:text-red-300">host</span>
-				}
-				if v.NewVersion {
-					<span class="rounded bg-blue-100 px-1.5 text-blue-800 dark:bg-blue-900/50 dark:text-blue-300">new version</span>
-				}
-				if v.Volumes != "" {
-					<span class="rounded bg-slate-100 px-1.5 text-slate-700 dark:bg-slate-800 dark:text-slate-300">{ v.Volumes }</span>
-				}
+		if v.Kind == "volume" {
+			<div class="absolute inset-x-0 bottom-0 flex items-center gap-2 px-3.5 py-1.5 min-w-0 text-rw-muted">
+				<span class="shrink-0">
+					@Icon(v.Kind)
+				</span>
+				<span class="text-xs font-medium text-rw-text truncate">{ v.Name }</span>
+				<span class="text-[10px] text-rw-faint font-mono truncate ml-auto">{ v.Detail }</span>
+			</div>
+		} else {
+			<div class="p-3.5">
+				@Top(v.Kind, v.Name, v.Detail, v.Host, v.NewVersion)
+				@Footer(v.ID, v.Footer)
 			</div>
 		}
-		@Footer(v.ID, v.Footer)
 	</div>
 }
 
-// Footer is the swap unit of a card's live strip: the stream sends it
-// whole as "footer:<id>" and it replaces itself (hx-target="this", or it
-// would inherit the card's #drawer-body).
+// Top is a card's head row (v0 nodeCardBody): the icon, the name, the
+// detail and its chips.
+templ Top(kind, name, detail string, host, newVersion bool) {
+	<div class="flex items-center gap-2.5">
+		<span class="node-icon flex h-7 w-7 items-center justify-center rounded-md bg-rw-inset text-rw-muted shrink-0">
+			@Icon(kind)
+		</span>
+		<div class="min-w-0">
+			<div class="font-semibold text-rw-text truncate text-sm leading-tight">{ name }</div>
+			<div class="flex items-center gap-1.5 min-w-0">
+				<span class="text-xs text-rw-faint truncate">{ detail }</span>
+				if KindLabel(kind) != "" {
+					<span class="shrink-0 rounded-md border border-rw-border bg-rw-inset px-1.5 py-0.5 text-[10px] text-rw-muted">{ KindLabel(kind) }</span>
+				}
+				if host {
+					<span class="shrink-0 rounded-md border border-rw-danger/40 bg-rw-danger/10 px-1.5 py-0.5 text-[10px] text-rw-danger" title="runs privileged or with host devices">host</span>
+				}
+				if newVersion {
+					<span class="shrink-0 rounded-md border border-rw-warn/40 bg-rw-warn/10 px-1.5 py-0.5 text-[10px] text-rw-warn" title="a newer image is in the registry. Deploy to update">new version</span>
+				}
+			</div>
+		</div>
+	</div>
+}
+
+// Footer is the swap unit of a card's live strip (v0 NodeFooter): the
+// stream sends it whole as "footer:<id>" and it replaces itself
+// (hx-target="this", or it would inherit the card's #drawer-body).
 templ Footer(id string, f FooterView) {
-	<div class="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-500" sse-swap={ "footer:" + id } hx-target="this" hx-swap="outerHTML">
-		if f.Status != "" {
-			@c.TileBadge(f.Status)
+	<div
+		class="node-footer mt-3 pt-3 border-t border-rw-border flex items-center justify-between gap-2 min-w-0"
+		data-kind={ f.Kind }
+		sse-swap={ "footer:" + id }
+		hx-target="this"
+		hx-swap="outerHTML"
+	>
+		switch f.Kind {
+			case "cron", "function":
+				@line(run(f.LastRun), f.LastRun)
+				if f.NextRun != "" {
+					<span class="text-xs text-rw-faint shrink-0">{ f.NextRun }</span>
+				} else if f.Kind == "function" {
+					<span class="text-xs text-rw-faint shrink-0">{ f.Trigger }</span>
+				} else {
+					<span class="text-xs text-rw-warn shrink-0">paused</span>
+				}
+			case "ref":
+				<span class="flex items-center gap-1 text-xs text-rw-accentHi min-w-0">
+					<svg class="h-3 w-3 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+						@glyph("connector")
+					</svg>
+					<span class="truncate">managed tile, open home</span>
+				</span>
+			case "vars", "secrets", "connector":
+				<span class="flex items-center gap-1 text-xs text-rw-faint min-w-0">
+					<svg class="h-3 w-3 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+						<path d="M7 17 17 7M7 7h10v10"></path>
+					</svg>
+					<span class="truncate">open settings</span>
+				</span>
+			default:
+				if f.Want > 1 && f.Up < f.Want {
+					@line("warn", "degraded · "+itoa(f.Up)+"/"+itoa(f.Want))
+				} else if f.Want > 1 {
+					@line("success", "running · "+itoa(f.Up)+"/"+itoa(f.Want))
+				} else {
+					@Status(f.Status, f.Waiting)
+				}
+				if f.Domain != "" || f.Domains > 0 {
+					@exposure(f)
+				}
 		}
-		if f.Waiting != "" {
-			<span class="text-amber-700 dark:text-amber-400">needs { f.Waiting }</span>
-		}
-		if f.Want > 1 {
-			<span>{ strconv.Itoa(f.Up) }/{ strconv.Itoa(f.Want) }</span>
-		}
-		if f.LastRun != "" {
-			<span>{ f.LastRun }</span>
-		}
-		if f.NextRun != "" {
-			<span>next { f.NextRun }</span>
-		}
-		if f.Domain != "" {
-			<a href={ templ.SafeURL("https://" + f.Domain) } target="_blank" rel="noopener" class="link truncate">{ f.Domain }</a>
+	</div>
+}
+
+// Status is a card's status line (v0 nodeStatus).
+templ Status(status, waiting string) {
+	{{ tone, text := word(status, waiting) }}
+	@line(tone, text)
+}
+
+templ line(tone, text string) {
+	<span class={ "node-status flex items-center gap-2 text-xs", toneText(tone) }>
+		<span class={ "h-1.5 w-1.5 rounded-full shrink-0", toneDot(tone) }></span>
+		<span class="truncate">{ text }</span>
+	</span>
+}
+
+// exposure is the globe and the first domain, or on the org canvas how
+// many (v0 nodeExposure); the canvas's "badges" look shows it. A drill-down
+// card is itself a link, so its host is plain text: a nested anchor would
+// split the card.
+templ exposure(f FooterView) {
+	<span class="node-exposure flex items-center gap-1 text-xs text-rw-accentHi min-w-0">
+		<svg class="h-3 w-3 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+			@glyph("proxy")
+		</svg>
+		if f.Domain == "" {
+			<span class="shrink-0" title="proxied domains. Open the stack to see them">{ domains(f.Domains) }</span>
+		} else if f.Nav {
+			<span class="truncate">{ f.Domain }</span>
+		} else {
+			<a href={ templ.SafeURL("https://" + f.Domain) } target="_blank" rel="noopener" class="truncate hover:underline">{ f.Domain }</a>
 		}
 		if f.More > 0 {
-			<span>+{ strconv.Itoa(f.More) }</span>
+			<span class="shrink-0 text-rw-faint">+{ itoa(f.More) }</span>
 		}
-		if f.Count > 0 {
-			<span>{ strconv.Itoa(f.Count) } names</span>
-		}
-		if f.Note != "" {
-			<span>{ f.Note }</span>
-		}
-	</div>
+	</span>
 }
 
-// Subs are a card's sub-tiles, stacked under it inside the node (its h
-// counts 30 px each). Each is a static <graph-node> with its own drawer;
-// the canvas measures them in place.
+// Subs are a card's sub-tiles, dealt under it like the next cards of a
+// deck (CSS offsets each by its place). Each is a static <graph-node>
+// with its own drawer; the canvas measures them in place.
 templ Subs(v CardView) {
-	if len(v.Subs) > 0 {
-		<div class="mt-1 shrink-0 space-y-1">
-			for _, s := range v.Subs {
-				<graph-node node-id={ s.ID } static>
-					<div
-						class="card cursor-pointer px-2 py-1 text-xs"
-						data-kind={ s.Kind }
-						hx-get={ s.Drawer }
-						hx-target="#drawer-body"
-						hx-push-url={ "?drawer=" + s.ID + "&tab=" + s.Tab }
-						tabindex="0"
-						role="button"
-					>
-						<span class="text-slate-500">{ s.Kind }</span> { s.Label }
-					</div>
-				</graph-node>
-			}
-		</div>
+	for _, s := range v.Subs {
+		<graph-node node-id={ s.ID } static>
+			<div
+				class={ "graph-node-sub relative h-full rounded-xl border cursor-pointer", templ.KV("bg-rw-inset border-rw-border hover:border-rw-accent/60", s.Kind != "instance"), templ.KV("bg-rw-surface/60 border-dashed border-rw-accent/50 hover:border-rw-accent/80", s.Kind == "instance") }
+				data-kind={ s.Kind }
+				if s.Drawer != "" {
+					hx-get={ s.Drawer }
+					hx-target="#drawer-body"
+					hx-push-url={ "?drawer=" + s.ID + "&tab=" + s.Tab }
+					tabindex="0"
+					role="button"
+				}
+			>
+				<div class="absolute inset-x-0 bottom-0 flex h-7 items-center gap-2 px-3 min-w-0 text-rw-muted">
+					if s.Kind == "replica" {
+						<span class={ "h-1.5 w-1.5 rounded-full shrink-0", toneDot(replica(s.Status)) }></span>
+					} else {
+						<svg class="h-3.5 w-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+							@glyph(s.Kind)
+						</svg>
+					}
+					<span class="text-xs font-medium text-rw-text truncate">{ s.Label }</span>
+					<span class="text-[10px] text-rw-faint font-mono truncate ml-auto">{ s.Detail }</span>
+				</div>
+			</div>
+		</graph-node>
 	}
 }
 
-// Lanes is the traffic layer: its own <svg data-edges> (so the canvas
-// re-paths it with the rest) that the "traffic" event replaces whole. A
-// whole <svg> parses into the SVG namespace; bare paths would not. The
-// label rides the path, so a re-path moves it too.
+// Icon is a kind's 16 px stroke glyph (v0 strokeIcon).
+templ Icon(kind string) {
+	<svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+		@glyph(kind)
+	</svg>
+}
+
+templ glyph(kind string) {
+	switch kind {
+		case "volume":
+			<path d="M22 12H2"></path>
+			<path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"></path>
+			<line x1="6" x2="6.01" y1="16" y2="16"></line>
+		case "cron":
+			<circle cx="12" cy="12" r="10"></circle>
+			<path d="M12 6v6l4 2"></path>
+		case "function":
+			<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+		case "proxy", "internet":
+			<circle cx="12" cy="12" r="10"></circle>
+			<path d="M2 12h20M12 2a15.3 15.3 0 0 1 0 20 15.3 15.3 0 0 1 0-20z"></path>
+		case "managed", "ref", "instance":
+			<ellipse cx="12" cy="5" rx="9" ry="3"></ellipse>
+			<path d="M3 5v14a9 3 0 0 0 18 0V5"></path>
+			<path d="M3 12a9 3 0 0 0 18 0"></path>
+		case "slice":
+			<ellipse cx="12" cy="7" rx="9" ry="3"></ellipse>
+			<path d="M3 7v10a9 3 0 0 0 18 0V7"></path>
+		case "vars", "secrets":
+			<path d="M4 7V5a1 1 0 0 1 1-1h14a1 1 0 0 1 1 1v2"></path>
+			<path d="M9 20h6"></path>
+			<path d="M12 4v16"></path>
+		case "connector":
+			<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path>
+			<path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path>
+		case "org":
+			<path d="M3 21h18"></path>
+			<path d="M5 21V5a1 1 0 0 1 1-1h8a1 1 0 0 1 1 1v16"></path>
+			<path d="M15 21V9h3a1 1 0 0 1 1 1v11"></path>
+			<path d="M8 8h4M8 12h4M8 16h4"></path>
+		case "stack", "env":
+			<path d="m12 2 9 5-9 5-9-5 9-5Z"></path>
+			<path d="m3 12 9 5 9-5"></path>
+			<path d="m3 17 9 5 9-5"></path>
+		default:
+			<path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"></path>
+			<path d="m3.3 7 8.7 5 8.7-5"></path>
+			<path d="M12 22V12"></path>
+	}
+}
+
+// Lanes is the traffic layer the "traffic" event replaces whole: one <g>
+// per direction, a path (the stroke width is the rate) and its rate label.
+// The canvas lays each on the edge it rides (either way round) and fills
+// the arrow; a whole <svg> parses into the SVG namespace, bare paths would
+// not.
 templ Lanes(ls []Lane) {
-	<svg data-edges data-lanes id="graph-lanes" aria-hidden="true" sse-swap="traffic" hx-target="this" hx-swap="outerHTML">
+	<svg data-lanes id="graph-lanes" aria-hidden="true" sse-swap="traffic" hx-target="this" hx-swap="outerHTML">
 		for _, l := range ls {
-			<path id={ "lane-" + l.From + "-" + l.To } data-edge-kind="traffic" data-from={ l.From } data-to={ l.To } d="M0,0"></path>
-			<text dy="-4"><textPath href={ templ.SafeURL("#lane-" + l.From + "-" + l.To) } startOffset="30%">{ Rate(l.BPS) }</textPath></text>
+			<g data-from={ l.From } data-to={ l.To }>
+				<path data-edge-kind="traffic" d="M0,0" fill="none" stroke-linecap="round" stroke-width={ l.Width() }></path>
+				<text><tspan></tspan>{ Rate(l.BPS) }</text>
+			</g>
 		}
 	</svg>
 }

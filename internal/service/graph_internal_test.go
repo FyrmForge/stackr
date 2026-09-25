@@ -69,13 +69,13 @@ func TestCanvasEgress(t *testing.T) {
 		sys = sys || (n.ID == "internet" && n.System)
 	}
 	if !sys || len(v.Edges) != 1 || v.Edges[0] != (graph.Edge{Kind: "egress", From: tl.ID, To: "internet"}) ||
-		v.Divider == 0 {
-		t.Errorf("egress: nodes %+v edges %+v divider %d", v.Nodes, v.Edges, v.Divider)
+		!v.Walled {
+		t.Errorf("egress: nodes %+v edges %+v walled %v", v.Nodes, v.Edges, v.Walled)
 	}
 	off := graph.All
 	off.Traffic = false
 	v, _ = orch.graph.Build(ctx, s, graph.In{Show: off, Traffic: lanes})
-	if len(v.Edges) != 0 || len(v.Nodes) != 2 || v.Divider != 0 {
-		t.Errorf("traffic off: nodes %+v edges %+v divider %d, want api and vars only", v.Nodes, v.Edges, v.Divider)
+	if len(v.Edges) != 0 || len(v.Nodes) != 2 || v.Walled {
+		t.Errorf("traffic off: nodes %+v edges %+v walled %v, want api and vars only", v.Nodes, v.Edges, v.Walled)
 	}
 }

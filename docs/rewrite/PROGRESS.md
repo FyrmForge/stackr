@@ -346,7 +346,7 @@ comparison against `shots/` after each:
    bar on phones), canvas top bar with crumbs and the 3px env band,
    full-bleed `#main`, drawer / flash / confirm / auth / error / badge
    chrome, v0's six env hues.
-2. [ ] Canvas (`gap-canvas.md`): 22px dot grid that follows pan and zoom,
+2. [x] Canvas (`gap-canvas.md`): 22px dot grid that follows pan and zoom,
    cards per kind, edges per kind, controls column, legend, settings
    drawer, layout constants.
 3. [ ] Drawers + pages (`gap-drawers-pages.md`): panel header and underline
@@ -395,6 +395,91 @@ v0.0.16, shots in scratchpad `v0-ui/after-phase1/`, dark and light):
    the search palette and its `/` key, the drill view-transition, copy
    buttons, the combobox and repo picker. Options: (a) keep them out;
    (b) whitelist a tag each. Lean (b) for search and the password eye.
+
+Phase 2 done (2026-09-25, uncommitted in the `rewrite-step-6e` tree; VM ran
+v0.0.23 at the last shots (a later phase 3a deploy from `stackr-step-6f`
+will not carry these changes); shots in scratchpad `v0-ui/after-phase2/`,
+`*-r4` are the last, dark and light, plus a card and an edge crop; lanes
+with rates are in `p2-env-dark-r2.png`):
+- Landed: v0's cluster layout (`flow/graph/arrange.go`, pinned by
+  `arrange_test.go`) on org, stack and env, home's column sweep; the looks
+  hover-focus, nooverlap, badges, boundary and legend on `<graph-canvas>`;
+  edge strokes as presentation attributes (`graph.EdgeAttrs`), lanes copy
+  the base edge's path and colour; the divider is `<g data-divider>`; the
+  View panel, legend, env-compare pill and empty state are templ;
+  decisions 142 (b) root "Organizations" bar, 143 (a) toggle in the rail,
+  144 (b) env crumb picker + Settings, 145 (c) v0 envcolor defaults
+  (`environment.Hues`). Card faces: status never truncates, no volume
+  chip. Drill cards read as v0: "N stacks · N members", "N environments",
+  "N tiles"; the proxy card (Online, as v0) and its ingress edges stand
+  on the org and stack canvas too, with "N domains" on a stack card and
+  the first host on an env card (plain text: the card is a link); the
+  env canvas draws the compare pill as well. Gallery samples follow.
+- Matches v0 in the shots: dot grid, card faces, deck layers, env hues,
+  divider and SERVER label, controls column, legend, compare pill, proxy
+  and ingress on all three drill levels, both themes.
+- Still differs: one Variables card, drawn even when empty (146); no
+  brand logos, the proxy reads "Proxy / Caddy" (148); the compare pill
+  has no commits and tiles panel (150); an Internet card v0 never had
+  (151); top bar keeps "+ Create environment" and "+ Create connector"
+  (160); replica sub-tiles have no node or age and no "+N more" (154);
+  replica subs do not count toward card height (graph-ref section 6);
+  with the proxy on the org canvas a connector now sits under its stack,
+  not left of it (same engine as v0, not checked against v0: the smoke
+  org has no connector); Caddy-to-tile traffic drew no lane while the
+  shots drove requests through it (traffic engine, step 3c).
+- Gates: `make build`, `make lint` (0 issues), `make test`, `make
+  templint` all clean. Element lines (budget): graph-canvas 337 (400),
+  graph-node 147 (150).
+
+146. **(step 6e) Variables card.** v0 draws "X variables" and "X secrets"
+   as two cards, each only when it has entries; the rewrite draws one
+   "Variables" card always. Options: (a) keep one, always (the canvas way
+   in to add the first var); (b) v0's two, hidden when empty (vars reached
+   from Settings). Lean (b), v0 wins.
+147. **(step 6e) The View panel closes on a graph swap.** Its `<details>`
+   sits inside the canvas the `graph` event replaces. Options: (a) keep;
+   (b) move the panel outside the swap. Lean (b).
+148. **(step 6e) No brand logos.** v0 drew Traefik and engine logos; the
+   rewrite uses stroke glyphs and names the proxy "Proxy / Caddy".
+   Options: (a) keep; (b) add brand SVGs. Lean (a).
+149. **(step 6e) Flow layout and the arrange preference are not ported;**
+   clusters only. Options: (a) keep; (b) port flow. Lean (a).
+150. **(step 6e) Compare pill links only.** v0's pill opens a panel with
+   commits and a tile diff. Options: (a) keep; (b) port (needs a compare
+   verb). Lean (a) for v1.
+151. **(step 6e) Internet card.** v0 had none; ours shows when a tile
+   sent outbound traffic in the last sample ("outbound" in the legend).
+   Options: (a) keep; (b) drop. Lean (a).
+152. **(step 6e) The divider does not follow a drag.** It moves on the next
+   graph render. Options: (a) keep; (b) the element recomputes it. Lean (a).
+153. **(step 6e) A new note lands at 0,0,** not in view. Options: (a) keep;
+   (b) the element sends the view centre. Lean (b).
+154. **(step 6e) Replica sub-tiles are thin:** no node, no age, no "+N
+   more". Options: (a) keep; (b) add. Lean (a).
+155. **(step 6e) A newcomer system card can land right of the divider** on
+   a hand-placed canvas (v0 places newcomers beside saved neighbours;
+   Re-arrange fixes it). Options: (a) keep, as v0; (b) system cards always
+   go to the system column. Lean (b).
+156. **(step 6e) A cron on a shared hub can land at x -198,** behind the
+   divider (v0 quirk, kept, untested). Options: (a) keep; (b) clamp right
+   of the wall. Lean (b).
+157. **(step 6e) First drop can save a layout that was not drawn.**
+   `SetPosition` always reads traffic, `Canvas` with traffic off does
+   not; the internet card comes and goes with the sample and can shift
+   the proxy. Options: (a) keep; (b) `SetPosition` builds with the
+   caller's show params (`internal/service/graph.go`). Lean (b).
+158. **(step 6e) The proxy card is always Online,** as v0 hard-coded it
+   (the page came through it). Options: (a) keep; (b) probe Caddy's
+   admin API. Lean (a).
+159. **(step 6e) CLI positional bug.** `cmd/stackr/stack.go` `at()` reads
+   `args[0]` as the tile for every tile-level verb, so `tile domain add
+   <host>`, `set`, `caddy`, `rm` and `slice attach <tile>` 404. Options:
+   (a) fix: only when the Use's first arg is `[tile]`/`<tile>`; (b) leave.
+   Lean (a), not canvas work so not done here.
+160. **(step 6e) Create buttons v0 did not have:** "+ Create environment"
+   on the stack bar and "+ Create connector" on the org bar. Options:
+   (a) keep; (b) drop, create from Settings. Lean (a).
 
 ## DECIDE:
 

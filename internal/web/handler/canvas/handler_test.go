@@ -15,6 +15,7 @@ import (
 
 	"github.com/FyrmForge/stackr/internal/api/stream"
 	"github.com/FyrmForge/stackr/internal/middleware"
+	"github.com/FyrmForge/stackr/internal/service"
 	"github.com/FyrmForge/stackr/internal/service/servicetest"
 	"github.com/FyrmForge/stackr/internal/web"
 	"github.com/FyrmForge/stackr/internal/web/handler/canvas"
@@ -111,7 +112,7 @@ func TestCanvasPositionsAndNotes(t *testing.T) {
 }
 
 // The stream sends every footer at connect, then only the ones that move:
-// a failed job turns the env card's footer to "error".
+// a failed job turns the env card's footer to "Crashed".
 func TestCanvasEventsSwapFooter(t *testing.T) {
 	stream.PollEvery, canvas.Every = 10*time.Millisecond, 0
 	s := webtest.New(t)
@@ -127,7 +128,7 @@ func TestCanvasEventsSwapFooter(t *testing.T) {
 		t.Fatalf("want the env footer at connect and once more on change, no graph event:\n%s", body)
 	}
 	last := body[strings.LastIndex(body, name):]
-	if !strings.Contains(last, `sse-swap="footer:env:`+s.Tile.Env+`"`) || !strings.Contains(last, ">error<") {
+	if !strings.Contains(last, `sse-swap="footer:env:`+s.Tile.Env+`"`) || !strings.Contains(last, ">Crashed<") {
 		t.Errorf("second footer is not the error one:\n%s", last)
 	}
 }
@@ -141,7 +142,9 @@ func TestCanvasEventsSwapGraph(t *testing.T) {
 	time.AfterFunc(60*time.Millisecond, func() { _, _ = s.Orch.CreateStack(context.Background(), s.Org, "blog", "") })
 	time.AfterFunc(250*time.Millisecond, cancel)
 	body := s.DoCtx(ctx, t, "GET", events, nil).Body.String()
-	if !strings.Contains(body, "event: graph\ndata: <graph-canvas") || !strings.Contains(body, ">blog</a>") {
+	if !strings.Contains(body, "event: graph\ndata: <graph-canvas") ||
+		!strings.Contains(body, `href="/acme/blog"`) ||
+		!strings.Contains(body, ">blog</div>") {
 		t.Fatalf("no graph event with the new stack:\n%s", body)
 	}
 }
@@ -159,7 +162,7 @@ func TestEnvEventsCarryLanes(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	time.AfterFunc(100*time.Millisecond, cancel)
 	body := s.DoCtx(ctx, t, "GET", "/acme/shop/dev/-/events", nil).Body.String()
-	if !strings.Contains(body, "event: traffic\ndata: <svg data-edges data-lanes id=\"graph-lanes\"") ||
+	if !strings.Contains(body, "event: traffic\ndata: <svg data-lanes id=\"graph-lanes\"") ||
 		!strings.Contains(body, "event: footer:"+s.Tile.ID) {
 		t.Fatalf("env events:\n%s", body)
 	}
@@ -178,6 +181,8 @@ func TestEnvCardsAreTileCards(t *testing.T) {
 		`hx-push-url="?drawer=` + s.Tile.ID + `&amp;tab=status"`,
 		`sse-swap="footer:` + s.Tile.ID + `"`,
 		`hx-get="/acme/shop/dev/-/new-tile"`,
+		`class="env-compare`,
+		`hx-get="/acme/shop/dev" hx-target="#main"`, // the pill links siblings, not /acme/shop/dev/dev
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("env page lacks %s", want)
@@ -197,5 +202,19 @@ func TestEnvFreshLoadOpensTileDrawer(t *testing.T) {
 	}
 	if body := load("/acme/shop/dev?drawer=nope"); strings.Contains(body, "<side-drawer open") {
 		t.Error("an unknown id opened the drawer")
+	}
+}
+
+// A drill-down card's footer carries its domains as v0 did: a stack card
+// on the org canvas counts them, an env card on the stack canvas names
+// the first; both are links themselves, so the host is text.
+func TestDrillCardExposure(t *testing.T) {
+	n := service.GraphNode{ID: "x", Kind: "stack", Status: "running", Domains: []string{"a.dev", "b.dev"}}
+	if f := canvas.Exposed(n, service.CanvasOrg); f.Domains != 2 || f.Domain != "" || !f.Nav || f.Status != "running" {
+		t.Errorf("org level = %+v, want a count of 2, no host", f)
+	}
+	n.Kind = "env"
+	if f := canvas.Exposed(n, service.CanvasStack); f.Domain != "a.dev" || f.More != 1 || f.Domains != 0 || !f.Nav {
+		t.Errorf("stack level = %+v, want a.dev +1", f)
 	}
 }

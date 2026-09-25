@@ -469,43 +469,147 @@ flash-toast[kind="warning"] { --flash-c: var(--rw-warn); --flash-t: var(--rw-war
 flash-toast[kind="error"] { --flash-c: var(--rw-danger); --flash-t: var(--rw-danger); }
 flash-toast[leaving] { opacity: 0; }
 
-/* graph-canvas writes --px/--py/--s, each card writes --x/--y: cards and
-   the edge layer are transformed, nested sub-tiles ride inside their card. */
+/* ---- canvas ---- */
+/* v0's canvas look (css/input.css .graph-*), keyed on the elements.
+   graph-canvas writes --px/--py/--s, each card --x/--y: the grid, the
+   edge and lane layers and the cards follow them; sub-tiles ride inside
+   their card. The look attributes on graph-canvas (arrows, badges,
+   boundary, legend, hover-focus) switch the rules below; edge strokes are
+   attributes on the paths (graph.edgeAttrs), so the legend draws the same. */
 graph-canvas {
     display: block; position: relative; overflow: hidden; touch-action: none; user-select: none;
+    cursor: grab;
     --px: 0px; --py: 0px; --s: 1;
+    background-image: radial-gradient(circle, var(--rw-grid) 1px, transparent 1px);
+    background-size: calc(22px * var(--s)) calc(22px * var(--s));
+    background-position: var(--px) var(--py);
 }
-graph-canvas > svg[data-edges], graph-canvas > graph-node { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
-graph-canvas > svg[data-edges] {
+graph-canvas > svg[data-edges], graph-canvas > svg[data-lanes], graph-canvas > graph-node {
+    position: absolute; left: 0; top: 0; transform-origin: 0 0;
+}
+graph-canvas > svg[data-edges], graph-canvas > svg[data-lanes] {
     width: 1px; height: 1px; overflow: visible; pointer-events: none;
     transform: translate(var(--px), var(--py)) scale(var(--s));
 }
 graph-node { display: block; }
 graph-canvas > graph-node {
-    display: flex; flex-direction: column; /* the card flexes, sub-tiles keep their height */
-    cursor: grab;
+    z-index: 1;
     transform: translate(calc(var(--px) + var(--x, 0px) * var(--s)), calc(var(--py) + var(--y, 0px) * var(--s))) scale(var(--s));
 }
+graph-canvas > graph-node[node-id^="note:"] { z-index: 0; }
 graph-canvas > graph-node[static] { cursor: default; }
-graph-canvas > graph-node[dragging] { z-index: 10; cursor: grabbing; }
-graph-canvas > graph-node[selected] { outline: 2px solid #3b82f6; outline-offset: 3px; border-radius: 0.5rem; }
-graph-canvas[focusing] > graph-node:not([lit]) { opacity: 0.35; }
-graph-canvas[focusing] path[data-edge-kind]:not([data-lit]) { opacity: 0.15; }
-graph-canvas path[data-edge-kind] { fill: none; stroke: #94a3b8; stroke-width: 1.5; }
-graph-canvas path[data-edge-kind="ref"] { stroke: #64748b; stroke-dasharray: 4 5; }
-graph-canvas path[data-edge-kind="ingress"] { stroke: #3b82f6; }
-graph-canvas path[data-edge-kind="egress"] { stroke: #0ea5e9; }
-graph-canvas path[data-edge-kind="shared"] { stroke: #3b82f6; stroke-dasharray: 5 4; }
-graph-canvas path[data-edge-kind="startup"] { stroke: #f59e0b; stroke-dasharray: 1 5; opacity: 0.6; }
-graph-canvas path[data-edge-kind="config"] { stroke: #a855f7; }
-graph-canvas path[data-edge-kind="source"] { stroke: #a855f7; stroke-dasharray: 4 6; }
-graph-canvas[arrows] path[data-edge-kind] { marker-end: url(#graph-arrow); }
-graph-canvas [data-marquee] { position: absolute; border: 1px dashed #3b82f6; background: rgb(59 130 246 / 0.1); pointer-events: none; }
+graph-canvas > graph-node[dragging] { z-index: 10; }
+graph-canvas > graph-node[dragging], graph-canvas > graph-node[dragging] * { cursor: grabbing; }
+graph-canvas > graph-node[selected] { outline: 2px solid rgb(var(--rw-accent)); outline-offset: 2px; border-radius: 0.75rem; }
+graph-canvas [data-marquee] {
+    position: absolute; z-index: 5; pointer-events: none;
+    border: 1px solid rgb(var(--rw-accent)); background: var(--rw-marquee-fill); border-radius: 4px;
+}
 
-/* Traffic lanes (task 9): a teal dashed flow per direction, labelled on the path. */
-graph-canvas path[data-edge-kind="traffic"] { stroke: #14b8a6; stroke-dasharray: 3 7; animation: lane-flow 1s linear infinite; }
-graph-canvas svg[data-lanes] text { font-size: 10px; fill: #0d9488; }
-graph-canvas path[data-edge-kind="traffic"][data-rev] { animation-direction: reverse; }
-graph-canvas[arrows] path[data-rev] { marker-end: none; marker-start: url(#graph-arrow); }
-@keyframes lane-flow { to { stroke-dashoffset: -10; } }
-@media (prefers-reduced-motion: reduce) { graph-canvas path[data-edge-kind="traffic"] { animation: none; } }
+/* Sub-tiles are the deck under a card (v0 subtileTop/Left): the same box,
+   dealt 8 px across and 28 px down per place, painting behind the card. */
+graph-node > graph-node { position: absolute; width: 100%; height: 100%; }
+graph-node > graph-node:nth-of-type(1) { left: 8px; top: 28px; z-index: -1; }
+graph-node > graph-node:nth-of-type(2) { left: 16px; top: 56px; z-index: -2; }
+graph-node > graph-node:nth-of-type(3) { left: 24px; top: 84px; z-index: -3; }
+graph-node > graph-node:nth-of-type(4) { left: 32px; top: 112px; z-index: -4; }
+graph-node > graph-node:nth-of-type(5) { left: 40px; top: 140px; z-index: -5; }
+graph-node > graph-node:nth-of-type(6) { left: 48px; top: 168px; z-index: -6; }
+graph-node > graph-node:nth-of-type(7) { left: 56px; top: 196px; z-index: -7; }
+graph-node > graph-node:nth-of-type(8) { left: 64px; top: 224px; z-index: -8; }
+
+/* Deck-of-cards skin (stack and env cards): a layer per thing inside, two
+   at most; none yet keeps the ordinary card depth. */
+.card-deck:not([data-deck]) { box-shadow: var(--rw-shadow); }
+.card-deck[data-deck="1"] {
+    box-shadow: 5px 5px 0 -1px var(--rw-deck-fill), 5px 5px 0 0 var(--rw-deck-line);
+}
+.card-deck[data-deck="2"] {
+    box-shadow:
+        5px 5px 0 -1px var(--rw-deck-fill), 5px 5px 0 0 var(--rw-deck-line),
+        10px 10px 0 -1px var(--rw-deck-fill), 10px 10px 0 0 var(--rw-deck-line);
+}
+.card-face { cursor: grab; }
+.card-face:active { cursor: grabbing; }
+/* The bevel on real cards (not decks, refs or system placeholders). */
+.card-face:not(.card-deck):not(.card-ref):not(.card-system) {
+    box-shadow: var(--rw-bevel);
+    transition: box-shadow 120ms ease-out, transform 120ms ease-out, opacity 120ms ease-out;
+}
+.card-face:not(.card-deck):not(.card-ref):not(.card-system):hover { transform: translateY(-1px); box-shadow: var(--rw-bevel-hover); }
+.card-face:not(.card-deck):active { box-shadow: var(--rw-bevel-active); }
+/* An env card in its env's colour: the border at 45 %, full on hover, and
+   a tinted icon. */
+.card-face.has-env-c { border-color: color-mix(in srgb, var(--env-c) 45%, transparent); }
+.card-face.has-env-c:hover { border-color: var(--env-c); }
+.has-env-c .node-icon { color: var(--env-c); background: color-mix(in srgb, var(--env-c) 14%, transparent); }
+graph-canvas:not([badges]) .node-exposure { display: none; }
+
+/* Notes and boxes: the corner x shows on hover. */
+graph-node .note-del { display: none; }
+graph-node:hover > .note-del, graph-node:focus-within > .note-del { display: flex; }
+
+/* Edges: arrows on the drawn edges only (never lanes or swatches). */
+graph-canvas[arrows] svg[data-edges] path[data-edge-kind] { marker-end: url(#edge-arrow); }
+/* The server boundary. */
+graph-canvas svg[data-edges] [data-divider] line { stroke: rgb(var(--rw-strong)); stroke-width: 1; stroke-dasharray: 3 3; }
+graph-canvas svg[data-edges] [data-divider] text {
+    font: 600 10px ui-sans-serif, system-ui, sans-serif; letter-spacing: 0.1em; text-transform: uppercase;
+    fill: rgb(var(--rw-faint)); text-anchor: end;
+}
+graph-canvas:not([boundary]) [data-divider] { display: none; }
+
+/* Traffic lanes: a copy of the edge each rides (its stroke too, set by
+   the element), dashes drifting the way the bytes go, the rate in teal. */
+graph-canvas svg[data-lanes] g[hidden] { display: none; }
+graph-canvas svg[data-lanes] path { stroke-dasharray: 4 8; animation: edgeflow-fwd 0.9s linear infinite; }
+graph-canvas svg[data-lanes] g[data-rev] path { animation-name: edgeflow-rev; }
+graph-canvas svg[data-lanes] text {
+    font: 600 10px ui-monospace, monospace; fill: var(--rw-teal);
+    paint-order: stroke; stroke: var(--rw-edge-label-halo); stroke-width: 3px;
+    text-anchor: middle; pointer-events: none;
+}
+@keyframes edgeflow-fwd { to { stroke-dashoffset: -12; } }
+@keyframes edgeflow-rev { to { stroke-dashoffset: 12; } }
+
+/* Hover focus: the card under the pointer keeps its edges and neighbours,
+   everything else drops back. */
+graph-canvas > graph-node, graph-canvas svg[data-edges] path, graph-canvas svg[data-lanes] g { transition: opacity 120ms ease-out; }
+graph-canvas[focusing] > graph-node:not([lit]):not([node-id^="note:"]) { opacity: 0.28; }
+graph-canvas[focusing] svg[data-edges] path[data-edge-kind]:not([data-lit]) { opacity: 0.4; }
+graph-canvas[focusing] svg[data-edges] path[data-edge-kind][data-lit] { stroke-opacity: 1; stroke-width: 2.4; }
+graph-canvas[focusing] svg[data-lanes] g:not([data-lit]) { opacity: 0.4; }
+
+/* Chrome: the control column, the legend, the env pill, the View panel. */
+.graph-ctrl {
+    @apply flex h-8 w-8 items-center justify-center rounded-lg border border-rw-border
+           bg-rw-surface text-rw-muted hover:text-rw-text hover:border-rw-strong
+           transition-colors text-lg leading-none;
+}
+.graph-legend {
+    @apply absolute bottom-4 right-16 z-10 flex flex-col gap-1 rounded-lg border border-rw-border
+           bg-rw-surface/90 px-3 py-2 pointer-events-none backdrop-blur-sm;
+}
+.graph-legend-row { @apply flex items-center gap-2 text-[11px] leading-none text-rw-muted whitespace-nowrap; }
+graph-canvas:not([legend]) .graph-legend { display: none; }
+.graph-legend-traffic { display: none; }
+graph-canvas:has(svg[data-lanes] g:not([hidden])) .graph-legend-traffic { display: flex; }
+.graph-legend-traffic line { stroke-dasharray: 4 8; animation: edgeflow-fwd 0.9s linear infinite; }
+.env-compare {
+    @apply w-max rounded-lg border border-rw-border bg-rw-surface/90 backdrop-blur-sm shadow-rw
+           hover:border-rw-strong transition-colors;
+}
+.env-pill { @apply flex items-center gap-3 px-3 py-2 text-[11px] leading-none whitespace-nowrap select-none; }
+.graph-view {
+    @apply inset-auto top-0 right-0 m-0 p-0 h-full max-h-none w-full max-w-sm border-0 border-l border-rw-border
+           bg-rw-surface text-rw-text overflow-y-auto cursor-default;
+    box-shadow: var(--rw-drawer-shadow);
+}
+.graph-view::backdrop { background: var(--rw-scrim); }
+
+@media (prefers-reduced-motion: reduce) {
+    graph-canvas > graph-node, graph-canvas svg[data-edges] path, graph-canvas svg[data-lanes] g,
+    .card-face { transition: none; }
+    .card-face:hover { transform: none; }
+    graph-canvas svg[data-lanes] path, .graph-legend-traffic line { animation: none; }
+}

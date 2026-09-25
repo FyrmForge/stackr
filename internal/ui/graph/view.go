@@ -1,15 +1,18 @@
-// Package graph draws one canvas (ui-plan §2): <graph-canvas>, a
-// <graph-node> per card, the edges, notes and boxes, the legend and the
-// toolbar. The graph service decides every card; handlers map its view
-// into these structs and the templ only draws. Env cards bring their own
-// body (Node.Card, internal/ui/graph/cards).
+// Package graph draws one canvas (ui-plan §2) in v0's look: <graph-canvas>,
+// a <graph-node> per card, the edges, notes and boxes, the server boundary,
+// the legend, the controls and the View panel. The graph service decides
+// every card; handlers map its view into these structs and the templ only
+// draws. Env cards bring their own body (Node.Card, internal/ui/graph/cards).
 package graph
 
 import (
+	"maps"
+	"slices"
 	"strconv"
 
 	"github.com/a-h/templ"
 
+	c "github.com/FyrmForge/stackr/internal/ui/components"
 	"github.com/FyrmForge/stackr/internal/ui/graph/cards"
 )
 
@@ -24,7 +27,9 @@ type View struct {
 	Nodes   []Node
 	Edges   []Edge
 	Notes   []Note
-	Divider int // world x of the system column's wall; 0 = none
+	Walled  bool // system cards and the rest both drawn: the server boundary between them
+	Divider int  // world x of that boundary (0 is a real place)
+	Empty   string
 	Compare []Rung
 	Create  []Create     // the level's create dialogs the viewer may open
 	Lanes   []cards.Lane // env traffic at the last sample; nil = no lanes layer
@@ -41,15 +46,15 @@ type Node struct {
 	ID, Kind, Name, Detail string
 	Slug                   string // the drill-down path segment; a connector's id
 	Status                 string // one word, "" = nothing to show
-	X, Y, W, H             int    // H includes 30 px per sub-tile
+	X, Y, W, H             int    // the card's own box; sub-tiles hang below it
 	System, Static         bool
-	Color                  string // env colour, "" = none
+	Color                  string // env hue, "" = none
 	Deck                   int    // drill-down cards: 0 to 2 layers under the card
 	Href                   string // drill-down page; "" = none
 	Drawer                 string // drawer GET, with ?drawer=&tab=; "" = none
 	Push                   string // the URL the drawer pushes: ?drawer=<id>&tab=<tab>
 	Subs                   []Sub
-	Card                   templ.Component // replaces the generic body and sub-tiles (env kinds)
+	Card                   templ.Component // replaces the generic face and sub-tiles (env kinds)
 	Footer                 templ.Component // replaces the generic footer; the stream sends it too
 }
 
@@ -76,12 +81,14 @@ type Rung struct {
 // Route is a helper route of this canvas, show params kept.
 func (v View) Route(name string) string { return v.Base + "/-/" + name + v.Query }
 
-// Foot is what the card's footer is, here and on the stream.
+// Foot is what the card's footer is, here and on the stream: v0's strip
+// by kind ("open settings" on vars and connectors, the status word on the
+// rest).
 func (n Node) Foot() templ.Component {
 	if n.Footer != nil {
 		return n.Footer
 	}
-	return Footer(n.ID, n.Status)
+	return cards.Footer(n.ID, cards.FooterView{Kind: n.Kind, Status: n.Status})
 }
 
 // Toggle is the page URL with one show param flipped.
@@ -126,45 +133,69 @@ func (s Show) Query() string {
 	return "?" + q[1:]
 }
 
-var edgeLabels = map[string]string{
-	"ref":     "uses",
-	"ingress": "ingress",
-	"egress":  "egress",
-	"shared":  "shared config",
-	"startup": "starts after",
-	"config":  "config repo",
-	"source":  "source repo",
+// Edge looks (v0 edgeCurve): one place, drawn on the paths and on the
+// legend swatches alike.
+var edgeLooks = map[string]templ.Attributes{
+	"ref":     {"stroke": "rgb(var(--rw-strong))", "stroke-dasharray": "4 5"},
+	"ingress": {"stroke": "rgb(var(--rw-accent))", "stroke-opacity": "0.7"},
+	"egress":  {"stroke": "var(--rw-amber)", "stroke-opacity": "0.6"},
+	"shared":  {"stroke": "rgb(var(--rw-accent))", "stroke-dasharray": "5 4", "stroke-opacity": "0.6"},
+	"startup": {"stroke": "var(--rw-amber)", "stroke-width": "1.2", "stroke-opacity": "0.5", "stroke-dasharray": "1 5"},
+	"config":  {"stroke": "var(--rw-edge-connector)", "stroke-opacity": "0.75"},
+	"source":  {"stroke": "var(--rw-edge-connector)", "stroke-dasharray": "4 6", "stroke-opacity": "0.4"},
 }
 
-// legend is the edge kinds on this canvas, in a fixed order.
-func (v View) legend() []string {
-	var out []string
-	for _, k := range []string{"ref", "ingress", "egress", "shared", "startup", "config", "source"} {
-		for _, e := range v.Edges {
-			if e.Kind == k {
-				out = append(out, k)
-				break
-			}
+// EdgeAttrs is an edge path's stroke for its kind (the dev gallery draws
+// its sample edges with it too).
+func EdgeAttrs(kind string) templ.Attributes {
+	a := templ.Attributes{"fill": "none", "stroke-width": "1.5", "stroke-linecap": "round"}
+	maps.Copy(a, edgeLooks[kind])
+	return a
+}
+
+// legendRows is v0's legend order, with the words each kind reads as.
+var legendRows = []struct{ kind, label string }{
+	{"ingress", "public route"},
+	{"egress", "outbound"},
+	{"config", "config as code"},
+	{"source", "source repo"},
+	{"shared", "managed instance"},
+	{"ref", "reference"},
+	{"startup", "startup order"},
+}
+
+// legend is the legend rows of the edge kinds on this canvas.
+func (v View) legend() []struct{ kind, label string } {
+	var out []struct{ kind, label string }
+	for _, r := range legendRows {
+		if slices.ContainsFunc(v.Edges, func(e Edge) bool { return e.Kind == r.kind }) {
+			out = append(out, r)
 		}
 	}
 	return out
 }
 
+// wall is the boundary's run: 120 px past the top and bottom cards (v0).
+func (v View) wall() (top, bottom int) {
+	for i, n := range v.Nodes {
+		if i == 0 || n.Y < top {
+			top = n.Y
+		}
+		if i == 0 || n.Y+n.H > bottom {
+			bottom = n.Y + n.H
+		}
+	}
+	return top - 120, bottom + 120
+}
+
+// hue is the class that sets --env-c to an env's colour; "" for none.
+func hue(color string) string {
+	if !slices.Contains(c.EnvColors, color) {
+		return ""
+	}
+	return "env-c-" + color
+}
+
 func itoa(n int) string {
 	return strconv.Itoa(n)
-}
-
-func boolStr(b bool) string {
-	return strconv.FormatBool(b)
-}
-
-// deck is the look of 1 or 2 cards stacked under a drill-down card.
-func deck(n int) string {
-	switch {
-	case n >= 2:
-		return "shadow-[5px_5px_0_-1px_#cbd5e1,10px_10px_0_-2px_#e2e8f0]"
-	case n == 1:
-		return "shadow-[5px_5px_0_-1px_#cbd5e1]"
-	}
-	return ""
 }

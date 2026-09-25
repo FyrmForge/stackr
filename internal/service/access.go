@@ -70,6 +70,9 @@ type Scope struct {
 	Stack *Stack
 	Env   *Environment
 	Tile  *Tile
+	// Envs is the stack's environments (List's order) when an env
+	// resolved: the top bar's env picker and every env's hue.
+	Envs []Environment
 }
 
 // Resolve walks the slugs in order and stops at the first empty one; the
@@ -100,6 +103,9 @@ func (o *Orchestrator) Resolve(ctx context.Context, org, stack, env, tile string
 		return s, err
 	}
 	s.Env = &en
+	if s.Envs, err = o.envs.List(ctx, st.ID); err != nil {
+		return s, err
+	}
 	if tile == "" {
 		return s, nil
 	}

@@ -113,10 +113,15 @@ func TestDrawerTabs(t *testing.T) {
 			}
 		}
 	}
-	// the cards on the canvases point at them
-	if body := get(t, s, "/acme"); !strings.Contains(body, `hx-get="/acme/shop/-/drawer"`) ||
+	// a level's top bar "Settings" opens its own drawer; a stack card drills
+	// into the stack (v0), the vars card opens the editor
+	if body := get(t, s, "/acme"); !strings.Contains(body, `hx-get="/acme/-/drawer"`) ||
+		!strings.Contains(body, `hx-get="/acme/shop"`) ||
 		!strings.Contains(body, `hx-get="/acme/-/vars"`) {
-		t.Error("the org canvas's cards do not open their drawers")
+		t.Error("the org canvas's Settings and cards do not open their drawers")
+	}
+	if body := get(t, s, "/acme/shop"); !strings.Contains(body, `hx-get="/acme/shop/-/drawer"`) {
+		t.Error("the stack canvas's Settings does not open the stack drawer")
 	}
 }
 

@@ -1,4 +1,4 @@
-const [GRID, GAP, RINGS] = [22, 8, 12];
+const [GRID, GAP, RINGS] = [22, 12, 12];
 class GraphNode extends HTMLElement {
     static observedAttributes = ["x", "y", "w", "h"];
     drag = null;
@@ -87,7 +87,7 @@ class GraphNode extends HTMLElement {
         if (!d.moved)
             return;
         this.swallow = true;
-        if (d.start.length === 1)
+        if (d.start.length === 1 && this.canvas()?.hasAttribute("nooverlap"))
             this.nudge();
         for (const [n] of d.start)
             n.commit();
@@ -118,7 +118,7 @@ class GraphNode extends HTMLElement {
     }
     nudge() {
         const [x0, y0] = [this.num("x"), this.num("y")];
-        const others = [...(this.parentElement?.children ?? [])].filter((n) => n instanceof GraphNode && n !== this);
+        const others = [...(this.parentElement?.children ?? [])].filter((n) => n instanceof GraphNode && n !== this && !n.getAttribute("node-id")?.startsWith("note:"));
         for (let r = 0; r <= RINGS; r++) {
             const ring = [];
             for (let i = -r; i <= r; i++)

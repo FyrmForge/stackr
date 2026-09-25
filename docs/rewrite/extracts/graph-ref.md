@@ -228,7 +228,8 @@ swallowed.
 - **Newcomer beside a hand-placed neighbour.** A card with a saved
   neighbour tries four slots in order: left (one card plus 80 px), right,
   above, below. It takes the first free one, otherwise steps down in rows.
-  Positions snap to the 22 px grid.
+  These slots, satellites and row steps snap to the 22 px grid; column x
+  positions do not (the proxy sits at -280, columns at 80 and 380).
   - This is why the first drag must save *every* card. Otherwise all
     unsaved neighbours become newcomers and jump next to the dragged card.
 - **Engines**, chosen by the `arrange` pref:
@@ -246,9 +247,17 @@ swallowed.
   card it does not touch. One crossing is scored at about 400 px of extra
   edge length.
 - **Collision box.** Card 220×96 plus 30 px per sub-tile; gaps 40 × 30.
-- **Stack and org canvases** use a column sweep instead: one column per
-  kind, rows 140 px apart, skipping rows a dragged card holds. **Home**: a
-  wrapping grid.
+- **Org, stack and env canvases all run `Arrange`** (org/graph.go,
+  stackgraph.go, project/handler.go). The column sweep (`placeColumns`,
+  rows 140 px apart from y 80, skipping rows a dragged card holds) is only
+  **home's**: `layoutOrgs` fills columns of 4 orgs by id, 360 px apart.
+  v0's comment on `placeColumns` still says stack and org use it; stale.
+- **Rewrite port (step 6e)**: `internal/service/internal/flow/graph/arrange.go`
+  is this, pinned by v0's exact coordinates in `arrange_test.go`. Not
+  ported: flow and the `arrange` pref (clusters only). Egress edges (the
+  live traffic sample, v0's "traffic") never drive placement. Replica
+  sub-tiles are left out of the card height; volume and instance subs
+  count.
 - **Late additions**, no layout of their own: ghost refs park 260 px
   right of their first consumer, forward cards 300 px left of their
   target.

@@ -184,3 +184,32 @@ func TestCloneRules(t *testing.T) {
 		t.Errorf("rewrite = %s", got)
 	}
 }
+
+// Hues: named slugs claim theirs first wherever they stand, the stored
+// colour wins, the rest take the next free hue, statics before PR envs.
+func TestHues(t *testing.T) {
+	env := func(id, slug, typ, color string) store.Environment {
+		return store.Environment{ID: id, Slug: slug, Type: typ, Color: color}
+	}
+	got := environment.Hues([]store.Environment{
+		env("a", "qa", environment.Static, ""),
+		env("b", "staging", environment.Static, ""),
+		env("c", "prod", environment.Static, ""),
+		env("d", "demo", environment.Static, "lime"),
+		env("e", "pr-1", environment.Ephemeral, ""),
+		env("f", "dev", environment.Ephemeral, ""),
+	})
+	want := map[string]string{
+		"a": "teal",
+		"b": "amber",
+		"c": "rose",
+		"d": "lime",
+		"e": "lime", // a stored colour reserves nothing (v0 did the same)
+		"f": "violet",
+	}
+	for id, h := range want {
+		if got[id] != h {
+			t.Errorf("%s = %q, want %q (all %v)", id, got[id], h, got)
+		}
+	}
+}
