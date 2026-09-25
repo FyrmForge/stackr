@@ -33,6 +33,7 @@ type App interface {
 	Manifest(connectorID, ghOrg, state string) (action, manifest string, err error)
 	ConvertManifest(ctx context.Context, code string) (githubapp.App, error)
 	Token(ctx context.Context, key string, app githubapp.App) (string, error)
+	Repos(ctx context.Context, token string) ([]githubapp.Repo, error)
 }
 
 type Leaf struct {
@@ -197,6 +198,24 @@ func (l *Leaf) CloneEnv(ctx context.Context, c store.Connector, gitURL string) (
 		return nil, err
 	}
 	return githubapp.CloneAuth(gitURL, tok), nil
+}
+
+// Repos asks GitHub which repositories the app may read: the install check.
+// Empty (no error) when the app is not installed anywhere yet, or installed
+// with no repos picked; either way nothing can be cloned through it.
+func (l *Leaf) Repos(ctx context.Context, orgID, id string) ([]githubapp.Repo, error) {
+	c, err := l.Get(ctx, orgID, id)
+	if err != nil {
+		return nil, err
+	}
+	tok, err := l.Token(ctx, c)
+	if errors.Is(err, githubapp.ErrNotInstalled) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return l.app.Repos(ctx, tok)
 }
 
 // Token is c's installation token (cached by the wrapper).

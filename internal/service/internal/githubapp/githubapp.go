@@ -40,6 +40,17 @@ type cachedToken struct {
 	exp   time.Time
 }
 
+// ErrNotInstalled: the app exists on GitHub but no account installed it, so
+// there is no installation to mint a token for.
+var ErrNotInstalled = errors.New("not installed on any GitHub account; install it first")
+
+// Repo is one repository an installation may read.
+type Repo struct {
+	FullName      string `json:"full_name"`
+	Private       bool   `json:"private"`
+	DefaultBranch string `json:"default_branch"`
+}
+
 type Client struct {
 	baseURL string // stackr's own public URL, for the manifest's callback URLs
 	apiURL  string // GitHub's API; a field so tests can point it at a fake
@@ -155,7 +166,7 @@ func (c *Client) Token(ctx context.Context, key string, app App) (string, error)
 		return "", err
 	}
 	if len(insts) == 0 {
-		return "", fmt.Errorf("github app %s has no installations; install it on your account first", app.Slug)
+		return "", fmt.Errorf("github app %s: %w", app.Slug, ErrNotInstalled)
 	}
 	var tok struct {
 		Token     string    `json:"token"`
@@ -169,6 +180,19 @@ func (c *Client) Token(ctx context.Context, key string, app App) (string, error)
 	c.tokens[key] = cachedToken{tok.Token, tok.ExpiresAt}
 	c.mu.Unlock()
 	return tok.Token, nil
+}
+
+// Repos lists the repositories the installation token may read. It doubles
+// as the install check: an installed app with no repos picked lists none.
+// ponytail: first 100 only, paginate when someone has more.
+func (c *Client) Repos(ctx context.Context, token string) ([]Repo, error) {
+	var out struct {
+		Repositories []Repo `json:"repositories"`
+	}
+	if err := c.api(ctx, http.MethodGet, "/installation/repositories?per_page=100", token, &out); err != nil {
+		return nil, err
+	}
+	return out.Repositories, nil
 }
 
 // api calls GitHub with a bearer (app JWT or installation token; GitHub takes

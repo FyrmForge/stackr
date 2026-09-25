@@ -18,7 +18,10 @@ import (
 
 var ctx = context.Background()
 
-type fakeApp struct{ state string }
+type fakeApp struct {
+	state        string
+	notInstalled bool
+}
 
 func (f *fakeApp) Manifest(id, _, state string) (string, string, error) {
 	f.state = state
@@ -35,7 +38,14 @@ func (f *fakeApp) ConvertManifest(context.Context, string) (githubapp.App, error
 }
 
 func (f *fakeApp) Token(_ context.Context, key string, app githubapp.App) (string, error) {
+	if f.notInstalled {
+		return "", githubapp.ErrNotInstalled
+	}
 	return "tok-" + app.Slug, nil
+}
+
+func (f *fakeApp) Repos(_ context.Context, token string) ([]githubapp.Repo, error) {
+	return []githubapp.Repo{{FullName: "acme/api", DefaultBranch: "main"}}, nil
 }
 
 func seedOrg(t *testing.T, st *store.Store) string {
@@ -97,6 +107,14 @@ func TestHandshake(t *testing.T) {
 	}
 	if _, err := l.InstallURL(ctx, "other-org", c.ID); err == nil {
 		t.Error("another org read the install url")
+	}
+	f.notInstalled = true
+	if rs, err := l.Repos(ctx, org, c.ID); err != nil || len(rs) != 0 {
+		t.Errorf("not installed repos = %v %v", rs, err)
+	}
+	f.notInstalled = false
+	if rs, err := l.Repos(ctx, org, c.ID); err != nil || len(rs) != 1 || rs[0].FullName != "acme/api" {
+		t.Errorf("installed repos = %v %v", rs, err)
 	}
 	if _, err := l.Complete(ctx, f.state, "code"); !errors.Is(err, errs.ErrRefused) {
 		t.Errorf("replayed callback = %v", err)

@@ -90,6 +90,34 @@ func TestToken(t *testing.T) {
 	}
 }
 
+func TestNotInstalledAndRepos(t *testing.T) {
+	_, pemKey := testKey(t)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method + " " + r.URL.Path {
+		case "GET /app/installations":
+			_, _ = w.Write([]byte(`[]`))
+		case "GET /installation/repositories":
+			if r.Header.Get("Authorization") != "Bearer ghs_x" {
+				http.Error(w, "bad token", http.StatusUnauthorized)
+				return
+			}
+			_, _ = w.Write([]byte(`{"total_count":1,"repositories":[{"full_name":"acme/api","private":true,"default_branch":"main"}]}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+	c := New("https://stackr.example.com")
+	c.apiURL = srv.URL
+	if _, err := c.Token(context.Background(), "conn1", App{ID: 1, Slug: "s", PEM: pemKey}); !errors.Is(err, ErrNotInstalled) {
+		t.Fatalf("no installations = %v, want ErrNotInstalled", err)
+	}
+	rs, err := c.Repos(context.Background(), "ghs_x")
+	if err != nil || len(rs) != 1 || rs[0].FullName != "acme/api" || !rs[0].Private {
+		t.Fatalf("repos = %+v %v", rs, err)
+	}
+}
+
 func TestManifestAndConvert(t *testing.T) {
 	c := New("https://stackr.example.com/")
 	action, m, err := c.Manifest("abcdef12", "acme", "abcdef12.nonce")
