@@ -121,17 +121,23 @@ extracts/, this file.
 
 - [x] this file updated with a "start here" line for the Opus step 0 session
 
-**START HERE (Opus, step 1):** branch `rewrite-step-1`, stacked on
-`rewrite` (step 0 merged into it as PR #6). Read `REWRITE.md` "Method"
-and `docs/rewrite/tasks/step-1.md`, do its tasks in order, commit per
-task, tick `[x] step 1` below when the done gate passes, open the PR
-`rewrite-step-1` → `rewrite`. Do not read `../stackr-old`; the extracts
-in `docs/rewrite/extracts/` are the only view of the old code. `hamr dev`
-check from step 0 is still owed to darhvader.
+**START HERE (Opus, step 6):** branch `rewrite-step-6`, stacked on
+`rewrite-step-4` (PR #11, GitHub stack #9); step 5 runs in parallel on
+`rewrite-step-5` and is re-stacked after. Step 6 runs as: session A =
+tasks 1–4 (foundation), then sessions B (auth/org/stack pages) and C
+(env/tile/admin pages) in parallel worktrees, then session D = tasks
+11–13. Read `REWRITE.md` "Method", `docs/rewrite/verbs.md`,
+`docs/openapi.json`, then `docs/rewrite/tasks/step-6.md`. Do not read
+`../stackr-old`; `docs/rewrite/extracts/templ-ref.md` is the only view of
+the old screens.
 
-## Build steps (Opus, one fresh session + one stacked PR each)
+## Build steps (one fresh Opus session + one stacked PR each)
 
-- [x] step 0 scaffold and docs
+Runner key: `[F+O]` = Fable planning session drives an Opus sub-agent,
+Fable verifies the gates and launches the next step; `[O]` = a plain Opus
+session started by darhvader from the START HERE line, no Fable.
+
+- [x] [F+O] step 0 scaffold and docs
   - [x] step 0 / task 1: `cmd/stackrd`, `cmd/stackr`, `cmd/stackr-install`;
     `run() error` + `--version` fix both lint findings. `installcli` =
     `go install ./cmd/stackr`, `installer` = `bin/stackr-install`. `hamr dev`
@@ -168,12 +174,102 @@ check from step 0 is still owed to darhvader.
     Known, not step 0: `make templint` fails on the scaffold's login and
     register forms (`no-native-form-actions`), and `ci.yml` calls `make
     migrate`, which is not a Makefile target, so PR CI goes red.
-- [ ] step 1 groundwork
-- [ ] step 2 docker wrapper
-- [ ] step 3 services
-- [ ] step 4 API + CLI
-- [ ] step 5 installer + self-upgrade
-- [ ] step 6 UI
+- [x] [F+O] step 1 groundwork
+  - Order: secrets and errs landed before the store (it seals with both);
+    the harness came with authz (the middleware test needs it), task 11
+    added `servicetest.Store` and moved the other tests onto it.
+  - Schema: surrogate ids on `org_members` and `release_tiles` (one CRUD
+    shape); `commit` is `commit_sha` (reserved word). See `schema.md`.
+  - `FileStorage` / `STORAGE_PATH` removed from `stackrd` (no v1 user).
+    New env: `DATA_DIR`, `DATABASE_PATH`, `STACKR_MASTER_KEY`. `hamr dev`
+    now needs `STACKR_MASTER_KEY` in `.env` (`openssl rand -hex 32`); the
+    `hamr dev` start check is still owed to darhvader.
+  - `flow/jobs` runs with no handlers and no param check wired: kinds and
+    `enqueue` land with the first flow (step 3). Orchestrator exposes
+    `GetJob`, `CancelJob` only.
+  - `service/new_test.go` keeps its own DB: it is inside package
+    `service`, the harness would be an import cycle.
+  - `make templint` passes now; AGENTS.md: testify → stdlib, repo line,
+    access middleware, env vars.
+- [x] [F+O] step 2 docker wrapper
+  - `ContainerSpec`: `Networks []NetAttach` (all joined at create, no
+    default bridge; DECIDE 9 a), `Restart` is docker's string, plus
+    `HostNetwork`, `CapAdd`. No 5s health-interval default (flow/deploy).
+  - `Detail` gains `Running` and `Networks` (network → IP).
+    `EnsureNetwork`/`CreateVolume` take labels; `ListNetworks`,
+    `EnsureTool`, `ListImages`, `PruneImages` (keep list) added; `Build`
+    returns the image id. Missing network/volume on remove = nil;
+    missing container = typed `ErrNotFound`.
+  - Tag → digest resolution lives only in `registry.Digest` (index
+    digest, DECIDE 6 a); the Docker wrapper has no remote resolver.
+  - `git`: token goes to git as `GIT_CONFIG_*` env, never in the URL;
+    `ImageName` lives in `git` (the "tag exists → -jobID" rule is noted
+    for `leaf/image`).
+  - Webhook verify + decode sit in `githubapp` (from the webhook
+    extract); `PullRequest` also decodes `head.sha`.
+  - `s3`: `Put` takes an `io.ReadSeeker` (S3 needs the length; the
+    archive is a scratch file). Single PUT, 5 GiB ceiling (ponytail).
+  - `proxy`: pushes are serialized, not coalesced; coalescing needs the
+    config builder, so it belongs to step 3. Every pushed config must
+    carry the admin listener (Caddy drops to localhost otherwise).
+  - `vip` integration test needs NET_ADMIN; passes under `unshare -rn`.
+    `make test-integration` added (Docker, Docker Hub, MinIO, Caddy).
+- [x] [F+O] step 3 services
+  - session A (leaves 1–15) done: 2026-09-24
+    - org: API key minting lives in leaf/user; invite TTL 7d; only the owner role is writable.
+    - user: password minimum 8.
+    - stack: new `slug` package; new `stacks.domains` column (reservations).
+    - environment: PR envs stay off the ladder; network is `stackr-env-<id>`.
+    - tile: volume attach/detach refusals moved to leaf/volume; ToggleCron and RunNow dropped; watcher-key wart fixed.
+    - params: `ParamSet` for flow/jobs still unwired (DECIDE 17).
+    - volume: max_size_mb recorded, not enforced.
+    - domain: priority, rule, middlewares and custom certs gone; ACME account per email via Caddy issuers; force HTTPS is a 308; trusted-proxy parsing and the Cloudflare IP fetch left to session B; `golang.org/x/crypto` now a direct dependency.
+    - connector: another org's connector is not found; no sole-connector fallback.
+    - managed: env scope_id is the env id; on_remove is keep|drop.
+    - release: `ReleaseTileStore.ImageIDs` added. job: `JobStore.ListTouching` added.
+    - backup: `BackupRunStore.ListByPrefix` added; prefix is `stackr/<org>/<volume>/<schedule>` (was org/stack/tile/backup); `VolumeFor` not built (every schedule hangs off a volume row, leaf/volume names it); the dest-ref parser (`Resolve`) lives here; deleting a destination a schedule uses is refused.
+  - session B (flows 16–25) done: 2026-09-24
+    - stack file: `files:` mounts and `shared:` are refused (not built).
+    - promote: no per-tile rollback helpers; a failed apply leaves done tiles on the new release.
+    - backup: restore skips the old restart-cleanup steps.
+    - proxy: `proxy_custom` is not fed to the builder yet; the proxy container needs `DNS_API_TOKEN` and its XDG dirs on a volume (step 5).
+    - proxy: `trusted_proxies` takes IPs and CIDRs only; the `cloudflare` keyword (edge-range fetch) is not built.
+    - upgrade: `Config.PanelSpec` is the installer's to supply (step 5); `stackrd upgrade-swap` runs the swap.
+    - new `storetest` package, so in-package flow tests can seed a store without an import cycle.
+    - promote exports `NormalizeRepo` and `Remove` for the service's webhook and delete jobs.
+    - jobs get no `ParamSet` (DECIDE 17 b); DECIDE 35–39 added.
+    - verb list and job lock sets: `docs/rewrite/verbs.md`.
+- [x] [F+O] step 4 API + CLI
+  - Routes: one table in `internal/api/routes.go` (op, verb or Self/Public); spec from `stackrd --dump-openapi` in `docs/openapi.json`, diffed by `make lint`.
+  - Webhook is `POST /hooks/connectors/:connector`, not `/hooks/github/:org` (DECIDE 40).
+  - CLI login: `/cli/authorize?port&state&name` (step 6 page) POSTs `/api/v1/orgs/:org/cli-codes` with session + `X-CSRF-Token`, redirects to `http://127.0.0.1:<port>/?code&state`; the CLI swaps the code at `POST /auth/exchange` (DECIDE 44).
+  - Not mounted, step 6 owns it: `GET /settings/github/callback` -> `CompleteConnector`.
+  - Harness: servicetest now stubs the VIP table by default and has `Healthy`, `Image`, `Connector`, `NewWith`.
+  - Backup dest: an empty access key keeps the stored one (as the secret key did).
+  - Config repo refuses another org's connector; domain reads blank the basic-auth password (empty + same user keeps it on update).
+  - Modules: cobra, pflag, x/term moved from indirect to direct; none new.
+- [x] [F+O] step 5 installer + self-upgrade — done: 2026-09-24
+    - `stackr-install` (cmd/stackr-install) and `internal/installspec`: one spec renders the installer's `docker run` lines and stackrd's `Config.PanelSpec` (a test reads one back into the other).
+    - answers saved to `<data>/install.json`; a re-run converges, other answers are refused; the master key lives in `<data>/keys/master.key`.
+    - proxy is its own container (`stackrd proxy`, 80/443, admin on 127.0.0.1:2019, certs on volume `stackr-caddy`); the panel runs host-network, bound to the docker bridge gateway, no public port.
+    - fixed from step 3: the upgrade helper's Cmd is `upgrade-swap` (the image entrypoint is stackrd), and a pull is skipped when the image is already local.
+    - `stackr-install restore <archive>` puts a panel archive back (db, key, build); the upgrade job log prints this line.
+    - `make release RELEASE=vX.Y.Z` plus `.github/workflows/release.yml` on a tag; image tags drop the `v`.
+    - verified on the test VM: install with a Let's Encrypt cert, upgrade 0.0.1 → 0.0.2, restore back to 0.0.1, admin user kept each time.
+    - waits on step 4: no API route or CLI verb starts an upgrade yet, so the VM run queued the job row by hand; the `stackr` host wrapper execs a CLI that is still the step 4 stub.
+    - an upgrade swaps the panel only; the proxy stays on the image it was installed with (DECIDE 49).
+    - the `cloudflare` keyword for `--proxy` is not built; the flag takes IPs and CIDRs.
+- [x] [F+O] step 3b cron and function tiles — done: 2026-09-24 (branch `rewrite-step-3b`, stacked on step 5)
+    - kinds `cron` and `function` on `tiles` with `schedule`, `trigger`, `paused`, `timeout_minutes`; B26 refusals verbatim from tilelifecycle.md; a run kind builds from `git_url` or runs `image:`, one of the two.
+    - `leaf/run`: `runs` table (keep 50 per tile), log file `$DATA_DIR/runs/<tile>/<run>.log` capped to the last 1 MiB; runs left `running` at boot are failed.
+    - `flow/run` (edge run -> deploy): row first, then the job; the container is built by `deploy.Spec`, waited on, removed; ok / exit code / timeout / stopped.
+    - deploy of a run kind starts no container; a cron reloads the schedule table, an on_deploy function queues a run (after `Deploy` and after promote).
+    - job kind `run`: lock set tile + `run:<id>`, no 30-minute cap (`jobs.Options.Uncapped`), the tile's timeout instead.
+    - verbs `RunTile`, `PauseTile`, `Runs`, `Run`, `StopRun`, `RunLog`, `FollowRunLog`; `TileStatus` adds `last_run`, `next_run`, `paused`; Stop on a cron pauses, on a function refuses; Restart and Start refuse both.
+    - routes `POST tile/run`, `POST tile/pause`, `GET tile/runs`, `GET tile/runs/:run`, `DELETE tile/runs/:run`; `?run=` on logs and the log stream. CLI `stackr tile run|pause|resume|runs`, `logs --run`, `stop --run`, `--schedule/--trigger/--timeout`.
+    - stack file: `kind: cron` + `schedule:`, `kind: function` + `trigger:`, `timeout_minutes:`; the plan prints old and new schedule, trigger and timeout.
+    - no stacked PR opened (the builder was told not to push); DECIDE 52 to 62 added.
+- [ ] [F+O] step 6 UI
 
 ## DECIDE:
 
@@ -249,3 +345,256 @@ fixed entries (`@daily`, `@every Nm`) not schedule rows, backup schedules
 keep their `timezone` column composed into `CRON_TZ=`; `release-tilediff` dual
 field vocabulary collapses to one (config plans are gone); `ToggleCron`
 pause intent has no home and cron tiles are Later anyway.
+
+Raised by step 1 (builder took the lean; flip any):
+
+13. **Unbound API keys.** `api_keys.org_id` is `ON DELETE CASCADE` (a key
+   of a deleted org must not turn unbound), and an unbound key (no org)
+   is admin-only: `authz.Can` refuses it for a non-admin. Options: (a)
+   keep; (b) unbound keys act as the user across all their orgs.
+14. **Master key source.** `stackrd` refuses to start without
+   `STACKR_MASTER_KEY` and never generates one; the installer writes it.
+   Options: (a) keep; (b) generate into `DATA_DIR` on first boot.
+15. **Settings precedence.** For install-wide knobs: a `settings` row >
+   the `Config` boot value (env) > catalogue default. So a UI change beats
+   the env var. Options: (a) keep; (b) env pins the value, UI read-only.
+16. **Supersede rule.** A newer job supersedes an older one only when
+   same kind AND its lock set covers every tile of the older one; any
+   other overlap queues behind. Options: (a) keep; (b) any overlap on the
+   same kind supersedes.
+17. **Parked jobs re-run blind.** With no param check wired, every
+   `waiting` job is requeued each poll (3s) and the handler re-checks.
+   Step 3 should pass `ParamSet` so they wake only when the param
+   resolves. Options: (a) wire it in step 3; (b) keep the blind poll.
+   Session B took (b): jobs get no `ParamSet`; a `ponytail:` in
+   orchestrator.go marks it.
+18. **Revoke breadth.** Losing standing in one org (removed, demoted)
+   closes all of the user's sessions install-wide (sessions carry no org)
+   and that org's API keys; losing stackr admin or being disabled closes
+   every session and key. Options: (a) keep; (b) close sessions only on
+   disable/admin loss.
+19. **Schema calls.** Connector `config` encrypted (holds the App private
+   key; not in the task's list); volumes carry their own
+   `scope_kind`/`scope_id` instead of `env_id` or instance (a shared
+   instance's volume follows its scope). Options: (a) keep; (b) revisit.
+
+Raised by step 2 (builder took the lean; flip any):
+
+20. **Replica spread.** A VIP spreads over its replicas with
+   `-m statistic --mode random`, rule i of n taking 1/(n-i), so each
+   replica gets 1/n per new connection. Options: (a) keep; (b)
+   `--mode nth` round-robin (even counts, but per-rule counters reset on
+   every rewrite).
+
+Raised by step 3 session A (builder took the lean; flip any):
+
+21. **Org roles.** `leaf/org` writes only `owner` (the plan's two roles:
+   stackr admin, org owner); `authz` already ranks member/viewer. Options:
+   (a) keep owner-only; (b) open member/viewer on members and invites now.
+22. **Stack domain reservations.** The stack file's `domains:` (host,
+   acme_email, include_env_on_default) had no home in the schema. Stored as
+   a JSON column `stacks.domains`; server-wide host uniqueness is the
+   flow's check against `domains`. Options: (a) keep; (b) its own table
+   with a unique host index.
+23. **B26 whitelist.** `leaf/tile.Carries`: service = build keys + run
+   keys; image = image, update_policy auto, tag_policy + run keys; managed
+   = image override, env, limits, shm_size_mb, published_ports only (the
+   engine owns command, port, volumes; one replica). git_url stays
+   GitHub-only (the old message). Options: (a) keep; (b) let managed rows
+   carry more run keys.
+24. **Where proxy pushes coalesce.** `leaf/domain.Syncer`: one run at a
+   time, callers during a run collapse into exactly one follow-up, the run
+   ignores the request context (2 min cap), every caller gets its run's
+   error. It takes `Build` (the flow: rows + facts → `domain.Build`) and
+   `Push` (`proxy.Client.Push`) as funcs, since the config needs other
+   tables. Options: (a) keep in leaf/domain; (b) move to a `flow/proxy`.
+25. **`proxy.methods` extra.** Caddy blocks no verb, so WebDAV/CalDAV
+   already pass. Built as an allowlist (a `method` matcher: other verbs
+   miss the route). Options: (a) keep allowlist; (b) drop the extra.
+26. **Restoring an orphan's archive.** Runs outlive their volume
+   (volume_id SET NULL), but `leaf/backup.Restorable(run, sourceVolume)`
+   needs the run to belong to the source volume, so an orphan's last
+   archive (prefix `stackr/_orphan/<volume>`, no org in it) cannot be
+   restored from the panel. Options: (a) keep, admin restores by hand;
+   (b) record the org on the run so its owner can restore it into
+   another volume.
+
+Raised by step 3 session B (builder took the lean; flip any):
+
+27. **`files:` mounts.** Materializing repo files needs the tile's clone at
+   the pinned commit, which only the build path has. flow/deploy refuses a
+   tile with `files:` ("not supported yet"). Options: (a) keep refused in
+   v1 (not in the v1 scope list); (b) the build job copies the files into
+   `<data>/files/<tile>/<commit>` and deploy binds them read-only. Lean (a).
+28. **How stackrd reaches an s3 instance.** The s3 engine speaks the S3
+   API from stackrd at the instance's endpoint, else `http://<slug>:9000`,
+   so stackrd must be routable to it. Options: (a) keep, stackrd joins the
+   env/shared networks it manages; (b) exec an `mc` sidecar on the
+   instance's network. Lean (a).
+29. **What may land in a `from: promote` env.** One rule serves promote
+   and rollback (B2): the release's number must not be above the one the
+   env below runs, and the env below must run something. No history
+   lookup, so any older release may come back. Options: (a) keep;
+   (b) only releases the env below has actually run. Lean (a).
+30. **`shared:` in the stack file.** Stack- and org-scoped managed
+   instances from the file need scope changes on promote and ownership
+   across envs. `Parse` refuses a non-empty `shared:`. Options: (a) keep
+   refused in v1, share from the panel/CLI; (b) build it. Lean (a).
+31. **Where stack-file keys land.** Params land in the promoted env's
+   scope (secrets are declared only, a warning while unset); stack
+   `defaults:` and `domains:` reservations apply only when promoting into
+   the bottom rung, so a rollback higher up never rewrites them. Slices
+   sit on the consumer (`slices: [db]` or `{from, name, on_remove,
+   public}`). Options: (a) keep; (b) params at stack scope. Lean (a).
+32. **Image-watch tag policy grammar.** `tag_policy` is `[semver]
+   <constraint>`: `^1.2`, `~1.2`, a prefix `1` / `1.2`, or `*`; bare
+   `semver` means `^` the ref's own tag, so a watch never jumps a major
+   unasked. Pre-releases never match. A release from the watch is `Auto`
+   only when every tile it swaps is `update_policy: auto`; a mixed env
+   waits for the button. Options: (a) keep; (b) a regex policy too.
+   Lean (a).
+33. **Panel swap runs in a helper.** A process cannot gate its successor
+   after stopping its own container, so `Upgrade` pulls, archives, then
+   runs a one-shot `stackr-upgrader` container from the new image
+   (`stackrd upgrade-swap`, spec as JSON in `STACKR_SWAP_SPEC`). It stops
+   the old panel (kept), runs the new one as `stackr-<version>`, gates it
+   like a tile, then removes the old or puts it back. The panel is found
+   by the `stackr.role=panel` label, not its name. `upgrade_archive` is
+   recorded at launch: the old panel is gone by the time the swap ends,
+   and the archive restores either way. Options: (a) keep; (b) the new
+   panel records the outcome on boot. Lean (a).
+34. **Non-cron drivers on the cron.** Orphan retention is an `@daily`
+   entry and image watch an `@every 1m` entry through the same registry;
+   the watch flow's `Due` holds the real interval (`image_check_interval`,
+   0 = off), so a setting change needs no reload. Backup time zones are
+   composed from the column as `CRON_TZ=`. Options: (a) keep; (b) a second
+   entry kind. Lean (a).
+35. **PR env lifecycle.** A pull_request opens `pr-<n>` cloned from the
+   lowest ladder env built from the PR's base branch, then runs a push
+   for the head commit; closing removes its tiles and the env. Only
+   stacks whose tiles or config repo use that repo get one.
+   `pr_envs.enabled`/`against` in the stack file are not read yet.
+   Options: (a) keep; (b) honour `pr_envs` in step 3. Lean (a), and
+   honour it with the stack file work in step 4.
+36. **Param and settings changes redeploy right away.** `SetParams`,
+   `DeleteParam`, `SetStackSettings`, `SetEnvSettings` and a redeploy
+   edit through `UpdateTile` queue a deploy for every running tile in
+   scope. `SetSettingDefaults` redeploys every org. Options: (a) keep;
+   (b) mark tiles stale and let the user deploy. Lean (a) (B34).
+37. **Panel archives.** Panel self-backups go to the local dest only,
+   and the newest 14 are kept. The install id comes from
+   `STACKR_INSTALL_ID` (default `default`). Options: (a) keep; (b) a
+   setting for the dest and count. Lean (a).
+38. **Stack delete refuses while envs exist.** Options: (a) keep;
+   (b) cascade-delete the envs as jobs. Lean (a).
+39. **Promote has no request-time dry run.** `Promote` and `Rollback`
+   queue the job at once; the job fails with the blocker text.
+   `PlanPromote` is the pre-check a handler or UI calls first. Options:
+   (a) keep; (b) plan inside `Promote` and refuse before queueing.
+   Lean (a).
+40. **Webhook path.** `POST /hooks/connectors/:connector`, not
+   `/hooks/github/:org`: the App manifest registers one URL per connector
+   and `Webhook` takes a connector id. Options: (a) keep; (b) per-org path
+   that looks the connector up. Lean (a).
+41. **API accepts the session cookie.** A browser session works on
+   `/api/v1` with `X-CSRF-Token`; bearer keys skip CSRF. Options: (a) keep
+   (step 6 pages call the API); (b) keys only. Lean (a).
+42. **Streams.** SSE for job events, log follow and one-shot exec; streams
+   detach from the 30s request timeout and skip gzip. Logs and exec take
+   `?container=` (the CLI picks the first replica). Options: (a) keep;
+   (b) a replica flag in the CLI. Lean (a).
+43. **Slice visibility checked late.** `AttachSlice` checks the instance
+   is visible to the consumer only inside the job, so a bad id is a failed
+   job, not a 4xx. (Fixed in step 4 instead: `SetConfigRepo` refuses
+   another org's connector as 404; domain reads blank the basic-auth
+   password and an update with the same user and an empty password keeps
+   the stored one.) Options: (a) keep; (b) check at request time. Lean (a).
+44. **CLI login codes in memory.** One-time codes live in the process
+   (2 min TTL); a restart drops pending logins. Options: (a) keep;
+   (b) a table. Lean (a).
+45. **CLI shape.** Tables are tabwriter (TSV when piped), not lipgloss;
+   `link` takes flags, no picker; nouns are `params`, `managed`, `key`;
+   the old aliases and the forward/storage/image/proxy nouns are gone;
+   `tile set` prints the redeploy job's log command instead of following
+   it. Options: (a) keep; (b) restore any of them. Lean (a).
+46. **Child-id org check.** `:release`, `:domain`, etc. are checked
+   against the org only, not the stack or env in the path; an unknown
+   param fails closed (500). Options: (a) keep, the verb rejects a
+   mismatch (a release of another stack is a promote blocker); (b) check
+   the full path. Lean (a).
+
+Raised by step 5 (builder took the lean; flip any):
+
+47. (step 5) **Recovery passphrase is the master key.** Panel archives are
+   age-encrypted with `Config.Passphrase`, which defaults to the master
+   key, so the installer prints the key once as the recovery passphrase.
+   Options: (a) keep, one secret to keep off the box; (b) a separate
+   passphrase asked at install.
+48. (step 5) **Panel on host networking.** The panel needs iptables in the
+   host netns (VIPs) and the proxy reaches it as `stackr:8080` through
+   `host-gateway`. Host networking means stackrd cannot resolve container
+   names, which breaks DECIDE 28 (a) (`http://<slug>:9000`) and anything
+   else that dials a tile by name. Options: (a) keep, dial by container IP
+   from inspect; (b) panel on a bridge with `--network`s joined per env.
+49. (step 5) **Upgrade leaves the proxy alone.** Only the panel is swapped;
+   `stackr-proxy` stays on its install image, so Caddy changes in a
+   release need a re-install. Options: (a) keep; (b) the helper also
+   recreates the proxy after the panel gate passes.
+50. (step 5) **Panel bind and trust.** The panel listens on the docker
+   bridge gateway (not public) and trusts X-Forwarded-For from the RFC1918
+   ranges, since the proxy's source address is a bridge address.
+   Options: (a) keep; (b) pin trust to the proxy container's address.
+51. (step 5) **install.json is the one source of install answers.** The
+   installer, stackrd's upgrade spec and restore all read it; changing an
+   answer means editing it (or a clean reinstall). Options: (a) keep;
+   (b) a `stackr-install --reconfigure` that rewrites it and recreates
+   both containers.
+
+Raised by step 3b (builder took the lean; flip any):
+
+52. (step 3b) **A cron or function may run an image.** The spec says deploy
+   builds from git; the tile also takes `image:` instead (one of the two,
+   like service vs image tiles), pinned by digest on deploy. Options:
+   (a) keep; (b) git only. Lean (a).
+53. (step 3b) **`timeout_minutes` is a fourth column.** The spec lists three
+   columns but a run's timeout has to live somewhere; 0 is stored as 30, no
+   upper bound (tilelifecycle.md). Options: (a) keep; (b) a setting instead
+   of a column. Lean (a).
+54. (step 3b) **`runs` has `job_id`, `reason`, `created_at` too.** Needed for
+   StopRun (the job to cancel), the overlap and timeout wording, and order.
+   Options: (a) keep; (b) trim to the spec list. Lean (a).
+55. (step 3b) **A run holds its tile's lock.** The lock set is the tile plus
+   `run:<id>`, so a long run makes a deploy or promote of that tile wait
+   for it (never the other way round mid-run). Options: (a) keep; (b) lock
+   only `run:<tile>` so a deploy may swap the image under a running run.
+   Lean (a).
+56. (step 3b) **Overlap is refused at queue time.** The spec says "superseded
+   by the lock set"; lock-set superseding would cancel the older queued
+   job instead. Built as: a second run while one is queued or running is
+   written `cancelled` with "previous run still going" and gets no job.
+   Options: (a) keep; (b) queue it behind the first. Lean (a).
+57. (step 3b) **Stop on a cron answers an empty job.** `StopTile` pauses a
+   cron with no job, so `POST tile/stop` answers 202 with a zero job and
+   the CLI prints it. Options: (a) keep; (b) the handler answers the tile
+   (200) for a cron. Lean (a) as built; (b) is a few lines if wanted.
+58. (step 3b) **`kind:` and `type:` are one stack-file key.** Either spelling
+   works; both given and different is a plan blocker. Options: (a) keep;
+   (b) `kind:` only. Lean (a).
+59. (step 3b) **Each run re-prepares like a deploy.** `deploy.Spec` runs the
+   managed-slice reconcile and the image pull check before every run, so
+   slices and credentials are current. Options: (a) keep; (b) reuse what
+   the deploy prepared. Lean (a).
+60. (step 3b) **A source edit on a cron waits for the next deploy.** The
+   Redeploy effect only redeploys a tile with replicas; a run kind has
+   none, so it keeps the pinned image until Deploy or a promote (as a
+   stopped service does, B34). Options: (a) keep; (b) redeploy run kinds
+   on a source edit. Lean (a).
+61. (step 3b) **`trigger` on a non-function uses the extract's wording**
+   "run_on_deploy applies to function tiles only" (verbatim rule), though
+   the key is now `trigger`. Options: (a) keep; (b) "trigger applies to
+   function tiles only". Lean (a): the task asks for the extract's strings
+   verbatim.
+62. (step 3b) **Runs cut short by a restart are failed, not retried.** A run
+   left `running` at boot is closed failed "stackrd restarted while this
+   run was going"; its job is not re-run. Options: (a) keep; (b) re-queue
+   it. Lean (a).

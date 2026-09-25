@@ -6,23 +6,21 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"time"
+	"path/filepath"
+	"strings"
 
 	_ "github.com/joho/godotenv/autoload"
 
-	"github.com/FyrmForge/hamr/pkg/auth"
 	"github.com/FyrmForge/hamr/pkg/config"
-	db "github.com/FyrmForge/hamr/pkg/db/sqlite"
+	"github.com/FyrmForge/hamr/pkg/email"
+	"github.com/FyrmForge/hamr/pkg/emailmock"
 	"github.com/FyrmForge/hamr/pkg/logging"
 	"github.com/FyrmForge/hamr/pkg/middleware"
 	"github.com/FyrmForge/hamr/pkg/server"
-	"github.com/FyrmForge/hamr/pkg/storage"
-	"github.com/FyrmForge/hamr/pkg/email"
-	"github.com/FyrmForge/hamr/pkg/emailmock"
-	appdb "github.com/FyrmForge/stackr/internal/db"
-	"github.com/FyrmForge/stackr/internal/repo/sqlite"
-	"github.com/FyrmForge/stackr/internal/service"
 	"github.com/FyrmForge/stackr/internal/api"
+	"github.com/FyrmForge/stackr/internal/installspec"
+	appmw "github.com/FyrmForge/stackr/internal/middleware"
+	"github.com/FyrmForge/stackr/internal/service"
 	"github.com/FyrmForge/stackr/internal/web"
 	"github.com/FyrmForge/stackr/internal/web/components"
 )
@@ -31,29 +29,62 @@ import (
 var version = "dev"
 
 var (
-	envPort          = config.GetEnvOrDefaultInt("PORT", 8080)
+	envPort = config.GetEnvOrDefaultInt("PORT", 8080)
+	// HOST: the installer binds the host-network panel to the bridge
+	// gateway, so it is reachable from the proxy and not from outside.
+	envHost = config.GetEnvOrDefault("HOST", "")
 	// DEV_MODE defaults to false (fail closed in prod). Local dev sets
 	// DEV_MODE=true via .env so the scaffolded `.env` ships with it set
 	// explicitly. This makes the STRIPE_MOCK production guard actually
 	// guard — a leftover STRIPE_MOCK=true in a prod deploy without
 	// DEV_MODE explicitly set would otherwise slip through.
-	envDevMode       = config.GetEnvOrDefaultBool("DEV_MODE", false)
-	envBaseURL       = config.GetEnvOrDefault("BASE_URL", "")
-	envDatabasePath  = config.GetEnvOrDefault("DATABASE_PATH", "./data/stackr.db")
-	envStaticBaseURL = config.GetEnvOrDefault("STATIC_BASE_URL", "/static")
-	envStoragePath   = config.GetEnvOrDefault("STORAGE_PATH", "./uploads")
-	envEmailMock   = config.GetEnvOrDefaultBool("EMAIL_MOCK", false)
-	envHamrDevURL  = config.GetEnvOrDefault("HAMR_DEV_URL", "http://localhost:3000")
+	envDevMode      = config.GetEnvOrDefaultBool("DEV_MODE", false)
+	envBaseURL      = config.GetEnvOrDefault("BASE_URL", "")
+	envDataDir      = config.GetEnvOrDefault("DATA_DIR", "./data")
+	envDatabasePath = config.GetEnvOrDefault("DATABASE_PATH", "")
+	// STACKR_MASTER_KEY encrypts secrets at rest: 64 hex chars. stackrd
+	// never makes one up; the installer writes it to $DATA_DIR/keys/master.key,
+	// read when the env is unset (DECIDE 14).
+	envMasterKey      = config.GetEnvOrDefault("STACKR_MASTER_KEY", "")
+	envStaticBaseURL  = config.GetEnvOrDefault("STATIC_BASE_URL", "/static")
+	envEmailMock      = config.GetEnvOrDefaultBool("EMAIL_MOCK", false)
+	envHamrDevURL     = config.GetEnvOrDefault("HAMR_DEV_URL", "http://localhost:3000")
 	envTrustedProxies = config.GetEnvCSV("TRUSTED_PROXIES")
 )
 
 func main() {
 	generateFlag := flag.Bool("generate", false, "generate static pages and exit")
 	versionFlag := flag.Bool("version", false, "print the version and exit")
+	openapiFlag := flag.Bool("dump-openapi", false, "print the API's OpenAPI spec and exit")
 	flag.Parse()
+
+	if *openapiFlag {
+		b, err := api.OpenAPI()
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "stackrd:", err)
+			os.Exit(1)
+		}
+		fmt.Println(string(b))
+		return
+	}
 
 	if *versionFlag {
 		fmt.Println(version)
+		return
+	}
+	if flag.Arg(0) == "proxy" {
+		if err := runProxy(); err != nil {
+			fmt.Fprintln(os.Stderr, "stackrd proxy:", err)
+			os.Exit(1)
+		}
+		return
+	}
+	if flag.Arg(0) == "upgrade-swap" {
+		// The one-shot helper the self-upgrade launches from the new image.
+		if err := service.RunPanelSwap(context.Background()); err != nil {
+			fmt.Fprintln(os.Stderr, "stackrd upgrade-swap:", err)
+			os.Exit(1)
+		}
 		return
 	}
 
@@ -78,6 +109,7 @@ func run(log *slog.Logger, generate bool) error {
 
 	// Server.
 	srv, err := server.New(
+		server.WithHost(envHost),
 		server.WithPort(envPort),
 		server.WithDevMode(envDevMode),
 		server.WithStaticDir("ui/static"),
@@ -89,6 +121,7 @@ func run(log *slog.Logger, generate bool) error {
 		// direct client can't spoof its IP; set it to your LB ranges behind one.
 		// "cloudflare" trusts Cloudflare's edge ranges, refreshed every 24h.
 		server.WithTrustedProxies(envTrustedProxies...),
+		server.WithGzipConfig(api.Gzip),
 	)
 	if err != nil {
 		return fmt.Errorf("create server: %w", err)
@@ -110,35 +143,43 @@ func run(log *slog.Logger, generate bool) error {
 		return nil
 	}
 
-	// Database.
-	connectCtx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-	defer cancel()
-	database, err := db.ConnectContext(connectCtx, envDatabasePath)
+	masterKey := envMasterKey
+	if masterKey == "" {
+		b, _ := os.ReadFile(filepath.Join(envDataDir, installspec.KeyFile))
+		masterKey = strings.TrimSpace(string(b))
+	}
+	tlsOff := config.GetEnvOrDefault("STACKR_TLS", "") == "off"
+	// The installer's saved answers: the upgrade rebuilds the panel from
+	// the same spec the installer ran. None (dev) = no self-upgrade.
+	var spec func(string) service.ContainerSpec
+	if in, err := installspec.Load(envDataDir); err == nil {
+		spec = panelSpec(in)
+	}
+
+	// The service tree: store, migrations, Docker, leaves and flows.
+	svc, err := service.New(service.Config{
+		DataDir:    envDataDir,
+		DBPath:     envDatabasePath,
+		SecretsKey: masterKey,
+		// A Secure cookie never comes back over plain HTTP.
+		CookieSecure: !envDevMode && !tlsOff,
+		CookieDomain: baseDomain,
+		Version:      version,
+		BaseURL:      envBaseURL,
+		InstallID:    config.GetEnvOrDefault("STACKR_INSTALL_ID", "default"),
+		TLSOff:       tlsOff,
+		ProxyAdmin:   config.GetEnvOrDefault("STACKR_PROXY_ADMIN", ""),
+		PanelSpec:    spec,
+
+		PanelDomain:    config.GetEnvOrDefault("PANEL_DOMAIN", ""),
+		ACMEEmail:      config.GetEnvOrDefault("ACME_EMAIL", ""),
+		TrustedProxies: config.GetEnvOrDefault("CADDY_TRUSTED_PROXIES", ""),
+		DNSProvider:    config.GetEnvOrDefault("DNS_PROVIDER", ""),
+	})
 	if err != nil {
-		return fmt.Errorf("connect to database: %w", err)
+		return fmt.Errorf("start service: %w", err)
 	}
-
-	// Run migrations at startup.
-	if err := db.Migrate(database, appdb.MigrateConfig()); err != nil {
-		return fmt.Errorf("migrate: %w", err)
-	}
-	log.Info("migrations completed")
-	store := sqlite.NewStore(database)
-
-	// Sessions.
-	sessionManager := auth.NewSessionManager(store,
-		auth.WithCookieSecure(!envDevMode),
-		auth.WithCookieDomain(baseDomain),
-	)
-
-	// Auth service.
-	authService := service.NewAuthService(store)
-
-	// File storage (local).
-	fileStorage, err := storage.NewLocalStorage(envStoragePath)
-	if err != nil {
-		return fmt.Errorf("init storage: %w", err)
-	}
+	defer func() { _ = svc.Close() }()
 
 	// Email sender. In dev (EMAIL_MOCK=true), ships messages to the hamr dev
 	// inbox at HAMR_DEV_URL/__hamr/mail. Swap for a real provider adapter in
@@ -149,21 +190,35 @@ func run(log *slog.Logger, generate bool) error {
 		log.Info("email mock enabled", "inbox", envHamrDevURL+"/__hamr/mail")
 	}
 
+	// One access middleware for both routers.
+	access := appmw.NewAccess(svc)
+
 	api.RegisterRoutes(srv, &api.Deps{
-		Store: store,
+		Service: svc,
+		Access:  access,
+		DevMode: envDevMode,
 	})
 
 	web.RegisterRoutes(srv, &web.Deps{
-		Store:         store,
+		Service:       svc,
+		Access:        access,
 		BaseURL:       baseOrigin,
 		StaticBaseURL: envStaticBaseURL,
 		DevMode:       envDevMode,
-		SessionManager: sessionManager,
-		AuthService: authService,
-		FileStorage: fileStorage,
-		EmailSender: emailSender,
+		EmailSender:   emailSender,
 	})
 
 	log.Info("starting server", "port", envPort, "devMode", envDevMode)
 	return srv.Start()
+}
+
+// panelSpec builds the upgrade's panel container from the install spec.
+func panelSpec(in installspec.Input) func(string) service.ContainerSpec {
+	return func(image string) service.ContainerSpec {
+		c := installspec.Panel(image, in)
+		// ponytail: Ports and ExtraHosts are not carried; the panel runs on
+		// the host network and has neither (the spec test holds that).
+		return service.ContainerSpec{Name: c.Name, Image: c.Image, Cmd: c.Cmd, Env: c.Env, Labels: c.Labels,
+			Volumes: c.Volumes, HostNetwork: c.HostNetwork, CapAdd: c.CapAdd, Restart: c.Restart}
+	}
 }

@@ -1,0 +1,4 @@
+DROP TABLE IF EXISTS jobs;
+DROP TABLE IF EXISTS environments;
+DROP TABLE IF EXISTS release_tiles;
+DROP TABLE IF EXISTS releases;

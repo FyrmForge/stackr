@@ -4,7 +4,7 @@ import (
 	"github.com/FyrmForge/hamr/pkg/middleware"
 	"github.com/labstack/echo/v4"
 
-	"github.com/FyrmForge/stackr/internal/repo"
+	"github.com/FyrmForge/stackr/internal/service"
 )
 
 // BaseURL is the application's public origin (e.g. "https://example.com").
@@ -65,7 +65,9 @@ func AbsoluteURL(path string) string {
 
 // GetUser returns the authenticated user from the Echo context, or nil
 // if no user is loaded (e.g. guest pages).
-func GetUser(c echo.Context) *repo.User {
-	u, _ := middleware.GetSubject(c).(*repo.User)
-	return u
+func GetUser(c echo.Context) *service.User {
+	if p, _ := middleware.GetSubject(c).(*service.Principal); p != nil {
+		return &p.User
+	}
+	return nil
 }

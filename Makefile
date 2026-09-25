@@ -1,4 +1,4 @@
-.PHONY: build installcli installer test lint templint db-sh clean install check-templ generate check-node-modules css-build
+.PHONY: build installcli installer release test test-integration lint templint db-sh clean install check-templ generate check-node-modules css-build
 
 # Force bash so the ENV_LOAD eval below works cross-shell (sh on Debian/Ubuntu
 # is dash, which doesn't grok `eval "$(...)"` quoting consistently).
@@ -58,6 +58,15 @@ installcli:
 installer:
 	go build -ldflags "-X main.version=$(VERSION)" -o bin/stackr-install ./cmd/stackr-install
 
+## release: stackrd image + stackr-install for linux/amd64, e.g. make release RELEASE=v0.1.0
+## The image is tagged without the v (ghcr.io/fyrmforge/stackr:0.1.0), as
+## the installer and the self-upgrade look it up.
+release:
+	@[[ "$(RELEASE)" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$$ ]] || { echo "usage: make release RELEASE=vX.Y.Z" >&2; exit 1; }
+	$(MAKE) build
+	docker build --platform linux/amd64 --build-arg VERSION=$(RELEASE) -f cmd/stackrd/Dockerfile -t ghcr.io/fyrmforge/stackr:$(RELEASE:v%=%) .
+	GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "-X main.version=$(RELEASE)" -o bin/stackr-install-linux-amd64 ./cmd/stackr-install
+
 ## generate: Generate static pages
 generate:
 	$(ENV_LOAD) ./bin/stackrd --generate
@@ -67,6 +76,11 @@ test: check-templ
 	templ generate
 	go test ./...
 
+## test-integration: Unit tests plus the build-tagged ones against the local Docker daemon
+test-integration: check-templ
+	templ generate
+	go test -tags integration -count=1 ./...
+
 ## db-sh: Open an interactive shell to the local dev database
 db-sh:
 	$(ENV_LOAD) ./scripts/db-shell.sh
@@ -74,6 +88,7 @@ db-sh:
 ## lint: Run linters
 lint:
 	golangci-lint run
+	go run ./cmd/stackrd --dump-openapi | diff -u docs/openapi.json - || (echo "docs/openapi.json is stale: go run ./cmd/stackrd --dump-openapi > docs/openapi.json" && exit 1)
 
 ## templint: Lint .templ files for common issues
 templint:

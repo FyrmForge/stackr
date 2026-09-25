@@ -1,0 +1,48 @@
+package store
+
+import (
+	"context"
+	"time"
+)
+
+// Param is a row of params. Value is plaintext here; the column is sealed.
+type Param struct {
+	ID         string    `db:"id" json:"id"`
+	ScopeKind  string    `db:"scope_kind" json:"scope_kind"`
+	ScopeID    string    `db:"scope_id" json:"scope_id"`
+	Collection string    `db:"collection" json:"collection"`
+	Name       string    `db:"name" json:"name"`
+	Kind       string    `db:"kind" json:"kind"`
+	Value      string    `db:"value" json:"value"`
+	CreatedAt  time.Time `db:"created_at" json:"created_at"`
+	UpdatedAt  time.Time `db:"updated_at" json:"updated_at"`
+}
+
+type ParamStore interface {
+	Create(ctx context.Context, p Param) error
+	Get(ctx context.Context, id string) (Param, error)
+	GetByName(ctx context.Context, scopeKind, scopeID, collection, name string) (Param, error)
+	ListByScope(ctx context.Context, scopeKind, scopeID string) ([]Param, error)
+	// ListByKind reads one kind only, so a reader without the secrets
+	// permission never has a secret decrypted on its behalf (B37).
+	ListByKind(ctx context.Context, scopeKind, scopeID, kind string) ([]Param, error)
+	Update(ctx context.Context, p Param) error
+	Delete(ctx context.Context, id string) error
+}
+
+var paramsT = newTable("params", func(p *Param) []*string { return []*string{&p.Value} })
+
+type params struct{ crud[Param] }
+
+func (s params) GetByName(ctx context.Context, scopeKind, scopeID, collection, name string) (Param, error) {
+	return s.one(ctx, "scope_kind = ? AND scope_id = ? AND collection = ? AND name = ?",
+		scopeKind, scopeID, collection, name)
+}
+
+func (s params) ListByScope(ctx context.Context, scopeKind, scopeID string) ([]Param, error) {
+	return s.many(ctx, "scope_kind = ? AND scope_id = ?", scopeKind, scopeID)
+}
+
+func (s params) ListByKind(ctx context.Context, scopeKind, scopeID, kind string) ([]Param, error) {
+	return s.many(ctx, "scope_kind = ? AND scope_id = ? AND kind = ?", scopeKind, scopeID, kind)
+}
