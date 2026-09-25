@@ -74,7 +74,8 @@ type Definition struct {
 	SliceNoun     string   // what the UI calls a slice
 	Backups       []string // methods this engine offers
 	AdminDB       string   // the engine's own namespace
-	// SliceName normalises a base name; SliceSep joins the uniquifier.
+	// SliceName normalises a base name; SliceSep joins a slice name's parts
+	// and a binding user's uniquifier.
 	SliceName func(string) string
 	SliceSep  string
 	// RootCreds: every cred is the instance's admin one (s3, see s3.go).

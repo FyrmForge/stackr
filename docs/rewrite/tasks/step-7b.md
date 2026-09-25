@@ -165,7 +165,9 @@ Rules:
    two files above; api gets a write user, reporter a read user; both on
    the instance's network; removing reporter drops its user; removing
    api-db with `on_remove: drop` drops the database.
-   As built: `on_remove` has no stack-file key; it defaults to keep and is set on the provision row (task 7's drawer). An ephemeral env always drops.
+   As built: `on_remove` is a slice tile key (stack file, `tiles.on_remove`, DECIDE 199), default keep; `provisions` has no copy. An ephemeral env always drops.
+   As built: a slice's database or bucket is `<stack>_<env>_<slice>` (`-` for s3), never suffixed; a name another row holds is refused (DECIDE 197).
+   As built: build defaults (branch, dockerfile, context) moved from `leaf/tile` Create into `Validate`, so a git-built cron re-plans clean.
    As built: the instance network is `stackr-managed-<instance id>`; the instance's alias on it, `<slug>-<first 8 of its id>`, is the postgres host.
    As built: s3 hands out the root key for owner and every binding; `access` is recorded, not enforced.
    As built: plan and deploy share `address.Resolve`; a consumer deploy re-resolves every slice it uses and fails with the plan's blocker text.

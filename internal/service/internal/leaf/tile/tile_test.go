@@ -385,6 +385,16 @@ func TestSliceKind(t *testing.T) {
 			then(slice, func(t *store.Tile) { t.DefaultAccess = &admin }),
 		},
 		{
+			"slice on_remove admin",
+			"on_remove",
+			then(slice, func(t *store.Tile) { t.OnRemove = &admin }),
+		},
+		{
+			"service on_remove",
+			"on_remove",
+			func(t *store.Tile) { t.OnRemove = &read },
+		},
+		{
 			"slice with a git url",
 			"git_url",
 			then(slice, func(t *store.Tile) { t.GitURL = "https://github.com/a/b" }),
@@ -419,8 +429,8 @@ func TestSliceKind(t *testing.T) {
 		if got := field(err); got != c.field || (c.field == "" && err != nil) {
 			t.Errorf("%s: err = %v (field %q), want field %q", c.name, err, got, c.field)
 		}
-		if err == nil && row.Kind == tile.Slice && row.DefaultAccess == nil {
-			t.Errorf("%s: default_access not defaulted", c.name)
+		if err == nil && row.Kind == tile.Slice && (row.DefaultAccess == nil || row.OnRemove == nil || *row.OnRemove != tile.Keep) {
+			t.Errorf("%s: default_access or on_remove not defaulted", c.name)
 		}
 	}
 	if e := tile.Effects(tile.Slice, tile.Changed{"provision_from": true}); e != nil {

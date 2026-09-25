@@ -167,7 +167,6 @@ func seedWorld(t *testing.T) world {
 		TileID:     sl.ID,
 		InstanceID: inst.ID,
 		DBName:     "main",
-		OnRemove:   "keep",
 		CreatedAt:  time.Now(),
 	}))
 	must(e.Store.Bindings.Create(ctx, store.Binding{

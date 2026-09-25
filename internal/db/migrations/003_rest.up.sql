@@ -127,6 +127,7 @@ CREATE TABLE tiles (
     timeout_minutes             INTEGER   NOT NULL, -- cron, function: a run's timeout, no cap
     provision_from              TEXT, -- slice only: <stack>:<env>:<tile> as written, refs and all
     default_access              TEXT      CHECK (default_access IN ('read', 'write')), -- slice only
+    on_remove                   TEXT      CHECK (on_remove IN ('keep', 'drop')), -- slice only: the data when the tile goes
     slice_access                TEXT      NOT NULL, -- consumers: JSON [{from, access}], from a slice tile slug in this env
     created_at                  DATETIME  NOT NULL,
     updated_at                  DATETIME  NOT NULL,
@@ -187,7 +188,6 @@ CREATE TABLE provisions (
     db_user      TEXT      NOT NULL,
     db_password  TEXT      NOT NULL, -- encrypted
     public       INTEGER   NOT NULL,
-    on_remove    TEXT      NOT NULL,
     created_at   DATETIME  NOT NULL
 );
 

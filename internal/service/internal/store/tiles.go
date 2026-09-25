@@ -54,6 +54,7 @@ type Tile struct {
 	TimeoutMinutes          int             `db:"timeout_minutes" json:"timeout_minutes"` // cron, function: a run's timeout
 	ProvisionFrom           *string         `db:"provision_from" json:"provision_from"`   // slice: <stack>:<env>:<tile> as written
 	DefaultAccess           *string         `db:"default_access" json:"default_access"`   // slice: read | write
+	OnRemove                *string         `db:"on_remove" json:"on_remove"`             // slice: keep | drop
 	SliceAccess             SliceAccessList `db:"slice_access" json:"slice_access"`       // consumers: access per slice tile
 	CreatedAt               time.Time       `db:"created_at" json:"created_at"`
 	UpdatedAt               time.Time       `db:"updated_at" json:"updated_at"`

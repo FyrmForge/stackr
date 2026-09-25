@@ -92,6 +92,7 @@ func setup(t *testing.T) *world {
 		Instances: d.Managed,
 		Volumes:   d.Volumes,
 		Envs:      d.Envs,
+		Stacks:    d.Stacks,
 		ReadyWait: time.Millisecond,
 		ReadyPoll: time.Millisecond,
 	}

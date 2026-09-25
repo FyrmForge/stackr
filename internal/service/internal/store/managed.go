@@ -48,7 +48,6 @@ type Provision struct {
 	DBUser     string    `db:"db_user" json:"db_user"`
 	DBPassword string    `db:"db_password" json:"-"`
 	Public     bool      `db:"public" json:"public"`
-	OnRemove   string    `db:"on_remove" json:"on_remove"`
 	CreatedAt  time.Time `db:"created_at" json:"created_at"`
 }
 

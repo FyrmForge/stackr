@@ -288,7 +288,8 @@ func (f *Flow) Remove(ctx context.Context, e store.Environment, ts []store.Tile,
 				return err
 			}
 			if ok {
-				if err := d.Engines.Drop(ctx, p, e.Type == environment.Ephemeral, log); err != nil {
+				drop := deref(t.OnRemove) == tile.Drop || e.Type == environment.Ephemeral
+				if err := d.Engines.Drop(ctx, p, drop, log); err != nil {
 					return err
 				}
 			}

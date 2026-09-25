@@ -145,6 +145,7 @@ func Diff(old, cur store.Tile) Changed {
 	mark("timeout_minutes", old.TimeoutMinutes == cur.TimeoutMinutes)
 	mark("provision_from", deref(old.ProvisionFrom) == deref(cur.ProvisionFrom))
 	mark("default_access", deref(old.DefaultAccess) == deref(cur.DefaultAccess))
+	mark("on_remove", deref(old.OnRemove) == deref(cur.OnRemove))
 	mark("slice_access", slices.Equal(old.SliceAccess, cur.SliceAccess))
 	return c
 }

@@ -39,6 +39,12 @@ const (
 	Write = "write"
 )
 
+// on_remove words: what a slice tile going does to its data; nil = Keep.
+const (
+	Keep = "keep"
+	Drop = "drop"
+)
+
 // RunToCompletion: the kind's deploy stops at the artifact and a run starts
 // the container (runpolicy's KeepAlive false).
 func RunToCompletion(kind string) bool { return kind == Cron || kind == Function }
@@ -117,6 +123,7 @@ var fields = []field{
 	{"timeout_minutes", func(t *store.Tile) bool { return t.TimeoutMinutes != 0 }},
 	{"provision_from", func(t *store.Tile) bool { return t.ProvisionFrom != nil }},
 	{"default_access", func(t *store.Tile) bool { return t.DefaultAccess != nil }},
+	{"on_remove", func(t *store.Tile) bool { return t.OnRemove != nil }},
 	{"slice_access", func(t *store.Tile) bool { return len(t.SliceAccess) > 0 }},
 }
 
@@ -134,6 +141,7 @@ var refusals = map[string]string{
 	"healthcheck":    "healthcheck applies to service tiles only",
 	"provision_from": "provision_from applies to slice tiles only",
 	"default_access": "default_access applies to slice tiles only",
+	"on_remove":      "on_remove applies to slice tiles only",
 	"slice_access":   "slice_access does not apply to a %s",
 }
 
@@ -205,12 +213,15 @@ var Carries = map[string]map[string]bool{
 	Managed:  keys([]string{"image", "env", "limits", "shm_size_mb", "published_ports"}),
 	Cron:     keys(buildKeys, oneShotKeys, []string{"schedule", "paused", "slice_access"}),
 	Function: keys(buildKeys, oneShotKeys, []string{"trigger", "slice_access"}),
-	Slice:    keys([]string{"provision_from", "default_access"}),
+	Slice:    keys([]string{"provision_from", "default_access", "on_remove"}),
 }
 
 // Validate is one gate over the finished row, create and update alike; first
 // refusal wins. It also normalises in place: update_policy "" → manual,
-// restart folded to its canonical word, replicas 0 → 1, empty JSON → {}.
+// restart folded to its canonical word, replicas 0 → 1, empty JSON → {},
+// a build's branch, dockerfile and context to main, Dockerfile and ".".
+// The promote plan validates the row it builds from the file the same way,
+// so a stored default never reads as a change.
 func Validate(t *store.Tile) error {
 	allowed, ok := Carries[t.Kind]
 	if !ok {
@@ -240,6 +251,17 @@ func Validate(t *store.Tile) error {
 	case Slice:
 		if err := checkSlice(t); err != nil {
 			return err
+		}
+	}
+	if Builds(*t) {
+		if t.GitBranch == "" {
+			t.GitBranch = "main"
+		}
+		if t.DockerfilePath == "" {
+			t.DockerfilePath = "Dockerfile"
+		}
+		if t.BuildContext == "" {
+			t.BuildContext = "."
 		}
 	}
 	for _, a := range t.SliceAccess {
@@ -326,8 +348,9 @@ func checkRun(t *store.Tile) error {
 	return nil
 }
 
-// checkSlice: a slice names its target; default_access is read or write.
-// Normalises default_access nil → write. The target's refs resolve at plan
+// checkSlice: a slice names its target; default_access is read or write,
+// on_remove keep or drop. Normalises default_access nil → write and
+// on_remove nil → keep. The target's refs resolve at plan
 // time (flow/promote), so only the shape is checked here.
 func checkSlice(t *store.Tile) error {
 	if t.ProvisionFrom == nil || strings.TrimSpace(*t.ProvisionFrom) == "" {
@@ -342,6 +365,13 @@ func checkSlice(t *store.Tile) error {
 	}
 	if *t.DefaultAccess != Read && *t.DefaultAccess != Write {
 		return errs.Invalidf("default_access", "default_access must be read or write")
+	}
+	if t.OnRemove == nil {
+		k := Keep
+		t.OnRemove = &k
+	}
+	if *t.OnRemove != Keep && *t.OnRemove != Drop {
+		return errs.Invalidf("on_remove", "on_remove must be keep or drop")
 	}
 	return nil
 }

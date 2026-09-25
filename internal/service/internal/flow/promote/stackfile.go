@@ -190,7 +190,8 @@ func excluded(n *yaml.Node) bool {
 // and a lone image: makes it an image tile. kind: is type:'s other spelling.
 // A cron or function builds from git like a service unless it names an
 // image. A slice is one database or bucket cut from a managed tile
-// (DECIDE 194): provision_from and default_access, nothing that runs.
+// (DECIDE 194): provision_from, default_access and on_remove, nothing that
+// runs.
 type TileConf struct {
 	Type   string `yaml:"type"`
 	Kind   string `yaml:"kind"`
@@ -237,9 +238,11 @@ type TileConf struct {
 	// consumer env name → this stack's env name map.
 	Allow    []string          `yaml:"allow"`
 	EnvPairs map[string]string `yaml:"env_pairs"`
-	// slice: <stack>:<env>:<tile>, refs allowed; read | write, "" = write.
+	// slice: <stack>:<env>:<tile>, refs allowed; read | write, "" = write;
+	// keep | drop, "" = keep (DECIDE 199; a PR env drops either way).
 	ProvisionFrom string `yaml:"provision_from"`
 	DefaultAccess string `yaml:"default_access"`
+	OnRemove      string `yaml:"on_remove"`
 	// any other tile: its access per slice tile of the env.
 	SliceAccess []SliceAccessConf `yaml:"slice_access"`
 	// cron: schedule (a cron expression, CRON_TZ= allowed); function:
@@ -695,6 +698,8 @@ func checkSliceKeys(name string, tc TileConf) error {
 		return fmt.Errorf("tile %s: provision_from: only a slice tile takes it", name)
 	case tc.DefaultAccess != "" && tc.Type != "slice":
 		return fmt.Errorf("tile %s: default_access: only a slice tile takes it", name)
+	case tc.OnRemove != "" && tc.Type != "slice":
+		return fmt.Errorf("tile %s: on_remove: only a slice tile takes it", name)
 	case len(tc.SliceAccess) > 0 && (tc.Type == "managed" || tc.Type == "slice"):
 		return fmt.Errorf("tile %s: slice_access: a %s tile binds to no slice", name, tc.Type)
 	}
@@ -731,6 +736,9 @@ func checkSlice(name string, tc TileConf) error {
 	}
 	if tc.DefaultAccess != "" && tc.DefaultAccess != tile.Read && tc.DefaultAccess != tile.Write {
 		return fmt.Errorf("tile %s: default_access %q must be read or write", name, tc.DefaultAccess)
+	}
+	if tc.OnRemove != "" && tc.OnRemove != tile.Keep && tc.OnRemove != tile.Drop {
+		return fmt.Errorf("tile %s: on_remove %q must be keep or drop", name, tc.OnRemove)
 	}
 	return nil
 }

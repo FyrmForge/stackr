@@ -258,7 +258,7 @@ func (h *handler) instance(c echo.Context, tab, note string, actErr error) error
 	case "settings":
 		body = instance.Settings(v)
 	default:
-		names, err := h.tileNames(c)
+		ts, err := h.envTiles(c)
 		if err != nil {
 			return middleware.HTTPError(err)
 		}
@@ -269,9 +269,9 @@ func (h *handler) instance(c echo.Context, tab, note string, actErr error) error
 				ID:       p.ID,
 				Name:     p.DBName,
 				DB:       p.DBName,
-				OnRemove: p.OnRemove,
+				OnRemove: onRemove(ts[p.TileID]),
 				Public:   p.Public,
-				UsedBy:   names[p.TileID],
+				UsedBy:   ts[p.TileID].Name,
 				Drawer:   render.EnvURL(c) + "/-/slices/" + p.ID + "?tab=bindings",
 			}
 			o.Slices = append(o.Slices, r)
@@ -315,17 +315,25 @@ func (h *handler) instanceVolumes(c echo.Context, tileID, instanceID string) ([]
 	return vols, nil
 }
 
-// tileNames maps the env's tile ids to names.
-func (h *handler) tileNames(c echo.Context) (map[string]string, error) {
+// envTiles are the env's tiles by id.
+func (h *handler) envTiles(c echo.Context) (map[string]service.Tile, error) {
 	ts, err := h.orch.Tiles(c.Request().Context(), scope(c).Env.ID)
 	if err != nil {
 		return nil, err
 	}
-	names := map[string]string{}
+	out := map[string]service.Tile{}
 	for _, t := range ts {
-		names[t.ID] = t.Name
+		out[t.ID] = t
 	}
-	return names, nil
+	return out, nil
+}
+
+// onRemove is a slice tile's on_remove word; "" for a tile of another env.
+func onRemove(t service.Tile) string {
+	if t.OnRemove == nil {
+		return ""
+	}
+	return *t.OnRemove
 }
 
 // ---- slice ----
@@ -350,6 +358,10 @@ func (h *handler) slice(c echo.Context, tab string, actErr error) error {
 	if err != nil {
 		return middleware.HTTPError(err)
 	}
+	ts, err := h.envTiles(c)
+	if err != nil {
+		return middleware.HTTPError(err)
+	}
 	// step 7b task 6 replaces this: outputs are the bindings' and the drawer
 	// is the slice tile's; until then it lists none.
 	v := slice.View{
@@ -357,7 +369,7 @@ func (h *handler) slice(c echo.Context, tab string, actErr error) error {
 		Name:     p.DBName,
 		DB:       p.DBName,
 		User:     p.DBUser,
-		OnRemove: p.OnRemove,
+		OnRemove: onRemove(ts[p.TileID]),
 		Base:     render.EnvURL(c) + "/-/slices/" + p.ID,
 		Public:   p.Public,
 		Consumer: true,

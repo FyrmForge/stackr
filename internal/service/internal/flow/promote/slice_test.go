@@ -130,6 +130,14 @@ func TestGrammarSlices(t *testing.T) {
 			tiles("    s:\n      kind: slice\n      provision_from: infra:pg-db\n"),
 			"tile s: provision_from: infra:pg-db: three segments, <stack>:<env>:<tile>",
 		},
+		"on_remove on image": {
+			tiles("    api:\n      image: x\n      on_remove: drop\n"),
+			"tile api: on_remove: only a slice tile takes it",
+		},
+		"slice on_remove word": {
+			tiles("    s:\n      kind: slice\n      provision_from: a:b:c\n      on_remove: detach\n"),
+			`tile s: on_remove "detach" must be keep or drop`,
+		},
 		"slice access word": {
 			tiles("    s:\n      kind: slice\n      provision_from: a:b:c\n      default_access: admin\n"),
 			`tile s: default_access "admin" must be read or write`,
@@ -531,10 +539,11 @@ func onNet(ns []docker.NetAttach, name string) bool {
 	})
 }
 
-// The grammar's two stacks deployed: api-db lands on infra/staging/pg-db,
-// api gets a write user and reporter a read user, both on the instance's
-// network. Removing reporter drops its user; removing api-db with
-// on_remove drop drops the database and its bindings.
+// The grammar's two stacks deployed: api-db lands on infra/staging/pg-db
+// as shop_dev_api_db (DECIDE 197), api gets a write user and reporter a
+// read user, both on the instance's network. Removing reporter drops its
+// user; the file then says on_remove: drop (DECIDE 199), and removing
+// api-db drops the database and its bindings.
 func TestSliceDeploy(t *testing.T) {
 	w := newSliceWorld(t)
 	d := w.f.D
@@ -546,8 +555,8 @@ func TestSliceDeploy(t *testing.T) {
 	must(t, err)
 	m, err := d.Managed.GetByTile(ctx, w.pg["staging"].ID)
 	must(t, err)
-	if !ok || pr.InstanceID != m.ID || pr.DBName != "api_db" {
-		t.Fatalf("provision = %+v %v, want api_db on staging's pg-db", pr, ok)
+	if !ok || pr.InstanceID != m.ID || pr.DBName != "shop_dev_api_db" {
+		t.Fatalf("provision = %+v %v, want shop_dev_api_db on staging's pg-db", pr, ok)
 	}
 	bs, err := d.Managed.Bindings(ctx, pr.ID)
 	must(t, err)
@@ -555,7 +564,7 @@ func TestSliceDeploy(t *testing.T) {
 	for _, b := range bs {
 		got[b.DBUser] = b.Access
 	}
-	if len(got) != 2 || got["api_db_api"] != "write" || got["api_db_reporter"] != "read" {
+	if len(got) != 2 || got["shop_dev_api_db_api"] != "write" || got["shop_dev_api_db_reporter"] != "read" {
 		t.Fatalf("bindings = %v, want api write and reporter read", got)
 	}
 
@@ -569,7 +578,7 @@ func TestSliceDeploy(t *testing.T) {
 		t.Fatalf("api spec not on %s: %+v", net, w.fake.Specs)
 	}
 	if !slices.ContainsFunc(w.fake.Specs[i].Env, func(e string) bool {
-		return strings.HasPrefix(e, "DATABASE_URL=postgres://api_db_api:") && strings.Contains(e, "@"+host+":5432/api_db")
+		return strings.HasPrefix(e, "DATABASE_URL=postgres://shop_dev_api_db_api:") && strings.Contains(e, "@"+host+":5432/shop_dev_api_db")
 	}) {
 		t.Errorf("api env = %v", w.fake.Specs[i].Env)
 	}
@@ -582,32 +591,42 @@ func TestSliceDeploy(t *testing.T) {
 	spec, err := d.Spec(ctx, rep, ref, io.Discard)
 	must(t, err)
 	if !onNet(spec.Networks, net) || !slices.ContainsFunc(spec.Env, func(e string) bool {
-		return strings.HasPrefix(e, "DATABASE_URL=postgres://api_db_reporter:")
+		return strings.HasPrefix(e, "DATABASE_URL=postgres://shop_dev_api_db_reporter:")
 	}) {
 		t.Errorf("reporter spec = %+v", spec)
 	}
 
-	// reporter goes: its user goes.
+	// reporter goes: its user goes. api-db's file entry turns to drop.
 	n := len(w.fake.Calls())
-	_, err = w.f.Apply(ctx, w.dev.ID, w.shopRelease(t, "c2", sliceFile(t, true, false)).ID, io.Discard, nil)
+	c2 := strings.Replace(
+		sliceFile(t, true, false),
+		"      default_access: write\n",
+		"      default_access: write\n      on_remove: drop\n",
+		1,
+	)
+	r := w.shopRelease(t, "c2", c2)
+	p, err := w.f.Plan(ctx, w.dev.ID, r.ID, io.Discard)
 	must(t, err)
-	if ex := execs(w, n); !strings.Contains(ex, `DROP ROLE IF EXISTS "api_db_reporter"`) {
+	if !strings.Contains(kinds(p), "update:api-dbon_removedropkeep") {
+		t.Errorf("c2 plan = %s, want api-db's on_remove row", kinds(p))
+	}
+	_, err = w.f.Apply(ctx, w.dev.ID, r.ID, io.Discard, nil)
+	must(t, err)
+	if ex := execs(w, n); !strings.Contains(ex, `DROP ROLE IF EXISTS "shop_dev_api_db_reporter"`) {
 		t.Errorf("reporter removal execs:\n%s", ex)
 	}
-	if bs, _ := d.Managed.Bindings(ctx, pr.ID); len(bs) != 1 || bs[0].DBUser != "api_db_api" {
+	if bs, _ := d.Managed.Bindings(ctx, pr.ID); len(bs) != 1 || bs[0].DBUser != "shop_dev_api_db_api" {
 		t.Errorf("bindings after reporter = %+v", bs)
 	}
 
 	// api-db goes with on_remove drop: api's user, then the database.
-	_, err = d.Managed.SetOnRemove(ctx, pr, managed.Drop)
-	must(t, err)
 	n = len(w.fake.Calls())
 	_, err = w.f.Apply(ctx, w.dev.ID, w.shopRelease(t, "c3", sliceFile(t, true, true)).ID, io.Discard, nil)
 	must(t, err)
 	ex := execs(w, n)
 	for _, want := range []string{
-		`DROP ROLE IF EXISTS "api_db_api"`,
-		`DROP DATABASE IF EXISTS "api_db" WITH (FORCE)`,
+		`DROP ROLE IF EXISTS "shop_dev_api_db_api"`,
+		`DROP DATABASE IF EXISTS "shop_dev_api_db" WITH (FORCE)`,
 	} {
 		if !strings.Contains(ex, want) {
 			t.Errorf("api-db removal: no %q in\n%s", want, ex)
@@ -631,19 +650,34 @@ func TestSliceKeep(t *testing.T) {
 	sl, err := d.Tiles.GetBySlug(ctx, w.dev.ID, "api-db")
 	must(t, err)
 	pr, ok, err := d.Managed.ProvisionOf(ctx, sl.ID)
-	if err != nil || !ok || pr.OnRemove != managed.Keep {
-		t.Fatalf("provision = %+v %v %v", pr, ok, err)
+	if err != nil || !ok || sl.OnRemove == nil || *sl.OnRemove != tile.Keep {
+		t.Fatalf("provision = %+v %v %v, on_remove %v", pr, ok, err, sl.OnRemove)
 	}
 	n := len(w.fake.Calls())
 	r := w.shopRelease(t, "c2", sliceFile(t, true, true))
 	_, err = w.f.Apply(ctx, w.dev.ID, r.ID, io.Discard, nil)
 	must(t, err)
-	if ex := execs(w, n); strings.Contains(ex, "DROP DATABASE") || !strings.Contains(ex, `DROP ROLE IF EXISTS "api_db_api"`) {
+	if ex := execs(w, n); strings.Contains(ex, "DROP DATABASE") || !strings.Contains(ex, `DROP ROLE IF EXISTS "shop_dev_api_db_api"`) {
 		t.Errorf("keep execs:\n%s", ex)
 	}
 	if _, err := d.Managed.GetProvision(ctx, pr.ID); err == nil {
 		t.Error("the kept slice kept its provision row")
 	}
+	p, err := w.f.Plan(ctx, w.dev.ID, r.ID, io.Discard)
+	must(t, err)
+	if len(p.Changes) != 0 || p.Blocked() {
+		t.Errorf("re-plan = %s, blockers %q, want clean", kinds(p), p.Blockers)
+	}
+}
+
+// A second plan of the same release is clean: reporter, a cron built from
+// git with no build: block, used to show build_context and dockerfile rows
+// every time (the stored defaults against the file's blanks).
+func TestCronBuildReplansClean(t *testing.T) {
+	w := newSliceWorld(t)
+	r := w.shopRelease(t, "c1", sliceShopFile)
+	_, err := w.f.Apply(ctx, w.dev.ID, r.ID, io.Discard, nil)
+	must(t, err)
 	p, err := w.f.Plan(ctx, w.dev.ID, r.ID, io.Discard)
 	must(t, err)
 	if len(p.Changes) != 0 || p.Blocked() {
@@ -677,7 +711,7 @@ func TestSliceUnbindAfterSwap(t *testing.T) {
 	w.fake.Err = nil
 	n := len(w.fake.Calls())
 	must(t, d.Redeploy(ctx, api.ID, io.Discard, nil))
-	if ex := execs(w, n); !strings.Contains(ex, `DROP ROLE IF EXISTS "api_db_api"`) {
+	if ex := execs(w, n); !strings.Contains(ex, `DROP ROLE IF EXISTS "shop_dev_api_db_api"`) {
 		t.Errorf("redeploy execs:\n%s", ex)
 	}
 	if bound, _ := d.Managed.Bound(ctx, api.ID); len(bound) != 0 {

@@ -316,6 +316,7 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 			Instances: orch.managed,
 			Volumes:   orch.volumes,
 			Envs:      orch.envs,
+			Stacks:    orch.stacks,
 			S3: func(endpoint, access, secret string) mflow.S3Admin {
 				return s3.Admin{Endpoint: endpoint, AccessKey: access, SecretKey: secret}
 			},

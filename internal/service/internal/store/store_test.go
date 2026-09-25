@@ -290,11 +290,13 @@ func TestRoundTrip(t *testing.T) {
 		UpdatePolicy:  "manual",
 		ProvisionFrom: ptr("infra:${{ env.name }}:pg_db"),
 		DefaultAccess: ptr("write"),
+		OnRemove:      ptr("keep"),
 		CreatedAt:     t0,
 		UpdatedAt:     t0,
 	}, func(ti *store.Tile) {
 		ti.ProvisionFrom = ptr("infra:staging:pg_db")
 		ti.DefaultAccess = ptr("read")
+		ti.OnRemove = ptr("drop")
 	})
 	roundTrip(t, s.Images, store.Image{
 		ID:         "img1",
@@ -357,12 +359,10 @@ func TestRoundTrip(t *testing.T) {
 		DBUser:     "api_db",
 		DBPassword: "pw",
 		Public:     true,
-		OnRemove:   "keep",
 		CreatedAt:  t0,
 	}, func(p *store.Provision) {
 		p.DBPassword = "pw2"
 		p.Public = false
-		p.OnRemove = "drop"
 	})
 	if p, err := s.Provisions.GetByTile(ctx, "t3"); err != nil || p.ID != "pr1" {
 		t.Fatalf("provision by slice tile = %+v, %v", p, err)

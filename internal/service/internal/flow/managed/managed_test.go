@@ -17,6 +17,7 @@ import (
 	mflow "github.com/FyrmForge/stackr/internal/service/internal/flow/managed"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/environment"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/managed"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/stack"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/volume"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
@@ -80,6 +81,7 @@ func setup(t *testing.T, engine string) *world {
 		Instances: managed.New(st.ManagedInstances, st.Provisions, st.Bindings),
 		Volumes:   volume.New(st.Volumes, fake),
 		Envs:      environment.New(st.Environments, fake),
+		Stacks:    stack.New(st.Stacks),
 		S3: func(string, string, string) mflow.S3Admin {
 			return s3
 		},
@@ -187,12 +189,12 @@ func TestPostgresSliceAndBindings(t *testing.T) {
 	p, err := w.f.Provision(ctx, w.db, w.orders)
 	must(t, err)
 	contains(t, "provision", execs(w.fake, 0),
-		`CREATE ROLE "orders"`,
-		`CREATE DATABASE "orders" OWNER "orders"`,
+		`CREATE ROLE "s_dev_orders"`,
+		`CREATE DATABASE "s_dev_orders" OWNER "s_dev_orders"`,
 		"SET log_min_error_statement = PANIC",
 		"psql -q ",
 	)
-	if p.DBName != "orders" || p.DBUser != "orders" || p.OnRemove != managed.Keep {
+	if p.DBName != "s_dev_orders" || p.DBUser != "s_dev_orders" {
 		t.Errorf("provision = %+v", p)
 	}
 
@@ -201,7 +203,7 @@ func TestPostgresSliceAndBindings(t *testing.T) {
 	n := len(w.fake.Calls())
 	again, err := w.f.Provision(ctx, w.db, w.orders)
 	must(t, err)
-	if ex := execs(w.fake, n); again.ID != p.ID || !strings.Contains(ex, `ALTER ROLE "orders"`) || strings.Contains(ex, "CREATE") {
+	if ex := execs(w.fake, n); again.ID != p.ID || !strings.Contains(ex, `ALTER ROLE "s_dev_orders"`) || strings.Contains(ex, "CREATE") {
 		t.Errorf("re-provision %s:\n%s", again.ID, ex)
 	}
 
@@ -211,24 +213,24 @@ func TestPostgresSliceAndBindings(t *testing.T) {
 	api, err := w.f.Bind(ctx, p, w.api, "write")
 	must(t, err)
 	contains(t, "bind api", execs(w.fake, n),
-		"-d orders",
-		`CREATE ROLE "orders_api" LOGIN PASSWORD`,
-		`GRANT ALL ON DATABASE "orders" TO "orders_api"`,
+		"-d s_dev_orders",
+		`CREATE ROLE "s_dev_orders_api" LOGIN PASSWORD`,
+		`GRANT ALL ON DATABASE "s_dev_orders" TO "s_dev_orders_api"`,
 	)
 	out, err := managed.Outputs(api)
 	must(t, err)
 	host := "db-" + w.instance.ID[:8]
-	if api.DBUser != "orders_api" || out["PGHOST"] != host || out["PGUSER"] != "orders_api" || out["PGDATABASE"] != "orders" ||
-		out["DATABASE_URL"] != "postgres://orders_api:"+api.DBPassword+"@"+host+":5432/orders" {
+	if api.DBUser != "s_dev_orders_api" || out["PGHOST"] != host || out["PGUSER"] != "s_dev_orders_api" || out["PGDATABASE"] != "s_dev_orders" ||
+		out["DATABASE_URL"] != "postgres://s_dev_orders_api:"+api.DBPassword+"@"+host+":5432/s_dev_orders" {
 		t.Errorf("api binding %+v, outputs %v", api, out)
 	}
 	n = len(w.fake.Calls())
 	rep, err := w.f.Bind(ctx, p, w.rep, "read")
 	must(t, err)
 	contains(t, "bind reporter", execs(w.fake, n),
-		`CREATE ROLE "orders_reporter"`,
-		`GRANT SELECT ON ALL TABLES IN SCHEMA public TO "orders_reporter"`,
-		`ALTER DEFAULT PRIVILEGES FOR ROLE "orders_api" IN SCHEMA public GRANT SELECT ON TABLES TO "orders_reporter"`,
+		`CREATE ROLE "s_dev_orders_reporter"`,
+		`GRANT SELECT ON ALL TABLES IN SCHEMA public TO "s_dev_orders_reporter"`,
+		`ALTER DEFAULT PRIVILEGES FOR ROLE "s_dev_orders_api" IN SCHEMA public GRANT SELECT ON TABLES TO "s_dev_orders_reporter"`,
 	)
 
 	// The same access again is nothing.
@@ -245,10 +247,10 @@ func TestPostgresSliceAndBindings(t *testing.T) {
 	must(t, err)
 	ex := execs(w.fake, n)
 	contains(t, "re-grant", ex,
-		`REVOKE ALL ON DATABASE "orders" FROM "orders_reporter"`,
-		`GRANT ALL ON DATABASE "orders" TO "orders_reporter"`,
+		`REVOKE ALL ON DATABASE "s_dev_orders" FROM "s_dev_orders_reporter"`,
+		`GRANT ALL ON DATABASE "s_dev_orders" TO "s_dev_orders_reporter"`,
 	)
-	if strings.Contains(ex, "ROLE \"orders_reporter\" LOGIN") || moved.DBUser != rep.DBUser ||
+	if strings.Contains(ex, "ROLE \"s_dev_orders_reporter\" LOGIN") || moved.DBUser != rep.DBUser ||
 		moved.DBPassword != rep.DBPassword || moved.Access != "write" {
 		t.Errorf("re-grant %+v:\n%s", moved, ex)
 	}
@@ -257,29 +259,28 @@ func TestPostgresSliceAndBindings(t *testing.T) {
 	n = len(w.fake.Calls())
 	must(t, w.f.Unbind(ctx, moved))
 	contains(t, "unbind", execs(w.fake, n),
-		`REASSIGN OWNED BY "orders_reporter" TO "orders"`,
-		`DROP OWNED BY "orders_reporter"`,
-		`DROP ROLE IF EXISTS "orders_reporter"`,
+		`REASSIGN OWNED BY "s_dev_orders_reporter" TO "s_dev_orders"`,
+		`DROP OWNED BY "s_dev_orders_reporter"`,
+		`DROP ROLE IF EXISTS "s_dev_orders_reporter"`,
 	)
 	if bs, err := w.f.Instances.Bindings(ctx, p.ID); err != nil || len(bs) != 1 {
 		t.Errorf("bindings after unbind = %v, %v", bs, err)
 	}
 
 	// on_remove drop: every binding, then the database, then the row.
-	p, err = w.f.Instances.SetOnRemove(ctx, p, managed.Drop)
-	must(t, err)
 	n = len(w.fake.Calls())
-	must(t, w.f.Drop(ctx, p, false, io.Discard))
+	must(t, w.f.Drop(ctx, p, true, io.Discard))
 	contains(t, "drop", execs(w.fake, n),
-		`DROP ROLE IF EXISTS "orders_api"`,
-		`DROP DATABASE IF EXISTS "orders" WITH (FORCE)`,
+		`DROP ROLE IF EXISTS "s_dev_orders_api"`,
+		`DROP DATABASE IF EXISTS "s_dev_orders" WITH (FORCE)`,
 	)
 	if _, ok, err := w.f.Instances.ProvisionOf(ctx, w.orders.ID); err != nil || ok {
 		t.Errorf("provision after drop: %v %v", ok, err)
 	}
 }
 
-// A new name never answers to one the instance already holds, users included.
+// A slice's name is its address (DECIDE 197); one another row on the
+// instance already holds, a binding's user included, is refused.
 func TestNamesAreUniqueOnTheInstance(t *testing.T) {
 	w := setup(t, "postgres")
 	w.fake.ExecOut = "0,0"
@@ -296,10 +297,8 @@ func TestNamesAreUniqueOnTheInstance(t *testing.T) {
 		ProvisionFrom: &from,
 	})
 	must(t, err)
-	q, err := w.f.Provision(ctx, w.db, clash)
-	must(t, err)
-	if q.DBName != "orders_api_2" {
-		t.Errorf("clashing slice = %q, want orders_api_2", q.DBName)
+	if _, err := w.f.Provision(ctx, w.db, clash); !isConflict(err) {
+		t.Errorf("clashing slice s_dev_orders_api = %v, want a conflict", err)
 	}
 }
 
@@ -312,21 +311,30 @@ func TestKeepAndTeardownNeedsForce(t *testing.T) {
 	must(t, err)
 	n := len(w.fake.Calls())
 	must(t, w.f.Drop(ctx, p, false, io.Discard))
-	if ex := execs(w.fake, n); strings.Contains(ex, "DROP DATABASE") || !strings.Contains(ex, `DROP ROLE IF EXISTS "orders_api"`) {
+	if ex := execs(w.fake, n); strings.Contains(ex, "DROP DATABASE") || !strings.Contains(ex, `DROP ROLE IF EXISTS "s_dev_orders_api"`) {
 		t.Errorf("keep:\n%s", ex)
 	}
 	if _, ok, _ := w.f.Instances.ProvisionOf(ctx, w.orders.ID); ok {
 		t.Error("a kept slice kept its row")
 	}
 
-	_, err = w.f.Provision(ctx, w.db, w.orders)
+	// Added back, it finds its kept database by name: no CREATE, the owner
+	// takes a fresh password.
+	w.fake.ExecOut = "1,1"
+	n = len(w.fake.Calls())
+	back, err := w.f.Provision(ctx, w.db, w.orders)
 	must(t, err)
+	ex := execs(w.fake, n)
+	if back.DBName != "s_dev_orders" || back.ID == p.ID || strings.Contains(ex, "CREATE") ||
+		!strings.Contains(ex, `ALTER ROLE "s_dev_orders"`) {
+		t.Errorf("re-added %+v:\n%s", back, ex)
+	}
 	if err := w.f.Teardown(ctx, w.db, false, io.Discard); !isConflict(err) {
 		t.Errorf("teardown with a held slice = %v, want a conflict", err)
 	}
 	n = len(w.fake.Calls())
 	must(t, w.f.Teardown(ctx, w.db, true, io.Discard))
-	contains(t, "forced teardown", execs(w.fake, n), `DROP DATABASE IF EXISTS "orders"`)
+	contains(t, "forced teardown", execs(w.fake, n), `DROP DATABASE IF EXISTS "s_dev_orders"`)
 	if _, err := w.f.Instances.GetByTile(ctx, w.db.ID); !errors.Is(err, errs.ErrNotFound) {
 		t.Errorf("instance after teardown: %v", err)
 	}
@@ -343,21 +351,19 @@ func TestS3BucketPerSlice(t *testing.T) {
 	w := setup(t, "s3")
 	p, err := w.f.Provision(ctx, w.db, w.orders)
 	must(t, err)
-	if !slices.Equal(w.s3.made, []string{"orders"}) || p.DBUser != "stackr" {
+	if !slices.Equal(w.s3.made, []string{"s-dev-orders"}) || p.DBUser != "stackr" {
 		t.Errorf("made %v, user %q", w.s3.made, p.DBUser)
 	}
 	b, err := w.f.Bind(ctx, p, w.rep, "read")
 	must(t, err)
 	out, err := managed.Outputs(b)
 	must(t, err)
-	if b.DBUser != "stackr" || b.Access != "read" || out["S3_BUCKET"] != "orders" ||
+	if b.DBUser != "stackr" || b.Access != "read" || out["S3_BUCKET"] != "s-dev-orders" ||
 		out["S3_ENDPOINT"] != "http://db-"+w.instance.ID[:8]+":9000" {
 		t.Errorf("binding %+v, outputs %v", b, out)
 	}
-	p, err = w.f.Instances.SetOnRemove(ctx, p, managed.Drop)
-	must(t, err)
-	must(t, w.f.Drop(ctx, p, false, io.Discard))
-	if !slices.Equal(w.s3.dropped, []string{"orders"}) {
+	must(t, w.f.Drop(ctx, p, true, io.Discard))
+	if !slices.Equal(w.s3.dropped, []string{"s-dev-orders"}) {
 		t.Errorf("dropped %v", w.s3.dropped)
 	}
 }

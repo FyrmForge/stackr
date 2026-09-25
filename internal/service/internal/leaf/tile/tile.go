@@ -69,17 +69,6 @@ func (l *Leaf) Create(ctx context.Context, t store.Tile) (store.Tile, error) {
 	}
 	now := time.Now().UTC()
 	t.ID, t.CreatedAt, t.UpdatedAt = uuid.NewString(), now, now
-	if Builds(t) {
-		if t.GitBranch == "" {
-			t.GitBranch = "main"
-		}
-		if t.DockerfilePath == "" {
-			t.DockerfilePath = "Dockerfile"
-		}
-		if t.BuildContext == "" {
-			t.BuildContext = "."
-		}
-	}
 	if err := Validate(&t); err != nil {
 		return t, err
 	}

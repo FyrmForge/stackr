@@ -22,11 +22,6 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
 
-const (
-	Keep = "keep" // the slice tile going away keeps the data (default)
-	Drop = "drop" // ... destroys it
-)
-
 type Leaf struct {
 	instances  store.ManagedInstanceStore
 	provisions store.ProvisionStore
@@ -158,7 +153,6 @@ type Slice struct {
 	DBUser     string
 	DBPassword string
 	Public     bool
-	OnRemove   string // keep (default) | drop
 }
 
 // Password is a fresh cred password.
@@ -195,12 +189,6 @@ func (l *Leaf) CreateProvision(
 	sliceTileID string,
 	s Slice,
 ) (store.Provision, error) {
-	if s.OnRemove == "" {
-		s.OnRemove = Keep
-	}
-	if s.OnRemove != Keep && s.OnRemove != Drop {
-		return store.Provision{}, errs.Invalidf("on_remove", "must be keep or drop")
-	}
 	if s.DBName == "" || s.DBUser == "" {
 		return store.Provision{}, errs.Invalidf("slice", "a slice needs a name and a user")
 	}
@@ -218,7 +206,6 @@ func (l *Leaf) CreateProvision(
 		DBUser:     s.DBUser,
 		DBPassword: s.DBPassword,
 		Public:     s.Public,
-		OnRemove:   s.OnRemove,
 		CreatedAt:  time.Now().UTC(),
 	}
 	return p, l.provisions.Create(ctx, p)
@@ -239,15 +226,6 @@ func (l *Leaf) GetProvision(ctx context.Context, id string) (store.Provision, er
 
 func (l *Leaf) ByInstance(ctx context.Context, instanceID string) ([]store.Provision, error) {
 	return l.provisions.ListByInstance(ctx, instanceID)
-}
-
-// SetOnRemove says what the slice tile going away does to the data.
-func (l *Leaf) SetOnRemove(ctx context.Context, p store.Provision, onRemove string) (store.Provision, error) {
-	if onRemove != Keep && onRemove != Drop {
-		return p, errs.Invalidf("on_remove", "must be keep or drop")
-	}
-	p.OnRemove = onRemove
-	return p, l.provisions.Update(ctx, p)
 }
 
 // SetPublic flips public read. A public slice needs the instance to have a

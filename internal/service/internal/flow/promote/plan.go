@@ -62,6 +62,7 @@ var shownValues = map[string]func(store.Tile) string{
 	"timeout_minutes": func(t store.Tile) string { return strconv.Itoa(t.TimeoutMinutes) },
 	"provision_from":  func(t store.Tile) string { return deref(t.ProvisionFrom) },
 	"default_access":  func(t store.Tile) string { return deref(t.DefaultAccess) },
+	"on_remove":       func(t store.Tile) string { return deref(t.OnRemove) },
 }
 
 func (p *Plan) Blocked() bool { return len(p.Blockers) > 0 }
@@ -1017,8 +1018,10 @@ func toRow(name string, tc TileConf, st store.Stack, e store.Environment) store.
 	}
 	if tc.Type == tile.Slice {
 		access := cmp.Or(tc.DefaultAccess, tile.Write)
+		onRemove := cmp.Or(tc.OnRemove, tile.Keep)
 		t.ProvisionFrom = &tc.ProvisionFrom
 		t.DefaultAccess = &access
+		t.OnRemove = &onRemove
 	}
 	for _, a := range tc.SliceAccess {
 		t.SliceAccess = append(t.SliceAccess, store.SliceAccess{

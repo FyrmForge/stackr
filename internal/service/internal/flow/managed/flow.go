@@ -13,6 +13,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/environment"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/managed"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/stack"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/volume"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
@@ -25,6 +26,7 @@ type Flow struct {
 	Instances *managed.Leaf
 	Volumes   *volume.Leaf
 	Envs      *environment.Leaf
+	Stacks    *stack.Leaf
 	// S3 is the bucket client for an instance's API (s3.Admin in
 	// production); nil = no s3 engine.
 	S3 func(endpoint, access, secret string) S3Admin
@@ -127,10 +129,12 @@ func (f *Flow) Ready(ctx context.Context, t store.Tile) error {
 }
 
 // Provision is slice tile s's deploy: its database or bucket on instance
-// tile it, made once, named after the slice's slug (uniquified on the
-// instance) with an owner cred. With the row present it re-syncs through
-// the engine's idempotent Provision (a database dropped behind stackr's
-// back comes back, empty).
+// tile it, made once with an owner cred. The name is the slice's own
+// address, <stack>_<env>_<slice> (DECIDE 197; the engine's SliceName makes
+// it an identifier or a bucket name), so a kept slice added back in the
+// same env finds its data. With the row present it re-syncs through the
+// engine's idempotent Provision (a database dropped behind stackr's back
+// comes back, empty).
 func (f *Flow) Provision(ctx context.Context, it store.Tile, s store.Tile) (store.Provision, error) {
 	m, e, err := f.instance(ctx, it.ID)
 	if err != nil {
@@ -153,12 +157,24 @@ func (f *Flow) Provision(ctx context.Context, it store.Tile, s store.Tile) (stor
 		}
 		return p, e.Provision(ctx, inst, slice(p), f.tools(it, m))
 	}
+	name, err := f.sliceName(ctx, def, s)
+	if err != nil {
+		return p, err
+	}
 	taken, err := f.Instances.Names(ctx, m.ID)
 	if err != nil {
 		return p, err
 	}
+	if slices.Contains(taken, name) {
+		return p, errs.Conflictf(
+			"slice %s: %s on %s is held by another slice or binding; rename the slice tile",
+			s.Slug,
+			name,
+			it.Slug,
+		)
+	}
 	sl := Slice{
-		Name:     uniqueSliceName(def.SliceName(s.Slug), taken, def.SliceSep),
+		Name:     name,
 		Password: managed.Password(),
 	}
 	sl.User = sl.Name
@@ -174,6 +190,23 @@ func (f *Flow) Provision(ctx context.Context, it store.Tile, s store.Tile) (stor
 		DBUser:     sl.User,
 		DBPassword: sl.Password,
 	})
+}
+
+// sliceName is slice tile s's name on its instance: its stack, env and
+// slug joined by the engine's separator, spelled as the engine spells names.
+// ponytail: hyphenated slugs can meet (stack my-shop env dev, stack my env
+// shop-dev) and a name past maxName is cut; Provision refuses the clash, a
+// hash suffix when one bites.
+func (f *Flow) sliceName(ctx context.Context, def Definition, s store.Tile) (string, error) {
+	e, err := f.Envs.Get(ctx, s.EnvironmentID)
+	if err != nil {
+		return "", err
+	}
+	st, err := f.Stacks.Get(ctx, s.StackID)
+	if err != nil {
+		return "", err
+	}
+	return def.SliceName(st.Slug + def.SliceSep + e.Slug + def.SliceSep + s.Slug), nil
 }
 
 // Bind gives consumer c its own cred on slice p at access (read | write)
@@ -257,11 +290,12 @@ func (f *Flow) Unbind(ctx context.Context, b store.Binding) error {
 	return f.Instances.Unbind(ctx, b.ID)
 }
 
-// Drop is slice p's tile going: every binding goes, then the data when
-// on_remove says drop or the env is ephemeral (nothing else would ever
-// reclaim a PR env's), then the row. keep leaves the database or bucket on
-// the instance, held by no row; a slice of that name added later finds it.
-func (f *Flow) Drop(ctx context.Context, p store.Provision, ephemeral bool, log io.Writer) error {
+// Drop is slice p's tile going: every binding goes, then the data when drop
+// (the caller's: the tile's on_remove, or an ephemeral env, which nothing
+// else would ever reclaim), then the row. keep leaves the database or
+// bucket on the instance, held by no row; the same slice added back in the
+// same env finds it (its name is its address, DECIDE 197).
+func (f *Flow) Drop(ctx context.Context, p store.Provision, drop bool, log io.Writer) error {
 	bs, err := f.Instances.Bindings(ctx, p.ID)
 	if err != nil {
 		return err
@@ -271,7 +305,7 @@ func (f *Flow) Drop(ctx context.Context, p store.Provision, ephemeral bool, log 
 			return err
 		}
 	}
-	if p.OnRemove == managed.Drop || ephemeral {
+	if drop {
 		m, it, e, err := f.of(ctx, p)
 		if err != nil {
 			return err
@@ -305,7 +339,7 @@ func (f *Flow) Teardown(ctx context.Context, it store.Tile, force bool, log io.W
 		return err
 	}
 	for _, p := range held {
-		p.OnRemove = managed.Drop // forced: the data goes with its instance
+		// forced: the data goes with its instance
 		if err := f.Drop(ctx, p, true, log); err != nil {
 			logf(log, "drop %s: %v (the row goes anyway)\n", p.DBName, err)
 		}

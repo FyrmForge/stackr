@@ -40,7 +40,7 @@ func tileWithDomains(now time.Time) []stmt {
 		{`INSERT INTO domain_resources VALUES ('dr0','instance',NULL,NULL,'example.com',0,'',0,?)`, []any{now}},
 		{`INSERT INTO domain_resources VALUES ('dr1','org','o1',NULL,'acme.example.com',0,'',1,?)`, []any{now}},
 		{`INSERT INTO domain_resources VALUES ('dr2','stack',NULL,'s1','shop.io',0,'',1,?)`, []any{now}},
-		{`INSERT INTO tiles VALUES ('t1','s1','e1','api','api','image','','','nginx:1','','','','{}','','','',80,'','','','',0,0,0,0,0,0,'',0,0,'','','','','',1,'manual','','','',0,0,NULL,NULL,'[]',?,?)`, []any{now, now}},
+		{`INSERT INTO tiles VALUES ('t1','s1','e1','api','api','image','','','nginx:1','','','','{}','','','',80,'','','','',0,0,0,0,0,0,'',0,0,'','','','','',1,'manual','','','',0,0,NULL,NULL,NULL,'[]',?,?)`, []any{now, now}},
 		{`INSERT INTO domains VALUES ('dm1','t1','api.shop.io','/',80,1,0,'',1,'dr2',0,'{}','',?)`, []any{now}},
 		{`INSERT INTO domains VALUES ('dm2','t1','api.shop.acme.example.com','/',80,1,0,'',1,'dr1',1,'{}','',?)`, []any{now}},
 	}
@@ -168,10 +168,10 @@ func TestDomainResourceGuards(t *testing.T) {
 }
 
 // tileRow is a tiles row in shop/dev named id; from and access are the
-// slice columns (nil = NULL).
+// slice columns (nil = NULL); on_remove is NULL.
 func tileRow(id, kind string, from, access any, now time.Time) stmt {
 	return stmt{
-		`INSERT INTO tiles VALUES (?,'s1','e1',?,?,?,'','','','','','','{}','','','',0,'','','','',0,0,0,0,0,0,'',0,0,'','','','','',1,'manual','','','',0,0,?,?,'[]',?,?)`,
+		`INSERT INTO tiles VALUES (?,'s1','e1',?,?,?,'','','','','','','{}','','','',0,'','','','',0,0,0,0,0,0,'',0,0,'','','','','',1,'manual','','','',0,0,?,?,NULL,'[]',?,?)`,
 		[]any{id, id, id, kind, from, access, now, now},
 	}
 }
@@ -191,7 +191,7 @@ func sliceWorld(t *testing.T) *sqlx.DB {
 		tileRow("api", "image", nil, nil, now),
 		tileRow("reporter", "cron", nil, nil, now),
 		{`INSERT INTO managed_instances VALUES ('mi1','pg','postgres','["acme:shop:*"]','{"dev":"dev"}','stackr','x','',?)`, []any{now}},
-		{`INSERT INTO provisions VALUES ('pr1','api-db','mi1','api_db','api_db','x',0,'keep',?)`, []any{now}},
+		{`INSERT INTO provisions VALUES ('pr1','api-db','mi1','api_db','api_db','x',0,?)`, []any{now}},
 		{`INSERT INTO bindings VALUES ('b1','pr1','api','write','api_db_api','x','{}',?)`, []any{now}},
 		{`INSERT INTO bindings VALUES ('b2','pr1','reporter','read','api_db_reporter','x','{}',?)`, []any{now}},
 	})
@@ -244,7 +244,7 @@ func TestSliceGuards(t *testing.T) {
 	db := sliceWorld(t)
 	now := time.Now()
 	for _, bad := range []stmt{
-		{`INSERT INTO provisions VALUES ('pr2','api-db','mi1','x','x','x',0,'keep',?)`, []any{now}},
+		{`INSERT INTO provisions VALUES ('pr2','api-db','mi1','x','x','x',0,?)`, []any{now}},
 		{`INSERT INTO bindings VALUES ('b3','pr1','api','read','u','x','{}',?)`, []any{now}},
 		{`INSERT INTO bindings VALUES ('b4','pr1','pg','admin','u','x','{}',?)`, []any{now}},
 		tileRow("bad", "slice", "infra:dev:pg", "admin", now),

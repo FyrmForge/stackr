@@ -266,7 +266,6 @@ func TestSliceRef(t *testing.T) {
 		DBName:     "api_db",
 		DBUser:     "api_db",
 		DBPassword: "owner",
-		OnRemove:   managed.Keep,
 		CreatedAt:  now,
 	}
 	must(t, w.st.Provisions.Create(ctx, p))

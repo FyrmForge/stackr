@@ -2056,9 +2056,6 @@
           "instance_id": {
             "type": "string"
           },
-          "on_remove": {
-            "type": "string"
-          },
           "public": {
             "type": "boolean"
           },
@@ -2073,7 +2070,6 @@
           "db_name",
           "db_user",
           "public",
-          "on_remove",
           "created_at"
         ],
         "type": "object"
@@ -2580,6 +2576,16 @@
           },
           "name": {
             "type": "string"
+          },
+          "on_remove": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "paused": {
             "type": "boolean"

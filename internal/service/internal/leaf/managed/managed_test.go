@@ -110,23 +110,11 @@ func TestSlices(t *testing.T) {
 	}
 
 	p, err := l.CreateProvision(ctx, m, tiles["orders"], slice)
-	if err != nil || p.OnRemove != managed.Keep {
+	if err != nil {
 		t.Fatalf("provision = %+v %v", p, err)
 	}
 	if _, err := l.CreateProvision(ctx, m, tiles["orders"], slice); err == nil {
 		t.Error("second provision for one slice tile")
-	}
-	if _, err := l.CreateProvision(
-		ctx,
-		m,
-		tiles["web"],
-		managed.Slice{
-			DBName:   "w",
-			DBUser:   "w",
-			OnRemove: "detach",
-		},
-	); err == nil {
-		t.Error("bad on_remove accepted")
 	}
 	if got, ok, err := l.ProvisionOf(ctx, tiles["orders"]); err != nil || !ok || got.ID != p.ID {
 		t.Errorf("provision of = %+v %v %v", got, ok, err)
