@@ -26,7 +26,10 @@ onto it.
 1. **Store.** `domain_resources` (id, level CHECK in instance|org|stack,
    org_id NULL FK ON DELETE CASCADE, stack_id NULL FK ON DELETE CASCADE,
    host UNIQUE, include_env_on_default, acme_email, declared, created_at;
-   a CHECK that the level matches which id is set). `stacks.domains`
+   a CHECK that the level matches which id is set). `domains` gets
+   `resource_id TEXT NULL REFERENCES domain_resources (id) ON DELETE
+   RESTRICT`: the resource that named an `auto`/`apex` host, null for a
+   literal. `stacks.domains`
    dropped. Edit `internal/db/migrations/003_rest` in place, up and down;
    `store.DomainResource` + `newTable`; `Tables` and `bind`;
    `internal/db/cascade_test.go`: deleting an org or a stack deletes its
@@ -44,10 +47,12 @@ onto it.
 3. **`leaf/domainres`.** Owns the table: `Create(ctx, level, ownerID,
    host, include, acme)` (grammar via `installspec.CheckRoot`; taken →
    `Conflict` from the unique index; the squat check; the ACME account
-   as `leaf/domain` does), `SetACME`, `Delete` (refused while a tile
-   domain resolves under it), `Get`, `ListAll`, `Visible(ctx, stackID)`
+   as `leaf/domain` does), `SetACME`, `Delete` (`Conflict` "n tile
+   domains are named by this resource" while any `domains.resource_id`
+   points at it; the FK is the backstop), `Get`, `ListAll`, `Visible(ctx, stackID)`
    nearest first, declared first, oldest first, `AutoHost(res, tile,
-   env, isDefaultEnv)`, `CheckOrgSquat(ctx, host, orgID)` sharing
+   env, isDefaultEnv)` where the default env is the ladder's top rung
+   (DECIDE 192), `CheckOrgSquat(ctx, host, orgID)` sharing
    `leaf/org`'s label logic (one function, both directions).
    Done when: leaf tests for grammar, taken, squat both ways, visibility
    order, every `AutoHost` shape incl. the default-env label rule.
@@ -55,7 +60,8 @@ onto it.
 4. **Stack file and promote.** `DomainConf` gets `auto: true` and `apex:`
    as v0's grammar (with the hints); the promote plan resolves both
    through `Visible` + `AutoHost` when it plans, "no domain resource is
-   visible to this stack" as a blocker; stack-level `domains:` writes
+   visible to this stack" as a blocker, and the domain rows it writes
+   carry `resource_id`; stack-level `domains:` writes
    stack rows (create missing, update env/ACME, the file never deletes
    one) instead of the JSON; `SetReservations` becomes rows.
    Done when: plan tests: auto under an org row, under the instance row,

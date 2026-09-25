@@ -30,7 +30,7 @@ at the bottom of this file.
 - [x] step-5.md installer + self-upgrade
 - [x] step-6.md UI, whitelist: `log-pane`, `confirm-dialog`, `flash-toast`, `theme-toggle`. Dropped old JS: canvas/graph, metrics, xterm terminal, YAML code editor (see step-6.md "Not in v1")
 - [ ] step-7a.md domains backend: v0's domain resources at instance, org and stack level, `AutoHost`, `auto:`/`apex:` on tile domains, the squat check, root domain from the installer, org drawer Domains section, API + CLI; darthvader 2026-09-25 (DECIDE 190), built before step 7, not started
-- [ ] step-7.md org config file: `stackr-org.yml` bound to the org, plans as rows an owner approves or an Auto switch applies, apply = one job through the orchestrator's verbs, never deletes a stack; plus v0's new-org wizard one to one; planned 2026-09-25 (DECIDE 180 to 191), not started
+- [ ] step-7.md org config file: `stackr-org.yml` bound to the org, plans as rows an owner approves or an Auto switch applies, apply = one job through the orchestrator's verbs, never deletes a stack; plus v0's new-org wizard one to one; planned 2026-09-25 (DECIDE 180 to 192), not started
 
 Step 0 list (agreed with darhvader):
 1. Rename binaries to `stackrd`, `stackr`, `stackr-install`: three `cmd/` dirs, Makefile, watch rule.
@@ -855,6 +855,14 @@ sweep, P14 theme per user, DECIDE 159 and the DECIDE 138 leftovers.
    missing → create an org row; env flag or ACME differs → update; gone
    from the file → left alone; host taken elsewhere or squatting → blocker.
    Export writes them.
+192. **(step 7a) The default env is the ladder's top rung.** `AutoHost`
+   drops the env label on the stack's default env (`api.stack.org`, not
+   `api.prod.stack.org`) unless the resource says
+   `include_env_on_default`; v0 had a default env per stack, the rewrite
+   has only the ladder. **darthvader 2026-09-25: top rung.** A tile
+   domain row remembers the resource that named it (`resource_id`, FK
+   RESTRICT), so deleting a resource that still names one is refused
+   with a count, not a guess.
 
 ## DECIDE:
 

@@ -870,7 +870,11 @@ Filesystem snapshots were explored and parked (see "Later").
   then the instance's. `AutoHost` builds a tile's name from the nearest:
   `tile[.env].stack.org.<instance host>`, `tile[.env].stack.<org host>`,
   `tile[.env].<stack host>`; the env label is dropped on the stack's
-  default env unless the resource says `include_env_on_default`.
+  default env unless the resource says `include_env_on_default`. The
+  default env is the ladder's top rung (darthvader 2026-09-25, DECIDE
+  192). A tile domain row remembers the resource that named it
+  (`resource_id`), and a resource that still names one cannot be
+  deleted.
 - **The stack file.** A tile domain is a literal, a `params.` ref,
   `auto: true` (the nearest resource names it) or `apex: <resource
   host>` (the tile takes the resource's host itself). The promote plan

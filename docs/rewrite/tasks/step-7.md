@@ -50,7 +50,7 @@ Branch `rewrite-step-7`, stacked on `rewrite-step-6e`.
    stacks are not supported; put the stack in its own file"; `moved:` is
    a list of `from`/`to`, each `stack.<slug>` or `shared.<slug>`, the same
    kind on both sides. `Diff(f
-   *File, live Live) Plan` with `Live{Org, Stacks []StackLive, Params,
+   *File, live Live) Plan` with `Live{Org, Stacks []StackLive, Params, Domains,
    Settings, EnvColors}` and `Plan{Changes, Blockers, Notes}` reusing
    promote's `Change` shape (kinds: `org`, `param`, `defaults`, `colors`,
    `create`, `rebind`, `instance`, `instance-update`, `rename`,
