@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
@@ -298,7 +299,8 @@ func (o *Orchestrator) ladderEnvs(ctx context.Context, p pushJob, log io.Writer)
 		}
 		have = append(have, e)
 		made = true
-		_, _ = fmt.Fprintf(log, "env %s made from the stack file (%s %s)\n", e.Slug, e.FromKind, e.FromBranch)
+		from := strings.TrimSpace(e.FromKind + " " + e.FromBranch)
+		_, _ = fmt.Fprintf(log, "env %s made from the stack file (%s)\n", e.Slug, from)
 	}
 	if !made {
 		return nil

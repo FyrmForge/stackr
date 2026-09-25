@@ -59,7 +59,8 @@ func (o *Orchestrator) SetOrgSetupMode(ctx context.Context, orgID, mode string) 
 	return o.SetOrgConfigRepo(ctx, og.ID, "", "", "", "", false)
 }
 
-// RenameOrg moves name and slug; the squat check reads every domain's org.
+// RenameOrg moves name and slug, and the auto domains under the org with
+// them; the squat check reads every domain's org.
 func (o *Orchestrator) RenameOrg(ctx context.Context, orgID, name string) (Org, error) {
 	og, err := o.orgs.Get(ctx, orgID)
 	if err != nil {
@@ -69,7 +70,14 @@ func (o *Orchestrator) RenameOrg(ctx context.Context, orgID, name string) (Org, 
 	if err != nil {
 		return og, err
 	}
-	return o.orgs.Rename(ctx, og, name, claims)
+	if og, err = o.orgs.Rename(ctx, og, name, claims); err != nil {
+		return og, err
+	}
+	ts, err := o.scopeTiles(ctx, ParamScope{Kind: "org", ID: og.ID})
+	if err != nil {
+		return og, err
+	}
+	return og, o.refreshAutoHosts(ctx, ts)
 }
 
 // SetOrgSettings writes the org's rung of the defaults cascade and

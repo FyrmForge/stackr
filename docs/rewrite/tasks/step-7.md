@@ -52,8 +52,9 @@ Branch `rewrite-step-7`, stacked on `rewrite-step-7a`.
    DECIDE 193). `Diff(f
    *File, live Live) Plan` with `Live{Org, Stacks []StackLive, Params, Domains,
    Settings, EnvColors}` and `Plan{Changes, Blockers, Notes}` reusing
-   promote's `Change` shape (kinds: `org`, `param`, `defaults`, `colors`,
-   `create`, `rebind`, `rename`, `domain`, `domain-update`; the
+   promote's `Change` shape (kinds: `org`, `param`, `param-update`,
+   `defaults`, `colors`, `create`, `rebind`, `rename`, `domain`,
+   `domain-update`; the
    `instance` kinds dropped by DECIDE 193), `Summary()` as v0's
    plan had. The rules are the design's "The diff" bullet, verbatim.
    Pure: no store, no clone.

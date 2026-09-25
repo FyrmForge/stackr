@@ -159,6 +159,7 @@ func TestDiff(t *testing.T) {
 				{
 					Kind:  "param",
 					Field: "email.from",
+					New:   "noreply@acme.test",
 				},
 			},
 		},
@@ -172,8 +173,24 @@ func TestDiff(t *testing.T) {
 `,
 			changes: []orgconfig.Change{
 				{
-					Kind:  "param",
+					Kind:  "param-update",
 					Field: "email.sender",
+					New:   "new@acme.test",
+				},
+			},
+		},
+		{
+			name: "a param that becomes a secret carries no value",
+			file: v1 + `params:
+  email:
+    sender:
+      type: secret
+`,
+			changes: []orgconfig.Change{
+				{
+					Kind:  "param-update",
+					Field: "email.sender",
+					Note:  "becomes a secret",
 				},
 			},
 		},
@@ -615,6 +632,16 @@ func TestPlanJSONAndSummary(t *testing.T) {
 				Old:   "main",
 				New:   "prod",
 			},
+			{
+				Kind:  "param",
+				Field: "app.farewell",
+				New:   "bye",
+			},
+			{
+				Kind:  "param-update",
+				Field: "app.greeting",
+				New:   "hi",
+			},
 		},
 		Blockers: []string{
 			"org: another organization already uses the slug \"globex\"",
@@ -634,7 +661,7 @@ func TestPlanJSONAndSummary(t *testing.T) {
 	if !reflect.DeepEqual(got, p) {
 		t.Errorf("round trip = %+v, want %+v", got, p)
 	}
-	if s := p.Summary(); s != "1 to add, 1 to change, 1 blocker" {
+	if s := p.Summary(); s != "2 to add, 2 to change, 1 blocker" {
 		t.Errorf("summary = %q", s)
 	}
 	if s := (&orgconfig.Plan{}).Summary(); s != "no changes" {

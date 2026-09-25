@@ -38,28 +38,34 @@ func (o *Orchestrator) DeleteParam(ctx context.Context, s ParamScope, collection
 
 // redeployScope redeploys the running tiles a scope's params reach.
 func (o *Orchestrator) redeployScope(ctx context.Context, s ParamScope) error {
-	var ts []Tile
-	var err error
-	switch s.Kind {
-	case "env":
-		ts, err = o.tiles.List(ctx, s.ID)
-	case "stack":
-		ts, err = o.tiles.ListByStack(ctx, s.ID)
-	case "org":
-		var sts []Stack
-		if sts, err = o.stacks.List(ctx, s.ID); err != nil {
-			return err
-		}
-		for _, st := range sts {
-			more, err := o.tiles.ListByStack(ctx, st.ID)
-			if err != nil {
-				return err
-			}
-			ts = append(ts, more...)
-		}
-	}
+	ts, err := o.scopeTiles(ctx, s)
 	if err != nil {
 		return err
 	}
 	return o.redeployRunning(ctx, ts)
+}
+
+// scopeTiles is every tile under an env, a stack or an org.
+func (o *Orchestrator) scopeTiles(ctx context.Context, s ParamScope) ([]Tile, error) {
+	switch s.Kind {
+	case "env":
+		return o.tiles.List(ctx, s.ID)
+	case "stack":
+		return o.tiles.ListByStack(ctx, s.ID)
+	case "org":
+		sts, err := o.stacks.List(ctx, s.ID)
+		if err != nil {
+			return nil, err
+		}
+		var ts []Tile
+		for _, st := range sts {
+			more, err := o.tiles.ListByStack(ctx, st.ID)
+			if err != nil {
+				return nil, err
+			}
+			ts = append(ts, more...)
+		}
+		return ts, nil
+	}
+	return nil, nil
 }

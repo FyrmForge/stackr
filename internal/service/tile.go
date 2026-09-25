@@ -108,12 +108,16 @@ func (o *Orchestrator) UpdateTile(ctx context.Context, id string, edit func(*Til
 	return t, j, nil
 }
 
+// RenameTile moves name and slug, and the tile's auto domains with them.
 func (o *Orchestrator) RenameTile(ctx context.Context, id, name string) (Tile, error) {
 	t, err := o.tiles.Get(ctx, id)
 	if err != nil {
 		return t, err
 	}
-	return o.tiles.Rename(ctx, t, name)
+	if t, err = o.tiles.Rename(ctx, t, name); err != nil {
+		return t, err
+	}
+	return t, o.refreshAutoHosts(ctx, []Tile{t})
 }
 
 // DeleteTile queues the tile's removal: containers, ingress, slices, row.

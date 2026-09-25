@@ -20,12 +20,21 @@ func (o *Orchestrator) CreateStack(ctx context.Context, orgID, name, description
 	return o.stacks.Create(ctx, orgID, name, description)
 }
 
+// RenameStack moves name and slug, and the auto domains under the stack
+// with them.
 func (o *Orchestrator) RenameStack(ctx context.Context, id, name string) (Stack, error) {
 	st, err := o.stacks.Get(ctx, id)
 	if err != nil {
 		return st, err
 	}
-	return o.stacks.Rename(ctx, st, name)
+	if st, err = o.stacks.Rename(ctx, st, name); err != nil {
+		return st, err
+	}
+	ts, err := o.tiles.ListByStack(ctx, st.ID)
+	if err != nil {
+		return st, err
+	}
+	return st, o.refreshAutoHosts(ctx, ts)
 }
 
 // DeleteStack refuses while the stack has environments.

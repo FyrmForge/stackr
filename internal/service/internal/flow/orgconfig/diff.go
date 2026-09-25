@@ -18,8 +18,9 @@ import (
 )
 
 // Change is one line of a plan, flow/promote's Change shape. Kind is org,
-// param, defaults, colors, create, rebind, rename, domain or
-// domain-update; Tile names the stack or host the line is about.
+// param, param-update, defaults, colors, create, rebind, rename, domain or
+// domain-update; create, domain and param add, the rest change. Tile names
+// the stack or host the line is about.
 // ponytail: a copy of promote's type, not an import (flows do not import
 // flows); a third user moves it into a shared package.
 type Change struct {
@@ -54,7 +55,7 @@ func (p *Plan) Summary() string {
 	var add, change int
 	for _, c := range p.Changes {
 		switch c.Kind {
-		case "create", "domain":
+		case "create", "domain", "param":
 			add++
 		default:
 			change++
@@ -193,8 +194,9 @@ func (p *Plan) org(name string, live Live) {
 	}
 }
 
-// params creates and updates, never deletes (DECIDE 185); a secret is never
-// turned back into a param; a secret's value is never in the file.
+// params creates (param) and updates (param-update), never deletes (DECIDE
+// 185); a secret is never turned back into a param. A param's row carries
+// its new value; a secret's value is never in the file, so never in a row.
 func (p *Plan) params(decls map[string]map[string]Param, have map[string]params.Value) {
 	for _, c := range slices.Sorted(maps.Keys(decls)) {
 		for _, n := range slices.Sorted(maps.Keys(decls[c])) {
@@ -205,16 +207,23 @@ func (p *Plan) params(decls map[string]map[string]Param, have map[string]params.
 				p.block("params.%s is a secret; a secret is never turned back into a param", key)
 			case decl.Type == params.Secret && ok && !old.Secret:
 				p.add(Change{
-					Kind:  "param",
+					Kind:  "param-update",
 					Field: key,
 					Note:  "becomes a secret",
 				})
 			case decl.Type == params.Secret && !ok:
 				p.Notes = append(p.Notes, "params."+key+" is declared and not set; tiles that read it wait until it is")
-			case decl.Type == params.Param && decl.Value != nil && (!ok || old.V != *decl.Value):
+			case decl.Type == params.Param && decl.Value != nil && !ok:
 				p.add(Change{
 					Kind:  "param",
-					Field: key, // values never shown
+					Field: key,
+					New:   *decl.Value,
+				})
+			case decl.Type == params.Param && decl.Value != nil && old.V != *decl.Value:
+				p.add(Change{
+					Kind:  "param-update",
+					Field: key,
+					New:   *decl.Value,
 				})
 			}
 		}

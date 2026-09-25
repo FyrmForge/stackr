@@ -87,6 +87,7 @@ func TestOrgConfigTab(t *testing.T) {
 	reject := "/acme/-/drawer/plans/" + first.ID + "/reject"
 	if rec.Code != http.StatusOK || !strings.Contains(body, "Config file saved and planned.") ||
 		!strings.Contains(body, "What changes") || !strings.Contains(body, "app.region") ||
+		!strings.Contains(body, `aria-hidden="true">+</span>`) || !strings.Contains(body, ">us</span>") ||
 		!strings.Contains(body, approve) || !strings.Contains(body, reject) ||
 		!strings.Contains(body, "/acme/-/drawer/unbind") || !strings.Contains(body, "Plan now") {
 		t.Fatalf("bind = %d\n%s", rec.Code, body)
@@ -114,7 +115,7 @@ func TestOrgConfigTab(t *testing.T) {
 
 	rec = r.owner.do(t, "POST", "/acme/-/drawer/plan", nil, true)
 	second := r.latest(t)
-	if rec.Code != http.StatusOK || second.ID == first.ID || !strings.Contains(rec.Body.String(), "Planned: 1 to change.") {
+	if rec.Code != http.StatusOK || second.ID == first.ID || !strings.Contains(rec.Body.String(), "Planned: 1 to add.") {
 		t.Fatalf("plan now = %d %+v\n%s", rec.Code, second, rec.Body)
 	}
 	rec = r.owner.do(t, "POST", "/acme/-/drawer/plans/"+second.ID+"/approve", nil, true)
@@ -169,7 +170,7 @@ func TestOrgPlanBanner(t *testing.T) {
 	}
 	href := `href="/acme?drawer=org:` + r.owner.org + `&amp;tab=config"`
 	body := r.owner.do(t, "GET", "/acme", nil, false).Body.String()
-	if !strings.Contains(body, "Config plan pending: 1 to change. View") || !strings.Contains(body, href) ||
+	if !strings.Contains(body, "Config plan pending: 1 to add. View") || !strings.Contains(body, href) ||
 		!strings.Contains(body, "bg-rw-warning/10") {
 		t.Errorf("pending banner:\n%s", body)
 	}

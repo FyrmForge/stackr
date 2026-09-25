@@ -194,7 +194,7 @@ func (h *handler) github(c echo.Context, og *service.Org, st string) error {
 		}
 		return render.Bare(c, http.StatusOK, "Setup: "+v.Title, pages.Connector(v))
 	}
-	v.Frame = frame(og, st, "Config as code", "One file in a repo declares the whole organization. Its plans are always applied by hand.")
+	v.Frame = frame(og, st, "Config as code", "One file in a repo declares the whole organization. Plans are applied by hand unless Auto apply is on in the org's Config tab.")
 	if body {
 		return respond.HTML(c, http.StatusOK, pages.ConfigBody(v))
 	}
@@ -486,6 +486,8 @@ func planRows(p service.OrgConfigPlan) []pages.Change {
 			row.Tile, row.Field = ch.Old, "slug"
 		case "domain":
 			row.Kind, row.Field = "create", "domain"
+		case "param":
+			row.Kind = "create"
 		case "domain-update":
 			row.Tile, row.Field = "domain", ch.Tile
 			row.Old, row.New = ch.Field+"="+ch.Old, ch.Field+"="+ch.New

@@ -163,8 +163,8 @@ func JobView(page string, j service.Job) components.JobStatusView {
 }
 
 // OrgPlanView is the org file's plan as the plan component draws it: its
-// notes read as warnings do. The org drawer's Config tab and the setup
-// wizard's plan step both show it.
+// notes read as warnings do, and a new domain or param is a create (the
+// component's +) naming its noun. The org drawer's Config tab shows it.
 func OrgPlanView(p service.OrgConfigPlan) components.PlanView {
 	pv := components.PlanView{
 		Title:     "What changes",
@@ -173,14 +173,18 @@ func OrgPlanView(p service.OrgConfigPlan) components.PlanView {
 		CanDeploy: !p.Blocked(),
 	}
 	for _, ch := range p.Changes {
-		pv.Changes = append(pv.Changes, components.ChangeView{
+		cv := components.ChangeView{
 			Kind:  ch.Kind,
 			Tile:  ch.Tile,
 			Field: ch.Field,
 			Old:   ch.Old,
 			New:   ch.New,
 			Note:  ch.Note,
-		})
+		}
+		if ch.Kind == "domain" || ch.Kind == "param" {
+			cv.Kind, cv.Tile = "create", ch.Kind
+		}
+		pv.Changes = append(pv.Changes, cv)
 	}
 	return pv
 }

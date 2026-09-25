@@ -326,8 +326,8 @@ func (o *Orchestrator) applyOrgPlan(ctx context.Context, planID string, log io.W
 
 // walkOrgPlan applies plan's changes in its order, each through its verb,
 // and returns the stacks it created or rebound. A stack's rebind fields
-// and a domain's two fields are one call each, and every param is one
-// SetParams.
+// and a domain's two fields are one call each, and every param, new or
+// changed, is one SetParams.
 func (o *Orchestrator) walkOrgPlan(
 	ctx context.Context,
 	og store.Org,
@@ -343,15 +343,28 @@ func (o *Orchestrator) walkOrgPlan(
 	var bound []store.Stack
 	done := map[string]bool{}
 	for _, c := range plan.Changes {
+		key := ""
 		switch c.Kind {
-		case "param", "rebind", "domain-update":
-			key := c.Kind + ":" + c.Tile
+		case "param", "param-update":
+			key = "param"
+		case "rebind", "domain-update":
+			key = c.Kind + ":" + c.Tile
+		}
+		if key != "" {
 			if done[key] {
 				continue
 			}
 			done[key] = true
 		}
-		_, _ = fmt.Fprintf(log, "%s %s\n", c.Kind, cmp.Or(c.Tile, c.New, c.Field))
+		// a param row's New is its value; the key names it
+		what := cmp.Or(c.Tile, c.New, c.Field)
+		switch c.Kind {
+		case "rename":
+			what = c.Old + " → " + c.New
+		case "param", "param-update":
+			what = c.Field
+		}
+		_, _ = fmt.Fprintf(log, "%s %s\n", c.Kind, what)
 		var err error
 		switch c.Kind {
 		case "rename":
@@ -359,7 +372,7 @@ func (o *Orchestrator) walkOrgPlan(
 			stackIDs[c.New] = stackIDs[c.Old]
 		case "org":
 			_, err = o.RenameOrg(ctx, og.ID, c.New)
-		case "param":
+		case "param", "param-update":
 			err = o.SetParams(ctx, ParamScope{Kind: "org", ID: og.ID}, orgParams(f, plan))
 		case "defaults":
 			_, err = o.SetOrgSettings(ctx, og.ID, settings.Settings(*f.Defaults).JSON())
@@ -375,7 +388,7 @@ func (o *Orchestrator) walkOrgPlan(
 			err = o.putOrgDomain(ctx, og.ID, cmp.Or(c.Tile, c.New), f.Domains, live.Domains)
 		}
 		if err != nil {
-			return bound, fmt.Errorf("%s %s: %w", c.Kind, cmp.Or(c.Tile, c.New, c.Field), err)
+			return bound, fmt.Errorf("%s %s: %w", c.Kind, what, err)
 		}
 	}
 	return bound, nil
@@ -386,7 +399,7 @@ func (o *Orchestrator) walkOrgPlan(
 func orgParams(f *orgconfig.File, plan orgconfig.Plan) []ParamEntry {
 	var es []ParamEntry
 	for _, c := range plan.Changes {
-		if c.Kind != "param" {
+		if c.Kind != "param" && c.Kind != "param-update" {
 			continue
 		}
 		col, name, _ := strings.Cut(c.Field, ".")
