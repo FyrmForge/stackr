@@ -135,6 +135,9 @@ func (h *handler) Page(c echo.Context) error {
 	} else if cs := createButtons(c, l); len(cs) > 0 {
 		actions = ui.Actions(cs)
 	}
+	if v.Banner, err = h.planBanner(c); err != nil {
+		return middleware.HTTPError(err)
+	}
 	var drawer templ.Component
 	if id := c.QueryParam("drawer"); id != "" && !isHTMX(c) {
 		if drawer, err = h.drawer(c, v, id, c.QueryParam("tab")); err != nil {

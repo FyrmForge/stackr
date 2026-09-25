@@ -1,6 +1,6 @@
 // Package org is the org card's drawer tabs (home canvas): settings,
-// members + invites, keys, domains, backups, drawn as v0's organization
-// settings.
+// members + invites, keys, domains, backups, config, drawn as v0's
+// organization settings.
 // Params is the vars editor, composed by the handler. Each tab is drawn
 // inside components.Drawer.
 package org
@@ -12,7 +12,7 @@ import (
 )
 
 // Tabs in strip order.
-var Tabs = []string{"settings", "members", "keys", "params", "domains", "backups"}
+var Tabs = []string{"settings", "members", "keys", "params", "domains", "backups", "config"}
 
 // Roles an owner can give.
 var Roles = []string{"owner", "member", "viewer"}
@@ -73,7 +73,54 @@ func levelWord(level string) string {
 	return level
 }
 
+// ConfigView is v0's Config as code page as a tab: the export, the
+// binding form, the latest plan with its Approve and Reject, the queued
+// apply, then the last plans.
+type ConfigView struct {
+	Base       string // POST /config, /plan; "" = not an owner
+	Export     string // GET the stackr-org.yml
+	Connectors []Option
+	Connector  string
+	Repo       string
+	Branch     string
+	Path       string
+	Auto       bool
+	Unbind     c.ConfirmView // Action "" = nothing bound, or not an owner
+	Job        *c.JobStatusView
+	Latest     *PlanBox  // nil = no plan, or the viewer may not read plans
+	Plans      []PlanRow // the last plans, newest first
+}
+
+type Option struct{ Value, Label string }
+
+// PlanBox is the latest plan: its row, the dry run, and the two answers.
+type PlanBox struct {
+	Row     PlanRow
+	Ask     c.PromoteAsk
+	Approve string // POST; "" = not pending, blocked, or not an owner
+	Reject  string // POST; "" = not pending, or not an owner
+}
+
+type PlanRow struct {
+	Status  string
+	Summary string
+	When    string
+	Commit  string // short
+	Error   string
+}
+
 func target() string { return "#" + c.DrawerRoot }
+
+// planTone is v0's planStatus chip: pending warns, error is danger.
+func planTone(status string) string {
+	switch status {
+	case "pending":
+		return "warn"
+	case "error":
+		return "danger"
+	}
+	return ""
+}
 
 func stacks(n int) string {
 	if n == 1 {
@@ -265,5 +312,100 @@ templ Domains(v DomainsView) {
 templ Backups(v c.DestsView) {
 	<div id="tab-backups">
 		@c.Dests(v)
+	</div>
+}
+
+templ Config(v ConfigView) {
+	<div id="tab-config">
+		@c.Section("Export", "organization", "This organization's live state as a stackr-org.yml, the way out of panel-first and into config-as-code. Secrets come out as declarations, never values.") {
+			<a href={ templ.SafeURL(v.Export) } download="stackr-org.yml" class="btn btn-ghost btn-sm">Download stackr-org.yml</a>
+		}
+		@c.Section("Config as code", "organization", "One file declares the whole organization. Its plans wait for an owner's approve unless Auto apply is on.") {
+			if len(v.Connectors) == 0 && v.Repo == "" {
+				<p class="text-sm text-rw-muted">Connect GitHub first. The org file is fetched through a connector.</p>
+			} else {
+				<form hx-post={ v.Base + "/config" } hx-target={ target() } hx-swap="outerHTML">
+					<fieldset disabled?={ v.Base == "" } class="space-y-4">
+						<legend class="sr-only">Config repository</legend>
+						<div>
+							<label for="org-connector" class="label">Connector</label>
+							<select id="org-connector" name="connector" class="input">
+								<option value="">(unbind)</option>
+								for _, o := range v.Connectors {
+									<option value={ o.Value } selected?={ o.Value == v.Connector }>{ o.Label }</option>
+								}
+							</select>
+						</div>
+						@c.Field(c.FieldView{Name: "repo", Label: "Repository (owner/name)", Value: v.Repo, Placeholder: "you/serverconfig"})
+						@c.Field(c.FieldView{Name: "branch", Label: "Branch (empty = default)", Value: v.Branch})
+						@c.Field(c.FieldView{Name: "path", Label: "File path (empty = stackr-org.yml)", Value: v.Path})
+						<label class="flex items-center gap-2 text-sm text-rw-text"><input type="checkbox" name="auto" value="1" checked?={ v.Auto } class="accent-rw-accent"/> Auto apply a plan with no blocker</label>
+						if v.Base != "" {
+							<div class="flex flex-wrap items-center gap-2">
+								<button type="submit" class="btn btn-primary btn-sm">Save and plan</button>
+								if v.Repo != "" {
+									<button type="button" class="btn btn-ghost btn-sm" hx-post={ v.Base + "/plan" } hx-target={ target() } hx-swap="outerHTML">Plan now</button>
+								}
+							</div>
+						}
+					</fieldset>
+				</form>
+			}
+			if v.Unbind.Action != "" {
+				<div class="flex flex-wrap items-center gap-2 mt-5 pt-5 border-t border-rw-border">
+					@c.Confirm(v.Unbind)
+				</div>
+			}
+		}
+		if v.Job != nil {
+			<div class="mb-4">
+				@c.JobStatus(*v.Job)
+			</div>
+		}
+		if v.Latest != nil {
+			@c.Section("Latest plan", "organization", "") {
+				<div class="space-y-4">
+					@planLine(v.Latest.Row)
+					if v.Latest.Row.Error != "" {
+						<div class="banner banner-danger" role="alert">{ v.Latest.Row.Error }</div>
+					} else {
+						@c.Ask(v.Latest.Ask)
+					}
+					if v.Latest.Approve != "" || v.Latest.Reject != "" {
+						<div class="flex flex-wrap items-center gap-2">
+							if v.Latest.Approve != "" {
+								<button type="button" class="btn btn-primary btn-sm" hx-post={ v.Latest.Approve } hx-target={ target() } hx-swap="outerHTML">Approve</button>
+							}
+							if v.Latest.Reject != "" {
+								<button type="button" class="btn btn-ghost btn-sm" hx-post={ v.Latest.Reject } hx-target={ target() } hx-swap="outerHTML">Reject</button>
+							}
+						</div>
+					}
+				</div>
+			}
+		}
+		if len(v.Plans) > 0 {
+			<h2 class="text-sm font-medium text-rw-muted mb-2">Plans</h2>
+			<ul class="space-y-2">
+				for _, r := range v.Plans {
+					<li class="panel px-4 py-3">
+						@planLine(r)
+					</li>
+				}
+			</ul>
+		}
+	</div>
+}
+
+// planLine is one plan as v0's plans page drew it: status, summary, the
+// commit, when.
+templ planLine(r PlanRow) {
+	<div class="flex flex-wrap items-center gap-3 text-sm">
+		@c.Chip(r.Status, planTone(r.Status))
+		<span class="text-rw-text">{ r.Summary }</span>
+		if r.Commit != "" {
+			<span class="text-xs text-rw-faint font-mono">{ r.Commit }</span>
+		}
+		<span class="text-xs text-rw-faint ml-auto">{ r.When }</span>
 	</div>
 }

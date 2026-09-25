@@ -385,7 +385,7 @@ func (a *app) orgs() *cobra.Command {
 			return a.show(v, orgCols...)
 		})
 
-	return noun("org", "Orgs, members, invites, credentials, connectors",
+	n := noun("org", "Orgs, members, invites, credentials, connectors, the org's config file",
 		leaf("ls", "org.list", "List your orgs", exact(0), func(*cobra.Command, []string) error {
 			v, err := a.call(GET, "/orgs", nil)
 			if err != nil {
@@ -492,6 +492,8 @@ func (a *app) orgs() *cobra.Command {
 				}),
 		),
 	)
+	n.AddCommand(a.orgConfig(org)...)
+	return n
 }
 
 // dests is backup destinations: the org's, or with --server the shared

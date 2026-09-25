@@ -43,6 +43,8 @@ func (h *handler) orgTab(c echo.Context, cd card, f *comp.DrawerView) (templ.Com
 		return h.orgDomains(c, cd, f.Base)
 	case "backups":
 		return h.orgDests(c, cd, f.Base)
+	case "config":
+		return h.configTab(c, cd, f)
 	}
 	cascade, err := h.cascadeForm(c, cd, og.Settings)
 	if err != nil {
@@ -258,6 +260,7 @@ func (h *handler) mountOrg(site *echo.Group, a *middleware.Access) {
 	site.POST(o+"/backups/:dest/delete", h.orgAction("backups", func(c echo.Context, og *service.Org) (string, error) {
 		return "Destination deleted.", h.orch.DeleteBackupDest(c.Request().Context(), og.ID, c.Param("dest"))
 	}), a.Require("destination.write"))
+	h.mountOrgConfig(site, a)
 	site.POST(o+"/settings", h.saveRung(
 		"org",
 		func(s service.Scope) string { return s.Org.Settings },

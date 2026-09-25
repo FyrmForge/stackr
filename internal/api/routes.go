@@ -89,6 +89,17 @@ func routes(h *v1.H) []Route {
 		{POST, org + "/jobs/:job/cancel", "job.cancel", "deployment.cancel", h.CancelJob()},
 		{DELETE, org + "/slices/:provision", "slice.detach", "tile.write", h.DetachSlice()},
 
+		// the org's config file; a plan by id sits under its org, where the
+		// middleware checks it (v0's /org-config/plans/:id had no org)
+		{PUT, org + "/config-repo", "org.config-repo", "org.config.bind", h.SetOrgConfigRepo()},
+		{POST, org + "/config/plan", "org.plan", "org.config.bind", h.PlanOrgConfig()},
+		{POST, org + "/config/plan-preview", "org.plan-preview", "org.config.bind", h.PreviewOrgConfig()},
+		{GET, org + "/config/plans", "org.plans", "org.owner.read", h.OrgPlans()},
+		{GET, org + "/config/plans/:plan", "org.plan-get", "org.owner.read", h.OrgPlan()},
+		{POST, org + "/config/plans/:plan/approve", "org.plan-approve", "orgplan.approve", h.ApproveOrgPlan()},
+		{POST, org + "/config/plans/:plan/reject", "org.plan-reject", "orgplan.approve", h.RejectOrgPlan()},
+		{GET, org + "/config/export", "org.export", "org.config.export", h.ExportOrgConfig()},
+
 		// volumes and backups, by id under the org
 		{DELETE, org + "/volumes/:volume", "volume.delete", "tile.write", h.DeleteVolume()},
 		{GET, org + "/volumes/:volume/methods", "backup.methods", "org.read", h.BackupMethods()},
