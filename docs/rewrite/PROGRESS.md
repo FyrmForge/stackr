@@ -29,7 +29,10 @@ at the bottom of this file.
 - [x] step-4.md API + CLI
 - [x] step-5.md installer + self-upgrade
 - [x] step-6.md UI, whitelist: `log-pane`, `confirm-dialog`, `flash-toast`, `theme-toggle`. Dropped old JS: canvas/graph, metrics, xterm terminal, YAML code editor (see step-6.md "Not in v1")
-- [ ] step-7a.md domains backend: v0's domain resources at instance, org and stack level, `AutoHost`, `auto:`/`apex:` on tile domains, the squat check, root domain from the installer, org drawer Domains section, API + CLI; darthvader 2026-09-25 (DECIDE 190), built before step 7, not started
+- [x] step-7a.md domains backend: v0's domain resources at instance, org and stack level, `AutoHost`, `auto:`/`apex:` on tile domains, the squat check, root domain from the installer, org drawer Domains tab, `stackr domain`, API under the org and admin; darthvader 2026-09-25 (DECIDE 190, 192). Done 2026-09-25 on `rewrite-step-7a`, VM proof v0.0.34 all green (fresh DB: the schema changed in place).
+  - Deviations from the task file: no RESTRICT on `domains.resource_id` (broke org and stack deletes; the leaf refuses with a count); routes are path-scoped (`/orgs/:org/domain-resources`, `/admin/domain-resources`) not v0's flat path; the squat check runs on literal hosts only, never on `auto`/`apex`; `PublicBase` resolves only once a domain row routes the auto host; v0's refusal of stack rows on a config-managed stack not ported (the file never deletes).
+  - Fixed on the way: a page's own drawer (`?drawer=org:<id>`) vanished on reload; auto-domain refusal leaked the field name; `domain ls` lacked OWNER and DECLARED.
+  - Unproven on the VM: `auto: true` inside a stack file (needs a bound stack and an installed connector; unit-tested; step 7's proof covers it).
 - [ ] step-7.md org config file: `stackr-org.yml` bound to the org, plans as rows an owner approves or an Auto switch applies, apply = one job through the orchestrator's verbs, never deletes a stack; plus v0's new-org wizard one to one; planned 2026-09-25 (DECIDE 180 to 192), not started
 
 Step 0 list (agreed with darhvader):

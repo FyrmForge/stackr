@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/FyrmForge/stackr/internal/service"
 	"github.com/FyrmForge/stackr/internal/web/webtest"
 )
 
@@ -100,6 +101,14 @@ func TestAutoDomain(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// the auto form has no port field: the refusal names the tile, no field
+	setPort(t, s, 0)
+	rec = s.Do(t, "POST", drawer+"/domains", url.Values{"auto": {"1"}})
+	if rec.Code != 422 || !strings.Contains(rec.Body.String(), "Set a container port on the tile first.") ||
+		strings.Contains(rec.Body.String(), "the domain needs a container port") {
+		t.Errorf("auto with no port = %d\n%s", rec.Code, rec.Body)
+	}
+	setPort(t, s, 80)
 	rec = s.Do(t, "POST", drawer+"/domains", url.Values{"auto": {"1"}})
 	if rec.Code != 200 || !strings.Contains(rec.Body.String(), "attached api.shop.acme.io") {
 		t.Fatalf("auto = %d\n%s", rec.Code, rec.Body)
@@ -107,5 +116,16 @@ func TestAutoDomain(t *testing.T) {
 	ds, err := s.Orch.Domains(ctx, s.Tile.ID)
 	if err != nil || len(ds) != 1 || !ds[0].Auto || ds[0].ResourceID == nil || *ds[0].ResourceID != res.ID {
 		t.Errorf("domains = %+v %v, want one auto row named by %s", ds, err, res.ID)
+	}
+}
+
+func setPort(t *testing.T, s *webtest.Site, port int) {
+	t.Helper()
+	_, _, err := s.Orch.UpdateTile(context.Background(), s.Tile.ID, func(tl *service.Tile) error {
+		tl.ContainerPort = port
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
 }

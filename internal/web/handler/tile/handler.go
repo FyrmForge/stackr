@@ -255,7 +255,7 @@ func (h *handler) StopRun(c echo.Context) error {
 func (h *handler) AttachDomain(c echo.Context) error {
 	if c.FormValue("auto") != "" {
 		d, err := h.orch.AttachDomain(c.Request().Context(), tileOf(c).ID, service.DomainSpec{Auto: true})
-		return h.after(c, "settings", "attached "+d.Host, err)
+		return h.after(c, "settings", "attached "+d.Host, autoRefusal(err))
 	}
 	https := c.FormValue("https") != ""
 	s := service.DomainSpec{
@@ -273,6 +273,19 @@ func (h *handler) AttachDomain(c echo.Context) error {
 	}
 	_, err := h.orch.AttachDomain(c.Request().Context(), tileOf(c).ID, s)
 	return h.after(c, "settings", "attached "+s.Host, err)
+}
+
+// autoRefusal drops the field off a refused auto attach: its form is one
+// button, so no field is there to name. The port is the tile's (v0's line).
+func autoRefusal(err error) error {
+	bad, invalid := errs.IsInvalid(err)
+	switch {
+	case !invalid:
+		return err
+	case bad.Field == "port":
+		return errs.Invalid{Msg: "Set a container port on the tile first."}
+	}
+	return errs.Invalid{Msg: bad.Msg}
 }
 
 func (h *handler) DetachDomain(c echo.Context) error {

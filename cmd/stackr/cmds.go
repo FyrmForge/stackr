@@ -640,7 +640,38 @@ func (a *app) domainResources() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return a.show(v, resCols...)
+			if a.json {
+				return a.show(v)
+			}
+			rs, _ := v.([]any)
+			rows := make([][]string, 0, len(rs))
+			for _, it := range rs {
+				r, _ := it.(map[string]any)
+				owner := r["org_id"]
+				if owner == nil {
+					owner = r["stack_id"]
+				}
+				rows = append(rows, []string{
+					cell(r["id"]),
+					cell(r["level"]),
+					cell(owner),
+					cell(r["host"]),
+					cell(r["include_env_on_default"]),
+					cell(r["acme_email"]),
+					cell(r["declared"]),
+				})
+			}
+			header := []string{
+				"id",
+				"level",
+				"owner",
+				"host",
+				"include-env",
+				"acme",
+				"declared",
+			}
+			a.table(header, rows)
+			return nil
 		},
 	)
 	add := leaf(

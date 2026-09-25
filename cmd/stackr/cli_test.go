@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -316,5 +317,75 @@ func TestDomainResourceRoutes(t *testing.T) {
 	r.reqs = nil
 	if code, _, _ := cli(t, "domain", "add", "--level", "env", "--host", "x.io"); code != 2 || len(r.reqs) != 0 {
 		t.Errorf("--level env = %d, sent %q; want exit 2 and no request", code, r.reqs)
+	}
+}
+
+// domain ls: one row per resource, the owner whichever id is set; the
+// header on a terminal only, like every table.
+func TestDomainLsTable(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, `[
+			{"id":"r1","level":"instance","org_id":null,"stack_id":null,"host":"example.com",
+			 "include_env_on_default":false,"acme_email":"","declared":false},
+			{"id":"r2","level":"stack","org_id":null,"stack_id":"s1","host":"shop.io",
+			 "include_env_on_default":true,"acme_email":"ops@shop.io","declared":true}
+		]`)
+	}))
+	t.Cleanup(srv.Close)
+	useServer(t, srv.URL)
+	header := []string{
+		"ID",
+		"LEVEL",
+		"OWNER",
+		"HOST",
+		"INCLUDE-ENV",
+		"ACME",
+		"DECLARED",
+	}
+	rows := [][]string{
+		{
+			"r1",
+			"instance",
+			"(none)",
+			"example.com",
+			"false",
+			"(none)",
+			"false",
+		},
+		{
+			"r2",
+			"stack",
+			"s1",
+			"shop.io",
+			"true",
+			"ops@shop.io",
+			"true",
+		},
+	}
+	args := []string{
+		"domain",
+		"ls",
+		"--org",
+		"acme",
+	}
+	for _, tty := range []bool{true, false} {
+		var out, errw bytes.Buffer
+		code := run(context.Background(), args, strings.NewReader(""), &out, &errw, tty)
+		if code != 0 {
+			t.Fatalf("domain ls (tty %v) = %d %s", tty, code, errw.String())
+		}
+		want := rows
+		if tty {
+			want = append([][]string{header}, rows...)
+		}
+		lines := strings.Split(strings.TrimSpace(out.String()), "\n")
+		if len(lines) != len(want) {
+			t.Fatalf("domain ls (tty %v) =\n%s", tty, out.String())
+		}
+		for i, l := range lines {
+			if got := strings.Fields(l); !slices.Equal(got, want[i]) {
+				t.Errorf("domain ls (tty %v) line %d = %q, want %q", tty, i, got, want[i])
+			}
+		}
 	}
 }

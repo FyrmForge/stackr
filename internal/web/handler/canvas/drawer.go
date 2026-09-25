@@ -173,10 +173,14 @@ func (h *handler) after(c echo.Context, cd card, tab, note string, err error) er
 }
 
 // drawer is the drawer a fresh load of ?drawer=<node id>&tab= opens: the
-// node comes from the canvas the viewer was allowed to draw, its scope is
-// resolved from its slug. Nil (the page alone) for a card with no drawer
-// here or one the viewer may not open.
+// page's own level (its top bar Settings), or a node from the canvas the
+// viewer was allowed to draw, its scope resolved from its slug. Nil (the
+// page alone) for a card with no drawer here or one the viewer may not open.
 func (h *handler) drawer(c echo.Context, v ui.View, id, tab string) (templ.Component, error) {
+	cd, ok := own(middleware.ScopeOf(c), id)
+	if ok && can(c, cd.s, "org.read") {
+		return h.render(c, cd, cd.frame(tab))
+	}
 	var n *ui.Node
 	for i := range v.Nodes {
 		if v.Nodes[i].ID == id {
@@ -191,7 +195,7 @@ func (h *handler) drawer(c echo.Context, v ui.View, id, tab string) (templ.Compo
 	if n == nil {
 		return nil, nil
 	}
-	cd := card{kind: n.Kind, s: middleware.ScopeOf(c)}
+	cd = card{kind: n.Kind, s: middleware.ScopeOf(c)}
 	ctx, s := c.Request().Context(), cd.s
 	var err error
 	switch n.Kind {
@@ -217,6 +221,24 @@ func (h *handler) drawer(c echo.Context, v ui.View, id, tab string) (templ.Compo
 		return nil, ignoreRefusal(err)
 	}
 	return h.render(c, cd, cd.frame(tab))
+}
+
+// own is the page's own level card when id names it: the card is drawn on
+// the level above, never on its own canvas, and the middleware already
+// resolved its scope. Home has none.
+func own(s service.Scope, id string) (card, bool) {
+	cd := card{s: s}
+	switch {
+	case s.Org == nil:
+		return cd, false
+	case s.Env != nil:
+		cd.kind = "env"
+	case s.Stack != nil:
+		cd.kind = "stack"
+	default:
+		cd.kind = "org"
+	}
+	return cd, cd.frame("").Node == id
 }
 
 func (h *handler) connectorByID(c echo.Context, cd card, id string) (card, error) {

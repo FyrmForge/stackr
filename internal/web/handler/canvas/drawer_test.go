@@ -92,6 +92,36 @@ func TestDrawerFreshLoad(t *testing.T) {
 	}
 }
 
+// A level's own drawer (its top bar Settings) survives a reload: the card
+// is drawn on the level above, not on its own canvas.
+func TestOwnDrawerFreshLoad(t *testing.T) {
+	b := newBrowser(t, "owner")
+	tl := b.env.Tile(t, b.org)
+	for _, c := range []struct{ path, tab string }{
+		{
+			"/acme?drawer=org:" + b.org,
+			"domains",
+		},
+		{
+			"/acme/shop?drawer=stack:" + tl.Stack,
+			"settings",
+		},
+		{
+			"/acme/shop/dev?drawer=env:" + tl.Env,
+			"settings",
+		},
+	} {
+		rec := b.do(t, "GET", c.path+"&tab="+c.tab, nil, false)
+		body := rec.Body.String()
+		if rec.Code != http.StatusOK ||
+			!strings.Contains(body, `<side-drawer open tab="`+c.tab+`">`) ||
+			!strings.Contains(body, `id="tab-`+c.tab+`"`) ||
+			!strings.Contains(body, `<graph-canvas`) {
+			t.Errorf("%s&tab=%s = %d\n%s", c.path, c.tab, rec.Code, body)
+		}
+	}
+}
+
 // Every tab of the home, org and stack level drawers answers.
 func TestDrawerTabs(t *testing.T) {
 	s := webtest.New(t)
