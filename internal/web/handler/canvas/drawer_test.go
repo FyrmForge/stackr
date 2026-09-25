@@ -96,7 +96,7 @@ func TestDrawerFreshLoad(t *testing.T) {
 func TestDrawerTabs(t *testing.T) {
 	s := webtest.New(t)
 	for path, tabs := range map[string][]string{
-		"/acme/-/drawer":          {"settings", "members", "keys", "params", "backups"},
+		"/acme/-/drawer":          {"settings", "members", "keys", "params", "domains", "backups"},
 		"/acme/shop/-/drawer":     {"settings", "params", "releases"},
 		"/acme/shop/dev/-/drawer": {"settings", "releases", "params", "order", "logs"},
 		"/acme/-/vars":            {"editor"},
@@ -208,5 +208,63 @@ func TestDrawerActions(t *testing.T) {
 	rec = s.Do(t, "POST", "/acme/shop/dev/-/drawer/color", url.Values{"color": {"teal"}})
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `value="teal" checked`) {
 		t.Errorf("colour = %d %s", rec.Code, rec.Body)
+	}
+}
+
+// The org's domains tab (step 7a): an owner sees the instance's row with
+// the add form prefilled under it, adds and deletes the org's own; the
+// instance's row has no delete and no org route reaches it. A viewer sees
+// the rows, no form and no delete.
+func TestOrgDomains(t *testing.T) {
+	ctx := context.Background()
+	b := newBrowser(t, "owner")
+	inst, err := b.env.Orch.CreateDomainResource(ctx, "instance", "", "example.com", false, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := b.do(t, "GET", "/acme/-/drawer?tab=domains", nil, true).Body.String()
+	if !strings.Contains(body, `value="acme.example.com"`) || strings.Contains(body, "/acme/-/drawer/domains/") {
+		t.Errorf("no prefill under the instance host, or a delete on its row:\n%s", body)
+	}
+	rec := b.do(t, "POST", "/acme/-/drawer/domains", url.Values{
+		"host":                   {"acme.io"},
+		"include_env_on_default": {"1"},
+		"acme_email":             {"ops@acme.io"},
+	}, true)
+	body = rec.Body.String()
+	if rec.Code != http.StatusOK || !strings.Contains(body, "Domain acme.io added.") ||
+		!strings.Contains(body, "env slug on default env") || !strings.Contains(body, "ACME ops@acme.io") {
+		t.Fatalf("add = %d\n%s", rec.Code, body)
+	}
+	rs, err := b.env.Orch.DomainResources(ctx, b.org)
+	if err != nil || len(rs) != 2 || rs[0].Host != "acme.io" {
+		t.Fatalf("rows = %+v %v", rs, err)
+	}
+	del := "/acme/-/drawer/domains/" + rs[0].ID + "/delete"
+	if !strings.Contains(body, del) {
+		t.Errorf("no delete on the org's row:\n%s", body)
+	}
+	if rec := b.do(t, "POST", "/acme/-/drawer/domains/"+inst.ID+"/delete", nil, true); rec.Code != http.StatusNotFound {
+		t.Errorf("delete the instance's row through the org = %d, want 404", rec.Code)
+	}
+	rec = b.do(t, "POST", del, nil, true)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "Domain resource removed.") {
+		t.Errorf("delete = %d\n%s", rec.Code, rec.Body)
+	}
+	if rs, _ := b.env.Orch.DomainResources(ctx, b.org); len(rs) != 1 {
+		t.Errorf("after delete = %+v, want the instance's row only", rs)
+	}
+
+	v := newBrowser(t, "viewer")
+	if _, err := v.env.Orch.CreateDomainResource(ctx, "org", v.org, "acme.io", false, ""); err != nil {
+		t.Fatal(err)
+	}
+	body = v.do(t, "GET", "/acme/-/drawer?tab=domains", nil, true).Body.String()
+	if !strings.Contains(body, "acme.io") || strings.Contains(body, `hx-post="/acme/-/drawer/domains"`) ||
+		strings.Contains(body, "/acme/-/drawer/domains/") {
+		t.Errorf("a viewer lists the rows but gets no form or delete:\n%s", body)
+	}
+	if rec := v.do(t, "POST", "/acme/-/drawer/domains", url.Values{"host": {"x.io"}}, true); rec.Code != http.StatusForbidden {
+		t.Errorf("viewer add = %d, want 403", rec.Code)
 	}
 }

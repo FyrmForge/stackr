@@ -36,7 +36,7 @@ nothing else. Signatures: `go doc -all ./internal/service Orchestrator`.
 | Config-as-code (`stackr-compose.yml`) | `SetConfigRepo`, `Webhook` (push → release → auto promote) |
 | PR environments | `Webhook` (pull_request opened/reopened/synchronize/closed) |
 | Param store | `Params`, `SetParams` (merge, B4/B35), `DeleteParam` |
-| Domains, automatic TLS, admin extra Caddy config | `Domains`, `AttachDomain`, `UpdateDomain` (both refuse a host leading with another org's slug), `DetachDomain` (`DomainSpec.RawCaddy` is admin-only), `SyncProxy` |
+| Domains, automatic TLS, admin extra Caddy config | `Domains`, `AttachDomain` (`DomainSpec.Auto` names the host under the nearest visible resource), `UpdateDomain` (both refuse a new literal host leading with another org's slug), `DetachDomain` (`DomainSpec.RawCaddy` is admin-only), `SyncProxy` |
 | Domain resources (instance, org, stack) | `DomainResources(orgID)` (the org's rows, then the instance's), `AllDomainResources` (admin), `CreateDomainResource` (instance level is admin), `UpdateDomainResource`, `DeleteDomainResource` (refused while tile domains carry its name, with the count); stack rows come from the stack file's `domains:` on promote |
 | Orgs, users, the two roles, API keys | `Register`, `Login`, `Logout`, `SessionPrincipal`, `KeyPrincipal`, `Resolve`, `Orgs`, `AllOrgs`, `CreateOrg`, `FinishOrg` (adds the undeclared `<slug>.<instance host>` resource when the org has none), `Members`, `SetRole`, `RemoveMember`, `Invite`, `Invites`, `LookupInvite`, `AcceptInvite`, `RegisterInvited`, `Users`, `SetAdmin`, `DisableUser`, `ChangePassword`, `SetPassword`, `MintKey`, `Keys`, `RevokeKey` |
 | Volumes | `Volumes`, `DeclareVolume`, `DeleteVolume` |

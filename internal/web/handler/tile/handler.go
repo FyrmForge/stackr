@@ -250,7 +250,13 @@ func (h *handler) StopRun(c echo.Context) error {
 	return h.after(c, "runs", "run stopped", err)
 }
 
+// AttachDomain takes the literal form, or the auto one: the orchestrator
+// names an auto host.
 func (h *handler) AttachDomain(c echo.Context) error {
+	if c.FormValue("auto") != "" {
+		d, err := h.orch.AttachDomain(c.Request().Context(), tileOf(c).ID, service.DomainSpec{Auto: true})
+		return h.after(c, "settings", "attached "+d.Host, err)
+	}
 	https := c.FormValue("https") != ""
 	s := service.DomainSpec{
 		Host:       strings.TrimSpace(c.FormValue("host")),

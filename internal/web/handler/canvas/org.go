@@ -1,6 +1,7 @@
 package canvas
 
 import (
+	"slices"
 	"time"
 
 	"github.com/a-h/templ"
@@ -37,6 +38,8 @@ func (h *handler) orgTab(c echo.Context, cd card, f *comp.DrawerView) (templ.Com
 		return orgui.Keys(v), err
 	case "params":
 		return h.vars(c, cd.s, "", "")
+	case "domains":
+		return h.orgDomains(c, cd, f.Base)
 	case "backups":
 		return h.orgDests(c, cd, f.Base)
 	}
@@ -91,6 +94,48 @@ func (h *handler) orgDests(c echo.Context, cd card, base string) (templ.Componen
 		v.Rows = append(v.Rows, r)
 	}
 	return orgui.Backups(v), nil
+}
+
+// orgDomains is the org's domain resources and the instance's, which it
+// names tiles under but never changes; an owner adds and deletes its own.
+func (h *handler) orgDomains(c echo.Context, cd card, base string) (templ.Component, error) {
+	rs, err := h.orch.DomainResources(c.Request().Context(), cd.s.Org.ID)
+	if err != nil {
+		return nil, err
+	}
+	owner := can(c, cd.s, "domain.resource")
+	v := orgui.DomainsView{Example: "example.com"}
+	if owner {
+		v.Add = base + "/domains"
+	}
+	for _, r := range rs {
+		row := orgui.DomainRow{
+			Host:       r.Host,
+			Level:      r.Level,
+			IncludeEnv: r.IncludeEnvOnDefault,
+			ACMEEmail:  r.ACMEEmail,
+		}
+		if owner && r.OrgID != nil {
+			row.Delete = comp.ConfirmView{
+				Button:  "Delete",
+				Title:   "Remove \"" + r.Host + "\"?",
+				Warning: "New auto hostnames stop nesting under it.",
+				Action:  base + "/domains/" + r.ID + "/delete",
+				Target:  "#" + comp.DrawerRoot,
+				Quiet:   true,
+			}
+		}
+		v.Rows = append(v.Rows, row)
+	}
+	// rows are the org's first, then the instance's
+	own := slices.IndexFunc(rs, func(r service.DomainResource) bool { return r.OrgID != nil })
+	switch {
+	case own >= 0:
+		v.Example = rs[own].Host
+	case len(rs) > 0:
+		v.Host = cd.s.Org.Slug + "." + rs[0].Host
+	}
+	return orgui.Domains(v), nil
 }
 
 // ponytail: emails come from the user list (one read); a verb that joins
@@ -181,6 +226,21 @@ func (h *handler) mountOrg(site *echo.Group, a *middleware.Access) {
 	site.POST(o+"/keys/:key/revoke", h.orgAction("keys", func(c echo.Context, _ *service.Org) (string, error) {
 		return "Key revoked.", h.orch.RevokeKey(c.Request().Context(), middleware.Principal(c).User.ID, c.Param("key"))
 	}), a.Require("org.read"))
+	res := a.Require("domain.resource")
+	site.POST(o+"/domains", h.orgAction("domains", func(c echo.Context, og *service.Org) (string, error) {
+		r, err := h.orch.CreateDomainResource(
+			c.Request().Context(),
+			"org",
+			og.ID,
+			c.FormValue("host"),
+			c.FormValue("include_env_on_default") != "",
+			c.FormValue("acme_email"),
+		)
+		return "Domain " + r.Host + " added. This organization's tiles can now claim auto hostnames under it.", err
+	}), res)
+	site.POST(o+"/domains/:resource/delete", h.orgAction("domains", func(c echo.Context, _ *service.Org) (string, error) {
+		return "Domain resource removed.", h.orch.DeleteDomainResource(c.Request().Context(), c.Param("resource"))
+	}), res)
 	site.POST(o+"/backups", h.orgAction("backups", func(c echo.Context, og *service.Org) (string, error) {
 		f := c.FormValue
 		_, err := h.orch.CreateBackupDest(c.Request().Context(), &og.ID, service.BackupDestSpec{

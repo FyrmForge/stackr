@@ -1,5 +1,6 @@
 // Package org is the org card's drawer tabs (home canvas): settings,
-// members + invites, keys, backups, drawn as v0's organization settings.
+// members + invites, keys, domains, backups, drawn as v0's organization
+// settings.
 // Params is the vars editor, composed by the handler. Each tab is drawn
 // inside components.Drawer.
 package org
@@ -11,7 +12,7 @@ import (
 )
 
 // Tabs in strip order.
-var Tabs = []string{"settings", "members", "keys", "params", "backups"}
+var Tabs = []string{"settings", "members", "keys", "params", "domains", "backups"}
 
 // Roles an owner can give.
 var Roles = []string{"owner", "member", "viewer"}
@@ -43,6 +44,34 @@ type KeysView struct {
 }
 
 type KeyRow struct{ ID, Name, Created string }
+
+// DomainsView is v0's orgDomainsPage: the org's domain resources, then the
+// instance's it also names tiles under.
+type DomainsView struct {
+	Add     string // POST host, include_env_on_default, acme_email; "" = not an owner
+	Example string // the help text's host: the org's first, or example.com
+	Host    string // the add form's prefill: <slug>.<instance host> while the org has no row
+	Rows    []DomainRow
+}
+
+type DomainRow struct {
+	Host       string
+	Level      string // instance | org
+	IncludeEnv bool
+	ACMEEmail  string
+	Delete     c.ConfirmView // Action "" = none (the instance's row, or not an owner)
+}
+
+// levelWord is how v0 names a resource's level.
+func levelWord(level string) string {
+	switch level {
+	case "instance":
+		return "server"
+	case "org":
+		return "organization"
+	}
+	return level
+}
 
 func target() string { return "#" + c.DrawerRoot }
 
@@ -183,6 +212,51 @@ templ Keys(v KeysView) {
 						</li>
 					}
 				</ul>
+			}
+		}
+	</div>
+}
+
+templ Domains(v DomainsView) {
+	<div id="tab-domains">
+		@c.Section("Organization domains", "organization", "Every stack in this organization can generate per-environment hostnames under one of these, like app.stack."+v.Example+". Hosts are unique across the whole server.") {
+			if len(v.Rows) > 0 {
+				<ul class="space-y-2 mb-5">
+					for _, r := range v.Rows {
+						<li class="panel px-3 py-2.5 flex flex-wrap items-center gap-2">
+							<span class="font-mono text-sm text-rw-text">{ r.Host }</span>
+							<span class="text-xs px-1.5 py-0.5 rounded bg-rw-inset text-rw-muted">{ levelWord(r.Level) }</span>
+							if r.IncludeEnv {
+								<span class="text-xs px-1.5 py-0.5 rounded bg-rw-inset text-rw-muted">env slug on default env</span>
+							}
+							if r.ACMEEmail != "" {
+								<span class="text-xs text-rw-faint">ACME { r.ACMEEmail }</span>
+							}
+							if r.Delete.Action != "" {
+								<span class="ml-auto">
+									@c.Confirm(r.Delete)
+								</span>
+							}
+						</li>
+					}
+				</ul>
+			} else {
+				<p class="text-sm text-rw-faint mb-5">No domains yet.</p>
+			}
+			if v.Add != "" {
+				<form hx-post={ v.Add } hx-target={ target() } hx-swap="outerHTML" class="space-y-4">
+					<div>
+						<label for="domain-host" class="label">Host</label>
+						<input id="domain-host" name="host" type="text" required placeholder="example.com" value={ v.Host } class="input font-mono"/>
+						<p class="mt-1.5 text-xs text-rw-faint">A bare lowercase hostname, e.g. example.com.</p>
+					</div>
+					<label class="flex items-center gap-2 text-sm text-rw-muted cursor-pointer">
+						<input type="checkbox" name="include_env_on_default" value="1" class="accent-rw-accent"/>
+						Include env slug on default env (api.prod.stack instead of api.stack)
+					</label>
+					@c.Field(c.FieldView{Name: "acme_email", Label: "ACME email", Type: "email", Placeholder: "ops@example.com", Help: "Certificates under this host are issued on this account. Empty uses the server's."})
+					<button type="submit" class="btn btn-primary btn-sm">Add domain</button>
+				</form>
 			}
 		}
 	</div>

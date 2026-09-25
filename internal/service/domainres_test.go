@@ -42,7 +42,9 @@ func TestFinishOrgDefaultDomain(t *testing.T) {
 	}
 }
 
-// A hand-attached host leading with another org's slug is refused.
+// A hand-attached host leading with another org's slug is refused. An auto
+// name leads with the tile's slug, which may be another org's: it skips
+// the check, and so does an edit that keeps the host.
 func TestAttachDomainSquat(t *testing.T) {
 	w := newWorld(t)
 	ctx := context.Background()
@@ -61,6 +63,19 @@ func TestAttachDomainSquat(t *testing.T) {
 	}
 	_, err = w.orch.AttachDomain(ctx, api.ID, DomainSpec{Host: "acme.example.com"})
 	must(t, err)
+
+	must(t, w.orch.domainres.SeedInstance(ctx, "example.com"))
+	globex := w.tile(t, "globex", false)
+	d, err := w.orch.AttachDomain(ctx, globex.ID, DomainSpec{Host: "ignored.io", Auto: true})
+	must(t, err)
+	if d.Host != "globex.shop.acme.example.com" || !d.Auto || d.ResourceID == nil {
+		t.Fatalf("auto attach = %+v, want globex.shop.acme.example.com named by the instance row", d)
+	}
+	d, err = w.orch.UpdateDomain(ctx, d.ID, DomainSpec{Host: d.Host, Path: "/v2"})
+	must(t, err)
+	if !d.Auto || d.ResourceID == nil {
+		t.Errorf("edit kept the host but dropped its resource: %+v", d)
+	}
 }
 
 // A managed tile's public base is its auto name under the nearest visible

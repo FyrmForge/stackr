@@ -448,9 +448,10 @@ func (f *Flow) planResources(ctx context.Context, p *Plan, w *work, r *Resolved)
 
 // claimHost is v0's: a literal host expands params. refs (the resolver
 // refuses anything else there), apex must name a visible resource, auto is
-// AutoHost under the nearest one. Every host, generated ones too, takes the
-// squat check. The id is the resource that named it, nil for a literal;
-// false means blocked.
+// AutoHost under the nearest one. Only a literal takes the squat check: an
+// auto or apex host derives from a resource that passed it (its first label
+// is the tile's slug, which may match another org's). The id is the resource
+// that named it, nil for a literal; false means blocked.
 func claimHost(p *Plan, w *work, rr *params.Resolver, name string, dc DomainConf) (string, *string, bool) {
 	host, resID := "", (*string)(nil)
 	switch {
@@ -487,10 +488,10 @@ func claimHost(p *Plan, w *work, rr *params.Resolver, name string, dc DomainConf
 			p.block("tile %s: domain %s: %v", name, dc.Host, err)
 			return "", nil, false
 		}
-	}
-	if domainres.CheckOrgSquat(host, w.st.OrgID, w.orgs) != nil {
-		p.block("tile %s: host %q starts with another organization's slug", name, host)
-		return "", nil, false
+		if domainres.CheckOrgSquat(host, w.st.OrgID, w.orgs) != nil {
+			p.block("tile %s: host %q starts with another organization's slug", name, host)
+			return "", nil, false
+		}
 	}
 	return host, resID, true
 }

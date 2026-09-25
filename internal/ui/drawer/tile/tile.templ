@@ -572,8 +572,9 @@ templ area(s SettingsView, key, label, placeholder string) {
 	}
 }
 
-// domains is v0's domainsSection: "+ Add domain" folded, then a panel row
-// per host with its Remove (and an admin's raw Caddy route).
+// domains is v0's domainsSection: "+ Add domain" folded (a literal host, or
+// the auto one under the nearest domain resource), then a panel row per
+// host with its Remove (and an admin's raw Caddy route).
 templ domains(v View, d DomainsView) {
 	<details class="mb-4">
 		<summary class="btn btn-ghost btn-sm cursor-pointer inline-flex items-center gap-1.5 select-none list-none">
@@ -588,6 +589,10 @@ templ domains(v View, d DomainsView) {
 				<input type="checkbox" name="https" value="1" checked class="accent-rw-accent"/> HTTPS
 			</label>
 			<button type="submit" class="btn btn-primary">Add</button>
+		</form>
+		<form hx-post={ v.Base + "/domains" } hx-target={ "#" + Root } hx-swap="outerHTML" class="mt-2">
+			<input type="hidden" name="auto" value="1"/>
+			<button type="submit" class="btn btn-ghost btn-sm" title="Generate a hostname under the nearest domain resource (stack, organization, or server)">Add auto domain</button>
 		</form>
 	</details>
 	if len(d.Rows) == 0 {

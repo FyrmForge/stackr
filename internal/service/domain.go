@@ -42,8 +42,12 @@ func redact(d Domain) Domain {
 }
 
 // AttachDomain adds a host to a tile and pushes the proxy config. Port 0 =
-// the tile's container port. RawCaddy is ignored: SetRawCaddy writes it. A
-// hand-attached host is a literal: no resource named it.
+// the tile's container port. RawCaddy is ignored: SetRawCaddy writes it.
+// Auto takes the tile's generated name under the nearest domain resource
+// visible to its stack and records that resource; the host given is
+// ignored. Otherwise the host is a literal: no resource named it, and it
+// takes the squat check (a generated name's first label is the tile's
+// slug, which may be another org's).
 func (o *Orchestrator) AttachDomain(ctx context.Context, tileID string, s DomainSpec) (Domain, error) {
 	s.RawCaddy = ""
 	s.ResourceID = nil
@@ -54,7 +58,14 @@ func (o *Orchestrator) AttachDomain(ctx context.Context, tileID string, s Domain
 	if tile.RunToCompletion(t.Kind) {
 		return Domain{}, errs.Invalidf("domains", "a %s has no endpoint; domains do not apply", t.Kind)
 	}
-	if err := o.checkSquat(ctx, t, s.Host); err != nil {
+	if s.Auto {
+		host, res, err := o.autoHost(ctx, t)
+		if err != nil {
+			return Domain{}, err
+		}
+		s.Host = host
+		s.ResourceID = &res.ID
+	} else if err := o.checkSquat(ctx, t, s.Host); err != nil {
 		return Domain{}, err
 	}
 	if s.Port == 0 {
@@ -76,8 +87,9 @@ func (o *Orchestrator) AttachDomain(ctx context.Context, tileID string, s Domain
 }
 
 // UpdateDomain replaces the domain's spec; the stored raw Caddy route stays
-// (only SetRawCaddy, an admin verb, writes it), and so does the resource
-// that named the host while the host stays.
+// (only SetRawCaddy, an admin verb, writes it), and so do the resource that
+// named the host and its auto mark while the host stays. Only a new host
+// takes the squat check: a kept one passed it, or was generated.
 func (o *Orchestrator) UpdateDomain(ctx context.Context, id string, s DomainSpec) (Domain, error) {
 	d, err := o.domains.Get(ctx, id)
 	if err != nil {
@@ -87,16 +99,21 @@ func (o *Orchestrator) UpdateDomain(ctx context.Context, id string, s DomainSpec
 	if err != nil {
 		return d, err
 	}
-	if err := o.checkSquat(ctx, t, s.Host); err != nil {
-		return d, err
+	sameHost := strings.EqualFold(strings.TrimSpace(s.Host), d.Host)
+	if !sameHost {
+		if err := o.checkSquat(ctx, t, s.Host); err != nil {
+			return d, err
+		}
 	}
 	if s.Port == 0 {
 		s.Port = d.ContainerPort
 	}
 	s.RawCaddy = d.RawCaddy
 	s.ResourceID = nil
-	if strings.EqualFold(strings.TrimSpace(s.Host), d.Host) {
+	s.Auto = false
+	if sameHost {
 		s.ResourceID = d.ResourceID
+		s.Auto = d.Auto
 	}
 	if a := s.Extras.BasicAuth; a != nil && a.Password == "" {
 		var old DomainExtras

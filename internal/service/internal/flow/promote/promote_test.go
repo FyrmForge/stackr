@@ -631,7 +631,8 @@ func TestApex(t *testing.T) {
 }
 
 // No resource anywhere: auto blocks, with v0's hint. A literal host leading
-// with another org's slug blocks too.
+// with another org's slug blocks too (TestAutoTileNamedLikeAnotherOrg is the
+// other side).
 func TestDomainBlockers(t *testing.T) {
 	w := setup(t)
 	w.files["c1"] = autoFile("auto: true", "")
@@ -654,6 +655,26 @@ func TestDomainBlockers(t *testing.T) {
 	must(t, err)
 	if !strings.Contains(strings.Join(p.Blockers, "|"), "starts with another organization's slug") {
 		t.Errorf("blockers = %v", p.Blockers)
+	}
+}
+
+// An auto host leads with the tile's slug, not a squat: a tile named like
+// another org plans clean (its resource already passed the check).
+func TestAutoTileNamedLikeAnotherOrg(t *testing.T) {
+	w := setup(t)
+	w.resource(t, domainres.Instance, "", "example.com")
+	must(t, w.s.Orgs.Create(ctx, store.Org{
+		ID:        "o2",
+		Name:      "api",
+		Slug:      "api",
+		EnvColors: "{}",
+		Settings:  "{}",
+		CreatedAt: time.Now(),
+	}))
+	w.files["c1"] = autoFile("auto: true", "")
+	p := planOK(t, w, w.dev, w.release(t, "c1"))
+	if got := domainsOf(p); len(got) != 1 || got[0] != "api api.dev.shop.acme.example.com" {
+		t.Errorf("domains = %v", got)
 	}
 }
 

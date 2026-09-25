@@ -1,6 +1,7 @@
 package tile_test
 
 import (
+	"context"
 	"net/url"
 	"strings"
 	"testing"
@@ -80,5 +81,31 @@ func TestActionNeedsCSRF(t *testing.T) {
 	s := webtest.New(t)
 	if rec := s.DoNoCSRF(t, "POST", drawer+"/deploy"); rec.Code != 403 && rec.Code != 400 {
 		t.Errorf("deploy without CSRF = %d", rec.Code)
+	}
+}
+
+// Add auto domain (step 7a): refused while no domain resource is visible;
+// with one, the orchestrator names the host under it and records it.
+func TestAutoDomain(t *testing.T) {
+	s := webtest.New(t)
+	ctx := context.Background()
+	if body := s.Do(t, "GET", drawer+"?tab=settings", nil).Body.String(); !strings.Contains(body, `name="auto"`) {
+		t.Errorf("no auto domain form:\n%s", body)
+	}
+	rec := s.Do(t, "POST", drawer+"/domains", url.Values{"auto": {"1"}})
+	if rec.Code != 422 || !strings.Contains(rec.Body.String(), "No domain resource to nest under") {
+		t.Errorf("auto with no resource = %d\n%s", rec.Code, rec.Body)
+	}
+	res, err := s.Orch.CreateDomainResource(ctx, "org", s.Org, "acme.io", false, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec = s.Do(t, "POST", drawer+"/domains", url.Values{"auto": {"1"}})
+	if rec.Code != 200 || !strings.Contains(rec.Body.String(), "attached api.shop.acme.io") {
+		t.Fatalf("auto = %d\n%s", rec.Code, rec.Body)
+	}
+	ds, err := s.Orch.Domains(ctx, s.Tile.ID)
+	if err != nil || len(ds) != 1 || !ds[0].Auto || ds[0].ResourceID == nil || *ds[0].ResourceID != res.ID {
+		t.Errorf("domains = %+v %v, want one auto row named by %s", ds, err, res.ID)
 	}
 }

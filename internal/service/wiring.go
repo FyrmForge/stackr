@@ -11,6 +11,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/promote"
 	"github.com/FyrmForge/stackr/internal/service/internal/git"
@@ -60,27 +61,10 @@ func (o *Orchestrator) proxyConfig(ctx context.Context) (json.RawMessage, error)
 // ponytail: bindings are not re-published when the visible resources move;
 // the next attach or reconcile carries the new name.
 func (o *Orchestrator) publicBase(ctx context.Context, t store.Tile) string {
-	e, err := o.envs.Get(ctx, t.EnvironmentID)
+	host, _, err := o.autoHost(ctx, t)
 	if err != nil {
 		return ""
 	}
-	st, err := o.stacks.Get(ctx, t.StackID)
-	if err != nil {
-		return ""
-	}
-	og, err := o.orgs.Get(ctx, st.OrgID)
-	if err != nil {
-		return ""
-	}
-	vis, err := o.domainres.Visible(ctx, st.ID, st.OrgID)
-	if err != nil || len(vis) == 0 {
-		return ""
-	}
-	def, err := o.envs.IsDefault(ctx, e)
-	if err != nil {
-		return ""
-	}
-	host := domainres.AutoHost(vis[0], og.Slug, st.Slug, e.Slug, t.Slug, def)
 	ds, err := o.domains.ListByTile(ctx, t.ID)
 	if err != nil {
 		return ""
@@ -95,6 +79,39 @@ func (o *Orchestrator) publicBase(ctx context.Context, t store.Tile) string {
 		return "http://" + host
 	}
 	return ""
+}
+
+// autoHost is the tile's generated name under the nearest domain resource
+// visible to its stack, and that resource: what an auto domain attaches and
+// what publicBase looks for.
+func (o *Orchestrator) autoHost(ctx context.Context, t store.Tile) (string, DomainResource, error) {
+	e, err := o.envs.Get(ctx, t.EnvironmentID)
+	if err != nil {
+		return "", DomainResource{}, err
+	}
+	st, err := o.stacks.Get(ctx, t.StackID)
+	if err != nil {
+		return "", DomainResource{}, err
+	}
+	og, err := o.orgs.Get(ctx, st.OrgID)
+	if err != nil {
+		return "", DomainResource{}, err
+	}
+	vis, err := o.domainres.Visible(ctx, st.ID, st.OrgID)
+	if err != nil {
+		return "", DomainResource{}, err
+	}
+	if len(vis) == 0 {
+		return "", DomainResource{}, errs.Conflictf(
+			"No domain resource to nest under. Add one in the server, organization or stack domain settings first.",
+		)
+	}
+	def, err := o.envs.IsDefault(ctx, e)
+	if err != nil {
+		return "", DomainResource{}, err
+	}
+	host := domainres.AutoHost(vis[0], og.Slug, st.Slug, e.Slug, t.Slug, def)
+	return host, vis[0], nil
 }
 
 // repoLock serialises git work on one clone dir.

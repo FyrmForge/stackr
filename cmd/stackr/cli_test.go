@@ -262,3 +262,59 @@ func TestTileArgOnlyWhereUseNamesIt(t *testing.T) {
 		}
 	}
 }
+
+// Step 7a: the domain noun reaches the org, stack and admin routes; rm
+// lists first, then deletes.
+func TestDomainResourceRoutes(t *testing.T) {
+	r := &recorder{}
+	r.serve(t)
+	const org = "/api/v1/orgs/acme"
+	stackBody := `{"acme_email":"","host":"shop.io","include_env_on_default":false}`
+	for _, c := range []struct{ args, want string }{
+		{
+			"ls",
+			"GET /api/v1/admin/domain-resources ",
+		},
+		{
+			"ls --org acme",
+			"GET " + org + "/domain-resources ",
+		},
+		{
+			"add --level instance --host example.com",
+			`POST /api/v1/admin/domain-resources {"acme_email":"","host":"example.com","include_env_on_default":false}`,
+		},
+		{
+			"add --level org --owner acme --host acme.io --include-env --acme-email ops@acme.io",
+			"POST " + org + `/domain-resources {"acme_email":"ops@acme.io","host":"acme.io","include_env_on_default":true}`,
+		},
+		{
+			"add --level stack --owner acme/shop --host shop.io",
+			"POST " + org + "/stacks/shop/domain-resources " + stackBody,
+		},
+		{
+			"add --level stack --owner shop --host shop.io",
+			"POST " + org + "/stacks/shop/domain-resources " + stackBody,
+		},
+		{
+			"rm r1 --org acme -y",
+			"DELETE " + org + "/domain-resources/r1 ",
+		},
+		{
+			"rm r1 -y",
+			"DELETE /api/v1/admin/domain-resources/r1 ",
+		},
+	} {
+		r.reqs = nil
+		if code, _, errw := cli(t, append([]string{"domain"}, strings.Fields(c.args)...)...); code != 0 {
+			t.Errorf("domain %s = %d %s", c.args, code, errw)
+			continue
+		}
+		if len(r.reqs) == 0 || r.reqs[len(r.reqs)-1] != c.want {
+			t.Errorf("domain %s sent %q, want last %q", c.args, r.reqs, c.want)
+		}
+	}
+	r.reqs = nil
+	if code, _, _ := cli(t, "domain", "add", "--level", "env", "--host", "x.io"); code != 2 || len(r.reqs) != 0 {
+		t.Errorf("--level env = %d, sent %q; want exit 2 and no request", code, r.reqs)
+	}
+}
