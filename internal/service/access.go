@@ -83,6 +83,12 @@ func (o *Orchestrator) Resolve(ctx context.Context, org, stack, env, tile string
 		return s, nil
 	}
 	og, err := o.orgs.GetBySlug(ctx, org)
+	if errors.Is(err, errs.ErrNotFound) {
+		// ponytail: an org answers to its id too (v0 did), for the setup
+		// wizard's wait on an apply that renames the org under it; authz
+		// still gates it. Drop it if an id-shaped slug ever matters.
+		og, err = o.orgs.Get(ctx, org)
+	}
 	if err != nil {
 		return s, err
 	}

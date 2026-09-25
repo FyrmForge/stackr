@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -24,6 +25,14 @@ type (
 	Repo           = githubapp.Repo
 )
 
+// DraftOrgName is what an org is called until setup names it; SetupConfig
+// and SetupUI are the setup wizard's branches.
+const (
+	DraftOrgName = org.DraftName
+	SetupConfig  = org.SetupConfig
+	SetupUI      = org.SetupUI
+)
+
 // Orgs is what the user belongs to; AllOrgs is every org (admin).
 func (o *Orchestrator) Orgs(ctx context.Context, userID string) ([]Org, error) {
 	return o.orgs.ListForUser(ctx, userID)
@@ -35,6 +44,19 @@ func (o *Orchestrator) AllOrgs(ctx context.Context) ([]Org, error) { return o.or
 // FinishOrg complete it.
 func (o *Orchestrator) CreateOrg(ctx context.Context, userID string) (Org, error) {
 	return o.orgs.StartDraft(ctx, userID)
+}
+
+// SetOrgSetupMode picks the setup wizard's branch. By hand drops the
+// config binding, and the plan waiting on it is rejected (v0 SetupMode).
+func (o *Orchestrator) SetOrgSetupMode(ctx context.Context, orgID, mode string) (Org, error) {
+	og, err := o.orgs.Get(ctx, orgID)
+	if err != nil {
+		return og, err
+	}
+	if og, err = o.orgs.SetSetupMode(ctx, og, mode); err != nil || mode != SetupUI {
+		return og, err
+	}
+	return o.SetOrgConfigRepo(ctx, og.ID, "", "", "", "", false)
 }
 
 // RenameOrg moves name and slug; the squat check reads every domain's org.
@@ -269,6 +291,38 @@ func (o *Orchestrator) ConnectorInstallURL(ctx context.Context, orgID, id string
 // empty means not installed yet, or installed on no repos.
 func (o *Orchestrator) ConnectorRepos(ctx context.Context, orgID, id string) ([]Repo, error) {
 	return o.conns.Repos(ctx, orgID, id)
+}
+
+// ConnectedConnectors is the org's connectors past GitHub's handshake.
+func (o *Orchestrator) ConnectedConnectors(ctx context.Context, orgID string) ([]Connector, error) {
+	return o.conns.ListConnected(ctx, orgID)
+}
+
+// OrgRepos is every repo the org's connected apps can read, for the setup
+// wizard's install check and repo list. Two apps on one repo list it once,
+// and an app GitHub will not answer for is skipped, as v0 did: the step
+// then asks for an install rather than failing.
+func (o *Orchestrator) OrgRepos(ctx context.Context, orgID string) ([]Repo, error) {
+	cs, err := o.conns.ListConnected(ctx, orgID)
+	if err != nil {
+		return nil, err
+	}
+	var out []Repo
+	seen := map[string]bool{}
+	for _, c := range cs {
+		rs, err := o.conns.Repos(ctx, orgID, c.ID)
+		if err != nil {
+			slog.Warn("github repo list", "connector", c.Name, "err", err)
+			continue
+		}
+		for _, r := range rs {
+			if !seen[r.FullName] {
+				seen[r.FullName] = true
+				out = append(out, r)
+			}
+		}
+	}
+	return out, nil
 }
 
 func (o *Orchestrator) RenameConnector(ctx context.Context, orgID, id, name string) (Connector, error) {

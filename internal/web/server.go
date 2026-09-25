@@ -18,12 +18,12 @@ import (
 	"github.com/FyrmForge/stackr/internal/web/handler/auth/invite"
 	"github.com/FyrmForge/stackr/internal/web/handler/auth/login"
 	"github.com/FyrmForge/stackr/internal/web/handler/auth/register"
-	"github.com/FyrmForge/stackr/internal/web/handler/auth/setup"
 	"github.com/FyrmForge/stackr/internal/web/handler/canvas"
 	"github.com/FyrmForge/stackr/internal/web/handler/devemail"
 	"github.com/FyrmForge/stackr/internal/web/handler/devgallery"
 	"github.com/FyrmForge/stackr/internal/web/handler/env"
 	"github.com/FyrmForge/stackr/internal/web/handler/scope"
+	"github.com/FyrmForge/stackr/internal/web/handler/setup"
 	"github.com/FyrmForge/stackr/internal/web/handler/tile"
 	"github.com/FyrmForge/stackr/internal/web/render"
 )
@@ -60,6 +60,7 @@ func RegisterRoutes(srv *server.Server, deps *Deps) {
 
 	site.Use(deps.Access.Load())
 	site.Use(render.Theme)
+	site.Use(setup.Pending)
 	auth := deps.Access.Browser()
 
 	// Dev-only sample email endpoint. Sends a test message through the
@@ -93,7 +94,7 @@ func RegisterRoutes(srv *server.Server, deps *Deps) {
 	// A page a visitor may not see sends them to log in and back.
 	page, authed := deps.Access.LoginFirst(), deps.Access.Authed()
 
-	site.GET("/setup", setup.NewHandler(deps.Orch).Page, page, authed)
+	setup.NewHandler(deps.Orch).Mount(site, deps.Access)
 
 	inv := invite.NewHandler(deps.Orch)
 	site.GET("/invite/:token", inv.Page)

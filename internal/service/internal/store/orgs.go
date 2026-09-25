@@ -14,6 +14,7 @@ type Org struct {
 	EnvColors         string     `db:"env_colors" json:"env_colors"`
 	Settings          string     `db:"settings" json:"settings"`
 	SetupDoneAt       *time.Time `db:"setup_done_at" json:"setup_done_at"`
+	SetupMode         string     `db:"setup_mode" json:"setup_mode"` // the wizard's branch: "config" or "ui"
 	CreatedAt         time.Time  `db:"created_at" json:"created_at"`
 	ConfigConnectorID string     `db:"config_connector_id" json:"config_connector_id"`
 	ConfigRepo        string     `db:"config_repo" json:"config_repo"`

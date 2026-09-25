@@ -50,6 +50,14 @@ func PageWith(c echo.Context, status int, title string, body, actions, drawer te
 	return respond.HTML(c, status, components.Layout(s, body))
 }
 
+// Bare is a page with no rail and no top bar, the setup wizard's (v0's
+// chromeless Layout), full page even for htmx: its links navigate.
+func Bare(c echo.Context, status int, title string, body templ.Component) error {
+	s := Shell(c, title)
+	s.User, s.Nav, s.Crumbs, s.Envs, s.Settings = "", nil, nil, nil, ""
+	return respond.HTML(c, status, components.Layout(s, body))
+}
+
 // Shell reads what the layout shows off the request. Every read tolerates
 // its middleware being absent (static generation, tests).
 func Shell(c echo.Context, title string) components.Shell {
@@ -152,6 +160,29 @@ func JobView(page string, j service.Job) components.JobStatusView {
 		StreamURL: page + "/-/jobs/" + j.ID + "/events",
 		Live:      j.FinishedAt == nil,
 	}
+}
+
+// OrgPlanView is the org file's plan as the plan component draws it: its
+// notes read as warnings do. The org drawer's Config tab and the setup
+// wizard's plan step both show it.
+func OrgPlanView(p service.OrgConfigPlan) components.PlanView {
+	pv := components.PlanView{
+		Title:     "What changes",
+		Blockers:  p.Blockers,
+		Warnings:  p.Notes,
+		CanDeploy: !p.Blocked(),
+	}
+	for _, ch := range p.Changes {
+		pv.Changes = append(pv.Changes, components.ChangeView{
+			Kind:  ch.Kind,
+			Tile:  ch.Tile,
+			Field: ch.Field,
+			Old:   ch.Old,
+			New:   ch.New,
+			Note:  ch.Note,
+		})
+	}
+	return pv
 }
 
 // JobStream answers GET <page>/-/jobs/:job/events: the job's status body as

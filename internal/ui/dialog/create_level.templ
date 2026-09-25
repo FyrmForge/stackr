@@ -2,11 +2,12 @@ package dialog
 
 import c "github.com/FyrmForge/stackr/internal/ui/components"
 
-// CreateLevelView is the create form of an org, a stack or an env: a name
-// and, for an env, where its releases come from. A refusal re-renders it
-// (422) with the field marked; success redirects to the new card's page.
+// CreateLevelView is the create form of a stack or an env: a name and,
+// for an env, where its releases come from. A refusal re-renders it (422)
+// with the field marked; success redirects to the new card's page. An org
+// is the setup wizard's.
 type CreateLevelView struct {
-	Kind   string // org | stack | env
+	Kind   string // stack | env
 	Action string
 	Name   string
 	From   string // env: branch | promote

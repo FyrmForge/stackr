@@ -121,14 +121,15 @@ func (e *Env) User(t *testing.T, email string, admin bool) string {
 // Org seeds an org and returns its id.
 func (e *Env) Org(t *testing.T, slug string) string {
 	t.Helper()
-	id := uuid.NewString()
+	id, done := uuid.NewString(), now
 	must(t, e.Store.Orgs.Create(context.Background(), store.Org{
-		ID:        id,
-		Name:      slug,
-		Slug:      slug,
-		EnvColors: "{}",
-		Settings:  "{}",
-		CreatedAt: now,
+		ID:          id,
+		Name:        slug,
+		Slug:        slug,
+		EnvColors:   "{}",
+		Settings:    "{}",
+		SetupDoneAt: &done, // past the setup wizard; a draft comes from CreateOrg
+		CreatedAt:   now,
 	}))
 	return id
 }

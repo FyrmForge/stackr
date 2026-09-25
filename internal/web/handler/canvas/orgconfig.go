@@ -73,7 +73,7 @@ func (h *handler) configTab(c echo.Context, cd card, f *comp.DrawerView) (templ.
 	}
 	box := &orgui.PlanBox{
 		Row: v.Plans[0],
-		Ask: comp.PromoteAsk{Target: og.Name, Plan: orgPlanView(pl)},
+		Ask: comp.PromoteAsk{Target: og.Name, Plan: render.OrgPlanView(pl)},
 	}
 	if latest.Status == "pending" && can(c, cd.s, "orgplan.approve") {
 		box.Reject = f.Base + "/plans/" + latest.ID + "/reject"
@@ -93,28 +93,6 @@ func planRow(p service.OrgPlan) orgui.PlanRow {
 		Commit:  p.Commit[:min(8, len(p.Commit))],
 		Error:   p.Error,
 	}
-}
-
-// orgPlanView is planView for the org file's plan: its notes read as
-// warnings do.
-func orgPlanView(p service.OrgConfigPlan) comp.PlanView {
-	pv := comp.PlanView{
-		Title:     "What changes",
-		Blockers:  p.Blockers,
-		Warnings:  p.Notes,
-		CanDeploy: !p.Blocked(),
-	}
-	for _, ch := range p.Changes {
-		pv.Changes = append(pv.Changes, comp.ChangeView{
-			Kind:  ch.Kind,
-			Tile:  ch.Tile,
-			Field: ch.Field,
-			Old:   ch.Old,
-			New:   ch.New,
-			Note:  ch.Note,
-		})
-	}
-	return pv
 }
 
 // planBanner is v0's org canvas strip while the latest plan waits

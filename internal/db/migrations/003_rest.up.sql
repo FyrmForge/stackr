@@ -9,6 +9,8 @@ CREATE TABLE orgs (
     env_colors           TEXT      NOT NULL,
     settings             TEXT      NOT NULL,
     setup_done_at        DATETIME,
+    -- the setup wizard's branch: 'config' (the file names it) or 'ui'
+    setup_mode           TEXT      NOT NULL DEFAULT '',
     created_at           DATETIME  NOT NULL,
     -- the org config file's binding, the same four stacks has; '' = unbound
     config_connector_id  TEXT      NOT NULL,

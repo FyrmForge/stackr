@@ -25,6 +25,13 @@ import (
 // DraftName is the placeholder an org carries until setup names it.
 const DraftName = "Untitled organization"
 
+// The setup wizard's two branches (orgs.setup_mode): the org's config file
+// names it, or its owner does, step by step.
+const (
+	SetupConfig = "config"
+	SetupUI     = "ui"
+)
+
 // InviteTTL is how long an invite link works ("Auth mechanics": 7 days).
 const InviteTTL = 7 * 24 * time.Hour
 
@@ -181,6 +188,19 @@ func (l *Leaf) SetupDone(ctx context.Context, o store.Org) (store.Org, error) {
 	}
 	now := time.Now().UTC()
 	o.SetupDoneAt = &now
+	return o, l.orgs.Update(ctx, o)
+}
+
+// SetSetupMode records the setup wizard's branch; anything else, or a
+// finished org, is refused.
+func (l *Leaf) SetSetupMode(ctx context.Context, o store.Org, mode string) (store.Org, error) {
+	if mode != SetupConfig && mode != SetupUI {
+		return o, errs.Invalidf("mode", "pick how to set the organization up")
+	}
+	if o.SetupDoneAt != nil {
+		return o, errs.Conflictf("Setup is already finished.")
+	}
+	o.SetupMode = mode
 	return o, l.orgs.Update(ctx, o)
 }
 

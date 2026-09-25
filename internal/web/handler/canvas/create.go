@@ -16,7 +16,8 @@ import (
 )
 
 // creates are the level's create dialogs the viewer may open, by kind of
-// level: the route under <page>/-/new-<kind> and its verb.
+// level: the route under <page>/-/new-<kind> and its verb. Home's is the
+// setup wizard, a page (v0's link to /setup).
 var creates = map[string][]struct {
 	kind  string
 	label string
@@ -39,9 +40,14 @@ func createButtons(c echo.Context, l level) []ui.Create {
 		if s := middleware.ScopeOf(c); s.Org != nil {
 			r.OrgID = s.Org.ID
 		}
-		if p != nil && authz.Can(p.Access, cr.verb, r) == nil {
-			out = append(out, ui.Create{Label: cr.label, URL: l.base + "/-/new-" + cr.kind})
+		if p == nil || authz.Can(p.Access, cr.verb, r) != nil {
+			continue
 		}
+		if cr.kind == "org" {
+			out = append(out, ui.Create{Label: cr.label, URL: "/setup", Nav: true})
+			continue
+		}
+		out = append(out, ui.Create{Label: cr.label, URL: l.base + "/-/new-" + cr.kind})
 	}
 	return out
 }
@@ -56,7 +62,7 @@ func levelForm(c echo.Context, kind string) dialog.CreateLevelView {
 	}
 }
 
-// GET <page>/-/new-<org|stack|env>: the empty form into the drawer.
+// GET <page>/-/new-<stack|env>: the empty form into the drawer.
 func (h *handler) newLevel(kind string) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		return respond.HTML(c, http.StatusOK, dialog.CreateLevel(levelForm(c, kind)))
@@ -71,14 +77,6 @@ func (h *handler) createLevel(kind string) echo.HandlerFunc {
 		var url string
 		var err error
 		switch kind {
-		case "org":
-			var og service.Org
-			if og, err = h.orch.CreateOrg(ctx, middleware.Principal(c).User.ID); err == nil {
-				if og, err = h.orch.RenameOrg(ctx, og.ID, v.Name); err == nil {
-					og, err = h.orch.FinishOrg(ctx, og.ID)
-				}
-			}
-			url = "/" + og.Slug
 		case "stack":
 			var st service.Stack
 			st, err = h.orch.CreateStack(ctx, s.Org.ID, v.Name, "")
@@ -141,7 +139,9 @@ func (h *handler) beginConnector(c echo.Context) error {
 
 // GET /settings/github/callback?code=&state=: GitHub made the app. The
 // state's nonce is the proof the caller began this install; the connector
-// drawer then opens on its org's canvas.
+// drawer then opens on its org's canvas, or the setup wizard's connector
+// step takes it back while the org is unfinished (v0's setup cookie: only
+// the wizard reaches an unfinished org).
 func (h *handler) githubCallback(c echo.Context) error {
 	ctx := c.Request().Context()
 	k, err := h.orch.CompleteConnector(ctx, c.QueryParam("state"), c.QueryParam("code"))
@@ -153,9 +153,13 @@ func (h *handler) githubCallback(c echo.Context) error {
 		return middleware.HTTPError(err)
 	}
 	for _, o := range orgs {
-		if o.ID == k.OrgID {
-			return c.Redirect(http.StatusSeeOther, "/"+o.Slug+"?drawer=connector:"+k.ID+"&tab=settings")
+		if o.ID != k.OrgID {
+			continue
 		}
+		if o.SetupDoneAt == nil {
+			return c.Redirect(http.StatusSeeOther, "/"+o.Slug+"/-/setup/connector")
+		}
+		return c.Redirect(http.StatusSeeOther, "/"+o.Slug+"?drawer=connector:"+k.ID+"&tab=settings")
 	}
 	return c.Redirect(http.StatusSeeOther, "/")
 }
@@ -176,7 +180,6 @@ func (h *handler) Mount(site *echo.Group, a *middleware.Access) {
 		page, kind string
 		verb       authz.Verb
 	}{
-		{"", "org", "org.create"},
 		{"/:org", "stack", "stack.create"},
 		{"/:org/:stack", "env", "env.write"},
 	} {

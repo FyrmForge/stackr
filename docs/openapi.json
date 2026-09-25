@@ -1713,6 +1713,9 @@
               }
             ]
           },
+          "setup_mode": {
+            "type": "string"
+          },
           "slug": {
             "type": "string"
           }
@@ -1724,6 +1727,7 @@
           "avatar_path",
           "env_colors",
           "settings",
+          "setup_mode",
           "created_at",
           "config_connector_id",
           "config_repo",

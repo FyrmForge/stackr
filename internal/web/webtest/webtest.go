@@ -13,6 +13,7 @@ import (
 	"github.com/FyrmForge/hamr/pkg/server"
 
 	"github.com/FyrmForge/stackr/internal/middleware"
+	"github.com/FyrmForge/stackr/internal/service"
 	"github.com/FyrmForge/stackr/internal/service/servicetest"
 	"github.com/FyrmForge/stackr/internal/web"
 )
@@ -27,7 +28,13 @@ type Site struct {
 
 func New(t *testing.T) *Site {
 	t.Helper()
-	env := servicetest.New(t)
+	return NewWith(t, nil)
+}
+
+// NewWith is New over service options (servicetest.Git's, say).
+func NewWith(t *testing.T, opts []service.Option) *Site {
+	t.Helper()
+	env := servicetest.NewWith(t, opts)
 	srv, err := server.New(server.WithDevMode(true))
 	if err != nil {
 		t.Fatal(err)

@@ -44,12 +44,16 @@ templ Page(v View) {
 // is the primary, the rest ghosts.
 templ Actions(cs []Create) {
 	for i, cr := range cs {
-		<button
-			type="button"
-			class={ "btn btn-sm", templ.KV("btn-primary", i == 0), templ.KV("btn-ghost", i > 0) }
-			hx-get={ cr.URL }
-			hx-target="#drawer-body"
-		>{ cr.Label }</button>
+		if cr.Nav {
+			<a href={ templ.SafeURL(cr.URL) } class={ "btn btn-sm", templ.KV("btn-primary", i == 0), templ.KV("btn-ghost", i > 0) }>{ cr.Label }</a>
+		} else {
+			<button
+				type="button"
+				class={ "btn btn-sm", templ.KV("btn-primary", i == 0), templ.KV("btn-ghost", i > 0) }
+				hx-get={ cr.URL }
+				hx-target="#drawer-body"
+			>{ cr.Label }</button>
+		}
 	}
 }
 

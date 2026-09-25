@@ -43,8 +43,12 @@ type Banner struct {
 	Danger     bool
 }
 
-// Create opens a create dialog in the drawer.
-type Create struct{ Label, URL string }
+// Create opens a create dialog in the drawer, or with Nav goes to URL (the
+// setup wizard is a page).
+type Create struct {
+	Label, URL string
+	Nav        bool
+}
 
 // Show is what the server draws; each off flag is a "=0" query param.
 type Show struct{ System, Refs, Startup, Traffic bool }

@@ -185,17 +185,14 @@ func TestCreateDialogs(t *testing.T) {
 	if es, _ := s.Orch.Ladder(ctx, s.Tile.Stack); len(es) != 2 || es[1].FromKind != "promote" {
 		t.Errorf("ladder = %+v", es)
 	}
-	if rec := s.Do(t, "POST", "/-/new-org", url.Values{"name": {"beta"}}); rec.Code != http.StatusForbidden {
+	if rec := s.Do(t, "POST", "/setup", url.Values{"mode": {"ui"}}); rec.Code != http.StatusForbidden {
 		t.Errorf("an owner created an org: %d", rec.Code)
 	}
 
+	// + org is the setup wizard's branch question (handler/setup).
 	a := newBrowser(t, "admin")
-	if body := a.do(t, "GET", "/", nil, true).Body.String(); !strings.Contains(body, `hx-get="/-/new-org"`) {
+	if body := a.do(t, "GET", "/", nil, true).Body.String(); !strings.Contains(body, `href="/setup"`) {
 		t.Error("an admin gets no + org")
-	}
-	rec = a.do(t, "POST", "/-/new-org", url.Values{"name": {"Beta"}}, true)
-	if rec.Header().Get("HX-Redirect") != "/beta" {
-		t.Fatalf("create org = %d %q %s", rec.Code, rec.Header().Get("HX-Redirect"), rec.Body)
 	}
 }
 

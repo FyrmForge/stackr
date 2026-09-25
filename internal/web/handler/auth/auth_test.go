@@ -1,5 +1,5 @@
-// Package auth_test covers the signed-out and first-run pages together:
-// login's way back, setup, the invite link and the CLI approval.
+// Package auth_test covers the signed-out pages together: login's way
+// back, the invite link and the CLI approval. Setup is handler/setup's.
 package auth_test
 
 import (
@@ -61,28 +61,6 @@ func TestLoginFirst(t *testing.T) {
 	}
 	if body := s.As(t, "", "GET", "/login?next=//evil.test", nil).Body.String(); strings.Contains(body, "evil.test") {
 		t.Error("the login page kept a way back off the site")
-	}
-}
-
-// Setup: an admin with no org gets the create form; a member of one is
-// sent to it; anyone else is told to ask for an invite.
-func TestSetup(t *testing.T) {
-	s := webtest.New(t)
-	if rec := s.Do(t, "GET", "/setup", nil); rec.Header().Get("HX-Redirect") != "/acme" {
-		t.Errorf("member setup = %d %v", rec.Code, rec.Header())
-	}
-	admin := s.Session(t, s.User(t, "root@x.test", true))
-	if body := s.As(t, admin, "GET", "/setup", nil).Body.String(); !strings.Contains(body, `hx-post="/-/new-org"`) {
-		t.Errorf("admin setup has no create form:\n%s", body)
-	}
-	rec := s.As(t, admin, "POST", "/-/new-org", url.Values{"name": {"First"}})
-	if rec.Header().Get("HX-Redirect") != "/first" {
-		t.Errorf("create first org = %d %v", rec.Code, rec.Header())
-	}
-	lone := s.Session(t, s.User(t, "lone@x.test", false))
-	if body := s.As(t, lone, "GET", "/setup", nil).Body.String(); !strings.Contains(body, "invite link") ||
-		strings.Contains(body, "new-org") {
-		t.Errorf("non-admin setup:\n%s", body)
 	}
 }
 
