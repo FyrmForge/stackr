@@ -922,6 +922,30 @@ sweep, P14 theme per user, DECIDE 159 and the DECIDE 138 leftovers.
    from the bottom (`planSlice`, ponytail). Options: (a) keep; (b) one map
    per stack, stored on the stack. Lean (a); the copies are equal unless a
    per-env override differs, and then (b) cannot express it anyway.
+197. **(step 7b) A slice's database name.** Task 5 named it after the slice
+   slug, made unique per instance (`api_db`, `api_db_2`), and a kept
+   database was re-used by the next slice with that slug. shop/dev and
+   shop/staging both map to infra/staging through env pairs, so two
+   `api-db` slices land on one instance and a keep-then-re-add could hand
+   dev's data to staging. **Fixed in task 6: `<stack>_<env>_<slice>`,
+   deterministic, never collides; re-adding the same slice in the same
+   env gets its kept database back.**
+198. **(step 7b) S3 access is not enforced.** The s3 engine (RustFS) hands
+   every binding the instance's root key: a `read` consumer can write, and
+   any consumer can reach every bucket on the instance. This was the
+   step 3 ponytail ("the bucket per slice is the whole isolation boundary
+   until scoped keys are proven on RustFS") and 7b's read/write makes it
+   visible. Postgres is enforced. Options: (a) prove RustFS IAM (MinIO
+   style users and bucket policies) on the VM and mint a key per binding;
+   (b) ship as is, documented. Lean (a), tried in the QA loops; if RustFS
+   refuses, this stays open for darthvader.
+199. **(step 7b) `on_remove` on a slice tile.** Task 5 gave it no file key:
+   default keep, a PR env always drops, the drawer sets it. The old
+   `slices:` list had `on_remove` in the file. **Fixed in task 6: `on_remove:
+   drop|keep` on the slice tile, default keep, PR env always drops.**
+200. **(step 7b) Removing an instance that still holds slices is refused.**
+   No force verb drops them all. Options: (a) keep; the user removes the
+   slices first; (b) `--force` on the instance delete. Lean (a) for v1.
 ## DECIDE:
 
 Silent calls the planner made under rule 9 / "fix obvious gaps"; flip any

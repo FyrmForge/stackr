@@ -76,7 +76,7 @@ Rules:
 - A PR env (`base_env` set) that has no `env_pairs` key of its own maps as
   its base env, the way the promote plan already falls back to the base
   env's file section; its address for `allow:` stays its own slug
-  (`smoke:shop:pr-12:api`).
+  (`smoke:shop:pr-12:api-db`; the allow check is one per slice tile, never per consumer).
 - `default_access:` `read` or `write`, default `write`.
 - `slice_access:` on any consumer tile: `from` is a slice tile slug in the
   same env, `access` read or write. A consumer that refs a slice without a
