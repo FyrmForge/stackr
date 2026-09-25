@@ -648,6 +648,9 @@ the org, stack, env and admin drawers, the account page and the auth pages
    the per-member role `<select>` in People fails the same way.
    Options: (a) open `validRole` to member and viewer (authz already
    ranks them); (b) show owner only. Lean (a), v0 had three.
+   **darthvader 2026-09-25: (b), everyone is an org owner for now.** The
+   pickers already read `AssignableRoles` (owner only); member and viewer
+   are a Later item.
 172. **(step 6e) The invite link shows once, as a path.** v0 toasted the
    full URL and kept a Copy invite on the row; the token is not kept.
    Options: (a) keep; (b) print the full URL. Lean (b).

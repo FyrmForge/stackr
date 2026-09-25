@@ -39,8 +39,8 @@ const InviteTTL = 7 * 24 * time.Hour
 const Owner = "owner"
 
 // roles is every role the leaf writes, in the pickers' order.
-// ponytail: owner only; member and viewer come back when DECIDE 171 (roles)
-// settles. authz already ranks them.
+// ponytail: owner only (DECIDE 171, darthvader 2026-09-25); member and
+// viewer are Later. authz already ranks them.
 var roles = []string{
 	Owner,
 }
