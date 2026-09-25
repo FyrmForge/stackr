@@ -14,6 +14,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
+	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	"github.com/FyrmForge/stackr/internal/service/internal/slug"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
@@ -30,6 +31,7 @@ const (
 type Networks interface {
 	EnsureNetwork(ctx context.Context, name string, labels map[string]string) error
 	RemoveNetwork(ctx context.Context, name string) error
+	Gateways(ctx context.Context, labels map[string]string) ([]string, error)
 }
 
 type Leaf struct {
@@ -37,9 +39,13 @@ type Leaf struct {
 	net  Networks
 }
 
-func New(envs store.EnvironmentStore, net Networks) *Leaf { return &Leaf{envs: envs, net: net} }
+func New(envs store.EnvironmentStore, net Networks) *Leaf {
+	return &Leaf{envs: envs, net: net}
+}
 
-func (l *Leaf) Get(ctx context.Context, id string) (store.Environment, error) { return l.envs.Get(ctx, id) }
+func (l *Leaf) Get(ctx context.Context, id string) (store.Environment, error) {
+	return l.envs.Get(ctx, id)
+}
 
 func (l *Leaf) GetBySlug(ctx context.Context, stackID, slug string) (store.Environment, error) {
 	return l.envs.GetBySlug(ctx, stackID, slug)
@@ -118,9 +124,17 @@ func (l *Leaf) Create(ctx context.Context, stackID, name string, sp Spec) (store
 		return store.Environment{}, errs.Invalidf("type", "Unknown environment type %q.", sp.Type)
 	}
 	id := uuid.NewString()
-	e := store.Environment{ID: id, StackID: stackID, Type: sp.Type, BaseEnvID: sp.Base,
-		Settings: "{}", Color: sp.Color, Position: pos, Network: "stackr-env-" + id,
-		CreatedAt: time.Now().UTC()}
+	e := store.Environment{
+		ID:        id,
+		StackID:   stackID,
+		Type:      sp.Type,
+		BaseEnvID: sp.Base,
+		Settings:  "{}",
+		Color:     sp.Color,
+		Position:  pos,
+		Network:   "stackr-env-" + id,
+		CreatedAt: time.Now().UTC(),
+	}
 	if err := l.name(ctx, &e, name); err != nil {
 		return e, err
 	}
@@ -135,8 +149,14 @@ func (l *Leaf) Create(ctx context.Context, stackID, name string, sp Spec) (store
 // branch, ephemeral, off the ladder. Tiles, params and slices are the
 // flow's (see the envops rules), never this row's.
 func (l *Leaf) CloneRow(ctx context.Context, base store.Environment, name, branch string) (store.Environment, error) {
-	e, err := l.Create(ctx, base.StackID, name, Spec{Type: Ephemeral, Base: &base.ID, Color: base.Color,
-		FromKind: FromBranch, FromBranch: branch, Auto: true})
+	e, err := l.Create(ctx, base.StackID, name, Spec{
+		Type:       Ephemeral,
+		Base:       &base.ID,
+		Color:      base.Color,
+		FromKind:   FromBranch,
+		FromBranch: branch,
+		Auto:       true,
+	})
 	if err != nil {
 		return e, err
 	}
@@ -185,7 +205,12 @@ func checkFrom(e store.Environment, kind, branch string, bottom bool) error {
 }
 
 // SetFrom sets the two knobs. promote drops the branch.
-func (l *Leaf) SetFrom(ctx context.Context, e store.Environment, kind, branch string, auto bool) (store.Environment, error) {
+func (l *Leaf) SetFrom(
+	ctx context.Context,
+	e store.Environment,
+	kind, branch string,
+	auto bool,
+) (store.Environment, error) {
 	if kind == FromPromote {
 		branch = ""
 	}
@@ -256,6 +281,12 @@ func (l *Leaf) SetColor(ctx context.Context, e store.Environment, color string) 
 // Network ensures the env's Docker network and returns its name.
 func (l *Leaf) Network(ctx context.Context, e store.Environment) (string, error) {
 	return e.Network, l.net.EnsureNetwork(ctx, e.Network, map[string]string{"stackr.env": e.ID})
+}
+
+// Gateways are the gateway IPs of every stackr network (env, shared,
+// ingress): where the host, and so the host-network panel, meets them.
+func (l *Leaf) Gateways(ctx context.Context) ([]string, error) {
+	return l.net.Gateways(ctx, map[string]string{docker.LabelManaged: "true"})
 }
 
 // Shared ensures a network that crosses envs (a stack- or org-scoped

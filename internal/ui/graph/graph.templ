@@ -1,0 +1,286 @@
+package graph
+
+import (
+	c "github.com/FyrmForge/stackr/internal/ui/components"
+	"github.com/FyrmForge/stackr/internal/ui/graph/cards"
+)
+
+// Page is a canvas page: the env-compare pill (stack), then #graph. #graph
+// holds the stream and swaps its inside on "graph", so the stream outlives
+// the canvas it replaces; reset and notes answer into it too.
+templ Page(v View) {
+	if len(v.Compare) > 0 || len(v.Create) > 0 {
+		<div class="mb-2 flex flex-wrap items-center gap-2">
+			if len(v.Compare) > 0 {
+				@compare(v.Compare)
+			}
+			for _, cr := range v.Create {
+				<button type="button" class="btn" hx-get={ cr.URL } hx-target="#drawer-body">{ cr.Label }</button>
+			}
+		</div>
+	}
+	<div
+		id="graph"
+		if v.Events != "" {
+			hx-ext="sse"
+			sse-connect={ v.Events }
+			sse-swap="graph"
+		}
+	>
+		@Canvas(v)
+	</div>
+}
+
+// Canvas is the swap unit: every card, edge and note, with its chrome.
+templ Canvas(v View) {
+	<graph-canvas
+		scale="0.8"
+		fan-out
+		arrows
+		if v.Divider > 0 {
+			divider={ itoa(v.Divider) }
+		}
+		if v.Focus != "" {
+			focus={ v.Focus }
+		}
+		class="h-[calc(100vh-9rem)] rounded-lg border border-slate-200 bg-slate-100 dark:border-slate-800 dark:bg-slate-950"
+	>
+		<svg data-edges aria-hidden="true">
+			<defs>
+				<marker id="graph-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+					<path d="M0,0 L10,5 L0,10 z" fill="context-stroke"></path>
+				</marker>
+			</defs>
+			if v.Divider > 0 {
+				<line x1={ itoa(v.Divider) } y1="-100000" x2={ itoa(v.Divider) } y2="100000" stroke="#94a3b8" stroke-dasharray="2 6"></line>
+			}
+			for _, e := range v.Edges {
+				<path data-edge-kind={ e.Kind } data-from={ e.From } data-to={ e.To } d="M0,0"></path>
+			}
+		</svg>
+		if v.Lanes != nil {
+			@cards.Lanes(v.Lanes)
+		}
+		for _, n := range v.Nodes {
+			@node(v, n)
+		}
+		for _, n := range v.Notes {
+			@note(v, n)
+		}
+		@toolbar(v)
+		@legend(v)
+	</graph-canvas>
+}
+
+// node is the wrapper every card shares: position, the three hidden
+// inputs the drop fills, the position POST.
+templ node(v View, n Node) {
+	<graph-node
+		node-id={ n.ID }
+		x={ itoa(n.X) }
+		y={ itoa(n.Y) }
+		w={ itoa(n.W) }
+		h={ itoa(n.H) }
+		if n.System {
+			system
+		}
+		if n.Static {
+			static
+		}
+		hx-post={ v.Route("positions") }
+		hx-trigger="node-moved"
+		hx-include="this"
+		hx-swap="none"
+		hx-disinherit="*"
+	>
+		<input type="hidden" name="node_id" value={ n.ID }/>
+		<input type="hidden" name="x" value={ itoa(n.X) }/>
+		<input type="hidden" name="y" value={ itoa(n.Y) }/>
+		if n.Card != nil {
+			@n.Card
+		} else {
+			@card(n)
+			@subs(n)
+		}
+	</graph-node>
+}
+
+// card is the generic body: name (a drill-down link where there is a level
+// below), kind or env colour, detail, footer. A card with a drawer and no
+// page below opens it on click; a drill-down card opens it from its button.
+templ card(n Node) {
+	<div
+		class={ "card relative min-h-0 flex-1 overflow-hidden p-3 text-sm", deck(n.Deck),
+			templ.KV("border-dashed", n.System || n.Static),
+			templ.KV("cursor-pointer", n.Drawer != "" && n.Href == "") }
+		data-kind={ n.Kind }
+		if n.Drawer != "" && n.Href == "" {
+			hx-get={ n.Drawer }
+			hx-target="#drawer-body"
+			hx-push-url={ n.Push }
+			tabindex="0"
+			role="button"
+		}
+	>
+		<div class="flex items-center justify-between gap-2">
+			if n.Href != "" {
+				<a href={ templ.SafeURL(n.Href) } hx-get={ n.Href } hx-target="#main" hx-push-url="true" class="truncate font-semibold after:absolute after:inset-0">{ n.Name }</a>
+			} else {
+				<span class="truncate font-semibold">{ n.Name }</span>
+			}
+			if n.Color != "" {
+				@c.EnvBadge(n.Kind, n.Color)
+			} else {
+				<span class="shrink-0 rounded bg-slate-100 px-1.5 text-xs text-slate-600 dark:bg-slate-800 dark:text-slate-300">{ n.Kind }</span>
+			}
+		</div>
+		if n.Detail != "" {
+			<p class="truncate text-xs text-slate-500">{ n.Detail }</p>
+		}
+		<div class="flex items-end justify-between gap-2">
+			@n.Foot()
+			if n.Drawer != "" && n.Href != "" {
+				<button type="button" class="link relative z-10 text-xs" hx-get={ n.Drawer } hx-target="#drawer-body" hx-push-url={ n.Push }>Settings</button>
+			}
+		</div>
+	</div>
+}
+
+// Footer is a card's live strip; the stream re-sends it as "footer:<id>"
+// and it replaces itself (hx-target="this", or it would inherit the
+// card's #drawer-body).
+templ Footer(id, status string) {
+	<div class="mt-1 flex items-center gap-2 text-xs" sse-swap={ "footer:" + id } hx-target="this" hx-swap="outerHTML">
+		if status != "" {
+			@c.TileBadge(status)
+		}
+	</div>
+}
+
+templ subs(n Node) {
+	for _, s := range n.Subs {
+		<graph-node node-id={ s.ID } static class="mt-1 shrink-0">
+			<div class="card flex items-center justify-between gap-2 px-2 py-1 text-xs" data-kind={ s.Kind }>
+				<span class="truncate"><span class="text-slate-500">{ s.Kind }</span> { s.Name }</span>
+				if s.Status != "" {
+					@c.TileBadge(s.Status)
+				}
+			</div>
+		</graph-node>
+	}
+}
+
+// note is an annotation card: its text saves on change (an emptied note
+// is deleted), x deletes it, it drags like any card ("note:<id>").
+templ note(v View, n Note) {
+	<graph-node
+		node-id={ "note:" + n.ID }
+		x={ itoa(n.X) }
+		y={ itoa(n.Y) }
+		w={ itoa(n.W) }
+		h={ itoa(n.H) }
+		hx-post={ v.Route("positions") }
+		hx-trigger="node-moved"
+		hx-include="this"
+		hx-swap="none"
+		hx-disinherit="*"
+	>
+		<input type="hidden" name="node_id" value={ "note:" + n.ID }/>
+		<input type="hidden" name="x" value={ itoa(n.X) }/>
+		<input type="hidden" name="y" value={ itoa(n.Y) }/>
+		<form
+			class={ "relative h-full rounded-lg p-2 text-sm", templ.KV("bg-amber-100 dark:bg-amber-900/40", n.Kind == "note"),
+				templ.KV("border-2 border-dashed border-slate-400", n.Kind == "box") }
+			hx-post={ v.Route("notes") }
+			hx-trigger="change"
+			hx-include="closest graph-node"
+			hx-target="#graph"
+		>
+			<input type="hidden" name="id" value={ n.ID }/>
+			<input type="hidden" name="kind" value={ n.Kind }/>
+			<input type="hidden" name="w" value={ itoa(n.W) }/>
+			<input type="hidden" name="h" value={ itoa(n.H) }/>
+			<textarea name="text" aria-label={ n.Kind + " text" } maxlength="500" class="h-full w-full resize-none bg-transparent text-sm focus:outline-none">{ n.Text }</textarea>
+		</form>
+		<form hx-post={ v.Route("notes/delete") } hx-target="#graph" class="absolute right-1 top-0">
+			<input type="hidden" name="id" value={ n.ID }/>
+			<button type="submit" class="link text-xs" aria-label={ "Delete " + n.Kind }>x</button>
+		</form>
+	</graph-node>
+}
+
+// toolbar is overlay chrome: look switches (the element keeps them),
+// zoom, re-arrange, add a note or a box, and the show switches (links:
+// the server redraws).
+templ toolbar(v View) {
+	<div class="absolute right-2 top-2 z-20 flex flex-wrap items-center justify-end gap-2 text-xs">
+		for _, look := range []string{"snap", "straight", "fan-out", "arrows"} {
+			<label class="flex items-center gap-1"><input type="checkbox" data-look={ look }/> { look }</label>
+		}
+		if v.Toggles {
+			for _, t := range []struct{ name string; on bool }{{"system", v.Show.System}, {"refs", v.Show.Refs}, {"startup", v.Show.Startup}, {"traffic", v.Show.Traffic}} {
+				<a
+					href={ templ.SafeURL(v.Toggle(t.name)) }
+					hx-get={ v.Toggle(t.name) }
+					hx-target="#main"
+					hx-push-url="true"
+					class="btn"
+					aria-pressed={ boolStr(t.on) }
+				>{ t.name }</a>
+			}
+		}
+		<form hx-post={ v.Route("notes") } hx-target="#graph">
+			<input type="hidden" name="kind" value="note"/>
+			<input type="hidden" name="text" value="note"/>
+			<input type="hidden" name="w" value="160"/>
+			<input type="hidden" name="h" value="80"/>
+			<button type="submit" class="btn">+ note</button>
+		</form>
+		<form hx-post={ v.Route("notes") } hx-target="#graph">
+			<input type="hidden" name="kind" value="box"/>
+			<input type="hidden" name="w" value="400"/>
+			<input type="hidden" name="h" value="260"/>
+			<button type="submit" class="btn">+ box</button>
+		</form>
+		<button type="button" class="btn" hx-post={ v.Route("reset") } hx-target="#graph">Re-arrange</button>
+		<button type="button" class="btn" data-zoom="in" aria-label="Zoom in">+</button>
+		<button type="button" class="btn" data-zoom="out" aria-label="Zoom out">-</button>
+		<button type="button" class="btn" data-zoom="fit">Fit</button>
+	</div>
+}
+
+templ legend(v View) {
+	if ks := v.legend(); len(ks) > 0 {
+		<ul class="absolute bottom-2 left-2 z-20 flex flex-wrap gap-3 rounded bg-white/80 px-2 py-1 text-xs dark:bg-slate-900/80" aria-label="Edges">
+			for _, k := range ks {
+				<li class="flex items-center gap-1">
+					<svg width="24" height="8" aria-hidden="true"><path data-edge-kind={ k } d="M0,4 L24,4"></path></svg>
+					{ edgeLabels[k] }
+				</li>
+			}
+		</ul>
+	}
+}
+
+// compare is the env-compare pill: the ladder with each env's release,
+// amber where the rung below runs a newer one.
+templ compare(rs []Rung) {
+	<nav aria-label="Environments" class="flex flex-wrap items-center gap-2 text-sm">
+		for i, r := range rs {
+			if i > 0 {
+				<span aria-hidden="true" class="text-slate-400">&gt;</span>
+			}
+			<a href={ templ.SafeURL(r.Href) } hx-get={ r.Href } hx-target="#main" hx-push-url="true" class="flex items-center gap-1">
+				@c.EnvBadge(r.Name, r.Color)
+				if r.Release > 0 {
+					<span class={ templ.KV("text-amber-600 dark:text-amber-400", r.Behind) }>#{ itoa(r.Release) }</span>
+				} else {
+					<span class="text-slate-400">none</span>
+				}
+				if r.Behind {
+					<span class="sr-only">behind</span>
+				}
+			</a>
+		}
+	</nav>
+}

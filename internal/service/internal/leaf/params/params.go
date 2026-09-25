@@ -93,9 +93,17 @@ func (l *Leaf) Merge(ctx context.Context, s Scope, es []Entry) error {
 		case w.old == nil && declared:
 			// Nothing to store: an unset secret parks whoever refs it.
 		case w.old == nil:
-			if err := l.params.Create(ctx, store.Param{ID: uuid.NewString(), ScopeKind: s.Kind, ScopeID: s.ID,
-				Collection: w.e.Collection, Name: w.e.Name, Kind: w.e.Kind, Value: w.e.Value,
-				CreatedAt: now, UpdatedAt: now}); err != nil {
+			if err := l.params.Create(ctx, store.Param{
+				ID:         uuid.NewString(),
+				ScopeKind:  s.Kind,
+				ScopeID:    s.ID,
+				Collection: w.e.Collection,
+				Name:       w.e.Name,
+				Kind:       w.e.Kind,
+				Value:      w.e.Value,
+				CreatedAt:  now,
+				UpdatedAt:  now,
+			}); err != nil {
 				return err
 			}
 		default:

@@ -1,0 +1,24 @@
+package setup
+
+import (
+	c "github.com/FyrmForge/stackr/internal/ui/components"
+	"github.com/FyrmForge/stackr/internal/ui/dialog"
+)
+
+// View is the first-run page: the signed-in user has no org yet. An admin
+// names the first one (the home canvas's create form); anyone else is told
+// how to get in.
+type View struct {
+	Create *dialog.CreateLevelView // nil = may not create an org
+}
+
+templ page(v View) {
+	@c.AuthCard("Set up stackr") {
+		if v.Create != nil {
+			<p class="text-sm text-slate-500">You are this server's admin. Name the first org: stacks, envs and tiles live in it.</p>
+			@dialog.CreateLevel(*v.Create)
+		} else {
+			<p class="text-sm">You are not in an org yet. Ask an org owner for an invite link.</p>
+		}
+	}
+}

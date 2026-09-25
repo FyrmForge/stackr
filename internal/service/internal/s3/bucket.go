@@ -50,15 +50,18 @@ func (b Bucket) Put(ctx context.Context, key string, body io.ReadSeeker) error {
 		return err
 	}
 	_, err = b.client().PutObject(ctx, &s3.PutObjectInput{
-		Bucket: aws.String(b.Bucket), Key: aws.String(key),
-		Body: body, ContentLength: aws.Int64(size),
+		Bucket:        aws.String(b.Bucket),
+		Key:           aws.String(key),
+		Body:          body,
+		ContentLength: aws.Int64(size),
 	})
 	return err
 }
 
 func (b Bucket) Get(ctx context.Context, key string) (io.ReadCloser, error) {
 	out, err := b.client().GetObject(ctx, &s3.GetObjectInput{
-		Bucket: aws.String(b.Bucket), Key: aws.String(key),
+		Bucket: aws.String(b.Bucket),
+		Key:    aws.String(key),
 	})
 	if nsk := (*types.NoSuchKey)(nil); errors.As(err, &nsk) {
 		return nil, ErrNotFound
@@ -72,7 +75,8 @@ func (b Bucket) Get(ctx context.Context, key string) (io.ReadCloser, error) {
 func (b Bucket) List(ctx context.Context, prefix string) ([]string, error) {
 	var keys []string
 	p := s3.NewListObjectsV2Paginator(b.client(), &s3.ListObjectsV2Input{
-		Bucket: aws.String(b.Bucket), Prefix: aws.String(prefix),
+		Bucket: aws.String(b.Bucket),
+		Prefix: aws.String(prefix),
 	})
 	for p.HasMorePages() {
 		out, err := p.NextPage(ctx)
@@ -90,7 +94,8 @@ func (b Bucket) List(ctx context.Context, prefix string) ([]string, error) {
 // Delete: S3's DeleteObject already treats a missing key as success.
 func (b Bucket) Delete(ctx context.Context, key string) error {
 	_, err := b.client().DeleteObject(ctx, &s3.DeleteObjectInput{
-		Bucket: aws.String(b.Bucket), Key: aws.String(key),
+		Bucket: aws.String(b.Bucket),
+		Key:    aws.String(key),
 	})
 	return err
 }

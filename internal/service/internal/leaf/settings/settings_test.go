@@ -21,10 +21,13 @@ func TestResolveCascade(t *testing.T) {
 		{"server only", []Settings{server}, Resolved{CPULimit: 2, MemLimitMB: 1024}},
 		{"org overrides server", []Settings{server, org}, Resolved{CPULimit: 2, MemLimitMB: 512}},
 		{"empty stack inherits", []Settings{server, org, stack}, Resolved{CPULimit: 2, MemLimitMB: 512}},
-		{"explicit zero at env is unlimited", []Settings{server, org, stack, env},
-			Resolved{CPULimit: 0, MemLimitMB: 512, ProtectUser: "u", ProtectPassword: "p"}},
-		{"protect pair is one unit", []Settings{env, {ProtectUser: ptr("v")}},
-			Resolved{ProtectUser: "v"}},
+		{"explicit zero at env is unlimited", []Settings{server, org, stack, env}, Resolved{
+			CPULimit:        0,
+			MemLimitMB:      512,
+			ProtectUser:     "u",
+			ProtectPassword: "p",
+		}},
+		{"protect pair is one unit", []Settings{env, {ProtectUser: ptr("v")}}, Resolved{ProtectUser: "v"}},
 	}
 	for _, tt := range tests {
 		if got := Resolve(tt.levels...); got != tt.want {
@@ -95,7 +98,12 @@ func TestCatalogueMatchesSettings(t *testing.T) {
 		}
 		n++
 		var s Settings
-		raw := map[Type]string{TInt: "1", TFloat: "1.5", TBool: "true", TStr: "x"}[k.Type]
+		raw := map[Type]string{
+			TInt:   "1",
+			TFloat: "1.5",
+			TBool:  "true",
+			TStr:   "x",
+		}[k.Type]
 		if err := Set(&s, k.Key, raw); err != nil {
 			t.Errorf("Set(%s): %v", k.Key, err)
 		}

@@ -3,6 +3,7 @@ package docker
 import (
 	"context"
 	"maps"
+	"slices"
 	"strings"
 
 	cerrdefs "github.com/containerd/errdefs"
@@ -18,10 +19,8 @@ func (d *Client) EnsureNetwork(ctx context.Context, name string, labels map[stri
 	if err != nil {
 		return err
 	}
-	for _, n := range nets {
-		if n.Name == name {
-			return nil
-		}
+	if slices.ContainsFunc(nets, func(n network.Summary) bool { return n.Name == name }) {
+		return nil
 	}
 	all := map[string]string{LabelManaged: "true"}
 	maps.Copy(all, labels)
@@ -56,6 +55,23 @@ func (d *Client) ListNetworks(ctx context.Context, labels map[string]string) ([]
 	return out, nil
 }
 
+// Gateways returns the gateway IPs of the networks carrying all of labels.
+func (d *Client) Gateways(ctx context.Context, labels map[string]string) ([]string, error) {
+	nets, err := d.cli.NetworkList(ctx, network.ListOptions{Filters: labelFilter(labels)})
+	if err != nil {
+		return nil, err
+	}
+	var out []string
+	for _, n := range nets {
+		for _, c := range n.IPAM.Config {
+			if c.Gateway != "" {
+				out = append(out, c.Gateway)
+			}
+		}
+	}
+	return out, nil
+}
+
 // Connect joins a container to a network with optional DNS aliases.
 // Already-connected is not an error: treating it as one made a reattach
 // abandon the rest of its networks halfway through.
@@ -65,7 +81,8 @@ func (d *Client) Connect(ctx context.Context, netName, containerID string, alias
 		cfg = &network.EndpointSettings{Aliases: aliases}
 	}
 	err := d.cli.NetworkConnect(ctx, netName, containerID, cfg)
-	if err != nil && (strings.Contains(err.Error(), "already exists") || strings.Contains(err.Error(), "already attached")) {
+	if err != nil && (strings.Contains(err.Error(), "already exists") ||
+		strings.Contains(err.Error(), "already attached")) {
 		return nil
 	}
 	return wrap(err)

@@ -9,17 +9,17 @@ import (
 )
 
 type handler struct {
-	svc *service.Orchestrator
+	orch *service.Orchestrator
 }
 
 // NewHandler creates a new API health handler.
-func NewHandler(svc *service.Orchestrator) *handler {
-	return &handler{svc: svc}
+func NewHandler(orch *service.Orchestrator) *handler {
+	return &handler{orch: orch}
 }
 
 // GET /api/health
 func (h *handler) Health(c echo.Context) error {
-	if err := h.svc.Ping(c.Request().Context()); err != nil {
+	if err := h.orch.Ping(c.Request().Context()); err != nil {
 		return c.JSON(http.StatusServiceUnavailable, map[string]string{
 			"status": "unhealthy",
 			"error":  err.Error(),

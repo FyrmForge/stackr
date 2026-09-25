@@ -50,10 +50,17 @@ func (o *Orchestrator) principal(ctx context.Context, u User, key bool, keyOrg s
 	if err != nil {
 		return nil, err
 	}
-	return &Principal{User: u, Access: authz.User{
-		ID: u.ID, Admin: u.Role == "admin", Active: u.Active,
-		Roles: roles, Key: key, KeyOrg: keyOrg,
-	}}, nil
+	return &Principal{
+		User: u,
+		Access: authz.User{
+			ID:     u.ID,
+			Admin:  u.Admin(),
+			Active: u.Active,
+			Roles:  roles,
+			Key:    key,
+			KeyOrg: keyOrg,
+		},
+	}, nil
 }
 
 // Scope is what /:org/:stack/:env/:tile resolved to; nil past the last

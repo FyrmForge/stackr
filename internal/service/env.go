@@ -28,7 +28,8 @@ func (o *Orchestrator) RenameEnv(ctx context.Context, id, name string) (Environm
 // SetEnvFrom sets where the env's releases come from: a branch (auto or
 // not) or promotion from the rung below.
 func (o *Orchestrator) SetEnvFrom(ctx context.Context, id, kind, branch string, auto bool) (Environment, error) {
-	return o.onEnv(ctx, id, func(e Environment) (Environment, error) { return o.envs.SetFrom(ctx, e, kind, branch, auto) })
+	return o.onEnv(ctx, id,
+		func(e Environment) (Environment, error) { return o.envs.SetFrom(ctx, e, kind, branch, auto) })
 }
 
 func (o *Orchestrator) SetEnvColor(ctx context.Context, id, color string) (Environment, error) {
@@ -67,7 +68,11 @@ func (o *Orchestrator) DeleteEnv(ctx context.Context, id string) error {
 	return o.envs.Delete(ctx, e, len(ts))
 }
 
-func (o *Orchestrator) onEnv(ctx context.Context, id string, f func(Environment) (Environment, error)) (Environment, error) {
+func (o *Orchestrator) onEnv(
+	ctx context.Context,
+	id string,
+	f func(Environment) (Environment, error),
+) (Environment, error) {
 	e, err := o.envs.Get(ctx, id)
 	if err != nil {
 		return e, err

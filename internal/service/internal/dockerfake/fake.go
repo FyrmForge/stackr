@@ -36,6 +36,7 @@ type Fake struct {
 	Digests    map[string]string // ref -> digest
 	Members    map[string][]string
 	Networks   []string
+	GatewayIPs []string // what Gateways answers
 	Images     []docker.Image
 	BuildID    string
 	ExecOut    string
@@ -74,12 +75,30 @@ func (f *Fake) Run(_ context.Context, s docker.ContainerSpec) (string, error) {
 	f.mu.Unlock()
 	return id, f.rec("Run", s.Name, s.Image)
 }
-func (f *Fake) Start(_ context.Context, id string) error      { return f.rec("Start", id) }
-func (f *Fake) Stop(_ context.Context, id string) error       { return f.rec("Stop", id) }
-func (f *Fake) Restart(_ context.Context, id string) error    { return f.rec("Restart", id) }
-func (f *Fake) StopRemove(_ context.Context, id string) error { return f.rec("StopRemove", id) }
-func (f *Fake) Pause(_ context.Context, id string) error      { return f.rec("Pause", id) }
-func (f *Fake) Unpause(_ context.Context, id string) error    { return f.rec("Unpause", id) }
+
+func (f *Fake) Start(_ context.Context, id string) error {
+	return f.rec("Start", id)
+}
+
+func (f *Fake) Stop(_ context.Context, id string) error {
+	return f.rec("Stop", id)
+}
+
+func (f *Fake) Restart(_ context.Context, id string) error {
+	return f.rec("Restart", id)
+}
+
+func (f *Fake) StopRemove(_ context.Context, id string) error {
+	return f.rec("StopRemove", id)
+}
+
+func (f *Fake) Pause(_ context.Context, id string) error {
+	return f.rec("Pause", id)
+}
+
+func (f *Fake) Unpause(_ context.Context, id string) error {
+	return f.rec("Unpause", id)
+}
 
 func (f *Fake) List(_ context.Context, labels map[string]string) ([]docker.Container, error) {
 	var out []docker.Container
@@ -118,21 +137,31 @@ func (f *Fake) Inspect(_ context.Context, id string) (docker.Detail, error) {
 func (f *Fake) EnsureNetwork(_ context.Context, name string, _ map[string]string) error {
 	return f.rec("EnsureNetwork", name)
 }
+
 func (f *Fake) ListNetworks(context.Context, map[string]string) ([]string, error) {
 	return f.Networks, f.rec("ListNetworks")
 }
+
+func (f *Fake) Gateways(context.Context, map[string]string) ([]string, error) {
+	return f.GatewayIPs, f.rec("Gateways")
+}
+
 func (f *Fake) RemoveNetwork(_ context.Context, name string) error {
 	return f.rec("RemoveNetwork", name)
 }
+
 func (f *Fake) Connect(_ context.Context, network, id string, aliases []string) error {
 	return f.rec("Connect", network, id, strings.Join(aliases, ","))
 }
+
 func (f *Fake) Disconnect(_ context.Context, network, id string) error {
 	return f.rec("Disconnect", network, id)
 }
+
 func (f *Fake) NetworkMembers(_ context.Context, network string) ([]string, error) {
 	return f.Members[network], f.rec("NetworkMembers", network)
 }
+
 func (f *Fake) MemberAddr(_ context.Context, network, id string) (string, string, error) {
 	return "", "", f.rec("MemberAddr", network, id)
 }
@@ -140,7 +169,11 @@ func (f *Fake) MemberAddr(_ context.Context, network, id string) (string, string
 func (f *Fake) CreateVolume(_ context.Context, name, _ string, _, _ map[string]string) error {
 	return f.rec("CreateVolume", name)
 }
-func (f *Fake) RemoveVolume(_ context.Context, name string) error { return f.rec("RemoveVolume", name) }
+
+func (f *Fake) RemoveVolume(_ context.Context, name string) error {
+	return f.rec("RemoveVolume", name)
+}
+
 func (f *Fake) InspectVolume(_ context.Context, name string) (docker.VolumeInfo, error) {
 	for _, v := range f.Volumes {
 		if v.Name == name {
@@ -149,6 +182,7 @@ func (f *Fake) InspectVolume(_ context.Context, name string) (docker.VolumeInfo,
 	}
 	return docker.VolumeInfo{}, f.rec("InspectVolume", name)
 }
+
 func (f *Fake) ListVolumes(_ context.Context, labels map[string]string) ([]docker.VolumeInfo, error) {
 	var out []docker.VolumeInfo
 	for _, v := range f.Volumes {
@@ -158,13 +192,18 @@ func (f *Fake) ListVolumes(_ context.Context, labels map[string]string) ([]docke
 	}
 	return out, f.rec("ListVolumes")
 }
-func (f *Fake) EnsureTool(context.Context) error { return f.rec("EnsureTool") }
+
+func (f *Fake) EnsureTool(context.Context) error {
+	return f.rec("EnsureTool")
+}
+
 func (f *Fake) TarVolume(_ context.Context, name string, w io.Writer, _ bool) error {
 	if _, err := w.Write(f.TarOut); err != nil {
 		return err
 	}
 	return f.rec("TarVolume", name)
 }
+
 func (f *Fake) UntarVolume(_ context.Context, name string, src io.Reader) error {
 	b, err := io.ReadAll(src)
 	if err != nil {
@@ -176,15 +215,26 @@ func (f *Fake) UntarVolume(_ context.Context, name string, src io.Reader) error 
 	return f.rec("UntarVolume", name)
 }
 
-func (f *Fake) Pull(_ context.Context, ref, _ string, _ io.Writer) error { return f.rec("Pull", ref) }
+func (f *Fake) Pull(_ context.Context, ref, _ string, _ io.Writer) error {
+	return f.rec("Pull", ref)
+}
+
 func (f *Fake) LocalDigest(_ context.Context, ref string) (string, error) {
 	return f.Digests[ref], f.rec("LocalDigest", ref)
 }
-func (f *Fake) Tag(_ context.Context, src, dst string) error    { return f.rec("Tag", src, dst) }
-func (f *Fake) RemoveImage(_ context.Context, ref string) error { return f.rec("RemoveImage", ref) }
+
+func (f *Fake) Tag(_ context.Context, src, dst string) error {
+	return f.rec("Tag", src, dst)
+}
+
+func (f *Fake) RemoveImage(_ context.Context, ref string) error {
+	return f.rec("RemoveImage", ref)
+}
+
 func (f *Fake) EnsureBuilder(_ context.Context, name string, _ int) error {
 	return f.rec("EnsureBuilder", name)
 }
+
 func (f *Fake) ListImages(_ context.Context, labels map[string]string) ([]docker.Image, error) {
 	var out []docker.Image
 	for _, im := range f.Images {
@@ -194,16 +244,24 @@ func (f *Fake) ListImages(_ context.Context, labels map[string]string) ([]docker
 	}
 	return out, f.rec("ListImages")
 }
+
 func (f *Fake) PruneImages(_ context.Context, _ map[string]string, keep []string) ([]string, error) {
 	return nil, f.rec("PruneImages", keep...)
 }
-func (f *Fake) Build(_ context.Context, builder, dir, dockerfile, tag string, _, _ map[string]string, _ io.Writer) (string, error) {
+
+func (f *Fake) Build(
+	_ context.Context,
+	builder, dir, dockerfile, tag string,
+	_, _ map[string]string,
+	_ io.Writer,
+) (string, error) {
 	return f.BuildID, f.rec("Build", builder, dir, dockerfile, tag)
 }
 
 func (f *Fake) Logs(_ context.Context, id string, _ int) (string, error) {
 	return f.LogsOut, f.rec("Logs", id)
 }
+
 func (f *Fake) StreamLogs(_ context.Context, id string, _ int) (<-chan string, func(), error) {
 	ch := make(chan string, len(f.StreamOut))
 	for _, l := range f.StreamOut {
@@ -212,10 +270,17 @@ func (f *Fake) StreamLogs(_ context.Context, id string, _ int) (<-chan string, f
 	close(ch)
 	return ch, func() {}, f.rec("StreamLogs", id)
 }
+
 func (f *Fake) Exec(_ context.Context, id string, cmd []string) (string, error) {
 	return f.ExecOut, f.rec("Exec", append([]string{id}, cmd...)...)
 }
-func (f *Fake) ExecStream(_ context.Context, id string, cmd []string, stdin io.Reader) (io.Reader, func() error, error) {
+
+func (f *Fake) ExecStream(
+	_ context.Context,
+	id string,
+	cmd []string,
+	stdin io.Reader,
+) (io.Reader, func() error, error) {
 	if stdin != nil {
 		b, err := io.ReadAll(stdin)
 		if err != nil {

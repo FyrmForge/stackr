@@ -109,8 +109,15 @@ type (
 )
 
 func (in DomainIn) spec() service.DomainSpec {
-	return service.DomainSpec{Host: in.Host, Path: in.Path, Port: in.Port, HTTPS: in.HTTPS, ForceHTTPS: in.ForceHTTPS,
-		RedirectTo: in.RedirectTo, Extras: in.Extras}
+	return service.DomainSpec{
+		Host:       in.Host,
+		Path:       in.Path,
+		Port:       in.Port,
+		HTTPS:      in.HTTPS,
+		ForceHTTPS: in.ForceHTTPS,
+		RedirectTo: in.RedirectTo,
+		Extras:     in.Extras,
+	}
 }
 
 func tileID(c echo.Context) string { return scope(c).Tile.ID }
@@ -118,22 +125,27 @@ func tileID(c echo.Context) string { return scope(c).Tile.ID }
 // ---- tiles ----
 
 func (h *H) Tiles() Endpoint {
-	return Get(func(c echo.Context) ([]service.Tile, error) { return list(h.S.Tiles(rc(c), envID(c))) })
+	return Get(func(c echo.Context) ([]service.Tile, error) { return list(h.Orch.Tiles(rc(c), envID(c))) })
 }
 
 func (h *H) CreateTile() Endpoint {
 	return JSON(201, func(c echo.Context, in TileIn) (service.Tile, error) {
-		t := service.Tile{StackID: stackID(c), EnvironmentID: envID(c), Name: in.Name, Kind: in.Kind}
+		t := service.Tile{
+			StackID:       stackID(c),
+			EnvironmentID: envID(c),
+			Name:          in.Name,
+			Kind:          in.Kind,
+		}
 		if err := in.apply(&t); err != nil {
 			return t, err
 		}
-		return h.S.CreateTile(rc(c), t)
+		return h.Orch.CreateTile(rc(c), t)
 	})
 }
 
 func (h *H) ManagedInstances() Endpoint {
 	return Get(func(c echo.Context) ([]service.ManagedInstance, error) {
-		return list(h.S.ManagedInstances(rc(c), envID(c)))
+		return list(h.Orch.ManagedInstances(rc(c), envID(c)))
 	})
 }
 
@@ -143,7 +155,7 @@ func (h *H) CreateManagedTile() Endpoint {
 		if err := in.apply(&t); err != nil {
 			return t, err
 		}
-		return h.S.CreateManagedTile(rc(c), t, in.Engine)
+		return h.Orch.CreateManagedTile(rc(c), t, in.Engine)
 	})
 }
 
@@ -153,19 +165,19 @@ func (h *H) GetTile() Endpoint {
 
 func (h *H) UpdateTile() Endpoint {
 	return JSON(200, func(c echo.Context, in TilePatch) (TileUpdated, error) {
-		t, j, err := h.S.UpdateTile(rc(c), tileID(c), in.apply)
+		t, j, err := h.Orch.UpdateTile(rc(c), tileID(c), in.apply)
 		return TileUpdated{t, j}, err
 	})
 }
 
 func (h *H) RenameTile() Endpoint {
 	return JSON(200, func(c echo.Context, in NameIn) (service.Tile, error) {
-		return h.S.RenameTile(rc(c), tileID(c), in.Name)
+		return h.Orch.RenameTile(rc(c), tileID(c), in.Name)
 	})
 }
 
 func (h *H) DeleteTile() Endpoint {
-	return Job(func(c echo.Context, _ None) (service.Job, error) { return h.S.DeleteTile(rc(c), tileID(c)) })
+	return Job(func(c echo.Context, _ None) (service.Job, error) { return h.Orch.DeleteTile(rc(c), tileID(c)) })
 }
 
 // tileJob is the shape of every one-verb container op on a tile.
@@ -173,19 +185,30 @@ func tileJob(f func(ctx context.Context, id string) (service.Job, error)) Endpoi
 	return Job(func(c echo.Context, _ None) (service.Job, error) { return f(rc(c), tileID(c)) })
 }
 
-func (h *H) Deploy() Endpoint      { return tileJob(h.S.Deploy) }
-func (h *H) RestartTile() Endpoint { return tileJob(h.S.RestartTile) }
-func (h *H) StopTile() Endpoint    { return tileJob(h.S.StopTile) }
-func (h *H) StartTile() Endpoint   { return tileJob(h.S.StartTile) }
+func (h *H) Deploy() Endpoint {
+	return tileJob(h.Orch.Deploy)
+}
+
+func (h *H) RestartTile() Endpoint {
+	return tileJob(h.Orch.RestartTile)
+}
+
+func (h *H) StopTile() Endpoint {
+	return tileJob(h.Orch.StopTile)
+}
+
+func (h *H) StartTile() Endpoint {
+	return tileJob(h.Orch.StartTile)
+}
 
 func (h *H) CheckTileImages() Endpoint {
 	return Job(func(c echo.Context, _ None) (service.Job, error) {
-		return h.S.CheckImages(rc(c), stackID(c), tileID(c))
+		return h.Orch.CheckImages(rc(c), stackID(c), tileID(c))
 	})
 }
 
 func (h *H) TileStatus() Endpoint {
-	return Get(func(c echo.Context) (service.TileStatus, error) { return h.S.TileStatus(rc(c), tileID(c)) })
+	return Get(func(c echo.Context) (service.TileStatus, error) { return h.Orch.TileStatus(rc(c), tileID(c)) })
 }
 
 // Logs is the tail of one replica; ?container= picks it ("" = the first),
@@ -197,10 +220,10 @@ func (h *H) Logs() Endpoint {
 			return LogOut{}, err
 		}
 		if run := c.QueryParam("run"); run != "" {
-			s, err := h.S.RunLog(rc(c), tileID(c), run, tail)
+			s, err := h.Orch.RunLog(rc(c), tileID(c), run, tail)
 			return LogOut{s}, err
 		}
-		s, err := h.S.Logs(rc(c), tileID(c), c.QueryParam("container"), tail)
+		s, err := h.Orch.Logs(rc(c), tileID(c), c.QueryParam("container"), tail)
 		return LogOut{s}, err
 	}).Q("container", "run", "tail")
 }
@@ -209,7 +232,7 @@ func (h *H) Logs() Endpoint {
 
 func (h *H) RunTile() Endpoint {
 	return JSON(202, func(c echo.Context, _ None) (RunStarted, error) {
-		j, r, err := h.S.RunTile(rc(c), tileID(c))
+		j, r, err := h.Orch.RunTile(rc(c), tileID(c))
 		out := RunStarted{Run: r}
 		if j.ID != "" {
 			out.Job = &j
@@ -220,7 +243,7 @@ func (h *H) RunTile() Endpoint {
 
 func (h *H) PauseTile() Endpoint {
 	return JSON(200, func(c echo.Context, in PauseIn) (service.Tile, error) {
-		return h.S.PauseTile(rc(c), tileID(c), in.Paused)
+		return h.Orch.PauseTile(rc(c), tileID(c), in.Paused)
 	})
 }
 
@@ -231,16 +254,16 @@ func (h *H) Runs() Endpoint {
 		if err := echo.QueryParamsBinder(c).Int("limit", &limit).BindError(); err != nil {
 			return nil, err
 		}
-		return list(h.S.Runs(rc(c), tileID(c), limit))
+		return list(h.Orch.Runs(rc(c), tileID(c), limit))
 	}).Q("limit")
 }
 
 func (h *H) Run() Endpoint {
-	return Get(func(c echo.Context) (service.Run, error) { return h.S.Run(rc(c), tileID(c), c.Param("run")) })
+	return Get(func(c echo.Context) (service.Run, error) { return h.Orch.Run(rc(c), tileID(c), c.Param("run")) })
 }
 
 func (h *H) StopRun() Endpoint {
-	return Done(func(c echo.Context, _ None) error { return h.S.StopRun(rc(c), tileID(c), c.Param("run")) })
+	return Done(func(c echo.Context, _ None) error { return h.Orch.StopRun(rc(c), tileID(c), c.Param("run")) })
 }
 
 // TileJobs is the tile's newest jobs; ?limit= caps them.
@@ -250,56 +273,58 @@ func (h *H) TileJobs() Endpoint {
 		if err := echo.QueryParamsBinder(c).Int("limit", &limit).BindError(); err != nil {
 			return nil, err
 		}
-		return list(h.S.TileJobs(rc(c), []string{tileID(c)}, limit))
+		return list(h.Orch.TileJobs(rc(c), []string{tileID(c)}, limit))
 	}).Q("limit")
 }
 
 // ---- domains ----
 
 func (h *H) Domains() Endpoint {
-	return Get(func(c echo.Context) ([]service.Domain, error) { return list(h.S.Domains(rc(c), tileID(c))) })
+	return Get(func(c echo.Context) ([]service.Domain, error) { return list(h.Orch.Domains(rc(c), tileID(c))) })
 }
 
 func (h *H) AttachDomain() Endpoint {
 	return JSON(201, func(c echo.Context, in DomainIn) (service.Domain, error) {
-		return h.S.AttachDomain(rc(c), tileID(c), in.spec())
+		return h.Orch.AttachDomain(rc(c), tileID(c), in.spec())
 	})
 }
 
 func (h *H) UpdateDomain() Endpoint {
 	return JSON(200, func(c echo.Context, in DomainIn) (service.Domain, error) {
-		return h.S.UpdateDomain(rc(c), c.Param("domain"), in.spec())
+		return h.Orch.UpdateDomain(rc(c), c.Param("domain"), in.spec())
 	})
 }
 
 func (h *H) SetRawCaddy() Endpoint {
 	return JSON(200, func(c echo.Context, in RawCaddyIn) (service.Domain, error) {
-		return h.S.SetRawCaddy(rc(c), c.Param("domain"), in.RawCaddy)
+		return h.Orch.SetRawCaddy(rc(c), c.Param("domain"), in.RawCaddy)
 	})
 }
 
 func (h *H) DetachDomain() Endpoint {
-	return Done(func(c echo.Context, _ None) error { return h.S.DetachDomain(rc(c), c.Param("domain")) })
+	return Done(func(c echo.Context, _ None) error { return h.Orch.DetachDomain(rc(c), c.Param("domain")) })
 }
 
 // ---- managed slices ----
 
 func (h *H) Slices() Endpoint {
-	return Get(func(c echo.Context) ([]service.Provision, error) { return list(h.S.Slices(rc(c), tileID(c))) })
+	return Get(func(c echo.Context) ([]service.Provision, error) { return list(h.Orch.Slices(rc(c), tileID(c))) })
 }
 
 func (h *H) AttachSlice() Endpoint {
 	return Job(func(c echo.Context, in SliceIn) (service.Job, error) {
-		return h.S.AttachSlice(rc(c), tileID(c), in.InstanceTileID, in.Name, in.Public, in.OnRemove)
+		return h.Orch.AttachSlice(rc(c), tileID(c), in.InstanceTileID, in.Name, in.Public, in.OnRemove)
 	})
 }
 
 func (h *H) DetachSlice() Endpoint {
-	return Job(func(c echo.Context, _ None) (service.Job, error) { return h.S.DetachSlice(rc(c), c.Param("provision")) })
+	return Job(func(c echo.Context, _ None) (service.Job, error) {
+		return h.Orch.DetachSlice(rc(c), c.Param("provision"))
+	})
 }
 
 func (h *H) SetInstanceScope() Endpoint {
 	return JSON(200, func(c echo.Context, in ScopeIn) (service.ManagedInstance, error) {
-		return h.S.SetInstanceScope(rc(c), tileID(c), in.Scope)
+		return h.Orch.SetInstanceScope(rc(c), tileID(c), in.Scope)
 	})
 }

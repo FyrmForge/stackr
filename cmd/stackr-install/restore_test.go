@@ -57,7 +57,12 @@ func TestUnpack(t *testing.T) {
 	if _, err := unpack(archive(t, "pw", good), "wrong", t.TempDir()); err == nil {
 		t.Error("wrong passphrase accepted")
 	}
-	evil := map[string]string{"stackr.db": "db", "keys/master.key": "k", "VERSION": "v0.1.0", "../evil": "x"}
+	evil := map[string]string{
+		"stackr.db":       "db",
+		"keys/master.key": "k",
+		"VERSION":         "v0.1.0",
+		"../evil":         "x",
+	}
 	if _, err := unpack(archive(t, "pw", evil), "pw", t.TempDir()); err == nil {
 		t.Error("entry outside the three names accepted")
 	}

@@ -9,15 +9,59 @@ import (
 
 func TestCan(t *testing.T) {
 	var (
-		admin     = User{ID: "a", Admin: true, Active: true}
-		owner     = User{ID: "o", Active: true, Roles: map[string]string{"o1": "owner"}}
-		outsider  = User{ID: "n", Active: true, Roles: map[string]string{"o2": "owner"}}
-		disabled  = User{ID: "d", Active: false, Roles: map[string]string{"o1": "owner"}}
-		demoted   = User{ID: "o", Active: true, Roles: map[string]string{}, Key: true, KeyOrg: "o1"}
-		ownerKey  = User{ID: "o", Active: true, Roles: map[string]string{"o1": "owner"}, Key: true, KeyOrg: "o1"}
-		otherKey  = User{ID: "o", Active: true, Roles: map[string]string{"o1": "owner", "o2": "owner"}, Key: true, KeyOrg: "o2"}
-		unbound   = User{ID: "o", Active: true, Roles: map[string]string{"o1": "owner"}, Key: true}
-		adminKey  = User{ID: "a", Admin: true, Active: true, Key: true}
+		admin = User{
+			ID:     "a",
+			Admin:  true,
+			Active: true,
+		}
+		owner = User{
+			ID:     "o",
+			Active: true,
+			Roles:  map[string]string{"o1": "owner"},
+		}
+		outsider = User{
+			ID:     "n",
+			Active: true,
+			Roles:  map[string]string{"o2": "owner"},
+		}
+		disabled = User{
+			ID:     "d",
+			Active: false,
+			Roles:  map[string]string{"o1": "owner"},
+		}
+		demoted = User{
+			ID:     "o",
+			Active: true,
+			Roles:  map[string]string{},
+			Key:    true,
+			KeyOrg: "o1",
+		}
+		ownerKey = User{
+			ID:     "o",
+			Active: true,
+			Roles:  map[string]string{"o1": "owner"},
+			Key:    true,
+			KeyOrg: "o1",
+		}
+		otherKey = User{
+			ID:     "o",
+			Active: true,
+			Roles:  map[string]string{"o1": "owner", "o2": "owner"},
+			Key:    true,
+			KeyOrg: "o2",
+		}
+		unbound = User{
+			ID:     "o",
+			Active: true,
+			Roles:  map[string]string{"o1": "owner"},
+			Key:    true,
+		}
+		adminKey = User{
+			ID:     "a",
+			Admin:  true,
+			Active: true,
+			Key:    true,
+		}
 		anonymous = User{}
 	)
 	o1 := Resource{OrgID: "o1"}

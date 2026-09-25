@@ -28,7 +28,12 @@ type Leaf struct {
 }
 
 func New(tiles store.TileStore, d Docker, v VIP) *Leaf {
-	return &Leaf{tiles: tiles, docker: d, vip: v, Gate: DefaultGate}
+	return &Leaf{
+		tiles:  tiles,
+		docker: d,
+		vip:    v,
+		Gate:   DefaultGate,
+	}
 }
 
 func (l *Leaf) Get(ctx context.Context, id string) (store.Tile, error) { return l.tiles.Get(ctx, id) }
@@ -108,8 +113,11 @@ func (l *Leaf) checkSlug(ctx context.Context, t store.Tile) error {
 // ("domain +api.example.com"), so a caller that moved them earns their
 // effects too.
 func (l *Leaf) Update(ctx context.Context, old, cur store.Tile, extra ...string) (store.Tile, []Effect, error) {
-	cur.ID, cur.StackID, cur.EnvironmentID, cur.Slug, cur.CreatedAt =
-		old.ID, old.StackID, old.EnvironmentID, old.Slug, old.CreatedAt
+	cur.ID = old.ID
+	cur.StackID = old.StackID
+	cur.EnvironmentID = old.EnvironmentID
+	cur.Slug = old.Slug
+	cur.CreatedAt = old.CreatedAt
 	cur.Name = strings.TrimSpace(cur.Name)
 	if cur.Name == "" {
 		return old, nil, errs.Invalidf("name", "a tile needs a name")

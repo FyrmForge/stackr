@@ -6,7 +6,7 @@ module.exports = {
     "../internal/web/**/*.go",
     "../internal/ui/**/*.templ",
     "../internal/ui/**/*.go",
-    "!../internal/web/components/staticmanifest.go",
+    "!../internal/ui/components/staticmanifest.go",
   ],
   theme: {
     extend: {

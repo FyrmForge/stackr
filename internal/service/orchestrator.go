@@ -24,15 +24,18 @@ import (
 	fbackup "github.com/FyrmForge/stackr/internal/service/internal/flow/backup"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/container"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/deploy"
+	"github.com/FyrmForge/stackr/internal/service/internal/flow/graph"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/imagewatch"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/jobs"
 	mflow "github.com/FyrmForge/stackr/internal/service/internal/flow/managed"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/promote"
 	frun "github.com/FyrmForge/stackr/internal/service/internal/flow/run"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/schedule"
+	ftraffic "github.com/FyrmForge/stackr/internal/service/internal/flow/traffic"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/upgrade"
 	"github.com/FyrmForge/stackr/internal/service/internal/githubapp"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/backup"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/canvas"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/connector"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/credential"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/domain"
@@ -48,6 +51,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/settings"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/stack"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
+	ltraffic "github.com/FyrmForge/stackr/internal/service/internal/leaf/traffic"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/user"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/volume"
 	"github.com/FyrmForge/stackr/internal/service/internal/proxy"
@@ -95,6 +99,9 @@ type Config struct {
 	// PanelSpec is the panel's container spec for an image, the installer's
 	// one spec; nil refuses self-upgrade.
 	PanelSpec func(image string) ContainerSpec
+	// Conntrack is the host conntrack table the traffic sample reads;
+	// "" = /proc/net/nf_conntrack (the panel is host-network).
+	Conntrack string
 }
 
 // Option changes how New builds the tree; tests use it.
@@ -112,13 +119,19 @@ type BuildFunc func(ctx context.Context, st Stack, t Tile, commit string, log io
 
 // WithBuild replaces the clone-and-build of git tiles, so a push lands a
 // release without GitHub or a daemon.
-func WithBuild(f BuildFunc) Option { return func(o *options) { o.build = f } }
+func WithBuild(f BuildFunc) Option {
+	return func(o *options) { o.build = f }
+}
 
 // WithDocker replaces the daemon client, with the fake in tests.
-func WithDocker(d Docker) Option { return func(o *options) { o.docker = d } }
+func WithDocker(d Docker) Option {
+	return func(o *options) { o.docker = d }
+}
 
 // WithVIP replaces the iptables VIP table (it needs root and a netns).
-func WithVIP(v tile.VIP) Option { return func(o *options) { o.vip = v } }
+func WithVIP(v tile.VIP) Option {
+	return func(o *options) { o.vip = v }
+}
 
 // WithProxy replaces the push to Caddy's admin API.
 func WithProxy(push func(context.Context, json.RawMessage) error) Option {
@@ -151,6 +164,8 @@ type Orchestrator struct {
 	backups  *backup.Leaf
 	settings *settings.Leaf
 	runs     *lrun.Leaf
+	traffic  *ltraffic.Leaf
+	canvas   *canvas.Leaf
 
 	deploy    *deploy.Flow
 	engines   *mflow.Flow
@@ -160,6 +175,8 @@ type Orchestrator struct {
 	watch     *imagewatch.Flow
 	upgrade   *upgrade.Flow
 	run       *frun.Flow
+	sample    *ftraffic.Flow
+	graph     *graph.Flow
 	jobs      *jobs.Runner
 	sched     *schedule.Runner
 	sync      *domain.Syncer
@@ -202,6 +219,9 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 		// so the route survives the upgrade's stackr-<version> rename.
 		cfg.PanelUpstream = "stackr:8080"
 	}
+	if cfg.Conntrack == "" {
+		cfg.Conntrack = ftraffic.DefaultPath
+	}
 	if cfg.Passphrase == "" {
 		cfg.Passphrase = cfg.SecretsKey
 	}
@@ -237,118 +257,213 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 	d := o.docker
 
 	st := build("store", func() *store.Store { return store.New(db, box) })
-	svc := &Orchestrator{cfg: cfg, db: db, store: st, docker: d}
-	svc.sessions = build("sessions", func() *auth.SessionManager {
+	orch := &Orchestrator{
+		cfg:    cfg,
+		db:     db,
+		store:  st,
+		docker: d,
+	}
+	orch.sessions = build("sessions", func() *auth.SessionManager {
 		return auth.NewSessionManager(st.Sessions,
 			auth.WithCookieSecure(cfg.CookieSecure),
 			auth.WithCookieDomain(cfg.CookieDomain))
 	})
-	svc.users = build("leaf/user", func() *user.Leaf { return user.New(st.Users, st.Sessions, st.APIKeys) })
-	svc.orgs = build("leaf/org", func() *org.Leaf { return org.New(st.Orgs, st.OrgMembers, st.Invites) })
-	svc.stacks = build("leaf/stack", func() *stack.Leaf { return stack.New(st.Stacks) })
-	svc.envs = build("leaf/environment", func() *environment.Leaf { return environment.New(st.Environments, d) })
-	svc.tiles = build("leaf/tile", func() *tile.Leaf { return tile.New(st.Tiles, d, o.vip) })
-	svc.images = build("leaf/image", func() *image.Leaf { return image.New(st.Images, d) })
-	svc.params = build("leaf/params", func() *params.Leaf { return params.New(st.Params) })
-	svc.volumes = build("leaf/volume", func() *volume.Leaf { return volume.New(st.Volumes, d) })
-	svc.domains = build("leaf/domain", func() *domain.Leaf { return domain.New(st.Domains, d, ProxyContainer) })
-	svc.creds = build("leaf/credential", func() *credential.Leaf { return credential.New(st.Credentials) })
-	svc.conns = build("leaf/connector", func() *connector.Leaf {
+	orch.users = build("leaf/user", func() *user.Leaf { return user.New(st.Users, st.Sessions, st.APIKeys) })
+	orch.orgs = build("leaf/org", func() *org.Leaf { return org.New(st.Orgs, st.OrgMembers, st.Invites) })
+	orch.stacks = build("leaf/stack", func() *stack.Leaf { return stack.New(st.Stacks) })
+	orch.envs = build("leaf/environment", func() *environment.Leaf { return environment.New(st.Environments, d) })
+	orch.tiles = build("leaf/tile", func() *tile.Leaf { return tile.New(st.Tiles, d, o.vip) })
+	orch.images = build("leaf/image", func() *image.Leaf { return image.New(st.Images, d) })
+	orch.params = build("leaf/params", func() *params.Leaf { return params.New(st.Params) })
+	orch.volumes = build("leaf/volume", func() *volume.Leaf { return volume.New(st.Volumes, d) })
+	orch.domains = build("leaf/domain", func() *domain.Leaf { return domain.New(st.Domains, d, ProxyContainer) })
+	orch.creds = build("leaf/credential", func() *credential.Leaf { return credential.New(st.Credentials) })
+	orch.conns = build("leaf/connector", func() *connector.Leaf {
 		return connector.New(st.Connectors, githubapp.New(cfg.BaseURL))
 	})
-	svc.managed = build("leaf/managed", func() *managed.Leaf { return managed.New(st.ManagedInstances, st.Provisions) })
-	svc.releases = build("leaf/release", func() *release.Leaf { return release.New(st.Releases, st.ReleaseTiles) })
-	svc.jobRows = build("leaf/job", func() *job.Leaf { return job.New(st.Jobs) })
-	svc.backups = build("leaf/backup", func() *backup.Leaf { return backup.New(st.BackupDests, st.BackupSchedules, st.BackupRuns) })
-	svc.settings = build("leaf/settings", func() *settings.Leaf { return settings.New(st.Settings, bootSettings(cfg)) })
-	svc.runs = build("leaf/run", func() *lrun.Leaf { return lrun.New(st.Runs, filepath.Join(cfg.DataDir, "runs")) })
+	orch.managed = build("leaf/managed",
+		func() *managed.Leaf { return managed.New(st.ManagedInstances, st.Provisions) })
+	orch.releases = build("leaf/release", func() *release.Leaf { return release.New(st.Releases, st.ReleaseTiles) })
+	orch.jobRows = build("leaf/job", func() *job.Leaf { return job.New(st.Jobs) })
+	orch.backups = build("leaf/backup",
+		func() *backup.Leaf { return backup.New(st.BackupDests, st.BackupSchedules, st.BackupRuns) })
+	orch.settings = build("leaf/settings",
+		func() *settings.Leaf { return settings.New(st.Settings, bootSettings(cfg)) })
+	orch.runs = build("leaf/run", func() *lrun.Leaf { return lrun.New(st.Runs, filepath.Join(cfg.DataDir, "runs")) })
+	orch.traffic = build("leaf/traffic", ltraffic.New)
+	orch.canvas = build("leaf/canvas", func() *canvas.Leaf { return canvas.New(st.Positions, st.Annotations) })
 
-	svc.engines = build("flow/managed", func() *mflow.Flow {
-		return &mflow.Flow{Tiles: svc.tiles, Instances: svc.managed, Volumes: svc.volumes, Envs: svc.envs,
+	orch.engines = build("flow/managed", func() *mflow.Flow {
+		return &mflow.Flow{
+			Tiles:     orch.tiles,
+			Instances: orch.managed,
+			Volumes:   orch.volumes,
+			Envs:      orch.envs,
 			S3: func(endpoint, access, secret string) mflow.S3Admin {
 				return s3.Admin{Endpoint: endpoint, AccessKey: access, SecretKey: secret}
-			}}
+			},
+		}
 	})
-	svc.sync = build("leaf/domain.Syncer", func() *domain.Syncer {
-		return &domain.Syncer{Build: svc.proxyConfig, Push: o.push}
+	orch.sync = build("leaf/domain.Syncer", func() *domain.Syncer {
+		return &domain.Syncer{Build: orch.proxyConfig, Push: o.push}
 	})
-	svc.deploy = build("flow/deploy", func() *deploy.Flow {
-		return &deploy.Flow{Tiles: svc.tiles, Envs: svc.envs, Stacks: svc.stacks, Orgs: svc.orgs,
-			Volumes: svc.volumes, Images: svc.images, Releases: svc.releases, Params: svc.params,
-			Managed: svc.managed, Domains: svc.domains, Creds: svc.creds, Settings: svc.settings,
-			Jobs: svc.jobRows, Sync: svc.sync.Sync, Engines: svc.engines}
+	orch.deploy = build("flow/deploy", func() *deploy.Flow {
+		return &deploy.Flow{
+			Tiles:    orch.tiles,
+			Envs:     orch.envs,
+			Stacks:   orch.stacks,
+			Orgs:     orch.orgs,
+			Volumes:  orch.volumes,
+			Images:   orch.images,
+			Releases: orch.releases,
+			Params:   orch.params,
+			Managed:  orch.managed,
+			Domains:  orch.domains,
+			Creds:    orch.creds,
+			Settings: orch.settings,
+			Jobs:     orch.jobRows,
+			Sync:     orch.sync.Sync,
+			Engines:  orch.engines,
+		}
 	})
-	svc.promote = build("flow/promote", func() *promote.Flow {
-		b := svc.buildTile
+	orch.promote = build("flow/promote", func() *promote.Flow {
+		b := orch.buildTile
 		if o.build != nil {
 			b = o.build
 		}
-		return &promote.Flow{D: svc.deploy, Config: svc.stackFile, Build: b,
-			DNS01: svc.dns01}
+		return &promote.Flow{
+			D:      orch.deploy,
+			Config: orch.stackFile,
+			Build:  b,
+			DNS01:  orch.dns01,
+		}
 	})
-	svc.backup = build("flow/backup", func() *fbackup.Flow {
-		return &fbackup.Flow{Backups: svc.backups, Volumes: svc.volumes, Tiles: svc.tiles,
-			Scratch: filepath.Join(cfg.DataDir, "backups", "scratch")}
+	orch.backup = build("flow/backup", func() *fbackup.Flow {
+		return &fbackup.Flow{
+			Backups: orch.backups,
+			Volumes: orch.volumes,
+			Tiles:   orch.tiles,
+			Scratch: filepath.Join(cfg.DataDir, "backups", "scratch"),
+		}
 	})
-	svc.container = build("flow/container", func() *container.Flow { return &container.Flow{Tiles: svc.tiles} })
-	svc.watch = build("flow/imagewatch", func() *imagewatch.Flow {
-		return &imagewatch.Flow{Orgs: svc.orgs, Stacks: svc.stacks, Envs: svc.envs, Tiles: svc.tiles,
-			Images: svc.images, Releases: svc.releases, Creds: svc.creds, Settings: svc.settings}
+	orch.container = build("flow/container", func() *container.Flow { return &container.Flow{Tiles: orch.tiles} })
+	orch.watch = build("flow/imagewatch", func() *imagewatch.Flow {
+		return &imagewatch.Flow{
+			Orgs:     orch.orgs,
+			Stacks:   orch.stacks,
+			Envs:     orch.envs,
+			Tiles:    orch.tiles,
+			Images:   orch.images,
+			Releases: orch.releases,
+			Creds:    orch.creds,
+			Settings: orch.settings,
+		}
 	})
-	svc.upgrade = build("flow/upgrade", func() *upgrade.Flow {
-		return &upgrade.Flow{Panel: panel.New(d), Version: cfg.Version, Archive: svc.upgradeArchive, Spec: svc.panelSpec}
+	orch.upgrade = build("flow/upgrade", func() *upgrade.Flow {
+		return &upgrade.Flow{
+			Panel:   panel.New(d),
+			Version: cfg.Version,
+			Archive: orch.upgradeArchive,
+			Spec:    orch.panelSpec,
+		}
 	})
-	svc.run = build("flow/run", func() *frun.Flow {
-		return &frun.Flow{Tiles: svc.tiles, Envs: svc.envs, Runs: svc.runs, Jobs: svc.jobRows, Deploy: svc.deploy}
+	orch.run = build("flow/run", func() *frun.Flow {
+		return &frun.Flow{
+			Tiles:  orch.tiles,
+			Envs:   orch.envs,
+			Runs:   orch.runs,
+			Jobs:   orch.jobRows,
+			Deploy: orch.deploy,
+		}
 	})
-	svc.jobs = build("flow/jobs", func() *jobs.Runner {
+	orch.sample = build("flow/traffic", func() *ftraffic.Flow {
+		return &ftraffic.Flow{
+			Tiles:   orch.tiles,
+			Envs:    orch.envs,
+			Domains: orch.domains,
+			Managed: orch.managed,
+			Traffic: orch.traffic,
+			Path:    cfg.Conntrack,
+		}
+	})
+	orch.graph = build("flow/graph", func() *graph.Flow {
+		return &graph.Flow{
+			Orgs:     orch.orgs,
+			Stacks:   orch.stacks,
+			Envs:     orch.envs,
+			Tiles:    orch.tiles,
+			Params:   orch.params,
+			Volumes:  orch.volumes,
+			Domains:  orch.domains,
+			Managed:  orch.managed,
+			Conns:    orch.conns,
+			Releases: orch.releases,
+			Jobs:     orch.jobRows,
+			Runs:     orch.runs,
+			Canvas:   orch.canvas,
+			Images:   orch.images,
+		}
+	})
+	orch.jobs = build("flow/jobs", func() *jobs.Runner {
 		// ponytail: no ParamSet, a parked job is requeued every poll and its
 		// handler re-checks (DECIDE 17 (b)).
-		return jobs.New(svc.jobRows, svc.handlers(), cfg.DataDir, jobs.Options{
-			Workers: func(ctx context.Context) (int, error) { return svc.settings.Int(ctx, "workers") },
+		return jobs.New(orch.jobRows, orch.handlers(), cfg.DataDir, jobs.Options{
+			Workers: func(ctx context.Context) (int, error) { return orch.settings.Int(ctx, "workers") },
 			// A run holds its own clock: the tile's timeout_minutes.
 			Uncapped: map[jobs.Kind]bool{kindRun: true},
 		})
 	})
-	svc.sched = build("flow/schedule", func() *schedule.Runner {
+	orch.sched = build("flow/schedule", func() *schedule.Runner {
 		return schedule.New(schedule.Drivers{
-			Schedules: svc.backups.AllSchedules,
+			Schedules: orch.backups.AllSchedules,
 			Backup: func(ctx context.Context, s store.BackupSchedule) error {
-				_, err := svc.enqueue(ctx, kindBackup, backupJob{ScheduleID: s.ID, VolumeID: s.VolumeID}, "volume:"+s.VolumeID)
+				_, err := orch.enqueue(
+					ctx,
+					kindBackup,
+					backupJob{ScheduleID: s.ID, VolumeID: s.VolumeID},
+					"volume:"+s.VolumeID,
+				)
 				return err
 			},
-			Orphans: func(ctx context.Context) error { _, err := svc.enqueue(ctx, kindOrphans, nil, "orphans"); return err },
-			Watch:   svc.watchTick,
-			Crons:   svc.deployedCrons,
+			Orphans: func(ctx context.Context) error {
+				_, err := orch.enqueue(ctx, kindOrphans, nil, "orphans")
+				return err
+			},
+			Watch: orch.watchTick,
+			Crons: orch.deployedCrons,
 			Cron: func(ctx context.Context, t store.Tile) error {
-				_, _, err := svc.queueRun(ctx, t.ID, lrun.Schedule)
+				_, _, err := orch.queueRun(ctx, t.ID, lrun.Schedule)
 				return err
 			},
+			Traffic: orch.sample.Tick,
 		})
 	})
 
-	if _, err := svc.localDest(ctx); err != nil {
+	if _, err := orch.localDest(ctx); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("local backup destination: %w", err)
 	}
-	if err := svc.runs.Interrupted(ctx); err != nil {
+	if err := orch.runs.Interrupted(ctx); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("close interrupted runs: %w", err)
 	}
-	if err := svc.jobs.Start(ctx); err != nil {
+	if err := orch.jobs.Start(ctx); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("start job runner: %w", err)
 	}
-	if err := svc.sched.Boot(ctx); err != nil {
+	if err := orch.sched.Boot(ctx); err != nil {
 		// A bad schedule row is reported, never fatal: the rest still run.
 		slog.Warn("scheduler: entries skipped", "err", err)
 	}
+	if w := ftraffic.Check(cfg.Conntrack); w != "" {
+		slog.Warn(w, "path", cfg.Conntrack)
+	}
 	go func() {
-		if err := svc.sync.Sync(context.Background()); err != nil {
+		if err := orch.sync.Sync(context.Background()); err != nil {
 			slog.Warn("proxy: boot push failed", "err", err)
 		}
 	}()
-	return svc, nil
+	return orch, nil
 }
 
 // bootSettings turns the Config knobs that are set into settings values.
@@ -363,8 +478,12 @@ func bootSettings(cfg Config) map[string]string {
 	if cfg.OrphanRetentionDays > 0 {
 		boot["orphan_retention_days"] = strconv.Itoa(cfg.OrphanRetentionDays)
 	}
-	for k, v := range map[string]string{"panel_domain": cfg.PanelDomain, "acme_email": cfg.ACMEEmail,
-		"trusted_proxies": cfg.TrustedProxies, "dns_provider": cfg.DNSProvider} {
+	for k, v := range map[string]string{
+		"panel_domain":    cfg.PanelDomain,
+		"acme_email":      cfg.ACMEEmail,
+		"trusted_proxies": cfg.TrustedProxies,
+		"dns_provider":    cfg.DNSProvider,
+	} {
 		if v != "" {
 			boot[k] = v
 		}

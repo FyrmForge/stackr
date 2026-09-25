@@ -10,6 +10,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"slices"
 	"strings"
 	"time"
 
@@ -40,7 +41,9 @@ type Leaf struct {
 
 func New(volumes store.VolumeStore, d Docker) *Leaf { return &Leaf{volumes: volumes, docker: d} }
 
-func (l *Leaf) Get(ctx context.Context, id string) (store.Volume, error) { return l.volumes.Get(ctx, id) }
+func (l *Leaf) Get(ctx context.Context, id string) (store.Volume, error) {
+	return l.volumes.Get(ctx, id)
+}
 
 func (l *Leaf) List(ctx context.Context, s Scope) ([]store.Volume, error) {
 	return l.volumes.ListByScope(ctx, s.Kind, s.ID)
@@ -51,18 +54,23 @@ func (l *Leaf) BySlug(ctx context.Context, s Scope, sl string) (store.Volume, er
 	if err != nil {
 		return store.Volume{}, err
 	}
-	for _, v := range vs {
-		if v.Slug == sl {
-			return v, nil
-		}
+	i := slices.IndexFunc(vs, func(v store.Volume) bool { return v.Slug == sl })
+	if i < 0 {
+		return store.Volume{}, errs.ErrNotFound
 	}
-	return store.Volume{}, errs.ErrNotFound
+	return vs[i], nil
 }
 
 // Declare is the row for a volume the stack file (or an instance) names.
 // An orphan with the same slug in the same scope is re-adopted, data and
 // all; adopted says so. instanceID is the owning managed instance, if any.
-func (l *Leaf) Declare(ctx context.Context, s Scope, sl string, maxSizeMB int, instanceID *string) (v store.Volume, adopted bool, err error) {
+func (l *Leaf) Declare(
+	ctx context.Context,
+	s Scope,
+	sl string,
+	maxSizeMB int,
+	instanceID *string,
+) (v store.Volume, adopted bool, err error) {
 	if !slug.Valid(sl) {
 		return v, false, errs.Invalidf("volume", "%q: a volume name is lower-case letters, digits and single hyphens", sl)
 	}
@@ -73,8 +81,16 @@ func (l *Leaf) Declare(ctx context.Context, s Scope, sl string, maxSizeMB int, i
 	switch {
 	case errors.Is(err, errs.ErrNotFound):
 		id := uuid.NewString()
-		v = store.Volume{ID: id, ScopeKind: s.Kind, ScopeID: s.ID, InstanceID: instanceID, Slug: sl,
-			Name: "stackr-vol-" + id, MaxSizeMB: maxSizeMB, CreatedAt: time.Now().UTC()}
+		v = store.Volume{
+			ID:         id,
+			ScopeKind:  s.Kind,
+			ScopeID:    s.ID,
+			InstanceID: instanceID,
+			Slug:       sl,
+			Name:       "stackr-vol-" + id,
+			MaxSizeMB:  maxSizeMB,
+			CreatedAt:  time.Now().UTC(),
+		}
 		return v, false, l.volumes.Create(ctx, v)
 	case err != nil:
 		return v, false, err

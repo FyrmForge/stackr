@@ -16,7 +16,7 @@ type JobLogOut struct {
 }
 
 func (h *H) GetJob() Endpoint {
-	return Get(func(c echo.Context) (service.Job, error) { return h.S.GetJob(rc(c), c.Param("job")) })
+	return Get(func(c echo.Context) (service.Job, error) { return h.Orch.GetJob(rc(c), c.Param("job")) })
 }
 
 // PollJob is the job plus its log from ?offset=.
@@ -26,16 +26,18 @@ func (h *H) PollJob() Endpoint {
 		if err := echo.QueryParamsBinder(c).Int64("offset", &offset).BindError(); err != nil {
 			return JobLogOut{}, err
 		}
-		j, l, err := h.S.PollJob(rc(c), c.Param("job"), offset)
+		j, l, err := h.Orch.PollJob(rc(c), c.Param("job"), offset)
 		return JobLogOut{j, string(l.Chunk), l.Next, l.End}, err
 	}).Q("offset")
 }
 
 func (h *H) CancelJob() Endpoint {
-	return Done(func(c echo.Context, _ None) error { return h.S.CancelJob(rc(c), c.Param("job")) })
+	return Done(func(c echo.Context, _ None) error { return h.Orch.CancelJob(rc(c), c.Param("job")) })
 }
 
 // Jobs is every job, ?state= repeated to filter.
 func (h *H) Jobs() Endpoint {
-	return Get(func(c echo.Context) ([]service.Job, error) { return list(h.S.Jobs(rc(c), c.QueryParams()["state"]...)) }).Q("state")
+	return Get(func(c echo.Context) ([]service.Job, error) {
+		return list(h.Orch.Jobs(rc(c), c.QueryParams()["state"]...))
+	}).Q("state")
 }

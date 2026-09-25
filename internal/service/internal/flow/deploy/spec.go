@@ -25,12 +25,25 @@ type resolved struct {
 // call, no Docker call: everything arrives as an argument.
 func spec(t store.Tile, r resolved) docker.ContainerSpec {
 	s := docker.ContainerSpec{
-		Name: r.name, Image: r.image, Cmd: r.cmd, Env: r.env, Volumes: r.binds, Ports: r.ports,
-		Networks: r.networks, CPULimit: r.cpu, MemLimitMB: r.memMB,
-		User: t.User, ShmSizeMB: t.ShmSizeMB, Privileged: t.Privileged, Devices: r.devices,
-		Restart:   restart(t.RestartPolicy),
-		HealthCmd: t.HealthcheckCmd, HealthIntervalS: t.HealthcheckIntervalS, HealthTimeoutS: t.HealthcheckTimeoutS,
-		HealthRetries: t.HealthcheckRetries, HealthStartPeriodS: t.HealthcheckStartPeriodS,
+		Name:               r.name,
+		Image:              r.image,
+		Cmd:                r.cmd,
+		Env:                r.env,
+		Volumes:            r.binds,
+		Ports:              r.ports,
+		Networks:           r.networks,
+		CPULimit:           r.cpu,
+		MemLimitMB:         r.memMB,
+		User:               t.User,
+		ShmSizeMB:          t.ShmSizeMB,
+		Privileged:         t.Privileged,
+		Devices:            r.devices,
+		Restart:            restart(t.RestartPolicy),
+		HealthCmd:          t.HealthcheckCmd,
+		HealthIntervalS:    t.HealthcheckIntervalS,
+		HealthTimeoutS:     t.HealthcheckTimeoutS,
+		HealthRetries:      t.HealthcheckRetries,
+		HealthStartPeriodS: t.HealthcheckStartPeriodS,
 	}
 	// Docker's 30s default would hold the deploy gate half a minute for the
 	// first check.

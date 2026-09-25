@@ -24,9 +24,16 @@ func (f *fakeApp) Manifest(id, _, state string) (string, string, error) {
 	f.state = state
 	return "https://github.com/settings/apps/new?state=" + state, "{}", nil
 }
+
 func (f *fakeApp) ConvertManifest(context.Context, string) (githubapp.App, error) {
-	return githubapp.App{ID: 7, Slug: "stackr-x", PEM: "pem", WebhookSecret: "whsec"}, nil
+	return githubapp.App{
+		ID:            7,
+		Slug:          "stackr-x",
+		PEM:           "pem",
+		WebhookSecret: "whsec",
+	}, nil
 }
+
 func (f *fakeApp) Token(_ context.Context, key string, app githubapp.App) (string, error) {
 	return "tok-" + app.Slug, nil
 }
@@ -34,7 +41,14 @@ func (f *fakeApp) Token(_ context.Context, key string, app githubapp.App) (strin
 func seedOrg(t *testing.T, st *store.Store) string {
 	t.Helper()
 	id := uuid.NewString()
-	if err := st.Orgs.Create(ctx, store.Org{ID: id, Name: id, Slug: id[:8], EnvColors: "{}", Settings: "{}", CreatedAt: time.Now()}); err != nil {
+	if err := st.Orgs.Create(ctx, store.Org{
+		ID:        id,
+		Name:      id,
+		Slug:      id[:8],
+		EnvColors: "{}",
+		Settings:  "{}",
+		CreatedAt: time.Now(),
+	}); err != nil {
 		t.Fatal(err)
 	}
 	return id

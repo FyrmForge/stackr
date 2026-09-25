@@ -1,0 +1,104 @@
+package components
+
+// Layout is the full page: the shell around body. render.Page picks it for
+// a plain request and Fragment for an htmx one; pages never call either.
+templ Layout(s Shell, body templ.Component) {
+	<!DOCTYPE html>
+	<html lang="en" class="dark">
+		<head>
+			<meta charset="UTF-8"/>
+			<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+			<meta name="htmx-config" content={ htmxConfig }/>
+			<title>{ s.Title } - stackr</title>
+			<link rel="stylesheet" href={ StaticURL("css/output.css") }/>
+			<script src={ StaticURL("js/vendor/htmx.min.js") }></script>
+			<script src={ StaticURL("js/vendor/sse.min.js") }></script>
+			<script type="module" src={ StaticURL("js/elements/confirm-dialog.js") }></script>
+			<script type="module" src={ StaticURL("js/elements/flash-toast.js") }></script>
+			<script type="module" src={ StaticURL("js/elements/graph-canvas.js") }></script>
+			<script type="module" src={ StaticURL("js/elements/graph-node.js") }></script>
+			<script type="module" src={ StaticURL("js/elements/log-pane.js") }></script>
+			<script type="module" src={ StaticURL("js/elements/side-drawer.js") }></script>
+			<script type="module" src={ StaticURL("js/elements/theme-toggle.js") }></script>
+			<script src={ StaticURL("js/main.js") } defer></script>
+		</head>
+		<body class="min-h-screen bg-slate-50 text-slate-900 dark:bg-slate-950 dark:text-slate-200" hx-headers={ csrfHeaders(s.CSRF) }>
+			@shellHeader(s, false)
+			@flash(s.Flash, false)
+			<main id="main" class="max-w-6xl mx-auto px-4 py-6">
+				@body
+			</main>
+			@SideDrawer(s.Drawer, s.Tab)
+		</body>
+	</html>
+}
+
+// Fragment is what an htmx navigation swaps into #main: the new title, the
+// header and flash out of band (so the crumbs follow the URL), then body.
+templ Fragment(s Shell, body templ.Component) {
+	<title>{ s.Title } - stackr</title>
+	@shellHeader(s, true)
+	@flash(s.Flash, true)
+	@body
+}
+
+templ shellHeader(s Shell, oob bool) {
+	<header
+		id="shell-header"
+		class="border-b border-slate-200 dark:border-slate-800"
+		if oob {
+			hx-swap-oob="true"
+		}
+	>
+		<div class="max-w-6xl mx-auto px-4 h-12 flex items-center gap-4 text-sm">
+			<a href="/" class="font-bold">stackr</a>
+			<nav aria-label="Breadcrumb" class="flex items-center gap-1 text-slate-500">
+				for _, l := range s.Crumbs {
+					<span aria-hidden="true">/</span>
+					@NavLink(l)
+				}
+			</nav>
+			<nav aria-label="Sections" class="ml-auto flex items-center gap-3">
+				for _, l := range s.Nav {
+					@NavLink(l)
+				}
+				if s.Admin {
+					<button type="button" class="link" hx-get="/-/admin?tab=settings" hx-target="#drawer-body" hx-push-url="?drawer=admin&tab=settings">Admin</button>
+				}
+				@ThemeToggle()
+				if s.User != "" {
+					<span class="text-slate-500">{ s.User }</span>
+					<button type="button" class="link" hx-post="/logout">Log out</button>
+				} else {
+					<a href="/login" class="link">Log in</a>
+				}
+			</nav>
+		</div>
+	</header>
+}
+
+// NavLink is an in-app link: htmx swaps #main and pushes the URL, a plain
+// click (or no JS) loads the full page.
+templ NavLink(l Link) {
+	<a
+		href={ templ.SafeURL(l.Href) }
+		hx-get={ l.Href }
+		hx-target="#main"
+		hx-push-url="true"
+		class="link aria-[current=page]:font-semibold aria-[current=page]:text-slate-900 dark:aria-[current=page]:text-white"
+		if l.Active {
+			aria-current="page"
+		}
+	>{ l.Label }</a>
+}
+
+templ flash(f Flash, oob bool) {
+	<flash-toast
+		id="flash"
+		kind={ f.Kind }
+		role="status"
+		if oob {
+			hx-swap-oob="true"
+		}
+	>{ f.Message }</flash-toast>
+}

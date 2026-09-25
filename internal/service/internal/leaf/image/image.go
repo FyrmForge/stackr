@@ -31,7 +31,12 @@ type Docker interface {
 	Pull(ctx context.Context, ref, auth string, log io.Writer) error
 	LocalDigest(ctx context.Context, ref string) (string, error)
 	EnsureBuilder(ctx context.Context, name string, memMB int) error
-	Build(ctx context.Context, builder, dir, dockerfile, tag string, buildArgs, labels map[string]string, log io.Writer) (string, error)
+	Build(
+		ctx context.Context,
+		builder, dir, dockerfile, tag string,
+		buildArgs, labels map[string]string,
+		log io.Writer,
+	) (string, error)
 }
 
 // Builder is the one buildx builder every build shares.
@@ -42,9 +47,13 @@ type Leaf struct {
 	docker Docker
 }
 
-func New(images store.ImageStore, d Docker) *Leaf { return &Leaf{images: images, docker: d} }
+func New(images store.ImageStore, d Docker) *Leaf {
+	return &Leaf{images: images, docker: d}
+}
 
-func (l *Leaf) Get(ctx context.Context, id string) (store.Image, error) { return l.images.Get(ctx, id) }
+func (l *Leaf) Get(ctx context.Context, id string) (store.Image, error) {
+	return l.images.Get(ctx, id)
+}
 
 func (l *Leaf) GetByRef(ctx context.Context, ref string) (store.Image, error) {
 	return l.images.GetByRef(ctx, ref)
@@ -88,7 +97,12 @@ func (l *Leaf) Ensure(ctx context.Context, ref, auth string, log io.Writer) (str
 }
 
 // Build builds dir into ref and records it. The label lets Cleanup find it.
-func (l *Leaf) Build(ctx context.Context, dir, dockerfile, ref string, args map[string]string, log io.Writer) (store.Image, error) {
+func (l *Leaf) Build(
+	ctx context.Context,
+	dir, dockerfile, ref string,
+	args map[string]string,
+	log io.Writer,
+) (store.Image, error) {
 	if err := l.docker.EnsureBuilder(ctx, Builder, 0); err != nil {
 		return store.Image{}, err
 	}

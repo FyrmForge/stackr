@@ -100,8 +100,12 @@ func New(jobs *job.Leaf, handlers map[Kind]Handler, dataDir string, opt Options)
 		opt.Workers = func(context.Context) (int, error) { return 2, nil }
 	}
 	return &Runner{
-		jobs: jobs, handlers: handlers, logDir: filepath.Join(dataDir, "jobs"), opt: opt,
-		running: map[string]*active{}, wake: make(chan struct{}, 1),
+		jobs:     jobs,
+		handlers: handlers,
+		logDir:   filepath.Join(dataDir, "jobs"),
+		opt:      opt,
+		running:  map[string]*active{},
+		wake:     make(chan struct{}, 1),
 	}
 }
 
@@ -279,7 +283,12 @@ func (r *Runner) call(ctx context.Context, j store.Job, a *active) (state, reaso
 			state, reason = job.Failed, fmt.Sprintf("panic: %v", p)
 		}
 	}()
-	err = h(ctx, &Run{Job: j, Log: f, a: a, r: r})
+	err = h(ctx, &Run{
+		Job: j,
+		Log: f,
+		a:   a,
+		r:   r,
+	})
 
 	switch cause := context.Cause(ctx); {
 	case err == nil:
@@ -301,7 +310,13 @@ func (r *Runner) call(ctx context.Context, j store.Job, a *active) (state, reaso
 // jobs it supersedes: queued or waiting ones become superseded, a running
 // one still building is cancelled, a running one already swapping is left
 // to finish (the lock makes the new job wait).
-func (r *Runner) Enqueue(ctx context.Context, kind Kind, lock []string, payload string, releaseID *string) (store.Job, error) {
+func (r *Runner) Enqueue(
+	ctx context.Context,
+	kind Kind,
+	lock []string,
+	payload string,
+	releaseID *string,
+) (store.Job, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	older, err := r.jobs.List(ctx, job.Queued, job.Waiting, job.Running)

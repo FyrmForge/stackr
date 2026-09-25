@@ -10,7 +10,12 @@ import (
 // two fields off one inspect: healthy (or running past grace when the
 // container has no HEALTHCHECK, the image's own included) AND restart count
 // still zero. A crash loop is "running" between crashes.
-func Healthy(ctx context.Context, inspect func(context.Context, string) (Detail, error), id string, poll, grace, deadline time.Duration) error {
+func Healthy(
+	ctx context.Context,
+	inspect func(context.Context, string) (Detail, error),
+	id string,
+	poll, grace, deadline time.Duration,
+) error {
 	start := time.Now()
 	end := start.Add(deadline)
 	for {

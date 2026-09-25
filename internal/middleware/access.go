@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/FyrmForge/hamr/pkg/ctx"
@@ -22,27 +23,31 @@ import (
 // /:org/:stack/:env/:tile, asks authz.Can, and leaves the rows in the
 // context so handlers never re-fetch.
 type Access struct {
-	svc     *service.Orchestrator
+	orch    *service.Orchestrator
 	browser *hamrmw.BrowserAuth
 }
 
 var scopeKey = ctx.NewKey[service.Scope]("scope")
 
-func NewAccess(svc *service.Orchestrator) *Access {
-	return &Access{svc: svc, browser: hamrmw.NewBrowserAuth(svc.Sessions(),
-		hamrmw.WithSubjectLoader(func(c context.Context, id string) (any, error) {
-			p, err := svc.SessionPrincipal(c, id)
-			if errors.Is(err, errs.ErrNotFound) {
-				return nil, nil // user gone: hamr treats the session as stale
-			}
-			if err != nil {
-				return nil, err
-			}
-			return p, nil
-		}),
-		hamrmw.WithLoginRedirect("/login"),
-		hamrmw.WithHomeRedirect("/"),
-	)}
+func NewAccess(orch *service.Orchestrator) *Access {
+	return &Access{
+		orch: orch,
+		browser: hamrmw.NewBrowserAuth(
+			orch.Sessions(),
+			hamrmw.WithSubjectLoader(func(c context.Context, id string) (any, error) {
+				p, err := orch.SessionPrincipal(c, id)
+				if errors.Is(err, errs.ErrNotFound) {
+					return nil, nil // user gone: hamr treats the session as stale
+				}
+				if err != nil {
+					return nil, err
+				}
+				return p, nil
+			}),
+			hamrmw.WithLoginRedirect("/login"),
+			hamrmw.WithHomeRedirect("/"),
+		),
+	}
 }
 
 // Browser is hamr's session auth, for RequireAuth/RequireNotAuth on pages.
@@ -59,7 +64,7 @@ func (a *Access) Load() echo.MiddlewareFunc {
 			if !ok {
 				return viaSession(c)
 			}
-			p, err := a.svc.KeyPrincipal(c.Request().Context(), strings.TrimSpace(token))
+			p, err := a.orch.KeyPrincipal(c.Request().Context(), strings.TrimSpace(token))
 			if errors.Is(err, errs.ErrNotFound) {
 				return echo.NewHTTPError(http.StatusUnauthorized, "invalid API key")
 			}
@@ -81,7 +86,13 @@ func (a *Access) Require(v authz.Verb) echo.MiddlewareFunc {
 			if p == nil {
 				return echo.NewHTTPError(http.StatusUnauthorized)
 			}
-			s, err := a.svc.Resolve(c.Request().Context(), c.Param("org"), c.Param("stack"), c.Param("env"), c.Param("tile"))
+			s, err := a.orch.Resolve(
+				c.Request().Context(),
+				c.Param("org"),
+				c.Param("stack"),
+				c.Param("env"),
+				c.Param("tile"),
+			)
 			if err != nil {
 				return HTTPError(err)
 			}
@@ -117,25 +128,72 @@ func (a *Access) Authed() echo.MiddlewareFunc {
 	}
 }
 
+// LoginFirst sends an anonymous page load to the login page, which comes
+// back here after (DECIDE 96). htmx, stream and API requests keep their 401:
+// only a full GET is a page. Mount before Require/Authed.
+func (a *Access) LoginFirst() echo.MiddlewareFunc {
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			r := c.Request()
+			if Principal(c) != nil || r.Method != http.MethodGet || r.Header.Get("HX-Request") != "" {
+				return next(c)
+			}
+			to := "/login"
+			if u := r.URL.RequestURI(); u != "/" {
+				to += "?next=" + url.QueryEscape(u)
+			}
+			return c.Redirect(http.StatusSeeOther, to)
+		}
+	}
+}
+
+// SafeNext is a login's way back: a path on this site, never another host
+// ("//x", a backslash or a control character a browser would fold into
+// one) or a scheme; "" when it is not one.
+func SafeNext(next string) string {
+	if !strings.HasPrefix(next, "/") || strings.HasPrefix(next, "//") ||
+		strings.ContainsFunc(next, func(r rune) bool { return r == '\\' || r < 0x20 || r == 0x7f }) {
+		return ""
+	}
+	return next
+}
+
 // childKinds are the path params naming a row the verb takes on trust; each
 // must sit in the route's org. The value is the kind OrgOf knows.
 var childKinds = map[string]string{
-	"job": "job", "release": "release", "domain": "domain", "volume": "volume",
-	"schedule": "schedule", "provision": "provision",
+	"job":       "job",
+	"release":   "release",
+	"domain":    "domain",
+	"volume":    "volume",
+	"schedule":  "schedule",
+	"provision": "provision",
 }
 
 // byVerb are path params the verb itself scopes (it takes the org or the
 // user alongside the id), or that name no row.
 var byVerb = map[string]bool{
-	"org": true, "stack": true, "env": true, "tile": true,
-	"user": true, "credential": true, "connector": true, "dest": true, "key": true,
-	"collection": true, "name": true, "token": true, "setting": true,
-	"run": true, // the verb takes the tile too and refuses another tile's run
+	"org":        true,
+	"stack":      true,
+	"env":        true,
+	"tile":       true,
+	"user":       true,
+	"credential": true,
+	"connector":  true,
+	"dest":       true,
+	"key":        true,
+	"collection": true,
+	"name":       true,
+	"token":      true,
+	"setting":    true,
+	"run":        true, // the verb takes the tile too and refuses another tile's run
 }
 
 // KnownParam reports whether a route param is org-checked or verb-scoped;
 // the route test holds every /api/v1 path to it.
-func KnownParam(name string) bool { _, child := childKinds[name]; return child || byVerb[name] }
+func KnownParam(name string) bool {
+	_, child := childKinds[name]
+	return child || byVerb[name]
+}
 
 // children refuses a child id from another org with the same 404 as a
 // missing one. An unlisted param fails closed.
@@ -153,7 +211,7 @@ func (a *Access) children(c echo.Context, s service.Scope) error {
 		if s.Org == nil {
 			continue // an org-less route: its verb is admin-level
 		}
-		org, err := a.svc.OrgOf(c.Request().Context(), kind, c.Param(name))
+		org, err := a.orch.OrgOf(c.Request().Context(), kind, c.Param(name))
 		if err != nil && !errors.Is(err, errs.ErrNotFound) {
 			return err
 		}

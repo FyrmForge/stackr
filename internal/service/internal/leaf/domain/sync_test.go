@@ -31,7 +31,10 @@ func TestSyncCoalesces(t *testing.T) {
 	saved.Store(1)
 	var wg sync.WaitGroup
 	wg.Add(1)
-	go func() { defer wg.Done(); _ = s.Sync(context.Background()) }()
+	go func() {
+		defer wg.Done()
+		_ = s.Sync(context.Background())
+	}()
 	for builds.Load() == 0 {
 		time.Sleep(time.Millisecond)
 	}
@@ -39,7 +42,10 @@ func TestSyncCoalesces(t *testing.T) {
 	saved.Store(2) // a save mid-run
 	for range n {
 		wg.Add(1)
-		go func() { defer wg.Done(); _ = s.Sync(context.Background()) }()
+		go func() {
+			defer wg.Done()
+			_ = s.Sync(context.Background())
+		}()
 	}
 	for s.Requested() != n+1 {
 		time.Sleep(time.Millisecond)

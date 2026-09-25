@@ -21,8 +21,8 @@ import (
 	"github.com/FyrmForge/stackr/internal/installspec"
 	appmw "github.com/FyrmForge/stackr/internal/middleware"
 	"github.com/FyrmForge/stackr/internal/service"
+	"github.com/FyrmForge/stackr/internal/ui/components"
 	"github.com/FyrmForge/stackr/internal/web"
-	"github.com/FyrmForge/stackr/internal/web/components"
 )
 
 // version is set at build time via ldflags.
@@ -157,7 +157,7 @@ func run(log *slog.Logger, generate bool) error {
 	}
 
 	// The service tree: store, migrations, Docker, leaves and flows.
-	svc, err := service.New(service.Config{
+	orch, err := service.New(service.Config{
 		DataDir:    envDataDir,
 		DBPath:     envDatabasePath,
 		SecretsKey: masterKey,
@@ -179,7 +179,7 @@ func run(log *slog.Logger, generate bool) error {
 	if err != nil {
 		return fmt.Errorf("start service: %w", err)
 	}
-	defer func() { _ = svc.Close() }()
+	defer func() { _ = orch.Close() }()
 
 	// Email sender. In dev (EMAIL_MOCK=true), ships messages to the hamr dev
 	// inbox at HAMR_DEV_URL/__hamr/mail. Swap for a real provider adapter in
@@ -191,16 +191,16 @@ func run(log *slog.Logger, generate bool) error {
 	}
 
 	// One access middleware for both routers.
-	access := appmw.NewAccess(svc)
+	access := appmw.NewAccess(orch)
 
 	api.RegisterRoutes(srv, &api.Deps{
-		Service: svc,
+		Orch:    orch,
 		Access:  access,
 		DevMode: envDevMode,
 	})
 
 	web.RegisterRoutes(srv, &web.Deps{
-		Service:       svc,
+		Orch:          orch,
 		Access:        access,
 		BaseURL:       baseOrigin,
 		StaticBaseURL: envStaticBaseURL,
@@ -218,7 +218,16 @@ func panelSpec(in installspec.Input) func(string) service.ContainerSpec {
 		c := installspec.Panel(image, in)
 		// ponytail: Ports and ExtraHosts are not carried; the panel runs on
 		// the host network and has neither (the spec test holds that).
-		return service.ContainerSpec{Name: c.Name, Image: c.Image, Cmd: c.Cmd, Env: c.Env, Labels: c.Labels,
-			Volumes: c.Volumes, HostNetwork: c.HostNetwork, CapAdd: c.CapAdd, Restart: c.Restart}
+		return service.ContainerSpec{
+			Name:        c.Name,
+			Image:       c.Image,
+			Cmd:         c.Cmd,
+			Env:         c.Env,
+			Labels:      c.Labels,
+			Volumes:     c.Volumes,
+			HostNetwork: c.HostNetwork,
+			CapAdd:      c.CapAdd,
+			Restart:     c.Restart,
+		}
 	}
 }

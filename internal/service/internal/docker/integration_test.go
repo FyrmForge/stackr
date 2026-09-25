@@ -56,14 +56,19 @@ func TestContainerLifecycle(t *testing.T) {
 	}
 	name := uniq("stkr-it")
 	id, err := d.Run(ctx, ContainerSpec{
-		Name: name, Image: testImage,
-		Cmd:       []string{"sh", "-c", "echo hello; echo oops >&2; sleep 300"},
-		Env:       []string{"FOO=bar"},
-		Labels:    map[string]string{"stkr.test": name},
-		Networks:  []NetAttach{{Name: nets[0], Aliases: []string{"web"}}, {Name: nets[1]}},
-		Restart:   "unless-stopped",
-		CapAdd:    []string{"NET_ADMIN"},
-		HealthCmd: "true", HealthIntervalS: 1,
+		Name:   name,
+		Image:  testImage,
+		Cmd:    []string{"sh", "-c", "echo hello; echo oops >&2; sleep 300"},
+		Env:    []string{"FOO=bar"},
+		Labels: map[string]string{"stkr.test": name},
+		Networks: []NetAttach{
+			{Name: nets[0], Aliases: []string{"web"}},
+			{Name: nets[1]},
+		},
+		Restart:         "unless-stopped",
+		CapAdd:          []string{"NET_ADMIN"},
+		HealthCmd:       "true",
+		HealthIntervalS: 1,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -151,8 +156,12 @@ func TestContainerLifecycle(t *testing.T) {
 
 func TestHostNetwork(t *testing.T) {
 	d, ctx := newClient(t)
-	id, err := d.Run(ctx, ContainerSpec{Name: uniq("stkr-it-host"), Image: testImage,
-		Cmd: []string{"sleep", "300"}, HostNetwork: true})
+	id, err := d.Run(ctx, ContainerSpec{
+		Name:        uniq("stkr-it-host"),
+		Image:       testImage,
+		Cmd:         []string{"sleep", "300"},
+		HostNetwork: true,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -255,7 +264,8 @@ func TestNetworksAndVolumes(t *testing.T) {
 	} else if e, ok := IsExit(wait()); !ok || e.Code != 4 {
 		t.Fatalf("tool exit: %v", e)
 	}
-	if info, err := d.InspectVolume(ctx, vol); err != nil || info.Name != vol || len(info.UsedBy)+len(info.HeldBy) != 0 {
+	if info, err := d.InspectVolume(ctx, vol); err != nil || info.Name != vol ||
+		len(info.UsedBy)+len(info.HeldBy) != 0 {
 		t.Fatalf("inspect volume: %+v %v", info, err)
 	}
 	for range 2 {

@@ -32,10 +32,25 @@ func must(t *testing.T, err error) {
 func TestNoDeclassify(t *testing.T) {
 	l := params.New(servicetest.Store(t).Params)
 	for _, s := range []params.Scope{org, stack, env} {
-		must(t, l.Set(ctx, s, params.Entry{Collection: "email", Name: "key", Kind: params.Secret, Value: "k"}))
+		must(t, l.Set(ctx, s, params.Entry{
+			Collection: "email",
+			Name:       "key",
+			Kind:       params.Secret,
+			Value:      "k",
+		}))
 		err := l.Merge(ctx, s, []params.Entry{
-			{Collection: "email", Name: "sender", Kind: params.Param, Value: "a@x.io"},
-			{Collection: "email", Name: "key", Kind: params.Param, Value: "open"},
+			{
+				Collection: "email",
+				Name:       "sender",
+				Kind:       params.Param,
+				Value:      "a@x.io",
+			},
+			{
+				Collection: "email",
+				Name:       "key",
+				Kind:       params.Param,
+				Value:      "open",
+			},
 		})
 		if _, ok := errs.IsConflict(err); !ok {
 			t.Errorf("%s: declassify = %v", s.Kind, err)
@@ -46,17 +61,41 @@ func TestNoDeclassify(t *testing.T) {
 		}
 	}
 	// Param → secret is allowed, one way.
-	must(t, l.Set(ctx, env, params.Entry{Collection: "a", Name: "b", Kind: params.Param, Value: "v"}))
-	must(t, l.Set(ctx, env, params.Entry{Collection: "a", Name: "b", Kind: params.Secret, Value: "v"}))
+	must(t, l.Set(ctx, env, params.Entry{
+		Collection: "a",
+		Name:       "b",
+		Kind:       params.Param,
+		Value:      "v",
+	}))
+	must(t, l.Set(ctx, env, params.Entry{
+		Collection: "a",
+		Name:       "b",
+		Kind:       params.Secret,
+		Value:      "v",
+	}))
 }
 
 // B35: a merge next to a masked secret succeeds and keeps it.
 func TestMergeKeepsSecret(t *testing.T) {
 	l := params.New(servicetest.Store(t).Params)
-	must(t, l.Set(ctx, stack, params.Entry{Collection: "db", Name: "password", Kind: params.Secret, Value: "hunter2"}))
+	must(t, l.Set(ctx, stack, params.Entry{
+		Collection: "db",
+		Name:       "password",
+		Kind:       params.Secret,
+		Value:      "hunter2",
+	}))
 	must(t, l.Merge(ctx, stack, []params.Entry{
-		{Collection: "db", Name: "password", Kind: params.Secret}, // masked in the listing, sent back empty
-		{Collection: "db", Name: "user", Kind: params.Param, Value: "app"},
+		{
+			Collection: "db",
+			Name:       "password",
+			Kind:       params.Secret,
+		}, // masked in the listing, sent back empty
+		{
+			Collection: "db",
+			Name:       "user",
+			Kind:       params.Param,
+			Value:      "app",
+		},
 	}))
 	vals, _ := l.Values(ctx, stack, true)
 	if vals["db.password"].V != "hunter2" || vals["db.user"].V != "app" {
@@ -73,8 +112,18 @@ func TestMergeKeepsSecret(t *testing.T) {
 func TestSecretsNeverLoaded(t *testing.T) {
 	st := servicetest.Store(t)
 	l := params.New(st.Params)
-	must(t, l.Set(ctx, env, params.Entry{Collection: "c", Name: "s", Kind: params.Secret, Value: "x"}))
-	must(t, l.Set(ctx, env, params.Entry{Collection: "c", Name: "p", Kind: params.Param, Value: "y"}))
+	must(t, l.Set(ctx, env, params.Entry{
+		Collection: "c",
+		Name:       "s",
+		Kind:       params.Secret,
+		Value:      "x",
+	}))
+	must(t, l.Set(ctx, env, params.Entry{
+		Collection: "c",
+		Name:       "p",
+		Kind:       params.Param,
+		Value:      "y",
+	}))
 	if _, err := st.DB().Exec(`UPDATE params SET value = 'garbage' WHERE kind = 'secret'`); err != nil {
 		t.Fatal(err)
 	}
@@ -89,18 +138,27 @@ func TestSecretsNeverLoaded(t *testing.T) {
 
 func snap() params.Snapshot {
 	return params.Snapshot{
-		EnvParams:   map[string]params.Value{"email.sender": {V: "env@x.io"}, "db.pass": {V: "s3", Secret: true}},
-		StackParams: map[string]params.Value{"email.sender": {V: "stack@x.io"}, "email.host": {V: "smtp"}, "domains.base": {V: "x.io"}},
-		OrgParams:   map[string]params.Value{"email.org_only": {V: "org"}},
-		Stackr:      map[string]string{params.ProxyIP: "10.0.0.1"},
-		Backups:     map[string]string{"s3-main": "s3://b"},
-		Self:        params.Source{Outputs: map[string]string{"host": "api"}},
+		EnvParams: map[string]params.Value{
+			"email.sender": {V: "env@x.io"},
+			"db.pass":      {V: "s3", Secret: true},
+		},
+		StackParams: map[string]params.Value{
+			"email.sender": {V: "stack@x.io"},
+			"email.host":   {V: "smtp"},
+			"domains.base": {V: "x.io"},
+		},
+		OrgParams: map[string]params.Value{"email.org_only": {V: "org"}},
+		Stackr:    map[string]string{params.ProxyIP: "10.0.0.1"},
+		Backups:   map[string]string{"s3-main": "s3://b"},
+		Self:      params.Source{Outputs: map[string]string{"host": "api"}},
 		Tiles: map[string]params.Source{
 			"db":  {Managed: true, Attached: true, Outputs: map[string]string{"url": "pg://db"}},
 			"mq":  {Managed: true, Outputs: map[string]string{"url": "amqp://mq"}},
 			"api": {Outputs: params.Endpoint{Alias: "api", Port: 80}.Outputs()},
 		},
-		Stack: map[string]params.Source{"cache": {Network: "net-cache", Outputs: map[string]string{"host": "cache"}}},
+		Stack: map[string]params.Source{
+			"cache": {Network: "net-cache", Outputs: map[string]string{"host": "cache"}},
+		},
 	}
 }
 
@@ -113,10 +171,10 @@ func TestResolve(t *testing.T) {
 		err   string // substring; "unset" means errs.Unset
 	}{
 		{params.InEnv, "plain", "plain", ""},
-		{params.InEnv, "${{ params.email.sender }}", "env@x.io", ""},                // B5: env before stack
-		{params.InEnv, "${{params.email.host}}", "smtp", ""},                        // falls to stack
-		{params.InEnv, "${{ params.email.org_only }}", "", "unset"},                 // B5: never reaches org
-		{params.InEnv, "${{ org.params.email.org_only }}", "org", ""},               // deliberately
+		{params.InEnv, "${{ params.email.sender }}", "env@x.io", ""},  // B5: env before stack
+		{params.InEnv, "${{params.email.host}}", "smtp", ""},          // falls to stack
+		{params.InEnv, "${{ params.email.org_only }}", "", "unset"},   // B5: never reaches org
+		{params.InEnv, "${{ org.params.email.org_only }}", "org", ""}, // deliberately
 		{params.InEnv, "${{ params.email.nope }}", "", "unset"},
 		{params.InEnv, "${{ self.host }}", "api", ""},
 		{params.InEnv, "${{ tile.db.url }}", "pg://db", ""},
@@ -162,7 +220,8 @@ func TestResolve(t *testing.T) {
 
 func TestGenerate(t *testing.T) {
 	a, b := params.Generate(32), params.Generate(32)
-	if len(a) != 32 || a == b || strings.Trim(a, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789") != "" {
+	if len(a) != 32 || a == b ||
+		strings.Trim(a, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789") != "" {
 		t.Errorf("generate = %q, %q", a, b)
 	}
 }

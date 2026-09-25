@@ -1,0 +1,93 @@
+package components
+
+import "strconv"
+
+// FieldView is one labelled input. Disabled needs Why: a disabled control
+// always says why (config-managed, no permission, ...).
+type FieldView struct {
+	Name        string
+	Label       string
+	Type        string // text, email, password, number, url; "" = text
+	Value       string // never a secret or a password: leave it empty
+	Placeholder string
+	Help        string
+	Error       string
+	ValidateURL string // hx-post target for blur validation; "" = none
+	Required    bool
+	Disabled    bool
+	Why         string
+}
+
+// Form is an htmx form that re-renders itself: the handler answers 422
+// with the same component and the errors filled in.
+templ Form(id, action string) {
+	<form id={ id } hx-post={ action } hx-target={ "#" + id } hx-swap="outerHTML" class="space-y-4">
+		{ children... }
+	</form>
+}
+
+// FormError is the form-wide message (the "general" key of the errors map).
+templ FormError(msg string) {
+	if msg != "" {
+		<div class="banner border-red-300 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300" role="alert">{ msg }</div>
+	}
+}
+
+templ Field(f FieldView) {
+	<div>
+		<label for={ f.Name } class="label">{ f.Label }</label>
+		<input
+			id={ f.Name }
+			name={ f.Name }
+			type={ inputType(f.Type) }
+			value={ f.Value }
+			placeholder={ f.Placeholder }
+			class="input"
+			required?={ f.Required }
+			disabled?={ f.Disabled }
+			if f.ValidateURL != "" {
+				hx-post={ f.ValidateURL }
+				hx-trigger="blur, hamr:revalidate"
+				hx-swap="none"
+			}
+		/>
+		if f.Disabled {
+			<p class="mt-1 text-xs text-slate-500">{ f.Why }</p>
+		} else if f.Help != "" {
+			<p class="mt-1 text-xs text-slate-500">{ f.Help }</p>
+		}
+		@FieldError(f.Name, f.Error)
+	</div>
+}
+
+// Submit is the form's one primary button.
+templ Submit(label string) {
+	<button type="submit" class="btn btn-primary">{ label }</button>
+}
+
+// FieldError renders a validation error for a form field.
+// Always renders the element so it can be targeted by OOB swaps.
+templ FieldError(field string, err string) {
+	<span class="field-error" id={ "error-" + field } data-has-error={ strconv.FormatBool(err != "") } aria-live="polite">{ err }</span>
+}
+
+// FieldErrorOOB renders an out-of-band swap for a field error (used with HTMX blur validation).
+templ FieldErrorOOB(field string, err string) {
+	<span class="field-error" id={ "error-" + field } data-has-error={ strconv.FormatBool(err != "") } aria-live="polite" hx-swap-oob="true">{ err }</span>
+}
+
+func inputType(t string) string {
+	if t == "" {
+		return "text"
+	}
+	return t
+}
+
+// AuthCard is the narrow centred card the signed-out and first-run pages
+// (login, register, setup, invite, CLI authorize) sit in.
+templ AuthCard(title string) {
+	<section class="card mx-auto mt-12 max-w-md space-y-4 p-6">
+		<h1 class="text-xl font-semibold">{ title }</h1>
+		{ children... }
+	</section>
+}

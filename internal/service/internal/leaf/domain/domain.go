@@ -9,12 +9,14 @@ import (
 	"encoding/json"
 	"errors"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
+	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
 
@@ -25,6 +27,7 @@ type Docker interface {
 	Connect(ctx context.Context, netName, containerID string, aliases []string) error
 	Disconnect(ctx context.Context, netName, containerID string) error
 	NetworkMembers(ctx context.Context, name string) ([]string, error)
+	Inspect(ctx context.Context, id string) (docker.Detail, error)
 }
 
 type Leaf struct {
@@ -88,8 +91,12 @@ var (
 // Ingress is the tile's ingress network: its replicas and the proxy, nothing else.
 func Ingress(tileID string) string { return "stackr-ingress-" + tileID }
 
-func (l *Leaf) Get(ctx context.Context, id string) (store.Domain, error) { return l.domains.Get(ctx, id) }
-func (l *Leaf) List(ctx context.Context) ([]store.Domain, error)        { return l.domains.List(ctx) }
+func (l *Leaf) Get(ctx context.Context, id string) (store.Domain, error) {
+	return l.domains.Get(ctx, id)
+}
+
+func (l *Leaf) List(ctx context.Context) ([]store.Domain, error) { return l.domains.List(ctx) }
+
 func (l *Leaf) ListByTile(ctx context.Context, tileID string) ([]store.Domain, error) {
 	return l.domains.ListByTile(ctx, tileID)
 }
@@ -151,6 +158,25 @@ func (l *Leaf) OpenIngress(ctx context.Context, tileID string, replicas []string
 	return nil
 }
 
+// ProxyAddrs are the proxy container's IPs, one per network it has joined;
+// none when it is not there.
+func (l *Leaf) ProxyAddrs(ctx context.Context) ([]string, error) {
+	d, err := l.docker.Inspect(ctx, l.proxy)
+	if errors.Is(err, docker.ErrNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	out := make([]string, 0, len(d.Networks))
+	for _, ip := range d.Networks {
+		if ip != "" {
+			out = append(out, ip)
+		}
+	}
+	return out, nil
+}
+
 // CloseIngress disconnects every member of the tile's ingress network and
 // removes it. Idempotent; the tile-delete flow calls it too, since the row
 // cascade never reaches Detach.
@@ -205,14 +231,22 @@ func (l *Leaf) fill(ctx context.Context, d *store.Domain, s Spec, dns01 bool) er
 	if err != nil {
 		return err
 	}
-	for _, o := range all {
-		if o.ID != d.ID && o.Host == host && o.Path == path {
-			return errs.Conflictf("%s%s is already attached to a tile", host, path)
-		}
+	taken := slices.ContainsFunc(all, func(o store.Domain) bool {
+		return o.ID != d.ID && o.Host == host && o.Path == path
+	})
+	if taken {
+		return errs.Conflictf("%s%s is already attached to a tile", host, path)
 	}
 	extras, _ := json.Marshal(s.Extras)
-	d.Host, d.Path, d.ContainerPort, d.HTTPS, d.ForceHTTPS = host, path, s.Port, https, force
-	d.RedirectTo, d.Auto, d.ProxyJSON, d.RawCaddy = redirect, s.Auto, string(extras), raw
+	d.Host = host
+	d.Path = path
+	d.ContainerPort = s.Port
+	d.HTTPS = https
+	d.ForceHTTPS = force
+	d.RedirectTo = redirect
+	d.Auto = s.Auto
+	d.ProxyJSON = string(extras)
+	d.RawCaddy = raw
 	return nil
 }
 

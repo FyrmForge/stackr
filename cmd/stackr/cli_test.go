@@ -146,7 +146,8 @@ func TestYesIsNotForce(t *testing.T) {
 	r := &recorder{}
 	r.serve(t)
 	code, _, errw := cli(t, "env", "rm", "--stack", "shop", "--env", "dev")
-	if code != 1 || !strings.Contains(errw, "refusing without --yes (non-interactive): Remove environment dev") || len(r.reqs) != 0 {
+	if code != 1 || !strings.Contains(errw, "refusing without --yes (non-interactive): Remove environment dev") ||
+		len(r.reqs) != 0 {
 		t.Errorf("no -y = %d %q, sent %q", code, errw, r.reqs)
 	}
 	if code, _, errw := cli(t, "env", "rm", "--stack", "shop", "--env", "dev", "-y"); code != 0 {
@@ -159,7 +160,12 @@ func TestYesIsNotForce(t *testing.T) {
 
 func TestUsageExitsTwo(t *testing.T) {
 	useServer(t, "http://127.0.0.1:1")
-	for _, args := range [][]string{{"bogus"}, {"tile", "bogus"}, {"tile", "set", "--nope"}, {"key", "add"}} {
+	for _, args := range [][]string{
+		{"bogus"},
+		{"tile", "bogus"},
+		{"tile", "set", "--nope"},
+		{"key", "add"},
+	} {
 		if code, _, _ := cli(t, args...); code != 2 {
 			t.Errorf("%v = %d, want 2", args, code)
 		}
@@ -182,7 +188,7 @@ func TestDeployFollows(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	api.RegisterRoutes(srv, &api.Deps{Service: env.O, Access: middleware.NewAccess(env.O), DevMode: true})
+	api.RegisterRoutes(srv, &api.Deps{Orch: env.Orch, Access: middleware.NewAccess(env.Orch), DevMode: true})
 	ts := httptest.NewServer(srv.Echo())
 	t.Cleanup(ts.Close)
 	org := env.Org(t, "acme")
@@ -203,7 +209,8 @@ func TestDeployFollows(t *testing.T) {
 	if code != 0 || !strings.Contains(out, `"slug": "api"`) {
 		t.Errorf("tile ls --json = %d %s", code, out)
 	}
-	if code, _, errw := cli(t, "rollback", "--stack", "shop", "--env", "dev"); code != 2 || !strings.Contains(errw, "--tag is required") {
+	if code, _, errw := cli(t, "rollback", "--stack", "shop", "--env", "dev"); code != 2 ||
+		!strings.Contains(errw, "--tag is required") {
 		t.Errorf("rollback without --tag = %d %s", code, errw)
 	}
 }

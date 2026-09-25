@@ -1,0 +1,19 @@
+package components
+
+import (
+	"net/http"
+	"strconv"
+)
+
+// ErrorPage satisfies hamr's middleware.ErrorPage signature. It gets no
+// request, so the shell is bare: no user, no crumbs, no CSRF.
+func ErrorPage(code int, message string) templ.Component {
+	return Layout(Shell{Title: http.StatusText(code)}, errorBody(code, message))
+}
+
+templ errorBody(code int, message string) {
+	<div class="card max-w-lg mx-auto mt-16 text-center">
+		<h1 class="text-5xl font-bold mb-2">{ strconv.Itoa(code) }</h1>
+		<p class="text-slate-500">{ message }</p>
+	</div>
+}

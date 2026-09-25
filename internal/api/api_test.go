@@ -38,7 +38,7 @@ func newWorld(t *testing.T, opts ...service.Option) *world {
 	if err != nil {
 		t.Fatal(err)
 	}
-	api.RegisterRoutes(srv, &api.Deps{Service: env.O, Access: middleware.NewAccess(env.O), DevMode: true})
+	api.RegisterRoutes(srv, &api.Deps{Orch: env.Orch, Access: middleware.NewAccess(env.Orch), DevMode: true})
 	w := &world{env: env, h: srv.Echo(), acme: env.Org(t, "acme")}
 	other := env.Org(t, "other")
 	w.other = other
@@ -132,32 +132,52 @@ func TestEveryRouteGated(t *testing.T) {
 func TestReadsLeakNoSecret(t *testing.T) {
 	w := newWorld(t)
 	ctx := context.Background()
-	o := w.env.O
-	if _, err := o.CreateCredential(ctx, w.acme, service.CredentialSpec{Name: "hub", URL: "r.io", Username: "u", Password: "LEAK-cred"}); err != nil {
+	orch := w.env.Orch
+	if _, err := orch.CreateCredential(ctx, w.acme, service.CredentialSpec{
+		Name:     "hub",
+		URL:      "r.io",
+		Username: "u",
+		Password: "LEAK-cred",
+	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := o.CreateBackupDest(ctx, &w.acme, service.BackupDestSpec{Name: "s3", Endpoint: "https://s3.example.com", Bucket: "b",
-		AccessKey: "LEAK-ak", SecretKey: "LEAK-sk"}); err != nil {
+	if _, err := orch.CreateBackupDest(ctx, &w.acme, service.BackupDestSpec{
+		Name:      "s3",
+		Endpoint:  "https://s3.example.com",
+		Bucket:    "b",
+		AccessKey: "LEAK-ak",
+		SecretKey: "LEAK-sk",
+	}); err != nil {
 		t.Fatal(err)
 	}
-	if err := o.SetParams(ctx, service.ParamScope{Kind: "org", ID: w.acme},
-		[]service.ParamEntry{{Collection: "app", Name: "token", Kind: "secret", Value: "LEAK-param"}}); err != nil {
+	if err := orch.SetParams(ctx, service.ParamScope{Kind: "org", ID: w.acme}, []service.ParamEntry{
+		{
+			Collection: "app",
+			Name:       "token",
+			Kind:       "secret",
+			Value:      "LEAK-param",
+		},
+	}); err != nil {
 		t.Fatal(err)
 	}
 	if code, body := w.do(t, w.owner, "POST", "/orgs/acme/stacks/shop/envs/dev/tiles/api/domains",
-		`{"host":"a.example.com","proxy":{"basic_auth":{"user":"u","password":"LEAK-basic"}}}`); code != 201 || strings.Contains(body, "LEAK") {
+		`{"host":"a.example.com","proxy":{"basic_auth":{"user":"u","password":"LEAK-basic"}}}`); code != 201 ||
+		strings.Contains(body, "LEAK") {
 		t.Fatalf("attach = %d %s", code, body)
 	}
-	if code, body := w.do(t, w.owner, "POST", "/orgs/acme/keys", `{"name":"ci"}`); code != 201 || !strings.Contains(body, `"token"`) {
+	if code, body := w.do(t, w.owner, "POST", "/orgs/acme/keys", `{"name":"ci"}`); code != 201 ||
+		!strings.Contains(body, `"token"`) {
 		t.Fatalf("mint = %d %s", code, body)
 	}
 	for _, r := range api.Routes(&v1.H{}) {
-		if r.Method != http.MethodGet || r.Verb == "variable.write" {
+		// env.events never ends on its own (TestEnvEvents reads it)
+		if r.Method != http.MethodGet || r.Verb == "variable.write" || r.Op == "env.events" {
 			continue
 		}
 		path := fill(r.Path)
 		code, body := w.do(t, w.owner, r.Method, path, "")
-		if code >= 500 || strings.Contains(body, "LEAK") || strings.Contains(body, "token_hash") || strings.HasPrefix(body, "null") {
+		if code >= 500 || strings.Contains(body, "LEAK") || strings.Contains(body, "token_hash") ||
+			strings.HasPrefix(body, "null") {
 			t.Errorf("GET %s = %d %s", path, code, body)
 		}
 	}
@@ -200,11 +220,32 @@ func TestDeployIsAccepted(t *testing.T) {
 	if err := json.Unmarshal([]byte(body), &j); err != nil || code != 202 || j.ID == "" {
 		t.Fatalf("deploy = %d %s", code, body)
 	}
-	if code, body := w.do(t, w.owner, "GET", "/orgs/acme/jobs/"+j.ID+"/log?offset=0", ""); code != 200 || !strings.Contains(body, `"next"`) {
+	if code, body := w.do(t, w.owner, "GET", "/orgs/acme/jobs/"+j.ID+"/log?offset=0", ""); code != 200 ||
+		!strings.Contains(body, `"next"`) {
 		t.Errorf("poll = %d %s", code, body)
 	}
 	if code, _ := w.do(t, w.owner, "GET", "/orgs/acme/jobs/"+j.ID+"/log?offset=abc", ""); code != 400 {
 		t.Errorf("offset typo = %d, want 400 (B24)", code)
+	}
+}
+
+// The env's events stream opens with a traffic event (no sample yet: an
+// empty list, never null) and runs until the client leaves.
+func TestEnvEvents(t *testing.T) {
+	stream.PollEvery = 10 * time.Millisecond
+	w := newWorld(t)
+	if code, body := w.do(t, w.owner, "GET", "/orgs/acme/stacks/shop/envs/dev/traffic", ""); code != 200 ||
+		body != "[]\n" {
+		t.Fatalf("traffic = %d %q", code, body)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	time.AfterFunc(100*time.Millisecond, cancel)
+	req := httptest.NewRequest("GET", "/api/v1/orgs/acme/stacks/shop/envs/dev/events", nil).WithContext(ctx)
+	req.Header.Set("Authorization", "Bearer "+w.owner)
+	rec := httptest.NewRecorder()
+	w.h.ServeHTTP(rec, req)
+	if rec.Code != 200 || !strings.HasPrefix(rec.Body.String(), "event: traffic\ndata: []\n\n") {
+		t.Errorf("events = %d %q", rec.Code, rec.Body.String())
 	}
 }
 

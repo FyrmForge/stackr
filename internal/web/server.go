@@ -1,7 +1,7 @@
 package web
 
 import (
-	"net/http"
+	"cmp"
 
 	"github.com/FyrmForge/hamr/pkg/email"
 	hamrmw "github.com/FyrmForge/hamr/pkg/middleware"
@@ -10,17 +10,26 @@ import (
 
 	"github.com/FyrmForge/stackr/internal/middleware"
 	"github.com/FyrmForge/stackr/internal/service"
-	"github.com/FyrmForge/stackr/internal/web/components"
+	"github.com/FyrmForge/stackr/internal/ui/components"
 	"github.com/FyrmForge/stackr/internal/web/handler/about"
+	"github.com/FyrmForge/stackr/internal/web/handler/account"
+	"github.com/FyrmForge/stackr/internal/web/handler/admin"
+	"github.com/FyrmForge/stackr/internal/web/handler/auth/cliauth"
+	"github.com/FyrmForge/stackr/internal/web/handler/auth/invite"
 	"github.com/FyrmForge/stackr/internal/web/handler/auth/login"
 	"github.com/FyrmForge/stackr/internal/web/handler/auth/register"
+	"github.com/FyrmForge/stackr/internal/web/handler/auth/setup"
+	"github.com/FyrmForge/stackr/internal/web/handler/canvas"
 	"github.com/FyrmForge/stackr/internal/web/handler/devemail"
-	"github.com/FyrmForge/stackr/internal/web/handler/home"
+	"github.com/FyrmForge/stackr/internal/web/handler/devgallery"
+	"github.com/FyrmForge/stackr/internal/web/handler/env"
+	"github.com/FyrmForge/stackr/internal/web/handler/scope"
+	"github.com/FyrmForge/stackr/internal/web/handler/tile"
 )
 
 // Deps holds the dependencies for route registration.
 type Deps struct {
-	Service       *service.Orchestrator
+	Orch          *service.Orchestrator
 	Access        *middleware.Access // shared with the API router
 	BaseURL       string
 	StaticBaseURL string
@@ -51,9 +60,6 @@ func RegisterRoutes(srv *server.Server, deps *Deps) {
 	site.Use(deps.Access.Load())
 	auth := deps.Access.Browser()
 
-	homeHandler := home.NewHandler()
-	site.GET("/", homeHandler.Index)
-
 	// Dev-only sample email endpoint. Sends a test message through the
 	// configured email.Sender so you can smoke-test the /__hamr/mail inbox.
 	// Gated on DevMode; no-op in production regardless of route registration.
@@ -62,22 +68,79 @@ func RegisterRoutes(srv *server.Server, deps *Deps) {
 		site.GET("/dev/send-test-email", devmailHandler.SendTest)
 	}
 
+	// Every shared component with sample views (dev only).
+	if deps.DevMode {
+		gallery := devgallery.NewHandler()
+		site.GET("/dev/components", gallery.Page)
+		site.POST("/dev/components/positions", gallery.Positions)
+		site.GET("/dev/components/drawer", gallery.Drawer)
+	}
+
 	// Auth routes — one page-package per page (login owns logout as its inverse action).
-	loginHandler := login.NewHandler(deps.Service)
+	loginHandler := login.NewHandler(deps.Orch)
 	site.GET("/login", loginHandler.Page, auth.RequireNotAuth())
 	site.POST("/login", loginHandler.Submit, auth.RequireNotAuth())
 	site.POST("/login/validate/:field", loginHandler.FormRules.ValidationHandler("field"), auth.RequireNotAuth())
 	site.POST("/logout", loginHandler.Logout, auth.RequireAuth())
 
-	registerHandler := register.NewHandler(deps.Service)
+	registerHandler := register.NewHandler(deps.Orch)
 	site.GET("/register", registerHandler.Page, auth.RequireNotAuth())
 	site.POST("/register", registerHandler.Submit, auth.RequireNotAuth())
 	site.POST("/register/validate/:field", registerHandler.FormRules.ValidationHandler("field"), auth.RequireNotAuth())
 
-	// ponytail: placeholder so the middleware is mounted and tested; the org
-	// page replaces it.
-	site.GET("/:org", func(c echo.Context) error { return c.NoContent(http.StatusNoContent) },
-		deps.Access.Require("org.read"))
+	// A page a visitor may not see sends them to log in and back.
+	page, authed := deps.Access.LoginFirst(), deps.Access.Authed()
+
+	site.GET("/setup", setup.NewHandler(deps.Orch).Page, page, authed)
+
+	inv := invite.NewHandler(deps.Orch)
+	site.GET("/invite/:token", inv.Page)
+	site.POST("/invite/:token", inv.Accept, authed)
+	site.POST("/invite/:token/register", inv.Register, auth.RequireNotAuth())
+
+	cli := cliauth.NewHandler(deps.Orch)
+	site.GET("/cli/authorize", cli.Page, page, authed)
+	site.POST("/cli/authorize/:org", cli.Approve, deps.Access.Require("org.read"))
+
+	acct := account.NewHandler(deps.Orch)
+	site.GET("/account", acct.Page, page, authed)
+	site.POST("/account/password", acct.Password, authed)
+	site.POST("/account/keys/:key/revoke", acct.Revoke, authed)
+
+	// The admin drawer, opened from the nav on any page.
+	admin.NewHandler(deps.Orch).Mount(site, deps.Access)
+
+	// The canvases, one per level. Require resolves each slug, 404s early
+	// and leaves org, stack and env in the context; home is the caller's.
+	// Each level's helper routes sit under "/-/", which no slug can be.
+	cv := canvas.NewHandler(deps.Orch)
+	levels := []struct {
+		path        string
+		read, write echo.MiddlewareFunc
+	}{
+		{"", deps.Access.Authed(), deps.Access.Authed()},
+		{"/:org", deps.Access.Require("org.read"), deps.Access.Require("org.graph.write")},
+		{"/:org/:stack", deps.Access.Require("org.read"), deps.Access.Require("stack.write")},
+		{"/:org/:stack/:env", deps.Access.Require("org.read"), deps.Access.Require("env.write")},
+	}
+	for _, l := range levels {
+		site.GET(cmp.Or(l.path, "/"), cv.Page, page, l.read)
+		site.GET(l.path+"/-/events", cv.Events, l.read)
+		site.POST(l.path+"/-/positions", cv.Positions, l.write)
+		site.POST(l.path+"/-/reset", cv.Reset, l.write)
+		site.POST(l.path+"/-/notes", cv.Notes, l.write)
+		site.POST(l.path+"/-/notes/delete", cv.DeleteNote, l.write)
+	}
+
+	cv.Mount(site, deps.Access)
+
+	// ponytail: the tile page is a placeholder until the tile drawer takes it.
+	scopeHandler := scope.NewHandler()
+	site.GET("/:org/:stack/:env/:tile", scopeHandler.Page, page, deps.Access.Require("tile.read"))
+
+	// The env canvas's drawers and dialogs (tasks 9 and 10), under /-/ too.
+	env.NewHandler(deps.Orch).Mount(site, deps.Access)
+	tile.NewHandler(deps.Orch).Mount(site, deps.Access)
 }
 
 // RegisterStaticPages registers handlers for static generation and runtime

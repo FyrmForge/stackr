@@ -23,7 +23,12 @@ import (
 func (d *Client) CreateVolume(ctx context.Context, name, driver string, opts, labels map[string]string) error {
 	all := map[string]string{LabelManaged: "true"}
 	maps.Copy(all, labels)
-	_, err := d.cli.VolumeCreate(ctx, volume.CreateOptions{Name: name, Driver: driver, DriverOpts: opts, Labels: all})
+	_, err := d.cli.VolumeCreate(ctx, volume.CreateOptions{
+		Name:       name,
+		Driver:     driver,
+		DriverOpts: opts,
+		Labels:     all,
+	})
 	return err
 }
 
@@ -77,8 +82,14 @@ func (d *Client) volumeInfos(ctx context.Context, vols []*volume.Volume) ([]Volu
 	}
 	out := make([]VolumeInfo, 0, len(vols))
 	for _, v := range vols {
-		info := VolumeInfo{Name: v.Name, Driver: v.Driver, Created: v.CreatedAt, Mountpoint: v.Mountpoint,
-			Labels: v.Labels, SizeBytes: -1}
+		info := VolumeInfo{
+			Name:       v.Name,
+			Driver:     v.Driver,
+			Created:    v.CreatedAt,
+			Mountpoint: v.Mountpoint,
+			Labels:     v.Labels,
+			SizeBytes:  -1,
+		}
 		if s, ok := size[v.Name]; ok {
 			info.SizeBytes = s
 		}
@@ -146,8 +157,13 @@ func isTarChanged(err error) bool {
 // There is no way back from the wipe: the caller verifies the archive first.
 // The three globs catch dotfiles; ";" so an empty volume still extracts.
 func (d *Client) UntarVolume(ctx context.Context, vol string, src io.Reader) error {
-	out, wait, err := d.volumeTool(ctx, vol, false, []string{
-		"sh", "-c", "rm -rf /data/..?* /data/.[!.]* /data/* 2>/dev/null; tar -xzf - -C /data"}, src)
+	out, wait, err := d.volumeTool(
+		ctx,
+		vol,
+		false,
+		[]string{"sh", "-c", "rm -rf /data/..?* /data/.[!.]* /data/* 2>/dev/null; tar -xzf - -C /data"},
+		src,
+	)
 	if err != nil {
 		return err
 	}
@@ -159,7 +175,13 @@ func (d *Client) UntarVolume(ctx context.Context, vol string, src io.Reader) err
 }
 
 // volumeTool mounts vol at /data (ro for reads) in a throwaway container.
-func (d *Client) volumeTool(ctx context.Context, vol string, ro bool, cmd []string, stdin io.Reader) (io.Reader, func() error, error) {
+func (d *Client) volumeTool(
+	ctx context.Context,
+	vol string,
+	ro bool,
+	cmd []string,
+	stdin io.Reader,
+) (io.Reader, func() error, error) {
 	if err := d.EnsureTool(ctx); err != nil {
 		return nil, nil, err
 	}
@@ -173,10 +195,16 @@ func (d *Client) volumeTool(ctx context.Context, vol string, ro bool, cmd []stri
 // toolContainer starts a throwaway container and hands back its stdout plus a
 // wait reporting its exit. The caller MUST call wait on every path: it is what
 // removes the container.
-func (d *Client) toolContainer(ctx context.Context, cmd []string, bind string, stdin io.Reader) (io.Reader, func() error, error) {
+func (d *Client) toolContainer(
+	ctx context.Context,
+	cmd []string,
+	bind string,
+	stdin io.Reader,
+) (io.Reader, func() error, error) {
 	b := make([]byte, 6)
 	_, _ = rand.Read(b)
-	created, err := d.cli.ContainerCreate(ctx,
+	created, err := d.cli.ContainerCreate(
+		ctx,
 		&container.Config{
 			Image: ToolImage,
 			// CLEARED: an image of ours has our binary as ENTRYPOINT, which
@@ -193,7 +221,10 @@ func (d *Client) toolContainer(ctx context.Context, cmd []string, bind string, s
 		// AutoRemove off: the exit code has to be readable after the process
 		// ends, and a self-removing container races ContainerWait.
 		&container.HostConfig{Binds: []string{bind}},
-		nil, nil, "stkr-vol-"+hex.EncodeToString(b)) // random: overlapping ops must not collide
+		nil,
+		nil,
+		"stkr-vol-"+hex.EncodeToString(b),
+	) // random: overlapping ops must not collide
 	if err != nil {
 		return nil, nil, err
 	}
@@ -201,7 +232,10 @@ func (d *Client) toolContainer(ctx context.Context, cmd []string, bind string, s
 		_ = d.cli.ContainerRemove(context.WithoutCancel(ctx), created.ID, container.RemoveOptions{Force: true})
 	}
 	att, err := d.cli.ContainerAttach(ctx, created.ID, container.AttachOptions{
-		Stream: true, Stdin: stdin != nil, Stdout: true, Stderr: true,
+		Stream: true,
+		Stdin:  stdin != nil,
+		Stdout: true,
+		Stderr: true,
 	})
 	if err != nil {
 		remove()

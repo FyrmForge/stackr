@@ -27,8 +27,13 @@ var ctx = context.Background()
 
 type vipStub struct{}
 
-func (vipStub) Set(context.Context, string, []string) error { return nil }
-func (vipStub) Remove(context.Context, string) error        { return nil }
+func (vipStub) Set(context.Context, string, []string) error {
+	return nil
+}
+
+func (vipStub) Remove(context.Context, string) error {
+	return nil
+}
 
 func must(t *testing.T, err error) {
 	t.Helper()
@@ -65,25 +70,74 @@ func TestCheck(t *testing.T) {
 		digests: map[string]string{"nginx:1": "sha256:n1", "redis:7.2.0": "sha256:r72"},
 		tags:    map[string][]string{"redis": {"7.0.1", "7.2.0", "8.0.0", "7.3.0-rc1", "6.9"}},
 	}
-	f := &Flow{Orgs: org.New(s.Orgs, s.OrgMembers, s.Invites), Stacks: stack.New(s.Stacks),
-		Envs: environment.New(s.Environments, fake), Tiles: tile.New(s.Tiles, fake, vipStub{}),
-		Images: image.New(s.Images, fake), Releases: release.New(s.Releases, s.ReleaseTiles),
-		Creds: credential.New(s.Credentials), Settings: settings.New(s.Settings, nil),
-		Digest: reg.Digest, Tags: reg.Tags}
+	f := &Flow{
+		Orgs:     org.New(s.Orgs, s.OrgMembers, s.Invites),
+		Stacks:   stack.New(s.Stacks),
+		Envs:     environment.New(s.Environments, fake),
+		Tiles:    tile.New(s.Tiles, fake, vipStub{}),
+		Images:   image.New(s.Images, fake),
+		Releases: release.New(s.Releases, s.ReleaseTiles),
+		Creds:    credential.New(s.Credentials),
+		Settings: settings.New(s.Settings, nil),
+		Digest:   reg.Digest,
+		Tags:     reg.Tags,
+	}
 
 	now := time.Now()
 	o, stID := uuid.NewString(), uuid.NewString()
-	must(t, s.Orgs.Create(ctx, store.Org{ID: o, Name: "o", Slug: "o", EnvColors: "{}", Settings: "{}", CreatedAt: now}))
-	must(t, s.Stacks.Create(ctx, store.Stack{ID: stID, OrgID: o, Name: "s", Slug: "s", Settings: "{}", Domains: "[]", CreatedAt: now}))
-	dev := store.Environment{ID: uuid.NewString(), StackID: stID, Name: "dev", Slug: "dev", Type: "static", Settings: "{}",
-		Network: "n", FromKind: "branch", FromBranch: "main", CreatedAt: now}
-	prd := store.Environment{ID: uuid.NewString(), StackID: stID, Name: "prd", Slug: "prd", Type: "static", Settings: "{}",
-		Network: "n", Position: 1, FromKind: "promote", CreatedAt: now}
+	must(t, s.Orgs.Create(ctx, store.Org{
+		ID:        o,
+		Name:      "o",
+		Slug:      "o",
+		EnvColors: "{}",
+		Settings:  "{}",
+		CreatedAt: now,
+	}))
+	must(t, s.Stacks.Create(ctx, store.Stack{
+		ID:        stID,
+		OrgID:     o,
+		Name:      "s",
+		Slug:      "s",
+		Settings:  "{}",
+		Domains:   "[]",
+		CreatedAt: now,
+	}))
+	dev := store.Environment{
+		ID:         uuid.NewString(),
+		StackID:    stID,
+		Name:       "dev",
+		Slug:       "dev",
+		Type:       "static",
+		Settings:   "{}",
+		Network:    "n",
+		FromKind:   "branch",
+		FromBranch: "main",
+		CreatedAt:  now,
+	}
+	prd := store.Environment{
+		ID:        uuid.NewString(),
+		StackID:   stID,
+		Name:      "prd",
+		Slug:      "prd",
+		Type:      "static",
+		Settings:  "{}",
+		Network:   "n",
+		Position:  1,
+		FromKind:  "promote",
+		CreatedAt: now,
+	}
 	must(t, s.Environments.Create(ctx, dev))
 	must(t, s.Environments.Create(ctx, prd))
 	mk := func(env, name, ref, update, tag string) {
-		_, err := f.Tiles.Create(ctx, store.Tile{StackID: stID, EnvironmentID: env, Name: name, Kind: tile.Image,
-			ImageRef: ref, UpdatePolicy: update, TagPolicy: tag})
+		_, err := f.Tiles.Create(ctx, store.Tile{
+			StackID:       stID,
+			EnvironmentID: env,
+			Name:          name,
+			Kind:          tile.Image,
+			ImageRef:      ref,
+			UpdatePolicy:  update,
+			TagPolicy:     tag,
+		})
 		must(t, err)
 	}
 	mk(dev.ID, "api", "nginx:1", "auto", "")
@@ -103,7 +157,7 @@ func TestCheck(t *testing.T) {
 	}
 	pins, err := f.Releases.Pins(ctx, ups[0].ReleaseID)
 	must(t, err)
-	if pins["api"].Digest != "sha256:n1" || pins["web"].Repo != "nginx" || pins["cache"].Digest != "sha256:r72" {
+	if pins["api"].Digest != "sha256:n1" || pins["web"].Repo != "nginx:1" || pins["cache"].Digest != "sha256:r72" {
 		t.Errorf("pins = %+v", pins)
 	}
 	if img, _ := f.Images.GetByRef(ctx, "redis:7.0.1"); img.LastTag != "7.2.0" {
@@ -128,15 +182,18 @@ func TestCheck(t *testing.T) {
 	// Round 4: nginx moves to what dev already runs: no release.
 	reg.fail = nil
 	reg.digests["nginx:1"] = "sha256:n2"
-	cur, err := f.Releases.Create(ctx, stID, "test", []release.Pin{{Slug: "api", Repo: "nginx", Digest: "sha256:n2"},
-		{Slug: "web", Repo: "nginx", Digest: "sha256:n2"}})
+	cur, err := f.Releases.Create(ctx, stID, "test", []release.Pin{
+		{Slug: "api", Repo: "nginx", Digest: "sha256:n2"},
+		{Slug: "web", Repo: "nginx", Digest: "sha256:n2"},
+	})
 	must(t, err)
 	dev.ReleaseID = &cur.ID
 	must(t, s.Environments.Update(ctx, dev))
 	if ups, err = f.Check(ctx, Scope{}, io.Discard); err != nil || len(ups) != 0 {
 		t.Errorf("caught-up round: %v %+v", err, ups)
 	}
-	if img, _ := f.Images.GetByRef(ctx, "nginx:1"); !Chip(img, release.Pin{Digest: "sha256:n1"}) || Chip(img, release.Pin{Digest: "sha256:n2"}) {
+	if img, _ := f.Images.GetByRef(ctx, "nginx:1"); !Chip(img, release.Pin{Digest: "sha256:n1"}) ||
+		Chip(img, release.Pin{Digest: "sha256:n2"}) {
 		t.Errorf("chip wrong for %+v", img)
 	}
 
@@ -152,7 +209,11 @@ func TestCheck(t *testing.T) {
 func TestPick(t *testing.T) {
 	tags := []string{"1.2.0", "1.2.5", "1.3.0", "v1.4.0-rc1", "2.0.0", "latest", "1.2"}
 	for policy, want := range map[string]string{
-		"semver ^1.2": "1.3.0", "semver ~1.2": "1.2.5", "semver 1": "1.3.0", "semver *": "2.0.0", "~1.2.1": "1.2.5",
+		"semver ^1.2": "1.3.0",
+		"semver ~1.2": "1.2.5",
+		"semver 1":    "1.3.0",
+		"semver *":    "2.0.0",
+		"~1.2.1":      "1.2.5",
 	} {
 		if got, err := Pick(policy, "", tags); err != nil || got != want {
 			t.Errorf("%s = %q %v, want %q", policy, got, err, want)

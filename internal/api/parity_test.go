@@ -20,18 +20,23 @@ func TestPromoteParity(t *testing.T) {
 	}
 	var rel service.Release
 	eventually(t, "a release", func() bool {
-		rs, err := w.env.O.Releases(ctx, w.tile.Stack)
+		rs, err := w.env.Orch.Releases(ctx, w.tile.Stack)
 		if err == nil && len(rs) == 1 {
 			rel = rs[0]
 		}
 		return rel.ID != ""
 	})
 	// shop's release aimed at blog/dev is blocked.
-	st, err := w.env.O.CreateStack(ctx, w.acme, "blog", "")
+	st, err := w.env.Orch.CreateStack(ctx, w.acme, "blog", "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := w.env.O.CreateEnv(ctx, st.ID, "dev", service.EnvSpec{Type: "static", FromKind: "branch", FromBranch: "main"}); err != nil {
+	if _, err := w.env.Orch.CreateEnv(
+		ctx,
+		st.ID,
+		"dev",
+		service.EnvSpec{Type: "static", FromKind: "branch", FromBranch: "main"},
+	); err != nil {
 		t.Fatal(err)
 	}
 	const env = "/orgs/acme/stacks/blog/envs/dev"
@@ -53,7 +58,7 @@ func TestPromoteParity(t *testing.T) {
 			t.Fatalf("%s = %d %s", verb, code, body)
 		}
 		eventually(t, verb+" to finish", func() bool {
-			j, err = w.env.O.GetJob(ctx, j.ID)
+			j, err = w.env.Orch.GetJob(ctx, j.ID)
 			return err == nil && j.FinishedAt != nil
 		})
 		if j.State != "failed" || !strings.Contains(j.Error, want) {

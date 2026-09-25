@@ -6,6 +6,7 @@ import (
 	"github.com/labstack/echo/v4"
 
 	"github.com/FyrmForge/stackr/internal/api/stream"
+	"github.com/FyrmForge/stackr/internal/service"
 )
 
 const eventStream = "text/event-stream"
@@ -17,8 +18,28 @@ func (h *H) JobEvents() Endpoint {
 	return Streamed(eventStream, func(c echo.Context) error {
 		id := c.Param("job")
 		return stream.Poll(c, func(ctx context.Context, offset int64) (any, int64, bool, error) {
-			j, l, err := h.S.PollJob(ctx, id, max(offset, 0))
+			j, l, err := h.Orch.PollJob(ctx, id, max(offset, 0))
 			return JobLogOut{j, string(l.Chunk), l.Next, l.End}, l.Next, l.End, err
+		})
+	})
+}
+
+// EnvEvents is the env canvas's live stream. Today one event: "traffic",
+// the env's lanes ([]Edge) after each 5 s sample.
+func (h *H) EnvEvents() Endpoint {
+	return Streamed(eventStream, func(c echo.Context) error {
+		env := envID(c)
+		last, edges := int64(-1), []service.Edge{}
+		return stream.PollAs(c, "traffic", func(ctx context.Context, _ int64) (any, int64, bool, error) {
+			// the lanes are re-read only when a sample landed
+			if seq := h.Orch.TrafficSeq(); seq != last {
+				es, err := list(h.Orch.Traffic(ctx, env))
+				if err != nil {
+					return nil, 0, false, err
+				}
+				last, edges = seq, es
+			}
+			return edges, last, false, nil
 		})
 	})
 }
@@ -34,10 +55,10 @@ func (h *H) LogStream() Endpoint {
 		}
 		ctx := context.WithoutCancel(rc(c))
 		follow := func() (<-chan string, func(), error) {
-			return h.S.FollowLogs(ctx, tileID(c), c.QueryParam("container"), tail)
+			return h.Orch.FollowLogs(ctx, tileID(c), c.QueryParam("container"), tail)
 		}
 		if run := c.QueryParam("run"); run != "" {
-			follow = func() (<-chan string, func(), error) { return h.S.FollowRunLog(ctx, tileID(c), run, tail) }
+			follow = func() (<-chan string, func(), error) { return h.Orch.FollowRunLog(ctx, tileID(c), run, tail) }
 		}
 		lines, stop, err := follow()
 		if err != nil {
@@ -51,8 +72,13 @@ func (h *H) LogStream() Endpoint {
 // (?container=): the request body is its stdin, the response its output.
 func (h *H) Exec() Endpoint {
 	return Streamed("application/octet-stream", func(c echo.Context) error {
-		out, wait, err := h.S.Terminal(context.WithoutCancel(rc(c)), tileID(c), c.QueryParam("container"),
-			c.QueryParams()["cmd"], c.Request().Body)
+		out, wait, err := h.Orch.Terminal(
+			context.WithoutCancel(rc(c)),
+			tileID(c),
+			c.QueryParam("container"),
+			c.QueryParams()["cmd"],
+			c.Request().Body,
+		)
 		if err != nil {
 			return err
 		}

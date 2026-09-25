@@ -75,15 +75,28 @@ func (l *Leaf) EnsureLocal(ctx context.Context, dir string) (store.BackupDest, e
 			return d, err
 		}
 	}
-	d := store.BackupDest{ID: uuid.NewString(), Kind: Local, Name: Local, Endpoint: dir,
-		ArchiveKey: newKey(), Shared: true, CreatedAt: time.Now().UTC()}
+	d := store.BackupDest{
+		ID:         uuid.NewString(),
+		Kind:       Local,
+		Name:       Local,
+		Endpoint:   dir,
+		ArchiveKey: newKey(),
+		Shared:     true,
+		CreatedAt:  time.Now().UTC(),
+	}
 	return d, l.dests.Create(ctx, d)
 }
 
 // Create adds an S3 destination; orgID nil makes it admin-global. Every
 // destination gets its own random archive key here and keeps it for life.
 func (l *Leaf) Create(ctx context.Context, orgID *string, s Dest) (store.BackupDest, error) {
-	d := store.BackupDest{ID: uuid.NewString(), OrgID: orgID, Kind: S3, ArchiveKey: newKey(), CreatedAt: time.Now().UTC()}
+	d := store.BackupDest{
+		ID:         uuid.NewString(),
+		OrgID:      orgID,
+		Kind:       S3,
+		ArchiveKey: newKey(),
+		CreatedAt:  time.Now().UTC(),
+	}
 	if s.SecretKey == "" {
 		return d, errs.Invalidf("secret_key", "an S3 destination needs a secret key")
 	}
@@ -120,10 +133,11 @@ func (l *Leaf) Delete(ctx context.Context, d store.BackupDest) error {
 	if err != nil {
 		return err
 	}
-	for _, s := range all {
-		if s.DestID != nil && *s.DestID == d.ID {
-			return errs.Conflictf("a volume's backup schedule still uses %s", d.Name)
-		}
+	inUse := slices.ContainsFunc(all, func(s store.BackupSchedule) bool {
+		return s.DestID != nil && *s.DestID == d.ID
+	})
+	if inUse {
+		return errs.Conflictf("a volume's backup schedule still uses %s", d.Name)
 	}
 	return l.dests.Delete(ctx, d.ID)
 }
@@ -239,12 +253,13 @@ func (l *Leaf) fill(ctx context.Context, d *store.BackupDest, s Dest) error {
 	if err != nil {
 		return err
 	}
-	for _, p := range peers {
-		if p.ID != d.ID && p.Name == name {
-			return errs.Conflictf("a destination named %s already exists", name)
-		}
+	if slices.ContainsFunc(peers, func(p store.BackupDest) bool { return p.ID != d.ID && p.Name == name }) {
+		return errs.Conflictf("a destination named %s already exists", name)
 	}
-	d.Name, d.Endpoint, d.Region, d.Bucket = name, endpoint, strings.TrimSpace(s.Region), bucket
+	d.Name = name
+	d.Endpoint = endpoint
+	d.Region = strings.TrimSpace(s.Region)
+	d.Bucket = bucket
 	d.AccessKey, d.SecretKey, d.Shared = strings.TrimSpace(s.AccessKey), s.SecretKey, s.Shared && d.OrgID == nil
 	return nil
 }
@@ -278,7 +293,12 @@ var cronRe = regexp.MustCompile(`^(@(yearly|annually|monthly|weekly|daily|midnig
 // AddSchedule hangs a schedule off a volume. methods is what the volume's
 // engine offers (a fact from the flow); orgID is the volume's org, which the
 // destination has to be visible to.
-func (l *Leaf) AddSchedule(ctx context.Context, volumeID, orgID string, methods []string, s Schedule) (store.BackupSchedule, error) {
+func (l *Leaf) AddSchedule(
+	ctx context.Context,
+	volumeID, orgID string,
+	methods []string,
+	s Schedule,
+) (store.BackupSchedule, error) {
 	b := store.BackupSchedule{ID: uuid.NewString(), VolumeID: volumeID, CreatedAt: time.Now().UTC()}
 	if err := l.fillSchedule(ctx, &b, orgID, methods, s); err != nil {
 		return b, err
@@ -286,7 +306,13 @@ func (l *Leaf) AddSchedule(ctx context.Context, volumeID, orgID string, methods 
 	return b, l.schedules.Create(ctx, b)
 }
 
-func (l *Leaf) UpdateSchedule(ctx context.Context, b store.BackupSchedule, orgID string, methods []string, s Schedule) (store.BackupSchedule, error) {
+func (l *Leaf) UpdateSchedule(
+	ctx context.Context,
+	b store.BackupSchedule,
+	orgID string,
+	methods []string,
+	s Schedule,
+) (store.BackupSchedule, error) {
 	if err := l.fillSchedule(ctx, &b, orgID, methods, s); err != nil {
 		return b, err
 	}
@@ -310,7 +336,13 @@ func (l *Leaf) DeleteSchedule(ctx context.Context, id string) error {
 	return l.schedules.Delete(ctx, id)
 }
 
-func (l *Leaf) fillSchedule(ctx context.Context, b *store.BackupSchedule, orgID string, methods []string, s Schedule) error {
+func (l *Leaf) fillSchedule(
+	ctx context.Context,
+	b *store.BackupSchedule,
+	orgID string,
+	methods []string,
+	s Schedule,
+) error {
 	if len(methods) == 0 {
 		return errs.Refusedf("this volume has no backup method")
 	}
@@ -347,7 +379,12 @@ func (l *Leaf) fillSchedule(ctx context.Context, b *store.BackupSchedule, orgID 
 			return err
 		}
 	}
-	b.Method, b.DestID, b.Cron, b.Timezone, b.Keep, b.Mode = method, s.DestID, cron, tz, s.Keep, mode
+	b.Method = method
+	b.DestID = s.DestID
+	b.Cron = cron
+	b.Timezone = tz
+	b.Keep = s.Keep
+	b.Mode = mode
 	return nil
 }
 
@@ -355,9 +392,22 @@ func (l *Leaf) fillSchedule(ctx context.Context, b *store.BackupSchedule, orgID 
 
 // Start records a run as running. volumeID and scheduleID are nil for a
 // panel run; scheduleID is nil for a manual or pre-restore one.
-func (l *Leaf) Start(ctx context.Context, kind string, volumeID, scheduleID *string, destID, trigger string) (store.BackupRun, error) {
-	r := store.BackupRun{ID: uuid.NewString(), Kind: kind, VolumeID: volumeID, ScheduleID: scheduleID,
-		DestID: destID, Trigger: trigger, Status: Running, CreatedAt: time.Now().UTC()}
+func (l *Leaf) Start(
+	ctx context.Context,
+	kind string,
+	volumeID, scheduleID *string,
+	destID, trigger string,
+) (store.BackupRun, error) {
+	r := store.BackupRun{
+		ID:         uuid.NewString(),
+		Kind:       kind,
+		VolumeID:   volumeID,
+		ScheduleID: scheduleID,
+		DestID:     destID,
+		Trigger:    trigger,
+		Status:     Running,
+		CreatedAt:  time.Now().UTC(),
+	}
 	if kind != KindVolume && kind != KindPanel {
 		return r, errs.Invalidf("kind", "a run is a volume or panel run")
 	}
@@ -368,9 +418,19 @@ func (l *Leaf) Start(ctx context.Context, kind string, volumeID, scheduleID *str
 }
 
 // Finish closes a run: done with its object key and size, or failed with runErr.
-func (l *Leaf) Finish(ctx context.Context, r store.BackupRun, objectKey string, size int64, runErr error) (store.BackupRun, error) {
+func (l *Leaf) Finish(
+	ctx context.Context,
+	r store.BackupRun,
+	objectKey string,
+	size int64,
+	runErr error,
+) (store.BackupRun, error) {
 	now := time.Now().UTC()
-	r.FinishedAt, r.ObjectKey, r.SizeBytes, r.Status, r.Error = &now, objectKey, size, Done, ""
+	r.FinishedAt = &now
+	r.ObjectKey = objectKey
+	r.SizeBytes = size
+	r.Status = Done
+	r.Error = ""
 	if runErr != nil {
 		r.Status, r.Error = Failed, runErr.Error()
 	}
@@ -435,10 +495,14 @@ func Prefix(orgID, volumeID, scheduleID string) string {
 }
 
 // PanelPrefix never lands under an org's (org ids are uuids, never "_panel").
-func PanelPrefix(installID string) string { return "stackr/_panel/" + installID }
+func PanelPrefix(installID string) string {
+	return "stackr/_panel/" + installID
+}
 
 // OrphanPrefix is where the orphan job's last archive of a volume goes.
-func OrphanPrefix(volumeID string) string { return "stackr/_orphan/" + volumeID }
+func OrphanPrefix(volumeID string) string {
+	return "stackr/_orphan/" + volumeID
+}
 
 // ObjectKey is prefix/<utc timestamp>-name; timestamp first so lexical order is chronological.
 func ObjectKey(prefix, name string, now time.Time) string {

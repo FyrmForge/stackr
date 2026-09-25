@@ -1,0 +1,50 @@
+// Package slice is the slice drawer: one tab, its bindings.
+package slice
+
+import c "github.com/FyrmForge/stackr/internal/ui/components"
+
+// View is one provision. Outputs are the binding names the consumer gets,
+// never their values.
+type View struct {
+	Name, DB, User, OnRemove string
+	Public, Consumer         bool
+	Outputs                  []string
+	Detach                   string // POST; "" = no consumer to detach
+	Error                    string
+}
+
+templ Bindings(v View) {
+	<div id="drawer-view" class="space-y-4">
+		<h2 class="text-lg font-semibold">{ v.Name } <span class="text-sm font-normal text-slate-500">slice</span></h2>
+		if v.Error != "" {
+			<p class="banner border-red-300 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300" role="alert">{ v.Error }</p>
+		}
+		<dl class="grid grid-cols-[8rem_1fr] gap-1 text-sm">
+			<dt class="text-slate-500">database</dt><dd class="font-mono">{ v.DB }</dd>
+			<dt class="text-slate-500">user</dt><dd class="font-mono">{ v.User }</dd>
+			<dt class="text-slate-500">on remove</dt><dd>{ v.OnRemove }</dd>
+			<dt class="text-slate-500">public</dt>
+			<dd>
+				if v.Public {
+					yes
+				} else {
+					no
+				}
+			</dd>
+		</dl>
+		<h3 class="font-semibold">Bindings</h3>
+		if len(v.Outputs) == 0 {
+			<p class="text-sm text-slate-500">None yet: the attach job has not run.</p>
+		}
+		<ul class="font-mono text-sm">
+			for _, o := range v.Outputs {
+				<li>{ o }</li>
+			}
+		</ul>
+		if v.Detach != "" {
+			@c.Confirm(c.ConfirmView{Button: "Detach", Title: "Detach " + v.Name + "?",
+				Warning: "The consumer redeploys without these bindings; then the slice is " + v.OnRemove + ".",
+				Action:  v.Detach, Target: "#drawer-view"})
+		}
+	</div>
+}

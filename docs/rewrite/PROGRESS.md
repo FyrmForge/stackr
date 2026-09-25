@@ -269,7 +269,66 @@ session started by darhvader from the START HERE line, no Fable.
     - routes `POST tile/run`, `POST tile/pause`, `GET tile/runs`, `GET tile/runs/:run`, `DELETE tile/runs/:run`; `?run=` on logs and the log stream. CLI `stackr tile run|pause|resume|runs`, `logs --run`, `stop --run`, `--schedule/--trigger/--timeout`.
     - stack file: `kind: cron` + `schedule:`, `kind: function` + `trigger:`, `timeout_minutes:`; the plan prints old and new schedule, trigger and timeout.
     - no stacked PR opened (the builder was told not to push); DECIDE 52 to 62 added.
-- [ ] [F+O] step 6 UI
+- [x] [F+O] step 3c tile-to-tile traffic — done: 2026-09-24 (branch `rewrite-step-3c`, stacked on step 3b)
+    - `leaf/traffic`: memory only; `Sample(ipTile, conntrack, now)`, `Snapshot()`, `Seq()`, `Slices(pairs, bind)`; kept `flowFields` and the rate math; a tuple's first sight counts 0 (session D: only the first sample seeds now, DECIDE 136).
+    - ends: tile ids; `proxy` = the proxy container's IPs plus every stackr network's gateway; `internet` = a tile-side connection's unknown far end; outside <-> proxy and host-only lines drop; zero lanes drop.
+    - `flow/traffic`: `Tick` (read the table first, then tile leaf `Addresses`, domain leaf `ProxyAddrs`, environment leaf `Gateways`), `Edges(env)` (slice rename through the consumer's provision row, then lanes touching the env); `Check` logs one boot warning (no table / no `bytes=`), never fails boot.
+    - scheduler entry `traffic`, `@every 5s`, runs inline (a read, not a job). Docker wrapper gains `Gateways(labels)`. `Config.Conntrack` (default `/proc/net/nf_conntrack`); servicetest points it at a missing file so the tick never touches the fake.
+    - verb `Traffic(env) []Edge{from,to,bps}` + `TrafficSeq`; routes `GET env/traffic` (`env.traffic`), `GET env/events` (`env.events`, SSE, one `traffic` event per sample, first one at connect); `stream.PollAs`; CLI `stackr env traffic`.
+    - installer writes `1` to `/proc/sys/net/netfilter/nf_conntrack_acct` and `/etc/sysctl.d/99-conntrack-acct.conf`; a refusal warns.
+    - still owed: task 4's "install on the VM shows rates between two tiles" (not run); no stacked PR opened (the builder was told not to push); DECIDE 63 to 70 added.
+- [x] [F+O] step 6 UI — done: 2026-09-24 (sessions B–D follow `docs/rewrite/ui-plan.md`:
+  four canvases, drawers and dialogs, seven elements; decisions settled
+  2026-09-24; session A DECIDE items are 71–75)
+  - session A (tasks 1–4) done:
+    - Components live in `internal/ui/components` (DECIDE 10), not `ui/components`; depguard `ui-sees-view-structs` keeps them off service/middleware.
+    - templint has no allowlist; `internal/ui/components/elements_test.go` enforces the four tags (one define each, no import/fetch/XMLHttpRequest/shadow DOM/innerHTML, <300 lines).
+    - TS sources in `ui/ts/`, compiled JS committed in `ui/static/js/elements/` (CI checks it is fresh); `make build` runs tsc, `make lint` runs `tsc --noEmit`; hamr watch rule `ts`.
+    - Vendored htmx 2.0.4 + htmx-ext-sse 2.2.4 in `ui/static/js/vendor/`; idiomorph dropped.
+    - No inline script: htmx config in `<meta name="htmx-config">`, CSRF token in `hx-headers` on `<body>`; `CSRFField` removed.
+    - Placeholder page on `/:org`, `/:org/:stack`, `/:org/:stack/:env` (`org.read`) and `/:org/:stack/:env/:tile` (`tile.read`) in `internal/web/handler/scope`.
+    - Gallery at `GET /dev/components` (DevMode only), `internal/web/handler/devgallery`.
+  - API (package `internal/web/render`):
+    - `render.Page(c echo.Context, status int, title string, body templ.Component) error`: full page when no `HX-Request` or on history restore, else the fragment; sets `Vary: HX-Request`.
+    - `render.Shell(c echo.Context, title string) components.Shell`: CSRF, flash, user, nav, crumbs from the scope.
+  - API (package `internal/ui/components`):
+    - Shell: `Layout(s Shell, body templ.Component)`, `Fragment(s Shell, body templ.Component)` (title + OOB `#shell-header` + OOB `#flash` + body for `#main`), `NavLink(l Link)`, `ThemeToggle()`, `ErrorPage(code int, message string)`; `Shell{Title, CSRF, User string; Crumbs, Nav []Link; Flash Flash}`, `Link{Label, Href string; Active bool}`, `Flash{Message, Kind string}`.
+    - Form: `Form(id, action string)` (children; hx-post, swaps `#id` outerHTML), `FormError(msg string)`, `Field(f FieldView)`, `Submit(label string)`, `FieldError(field, err string)`, `FieldErrorOOB(field, err string)`, `GetError(errors map[string]string, field string) string`, `OOBValidator(c echo.Context, field, errMsg string) error`; `FieldView{Name, Label, Type, Value, Placeholder, Help, Error, ValidateURL string; Required, Disabled bool; Why string}`.
+    - Table: `Table(t TableView)`, `Text(s string)`; `TableView{Headers []string; Rows [][]templ.Component; Empty EmptyView}`.
+    - `EmptyState(e EmptyView)`; `EmptyView{Title, Body string; Action Link}`.
+    - `Pagination(p PageNav)`; `PageNav{Label, Prev, Next string}` ("" = no link).
+    - Badges: `TileBadge(word string)`, `JobBadge(state string)`, `EnvBadge(name, color string)`; `EnvColors []string`.
+    - Cards: `TileCard(t TileCardView)`, `VolumeCard(v VolumeCardView)`; `TileCardView{Name, Href, Kind, State, Source string; Volumes []VolumeCardView}`, `VolumeCardView{Name, Href, Size string; Orphaned bool}`.
+    - `Confirm(v ConfirmView)` (panics if Word set and Kept empty); `ConfirmView{Button, Title, Warning string; Kept []string; Word, Action, Target string}`; posts `Action` on the element's `confirmed` event; `Target` "" = swap none.
+    - Logs: `LogPane(v LogPaneView)`, `LogLine(l LogLineView)`; `LogPaneView{StreamURL, Level, Search string}`, `LogLineView{Time, Level, Text string}`; SSE events `line` (one rendered LogLine) and `end`.
+    - Jobs: `JobStatus(v JobStatusView)`, `JobStatusBody(v JobStatusView)`; `JobStatusView{Kind, State, Error, Href, StreamURL string; Live bool}`; SSE events `update` (a rendered JobStatusBody) and `end`.
+    - `Plan(p PlanView)`; `PlanView{Title string; Changes []ChangeView; Blockers, Warnings []string; CanDeploy bool}`, `ChangeView{Kind, Tile, Field, Old, New, Note string}`.
+    - `ParamEditor(v ParamEditorView)`; `ParamEditorView{Action, DeleteAction string; Params []ParamRowView; Secrets []SecretRowView; ReadOnly bool; Why string}`, `ParamRowView{Collection, Name, Value, DecidedBy string; Overrides bool; Warn string}`, `SecretRowView{Collection, Name string; Set bool; DecidedBy string; Overrides bool; Warn string}`; posts `param.<c>.<n>`, `secret.<c>.<n>` (empty = keep), `new_collection/new_name/new_kind/new_value`; delete posts `collection,name`.
+    - `SettingsForm(v SettingsFormView)`; `SettingsFormView{ID, Action, Scope string; Rows []SettingRowView; ReadOnly bool; Why string}`, `SettingRowView{Key, Desc, Type, Value, Effective, DecidedBy, Error string}`; posts one field per key, "" = inherit.
+  - Elements: `<log-pane level search>`, `<confirm-dialog word>` (fires bubbling `confirmed`), `<flash-toast kind>` (also shows htmx request errors), `<theme-toggle>` (localStorage `theme`).
+  - [x] session B task 5 done (branch `rewrite-step-6b`): `<graph-canvas>`, `<graph-node>`, `<side-drawer>` in `ui/ts/`; `elements_test.go` holds the seven tags, a line budget each (canvas 300, rest 150) and the contract names each source must carry. Additions to the contract are in step-6.md "Added by task 5": canvas `divider`, `[data-look]`/`[data-zoom]` chrome, `#graph-arrow` marker, a `node_id` hidden input, `hx-disinherit="*"` on the node (else the card's drawer GET inherits `hx-swap="none"`). `components.SideDrawer()` sits in `Layout` after `#main`. Gallery: fake canvas at `/dev/components`, `POST /dev/components/positions` (204), `GET /dev/components/drawer`. Checked in a browser: drag, wall, marquee, multi-drag, drawer tabs/Escape/backdrop/URL, wheel zoom, pan, fit, hover, fan-out, arrows. Not checked: pinch, touch slop, snap, nudge, straight, localStorage, `focus`, sub-tile click. DECIDE 76–83.
+  - [x] session B tasks 6–8 done (branch `rewrite-step-6b`): `graph` service (`Canvas`, positions, annotations; env node ids are row ids as C's cards expect); `internal/ui/graph` + one `internal/web/handler/canvas` for the four levels (helper routes under `<page>/-/`, one SSE producer `Poll` the env stream folds in); drawers `internal/ui/drawer/{org,stack,env,connector,vars}` at each card's own path in `components.Drawer`, create org/stack/env + install connector in `internal/ui/dialog`, delete confirms. Owed items done: a fresh `?drawer=&tab=` load renders the drawer open with its tab (same render as the route, per-tab verbs), pan/zoom kept per path in sessionStorage (DECIDE 76 took (b)). C's shared files (`stream.go` HTML events, `render.Event`, `webtest`) applied byte-identical from 3a43130. Routes in step-6.md "Canvas pages" and "Drawers and dialogs". DECIDE 84–99. Not checked in a browser.
+    - Owed to task 7/8 (fresh `?drawer=&tab=` renders closed): done in B via `render.PageWith`; env drawers joined at the merge.
+  - [x] session C task 9 done (branch `rewrite-step-6c`): cards in `internal/ui/graph/cards` (`Card`, `Subs`, `Footer`, `Lanes`; own views `CardView`, `FooterView`, `SubView`, `Lane`), every kind in the gallery's "Env canvas cards"; lanes are one `<svg data-edges data-lanes id="graph-lanes">` swapped by the `traffic` event of `GET /:org/:stack/:env/events` (`internal/web/handler/env`); SSE bodies are rendered templ (`stream.HTML`, `render.Event`). Contract in step-6.md "Added by task 9". DECIDE 100–101.
+    - Merge need for B (`childList`, DECIDE 100): B's observer already had it; checked at the merge.
+  - [x] session C task 10 done: drawers `internal/ui/drawer/{tile,instance,slice,volume,proxy}`, `internal/ui/dialog` (create tile, restart/stop/delete/rollback confirms), handlers `internal/web/handler/{tile,env}` (each `Mount`s its routes); every answer is one `#drawer-view`. New read verbs `TileImage`, `TileVolumes`, `Volume`, `InstanceSlices`, `Provision`, `Routes` (verbs.md). Shared test site `internal/web/webtest`. Drawer URLs in step-6.md "Added by task 10". DECIDE 102–114.
+  - [x] sessions B and C merged 2026-09-24 (branch `rewrite-step-6c`, C rebased on `rewrite-step-6b`):
+    - Env drawers, dialogs, job and log streams moved under `/:org/:stack/:env/-/` (`-/tiles/:tile`, `-/instances/:tile`, `-/slices/:id`, `-/volumes/:id`, `-/proxy`, `-/new-tile`, `-/jobs/:job/events`); `handler/env` lost its `/events`.
+    - One env stream: `canvas` `/-/events` folds `Poll` (graph, footers) with a `traffic` producer (lanes at connect and on each `TrafficSeq` change); lanes also drawn with the page.
+    - Env nodes wear C's cards (`cards.Card` + `cards.Subs`, live `cards.Footer`); the card is a flex column and fills what its sub-tiles leave (no inline height). A hosting instance sub-tile carries its tile slug; replica and instance sub-tiles open their drawer.
+    - `drawer()` in `internal/web/handler/canvas/drawer.go` opens tile, instance, slice, volume, proxy and vars drawers on a fresh `?drawer=&tab=` load (sub-tile ids too).
+    - Tile drawer uses `components.Drawer` and `PostButton`; one tab strip.
+    - `+ tile` on the env canvas.
+    - Browser-checked on the built binary: four canvases render; drag persists after reload (positions 204); tile card opens its drawer with 8 tabs; fresh `?drawer=&tab=` opens it; Escape closes and cleans the URL; a swapped-in lanes svg gets real paths. Fixed there: logs tab without a container no longer opens a failing stream; `main.js` afterSwap tolerates SSE swaps. DECIDE 115–119.
+  - [x] session D tasks 11–13 done (branch `rewrite-step-6d`, stacked on `rewrite-step-6c`, released to the VM as v0.0.12):
+    - Task 11: auth pages (login/register, setup, invite accept, CLI authorize, account) from the shared components; a page load without a session redirects to login with a same-site `next`; `GET /settings/github/callback` finishes the install and opens the connector drawer; admin drawer from the nav (settings, users, update check/run, raw Caddy, panel backup) with its job stream at `/-/jobs/:job/events`.
+    - DECIDE fixes: 82 (drawer traps Tab and gives focus back to the opener), 101 (a right-to-left lane draws from its far end, labels at 30% so a pair's two labels sit apart), 108 (cards are `tabindex=0 role=button`, Enter/Space opens), 118 (tile cards carry cron next run and image-watch new version). Env drawer releases tab gains dry run, promote and roll back (supersedes 92).
+    - Task 12 audit: `handler-audit/audit.sh internal/web internal/ui` still prints hits; the one real one (pending invites filtered in a handler) moved to `org.Leaf.Pending`; the rest are false positives, explained by category in commit a013293.
+    - Task 12 smoke on the VM, all nine steps green after fixes: register → setup → org canvas; stack `shop`, env `dev`; `traefik/whoami` tile; deploy → footer running; drag and reload keeps the spot; logs tab streams; function tile (`alpine`, `echo hi`) runs and its log reads `hi`; promote dry run → promote → roll back (dev whoami moved to `v1.10.3`, image watch derived #4, dev and then prod promoted to #4 from their releases tabs, prod rolled back to #1; the ladder blocks a release that has not reached the rung below); admin → check for update finds v0.5.0 (not run).
+    - Fixed by the smoke: create-tile had no command field; the status tab stayed on the old word after a job ended (a hidden `sse:end` refresher, on an inner swap div so updates do not wipe it); the runs tab stayed on `queued` (polls every 2 s while a run is live).
+    - Traffic lane: a `client` tile wgetting `whoami` every minute drew no lane. The sampler only counted deltas on tuples it had seen, and a one-shot request first shows up already closed. After the first (seed) tick a new tuple now counts in full (step 3c's "first sight counts 0" is gone). Checked on v0.0.12: lanes client→whoami 81 B/s and back 105 B/s.
+    - Gates: `make build`, `make lint`, `make test`, `make templint` clean. Elements: canvas 299/300, node 144/150, drawer 77, log-pane 85, confirm-dialog 57, flash-toast 53, theme-toggle 42.
+    - No push or PR (builder told not to). DECIDE 120–140.
 
 ## DECIDE:
 
@@ -598,3 +657,202 @@ Raised by step 3b (builder took the lean; flip any):
    left `running` at boot is closed failed "stackrd restarted while this
    run was going"; its job is not re-run. Options: (a) keep; (b) re-queue
    it. Lean (a).
+
+Raised by step 3c (builder took the lean; flip any):
+
+63. (step 3c) **The proxy end is the proxy container too.** The spec says
+   Caddy is host-network, but `stackr-proxy` is a bridge container joined
+   to every ingress network, so proxy -> tile comes from its container IP.
+   Both its IPs and every stackr network gateway map to `proxy`.
+   Options: (a) keep both; (b) gateways only (ingress would show as
+   internet). Lean (a).
+64. (step 3c) **Host traffic counts as proxy.** The host-network panel
+   (health gates, managed admin) reaches tiles from the network gateway,
+   so it lands on the proxy lane too. Options: (a) keep; (b) a third
+   pseudo id `host` for gateways. Lean (a).
+65. (step 3c) **A slice end is the consumer's provision row id.** A shared
+   slice (`Share` copies the row) shows once per consumer, not as one
+   card. The rename runs for the env's own consumers only: on the
+   instance's env canvas, a consumer from another env shows as
+   `<tile> -> instance` (a card that env does not draw; step 6 drops it).
+   Options: (a) keep; (b) key shared rows by the original slice.
+   Lean (a).
+66. (step 3c) **Zero lanes are dropped.** An open idle connection draws no
+   lane. Options: (a) keep; (b) keep 0 lanes so the graph can show idle
+   links. Lean (a).
+67. (step 3c) **No boot warning on an empty table.** "No line carries
+   `bytes=`" only warns when the file has lines. Options: (a) keep;
+   (b) warn on empty too. Lean (a).
+68. (step 3c) **IPs come from the container list, not inspect.** The list
+   already carries every network IP; no per-container inspect each tick
+   (`Detail.Networks` is only used for the proxy). Options: (a) keep;
+   (b) inspect each. Lean (a).
+69. (step 3c) **Events stream URL and verb.** `GET .../envs/:env/events`,
+   authz verb `tile.read`, one event `traffic` (the env's full lane list,
+   not a ping). Step 6 adds its card events on the same stream. Options:
+   (a) keep; (b) step 6 picks another URL. Lean (a).
+70. (step 3c) **Installer writes /proc/sys directly.** No `sysctl` binary
+   call; a refusal (no conntrack module, read-only /proc) prints a warning
+   and the install goes on. Options: (a) keep; (b) fail the install.
+   Lean (a).
+
+Raised by step 6 session A (builder took the lean; flip any):
+
+71. **(step 6) main.js stays.** `ui/static/js/main.js` (hamr's
+   revalidate-while-typing listener, scroll to the first field error,
+   console logging) is the one script besides the four elements. Options:
+   (a) keep; (b) fold it into an element. Lean (a).
+72. **(step 6) Env colour is a palette name.** `EnvBadge` takes one of
+   `components.EnvColors`; anything else renders neutral, hex is not
+   supported. Options: (a) keep, the env form offers a select; (b) accept
+   hex with an inline style. Lean (a).
+73. **(step 6) Dark by default.** The server renders `<html class="dark">`;
+   `<theme-toggle>` applies a stored "light" when its module runs, so a
+   light user sees dark for a moment on a full load (no inline script
+   under the CSP). Options: (a) keep; (b) a theme cookie read by
+   `render.Shell`. Lean (a).
+74. **(step 6) Log filters are not in the URL.** `<log-pane>` starts from
+   the `level`/`search` the handler put in the view; changing them does
+   not rewrite the URL. Options: (a) keep; (b) the element pushes them
+   with `history.replaceState`. Lean (a).
+75. **(step 6) Flash dismissal.** Success/info/warning toasts go after 5 s;
+   errors (including htmx request failures, shown as "Request failed:
+   <status>") stay until clicked. Options: (a) keep; (b) all stay. Lean (a).
+
+Raised by step 6 session B task 5 (builder took the lean; flip any):
+
+76. **(step 6) A `graph` SSE swap resets pan and zoom.** Replacing the whole
+   canvas on add/remove re-runs fit. Options: (a) keep; (b) the element
+   keeps its viewport in sessionStorage keyed by path. Lean (b), in task 7.
+77. **(step 6) Line budgets are full.** Canvas 298/300, node 149/150, and
+   only because the canvas class has no blank lines and some one-line
+   statements. Options: (a) accept the dense style, no growth; (b) raise
+   the canvas to 350 and the node to 180. Lean (b).
+78. **(step 6) Multi-drag clamps each card at the wall on its own.** A
+   system card stops at the divider while the rest keep moving, so the
+   group's spacing changes. Options: (a) keep; (b) clamp the shared
+   delta. Lean (a).
+79. **(step 6) No-overlap nudge and hover focus are always on.** v0 had
+   both as view toggles. Options: (a) keep; (b) add them to `data-look`.
+   Lean (a).
+80. **(step 6) Marquee replaces the selection.** Shift+drag again does not
+   add. Options: (a) keep; (b) add to it. Lean (a).
+81. **(step 6) Close during an in-flight open reopens the drawer** when the
+   response lands. Options: (a) keep; (b) the element ignores a swap after
+   a close until the next card click. Lean (a).
+82. **(step 6) Drawer focus.** Opening focuses Close; no focus trap and no
+   focus return, though the aside says `aria-modal="true"`. Options:
+   (a) keep; (b) trap and return focus (lines in `side-drawer`). Lean (b)
+   in session D's a11y pass.
+83. **(step 6) Every page loads all seven element scripts.** Modules, cached,
+   a few KB. Options: (a) keep; (b) canvas pages only. Lean (a).
+
+Raised by step 6 session B tasks 6–8 (builder took the lean; flip any):
+
+84. **(step 6) Graph verbs are web-only.** `Canvas`, positions and notes
+   have no `/api/v1` routes. Options: (a) keep; (b) add them for the CLI.
+   Lean (a).
+85. **(step 6) One canvas handler, not `handler/<level>`.** The four levels
+   and their drawers share `internal/web/handler/canvas`; the level comes
+   from the resolved scope. Options: (a) keep; (b) split per level as
+   ui-plan §6 says. Lean (a).
+86. **(step 6) Two route spellings.** B's helper routes and drawers sit
+   under `<page>/-/` (`-` is never a slug); C's env routes are
+   `/:org/:stack/:env/drawer/...` and `/events`, which shadow a tile named
+   `drawer` or `events`. Options: (a) keep both; (b) move C's under `/-/`
+   at the merge. Lean (b).
+   **Resolved at the merge: (b), all under `/-/`.**
+87. **(step 6) The env canvas streams from C's `/events`.** On B alone
+   that URL is a 404 until the merge folds `canvas.Poll` in. Options:
+   (a) keep; (b) B serves `/-/events` at env too. Lean (a).
+   **Resolved at the merge: (b), one `/-/events` with traffic folded in; C's `/events` removed.**
+88. **(step 6) Params editor shows this level's rows only.** No verb
+   returns the resolved chain, so "decided by" is the level itself and
+   "overrides" is never set. The vars card and every params tab are the
+   same editor. Options: (a) keep; (b) add a resolve verb. Lean (b),
+   later.
+89. **(step 6) Member emails come from the user list.** `Members` returns
+   user ids only; the tab reads `Users()` and maps. Options: (a) keep;
+   (b) a verb that joins members to users. Lean (b).
+90. **(step 6) Invite and key tokens show in the drawer's note.** An
+   invite answers "Invite link: /invite/<id>" (session D's page); a
+   minted key shows once in the note. Options: (a) keep; (b) a copy box.
+   Lean (a).
+91. **(step 6) Placeholders where no verb exists.** Connector repos, env
+   logs (per tile instead), the PR badge and stack defaults. Options:
+   (a) keep; (b) add verbs. Lean (a) for v1.
+92. **(step 6) Releases tab lists only.** Diff, promote plan and rollback
+   are env actions (C's rollback confirm). Options: (a) keep; (b) a
+   per-row "promote to" on the stack drawer. Lean (a).
+93. **(step 6) Remove member has no confirm.** One button. Options:
+   (a) keep; (b) a confirm. Lean (b), small.
+94. **(step 6) "+ org" is admin-only.** It mirrors the API's `org.create`;
+   an owner sees no button. Options: (a) keep; (b) any user may create.
+   Lean (a).
+95. **(step 6) Connector install posts a plain form to GitHub**
+   (`templint:ignore no-native-form-actions`, as the old panel did). The
+   callback page is session D's. Options: (a) keep; (b) none. Lean (a).
+96. **(step 6) Anonymous on a deep page gets 401, home redirects.** `/`
+   sends a visitor to `/login`; `/:org...` answers 401/404 as the access
+   test holds (task 7 had broken it; fixed). Options: (a) keep;
+   (b) every page redirects to login. Lean (b) in session D.
+97. **(step 6) Notes land at 0,0 and redraw for the typist.** A new note
+   has no drop point, and its text is in `Sig`, so the author's own tab
+   gets a `graph` swap after saving. Options: (a) keep; (b) leave text out
+   of `Sig`. Lean (b).
+98. **(step 6) Upper canvases read Docker every 3 s per open stream** for
+   the worst-status roll-up. Options: (a) keep; (b) cache status per
+   tile for the interval. Lean (a) until it shows.
+99. **(step 6) Ghost refs keep `ref:stack.X` ids** and the compare pill is
+   names, releases and "behind" only. Options: (a) keep; (b) resolve
+   ghosts to the target's id so a click opens it. Lean (a).
+
+Raised by step 6 session C tasks 9 and 10 (builder took the lean; flip any):
+
+100. **(step 6) Lanes need the canvas to watch its children.** `<graph-canvas>` re-paths only on node attribute changes, so a lanes svg swapped in by SSE keeps `d="M0,0"` until a card moves. Options: (a) B adds `childList` to the canvas observer; (b) the server draws lane paths. Lean (a). **Resolved at the merge: B already observed `childList`; checked in a browser.**
+101. **(step 6) Lane labels.** A right-to-left lane's label reads upside down and both directions of a pair overlap. Options: (a) keep; (b) offset each direction and flip reversed text. Lean (b), session D.
+102. **(step 6) The create-tile form opens in the drawer**, not a modal; no layout slot exists for one. Options: (a) keep; (b) add a dialog slot. Lean (a).
+103. **(step 6) Repo pick is a URL field.** No verb lists a connector's repos; the help names the connector hosts. Options: (a) keep for v1; (b) add a repos verb and a select. Lean (a).
+104. **(step 6) Tile settings show the tile rung only.** No verb answers the cascade at tile level, so "applies" is the tile's value or "no limit". Options: (a) keep; (b) a `TileSettings` verb with effective and decided-by. Lean (b).
+105. **(step 6) `events` and `drawer` shadow tile slugs.** Echo matches the static segment before `:tile`, so a tile slugged `events` or `drawer` has no page. Options: (a) add both to `slug.Reserved`; (b) move them under a prefix. Lean (a). **Moot at the merge: both moved under `/-/`.**
+106. **(step 6) Job stream sends the final state as `update`.** `JobStatus` swaps on `update` and closes on `end`, so the web job stream sends the finished body as one last `update`, then `end`; the component is untouched. Options: (a) keep; (b) the component swaps on `update,end`. Lean (a).
+107. **(step 6) Log levels are not parsed.** The stream splits docker's timestamp only; `<log-pane>`'s level filter sees "" on every line. Options: (a) keep; (b) parse common level words. Lean (b), later.
+108. **(step 6) Cards are not keyboard-openable.** A card is a div with `hx-get`. Options: (a) keep; (b) `tabindex`, `role="button"` and an Enter trigger. Lean (b), session D a11y.
+109. **(step 6) The managed instance drawer has only a slices tab.** Restart, logs and status of the instance tile are not reachable from its card. Options: (a) keep; (b) add the tile drawer's status and logs tabs. Lean (b).
+110. **(step 6) Domains attach and detach only.** No in-place edit of HTTPS, redirect or proxy extras (`UpdateDomain` unused by the web). Options: (a) keep; (b) an edit form per row. Lean (a) for v1.
+111. **(step 6) Handlers mount their own routes** (`Mount(g, access)`), not one line each in `server.go`. Options: (a) keep; (b) list every route in `server.go`. Lean (a).
+112. **(step 6) Domain detach and raw are not checked against the tile in the URL.** A domain id of another tile in the same env is accepted (env.write still gates it; mirrors the API). Options: (a) keep; (b) refuse unless the domain's tile is the URL's tile. Lean (b).
+113. **(step 6) Backup schedules are read-only in the drawer.** The backups tab lists schedules and runs; editing a schedule stays in the CLI/API. Options: (a) keep for v1; (b) a schedule form. Lean (a).
+114. **(step 6) The volume drawer makes 5 reads per open.** Volume, schedules, runs, the attached tile and the env are read separately. Options: (a) keep; (b) one `VolumeDrawer` read verb. Lean (a) until it shows up slow.
+
+Raised by the step 6 B+C merge (builder took the lean; flip any):
+
+115. **(step 6) Env drawers on a fresh load fetch themselves.** `drawer()` renders a `DrawerLoad` placeholder (`hx-trigger="load"`) for tile, instance, slice, volume and proxy, not the body, so a fresh `?drawer=` costs one extra request. Options: (a) keep; (b) call each drawer's render in-process. Lean (a).
+116. **(step 6) The env stream gate is `org.read`.** C gated `/events` on `tile.read`; the merged `/-/events` uses the canvas's `org.read` at every level. Options: (a) keep; (b) `tile.read` at env. Lean (a), the canvas page itself is `org.read`.
+117. **(step 6) `graph-canvas.ts` stays packed.** 298/300 lines with blank lines stripped, same as B; unpacking would break the budget. Ties to DECIDE 77. Options: (a) keep; (b) raise the canvas budget and unpack. Lean (a) until 77 is settled.
+118. **(step 6) Every tile card opens on the status tab.** Cron and function cards too; the graph view does not feed `NewVersion` or `NextRun`, so those footer bits stay empty. Options: (a) keep; (b) feed them from the graph service. Lean (b), session D.
+119. **(step 6) Logs tab without a container shows a line.** A tile with no run and no container gets "No container is running yet." instead of a `<log-pane>` whose stream 404s and retries. Options: (a) keep; (b) the stream answers an empty `end`. Lean (a).
+
+Raised by step 6 session D (builder took the lean; flip any):
+
+120. **(step 6) Page loads log in first.** A page GET without a session redirects to login with a same-site `next`; htmx, stream and API requests keep the 401. Options: (a) keep; (b) 401 everywhere. Lean (a).
+121. **(step 6) Register lands on /setup.** The first user sets the server up; a later non-admin with no org is told to ask for an invite. Options: (a) keep; (b) let anyone create an org. Lean (a).
+122. **(step 6) CLI authorize is a web route.** The page hx-posts and answers `HX-Redirect` to the CLI's 127.0.0.1 callback. Options: (a) keep; (b) an API route. Lean (a).
+123. **(step 6) Account revokes keys only.** Minting stays in the org drawer. Options: (a) keep; (b) mint from account too. Lean (a).
+124. **(step 6) Top-level words shadow org slugs.** `account`, `cli`, `dev`, `invite`, `login`, `logout`, `register`, `settings`, `setup` win over an org of that slug; org slugs are not checked against `slug.Reserved` at all. Options: (a) reserve them for orgs; (b) keep. Lean (a).
+125. **(step 6) The invite page does not name the org.** No verb reads an invite's org before accept. Options: (a) keep; (b) a lookup verb. Lean (a).
+126. **(step 6) The update badge shows only in the update tab**, not on the nav. Options: (a) keep; (b) a nav badge from a cached check. Lean (a).
+127. **(step 6) `proxy_custom` is stored but not read.** The raw Caddy tab saves it; the proxy flow ignores it. Options: (a) wire it in; (b) drop the tab field. Lean (a), later.
+128. **(step 6) A secret setting can't be cleared from the admin form**; empty keeps the old value. Options: (a) keep; (b) a clear checkbox. Lean (a).
+129. **(step 6) The GitHub callback trusts the state nonce.** Any signed-in user holding it completes the install; no `connector.write` check, and a caller outside the org lands on `/`. Options: (a) keep; (b) also match the session user who started it. Lean (b), later.
+130. **(step 6) Env drawer releases tab supersedes DECIDE 92.** Dry run, promote and roll back live there; the old tile rollback route is kept. Options: (a) keep both; (b) drop the old route. Lean (a).
+131. **(step 6) The promote job reaches the tab through the echo context**, not a return value. Options: (a) keep; (b) return the job id. Lean (a).
+132. **(step 6) The admin job stream lives at `/-/jobs/:job/events`.** Options: (a) keep; (b) under `/settings`. Lean (a).
+133. **(step 6) Roll back vs Promote is chosen by release number.** When the target env derived its own newer release (a direct deploy there), moving it to a lower number from the rung below reads "Roll back". Options: (a) keep; (b) decide by whether the release has been current in the target. Lean (b).
+134. **(step 6) Create-tile takes a command** for every source except managed. Options: (a) keep; (b) image and function only. Lean (a).
+135. **(step 6) Live tabs refetch themselves.** A live job refetches its tab on `sse:end`; the runs tab polls every 2 s while a run is live. Options: (a) keep; (b) a run SSE stream. Lean (a).
+136. **(step 6) Traffic counts a new tuple in full after the seed tick.** A long-lived connection whose end only now maps to a tile (a new container) spikes once. Options: (a) keep; (b) also track unmapped tuples. Lean (a).
+137. **(step 6) Re-running the installer does not upgrade.** It is a no-op while `stackr` and `stackr-proxy` exist; the smoke removes them first. Options: (a) keep, upgrade is the admin route; (b) the installer swaps an older image. Lean (a).
+138. **(step 6) Small UI misses from the smoke, not fixed:** the function status tab offers Restart/Stop; an admin can disable themselves; log lines show docker's E/O prefix; htmx logs an `Event` console error when a page's SSE stream is torn down on navigation. Options: (a) fix in step 7; (b) keep. Lean (a).
+139. **(step 6) Handler audit output is not empty.** Every remaining hit is a false positive, explained in commits a013293 and the progress commit (three new templ `if set` hits: job refresher, create-tile command, runs poller). Options: (a) keep; (b) teach the script those shapes. Lean (b).
+140. **(step 6) Editing an image tile's tag does nothing on redeploy.** Once a release pins the tile, `deploy.Redeploy` runs the pinned digest; a new `image_ref` (API PATCH; the web has no field for it) only lands when image watch's "Check now" derives a release and that release is promoted. The image tab also shows "running digest: none" for a running tile. Options: (a) keep, image watch is the path; (b) `UpdateTile` derives a release when `image_ref` changes, and the web gets an image field. Lean (b), step 7. **Fixed 2026-09-24 (v0.0.14, checked on the VM):** an image pin's `repo` now holds the ref it came from, tag included; a plain deploy/redeploy whose pin no longer matches the tile's ref runs the tag and pins it (one release); promote and rollback still run the release as pinned. The image tab has an Image field. "Running digest" and the graph's new-version chip read the env's release pin (the images table only knows builds, so the chip never lit for pulled tiles). Promote and rollback also write a pin's tag back onto a tile edited outside the stack file, so a redeploy after a rollback stays put (v0.0.15, checked on the VM: roll back #6→#5, then Deploy, stays on v1.10.1).

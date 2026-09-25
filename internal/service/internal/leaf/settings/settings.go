@@ -96,19 +96,20 @@ func Set(s *Settings, key, raw string) error {
 		return fmt.Errorf("no setting named %q", key)
 	}
 	raw = strings.TrimSpace(raw)
+	var err error
 	switch key {
 	case "cpu_limit":
-		return setNum(&s.CPULimit, k, raw, parseFloat)
+		s.CPULimit, err = parseNum(k, raw, parseFloat)
 	case "mem_limit_mb":
-		return setNum(&s.MemLimitMB, k, raw, strconv.Atoi)
+		s.MemLimitMB, err = parseNum(k, raw, strconv.Atoi)
 	case "protect":
-		return setNum(&s.Protect, k, raw, strconv.ParseBool)
+		s.Protect, err = parseOpt(k, raw, strconv.ParseBool)
 	case "protect_user":
 		s.ProtectUser = str(raw)
 	case "protect_password":
 		s.ProtectPassword = str(raw)
 	}
-	return nil
+	return err
 }
 
 func parseFloat(s string) (float64, error) { return strconv.ParseFloat(s, 64) }
@@ -120,35 +121,35 @@ func str(raw string) *string {
 	return &raw
 }
 
-// setNum parses raw into dst. Refused: parse failure, negative, and zero
-// where the knob has no meaningful zero.
-func setNum[T int | float64 | bool](dst **T, k Knob, raw string, parse func(string) (T, error)) error {
+// parseOpt parses raw into a level's value: nil for empty (inherit), an
+// error when it does not parse.
+func parseOpt[T any](k Knob, raw string, parse func(string) (T, error)) (*T, error) {
 	if raw == "" {
-		*dst = nil
-		return nil
+		return nil, nil
 	}
 	v, err := parse(raw)
 	if err != nil {
-		return fmt.Errorf("%s: %q is not a valid %s", k.Key, raw, k.Type)
+		return nil, fmt.Errorf("%s: %q is not a valid %s", k.Key, raw, k.Type)
 	}
-	if err := usable(k, v); err != nil {
-		return err
-	}
-	*dst = &v
-	return nil
+	return &v, nil
 }
 
-func usable[T int | float64 | bool](k Knob, v T) error {
-	var f float64
-	switch x := any(v).(type) {
-	case int:
-		f = float64(x)
-	case float64:
-		f = x
-	default:
-		return nil
+// parseNum is parseOpt plus the usable check, for the numeric knobs.
+func parseNum[T int | float64](k Knob, raw string, parse func(string) (T, error)) (*T, error) {
+	v, err := parseOpt(k, raw, parse)
+	if err != nil || v == nil {
+		return v, err
 	}
-	if f < 0 || (f == 0 && !k.AllowZero) {
+	if err := usable(k, *v); err != nil {
+		return nil, err
+	}
+	return v, nil
+}
+
+// usable refuses a negative number, and zero where the knob has no
+// meaningful zero.
+func usable[T int | float64](k Knob, v T) error {
+	if v < 0 || (v == 0 && !k.AllowZero) {
 		return fmt.Errorf("%s: %v is not a usable value", k.Key, v)
 	}
 	return nil

@@ -1,0 +1,78 @@
+// Package stack is the stack card's drawer tabs (org canvas): settings
+// (name, config repo, delete) and releases. Params is the vars editor,
+// composed by the handler.
+package stack
+
+import c "github.com/FyrmForge/stackr/internal/ui/components"
+
+var Tabs = []string{"settings", "params", "releases"}
+
+type SettingsView struct {
+	Base       string // POST /rename, /config; "" = read-only
+	Name       string
+	Connectors []Option
+	Connector  string
+	Repo       string
+	Branch     string
+	Path       string
+	Delete     c.ConfirmView
+}
+
+type Option struct{ Value, Label string }
+
+type ReleasesView struct{ Rows []ReleaseRow }
+
+type ReleaseRow struct{ Number, Created, By string }
+
+func target() string { return "#" + c.DrawerRoot }
+
+templ Settings(v SettingsView) {
+	<div class="space-y-6" id="tab-settings">
+		<form hx-post={ v.Base + "/rename" } hx-target={ target() } hx-swap="outerHTML" class="space-y-3">
+			@c.Field(c.FieldView{Name: "name", Label: "Name", Value: v.Name, Required: true, Disabled: v.Base == "", Why: "Renaming needs write."})
+			if v.Base != "" {
+				@c.Submit("Rename")
+			}
+		</form>
+		<form hx-post={ v.Base + "/config" } hx-target={ target() } hx-swap="outerHTML" class="space-y-3">
+			<h3 class="font-semibold">Config repo</h3>
+			<p class="text-sm text-slate-500">Where stackr-compose.yml lives. Empty repo = none.</p>
+			<fieldset disabled?={ v.Base == "" } class="space-y-3">
+				<label for="connector" class="label">Connector</label>
+				<select id="connector" name="connector" class="input">
+					<option value="">public</option>
+					for _, o := range v.Connectors {
+						<option value={ o.Value } selected?={ o.Value == v.Connector }>{ o.Label }</option>
+					}
+				</select>
+				@c.Field(c.FieldView{Name: "repo", Label: "Repo", Value: v.Repo, Placeholder: "acme/infra"})
+				@c.Field(c.FieldView{Name: "branch", Label: "Branch", Value: v.Branch, Placeholder: "main"})
+				@c.Field(c.FieldView{Name: "path", Label: "Path", Value: v.Path, Placeholder: "stackr-compose.yml"})
+				if v.Base != "" {
+					@c.Submit("Save")
+				}
+			</fieldset>
+		</form>
+		if v.Base != "" {
+			<section class="space-y-2">
+				<h3 class="font-semibold">Delete</h3>
+				@c.Confirm(v.Delete)
+			</section>
+		}
+	</div>
+}
+
+// ponytail: list only; promote plan and rollback are env actions (the env
+// drawer's rollback confirm lives with the env canvas).
+templ Releases(v ReleasesView) {
+	<div id="tab-releases">
+		if len(v.Rows) == 0 {
+			<p class="text-sm text-slate-500">No releases yet: the first deploy makes one.</p>
+		}
+		<ul class="divide-y divide-slate-200 text-sm dark:divide-slate-800">
+			for _, r := range v.Rows {
+				<li class="flex gap-3 py-2"><span class="font-mono">#{ r.Number }</span><span class="flex-1">{ r.By }</span><span class="text-slate-500">{ r.Created }</span></li>
+			}
+		</ul>
+	</div>
+}

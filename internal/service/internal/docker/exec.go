@@ -28,7 +28,11 @@ func (d *Client) Logs(ctx context.Context, id string, tail int) (string, error) 
 
 func (d *Client) logs(ctx context.Context, id string, tail int, follow bool) (io.ReadCloser, error) {
 	rc, err := d.cli.ContainerLogs(ctx, id, container.LogsOptions{
-		ShowStdout: true, ShowStderr: true, Follow: follow, Timestamps: follow, Tail: strconv.Itoa(tail),
+		ShowStdout: true,
+		ShowStderr: true,
+		Follow:     follow,
+		Timestamps: follow,
+		Tail:       strconv.Itoa(tail),
 	})
 	return rc, wrap(err)
 }
@@ -66,7 +70,10 @@ func (d *Client) StreamLogs(ctx context.Context, id string, tail int) (<-chan st
 	wg.Add(2)
 	go scan(outR, "O ")
 	go scan(errR, "E ")
-	go func() { wg.Wait(); close(ch) }()
+	go func() {
+		wg.Wait()
+		close(ch)
+	}()
 	var once sync.Once
 	stop := func() {
 		once.Do(func() {
@@ -85,7 +92,9 @@ func (d *Client) StreamLogs(ctx context.Context, id string, tail int) (<-chan st
 // ExitError.
 func (d *Client) Exec(ctx context.Context, id string, cmd []string) (string, error) {
 	execID, err := d.cli.ContainerExecCreate(ctx, id, container.ExecOptions{
-		Cmd: cmd, AttachStdout: true, AttachStderr: true,
+		Cmd:          cmd,
+		AttachStdout: true,
+		AttachStderr: true,
 	})
 	if err != nil {
 		return "", wrap(err)
@@ -123,9 +132,17 @@ func (d *Client) execResult(ctx context.Context, execID, stderr string) error {
 // ExecStream runs cmd with optional stdin and streams stdout. The caller must
 // call wait even on a stream it abandons: wait reports the exit and releases
 // the exec.
-func (d *Client) ExecStream(ctx context.Context, id string, cmd []string, stdin io.Reader) (io.Reader, func() error, error) {
+func (d *Client) ExecStream(
+	ctx context.Context,
+	id string,
+	cmd []string,
+	stdin io.Reader,
+) (io.Reader, func() error, error) {
 	execID, err := d.cli.ContainerExecCreate(ctx, id, container.ExecOptions{
-		Cmd: cmd, AttachStdin: stdin != nil, AttachStdout: true, AttachStderr: true,
+		Cmd:          cmd,
+		AttachStdin:  stdin != nil,
+		AttachStdout: true,
+		AttachStderr: true,
 	})
 	if err != nil {
 		return nil, nil, wrap(err)

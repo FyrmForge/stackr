@@ -32,7 +32,9 @@ func TestSwapKeepsOldUntilNewPasses(t *testing.T) {
 	} {
 		fake := dockerfake.New()
 		fake.RunID = "new"
-		fake.Containers = []docker.Container{{ID: "old", State: "running", Labels: map[string]string{LabelRole: "panel"}}}
+		fake.Containers = []docker.Container{
+			{ID: "old", State: "running", Labels: map[string]string{LabelRole: "panel"}},
+		}
 		fake.Details = map[string]docker.Detail{"new": {Running: true, Health: tc.health}}
 		l := New(fake)
 		l.Poll, l.Deadline = time.Millisecond, 20*time.Millisecond
@@ -65,7 +67,9 @@ func TestLaunchGuardAndSpecRoundTrip(t *testing.T) {
 	if got, err := SpecFromEnv(); err != nil || got.Name != spec.Name || got.Env[0] != "A=1" {
 		t.Errorf("spec back = %+v %v", got, err)
 	}
-	fake.Containers = []docker.Container{{ID: "h", State: "running", Labels: map[string]string{LabelRole: "upgrader"}}}
+	fake.Containers = []docker.Container{
+		{ID: "h", State: "running", Labels: map[string]string{LabelRole: "upgrader"}},
+	}
 	if err := l.Launch(ctx, spec); err == nil {
 		t.Error("second launch while the helper runs")
 	}

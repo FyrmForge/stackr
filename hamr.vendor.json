@@ -3,14 +3,14 @@
     "htmx": {
       "version": "2.0.4",
       "url": "https://unpkg.com/htmx.org@2.0.4/dist/htmx.min.js",
-      "out": "ui/static/js/htmx.min.js",
+      "out": "ui/static/js/vendor/htmx.min.js",
       "sha256": "e209dda5c8235479f3166defc7750e1dbcd5a5c1808b7792fc2e6733768fb447"
     },
-    "idiomorph": {
-      "version": "0.3.0",
-      "url": "https://unpkg.com/idiomorph@0.3.0/dist/idiomorph.min.js",
-      "out": "ui/static/js/idiomorph.min.js",
-      "sha256": "cfbc37ff80a7872dc40da84bf352444c4b79179e8da122f66f72e885e5adff19"
+    "htmx-ext-sse": {
+      "version": "2.2.4",
+      "url": "https://unpkg.com/htmx-ext-sse@2.2.4/dist/sse.min.js",
+      "out": "ui/static/js/vendor/sse.min.js",
+      "sha256": "98a46496de0c3605fbffdce9167ba427bdd9553184f83f149c261891a92c0136"
     }
   }
 }

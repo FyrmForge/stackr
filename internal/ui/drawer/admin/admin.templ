@@ -1,0 +1,139 @@
+// Package admin is the admin drawer, opened from the nav on any page:
+// server settings (the catalogue's install and server knobs), users, the
+// self-upgrade, raw Caddy and the panel's own backups.
+package admin
+
+import c "github.com/FyrmForge/stackr/internal/ui/components"
+
+var Tabs = []string{"settings", "users", "update", "caddy", "backups"}
+
+// Base is where every tab and action lives.
+const Base = "/-/admin"
+
+type UsersView struct {
+	Rows []User
+}
+
+// User is one account. Action URLs are "" when the viewer may not use them.
+type User struct {
+	Email, Name   string
+	Admin, Active bool
+	Promote       string // POST, flips admin
+	Disable       string // POST
+}
+
+// UpdateView is the self-upgrade. Checked says a check ran this answer;
+// the check reaches GitHub, so a tab open never runs one.
+type UpdateView struct {
+	Version  string
+	Checked  bool
+	Latest   string
+	Newer    bool
+	CheckErr string
+	Run      c.ConfirmView // Action "" = may not run
+	Job      *c.JobStatusView
+}
+
+type CaddyView struct {
+	Action string // POST value; "" = read-only
+	Sync   string // POST; "" = may not
+	Value  string
+}
+
+type BackupsView struct {
+	Now  string // POST; "" = may not
+	Job  *c.JobStatusView
+	Rows []Backup
+}
+
+type Backup struct{ Status, Trigger, When, Size, Error string }
+
+func target() string { return "#" + c.DrawerRoot }
+
+templ Users(v UsersView) {
+	<ul class="divide-y divide-slate-200 text-sm dark:divide-slate-800" id="tab-users">
+		for _, u := range v.Rows {
+			<li class="flex flex-wrap items-center gap-2 py-2">
+				<span class="flex-1">{ u.Email } <span class="text-slate-500">{ u.Name }</span></span>
+				if u.Admin {
+					@c.Pill("admin", "busy")
+				}
+				if !u.Active {
+					@c.Pill("disabled", "")
+				}
+				if u.Promote != "" {
+					@c.PostButton(promoteLabel(u.Admin), u.Promote)
+				}
+				if u.Disable != "" {
+					@c.Confirm(c.ConfirmView{Button: "Disable", Title: "Disable " + u.Email,
+						Warning: "Their sessions and API keys stop working at once.", Action: u.Disable, Target: target()})
+				}
+			</li>
+		}
+	</ul>
+}
+
+func promoteLabel(admin bool) string {
+	if admin {
+		return "Remove admin"
+	}
+	return "Make admin"
+}
+
+templ Update(v UpdateView) {
+	<div class="space-y-4 text-sm" id="tab-update">
+		<p>Running <span class="font-mono">{ v.Version }</span>.</p>
+		if v.CheckErr != "" {
+			<p class="banner" role="status">Could not check for an update: { v.CheckErr }</p>
+		} else if v.Checked && v.Newer {
+			<p class="flex items-center gap-2">@c.Pill("update available", "warn") <span class="font-mono">{ v.Latest }</span></p>
+			if v.Run.Action != "" {
+				@c.Confirm(v.Run)
+			}
+		} else if v.Checked {
+			<p>Up to date (latest release <span class="font-mono">{ v.Latest }</span>).</p>
+		}
+		if v.Job != nil {
+			@c.JobStatus(*v.Job)
+		}
+		@c.PostButton("Check for update", Base+"/update/check")
+	</div>
+}
+
+templ Caddy(v CaddyView) {
+	<div class="space-y-4" id="tab-caddy">
+		<form hx-post={ v.Action } hx-target={ target() } hx-swap="outerHTML" class="space-y-3">
+			<label for="proxy_custom" class="label">Extra Caddy config (proxy_custom)</label>
+			<textarea id="proxy_custom" name="proxy_custom" rows="12" class="input font-mono text-xs" disabled?={ v.Action == "" }>{ v.Value }</textarea>
+			<p class="text-xs text-slate-500">Stored for the proxy; the proxy builder does not read it yet. Per-domain raw Caddy lives in a tile's domains tab.</p>
+			if v.Action != "" {
+				@c.Submit("Save")
+			}
+		</form>
+		if v.Sync != "" {
+			@c.PostButton("Re-push the proxy config", v.Sync)
+		}
+	</div>
+}
+
+templ Backups(v BackupsView) {
+	<div class="space-y-4" id="tab-backups">
+		<p class="text-sm text-slate-500">The panel's own database, archived by the backup job.</p>
+		if v.Now != "" {
+			@c.PostButton("Back up now", v.Now)
+		}
+		if v.Job != nil {
+			@c.JobStatus(*v.Job)
+		}
+		@c.Table(c.TableView{Headers: []string{"When", "Status", "Trigger", "Size", "Error"}, Rows: backupRows(v.Rows),
+			Empty: c.EmptyView{Title: "No panel backups yet"}})
+	</div>
+}
+
+func backupRows(bs []Backup) [][]templ.Component {
+	rows := make([][]templ.Component, 0, len(bs))
+	for _, b := range bs {
+		rows = append(rows, []templ.Component{c.Text(b.When), c.Text(b.Status), c.Text(b.Trigger), c.Text(b.Size), c.Text(b.Error)})
+	}
+	return rows
+}

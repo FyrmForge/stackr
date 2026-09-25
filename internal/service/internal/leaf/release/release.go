@@ -31,7 +31,8 @@ func New(releases store.ReleaseStore, tiles store.ReleaseTileStore) *Leaf {
 const ConfigSlug = "_config"
 
 // Pin is one tile in a release. Built tiles carry ImageID; image and
-// managed tiles carry the digest (never just a tag); the config repo's pin
+// managed tiles carry the digest (never just a tag), and an image tile's
+// Repo is the ref it was pinned from, tag included; the config repo's pin
 // carries only its commit.
 type Pin struct {
 	Slug      string  `json:"slug"`
@@ -42,7 +43,9 @@ type Pin struct {
 	Digest    string  `json:"digest"`
 }
 
-func (l *Leaf) Get(ctx context.Context, id string) (store.Release, error) { return l.releases.Get(ctx, id) }
+func (l *Leaf) Get(ctx context.Context, id string) (store.Release, error) {
+	return l.releases.Get(ctx, id)
+}
 
 func (l *Leaf) GetByNumber(ctx context.Context, stackID string, n int) (store.Release, error) {
 	return l.releases.GetByNumber(ctx, stackID, n)
@@ -55,12 +58,29 @@ func (l *Leaf) List(ctx context.Context, stackID string) ([]store.Release, error
 	return rs, err
 }
 
+// Digest is the digest a release pins for slug: what a pulled tile runs
+// (the images table only knows builds). "" when nothing is pinned.
+func (l *Leaf) Digest(ctx context.Context, releaseID *string, slug string) (string, error) {
+	if releaseID == nil {
+		return "", nil
+	}
+	pins, err := l.Pins(ctx, *releaseID)
+	return pins[slug].Digest, err
+}
+
 // Pins are a release's tiles, by slug.
 func (l *Leaf) Pins(ctx context.Context, releaseID string) (map[string]Pin, error) {
 	rts, err := l.tiles.ListByRelease(ctx, releaseID)
 	out := make(map[string]Pin, len(rts))
 	for _, r := range rts {
-		out[r.Slug] = Pin{Slug: r.Slug, Repo: r.Repo, Branch: r.Branch, CommitSHA: r.CommitSHA, ImageID: r.ImageID, Digest: r.Digest}
+		out[r.Slug] = Pin{
+			Slug:      r.Slug,
+			Repo:      r.Repo,
+			Branch:    r.Branch,
+			CommitSHA: r.CommitSHA,
+			ImageID:   r.ImageID,
+			Digest:    r.Digest,
+		}
 	}
 	return out, err
 }
@@ -88,13 +108,27 @@ func (l *Leaf) Create(ctx context.Context, stackID, by string, pins []Pin) (stor
 	for _, r := range rs {
 		n = max(n, r.Number)
 	}
-	r := store.Release{ID: uuid.NewString(), StackID: stackID, Number: n + 1, CreatedAt: time.Now().UTC(), CreatedBy: by}
+	r := store.Release{
+		ID:        uuid.NewString(),
+		StackID:   stackID,
+		Number:    n + 1,
+		CreatedAt: time.Now().UTC(),
+		CreatedBy: by,
+	}
 	if err := l.releases.Create(ctx, r); err != nil {
 		return r, err
 	}
 	for _, p := range pins {
-		rt := store.ReleaseTile{ID: uuid.NewString(), ReleaseID: r.ID, Slug: p.Slug, Repo: p.Repo, Branch: p.Branch,
-			CommitSHA: p.CommitSHA, ImageID: p.ImageID, Digest: p.Digest}
+		rt := store.ReleaseTile{
+			ID:        uuid.NewString(),
+			ReleaseID: r.ID,
+			Slug:      p.Slug,
+			Repo:      p.Repo,
+			Branch:    p.Branch,
+			CommitSHA: p.CommitSHA,
+			ImageID:   p.ImageID,
+			Digest:    p.Digest,
+		}
 		if err := l.tiles.Create(ctx, rt); err != nil {
 			return r, err
 		}

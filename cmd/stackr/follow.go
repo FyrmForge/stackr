@@ -132,21 +132,30 @@ func (a *app) browserLogin(server, name string) (string, error) {
 	_, _ = rand.Read(b)
 	state := hex.EncodeToString(b)
 	port := ln.Addr().(*net.TCPAddr).Port
-	u := fmt.Sprintf("%s/cli/authorize?port=%d&state=%s&name=%s", strings.TrimRight(server, "/"), port, state, url.QueryEscape(name))
+	u := fmt.Sprintf(
+		"%s/cli/authorize?port=%d&state=%s&name=%s",
+		strings.TrimRight(server, "/"),
+		port,
+		state,
+		url.QueryEscape(name),
+	)
 
 	got := make(chan string, 1)
-	srv := &http.Server{ReadHeaderTimeout: 5 * time.Second, Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		q := r.URL.Query()
-		if q.Get("state") != state || q.Get("code") == "" {
-			http.Error(w, "this login is not the one the CLI started", http.StatusBadRequest)
-			return
-		}
-		_, _ = io.WriteString(w, "stackr CLI is logged in. You can close this tab.\n")
-		select {
-		case got <- q.Get("code"):
-		default:
-		}
-	})}
+	srv := &http.Server{
+		ReadHeaderTimeout: 5 * time.Second,
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			q := r.URL.Query()
+			if q.Get("state") != state || q.Get("code") == "" {
+				http.Error(w, "this login is not the one the CLI started", http.StatusBadRequest)
+				return
+			}
+			_, _ = io.WriteString(w, "stackr CLI is logged in. You can close this tab.\n")
+			select {
+			case got <- q.Get("code"):
+			default:
+			}
+		}),
+	}
 	go func() { _ = srv.Serve(ln) }()
 	defer func() { _ = srv.Close() }()
 

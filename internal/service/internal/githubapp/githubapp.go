@@ -90,9 +90,12 @@ func (c *Client) Manifest(connectorID, ghOrg, state string) (action, manifest st
 		// Fixed at app creation: widening later makes every owner re-approve
 		// by hand, so checks/pull_requests/statuses are asked for up front.
 		"default_permissions": map[string]string{
-			"checks": "read", "contents": "read", "metadata": "read",
+			"checks":        "read",
+			"contents":      "read",
+			"metadata":      "read",
 			"packages":      "read", // ghcr.io pulls
-			"pull_requests": "write", "statuses": "write",
+			"pull_requests": "write",
+			"statuses":      "write",
 		},
 		"default_events": []string{"pull_request", "push"},
 	})

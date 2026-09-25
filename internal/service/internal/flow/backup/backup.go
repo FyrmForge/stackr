@@ -305,7 +305,13 @@ func (f *Flow) Orphans(ctx context.Context, retention time.Duration, dest store.
 	var failed []error
 	for _, v := range vs {
 		if f.Volumes.HoldsData(ctx, v) {
-			sp := Spec{Dest: dest, Prefix: bk.OrphanPrefix(v.ID), Trigger: "orphan", Mode: bk.Live, Keep: 1}
+			sp := Spec{
+				Dest:    dest,
+				Prefix:  bk.OrphanPrefix(v.ID),
+				Trigger: "orphan",
+				Mode:    bk.Live,
+				Keep:    1,
+			}
 			if _, err := f.Backup(ctx, Subject{Volume: v}, sp, log); err != nil {
 				failed = append(failed, fmt.Errorf("%s: %w", v.Slug, err))
 				continue
@@ -334,7 +340,13 @@ type Panel struct {
 // PanelBackup writes the panel archive (stackr.db, keys/master.key,
 // VERSION) encrypted with the recovery passphrase. Admin-only; restored on
 // the host with the restore script, never from the panel.
-func (f *Flow) PanelBackup(ctx context.Context, p Panel, dest store.BackupDest, keep int, log io.Writer) (store.BackupRun, error) {
+func (f *Flow) PanelBackup(
+	ctx context.Context,
+	p Panel,
+	dest store.BackupDest,
+	keep int,
+	log io.Writer,
+) (store.BackupRun, error) {
 	r, err := f.Backups.Start(ctx, bk.KindPanel, nil, nil, dest.ID, "manual")
 	if err != nil {
 		return r, err
@@ -403,7 +415,12 @@ func panelTar(w io.Writer, db string, p Panel) error {
 	gz := gzip.NewWriter(w)
 	tw := tar.NewWriter(gz)
 	now := time.Now().UTC()
-	if err := tw.WriteHeader(&tar.Header{Name: "stackr.db", Mode: 0o600, Size: fi.Size(), ModTime: now}); err != nil {
+	if err := tw.WriteHeader(&tar.Header{
+		Name:    "stackr.db",
+		Mode:    0o600,
+		Size:    fi.Size(),
+		ModTime: now,
+	}); err != nil {
 		return err
 	}
 	if _, err := io.Copy(tw, f); err != nil {
@@ -413,8 +430,16 @@ func panelTar(w io.Writer, db string, p Panel) error {
 		name string
 		mode int64
 		body string
-	}{{"keys/master.key", 0o600, p.MasterKey + "\n"}, {"VERSION", 0o644, p.Version + "\n"}} {
-		if err := tw.WriteHeader(&tar.Header{Name: m.name, Mode: m.mode, Size: int64(len(m.body)), ModTime: now}); err != nil {
+	}{
+		{"keys/master.key", 0o600, p.MasterKey + "\n"},
+		{"VERSION", 0o644, p.Version + "\n"},
+	} {
+		if err := tw.WriteHeader(&tar.Header{
+			Name:    m.name,
+			Mode:    m.mode,
+			Size:    int64(len(m.body)),
+			ModTime: now,
+		}); err != nil {
 			return err
 		}
 		if _, err := io.WriteString(tw, m.body); err != nil {
@@ -459,7 +484,13 @@ func open(d store.BackupDest) s3.Destination {
 	if d.Kind == bk.Local {
 		return s3.Local{Dir: d.Endpoint}
 	}
-	return s3.Bucket{Endpoint: d.Endpoint, Region: d.Region, Bucket: d.Bucket, AccessKey: d.AccessKey, SecretKey: d.SecretKey}
+	return s3.Bucket{
+		Endpoint:  d.Endpoint,
+		Region:    d.Region,
+		Bucket:    d.Bucket,
+		AccessKey: d.AccessKey,
+		SecretKey: d.SecretKey,
+	}
 }
 
 func (f *Flow) claim(id string) bool {
@@ -488,7 +519,10 @@ func (f *Flow) spool(id string) (*os.File, error) {
 	return os.CreateTemp(f.Scratch, id+"-*")
 }
 
-func drop(f *os.File) { _ = f.Close(); _ = os.Remove(f.Name()) }
+func drop(f *os.File) {
+	_ = f.Close()
+	_ = os.Remove(f.Name())
+}
 
 // checkSpace fails before anything is frozen when the archive plainly will
 // not fit. Unknown sizes pass: this only catches the obvious case.

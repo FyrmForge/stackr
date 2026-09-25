@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"io"
 	"time"
 
@@ -170,12 +171,21 @@ func (o *Orchestrator) Logs(ctx context.Context, tileID, containerID string, tai
 	return o.tiles.Logs(ctx, tileID, containerID, tail)
 }
 
-func (o *Orchestrator) FollowLogs(ctx context.Context, tileID, containerID string, tail int) (<-chan string, func(), error) {
+func (o *Orchestrator) FollowLogs(
+	ctx context.Context,
+	tileID, containerID string,
+	tail int,
+) (<-chan string, func(), error) {
 	return o.tiles.Follow(ctx, tileID, containerID, tail)
 }
 
 // Terminal is an interactive exec in one replica.
-func (o *Orchestrator) Terminal(ctx context.Context, tileID, containerID string, cmd []string, stdin io.Reader) (io.Reader, func() error, error) {
+func (o *Orchestrator) Terminal(
+	ctx context.Context,
+	tileID, containerID string,
+	cmd []string,
+	stdin io.Reader,
+) (io.Reader, func() error, error) {
 	return o.tiles.Terminal(ctx, tileID, containerID, cmd, stdin)
 }
 
@@ -207,4 +217,26 @@ func (o *Orchestrator) redeployRunning(ctx context.Context, ts []Tile) error {
 		}
 	}
 	return nil
+}
+
+// TileImage is what image watch knows of the tile's image ref; the zero
+// Image when it was never built, pulled or checked.
+func (o *Orchestrator) TileImage(ctx context.Context, tileID string) (Image, error) {
+	t, err := o.tiles.Get(ctx, tileID)
+	if err != nil || t.ImageRef == "" {
+		return Image{}, err
+	}
+	i, err := o.images.GetByRef(ctx, t.ImageRef)
+	if errors.Is(err, errs.ErrNotFound) {
+		i, err = Image{Ref: t.ImageRef}, nil
+	}
+	if err != nil || !tile.Pulls(t) {
+		return i, err
+	}
+	e, err := o.envs.Get(ctx, t.EnvironmentID)
+	if err != nil {
+		return i, err
+	}
+	i.Digest, err = o.releases.Digest(ctx, e.ReleaseID, t.Slug) // what runs is the pin
+	return i, err
 }

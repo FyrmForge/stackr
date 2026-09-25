@@ -10,6 +10,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
+	"slices"
 	"strings"
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
@@ -102,7 +104,7 @@ func (f *Flow) apply(ctx context.Context, w *work, log io.Writer) error {
 		}
 	}
 	scope := volume.Scope{Kind: "env", ID: e.ID}
-	for _, n := range sortedKeys(w.declare) {
+	for _, n := range slices.Sorted(maps.Keys(w.declare)) {
 		if _, _, err := d.Volumes.Declare(ctx, scope, n, w.declare[n].MaxSizeMB, nil); err != nil {
 			return err
 		}
@@ -132,7 +134,7 @@ func (f *Flow) apply(ctx context.Context, w *work, log io.Writer) error {
 		}
 	}
 	dns01 := f.DNS01 != nil && f.DNS01(ctx)
-	for _, name := range sortedKeys(w.domains) {
+	for _, name := range slices.Sorted(maps.Keys(w.domains)) {
 		t, err := d.Tiles.GetBySlug(ctx, e.ID, name)
 		if err != nil {
 			return err
@@ -168,7 +170,7 @@ func (f *Flow) apply(ctx context.Context, w *work, log io.Writer) error {
 			return err
 		}
 	}
-	for _, name := range sortedKeys(w.attach) {
+	for _, name := range slices.Sorted(maps.Keys(w.attach)) {
 		consumer, err := d.Tiles.GetBySlug(ctx, e.ID, name)
 		if err != nil {
 			return err
@@ -287,12 +289,26 @@ func (f *Flow) rollout(ctx context.Context, w *work, e store.Environment, log io
 			}
 		}
 	}
+	pins, err := d.Releases.Pins(ctx, w.rel.ID)
+	if err != nil {
+		return err
+	}
 	var repin []release.Pin
 	for _, s := range run {
 		t := bySlug[s]
 		ref, pinned := t.ImageRef, false
 		if !w.unpin[s] {
 			if ref, pinned, err = d.Current(ctx, t, e); err != nil {
+				return err
+			}
+		}
+		// A tile whose tag was edited outside the stack file takes the
+		// pinned tag back, so a later redeploy stays on what the release
+		// runs (DECIDE 140). A bare-repo pin names no tag to take.
+		if p := pins[s]; pinned && tile.Pulls(t) && p.Repo != t.ImageRef && deploy.RepoOf(p.Repo) != p.Repo {
+			cur := t
+			cur.ImageRef = p.Repo
+			if t, _, err = d.Tiles.Update(ctx, t, cur); err != nil {
 				return err
 			}
 		}
@@ -303,7 +319,7 @@ func (f *Flow) rollout(ctx context.Context, w *work, e store.Environment, log io
 		}
 		w.deployed = append(w.deployed, t.ID)
 		if tile.Pulls(t) && !pinned && digest != "" {
-			repin = append(repin, release.Pin{Slug: s, Repo: deploy.RepoOf(t.ImageRef), Digest: digest})
+			repin = append(repin, release.Pin{Slug: s, Repo: t.ImageRef, Digest: digest})
 		}
 	}
 	if len(repin) == 0 {

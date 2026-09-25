@@ -14,7 +14,7 @@ import (
 
 // Deps holds the dependencies for API route registration.
 type Deps struct {
-	Service *service.Orchestrator
+	Orch    *service.Orchestrator
 	Access  *middleware.Access // shared with the web router
 	DevMode bool               // the CSRF cookie is not Secure in dev
 }
@@ -24,10 +24,10 @@ func RegisterRoutes(srv *server.Server, deps *Deps) {
 	api := srv.Echo().Group("/api")
 	api.Use(middleware.Logging())
 
-	healthHandler := health.NewHandler(deps.Service)
+	healthHandler := health.NewHandler(deps.Orch)
 	api.GET("/health", healthHandler.Health)
 
-	h := &v1.H{S: deps.Service}
+	h := &v1.H{Orch: deps.Orch}
 	srv.Echo().POST("/hooks/connectors/:connector", h.Hook, middleware.Logging(), middleware.JSONErrors())
 
 	g := api.Group("/v1", middleware.JSONErrors(), deps.Access.Load(), middleware.APICSRF(!deps.DevMode))
@@ -50,7 +50,10 @@ func gate(a *middleware.Access, r Route) echo.MiddlewareFunc {
 
 // Gzip is the server's compression, off for the streams: a compressor may
 // hold back bytes a follow must see now.
-var Gzip = server.GzipConfig{Enabled: true, Skipper: func(c echo.Context) bool {
-	p := c.Request().URL.Path
-	return strings.HasSuffix(p, "/events") || strings.HasSuffix(p, "/logs/stream") || strings.HasSuffix(p, "/exec")
-}}
+var Gzip = server.GzipConfig{
+	Enabled: true,
+	Skipper: func(c echo.Context) bool {
+		p := c.Request().URL.Path
+		return strings.HasSuffix(p, "/events") || strings.HasSuffix(p, "/logs/stream") || strings.HasSuffix(p, "/exec")
+	},
+}

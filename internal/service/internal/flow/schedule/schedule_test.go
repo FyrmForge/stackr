@@ -17,19 +17,39 @@ func TestScheduleToCall(t *testing.T) {
 				{ID: "b2", Cron: "not a cron"},
 			}, nil
 		},
-		Backup:  func(_ context.Context, s store.BackupSchedule) error { got = append(got, "backup "+s.ID); return nil },
-		Orphans: func(context.Context) error { got = append(got, "orphans"); return nil },
-		Watch:   func(context.Context) error { got = append(got, "watch"); return nil },
-		Crons: func(context.Context) ([]store.Tile, error) {
-			return []store.Tile{{ID: "t1", Schedule: "*/5 * * * *"}, {ID: "t2", Schedule: "* * * * *", Paused: true}}, nil
+		Backup: func(_ context.Context, s store.BackupSchedule) error {
+			got = append(got, "backup "+s.ID)
+			return nil
 		},
-		Cron: func(_ context.Context, t store.Tile) error { got = append(got, "cron "+t.ID); return nil },
+		Orphans: func(context.Context) error {
+			got = append(got, "orphans")
+			return nil
+		},
+		Watch: func(context.Context) error {
+			got = append(got, "watch")
+			return nil
+		},
+		Crons: func(context.Context) ([]store.Tile, error) {
+			return []store.Tile{
+				{ID: "t1", Schedule: "*/5 * * * *"},
+				{ID: "t2", Schedule: "* * * * *", Paused: true},
+			}, nil
+		},
+		Cron: func(_ context.Context, t store.Tile) error {
+			got = append(got, "cron "+t.ID)
+			return nil
+		},
 	}
 	scheds, _ := d.Schedules(ctx)
 	crons, _ := d.Crons(ctx)
 	es := Entries(d, scheds, crons)
-	want := map[string]string{"orphans": "@daily", "image-watch": "@every 1m",
-		"backup b1": "CRON_TZ=Europe/London 0 3 * * *", "backup b2": "not a cron", "cron t1": "*/5 * * * *"}
+	want := map[string]string{
+		"orphans":     "@daily",
+		"image-watch": "@every 1m",
+		"backup b1":   "CRON_TZ=Europe/London 0 3 * * *",
+		"backup b2":   "not a cron",
+		"cron t1":     "*/5 * * * *",
+	}
 	for _, e := range es {
 		if want[e.Name] != e.Spec {
 			t.Errorf("%s = %q, want %q", e.Name, e.Spec, want[e.Name])
@@ -50,5 +70,13 @@ func TestScheduleToCall(t *testing.T) {
 	r.Reload(ctx) // rebuild, never doubled
 	if len(r.cron.Entries()) != 4 {
 		t.Errorf("after reload: %d cron entries", len(r.cron.Entries()))
+	}
+}
+
+// The traffic sample gets its own 5 s entry when wired.
+func TestTrafficEntry(t *testing.T) {
+	es := Entries(Drivers{Traffic: func(context.Context) error { return nil }}, nil, nil)
+	if last := es[len(es)-1]; last.Name != "traffic" || last.Spec != "@every 5s" {
+		t.Errorf("entries = %+v", es)
 	}
 }

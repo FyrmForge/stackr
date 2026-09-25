@@ -28,6 +28,7 @@ type Docker interface {
 	EnsureNetwork(ctx context.Context, name string, labels map[string]string) error
 	RemoveNetwork(ctx context.Context, name string) error
 	ListNetworks(ctx context.Context, labels map[string]string) ([]string, error)
+	Gateways(ctx context.Context, labels map[string]string) ([]string, error)
 	Connect(ctx context.Context, network, containerID string, aliases []string) error
 	Disconnect(ctx context.Context, network, containerID string) error
 	NetworkMembers(ctx context.Context, network string) ([]string, error)
@@ -50,13 +51,23 @@ type Docker interface {
 	ListImages(ctx context.Context, labels map[string]string) ([]docker.Image, error)
 	PruneImages(ctx context.Context, labels map[string]string, keep []string) (removed []string, err error)
 	EnsureBuilder(ctx context.Context, name string, memMB int) error
-	Build(ctx context.Context, builder, dir, dockerfile, tag string, buildArgs, labels map[string]string, log io.Writer) (imageID string, err error)
+	Build(
+		ctx context.Context,
+		builder, dir, dockerfile, tag string,
+		buildArgs, labels map[string]string,
+		log io.Writer,
+	) (imageID string, err error)
 
 	// Logs and exec.
 	Logs(ctx context.Context, id string, tail int) (string, error)
 	StreamLogs(ctx context.Context, id string, tail int) (lines <-chan string, stop func(), err error)
 	Exec(ctx context.Context, id string, cmd []string) (string, error)
-	ExecStream(ctx context.Context, id string, cmd []string, stdin io.Reader) (out io.Reader, wait func() error, err error)
+	ExecStream(
+		ctx context.Context,
+		id string,
+		cmd []string,
+		stdin io.Reader,
+	) (out io.Reader, wait func() error, err error)
 }
 
 var _ Docker = (*docker.Client)(nil)

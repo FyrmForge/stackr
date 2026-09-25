@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -126,14 +127,38 @@ func (o *Orchestrator) Webhook(ctx context.Context, connectorID, event, signatur
 		}
 		if p := ev.Push; p != nil {
 			branch := strings.TrimPrefix(p.Ref, "refs/heads/")
-			_, err = o.enqueue(ctx, kindPush, pushJob{StackID: st.ID, Event: promote.Event{
-				Repo: repo, Branch: branch, Commit: p.After, Changed: p.ChangedFiles()}},
-				"push:"+st.ID, "push:"+st.ID+":"+promote.NormalizeRepo(repo)+"@"+branch)
+			_, err = o.enqueue(
+				ctx,
+				kindPush,
+				pushJob{
+					StackID: st.ID,
+					Event: promote.Event{
+						Repo:    repo,
+						Branch:  branch,
+						Commit:  p.After,
+						Changed: p.ChangedFiles(),
+					},
+				},
+				"push:"+st.ID,
+				"push:"+st.ID+":"+promote.NormalizeRepo(repo)+"@"+branch,
+			)
 		} else {
 			pr := ev.PR
-			_, err = o.enqueue(ctx, kindPR, prJob{StackID: st.ID, Action: pr.Action, Number: pr.Number, Repo: repo,
-				Head: pr.PullRequest.Head.Ref, SHA: pr.PullRequest.Head.SHA, Base: pr.PullRequest.Base.Ref},
-				"push:"+st.ID, "pr:"+st.ID+":"+strconv.Itoa(pr.Number))
+			_, err = o.enqueue(
+				ctx,
+				kindPR,
+				prJob{
+					StackID: st.ID,
+					Action:  pr.Action,
+					Number:  pr.Number,
+					Repo:    repo,
+					Head:    pr.PullRequest.Head.Ref,
+					SHA:     pr.PullRequest.Head.SHA,
+					Base:    pr.PullRequest.Base.Ref,
+				},
+				"push:"+st.ID,
+				"pr:"+st.ID+":"+strconv.Itoa(pr.Number),
+			)
 		}
 		if err != nil {
 			return err
@@ -149,10 +174,9 @@ func (o *Orchestrator) usesRepo(ctx context.Context, st store.Stack, repo string
 		return true, nil
 	}
 	ts, err := o.tiles.ListByStack(ctx, st.ID)
-	for _, t := range ts {
-		if t.GitURL != "" && promote.NormalizeRepo(t.GitURL) == key {
-			return true, nil
-		}
+	if slices.ContainsFunc(ts,
+		func(t store.Tile) bool { return t.GitURL != "" && promote.NormalizeRepo(t.GitURL) == key }) {
+		return true, nil
 	}
 	return false, err
 }

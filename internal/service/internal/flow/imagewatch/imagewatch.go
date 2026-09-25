@@ -153,7 +153,7 @@ func (f *Flow) release(ctx context.Context, ws []watched, answers map[string]*an
 		if cur[w.t.Slug].Digest == a.digest {
 			continue // the registry caught up with what already runs
 		}
-		swap = append(swap, release.Pin{Slug: w.t.Slug, Repo: repoOf(w.t.ImageRef), Digest: a.digest})
+		swap = append(swap, release.Pin{Slug: w.t.Slug, Repo: w.t.ImageRef, Digest: a.digest})
 		auto = auto && w.t.UpdatePolicy == "auto"
 		logf(log, "%s/%s: %s is now %s\n", e.Slug, w.t.Slug, w.t.ImageRef, short(a.digest))
 	}
@@ -364,6 +364,10 @@ func deref(p *string) string {
 	return *p
 }
 
-func short(d string) string { return d[:min(19, len(d))] }
+func short(d string) string {
+	return d[:min(19, len(d))]
+}
 
-func logf(w io.Writer, format string, a ...any) { _, _ = fmt.Fprintf(w, format, a...) }
+func logf(w io.Writer, format string, a ...any) {
+	_, _ = fmt.Fprintf(w, format, a...)
+}

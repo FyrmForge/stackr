@@ -141,7 +141,17 @@ func (o *Orchestrator) BackupRuns(ctx context.Context, volumeID string) ([]Backu
 
 // BackupNow queues a manual backup; destID "" = local, method "" = the default.
 func (o *Orchestrator) BackupNow(ctx context.Context, volumeID, destID, method, mode string) (Job, error) {
-	return o.enqueue(ctx, kindBackup, backupJob{VolumeID: volumeID, DestID: destID, Method: method, Mode: mode}, "volume:"+volumeID)
+	return o.enqueue(
+		ctx,
+		kindBackup,
+		backupJob{
+			VolumeID: volumeID,
+			DestID:   destID,
+			Method:   method,
+			Mode:     mode,
+		},
+		"volume:"+volumeID,
+	)
 }
 
 // RestoreBackup queues a restore of a run of source into target (the same
@@ -164,7 +174,12 @@ func (o *Orchestrator) RestoreBackup(ctx context.Context, runID, sourceVolumeID,
 	} else if a != b {
 		return Job{}, errs.ErrNotFound
 	}
-	return o.enqueue(ctx, kindRestore, restoreJob{RunID: runID, SourceVolumeID: src.ID, TargetVolumeID: dst.ID}, "volume:"+dst.ID)
+	return o.enqueue(
+		ctx,
+		kindRestore,
+		restoreJob{RunID: runID, SourceVolumeID: src.ID, TargetVolumeID: dst.ID},
+		"volume:"+dst.ID,
+	)
 }
 
 // PanelBackups lists the panel's own archives.
@@ -189,7 +204,11 @@ func (o *Orchestrator) runBackup(ctx context.Context, r *jobs.Run, p backupJob) 
 		if err != nil {
 			return err
 		}
-		sp.ScheduleID, sp.Trigger, sp.Mode, sp.Keep, method = &s.ID, "schedule", s.Mode, s.Keep, s.Method
+		sp.ScheduleID = &s.ID
+		sp.Trigger = "schedule"
+		sp.Mode = s.Mode
+		sp.Keep = s.Keep
+		method = s.Method
 		destID = ""
 		if s.DestID != nil {
 			destID = *s.DestID
@@ -233,8 +252,12 @@ func (o *Orchestrator) runRestore(ctx context.Context, r *jobs.Run, p restoreJob
 	if err != nil {
 		return err
 	}
-	return o.backup.Restore(ctx, fbackup.Restore{RunID: p.RunID, SourceVolumeID: p.SourceVolumeID, Target: sub,
-		Pre: fbackup.Spec{Dest: local, Prefix: backup.Prefix(org, v.ID, "")}}, r.Log)
+	return o.backup.Restore(ctx, fbackup.Restore{
+		RunID:          p.RunID,
+		SourceVolumeID: p.SourceVolumeID,
+		Target:         sub,
+		Pre:            fbackup.Spec{Dest: local, Prefix: backup.Prefix(org, v.ID, "")},
+	}, r.Log)
 }
 
 // subject gathers what flow/backup needs about a volume: who mounts it, and
@@ -324,6 +347,9 @@ func (o *Orchestrator) panelBackup(ctx context.Context, log io.Writer) (store.Ba
 			_, err := o.db.ExecContext(ctx, "VACUUM INTO ?", path)
 			return err
 		},
-		MasterKey: o.cfg.SecretsKey, Version: o.cfg.Version, Passphrase: o.cfg.Passphrase, InstallID: o.cfg.InstallID,
+		MasterKey:  o.cfg.SecretsKey,
+		Version:    o.cfg.Version,
+		Passphrase: o.cfg.Passphrase,
+		InstallID:  o.cfg.InstallID,
 	}, local, panelKeep, log)
 }

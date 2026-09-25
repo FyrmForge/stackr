@@ -1,0 +1,224 @@
+package devgallery
+
+import (
+	c "github.com/FyrmForge/stackr/internal/ui/components"
+	"github.com/FyrmForge/stackr/internal/ui/graph/cards"
+)
+
+templ gallery() {
+	<div class="space-y-10">
+		@section("Form") {
+			@c.Form("gallery-form", "/dev/components") {
+				@c.FormError("Please fix the errors below.")
+				@c.Field(c.FieldView{Name: "name", Label: "Name", Value: "shop", Help: "Lowercase letters, digits and dashes.", Required: true})
+				@c.Field(c.FieldView{Name: "email", Label: "Email", Type: "email", Error: "Invalid email address"})
+				@c.Field(c.FieldView{Name: "image", Label: "Image", Value: "nginx:1", Disabled: true, Why: "Owned by stackr-compose.yml; edit the file."})
+				@c.Submit("Save")
+			}
+		}
+		@section("Table, empty state, pagination") {
+			@c.Table(c.TableView{
+				Headers: []string{"Tile", "State"},
+				Rows: [][]templ.Component{
+					{c.Text("api"), c.TileBadge("running")},
+					{c.Text("worker"), c.TileBadge("degraded")},
+				},
+			})
+			@c.Table(c.TableView{Headers: []string{"Tile"}, Empty: c.EmptyView{Title: "No tiles yet", Body: "Deploy an image or a repo.", Action: c.Link{Label: "New tile", Href: "/dev/components"}}})
+			@c.Pagination(c.PageNav{Label: "Page 2 of 5", Prev: "/dev/components?page=1", Next: "/dev/components?page=3"})
+		}
+		@section("Badges") {
+			<div class="flex flex-wrap gap-2">
+				@c.TileBadge("running")
+				@c.TileBadge("degraded")
+				@c.TileBadge("unhealthy")
+				@c.TileBadge("stopped")
+				@c.JobBadge("queued")
+				@c.JobBadge("running")
+				@c.JobBadge("waiting")
+				@c.JobBadge("done")
+				@c.JobBadge("failed")
+				@c.JobBadge("superseded")
+				for _, color := range c.EnvColors {
+					@c.EnvBadge(color, color)
+				}
+			</div>
+		}
+		@section("Cards") {
+			<div class="grid gap-4 sm:grid-cols-3">
+				@c.TileCard(c.TileCardView{Name: "api", Href: "/dev/components", Kind: "image", State: "running", Source: "nginx:1",
+					Volumes: []c.VolumeCardView{{Name: "uploads", Href: "/dev/components", Size: "1.2 GB"}}})
+				@c.TileCard(c.TileCardView{Name: "db", Href: "/dev/components", Kind: "managed", State: "stopped", Source: "postgres 16"})
+				@c.VolumeCard(c.VolumeCardView{Name: "old-cache", Href: "/dev/components", Size: "80 MB", Orphaned: true})
+			</div>
+		}
+		@section("Graph canvas") {
+			<p class="text-sm text-slate-500">Drag cards (the proxy stays left of the divider), shift+drag to select, wheel to zoom, click a card for its drawer.</p>
+			<graph-canvas scale="1" divider="240" fan-out arrows class="h-[28rem] rounded-lg border border-slate-200 bg-slate-100 dark:border-slate-800 dark:bg-slate-950">
+				<svg data-edges aria-hidden="true">
+					<defs>
+						<marker id="graph-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+							<path d="M0,0 L10,5 L0,10 z" fill="context-stroke"></path>
+						</marker>
+					</defs>
+					<line x1="240" y1="-2000" x2="240" y2="2000" stroke="#94a3b8" stroke-dasharray="2 6"></line>
+					<path data-edge-kind="ingress" data-from="proxy" data-to="tile:api" d="M0,0"></path>
+					<path data-edge-kind="ref" data-from="tile:api" data-to="tile:db" d="M0,0"></path>
+					<path data-edge-kind="startup" data-from="tile:api" data-to="tile:db" d="M0,0"></path>
+				</svg>
+				@galleryNode("proxy", "proxy", "system", "20", "100", true)
+				@galleryNode("tile:api", "api", "service · nginx:1", "300", "60", false) {
+					<graph-node node-id="volume:uploads" static class="absolute left-2 top-full mt-1 w-48">
+						<div class="card py-1 text-xs" hx-get="/dev/components/drawer?node=volume:uploads&tab=backups" hx-target="#drawer-body" hx-push-url="?drawer=volume:uploads&tab=backups">uploads · 1.2 GB</div>
+					</graph-node>
+				}
+				@galleryNode("tile:db", "db", "managed · postgres 16", "620", "220", false)
+				<div class="absolute right-2 top-2 flex items-center gap-2 text-xs">
+					<label class="flex items-center gap-1"><input type="checkbox" data-look="snap"/> snap</label>
+					<label class="flex items-center gap-1"><input type="checkbox" data-look="straight"/> straight</label>
+					<label class="flex items-center gap-1"><input type="checkbox" data-look="fan-out"/> fan-out</label>
+					<label class="flex items-center gap-1"><input type="checkbox" data-look="arrows"/> arrows</label>
+					<button type="button" class="btn" data-zoom="in" aria-label="Zoom in">+</button>
+					<button type="button" class="btn" data-zoom="out" aria-label="Zoom out">-</button>
+					<button type="button" class="btn" data-zoom="fit">Fit</button>
+				</div>
+			</graph-canvas>
+		}
+		@section("Env canvas cards") {
+			<p class="text-sm text-slate-500">One card of every env kind (task 9), with sub-tiles and traffic lanes.</p>
+			<graph-canvas scale="1" divider="240" class="h-[36rem] rounded-lg border border-slate-200 bg-slate-100 dark:border-slate-800 dark:bg-slate-950">
+				@cards.Lanes(envLanes)
+				for _, p := range envCards() {
+					@envNode(p)
+				}
+			</graph-canvas>
+		}
+		@section("Confirm") {
+			<div class="flex gap-4">
+				@c.Confirm(c.ConfirmView{Button: "Restart", Title: "Restart api?", Warning: "Requests fail while it starts.", Action: "/dev/components"})
+				@c.Confirm(c.ConfirmView{Button: "Delete volume", Title: "Delete uploads?", Warning: "Nothing snapshots what is deleted.",
+					Kept: []string{"archives already in the bucket"}, Word: "uploads", Action: "/dev/components"})
+			</div>
+		}
+		@section("Log pane") {
+			@c.LogPane(c.LogPaneView{StreamURL: "/dev/components/nowhere", Level: "info"})
+			@c.LogLine(c.LogLineView{Time: "12:00:01", Level: "info", Text: "listening on :80"})
+		}
+		@section("Job status") {
+			@c.JobStatus(c.JobStatusView{Kind: "deploy", State: "failed", Error: "health check timed out after 60s", Href: "/dev/components"})
+			@c.JobStatus(c.JobStatusView{Kind: "promote", State: "running", StreamURL: "/dev/components/nowhere", Live: true})
+		}
+		@section("Plan") {
+			@c.Plan(c.PlanView{
+				Title:    "Promote release 12 to prod",
+				Changes:  []c.ChangeView{{Kind: "update", Tile: "api", Field: "image", Old: "nginx:1.25", New: "nginx:1.27"}, {Kind: "param", Field: "app.mode", New: "prod"}},
+				Warnings: []string{"secret app.token is declared but not set"},
+				Blockers: []string{"staging does not run release 12 yet"},
+			})
+		}
+		@section("Param editor") {
+			@c.ParamEditor(c.ParamEditorView{
+				Action:       "/dev/components",
+				DeleteAction: "/dev/components",
+				Params:       []c.ParamRowView{{Collection: "app", Name: "mode", Value: "prod", DecidedBy: "env", Overrides: true}},
+				Secrets: []c.SecretRowView{
+					{Collection: "app", Name: "token", Set: true, DecidedBy: "stack"},
+					{Collection: "db", Name: "password", DecidedBy: "env", Warn: "Will not deploy: referenced by api, not set"},
+				},
+			})
+		}
+		@section("Settings form") {
+			@c.SettingsForm(c.SettingsFormView{
+				ID: "gallery-settings", Action: "/dev/components", Scope: "Stack",
+				Rows: []c.SettingRowView{
+					{Key: "orphan_retention_days", Desc: "Days an orphaned volume is kept.", Type: "int", Effective: "30", DecidedBy: "server"},
+					{Key: "force_https", Desc: "Redirect HTTP to HTTPS.", Type: "bool", Value: "true", Effective: "true", DecidedBy: "stack"},
+				},
+			})
+		}
+	</div>
+}
+
+// galleryNode is a stand-in for the task 7 node templ: the htmx wiring of
+// the element contract around a plain card.
+templ galleryNode(id, name, detail, x, y string, system bool) {
+	<graph-node
+		node-id={ id }
+		x={ x }
+		y={ y }
+		w="200"
+		h="72"
+		if system {
+			system
+		}
+		hx-post="/dev/components/positions"
+		hx-trigger="node-moved"
+		hx-include="this"
+		hx-swap="none"
+		hx-disinherit="*"
+	>
+		<input type="hidden" name="node_id" value={ id }/>
+		<input type="hidden" name="x" value={ x }/>
+		<input type="hidden" name="y" value={ y }/>
+		<div class="card h-full cursor-pointer" hx-get={ "/dev/components/drawer?node=" + id + "&tab=status" } hx-target="#drawer-body" hx-push-url={ "?drawer=" + id + "&tab=status" }>
+			<p class="font-semibold">{ name }</p>
+			<p class="text-xs text-slate-500">{ detail }</p>
+		</div>
+		{ children... }
+	</graph-node>
+}
+
+// envNode is a stand-in for the task 7 node wrapper around a task 9 card:
+// the card body and its sub-tiles go in as siblings.
+templ envNode(p placed) {
+	<graph-node
+		node-id={ p.card.ID }
+		x={ p.x }
+		y={ p.y }
+		w={ p.w }
+		h={ p.h }
+		if cards.System(p.card.Kind) {
+			system
+		}
+		hx-post="/dev/components/positions"
+		hx-trigger="node-moved"
+		hx-include="this"
+		hx-swap="none"
+		hx-disinherit="*"
+	>
+		<input type="hidden" name="node_id" value={ p.card.ID }/>
+		<input type="hidden" name="x" value={ p.x }/>
+		<input type="hidden" name="y" value={ p.y }/>
+		@cards.Card(p.card)
+		@cards.Subs(p.card)
+	</graph-node>
+}
+
+// drawerBody is a sample drawer: tab links are plain hx-get + hx-push-url.
+templ drawerBody(node, tab string) {
+	<h2 class="text-lg font-semibold">{ node }</h2>
+	<nav class="my-3 flex gap-3 text-sm">
+		for _, t := range []string{"status", "logs", "backups"} {
+			<a
+				href={ templ.SafeURL("?drawer=" + node + "&tab=" + t) }
+				hx-get={ "/dev/components/drawer?node=" + node + "&tab=" + t }
+				hx-target="#drawer-body"
+				hx-push-url={ "?drawer=" + node + "&tab=" + t }
+				class="link aria-[current=page]:font-semibold"
+				if t == tab {
+					aria-current="page"
+				}
+			>{ t }</a>
+		}
+	</nav>
+	<p class="text-sm">Sample { tab } tab for { node }.</p>
+}
+
+templ section(title string) {
+	<section>
+		<h2 class="mb-3 text-lg font-semibold">{ title }</h2>
+		<div class="space-y-4">
+			{ children... }
+		</div>
+	</section>
+}

@@ -36,14 +36,22 @@ func Make(name string) string {
 }
 
 // Valid reports whether s is a slug.
-func Valid(s string) bool { return slugRe.MatchString(s) }
+func Valid(s string) bool {
+	return slugRe.MatchString(s)
+}
 
 // Reserved is a slug a ref would read as a keyword: `params` is the only one
 // ("Param store and refs").
-func Reserved(s string) bool { return s == "params" }
+func Reserved(s string) bool {
+	return s == "params"
+}
 
 // ValidName reports whether s is a param collection or param name.
-func ValidName(s string) bool { return nameRe.MatchString(s) }
+func ValidName(s string) bool {
+	return nameRe.MatchString(s)
+}
 
 // ValidEnvKey reports whether s is a POSIX environment variable name.
-func ValidEnvKey(s string) bool { return envRe.MatchString(s) }
+func ValidEnvKey(s string) bool {
+	return envRe.MatchString(s)
+}

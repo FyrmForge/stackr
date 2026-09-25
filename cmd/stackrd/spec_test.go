@@ -13,8 +13,17 @@ import (
 // Reading the args back must give the upgrade's spec exactly, so a field
 // or env var added on one path only fails here.
 func TestPanelSpecBothWays(t *testing.T) {
-	in := installspec.Input{Root: "example.com", PanelHost: "stkr.example.com", HTTPS: true, Email: "a@example.com",
-		DNS01: true, HTTPPort: "80", HTTPSPort: "443", DataDir: "/var/lib/stackr", Bind: "172.17.0.1"}
+	in := installspec.Input{
+		Root:      "example.com",
+		PanelHost: "stkr.example.com",
+		HTTPS:     true,
+		Email:     "a@example.com",
+		DNS01:     true,
+		HTTPPort:  "80",
+		HTTPSPort: "443",
+		DataDir:   "/var/lib/stackr",
+		Bind:      "172.17.0.1",
+	}
 	image := installspec.Image("0.2.0")
 	upgrade := panelSpec(in)(image)
 	install := fromArgs(t, installspec.Panel(image, in).RunArgs())

@@ -1,0 +1,46 @@
+package components
+
+// JobStatusView is one job's state. Live is the service's "is this job
+// still moving" verdict: only then does the component open an SSE stream,
+// so an idle tab holds no connection. The stream sends "update" events,
+// each a rendered JobStatusBody, and "end" when the job is over.
+type JobStatusView struct {
+	Kind      string
+	State     string // leaf/job state
+	Error     string
+	Href      string // the job page; "" = none
+	StreamURL string
+	Live      bool
+	Refresh   string // re-fetched into the drawer when the stream ends; "" = none
+}
+
+templ JobStatus(v JobStatusView) {
+	if v.Live {
+		<div hx-ext="sse" sse-connect={ v.StreamURL } sse-close="end">
+			<div sse-swap="update">
+				@JobStatusBody(v)
+			</div>
+			if v.Refresh != "" {
+				<span hidden hx-get={ v.Refresh } hx-trigger="sse:end" hx-target={ "#" + DrawerRoot } hx-swap="outerHTML"></span>
+			}
+		</div>
+	} else {
+		<div>
+			@JobStatusBody(v)
+		</div>
+	}
+}
+
+// JobStatusBody is what the stream re-renders in place.
+templ JobStatusBody(v JobStatusView) {
+	<div class="flex items-center gap-2 text-sm">
+		<span class="text-slate-500">{ v.Kind }</span>
+		@JobBadge(v.State)
+		if v.Href != "" {
+			@NavLink(Link{Label: "details", Href: v.Href})
+		}
+	</div>
+	if v.Error != "" {
+		<p class="mt-1 text-sm text-red-700 dark:text-red-400">{ v.Error }</p>
+	}
+}

@@ -1,0 +1,43 @@
+package components
+
+// TableView is a plain table. Cells are components so a cell can be a
+// link, a badge or a button; Text wraps a string. No rows shows Empty.
+type TableView struct {
+	Headers []string
+	Rows    [][]templ.Component
+	Empty   EmptyView
+}
+
+templ Table(t TableView) {
+	if len(t.Rows) == 0 {
+		@EmptyState(t.Empty)
+	} else {
+		<div class="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-800">
+			<table class="w-full text-left text-sm">
+				<thead class="bg-slate-100 text-slate-600 dark:bg-slate-900 dark:text-slate-400">
+					<tr>
+						for _, h := range t.Headers {
+							<th scope="col" class="px-3 py-2 font-medium">{ h }</th>
+						}
+					</tr>
+				</thead>
+				<tbody class="divide-y divide-slate-200 dark:divide-slate-800">
+					for _, row := range t.Rows {
+						<tr>
+							for _, cell := range row {
+								<td class="px-3 py-2">
+									@cell
+								</td>
+							}
+						</tr>
+					}
+				</tbody>
+			</table>
+		</div>
+	}
+}
+
+// Text is a string as a table cell.
+templ Text(s string) {
+	{ s }
+}

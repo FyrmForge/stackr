@@ -1,0 +1,3 @@
+ipv4     2 tcp      6 86397 ESTABLISHED src=172.20.0.3 dst=172.20.0.2 sport=41022 dport=5432 packets=12 bytes=1800 src=172.20.0.4 dst=172.20.0.3 sport=5432 dport=41022 packets=10 bytes=9000 [ASSURED] mark=0 zone=0 use=2
+ipv4     2 tcp      6 431999 ESTABLISHED src=192.168.1.10 dst=192.168.1.106 sport=51544 dport=22 packets=80 bytes=9120 src=192.168.1.106 dst=192.168.1.10 sport=22 dport=51544 packets=60 bytes=12000 [ASSURED] mark=0 zone=0 use=2
+ipv4     2 udp      17 20 src=172.20.0.3 dst=172.20.0.9 sport=53000 dport=53 packets=1 bytes=60 src=172.20.0.9 dst=172.20.0.3 sport=53 dport=53000 packets=1 bytes=120 mark=0 zone=0 use=2

@@ -3,7 +3,9 @@ package promote
 import (
 	"fmt"
 	"io"
+	"maps"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 
@@ -471,8 +473,13 @@ func resolve(f *File) (*Resolved, error) {
 	if f.Stack == "" {
 		return nil, fmt.Errorf("stack name required")
 	}
-	r := &Resolved{Stack: f.Stack, Params: f.Params, Defaults: f.Defaults, Domains: f.Domains,
-		Envs: map[string]ResolvedEnv{}}
+	r := &Resolved{
+		Stack:    f.Stack,
+		Params:   f.Params,
+		Defaults: f.Defaults,
+		Domains:  f.Domains,
+		Envs:     map[string]ResolvedEnv{},
+	}
 	if err := checkParams(f.Params); err != nil {
 		return nil, err
 	}
@@ -495,7 +502,12 @@ func resolve(f *File) (*Resolved, error) {
 		if err := ec.Defaults.check(); err != nil {
 			return nil, fmt.Errorf("environment %s defaults: %w", name, err)
 		}
-		re := ResolvedEnv{Color: ec.Color, Defaults: ec.Defaults, Tiles: map[string]TileConf{}, Volumes: map[string]VolumeConf{}}
+		re := ResolvedEnv{
+			Color:    ec.Color,
+			Defaults: ec.Defaults,
+			Tiles:    map[string]TileConf{},
+			Volumes:  map[string]VolumeConf{},
+		}
 		if err := knobs(&re, ec, f, i); err != nil {
 			return nil, fmt.Errorf("environment %s: %w", name, err)
 		}
@@ -615,8 +627,11 @@ func checkTile(name string, tc TileConf) error {
 		}
 	}
 	if tc.Replicas > 1 && len(tc.Volumes) > 0 {
-		return fmt.Errorf("tile %s: replicas: %d, but it mounts a volume; one writer per volume. Drop the volume or set replicas: 1",
-			name, tc.Replicas)
+		return fmt.Errorf(
+			"tile %s: replicas: %d, but it mounts a volume; one writer per volume. Drop the volume or set replicas: 1",
+			name,
+			tc.Replicas,
+		)
 	}
 	for _, s := range tc.Slices {
 		switch {
@@ -661,7 +676,7 @@ func checkVolume(name string, v VolumeConf) error {
 // checkRefs: every volume line names a declared volume, depends_on names a
 // tile of the env, no cycles.
 func checkRefs(env string, re ResolvedEnv) error {
-	for _, n := range sortedKeys(re.Tiles) {
+	for _, n := range slices.Sorted(maps.Keys(re.Tiles)) {
 		tc := re.Tiles[n]
 		for _, l := range tc.Volumes {
 			v, _, _ := strings.Cut(l, ":")
@@ -679,7 +694,7 @@ func checkRefs(env string, re ResolvedEnv) error {
 			}
 		}
 	}
-	if order := topo(sortedKeys(re.Tiles), re.Tiles); len(order) == 0 && len(re.Tiles) > 0 {
+	if order := topo(slices.Sorted(maps.Keys(re.Tiles)), re.Tiles); len(order) == 0 && len(re.Tiles) > 0 {
 		return fmt.Errorf("environment %s: depends_on has a cycle", env)
 	}
 	return nil
@@ -853,13 +868,4 @@ func sameSet(a, b []string) bool {
 		}
 	}
 	return true
-}
-
-func sortedKeys[V any](m map[string]V) []string {
-	out := make([]string, 0, len(m))
-	for k := range m {
-		out = append(out, k)
-	}
-	sort.Strings(out)
-	return out
 }

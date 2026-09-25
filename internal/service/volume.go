@@ -58,3 +58,30 @@ func (o *Orchestrator) mounters(ctx context.Context, v Volume) ([]Tile, error) {
 	}
 	return out, err
 }
+
+// Volume is one volume by id.
+func (o *Orchestrator) Volume(ctx context.Context, id string) (Volume, error) {
+	return o.volumes.Get(ctx, id)
+}
+
+// TileVolumes are the env volumes a tile mounts.
+func (o *Orchestrator) TileVolumes(ctx context.Context, tileID string) ([]Volume, error) {
+	t, err := o.tiles.Get(ctx, tileID)
+	if err != nil {
+		return nil, err
+	}
+	vs, err := o.volumes.List(ctx, VolumeScope{Kind: "env", ID: t.EnvironmentID})
+	if err != nil {
+		return nil, err
+	}
+	var out []Volume
+	for _, v := range vs {
+		for _, l := range tile.Lines(t.Volumes) {
+			if strings.HasPrefix(l, v.Slug+":") {
+				out = append(out, v)
+				break
+			}
+		}
+	}
+	return out, nil
+}

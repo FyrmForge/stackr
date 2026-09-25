@@ -7,7 +7,9 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -71,8 +73,11 @@ func Build(in Install, tiles []TileRoute, expand Expand) (json.RawMessage, error
 	httpsHosts := map[string]bool{}
 
 	if h := in.PanelHost; h != "" && h != "localhost" && net.ParseIP(h) == nil && in.PanelUpstream != "" {
-		serve := route{"match": []route{{"host": []string{h}}}, "terminal": true,
-			"handle": []route{{"handler": "reverse_proxy", "upstreams": []route{{"dial": in.PanelUpstream}}}}}
+		serve := route{
+			"match":    []route{{"host": []string{h}}},
+			"terminal": true,
+			"handle":   []route{{"handler": "reverse_proxy", "upstreams": []route{{"dial": in.PanelUpstream}}}},
+		}
 		if tlsOn {
 			secure = append(secure, placed{"", "", serve})
 			plain = append(plain, placed{"", "", forceRoute(h, "")})
@@ -179,10 +184,15 @@ func match(host, path string, methods []string) []route {
 
 // forceRoute bounces plain HTTP for this host and path onto HTTPS.
 func forceRoute(host, path string) route {
-	return route{"match": match(host, path, nil), "terminal": true, "handle": []route{{
-		"handler": "static_response", "status_code": 308,
-		"headers": route{"Location": []string{"https://{http.request.host}{http.request.uri}"}},
-	}}}
+	return route{
+		"match":    match(host, path, nil),
+		"terminal": true,
+		"handle": []route{{
+			"handler":     "static_response",
+			"status_code": 308,
+			"headers":     route{"Location": []string{"https://{http.request.host}{http.request.uri}"}},
+		}},
+	}
 }
 
 func domainRoute(d store.Domain, t TileRoute, expand Expand) (any, error) {
@@ -194,10 +204,15 @@ func domainRoute(d store.Domain, t TileRoute, expand Expand) (any, error) {
 	}
 	if d.RedirectTo != "" {
 		// No auth, no headers: the 301 fires first anyway.
-		return route{"match": match(d.Host, d.Path, nil), "terminal": true, "handle": []route{{
-			"handler": "static_response", "status_code": 301,
-			"headers": route{"Location": []string{"https://" + d.RedirectTo + "{http.request.uri}"}},
-		}}}, nil
+		return route{
+			"match":    match(d.Host, d.Path, nil),
+			"terminal": true,
+			"handle": []route{{
+				"handler":     "static_response",
+				"status_code": 301,
+				"headers":     route{"Location": []string{"https://" + d.RedirectTo + "{http.request.uri}"}},
+			}},
+		}, nil
 	}
 	e, err := ExtrasOf(d)
 	if err != nil {
@@ -209,10 +224,13 @@ func domainRoute(d store.Domain, t TileRoute, expand Expand) (any, error) {
 			auth = t.Protect
 		}
 		user, hash := credentials(*auth, expand)
-		hs = append(hs, route{"handler": "authentication", "providers": route{"http_basic": route{
-			"hash":     route{"algorithm": "bcrypt"},
-			"accounts": []route{{"username": user, "password": hash}},
-		}}})
+		hs = append(hs, route{
+			"handler": "authentication",
+			"providers": route{"http_basic": route{
+				"hash":     route{"algorithm": "bcrypt"},
+				"accounts": []route{{"username": user, "password": hash}},
+			}},
+		})
 	}
 	if e.MaxBodyMB > 0 {
 		hs = append(hs, route{"handler": "request_body", "max_size": e.MaxBodyMB << 20})
@@ -284,15 +302,14 @@ func policies(in Install, hosts map[string]bool) []route {
 		}
 		groups[k] = append(groups[k], h)
 	}
-	keys := make([]key, 0, len(groups))
-	for k := range groups {
-		keys = append(keys, k)
-	}
-	sort.Slice(keys, func(i, j int) bool {
-		if keys[i].dns != keys[j].dns {
-			return keys[i].dns
+	keys := slices.SortedFunc(maps.Keys(groups), func(a, b key) int {
+		if a.dns != b.dns {
+			if a.dns {
+				return -1
+			}
+			return 1
 		}
-		return keys[i].email < keys[j].email
+		return strings.Compare(a.email, b.email)
 	})
 	var out []route
 	for _, k := range keys {
@@ -302,8 +319,10 @@ func policies(in Install, hosts map[string]bool) []route {
 			// config stackrd pushes and Caddy autosaves.
 			// ponytail: cloudflare is the one provider compiled into
 			// `stackrd proxy`; another needs its module and its field.
-			iss["challenges"] = route{"dns": route{"provider": route{"name": in.DNSProvider,
-				"api_token": "{env." + DNSTokenEnv + "}"}}}
+			iss["challenges"] = route{"dns": route{"provider": route{
+				"name":      in.DNSProvider,
+				"api_token": "{env." + DNSTokenEnv + "}",
+			}}}
 		}
 		sort.Strings(groups[k])
 		out = append(out, route{"subjects": groups[k], "issuers": []route{iss}})

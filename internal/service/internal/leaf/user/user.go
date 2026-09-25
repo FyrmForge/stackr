@@ -76,8 +76,15 @@ func (l *Leaf) Register(ctx context.Context, email, password, name string) (stor
 	}
 	now := time.Now().UTC()
 	u := store.User{
-		ID: uuid.NewString(), Email: email, PasswordHash: hash, Name: name,
-		Role: role, Active: true, Theme: "system", CreatedAt: now, UpdatedAt: now,
+		ID:           uuid.NewString(),
+		Email:        email,
+		PasswordHash: hash,
+		Name:         name,
+		Role:         role,
+		Active:       true,
+		Theme:        "system",
+		CreatedAt:    now,
+		UpdatedAt:    now,
 	}
 	return u, l.users.Create(ctx, u)
 }
@@ -162,8 +169,13 @@ func (l *Leaf) MintKey(ctx context.Context, u store.User, orgID, roleInOrg, name
 		return "", store.APIKey{}, err
 	}
 	token := hex.EncodeToString(b)
-	k := store.APIKey{ID: uuid.NewString(), UserID: u.ID, Name: strings.TrimSpace(name),
-		TokenHash: HashToken(token), CreatedAt: time.Now().UTC()}
+	k := store.APIKey{
+		ID:        uuid.NewString(),
+		UserID:    u.ID,
+		Name:      strings.TrimSpace(name),
+		TokenHash: HashToken(token),
+		CreatedAt: time.Now().UTC(),
+	}
 	if orgID != "" {
 		k.OrgID = &orgID
 	}

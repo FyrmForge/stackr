@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 	"strconv"
 	"time"
 
@@ -110,7 +111,15 @@ func (f *Flow) Ready(ctx context.Context, t store.Tile) error {
 // Attach cuts a slice for consumer on the instance tile it, named after the
 // consumer unless name is given, and records its outputs. The instance must
 // be visible from the consumer's env.
-func (f *Flow) Attach(ctx context.Context, consumer store.Tile, it store.Tile, home managed.Home, name string, public bool, onRemove string) (store.Provision, error) {
+func (f *Flow) Attach(
+	ctx context.Context,
+	consumer store.Tile,
+	it store.Tile,
+	home managed.Home,
+	name string,
+	public bool,
+	onRemove string,
+) (store.Provision, error) {
 	m, e, err := f.instance(ctx, it.ID)
 	if err != nil {
 		return store.Provision{}, err
@@ -133,7 +142,11 @@ func (f *Flow) Attach(ctx context.Context, consumer store.Tile, it store.Tile, h
 	if err != nil {
 		return store.Provision{}, err
 	}
-	s := Slice{Name: uniqueSliceName(def.SliceName(name), taken, def.SliceSep), Password: managed.Password(), Public: public}
+	s := Slice{
+		Name:     uniqueSliceName(def.SliceName(name), taken, def.SliceSep),
+		Password: managed.Password(),
+		Public:   public,
+	}
 	s.User = s.Name
 	if def.PublicSlices { // ponytail: shared root keys, see s3.go
 		s.User, s.Password = m.AdminUser, m.AdminPassword
@@ -142,8 +155,14 @@ func (f *Flow) Attach(ctx context.Context, consumer store.Tile, it store.Tile, h
 	if err := e.Provision(ctx, inst, s, f.tools(it, m)); err != nil {
 		return store.Provision{}, fmt.Errorf("provision %s on %s: %w", s.Name, it.Slug, err)
 	}
-	p, err := f.Instances.Provision(ctx, m, consumer.ID, managed.Slice{Slug: name, DBName: s.Name, DBUser: s.User,
-		DBPassword: s.Password, Public: public, OnRemove: onRemove})
+	p, err := f.Instances.Provision(ctx, m, consumer.ID, managed.Slice{
+		Slug:       name,
+		DBName:     s.Name,
+		DBUser:     s.User,
+		DBPassword: s.Password,
+		Public:     public,
+		OnRemove:   onRemove,
+	})
 	if err != nil {
 		return p, err
 	}
@@ -289,26 +308,35 @@ func (f *Flow) instance(ctx context.Context, tileID string) (store.ManagedInstan
 // alias; its port is the engine's.
 // ponytail: PublicBase is "" until instance domains feed it.
 func (f *Flow) facts(t store.Tile, m store.ManagedInstance, def Definition) Instance {
-	return Instance{Slug: t.Slug, Engine: m.Engine, AdminUser: m.AdminUser, AdminPassword: m.AdminPassword,
-		AdminDB: def.AdminDB, Host: t.Slug, Port: def.Port}
+	return Instance{
+		Slug:          t.Slug,
+		Engine:        m.Engine,
+		AdminUser:     m.AdminUser,
+		AdminPassword: m.AdminPassword,
+		AdminDB:       def.AdminDB,
+		Host:          t.Slug,
+		Port:          def.Port,
+	}
 }
 
 // tools reach the instance: exec in its first running replica, and the S3
 // API at its endpoint (the row's, else the alias).
 // ponytail: stackrd must be able to route to that endpoint (DECIDE 28).
 func (f *Flow) tools(t store.Tile, m store.ManagedInstance) Tools {
-	x := Tools{Exec: func(ctx context.Context, cmd []string) (string, error) {
-		cs, err := f.Tiles.Replicas(ctx, t)
-		if err != nil {
-			return "", err
-		}
-		for _, c := range cs {
-			if c.State == "running" {
-				return f.Tiles.Exec(ctx, t.ID, c.ID, cmd)
+	x := Tools{
+		Exec: func(ctx context.Context, cmd []string) (string, error) {
+			cs, err := f.Tiles.Replicas(ctx, t)
+			if err != nil {
+				return "", err
 			}
-		}
-		return "", fmt.Errorf("%s is not running", t.Slug)
-	}}
+			for _, c := range cs {
+				if c.State == "running" {
+					return f.Tiles.Exec(ctx, t.ID, c.ID, cmd)
+				}
+			}
+			return "", fmt.Errorf("%s is not running", t.Slug)
+		},
+	}
 	if f.S3 != nil {
 		ep := m.Endpoint
 		if ep == "" {
@@ -320,7 +348,12 @@ func (f *Flow) tools(t store.Tile, m store.ManagedInstance) Tools {
 }
 
 func slice(p store.Provision) Slice {
-	return Slice{Name: p.DBName, User: p.DBUser, Password: p.DBPassword, Public: p.Public}
+	return Slice{
+		Name:     p.DBName,
+		User:     p.DBUser,
+		Password: p.DBPassword,
+		Public:   p.Public,
+	}
 }
 
 func outputs(bs []Binding) map[string]string {
@@ -332,10 +365,5 @@ func outputs(bs []Binding) map[string]string {
 }
 
 func visible(ms []store.ManagedInstance, id string) bool {
-	for _, m := range ms {
-		if m.ID == id {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(ms, func(m store.ManagedInstance) bool { return m.ID == id })
 }

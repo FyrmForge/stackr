@@ -27,6 +27,8 @@ func TestOrgDeleteCascades(t *testing.T) {
 		{`INSERT INTO params VALUES ('p2','stack','s1','email','key','secret','enc1:x',?,?)`, []any{now, now}},
 		{`INSERT INTO params VALUES ('p3','env','e1','email','key','secret','enc1:x',?,?)`, []any{now, now}},
 		{`INSERT INTO volumes VALUES ('v1','env','e1',NULL,'pgdata','vol',0,NULL,?)`, []any{now}},
+		{`INSERT INTO positions VALUES ('org','o1','stack:s1',0,0), ('stack','s1','env:e1',0,0), ('env','e1','tile:api',0,0)`, nil},
+		{`INSERT INTO annotations VALUES ('a1','org','o1','note',0,0,160,60,'hi',?), ('a2','env','e1','box',0,0,90,90,'',?)`, []any{now, now}},
 		{`INSERT INTO credentials VALUES ('c1','o1','hub','https://r','u','enc1:x',?)`, []any{now}},
 		{`INSERT INTO connectors VALUES ('g1','o1','github','gh','github.com','enc1:x',?)`, []any{now}},
 		{`INSERT INTO backup_destinations VALUES ('d1','o1','s3','b','e','r','b','a','enc1:x','enc1:y',0,?)`, []any{now}},
@@ -40,8 +42,20 @@ func TestOrgDeleteCascades(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	for _, table := range []string{"org_members", "invites", "api_keys", "stacks", "environments",
-		"params", "volumes", "credentials", "connectors", "backup_destinations"} {
+	for _, table := range []string{
+		"org_members",
+		"invites",
+		"api_keys",
+		"stacks",
+		"environments",
+		"params",
+		"volumes",
+		"credentials",
+		"connectors",
+		"backup_destinations",
+		"positions",
+		"annotations",
+	} {
 		var n int
 		if err := db.Get(&n, "SELECT count(*) FROM "+table); err != nil {
 			t.Fatal(err)

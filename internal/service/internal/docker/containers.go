@@ -19,7 +19,11 @@ func (d *Client) Run(ctx context.Context, spec ContainerSpec) (string, error) {
 	maps.Copy(labels, spec.Labels)
 
 	cfg := &container.Config{
-		Image: spec.Image, Cmd: spec.Cmd, Env: spec.Env, User: spec.User, Labels: labels,
+		Image:  spec.Image,
+		Cmd:    spec.Cmd,
+		Env:    spec.Env,
+		User:   spec.User,
+		Labels: labels,
 	}
 	if spec.HealthCmd != "" {
 		cfg.Healthcheck = &container.HealthConfig{
@@ -33,7 +37,9 @@ func (d *Client) Run(ctx context.Context, spec ContainerSpec) (string, error) {
 	devices := make([]container.DeviceMapping, 0, len(spec.Devices))
 	for _, dev := range spec.Devices {
 		devices = append(devices, container.DeviceMapping{
-			PathOnHost: dev.Host, PathInContainer: dev.Container, CgroupPermissions: dev.Perms,
+			PathOnHost:        dev.Host,
+			PathInContainer:   dev.Container,
+			CgroupPermissions: dev.Perms,
 		})
 	}
 	hostCfg := &container.HostConfig{
@@ -152,7 +158,13 @@ func (d *Client) List(ctx context.Context, labels map[string]string) ([]Containe
 	}
 	out := make([]Container, 0, len(cs))
 	for _, c := range cs {
-		row := Container{ID: c.ID, Image: c.Image, State: c.State, Health: healthWord(c.Status), Labels: c.Labels}
+		row := Container{
+			ID:     c.ID,
+			Image:  c.Image,
+			State:  c.State,
+			Health: healthWord(c.Status),
+			Labels: c.Labels,
+		}
 		if len(c.Names) > 0 {
 			row.Name = strings.TrimPrefix(c.Names[0], "/")
 		}
@@ -197,8 +209,12 @@ func (d *Client) Inspect(ctx context.Context, id string) (Detail, error) {
 	if err != nil {
 		return Detail{}, wrap(err)
 	}
-	det := Detail{ID: info.ID, Name: strings.TrimPrefix(info.Name, "/"), RestartCount: info.RestartCount,
-		Networks: map[string]string{}}
+	det := Detail{
+		ID:           info.ID,
+		Name:         strings.TrimPrefix(info.Name, "/"),
+		RestartCount: info.RestartCount,
+		Networks:     map[string]string{},
+	}
 	if info.Config != nil {
 		det.Image = info.Config.Image
 	}

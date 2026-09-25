@@ -28,15 +28,50 @@ func setup(t *testing.T) (*managed.Leaf, *store.Store, managed.Home, map[string]
 	st := servicetest.Store(t)
 	h := managed.Home{OrgID: uuid.NewString(), StackID: uuid.NewString(), EnvID: uuid.NewString()}
 	now := time.Now()
-	must(t, st.Orgs.Create(ctx, store.Org{ID: h.OrgID, Name: "o", Slug: "o", EnvColors: "{}", Settings: "{}", CreatedAt: now}))
-	must(t, st.Stacks.Create(ctx, store.Stack{ID: h.StackID, OrgID: h.OrgID, Name: "s", Slug: "s", Settings: "{}", Domains: "[]", CreatedAt: now}))
-	must(t, st.Environments.Create(ctx, store.Environment{ID: h.EnvID, StackID: h.StackID, Name: "dev", Slug: "dev", Type: "static",
-		Settings: "{}", Network: "n", FromKind: "branch", FromBranch: "main", CreatedAt: now}))
+	must(t, st.Orgs.Create(ctx, store.Org{
+		ID:        h.OrgID,
+		Name:      "o",
+		Slug:      "o",
+		EnvColors: "{}",
+		Settings:  "{}",
+		CreatedAt: now,
+	}))
+	must(t, st.Stacks.Create(ctx, store.Stack{
+		ID:        h.StackID,
+		OrgID:     h.OrgID,
+		Name:      "s",
+		Slug:      "s",
+		Settings:  "{}",
+		Domains:   "[]",
+		CreatedAt: now,
+	}))
+	must(t, st.Environments.Create(ctx, store.Environment{
+		ID:         h.EnvID,
+		StackID:    h.StackID,
+		Name:       "dev",
+		Slug:       "dev",
+		Type:       "static",
+		Settings:   "{}",
+		Network:    "n",
+		FromKind:   "branch",
+		FromBranch: "main",
+		CreatedAt:  now,
+	}))
 	tiles := map[string]string{}
 	for _, s := range []string{"db", "api", "web"} {
 		tiles[s] = uuid.NewString()
-		must(t, st.Tiles.Create(ctx, store.Tile{ID: tiles[s], StackID: h.StackID, EnvironmentID: h.EnvID, Name: s, Slug: s,
-			Kind: "image", UpdatePolicy: "manual", Replicas: 1, CreatedAt: now, UpdatedAt: now}))
+		must(t, st.Tiles.Create(ctx, store.Tile{
+			ID:            tiles[s],
+			StackID:       h.StackID,
+			EnvironmentID: h.EnvID,
+			Name:          s,
+			Slug:          s,
+			Kind:          "image",
+			UpdatePolicy:  "manual",
+			Replicas:      1,
+			CreatedAt:     now,
+			UpdatedAt:     now,
+		}))
 	}
 	return managed.New(st.ManagedInstances, st.Provisions), st, h, tiles
 }
@@ -68,7 +103,12 @@ func TestScope(t *testing.T) {
 func TestSlices(t *testing.T) {
 	l, _, h, tiles := setup(t)
 	m, _ := l.Create(ctx, tiles["db"], "postgres", "", h, "root", "db:5432")
-	slice := managed.Slice{Slug: "api", DBName: "api", DBUser: "api", DBPassword: managed.Password()}
+	slice := managed.Slice{
+		Slug:       "api",
+		DBName:     "api",
+		DBUser:     "api",
+		DBPassword: managed.Password(),
+	}
 
 	p, err := l.Provision(ctx, m, tiles["api"], slice)
 	if err != nil || p.OnRemove != managed.Keep {
@@ -77,7 +117,12 @@ func TestSlices(t *testing.T) {
 	if _, err := l.Provision(ctx, m, tiles["api"], slice); err == nil {
 		t.Error("second slice for one consumer")
 	}
-	if _, err := l.Provision(ctx, m, tiles["web"], managed.Slice{DBName: "w", DBUser: "w", OnRemove: "detach"}); err == nil {
+	if _, err := l.Provision(
+		ctx,
+		m,
+		tiles["web"],
+		managed.Slice{DBName: "w", DBUser: "w", OnRemove: "detach"},
+	); err == nil {
 		t.Error("bad on_remove accepted")
 	}
 	if _, err := l.Share(ctx, p, tiles["web"], false); !errors.Is(err, errs.ErrRefused) {

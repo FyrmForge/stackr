@@ -740,7 +740,9 @@ Each step is usable before the next one starts.
 | 3 | **Services** | Every v1 feature above exists as orchestrator methods, including managed tiles, Caddy route config and `stackrd proxy`. |
 | 4 | **API and CLI** | The API is the only door. The CLI is a plain HTTP client with no rules of its own. |
 | 5 | **Installer and self-upgrade** | v1 installs on the test VM from nothing and upgrades itself. |
-| 6 | **UI** | templ+htmx, server-rendered; see "UI stack". hamr's dev tooling stays. Old templates are reference for *what* a screen shows, never for *how*; no copy-paste. The step starts with the shared component set and every screen is built from it, so each UI behaviour lives in one place. |
+| 3b | **Cron and function tiles** | Run-to-completion kinds, `runs` table, `flow/run`, schedule and pause, API and CLI verbs. Added 2026-09-24: v0 had them from day one and step 1 fixed the kinds without them. `docs/rewrite/tasks/step-3b.md`. |
+| 3c | **Traffic** | conntrack sampler, per-pair bytes/s in memory, SSE; drawn as lanes by the canvas. `docs/rewrite/tasks/step-3c.md`. |
+| 6 | **UI** | templ+htmx, server-rendered; see "UI stack" and `docs/rewrite/ui-plan.md`. Everything is a graph: four canvases (home, org, stack, env), one canvas element; anything else is a drawer or a dialog, never both. hamr's dev tooling stays. Old templates are reference for *what* a screen shows, never for *how*; no copy-paste. The step starts with the shared component set and every screen is built from it, so each UI behaviour lives in one place. |
 | 7 | **Federation** | See "Later options". |
 | 8 | **Multi-node** | See "Later options". |
 
@@ -789,8 +791,11 @@ ever comes, gets its own island then.
     loaded with `<script type="module">`; `tsc --noEmit` runs in `make
     lint`. No Node at runtime, no bundler.
   - **Budget:** an element over ~150 lines is a smell, over 300 is refused.
-  - **Whitelist:** the elements that exist are listed in this doc's step 6
-    task list. Adding one is a plan item.
+  - **Whitelist:** seven tags. Session A: `log-pane`, `confirm-dialog`,
+    `flash-toast`, `theme-toggle`. Graph (`docs/rewrite/ui-plan.md`):
+    `graph-canvas`, `graph-node`, `side-drawer`. Adding one is a plan
+    item. The graph elements do geometry only; every card is templ HTML
+    carrying htmx, so the JS never fetches.
 - htmx and its SSE extension are vendored, pinned, ~20 KB total.
 
 ## What comes over from the old code
@@ -868,7 +873,7 @@ Bugs from the register that become v1 test cases:
 engines and engine plugins, org config files, CI gate, GitLab and other
 connectors, per-repo git tokens and deploy keys, built-in registry, storage
 shares, collection links (stack collection → org collection), an `env.`
-ref scope, volume moves, cron tiles and functions, the canvas, metrics, search,
+ref scope, volume moves, metrics (CPU, memory, disk, slice stats), search,
 share links, notifications and mail, port forwarding, audit log,
 fine-grained permissions, btrfs volume snapshots, Postgres PITR, managed-tile
 HA (with clustering), owner-held backup passphrase (see "Backups").

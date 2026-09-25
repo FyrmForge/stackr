@@ -151,8 +151,11 @@ func TestLockSet(t *testing.T) {
 
 func TestWorkersCap(t *testing.T) {
 	g := newGate(false)
-	r, l := setup(t, map[jobs.Kind]jobs.Handler{"a": g.run},
-		jobs.Options{Workers: func(context.Context) (int, error) { return 1, nil }})
+	r, l := setup(
+		t,
+		map[jobs.Kind]jobs.Handler{"a": g.run},
+		jobs.Options{Workers: func(context.Context) (int, error) { return 1, nil }},
+	)
 	start(t, r)
 	one := enqueue(t, r, "a", "t1")
 	started(t, g)
@@ -283,12 +286,19 @@ func TestWaiting(t *testing.T) {
 }
 
 func TestFailures(t *testing.T) {
-	block := func(ctx context.Context, _ *jobs.Run) error { <-ctx.Done(); return ctx.Err() }
-	r, l := setup(t, map[jobs.Kind]jobs.Handler{
-		"slow":  block,
-		"boom":  func(context.Context, *jobs.Run) error { panic("kaboom") },
-		"error": func(context.Context, *jobs.Run) error { return errors.New("pull failed") },
-	}, jobs.Options{Cap: 50 * time.Millisecond})
+	block := func(ctx context.Context, _ *jobs.Run) error {
+		<-ctx.Done()
+		return ctx.Err()
+	}
+	r, l := setup(
+		t,
+		map[jobs.Kind]jobs.Handler{
+			"slow":  block,
+			"boom":  func(context.Context, *jobs.Run) error { panic("kaboom") },
+			"error": func(context.Context, *jobs.Run) error { return errors.New("pull failed") },
+		},
+		jobs.Options{Cap: 50 * time.Millisecond},
+	)
 	start(t, r)
 	for _, c := range []struct {
 		kind jobs.Kind
@@ -310,16 +320,20 @@ func TestFailures(t *testing.T) {
 
 // An uncapped kind outlives the cap; its handler holds its own clock.
 func TestUncapped(t *testing.T) {
-	r, l := setup(t, map[jobs.Kind]jobs.Handler{
-		"run": func(ctx context.Context, _ *jobs.Run) error {
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			case <-time.After(150 * time.Millisecond):
-				return nil
-			}
+	r, l := setup(
+		t,
+		map[jobs.Kind]jobs.Handler{
+			"run": func(ctx context.Context, _ *jobs.Run) error {
+				select {
+				case <-ctx.Done():
+					return ctx.Err()
+				case <-time.After(150 * time.Millisecond):
+					return nil
+				}
+			},
 		},
-	}, jobs.Options{Cap: 50 * time.Millisecond, Uncapped: map[jobs.Kind]bool{"run": true}})
+		jobs.Options{Cap: 50 * time.Millisecond, Uncapped: map[jobs.Kind]bool{"run": true}},
+	)
 	start(t, r)
 	id := enqueue(t, r, "run", "t1")
 	waitState(t, l, id, job.Done)

@@ -126,6 +126,11 @@ func (o *Orchestrator) Invites(ctx context.Context, orgID string) ([]Invite, err
 	return o.orgs.Invites(ctx, orgID)
 }
 
+// PendingInvites are the org's invites not yet used or expired.
+func (o *Orchestrator) PendingInvites(ctx context.Context, orgID string) ([]Invite, error) {
+	return o.orgs.Pending(ctx, orgID, time.Now())
+}
+
 // LookupInvite is the invite behind a link, refused when used or expired.
 func (o *Orchestrator) LookupInvite(ctx context.Context, token string) (Invite, error) {
 	return o.orgs.Lookup(ctx, token, time.Now())
@@ -146,7 +151,10 @@ func (o *Orchestrator) AcceptInvite(ctx context.Context, token, userID string) e
 
 // RegisterInvited creates the account and joins through the invite in one
 // transaction, then opens a session.
-func (o *Orchestrator) RegisterInvited(ctx context.Context, token, email, password, name string) (*auth.Session, error) {
+func (o *Orchestrator) RegisterInvited(
+	ctx context.Context,
+	token, email, password, name string,
+) (*auth.Session, error) {
 	var id string
 	err := o.store.Tx(ctx, func(tx store.Tx) error {
 		u, err := user.New(tx.Users, tx.Sessions, tx.APIKeys).Register(ctx, email, password, name)
@@ -188,7 +196,10 @@ func (o *Orchestrator) Connectors(ctx context.Context, orgID string) ([]Connecto
 }
 
 // BeginConnector makes the pending row; the browser POSTs manifest to action.
-func (o *Orchestrator) BeginConnector(ctx context.Context, orgID, ghOrg string) (c Connector, action, manifest string, err error) {
+func (o *Orchestrator) BeginConnector(
+	ctx context.Context,
+	orgID, ghOrg string,
+) (c Connector, action, manifest string, err error) {
 	return o.conns.Begin(ctx, orgID, ghOrg)
 }
 

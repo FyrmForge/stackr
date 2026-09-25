@@ -1,0 +1,166 @@
+// Package org is the org card's drawer tabs (home canvas): settings,
+// members + invites, keys, backups. Params is the vars editor, composed by
+// the handler. Each tab is drawn inside components.Drawer.
+package org
+
+import c "github.com/FyrmForge/stackr/internal/ui/components"
+
+// Tabs in strip order.
+var Tabs = []string{"settings", "members", "keys", "params", "backups"}
+
+// Roles an owner can give.
+var Roles = []string{"owner", "member", "viewer"}
+
+type SettingsView struct {
+	Name   string
+	Rename string        // POST name; "" = not an owner
+	Delete c.ConfirmView // shown when Rename is set
+}
+
+type MembersView struct {
+	Base    string // actions: /invite, /members/<user>/role, /members/<user>/remove
+	Manage  bool   // member.manage: change roles, remove, invite
+	Members []MemberRow
+	Invites []InviteRow
+}
+
+type MemberRow struct{ UserID, Email, Role string }
+
+type InviteRow struct{ Email, Role, Expires string }
+
+type KeysView struct {
+	Base string // POST /keys (name), /keys/<id>/revoke
+	Keys []KeyRow
+}
+
+type KeyRow struct{ ID, Name, Created string }
+
+type BackupsView struct {
+	Base  string // POST /backups, /backups/<id>/delete
+	Write bool   // destination.write
+	Dests []DestRow
+}
+
+type DestRow struct {
+	ID, Name, Kind, Bucket string
+	Global                 bool // the install's, not this org's: read-only here
+}
+
+func target() string { return "#" + c.DrawerRoot }
+
+templ form(action string) {
+	<form hx-post={ action } hx-target={ target() } hx-swap="outerHTML" class="space-y-3">
+		{ children... }
+	</form>
+}
+
+templ Settings(v SettingsView) {
+	<div class="space-y-6" id="tab-settings">
+		@form(v.Rename) {
+			@c.Field(c.FieldView{Name: "name", Label: "Name", Value: v.Name, Required: true, Disabled: v.Rename == "", Why: "Only an owner renames the org."})
+			if v.Rename != "" {
+				@c.Submit("Rename")
+			}
+		}
+		if v.Rename != "" {
+			<section class="space-y-2">
+				<h3 class="font-semibold">Delete</h3>
+				<p class="text-sm text-slate-500">Refused while the org has stacks.</p>
+				@c.Confirm(v.Delete)
+			</section>
+		}
+	</div>
+}
+
+templ Members(v MembersView) {
+	<div class="space-y-6" id="tab-members">
+		<ul class="divide-y divide-slate-200 text-sm dark:divide-slate-800">
+			for _, m := range v.Members {
+				<li class="flex items-center gap-2 py-2">
+					<span class="flex-1">{ m.Email }</span>
+					if v.Manage {
+						<form hx-post={ v.Base + "/members/" + m.UserID + "/role" } hx-trigger="change" hx-target={ target() } hx-swap="outerHTML">
+							<select name="role" class="input" aria-label={ "Role of " + m.Email }>
+								for _, r := range Roles {
+									<option value={ r } selected?={ r == m.Role }>{ r }</option>
+								}
+							</select>
+						</form>
+						@c.PostButton("Remove", v.Base+"/members/"+m.UserID+"/remove")
+					} else {
+						<span class="text-slate-500">{ m.Role }</span>
+					}
+				</li>
+			}
+		</ul>
+		if v.Manage {
+			<section class="space-y-2">
+				<h3 class="font-semibold">Invites</h3>
+				if len(v.Invites) == 0 {
+					<p class="text-sm text-slate-500">No open invites.</p>
+				}
+				<ul class="text-sm">
+					for _, i := range v.Invites {
+						<li>{ i.Email } <span class="text-slate-500">{ i.Role }, until { i.Expires }</span></li>
+					}
+				</ul>
+				@form(v.Base + "/invite") {
+					@c.Field(c.FieldView{Name: "email", Label: "Email", Type: "email", Required: true})
+					<select name="role" class="input" aria-label="Role">
+						for _, r := range Roles {
+							<option value={ r } selected?={ r == "member" }>{ r }</option>
+						}
+					</select>
+					@c.Submit("Invite")
+				}
+			</section>
+		}
+	</div>
+}
+
+templ Keys(v KeysView) {
+	<div class="space-y-6" id="tab-keys">
+		<p class="text-sm text-slate-500">Your API keys for this org. A key is shown once, when minted.</p>
+		<ul class="divide-y divide-slate-200 text-sm dark:divide-slate-800">
+			for _, k := range v.Keys {
+				<li class="flex items-center gap-2 py-2">
+					<span class="flex-1">{ k.Name } <span class="text-slate-500">{ k.Created }</span></span>
+					@c.PostButton("Revoke", v.Base+"/keys/"+k.ID+"/revoke")
+				</li>
+			}
+		</ul>
+		@form(v.Base + "/keys") {
+			@c.Field(c.FieldView{Name: "key_name", Label: "New key", Placeholder: "laptop", Required: true})
+			@c.Submit("Mint")
+		}
+	</div>
+}
+
+templ Backups(v BackupsView) {
+	<div class="space-y-6" id="tab-backups">
+		<ul class="divide-y divide-slate-200 text-sm dark:divide-slate-800">
+			for _, d := range v.Dests {
+				<li class="flex items-center gap-2 py-2">
+					<span class="flex-1">{ d.Name } <span class="text-slate-500">{ d.Kind } { d.Bucket }</span></span>
+					if d.Global {
+						<span class="text-slate-500">install-wide</span>
+					} else if v.Write {
+						@c.PostButton("Delete", v.Base+"/backups/"+d.ID+"/delete")
+					}
+				</li>
+			}
+		</ul>
+		if v.Write {
+			@form(v.Base + "/backups") {
+				<h3 class="font-semibold">Add an S3 destination</h3>
+				@c.Field(c.FieldView{Name: "dest_name", Label: "Name", Required: true})
+				@c.Field(c.FieldView{Name: "endpoint", Label: "Endpoint", Placeholder: "https://s3.example.com", Required: true})
+				@c.Field(c.FieldView{Name: "region", Label: "Region"})
+				@c.Field(c.FieldView{Name: "bucket", Label: "Bucket", Required: true})
+				@c.Field(c.FieldView{Name: "access_key", Label: "Access key", Required: true})
+				@c.Field(c.FieldView{Name: "secret_key", Label: "Secret key", Type: "password", Required: true})
+				@c.Submit("Add")
+			}
+		}
+	</div>
+}

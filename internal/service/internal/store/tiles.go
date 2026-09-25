@@ -98,6 +98,9 @@ type Image struct {
 	CreatedAt  time.Time  `db:"created_at" json:"created_at"`
 }
 
+// Newer says image watch saw a digest other than the one running.
+func (i Image) Newer() bool { return i.LastDigest != "" && i.Digest != "" && i.LastDigest != i.Digest }
+
 type ImageStore interface {
 	Create(ctx context.Context, i Image) error
 	Get(ctx context.Context, id string) (Image, error)

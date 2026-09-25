@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"io"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -21,12 +22,20 @@ const repo = "https://github.com/acme/app.git"
 func hookWorld(t *testing.T) (*world, string) {
 	t.Helper()
 	var img string
-	w := newWorld(t, service.WithBuild(func(context.Context, service.Stack, service.Tile, string, io.Writer) (string, error) {
-		return img, nil
-	}))
+	w := newWorld(t,
+		service.WithBuild(func(context.Context, service.Stack, service.Tile, string, io.Writer) (string, error) {
+			return img, nil
+		}))
 	img = w.env.Image(t, "stkr/acme_shop_web:abc")
-	if _, err := w.env.O.CreateTile(context.Background(), service.Tile{StackID: w.tile.Stack, EnvironmentID: w.tile.Env,
-		Name: "web", Kind: "service", GitURL: repo, GitBranch: "main", ContainerPort: 80}); err != nil {
+	if _, err := w.env.Orch.CreateTile(context.Background(), service.Tile{
+		StackID:       w.tile.Stack,
+		EnvironmentID: w.tile.Env,
+		Name:          "web",
+		Kind:          "service",
+		GitURL:        repo,
+		GitBranch:     "main",
+		ContainerPort: 80,
+	}); err != nil {
 		t.Fatal(err)
 	}
 	return w, w.env.Connector(t, w.acme, "whsec")
@@ -73,7 +82,7 @@ func TestWebhookPush(t *testing.T) {
 		t.Fatalf("push = %d, want 204", code)
 	}
 	eventually(t, "a release", func() bool {
-		rs, err := w.env.O.Releases(context.Background(), w.tile.Stack)
+		rs, err := w.env.Orch.Releases(context.Background(), w.tile.Stack)
 		return err == nil && len(rs) == 1
 	})
 }
@@ -86,16 +95,11 @@ func TestWebhookPR(t *testing.T) {
 			`"pull_request":{"head":{"ref":"feat","sha":"def5678"},"base":{"ref":"main"}}}`
 	}
 	has := func() bool {
-		es, err := w.env.O.Envs(context.Background(), w.tile.Stack)
+		es, err := w.env.Orch.Envs(context.Background(), w.tile.Stack)
 		if err != nil {
 			t.Fatal(err)
 		}
-		for _, e := range es {
-			if e.Name == "pr-7" {
-				return true
-			}
-		}
-		return false
+		return slices.ContainsFunc(es, func(e service.Environment) bool { return e.Name == "pr-7" })
 	}
 	if code := w.hook(t, conn, "pull_request", "whsec", pr("opened")); code != 204 {
 		t.Fatalf("opened = %d", code)

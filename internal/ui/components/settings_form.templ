@@ -1,0 +1,73 @@
+package components
+
+// SettingsFormView is one rung of the settings cascade (server, org, stack,
+// env), one row per catalogue knob the rung may set. The same shape at
+// every level; the service answers what applies and who decided it.
+type SettingsFormView struct {
+	ID       string // form id, unique on the page
+	Action   string
+	Scope    string // the rung being edited, for the heading
+	Rows     []SettingRowView
+	ReadOnly bool
+	Why      string
+	Error    string // a refusal no one row owns
+	Note     string // what a save did
+}
+
+// SettingRowView mirrors a settings.Knob plus the cascade's answer.
+type SettingRowView struct {
+	Key       string
+	Desc      string
+	Type      string // int | float | bool | string
+	Value     string // this rung's value; "" = inherit
+	Effective string // what applies here
+	DecidedBy string // the rung it comes from
+	Error     string
+}
+
+templ SettingsForm(v SettingsFormView) {
+	<form id={ v.ID } hx-post={ v.Action } hx-target={ "#" + v.ID } hx-swap="outerHTML" class="space-y-4">
+		<h2 class="font-semibold">{ v.Scope } settings</h2>
+		if v.ReadOnly {
+			<p class="banner">{ v.Why }</p>
+		}
+		@FormError(v.Error)
+		if v.Note != "" {
+			<p class="banner" role="status">{ v.Note }</p>
+		}
+		<fieldset disabled?={ v.ReadOnly } class="space-y-4">
+			<legend class="sr-only">{ v.Scope } settings</legend>
+			for _, r := range v.Rows {
+				<div>
+					<label for={ v.ID + "-" + r.Key } class="label font-mono">{ r.Key }</label>
+					if r.Type == "bool" {
+						<select id={ v.ID + "-" + r.Key } name={ r.Key } class="input">
+							<option value="" selected?={ r.Value == "" }>inherit ({ r.Effective })</option>
+							<option value="true" selected?={ r.Value == "true" }>true</option>
+							<option value="false" selected?={ r.Value == "false" }>false</option>
+						</select>
+					} else {
+						<input id={ v.ID + "-" + r.Key } name={ r.Key } type={ knobInput(r.Type) } step={ knobStep(r.Type) } value={ r.Value } placeholder={ "inherit (" + r.Effective + ")" } class="input"/>
+					}
+					<p class="mt-1 text-xs text-slate-500">{ r.Desc } · applies: { r.Effective } from { r.DecidedBy }</p>
+					@FieldError(r.Key, r.Error)
+				</div>
+			}
+			@Submit("Save")
+		</fieldset>
+	</form>
+}
+
+func knobInput(t string) string {
+	if t == "int" || t == "float" {
+		return "number"
+	}
+	return "text"
+}
+
+func knobStep(t string) string {
+	if t == "float" {
+		return "any"
+	}
+	return "1"
+}

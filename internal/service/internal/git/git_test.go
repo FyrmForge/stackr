@@ -48,7 +48,10 @@ func fixture(t *testing.T) (bare, first, second string) {
 	bare, work := filepath.Join(root, "bare.git"), filepath.Join(root, "work")
 	g := func(dir string, args ...string) string {
 		t.Helper()
-		cmd := exec.Command("git", append([]string{"-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"}, args...)...)
+		cmd := exec.Command(
+			"git",
+			append([]string{"-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"}, args...)...,
+		)
 		cmd.Dir = dir
 		out, err := cmd.CombinedOutput()
 		if err != nil {
@@ -84,8 +87,15 @@ func TestCheckoutReadDiff(t *testing.T) {
 	bare, first, second := fixture(t)
 	ctx := context.Background()
 	var authCalled bool
-	r := Repo{Dir: filepath.Join(t.TempDir(), "clone"), URL: bare, Branch: "main",
-		Auth: func(context.Context) []string { authCalled = true; return []string{"GIT_CONFIG_COUNT=0"} }}
+	r := Repo{
+		Dir:    filepath.Join(t.TempDir(), "clone"),
+		URL:    bare,
+		Branch: "main",
+		Auth: func(context.Context) []string {
+			authCalled = true
+			return []string{"GIT_CONFIG_COUNT=0"}
+		},
+	}
 	var log strings.Builder
 
 	sha, err := r.Checkout(ctx, "", &log)

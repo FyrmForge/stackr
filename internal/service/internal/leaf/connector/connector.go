@@ -97,8 +97,15 @@ func (l *Leaf) Begin(ctx context.Context, orgID, ghOrg string) (c store.Connecto
 	nonce := make([]byte, 16)
 	_, _ = rand.Read(nonce)
 	cfg, _ := json.Marshal(config{State: hex.EncodeToString(nonce)})
-	c = store.Connector{ID: uuid.NewString(), OrgID: orgID, Provider: GitHub, Name: "GitHub (connecting…)",
-		Host: GitHubHost, Config: string(cfg), CreatedAt: time.Now().UTC()}
+	c = store.Connector{
+		ID:        uuid.NewString(),
+		OrgID:     orgID,
+		Provider:  GitHub,
+		Name:      "GitHub (connecting…)",
+		Host:      GitHubHost,
+		Config:    string(cfg),
+		CreatedAt: time.Now().UTC(),
+	}
 	if action, manifest, err = l.app.Manifest(c.ID, ghOrg, c.ID+"."+hex.EncodeToString(nonce)); err != nil {
 		return c, "", "", err
 	}

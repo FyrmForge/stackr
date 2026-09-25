@@ -56,6 +56,8 @@ type Tables struct {
 	BackupSchedules  BackupScheduleStore
 	BackupRuns       BackupRunStore
 	Runs             RunStore
+	Positions        PositionStore
+	Annotations      AnnotationStore
 }
 
 func bind(q querier, box *secrets.Box) Tables {
@@ -85,6 +87,8 @@ func bind(q querier, box *secrets.Box) Tables {
 		BackupSchedules:  backupSchedules{crud[BackupSchedule]{q, box, backupSchedulesT}},
 		BackupRuns:       backupRuns{crud[BackupRun]{q, box, backupRunsT}},
 		Runs:             runs{crud[Run]{q, box, runsT}},
+		Positions:        positions{q},
+		Annotations:      annotations{crud[Annotation]{q, box, annotationsT}},
 	}
 }
 
@@ -101,10 +105,14 @@ func New(db *sqlx.DB, box *secrets.Box) *Store {
 }
 
 // Ping checks the connection.
-func (s *Store) Ping(ctx context.Context) error { return s.db.PingContext(ctx) }
+func (s *Store) Ping(ctx context.Context) error {
+	return s.db.PingContext(ctx)
+}
 
 // DB is the handle for a flow's own query file (joins, with a one-line reason).
-func (s *Store) DB() *sqlx.DB { return s.db }
+func (s *Store) DB() *sqlx.DB {
+	return s.db
+}
 
 // Tx is every table inside one transaction.
 type Tx struct{ Tables }
@@ -152,9 +160,14 @@ func newTable[T any](name string, secret func(*T) []*string) table[T] {
 		}
 	}
 	return table[T]{
-		name:   name,
-		cols:   strings.Join(cols, ", "),
-		insert: fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s)", name, strings.Join(cols, ", "), strings.Join(named, ", ")),
+		name: name,
+		cols: strings.Join(cols, ", "),
+		insert: fmt.Sprintf(
+			"INSERT INTO %s (%s) VALUES (%s)",
+			name,
+			strings.Join(cols, ", "),
+			strings.Join(named, ", "),
+		),
 		update: fmt.Sprintf("UPDATE %s SET %s WHERE id = :id", name, strings.Join(sets, ", ")),
 		secret: secret,
 	}

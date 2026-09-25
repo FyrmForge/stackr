@@ -124,7 +124,10 @@ func (o *Orchestrator) PauseTile(ctx context.Context, id string, paused bool) (T
 	if t.Kind != tile.Cron {
 		return t, errs.Invalidf("paused", "only cron tiles have a schedule to pause")
 	}
-	t, _, err = o.UpdateTile(ctx, id, func(t *Tile) error { t.Paused = paused; return nil })
+	t, _, err = o.UpdateTile(ctx, id, func(t *Tile) error {
+		t.Paused = paused
+		return nil
+	})
 	return t, err
 }
 
@@ -164,7 +167,11 @@ func (o *Orchestrator) RunLog(ctx context.Context, tileID, runID string, tail in
 }
 
 // FollowRunLog streams one run's log until the run closes.
-func (o *Orchestrator) FollowRunLog(ctx context.Context, tileID, runID string, tail int) (<-chan string, func(), error) {
+func (o *Orchestrator) FollowRunLog(
+	ctx context.Context,
+	tileID, runID string,
+	tail int,
+) (<-chan string, func(), error) {
 	r, err := o.runs.Get(ctx, tileID, runID)
 	if err != nil {
 		return nil, nil, err

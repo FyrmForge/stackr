@@ -28,8 +28,15 @@ func main() {
 
 // run is the whole CLI against given streams; tests call it directly.
 func run(ctx context.Context, args []string, in io.Reader, out, errw io.Writer, tty bool) int {
-	a := &app{ctx: ctx, in: bufio.NewReader(in), out: out, errw: errw, tty: tty,
-		cfgPath: configPath(), client: http.DefaultClient}
+	a := &app{
+		ctx:     ctx,
+		in:      bufio.NewReader(in),
+		out:     out,
+		errw:    errw,
+		tty:     tty,
+		cfgPath: configPath(),
+		client:  http.DefaultClient,
+	}
 	root := a.root()
 	root.SetArgs(args)
 	root.SetIn(in)
@@ -74,15 +81,30 @@ func group(c *cobra.Command, args []string) error {
 }
 
 func noun(use, short string, subs ...*cobra.Command) *cobra.Command {
-	c := &cobra.Command{Use: use, Short: short, Args: cobra.ArbitraryArgs, RunE: group}
+	c := &cobra.Command{
+		Use:   use,
+		Short: short,
+		Args:  cobra.ArbitraryArgs,
+		RunE:  group,
+	}
 	c.AddCommand(subs...)
 	return c
 }
 
 // leaf is one command. op names the API operations it calls (comma
 // separated); the coverage test holds every route to one leaf.
-func leaf(use, op, short string, nargs cobra.PositionalArgs, run func(c *cobra.Command, args []string) error) *cobra.Command {
-	return &cobra.Command{Use: use, Short: short, Args: nargs, RunE: run, Annotations: map[string]string{"op": op}}
+func leaf(
+	use, op, short string,
+	nargs cobra.PositionalArgs,
+	run func(c *cobra.Command, args []string) error,
+) *cobra.Command {
+	return &cobra.Command{
+		Use:         use,
+		Short:       short,
+		Args:        nargs,
+		RunE:        run,
+		Annotations: map[string]string{"op": op},
+	}
 }
 
 // exact and upTo are cobra's arg checks with exit code 2.

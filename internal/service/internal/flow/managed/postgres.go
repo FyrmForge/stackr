@@ -15,7 +15,11 @@ func (pg) Definition() Definition {
 		Port:    5432,
 		Volumes: []string{"/var/lib/postgresql/data"},
 		Config: func(i Instance) []string {
-			return []string{"POSTGRES_DB=" + i.AdminDB, "POSTGRES_USER=" + i.AdminUser, "POSTGRES_PASSWORD=" + i.AdminPassword}
+			return []string{
+				"POSTGRES_DB=" + i.AdminDB,
+				"POSTGRES_USER=" + i.AdminUser,
+				"POSTGRES_PASSWORD=" + i.AdminPassword,
+			}
 		},
 		PrimaryOutput: "DATABASE_URL",
 		SliceNoun:     "logical db",
@@ -34,8 +38,12 @@ func (pg) Ready(ctx context.Context, i Instance, x Tools) error {
 // Provision is check-then-create, never a replayed CREATE: a CREATE failing
 // on "already exists" makes postgres log the statement, password included.
 func (e pg) Provision(ctx context.Context, i Instance, s Slice, x Tools) error {
-	q := fmt.Sprintf(`SELECT (EXISTS (SELECT FROM pg_roles WHERE rolname = '%s'))::int || ',' || `+
-		`(EXISTS (SELECT FROM pg_database WHERE datname = '%s'))::int`, s.User, s.Name)
+	q := fmt.Sprintf(
+		`SELECT (EXISTS (SELECT FROM pg_roles WHERE rolname = '%s'))::int || ',' || `+
+			`(EXISTS (SELECT FROM pg_database WHERE datname = '%s'))::int`,
+		s.User,
+		s.Name,
+	)
 	out, err := x.Exec(ctx, append(e.psql(i, nil), "-tA", "-c", q))
 	if err != nil {
 		return err
@@ -48,9 +56,11 @@ func (e pg) Provision(ctx context.Context, i Instance, s Slice, x Tools) error {
 		stmts = append(stmts, fmt.Sprintf(`CREATE ROLE %q LOGIN PASSWORD '%s'`, s.User, s.Password))
 	}
 	if db != "1" {
-		stmts = append(stmts,
+		stmts = append(
+			stmts,
 			fmt.Sprintf(`CREATE DATABASE %q OWNER %q`, s.Name, s.User),
-			fmt.Sprintf(`REVOKE CONNECT ON DATABASE %q FROM PUBLIC`, s.Name))
+			fmt.Sprintf(`REVOKE CONNECT ON DATABASE %q FROM PUBLIC`, s.Name),
+		)
 	}
 	_, err = x.Exec(ctx, e.psql(i, stmts))
 	return err
@@ -70,8 +80,19 @@ const noStatementLogging = `SET log_min_error_statement = PANIC`
 
 // psql runs each statement as the superuser in one session, ON_ERROR_STOP.
 func (pg) psql(i Instance, stmts []string) []string {
-	args := []string{"env", "PGPASSWORD=" + i.AdminPassword, "psql", "-U", i.AdminUser,
-		"-d", "postgres", "-v", "ON_ERROR_STOP=1", "-c", noStatementLogging}
+	args := []string{
+		"env",
+		"PGPASSWORD=" + i.AdminPassword,
+		"psql",
+		"-U",
+		i.AdminUser,
+		"-d",
+		"postgres",
+		"-v",
+		"ON_ERROR_STOP=1",
+		"-c",
+		noStatementLogging,
+	}
 	for _, st := range stmts {
 		args = append(args, "-c", st)
 	}

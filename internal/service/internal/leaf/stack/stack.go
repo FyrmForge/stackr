@@ -29,9 +29,13 @@ type Reservation struct {
 
 type Leaf struct{ stacks store.StackStore }
 
-func New(stacks store.StackStore) *Leaf { return &Leaf{stacks: stacks} }
+func New(stacks store.StackStore) *Leaf {
+	return &Leaf{stacks: stacks}
+}
 
-func (l *Leaf) Get(ctx context.Context, id string) (store.Stack, error) { return l.stacks.Get(ctx, id) }
+func (l *Leaf) Get(ctx context.Context, id string) (store.Stack, error) {
+	return l.stacks.Get(ctx, id)
+}
 
 func (l *Leaf) GetBySlug(ctx context.Context, orgID, slug string) (store.Stack, error) {
 	return l.stacks.GetBySlug(ctx, orgID, slug)
@@ -43,8 +47,14 @@ func (l *Leaf) List(ctx context.Context, orgID string) ([]store.Stack, error) {
 
 // Create makes an empty stack; the slug comes from the name.
 func (l *Leaf) Create(ctx context.Context, orgID, name, description string) (store.Stack, error) {
-	s := store.Stack{ID: uuid.NewString(), OrgID: orgID, Description: description,
-		Settings: "{}", Domains: "[]", CreatedAt: time.Now().UTC()}
+	s := store.Stack{
+		ID:          uuid.NewString(),
+		OrgID:       orgID,
+		Description: description,
+		Settings:    "{}",
+		Domains:     "[]",
+		CreatedAt:   time.Now().UTC(),
+	}
 	if err := l.name(ctx, &s, name); err != nil {
 		return s, err
 	}
@@ -83,8 +93,15 @@ func (l *Leaf) name(ctx context.Context, s *store.Stack, name string) error {
 func (l *Leaf) Delete(ctx context.Context, id string) error { return l.stacks.Delete(ctx, id) }
 
 // SetConfigRepo points the stack at its stack file. An empty repo clears it.
-func (l *Leaf) SetConfigRepo(ctx context.Context, s store.Stack, connectorID, repo, branch, path string) (store.Stack, error) {
-	s.ConfigConnectorID, s.ConfigRepo, s.ConfigBranch, s.ConfigPath = connectorID, repo, branch, path
+func (l *Leaf) SetConfigRepo(
+	ctx context.Context,
+	s store.Stack,
+	connectorID, repo, branch, path string,
+) (store.Stack, error) {
+	s.ConfigConnectorID = connectorID
+	s.ConfigRepo = repo
+	s.ConfigBranch = branch
+	s.ConfigPath = path
 	if repo == "" {
 		s.ConfigConnectorID, s.ConfigBranch, s.ConfigPath = "", "", ""
 	}

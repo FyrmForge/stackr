@@ -119,7 +119,8 @@ func TestManifestAndConvert(t *testing.T) {
 	}))
 	defer srv.Close()
 	c.apiURL = srv.URL
-	if app, err := c.ConvertManifest(context.Background(), "code1"); err != nil || app.ID != 5 || app.WebhookSecret != "w" {
+	if app, err := c.ConvertManifest(context.Background(), "code1"); err != nil || app.ID != 5 ||
+		app.WebhookSecret != "w" {
 		t.Fatalf("convert: %+v %v", app, err)
 	}
 	if _, err := c.ConvertManifest(context.Background(), "used"); err == nil {
@@ -161,7 +162,8 @@ func TestReceive(t *testing.T) {
 		t.Fatalf("push: %+v %v", ev.Push, err)
 	}
 	pr := `{"action":"opened","number":3,"pull_request":{"head":{"ref":"f","sha":"s1"},"base":{"ref":"main"}}}`
-	if ev, err := Receive("pull_request", sign(pr), []byte(pr), "k"); err != nil || ev.PR.Number != 3 || ev.PR.PullRequest.Head.SHA != "s1" {
+	if ev, err := Receive("pull_request", sign(pr), []byte(pr), "k"); err != nil || ev.PR.Number != 3 ||
+		ev.PR.PullRequest.Head.SHA != "s1" {
 		t.Fatalf("pr: %+v %v", ev, err)
 	}
 	if _, err := Receive("pull_request", sign(`{}`), []byte(`{}`), "k"); !errors.Is(err, ErrBadPayload) {

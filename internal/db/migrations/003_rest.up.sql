@@ -260,24 +260,59 @@ CREATE TABLE backup_runs (
     finished_at  DATETIME
 );
 
+-- positions: where a card sits on one canvas, shared by everyone who sees
+-- it (ui-plan decided 1). scope_kind home carries the viewer's user id: the
+-- home canvas is the only one that differs per viewer. A card without a row
+-- is laid out by the graph service.
+CREATE TABLE positions (
+    scope_kind  TEXT     NOT NULL CHECK (scope_kind IN ('home', 'org', 'stack', 'env')),
+    scope_id    TEXT     NOT NULL,
+    node_id     TEXT     NOT NULL,
+    x           INTEGER  NOT NULL,
+    y           INTEGER  NOT NULL,
+    PRIMARY KEY (scope_kind, scope_id, node_id)
+);
+
+-- annotations: notes and boxes drawn as cards on one canvas.
+CREATE TABLE annotations (
+    id          TEXT      PRIMARY KEY,
+    scope_kind  TEXT      NOT NULL CHECK (scope_kind IN ('home', 'org', 'stack', 'env')),
+    scope_id    TEXT      NOT NULL,
+    kind        TEXT      NOT NULL CHECK (kind IN ('note', 'box')),
+    x           INTEGER   NOT NULL,
+    y           INTEGER   NOT NULL,
+    w           INTEGER   NOT NULL,
+    h           INTEGER   NOT NULL,
+    text        TEXT      NOT NULL,
+    created_at  DATETIME  NOT NULL
+);
+
+CREATE INDEX annotations_scope ON annotations (scope_kind, scope_id);
+
 -- Polymorphic scopes cannot be a foreign key; these triggers are their
 -- cascade. SQLite fires them for rows an FK cascade removes as well.
 CREATE TRIGGER orgs_scope_cascade AFTER DELETE ON orgs BEGIN
     DELETE FROM params            WHERE scope_kind = 'org' AND scope_id = old.id;
     DELETE FROM managed_instances WHERE scope_kind = 'org' AND scope_id = old.id;
     DELETE FROM volumes           WHERE scope_kind = 'org' AND scope_id = old.id;
+    DELETE FROM positions         WHERE scope_kind = 'org' AND scope_id = old.id;
+    DELETE FROM annotations       WHERE scope_kind = 'org' AND scope_id = old.id;
 END;
 
 CREATE TRIGGER stacks_scope_cascade AFTER DELETE ON stacks BEGIN
     DELETE FROM params            WHERE scope_kind = 'stack' AND scope_id = old.id;
     DELETE FROM managed_instances WHERE scope_kind = 'stack' AND scope_id = old.id;
     DELETE FROM volumes           WHERE scope_kind = 'stack' AND scope_id = old.id;
+    DELETE FROM positions         WHERE scope_kind = 'stack' AND scope_id = old.id;
+    DELETE FROM annotations       WHERE scope_kind = 'stack' AND scope_id = old.id;
 END;
 
 CREATE TRIGGER environments_scope_cascade AFTER DELETE ON environments BEGIN
     DELETE FROM params            WHERE scope_kind = 'env' AND scope_id = old.id;
     DELETE FROM managed_instances WHERE scope_kind = 'env' AND scope_id = old.id;
     DELETE FROM volumes           WHERE scope_kind = 'env' AND scope_id = old.id;
+    DELETE FROM positions         WHERE scope_kind = 'env' AND scope_id = old.id;
+    DELETE FROM annotations       WHERE scope_kind = 'env' AND scope_id = old.id;
 END;
 
 -- runs: one row per run of a cron or function tile. The leaf keeps the last

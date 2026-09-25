@@ -23,10 +23,10 @@ func setup(t *testing.T) (*servicetest.Env, http.Handler) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	access := middleware.NewAccess(env.O)
+	access := middleware.NewAccess(env.Orch)
 	web.RegisterStaticPages(srv)
-	api.RegisterRoutes(srv, &api.Deps{Service: env.O, Access: access, DevMode: true})
-	web.RegisterRoutes(srv, &web.Deps{Service: env.O, Access: access, DevMode: true})
+	api.RegisterRoutes(srv, &api.Deps{Orch: env.Orch, Access: access, DevMode: true})
+	web.RegisterRoutes(srv, &web.Deps{Orch: env.Orch, Access: access, DevMode: true})
 	return env, srv.Echo()
 }
 
@@ -49,7 +49,7 @@ func do(t *testing.T, h http.Handler, cookie string, path string, c cred) int {
 func TestAccess(t *testing.T) {
 	env, h := setup(t)
 	ctx := context.Background()
-	cookie := env.O.Sessions().CookieName()
+	cookie := env.Orch.Sessions().CookieName()
 
 	acme := env.Org(t, "acme")
 	other := env.Org(t, "other")
@@ -76,10 +76,10 @@ func TestAccess(t *testing.T) {
 	}
 
 	// Revoke through the verbs: both close sessions and keys (B16).
-	if err := env.O.DisableUser(ctx, disabled); err != nil {
+	if err := env.Orch.DisableUser(ctx, disabled); err != nil {
 		t.Fatal(err)
 	}
-	if err := env.O.RemoveMember(ctx, acme, removed); err != nil {
+	if err := env.Orch.RemoveMember(ctx, acme, removed); err != nil {
 		t.Fatal(err)
 	}
 	// A membership gone without the revoke verb: the key is still there,
@@ -95,19 +95,19 @@ func TestAccess(t *testing.T) {
 	tests := []struct {
 		who      string
 		path     string
-		sessWant int // web, with the session cookie
+		sessWant int // web, with the session cookie; a page load with no live session goes to log in (303)
 		keyWant  int // api, with the bearer key
 	}{
-		{"admin", "acme", 204, 200},
-		{"owner", "acme", 204, 200},
+		{"admin", "acme", 200, 200},
+		{"owner", "acme", 200, 200},
 		{"owner", "nope", 404, 404},
 		{"owner", "other", 404, 404},
 		{"non-member", "acme", 404, 404},
-		{"disabled", "acme", 401, 401},
-		{"removed", "acme", 401, 401},
+		{"disabled", "acme", 303, 401},
+		{"removed", "acme", 303, 401},
 		{"drifted", "acme", 404, 404},
 		{"unbound", "acme", 0, 403},
-		{"anonymous", "acme", 401, 401},
+		{"anonymous", "acme", 303, 401},
 	}
 	for _, tt := range tests {
 		c := creds[tt.who]
@@ -122,27 +122,39 @@ func TestAccess(t *testing.T) {
 	}
 
 	// The key path works on the web router too: one middleware.
-	if got := do(t, h, cookie, "/acme", cred{key: creds["owner"].key}); got != 204 {
-		t.Errorf("owner key on web = %d, want 204", got)
+	if got := do(t, h, cookie, "/acme", cred{key: creds["owner"].key}); got != 200 {
+		t.Errorf("owner key on web = %d, want 200", got)
 	}
 	// Session on the API router too.
 	if got := do(t, h, cookie, "/api/v1/orgs/acme", cred{session: creds["owner"].session}); got != 200 {
 		t.Errorf("owner session on api = %d, want 200", got)
 	}
 	// The caller-only routes: any live principal, an unbound key only for an admin.
-	for who, want := range map[string]int{"owner": 200, "admin": 200, "unbound": 403, "anonymous": 401, "disabled": 401} {
+	for who, want := range map[string]int{
+		"owner":     200,
+		"admin":     200,
+		"unbound":   403,
+		"anonymous": 401,
+		"disabled":  401,
+	} {
 		if got := do(t, h, cookie, "/api/v1/orgs", cred{key: creds[who].key}); got != want {
 			t.Errorf("%s GET /api/v1/orgs = %d, want %d", who, got, want)
 		}
 	}
 }
 
-// Static routes win over /:org.
+// Static routes win over /:org; home (the org canvas) sends a visitor to
+// the login page.
 func TestFixedRoutesWin(t *testing.T) {
 	_, h := setup(t)
-	for _, path := range []string{"/", "/login", "/about", "/api/health"} {
-		if got := do(t, h, "", path, cred{}); got != http.StatusOK {
-			t.Errorf("GET %s = %d, want 200", path, got)
+	for path, want := range map[string]int{
+		"/":           http.StatusSeeOther,
+		"/login":      200,
+		"/about":      200,
+		"/api/health": 200,
+	} {
+		if got := do(t, h, "", path, cred{}); got != want {
+			t.Errorf("GET %s = %d, want %d", path, got, want)
 		}
 	}
 }
@@ -156,7 +168,7 @@ func TestChildIDsStayInTheirOrg(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	access := middleware.NewAccess(env.O)
+	access := middleware.NewAccess(env.Orch)
 	ok := func(c echo.Context) error { return c.NoContent(http.StatusNoContent) }
 	srv.Echo().GET("/orgs/:org/jobs/:job", ok, access.Load(), access.Require("org.read"))
 	srv.Echo().GET("/orgs/:org/things/:thing", ok, access.Load(), access.Require("org.read"))
@@ -165,12 +177,12 @@ func TestChildIDsStayInTheirOrg(t *testing.T) {
 	owner := env.User(t, "owner@x", false)
 	env.Member(t, acme, owner, "owner")
 	key := env.APIKey(t, owner, acme)
-	mine, err := env.O.Deploy(ctx, env.Tile(t, acme).ID)
+	mine, err := env.Orch.Deploy(ctx, env.Tile(t, acme).ID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	theirTile := env.Tile(t, other)
-	theirs, err := env.O.Deploy(ctx, theirTile.ID)
+	theirs, err := env.Orch.Deploy(ctx, theirTile.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -190,11 +202,11 @@ func TestChildIDsStayInTheirOrg(t *testing.T) {
 	}
 
 	// The job keeps its org after its tile is gone.
-	del, err := env.O.DeleteTile(ctx, theirTile.ID)
+	del, err := env.Orch.DeleteTile(ctx, theirTile.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if org, err := env.O.OrgOf(ctx, "job", del.ID); err != nil || org != other {
+	if org, err := env.Orch.OrgOf(ctx, "job", del.ID); err != nil || org != other {
 		t.Errorf("OrgOf(deleted tile's job) = %q, %v; want %q", org, err, other)
 	}
 }

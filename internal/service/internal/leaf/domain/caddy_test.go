@@ -23,7 +23,13 @@ var install = domain.Install{AdminListen: "0.0.0.0:2019", ACMEEmail: "ops@stackr
 
 func row(host string, e domain.Extras) store.Domain {
 	b, _ := json.Marshal(e)
-	return store.Domain{Host: host, ContainerPort: 8080, HTTPS: true, ForceHTTPS: true, ProxyJSON: string(b)}
+	return store.Domain{
+		Host:          host,
+		ContainerPort: 8080,
+		HTTPS:         true,
+		ForceHTTPS:    true,
+		ProxyJSON:     string(b),
+	}
 }
 
 func one(d store.Domain) []domain.TileRoute {
@@ -48,7 +54,13 @@ func goldens() []golden {
 	path.Path = "/api"
 	noForce := row("app.example.com", domain.Extras{})
 	noForce.ForceHTTPS = false
-	redirect := row("old.example.com", domain.Extras{SecHeaders: true, BasicAuth: &domain.BasicAuth{User: "u", Password: "p"}})
+	redirect := row(
+		"old.example.com",
+		domain.Extras{
+			SecHeaders: true,
+			BasicAuth:  &domain.BasicAuth{User: "u", Password: "p"},
+		},
+	)
 	redirect.RedirectTo = "app.example.com"
 	raw := row("app.example.com", domain.Extras{})
 	raw.RawCaddy = `{"match":[{"host":["app.example.com"]}],"handle":[{"handler":"file_server","browse":{}}]}`
@@ -61,24 +73,46 @@ func goldens() []golden {
 	off := install
 	off.TLSOff = true
 	panel := install
-	panel.PanelHost, panel.PanelUpstream, panel.TrustedProxies = "panel.example.com", "stackrd:8080", []string{"10.0.0.0/8", "10.0.0.0/8", "2001:db8::/32"}
+	panel.PanelHost, panel.PanelUpstream, panel.TrustedProxies = "panel.example.com", "stackrd:8080", []string{
+		"10.0.0.0/8",
+		"10.0.0.0/8",
+		"2001:db8::/32",
+	}
 	wild := install
 	wild.DNSProvider = "cloudflare"
-	wild.Accounts = []domain.Account{{Host: "example.com", Email: "a@example.com"}, {Host: "shop.example.com", Email: "shop@example.com"}}
-	many := []domain.TileRoute{{TileID: "t1", Upstreams: []string{"web-r1"}, Domains: []store.Domain{
-		row("example.com", domain.Extras{}), row("a.shop.example.com", domain.Extras{}),
-		row("*.example.com", domain.Extras{}), row("other.io", domain.Extras{}),
-	}}}
+	wild.Accounts = []domain.Account{
+		{Host: "example.com", Email: "a@example.com"},
+		{Host: "shop.example.com", Email: "shop@example.com"},
+	}
+	many := []domain.TileRoute{{
+		TileID:    "t1",
+		Upstreams: []string{"web-r1"},
+		Domains: []store.Domain{
+			row("example.com", domain.Extras{}),
+			row("a.shop.example.com", domain.Extras{}),
+			row("*.example.com", domain.Extras{}),
+			row("other.io", domain.Extras{}),
+		},
+	}}
 
 	return []golden{
 		{"plain", install, one(row("app.example.com", domain.Extras{}))},
-		{"basic_auth", install, one(row("app.example.com", domain.Extras{BasicAuth: &domain.BasicAuth{User: "u", Password: "${{ secrets.web.pw }}"}}))},
-		{"basic_auth_locked", install, one(row("app.example.com", domain.Extras{BasicAuth: &domain.BasicAuth{User: "u", Password: "${{ secrets.gone }}"}}))},
+		{"basic_auth", install, one(row("app.example.com", domain.Extras{
+			BasicAuth: &domain.BasicAuth{User: "u", Password: "${{ secrets.web.pw }}"},
+		}))},
+		{"basic_auth_locked", install, one(row("app.example.com", domain.Extras{
+			BasicAuth: &domain.BasicAuth{User: "u", Password: "${{ secrets.gone }}"},
+		}))},
 		{"protect_cascade", install, protect},
 		{"websockets", install, one(row("app.example.com", domain.Extras{Websockets: true}))},
 		{"max_body", install, one(row("app.example.com", domain.Extras{MaxBodyMB: 100}))},
-		{"timeouts", install, one(row("app.example.com", domain.Extras{Timeouts: &domain.Timeouts{Dial: 5, Read: 300, Write: 300}}))},
-		{"headers", install, one(row("app.example.com", domain.Extras{Headers: map[string]string{"X-Robots-Tag": "noindex"}, SecHeaders: true}))},
+		{"timeouts", install, one(row("app.example.com", domain.Extras{
+			Timeouts: &domain.Timeouts{Dial: 5, Read: 300, Write: 300},
+		}))},
+		{"headers", install, one(row("app.example.com", domain.Extras{
+			Headers:    map[string]string{"X-Robots-Tag": "noindex"},
+			SecHeaders: true,
+		}))},
 		{"methods", install, one(row("dav.example.com", domain.Extras{Methods: []string{"GET", "PROPFIND", "MKCOL"}}))},
 		{"strip_prefix", install, one(path)},
 		{"sec_headers", install, one(row("app.example.com", domain.Extras{SecHeaders: true}))},
@@ -138,7 +172,11 @@ func hashIn(t *testing.T, cfg []byte) (user, hash string) {
 // one over bcrypt's 72 bytes all lock the route with a real hash.
 func TestBasicAuthFailsClosed(t *testing.T) {
 	build := func(pw string) []byte {
-		cfg, err := domain.Build(install, one(row("a.io", domain.Extras{BasicAuth: &domain.BasicAuth{User: "u", Password: pw}})), expand)
+		cfg, err := domain.Build(
+			install,
+			one(row("a.io", domain.Extras{BasicAuth: &domain.BasicAuth{User: "u", Password: pw}})),
+			expand,
+		)
 		must(t, err)
 		return cfg
 	}
@@ -171,7 +209,10 @@ func TestAutoRendersSame(t *testing.T) {
 func TestBrokenTileLeftOut(t *testing.T) {
 	bad := row("bad.io", domain.Extras{})
 	bad.ProxyJSON = "{"
-	tiles := append(one(row("good.io", domain.Extras{})), domain.TileRoute{TileID: "t-bad", Domains: []store.Domain{bad}})
+	tiles := append(
+		one(row("good.io", domain.Extras{})),
+		domain.TileRoute{TileID: "t-bad", Domains: []store.Domain{bad}},
+	)
 	cfg, err := domain.Build(install, tiles, expand)
 	if err == nil || !strings.Contains(err.Error(), "t-bad") {
 		t.Errorf("err = %v", err)

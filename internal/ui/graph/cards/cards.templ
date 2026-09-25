@@ -1,0 +1,118 @@
+package cards
+
+import (
+	"strconv"
+
+	c "github.com/FyrmForge/stackr/internal/ui/components"
+)
+
+// Card is a card's body: name, kind chip, detail, chips and the footer.
+// A card with a drawer opens it on click and pushes ?drawer=&tab=.
+templ Card(v CardView) {
+	<div
+		class={ "card min-h-0 flex-1 overflow-hidden p-3 text-sm", templ.KV("border-dashed", dashed(v.Kind)), templ.KV("cursor-pointer", v.Drawer != "") }
+		data-kind={ v.Kind }
+		if v.Drawer != "" {
+			hx-get={ v.Drawer }
+			hx-target="#drawer-body"
+			hx-push-url={ "?drawer=" + v.ID + "&tab=" + v.Tab }
+			tabindex="0"
+			role="button"
+		}
+	>
+		<div class="flex items-center justify-between gap-2">
+			<span class="truncate font-semibold">{ v.Name }</span>
+			<span class="shrink-0 rounded bg-slate-100 px-1.5 text-xs text-slate-600 dark:bg-slate-800 dark:text-slate-300">{ v.Kind }</span>
+		</div>
+		if v.Detail != "" {
+			<p class="truncate text-xs text-slate-500">{ v.Detail }</p>
+		}
+		if v.Host || v.NewVersion || v.Volumes != "" {
+			<div class="mt-1 flex flex-wrap gap-1 text-xs">
+				if v.Host {
+					<span class="rounded bg-red-100 px-1.5 text-red-800 dark:bg-red-900/50 dark:text-red-300">host</span>
+				}
+				if v.NewVersion {
+					<span class="rounded bg-blue-100 px-1.5 text-blue-800 dark:bg-blue-900/50 dark:text-blue-300">new version</span>
+				}
+				if v.Volumes != "" {
+					<span class="rounded bg-slate-100 px-1.5 text-slate-700 dark:bg-slate-800 dark:text-slate-300">{ v.Volumes }</span>
+				}
+			</div>
+		}
+		@Footer(v.ID, v.Footer)
+	</div>
+}
+
+// Footer is the swap unit of a card's live strip: the stream sends it
+// whole as "footer:<id>" and it replaces itself (hx-target="this", or it
+// would inherit the card's #drawer-body).
+templ Footer(id string, f FooterView) {
+	<div class="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-500" sse-swap={ "footer:" + id } hx-target="this" hx-swap="outerHTML">
+		if f.Status != "" {
+			@c.TileBadge(f.Status)
+		}
+		if f.Waiting != "" {
+			<span class="text-amber-700 dark:text-amber-400">needs { f.Waiting }</span>
+		}
+		if f.Want > 1 {
+			<span>{ strconv.Itoa(f.Up) }/{ strconv.Itoa(f.Want) }</span>
+		}
+		if f.LastRun != "" {
+			<span>{ f.LastRun }</span>
+		}
+		if f.NextRun != "" {
+			<span>next { f.NextRun }</span>
+		}
+		if f.Domain != "" {
+			<a href={ templ.SafeURL("https://" + f.Domain) } target="_blank" rel="noopener" class="link truncate">{ f.Domain }</a>
+		}
+		if f.More > 0 {
+			<span>+{ strconv.Itoa(f.More) }</span>
+		}
+		if f.Count > 0 {
+			<span>{ strconv.Itoa(f.Count) } names</span>
+		}
+		if f.Note != "" {
+			<span>{ f.Note }</span>
+		}
+	</div>
+}
+
+// Subs are a card's sub-tiles, stacked under it inside the node (its h
+// counts 30 px each). Each is a static <graph-node> with its own drawer;
+// the canvas measures them in place.
+templ Subs(v CardView) {
+	if len(v.Subs) > 0 {
+		<div class="mt-1 shrink-0 space-y-1">
+			for _, s := range v.Subs {
+				<graph-node node-id={ s.ID } static>
+					<div
+						class="card cursor-pointer px-2 py-1 text-xs"
+						data-kind={ s.Kind }
+						hx-get={ s.Drawer }
+						hx-target="#drawer-body"
+						hx-push-url={ "?drawer=" + s.ID + "&tab=" + s.Tab }
+						tabindex="0"
+						role="button"
+					>
+						<span class="text-slate-500">{ s.Kind }</span> { s.Label }
+					</div>
+				</graph-node>
+			}
+		</div>
+	}
+}
+
+// Lanes is the traffic layer: its own <svg data-edges> (so the canvas
+// re-paths it with the rest) that the "traffic" event replaces whole. A
+// whole <svg> parses into the SVG namespace; bare paths would not. The
+// label rides the path, so a re-path moves it too.
+templ Lanes(ls []Lane) {
+	<svg data-edges data-lanes id="graph-lanes" aria-hidden="true" sse-swap="traffic" hx-target="this" hx-swap="outerHTML">
+		for _, l := range ls {
+			<path id={ "lane-" + l.From + "-" + l.To } data-edge-kind="traffic" data-from={ l.From } data-to={ l.To } d="M0,0"></path>
+			<text dy="-4"><textPath href={ templ.SafeURL("#lane-" + l.From + "-" + l.To) } startOffset="30%">{ Rate(l.BPS) }</textPath></text>
+		}
+	</svg>
+}

@@ -18,7 +18,7 @@ lanes on edges. No history, no table.
    tuple seen for the first time contributes 0 this tick (the old code
    counted its whole lifetime). Own memory, no store, no Docker.
    Done when: tests: two ticks give a rate; counter reset gives 0; a
-   closed tuple is forgotten; first sight is 0.
+   closed tuple is forgotten; first sight is 0 on the seed tick only, in full after (step 6 DECIDE 136).
 
 2. **Scheduler entry, 5 s.** Docker wrapper: list running stackr
    containers with their per-network IPs (`Detail.Networks` from step 2);

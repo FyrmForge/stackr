@@ -129,7 +129,8 @@ func (d *Client) PruneImages(ctx context.Context, labels map[string]string, keep
 	var removed []string
 	var errs []error
 	for _, im := range ims {
-		if slices.Contains(keep, im.ID) || slices.ContainsFunc(im.Tags, func(t string) bool { return slices.Contains(keep, t) }) {
+		if slices.Contains(keep, im.ID) ||
+			slices.ContainsFunc(im.Tags, func(t string) bool { return slices.Contains(keep, t) }) {
 			continue
 		}
 		refs := im.Tags // untag each; the last one deletes the image
@@ -168,7 +169,12 @@ func (d *Client) EnsureBuilder(ctx context.Context, name string, memMB int) erro
 
 // Build builds dir into tag with buildx, streaming plain progress to log, and
 // returns the image id. --load puts the result in the daemon.
-func (d *Client) Build(ctx context.Context, builder, dir, dockerfile, tag string, buildArgs, labels map[string]string, log io.Writer) (string, error) {
+func (d *Client) Build(
+	ctx context.Context,
+	builder, dir, dockerfile, tag string,
+	buildArgs, labels map[string]string,
+	log io.Writer,
+) (string, error) {
 	args := []string{"buildx", "build", "--builder", builder, "--load", "-f", dockerfile, "-t", tag, "--progress=plain"}
 	for k, v := range buildArgs {
 		args = append(args, "--build-arg", k+"="+v)
