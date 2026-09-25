@@ -15,9 +15,9 @@ import (
 
 // Export is live written as the org file: the org's params (a secret by
 // name and type only, the file goes in git), defaults, env colours, the
-// stacks bound to a repo (a stack with no file has nothing to point at),
-// org-scoped instances and the org's domains. Diffing it against the same
-// live is clean. Block style, v0's two-space indent.
+// stacks bound to a repo (a stack with no file has nothing to point at)
+// and the org's domains. Diffing it against the same live is clean. Block
+// style, v0's two-space indent.
 func Export(live Live) ([]byte, error) {
 	og := live.Org
 	f := File{
@@ -25,7 +25,6 @@ func Export(live Live) ([]byte, error) {
 		Org:     og.Name,
 		Params:  map[string]map[string]Param{},
 		Stacks:  map[string]StackRef{},
-		Shared:  map[string]SharedConf{},
 	}
 	for key, v := range live.Params {
 		c, n, _ := strings.Cut(key, ".")
@@ -60,17 +59,6 @@ func Export(live Live) ([]byte, error) {
 			Path:      st.ConfigPath,
 			Connector: st.ConfigConnectorID,
 		}
-	}
-	for _, i := range live.Instances {
-		c := SharedConf{
-			Engine: i.Engine,
-			Host:   i.Host,
-			Image:  i.Image,
-		}
-		if i.ShmSizeMB != 0 {
-			c.ShmSizeMB = &i.ShmSizeMB
-		}
-		f.Shared[i.Slug] = c
 	}
 	for _, d := range live.Domains {
 		if d.Level != domainres.Org || d.OrgID == nil || *d.OrgID != og.ID {

@@ -424,12 +424,6 @@ calls).
       connector: c0fab773     # default: the org's connector for that host
     blog:
       path: stacks/blog.yml   # a stack file inside the org repo
-  shared:
-    db:                       # the slug; consumers ref ${{ org.db.<output> }}
-      engine: postgres        # postgres | s3
-      host: shop/prod         # the env whose container runs it
-      image: postgres:16      # optional, the engine's default otherwise
-      shm_size_mb: 256        # optional
   domains:                    # org domain resources (DECIDE 191)
     - host: acme.example.com
       include_env_on_default: false
@@ -446,14 +440,14 @@ calls).
   removed keys. Not in the file: inline stacks (v0 applied an existing one
   with `force=true` and never showed its changes in the org plan; the
   rewrite has no apply-without-release path) and storage shares (not a
-  v1 object). DECIDE 182.
+  v1 object). DECIDE 182. Shared managed instances are declared in a
+  stack's own file, never here (DECIDE 193).
 - **The diff.** `flow/orgconfig` parses the file and diffs it against a
   `Live` snapshot the orchestrator hands in: the org, its stacks with
   their bindings, the org's params, settings and
   env colors. Pure: no store, no clone. `moved:` runs first (DECIDE 184):
-  `from` exists and `to` does not → rename (`stack.` the stack, `shared.`
-  the instance tile), and the rest of the diff sees the object under its
-  new slug; `to` exists and `from` does not → already moved, no change,
+  `from` exists and `to` does not → rename (`stack.<slug>`, the only
+  kind), and the rest of the diff sees the stack under its new slug; `to` exists and `from` does not → already moved, no change,
   the entry may stay; both or neither exist → blocker. Changes: `org:`
   slug differs → rename; a param declared but missing → create (a param's value is set,
   a secret's never; "declassify: never" holds; a secret with no value is
@@ -463,11 +457,7 @@ calls).
   → rebind; a stack gone from the file is left as it is: the file never
   deletes a stack, hand-made or file-made (DECIDE 188; delete it in the
   UI or CLI). Blockers: the rename squats a domain or collides, a stack's
-  host has no connector. Shared instances (DECIDE 183): one missing →
-  create in its `host` env, scope widened to org, deploy; the `host` env
-  missing → blocker (DECIDE 189); image or shm changed → update, a
-  redeploy; engine or host changed → blocker (delete it by hand, the
-  volume stays; moves are Later); gone from the file → left alone.
+  host has no connector.
   Domains (DECIDE 191): an entry missing → create an org domain
   resource; env flag or ACME differs → update; gone from the file → left
   alone; the host taken elsewhere or squatting another org → blocker.
@@ -493,11 +483,9 @@ calls).
   pending. The job refetches the file at the plan's commit (v0 re-read the
   branch tip, so an approval could ship pushes nobody reviewed), re-diffs
   against live state, then walks the changes in order through the
-  orchestrator's own verbs: `RenameStack` and `RenameTile` for `moved:`,
+  orchestrator's own verbs: `RenameStack` for `moved:`,
   then `RenameOrg`, `SetParams`, `SetOrgSettings`,
-  `SetOrgEnvColors`, `CreateStack` + `SetConfigRepo`, then the shared
-  instances: `CreateManagedTile` in the host env + `SetInstanceScope`
-  (org) + `Deploy`, or `UpdateTile` for an image or shm change, and
+  `SetOrgEnvColors`, `CreateStack` + `SetConfigRepo`, and
   `CreateDomainResource` / `UpdateDomainResource` for `domains:`. Each
   bound stack's own file then rides push → release → promote; a stack the
   apply creates or rebinds gets the webhook's push job at its branch head
@@ -516,9 +504,8 @@ calls).
   stacks. Off, the plan waits for an owner.
 - **Export.** `stackr-org.yml` from live state: the name, params (values
   for params, declarations for secrets), defaults, env colors, and the
-  config-managed stacks as repo references, the org-scoped instances
-  with their `host` (v0 skipped them, so its export never round-tripped)
-  and the org's domain resources.
+  config-managed stacks as repo references and the org's domain
+  resources.
   Read level, as v0.
 - **Verbs.** `SetOrgConfigRepo` (owner, `org.config.bind`; empty repo
   unbinds and rejects the pending plan), `PlanOrgConfig` and

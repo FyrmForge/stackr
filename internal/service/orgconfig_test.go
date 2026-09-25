@@ -241,11 +241,11 @@ domains:
 func TestBlockedAndRejectedOrgPlans(t *testing.T) {
 	ctx := context.Background()
 	r := newOrgRig(t)
-	r.orgFile(t, "version: 1\norg: acme\nshared:\n  pg:\n    engine: postgres\n    host: db/prod\n")
+	r.orgFile(t, "version: 1\norg: acme\nmoved:\n  - from: stack.weblog\n    to: stack.blog\n")
 	r.bind(t, false)
 	pl := r.plans(t)[0]
 	_, err := r.env.Orch.ApproveOrgPlan(ctx, pl.ID)
-	if !isConflict(err) || !strings.Contains(err.Error(), "shared.pg: host db/prod is not an env") {
+	if !isConflict(err) || !strings.Contains(err.Error(), "moved: neither stack.weblog nor stack.blog exists") {
 		t.Errorf("approve of a blocked plan = %v, want Conflict with the blocker", err)
 	}
 
@@ -284,65 +284,6 @@ func TestOrgAutoApply(t *testing.T) {
 	}
 	if len(vs) != 1 || vs[0].Value != "us" {
 		t.Errorf("org params = %+v, want app.region = us", vs)
-	}
-}
-
-// A shared instance is made in its host env, scoped to the org, deployed.
-func TestOrgSharedInstance(t *testing.T) {
-	ctx := context.Background()
-	r := newOrgRig(t)
-	st, err := r.env.Orch.CreateStack(ctx, r.org, "db", "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	prod, err := r.env.Orch.CreateEnv(ctx, st.ID, "prod", service.EnvSpec{
-		Type:       "static",
-		FromKind:   "branch",
-		FromBranch: "main",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	r.orgFile(t, "version: 1\norg: acme\nshared:\n  pg:\n    engine: postgres\n    host: db/prod\n    shm_size_mb: 256\n")
-	r.bind(t, false)
-	pl := r.plans(t)[0]
-	if _, err := r.env.Orch.ApproveOrgPlan(ctx, pl.ID); err != nil {
-		t.Fatal(err)
-	}
-	r.applied(t, pl.ID)
-
-	ms, err := r.env.Orch.ManagedInstances(ctx, prod.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(ms) != 1 || ms[0].Engine != "postgres" || ms[0].ScopeKind != "org" || ms[0].ScopeID != r.org {
-		t.Fatalf("instances = %+v, want one org-scoped postgres", ms)
-	}
-	ts, err := r.env.Orch.Tiles(ctx, prod.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(ts) != 1 || ts[0].Slug != "pg" || ts[0].ShmSizeMB != 256 {
-		t.Fatalf("tiles = %+v, want pg with 256 MB shm", ts)
-	}
-	js, err := r.env.Orch.TileJobs(ctx, []string{ts[0].ID}, 10)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !slices.ContainsFunc(js, func(j service.Job) bool { return j.Kind == "deploy" }) {
-		t.Errorf("jobs = %+v, want a deploy of pg", js)
-	}
-
-	out, err := r.env.Orch.ExportOrgConfig(ctx, r.org)
-	if err != nil {
-		t.Fatal(err)
-	}
-	pv, err := r.env.Orch.PreviewOrgConfig(ctx, r.org, out)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(pv.Changes) > 0 || len(pv.Blockers) > 0 {
-		t.Errorf("export previews %+v, want clean\n%s", pv, out)
 	}
 }
 

@@ -16,7 +16,6 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/orgconfig"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/promote"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/domainres"
-	"github.com/FyrmForge/stackr/internal/service/internal/leaf/managed"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/orgplan"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/params"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/settings"
@@ -264,40 +263,8 @@ func (o *Orchestrator) orgLive(ctx context.Context, og store.Org) (orgconfig.Liv
 	if err != nil {
 		return live, err
 	}
-	slugs := map[string]string{}
 	for _, st := range sts {
-		es, err := o.envs.List(ctx, st.ID)
-		if err != nil {
-			return live, err
-		}
-		sl := orgconfig.StackLive{Stack: st}
-		for _, e := range es {
-			sl.Envs = append(sl.Envs, e.Slug)
-		}
-		live.Stacks = append(live.Stacks, sl)
-		slugs[st.ID] = st.Slug
-	}
-	ms, err := o.managed.ByScope(ctx, managed.Org, og.ID)
-	if err != nil {
-		return live, err
-	}
-	for _, m := range ms {
-		t, err := o.tiles.Get(ctx, m.TileID)
-		if err != nil {
-			return live, err
-		}
-		e, err := o.envs.Get(ctx, t.EnvironmentID)
-		if err != nil {
-			return live, err
-		}
-		live.Instances = append(live.Instances, orgconfig.Instance{
-			TileID:    t.ID,
-			Slug:      t.Slug,
-			Engine:    m.Engine,
-			Host:      slugs[t.StackID] + "/" + e.Slug,
-			Image:     t.ImageRef,
-			ShmSizeMB: t.ShmSizeMB,
-		})
+		live.Stacks = append(live.Stacks, orgconfig.StackLive{Stack: st})
 	}
 	return live, nil
 }
@@ -358,9 +325,9 @@ func (o *Orchestrator) applyOrgPlan(ctx context.Context, planID string, log io.W
 }
 
 // walkOrgPlan applies plan's changes in its order, each through its verb,
-// and returns the stacks it created or rebound. A stack's rebind fields,
-// an instance's image and shm, and a domain's two fields are one call
-// each, and every param is one SetParams.
+// and returns the stacks it created or rebound. A stack's rebind fields
+// and a domain's two fields are one call each, and every param is one
+// SetParams.
 func (o *Orchestrator) walkOrgPlan(
 	ctx context.Context,
 	og store.Org,
@@ -373,15 +340,11 @@ func (o *Orchestrator) walkOrgPlan(
 	for _, s := range live.Stacks {
 		stackIDs[s.Stack.Slug] = s.Stack.ID
 	}
-	tileIDs := map[string]string{}
-	for _, i := range live.Instances {
-		tileIDs[i.Slug] = i.TileID
-	}
 	var bound []store.Stack
 	done := map[string]bool{}
 	for _, c := range plan.Changes {
 		switch c.Kind {
-		case "param", "rebind", "instance-update", "domain-update":
+		case "param", "rebind", "domain-update":
 			key := c.Kind + ":" + c.Tile
 			if done[key] {
 				continue
@@ -394,9 +357,6 @@ func (o *Orchestrator) walkOrgPlan(
 		case "rename":
 			_, err = o.RenameStack(ctx, stackIDs[c.Old], c.New)
 			stackIDs[c.New] = stackIDs[c.Old]
-		case "instance-rename":
-			_, err = o.RenameTile(ctx, tileIDs[c.Old], c.New)
-			tileIDs[c.New] = tileIDs[c.Old]
 		case "org":
 			_, err = o.RenameOrg(ctx, og.ID, c.New)
 		case "param":
@@ -411,19 +371,6 @@ func (o *Orchestrator) walkOrgPlan(
 				stackIDs[c.Tile] = st.ID
 				bound = append(bound, st)
 			}
-		case "instance":
-			err = o.createShared(ctx, stackIDs, c.Tile, f.Shared[c.Tile])
-		case "instance-update":
-			want := f.Shared[c.Tile]
-			_, _, err = o.UpdateTile(ctx, tileIDs[c.Tile], func(t *Tile) error {
-				if want.Image != "" {
-					t.ImageRef = want.Image
-				}
-				if want.ShmSizeMB != nil {
-					t.ShmSizeMB = *want.ShmSizeMB
-				}
-				return nil
-			})
 		case "domain", "domain-update":
 			err = o.putOrgDomain(ctx, og.ID, cmp.Or(c.Tile, c.New), f.Domains, live.Domains)
 		}
@@ -505,36 +452,6 @@ func (o *Orchestrator) pushBound(
 	}
 	_, _ = fmt.Fprintf(log, "push %s at %s@%s\n", st.Slug, branch, sha)
 	_, err = o.enqueuePush(ctx, p)
-	return err
-}
-
-// createShared makes an org-scoped instance in its host env and deploys it.
-func (o *Orchestrator) createShared(
-	ctx context.Context,
-	stackIDs map[string]string,
-	slug string,
-	want orgconfig.SharedConf,
-) error {
-	st, env, _ := strings.Cut(want.Host, "/")
-	e, err := o.envs.GetBySlug(ctx, stackIDs[st], env)
-	if err != nil {
-		return err
-	}
-	t := Tile{
-		EnvironmentID: e.ID,
-		Name:          slug,
-		ImageRef:      want.Image,
-	}
-	if want.ShmSizeMB != nil {
-		t.ShmSizeMB = *want.ShmSizeMB
-	}
-	if t, err = o.CreateManagedTile(ctx, t, want.Engine); err != nil {
-		return err
-	}
-	if _, err := o.SetInstanceScope(ctx, t.ID, managed.Org); err != nil {
-		return err
-	}
-	_, err = o.Deploy(ctx, t.ID)
 	return err
 }
 

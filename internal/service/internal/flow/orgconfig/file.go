@@ -32,7 +32,6 @@ type File struct {
 	Defaults  *Defaults                   `yaml:"defaults,omitempty"`   // nil: the key is absent, say nothing
 	EnvColors map[string]string           `yaml:"env_colors,omitempty"` // nil: the key is absent, say nothing
 	Stacks    map[string]StackRef         `yaml:"stacks,omitempty"`
-	Shared    map[string]SharedConf       `yaml:"shared,omitempty"`
 	Domains   []Reservation               `yaml:"domains,omitempty"`
 	Moved     []Move                      `yaml:"moved,omitempty"`
 }
@@ -108,14 +107,6 @@ func (r StackRef) Binding(org store.Org) Binding {
 	}
 }
 
-// SharedConf is one org-scoped managed instance (DECIDE 183).
-type SharedConf struct {
-	Engine    string `yaml:"engine"`                // postgres | s3
-	Host      string `yaml:"host"`                  // <stack>/<env>, the env whose container runs it
-	Image     string `yaml:"image,omitempty"`       // "" = the engine's default, never compared
-	ShmSizeMB *int   `yaml:"shm_size_mb,omitempty"` // nil = never compared
-}
-
 // Reservation is one org domain resource (DECIDE 191).
 type Reservation struct {
 	Host                string `yaml:"host"`
@@ -125,7 +116,7 @@ type Reservation struct {
 
 // Move is one rename, read before the rest of the file (DECIDE 184).
 type Move struct {
-	From string `yaml:"from"` // stack.<slug> | shared.<slug>
+	From string `yaml:"from"` // stack.<slug>
 	To   string `yaml:"to"`
 }
 
@@ -170,11 +161,6 @@ func Parse(data []byte) (*File, error) {
 			return nil, err
 		}
 	}
-	for s, c := range f.Shared {
-		if err := checkShared(s, c); err != nil {
-			return nil, err
-		}
-	}
 	seen := map[string]bool{}
 	for _, d := range f.Domains {
 		switch {
@@ -205,44 +191,14 @@ func checkStack(s string, r StackRef) error {
 	return nil
 }
 
-func checkShared(s string, c SharedConf) error {
-	st, env, _ := strings.Cut(c.Host, "/")
-	switch {
-	case !slug.Valid(s) || slug.Reserved(s):
-		return fmt.Errorf("shared: %q is not a tile slug", s)
-	case c.Engine == "":
-		return fmt.Errorf("shared.%s: engine required", s)
-	case c.Host == "":
-		return fmt.Errorf("shared.%s: host required, the <stack>/<env> that runs it", s)
-	case !slug.Valid(st) || !slug.Valid(env):
-		return fmt.Errorf("shared.%s: host %q is <stack>/<env>", s, c.Host)
-	case c.ShmSizeMB != nil && *c.ShmSizeMB < 0:
-		return fmt.Errorf("shared.%s: shm_size_mb is not negative", s)
-	}
-	// ponytail: an unknown engine is refused at apply (CreateManagedTile);
-	// the engine list lives in flow/managed, which this flow may not import.
-	return nil
-}
-
-// moveKinds maps a moved: prefix to its rename change.
-var moveKinds = map[string]string{
-	"stack":  "rename",
-	"shared": "instance-rename",
-}
-
 func checkMove(m Move) error {
 	for _, ref := range []string{m.From, m.To} {
 		kind, s, _ := strings.Cut(ref, ".")
-		if moveKinds[kind] == "" || !slug.Valid(s) {
-			return fmt.Errorf("moved: %q is stack.<slug> or shared.<slug>", ref)
+		if kind != "stack" || !slug.Valid(s) {
+			return fmt.Errorf("moved: %q is stack.<slug>", ref)
 		}
 	}
-	fk, fs, _ := strings.Cut(m.From, ".")
-	tk, ts, _ := strings.Cut(m.To, ".")
-	switch {
-	case fk != tk:
-		return fmt.Errorf("moved: %s to %s: from and to are the same kind", m.From, m.To)
-	case fs == ts:
+	if m.From == m.To {
 		return fmt.Errorf("moved: %s moves nowhere", m.From)
 	}
 	return nil

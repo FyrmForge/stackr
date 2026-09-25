@@ -33,7 +33,7 @@ at the bottom of this file.
   - Deviations from the task file: no RESTRICT on `domains.resource_id` (broke org and stack deletes; the leaf refuses with a count); routes are path-scoped (`/orgs/:org/domain-resources`, `/admin/domain-resources`) not v0's flat path; the squat check runs on literal hosts only, never on `auto`/`apex`; `PublicBase` resolves only once a domain row routes the auto host; v0's refusal of stack rows on a config-managed stack not ported (the file never deletes).
   - Fixed on the way: a page's own drawer (`?drawer=org:<id>`) vanished on reload; auto-domain refusal leaked the field name; `domain ls` lacked OWNER and DECLARED.
   - Unproven on the VM: `auto: true` inside a stack file (needs a bound stack and an installed connector; unit-tested; step 7's proof covers it).
-- [ ] step-7.md org config file: `stackr-org.yml` bound to the org, plans as rows an owner approves or an Auto switch applies, apply = one job through the orchestrator's verbs, never deletes a stack; plus v0's new-org wizard one to one; planned 2026-09-25 (DECIDE 180 to 192), not started
+- [ ] step-7.md org config file: `stackr-org.yml` bound to the org, plans as rows an owner approves or an Auto switch applies, apply = one job through the orchestrator's verbs, never deletes a stack; plus v0's new-org wizard one to one; planned 2026-09-25 (DECIDE 180 to 193), not started
 
 Step 0 list (agreed with darhvader):
 1. Rename binaries to `stackrd`, `stackr`, `stackr-install`: three `cmd/` dirs, Makefile, watch rule.
@@ -766,6 +766,7 @@ sweep, P14 theme per user, DECIDE 159 and the DECIDE 138 leftovers.
    volume stays; moves are Later); image or shm change is an update;
    gone from the file is left alone (DECIDE 188). Export writes it (v0's
    export skipped `shared:` and so never round-tripped).
+   **Superseded 2026-09-25 by DECIDE 193: the org file has no `shared:`.**
 184. **(step 7) `moved:` is in the org file.** Without it a renamed stack
    key plans a create and the old stack stays (DECIDE 188): two stacks,
    one silent. The planner leaned "rename in the UI first". **darthvader
@@ -869,6 +870,13 @@ sweep, P14 theme per user, DECIDE 159 and the DECIDE 138 leftovers.
    both sides in one statement), so deleting a resource that still names
    one is refused by the leaf with a count; the FK, checked at statement
    end, is the backstop.
+193. **(step 7) The org file has no `shared:` section.** The draft (DECIDE
+   183) put org-scoped managed instances in the org file with a `host:
+   <stack>/<env>` line naming the env whose row holds the tile; a fresh
+   org has no env, so the plan blocked. **darthvader 2026-09-25: the org
+   file never declares shared instances.** A shared database is a normal
+   managed tile in a normal stack's own file (an "infra" stack); who may
+   connect and how consumers name it are DECIDE 194.
 
 ## DECIDE:
 

@@ -481,10 +481,8 @@ func planRows(p service.OrgConfigPlan) []pages.Change {
 			row.Kind, row.Env, row.Tile = "create", ch.Tile, ""
 		case "rebind":
 			row.Env, row.Tile = ch.Tile, "config"
-		case "rename", "instance-rename":
+		case "rename":
 			row.Tile, row.Field = ch.Old, "slug"
-		case "instance":
-			row.Kind = "create"
 		case "domain":
 			row.Kind, row.Field = "create", "domain"
 		case "domain-update":

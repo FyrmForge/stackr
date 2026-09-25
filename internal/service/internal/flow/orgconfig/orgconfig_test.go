@@ -17,9 +17,9 @@ func ptr[T any](v T) *T { return &v }
 
 const v1 = "version: 1\norg: Acme\n"
 
-// live is org acme: stack shop (bound, dev and prod) and a hand-made
-// unbound stack legacy, instance db in shop/prod, two params, its own
-// domain, a GitHub connector. Org globex holds a domain and a claim.
+// live is org acme: stack shop (bound) and a hand-made unbound stack
+// legacy, two params, its own domain, a GitHub connector. Org globex holds
+// a domain and a claim.
 func live() orgconfig.Live {
 	return orgconfig.Live{
 		Org: store.Org{
@@ -56,10 +56,6 @@ func live() orgconfig.Live {
 					ConfigRepo:   "https://github.com/acme/shop",
 					ConfigBranch: "main",
 				},
-				Envs: []string{
-					"dev",
-					"prod",
-				},
 			},
 			{
 				Stack: store.Stack{
@@ -91,15 +87,6 @@ func live() orgconfig.Live {
 				Host:  "cdn.example.com",
 			},
 		},
-		Instances: []orgconfig.Instance{
-			{
-				Slug:      "db",
-				Engine:    "postgres",
-				Host:      "shop/prod",
-				Image:     "postgres:16",
-				ShmSizeMB: 64,
-			},
-		},
 		Connectors: []store.Connector{
 			{
 				ID:   "cn1",
@@ -119,7 +106,7 @@ func TestDiff(t *testing.T) {
 		note    string // a substring of the one note; "" = none
 	}{
 		{
-			name: "the file says nothing: no change to params, stacks, shared, domains, defaults, colors",
+			name: "the file says nothing: no change to params, stacks, domains, defaults, colors",
 			file: v1,
 		},
 		{
@@ -390,84 +377,7 @@ func TestDiff(t *testing.T) {
 			blocker: "bound to none",
 		},
 		{
-			name: "shared entry missing is an instance create",
-			file: v1 + `shared:
-  cache:
-    engine: postgres
-    host: shop/dev
-`,
-			changes: []orgconfig.Change{
-				{
-					Kind: "instance",
-					Tile: "cache",
-					New:  "postgres",
-					Note: "in shop/dev, scope org",
-				},
-			},
-		},
-		{
-			name: "shared host env missing",
-			file: v1 + `shared:
-  cache:
-    engine: postgres
-    host: shop/staging
-`,
-			blocker: "host shop/staging is not an env",
-		},
-		{
-			name: "shared image and shm change",
-			file: v1 + `shared:
-  db:
-    engine: postgres
-    host: shop/prod
-    image: postgres:17
-    shm_size_mb: 256
-`,
-			changes: []orgconfig.Change{
-				{
-					Kind:  "instance-update",
-					Tile:  "db",
-					Field: "image",
-					Old:   "postgres:16",
-					New:   "postgres:17",
-				},
-				{
-					Kind:  "instance-update",
-					Tile:  "db",
-					Field: "shm_size_mb",
-					Old:   "64",
-					New:   "256",
-				},
-			},
-		},
-		{
-			name: "shared without image or shm compares neither",
-			file: v1 + `shared:
-  db:
-    engine: postgres
-    host: shop/prod
-`,
-		},
-		{
-			name: "shared engine change",
-			file: v1 + `shared:
-  db:
-    engine: s3
-    host: shop/prod
-`,
-			blocker: "delete it by hand",
-		},
-		{
-			name: "shared host change",
-			file: v1 + `shared:
-  db:
-    engine: postgres
-    host: shop/dev
-`,
-			blocker: "delete it by hand",
-		},
-		{
-			name: "moved stack renames, and its entry and the instances it hosts diff under the new slug",
+			name: "moved stack renames, and its entry diffs under the new slug",
 			file: v1 + `moved:
   - from: stack.shop
     to: stack.store
@@ -475,34 +385,12 @@ stacks:
   store:
     repo: acme/shop
     branch: main
-shared:
-  db:
-    engine: postgres
-    host: store/prod
 `,
 			changes: []orgconfig.Change{
 				{
 					Kind: "rename",
 					Old:  "shop",
 					New:  "store",
-				},
-			},
-		},
-		{
-			name: "moved instance renames",
-			file: v1 + `moved:
-  - from: shared.db
-    to: shared.pg
-shared:
-  pg:
-    engine: postgres
-    host: shop/prod
-`,
-			changes: []orgconfig.Change{
-				{
-					Kind: "instance-rename",
-					Old:  "db",
-					New:  "pg",
 				},
 			},
 		},
@@ -659,28 +547,20 @@ func TestParseRefuses(t *testing.T) {
 			want: "branch and connector go with repo",
 		},
 		{
-			name: "shared without engine",
-			file: v1 + `shared:
-  db:
-    host: shop/prod
-`,
-			want: "shared.db: engine required",
-		},
-		{
-			name: "shared without host",
+			name: "no shared section (DECIDE 193)",
 			file: v1 + `shared:
   db:
     engine: postgres
 `,
-			want: "shared.db: host required",
+			want: "unknown key shared",
 		},
 		{
-			name: "moved across kinds",
+			name: "moved names stacks only",
 			file: v1 + `moved:
-  - from: stack.db
-    to: shared.db
+  - from: shared.db
+    to: shared.pg
 `,
-			want: "from and to are the same kind",
+			want: `moved: "shared.db" is stack.<slug>`,
 		},
 		{
 			name: "no org",

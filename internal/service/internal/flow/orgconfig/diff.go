@@ -18,9 +18,8 @@ import (
 )
 
 // Change is one line of a plan, flow/promote's Change shape. Kind is org,
-// param, defaults, colors, create, rebind, instance, instance-update,
-// rename, instance-rename, domain or domain-update; Tile names the stack,
-// instance or host the line is about.
+// param, defaults, colors, create, rebind, rename, domain or
+// domain-update; Tile names the stack or host the line is about.
 // ponytail: a copy of promote's type, not an import (flows do not import
 // flows); a third user moves it into a shared package.
 type Change struct {
@@ -33,8 +32,8 @@ type Change struct {
 }
 
 // Plan is what applying the file would do, in the order apply walks it:
-// moved: renames, the org, params, defaults, colors, stacks, shared
-// instances, domains. Blockers refuse the apply; Notes do not.
+// moved: renames, the org, params, defaults, colors, stacks, domains.
+// Blockers refuse the apply; Notes do not.
 type Plan struct {
 	Changes  []Change `json:"changes"`
 	Blockers []string `json:"blockers,omitempty"`
@@ -55,7 +54,7 @@ func (p *Plan) Summary() string {
 	var add, change int
 	for _, c := range p.Changes {
 		switch c.Kind {
-		case "create", "instance", "domain":
+		case "create", "domain":
 			add++
 		default:
 			change++
@@ -89,40 +88,24 @@ type Live struct {
 	Stacks     []StackLive             // the org's stacks
 	Params     map[string]params.Value // the org's own params, keyed collection.name
 	Domains    []store.DomainResource  // every domain resource on the server
-	Instances  []Instance              // the org's org-scoped managed instances
 	Connectors []store.Connector       // the org's connected connectors
 }
 
-// StackLive is one stack and its env slugs.
+// StackLive is one stack.
 type StackLive struct {
 	Stack store.Stack
-	Envs  []string
-}
-
-// Instance is one org-scoped managed instance tile.
-type Instance struct {
-	TileID    string // the apply's handle on it; Diff never reads it
-	Slug      string
-	Engine    string
-	Host      string // <stack>/<env> of the env that runs it
-	Image     string
-	ShmSizeMB int
 }
 
 // Diff is the plan for f against live. The file creates and updates, never
-// deletes: a stack, param, instance or domain it no longer names is left
-// as it is (DECIDE 185, 188, 183, 191).
+// deletes: a stack, param or domain it no longer names is left as it is
+// (DECIDE 185, 188, 191).
 func Diff(f *File, live Live) Plan {
 	var p Plan
 	stacks := map[string]StackLive{}
 	for _, s := range live.Stacks {
 		stacks[s.Stack.Slug] = s
 	}
-	insts := map[string]Instance{}
-	for _, i := range live.Instances {
-		insts[i.Slug] = i
-	}
-	p.moved(f.Moved, stacks, insts)
+	p.moved(f.Moved, stacks)
 	p.org(f.Org, live)
 	p.params(f.Params, live.Params)
 	if f.Defaults != nil {
@@ -147,25 +130,18 @@ func Diff(f *File, live Live) Plan {
 		}
 	}
 	p.stacks(f.Stacks, live, stacks)
-	p.shared(f.Shared, stacks, insts)
 	p.domains(f.Domains, live)
 	return p
 }
 
-// moved runs first: a rename moves the object in stacks or insts, so the
-// rest of the diff sees it under its new slug (DECIDE 184).
-func (p *Plan) moved(moves []Move, stacks map[string]StackLive, insts map[string]Instance) {
+// moved runs first: a rename moves the stack in stacks, so the rest of the
+// diff sees it under its new slug (DECIDE 184).
+func (p *Plan) moved(moves []Move, stacks map[string]StackLive) {
 	for _, m := range moves {
-		kind, from, _ := strings.Cut(m.From, ".")
+		_, from, _ := strings.Cut(m.From, ".")
 		_, to, _ := strings.Cut(m.To, ".")
-		var hasFrom, hasTo bool
-		if kind == "stack" {
-			_, hasFrom = stacks[from]
-			_, hasTo = stacks[to]
-		} else {
-			_, hasFrom = insts[from]
-			_, hasTo = insts[to]
-		}
+		_, hasFrom := stacks[from]
+		_, hasTo := stacks[to]
 		switch {
 		case hasFrom && hasTo:
 			p.block("moved: %s and %s both exist; delete one by hand first", m.From, m.To)
@@ -177,27 +153,14 @@ func (p *Plan) moved(moves []Move, stacks map[string]StackLive, insts map[string
 			continue // already moved; the entry may stay
 		}
 		p.add(Change{
-			Kind: moveKinds[kind],
+			Kind: "rename",
 			Old:  from,
 			New:  to,
 		})
-		if kind == "shared" {
-			i := insts[from]
-			i.Slug = to
-			insts[to] = i
-			delete(insts, from)
-			continue
-		}
 		s := stacks[from]
 		s.Stack.Slug = to
 		stacks[to] = s
 		delete(stacks, from)
-		for k, i := range insts {
-			if st, env, _ := strings.Cut(i.Host, "/"); st == from {
-				i.Host = to + "/" + env
-				insts[k] = i
-			}
-		}
 	}
 }
 
@@ -345,58 +308,6 @@ func pathOf(path string) string {
 		return stackFilePath
 	}
 	return path
-}
-
-// shared creates, updates or blocks each org-scoped instance the file names
-// (DECIDE 183); one it no longer names is left alone.
-func (p *Plan) shared(confs map[string]SharedConf, stacks map[string]StackLive, insts map[string]Instance) {
-	for _, s := range slices.Sorted(maps.Keys(confs)) {
-		want := confs[s]
-		have, ok := insts[s]
-		if !ok {
-			st, env, _ := strings.Cut(want.Host, "/")
-			if !slices.Contains(stacks[st].Envs, env) {
-				// ponytail: blocks even when this plan creates the host stack,
-				// and a blocker refuses the whole apply, so that stack is never
-				// created either. Land the stack in one commit and add the
-				// shared: entry after its first push has made its envs.
-				p.block("shared.%s: host %s is not an env; the stack's own file makes its envs", s, want.Host)
-				continue
-			}
-			p.add(Change{
-				Kind: "instance",
-				Tile: s,
-				New:  want.Engine,
-				Note: "in " + want.Host + ", scope org",
-			})
-			continue
-		}
-		if have.Engine != want.Engine || have.Host != want.Host {
-			p.block(
-				"shared.%s: is %s in %s, the file says %s in %s; delete it by hand to change either (the volume stays)",
-				s, have.Engine, have.Host, want.Engine, want.Host,
-			)
-			continue
-		}
-		if want.Image != "" && want.Image != have.Image {
-			p.add(Change{
-				Kind:  "instance-update",
-				Tile:  s,
-				Field: "image",
-				Old:   have.Image,
-				New:   want.Image,
-			})
-		}
-		if want.ShmSizeMB != nil && *want.ShmSizeMB != have.ShmSizeMB {
-			p.add(Change{
-				Kind:  "instance-update",
-				Tile:  s,
-				Field: "shm_size_mb",
-				Old:   strconv.Itoa(have.ShmSizeMB),
-				New:   strconv.Itoa(*want.ShmSizeMB),
-			})
-		}
-	}
 }
 
 // domains creates or updates the org's domain resources (DECIDE 191); one
