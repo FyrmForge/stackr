@@ -59,6 +59,27 @@ func TestSliceVerbs(t *testing.T) {
 	if m.EnvPairs["staging"] != "dev" {
 		t.Errorf("env pairs = %v", m.EnvPairs)
 	}
+	// One map per tile slug (DECIDE 212): prod's pg takes the same map.
+	prod, err := o.CreateEnv(ctx, tl.Stack, "prod", service.EnvSpec{
+		Type:       "static",
+		FromKind:   "branch",
+		FromBranch: "main",
+	})
+	must(t, err)
+	pgProd, err := o.CreateManagedTile(ctx, service.Tile{EnvironmentID: prod.ID, Name: "pg"}, "postgres")
+	must(t, err)
+	_, err = o.SetManagedEnvPairs(ctx, pg.ID, map[string]string{"dev": "prod"})
+	must(t, err)
+	ms, err := o.ManagedInstances(ctx, prod.ID)
+	must(t, err)
+	if len(ms) != 1 || ms[0].TileID != pgProd.ID || ms[0].EnvPairs["dev"] != "prod" {
+		t.Errorf("prod's pg env pairs = %+v, want dev: prod", ms)
+	}
+	_, err = o.SetManagedEnvPairs(ctx, pg.ID, map[string]string{
+		"dev":     "dev",
+		"staging": "dev",
+	})
+	must(t, err)
 
 	_, err = o.CreateSliceTile(ctx, tl.Env, "bad", "shop:dev", "")
 	invalid("two-segment provision_from", err)

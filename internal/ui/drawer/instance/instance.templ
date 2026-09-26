@@ -221,7 +221,7 @@ templ Settings(v View, s SettingsView) {
 				<p class="text-xs text-rw-faint">Only an owner of the organization changes this list.</p>
 			}
 		}
-		@c.PanelSection("instance-env-pairs", "Env pairs", "Which of this stack's envs a slice lands in, by the env its provision_from names. Once one is set, an env left out resolves nowhere.") {
+		@c.PanelSection("instance-env-pairs", "Env pairs", "Which of this stack's envs a slice lands in, by the env its provision_from names. Once one is set, an env left out resolves nowhere. One map for this tile in every env of the stack.") {
 			if len(s.Pairs) == 0 {
 				<p class="text-sm text-rw-muted">No pair yet: a slice lands in the env it names.</p>
 			} else {

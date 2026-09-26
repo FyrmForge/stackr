@@ -137,6 +137,31 @@ func (o *Orchestrator) SetManagedEnvPairs(
 	if pairs == nil {
 		pairs = map[string]string{}
 	}
+	// One map per tile slug (DECIDE 212): every instance of this slug in the
+	// stack takes it, so a deploy reads the same map whichever env it finds
+	// first.
+	for _, e := range envs {
+		it, err := o.tiles.GetBySlug(ctx, e.ID, t.Slug)
+		if errors.Is(err, errs.ErrNotFound) {
+			continue
+		}
+		if err != nil {
+			return m, err
+		}
+		im, err := o.managed.GetByTile(ctx, it.ID)
+		if errors.Is(err, errs.ErrNotFound) {
+			continue
+		}
+		if err != nil {
+			return m, err
+		}
+		if im.ID == m.ID {
+			continue
+		}
+		if _, err := o.managed.SetEnvPairs(ctx, im, pairs); err != nil {
+			return m, err
+		}
+	}
 	return o.managed.SetEnvPairs(ctx, m, pairs)
 }
 
@@ -209,6 +234,15 @@ func (o *Orchestrator) SetSliceAccess(ctx context.Context, consumerTileID, slice
 		return c, errs.Invalidf("tile", "%s is a %s tile; only a tile that runs holds slice access", c.Slug, c.Kind)
 	}
 	s, err := o.tiles.GetBySlug(ctx, c.EnvironmentID, sliceSlug)
+	if errors.Is(err, errs.ErrNotFound) && access == sliceAccessDefault {
+		// The slice is gone and the entry is stale: drop it, nothing to re-grant.
+		cur := c
+		cur.SliceAccess = slices.DeleteFunc(slices.Clone(c.SliceAccess), func(a store.SliceAccess) bool {
+			return a.From == sliceSlug
+		})
+		out, _, err := o.tiles.Update(ctx, c, cur)
+		return out, err
+	}
 	if errors.Is(err, errs.ErrNotFound) {
 		return c, errs.Invalidf("slice", "no slice tile %s in this env", sliceSlug)
 	}

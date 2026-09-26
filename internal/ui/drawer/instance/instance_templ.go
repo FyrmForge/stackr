@@ -952,7 +952,7 @@ func Settings(v View, s SettingsView) templ.Component {
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = c.PanelSection("instance-env-pairs", "Env pairs", "Which of this stack's envs a slice lands in, by the env its provision_from names. Once one is set, an env left out resolves nowhere.").Render(templ.WithChildren(ctx, templ_7745c5c3_Var23), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = c.PanelSection("instance-env-pairs", "Env pairs", "Which of this stack's envs a slice lands in, by the env its provision_from names. Once one is set, an env left out resolves nowhere. One map for this tile in every env of the stack.").Render(templ.WithChildren(ctx, templ_7745c5c3_Var23), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

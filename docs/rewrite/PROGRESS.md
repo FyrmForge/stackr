@@ -1033,8 +1033,15 @@ fix, ship, re-test.
    `slice_access` (stripped on removal); no way to drop one `slice_access`
    entry (DECIDE 210: `access: default` on the same route, `tile access
    --rm`, a control per row). Allow and env-pair validation messages are
-   right; `tile allow` on a non-managed tile names the id, not the slug
-   (loop 3). DECIDE 212 (env pairs shadowed across envs, loop 3).
+   right; `tile allow` on a non-managed tile named the id, not the slug
+   (fixed, CLI side). DECIDE 212 found (env pairs shadowed across envs).
+3. **v0.0.42.** DECIDE 212 fixed: `SetManagedEnvPairs` writes the map on
+   every instance of that tile slug in the stack (service test with a
+   second env); the instance drawer says so. `access: default` on a slug
+   whose slice tile is gone drops the stale entry instead of refusing
+   (entries left by removals before loop 2). Re-tested on the VM: the ×
+   on the Access tab, `tile access --rm`, `tile rm`, the slice drawer's
+   provisioned word, env pairs on staging mirrored to production.
 ## DECIDE:
 
 Silent calls the planner made under rule 9 / "fix obvious gaps"; flip any
