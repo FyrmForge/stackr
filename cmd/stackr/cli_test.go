@@ -437,7 +437,7 @@ func TestSliceVerbsRoutes(t *testing.T) {
 		},
 		{
 			[]string{"slice", "add", "db", "--from", "infra:dev:pg", "--access", "read"},
-			"POST " + env + `/slices {"default_access":"read","provision_from":"infra:dev:pg","slug":"db"}`,
+			"POST " + env + `/slices {"default_access":"read","name":"db","provision_from":"infra:dev:pg"}`,
 		},
 		{
 			[]string{"slice", "get", "db"},

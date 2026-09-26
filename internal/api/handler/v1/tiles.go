@@ -104,7 +104,7 @@ type (
 		EnvPairs map[string]string `json:"env_pairs"` // consumer env -> this stack's env; the full map
 	}
 	SliceTileIn struct {
-		Slug          string `json:"slug"`
+		Name          string `json:"name"`
 		ProvisionFrom string `json:"provision_from"` // <stack>:<env>:<tile>
 		DefaultAccess string `json:"default_access"` // read | write, "" = write
 	}
@@ -330,7 +330,7 @@ func (h *H) SetManagedEnvPairs() Endpoint {
 
 func (h *H) CreateSliceTile() Endpoint {
 	return JSON(201, func(c echo.Context, in SliceTileIn) (service.Tile, error) {
-		return h.Orch.CreateSliceTile(rc(c), envID(c), in.Slug, in.ProvisionFrom, in.DefaultAccess)
+		return h.Orch.CreateSliceTile(rc(c), envID(c), in.Name, in.ProvisionFrom, in.DefaultAccess)
 	})
 }
 

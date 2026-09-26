@@ -78,7 +78,7 @@ func (o *Orchestrator) instanceOf(ctx context.Context, tileID string) (Tile, Man
 		return t, ManagedInstance{}, err
 	}
 	if t.Kind != tile.Managed {
-		return t, ManagedInstance{}, errs.Invalidf("tile", "%s is a %s tile, not a managed one", t.Slug, t.Kind)
+		return t, ManagedInstance{}, errs.Invalidf("tile", "%s is kind %s, not managed", t.Slug, t.Kind)
 	}
 	m, err := o.managed.GetByTile(ctx, t.ID)
 	if errors.Is(err, errs.ErrNotFound) {
@@ -207,7 +207,7 @@ func (o *Orchestrator) sliceTile(ctx context.Context, id string) (Tile, error) {
 		return s, err
 	}
 	if s.Kind != tile.Slice {
-		return s, errs.Invalidf("tile", "%s is a %s tile, not a slice", s.Slug, s.Kind)
+		return s, errs.Invalidf("tile", "%s is kind %s, not a slice", s.Slug, s.Kind)
 	}
 	return s, nil
 }
@@ -250,7 +250,7 @@ func (o *Orchestrator) SetSliceAccess(ctx context.Context, consumerTileID, slice
 		return c, err
 	}
 	if s.Kind != tile.Slice {
-		return c, errs.Invalidf("slice", "%s is a %s tile, not a slice", s.Slug, s.Kind)
+		return c, errs.Invalidf("slice", "%s is kind %s, not a slice", s.Slug, s.Kind)
 	}
 	cur := c
 	cur.SliceAccess = slices.Clone(c.SliceAccess)

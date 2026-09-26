@@ -1067,7 +1067,7 @@ func (a *app) sliceTiles() *cobra.Command {
 		exact(1),
 		a.at(atEnv, func(_ *cobra.Command, p string, args []string) error {
 			v, err := a.call(POST, p+"/slices", map[string]string{
-				"slug":           args[0],
+				"name":           args[0],
 				"provision_from": from,
 				"default_access": access,
 			})

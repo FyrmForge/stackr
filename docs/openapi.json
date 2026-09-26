@@ -2437,15 +2437,15 @@
           "default_access": {
             "type": "string"
           },
-          "provision_from": {
+          "name": {
             "type": "string"
           },
-          "slug": {
+          "provision_from": {
             "type": "string"
           }
         },
         "required": [
-          "slug",
+          "name",
           "provision_from",
           "default_access"
         ],

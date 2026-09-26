@@ -48,9 +48,9 @@ func TestManagedAndSliceRoutes(t *testing.T) {
 	want(member, "PUT", env+"/tiles/pg/env-pairs", `{"env_pairs":{"dev":"dev"}}`, 200, `"env_pairs":{"dev":"dev"}`)
 	want(member, "PUT", env+"/tiles/pg/env-pairs", `{"env_pairs":{"dev":"prod"}}`, 400)
 
-	want(viewer, "POST", env+"/slices", `{"slug":"db","provision_from":"shop:dev:pg"}`, 403)
-	want(member, "POST", env+"/slices", `{"slug":"db","provision_from":"shop:dev"}`, 400)
-	want(member, "POST", env+"/slices", `{"slug":"db","provision_from":"shop:dev:pg"}`, 201,
+	want(viewer, "POST", env+"/slices", `{"name":"db","provision_from":"shop:dev:pg"}`, 403)
+	want(member, "POST", env+"/slices", `{"name":"db","provision_from":"shop:dev"}`, 400)
+	want(member, "POST", env+"/slices", `{"name":"db","provision_from":"shop:dev:pg"}`, 201,
 		`"kind":"slice"`, `"default_access":"write"`, `"on_remove":"keep"`)
 	want(viewer, "GET", env+"/tiles/db/slice", "", 200, `"target":"shop:dev:pg"`, `"blocker":""`)
 	want(viewer, "GET", env+"/tiles/db/bindings", "", 200, "[]")
