@@ -1070,6 +1070,19 @@ fix, ship, re-test.
    plan rows first (`plan: update api slice_access: ...`, or `plan: nothing
    to change`). `stackr release get` printed `(none)`: it shows the
    release fields and a pins table now.
+6. **No code change.** Removal and rollback with slices: `tile rm pg-db`
+   on the instance is refused naming the three live slices; `env rm`
+   refuses while tiles exist (pre-7b rule), then by hand `tile rm web`
+   dropped web's role, `tile rm cache-db` (keep) left `byhand_dev_cache_db`
+   with its owner role, `env rm` went through. `rollback --tag 7` on shop
+   dev printed `plan: update api-db on_remove: keep -> drop` in its job log
+   and `promote 12` put keep back. The org canvas said shop was "Crashed":
+   staging's reporter cron ran at 03:00 against a database with no `notes`
+   table (the proof made it on dev), a real failed run, not a status bug.
+   Known and left: a push release carries pins of tiles the file dropped
+   (reporter still in shop's release 12; planImages skips them); a slice's
+   status word is its instance's ("running", canvas "Online") while the
+   drawer header says provisioned/idle.
 ## DECIDE:
 
 Silent calls the planner made under rule 9 / "fix obvious gaps"; flip any
