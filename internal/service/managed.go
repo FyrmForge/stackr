@@ -88,7 +88,7 @@ func (o *Orchestrator) instanceOf(ctx context.Context, tileID string) (Tile, Man
 }
 
 // SetManagedAllow replaces the instance's allow list, the org:stack:env:tile
-// patterns that may cut a slice from it (empty: its own env only). Nothing
+// patterns that may cut a slice from it beyond its own env, which always may. Nothing
 // redeploys: a slice the list no longer admits fails its next deploy with
 // the reason. A stack file that declares the list sets it again on promote.
 func (o *Orchestrator) SetManagedAllow(ctx context.Context, tileID string, list []string) (ManagedInstance, error) {

@@ -6,7 +6,7 @@
 //	allow entry     one to four segments; the first is this org, never * or another org
 //	* in the middle matches exactly one segment
 //	trailing *      as the last written segment swallows the rest (testorg:*)
-//	provision_from  stack:env:tile in the consumer's own org; no allow list = own env only
+//	provision_from  stack:env:tile in the consumer's own org; own env always, the allow list adds
 package address
 
 import (
@@ -101,15 +101,15 @@ func (p Pattern) match(a Address) bool {
 }
 
 // Allowed decides whether the tile at a may connect to the managed tile at
-// self. No list (nil or empty) is the tile's own env, any tile in it, as env
-// scope was. A list replaces that default, it does not add to it.
+// self. The tile's own env, any tile in it, is always allowed, as env scope
+// was; a list adds to that default (DECIDE 195).
 func Allowed(orgSlug string, list []string, self, a Address) (bool, error) {
-	if len(list) == 0 {
-		return a.Org == self.Org && a.Stack == self.Stack && a.Env == self.Env, nil
-	}
 	patterns, err := ParseAllow(orgSlug, list)
 	if err != nil {
 		return false, err
+	}
+	if a.Org == self.Org && a.Stack == self.Stack && a.Env == self.Env {
+		return true, nil
 	}
 	return Match(patterns, a), nil
 }

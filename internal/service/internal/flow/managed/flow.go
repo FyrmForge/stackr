@@ -245,18 +245,14 @@ func (f *Flow) Bind(ctx context.Context, p store.Provision, c store.Tile, access
 		}
 		return f.Instances.SetAccess(ctx, b, access)
 	}
-	g := Grant{
-		User:     m.AdminUser,
-		Password: m.AdminPassword,
-		Access:   access,
+	taken, err := f.Instances.Names(ctx, m.ID)
+	if err != nil {
+		return store.Binding{}, err
 	}
-	if !def.RootCreds {
-		taken, err := f.Instances.Names(ctx, m.ID)
-		if err != nil {
-			return store.Binding{}, err
-		}
-		g.User = uniqueSliceName(def.SliceName(p.DBName+"_"+c.Slug), taken, def.SliceSep)
-		g.Password = managed.Password()
+	g := Grant{
+		User:     uniqueSliceName(def.SliceName(p.DBName+"_"+c.Slug), taken, def.SliceSep),
+		Password: managed.Password(),
+		Access:   access,
 	}
 	if err := e.Bind(ctx, inst, slice(p), g, "", others, f.tools(it, m)); err != nil {
 		return store.Binding{}, fmt.Errorf("bind %s on %s: %w", g.User, p.DBName, err)

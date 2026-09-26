@@ -16,12 +16,15 @@ import (
 // Exec runs argv inside the instance's container (leaf/tile.Exec).
 type Exec func(ctx context.Context, cmd []string) (string, error)
 
-// S3Admin is the bucket half of the s3 wrapper (s3.Admin).
+// S3Admin is the bucket and user half of the s3 wrapper (s3.Admin).
 type S3Admin interface {
 	Ping(ctx context.Context) error
 	CreateBucket(ctx context.Context, name string) error
 	DropBucket(ctx context.Context, name string) error
 	SetPublic(ctx context.Context, name string, public bool) error
+	AddUser(ctx context.Context, key, secret string) error
+	GrantUser(ctx context.Context, user, bucket string, write bool) error
+	RemoveUser(ctx context.Context, user string) error
 }
 
 // Tools is how an engine reaches its instance; the flow fills it per call.
@@ -78,7 +81,8 @@ type Definition struct {
 	// and a binding user's uniquifier.
 	SliceName func(string) string
 	SliceSep  string
-	// RootCreds: every cred is the instance's admin one (s3, see s3.go).
+	// RootCreds: the slice's own cred (Provision) is the instance's admin
+	// one; consumers still get a user each (s3, see s3.go).
 	RootCreds bool
 }
 

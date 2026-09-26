@@ -10,11 +10,10 @@ import (
 // s3Region is fixed: RustFS ignores it, the SDK needs one.
 const s3Region = "us-east-1"
 
-// s3e is RustFS. Its image may ship no shell, so it works over the S3 API
-// with the instance's root credentials.
-// ponytail: shared-root credentials; a consumer's read or write access is
-// recorded on its binding but not enforced, and the bucket per slice is the
-// whole isolation boundary until scoped keys are proven on RustFS.
+// s3e is RustFS. Its image may ship no shell, so it works over the S3 and
+// MinIO admin APIs with the instance's root credentials. A slice is a
+// bucket; its own cred is the root one (RootCreds); every consumer gets an
+// IAM user with one policy scoped to the bucket at its access (DECIDE 198).
 type s3e struct{}
 
 func (s3e) Definition() Definition {
@@ -82,13 +81,25 @@ func (s3e) Drop(ctx context.Context, _ Instance, s Slice, x Tools) error {
 	return x.S3.DropBucket(ctx, s.Name)
 }
 
-// Bind and Unbind have no key to mint or drop: RootCreds.
-func (s3e) Bind(context.Context, Instance, Slice, Grant, string, []Grant, Tools) error {
-	return nil
+// Bind mints the consumer's user on a first grant, then writes its policy;
+// a re-grant (prev set) only rewrites the policy.
+func (s3e) Bind(ctx context.Context, _ Instance, s Slice, g Grant, prev string, _ []Grant, x Tools) error {
+	if x.S3 == nil {
+		return errNoS3
+	}
+	if prev == "" {
+		if err := x.S3.AddUser(ctx, g.User, g.Password); err != nil {
+			return err
+		}
+	}
+	return x.S3.GrantUser(ctx, g.User, s.Name, g.Access == "write")
 }
 
-func (s3e) Unbind(context.Context, Instance, Slice, Grant, Tools) error {
-	return nil
+func (s3e) Unbind(ctx context.Context, _ Instance, _ Slice, g Grant, x Tools) error {
+	if x.S3 == nil {
+		return errNoS3
+	}
+	return x.S3.RemoveUser(ctx, g.User)
 }
 
 func (s3e) Bindings(i Instance, s Slice) []Binding {

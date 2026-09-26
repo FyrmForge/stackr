@@ -154,9 +154,10 @@ func TestAllowed(t *testing.T) {
 		{"nil, other org", nil, otherOrg("infra", "staging", "api"), false},
 		{"empty, same env", []string{}, addr("infra", "staging", "api"), true},
 		{"empty, other env", []string{}, addr("infra", "production", "api"), false},
-		// a list replaces the own-env default
+		// a list adds to the own-env default
 		{"list, listed", []string{"testorg:shop:*"}, addr("shop", "staging", "api-db"), true},
-		{"list, own env not listed", []string{"testorg:shop:*"}, addr("infra", "staging", "api"), false},
+		{"list, own env not listed", []string{"testorg:shop:*"}, addr("infra", "staging", "api"), true},
+		{"list, other env not listed", []string{"testorg:shop:*"}, addr("infra", "production", "api"), false},
 	}
 	for _, c := range cases {
 		got, err := Allowed(org, c.allow, self, c.addr)

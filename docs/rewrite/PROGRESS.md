@@ -916,7 +916,9 @@ sweep, P14 theme per user, DECIDE 159 and the DECIDE 138 leftovers.
    (`internal/service/internal/address`) lets in only what the list names:
    an infra tile that allows `smoke:shop:*` no longer admits infra's own
    env unless the list says so. Options: (a) replaces, explicit; (b) adds
-   to the own-env default. Lean (a), one line to flip.
+   to the own-env default. Lean (a), one line to flip. **Flipped to (b)
+   after the loops (v0.0.51): own env always, the list adds; the stack
+   file's list no longer has to name the tile's own stack.**
 196. **(step 7b) Which `env_pairs` map counts.** The file puts `env_pairs`
    on the managed tile under `base:`, but an instance row is per env, so
    every env of the infra stack holds a copy. For a target in another
@@ -940,7 +942,13 @@ sweep, P14 theme per user, DECIDE 159 and the DECIDE 138 leftovers.
    visible. Postgres is enforced. Options: (a) prove RustFS IAM (MinIO
    style users and bucket policies) on the VM and mint a key per binding;
    (b) ship as is, documented. Lean (a), tried in the QA loops; if RustFS
-   refuses, this stays open for darthvader.
+   refuses, this stays open for darthvader. **Done (a) in v0.0.51: proven
+   on the VM with madmin-go against rustfs:latest (users, one canned policy
+   per user named after it, attach, rewrite in place for an access change,
+   remove; enforced, survives a restart). `s3.Admin` grew AddUser,
+   GrantUser and RemoveUser; the s3 engine's Bind and Unbind use them; the
+   flow mints a user per binding for every engine (the RootCreds flag now
+   only covers the slice's own cred).**
 199. **(step 7b) `on_remove` on a slice tile.** Task 5 gave it no file key:
    default keep, a PR env always drops, the drawer sets it. The old
    `slices:` list had `on_remove` in the file. **Fixed in task 6: `on_remove:

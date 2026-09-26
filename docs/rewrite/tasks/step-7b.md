@@ -64,7 +64,8 @@ Rules:
 - `allow:` patterns are four segments, `*` allowed; a trailing `*`
   swallows the rest (`testorg:*`); a `*` in the middle matches one
   segment. The first segment must be the tile's own org slug; `*` or
-  another slug is refused at parse. No list = the tile's own env only.
+  another slug is refused at parse. The tile's own env is always allowed;
+  the list adds to it (DECIDE 195).
 - `env_pairs:` maps a consumer's env name to one of this stack's env
   names. A consumer whose env name is not a key is a blocker on its
   promote plan ("infra's pg-db has no env pair for dev"). No map = the
@@ -169,7 +170,7 @@ Rules:
    As built: a slice's database or bucket is `<stack>_<env>_<slice>` (`-` for s3), never suffixed; a name another row holds is refused (DECIDE 197).
    As built: build defaults (branch, dockerfile, context) moved from `leaf/tile` Create into `Validate`, so a git-built cron re-plans clean.
    As built: the instance network is `stackr-managed-<instance id>`; the instance's alias on it, `<slug>-<first 8 of its id>`, is the postgres host.
-   As built: s3 hands out the root key for owner and every binding; `access` is recorded, not enforced.
+   As built: s3 hands the owner the root key; every binding gets its own RustFS IAM user with a bucket-scoped policy at its `access` (DECIDE 198).
    As built: plan and deploy share `address.Resolve`; a consumer deploy re-resolves every slice it uses and fails with the plan's blocker text.
    As built: removing an instance tile that still holds slices is refused; its network goes after its container.
    As built: `AttachSlice`/`DetachSlice` are gone (task 6); the graph skips a slice tile's own card until task 7.

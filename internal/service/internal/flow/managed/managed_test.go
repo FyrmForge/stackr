@@ -36,9 +36,35 @@ func (vipStub) Remove(context.Context, string) error {
 	return nil
 }
 
-type s3Fake struct{ made, dropped []string }
+type s3Fake struct {
+	made, dropped, users, removed []string
+	grants                        map[string]string // user -> bucket:read|write
+}
 
 func (s *s3Fake) Ping(context.Context) error { return nil }
+
+func (s *s3Fake) AddUser(_ context.Context, key, _ string) error {
+	s.users = append(s.users, key)
+	return nil
+}
+
+func (s *s3Fake) GrantUser(_ context.Context, user, bucket string, write bool) error {
+	if s.grants == nil {
+		s.grants = map[string]string{}
+	}
+	access := "read"
+	if write {
+		access = "write"
+	}
+	s.grants[user] = bucket + ":" + access
+	return nil
+}
+
+func (s *s3Fake) RemoveUser(_ context.Context, user string) error {
+	s.removed = append(s.removed, user)
+	delete(s.grants, user)
+	return nil
+}
 
 func (s *s3Fake) CreateBucket(_ context.Context, n string) error {
 	s.made = append(s.made, n)
@@ -345,8 +371,9 @@ func isConflict(err error) bool {
 	return ok
 }
 
-// s3: a bucket per slice; every consumer holds the root creds (ponytail in
-// s3.go), so Bind mints nothing and the access is recorded only.
+// s3: a bucket per slice whose own cred is the root one; every consumer gets
+// a user with a bucket-scoped policy at its access, rewritten on re-grant
+// and removed with the binding.
 func TestS3BucketPerSlice(t *testing.T) {
 	w := setup(t, "s3")
 	p, err := w.f.Provision(ctx, w.db, w.orders)
@@ -358,13 +385,23 @@ func TestS3BucketPerSlice(t *testing.T) {
 	must(t, err)
 	out, err := managed.Outputs(b)
 	must(t, err)
-	if b.DBUser != "stackr" || b.Access != "read" || out["S3_BUCKET"] != "s-dev-orders" ||
+	user := "s-dev-orders-reporter"
+	if b.DBUser != user || b.Access != "read" || out["S3_BUCKET"] != "s-dev-orders" ||
+		out["S3_ACCESS_KEY"] != user || out["S3_SECRET_KEY"] != b.DBPassword ||
 		out["S3_ENDPOINT"] != "http://db-"+w.instance.ID[:8]+":9000" {
 		t.Errorf("binding %+v, outputs %v", b, out)
 	}
+	if !slices.Equal(w.s3.users, []string{user}) || w.s3.grants[user] != "s-dev-orders:read" {
+		t.Errorf("users %v, grants %v", w.s3.users, w.s3.grants)
+	}
+	b, err = w.f.Bind(ctx, p, w.rep, "write")
+	must(t, err)
+	if b.DBUser != user || len(w.s3.users) != 1 || w.s3.grants[user] != "s-dev-orders:write" {
+		t.Errorf("re-grant: binding %+v, users %v, grants %v", b, w.s3.users, w.s3.grants)
+	}
 	must(t, w.f.Drop(ctx, p, true, io.Discard))
-	if !slices.Equal(w.s3.dropped, []string{"s-dev-orders"}) {
-		t.Errorf("dropped %v", w.s3.dropped)
+	if !slices.Equal(w.s3.dropped, []string{"s-dev-orders"}) || !slices.Equal(w.s3.removed, []string{user}) {
+		t.Errorf("dropped %v, removed %v", w.s3.dropped, w.s3.removed)
 	}
 }
 
