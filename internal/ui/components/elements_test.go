@@ -26,7 +26,7 @@ var elements = map[string]int{
 // event and selector names the source must carry. Session C's templ
 // renders against these (step-6.md "Element contract").
 var contract = map[string][]string{
-	"confirm-dialog": {`"confirmed"`, `"word"`, "[data-open]", "[data-cancel]", "[data-confirm]", "[data-word]"},
+	"confirm-dialog": {`"confirmed"`, `"word"`, `"open"`, "[data-open]", "[data-cancel]", "[data-confirm]", "[data-word]"},
 	"flash-toast":    {`"kind"`, "htmx:responseError"},
 	"graph-canvas": {
 		`"selection-changed"`,
@@ -36,12 +36,18 @@ var contract = map[string][]string{
 		`"straight"`,
 		`"fan-out"`,
 		`"arrows"`,
+		`"hover-focus"`,
+		`"nooverlap"`,
+		`"badges"`,
+		`"boundary"`,
+		`"legend"`,
 		`"focus"`,
 		`"selected"`,
 		`"lit"`,
 		`"data-lit"`,
 		`"focusing"`,
 		"svg[data-edges] path[data-from]",
+		"svg[data-lanes] g[data-from]",
 		"dataset.from",
 		"dataset.to",
 		`"node-id"`,
@@ -64,6 +70,7 @@ var contract = map[string][]string{
 		`"dragging"`,
 		`"snap"`,
 		`"divider"`,
+		`"nooverlap"`,
 		":scope > input[name=${k}]",
 		"stopImmediatePropagation",
 		"--x",

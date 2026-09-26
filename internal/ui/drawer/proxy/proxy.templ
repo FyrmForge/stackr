@@ -1,6 +1,8 @@
 // Package proxy is the proxy card's drawer: one tab, the env's routes.
 package proxy
 
+import c "github.com/FyrmForge/stackr/internal/ui/components"
+
 type View struct{ Rows []Route }
 
 type Route struct {
@@ -9,27 +11,34 @@ type Route struct {
 }
 
 templ Routes(v View) {
-	<div id="drawer-view" class="space-y-4">
-		<h2 class="text-lg font-semibold">proxy <span class="text-sm font-normal text-slate-500">routes</span></h2>
+	@c.Drawer(c.DrawerView{Title: "Proxy", Kind: "caddy", Icon: "proxy"}, routes(v))
+}
+
+templ routes(v View) {
+	@c.Section("Routes", "env", "Every host this environment's tiles answer on. Add or change one in the tile's Settings.") {
 		if len(v.Rows) == 0 {
-			<p class="text-sm text-slate-500">No tile in this env has a domain.</p>
+			<p class="text-sm text-rw-muted">No tile in this env has a domain.</p>
 		}
-		<ul class="space-y-1 text-sm">
+		<ul class="space-y-2">
 			for _, r := range v.Rows {
-				<li class="flex flex-wrap gap-2">
-					<span class="font-mono">{ r.Host }{ r.Path }</span>
-					<span class="text-slate-500">→ { r.Tile }:{ r.Port }</span>
-					if !r.HTTPS {
-						<span class="text-amber-700 dark:text-amber-400">http only</span>
-					}
-					if r.Auto {
-						<span class="text-slate-500">generated</span>
-					}
-					if r.Raw {
-						<span class="text-slate-500">raw Caddy</span>
-					}
+				<li class="flex flex-wrap items-center gap-2 rounded-lg border border-rw-border px-3 py-2.5 text-sm">
+					<span class="font-mono text-rw-text">{ r.Host }{ r.Path }</span>
+					<span class="text-rw-muted">→ { r.Tile }:{ r.Port }</span>
+					<span class="ml-auto flex items-center gap-1.5">
+						if r.HTTPS {
+							@c.Chip("https", "accent")
+						} else {
+							@c.Chip("http only", "warn")
+						}
+						if r.Auto {
+							@c.Chip("generated", "")
+						}
+						if r.Raw {
+							@c.Chip("raw Caddy", "")
+						}
+					</span>
 				</li>
 			}
 		</ul>
-	</div>
+	}
 }

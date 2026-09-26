@@ -8,6 +8,7 @@ import (
 	"github.com/FyrmForge/hamr/pkg/auth"
 
 	"github.com/FyrmForge/stackr/internal/authz"
+	"github.com/FyrmForge/stackr/internal/service/internal/githubapp"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/credential"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/org"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/user"
@@ -20,6 +21,7 @@ type (
 	Credential     = store.Credential
 	CredentialSpec = credential.Spec
 	Connector      = store.Connector
+	Repo           = githubapp.Repo
 )
 
 // Orgs is what the user belongs to; AllOrgs is every org (admin).
@@ -206,6 +208,17 @@ func (o *Orchestrator) BeginConnector(
 // CompleteConnector takes GitHub's manifest callback.
 func (o *Orchestrator) CompleteConnector(ctx context.Context, state, code string) (Connector, error) {
 	return o.conns.Complete(ctx, state, code)
+}
+
+// ConnectorInstallURL is GitHub's install page for the app; "" while pending.
+func (o *Orchestrator) ConnectorInstallURL(ctx context.Context, orgID, id string) (string, error) {
+	return o.conns.InstallURL(ctx, orgID, id)
+}
+
+// ConnectorRepos asks GitHub what the app may read (the install check):
+// empty means not installed yet, or installed on no repos.
+func (o *Orchestrator) ConnectorRepos(ctx context.Context, orgID, id string) ([]Repo, error) {
+	return o.conns.Repos(ctx, orgID, id)
 }
 
 func (o *Orchestrator) RenameConnector(ctx context.Context, orgID, id, name string) (Connector, error) {

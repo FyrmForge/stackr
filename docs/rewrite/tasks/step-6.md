@@ -69,8 +69,12 @@ written and committed before either starts.
 a `<path data-edge-kind="…" data-from="<id>" data-to="<id>">` per edge
 (server-drawn straight lines; the element re-paths), then one
 `<graph-node>` per card. Attributes, all set by templ: `scale` (initial),
-`snap`, `straight`, `fan-out`, `arrows`, `focus="<id>"`; the look ones
-are overridden from `localStorage` by the element. Events it fires:
+the looks `snap`, `straight`, `fan-out`, `arrows`, `hover-focus`,
+`nooverlap`, `badges`, `boundary`, `legend` (step 6e: v0's View panel),
+and `focus="<id>"`; the look ones are overridden from `localStorage` by
+the element. `badges`, `boundary` and `legend` are CSS-only (domain
+chips, the server wall, the legend box); `nooverlap` is read by
+`<graph-node>` on a single-card drop. Events it fires:
 `selection-changed` with `detail.ids`. It never fetches, never touches
 anything outside its subtree.
 
@@ -104,18 +108,31 @@ or may style; `elements_test.go` checks each one is in the source:
 
 - `<graph-canvas divider="<x>">`: world x of the system-column wall.
   `system` cards keep `x + w <= divider`, the rest `x >= divider`. No
-  attribute = no wall. The divider line itself is the server's (an SVG
-  `<line>` in `svg[data-edges]`).
-- Canvas children besides the SVG and the nodes are overlay chrome, not
-  transformed: `input[type=checkbox][data-look="snap|straight|fan-out|arrows"]`
-  (the element syncs them to its attributes and to `localStorage`
-  `graph.<look>` = `"1"`/`"0"`) and `button[data-zoom="in|out|fit"]`.
-- Arrows: the SVG carries `<marker id="graph-arrow">` (fill
-  `context-stroke`); CSS `graph-canvas[arrows] path[data-edge-kind]`
-  sets `marker-end`. The element only flips the attribute.
+  attribute = no wall. The divider itself is the server's: a
+  `<g data-divider>` (a `<line>` and the "server" `<text>`) in
+  `svg[data-edges]`, drawn only when `View.Walled`; CSS hides it without
+  `boundary`.
+- Canvas children besides the SVGs and the nodes are overlay chrome, not
+  transformed: `input[data-look]`, a checkbox or radios valued `1`/`0`
+  (`name="graph-edges" data-look="straight"`; the element syncs them to
+  its attributes and to `localStorage` `graph.<look>` = `"1"`/`"0"`), and
+  `button[data-zoom="in|out|fit"]`. The View panel, legend, env-compare
+  pill and empty state are templ.
+- Arrows: the SVG carries `<marker id="edge-arrow">` (fill
+  `context-stroke`); CSS `graph-canvas[arrows] svg[data-edges]
+  path[data-edge-kind]` sets `marker-end`. The element only flips the
+  attribute.
+- Edge strokes are presentation attributes from `graph.EdgeAttrs(kind)`
+  (one table for the paths and the legend swatches); CSS never colours
+  an edge by kind.
+- Lanes (env): `<svg data-lanes>` with a `g[data-from][data-to]` per
+  direction holding a `path`, a `text` and a `tspan`. The element copies
+  `d`, `stroke` and `stroke-opacity` from the edge the lane rides (either
+  direction), offsets it 4 px, sets the arrow and `data-rev`, and hides
+  the `g` when no edge is drawn.
 - Set by the elements, for CSS only: `selected` and `lit` on top-level
-  nodes, `focusing` on the canvas while a card is hovered or focused,
-  `data-lit` on lit paths, `dragging` on the node being dragged, a
+  nodes, `focusing` on the canvas while a card is hovered or focused
+  (only with `hover-focus`), `data-lit` on lit paths and lane groups, `dragging` on the node being dragged, a
   transient `div[data-marquee]` child during shift+drag. The canvas
   writes `--px`, `--py`, `--s`; a node writes `--x`, `--y` and its
   `width`/`height` from `w`/`h` (so `w`/`h` are required on top-level
@@ -144,7 +161,9 @@ the card templates read (`internal/service/internal/flow/graph`).
   another scope), the volume id (detached only; attached ones are
   sub-tiles), plus `ref:stack.<slug>` / `ref:org.<slug>` ghosts
   (`Static`), `proxy`, `internet` (`System`). `note:<id>` (annotations)
-  on every canvas.
+  on every canvas. The `proxy` card (always `running`, as v0) also
+  stands on the org and stack canvas, with an `ingress` edge to each
+  stack or env whose tiles have a domain (their hosts in `Domains`).
 - `Node`: `ID Kind Name Slug Detail Status X Y W H Saved System Static
   Color Deck Subs`; tile facts `Replicas Running Domains Volumes Host
   LastRun Waiting`; vars counts `Params Secrets`. `Kind` is the tile kind
@@ -159,7 +178,7 @@ the card templates read (`internal/service/internal/flow/graph`).
 - `Edge`: `Kind From To`, kinds `ref ingress egress shared startup config
   source`. A startup edge is dropped when a ref already joins the pair.
 - `View`: `Nodes Edges Notes Divider Compare`; `Divider` 0 = no system
-  column. `Compare` (stack canvas) is the ladder in order with each env's
+  column. `Compare` (stack and env canvas) is the ladder in order with each env's
   release number and `Behind` (the rung below runs a newer one).
 - `Show{System, Refs, Startup, Traffic}` is what the query params turn
   off; `Traffic` off drops the egress edges and the internet card.
@@ -226,7 +245,10 @@ verb, then its tab again (422 with the refusal over it).
 and stream must match:
 
 - Cards live in `internal/ui/graph/cards` with their own views
-  (`CardView`, `FooterView`, `SubView`, `Lane`). The task 7 wrapper
+  (`CardView`, `FooterView`, `SubView`, `Lane`). A drill-down card's
+  footer is a `FooterView` too (step 6e): the first host on an env card,
+  `Domains` ("N domains") on a stack card, `Nav` set so the host is text
+  (the card is itself a link). The task 7 wrapper
   renders `<graph-node node-id={v.ID} system?={cards.System(v.Kind)}>`,
   its three hidden inputs, then `@cards.Card(v)` and `@cards.Subs(v)` as
   siblings (the gallery's `envNode` is the model).

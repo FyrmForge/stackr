@@ -5,14 +5,17 @@
 package env
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/FyrmForge/hamr/pkg/respond"
+	"github.com/a-h/templ"
 	"github.com/labstack/echo/v4"
 
 	"github.com/FyrmForge/stackr/internal/middleware"
@@ -46,6 +49,10 @@ func (h *handler) Mount(g *echo.Group, a *middleware.Access) {
 	g.GET(e+"/new-tile", h.NewTile, a.Require("tile.write"))
 	g.POST(e+"/new-tile", h.CreateTile, a.Require("tile.write"))
 	g.GET(e+"/instances/:tile", h.Instance, a.Require("tile.read"))
+	g.POST(e+"/instances/:tile/deploy", h.instanceJob("deploy queued", h.orch.Deploy), a.Require("tile.write"))
+	g.POST(e+"/instances/:tile/stop", h.instanceJob("stop queued", h.orch.StopTile), a.Require("tile.write"))
+	g.POST(e+"/instances/:tile/delete", h.instanceJob("delete queued", h.orch.DeleteTile), a.Require("tile.write"))
+	g.POST(e+"/instances/:tile/scope", h.InstanceScope, a.Require("tile.write"))
 	g.GET(e+"/slices/:provision", h.Slice, a.Require("tile.read"))
 	g.POST(e+"/slices/:provision/detach", h.DetachSlice, a.Require("tile.write"))
 	g.GET(e+"/volumes/:volume", h.Volume, a.Require("org.read"))
@@ -177,62 +184,188 @@ func (h *handler) CreateTile(c echo.Context) error {
 	return c.NoContent(http.StatusOK)
 }
 
-// ---- managed instance, slice, proxy ----
+// ---- managed instance ----
 
-// GET …/-/instance/:tile
+// GET …/-/instances/:tile?tab=
 func (h *handler) Instance(c echo.Context) error {
-	t := scope(c).Tile
-	m, ps, err := h.orch.InstanceSlices(c.Request().Context(), t.ID)
-	if err != nil {
-		return middleware.HTTPError(err)
-	}
-	v := instance.View{
-		Name:      t.Name,
-		Engine:    m.Engine,
-		Scope:     m.ScopeKind,
-		Endpoint:  m.Endpoint,
-		AdminUser: m.AdminUser,
-	}
-	for _, p := range ps {
-		v.Slices = append(v.Slices, instance.SliceRow{
-			ID:       p.ID,
-			Name:     p.Slug,
-			DB:       p.DBName,
-			OnRemove: p.OnRemove,
-			Public:   p.Public,
-			Orphan:   p.ConsumerTileID == nil,
-			Drawer:   render.EnvURL(c) + "/-/slices/" + p.ID + "?tab=bindings",
-		})
-	}
-	return respond.HTML(c, http.StatusOK, instance.Slices(v))
+	return h.instance(c, c.QueryParam("tab"), "", nil)
 }
 
-// GET …/-/slice/:provision
-func (h *handler) Slice(c echo.Context) error { return h.slice(c, nil) }
-
-func (h *handler) DetachSlice(c echo.Context) error {
-	_, err := h.orch.DetachSlice(c.Request().Context(), c.Param("provision"))
-	return h.slice(c, err)
+// instanceJob is a header action (deploy, stop, delete) answered with
+// the instance's Overview.
+func (h *handler) instanceJob(note string, f func(context.Context, string) (service.Job, error)) echo.HandlerFunc {
+	return func(c echo.Context) error {
+		_, err := f(c.Request().Context(), scope(c).Tile.ID)
+		return h.instance(c, "slices", note, err)
+	}
 }
 
-func (h *handler) slice(c echo.Context, actErr error) error {
+func (h *handler) InstanceScope(c echo.Context) error {
+	_, err := h.orch.SetInstanceScope(c.Request().Context(), scope(c).Tile.ID, c.FormValue("scope_kind"))
+	return h.instance(c, "settings", "scope saved", err)
+}
+
+// instance is the managed instance drawer on tab; each tab is one read.
+func (h *handler) instance(c echo.Context, tab, note string, actErr error) error {
 	msg, status, fail := refused(actErr)
 	if fail != nil {
 		return fail
 	}
-	p, err := h.orch.Provision(c.Request().Context(), c.Param("provision"))
+	ctx, s := c.Request().Context(), scope(c)
+	t := s.Tile
+	m, ps, err := h.orch.InstanceSlices(ctx, t.ID)
+	if err != nil {
+		return middleware.HTTPError(err)
+	}
+	st, err := h.orch.TileStatus(ctx, t.ID)
+	if err != nil {
+		return middleware.HTTPError(err)
+	}
+	v := instance.View{
+		Node:     t.ID,
+		Name:     t.Name,
+		Engine:   m.Engine,
+		Base:     render.EnvURL(c) + "/-/instances/" + t.Slug,
+		Tab:      instance.Tab(tab),
+		Status:   st.Word,
+		Running:  st.Word == "running",
+		Scope:    m.ScopeKind,
+		Location: s.Stack.Name + " / " + s.Env.Name,
+		EnvColor: s.Env.Color,
+		Error:    msg,
+	}
+	if msg == "" {
+		v.Note = note
+	}
+	var body templ.Component
+	switch v.Tab {
+	case "logs":
+		pane, running := h.logPane(c, t.Slug, st)
+		body = instance.Logs(v, instance.LogsView{Running: running, Pane: pane})
+	case "backups":
+		vols, err := h.instanceVolumes(c, t.ID, m.ID)
+		if err != nil {
+			return middleware.HTTPError(err)
+		}
+		var bs []volume.BackupsView
+		for _, vol := range vols {
+			b, err := h.backups(c, vol)
+			if err != nil {
+				return middleware.HTTPError(err)
+			}
+			bs = append(bs, b)
+		}
+		body = instance.Backups(v, bs)
+	case "settings":
+		body = instance.Settings(v)
+	default:
+		names, err := h.tileNames(c)
+		if err != nil {
+			return middleware.HTTPError(err)
+		}
+		o := instance.OverviewView{Endpoint: m.Endpoint, AdminUser: m.AdminUser}
+		for _, p := range ps {
+			r := instance.SliceRow{
+				ID:       p.ID,
+				Name:     p.Slug,
+				DB:       p.DBName,
+				OnRemove: p.OnRemove,
+				Public:   p.Public,
+				Orphan:   p.ConsumerTileID == nil,
+				Drawer:   render.EnvURL(c) + "/-/slices/" + p.ID + "?tab=bindings",
+			}
+			if p.ConsumerTileID != nil {
+				r.UsedBy = names[*p.ConsumerTileID]
+			}
+			o.Slices = append(o.Slices, r)
+		}
+		body = instance.Overview(v, o)
+	}
+	return respond.HTML(c, status, instance.Drawer(v, body))
+}
+
+// logPane streams a tile's first container through the tile drawer's
+// log route; false = no container yet.
+func (h *handler) logPane(c echo.Context, slug string, st service.TileStatus) (comp.LogPaneView, bool) {
+	pane := comp.LogPaneView{Level: c.QueryParam("level"), Search: c.QueryParam("q")}
+	if len(st.Replicas) == 0 {
+		return pane, false
+	}
+	pane.StreamURL = render.EnvURL(c) + "/-/tiles/" + slug + "/logs/stream?container=" + st.Replicas[0].ID
+	return pane, true
+}
+
+// instanceVolumes are the volumes an instance mounts or owns, once each.
+func (h *handler) instanceVolumes(c echo.Context, tileID, instanceID string) ([]service.Volume, error) {
+	ctx := c.Request().Context()
+	vols, err := h.orch.TileVolumes(ctx, tileID)
+	if err != nil {
+		return nil, err
+	}
+	all, err := h.orch.Volumes(ctx, service.VolumeScope{Kind: "env", ID: scope(c).Env.ID})
+	if err != nil {
+		return nil, err
+	}
+	for _, v := range all {
+		owned := v.InstanceID != nil && *v.InstanceID == instanceID
+		seen := slices.ContainsFunc(vols, func(w service.Volume) bool {
+			return w.ID == v.ID
+		})
+		if owned && !seen {
+			vols = append(vols, v)
+		}
+	}
+	return vols, nil
+}
+
+// tileNames maps the env's tile ids to names.
+func (h *handler) tileNames(c echo.Context) (map[string]string, error) {
+	ts, err := h.orch.Tiles(c.Request().Context(), scope(c).Env.ID)
+	if err != nil {
+		return nil, err
+	}
+	names := map[string]string{}
+	for _, t := range ts {
+		names[t.ID] = t.Name
+	}
+	return names, nil
+}
+
+// ---- slice ----
+
+// GET …/-/slices/:provision?tab=
+func (h *handler) Slice(c echo.Context) error {
+	return h.slice(c, c.QueryParam("tab"), nil)
+}
+
+func (h *handler) DetachSlice(c echo.Context) error {
+	_, err := h.orch.DetachSlice(c.Request().Context(), c.Param("provision"))
+	return h.slice(c, "bindings", err)
+}
+
+func (h *handler) slice(c echo.Context, tab string, actErr error) error {
+	msg, status, fail := refused(actErr)
+	if fail != nil {
+		return fail
+	}
+	ctx, s := c.Request().Context(), scope(c)
+	p, err := h.orch.Provision(ctx, c.Param("provision"))
 	if err != nil {
 		return middleware.HTTPError(err)
 	}
 	var outs map[string]json.RawMessage
 	_ = json.Unmarshal([]byte(p.Outputs), &outs) // names only; a bad blob shows none
 	v := slice.View{
+		Node:     p.ID,
 		Name:     p.Slug,
 		DB:       p.DBName,
 		User:     p.DBUser,
 		OnRemove: p.OnRemove,
+		Base:     render.EnvURL(c) + "/-/slices/" + p.ID,
 		Public:   p.Public,
 		Consumer: p.ConsumerTileID != nil,
+		Location: s.Stack.Name + " / " + s.Env.Name,
+		EnvColor: s.Env.Color,
 		Error:    msg,
 	}
 	for k := range outs {
@@ -240,10 +373,58 @@ func (h *handler) slice(c echo.Context, actErr error) error {
 	}
 	slices.Sort(v.Outputs)
 	if v.Consumer {
-		v.Detach = render.EnvURL(c) + "/-/slices/" + p.ID + "/detach"
+		v.Detach = v.Base + "/detach"
 	}
-	return respond.HTML(c, status, slice.Bindings(v))
+	it, err := h.sliceInstance(c, p.InstanceID)
+	if err != nil {
+		return middleware.HTTPError(err)
+	}
+	if it != nil {
+		v.Instance = it.Name
+		v.InstanceNode = it.ID
+		v.InstanceDrawer = render.EnvURL(c) + "/-/instances/" + it.Slug + "?tab=slices"
+		v.Logs = true
+	}
+	v.Tab = slice.Tab(tab, v.Logs)
+	if v.Tab != "logs" {
+		return respond.HTML(c, status, slice.Drawer(v, slice.Overview(v)))
+	}
+	st, err := h.orch.TileStatus(ctx, it.ID)
+	if err != nil {
+		return middleware.HTTPError(err)
+	}
+	pane, running := h.logPane(c, it.Slug, st)
+	return respond.HTML(c, status, slice.Drawer(v, slice.Logs(v, pane, running)))
 }
+
+// sliceInstance is the instance tile a slice was cut from, when it runs
+// in this env; nil otherwise (a stack or org instance lives elsewhere).
+func (h *handler) sliceInstance(c echo.Context, instanceID string) (*service.Tile, error) {
+	ctx, envID := c.Request().Context(), scope(c).Env.ID
+	ms, err := h.orch.ManagedInstances(ctx, envID)
+	if err != nil {
+		return nil, err
+	}
+	i := slices.IndexFunc(ms, func(m service.ManagedInstance) bool {
+		return m.ID == instanceID
+	})
+	if i < 0 {
+		return nil, nil
+	}
+	ts, err := h.orch.Tiles(ctx, envID)
+	if err != nil {
+		return nil, err
+	}
+	j := slices.IndexFunc(ts, func(t service.Tile) bool {
+		return t.ID == ms[i].TileID
+	})
+	if j < 0 {
+		return nil, nil
+	}
+	return &ts[j], nil
+}
+
+// ---- proxy ----
 
 // GET …/-/proxy
 func (h *handler) Proxy(c echo.Context) error {
@@ -268,18 +449,20 @@ func (h *handler) Proxy(c echo.Context) error {
 
 // ---- volume ----
 
-// GET …/-/volume/:volume
-func (h *handler) Volume(c echo.Context) error { return h.volume(c, "", nil) }
+// GET …/-/volumes/:volume?tab=
+func (h *handler) Volume(c echo.Context) error {
+	return h.volume(c, c.QueryParam("tab"), "", nil)
+}
 
 func (h *handler) BackupNow(c echo.Context) error {
 	_, err := h.orch.BackupNow(c.Request().Context(), c.Param("volume"), c.FormValue("dest"), c.FormValue("method"), "")
-	return h.volume(c, "backup queued", err)
+	return h.volume(c, "backups", "backup queued", err)
 }
 
 func (h *handler) Restore(c echo.Context) error {
 	id := c.Param("volume")
 	_, err := h.orch.RestoreBackup(c.Request().Context(), c.QueryParam("run"), id, id)
-	return h.volume(c, "restore queued", err)
+	return h.volume(c, "backups", "restore queued", err)
 }
 
 func (h *handler) DeleteVolume(c echo.Context) error {
@@ -287,60 +470,148 @@ func (h *handler) DeleteVolume(c echo.Context) error {
 	if err == nil {
 		return respond.HTML(c, http.StatusOK, volume.Deleted())
 	}
-	return h.volume(c, "", err)
+	return h.volume(c, "settings", "", err)
 }
 
-// volume is the backups tab: the volume, its schedules and runs, and what
-// a backup can go to and with.
-func (h *handler) volume(c echo.Context, note string, actErr error) error {
+// volume is the volume drawer on tab.
+func (h *handler) volume(c echo.Context, tab, note string, actErr error) error {
 	msg, status, fail := refused(actErr)
 	if fail != nil {
 		return fail
 	}
-	ctx, id := c.Request().Context(), c.Param("volume")
-	vol, err := h.orch.Volume(ctx, id)
+	ctx, s := c.Request().Context(), scope(c)
+	vol, err := h.orch.Volume(ctx, c.Param("volume"))
 	if err != nil {
 		return middleware.HTTPError(err)
 	}
-	scheds, err := h.orch.BackupSchedules(ctx, id)
-	if err != nil {
-		return middleware.HTTPError(err)
-	}
-	runs, err := h.orch.BackupRuns(ctx, id)
-	if err != nil {
-		return middleware.HTTPError(err)
-	}
-	dests, err := h.orch.BackupDests(ctx, scope(c).Org.ID)
-	if err != nil {
-		return middleware.HTTPError(err)
-	}
-	methods, err := h.orch.BackupMethods(ctx, id)
+	b, err := h.backups(c, vol)
 	if err != nil {
 		return middleware.HTTPError(err)
 	}
 	v := volume.View{
-		Name:     vol.Name,
+		Node:     vol.ID,
+		Name:     vol.Slug,
 		Scope:    vol.ScopeKind,
-		Orphaned: when(vol.OrphanedAt),
-		Methods:  methods,
-		Base:     render.EnvURL(c) + "/-/volumes/" + id,
+		Base:     b.Base,
+		Tab:      volume.Tab(tab),
+		Status:   "idle",
+		Location: s.Stack.Name + " / " + s.Env.Name,
+		EnvColor: s.Env.Color,
 		Error:    msg,
-		Dests:    []volume.Option{{Value: "", Label: "local disk"}},
 	}
 	if msg == "" {
 		v.Note = note
 	}
+	if b.Live {
+		v.Status = "running"
+	}
+	b.Poll = polls(c, note, msg)
+	var body templ.Component
+	switch v.Tab {
+	case "backups":
+		body = volume.Backups(b)
+	case "settings":
+		ms, err := h.mounts(c, vol.Slug)
+		if err != nil {
+			return middleware.HTTPError(err)
+		}
+		body = volume.Settings(v, blocked(vol, ms))
+	default:
+		o := volume.OverviewView{
+			Docker:   vol.Name,
+			Created:  when(&vol.CreatedAt),
+			Orphaned: when(vol.OrphanedAt),
+		}
+		if vol.MaxSizeMB > 0 {
+			o.MaxSize = fmt.Sprint(vol.MaxSizeMB, " MB")
+		}
+		o.Mounts, err = h.mounts(c, vol.Slug)
+		if err != nil {
+			return middleware.HTTPError(err)
+		}
+		body = volume.Overview(o)
+	}
+	return respond.HTML(c, status, volume.Drawer(v, body))
+}
+
+// polls is how many times History re-reads after an action queued a
+// job: five (10 s) on the action's answer, then what ?poll= counts down.
+func polls(c echo.Context, note, msg string) int {
+	if note != "" && msg == "" {
+		return 5
+	}
+	n, _ := strconv.Atoi(c.QueryParam("poll")) // absent or bad = no polling
+	return min(max(n, 0), 5)
+}
+
+// blocked is why a volume cannot be deleted now; "" = it can.
+func blocked(vol service.Volume, ms []volume.Mount) string {
+	if vol.InstanceID != nil {
+		return "Its managed instance owns it. Deleting the instance orphans it; then it can go."
+	}
+	if len(ms) > 0 {
+		return "Detach before deleting: " + ms[0].Tile + " mounts it. The mount lives in that tile's settings."
+	}
+	return ""
+}
+
+// mounts are the env tiles whose volume lines ("slug:/path") name slug.
+// ponytail: mirrors the service's unexported mounter check; a verb when a
+// second caller needs it.
+func (h *handler) mounts(c echo.Context, slug string) ([]volume.Mount, error) {
+	ts, err := h.orch.Tiles(c.Request().Context(), scope(c).Env.ID)
+	if err != nil {
+		return nil, err
+	}
+	var out []volume.Mount
+	for _, t := range ts {
+		for _, l := range strings.Split(t.Volumes, "\n") {
+			path, ok := strings.CutPrefix(strings.TrimSpace(l), slug+":")
+			if ok {
+				out = append(out, volume.Mount{Tile: t.Name, Path: path})
+			}
+		}
+	}
+	return out, nil
+}
+
+// backups is one volume's schedules, runs, and what a backup can go to
+// and with.
+func (h *handler) backups(c echo.Context, vol service.Volume) (volume.BackupsView, error) {
+	ctx := c.Request().Context()
+	b := volume.BackupsView{
+		ID:    vol.ID,
+		Name:  vol.Slug,
+		Base:  render.EnvURL(c) + "/-/volumes/" + vol.ID,
+		Dests: []volume.Option{{Value: "", Label: "local disk"}},
+	}
+	scheds, err := h.orch.BackupSchedules(ctx, vol.ID)
+	if err != nil {
+		return b, err
+	}
+	runs, err := h.orch.BackupRuns(ctx, vol.ID)
+	if err != nil {
+		return b, err
+	}
+	dests, err := h.orch.BackupDests(ctx, scope(c).Org.ID)
+	if err != nil {
+		return b, err
+	}
+	b.Methods, err = h.orch.BackupMethods(ctx, vol.ID)
+	if err != nil {
+		return b, err
+	}
 	names := map[string]string{"": "local disk"}
 	for _, d := range dests {
 		names[d.ID] = d.Name
-		v.Dests = append(v.Dests, volume.Option{Value: d.ID, Label: d.Name})
+		b.Dests = append(b.Dests, volume.Option{Value: d.ID, Label: d.Name})
 	}
 	for _, s := range scheds {
 		dest := ""
 		if s.DestID != nil {
 			dest = *s.DestID
 		}
-		v.Schedules = append(v.Schedules, volume.Schedule{
+		b.Schedules = append(b.Schedules, volume.Schedule{
 			Method: s.Method,
 			Cron:   s.Cron,
 			Dest:   names[dest],
@@ -348,7 +619,7 @@ func (h *handler) volume(c echo.Context, note string, actErr error) error {
 		})
 	}
 	for _, r := range runs {
-		v.Runs = append(v.Runs, volume.Run{
+		b.Runs = append(b.Runs, volume.Run{
 			ID:         r.ID,
 			Status:     r.Status,
 			Trigger:    r.Trigger,
@@ -357,6 +628,9 @@ func (h *handler) volume(c echo.Context, note string, actErr error) error {
 			Error:      r.Error,
 			Restorable: r.Status == "done" && r.ObjectKey != "",
 		})
+		if r.Status == "queued" || r.Status == "running" {
+			b.Live = true
+		}
 	}
-	return respond.HTML(c, status, volume.Backups(v))
+	return b, nil
 }

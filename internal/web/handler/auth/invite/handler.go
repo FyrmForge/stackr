@@ -36,14 +36,32 @@ func (h *handler) Page(c echo.Context) error {
 	if err != nil {
 		return middleware.HTTPError(err)
 	}
+	org, err := h.orgName(c, inv.OrgID)
+	if err != nil {
+		return middleware.HTTPError(err)
+	}
 	v := View{
 		Base:   base(c),
 		Role:   inv.Role,
-		Email:  inv.Email,
 		Signed: middleware.Principal(c) != nil,
-		Form:   Form{Email: inv.Email},
+		Form:   Form{Email: inv.Email, Org: org},
 	}
-	return render.Page(c, http.StatusOK, "Invite", page(v))
+	return render.Page(c, http.StatusOK, "Join "+org, page(v))
+}
+
+// orgName names the invite's org for a visitor, who can not read it.
+// ponytail: one list read; an org getter when this gets hot.
+func (h *handler) orgName(c echo.Context, orgID string) (string, error) {
+	orgs, err := h.orch.AllOrgs(c.Request().Context())
+	if err != nil {
+		return "", err
+	}
+	for _, o := range orgs {
+		if o.ID == orgID {
+			return o.Name, nil
+		}
+	}
+	return "", errs.ErrNotFound
 }
 
 // POST /invite/:token: the signed-in user joins.
@@ -57,7 +75,7 @@ func (h *handler) Accept(c echo.Context) error {
 		msg, ok := render.Refused(err)
 		switch {
 		case errors.Is(err, errs.ErrNotFound):
-			msg = "This invite link is used or expired."
+			msg = "This invite link is no longer valid."
 		case !ok:
 			return middleware.HTTPError(err)
 		}
@@ -71,6 +89,15 @@ func (h *handler) Register(c echo.Context) error {
 	ctx, token := c.Request().Context(), c.Param("token")
 	f := Form{Name: c.FormValue("name"), Email: c.FormValue("email")}
 	inv, err := h.orch.LookupInvite(ctx, token)
+	if err == nil {
+		// the account is the invited email, whatever the form says
+		f.Email = inv.Email
+		f.Org, err = h.orgName(c, inv.OrgID)
+	}
+	if err == nil && c.FormValue("confirm_password") != c.FormValue("password") {
+		f.Errors = map[string]string{"confirm_password": "The two passwords do not match."}
+		return respond.HTML(c, http.StatusUnprocessableEntity, register(base(c), f))
+	}
 	var s *hamrauth.Session
 	if err == nil {
 		s, err = h.orch.RegisterInvited(ctx, token, f.Email, c.FormValue("password"), f.Name)
@@ -84,7 +111,7 @@ func (h *handler) Register(c echo.Context) error {
 		case refused:
 			f.Errors = map[string]string{"general": msg}
 		case errors.Is(err, errs.ErrNotFound):
-			f.Errors = map[string]string{"general": "This invite link is used or expired."}
+			f.Errors = map[string]string{"general": "This invite link is no longer valid."}
 		default:
 			return middleware.HTTPError(err)
 		}

@@ -17,19 +17,21 @@ type CreateLevelView struct {
 func (v CreateLevelView) id() string { return "create-" + v.Kind }
 
 templ CreateLevel(v CreateLevelView) {
-	<form id={ v.id() } hx-post={ v.Action } hx-target={ "#" + v.id() } hx-swap="outerHTML" class="space-y-4">
-		<h2 class="text-lg font-semibold">New { v.Kind }</h2>
-		@c.FormError(v.Errors["general"])
-		@c.Field(c.FieldView{Name: "name", Label: "Name", Value: v.Name, Required: true, Error: v.Errors["name"]})
-		if v.Kind == "env" {
-			<fieldset class="space-y-2 text-sm">
-				<legend class="label">Releases come from</legend>
-				<label class="flex items-center gap-2"><input type="radio" name="from" value="branch" checked?={ v.From != "promote" }/> a branch</label>
-				<label class="flex items-center gap-2"><input type="radio" name="from" value="promote" checked?={ v.From == "promote" }/> promotion from the rung below</label>
-			</fieldset>
-			@c.Field(c.FieldView{Name: "branch", Label: "Branch", Value: v.Branch, Placeholder: "main", Error: v.Errors["branch"]})
-		}
-		@c.Submit("Create")
+	<form id={ v.id() } hx-post={ v.Action } hx-target={ "#" + v.id() } hx-swap="outerHTML">
+		@c.DrawerHead("New "+v.Kind, "")
+		<div class="p-6 space-y-4">
+			@c.FormError(v.Errors["general"])
+			@c.Field(c.FieldView{Name: "name", Label: "Name", Value: v.Name, Required: true, Error: v.Errors["name"]})
+			if v.Kind == "env" {
+				<fieldset class="space-y-2 text-sm">
+					<legend class="label">Releases come from</legend>
+					<label class="flex items-center gap-2"><input type="radio" name="from" value="branch" checked?={ v.From != "promote" }/> a branch</label>
+					<label class="flex items-center gap-2"><input type="radio" name="from" value="promote" checked?={ v.From == "promote" }/> promotion from the rung below</label>
+				</fieldset>
+				@c.Field(c.FieldView{Name: "branch", Label: "Branch", Value: v.Branch, Placeholder: "main", Error: v.Errors["branch"]})
+			}
+			@c.Submit("Create")
+		</div>
 	</form>
 }
 
@@ -44,21 +46,23 @@ type InstallConnectorView struct {
 }
 
 templ InstallConnector(v InstallConnectorView) {
-	<div id="install-connector" class="space-y-4">
-		<h2 class="text-lg font-semibold">Install a GitHub connector</h2>
-		@c.FormError(v.Error)
-		if v.Action == "" {
-			<form hx-post={ v.Begin } hx-target="#install-connector" hx-swap="outerHTML" class="space-y-4">
-				@c.Field(c.FieldView{Name: "github_org", Label: "GitHub org", Placeholder: "acme", Help: "Empty = your personal account."})
-				@c.Submit("Continue")
-			</form>
-		} else {
-			// templint:ignore no-native-form-actions -- GitHub's manifest flow requires a browser form POST
-			<form method="post" action={ templ.SafeURL(v.Action) } class="space-y-4">
-				<input type="hidden" name="manifest" value={ v.Manifest }/>
-				<p class="text-sm text-slate-500">GitHub creates the app, then sends you back here.</p>
-				@c.Submit("Continue on GitHub")
-			</form>
-		}
+	<div id="install-connector">
+		@c.DrawerHead("Install a GitHub connector", "")
+		<div class="p-6 space-y-4">
+			@c.FormError(v.Error)
+			if v.Action == "" {
+				<form hx-post={ v.Begin } hx-target="#install-connector" hx-swap="outerHTML" class="space-y-4">
+					@c.Field(c.FieldView{Name: "github_org", Label: "GitHub org", Placeholder: "acme", Help: "Empty = your personal account."})
+					@c.Submit("Continue")
+				</form>
+			} else {
+				// templint:ignore no-native-form-actions -- GitHub's manifest flow requires a browser form POST
+				<form method="post" action={ templ.SafeURL(v.Action) } class="space-y-4">
+					<input type="hidden" name="manifest" value={ v.Manifest }/>
+					<p class="text-sm text-rw-muted">GitHub creates the app, then sends you back here.</p>
+					@c.Submit("Continue on GitHub")
+				</form>
+			}
+		</div>
 	</div>
 }

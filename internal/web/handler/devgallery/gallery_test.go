@@ -30,7 +30,6 @@ func TestGalleryRendersEveryComponent(t *testing.T) {
 	for component, marker := range map[string]string{
 		"layout":        `id="shell-header"`,
 		"flash":         "<flash-toast",
-		"theme toggle":  "<theme-toggle",
 		"form field":    `id="error-email"`,
 		"form error":    "Please fix the errors below.",
 		"disabled why":  "Owned by stackr-compose.yml",
@@ -50,7 +49,7 @@ func TestGalleryRendersEveryComponent(t *testing.T) {
 		"plan":          "staging does not run release 12 yet",
 		"param editor":  `name="param.app.mode"`,
 		"secret masked": `placeholder="unchanged"`,
-		"settings form": "inherit (30)",
+		"settings form": "inherits 30 from the server",
 		"graph canvas":  "<graph-canvas",
 		"graph node":    `<graph-node node-id="tile:api"`,
 		"edge":          `data-from="tile:api" data-to="tile:db"`,

@@ -197,6 +197,10 @@ func TestPostgresProvisionAndDrop(t *testing.T) {
 	if s := again.String(); !strings.Contains(s, `ALTER ROLE "api"`) || strings.Contains(s, "CREATE") {
 		t.Errorf("re-provision: %s", s)
 	}
+	// The fake answers the bare row; real psql only does that quiet (-q).
+	if s := again.String(); !strings.Contains(s, "psql -q ") {
+		t.Errorf("re-provision psql is not quiet: %s", s)
+	}
 
 	// on_remove drop: the engine drops it and the row goes.
 	must(t, w.f.Detach(ctx, p, false))

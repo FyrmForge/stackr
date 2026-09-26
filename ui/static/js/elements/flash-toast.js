@@ -1,4 +1,5 @@
-const DISMISS_MS = 5000;
+const DISMISS_MS = 4000;
+const FADE_MS = 500;
 class FlashToast extends HTMLElement {
     timer = 0;
     onClick = () => this.dismiss();
@@ -22,6 +23,7 @@ class FlashToast extends HTMLElement {
         document.removeEventListener("htmx:sendError", this.onSendError);
     }
     show(kind, message) {
+        this.removeAttribute("leaving");
         this.setAttribute("kind", kind);
         this.textContent = message;
         this.arm();
@@ -34,7 +36,11 @@ class FlashToast extends HTMLElement {
     }
     dismiss() {
         window.clearTimeout(this.timer);
-        this.textContent = "";
+        this.setAttribute("leaving", "");
+        this.timer = window.setTimeout(() => {
+            this.textContent = "";
+            this.removeAttribute("leaving");
+        }, FADE_MS);
     }
 }
 customElements.define("flash-toast", FlashToast);

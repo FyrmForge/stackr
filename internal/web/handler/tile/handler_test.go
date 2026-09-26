@@ -21,6 +21,7 @@ func TestEveryTabServes(t *testing.T) {
 		"settings",
 		"jobs",
 		"image",
+		"runs",
 		"backups",
 		"nonsense",
 	} {
@@ -45,19 +46,32 @@ func TestActions(t *testing.T) {
 	if rec.Code != 422 || !strings.Contains(rec.Body.String(), "only cron tiles") {
 		t.Errorf("pause an image tile = %d\n%s", rec.Code, rec.Body)
 	}
-	rec = s.Do(t, "POST", drawer+"/env", url.Values{"env_json": {`{"GREETING":"hi"}`}})
-	if rec.Code != 200 || !strings.Contains(rec.Body.String(), "GREETING") ||
+	rec = s.Do(t, "POST", drawer+"/env", url.Values{"env": {"GREETING=hi\nNAME=bob"}})
+	if rec.Code != 200 || !strings.Contains(rec.Body.String(), `aria-label="Delete GREETING"`) ||
 		!strings.Contains(rec.Body.String(), "saved") {
 		t.Errorf("env = %d\n%s", rec.Code, rec.Body)
 	}
+	rec = s.Do(t, "POST", drawer+"/env", url.Values{"drop": {"GREETING"}})
+	if rec.Code != 200 || strings.Contains(rec.Body.String(), "Delete GREETING") ||
+		!strings.Contains(rec.Body.String(), "Delete NAME") {
+		t.Errorf("drop = %d\n%s", rec.Code, rec.Body)
+	}
+	rec = s.Do(t, "POST", drawer+"/env", url.Values{"env": {"NAME=bob\noops"}})
+	if rec.Code != 422 || !strings.Contains(rec.Body.String(), "line 2: want KEY=VALUE") {
+		t.Errorf("bad env = %d\n%s", rec.Code, rec.Body)
+	}
 	rec = s.Do(t, "POST", drawer+"/settings", url.Values{"cpu_limit": {"lots"}, "mem_limit_mb": {"256"}})
 	if rec.Code != 422 || !strings.Contains(rec.Body.String(), "must be a number") ||
-		!strings.Contains(rec.Body.String(), `value="256"`) {
+		!strings.Contains(rec.Body.String(), `value="256"`) || !strings.Contains(rec.Body.String(), `value="lots"`) {
 		t.Errorf("bad settings = %d\n%s", rec.Code, rec.Body)
 	}
 	rec = s.Do(t, "POST", drawer+"/settings", url.Values{"cpu_limit": {"0.5"}, "mem_limit_mb": {""}})
 	if rec.Code != 200 || !strings.Contains(rec.Body.String(), `value="0.5"`) {
 		t.Errorf("settings = %d\n%s", rec.Code, rec.Body)
+	}
+	rec = s.Do(t, "POST", drawer+"/settings", url.Values{"restart_policy": {"sometimes"}})
+	if rec.Code != 422 || !strings.Contains(rec.Body.String(), `id="error-restart_policy" data-has-error="true"`) {
+		t.Errorf("refused restart policy = %d\n%s", rec.Code, rec.Body)
 	}
 }
 

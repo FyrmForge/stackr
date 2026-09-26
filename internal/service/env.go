@@ -17,6 +17,12 @@ func (o *Orchestrator) Ladder(ctx context.Context, stackID string) ([]Environmen
 	return o.envs.Ladder(ctx, stackID)
 }
 
+// EnvHues is the hue each env of a list (Envs' order) is drawn in, by id:
+// its stored colour, else v0's default for its slug or place.
+func EnvHues(envs []Environment) map[string]string {
+	return environment.Hues(envs)
+}
+
 func (o *Orchestrator) CreateEnv(ctx context.Context, stackID, name string, s EnvSpec) (Environment, error) {
 	return o.envs.Create(ctx, stackID, name, s)
 }

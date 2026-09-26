@@ -12,6 +12,7 @@ type placed struct {
 func drawer(id, tab string) string { return "/dev/components/drawer?node=" + id + "&tab=" + tab }
 
 func sample(id, kind, name, detail, tab string, f cards.FooterView) cards.CardView {
+	f.Kind = kind
 	return cards.CardView{
 		ID:     id,
 		Kind:   kind,
@@ -32,7 +33,8 @@ func envCards() []placed {
 		Domain: "api.acme.dev",
 		More:   2,
 	})
-	api.Host, api.NewVersion, api.Volumes = true, true, "uploads +1"
+	api.Host = true
+	api.NewVersion = true
 	api.Subs = []cards.SubView{
 		{
 			ID:     "v-uploads",
@@ -49,7 +51,7 @@ func envCards() []placed {
 			Tab:    "status",
 		},
 	}
-	db := sample("p-shopdb", "slice", "shop", "database shop on pg", "bindings", cards.FooterView{Note: "3 bindings"})
+	db := sample("p-shopdb", "slice", "shop", "database shop on pg", "bindings", cards.FooterView{Status: "running"})
 	db.Subs = []cards.SubView{{
 		ID:     "t-pg",
 		Kind:   "instance",
@@ -67,7 +69,7 @@ func envCards() []placed {
 	}}
 	return []placed{
 		{
-			sample("proxy", "proxy", "proxy", "caddy", "routes", cards.FooterView{Note: "4 routes"}),
+			sample("proxy", "proxy", "proxy", "caddy", "routes", cards.FooterView{Status: "running"}),
 			"20",
 			"40",
 			"180",
@@ -90,7 +92,7 @@ func envCards() []placed {
 		{
 			sample("t-nightly", "cron", "nightly", "0 3 * * *", "runs", cards.FooterView{
 				LastRun: "ok · Jul 24 03:00",
-				NextRun: "Jul 25 03:00",
+				NextRun: "next Jul 25 03:00",
 			}),
 			"580",
 			"20",
@@ -100,6 +102,7 @@ func envCards() []placed {
 		{
 			sample("t-migrate", "function", "migrate", "on deploy", "runs", cards.FooterView{
 				LastRun: "running · since 13:02",
+				Trigger: "on deploy",
 			}),
 			"580",
 			"180",
@@ -107,7 +110,7 @@ func envCards() []placed {
 			"110",
 		},
 		{
-			sample("t-report", "function", "report", "manual", "runs", cards.FooterView{LastRun: "never run"}),
+			sample("t-report", "function", "report", "manual", "runs", cards.FooterView{LastRun: "never run", Trigger: "manual"}),
 			"580",
 			"340",
 			"220",
@@ -128,9 +131,7 @@ func envCards() []placed {
 			"122",
 		},
 		{
-			sample("t-shared", "ref", "shared-pg", "org · postgres 16", "", cards.FooterView{
-				Note: "managed tile, open home",
-			}),
+			sample("t-shared", "ref", "shared-pg", "org · postgres 16", "", cards.FooterView{}),
 			"860",
 			"220",
 			"220",
@@ -144,17 +145,14 @@ func envCards() []placed {
 			"62",
 		},
 		{
-			sample("vars", "vars", "vars", "env", "params", cards.FooterView{Count: 6}),
+			sample("vars", "vars", "vars", "env", "params", cards.FooterView{}),
 			"860",
 			"20",
 			"160",
 			"72",
 		},
 		{
-			sample("secrets", "secrets", "secrets", "env", "secrets", cards.FooterView{
-				Count:   2,
-				Waiting: "db.password",
-			}),
+			sample("secrets", "secrets", "secrets", "env", "secrets", cards.FooterView{}),
 			"860",
 			"110",
 			"160",

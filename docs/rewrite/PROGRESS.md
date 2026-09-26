@@ -29,6 +29,8 @@ at the bottom of this file.
 - [x] step-4.md API + CLI
 - [x] step-5.md installer + self-upgrade
 - [x] step-6.md UI, whitelist: `log-pane`, `confirm-dialog`, `flash-toast`, `theme-toggle`. Dropped old JS: canvas/graph, metrics, xterm terminal, YAML code editor (see step-6.md "Not in v1")
+- [ ] step-7a.md domains backend: v0's domain resources at instance, org and stack level, `AutoHost`, `auto:`/`apex:` on tile domains, the squat check, root domain from the installer, org drawer Domains section, API + CLI; darthvader 2026-09-25 (DECIDE 190), built before step 7, not started
+- [ ] step-7.md org config file: `stackr-org.yml` bound to the org, plans as rows an owner approves or an Auto switch applies, apply = one job through the orchestrator's verbs, never deletes a stack; plus v0's new-org wizard one to one; planned 2026-09-25 (DECIDE 180 to 192), not started
 
 Step 0 list (agreed with darhvader):
 1. Rename binaries to `stackrd`, `stackr`, `stackr-install`: three `cmd/` dirs, Makefile, watch rule.
@@ -329,6 +331,538 @@ session started by darhvader from the START HERE line, no Fable.
     - Traffic lane: a `client` tile wgetting `whoami` every minute drew no lane. The sampler only counted deltas on tuples it had seen, and a one-shot request first shows up already closed. After the first (seed) tick a new tuple now counts in full (step 3c's "first sight counts 0" is gone). Checked on v0.0.12: lanes client→whoami 81 B/s and back 105 B/s.
     - Gates: `make build`, `make lint`, `make test`, `make templint` clean. Elements: canvas 299/300, node 144/150, drawer 77, log-pane 85, confirm-dialog 57, flash-toast 53, theme-toggle 42.
     - No push or PR (builder told not to). DECIDE 120–140.
+
+## Step 6e: UI clone of v0 (branch `rewrite-step-6e`, stacked on 6d, 2026-09-24)
+
+darthvader: the rewrite's web UI must be v0's, exactly (theme, layout, dot
+grid, cards, lines, drawers). Where v0's look and a step-6 / ui-plan rule
+clash, v0 wins and the clash is a DECIDE item. Source of truth: v0 on
+`master` (worktree `../stackr-old`); the capture and gap reports live in the
+session scratchpad `v0-ui/` (`REPORT.md`, `styles.md`, `gap-*.md`, `shots/`).
+
+Phases, one Opus agent each; gates, a VM release and a shot-by-shot
+comparison against `shots/` after each:
+
+1. [x] Theme + shell (`gap-theme-shell.md` P1–P12, P15): rw tokens and
+   tailwind config, v0 component classes, the 56px left icon rail (bottom
+   bar on phones), canvas top bar with crumbs and the 3px env band,
+   full-bleed `#main`, drawer / flash / confirm / auth / error / badge
+   chrome, v0's six env hues.
+2. [x] Canvas (`gap-canvas.md`): 22px dot grid that follows pan and zoom,
+   cards per kind, edges per kind, controls column, legend, settings
+   drawer, layout constants.
+3. [x] Drawers + pages (`gap-drawers-pages.md`): panel header and underline
+   tabs, forms, lists, each tab's content.
+4. [x] Sweep + theme: every stock-Tailwind / `dark:` utility replaced by rw
+   tokens (P13); theme per user as v0 does it (P14 option b: `users.theme`,
+   Appearance on the account page, `<html>` class server-written;
+   supersedes DECIDE 73).
+
+Calls made under "assume the best" (darthvader, 2026-09-24): confirm
+dialogs take v0's typed-Modal look only; the status badge is cloned as v0
+rendered it (no tint); the drawer's close X sits in the header; `#main`
+scrolls inside a fixed-height column; env palette is v0's six hues
+(supersedes DECIDE 72); the header theme toggle stays until phase 4.
+
+Phase 1 done (2026-09-25, uncommitted in the `rewrite-step-6e` tree; VM runs
+v0.0.16, shots in scratchpad `v0-ui/after-phase1/`, dark and light):
+- Landed: v0 tokens, tailwind config and component classes
+  (`ui/css/input.css`, `ui/tailwind.config.js`); the rail with logo, Orgs,
+  admin gear, theme toggle, Account and logout (`layout.templ`); the top bar
+  with crumbs, `←`, org initials head, `stack` tag, 3px env band and
+  actions (`Shell.Actions`, `render.PageWith`); full-bleed `#main` in an
+  `h-dvh` column; `DrawerHead` with the X; underline tabs; v0 flash,
+  confirm, auth card, error page and badge; six env hues as `.env-c-*`.
+- Matches v0 in the shots: login (button at the same pixel), rail, top bar,
+  env band colour, drawer width, slide, backdrop and header, both themes;
+  at 390px the rail is a 56px bottom bar with no sideways scroll.
+- Still differs, later phases: canvas grid, cards, toolbar, controls and
+  legend (phase 2); drawer bodies and page internals such as the account
+  page (phase 3); bare `.btn` has no border, static `.card`s glow on
+  hover, the signed-in auth pages keep slate text (P13, phase 4).
+- Still differs, needs a call: the root canvas has no top bar (DECIDE 142);
+  the theme toggle sits in the rail (143); the top bar has no env picker,
+  Logs or Settings link (144); an env with no colour gets no band, v0's
+  `envcolor` resolver is not ported (145); password eye (141); login
+  shows a Register link v0's did not (page content). The rail leaves out
+  v0's org switcher, search, containers, servers and notifications (no
+  rewrite feature).
+- Gates: `make build`, `make lint` (0 issues), `make test`, `make
+  templint` all clean. Element lines (budget): confirm-dialog 57,
+  flash-toast 60, graph-canvas 299 (400), graph-node 144, log-pane 85,
+  side-drawer 77, theme-toggle 54 (rest 150).
+
+141. **(step 6e) v0 behaviour that needs JS outside the seven elements is
+   not ported:** password show/hide, the settings "unsaved changes" hint,
+   the search palette and its `/` key, the drill view-transition, copy
+   buttons, the combobox and repo picker. Options: (a) keep them out;
+   (b) whitelist a tag each. Lean (b) for search and the password eye.
+
+Phase 2 done (2026-09-25, uncommitted in the `rewrite-step-6e` tree; VM ran
+v0.0.23 at the last shots (a later phase 3a deploy from `stackr-step-6f`
+will not carry these changes); shots in scratchpad `v0-ui/after-phase2/`,
+`*-r4` are the last, dark and light, plus a card and an edge crop; lanes
+with rates are in `p2-env-dark-r2.png`):
+- Landed: v0's cluster layout (`flow/graph/arrange.go`, pinned by
+  `arrange_test.go`) on org, stack and env, home's column sweep; the looks
+  hover-focus, nooverlap, badges, boundary and legend on `<graph-canvas>`;
+  edge strokes as presentation attributes (`graph.EdgeAttrs`), lanes copy
+  the base edge's path and colour; the divider is `<g data-divider>`; the
+  View panel, legend, env-compare pill and empty state are templ;
+  decisions 142 (b) root "Organizations" bar, 143 (a) toggle in the rail,
+  144 (b) env crumb picker + Settings, 145 (c) v0 envcolor defaults
+  (`environment.Hues`). Card faces: status never truncates, no volume
+  chip. Drill cards read as v0: "N stacks · N members", "N environments",
+  "N tiles"; the proxy card (Online, as v0) and its ingress edges stand
+  on the org and stack canvas too, with "N domains" on a stack card and
+  the first host on an env card (plain text: the card is a link); the
+  env canvas draws the compare pill as well. Gallery samples follow.
+- Matches v0 in the shots: dot grid, card faces, deck layers, env hues,
+  divider and SERVER label, controls column, legend, compare pill, proxy
+  and ingress on all three drill levels, both themes.
+- Still differs: one Variables card, drawn even when empty (146); no
+  brand logos, the proxy reads "Proxy / Caddy" (148); the compare pill
+  has no commits and tiles panel (150); an Internet card v0 never had
+  (151); top bar keeps "+ Create environment" and "+ Create connector"
+  (160); replica sub-tiles have no node or age and no "+N more" (154);
+  replica subs do not count toward card height (graph-ref section 6);
+  with the proxy on the org canvas a connector now sits under its stack,
+  not left of it (same engine as v0, not checked against v0: the smoke
+  org has no connector); Caddy-to-tile traffic drew no lane while the
+  shots drove requests through it (traffic engine, step 3c).
+- Gates: `make build`, `make lint` (0 issues), `make test`, `make
+  templint` all clean. Element lines (budget): graph-canvas 337 (400),
+  graph-node 147 (150).
+
+146. **(step 6e) Variables card.** v0 draws "X variables" and "X secrets"
+   as two cards, each only when it has entries; the rewrite draws one
+   "Variables" card always. Options: (a) keep one, always (the canvas way
+   in to add the first var); (b) v0's two, hidden when empty (vars reached
+   from Settings). Lean (b), v0 wins.
+147. **(step 6e) The View panel closes on a graph swap.** Its `<details>`
+   sits inside the canvas the `graph` event replaces. Options: (a) keep;
+   (b) move the panel outside the swap. Lean (b).
+148. **(step 6e) No brand logos.** v0 drew Traefik and engine logos; the
+   rewrite uses stroke glyphs and names the proxy "Proxy / Caddy".
+   Options: (a) keep; (b) add brand SVGs. Lean (a).
+149. **(step 6e) Flow layout and the arrange preference are not ported;**
+   clusters only. Options: (a) keep; (b) port flow. Lean (a).
+150. **(step 6e) Compare pill links only.** v0's pill opens a panel with
+   commits and a tile diff. Options: (a) keep; (b) port (needs a compare
+   verb). Lean (a) for v1.
+151. **(step 6e) Internet card.** v0 had none; ours shows when a tile
+   sent outbound traffic in the last sample ("outbound" in the legend).
+   Options: (a) keep; (b) drop. Lean (a).
+152. **(step 6e) The divider does not follow a drag.** It moves on the next
+   graph render. Options: (a) keep; (b) the element recomputes it. Lean (a).
+153. **(step 6e) A new note lands at 0,0,** not in view. Options: (a) keep;
+   (b) the element sends the view centre. Lean (b).
+154. **(step 6e) Replica sub-tiles are thin:** no node, no age, no "+N
+   more". Options: (a) keep; (b) add. Lean (a).
+155. **(step 6e) A newcomer system card can land right of the divider** on
+   a hand-placed canvas (v0 places newcomers beside saved neighbours;
+   Re-arrange fixes it). Options: (a) keep, as v0; (b) system cards always
+   go to the system column. Lean (b).
+156. **(step 6e) A cron on a shared hub can land at x -198,** behind the
+   divider (v0 quirk, kept, untested). Options: (a) keep; (b) clamp right
+   of the wall. Lean (b).
+157. **(step 6e) First drop can save a layout that was not drawn.**
+   `SetPosition` always reads traffic, `Canvas` with traffic off does
+   not; the internet card comes and goes with the sample and can shift
+   the proxy. Options: (a) keep; (b) `SetPosition` builds with the
+   caller's show params (`internal/service/graph.go`). Lean (b).
+158. **(step 6e) The proxy card is always Online,** as v0 hard-coded it
+   (the page came through it). Options: (a) keep; (b) probe Caddy's
+   admin API. Lean (a).
+159. **(step 6e) CLI positional bug.** `cmd/stackr/stack.go` `at()` reads
+   `args[0]` as the tile for every tile-level verb, so `tile domain add
+   <host>`, `set`, `caddy`, `rm` and `slice attach <tile>` 404. Options:
+   (a) fix: only when the Use's first arg is `[tile]`/`<tile>`; (b) leave.
+   Lean (a), not canvas work so not done here. **Fixed in phase 4 (a),
+   `TestTileArgOnlyWhereUseNamesIt`; checked on the VM.**
+160. **(step 6e) Create buttons v0 did not have:** "+ Create environment"
+   on the stack bar and "+ Create connector" on the org bar. Options:
+   (a) keep; (b) drop, create from Settings. Lean (a).
+
+Phase 3a done (2026-09-25, uncommitted in the `rewrite-step-6f` tree; VM
+runs v0.0.20, shots in scratchpad `v0-ui/after-phase3a/`, dark and light):
+the tile, vars, managed-instance, slice and volume drawers.
+- Landed: tile tabs take v0's names and order (service and image:
+  Overview, Deployments, Logs, Variables, Settings, Backups; cron and
+  function: Runs, Logs, Deployments, Variables, Settings, Backups); Domains
+  and Image sit in Settings; v0's panel header (icon, status, scope chip,
+  location, actions, X); v0's VarsEdit rows; the instance drawer (Overview
+  with admin user and provisioned slices, Logs, Backups, Settings with
+  sharing scope and delete); the slice drawer (Overview with bindings and
+  Detach, Logs only when its instance has a container); the volume drawer
+  (Overview stat cards, Backups with Back up now, History and Restore,
+  Settings with delete); shared `Facts`/`Fact`, `Chip`, `PanelSection`,
+  `DangerZone` and quiet confirms.
+- New web routes on existing verbs (`tile.write`): instance deploy, stop,
+  delete and scope.
+- Fixed on the way: log lines kept docker's `O `/`E ` mark and lost their
+  time (the prefix in DECIDE 138); backup History polls every 2 s for
+  about 10 s after Back up now and while a run is live, because the run
+  row only appears when the job starts.
+- Checked on the VM: every tab above in both themes; scope save updates
+  the chip; tab links push `?drawer=&tab=`; slice and instance link to
+  each other; Back up now adds its History row in about 2 s with no
+  reload, then the polling stops; param add, plain and secret (the secret
+  value never reaches the DOM), and param Delete through its confirm;
+  instance Stop and Deploy from the header; cron Run now adds a runs row;
+  log panes show the time in its own span and no `O `/`E ` mark.
+- Still differs, needs a call: DECIDE 161 to 149.
+- For phase 2 (its paths, not touched): the canvas volume sub-link pushes
+  `?drawer=volume:uploads` (a slug, not a volume id); the volume card title is the docker name, not the slug; the vars drawer
+  header still reads "Vars" with no icon (`canvas/drawer.go`).
+- Gates: `make build`, `make lint` (0 issues), `make test`, `make
+  templint` all clean. Element lines (budget): confirm-dialog 57,
+  flash-toast 60, graph-canvas 299 (400), graph-node 144, log-pane 109
+  (was 85), side-drawer 77, theme-toggle 54 (rest 150).
+
+161. **(step 6e) v0 drawer parts no service verb backs, left out:**
+   per-tile rollback (`Rollback` is env-wide, by release) and a deployment
+   row's Logs; HTTPS toggle on an attached domain, custom certificate,
+   auto domain; tile-level secrets; the HTTP and Metrics tabs; the
+   instance's connection block (URL, host, port, user, password, with Copy:
+   the stored endpoint is empty for an internal instance and the service
+   does not expose the engine's host and port), its Database tab (the
+   engine's database list), notify and domains; slice Public/Private toggle, Drop
+   and Fork; volume size on disk, host path and the Tree tab; the volume
+   settings form (attached tile, mount path, expected size). Options: (a)
+   keep out of v1; (b) add verbs in step 7, one by one. Lean (a).
+162. **(step 6e) Verbs that exist but no drawer wires yet:** backup
+   schedule add, update and delete (`service/backup.go`; the Backups tab
+   shows schedules read-only, gap steps 30 to 37 were not in 3a); the
+   instance's INSTANCE section (external port, limits, shm, image, update
+   policy) through the generic `UpdateTile`, not checked that a managed
+   deploy honours those fields; volume declare is API-only (v0 made
+   volumes in the UI), so a tile mounting an undeclared volume fails its
+   first deploy; the instance's shared network is not shown. Options: (a)
+   wire in step 7; (b) keep. Lean (a).
+163. **(step 6e) Back up now and Restore on the instance's Backups tab
+   answer the volume drawer:** the embedded forms post to the volume
+   routes, so the body turns into the volume while the URL still names the
+   instance. Options: (a) instance routes that call the same verbs and
+   answer the instance; (b) keep. Lean (a).
+164. **(step 6e) Small looks that differ from v0:** the volume drawer opens
+   on Backups from the canvas (the canvas key's tab); header actions
+   answer their home tab, not the one you were on; a param edits through a
+   `<details>` row, Generate and Copy ref are left out (copy is JS, DECIDE
+   141); a select whose stored value matches no option shows the default;
+   a cron's header status reads "none", even after a run (v0 "idle");
+   backup sizes read "0 KB" (v0 "0 B"); deletes use the typed dialog, not v0's inline typed
+   input; tile protect and basic auth are set through the settings cascade
+   only; the log pane has no JSON expand and no saved prefs. Options: (a)
+   fix in the phase 4 sweep; (b) keep. Lean (a) for the cron word and the
+   sizes, (b) for the rest.
+
+Phase 3b done (2026-09-25, uncommitted in the `rewrite-step-6e` tree; VM
+runs v0.0.26, shots in scratchpad `v0-ui/after-phase3b/`, dark and light;
+tab shots from v0.0.24, hues, users, role default, settings order and the
+promote ask re-checked on v0.0.25/26):
+the org, stack, env and admin drawers, the account page and the auth pages
+(gap steps 23 to 29 and 33; 30 to 32 and 34 to 37 skipped, see DECIDE
+161 and 162).
+- Landed: v0's settings cards (`Section`, `DangerSection`, scope chips)
+  in every drawer's settings tab; the settings cascade at org (read-only),
+  stack and env as one flat card each, the inherited line over the help;
+  the org drawer (Organization, Defaults, Danger zone; Add people with the
+  segmented role picker, People rows; keys; Backups as v0's Add a
+  destination + Destinations); stack settings (Stack, Resource defaults,
+  Config as code, Danger zone); the releases tab on stack and env (the
+  ladder with each env's number, rows newest first with who and when, the
+  env chips in v0's hues, Promote / Roll back per env, the two-step modal
+  with the carried releases and the plan); env settings (Environment,
+  Resource overrides, Releases, Colour swatches, Danger zone with "N
+  tiles"); admin Users rows, Update text, Caddy, Backups (destinations +
+  Stackr's own database); the account page (Profile and API keys nav,
+  avatar initials, confirm password); auth copy (v0 titles and
+  subtitles, first-user register, confirm password on register and
+  invite, invite names the org and locks the email, the gone state).
+- New web routes on existing verbs: stack `/unbind` and `/settings`
+  (`stack.write`), stack `/promote/:env/:release` and env `/settings`
+  (`env.write`), admin `/dests`, `/dests/:dest/share`,
+  `/dests/:dest/delete` (`serverdefaults.set`, as the API's
+  `/admin/backup-dests`).
+- Fixed on the way: an admin row no longer offers Disable (v0; closes
+  that part of DECIDE 138); the ladder, the rows and the order tab drew an
+  env with no stored colour uncoloured, they now take its resolved hue
+  (`service.EnvHues`); the invite role picker defaulted to "member", which
+  the org leaf refuses, it now defaults to owner (DECIDE 171); the
+  invite page names the org, closing DECIDE 125 (`AllOrgs`, ponytail:
+  the whole list per render).
+- Checked on the VM: every tab above in both themes; the Promote ask
+  opens as a modal ("Promote #5 to prod?", carried #2 to #5, the plan);
+  prod reads rose, dev violet; an invite made with the default role shows
+  its link, the visitor page reads "Join Smoke" with the email read-only;
+  a bogus token reads "no longer valid"; login, register and CLI
+  authorize copy; the volume card opens its drawer by volume id and the
+  deep link survives a reload (the 3a note about `volume:uploads` is
+  stale).
+- Left out, no verb: user Enable; invite revoke, resend, copy and expiry
+  days; profile edit and avatar upload; an org settings setter, org logo
+  and org env colours; config plans (Plan now, Save & plan, Review); a
+  custom hex env colour; the panel backup schedule; stack move; env reset;
+  a release's commit sha and message; key minting on the account page
+  (DECIDE 123); Notifications and Appearance (Appearance is phase 4).
+- Still differs, needs a call: DECIDE 165 to 172. Also seen, not a call:
+  the Update tab checks on click (v0 on load; a check reaches GitHub, so
+  a tab open never runs one);
+  password fields have no eye toggle (JS, DECIDE 141); no "Cron timeout"
+  knob in the cascade (not in the catalogue); on the dev canvas the
+  whoami card covers the volume card (layout, not touched here).
+- Gates: `make build`, `make lint` (0 issues), `make test`, `make
+  templint` all clean. Element lines: confirm-dialog 62 (was 57, `open`
+  shows the server's question).
+
+165. **(step 6e) Settings blobs are only checked by the web form.**
+   `canvas/cascade.go` parses each rung; `SetStackSettings` and
+   `SetEnvSettings` store what they are given. Options: (a) move the
+   parse into the service; (b) keep. Lean (a).
+166. **(step 6e) Org defaults are read-only.** No org settings setter, so
+   the org drawer shows the cascade with "can not be changed here yet".
+   Options: (a) add `SetOrgSettings`; (b) keep. Lean (a), step 7.
+167. **(step 6e) Release rows read "Release N"**, not v0's commit sha and
+   message: releases carry neither. Options: (a) keep; (b) store them at
+   derive. Lean (b) once git tiles land.
+168. **(step 6e) The stack drawer promotes through its own route**
+   (`/promote/:env/:release`), the env drawer through its own. Options:
+   (a) keep; (b) one route. Lean (a).
+169. **(step 6e) The bottom rung gets Promote / Roll back.** v0 gave it
+   none, which left a one-env stack no way to roll back. Options: (a)
+   keep; (b) v0's rule. Lean (a).
+170. **(step 6e) Login keeps a Register link**; v0's had none.
+   Registration is open in the rewrite (DECIDE 121). Options: (a) keep;
+   (b) drop it. Lean (a).
+171. **(step 6e) The role picker offers member and viewer, the org leaf
+   writes only owner** (`validRole`), so those two answer "unknown role";
+   the per-member role `<select>` in People fails the same way.
+   Options: (a) open `validRole` to member and viewer (authz already
+   ranks them); (b) show owner only. Lean (a), v0 had three.
+172. **(step 6e) The invite link shows once, as a path.** v0 toasted the
+   full URL and kept a Copy invite on the row; the token is not kept.
+   Options: (a) keep; (b) print the full URL. Lean (b).
+
+Phase 4 done (2026-09-25, uncommitted in the `rewrite-step-6e` tree; VM
+runs v0.0.29 (adds only the psql fix); shots and UI checks on v0.0.28 in
+scratchpad `v0-ui/after-phase4/`, dark and light at 1440x900, plus
+`*-system-os{light,dark}` for the system theme): the P13
+sweep, P14 theme per user, DECIDE 159 and the DECIDE 138 leftovers.
+- Landed: the sweep (stock-Tailwind and `dark:` utilities gone from
+  pagination, empty state, card, about, the create-level dialog and the
+  gallery); the connector drawer (Settings as a `Section` plus Danger
+  zone, the connector kind icon, "github app") and the proxy drawer (a
+  Routes section, rows with chips) in v0's look. Theme per user (P14
+  option b): `SetTheme` (dark, light or system; the one new verb), `POST
+  /account/appearance`, an Appearance tab on the account page (three
+  radios, "Theme saved."), the `<html>` class written by `render.Shell`
+  from `users.theme` (none for system, so the OS decides), and the
+  `render.Theme` middleware puts it on the context so error pages match.
+  The rail's theme toggle and `theme_toggle.templ` are gone. CLI: `at()`
+  takes the tile from `args[0]` only when the verb's Use names `<tile>`
+  first (`cmd/stackr/stack.go`). `<log-pane>` closes every
+  `[sse-connect]` stream on `pagehide` (not for a back/forward keep), so
+  leaving a streaming page no longer logs an `Event` error.
+- Fixed on the way (found by the CLI proof): re-provisioning a postgres
+  slice always failed with "role already exists". psql printed the SET's
+  tag ahead of the existence row, the check misread it and CREATEd the
+  live role, so every deploy of a tile holding a slice failed. Fix:
+  `psql -q` (`flow/managed/postgres.go`), asserted in `managed_test.go`.
+- Checked on the VM: dark gives `class="dark"`, light `class="light"`,
+  system no class and follows the OS (`30-env-canvas-system-os*`,
+  `70d-account-appearance-system-os*`); a 404 takes the user's theme,
+  signed-out pages carry none; admin is left on system. CLI with a minted
+  key: `tile domain add` / `rm` work and `tile slice attach` answers 202
+  (both 404 before); on v0.0.29 the whoami redeploy logs "slice p4proof
+  on db is in place" and detach drops the role; the key is revoked. No
+  `Event` console error when leaving a streaming page.
+- Still differs, needs a call: DECIDE 173 to 178 (179 is from the CLI
+  proof, not the UI). Filed earlier: password
+  eye (141, `01-login`), Register link (170, `01-login`). No feature: the
+  rail's org switcher, search and notifications (`62-root-canvas`);
+  Notifications on the account page (`70a-account-profile`); v0's scope
+  checkboxes on CLI authorize (keys carry a role, `77-cli-authorize`).
+- Resolved: DECIDE 73 (P14 option b), 143 (the toggle is gone), 159 and
+  138 (marked where they sit).
+- Slip: an early `git rm --cached` on the theme_toggle files staged their
+  deletion; undone at once with `git restore --staged`. No other git
+  writes.
+- Gates: `make build`, `make lint` (0 issues), `make test`, `make
+  templint` all clean, before v0.0.28 and again before v0.0.29. Element
+  lines: log-pane 122 (was 109), theme-toggle 55 (unused, DECIDE 174); the
+  rest unchanged.
+
+173. **(step 6e) The theme is web-only.** `SetTheme` has no API route and
+   no CLI verb. Options: (a) keep; (b) add an API route and a CLI flag.
+   Lean (a).
+174. **(step 6e) `<theme-toggle>` is unused** but still in `ui/ts/`, the
+   element whitelist (`elements_test.go`) and `ui-plan.md`. Options: (a)
+   delete it and drop it from the whitelist; (b) keep. Lean (a).
+175. **(step 6e) The proxy drawer is the rewrite's own:** v0 only focused
+   the proxy card. It now wears v0's look (`57-proxy-routes`). Options:
+   (a) keep; (b) drop it, focus the card as v0 did. Lean (a).
+176. **(step 6e) The connector's Repos tab is a placeholder:** no verb
+   lists an installation's repos (`58-connector-repos`). Options: (a)
+   keep the placeholder; (b) hide the tab until a verb exists. Lean (b).
+177. **(step 6e) Signed-in auth pages show the rail:** CLI authorize, and
+   the invite page when signed in; v0 drew a bare auth card
+   (`77-cli-authorize`). Options: (a) keep; (b) render them without the
+   rail. Lean (b).
+178. **(step 6e) `/about` logs a CSP error:** the static page sends
+   `default-src 'self'` only, so htmx's indicator `<style>` is blocked
+   (`75-about`; predates phase 4). The gallery's sample streams answer
+   HTML and log MIME and `Event` errors (dev only, keep). Options: (a)
+   `includeIndicatorStyles: false` in the htmx config; (b) send the
+   dynamic pages' CSP on static pages too. Lean (a).
+179. **(step 6e) A failed attach stays attached:** the phase 4 proof's
+   attach job failed at the consumer deploy, yet the slice row and role
+   stayed. Options: (a) keep, a redeploy retries; (b) roll the slice back
+   when the job fails. Lean (b).
+180. **(scope) Org config files are v1.** REWRITE.md said "org config
+   files are later"; that was the planner's cut on 2026-09-22, never
+   darthvader's call. darthvader put them back in v1 on 2026-09-25. What
+   v0 had: a binding (repo + path through a GitHub connector) and org
+   config plans, approved or rejected, the stack pattern one level up
+   (`stackr-old .../config/orgconf`, `handler/org/config.go`, `stackr org
+   approve`; phase A wave 6). Owed: a REWRITE.md design section and a
+   task list. Options for where it lands: (a) its own step after 6e; (b)
+   folded into the connector work. Lean (a). **Resolved 2026-09-25: the
+   design is REWRITE.md "Org config file", the tasks `tasks/step-7.md`;
+   it lands as (a), step 7. Its own calls: DECIDE 181 to 189.**
+181. **(step 7) Org plans are rows.** v0 stored `org_config_plans`
+   (pending / applied / rejected / superseded, planned on every push,
+   approved later); the rewrite's stack side has no plan rows. The
+   planner leaned "diff on demand, no rows". **darthvader 2026-09-25:
+   plans as rows, v0's way.** Design and step-7 tasks written that way;
+   two v0 flaws fixed (an unparsable file stores `error`, not `pending`;
+   apply runs the plan's commit, not the branch tip; the table has a
+   real FK).
+182. **(step 7) Inline stacks are refused; a stack entry only says where
+   its file is.** v0 accepted a whole stack body under `stacks.<name>`;
+   edits to an existing one never showed in the org plan and were
+   force-applied on the next approval. **darthvader 2026-09-25: agree,
+   refuse inline. A stack entry points at its `stackr-compose.yml`,
+   either remote (a git repo) or local (a path inside the org repo).**
+   The homelab case: one org repo (`~/projects/server-config`) holds
+   `stackr-org.yml` (the org's name and settings) and one stack file per
+   service group (jellyfin with the *arr tiles, monitoring later once
+   stackr has what it needs), each declared as `path: <file>`. An edit to
+   a stack file rides that stack's own push → release → promote.
+183. **(step 7) Org-shared managed instances are in the org file.** v0's
+   `shared:` parked them in the first non-home env of the oldest stack
+   and failed on an org with no stacks; the planner leaned "out, make
+   them by hand" (and first claimed a stack file could declare one with
+   `scope: org`, which is wrong: the stack file refuses `shared:`, DECIDE
+   30). **darthvader 2026-09-25: in the file, we definitely need that.**
+   Shape: `shared.<slug>` with `engine`, `host: <stack>/<env>` (the env
+   whose container runs it, since an org has none), optional `image` and
+   `shm_size_mb`. Created in the host env, scope widened to org,
+   deployed. Engine or host change is a blocker (delete by hand; the
+   volume stays; moves are Later); image or shm change is an update;
+   gone from the file is left alone (DECIDE 188). Export writes it (v0's
+   export skipped `shared:` and so never round-tripped).
+184. **(step 7) `moved:` is in the org file.** Without it a renamed stack
+   key plans a create and the old stack stays (DECIDE 188): two stacks,
+   one silent. The planner leaned "rename in the UI first". **darthvader
+   2026-09-25: we need `moved:` back; that would be really bad UX that
+   will bite people.** A list of `from`/`to` pairs, `stack.<slug>` or
+   `shared.<slug>`, read before the rest of the diff: `from` exists and
+   `to` does not → rename (the stack, or the instance tile), and the
+   rest of the diff sees the object under its new slug; `to` exists and
+   `from` does not → already moved, no change, the entry may stay; both
+   or neither exist → blocker. v0 had the same list. The stack file's
+   own `moved:` (tile renames) stays cut, REWRITE.md "Promote and
+   releases"; its own DECIDE if wanted.
+185. **(step 7) The org file never deletes a param.** v0's rule: vars and
+   secrets are only added or updated by the file. The Terraform reading
+   (file = desired state) would delete a param that left the file.
+   Options: (a) v0's rule, never delete; (b) delete, blocked while a tile
+   in the org refs it. **darthvader 2026-09-25: (a), never delete
+   params.** A param gone from the file is left as it is; delete it in
+   the UI or CLI. A secret's value is not in git, so a deleted-and-
+   recreated secret would be a lost value.
+186. **(step 7) Auto apply is a switch on the binding.** v0 never
+   auto-applied an org plan. **darthvader 2026-09-25: allow an option to
+   just auto apply.** `config_auto`, off by default; on, the plan job
+   approves its own plan when it is pending and unblocked. The file never
+   deletes a stack (DECIDE 188), so auto never tears one down;
+   it does rename the org and create or rebind stacks.
+187. **(step 7) The new-org wizard comes back, and the org is bound to
+   its file there.** v0's wizard: a branch question (by hand or from a
+   config file), then connector → config (bind, the plan on the same
+   step, approve or reject; the file names the org) → team → done for
+   the config branch, and name → connector → domain → team → done by
+   hand, with a setup gate (an unfinished org sends its owner to the
+   summary and shows members a holding page). The rewrite kept the draft
+   org (`StartDraft`, `DraftName`, `FinishOrg`) but step 6 folded the
+   wizard into one `/-/new-org` dialog. The planner leaned "bind from
+   the drawer only". **darthvader 2026-09-25: reintroduce the new-org
+   wizard and bind there. Then: a literal one-to-one copy of v0's
+   wizard, nothing changed, the domain step included; the domains
+   backend comes with it (DECIDE 190).** The drawer's Config tab stays
+   for a rebind after setup. The `/-/new-org` dialog goes.
+188. **(step 7) The org file never deletes a stack.** The planner's draft
+   deleted a file-created stack once it left the file (blocked while it
+   had envs) and left hand-made stacks alone. **darthvader 2026-09-25:
+   (b), never delete anything.** A stack gone from the file is left as
+   it is, hand-made or file-made alike; deleting is a UI or CLI act. So
+   an org can be fully config-managed and still host a quick stack
+   clicked up by hand. `org_declared` is dropped: nothing reads it.
+189. **(step 7) The stack file's `ladder:` creates the stack's envs.**
+   Found while placing `shared.host`: `CreateEnv` (UI, CLI, API) and the
+   PR clone were the only places an env row is made, and `flow/promote`
+   `Push` returns nothing when no env tracks the pushed branch, so a
+   stack the org apply creates and binds sat at "bound, nothing runs"
+   until someone clicked its envs. **darthvader 2026-09-25: the stack
+   config defines the environments, so it creates them; the org file
+   only points at the stack file.** The chain: org plan (Auto or
+   approved) creates and binds the stack → the stack's push job reads
+   the file at the pushed commit, creates every env its `ladder:` (or
+   `environments:`) names that the stack lacks, bottom rung first, with
+   `from`, `branch`, `auto` and `color` from the file → the release lands
+   in the auto envs and the rest wait for a promote. Envs are never
+   deleted by the file (DECIDE 188's rule, same reason). In step 7.
+190. **(step 7a) The domains backend is v1: v0's domain resources, ported
+   as they are.** The rewrite has tile domains (the `domains` table,
+   Caddy) and stack-level reservations as JSON on `stacks.domains`, used
+   only for ACME accounts; nothing makes a hostname (the stack file's
+   tile domains are literals or `params.` refs, `auto:`/`apex:` are
+   gone), nothing is org-level, the installer's `--domain` never reaches
+   `stackrd`, and the only squat check is the reverse one on org rename.
+   v0: one `domain_resources` table at three levels (instance, org,
+   stack; `host` unique; `include_env_on_default`, `acme_email`,
+   `declared`), the installer seeds the instance row from the root
+   domain, `AutoHost` makes `tile[.env].stack.org.<instance>` /
+   `tile[.env].stack.<org>` / `tile[.env].<stack>` from the nearest
+   visible resource, `auto: true` and `apex:` on a tile domain resolve
+   through it, `CheckOrgSquat` refuses a host whose first label is
+   another org's slug, the wizard's domain step prefills
+   `<slug>.<instance host>` and Finish makes an undeclared org row when
+   the org sees none. **darthvader 2026-09-25: first and foremost, we
+   want the domains backend.** Its own step, 7a, built before step 7
+   (the wizard's domain step and managed tiles' `PublicBase` need it);
+   the stack reservations move into the table as stack rows.
+191. **(step 7) `domains:` in the org file.** v0's org file declared org
+   domain resources (`declared` rows; the plan created, adopted panel-made
+   rows, updated env/ACME, and deleted only declared rows). The design
+   left `domains:` out because org domains were not v1 objects; DECIDE
+   190 makes them objects. Options: (a) in, with this file's rule: the
+   file never deletes a domain (as params, 185, and stacks, 188), `declared`
+   dropped; (b) out, domains are made in the wizard, drawer, API or CLI
+   only. **darthvader 2026-09-25: (a), the file never deletes domains.**
+   A `domains:` list of host, `include_env_on_default`, `acme_email`:
+   missing → create an org row; env flag or ACME differs → update; gone
+   from the file → left alone; host taken elsewhere or squatting → blocker.
+   Export writes them.
+192. **(step 7a) The default env is the ladder's top rung.** `AutoHost`
+   drops the env label on the stack's default env (`api.stack.org`, not
+   `api.prod.stack.org`) unless the resource says
+   `include_env_on_default`; v0 had a default env per stack, the rewrite
+   has only the ladder. **darthvader 2026-09-25: top rung.** A tile
+   domain row remembers the resource that named it (`resource_id`, FK
+   RESTRICT), so deleting a resource that still names one is refused
+   with a count, not a guess.
 
 ## DECIDE:
 
@@ -710,7 +1244,8 @@ Raised by step 6 session A (builder took the lean; flip any):
    `<theme-toggle>` applies a stored "light" when its module runs, so a
    light user sees dark for a moment on a full load (no inline script
    under the CSP). Options: (a) keep; (b) a theme cookie read by
-   `render.Shell`. Lean (a).
+   `render.Shell`. Lean (a). **Resolved in step 6e phase 4 by P14 option
+   b: `users.theme` written as the `<html>` class, no flash, no toggle.**
 74. **(step 6) Log filters are not in the URL.** `<log-pane>` starts from
    the `level`/`search` the handler put in the view; changing them does
    not rewrite the URL. Options: (a) keep; (b) the element pushes them
@@ -853,6 +1388,6 @@ Raised by step 6 session D (builder took the lean; flip any):
 135. **(step 6) Live tabs refetch themselves.** A live job refetches its tab on `sse:end`; the runs tab polls every 2 s while a run is live. Options: (a) keep; (b) a run SSE stream. Lean (a).
 136. **(step 6) Traffic counts a new tuple in full after the seed tick.** A long-lived connection whose end only now maps to a tile (a new container) spikes once. Options: (a) keep; (b) also track unmapped tuples. Lean (a).
 137. **(step 6) Re-running the installer does not upgrade.** It is a no-op while `stackr` and `stackr-proxy` exist; the smoke removes them first. Options: (a) keep, upgrade is the admin route; (b) the installer swaps an older image. Lean (a).
-138. **(step 6) Small UI misses from the smoke, not fixed:** the function status tab offers Restart/Stop; an admin can disable themselves; log lines show docker's E/O prefix; htmx logs an `Event` console error when a page's SSE stream is torn down on navigation. Options: (a) fix in step 7; (b) keep. Lean (a).
+138. **(step 6) Small UI misses from the smoke, not fixed:** the function status tab offers Restart/Stop; an admin can disable themselves; log lines show docker's E/O prefix; htmx logs an `Event` console error when a page's SSE stream is torn down on navigation. Options: (a) fix in step 7; (b) keep. Lean (a). **Resolved in step 6e: the E/O prefix in phase 3a, admin self-disable in 3b; in phase 4 the function tile offers no Restart/Stop and `<log-pane>` closes the page's streams on `pagehide`, so no `Event` error (checked on the VM).**
 139. **(step 6) Handler audit output is not empty.** Every remaining hit is a false positive, explained in commits a013293 and the progress commit (three new templ `if set` hits: job refresher, create-tile command, runs poller). Options: (a) keep; (b) teach the script those shapes. Lean (b).
 140. **(step 6) Editing an image tile's tag does nothing on redeploy.** Once a release pins the tile, `deploy.Redeploy` runs the pinned digest; a new `image_ref` (API PATCH; the web has no field for it) only lands when image watch's "Check now" derives a release and that release is promoted. The image tab also shows "running digest: none" for a running tile. Options: (a) keep, image watch is the path; (b) `UpdateTile` derives a release when `image_ref` changes, and the web gets an image field. Lean (b), step 7. **Fixed 2026-09-24 (v0.0.14, checked on the VM):** an image pin's `repo` now holds the ref it came from, tag included; a plain deploy/redeploy whose pin no longer matches the tile's ref runs the tag and pins it (one release); promote and rollback still run the release as pinned. The image tab has an Image field. "Running digest" and the graph's new-version chip read the env's release pin (the images table only knows builds, so the chip never lit for pulled tiles). Promote and rollback also write a pin's tag back onto a tile edited outside the stack file, so a redeploy after a rollback stays put (v0.0.15, checked on the VM: roll back #6→#5, then Deploy, stays on v1.10.1).

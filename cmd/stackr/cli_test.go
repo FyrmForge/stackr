@@ -236,3 +236,29 @@ func TestRunVerbsRoutes(t *testing.T) {
 		}
 	}
 }
+
+// DECIDE 159: the first arg is the tile only where the verb's Use puts it
+// there; "domain add <host>" and "slice attach <id>" take --tile.
+func TestTileArgOnlyWhereUseNamesIt(t *testing.T) {
+	r := &recorder{}
+	r.serve(t)
+	at := []string{"--stack", "shop", "--env", "dev", "--tile", "api", "-y"}
+	const p = "/api/v1/orgs/acme/stacks/shop/envs/dev/tiles/"
+	for args, want := range map[string]string{
+		"domain add a.example.com":           "POST " + p + "api/domains ",
+		"domain caddy a.example.com":         "GET " + p + "api/domains ",
+		"domain rm a.example.com":            "GET " + p + "api/domains ",
+		"slice attach inst1":                 "POST " + p + "api/slices ",
+		"get web":                            "GET " + p + "web ",
+		"rename web www":                     "PUT " + p + "web/name ",
+		"domain ls web":                      "GET " + p + "web/domains ",
+		"set web --port 8080":                "PATCH " + p + "web ",
+		"domain set a.example.com --path /x": "GET " + p + "api/domains ",
+	} {
+		r.reqs = nil
+		cli(t, append(append([]string{"tile"}, strings.Fields(args)...), at...)...)
+		if len(r.reqs) == 0 || !strings.HasPrefix(r.reqs[0], want) {
+			t.Errorf("tile %s sent %q, want first %q", args, r.reqs, want)
+		}
+	}
+}

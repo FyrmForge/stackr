@@ -11,8 +11,9 @@ import templruntime "github.com/a-h/templ/runtime"
 // SideDrawer is the one drawer, placed once in the layout outside #main so
 // navigation never replaces it. A card click hx-gets a tab into
 // #drawer-body; <side-drawer> opens on that swap, and closes itself on
-// [data-close], [data-backdrop] or Escape (dropping ?drawer and ?tab).
-// A fresh load of ?drawer=&tab= renders it open with body inside.
+// [data-close] (the X in every DrawerHead), [data-backdrop] or Escape
+// (dropping ?drawer and ?tab). A fresh load of ?drawer=&tab= renders it
+// open with body inside. The slide and the scrim are CSS (input.css).
 func SideDrawer(body templ.Component, tab string) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
@@ -52,7 +53,7 @@ func SideDrawer(body templ.Component, tab string) templ.Component {
 			var templ_7745c5c3_Var2 string
 			templ_7745c5c3_Var2, templ_7745c5c3_Err = templ.JoinStringErrs(tab)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/drawer.templ`, Line: 14, Col: 12}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/drawer.templ`, Line: 15, Col: 12}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var2))
 			if templ_7745c5c3_Err != nil {
@@ -63,7 +64,7 @@ func SideDrawer(body templ.Component, tab string) templ.Component {
 				return templ_7745c5c3_Err
 			}
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 5, "><div data-backdrop class=\"fixed inset-0 z-40 bg-black/40\"></div><aside role=\"dialog\" aria-modal=\"true\" aria-label=\"Details\" class=\"fixed inset-y-0 right-0 z-40 w-full max-w-xl overflow-y-auto border-l border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-900\"><button type=\"button\" class=\"btn float-right\" data-close aria-label=\"Close\">Close</button><div id=\"drawer-body\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 5, "><div data-backdrop></div><aside role=\"dialog\" aria-modal=\"true\" aria-label=\"Details\" class=\"fixed top-0 right-0 z-40 h-full w-full max-w-2xl overflow-y-auto border-l border-rw-border bg-rw-surface\"><div id=\"drawer-body\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -74,6 +75,37 @@ func SideDrawer(body templ.Component, tab string) templ.Component {
 			}
 		}
 		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, "</div></aside></side-drawer>")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		return nil
+	})
+}
+
+// DrawerHead is the top of a drawer body drawn outside Drawer: the
+// title, what it is, and the 32px close X (v0 PanelHeader, no extras).
+func DrawerHead(title, kind string) templ.Component {
+	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
+		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
+			return templ_7745c5c3_CtxErr
+		}
+		templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
+		if !templ_7745c5c3_IsBuffer {
+			defer func() {
+				templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
+				if templ_7745c5c3_Err == nil {
+					templ_7745c5c3_Err = templ_7745c5c3_BufErr
+				}
+			}()
+		}
+		ctx = templ.InitializeContext(ctx)
+		templ_7745c5c3_Var3 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var3 == nil {
+			templ_7745c5c3_Var3 = templ.NopComponent
+		}
+		ctx = templ.ClearChildren(ctx)
+		templ_7745c5c3_Err = panelHeader(DrawerView{Title: title, Kind: kind}).Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -99,25 +131,25 @@ func DrawerLoad(url string) templ.Component {
 			}()
 		}
 		ctx = templ.InitializeContext(ctx)
-		templ_7745c5c3_Var3 := templ.GetChildren(ctx)
-		if templ_7745c5c3_Var3 == nil {
-			templ_7745c5c3_Var3 = templ.NopComponent
+		templ_7745c5c3_Var4 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var4 == nil {
+			templ_7745c5c3_Var4 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
 		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 7, "<div hx-get=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		var templ_7745c5c3_Var4 string
-		templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.JoinStringErrs(url)
+		var templ_7745c5c3_Var5 string
+		templ_7745c5c3_Var5, templ_7745c5c3_Err = templ.JoinStringErrs(url)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/drawer.templ`, Line: 37, Col: 18}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/drawer.templ`, Line: 43, Col: 18}
 		}
-		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var4))
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var5))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 8, "\" hx-trigger=\"load\" hx-target=\"this\" hx-swap=\"outerHTML\" hx-push-url=\"false\" aria-busy=\"true\">Loading…</div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 8, "\" hx-trigger=\"load\" hx-target=\"this\" hx-swap=\"outerHTML\" hx-push-url=\"false\" aria-busy=\"true\" class=\"p-6 text-sm text-rw-muted\">Loading…</div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

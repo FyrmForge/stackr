@@ -27,6 +27,9 @@ func TestEditor(t *testing.T) {
 		`name="param.app.mode" value="prod"`,
 		`name="secret.db.pass"`,
 		"unchanged",
+		"••••••••",
+		"+ Add variable",
+		`name="new_name"`,
 	} {
 		if !strings.Contains(got, w) {
 			t.Errorf("no %s in\n%s", w, got)

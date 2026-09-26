@@ -80,6 +80,58 @@ func (l *Leaf) List(ctx context.Context, stackID string) ([]store.Environment, e
 // Above reports whether a sits above b on the ladder.
 func Above(a, b store.Environment) bool { return a.Position > b.Position }
 
+// Palette is the env hues in the order an uncoloured env takes them (v0's
+// envcolor.Names); each is an env-c-<hue> class.
+var Palette = []string{"teal", "sky", "lime", "amber", "rose", "violet"}
+
+// bySlug are the hues people expect without a legend: red means production,
+// violet (the accent) the env you hack on.
+var bySlug = map[string]string{
+	"production":  "rose",
+	"prod":        "rose",
+	"staging":     "amber",
+	"stg":         "amber",
+	"dev":         "violet",
+	"development": "violet",
+}
+
+// Hues is the hue every env of one stack is drawn in, by env id; envs is
+// List's order. The stored colour wins; well-known slugs claim theirs
+// next, then statics before PR envs take the next hue nobody holds,
+// cycling past six (v0's envcolor.Map).
+func Hues(envs []store.Environment) map[string]string {
+	out := make(map[string]string, len(envs))
+	used := map[string]bool{}
+	for _, e := range envs {
+		if h, ok := bySlug[e.Slug]; ok && e.Type != Ephemeral {
+			out[e.ID] = h
+			used[h] = true
+		}
+	}
+	next := 0
+	for pass := range 2 {
+		for _, e := range envs {
+			if (e.Type == Ephemeral) != (pass == 1) || out[e.ID] != "" {
+				continue
+			}
+			h := Palette[next%len(Palette)]
+			for tries := 0; tries < len(Palette) && used[h]; tries++ {
+				next++
+				h = Palette[next%len(Palette)]
+			}
+			next++
+			used[h] = true
+			out[e.ID] = h
+		}
+	}
+	for _, e := range envs {
+		if e.Color != "" {
+			out[e.ID] = e.Color
+		}
+	}
+	return out
+}
+
 // Below is the env a `from: promote` env promotes from: the next rung down.
 // ErrNotFound on the bottom rung and for a PR env.
 func (l *Leaf) Below(ctx context.Context, e store.Environment) (store.Environment, error) {

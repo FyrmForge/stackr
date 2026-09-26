@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -113,6 +114,17 @@ func (l *Leaf) SetPassword(ctx context.Context, id, next string) error {
 		return err
 	}
 	return l.update(ctx, id, func(u *store.User) { u.PasswordHash = hash })
+}
+
+// Themes are the looks a user may pick: follow the OS, or pin one.
+var Themes = []string{"system", "light", "dark"}
+
+// SetTheme is the user's own look, one of Themes.
+func (l *Leaf) SetTheme(ctx context.Context, id, theme string) error {
+	if !slices.Contains(Themes, theme) {
+		return errs.Invalidf("theme", "must be system, light or dark")
+	}
+	return l.update(ctx, id, func(u *store.User) { u.Theme = theme })
 }
 
 // Authenticate checks the password of an active user.

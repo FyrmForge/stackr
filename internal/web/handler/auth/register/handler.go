@@ -42,17 +42,30 @@ func NewHandler(orch *service.Orchestrator) *handler {
 			validate.Field("name", validate.Required),
 			validate.Field("email", validate.Required, validate.Email),
 			validate.Field("password", validate.Required, validate.PasswordStrength),
+			validate.Field("confirm_password", validate.Required).WithCtx(same),
 		),
 	}
 }
 
-// GET /register
+// same: the confirmation matches the password.
+func same(c echo.Context, confirm string) string {
+	if confirm != c.FormValue("password") {
+		return "The two passwords do not match."
+	}
+	return ""
+}
+
+// GET /register: the first account is the install's admin, and says so.
 func (h *handler) Page(c echo.Context) error {
+	us, err := h.orch.Users(c.Request().Context())
+	if err != nil {
+		return middleware.HTTPError(err)
+	}
 	return render.Page(
 		c,
 		http.StatusOK,
 		"Register",
-		registerPage(RegisterForm{Next: middleware.SafeNext(c.QueryParam("next"))}, nil),
+		registerPage(RegisterForm{Next: middleware.SafeNext(c.QueryParam("next"))}, nil, len(us) == 0),
 	)
 }
 

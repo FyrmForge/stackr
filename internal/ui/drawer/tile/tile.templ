@@ -1,98 +1,147 @@
 package tile
 
 import (
+	"strings"
+
 	c "github.com/FyrmForge/stackr/internal/ui/components"
 	"github.com/FyrmForge/stackr/internal/ui/dialog"
 )
 
-templ Status(v View, s StatusView) {
-	<div class="space-y-4" id="tab-status">
-		<div class="flex items-center gap-2">
-			@c.TileBadge(s.Word)
-			if s.LastRun != "" {
-				<span class="text-sm text-slate-500">last run { s.LastRun }</span>
-			}
-			if s.NextRun != "" {
-				<span class="text-sm text-slate-500">next { s.NextRun }</span>
-			}
-		</div>
-		if s.Job != nil {
-			@c.JobStatus(*s.Job)
-		}
-		if len(s.Replicas) > 0 {
-			<ul class="space-y-1 text-sm">
-				for _, r := range s.Replicas {
-					<li class="flex gap-2"><span class="font-mono">{ r.Name }</span><span>{ r.State }</span><span class="text-slate-500">{ r.Health }</span></li>
+// actions are the header buttons (v0 appActions): a service or image tile
+// stops, restarts and deploys; a cron runs and pauses; a function runs and
+// deploys.
+templ actions(v View) {
+	switch v.Kind {
+		case "cron":
+			@c.PrimaryPost("Run now", v.Base+"/run")
+			<button type="button" class="btn btn-ghost btn-sm" hx-post={ v.Base + "/pause" } hx-vals={ pauseVals(!v.Paused) } hx-target={ "#" + Root } hx-swap="outerHTML">
+				if v.Paused {
+					Resume
+				} else {
+					Pause
 				}
-			</ul>
-		}
-		<div class="flex flex-wrap gap-2">
+			</button>
+		case "function":
+			@c.PrimaryPost("Run now", v.Base+"/run")
 			@c.PostButton("Deploy", v.Base+"/deploy")
-			if s.Stopped {
+		default:
+			if v.Stopped {
 				@c.PostButton("Start", v.Base+"/start")
 			} else {
-				@c.Confirm(dialog.Restart(v.Name, v.Base+"/restart", "#"+Root))
-				@c.Confirm(dialog.Stop(v.Name, v.Base+"/stop", "#"+Root))
+				@c.Confirm(quiet(dialog.Stop(v.Name, v.Base+"/stop", "#"+Root)))
+				@c.Confirm(quiet(dialog.Restart(v.Name, v.Base+"/restart", "#"+Root)))
 			}
-			@c.Confirm(dialog.Delete(v.Name, v.Base+"/delete", "#"+Root))
-		</div>
-	</div>
+			@c.PrimaryPost("Deploy", v.Base+"/deploy")
+	}
 }
 
-templ Logs(v View, l LogsView) {
-	<div class="space-y-3" id="tab-logs">
-		if l.Run != "" {
-			<p class="text-sm">Run <span class="font-mono">{ l.Run }</span></p>
-		} else if len(l.Replicas) > 1 {
-			<label class="label" for="log-container">Replica</label>
-			<select id="log-container" name="container" class="input w-60" hx-get={ v.Base + "?tab=logs" } hx-target={ "#" + Root } hx-swap="outerHTML">
-				for _, r := range l.Replicas {
-					<option value={ r.ID } selected?={ r.ID == l.Container }>{ r.Name }</option>
-				}
-			</select>
-		}
-		if l.Run == "" && l.Container == "" {
-			<p class="text-sm text-slate-500">No container is running yet.</p>
+func quiet(v c.ConfirmView) c.ConfirmView {
+	v.Quiet = true
+	return v
+}
+
+func pauseVals(paused bool) string {
+	if paused {
+		return `{"paused":"true"}`
+	}
+	return `{"paused":"false"}`
+}
+
+// imageStrip is v0's "New image version available" line above the tabs.
+templ imageStrip(v View) {
+	<div class="px-6 py-2 bg-rw-warn/10 border-y border-rw-warn/40 text-sm text-rw-warn flex items-center gap-2 flex-wrap">
+		<span class="font-semibold">New image version available</span>
+		<span class="font-mono text-xs">{ shortDigest(v.NewDigest) }</span>
+		if v.AutoUpdate {
+			<span class="text-xs opacity-75">auto-update queued by the watcher</span>
 		} else {
-			@c.LogPane(l.Pane)
+			<span class="text-xs opacity-75">deploy to update</span>
 		}
 	</div>
 }
 
-templ Domains(v View, d DomainsView) {
-	<div class="space-y-4" id="tab-domains">
-		if len(d.Rows) == 0 {
-			<p class="text-sm text-slate-500">No domains yet.</p>
-		}
-		for _, r := range d.Rows {
-			<div class="card space-y-2 p-3 text-sm">
-				<div class="flex items-center justify-between gap-2">
-					<a href={ templ.SafeURL(scheme(r.HTTPS) + r.Host + r.Path) } target="_blank" rel="noopener" class="link font-mono">{ r.Host }{ r.Path }</a>
-					<span class="text-xs text-slate-500">
-						→ :{ r.Port }
-						if r.Auto {
-							· generated
+func shortDigest(d string) string {
+	s := strings.TrimPrefix(d, "sha256:")
+	if len(s) > 12 {
+		s = s[:12]
+	}
+	return s
+}
+
+// tabLink opens another tab of this drawer.
+templ tabLink(v View, query, label string) {
+	<a
+		href={ templ.SafeURL("?drawer=" + v.Node + "&tab=" + query) }
+		hx-get={ v.Base + "?tab=" + query }
+		hx-target={ "#" + Root }
+		hx-swap="outerHTML"
+		hx-push-url={ "?drawer=" + v.Node + "&tab=" + query }
+		class="link"
+	>{ label }</a>
+}
+
+// Status is v0's Overview: the status and last deployment boxes, the URLs
+// and the ports.
+templ Status(v View, s StatusView) {
+	<div class="space-y-5" id="tab-status">
+		<div class="grid grid-cols-2 gap-3">
+			<div class="panel p-4">
+				<div class="label">Status</div>
+				@c.TileBadge(s.Word)
+				for _, r := range s.Replicas {
+					<div class="text-xs text-rw-faint mt-1.5">
+						<span class="font-mono">{ r.Name }</span> { r.State }
+						if r.Health != "" {
+							· { r.Health }
 						}
-					</span>
-					@c.Confirm(c.ConfirmView{Button: "Detach", Title: "Detach " + r.Host + "?", Warning: "The proxy stops routing it.",
-						Action: v.Base + "/domains/" + r.ID + "/detach", Target: "#" + Root})
-				</div>
-				if d.Admin {
-					<form hx-post={ v.Base + "/domains/" + r.ID + "/raw" } hx-target={ "#" + Root } hx-swap="outerHTML" class="space-y-2">
-						<label class="label" for={ "raw-" + r.ID }>Raw Caddy (admin): replaces the generated route</label>
-						<textarea id={ "raw-" + r.ID } name="raw_caddy" rows="4" class="input font-mono text-xs">{ r.Raw }</textarea>
-						@c.Submit("Save snippet")
-					</form>
+					</div>
 				}
 			</div>
-		}
-		<form hx-post={ v.Base + "/domains" } hx-target={ "#" + Root } hx-swap="outerHTML" class="space-y-3">
-			<h3 class="font-semibold">Attach a domain</h3>
-			@c.Field(c.FieldView{Name: "host", Label: "Host", Placeholder: "api.example.com", Required: true})
-			@c.Field(c.FieldView{Name: "path", Label: "Path", Placeholder: "/"})
-			@c.Field(c.FieldView{Name: "port", Label: "Port", Type: "number", Help: "Empty = the tile's container port."})
-			@c.Submit("Attach")
-		</form>
+			<div class="panel p-4">
+				<div class="label">Last deployment</div>
+				if s.Job == nil {
+					<span class="text-sm text-rw-faint">never deployed</span>
+				} else {
+					@c.JobStatus(*s.Job)
+					<div class="text-xs text-rw-faint mt-1.5">{ s.JobWhen }</div>
+				}
+			</div>
+		</div>
+		<div>
+			<div class="label">URLs</div>
+			if len(s.URLs) == 0 {
+				<p class="text-sm text-rw-faint">No domains attached. Add one in Settings.</p>
+			} else {
+				<ul class="space-y-1.5">
+					for _, d := range s.URLs {
+						<li class="flex flex-wrap items-center gap-2 text-sm">
+							<a href={ templ.SafeURL(scheme(d.HTTPS) + d.Host + d.Path) } target="_blank" rel="noopener" class="link font-mono text-xs">{ scheme(d.HTTPS) + d.Host + d.Path }</a>
+							if d.HTTPS {
+								<span class="text-[10px] font-semibold uppercase tracking-wide text-rw-success">https</span>
+							} else {
+								<span class="text-[10px] font-semibold uppercase tracking-wide text-rw-warn">http only</span>
+							}
+							<span class="text-rw-faint text-xs">→ :{ d.Port }</span>
+						</li>
+					}
+				</ul>
+			}
+		</div>
+		<div>
+			<div class="label">Ports</div>
+			if s.Port == "" && len(s.Ports) == 0 {
+				<p class="text-sm text-rw-faint">No ports configured.</p>
+			} else {
+				<ul class="space-y-1 text-sm text-rw-muted">
+					if s.Port != "" {
+						<li>container port <span class="font-mono text-rw-text">{ s.Port }</span> (proxied via domains above)</li>
+					}
+					for _, p := range s.Ports {
+						<li>host port <span class="font-mono text-rw-text">{ p }</span> published directly</li>
+					}
+				</ul>
+			}
+		</div>
 	</div>
 }
 
@@ -103,70 +152,508 @@ func scheme(https bool) string {
 	return "http://"
 }
 
-templ Env(v View, e EnvView) {
-	<form id="tab-env" hx-post={ v.Base + "/env" } hx-target={ "#" + Root } hx-swap="outerHTML" class="space-y-3">
-		<label class="label" for="env-json">Environment (a JSON object; values may reference params)</label>
-		<textarea id="env-json" name="env_json" rows="12" class="input font-mono text-xs">{ e.JSON }</textarea>
-		<p class="text-xs text-slate-500">Saving redeploys a running tile.</p>
-		@c.Submit("Save")
-	</form>
-}
-
-templ Settings(v View, s c.SettingsFormView) {
-	<div id="tab-settings">
-		@c.SettingsForm(s)
+templ Logs(v View, l LogsView) {
+	<div class="space-y-3" id="tab-logs">
+		if l.Run != "" {
+			<p class="text-xs text-rw-faint">
+				Run <span class="font-mono text-rw-muted">{ l.Run }</span> ·
+				@tabLink(v, "runs", "all runs")
+			</p>
+		} else if len(l.Replicas) > 1 {
+			<div class="flex items-center gap-2">
+				<label class="text-xs text-rw-faint" for="log-container">Replica</label>
+				<select id="log-container" name="container" class="input !w-60 !py-1.5 text-sm" hx-get={ v.Base + "?tab=logs" } hx-target={ "#" + Root } hx-swap="outerHTML">
+					for _, r := range l.Replicas {
+						<option value={ r.ID } selected?={ r.ID == l.Container }>{ r.Name }</option>
+					}
+				</select>
+			</div>
+		}
+		if l.Run == "" && l.Container == "" {
+			if l.Runs {
+				<p class="text-rw-muted text-sm">No runs yet. Hit Run now to make one.</p>
+			} else {
+				<p class="text-rw-muted text-sm">No container is running yet.</p>
+			}
+		} else {
+			@c.LogPane(l.Pane)
+		}
 	</div>
 }
 
+// Jobs is v0's Deployments: one panel row per job, newest first.
 templ Jobs(v View, j JobsView) {
 	<div id="tab-jobs">
 		if len(j.Rows) == 0 {
-			<p class="text-sm text-slate-500">No jobs yet.</p>
+			<p class="text-rw-muted text-sm">No deployments yet. Hit Deploy to build the first one.</p>
+		} else {
+			<ul class="space-y-2">
+				for _, r := range j.Rows {
+					<li class="panel px-4 py-3 flex flex-wrap items-center gap-x-3 gap-y-2">
+						<span class="text-sm text-rw-text font-mono">{ r.Kind }</span>
+						<span class="text-xs text-rw-faint whitespace-nowrap">{ r.When }</span>
+						<span class="ml-auto">
+							@c.JobBadge(r.State)
+						</span>
+						if r.Error != "" {
+							<p class="basis-full text-xs text-rw-danger">{ r.Error }</p>
+						}
+					</li>
+				}
+			</ul>
 		}
-		<ul class="space-y-2 text-sm">
-			for _, r := range j.Rows {
-				<li>
-					<div class="flex items-center gap-2"><span class="w-24 text-slate-500">{ r.Kind }</span>@c.JobBadge(r.State)<span class="text-slate-500">{ r.When }</span></div>
-					if r.Error != "" {
-						<p class="text-red-700 dark:text-red-400">{ r.Error }</p>
+	</div>
+}
+
+// Env is v0's Variables tab: the rows, each with its ×, then the
+// KEY=VALUE editor behind "Edit variables".
+templ Env(v View, e EnvView) {
+	<div id="tab-env">
+		<p class="text-xs text-rw-faint mb-3">
+			Values may reference params or another tile:
+			<span class="font-mono text-rw-muted">{ "${{ params.app.key }}" }</span>,
+			<span class="font-mono text-rw-muted">{ "${{ tile.db.url }}" }</span>.
+			References resolve at deploy time.
+		</p>
+		if len(e.Rows) == 0 {
+			<p class="text-rw-muted text-sm">No variables set yet.</p>
+		} else {
+			<ul class="space-y-1.5">
+				for _, r := range e.Rows {
+					<li class="panel px-4 py-2.5 flex items-start gap-3 text-sm font-mono">
+						<span class="text-rw-accentHi shrink-0">{ r.Name }</span>
+						<span class="text-rw-faint">=</span>
+						<span class="flex-1 break-all text-rw-text">{ r.Value }</span>
+						if r.Ref {
+							@c.Chip("reference", "accent")
+						}
+						<button type="button" class="text-rw-faint hover:text-rw-danger shrink-0" aria-label={ "Delete " + r.Name } hx-post={ v.Base + "/env" } hx-vals={ dropVals(r.Name) } hx-target={ "#" + Root } hx-swap="outerHTML">×</button>
+					</li>
+				}
+			</ul>
+		}
+		<details class="group mt-4">
+			<summary class="btn btn-ghost btn-sm cursor-pointer list-none select-none group-open:hidden">Edit variables</summary>
+			<form hx-post={ v.Base + "/env" } hx-target={ "#" + Root } hx-swap="outerHTML" class="space-y-4">
+				<div>
+					<label class="label" for="env-text">Environment variables (KEY=VALUE per line)</label>
+					<textarea id="env-text" name="env" rows="10" placeholder={ "KEY=value\nDB=${{ tile.db.url }}" } class="input font-mono text-sm">{ e.Text }</textarea>
+					if len(e.Kept) > 0 {
+						<p class="settings-help">Kept as they are, a value on more than one line: { strings.Join(e.Kept, ", ") }.</p>
+					}
+				</div>
+				<div class="flex gap-2">
+					<button type="submit" class="btn btn-primary">Save variables</button>
+					<button type="button" class="btn btn-ghost" hx-get={ v.Base + "?tab=env" } hx-target={ "#" + Root } hx-swap="outerHTML">Cancel</button>
+				</div>
+			</form>
+		</details>
+	</div>
+}
+
+func dropVals(name string) string {
+	return `{"drop":"` + name + `"}`
+}
+
+// Runs is v0's runs list: a <details> row per run, the log behind it.
+templ Runs(v View, r RunsView) {
+	<div class="space-y-3" id="tab-runs">
+		if r.Poll != "" {
+			<span hidden hx-get={ r.Poll } hx-trigger="every 2s" hx-target={ "#" + Root } hx-swap="outerHTML"></span>
+		}
+		if r.Next != "" {
+			<p class="text-xs text-rw-faint">next run { r.Next }</p>
+		}
+		if len(r.Rows) == 0 {
+			<p class="text-rw-muted text-sm">No runs yet.</p>
+		} else {
+			<ul class="space-y-1.5">
+				for _, x := range r.Rows {
+					<li class="panel px-4 py-2.5">
+						<details id={ "run-" + x.ID }>
+							<summary class="flex items-center gap-3 text-sm cursor-pointer list-none">
+								<span class={ "shrink-0", runTone(x) }>{ runWord(x) }</span>
+								<span class="text-rw-faint text-xs font-mono">{ shortID(x.ID) }</span>
+								<span class="text-rw-faint text-xs">{ x.Started }</span>
+								<span class="text-rw-muted text-xs">{ x.Trigger }</span>
+								<span class="text-rw-faint text-xs ml-auto">{ x.Took }</span>
+							</summary>
+							<div class="mt-2 flex items-center gap-3 text-xs text-rw-faint">
+								if x.Exit != "" {
+									<span>exit { x.Exit }</span>
+								}
+								@tabLink(v, "logs&run="+x.ID, "Open the log")
+								if x.Live {
+									@c.PostButton("Stop", v.Base+"/runs/"+x.ID+"/stop")
+								}
+							</div>
+						</details>
+					</li>
+				}
+			</ul>
+		}
+	</div>
+}
+
+func runWord(x RunRow) string {
+	if x.Live {
+		return "running"
+	}
+	return x.Status
+}
+
+// runTone is v0's run word colour: live amber, ok green, a stop faint.
+func runTone(x RunRow) string {
+	switch {
+	case x.Live:
+		return "text-rw-warn"
+	case x.Status == "ok":
+		return "text-rw-success"
+	case x.Status == "cancelled":
+		return "text-rw-faint"
+	}
+	return "text-rw-danger"
+}
+
+func shortID(id string) string {
+	if len(id) > 8 {
+		return id[:8]
+	}
+	return id
+}
+
+templ Backups(v View, b BackupsView) {
+	<div id="tab-backups">
+		if len(b.Rows) == 0 {
+			<p class="text-rw-muted text-sm">This tile mounts no volumes.</p>
+		} else {
+			<ul class="space-y-2">
+				for _, r := range b.Rows {
+					<li class="panel px-4 py-3 flex items-center gap-3 text-sm">
+						<a
+							href={ templ.SafeURL("?drawer=" + r.ID + "&tab=backups") }
+							hx-get={ r.Drawer }
+							hx-target="#drawer-body"
+							hx-push-url={ "?drawer=" + r.ID + "&tab=backups" }
+							class="link font-mono"
+						>{ r.Name }</a>
+						<span class="ml-auto text-xs text-rw-faint">{ r.State }</span>
+					</li>
+				}
+			</ul>
+		}
+	</div>
+}
+
+// The settings form's sections (v0 serviceSettingsForm), each drawn when
+// the kind carries one of its keys.
+var (
+	sourceKeys   = []string{"git_url", "branch", "image", "update_policy", "tag_policy"}
+	buildKeys    = []string{"dockerfile", "build_context", "watch_paths", "build_args", "volumes", "files"}
+	runKeys      = []string{"schedule", "trigger", "timeout_minutes"}
+	runtimeKeys  = []string{"command", "user", "shm_size_mb", "restart_policy", "replicas", "privileged", "devices"}
+	networkKeys  = []string{"port", "endpoint_protocol", "published_ports"}
+	resourceKeys = []string{"cpu_limit", "mem_limit_mb"}
+	healthKeys   = []string{"health_path", "healthcheck_cmd", "healthcheck_interval_s", "healthcheck_timeout_s", "healthcheck_retries", "healthcheck_start_period_s"}
+	startupKeys  = []string{"depends_on"}
+)
+
+type jump struct{ id, label string }
+
+// jumps are v0's section chips over the form, one per drawn section.
+func jumps(s SettingsView) []jump {
+	all := []struct {
+		j    jump
+		keys []string
+	}{
+		{jump{"sec-source", "Source"}, sourceKeys},
+		{jump{"sec-build", "Build"}, buildKeys},
+		{jump{"sec-run", runTitle(s)}, runKeys},
+		{jump{"sec-runtime", "Runtime"}, runtimeKeys},
+		{jump{"sec-network", "Networking"}, networkKeys},
+		{jump{"sec-resources", "Resources"}, resourceKeys},
+		{jump{"sec-health", "Health"}, healthKeys},
+		{jump{"sec-startup", "Startup"}, startupKeys},
+	}
+	var out []jump
+	for _, a := range all {
+		if s.Any(a.keys...) {
+			out = append(out, a.j)
+		}
+	}
+	return out
+}
+
+func runTitle(s SettingsView) string {
+	if s.Has("schedule") {
+		return "Schedule"
+	}
+	return "Trigger"
+}
+
+// Settings is v0's Settings tab: the one form in sections, then what saves
+// on its own (domains, the image watch), then the danger zone.
+templ Settings(v View, s SettingsView) {
+	<div id="tab-settings">
+		<nav class="flex flex-wrap gap-1.5 mb-2 pb-4 border-b border-rw-border" aria-label="Settings sections">
+			for _, j := range jumps(s) {
+				<a href={ templ.SafeURL("#" + j.id) } class="text-xs px-2 py-1 rounded-md bg-rw-inset text-rw-muted hover:text-rw-text transition-colors">{ j.label }</a>
+			}
+		</nav>
+		<form id="tile-settings" hx-post={ v.Base + "/settings" } hx-target={ "#" + Root } hx-swap="outerHTML">
+			<input type="hidden" name="fields" value={ s.Keys() }/>
+			<div class="pt-6">
+				if s.Any(sourceKeys...) {
+					@c.PanelSection("sec-source", "Source", "Where this tile's image comes from.") {
+						@text(s, "git_url", "Git URL", "https://github.com/owner/repo", false)
+						@text(s, "branch", "Branch", "main", false)
+						@text(s, "image", "Image", "nginx:1", true)
+						if s.Has("update_policy") {
+							<div>
+								<label class="label" for="set-update_policy">Update policy (registry watcher)</label>
+								<select id="set-update_policy" name="update_policy" class="input">
+									<option value="manual" selected?={ s.Vals["update_policy"] != "auto" }>Notify on new version</option>
+									<option value="auto" selected?={ s.Vals["update_policy"] == "auto" }>Auto-deploy new versions</option>
+								</select>
+								@c.FieldError("update_policy", s.Errors["update_policy"])
+							</div>
+						}
+						@text(s, "tag_policy", "Tag policy (empty = watch this tag's digest only)", "", true)
+					}
+				}
+				if s.Any(buildKeys...) {
+					@c.PanelSection("sec-build", "Build", "How the image is built and when a push triggers a deploy.") {
+						@text(s, "dockerfile", "Dockerfile path", "Dockerfile", false)
+						@text(s, "build_context", "Build context", ".", false)
+						@area(s, "watch_paths", "Watch paths (regex per line, ! prefix ignores; empty = deploy on any push)", "^apps/web/\n!\\.md$")
+						@area(s, "build_args", "Build args (KEY=VALUE per line)", "ARG=value")
+						@area(s, "volumes", "Volumes (volume:/container/path[:ro] per line)", "pgdata:/var/lib/postgresql/data")
+						@area(s, "files", "Files (repo/path:/container/path[:template] per line, shipped from the git repo at deploy, read-only; :template resolves ${{ }} in the file)", "config/loki.yml:/etc/loki/config.yml")
+					}
+				}
+				if s.Any(runKeys...) {
+					@c.PanelSection("sec-run", runTitle(s), "") {
+						@text(s, "schedule", "Schedule (cron, CRON_TZ= prefix for timezones)", "0 3 * * *", true)
+						if s.Has("trigger") {
+							<div>
+								<label class="label" for="set-trigger">Trigger</label>
+								<select id="set-trigger" name="trigger" class="input">
+									<option value="manual" selected?={ s.Vals["trigger"] != "on_deploy" }>Manual only</option>
+									<option value="on_deploy" selected?={ s.Vals["trigger"] == "on_deploy" }>Manual + after each deploy</option>
+								</select>
+								@c.FieldError("trigger", s.Errors["trigger"])
+							</div>
+						}
+						@number(s, "timeout_minutes", "Max runtime (minutes)", "30", "1")
+					}
+				}
+				if s.Any(runtimeKeys...) {
+					@c.PanelSection("sec-runtime", "Runtime", "How the container itself runs. Changes apply on the next deploy.") {
+						@text(s, "command", "Command (overrides the image CMD; quoted words group, no shell)", "", true)
+						<div class="grid grid-cols-3 gap-2">
+							@text(s, "user", "User (uid[:gid], empty = image default)", "1000:1000", true)
+							@number(s, "shm_size_mb", "Shm size (MB, 0 = default)", "", "1")
+							if s.Has("restart_policy") {
+								<div>
+									<label class="label" for="set-restart_policy">Restart policy</label>
+									<select id="set-restart_policy" name="restart_policy" class="input">
+										<option value="always" selected?={ s.Vals["restart_policy"] != "on-failure" && s.Vals["restart_policy"] != "no" }>Always</option>
+										<option value="on-failure" selected?={ s.Vals["restart_policy"] == "on-failure" }>On failure</option>
+										<option value="no" selected?={ s.Vals["restart_policy"] == "no" }>Never</option>
+									</select>
+									@c.FieldError("restart_policy", s.Errors["restart_policy"])
+								</div>
+							}
+						</div>
+						@number(s, "replicas", "Replicas (a tile with a volume runs one: two writers on one volume corrupt it)", "1", "1")
+						if s.Has("privileged") {
+							<details open?={ s.Vals["privileged"] == "1" || s.Vals["devices"] != "" }>
+								<summary class="text-sm text-rw-muted cursor-pointer select-none">Host access</summary>
+								<div class="mt-2 space-y-3">
+									<label class="text-sm flex items-center gap-2">
+										<input type="checkbox" name="privileged" value="1" checked?={ s.Vals["privileged"] == "1" } class="accent-rw-accent"/>
+										<span>Privileged</span>
+										<span class="text-xs text-rw-danger">full host access: the container can do anything root on the host can</span>
+									</label>
+									@area(s, "devices", "Devices (host[:container[:perms]] per line)", "/dev/kmsg")
+								</div>
+							</details>
+						}
+					}
+				}
+				if s.Any(networkKeys...) {
+					@c.PanelSection("sec-network", "Networking", "How traffic reaches this tile. Domains are managed below, outside this form.") {
+						@number(s, "port", "Container port", "", "1")
+						@text(s, "endpoint_protocol", "Endpoint protocol (the scheme of ${{ tile.<name>.url }}: http, https or tcp)", "http", true)
+						@area(s, "published_ports", "Published ports (host:container per line, bypasses the proxy, applies on next deploy)", "8443:8443")
+					}
+				}
+				if s.Any(resourceKeys...) {
+					@c.PanelSection("sec-resources", "Resources", "Caps for this tile. 0 or empty means no cap of its own: the environment's default applies.") {
+						<div class="grid grid-cols-2 gap-2">
+							@number(s, "cpu_limit", "CPU limit (cores, 0 = unlimited)", "", "any")
+							@number(s, "mem_limit_mb", "Memory limit (MB, 0 = unlimited)", "", "1")
+						</div>
+						<p class="text-xs text-rw-faint">Limits apply on the next deploy.</p>
+					}
+				}
+				if s.Any(healthKeys...) {
+					@c.PanelSection("sec-health", "Health", "Runs as a docker-native HEALTHCHECK: gates deploys and keeps watching after; a failing check turns the tile amber.") {
+						@text(s, "health_path", "Health path (the proxy checks it every 5 s; empty = no check)", "/healthz", true)
+						@text(s, "healthcheck_cmd", "Healthcheck command (optional)", "curl -f http://localhost:8080/health", true)
+						<div class="grid grid-cols-4 gap-2">
+							@number(s, "healthcheck_interval_s", "Interval (s)", "5", "1")
+							@number(s, "healthcheck_timeout_s", "Timeout (s)", "30", "1")
+							@number(s, "healthcheck_retries", "Retries", "3", "1")
+							@number(s, "healthcheck_start_period_s", "Start period (s)", "0", "1")
+						</div>
+					}
+				}
+				if s.Any(startupKeys...) {
+					@c.PanelSection("sec-startup", "Startup", "Bulk starts (config apply) wait on these; a manual deploy of just this tile does not.") {
+						@area(s, "depends_on", "Depends on (tile[:started|healthy|completed] per line)", "db:healthy\nmigrate:completed")
+					}
+				}
+			</div>
+			<div class="pt-6">
+				<button type="submit" class="btn btn-primary">Save settings</button>
+				<p class="text-xs text-rw-faint mt-2">Covers the sections above. Domains and the image below save on their own.</p>
+			</div>
+		</form>
+		if s.Domains != nil {
+			<h3 class="section-title">Domains</h3>
+			@domains(v, *s.Domains)
+		}
+		if s.Image != nil {
+			<h3 class="section-title">Image</h3>
+			@image(v, *s.Image)
+		}
+		@c.DangerZone("Deleting this tile removes its containers, its domains and its run history.", v.Name, "Its volumes are kept, orphaned for the retention window.") {
+			@c.Confirm(deleteConfirm(v))
+		}
+	</div>
+}
+
+func deleteConfirm(v View) c.ConfirmView {
+	d := dialog.Delete(v.Name, v.Base+"/delete", "#"+Root)
+	d.Button = "Delete tile"
+	return d
+}
+
+// text, number and area are v0's field(): a label over one control, the
+// refusal under it. A key the kind does not carry draws nothing.
+templ text(s SettingsView, key, label, placeholder string, mono bool) {
+	if s.Has(key) {
+		<div>
+			<label class="label" for={ "set-" + key }>{ label }</label>
+			<input type="text" id={ "set-" + key } name={ key } value={ s.Vals[key] } placeholder={ placeholder } class={ "input", templ.KV("font-mono", mono) }/>
+			@c.FieldError(key, s.Errors[key])
+		</div>
+	}
+}
+
+templ number(s SettingsView, key, label, placeholder, step string) {
+	if s.Has(key) {
+		<div>
+			<label class="label" for={ "set-" + key }>{ label }</label>
+			<input type="number" id={ "set-" + key } name={ key } value={ s.Vals[key] } placeholder={ placeholder } step={ step } min="0" class="input"/>
+			@c.FieldError(key, s.Errors[key])
+		</div>
+	}
+}
+
+templ area(s SettingsView, key, label, placeholder string) {
+	if s.Has(key) {
+		<div>
+			<label class="label" for={ "set-" + key }>{ label }</label>
+			<textarea id={ "set-" + key } name={ key } rows="2" placeholder={ placeholder } class="input font-mono text-sm">{ s.Vals[key] }</textarea>
+			@c.FieldError(key, s.Errors[key])
+		</div>
+	}
+}
+
+// domains is v0's domainsSection: "+ Add domain" folded, then a panel row
+// per host with its Remove (and an admin's raw Caddy route).
+templ domains(v View, d DomainsView) {
+	<details class="mb-4">
+		<summary class="btn btn-ghost btn-sm cursor-pointer inline-flex items-center gap-1.5 select-none list-none">
+			<span class="text-rw-accentHi">+</span> Add domain
+		</summary>
+		<form hx-post={ v.Base + "/domains" } hx-target={ "#" + Root } hx-swap="outerHTML" class="flex flex-wrap gap-2 mt-3 items-center">
+			<input type="text" name="host" aria-label="Host" placeholder="app.example.com" required class="input !w-56"/>
+			<input type="text" name="path" aria-label="Path prefix" placeholder="/ (path prefix)" title="Route only requests under this path prefix to this tile" class="input !w-32"/>
+			<input type="number" name="port" aria-label="Container port" placeholder="port" min="1" max="65535" class="input !w-24"/>
+			<input type="text" name="redirect_to" aria-label="Redirect to" placeholder="redirect to (optional)" title="Requests to this host 301 to the given host instead of being served" class="input !w-48"/>
+			<label class="text-sm text-rw-muted flex items-center gap-1.5">
+				<input type="checkbox" name="https" value="1" checked class="accent-rw-accent"/> HTTPS
+			</label>
+			<button type="submit" class="btn btn-primary">Add</button>
+		</form>
+	</details>
+	if len(d.Rows) == 0 {
+		<p class="text-rw-muted text-sm">No domains yet.</p>
+	} else {
+		<ul class="space-y-2">
+			for _, r := range d.Rows {
+				<li class="panel px-4 py-3">
+					<div class="flex flex-wrap items-center justify-between gap-2">
+						<span class="text-sm text-rw-text min-w-0">
+							<a href={ templ.SafeURL(scheme(r.HTTPS) + r.Host) } target="_blank" rel="noopener" class="hover:underline hover:text-rw-accentHi transition-colors">{ scheme(r.HTTPS) + r.Host }</a>
+							if r.Path != "" && r.Path != "/" {
+								<span class="font-mono text-rw-faint">{ r.Path }</span>
+							}
+							if r.Redirect != "" {
+								<span class="text-rw-faint">301 → { r.Redirect }</span>
+							} else {
+								<span class="text-rw-faint">→ :{ r.Port }</span>
+							}
+							if r.Auto {
+								<span class="text-xs text-rw-faint ml-1">generated</span>
+							}
+						</span>
+						<span class="flex items-center gap-2 shrink-0 ml-auto">
+							@c.Confirm(c.ConfirmView{
+								Button:  "Remove",
+								Title:   "Remove " + r.Host + "?",
+								Warning: "The proxy stops routing it.",
+								Action:  v.Base + "/domains/" + r.ID + "/detach",
+								Target:  "#" + Root,
+							})
+						</span>
+					</div>
+					if d.Admin {
+						<details class="mt-1" open?={ r.Raw != "" }>
+							<summary class="text-xs text-rw-faint hover:text-rw-text cursor-pointer select-none">Raw Caddy route (admin)</summary>
+							<form hx-post={ v.Base + "/domains/" + r.ID + "/raw" } hx-target={ "#" + Root } hx-swap="outerHTML" class="space-y-2 mt-2">
+								<label class="settings-help" for={ "raw-" + r.ID }>Replaces the generated route verbatim (empty = generated).</label>
+								<textarea id={ "raw-" + r.ID } name="raw_caddy" rows="3" class="input font-mono text-xs">{ r.Raw }</textarea>
+								<button type="submit" class="btn btn-primary btn-sm">Save</button>
+							</form>
+						</details>
 					}
 				</li>
 			}
 		</ul>
-	</div>
+	}
 }
 
-templ Image(v View, i ImageView) {
-	<div class="space-y-4" id="tab-image">
-		<dl class="grid grid-cols-[8rem_1fr] gap-1 text-sm">
-			if !i.Pulls {
-				<dt class="text-slate-500">ref</dt><dd class="font-mono">{ i.Ref }</dd>
-			}
-			<dt class="text-slate-500">running digest</dt><dd class="truncate font-mono">{ orNone(i.Digest) }</dd>
-			<dt class="text-slate-500">latest seen</dt><dd class="truncate font-mono">{ orNone(i.LastDigest) } { i.LastTag }</dd>
-			<dt class="text-slate-500">checked</dt><dd>{ orNone(i.Checked) }</dd>
+// image is what the registry watcher knows of the tile's image.
+templ image(v View, i ImageView) {
+	<div class="panel p-4 space-y-3">
+		<dl class="grid grid-cols-[8rem_1fr] gap-x-3 gap-y-1.5 text-sm">
+			<dt class="text-rw-faint">Image</dt>
+			<dd class="truncate font-mono text-rw-text">{ i.Ref }</dd>
+			<dt class="text-rw-faint">Running digest</dt>
+			<dd class="truncate font-mono text-rw-text" title={ i.Digest }>{ orNone(shortDigest(i.Digest)) }</dd>
+			<dt class="text-rw-faint">Latest seen</dt>
+			<dd class="truncate font-mono text-rw-text" title={ i.LastDigest }>{ orNone(shortDigest(i.LastDigest)) } { i.LastTag }</dd>
+			<dt class="text-rw-faint">Checked</dt>
+			<dd class="text-rw-text">{ orNone(i.Checked) }</dd>
 		</dl>
-		if i.NewVersion {
-			<p class="banner" role="status">A new version is out.</p>
-		}
 		if i.LastError != "" {
-			<p class="text-sm text-red-700 dark:text-red-400">{ i.LastError }</p>
+			<p class="text-xs text-rw-danger">{ i.LastError }</p>
 		}
 		@c.PostButton("Check now", v.Base+"/image/check")
-		<form hx-post={ v.Base + "/image" } hx-target={ "#" + Root } hx-swap="outerHTML" class="space-y-3">
-			if i.Pulls {
-				@c.Field(c.FieldView{Name: "image_ref", Label: "Image", Value: i.Ref, Help: "A new tag runs on the next deploy."})
-			}
-			<div>
-				<label class="label" for="update-policy">On a new version</label>
-				<select id="update-policy" name="update_policy" class="input">
-					<option value="manual" selected?={ i.UpdatePolicy != "auto" }>show the chip, I deploy</option>
-					<option value="auto" selected?={ i.UpdatePolicy == "auto" }>redeploy by itself</option>
-				</select>
-			</div>
-			@c.Field(c.FieldView{Name: "tag_policy", Label: "Tag policy", Value: i.TagPolicy, Help: "Empty = watch the digest of this tag only."})
-			@c.Submit("Save")
-		</form>
 	</div>
 }
 
@@ -175,80 +662,4 @@ func orNone(s string) string {
 		return "none"
 	}
 	return s
-}
-
-templ Runs(v View, r RunsView) {
-	<div class="space-y-4" id="tab-runs">
-		if r.Poll != "" {
-			<span hidden hx-get={ r.Poll } hx-trigger="every 2s" hx-target={ "#" + Root } hx-swap="outerHTML"></span>
-		}
-		<div class="flex gap-2">
-			@c.PostButton("Run now", v.Base+"/run")
-			if r.Cron {
-				<button type="button" class="btn" hx-post={ v.Base + "/pause" } hx-vals={ pauseVals(!r.Paused) } hx-target={ "#" + Root } hx-swap="outerHTML">
-					if r.Paused {
-						Resume schedule
-					} else {
-						Pause schedule
-					}
-				</button>
-			}
-		</div>
-		if len(r.Rows) == 0 {
-			<p class="text-sm text-slate-500">Never run.</p>
-		}
-		<ul class="space-y-2 text-sm">
-			for _, x := range r.Rows {
-				<li class="flex flex-wrap items-center gap-2">
-					@c.JobBadge(x.Status)
-					<span class="text-slate-500">{ x.Trigger }</span>
-					<span>{ x.Started }</span>
-					<span class="text-slate-500">{ x.Took }</span>
-					if x.Exit != "" {
-						<span class="text-slate-500">exit { x.Exit }</span>
-					}
-					<a
-						href={ templ.SafeURL("?drawer=" + v.Node + "&tab=logs&run=" + x.ID) }
-						hx-get={ v.Base + "?tab=logs&run=" + x.ID }
-						hx-target={ "#" + Root }
-						hx-swap="outerHTML"
-						hx-push-url={ "?drawer=" + v.Node + "&tab=logs&run=" + x.ID }
-						class="link"
-					>log</a>
-					if x.Live {
-						@c.PostButton("Stop", v.Base+"/runs/"+x.ID+"/stop")
-					}
-				</li>
-			}
-		</ul>
-	</div>
-}
-
-func pauseVals(paused bool) string {
-	if paused {
-		return `{"paused":"true"}`
-	}
-	return `{"paused":"false"}`
-}
-
-templ Backups(v View, b BackupsView) {
-	<div id="tab-backups">
-		if len(b.Rows) == 0 {
-			<p class="text-sm text-slate-500">This tile mounts no volumes.</p>
-		}
-		<ul class="space-y-2 text-sm">
-			for _, r := range b.Rows {
-				<li class="flex items-center gap-2">
-					<a
-						href={ templ.SafeURL("?drawer=" + r.ID + "&tab=backups") }
-						hx-get={ r.Drawer }
-						hx-target="#drawer-body"
-						hx-push-url={ "?drawer=" + r.ID + "&tab=backups" }
-						class="link font-mono"
-					>{ r.Name }</a>
-					<span class="text-slate-500">{ r.State }</span>
-				</li>
-			}
-		</ul>
-	</div>
 }

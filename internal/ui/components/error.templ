@@ -12,8 +12,9 @@ func ErrorPage(code int, message string) templ.Component {
 }
 
 templ errorBody(code int, message string) {
-	<div class="card max-w-lg mx-auto mt-16 text-center">
-		<h1 class="text-5xl font-bold mb-2">{ strconv.Itoa(code) }</h1>
-		<p class="text-slate-500">{ message }</p>
+	<div class="w-full max-w-lg mx-auto mt-16 text-center panel p-8">
+		<h1 class="text-5xl font-bold text-rw-text mb-2">{ strconv.Itoa(code) }</h1>
+		<p class="text-rw-muted mb-6">{ message }</p>
+		<a href="/" class="btn btn-ghost">Back home</a>
 	</div>
 }

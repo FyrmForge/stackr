@@ -1,17 +1,20 @@
 package components
 
+import "strings"
+
 // SettingsFormView is one rung of the settings cascade (server, org, stack,
 // env), one row per catalogue knob the rung may set. The same shape at
 // every level; the service answers what applies and who decided it.
 type SettingsFormView struct {
 	ID       string // form id, unique on the page
 	Action   string
-	Scope    string // the rung being edited, for the heading
+	Scope    string // the rung being edited, for the legend
 	Rows     []SettingRowView
 	ReadOnly bool
 	Why      string
 	Error    string // a refusal no one row owns
 	Note     string // what a save did
+	Flat     bool   // one list, no section heads: a Section around it titles it
 }
 
 // SettingRowView mirrors a settings.Knob plus the cascade's answer.
@@ -20,14 +23,103 @@ type SettingRowView struct {
 	Desc      string
 	Type      string // int | float | bool | string
 	Value     string // this rung's value; "" = inherit
-	Effective string // what applies here
+	Effective string // what applies here ("set" / "not set" for a secret)
 	DecidedBy string // the rung it comes from
+	Secret    bool   // never echoed: a password box, blank keeps it
 	Error     string
+}
+
+// knob is how v0 spells a catalogue key and the section it sits in.
+type knob struct{ label, section string }
+
+var knobs = map[string]knob{
+	"cpu_limit":                  {"CPU limit (cores)", "Resources"},
+	"mem_limit_mb":               {"Memory limit (MB)", "Resources"},
+	"protect":                    {"Password protect URLs", "Protect"},
+	"protect_user":               {"Protect user", "Protect"},
+	"protect_password":           {"Protect password", "Protect"},
+	"workers":                    {"Job workers", "Jobs"},
+	"backup_run_concurrency":     {"Backups at once", "Jobs"},
+	"backup_restore_concurrency": {"Restores at once", "Jobs"},
+	"image_check_interval":       {"Image check interval (minutes)", "Images"},
+	"cleanup_enabled":            {"Nightly cleanup", "Images"},
+	"orphan_retention_days":      {"Orphan retention (days)", "Volumes"},
+	"panel_domain":               {"Panel domain", "Panel and proxy"},
+	"acme_email":                 {"ACME email", "Panel and proxy"},
+	"trusted_proxies":            {"Trusted proxies", "Panel and proxy"},
+	"dns_provider":               {"DNS provider", "Panel and proxy"},
+	"dns_env":                    {"DNS credentials", "Panel and proxy"},
+	"proxy_custom":               {"Custom Caddy config", "Panel and proxy"},
+}
+
+var knobSections = []string{"Resources", "Protect", "Jobs", "Images", "Volumes", "Panel and proxy", "Other"}
+
+func knobLabel(key string) string {
+	if k, ok := knobs[key]; ok {
+		return k.label
+	}
+	return key
+}
+
+// sectioned groups the rows by v0 section, in section order; a key the
+// table does not know lands in "Other".
+func sectioned(rows []SettingRowView) [][]SettingRowView {
+	by := map[string][]SettingRowView{}
+	for _, r := range rows {
+		s := "Other"
+		if k, ok := knobs[r.Key]; ok {
+			s = k.section
+		}
+		by[s] = append(by[s], r)
+	}
+	var out [][]SettingRowView
+	for _, s := range knobSections {
+		if len(by[s]) > 0 {
+			out = append(out, by[s])
+		}
+	}
+	return out
+}
+
+func sectionOf(rows []SettingRowView) string {
+	if k, ok := knobs[rows[0].Key]; ok {
+		return k.section
+	}
+	return "Other"
+}
+
+// sentence is a catalogue description as help text.
+func sentence(s string) string {
+	if s == "" {
+		return ""
+	}
+	s = strings.ToUpper(s[:1]) + s[1:]
+	if !strings.HasSuffix(s, ".") {
+		s += "."
+	}
+	return s
+}
+
+// from names the rung a value comes from, as v0's Inherited says it.
+func from(rung string) string {
+	if rung == "" || rung == "default" {
+		return "the built-in default"
+	}
+	return "the " + rung
+}
+
+func onOff(v string) string {
+	switch v {
+	case "true":
+		return "on"
+	case "false":
+		return "off"
+	}
+	return v
 }
 
 templ SettingsForm(v SettingsFormView) {
 	<form id={ v.ID } hx-post={ v.Action } hx-target={ "#" + v.ID } hx-swap="outerHTML" class="space-y-4">
-		<h2 class="font-semibold">{ v.Scope } settings</h2>
 		if v.ReadOnly {
 			<p class="banner">{ v.Why }</p>
 		}
@@ -35,27 +127,72 @@ templ SettingsForm(v SettingsFormView) {
 		if v.Note != "" {
 			<p class="banner" role="status">{ v.Note }</p>
 		}
-		<fieldset disabled?={ v.ReadOnly } class="space-y-4">
+		<fieldset disabled?={ v.ReadOnly }>
 			<legend class="sr-only">{ v.Scope } settings</legend>
-			for _, r := range v.Rows {
-				<div>
-					<label for={ v.ID + "-" + r.Key } class="label font-mono">{ r.Key }</label>
-					if r.Type == "bool" {
-						<select id={ v.ID + "-" + r.Key } name={ r.Key } class="input">
-							<option value="" selected?={ r.Value == "" }>inherit ({ r.Effective })</option>
-							<option value="true" selected?={ r.Value == "true" }>true</option>
-							<option value="false" selected?={ r.Value == "false" }>false</option>
-						</select>
-					} else {
-						<input id={ v.ID + "-" + r.Key } name={ r.Key } type={ knobInput(r.Type) } step={ knobStep(r.Type) } value={ r.Value } placeholder={ "inherit (" + r.Effective + ")" } class="input"/>
+			if v.Flat {
+				<div class="space-y-4">
+					for _, r := range v.Rows {
+						@settingRow(v.ID, r)
 					}
-					<p class="mt-1 text-xs text-slate-500">{ r.Desc } · applies: { r.Effective } from { r.DecidedBy }</p>
-					@FieldError(r.Key, r.Error)
+				</div>
+			} else {
+				for _, rows := range sectioned(v.Rows) {
+					@PanelSection(v.ID+"-"+strings.ReplaceAll(strings.ToLower(sectionOf(rows)), " ", "-"), sectionOf(rows), "") {
+						for _, r := range rows {
+							@settingRow(v.ID, r)
+						}
+					}
+				}
+			}
+			if !v.ReadOnly {
+				<div class="flex items-center gap-3 pt-6">
+					<button type="submit" class="btn btn-primary btn-sm">Save</button>
 				</div>
 			}
-			@Submit("Save")
 		</fieldset>
 	</form>
+}
+
+templ settingRow(form string, r SettingRowView) {
+	<div>
+		<label for={ form + "-" + r.Key } class="settings-label">{ knobLabel(r.Key) }</label>
+		switch {
+			case r.Type == "bool":
+				<select id={ form + "-" + r.Key } name={ r.Key } class="input">
+					<option value="" selected?={ r.Value == "" }>Inherit ({ onOff(r.Effective) })</option>
+					<option value="true" selected?={ r.Value == "true" }>On</option>
+					<option value="false" selected?={ r.Value == "false" }>Off</option>
+				</select>
+			case r.Secret:
+				<input id={ form + "-" + r.Key } name={ r.Key } type="password" value="" placeholder={ secretHint(r.Effective) } autocomplete="new-password" class="input font-mono"/>
+			default:
+				<input id={ form + "-" + r.Key } name={ r.Key } type={ knobInput(r.Type) } step={ knobStep(r.Type) } value={ r.Value } placeholder="inherit" class="input"/>
+		}
+		if r.Secret {
+			<span class="settings-help">{ secretHelp(r.Effective) }</span>
+		} else if r.Value == "" && r.Effective != "" {
+			@Inherited(onOff(r.Effective), from(r.DecidedBy))
+		}
+		if r.Desc != "" {
+			<span class="settings-help">{ sentence(r.Desc) }</span>
+		}
+		@FieldError(r.Key, r.Error)
+	</div>
+}
+
+// A stored secret is never rendered: blank keeps it (v0 ProtectFields).
+func secretHint(effective string) string {
+	if effective == "set" {
+		return "unchanged"
+	}
+	return "not set"
+}
+
+func secretHelp(effective string) string {
+	if effective == "set" {
+		return "Set. Type a new one to replace it."
+	}
+	return "Not set."
 }
 
 func knobInput(t string) string {

@@ -27,7 +27,7 @@ type User struct {
 type UpdateView struct {
 	Version  string
 	Checked  bool
-	Latest   string
+	Latest   string // "" after a check = a dev build
 	Newer    bool
 	CheckErr string
 	Run      c.ConfirmView // Action "" = may not run
@@ -40,10 +40,13 @@ type CaddyView struct {
 	Value  string
 }
 
+// BackupsView is v0's admin backups: the install's destinations, then the
+// panel's own database.
 type BackupsView struct {
-	Now  string // POST; "" = may not
-	Job  *c.JobStatusView
-	Rows []Backup
+	Dests c.DestsView
+	Now   string // POST; "" = may not
+	Job   *c.JobStatusView
+	Rows  []Backup
 }
 
 type Backup struct{ Status, Trigger, When, Size, Error string }
@@ -51,26 +54,47 @@ type Backup struct{ Status, Trigger, When, Size, Error string }
 func target() string { return "#" + c.DrawerRoot }
 
 templ Users(v UsersView) {
-	<ul class="divide-y divide-slate-200 text-sm dark:divide-slate-800" id="tab-users">
-		for _, u := range v.Rows {
-			<li class="flex flex-wrap items-center gap-2 py-2">
-				<span class="flex-1">{ u.Email } <span class="text-slate-500">{ u.Name }</span></span>
-				if u.Admin {
-					@c.Pill("admin", "busy")
+	<div id="tab-users">
+		@c.Section("Users", "instance", "Server admins bypass every organization check. To invite someone to an organization, use that organization's settings.") {
+			<ul class="space-y-2">
+				for _, u := range v.Rows {
+					<li class="panel px-4 py-3 text-sm flex flex-wrap items-center gap-2">
+						<span class="text-rw-text">{ nameOr(u.Name, u.Email) }</span>
+						if u.Name != "" {
+							<span class="text-rw-faint">{ u.Email }</span>
+						}
+						if u.Admin {
+							@c.Chip("admin", "accent")
+						}
+						if !u.Active {
+							@c.Chip("disabled", "danger")
+						}
+						<span class="ml-auto flex items-center gap-2">
+							if u.Promote != "" {
+								@c.PostButton(promoteLabel(u.Admin), u.Promote)
+							}
+							if u.Disable != "" {
+								@c.Confirm(c.ConfirmView{
+									Button:  "Disable",
+									Title:   "Disable " + u.Email + "?",
+									Warning: "Their sessions and API keys stop working at once.",
+									Action:  u.Disable,
+									Target:  target(),
+								})
+							}
+						</span>
+					</li>
 				}
-				if !u.Active {
-					@c.Pill("disabled", "")
-				}
-				if u.Promote != "" {
-					@c.PostButton(promoteLabel(u.Admin), u.Promote)
-				}
-				if u.Disable != "" {
-					@c.Confirm(c.ConfirmView{Button: "Disable", Title: "Disable " + u.Email,
-						Warning: "Their sessions and API keys stop working at once.", Action: u.Disable, Target: target()})
-				}
-			</li>
+			</ul>
 		}
-	</ul>
+	</div>
+}
+
+func nameOr(name, email string) string {
+	if name != "" {
+		return name
+	}
+	return email
 }
 
 func promoteLabel(admin bool) string {
@@ -81,59 +105,84 @@ func promoteLabel(admin bool) string {
 }
 
 templ Update(v UpdateView) {
-	<div class="space-y-4 text-sm" id="tab-update">
-		<p>Running <span class="font-mono">{ v.Version }</span>.</p>
-		if v.CheckErr != "" {
-			<p class="banner" role="status">Could not check for an update: { v.CheckErr }</p>
-		} else if v.Checked && v.Newer {
-			<p class="flex items-center gap-2">@c.Pill("update available", "warn") <span class="font-mono">{ v.Latest }</span></p>
-			if v.Run.Action != "" {
-				@c.Confirm(v.Run)
-			}
-		} else if v.Checked {
-			<p>Up to date (latest release <span class="font-mono">{ v.Latest }</span>).</p>
+	<div id="tab-update">
+		@c.Section("Update", "instance", "Backs up the panel, then restarts it on the new release.") {
+			<div class="space-y-3 text-sm">
+				<p class="text-rw-text">Running <span class="font-mono">{ v.Version }</span></p>
+				if v.CheckErr != "" {
+					<p class="text-rw-danger" role="status">Could not check for an update: { v.CheckErr }</p>
+				} else if v.Checked && v.Latest == "" {
+					<p class="text-rw-muted">Dev build, no upgrades.</p>
+				} else if v.Checked && v.Newer {
+					<p class="flex items-center gap-2">
+						@c.Chip("update available", "warn")
+						<span class="font-mono text-rw-text">{ v.Latest }</span>
+					</p>
+					if v.Run.Action != "" {
+						@c.Confirm(v.Run)
+					}
+				} else if v.Checked {
+					<p class="text-rw-muted">Up to date: <span class="font-mono">{ v.Latest }</span> is the latest release.</p>
+				}
+				if v.Job != nil {
+					@c.JobStatus(*v.Job)
+				}
+				if !v.Checked {
+					@c.PostButton("Check for update", Base+"/update/check")
+				}
+			</div>
 		}
-		if v.Job != nil {
-			@c.JobStatus(*v.Job)
-		}
-		@c.PostButton("Check for update", Base+"/update/check")
 	</div>
 }
 
 templ Caddy(v CaddyView) {
-	<div class="space-y-4" id="tab-caddy">
-		<form hx-post={ v.Action } hx-target={ target() } hx-swap="outerHTML" class="space-y-3">
-			<label for="proxy_custom" class="label">Extra Caddy config (proxy_custom)</label>
-			<textarea id="proxy_custom" name="proxy_custom" rows="12" class="input font-mono text-xs" disabled?={ v.Action == "" }>{ v.Value }</textarea>
-			<p class="text-xs text-slate-500">Stored for the proxy; the proxy builder does not read it yet. Per-domain raw Caddy lives in a tile's domains tab.</p>
-			if v.Action != "" {
-				@c.Submit("Save")
+	<div id="tab-caddy">
+		@c.Section("Extra Caddy config", "instance", "Stored for the proxy; the proxy builder does not read it yet. Per-domain raw Caddy lives in a tile's domains tab.") {
+			<form hx-post={ v.Action } hx-target={ target() } hx-swap="outerHTML" class="space-y-3">
+				<label for="proxy_custom" class="sr-only">Extra Caddy config (proxy_custom)</label>
+				<textarea id="proxy_custom" name="proxy_custom" rows="12" class="input font-mono text-xs" disabled?={ v.Action == "" }>{ v.Value }</textarea>
+				if v.Action != "" {
+					<button type="submit" class="btn btn-primary btn-sm">Save</button>
+				}
+			</form>
+			if v.Sync != "" {
+				<div class="mt-5 pt-5 border-t border-rw-border">
+					@c.PostButton("Re-push the proxy config", v.Sync)
+				</div>
 			}
-		</form>
-		if v.Sync != "" {
-			@c.PostButton("Re-push the proxy config", v.Sync)
 		}
 	</div>
 }
 
 templ Backups(v BackupsView) {
-	<div class="space-y-4" id="tab-backups">
-		<p class="text-sm text-slate-500">The panel's own database, archived by the backup job.</p>
-		if v.Now != "" {
-			@c.PostButton("Back up now", v.Now)
+	<div id="tab-backups">
+		@c.Dests(v.Dests)
+		@c.Section("Stackr's own database", "instance", "A consistent copy of the panel database, taken while it is serving. The archive carries the master key that decrypts every secret in it, so keep it somewhere private. Restore it on the host with stackr-install restore.") {
+			<div class="space-y-3">
+				if v.Now != "" {
+					@c.PostButton("Back up now", v.Now)
+				}
+				if v.Job != nil {
+					@c.JobStatus(*v.Job)
+				}
+				if len(v.Rows) == 0 {
+					<p class="text-sm text-rw-muted">No panel backups yet.</p>
+				} else {
+					<ul class="space-y-2">
+						for _, b := range v.Rows {
+							<li class="panel px-4 py-3 text-sm flex flex-wrap items-center gap-2">
+								@c.JobBadge(b.Status)
+								<span class="text-rw-text">{ b.When }</span>
+								<span class="text-rw-faint">{ b.Trigger }</span>
+								if b.Error != "" {
+									<span class="text-xs text-rw-danger">{ b.Error }</span>
+								}
+								<span class="ml-auto font-mono text-xs text-rw-muted">{ b.Size }</span>
+							</li>
+						}
+					</ul>
+				}
+			</div>
 		}
-		if v.Job != nil {
-			@c.JobStatus(*v.Job)
-		}
-		@c.Table(c.TableView{Headers: []string{"When", "Status", "Trigger", "Size", "Error"}, Rows: backupRows(v.Rows),
-			Empty: c.EmptyView{Title: "No panel backups yet"}})
 	</div>
-}
-
-func backupRows(bs []Backup) [][]templ.Component {
-	rows := make([][]templ.Component, 0, len(bs))
-	for _, b := range bs {
-		rows = append(rows, []templ.Component{c.Text(b.When), c.Text(b.Status), c.Text(b.Trigger), c.Text(b.Size), c.Text(b.Error)})
-	}
-	return rows
 }

@@ -29,7 +29,7 @@ templ Form(id, action string) {
 // FormError is the form-wide message (the "general" key of the errors map).
 templ FormError(msg string) {
 	if msg != "" {
-		<div class="banner border-red-300 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300" role="alert">{ msg }</div>
+		<div class="banner banner-danger" role="alert">{ msg }</div>
 	}
 }
 
@@ -52,9 +52,9 @@ templ Field(f FieldView) {
 			}
 		/>
 		if f.Disabled {
-			<p class="mt-1 text-xs text-slate-500">{ f.Why }</p>
+			<p class="mt-1.5 text-xs text-rw-faint">{ f.Why }</p>
 		} else if f.Help != "" {
-			<p class="mt-1 text-xs text-slate-500">{ f.Help }</p>
+			<p class="mt-1.5 text-xs text-rw-faint">{ f.Help }</p>
 		}
 		@FieldError(f.Name, f.Error)
 	</div>
@@ -84,10 +84,102 @@ func inputType(t string) string {
 }
 
 // AuthCard is the narrow centred card the signed-out and first-run pages
-// (login, register, setup, invite, CLI authorize) sit in.
-templ AuthCard(title string) {
-	<section class="card mx-auto mt-12 max-w-md space-y-4 p-6">
-		<h1 class="text-xl font-semibold">{ title }</h1>
+// (login, register, setup, invite, CLI authorize) sit in: v0's login look,
+// the logo row over a panel, the title and v0's one-line subtitle (sub,
+// nil = none). .auth-card spaces its form like v0's.
+templ AuthCard(title string, sub templ.Component) {
+	<div class="w-full max-w-md mx-auto pt-24 px-6">
+		<div class="flex items-center gap-2.5 justify-center mb-8">
+			<img src={ StaticURL("images/logo-mark.png") } alt="" class="h-10 w-10"/>
+			<span class="text-xl font-semibold text-rw-text">stackr</span>
+		</div>
+		<section class="auth-card panel p-8 shadow-rw">
+			if sub != nil {
+				<h1 class="text-lg font-semibold text-rw-text mb-1 text-center">{ title }</h1>
+				<p class="text-sm text-rw-muted text-center mb-6">
+					@sub
+				</p>
+			} else {
+				<h1 class="text-lg font-semibold text-rw-text mb-6 text-center">{ title }</h1>
+			}
+			<div class="space-y-4">
+				{ children... }
+			</div>
+		</section>
+	</div>
+}
+
+// Section is v0's settings card (form.Section): a titled panel, its scope
+// chip ("org", "stack") and one help line over the controls.
+templ Section(title, scope, help string) {
+	<section class="panel p-6 mb-6">
+		<div class="flex items-baseline gap-3 mb-1">
+			<h2 class="text-base font-semibold text-rw-text tracking-tight">{ title }</h2>
+			if scope != "" {
+				<span class="settings-scope">{ scope }</span>
+			}
+		</div>
+		if help != "" {
+			<p class="text-sm text-rw-muted mb-4 max-w-2xl">{ help }</p>
+		} else {
+			<div class="mb-4"></div>
+		}
 		{ children... }
 	</section>
+}
+
+// DangerSection is Section in the danger palette, always last on a page
+// (v0 ConfirmDanger): what goes, the path it lives at, what is kept, then
+// the button that opens the typed confirm (children).
+templ DangerSection(warning, path, kept string) {
+	<section class="panel p-6 mb-6 border-rw-danger/40">
+		<h2 class="text-base font-semibold text-rw-danger tracking-tight mb-4">Danger zone</h2>
+		<p class="text-sm text-rw-text mb-1">{ warning }</p>
+		if path != "" {
+			<p class="text-xs text-rw-faint font-mono mb-1">{ path }</p>
+		}
+		if kept != "" {
+			<p class="text-xs text-rw-faint mb-3">{ kept }</p>
+		}
+		<div class="mt-3">
+			{ children... }
+		</div>
+	</section>
+}
+
+// PanelSection is a titled block inside a drawer's settings tab (v0
+// panelSection): a hairline over each block after the first.
+templ PanelSection(id, title, help string) {
+	<section id={ id } class="pt-6 mt-6 border-t border-rw-border first:pt-0 first:mt-0 first:border-0">
+		<h4 class="text-xs font-semibold uppercase tracking-wide text-rw-faint mb-1">{ title }</h4>
+		if help != "" {
+			<p class="text-xs text-rw-faint mb-3">{ help }</p>
+		} else {
+			<div class="mb-3"></div>
+		}
+		<div class="space-y-4">
+			{ children... }
+		</div>
+	</section>
+}
+
+// DangerZone is a drawer's inline delete (v0 ConfirmDanger's place and
+// words); its button opens the typed confirm (children).
+templ DangerZone(warning, path, kept string) {
+	<div class="mt-8 pt-6 border-t border-rw-border">
+		<p class="text-sm text-rw-text mb-1">{ warning }</p>
+		if path != "" {
+			<p class="text-xs text-rw-faint font-mono mb-1">{ path }</p>
+		}
+		if kept != "" {
+			<p class="text-xs text-rw-faint mb-3">{ kept }</p>
+		}
+		{ children... }
+	</div>
+}
+
+// Inherited is the line under a field left empty: what applies and where
+// it comes from.
+templ Inherited(value, from string) {
+	<span class="settings-help">inherits { value } from { from }</span>
 }

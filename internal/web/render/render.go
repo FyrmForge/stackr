@@ -23,16 +23,18 @@ import (
 )
 
 // Page renders body inside the layout for a plain request, and as the #main
-// fragment (title, header and flash out of band) for an htmx navigation. A
-// history restore asks for the whole page, so it gets one.
+// fragment (title, rail, top bar and flash out of band) for an htmx
+// navigation. A history restore asks for the whole page, so it gets one.
 func Page(c echo.Context, status int, title string, body templ.Component) error {
-	return PageWith(c, status, title, body, nil)
+	return PageWith(c, status, title, body, nil, nil)
 }
 
-// PageWith is Page with the drawer a fresh load of ?drawer=&tab= opens
+// PageWith is Page with the top bar's actions (nil = none; they show only
+// where the bar does) and the drawer a fresh load of ?drawer=&tab= opens
 // (nil = none). An htmx navigation leaves the drawer to its own GET.
-func PageWith(c echo.Context, status int, title string, body, drawer templ.Component) error {
+func PageWith(c echo.Context, status int, title string, body, actions, drawer templ.Component) error {
 	s := Shell(c, title)
+	s.Actions = actions
 	if drawer == nil && s.Admin && c.QueryParam("drawer") == "admin" {
 		drawer = components.DrawerLoad("/-/admin?tab=" + url.QueryEscape(c.QueryParam("tab")))
 	}
@@ -59,6 +61,7 @@ func Shell(c echo.Context, title string) components.Shell {
 	path := c.Request().URL.Path
 	if p := middleware.Principal(c); p != nil {
 		s.User = p.User.Email
+		s.Theme = p.User.Theme
 		s.Nav = append(s.Nav, link("Orgs", "/", path), link("Account", "/account", path))
 		s.Admin = p.Access.Admin
 	}
@@ -73,14 +76,40 @@ func Shell(c echo.Context, title string) components.Shell {
 		s.Crumbs = append(s.Crumbs, link(sc.Stack.Name, href, path))
 	}
 	if sc.Env != nil {
+		hues := service.EnvHues(sc.Envs)
+		for _, e := range sc.Envs {
+			l := link(e.Name, href+"/"+e.Slug, path)
+			l.Color = hues[e.ID]
+			s.Envs = append(s.Envs, l)
+		}
 		href += "/" + sc.Env.Slug
 		s.Crumbs = append(s.Crumbs, link(sc.Env.Name, href, path))
+		s.EnvColor = hues[sc.Env.ID]
+		if s.EnvColor == "" { // a scope built without its env list
+			s.EnvColor = sc.Env.Color
+		}
 	}
 	if sc.Tile != nil {
 		href += "/" + sc.Tile.Slug
 		s.Crumbs = append(s.Crumbs, link(sc.Tile.Name, href, path))
 	}
+	if sc.Tile == nil && href != "" && path == href { // a level's canvas: its own drawer
+		s.Settings = href + "/-/drawer"
+	}
 	return s
+}
+
+// Theme puts the viewer's theme on the request context, so the error page
+// (hamr renders it with no echo.Context) draws in it too. Mount after
+// Access.Load.
+func Theme(next echo.HandlerFunc) echo.HandlerFunc {
+	return func(c echo.Context) error {
+		if p := middleware.Principal(c); p != nil {
+			r := c.Request()
+			c.SetRequest(r.WithContext(components.WithTheme(r.Context(), p.User.Theme)))
+		}
+		return next(c)
+	}
 }
 
 // link is active when the URL is its page or below it; "/" only on itself.

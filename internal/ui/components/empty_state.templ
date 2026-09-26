@@ -9,10 +9,10 @@ type EmptyView struct {
 }
 
 templ EmptyState(e EmptyView) {
-	<div class="rounded-lg border border-dashed border-slate-300 px-6 py-10 text-center dark:border-slate-700">
-		<p class="font-medium">{ e.Title }</p>
+	<div class="rounded-lg border border-dashed border-rw-border px-6 py-10 text-center">
+		<p class="font-medium text-rw-text">{ e.Title }</p>
 		if e.Body != "" {
-			<p class="mt-1 text-sm text-slate-500">{ e.Body }</p>
+			<p class="mt-1 text-sm text-rw-muted">{ e.Body }</p>
 		}
 		if e.Action.Href != "" {
 			<a href={ templ.SafeURL(e.Action.Href) } hx-get={ e.Action.Href } hx-target="#main" hx-push-url="true" class="btn btn-primary mt-4">{ e.Action.Label }</a>

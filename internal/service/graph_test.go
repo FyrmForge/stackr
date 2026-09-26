@@ -3,6 +3,7 @@ package service_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sort"
 	"strings"
 	"testing"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/FyrmForge/stackr/internal/service"
 	"github.com/FyrmForge/stackr/internal/service/errs"
+	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 	"github.com/FyrmForge/stackr/internal/service/servicetest"
 )
@@ -239,8 +241,8 @@ func TestCanvasHome(t *testing.T) {
 		t.Fatalf("home cards = %s, want %s", got, want)
 	}
 	ns := nodes(v)
-	if a := ns["org:"+w.acme]; a.Status != "error" || a.Slug != "acme" || a.Detail != "1 stack" {
-		t.Errorf("acme = %+v, want worst-of error, slug acme, 1 stack", a)
+	if a := ns["org:"+w.acme]; a.Status != "error" || a.Slug != "acme" || a.Detail != "1 stack · 1 member" {
+		t.Errorf("acme = %+v, want worst-of error, slug acme, 1 stack · 1 member", a)
 	}
 	if b := ns["org:"+w.beta]; b.Status != "" || b.X == ns["org:"+w.acme].X && b.Y == ns["org:"+w.acme].Y {
 		t.Errorf("beta = %+v: no tiles, no status, and its own grid cell", b)
@@ -262,14 +264,26 @@ func TestCanvasOrg(t *testing.T) {
 	}
 	ns := nodes(v)
 	st := ns["stack:"+w.shop]
-	if st.Status != "error" || st.Detail != "2 envs" || st.Deck != 1 {
-		t.Errorf("shop = %+v, want error, 2 envs, deck 1", st)
+	if st.Status != "error" || st.Detail != "2 environments" || st.Deck != 2 {
+		t.Errorf("shop = %+v, want error, 2 environments, deck 2", st)
 	}
-	if c := ns["connector:"+w.conn]; c.Kind != "connector" || c.X >= st.X {
-		t.Errorf("connector = %+v, want a card left of the stacks", c)
+	// The shop has a domain: the proxy stands behind the wall in front of
+	// it (v0), and the connector lays out with the workloads.
+	if p := ns["proxy"]; !p.System || p.Status != "running" || !v.Walled || p.X+p.W > v.Divider {
+		t.Errorf("proxy = %+v divider %d, want a running system card behind the wall", p, v.Divider)
+	}
+	if c := ns["connector:"+w.conn]; c.Kind != "connector" || c.X <= v.Divider || st.X <= v.Divider {
+		t.Errorf("connector = %+v, shop x %d, divider %d: want both right of the wall", c, st.X, v.Divider)
+	}
+	if len(st.Domains) != 1 {
+		t.Errorf("shop domains = %v, want its one tile domain", st.Domains)
+	}
+	if _, ok := ns["vars"]; ok {
+		t.Error("org has no params, yet a vars card is drawn (v0 drew none)")
 	}
 	want := []string{
 		"config connector:" + w.conn + " stack:" + w.shop,
+		"ingress proxy stack:" + w.shop,
 		"source connector:" + w.conn + " stack:" + w.shop,
 	}
 	if got := edges(v); strings.Join(got, "|") != strings.Join(want, "|") {
@@ -291,14 +305,14 @@ func TestCanvasStack(t *testing.T) {
 	if d := ns["env:"+w.dev]; d.Color != "#0a0" || d.Status != "error" || d.Slug != "dev" {
 		t.Errorf("dev = %+v", d)
 	}
-	if p := ns["env:"+w.prod]; p.Status != "" {
-		t.Errorf("prod has no tiles, status = %q", p.Status)
+	if p := ns["env:"+w.prod]; p.Status != "" || p.Detail != "0 tiles" {
+		t.Errorf("prod has no tiles, status = %q, detail = %q", p.Status, p.Detail)
 	}
 	if vars := ns["vars"]; vars.Params != 1 || vars.Secrets != 0 {
 		t.Errorf("stack vars = %+v, want 1 param", vars)
 	}
-	if got := edges(v); len(got) != 1 || got[0] != "shared vars env:"+w.dev {
-		t.Errorf("stack edges = %v, want vars -> dev only (prod reads nothing)", got)
+	if got, want := strings.Join(edges(v), "|"), "ingress proxy env:"+w.dev+"|shared vars env:"+w.dev; got != want {
+		t.Errorf("stack edges = %v, want the proxy and vars -> dev only (prod has no domain, reads nothing)", got)
 	}
 	if len(v.Compare) != 2 || v.Compare[0].Release != 2 || v.Compare[1].Release != 1 || !v.Compare[1].Behind ||
 		v.Compare[0].Behind {
@@ -313,6 +327,9 @@ func TestCanvasEnv(t *testing.T) {
 	v, err := w.e.Orch.Canvas(ctx, s, service.ShowAll)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if len(v.Compare) != 2 || v.Compare[0].Slug != "dev" || v.Compare[1].Slug != "prod" {
+		t.Errorf("compare = %+v, want the pill here too: dev then prod", v.Compare)
 	}
 	// Env node ids are row ids (the Traffic verb's lane ends); name them back.
 	name := strings.NewReplacer(w.api, "api", w.worker, "worker", w.web, "web", w.pg, "pg", w.provision, "slice",
@@ -341,7 +358,7 @@ func TestCanvasEnv(t *testing.T) {
 	ns := nodes(v)
 	api := ns[w.api]
 	if api.Status != "error" || len(api.Domains) != 1 || len(api.Subs) != 1 || api.Subs[0].ID != w.vols["uploads"] ||
-		api.H != 96+30 || api.Detail != "api" {
+		api.H != 96 || api.Detail != "api" {
 		t.Errorf("api = %+v", api)
 	}
 	if sl := ns[w.provision]; len(sl.Subs) != 1 || sl.Subs[0].ID != w.pg {
@@ -350,19 +367,25 @@ func TestCanvasEnv(t *testing.T) {
 	if g := ns["ref:stack.cache"]; !g.Static || g.Kind != "ref" {
 		t.Errorf("ghost = %+v, want a static ref card", g)
 	}
-	if p := ns["proxy"]; !p.System || v.Divider == 0 || p.X+p.W > v.Divider {
+	if p := ns["proxy"]; !p.System || !v.Walled || p.X+p.W > v.Divider || p.Status != "running" {
 		t.Errorf("proxy = %+v divider %d, want a system card behind the wall", p, v.Divider)
 	}
 	for _, n := range v.Nodes {
 		if !n.System && n.X < v.Divider {
 			t.Errorf("%s at x %d, inside the system column (divider %d)", n.ID, n.X, v.Divider)
 		}
-		if n.X%22 != 0 || n.Y%22 != 0 {
-			t.Errorf("%s at %d,%d, off the 22 px grid", n.ID, n.X, n.Y)
+		// v0's layout snaps Y only: its columns stand at -280, 80, 380 ...
+		if n.Y%22 != 0 {
+			t.Errorf("%s at %d,%d, Y off the 22 px grid", n.ID, n.X, n.Y)
 		}
 	}
-	if api.X >= ns[w.worker].X {
-		t.Errorf("api (%d) should sit left of worker (%d), which it uses", api.X, ns[w.worker].X)
+	// worker is api's satellite: which side of api it lands on depends on
+	// id order (v0 cycles satellites around their host), but it is wired,
+	// so it sits above the row of loners (the detached volume old)
+	wk := ns[w.worker]
+	old := ns[w.vols["old"]]
+	if wk.Y >= old.Y {
+		t.Errorf("worker (y %d) parked with the loners (old at y %d), though api uses it", wk.Y, old.Y)
 	}
 
 	// The query params: no system column, no startup edges.
@@ -370,8 +393,8 @@ func TestCanvasEnv(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := nodes(v2)["proxy"]; ok || v2.Divider != 0 {
-		t.Errorf("system off: proxy still drawn, divider %d", v2.Divider)
+	if _, ok := nodes(v2)["proxy"]; ok || v2.Walled {
+		t.Errorf("system off: proxy still drawn, walled %v", v2.Walled)
 	}
 	for _, e := range edges(v2) {
 		if strings.HasPrefix(e, "startup") || strings.HasPrefix(e, "ingress") {
@@ -539,5 +562,74 @@ func TestCanvasEnvFooterFacts(t *testing.T) {
 	}
 	if c := ns[cron.ID]; c.NextRun == nil || !c.NextRun.After(now) || c.NextRun.Hour() != 3 {
 		t.Errorf("cron next run = %v", c.NextRun)
+	}
+}
+
+// The first drop saves every card where the canvas drew it, although the
+// canvas read status (replica sub-tiles) and the drop builds without it.
+func TestCanvasFirstDropKeepsStatusLayout(t *testing.T) {
+	w := seedWorld(t)
+	ctx := context.Background()
+	orch := w.e.Orch
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	qa, err := orch.CreateEnv(
+		ctx,
+		w.shop,
+		"qa",
+		service.EnvSpec{Type: "static", FromKind: "branch", FromBranch: "main"},
+	)
+	must(err)
+	// Fixed ids: app's satellites attach in id order, and the third sits
+	// under app at app's height, the one place replicas could count.
+	id := func(n int) string { return fmt.Sprintf("00000000-0000-0000-0000-%012d", n) }
+	app := tileRow(w.shop, qa.ID, "app", "image", func(t *store.Tile) {
+		t.ID = id(1)
+		t.EnvJSON = `{"A":"${{ tile.a.url }}","B":"${{ tile.b.url }}","C":"${{ tile.c.url }}"}`
+	})
+	must(w.e.Store.Tiles.Create(ctx, app))
+	for n, slug := range []string{"a", "b", "c"} {
+		must(w.e.Store.Tiles.Create(ctx, tileRow(w.shop, qa.ID, slug, "image", func(t *store.Tile) {
+			t.ID = id(n + 2)
+		})))
+	}
+	for i := range 3 {
+		w.e.Docker.Containers = append(w.e.Docker.Containers, docker.Container{
+			ID:    fmt.Sprintf("c%d", i),
+			Name:  fmt.Sprintf("app-%d", i),
+			State: "running",
+			Labels: map[string]string{
+				"stackr.tile": app.ID,
+				"stackr.role": "replica",
+			},
+		})
+	}
+	s := service.CanvasScope{Kind: service.CanvasEnv, ID: qa.ID}
+	before, err := orch.Canvas(ctx, s, service.ShowAll)
+	must(err)
+	replicas := 0
+	for _, sub := range nodes(before)[app.ID].Subs {
+		if sub.Kind == "replica" {
+			replicas++
+		}
+	}
+	if replicas == 0 {
+		t.Fatalf("app subs = %+v, want replica strips from the status read", nodes(before)[app.ID].Subs)
+	}
+	must(orch.SetPosition(ctx, s, id(2), service.Point{X: 1100, Y: 880}))
+	after, err := orch.Canvas(ctx, s, service.ShowAll)
+	must(err)
+	b := nodes(before)
+	for nid, n := range nodes(after) {
+		if nid != id(2) && (n.X != b[nid].X || n.Y != b[nid].Y) {
+			t.Errorf(
+				"%s jumped from %d,%d to %d,%d: the drop saved a different layout",
+				nid, b[nid].X, b[nid].Y, n.X, n.Y,
+			)
+		}
 	}
 }

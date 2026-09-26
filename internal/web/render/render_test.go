@@ -55,7 +55,7 @@ func TestPageRendersBothWays(t *testing.T) {
 		}
 		for _, want := range []string{
 			"Nothing here yet.",
-			"owner@x",
+			`id="shell-rail"`, // the signed-in shell: v0's rail shows no email
 			`href="/acme/shop/dev/api"`,
 			`aria-current="page"`,
 			"<title>Overview - stackr</title>",

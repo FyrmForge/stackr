@@ -25,6 +25,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/web/handler/env"
 	"github.com/FyrmForge/stackr/internal/web/handler/scope"
 	"github.com/FyrmForge/stackr/internal/web/handler/tile"
+	"github.com/FyrmForge/stackr/internal/web/render"
 )
 
 // Deps holds the dependencies for route registration.
@@ -58,6 +59,7 @@ func RegisterRoutes(srv *server.Server, deps *Deps) {
 	site.Use(hamrmw.CSRFWithConfig(hamrmw.CSRFConfig{Secure: !deps.DevMode}))
 
 	site.Use(deps.Access.Load())
+	site.Use(render.Theme)
 	auth := deps.Access.Browser()
 
 	// Dev-only sample email endpoint. Sends a test message through the
@@ -105,6 +107,7 @@ func RegisterRoutes(srv *server.Server, deps *Deps) {
 	acct := account.NewHandler(deps.Orch)
 	site.GET("/account", acct.Page, page, authed)
 	site.POST("/account/password", acct.Password, authed)
+	site.POST("/account/appearance", acct.Appearance, authed)
 	site.POST("/account/keys/:key/revoke", acct.Revoke, authed)
 
 	// The admin drawer, opened from the nav on any page.

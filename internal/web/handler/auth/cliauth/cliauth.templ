@@ -15,14 +15,13 @@ type View struct {
 type Org struct{ Name, Action string }
 
 templ page(v View) {
-	@c.AuthCard("Log in the stackr CLI") {
+	@c.AuthCard("Authorize the stackr CLI", asking(v.Name)) {
 		if v.Error != "" {
 			@c.FormError(v.Error)
 		} else if len(v.Orgs) == 0 {
-			<p class="text-sm">You are in no org yet, so there is nothing to bind a CLI key to.</p>
+			<p class="text-sm text-rw-muted text-center">You are in no organization yet, so there is nothing to bind a CLI key to.</p>
 		} else {
-			<p class="text-sm">The CLI asks for a key named <strong>{ v.Name }</strong>. Pick the org it works on; the key gets your role there.</p>
-			<p class="text-sm text-slate-500">Only approve a login you started from a terminal just now.</p>
+			<p class="text-sm text-rw-muted">Pick the organization it works on; the key gets your role there. Only approve a login you started from a terminal just now.</p>
 			<ul class="space-y-2">
 				for _, o := range v.Orgs {
 					<li>
@@ -37,4 +36,8 @@ templ page(v View) {
 			</ul>
 		}
 	}
+}
+
+templ asking(name string) {
+	A CLI is requesting an API key named <span class="font-medium text-rw-text">{ name }</span>. Choose what it may do.
 }

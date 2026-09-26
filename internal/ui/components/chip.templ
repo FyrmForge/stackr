@@ -1,0 +1,22 @@
+package components
+
+// Chip is v0's 10px tag: reference and HTTPS (accent), secret (warn), not
+// set (danger), success, or neutral.
+templ Chip(word, tone string) {
+	<span class={ "chip", chipTone(tone) }>{ word }</span>
+}
+
+// chipTone spells every class in full so tailwind keeps them.
+func chipTone(tone string) string {
+	switch tone {
+	case "accent":
+		return "bg-rw-accent/15 text-rw-accentHi"
+	case "warn":
+		return "bg-rw-warn/15 text-rw-warn"
+	case "danger":
+		return "bg-rw-danger/15 text-rw-danger"
+	case "success":
+		return "bg-rw-success/15 text-rw-success"
+	}
+	return "bg-rw-inset text-rw-muted"
+}

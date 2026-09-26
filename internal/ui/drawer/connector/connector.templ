@@ -1,38 +1,97 @@
 // Package connector is a connector card's drawer (org canvas): settings
-// (rename, delete) and repos.
+// (rename, delete, the install link) and repos (the install check).
 package connector
 
-import c "github.com/FyrmForge/stackr/internal/ui/components"
+import (
+	"strconv"
+
+	c "github.com/FyrmForge/stackr/internal/ui/components"
+)
 
 var Tabs = []string{"settings", "repos"}
 
 type SettingsView struct {
-	Base   string // POST /rename; "" = read-only
-	Name   string
-	Host   string
-	Delete c.ConfirmView
+	Base       string // POST /rename; "" = read-only
+	Name       string
+	Host       string
+	InstallURL string // GitHub's install page; "" = handshake not finished
+	Delete     c.ConfirmView
 }
 
 templ Settings(v SettingsView) {
-	<div class="space-y-6" id="tab-settings">
-		<p class="text-sm text-slate-500">GitHub App on { v.Host }.</p>
-		<form hx-post={ v.Base + "/rename" } hx-target={ "#" + c.DrawerRoot } hx-swap="outerHTML" class="space-y-3">
-			@c.Field(c.FieldView{Name: "name", Label: "Name", Value: v.Name, Required: true, Disabled: v.Base == "", Why: "Renaming needs write."})
-			if v.Base != "" {
-				@c.Submit("Rename")
+	<div id="tab-settings">
+		@c.Section("Connector", "organization", "A private GitHub App for this organization, so there are no tokens to copy around.") {
+			<div class="panel px-4 py-3 flex flex-wrap items-center gap-3 mb-5">
+				<span class="text-sm text-rw-text">{ v.Name }</span>
+				if v.InstallURL != "" {
+					<a href={ templ.SafeURL(v.InstallURL) } target="_blank" rel="noopener" class="btn btn-ghost btn-sm ml-auto">Manage installation</a>
+					if v.Base != "" {
+						<button type="button" class="btn btn-ghost btn-sm" hx-post={ v.Base + "/check" } hx-target={ "#" + c.DrawerRoot } hx-swap="outerHTML">Check installation</button>
+					}
+				} else {
+					<span class="text-rw-faint text-xs ml-auto">setup not finished</span>
+				}
+			</div>
+			if v.InstallURL != "" {
+				<p class="text-sm text-rw-muted mb-4">The app must be installed on your GitHub account or org before a repo can be cloned through it. Manage installation opens GitHub's page for that; pick the repos there, then Check installation.</p>
 			}
-		</form>
+			<form hx-post={ v.Base + "/rename" } hx-target={ "#" + c.DrawerRoot } hx-swap="outerHTML" class="space-y-4">
+				@c.Field(c.FieldView{Name: "name", Label: "Name", Value: v.Name, Required: true, Help: "GitHub App on " + v.Host + ".", Disabled: v.Base == "", Why: "GitHub App on " + v.Host + ". Renaming needs write."})
+				if v.Base != "" {
+					<button type="submit" class="btn btn-primary btn-sm">Rename</button>
+				}
+			</form>
+		}
 		if v.Base != "" {
-			<section class="space-y-2">
-				<h3 class="font-semibold">Delete</h3>
-				<p class="text-sm text-slate-500">A stack or tile that clones through it stops building.</p>
+			@c.DangerSection("A stack or tile that clones through it stops building.", v.Host, "The app stays installed on GitHub; uninstall it there too.") {
 				@c.Confirm(v.Delete)
-			</section>
+			}
 		}
 	</div>
 }
 
-// ponytail: no verb lists an installation's repos yet.
-templ Repos() {
-	<p class="text-sm text-slate-500" id="tab-repos">The repos this app can reach are listed on GitHub, under the app's installation.</p>
+// ReposView is the install check: Checked false shows the button, true
+// shows what GitHub answered (v0's setup step 2 states).
+type ReposView struct {
+	Check      string // POST, answers the drawer on this tab
+	InstallURL string // "" = handshake not finished
+	Checked    bool
+	Repos      []string // full names
+}
+
+func repoCount(n int) string {
+	if n == 1 {
+		return "1 repository"
+	}
+	return strconv.Itoa(n) + " repositories"
+}
+
+templ Repos(v ReposView) {
+	<div id="tab-repos">
+		@c.Section("Repositories", "organization", "The repositories the app may read. Creating the app on GitHub is not installing it: an app installed nowhere can clone nothing.") {
+			if v.InstallURL == "" {
+				<p class="text-sm text-rw-muted">The GitHub handshake did not finish. Delete this connector and create it again.</p>
+			} else if !v.Checked {
+				<p class="text-sm text-rw-muted mb-4">Ask GitHub which repositories the app is installed on.</p>
+				<button type="button" class="btn btn-primary btn-sm" hx-post={ v.Check } hx-target={ "#" + c.DrawerRoot } hx-swap="outerHTML">Check installation</button>
+			} else if len(v.Repos) == 0 {
+				<p class="text-sm text-rw-muted mb-5">The app is created. Now choose the repositories it may access, otherwise stackr cannot read any of them.</p>
+				<div class="flex flex-wrap gap-2">
+					<a href={ templ.SafeURL(v.InstallURL) } target="_blank" rel="noopener" class="btn btn-primary btn-sm">Install it on GitHub</a>
+					<button type="button" class="btn btn-ghost btn-sm" hx-post={ v.Check } hx-target={ "#" + c.DrawerRoot } hx-swap="outerHTML">I installed it, check again</button>
+				</div>
+			} else {
+				<p class="text-sm text-rw-muted mb-3">Connected and installed on { repoCount(len(v.Repos)) }.</p>
+				<ul class="space-y-2 mb-5">
+					for _, r := range v.Repos {
+						<li class="panel px-3 py-2 font-mono text-xs text-rw-muted">{ r }</li>
+					}
+				</ul>
+				<div class="flex flex-wrap gap-2">
+					<a href={ templ.SafeURL(v.InstallURL) } target="_blank" rel="noopener" class="btn btn-ghost btn-sm">Change which repositories it can see</a>
+					<button type="button" class="btn btn-ghost btn-sm" hx-post={ v.Check } hx-target={ "#" + c.DrawerRoot } hx-swap="outerHTML">Check again</button>
+				</div>
+			}
+		}
+	</div>
 }

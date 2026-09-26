@@ -57,10 +57,12 @@ func (cd card) frame(tab string) comp.DrawerView {
 		f.Node, f.Title, f.Tabs = "env:"+s.Env.ID, s.Env.Name, envui.Tabs
 	case "connector":
 		f.Node, f.Title, f.Tabs = "connector:"+cd.conn.ID, cd.conn.Name, connui.Tabs
+		f.Icon, f.Kind = "connector", "github app"
 		f.Base = urlOf(s) + "/-/connectors/" + cd.conn.ID
 	case "vars":
 		f.Node = "vars"
-		f.Title = "Vars"
+		f.Title = "Environment variables"
+		f.Icon = "vars"
 		f.Tabs = []string{"editor"}
 		f.Base = urlOf(s) + "/-/vars"
 	}

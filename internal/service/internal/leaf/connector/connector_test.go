@@ -18,7 +18,10 @@ import (
 
 var ctx = context.Background()
 
-type fakeApp struct{ state string }
+type fakeApp struct {
+	state        string
+	notInstalled bool
+}
 
 func (f *fakeApp) Manifest(id, _, state string) (string, string, error) {
 	f.state = state
@@ -35,7 +38,14 @@ func (f *fakeApp) ConvertManifest(context.Context, string) (githubapp.App, error
 }
 
 func (f *fakeApp) Token(_ context.Context, key string, app githubapp.App) (string, error) {
+	if f.notInstalled {
+		return "", githubapp.ErrNotInstalled
+	}
 	return "tok-" + app.Slug, nil
+}
+
+func (f *fakeApp) Repos(_ context.Context, token string) ([]githubapp.Repo, error) {
+	return []githubapp.Repo{{FullName: "acme/api", DefaultBranch: "main"}}, nil
 }
 
 func seedOrg(t *testing.T, st *store.Store) string {
@@ -76,6 +86,9 @@ func TestHandshake(t *testing.T) {
 	if err != nil || !strings.Contains(action, c.ID+".") || connector.Connected(c) {
 		t.Fatalf("begin = %+v %s %v", c, action, err)
 	}
+	if u, err := l.InstallURL(ctx, org, c.ID); err != nil || u != "" {
+		t.Errorf("pending connector install url = %q %v", u, err)
+	}
 	if _, err := l.For(ctx, org, "https://github.com/acme/api"); !errors.As(err, &connector.NoConnector{}) {
 		t.Errorf("pending connector resolved: %v", err)
 	}
@@ -88,6 +101,20 @@ func TestHandshake(t *testing.T) {
 	c, err = l.Complete(ctx, f.state, "code")
 	if err != nil || !connector.Connected(c) || c.Name != "GitHub · stackr-x" {
 		t.Fatalf("complete = %+v %v", c, err)
+	}
+	if u, err := l.InstallURL(ctx, org, c.ID); err != nil || u != "https://github.com/apps/stackr-x/installations/new" {
+		t.Errorf("install url = %q %v", u, err)
+	}
+	if _, err := l.InstallURL(ctx, "other-org", c.ID); err == nil {
+		t.Error("another org read the install url")
+	}
+	f.notInstalled = true
+	if rs, err := l.Repos(ctx, org, c.ID); err != nil || len(rs) != 0 {
+		t.Errorf("not installed repos = %v %v", rs, err)
+	}
+	f.notInstalled = false
+	if rs, err := l.Repos(ctx, org, c.ID); err != nil || len(rs) != 1 || rs[0].FullName != "acme/api" {
+		t.Errorf("installed repos = %v %v", rs, err)
 	}
 	if _, err := l.Complete(ctx, f.state, "code"); !errors.Is(err, errs.ErrRefused) {
 		t.Errorf("replayed callback = %v", err)

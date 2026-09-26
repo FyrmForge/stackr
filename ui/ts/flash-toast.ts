@@ -1,8 +1,10 @@
 // <flash-toast kind="success|warning|error"> shows one message. The server
 // fills it (full page or out-of-band swap); htmx request failures fill it
-// here. A click dismisses it; anything but an error dismisses itself.
+// here. A click dismisses it; anything but an error dismisses itself after
+// 4s (v0's timing), fading out over FADE_MS through [leaving].
 // Empty = hidden (CSS :empty).
-const DISMISS_MS = 5000;
+const DISMISS_MS = 4000;
+const FADE_MS = 500;
 
 class FlashToast extends HTMLElement {
   private timer = 0;
@@ -33,6 +35,7 @@ class FlashToast extends HTMLElement {
   }
 
   private show(kind: string, message: string): void {
+    this.removeAttribute("leaving");
     this.setAttribute("kind", kind);
     this.textContent = message;
     this.arm();
@@ -46,7 +49,11 @@ class FlashToast extends HTMLElement {
 
   private dismiss(): void {
     window.clearTimeout(this.timer);
-    this.textContent = "";
+    this.setAttribute("leaving", "");
+    this.timer = window.setTimeout(() => {
+      this.textContent = "";
+      this.removeAttribute("leaving");
+    }, FADE_MS);
   }
 }
 

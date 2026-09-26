@@ -1,50 +1,125 @@
-// Package slice is the slice drawer: one tab, its bindings.
+// Package slice is the slice drawer: Overview (the database, its bindings,
+// a way to its instance, detach) and, when the instance runs in this env,
+// the instance's logs (v0: a slice has no container of its own).
 package slice
 
 import c "github.com/FyrmForge/stackr/internal/ui/components"
 
+// Root is the id every drawer answer replaces (outerHTML).
+const Root = c.DrawerRoot
+
+var labels = map[string]string{"bindings": "Overview"}
+
+// Tabs are the tabs a slice has: logs only with its instance in view.
+func Tabs(logs bool) []string {
+	if logs {
+		return []string{"bindings", "logs"}
+	}
+	return []string{"bindings"}
+}
+
+// Tab is the tab a request asks for; an unknown one opens Overview.
+func Tab(tab string, logs bool) string {
+	if tab == "logs" && logs {
+		return tab
+	}
+	return "bindings"
+}
+
 // View is one provision. Outputs are the binding names the consumer gets,
 // never their values.
 type View struct {
-	Name, DB, User, OnRemove string
-	Public, Consumer         bool
-	Outputs                  []string
-	Detach                   string // POST; "" = no consumer to detach
-	Error                    string
+	Node, Name, DB, User, OnRemove string
+	Base                           string // the drawer URL
+	Tab                            string
+	Instance                       string // the instance tile's name
+	InstanceNode, InstanceDrawer   string // "" = its instance is not in this env
+	Logs                           bool
+	Public, Consumer               bool
+	Outputs                        []string
+	Detach                         string // POST; "" = no consumer to detach
+	Location, EnvColor             string
+	Error, Note                    string
 }
 
-templ Bindings(v View) {
-	<div id="drawer-view" class="space-y-4">
-		<h2 class="text-lg font-semibold">{ v.Name } <span class="text-sm font-normal text-slate-500">slice</span></h2>
-		if v.Error != "" {
-			<p class="banner border-red-300 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300" role="alert">{ v.Error }</p>
+func Drawer(v View, body templ.Component) templ.Component {
+	kind := "slice"
+	if v.Instance != "" {
+		kind = "slice of " + v.Instance
+	}
+	return c.Drawer(c.DrawerView{
+		Node:     v.Node,
+		Title:    v.Name,
+		Kind:     kind,
+		Base:     v.Base,
+		Tabs:     Tabs(v.Logs),
+		Labels:   labels,
+		Tab:      v.Tab,
+		Error:    v.Error,
+		Note:     v.Note,
+		Icon:     "slice",
+		Scope:    visibility(v.Public),
+		Location: v.Location,
+		EnvColor: v.EnvColor,
+	}, body)
+}
+
+func visibility(public bool) string {
+	if public {
+		return "public"
+	}
+	return "private"
+}
+
+templ Overview(v View) {
+	<div id="tab-bindings">
+		@c.Facts() {
+			@c.Fact("Database", v.DB)
+			@c.Fact("User", v.User)
+			@c.Fact("Instance", v.Instance)
+			@c.Fact("On remove", v.OnRemove)
 		}
-		<dl class="grid grid-cols-[8rem_1fr] gap-1 text-sm">
-			<dt class="text-slate-500">database</dt><dd class="font-mono">{ v.DB }</dd>
-			<dt class="text-slate-500">user</dt><dd class="font-mono">{ v.User }</dd>
-			<dt class="text-slate-500">on remove</dt><dd>{ v.OnRemove }</dd>
-			<dt class="text-slate-500">public</dt>
-			<dd>
-				if v.Public {
-					yes
-				} else {
-					no
-				}
-			</dd>
-		</dl>
-		<h3 class="font-semibold">Bindings</h3>
+		if v.InstanceDrawer != "" {
+			<a
+				href={ templ.SafeURL("?drawer=" + v.InstanceNode + "&tab=slices") }
+				hx-get={ v.InstanceDrawer }
+				hx-target="#drawer-body"
+				hx-push-url={ "?drawer=" + v.InstanceNode + "&tab=slices" }
+				class="btn btn-ghost btn-sm mt-3"
+			>Open { v.Instance }</a>
+		}
+		<h3 class="section-title">Bindings</h3>
 		if len(v.Outputs) == 0 {
-			<p class="text-sm text-slate-500">None yet: the attach job has not run.</p>
+			<p class="text-sm text-rw-muted">None yet: the attach job has not run.</p>
+		} else {
+			<ul class="space-y-2">
+				for _, o := range v.Outputs {
+					<li class="panel px-4 py-3 text-sm font-mono text-rw-text">{ o }</li>
+				}
+			</ul>
+			<p class="mt-2 text-xs text-rw-faint">The consumer gets these as variables; their values never reach this page.</p>
 		}
-		<ul class="font-mono text-sm">
-			for _, o := range v.Outputs {
-				<li>{ o }</li>
-			}
-		</ul>
 		if v.Detach != "" {
-			@c.Confirm(c.ConfirmView{Button: "Detach", Title: "Detach " + v.Name + "?",
-				Warning: "The consumer redeploys without these bindings; then the slice is " + v.OnRemove + ".",
-				Action:  v.Detach, Target: "#drawer-view"})
+			@c.DangerZone("Detaching redeploys the consumer without these bindings; then the slice is "+v.OnRemove+".", v.Name, "") {
+				@c.Confirm(c.ConfirmView{
+					Button:  "Detach",
+					Title:   "Detach " + v.Name + "?",
+					Warning: "The consumer redeploys without these bindings; then the slice is " + v.OnRemove + ".",
+					Action:  v.Detach,
+					Target:  "#" + Root,
+				})
+			}
+		}
+	</div>
+}
+
+templ Logs(v View, pane c.LogPaneView, running bool) {
+	<div id="tab-logs">
+		<p class="mb-3 text-xs text-rw-muted">These are { v.Instance }'s container logs. A provisioned database has no container of its own.</p>
+		if running {
+			@c.LogPane(pane)
+		} else {
+			<p class="text-rw-muted text-sm">No container is running yet.</p>
 		}
 	</div>
 }

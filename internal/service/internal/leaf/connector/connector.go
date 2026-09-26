@@ -33,6 +33,7 @@ type App interface {
 	Manifest(connectorID, ghOrg, state string) (action, manifest string, err error)
 	ConvertManifest(ctx context.Context, code string) (githubapp.App, error)
 	Token(ctx context.Context, key string, app githubapp.App) (string, error)
+	Repos(ctx context.Context, token string) ([]githubapp.Repo, error)
 }
 
 type Leaf struct {
@@ -63,6 +64,22 @@ func parse(c store.Connector) config {
 
 // Connected says whether the handshake finished.
 func Connected(c store.Connector) bool { return parse(c).App != nil }
+
+// InstallURL is GitHub's page for installing the app on an account and
+// picking its repos; "" while the handshake is pending. Creating the app is
+// not installing it: without an install there is no token to clone with.
+// Reads the row itself, List strips the config that holds the slug.
+func (l *Leaf) InstallURL(ctx context.Context, orgID, id string) (string, error) {
+	c, err := l.Get(ctx, orgID, id)
+	if err != nil {
+		return "", err
+	}
+	app := parse(c).App
+	if app == nil {
+		return "", nil
+	}
+	return "https://github.com/apps/" + app.Slug + "/installations/new", nil
+}
 
 // Get refuses a connector of another org (as not found). The id can come from a stack row
 // or a request, and without this a file naming another org's connector
@@ -181,6 +198,24 @@ func (l *Leaf) CloneEnv(ctx context.Context, c store.Connector, gitURL string) (
 		return nil, err
 	}
 	return githubapp.CloneAuth(gitURL, tok), nil
+}
+
+// Repos asks GitHub which repositories the app may read: the install check.
+// Empty (no error) when the app is not installed anywhere yet, or installed
+// with no repos picked; either way nothing can be cloned through it.
+func (l *Leaf) Repos(ctx context.Context, orgID, id string) ([]githubapp.Repo, error) {
+	c, err := l.Get(ctx, orgID, id)
+	if err != nil {
+		return nil, err
+	}
+	tok, err := l.Token(ctx, c)
+	if errors.Is(err, githubapp.ErrNotInstalled) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return l.app.Repos(ctx, tok)
 }
 
 // Token is c's installation token (cached by the wrapper).

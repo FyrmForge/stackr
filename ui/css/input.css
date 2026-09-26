@@ -2,17 +2,447 @@
 @tailwind components;
 @tailwind utilities;
 
-/* The few repeated looks, so templ files carry names, not class soup. */
+/* Palette, copied verbatim from v0 (stackr-old frontend/css/input.css).
+   Every rw-* token in tailwind.config.js is rgb(var(--rw-x)), so the whole
+   look swaps on one class on <html>: `dark` is dark, `light` is light, no
+   class follows the OS (the media block below). The server writes it from
+   the viewer's users.theme (components.Layout). */
+:root {
+  --rw-bg: 10 10 12;
+  --rw-surface: 19 19 23;
+  --rw-raised: 26 26 31;
+  --rw-inset: 30 30 36;
+  --rw-border: 38 38 46;
+  --rw-strong: 58 58 68;
+  --rw-text: 237 236 242;
+  --rw-muted: 155 152 168;
+  /* faint was 107 104 120, which measured 3.06:1 on inset. It is not a
+     large-label-only token: every table column header, hostname, engine
+     version and hint paragraph in the product is 12px faint, so it had to
+     come up rather than be treated as large text. */
+  --rw-faint: 135 132 148;
+  --rw-accent: 141 111 243;
+  --rw-accentHi: 157 130 255;
+  /* Button fills only. accent is tuned to be readable *on* a surface, which
+     pulls it lighter; white text sitting *on* accent wants the opposite, and
+     white on the old accent measured 3.76:1. Two jobs, two tokens. */
+  --rw-accentDeep: 125 91 242;
+  /* The hover for a filled button, and it goes darker, not lighter. accentHi
+     is a *foreground* colour: used as the hover fill under white text it
+     measured 2.97:1, worse than the resting state and under even the 3:1
+     large-text floor. */
+  --rw-accentPress: 110 72 241;
+  --rw-success: 63 179 127;
+  --rw-danger: 242 109 109;
+  --rw-warn: 224 179 65;
+
+  --rw-shadow: 0 1px 2px rgba(0,0,0,0.4), 0 4px 16px rgba(0,0,0,0.25);
+  --rw-glow: 0 0 0 1px rgba(139,109,243,0.4), 0 6px 24px rgba(139,109,243,0.15);
+  --rw-grid: #26262E;
+  --rw-teal: #5EEAD4;
+  --rw-amber: #E0B341;
+  /* Connector edges on the canvas: config (solid) and source (dashed) are one
+     family. It must remain visible against both light and dark themes. */
+  --rw-edge-connector: #6E9BF3;
+  --rw-caret: #EDEDEF;
+  --rw-deck-fill: #131317;
+  --rw-deck-line: #26262E;
+  --rw-drawer-shadow: -8px 0 30px rgba(0,0,0,0.4);
+  --rw-edge-label-halo: #0B0B0F;
+  --rw-marquee-fill: rgba(139,109,243,0.10);
+  --rw-scrim: rgba(0,0,0,0.45);
+  --rw-bevel:
+    inset 0 1px 0 rgba(255,255,255,0.06),
+    inset 0 -1px 0 rgba(0,0,0,0.25),
+    0 1px 2px rgba(0,0,0,0.5);
+  --rw-bevel-hover:
+    inset 0 1px 0 rgba(255,255,255,0.08),
+    inset 0 -1px 0 rgba(0,0,0,0.25),
+    0 2px 6px rgba(0,0,0,0.5);
+  --rw-bevel-active:
+    inset 0 1px 0 rgba(255,255,255,0.08),
+    inset 0 -1px 0 rgba(0,0,0,0.25),
+    0 6px 16px rgba(0,0,0,0.5);
+  --rw-tok-k: #A78BFA;
+  --rw-tok-eq: #6E6E76;
+  --rw-tok-v: #EDEDEF;
+  --rw-tok-s: #34D399;
+  --rw-tok-bad: #F87171;
+  /* environment hues, ladder order (envcolor.Names) */
+  /* Dark violet was the one hue failing the same 14% chip wash (3.37:1 on
+     inset); lifted to clear 4.5. */
+  --rw-env-violet: #A992F6;
+  --rw-env-teal: #2DD4BF;
+  --rw-env-amber: #E0B341;
+  --rw-env-rose: #F472B6;
+  --rw-env-sky: #38BDF8;
+  --rw-env-lime: #A3E635;
+}
+
+html.light {
+  --rw-bg: 246 245 250;
+  --rw-surface: 255 255 255;
+  --rw-raised: 241 240 246;
+  --rw-inset: 236 235 242;
+  --rw-border: 226 224 234;
+  --rw-strong: 198 195 210;
+  --rw-text: 27 26 34;
+  --rw-muted: 94 91 109;
+  --rw-faint: 108 105 122;
+  --rw-accent: 109 79 224;
+  --rw-accentHi: 90 62 208;
+  --rw-accentDeep: 109 79 224;
+  --rw-accentPress: 90 62 208;
+  /* Status text is the text a user must not misread, and in light these
+     three all failed AA on bg, raised and inset, "ready" measured
+     3.51:1 as rendered. Darkened far enough to clear 4.5 not only on the
+     four flat surfaces but on their own 15% tint, which is what a status
+     chip actually paints behind them, the flat table alone said these
+     passed while every chip in the product still failed. */
+  --rw-success: 23 106 70;
+  --rw-danger: 171 43 43;
+  --rw-warn: 121 87 6;
+
+  --rw-shadow: 0 1px 2px rgba(27,26,34,0.06), 0 4px 16px rgba(27,26,34,0.06);
+  --rw-glow: 0 0 0 1px rgba(109,79,224,0.4), 0 6px 24px rgba(109,79,224,0.15);
+  --rw-grid: #D8D6E1;
+  --rw-teal: #0E9488;
+  --rw-amber: #9A6F08;
+  --rw-edge-connector: #3663B8;
+  --rw-caret: #1B1A22;
+  --rw-deck-fill: #FFFFFF;
+  --rw-deck-line: #E2E0EA;
+  --rw-drawer-shadow: -8px 0 30px rgba(27,26,34,0.12);
+  --rw-edge-label-halo: #F6F5FA;
+  --rw-marquee-fill: rgba(109,79,224,0.10);
+  --rw-scrim: rgba(27,26,34,0.22);
+  --rw-bevel:
+    inset 0 1px 0 rgba(255,255,255,0.9),
+    inset 0 -1px 0 rgba(27,26,34,0.06),
+    0 1px 2px rgba(27,26,34,0.10);
+  --rw-bevel-hover:
+    inset 0 1px 0 rgba(255,255,255,0.9),
+    inset 0 -1px 0 rgba(27,26,34,0.06),
+    0 2px 6px rgba(27,26,34,0.14);
+  --rw-bevel-active:
+    inset 0 1px 0 rgba(255,255,255,0.9),
+    inset 0 -1px 0 rgba(27,26,34,0.06),
+    0 6px 16px rgba(27,26,34,0.18);
+  --rw-tok-k: #6D4FE0;
+  --rw-tok-eq: #8A8798;
+  --rw-tok-v: #1B1A22;
+  --rw-tok-s: #1E8C5C;
+  --rw-tok-bad: #CF3F3F;
+  /* Env hues are chip text, not just dots: .log-chip and the log viewer's
+     tile pills paint 10px text in the hue over a 14% wash of itself. At the
+     original light values teal measured 2.72:1 there. Darkened until every
+     hue clears 4.5 on that wash over all four surfaces. */
+  --rw-env-violet: #6045C5;
+  --rw-env-teal: #0A685F;
+  --rw-env-amber: #795706;
+  --rw-env-rose: #AE1655;
+  --rw-env-sky: #036195;
+  --rw-env-lime: #40670C;
+}
+
+/* No class on <html>: follow the OS. */
+@media (prefers-color-scheme: light) {
+  html:not(.dark):not(.light) {
+    --rw-bg: 246 245 250;
+    --rw-surface: 255 255 255;
+    --rw-raised: 241 240 246;
+    --rw-inset: 236 235 242;
+    --rw-border: 226 224 234;
+    --rw-strong: 198 195 210;
+    --rw-text: 27 26 34;
+    --rw-muted: 94 91 109;
+    --rw-faint: 108 105 122;
+    --rw-accent: 109 79 224;
+    --rw-accentHi: 90 62 208;
+    --rw-accentDeep: 109 79 224;
+    --rw-accentPress: 90 62 208;
+    /* Status text is the text a user must not misread, and in light these
+       three all failed AA on bg, raised and inset, "ready" measured
+       3.51:1 as rendered. Darkened far enough to clear 4.5 not only on the
+       four flat surfaces but on their own 15% tint, which is what a status
+       chip actually paints behind them. */
+    --rw-success: 23 106 70;
+    --rw-danger: 171 43 43;
+    --rw-warn: 121 87 6;
+
+    --rw-shadow: 0 1px 2px rgba(27,26,34,0.06), 0 4px 16px rgba(27,26,34,0.06);
+    --rw-glow: 0 0 0 1px rgba(109,79,224,0.4), 0 6px 24px rgba(109,79,224,0.15);
+    --rw-grid: #D8D6E1;
+    --rw-teal: #0E9488;
+    --rw-amber: #9A6F08;
+    --rw-edge-connector: #3663B8;
+    --rw-caret: #1B1A22;
+    --rw-deck-fill: #FFFFFF;
+    --rw-deck-line: #E2E0EA;
+    --rw-drawer-shadow: -8px 0 30px rgba(27,26,34,0.12);
+    --rw-edge-label-halo: #F6F5FA;
+    --rw-marquee-fill: rgba(109,79,224,0.10);
+    --rw-scrim: rgba(27,26,34,0.22);
+    --rw-bevel:
+      inset 0 1px 0 rgba(255,255,255,0.9),
+      inset 0 -1px 0 rgba(27,26,34,0.06),
+      0 1px 2px rgba(27,26,34,0.10);
+    --rw-bevel-hover:
+      inset 0 1px 0 rgba(255,255,255,0.9),
+      inset 0 -1px 0 rgba(27,26,34,0.06),
+      0 2px 6px rgba(27,26,34,0.14);
+    --rw-bevel-active:
+      inset 0 1px 0 rgba(255,255,255,0.9),
+      inset 0 -1px 0 rgba(27,26,34,0.06),
+      0 6px 16px rgba(27,26,34,0.18);
+    --rw-tok-k: #6D4FE0;
+    --rw-tok-eq: #8A8798;
+    --rw-tok-v: #1B1A22;
+    --rw-tok-s: #1E8C5C;
+    --rw-tok-bad: #CF3F3F;
+    /* Env hues are chip text, not just dots: .log-chip and the log viewer's
+       tile pills paint 10px text in the hue over a 14% wash of itself. At the
+       original light values teal measured 2.72:1 there. Darkened until every
+       hue clears 4.5 on that wash over all four surfaces. */
+    --rw-env-violet: #6045C5;
+    --rw-env-teal: #0A685F;
+    --rw-env-amber: #795706;
+    --rw-env-rose: #AE1655;
+    --rw-env-sky: #036195;
+    --rw-env-lime: #40670C;
+  }
+}
+
+/* v0's component set (stackr-old frontend/css/input.css), so templ files
+   carry names, not class soup. */
 @layer components {
-    .link { @apply text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white; }
-    .card { @apply rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900; }
-    .label { @apply block text-sm font-medium text-slate-600 dark:text-slate-400 mb-1; }
-    .input { @apply w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 disabled:opacity-60 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100; }
-    .field-error { @apply mt-1 block text-sm text-red-600 dark:text-red-400; }
-    .btn { @apply inline-flex items-center gap-2 rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:hover:bg-slate-800; }
-    .btn-primary { @apply border-blue-600 bg-blue-600 text-white hover:bg-blue-500 dark:hover:bg-blue-500; }
-    .btn-danger { @apply border-red-600 bg-red-600 text-white hover:bg-red-500 dark:hover:bg-red-500; }
-    .banner { @apply rounded-md border px-4 py-3 text-sm border-slate-300 bg-slate-100 dark:border-slate-700 dark:bg-slate-900; }
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-medium
+           transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-rw-accent/60;
+  }
+  .btn-primary {
+    @apply bg-rw-accentDeep text-white hover:bg-rw-accentPress shadow-rw;
+  }
+  .btn-ghost {
+    @apply border border-rw-border bg-transparent text-rw-muted hover:text-rw-text hover:border-rw-strong;
+  }
+  .btn-danger {
+    @apply border border-transparent text-rw-danger hover:bg-rw-danger/10;
+  }
+  .btn-sm {
+    @apply px-3 py-1.5 text-xs;
+  }
+
+  .card {
+    @apply block rounded-xl border border-rw-border bg-rw-surface p-5
+           transition-all hover:border-rw-accent/50 hover:shadow-rw-glow;
+  }
+  .panel {
+    @apply rounded-xl border border-rw-border bg-rw-surface;
+  }
+  /* A plain page's column: v0 Shell's <main>. Canvases skip it and fill #main. */
+  .page {
+    @apply w-full max-w-6xl mx-auto px-4 py-6 sm:px-8 sm:py-10;
+  }
+
+  .input {
+    @apply w-full rounded-lg border border-rw-border bg-rw-inset px-3.5 py-2 text-sm text-rw-text
+           placeholder:text-rw-faint focus:outline-none focus:border-rw-accent
+           focus:ring-2 focus:ring-rw-accent/25
+           disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+  .input[type="file"] {
+    @apply py-1.5 pl-1.5 text-rw-muted cursor-pointer;
+  }
+  .input[type="file"]::file-selector-button {
+    @apply mr-3 rounded-md border border-rw-border bg-transparent px-3 py-1.5
+           text-sm font-medium text-rw-muted cursor-pointer transition-colors;
+  }
+  .input[type="file"]:hover::file-selector-button {
+    @apply border-rw-strong text-rw-text;
+  }
+  /* iOS Safari zooms on a focused field under 16px; keep fields at 16px on phones. */
+  @media (max-width: 639px) {
+    .input,
+    select,
+    textarea {
+      font-size: 16px !important;
+    }
+  }
+  .label {
+    @apply block text-xs font-medium text-rw-muted mb-1.5;
+  }
+  .field-error {
+    @apply text-rw-danger text-sm mt-1 block;
+  }
+  .banner {
+    @apply px-4 py-3 rounded-lg border border-rw-border bg-rw-inset text-sm text-rw-muted;
+  }
+  .banner-danger {
+    @apply bg-rw-danger/10 border-rw-danger/40 text-rw-danger;
+  }
+  /* v0 login spacing: fields 1.25rem apart, 1.5rem above a full-width
+     submit. Beats Form's space-y-4 on specificity. */
+  .auth-card form > :not([hidden]) ~ :not([hidden]) {
+    margin-top: 1.25rem;
+  }
+  .auth-card form > :not([hidden]) ~ button[type="submit"] {
+    display: flex; /* block-level, so the empty error span's mt-1 collapses into this margin like v0's mb-6 */
+    margin-top: 1.5rem;
+    width: 100%;
+  }
+
+  .modal-panel {
+    @apply w-full max-w-lg rounded-xl border border-rw-border bg-rw-surface shadow-xl my-auto;
+  }
+  .modal-head {
+    @apply flex items-start gap-3 border-b border-rw-border px-5 py-4;
+  }
+  .modal-title {
+    @apply text-base font-semibold text-rw-text;
+  }
+  .modal-body {
+    @apply px-5 py-4 space-y-4 text-sm text-rw-muted;
+  }
+  .modal-foot {
+    @apply flex items-center justify-end gap-2 border-t border-rw-border px-5 py-3;
+  }
+  .modal-list {
+    @apply max-h-48 overflow-y-auto rounded-lg border border-rw-border divide-y divide-rw-border;
+  }
+  .modal-list-row {
+    @apply flex items-center gap-2 px-3 py-2 text-xs;
+  }
+  .modal-warn {
+    @apply rounded-lg border border-rw-warn/40 bg-rw-warn/10 px-3 py-2 text-xs text-rw-warn;
+  }
+  .modal-danger {
+    @apply rounded-lg border border-rw-danger/40 bg-rw-danger/10 px-3 py-2 text-xs text-rw-danger;
+  }
+
+  /* Rail tooltip: instant, right of the icon, sm+ only (the rail is a bottom bar on phones). */
+  .rail-tip {
+    @apply relative;
+  }
+  .rail-tip-bubble {
+    @apply pointer-events-none absolute left-full ml-2 top-1/2 -translate-y-1/2 hidden whitespace-nowrap
+           rounded-md border border-rw-border bg-rw-raised px-2 py-1 text-xs text-rw-text shadow-rw;
+  }
+  .rail-tip:hover .rail-tip-bubble,
+  .rail-tip:focus-visible .rail-tip-bubble {
+    @apply sm:block;
+  }
+
+  .link {
+    @apply text-rw-accentHi hover:text-rw-text transition-colors;
+  }
+
+  .env-dot {
+    @apply inline-block h-2 w-2 rounded-full shrink-0;
+    background: var(--env-c);
+  }
+
+  .scrim {
+    background: var(--rw-scrim);
+  }
+}
+
+/* One class per env hue sets --env-c, so dots, chips and the canvas band
+   need no style=. Outside @layer so purge keeps them (the names come from Go). */
+.env-c-teal { --env-c: var(--rw-env-teal); }
+.env-c-sky { --env-c: var(--rw-env-sky); }
+.env-c-lime { --env-c: var(--rw-env-lime); }
+.env-c-amber { --env-c: var(--rw-env-amber); }
+.env-c-rose { --env-c: var(--rw-env-rose); }
+.env-c-violet { --env-c: var(--rw-env-violet); }
+.env-band { height: 3px; flex-shrink: 0; background: var(--env-c, transparent); }
+
+/* Horizontal scroll without a visible bar (drawer tab strip). */
+.scrollbar-none {
+  scrollbar-width: none;
+}
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
+
+/* Cross-document view transitions (full loads only; hx swaps skip them). */
+@view-transition {
+  navigation: auto;
+}
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
+    animation: none !important;
+  }
+}
+
+/* In-flight htmx forms: the submit keeps its size, the label hides and a
+   ring shows after 200ms, so a fast response never flashes a spinner. */
+form.htmx-request button[type="submit"],
+.btn-busy {
+  pointer-events: none;
+  position: relative;
+  color: transparent;
+}
+form.htmx-request button[type="submit"] > *,
+.btn-busy > * {
+  visibility: hidden;
+}
+form.htmx-request button[type="submit"]::after,
+.btn-busy::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 0.875rem;
+  height: 0.875rem;
+  border-radius: 9999px;
+  border: 2px solid var(--btn-spin, rgb(255 255 255 / 0.85));
+  border-top-color: transparent;
+  opacity: 0;
+  animation: btn-spin 0.7s linear infinite, btn-spin-in 0s linear 200ms forwards;
+}
+form.htmx-request .btn-ghost[type="submit"]::after {
+  --btn-spin: theme(colors.rw.muted);
+}
+@keyframes btn-spin { to { transform: rotate(360deg); } }
+@keyframes btn-spin-in { to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  form.htmx-request button[type="submit"],
+  .btn-busy { color: inherit; opacity: 0.6; }
+  form.htmx-request button[type="submit"] > *,
+  .btn-busy > * { visibility: visible; }
+  form.htmx-request button[type="submit"]::after,
+  .btn-busy::after { display: none; }
+}
+
+/* Side drawer (v0 .drawer): slides in from the right over a scrim. Closed,
+   the panel is visibility:hidden after the slide, so its buttons leave the
+   Tab order and the accessibility tree. */
+side-drawer [data-backdrop] {
+  position: fixed; inset: 0; z-index: 30;
+  background: var(--rw-scrim);
+  opacity: 0; pointer-events: none;
+  transition: opacity 200ms cubic-bezier(0, 0, 0.2, 1);
+}
+side-drawer[open] [data-backdrop] { opacity: 1; pointer-events: auto; }
+side-drawer > aside {
+  box-shadow: var(--rw-drawer-shadow);
+  transform: translateX(100%);
+  visibility: hidden;
+  transition: transform 200ms cubic-bezier(0, 0, 0.2, 1), visibility 0s linear 200ms;
+}
+side-drawer[open] > aside {
+  transform: none;
+  visibility: visible;
+  transition: transform 200ms cubic-bezier(0, 0, 0.2, 1), visibility 0s;
+}
+
+/* Confirm dialog: v0's modal wash behind the native <dialog>. */
+confirm-dialog dialog::backdrop {
+  background: rgb(var(--rw-bg) / 0.7);
+  backdrop-filter: blur(4px);
 }
 
 /* The custom elements flip attributes; the look stays here (tailwind does
@@ -20,55 +450,242 @@
 log-pane [data-lines] { white-space: pre; }
 log-pane [data-lines][data-wrap] { white-space: pre-wrap; }
 log-pane [data-lines][data-no-ts] [data-ts] { display: none; }
+
+/* Flash toast (v0 flash.templ): top-right, surface under a 10% kind wash,
+   40% kind border, kind text; info is the accent. [leaving] fades it out. */
 flash-toast:empty { display: none; }
 flash-toast {
-    position: fixed; right: 1rem; bottom: 1rem; z-index: 50; max-width: 24rem;
-    padding: 0.75rem 1rem; border-radius: 0.375rem; border: 1px solid;
-    font-size: 0.875rem; background: #eff6ff; border-color: #93c5fd; color: #1e3a8a;
+    --flash-c: var(--rw-accent); --flash-t: var(--rw-accentHi);
+    position: fixed; top: 1rem; right: 1rem; z-index: 50; max-width: 24rem;
+    padding: 0.75rem 1rem; border-radius: 0.5rem; border: 1px solid rgb(var(--flash-c) / 0.4);
+    font-size: 0.875rem; line-height: 1.25rem; cursor: pointer;
+    color: rgb(var(--flash-t));
+    background: linear-gradient(rgb(var(--flash-c) / 0.1) 0 0), rgb(var(--rw-surface));
+    box-shadow: var(--rw-shadow);
+    transition: opacity 500ms;
 }
-flash-toast[kind="success"] { background: #f0fdf4; border-color: #86efac; color: #14532d; }
-flash-toast[kind="warning"] { background: #fffbeb; border-color: #fcd34d; color: #78350f; }
-flash-toast[kind="error"] { background: #fef2f2; border-color: #fca5a5; color: #7f1d1d; }
+flash-toast[kind="success"] { --flash-c: var(--rw-success); --flash-t: var(--rw-success); }
+flash-toast[kind="warning"] { --flash-c: var(--rw-warn); --flash-t: var(--rw-warn); }
+flash-toast[kind="error"] { --flash-c: var(--rw-danger); --flash-t: var(--rw-danger); }
+flash-toast[leaving] { opacity: 0; }
 
-/* graph-canvas writes --px/--py/--s, each card writes --x/--y: cards and
-   the edge layer are transformed, nested sub-tiles ride inside their card. */
+/* ---- panels ---- */
+/* Drawer bodies (phase 3a): v0 panel.templ, app/panel.templ, form/*.templ.
+   Runtime looks of <log-pane> are attribute selectors: tailwind does not
+   scan ui/ts, and the server marks each line's level and token. */
+@layer components {
+  .section-title {
+    @apply text-sm font-semibold uppercase tracking-wide text-rw-faint mt-8 mb-4;
+  }
+  .section-title:first-child {
+    @apply mt-0;
+  }
+  .settings-scope {
+    @apply rounded-full border border-rw-border px-2 py-0.5 text-[10px] uppercase tracking-wide text-rw-faint;
+  }
+  .settings-label {
+    @apply block text-xs font-medium text-rw-muted mb-1.5;
+  }
+  .settings-help {
+    @apply mt-1.5 block text-xs text-rw-faint;
+  }
+  .chip {
+    @apply inline-flex items-center rounded px-1.5 py-0.5 text-[10px] leading-4 shrink-0;
+  }
+  /* phase 3b: v0 settings pages, env colours, release chips, add people */
+  .settings-layout {
+    @apply flex flex-col gap-6 md:flex-row md:gap-10;
+  }
+  .settings-nav {
+    @apply flex gap-1 overflow-x-auto pb-2 md:w-52 md:shrink-0 md:flex-col md:overflow-visible md:pb-0;
+  }
+  .settings-nav-item {
+    @apply whitespace-nowrap rounded-lg px-3 py-2 text-sm text-rw-muted transition-colors hover:bg-rw-inset hover:text-rw-text;
+  }
+  .settings-nav-item.is-active {
+    @apply bg-rw-inset text-rw-text font-medium;
+  }
+  .settings-body {
+    @apply min-w-0 flex-1 max-w-3xl;
+  }
+  .settings-field {
+    @apply block;
+  }
+  .env-swatch {
+    @apply relative h-6 w-6 rounded-full cursor-pointer overflow-hidden ring-1 ring-rw-border transition-shadow;
+    background: var(--env-c);
+  }
+  .env-swatch:has(input:checked) {
+    @apply ring-2 ring-rw-text ring-offset-2 ring-offset-rw-surface;
+  }
+  .log-chip {
+    @apply inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[10px] font-medium shrink-0 whitespace-nowrap;
+    border-color: var(--env-c);
+    color: var(--env-c);
+    background: color-mix(in srgb, var(--env-c) 14%, transparent);
+  }
+  .people-add:has(input[type=email]:valid) .people-add-submit {
+    @apply bg-rw-accentDeep text-white border-transparent hover:bg-rw-accentPress shadow-rw;
+  }
+}
+summary.list-none::-webkit-details-marker { display: none; }
+log-pane [data-lines] > div { border-left: 2px solid transparent; padding-left: 0.5rem; margin-left: -0.25rem; color: rgb(var(--rw-text)); }
+log-pane [data-lines] [data-ts] { color: rgb(var(--rw-faint)); }
+log-pane [data-lines] [data-tok] { font-weight: 600; }
+log-pane [data-level="error"] { border-left-color: rgb(var(--rw-danger)) !important; color: rgb(var(--rw-danger)) !important; }
+log-pane [data-level="warn"] { border-left-color: rgb(var(--rw-warn)) !important; color: rgb(var(--rw-warn)) !important; }
+log-pane [data-level="info"] [data-tok] { color: rgb(var(--rw-accent)); }
+log-pane [data-level="debug"] { color: rgb(var(--rw-faint)) !important; }
+log-pane [data-lines]:not([data-wrap]) { overflow-x: auto; }
+log-pane [data-lines][data-wrap] { word-break: break-all; }
+log-pane [data-status] { margin-left: auto; font-size: 0.75rem; color: rgb(var(--rw-faint)); }
+log-pane [data-status]:empty::after { content: "connecting\2026"; }
+log-pane[state="open"] [data-status]:empty::after { content: "live"; }
+log-pane[state="closed"] [data-status]:empty::after { content: "ended"; }
+log-pane[state="error"] [data-status]:empty::after { content: "reconnecting\2026"; }
+/* ---- end panels ---- */
+
+/* ---- canvas ---- */
+/* v0's canvas look (css/input.css .graph-*), keyed on the elements.
+   graph-canvas writes --px/--py/--s, each card --x/--y: the grid, the
+   edge and lane layers and the cards follow them; sub-tiles ride inside
+   their card. The look attributes on graph-canvas (arrows, badges,
+   boundary, legend, hover-focus) switch the rules below; edge strokes are
+   attributes on the paths (graph.edgeAttrs), so the legend draws the same. */
 graph-canvas {
     display: block; position: relative; overflow: hidden; touch-action: none; user-select: none;
+    cursor: grab;
     --px: 0px; --py: 0px; --s: 1;
+    background-image: radial-gradient(circle, var(--rw-grid) 1px, transparent 1px);
+    background-size: calc(22px * var(--s)) calc(22px * var(--s));
+    background-position: var(--px) var(--py);
 }
-graph-canvas > svg[data-edges], graph-canvas > graph-node { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
-graph-canvas > svg[data-edges] {
+graph-canvas > svg[data-edges], graph-canvas > svg[data-lanes], graph-canvas > graph-node {
+    position: absolute; left: 0; top: 0; transform-origin: 0 0;
+}
+graph-canvas > svg[data-edges], graph-canvas > svg[data-lanes] {
     width: 1px; height: 1px; overflow: visible; pointer-events: none;
     transform: translate(var(--px), var(--py)) scale(var(--s));
 }
 graph-node { display: block; }
 graph-canvas > graph-node {
-    display: flex; flex-direction: column; /* the card flexes, sub-tiles keep their height */
-    cursor: grab;
+    z-index: 1;
     transform: translate(calc(var(--px) + var(--x, 0px) * var(--s)), calc(var(--py) + var(--y, 0px) * var(--s))) scale(var(--s));
 }
+graph-canvas > graph-node[node-id^="note:"] { z-index: 0; }
 graph-canvas > graph-node[static] { cursor: default; }
-graph-canvas > graph-node[dragging] { z-index: 10; cursor: grabbing; }
-graph-canvas > graph-node[selected] { outline: 2px solid #3b82f6; outline-offset: 3px; border-radius: 0.5rem; }
-graph-canvas[focusing] > graph-node:not([lit]) { opacity: 0.35; }
-graph-canvas[focusing] path[data-edge-kind]:not([data-lit]) { opacity: 0.15; }
-graph-canvas path[data-edge-kind] { fill: none; stroke: #94a3b8; stroke-width: 1.5; }
-graph-canvas path[data-edge-kind="ref"] { stroke: #64748b; stroke-dasharray: 4 5; }
-graph-canvas path[data-edge-kind="ingress"] { stroke: #3b82f6; }
-graph-canvas path[data-edge-kind="egress"] { stroke: #0ea5e9; }
-graph-canvas path[data-edge-kind="shared"] { stroke: #3b82f6; stroke-dasharray: 5 4; }
-graph-canvas path[data-edge-kind="startup"] { stroke: #f59e0b; stroke-dasharray: 1 5; opacity: 0.6; }
-graph-canvas path[data-edge-kind="config"] { stroke: #a855f7; }
-graph-canvas path[data-edge-kind="source"] { stroke: #a855f7; stroke-dasharray: 4 6; }
-graph-canvas[arrows] path[data-edge-kind] { marker-end: url(#graph-arrow); }
-graph-canvas [data-marquee] { position: absolute; border: 1px dashed #3b82f6; background: rgb(59 130 246 / 0.1); pointer-events: none; }
+graph-canvas > graph-node[dragging] { z-index: 10; }
+graph-canvas > graph-node[dragging], graph-canvas > graph-node[dragging] * { cursor: grabbing; }
+graph-canvas > graph-node[selected] { outline: 2px solid rgb(var(--rw-accent)); outline-offset: 2px; border-radius: 0.75rem; }
+graph-canvas [data-marquee] {
+    position: absolute; z-index: 5; pointer-events: none;
+    border: 1px solid rgb(var(--rw-accent)); background: var(--rw-marquee-fill); border-radius: 4px;
+}
 
-side-drawer:not([open]) { display: none; }
+/* Sub-tiles are the deck under a card (v0 subtileTop/Left): the same box,
+   dealt 8 px across and 28 px down per place, painting behind the card. */
+graph-node > graph-node { position: absolute; width: 100%; height: 100%; }
+graph-node > graph-node:nth-of-type(1) { left: 8px; top: 28px; z-index: -1; }
+graph-node > graph-node:nth-of-type(2) { left: 16px; top: 56px; z-index: -2; }
+graph-node > graph-node:nth-of-type(3) { left: 24px; top: 84px; z-index: -3; }
+graph-node > graph-node:nth-of-type(4) { left: 32px; top: 112px; z-index: -4; }
+graph-node > graph-node:nth-of-type(5) { left: 40px; top: 140px; z-index: -5; }
+graph-node > graph-node:nth-of-type(6) { left: 48px; top: 168px; z-index: -6; }
+graph-node > graph-node:nth-of-type(7) { left: 56px; top: 196px; z-index: -7; }
+graph-node > graph-node:nth-of-type(8) { left: 64px; top: 224px; z-index: -8; }
 
-/* Traffic lanes (task 9): a teal dashed flow per direction, labelled on the path. */
-graph-canvas path[data-edge-kind="traffic"] { stroke: #14b8a6; stroke-dasharray: 3 7; animation: lane-flow 1s linear infinite; }
-graph-canvas svg[data-lanes] text { font-size: 10px; fill: #0d9488; }
-graph-canvas path[data-edge-kind="traffic"][data-rev] { animation-direction: reverse; }
-graph-canvas[arrows] path[data-rev] { marker-end: none; marker-start: url(#graph-arrow); }
-@keyframes lane-flow { to { stroke-dashoffset: -10; } }
-@media (prefers-reduced-motion: reduce) { graph-canvas path[data-edge-kind="traffic"] { animation: none; } }
+/* Deck-of-cards skin (stack and env cards): a layer per thing inside, two
+   at most; none yet keeps the ordinary card depth. */
+.card-deck:not([data-deck]) { box-shadow: var(--rw-shadow); }
+.card-deck[data-deck="1"] {
+    box-shadow: 5px 5px 0 -1px var(--rw-deck-fill), 5px 5px 0 0 var(--rw-deck-line);
+}
+.card-deck[data-deck="2"] {
+    box-shadow:
+        5px 5px 0 -1px var(--rw-deck-fill), 5px 5px 0 0 var(--rw-deck-line),
+        10px 10px 0 -1px var(--rw-deck-fill), 10px 10px 0 0 var(--rw-deck-line);
+}
+.card-face { cursor: grab; }
+.card-face:active { cursor: grabbing; }
+/* The bevel on real cards (not decks, refs or system placeholders). */
+.card-face:not(.card-deck):not(.card-ref):not(.card-system) {
+    box-shadow: var(--rw-bevel);
+    transition: box-shadow 120ms ease-out, transform 120ms ease-out, opacity 120ms ease-out;
+}
+.card-face:not(.card-deck):not(.card-ref):not(.card-system):hover { transform: translateY(-1px); box-shadow: var(--rw-bevel-hover); }
+.card-face:not(.card-deck):active { box-shadow: var(--rw-bevel-active); }
+/* An env card in its env's colour: the border at 45 %, full on hover, and
+   a tinted icon. */
+.card-face.has-env-c { border-color: color-mix(in srgb, var(--env-c) 45%, transparent); }
+.card-face.has-env-c:hover { border-color: var(--env-c); }
+.has-env-c .node-icon { color: var(--env-c); background: color-mix(in srgb, var(--env-c) 14%, transparent); }
+graph-canvas:not([badges]) .node-exposure { display: none; }
+
+/* Notes and boxes: the corner x shows on hover. */
+graph-node .note-del { display: none; }
+graph-node:hover > .note-del, graph-node:focus-within > .note-del { display: flex; }
+
+/* Edges: arrows on the drawn edges only (never lanes or swatches). */
+graph-canvas[arrows] svg[data-edges] path[data-edge-kind] { marker-end: url(#edge-arrow); }
+/* The server boundary. */
+graph-canvas svg[data-edges] [data-divider] line { stroke: rgb(var(--rw-strong)); stroke-width: 1; stroke-dasharray: 3 3; }
+graph-canvas svg[data-edges] [data-divider] text {
+    font: 600 10px ui-sans-serif, system-ui, sans-serif; letter-spacing: 0.1em; text-transform: uppercase;
+    fill: rgb(var(--rw-faint)); text-anchor: end;
+}
+graph-canvas:not([boundary]) [data-divider] { display: none; }
+
+/* Traffic lanes: a copy of the edge each rides (its stroke too, set by
+   the element), dashes drifting the way the bytes go, the rate in teal. */
+graph-canvas svg[data-lanes] g[hidden] { display: none; }
+graph-canvas svg[data-lanes] path { stroke-dasharray: 4 8; animation: edgeflow-fwd 0.9s linear infinite; }
+graph-canvas svg[data-lanes] g[data-rev] path { animation-name: edgeflow-rev; }
+graph-canvas svg[data-lanes] text {
+    font: 600 10px ui-monospace, monospace; fill: var(--rw-teal);
+    paint-order: stroke; stroke: var(--rw-edge-label-halo); stroke-width: 3px;
+    text-anchor: middle; pointer-events: none;
+}
+@keyframes edgeflow-fwd { to { stroke-dashoffset: -12; } }
+@keyframes edgeflow-rev { to { stroke-dashoffset: 12; } }
+
+/* Hover focus: the card under the pointer keeps its edges and neighbours,
+   everything else drops back. */
+graph-canvas > graph-node, graph-canvas svg[data-edges] path, graph-canvas svg[data-lanes] g { transition: opacity 120ms ease-out; }
+graph-canvas[focusing] > graph-node:not([lit]):not([node-id^="note:"]) { opacity: 0.28; }
+graph-canvas[focusing] svg[data-edges] path[data-edge-kind]:not([data-lit]) { opacity: 0.4; }
+graph-canvas[focusing] svg[data-edges] path[data-edge-kind][data-lit] { stroke-opacity: 1; stroke-width: 2.4; }
+graph-canvas[focusing] svg[data-lanes] g:not([data-lit]) { opacity: 0.4; }
+
+/* Chrome: the control column, the legend, the env pill, the View panel. */
+.graph-ctrl {
+    @apply flex h-8 w-8 items-center justify-center rounded-lg border border-rw-border
+           bg-rw-surface text-rw-muted hover:text-rw-text hover:border-rw-strong
+           transition-colors text-lg leading-none;
+}
+.graph-legend {
+    @apply absolute bottom-4 right-16 z-10 flex flex-col gap-1 rounded-lg border border-rw-border
+           bg-rw-surface/90 px-3 py-2 pointer-events-none backdrop-blur-sm;
+}
+.graph-legend-row { @apply flex items-center gap-2 text-[11px] leading-none text-rw-muted whitespace-nowrap; }
+graph-canvas:not([legend]) .graph-legend { display: none; }
+.graph-legend-traffic { display: none; }
+graph-canvas:has(svg[data-lanes] g:not([hidden])) .graph-legend-traffic { display: flex; }
+.graph-legend-traffic line { stroke-dasharray: 4 8; animation: edgeflow-fwd 0.9s linear infinite; }
+.env-compare {
+    @apply w-max rounded-lg border border-rw-border bg-rw-surface/90 backdrop-blur-sm shadow-rw
+           hover:border-rw-strong transition-colors;
+}
+.env-pill { @apply flex items-center gap-3 px-3 py-2 text-[11px] leading-none whitespace-nowrap select-none; }
+.graph-view {
+    @apply inset-auto top-0 right-0 m-0 p-0 h-full max-h-none w-full max-w-sm border-0 border-l border-rw-border
+           bg-rw-surface text-rw-text overflow-y-auto cursor-default;
+    box-shadow: var(--rw-drawer-shadow);
+}
+.graph-view::backdrop { background: var(--rw-scrim); }
+
+@media (prefers-reduced-motion: reduce) {
+    graph-canvas > graph-node, graph-canvas svg[data-edges] path, graph-canvas svg[data-lanes] g,
+    .card-face { transition: none; }
+    .card-face:hover { transform: none; }
+    graph-canvas svg[data-lanes] path, .graph-legend-traffic line { animation: none; }
+}

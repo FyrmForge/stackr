@@ -25,6 +25,11 @@ func (o *Orchestrator) ChangePassword(ctx context.Context, userID, current, next
 	return o.users.ChangePassword(ctx, userID, current, next)
 }
 
+// SetTheme is the user's own look: system, light or dark.
+func (o *Orchestrator) SetTheme(ctx context.Context, userID, theme string) error {
+	return o.users.SetTheme(ctx, userID, theme)
+}
+
 // SetPassword is the admin reset.
 func (o *Orchestrator) SetPassword(ctx context.Context, userID, next string) error {
 	return o.users.SetPassword(ctx, userID, next)

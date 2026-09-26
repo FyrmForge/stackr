@@ -4,41 +4,46 @@ import c "github.com/FyrmForge/stackr/internal/ui/components"
 
 // View is one invite link. Gone = used, expired or never was. A signed-in
 // viewer accepts with one button; a visitor registers here (the invite's
-// email filled in) or logs in and comes back.
+// email, read-only) or logs in and comes back.
 type View struct {
 	Base   string // /invite/<token>
 	Gone   bool
 	Role   string
-	Email  string
 	Signed bool
 	Form   Form
 }
 
+// Form is the register-through-the-invite form; Org names the button.
 type Form struct {
-	Name, Email string
-	Errors      map[string]string
+	Name, Email, Org string
+	Errors           map[string]string
 }
 
 templ page(v View) {
-	@c.AuthCard("Join an org") {
-		if v.Gone {
-			<p class="text-sm">This invite link is used or expired. Ask the org owner for a new one.</p>
-		} else {
-			<p class="text-sm">You are invited as <strong>{ v.Role }</strong> ({ v.Email }).</p>
-			if v.Signed {
-				@accept(v.Base, "")
-			} else {
-				@register(v.Base, v.Form)
-				<p class="text-sm text-slate-500">Have an account? <a class="link" href={ templ.SafeURL("/login?next=" + v.Base) }>Log in</a> and open this link again.</p>
-			}
+	if v.Gone {
+		@c.AuthCard("This invite link is no longer valid", nil) {
+			<p class="text-sm text-rw-muted text-center">It may have expired, been revoked, or already been used. Ask the org owner for a new one.</p>
+		}
+	} else if v.Signed {
+		@c.AuthCard("Join "+v.Form.Org, invited(v.Role, "")) {
+			@accept(v.Base, "")
+		}
+	} else {
+		@c.AuthCard("Join "+v.Form.Org, invited(v.Role, " Create your account to join.")) {
+			@register(v.Base, v.Form)
+			<p class="text-xs text-rw-faint text-center">Already have an account? <a class="link" href={ templ.SafeURL("/login?next=" + v.Base) }>Log in</a> first, then reopen the invite link.</p>
 		}
 	}
+}
+
+templ invited(role, then string) {
+	You've been invited as <span class="text-rw-text">{ role }</span>.{ then }
 }
 
 templ accept(base, err string) {
 	@c.Form("invite-accept", base) {
 		@c.FormError(err)
-		@c.Submit("Accept")
+		@c.Submit("Accept invite")
 	}
 }
 
@@ -46,8 +51,14 @@ templ register(base string, f Form) {
 	@c.Form("invite-register", base+"/register") {
 		@c.FormError(f.Errors["general"])
 		@c.Field(c.FieldView{Name: "name", Label: "Name", Value: f.Name, Required: true, Error: f.Errors["name"]})
-		@c.Field(c.FieldView{Name: "email", Label: "Email", Type: "email", Value: f.Email, Required: true, Error: f.Errors["email"]})
-		@c.Field(c.FieldView{Name: "password", Label: "Password", Type: "password", Required: true, Error: f.Errors["password"]})
-		@c.Submit("Register and join")
+		<div>
+			<label for="email" class="label">Email</label>
+			<input id="email" name="email" type="email" value={ f.Email } class="input" readonly autocomplete="username"/>
+			@c.FieldError("email", f.Errors["email"])
+		</div>
+		@c.Field(c.FieldView{Name: "password", Label: "Password", Type: "password", Required: true, Error: f.Errors["password"],
+			Help: "At least 8 characters with uppercase, lowercase, a number, and a special character."})
+		@c.Field(c.FieldView{Name: "confirm_password", Label: "Confirm password", Type: "password", Required: true, Error: f.Errors["confirm_password"]})
+		@c.Submit("Join " + f.Org)
 	}
 }

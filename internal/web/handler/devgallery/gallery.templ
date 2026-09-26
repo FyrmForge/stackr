@@ -2,11 +2,12 @@ package devgallery
 
 import (
 	c "github.com/FyrmForge/stackr/internal/ui/components"
+	"github.com/FyrmForge/stackr/internal/ui/graph"
 	"github.com/FyrmForge/stackr/internal/ui/graph/cards"
 )
 
 templ gallery() {
-	<div class="space-y-10">
+	<div class="page space-y-10">
 		@section("Form") {
 			@c.Form("gallery-form", "/dev/components") {
 				@c.FormError("Please fix the errors below.")
@@ -53,22 +54,25 @@ templ gallery() {
 			</div>
 		}
 		@section("Graph canvas") {
-			<p class="text-sm text-slate-500">Drag cards (the proxy stays left of the divider), shift+drag to select, wheel to zoom, click a card for its drawer.</p>
-			<graph-canvas scale="1" divider="240" fan-out arrows class="h-[28rem] rounded-lg border border-slate-200 bg-slate-100 dark:border-slate-800 dark:bg-slate-950">
+			<p class="text-sm text-rw-muted">Drag cards (the proxy stays left of the divider), shift+drag to select, wheel to zoom, click a card for its drawer.</p>
+			<graph-canvas scale="1" divider="240" fan-out arrows hover-focus boundary class="h-[28rem] rounded-lg border border-rw-border bg-rw-bg">
 				<svg data-edges aria-hidden="true">
 					<defs>
-						<marker id="graph-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-							<path d="M0,0 L10,5 L0,10 z" fill="context-stroke"></path>
+						<marker id="edge-arrow" viewBox="0 0 8 8" refX="8" refY="4" markerWidth="5" markerHeight="5" orient="auto" fill="context-stroke" fill-opacity="0.8">
+							<path d="M0 0 L8 4 L0 8 z"></path>
 						</marker>
 					</defs>
-					<line x1="240" y1="-2000" x2="240" y2="2000" stroke="#94a3b8" stroke-dasharray="2 6"></line>
-					<path data-edge-kind="ingress" data-from="proxy" data-to="tile:api" d="M0,0"></path>
-					<path data-edge-kind="ref" data-from="tile:api" data-to="tile:db" d="M0,0"></path>
-					<path data-edge-kind="startup" data-from="tile:api" data-to="tile:db" d="M0,0"></path>
+					<g data-divider>
+						<line x1="240" y1="-80" x2="240" y2="440"></line>
+						<text x="230" y="-62">server</text>
+					</g>
+					<path data-edge-kind="ingress" data-from="proxy" data-to="tile:api" d="M0,0" { graph.EdgeAttrs("ingress")... }></path>
+					<path data-edge-kind="ref" data-from="tile:api" data-to="tile:db" d="M0,0" { graph.EdgeAttrs("ref")... }></path>
+					<path data-edge-kind="startup" data-from="tile:api" data-to="tile:db" d="M0,0" { graph.EdgeAttrs("startup")... }></path>
 				</svg>
 				@galleryNode("proxy", "proxy", "system", "20", "100", true)
 				@galleryNode("tile:api", "api", "service · nginx:1", "300", "60", false) {
-					<graph-node node-id="volume:uploads" static class="absolute left-2 top-full mt-1 w-48">
+					<graph-node node-id="volume:uploads" static>
 						<div class="card py-1 text-xs" hx-get="/dev/components/drawer?node=volume:uploads&tab=backups" hx-target="#drawer-body" hx-push-url="?drawer=volume:uploads&tab=backups">uploads · 1.2 GB</div>
 					</graph-node>
 				}
@@ -78,15 +82,23 @@ templ gallery() {
 					<label class="flex items-center gap-1"><input type="checkbox" data-look="straight"/> straight</label>
 					<label class="flex items-center gap-1"><input type="checkbox" data-look="fan-out"/> fan-out</label>
 					<label class="flex items-center gap-1"><input type="checkbox" data-look="arrows"/> arrows</label>
-					<button type="button" class="btn" data-zoom="in" aria-label="Zoom in">+</button>
-					<button type="button" class="btn" data-zoom="out" aria-label="Zoom out">-</button>
-					<button type="button" class="btn" data-zoom="fit">Fit</button>
+					<label class="flex items-center gap-1"><input type="checkbox" data-look="hover-focus"/> focus</label>
+				</div>
+				<div class="absolute bottom-4 right-4 flex flex-col gap-1.5 z-10">
+					<button type="button" class="graph-ctrl" data-zoom="in" aria-label="Zoom in">+</button>
+					<button type="button" class="graph-ctrl" data-zoom="out" aria-label="Zoom out">−</button>
+					<button type="button" class="graph-ctrl" data-zoom="fit" aria-label="Fit">⤢</button>
 				</div>
 			</graph-canvas>
 		}
 		@section("Env canvas cards") {
-			<p class="text-sm text-slate-500">One card of every env kind (task 9), with sub-tiles and traffic lanes.</p>
-			<graph-canvas scale="1" divider="240" class="h-[36rem] rounded-lg border border-slate-200 bg-slate-100 dark:border-slate-800 dark:bg-slate-950">
+			<p class="text-sm text-rw-muted">One card of every env kind (task 9), with sub-tiles and traffic lanes.</p>
+			<graph-canvas scale="1" divider="240" badges class="h-[36rem] rounded-lg border border-rw-border bg-rw-bg">
+				<svg data-edges aria-hidden="true">
+					<path data-edge-kind="ingress" data-from="proxy" data-to="t-api" d="M0,0" { graph.EdgeAttrs("ingress")... }></path>
+					<path data-edge-kind="ref" data-from="t-api" data-to="p-shopdb" d="M0,0" { graph.EdgeAttrs("ref")... }></path>
+					<path data-edge-kind="egress" data-from="t-nightly" data-to="internet" d="M0,0" { graph.EdgeAttrs("egress")... }></path>
+				</svg>
 				@cards.Lanes(envLanes)
 				for _, p := range envCards() {
 					@envNode(p)
@@ -161,8 +173,8 @@ templ galleryNode(id, name, detail, x, y string, system bool) {
 		<input type="hidden" name="x" value={ x }/>
 		<input type="hidden" name="y" value={ y }/>
 		<div class="card h-full cursor-pointer" hx-get={ "/dev/components/drawer?node=" + id + "&tab=status" } hx-target="#drawer-body" hx-push-url={ "?drawer=" + id + "&tab=status" }>
-			<p class="font-semibold">{ name }</p>
-			<p class="text-xs text-slate-500">{ detail }</p>
+			<p class="font-semibold text-rw-text">{ name }</p>
+			<p class="text-xs text-rw-faint">{ detail }</p>
 		</div>
 		{ children... }
 	</graph-node>
@@ -196,8 +208,8 @@ templ envNode(p placed) {
 
 // drawerBody is a sample drawer: tab links are plain hx-get + hx-push-url.
 templ drawerBody(node, tab string) {
-	<h2 class="text-lg font-semibold">{ node }</h2>
-	<nav class="my-3 flex gap-3 text-sm">
+	@c.DrawerHead(node, "")
+	<nav class="mx-6 my-3 flex gap-3 text-sm">
 		for _, t := range []string{"status", "logs", "backups"} {
 			<a
 				href={ templ.SafeURL("?drawer=" + node + "&tab=" + t) }
@@ -211,7 +223,7 @@ templ drawerBody(node, tab string) {
 			>{ t }</a>
 		}
 	</nav>
-	<p class="text-sm">Sample { tab } tab for { node }.</p>
+	<p class="mx-6 text-sm">Sample { tab } tab for { node }.</p>
 }
 
 templ section(title string) {

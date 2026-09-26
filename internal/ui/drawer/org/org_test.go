@@ -75,12 +75,12 @@ func TestTabs(t *testing.T) {
 			nil,
 		},
 		"backups": {
-			Backups(BackupsView{
-				Base:  "/o",
-				Write: true,
-				Dests: []DestRow{
-					{ID: "d1", Name: "local", Global: true},
-					{ID: "d2", Name: "s3"},
+			Backups(c.DestsView{
+				Scope: "organization",
+				Add:   "/o/backups",
+				Rows: []c.DestView{
+					{Name: "local", Note: "install-wide"},
+					{Name: "s3", Remove: c.ConfirmView{Button: "Remove", Action: "/o/backups/d2/delete"}},
 				},
 			}),
 			[]string{"install-wide", `hx-post="/o/backups/d2/delete"`, `name="secret_key"`},
