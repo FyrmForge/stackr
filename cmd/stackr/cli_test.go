@@ -524,3 +524,18 @@ func TestAllowEditsTheWholeList(t *testing.T) {
 		t.Errorf("slice bindings = %d %s", code, errw)
 	}
 }
+
+// tile exec prints the output and exits with the X-Exit-Code trailer.
+func TestTileExecExitCode(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Trailer", "X-Exit-Code")
+		_, _ = io.WriteString(w, "out\nerr\n")
+		w.Header().Set("X-Exit-Code", "3")
+	}))
+	t.Cleanup(srv.Close)
+	useServer(t, srv.URL)
+	code, out, errw := cli(t, "tile", "exec", "api", "--stack", "shop", "--env", "dev", "--container", "c1", "--", "sh")
+	if code != 3 || out != "out\nerr\n" || errw != "" {
+		t.Errorf("exec = %d %q %q, want 3, the output, nothing on stderr", code, out, errw)
+	}
+}

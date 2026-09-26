@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -681,8 +682,13 @@ func (a *app) tiles() *cobra.Command {
 			return err
 		}
 		defer func() { _ = res.Body.Close() }()
-		_, err = io.Copy(a.out, res.Body)
-		return err
+		if _, err := io.Copy(a.out, res.Body); err != nil {
+			return err
+		}
+		if code, _ := strconv.Atoi(res.Trailer.Get("X-Exit-Code")); code != 0 {
+			return exitErr(code)
+		}
+		return nil
 	}
 	exec.Flags().StringVar(&exCont, "container", "", "the replica (default: the first)")
 
@@ -716,18 +722,31 @@ func (a *app) tiles() *cobra.Command {
 			"image check",
 			"",
 		),
-		a.get(
-			"status [tile]",
-			"tile.status",
-			"Show the tile's state and replicas",
-			atTile,
-			"/status",
-			"word",
-			"last_job",
-			"last_run",
-			"next_run",
-			"paused",
-		),
+		leaf("status [tile]", "tile.status", "Show the tile's state and replicas", upTo(1),
+			a.at(atTile, func(_ *cobra.Command, p string, _ []string) error {
+				v, err := a.call(GET, p+"/status", nil)
+				if err != nil || a.json {
+					if err == nil {
+						err = a.show(v)
+					}
+					return err
+				}
+				m, _ := v.(map[string]any)
+				if j, ok := m["last_job"].(map[string]any); ok {
+					m["last_job"] = cell(j["kind"]) + " " + cell(j["state"]) + " " + cell(j["id"])
+				}
+				if r, ok := m["last_run"].(map[string]any); ok {
+					m["last_run"] = cell(r["status"]) + " " + cell(r["trigger"]) + " " + cell(r["id"])
+				}
+				rs, _ := m["replicas"].([]any)
+				ids := make([]string, 0, len(rs))
+				for _, r := range rs {
+					c, _ := r.(map[string]any)
+					ids = append(ids, cell(c["id"]))
+				}
+				m["replicas"] = strings.Join(ids, " ")
+				return a.show(m, "word", "replicas", "last_job", "last_run", "next_run", "paused")
+			})),
 		a.logs(),
 		exec,
 		a.runNow(),
@@ -1077,17 +1096,7 @@ func (a *app) managed() *cobra.Command {
 		return a.show(v)
 	})
 	return scoped(noun("managed", "Managed tiles",
-		a.get(
-			"ls",
-			"managed.list",
-			"List the env's managed tiles",
-			atEnv,
-			"/managed",
-			"engine",
-			"endpoint",
-			"tile_id",
-			"id",
-		),
+		a.get("ls", "managed.list", "List the env's managed tiles", atEnv, "/managed", managedCols...),
 		create,
 	), true)
 }

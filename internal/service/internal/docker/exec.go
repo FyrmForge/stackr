@@ -129,9 +129,9 @@ func (d *Client) execResult(ctx context.Context, execID, stderr string) error {
 	return nil
 }
 
-// ExecStream runs cmd with optional stdin and streams stdout. The caller must
-// call wait even on a stream it abandons: wait reports the exit and releases
-// the exec.
+// ExecStream runs cmd with optional stdin and streams stdout and stderr
+// interleaved. The caller must call wait even on a stream it abandons: wait
+// reports the exit and releases the exec.
 func (d *Client) ExecStream(
 	ctx context.Context,
 	id string,
@@ -161,7 +161,7 @@ func (d *Client) ExecStream(
 	var stderr strings.Builder
 	copyDone := make(chan struct{})
 	go func() {
-		_, err := stdcopy.StdCopy(pw, &stderr, att.Reader)
+		_, err := stdcopy.StdCopy(pw, io.MultiWriter(pw, &stderr), att.Reader)
 		_ = pw.CloseWithError(err)
 		close(copyDone)
 	}()

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
+	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/imagewatch"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/jobs"
 	lrun "github.com/FyrmForge/stackr/internal/service/internal/leaf/run"
@@ -202,6 +203,12 @@ func (o *Orchestrator) Terminal(
 	stdin io.Reader,
 ) (io.Reader, func() error, error) {
 	return o.tiles.Terminal(ctx, tileID, containerID, cmd, stdin)
+}
+
+// ExitCode is the command's non-zero exit when a Terminal wait reports one.
+func ExitCode(err error) (int, bool) {
+	e, ok := docker.IsExit(err)
+	return e.Code, ok
 }
 
 // CheckImages queues an image-watch check of one stack or tile ("" = all).

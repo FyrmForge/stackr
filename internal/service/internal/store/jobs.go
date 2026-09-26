@@ -42,7 +42,7 @@ type jobs struct{ crud[Job] }
 
 func (s jobs) ListByState(ctx context.Context, states ...string) ([]Job, error) {
 	if len(states) == 0 {
-		return nil, nil
+		return s.many(ctx, "1 = 1") // ponytail: every job; a limit when the table outgrows one screen
 	}
 	args := make([]any, len(states))
 	for i, st := range states {
