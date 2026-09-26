@@ -156,6 +156,38 @@ func (r Repo) Branches(ctx context.Context) []string {
 	return branches
 }
 
+// Head asks the remote for the tip of r.Branch, or of its default branch
+// when r.Branch is "": the branch's name and its commit. No clone.
+func (r Repo) Head(ctx context.Context) (branch, sha string, err error) {
+	ref := "HEAD"
+	if r.Branch != "" {
+		ref = "refs/heads/" + r.Branch
+	}
+	cmd := exec.CommandContext(ctx, "git", "ls-remote", "--symref", "--", r.URL, ref)
+	cmd.Env = r.env(ctx)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	if err != nil {
+		return "", "", fmt.Errorf("git ls-remote: %w: %s", err, strings.TrimSpace(stderr.String()))
+	}
+	branch = r.Branch
+	for _, line := range strings.Split(string(out), "\n") {
+		left, _, ok := strings.Cut(line, "\t")
+		switch {
+		case !ok:
+		case strings.HasPrefix(left, "ref: "):
+			branch = strings.TrimPrefix(strings.TrimPrefix(left, "ref: "), "refs/heads/")
+		default:
+			sha = left
+		}
+	}
+	if sha == "" || branch == "" {
+		return "", "", fmt.Errorf("git: %s has no %s", r.URL, ref)
+	}
+	return branch, sha, nil
+}
+
 // Under resolves a repo-relative path (build context, Dockerfile, a files:
 // entry) against the clone and refuses one that lands outside it: the clone
 // sits next to every other clone, and "../../keys" with a one-line COPY

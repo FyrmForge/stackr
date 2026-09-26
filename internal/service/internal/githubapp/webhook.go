@@ -11,9 +11,10 @@ import (
 
 // Repository is the part of a delivery's repository object a tile is matched on.
 type Repository struct {
-	CloneURL string `json:"clone_url"`
-	SSHURL   string `json:"ssh_url"`
-	FullName string `json:"full_name"`
+	CloneURL      string `json:"clone_url"`
+	SSHURL        string `json:"ssh_url"`
+	FullName      string `json:"full_name"`
+	DefaultBranch string `json:"default_branch"`
 }
 
 // PullRequest is a pull_request delivery. Actions: opened/reopened create

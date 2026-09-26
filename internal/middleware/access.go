@@ -106,10 +106,36 @@ func (a *Access) Require(v authz.Verb) echo.MiddlewareFunc {
 			if err := a.children(c, s); err != nil {
 				return err
 			}
+			if s.Org != nil && s.Org.SetupDoneAt == nil && !setupOpen(c) {
+				return SetupPending{
+					Slug:  s.Org.Slug,
+					Name:  s.Org.Name,
+					Owner: authz.Can(p.Access, "org.setup.step", r) == nil,
+				}
+			}
 			ctx.Set(c, scopeKey, s)
 			return next(c)
 		}
 	}
+}
+
+// SetupPending is Require's answer inside an org whose setup wizard is
+// still open (v0 RequireOrgSetup): the web sends an owner to the wizard's
+// summary and anyone else to a holding page; HTTPError makes it a 409.
+type SetupPending struct {
+	Slug, Name string
+	Owner      bool // may finish it: org.setup.step
+}
+
+func (SetupPending) Error() string { return "organization setup is not finished" }
+
+// setupOpen is what an unfinished org still answers, matched on the route
+// pattern so no slug can look like one: the wizard, and the API.
+// ponytail: the API is not gated (v0 answered it 409), because its org
+// create walks a draft through rename and finish on routes this gates.
+func setupOpen(c echo.Context) bool {
+	p := c.Path()
+	return strings.HasPrefix(p, "/:org/-/setup") || strings.HasPrefix(p, "/api/")
 }
 
 // Authed gates the routes about the caller alone: /me, the org list.
@@ -168,6 +194,7 @@ var childKinds = map[string]string{
 	"schedule":  "schedule",
 	"provision": "provision",
 	"resource":  "domain-resource",
+	"plan":      "org-plan",
 }
 
 // byVerb are path params the verb itself scopes (it takes the org or the
@@ -186,6 +213,7 @@ var byVerb = map[string]bool{
 	"name":       true,
 	"token":      true,
 	"setting":    true,
+	"step":       true, // a setup wizard step's name
 	"run":        true, // the verb takes the tile too and refuses another tile's run
 }
 
@@ -246,6 +274,8 @@ func HTTPError(err error) error {
 		return echo.NewHTTPError(http.StatusForbidden, err.Error())
 	case errors.Is(err, errs.ErrBusy):
 		return echo.NewHTTPError(http.StatusServiceUnavailable)
+	case errors.As(err, new(SetupPending)):
+		return echo.NewHTTPError(http.StatusConflict, err.Error())
 	case errors.Is(err, service.ErrBadSignature):
 		return echo.NewHTTPError(http.StatusUnauthorized, "bad signature")
 	case errors.Is(err, service.ErrBadPayload):

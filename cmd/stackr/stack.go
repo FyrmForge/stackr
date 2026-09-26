@@ -350,6 +350,13 @@ func (a *app) plan(p, rel string) (bool, error) {
 		return ok, a.show(v)
 	}
 	pl, _ := m["plan"].(map[string]any)
+	a.changes(pl, "warnings", "blockers")
+	return ok, nil
+}
+
+// changes prints a plan's changes as a table, then each line of lists
+// (a plan's warnings, notes, blockers) on stderr.
+func (a *app) changes(pl map[string]any, lists ...string) {
 	changes, _ := pl["changes"].([]any)
 	rows := make([][]string, 0, len(changes))
 	for _, c := range changes {
@@ -364,13 +371,12 @@ func (a *app) plan(p, rel string) (bool, error) {
 		})
 	}
 	a.table([]string{"change", "tile", "field", "old", "new", "note"}, rows)
-	for _, list := range []string{"warnings", "blockers"} {
+	for _, list := range lists {
 		xs, _ := pl[list].([]any)
 		for _, x := range xs {
 			_, _ = fmt.Fprintf(a.errw, "%s: %s\n", strings.TrimSuffix(list, "s"), cell(x))
 		}
 	}
-	return ok, nil
 }
 
 func (a *app) promote() *cobra.Command {

@@ -8,6 +8,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"slices"
 	"strings"
@@ -16,6 +17,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
+	"github.com/FyrmForge/stackr/internal/service/internal/githubapp"
 	"github.com/FyrmForge/stackr/internal/service/internal/slug"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
@@ -23,15 +25,30 @@ import (
 // DraftName is the placeholder an org carries until setup names it.
 const DraftName = "Untitled organization"
 
+// The setup wizard's two branches (orgs.setup_mode): the org's config file
+// names it, or its owner does, step by step.
+const (
+	SetupConfig = "config"
+	SetupUI     = "ui"
+)
+
 // InviteTTL is how long an invite link works ("Auth mechanics": 7 days).
 const InviteTTL = 7 * 24 * time.Hour
 
 // Owner is the one role v1 writes (two roles: stackr admin and org owner).
-// ponytail: authz already ranks member/viewer; open this list when a third
-// role ships.
 const Owner = "owner"
 
-func validRole(r string) bool { return r == Owner }
+// roles is every role the leaf writes, in the pickers' order.
+// ponytail: owner only (DECIDE 171, darthvader 2026-09-25); member and
+// viewer are Later. authz already ranks them.
+var roles = []string{
+	Owner,
+}
+
+// AssignableRoles is every role AddMember, SetRole and Invite take.
+func AssignableRoles() []string { return slices.Clone(roles) }
+
+func validRole(r string) bool { return slices.Contains(roles, r) }
 
 type Leaf struct {
 	orgs    store.OrgStore
@@ -179,6 +196,63 @@ func (l *Leaf) SetupDone(ctx context.Context, o store.Org) (store.Org, error) {
 	}
 	now := time.Now().UTC()
 	o.SetupDoneAt = &now
+	return o, l.orgs.Update(ctx, o)
+}
+
+// SetSetupMode records the setup wizard's branch; anything else, or a
+// finished org, is refused.
+func (l *Leaf) SetSetupMode(ctx context.Context, o store.Org, mode string) (store.Org, error) {
+	if mode != SetupConfig && mode != SetupUI {
+		return o, errs.Invalidf("mode", "pick how to set the organization up")
+	}
+	if o.SetupDoneAt != nil {
+		return o, errs.Conflictf("Setup is already finished.")
+	}
+	o.SetupMode = mode
+	return o, l.orgs.Update(ctx, o)
+}
+
+// SetSettings stores the org's rung of the defaults cascade as given;
+// leaf/settings owns its shape and the merge.
+func (l *Leaf) SetSettings(ctx context.Context, o store.Org, blob string) (store.Org, error) {
+	o.Settings = blob
+	return o, l.orgs.Update(ctx, o)
+}
+
+// SetEnvColors stores the org's env colours: a JSON object of env slug to
+// hue, kept canonical (sorted keys) so a diff compares it as text.
+func (l *Leaf) SetEnvColors(ctx context.Context, o store.Org, colors string) (store.Org, error) {
+	m := map[string]string{}
+	if err := json.Unmarshal([]byte(colors), &m); err != nil {
+		return o, errs.Invalidf("env_colors", "Env colours are a JSON object of env slug to colour.")
+	}
+	b, err := json.Marshal(m)
+	if err != nil {
+		return o, err
+	}
+	o.EnvColors = string(b)
+	return o, l.orgs.Update(ctx, o)
+}
+
+// SetConfigRepo binds the org to its config file: repo as githubapp.RepoURL
+// spells it, "" unbinds and clears the other four columns too.
+func (l *Leaf) SetConfigRepo(
+	ctx context.Context,
+	o store.Org,
+	connectorID, repo, branch, path string,
+	auto bool,
+) (store.Org, error) {
+	o.ConfigRepo = githubapp.RepoURL(repo)
+	o.ConfigConnectorID = ""
+	o.ConfigBranch = ""
+	o.ConfigPath = ""
+	o.ConfigAuto = false
+	if o.ConfigRepo != "" {
+		o.ConfigConnectorID = connectorID
+		o.ConfigBranch = branch
+		o.ConfigPath = path
+		o.ConfigAuto = auto
+	}
 	return o, l.orgs.Update(ctx, o)
 }
 

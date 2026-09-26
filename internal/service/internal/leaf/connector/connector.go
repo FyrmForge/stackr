@@ -13,6 +13,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/url"
+	"slices"
 	"strings"
 	"time"
 
@@ -99,6 +100,17 @@ func (l *Leaf) Get(ctx context.Context, orgID, id string) (store.Connector, erro
 // List is the org's connectors, config stripped.
 func (l *Leaf) List(ctx context.Context, orgID string) ([]store.Connector, error) {
 	cs, err := l.conns.ListByOrg(ctx, orgID)
+	for i := range cs {
+		cs[i].Config = ""
+	}
+	return cs, err
+}
+
+// ListConnected is the org's connectors that finished GitHub's handshake,
+// config stripped: the ones a clone can use.
+func (l *Leaf) ListConnected(ctx context.Context, orgID string) ([]store.Connector, error) {
+	cs, err := l.conns.ListByOrg(ctx, orgID)
+	cs = slices.DeleteFunc(cs, func(c store.Connector) bool { return !Connected(c) })
 	for i := range cs {
 		cs[i].Config = ""
 	}

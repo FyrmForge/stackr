@@ -1671,6 +1671,21 @@
           "avatar_path": {
             "type": "string"
           },
+          "config_auto": {
+            "type": "boolean"
+          },
+          "config_branch": {
+            "type": "string"
+          },
+          "config_connector_id": {
+            "type": "string"
+          },
+          "config_path": {
+            "type": "string"
+          },
+          "config_repo": {
+            "type": "string"
+          },
           "created_at": {
             "format": "date-time",
             "type": "string"
@@ -1698,6 +1713,9 @@
               }
             ]
           },
+          "setup_mode": {
+            "type": "string"
+          },
           "slug": {
             "type": "string"
           }
@@ -1709,7 +1727,51 @@
           "avatar_path",
           "env_colors",
           "settings",
-          "created_at"
+          "setup_mode",
+          "created_at",
+          "config_connector_id",
+          "config_repo",
+          "config_branch",
+          "config_path",
+          "config_auto"
+        ],
+        "type": "object"
+      },
+      "OrgConfigRepoIn": {
+        "properties": {
+          "auto": {
+            "type": "boolean"
+          },
+          "branch": {
+            "type": "string"
+          },
+          "connector_id": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "repo": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "connector_id",
+          "repo",
+          "branch",
+          "path",
+          "auto"
+        ],
+        "type": "object"
+      },
+      "OrgFileIn": {
+        "properties": {
+          "file": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "file"
         ],
         "type": "object"
       },
@@ -1737,6 +1799,57 @@
           "org_id",
           "user_id",
           "role",
+          "created_at"
+        ],
+        "type": "object"
+      },
+      "OrgPlan": {
+        "properties": {
+          "commit": {
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "decided_at": {
+            "oneOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "error": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "org_id": {
+            "type": "string"
+          },
+          "plan": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "org_id",
+          "commit",
+          "summary",
+          "plan",
+          "status",
+          "error",
           "created_at"
         ],
         "type": "object"
@@ -1886,16 +1999,7 @@
             },
             "type": "array"
           },
-          "env": {
-            "type": "string"
-          },
-          "release": {
-            "type": "integer"
-          },
-          "stack": {
-            "type": "string"
-          },
-          "warnings": {
+          "notes": {
             "items": {
               "type": "string"
             },
@@ -1903,9 +2007,6 @@
           }
         },
         "required": [
-          "stack",
-          "env",
-          "release",
           "changes"
         ],
         "type": "object"
@@ -1918,7 +2019,7 @@
           "plan": {
             "oneOf": [
               {
-                "$ref": "#/components/schemas/Plan"
+                "$ref": "#/components/schemas/promote.Plan"
               },
               {
                 "type": "null"
@@ -3526,6 +3627,70 @@
         "required": [
           "slug",
           "max_size_mb"
+        ],
+        "type": "object"
+      },
+      "promote.Change": {
+        "properties": {
+          "field": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "new": {
+            "type": "string"
+          },
+          "note": {
+            "type": "string"
+          },
+          "old": {
+            "type": "string"
+          },
+          "tile": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind"
+        ],
+        "type": "object"
+      },
+      "promote.Plan": {
+        "properties": {
+          "blockers": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "changes": {
+            "items": {
+              "$ref": "#/components/schemas/promote.Change"
+            },
+            "type": "array"
+          },
+          "env": {
+            "type": "string"
+          },
+          "release": {
+            "type": "integer"
+          },
+          "stack": {
+            "type": "string"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "stack",
+          "env",
+          "release",
+          "changes"
         ],
         "type": "object"
       }
@@ -5201,6 +5366,353 @@
           }
         },
         "x-verb": "org.read"
+      }
+    },
+    "/api/v1/orgs/{org}/config-repo": {
+      "put": {
+        "operationId": "org.config-repo",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OrgConfigRepoIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Org"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "org.config.bind"
+      }
+    },
+    "/api/v1/orgs/{org}/config/export": {
+      "get": {
+        "operationId": "org.export",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/yaml": {}
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "org.config.export"
+      }
+    },
+    "/api/v1/orgs/{org}/config/plan": {
+      "post": {
+        "operationId": "org.plan",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrgPlan"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "org.config.bind"
+      }
+    },
+    "/api/v1/orgs/{org}/config/plan-preview": {
+      "post": {
+        "operationId": "org.plan-preview",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OrgFileIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Plan"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "org.config.bind"
+      }
+    },
+    "/api/v1/orgs/{org}/config/plans": {
+      "get": {
+        "operationId": "org.plans",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/OrgPlan"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "org.owner.read"
+      }
+    },
+    "/api/v1/orgs/{org}/config/plans/{plan}": {
+      "get": {
+        "operationId": "org.plan-get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "plan",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrgPlan"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "org.owner.read"
+      }
+    },
+    "/api/v1/orgs/{org}/config/plans/{plan}/approve": {
+      "post": {
+        "operationId": "org.plan-approve",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "plan",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Job"
+                }
+              }
+            },
+            "description": "Accepted"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "orgplan.approve"
+      }
+    },
+    "/api/v1/orgs/{org}/config/plans/{plan}/reject": {
+      "post": {
+        "operationId": "org.plan-reject",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "plan",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrgPlan"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "orgplan.approve"
       }
     },
     "/api/v1/orgs/{org}/connectors": {

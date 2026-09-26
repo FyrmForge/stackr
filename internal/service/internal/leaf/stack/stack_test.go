@@ -69,8 +69,26 @@ func TestRoundTrip(t *testing.T) {
 	}
 
 	got, err := l.GetBySlug(ctx, org, "store")
-	if err != nil || got.ConfigRepo != "acme/infra" || got.ConfigPath != "stackr.yml" || got.Settings != `{"cpu":1}` {
+	if err != nil || got.ConfigRepo != "https://github.com/acme/infra" || got.ConfigPath != "stackr.yml" || got.Settings != `{"cpu":1}` {
 		t.Fatalf("get = %+v, %v", got, err)
+	}
+	// Both spellings store the URL the connector lookup reads the host off.
+	for _, repo := range []string{
+		" acme/infra ",
+		"https://github.com/acme/infra",
+	} {
+		if got, err = l.SetConfigRepo(ctx, got, "c1", repo, "main", "stackr.yml"); err != nil || got.ConfigRepo != "https://github.com/acme/infra" {
+			t.Errorf("SetConfigRepo(%q) stored %q, %v", repo, got.ConfigRepo, err)
+		}
+	}
+	for _, repo := range []string{
+		"git@github.com:acme/infra.git",
+		"https://gitlab.example.com/acme/infra",
+		"gitlab.example.com/acme/infra",
+	} {
+		if got, err = l.SetConfigRepo(ctx, got, "c1", repo, "main", "stackr.yml"); err != nil || got.ConfigRepo != repo {
+			t.Errorf("SetConfigRepo(%q) stored %q, %v; want it as typed", repo, got.ConfigRepo, err)
+		}
 	}
 
 	if got, _ = l.SetConfigRepo(ctx, got, "c1", "", "main", "x"); got.ConfigBranch != "" {

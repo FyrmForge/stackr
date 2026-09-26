@@ -33,10 +33,22 @@ type View struct {
 	Compare []Rung
 	Create  []Create     // the level's create dialogs the viewer may open
 	Lanes   []cards.Lane // env traffic at the last sample; nil = no lanes layer
+	Banner  *Banner      // the strip over the canvas; nil = none
 }
 
-// Create opens a create dialog in the drawer.
-type Create struct{ Label, URL string }
+// Banner is v0's orgPlanBanner: a strip over the canvas linking to what
+// it is about, warning tone unless Danger.
+type Banner struct {
+	Text, Href string
+	Danger     bool
+}
+
+// Create opens a create dialog in the drawer, or with Nav goes to URL (the
+// setup wizard is a page).
+type Create struct {
+	Label, URL string
+	Nav        bool
+}
 
 // Show is what the server draws; each off flag is a "=0" query param.
 type Show struct{ System, Refs, Startup, Traffic bool }

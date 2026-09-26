@@ -19,7 +19,7 @@ row; an owner approves or rejects it, or the binding's Auto switch
 approves unblocked plans on its own. Apply is one job that calls the
 orchestrator's own verbs.
 
-Branch `rewrite-step-7`, stacked on `rewrite-step-6e`.
+Branch `rewrite-step-7`, stacked on `rewrite-step-7a`.
 
 ## Tasks
 
@@ -48,13 +48,14 @@ Branch `rewrite-step-7`, stacked on `rewrite-step-6e`.
    `stacks.<slug>` takes `repo`/`branch`/`path`/`connector` or `path`
    alone (the org repo); any other stack key is refused with "inline
    stacks are not supported; put the stack in its own file"; `moved:` is
-   a list of `from`/`to`, each `stack.<slug>` or `shared.<slug>`, the same
-   kind on both sides. `Diff(f
+   a list of `from`/`to`, each `stack.<slug>` (`shared.` dropped by
+   DECIDE 193). `Diff(f
    *File, live Live) Plan` with `Live{Org, Stacks []StackLive, Params, Domains,
    Settings, EnvColors}` and `Plan{Changes, Blockers, Notes}` reusing
-   promote's `Change` shape (kinds: `org`, `param`, `defaults`, `colors`,
-   `create`, `rebind`, `instance`, `instance-update`, `rename`,
-   `instance-rename`, `domain`, `domain-update`), `Summary()` as v0's
+   promote's `Change` shape (kinds: `org`, `param`, `param-update`,
+   `defaults`, `colors`, `create`, `rebind`, `rename`, `domain`,
+   `domain-update`; the
+   `instance` kinds dropped by DECIDE 193), `Summary()` as v0's
    plan had. The rules are the design's "The diff" bullet, verbatim.
    Pure: no store, no clone.
    Done when: table tests: rename; rename collides → blocker; param
@@ -62,13 +63,11 @@ Branch `rewrite-step-7`, stacked on `rewrite-step-6e`.
    file → no change; defaults and colors only when present; stack create;
    rebind; a stack gone from the file → no change, hand-made or file-made
    alike (DECIDE 188); host without connector → blocker;
-   inline stack → parse error; `shared:` entry missing → instance create;
-   host env missing → blocker; image change → instance update; engine or
-   host change → blocker; `shared:` entry gone → no change; `shared:`
-   without `engine` or `host` → parse error; `moved:` stack → rename and
+   inline stack → parse error; `shared:` → unknown key (DECIDE 193);
+   `moved:` stack → rename and
    the `stacks.<to>` entry diffs against it (no create); `to` exists and
    `from` gone → no change; both exist → blocker; neither → blocker;
-   `stack.` to `shared.` → parse error; `domains:` entry missing → domain
+   `shared.` in `moved:` → parse error; `domains:` entry missing → domain
    create; env flag or ACME differs → domain update; entry gone → no
    change; host taken or squatting → blocker; a JSON round trip of `Plan`.
 
@@ -117,13 +116,11 @@ Branch `rewrite-step-7`, stacked on `rewrite-step-6e`.
    `ApproveOrgPlan(ctx, id) (Job, error)`: refused unless pending and
    unblocked, else `SetStatus` and enqueue `kindOrgApply{PlanID}` with
    lock `orgconfig:<org>`; the handler refetches at the plan's commit,
-   re-diffs, walks the changes calling `RenameStack` and `RenameTile` for
+   re-diffs, walks the changes calling `RenameStack` for
    `moved:` first, then `RenameOrg`, `SetParams`
    (`ParamScope{Kind: "org"}`), `SetOrgSettings`, `SetOrgEnvColors`,
-   `CreateStack` + `SetConfigRepo`, then per shared instance
-   `CreateManagedTile` (in the `host` env, `Kind` managed, the slug as
-   name) + `SetInstanceScope(org)` + `Deploy`, or `UpdateTile` for image
-   and shm, then `CreateDomainResource` (org level) or
+   `CreateStack` + `SetConfigRepo` (the shared-instance walk dropped by
+   DECIDE 193), then `CreateDomainResource` (org level) or
    `UpdateDomainResource` per `domains:` entry,
    then enqueues the webhook's push job for every created or rebound
    stack at its branch head (the plan's commit for a `path:` stack), then
@@ -135,8 +132,7 @@ Branch `rewrite-step-7`, stacked on `rewrite-step-6e`.
    preview stores nothing; approve creates and binds a stack, sets params
    and colors, marks applied; a blocked approve is refused with the
    blocker text; a second approve is refused; reject; auto on: the plan
-   job applies without a call; a shared instance is created org-scoped in
-   its host env and deployed; export of the applied org previews clean.
+   job applies without a call; export of the applied org previews clean.
 
 8. **Webhook.** In `Webhook`, before the stack loop: a push whose repo
    and branch match the org's binding enqueues `kindOrgPlan{OrgID}` with
@@ -211,8 +207,8 @@ Branch `rewrite-step-7`, stacked on `rewrite-step-6e`.
     (memory: org-config-test-repo) at a branch holding a `stackr-org.yml`
     that declares one stack by `repo` and one param; push; banner shows;
     Config tab shows create + param; Approve; the stack appears bound, its ladder envs exist and
-    its own push lands a release; a `shared:` postgres hosted in shop/dev
-    comes up org-scoped (the instance drawer says so); switch Auto on,
+    its own push lands a release (the `shared:` postgres check dropped by
+    DECIDE 193); switch Auto on,
     push a second param,
     it lands without a click; make a stack by hand and drop the declared
     stack from the file → the next plan touches neither; rename the

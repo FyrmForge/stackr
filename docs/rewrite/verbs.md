@@ -49,11 +49,12 @@ nothing else. Signatures: `go doc -all ./internal/service Orchestrator`.
 | Backups | `BackupDests`, `CreateBackupDest`, `UpdateBackupDest`, `DeleteBackupDest`, `BackupMethods`, `BackupSchedules`, `AddBackupSchedule`, `UpdateBackupSchedule`, `DeleteBackupSchedule`, `BackupNow`, `BackupRuns`, `RestoreBackup` (cross-volume), `PanelBackups`, `PanelBackupNow`; scheduled runs and orphan retention on the scheduler |
 | Installer and self-upgrade | `Version`, `CheckUpgrade`, `Upgrade`; `service.RunPanelSwap` (`stackrd upgrade-swap`); `service.ProxyAdmin` (`stackrd proxy`) |
 | API and CLI first | all of the above |
-| Settings: one catalogue | `Settings` (the catalogue), `Setting`, `SetSetting`, `SettingDefaults`, `SetSettingDefaults`; the cascade rungs are `SetStackSettings`, `SetEnvSettings`, and tile fields through `UpdateTile` |
+| Settings: one catalogue | `Settings` (the catalogue), `Setting`, `SetSetting`, `SettingDefaults`, `SetSettingDefaults`; the cascade rungs are `SetOrgSettings`, `SetStackSettings`, `SetEnvSettings`, and tile fields through `UpdateTile`; `SetOrgEnvColors` stores the org's env slug to colour map (canonical JSON). Both org setters redeploy the org's running tiles |
 | Org delete and rename rules | `RenameOrg` (squat check over every tile domain and org and stack resource), `DeleteOrg` (has stacks, last org) |
 | Tile-to-tile traffic (step 3c) | `Traffic(env) []Edge{From, To, BPS}` (the env's lanes at the last sample; ends are tile ids, slice (provision) ids, `proxy`, `internet`), `TrafficSeq` (sample counter the env events stream watches); the 5 s conntrack sample runs inline on the scheduler, never as a job (a read) |
 | The canvas (step 6, ui-plan) | `Canvas(scope, show) GraphView` (cards, edges, worst-of status, ghost refs, arranged or saved positions, annotations, the stack canvas's compare rungs), `SetPosition` (the first drop saves every card), `ResetPositions`, `Annotations`, `SetAnnotation` (an emptied note is deleted), `DeleteAnnotation`; web only, no API route yet (DECIDE 84) |
 | Env drawers (step 6 task 10, reads only) | `TileImage` (image watch's row for the tile's ref, zero when never seen), `TileVolumes` (the env volumes a tile mounts), `Volume` (by id), `InstanceSlices` (a managed tile's instance and its provisions), `Provision` (by id), `Routes(env)` (every domain in the env with its tile's name) |
+| Org config file (`stackr-org.yml`, step 7) | `SetOrgConfigRepo` (binds and plans at once; an empty repo unbinds and rejects the plans nobody approved), `PlanOrgConfig`, `PreviewOrgConfig` (stores nothing; unbound is a Conflict), `OrgPlans`, `OrgPlan`, `ApproveOrgPlan` (refused while blocked, with the blocker text; queues the apply), `RejectOrgPlan`, `ExportOrgConfig`; a `Webhook` push to the org's repo and branch queues a plan |
 | (stacks) | `Stacks`, `CreateStack`, `RenameStack`, `DeleteStack` |
 | (jobs) | `GetJob`, `PollJob`, `Jobs`, `TileJobs`, `CancelJob` |
 | (health) | `Ping`, `Sessions` |
@@ -68,7 +69,7 @@ serialises the jobs.
 |---|---|---|
 | deploy | `Deploy`, redeploy after an edit, param or settings change | tile |
 | promote | `Promote`, `Rollback`, push/watch auto | `env:<id>` + the env's tiles |
-| push | `Webhook` push | `push:<stack>`, `push:<stack>:<repo>@<branch>` |
+| push | `Webhook` push, an org apply's new or rebound stack | `push:<stack>`, `push:<stack>:<repo>@<branch>` |
 | pr | `Webhook` pull_request | `push:<stack>`, `pr:<stack>:<n>` |
 | delete | `DeleteTile` | tile |
 | restart, stop, start | tile verbs | tile |
@@ -79,4 +80,6 @@ serialises the jobs.
 | panel-backup | `PanelBackupNow` | `panel-backup` |
 | upgrade | `Upgrade` | `panel` |
 | run | `RunTile`, a cron tick, a deploy or promote of an on_deploy function | tile, `run:<id>` (never supersedes; no 30-minute cap, the tile's `timeout_minutes` instead) |
+| org-plan | `Webhook` push to the org's config repo and branch | `orgconfig:<org>` |
+| org-apply | `ApproveOrgPlan`, a plan with auto apply on | `orgconfig:<org>`, `orgplan:<plan>` (a later plan's apply never supersedes it) |
 | imagewatch | `CheckImages`, the interval sweep | `imagewatch`, `imagewatch:<stack>/<tile>` (`imagewatch:all` for the sweep) |

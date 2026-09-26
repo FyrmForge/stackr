@@ -27,8 +27,18 @@ func (o *Orchestrator) CreateEnv(ctx context.Context, stackID, name string, s En
 	return o.envs.Create(ctx, stackID, name, s)
 }
 
+// RenameEnv moves name and slug, and the auto domains under the env with
+// them.
 func (o *Orchestrator) RenameEnv(ctx context.Context, id, name string) (Environment, error) {
-	return o.onEnv(ctx, id, func(e Environment) (Environment, error) { return o.envs.Rename(ctx, e, name) })
+	e, err := o.onEnv(ctx, id, func(e Environment) (Environment, error) { return o.envs.Rename(ctx, e, name) })
+	if err != nil {
+		return e, err
+	}
+	ts, err := o.tiles.List(ctx, id)
+	if err != nil {
+		return e, err
+	}
+	return e, o.refreshAutoHosts(ctx, ts)
 }
 
 // SetEnvFrom sets where the env's releases come from: a branch (auto or

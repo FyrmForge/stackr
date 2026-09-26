@@ -52,7 +52,7 @@ func TestOrgDeleteCascades(t *testing.T) {
 	now := time.Now()
 	execAll(t, db, []stmt{
 		{`INSERT INTO users VALUES ('u1','a@b.c','h','n','user',1,'','system',?,?)`, []any{now, now}},
-		{`INSERT INTO orgs VALUES ('o1','Acme','acme','','','{}',NULL,?)`, []any{now}},
+		{`INSERT INTO orgs VALUES ('o1','Acme','acme','','','{}',NULL,'',?,'','','','',0)`, []any{now}},
 		{`INSERT INTO org_members VALUES ('m1','o1','u1','owner',?)`, []any{now}},
 		{`INSERT INTO invites VALUES ('i1','o1','x@y.z','owner','u1',?,?,NULL)`, []any{now, now}},
 		{`INSERT INTO api_keys VALUES ('k1','u1','o1','ci','hash',?)`, []any{now}},
@@ -67,6 +67,7 @@ func TestOrgDeleteCascades(t *testing.T) {
 		{`INSERT INTO credentials VALUES ('c1','o1','hub','https://r','u','enc1:x',?)`, []any{now}},
 		{`INSERT INTO connectors VALUES ('g1','o1','github','gh','github.com','enc1:x',?)`, []any{now}},
 		{`INSERT INTO backup_destinations VALUES ('d1','o1','s3','b','e','r','b','a','enc1:x','enc1:y',0,?)`, []any{now}},
+		{`INSERT INTO org_config_plans VALUES ('op1','o1','abc','no changes','{}','clean','',?,NULL)`, []any{now}},
 	})
 	execAll(t, db, tileWithDomains(now))
 
@@ -89,6 +90,7 @@ func TestOrgDeleteCascades(t *testing.T) {
 		"backup_destinations",
 		"positions",
 		"annotations",
+		"org_config_plans",
 	} {
 		if n := count(t, db, table); n != 0 {
 			t.Errorf("%s: %d rows left after org delete", table, n)
@@ -108,7 +110,7 @@ func TestStackDeleteCascades(t *testing.T) {
 	db := servicetest.Store(t).DB()
 	now := time.Now()
 	execAll(t, db, []stmt{
-		{`INSERT INTO orgs VALUES ('o1','Acme','acme','','','{}',NULL,?)`, []any{now}},
+		{`INSERT INTO orgs VALUES ('o1','Acme','acme','','','{}',NULL,'',?,'','','','',0)`, []any{now}},
 		{`INSERT INTO stacks VALUES ('s1','o1','Shop','shop','','{}','','','','',?)`, []any{now}},
 		{`INSERT INTO environments VALUES ('e1','s1','Dev','dev','static',NULL,'{}','',0,'net',NULL,'branch','main',1,?)`, []any{now}},
 	})
@@ -137,7 +139,7 @@ func TestDomainResourceGuards(t *testing.T) {
 	db := servicetest.Store(t).DB()
 	now := time.Now()
 	execAll(t, db, []stmt{
-		{`INSERT INTO orgs VALUES ('o1','Acme','acme','','','{}',NULL,?)`, []any{now}},
+		{`INSERT INTO orgs VALUES ('o1','Acme','acme','','','{}',NULL,'',?,'','','','',0)`, []any{now}},
 		{`INSERT INTO stacks VALUES ('s1','o1','Shop','shop','','{}','','','','',?)`, []any{now}},
 		{`INSERT INTO environments VALUES ('e1','s1','Dev','dev','static',NULL,'{}','',0,'net',NULL,'branch','main',1,?)`, []any{now}},
 	})

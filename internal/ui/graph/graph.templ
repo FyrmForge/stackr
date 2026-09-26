@@ -17,6 +17,16 @@ templ Page(v View) {
 			}
 		</div>
 	}
+	if v.Banner != nil {
+		<a
+			href={ templ.SafeURL(v.Banner.Href) }
+			class={ "relative z-40 flex items-center gap-2 px-4 sm:px-6 py-2 text-sm border-b border-rw-border shrink-0 transition-colors",
+				templ.KV("bg-rw-danger/10 text-rw-danger hover:bg-rw-danger/20", v.Banner.Danger),
+				templ.KV("bg-rw-warning/10 text-rw-warning hover:bg-rw-warning/20", !v.Banner.Danger) }
+		>
+			<span>{ v.Banner.Text }</span>
+		</a>
+	}
 	<div
 		id="graph"
 		class="flex min-h-0 flex-1 flex-col"
@@ -34,12 +44,16 @@ templ Page(v View) {
 // is the primary, the rest ghosts.
 templ Actions(cs []Create) {
 	for i, cr := range cs {
-		<button
-			type="button"
-			class={ "btn btn-sm", templ.KV("btn-primary", i == 0), templ.KV("btn-ghost", i > 0) }
-			hx-get={ cr.URL }
-			hx-target="#drawer-body"
-		>{ cr.Label }</button>
+		if cr.Nav {
+			<a href={ templ.SafeURL(cr.URL) } class={ "btn btn-sm", templ.KV("btn-primary", i == 0), templ.KV("btn-ghost", i > 0) }>{ cr.Label }</a>
+		} else {
+			<button
+				type="button"
+				class={ "btn btn-sm", templ.KV("btn-primary", i == 0), templ.KV("btn-ghost", i > 0) }
+				hx-get={ cr.URL }
+				hx-target="#drawer-body"
+			>{ cr.Label }</button>
+		}
 	}
 }
 

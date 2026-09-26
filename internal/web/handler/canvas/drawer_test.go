@@ -185,17 +185,14 @@ func TestCreateDialogs(t *testing.T) {
 	if es, _ := s.Orch.Ladder(ctx, s.Tile.Stack); len(es) != 2 || es[1].FromKind != "promote" {
 		t.Errorf("ladder = %+v", es)
 	}
-	if rec := s.Do(t, "POST", "/-/new-org", url.Values{"name": {"beta"}}); rec.Code != http.StatusForbidden {
+	if rec := s.Do(t, "POST", "/setup", url.Values{"mode": {"ui"}}); rec.Code != http.StatusForbidden {
 		t.Errorf("an owner created an org: %d", rec.Code)
 	}
 
+	// + org is the setup wizard's branch question (handler/setup).
 	a := newBrowser(t, "admin")
-	if body := a.do(t, "GET", "/", nil, true).Body.String(); !strings.Contains(body, `hx-get="/-/new-org"`) {
+	if body := a.do(t, "GET", "/", nil, true).Body.String(); !strings.Contains(body, `href="/setup"`) {
 		t.Error("an admin gets no + org")
-	}
-	rec = a.do(t, "POST", "/-/new-org", url.Values{"name": {"Beta"}}, true)
-	if rec.Header().Get("HX-Redirect") != "/beta" {
-		t.Fatalf("create org = %d %q %s", rec.Code, rec.Header().Get("HX-Redirect"), rec.Body)
 	}
 }
 
@@ -296,5 +293,33 @@ func TestOrgDomains(t *testing.T) {
 	}
 	if rec := v.do(t, "POST", "/acme/-/drawer/domains", url.Values{"host": {"x.io"}}, true); rec.Code != http.StatusForbidden {
 		t.Errorf("viewer add = %d, want 403", rec.Code)
+	}
+}
+
+// The org drawer's defaults save (DECIDE 166): an owner posts the rung and
+// reads it back; a member sees it read-only and a post is refused.
+func TestOrgDefaultsSave(t *testing.T) {
+	ctx := context.Background()
+	b := newBrowser(t, "owner")
+	rec := b.do(t, "POST", "/acme/-/drawer/settings", url.Values{"cpu_limit": {"1.5"}}, true)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "Saved.") {
+		t.Fatalf("save = %d\n%s", rec.Code, rec.Body)
+	}
+	ogs, err := b.env.Orch.AllOrgs(ctx)
+	if err != nil || len(ogs) != 1 || !strings.Contains(ogs[0].Settings, `"cpu_limit":1.5`) {
+		t.Errorf("orgs = %+v %v, want acme's rung saved", ogs, err)
+	}
+	body := b.do(t, "GET", "/acme/-/drawer?tab=settings", nil, true).Body.String()
+	if !strings.Contains(body, `name="cpu_limit" type="number" step="any" value="1.5"`) || strings.Contains(body, "needs an owner") {
+		t.Errorf("the drawer does not read the rung back:\n%s", body)
+	}
+
+	m := newBrowser(t, "member")
+	body = m.do(t, "GET", "/acme/-/drawer?tab=settings", nil, true).Body.String()
+	if !strings.Contains(body, "Changing defaults needs an owner of this organization.") {
+		t.Errorf("a member's defaults are not read-only:\n%s", body)
+	}
+	if rec := m.do(t, "POST", "/acme/-/drawer/settings", url.Values{"cpu_limit": {"2"}}, true); rec.Code != http.StatusForbidden {
+		t.Errorf("member save = %d, want 403", rec.Code)
 	}
 }

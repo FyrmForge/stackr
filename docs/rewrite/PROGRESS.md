@@ -33,7 +33,11 @@ at the bottom of this file.
   - Deviations from the task file: no RESTRICT on `domains.resource_id` (broke org and stack deletes; the leaf refuses with a count); routes are path-scoped (`/orgs/:org/domain-resources`, `/admin/domain-resources`) not v0's flat path; the squat check runs on literal hosts only, never on `auto`/`apex`; `PublicBase` resolves only once a domain row routes the auto host; v0's refusal of stack rows on a config-managed stack not ported (the file never deletes).
   - Fixed on the way: a page's own drawer (`?drawer=org:<id>`) vanished on reload; auto-domain refusal leaked the field name; `domain ls` lacked OWNER and DECLARED.
   - Unproven on the VM: `auto: true` inside a stack file (needs a bound stack and an installed connector; unit-tested; step 7's proof covers it).
-- [ ] step-7.md org config file: `stackr-org.yml` bound to the org, plans as rows an owner approves or an Auto switch applies, apply = one job through the orchestrator's verbs, never deletes a stack; plus v0's new-org wizard one to one; planned 2026-09-25 (DECIDE 180 to 192), not started
+- [x] step-7.md org config file: `stackr-org.yml` bound to the org, plans as rows an owner approves or an Auto switch applies, apply = one job through the orchestrator's verbs, never deletes a stack; plus v0's new-org wizard one to one; planned 2026-09-25 (DECIDE 180 to 193). Done 2026-09-25 on `rewrite-step-7`, VM proof v0.0.36 (wizard by hand, Config tab, CLI; bind, push, plan, approve, ladder envs, webhook plan, auto apply, never-deletes, `moved:` rename, `domains:` + `apex:`, export round trip) green; the proof fixes are v0.0.37, checked on the VM as v0.0.38: a stack rename moves the tile's auto host at once, Caddy routes the new one only. Found on the way: a recreated proxy container (installer re-run after a `docker rm`) sat on no ingress network and every route 502'd until each tile redeployed; boot now rejoins them (`ReopenIngress`, v0.0.38, checked). Self-upgrade never touched the proxy (DECIDE 49 stands).
+  - Deviations from the task file: plan routes live under the org (`/orgs/:org/config/plans/:plan`), no flat path; no `approved` status (an approved plan is `pending` with `decided_at`, the job flips it to `applied`); `orgs.setup_mode` column carries the wizard branch; the `shared:` section and everything scope-related dropped by DECIDE 193; the config edge on the org canvas dropped (no org card to hang it on); a push whose file names every rung reorders the ladder (`Reorder`), a new rung no longer lands on top.
+  - Wizard gaps, all missing verbs not UI: branch list, file-exists check, logo and avatar upload, invite expiry/revoke/reinvite/delete, the Moves row, the job step field. Roles come from the leaf (`AssignableRoles`, owner only until DECIDE 171).
+  - Unproven on the VM: the wizard's config branch end to end (a second org needs its own GitHub App; unit-tested with the git fake). Known gaps left with `// ponytail:`: an org rename does not move the org's domain resource, so its auto hosts keep the old slug; env reorder and domain resource add/remove do not refresh auto hosts (the next promote does); promote's param rows do not tell create from change; a fresh DB sends `/` to `/login` not `/register`.
+- [ ] step-7b.md managed tiles: allow list replaces scope, slice tiles, env pairs, read or write per consumer, `${{ env.name }}`; darthvader 2026-09-25 (DECIDE 194), planned, not started
 
 Step 0 list (agreed with darhvader):
 1. Rename binaries to `stackrd`, `stackr`, `stackr-install`: three `cmd/` dirs, Makefile, watch rule.
@@ -626,6 +630,7 @@ the org, stack, env and admin drawers, the account page and the auth pages
 166. **(step 6e) Org defaults are read-only.** No org settings setter, so
    the org drawer shows the cascade with "can not be changed here yet".
    Options: (a) add `SetOrgSettings`; (b) keep. Lean (a), step 7.
+   **Resolved in step 7 task 5: (a), `SetOrgSettings` and the org drawer's Defaults save for an owner.**
 167. **(step 6e) Release rows read "Release N"**, not v0's commit sha and
    message: releases carry neither. Options: (a) keep; (b) store them at
    derive. Lean (b) once git tiles land.
@@ -643,6 +648,9 @@ the org, stack, env and admin drawers, the account page and the auth pages
    the per-member role `<select>` in People fails the same way.
    Options: (a) open `validRole` to member and viewer (authz already
    ranks them); (b) show owner only. Lean (a), v0 had three.
+   **darthvader 2026-09-25: (b), everyone is an org owner for now.** The
+   pickers already read `AssignableRoles` (owner only); member and viewer
+   are a Later item.
 172. **(step 6e) The invite link shows once, as a path.** v0 toasted the
    full URL and kept a Copy invite on the row; the token is not kept.
    Options: (a) keep; (b) print the full URL. Lean (b).
@@ -765,6 +773,7 @@ sweep, P14 theme per user, DECIDE 159 and the DECIDE 138 leftovers.
    volume stays; moves are Later); image or shm change is an update;
    gone from the file is left alone (DECIDE 188). Export writes it (v0's
    export skipped `shared:` and so never round-tripped).
+   **Superseded 2026-09-25 by DECIDE 193: the org file has no `shared:`.**
 184. **(step 7) `moved:` is in the org file.** Without it a renamed stack
    key plans a create and the old stack stays (DECIDE 188): two stacks,
    one silent. The planner leaned "rename in the UI first". **darthvader
@@ -868,6 +877,37 @@ sweep, P14 theme per user, DECIDE 159 and the DECIDE 138 leftovers.
    both sides in one statement), so deleting a resource that still names
    one is refused by the leaf with a count; the FK, checked at statement
    end, is the backstop.
+193. **(step 7) The org file has no `shared:` section.** The draft (DECIDE
+   183) put org-scoped managed instances in the org file with a `host:
+   <stack>/<env>` line naming the env whose row holds the tile; a fresh
+   org has no env, so the plan blocked. **darthvader 2026-09-25: the org
+   file never declares shared instances.** A shared database is a normal
+   managed tile in a normal stack's own file (an "infra" stack); who may
+   connect and how consumers name it are DECIDE 194.
+194. **(step 7b) Scope goes; managed tiles carry an allow list, a slice is
+   a tile of its own, consumers get read or write.** darthvader
+   2026-09-25, in five calls. (1) `scope_kind` (env, stack, org) on a
+   managed instance is replaced by `allow:`, a list of `org:stack:env:tile`
+   patterns with `*` (a trailing `*` swallows the rest, a `*` in the middle
+   matches one segment); no list means the tile's own env, as env scope did.
+   (2) The first segment is always the tile's own org in v1: `*` or another
+   org's slug is refused. No cross-org sharing. (3) A slice is a tile
+   (`kind: slice`) in the consumer's stack file: one logical unit (a
+   database, a bucket) many tiles use, with `provision_from:
+   <stack>:<env>:<managed tile>` (own org implied) and `default_access:
+   read|write`. The instance side declares nothing per slice. (4) The
+   managed tile carries `env_pairs:` (consumer env name → its env), so
+   `provision_from: infra:${{ env.name }}:pg_db` resolves through it; a
+   consumer env not in the map is a blocker. `${{ env.name }}` is a new ref
+   kind. (5) Access is on the consumer: a tile that refs `${{
+   tile.<slice>.<output> }}` gets its own cred on the slice at the slice's
+   default access, or at the access its `slice_access: {from, access}`
+   names. Every consumer gets its own user. The old per-consumer `slices:`
+   grammar, `SetInstanceScope`, the `${{ stack.<slug>.<output> }}` and `${{
+   org.<slug>.<output> }}` refs and the org file's `shared:` (DECIDE 193)
+   go. Name lists per consumer (darthvader's first idea) are what `allow:`
+   is; per-consumer network policy inside an env (S3 not on Grafana's
+   network) is Later, own DECIDE. Plan: `docs/rewrite/tasks/step-7b.md`.
 
 ## DECIDE:
 

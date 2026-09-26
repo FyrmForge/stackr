@@ -261,6 +261,9 @@ func (f *Flow) home(ctx context.Context, v *View, userID string, in In) error {
 		n := card("org:"+og.ID, KindOrg, og.Name)
 		n.Slug, n.Deck = og.Slug, deck(len(sts))
 		n.Detail = plural(len(sts), "stack") + " · " + plural(len(ms), "member") // v0's org card line
+		if og.SetupDoneAt == nil {
+			n.Detail = "Setup unfinished" // it answers nothing but its wizard (v0 orgDetail)
+		}
 		if in.Status {
 			for _, st := range sts {
 				ts, err := f.Tiles.ListByStack(ctx, st.ID)

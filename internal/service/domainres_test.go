@@ -78,6 +78,39 @@ func TestAttachDomainSquat(t *testing.T) {
 	}
 }
 
+// A stack rename moves its tiles' auto domains to the new slug, keeps
+// their auto mark and resource, and pushes the new route; a literal host
+// stays as typed.
+func TestRenameMovesAutoHosts(t *testing.T) {
+	w := newWorld(t)
+	ctx := context.Background()
+	must(t, w.orch.domainres.SeedInstance(ctx, "example.com"))
+	api := w.tile(t, "api", false)
+	auto, err := w.orch.AttachDomain(ctx, api.ID, DomainSpec{Auto: true})
+	must(t, err)
+	lit, err := w.orch.AttachDomain(ctx, api.ID, DomainSpec{Host: "api.shop.acme.io"})
+	must(t, err)
+	if auto.Host != "api.shop.acme.example.com" {
+		t.Fatalf("auto attach = %q", auto.Host)
+	}
+
+	_, err = w.orch.RenameStack(ctx, w.stack, "store")
+	must(t, err)
+	got, err := w.orch.domains.Get(ctx, auto.ID)
+	must(t, err)
+	if got.Host != "api.store.acme.example.com" || !got.Auto || got.ResourceID == nil ||
+		*got.ResourceID != *auto.ResourceID {
+		t.Errorf("after rename = %+v, want api.store.acme.example.com, still auto under %s", got, *auto.ResourceID)
+	}
+	if got, err := w.orch.domains.Get(ctx, lit.ID); err != nil || got.Host != lit.Host {
+		t.Errorf("literal after rename = %+v %v, want %s kept", got, err, lit.Host)
+	}
+	if push := w.lastPush(); !strings.Contains(push, "api.store.acme.example.com") ||
+		strings.Contains(push, "api.shop.acme.example.com") {
+		t.Errorf("pushed config does not route the new host alone:\n%s", push)
+	}
+}
+
 // A managed tile's public base is its auto name under the nearest visible
 // resource, once a domain routes that name to it; "" before.
 func TestManagedPublicBase(t *testing.T) {

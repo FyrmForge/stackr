@@ -35,6 +35,7 @@ type Tables struct {
 	Sessions         SessionStore
 	APIKeys          APIKeyStore
 	Orgs             OrgStore
+	OrgPlans         OrgPlanStore
 	OrgMembers       OrgMemberStore
 	Invites          InviteStore
 	Stacks           StackStore
@@ -67,6 +68,7 @@ func bind(q querier, box *secrets.Box) Tables {
 		Sessions:         sessions{q},
 		APIKeys:          apiKeys{crud[APIKey]{q, box, apiKeysT}},
 		Orgs:             orgs{crud[Org]{q, box, orgsT}},
+		OrgPlans:         orgPlans{crud[OrgPlan]{q, box, orgPlansT}},
 		OrgMembers:       orgMembers{crud[OrgMember]{q, box, orgMembersT}},
 		Invites:          invites{crud[Invite]{q, box, invitesT}},
 		Stacks:           stacks{crud[Stack]{q, box, stacksT}},

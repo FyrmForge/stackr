@@ -134,6 +134,21 @@ func (o *Orchestrator) SetRawCaddy(ctx context.Context, id, raw string) (Domain,
 	if err != nil {
 		return d, err
 	}
+	s, err := specOf(d)
+	if err != nil {
+		return d, err
+	}
+	s.RawCaddy = raw
+	if d, err = o.domains.Update(ctx, d, s, o.dns01(ctx)); err != nil {
+		return d, err
+	}
+	return redact(d), o.sync.Sync(ctx)
+}
+
+// specOf is a stored row as the spec that writes it back unchanged: its raw
+// route, auto mark and resource included. d must not be redacted.
+func specOf(d Domain) (DomainSpec, error) {
+	x, err := domain.ExtrasOf(d)
 	s := DomainSpec{
 		Host:       d.Host,
 		Path:       d.Path,
@@ -143,15 +158,54 @@ func (o *Orchestrator) SetRawCaddy(ctx context.Context, id, raw string) (Domain,
 		RedirectTo: d.RedirectTo,
 		Auto:       d.Auto,
 		ResourceID: d.ResourceID,
-		RawCaddy:   raw,
+		Extras:     x,
+		RawCaddy:   d.RawCaddy,
 	}
-	if err := json.Unmarshal([]byte(d.ProxyJSON), &s.Extras); err != nil {
-		return d, err
+	return s, err
+}
+
+// refreshAutoHosts runs after a rename moved a slug an auto domain's host
+// is made of (org, stack, env or tile): each auto row of ts takes the host
+// AttachDomain would give it now, and the proxy config is pushed once if
+// one moved. Nothing redeploys: the route is all that names the host.
+// ponytail: only renames call it. A reorder that moves the default env, or
+// a domain resource added or removed that changes the nearest one, leaves
+// the host until the stack's next promote. Under the org's own resource the
+// org slug is in the resource's host, which a rename does not move.
+func (o *Orchestrator) refreshAutoHosts(ctx context.Context, ts []Tile) error {
+	moved := false
+	for _, t := range ts {
+		ds, err := o.domains.ListByTile(ctx, t.ID)
+		if err != nil {
+			return err
+		}
+		for _, d := range ds {
+			if !d.Auto {
+				continue
+			}
+			host, res, err := o.autoHost(ctx, t)
+			if err != nil {
+				return err
+			}
+			if host == d.Host {
+				continue
+			}
+			s, err := specOf(d)
+			if err != nil {
+				return err
+			}
+			s.Host = host
+			s.ResourceID = &res.ID
+			if _, err := o.domains.Update(ctx, d, s, o.dns01(ctx)); err != nil {
+				return err
+			}
+			moved = true
+		}
 	}
-	if d, err = o.domains.Update(ctx, d, s, o.dns01(ctx)); err != nil {
-		return d, err
+	if !moved {
+		return nil
 	}
-	return redact(d), o.sync.Sync(ctx)
+	return o.sync.Sync(ctx)
 }
 
 func (o *Orchestrator) DetachDomain(ctx context.Context, id string) error {

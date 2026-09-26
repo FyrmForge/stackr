@@ -35,7 +35,8 @@ Conventions:
 
 | table | leaf | columns | overrides vs 001 |
 |---|---|---|---|
-| `orgs` | org | id, name, slug UNIQUE, avatar_path, env_colors, settings, setup_done_at, created_at | `config_*` (org config files are later), `ui_edits`, `setup_mode` gone. |
+| `orgs` | org | id, name, slug UNIQUE, avatar_path, env_colors, settings, setup_done_at, setup_mode, created_at, config_connector_id, config_repo, config_branch, config_path, config_auto | `ui_edits` gone. `setup_mode` back with the setup wizard (step 7 task 11): its branch, `config` or `ui`; not in `settings`, which the file's `defaults:` overwrites. `config_*` are the org config file's binding, the same four `stacks` has, plus `config_auto` (apply unblocked plans without a click, default off). `config_repo` is stored as the https URL. |
+| `org_config_plans` | orgplan | id, org_id → orgs CASCADE, commit_sha, summary, plan (JSON), status `pending\|clean\|error\|superseded\|applied\|rejected`, error, created_at, decided_at | old `org_config_plans` with a real FK, so an org delete takes its plans. `commit_sha`, not `commit` (an SQL keyword). Index on (org_id, created_at DESC). |
 | `org_members` | org | id, org_id → orgs CASCADE, user_id → users CASCADE, role, created_at | `UNIQUE (org_id, user_id)` replaces the composite PK (surrogate id, same CRUD shape). v1 writes `owner` only; the column stays for the ladder ceiling. |
 | `invites` | org | id (the link token), org_id → orgs CASCADE, email, role, created_by, created_at, expires_at, used_at | as 001. |
 | `users` | user | id, email UNIQUE, password_hash, name, role `admin\|user`, active, avatar_path, theme, created_at, updated_at | `notify_prefs`, `graph_prefs` gone. `role` `admin` = stackr admin. Lives in `001_initial` (hamr's). |

@@ -174,3 +174,26 @@ func TestInvite(t *testing.T) {
 		t.Error("used invite accepted again")
 	}
 }
+
+// Env colours are a JSON object of strings, stored with sorted keys;
+// anything else is refused on the field.
+func TestSetEnvColors(t *testing.T) {
+	st, l := setup(t)
+	d, err := l.StartDraft(ctx, seedUser(t, st, "a@x.io", false).ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, bad := range []string{"", "[]", `{"prod":1}`} {
+		if _, err := l.SetEnvColors(ctx, d, bad); err == nil {
+			t.Errorf("SetEnvColors(%q) accepted", bad)
+		} else if v, ok := errs.IsInvalid(err); !ok || v.Field != "env_colors" {
+			t.Errorf("SetEnvColors(%q) = %v, want Invalid on env_colors", bad, err)
+		}
+	}
+	if _, err := l.SetEnvColors(ctx, d, `{"prod":"rose", "dev":"violet"}`); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := l.Get(ctx, d.ID); got.EnvColors != `{"dev":"violet","prod":"rose"}` {
+		t.Errorf("stored %s", got.EnvColors)
+	}
+}

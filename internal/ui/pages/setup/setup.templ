@@ -1,0 +1,836 @@
+// Package setup is v0's org setup wizard (handler/org/setup.templ), page for
+// page: the branch question, then each step under a stepper on a bare
+// centred page. Wizard position lives in the URL.
+package setup
+
+import (
+	"strconv"
+	"strings"
+
+	c "github.com/FyrmForge/stackr/internal/ui/components"
+)
+
+// Frame is what every step's shell draws: the heading and the stepper.
+// Step 0 draws no stepper, for the branch question, where there is no org
+// and so no branch yet.
+type Frame struct {
+	Title    string
+	Subtitle string
+	Step     int
+	Total    int
+}
+
+// Option is one connector in the config step's select.
+type Option struct {
+	Value, Label string
+	Picked       bool
+}
+
+// NameView is the by-hand branch's name step.
+type NameView struct {
+	Frame
+	Base  string // /<org>/-/setup
+	Value string
+	Error string
+}
+
+// Repo is one repository the org's GitHub apps can read.
+type Repo struct {
+	FullName      string // owner/name
+	DefaultBranch string
+}
+
+// GitHubView is the connector step and the config step: both hang on the
+// org's GitHub apps and what they can read.
+type GitHubView struct {
+	Frame
+	Base       string // /<org>/-/setup
+	Next       string // the step after this one
+	CSRF       string // the native connector form's token
+	Loaded     bool   // false = the frame, its body loads into it
+	Connected  bool   // a GitHub app exists
+	InstallURL string
+	Repos      []Repo
+	Connectors []Option
+	Repo       string // owner/name
+	Branch     string
+	Path       string
+}
+
+// Change is one plan row in v0's shape. Kind is create, update or delete,
+// which is all the sign reads.
+type Change struct {
+	Kind  string
+	Env   string
+	Tile  string
+	Field string
+	Old   string
+	New   string
+	Note  string
+}
+
+// PlanView is the config step's second screen, v0's PlanBody: the plan of
+// the bound file and the apply it runs under.
+type PlanView struct {
+	Frame
+	Summary  string
+	Commit   string
+	When     string
+	Error    string // the plan row's own error
+	Work     string // the apply's banner line; "" = no apply
+	Failed   bool   // the banner is a failure
+	Poll     string // this page, re-fetched every 2s while the apply runs
+	Replan   string // Plan again posts here
+	Parsed   bool   // the plan built; false = only Error has anything to say
+	Errors   []string
+	Warnings []string
+	Changes  []Change
+	Approve  string   // "" = no approve (applying, or nothing to decide)
+	Reject   string
+	Blocked  string   // why Approve is off; "" = it is not
+	Destroys []string // what an apply deletes, named in the confirm
+}
+
+// DomainView is the by-hand branch's domain step.
+type DomainView struct {
+	Frame
+	Base    string
+	Next    string
+	Managed bool     // the config file declares the domains
+	Hosts   []string // the org's own domain resources
+	Prefill string
+}
+
+// Person is one row of the team step's list: a member, an invite nobody
+// has accepted yet, or one that ran out.
+type Person struct {
+	UserID  string // members only
+	Name    string
+	Email   string
+	Role    string
+	State   string // member | pending | expired
+	Expires string // an invite's expiry
+	Link    string // a pending invite's link
+	Self    bool
+}
+
+// Candidate is an account on this server that is not in the org yet.
+type Candidate struct {
+	Name  string
+	Email string
+}
+
+// TeamView is the team step.
+type TeamView struct {
+	Frame
+	Base       string
+	Next       string
+	Org        string
+	Roles      []string // what the org takes, the pickers' options
+	People     []Person
+	Candidates []Candidate // server admins only
+}
+
+// Row is one line of the summary.
+type Row struct {
+	Label string
+	Href  string
+	Done  bool
+}
+
+// DoneView is the summary, where every gated route lands an owner.
+type DoneView struct {
+	Frame
+	Base     string
+	Name     string
+	Rows     []Row
+	Draft    bool // still carries the placeholder name
+	Config   bool // the config branch
+	Finished bool // Finish has been pressed
+}
+
+// shell is the bare centred page every step shares.
+templ shell(f Frame) {
+	<div class="w-full max-w-xl mx-auto mt-16 px-6 pb-16">
+		<div class="flex items-center gap-2.5 justify-center mb-7">
+			<img src={ c.StaticURL("images/logo-mark.png") } alt="" class="h-9 w-9"/>
+			<span class="text-xl font-semibold text-rw-text">stackr</span>
+		</div>
+		if f.Step > 0 {
+			@stepper(f.Step, f.Total)
+		}
+		<div class="panel p-8 shadow-rw">
+			if f.Subtitle == "" {
+				<h2 class="text-lg font-semibold text-rw-text mb-6">{ f.Title }</h2>
+			} else {
+				<h2 class="text-lg font-semibold text-rw-text mb-1">{ f.Title }</h2>
+				<p class="text-sm text-rw-muted mb-6">{ f.Subtitle }</p>
+			}
+			{ children... }
+		</div>
+	</div>
+}
+
+// The dots are a picture of where you are, so they carry one label for the
+// whole group and are hidden from screen readers individually.
+templ stepper(step, total int) {
+	<div class="flex items-center justify-center gap-2 mb-6" role="group" aria-label={ "Step " + strconv.Itoa(step) + " of " + strconv.Itoa(total) }>
+		for i := 1; i <= total; i++ {
+			if i > 1 {
+				<span class="w-6 h-px bg-rw-border" aria-hidden="true"></span>
+			}
+			<span
+				class={ "h-6 w-6 rounded-full text-xs font-semibold flex items-center justify-center " + dotClass(i, step) }
+				aria-hidden="true"
+				if i == step {
+					aria-current="step"
+				}
+			>
+				{ strconv.Itoa(i) }
+			</span>
+		}
+	</div>
+}
+
+func dotClass(i, step int) string {
+	switch {
+	case i == step:
+		return "bg-rw-accent text-white"
+	case i < step:
+		return "bg-rw-inset text-rw-muted"
+	}
+	return "border border-rw-border text-rw-faint"
+}
+
+// nav is the one secondary action every step carries: "Skip for now", or
+// "Continue" when the step is already done.
+templ nav(href, label string) {
+	<a href={ templ.SafeURL(href) } class="btn btn-ghost btn-sm w-full mt-3">{ label }</a>
+}
+
+// Branch is step 1, the fork the rest of the wizard hangs off. Both
+// buttons post to /setup, which makes the draft.
+templ Branch() {
+	@shell(Frame{Title: "Set up your organization", Subtitle: "Stacks, variables, domains and people all live inside one."}) {
+		<form hx-post="/setup" class="space-y-3">
+			<button type="submit" name="mode" value="config" class="w-full text-left panel px-4 py-3.5 hover:border-rw-accent transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-rw-accent/60">
+				<span class="block text-sm font-semibold text-rw-text">Describe it in a config file</span>
+				<span class="block mt-0.5 text-xs text-rw-muted">One file in a GitHub repo declares the whole organization, its name included.</span>
+			</button>
+			<button type="submit" name="mode" value="ui" class="w-full text-left panel px-4 py-3.5 hover:border-rw-accent transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-rw-accent/60">
+				<span class="block text-sm font-semibold text-rw-text">Fill it in here</span>
+				<span class="block mt-0.5 text-xs text-rw-muted">Name it, connect GitHub and add a domain, step by step.</span>
+			</button>
+		</form>
+		<div class="mt-6 text-center">
+			<a href="/" class="text-xs text-rw-faint hover:text-rw-text transition-colors">All organizations</a>
+		</div>
+	}
+}
+
+// NoOrg is /setup for someone who may not create an org and is in none.
+templ NoOrg() {
+	@c.AuthCard("Set up stackr", nil) {
+		<p class="text-sm text-rw-muted text-center">You are not in an organization yet. Ask an organization owner for an invite link.</p>
+	}
+}
+
+templ Name(v NameView) {
+	@shell(v.Frame) {
+		@NameForm(v)
+	}
+}
+
+// NameForm is its own swap target, so a refused name comes back with the
+// name still in the box.
+templ NameForm(v NameView) {
+	<div id="setup-name">
+		<form hx-post={ v.Base + "/name" } hx-target="#setup-name" hx-swap="outerHTML" class="space-y-5">
+			<div>
+				<label class="label" for="setup-org-name">Organization name</label>
+				<input
+					type="text"
+					id="setup-org-name"
+					name="name"
+					required
+					autofocus
+					value={ v.Value }
+					class={ "input", templ.KV("border-rw-danger", v.Error != "") }
+					if v.Error != "" {
+						aria-invalid="true"
+						aria-describedby="setup-org-name-error"
+					}
+				/>
+				if v.Error != "" {
+					<p id="setup-org-name-error" class="mt-1.5 text-xs text-rw-danger">{ v.Error }</p>
+				}
+			</div>
+			<button type="submit" class="btn btn-primary w-full">Continue</button>
+		</form>
+		@switchTo(v.Base, "config", "Describe it in a config file instead")
+	</div>
+}
+
+// switchTo is the branch switch, both ways, so step 1 is not a one-way
+// door. To "ui" drops the binding.
+templ switchTo(base, mode, label string) {
+	<form hx-post={ base + "/mode" } class="mt-3">
+		<input type="hidden" name="mode" value={ mode }/>
+		<button type="submit" class="btn btn-ghost btn-sm w-full">{ label }</button>
+	</form>
+}
+
+// Connector is the frame; the body hangs on GitHub's repo list, so it loads
+// into it (?body=1).
+templ Connector(v GitHubView) {
+	@shell(v.Frame) {
+		if v.Loaded {
+			@ConnectorBody(v)
+		} else {
+			@loading(v.Base + "/connector?body=1")
+		}
+	}
+}
+
+templ loading(url string) {
+	<div hx-get={ url } hx-trigger="load" hx-swap="outerHTML">
+		<p class="text-xs text-rw-faint">Reading repositories.</p>
+	</div>
+}
+
+// ConnectorBody: a GitHub App manifest has to be posted by the browser to
+// github.com, so the connect form stays a native one.
+templ ConnectorBody(v GitHubView) {
+	<div>
+		if !v.Connected {
+			// templint:ignore no-native-form-actions -- the answer is the page that posts the manifest to GitHub; it must replace the document
+			<form method="post" action={ templ.SafeURL(v.Base + "/connector") } class="space-y-5">
+				<input type="hidden" name="csrf_token" value={ v.CSRF }/>
+				<div>
+					<label class="label" for="setup-gh-org">GitHub organization (optional)</label>
+					<input type="text" id="setup-gh-org" name="gh_org" placeholder="my-github-org" class="input"/>
+					<p class="mt-1.5 text-xs text-rw-faint">Leave empty to use your personal account.</p>
+				</div>
+				<button type="submit" class="btn btn-primary w-full">Connect GitHub</button>
+			</form>
+			@nav(v.Next, "Skip for now")
+		} else if len(v.Repos) == 0 {
+			<p class="text-sm text-rw-muted mb-5">The app is created. Now choose the repositories it may access, otherwise stackr cannot read any of them.</p>
+			<a href={ templ.SafeURL(v.InstallURL) } target="_blank" rel="noopener" class="btn btn-primary w-full">Install it on GitHub</a>
+			@nav(v.Base+"/connector", "I installed it, check again")
+		} else {
+			<p class="text-sm text-rw-muted mb-3">Connected and installed on { repoCount(len(v.Repos)) }.</p>
+			<ul class="space-y-2 mb-5">
+				for i, r := range v.Repos {
+					if i < shownRepos {
+						<li class="panel px-3 py-2 font-mono text-xs text-rw-muted">{ r.FullName }</li>
+					}
+				}
+				if len(v.Repos) > shownRepos {
+					<li class="panel px-3 py-2 text-xs text-rw-faint">{ strconv.Itoa(len(v.Repos) - shownRepos) } more</li>
+				}
+			</ul>
+			<a href={ templ.SafeURL(v.Next) } class="btn btn-primary w-full">Continue</a>
+			@nav(v.InstallURL, "Change which repositories it can see")
+		}
+	</div>
+}
+
+// shownRepos is how many repos the connector step lists before "N more".
+const shownRepos = 5
+
+func repoCount(n int) string {
+	if n == 1 {
+		return "1 repository"
+	}
+	return strconv.Itoa(n) + " repositories"
+}
+
+// GitHubRedirect auto-submits the app manifest to GitHub's create-app form
+// (the manifest flow requires a browser form POST, not a redirect).
+templ GitHubRedirect(action, manifest string) {
+	<div class="max-w-md mx-auto pt-24 px-6">
+		<div class="flex items-center gap-2.5 justify-center mb-8">
+			<img src={ c.StaticURL("images/logo-mark.png") } alt="" class="h-10 w-10"/>
+			<span class="text-xl font-semibold text-rw-text">stackr</span>
+		</div>
+		<div class="panel p-8 shadow-rw text-center">
+			<h1 class="text-lg font-semibold text-rw-text mb-1">Taking you to GitHub</h1>
+			<p class="text-sm text-rw-muted mb-6">GitHub creates the app from the manifest we just built. Approve it there and you land back here.</p>
+			<div class="mx-auto h-6 w-6 rounded-full border-2 border-rw-border border-t-rw-accent animate-spin" role="status" aria-label="Redirecting"></div>
+			// templint:ignore no-native-form-actions -- GitHub's manifest flow requires a browser form POST
+			<form id="github-manifest" method="post" action={ templ.SafeURL(action) }>
+				<input type="hidden" name="manifest" value={ manifest }/>
+				// The page submits itself; the button is only for browsers
+				// with scripts off.
+				<noscript>
+					<button type="submit" class="btn btn-primary w-full mt-6">Continue to GitHub</button>
+				</noscript>
+			</form>
+		</div>
+	</div>
+	<script>
+		document.getElementById("github-manifest").submit();
+	</script>
+}
+
+// Config is the config step's frame; its body loads as the connector's.
+templ Config(v GitHubView) {
+	@shell(v.Frame) {
+		if v.Loaded {
+			@ConfigBody(v)
+		} else {
+			@loading(v.Base + "/config?body=1")
+		}
+	}
+}
+
+templ ConfigBody(v GitHubView) {
+	<div>
+		if !v.Connected {
+			<p class="text-sm text-rw-muted mb-5">This needs a GitHub connector, and this organization has none yet.</p>
+			<a href={ templ.SafeURL(v.Base + "/connector") } class="btn btn-primary w-full">Connect GitHub</a>
+			@switchTo(v.Base, "ui", "Fill it in here instead")
+		} else if len(v.Repos) == 0 {
+			<p class="text-sm text-rw-muted mb-5">The GitHub app for this organization is not installed on any repository yet, so there is nothing for it to read. Install it, then come back.</p>
+			<a href={ templ.SafeURL(v.InstallURL) } target="_blank" rel="noopener" class="btn btn-primary w-full">Install it on GitHub</a>
+			@nav(v.Base+"/config", "I installed it, check again")
+			@switchTo(v.Base, "ui", "Fill it in here instead")
+		} else {
+			<form hx-post={ v.Base + "/config" } class="space-y-5">
+				<div>
+					<label class="label" for="setup-conn">Connector</label>
+					<select id="setup-conn" name="connector_id" class="input">
+						for _, o := range v.Connectors {
+							<option value={ o.Value } selected?={ o.Picked }>{ o.Label }</option>
+						}
+					</select>
+				</div>
+				@repoPicker(v)
+				<button type="submit" class="btn btn-primary w-full">Save and plan</button>
+			</form>
+			@switchTo(v.Base, "ui", "Fill it in here instead")
+		}
+	</div>
+}
+
+// repoPicker is the repository, branch and file-path trio. The repository
+// list is in the page (the install gate loaded it) and main.js filters it.
+// The field still accepts anything typed: an app installed seconds ago can
+// list nothing yet, and a plan that says "repo not found" beats refusing
+// it. v0 looked the branch and the path up from data-picker-base; there is
+// nothing to ask yet, so the branch list and the path note stay empty.
+templ repoPicker(v GitHubView) {
+	<div data-repo-picker class="space-y-5">
+		<div>
+			<label class="label" for="setup-repo">Repository (owner/name)</label>
+			<div class="relative">
+				<input
+					type="text"
+					id="setup-repo"
+					name="repo"
+					value={ v.Repo }
+					required
+					placeholder="you/serverconfig"
+					autocomplete="off"
+					role="combobox"
+					aria-expanded="false"
+					aria-autocomplete="list"
+					aria-controls="setup-repo-list"
+					data-combo-input
+					class="input font-mono"
+				/>
+				<ul id="setup-repo-list" role="listbox" aria-label="Repositories" hidden data-combo-list class="combo-list">
+					for _, r := range v.Repos {
+						<li role="option" aria-selected="false" data-value={ r.FullName } data-branch={ r.DefaultBranch } class="combo-option">{ r.FullName }</li>
+					}
+				</ul>
+			</div>
+			<p class="mt-1.5 text-xs text-rw-faint">Type to filter what this connector can see.</p>
+		</div>
+		<div class="grid grid-cols-2 gap-3">
+			<div>
+				<label class="label" for="setup-branch">Branch</label>
+				<input type="text" id="setup-branch" name="branch" value={ v.Branch } list="setup-branch-list" autocomplete="off" data-branch-input class="input font-mono"/>
+				<datalist id="setup-branch-list" data-branch-list></datalist>
+			</div>
+			<div>
+				<label class="label" for="setup-path">File path</label>
+				<input type="text" id="setup-path" name="path" value={ v.Path } placeholder="stackr-org.yml" autocomplete="off" data-path-input class="input font-mono"/>
+				<p data-path-note aria-live="polite" class="mt-1.5 text-xs text-rw-faint"></p>
+			</div>
+		</div>
+	</div>
+}
+
+// Plan is the config step's second screen, v0's PlanBody under the
+// stepper: binding a file produces a plan and the plan is the decision.
+templ Plan(v PlanView) {
+	@shell(v.Frame) {
+		if v.Work != "" {
+			// Polls itself while the apply runs, then stops. hx-select picks
+			// this banner back out of the whole page the poll fetches.
+			<div
+				id="apply-state"
+				class={ "panel px-4 py-3 mb-4 text-sm", templ.KV("text-rw-danger", v.Failed), templ.KV("text-rw-muted", !v.Failed) }
+				if v.Poll != "" {
+					hx-get={ v.Poll }
+					hx-trigger="every 2s"
+					hx-select="#apply-state"
+					hx-swap="outerHTML"
+				}
+			>
+				{ v.Work }
+			</div>
+		}
+		<div class="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-rw-muted mb-5">
+			<span>{ v.Summary }</span>
+			if v.Commit != "" {
+				<span class="text-rw-faint font-mono">{ v.Commit }</span>
+			}
+			if v.When != "" {
+				<span class="text-rw-faint">{ v.When }</span>
+			}
+			if v.Replan != "" {
+				<form hx-post={ v.Replan } class="ml-auto">
+					<input type="hidden" name="plan_only" value="1"/>
+					<button type="submit" class="btn btn-ghost btn-sm">Plan again</button>
+				</form>
+			}
+		</div>
+		if v.Error != "" {
+			<div class="panel border-rw-danger/40 p-4 mb-4">
+				<pre class="text-sm text-rw-danger whitespace-pre-wrap">{ v.Error }</pre>
+			</div>
+		}
+		if v.Parsed {
+			for _, e := range v.Errors {
+				<div class="panel border-rw-danger/40 p-3 mb-2 text-sm text-rw-danger">{ e }</div>
+			}
+			for _, w := range v.Warnings {
+				<div class="panel border-rw-warning/40 p-3 mb-2 text-sm text-rw-warning">{ w }</div>
+			}
+			if len(v.Changes) == 0 && v.Error == "" {
+				<p class="text-sm text-rw-muted">No changes. Everything already matches the config.</p>
+			} else {
+				<ul class="space-y-1.5">
+					for _, ch := range v.Changes {
+						@planChange(ch)
+					}
+				</ul>
+			}
+		}
+		if v.Approve != "" || v.Reject != "" {
+			<div class="flex flex-wrap items-center gap-2 mt-6">
+				if v.Approve != "" {
+					<form
+						hx-post={ v.Approve }
+						if len(v.Destroys) > 0 {
+							hx-confirm={ "This apply DESTROYS: " + strings.Join(v.Destroys, ", ") + ". Continue?" }
+						}
+					>
+						<button type="submit" class="btn btn-primary btn-sm" disabled?={ v.Blocked != "" }>Approve &amp; apply</button>
+					</form>
+				}
+				if v.Reject != "" {
+					<form hx-post={ v.Reject }>
+						<button type="submit" class="btn btn-ghost btn-sm">Reject</button>
+					</form>
+				}
+				if len(v.Destroys) > 0 {
+					<span class="text-xs text-rw-danger">destructive</span>
+				}
+			</div>
+			if v.Approve != "" {
+				if v.Blocked != "" {
+					<p class="text-xs text-rw-danger mt-3">{ v.Blocked }</p>
+				} else {
+					<p class="text-xs text-rw-faint mt-3">Applying reconciles every environment to the commit above. Moving an image up the ladder is a promote, on the releases page.</p>
+				}
+			}
+		}
+	}
+}
+
+// planChange is one row. A row with a note opens; one without stays a
+// plain line, so a page of one-line updates grows no column of dead arrows.
+templ planChange(ch Change) {
+	<li class="panel px-4 py-2.5 text-sm">
+		if ch.Note != "" {
+			<details class="group">
+				<summary class="flex flex-wrap items-center gap-2 font-mono cursor-pointer list-none [&::-webkit-details-marker]:hidden">
+					<span class="text-rw-faint text-xs transition-transform group-open:rotate-90" aria-hidden="true">&#9656;</span>
+					@planChangeLine(ch)
+				</summary>
+				<div class="mt-2.5 pl-6 space-y-2">
+					<p class="text-xs text-rw-muted">{ ch.Note }</p>
+				</div>
+			</details>
+		} else {
+			<div class="flex flex-wrap items-center gap-2 font-mono">
+				<span class="w-3 shrink-0" aria-hidden="true"></span>
+				@planChangeLine(ch)
+			</div>
+		}
+	</li>
+}
+
+templ planChangeLine(ch Change) {
+	<span class={ planSignClass(ch.Kind) }>{ planSign(ch.Kind) }</span>
+	<span class="text-rw-faint">{ ch.Env }</span>
+	if ch.Tile != "" {
+		<span class="text-rw-text">{ ch.Tile }</span>
+	}
+	if ch.Field != "" {
+		<span class="text-rw-muted">{ ch.Field }</span>
+	}
+	if ch.Old != "" || ch.New != "" {
+		<span class="text-rw-faint ml-auto truncate max-w-[50%]">
+			if ch.Old != "" {
+				<span class="text-rw-danger line-through">{ ch.Old }</span>
+			}
+			if ch.Old != "" && ch.New != "" {
+				<span class="mx-1">→</span>
+			}
+			if ch.New != "" {
+				<span class="text-rw-success">{ ch.New }</span>
+			}
+		</span>
+	}
+}
+
+func planSign(kind string) string {
+	switch kind {
+	case "create":
+		return "+"
+	case "delete":
+		return "-"
+	}
+	return "~"
+}
+
+func planSignClass(kind string) string {
+	switch kind {
+	case "create":
+		return "text-rw-success shrink-0 w-4"
+	case "delete":
+		return "text-rw-danger shrink-0 w-4"
+	}
+	return "text-rw-warning shrink-0 w-4"
+}
+
+// Domain is the by-hand branch's domain step. A managed org is not asked
+// for a domain: the box shows what its file declares.
+templ Domain(v DomainView) {
+	@shell(v.Frame) {
+		if v.Managed {
+			<div class="space-y-2">
+				for _, h := range v.Hosts {
+					<input type="text" value={ h } readonly aria-label="Domain" class="input font-mono text-rw-muted cursor-default"/>
+				}
+				if len(v.Hosts) == 0 {
+					<input type="text" value={ v.Prefill } readonly aria-label="Domain" class="input font-mono text-rw-muted cursor-default"/>
+				}
+			</div>
+			if len(v.Hosts) == 0 {
+				<p class="mt-1.5 text-xs text-rw-faint">Default. Add a <span class="font-mono">domains:</span> block to your config file to change it.</p>
+			} else {
+				<p class="mt-1.5 text-xs text-rw-faint">Domains managed by config.</p>
+			}
+			@nav(v.Next, "Continue")
+		} else {
+			<form hx-post={ v.Base + "/domain" } class="space-y-5">
+				<div>
+					<label class="label" for="setup-host">Host</label>
+					<input type="text" id="setup-host" name="host" required value={ v.Prefill } placeholder="example.com" class="input font-mono"/>
+					<p class="mt-1.5 text-xs text-rw-faint">A bare lowercase hostname, unique across the server.</p>
+				</div>
+				<label class="flex items-center gap-2 text-sm text-rw-muted cursor-pointer">
+					<input type="checkbox" name="include_env_on_default" value="1" class="accent-rw-accent"/>
+					Include env slug on the default env (api.prod.stack instead of api.stack)
+				</label>
+				<button type="submit" class="btn btn-primary w-full">Add domain</button>
+			</form>
+			@nav(v.Next, "Skip for now")
+		}
+	}
+}
+
+// Team is v0's step 5: the people panel and list the org drawer's Members
+// tab has. Continue is the primary action here, so the panel's add button
+// steps back to a secondary.
+templ Team(v TeamView) {
+	@shell(v.Frame) {
+		<div class="rounded-lg border border-rw-border bg-rw-inset/40 p-4">
+			@peoplePanel(v)
+		</div>
+		if len(v.People) > 0 {
+			<div class="mt-6">
+				@peopleList(v)
+			</div>
+		}
+		<a href={ templ.SafeURL(v.Next) } class="btn btn-primary w-full mt-6">Continue</a>
+	}
+}
+
+// peoplePanel is one add flow, whoever the person is: every address
+// becomes an invite. A server admin also gets the accounts to pick from;
+// an owner who is not one does not, or any owner could list the server's
+// users.
+templ peoplePanel(v TeamView) {
+	if len(v.Candidates) > 0 {
+		<div class="mb-5">
+			<span class="label">People on this server</span>
+			<ul class="space-y-2 mt-1.5">
+				for _, u := range v.Candidates {
+					<li class="panel px-3 py-2 flex items-center gap-2">
+						@avatar(u.Name, "h-7 w-7 text-xs")
+						<span class="min-w-0 flex-1">
+							<span class="block text-sm text-rw-text truncate">{ u.Name }</span>
+							<span class="block text-xs text-rw-faint truncate">{ u.Email }</span>
+						</span>
+						<form hx-post={ v.Base + "/team/members" } class="flex items-center gap-1.5">
+							<input type="hidden" name="email" value={ u.Email }/>
+							<select name="role" aria-label={ "Role for " + u.Name } class="input !w-24 !py-1 text-xs">
+								for _, r := range v.Roles {
+									<option value={ r } selected?={ r == "owner" }>{ r }</option>
+								}
+							</select>
+							<button type="submit" class="btn btn-ghost btn-sm">Invite</button>
+						</form>
+					</li>
+				}
+			</ul>
+		</div>
+	}
+	<form hx-post={ v.Base + "/team/members" } class="people-add space-y-4">
+		<div>
+			<label class="label" for="people-email">Email address</label>
+			<input type="email" id="people-email" name="email" required placeholder="person@example.com" class="input"/>
+			<p class="mt-1.5 text-xs text-rw-faint">They get an invitation to accept. This server sends no mail, so the link is yours to send.</p>
+		</div>
+		@roleButtons(v.Roles)
+		<div class="flex items-end gap-3">
+			<button type="submit" class="btn btn-ghost btn-sm people-add-submit">Add to organization</button>
+		</div>
+	</form>
+}
+
+// peopleList is the org's people in one list: members, invites nobody has
+// accepted yet, and invites that ran out. A row's buttons are whatever its
+// state allows.
+templ peopleList(v TeamView) {
+	<ul class="space-y-2">
+		for _, p := range v.People {
+			<li class="panel px-3 py-2.5 flex flex-wrap items-center gap-2">
+				@avatar(p.Name, "h-8 w-8 text-xs")
+				<span class="min-w-[12rem] flex-1">
+					<span class="block text-sm text-rw-text truncate">{ p.Name }</span>
+					switch p.State {
+						case "member":
+							<span class="block text-xs text-rw-faint truncate">{ p.Email }</span>
+						case "expired":
+							<span class="block text-xs text-rw-danger truncate">Invite expired { p.Expires }</span>
+						default:
+							<span class="block text-xs text-rw-warning truncate">Invited, expires { p.Expires }</span>
+					}
+				</span>
+				if p.State == "member" && !p.Self {
+					<form hx-post={ v.Base + "/team/members/" + p.UserID + "/role" } class="flex items-center gap-1.5">
+						<select name="role" aria-label={ "Role for " + p.Name } class="input !w-24 !py-1 text-xs">
+							for _, r := range v.Roles {
+								<option value={ r } selected?={ r == p.Role }>{ r }</option>
+							}
+						</select>
+						<button type="submit" class="btn btn-ghost btn-sm">Set</button>
+					</form>
+					<form hx-post={ v.Base + "/team/members/" + p.UserID + "/remove" } hx-confirm={ "Remove " + p.Name + " from " + v.Org + "?" }>
+						<button type="submit" class="btn btn-danger btn-sm">Remove</button>
+					</form>
+				} else {
+					<span class="text-xs px-1.5 py-0.5 rounded bg-rw-inset text-rw-muted">{ p.Role }</span>
+					if p.State == "pending" {
+						<button type="button" data-copy={ p.Link } class="btn btn-ghost btn-sm">Copy invite</button>
+					}
+				}
+			</li>
+		}
+	</ul>
+}
+
+// roleButtons is the role picker as a segmented control: the radio hides
+// and its label carries the checked state.
+templ roleButtons(roles []string) {
+	<fieldset>
+		<legend class="label">Role</legend>
+		<div class="flex gap-2">
+			for _, r := range roles {
+				<label class="flex-1 cursor-pointer">
+					<input type="radio" name="role" value={ r } checked?={ r == "owner" } class="peer sr-only"/>
+					<span class="block text-center rounded-lg border border-rw-border bg-rw-inset px-3 py-1.5 text-sm text-rw-muted transition-colors hover:text-rw-text peer-checked:border-rw-accent peer-checked:bg-rw-accent/10 peer-checked:text-rw-text peer-focus-visible:ring-2 peer-focus-visible:ring-rw-accent/40">{ r }</span>
+				</label>
+			}
+		</div>
+	</fieldset>
+}
+
+// avatar is v0's Avatar with no image: nothing serves an upload yet, so it
+// is always the initials.
+templ avatar(name, size string) {
+	<span class={ "flex items-center justify-center rounded bg-rw-inset font-bold uppercase text-rw-accentHi shrink-0", size }>{ c.Initials(name) }</span>
+}
+
+// Done is the summary, where every gated route lands the owner, so it reads
+// as the thing standing between them and the org.
+templ Done(v DoneView) {
+	@shell(v.Frame) {
+		<ul class="space-y-2 mb-6">
+			for _, it := range v.Rows {
+				<li class="panel px-3 py-2.5 flex items-center gap-2 text-sm">
+					if it.Done {
+						<span class="text-rw-success">✓</span>
+						<span class="text-rw-text">{ it.Label }</span>
+					} else {
+						<span class="text-rw-faint">•</span>
+						<span class="text-rw-muted">{ it.Label }</span>
+					}
+					if it.Href != "" {
+						<a href={ templ.SafeURL(it.Href) } class="ml-auto -my-2.5 px-3 py-3.5 text-xs text-rw-faint hover:text-rw-text transition-colors">Edit</a>
+					}
+				</li>
+			}
+		</ul>
+		if v.Draft {
+			// Finishing here would leave an org called "Untitled organization"
+			// at a random slug; which step names it depends on the branch.
+			if v.Config {
+				<p class="text-sm text-rw-muted mb-4">This organization has no name yet. Its config file gives it one when the plan is applied.</p>
+				<a href={ templ.SafeURL(v.Base + "/config") } class="btn btn-primary w-full">Back to the config file</a>
+			} else {
+				<p class="text-sm text-rw-muted mb-4">This organization has no name yet.</p>
+				<a href={ templ.SafeURL(v.Base + "/name") } class="btn btn-primary w-full">Name it</a>
+			}
+		} else {
+			<form hx-post={ v.Base + "/done" }>
+				<button type="submit" class="btn btn-primary w-full">Finish and go to { v.Name }</button>
+			</form>
+		}
+		// Discard sits here because this is the page every gated route lands
+		// an owner on. It is a real delete, which is why it asks first.
+		if !v.Finished {
+			<form hx-post={ v.Base + "/discard" } hx-confirm="Delete this organization and everything set up in it?" class="mt-8 pt-4 border-t border-rw-border text-center">
+				<button type="submit" class="inline-block px-4 py-3.5 text-xs text-rw-faint hover:text-rw-danger transition-colors">Discard this organization</button>
+			</form>
+		}
+	}
+}
+
+// Holding is what anyone but an owner sees inside an unfinished org. Not a
+// 404: they were invited, so they know the org is there.
+templ Holding(org string) {
+	<div class="max-w-lg mx-auto mt-16 text-center panel p-8">
+		<h2 class="text-xl font-semibold text-rw-text mb-2">{ org } is still being set up</h2>
+		<p class="text-rw-muted mb-6">Its owner has not finished yet. Check back shortly.</p>
+		<a href="/" class="btn btn-ghost">Your organizations</a>
+	</div>
+}

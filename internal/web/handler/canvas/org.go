@@ -1,6 +1,7 @@
 package canvas
 
 import (
+	"context"
 	"slices"
 	"time"
 
@@ -42,13 +43,16 @@ func (h *handler) orgTab(c echo.Context, cd card, f *comp.DrawerView) (templ.Com
 		return h.orgDomains(c, cd, f.Base)
 	case "backups":
 		return h.orgDests(c, cd, f.Base)
+	case "config":
+		return h.configTab(c, cd, f)
 	}
 	cascade, err := h.cascadeForm(c, cd, og.Settings)
 	if err != nil {
 		return nil, err
 	}
-	// ponytail: no verb sets an org's rung (web or API); read-only until one lands
-	cascade.ReadOnly, cascade.Why = true, "Organization defaults can not be changed here yet."
+	if !can(c, cd.s, "orgdefaults.set") {
+		cascade.ReadOnly, cascade.Why = true, "Changing defaults needs an owner of this organization."
+	}
 	v := orgui.SettingsView{Name: og.Name, Slug: og.Slug, Cascade: cascade}
 	if !can(c, cd.s, "org.write") {
 		return orgui.Settings(v), nil
@@ -142,7 +146,12 @@ func (h *handler) orgDomains(c echo.Context, cd card, base string) (templ.Compon
 // members to users replaces it.
 func (h *handler) membersView(c echo.Context, cd card, base string) (orgui.MembersView, error) {
 	ctx, id := c.Request().Context(), cd.s.Org.ID
-	v := orgui.MembersView{Base: base, Manage: can(c, cd.s, "member.manage"), Self: middleware.Principal(c).User.ID}
+	v := orgui.MembersView{
+		Base:   base,
+		Manage: can(c, cd.s, "member.manage"),
+		Self:   middleware.Principal(c).User.ID,
+		Roles:  h.orch.Roles(),
+	}
 	ms, err := h.orch.Members(ctx, id)
 	if err != nil {
 		return v, err
@@ -256,4 +265,13 @@ func (h *handler) mountOrg(site *echo.Group, a *middleware.Access) {
 	site.POST(o+"/backups/:dest/delete", h.orgAction("backups", func(c echo.Context, og *service.Org) (string, error) {
 		return "Destination deleted.", h.orch.DeleteBackupDest(c.Request().Context(), og.ID, c.Param("dest"))
 	}), a.Require("destination.write"))
+	h.mountOrgConfig(site, a)
+	site.POST(o+"/settings", h.saveRung(
+		"org",
+		func(s service.Scope) string { return s.Org.Settings },
+		func(ctx context.Context, s service.Scope, blob string) error {
+			_, err := h.orch.SetOrgSettings(ctx, s.Org.ID, blob)
+			return err
+		},
+	), a.Require("orgdefaults.set"))
 }

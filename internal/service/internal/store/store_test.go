@@ -105,15 +105,37 @@ func TestRoundTrip(t *testing.T) {
 		u.UpdatedAt = t1
 	})
 	roundTrip(t, s.Orgs, store.Org{
-		ID:          "o1",
-		Name:        "Org",
-		Slug:        "org",
-		AvatarPath:  "o.png",
-		EnvColors:   `{"prod":"red"}`,
-		Settings:    "{}",
-		SetupDoneAt: nil,
-		CreatedAt:   t0,
-	}, func(o *store.Org) { o.Name, o.SetupDoneAt = "Org 2", ptr(t1) })
+		ID:                "o1",
+		Name:              "Org",
+		Slug:              "org",
+		AvatarPath:        "o.png",
+		EnvColors:         `{"prod":"red"}`,
+		Settings:          "{}",
+		SetupDoneAt:       nil,
+		CreatedAt:         t0,
+		ConfigConnectorID: "cn1",
+		ConfigRepo:        "https://github.com/acme/infra",
+		ConfigBranch:      "main",
+		ConfigPath:        "stackr-org.yml",
+	}, func(o *store.Org) {
+		o.Name = "Org 2"
+		o.SetupDoneAt = ptr(t1)
+		o.ConfigBranch = "prod"
+		o.ConfigAuto = true
+	})
+	roundTrip(t, s.OrgPlans, store.OrgPlan{
+		ID:        "op1",
+		OrgID:     "o1",
+		Commit:    "abc123",
+		Summary:   "1 to add",
+		Plan:      `{"changes":[]}`,
+		Status:    "pending",
+		CreatedAt: t0,
+	}, func(p *store.OrgPlan) {
+		p.Status = "error"
+		p.Error = "boom"
+		p.DecidedAt = ptr(t1)
+	})
 	roundTrip(t, s.OrgMembers, store.OrgMember{
 		ID:        "m1",
 		OrgID:     "o1",
@@ -473,6 +495,7 @@ func TestRoundTrip(t *testing.T) {
 		id   string
 	}{
 		{"jobs", s.Jobs.Delete, "j1"},
+		{"org_config_plans", s.OrgPlans.Delete, "op1"},
 		{"backup_runs", s.BackupRuns.Delete, "br1"},
 		{"backup_schedules", s.BackupSchedules.Delete, "bs1"},
 		{"backup_destinations", s.BackupDests.Delete, "bd1"},

@@ -10,7 +10,7 @@ import (
 // OrgOf names the org a child row belongs to, so the middleware can refuse
 // an id from another org before a verb that takes ids on trust runs. kind is
 // one of job, release, domain, volume, schedule, provision,
-// domain-resource. A row with no org (a panel job, an instance-level domain
+// domain-resource, org-plan. A row with no org (a panel job, an instance-level domain
 // resource) answers "", which no org route accepts.
 func (o *Orchestrator) OrgOf(ctx context.Context, kind, id string) (string, error) {
 	switch kind {
@@ -69,6 +69,12 @@ func (o *Orchestrator) OrgOf(ctx context.Context, kind, id string) (string, erro
 			return o.scopeOrg(ctx, "stack", *r.StackID)
 		}
 		return "", nil
+	case "org-plan":
+		p, err := o.orgPlans.Get(ctx, id)
+		if err != nil {
+			return "", err
+		}
+		return p.OrgID, nil
 	}
 	return "", errs.ErrNotFound
 }
@@ -99,6 +105,8 @@ func (o *Orchestrator) jobOrg(ctx context.Context, p map[string]any) string {
 	var org string
 	var err error
 	switch {
+	case str("org_id") != "": // the org config jobs
+		org = str("org_id")
 	case str("tile_id") != "":
 		org, err = o.tileOrg(ctx, str("tile_id"))
 	case str("consumer_id") != "":

@@ -1,13 +1,16 @@
 package service
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"path/filepath"
+	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
@@ -44,6 +47,8 @@ const (
 	kindAttach      jobs.Kind = "attach"
 	kindDetach      jobs.Kind = "detach"
 	kindRun         jobs.Kind = "run"
+	kindOrgPlan     jobs.Kind = "org-plan"
+	kindOrgApply    jobs.Kind = "org-apply"
 )
 
 type runJob struct {
@@ -63,6 +68,9 @@ type promoteJob struct {
 type pushJob struct {
 	StackID string        `json:"stack_id"`
 	Event   promote.Event `json:"event"`
+	// DefaultBranch is the repo's, from the push: an empty ConfigBranch
+	// means it.
+	DefaultBranch string `json:"default_branch,omitempty"`
 }
 
 type prJob struct {
@@ -126,6 +134,9 @@ func (o *Orchestrator) handlers() map[jobs.Kind]jobs.Handler {
 			return o.run.Do(ctx, p.RunID, r.Log)
 		}),
 		kindPush: payload(func(ctx context.Context, r *jobs.Run, p pushJob) error {
+			if err := o.ladderEnvs(ctx, p, r.Log); err != nil {
+				return err
+			}
 			return o.runPush(ctx, p.StackID, p.Event, r.Log)
 		}),
 		kindPR:     payload(o.runPR),
@@ -179,6 +190,11 @@ func (o *Orchestrator) handlers() map[jobs.Kind]jobs.Handler {
 			}
 			return err
 		}),
+		kindOrgPlan: payload(func(ctx context.Context, r *jobs.Run, p orgPlanJob) error {
+			_, err := o.planOrg(ctx, p.OrgID, r.Log)
+			return err
+		}),
+		kindOrgApply: payload(o.runOrgApply),
 	}
 }
 
@@ -227,6 +243,86 @@ func (o *Orchestrator) runPush(ctx context.Context, stackID string, ev promote.E
 		}
 	}
 	return nil
+}
+
+// ladderEnvs makes the envs the stack file's ladder names and the stack
+// lacks, bottom rung first, on a push to the config repo's branch (DECIDE
+// 189), then puts the ladder in the file's order. It never deletes one. A
+// file that does not load is logged and the push goes on; the promote plan
+// reports it.
+func (o *Orchestrator) ladderEnvs(ctx context.Context, p pushJob, log io.Writer) error {
+	st, err := o.stacks.Get(ctx, p.StackID)
+	if err != nil {
+		return err
+	}
+	ev := p.Event
+	if st.ConfigRepo == "" || promote.NormalizeRepo(st.ConfigRepo) != promote.NormalizeRepo(ev.Repo) ||
+		ev.Branch != cmp.Or(st.ConfigBranch, p.DefaultBranch) {
+		return nil
+	}
+	data, fetch, err := o.stackFile(ctx, st, ev.Commit, log)
+	var file *promote.Resolved
+	if err == nil {
+		file, err = promote.Load(data, fetch)
+	}
+	if err != nil {
+		_, _ = fmt.Fprintf(log, "stack file: %v; no envs made\n", err)
+		return nil
+	}
+	have, err := o.envs.Ladder(ctx, st.ID)
+	if err != nil {
+		return err
+	}
+	made := false
+	for _, name := range file.Order {
+		if slices.ContainsFunc(have, func(e store.Environment) bool { return e.Slug == name }) {
+			continue
+		}
+		re := file.Envs[name]
+		if re.FromKind == "" {
+			_, _ = fmt.Fprintf(log, "env %s: the file gives it no branch or promote; not made\n", name)
+			continue
+		}
+		e, err := o.envs.Create(ctx, st.ID, name, environment.Spec{
+			Type:       environment.Static,
+			FromKind:   re.FromKind,
+			FromBranch: re.FromBranch,
+			Auto:       re.Auto,
+			Color:      re.Color,
+		})
+		if bad, ok := errs.IsInvalid(err); ok {
+			_, _ = fmt.Fprintf(log, "env %s: %s; not made\n", name, bad.Msg)
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		have = append(have, e)
+		made = true
+		from := strings.TrimSpace(e.FromKind + " " + e.FromBranch)
+		_, _ = fmt.Fprintf(log, "env %s made from the stack file (%s)\n", e.Slug, from)
+	}
+	if !made {
+		return nil
+	}
+	var ids []string
+	for _, name := range file.Order {
+		if i := slices.IndexFunc(have, func(e store.Environment) bool { return e.Slug == name }); i >= 0 {
+			ids = append(ids, have[i].ID)
+		}
+	}
+	if len(ids) != len(have) {
+		// ponytail: a ladder with rungs the file does not name keeps the new
+		// ones on top; reorder by hand, or name every rung in the file.
+		_, _ = fmt.Fprintf(log, "the ladder has envs the file does not name; new envs stay on top\n")
+		return nil
+	}
+	err = o.envs.Reorder(ctx, st.ID, ids)
+	if bad, ok := errs.IsInvalid(err); ok {
+		_, _ = fmt.Fprintf(log, "ladder order: %s; left as made\n", bad.Msg)
+		return nil
+	}
+	return err
 }
 
 // runPR makes, refreshes or removes the pr-<n> env of one stack.

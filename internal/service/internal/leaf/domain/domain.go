@@ -159,6 +159,28 @@ func (l *Leaf) OpenIngress(ctx context.Context, tileID string, replicas []string
 	return nil
 }
 
+// ReopenIngress puts the proxy back on every ingress network a domain row
+// names. A recreated proxy container (an installer re-run after a
+// `docker rm`) starts on none of them, and every route 502s until each
+// tile redeploys; boot calls this before the first push. Idempotent.
+func (l *Leaf) ReopenIngress(ctx context.Context) error {
+	ds, err := l.domains.List(ctx)
+	if err != nil {
+		return err
+	}
+	seen := map[string]bool{}
+	for _, d := range ds {
+		if seen[d.TileID] {
+			continue
+		}
+		seen[d.TileID] = true
+		if err := l.OpenIngress(ctx, d.TileID, nil); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // ProxyAddrs are the proxy container's IPs, one per network it has joined;
 // none when it is not there.
 func (l *Leaf) ProxyAddrs(ctx context.Context) ([]string, error) {

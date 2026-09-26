@@ -20,6 +20,7 @@ import (
 	"github.com/labstack/echo/v4"
 
 	"github.com/FyrmForge/stackr/internal/api/stream"
+	"github.com/FyrmForge/stackr/internal/authz"
 	"github.com/FyrmForge/stackr/internal/middleware"
 	"github.com/FyrmForge/stackr/internal/service"
 	ui "github.com/FyrmForge/stackr/internal/ui/graph"
@@ -124,6 +125,12 @@ func lanes(es []service.Edge) []cards.Lane {
 // GET /, /:org, /:org/:stack, /:org/:stack/:env. A fresh load of
 // ?drawer=<node id>&tab= comes with that card's drawer open.
 func (h *handler) Page(c echo.Context) error {
+	if to, err := h.carryOn(c); err != nil || to != "" {
+		if err != nil {
+			return middleware.HTTPError(err)
+		}
+		return respond.Redirect(c, to)
+	}
 	v, err := h.view(c)
 	if err != nil {
 		return middleware.HTTPError(err)
@@ -135,6 +142,9 @@ func (h *handler) Page(c echo.Context) error {
 	} else if cs := createButtons(c, l); len(cs) > 0 {
 		actions = ui.Actions(cs)
 	}
+	if v.Banner, err = h.planBanner(c); err != nil {
+		return middleware.HTTPError(err)
+	}
 	var drawer templ.Component
 	if id := c.QueryParam("drawer"); id != "" && !isHTMX(c) {
 		if drawer, err = h.drawer(c, v, id, c.QueryParam("tab")); err != nil {
@@ -142,6 +152,23 @@ func (h *handler) Page(c echo.Context) error {
 		}
 	}
 	return render.PageWith(c, http.StatusOK, where(c).title, ui.Page(v), actions, drawer)
+}
+
+// carryOn is v0's home rule: someone whose only org is the one they are
+// setting up is here to carry on, not to look at a canvas of one card.
+func (h *handler) carryOn(c echo.Context) (string, error) {
+	p := middleware.Principal(c)
+	if where(c).scope.Kind != service.CanvasHome || p == nil {
+		return "", nil
+	}
+	orgs, err := h.orch.Orgs(c.Request().Context(), p.User.ID)
+	if err != nil || len(orgs) != 1 || orgs[0].SetupDoneAt != nil {
+		return "", err
+	}
+	if authz.Can(p.Access, "org.setup.step", authz.Resource{OrgID: orgs[0].ID}) != nil {
+		return "", nil
+	}
+	return "/" + orgs[0].Slug + "/-/setup/done", nil
 }
 
 func isHTMX(c echo.Context) bool {

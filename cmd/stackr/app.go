@@ -121,12 +121,23 @@ type apiErr struct {
 
 func (e *apiErr) Error() string { return e.Msg }
 
+// exitErr is an exit code with nothing to print: the output already said
+// it (a plan's --detailed-exitcode).
+type exitErr int
+
+func (e exitErr) Error() string {
+	return fmt.Sprintf("exit %d", int(e))
+}
+
 // exitCode: 0 fine, 2 usage, 1 everything else.
 func exitCode(err error) int {
 	var u usageErr
+	var x exitErr
 	switch {
 	case err == nil:
 		return 0
+	case errors.As(err, &x):
+		return int(x)
 	case errors.As(err, &u), strings.HasPrefix(err.Error(), "unknown command"),
 		strings.HasPrefix(err.Error(), "unknown flag"), strings.HasPrefix(err.Error(), "unknown shorthand"):
 		return 2
@@ -136,6 +147,9 @@ func exitCode(err error) int {
 
 func (a *app) fail(err error) int {
 	code := exitCode(err)
+	if _, quiet := err.(exitErr); quiet {
+		return code
+	}
 	if a.json {
 		body := map[string]any{"error": err.Error(), "code": code, "status": 0}
 		var e *apiErr

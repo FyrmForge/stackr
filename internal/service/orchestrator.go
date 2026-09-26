@@ -45,6 +45,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/job"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/managed"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/org"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/orgplan"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/panel"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/params"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/release"
@@ -114,6 +115,7 @@ type options struct {
 	vip    tile.VIP
 	push   func(context.Context, json.RawMessage) error
 	build  BuildFunc
+	gitEnv []string
 }
 
 // BuildFunc builds one git tile at a commit and returns the image row id.
@@ -123,6 +125,13 @@ type BuildFunc func(ctx context.Context, st Stack, t Tile, commit string, log io
 // release without GitHub or a daemon.
 func WithBuild(f BuildFunc) Option {
 	return func(o *options) { o.build = f }
+}
+
+// WithGit clones with env instead of a connector's token: no connector
+// lookup, no GitHub. Tests point https://github.com/ at local bare repos
+// with it (servicetest.Git).
+func WithGit(env ...string) Option {
+	return func(o *options) { o.gitEnv = env }
 }
 
 // WithDocker replaces the daemon client, with the fake in tests.
@@ -151,6 +160,7 @@ type Orchestrator struct {
 
 	users     *user.Leaf
 	orgs      *org.Leaf
+	orgPlans  *orgplan.Leaf
 	stacks    *stack.Leaf
 	envs      *environment.Leaf
 	tiles     *tile.Leaf
@@ -184,6 +194,7 @@ type Orchestrator struct {
 	sched     *schedule.Runner
 	sync      *domain.Syncer
 
+	gitEnv       []string     // WithGit: clone env that replaces the connector's
 	proxyStarted atomic.Value // the proxy container's last seen start time
 	repoLocks    sync.Map     // clone dir -> *sync.Mutex
 	cli          cliCodes
@@ -265,6 +276,7 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 		db:     db,
 		store:  st,
 		docker: d,
+		gitEnv: o.gitEnv,
 	}
 	orch.sessions = build("sessions", func() *auth.SessionManager {
 		return auth.NewSessionManager(st.Sessions,
@@ -273,6 +285,7 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 	})
 	orch.users = build("leaf/user", func() *user.Leaf { return user.New(st.Users, st.Sessions, st.APIKeys) })
 	orch.orgs = build("leaf/org", func() *org.Leaf { return org.New(st.Orgs, st.OrgMembers, st.Invites) })
+	orch.orgPlans = build("leaf/orgplan", func() *orgplan.Leaf { return orgplan.New(st.OrgPlans) })
 	orch.stacks = build("leaf/stack", func() *stack.Leaf { return stack.New(st.Stacks) })
 	orch.envs = build("leaf/environment", func() *environment.Leaf { return environment.New(st.Environments, d) })
 	orch.tiles = build("leaf/tile", func() *tile.Leaf { return tile.New(st.Tiles, d, o.vip) })
@@ -475,6 +488,9 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 		slog.Warn(w, "path", cfg.Conntrack)
 	}
 	go func() {
+		if err := orch.domains.ReopenIngress(context.Background()); err != nil {
+			slog.Warn("proxy: ingress rejoin failed", "err", err)
+		}
 		if err := orch.sync.Sync(context.Background()); err != nil {
 			slog.Warn("proxy: boot push failed", "err", err)
 		}

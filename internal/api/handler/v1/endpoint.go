@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"reflect"
@@ -42,6 +43,16 @@ type Endpoint struct {
 // Q names the query params the handler reads, for the OpenAPI dump.
 func (e Endpoint) Q(names ...string) Endpoint {
 	e.Query = names
+	return e
+}
+
+// Limit caps the request body at n bytes; a longer one is a 413.
+func (e Endpoint) Limit(n int64) Endpoint {
+	next := e.Handle
+	e.Handle = func(c echo.Context) error {
+		c.Request().Body = http.MaxBytesReader(c.Response(), c.Request().Body, n)
+		return next(c)
+	}
 	return e
 }
 
@@ -103,6 +114,10 @@ func decode(c echo.Context, v any) error {
 		return nil
 	}
 	body, err := io.ReadAll(c.Request().Body)
+	var tooBig *http.MaxBytesError
+	if errors.As(err, &tooBig) {
+		return echo.NewHTTPError(http.StatusRequestEntityTooLarge, fmt.Sprintf("request body is over %d bytes", tooBig.Limit))
+	}
 	if err != nil {
 		return err
 	}
