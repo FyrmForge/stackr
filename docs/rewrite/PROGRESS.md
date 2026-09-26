@@ -1007,6 +1007,21 @@ sweep, P14 theme per user, DECIDE 159 and the DECIDE 138 leftovers.
    writes the map on every instance of that tile slug in the stack and the
    drawer says so ("applies to every env of this stack"); a per-env map is
    not a thing the grammar has.
+213. **(step 7b QA loop 6) A push release keeps pins of tiles the file
+   dropped.** shop's release 12 still carries `reporter` after the file
+   lost it; `planImages` skips them, so nothing runs, but `release get`
+   lists a tile the env no longer has. Lean: leave; a release is what the
+   push saw. Flip: strip pins of tiles the file no longer declares.
+214. **(step 7b QA loop 6) A slice has two status words.** The canvas card
+   and the drawer header show its instance's word ("running", "Online")
+   while the drawer body says provisioned / idle. Lean: leave; the card
+   answers "can I reach it". Flip: the slice's own word (provisioned,
+   unresolved, idle) everywhere.
+215. **(step 7b QA loop 10) The panel's own logs live in its container.**
+   An upgrade replaces the container, so `docker logs stackr` starts over
+   and the previous version's run is gone. Lean: leave for v1 (the
+   installer can set a docker log driver). Flip: the panel also writes
+   its log under the data dir.
 
 ## Step 7b QA loops (2026-09-26, VM upgraded in place per loop)
 
@@ -1128,6 +1143,19 @@ fix, ship, re-test.
    the request did not have (it is `name` now, CLI and openapi with it);
    "api is a image tile" (the three tile-kind refusals read "api is kind
    image, not managed / not a slice").
+10. **v0.0.50.** Final sweep of the VM. Fixed: every container removal
+    left behind the anonymous volume an image's `VOLUME` line gave it
+    (18 dangling volumes from the day's redeploys of postgres-based
+    tiles); `docker.StopRemove` and the two failed-create cleanups pass
+    `RemoveVolumes` now (named `stackr-vol-*` volumes are untouched), and
+    a redeploy of shop's api no longer adds one. Not bugs: seven empty
+    `stackr-env-*` / `stackr-ingress-*` networks predate the pave (the
+    prune in `rig.sh pave` came after it; removed by hand); the staging
+    pg-db holds `byhand_dev_*` databases with their owner roles (kept on
+    removal, as chosen) and the shop consumers' roles, nothing stale; the
+    server log scan covers only the current container, since each rig
+    upgrade replaces it (DECIDE 215). Memory `vm-test-credentials`
+    updated to this state.
 ## DECIDE:
 
 Silent calls the planner made under rule 9 / "fix obvious gaps"; flip any
