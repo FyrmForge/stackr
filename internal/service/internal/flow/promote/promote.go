@@ -58,6 +58,12 @@ func (f *Flow) Apply(ctx context.Context, envID, releaseID string, log io.Writer
 	if p.Blocked() {
 		return p, errs.Conflictf("%s", strings.Join(p.Blockers, "; "))
 	}
+	if len(p.Changes) == 0 {
+		logf(log, "plan: nothing to change\n")
+	}
+	for _, c := range p.Changes {
+		logf(log, "plan: %s\n", c.Line())
+	}
 	if swap != nil {
 		if err := swap(); err != nil {
 			return p, err

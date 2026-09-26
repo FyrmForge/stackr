@@ -73,6 +73,24 @@ func (p *Plan) block(format string, a ...any) {
 
 func (p *Plan) add(c Change) { p.Changes = append(p.Changes, c) }
 
+// Line is the change as one job-log line: "update api env: a -> b (note)".
+func (c Change) Line() string {
+	s := c.Kind
+	if c.Tile != "" {
+		s += " " + c.Tile
+	}
+	if c.Field != "" {
+		s += " " + c.Field + ":"
+	}
+	if c.Old != "" || c.New != "" {
+		s += " " + c.Old + " -> " + c.New
+	}
+	if c.Note != "" {
+		s += " (" + c.Note + ")"
+	}
+	return s
+}
+
 // work is everything the real run needs, computed once by plan so the dry
 // run and the real run cannot drift apart.
 type work struct {

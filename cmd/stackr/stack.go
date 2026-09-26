@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net/url"
 	"os"
 	"slices"
@@ -27,6 +28,7 @@ var (
 	volumeCols  = []string{"slug", "name", "max_size_mb", "scope_kind", "orphaned_at", "id"}
 	schedCols   = []string{"id", "method", "cron", "timezone", "keep", "mode", "dest_id"}
 	runCols     = []string{"id", "status", "trigger", "created_at", "size_bytes", "object_key", "error"}
+	pinCols     = []string{"slug", "repo", "branch", "commit_sha", "digest", "image_id"}
 	tileRunCols = []string{"id", "status", "trigger", "exit_code", "reason", "created_at", "finished_at"}
 )
 
@@ -253,10 +255,23 @@ func (a *app) releases() *cobra.Command {
 					return err
 				}
 				v, err := a.call(GET, p+"/releases/"+id, nil)
-				if err != nil {
+				if err != nil || a.json {
+					if err == nil {
+						err = a.show(v)
+					}
 					return err
 				}
-				return a.show(v)
+				m, _ := v.(map[string]any)
+				if err := a.show(m["release"]); err != nil {
+					return err
+				}
+				pins, _ := m["pins"].(map[string]any)
+				rows := make([]any, 0, len(pins))
+				for _, slug := range slices.Sorted(maps.Keys(pins)) {
+					rows = append(rows, pins[slug])
+				}
+				_, _ = fmt.Fprintln(a.out)
+				return a.show(rows, pinCols...)
 			})),
 	), false)
 }

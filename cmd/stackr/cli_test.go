@@ -542,6 +542,22 @@ func TestAllowEditsTheWholeList(t *testing.T) {
 }
 
 // tile exec prints the output and exits with the X-Exit-Code trailer.
+func TestReleaseGetShowsPins(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/releases") {
+			_, _ = io.WriteString(w, `[{"id":"r12","number":12}]`)
+			return
+		}
+		_, _ = io.WriteString(w, `{"release":{"id":"r12","number":12,"created_by":"push"},"pins":{"api":{"slug":"api","repo":"postgres:16-alpine","digest":"sha256:ab"},"_config":{"slug":"_config","repo":"https://x/y","branch":"main","commit_sha":"c1"}}}`)
+	}))
+	t.Cleanup(srv.Close)
+	useServer(t, srv.URL)
+	code, out, _ := cli(t, "release", "get", "12", "--stack", "shop")
+	if code != 0 || !strings.Contains(out, "number\t12") || !strings.Contains(out, "api\tpostgres:16-alpine") {
+		t.Errorf("release get = %d %q, want the release and its pins", code, out)
+	}
+}
+
 func TestEnvTrafficNamesAndRates(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = io.WriteString(w, `[{"from":"a","to":"b","from_name":"api","to_name":"infra/staging/pg-db","bps":695995.3}]`)

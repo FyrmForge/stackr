@@ -1,6 +1,7 @@
 package promote
 
 import (
+	"bytes"
 	"errors"
 	"io"
 	"slices"
@@ -715,10 +716,14 @@ func TestApplyEmptyFile(t *testing.T) {
 	w := newSliceWorld(t)
 	_, err := w.f.Apply(ctx, w.dev.ID, w.shopRelease(t, "c1", sliceShopFile).ID, io.Discard, nil)
 	must(t, err)
-	_, err = w.f.Apply(ctx, w.dev.ID, w.shopRelease(t, "c2", "version: 1\nstack: shop\nladder:\n  - dev\n  - prd\nhead: main\n").ID, io.Discard, nil)
+	var log bytes.Buffer
+	_, err = w.f.Apply(ctx, w.dev.ID, w.shopRelease(t, "c2", "version: 1\nstack: shop\nladder:\n  - dev\n  - prd\nhead: main\n").ID, &log, nil)
 	must(t, err)
 	if live, _ := w.f.D.Tiles.List(ctx, w.dev.ID); len(live) != 0 {
 		t.Errorf("tiles after the empty file = %d, want 0", len(live))
+	}
+	if !strings.Contains(log.String(), "plan: delete api\n") {
+		t.Errorf("job log = %q, want the plan rows", log.String())
 	}
 }
 

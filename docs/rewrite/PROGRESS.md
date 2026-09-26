@@ -1056,6 +1056,20 @@ fix, ship, re-test.
    job per stack on that repo; the infra one did nothing and logged
    nothing (F15: it now logs "no environment of infra follows branch
    s7b-shop; nothing to do", ships with loop 5).
+5. **v0.0.45, v0.0.46.** Browser: the slice drawer's per-consumer access
+   select and the consumer Access tab's Add access + × drive the grant
+   live (read refused api's insert, write took it back). `stackr env
+   traffic` printed tile ids and raw floats: edges now carry `from_name`
+   and `to_name` (slug in the env, `stack/env/slug` for a tile of another
+   env, the id when unknown) and the CLI prints `api  api-db  26.8 KB/s`.
+   F15 verified: the infra push job says why it did nothing. A
+   comment-only push redeployed api: not a bug, the file has no
+   `slice_access` for api and my UI edit had left one (DECIDE 209: a push
+   reverts per-consumer access edits on a config-managed stack), but the
+   job log said only "deploying api": the promote job log now prints the
+   plan rows first (`plan: update api slice_access: ...`, or `plan: nothing
+   to change`). `stackr release get` printed `(none)`: it shows the
+   release fields and a pins table now.
 ## DECIDE:
 
 Silent calls the planner made under rule 9 / "fix obvious gaps"; flip any
