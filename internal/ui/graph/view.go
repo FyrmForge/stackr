@@ -211,3 +211,12 @@ func hue(color string) string {
 func itoa(n int) string {
 	return strconv.Itoa(n)
 }
+
+// behindTitle spells the arrow's tooltip; a rung with no release yet is
+// not "release #0".
+func behindTitle(r Rung) string {
+	if r.Release == 0 {
+		return "No release yet; the env below runs one"
+	}
+	return "Runs release #" + itoa(r.Release) + "; the env below runs a newer one"
+}

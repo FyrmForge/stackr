@@ -1083,6 +1083,13 @@ fix, ship, re-test.
    (reporter still in shop's release 12; planImages skips them); a slice's
    status word is its instance's ("running", canvas "Online") while the
    drawer header says provisioned/idle.
+7. **v0.0.47.** A shop push whose ladder adds `qa` made the env; `promote
+   13 --env qa --dry-run` blocks with `slice api-db: infra's pg-db has no
+   env pair for qa` (and the ladder rule). The ladder without `qa` pushed
+   back left the env ("never deletes one", DECIDE 189; removed by hand).
+   The api drawer's Variables tab (`tab=env`) shows the ref, not the
+   resolved URL with the password. The compare pill's arrow on an env with
+   no release said "Runs release #0": it says "No release yet" now.
 ## DECIDE:
 
 Silent calls the planner made under rule 9 / "fix obvious gaps"; flip any
