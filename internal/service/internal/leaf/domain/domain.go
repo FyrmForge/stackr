@@ -49,7 +49,8 @@ type Spec struct {
 	HTTPS      *bool // nil = true
 	ForceHTTPS *bool // nil = true
 	RedirectTo string
-	Auto       bool // a generated host; renders exactly like a hand-attached one
+	Auto       bool    // a generated host; renders exactly like a hand-attached one
+	ResourceID *string // the domain resource that named an auto or apex host; nil for a literal
 	Extras     Extras
 	RawCaddy   string // admin-only: replaces the generated route verbatim
 }
@@ -245,6 +246,7 @@ func (l *Leaf) fill(ctx context.Context, d *store.Domain, s Spec, dns01 bool) er
 	d.ForceHTTPS = force
 	d.RedirectTo = redirect
 	d.Auto = s.Auto
+	d.ResourceID = s.ResourceID
 	d.ProxyJSON = string(extras)
 	d.RawCaddy = raw
 	return nil

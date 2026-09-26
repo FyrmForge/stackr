@@ -55,3 +55,15 @@ func ValidName(s string) bool {
 func ValidEnvKey(s string) bool {
 	return envRe.MatchString(s)
 }
+
+// OfHost is the org slug a hostname would squat: its first label, past a
+// leading "*.". "" for a single label, which names nothing under a root.
+// The one label rule for both squat checks (domainres forward, org rename
+// reverse).
+func OfHost(host string) string {
+	label, _, ok := strings.Cut(strings.TrimPrefix(host, "*."), ".")
+	if !ok {
+		return ""
+	}
+	return label
+}

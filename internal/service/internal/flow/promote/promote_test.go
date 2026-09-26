@@ -16,6 +16,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/deploy"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/credential"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/domain"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/domainres"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/environment"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/image"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/job"
@@ -52,6 +53,7 @@ func must(t *testing.T, err error) {
 
 type world struct {
 	f        *Flow
+	s        *store.Store
 	fake     *dockerfake.Fake
 	st       store.Stack
 	dev, prd store.Environment
@@ -84,9 +86,10 @@ func setup(t *testing.T) *world {
 		Settings: settings.New(s.Settings, nil),
 		Jobs:     job.New(s.Jobs),
 	}
-	w := &world{fake: fake, files: map[string]string{}}
+	w := &world{s: s, fake: fake, files: map[string]string{}}
 	w.f = &Flow{
-		D: d,
+		D:         d,
+		Resources: domainres.New(s.DomainResources),
 		Config: func(_ context.Context, _ store.Stack, commit string, _ io.Writer) ([]byte, Fetcher, error) {
 			f, ok := w.files[commit]
 			if !ok {
@@ -103,7 +106,6 @@ func setup(t *testing.T) *world {
 		Name:         "shop",
 		Slug:         "shop",
 		Settings:     "{}",
-		Domains:      "[]",
 		ConfigRepo:   "https://github.com/acme/shop",
 		ConfigBranch: "main",
 		CreatedAt:    now,
@@ -494,5 +496,281 @@ func TestPlanShowsRunKinds(t *testing.T) {
 	must(t, err)
 	if !strings.Contains(strings.Join(p.Blockers, ";"), "kind: cron and type: service disagree") {
 		t.Fatalf("kind and type disagreeing = %v", p.Blockers)
+	}
+}
+
+// autoFile has one tile whose domain is domain (a YAML block under
+// "- "), and the stack's domains: when reserve is set.
+func autoFile(domain, reserve string) string {
+	f := `
+version: 1
+stack: shop
+ladder:
+  - dev
+  - prd
+head: main
+base:
+  tiles:
+    api:
+      image: nginx:1
+      port: 80
+      domains:
+        - ` + domain + `
+`
+	if reserve != "" {
+		f += "domains:\n  - " + reserve + "\n"
+	}
+	return f
+}
+
+// resource makes a declared row at level for owner (the stack's org at org
+// level) through the leaf.
+func (w *world) resource(t *testing.T, level, owner, host string) store.DomainResource {
+	t.Helper()
+	r, err := w.f.Resources.Create(ctx, domainres.Spec{Level: level, OwnerID: owner, Host: host}, owner, nil)
+	must(t, err)
+	return r
+}
+
+// domainsOf is the plan's domain lines, "tile new" each.
+func domainsOf(p *Plan) []string {
+	var out []string
+	for _, c := range p.Changes {
+		if c.Kind == "domain" {
+			out = append(out, c.Tile+" "+c.New)
+		}
+	}
+	return out
+}
+
+func planOK(t *testing.T, w *world, env store.Environment, rel store.Release) *Plan {
+	t.Helper()
+	p, err := w.f.Plan(ctx, env.ID, rel.ID, io.Discard)
+	must(t, err)
+	if p.Blocked() {
+		t.Fatalf("blocked: %v", p.Blockers)
+	}
+	return p
+}
+
+// auto: the nearest resource names the tile. Under an org row the name is
+// tile.env.stack.<org host>; the default env (the top rung, DECIDE 192)
+// drops the env label. The row remembers the resource.
+func TestAutoUnderOrgRow(t *testing.T) {
+	w := setup(t)
+	w.fake.Digests = map[string]string{"nginx:1": "sha256:one"}
+	w.resource(t, domainres.Instance, "", "example.com")
+	res := w.resource(t, domainres.Org, w.st.OrgID, "acme.io")
+	w.files["c1"] = autoFile("auto: true", "")
+	r := w.release(t, "c1")
+
+	p := planOK(t, w, w.dev, r)
+	if got := domainsOf(p); len(got) != 1 || got[0] != "api api.dev.shop.acme.io" {
+		t.Fatalf("dev domains = %v", got)
+	}
+	_, err := w.f.Apply(ctx, w.dev.ID, r.ID, io.Discard, nil)
+	must(t, err)
+	api, err := w.f.D.Tiles.GetBySlug(ctx, w.dev.ID, "api")
+	must(t, err)
+	ds, err := w.f.D.Domains.ListByTile(ctx, api.ID)
+	must(t, err)
+	if len(ds) != 1 || !ds[0].Auto || ds[0].ResourceID == nil || *ds[0].ResourceID != res.ID {
+		t.Errorf("rows = %+v, want one auto row named by %s", ds, res.ID)
+	}
+
+	p = planOK(t, w, w.prd, r)
+	if got := domainsOf(p); len(got) != 1 || got[0] != "api api.shop.acme.io" {
+		t.Errorf("prd domains = %v", got)
+	}
+}
+
+func TestAutoUnderInstanceRow(t *testing.T) {
+	w := setup(t)
+	w.resource(t, domainres.Instance, "", "example.com")
+	w.files["c1"] = autoFile("auto: true", "")
+	p := planOK(t, w, w.dev, w.release(t, "c1"))
+	if got := domainsOf(p); len(got) != 1 || got[0] != "api api.dev.shop.acme.example.com" {
+		t.Errorf("domains = %v", got)
+	}
+}
+
+// apex: the tile takes a visible resource's own host; another org's is not
+// visible.
+func TestApex(t *testing.T) {
+	w := setup(t)
+	res := w.resource(t, domainres.Org, w.st.OrgID, "acme.io")
+	w.files["c1"] = autoFile("apex: acme.io", "")
+	r := w.release(t, "c1")
+	p := planOK(t, w, w.dev, r)
+	if got := domainsOf(p); len(got) != 1 || got[0] != "api acme.io" {
+		t.Fatalf("domains = %v", got)
+	}
+	_, err := w.f.Apply(ctx, w.dev.ID, r.ID, io.Discard, nil)
+	must(t, err)
+	all, err := w.f.D.Domains.List(ctx)
+	must(t, err)
+	if len(all) != 1 || all[0].Auto || all[0].ResourceID == nil || *all[0].ResourceID != res.ID {
+		t.Errorf("rows = %+v", all)
+	}
+
+	must(t, w.s.Orgs.Create(ctx, store.Org{
+		ID:        "o2",
+		Name:      "globex",
+		Slug:      "globex",
+		EnvColors: "{}",
+		Settings:  "{}",
+		CreatedAt: time.Now(),
+	}))
+	w.resource(t, domainres.Org, "o2", "globex.io")
+	w.files["c2"] = autoFile("apex: globex.io", "")
+	p, err = w.f.Plan(ctx, w.dev.ID, w.release(t, "c2").ID, io.Discard)
+	must(t, err)
+	if !strings.Contains(strings.Join(p.Blockers, "|"), `apex "globex.io" is not a domain resource visible to this stack`) {
+		t.Errorf("blockers = %v", p.Blockers)
+	}
+}
+
+// No resource anywhere: auto blocks, with v0's hint. A literal host leading
+// with another org's slug blocks too (TestAutoTileNamedLikeAnotherOrg is the
+// other side).
+func TestDomainBlockers(t *testing.T) {
+	w := setup(t)
+	w.files["c1"] = autoFile("auto: true", "")
+	p, err := w.f.Plan(ctx, w.dev.ID, w.release(t, "c1").ID, io.Discard)
+	must(t, err)
+	if !strings.Contains(strings.Join(p.Blockers, "|"), "no domain resource is visible to this stack") {
+		t.Errorf("blockers = %v", p.Blockers)
+	}
+
+	must(t, w.s.Orgs.Create(ctx, store.Org{
+		ID:        "o2",
+		Name:      "globex",
+		Slug:      "globex",
+		EnvColors: "{}",
+		Settings:  "{}",
+		CreatedAt: time.Now(),
+	}))
+	w.files["c2"] = autoFile("host: globex.example.com", "")
+	p, err = w.f.Plan(ctx, w.dev.ID, w.release(t, "c2").ID, io.Discard)
+	must(t, err)
+	if !strings.Contains(strings.Join(p.Blockers, "|"), "starts with another organization's slug") {
+		t.Errorf("blockers = %v", p.Blockers)
+	}
+}
+
+// An auto host leads with the tile's slug, not a squat: a tile named like
+// another org plans clean (its resource already passed the check).
+func TestAutoTileNamedLikeAnotherOrg(t *testing.T) {
+	w := setup(t)
+	w.resource(t, domainres.Instance, "", "example.com")
+	must(t, w.s.Orgs.Create(ctx, store.Org{
+		ID:        "o2",
+		Name:      "api",
+		Slug:      "api",
+		EnvColors: "{}",
+		Settings:  "{}",
+		CreatedAt: time.Now(),
+	}))
+	w.files["c1"] = autoFile("auto: true", "")
+	p := planOK(t, w, w.dev, w.release(t, "c1"))
+	if got := domainsOf(p); len(got) != 1 || got[0] != "api api.dev.shop.acme.example.com" {
+		t.Errorf("domains = %v", got)
+	}
+}
+
+// The stack's domains: are stack rows: created with the bottom rung (and
+// named under in the same promote), updated when the env flag or ACME email
+// moves, never deleted by the file.
+func TestReservationRows(t *testing.T) {
+	w := setup(t)
+	w.fake.Digests = map[string]string{"nginx:1": "sha256:one"}
+	w.resource(t, domainres.Instance, "", "example.com")
+	w.files["c1"] = autoFile("auto: true", "host: shop.io\n    acme_email: ops@shop.io")
+	r := w.release(t, "c1")
+	p := planOK(t, w, w.dev, r)
+	if got := kinds(p); !strings.Contains(got, "stack:domainsshop.io") {
+		t.Errorf("plan = %s", got)
+	}
+	if got := domainsOf(p); len(got) != 1 || got[0] != "api api.dev.shop.io" {
+		t.Errorf("domains = %v, want the name under the new row", got)
+	}
+	applied, err := w.f.Apply(ctx, w.dev.ID, r.ID, io.Discard, nil)
+	must(t, err)
+	if kinds(applied) != kinds(p) {
+		t.Errorf("apply planned %s, dry run %s", kinds(applied), kinds(p))
+	}
+	row := w.stackRow(t, "shop.io")
+	if !row.Declared || row.ACMEEmail != "ops@shop.io" || row.IncludeEnvOnDefault {
+		t.Errorf("row = %+v", row)
+	}
+	all, err := w.f.D.Domains.List(ctx)
+	must(t, err)
+	if len(all) != 1 || all[0].ResourceID == nil || *all[0].ResourceID != row.ID {
+		t.Errorf("domain rows = %+v, want one named by %s", all, row.ID)
+	}
+	e, err := w.f.D.Envs.Get(ctx, w.dev.ID)
+	must(t, err)
+	if again := planOK(t, w, e, store.Release{ID: *e.ReleaseID}); len(again.Changes) != 0 {
+		t.Errorf("re-plan = %s", kinds(again))
+	}
+
+	w.files["c2"] = autoFile("auto: true", "host: shop.io\n    include_env_on_default: true")
+	r2 := w.release(t, "c2")
+	p = planOK(t, w, w.dev, r2)
+	if got := kinds(p); !strings.Contains(got, "stack:domainsshop.ioshop.io") {
+		t.Errorf("plan = %s", got)
+	}
+	_, err = w.f.Apply(ctx, w.dev.ID, r2.ID, io.Discard, nil)
+	must(t, err)
+	if row := w.stackRow(t, "shop.io"); row.ACMEEmail != "" || !row.IncludeEnvOnDefault {
+		t.Errorf("updated row = %+v", row)
+	}
+
+	w.files["c3"] = autoFile("auto: true", "")
+	p = planOK(t, w, w.dev, w.release(t, "c3"))
+	if strings.Contains(kinds(p), "stack:") {
+		t.Errorf("a dropped reservation planned %s", kinds(p))
+	}
+	w.stackRow(t, "shop.io")
+}
+
+func (w *world) stackRow(t *testing.T, host string) store.DomainResource {
+	t.Helper()
+	all, err := w.f.Resources.ListAll(ctx)
+	must(t, err)
+	for _, r := range all {
+		if r.Host == host && r.StackID != nil && *r.StackID == w.st.ID {
+			return r
+		}
+	}
+	t.Fatalf("no stack row %s in %+v", host, all)
+	return store.DomainResource{}
+}
+
+// v0's grammar: exactly one of host, apex or auto; apex and auto take no
+// path or redirect.
+func TestDomainGrammar(t *testing.T) {
+	r, err := Load([]byte(autoFile("auto: true", "")), nil)
+	must(t, err)
+	if d := r.Envs["dev"].Tiles["api"].Domains[0]; !d.Auto || d.Host != "" {
+		t.Errorf("auto = %+v", d)
+	}
+	r, err = Load([]byte(autoFile("apex: shop.io", "")), nil)
+	must(t, err)
+	if d := r.Envs["dev"].Tiles["api"].Domains[0]; d.Apex != "shop.io" {
+		t.Errorf("apex = %+v", d)
+	}
+	for domain, want := range map[string]string{
+		"path: /x":                                   "exactly one of host, apex or auto",
+		"host: a.io\n          auto: true":           "exactly one of host, apex or auto",
+		"host: a.io\n          apex: shop.io":        "exactly one of host, apex or auto",
+		"apex: shop.io\n          auto: true":        "exactly one of host, apex or auto",
+		"auto: true\n          path: /x":             "take no path or redirect",
+		"apex: shop.io\n          redirect_to: b.io": "take no path or redirect",
+	} {
+		_, err := Load([]byte(autoFile(domain, "")), nil)
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("%q: err = %v, want %q", domain, err, want)
+		}
 	}
 }

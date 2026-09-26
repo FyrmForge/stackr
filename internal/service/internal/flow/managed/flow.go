@@ -28,6 +28,9 @@ type Flow struct {
 	// S3 is the bucket client for an instance's API (s3.Admin in
 	// production); nil = no s3 engine.
 	S3 func(endpoint, access, secret string) S3Admin
+	// PublicBase is the instance tile's public scheme+host, "" when it has
+	// none (the orchestrator's, through leaf/domainres AutoHost); nil = none.
+	PublicBase func(ctx context.Context, t store.Tile) string
 	// ReadyWait bounds the readiness poll; 0 = 60s. ReadyPoll is its tick; 0 = 2s.
 	ReadyWait, ReadyPoll time.Duration
 }
@@ -50,7 +53,7 @@ func (f *Flow) Container(ctx context.Context, t store.Tile) (Container, error) {
 		return Container{}, err
 	}
 	def := e.Definition()
-	c := Container{Image: def.Image, Cmd: def.Command, Env: def.Config(f.facts(t, m, def))}
+	c := Container{Image: def.Image, Cmd: def.Command, Env: def.Config(f.facts(ctx, t, m, def))}
 	if t.ImageRef != "" {
 		c.Image = t.ImageRef // the instance's own pin
 	}
@@ -96,7 +99,7 @@ func (f *Flow) Ready(ctx context.Context, t store.Tile) error {
 	}
 	deadline := time.Now().Add(wait)
 	for {
-		err = e.Ready(ctx, f.facts(t, m, e.Definition()), f.tools(t, m))
+		err = e.Ready(ctx, f.facts(ctx, t, m, e.Definition()), f.tools(t, m))
 		if err == nil || time.Now().After(deadline) {
 			return err
 		}
@@ -151,7 +154,7 @@ func (f *Flow) Attach(
 	if def.PublicSlices { // ponytail: shared root keys, see s3.go
 		s.User, s.Password = m.AdminUser, m.AdminPassword
 	}
-	inst := f.facts(it, m, def)
+	inst := f.facts(ctx, it, m, def)
 	if err := e.Provision(ctx, inst, s, f.tools(it, m)); err != nil {
 		return store.Provision{}, fmt.Errorf("provision %s on %s: %w", s.Name, it.Slug, err)
 	}
@@ -190,7 +193,7 @@ func (f *Flow) Reconcile(ctx context.Context, consumer store.Tile, log io.Writer
 		if err != nil {
 			return err
 		}
-		inst, s := f.facts(it, m, e.Definition()), slice(p)
+		inst, s := f.facts(ctx, it, m, e.Definition()), slice(p)
 		if err := e.Provision(ctx, inst, s, f.tools(it, m)); err != nil {
 			return fmt.Errorf("re-provision %s on %s: %w", p.DBName, it.Slug, err)
 		}
@@ -233,7 +236,7 @@ func (f *Flow) Detach(ctx context.Context, p store.Provision, ephemeral bool) er
 		}
 	}
 	if shared == 0 {
-		if err := e.Drop(ctx, f.facts(it, m, e.Definition()), slice(p), f.tools(it, m)); err != nil {
+		if err := e.Drop(ctx, f.facts(ctx, it, m, e.Definition()), slice(p), f.tools(it, m)); err != nil {
 			return err
 		}
 	}
@@ -256,7 +259,7 @@ func (f *Flow) Teardown(ctx context.Context, it store.Tile, force bool, log io.W
 	if err != nil {
 		return err
 	}
-	inst := f.facts(it, m, e.Definition())
+	inst := f.facts(ctx, it, m, e.Definition())
 	for _, p := range drop {
 		if err := e.Drop(ctx, inst, slice(p), f.tools(it, m)); err != nil {
 			_, _ = fmt.Fprintf(log, "drop %s: %v (the row goes anyway)\n", p.DBName, err)
@@ -271,7 +274,7 @@ func (f *Flow) Backup(ctx context.Context, it store.Tile, method string) ([]stri
 	if err != nil {
 		return nil, err
 	}
-	return e.Backup(method, f.facts(it, m, e.Definition())), nil
+	return e.Backup(method, f.facts(ctx, it, m, e.Definition())), nil
 }
 
 func (f *Flow) Restore(ctx context.Context, it store.Tile, method, target string) ([]string, error) {
@@ -283,7 +286,7 @@ func (f *Flow) Restore(ctx context.Context, it store.Tile, method, target string
 	if target == "" {
 		target = def.AdminDB
 	}
-	return e.Restore(method, target, f.facts(it, m, def)), nil
+	return e.Restore(method, target, f.facts(ctx, it, m, def)), nil
 }
 
 // Methods are the backup methods the tile's engine offers.
@@ -306,9 +309,8 @@ func (f *Flow) instance(ctx context.Context, tileID string) (store.ManagedInstan
 
 // facts is the instance as an engine sees it. Consumers dial the tile's
 // alias; its port is the engine's.
-// ponytail: PublicBase is "" until instance domains feed it.
-func (f *Flow) facts(t store.Tile, m store.ManagedInstance, def Definition) Instance {
-	return Instance{
+func (f *Flow) facts(ctx context.Context, t store.Tile, m store.ManagedInstance, def Definition) Instance {
+	i := Instance{
 		Slug:          t.Slug,
 		Engine:        m.Engine,
 		AdminUser:     m.AdminUser,
@@ -317,6 +319,10 @@ func (f *Flow) facts(t store.Tile, m store.ManagedInstance, def Definition) Inst
 		Host:          t.Slug,
 		Port:          def.Port,
 	}
+	if f.PublicBase != nil {
+		i.PublicBase = f.PublicBase(ctx, t)
+	}
+	return i
 }
 
 // tools reach the instance: exec in its first running replica, and the S3

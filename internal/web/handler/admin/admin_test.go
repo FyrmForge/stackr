@@ -36,6 +36,10 @@ func TestAdminDrawer(t *testing.T) {
 			t.Errorf("tab %s = %d, no %s in\n%s", tab, rec.Code, want, rec.Body)
 		}
 	}
+	settings := s.As(t, root, "GET", "/-/admin?tab=settings", nil).Body.String()
+	if strings.Contains(settings, `name="root_domain"`) || !strings.Contains(settings, "Root domain") {
+		t.Error("root_domain is an input; the installer sets it, so it is text")
+	}
 	if body := s.As(
 		t,
 		root,

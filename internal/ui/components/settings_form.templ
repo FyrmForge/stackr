@@ -26,6 +26,7 @@ type SettingRowView struct {
 	Effective string // what applies here ("set" / "not set" for a secret)
 	DecidedBy string // the rung it comes from
 	Secret    bool   // never echoed: a password box, blank keeps it
+	ReadOnly  bool   // the installer set it: shown as text, never posted
 	Error     string
 }
 
@@ -50,6 +51,7 @@ var knobs = map[string]knob{
 	"dns_provider":               {"DNS provider", "Panel and proxy"},
 	"dns_env":                    {"DNS credentials", "Panel and proxy"},
 	"proxy_custom":               {"Custom Caddy config", "Panel and proxy"},
+	"root_domain":                {"Root domain", "Panel and proxy"},
 }
 
 var knobSections = []string{"Resources", "Protect", "Jobs", "Images", "Volumes", "Panel and proxy", "Other"}
@@ -154,6 +156,30 @@ templ SettingsForm(v SettingsFormView) {
 }
 
 templ settingRow(form string, r SettingRowView) {
+	if r.ReadOnly {
+		@readOnlyRow(r)
+	} else {
+		@editRow(form, r)
+	}
+}
+
+// readOnlyRow is a knob the installer set: its value as text, no input, so
+// a save never posts it.
+templ readOnlyRow(r SettingRowView) {
+	<div>
+		<span class="settings-label">{ knobLabel(r.Key) }</span>
+		if r.Value == "" {
+			<p class="text-sm text-rw-faint">Not set.</p>
+		} else {
+			<p class="font-mono text-sm text-rw-text">{ r.Value }</p>
+		}
+		if r.Desc != "" {
+			<span class="settings-help">{ sentence(r.Desc) }</span>
+		}
+	</div>
+}
+
+templ editRow(form string, r SettingRowView) {
 	<div>
 		<label for={ form + "-" + r.Key } class="settings-label">{ knobLabel(r.Key) }</label>
 		switch {

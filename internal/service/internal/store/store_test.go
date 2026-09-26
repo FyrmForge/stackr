@@ -149,7 +149,6 @@ func TestRoundTrip(t *testing.T) {
 		ConfigRepo:        "r",
 		ConfigBranch:      "main",
 		ConfigPath:        "stackr.yml",
-		Domains:           "[]",
 		CreatedAt:         t0,
 	}, func(st *store.Stack) { st.Description, st.ConfigBranch = "d2", "dev" })
 	roundTrip(t, s.Releases, store.Release{
@@ -319,6 +318,33 @@ func TestRoundTrip(t *testing.T) {
 		MaxSizeMB:  100,
 		CreatedAt:  t0,
 	}, func(v *store.Volume) { v.InstanceID, v.OrphanedAt = nil, ptr(t1) })
+	roundTrip(t, s.DomainResources, store.DomainResource{
+		ID:        "dr1",
+		Level:     "instance",
+		Host:      "example.com",
+		CreatedAt: t0,
+	}, func(r *store.DomainResource) { r.ACMEEmail, r.IncludeEnvOnDefault = "ops@example.com", true })
+	roundTrip(t, s.DomainResources, store.DomainResource{
+		ID:        "dr2",
+		Level:     "org",
+		OrgID:     ptr("o1"),
+		Host:      "org.example.com",
+		Declared:  true,
+		CreatedAt: t0,
+	}, func(r *store.DomainResource) { r.Declared = false })
+	roundTrip(t, s.DomainResources, store.DomainResource{
+		ID:        "dr3",
+		Level:     "stack",
+		StackID:   ptr("s1"),
+		Host:      "shop.io",
+		ACMEEmail: "a@shop.io",
+		Declared:  true,
+		CreatedAt: t0,
+	}, func(r *store.DomainResource) { r.ACMEEmail = "" })
+	resources, err := s.DomainResources.List(ctx)
+	if err != nil || len(resources) != 3 {
+		t.Fatalf("domain resources = %d, %v; want 3", len(resources), err)
+	}
 	roundTrip(t, s.Domains, store.Domain{
 		ID:            "d1",
 		TileID:        "t1",
@@ -329,11 +355,15 @@ func TestRoundTrip(t *testing.T) {
 		ForceHTTPS:    true,
 		RedirectTo:    "",
 		Auto:          true,
+		ResourceID:    ptr("dr3"),
 		Position:      1,
 		ProxyJSON:     "{}",
 		RawCaddy:      "",
 		CreatedAt:     t0,
-	}, func(d *store.Domain) { d.RedirectTo, d.HTTPS, d.RawCaddy = "y.io", false, "header X 1" })
+	}, func(d *store.Domain) {
+		d.RedirectTo, d.HTTPS, d.RawCaddy = "y.io", false, "header X 1"
+		d.ResourceID = ptr("dr2")
+	})
 	roundTrip(t, s.Credentials, store.Credential{
 		ID:        "c1",
 		OrgID:     "o1",
@@ -449,6 +479,7 @@ func TestRoundTrip(t *testing.T) {
 		{"connectors", s.Connectors.Delete, "cn1"},
 		{"credentials", s.Credentials.Delete, "c1"},
 		{"domains", s.Domains.Delete, "d1"},
+		{"domain_resources", s.DomainResources.Delete, "dr2"},
 		{"volumes", s.Volumes.Delete, "v1"},
 		{"provisions", s.Provisions.Delete, "pr1"},
 		{"managed_instances", s.ManagedInstances.Delete, "mi1"},

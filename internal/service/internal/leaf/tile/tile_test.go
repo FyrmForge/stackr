@@ -50,7 +50,6 @@ func seed(t *testing.T, st *store.Store) (stackID, envID string) {
 		Name:      "s",
 		Slug:      "s",
 		Settings:  "{}",
-		Domains:   "[]",
 		CreatedAt: now,
 	}))
 	must(t, st.Environments.Create(ctx, store.Environment{

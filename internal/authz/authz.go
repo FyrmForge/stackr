@@ -54,6 +54,7 @@ var verbLevels = map[Verb]Level{
 	"orgplan.approve":           LevelOwner,
 	"registry.credential.write": LevelOwner,
 	"registry.tag.delete":       LevelOwner,
+	"domain.resource":           LevelOwner,
 	"org.setup.step":            LevelOwner,
 	"org.setup.domain":          LevelOwner,
 	"org.setup.connector":       LevelOwner,

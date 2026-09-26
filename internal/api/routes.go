@@ -79,6 +79,10 @@ func routes(h *v1.H) []Route {
 		{POST, org + "/backup-dests", "dest.create", "destination.write", h.CreateBackupDest()},
 		{PUT, org + "/backup-dests/:dest", "dest.update", "destination.write", h.UpdateBackupDest()},
 		{DELETE, org + "/backup-dests/:dest", "dest.delete", "destination.write", h.DeleteBackupDest()},
+		{GET, org + "/domain-resources", "domain-resource.list", "domain.resource", h.DomainResources()},
+		{POST, org + "/domain-resources", "domain-resource.create", "domain.resource", h.CreateOrgDomainResource()},
+		{PATCH, org + "/domain-resources/:resource", "domain-resource.update", "domain.resource", h.UpdateDomainResource()},
+		{DELETE, org + "/domain-resources/:resource", "domain-resource.delete", "domain.resource", h.DeleteDomainResource()},
 		{GET, org + "/jobs/:job", "job.get", "deployment.read", h.GetJob()},
 		{GET, org + "/jobs/:job/log", "job.log", "deployment.read", h.PollJob()},
 		{GET, org + "/jobs/:job/events", "job.events", "deployment.read", h.JobEvents()},
@@ -102,8 +106,9 @@ func routes(h *v1.H) []Route {
 		{GET, stack, "stack.get", "org.read", h.GetStack()},
 		{PUT, stack + "/name", "stack.rename", "stack.write", h.RenameStack()},
 		{PUT, stack + "/config-repo", "stack.config-repo", "stack.write", h.SetConfigRepo()},
-		{PUT, stack + "/reservations", "stack.reservations", "stack.write", h.SetReservations()},
+
 		{PUT, stack + "/settings", "stack.settings", "stack.write", h.SetStackSettings()},
+		{POST, stack + "/domain-resources", "domain-resource.create-stack", "domain.resource", h.CreateStackDomainResource()},
 		{DELETE, stack, "stack.delete", "stack.write", h.DeleteStack()},
 		{POST, stack + "/image-check", "stack.image-check", "stack.write", h.CheckStackImages()},
 		{GET, stack + "/releases", "release.list", "org.read", h.Releases()},
@@ -187,6 +192,10 @@ func routes(h *v1.H) []Route {
 		{POST, "/admin/backup-dests", "admin.dest-create", "serverdefaults.set", h.CreateGlobalBackupDest()},
 		{PUT, "/admin/backup-dests/:dest", "admin.dest-update", "serverdefaults.set", h.UpdateGlobalBackupDest()},
 		{DELETE, "/admin/backup-dests/:dest", "admin.dest-delete", "serverdefaults.set", h.DeleteGlobalBackupDest()},
+		{GET, "/admin/domain-resources", "admin.domain-resource-list", "admin.read", h.AllDomainResources()},
+		{POST, "/admin/domain-resources", "admin.domain-resource-create", "serverdefaults.set", h.CreateInstanceDomainResource()},
+		{PATCH, "/admin/domain-resources/:resource", "admin.domain-resource-update", "serverdefaults.set", h.UpdateDomainResource()},
+		{DELETE, "/admin/domain-resources/:resource", "admin.domain-resource-delete", "serverdefaults.set", h.DeleteDomainResource()},
 	}
 }
 

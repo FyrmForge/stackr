@@ -167,6 +167,7 @@ var childKinds = map[string]string{
 	"volume":    "volume",
 	"schedule":  "schedule",
 	"provision": "provision",
+	"resource":  "domain-resource",
 }
 
 // byVerb are path params the verb itself scopes (it takes the org or the

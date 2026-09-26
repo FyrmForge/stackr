@@ -21,6 +21,8 @@ docker run
   -e
   PANEL_DOMAIN=stkr.example.com
   -e
+  ROOT_DOMAIN=example.com
+  -e
   ACME_EMAIL=
   -e
   CADDY_TRUSTED_PROXIES=

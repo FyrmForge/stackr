@@ -576,6 +576,16 @@
           "redirect_to": {
             "type": "string"
           },
+          "resource_id": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "tile_id": {
             "type": "string"
           }
@@ -641,6 +651,96 @@
           "port",
           "redirect_to",
           "proxy"
+        ],
+        "type": "object"
+      },
+      "DomainResource": {
+        "properties": {
+          "acme_email": {
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "declared": {
+            "type": "boolean"
+          },
+          "host": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "include_env_on_default": {
+            "type": "boolean"
+          },
+          "level": {
+            "type": "string"
+          },
+          "org_id": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "stack_id": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "level",
+          "host",
+          "include_env_on_default",
+          "acme_email",
+          "declared",
+          "created_at"
+        ],
+        "type": "object"
+      },
+      "DomainResourceIn": {
+        "properties": {
+          "acme_email": {
+            "type": "string"
+          },
+          "host": {
+            "type": "string"
+          },
+          "include_env_on_default": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "host",
+          "include_env_on_default",
+          "acme_email"
+        ],
+        "type": "object"
+      },
+      "DomainResourceSetIn": {
+        "properties": {
+          "acme_email": {
+            "type": "string"
+          },
+          "include_env_on_default": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "include_env_on_default",
+          "acme_email"
         ],
         "type": "object"
       },
@@ -1106,6 +1206,9 @@
           "key": {
             "type": "string"
           },
+          "read_only": {
+            "type": "boolean"
+          },
           "scopes": {},
           "type": {
             "type": "string"
@@ -1117,6 +1220,7 @@
           "default",
           "scopes",
           "allow_zero",
+          "read_only",
           "desc"
         ],
         "type": "object"
@@ -1938,25 +2042,6 @@
         ],
         "type": "object"
       },
-      "ReservationIn": {
-        "properties": {
-          "acme_email": {
-            "type": "string"
-          },
-          "host": {
-            "type": "string"
-          },
-          "include_env_on_default": {
-            "type": "boolean"
-          }
-        },
-        "required": [
-          "host",
-          "acme_email",
-          "include_env_on_default"
-        ],
-        "type": "object"
-      },
       "RestoreIn": {
         "properties": {
           "run_id": {
@@ -2240,9 +2325,6 @@
           "description": {
             "type": "string"
           },
-          "domains": {
-            "type": "string"
-          },
           "id": {
             "type": "string"
           },
@@ -2270,7 +2352,6 @@
           "config_repo",
           "config_branch",
           "config_path",
-          "domains",
           "created_at"
         ],
         "type": "object"
@@ -3655,6 +3736,152 @@
         "responses": {
           "204": {
             "description": "No Content"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "serverdefaults.set"
+      }
+    },
+    "/api/v1/admin/domain-resources": {
+      "get": {
+        "operationId": "admin.domain-resource-list",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/DomainResource"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "admin.read"
+      },
+      "post": {
+        "operationId": "admin.domain-resource-create",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DomainResourceIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DomainResource"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "serverdefaults.set"
+      }
+    },
+    "/api/v1/admin/domain-resources/{resource}": {
+      "delete": {
+        "operationId": "admin.domain-resource-delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "resource",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "serverdefaults.set"
+      },
+      "patch": {
+        "operationId": "admin.domain-resource-update",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "resource",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DomainResourceSetIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DomainResource"
+                }
+              }
+            },
+            "description": "OK"
           },
           "default": {
             "content": {
@@ -5338,6 +5565,186 @@
         "x-verb": "registry.credential.write"
       }
     },
+    "/api/v1/orgs/{org}/domain-resources": {
+      "get": {
+        "operationId": "domain-resource.list",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/DomainResource"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "domain.resource"
+      },
+      "post": {
+        "operationId": "domain-resource.create",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DomainResourceIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DomainResource"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "domain.resource"
+      }
+    },
+    "/api/v1/orgs/{org}/domain-resources/{resource}": {
+      "delete": {
+        "operationId": "domain-resource.delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "resource",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "domain.resource"
+      },
+      "patch": {
+        "operationId": "domain-resource.update",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "resource",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DomainResourceSetIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DomainResource"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "domain.resource"
+      }
+    },
     "/api/v1/orgs/{org}/finish": {
       "post": {
         "operationId": "org.finish",
@@ -6400,6 +6807,62 @@
           }
         },
         "x-verb": "stack.write"
+      }
+    },
+    "/api/v1/orgs/{org}/stacks/{stack}/domain-resources": {
+      "post": {
+        "operationId": "domain-resource.create-stack",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "stack",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DomainResourceIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DomainResource"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "domain.resource"
       }
     },
     "/api/v1/orgs/{org}/stacks/{stack}/envs": {
@@ -10089,65 +10552,6 @@
           }
         },
         "x-verb": "org.read"
-      }
-    },
-    "/api/v1/orgs/{org}/stacks/{stack}/reservations": {
-      "put": {
-        "operationId": "stack.reservations",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "org",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "stack",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "items": {
-                  "$ref": "#/components/schemas/ReservationIn"
-                },
-                "type": "array"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Stack"
-                }
-              }
-            },
-            "description": "OK"
-          },
-          "default": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIError"
-                }
-              }
-            },
-            "description": "error"
-          }
-        },
-        "x-verb": "stack.write"
       }
     },
     "/api/v1/orgs/{org}/stacks/{stack}/settings": {

@@ -95,7 +95,6 @@ func setup(t *testing.T) *world {
 		Name:      "shop",
 		Slug:      "shop",
 		Settings:  "{}",
-		Domains:   "[]",
 		CreatedAt: now,
 	}))
 	env := store.Environment{

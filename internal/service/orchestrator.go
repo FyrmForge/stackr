@@ -39,6 +39,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/connector"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/credential"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/domain"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/domainres"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/environment"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/image"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/job"
@@ -82,6 +83,7 @@ type Config struct {
 	OrphanRetentionDays int
 	// The installer's answers (env on the panel container), same rule.
 	PanelDomain    string
+	RootDomain     string // tiles get names under it; seeds the instance domain resource
 	ACMEEmail      string
 	TrustedProxies string // CIDRs Caddy trusts X-Forwarded-For from
 	DNSProvider    string // "cloudflare" = DNS-01, the token sits on the proxy
@@ -147,25 +149,26 @@ type Orchestrator struct {
 	sessions *auth.SessionManager
 	docker   Docker
 
-	users    *user.Leaf
-	orgs     *org.Leaf
-	stacks   *stack.Leaf
-	envs     *environment.Leaf
-	tiles    *tile.Leaf
-	images   *image.Leaf
-	params   *params.Leaf
-	volumes  *volume.Leaf
-	domains  *domain.Leaf
-	creds    *credential.Leaf
-	conns    *connector.Leaf
-	managed  *managed.Leaf
-	releases *release.Leaf
-	jobRows  *job.Leaf
-	backups  *backup.Leaf
-	settings *settings.Leaf
-	runs     *lrun.Leaf
-	traffic  *ltraffic.Leaf
-	canvas   *canvas.Leaf
+	users     *user.Leaf
+	orgs      *org.Leaf
+	stacks    *stack.Leaf
+	envs      *environment.Leaf
+	tiles     *tile.Leaf
+	images    *image.Leaf
+	params    *params.Leaf
+	volumes   *volume.Leaf
+	domains   *domain.Leaf
+	domainres *domainres.Leaf
+	creds     *credential.Leaf
+	conns     *connector.Leaf
+	managed   *managed.Leaf
+	releases  *release.Leaf
+	jobRows   *job.Leaf
+	backups   *backup.Leaf
+	settings  *settings.Leaf
+	runs      *lrun.Leaf
+	traffic   *ltraffic.Leaf
+	canvas    *canvas.Leaf
 
 	deploy    *deploy.Flow
 	engines   *mflow.Flow
@@ -277,6 +280,7 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 	orch.params = build("leaf/params", func() *params.Leaf { return params.New(st.Params) })
 	orch.volumes = build("leaf/volume", func() *volume.Leaf { return volume.New(st.Volumes, d) })
 	orch.domains = build("leaf/domain", func() *domain.Leaf { return domain.New(st.Domains, d, ProxyContainer) })
+	orch.domainres = build("leaf/domainres", func() *domainres.Leaf { return domainres.New(st.DomainResources) })
 	orch.creds = build("leaf/credential", func() *credential.Leaf { return credential.New(st.Credentials) })
 	orch.conns = build("leaf/connector", func() *connector.Leaf {
 		return connector.New(st.Connectors, githubapp.New(cfg.BaseURL))
@@ -302,6 +306,7 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 			S3: func(endpoint, access, secret string) mflow.S3Admin {
 				return s3.Admin{Endpoint: endpoint, AccessKey: access, SecretKey: secret}
 			},
+			PublicBase: orch.publicBase,
 		}
 	})
 	orch.sync = build("leaf/domain.Syncer", func() *domain.Syncer {
@@ -332,10 +337,11 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 			b = o.build
 		}
 		return &promote.Flow{
-			D:      orch.deploy,
-			Config: orch.stackFile,
-			Build:  b,
-			DNS01:  orch.dns01,
+			D:         orch.deploy,
+			Resources: orch.domainres,
+			Config:    orch.stackFile,
+			Build:     b,
+			DNS01:     orch.dns01,
 		}
 	})
 	orch.backup = build("flow/backup", func() *fbackup.Flow {
@@ -447,6 +453,16 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 		_ = db.Close()
 		return nil, fmt.Errorf("close interrupted runs: %w", err)
 	}
+	root, err := orch.settings.Get(ctx, "root_domain")
+	if err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("root domain: %w", err)
+	}
+	if err := orch.domainres.SeedInstance(ctx, root); err != nil {
+		// A root that will not parse, or one a resource already holds, is
+		// reported, never fatal: the panel still serves.
+		slog.Warn("domains: instance resource not seeded", "root", root, "err", err)
+	}
 	if err := orch.jobs.Start(ctx); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("start job runner: %w", err)
@@ -480,6 +496,7 @@ func bootSettings(cfg Config) map[string]string {
 	}
 	for k, v := range map[string]string{
 		"panel_domain":    cfg.PanelDomain,
+		"root_domain":     cfg.RootDomain,
 		"acme_email":      cfg.ACMEEmail,
 		"trusted_proxies": cfg.TrustedProxies,
 		"dns_provider":    cfg.DNSProvider,

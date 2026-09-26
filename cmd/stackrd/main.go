@@ -172,6 +172,7 @@ func run(log *slog.Logger, generate bool) error {
 		PanelSpec:    spec,
 
 		PanelDomain:    config.GetEnvOrDefault("PANEL_DOMAIN", ""),
+		RootDomain:     config.GetEnvOrDefault("ROOT_DOMAIN", ""),
 		ACMEEmail:      config.GetEnvOrDefault("ACME_EMAIL", ""),
 		TrustedProxies: config.GetEnvOrDefault("CADDY_TRUSTED_PROXIES", ""),
 		DNSProvider:    config.GetEnvOrDefault("DNS_PROVIDER", ""),

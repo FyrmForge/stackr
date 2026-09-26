@@ -61,7 +61,9 @@ func (d Defaults) check() error {
 	return nil
 }
 
-// Reservation is a stack-level host claim; hosts are unique server-wide.
+// Reservation is one of the stack's own domain resources (a stack row of
+// domain_resources): its tiles' auto names nest under it. Hosts are unique
+// server-wide. The file creates and updates rows, never deletes one.
 type Reservation struct {
 	Host                string `yaml:"host"`
 	ACMEEmail           string `yaml:"acme_email"`
@@ -233,10 +235,14 @@ type TileConf struct {
 	TimeoutMinutes int    `yaml:"timeout_minutes"`
 }
 
-// DomainConf is one claim; the first listed is the primary. Host takes
-// params. refs only.
+// DomainConf is one claim; the first listed is the primary. Exactly one of
+// Host, Apex or Auto is set (v0's grammar): a literal host (params. refs
+// only), the bare host of a domain resource visible to the stack, or a name
+// generated under the nearest one. The plan resolves apex and auto.
 type DomainConf struct {
 	Host       string     `yaml:"host"`
+	Apex       string     `yaml:"apex"`
+	Auto       bool       `yaml:"auto"`
 	Path       string     `yaml:"path"`
 	Port       int        `yaml:"port"` // 0 = the tile's
 	HTTPS      *bool      `yaml:"https"`
@@ -642,8 +648,17 @@ func checkTile(name string, tc TileConf) error {
 		}
 	}
 	for _, d := range tc.Domains {
-		if d.Host == "" {
-			return fmt.Errorf("tile %s: a domain needs a host", name)
+		n := 0
+		for _, set := range []bool{d.Host != "", d.Apex != "", d.Auto} {
+			if set {
+				n++
+			}
+		}
+		if n != 1 {
+			return fmt.Errorf("tile %s: a domain entry sets exactly one of host, apex or auto", name)
+		}
+		if (d.Apex != "" || d.Auto) && (d.Path != "" || d.RedirectTo != "") {
+			return fmt.Errorf("tile %s: apex/auto domains take no path or redirect", name)
 		}
 	}
 	return nil

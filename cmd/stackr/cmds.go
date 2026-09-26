@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 
@@ -26,16 +27,19 @@ var (
 	orgCols   = []string{"slug", "name", "id"}
 	userCols  = []string{"email", "name", "role", "active", "id"}
 	imageCols = []string{"ref", "digest", "last_tag", "last_error", "id"}
+	resCols   = []string{"host", "level", "include_env_on_default", "acme_email", "org_id", "stack_id", "id"}
 )
 
 // skipped are the API operations with no CLI verb, and why. The coverage
 // test holds every other route to a command.
 var skipped = map[string]string{
-	"key.cli_code":    "the panel's CLI authorize page calls it; stackr login waits for its code",
-	"invite.get":      "an invite link is opened in a browser",
-	"invite.accept":   "an invite link is accepted in a browser",
-	"connector.begin": "the GitHub App handshake runs in a browser (the manifest form posts to GitHub)",
-	"env.events":      "the env canvas's live stream; stackr env traffic reads the same lanes",
+	"key.cli_code":                 "the panel's CLI authorize page calls it; stackr login waits for its code",
+	"invite.get":                   "an invite link is opened in a browser",
+	"invite.accept":                "an invite link is accepted in a browser",
+	"connector.begin":              "the GitHub App handshake runs in a browser (the manifest form posts to GitHub)",
+	"env.events":                   "the env canvas's live stream; stackr env traffic reads the same lanes",
+	"domain-resource.update":       "v0's domain noun is ls, add, rm (cli-ref.md); a stack file's domains: edits its rows",
+	"admin.domain-resource-update": "v0's domain noun is ls, add, rm (cli-ref.md)",
 }
 
 func (a *app) commands() []*cobra.Command {
@@ -50,6 +54,7 @@ func (a *app) commands() []*cobra.Command {
 		a.keys(),
 		a.orgs(),
 		a.dests(),
+		a.domainResources(),
 		a.jobs(),
 		a.admin(),
 	}, a.stackCommands()...)
@@ -612,6 +617,143 @@ func (a *app) dests() *cobra.Command {
 	)
 	c.PersistentFlags().BoolVar(&server, "server", false, "the server-wide destinations (admin)")
 	return c
+}
+
+// domainResources are the hosts stackr names tiles under. ls and rm work in
+// --org, or with none on every resource on the server (admin).
+func (a *app) domainResources() *cobra.Command {
+	var org, level, owner, host, acme string
+	var includeEnv bool
+	base := func() string {
+		if org == "" {
+			return "/admin/domain-resources"
+		}
+		return "/orgs/" + url.PathEscape(org) + "/domain-resources"
+	}
+	ls := leaf(
+		"ls",
+		"domain-resource.list,admin.domain-resource-list",
+		"List domain resources: the org's and the instance's, or with no --org every one (admin)",
+		exact(0),
+		func(*cobra.Command, []string) error {
+			v, err := a.call(GET, base(), nil)
+			if err != nil {
+				return err
+			}
+			if a.json {
+				return a.show(v)
+			}
+			rs, _ := v.([]any)
+			rows := make([][]string, 0, len(rs))
+			for _, it := range rs {
+				r, _ := it.(map[string]any)
+				owner := r["org_id"]
+				if owner == nil {
+					owner = r["stack_id"]
+				}
+				rows = append(rows, []string{
+					cell(r["id"]),
+					cell(r["level"]),
+					cell(owner),
+					cell(r["host"]),
+					cell(r["include_env_on_default"]),
+					cell(r["acme_email"]),
+					cell(r["declared"]),
+				})
+			}
+			header := []string{
+				"id",
+				"level",
+				"owner",
+				"host",
+				"include-env",
+				"acme",
+				"declared",
+			}
+			a.table(header, rows)
+			return nil
+		},
+	)
+	add := leaf(
+		"add",
+		"domain-resource.create,domain-resource.create-stack,admin.domain-resource-create",
+		"Add a host tiles get names under, at instance, org or stack level",
+		exact(0),
+		func(*cobra.Command, []string) error {
+			p, err := a.resourceOwner(level, owner)
+			if err != nil {
+				return err
+			}
+			v, err := a.call(POST, p+"/domain-resources", map[string]any{
+				"host":                   host,
+				"include_env_on_default": includeEnv,
+				"acme_email":             acme,
+			})
+			if err != nil {
+				return err
+			}
+			return a.show(v, resCols...)
+		},
+	)
+	add.Flags().StringVar(&level, "level", "", "instance (admin), org or stack")
+	add.Flags().StringVar(&owner, "owner", "", "the org's slug, or the stack as org/stack (default: the logged-in org)")
+	add.Flags().StringVar(&host, "host", "", "a bare hostname, e.g. example.com")
+	add.Flags().BoolVar(&includeEnv, "include-env", false, "keep the env label on the default env (api.prod.shop, not api.shop)")
+	add.Flags().StringVar(&acme, "acme-email", "", "the ACME account its certificates are issued on (default: the instance's)")
+	rm := leaf(
+		"rm <id or host>",
+		"domain-resource.list,domain-resource.delete,admin.domain-resource-list,admin.domain-resource-delete",
+		"Remove a domain resource; refused while tile domains carry its name",
+		exact(1),
+		func(_ *cobra.Command, args []string) error {
+			// ponytail: an org's stack rows are not in its list; one goes by
+			// the id as given, and the server 404s a wrong one.
+			id := args[0]
+			cur, err := a.find(base(), "domain resource", args[0], "id", "host")
+			if err == nil {
+				id = cell(cur["id"])
+			}
+			if err := a.confirm("Remove domain resource " + args[0] + "? New auto hostnames stop nesting under it."); err != nil {
+				return err
+			}
+			_, err = a.call(DELETE, base()+"/"+url.PathEscape(id), nil)
+			return err
+		},
+	)
+	for _, c := range []*cobra.Command{ls, rm} {
+		c.Flags().StringVar(&org, "org", "", "the org (its slug); without it, every resource on the server (admin)")
+	}
+	return noun("domain", "Domain resources: the hosts tiles get names under", ls, add, rm)
+}
+
+// resourceOwner is where a new domain resource is posted: /admin for the
+// instance, the org, or the stack (org/stack; a bare stack, or no owner at
+// org level, is in the logged-in org).
+func (a *app) resourceOwner(level, owner string) (string, error) {
+	switch level {
+	case "instance":
+		return "/admin", nil
+	case "org":
+		org := owner
+		if org == "" {
+			org = a.cfg.Org
+		}
+		if org == "" {
+			return "", usage("no org; pass --owner <org slug>")
+		}
+		return "/orgs/" + url.PathEscape(org), nil
+	case "stack":
+		org, stack, ok := strings.Cut(owner, "/")
+		if !ok {
+			org = a.cfg.Org
+			stack = owner
+		}
+		if org == "" || stack == "" {
+			return "", usage("no stack; pass --owner <org>/<stack>")
+		}
+		return "/orgs/" + url.PathEscape(org) + "/stacks/" + url.PathEscape(stack), nil
+	}
+	return "", usage("--level is instance, org or stack, not %q", level)
 }
 
 // jobs reads jobs in the org, or with --admin anywhere.

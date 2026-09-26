@@ -173,7 +173,6 @@ func TestEdgesSlices(t *testing.T) {
 		Name:      "shop",
 		Slug:      "shop",
 		Settings:  "{}",
-		Domains:   "[]",
 		CreatedAt: now,
 	}))
 	must(t, s.Environments.Create(ctx, store.Environment{

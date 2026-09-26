@@ -94,7 +94,6 @@ func newWorld(t *testing.T) *world {
 		Name:      "shop",
 		Slug:      "shop",
 		Settings:  "{}",
-		Domains:   "[]",
 		CreatedAt: now,
 	}))
 	must(t, w.st.Environments.Create(ctx, store.Environment{
@@ -190,7 +189,6 @@ func TestPromoteBlockersOneAnswer(t *testing.T) {
 		Name:      "blog",
 		Slug:      "blog",
 		Settings:  "{}",
-		Domains:   "[]",
 		CreatedAt: time.Now(),
 	}))
 	rel, err := w.orch.releases.Create(ctx, other, "test", nil)

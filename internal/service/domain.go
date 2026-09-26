@@ -3,9 +3,11 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"strings"
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/domain"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/domainres"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
@@ -41,14 +43,30 @@ func redact(d Domain) Domain {
 
 // AttachDomain adds a host to a tile and pushes the proxy config. Port 0 =
 // the tile's container port. RawCaddy is ignored: SetRawCaddy writes it.
+// Auto takes the tile's generated name under the nearest domain resource
+// visible to its stack and records that resource; the host given is
+// ignored. Otherwise the host is a literal: no resource named it, and it
+// takes the squat check (a generated name's first label is the tile's
+// slug, which may be another org's).
 func (o *Orchestrator) AttachDomain(ctx context.Context, tileID string, s DomainSpec) (Domain, error) {
 	s.RawCaddy = ""
+	s.ResourceID = nil
 	t, err := o.tiles.Get(ctx, tileID)
 	if err != nil {
 		return Domain{}, err
 	}
 	if tile.RunToCompletion(t.Kind) {
 		return Domain{}, errs.Invalidf("domains", "a %s has no endpoint; domains do not apply", t.Kind)
+	}
+	if s.Auto {
+		host, res, err := o.autoHost(ctx, t)
+		if err != nil {
+			return Domain{}, err
+		}
+		s.Host = host
+		s.ResourceID = &res.ID
+	} else if err := o.checkSquat(ctx, t, s.Host); err != nil {
+		return Domain{}, err
 	}
 	if s.Port == 0 {
 		s.Port = t.ContainerPort
@@ -69,16 +87,34 @@ func (o *Orchestrator) AttachDomain(ctx context.Context, tileID string, s Domain
 }
 
 // UpdateDomain replaces the domain's spec; the stored raw Caddy route stays
-// (only SetRawCaddy, an admin verb, writes it).
+// (only SetRawCaddy, an admin verb, writes it), and so do the resource that
+// named the host and its auto mark while the host stays. Only a new host
+// takes the squat check: a kept one passed it, or was generated.
 func (o *Orchestrator) UpdateDomain(ctx context.Context, id string, s DomainSpec) (Domain, error) {
 	d, err := o.domains.Get(ctx, id)
 	if err != nil {
 		return d, err
 	}
+	t, err := o.tiles.Get(ctx, d.TileID)
+	if err != nil {
+		return d, err
+	}
+	sameHost := strings.EqualFold(strings.TrimSpace(s.Host), d.Host)
+	if !sameHost {
+		if err := o.checkSquat(ctx, t, s.Host); err != nil {
+			return d, err
+		}
+	}
 	if s.Port == 0 {
 		s.Port = d.ContainerPort
 	}
 	s.RawCaddy = d.RawCaddy
+	s.ResourceID = nil
+	s.Auto = false
+	if sameHost {
+		s.ResourceID = d.ResourceID
+		s.Auto = d.Auto
+	}
 	if a := s.Extras.BasicAuth; a != nil && a.Password == "" {
 		var old DomainExtras
 		if json.Unmarshal([]byte(d.ProxyJSON), &old) == nil && old.BasicAuth != nil && old.BasicAuth.User == a.User {
@@ -106,6 +142,7 @@ func (o *Orchestrator) SetRawCaddy(ctx context.Context, id, raw string) (Domain,
 		ForceHTTPS: &d.ForceHTTPS,
 		RedirectTo: d.RedirectTo,
 		Auto:       d.Auto,
+		ResourceID: d.ResourceID,
 		RawCaddy:   raw,
 	}
 	if err := json.Unmarshal([]byte(d.ProxyJSON), &s.Extras); err != nil {
@@ -130,6 +167,20 @@ func (o *Orchestrator) DetachDomain(ctx context.Context, id string) error {
 
 // SyncProxy rebuilds and pushes the whole proxy config now.
 func (o *Orchestrator) SyncProxy(ctx context.Context) error { return o.sync.Sync(ctx) }
+
+// checkSquat refuses a host leading with another org's slug; the tile's own
+// org never counts against it (leaf/domainres CheckOrgSquat).
+func (o *Orchestrator) checkSquat(ctx context.Context, t Tile, host string) error {
+	st, err := o.stacks.Get(ctx, t.StackID)
+	if err != nil {
+		return err
+	}
+	orgs, err := o.orgs.ListAll(ctx)
+	if err != nil {
+		return err
+	}
+	return domainres.CheckOrgSquat(strings.ToLower(strings.TrimSpace(host)), st.OrgID, orgs)
+}
 
 func (o *Orchestrator) dns01(ctx context.Context) bool {
 	p, _ := o.settings.Get(ctx, "dns_provider")

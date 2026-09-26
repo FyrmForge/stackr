@@ -27,9 +27,9 @@ onto it.
    org_id NULL FK ON DELETE CASCADE, stack_id NULL FK ON DELETE CASCADE,
    host UNIQUE, include_env_on_default, acme_email, declared, created_at;
    a CHECK that the level matches which id is set). `domains` gets
-   `resource_id TEXT NULL REFERENCES domain_resources (id) ON DELETE
-   RESTRICT`: the resource that named an `auto`/`apex` host, null for a
-   literal. `stacks.domains`
+   `resource_id TEXT NULL REFERENCES domain_resources (id)` (no RESTRICT:
+   it broke org and stack deletes): the resource that named an
+   `auto`/`apex` host, null for a literal. `stacks.domains`
    dropped. Edit `internal/db/migrations/003_rest` in place, up and down;
    `store.DomainResource` + `newTable`; `Tables` and `bind`;
    `internal/db/cascade_test.go`: deleting an org or a stack deletes its

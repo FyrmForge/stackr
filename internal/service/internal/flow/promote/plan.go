@@ -14,12 +14,12 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/deploy"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/domain"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/domainres"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/environment"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/managed"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/params"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/release"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/settings"
-	"github.com/FyrmForge/stackr/internal/service/internal/leaf/stack"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/volume"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
@@ -80,8 +80,12 @@ type work struct {
 
 	envEdit   *store.Environment
 	envBlob   string
-	stackRes  []stack.Reservation
 	stackBlob *string
+	orgs      []store.Org            // every org, for the squat check
+	resCreate []store.DomainResource // the file's new stack resources, ids made here
+	resUpdate []store.DomainResource // env flag or ACME email moved
+	visible   []store.DomainResource // what auto and apex resolve against, the above included
+	isDefault bool                   // the env is the ladder's top rung (DECIDE 192)
 	params    []params.Entry
 	declare   map[string]VolumeConf
 	orphan    []store.Volume
@@ -252,6 +256,11 @@ func (f *Flow) planConfig(ctx context.Context, p *Plan, w *work, r *Resolved) er
 		p.add(Change{Kind: "env", Field: "defaults"})
 		w.envBlob = blob
 	}
+	orgs, err := d.Orgs.ListAll(ctx)
+	if err != nil {
+		return err
+	}
+	w.orgs = orgs
 	// Stack-level keys land with the bottom rung, where new config enters
 	// the ladder, so a rollback higher up never rewrites them (DECIDE 31).
 	if w.bottom {
@@ -259,18 +268,19 @@ func (f *Flow) planConfig(ctx context.Context, p *Plan, w *work, r *Resolved) er
 			p.add(Change{Kind: "stack", Field: "defaults"})
 			w.stackBlob = &blob
 		}
-		want := make([]stack.Reservation, 0, len(r.Domains))
-		for _, x := range r.Domains {
-			want = append(want, stack.Reservation(x))
-		}
-		have, err := stack.Reservations(w.st)
-		if err != nil {
+		if err := f.planResources(ctx, p, w, r); err != nil {
 			return err
 		}
-		if a, b := jsonOf(have), jsonOf(want); a != b && (len(have) > 0 || len(want) > 0) {
-			p.add(Change{Kind: "stack", Field: "domains"})
-			w.stackRes = want
-		}
+	}
+	// Auto and apex resolve against the rows this plan writes too, so a
+	// file that declares a resource and names tiles under it lands in one
+	// promote.
+	pending := slices.Concat(w.resCreate, w.resUpdate)
+	if w.visible, err = f.Resources.Visible(ctx, w.st.ID, w.st.OrgID, pending...); err != nil {
+		return err
+	}
+	if w.isDefault, err = d.Envs.IsDefault(ctx, e); err != nil {
+		return err
 	}
 
 	if err := f.planParams(ctx, p, w, r); err != nil {
@@ -382,8 +392,119 @@ func (f *Flow) planUpdate(ctx context.Context, p *Plan, w *work, old, row store.
 	return nil
 }
 
-// planDomains: the file's domains vs the tile's rows, by host+path. Hosts
-// expand params. refs only (the resolver refuses anything else there).
+// planResources: the file's domains: are the stack's own domain resources.
+// A missing one is created, a moved env flag or ACME email updates it, and
+// one the file no longer lists stays: the file never deletes a row (it may
+// still name tiles, and the drawer adds rows too). Every check Create makes
+// is a blocker here, so apply never stops half way.
+func (f *Flow) planResources(ctx context.Context, p *Plan, w *work, r *Resolved) error {
+	if len(r.Domains) == 0 {
+		return nil
+	}
+	all, err := f.Resources.ListAll(ctx)
+	if err != nil {
+		return err
+	}
+	for _, x := range r.Domains {
+		spec := domainres.Spec{
+			Level:               domainres.Stack,
+			OwnerID:             w.st.ID,
+			Host:                x.Host,
+			IncludeEnvOnDefault: x.IncludeEnvOnDefault,
+			ACMEEmail:           x.ACMEEmail,
+		}
+		row, err := domainres.Prepare(spec, w.st.OrgID, w.orgs)
+		if err != nil {
+			p.block("domains: %s: %v", x.Host, err)
+			continue
+		}
+		i := slices.IndexFunc(all, func(h store.DomainResource) bool { return h.Host == row.Host })
+		if i < 0 {
+			p.add(Change{Kind: "stack", Field: "domains", New: row.Host})
+			w.resCreate = append(w.resCreate, row)
+			w.sync = true // its ACME account
+			continue
+		}
+		have := all[i]
+		switch {
+		case have.StackID == nil || *have.StackID != w.st.ID:
+			p.block("domains: %s is already a domain resource", row.Host)
+		case have.IncludeEnvOnDefault != row.IncludeEnvOnDefault || have.ACMEEmail != row.ACMEEmail:
+			p.add(Change{
+				Kind:  "stack",
+				Field: "domains",
+				Old:   row.Host,
+				New:   row.Host,
+				Note:  "settings change",
+			})
+			have.IncludeEnvOnDefault = row.IncludeEnvOnDefault
+			have.ACMEEmail = row.ACMEEmail
+			w.resUpdate = append(w.resUpdate, have)
+			w.sync = true
+		}
+	}
+	return nil
+}
+
+// claimHost is v0's: a literal host expands params. refs (the resolver
+// refuses anything else there), apex must name a visible resource, auto is
+// AutoHost under the nearest one. Only a literal takes the squat check: an
+// auto or apex host derives from a resource that passed it (its first label
+// is the tile's slug, which may match another org's). The id is the resource
+// that named it, nil for a literal; false means blocked.
+func claimHost(p *Plan, w *work, rr *params.Resolver, name string, dc DomainConf) (string, *string, bool) {
+	host, resID := "", (*string)(nil)
+	switch {
+	case dc.Auto:
+		if len(w.visible) == 0 {
+			p.block(
+				"tile %s: auto domain, but no domain resource is visible to this stack; add one at stack, org or server level",
+				name,
+			)
+			return "", nil, false
+		}
+		res := w.visible[0]
+		host = domainres.AutoHost(res, orgSlug(w), w.st.Slug, w.e.Slug, name, w.isDefault)
+		resID = &res.ID
+	case dc.Apex != "":
+		i := slices.IndexFunc(w.visible, func(r store.DomainResource) bool {
+			return r.Host == strings.ToLower(strings.TrimSpace(dc.Apex))
+		})
+		if i < 0 {
+			p.block("tile %s: apex %q is not a domain resource visible to this stack", name, dc.Apex)
+			return "", nil, false
+		}
+		host = w.visible[i].Host
+		resID = &w.visible[i].ID
+	default:
+		var err error
+		host, err = rr.Expand(params.InDomain, dc.Host)
+		var unset errs.Unset
+		switch {
+		case errors.As(err, &unset):
+			p.block("tile %s: domain %s needs params.%s set first", name, dc.Host, unset.Param)
+			return "", nil, false
+		case err != nil:
+			p.block("tile %s: domain %s: %v", name, dc.Host, err)
+			return "", nil, false
+		}
+		if domainres.CheckOrgSquat(host, w.st.OrgID, w.orgs) != nil {
+			p.block("tile %s: host %q starts with another organization's slug", name, host)
+			return "", nil, false
+		}
+	}
+	return host, resID, true
+}
+
+func orgSlug(w *work) string {
+	i := slices.IndexFunc(w.orgs, func(o store.Org) bool { return o.ID == w.st.OrgID })
+	if i < 0 {
+		return ""
+	}
+	return w.orgs[i].Slug
+}
+
+// planDomains: the file's domains vs the tile's rows, by host+path.
 func (f *Flow) planDomains(
 	ctx context.Context,
 	p *Plan,
@@ -414,17 +535,13 @@ func (f *Flow) planDomains(
 	dw := domainWork{update: map[string]domain.Spec{}}
 	want := map[string]bool{}
 	for _, dc := range tc.Domains {
-		host, err := rr.Expand(params.InDomain, dc.Host)
-		var unset errs.Unset
-		switch {
-		case errors.As(err, &unset):
-			p.block("tile %s: domain %s needs params.%s set first", name, dc.Host, unset.Param)
-			continue
-		case err != nil:
-			p.block("tile %s: domain %s: %v", name, dc.Host, err)
+		host, resID, ok := claimHost(p, w, rr, name, dc)
+		if !ok {
 			continue
 		}
 		sp := specOf(dc, host, tc.Port)
+		sp.Auto = dc.Auto
+		sp.ResourceID = resID
 		key := strings.ToLower(host) + normPath(dc.Path)
 		want[key] = true
 		for _, o := range all {
@@ -821,11 +938,19 @@ func specOf(dc DomainConf, host string, port int) domain.Spec {
 // sigOf and sigRow put a spec and a stored row in one comparable form.
 func sigOf(s domain.Spec) string {
 	x, _ := json.Marshal(s.Extras)
-	return fmt.Sprint(s.Port, domain.On(s.HTTPS), domain.On(s.ForceHTTPS), strings.ToLower(s.RedirectTo), string(x))
+	return fmt.Sprint(
+		s.Port,
+		domain.On(s.HTTPS),
+		domain.On(s.ForceHTTPS),
+		strings.ToLower(s.RedirectTo),
+		string(x),
+		s.Auto,
+		deref(s.ResourceID),
+	)
 }
 
 func sigRow(d store.Domain) string {
-	return fmt.Sprint(d.ContainerPort, d.HTTPS, d.ForceHTTPS, d.RedirectTo, d.ProxyJSON)
+	return fmt.Sprint(d.ContainerPort, d.HTTPS, d.ForceHTTPS, d.RedirectTo, d.ProxyJSON, d.Auto, deref(d.ResourceID))
 }
 
 func findDomain(ds []store.Domain, key string) (store.Domain, bool) {

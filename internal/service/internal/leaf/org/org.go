@@ -160,8 +160,7 @@ func (l *Leaf) Rename(ctx context.Context, o store.Org, name string, claims []Cl
 		return o, err
 	}
 	for _, c := range claims {
-		label, _, ok := strings.Cut(strings.TrimPrefix(c.Host, "*."), ".")
-		if ok && label == s && c.OrgID != o.ID {
+		if slug.OfHost(c.Host) == s && c.OrgID != o.ID {
 			return o, errs.Invalidf("name", "Another organization's domain already leads with %q, so this name is not available.", s)
 		}
 	}

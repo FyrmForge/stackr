@@ -37,7 +37,6 @@ func seedStack(t *testing.T, st *store.Store) string {
 		Name:      "s",
 		Slug:      "s",
 		Settings:  "{}",
-		Domains:   "[]",
 		CreatedAt: now,
 	}); err != nil {
 		t.Fatal(err)

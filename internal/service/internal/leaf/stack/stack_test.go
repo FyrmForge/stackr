@@ -67,25 +67,10 @@ func TestRoundTrip(t *testing.T) {
 	if s, err = l.SetSettings(ctx, s, `{"cpu":1}`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := l.SetReservations(ctx, s, []stack.Reservation{{Host: "a.io"}, {Host: " A.io "}}); err == nil {
-		t.Error("duplicate host accepted")
-	}
-	if _, err := l.SetReservations(ctx, s, []stack.Reservation{{Host: " "}}); err == nil {
-		t.Error("empty host accepted")
-	}
-	if s, err = l.SetReservations(ctx, s, []stack.Reservation{
-		{Host: "API.a.io", IncludeEnvOnDefault: true},
-	}); err != nil {
-		t.Fatal(err)
-	}
 
 	got, err := l.GetBySlug(ctx, org, "store")
 	if err != nil || got.ConfigRepo != "acme/infra" || got.ConfigPath != "stackr.yml" || got.Settings != `{"cpu":1}` {
 		t.Fatalf("get = %+v, %v", got, err)
-	}
-	rs, err := stack.Reservations(got)
-	if err != nil || len(rs) != 1 || rs[0].Host != "api.a.io" || !rs[0].IncludeEnvOnDefault {
-		t.Errorf("reservations = %+v, %v", rs, err)
 	}
 
 	if got, _ = l.SetConfigRepo(ctx, got, "c1", "", "main", "x"); got.ConfigBranch != "" {
