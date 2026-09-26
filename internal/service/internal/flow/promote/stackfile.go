@@ -865,7 +865,8 @@ func topo(slugs []string, tiles map[string]TileConf) []string {
 			}
 		}
 	}
-	var frontier, out []string
+	var frontier []string
+	out := []string{} // ponytail: non-nil so an env with no tiles is an empty order, not a cycle
 	for _, s := range slugs {
 		if indeg[s] == 0 {
 			frontier = append(frontier, s)

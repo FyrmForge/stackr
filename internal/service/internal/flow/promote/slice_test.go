@@ -709,6 +709,19 @@ func TestSliceGoneWhileReffedBlocks(t *testing.T) {
 	}
 }
 
+// A file that drops every tile applies: the rollout of an empty env is an
+// empty order, not "depends_on has a cycle" (loop 4, F14).
+func TestApplyEmptyFile(t *testing.T) {
+	w := newSliceWorld(t)
+	_, err := w.f.Apply(ctx, w.dev.ID, w.shopRelease(t, "c1", sliceShopFile).ID, io.Discard, nil)
+	must(t, err)
+	_, err = w.f.Apply(ctx, w.dev.ID, w.shopRelease(t, "c2", "version: 1\nstack: shop\nladder:\n  - dev\n  - prd\nhead: main\n").ID, io.Discard, nil)
+	must(t, err)
+	if live, _ := w.f.D.Tiles.List(ctx, w.dev.ID); len(live) != 0 {
+		t.Errorf("tiles after the empty file = %d, want 0", len(live))
+	}
+}
+
 // A second plan of the same release is clean: reporter, a cron built from
 // git with no build: block, used to show build_context and dockerfile rows
 // every time (the stored defaults against the file's blanks).
