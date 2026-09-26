@@ -1042,6 +1042,20 @@ fix, ship, re-test.
    (entries left by removals before loop 2). Re-tested on the VM: the ×
    on the Access tab, `tile access --rm`, `tile rm`, the slice drawer's
    provisioned word, env pairs on staging mirrored to production.
+4. **v0.0.43, v0.0.44.** Config pushes on the test repo's `s7b-shop`
+   branch: A (`on_remove: drop` on api-db) applied; B (api-db removed,
+   api kept with its `${{ tile.api-db.DATABASE_URL }}`) was applied too:
+   the database was dropped under a running api (F13). Fixed at the file
+   check: a tile ref to a tile the file does not declare in that env is a
+   blocker ("environment dev tile api: refs ${{ tile.api-db.DATABASE_URL
+   }}: no tile of that name in this environment"), which also catches a
+   fresh file with a dangling ref. C (no tiles at all) removed api and
+   then failed with "depends_on has a cycle": the topo sort returned nil
+   for an empty env (F14, fixed, test). D (original file back) provisioned
+   a fresh `shop_dev_api_db`, api writes to it. Each push makes one push
+   job per stack on that repo; the infra one did nothing and logged
+   nothing (F15: it now logs "no environment of infra follows branch
+   s7b-shop; nothing to do", ships with loop 5).
 ## DECIDE:
 
 Silent calls the planner made under rule 9 / "fix obvious gaps"; flip any

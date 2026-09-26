@@ -49,6 +49,7 @@ func (f *Flow) Push(
 		}
 	}
 	if len(from) == 0 {
+		logf(log, "no environment of %s follows branch %s; nothing to do\n", st.Slug, ev.Branch)
 		return store.Release{}, nil, nil
 	}
 	repo := NormalizeRepo(ev.Repo)
