@@ -116,7 +116,7 @@ func (f *Flow) Ready(ctx context.Context, t store.Tile) error {
 	}
 	deadline := time.Now().Add(wait)
 	for {
-		err = e.Ready(ctx, f.facts(ctx, t, m, e.Definition()), f.tools(t, m))
+		err = e.Ready(ctx, f.facts(ctx, t, m, e.Definition()), f.tools(ctx, t, m))
 		if err == nil || time.Now().After(deadline) {
 			return err
 		}
@@ -155,7 +155,7 @@ func (f *Flow) Provision(ctx context.Context, it store.Tile, s store.Tile) (stor
 				it.Slug,
 			)
 		}
-		return p, e.Provision(ctx, inst, slice(p), f.tools(it, m))
+		return p, e.Provision(ctx, inst, slice(p), f.tools(ctx, it, m))
 	}
 	name, err := f.sliceName(ctx, def, s)
 	if err != nil {
@@ -182,7 +182,7 @@ func (f *Flow) Provision(ctx context.Context, it store.Tile, s store.Tile) (stor
 		sl.User = m.AdminUser
 		sl.Password = m.AdminPassword
 	}
-	if err := e.Provision(ctx, inst, sl, f.tools(it, m)); err != nil {
+	if err := e.Provision(ctx, inst, sl, f.tools(ctx, it, m)); err != nil {
 		return p, fmt.Errorf("provision %s on %s: %w", sl.Name, it.Slug, err)
 	}
 	return f.Instances.CreateProvision(ctx, m, s.ID, managed.Slice{
@@ -240,7 +240,7 @@ func (f *Flow) Bind(ctx context.Context, p store.Provision, c store.Tile, access
 		b := bound[i]
 		g := grant(b)
 		g.Access = access
-		if err := e.Bind(ctx, inst, slice(p), g, b.Access, others, f.tools(it, m)); err != nil {
+		if err := e.Bind(ctx, inst, slice(p), g, b.Access, others, f.tools(ctx, it, m)); err != nil {
 			return b, fmt.Errorf("re-grant %s on %s: %w", b.DBUser, p.DBName, err)
 		}
 		return f.Instances.SetAccess(ctx, b, access)
@@ -254,7 +254,7 @@ func (f *Flow) Bind(ctx context.Context, p store.Provision, c store.Tile, access
 		Password: managed.Password(),
 		Access:   access,
 	}
-	if err := e.Bind(ctx, inst, slice(p), g, "", others, f.tools(it, m)); err != nil {
+	if err := e.Bind(ctx, inst, slice(p), g, "", others, f.tools(ctx, it, m)); err != nil {
 		return store.Binding{}, fmt.Errorf("bind %s on %s: %w", g.User, p.DBName, err)
 	}
 	as := slice(p)
@@ -280,7 +280,7 @@ func (f *Flow) Unbind(ctx context.Context, b store.Binding) error {
 		return err
 	}
 	inst := f.facts(ctx, it, m, e.Definition())
-	if err := e.Unbind(ctx, inst, slice(p), grant(b), f.tools(it, m)); err != nil {
+	if err := e.Unbind(ctx, inst, slice(p), grant(b), f.tools(ctx, it, m)); err != nil {
 		return fmt.Errorf("unbind %s from %s: %w", b.DBUser, p.DBName, err)
 	}
 	return f.Instances.Unbind(ctx, b.ID)
@@ -306,7 +306,7 @@ func (f *Flow) Drop(ctx context.Context, p store.Provision, drop bool, log io.Wr
 		if err != nil {
 			return err
 		}
-		if err := e.Drop(ctx, f.facts(ctx, it, m, e.Definition()), slice(p), f.tools(it, m)); err != nil {
+		if err := e.Drop(ctx, f.facts(ctx, it, m, e.Definition()), slice(p), f.tools(ctx, it, m)); err != nil {
 			return fmt.Errorf("drop %s: %w", p.DBName, err)
 		}
 		logf(log, "dropped %s\n", p.DBName)
@@ -434,9 +434,12 @@ func (f *Flow) facts(ctx context.Context, t store.Tile, m store.ManagedInstance,
 }
 
 // tools reach the instance: exec in its first running replica, and the S3
-// API at its endpoint (the row's, else the alias).
-// ponytail: stackrd must be able to route to that endpoint (DECIDE 28).
-func (f *Flow) tools(t store.Tile, m store.ManagedInstance) Tools {
+// API at its endpoint (the row's, else the running replica's bridge IP,
+// else the alias).
+// ponytail: stackrd runs on the host network, which routes to any bridge
+// IP; a stackrd on its own bridge would have to join the instance network
+// instead (DECIDE 28).
+func (f *Flow) tools(ctx context.Context, t store.Tile, m store.ManagedInstance) Tools {
 	x := Tools{
 		Exec: func(ctx context.Context, cmd []string) (string, error) {
 			cs, err := f.Tiles.Replicas(ctx, t)
@@ -454,7 +457,16 @@ func (f *Flow) tools(t store.Tile, m store.ManagedInstance) Tools {
 	if f.S3 != nil {
 		ep := m.Endpoint
 		if ep == "" {
-			ep = fmt.Sprintf("http://%s:%d", t.Slug, Engines[m.Engine].Definition().Port)
+			host := t.Slug
+			if cs, err := f.Tiles.Replicas(ctx, t); err == nil {
+				for _, c := range cs {
+					if c.State == "running" && len(c.IPs) > 0 {
+						host = c.IPs[0]
+						break
+					}
+				}
+			}
+			ep = fmt.Sprintf("http://%s:%d", host, Engines[m.Engine].Definition().Port)
 		}
 		x.S3 = f.S3(ep, m.AdminUser, m.AdminPassword)
 	}
