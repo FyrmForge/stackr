@@ -76,7 +76,7 @@ func (d *Client) Run(ctx context.Context, spec ContainerSpec) (string, error) {
 	// A container that cannot start is not left lying around under a name the
 	// retry will collide with.
 	if err := d.cli.ContainerStart(ctx, resp.ID, container.StartOptions{}); err != nil {
-		_ = d.cli.ContainerRemove(context.WithoutCancel(ctx), resp.ID, container.RemoveOptions{Force: true})
+		_ = d.cli.ContainerRemove(context.WithoutCancel(ctx), resp.ID, container.RemoveOptions{Force: true, RemoveVolumes: true})
 		return "", err
 	}
 	return resp.ID, nil
@@ -129,10 +129,12 @@ func (d *Client) Restart(ctx context.Context, id string) error {
 	return wrap(d.cli.ContainerRestart(ctx, id, container.StopOptions{}))
 }
 
-// StopRemove stops (ignoring the error) then force-removes.
+// StopRemove stops (ignoring the error) then force-removes, taking the
+// anonymous volumes an image's VOLUME lines gave it (named stackr-vol-*
+// volumes are not anonymous and stay).
 func (d *Client) StopRemove(ctx context.Context, id string) error {
 	_ = d.cli.ContainerStop(ctx, id, container.StopOptions{})
-	return wrap(d.cli.ContainerRemove(ctx, id, container.RemoveOptions{Force: true}))
+	return wrap(d.cli.ContainerRemove(ctx, id, container.RemoveOptions{Force: true, RemoveVolumes: true}))
 }
 
 // Pause is SIGSTOP via the cgroup: files stop changing, which makes a tar of

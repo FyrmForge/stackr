@@ -1108,6 +1108,26 @@ fix, ship, re-test.
    lands when it ends. Noted, not fixed: the create dialog's
    `provision_from` is a placeholder, not a prefilled value; `job ls`
    lists oldest first and has no `--stack`.
+9. **v0.0.49.** API level, by curl with the QA key. Read routes: a
+   missing tile's slice view 404s, a service's is a 400 naming the field,
+   a missing stack 404s, no key 401s. Every write route refuses bad input
+   with a 400 and the field (`allow` pattern outside the org, `allow` and
+   `on_remove` on a service, an env pair to a missing env or with an empty
+   key, `on_remove: maybe`, slice access to a missing slice, `access:
+   admin`, slice access on the slice itself); slice creation on a
+   config-managed stack is a 409 naming the stack file; on a by-hand env
+   a bad name, a bad access, an empty or two-segment `provision_from`, a
+   duplicate name and a non-JSON body each refuse with the right field.
+   `env traffic` says `(none)` unless the read lands in a 5 s window with
+   bytes moving (it is the last sample, not a history): with 60 s of psql
+   from both shop envs it shows `api api-db 14.9 KB/s` both ways, infra
+   staging shows `shop/dev/api` and `shop/staging/api` against pg-db, the
+   API returns ids, names and bps, and the shop dev canvas draws the two
+   lanes with their labels. Fixed: the slice create body took `slug`
+   while tile create takes `name`, so a bad name's error named a field
+   the request did not have (it is `name` now, CLI and openapi with it);
+   "api is a image tile" (the three tile-kind refusals read "api is kind
+   image, not managed / not a slice").
 ## DECIDE:
 
 Silent calls the planner made under rule 9 / "fix obvious gaps"; flip any
