@@ -691,6 +691,24 @@ func TestSliceRemoveForgetsAccess(t *testing.T) {
 	}
 }
 
+// The file drops api-db but api still refs it: a file blocker, not a
+// dropped database under a running consumer (loop 4, F13).
+func TestSliceGoneWhileReffedBlocks(t *testing.T) {
+	w := newSliceWorld(t)
+	_, err := w.f.Apply(ctx, w.dev.ID, w.shopRelease(t, "c1", sliceShopFile).ID, io.Discard, nil)
+	must(t, err)
+	block := "    api-db:\n      kind: slice\n      provision_from: infra:${{ env.name }}:pg-db\n      default_access: write\n"
+	if !strings.Contains(sliceShopFile, block) {
+		t.Fatal("no api-db block in sliceShopFile")
+	}
+	p, err := w.f.Plan(ctx, w.dev.ID, w.shopRelease(t, "c2", strings.Replace(sliceShopFile, block, "", 1)).ID, io.Discard)
+	must(t, err)
+	want := "environment dev tile api: refs ${{ tile.api-db.DATABASE_URL }}: no tile of that name in this environment"
+	if len(p.Blockers) != 1 || !strings.HasSuffix(p.Blockers[0], want) {
+		t.Errorf("blockers = %q, want one ending %q", p.Blockers, want)
+	}
+}
+
 // A second plan of the same release is clean: reporter, a cron built from
 // git with no build: block, used to show build_context and dockerfile rows
 // every time (the stored defaults against the file's blanks).

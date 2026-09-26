@@ -13,6 +13,7 @@ import (
 
 	"github.com/FyrmForge/stackr/internal/service/internal/address"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/environment"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/params"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
 	"github.com/FyrmForge/stackr/internal/service/internal/slug"
 )
@@ -767,8 +768,18 @@ func checkVolume(name string, v VolumeConf) error {
 	return nil
 }
 
-// checkRefs: every volume line names a declared volume, depends_on names a
-// tile of the env, slice_access a slice tile of the env, no cycles.
+// refBodies: the ${{ ... }} bodies in a tile's env and command.
+func refBodies(tc TileConf) []string {
+	var out []string
+	for _, v := range slices.Sorted(maps.Values(tc.Env)) {
+		out = append(out, params.Refs(v)...)
+	}
+	return append(out, params.Refs(tc.Command)...)
+}
+
+// checkRefs: every volume line names a declared volume, a tile ref and
+// depends_on name a tile of the env, slice_access a slice tile of the env,
+// no cycles.
 func checkRefs(env string, re ResolvedEnv) error {
 	for _, n := range slices.Sorted(maps.Keys(re.Tiles)) {
 		tc := re.Tiles[n]
@@ -776,6 +787,15 @@ func checkRefs(env string, re ResolvedEnv) error {
 			v, _, _ := strings.Cut(l, ":")
 			if _, ok := re.Volumes[v]; !ok {
 				return fmt.Errorf("environment %s tile %s: volume %q is not declared under volumes", env, n, v)
+			}
+		}
+		for _, body := range refBodies(tc) {
+			if !strings.HasPrefix(body, "tile.") {
+				continue
+			}
+			target, _, _ := strings.Cut(strings.TrimPrefix(body, "tile."), ".")
+			if _, ok := re.Tiles[target]; !ok {
+				return fmt.Errorf("environment %s tile %s: refs ${{ %s }}: no tile of that name in this environment", env, n, body)
 			}
 		}
 		for _, d := range tc.DependsOn {
