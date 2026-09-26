@@ -1090,6 +1090,24 @@ fix, ship, re-test.
    The api drawer's Variables tab (`tab=env`) shows the ref, not the
    resolved URL with the password. The compare pill's arrow on an env with
    no release said "Runs release #0": it says "No release yet" now.
+8. **v0.0.48.** The by-hand path in the browser only (stack `handui`, env
+   dev): slice from the create dialog, its drawer names the allow blocker,
+   the web deploy fails with it, the allow row added on the instance's
+   Settings tab, the redeploy provisions and binds, the slice drawer's
+   Consumers row and On remove select, the service delete from Settings
+   (type-the-name dialog) drops the role, the slice delete with drop drops
+   the database. Fixed: a blocked or unresolved slice's card said "no
+   target" (now "unresolved"; the drawer says why); a tile whose delete
+   job runs said "building" (now "removing"); after a delete from the
+   drawer the sse:end refresh 404s and the drawer stayed on the gone tile
+   (the side-drawer closes on a 404 aimed inside it; main.js still logs
+   that 404 to the console, by design); the slice drawer said "Remove
+   tile" where service tiles say "Delete tile" (unified). Not bugs: the
+   drawer's Status looked stuck after Deploy, but the deploy job takes
+   ~22 s on the VM (pull checks, old replica removal) and the refresh
+   lands when it ends. Noted, not fixed: the create dialog's
+   `provision_from` is a placeholder, not a prefilled value; `job ls`
+   lists oldest first and has no `--stack`.
 ## DECIDE:
 
 Silent calls the planner made under rule 9 / "fix obvious gaps"; flip any
