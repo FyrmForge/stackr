@@ -1164,6 +1164,28 @@ fix, ship, re-test.
     server log scan covers only the current container, since each rig
     upgrade replaces it (DECIDE 215). Memory `vm-test-credentials`
     updated to this state.
+11. **v0.0.51, v0.0.52 (after the ten loops).** DECIDE 198 closed: a
+    throwaway `rustfs/rustfs:latest` on the VM took MinIO admin calls
+    through madmin-go (user add, canned policy, attach, rewrite in place,
+    remove; enforced on the S3 API, kept across a restart), so `s3.Admin`
+    grew `AddUser`, `GrantUser` and `RemoveUser`, the s3 engine's Bind
+    and Unbind use them, and the flow mints a user per binding for every
+    engine (`RootCreds` now only covers the slice's own cred). DECIDE 195
+    flipped: the own env is always allowed, an allow list adds to it.
+    Proven by hand on `byhand`: an s3 managed tile, a read slice and an
+    alpine consumer injected `S3_ACCESS_KEY=byhand-dev-uploads-api`; with
+    signed curl at the instance's bridge IP the key read and listed its
+    bucket and got 403 on put, delete, another bucket and bucket-make;
+    `tile access --access write` made put and delete pass with the same
+    key; `tile rm` of the consumer left the key dead (403) and the root
+    key alive. An allow list of `smoke:shop:*` on the s3 tile left the
+    same-env slice resolving. Fixed on the way (v0.0.52): the first real
+    s3 deploy failed its ready check because stackrd dialled
+    `http://<slug>:9000` and its host network resolved the slug on the
+    public DNS; `flow/managed.tools` now takes the running replica's
+    bridge IP (DECIDE 28 as built: host-network stackrd routes to any
+    bridge IP; a bridge-network stackrd would have to join the instance
+    network). The test env, tiles and bucket were removed afterwards.
 ## DECIDE:
 
 Silent calls the planner made under rule 9 / "fix obvious gaps"; flip any
@@ -1323,7 +1345,11 @@ Raised by step 3 session B (builder took the lean; flip any):
    API from stackrd at the instance's endpoint, else `http://<slug>:9000`,
    so stackrd must be routable to it. Options: (a) keep, stackrd joins the
    env/shared networks it manages; (b) exec an `mc` sidecar on the
-   instance's network. Lean (a).
+   instance's network. Lean (a). **As built (step 7b, v0.0.52): neither.
+   stackrd runs on the host network, which routes to every docker bridge,
+   so `flow/managed.tools` dials the running replica's bridge IP (the
+   slug fell through to public DNS on the VM). A stackrd on its own
+   bridge would need (a).**
 29. **What may land in a `from: promote` env.** One rule serves promote
    and rollback (B2): the release's number must not be above the one the
    env below runs, and the env below must run something. No history
