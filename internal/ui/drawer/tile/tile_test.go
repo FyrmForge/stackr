@@ -157,6 +157,8 @@ func TestEveryTabRenders(t *testing.T) {
 				`href="/o/s/e?drawer=t5&amp;tab=overview"`,
 				`name="slice" value="main"`,
 				`<option value="read" selected>`,
+				`name="access" value="default"`,
+				`aria-label="Use the default access on main"`,
 				`href="/o/s/e?drawer=t6&amp;tab=overview"`,
 				"api_user",
 				`id="access-slice"`,

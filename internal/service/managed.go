@@ -187,11 +187,20 @@ func (o *Orchestrator) sliceTile(ctx context.Context, id string) (Tile, error) {
 	return s, nil
 }
 
+// sliceAccessDefault is the access SetSliceAccess takes to drop a
+// consumer's slice_access entry: it then gets the slice's default access.
+const sliceAccessDefault = "default"
+
 // SetSliceAccess sets consumer consumerTileID's access to slice sliceSlug of
-// its own env: its slice_access entry is replaced or added. A consumer
-// already bound is re-granted in place (its user and password stay).
+// its own env: read | write replaces or adds its slice_access entry,
+// "default" removes it (no entry: a no-op). A consumer already
+// bound is re-granted in place (its user and password stay), at the slice's
+// default once its entry is gone.
 // ponytail: no redeploy; an unbound consumer binds at its next deploy.
 func (o *Orchestrator) SetSliceAccess(ctx context.Context, consumerTileID, sliceSlug, access string) (Tile, error) {
+	if access != tile.Read && access != tile.Write && access != sliceAccessDefault {
+		return Tile{}, errs.Invalidf("access", "access must be read, write or default")
+	}
 	c, err := o.tiles.Get(ctx, consumerTileID)
 	if err != nil {
 		return c, err
@@ -218,9 +227,18 @@ func (o *Orchestrator) SetSliceAccess(ctx context.Context, consumerTileID, slice
 		From:   s.Slug,
 		Access: access,
 	}
-	if i >= 0 {
+	switch {
+	case access == sliceAccessDefault && i < 0:
+		return c, nil
+	case access == sliceAccessDefault:
+		cur.SliceAccess = slices.Delete(cur.SliceAccess, i, i+1)
+		access = str(s.DefaultAccess)
+		if access == "" {
+			access = tile.Write
+		}
+	case i >= 0:
 		cur.SliceAccess[i] = entry
-	} else {
+	default:
 		cur.SliceAccess = append(cur.SliceAccess, entry)
 	}
 	out, _, err := o.tiles.Update(ctx, c, cur)

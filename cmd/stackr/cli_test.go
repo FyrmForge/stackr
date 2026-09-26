@@ -158,6 +158,13 @@ func TestYesIsNotForce(t *testing.T) {
 	if len(r.reqs) != 1 || r.reqs[0] != "DELETE /api/v1/orgs/acme/stacks/shop/envs/dev " {
 		t.Errorf("-y sent %q, want a bare DELETE", r.reqs)
 	}
+	r.reqs = nil
+	if code, _, errw := cli(t, "tile", "rm", "api", "--stack", "shop", "--env", "dev", "-y", "--no-wait"); code != 0 {
+		t.Fatalf("tile rm -y = %d %s", code, errw)
+	}
+	if len(r.reqs) != 1 || r.reqs[0] != "DELETE /api/v1/orgs/acme/stacks/shop/envs/dev/tiles/api " {
+		t.Errorf("tile rm sent %q, want a bare DELETE of the tile", r.reqs)
+	}
 }
 
 func TestUsageExitsTwo(t *testing.T) {
@@ -425,6 +432,10 @@ func TestSliceVerbsRoutes(t *testing.T) {
 			"PUT " + env + `/tiles/api/slice-access {"access":"read","slice":"db"}`,
 		},
 		{
+			[]string{"tile", "access", "api", "--slice", "db", "--rm"},
+			"PUT " + env + `/tiles/api/slice-access {"access":"default","slice":"db"}`,
+		},
+		{
 			[]string{"slice", "add", "db", "--from", "infra:dev:pg", "--access", "read"},
 			"POST " + env + `/slices {"default_access":"read","provision_from":"infra:dev:pg","slug":"db"}`,
 		},
@@ -461,6 +472,11 @@ func TestSliceVerbsRoutes(t *testing.T) {
 		if code, _, _ := cli(t, append(args, at...)...); code == 0 || len(r.reqs) != 0 {
 			t.Errorf("%s = %d, sent %q; want an error and no request", args, code, r.reqs)
 		}
+	}
+	r.reqs = nil
+	both := []string{"tile", "access", "api", "--slice", "db", "--rm", "--access", "read"}
+	if code, _, errw := cli(t, append(both, at...)...); code != 2 || len(r.reqs) != 0 {
+		t.Errorf("--rm with --access = %d %q, sent %q; want exit 2 and no request", code, errw, r.reqs)
 	}
 }
 

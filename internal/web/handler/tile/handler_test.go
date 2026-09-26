@@ -168,6 +168,15 @@ func TestAccessTab(t *testing.T) {
 			t.Errorf("access tab = %d, lacks %q", rec.Code, w)
 		}
 	}
+	// default drops main's entry; the add form still offers it.
+	rec = s.Do(t, "POST", drawer+"/access", url.Values{
+		"slice":  {"main"},
+		"access": {"default"},
+	})
+	body = rec.Body.String()
+	if rec.Code != 200 || strings.Contains(body, `name="slice" value="main"`) || !strings.Contains(body, `<option value="main">main</option>`) {
+		t.Errorf("default = %d, want main's entry gone\n%s", rec.Code, body)
+	}
 	rec = s.Do(t, "POST", drawer+"/access", url.Values{
 		"slice":  {"nope"},
 		"access": {"read"},

@@ -426,23 +426,23 @@ func (a *app) rollback() *cobra.Command {
 
 // ---- tile ----
 
-func (a *app) tileJob(use, op, short, sub, what, q string) *cobra.Command {
+func (a *app) tileJob(method, use, op, short, sub, what, q string) *cobra.Command {
 	return scoped(waits(leaf(use, op, short, upTo(1), a.at(atTile, func(c *cobra.Command, p string, _ []string) error {
 		if q != "" {
 			if err := a.confirm(fmt.Sprintf(q, last(p))); err != nil {
 				return err
 			}
 		}
-		return a.orgJob(c, POST, p+sub, nil, what)
+		return a.orgJob(c, method, p+sub, nil, what)
 	}))), true)
 }
 
 func (a *app) deploy() *cobra.Command {
-	return a.tileJob("deploy [tile]", "tile.deploy", "Deploy the tile and follow it", "/deploy", "deploy", "")
+	return a.tileJob(POST, "deploy [tile]", "tile.deploy", "Deploy the tile and follow it", "/deploy", "deploy", "")
 }
 
 func (a *app) restart() *cobra.Command {
-	return a.tileJob("restart [tile]", "tile.restart", "Restart the tile's containers", "/restart", "restart", "")
+	return a.tileJob(POST, "restart [tile]", "tile.restart", "Restart the tile's containers", "/restart", "restart", "")
 }
 
 func (a *app) logs() *cobra.Command {
@@ -703,6 +703,7 @@ func (a *app) tiles() *cobra.Command {
 				return err
 			})),
 		a.tileJob(
+			DELETE,
 			"rm [tile]",
 			"tile.delete",
 			"Remove a tile",
@@ -713,8 +714,9 @@ func (a *app) tiles() *cobra.Command {
 		a.deploy(),
 		a.restart(),
 		a.stop(),
-		a.tileJob("start [tile]", "tile.start", "Start the tile's containers", "/start", "start", ""),
+		a.tileJob(POST, "start [tile]", "tile.start", "Start the tile's containers", "/start", "start", ""),
 		a.tileJob(
+			POST,
 			"image-check [tile]",
 			"tile.image-check",
 			"Check the tile's image for a newer tag",
@@ -948,7 +950,7 @@ func (a *app) allowOf(c *cobra.Command, p string) ([]string, error) {
 	}
 	m, err := a.find(ep+"/managed", "managed tile", cell(t["id"]), "tile_id")
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%s is not a managed tile with an instance", cell(t["slug"]))
 	}
 	xs, _ := m["allow"].([]any)
 	out := []string{}
@@ -993,18 +995,29 @@ func (a *app) envPairs() *cobra.Command {
 	return c
 }
 
-// sliceAccess sets a consumer's access to one slice tile of its env.
+// sliceAccess sets a consumer's access to one slice tile of its env; --rm
+// drops the entry, so the slice's default applies.
 func (a *app) sliceAccess() *cobra.Command {
 	var sl, access string
+	var rm bool
 	c := leaf(
 		"access [tile]",
 		"slice.access",
 		"Set the tile's access to a slice tile of its env; a bound tile is re-granted in place",
 		upTo(1),
 		a.at(atTile, func(_ *cobra.Command, p string, _ []string) error {
+			want := access
+			switch {
+			case rm && access != "":
+				return usage("give --access or --rm, not both")
+			case rm:
+				want = "default"
+			case access == "":
+				return usage("give --access read|write, or --rm")
+			}
 			v, err := a.call(PUT, p+"/slice-access", map[string]string{
 				"slice":  sl,
-				"access": access,
+				"access": want,
 			})
 			if err != nil {
 				return err
@@ -1014,8 +1027,8 @@ func (a *app) sliceAccess() *cobra.Command {
 	)
 	c.Flags().StringVar(&sl, "slice", "", "the slice tile's slug")
 	c.Flags().StringVar(&access, "access", "", "read or write")
+	c.Flags().BoolVar(&rm, "rm", false, "drop the entry: the slice's default access applies")
 	_ = c.MarkFlagRequired("slice")
-	_ = c.MarkFlagRequired("access")
 	return c
 }
 

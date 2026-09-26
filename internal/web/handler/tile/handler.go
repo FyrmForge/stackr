@@ -382,7 +382,7 @@ func (h *handler) SetEnv(c echo.Context) error {
 }
 
 // POST …/access: slice (a slice tile slug of this env) and access; an
-// entry already there is replaced.
+// entry already there is replaced, access=default drops it.
 func (h *handler) SetAccess(c echo.Context) error {
 	t, err := h.orch.SetSliceAccess(c.Request().Context(), tileOf(c).ID, c.FormValue("slice"), c.FormValue("access"))
 	if err == nil {

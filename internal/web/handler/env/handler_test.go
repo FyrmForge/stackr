@@ -221,6 +221,7 @@ func TestSliceDrawer(t *testing.T) {
 		`<option value="read" selected>`,
 		s.Tile.ID + "_user",
 		"slice_db",
+		`bg-rw-success"></span>provisioned`,
 	} {
 		if rec.Code != 200 || !strings.Contains(body, w) {
 			t.Errorf("slice drawer = %d, lacks %q", rec.Code, w)

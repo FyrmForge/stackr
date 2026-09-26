@@ -110,7 +110,7 @@ type (
 	}
 	SliceAccessIn struct {
 		Slice  string `json:"slice"`  // a slice tile's slug in the consumer's env
-		Access string `json:"access"` // read | write
+		Access string `json:"access"` // read | write | default (drops the entry: the slice's default applies)
 	}
 	OnRemoveIn struct {
 		OnRemove string `json:"on_remove"` // keep | drop

@@ -252,7 +252,8 @@ templ Env(v View, e EnvView) {
 }
 
 // Access is v0's slices panel on the consumer: each slice_access entry's
-// access saves on change; bindings are the creds the tile holds.
+// access saves on change, its × drops it (the slice's default applies);
+// bindings are the creds the tile holds.
 templ Access(v View, a AccessView) {
 	<div id="tab-access">
 		@c.PanelSection("access-entries", "Slice access", "What this tile gets on each slice it names. A slice it only refs gets that slice's default access.") {
@@ -269,6 +270,11 @@ templ Access(v View, a AccessView) {
 								<input type="hidden" name="slice" value={ e.Slice }/>
 								<label for={ "access-entry-" + e.Slice } class="sr-only">{ e.Slice } access</label>
 								@accessSelect("access-entry-"+e.Slice, e.Access)
+							</form>
+							<form hx-post={ v.Base + "/access" } hx-target={ "#" + Root } hx-swap="outerHTML">
+								<input type="hidden" name="slice" value={ e.Slice }/>
+								<input type="hidden" name="access" value="default"/>
+								<button type="submit" class="text-rw-faint hover:text-rw-danger" title="Use default" aria-label={ "Use the default access on " + e.Slice }>×</button>
 							</form>
 						</li>
 					}

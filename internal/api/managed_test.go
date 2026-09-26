@@ -58,6 +58,8 @@ func TestManagedAndSliceRoutes(t *testing.T) {
 
 	want(member, "PUT", env+"/tiles/api/slice-access", `{"slice":"db","access":"read"}`, 200,
 		`"slice_access":[{"from":"db","access":"read"}]`)
+	want(member, "PUT", env+"/tiles/api/slice-access", `{"slice":"db","access":"default"}`, 200,
+		`"slice_access":[]`)
 	want(member, "PUT", env+"/tiles/pg/slice-access", `{"slice":"db","access":"read"}`, 400)
 	want(member, "PUT", env+"/tiles/db/on-remove", `{"on_remove":"drop"}`, 200, `"on_remove":"drop"`)
 	want(member, "PUT", env+"/tiles/api/on-remove", `{"on_remove":"drop"}`, 400)

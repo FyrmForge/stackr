@@ -37,7 +37,13 @@ templ badge(word, tone string) {
 	</span>
 }
 
-var tileTone = map[string]string{"running": "ok", "degraded": "warn", "unhealthy": "bad"}
+// provisioned is a slice tile's word (it has no container).
+var tileTone = map[string]string{
+	"running":     "ok",
+	"provisioned": "ok",
+	"degraded":    "warn",
+	"unhealthy":   "bad",
+}
 
 var jobTone = map[string]string{"queued": "busy", "running": "busy", "waiting": "warn", "done": "ok", "failed": "bad"}
 

@@ -147,6 +147,21 @@ func TestSliceVerbs(t *testing.T) {
 	if len(cb) != 1 || cb[0].SliceID != db.ID || cb[0].Slice != "db" || cb[0].Access != "read" {
 		t.Errorf("consumer bindings = %+v", cb)
 	}
+
+	// default drops api's entry: it is re-granted at db's default, write.
+	_, err = o.SetSliceAccess(ctx, tl.ID, "db", "admin")
+	invalid("access admin", err)
+	api, err = o.SetSliceAccess(ctx, tl.ID, "db", "default")
+	must(t, err)
+	if len(api.SliceAccess) != 0 {
+		t.Errorf("slice_access after default = %v", api.SliceAccess)
+	}
+	if bs, err := o.Bindings(ctx, db.ID); err != nil || len(bs) != 1 || bs[0].Access != "write" {
+		t.Errorf("bindings after default = %+v, %v", bs, err)
+	}
+	if _, err := o.SetSliceAccess(ctx, tl.ID, "db", "default"); err != nil {
+		t.Errorf("default with no entry = %v, want a no-op", err)
+	}
 	_, on, err := o.InstanceSlices(ctx, pg.ID)
 	must(t, err)
 	if len(on) != 1 || on[0].Slice != "db" || on[0].Stack != "shop" || on[0].Env != "dev" || on[0].Bindings != 1 {

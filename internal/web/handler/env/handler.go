@@ -480,7 +480,7 @@ func (h *handler) SliceDelete(c echo.Context) error {
 	return h.slice(c, "delete queued", err)
 }
 
-// slice is the slice tile drawer: SliceOf, Bindings and the status word.
+// slice is the slice tile drawer: SliceOf and Bindings.
 func (h *handler) slice(c echo.Context, note string, actErr error) error {
 	msg, status, fail := refused(actErr)
 	if fail != nil {
@@ -497,15 +497,16 @@ func (h *handler) slice(c echo.Context, note string, actErr error) error {
 	if err != nil {
 		return middleware.HTTPError(err)
 	}
-	st, err := h.orch.TileStatus(ctx, t.ID)
-	if err != nil {
-		return middleware.HTTPError(err)
+	// A slice has no container: its header word is whether it is provisioned.
+	word := "idle"
+	if sv.Provisioned {
+		word = "provisioned"
 	}
 	v := slice.View{
 		Node:          t.ID,
 		Name:          t.Name,
 		Base:          render.EnvURL(c) + "/-/slices/" + t.Slug,
-		Status:        st.Word,
+		Status:        word,
 		Location:      s.Stack.Name + " / " + s.Env.Name,
 		EnvColor:      s.Env.Color,
 		Error:         msg,

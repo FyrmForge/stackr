@@ -997,6 +997,44 @@ sweep, P14 theme per user, DECIDE 159 and the DECIDE 138 leftovers.
    `ConsumerBindings` have no API route or CLI (the precedent is DECIDE
    84). Lean: API routes in a QA loop if the CLI needs them; otherwise
    Later.
+212. **(step 7b QA loop 2) `env_pairs` is one map per tile slug, stored
+   per instance.** `deploy.Place` takes the first static env's instance
+   whose map is non-empty, so on a by-hand stack `stackr tile env-pairs
+   pg-db --env staging --clear` changes nothing while production's pg-db
+   still holds a map (found on the VM: a `dev` slice landed on staging
+   through production's map). A config push writes the same map on every
+   instance, so config-managed stacks never see it. Lean: `SetManagedEnvPairs`
+   writes the map on every instance of that tile slug in the stack and the
+   drawer says so ("applies to every env of this stack"); a per-env map is
+   not a thing the grammar has.
+
+## Step 7b QA loops (2026-09-26, VM upgraded in place per loop)
+
+Ten loops after the proof, per darthvader ("qa it, the ui, ux, technical
+features, find issues, fix deploy test again"). Each loop: QA on the VM,
+fix, ship, re-test.
+
+1. **v0.0.40.** CLI gaps: `tile exec` dropped stderr and the exit code
+   (stderr now rides the stream, the exit code is the `X-Exit-Code`
+   trailer, proven through Caddy); `job ls` printed nothing without
+   `--state` (no filter = every job); `managed ls` had its own column list
+   without allow and env pairs; `tile status` printed `last_job` as a JSON
+   blob (now `kind state id`, plus a replicas line). `scripts/rig.sh
+   upgrade <v>` (ship + replace the two containers) and pave prunes the
+   old `stackr-*` networks.
+2. **v0.0.41.** By-hand path end to end through the CLI (stack, env from a
+   branch, `slice add`, allow refusal then `tile allow --add`, consumer
+   deploy provisions the slice, write, `tile access` read re-grant refused
+   an insert, removal with keep left the database and dropped the
+   consumer's role) and the create dialog's Slice path in the browser.
+   Found: `tile rm` sent POST, not DELETE (never worked; fixed with a
+   recorder test); the slice drawer header said `none` for its status
+   (provisioned / idle); a removed slice left its name in consumers'
+   `slice_access` (stripped on removal); no way to drop one `slice_access`
+   entry (DECIDE 210: `access: default` on the same route, `tile access
+   --rm`, a control per row). Allow and env-pair validation messages are
+   right; `tile allow` on a non-managed tile names the id, not the slug
+   (loop 3). DECIDE 212 (env pairs shadowed across envs, loop 3).
 ## DECIDE:
 
 Silent calls the planner made under rule 9 / "fix obvious gaps"; flip any

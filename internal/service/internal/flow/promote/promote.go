@@ -304,10 +304,37 @@ func (f *Flow) Remove(ctx context.Context, e store.Environment, ts []store.Tile,
 				}
 			}
 		}
+		if t.Kind == tile.Slice {
+			if err := f.forgetSlice(ctx, e, t.Slug); err != nil {
+				return err
+			}
+		}
 		if err := d.Tiles.Delete(ctx, t.ID); err != nil {
 			return err
 		}
 		logf(log, "removed %s\n", t.Slug)
+	}
+	return nil
+}
+
+// forgetSlice drops every slice_access entry naming slice slug from the
+// other tiles of env e, so no consumer keeps naming a slice that is gone.
+func (f *Flow) forgetSlice(ctx context.Context, e store.Environment, slug string) error {
+	ts, err := f.D.Tiles.List(ctx, e.ID)
+	if err != nil {
+		return err
+	}
+	for _, t := range ts {
+		cur := t
+		cur.SliceAccess = slices.DeleteFunc(slices.Clone(t.SliceAccess), func(a store.SliceAccess) bool {
+			return a.From == slug
+		})
+		if len(cur.SliceAccess) == len(t.SliceAccess) {
+			continue
+		}
+		if _, _, err := f.D.Tiles.Update(ctx, t, cur); err != nil {
+			return err
+		}
 	}
 	return nil
 }

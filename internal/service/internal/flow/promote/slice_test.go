@@ -670,6 +670,27 @@ func TestSliceKeep(t *testing.T) {
 	}
 }
 
+// A slice tile removed on its own: reporter's slice_access stops naming it.
+func TestSliceRemoveForgetsAccess(t *testing.T) {
+	w := newSliceWorld(t)
+	d := w.f.D
+	_, err := w.f.Apply(ctx, w.dev.ID, w.shopRelease(t, "c1", sliceShopFile).ID, io.Discard, nil)
+	must(t, err)
+	sl, err := d.Tiles.GetBySlug(ctx, w.dev.ID, "api-db")
+	must(t, err)
+	rep, err := d.Tiles.GetBySlug(ctx, w.dev.ID, "reporter")
+	must(t, err)
+	if len(rep.SliceAccess) != 1 {
+		t.Fatalf("reporter slice_access before = %v", rep.SliceAccess)
+	}
+	must(t, w.f.Remove(ctx, w.dev, []store.Tile{sl}, io.Discard))
+	rep, err = d.Tiles.Get(ctx, rep.ID)
+	must(t, err)
+	if len(rep.SliceAccess) != 0 {
+		t.Errorf("reporter slice_access after = %v, want api-db gone", rep.SliceAccess)
+	}
+}
+
 // A second plan of the same release is clean: reporter, a cron built from
 // git with no build: block, used to show build_context and dockerfile rows
 // every time (the stored defaults against the file's blanks).
