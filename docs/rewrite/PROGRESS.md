@@ -37,7 +37,9 @@ at the bottom of this file.
   - Deviations from the task file: plan routes live under the org (`/orgs/:org/config/plans/:plan`), no flat path; no `approved` status (an approved plan is `pending` with `decided_at`, the job flips it to `applied`); `orgs.setup_mode` column carries the wizard branch; the `shared:` section and everything scope-related dropped by DECIDE 193; the config edge on the org canvas dropped (no org card to hang it on); a push whose file names every rung reorders the ladder (`Reorder`), a new rung no longer lands on top.
   - Wizard gaps, all missing verbs not UI: branch list, file-exists check, logo and avatar upload, invite expiry/revoke/reinvite/delete, the Moves row, the job step field. Roles come from the leaf (`AssignableRoles`, owner only until DECIDE 171).
   - Unproven on the VM: the wizard's config branch end to end (a second org needs its own GitHub App; unit-tested with the git fake). Known gaps left with `// ponytail:`: an org rename does not move the org's domain resource, so its auto hosts keep the old slug; env reorder and domain resource add/remove do not refresh auto hosts (the next promote does); promote's param rows do not tell create from change; a fresh DB sends `/` to `/login` not `/register`.
-- [ ] step-7b.md managed tiles: allow list replaces scope, slice tiles, env pairs, read or write per consumer, `${{ env.name }}`; darthvader 2026-09-25 (DECIDE 194), planned, not started
+- [x] step-7b.md managed tiles: allow list replaces scope, slice tiles, env pairs, read or write per consumer, `${{ env.name }}`; darthvader 2026-09-25 (DECIDE 194). Done 2026-09-26 on `rewrite-step-7b` (tasks 1 to 7, five Opus sessions), VM proof v0.0.39 on a fresh pave: infra stack with plain envs (`branch:` per env, no ladder) and a managed `pg-db` with `allow: [smoke:shop:*]` and env pairs; shop stack with `api-db` (slice), `api` (writer) and `reporter` (cron, read); plan row `slice api-db → infra/staging/pg-db (write)`; api creates and writes a table, reporter reads it and its insert is refused; staging resolves to infra staging through env pairs; an allow entry removed refuses the next consumer deploy with `slice api-db: infra/staging/pg-db does not allow smoke:shop:dev:api-db` and tears nothing down; reporter dropped from the file drops its role; a PR env (`pr-5`) provisions `shop_pr_5_api_db` on infra staging through dev's env-pair key and drops it when the PR closes; Playwright: managed drawer allow add/remove/bad pattern (inline error) and env pairs add/remove, slice drawer (target link, blocker slot, per-consumer access re-granted live, on remove), consumer Access tab, instance Slices tab with cross-stack links, graph slice card + ghost instance card, create dialog refuses a slice on a config-managed stack.
+  - Deviations from the task file: `pg_db` is `pg-db` (a tile slug is a DNS alias); the address package lives at `internal/service/internal/address`; DB names are `<stack>_<env>_<slice>` (DECIDE 197); `on_remove` is a file key (DECIDE 199); `Provision(id)` and the web `GET slices/:provision` went with the per-consumer slice list; `SetSliceDefaultAccess` and `ConsumerBindings` are web-only verbs (DECIDE 211).
+  - DECIDE 195 to 211 from the build; QA loops after the proof fix what they find (loop notes below the step list).
 
 Step 0 list (agreed with darhvader):
 1. Rename binaries to `stackrd`, `stackr`, `stackr-install`: three `cmd/` dirs, Makefile, watch rule.
@@ -970,6 +972,31 @@ sweep, P14 theme per user, DECIDE 159 and the DECIDE 138 leftovers.
    `<stack>_<env>_<slice>` names collide after truncation or hyphen
    folding are refused as a conflict (ponytail: hash suffix when it
    happens).
+206. **(step 7b task 7) The slice drawer has one tab.** Overview only: a
+   slice has no container, its logs are the instance's. Lean: keep; a
+   Logs tab that links to the instance's is a later nicety.
+207. **(step 7b task 7) The instance is a ghost card, not a sub-tile.** A
+   slice card gets `EdgeShared` to its instance; when the instance is in
+   another env (same stack or not) the graph draws the ghost
+   `stack/env · name`. `docs/rewrite/ui-plan.md` §2 and §5 still say
+   "hosting instance under a slice". Lean: update the ui-plan text.
+208. **(step 7b task 7) Two slices of one instance, one traffic line.** A
+   consumer bound to two slices of the same instance gets its traffic
+   line drawn to the last one found. Lean: fine for v1 (traffic is per
+   instance container anyway).
+209. **(step 7b task 7) Config-managed stacks lock default access only.**
+   `on_remove` and per-consumer access stay editable in the UI and CLI on
+   a config-managed stack, so they can drift from the file until the next
+   push overwrites them. Lean: lock both like default access (a slice's
+   `on_remove` and a consumer's `slice_access` are file keys).
+210. **(step 7b task 7) No remove for a `slice_access` entry.** The Access
+   tab and `stackr tile access` add or change an entry, never drop one;
+   the file can (omit it). Lean: add `--rm` / a × per row, drops the
+   entry and re-grants the slice's default.
+211. **(step 7b task 7) Web-only verbs.** `SetSliceDefaultAccess` and
+   `ConsumerBindings` have no API route or CLI (the precedent is DECIDE
+   84). Lean: API routes in a QA loop if the CLI needs them; otherwise
+   Later.
 ## DECIDE:
 
 Silent calls the planner made under rule 9 / "fix obvious gaps"; flip any
