@@ -1,10 +1,12 @@
 // Package instance is the managed instance drawer (v0's db panel):
 // Overview (how to reach it and the slices cut from it), Logs, Backups
-// and Settings (sharing, delete). v0's Metrics and Data tabs are out of v1.
+// and Settings (the allow list, env pairs, delete). v0's Metrics and Data
+// tabs are out of v1.
 package instance
 
 import (
 	"slices"
+	"strconv"
 
 	c "github.com/FyrmForge/stackr/internal/ui/components"
 	"github.com/FyrmForge/stackr/internal/ui/dialog"
@@ -34,7 +36,6 @@ type View struct {
 	Tab                string
 	Status             string // a TileBadge word
 	Running            bool   // offer Stop, not Deploy (v0 dbActions)
-	Scope              string // env | stack | org: who may cut slices
 	Location, EnvColor string
 	Error, Note        string
 }
@@ -52,7 +53,6 @@ func Drawer(v View, body templ.Component) templ.Component {
 		Note:     v.Note,
 		Icon:     "managed",
 		Status:   v.Status,
-		Scope:    v.Scope + "-scoped",
 		Location: v.Location,
 		EnvColor: v.EnvColor,
 		Actions:  actions(v),
@@ -78,49 +78,46 @@ type OverviewView struct {
 	Slices              []SliceRow
 }
 
-// SliceRow opens the slice's own drawer.
+// SliceRow is one slice cut from the instance: its slice tile, which may
+// live in another env or stack, so Link is that env's canvas with the
+// slice's drawer open.
 type SliceRow struct {
-	ID, Name, DB, OnRemove, Drawer string
-	UsedBy                         string // the consumer's name; "" = none
-	Public, Orphan                 bool   // Orphan: its consumer is gone
+	Slice    string // the slice tile's slug
+	Where    string // "stack/env" when not this env; "" = here
+	Link     string
+	Name     string // the database or bucket
+	Bindings int
+	Public   bool
 }
 
 // Overview is v0's connection panel (no password: it never reaches the
-// page) and the "Provisioned" list.
+// page) and the slices on the instance.
 templ Overview(v View, o OverviewView) {
 	<div id="tab-slices">
 		@c.Facts() {
 			@c.Fact("Endpoint", o.Endpoint)
 			@c.Fact("Admin user", o.AdminUser)
-			@c.Fact("Slices from", scopeWord(v.Scope))
 		}
-		<h3 class="section-title">Provisioned slices</h3>
+		<h3 class="section-title">Slices on this instance</h3>
 		if len(o.Slices) == 0 {
-			<p class="text-rw-muted text-sm">No tile has a slice of it yet.</p>
+			<p class="text-rw-muted text-sm">No slice tile has been provisioned here yet.</p>
 		} else {
 			<ul class="space-y-2">
 				for _, s := range o.Slices {
 					<li class="panel px-4 py-3 flex items-center justify-between gap-3">
 						<span class="text-sm text-rw-text min-w-0">
-							<span class="font-mono">{ s.DB }</span>
-							if s.UsedBy != "" {
-								<span class="text-rw-faint text-xs ml-1">used by { s.UsedBy }</span>
-							} else if s.Orphan {
-								<span class="text-rw-warn text-xs ml-1">consumer gone, { s.OnRemove } pending</span>
+							<a href={ templ.SafeURL(s.Link) } class="font-medium text-rw-accentHi hover:underline">{ s.Slice }</a>
+							if s.Where != "" {
+								<span class="text-rw-faint text-xs ml-1">in { s.Where }</span>
 							}
-							<span class="block mt-0.5">
-								<a
-									href={ templ.SafeURL("?drawer=" + s.ID + "&tab=bindings") }
-									hx-get={ s.Drawer }
-									hx-target="#drawer-body"
-									hx-push-url={ "?drawer=" + s.ID + "&tab=bindings" }
-									class="font-mono text-xs text-rw-faint hover:text-rw-text"
-								>{ s.Name }</a>
-							</span>
+							<span class="block mt-0.5 font-mono text-xs text-rw-faint">{ s.Name }</span>
 						</span>
-						if s.Public {
-							@c.Chip("public", "accent")
-						}
+						<span class="flex items-center gap-2 shrink-0">
+							<span class="text-xs text-rw-muted">{ bindings(s.Bindings) }</span>
+							if s.Public {
+								@c.Chip("public", "accent")
+							}
+						</span>
 					</li>
 				}
 			</ul>
@@ -128,14 +125,11 @@ templ Overview(v View, o OverviewView) {
 	</div>
 }
 
-func scopeWord(scope string) string {
-	switch scope {
-	case "stack":
-		return "the whole stack"
-	case "org":
-		return "the whole organization"
+func bindings(n int) string {
+	if n == 1 {
+		return "1 binding"
 	}
-	return "this environment"
+	return strconv.Itoa(n) + " bindings"
 }
 
 type LogsView struct {
@@ -169,26 +163,121 @@ templ Backups(v View, vols []volume.BackupsView) {
 	</div>
 }
 
-// Settings is v0's Sharing section and its danger zone.
-templ Settings(v View) {
+// SettingsView is who may cut a slice here: the allow list and the env
+// pairs. Each form posts the whole list or map; a row's × posts it
+// without that row.
+type SettingsView struct {
+	Allow    []string
+	Add      string // the add input: "<org>:" or what was typed
+	CanAllow bool   // the allow list is an owner's (managed.allow)
+	Pairs    []Pair
+	AddFrom  string
+	AddTo    string
+	Envs     []string          // this stack's envs, a pair's right side
+	Errors   map[string]string // allow | env_pairs → why the save was refused
+}
+
+// Pair is one env pair: a consumer's env → this stack's env.
+type Pair struct{ From, To string }
+
+// Settings is the allow list, the env pairs and the danger zone.
+templ Settings(v View, s SettingsView) {
 	<div id="tab-settings">
-		<h3 class="section-title">Sharing</h3>
-		<form hx-post={ v.Base + "/scope" } hx-target={ "#" + Root } hx-swap="outerHTML" class="flex flex-wrap gap-2 items-end">
-			<div>
-				<label class="label" for="instance-scope">Shared with</label>
-				<select id="instance-scope" name="scope_kind" class="input w-auto">
-					<option value="env" selected?={ v.Scope != "stack" && v.Scope != "org" }>This environment</option>
-					<option value="stack" selected?={ v.Scope == "stack" }>Whole stack</option>
-					<option value="org" selected?={ v.Scope == "org" }>Whole organization</option>
-				</select>
-			</div>
-			<button type="submit" class="btn btn-ghost btn-sm">Save scope</button>
-			<p class="w-full text-xs text-rw-faint">Controls which tiles may cut a slice here. This environment keeps it private; stack or organization lets tiles elsewhere share this instance.</p>
-		</form>
+		@c.PanelSection("instance-allow", "Allow", "Who may cut a slice here: org:stack:env:tile patterns, a trailing * for the rest. Empty: this environment only.") {
+			if len(s.Allow) == 0 {
+				<p class="text-sm text-rw-muted">No pattern yet: only slice tiles in this environment.</p>
+			} else {
+				<ul class="space-y-1.5">
+					for i, p := range s.Allow {
+						<li class="panel px-4 py-2.5 flex items-center gap-3 text-sm">
+							<span class="flex-1 font-mono text-rw-text break-all">{ p }</span>
+							if s.CanAllow {
+								<form hx-post={ v.Base + "/allow" } hx-target={ "#" + Root } hx-swap="outerHTML">
+									for _, q := range drop(s.Allow, i) {
+										<input type="hidden" name="allow" value={ q }/>
+									}
+									<button type="submit" class="text-rw-faint hover:text-rw-danger" aria-label={ "Remove " + p }>×</button>
+								</form>
+							}
+						</li>
+					}
+				</ul>
+			}
+			if s.CanAllow {
+				<form hx-post={ v.Base + "/allow" } hx-target={ "#" + Root } hx-swap="outerHTML" class="flex flex-wrap items-end gap-2">
+					for _, q := range s.Allow {
+						<input type="hidden" name="allow" value={ q }/>
+					}
+					<div class="flex-1 min-w-48">
+						<label for="allow-add" class="label">Add a pattern</label>
+						<input id="allow-add" name="add" value={ s.Add } placeholder="acme:shop:*" class="input font-mono"/>
+					</div>
+					<button type="submit" class="btn btn-ghost btn-sm">Add</button>
+					<div class="w-full">
+						@c.FieldError("allow", s.Errors["allow"])
+					</div>
+				</form>
+			} else {
+				<p class="text-xs text-rw-faint">Only an owner of the organization changes this list.</p>
+			}
+		}
+		@c.PanelSection("instance-env-pairs", "Env pairs", "Which of this stack's envs a slice lands in, by the env its provision_from names. Once one is set, an env left out resolves nowhere.") {
+			if len(s.Pairs) == 0 {
+				<p class="text-sm text-rw-muted">No pair yet: a slice lands in the env it names.</p>
+			} else {
+				<ul class="space-y-1.5">
+					for i, p := range s.Pairs {
+						<li class="panel px-4 py-2.5 flex items-center gap-3 text-sm font-mono">
+							<span class="text-rw-text">{ p.From }</span>
+							<span class="text-rw-faint">→</span>
+							<span class="flex-1 text-rw-text">{ p.To }</span>
+							<form hx-post={ v.Base + "/env-pairs" } hx-target={ "#" + Root } hx-swap="outerHTML">
+								for _, q := range dropPair(s.Pairs, i) {
+									<input type="hidden" name="from" value={ q.From }/>
+									<input type="hidden" name="to" value={ q.To }/>
+								}
+								<button type="submit" class="text-rw-faint hover:text-rw-danger" aria-label={ "Remove " + p.From }>×</button>
+							</form>
+						</li>
+					}
+				</ul>
+			}
+			<form hx-post={ v.Base + "/env-pairs" } hx-target={ "#" + Root } hx-swap="outerHTML" class="flex flex-wrap items-end gap-2">
+				for _, q := range s.Pairs {
+					<input type="hidden" name="from" value={ q.From }/>
+					<input type="hidden" name="to" value={ q.To }/>
+				}
+				<div class="flex-1 min-w-32">
+					<label for="pair-from" class="label">Consumer env</label>
+					<input id="pair-from" name="add_from" value={ s.AddFrom } placeholder="staging" class="input font-mono"/>
+				</div>
+				<div class="flex-1 min-w-32">
+					<label for="pair-to" class="label">This stack's env</label>
+					<select id="pair-to" name="add_to" class="input">
+						for _, e := range s.Envs {
+							<option value={ e } selected?={ e == s.AddTo }>{ e }</option>
+						}
+					</select>
+				</div>
+				<button type="submit" class="btn btn-ghost btn-sm">Add</button>
+				<div class="w-full">
+					@c.FieldError("env_pairs", s.Errors["env_pairs"])
+				</div>
+			</form>
+		}
 		@c.DangerZone("Deleting this database removes its container and everything provisioned from it.", v.Name, "The data volume is kept, orphaned for the retention window.") {
 			@c.Confirm(remove(v))
 		}
 	</div>
+}
+
+// drop is list without its i-th entry.
+func drop(list []string, i int) []string {
+	return slices.Delete(slices.Clone(list), i, i+1)
+}
+
+func dropPair(list []Pair, i int) []Pair {
+	return slices.Delete(slices.Clone(list), i, i+1)
 }
 
 func remove(v View) c.ConfirmView {

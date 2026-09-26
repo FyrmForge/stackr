@@ -142,6 +142,24 @@ func TestSliceVerbs(t *testing.T) {
 		t.Errorf("provisioned slice view = %+v", v)
 	}
 
+	cb, err := o.ConsumerBindings(ctx, tl.ID)
+	must(t, err)
+	if len(cb) != 1 || cb[0].SliceID != db.ID || cb[0].Slice != "db" || cb[0].Access != "read" {
+		t.Errorf("consumer bindings = %+v", cb)
+	}
+	_, on, err := o.InstanceSlices(ctx, pg.ID)
+	must(t, err)
+	if len(on) != 1 || on[0].Slice != "db" || on[0].Stack != "shop" || on[0].Env != "dev" || on[0].Bindings != 1 {
+		t.Errorf("instance slices = %+v", on)
+	}
+	db, err = o.SetSliceDefaultAccess(ctx, db.ID, "read")
+	must(t, err)
+	if *db.DefaultAccess != "read" {
+		t.Errorf("default_access = %v", *db.DefaultAccess)
+	}
+	_, err = o.SetSliceDefaultAccess(ctx, db.ID, "admin")
+	invalid("default_access admin", err)
+
 	_, err = o.SetSliceOnRemove(ctx, db.ID, "later")
 	invalid("on_remove later", err)
 	_, err = o.SetSliceOnRemove(ctx, tl.ID, "drop")
@@ -160,5 +178,8 @@ func TestSliceVerbs(t *testing.T) {
 		t.Error("slice tile on a config-managed stack was made")
 	} else if _, ok := errs.IsConflict(err); !ok {
 		t.Errorf("config-managed = %v, want conflict", err)
+	}
+	if _, err := o.SetSliceDefaultAccess(ctx, db.ID, "write"); err == nil {
+		t.Error("default_access on a config-managed stack was set")
 	}
 }

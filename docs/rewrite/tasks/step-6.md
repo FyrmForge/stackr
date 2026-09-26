@@ -274,8 +274,12 @@ and stream must match:
 task 7's cards and the env page point at (all under `/:org/:stack/:env/-/`
 since the merge, DECIDE 86):
 
-- `tiles/:tile?tab=` (tabs by kind: `tile.Tabs`),
-  `instances/:tile`, `slices/:provision?tab=bindings`,
+- `tiles/:tile?tab=` (tabs by kind: `tile.Tabs`; step 7b task 7 adds
+  `access`, POST `tiles/:tile/access`),
+  `instances/:tile` (tabs `slices` (Overview), `logs`, `backups`,
+  `settings`; step 7b task 7 adds POST `allow` and `env-pairs`),
+  `slices/:tile?tab=overview` (the slice tile by slug since step 7b task
+  7, one tab; POST `default-access`, `access`, `on-remove`, `delete`),
   `volumes/:volume?tab=backups`, `proxy?tab=routes`,
   `new-tile` (the create form, opened into the drawer from "+ tile"),
   `rollback/:release` (POST, answers a live `JobStatus`),

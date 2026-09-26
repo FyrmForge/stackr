@@ -22,17 +22,17 @@ import (
 //
 //	acme (owner) ── connector gh ──config/source──> shop
 //	shop: dev (release 2), prod (release 1), stack param
-//	dev: api ─ref→ worker, api ─ref→ slice main (pg hosted here),
+//	dev: api ─ref→ worker, api ─ref→ slice tile main ─shared→ pg,
 //	     api ─shared→ ghost stack.cache, vars ─shared→ api,
 //	     web ─startup→ api, api mounts uploads, domain on api,
 //	     volume old detached, api's last job failed
 //	beta: a second org, empty
 type world struct {
-	e                               *servicetest.Env
-	user, acme, beta, conn          string
-	shop, dev, prod                 string
-	api, worker, web, pg, provision string
-	vols                            map[string]string // slug -> id
+	e                           *servicetest.Env
+	user, acme, beta, conn      string
+	shop, dev, prod             string
+	api, worker, web, pg, slice string
+	vols                        map[string]string // slug -> id
 }
 
 func tileRow(stackID, envID, slug, kind string, edit func(*store.Tile)) store.Tile {
@@ -161,9 +161,10 @@ func seedWorld(t *testing.T) world {
 		t.ProvisionFrom = &from
 	})
 	must(e.Store.Tiles.Create(ctx, sl))
-	w.provision = uuid.NewString()
+	w.slice = sl.ID
+	provision := uuid.NewString()
 	must(e.Store.Provisions.Create(ctx, store.Provision{
-		ID:         w.provision,
+		ID:         provision,
 		TileID:     sl.ID,
 		InstanceID: inst.ID,
 		DBName:     "main",
@@ -171,7 +172,7 @@ func seedWorld(t *testing.T) world {
 	}))
 	must(e.Store.Bindings.Create(ctx, store.Binding{
 		ID:             uuid.NewString(),
-		ProvisionID:    w.provision,
+		ProvisionID:    provision,
 		ConsumerTileID: w.api,
 		Access:         "write",
 		DBUser:         "main_api",
@@ -342,17 +343,18 @@ func TestCanvasEnv(t *testing.T) {
 		t.Errorf("compare = %+v, want the pill here too: dev then prod", v.Compare)
 	}
 	// Env node ids are row ids (the Traffic verb's lane ends); name them back.
-	name := strings.NewReplacer(w.api, "api", w.worker, "worker", w.web, "web", w.pg, "pg", w.provision, "slice",
+	name := strings.NewReplacer(w.api, "api", w.worker, "worker", w.web, "web", w.pg, "pg", w.slice, "main",
 		w.vols["uploads"], "uploads", w.vols["old"], "old")
 	named := strings.Fields(name.Replace(ids(v)))
 	sort.Strings(named)
-	if got, want := strings.Join(named, " "), "api old proxy slice vars web worker"; got != want {
-		t.Fatalf("env cards = %s\nwant       %s (pg rides under its slice)", got, want)
+	if got, want := strings.Join(named, " "), "api main old pg proxy vars web worker"; got != want {
+		t.Fatalf("env cards = %s\nwant       %s (a slice tile is its own card)", got, want)
 	}
 	want := []string{
 		"ingress proxy api",
-		"ref api slice",
+		"ref api main",
 		"ref api worker",
+		"shared main pg",
 		"shared vars api",
 		"startup web api",
 	}
@@ -370,8 +372,8 @@ func TestCanvasEnv(t *testing.T) {
 		api.H != 96 || api.Detail != "api" {
 		t.Errorf("api = %+v", api)
 	}
-	if sl := ns[w.provision]; len(sl.Subs) != 1 || sl.Subs[0].ID != w.pg {
-		t.Errorf("slice = %+v, want pg as its sub-tile", sl)
+	if sl := ns[w.slice]; len(sl.Subs) != 0 || sl.Detail != "database on pg" || sl.Consumers != 1 {
+		t.Errorf("slice = %+v, want its noun and target, one consumer, no sub-tile", sl)
 	}
 	if p := ns["proxy"]; !p.System || !v.Walled || p.X+p.W > v.Divider || p.Status != "running" {
 		t.Errorf("proxy = %+v divider %d, want a system card behind the wall", p, v.Divider)
@@ -406,6 +408,45 @@ func TestCanvasEnv(t *testing.T) {
 		if strings.HasPrefix(e, "startup") || strings.HasPrefix(e, "ingress") {
 			t.Errorf("edge %s survived the filter", e)
 		}
+	}
+}
+
+// A slice cut from another env's instance draws a ghost of it; one that
+// resolves nowhere draws no shared edge.
+func TestCanvasSliceGhost(t *testing.T) {
+	w := seedWorld(t)
+	ctx := context.Background()
+	if _, err := w.e.Orch.SetManagedAllow(ctx, w.pg, []string{"acme:shop:*"}); err != nil {
+		t.Fatal(err)
+	}
+	var ids []string
+	for _, c := range []struct{ slug, from string }{
+		{"s0", "shop:dev:pg"},
+		{"s1", "shop:dev:nope"},
+	} {
+		sl := tileRow(w.shop, w.prod, c.slug, "slice", func(t *store.Tile) {
+			t.ImageRef = ""
+			t.ProvisionFrom = &c.from
+		})
+		if err := w.e.Store.Tiles.Create(ctx, sl); err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, sl.ID)
+	}
+	v, err := w.e.Orch.Canvas(ctx, service.CanvasScope{Kind: service.CanvasEnv, ID: w.prod}, service.ShowAll)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ns := nodes(v)
+	if g := ns[w.pg]; g.Kind != "ref" || g.Name != "shop/dev · pg" {
+		t.Errorf("ghost = %+v, want the ref card shop/dev · pg", g)
+	}
+	if ns[ids[0]].Detail != "database on pg" || ns[ids[1]].Detail != "no target" {
+		t.Errorf("slices = %q, %q", ns[ids[0]].Detail, ns[ids[1]].Detail)
+	}
+	got := strings.Join(edges(v), "|")
+	if !strings.Contains(got, "shared "+ids[0]+" "+w.pg) || strings.Contains(got, "shared "+ids[1]) {
+		t.Errorf("edges = %s, want one shared edge, s0 to the ghost", got)
 	}
 }
 

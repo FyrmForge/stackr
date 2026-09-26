@@ -209,7 +209,7 @@ func TestEdgesSlices(t *testing.T) {
 		"pg:5432",
 	)
 	must(t, err)
-	slice := map[string]string{} // consumer slug -> the provision it binds
+	slice := map[string]string{} // consumer slug -> the slice tile it binds
 	for _, n := range []string{"web", "jobs"} {
 		from := "s:dev:pg"
 		sl, err := tiles.Create(ctx, store.Tile{
@@ -230,7 +230,7 @@ func TestEdgesSlices(t *testing.T) {
 			User:   n + "_app",
 		})
 		must(t, err)
-		slice[n] = p.ID
+		slice[n] = sl.ID
 	}
 	fl := &traffic.Flow{Tiles: tiles, Managed: ml, Traffic: ltraffic.New()}
 	ipMap := map[string]string{

@@ -18,7 +18,6 @@ func TestEveryTabRenders(t *testing.T) {
 		Name:    "pg",
 		Engine:  "postgres",
 		Base:    "/o/s/e/-/instances/pg",
-		Scope:   "stack",
 		Running: true,
 		Status:  "running",
 	}
@@ -31,11 +30,31 @@ func TestEveryTabRenders(t *testing.T) {
 				Endpoint:  "pg:5432",
 				AdminUser: "stackr",
 				Slices: []SliceRow{
-					{ID: "p1", Name: "shop", DB: "shop", Drawer: "/o/s/e/-/slices/p1?tab=bindings", Public: true, UsedBy: "api"},
-					{ID: "p2", Name: "old", OnRemove: "drop", Orphan: true},
+					{
+						Slice:    "shop-db",
+						Link:     "/o/s/e?drawer=t2&tab=overview",
+						Name:     "shop_db",
+						Bindings: 1,
+						Public:   true,
+					},
+					{
+						Slice:    "shop-db",
+						Where:    "shop/prod",
+						Link:     "/o/shop/prod?drawer=t3&tab=overview",
+						Name:     "shop_prod",
+						Bindings: 2,
+					},
 				},
 			}),
-			[]string{"-/slices/p1", "public", "used by api", "consumer gone, drop pending", "the whole stack", "pg:5432"},
+			[]string{
+				"Slices on this instance",
+				`href="/o/s/e?drawer=t2&amp;tab=overview"`,
+				"in shop/prod",
+				"1 binding<",
+				"2 bindings",
+				"public",
+				"pg:5432",
+			},
 		},
 		"logs": {
 			Logs(v, LogsView{Running: true}),
@@ -46,18 +65,57 @@ func TestEveryTabRenders(t *testing.T) {
 			[]string{"Database dump", "/-/volumes/v1/backup", "No runs yet."},
 		},
 		"settings": {
-			Settings(v),
-			[]string{`name="scope_kind"`, `value="stack" selected`, "/-/instances/pg/delete", `word="pg"`},
+			Settings(v, SettingsView{
+				Allow:    []string{"o:shop:*", "o:web:prod:api"},
+				Add:      "o:",
+				CanAllow: true,
+				Pairs: []Pair{
+					{
+						From: "staging",
+						To:   "prod",
+					},
+				},
+				Envs:   []string{"dev", "prod"},
+				Errors: map[string]string{"allow": "o:x:y: four segments or a trailing *"},
+			}),
+			[]string{
+				"o:shop:*",
+				`hx-post="/o/s/e/-/instances/pg/allow"`,
+				`name="allow" value="o:web:prod:api"`,
+				`name="add" value="o:"`,
+				"four segments or a trailing *",
+				"staging",
+				`hx-post="/o/s/e/-/instances/pg/env-pairs"`,
+				`<option value="prod">prod</option>`,
+				"/-/instances/pg/delete",
+				`word="pg"`,
+			},
 		},
 	} {
 		var b strings.Builder
 		if err := Drawer(v, tc.body).Render(context.Background(), &b); err != nil {
 			t.Fatal(err)
 		}
-		for _, w := range append(tc.want, "Overview", "/-/instances/pg/stop", ">stack-scoped<") {
+		for _, w := range append(tc.want, "Overview", "/-/instances/pg/stop") {
 			if !strings.Contains(b.String(), w) {
 				t.Errorf("%s lacks %q", tab, w)
 			}
 		}
+	}
+}
+
+// A member who is not an owner sees the allow list but no form to change it.
+func TestAllowIsAnOwners(t *testing.T) {
+	v := View{
+		Name: "pg",
+		Base: "/o/s/e/-/instances/pg",
+	}
+	var b strings.Builder
+	s := SettingsView{Allow: []string{"o:shop:*"}}
+	if err := Settings(v, s).Render(context.Background(), &b); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(b.String(), "/allow") || !strings.Contains(b.String(), "Only an owner") {
+		t.Error("a non-owner must not get the allow forms")
 	}
 }

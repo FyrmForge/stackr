@@ -133,6 +133,36 @@ func TestEveryTabRenders(t *testing.T) {
 				"tab=logs&amp;run=r1",
 			},
 		},
+		"access": {
+			v,
+			Access(v, AccessView{
+				Entries: []AccessEntry{
+					{
+						Slice:  "main",
+						Link:   "/o/s/e?drawer=t5&tab=overview",
+						Access: "read",
+					},
+				},
+				Bindings: []AccessBinding{
+					{
+						Slice:  "cache",
+						Link:   "/o/s/e?drawer=t6&tab=overview",
+						Access: "write",
+						User:   "api_user",
+					},
+				},
+				Slices: []string{"cache", "main"},
+			}),
+			[]string{
+				`href="/o/s/e?drawer=t5&amp;tab=overview"`,
+				`name="slice" value="main"`,
+				`<option value="read" selected>`,
+				`href="/o/s/e?drawer=t6&amp;tab=overview"`,
+				"api_user",
+				`id="access-slice"`,
+				`hx-post="/o/s/e/-/tiles/api/access"`,
+			},
+		},
 		"backups": {
 			v,
 			Backups(v, BackupsView{
@@ -164,8 +194,8 @@ func TestEveryTabRenders(t *testing.T) {
 // Settings, a key the kind lacks opens its first tab.
 func TestTabsPerKind(t *testing.T) {
 	for kind, want := range map[string]string{
-		"cron":    "runs logs jobs env settings backups",
-		"service": "status jobs logs env settings backups",
+		"cron":    "runs logs jobs env access settings backups",
+		"service": "status jobs logs env access settings backups",
 	} {
 		if got := strings.Join(Tabs(kind), " "); got != want {
 			t.Errorf("%s tabs = %s", kind, got)

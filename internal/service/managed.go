@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
@@ -255,6 +256,27 @@ func (o *Orchestrator) SetSliceOnRemove(ctx context.Context, sliceTileID, onRemo
 	return out, err
 }
 
+// SetSliceDefaultAccess is the access slice tile sliceTileID grants a
+// consumer that names it by a ref alone: read | write. A config-managed
+// stack sets it in the stack file.
+func (o *Orchestrator) SetSliceDefaultAccess(ctx context.Context, sliceTileID, access string) (Tile, error) {
+	s, err := o.sliceTile(ctx, sliceTileID)
+	if err != nil {
+		return s, err
+	}
+	st, err := o.stacks.Get(ctx, s.StackID)
+	if err != nil {
+		return s, err
+	}
+	if st.ConfigRepo != "" {
+		return s, errs.Conflictf("stack %s is config-managed; set default_access in its stack file", st.Slug)
+	}
+	cur := s
+	cur.DefaultAccess = &access
+	out, _, err := o.tiles.Update(ctx, s, cur)
+	return out, err
+}
+
 // SliceBinding is one consumer's cred on a slice, its secret left out.
 type SliceBinding struct {
 	ConsumerID string    `json:"consumer_id"`
@@ -298,12 +320,51 @@ func (o *Orchestrator) Bindings(ctx context.Context, sliceTileID string) ([]Slic
 	return out, nil
 }
 
+// ConsumerBinding is one cred a consumer holds on a slice, its secret left
+// out.
+type ConsumerBinding struct {
+	SliceID string    `json:"slice_id"`
+	Slice   string    `json:"slice"` // the slice tile's slug
+	Access  string    `json:"access"`
+	User    string    `json:"user"`
+	Since   time.Time `json:"since"`
+}
+
+// ConsumerBindings are the slices consumer consumerTileID holds a cred on,
+// by slug: the ones its slice_access names and the ones a ref alone bound
+// (DECIDE 204 (b)). Never the password or the outputs.
+func (o *Orchestrator) ConsumerBindings(ctx context.Context, consumerTileID string) ([]ConsumerBinding, error) {
+	bound, err := o.managed.Bound(ctx, consumerTileID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]ConsumerBinding, 0, len(bound))
+	for sliceID, b := range bound {
+		s, err := o.tiles.Get(ctx, sliceID)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, ConsumerBinding{
+			SliceID: s.ID,
+			Slice:   s.Slug,
+			Access:  b.Access,
+			User:    b.DBUser,
+			Since:   b.CreatedAt,
+		})
+	}
+	slices.SortFunc(out, func(a, b ConsumerBinding) int {
+		return strings.Compare(a.Slice, b.Slice)
+	})
+	return out, nil
+}
+
 // SliceView is a slice tile as its drawer reads it.
 type SliceView struct {
 	TileID        string `json:"tile_id"`
 	Slug          string `json:"slug"`
 	ProvisionFrom string `json:"provision_from"` // as written
 	Target        string `json:"target"`         // <stack>:<env>:<tile> it resolves to now
+	TargetTileID  string `json:"target_tile_id"` // that instance tile's id; "" with Target
 	Blocker       string `json:"blocker"`        // why it does not resolve; Target is "" then
 	DefaultAccess string `json:"default_access"`
 	OnRemove      string `json:"on_remove"`
@@ -353,6 +414,7 @@ func (o *Orchestrator) SliceOf(ctx context.Context, sliceTileID string) (SliceVi
 		return v, err
 	}
 	v.Target = st.Slug + ":" + e.Slug + ":" + it.Slug
+	v.TargetTileID = it.ID
 	if ok {
 		return v, nil
 	}
@@ -379,20 +441,55 @@ func str(p *string) string {
 	return *p
 }
 
+// InstanceSlice is one slice cut from an instance: its provision, the
+// slice tile it belongs to and where that lives (any env of the org), and
+// how many consumers hold a cred on it.
+type InstanceSlice struct {
+	Provision
+	Slice    string `json:"slice"` // the slice tile's slug
+	Stack    string `json:"stack"` // its stack's slug
+	Env      string `json:"env"`   // its env's slug
+	Bindings int    `json:"bindings"`
+}
+
 // InstanceSlices is a managed tile's instance and every slice cut from it.
 func (o *Orchestrator) InstanceSlices(
 	ctx context.Context,
 	instanceTileID string,
-) (ManagedInstance, []Provision, error) {
+) (ManagedInstance, []InstanceSlice, error) {
 	m, err := o.managed.GetByTile(ctx, instanceTileID)
 	if err != nil {
 		return m, nil, err
 	}
 	ps, err := o.managed.ByInstance(ctx, m.ID)
-	return m, ps, err
-}
-
-// Provision is one slice by id.
-func (o *Orchestrator) Provision(ctx context.Context, id string) (Provision, error) {
-	return o.managed.GetProvision(ctx, id)
+	if err != nil {
+		return m, nil, err
+	}
+	out := make([]InstanceSlice, 0, len(ps))
+	for _, p := range ps {
+		s, err := o.tiles.Get(ctx, p.TileID)
+		if err != nil {
+			return m, nil, err
+		}
+		e, err := o.envs.Get(ctx, s.EnvironmentID)
+		if err != nil {
+			return m, nil, err
+		}
+		st, err := o.stacks.Get(ctx, s.StackID)
+		if err != nil {
+			return m, nil, err
+		}
+		bs, err := o.managed.Bindings(ctx, p.ID)
+		if err != nil {
+			return m, nil, err
+		}
+		out = append(out, InstanceSlice{
+			Provision: p,
+			Slice:     s.Slug,
+			Stack:     st.Slug,
+			Env:       e.Slug,
+			Bindings:  len(bs),
+		})
+	}
+	return m, out, nil
 }

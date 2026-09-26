@@ -84,7 +84,7 @@ func Check(path string) string {
 }
 
 // Edges is the latest snapshot as one env's canvas draws it: consumer <->
-// instance lanes renamed to the consumer's slice (its provision row), then
+// instance lanes renamed to the consumer's slice tile (its card), then
 // only the lanes with a tile of the env at one end.
 func (f *Flow) Edges(ctx context.Context, envID string) ([]ltraffic.Edge, error) {
 	ts, err := f.Tiles.List(ctx, envID)
@@ -104,8 +104,10 @@ func (f *Flow) Edges(ctx context.Context, envID string) ([]ltraffic.Edge, error)
 			if err != nil {
 				return nil, err
 			}
-			// one binding per consumer per instance (leaf/managed)
-			bind[ltraffic.Pair{From: t.ID, To: m.TileID}] = p.ID
+			// ponytail: conntrack sees consumer <-> instance, not which
+			// database; a consumer on two slices of one instance draws its
+			// lane on the last. Per-slice needs the engine's own stats.
+			bind[ltraffic.Pair{From: t.ID, To: m.TileID}] = p.TileID
 		}
 	}
 	var out []ltraffic.Edge

@@ -67,9 +67,9 @@ type View struct {
 // kind lacks falls back to its first tab.
 func Tabs(kind string) []string {
 	if kind == "cron" || kind == "function" {
-		return []string{"runs", "logs", "jobs", "env", "settings", "backups"}
+		return []string{"runs", "logs", "jobs", "env", "access", "settings", "backups"}
 	}
-	return []string{"status", "jobs", "logs", "env", "settings", "backups"}
+	return []string{"status", "jobs", "logs", "env", "access", "settings", "backups"}
 }
 
 // Tab is the tab a request asks for, as the kind has it: the old domains
@@ -132,6 +132,20 @@ type EnvRow struct {
 	Name, Value string
 	Ref         bool // the value holds a ${{ }} reference
 }
+
+// AccessView is the slices a tile reaches: the entries its slice_access
+// names, the creds it holds (a slice it only refs shows once bound), and
+// the env's slice tiles for the add form.
+type AccessView struct {
+	Entries  []AccessEntry
+	Bindings []AccessBinding
+	Slices   []string
+}
+
+// AccessEntry is one slice_access entry; Link "" = no such slice tile.
+type AccessEntry struct{ Slice, Link, Access string }
+
+type AccessBinding struct{ Slice, Link, Access, User, Since string }
 
 type JobsView struct{ Rows []JobRow }
 

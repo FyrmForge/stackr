@@ -1,6 +1,8 @@
-// Package slice is the slice drawer: Overview (the database, its bindings,
-// a way to its instance, detach) and, when the instance runs in this env,
-// the instance's logs (v0: a slice has no container of its own).
+// Package slice is the slice tile drawer: what it is cut from (or why it
+// resolves nowhere), the access it grants, its consumers and their
+// access, what removing it does, its database or bucket, and the remove.
+// One tab: a slice has no container, so no logs of its own (its
+// instance's drawer has them).
 package slice
 
 import c "github.com/FyrmForge/stackr/internal/ui/components"
@@ -8,118 +10,162 @@ import c "github.com/FyrmForge/stackr/internal/ui/components"
 // Root is the id every drawer answer replaces (outerHTML).
 const Root = c.DrawerRoot
 
-var labels = map[string]string{"bindings": "Overview"}
+// Tabs are the drawer's one tab; the canvas opens it.
+var Tabs = []string{"overview"}
 
-// Tabs are the tabs a slice has: logs only with its instance in view.
-func Tabs(logs bool) []string {
-	if logs {
-		return []string{"bindings", "logs"}
-	}
-	return []string{"bindings"}
-}
-
-// Tab is the tab a request asks for; an unknown one opens Overview.
-func Tab(tab string, logs bool) string {
-	if tab == "logs" && logs {
-		return tab
-	}
-	return "bindings"
-}
-
-// View is one provision. Outputs are the binding names the consumer gets,
-// never their values.
+// View is one slice tile.
 type View struct {
-	Node, Name, DB, User, OnRemove string
-	Base                           string // the drawer URL
-	Tab                            string
-	Instance                       string // the instance tile's name
-	InstanceNode, InstanceDrawer   string // "" = its instance is not in this env
-	Logs                           bool
-	Public, Consumer               bool
-	Outputs                        []string
-	Detach                         string // POST; "" = no consumer to detach
-	Location, EnvColor             string
-	Error, Note                    string
+	Node, Name         string
+	Base               string // the drawer URL: actions add /<verb>
+	Status             string // a TileBadge word
+	Location, EnvColor string
+	Error, Note        string
+
+	ProvisionFrom string // as written
+	Target        string // "stack/env/tile" it resolves to; "" = Blocker says why
+	TargetLink    string // that env's canvas with the instance's drawer open
+	Blocker       string
+	DefaultAccess string
+	FileOwned     bool // config-managed: default access is the stack file's
+	OnRemove      string
+	Consumers     []Consumer
+	Provisioned   bool
+	DBName        string // the database or bucket, once provisioned
+	Network       string
+}
+
+// Consumer is one tile holding a cred on the slice.
+type Consumer struct {
+	Slug, Link, Kind, Access, User, Since string
 }
 
 func Drawer(v View, body templ.Component) templ.Component {
-	kind := "slice"
-	if v.Instance != "" {
-		kind = "slice of " + v.Instance
-	}
 	return c.Drawer(c.DrawerView{
 		Node:     v.Node,
 		Title:    v.Name,
-		Kind:     kind,
+		Kind:     "slice",
 		Base:     v.Base,
-		Tabs:     Tabs(v.Logs),
-		Labels:   labels,
-		Tab:      v.Tab,
+		Tabs:     Tabs,
+		Tab:      Tabs[0],
 		Error:    v.Error,
 		Note:     v.Note,
 		Icon:     "slice",
-		Scope:    visibility(v.Public),
+		Status:   v.Status,
 		Location: v.Location,
 		EnvColor: v.EnvColor,
 	}, body)
 }
 
-func visibility(public bool) string {
-	if public {
-		return "public"
-	}
-	return "private"
-}
-
 templ Overview(v View) {
-	<div id="tab-bindings">
-		@c.Facts() {
-			@c.Fact("Database", v.DB)
-			@c.Fact("User", v.User)
-			@c.Fact("Instance", v.Instance)
-			@c.Fact("On remove", v.OnRemove)
+	<div id="tab-overview">
+		@c.PanelSection("slice-target", "Target", "") {
+			if v.Target != "" {
+				<a href={ templ.SafeURL(v.TargetLink) } class="font-mono text-sm text-rw-accentHi hover:underline">{ v.Target }</a>
+			} else {
+				<p class="text-sm text-rw-danger" role="alert">{ v.Blocker }</p>
+			}
+			<p class="text-xs text-rw-faint font-mono">provision_from: { v.ProvisionFrom }</p>
 		}
-		if v.InstanceDrawer != "" {
-			<a
-				href={ templ.SafeURL("?drawer=" + v.InstanceNode + "&tab=slices") }
-				hx-get={ v.InstanceDrawer }
-				hx-target="#drawer-body"
-				hx-push-url={ "?drawer=" + v.InstanceNode + "&tab=slices" }
-				class="btn btn-ghost btn-sm mt-3"
-			>Open { v.Instance }</a>
-		}
-		<h3 class="section-title">Bindings</h3>
-		if len(v.Outputs) == 0 {
-			<p class="text-sm text-rw-muted">None yet: the attach job has not run.</p>
-		} else {
-			<ul class="space-y-2">
-				for _, o := range v.Outputs {
-					<li class="panel px-4 py-3 text-sm font-mono text-rw-text">{ o }</li>
-				}
-			</ul>
-			<p class="mt-2 text-xs text-rw-faint">The consumer gets these as variables; their values never reach this page.</p>
-		}
-		if v.Detach != "" {
-			@c.DangerZone("Detaching redeploys the consumer without these bindings; then the slice is "+v.OnRemove+".", v.Name, "") {
-				@c.Confirm(c.ConfirmView{
-					Button:  "Detach",
-					Title:   "Detach " + v.Name + "?",
-					Warning: "The consumer redeploys without these bindings; then the slice is " + v.OnRemove + ".",
-					Action:  v.Detach,
-					Target:  "#" + Root,
-				})
+		@c.PanelSection("slice-default-access", "Default access", "What a tile that refs this slice gets when its slice_access does not name it.") {
+			if v.FileOwned {
+				<p class="text-sm text-rw-text font-mono">{ v.DefaultAccess }</p>
+				<p class="text-xs text-rw-faint">Set in the stack file.</p>
+			} else {
+				<form hx-post={ v.Base + "/default-access" } hx-trigger="change" hx-target={ "#" + Root } hx-swap="outerHTML">
+					<label for="slice-default" class="sr-only">Default access</label>
+					@access("slice-default", "access", v.DefaultAccess)
+				</form>
 			}
 		}
+		@c.PanelSection("slice-consumers", "Consumers", "") {
+			@c.Table(c.TableView{
+				Headers:   []string{"Consumer", "Kind", "Access", "User", "Since"},
+				Rows:      consumerRows(v),
+				EmptyText: "No tile holds a cred on it yet. A consumer binds at its next deploy.",
+			})
+		}
+		@c.PanelSection("slice-on-remove", "On remove", "What removing this tile does to its database or bucket. An ephemeral env always drops.") {
+			<form hx-post={ v.Base + "/on-remove" } hx-trigger="change" hx-target={ "#" + Root } hx-swap="outerHTML">
+				<label for="slice-on-remove-select" class="sr-only">On remove</label>
+				<select id="slice-on-remove-select" name="on_remove" class="input w-auto">
+					<option value="keep" selected?={ v.OnRemove != "drop" }>keep</option>
+					<option value="drop" selected?={ v.OnRemove == "drop" }>drop</option>
+				</select>
+			</form>
+		}
+		@c.PanelSection("slice-status", "Status", "") {
+			@c.Facts() {
+				@c.Fact("Provisioned", yesNo(v.Provisioned))
+				@c.Fact("Name", v.DBName)
+				@c.Fact("Network", v.Network)
+			}
+		}
+		@c.DangerZone("Removing this tile unbinds its consumers, then keeps or drops its data as On remove says.", v.Name, "") {
+			@c.Confirm(c.ConfirmView{
+				Button:  "Remove tile",
+				Title:   "Remove " + v.Name + "?",
+				Warning: "Its consumers lose their cred; the data is " + onRemoveWord(v.OnRemove) + ".",
+				Kept:    []string{kept(v.OnRemove)},
+				Word:    v.Name,
+				Action:  v.Base + "/delete",
+				Target:  "#" + Root,
+			})
+		}
 	</div>
 }
 
-templ Logs(v View, pane c.LogPaneView, running bool) {
-	<div id="tab-logs">
-		<p class="mb-3 text-xs text-rw-muted">These are { v.Instance }'s container logs. A provisioned database has no container of its own.</p>
-		if running {
-			@c.LogPane(pane)
-		} else {
-			<p class="text-rw-muted text-sm">No container is running yet.</p>
-		}
-	</div>
+// access is a read | write select named name.
+templ access(id, name, cur string) {
+	<select id={ id } name={ name } class="input w-auto">
+		<option value="read" selected?={ cur == "read" }>read</option>
+		<option value="write" selected?={ cur != "read" }>write</option>
+	</select>
+}
+
+// accessCell is a consumer's access as a select that posts on change.
+templ accessCell(v View, cs Consumer) {
+	<form hx-post={ v.Base + "/access" } hx-trigger="change" hx-target={ "#" + Root } hx-swap="outerHTML">
+		<input type="hidden" name="consumer" value={ cs.Slug }/>
+		<label for={ "access-" + cs.Slug } class="sr-only">{ cs.Slug } access</label>
+		@access("access-"+cs.Slug, "access", cs.Access)
+	</form>
+}
+
+templ link(text, href string) {
+	<a href={ templ.SafeURL(href) } class="font-mono text-rw-accentHi hover:underline">{ text }</a>
+}
+
+func consumerRows(v View) [][]templ.Component {
+	rows := make([][]templ.Component, 0, len(v.Consumers))
+	for _, cs := range v.Consumers {
+		rows = append(rows, []templ.Component{
+			link(cs.Slug, cs.Link),
+			c.Text(cs.Kind),
+			accessCell(v, cs),
+			c.Text(cs.User),
+			c.Text(cs.Since),
+		})
+	}
+	return rows
+}
+
+func yesNo(b bool) string {
+	if b {
+		return "yes"
+	}
+	return "no"
+}
+
+func kept(onRemove string) string {
+	if onRemove == "drop" {
+		return "backups already in a destination"
+	}
+	return "the database or bucket, orphaned for its instance to keep"
+}
+
+func onRemoveWord(w string) string {
+	if w == "drop" {
+		return "dropped"
+	}
+	return "kept"
 }

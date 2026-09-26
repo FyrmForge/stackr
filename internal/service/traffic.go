@@ -7,7 +7,8 @@ import (
 )
 
 // Edge is one traffic lane: bytes per second From -> To. Ends are tile ids,
-// slice (provision) ids, or the pseudo ids "proxy" and "internet".
+// slice tile ids (a consumer <-> instance lane lands on the consumer's
+// slice), or the pseudo ids "proxy" and "internet".
 type Edge = ltraffic.Edge
 
 // Traffic is the env's lanes at the last 5 s sample: the first paint; the

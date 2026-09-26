@@ -422,6 +422,8 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 			Runs:     orch.runs,
 			Canvas:   orch.canvas,
 			Images:   orch.images,
+			Target:   orch.deploy.Target,
+			Slice:    orch.engines.SliceWord,
 		}
 	})
 	orch.jobs = build("flow/jobs", func() *jobs.Runner {

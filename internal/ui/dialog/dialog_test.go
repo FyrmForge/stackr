@@ -17,6 +17,7 @@ func TestCreateTileBySource(t *testing.T) {
 		"cron":     `name="schedule"`,
 		"function": `name="trigger"`,
 		"managed":  `name="engine"`,
+		"slice":    `placeholder="infra:${{ env.name }}:pg-db"`,
 	} {
 		var b strings.Builder
 		v := CreateTileView{

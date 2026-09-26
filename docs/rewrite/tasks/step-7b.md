@@ -201,6 +201,13 @@ Rules:
    card when the instance is in another stack, as today's ghost). Wizard
    and org drawer untouched.
    Done when: drawer tests for the three drawers; `make templint` clean.
+   As built: the slice tile drawer is `…/-/slices/<slug>`, one tab `overview` (Target, Default access, Consumers, On remove, Status, remove); no Logs tab, a slice has no container.
+   As built: the consumer drawer's `access` tab is new (the rewrite never had a Slices tab): `slice_access` entries with a select that saves on change, the creds held, an add form; nothing removes an entry.
+   As built: `SetSliceDefaultAccess` (refused on a config-managed stack) and `ConsumerBindings` added, web only (no API route or CLI); `InstanceSlices` returns each slice with its tile, stack, env and bindings count; `Provision(id)` went with the provision drawer.
+   As built: the hosting instance no longer rides under a slice (ui-plan §2's sub-tile): a slice's shared edge runs to its instance's card, or to a ghost `stack/env · name` when the instance is in another env, same stack included.
+   As built: a slice card reads `<database|bucket> on <instance>` ("no target", no shared edge, when it resolves nowhere); its footer is its status and the consumer count (ref edges in: refs, `slice_access` entries, creds).
+   As built: traffic lanes between a consumer and an instance end on the slice tile id; a consumer on two slices of one instance draws on the last. `ForConsumer` is traffic's only reader.
+   As built: drawer-to-drawer links are plain hrefs to the target env's canvas with `?drawer=<tile id>&tab=`; the allow forms show only to an owner.
 
 8. **VM proof.** Two stacks bound to two repos (the test repo and a
    second branch of it as the infra stack): infra pushes pg-db with the

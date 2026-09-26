@@ -2472,6 +2472,9 @@
           "target": {
             "type": "string"
           },
+          "target_tile_id": {
+            "type": "string"
+          },
           "tile_id": {
             "type": "string"
           }
@@ -2481,6 +2484,7 @@
           "slug",
           "provision_from",
           "target",
+          "target_tile_id",
           "blocker",
           "default_access",
           "on_remove",

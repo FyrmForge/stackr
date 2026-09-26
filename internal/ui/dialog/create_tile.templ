@@ -21,6 +21,8 @@ type CreateTileView struct {
 	Trigger    string
 	Command    string
 	Engine     string
+	From       string            // slice: provision_from
+	Access     string            // slice: default_access
 	Errors     map[string]string // field -> message; "general" = the form's
 }
 
@@ -34,7 +36,7 @@ func hostsHelp(hosts string) string {
 }
 
 // Sources are the create form's source switch.
-var Sources = []Option{{"image", "Image"}, {"service", "Repo"}, {"cron", "Cron"}, {"function", "Function"}, {"managed", "Managed"}}
+var Sources = []Option{{"image", "Image"}, {"service", "Repo"}, {"cron", "Cron"}, {"function", "Function"}, {"managed", "Managed"}, {"slice", "Slice"}}
 
 templ CreateTile(v CreateTileView) {
 	<form id="create-tile" hx-post={ v.Action } hx-target="#create-tile" hx-swap="outerHTML">
@@ -63,10 +65,20 @@ templ CreateTile(v CreateTileView) {
 						</select>
 						@c.FieldError("engine", v.Errors["engine"])
 					</div>
+				case "slice":
+					@c.Field(c.FieldView{Name: "provision_from", Label: "Provision from", Value: v.From, Placeholder: "infra:${{ env.name }}:pg-db", Required: true, Help: "The managed tile to cut it from: stack:env:tile.", Error: v.Errors["provision_from"]})
+					<div>
+						<label for="default_access" class="label">Default access</label>
+						<select id="default_access" name="default_access" class="input">
+							<option value="write" selected?={ v.Access != "read" }>write</option>
+							<option value="read" selected?={ v.Access == "read" }>read</option>
+						</select>
+						@c.FieldError("default_access", v.Errors["default_access"])
+					</div>
 				default:
 					@c.Field(c.FieldView{Name: "image_ref", Label: "Image", Value: v.Image, Placeholder: "nginx:1", Required: true, Error: v.Errors["image_ref"]})
 			}
-			if v.Source != "managed" {
+			if v.Source != "managed" && v.Source != "slice" {
 				@c.Field(c.FieldView{Name: "command", Label: "Command", Value: v.Command, Placeholder: "echo hi", Help: "Optional; replaces the image's command. Split like a shell line.", Error: v.Errors["command"]})
 			}
 			if v.Source == "cron" {
