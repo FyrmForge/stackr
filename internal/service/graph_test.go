@@ -441,7 +441,7 @@ func TestCanvasSliceGhost(t *testing.T) {
 	if g := ns[w.pg]; g.Kind != "ref" || g.Name != "shop/dev · pg" {
 		t.Errorf("ghost = %+v, want the ref card shop/dev · pg", g)
 	}
-	if ns[ids[0]].Detail != "database on pg" || ns[ids[1]].Detail != "no target" {
+	if ns[ids[0]].Detail != "database on pg" || ns[ids[1]].Detail != "unresolved" {
 		t.Errorf("slices = %q, %q", ns[ids[0]].Detail, ns[ids[1]].Detail)
 	}
 	got := strings.Join(edges(v), "|")

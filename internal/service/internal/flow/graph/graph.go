@@ -514,6 +514,7 @@ func refs(t store.Tile) []params.Ref {
 var rank = map[string]int{
 	"error":     7,
 	"building":  6,
+	"removing":  6,
 	"queued":    6,
 	"waiting":   6,
 	"unhealthy": 5,
@@ -605,6 +606,9 @@ func (f *Flow) status(ctx context.Context, t store.Tile) (status, error) {
 		s.word = "queued"
 	case hasJob && j.State == job.Running:
 		s.word = "building"
+		if j.Kind == "delete" {
+			s.word = "removing"
+		}
 	case hasJob && j.State == job.Waiting:
 		s.word = "waiting"
 		if j.WaitingParam != nil {
@@ -783,7 +787,7 @@ func (f *Flow) sliceCard(ctx context.Context, v *View, i int, s store.Tile) erro
 	}
 	it, ok, err := f.sliceTarget(ctx, s)
 	if err != nil || !ok {
-		n.Detail = "no target"
+		n.Detail = "unresolved" // the drawer says why: no such tile, no env pair, or not allowed
 		return err
 	}
 	m, err := f.Managed.GetByTile(ctx, it.ID)

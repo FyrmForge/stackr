@@ -418,8 +418,8 @@ func Overview(v View) templ.Component {
 			}
 			ctx = templ.InitializeContext(ctx)
 			templ_7745c5c3_Err = c.Confirm(c.ConfirmView{
-				Button:  "Remove tile",
-				Title:   "Remove " + v.Name + "?",
+				Button:  "Delete tile",
+				Title:   "Delete " + v.Name + "?",
 				Warning: "Its consumers lose their cred; the data is " + onRemoveWord(v.OnRemove) + ".",
 				Kept:    []string{kept(v.OnRemove)},
 				Word:    v.Name,
@@ -431,7 +431,7 @@ func Overview(v View) templ.Component {
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = c.DangerZone("Removing this tile unbinds its consumers, then keeps or drops its data as On remove says.", v.Name, "").Render(templ.WithChildren(ctx, templ_7745c5c3_Var17), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = c.DangerZone("Deleting this tile unbinds its consumers, then keeps or drops its data as On remove says.", v.Name, "").Render(templ.WithChildren(ctx, templ_7745c5c3_Var17), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

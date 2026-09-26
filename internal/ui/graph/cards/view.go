@@ -156,7 +156,7 @@ func word(status, waiting string) (tone, text string) {
 			return "warn", "Waiting for a value"
 		}
 		return "warn", "Waiting for " + waiting
-	case "building", "queued":
+	case "building", "queued", "removing":
 		return "warn", status
 	case "":
 		return "faint", "idle"

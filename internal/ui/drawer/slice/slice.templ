@@ -100,10 +100,10 @@ templ Overview(v View) {
 				@c.Fact("Network", v.Network)
 			}
 		}
-		@c.DangerZone("Removing this tile unbinds its consumers, then keeps or drops its data as On remove says.", v.Name, "") {
+		@c.DangerZone("Deleting this tile unbinds its consumers, then keeps or drops its data as On remove says.", v.Name, "") {
 			@c.Confirm(c.ConfirmView{
-				Button:  "Remove tile",
-				Title:   "Remove " + v.Name + "?",
+				Button:  "Delete tile",
+				Title:   "Delete " + v.Name + "?",
 				Warning: "Its consumers lose their cred; the data is " + onRemoveWord(v.OnRemove) + ".",
 				Kept:    []string{kept(v.OnRemove)},
 				Word:    v.Name,
