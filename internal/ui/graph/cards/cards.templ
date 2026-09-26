@@ -85,6 +85,9 @@ templ Footer(id string, f FooterView) {
 					</svg>
 					<span class="truncate">managed tile, open home</span>
 				</span>
+			case "slice":
+				@Status(f.Status, f.Waiting)
+				<span class="text-xs text-rw-faint shrink-0">{ consumers(f.Consumers) }</span>
 			case "vars", "secrets", "connector":
 				<span class="flex items-center gap-1 text-xs text-rw-faint min-w-0">
 					<svg class="h-3 w-3 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -149,7 +152,7 @@ templ Subs(v CardView) {
 	for _, s := range v.Subs {
 		<graph-node node-id={ s.ID } static>
 			<div
-				class={ "graph-node-sub relative h-full rounded-xl border cursor-pointer", templ.KV("bg-rw-inset border-rw-border hover:border-rw-accent/60", s.Kind != "instance"), templ.KV("bg-rw-surface/60 border-dashed border-rw-accent/50 hover:border-rw-accent/80", s.Kind == "instance") }
+				class="graph-node-sub relative h-full rounded-xl border cursor-pointer bg-rw-inset border-rw-border hover:border-rw-accent/60"
 				data-kind={ s.Kind }
 				if s.Drawer != "" {
 					hx-get={ s.Drawer }
@@ -196,7 +199,7 @@ templ glyph(kind string) {
 		case "proxy", "internet":
 			<circle cx="12" cy="12" r="10"></circle>
 			<path d="M2 12h20M12 2a15.3 15.3 0 0 1 0 20 15.3 15.3 0 0 1 0-20z"></path>
-		case "managed", "ref", "instance":
+		case "managed", "ref":
 			<ellipse cx="12" cy="5" rx="9" ry="3"></ellipse>
 			<path d="M3 5v14a9 3 0 0 0 18 0V5"></path>
 			<path d="M3 12a9 3 0 0 0 18 0"></path>

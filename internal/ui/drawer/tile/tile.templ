@@ -251,6 +251,95 @@ templ Env(v View, e EnvView) {
 	</div>
 }
 
+// Access is v0's slices panel on the consumer: each slice_access entry's
+// access saves on change, its × drops it (the slice's default applies);
+// bindings are the creds the tile holds.
+templ Access(v View, a AccessView) {
+	<div id="tab-access">
+		@c.PanelSection("access-entries", "Slice access", "What this tile gets on each slice it names. A slice it only refs gets that slice's default access.") {
+			if len(a.Entries) == 0 {
+				<p class="text-sm text-rw-muted">No slice named yet.</p>
+			} else {
+				<ul class="space-y-1.5">
+					for _, e := range a.Entries {
+						<li class="panel px-4 py-2.5 flex items-center gap-3 text-sm">
+							<span class="flex-1 font-mono">
+								@sliceLink(e.Slice, e.Link)
+							</span>
+							<form hx-post={ v.Base + "/access" } hx-trigger="change" hx-target={ "#" + Root } hx-swap="outerHTML">
+								<input type="hidden" name="slice" value={ e.Slice }/>
+								<label for={ "access-entry-" + e.Slice } class="sr-only">{ e.Slice } access</label>
+								@accessSelect("access-entry-"+e.Slice, e.Access)
+							</form>
+							<form hx-post={ v.Base + "/access" } hx-target={ "#" + Root } hx-swap="outerHTML">
+								<input type="hidden" name="slice" value={ e.Slice }/>
+								<input type="hidden" name="access" value="default"/>
+								<button type="submit" class="text-rw-faint hover:text-rw-danger" title="Use default" aria-label={ "Use the default access on " + e.Slice }>×</button>
+							</form>
+						</li>
+					}
+				</ul>
+			}
+		}
+		@c.PanelSection("access-bindings", "Bindings", "") {
+			@c.Table(c.TableView{
+				Headers:   []string{"Slice", "Access", "User", "Since"},
+				Rows:      bindingRows(a),
+				EmptyText: "No cred yet: the tile binds at its next deploy.",
+			})
+		}
+		@c.PanelSection("access-add", "Add access", "") {
+			if len(a.Slices) == 0 {
+				<p class="text-sm text-rw-muted">No slice tile in this environment yet.</p>
+			} else {
+				<form hx-post={ v.Base + "/access" } hx-target={ "#" + Root } hx-swap="outerHTML" class="flex flex-wrap items-end gap-2">
+					<div class="flex-1 min-w-32">
+						<label for="access-slice" class="label">Slice</label>
+						<select id="access-slice" name="slice" class="input">
+							for _, s := range a.Slices {
+								<option value={ s }>{ s }</option>
+							}
+						</select>
+					</div>
+					<div>
+						<label for="access-new" class="label">Access</label>
+						@accessSelect("access-new", "write")
+					</div>
+					<button type="submit" class="btn btn-ghost btn-sm">Add</button>
+				</form>
+			}
+		}
+	</div>
+}
+
+templ accessSelect(id, cur string) {
+	<select id={ id } name="access" class="input w-auto">
+		<option value="read" selected?={ cur == "read" }>read</option>
+		<option value="write" selected?={ cur != "read" }>write</option>
+	</select>
+}
+
+templ sliceLink(slug, href string) {
+	if href == "" {
+		<span class="text-rw-muted">{ slug }</span>
+	} else {
+		<a href={ templ.SafeURL(href) } class="text-rw-accentHi hover:underline">{ slug }</a>
+	}
+}
+
+func bindingRows(a AccessView) [][]templ.Component {
+	rows := make([][]templ.Component, 0, len(a.Bindings))
+	for _, b := range a.Bindings {
+		rows = append(rows, []templ.Component{
+			sliceLink(b.Slice, b.Link),
+			c.Text(b.Access),
+			c.Text(b.User),
+			c.Text(b.Since),
+		})
+	}
+	return rows
+}
+
 func dropVals(name string) string {
 	return `{"drop":"` + name + `"}`
 }

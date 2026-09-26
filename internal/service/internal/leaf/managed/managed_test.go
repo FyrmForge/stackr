@@ -3,6 +3,7 @@ package managed_test
 import (
 	"context"
 	"errors"
+	"slices"
 	"testing"
 	"time"
 
@@ -23,10 +24,15 @@ func must(t *testing.T, err error) {
 	}
 }
 
-// setup seeds one env with tiles db, api and web.
-func setup(t *testing.T) (*managed.Leaf, *store.Store, managed.Home, map[string]string) {
+type home struct {
+	OrgID, StackID, EnvID string
+}
+
+// setup seeds one env with tiles db (the instance), orders (a slice), api
+// and web (consumers).
+func setup(t *testing.T) (*managed.Leaf, *store.Store, home, map[string]string) {
 	st := servicetest.Store(t)
-	h := managed.Home{OrgID: uuid.NewString(), StackID: uuid.NewString(), EnvID: uuid.NewString()}
+	h := home{OrgID: uuid.NewString(), StackID: uuid.NewString(), EnvID: uuid.NewString()}
 	now := time.Now()
 	must(t, st.Orgs.Create(ctx, store.Org{
 		ID:        h.OrgID,
@@ -57,7 +63,7 @@ func setup(t *testing.T) (*managed.Leaf, *store.Store, managed.Home, map[string]
 		CreatedAt:  now,
 	}))
 	tiles := map[string]string{}
-	for _, s := range []string{"db", "api", "web"} {
+	for _, s := range []string{"db", "orders", "api", "web"} {
 		tiles[s] = uuid.NewString()
 		must(t, st.Tiles.Create(ctx, store.Tile{
 			ID:            tiles[s],
@@ -72,93 +78,103 @@ func setup(t *testing.T) (*managed.Leaf, *store.Store, managed.Home, map[string]
 			UpdatedAt:     now,
 		}))
 	}
-	return managed.New(st.ManagedInstances, st.Provisions), st, h, tiles
+	return managed.New(st.ManagedInstances, st.Provisions, st.Bindings), st, h, tiles
 }
 
-func TestScope(t *testing.T) {
-	l, _, h, tiles := setup(t)
-	if _, err := l.Create(ctx, tiles["db"], "postgres", "global", h, "root", "db:5432"); err == nil {
-		t.Error("unknown scope coerced")
+func TestCreate(t *testing.T) {
+	l, _, _, tiles := setup(t)
+	if _, err := l.Create(ctx, tiles["db"], "postgres", "", "db:5432"); err == nil {
+		t.Error("instance without an admin user")
 	}
-	m, err := l.Create(ctx, tiles["db"], "postgres", "", h, "root", "db:5432")
-	if err != nil || m.ScopeKind != managed.Env || m.ScopeID != h.EnvID || len(m.AdminPassword) != 48 {
+	m, err := l.Create(ctx, tiles["db"], "postgres", "root", "db:5432")
+	if err != nil || len(m.AdminPassword) != 48 {
 		t.Fatalf("create = %+v %v", m, err)
 	}
-	other := managed.Home{EnvID: uuid.NewString(), StackID: h.StackID, OrgID: h.OrgID}
-	if vs, _ := l.Visible(ctx, other); len(vs) != 0 {
-		t.Errorf("env-scoped instance visible from another env: %v", vs)
-	}
-	if m, err = l.SetScope(ctx, m, managed.Org, h); err != nil || m.ScopeID != h.OrgID {
-		t.Fatalf("org scope = %+v %v", m, err)
-	}
-	if vs, _ := l.Visible(ctx, other); len(vs) != 1 {
-		t.Errorf("org-scoped instance not visible across envs: %v", vs)
-	}
-	if got, _ := l.Get(ctx, m.ID); got.AdminPassword != m.AdminPassword {
+	got, err := l.Get(ctx, m.ID)
+	must(t, err)
+	if got.AdminPassword != m.AdminPassword {
 		t.Error("admin password did not round-trip")
+	}
+	if len(got.Allow) != 0 || len(got.EnvPairs) != 0 {
+		t.Errorf("a new instance allows nothing: %+v", got)
 	}
 }
 
 func TestSlices(t *testing.T) {
-	l, _, h, tiles := setup(t)
-	m, _ := l.Create(ctx, tiles["db"], "postgres", "", h, "root", "db:5432")
+	l, _, _, tiles := setup(t)
+	m, _ := l.Create(ctx, tiles["db"], "postgres", "root", "db:5432")
 	slice := managed.Slice{
-		Slug:       "api",
-		DBName:     "api",
-		DBUser:     "api",
+		DBName:     "orders",
+		DBUser:     "orders",
 		DBPassword: managed.Password(),
 	}
 
-	p, err := l.Provision(ctx, m, tiles["api"], slice)
-	if err != nil || p.OnRemove != managed.Keep {
+	p, err := l.CreateProvision(ctx, m, tiles["orders"], slice)
+	if err != nil {
 		t.Fatalf("provision = %+v %v", p, err)
 	}
-	if _, err := l.Provision(ctx, m, tiles["api"], slice); err == nil {
-		t.Error("second slice for one consumer")
+	if _, err := l.CreateProvision(ctx, m, tiles["orders"], slice); err == nil {
+		t.Error("second provision for one slice tile")
 	}
-	if _, err := l.Provision(
-		ctx,
-		m,
-		tiles["web"],
-		managed.Slice{DBName: "w", DBUser: "w", OnRemove: "detach"},
-	); err == nil {
-		t.Error("bad on_remove accepted")
+	if got, ok, err := l.ProvisionOf(ctx, tiles["orders"]); err != nil || !ok || got.ID != p.ID {
+		t.Errorf("provision of = %+v %v %v", got, ok, err)
 	}
-	if _, err := l.Share(ctx, p, tiles["web"], false); !errors.Is(err, errs.ErrRefused) {
-		t.Errorf("cross-env share = %v", err)
-	}
-	shared, err := l.Share(ctx, p, tiles["web"], true)
-	must(t, err)
-	if names, _ := l.SliceNames(ctx, m.ID); len(names) != 2 {
-		t.Errorf("names = %v", names)
+	if _, ok, err := l.ProvisionOf(ctx, tiles["api"]); err != nil || ok {
+		t.Errorf("a consumer has no provision: %v %v", ok, err)
 	}
 	if _, err := l.SetPublic(ctx, p, true, ""); !errors.Is(err, errs.ErrRefused) {
 		t.Errorf("public without a domain = %v", err)
 	}
-	p, _ = l.SetOutputs(ctx, p, map[string]string{"DATABASE_URL": "postgres://x"})
-	if managed.Outputs(p)["DATABASE_URL"] != "postgres://x" {
-		t.Error("outputs")
+
+	// A binding per consumer: its own user, access and outputs.
+	cred := managed.Cred{
+		Access:   "write",
+		User:     "orders_api",
+		Password: managed.Password(),
+		Outputs: map[string]string{
+			"PGUSER": "orders_api",
+		},
+	}
+	b, err := l.Bind(ctx, p, tiles["api"], cred)
+	must(t, err)
+	if _, err := l.Bind(ctx, p, tiles["api"], cred); err == nil {
+		t.Error("second binding for one consumer on one slice")
+	}
+	bad := cred
+	bad.Access = "admin"
+	if _, err := l.Bind(ctx, p, tiles["web"], bad); err == nil {
+		t.Error("bad access accepted")
+	}
+	bound, err := l.Bound(ctx, tiles["api"])
+	must(t, err)
+	out, err := managed.Outputs(bound[tiles["orders"]])
+	must(t, err)
+	if bound[tiles["orders"]].DBPassword != cred.Password || out["PGUSER"] != "orders_api" {
+		t.Errorf("bound = %+v, outputs %v", bound, out)
+	}
+	if ps, _ := l.ForConsumer(ctx, tiles["api"]); len(ps) != 1 || ps[0].ID != p.ID {
+		t.Errorf("for consumer = %v", ps)
+	}
+	if names, _ := l.Names(ctx, m.ID); !slices.Equal(names, []string{"orders", "orders", "orders_api"}) {
+		t.Errorf("names = %v", names)
+	}
+	b, err = l.SetAccess(ctx, b, "read")
+	must(t, err)
+	if bs, _ := l.Bindings(ctx, p.ID); len(bs) != 1 || bs[0].Access != "read" || bs[0].DBUser != "orders_api" {
+		t.Errorf("after set access = %+v", bs)
+	}
+	must(t, l.Unbind(ctx, b.ID))
+	if bs, _ := l.Bindings(ctx, p.ID); len(bs) != 0 {
+		t.Errorf("after unbind = %+v", bs)
 	}
 
-	// keep: orphaned, binding gone; ephemeral env: dropped whatever it says.
-	if drop, err := l.Release(ctx, p, false); err != nil || drop {
-		t.Fatalf("release keep = %v %v", drop, err)
-	}
-	got, _ := l.GetProvision(ctx, p.ID)
-	if got.ConsumerTileID != nil || len(managed.Outputs(got)) != 0 {
-		t.Errorf("orphan = %+v", got)
-	}
-	if drop, _ := l.Release(ctx, shared, true); !drop {
-		t.Error("ephemeral env kept its slice")
-	}
-
-	// Teardown refuses while slices are held; forced, each slice once.
+	// Teardown refuses while slices are held; forced, it hands them back.
 	if _, err := l.Teardown(ctx, m, false); err == nil {
 		t.Error("teardown with held slices")
 	}
-	drop, err := l.Teardown(ctx, m, true)
-	if err != nil || len(drop) != 1 {
-		t.Fatalf("forced teardown = %v %v", drop, err)
+	held, err := l.Teardown(ctx, m, true)
+	if err != nil || len(held) != 1 {
+		t.Fatalf("forced teardown = %v %v", held, err)
 	}
 	must(t, l.Delete(ctx, m.ID))
 	if ps, _ := l.ByInstance(ctx, m.ID); len(ps) != 0 {

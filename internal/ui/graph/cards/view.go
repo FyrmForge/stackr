@@ -16,15 +16,14 @@ import (
 )
 
 // CardView is one card on the env canvas. ID is its node id: the tile id
-// (service, cron, function, managed, ref), the provision id (slice), the
-// volume id, or one of proxy, internet, vars, secrets. Tile and provision
-// ids are what the Traffic verb names its ends with, so a lane needs no
-// mapping.
+// (service, cron, function, managed, slice, ref), the volume id, or one of
+// proxy, internet, vars, secrets. Tile ids are what the Traffic verb names
+// its ends with, so a lane needs no mapping.
 type CardView struct {
 	ID     string
 	Kind   string // service | image | cron | function | managed | slice | ref | volume | proxy | internet | vars | secrets
 	Name   string
-	Detail string // image or repo; cron schedule; "manual" / "on deploy"; engine; db name
+	Detail string // image or repo; cron schedule; "manual" / "on deploy"; engine; "database on pg"
 	Drawer string // the drawer GET with its ?tab=; "" = no drawer
 	Tab    string // the tab Drawer opens on, pushed as ?tab=
 
@@ -32,31 +31,32 @@ type CardView struct {
 	NewVersion bool // image watch saw a newer digest or tag
 
 	Footer FooterView
-	Subs   []SubView // attached volumes, the hosting instance, replicas 2 to 4
+	Subs   []SubView // attached volumes, replicas 2 to 4
 }
 
 // FooterView is a card's live strip (v0 NodeFooter). The env events
 // stream re-sends it as event "footer:<card id>" whenever one of its facts
 // moves.
 type FooterView struct {
-	Kind     string // the card's kind: which strip it is
-	Status   string // tile word (running, degraded, waiting, ...); "" = idle
-	Waiting  string // the param a "waiting" tile misses
-	Up, Want int    // replica roll-up, drawn when Want > 1
-	LastRun  string // cron/function: "ok · Jul 24 13:16", "never run", "running · since 13:02"
-	NextRun  string // cron: "next 14:00"; "" = paused
-	Trigger  string // function: "manual" / "on deploy", where a cron's next run goes
-	Domain   string // exposure: the first domain
-	More     int    // exposure: how many other domains
-	Domains  int    // org canvas: "N domains" in place of the hosts (v0 DomainCount)
-	Nav      bool   // the card is itself a link: the host is text, never a nested <a>
+	Kind      string // the card's kind: which strip it is
+	Status    string // tile word (running, degraded, waiting, ...); "" = idle
+	Waiting   string // the param a "waiting" tile misses
+	Up, Want  int    // replica roll-up, drawn when Want > 1
+	LastRun   string // cron/function: "ok · Jul 24 13:16", "never run", "running · since 13:02"
+	NextRun   string // cron: "next 14:00"; "" = paused
+	Trigger   string // function: "manual" / "on deploy", where a cron's next run goes
+	Domain    string // exposure: the first domain
+	More      int    // exposure: how many other domains
+	Domains   int    // org canvas: "N domains" in place of the hosts (v0 DomainCount)
+	Nav       bool   // the card is itself a link: the host is text, never a nested <a>
+	Consumers int    // slice: the tiles that reach it
 }
 
 // SubView is a sub-tile: the strip of a card dealt under its card, with
 // its own drawer.
 type SubView struct {
 	ID     string
-	Kind   string // volume | instance | replica
+	Kind   string // volume | replica
 	Label  string
 	Detail string // mount path, engine
 	Status string // replica state: the dot
@@ -156,7 +156,7 @@ func word(status, waiting string) (tone, text string) {
 			return "warn", "Waiting for a value"
 		}
 		return "warn", "Waiting for " + waiting
-	case "building", "queued":
+	case "building", "queued", "removing":
 		return "warn", status
 	case "":
 		return "faint", "idle"
@@ -199,6 +199,14 @@ func toneDot(t string) string {
 		return "bg-rw-warn"
 	}
 	return "bg-rw-faint"
+}
+
+// consumers is a slice card's count, where a service shows its domain.
+func consumers(n int) string {
+	if n == 1 {
+		return "1 consumer"
+	}
+	return itoa(n) + " consumers"
 }
 
 // domains is v0's domainCount.

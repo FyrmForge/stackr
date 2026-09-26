@@ -87,7 +87,6 @@ func routes(h *v1.H) []Route {
 		{GET, org + "/jobs/:job/log", "job.log", "deployment.read", h.PollJob()},
 		{GET, org + "/jobs/:job/events", "job.events", "deployment.read", h.JobEvents()},
 		{POST, org + "/jobs/:job/cancel", "job.cancel", "deployment.cancel", h.CancelJob()},
-		{DELETE, org + "/slices/:provision", "slice.detach", "tile.write", h.DetachSlice()},
 
 		// the org's config file; a plan by id sits under its org, where the
 		// middleware checks it (v0's /org-config/plans/:id had no org)
@@ -145,6 +144,7 @@ func routes(h *v1.H) []Route {
 		{POST, env + "/tiles", "tile.create", "tile.write", h.CreateTile()},
 		{GET, env + "/managed", "managed.list", "tile.read", h.ManagedInstances()},
 		{POST, env + "/managed", "managed.create", "tile.write", h.CreateManagedTile()},
+		{POST, env + "/slices", "slice.create", "tile.write", h.CreateSliceTile()},
 
 		// tiles
 		{GET, tile, "tile.get", "tile.read", h.GetTile()},
@@ -171,9 +171,12 @@ func routes(h *v1.H) []Route {
 		{PUT, tile + "/domains/:domain", "domain.update", "domain.write", h.UpdateDomain()},
 		{PUT, tile + "/domains/:domain/raw-caddy", "domain.raw-caddy", "proxy.admin", h.SetRawCaddy()},
 		{DELETE, tile + "/domains/:domain", "domain.detach", "domain.write", h.DetachDomain()},
-		{GET, tile + "/slices", "slice.list", "tile.read", h.Slices()},
-		{POST, tile + "/slices", "slice.attach", "tile.write", h.AttachSlice()},
-		{PUT, tile + "/scope", "managed.scope", "tile.write", h.SetInstanceScope()},
+		{PUT, tile + "/allow", "managed.allow", "managed.allow", h.SetManagedAllow()},
+		{PUT, tile + "/env-pairs", "managed.env-pairs", "tile.write", h.SetManagedEnvPairs()},
+		{PUT, tile + "/slice-access", "slice.access", "tile.write", h.SetSliceAccess()},
+		{PUT, tile + "/on-remove", "slice.on-remove", "tile.write", h.SetSliceOnRemove()},
+		{GET, tile + "/bindings", "slice.bindings", "tile.read", h.Bindings()},
+		{GET, tile + "/slice", "slice.get", "tile.read", h.SliceOf()},
 
 		// admin
 		{GET, "/admin/orgs", "admin.orgs", "admin.read", h.AllOrgs()},

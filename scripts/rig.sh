@@ -4,6 +4,7 @@
 #   scripts/rig.sh save                    snapshot connectors, master key, install.json, Caddy certs
 #   scripts/rig.sh ship <version>          load the image and installer of a `make release` onto the rig
 #   scripts/rig.sh pave <version>          save, wipe the DB and tiles, install <version> fresh
+#   scripts/rig.sh upgrade <version>       ship, then replace the stackr and proxy containers, DB kept
 #   scripts/rig.sh restore [--org <slug>] [<snapshot>]
 #                                          put the saved connectors back under <slug> (default: the only org)
 #   scripts/rig.sh snapshots               list snapshots
@@ -80,10 +81,19 @@ pave() {
 	save
 	rig 'docker ps -aq --filter name=stackr- | xargs -r docker rm -f >/dev/null; docker rm -f stackr stackr-proxy >/dev/null 2>&1 || true'
 	rig 'docker volume ls -q | grep -E "^stackr-(db|vol|stor)-" | xargs -r docker volume rm >/dev/null'
+	rig 'docker network ls -q --filter name=stackr- | xargs -r docker network rm >/dev/null 2>&1 || true'
 	rig docker run --rm -v "$DATA:/d" alpine sh -c "'rm -rf /d/stackr.db /d/stackr.db-shm /d/stackr.db-wal /d/jobs /d/runs /d/backups'"
 	# keys/, install.json and the stackr-caddy volume (certs) stay.
 	install
 	echo "paved to $v; register the admin, then: scripts/rig.sh restore --org <slug>"
+}
+
+# upgrade keeps the DB: the installer is a no-op while the containers exist
+# (DECIDE 137), so they go first. Needs v0.0.38 or later on the rig.
+upgrade() {
+	ship "$1"
+	rig 'docker rm -f stackr stackr-proxy >/dev/null 2>&1 || true'
+	install
 }
 
 restore() {
@@ -138,6 +148,7 @@ case "$cmd" in
 save) save ;;
 ship) ship "$@" ;;
 pave) pave "$@" ;;
+upgrade) upgrade "$@" ;;
 restore) restore "$@" ;;
 snapshots) snapshots ;;
 *)

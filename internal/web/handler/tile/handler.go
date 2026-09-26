@@ -52,6 +52,7 @@ func (h *handler) Mount(g *echo.Group, a *middleware.Access) {
 	g.POST(d+"/domains/:domain/detach", h.DetachDomain, require("domain.write"))
 	g.POST(d+"/domains/:domain/raw", h.SetRawCaddy, require("proxy.admin"))
 	g.POST(d+"/env", h.SetEnv, write)
+	g.POST(d+"/access", h.SetAccess, write)
 	g.POST(d+"/settings", h.SetSettings, write)
 	g.POST(d+"/image/check", h.CheckImage, write)
 }
@@ -150,6 +151,12 @@ func (h *handler) show(c echo.Context, status int, v ui.View, hd head, ty *typed
 		body = ui.Logs(v, logsView(c, v.Base, *t, hd.status, last))
 	case "env":
 		body = ui.Env(v, envView(t.EnvJSON))
+	case "access":
+		a, err := h.access(c, *t)
+		if err != nil {
+			return middleware.HTTPError(err)
+		}
+		body = ui.Access(v, a)
 	case "settings":
 		sv, err := h.settings(c, *t, hd)
 		if err != nil {
@@ -199,6 +206,52 @@ func (h *handler) settings(c echo.Context, t service.Tile, hd head) (ui.Settings
 		sv.Image = &iv
 	}
 	return sv, nil
+}
+
+// access is the Access tab: the tile's slice_access entries, the creds
+// it holds, and the env's slice tiles, each linked to its drawer.
+func (h *handler) access(c echo.Context, t service.Tile) (ui.AccessView, error) {
+	ctx := c.Request().Context()
+	env := render.EnvURL(c)
+	var a ui.AccessView
+	ts, err := h.orch.Tiles(ctx, t.EnvironmentID)
+	if err != nil {
+		return a, err
+	}
+	ids := map[string]string{} // slice slug → tile id
+	for _, x := range ts {
+		if x.Kind == "slice" {
+			ids[x.Slug] = x.ID
+			a.Slices = append(a.Slices, x.Slug)
+		}
+	}
+	link := func(id string) string {
+		if id == "" {
+			return ""
+		}
+		return env + "?drawer=" + id + "&tab=overview"
+	}
+	for _, e := range t.SliceAccess {
+		a.Entries = append(a.Entries, ui.AccessEntry{
+			Slice:  e.From,
+			Link:   link(ids[e.From]),
+			Access: e.Access,
+		})
+	}
+	bs, err := h.orch.ConsumerBindings(ctx, t.ID)
+	if err != nil {
+		return a, err
+	}
+	for _, b := range bs {
+		a.Bindings = append(a.Bindings, ui.AccessBinding{
+			Slice:  b.Slice,
+			Link:   link(b.SliceID),
+			Access: b.Access,
+			User:   b.User,
+			Since:  when(&b.Since),
+		})
+	}
+	return a, nil
 }
 
 // after answers an action with its tab: a refusal shows over it (422), a
@@ -326,6 +379,16 @@ func (h *handler) SetEnv(c echo.Context) error {
 		t.EnvJSON = blob
 		return nil
 	})
+}
+
+// POST …/access: slice (a slice tile slug of this env) and access; an
+// entry already there is replaced, access=default drops it.
+func (h *handler) SetAccess(c echo.Context) error {
+	t, err := h.orch.SetSliceAccess(c.Request().Context(), tileOf(c).ID, c.FormValue("slice"), c.FormValue("access"))
+	if err == nil {
+		*tileOf(c) = t
+	}
+	return h.after(c, "access", "saved", err)
 }
 
 func (h *handler) CheckImage(c echo.Context) error {

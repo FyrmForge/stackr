@@ -1,6 +1,7 @@
 // Package managed holds the managed-tile rules once, engine-blind: the
-// ManagedTile interface and its registry, one slice per consumer, what
-// happens to slices when a consumer or the instance goes. The instance
+// ManagedTile interface and its registry, one provision per slice tile, one
+// cred per consumer of it at read or write, what happens to both when a
+// consumer, a slice tile or the instance goes. The instance
 // container is a plain tile that flow/deploy runs; this package never starts
 // a container. Engines run their work through Tools (DECIDE 7 a): postgres
 // execs argv inside its container, s3 speaks the S3 API.
@@ -15,12 +16,15 @@ import (
 // Exec runs argv inside the instance's container (leaf/tile.Exec).
 type Exec func(ctx context.Context, cmd []string) (string, error)
 
-// S3Admin is the bucket half of the s3 wrapper (s3.Admin).
+// S3Admin is the bucket and user half of the s3 wrapper (s3.Admin).
 type S3Admin interface {
 	Ping(ctx context.Context) error
 	CreateBucket(ctx context.Context, name string) error
 	DropBucket(ctx context.Context, name string) error
 	SetPublic(ctx context.Context, name string, public bool) error
+	AddUser(ctx context.Context, key, secret string) error
+	GrantUser(ctx context.Context, user, bucket string, write bool) error
+	RemoveUser(ctx context.Context, user string) error
 }
 
 // Tools is how an engine reaches its instance; the flow fills it per call.
@@ -38,6 +42,20 @@ type ManagedTile interface {
 	// Provision is idempotent: re-provisioning a slice re-syncs it.
 	Provision(ctx context.Context, i Instance, s Slice, x Tools) error
 	Drop(ctx context.Context, i Instance, s Slice, x Tools) error
+	// Bind mints g on s (prev "") or moves it from access prev to g.Access;
+	// others are the slice's other creds.
+	Bind(
+		ctx context.Context,
+		i Instance,
+		s Slice,
+		g Grant,
+		prev string,
+		others []Grant,
+		x Tools,
+	) error
+	// Unbind drops g; what it made in s passes to the slice's owner.
+	Unbind(ctx context.Context, i Instance, s Slice, g Grant, x Tools) error
+	// Bindings are the outputs for s as its User reaches it.
 	Bindings(i Instance, s Slice) []Binding
 	// Backup is argv whose stdout is the dump; nil = the method is not offered.
 	Backup(method string, i Instance) []string
@@ -59,25 +77,41 @@ type Definition struct {
 	SliceNoun     string   // what the UI calls a slice
 	Backups       []string // methods this engine offers
 	AdminDB       string   // the engine's own namespace
-	// SliceName normalises a base name; SliceSep joins the uniquifier.
+	// SliceName normalises a base name; SliceSep joins a slice name's parts
+	// and a binding user's uniquifier.
 	SliceName func(string) string
 	SliceSep  string
+	// RootCreds: the slice's own cred (Provision) is the instance's admin
+	// one; consumers still get a user each (s3, see s3.go).
+	RootCreds bool
 }
 
 // Instance is the running engine, as facts.
 type Instance struct {
-	Slug, Engine             string
-	AdminUser, AdminPassword string
-	AdminDB                  string
-	Host                     string // the in-network alias consumers dial
-	Port                     int
-	PublicBase               string // scheme+host of its public domain, "" if none
+	Slug          string
+	Engine        string
+	AdminUser     string
+	AdminPassword string
+	AdminDB       string
+	Host          string // its alias on the instance network, what consumers dial
+	Port          int
+	PublicBase    string // scheme+host of its public domain, "" if none
 }
 
-// Slice is one consumer's cut: a logical db, a bucket.
+// Slice is one slice tile's unit, a logical db or a bucket, with its owner
+// cred.
 type Slice struct {
-	Name, User, Password string
-	Public               bool
+	Name     string
+	User     string
+	Password string
+	Public   bool
+}
+
+// Grant is one consumer's own cred on a slice.
+type Grant struct {
+	User     string
+	Password string
+	Access   string // read | write
 }
 
 // Binding is one published connection detail.
@@ -102,7 +136,13 @@ func engine(name string) (ManagedTile, error) {
 	return e, nil
 }
 
-// sqlIdent: lowercase, digits and underscores, never leading with a digit.
+// maxName leaves a uniquifier room under the 63 bytes postgres (which cuts
+// longer identifiers silently) and S3 (which refuses longer bucket names)
+// allow.
+const maxName = 56
+
+// sqlIdent: lowercase, digits and underscores, never leading with a digit,
+// at most maxName long.
 func sqlIdent(slug string) string {
 	id := strings.Map(func(r rune) rune {
 		switch {
@@ -116,7 +156,7 @@ func sqlIdent(slug string) string {
 	if id == "" || (id[0] >= '0' && id[0] <= '9') {
 		id = "db_" + id
 	}
-	return id
+	return id[:min(len(id), maxName)]
 }
 
 // uniqueSliceName suffixes base until no existing slice answers to it.

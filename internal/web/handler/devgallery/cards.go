@@ -51,14 +51,10 @@ func envCards() []placed {
 			Tab:    "status",
 		},
 	}
-	db := sample("p-shopdb", "slice", "shop", "database shop on pg", "bindings", cards.FooterView{Status: "running"})
-	db.Subs = []cards.SubView{{
-		ID:     "t-pg",
-		Kind:   "instance",
-		Label:  "pg · postgres 16",
-		Drawer: drawer("t-pg", "slices"),
-		Tab:    "slices",
-	}}
+	db := sample("p-shopdb", "slice", "shop", "database on cache-pg", "overview", cards.FooterView{
+		Status:    "running",
+		Consumers: 2,
+	})
 	pg := sample("t-pg2", "managed", "cache-pg", "postgres 16", "slices", cards.FooterView{Status: "running"})
 	pg.Subs = []cards.SubView{{
 		ID:     "v-pgdata",
@@ -121,7 +117,7 @@ func envCards() []placed {
 			"300",
 			"220",
 			"220",
-			"122",
+			"92",
 		},
 		{
 			pg,

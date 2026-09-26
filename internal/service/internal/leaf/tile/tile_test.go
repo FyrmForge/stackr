@@ -337,6 +337,110 @@ func TestRunKinds(t *testing.T) {
 	}
 }
 
+// A slice tile names its target and nothing a container takes; slice_access
+// is for the kinds that run.
+func TestSliceKind(t *testing.T) {
+	target := "infra:${{ env.name }}:pg-db"
+	read := "read"
+	admin := "admin"
+	slice := func(t *store.Tile) {
+		t.Kind, t.GitURL, t.ProvisionFrom = tile.Slice, "", &target
+	}
+	then := func(a, b func(*store.Tile)) func(*store.Tile) {
+		return func(t *store.Tile) {
+			a(t)
+			b(t)
+		}
+	}
+	for _, c := range []struct {
+		name, field string
+		edit        func(*store.Tile)
+	}{
+		{
+			"slice ok",
+			"",
+			slice,
+		},
+		{
+			"slice read",
+			"",
+			then(slice, func(t *store.Tile) { t.DefaultAccess = &read }),
+		},
+		{
+			"slice without a target",
+			"provision_from",
+			func(t *store.Tile) { t.Kind, t.GitURL = tile.Slice, "" },
+		},
+		{
+			"slice with two segments",
+			"provision_from",
+			then(slice, func(t *store.Tile) {
+				two := "infra:pg-db"
+				t.ProvisionFrom = &two
+			}),
+		},
+		{
+			"slice admin",
+			"default_access",
+			then(slice, func(t *store.Tile) { t.DefaultAccess = &admin }),
+		},
+		{
+			"slice on_remove admin",
+			"on_remove",
+			then(slice, func(t *store.Tile) { t.OnRemove = &admin }),
+		},
+		{
+			"service on_remove",
+			"on_remove",
+			func(t *store.Tile) { t.OnRemove = &read },
+		},
+		{
+			"slice with a git url",
+			"git_url",
+			then(slice, func(t *store.Tile) { t.GitURL = "https://github.com/a/b" }),
+		},
+		{
+			"service with a target",
+			"provision_from",
+			func(t *store.Tile) { t.ProvisionFrom = &target },
+		},
+		{
+			"service reads a slice",
+			"",
+			func(t *store.Tile) { t.SliceAccess = store.SliceAccessList{{From: "api-db", Access: read}} },
+		},
+		{
+			"service admin on a slice",
+			"slice_access",
+			func(t *store.Tile) { t.SliceAccess = store.SliceAccessList{{From: "api-db", Access: admin}} },
+		},
+		{
+			"managed reads a slice",
+			"slice_access",
+			func(t *store.Tile) {
+				t.Kind, t.GitURL = tile.Managed, ""
+				t.SliceAccess = store.SliceAccessList{{From: "api-db", Access: read}}
+			},
+		},
+	} {
+		row := store.Tile{Name: "x", Kind: tile.Service, GitURL: "https://github.com/a/b"}
+		c.edit(&row)
+		err := tile.Validate(&row)
+		if got := field(err); got != c.field || (c.field == "" && err != nil) {
+			t.Errorf("%s: err = %v (field %q), want field %q", c.name, err, got, c.field)
+		}
+		if err == nil && row.Kind == tile.Slice && (row.DefaultAccess == nil || row.OnRemove == nil || *row.OnRemove != tile.Keep) {
+			t.Errorf("%s: default_access or on_remove not defaulted", c.name)
+		}
+	}
+	if e := tile.Effects(tile.Slice, tile.Changed{"provision_from": true}); e != nil {
+		t.Errorf("slice target = %v; the plan redeploys the consumers, not the slice", e)
+	}
+	if e := tile.Effects(tile.Cron, tile.Changed{"slice_access": true}); !slices.Equal(e, []tile.Effect{tile.Redeploy}) {
+		t.Errorf("cron slice_access = %v", e)
+	}
+}
+
 // Which keys moved decides the effect.
 func TestSideEffects(t *testing.T) {
 	l, _, _, base := setup(t)

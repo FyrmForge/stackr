@@ -11,6 +11,7 @@ import (
 	"github.com/robfig/cron/v3"
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
+	"github.com/FyrmForge/stackr/internal/service/internal/address"
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	"github.com/FyrmForge/stackr/internal/service/internal/registry"
 	"github.com/FyrmForge/stackr/internal/service/internal/slug"
@@ -21,12 +22,27 @@ import (
 // is an instance whose definition comes from its engine. cron and function
 // are run-to-completion tiles: built from git or run from an image, they
 // keep no container up; a schedule (cron) or a trigger (function) runs one.
+// slice is one database or bucket cut from a managed tile (DECIDE 194): no
+// container, its consumers bind to it.
 const (
 	Service  = "service"
 	Image    = "image"
 	Managed  = "managed"
 	Cron     = "cron"
 	Function = "function"
+	Slice    = "slice"
+)
+
+// Slice access words; a slice's default_access is one, "" = Write.
+const (
+	Read  = "read"
+	Write = "write"
+)
+
+// on_remove words: what a slice tile going does to its data; nil = Keep.
+const (
+	Keep = "keep"
+	Drop = "drop"
 )
 
 // RunToCompletion: the kind's deploy stops at the artifact and a run starts
@@ -105,20 +121,28 @@ var fields = []field{
 	{"trigger", str(func(t *store.Tile) string { return t.Trigger })},
 	{"paused", func(t *store.Tile) bool { return t.Paused }},
 	{"timeout_minutes", func(t *store.Tile) bool { return t.TimeoutMinutes != 0 }},
+	{"provision_from", func(t *store.Tile) bool { return t.ProvisionFrom != nil }},
+	{"default_access", func(t *store.Tile) bool { return t.DefaultAccess != nil }},
+	{"on_remove", func(t *store.Tile) bool { return t.OnRemove != nil }},
+	{"slice_access", func(t *store.Tile) bool { return len(t.SliceAccess) > 0 }},
 }
 
 // refusals are the kind refusals tilelifecycle words itself; any other key
 // gets "<kind> tiles do not take <key>".
 var refusals = map[string]string{
-	"schedule":    "schedule applies to cron tiles only",
-	"trigger":     "run_on_deploy applies to function tiles only",
-	"paused":      "only cron tiles have a schedule to pause",
-	"command":     "command does not apply to a %s",
-	"port":        "a %s has no endpoint; port does not apply",
-	"user":        "user applies to service tiles only",
-	"privileged":  "privileged applies to service tiles only",
-	"devices":     "devices apply to service tiles only",
-	"healthcheck": "healthcheck applies to service tiles only",
+	"schedule":       "schedule applies to cron tiles only",
+	"trigger":        "run_on_deploy applies to function tiles only",
+	"paused":         "only cron tiles have a schedule to pause",
+	"command":        "command does not apply to a %s",
+	"port":           "a %s has no endpoint; port does not apply",
+	"user":           "user applies to service tiles only",
+	"privileged":     "privileged applies to service tiles only",
+	"devices":        "devices apply to service tiles only",
+	"healthcheck":    "healthcheck applies to service tiles only",
+	"provision_from": "provision_from applies to slice tiles only",
+	"default_access": "default_access applies to slice tiles only",
+	"on_remove":      "on_remove applies to slice tiles only",
+	"slice_access":   "slice_access does not apply to a %s",
 }
 
 func refuse(kind, key string) error {
@@ -184,20 +208,24 @@ var (
 // port and volumes come from its engine; the row carries only the knobs
 // the engine leaves open (an image override, env, limits, published ports).
 var Carries = map[string]map[string]bool{
-	Service:  keys(buildKeys, runKeys),
-	Image:    keys(watchKeys, runKeys),
+	Service:  keys(buildKeys, runKeys, []string{"slice_access"}),
+	Image:    keys(watchKeys, runKeys, []string{"slice_access"}),
 	Managed:  keys([]string{"image", "env", "limits", "shm_size_mb", "published_ports"}),
-	Cron:     keys(buildKeys, oneShotKeys, []string{"schedule", "paused"}),
-	Function: keys(buildKeys, oneShotKeys, []string{"trigger"}),
+	Cron:     keys(buildKeys, oneShotKeys, []string{"schedule", "paused", "slice_access"}),
+	Function: keys(buildKeys, oneShotKeys, []string{"trigger", "slice_access"}),
+	Slice:    keys([]string{"provision_from", "default_access", "on_remove"}),
 }
 
 // Validate is one gate over the finished row, create and update alike; first
 // refusal wins. It also normalises in place: update_policy "" → manual,
-// restart folded to its canonical word, replicas 0 → 1, empty JSON → {}.
+// restart folded to its canonical word, replicas 0 → 1, empty JSON → {},
+// a build's branch, dockerfile and context to main, Dockerfile and ".".
+// The promote plan validates the row it builds from the file the same way,
+// so a stored default never reads as a change.
 func Validate(t *store.Tile) error {
 	allowed, ok := Carries[t.Kind]
 	if !ok {
-		return errs.Invalidf("kind", "kind must be service, image, managed, cron or function")
+		return errs.Invalidf("kind", "kind must be service, image, managed, cron, function or slice")
 	}
 	for _, f := range fields {
 		if f.set(t) && !allowed[f.key] {
@@ -219,6 +247,29 @@ func Validate(t *store.Tile) error {
 	case Cron, Function:
 		if err := checkRun(t); err != nil {
 			return err
+		}
+	case Slice:
+		if err := checkSlice(t); err != nil {
+			return err
+		}
+	}
+	if Builds(*t) {
+		if t.GitBranch == "" {
+			t.GitBranch = "main"
+		}
+		if t.DockerfilePath == "" {
+			t.DockerfilePath = "Dockerfile"
+		}
+		if t.BuildContext == "" {
+			t.BuildContext = "."
+		}
+	}
+	for _, a := range t.SliceAccess {
+		switch {
+		case !slug.Valid(a.From):
+			return errs.Invalidf("slice_access", "from %q is not a slice tile slug", a.From)
+		case a.Access != Read && a.Access != Write:
+			return errs.Invalidf("slice_access", "%s: access must be read or write", a.From)
 		}
 	}
 	if t.ImageRef != "" {
@@ -293,6 +344,34 @@ func checkRun(t *store.Tile) error {
 	}
 	if t.Trigger != Manual && t.Trigger != OnDeploy {
 		return errs.Invalidf("trigger", "trigger must be manual or on_deploy")
+	}
+	return nil
+}
+
+// checkSlice: a slice names its target; default_access is read or write,
+// on_remove keep or drop. Normalises default_access nil → write and
+// on_remove nil → keep. The target's refs resolve at plan
+// time (flow/promote), so only the shape is checked here.
+func checkSlice(t *store.Tile) error {
+	if t.ProvisionFrom == nil || strings.TrimSpace(*t.ProvisionFrom) == "" {
+		return errs.Invalidf("provision_from", "a slice needs provision_from: <stack>:<env>:<tile>")
+	}
+	if _, err := address.ParseTarget(*t.ProvisionFrom); err != nil {
+		return err
+	}
+	if t.DefaultAccess == nil {
+		w := Write
+		t.DefaultAccess = &w
+	}
+	if *t.DefaultAccess != Read && *t.DefaultAccess != Write {
+		return errs.Invalidf("default_access", "default_access must be read or write")
+	}
+	if t.OnRemove == nil {
+		k := Keep
+		t.OnRemove = &k
+	}
+	if *t.OnRemove != Keep && *t.OnRemove != Drop {
+		return errs.Invalidf("on_remove", "on_remove must be keep or drop")
 	}
 	return nil
 }

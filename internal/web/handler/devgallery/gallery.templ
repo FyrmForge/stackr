@@ -97,6 +97,7 @@ templ gallery() {
 				<svg data-edges aria-hidden="true">
 					<path data-edge-kind="ingress" data-from="proxy" data-to="t-api" d="M0,0" { graph.EdgeAttrs("ingress")... }></path>
 					<path data-edge-kind="ref" data-from="t-api" data-to="p-shopdb" d="M0,0" { graph.EdgeAttrs("ref")... }></path>
+					<path data-edge-kind="shared" data-from="p-shopdb" data-to="t-pg2" d="M0,0" { graph.EdgeAttrs("shared")... }></path>
 					<path data-edge-kind="egress" data-from="t-nightly" data-to="internet" d="M0,0" { graph.EdgeAttrs("egress")... }></path>
 				</svg>
 				@cards.Lanes(envLanes)

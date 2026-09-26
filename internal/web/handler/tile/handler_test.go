@@ -20,6 +20,7 @@ func TestEveryTabServes(t *testing.T) {
 		"logs",
 		"domains",
 		"env",
+		"access",
 		"settings",
 		"jobs",
 		"image",
@@ -127,5 +128,60 @@ func setPort(t *testing.T, s *webtest.Site, port int) {
 	})
 	if err != nil {
 		t.Fatal(err)
+	}
+}
+
+// The Access tab: the slice_access entries (each a select that posts),
+// the creds the tile holds, and an add form over the env's slice tiles.
+func TestAccessTab(t *testing.T) {
+	s := webtest.New(t)
+	ctx := context.Background()
+	pg, err := s.Orch.CreateManagedTile(ctx, service.Tile{EnvironmentID: s.Tile.Env, Name: "pg"}, "postgres")
+	if err != nil {
+		t.Fatal(err)
+	}
+	main, err := s.Orch.CreateSliceTile(ctx, s.Tile.Env, "main", "shop:dev:pg", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cache, err := s.Orch.CreateSliceTile(ctx, s.Tile.Env, "cache", "shop:dev:pg", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// cache is reached by a ref alone: it shows once bound (DECIDE 204 b).
+	s.Bound(t, cache.ID, pg.ID, s.Tile.ID, "write")
+	rec := s.Do(t, "POST", drawer+"/access", url.Values{
+		"slice":  {"main"},
+		"access": {"read"},
+	})
+	body := rec.Body.String()
+	for _, w := range []string{
+		"saved",
+		`href="/acme/shop/dev?drawer=` + main.ID + `&amp;tab=overview"`,
+		`name="slice" value="main"`,
+		`<option value="read" selected>`,
+		`href="/acme/shop/dev?drawer=` + cache.ID + `&amp;tab=overview"`,
+		s.Tile.ID + "_user",
+		`<option value="cache">cache</option>`,
+	} {
+		if rec.Code != 200 || !strings.Contains(body, w) {
+			t.Errorf("access tab = %d, lacks %q", rec.Code, w)
+		}
+	}
+	// default drops main's entry; the add form still offers it.
+	rec = s.Do(t, "POST", drawer+"/access", url.Values{
+		"slice":  {"main"},
+		"access": {"default"},
+	})
+	body = rec.Body.String()
+	if rec.Code != 200 || strings.Contains(body, `name="slice" value="main"`) || !strings.Contains(body, `<option value="main">main</option>`) {
+		t.Errorf("default = %d, want main's entry gone\n%s", rec.Code, body)
+	}
+	rec = s.Do(t, "POST", drawer+"/access", url.Values{
+		"slice":  {"nope"},
+		"access": {"read"},
+	})
+	if rec.Code != 422 || !strings.Contains(rec.Body.String(), "no slice tile nope") {
+		t.Errorf("unknown slice = %d\n%s", rec.Code, rec.Body)
 	}
 }

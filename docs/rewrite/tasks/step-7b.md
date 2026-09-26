@@ -24,7 +24,7 @@ Infra stack:
 ```yaml
 base:
   tiles:
-    pg_db:
+    pg-db:
       kind: managed
       engine: postgres
       env_pairs:
@@ -43,7 +43,7 @@ base:
   tiles:
     api-db:
       kind: slice
-      provision_from: infra:${{ env.name }}:pg_db
+      provision_from: infra:${{ env.name }}:pg-db
       default_access: write
     api:
       image: ghcr.io/acme/api:1.4
@@ -64,15 +64,20 @@ Rules:
 - `allow:` patterns are four segments, `*` allowed; a trailing `*`
   swallows the rest (`testorg:*`); a `*` in the middle matches one
   segment. The first segment must be the tile's own org slug; `*` or
-  another slug is refused at parse. No list = the tile's own env only.
+  another slug is refused at parse. The tile's own env is always allowed;
+  the list adds to it (DECIDE 195).
 - `env_pairs:` maps a consumer's env name to one of this stack's env
   names. A consumer whose env name is not a key is a blocker on its
-  promote plan ("infra's pg_db has no env pair for dev"). No map = the
+  promote plan ("infra's pg-db has no env pair for dev"). No map = the
   consumer's env name must exist in this stack as written.
 - `provision_from:` is `<stack>:<env>:<tile>` in the consumer's own org.
   `${{ env.name }}` and `${{ params.<c>.<n> }}` refs are allowed in it;
   the env segment goes through the instance's `env_pairs`. The target must
   be a managed tile whose allow list matches the slice tile's address.
+- A PR env (`base_env` set) that has no `env_pairs` key of its own maps as
+  its base env, the way the promote plan already falls back to the base
+  env's file section; its address for `allow:` stays its own slug
+  (`smoke:shop:pr-12:api-db`; the allow check is one per slice tile, never per consumer).
 - `default_access:` `read` or `write`, default `write`.
 - `slice_access:` on any consumer tile: `from` is a slice tile slug in the
   same env, `access` read or write. A consumer that refs a slice without a
@@ -107,7 +112,11 @@ Rules:
    (own-org rule), `Match(patterns, addr Address) bool`,
    `ParseTarget(s) (Target, error)` for `provision_from`. Pure, table
    tests: trailing star, middle star, own-org refusal, exact match, the
-   examples in DECIDE 194.
+   examples in DECIDE 194. Lives in `internal/service/internal/address`
+   (the lint config keeps flows from importing each other; `slug` sits
+   there for the same reason). A tile slug is a DNS alias, so `pg_db` is
+   refused; the grammar uses `pg-db`. An `allow:` list replaces the
+   own-env default, it does not add to it (DECIDE 195).
    Done when: tests green; a fuzz-free but exhaustive table.
 
 3. **Stack file.** `flow/promote/stackfile.go`: `allow`, `env_pairs` on
@@ -117,11 +126,16 @@ Rules:
    a slice tile, see DECIDE 194"); `shared:` message updated. `plan.go`:
    a slice tile's target is resolved at plan time through the org's
    stacks, the target's `env_pairs`, and its allow list; unknown stack,
-   env pair missing, tile not managed, or not allowed are blockers with
+   env pair missing (after the PR env → base env fallback), tile not
+   managed, or not allowed are blockers with
    the exact reason; the plan's `Change` rows show a slice as `slice
-   api-db → infra/staging/pg_db (write)`.
+   api-db → infra/staging/pg-db (write)`.
    Done when: table tests for every blocker and the happy path; the file
    round-trips through the promote apply into tile rows.
+   As built: `slice_access` is refused on managed and slice tiles and lives in a new `tiles.slice_access` JSON column.
+   As built: `Load` takes the org slug, so `allow` is checked at parse; `${{ env.name }}` landed here, the plan needs it.
+   As built: three more blockers: "infra has no environment qa", "infra/staging/pg-db has no instance yet; deploy it first", "provision_from needs params.x set first".
+   As built: a moved target or default access redeploys every tile that refs the slice; allow and env_pairs rows write the instance and redeploy nothing.
 
 4. **Resolver.** `leaf/params/ref.go`: `${{ env.name }}` (`KindEnv`,
    from `Snapshot.Env`); `KindStack` and `KindOrg` tile refs removed
@@ -131,6 +145,9 @@ Rules:
    `Source.Slice`, `Attached` means a binding exists for this consumer).
    `Where` learns the slice tile is allowed in `provision_from` only.
    Done when: resolver tests; the never-run-unresolved contract holds.
+   As built: tile and self output names are env-key shaped (`DATABASE_URL`); param names stay lower-case.
+   As built: `stack.<slug>.x` and `org.<slug>.x` fail Parse with `params.Removed`; the graph's ref ghost for them is gone.
+   As built: a managed tile is no ref source at all; `managed.New` takes the binding store, `Bound` maps slice tile id → binding, `Outputs(binding)` decodes it; a slice source's `Network` is task 5's.
 
 5. **Deploy and placement.** `flow/managed`: `Provision(instance, slice)`
    on slice tile deploy (create the database with the owner cred, once);
@@ -149,6 +166,14 @@ Rules:
    two files above; api gets a write user, reporter a read user; both on
    the instance's network; removing reporter drops its user; removing
    api-db with `on_remove: drop` drops the database.
+   As built: `on_remove` is a slice tile key (stack file, `tiles.on_remove`, DECIDE 199), default keep; `provisions` has no copy. An ephemeral env always drops.
+   As built: a slice's database or bucket is `<stack>_<env>_<slice>` (`-` for s3), never suffixed; a name another row holds is refused (DECIDE 197).
+   As built: build defaults (branch, dockerfile, context) moved from `leaf/tile` Create into `Validate`, so a git-built cron re-plans clean.
+   As built: the instance network is `stackr-managed-<instance id>`; the instance's alias on it, `<slug>-<first 8 of its id>`, is the postgres host.
+   As built: s3 hands the owner the root key; every binding gets its own RustFS IAM user with a bucket-scoped policy at its `access` (DECIDE 198).
+   As built: plan and deploy share `address.Resolve`; a consumer deploy re-resolves every slice it uses and fails with the plan's blocker text.
+   As built: removing an instance tile that still holds slices is refused; its network goes after its container.
+   As built: `AttachSlice`/`DetachSlice` are gone (task 6); the graph skips a slice tile's own card until task 7.
 
 6. **Verbs, API, CLI.** `SetManagedAllow(ctx, tileID, list)`,
    `SetManagedEnvPairs(ctx, tileID, pairs)`, `CreateSliceTile(ctx, envID,
@@ -160,6 +185,12 @@ Rules:
    `stackr tile access <consumer> --slice <slug> --access read|write`;
    `docs/openapi.json` regenerated; `docs/rewrite/verbs.md`.
    Done when: api tests incl. a member 403 on allow edits; cli tests.
+   As built: `SetSliceAccess(ctx, consumerID, sliceSlug, access)` takes the slice's slug (what `slice_access` stores); same env is the lookup.
+   As built: `SetSliceOnRemove`, `SliceOf` and `SetSliceAccess` re-granting a bound consumer in place were added; no verb redeploys.
+   As built: `stackr slice add <slug> --env <env> --from <stack:env:tile>`, not a positional env; `slice` is a top-level noun.
+   As built: allow edits need the owner-level `managed.allow` verb; env pairs and slice writes are `tile.write`.
+   As built: `CreateSliceTile` is refused on a config-managed stack; the other verbs write through (the next promote sets the file's values).
+   As built: `leaf/managed` `ForConsumer` stays: the graph and traffic still read it until task 7.
 
 7. **UI.** Managed tile drawer: Allow list (rows, add pattern with the
    own-org prefix filled, remove) and Env pairs (rows, add) replace the
@@ -171,9 +202,16 @@ Rules:
    card when the instance is in another stack, as today's ghost). Wizard
    and org drawer untouched.
    Done when: drawer tests for the three drawers; `make templint` clean.
+   As built: the slice tile drawer is `…/-/slices/<slug>`, one tab `overview` (Target, Default access, Consumers, On remove, Status, remove); no Logs tab, a slice has no container.
+   As built: the consumer drawer's `access` tab is new (the rewrite never had a Slices tab): `slice_access` entries with a select that saves on change, the creds held, an add form; nothing removes an entry.
+   As built: `SetSliceDefaultAccess` (refused on a config-managed stack) and `ConsumerBindings` added, web only (no API route or CLI); `InstanceSlices` returns each slice with its tile, stack, env and bindings count; `Provision(id)` went with the provision drawer.
+   As built: the hosting instance no longer rides under a slice (ui-plan §2's sub-tile): a slice's shared edge runs to its instance's card, or to a ghost `stack/env · name` when the instance is in another env, same stack included.
+   As built: a slice card reads `<database|bucket> on <instance>` ("no target", no shared edge, when it resolves nowhere); its footer is its status and the consumer count (ref edges in: refs, `slice_access` entries, creds).
+   As built: traffic lanes between a consumer and an instance end on the slice tile id; a consumer on two slices of one instance draws on the last. `ForConsumer` is traffic's only reader.
+   As built: drawer-to-drawer links are plain hrefs to the target env's canvas with `?drawer=<tile id>&tab=`; the allow forms show only to an owner.
 
 8. **VM proof.** Two stacks bound to two repos (the test repo and a
-   second branch of it as the infra stack): infra pushes pg_db with the
+   second branch of it as the infra stack): infra pushes pg-db with the
    allow list and env pairs; shop pushes api-db + api + reporter; the
    promote plan shows the slice row; deploy; api writes a table, reporter
    can read it and cannot write (psql through `stackr tile exec` or the

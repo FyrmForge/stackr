@@ -2,6 +2,7 @@ package v1
 
 import (
 	"context"
+	"strconv"
 
 	"github.com/labstack/echo/v4"
 
@@ -69,7 +70,8 @@ func (h *H) LogStream() Endpoint {
 }
 
 // Exec runs ?cmd= (repeated, one argv word each) in one replica
-// (?container=): the request body is its stdin, the response its output.
+// (?container=): the request body is its stdin, the response its output
+// (stdout and stderr interleaved) and the X-Exit-Code trailer its exit.
 func (h *H) Exec() Endpoint {
 	return Streamed("application/octet-stream", func(c echo.Context) error {
 		out, wait, err := h.Orch.Terminal(
@@ -82,7 +84,16 @@ func (h *H) Exec() Endpoint {
 		if err != nil {
 			return err
 		}
-		defer func() { _ = wait() }()
-		return stream.Pipe(c, "application/octet-stream", out)
+		c.Response().Header().Set("Trailer", "X-Exit-Code")
+		_ = stream.Pipe(c, "application/octet-stream", out)
+		code := 0
+		if err := wait(); err != nil {
+			code = 1
+			if n, ok := service.ExitCode(err); ok {
+				code = n
+			}
+		}
+		c.Response().Header().Set("X-Exit-Code", strconv.Itoa(code))
+		return nil
 	}).Q("cmd", "container")
 }

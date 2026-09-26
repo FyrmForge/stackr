@@ -58,8 +58,8 @@ type Flow struct {
 	// Sync re-pushes the proxy config (leaf/domain Syncer.Sync); nil = none.
 	Sync func(context.Context) error
 	// Engines is flow/managed (the deploy -> managed edge): a managed
-	// tile's container and readiness, and every tile's slices; nil = no
-	// managed tiles here.
+	// tile's container and readiness, a slice tile's provision and every
+	// consumer's binding; nil = no managed tiles here.
 	Engines *mflow.Flow
 }
 
@@ -135,6 +135,8 @@ func (f *Flow) Current(ctx context.Context, t store.Tile, e store.Environment) (
 		return t.ImageRef, false, nil
 	case t.Kind == tile.Managed:
 		return "", false, nil // the engine's image
+	case t.Kind == tile.Slice:
+		return "", false, nil // no image: its deploy is a provision
 	}
 	return "", false, errs.Conflictf("%s has nothing built yet: build a commit first", t.Slug)
 }
@@ -147,11 +149,18 @@ func (f *Flow) Run(ctx context.Context, t store.Tile, ref string, log io.Writer,
 	if swap == nil {
 		swap = func() error { return nil }
 	}
+	if t.Kind == tile.Slice {
+		return "", f.provision(ctx, t, log)
+	}
 	r, e, digest, err := f.prepare(ctx, t, ref, log)
-	if err != nil || tile.RunToCompletion(t.Kind) {
+	if err != nil {
+		return digest, err
+	}
+	if tile.RunToCompletion(t.Kind) {
 		// A cron or function deploy stops at the pulled artifact: a run
 		// starts its container.
-		return digest, err
+		f.prune(ctx, t, e, log)
+		return digest, nil
 	}
 	if _, err := f.Images.Ensure(ctx, tile.PauseImage, "", log); err != nil {
 		return "", fmt.Errorf("pull %s: %w", tile.PauseImage, err)
@@ -163,6 +172,7 @@ func (f *Flow) Run(ctx context.Context, t store.Tile, ref string, log io.Writer,
 		logf(log, "waiting for %s to accept connections\n", t.Slug)
 		return digest, f.Engines.Ready(ctx, t)
 	}
+	f.prune(ctx, t, e, log)
 	return digest, nil
 }
 
@@ -186,6 +196,9 @@ func (f *Flow) prepare(
 	ref string,
 	log io.Writer,
 ) (resolved, store.Environment, string, error) {
+	if t.Kind == tile.Slice {
+		return resolved{}, store.Environment{}, "", errs.Invalidf("kind", "a slice has no containers")
+	}
 	e, err := f.Envs.Get(ctx, t.EnvironmentID)
 	if err != nil {
 		return resolved{}, e, "", err
@@ -217,10 +230,8 @@ func (f *Flow) prepare(
 		// ponytail: files: mounts are not materialized yet (DECIDE 27).
 		return resolved{}, e, "", errs.Conflictf("%s: files: mounts are not supported yet", t.Slug)
 	}
-	if f.Engines != nil {
-		if err := f.Engines.Reconcile(ctx, t, log); err != nil {
-			return resolved{}, e, "", err
-		}
+	if err := f.bind(ctx, t, e, st, o, log); err != nil {
+		return resolved{}, e, "", err
 	}
 
 	r, err := f.resolve(ctx, t, e, st, o, def, log)

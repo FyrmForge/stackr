@@ -14,6 +14,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	"github.com/FyrmForge/stackr/internal/service/internal/dockerfake"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/deploy"
+	mflow "github.com/FyrmForge/stackr/internal/service/internal/flow/managed"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/credential"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/domain"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/domainres"
@@ -80,11 +81,20 @@ func setup(t *testing.T) *world {
 		Images:   image.New(s.Images, fake),
 		Releases: release.New(s.Releases, s.ReleaseTiles),
 		Params:   params.New(s.Params),
-		Managed:  managed.New(s.ManagedInstances, s.Provisions),
+		Managed:  managed.New(s.ManagedInstances, s.Provisions, s.Bindings),
 		Domains:  domain.New(s.Domains, fake, "proxy"),
 		Creds:    credential.New(s.Credentials),
 		Settings: settings.New(s.Settings, nil),
 		Jobs:     job.New(s.Jobs),
+	}
+	d.Engines = &mflow.Flow{
+		Tiles:     tiles,
+		Instances: d.Managed,
+		Volumes:   d.Volumes,
+		Envs:      d.Envs,
+		Stacks:    d.Stacks,
+		ReadyWait: time.Millisecond,
+		ReadyPoll: time.Millisecond,
 	}
 	w := &world{s: s, fake: fake, files: map[string]string{}}
 	w.f = &Flow{
@@ -196,7 +206,7 @@ func kinds(p *Plan) string {
 }
 
 func TestGrammar(t *testing.T) {
-	r, err := Load([]byte(shopFile), nil)
+	r, err := Load([]byte(shopFile), nil, "acme")
 	must(t, err)
 	dev, prd := r.Envs["dev"], r.Envs["prd"]
 	if dev.Tiles["api"].Image != "nginx:2" || prd.Tiles["api"].Image != "nginx:1" || dev.Tiles["api"].Port != 80 {
@@ -211,7 +221,7 @@ func TestGrammar(t *testing.T) {
 
 	inc := "version: 1\nbase:\n  tiles:\n    db: {engine: postgres}\n"
 	r, err = Load([]byte("version: 1\nstack: s\ninclude: [more.yml]\n"),
-		func(string) ([]byte, error) { return []byte(inc), nil })
+		func(string) ([]byte, error) { return []byte(inc), nil }, "acme")
 	must(t, err)
 	if r.Envs["production"].Tiles["db"].Type != tile.Managed {
 		t.Errorf("include: %+v", r.Envs["production"].Tiles)
@@ -224,7 +234,7 @@ func TestGrammar(t *testing.T) {
 		"shared":         "version: 1\nstack: s\nshared:\n  db: {engine: postgres}\n",
 		"bottom promote": "version: 1\nstack: s\nenvironments:\n  dev: {from: promote}\n",
 	} {
-		if _, err := Load([]byte(bad), nil); err == nil {
+		if _, err := Load([]byte(bad), nil, "acme"); err == nil {
 			t.Errorf("%s: loaded", name)
 		}
 	}
@@ -750,12 +760,12 @@ func (w *world) stackRow(t *testing.T, host string) store.DomainResource {
 // v0's grammar: exactly one of host, apex or auto; apex and auto take no
 // path or redirect.
 func TestDomainGrammar(t *testing.T) {
-	r, err := Load([]byte(autoFile("auto: true", "")), nil)
+	r, err := Load([]byte(autoFile("auto: true", "")), nil, "acme")
 	must(t, err)
 	if d := r.Envs["dev"].Tiles["api"].Domains[0]; !d.Auto || d.Host != "" {
 		t.Errorf("auto = %+v", d)
 	}
-	r, err = Load([]byte(autoFile("apex: shop.io", "")), nil)
+	r, err = Load([]byte(autoFile("apex: shop.io", "")), nil, "acme")
 	must(t, err)
 	if d := r.Envs["dev"].Tiles["api"].Domains[0]; d.Apex != "shop.io" {
 		t.Errorf("apex = %+v", d)
@@ -768,7 +778,7 @@ func TestDomainGrammar(t *testing.T) {
 		"auto: true\n          path: /x":             "take no path or redirect",
 		"apex: shop.io\n          redirect_to: b.io": "take no path or redirect",
 	} {
-		_, err := Load([]byte(autoFile(domain, "")), nil)
+		_, err := Load([]byte(autoFile(domain, "")), nil, "acme")
 		if err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("%q: err = %v, want %q", domain, err, want)
 		}

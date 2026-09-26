@@ -29,6 +29,14 @@ class SideDrawer extends HTMLElement {
     if ((e.target as Element).closest("[data-close], [data-backdrop]")) this.close();
   };
 
+  // A 404 aimed into the drawer means what it showed is gone (a deleted
+  // tile's refresh after its job): close rather than keep the stale body.
+  private onError = (e: Event): void => {
+    const d = (e as CustomEvent<{ target?: Element; xhr?: { status: number } }>).detail;
+    const body = this.body();
+    if (d?.xhr?.status === 404 && body && d.target && body.contains(d.target)) this.close();
+  };
+
   // A native <dialog> open anywhere takes Escape for itself.
   private onKey = (e: KeyboardEvent): void => {
     if (!this.hasAttribute("open") || document.querySelector("dialog[open]")) return;
@@ -45,12 +53,14 @@ class SideDrawer extends HTMLElement {
 
   connectedCallback(): void {
     document.addEventListener("htmx:afterSwap", this.onSwap);
+    document.addEventListener("htmx:responseError", this.onError);
     document.addEventListener("keydown", this.onKey);
     this.addEventListener("click", this.onClick);
   }
 
   disconnectedCallback(): void {
     document.removeEventListener("htmx:afterSwap", this.onSwap);
+    document.removeEventListener("htmx:responseError", this.onError);
     document.removeEventListener("keydown", this.onKey);
     this.removeEventListener("click", this.onClick);
   }

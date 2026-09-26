@@ -58,6 +58,12 @@ func (f *Flow) Apply(ctx context.Context, envID, releaseID string, log io.Writer
 	if p.Blocked() {
 		return p, errs.Conflictf("%s", strings.Join(p.Blockers, "; "))
 	}
+	if len(p.Changes) == 0 {
+		logf(log, "plan: nothing to change\n")
+	}
+	for _, c := range p.Changes {
+		logf(log, "plan: %s\n", c.Line())
+	}
 	if swap != nil {
 		if err := swap(); err != nil {
 			return p, err
@@ -133,14 +139,13 @@ func (f *Flow) apply(ctx context.Context, w *work, log io.Writer) error {
 		}
 	}
 
-	home := managed.Home{EnvID: e.ID, StackID: st.ID, OrgID: st.OrgID}
 	for _, row := range w.creates {
 		t, err := d.Tiles.Create(ctx, row)
 		if err != nil {
 			return fmt.Errorf("create %s: %w", row.Slug, err)
 		}
 		if t.Kind == tile.Managed {
-			if _, err := d.Managed.Create(ctx, t.ID, w.re.Tiles[t.Slug].Engine, "env", home, "stackr", ""); err != nil {
+			if _, err := d.Managed.Create(ctx, t.ID, w.re.Tiles[t.Slug].Engine, "stackr", ""); err != nil {
 				return err
 			}
 		}
@@ -150,6 +155,9 @@ func (f *Flow) apply(ctx context.Context, w *work, log io.Writer) error {
 		if _, _, err := d.Tiles.Update(ctx, u[0], u[1]); err != nil {
 			return fmt.Errorf("update %s: %w", u[0].Slug, err)
 		}
+	}
+	if err := f.applyInstances(ctx, w, e); err != nil {
+		return err
 	}
 	dns01 := f.DNS01 != nil && f.DNS01(ctx)
 	for _, name := range slices.Sorted(maps.Keys(w.domains)) {
@@ -182,27 +190,6 @@ func (f *Flow) apply(ctx context.Context, w *work, log io.Writer) error {
 			}
 		}
 	}
-	ephemeral := e.Type == environment.Ephemeral
-	for _, pr := range w.detach {
-		if err := d.Engines.Detach(ctx, pr, ephemeral); err != nil {
-			return err
-		}
-	}
-	for _, name := range slices.Sorted(maps.Keys(w.attach)) {
-		consumer, err := d.Tiles.GetBySlug(ctx, e.ID, name)
-		if err != nil {
-			return err
-		}
-		for _, s := range w.attach[name] {
-			it, err := f.instanceTile(ctx, home, e.ID, s.From)
-			if err != nil {
-				return err
-			}
-			if _, err := d.Engines.Attach(ctx, consumer, it, home, s.Name, s.Public, s.OnRemove); err != nil {
-				return fmt.Errorf("%s: slice from %s: %w", name, s.From, err)
-			}
-		}
-	}
 	if err := f.deleteTiles(ctx, w, e, log); err != nil {
 		return err
 	}
@@ -218,58 +205,114 @@ func (f *Flow) apply(ctx context.Context, w *work, log io.Writer) error {
 	return f.rollout(ctx, w, e, log)
 }
 
+// applyInstances writes the file's allow list and env pairs onto each
+// managed tile's instance row whose either moved; nothing redeploys.
+func (f *Flow) applyInstances(ctx context.Context, w *work, e store.Environment) error {
+	d := f.D
+	o, err := d.Orgs.Get(ctx, w.st.OrgID)
+	if err != nil {
+		return err
+	}
+	for _, name := range slices.Sorted(maps.Keys(w.instances)) {
+		iw := w.instances[name]
+		t, err := d.Tiles.GetBySlug(ctx, e.ID, name)
+		if err != nil {
+			return err
+		}
+		m, err := d.Managed.GetByTile(ctx, t.ID)
+		if err != nil {
+			return err
+		}
+		if m, err = d.Managed.SetAllow(ctx, m, o.Slug, iw.allow); err != nil {
+			return fmt.Errorf("%s: %w", name, err)
+		}
+		if _, err = d.Managed.SetEnvPairs(ctx, m, iw.pairs); err != nil {
+			return fmt.Errorf("%s: %w", name, err)
+		}
+	}
+	return nil
+}
+
 // deleteTiles: consumers first, so an instance goes after its slices.
 func (f *Flow) deleteTiles(ctx context.Context, w *work, e store.Environment, log io.Writer) error {
 	return f.Remove(ctx, e, w.deletes, log)
 }
 
 // Remove takes tiles of env e off the box and out of the store: containers,
-// ingress, slices (dropped or kept by their on_remove), a managed tile's
-// volumes orphaned. Managed tiles go last so their consumers detach first.
+// ingress, a consumer's bindings, a slice tile's provision (its data dropped
+// or kept by on_remove), a managed tile's instance (volumes orphaned, its
+// network last). Consumers go first, then slices, then managed tiles, so
+// nothing goes while something in this env still binds it. An engine
+// failure on a binding is logged, not fatal: its row goes with the tile.
 func (f *Flow) Remove(ctx context.Context, e store.Environment, ts []store.Tile, log io.Writer) error {
 	d := f.D
-	order := append([]store.Tile{}, ts...)
-	for i, t := range order { // managed last
-		if t.Kind == tile.Managed {
-			order = append(append(order[:i:i], order[i+1:]...), t)
-		}
-	}
+	order := slices.Clone(ts)
+	slices.SortStableFunc(order, func(a, b store.Tile) int {
+		return removeRank(a) - removeRank(b)
+	})
 	for _, t := range order {
+		net := ""
+		if t.Kind == tile.Managed {
+			m, err := d.Managed.GetByTile(ctx, t.ID)
+			switch {
+			case err == nil:
+				// Refused before anything moves: an instance still holding
+				// slices keeps its volumes, container and rows.
+				// ponytail: refuse, never drain; removing the slice tiles first
+				// (or a forced Engines.Teardown) is the way out, a UI verb for
+				// the forced drop when someone needs it.
+				if _, err := d.Managed.Teardown(ctx, m, false); err != nil {
+					return err
+				}
+				if err := f.orphan(ctx, e, m); err != nil {
+					return err
+				}
+				// Before the container, so the engine can still reach it.
+				if err := d.Engines.Teardown(ctx, t, false, log); err != nil {
+					return err
+				}
+				net = managed.Network(m.ID)
+			case !errors.Is(err, errs.ErrNotFound):
+				return err
+			}
+		}
 		if err := d.Tiles.Teardown(ctx, t, e.Network); err != nil {
 			return err
 		}
 		if err := d.Domains.CloseIngress(ctx, t.ID); err != nil {
 			return err
 		}
-		if t.Kind == tile.Managed {
-			m, err := d.Managed.GetByTile(ctx, t.ID)
-			if err == nil {
-				vs, err := d.Volumes.List(ctx, volume.Scope{Kind: m.ScopeKind, ID: m.ScopeID})
-				if err != nil {
-					return err
-				}
-				for _, v := range vs {
-					if v.InstanceID != nil && *v.InstanceID == m.ID {
-						if _, err := d.Volumes.Orphan(ctx, v); err != nil {
-							return err
-						}
-					}
-				}
-				if err := d.Engines.Teardown(ctx, t, false, log); err != nil {
-					return err
-				}
-			} else if !errors.Is(err, errs.ErrNotFound) {
-				return err
+		switch {
+		case net != "":
+			if err := d.Envs.DropShared(ctx, net); err != nil {
+				logf(log, "warning: network %s stays: %v\n", net, err)
 			}
-		} else if d.Engines != nil {
-			ps, err := d.Managed.ForConsumer(ctx, t.ID)
+		case d.Engines == nil:
+		case t.Kind == tile.Slice:
+			p, ok, err := d.Managed.ProvisionOf(ctx, t.ID)
 			if err != nil {
 				return err
 			}
-			for _, pr := range ps {
-				if err := d.Engines.Detach(ctx, pr, e.Type == environment.Ephemeral); err != nil {
+			if ok {
+				drop := deref(t.OnRemove) == tile.Drop || e.Type == environment.Ephemeral
+				if err := d.Engines.Drop(ctx, p, drop, log); err != nil {
 					return err
 				}
+			}
+		default:
+			bound, err := d.Managed.Bound(ctx, t.ID)
+			if err != nil {
+				return err
+			}
+			for _, id := range slices.Sorted(maps.Keys(bound)) {
+				if err := d.Engines.Unbind(ctx, bound[id]); err != nil {
+					logf(log, "warning: unbind %s: %v\n", bound[id].DBUser, err)
+				}
+			}
+		}
+		if t.Kind == tile.Slice {
+			if err := f.forgetSlice(ctx, e, t.Slug); err != nil {
+				return err
 			}
 		}
 		if err := d.Tiles.Delete(ctx, t.ID); err != nil {
@@ -280,7 +323,59 @@ func (f *Flow) Remove(ctx context.Context, e store.Environment, ts []store.Tile,
 	return nil
 }
 
-// rollout runs every tile the plan touched: managed first, then in
+// forgetSlice drops every slice_access entry naming slice slug from the
+// other tiles of env e, so no consumer keeps naming a slice that is gone.
+func (f *Flow) forgetSlice(ctx context.Context, e store.Environment, slug string) error {
+	ts, err := f.D.Tiles.List(ctx, e.ID)
+	if err != nil {
+		return err
+	}
+	for _, t := range ts {
+		cur := t
+		cur.SliceAccess = slices.DeleteFunc(slices.Clone(t.SliceAccess), func(a store.SliceAccess) bool {
+			return a.From == slug
+		})
+		if len(cur.SliceAccess) == len(t.SliceAccess) {
+			continue
+		}
+		if _, _, err := f.D.Tiles.Update(ctx, t, cur); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// removeRank: consumers, then slices, then managed tiles.
+func removeRank(t store.Tile) int {
+	switch t.Kind {
+	case tile.Slice:
+		return 1
+	case tile.Managed:
+		return 2
+	}
+	return 0
+}
+
+// orphan marks the instance's data volumes orphaned: kept, and reclaimed
+// only after retention.
+func (f *Flow) orphan(ctx context.Context, e store.Environment, m store.ManagedInstance) error {
+	vs, err := f.D.Volumes.List(ctx, volume.Scope{Kind: "env", ID: e.ID})
+	if err != nil {
+		return err
+	}
+	for _, v := range vs {
+		if v.InstanceID == nil || *v.InstanceID != m.ID {
+			continue
+		}
+		if _, err := f.D.Volumes.Orphan(ctx, v); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// rollout runs every tile the plan touched: managed tiles, then slice tiles
+// (their provision needs the instance up), then the rest, each pass in
 // depends_on order. Image tiles whose tag moved run the tag and are pinned
 // again in one derived release.
 func (f *Flow) rollout(ctx context.Context, w *work, e store.Environment, log io.Writer) error {
@@ -300,9 +395,9 @@ func (f *Flow) rollout(ctx context.Context, w *work, e store.Environment, log io
 		return errors.New("depends_on has a cycle")
 	}
 	var run []string
-	for _, pass := range []bool{true, false} {
+	for pass := range 3 {
 		for _, s := range order {
-			if w.redeploy[s] && (bySlug[s].Kind == tile.Managed) == pass {
+			if w.redeploy[s] && rolloutPass(bySlug[s]) == pass {
 				run = append(run, s)
 			}
 		}
@@ -351,22 +446,15 @@ func (f *Flow) rollout(ctx context.Context, w *work, e store.Environment, log io
 	return err
 }
 
-// instanceTile finds the managed tile a slice's from: names: the env's own
-// first, then anything visible from here.
-func (f *Flow) instanceTile(ctx context.Context, h managed.Home, envID, name string) (store.Tile, error) {
-	if t, err := f.D.Tiles.GetBySlug(ctx, envID, name); err == nil && t.Kind == tile.Managed {
-		return t, nil
+// rolloutPass: managed tiles, then slices, then everything else.
+func rolloutPass(t store.Tile) int {
+	switch t.Kind {
+	case tile.Managed:
+		return 0
+	case tile.Slice:
+		return 1
 	}
-	ms, err := f.D.Managed.Visible(ctx, h)
-	if err != nil {
-		return store.Tile{}, err
-	}
-	for _, m := range ms {
-		if t, err := f.D.Tiles.Get(ctx, m.TileID); err == nil && t.Slug == name {
-			return t, nil
-		}
-	}
-	return store.Tile{}, errs.ErrNotFound
+	return 2
 }
 
 func replicaIDs(ctx context.Context, d *deploy.Flow, t store.Tile) ([]string, error) {

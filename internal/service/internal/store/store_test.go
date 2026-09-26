@@ -261,6 +261,12 @@ func TestRoundTrip(t *testing.T) {
 		ti.CPULimit = 0.25
 		ti.Privileged = false
 		ti.UpdatePolicy = "manual"
+		ti.SliceAccess = store.SliceAccessList{
+			{
+				From:   "api-db",
+				Access: "read",
+			},
+		}
 		ti.UpdatedAt = t1
 	})
 	roundTrip(t, s.Tiles, store.Tile{
@@ -274,6 +280,24 @@ func TestRoundTrip(t *testing.T) {
 		CreatedAt:     t0,
 		UpdatedAt:     t0,
 	}, func(ti *store.Tile) { ti.Replicas = 1 })
+	roundTrip(t, s.Tiles, store.Tile{
+		ID:            "t3",
+		StackID:       "s1",
+		EnvironmentID: "e1",
+		Name:          "api-db",
+		Slug:          "api-db",
+		Kind:          "slice",
+		UpdatePolicy:  "manual",
+		ProvisionFrom: ptr("infra:${{ env.name }}:pg_db"),
+		DefaultAccess: ptr("write"),
+		OnRemove:      ptr("keep"),
+		CreatedAt:     t0,
+		UpdatedAt:     t0,
+	}, func(ti *store.Tile) {
+		ti.ProvisionFrom = ptr("infra:staging:pg_db")
+		ti.DefaultAccess = ptr("read")
+		ti.OnRemove = ptr("drop")
+	})
 	roundTrip(t, s.Images, store.Image{
 		ID:         "img1",
 		Ref:        "reg/x:1",
@@ -307,29 +331,62 @@ func TestRoundTrip(t *testing.T) {
 		UpdatedAt:  t0,
 	}, func(p *store.Param) { p.Value, p.UpdatedAt = "hunter3", t1 })
 	roundTrip(t, s.ManagedInstances, store.ManagedInstance{
-		ID:            "mi1",
-		TileID:        "t2",
-		Engine:        "postgres",
-		ScopeKind:     "env",
-		ScopeID:       "e1",
+		ID:     "mi1",
+		TileID: "t2",
+		Engine: "postgres",
+		Allow: store.StringList{
+			"org:shop:*",
+			"org:blog:*:api",
+		},
+		EnvPairs: store.StringMap{
+			"dev":     "staging",
+			"staging": "staging",
+		},
 		AdminUser:     "root",
 		AdminPassword: "pw",
 		Endpoint:      "db:5432",
 		CreatedAt:     t0,
-	}, func(m *store.ManagedInstance) { m.AdminPassword = "pw2" })
+	}, func(m *store.ManagedInstance) {
+		m.AdminPassword = "pw2"
+		m.Allow = store.StringList{}
+		m.EnvPairs = store.StringMap{}
+	})
 	roundTrip(t, s.Provisions, store.Provision{
-		ID:             "pr1",
-		InstanceID:     "mi1",
-		ConsumerTileID: ptr("t1"),
-		Slug:           "web",
-		DBName:         "web",
-		DBUser:         "web",
+		ID:         "pr1",
+		TileID:     "t3",
+		InstanceID: "mi1",
+		DBName:     "api_db",
+		DBUser:     "api_db",
+		DBPassword: "pw",
+		Public:     true,
+		CreatedAt:  t0,
+	}, func(p *store.Provision) {
+		p.DBPassword = "pw2"
+		p.Public = false
+	})
+	if p, err := s.Provisions.GetByTile(ctx, "t3"); err != nil || p.ID != "pr1" {
+		t.Fatalf("provision by slice tile = %+v, %v", p, err)
+	}
+	roundTrip(t, s.Bindings, store.Binding{
+		ID:             "b1",
+		ProvisionID:    "pr1",
+		ConsumerTileID: "t1",
+		Access:         "write",
+		DBUser:         "api_db_web",
 		DBPassword:     "pw",
-		Outputs:        `{"url":"x"}`,
-		Public:         true,
-		OnRemove:       "keep",
+		Outputs:        `{"DATABASE_URL":"postgres://x"}`,
 		CreatedAt:      t0,
-	}, func(p *store.Provision) { p.ConsumerTileID, p.Outputs, p.Public = nil, "{}", false })
+	}, func(b *store.Binding) {
+		b.Access = "read"
+		b.DBPassword = "pw2"
+		b.Outputs = "{}"
+	})
+	if bs, err := s.Bindings.ListByProvision(ctx, "pr1"); err != nil || len(bs) != 1 || bs[0].ID != "b1" {
+		t.Fatalf("bindings by provision = %+v, %v", bs, err)
+	}
+	if bs, err := s.Bindings.ListByConsumer(ctx, "t1"); err != nil || len(bs) != 1 || bs[0].ID != "b1" {
+		t.Fatalf("bindings by consumer = %+v, %v", bs, err)
+	}
 	roundTrip(t, s.Volumes, store.Volume{
 		ID:         "v1",
 		ScopeKind:  "env",
@@ -504,6 +561,7 @@ func TestRoundTrip(t *testing.T) {
 		{"domains", s.Domains.Delete, "d1"},
 		{"domain_resources", s.DomainResources.Delete, "dr2"},
 		{"volumes", s.Volumes.Delete, "v1"},
+		{"bindings", s.Bindings.Delete, "b1"},
 		{"provisions", s.Provisions.Delete, "pr1"},
 		{"managed_instances", s.ManagedInstances.Delete, "mi1"},
 		{"params", s.Params.Delete, "p1"},

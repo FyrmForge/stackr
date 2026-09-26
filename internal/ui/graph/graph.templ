@@ -402,7 +402,7 @@ templ compare(rs []Rung) {
 					<span class={ "env-dot", hue(r.Color) }></span>
 					{ r.Name }
 					if r.Behind {
-						<span class="text-rw-warn" title={ "Runs release #" + itoa(r.Release) + "; the env below runs a newer one" }>&uarr;</span>
+						<span class="text-rw-warn" title={ behindTitle(r) }>&uarr;</span>
 					}
 				</a>
 			}

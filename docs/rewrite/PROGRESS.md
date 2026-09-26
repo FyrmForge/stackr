@@ -37,7 +37,9 @@ at the bottom of this file.
   - Deviations from the task file: plan routes live under the org (`/orgs/:org/config/plans/:plan`), no flat path; no `approved` status (an approved plan is `pending` with `decided_at`, the job flips it to `applied`); `orgs.setup_mode` column carries the wizard branch; the `shared:` section and everything scope-related dropped by DECIDE 193; the config edge on the org canvas dropped (no org card to hang it on); a push whose file names every rung reorders the ladder (`Reorder`), a new rung no longer lands on top.
   - Wizard gaps, all missing verbs not UI: branch list, file-exists check, logo and avatar upload, invite expiry/revoke/reinvite/delete, the Moves row, the job step field. Roles come from the leaf (`AssignableRoles`, owner only until DECIDE 171).
   - Unproven on the VM: the wizard's config branch end to end (a second org needs its own GitHub App; unit-tested with the git fake). Known gaps left with `// ponytail:`: an org rename does not move the org's domain resource, so its auto hosts keep the old slug; env reorder and domain resource add/remove do not refresh auto hosts (the next promote does); promote's param rows do not tell create from change; a fresh DB sends `/` to `/login` not `/register`.
-- [ ] step-7b.md managed tiles: allow list replaces scope, slice tiles, env pairs, read or write per consumer, `${{ env.name }}`; darthvader 2026-09-25 (DECIDE 194), planned, not started
+- [x] step-7b.md managed tiles: allow list replaces scope, slice tiles, env pairs, read or write per consumer, `${{ env.name }}`; darthvader 2026-09-25 (DECIDE 194). Done 2026-09-26 on `rewrite-step-7b` (tasks 1 to 7, five Opus sessions), VM proof v0.0.39 on a fresh pave: infra stack with plain envs (`branch:` per env, no ladder) and a managed `pg-db` with `allow: [smoke:shop:*]` and env pairs; shop stack with `api-db` (slice), `api` (writer) and `reporter` (cron, read); plan row `slice api-db → infra/staging/pg-db (write)`; api creates and writes a table, reporter reads it and its insert is refused; staging resolves to infra staging through env pairs; an allow entry removed refuses the next consumer deploy with `slice api-db: infra/staging/pg-db does not allow smoke:shop:dev:api-db` and tears nothing down; reporter dropped from the file drops its role; a PR env (`pr-5`) provisions `shop_pr_5_api_db` on infra staging through dev's env-pair key and drops it when the PR closes; Playwright: managed drawer allow add/remove/bad pattern (inline error) and env pairs add/remove, slice drawer (target link, blocker slot, per-consumer access re-granted live, on remove), consumer Access tab, instance Slices tab with cross-stack links, graph slice card + ghost instance card, create dialog refuses a slice on a config-managed stack.
+  - Deviations from the task file: `pg_db` is `pg-db` (a tile slug is a DNS alias); the address package lives at `internal/service/internal/address`; DB names are `<stack>_<env>_<slice>` (DECIDE 197); `on_remove` is a file key (DECIDE 199); `Provision(id)` and the web `GET slices/:provision` went with the per-consumer slice list; `SetSliceDefaultAccess` and `ConsumerBindings` are web-only verbs (DECIDE 211).
+  - DECIDE 195 to 211 from the build; QA loops after the proof fix what they find (loop notes below the step list).
 
 Step 0 list (agreed with darhvader):
 1. Rename binaries to `stackrd`, `stackr`, `stackr-install`: three `cmd/` dirs, Makefile, watch rule.
@@ -909,6 +911,281 @@ sweep, P14 theme per user, DECIDE 159 and the DECIDE 138 leftovers.
    is; per-consumer network policy inside an env (S3 not on Grafana's
    network) is Later, own DECIDE. Plan: `docs/rewrite/tasks/step-7b.md`.
 
+195. **(step 7b) An `allow:` list replaces the own-env default.** DECIDE
+   194 says no list = the tile's own env only. With a list, the parser
+   (`internal/service/internal/address`) lets in only what the list names:
+   an infra tile that allows `smoke:shop:*` no longer admits infra's own
+   env unless the list says so. Options: (a) replaces, explicit; (b) adds
+   to the own-env default. Lean (a), one line to flip. **Flipped to (b)
+   after the loops (v0.0.51): own env always, the list adds; the stack
+   file's list no longer has to name the tile's own stack.**
+196. **(step 7b) Which `env_pairs` map counts.** The file puts `env_pairs`
+   on the managed tile under `base:`, but an instance row is per env, so
+   every env of the infra stack holds a copy. For a target in another
+   stack the plan reads the first non-empty map walking that stack's envs
+   from the bottom (`planSlice`, ponytail). Options: (a) keep; (b) one map
+   per stack, stored on the stack. Lean (a); the copies are equal unless a
+   per-env override differs, and then (b) cannot express it anyway.
+197. **(step 7b) A slice's database name.** Task 5 named it after the slice
+   slug, made unique per instance (`api_db`, `api_db_2`), and a kept
+   database was re-used by the next slice with that slug. shop/dev and
+   shop/staging both map to infra/staging through env pairs, so two
+   `api-db` slices land on one instance and a keep-then-re-add could hand
+   dev's data to staging. **Fixed in task 6: `<stack>_<env>_<slice>`,
+   deterministic, never collides; re-adding the same slice in the same
+   env gets its kept database back.**
+198. **(step 7b) S3 access is not enforced.** The s3 engine (RustFS) hands
+   every binding the instance's root key: a `read` consumer can write, and
+   any consumer can reach every bucket on the instance. This was the
+   step 3 ponytail ("the bucket per slice is the whole isolation boundary
+   until scoped keys are proven on RustFS") and 7b's read/write makes it
+   visible. Postgres is enforced. Options: (a) prove RustFS IAM (MinIO
+   style users and bucket policies) on the VM and mint a key per binding;
+   (b) ship as is, documented. Lean (a), tried in the QA loops; if RustFS
+   refuses, this stays open for darthvader. **Done (a) in v0.0.51: proven
+   on the VM with madmin-go against rustfs:latest (users, one canned policy
+   per user named after it, attach, rewrite in place for an access change,
+   remove; enforced, survives a restart). `s3.Admin` grew AddUser,
+   GrantUser and RemoveUser; the s3 engine's Bind and Unbind use them; the
+   flow mints a user per binding for every engine (the RootCreds flag now
+   only covers the slice's own cred).**
+199. **(step 7b) `on_remove` on a slice tile.** Task 5 gave it no file key:
+   default keep, a PR env always drops, the drawer sets it. The old
+   `slices:` list had `on_remove` in the file. **Fixed in task 6: `on_remove:
+   drop|keep` on the slice tile, default keep, PR env always drops.**
+200. **(step 7b) Removing an instance that still holds slices is refused.**
+   No force verb drops them all. Options: (a) keep; the user removes the
+   slices first; (b) `--force` on the instance delete. Lean (a) for v1.
+201. **(step 7b) `on_remove` lives on the slice tile only** (a stack-file
+   key, `tiles.on_remove`); the provision row keeps no copy, so
+   `SetSliceOnRemove` works before the first deploy. Accepted 2026-09-26.
+202. **(step 7b) A member can widen an allow list by approving a stack
+   plan.** `PUT …/allow` is owner-only, but `stackplan.approve` is write
+   level and the promote applies the file's `allow:`. Moot while everyone
+   is an owner (DECIDE 171). Options: (a) approving a plan that changes
+   `allow` needs owner; (b) accept. Lean (a) when member comes back.
+203. **(step 7b) `SetSliceAccess` re-grants inline, not as a job.** psql
+   over docker exec inside the request, no job lock, so it can race a
+   deploy of the consumer or the instance; a stopped instance answers 500
+   after the row is saved. Options: (a) keep inline, answer 409 "saved;
+   re-grants at the next deploy" when the instance is down; (b) a job
+   locked on the consumer and the instance. Lean (b); left for the QA
+   loops to hit first.
+204. **(step 7b) The consumer's Access tab shows explicit `slice_access`
+   entries plus bindings.** A slice reached only through an env ref has
+   no read verb before its first deploy. Options: (a) expose deploy's
+   `uses` through the orchestrator; (b) explicit entries plus bindings.
+   Lean (b), 2026-09-26.
+205. **(step 7b) Slice names never suffix.** Two slices whose
+   `<stack>_<env>_<slice>` names collide after truncation or hyphen
+   folding are refused as a conflict (ponytail: hash suffix when it
+   happens).
+206. **(step 7b task 7) The slice drawer has one tab.** Overview only: a
+   slice has no container, its logs are the instance's. Lean: keep; a
+   Logs tab that links to the instance's is a later nicety.
+207. **(step 7b task 7) The instance is a ghost card, not a sub-tile.** A
+   slice card gets `EdgeShared` to its instance; when the instance is in
+   another env (same stack or not) the graph draws the ghost
+   `stack/env · name`. `docs/rewrite/ui-plan.md` §2 and §5 still say
+   "hosting instance under a slice". Lean: update the ui-plan text.
+208. **(step 7b task 7) Two slices of one instance, one traffic line.** A
+   consumer bound to two slices of the same instance gets its traffic
+   line drawn to the last one found. Lean: fine for v1 (traffic is per
+   instance container anyway).
+209. **(step 7b task 7) Config-managed stacks lock default access only.**
+   `on_remove` and per-consumer access stay editable in the UI and CLI on
+   a config-managed stack, so they can drift from the file until the next
+   push overwrites them. Lean: lock both like default access (a slice's
+   `on_remove` and a consumer's `slice_access` are file keys).
+210. **(step 7b task 7) No remove for a `slice_access` entry.** The Access
+   tab and `stackr tile access` add or change an entry, never drop one;
+   the file can (omit it). Lean: add `--rm` / a × per row, drops the
+   entry and re-grants the slice's default.
+211. **(step 7b task 7) Web-only verbs.** `SetSliceDefaultAccess` and
+   `ConsumerBindings` have no API route or CLI (the precedent is DECIDE
+   84). Lean: API routes in a QA loop if the CLI needs them; otherwise
+   Later.
+212. **(step 7b QA loop 2) `env_pairs` is one map per tile slug, stored
+   per instance.** `deploy.Place` takes the first static env's instance
+   whose map is non-empty, so on a by-hand stack `stackr tile env-pairs
+   pg-db --env staging --clear` changes nothing while production's pg-db
+   still holds a map (found on the VM: a `dev` slice landed on staging
+   through production's map). A config push writes the same map on every
+   instance, so config-managed stacks never see it. Lean: `SetManagedEnvPairs`
+   writes the map on every instance of that tile slug in the stack and the
+   drawer says so ("applies to every env of this stack"); a per-env map is
+   not a thing the grammar has.
+213. **(step 7b QA loop 6) A push release keeps pins of tiles the file
+   dropped.** shop's release 12 still carries `reporter` after the file
+   lost it; `planImages` skips them, so nothing runs, but `release get`
+   lists a tile the env no longer has. Lean: leave; a release is what the
+   push saw. Flip: strip pins of tiles the file no longer declares.
+214. **(step 7b QA loop 6) A slice has two status words.** The canvas card
+   and the drawer header show its instance's word ("running", "Online")
+   while the drawer body says provisioned / idle. Lean: leave; the card
+   answers "can I reach it". Flip: the slice's own word (provisioned,
+   unresolved, idle) everywhere.
+215. **(step 7b QA loop 10) The panel's own logs live in its container.**
+   An upgrade replaces the container, so `docker logs stackr` starts over
+   and the previous version's run is gone. Lean: leave for v1 (the
+   installer can set a docker log driver). Flip: the panel also writes
+   its log under the data dir.
+
+## Step 7b QA loops (2026-09-26, VM upgraded in place per loop)
+
+Ten loops after the proof, per darthvader ("qa it, the ui, ux, technical
+features, find issues, fix deploy test again"). Each loop: QA on the VM,
+fix, ship, re-test.
+
+1. **v0.0.40.** CLI gaps: `tile exec` dropped stderr and the exit code
+   (stderr now rides the stream, the exit code is the `X-Exit-Code`
+   trailer, proven through Caddy); `job ls` printed nothing without
+   `--state` (no filter = every job); `managed ls` had its own column list
+   without allow and env pairs; `tile status` printed `last_job` as a JSON
+   blob (now `kind state id`, plus a replicas line). `scripts/rig.sh
+   upgrade <v>` (ship + replace the two containers) and pave prunes the
+   old `stackr-*` networks.
+2. **v0.0.41.** By-hand path end to end through the CLI (stack, env from a
+   branch, `slice add`, allow refusal then `tile allow --add`, consumer
+   deploy provisions the slice, write, `tile access` read re-grant refused
+   an insert, removal with keep left the database and dropped the
+   consumer's role) and the create dialog's Slice path in the browser.
+   Found: `tile rm` sent POST, not DELETE (never worked; fixed with a
+   recorder test); the slice drawer header said `none` for its status
+   (provisioned / idle); a removed slice left its name in consumers'
+   `slice_access` (stripped on removal); no way to drop one `slice_access`
+   entry (DECIDE 210: `access: default` on the same route, `tile access
+   --rm`, a control per row). Allow and env-pair validation messages are
+   right; `tile allow` on a non-managed tile named the id, not the slug
+   (fixed, CLI side). DECIDE 212 found (env pairs shadowed across envs).
+3. **v0.0.42.** DECIDE 212 fixed: `SetManagedEnvPairs` writes the map on
+   every instance of that tile slug in the stack (service test with a
+   second env); the instance drawer says so. `access: default` on a slug
+   whose slice tile is gone drops the stale entry instead of refusing
+   (entries left by removals before loop 2). Re-tested on the VM: the ×
+   on the Access tab, `tile access --rm`, `tile rm`, the slice drawer's
+   provisioned word, env pairs on staging mirrored to production.
+4. **v0.0.43, v0.0.44.** Config pushes on the test repo's `s7b-shop`
+   branch: A (`on_remove: drop` on api-db) applied; B (api-db removed,
+   api kept with its `${{ tile.api-db.DATABASE_URL }}`) was applied too:
+   the database was dropped under a running api (F13). Fixed at the file
+   check: a tile ref to a tile the file does not declare in that env is a
+   blocker ("environment dev tile api: refs ${{ tile.api-db.DATABASE_URL
+   }}: no tile of that name in this environment"), which also catches a
+   fresh file with a dangling ref. C (no tiles at all) removed api and
+   then failed with "depends_on has a cycle": the topo sort returned nil
+   for an empty env (F14, fixed, test). D (original file back) provisioned
+   a fresh `shop_dev_api_db`, api writes to it. Each push makes one push
+   job per stack on that repo; the infra one did nothing and logged
+   nothing (F15: it now logs "no environment of infra follows branch
+   s7b-shop; nothing to do", ships with loop 5).
+5. **v0.0.45, v0.0.46.** Browser: the slice drawer's per-consumer access
+   select and the consumer Access tab's Add access + × drive the grant
+   live (read refused api's insert, write took it back). `stackr env
+   traffic` printed tile ids and raw floats: edges now carry `from_name`
+   and `to_name` (slug in the env, `stack/env/slug` for a tile of another
+   env, the id when unknown) and the CLI prints `api  api-db  26.8 KB/s`.
+   F15 verified: the infra push job says why it did nothing. A
+   comment-only push redeployed api: not a bug, the file has no
+   `slice_access` for api and my UI edit had left one (DECIDE 209: a push
+   reverts per-consumer access edits on a config-managed stack), but the
+   job log said only "deploying api": the promote job log now prints the
+   plan rows first (`plan: update api slice_access: ...`, or `plan: nothing
+   to change`). `stackr release get` printed `(none)`: it shows the
+   release fields and a pins table now.
+6. **No code change.** Removal and rollback with slices: `tile rm pg-db`
+   on the instance is refused naming the three live slices; `env rm`
+   refuses while tiles exist (pre-7b rule), then by hand `tile rm web`
+   dropped web's role, `tile rm cache-db` (keep) left `byhand_dev_cache_db`
+   with its owner role, `env rm` went through. `rollback --tag 7` on shop
+   dev printed `plan: update api-db on_remove: keep -> drop` in its job log
+   and `promote 12` put keep back. The org canvas said shop was "Crashed":
+   staging's reporter cron ran at 03:00 against a database with no `notes`
+   table (the proof made it on dev), a real failed run, not a status bug.
+   Known and left: a push release carries pins of tiles the file dropped
+   (reporter still in shop's release 12; planImages skips them); a slice's
+   status word is its instance's ("running", canvas "Online") while the
+   drawer header says provisioned/idle.
+7. **v0.0.47.** A shop push whose ladder adds `qa` made the env; `promote
+   13 --env qa --dry-run` blocks with `slice api-db: infra's pg-db has no
+   env pair for qa` (and the ladder rule). The ladder without `qa` pushed
+   back left the env ("never deletes one", DECIDE 189; removed by hand).
+   The api drawer's Variables tab (`tab=env`) shows the ref, not the
+   resolved URL with the password. The compare pill's arrow on an env with
+   no release said "Runs release #0": it says "No release yet" now.
+8. **v0.0.48.** The by-hand path in the browser only (stack `handui`, env
+   dev): slice from the create dialog, its drawer names the allow blocker,
+   the web deploy fails with it, the allow row added on the instance's
+   Settings tab, the redeploy provisions and binds, the slice drawer's
+   Consumers row and On remove select, the service delete from Settings
+   (type-the-name dialog) drops the role, the slice delete with drop drops
+   the database. Fixed: a blocked or unresolved slice's card said "no
+   target" (now "unresolved"; the drawer says why); a tile whose delete
+   job runs said "building" (now "removing"); after a delete from the
+   drawer the sse:end refresh 404s and the drawer stayed on the gone tile
+   (the side-drawer closes on a 404 aimed inside it; main.js still logs
+   that 404 to the console, by design); the slice drawer said "Remove
+   tile" where service tiles say "Delete tile" (unified). Not bugs: the
+   drawer's Status looked stuck after Deploy, but the deploy job takes
+   ~22 s on the VM (pull checks, old replica removal) and the refresh
+   lands when it ends. Noted, not fixed: the create dialog's
+   `provision_from` is a placeholder, not a prefilled value; `job ls`
+   lists oldest first and has no `--stack`.
+9. **v0.0.49.** API level, by curl with the QA key. Read routes: a
+   missing tile's slice view 404s, a service's is a 400 naming the field,
+   a missing stack 404s, no key 401s. Every write route refuses bad input
+   with a 400 and the field (`allow` pattern outside the org, `allow` and
+   `on_remove` on a service, an env pair to a missing env or with an empty
+   key, `on_remove: maybe`, slice access to a missing slice, `access:
+   admin`, slice access on the slice itself); slice creation on a
+   config-managed stack is a 409 naming the stack file; on a by-hand env
+   a bad name, a bad access, an empty or two-segment `provision_from`, a
+   duplicate name and a non-JSON body each refuse with the right field.
+   `env traffic` says `(none)` unless the read lands in a 5 s window with
+   bytes moving (it is the last sample, not a history): with 60 s of psql
+   from both shop envs it shows `api api-db 14.9 KB/s` both ways, infra
+   staging shows `shop/dev/api` and `shop/staging/api` against pg-db, the
+   API returns ids, names and bps, and the shop dev canvas draws the two
+   lanes with their labels. Fixed: the slice create body took `slug`
+   while tile create takes `name`, so a bad name's error named a field
+   the request did not have (it is `name` now, CLI and openapi with it);
+   "api is a image tile" (the three tile-kind refusals read "api is kind
+   image, not managed / not a slice").
+10. **v0.0.50.** Final sweep of the VM. Fixed: every container removal
+    left behind the anonymous volume an image's `VOLUME` line gave it
+    (18 dangling volumes from the day's redeploys of postgres-based
+    tiles); `docker.StopRemove` and the two failed-create cleanups pass
+    `RemoveVolumes` now (named `stackr-vol-*` volumes are untouched), and
+    a redeploy of shop's api no longer adds one. Not bugs: seven empty
+    `stackr-env-*` / `stackr-ingress-*` networks predate the pave (the
+    prune in `rig.sh pave` came after it; removed by hand); the staging
+    pg-db holds `byhand_dev_*` databases with their owner roles (kept on
+    removal, as chosen) and the shop consumers' roles, nothing stale; the
+    server log scan covers only the current container, since each rig
+    upgrade replaces it (DECIDE 215). Memory `vm-test-credentials`
+    updated to this state.
+11. **v0.0.51, v0.0.52 (after the ten loops).** DECIDE 198 closed: a
+    throwaway `rustfs/rustfs:latest` on the VM took MinIO admin calls
+    through madmin-go (user add, canned policy, attach, rewrite in place,
+    remove; enforced on the S3 API, kept across a restart), so `s3.Admin`
+    grew `AddUser`, `GrantUser` and `RemoveUser`, the s3 engine's Bind
+    and Unbind use them, and the flow mints a user per binding for every
+    engine (`RootCreds` now only covers the slice's own cred). DECIDE 195
+    flipped: the own env is always allowed, an allow list adds to it.
+    Proven by hand on `byhand`: an s3 managed tile, a read slice and an
+    alpine consumer injected `S3_ACCESS_KEY=byhand-dev-uploads-api`; with
+    signed curl at the instance's bridge IP the key read and listed its
+    bucket and got 403 on put, delete, another bucket and bucket-make;
+    `tile access --access write` made put and delete pass with the same
+    key; `tile rm` of the consumer left the key dead (403) and the root
+    key alive. An allow list of `smoke:shop:*` on the s3 tile left the
+    same-env slice resolving. Fixed on the way (v0.0.52): the first real
+    s3 deploy failed its ready check because stackrd dialled
+    `http://<slug>:9000` and its host network resolved the slug on the
+    public DNS; `flow/managed.tools` now takes the running replica's
+    bridge IP (DECIDE 28 as built: host-network stackrd routes to any
+    bridge IP; a bridge-network stackrd would have to join the instance
+    network). The test env, tiles and bucket were removed afterwards.
 ## DECIDE:
 
 Silent calls the planner made under rule 9 / "fix obvious gaps"; flip any
@@ -1068,7 +1345,11 @@ Raised by step 3 session B (builder took the lean; flip any):
    API from stackrd at the instance's endpoint, else `http://<slug>:9000`,
    so stackrd must be routable to it. Options: (a) keep, stackrd joins the
    env/shared networks it manages; (b) exec an `mc` sidecar on the
-   instance's network. Lean (a).
+   instance's network. Lean (a). **As built (step 7b, v0.0.52): neither.
+   stackrd runs on the host network, which routes to every docker bridge,
+   so `flow/managed.tools` dials the running replica's bridge IP (the
+   slug fell through to public DNS on the VM). A stackrd on its own
+   bridge would need (a).**
 29. **What may land in a `from: promote` env.** One rule serves promote
    and rollback (B2): the release's number must not be above the one the
    env below runs, and the env below must run something. No history

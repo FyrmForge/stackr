@@ -1805,9 +1805,9 @@ func compare(rs []Rung) templ.Component {
 					return templ_7745c5c3_Err
 				}
 				var templ_7745c5c3_Var96 string
-				templ_7745c5c3_Var96, templ_7745c5c3_Err = templ.JoinStringErrs("Runs release #" + itoa(r.Release) + "; the env below runs a newer one")
+				templ_7745c5c3_Var96, templ_7745c5c3_Err = templ.JoinStringErrs(behindTitle(r))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/graph/graph.templ`, Line: 405, Col: 112}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/graph/graph.templ`, Line: 405, Col: 55}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var96))
 				if templ_7745c5c3_Err != nil {

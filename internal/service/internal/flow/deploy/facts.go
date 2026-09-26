@@ -3,10 +3,8 @@ package deploy
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"strings"
 
-	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/managed"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/params"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
@@ -14,7 +12,8 @@ import (
 )
 
 // snapshot is everything the resolver may see for tile t: the three param
-// scopes, every tile of its env and the shared instances it can reach.
+// scopes and every tile of its env, a slice tile as t's binding sees it. A
+// managed instance is reached through a slice tile, never by name.
 // ponytail: stackr.PROXY_IP and org.backups are not filled; a ref to either
 // fails the deploy with the resolver's own message until they are.
 func (f *Flow) snapshot(
@@ -35,23 +34,28 @@ func (f *Flow) snapshot(
 		return s, err
 	}
 
-	mine, err := f.Managed.ForConsumer(ctx, t.ID)
+	bound, err := f.Managed.Bound(ctx, t.ID) // by slice tile id
 	if err != nil {
 		return s, err
-	}
-	slices := map[string]store.Provision{} // by instance id
-	for _, p := range mine {
-		slices[p.InstanceID] = p
 	}
 
 	tiles, err := f.Tiles.List(ctx, e.ID)
 	if err != nil {
 		return s, err
 	}
+	s.Env = e.Slug
 	s.Tiles = map[string]params.Source{}
 	for _, x := range tiles {
-		if x.Kind == tile.Managed {
-			continue // listed with the instances below
+		switch x.Kind {
+		case tile.Managed:
+			continue
+		case tile.Slice:
+			src, err := f.sliceSource(ctx, bound, x)
+			if err != nil {
+				return s, err
+			}
+			s.Tiles[x.Slug] = src
+			continue
 		}
 		src, err := f.endpoint(ctx, x)
 		if err != nil {
@@ -62,34 +66,32 @@ func (f *Flow) snapshot(
 			s.Self = src
 		}
 	}
-
-	insts, err := f.Managed.Visible(ctx, managed.Home{EnvID: e.ID, StackID: st.ID, OrgID: st.OrgID})
-	if err != nil {
-		return s, err
-	}
-	s.Stack, s.Org = map[string]params.Source{}, map[string]params.Source{}
-	for _, m := range insts {
-		it, err := f.Tiles.Get(ctx, m.TileID)
-		if errors.Is(err, errs.ErrNotFound) {
-			continue
-		}
-		if err != nil {
-			return s, err
-		}
-		p, attached := slices[m.ID]
-		src := params.Source{Managed: true, Attached: attached, Outputs: managed.Outputs(p)}
-		switch m.ScopeKind {
-		case managed.Env:
-			s.Tiles[it.Slug] = src
-		case managed.Stack:
-			src.Network = managed.Network(m.ID)
-			s.Stack[it.Slug] = src
-		case managed.Org:
-			src.Network = managed.Network(m.ID)
-			s.Org[it.Slug] = src
-		}
-	}
 	return s, nil
+}
+
+// sliceSource is slice tile x as the consumer's binding sees it: that cred's
+// outputs, and the instance's network, which every consumer joins (the
+// instance may sit in another env or stack).
+func (f *Flow) sliceSource(ctx context.Context, bound map[string]store.Binding, x store.Tile) (params.Source, error) {
+	b, ok := bound[x.ID]
+	src := params.Source{
+		Slice:    true,
+		Attached: ok,
+	}
+	if !ok {
+		return src, nil
+	}
+	out, err := managed.Outputs(b)
+	if err != nil {
+		return src, err
+	}
+	src.Outputs = out
+	p, err := f.Managed.GetProvision(ctx, b.ProvisionID)
+	if err != nil {
+		return src, err
+	}
+	src.Network = managed.Network(p.InstanceID)
+	return src, nil
 }
 
 // endpoint is a service or image tile's built-in outputs.

@@ -9,6 +9,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"path/filepath"
 	"testing"
 	"time"
@@ -16,6 +17,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/FyrmForge/stackr/internal/service"
+	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	"github.com/FyrmForge/stackr/internal/service/internal/dockerfake"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/user"
@@ -263,6 +265,39 @@ func (e *Env) FailedJob(t *testing.T, tileID string) {
 		Payload:    "{}",
 		CreatedAt:  fin,
 		FinishedAt: &fin,
+	}))
+}
+
+// Bound seeds what a consumer's deploy leaves behind: slice tile
+// sliceTileID provisioned on managed tile instanceTileID (once), and
+// consumer consumerTileID holding a cred on it at access. The cred's user
+// is "<consumer id>_user".
+func (e *Env) Bound(t *testing.T, sliceTileID, instanceTileID, consumerTileID, access string) {
+	t.Helper()
+	ctx := context.Background()
+	m, err := e.Store.ManagedInstances.GetByTile(ctx, instanceTileID)
+	must(t, err)
+	p, err := e.Store.Provisions.GetByTile(ctx, sliceTileID)
+	if errors.Is(err, errs.ErrNotFound) {
+		p = store.Provision{
+			ID:         uuid.NewString(),
+			TileID:     sliceTileID,
+			InstanceID: m.ID,
+			DBName:     "slice_db",
+			DBUser:     "slice_owner",
+			CreatedAt:  now,
+		}
+		err = e.Store.Provisions.Create(ctx, p)
+	}
+	must(t, err)
+	must(t, e.Store.Bindings.Create(ctx, store.Binding{
+		ID:             uuid.NewString(),
+		ProvisionID:    p.ID,
+		ConsumerTileID: consumerTileID,
+		Access:         access,
+		DBUser:         consumerTileID + "_user",
+		Outputs:        "{}",
+		CreatedAt:      now,
 	}))
 }
 

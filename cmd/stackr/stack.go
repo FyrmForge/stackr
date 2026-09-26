@@ -6,8 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net/url"
 	"os"
+	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -17,12 +20,15 @@ var (
 	stackCols   = []string{"slug", "name", "description", "config_repo", "id"}
 	envCols     = []string{"slug", "name", "type", "from_kind", "from_branch", "auto", "release_id", "id"}
 	tileCols    = []string{"slug", "name", "kind", "image_ref", "git_url", "container_port", "id"}
+	managedCols = []string{"engine", "allow", "env_pairs", "tile_id", "id"}
+	sliceCols   = []string{"slug", "kind", "provision_from", "default_access", "on_remove", "id"}
 	releaseCols = []string{"number", "created_by", "created_at", "id"}
 	domainCols  = []string{"host", "path", "container_port", "https", "force_https", "redirect_to", "id"}
 	paramCols   = []string{"collection", "name", "kind", "value", "scope_kind"}
 	volumeCols  = []string{"slug", "name", "max_size_mb", "scope_kind", "orphaned_at", "id"}
 	schedCols   = []string{"id", "method", "cron", "timezone", "keep", "mode", "dest_id"}
 	runCols     = []string{"id", "status", "trigger", "created_at", "size_bytes", "object_key", "error"}
+	pinCols     = []string{"slug", "repo", "branch", "commit_sha", "digest", "image_id"}
 	tileRunCols = []string{"id", "status", "trigger", "exit_code", "reason", "created_at", "finished_at"}
 )
 
@@ -124,6 +130,7 @@ func (a *app) stackCommands() []*cobra.Command {
 		a.restart(),
 		a.logs(),
 		a.managed(),
+		a.sliceTiles(),
 		a.params(),
 		a.volumes(),
 		a.backups(),
@@ -131,7 +138,8 @@ func (a *app) stackCommands() []*cobra.Command {
 }
 
 // at runs f with the path down to lv. The tile is the first arg when the
-// verb's Use names it there ("get [tile]", "rename <tile> <name>"); a verb
+// verb's Use names it there ("get [tile]", "rename <tile> <name>", a slice
+// tile's "get [slice]"); a verb
 // whose first arg is something else ("domain add <host>") takes the tile
 // from --tile or the link.
 func (a *app) at(
@@ -153,7 +161,7 @@ func (a *app) at(
 
 func tileFirst(use string) bool {
 	f := strings.Fields(use)
-	return len(f) > 1 && (f[1] == "[tile]" || f[1] == "<tile>")
+	return len(f) > 1 && slices.Contains([]string{"[tile]", "<tile>", "[slice]", "<slice>"}, f[1])
 }
 
 // get is a leaf that shows one GET under lv.
@@ -247,10 +255,23 @@ func (a *app) releases() *cobra.Command {
 					return err
 				}
 				v, err := a.call(GET, p+"/releases/"+id, nil)
-				if err != nil {
+				if err != nil || a.json {
+					if err == nil {
+						err = a.show(v)
+					}
 					return err
 				}
-				return a.show(v)
+				m, _ := v.(map[string]any)
+				if err := a.show(m["release"]); err != nil {
+					return err
+				}
+				pins, _ := m["pins"].(map[string]any)
+				rows := make([]any, 0, len(pins))
+				for _, slug := range slices.Sorted(maps.Keys(pins)) {
+					rows = append(rows, pins[slug])
+				}
+				_, _ = fmt.Fprintln(a.out)
+				return a.show(rows, pinCols...)
 			})),
 	), false)
 }
@@ -296,16 +317,25 @@ func (a *app) envs() *cobra.Command {
 		a.get("ls", "env.list", "List environments", atStack, "/envs", envCols...),
 		a.get("ladder", "env.ladder", "List environments in promote order", atStack, "/ladder", envCols...),
 		a.get("get", "env.get", "Show the environment", atEnv, "", envCols...),
-		a.get(
-			"traffic",
-			"env.traffic",
-			"Show tile-to-tile bytes per second at the last 5 s sample",
-			atEnv,
-			"/traffic",
-			"from",
-			"to",
-			"bps",
-		),
+		leaf("traffic", "env.traffic", "Show tile-to-tile traffic at the last 5 s sample", upTo(0),
+			a.at(atEnv, func(_ *cobra.Command, p string, _ []string) error {
+				v, err := a.call(GET, p+"/traffic", nil)
+				if err != nil || a.json {
+					if err == nil {
+						err = a.show(v)
+					}
+					return err
+				}
+				rows, _ := v.([]any)
+				for _, r := range rows {
+					if m, ok := r.(map[string]any); ok {
+						n, _ := m["bps"].(json.Number)
+						bps, _ := n.Float64()
+						m["bps"] = rate(bps)
+					}
+				}
+				return a.show(v, "from_name", "to_name", "bps")
+			})),
 		create,
 		a.put("rename <name>", "env.rename", "Rename the environment", atEnv, "/name", "name"),
 		a.put("color <color>", "env.color", "Set the environment's panel colour", atEnv, "/color", "color"),
@@ -420,23 +450,23 @@ func (a *app) rollback() *cobra.Command {
 
 // ---- tile ----
 
-func (a *app) tileJob(use, op, short, sub, what, q string) *cobra.Command {
+func (a *app) tileJob(method, use, op, short, sub, what, q string) *cobra.Command {
 	return scoped(waits(leaf(use, op, short, upTo(1), a.at(atTile, func(c *cobra.Command, p string, _ []string) error {
 		if q != "" {
 			if err := a.confirm(fmt.Sprintf(q, last(p))); err != nil {
 				return err
 			}
 		}
-		return a.orgJob(c, POST, p+sub, nil, what)
+		return a.orgJob(c, method, p+sub, nil, what)
 	}))), true)
 }
 
 func (a *app) deploy() *cobra.Command {
-	return a.tileJob("deploy [tile]", "tile.deploy", "Deploy the tile and follow it", "/deploy", "deploy", "")
+	return a.tileJob(POST, "deploy [tile]", "tile.deploy", "Deploy the tile and follow it", "/deploy", "deploy", "")
 }
 
 func (a *app) restart() *cobra.Command {
-	return a.tileJob("restart [tile]", "tile.restart", "Restart the tile's containers", "/restart", "restart", "")
+	return a.tileJob(POST, "restart [tile]", "tile.restart", "Restart the tile's containers", "/restart", "restart", "")
 }
 
 func (a *app) logs() *cobra.Command {
@@ -676,8 +706,13 @@ func (a *app) tiles() *cobra.Command {
 			return err
 		}
 		defer func() { _ = res.Body.Close() }()
-		_, err = io.Copy(a.out, res.Body)
-		return err
+		if _, err := io.Copy(a.out, res.Body); err != nil {
+			return err
+		}
+		if code, _ := strconv.Atoi(res.Trailer.Get("X-Exit-Code")); code != 0 {
+			return exitErr(code)
+		}
+		return nil
 	}
 	exec.Flags().StringVar(&exCont, "container", "", "the replica (default: the first)")
 
@@ -692,6 +727,7 @@ func (a *app) tiles() *cobra.Command {
 				return err
 			})),
 		a.tileJob(
+			DELETE,
 			"rm [tile]",
 			"tile.delete",
 			"Remove a tile",
@@ -702,8 +738,9 @@ func (a *app) tiles() *cobra.Command {
 		a.deploy(),
 		a.restart(),
 		a.stop(),
-		a.tileJob("start [tile]", "tile.start", "Start the tile's containers", "/start", "start", ""),
+		a.tileJob(POST, "start [tile]", "tile.start", "Start the tile's containers", "/start", "start", ""),
 		a.tileJob(
+			POST,
 			"image-check [tile]",
 			"tile.image-check",
 			"Check the tile's image for a newer tag",
@@ -711,18 +748,31 @@ func (a *app) tiles() *cobra.Command {
 			"image check",
 			"",
 		),
-		a.get(
-			"status [tile]",
-			"tile.status",
-			"Show the tile's state and replicas",
-			atTile,
-			"/status",
-			"word",
-			"last_job",
-			"last_run",
-			"next_run",
-			"paused",
-		),
+		leaf("status [tile]", "tile.status", "Show the tile's state and replicas", upTo(1),
+			a.at(atTile, func(_ *cobra.Command, p string, _ []string) error {
+				v, err := a.call(GET, p+"/status", nil)
+				if err != nil || a.json {
+					if err == nil {
+						err = a.show(v)
+					}
+					return err
+				}
+				m, _ := v.(map[string]any)
+				if j, ok := m["last_job"].(map[string]any); ok {
+					m["last_job"] = cell(j["kind"]) + " " + cell(j["state"]) + " " + cell(j["id"])
+				}
+				if r, ok := m["last_run"].(map[string]any); ok {
+					m["last_run"] = cell(r["status"]) + " " + cell(r["trigger"]) + " " + cell(r["id"])
+				}
+				rs, _ := m["replicas"].([]any)
+				ids := make([]string, 0, len(rs))
+				for _, r := range rs {
+					c, _ := r.(map[string]any)
+					ids = append(ids, cell(c["id"]))
+				}
+				m["replicas"] = strings.Join(ids, " ")
+				return a.show(m, "word", "replicas", "last_job", "last_run", "next_run", "paused")
+			})),
 		a.logs(),
 		exec,
 		a.runNow(),
@@ -731,7 +781,9 @@ func (a *app) tiles() *cobra.Command {
 		a.runs(),
 		a.get("jobs [tile]", "tile.jobs", "List the tile's recent jobs", atTile, "/jobs", jobCols...),
 		a.domains(),
-		a.slices(),
+		a.allow(),
+		a.envPairs(),
+		a.sliceAccess(),
 	), true)
 }
 
@@ -854,59 +906,213 @@ func (a *app) domains() *cobra.Command {
 	)
 }
 
-func (a *app) slices() *cobra.Command {
-	var name, onRemove string
-	var public bool
-	attach := leaf(
-		"attach <instance-tile-id>",
-		"slice.attach",
-		"Give the tile a slice of a managed tile (a database, a bucket)",
-		exact(1),
-		a.at(atTile, func(c *cobra.Command, p string, args []string) error {
-			return a.orgJob(c, POST, p+"/slices", map[string]any{
-				"instance_tile_id": args[0],
-				"name":             name,
-				"public":           public,
-				"on_remove":        onRemove,
-			}, "attach")
+// allow edits a managed tile's allow list: --add and --rm read the list
+// and send it whole, --set replaces it.
+func (a *app) allow() *cobra.Command {
+	var add, rm, set []string
+	c := leaf(
+		"allow [tile]",
+		"managed.allow,tile.get,managed.list",
+		"Edit who outside the env may cut slices from a managed tile (org:stack:env:tile patterns)",
+		upTo(1),
+		nil,
+	)
+	c.Flags().StringArrayVar(&add, "add", nil, "add a pattern, e.g. acme:shop:*")
+	c.Flags().StringArrayVar(&rm, "rm", nil, "remove a pattern")
+	c.Flags().StringArrayVar(&set, "set", nil, "replace the list (--set '' empties it)")
+	c.RunE = a.at(atTile, func(c *cobra.Command, p string, _ []string) error {
+		replace := c.Flags().Changed("set")
+		if len(add) == 0 && len(rm) == 0 && !replace {
+			return usage("give --add, --rm or --set")
+		}
+		list := []string{}
+		if replace {
+			for _, s := range set {
+				if s != "" {
+					list = append(list, s)
+				}
+			}
+		} else {
+			cur, err := a.allowOf(c, p)
+			if err != nil {
+				return err
+			}
+			list = cur
+		}
+		for _, s := range add {
+			if !slices.Contains(list, s) {
+				list = append(list, s)
+			}
+		}
+		for _, s := range rm {
+			i := slices.Index(list, s)
+			if i < 0 {
+				return usage("%s is not in the allow list", s)
+			}
+			list = slices.Delete(list, i, i+1)
+		}
+		v, err := a.call(PUT, p+"/allow", map[string]any{"allow": list})
+		if err != nil {
+			return err
+		}
+		return a.show(v, managedCols...)
+	})
+	return c
+}
+
+// allowOf is the allow list of the managed tile at p, read from its env's
+// managed list.
+func (a *app) allowOf(c *cobra.Command, p string) ([]string, error) {
+	v, err := a.call(GET, p, nil)
+	if err != nil {
+		return nil, err
+	}
+	t, _ := v.(map[string]any)
+	ep, err := a.path(c, atEnv, "")
+	if err != nil {
+		return nil, err
+	}
+	m, err := a.find(ep+"/managed", "managed tile", cell(t["id"]), "tile_id")
+	if err != nil {
+		return nil, fmt.Errorf("%s is not a managed tile with an instance", cell(t["slug"]))
+	}
+	xs, _ := m["allow"].([]any)
+	out := []string{}
+	for _, x := range xs {
+		out = append(out, cell(x))
+	}
+	return out, nil
+}
+
+// envPairs replaces a managed tile's env pairs.
+func (a *app) envPairs() *cobra.Command {
+	var empty bool
+	c := leaf(
+		"env-pairs <tile> [consumer-env=env ...]",
+		"managed.env-pairs",
+		"Replace a managed tile's env pairs: a consumer's env name to one of this stack's envs",
+		atLeast(1),
+		nil,
+	)
+	c.Flags().BoolVar(&empty, "clear", false, "empty the map")
+	c.RunE = a.at(atTile, func(_ *cobra.Command, p string, args []string) error {
+		pairs := map[string]string{}
+		for _, s := range args[1:] {
+			k, v, err := kv(s)
+			if err != nil {
+				return err
+			}
+			pairs[k] = v
+		}
+		switch {
+		case empty && len(pairs) > 0:
+			return usage("--clear takes no pairs")
+		case !empty && len(pairs) == 0:
+			return usage("give consumer-env=env pairs, or --clear")
+		}
+		v, err := a.call(PUT, p+"/env-pairs", map[string]any{"env_pairs": pairs})
+		if err != nil {
+			return err
+		}
+		return a.show(v, managedCols...)
+	})
+	return c
+}
+
+// sliceAccess sets a consumer's access to one slice tile of its env; --rm
+// drops the entry, so the slice's default applies.
+func (a *app) sliceAccess() *cobra.Command {
+	var sl, access string
+	var rm bool
+	c := leaf(
+		"access [tile]",
+		"slice.access",
+		"Set the tile's access to a slice tile of its env; a bound tile is re-granted in place",
+		upTo(1),
+		a.at(atTile, func(_ *cobra.Command, p string, _ []string) error {
+			want := access
+			switch {
+			case rm && access != "":
+				return usage("give --access or --rm, not both")
+			case rm:
+				want = "default"
+			case access == "":
+				return usage("give --access read|write, or --rm")
+			}
+			v, err := a.call(PUT, p+"/slice-access", map[string]string{
+				"slice":  sl,
+				"access": want,
+			})
+			if err != nil {
+				return err
+			}
+			return a.show(v, "slug", "slice_access")
 		}),
 	)
-	attach.Flags().StringVar(&name, "name", "", "the slice's name")
-	attach.Flags().BoolVar(&public, "public", false, "reachable from outside the stack")
-	attach.Flags().StringVar(&onRemove, "on-remove", "keep", "keep or drop the data when detached")
-	waits(attach)
-	return noun("slice", "Slices of managed tiles bound to this tile",
+	c.Flags().StringVar(&sl, "slice", "", "the slice tile's slug")
+	c.Flags().StringVar(&access, "access", "", "read or write")
+	c.Flags().BoolVar(&rm, "rm", false, "drop the entry: the slice's default access applies")
+	_ = c.MarkFlagRequired("slice")
+	return c
+}
+
+// sliceTiles is the slice noun: a database or bucket cut from a managed
+// tile, bound by the tiles of its env that ref it or name it in slice_access.
+func (a *app) sliceTiles() *cobra.Command {
+	var from, access string
+	add := leaf(
+		"add <slug>",
+		"slice.create",
+		"Make a slice tile in --env, cut from --from at its deploy",
+		exact(1),
+		a.at(atEnv, func(_ *cobra.Command, p string, args []string) error {
+			v, err := a.call(POST, p+"/slices", map[string]string{
+				"name":           args[0],
+				"provision_from": from,
+				"default_access": access,
+			})
+			if err != nil {
+				return err
+			}
+			return a.show(v, sliceCols...)
+		}),
+	)
+	add.Flags().StringVar(&from, "from", "", "the managed tile, <stack>:<env>:<tile>")
+	add.Flags().StringVar(&access, "access", "", "the default access of its consumers, read or write (default write)")
+	_ = add.MarkFlagRequired("from")
+	return scoped(noun("slice", "Slice tiles: a database or bucket cut from a managed tile",
+		add,
+		a.get("get [slice]", "slice.get", "Show a slice tile and the instance it resolves to", atTile, "/slice"),
 		a.get(
-			"ls [tile]",
-			"slice.list",
-			"List the tile's slices",
+			"bindings [slice]",
+			"slice.bindings",
+			"List the tiles holding a cred on the slice",
 			atTile,
-			"/slices",
-			"slug",
-			"db_name",
-			"public",
-			"on_remove",
-			"id",
+			"/bindings",
+			"consumer",
+			"kind",
+			"access",
+			"user",
+			"since",
 		),
-		attach,
 		leaf(
-			"detach <slice-id>",
-			"slice.detach",
-			"Unbind a slice; --on-remove decided what happens to its data",
-			exact(1),
-			a.at(atOrg, func(_ *cobra.Command, p string, args []string) error {
-				if err := a.confirm("Detach slice " + args[0] + "? Its on-remove setting decides whether the data goes."); err != nil {
+			"on-remove <slice> <keep|drop>",
+			"slice.on-remove",
+			"Keep or drop the data when the slice tile is removed",
+			exact(2),
+			a.at(atTile, func(_ *cobra.Command, p string, args []string) error {
+				v, err := a.call(PUT, p+"/on-remove", map[string]string{"on_remove": args[1]})
+				if err != nil {
 					return err
 				}
-				_, err := a.call(DELETE, p+"/slices/"+args[0], nil)
-				return err
+				return a.show(v, sliceCols...)
 			}),
 		),
-	)
+	), true)
 }
 
 func (a *app) managed() *cobra.Command {
-	var engine, scope string
+	var engine string
 	create := leaf("create <name>", "managed.create", "Make a managed tile (postgres, s3) in --env", exact(1), nil)
 	keys := tileFlags(create)
 	create.Flags().StringVar(&engine, "engine", "", "postgres or s3")
@@ -926,31 +1132,9 @@ func (a *app) managed() *cobra.Command {
 		}
 		return a.show(v)
 	})
-	sc := leaf("scope <tile>", "managed.scope", "Who may take slices: env, stack or org", exact(1),
-		a.at(atTile, func(_ *cobra.Command, p string, _ []string) error {
-			v, err := a.call(PUT, p+"/scope", map[string]string{"scope": scope})
-			if err != nil {
-				return err
-			}
-			return a.show(v)
-		}))
-	sc.Flags().StringVar(&scope, "scope", "", "env, stack or org")
-	_ = sc.MarkFlagRequired("scope")
 	return scoped(noun("managed", "Managed tiles",
-		a.get(
-			"ls",
-			"managed.list",
-			"List the env's managed tiles",
-			atEnv,
-			"/managed",
-			"engine",
-			"endpoint",
-			"scope_kind",
-			"tile_id",
-			"id",
-		),
+		a.get("ls", "managed.list", "List the env's managed tiles", atEnv, "/managed", managedCols...),
 		create,
-		sc,
 	), true)
 }
 
@@ -1331,4 +1515,15 @@ func (a *app) backups() *cobra.Command {
 func last(p string) string {
 	s, _ := url.PathUnescape(p[strings.LastIndex(p, "/")+1:])
 	return s
+}
+
+// rate spells bytes per second the way the canvas's lane label does.
+func rate(bps float64) string {
+	switch {
+	case bps >= 1<<20:
+		return fmt.Sprintf("%.1f MB/s", bps/(1<<20))
+	case bps >= 1<<10:
+		return fmt.Sprintf("%.1f KB/s", bps/(1<<10))
+	}
+	return fmt.Sprintf("%.0f B/s", bps)
 }

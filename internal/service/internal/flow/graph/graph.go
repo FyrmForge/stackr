@@ -48,6 +48,11 @@ type Flow struct {
 	Runs     *lrun.Leaf
 	Canvas   *canvas.Leaf
 	Images   *image.Leaf
+	// Target is a slice tile's instance tile as a deploy resolves it
+	// (flow/deploy); an error is why it does not resolve.
+	Target func(ctx context.Context, s store.Tile) (store.Tile, error)
+	// Slice is a slice tile's status word (flow/managed SliceWord).
+	Slice func(ctx context.Context, s store.Tile) (string, error)
 }
 
 // Node kinds besides the tile kinds (service, image, managed, cron,
@@ -106,7 +111,7 @@ type View struct {
 }
 
 type Node struct {
-	ID     string // org:<id> stack:<id> env:<id> connector:<id> vars; env: tile id, provision id (slice), instance tile id or ref:<kind>.<slug> (ghost), volume id, proxy, internet
+	ID     string // org:<id> stack:<id> env:<id> connector:<id> vars; env: tile id (a slice's too), instance tile id (a ghost when in another env), volume id, proxy, internet
 	Kind   string
 	Name   string
 	Slug   string // drill-down and drawer address
@@ -116,7 +121,7 @@ type Node struct {
 	W, H   int
 	Saved  bool // the position is a row, not arranged
 	System bool // behind the divider
-	Static bool // not draggable (ghost refs)
+	Static bool // not draggable (ghosts, vars)
 	Color  string
 	Deck   int // 0-2 layers behind a drill-down card
 	Subs   []Sub
@@ -133,11 +138,12 @@ type Node struct {
 	Waiting    string     // the param a parked job waits for
 	// Vars card counts; never a value.
 	Params, Secrets int
+	Consumers       int // slice: the tiles that ref it, name it in slice_access or hold a cred on it
 }
 
-// Sub is a sub-tile; Slug is the hosting instance's tile slug, Detail the
-// strip's right-hand word (a mount path, an engine).
-type Sub struct{ ID, Kind, Name, Status, Slug, Detail string }
+// Sub is a sub-tile (an attached volume, a replica); Detail is the strip's
+// right-hand word.
+type Sub struct{ ID, Kind, Name, Status, Detail string }
 
 type Edge struct{ Kind, From, To string }
 
@@ -508,6 +514,7 @@ func refs(t store.Tile) []params.Ref {
 var rank = map[string]int{
 	"error":     7,
 	"building":  6,
+	"removing":  6,
 	"queued":    6,
 	"waiting":   6,
 	"unhealthy": 5,
@@ -554,7 +561,8 @@ func (f *Flow) status(ctx context.Context, t store.Tile) (status, error) {
 	if err != nil {
 		return s, err
 	}
-	if tile.RunToCompletion(t.Kind) {
+	switch {
+	case tile.RunToCompletion(t.Kind):
 		s.word = "none"
 		if r, ok, err := f.Runs.Last(ctx, t.ID); err != nil {
 			return s, err
@@ -567,7 +575,12 @@ func (f *Flow) status(ctx context.Context, t store.Tile) (status, error) {
 				"failed":  "error",
 			}[r.Status]
 		}
-	} else {
+	case t.Kind == tile.Slice && f.Slice != nil:
+		// no container of its own: its instance's word once provisioned
+		if s.word, err = f.Slice(ctx, t); err != nil {
+			return s, err
+		}
+	default:
 		if s.state, err = f.Tiles.State(ctx, t); err != nil {
 			return s, err
 		}
@@ -593,6 +606,9 @@ func (f *Flow) status(ctx context.Context, t store.Tile) (status, error) {
 		s.word = "queued"
 	case hasJob && j.State == job.Running:
 		s.word = "building"
+		if j.Kind == "delete" {
+			s.word = "removing"
+		}
 	case hasJob && j.State == job.Waiting:
 		s.word = "waiting"
 		if j.WaitingParam != nil {
@@ -638,50 +654,9 @@ func (f *Flow) env(ctx context.Context, v *View, envID string, in In) error {
 		vols[vol.Slug] = vol.ID
 	}
 
-	// Slices first: an instance of this env that hosts one rides under it
-	// and loses its own card.
-	hosted := map[string]bool{}
-	var slices []Node
-	for _, t := range ts {
-		ps, err := f.Managed.ForConsumer(ctx, t.ID)
-		if err != nil {
-			return err
-		}
-		for _, p := range ps {
-			n := card(p.ID, KindSlice, p.Slug)
-			n.Slug, n.Detail = p.ID, p.DBName
-			inst, err := f.Managed.Get(ctx, p.InstanceID)
-			if err != nil {
-				return err
-			}
-			host, err := f.Tiles.Get(ctx, inst.TileID)
-			if err != nil {
-				return err
-			}
-			if host.EnvironmentID == envID {
-				hosted[host.ID] = true
-				n.Subs = append(n.Subs, Sub{
-					ID:     host.ID,
-					Kind:   tile.Managed,
-					Name:   host.Name,
-					Slug:   host.Slug,
-					Detail: inst.Engine,
-				})
-			} else {
-				g := ghost(v, host.ID, host.Name, inst.ScopeKind+" · "+inst.Engine)
-				v.Edges = append(v.Edges, Edge{EdgeShared, n.ID, g})
-			}
-			v.Edges = append(v.Edges, Edge{EdgeRef, t.ID, n.ID})
-			slices = append(slices, n)
-		}
-	}
-
 	mounted := map[string]bool{}
 	proxied := false
 	for _, t := range ts {
-		if hosted[t.ID] {
-			continue
-		}
 		n, err := f.tileCard(ctx, t, vols, in.Status)
 		if err != nil {
 			return err
@@ -695,39 +670,60 @@ func (f *Flow) env(ctx context.Context, v *View, envID string, in In) error {
 		}
 		v.Nodes = append(v.Nodes, n)
 	}
-	v.Nodes = append(v.Nodes, slices...)
 
-	// Refs, then startup edges where no ref already joins the pair.
+	// Refs (a slice's consumers too: a slice_access entry or a cred is a
+	// ref), then startup edges where no ref already joins the pair.
 	joined := map[[2]string]bool{}
+	ref := func(from, to string) {
+		if from != to && !joined[[2]string{from, to}] {
+			v.Edges = append(v.Edges, Edge{EdgeRef, from, to})
+			joined[[2]string{from, to}] = true
+		}
+	}
 	for _, t := range ts {
 		id := t.ID
 		readsVars := false
 		for _, r := range refs(t) {
 			switch r.Kind {
 			case params.KindTile:
-				if to, ok := bySlug[r.Slug]; ok && !hosted[to.ID] && to.ID != t.ID && !joined[[2]string{id, to.ID}] {
-					v.Edges = append(v.Edges, Edge{EdgeRef, id, to.ID})
-					joined[[2]string{id, to.ID}] = true
-				}
-			case params.KindStack, params.KindOrg:
-				g := ghost(v, "ref:"+string(r.Kind)+"."+r.Slug, r.Slug, string(r.Kind)+" tile")
-				if !joined[[2]string{id, g}] {
-					v.Edges = append(v.Edges, Edge{EdgeShared, id, g})
-					joined[[2]string{id, g}] = true
+				if to, ok := bySlug[r.Slug]; ok {
+					ref(id, to.ID)
 				}
 			case params.KindParam:
 				readsVars = true
+			}
+		}
+		for _, a := range t.SliceAccess {
+			if to, ok := bySlug[a.From]; ok && to.Kind == tile.Slice {
+				ref(id, to.ID)
+			}
+		}
+		bound, err := f.Managed.Bound(ctx, id)
+		if err != nil {
+			return err
+		}
+		for _, sliceID := range slices.Sorted(maps.Keys(bound)) {
+			if _, ok := byID[sliceID]; ok {
+				ref(id, sliceID)
 			}
 		}
 		if readsVars && vars.shown() {
 			v.Edges = append(v.Edges, Edge{EdgeShared, vars.ID, id})
 		}
 	}
+	for i := range v.Nodes {
+		if v.Nodes[i].Kind != KindSlice {
+			continue
+		}
+		if err := f.sliceCard(ctx, v, i, byID[v.Nodes[i].ID]); err != nil {
+			return err
+		}
+	}
 	for _, t := range ts {
 		for _, l := range tile.Lines(t.DependsOn) {
 			dep, _, err := tile.ParseDep(l)
 			to, ok := bySlug[dep]
-			if err != nil || !ok || hosted[to.ID] {
+			if err != nil || !ok {
 				continue
 			}
 			a, b := t.ID, to.ID
@@ -754,7 +750,7 @@ func (f *Flow) env(ctx context.Context, v *View, envID string, in In) error {
 	// when a tile talked to it in the last sample.
 	egress := map[string]bool{}
 	for _, l := range in.Traffic {
-		if t, ok := byID[l.From]; ok && l.To == ltraffic.Internet && !hosted[t.ID] && !egress[t.Slug] {
+		if t, ok := byID[l.From]; ok && l.To == ltraffic.Internet && !egress[t.Slug] {
 			egress[t.Slug] = true
 			v.Edges = append(v.Edges, Edge{EdgeEgress, t.ID, KindInternet})
 		}
@@ -768,6 +764,81 @@ func (f *Flow) env(ctx context.Context, v *View, envID string, in In) error {
 		v.Nodes = append(v.Nodes, n)
 	}
 	return nil
+}
+
+// nouns are what a slice is on each engine's instance, as the card says it.
+// ponytail: flow/managed's engines hold a SliceNoun too; one table when a
+// third engine lands.
+var nouns = map[string]string{
+	"postgres": "database",
+	"s3":       "bucket",
+}
+
+// sliceCard fills slice card v.Nodes[i] (slice tile s): what it is and what
+// it is cut from, its consumers (the ref edges into it), and a shared edge
+// to its instance, that instance's own card in this env or a ghost of it.
+// A slice that resolves nowhere draws no shared edge; its drawer says why.
+func (f *Flow) sliceCard(ctx context.Context, v *View, i int, s store.Tile) error {
+	n := &v.Nodes[i]
+	for _, e := range v.Edges {
+		if e.Kind == EdgeRef && e.To == n.ID {
+			n.Consumers++
+		}
+	}
+	it, ok, err := f.sliceTarget(ctx, s)
+	if err != nil || !ok {
+		n.Detail = "unresolved" // the drawer says why: no such tile, no env pair, or not allowed
+		return err
+	}
+	m, err := f.Managed.GetByTile(ctx, it.ID)
+	if err != nil {
+		return err
+	}
+	n.Detail = nouns[m.Engine] + " on " + it.Name
+	to := it.ID
+	if it.EnvironmentID != s.EnvironmentID {
+		e, err := f.Envs.Get(ctx, it.EnvironmentID)
+		if err != nil {
+			return err
+		}
+		st, err := f.Stacks.Get(ctx, it.StackID)
+		if err != nil {
+			return err
+		}
+		to = ghost(v, it.ID, st.Slug+"/"+e.Slug+" · "+it.Name, m.Engine)
+		n = &v.Nodes[i] // ghost may have grown v.Nodes
+	}
+	v.Edges = append(v.Edges, Edge{EdgeShared, n.ID, to})
+	return nil
+}
+
+// sliceTarget is slice tile s's instance tile: the one it is provisioned
+// on, else the one a deploy would resolve now; false when it resolves
+// nowhere.
+func (f *Flow) sliceTarget(ctx context.Context, s store.Tile) (store.Tile, bool, error) {
+	p, ok, err := f.Managed.ProvisionOf(ctx, s.ID)
+	if err != nil {
+		return store.Tile{}, false, err
+	}
+	if ok {
+		m, err := f.Managed.Get(ctx, p.InstanceID)
+		if err != nil {
+			return store.Tile{}, false, err
+		}
+		it, err := f.Tiles.Get(ctx, m.TileID)
+		return it, err == nil, err
+	}
+	if f.Target == nil {
+		return store.Tile{}, false, nil
+	}
+	it, err := f.Target(ctx, s)
+	_, conflict := errs.IsConflict(err)
+	_, unset := errs.IsUnset(err)
+	_, invalid := errs.IsInvalid(err)
+	if conflict || unset || invalid {
+		return store.Tile{}, false, nil
+	}
+	return it, err == nil, err
 }
 
 // proxyCard is the system card in front of whatever has a domain, the
@@ -851,7 +922,7 @@ func (f *Flow) tileCard(ctx context.Context, t store.Tile, vols map[string]strin
 	}
 	if t.Kind == tile.Managed {
 		if in, err := f.Managed.GetByTile(ctx, t.ID); err == nil {
-			vs, err := f.Volumes.List(ctx, volume.Scope{Kind: in.ScopeKind, ID: in.ScopeID})
+			vs, err := f.Volumes.List(ctx, volume.Scope{Kind: "env", ID: t.EnvironmentID})
 			if err != nil {
 				return n, err
 			}

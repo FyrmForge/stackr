@@ -97,15 +97,24 @@ type (
 	RawCaddyIn struct {
 		RawCaddy string `json:"raw_caddy"`
 	}
-	SliceIn struct {
-		InstanceTileID string `json:"instance_tile_id"`
-		Name           string `json:"name"`
-		Public         bool   `json:"public"`
-		OnRemove       string `json:"on_remove"`
+	AllowIn struct {
+		Allow []string `json:"allow"` // org:stack:env:tile patterns; the full list
 	}
-	ScopeIn struct {
-		Scope string `json:"scope"`
-	} // env | stack | org
+	EnvPairsIn struct {
+		EnvPairs map[string]string `json:"env_pairs"` // consumer env -> this stack's env; the full map
+	}
+	SliceTileIn struct {
+		Name          string `json:"name"`
+		ProvisionFrom string `json:"provision_from"` // <stack>:<env>:<tile>
+		DefaultAccess string `json:"default_access"` // read | write, "" = write
+	}
+	SliceAccessIn struct {
+		Slice  string `json:"slice"`  // a slice tile's slug in the consumer's env
+		Access string `json:"access"` // read | write | default (drops the entry: the slice's default applies)
+	}
+	OnRemoveIn struct {
+		OnRemove string `json:"on_remove"` // keep | drop
+	}
 )
 
 func (in DomainIn) spec() service.DomainSpec {
@@ -305,26 +314,44 @@ func (h *H) DetachDomain() Endpoint {
 	return Done(func(c echo.Context, _ None) error { return h.Orch.DetachDomain(rc(c), c.Param("domain")) })
 }
 
-// ---- managed slices ----
+// ---- managed tiles and slices ----
 
-func (h *H) Slices() Endpoint {
-	return Get(func(c echo.Context) ([]service.Provision, error) { return list(h.Orch.Slices(rc(c), tileID(c))) })
-}
-
-func (h *H) AttachSlice() Endpoint {
-	return Job(func(c echo.Context, in SliceIn) (service.Job, error) {
-		return h.Orch.AttachSlice(rc(c), tileID(c), in.InstanceTileID, in.Name, in.Public, in.OnRemove)
+func (h *H) SetManagedAllow() Endpoint {
+	return JSON(200, func(c echo.Context, in AllowIn) (service.ManagedInstance, error) {
+		return h.Orch.SetManagedAllow(rc(c), tileID(c), in.Allow)
 	})
 }
 
-func (h *H) DetachSlice() Endpoint {
-	return Job(func(c echo.Context, _ None) (service.Job, error) {
-		return h.Orch.DetachSlice(rc(c), c.Param("provision"))
+func (h *H) SetManagedEnvPairs() Endpoint {
+	return JSON(200, func(c echo.Context, in EnvPairsIn) (service.ManagedInstance, error) {
+		return h.Orch.SetManagedEnvPairs(rc(c), tileID(c), in.EnvPairs)
 	})
 }
 
-func (h *H) SetInstanceScope() Endpoint {
-	return JSON(200, func(c echo.Context, in ScopeIn) (service.ManagedInstance, error) {
-		return h.Orch.SetInstanceScope(rc(c), tileID(c), in.Scope)
+func (h *H) CreateSliceTile() Endpoint {
+	return JSON(201, func(c echo.Context, in SliceTileIn) (service.Tile, error) {
+		return h.Orch.CreateSliceTile(rc(c), envID(c), in.Name, in.ProvisionFrom, in.DefaultAccess)
 	})
+}
+
+func (h *H) SetSliceAccess() Endpoint {
+	return JSON(200, func(c echo.Context, in SliceAccessIn) (service.Tile, error) {
+		return h.Orch.SetSliceAccess(rc(c), tileID(c), in.Slice, in.Access)
+	})
+}
+
+func (h *H) SetSliceOnRemove() Endpoint {
+	return JSON(200, func(c echo.Context, in OnRemoveIn) (service.Tile, error) {
+		return h.Orch.SetSliceOnRemove(rc(c), tileID(c), in.OnRemove)
+	})
+}
+
+func (h *H) Bindings() Endpoint {
+	return Get(func(c echo.Context) ([]service.SliceBinding, error) {
+		return list(h.Orch.Bindings(rc(c), tileID(c)))
+	})
+}
+
+func (h *H) SliceOf() Endpoint {
+	return Get(func(c echo.Context) (service.SliceView, error) { return h.Orch.SliceOf(rc(c), tileID(c)) })
 }

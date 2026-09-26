@@ -168,7 +168,7 @@ func envDrawer(base, kind, id, slug string) (url, tab string) {
 	case "managed":
 		return base + "/-/instances/" + slug, "slices"
 	case "slice":
-		return base + "/-/slices/" + id, "bindings"
+		return base + "/-/slices/" + slug, "overview"
 	case "volume":
 		if strings.HasPrefix(id, "volume:") { // mounted, never declared
 			return "", ""
@@ -223,6 +223,7 @@ func envCard(u *ui.Node, n service.GraphNode, base string) {
 	if len(n.Domains) > 0 {
 		f.Domain, f.More = n.Domains[0], len(n.Domains)-1
 	}
+	f.Consumers = n.Consumers
 	cv.Footer = f
 	u.Subs = u.Subs[:0]
 	for _, s := range n.Subs {
@@ -237,9 +238,6 @@ func envCard(u *ui.Node, n service.GraphNode, base string) {
 		switch s.Kind {
 		case "replica": // its tile's drawer
 			url, tab = envDrawer(base, n.Kind, n.ID, n.Slug)
-		case "managed": // the hosting instance under a slice
-			sv.Kind = "instance"
-			url, tab = envDrawer(base, "managed", s.ID, s.Slug)
 		default:
 			url, tab = envDrawer(base, s.Kind, s.ID, "")
 		}

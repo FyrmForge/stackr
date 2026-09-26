@@ -1,13 +1,13 @@
 // Package env is the env canvas's routes that are not the canvas itself:
-// the env-level drawers and dialogs (slice, volume, proxy, create tile,
-// rollback) and the drawers' job stream. Every handler is one verb call and a
+// the env-level drawers and dialogs (managed instance, slice tile, volume,
+// proxy, create tile, rollback) and the drawers' job stream. Every handler is one verb call and a
 // view struct.
 package env
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
+	"maps"
 	"net/http"
 	"slices"
 	"strconv"
@@ -18,6 +18,7 @@ import (
 	"github.com/a-h/templ"
 	"github.com/labstack/echo/v4"
 
+	"github.com/FyrmForge/stackr/internal/authz"
 	"github.com/FyrmForge/stackr/internal/middleware"
 	"github.com/FyrmForge/stackr/internal/service"
 	"github.com/FyrmForge/stackr/internal/service/errs"
@@ -52,9 +53,13 @@ func (h *handler) Mount(g *echo.Group, a *middleware.Access) {
 	g.POST(e+"/instances/:tile/deploy", h.instanceJob("deploy queued", h.orch.Deploy), a.Require("tile.write"))
 	g.POST(e+"/instances/:tile/stop", h.instanceJob("stop queued", h.orch.StopTile), a.Require("tile.write"))
 	g.POST(e+"/instances/:tile/delete", h.instanceJob("delete queued", h.orch.DeleteTile), a.Require("tile.write"))
-	g.POST(e+"/instances/:tile/scope", h.InstanceScope, a.Require("tile.write"))
-	g.GET(e+"/slices/:provision", h.Slice, a.Require("tile.read"))
-	g.POST(e+"/slices/:provision/detach", h.DetachSlice, a.Require("tile.write"))
+	g.POST(e+"/instances/:tile/allow", h.Allow, a.Require("managed.allow"))
+	g.POST(e+"/instances/:tile/env-pairs", h.EnvPairs, a.Require("tile.write"))
+	g.GET(e+"/slices/:tile", h.Slice, a.Require("tile.read"))
+	g.POST(e+"/slices/:tile/default-access", h.SliceDefaultAccess, a.Require("tile.write"))
+	g.POST(e+"/slices/:tile/access", h.SliceAccess, a.Require("tile.write"))
+	g.POST(e+"/slices/:tile/on-remove", h.SliceOnRemove, a.Require("tile.write"))
+	g.POST(e+"/slices/:tile/delete", h.SliceDelete, a.Require("tile.write"))
 	g.GET(e+"/volumes/:volume", h.Volume, a.Require("org.read"))
 	g.POST(e+"/volumes/:volume/backup", h.BackupNow, a.Require("backup.write"))
 	g.POST(e+"/volumes/:volume/restore", h.Restore, a.Require("backup.write"))
@@ -113,6 +118,8 @@ func createView(c echo.Context) dialog.CreateTileView {
 		Trigger:  c.FormValue("trigger"),
 		Engine:   c.FormValue("engine"),
 		Command:  c.FormValue("command"),
+		From:     c.FormValue("provision_from"),
+		Access:   c.FormValue("default_access"),
 	}
 	if !slices.ContainsFunc(dialog.Sources, func(o dialog.Option) bool { return o.Value == v.Source }) {
 		v.Source = "image"
@@ -150,6 +157,8 @@ func (h *handler) CreateTile(c echo.Context) error {
 	switch v.Source {
 	case "managed":
 		t, err = h.orch.CreateManagedTile(c.Request().Context(), t, v.Engine)
+	case "slice":
+		t, err = h.orch.CreateSliceTile(c.Request().Context(), s.Env.ID, v.Name, v.From, v.Access)
 	default:
 		t.ImageRef = v.Image
 		t.GitURL = v.GitURL
@@ -175,20 +184,37 @@ func (h *handler) CreateTile(c echo.Context) error {
 		}
 		v.Errors = map[string]string{field: msg}
 		if field != "general" &&
-			!slices.Contains([]string{"name", "image_ref", "git_url", "git_branch", "schedule", "engine"}, field) {
+			!slices.Contains(createFields, field) {
 			v.Errors["general"] = field + ": " + msg // a field the form does not show
 		}
 		return respond.HTML(c, http.StatusUnprocessableEntity, dialog.CreateTile(v))
 	}
-	c.Response().Header().Set("HX-Redirect", render.EnvURL(c)+"?drawer="+t.ID+"&tab=status")
+	tab := "status"
+	if t.Kind == "slice" {
+		tab = slice.Tabs[0]
+	}
+	c.Response().Header().Set("HX-Redirect", render.EnvURL(c)+"?drawer="+t.ID+"&tab="+tab)
 	return c.NoContent(http.StatusOK)
+}
+
+// createFields are the fields the create form marks; another field's
+// refusal shows over the form.
+var createFields = []string{
+	"name",
+	"image_ref",
+	"git_url",
+	"git_branch",
+	"schedule",
+	"engine",
+	"provision_from",
+	"default_access",
 }
 
 // ---- managed instance ----
 
 // GET …/-/instances/:tile?tab=
 func (h *handler) Instance(c echo.Context) error {
-	return h.instance(c, c.QueryParam("tab"), "", nil)
+	return h.instance(c, c.QueryParam("tab"), "", nil, instance.SettingsView{})
 }
 
 // instanceJob is a header action (deploy, stop, delete) answered with
@@ -196,20 +222,83 @@ func (h *handler) Instance(c echo.Context) error {
 func (h *handler) instanceJob(note string, f func(context.Context, string) (service.Job, error)) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		_, err := f(c.Request().Context(), scope(c).Tile.ID)
-		return h.instance(c, "slices", note, err)
+		return h.instance(c, "slices", note, err, instance.SettingsView{})
 	}
 }
 
-func (h *handler) InstanceScope(c echo.Context) error {
-	_, err := h.orch.SetInstanceScope(c.Request().Context(), scope(c).Tile.ID, c.FormValue("scope_kind"))
-	return h.instance(c, "settings", "scope saved", err)
+// POST …/-/instances/:tile/allow: the whole list (allow, repeated) plus
+// add, one more pattern. Blank entries are dropped.
+func (h *handler) Allow(c echo.Context) error {
+	form, err := c.FormParams()
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+	}
+	add := strings.TrimSpace(form.Get("add"))
+	list := nonBlank(append(form["allow"], add))
+	_, err = h.orch.SetManagedAllow(c.Request().Context(), scope(c).Tile.ID, list)
+	return h.saved(c, "allow", err, instance.SettingsView{Add: add})
+}
+
+// POST …/-/instances/:tile/env-pairs: the whole map (from and to,
+// repeated in step) plus add_from → add_to, one more pair.
+func (h *handler) EnvPairs(c echo.Context) error {
+	form, err := c.FormParams()
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+	}
+	from := form["from"]
+	to := form["to"]
+	if len(from) != len(to) {
+		return echo.NewHTTPError(http.StatusBadRequest, "from and to must pair up")
+	}
+	typed := instance.SettingsView{
+		AddFrom: strings.TrimSpace(form.Get("add_from")),
+		AddTo:   form.Get("add_to"),
+	}
+	pairs := map[string]string{}
+	for i := range from {
+		pairs[from[i]] = to[i]
+	}
+	if typed.AddFrom != "" {
+		pairs[typed.AddFrom] = typed.AddTo
+	}
+	_, err = h.orch.SetManagedEnvPairs(c.Request().Context(), scope(c).Tile.ID, pairs)
+	return h.saved(c, "env_pairs", err, typed)
+}
+
+// saved answers a Settings form: a refusal of its own field shows under
+// the form with what was typed (422), any other over the drawer.
+func (h *handler) saved(c echo.Context, field string, err error, typed instance.SettingsView) error {
+	var form instance.SettingsView
+	if err != nil {
+		form = typed
+	}
+	if inv, ok := errs.IsInvalid(err); ok && inv.Field == field {
+		form.Errors = map[string]string{field: inv.Msg}
+		err = nil
+	}
+	return h.instance(c, "settings", "saved", err, form)
+}
+
+func nonBlank(list []string) []string {
+	out := []string{}
+	for _, s := range list {
+		if strings.TrimSpace(s) != "" {
+			out = append(out, strings.TrimSpace(s))
+		}
+	}
+	return out
 }
 
 // instance is the managed instance drawer on tab; each tab is one read.
-func (h *handler) instance(c echo.Context, tab, note string, actErr error) error {
+// form is a Settings save's answer: what was typed and why it was refused.
+func (h *handler) instance(c echo.Context, tab, note string, actErr error, form instance.SettingsView) error {
 	msg, status, fail := refused(actErr)
 	if fail != nil {
 		return fail
+	}
+	if len(form.Errors) > 0 {
+		status = http.StatusUnprocessableEntity
 	}
 	ctx, s := c.Request().Context(), scope(c)
 	t := s.Tile
@@ -229,12 +318,11 @@ func (h *handler) instance(c echo.Context, tab, note string, actErr error) error
 		Tab:      instance.Tab(tab),
 		Status:   st.Word,
 		Running:  st.Word == "running",
-		Scope:    m.ScopeKind,
 		Location: s.Stack.Name + " / " + s.Env.Name,
 		EnvColor: s.Env.Color,
 		Error:    msg,
 	}
-	if msg == "" {
+	if msg == "" && len(form.Errors) == 0 {
 		v.Note = note
 	}
 	var body templ.Component
@@ -257,31 +345,61 @@ func (h *handler) instance(c echo.Context, tab, note string, actErr error) error
 		}
 		body = instance.Backups(v, bs)
 	case "settings":
-		body = instance.Settings(v)
+		body = instance.Settings(v, settingsView(c, m, form))
 	default:
-		names, err := h.tileNames(c)
-		if err != nil {
-			return middleware.HTTPError(err)
+		o := instance.OverviewView{
+			Endpoint:  m.Endpoint,
+			AdminUser: m.AdminUser,
 		}
-		o := instance.OverviewView{Endpoint: m.Endpoint, AdminUser: m.AdminUser}
 		for _, p := range ps {
 			r := instance.SliceRow{
-				ID:       p.ID,
-				Name:     p.Slug,
-				DB:       p.DBName,
-				OnRemove: p.OnRemove,
+				Slice:    p.Slice,
+				Link:     drawerURL(s.Org.Slug, p.Stack, p.Env, p.TileID, slice.Tabs[0]),
+				Name:     p.DBName,
+				Bindings: p.Bindings,
 				Public:   p.Public,
-				Orphan:   p.ConsumerTileID == nil,
-				Drawer:   render.EnvURL(c) + "/-/slices/" + p.ID + "?tab=bindings",
 			}
-			if p.ConsumerTileID != nil {
-				r.UsedBy = names[*p.ConsumerTileID]
+			if p.Stack != s.Stack.Slug || p.Env != s.Env.Slug {
+				r.Where = p.Stack + "/" + p.Env
 			}
 			o.Slices = append(o.Slices, r)
 		}
 		body = instance.Overview(v, o)
 	}
 	return respond.HTML(c, status, instance.Drawer(v, body))
+}
+
+// settingsView is the instance's allow list and env pairs over what a
+// refused save typed.
+func settingsView(c echo.Context, m service.ManagedInstance, form instance.SettingsView) instance.SettingsView {
+	s := scope(c)
+	form.Allow = m.Allow
+	form.CanAllow = can(c, s, "managed.allow")
+	if form.Add == "" {
+		form.Add = s.Org.Slug + ":"
+	}
+	for _, k := range slices.Sorted(maps.Keys(m.EnvPairs)) {
+		form.Pairs = append(form.Pairs, instance.Pair{
+			From: k,
+			To:   m.EnvPairs[k],
+		})
+	}
+	for _, e := range s.Envs {
+		form.Envs = append(form.Envs, e.Slug)
+	}
+	return form
+}
+
+// can asks the one gate about another verb on the scope's org.
+func can(c echo.Context, s service.Scope, v authz.Verb) bool {
+	p := middleware.Principal(c)
+	return p != nil && authz.Can(p.Access, v, authz.Resource{OrgID: s.Org.ID}) == nil
+}
+
+// drawerURL is an env canvas with node's drawer open on tab: a link from
+// one drawer to another, in this env or any other of the org.
+func drawerURL(org, stack, env, node, tab string) string {
+	return "/" + org + "/" + stack + "/" + env + "?drawer=" + node + "&tab=" + tab
 }
 
 // logPane streams a tile's first container through the tile drawer's
@@ -318,110 +436,108 @@ func (h *handler) instanceVolumes(c echo.Context, tileID, instanceID string) ([]
 	return vols, nil
 }
 
-// tileNames maps the env's tile ids to names.
-func (h *handler) tileNames(c echo.Context) (map[string]string, error) {
-	ts, err := h.orch.Tiles(c.Request().Context(), scope(c).Env.ID)
-	if err != nil {
-		return nil, err
-	}
-	names := map[string]string{}
-	for _, t := range ts {
-		names[t.ID] = t.Name
-	}
-	return names, nil
-}
+// ---- slice tile ----
 
-// ---- slice ----
-
-// GET …/-/slices/:provision?tab=
+// GET …/-/slices/:tile
 func (h *handler) Slice(c echo.Context) error {
-	return h.slice(c, c.QueryParam("tab"), nil)
+	return h.slice(c, "", nil)
 }
 
-func (h *handler) DetachSlice(c echo.Context) error {
-	_, err := h.orch.DetachSlice(c.Request().Context(), c.Param("provision"))
-	return h.slice(c, "bindings", err)
+// POST …/-/slices/:tile/default-access
+func (h *handler) SliceDefaultAccess(c echo.Context) error {
+	_, err := h.orch.SetSliceDefaultAccess(c.Request().Context(), scope(c).Tile.ID, c.FormValue("access"))
+	return h.slice(c, "saved", err)
 }
 
-func (h *handler) slice(c echo.Context, tab string, actErr error) error {
+// POST …/-/slices/:tile/access: consumer (a tile slug of this env) and
+// access.
+func (h *handler) SliceAccess(c echo.Context) error {
+	ctx := c.Request().Context()
+	s := scope(c)
+	ts, err := h.orch.Tiles(ctx, s.Env.ID)
+	if err != nil {
+		return middleware.HTTPError(err)
+	}
+	i := slices.IndexFunc(ts, func(t service.Tile) bool {
+		return t.Slug == c.FormValue("consumer")
+	})
+	if i < 0 {
+		return echo.NewHTTPError(http.StatusBadRequest, "no such consumer in this env")
+	}
+	_, err = h.orch.SetSliceAccess(ctx, ts[i].ID, s.Tile.Slug, c.FormValue("access"))
+	return h.slice(c, "saved", err)
+}
+
+// POST …/-/slices/:tile/on-remove
+func (h *handler) SliceOnRemove(c echo.Context) error {
+	_, err := h.orch.SetSliceOnRemove(c.Request().Context(), scope(c).Tile.ID, c.FormValue("on_remove"))
+	return h.slice(c, "saved", err)
+}
+
+// POST …/-/slices/:tile/delete
+func (h *handler) SliceDelete(c echo.Context) error {
+	_, err := h.orch.DeleteTile(c.Request().Context(), scope(c).Tile.ID)
+	return h.slice(c, "delete queued", err)
+}
+
+// slice is the slice tile drawer: SliceOf and Bindings.
+func (h *handler) slice(c echo.Context, note string, actErr error) error {
 	msg, status, fail := refused(actErr)
 	if fail != nil {
 		return fail
 	}
-	ctx, s := c.Request().Context(), scope(c)
-	p, err := h.orch.Provision(ctx, c.Param("provision"))
+	ctx := c.Request().Context()
+	s := scope(c)
+	t := s.Tile
+	sv, err := h.orch.SliceOf(ctx, t.ID)
 	if err != nil {
 		return middleware.HTTPError(err)
 	}
-	var outs map[string]json.RawMessage
-	_ = json.Unmarshal([]byte(p.Outputs), &outs) // names only; a bad blob shows none
+	bs, err := h.orch.Bindings(ctx, t.ID)
+	if err != nil {
+		return middleware.HTTPError(err)
+	}
+	// A slice has no container: its header word is whether it is provisioned.
+	word := "idle"
+	if sv.Provisioned {
+		word = "provisioned"
+	}
 	v := slice.View{
-		Node:     p.ID,
-		Name:     p.Slug,
-		DB:       p.DBName,
-		User:     p.DBUser,
-		OnRemove: p.OnRemove,
-		Base:     render.EnvURL(c) + "/-/slices/" + p.ID,
-		Public:   p.Public,
-		Consumer: p.ConsumerTileID != nil,
-		Location: s.Stack.Name + " / " + s.Env.Name,
-		EnvColor: s.Env.Color,
-		Error:    msg,
+		Node:          t.ID,
+		Name:          t.Name,
+		Base:          render.EnvURL(c) + "/-/slices/" + t.Slug,
+		Status:        word,
+		Location:      s.Stack.Name + " / " + s.Env.Name,
+		EnvColor:      s.Env.Color,
+		Error:         msg,
+		ProvisionFrom: sv.ProvisionFrom,
+		Blocker:       sv.Blocker,
+		DefaultAccess: sv.DefaultAccess,
+		FileOwned:     s.Stack.ConfigRepo != "",
+		OnRemove:      sv.OnRemove,
+		Provisioned:   sv.Provisioned,
+		DBName:        sv.Name,
+		Network:       sv.Network,
 	}
-	for k := range outs {
-		v.Outputs = append(v.Outputs, k)
+	if msg == "" {
+		v.Note = note
 	}
-	slices.Sort(v.Outputs)
-	if v.Consumer {
-		v.Detach = v.Base + "/detach"
+	// Target is <stack>:<env>:<tile>; a slug never holds a colon.
+	if at := strings.Split(sv.Target, ":"); len(at) == 3 {
+		v.Target = strings.Join(at, "/")
+		v.TargetLink = drawerURL(s.Org.Slug, at[0], at[1], sv.TargetTileID, instance.Tabs[0])
 	}
-	it, err := h.sliceInstance(c, p.InstanceID)
-	if err != nil {
-		return middleware.HTTPError(err)
+	for _, b := range bs {
+		v.Consumers = append(v.Consumers, slice.Consumer{
+			Slug:   b.Consumer,
+			Link:   render.EnvURL(c) + "?drawer=" + b.ConsumerID + "&tab=access",
+			Kind:   b.Kind,
+			Access: b.Access,
+			User:   b.User,
+			Since:  when(&b.Since),
+		})
 	}
-	if it != nil {
-		v.Instance = it.Name
-		v.InstanceNode = it.ID
-		v.InstanceDrawer = render.EnvURL(c) + "/-/instances/" + it.Slug + "?tab=slices"
-		v.Logs = true
-	}
-	v.Tab = slice.Tab(tab, v.Logs)
-	if v.Tab != "logs" {
-		return respond.HTML(c, status, slice.Drawer(v, slice.Overview(v)))
-	}
-	st, err := h.orch.TileStatus(ctx, it.ID)
-	if err != nil {
-		return middleware.HTTPError(err)
-	}
-	pane, running := h.logPane(c, it.Slug, st)
-	return respond.HTML(c, status, slice.Drawer(v, slice.Logs(v, pane, running)))
-}
-
-// sliceInstance is the instance tile a slice was cut from, when it runs
-// in this env; nil otherwise (a stack or org instance lives elsewhere).
-func (h *handler) sliceInstance(c echo.Context, instanceID string) (*service.Tile, error) {
-	ctx, envID := c.Request().Context(), scope(c).Env.ID
-	ms, err := h.orch.ManagedInstances(ctx, envID)
-	if err != nil {
-		return nil, err
-	}
-	i := slices.IndexFunc(ms, func(m service.ManagedInstance) bool {
-		return m.ID == instanceID
-	})
-	if i < 0 {
-		return nil, nil
-	}
-	ts, err := h.orch.Tiles(ctx, envID)
-	if err != nil {
-		return nil, err
-	}
-	j := slices.IndexFunc(ts, func(t service.Tile) bool {
-		return t.ID == ms[i].TileID
-	})
-	if j < 0 {
-		return nil, nil
-	}
-	return &ts[j], nil
+	return respond.HTML(c, status, slice.Drawer(v, slice.Overview(v)))
 }
 
 // ---- proxy ----

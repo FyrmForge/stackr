@@ -49,6 +49,7 @@ func (f *Flow) Push(
 		}
 	}
 	if len(from) == 0 {
+		logf(log, "no environment of %s follows branch %s; nothing to do\n", st.Slug, ev.Branch)
 		return store.Release{}, nil, nil
 	}
 	repo := NormalizeRepo(ev.Repo)
@@ -137,7 +138,11 @@ func (f *Flow) candidates(
 		if err != nil {
 			return nil, err
 		}
-		r, err := Load(data, fetch)
+		o, err := f.D.Orgs.Get(ctx, st.OrgID)
+		if err != nil {
+			return nil, err
+		}
+		r, err := Load(data, fetch, o.Slug)
 		if err != nil {
 			return nil, err
 		}

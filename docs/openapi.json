@@ -64,6 +64,20 @@
         ],
         "type": "object"
       },
+      "AllowIn": {
+        "properties": {
+          "allow": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "allow"
+        ],
+        "type": "object"
+      },
       "BackupDest": {
         "properties": {
           "bucket": {
@@ -752,13 +766,21 @@
           "from": {
             "type": "string"
           },
+          "from_name": {
+            "type": "string"
+          },
           "to": {
+            "type": "string"
+          },
+          "to_name": {
             "type": "string"
           }
         },
         "required": [
           "from",
           "to",
+          "from_name",
+          "to_name",
           "bps"
         ],
         "type": "object"
@@ -801,6 +823,20 @@
           "from_kind",
           "from_branch",
           "auto"
+        ],
+        "type": "object"
+      },
+      "EnvPairsIn": {
+        "properties": {
+          "env_pairs": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
+          }
+        },
+        "required": [
+          "env_pairs"
         ],
         "type": "object"
       },
@@ -1606,6 +1642,12 @@
           "admin_user": {
             "type": "string"
           },
+          "allow": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
           "created_at": {
             "format": "date-time",
             "type": "string"
@@ -1616,13 +1658,13 @@
           "engine": {
             "type": "string"
           },
+          "env_pairs": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
+          },
           "id": {
-            "type": "string"
-          },
-          "scope_id": {
-            "type": "string"
-          },
-          "scope_kind": {
             "type": "string"
           },
           "tile_id": {
@@ -1633,8 +1675,8 @@
           "id",
           "tile_id",
           "engine",
-          "scope_kind",
-          "scope_id",
+          "allow",
+          "env_pairs",
           "admin_user",
           "endpoint",
           "created_at"
@@ -1649,6 +1691,17 @@
         },
         "required": [
           "name"
+        ],
+        "type": "object"
+      },
+      "OnRemoveIn": {
+        "properties": {
+          "on_remove": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "on_remove"
         ],
         "type": "object"
       },
@@ -2032,60 +2085,6 @@
         ],
         "type": "object"
       },
-      "Provision": {
-        "properties": {
-          "consumer_tile_id": {
-            "oneOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "created_at": {
-            "format": "date-time",
-            "type": "string"
-          },
-          "db_name": {
-            "type": "string"
-          },
-          "db_user": {
-            "type": "string"
-          },
-          "id": {
-            "type": "string"
-          },
-          "instance_id": {
-            "type": "string"
-          },
-          "on_remove": {
-            "type": "string"
-          },
-          "outputs": {
-            "type": "string"
-          },
-          "public": {
-            "type": "boolean"
-          },
-          "slug": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "instance_id",
-          "slug",
-          "db_name",
-          "db_user",
-          "outputs",
-          "public",
-          "on_remove",
-          "created_at"
-        ],
-        "type": "object"
-      },
       "RawCaddyIn": {
         "properties": {
           "raw_caddy": {
@@ -2305,17 +2304,6 @@
         ],
         "type": "object"
       },
-      "ScopeIn": {
-        "properties": {
-          "scope": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "scope"
-        ],
-        "type": "object"
-      },
       "SetPassIn": {
         "properties": {
           "password": {
@@ -2382,26 +2370,135 @@
         },
         "type": "object"
       },
-      "SliceIn": {
+      "SliceAccess": {
         "properties": {
-          "instance_tile_id": {
+          "access": {
+            "type": "string"
+          },
+          "from": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "from",
+          "access"
+        ],
+        "type": "object"
+      },
+      "SliceAccessIn": {
+        "properties": {
+          "access": {
+            "type": "string"
+          },
+          "slice": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "slice",
+          "access"
+        ],
+        "type": "object"
+      },
+      "SliceBinding": {
+        "properties": {
+          "access": {
+            "type": "string"
+          },
+          "consumer": {
+            "type": "string"
+          },
+          "consumer_id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "since": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "user": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "consumer_id",
+          "consumer",
+          "kind",
+          "access",
+          "user",
+          "since"
+        ],
+        "type": "object"
+      },
+      "SliceTileIn": {
+        "properties": {
+          "default_access": {
             "type": "string"
           },
           "name": {
             "type": "string"
           },
-          "on_remove": {
+          "provision_from": {
             "type": "string"
-          },
-          "public": {
-            "type": "boolean"
           }
         },
         "required": [
-          "instance_tile_id",
           "name",
-          "public",
-          "on_remove"
+          "provision_from",
+          "default_access"
+        ],
+        "type": "object"
+      },
+      "SliceView": {
+        "properties": {
+          "blocker": {
+            "type": "string"
+          },
+          "default_access": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "network": {
+            "type": "string"
+          },
+          "on_remove": {
+            "type": "string"
+          },
+          "provision_from": {
+            "type": "string"
+          },
+          "provisioned": {
+            "type": "boolean"
+          },
+          "slug": {
+            "type": "string"
+          },
+          "target": {
+            "type": "string"
+          },
+          "target_tile_id": {
+            "type": "string"
+          },
+          "tile_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "tile_id",
+          "slug",
+          "provision_from",
+          "target",
+          "target_tile_id",
+          "blocker",
+          "default_access",
+          "on_remove",
+          "provisioned",
+          "name",
+          "network"
         ],
         "type": "object"
       },
@@ -2504,6 +2601,16 @@
             "format": "date-time",
             "type": "string"
           },
+          "default_access": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "depends_on": {
             "type": "string"
           },
@@ -2564,11 +2671,31 @@
           "name": {
             "type": "string"
           },
+          "on_remove": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "paused": {
             "type": "boolean"
           },
           "privileged": {
             "type": "boolean"
+          },
+          "provision_from": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "published_ports": {
             "type": "string"
@@ -2587,6 +2714,12 @@
           },
           "shm_size_mb": {
             "type": "integer"
+          },
+          "slice_access": {
+            "items": {
+              "$ref": "#/components/schemas/SliceAccess"
+            },
+            "type": "array"
           },
           "slug": {
             "type": "string"
@@ -2663,6 +2796,7 @@
           "trigger",
           "paused",
           "timeout_minutes",
+          "slice_access",
           "created_at",
           "updated_at"
         ],
@@ -7049,52 +7183,6 @@
         "x-verb": "backup.write"
       }
     },
-    "/api/v1/orgs/{org}/slices/{provision}": {
-      "delete": {
-        "operationId": "slice.detach",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "org",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "provision",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "202": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Job"
-                }
-              }
-            },
-            "description": "Accepted"
-          },
-          "default": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIError"
-                }
-              }
-            },
-            "description": "error"
-          }
-        },
-        "x-verb": "tile.write"
-      }
-    },
     "/api/v1/orgs/{org}/stacks": {
       "get": {
         "operationId": "stack.list",
@@ -8472,6 +8560,70 @@
         "x-verb": "env.write"
       }
     },
+    "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}/slices": {
+      "post": {
+        "operationId": "slice.create",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "stack",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "env",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SliceTileIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Tile"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "tile.write"
+      }
+    },
     "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}/tiles": {
       "get": {
         "operationId": "tile.list",
@@ -8781,6 +8933,143 @@
           }
         },
         "x-verb": "tile.write"
+      }
+    },
+    "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}/tiles/{tile}/allow": {
+      "put": {
+        "operationId": "managed.allow",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "stack",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "env",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "tile",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AllowIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ManagedInstance"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "managed.allow"
+      }
+    },
+    "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}/tiles/{tile}/bindings": {
+      "get": {
+        "operationId": "slice.bindings",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "stack",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "env",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "tile",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/SliceBinding"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "tile.read"
       }
     },
     "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}/tiles/{tile}/deploy": {
@@ -9199,6 +9488,78 @@
           }
         },
         "x-verb": "proxy.admin"
+      }
+    },
+    "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}/tiles/{tile}/env-pairs": {
+      "put": {
+        "operationId": "managed.env-pairs",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "stack",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "env",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "tile",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EnvPairsIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ManagedInstance"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "tile.write"
       }
     },
     "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}/tiles/{tile}/exec": {
@@ -9641,6 +10002,78 @@
         "x-verb": "tile.write"
       }
     },
+    "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}/tiles/{tile}/on-remove": {
+      "put": {
+        "operationId": "slice.on-remove",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "stack",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "env",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "tile",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OnRemoveIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Tile"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "tile.write"
+      }
+    },
     "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}/tiles/{tile}/pause": {
       "post": {
         "operationId": "tile.pause",
@@ -10040,81 +10473,9 @@
         "x-verb": "tile.read"
       }
     },
-    "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}/tiles/{tile}/scope": {
-      "put": {
-        "operationId": "managed.scope",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "org",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "stack",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "env",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "tile",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ScopeIn"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ManagedInstance"
-                }
-              }
-            },
-            "description": "OK"
-          },
-          "default": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIError"
-                }
-              }
-            },
-            "description": "error"
-          }
-        },
-        "x-verb": "tile.write"
-      }
-    },
-    "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}/tiles/{tile}/slices": {
+    "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}/tiles/{tile}/slice": {
       "get": {
-        "operationId": "slice.list",
+        "operationId": "slice.get",
         "parameters": [
           {
             "in": "path",
@@ -10154,10 +10515,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/Provision"
-                  },
-                  "type": "array"
+                  "$ref": "#/components/schemas/SliceView"
                 }
               }
             },
@@ -10175,9 +10533,11 @@
           }
         },
         "x-verb": "tile.read"
-      },
-      "post": {
-        "operationId": "slice.attach",
+      }
+    },
+    "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}/tiles/{tile}/slice-access": {
+      "put": {
+        "operationId": "slice.access",
         "parameters": [
           {
             "in": "path",
@@ -10216,22 +10576,22 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/SliceIn"
+                "$ref": "#/components/schemas/SliceAccessIn"
               }
             }
           },
           "required": true
         },
         "responses": {
-          "202": {
+          "200": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Job"
+                  "$ref": "#/components/schemas/Tile"
                 }
               }
             },
-            "description": "Accepted"
+            "description": "OK"
           },
           "default": {
             "content": {

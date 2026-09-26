@@ -1,7 +1,9 @@
 // Package managed owns managed instances (engine, admin credentials,
-// endpoint, scope) and their provisions: one slice per consumer, the row
-// that is also the binding. The instance container is a plain tile
-// (leaf/tile); engines and their commands live in flow/managed.
+// endpoint, allow list, env pairs), their provisions (one per slice tile:
+// the database or bucket and its owner cred) and the bindings on them (one
+// per consumer: its own cred at read or write, and the outputs minted for
+// it). The instance container is a plain tile (leaf/tile); engines and their
+// commands live in flow/managed.
 package managed
 
 import (
@@ -9,49 +11,33 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
-	"slices"
+	"errors"
 	"time"
 
 	"github.com/google/uuid"
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
+	"github.com/FyrmForge/stackr/internal/service/internal/address"
+	"github.com/FyrmForge/stackr/internal/service/internal/slug"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
-)
-
-const (
-	Env   = "env"
-	Stack = "stack"
-	Org   = "org"
-
-	Keep = "keep" // the consumer going away orphans the slice (default)
-	Drop = "drop" // ... destroys it
 )
 
 type Leaf struct {
 	instances  store.ManagedInstanceStore
 	provisions store.ProvisionStore
+	bindings   store.BindingStore
 }
 
-func New(instances store.ManagedInstanceStore, provisions store.ProvisionStore) *Leaf {
-	return &Leaf{instances: instances, provisions: provisions}
-}
-
-// Home is where the instance's own tile lives; the scope id is derived from
-// it, never supplied, so no request can point an instance at another tenant.
-type Home struct{ EnvID, StackID, OrgID string }
-
-// scope maps a scope name to the column pair. Unknown names are refused,
-// not coerced to env (a typo used to narrow a shared instance silently).
-func scope(kind string, h Home) (string, string, error) {
-	switch kind {
-	case "", Env:
-		return Env, h.EnvID, nil
-	case Stack:
-		return Stack, h.StackID, nil
-	case Org:
-		return Org, h.OrgID, nil
+func New(
+	instances store.ManagedInstanceStore,
+	provisions store.ProvisionStore,
+	bindings store.BindingStore,
+) *Leaf {
+	return &Leaf{
+		instances:  instances,
+		provisions: provisions,
+		bindings:   bindings,
 	}
-	return "", "", errs.Invalidf("scope", "must be env, stack, or org")
 }
 
 func secret() string {
@@ -60,18 +46,20 @@ func secret() string {
 	return hex.EncodeToString(b)
 }
 
+// Network is the instance's own Docker network: the instance container
+// sits on it and every consumer of one of its slices joins it, whatever env
+// or stack the consumer is in.
+func Network(instanceID string) string {
+	return "stackr-managed-" + instanceID
+}
+
 // Create makes the instance row for a managed tile, with a fresh admin
-// password. endpoint is where slices reach it (the flow knows the alias).
+// password and no allow list (the tile's own env only). endpoint is where
+// the S3 API is reached, "" = the tile's alias.
 func (l *Leaf) Create(
 	ctx context.Context,
-	tileID, engine, scopeKind string,
-	h Home,
-	adminUser, endpoint string,
+	tileID, engine, adminUser, endpoint string,
 ) (store.ManagedInstance, error) {
-	kind, id, err := scope(scopeKind, h)
-	if err != nil {
-		return store.ManagedInstance{}, err
-	}
 	if engine == "" || adminUser == "" {
 		return store.ManagedInstance{}, errs.Invalidf("engine", "an instance needs an engine and an admin user")
 	}
@@ -79,8 +67,6 @@ func (l *Leaf) Create(
 		ID:            uuid.NewString(),
 		TileID:        tileID,
 		Engine:        engine,
-		ScopeKind:     kind,
-		ScopeID:       id,
 		AdminUser:     adminUser,
 		AdminPassword: secret(),
 		Endpoint:      endpoint,
@@ -97,45 +83,6 @@ func (l *Leaf) GetByTile(ctx context.Context, tileID string) (store.ManagedInsta
 	return l.instances.GetByTile(ctx, tileID)
 }
 
-// Network is a stack- or org-scoped instance's shared network: the instance
-// and each consumer outside its env join it. An env-scoped instance is
-// reached on its env's own network.
-func Network(instanceID string) string { return "stackr-shared-" + instanceID }
-
-// Visible is every instance a tile at h may provision from: its env's,
-// its stack's and its org's.
-func (l *Leaf) Visible(ctx context.Context, h Home) ([]store.ManagedInstance, error) {
-	var out []store.ManagedInstance
-	for _, s := range [][2]string{
-		{Env, h.EnvID},
-		{Stack, h.StackID},
-		{Org, h.OrgID},
-	} {
-		ms, err := l.instances.ListByScope(ctx, s[0], s[1])
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, ms...)
-	}
-	return out, nil
-}
-
-// SetScope widens or narrows who may provision. It never touches the
-// container: the running engine knows nothing about scope.
-func (l *Leaf) SetScope(
-	ctx context.Context,
-	m store.ManagedInstance,
-	scopeKind string,
-	h Home,
-) (store.ManagedInstance, error) {
-	kind, id, err := scope(scopeKind, h)
-	if err != nil {
-		return m, err
-	}
-	m.ScopeKind, m.ScopeID = kind, id
-	return m, l.instances.Update(ctx, m)
-}
-
 func (l *Leaf) SetEndpoint(
 	ctx context.Context,
 	m store.ManagedInstance,
@@ -145,149 +92,140 @@ func (l *Leaf) SetEndpoint(
 	return m, l.instances.Update(ctx, m)
 }
 
+// SetAllow replaces the instance's allow list. Every entry is checked
+// against the instance's own org first; a bad one leaves the row as it was.
+// Nothing is torn down: a slice the list no longer admits fails its
+// consumers' next deploy with the reason.
+// ponytail: no eager revoke; a running consumer keeps its cred until then.
+func (l *Leaf) SetAllow(
+	ctx context.Context,
+	m store.ManagedInstance,
+	orgSlug string,
+	list []string,
+) (store.ManagedInstance, error) {
+	if _, err := address.ParseAllow(orgSlug, list); err != nil {
+		return m, err
+	}
+	m.Allow = list
+	return m, l.instances.Update(ctx, m)
+}
+
+// SetEnvPairs replaces the instance's consumer env name → own env name map.
+func (l *Leaf) SetEnvPairs(
+	ctx context.Context,
+	m store.ManagedInstance,
+	pairs map[string]string,
+) (store.ManagedInstance, error) {
+	for k, v := range pairs {
+		if !slug.Valid(k) || !slug.Valid(v) {
+			return m, errs.Invalidf("env_pairs", "%s: %s: both are environment names", k, v)
+		}
+	}
+	m.EnvPairs = pairs
+	return m, l.instances.Update(ctx, m)
+}
+
 // Teardown is step one of removing an instance: refused while slices are
-// held unless force (the caller's, never a constant), else the distinct
-// slices the flow must drop before the container goes. Several consumer
-// rows can share one slice, so they are deduped by database name.
+// held unless force (the caller's, never a constant), else the slices the
+// flow must drop before the container goes.
 func (l *Leaf) Teardown(ctx context.Context, m store.ManagedInstance, force bool) ([]store.Provision, error) {
 	held, err := l.provisions.ListByInstance(ctx, m.ID)
 	if err != nil {
 		return nil, err
 	}
 	if len(held) > 0 && !force {
-		return nil, errs.Conflictf("%d consumer(s) hold slices on this instance; "+
-			"detach them first, or force the delete to destroy the data with it", len(held))
+		return nil, errs.Conflictf("%d slice(s) live on this instance; "+
+			"remove their slice tiles first, or force the delete to destroy the data with it", len(held))
 	}
-	seen := map[string]bool{}
-	var drop []store.Provision
-	for _, p := range held {
-		if !seen[p.DBName] {
-			seen[p.DBName] = true
-			drop = append(drop, p)
-		}
-	}
-	return drop, nil
+	return held, nil
 }
 
 // Delete removes the instance row; every provision still pointing at it
 // goes with it (cascade), dropped by the engine or not, so none outlives it.
-func (l *Leaf) Delete(ctx context.Context, id string) error { return l.instances.Delete(ctx, id) }
+func (l *Leaf) Delete(ctx context.Context, id string) error {
+	return l.instances.Delete(ctx, id)
+}
 
 // Slice is a new provision as the flow built it (name uniquified against
-// SliceNames, credentials generated by the engine or by Password).
+// Names, the owner cred from Password).
 type Slice struct {
-	Slug, DBName, DBUser, DBPassword string
-	Public                           bool
-	OnRemove                         string // keep (default) | drop
+	DBName     string
+	DBUser     string
+	DBPassword string
+	Public     bool
 }
 
-// Password is a fresh slice password.
-func Password() string { return secret() }
+// Password is a fresh cred password.
+func Password() string {
+	return secret()
+}
 
-// SliceNames are the instance's taken slice names, for uniquifying.
-func (l *Leaf) SliceNames(ctx context.Context, instanceID string) ([]string, error) {
+// Names are every database, bucket and user name the instance's rows hold,
+// for uniquifying a new one.
+func (l *Leaf) Names(ctx context.Context, instanceID string) ([]string, error) {
 	ps, err := l.provisions.ListByInstance(ctx, instanceID)
-	names := make([]string, len(ps))
-	for i, p := range ps {
-		names[i] = p.DBName
+	if err != nil {
+		return nil, err
 	}
-	return names, err
+	var names []string
+	for _, p := range ps {
+		names = append(names, p.DBName, p.DBUser)
+		bs, err := l.bindings.ListByProvision(ctx, p.ID)
+		if err != nil {
+			return nil, err
+		}
+		for _, b := range bs {
+			names = append(names, b.DBUser)
+		}
+	}
+	return names, nil
 }
 
-// Provision records a consumer's slice after the engine made it. One slice
-// per consumer per instance.
-func (l *Leaf) Provision(
+// CreateProvision records slice tile sliceTileID's database or bucket on m
+// after the engine made it. One per slice tile.
+func (l *Leaf) CreateProvision(
 	ctx context.Context,
 	m store.ManagedInstance,
-	consumerTileID string,
+	sliceTileID string,
 	s Slice,
 ) (store.Provision, error) {
-	if s.OnRemove == "" {
-		s.OnRemove = Keep
-	}
-	if s.OnRemove != Keep && s.OnRemove != Drop {
-		return store.Provision{}, errs.Invalidf("on_remove", "must be keep or drop")
-	}
 	if s.DBName == "" || s.DBUser == "" {
 		return store.Provision{}, errs.Invalidf("slice", "a slice needs a name and a user")
 	}
-	if p, ok, err := l.find(ctx, m.ID, consumerTileID); err != nil || ok {
+	if p, ok, err := l.ProvisionOf(ctx, sliceTileID); err != nil || ok {
 		if ok {
-			err = errs.Conflictf("this tile already has slice %s on the instance", p.DBName)
+			err = errs.Conflictf("this slice tile already has %s", p.DBName)
 		}
 		return store.Provision{}, err
 	}
 	p := store.Provision{
-		ID:             uuid.NewString(),
-		InstanceID:     m.ID,
-		ConsumerTileID: &consumerTileID,
-		Slug:           s.Slug,
-		DBName:         s.DBName,
-		DBUser:         s.DBUser,
-		DBPassword:     s.DBPassword,
-		Outputs:        "{}",
-		Public:         s.Public,
-		OnRemove:       s.OnRemove,
-		CreatedAt:      time.Now().UTC(),
+		ID:         uuid.NewString(),
+		TileID:     sliceTileID,
+		InstanceID: m.ID,
+		DBName:     s.DBName,
+		DBUser:     s.DBUser,
+		DBPassword: s.DBPassword,
+		Public:     s.Public,
+		CreatedAt:  time.Now().UTC(),
 	}
 	return p, l.provisions.Create(ctx, p)
 }
 
-// Share attaches a consumer to an existing slice. Same env only (fact):
-// the slice's url secret is env-scoped.
-func (l *Leaf) Share(
-	ctx context.Context,
-	of store.Provision,
-	consumerTileID string,
-	sameEnv bool,
-) (store.Provision, error) {
-	if !sameEnv {
-		return store.Provision{}, errs.Refusedf("an existing slice can only be shared inside its environment")
+// ProvisionOf is the slice tile's provision; false when it has none yet.
+func (l *Leaf) ProvisionOf(ctx context.Context, sliceTileID string) (store.Provision, bool, error) {
+	p, err := l.provisions.GetByTile(ctx, sliceTileID)
+	if errors.Is(err, errs.ErrNotFound) {
+		return p, false, nil
 	}
-	if _, ok, err := l.find(ctx, of.InstanceID, consumerTileID); err != nil || ok {
-		if ok {
-			err = errs.Conflictf("this tile already has a slice on the instance")
-		}
-		return store.Provision{}, err
-	}
-	p := of
-	p.ID, p.ConsumerTileID, p.CreatedAt = uuid.NewString(), &consumerTileID, time.Now().UTC()
-	return p, l.provisions.Create(ctx, p)
-}
-
-func (l *Leaf) find(ctx context.Context, instanceID, tileID string) (store.Provision, bool, error) {
-	ps, err := l.provisions.ListByConsumer(ctx, tileID)
-	i := slices.IndexFunc(ps, func(p store.Provision) bool { return p.InstanceID == instanceID })
-	if i < 0 {
-		return store.Provision{}, false, err
-	}
-	return ps[i], true, err
+	return p, err == nil, err
 }
 
 func (l *Leaf) GetProvision(ctx context.Context, id string) (store.Provision, error) {
 	return l.provisions.Get(ctx, id)
 }
 
-func (l *Leaf) ForConsumer(ctx context.Context, tileID string) ([]store.Provision, error) {
-	return l.provisions.ListByConsumer(ctx, tileID)
-}
-
 func (l *Leaf) ByInstance(ctx context.Context, instanceID string) ([]store.Provision, error) {
 	return l.provisions.ListByInstance(ctx, instanceID)
-}
-
-// Outputs parses a slice's published values.
-func Outputs(p store.Provision) map[string]string {
-	out := map[string]string{}
-	_ = json.Unmarshal([]byte(p.Outputs), &out)
-	return out
-}
-
-// SetOutputs writes the slice's bindings once the engine's commands ran.
-func (l *Leaf) SetOutputs(ctx context.Context, p store.Provision, out map[string]string) (store.Provision, error) {
-	b, _ := json.Marshal(out)
-	p.Outputs = string(b)
-	return p, l.provisions.Update(ctx, p)
 }
 
 // SetPublic flips public read. A public slice needs the instance to have a
@@ -305,17 +243,108 @@ func (l *Leaf) SetPublic(
 	return p, l.provisions.Update(ctx, p)
 }
 
-// Release is a consumer letting go of its slice (removed from the file, or
-// the tile going). The binding goes, so its refs stop resolving; the slice
-// stays orphaned unless on_remove is drop or the env is ephemeral (fact),
-// in which case drop says the flow must drop it and then call DropRow.
-func (l *Leaf) Release(ctx context.Context, p store.Provision, ephemeral bool) (drop bool, err error) {
-	if p.OnRemove == Drop || ephemeral {
-		return true, nil
-	}
-	p.ConsumerTileID, p.Outputs = nil, "{}"
-	return false, l.provisions.Update(ctx, p)
+// DeleteProvision removes a slice's row once the engine dropped or kept it;
+// its bindings go with it (cascade).
+func (l *Leaf) DeleteProvision(ctx context.Context, id string) error {
+	return l.provisions.Delete(ctx, id)
 }
 
-// DropRow removes a slice row after the engine dropped it.
-func (l *Leaf) DropRow(ctx context.Context, id string) error { return l.provisions.Delete(ctx, id) }
+// ForConsumer are the provisions the consumer holds a binding on.
+func (l *Leaf) ForConsumer(ctx context.Context, consumerTileID string) ([]store.Provision, error) {
+	bs, err := l.bindings.ListByConsumer(ctx, consumerTileID)
+	if err != nil {
+		return nil, err
+	}
+	var out []store.Provision
+	for _, b := range bs {
+		p, err := l.provisions.Get(ctx, b.ProvisionID)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, p)
+	}
+	return out, nil
+}
+
+// Bound are the consumer's bindings, by slice tile id.
+func (l *Leaf) Bound(ctx context.Context, consumerTileID string) (map[string]store.Binding, error) {
+	bs, err := l.bindings.ListByConsumer(ctx, consumerTileID)
+	if err != nil {
+		return nil, err
+	}
+	out := map[string]store.Binding{}
+	for _, b := range bs {
+		p, err := l.provisions.Get(ctx, b.ProvisionID)
+		if err != nil {
+			return nil, err
+		}
+		out[p.TileID] = b
+	}
+	return out, nil
+}
+
+// Bindings are every consumer's binding on one slice.
+func (l *Leaf) Bindings(ctx context.Context, provisionID string) ([]store.Binding, error) {
+	return l.bindings.ListByProvision(ctx, provisionID)
+}
+
+// Outputs are the values minted for one binding's cred (DATABASE_URL and
+// the rest), what the consumer's refs to its slice resolve to.
+func Outputs(b store.Binding) (map[string]string, error) {
+	out := map[string]string{}
+	if b.Outputs == "" {
+		return out, nil
+	}
+	return out, json.Unmarshal([]byte(b.Outputs), &out)
+}
+
+// Cred is a consumer's cred on a slice as the engine minted it.
+type Cred struct {
+	Access   string // read | write
+	User     string
+	Password string
+	Outputs  map[string]string
+}
+
+// Bind records consumer consumerTileID's cred on p after the engine minted
+// it. One per consumer per slice.
+func (l *Leaf) Bind(
+	ctx context.Context,
+	p store.Provision,
+	consumerTileID string,
+	c Cred,
+) (store.Binding, error) {
+	if c.Access != "read" && c.Access != "write" {
+		return store.Binding{}, errs.Invalidf("access", "must be read or write")
+	}
+	out, err := json.Marshal(c.Outputs)
+	if err != nil {
+		return store.Binding{}, err
+	}
+	b := store.Binding{
+		ID:             uuid.NewString(),
+		ProvisionID:    p.ID,
+		ConsumerTileID: consumerTileID,
+		Access:         c.Access,
+		DBUser:         c.User,
+		DBPassword:     c.Password,
+		Outputs:        string(out),
+		CreatedAt:      time.Now().UTC(),
+	}
+	return b, l.bindings.Create(ctx, b)
+}
+
+// SetAccess moves a binding to read or write once the engine re-granted it;
+// the user and password stay.
+func (l *Leaf) SetAccess(ctx context.Context, b store.Binding, access string) (store.Binding, error) {
+	if access != "read" && access != "write" {
+		return b, errs.Invalidf("access", "must be read or write")
+	}
+	b.Access = access
+	return b, l.bindings.Update(ctx, b)
+}
+
+// Unbind removes a binding's row once the engine dropped its cred.
+func (l *Leaf) Unbind(ctx context.Context, id string) error {
+	return l.bindings.Delete(ctx, id)
+}

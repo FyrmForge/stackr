@@ -44,8 +44,6 @@ const (
 	kindPanelBackup jobs.Kind = "panel-backup"
 	kindUpgrade     jobs.Kind = "upgrade"
 	kindImageWatch  jobs.Kind = "imagewatch"
-	kindAttach      jobs.Kind = "attach"
-	kindDetach      jobs.Kind = "detach"
 	kindRun         jobs.Kind = "run"
 	kindOrgPlan     jobs.Kind = "org-plan"
 	kindOrgApply    jobs.Kind = "org-apply"
@@ -140,8 +138,6 @@ func (o *Orchestrator) handlers() map[jobs.Kind]jobs.Handler {
 			return o.runPush(ctx, p.StackID, p.Event, r.Log)
 		}),
 		kindPR:     payload(o.runPR),
-		kindAttach: payload(o.runAttach),
-		kindDetach: payload(o.runDetach),
 		kindDelete: payload(o.runDelete),
 		kindRestart: payload(func(ctx context.Context, r *jobs.Run, p tileJob) error {
 			return o.onTile(ctx, p.TileID, func(t Tile) error { return o.container.Restart(ctx, t, r.Log) })
@@ -260,10 +256,14 @@ func (o *Orchestrator) ladderEnvs(ctx context.Context, p pushJob, log io.Writer)
 		ev.Branch != cmp.Or(st.ConfigBranch, p.DefaultBranch) {
 		return nil
 	}
+	org, err := o.orgs.Get(ctx, st.OrgID)
+	if err != nil {
+		return err
+	}
 	data, fetch, err := o.stackFile(ctx, st, ev.Commit, log)
 	var file *promote.Resolved
 	if err == nil {
-		file, err = promote.Load(data, fetch)
+		file, err = promote.Load(data, fetch, org.Slug)
 	}
 	if err != nil {
 		_, _ = fmt.Fprintf(log, "stack file: %v; no envs made\n", err)

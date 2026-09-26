@@ -229,7 +229,7 @@ func (d *Client) toolContainer(
 		return nil, nil, err
 	}
 	remove := func() {
-		_ = d.cli.ContainerRemove(context.WithoutCancel(ctx), created.ID, container.RemoveOptions{Force: true})
+		_ = d.cli.ContainerRemove(context.WithoutCancel(ctx), created.ID, container.RemoveOptions{Force: true, RemoveVolumes: true})
 	}
 	att, err := d.cli.ContainerAttach(ctx, created.ID, container.AttachOptions{
 		Stream: true,
