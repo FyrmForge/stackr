@@ -28,9 +28,11 @@ type Pair struct{ From, To string }
 // Edge is one lane as the API and the graph see it: tile, slice or pseudo
 // ids, bytes per second.
 type Edge struct {
-	From string  `json:"from"`
-	To   string  `json:"to"`
-	BPS  float64 `json:"bps"`
+	From     string  `json:"from"`
+	To       string  `json:"to"`
+	FromName string  `json:"from_name"` // slug here, stack/env/slug elsewhere, the id when unknown
+	ToName   string  `json:"to_name"`
+	BPS      float64 `json:"bps"`
 }
 
 // Leaf holds the counters between ticks and the latest snapshot.

@@ -766,13 +766,21 @@
           "from": {
             "type": "string"
           },
+          "from_name": {
+            "type": "string"
+          },
           "to": {
+            "type": "string"
+          },
+          "to_name": {
             "type": "string"
           }
         },
         "required": [
           "from",
           "to",
+          "from_name",
+          "to_name",
           "bps"
         ],
         "type": "object"

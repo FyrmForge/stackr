@@ -302,16 +302,25 @@ func (a *app) envs() *cobra.Command {
 		a.get("ls", "env.list", "List environments", atStack, "/envs", envCols...),
 		a.get("ladder", "env.ladder", "List environments in promote order", atStack, "/ladder", envCols...),
 		a.get("get", "env.get", "Show the environment", atEnv, "", envCols...),
-		a.get(
-			"traffic",
-			"env.traffic",
-			"Show tile-to-tile bytes per second at the last 5 s sample",
-			atEnv,
-			"/traffic",
-			"from",
-			"to",
-			"bps",
-		),
+		leaf("traffic", "env.traffic", "Show tile-to-tile traffic at the last 5 s sample", upTo(0),
+			a.at(atEnv, func(_ *cobra.Command, p string, _ []string) error {
+				v, err := a.call(GET, p+"/traffic", nil)
+				if err != nil || a.json {
+					if err == nil {
+						err = a.show(v)
+					}
+					return err
+				}
+				rows, _ := v.([]any)
+				for _, r := range rows {
+					if m, ok := r.(map[string]any); ok {
+						n, _ := m["bps"].(json.Number)
+						bps, _ := n.Float64()
+						m["bps"] = rate(bps)
+					}
+				}
+				return a.show(v, "from_name", "to_name", "bps")
+			})),
 		create,
 		a.put("rename <name>", "env.rename", "Rename the environment", atEnv, "/name", "name"),
 		a.put("color <color>", "env.color", "Set the environment's panel colour", atEnv, "/color", "color"),
@@ -1491,4 +1500,15 @@ func (a *app) backups() *cobra.Command {
 func last(p string) string {
 	s, _ := url.PathUnescape(p[strings.LastIndex(p, "/")+1:])
 	return s
+}
+
+// rate spells bytes per second the way the canvas's lane label does.
+func rate(bps float64) string {
+	switch {
+	case bps >= 1<<20:
+		return fmt.Sprintf("%.1f MB/s", bps/(1<<20))
+	case bps >= 1<<10:
+		return fmt.Sprintf("%.1f KB/s", bps/(1<<10))
+	}
+	return fmt.Sprintf("%.0f B/s", bps)
 }

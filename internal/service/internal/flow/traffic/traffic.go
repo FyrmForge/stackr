@@ -17,6 +17,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/domain"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/environment"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/managed"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/stack"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
 	ltraffic "github.com/FyrmForge/stackr/internal/service/internal/leaf/traffic"
 )
@@ -27,6 +28,7 @@ const DefaultPath = "/proc/net/nf_conntrack"
 type Flow struct {
 	Tiles   *tile.Leaf
 	Envs    *environment.Leaf
+	Stacks  *stack.Leaf
 	Domains *domain.Leaf
 	Managed *managed.Leaf
 	Traffic *ltraffic.Leaf
@@ -93,8 +95,13 @@ func (f *Flow) Edges(ctx context.Context, envID string) ([]ltraffic.Edge, error)
 	}
 	in := map[string]bool{}
 	bind := map[ltraffic.Pair]string{}
+	name := map[string]string{
+		ltraffic.Proxy:    ltraffic.Proxy,
+		ltraffic.Internet: ltraffic.Internet,
+	}
 	for _, t := range ts {
 		in[t.ID] = true
+		name[t.ID] = t.Slug
 		ps, err := f.Managed.ForConsumer(ctx, t.ID)
 		if err != nil {
 			return nil, err
@@ -116,6 +123,10 @@ func (f *Flow) Edges(ctx context.Context, envID string) ([]ltraffic.Edge, error)
 			out = append(out, ltraffic.Edge{From: p.From, To: p.To, BPS: v})
 		}
 	}
+	for i := range out {
+		out[i].FromName = f.name(ctx, name, out[i].From)
+		out[i].ToName = f.name(ctx, name, out[i].To)
+	}
 	sort.Slice(out, func(i, j int) bool {
 		if out[i].From != out[j].From {
 			return out[i].From < out[j].From
@@ -123,4 +134,23 @@ func (f *Flow) Edges(ctx context.Context, envID string) ([]ltraffic.Edge, error)
 		return out[i].To < out[j].To
 	})
 	return out, nil
+}
+
+// name is the id's slug in this env, stack/env/slug for a tile of another
+// env (a slice's instance), the id itself when nothing is known.
+func (f *Flow) name(ctx context.Context, known map[string]string, id string) string {
+	if n, ok := known[id]; ok {
+		return n
+	}
+	n := id
+	if t, err := f.Tiles.Get(ctx, id); err == nil {
+		n = t.Slug
+		if e, err := f.Envs.Get(ctx, t.EnvironmentID); err == nil {
+			if s, err := f.Stacks.Get(ctx, e.StackID); err == nil {
+				n = s.Slug + "/" + e.Slug + "/" + t.Slug
+			}
+		}
+	}
+	known[id] = n
+	return n
 }

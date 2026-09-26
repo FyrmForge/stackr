@@ -400,6 +400,7 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 		return &ftraffic.Flow{
 			Tiles:   orch.tiles,
 			Envs:    orch.envs,
+			Stacks:  orch.stacks,
 			Domains: orch.domains,
 			Managed: orch.managed,
 			Traffic: orch.traffic,

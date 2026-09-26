@@ -16,6 +16,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/domain"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/environment"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/managed"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/stack"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
 	ltraffic "github.com/FyrmForge/stackr/internal/service/internal/leaf/traffic"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
@@ -232,7 +233,35 @@ func TestEdgesSlices(t *testing.T) {
 		must(t, err)
 		slice[n] = sl.ID
 	}
-	fl := &traffic.Flow{Tiles: tiles, Managed: ml, Traffic: ltraffic.New()}
+	// far lives in another env of the stack and talks to pg directly.
+	prd := uuid.NewString()
+	must(t, s.Environments.Create(ctx, store.Environment{
+		ID:         prd,
+		StackID:    stk,
+		Name:       "prd",
+		Slug:       "prd",
+		Type:       "static",
+		Settings:   "{}",
+		Network:    "n2",
+		FromKind:   "branch",
+		FromBranch: "main",
+		CreatedAt:  now,
+	}))
+	far, err := tiles.Create(ctx, store.Tile{
+		StackID:       stk,
+		EnvironmentID: prd,
+		Name:          "far",
+		Kind:          tile.Image,
+		ImageRef:      "far:1",
+	})
+	must(t, err)
+	fl := &traffic.Flow{
+		Tiles:   tiles,
+		Envs:    environment.New(s.Environments, nil),
+		Stacks:  stack.New(s.Stacks),
+		Managed: ml,
+		Traffic: ltraffic.New(),
+	}
 	ipMap := map[string]string{
 		"10.0.0.2": ids["web"],
 		"10.0.0.3": ids["jobs"],
@@ -240,10 +269,11 @@ func TestEdgesSlices(t *testing.T) {
 		"10.0.0.9": ids["pg"],
 		"10.1.0.2": "elsewhere",
 		"10.1.0.3": "elsewhere-too",
+		"10.2.0.2": far.ID,
 	}
 	dump := func(n int) []byte {
 		var b strings.Builder
-		for i, src := range []string{"10.0.0.2", "10.0.0.3", "10.0.0.4", "10.1.0.2"} {
+		for i, src := range []string{"10.0.0.2", "10.0.0.3", "10.0.0.4", "10.1.0.2", "10.2.0.2"} {
 			dst := "10.0.0.9"
 			if src == "10.1.0.2" {
 				dst = "10.1.0.3"
@@ -265,6 +295,17 @@ func TestEdgesSlices(t *testing.T) {
 		{From: slice["jobs"], To: ids["jobs"]}: 200,
 		{From: ids["cron"], To: ids["pg"]}:     100,
 		{From: ids["pg"], To: ids["cron"]}:     200,
+		{From: far.ID, To: ids["pg"]}:         100,
+		{From: ids["pg"], To: far.ID}:         200,
+	}
+	names := map[string]string{
+		ids["web"]:    "web",
+		ids["jobs"]:   "jobs",
+		ids["cron"]:   "cron",
+		ids["pg"]:     "pg",
+		slice["web"]:  "web-db",
+		slice["jobs"]: "jobs-db",
+		far.ID:        "shop/prd/far",
 	}
 	if len(got) != len(want) {
 		t.Fatalf("edges = %+v, want %v", got, want)
@@ -272,6 +313,9 @@ func TestEdgesSlices(t *testing.T) {
 	for _, e := range got {
 		if want[ltraffic.Pair{From: e.From, To: e.To}] != e.BPS {
 			t.Errorf("edge %+v not wanted", e)
+		}
+		if e.FromName != names[e.From] || e.ToName != names[e.To] {
+			t.Errorf("edge %+v named %s -> %s, want %s -> %s", e, e.FromName, e.ToName, names[e.From], names[e.To])
 		}
 	}
 }

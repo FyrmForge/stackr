@@ -542,6 +542,18 @@ func TestAllowEditsTheWholeList(t *testing.T) {
 }
 
 // tile exec prints the output and exits with the X-Exit-Code trailer.
+func TestEnvTrafficNamesAndRates(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, `[{"from":"a","to":"b","from_name":"api","to_name":"infra/staging/pg-db","bps":695995.3}]`)
+	}))
+	t.Cleanup(srv.Close)
+	useServer(t, srv.URL)
+	code, out, _ := cli(t, "env", "traffic", "--stack", "shop", "--env", "dev")
+	if code != 0 || !strings.Contains(out, "api\tinfra/staging/pg-db\t679.7 KB/s") {
+		t.Errorf("traffic = %d %q, want the names and a rate", code, out)
+	}
+}
+
 func TestTileExecExitCode(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Trailer", "X-Exit-Code")
