@@ -12,11 +12,15 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strings"
+	"time"
+
+	"golang.org/x/term"
 
 	"github.com/FyrmForge/stackr/internal/installspec"
 )
@@ -50,10 +54,12 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 	dnsToken := fs.String("dns-token", "", "Cloudflare API token for DNS-01 (wildcard certificates)")
 	release := fs.String("version", "", "release to install (default: this installer's own)")
 	dry := fs.Bool("dry-run", false, "print what would change, change nothing")
+	adminEmail := fs.String("admin-email", "", "the stackr admin's email; the password comes from "+passwordEnv+" or a prompt")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	in.DNS01 = *dnsToken != ""
+	given := map[string]bool{}
+	fs.Visit(func(f *flag.Flag) { given[f.Name] = true })
 	ver, err := checkVersion(*release, version)
 	if err != nil {
 		return err
@@ -64,6 +70,50 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 	if !r.dry {
 		if err := preflight(ctx); err != nil {
 			return err
+		}
+	}
+
+	// A re-run converges on the saved answers; a flag given must still
+	// match them (checked below). Only a fresh install makes the admin.
+	// ponytail: a fresh run that fails before the admin step leaves a saved
+	// install with no admin; the error says to re-run with --admin-email.
+	saved, err := installspec.Load(in.DataDir)
+	fresh := err != nil
+	if !fresh {
+		fillFrom(&in, saved, given)
+	}
+	password := os.Getenv(passwordEnv)
+	needAdmin := fresh || given["admin-email"]
+	if term.IsTerminal(int(os.Stdin.Fd())) && fresh {
+		a := answers{root: in.Root, panel: in.PanelHost, email: in.Email, proxies: in.Proxies, adminEmail: *adminEmail,
+			https: map[bool]string{true: "Yes", false: "No"}[in.HTTPS]} // a given --https steers the follow-ups
+		summary := func() string { return summaryText(a) }
+		qs := installQuestions(&a, given, needAdmin, *adminEmail != "", password != "", summary)
+		if err := ask(qs); err != nil {
+			return err
+		}
+		if a.next == nextCancel {
+			return errCancelled
+		}
+		r.dry = r.dry || a.next == nextDryRun
+		apply(&in, a, given, dnsToken, adminEmail)
+		if password == "" {
+			password = a.password
+		}
+	}
+	in.DNS01 = in.DNS01 || *dnsToken != ""
+	if needAdmin {
+		switch {
+		case *adminEmail == "":
+			return errors.New("the admin's email is missing: pass --admin-email, or run in a terminal to be asked")
+		case password == "":
+			return fmt.Errorf("the admin's password is missing: set %s, or run in a terminal to be asked", passwordEnv)
+		}
+		if *adminEmail, err = checkEmail(*adminEmail); err != nil {
+			return fmt.Errorf("--admin-email: %w", err)
+		}
+		if _, err := checkPassword(password); err != nil {
+			return fmt.Errorf("%s: %w", passwordEnv, err)
 		}
 	}
 	// Our own proxy holds the ports on a re-run.
@@ -121,8 +171,124 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 		func() error { return os.WriteFile(wrapperPath, []byte(wrapper), 0o755) }); err != nil {
 		return err
 	}
-	_, _ = fmt.Fprint(out, doneText(in, newKey, r.dry))
+	if needAdmin {
+		if err := r.createAdmin(ctx, in, image, *adminEmail, password); err != nil {
+			return fmt.Errorf("admin: %w; re-run with --admin-email to try again", err)
+		}
+	}
+	admin := ""
+	if needAdmin {
+		admin = *adminEmail
+	}
+	_, _ = fmt.Fprint(out, doneText(in, newKey, admin, r.dry))
 	return nil
+}
+
+// passwordEnv carries the admin password on an unattended run: never a flag,
+// which shell history and ps would keep.
+const passwordEnv = "STACKR_ADMIN_PASSWORD"
+
+// fillFrom takes each answer not given as a flag from the saved install.
+func fillFrom(in *installspec.Input, saved installspec.Input, given map[string]bool) {
+	for flag, pick := range map[string]func(){
+		"domain":     func() { in.Root = saved.Root },
+		"panel-host": func() { in.PanelHost = saved.PanelHost },
+		"https":      func() { in.HTTPS = saved.HTTPS },
+		"email":      func() { in.Email = saved.Email },
+		"proxy":      func() { in.Proxies = saved.Proxies },
+		"http-port":  func() { in.HTTPPort = saved.HTTPPort },
+		"https-port": func() { in.HTTPSPort = saved.HTTPSPort },
+		"dns-token":  func() { in.DNS01 = saved.DNS01 },
+	} {
+		if !given[flag] {
+			pick()
+		}
+	}
+}
+
+// apply copies the asked answers into the install; given flags stay.
+func apply(in *installspec.Input, a answers, given map[string]bool, dnsToken, adminEmail *string) {
+	in.Root, in.PanelHost, in.Email, in.Proxies = a.root, a.panel, a.email, a.proxies
+	if !given["https"] {
+		in.HTTPS = a.https != "No"
+	}
+	if !given["dns-token"] && a.wildcard == "Yes" {
+		*dnsToken = a.dnsToken
+	}
+	if a.adminEmail != "" {
+		*adminEmail = a.adminEmail
+	}
+}
+
+// summaryText is what the install will be, shown before the last pick.
+func summaryText(a answers) string {
+	scheme := "https"
+	if a.https == "No" {
+		scheme = "http"
+	}
+	s := fmt.Sprintf("\n  Panel   %s://%s\n  Tiles   *.%s\n", scheme, a.panel, strings.TrimPrefix(a.root, "*."))
+	if a.adminEmail != "" {
+		s += fmt.Sprintf("  Admin   %s\n", a.adminEmail)
+	}
+	return s
+}
+
+// createAdmin waits for the panel, then makes the admin inside it; the
+// password goes in on stdin so no flag, env or inspect ever holds it.
+func (r runner) createAdmin(ctx context.Context, in installspec.Input, image, email, password string) error {
+	if r.dry {
+		r.say("  would create the admin", email)
+		return nil
+	}
+	if err := waitHealthy(ctx, "http://"+net.JoinHostPort(in.Bind, installspec.PanelPort)+"/api/health"); err != nil {
+		return err
+	}
+	panel, err := read(ctx, "docker", "ps", "-q", "--filter", "label="+installspec.LabelRole+"=panel")
+	if err != nil || panel == "" {
+		return errors.New("the panel container is not running")
+	}
+	panel = strings.Fields(panel)[0]
+	// An older panel has no create-admin: its stackrd would boot a second
+	// server instead. Only this installer's own image is asked.
+	if got, _ := read(ctx, "docker", "inspect", "-f", "{{.Config.Image}}", panel); got != image {
+		return fmt.Errorf("the panel runs %s, not %s; upgrade it from the panel first", got, image)
+	}
+	check := exec.CommandContext(ctx, "docker", "exec", panel, "/stackrd", "create-admin", "--check")
+	if err := check.Run(); err != nil {
+		var exit *exec.ExitError
+		if errors.As(err, &exit) && exit.ExitCode() == 3 {
+			r.say("  have an admin")
+			return nil
+		}
+		return fmt.Errorf("check for an admin: %w", err)
+	}
+	r.say("  creating the admin", email)
+	cmd := exec.CommandContext(ctx, "docker", "exec", "-i", panel, "/stackrd", "create-admin", "--email", email)
+	cmd.Stdin = strings.NewReader(password + "\n")
+	if b, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("%s", strings.TrimSpace(string(b)))
+	}
+	return nil
+}
+
+// waitHealthy polls the panel's health route; a first boot migrates first.
+func waitHealthy(ctx context.Context, url string) error {
+	ctx, cancel := context.WithTimeout(ctx, 90*time.Second)
+	defer cancel()
+	for {
+		req, _ := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+		if res, err := http.DefaultClient.Do(req); err == nil {
+			_ = res.Body.Close()
+			if res.StatusCode == http.StatusOK {
+				return nil
+			}
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("the panel did not come up at %s within 90s; see docker logs %s", url, installspec.PanelName)
+		case <-time.After(time.Second):
+		}
+	}
 }
 
 // wrapper runs the CLI inside the panel: with a domain the panel publishes
@@ -291,19 +457,25 @@ func quote(args []string) string {
 	return b.String()
 }
 
-func doneText(in installspec.Input, key string, dry bool) string {
+// doneText closes the run; admin is the account made this run, if any.
+func doneText(in installspec.Input, key, admin string, dry bool) string {
 	status := "stackr is running."
 	if dry {
 		status = "Dry run finished, nothing was installed. A real run would end with:"
 	}
+	login := ""
+	if admin != "" {
+		login = fmt.Sprintf("  log in    %s with the password you chose\n", admin)
+	}
 	s := fmt.Sprintf(`
 %s
 
-  setup     %s   (the first account becomes the admin)
-  data      %s
-  admin     stackr <command>          (works when DNS or the proxy is broken)
+  panel     %s
+%s  data      %s
+  cli       stackr <command>          (works when DNS or the proxy is broken)
   upgrade   Admin, Update in the panel
-`, status, in.BaseURL(), in.DataDir)
+  people    invite them from the org's Members tab
+`, status, in.BaseURL(), login, in.DataDir)
 	if key != "" {
 		s += fmt.Sprintf(`
 Recovery passphrase, shown once. Save it somewhere off this box: it opens

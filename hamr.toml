@@ -96,3 +96,15 @@ no-href                = "warning"
 inline-style           = "warning"
 empty-class            = "warning"
 js-href                = "warning"
+
+[dev.mcp]
+enabled = true
+
+[dev.mcp.access]
+build = "write"
+dev = "write"
+docker = "write"
+logs = "write"
+mail = "write"
+sms = "write"
+stripe = "write"

@@ -26,6 +26,11 @@ PRESERVE="${RIG_PRESERVE:-/home/darthvader/stackr-preserve/rig}"
 INSTALLER="${RIG_INSTALLER:-/home/darthvader/stackr-install}"
 DOMAIN="${RIG_DOMAIN:-stackr-test.vulpe.dev}"
 EMAIL="${RIG_EMAIL:-dumitru.v.dv@gmail.com}"
+# The rig's own network proxy: Caddy trusts its X-Forwarded-For, so the panel
+# sees real client addresses (the login limit keys on them). Never Tailscale.
+FRONT_PROXY="${RIG_FRONT_PROXY:-192.168.1.100/32}"
+ADMIN_EMAIL="${RIG_ADMIN_EMAIL:-admin@test.com}"
+ADMIN_PASSWORD="${RIG_ADMIN_PASSWORD:-Test1234!}"
 IMAGE="ghcr.io/fyrmforge/stackr"
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
@@ -70,9 +75,12 @@ ship() {
 	echo "shipped $v"
 }
 
+# install makes the rig's admin on a fresh DB (an upgrade keeps the one it
+# has). The password is the rig's fixed test login, so passing it inline is fine.
 install() {
-	rig docker run --rm --privileged --net=host --pid=host -v /:/host alpine \
-		chroot /host "$INSTALLER" --domain "$DOMAIN" --panel-host "$DOMAIN" --email "$EMAIL" >/dev/null 2>&1 || true
+	rig docker run --rm --privileged --net=host --pid=host -v /:/host -e STACKR_ADMIN_PASSWORD="$ADMIN_PASSWORD" alpine \
+		chroot /host "$INSTALLER" --domain "$DOMAIN" --panel-host "$DOMAIN" --email "$EMAIL" --proxy "$FRONT_PROXY" \
+		--admin-email "$ADMIN_EMAIL" >/dev/null 2>&1 || true
 	rig docker ps --format "'{{.Names}} {{.Image}} {{.Status}}'"
 }
 
@@ -85,7 +93,7 @@ pave() {
 	rig docker run --rm -v "$DATA:/d" alpine sh -c "'rm -rf /d/stackr.db /d/stackr.db-shm /d/stackr.db-wal /d/jobs /d/runs /d/backups'"
 	# keys/, install.json and the stackr-caddy volume (certs) stay.
 	install
-	echo "paved to $v; register the admin, then: scripts/rig.sh restore --org <slug>"
+	echo "paved to $v; log in as $ADMIN_EMAIL, make the org, then: scripts/rig.sh restore --org <slug>"
 }
 
 # upgrade keeps the DB: the installer is a no-op while the containers exist

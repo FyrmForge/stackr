@@ -52,11 +52,27 @@ func hashPassword(pw string) (string, error) {
 	return h, nil
 }
 
-// Register creates an active user. The first account on a fresh install
-// becomes the stackr admin.
-// ponytail: two concurrent first registrations can both become admin; the
-// installer's setup URL is opened once.
+// Register creates an active user; an invite is the only way in.
 func (l *Leaf) Register(ctx context.Context, email, password, name string) (store.User, error) {
+	return l.create(ctx, email, password, name, "user")
+}
+
+// CreateAdmin makes the install's first account, the stackr admin. The
+// installer calls it once; with any account present it refuses.
+// ponytail: count then insert is not atomic; two installers racing on one
+// data dir could both pass. One installer runs per box.
+func (l *Leaf) CreateAdmin(ctx context.Context, email, password, name string) (store.User, error) {
+	all, err := l.users.List(ctx)
+	if err != nil {
+		return store.User{}, err
+	}
+	if len(all) > 0 {
+		return store.User{}, errs.Conflictf("this install already has an admin")
+	}
+	return l.create(ctx, email, password, name, "admin")
+}
+
+func (l *Leaf) create(ctx context.Context, email, password, name, role string) (store.User, error) {
 	email = strings.ToLower(strings.TrimSpace(email))
 	if _, err := l.users.GetByEmail(ctx, email); err == nil {
 		return store.User{}, errs.Invalidf("email", "an account with this email already exists")
@@ -66,14 +82,6 @@ func (l *Leaf) Register(ctx context.Context, email, password, name string) (stor
 	hash, err := hashPassword(password)
 	if err != nil {
 		return store.User{}, err
-	}
-	all, err := l.users.List(ctx)
-	if err != nil {
-		return store.User{}, err
-	}
-	role := "user"
-	if len(all) == 0 {
-		role = "admin"
 	}
 	now := time.Now().UTC()
 	u := store.User{

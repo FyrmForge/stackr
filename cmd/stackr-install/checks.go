@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/FyrmForge/hamr/pkg/validate"
+
 	"github.com/FyrmForge/stackr/internal/installspec"
 )
 
@@ -59,7 +61,7 @@ func checkHost(s, root string) (string, error) {
 	}
 	base := strings.TrimPrefix(root, "*.")
 	if h != base && !strings.HasSuffix(h, "."+base) {
-		return "", fmt.Errorf("%s is not under %s", h, base)
+		return "", fmt.Errorf("%s is not under %s; use %s or a name under it, like stkr.%s", h, base, base, base)
 	}
 	return h, nil
 }
@@ -75,7 +77,7 @@ func checkProxies(s string) (string, error) {
 		if err != nil {
 			a, aerr := netip.ParseAddr(f)
 			if aerr != nil {
-				return "", fmt.Errorf("%q is not an IP address or range", f)
+				return "", fmt.Errorf("%q is not an IP address or range; use one like 203.0.113.7 or 10.0.0.0/8", f)
 			}
 			p = netip.PrefixFrom(a, a.BitLen())
 		}
@@ -96,10 +98,25 @@ func checkEmail(s string) (string, error) {
 	s = strings.ToLower(strings.TrimSpace(s))
 	local, dom, ok := strings.Cut(s, "@")
 	if !ok || local == "" || strings.Contains(dom, "@") || strings.ContainsAny(s, " \t") {
-		return "", fmt.Errorf("%q is not an email address", s)
+		return "", fmt.Errorf("%q is not an email address; enter one like ops@example.com", s)
 	}
 	if _, err := installspec.CheckRoot(dom); err != nil || strings.HasPrefix(dom, "*.") {
-		return "", fmt.Errorf("%q does not end in a real domain", s)
+		return "", fmt.Errorf("%q: after the @ goes a real domain, like example.com", s)
+	}
+	return s, nil
+}
+
+// checkPassword holds the admin to the panel's own rules (hamr's, as the
+// invite form shows them) and names each one still missing.
+func checkPassword(s string) (string, error) {
+	var miss []string
+	for _, r := range validate.CheckPasswordRequirements(s) {
+		if !r.Met {
+			miss = append(miss, strings.ToLower(r.Description))
+		}
+	}
+	if len(miss) > 0 {
+		return "", fmt.Errorf("the password needs %s", strings.Join(miss, ", "))
 	}
 	return s, nil
 }

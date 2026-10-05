@@ -788,8 +788,10 @@ Filesystem snapshots were explored and parked (see "Later").
 
 ### Auth mechanics (as today, listed so nobody forgets to build them)
 
-- First account on a fresh install becomes stackr admin. The installer
-  prints the setup URL. Onboarding is gated until done.
+- The installer makes the stackr admin (its form, or `--admin-email` plus
+  `STACKR_ADMIN_PASSWORD`) through `stackrd create-admin`, password on stdin.
+  There is no public sign-up; everyone else arrives by invite (2026-10-01).
+  Onboarding is gated until done.
 - Invites: an org owner invites by email; the link creates the account and
   the membership in one step, burns the invite atomically, expires after 7
   days (B14, B15).

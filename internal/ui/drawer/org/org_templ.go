@@ -768,7 +768,7 @@ func Members(v MembersView) templ.Component {
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = c.Section("People", "organization", "Owners manage the organization. Members have full access to its stacks, viewers are read-only.").Render(templ.WithChildren(ctx, templ_7745c5c3_Var17), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = c.Section("People", "organization", "Everyone here is an owner, with full control of the organization.").Render(templ.WithChildren(ctx, templ_7745c5c3_Var17), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

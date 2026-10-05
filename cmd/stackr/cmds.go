@@ -272,11 +272,12 @@ func (a *app) orgs() *cobra.Command {
 			})
 		}
 	}
-	var role, email, url, user string
+	// Each verb has its own role: one shared var let set's flag wipe add's default.
+	var inviteRole, setRoleTo, email, url, user string
 	invite := leaf("add", "invite.create", "Invite someone; the link is a credential", exact(0),
 		func(*cobra.Command, []string) error {
 			return org(func(p string) error {
-				v, err := a.call(POST, p+"/invites", map[string]string{"email": email, "role": role})
+				v, err := a.call(POST, p+"/invites", map[string]string{"email": email, "role": inviteRole})
 				if err != nil {
 					return err
 				}
@@ -284,15 +285,15 @@ func (a *app) orgs() *cobra.Command {
 			})
 		})
 	invite.Flags().StringVar(&email, "email", "", "who it is for (empty: anyone holding the link)")
-	invite.Flags().StringVar(&role, "role", "member", "owner or member")
+	invite.Flags().StringVar(&inviteRole, "role", "owner", "owner, the only role in v1: full control of the org")
 	setRole := leaf("set <user-id>", "member.role", "Change a member's role", exact(1),
 		func(_ *cobra.Command, args []string) error {
 			return org(func(p string) error {
-				_, err := a.call(PUT, p+"/members/"+args[0], map[string]string{"role": role})
+				_, err := a.call(PUT, p+"/members/"+args[0], map[string]string{"role": setRoleTo})
 				return err
 			})
 		})
-	setRole.Flags().StringVar(&role, "role", "", "owner or member")
+	setRole.Flags().StringVar(&setRoleTo, "role", "", "owner, the only role in v1")
 	_ = setRole.MarkFlagRequired("role")
 
 	credAdd := leaf("add <name>", "credential.create", "Add a registry credential", exact(1),

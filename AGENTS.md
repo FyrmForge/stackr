@@ -632,3 +632,25 @@ func (h *handler) Submit(c echo.Context) error {
 - Prefer `respond.HTML`/`respond.JSON` over raw `c.HTML()`
 - Add `// GET /path` comments above handler methods
 - Keep handlers thin — business logic in service layer (see "Layering rules")
+
+## hamr MCP
+
+`hamr dev` exposes these tools over MCP. Prefer them over doing the same
+thing by hand — they read the live dev server, so their answers are current
+and cost the developer nothing.
+
+- Never ask the developer to paste logs, and never tail a log file — `logs.read` (app + build output), `console.read` (browser console, uncaught errors, CSP violations), `http.read` (request log).
+- The dev server is already running. Never run `make build`, `go build`, or start a second server — `rule.run` rebuilds one watch rule, `rebuild.all` rebuilds everything, `make.run` runs a Makefile target.
+- Check dependency containers with `docker.status` / `docker.logs` before assuming a connection error is app-side.
+- `docker.restart` restarts a service; `docker.wipe` resets its volumes.
+- Never ask what an email said — `mail.list` and `mail.get` read the dev inbox.
+- `mail.clear` empties it; `mail.ingest` injects a message.
+- Never ask what an SMS said — `sms.list` and `sms.get` read the dev inbox.
+- `sms.clear` empties it; `sms.ingest` injects a message.
+- Never guess at payment state — `stripe.list` reads the mock's objects.
+- `stripe.complete` / `stripe.expire` / `stripe.refund` drive a payment to an outcome. `stripe.advance` moves the mock clock forward and runs the subscription renewals that fall due; `stripe.subscription` retries, fails or cancels one. `stripe.mode` switches between the mock and `stripe listen` against a real sandbox; in listen mode the other stripe tools error.
+- `dev.info` reports the running rules, ports (including walked ones), and versions — read it before assuming a port.
+- When startup-only state goes stale — a port now clashing, an edited `.env`, a container that came up wrong — call `dev.restart` (re-runs the whole startup lifecycle in place). Never start a second dev server. A restart within 5s of the last one is refused — that means it already happened, so read the logs instead of calling again.
+
+If a call fails with "dev not running / gateway off", say so instead of
+falling back to manual steps — the developer needs to start `hamr dev`.

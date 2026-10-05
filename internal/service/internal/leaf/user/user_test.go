@@ -88,12 +88,15 @@ func TestMintKey(t *testing.T) {
 func TestFirstAccountIsAdmin(t *testing.T) {
 	st := servicetest.Store(t)
 	l := user.New(st.Users, st.Sessions, st.APIKeys)
-	if _, err := l.Register(ctx, "a@x.io", "short", "a"); err == nil {
+	if _, err := l.CreateAdmin(ctx, "a@x.io", "short", "a"); err == nil {
 		t.Error("short password accepted")
 	}
-	first, err := l.Register(ctx, "A@x.io", "longenough", "a")
+	first, err := l.CreateAdmin(ctx, "A@x.io", "longenough", "a")
 	if err != nil || first.Role != "admin" {
 		t.Fatalf("first = %+v, %v; want admin", first, err)
+	}
+	if _, err := l.CreateAdmin(ctx, "c@x.io", "longenough", "c"); !errors.As(err, new(errs.Conflict)) {
+		t.Errorf("a second admin: err = %v, want conflict", err)
 	}
 	second, err := l.Register(ctx, "b@x.io", "longenough", "b")
 	if err != nil || second.Role != "user" {

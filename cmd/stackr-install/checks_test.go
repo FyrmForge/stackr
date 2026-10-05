@@ -119,13 +119,14 @@ func TestDoneText(t *testing.T) {
 		HTTPSPort: "443",
 		DataDir:   "/d",
 	}
-	s := doneText(in, "k3y", false)
-	for _, want := range []string{"https://stkr.example.com", "k3y", "*.example.com", "Caddy"} {
+	s := doneText(in, "k3y", "me@example.com", false)
+	for _, want := range []string{"https://stkr.example.com", "k3y", "me@example.com", "*.example.com", "Caddy"} {
 		if !strings.Contains(s, want) {
 			t.Errorf("missing %q in:\n%s", want, s)
 		}
 	}
-	if strings.Contains(doneText(in, "", false), "Recovery passphrase") {
-		t.Error("a re-run printed the passphrase section")
+	rerun := doneText(in, "", "", false)
+	if strings.Contains(rerun, "Recovery passphrase") || strings.Contains(rerun, "log in") {
+		t.Error("a re-run printed the passphrase or the new admin")
 	}
 }

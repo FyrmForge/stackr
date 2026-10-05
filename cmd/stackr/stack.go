@@ -201,17 +201,43 @@ func (a *app) stacks() *cobra.Command {
 		}))
 	create.Flags().StringVar(&desc, "desc", "", "a one-line description")
 	var repo, branch, path, conn string
-	configRepo := leaf("config-repo", "stack.config-repo", "Point the stack at its config repo", exact(0),
-		a.at(atStack, func(_ *cobra.Command, p string, _ []string) error {
+	var unbind bool
+	configRepo := leaf("config-repo", "stack.config-repo,stack.get",
+		"Show the stack's config repo; --repo binds one, --unbind drops it", exact(0),
+		a.at(atStack, func(c *cobra.Command, p string, _ []string) error {
+			cols := []string{"config_repo", "config_branch", "config_path", "config_connector_id"}
+			switch bindMode(c, unbind) {
+			case showBinding:
+				v, err := a.call(GET, p, nil)
+				if err != nil {
+					return err
+				}
+				return a.show(v, cols...)
+			case badBinding:
+				return usage("pass --repo to bind a config repo, or --unbind to drop it")
+			case dropBinding:
+				if err := a.confirm("Unbind the stack's config repo? Pushes to it stop applying."); err != nil {
+					return err
+				}
+				repo = ""
+			}
 			_, err := a.call(PUT, p+"/config-repo", map[string]string{
 				"repo":         repo,
 				"branch":       branch,
 				"path":         path,
 				"connector_id": conn,
 			})
-			return err
+			if err != nil {
+				return err
+			}
+			v, err := a.call(GET, p, nil)
+			if err != nil {
+				return err
+			}
+			return a.show(v, cols...)
 		}))
-	configRepo.Flags().StringVar(&repo, "repo", "", "the git URL (empty: none)")
+	configRepo.Flags().StringVar(&repo, "repo", "", "the git URL to bind")
+	configRepo.Flags().BoolVar(&unbind, "unbind", false, "drop the binding (asks first; -y skips)")
 	configRepo.Flags().StringVar(&branch, "branch", "main", "the branch")
 	configRepo.Flags().StringVar(&path, "path", "stackr-compose.yml", "the stack file in the repo")
 	configRepo.Flags().StringVar(&conn, "connector", "", "the connector id (stackr org connectors ls)")
@@ -412,20 +438,10 @@ func (a *app) changes(pl map[string]any, lists ...string) {
 func (a *app) promote() *cobra.Command {
 	var dry bool
 	c := waits(leaf("promote <release>", "release.list,promote.plan,promote.run",
-		"Promote a release (number or id) into --env; the plan prints first", exact(1),
+		"Promote a release (number or id) into --env: prints the plan, then asks", exact(1),
 		a.at(atEnv, func(c *cobra.Command, p string, args []string) error {
-			rel, err := a.release(c, args[0])
-			if err != nil {
-				return err
-			}
-			ok, err := a.plan(p, rel)
-			if err != nil || dry {
-				return err
-			}
-			if !ok {
-				return errors.New("the promote is blocked; see the blockers above")
-			}
-			return a.orgJob(c, POST, p+"/promote/"+rel, nil, "promote")
+			return a.move(c, p, args[0], dry, "promote",
+				fmt.Sprintf("Promote release %s to %s?", args[0], last(p)))
 		})))
 	c.Flags().BoolVar(&dry, "dry-run", false, "print the plan and change nothing")
 	return scoped(c, false)
@@ -433,19 +449,39 @@ func (a *app) promote() *cobra.Command {
 
 func (a *app) rollback() *cobra.Command {
 	var tag string
-	c := waits(leaf("rollback", "release.list,promote.rollback", "Put --env back on an earlier release", exact(0),
+	var dry bool
+	c := waits(leaf("rollback", "release.list,promote.plan,promote.rollback",
+		"Put --env back on an earlier release: prints the plan, then asks", exact(0),
 		a.at(atEnv, func(c *cobra.Command, p string, _ []string) error {
 			if tag == "" {
 				return usage("--tag is required: the last good release is a judgement (stackr release ls lists them)")
 			}
-			rel, err := a.release(c, tag)
-			if err != nil {
-				return err
-			}
-			return a.orgJob(c, POST, p+"/rollback/"+rel, nil, "rollback")
+			return a.move(c, p, tag, dry, "rollback",
+				fmt.Sprintf("Roll %s back to release %s?", last(p), tag))
 		})))
 	c.Flags().StringVar(&tag, "tag", "", "the release to go back to (number or id); required")
+	c.Flags().BoolVar(&dry, "dry-run", false, "print the plan and change nothing")
 	return scoped(c, false)
+}
+
+// move is promote and rollback, one server path (B2): the plan, a refusal
+// on blockers, then a yes before anything deploys. -y answers for CI.
+func (a *app) move(c *cobra.Command, p, release string, dry bool, verb, question string) error {
+	rel, err := a.release(c, release)
+	if err != nil {
+		return err
+	}
+	ok, err := a.plan(p, rel)
+	if err != nil || dry {
+		return err
+	}
+	if !ok {
+		return fmt.Errorf("the %s is blocked; see the blockers above", verb)
+	}
+	if err := a.confirm(question); err != nil {
+		return err
+	}
+	return a.orgJob(c, POST, p+"/"+verb+"/"+rel, nil, verb)
 }
 
 // ---- tile ----

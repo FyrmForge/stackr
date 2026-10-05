@@ -241,13 +241,9 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	db, err := sqlite.ConnectContext(ctx, cfg.DBPath)
+	db, err := openDB(ctx, cfg.DBPath)
 	if err != nil {
-		return nil, fmt.Errorf("connect to database: %w", err)
-	}
-	if err := sqlite.Migrate(db, appdb.MigrateConfig()); err != nil {
-		_ = db.Close()
-		return nil, fmt.Errorf("migrate: %w", err)
+		return nil, err
 	}
 
 	if o.docker == nil {
@@ -500,6 +496,19 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 		}
 	}()
 	return orch, nil
+}
+
+// openDB connects and brings the schema up to date.
+func openDB(ctx context.Context, path string) (*sqlx.DB, error) {
+	db, err := sqlite.ConnectContext(ctx, path)
+	if err != nil {
+		return nil, fmt.Errorf("connect to database: %w", err)
+	}
+	if err := sqlite.Migrate(db, appdb.MigrateConfig()); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("migrate: %w", err)
+	}
+	return db, nil
 }
 
 // bootSettings turns the Config knobs that are set into settings values.

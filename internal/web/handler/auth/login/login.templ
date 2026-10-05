@@ -1,23 +1,11 @@
 package login
 
-import (
-	"net/url"
-
-	c "github.com/FyrmForge/stackr/internal/ui/components"
-)
-
-// withNext carries a login's way back to a sibling page's link.
-func withNext(path, next string) string {
-	if next == "" {
-		return path
-	}
-	return path + "?next=" + url.QueryEscape(next)
-}
+import c "github.com/FyrmForge/stackr/internal/ui/components"
 
 templ loginPage(f LoginForm, errors map[string]string) {
 	@c.AuthCard("Log in to your account", nil) {
 		@loginForm(f, errors)
-		<p class="text-sm text-rw-muted text-center">No account? <a class="link" href={ templ.SafeURL(withNext("/register", f.Next)) }>Register</a></p>
+		<p class="text-sm text-rw-muted text-center">No account? Ask an admin for an invite.</p>
 	}
 }
 

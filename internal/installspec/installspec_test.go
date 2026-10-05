@@ -104,6 +104,7 @@ func TestCheckRoot(t *testing.T) {
 	}
 	for in, want := range map[string]string{
 		"https://Example.COM/path": "example.com",
+		"HTTPS://Example.COM/":     "example.com",
 		"example.com.":             "example.com",
 		"example.com:8443":         "example.com",
 		"*.apps.example.com":       "*.apps.example.com",

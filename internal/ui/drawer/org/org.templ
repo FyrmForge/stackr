@@ -188,7 +188,7 @@ templ Members(v MembersView) {
 				</form>
 			}
 		}
-		@c.Section("People", "organization", "Owners manage the organization. Members have full access to its stacks, viewers are read-only.") {
+		@c.Section("People", "organization", "Everyone here is an owner, with full control of the organization.") {
 			<ul class="space-y-2">
 				for _, m := range v.Members {
 					<li class="panel px-3 py-2.5 flex flex-wrap items-center gap-2">

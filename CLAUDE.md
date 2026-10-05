@@ -36,8 +36,9 @@ and cost the developer nothing.
 - Never ask what an SMS said — `sms.list` and `sms.get` read the dev inbox.
 - `sms.clear` empties it; `sms.ingest` injects a message.
 - Never guess at payment state — `stripe.list` reads the mock's objects.
-- `stripe.complete` / `stripe.expire` / `stripe.refund` drive a payment to an outcome.
+- `stripe.complete` / `stripe.expire` / `stripe.refund` drive a payment to an outcome. `stripe.advance` moves the mock clock forward and runs the subscription renewals that fall due; `stripe.subscription` retries, fails or cancels one. `stripe.mode` switches between the mock and `stripe listen` against a real sandbox; in listen mode the other stripe tools error.
 - `dev.info` reports the running rules, ports (including walked ones), and versions — read it before assuming a port.
+- When startup-only state goes stale — a port now clashing, an edited `.env`, a container that came up wrong — call `dev.restart` (re-runs the whole startup lifecycle in place). Never start a second dev server. A restart within 5s of the last one is refused — that means it already happened, so read the logs instead of calling again.
 
 If a call fails with "dev not running / gateway off", say so instead of
 falling back to manual steps — the developer needs to start `hamr dev`.

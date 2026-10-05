@@ -17,7 +17,6 @@ import (
 	"github.com/FyrmForge/stackr/internal/web/handler/auth/cliauth"
 	"github.com/FyrmForge/stackr/internal/web/handler/auth/invite"
 	"github.com/FyrmForge/stackr/internal/web/handler/auth/login"
-	"github.com/FyrmForge/stackr/internal/web/handler/auth/register"
 	"github.com/FyrmForge/stackr/internal/web/handler/canvas"
 	"github.com/FyrmForge/stackr/internal/web/handler/devemail"
 	"github.com/FyrmForge/stackr/internal/web/handler/devgallery"
@@ -82,14 +81,11 @@ func RegisterRoutes(srv *server.Server, deps *Deps) {
 	// Auth routes — one page-package per page (login owns logout as its inverse action).
 	loginHandler := login.NewHandler(deps.Orch)
 	site.GET("/login", loginHandler.Page, auth.RequireNotAuth())
-	site.POST("/login", loginHandler.Submit, auth.RequireNotAuth())
+	site.POST("/login", loginHandler.Submit, loginHandler.Limit(), auth.RequireNotAuth())
 	site.POST("/login/validate/:field", loginHandler.FormRules.ValidationHandler("field"), auth.RequireNotAuth())
 	site.POST("/logout", loginHandler.Logout, auth.RequireAuth())
 
-	registerHandler := register.NewHandler(deps.Orch)
-	site.GET("/register", registerHandler.Page, auth.RequireNotAuth())
-	site.POST("/register", registerHandler.Submit, auth.RequireNotAuth())
-	site.POST("/register/validate/:field", registerHandler.FormRules.ValidationHandler("field"), auth.RequireNotAuth())
+	// No /register: the installer makes the admin, invites bring the rest.
 
 	// A page a visitor may not see sends them to log in and back.
 	page, authed := deps.Access.LoginFirst(), deps.Access.Authed()

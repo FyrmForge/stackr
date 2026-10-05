@@ -202,11 +202,11 @@ func Save(in Input) error {
 // CleanHost takes what people paste: a URL with scheme, path, port, a
 // trailing dot, capitals.
 func CleanHost(s string) string {
-	h := strings.TrimSpace(s)
+	h := strings.ToLower(strings.TrimSpace(s))
 	h = strings.TrimPrefix(strings.TrimPrefix(h, "http://"), "https://")
 	h, _, _ = strings.Cut(h, "/")
 	h, _, _ = strings.Cut(h, ":")
-	return strings.ToLower(strings.TrimSuffix(h, "."))
+	return strings.TrimSuffix(h, ".")
 }
 
 const hostChars = "abcdefghijklmnopqrstuvwxyz0123456789-"

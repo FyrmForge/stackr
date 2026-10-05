@@ -4,6 +4,7 @@ package auth_test
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -135,5 +136,83 @@ func TestCLIAuthorize(t *testing.T) {
 	}
 	if _, _, err := s.Orch.ExchangeCLICode(context.Background(), to.Query().Get("code")); err != nil {
 		t.Errorf("the code does not exchange: %v", err)
+	}
+}
+
+// No public sign-up: the installer makes the admin and invites bring the
+// rest, so a visitor's POST /register makes no account.
+func TestNoPublicRegister(t *testing.T) {
+	s := webtest.New(t)
+	before, err := s.Orch.Users(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec := s.As(t, "", "POST", "/register", url.Values{
+		"email": {"new@acme.test"}, "password": {"Longenough1!"}, "confirm_password": {"Longenough1!"}, "name": {"New"},
+	})
+	if rec.Code < 400 {
+		t.Errorf("POST /register = %d, want a 4xx", rec.Code)
+	}
+	after, _ := s.Orch.Users(context.Background())
+	if len(after) != len(before) {
+		t.Errorf("an account was made: %d users, was %d", len(after), len(before))
+	}
+	if body := s.As(t, "", "GET", "/login", nil).Body.String(); strings.Contains(body, `href="/register`) {
+		t.Error("the login page still links to /register")
+	}
+}
+
+// A wrong password comes back as a 422 the page swaps in, error and all; a
+// 401 is not swapped (components.htmxConfig) and the form said nothing.
+func TestLoginWrongPassword(t *testing.T) {
+	s := webtest.New(t)
+	rec := s.As(t, "", "POST", "/login", url.Values{"email": {"nobody@acme.test"}, "password": {"not-the-password"}})
+	if rec.Code != http.StatusUnprocessableEntity || !strings.Contains(rec.Body.String(), "Invalid email or password") {
+		t.Errorf("wrong password = %d %q, want 422 with the error", rec.Code, rec.Body.String())
+	}
+}
+
+// Past ten tries on one email from one address, login answers 429 with the
+// form and a time to come back; another email, or another address, goes on.
+// Past a hundred tries from one address across emails, it is limited too.
+func TestLoginRateLimit(t *testing.T) {
+	s := webtest.New(t)
+	try := func(ip, email string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest("POST", "/login", strings.NewReader(url.Values{
+			"email": {email}, "password": {"guess"},
+		}.Encode()))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		req.Header.Set("HX-Request", "true")
+		req.Header.Set("X-CSRF-Token", "tok") // as webtest's send does
+		req.AddCookie(&http.Cookie{Name: "csrf", Value: "tok"})
+		req.RemoteAddr = ip + ":1234"
+		rec := httptest.NewRecorder()
+		s.Handler().ServeHTTP(rec, req)
+		return rec
+	}
+	for i := range 10 {
+		if rec := try("203.0.113.7", "a@acme.test"); rec.Code == http.StatusTooManyRequests {
+			t.Fatalf("try %d limited already", i+1)
+		}
+	}
+	rec := try("203.0.113.7", "A@acme.test ")
+	if rec.Code != http.StatusTooManyRequests || !strings.Contains(rec.Body.String(), "Too many tries") ||
+		rec.Header().Get("Retry-After") == "" {
+		t.Errorf("11th try = %d %q, want 429 with the form and Retry-After", rec.Code, rec.Body.String())
+	}
+	if rec := try("203.0.113.7", "b@acme.test"); rec.Code == http.StatusTooManyRequests {
+		t.Error("another email from the same address was limited")
+	}
+	if rec := try("198.51.100.9", "a@acme.test"); rec.Code == http.StatusTooManyRequests {
+		t.Error("the same email from another address was limited")
+	}
+	limited := false
+	for i := range 101 {
+		if try("192.0.2.1", fmt.Sprintf("u%d@acme.test", i)).Code == http.StatusTooManyRequests {
+			limited = true
+		}
+	}
+	if !limited {
+		t.Error("101 emails from one address were never limited")
 	}
 }

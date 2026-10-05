@@ -1,0 +1,12 @@
+{
+  "mcp": {
+    "hamr-dev": {
+      "command": [
+        "hamr",
+        "mcp"
+      ],
+      "enabled": true,
+      "type": "local"
+    }
+  }
+}

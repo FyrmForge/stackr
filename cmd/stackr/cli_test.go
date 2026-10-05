@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -581,5 +582,117 @@ func TestTileExecExitCode(t *testing.T) {
 	code, out, errw := cli(t, "tile", "exec", "api", "--stack", "shop", "--env", "dev", "--container", "c1", "--", "sh")
 	if code != 3 || out != "out\nerr\n" || errw != "" {
 		t.Errorf("exec = %d %q %q, want 3, the output, nothing on stderr", code, out, errw)
+	}
+}
+
+// An invite with no --role asks for owner, v1's one role; a shared flag var
+// once let `members set` wipe the default and the body carried none.
+func TestInviteDefaultRole(t *testing.T) {
+	var r recorder
+	r.serve(t)
+	if code, _, errw := cli(t, "org", "invites", "add", "--email", "a@acme.test"); code != 0 {
+		t.Fatalf("invites add = %d %s", code, errw)
+	}
+	if len(r.reqs) == 0 || !strings.Contains(r.reqs[len(r.reqs)-1], `"role":"owner"`) {
+		t.Errorf("invite sent %v, want role owner", r.reqs)
+	}
+}
+
+// config-repo bare only shows the binding; it once unbound, the empty --repo
+// meaning "none". Unbinding takes --unbind and a yes; stray flags are usage.
+func TestConfigRepoBareShows(t *testing.T) {
+	puts := func(r *recorder) (n int, last string) {
+		for _, q := range r.reqs {
+			if strings.HasPrefix(q, "PUT ") {
+				n, last = n+1, q
+			}
+		}
+		return n, last
+	}
+	for _, base := range [][]string{{"org", "config-repo"}, {"stack", "config-repo", "--stack", "shop"}} {
+		run := func(extra ...string) (int, *recorder, string) {
+			var r recorder
+			r.serve(t)
+			code, _, errw := cli(t, append(append([]string{}, base...), extra...)...)
+			return code, &r, errw
+		}
+		if code, r, errw := run(); code != 0 {
+			t.Errorf("%v bare = %d %s", base, code, errw)
+		} else if n, _ := puts(r); n != 0 {
+			t.Errorf("%v bare wrote: %v", base, r.reqs)
+		}
+		if code, r, _ := run("--unbind"); code == 0 {
+			t.Errorf("%v --unbind without a yes went through", base)
+		} else if n, _ := puts(r); n != 0 {
+			t.Errorf("%v --unbind without a yes wrote: %v", base, r.reqs)
+		}
+		if code, r, errw := run("--unbind", "-y"); code != 0 {
+			t.Errorf("%v --unbind -y = %d %s", base, code, errw)
+		} else if n, last := puts(r); n != 1 || !strings.Contains(last, `"repo":""`) {
+			t.Errorf("%v --unbind -y sent %v", base, r.reqs)
+		}
+		for _, bad := range [][]string{{"--branch", "dev"}, {"--repo", ""}, {"--repo", "o/r", "--unbind"}} {
+			if code, r, _ := run(bad...); code == 0 || len(r.reqs) != 0 {
+				t.Errorf("%v %v = %d %v, want a usage error and no call", base, bad, code, r.reqs)
+			}
+		}
+		if code, r, errw := run("--repo", "o/r"); code != 0 {
+			t.Errorf("%v --repo = %d %s", base, code, errw)
+		} else if n, last := puts(r); n != 1 || !strings.Contains(last, `"repo":"o/r"`) {
+			t.Errorf("%v --repo sent %v", base, r.reqs)
+		}
+	}
+}
+
+// promote and rollback print the plan, then ask: no yes (or --dry-run) and
+// nothing deploys; -y queues it; a blocked plan never gets the question.
+func TestPromoteAsks(t *testing.T) {
+	serve := func(canDeploy bool) *recorder {
+		var r recorder
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+			r.mu.Lock()
+			r.reqs = append(r.reqs, req.Method+" "+req.URL.Path)
+			r.mu.Unlock()
+			switch {
+			case strings.HasSuffix(req.URL.Path, "/releases"):
+				_, _ = io.WriteString(w, `[{"id":"r7","number":7}]`)
+			case strings.Contains(req.URL.Path, "/plan/"):
+				_, _ = fmt.Fprintf(w, `{"can_deploy":%t,"plan":{"changes":[]}}`, canDeploy)
+			default:
+				_, _ = io.WriteString(w, `{"id":"j1","state":"queued"}`)
+			}
+		}))
+		t.Cleanup(srv.Close)
+		useServer(t, srv.URL)
+		return &r
+	}
+	posted := func(r *recorder) bool {
+		for _, q := range r.reqs {
+			if strings.HasPrefix(q, "POST ") {
+				return true
+			}
+		}
+		return false
+	}
+	for _, verb := range [][]string{
+		{"promote", "7", "--stack", "shop", "--env", "prod", "--no-wait"},
+		{"rollback", "--tag", "7", "--stack", "shop", "--env", "prod", "--no-wait"},
+	} {
+		r := serve(true)
+		if code, _, errw := cli(t, verb...); code == 0 || posted(r) || !strings.Contains(errw, "refusing without --yes") {
+			t.Errorf("%s without a yes = %d %q, posted %v", verb[0], code, errw, posted(r))
+		}
+		r = serve(true)
+		if code, _, _ := cli(t, append(verb, "--dry-run")...); code != 0 || posted(r) {
+			t.Errorf("%s --dry-run = %d, posted %v", verb[0], code, posted(r))
+		}
+		r = serve(true)
+		if code, _, errw := cli(t, append([]string{"-y"}, verb...)...); code != 0 || !posted(r) {
+			t.Errorf("%s -y = %d %s, posted %v", verb[0], code, errw, posted(r))
+		}
+		r = serve(false)
+		if code, _, errw := cli(t, append([]string{"-y"}, verb...)...); code == 0 || posted(r) || !strings.Contains(errw, "blocked") {
+			t.Errorf("%s blocked = %d %q, posted %v", verb[0], code, errw, posted(r))
+		}
 	}
 }

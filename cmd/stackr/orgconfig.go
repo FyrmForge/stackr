@@ -15,10 +15,26 @@ var orgPlanCols = []string{"id", "status", "summary", "commit", "created_at"}
 // approve that applies one, a local preview and the export.
 func (a *app) orgConfig(org func(func(p string) error) error) []*cobra.Command {
 	var repo, branch, path, conn string
-	var auto bool
-	bind := leaf("config-repo", "org.config-repo", "Point the org at its stackr-org.yml and plan it", exact(0),
-		func(*cobra.Command, []string) error {
+	var auto, unbind bool
+	bind := leaf("config-repo", "org.config-repo,org.get",
+		"Show the org's config repo; --repo binds one and plans it, --unbind drops it", exact(0),
+		func(c *cobra.Command, _ []string) error {
 			return org(func(p string) error {
+				switch bindMode(c, unbind) {
+				case showBinding:
+					v, err := a.call(GET, p, nil)
+					if err != nil {
+						return err
+					}
+					return a.show(v, "config_repo", "config_branch", "config_path", "config_auto")
+				case badBinding:
+					return usage("pass --repo to bind a config repo, or --unbind to drop it")
+				case dropBinding:
+					if err := a.confirm("Unbind the org's config repo? Pushes to stackr-org.yml stop applying."); err != nil {
+						return err
+					}
+					repo = ""
+				}
 				v, err := a.call(PUT, p+"/config-repo", map[string]any{
 					"connector_id": conn,
 					"repo":         repo,
@@ -32,7 +48,8 @@ func (a *app) orgConfig(org func(func(p string) error) error) []*cobra.Command {
 				return a.show(v, "config_repo", "config_branch", "config_path", "config_auto")
 			})
 		})
-	bind.Flags().StringVar(&repo, "repo", "", "the repo, owner/name (empty: unbind)")
+	bind.Flags().StringVar(&repo, "repo", "", "the repo to bind, owner/name")
+	bind.Flags().BoolVar(&unbind, "unbind", false, "drop the binding (asks first; -y skips)")
 	bind.Flags().StringVar(&branch, "branch", "", "the branch (empty: the repo's default)")
 	bind.Flags().StringVar(&path, "path", "", "the file in the repo (empty: stackr-org.yml)")
 	bind.Flags().StringVar(&conn, "connector", "", "the connector id (stackr org connectors ls)")
@@ -186,4 +203,36 @@ func planExit(pl map[string]any) error {
 		return exitErr(2)
 	}
 	return nil
+}
+
+// bindMode reads a config-repo command's flags. Bare, it only shows: it once
+// unbound, the empty --repo default meaning "none".
+type binding int
+
+const (
+	showBinding binding = iota
+	setBinding
+	dropBinding
+	badBinding // other flags with neither --repo nor --unbind
+)
+
+func bindMode(c *cobra.Command, unbind bool) binding {
+	other := false // the binding's own settings; --stack, -y and the rest don't count
+	for _, f := range []string{"branch", "path", "connector", "auto"} {
+		other = other || c.Flags().Changed(f)
+	}
+	repo, _ := c.Flags().GetString("repo")
+	switch {
+	case unbind && c.Flags().Changed("repo"):
+		return badBinding
+	case unbind:
+		return dropBinding
+	case c.Flags().Changed("repo") && repo == "": // --repo '' unbound unasked
+		return badBinding
+	case c.Flags().Changed("repo"):
+		return setBinding
+	case other:
+		return badBinding
+	}
+	return showBinding
 }

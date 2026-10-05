@@ -1,9 +1,12 @@
 package main
 
 import (
+	"bufio"
 	"context"
+	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -79,6 +82,16 @@ func main() {
 		}
 		return
 	}
+	if flag.Arg(0) == "create-admin" {
+		// The installer's way to make the first account; no route can.
+		if err := createAdmin(flag.Args()[1:], os.Stdin, os.Stdout); errors.Is(err, errHasAdmin) {
+			os.Exit(3)
+		} else if err != nil {
+			fmt.Fprintln(os.Stderr, "stackrd create-admin:", err)
+			os.Exit(1)
+		}
+		return
+	}
 	if flag.Arg(0) == "upgrade-swap" {
 		// The one-shot helper the self-upgrade launches from the new image.
 		if err := service.RunPanelSwap(context.Background()); err != nil {
@@ -143,11 +156,7 @@ func run(log *slog.Logger, generate bool) error {
 		return nil
 	}
 
-	masterKey := envMasterKey
-	if masterKey == "" {
-		b, _ := os.ReadFile(filepath.Join(envDataDir, installspec.KeyFile))
-		masterKey = strings.TrimSpace(string(b))
-	}
+	masterKey := masterKey()
 	tlsOff := config.GetEnvOrDefault("STACKR_TLS", "") == "off"
 	// The installer's saved answers: the upgrade rebuilds the panel from
 	// the same spec the installer ran. None (dev) = no self-upgrade.
@@ -211,6 +220,57 @@ func run(log *slog.Logger, generate bool) error {
 
 	log.Info("starting server", "port", envPort, "devMode", envDevMode)
 	return srv.Start()
+}
+
+// masterKey is STACKR_MASTER_KEY, else the key file the installer wrote.
+func masterKey() string {
+	if envMasterKey != "" {
+		return envMasterKey
+	}
+	b, _ := os.ReadFile(filepath.Join(envDataDir, installspec.KeyFile))
+	return strings.TrimSpace(string(b))
+}
+
+// errHasAdmin is --check's "nothing to do": the install has its admin.
+var errHasAdmin = errors.New("this install already has an admin")
+
+// createAdmin reads the password from the first line of stdin, so it never
+// sits in a flag, the environment or `docker inspect`.
+//
+//	echo "$PASSWORD" | stackrd create-admin --email me@example.com
+//	stackrd create-admin --check   exit 0: an admin is needed; 3: one exists
+func createAdmin(args []string, stdin io.Reader, out io.Writer) error {
+	fs := flag.NewFlagSet("create-admin", flag.ContinueOnError)
+	email := fs.String("email", "", "the admin's email (required)")
+	check := fs.Bool("check", false, "only report whether an admin is still needed")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	cfg := service.Config{DataDir: envDataDir, DBPath: envDatabasePath, SecretsKey: masterKey()}
+	ctx := context.Background()
+	if *check {
+		need, err := service.NeedsAdmin(ctx, cfg)
+		if err != nil {
+			return err
+		}
+		if !need {
+			return errHasAdmin
+		}
+		return nil
+	}
+	if *email == "" {
+		return errors.New("--email is required")
+	}
+	line, err := bufio.NewReader(stdin).ReadString('\n')
+	if err != nil && !errors.Is(err, io.EOF) {
+		return fmt.Errorf("read the password from stdin: %w", err)
+	}
+	u, err := service.CreateAdmin(ctx, cfg, *email, strings.TrimRight(line, "\r\n"), "Admin")
+	if err != nil {
+		return err
+	}
+	_, _ = fmt.Fprintln(out, "admin", u.Email, "created")
+	return nil
 }
 
 // panelSpec builds the upgrade's panel container from the install spec.
