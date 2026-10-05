@@ -14,15 +14,17 @@
   --rw-inset: 30 30 36;
   --rw-border: 38 38 46;
   --rw-strong: 58 58 68;
+  /* Form-control edges (input, select, checkbox, radio): 3:1 on every dark
+     surface. border stays the one hairline for dividers; it is 1.1:1 on
+     purpose. */
+  --rw-field: 110 108 124;
   --rw-text: 237 236 242;
-  --rw-muted: 155 152 168;
-  /* faint was 107 104 120, which measured 3.06:1 on inset. It is not a
-     large-label-only token: every table column header, hostname, engine
-     version and hint paragraph in the product is 12px faint, so it had to
-     come up rather than be treated as large text. */
-  --rw-faint: 135 132 148;
+  /* Dark text tiers, APCA Lc on the worst surface (inset): muted 75, faint
+     60, accentHi 60. Every 12px label, hint and link sits on one of them. */
+  --rw-muted: 207 206 213;
+  --rw-faint: 182 180 190;
   --rw-accent: 141 111 243;
-  --rw-accentHi: 157 130 255;
+  --rw-accentHi: 187 168 255;
   /* Button fills only. accent is tuned to be readable *on* a surface, which
      pulls it lighter; white text sitting *on* accent wants the opposite, and
      white on the old accent measured 3.76:1. Two jobs, two tokens. */
@@ -86,6 +88,7 @@ html.light {
   --rw-inset: 236 235 242;
   --rw-border: 226 224 234;
   --rw-strong: 198 195 210;
+  --rw-field: 135 132 150;
   --rw-text: 27 26 34;
   --rw-muted: 94 91 109;
   --rw-faint: 108 105 122;
@@ -154,6 +157,7 @@ html.light {
     --rw-inset: 236 235 242;
     --rw-border: 226 224 234;
     --rw-strong: 198 195 210;
+    --rw-field: 135 132 150;
     --rw-text: 27 26 34;
     --rw-muted: 94 91 109;
     --rw-faint: 108 105 122;
@@ -213,12 +217,41 @@ html.light {
   }
 }
 
+/* One focus ring everywhere: solid 2px, 2px off the edge. Fields draw their
+   own (border and ring) and opt out with focus:outline-none. */
+@layer base {
+  :focus-visible {
+    outline: 2px solid rgb(var(--rw-accentHi));
+    outline-offset: 2px;
+  }
+  table, time, [data-ts], .chip {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+/* No text under 12px: templates still carry a few arbitrary 10/11px sizes. */
+.text-\[10px\], .text-\[11px\] {
+  font-size: 0.75rem;
+  line-height: 1rem;
+}
+
+/* Mobile: the rail is a bottom bar, so its targets get 44px. */
+@media (max-width: 639px) {
+  #shell-rail nav a, #shell-rail nav button, #shell-rail > div button, #shell-rail > div a {
+    min-width: 44px;
+    min-height: 44px;
+  }
+}
+
 /* v0's component set (stackr-old frontend/css/input.css), so templ files
    carry names, not class soup. */
 @layer components {
   .btn {
     @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-medium
-           transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-rw-accent/60;
+           transition-colors;
+  }
+  .btn:active:not(:disabled) {
+    transform: translateY(1px);
   }
   .btn-primary {
     @apply bg-rw-accentDeep text-white hover:bg-rw-accentPress shadow-rw;
@@ -232,10 +265,15 @@ html.light {
   .btn-sm {
     @apply px-3 py-1.5 text-xs;
   }
+  @media (max-width: 639px) {
+    .btn-sm {
+      min-height: 44px;
+    }
+  }
 
   .card {
     @apply block rounded-xl border border-rw-border bg-rw-surface p-5
-           transition-all hover:border-rw-accent/50 hover:shadow-rw-glow;
+           transition-colors hover:border-rw-accent/50;
   }
   .panel {
     @apply rounded-xl border border-rw-border bg-rw-surface;
@@ -246,7 +284,7 @@ html.light {
   }
 
   .input {
-    @apply w-full rounded-lg border border-rw-border bg-rw-inset px-3.5 py-2 text-sm text-rw-text
+    @apply w-full rounded-lg border border-rw-field bg-rw-inset px-3.5 py-2 text-sm text-rw-text
            placeholder:text-rw-faint focus:outline-none focus:border-rw-accent
            focus:ring-2 focus:ring-rw-accent/25
            disabled:opacity-50 disabled:cursor-not-allowed;
@@ -260,6 +298,38 @@ html.light {
   }
   .input[type="file"]:hover::file-selector-button {
     @apply border-rw-strong text-rw-text;
+  }
+  /* Selects, checkboxes and radios are one component with .input: same edge,
+     same fill, same accent when on. Hidden radios (sr-only) keep native. */
+  select.input {
+    @apply appearance-none pr-9 cursor-pointer;
+    background-image:
+      linear-gradient(45deg, transparent 50%, rgb(var(--rw-muted)) 50%),
+      linear-gradient(135deg, rgb(var(--rw-muted)) 50%, transparent 50%);
+    background-position: calc(100% - 18px) 55%, calc(100% - 13px) 55%;
+    background-size: 5px 5px;
+    background-repeat: no-repeat;
+  }
+  input[type="checkbox"]:not(.sr-only),
+  input[type="radio"]:not(.sr-only) {
+    @apply h-4 w-4 shrink-0 appearance-none border border-rw-field bg-rw-inset cursor-pointer
+           align-middle checked:border-rw-accentDeep checked:bg-rw-accentDeep
+           disabled:opacity-50 disabled:cursor-not-allowed;
+    background-position: center;
+    background-repeat: no-repeat;
+    background-size: 100% 100%;
+  }
+  input[type="checkbox"]:not(.sr-only) {
+    @apply rounded;
+  }
+  input[type="radio"]:not(.sr-only) {
+    @apply rounded-full;
+  }
+  input[type="checkbox"]:not(.sr-only):checked {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M4 8.5l2.5 2.5L12 5.5' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  }
+  input[type="radio"]:not(.sr-only):checked {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='8' cy='8' r='3' fill='white'/%3E%3C/svg%3E");
   }
   /* iOS Safari zooms on a focused field under 16px; keep fields at 16px on phones. */
   @media (max-width: 639px) {
@@ -431,12 +501,17 @@ side-drawer > aside {
   box-shadow: var(--rw-drawer-shadow);
   transform: translateX(100%);
   visibility: hidden;
-  transition: transform 200ms cubic-bezier(0, 0, 0.2, 1), visibility 0s linear 200ms;
+  transition: transform 180ms cubic-bezier(0.4, 0, 1, 1), visibility 0s linear 180ms;
 }
 side-drawer[open] > aside {
   transform: none;
   visibility: visible;
-  transition: transform 200ms cubic-bezier(0, 0, 0.2, 1), visibility 0s;
+  transition: transform 280ms cubic-bezier(0, 0, 0.2, 1), visibility 0s;
+}
+@media (prefers-reduced-motion: reduce) {
+  side-drawer [data-backdrop],
+  side-drawer > aside,
+  side-drawer[open] > aside { transition: none; }
 }
 
 /* Confirm dialog: v0's modal wash behind the native <dialog>. */
@@ -462,7 +537,7 @@ flash-toast {
     color: rgb(var(--flash-t));
     background: linear-gradient(rgb(var(--flash-c) / 0.1) 0 0), rgb(var(--rw-surface));
     box-shadow: var(--rw-shadow);
-    transition: opacity 500ms;
+    transition: opacity 200ms;
 }
 flash-toast[kind="success"] { --flash-c: var(--rw-success); --flash-t: var(--rw-success); }
 flash-toast[kind="warning"] { --flash-c: var(--rw-warn); --flash-t: var(--rw-warn); }
@@ -481,7 +556,7 @@ flash-toast[leaving] { opacity: 0; }
     @apply mt-0;
   }
   .settings-scope {
-    @apply rounded-full border border-rw-border px-2 py-0.5 text-[10px] uppercase tracking-wide text-rw-faint;
+    @apply rounded-full border border-rw-border px-2 py-0.5 text-xs uppercase tracking-wide text-rw-faint;
   }
   .settings-label {
     @apply block text-xs font-medium text-rw-muted mb-1.5;
@@ -490,7 +565,7 @@ flash-toast[leaving] { opacity: 0; }
     @apply mt-1.5 block text-xs text-rw-faint;
   }
   .chip {
-    @apply inline-flex items-center rounded px-1.5 py-0.5 text-[10px] leading-4 shrink-0;
+    @apply inline-flex items-center rounded px-1.5 py-0.5 text-xs leading-4 shrink-0;
   }
   /* phase 3b: v0 settings pages, env colours, release chips, add people */
   .settings-layout {
@@ -501,6 +576,11 @@ flash-toast[leaving] { opacity: 0; }
   }
   .settings-nav-item {
     @apply whitespace-nowrap rounded-lg px-3 py-2 text-sm text-rw-muted transition-colors hover:bg-rw-inset hover:text-rw-text;
+  }
+  /* The nav and the drawer tab strip scroll, which clips an outset ring. */
+  .settings-nav-item:focus-visible,
+  .scrollbar-none :focus-visible {
+    outline-offset: -2px;
   }
   .settings-nav-item.is-active {
     @apply bg-rw-inset text-rw-text font-medium;
@@ -519,7 +599,7 @@ flash-toast[leaving] { opacity: 0; }
     @apply ring-2 ring-rw-text ring-offset-2 ring-offset-rw-surface;
   }
   .log-chip {
-    @apply inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[10px] font-medium shrink-0 whitespace-nowrap;
+    @apply inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-xs font-medium shrink-0 whitespace-nowrap;
     border-color: var(--env-c);
     color: var(--env-c);
     background: color-mix(in srgb, var(--env-c) 14%, transparent);
@@ -650,7 +730,7 @@ graph-canvas[arrows] svg[data-edges] path[data-edge-kind] { marker-end: url(#edg
 /* The server boundary. */
 graph-canvas svg[data-edges] [data-divider] line { stroke: rgb(var(--rw-strong)); stroke-width: 1; stroke-dasharray: 3 3; }
 graph-canvas svg[data-edges] [data-divider] text {
-    font: 600 10px ui-sans-serif, system-ui, sans-serif; letter-spacing: 0.1em; text-transform: uppercase;
+    font: 600 12px ui-sans-serif, system-ui, sans-serif; letter-spacing: 0.1em; text-transform: uppercase;
     fill: rgb(var(--rw-faint)); text-anchor: end;
 }
 graph-canvas:not([boundary]) [data-divider] { display: none; }
@@ -661,7 +741,7 @@ graph-canvas svg[data-lanes] g[hidden] { display: none; }
 graph-canvas svg[data-lanes] path { stroke-dasharray: 4 8; animation: edgeflow-fwd 0.9s linear infinite; }
 graph-canvas svg[data-lanes] g[data-rev] path { animation-name: edgeflow-rev; }
 graph-canvas svg[data-lanes] text {
-    font: 600 10px ui-monospace, monospace; fill: var(--rw-teal);
+    font: 600 12px ui-monospace, monospace; fill: var(--rw-teal);
     paint-order: stroke; stroke: var(--rw-edge-label-halo); stroke-width: 3px;
     text-anchor: middle; pointer-events: none;
 }
@@ -686,7 +766,7 @@ graph-canvas[focusing] svg[data-lanes] g:not([data-lit]) { opacity: 0.4; }
     @apply absolute bottom-4 right-16 z-10 flex flex-col gap-1 rounded-lg border border-rw-border
            bg-rw-surface/90 px-3 py-2 pointer-events-none backdrop-blur-sm;
 }
-.graph-legend-row { @apply flex items-center gap-2 text-[11px] leading-none text-rw-muted whitespace-nowrap; }
+.graph-legend-row { @apply flex items-center gap-2 text-xs leading-none text-rw-muted whitespace-nowrap; }
 graph-canvas:not([legend]) .graph-legend { display: none; }
 .graph-legend-traffic { display: none; }
 graph-canvas:has(svg[data-lanes] g:not([hidden])) .graph-legend-traffic { display: flex; }
@@ -695,7 +775,7 @@ graph-canvas:has(svg[data-lanes] g:not([hidden])) .graph-legend-traffic { displa
     @apply w-max rounded-lg border border-rw-border bg-rw-surface/90 backdrop-blur-sm shadow-rw
            hover:border-rw-strong transition-colors;
 }
-.env-pill { @apply flex items-center gap-3 px-3 py-2 text-[11px] leading-none whitespace-nowrap select-none; }
+.env-pill { @apply flex items-center gap-3 px-3 py-2 text-xs leading-none whitespace-nowrap select-none; }
 .graph-view {
     @apply inset-auto top-0 right-0 m-0 p-0 h-full max-h-none w-full max-w-sm border-0 border-l border-rw-border
            bg-rw-surface text-rw-text overflow-y-auto cursor-default;

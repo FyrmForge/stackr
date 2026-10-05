@@ -115,7 +115,7 @@ func loginForm(f LoginForm, errors map[string]string) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = c.Field(c.FieldView{Name: "email", Label: "Email", Type: "email", Value: f.Email, Required: true, Error: errors["email"], ValidateURL: "/login/validate/email"}).Render(ctx, templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = c.Field(c.FieldView{Name: "email", Label: "Email", Type: "email", Value: f.Email, Autocomplete: "username", Required: true, Error: errors["email"], ValidateURL: "/login/validate/email"}).Render(ctx, templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -123,7 +123,7 @@ func loginForm(f LoginForm, errors map[string]string) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = c.Field(c.FieldView{Name: "password", Label: "Password", Type: "password", Required: true, Error: errors["password"], ValidateURL: "/login/validate/password"}).Render(ctx, templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = c.Field(c.FieldView{Name: "password", Label: "Password", Type: "password", Autocomplete: "current-password", Required: true, Error: errors["password"], ValidateURL: "/login/validate/password"}).Render(ctx, templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

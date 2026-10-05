@@ -1,15 +1,20 @@
 package service
 
 import (
+	"cmp"
 	"context"
 	"errors"
+	"fmt"
 	"io"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/imagewatch"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/jobs"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/job"
 	lrun "github.com/FyrmForge/stackr/internal/service/internal/leaf/run"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
@@ -182,9 +187,47 @@ func (o *Orchestrator) StopTile(ctx context.Context, id string) (Job, error) {
 	return o.enqueue(ctx, kindStop, tileJob{TileID: id}, id)
 }
 
-// Logs is the tail of one replica's log; FollowLogs streams it.
+// Logs is the tail of one replica's log ("" = a running replica first);
+// FollowLogs streams it. A tile with no container answers the tail of its
+// last job's log: a replica that failed its start left its output there.
 func (o *Orchestrator) Logs(ctx context.Context, tileID, containerID string, tail int) (string, error) {
-	return o.tiles.Logs(ctx, tileID, containerID, tail)
+	id, err := o.replica(ctx, tileID, containerID)
+	if !errors.Is(err, errNoContainer) {
+		if err != nil {
+			return "", err
+		}
+		return o.tiles.Logs(ctx, tileID, id, tail)
+	}
+	// The newest job that starts containers: a restart refused since then
+	// must not hide the crash.
+	// ponytail: scans the newest 20; more refused verbs than that since the
+	// last deploy reads as never deployed.
+	js, err := o.jobRows.History(ctx, []string{tileID}, 20)
+	if err != nil {
+		return "", err
+	}
+	i := slices.IndexFunc(js, func(j Job) bool { return j.Kind == string(kindDeploy) || j.Kind == string(kindPromote) })
+	if i < 0 {
+		return "", errs.Conflictf("the tile has no container and no deploy yet; deploy it first")
+	}
+	j := js[i]
+	var b []byte
+	for off := int64(0); ; {
+		_, l, err := o.jobRows.Poll(ctx, j.ID, off)
+		if err != nil {
+			return "", err
+		}
+		if len(l.Chunk) == 0 {
+			break
+		}
+		b, off = append(b[max(0, len(b)-job.MaxChunk):], l.Chunk...), l.Next
+	}
+	lines := strings.Split(strings.TrimRight(string(b), "\n"), "\n")
+	if tail > 0 && len(lines) > tail {
+		lines = lines[len(lines)-tail:]
+	}
+	head := fmt.Sprintf("no container; the log of its last job (%s %s):\n", j.Kind, j.State)
+	return head + strings.Join(lines, "\n") + "\n", nil
 }
 
 func (o *Orchestrator) FollowLogs(
@@ -192,7 +235,34 @@ func (o *Orchestrator) FollowLogs(
 	tileID, containerID string,
 	tail int,
 ) (<-chan string, func(), error) {
-	return o.tiles.Follow(ctx, tileID, containerID, tail)
+	id, err := o.replica(ctx, tileID, containerID)
+	if errors.Is(err, errNoContainer) {
+		return nil, nil, errs.Conflictf("the tile has no container to follow; stackr logs shows its last job's log")
+	}
+	if err != nil {
+		return nil, nil, err
+	}
+	return o.tiles.Follow(ctx, tileID, id, tail)
+}
+
+var errNoContainer = errors.New("no container")
+
+// replica is id, or for "" the tile's first running replica, else its
+// first of any state; errNoContainer when it has none.
+func (o *Orchestrator) replica(ctx context.Context, tileID, id string) (string, error) {
+	if id != "" {
+		return id, nil
+	}
+	t, err := o.tiles.Get(ctx, tileID)
+	if err != nil {
+		return "", err
+	}
+	cs, err := o.tiles.Replicas(ctx, t)
+	if err != nil || len(cs) == 0 {
+		return "", cmp.Or(err, errNoContainer)
+	}
+	i := slices.IndexFunc(cs, func(c docker.Container) bool { return c.State == "running" })
+	return cs[max(i, 0)].ID, nil
 }
 
 // Terminal is an interactive exec in one replica.
@@ -230,15 +300,38 @@ func (o *Orchestrator) redeployIfRunning(ctx context.Context, t Tile) (*Job, err
 	return &j, err
 }
 
+// Redeploy names one tile a change queued a deploy for.
+type Redeploy struct {
+	Env  string `json:"env"`
+	Tile string `json:"tile"`
+	Job  string `json:"job"`
+}
+
 // redeployRunning: a param or settings change reaches every running tile
 // it may touch, on the image its env's release pins (B34).
 func (o *Orchestrator) redeployRunning(ctx context.Context, ts []Tile) error {
+	_, err := o.redeploy(ctx, ts)
+	return err
+}
+
+// redeploy is redeployRunning that names what it queued.
+func (o *Orchestrator) redeploy(ctx context.Context, ts []Tile) ([]Redeploy, error) {
+	out := []Redeploy{}
 	for _, t := range ts {
-		if _, err := o.redeployIfRunning(ctx, t); err != nil {
-			return err
+		j, err := o.redeployIfRunning(ctx, t)
+		if err != nil {
+			return out, err
 		}
+		if j == nil {
+			continue
+		}
+		e, err := o.envs.Get(ctx, t.EnvironmentID)
+		if err != nil {
+			return out, err
+		}
+		out = append(out, Redeploy{Env: e.Slug, Tile: t.Slug, Job: j.ID})
 	}
-	return nil
+	return out, nil
 }
 
 // TileImage is what image watch knows of the tile's image ref; the zero

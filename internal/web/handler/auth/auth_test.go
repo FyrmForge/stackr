@@ -172,6 +172,22 @@ func TestLoginWrongPassword(t *testing.T) {
 	}
 }
 
+// An empty or malformed login says what to enter, in our words, not the
+// browser's (the form is novalidate) or hamr's defaults.
+func TestLoginFixFirstMessages(t *testing.T) {
+	s := webtest.New(t)
+	for _, c := range []struct{ email, want string }{
+		{"", "Enter your email."},
+		{"nope", "Enter an email like name@example.com."},
+	} {
+		rec := s.As(t, "", "POST", "/login", url.Values{"email": {c.email}, "password": {""}})
+		if rec.Code != http.StatusUnprocessableEntity || !strings.Contains(rec.Body.String(), c.want) ||
+			!strings.Contains(rec.Body.String(), "Enter your password.") {
+			t.Errorf("email %q = %d %q, want %q", c.email, rec.Code, rec.Body.String(), c.want)
+		}
+	}
+}
+
 // Past ten tries on one email from one address, login answers 429 with the
 // form and a time to come back; another email, or another address, goes on.
 // Past a hundred tries from one address across emails, it is limited too.

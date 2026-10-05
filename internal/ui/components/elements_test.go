@@ -13,13 +13,14 @@ import (
 // one TS file per tag with its line budget, nothing else. Adding a tag is a
 // plan item, not a build decision.
 var elements = map[string]int{
-	"confirm-dialog": 150,
-	"flash-toast":    150,
-	"graph-canvas":   400,
-	"graph-node":     150,
-	"log-pane":       150,
-	"side-drawer":    150,
-	"theme-toggle":   150,
+	"confirm-dialog":  150,
+	"flash-toast":     150,
+	"graph-canvas":    400,
+	"graph-node":      150,
+	"log-pane":        150,
+	"password-toggle": 150,
+	"side-drawer":     150,
+	"theme-toggle":    150,
 }
 
 // The contract each element keeps with its templ wrapper: the attribute,
@@ -87,7 +88,8 @@ var contract = map[string][]string{
 		"history.replaceState",
 		`"drawer"`,
 	},
-	"theme-toggle": {`"theme"`},
+	"theme-toggle":    {`"theme"`},
+	"password-toggle": {"[data-toggle]", `"aria-pressed"`},
 }
 
 func TestElementWhitelist(t *testing.T) {

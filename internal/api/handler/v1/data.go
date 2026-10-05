@@ -1,6 +1,8 @@
 package v1
 
 import (
+	"net/http"
+
 	"github.com/labstack/echo/v4"
 
 	"github.com/FyrmForge/stackr/internal/service"
@@ -95,10 +97,11 @@ func volumeScope(c echo.Context, at At) service.VolumeScope {
 
 // ---- params ----
 
-// Params lists params only; secrets have their own route and verb (B37).
+// Params lists params and secret names, a secret's value blank; values
+// have their own route and verb (B37).
 func (h *H) Params(at At) Endpoint {
 	return Get(func(c echo.Context) ([]service.Param, error) {
-		return list(h.Orch.Params(rc(c), paramScope(c, at), false))
+		return list(h.Orch.MaskedParams(rc(c), paramScope(c, at)))
 	})
 }
 
@@ -108,9 +111,10 @@ func (h *H) Secrets(at At) Endpoint {
 	})
 }
 
-// SetParams merges: entries not sent stay (B4).
+// SetParams merges: entries not sent stay (B4). The answer is the tiles
+// the change redeploys.
 func (h *H) SetParams(at At) Endpoint {
-	return Done(func(c echo.Context, in []ParamIn) error {
+	return JSON(http.StatusOK, func(c echo.Context, in []ParamIn) ([]service.Redeploy, error) {
 		es := make([]service.ParamEntry, 0, len(in))
 		for _, p := range in {
 			es = append(es, service.ParamEntry(p))

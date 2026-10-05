@@ -4,6 +4,8 @@ class FlashToast extends HTMLElement {
     timer = 0;
     onClick = () => this.dismiss();
     onResponseError = (e) => {
+        if (e.defaultPrevented)
+            return;
         const xhr = e.detail.xhr;
         this.show("error", `Request failed: ${xhr.status} ${xhr.statusText}`.trim());
     };

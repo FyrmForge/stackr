@@ -150,7 +150,7 @@ func TestReadsLeakNoSecret(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if err := orch.SetParams(ctx, service.ParamScope{Kind: "org", ID: w.acme}, []service.ParamEntry{
+	if _, err := orch.SetParams(ctx, service.ParamScope{Kind: "org", ID: w.acme}, []service.ParamEntry{
 		{
 			Collection: "app",
 			Name:       "token",

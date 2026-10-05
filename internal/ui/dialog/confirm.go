@@ -5,16 +5,6 @@ package dialog
 
 import c "github.com/FyrmForge/stackr/internal/ui/components"
 
-func Restart(tile, action, target string) c.ConfirmView {
-	return c.ConfirmView{
-		Button:  "Restart",
-		Title:   "Restart " + tile + "?",
-		Warning: "Its replicas restart one by one; a single replica drops requests while it starts.",
-		Action:  action,
-		Target:  target,
-	}
-}
-
 func Stop(tile, action, target string) c.ConfirmView {
 	return c.ConfirmView{
 		Button:  "Stop",

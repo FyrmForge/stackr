@@ -162,18 +162,47 @@ func TestParamChangeRedeploysRunningTiles(t *testing.T) {
 	ctx := context.Background()
 	up := w.tile(t, "api", true)
 	down := w.tile(t, "worker", false)
-	must(t, w.orch.SetParams(ctx, ParamScope{Kind: "stack", ID: w.stack}, []ParamEntry{
+	rs, err := w.orch.SetParams(ctx, ParamScope{Kind: "stack", ID: w.stack}, []ParamEntry{
 		{
 			Collection: "app",
 			Name:       "mode",
 			Kind:       "param",
 			Value:      "fast",
 		},
-	}))
+	})
+	must(t, err)
 	js, err := w.orch.TileJobs(ctx, []string{up.ID, down.ID}, 10)
 	must(t, err)
 	if len(js) != 1 || js[0].Kind != string(kindDeploy) || !slices.Contains(js[0].LockSet, up.ID) {
 		t.Fatalf("jobs after a param change = %+v, want one deploy of %s", js, up.Slug)
+	}
+	if want := []Redeploy{{Env: "dev", Tile: "api", Job: js[0].ID}}; !slices.Equal(rs, want) {
+		t.Errorf("SetParams named %+v, want %+v", rs, want)
+	}
+}
+
+// A tile whose replica crashed on start has no container; logs answers
+// its last job's log, where the crash output was kept.
+func TestLogsOfACrashedTile(t *testing.T) {
+	w := newWorld(t)
+	ctx := context.Background()
+	tl := w.tile(t, "worker", false)
+	w.fake.RunID = "c1"
+	w.fake.Details = map[string]docker.Detail{"c1": {Running: true, RestartCount: 1}}
+	w.fake.LogsOut = "fatal: QUEUE_URL is not set\n"
+	j, err := w.orch.Deploy(ctx, tl.ID)
+	must(t, err)
+	if j = w.wait(t, j.ID); j.State != job.Failed || !strings.HasPrefix(j.Error, "worker: fatal: QUEUE_URL is not set (") {
+		t.Fatalf("deploy = %s %q", j.State, j.Error)
+	}
+	j, err = w.orch.RestartTile(ctx, tl.ID) // refused: nothing to restart
+	must(t, err)
+	w.wait(t, j.ID)
+	got, err := w.orch.Logs(ctx, tl.ID, "", 200)
+	must(t, err)
+	if !strings.HasPrefix(got, "no container; the log of its last job (deploy failed):\n") ||
+		!strings.HasSuffix(got, "its last output:\nfatal: QUEUE_URL is not set\n") {
+		t.Errorf("logs = %q", got)
 	}
 }
 

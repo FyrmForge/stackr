@@ -19,14 +19,25 @@ func (o *Orchestrator) Params(ctx context.Context, s ParamScope, secrets bool) (
 	return o.params.List(ctx, s, secrets)
 }
 
+// MaskedParams lists a scope's params and its secrets with the value blank:
+// names without reading a secret (B37).
+func (o *Orchestrator) MaskedParams(ctx context.Context, s ParamScope) ([]Param, error) {
+	return o.params.Masked(ctx, s)
+}
+
 // SetParams merges entries into a scope in one transaction: a param over a
 // secret is refused before any row moves (B4), a masked secret with no value
-// keeps the stored one (B35). Running tiles under the scope redeploy (B34).
-func (o *Orchestrator) SetParams(ctx context.Context, s ParamScope, es []ParamEntry) error {
+// keeps the stored one (B35). Running tiles under the scope redeploy (B34),
+// and the answer names them.
+func (o *Orchestrator) SetParams(ctx context.Context, s ParamScope, es []ParamEntry) ([]Redeploy, error) {
 	if err := o.store.Tx(ctx, func(tx store.Tx) error { return params.New(tx.Params).Merge(ctx, s, es) }); err != nil {
-		return err
+		return nil, err
 	}
-	return o.redeployScope(ctx, s)
+	ts, err := o.scopeTiles(ctx, s)
+	if err != nil {
+		return nil, err
+	}
+	return o.redeploy(ctx, ts)
 }
 
 func (o *Orchestrator) DeleteParam(ctx context.Context, s ParamScope, collection, name string) error {

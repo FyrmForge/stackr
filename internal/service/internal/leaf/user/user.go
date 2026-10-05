@@ -176,9 +176,12 @@ func (l *Leaf) ByKey(ctx context.Context, token string) (store.User, store.APIKe
 // membership); an unbound key (orgID "") is admin-only (DECIDE 13).
 func (l *Leaf) MintKey(ctx context.Context, u store.User, orgID, roleInOrg, name string) (string, store.APIKey, error) {
 	admin := u.Role == "admin"
+	name = strings.TrimSpace(name)
 	switch {
 	case !u.Active:
 		return "", store.APIKey{}, errs.ErrRefused
+	case name == "":
+		return "", store.APIKey{}, errs.Invalidf("name", "a name is required")
 	case orgID == "" && !admin:
 		return "", store.APIKey{}, errs.Refusedf("only a stackr admin can mint a key bound to no organization")
 	case orgID != "" && roleInOrg == "" && !admin:
@@ -192,7 +195,7 @@ func (l *Leaf) MintKey(ctx context.Context, u store.User, orgID, roleInOrg, name
 	k := store.APIKey{
 		ID:        uuid.NewString(),
 		UserID:    u.ID,
-		Name:      strings.TrimSpace(name),
+		Name:      name,
 		TokenHash: HashToken(token),
 		CreatedAt: time.Now().UTC(),
 	}

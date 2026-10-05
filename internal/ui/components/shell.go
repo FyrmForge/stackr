@@ -48,6 +48,17 @@ func WithTheme(ctx context.Context, theme string) context.Context {
 	return context.WithValue(ctx, themeKey{}, theme)
 }
 
+type reqKey struct{}
+
+type reqInfo struct{ ID, CSRF string }
+
+// WithRequest leaves the request id and CSRF token on ctx for the error
+// page, which hamr renders with no request: it shows the id and its Log out
+// needs the token.
+func WithRequest(ctx context.Context, id, csrf string) context.Context {
+	return context.WithValue(ctx, reqKey{}, reqInfo{id, csrf})
+}
+
 // themeClass is v0's class on <html>: "dark", "light", or "" for no class,
 // which hands the look to prefers-color-scheme (system, signed out).
 func themeClass(ctx context.Context, theme string) string {

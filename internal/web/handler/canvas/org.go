@@ -17,6 +17,10 @@ import (
 
 func day(t time.Time) string { return t.Format("2 Jan 2006") }
 
+// mintedKey carries a just-minted token from the mint to the keys tab it
+// answers with.
+const mintedKey = "minted-key"
+
 // orgTab is one verb read per tab; members needs member.list.
 func (h *handler) orgTab(c echo.Context, cd card, f *comp.DrawerView) (templ.Component, error) {
 	ctx, og := c.Request().Context(), cd.s.Org
@@ -31,6 +35,7 @@ func (h *handler) orgTab(c echo.Context, cd card, f *comp.DrawerView) (templ.Com
 	case "keys":
 		ks, err := h.orch.Keys(ctx, middleware.Principal(c).User.ID)
 		v := orgui.KeysView{Base: f.Base}
+		v.Minted, _ = c.Get(mintedKey).(string)
 		for _, k := range ks {
 			if k.OrgID != nil && *k.OrgID == og.ID {
 				v.Keys = append(v.Keys, orgui.KeyRow{ID: k.ID, Name: k.Name, Created: day(k.CreatedAt)})
@@ -173,7 +178,13 @@ func (h *handler) membersView(c echo.Context, cd card, base string) (orgui.Membe
 	}
 	is, err := h.orch.PendingInvites(ctx, id)
 	for _, i := range is {
-		v.Invites = append(v.Invites, orgui.InviteRow{Email: i.Email, Role: i.Role, Expires: i.ExpiresAt.Format("Jan 2 2006")})
+		v.Invites = append(v.Invites, orgui.InviteRow{
+			ID:      i.ID,
+			Email:   i.Email,
+			Role:    i.Role,
+			Expires: i.ExpiresAt.Format("Jan 2 2006"),
+			Link:    comp.AbsoluteURL("/invite/" + i.ID),
+		})
 	}
 	return v, err
 }
@@ -215,7 +226,10 @@ func (h *handler) mountOrg(site *echo.Group, a *middleware.Access) {
 			c.FormValue("role"),
 			middleware.Principal(c).User.ID,
 		)
-		return "Invite link: /invite/" + i.ID, err
+		return "Invite link: " + comp.AbsoluteURL("/invite/"+i.ID), err
+	}), manage)
+	site.POST(o+"/invites/:invite/revoke", h.orgAction("members", func(c echo.Context, og *service.Org) (string, error) {
+		return "Invite revoked.", h.orch.RevokeInvite(c.Request().Context(), og.ID, c.Param("invite"))
 	}), manage)
 	site.POST(o+"/members/:user/role", h.orgAction("members", func(c echo.Context, og *service.Org) (string, error) {
 		return "Role changed.", h.orch.SetRole(c.Request().Context(), og.ID, c.Param("user"), c.FormValue("role"))
@@ -230,7 +244,8 @@ func (h *handler) mountOrg(site *echo.Group, a *middleware.Access) {
 			og.ID,
 			c.FormValue("key_name"),
 		)
-		return "Copy it now, it is not shown again: " + tok, err
+		c.Set(mintedKey, tok) // the keys tab shows it once, with a Copy
+		return "", err
 	}), a.Require("org.read"))
 	site.POST(o+"/keys/:key/revoke", h.orgAction("keys", func(c echo.Context, _ *service.Org) (string, error) {
 		return "Key revoked.", h.orch.RevokeKey(c.Request().Context(), middleware.Principal(c).User.ID, c.Param("key"))

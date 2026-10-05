@@ -302,7 +302,7 @@ func TestWebhookQueuesOrgPlan(t *testing.T) {
 		t.Fatal(err)
 	}
 	kinds := func() []string {
-		js, err := r.env.Orch.Jobs(ctx, "queued", "running", "waiting", "done", "failed", "superseded", "cancelled")
+		js, err := r.env.Orch.Jobs(ctx, 0, "queued", "running", "waiting", "done", "failed", "superseded", "cancelled")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -318,8 +318,8 @@ func TestWebhookQueuesOrgPlan(t *testing.T) {
 		t.Fatalf("jobs after an org repo push = %v, want [org-plan]", got)
 	}
 	r.push(t, "acme/shop", r.g.Commit(t, "acme/shop", "main", map[string]string{"x": "1"}))
-	if got := kinds(); !slices.Equal(got, []string{"org-plan", "push"}) {
-		t.Errorf("jobs after a stack repo push = %v, want [org-plan push]", got)
+	if got := kinds(); !slices.Equal(got, []string{"push", "org-plan"}) {
+		t.Errorf("jobs after a stack repo push = %v, want [push org-plan]", got)
 	}
 }
 

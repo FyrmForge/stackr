@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -149,10 +150,26 @@ func (a *app) orgConfig(org func(func(p string) error) error) []*cobra.Command {
 					return a.orgPlan(v)
 				})
 			}),
-		waits(leaf("approve <plan>", "org.plan-approve", "Apply a pending config plan", exact(1),
-			func(c *cobra.Command, args []string) error {
+		waits(leaf("approve <plan>", "org.plan-get,org.plan-approve", "Apply a pending config plan: prints it, then asks",
+			exact(1), func(c *cobra.Command, args []string) error {
 				return org(func(p string) error {
-					return a.orgJob(c, POST, p+"/config/plans/"+args[0]+"/approve", nil, "org apply")
+					pp := p + "/config/plans/" + args[0]
+					v, err := a.call(GET, pp, nil)
+					if err != nil {
+						return err
+					}
+					if err := a.orgPlan(v); err != nil {
+						return err
+					}
+					m, _ := v.(map[string]any)
+					pl, _ := planOf(m)
+					if bl, _ := pl["blockers"].([]any); len(bl) > 0 {
+						return errors.New("the plan is blocked; see the blockers above")
+					}
+					if err := a.confirm("Apply config plan " + args[0] + "?"); err != nil {
+						return err
+					}
+					return a.orgJob(c, POST, pp+"/approve", nil, "org apply")
 				})
 			})),
 		leaf("reject <plan>", "org.plan-reject", "Close a pending config plan unapplied", exact(1),
@@ -178,16 +195,22 @@ func (a *app) orgPlan(v any) error {
 	if err := a.show(m, "id", "status", "summary", "commit", "error"); err != nil {
 		return err
 	}
-	s, _ := m["plan"].(string)
-	if s == "" {
-		return nil
-	}
-	var pl map[string]any
-	if err := json.Unmarshal([]byte(s), &pl); err != nil {
+	pl, err := planOf(m)
+	if err != nil || pl == nil {
 		return err
 	}
 	a.changes(pl, "notes", "blockers")
 	return nil
+}
+
+// planOf is a plan row's plan, stored as a JSON string (nil when none).
+func planOf(m map[string]any) (map[string]any, error) {
+	s, _ := m["plan"].(string)
+	if s == "" {
+		return nil, nil
+	}
+	var pl map[string]any
+	return pl, json.Unmarshal([]byte(s), &pl)
 }
 
 // planExit is preview's --detailed-exitcode, as v0's: 0 nothing to do,

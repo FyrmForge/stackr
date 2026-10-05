@@ -116,7 +116,8 @@ func (h *handler) SetVars(c echo.Context) error {
 	}
 	s := middleware.ScopeOf(c)
 	ps, _ := paramScope(s)
-	return h.varsAfter(c, s, "Saved.", h.orch.SetParams(c.Request().Context(), ps, entries(form)))
+	_, err = h.orch.SetParams(c.Request().Context(), ps, entries(form))
+	return h.varsAfter(c, s, "Saved.", err)
 }
 
 // POST <level>/-/vars/delete (collection, name).

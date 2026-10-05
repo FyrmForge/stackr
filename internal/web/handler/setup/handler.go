@@ -579,7 +579,7 @@ func (h *handler) bind(c echo.Context) error {
 	} else {
 		repo := strings.TrimSpace(f("repo"))
 		if repo == "" {
-			return echo.NewHTTPError(http.StatusBadRequest, "repository required")
+			return back(c, errs.Invalidf("repo", "a repository is required"), base(og)+"/config")
 		}
 		_, err = h.orch.SetOrgConfigRepo(ctx, og.ID, f("connector_id"), repo, f("branch"), f("path"), false)
 	}

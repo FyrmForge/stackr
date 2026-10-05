@@ -205,6 +205,9 @@ func TestFromConfig(t *testing.T) {
 		"branch":       {"main"},
 		"path":         {"stackr-org.yml"},
 	}
+	if got := s.As(t, sess, "POST", b+"/config", url.Values{"connector_id": {conn}, "repo": {" "}}).Header().Get("HX-Redirect"); got != b+"/config" {
+		t.Errorf("blank repo sent to %q, want the form again", got)
+	}
 	rec := s.As(t, sess, "POST", b+"/config", bind)
 	plans, err := s.Orch.OrgPlans(context.Background(), og.ID, 1)
 	if err != nil || len(plans) != 1 || plans[0].Status != "pending" {

@@ -19,7 +19,7 @@ templ Table(t TableView) {
 		@EmptyState(t.Empty)
 	} else {
 		<div class="panel overflow-x-auto">
-			<table class="w-full text-sm">
+			<table class="w-full text-sm tabular-nums">
 				<thead>
 					<tr class="text-left text-rw-faint border-b border-rw-border">
 						for _, h := range t.Headers {
@@ -29,7 +29,7 @@ templ Table(t TableView) {
 				</thead>
 				<tbody>
 					for _, row := range t.Rows {
-						<tr class="border-b border-rw-border/60 last:border-0 hover:bg-rw-raised/50 transition-colors">
+						<tr class="border-b border-rw-border last:border-0 hover:bg-rw-raised/50 transition-colors">
 							for _, cell := range row {
 								<td class="py-3 px-4 text-rw-text">
 									@cell

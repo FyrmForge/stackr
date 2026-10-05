@@ -107,7 +107,7 @@ func seedWorld(t *testing.T) world {
 		row.ReleaseID = &rid
 		must(e.Store.Environments.Update(ctx, row))
 	}
-	must(e.Orch.SetParams(ctx, service.ParamScope{Kind: "env", ID: w.dev}, []service.ParamEntry{
+	_, err = e.Orch.SetParams(ctx, service.ParamScope{Kind: "env", ID: w.dev}, []service.ParamEntry{
 		{
 			Collection: "app",
 			Name:       "key",
@@ -120,15 +120,17 @@ func seedWorld(t *testing.T) world {
 			Kind:       "secret",
 			Value:      "s",
 		},
-	}))
-	must(e.Orch.SetParams(ctx, service.ParamScope{Kind: "stack", ID: w.shop}, []service.ParamEntry{
+	})
+	must(err)
+	_, err = e.Orch.SetParams(ctx, service.ParamScope{Kind: "stack", ID: w.shop}, []service.ParamEntry{
 		{
 			Collection: "app",
 			Name:       "region",
 			Kind:       "param",
 			Value:      "eu",
 		},
-	}))
+	})
+	must(err)
 
 	api := tileRow(w.shop, w.dev, "api", "service", func(t *store.Tile) {
 		t.GitURL = "https://github.com/acme/api.git"

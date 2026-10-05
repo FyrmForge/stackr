@@ -215,6 +215,7 @@ var byVerb = map[string]bool{
 	"setting":    true,
 	"step":       true, // a setup wizard step's name
 	"run":        true, // the verb takes the tile too and refuses another tile's run
+	"invite":     true, // the verb takes the org and refuses another org's invite
 }
 
 // KnownParam reports whether a route param is org-checked or verb-scoped;

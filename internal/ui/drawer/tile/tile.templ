@@ -29,7 +29,7 @@ templ actions(v View) {
 				@c.PostButton("Start", v.Base+"/start")
 			} else {
 				@c.Confirm(quiet(dialog.Stop(v.Name, v.Base+"/stop", "#"+Root)))
-				@c.Confirm(quiet(dialog.Restart(v.Name, v.Base+"/restart", "#"+Root)))
+				@c.PostButton("Restart", v.Base+"/restart")
 			}
 			@c.PrimaryPost("Deploy", v.Base+"/deploy")
 	}
@@ -234,7 +234,7 @@ templ Env(v View, e EnvView) {
 		}
 		<details class="group mt-4">
 			<summary class="btn btn-ghost btn-sm cursor-pointer list-none select-none group-open:hidden">Edit variables</summary>
-			<form hx-post={ v.Base + "/env" } hx-target={ "#" + Root } hx-swap="outerHTML" class="space-y-4">
+			<form novalidate hx-post={ v.Base + "/env" } hx-target={ "#" + Root } hx-swap="outerHTML" class="space-y-4">
 				<div>
 					<label class="label" for="env-text">Environment variables (KEY=VALUE per line)</label>
 					<textarea id="env-text" name="env" rows="10" placeholder={ "KEY=value\nDB=${{ tile.db.url }}" } class="input font-mono text-sm">{ e.Text }</textarea>
@@ -266,12 +266,12 @@ templ Access(v View, a AccessView) {
 							<span class="flex-1 font-mono">
 								@sliceLink(e.Slice, e.Link)
 							</span>
-							<form hx-post={ v.Base + "/access" } hx-trigger="change" hx-target={ "#" + Root } hx-swap="outerHTML">
+							<form novalidate hx-post={ v.Base + "/access" } hx-trigger="change" hx-target={ "#" + Root } hx-swap="outerHTML">
 								<input type="hidden" name="slice" value={ e.Slice }/>
 								<label for={ "access-entry-" + e.Slice } class="sr-only">{ e.Slice } access</label>
 								@accessSelect("access-entry-"+e.Slice, e.Access)
 							</form>
-							<form hx-post={ v.Base + "/access" } hx-target={ "#" + Root } hx-swap="outerHTML">
+							<form novalidate hx-post={ v.Base + "/access" } hx-target={ "#" + Root } hx-swap="outerHTML">
 								<input type="hidden" name="slice" value={ e.Slice }/>
 								<input type="hidden" name="access" value="default"/>
 								<button type="submit" class="text-rw-faint hover:text-rw-danger" title="Use default" aria-label={ "Use the default access on " + e.Slice }>×</button>
@@ -292,7 +292,7 @@ templ Access(v View, a AccessView) {
 			if len(a.Slices) == 0 {
 				<p class="text-sm text-rw-muted">No slice tile in this environment yet.</p>
 			} else {
-				<form hx-post={ v.Base + "/access" } hx-target={ "#" + Root } hx-swap="outerHTML" class="flex flex-wrap items-end gap-2">
+				<form novalidate hx-post={ v.Base + "/access" } hx-target={ "#" + Root } hx-swap="outerHTML" class="flex flex-wrap items-end gap-2">
 					<div class="flex-1 min-w-32">
 						<label for="access-slice" class="label">Slice</label>
 						<select id="access-slice" name="slice" class="input">
@@ -489,7 +489,7 @@ templ Settings(v View, s SettingsView) {
 				<a href={ templ.SafeURL("#" + j.id) } class="text-xs px-2 py-1 rounded-md bg-rw-inset text-rw-muted hover:text-rw-text transition-colors">{ j.label }</a>
 			}
 		</nav>
-		<form id="tile-settings" hx-post={ v.Base + "/settings" } hx-target={ "#" + Root } hx-swap="outerHTML">
+		<form novalidate id="tile-settings" hx-post={ v.Base + "/settings" } hx-target={ "#" + Root } hx-swap="outerHTML">
 			<input type="hidden" name="fields" value={ s.Keys() }/>
 			<div class="pt-6">
 				if s.Any(sourceKeys...) {
@@ -669,7 +669,7 @@ templ domains(v View, d DomainsView) {
 		<summary class="btn btn-ghost btn-sm cursor-pointer inline-flex items-center gap-1.5 select-none list-none">
 			<span class="text-rw-accentHi">+</span> Add domain
 		</summary>
-		<form hx-post={ v.Base + "/domains" } hx-target={ "#" + Root } hx-swap="outerHTML" class="flex flex-wrap gap-2 mt-3 items-center">
+		<form novalidate hx-post={ v.Base + "/domains" } hx-target={ "#" + Root } hx-swap="outerHTML" class="flex flex-wrap gap-2 mt-3 items-center">
 			<input type="text" name="host" aria-label="Host" placeholder="app.example.com" required class="input !w-56"/>
 			<input type="text" name="path" aria-label="Path prefix" placeholder="/ (path prefix)" title="Route only requests under this path prefix to this tile" class="input !w-32"/>
 			<input type="number" name="port" aria-label="Container port" placeholder="port" min="1" max="65535" class="input !w-24"/>
@@ -679,7 +679,7 @@ templ domains(v View, d DomainsView) {
 			</label>
 			<button type="submit" class="btn btn-primary">Add</button>
 		</form>
-		<form hx-post={ v.Base + "/domains" } hx-target={ "#" + Root } hx-swap="outerHTML" class="mt-2">
+		<form novalidate hx-post={ v.Base + "/domains" } hx-target={ "#" + Root } hx-swap="outerHTML" class="mt-2">
 			<input type="hidden" name="auto" value="1"/>
 			<button type="submit" class="btn btn-ghost btn-sm" title="Generate a hostname under the nearest domain resource (stack, organization, or server)">Add auto domain</button>
 		</form>
@@ -718,7 +718,7 @@ templ domains(v View, d DomainsView) {
 					if d.Admin {
 						<details class="mt-1" open?={ r.Raw != "" }>
 							<summary class="text-xs text-rw-faint hover:text-rw-text cursor-pointer select-none">Raw Caddy route (admin)</summary>
-							<form hx-post={ v.Base + "/domains/" + r.ID + "/raw" } hx-target={ "#" + Root } hx-swap="outerHTML" class="space-y-2 mt-2">
+							<form novalidate hx-post={ v.Base + "/domains/" + r.ID + "/raw" } hx-target={ "#" + Root } hx-swap="outerHTML" class="space-y-2 mt-2">
 								<label class="settings-help" for={ "raw-" + r.ID }>Replaces the generated route verbatim (empty = generated).</label>
 								<textarea id={ "raw-" + r.ID } name="raw_caddy" rows="3" class="input font-mono text-xs">{ r.Raw }</textarea>
 								<button type="submit" class="btn btn-primary btn-sm">Save</button>

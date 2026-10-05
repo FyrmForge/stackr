@@ -43,6 +43,17 @@ func (l *Leaf) List(ctx context.Context, s Scope, secrets bool) ([]store.Param, 
 	return l.params.ListByKind(ctx, s.Kind, s.ID, Param)
 }
 
+// Masked is a scope's params plus its secrets with the value blank; a
+// secret is never decrypted (B37).
+func (l *Leaf) Masked(ctx context.Context, s Scope) ([]store.Param, error) {
+	ps, err := l.params.ListByKind(ctx, s.Kind, s.ID, Param)
+	if err != nil {
+		return nil, err
+	}
+	ss, err := l.params.ListBlankByKind(ctx, s.Kind, s.ID, Secret)
+	return append(ps, ss...), err
+}
+
 // Values is a scope as the resolver's snapshot wants it: "collection.name".
 func (l *Leaf) Values(ctx context.Context, s Scope, secrets bool) (map[string]Value, error) {
 	ps, err := l.List(ctx, s, secrets)

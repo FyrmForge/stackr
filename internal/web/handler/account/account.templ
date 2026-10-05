@@ -109,10 +109,10 @@ templ password(v PasswordView) {
 		if v.Done {
 			<p class="text-sm text-rw-success" role="status">Password changed.</p>
 		}
-		@c.Field(c.FieldView{Name: "current_password", Label: "Current password", Type: "password", Required: true, Error: v.Errors["current_password"]})
-		@c.Field(c.FieldView{Name: "password", Label: "New password", Type: "password", Required: true, Error: v.Errors["password"],
+		@c.Field(c.FieldView{Name: "current_password", Label: "Current password", Type: "password", Autocomplete: "current-password", Required: true, Error: v.Errors["current_password"]})
+		@c.Field(c.FieldView{Name: "password", Label: "New password", Type: "password", Autocomplete: "new-password", Required: true, Error: v.Errors["password"],
 			Help: "At least 8 characters with upper and lower case, a number and a symbol."})
-		@c.Field(c.FieldView{Name: "confirm_password", Label: "Confirm new password", Type: "password", Required: true, Error: v.Errors["confirm_password"]})
+		@c.Field(c.FieldView{Name: "confirm_password", Label: "Confirm new password", Type: "password", Autocomplete: "new-password", Required: true, Error: v.Errors["confirm_password"]})
 		<button type="submit" class="btn btn-primary btn-sm">Change password</button>
 	}
 }

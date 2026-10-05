@@ -13,8 +13,8 @@ templ loginForm(f LoginForm, errors map[string]string) {
 	@c.Form("login-form", "/login") {
 		@c.FormError(errors["general"])
 		<input type="hidden" name="next" value={ f.Next }/>
-		@c.Field(c.FieldView{Name: "email", Label: "Email", Type: "email", Value: f.Email, Required: true, Error: errors["email"], ValidateURL: "/login/validate/email"})
-		@c.Field(c.FieldView{Name: "password", Label: "Password", Type: "password", Required: true, Error: errors["password"], ValidateURL: "/login/validate/password"})
+		@c.Field(c.FieldView{Name: "email", Label: "Email", Type: "email", Value: f.Email, Autocomplete: "username", Required: true, Error: errors["email"], ValidateURL: "/login/validate/email"})
+		@c.Field(c.FieldView{Name: "password", Label: "Password", Type: "password", Autocomplete: "current-password", Required: true, Error: errors["password"], ValidateURL: "/login/validate/password"})
 		@c.Submit("Log in")
 	}
 }

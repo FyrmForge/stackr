@@ -136,6 +136,21 @@ func TestSecretsNeverLoaded(t *testing.T) {
 	}
 }
 
+// B37: Masked names a secret with its value blank, still never decrypting it.
+func TestMaskedNeverLoadsSecrets(t *testing.T) {
+	st := servicetest.Store(t)
+	l := params.New(st.Params)
+	must(t, l.Set(ctx, env, params.Entry{Collection: "c", Name: "s", Kind: params.Secret, Value: "x"}))
+	must(t, l.Set(ctx, env, params.Entry{Collection: "c", Name: "p", Kind: params.Param, Value: "y"}))
+	if _, err := st.DB().Exec(`UPDATE params SET value = 'garbage' WHERE kind = 'secret'`); err != nil {
+		t.Fatal(err)
+	}
+	ps, err := l.Masked(ctx, env)
+	if err != nil || len(ps) != 2 || ps[0].Value != "y" || ps[1].Name != "s" || ps[1].Value != "" {
+		t.Errorf("masked = %+v, %v", ps, err)
+	}
+}
+
 func snap() params.Snapshot {
 	return params.Snapshot{
 		EnvParams: map[string]params.Value{

@@ -35,9 +35,13 @@ func (h *H) CancelJob() Endpoint {
 	return Done(func(c echo.Context, _ None) error { return h.Orch.CancelJob(rc(c), c.Param("job")) })
 }
 
-// Jobs is every job, ?state= repeated to filter.
+// Jobs is every job, newest first; ?state= repeated to filter, ?limit= caps.
 func (h *H) Jobs() Endpoint {
 	return Get(func(c echo.Context) ([]service.Job, error) {
-		return list(h.Orch.Jobs(rc(c), c.QueryParams()["state"]...))
-	}).Q("state")
+		var limit int
+		if err := echo.QueryParamsBinder(c).Int("limit", &limit).BindError(); err != nil {
+			return nil, err
+		}
+		return list(h.Orch.Jobs(rc(c), limit, c.QueryParams()["state"]...))
+	}).Q("state", "limit")
 }

@@ -64,7 +64,7 @@ func SideDrawer(body templ.Component, tab string) templ.Component {
 				return templ_7745c5c3_Err
 			}
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 5, "><div data-backdrop></div><aside role=\"dialog\" aria-modal=\"true\" aria-label=\"Details\" class=\"fixed top-0 right-0 z-40 h-full w-full max-w-2xl overflow-y-auto border-l border-rw-border bg-rw-surface\"><div id=\"drawer-body\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 5, "><div data-backdrop></div><aside role=\"dialog\" aria-modal=\"true\" aria-label=\"Details\" aria-labelledby=\"drawer-title\" class=\"fixed top-0 right-0 z-40 h-full w-full max-w-2xl overflow-y-auto border-l border-rw-border bg-rw-surface\"><div id=\"drawer-body\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -143,7 +143,7 @@ func DrawerLoad(url string) templ.Component {
 		var templ_7745c5c3_Var5 string
 		templ_7745c5c3_Var5, templ_7745c5c3_Err = templ.JoinStringErrs(url)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/drawer.templ`, Line: 43, Col: 18}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/drawer.templ`, Line: 44, Col: 18}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var5))
 		if templ_7745c5c3_Err != nil {

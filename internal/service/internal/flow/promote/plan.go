@@ -942,6 +942,14 @@ func (f *Flow) planImages(ctx context.Context, p *Plan, w *work, pins map[string
 	if err != nil {
 		return err
 	}
+	// With no stack file a release only moves the pins of tiles the env
+	// already has: one with none of them would land nothing.
+	if w.re == nil && !slices.ContainsFunc(slices.Collect(maps.Keys(pins)), func(s string) bool {
+		_, ok := tiles[s]
+		return ok
+	}) {
+		p.block("%s has none of release #%d's tiles; add them first", w.e.Slug, w.rel.Number)
+	}
 	for _, c := range release.Diff(cur, pins) {
 		if _, ok := tiles[c.Slug]; !ok || c.Slug == release.ConfigSlug {
 			continue

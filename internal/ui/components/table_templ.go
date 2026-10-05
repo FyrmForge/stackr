@@ -65,7 +65,7 @@ func Table(t TableView) templ.Component {
 				return templ_7745c5c3_Err
 			}
 		} else {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "<div class=\"panel overflow-x-auto\"><table class=\"w-full text-sm\"><thead><tr class=\"text-left text-rw-faint border-b border-rw-border\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "<div class=\"panel overflow-x-auto\"><table class=\"w-full text-sm tabular-nums\"><thead><tr class=\"text-left text-rw-faint border-b border-rw-border\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -93,7 +93,7 @@ func Table(t TableView) templ.Component {
 				return templ_7745c5c3_Err
 			}
 			for _, row := range t.Rows {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 7, "<tr class=\"border-b border-rw-border/60 last:border-0 hover:bg-rw-raised/50 transition-colors\">")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 7, "<tr class=\"border-b border-rw-border last:border-0 hover:bg-rw-raised/50 transition-colors\">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}

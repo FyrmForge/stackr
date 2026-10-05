@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"strings"
 	"time"
@@ -44,6 +45,24 @@ func (o *Orchestrator) AllOrgs(ctx context.Context) ([]Org, error) { return o.or
 // FinishOrg complete it.
 func (o *Orchestrator) CreateOrg(ctx context.Context, userID string) (Org, error) {
 	return o.orgs.StartDraft(ctx, userID)
+}
+
+// CreateNamedOrg makes, names and finishes an org in one go. A refused name
+// leaves nothing behind. It never touches the caller's wizard draft.
+func (o *Orchestrator) CreateNamedOrg(ctx context.Context, userID, name string) (Org, error) {
+	og, err := o.orgs.NewDraft(ctx, userID)
+	if err != nil {
+		return og, err
+	}
+	if og, err = o.RenameOrg(ctx, og.ID, name); err == nil {
+		og, err = o.FinishOrg(ctx, og.ID)
+	}
+	if err != nil {
+		if derr := o.orgs.Delete(context.WithoutCancel(ctx), og, 0); derr != nil {
+			err = errors.Join(err, derr)
+		}
+	}
+	return og, err
 }
 
 // SetOrgSetupMode picks the setup wizard's branch. By hand drops the
@@ -176,8 +195,30 @@ func (o *Orchestrator) claims(ctx context.Context) ([]org.Claim, error) {
 // order.
 func (o *Orchestrator) Roles() []string { return org.AssignableRoles() }
 
-func (o *Orchestrator) Members(ctx context.Context, orgID string) ([]OrgMember, error) {
-	return o.orgs.Members(ctx, orgID)
+// Member is a member row with the user's email, so a list names people.
+type Member struct {
+	OrgMember
+	Email string `json:"email"`
+}
+
+func (o *Orchestrator) Members(ctx context.Context, orgID string) ([]Member, error) {
+	ms, err := o.orgs.Members(ctx, orgID)
+	if err != nil {
+		return nil, err
+	}
+	us, err := o.users.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+	email := make(map[string]string, len(us))
+	for _, u := range us {
+		email[u.ID] = u.Email
+	}
+	out := make([]Member, len(ms))
+	for i, m := range ms {
+		out[i] = Member{OrgMember: m, Email: email[m.UserID]}
+	}
+	return out, nil
 }
 
 // SetRole changes a member's role; a drop below write closes their access
@@ -206,6 +247,12 @@ func (o *Orchestrator) Invite(ctx context.Context, orgID, email, role, by string
 		}
 	}
 	return o.orgs.Invite(ctx, orgID, email, role, by, member, time.Now())
+}
+
+// RevokeInvite kills an invite link before it is used; the caller holds
+// member.manage, as for Invite.
+func (o *Orchestrator) RevokeInvite(ctx context.Context, orgID, id string) error {
+	return o.orgs.RevokeInvite(ctx, orgID, id)
 }
 
 func (o *Orchestrator) Invites(ctx context.Context, orgID string) ([]Invite, error) {

@@ -3,7 +3,9 @@ package tile_test
 import (
 	"context"
 	"errors"
+	"io"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -511,11 +513,28 @@ func TestGate(t *testing.T) {
 		l, fake, _, base := setup(t)
 		fake.RunID = "c1"
 		fake.Details = map[string]docker.Detail{"c1": c.d}
-		id, err := l.Start(ctx, svc(base, "api"), docker.ContainerSpec{Name: "api-1"})
+		id, err := l.Start(ctx, svc(base, "api"), docker.ContainerSpec{Name: "api-1"}, io.Discard)
 		removed := slices.ContainsFunc(fake.Calls(), func(k dockerfake.Call) bool { return k.Method == "StopRemove" })
 		if (err == nil) != c.ok || removed == c.ok || (c.ok && id != "c1") {
 			t.Errorf("%s: id %q, err %v, removed %v", c.name, id, err, removed)
 		}
+	}
+}
+
+// A replica that crashes on start says why: its last output goes to the
+// log and its last line leads the error, before it is removed.
+func TestGateKeepsLastWords(t *testing.T) {
+	l, fake, _, base := setup(t)
+	fake.RunID = "c1"
+	fake.Details = map[string]docker.Detail{"c1": {Running: true, RestartCount: 1}}
+	fake.LogsOut = "booting\nfatal: QUEUE_URL is not set\n"
+	var log strings.Builder
+	_, err := l.Start(ctx, svc(base, "api"), docker.ContainerSpec{Name: "api-1"}, &log)
+	if err == nil || !strings.HasSuffix(err.Error(), ": fatal: QUEUE_URL is not set (the container restarted during the health check)") {
+		t.Errorf("err = %v", err)
+	}
+	if log.String() != "its last output:\nbooting\nfatal: QUEUE_URL is not set\n" {
+		t.Errorf("log = %q", log.String())
 	}
 }
 

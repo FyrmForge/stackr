@@ -70,6 +70,10 @@ func TestMintKey(t *testing.T) {
 	if _, _, err := l.MintKey(ctx, u, org, "", "k"); !errors.Is(err, errs.ErrNotFound) {
 		t.Errorf("mint into an org the minter is not in = %v", err)
 	}
+	_, _, err := l.MintKey(ctx, u, org, "owner", "  ")
+	if v, ok := errs.IsInvalid(err); !ok || v.Field != "name" {
+		t.Errorf("blank name = %v, want invalid on name", err)
+	}
 	tok, k, err := l.MintKey(ctx, u, org, "owner", "k")
 	if err != nil || k.OrgID == nil || *k.OrgID != org {
 		t.Fatalf("mint = %+v, %v", k, err)

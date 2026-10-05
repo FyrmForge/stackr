@@ -1,6 +1,7 @@
 # UX pass: CLI and web fixes
 
-Status: draft, not approved. Written 2026-10-05.
+Status: S, C1, C2, W1, W2, W3 built 2026-10-05, on the rig as v0.6.0-dev.3.
+D and the follow-ups below are open.
 
 Source: the design-knowledge audits of the CLI and the web UI (run against
 v0.0.52), rechecked against the working tree on 2026-10-05. Only items still
@@ -80,7 +81,7 @@ Files: `ui/css/input.css`, `ui/tailwind.config.js`,
 ### W2. Web behaviour (Opus), in parallel with W1
 Files: `internal/ui/drawer/org/org.templ`, `internal/ui/pages/setup/setup.templ`,
 `internal/ui/drawer/tile/tile.templ`, `internal/web/handler/canvas/org.go`,
-`ui/static/js/elements/side-drawer.js`, `ui/static/js/elements/flash-toast.js`,
+`ui/ts/side-drawer.ts`, `ui/ts/flash-toast.ts` (compiled to `ui/static/js/elements/`),
 `internal/ui/components/error.templ`, `internal/ui/components/confirm.templ`.
 - Remove member and Revoke key go through the confirm dialog, naming the
   person or key. Setup "Discard this organization" becomes a typed confirm.
@@ -108,6 +109,38 @@ templates, the handlers' form rules.
 ### D. Docs and boards (after the rig build)
 - CLI docs reworked around user journeys, plus a CLI UX audit doc.
 - fraedi design boards recaptured from the rig (login screen, no register).
+
+## Follow-ups found while building
+Each needs a file no package owned, mostly server side.
+- `params get` still omits secrets: the `/params` handler
+  (`internal/api/handler/v1/data.go`) should return secret rows with the
+  value blanked; then the CLI masks them and the help is true.
+- `image-check` cannot say which release it wrote: `flow/imagewatch`
+  `release()` and the `kindImageWatch` runner should log the release number
+  and each env promoted into.
+- `members rm` prompt shows a user id: member JSON needs the email.
+- Invite rows have Copy but no Revoke: no revoke-invite op exists.
+- `MintKey` accepts a blank name and setup's config form 400s on a blank
+  repo, so those two forms keep browser validation.
+- Error pages: Log out answers 403 (no CSRF token on the page) and no
+  request id is shown; `render.Theme` should put both on the context.
+- Phone tab select does not update the URL: the drawer handler should send
+  `HX-Push-Url`.
+- `dialog.Restart` (`internal/ui/dialog/confirm.go`) is dead code.
+- `stackr <unknown> <verb> --help` prints root help and exits 0.
+- A stack, env or tile rename leaves directory links on the old slug.
+
+## Round 3: from the CLI journey docs (2026-10-05)
+Evidence: fraedi `stackr/design/cli-journeys`, local copy in the session
+scratchpad `cli/journeys/`.
+- A tile that crashes on start hides its error; `logs` refuses to show it (J5).
+- An unresolved param ref leaves a deploy waiting with no output; `params set`
+  redeploys tiles without saying so (J3).
+- Promote into an env that lacks the tiles applies nothing but marks the env
+  as on the release (J4). Refuse an empty promote and say why.
+- `STACKR_KEY` alone does not authenticate; CI must `login`, which writes the
+  key to disk (J8).
+- Invites cannot be revoked from the API or CLI (J6).
 
 ## Not in this pass
 - More org roles than owner (v1 has one role).

@@ -65,6 +65,7 @@ func routes(h *v1.H) []Route {
 		{DELETE, org + "/members/:user", "member.remove", "member.manage", h.RemoveMember()},
 		{GET, org + "/invites", "invite.list", "member.manage", h.Invites()},
 		{POST, org + "/invites", "invite.create", "member.manage", h.Invite()},
+		{DELETE, org + "/invites/:invite", "invite.revoke", "member.manage", h.RevokeInvite()},
 		{POST, org + "/keys", "key.mint", "org.read", h.MintKey()},
 		{POST, org + "/cli-codes", "key.cli_code", "org.read", h.CLICode()},
 		{GET, org + "/credentials", "credential.list", "org.read", h.Credentials()},

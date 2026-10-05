@@ -373,7 +373,7 @@ func (o *Orchestrator) walkOrgPlan(
 		case "org":
 			_, err = o.RenameOrg(ctx, og.ID, c.New)
 		case "param", "param-update":
-			err = o.SetParams(ctx, ParamScope{Kind: "org", ID: og.ID}, orgParams(f, plan))
+			_, err = o.SetParams(ctx, ParamScope{Kind: "org", ID: og.ID}, orgParams(f, plan))
 		case "defaults":
 			_, err = o.SetOrgSettings(ctx, og.ID, settings.Settings(*f.Defaults).JSON())
 		case "colors":

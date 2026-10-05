@@ -13,6 +13,7 @@ type FieldView struct {
 	Help        string
 	Error       string
 	ValidateURL string // hx-post target for blur validation; "" = none
+	Autocomplete string // autocomplete token (username, current-password, new-password, name); "" = none
 	Required    bool
 	Disabled    bool
 	Why         string
@@ -21,7 +22,7 @@ type FieldView struct {
 // Form is an htmx form that re-renders itself: the handler answers 422
 // with the same component and the errors filled in.
 templ Form(id, action string) {
-	<form id={ id } hx-post={ action } hx-target={ "#" + id } hx-swap="outerHTML" class="space-y-4">
+	<form id={ id } hx-post={ action } hx-target={ "#" + id } hx-swap="outerHTML" class="space-y-4" novalidate>
 		{ children... }
 	</form>
 }
@@ -36,21 +37,14 @@ templ FormError(msg string) {
 templ Field(f FieldView) {
 	<div>
 		<label for={ f.Name } class="label">{ f.Label }</label>
-		<input
-			id={ f.Name }
-			name={ f.Name }
-			type={ inputType(f.Type) }
-			value={ f.Value }
-			placeholder={ f.Placeholder }
-			class="input"
-			required?={ f.Required }
-			disabled?={ f.Disabled }
-			if f.ValidateURL != "" {
-				hx-post={ f.ValidateURL }
-				hx-trigger="blur, hamr:revalidate"
-				hx-swap="none"
-			}
-		/>
+		if f.Type == "password" {
+			<password-toggle class="relative block">
+				@fieldInput(f)
+				<button type="button" data-toggle aria-pressed="false" class="absolute inset-y-0 right-0 px-3 text-xs text-rw-faint hover:text-rw-text">Show</button>
+			</password-toggle>
+		} else {
+			@fieldInput(f)
+		}
 		if f.Disabled {
 			<p class="mt-1.5 text-xs text-rw-faint">{ f.Why }</p>
 		} else if f.Help != "" {
@@ -58,6 +52,27 @@ templ Field(f FieldView) {
 		}
 		@FieldError(f.Name, f.Error)
 	</div>
+}
+
+templ fieldInput(f FieldView) {
+	<input
+		id={ f.Name }
+		name={ f.Name }
+		type={ inputType(f.Type) }
+		value={ f.Value }
+		placeholder={ f.Placeholder }
+		class={ "input", templ.KV("pr-14", f.Type == "password") }
+		required?={ f.Required }
+		disabled?={ f.Disabled }
+		if f.Autocomplete != "" {
+			autocomplete={ f.Autocomplete }
+		}
+		if f.ValidateURL != "" {
+			hx-post={ f.ValidateURL }
+			hx-trigger="blur, hamr:revalidate"
+			hx-swap="none"
+		}
+	/>
 }
 
 // Submit is the form's one primary button.

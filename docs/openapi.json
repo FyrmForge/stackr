@@ -1683,6 +1683,38 @@
         ],
         "type": "object"
       },
+      "Member": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "email": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "org_id": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          },
+          "user_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "org_id",
+          "user_id",
+          "role",
+          "created_at",
+          "email"
+        ],
+        "type": "object"
+      },
       "NameIn": {
         "properties": {
           "name": {
@@ -1825,34 +1857,6 @@
         },
         "required": [
           "file"
-        ],
-        "type": "object"
-      },
-      "OrgMember": {
-        "properties": {
-          "created_at": {
-            "format": "date-time",
-            "type": "string"
-          },
-          "id": {
-            "type": "string"
-          },
-          "org_id": {
-            "type": "string"
-          },
-          "role": {
-            "type": "string"
-          },
-          "user_id": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "org_id",
-          "user_id",
-          "role",
-          "created_at"
         ],
         "type": "object"
       },
@@ -2093,6 +2097,25 @@
         },
         "required": [
           "raw_caddy"
+        ],
+        "type": "object"
+      },
+      "Redeploy": {
+        "properties": {
+          "env": {
+            "type": "string"
+          },
+          "job": {
+            "type": "string"
+          },
+          "tile": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "env",
+          "tile",
+          "job"
         ],
         "type": "object"
       },
@@ -4267,6 +4290,13 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -5182,6 +5212,16 @@
       "post": {
         "operationId": "org.create",
         "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NameIn"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "201": {
             "content": {
@@ -6516,6 +6556,45 @@
         "x-verb": "member.manage"
       }
     },
+    "/api/v1/orgs/{org}/invites/{invite}": {
+      "delete": {
+        "operationId": "invite.revoke",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "invite",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "member.manage"
+      }
+    },
     "/api/v1/orgs/{org}/jobs/{job}": {
       "get": {
         "operationId": "job.get",
@@ -6763,7 +6842,7 @@
               "application/json": {
                 "schema": {
                   "items": {
-                    "$ref": "#/components/schemas/OrgMember"
+                    "$ref": "#/components/schemas/Member"
                   },
                   "type": "array"
                 }
@@ -6985,8 +7064,18 @@
           "required": true
         },
         "responses": {
-          "204": {
-            "description": "No Content"
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Redeploy"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
           },
           "default": {
             "content": {
@@ -8175,8 +8264,18 @@
           "required": true
         },
         "responses": {
-          "204": {
-            "description": "No Content"
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Redeploy"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
           },
           "default": {
             "content": {
@@ -11202,8 +11301,18 @@
           "required": true
         },
         "responses": {
-          "204": {
-            "description": "No Content"
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Redeploy"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
           },
           "default": {
             "content": {

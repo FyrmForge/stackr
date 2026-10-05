@@ -1,20 +1,36 @@
 package components
 
 import (
+	"context"
+	"io"
 	"net/http"
 	"strconv"
 )
 
 // ErrorPage satisfies hamr's middleware.ErrorPage signature. It gets no
-// request, so the shell is bare: no user, no crumbs, no CSRF.
+// request, so no crumbs; render.Theme leaves the theme (says a viewer is
+// signed in, and they keep the rail), the request id and the CSRF token on
+// the context.
 func ErrorPage(code int, message string) templ.Component {
-	return Layout(Shell{Title: http.StatusText(code)}, errorBody(code, message))
+	return templ.ComponentFunc(func(ctx context.Context, w io.Writer) error {
+		s := Shell{Title: http.StatusText(code)}
+		ri, _ := ctx.Value(reqKey{}).(reqInfo)
+		s.CSRF = ri.CSRF
+		if _, ok := ctx.Value(themeKey{}).(string); ok {
+			s.User = "signed in" // only gates the rail
+			s.Nav = []Link{{Label: "Orgs", Href: "/"}, {Label: "Account", Href: "/account"}}
+		}
+		return Layout(s, errorBody(code, message, ri.ID)).Render(ctx, w)
+	})
 }
 
-templ errorBody(code int, message string) {
+templ errorBody(code int, message, reqID string) {
 	<div class="w-full max-w-lg mx-auto mt-16 text-center panel p-8">
 		<h1 class="text-5xl font-bold text-rw-text mb-2">{ strconv.Itoa(code) }</h1>
 		<p class="text-rw-muted mb-6">{ message }</p>
+		if reqID != "" {
+			<p class="text-rw-muted text-xs mb-6">Request id: <code>{ reqID }</code></p>
+		}
 		<a href="/" class="btn btn-ghost">Back home</a>
 	</div>
 }

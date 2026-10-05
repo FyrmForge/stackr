@@ -60,7 +60,12 @@ func (h *H) Orgs() Endpoint {
 }
 
 func (h *H) CreateOrg() Endpoint {
-	return JSON(201, func(c echo.Context, _ None) (service.Org, error) { return h.Orch.CreateOrg(rc(c), who(c)) })
+	return JSON(201, func(c echo.Context, in NameIn) (service.Org, error) {
+		if in.Name != "" {
+			return h.Orch.CreateNamedOrg(rc(c), who(c), in.Name)
+		}
+		return h.Orch.CreateOrg(rc(c), who(c))
+	})
 }
 
 func (h *H) GetOrg() Endpoint {
@@ -84,7 +89,7 @@ func (h *H) DeleteOrg() Endpoint {
 // ---- members and invites ----
 
 func (h *H) Members() Endpoint {
-	return Get(func(c echo.Context) ([]service.OrgMember, error) { return list(h.Orch.Members(rc(c), orgID(c))) })
+	return Get(func(c echo.Context) ([]service.Member, error) { return list(h.Orch.Members(rc(c), orgID(c))) })
 }
 
 func (h *H) SetRole() Endpoint {
@@ -105,6 +110,10 @@ func (h *H) Invite() Endpoint {
 	return JSON(201, func(c echo.Context, in InviteIn) (service.Invite, error) {
 		return h.Orch.Invite(rc(c), orgID(c), in.Email, in.Role, who(c))
 	})
+}
+
+func (h *H) RevokeInvite() Endpoint {
+	return Done(func(c echo.Context, _ None) error { return h.Orch.RevokeInvite(rc(c), orgID(c), c.Param("invite")) })
 }
 
 func (h *H) LookupInvite() Endpoint {

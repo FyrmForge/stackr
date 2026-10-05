@@ -42,7 +42,7 @@ func TestOrgConfigRoutes(t *testing.T) {
 			"GET " + cfg + "/plans/p1 ",
 		},
 		{
-			"approve p1 --no-wait",
+			"approve p1 --no-wait -y",
 			"POST " + cfg + "/plans/p1/approve ",
 		},
 		{

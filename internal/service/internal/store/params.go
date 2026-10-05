@@ -26,6 +26,9 @@ type ParamStore interface {
 	// ListByKind reads one kind only, so a reader without the secrets
 	// permission never has a secret decrypted on its behalf (B37).
 	ListByKind(ctx context.Context, scopeKind, scopeID, kind string) ([]Param, error)
+	// ListBlankByKind is ListByKind with every Value empty: the column is
+	// never read, so nothing is decrypted (B37).
+	ListBlankByKind(ctx context.Context, scopeKind, scopeID, kind string) ([]Param, error)
 	Update(ctx context.Context, p Param) error
 	Delete(ctx context.Context, id string) error
 }
@@ -45,4 +48,12 @@ func (s params) ListByScope(ctx context.Context, scopeKind, scopeID string) ([]P
 
 func (s params) ListByKind(ctx context.Context, scopeKind, scopeID, kind string) ([]Param, error) {
 	return s.many(ctx, "scope_kind = ? AND scope_id = ? AND kind = ?", scopeKind, scopeID, kind)
+}
+
+func (s params) ListBlankByKind(ctx context.Context, scopeKind, scopeID, kind string) ([]Param, error) {
+	var rows []Param
+	err := s.q.SelectContext(ctx, &rows,
+		"SELECT id, scope_kind, scope_id, collection, name, kind, '' AS value, created_at, updated_at FROM params "+
+			"WHERE scope_kind = ? AND scope_id = ? AND kind = ?", scopeKind, scopeID, kind)
+	return rows, mapErr(err)
 }

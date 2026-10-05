@@ -139,6 +139,11 @@ func (l *Leaf) StartDraft(ctx context.Context, userID string) (store.Org, error)
 	if draft != nil {
 		return *draft, nil
 	}
+	return l.NewDraft(ctx, userID)
+}
+
+// NewDraft always makes a fresh placeholder org owned by the caller.
+func (l *Leaf) NewDraft(ctx context.Context, userID string) (store.Org, error) {
 	now := time.Now().UTC()
 	// Random, not counted: two people starting at once must not collide.
 	o := store.Org{
@@ -381,6 +386,19 @@ func (l *Leaf) Invite(
 // Invites lists an org's invites.
 func (l *Leaf) Invites(ctx context.Context, orgID string) ([]store.Invite, error) {
 	return l.invites.ListByOrg(ctx, orgID)
+}
+
+// RevokeInvite deletes an invite of the org; ErrNotFound when it is not one
+// of this org's.
+func (l *Leaf) RevokeInvite(ctx context.Context, orgID, id string) error {
+	i, err := l.invites.Get(ctx, id)
+	if err != nil {
+		return err
+	}
+	if i.OrgID != orgID {
+		return errs.ErrNotFound
+	}
+	return l.invites.Delete(ctx, id)
 }
 
 // Lookup reads an invite for the accept page: unknown, used and expired all

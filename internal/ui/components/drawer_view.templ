@@ -49,7 +49,12 @@ templ Drawer(v DrawerView, body templ.Component) {
 			@v.Strip
 		}
 		if len(v.Tabs) > 1 {
-			<nav class="flex gap-1 px-4 sm:px-6 border-b border-rw-border overflow-x-auto scrollbar-none" aria-label="Tabs">
+			<select class="input mx-4 my-2 w-auto sm:hidden" aria-label="Tabs" name="tab" hx-get={ v.Base } hx-trigger="change" hx-target={ "#" + DrawerRoot } hx-swap="outerHTML" hx-vals={ templ.JSONString(map[string]string{"drawer": v.Node}) }>
+				for _, t := range v.Tabs {
+					<option value={ t } selected?={ t == v.Tab }>{ v.TabLabel(t) }</option>
+				}
+			</select>
+			<nav class="hidden sm:flex gap-1 px-4 sm:px-6 border-b border-rw-border overflow-x-auto scrollbar-none" aria-label="Tabs">
 				for _, t := range v.Tabs {
 					<a
 						href={ templ.SafeURL("?drawer=" + v.Node + "&tab=" + t) }
@@ -92,7 +97,7 @@ templ panelHeader(v DrawerView) {
 			}
 			<div class="min-w-0">
 				<div class="flex items-center gap-2">
-					<h2 class="text-lg font-semibold text-rw-text truncate">{ v.Title }</h2>
+					<h2 id="drawer-title" class="text-lg font-semibold text-rw-text truncate">{ v.Title }</h2>
 					if v.Status != "" {
 						@TileBadge(v.Status)
 					}

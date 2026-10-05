@@ -52,8 +52,9 @@ type Scope struct{ StackID, TileID string }
 // Update is one release the sweep wrote. Auto: every tile swapped in it is
 // update_policy auto, so the caller promotes it now.
 type Update struct {
-	EnvID, ReleaseID string
-	Auto             bool
+	EnvID, Env, ReleaseID string
+	Number                int
+	Auto                  bool
 }
 
 // Due reports whether the timed sweep should run now: the interval
@@ -166,7 +167,8 @@ func (f *Flow) release(ctx context.Context, ws []watched, answers map[string]*an
 	if err != nil {
 		return nil, err
 	}
-	return &Update{EnvID: e.ID, ReleaseID: r.ID, Auto: auto}, nil
+	logf(log, "%s: wrote release #%d\n", e.Slug, r.Number)
+	return &Update{EnvID: e.ID, Env: e.Slug, ReleaseID: r.ID, Number: r.Number, Auto: auto}, nil
 }
 
 // direct: a branch env or the bottom rung takes releases straight away;

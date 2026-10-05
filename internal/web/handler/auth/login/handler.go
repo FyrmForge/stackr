@@ -43,8 +43,10 @@ func NewHandler(orch *service.Orchestrator) *handler {
 		orch: orch,
 		FormRules: validate.NewForm(
 			validate.WithOOBRenderer(components.OOBValidator),
-			validate.Field("email", validate.Required, validate.Email),
-			validate.Field("password", validate.Required),
+			validate.Field("email",
+				validate.WithMsg(validate.Required, "Enter your email."),
+				validate.WithMsg(validate.Email, "Enter an email like name@example.com.")),
+			validate.FieldMsg("password", "Enter your password.", validate.Required),
 		),
 	}
 }

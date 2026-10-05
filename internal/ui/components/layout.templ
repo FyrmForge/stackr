@@ -17,6 +17,9 @@ templ Layout(s Shell, body templ.Component) {
 		<head>
 			<meta charset="UTF-8"/>
 			<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+			<meta name="color-scheme" content="dark light"/>
+			<meta name="theme-color" content="#0a0a0c" media="(prefers-color-scheme: dark)"/>
+			<meta name="theme-color" content="#f6f5fa" media="(prefers-color-scheme: light)"/>
 			<meta name="htmx-config" content={ htmxConfig }/>
 			<title>{ s.Title } - stackr</title>
 			<link rel="icon" type="image/png" sizes="32x32" href={ StaticURL("images/favicon-32.png") }/>
@@ -29,17 +32,19 @@ templ Layout(s Shell, body templ.Component) {
 			<script type="module" src={ StaticURL("js/elements/graph-canvas.js") }></script>
 			<script type="module" src={ StaticURL("js/elements/graph-node.js") }></script>
 			<script type="module" src={ StaticURL("js/elements/log-pane.js") }></script>
+			<script type="module" src={ StaticURL("js/elements/password-toggle.js") }></script>
 			<script type="module" src={ StaticURL("js/elements/side-drawer.js") }></script>
 			<script src={ StaticURL("js/main.js") } defer></script>
 		</head>
 		<body class="bg-rw-bg text-rw-text min-h-screen font-sans antialiased" hx-headers={ csrfHeaders(s.CSRF) }>
+			<a href="#main" class="sr-only focus:not-sr-only focus:fixed focus:left-2 focus:top-2 focus:z-50 focus:rounded-lg focus:bg-rw-surface focus:px-3 focus:py-2 focus:text-sm focus:text-rw-text">Skip to content</a>
 			@flash(s.Flash, false)
 			if s.User != "" {
 				@rail(s, false)
 			}
 			<div class={ "flex h-dvh min-w-0 flex-col", templ.KV("sm:ml-14 pb-14 sm:pb-0", s.User != "") }>
 				@topBar(s, false)
-				<main id="main" class="flex min-h-0 flex-1 flex-col overflow-y-auto">
+				<main id="main" tabindex="-1" class="flex min-h-0 flex-1 flex-col overflow-y-auto">
 					@body
 				</main>
 			</div>
@@ -207,23 +212,27 @@ templ crumbs(s Shell) {
 }
 
 templ crumb(s Shell, i int, l Link) {
+	if i == len(s.Crumbs)-1 {
+		<h1 class="flex items-center gap-1.5 min-w-0 text-lg font-semibold tracking-tight text-rw-text" aria-current="page">
+			if dot := envClass(s.EnvColor); i == 2 && dot != "" {
+				<span class={ "env-dot", dot }></span>
+			}
+			<span class="truncate">{ l.Label }</span>
+		</h1>
+	} else {
 	<a
 		href={ templ.SafeURL(l.Href) }
 		hx-get={ l.Href }
 		hx-target="#main"
 		hx-push-url="true"
-		class={ "flex items-center gap-1.5 min-w-0 transition-colors",
-			templ.KV("text-rw-text", i == len(s.Crumbs)-1),
-			templ.KV("text-rw-muted hover:text-rw-text", i != len(s.Crumbs)-1) }
-		if i == len(s.Crumbs)-1 {
-			aria-current="page"
-		}
+		class="flex items-center gap-1.5 min-w-0 transition-colors text-rw-muted hover:text-rw-text"
 	>
 		if dot := envClass(s.EnvColor); i == 2 && dot != "" {
 			<span class={ "env-dot", dot }></span>
 		}
 		<span class="truncate">{ l.Label }</span>
 	</a>
+	}
 }
 
 // envPicker is v0's env crumb: the current env, and a menu of its
@@ -234,7 +243,7 @@ templ envPicker(s Shell, cur Link) {
 			if dot := envClass(s.EnvColor); dot != "" {
 				<span class={ "env-dot", dot }></span>
 			}
-			{ cur.Label }
+			<h1 class="contents">{ cur.Label }</h1>
 			<svg class="h-3.5 w-3.5 text-rw-faint" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 8l4 4 4-4" stroke-linecap="round" stroke-linejoin="round"></path></svg>
 		</summary>
 		<div class="absolute left-0 top-full mt-1.5 z-40 panel py-1 min-w-40 shadow-rw">

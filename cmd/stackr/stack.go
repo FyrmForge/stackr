@@ -187,6 +187,64 @@ func (a *app) put(use, op, short string, lv level, sub, key string) *cobra.Comma
 	}))
 }
 
+// rename PUTs a new name and prints the slug it gives, the handle the next
+// command takes. The name is the last arg ("rename <tile> <name>").
+func (a *app) rename(use, op, short string, lv level) *cobra.Command {
+	n := strings.Count(use, " ")
+	return leaf(use, op, short, exact(n), a.at(lv, func(_ *cobra.Command, p string, args []string) error {
+		v, err := a.call(PUT, p+"/name", map[string]string{"name": args[n-1]})
+		if err == nil {
+			m, _ := v.(map[string]any)
+			err = a.relink(p, cell(m["slug"]))
+		}
+		return a.renamed(v, err)
+	}))
+}
+
+// relink moves every directory link on the row at p (/orgs/o/stacks/s...)
+// to its new slug, as org rename moves the config's org.
+func (a *app) relink(p, slug string) error {
+	if slug == "" {
+		return nil
+	}
+	seg := strings.Split(p, "/")
+	var old []string
+	for i := 4; i < len(seg); i += 2 {
+		s, _ := url.PathUnescape(seg[i])
+		old = append(old, s)
+	}
+	moved := false
+	for d, l := range a.cfg.Links {
+		chain := []*string{&l.Stack, &l.Env, &l.Tile}[:len(old)]
+		same := true
+		for i, s := range chain {
+			same = same && *s == old[i]
+		}
+		if same {
+			*chain[len(old)-1] = slug
+			a.cfg.Links[d] = l
+			moved = true
+		}
+	}
+	if !moved {
+		return nil
+	}
+	return a.save()
+}
+
+// renamed prints a renamed row's new slug (the row under --json).
+func (a *app) renamed(v any, err error) error {
+	if err != nil || a.json {
+		if err == nil {
+			err = a.show(v)
+		}
+		return err
+	}
+	m, _ := v.(map[string]any)
+	a.say("slug: %s", cell(m["slug"]))
+	return nil
+}
+
 // ---- stack ----
 
 func (a *app) stacks() *cobra.Command {
@@ -253,16 +311,17 @@ func (a *app) stacks() *cobra.Command {
 			})),
 		a.get("get", "stack.get", "Show the stack", atStack, "", stackCols...),
 		create,
-		a.put("rename <name>", "stack.rename", "Rename the stack", atStack, "/name", "name"),
+		a.rename("rename <name>", "stack.rename", "Rename the stack", atStack),
 		configRepo,
 		a.settingsCmd("stack.get,stack.settings", "Show or change the stack's settings defaults", atStack),
-		waits(leaf("image-check", "stack.image-check", "Check the stack's images for a newer tag", exact(0),
+		waits(leaf("image-check", "stack.image-check",
+			"Check the stack's images for a newer tag; a moved tag writes a release", exact(0),
 			a.at(atStack, func(c *cobra.Command, p string, _ []string) error {
 				return a.orgJob(c, POST, p+"/image-check", nil, "image check")
 			}))),
 		leaf("rm", "stack.delete", "Delete the stack", exact(0),
 			a.at(atStack, func(c *cobra.Command, p string, _ []string) error {
-				if err := a.confirm("Remove stack " + last(p) + " and everything in it?"); err != nil {
+				if err := a.confirm("Remove stack " + last(p) + "? It must be empty of environments first."); err != nil {
 					return err
 				}
 				_, err := a.call(DELETE, p, nil)
@@ -305,15 +364,25 @@ func (a *app) releases() *cobra.Command {
 // ---- env ----
 
 func (a *app) envs() *cobra.Command {
-	var typ, base, color, fromKind, fromBranch string
+	var typ, base, color, createKind, fromKind, fromBranch string
 	var auto bool
-	create := leaf("create <name>", "env.create", "Make an environment", exact(1),
+	create := leaf("create <name>", "env.list,env.create", "Make an environment", exact(1),
 		a.at(atStack, func(_ *cobra.Command, p string, args []string) error {
+			if createKind == "" {
+				v, err := a.call(GET, p+"/envs", nil)
+				if err != nil {
+					return err
+				}
+				if es, _ := v.([]any); len(es) == 0 {
+					return usage("the stack's first env needs --from-kind: branch or promote")
+				}
+				createKind = "promote"
+			}
 			body := map[string]any{
 				"name":        args[0],
 				"type":        typ,
 				"color":       color,
-				"from_kind":   fromKind,
+				"from_kind":   createKind,
 				"from_branch": fromBranch,
 				"auto":        auto,
 			}
@@ -334,8 +403,10 @@ func (a *app) envs() *cobra.Command {
 			_, err := a.call(PUT, p+"/from", map[string]any{"kind": fromKind, "branch": fromBranch, "auto": auto})
 			return err
 		}))
+	create.Flags().StringVar(&createKind, "from-kind", "",
+		"branch (builds a branch) or promote (takes releases by hand); default promote once the stack has an env")
+	from.Flags().StringVar(&fromKind, "from-kind", "branch", "branch (builds a branch) or promote (takes releases by hand)")
 	for _, c := range []*cobra.Command{create, from} {
-		c.Flags().StringVar(&fromKind, "from-kind", "branch", "branch (builds a branch) or promote (takes releases by hand)")
 		c.Flags().StringVar(&fromBranch, "from-branch", "", "the branch it builds")
 		c.Flags().BoolVar(&auto, "auto", false, "deploy each new release on its own")
 	}
@@ -363,7 +434,7 @@ func (a *app) envs() *cobra.Command {
 				return a.show(v, "from_name", "to_name", "bps")
 			})),
 		create,
-		a.put("rename <name>", "env.rename", "Rename the environment", atEnv, "/name", "name"),
+		a.rename("rename <name>", "env.rename", "Rename the environment", atEnv),
 		a.put("color <color>", "env.color", "Set the environment's panel colour", atEnv, "/color", "color"),
 		from,
 		a.settingsCmd("env.get,env.settings", "Show or change the environment's settings defaults", atEnv),
@@ -511,19 +582,12 @@ func (a *app) logs() *cobra.Command {
 	var container, run string
 	c := leaf(
 		"logs [tile]",
-		"tile.status,tile.logs,tile.logs-stream",
+		"tile.logs,tile.logs-stream",
 		"Print a replica's or a run's log; --follow streams it",
 		upTo(1),
 		a.at(atTile, func(_ *cobra.Command, p string, _ []string) error {
 			q := fmt.Sprintf("?run=%s&tail=%d", url.QueryEscape(run), tail)
 			if run == "" {
-				if container == "" {
-					id, err := a.firstReplica(p)
-					if err != nil {
-						return err
-					}
-					container = id
-				}
 				q = fmt.Sprintf("?container=%s&tail=%d", url.QueryEscape(container), tail)
 			}
 			if !follow {
@@ -564,7 +628,7 @@ func (a *app) logs() *cobra.Command {
 	)
 	c.Flags().BoolVarP(&follow, "follow", "f", false, "keep streaming")
 	c.Flags().IntVar(&tail, "tail", 200, "lines of history")
-	c.Flags().StringVar(&container, "container", "", "the replica (default: the first)")
+	c.Flags().StringVar(&container, "container", "", "the replica (default: a running one)")
 	c.Flags().StringVar(&run, "run", "", "a cron or function run's log instead (stackr tile runs lists them)")
 	return scoped(c, true)
 }
@@ -750,18 +814,14 @@ func (a *app) tiles() *cobra.Command {
 		}
 		return nil
 	}
-	exec.Flags().StringVar(&exCont, "container", "", "the replica (default: the first)")
+	exec.Flags().StringVar(&exCont, "container", "", "the replica (default: a running one)")
 
 	return scoped(noun("tile", "Tiles: the deployed units",
 		a.get("ls", "tile.list", "List the env's tiles", atEnv, "/tiles", tileCols...),
 		a.get("get [tile]", "tile.get", "Show a tile", atTile, ""),
 		create,
 		set,
-		leaf("rename <tile> <name>", "tile.rename", "Rename a tile", exact(2),
-			a.at(atTile, func(_ *cobra.Command, p string, args []string) error {
-				_, err := a.call(PUT, p+"/name", map[string]string{"name": args[1]})
-				return err
-			})),
+		a.rename("rename <tile> <name>", "tile.rename", "Rename a tile", atTile),
 		a.tileJob(
 			DELETE,
 			"rm [tile]",
@@ -779,7 +839,7 @@ func (a *app) tiles() *cobra.Command {
 			POST,
 			"image-check [tile]",
 			"tile.image-check",
-			"Check the tile's image for a newer tag",
+			"Check the tile's image for a newer tag; a moved tag writes a release",
 			"/image-check",
 			"image check",
 			"",
@@ -796,6 +856,9 @@ func (a *app) tiles() *cobra.Command {
 				m, _ := v.(map[string]any)
 				if j, ok := m["last_job"].(map[string]any); ok {
 					m["last_job"] = cell(j["kind"]) + " " + cell(j["state"]) + " " + cell(j["id"])
+					if e, _ := j["error"].(string); e != "" {
+						m["last_job"] = cell(m["last_job"]) + ": " + e
+					}
 				}
 				if r, ok := m["last_run"].(map[string]any); ok {
 					m["last_run"] = cell(r["status"]) + " " + cell(r["trigger"]) + " " + cell(r["id"])
@@ -943,7 +1006,7 @@ func (a *app) domains() *cobra.Command {
 }
 
 // allow edits a managed tile's allow list: --add and --rm read the list
-// and send it whole, --set replaces it.
+// and send it whole; --set replaces it after printing the diff and asking.
 func (a *app) allow() *cobra.Command {
 	var add, rm, set []string
 	c := leaf(
@@ -961,19 +1024,40 @@ func (a *app) allow() *cobra.Command {
 		if len(add) == 0 && len(rm) == 0 && !replace {
 			return usage("give --add, --rm or --set")
 		}
+		m, err := a.managedOf(c, p)
+		if err != nil {
+			return err
+		}
+		cur, _ := m["allow"].([]any)
 		list := []string{}
+		for _, x := range cur {
+			list = append(list, cell(x))
+		}
 		if replace {
+			old := list
+			list = []string{}
 			for _, s := range set {
 				if s != "" {
 					list = append(list, s)
 				}
 			}
-		} else {
-			cur, err := a.allowOf(c, p)
-			if err != nil {
+			var rows [][]string
+			for _, s := range old {
+				if !slices.Contains(list, s) {
+					rows = append(rows, []string{"remove", s})
+				}
+			}
+			for _, s := range list {
+				if !slices.Contains(old, s) {
+					rows = append(rows, []string{"add", s})
+				}
+			}
+			if !a.json {
+				a.table([]string{"change", "pattern"}, rows)
+			}
+			if err := a.confirm("Replace the allow list of " + last(p) + "?"); err != nil {
 				return err
 			}
-			list = cur
 		}
 		for _, s := range add {
 			if !slices.Contains(list, s) {
@@ -996,9 +1080,9 @@ func (a *app) allow() *cobra.Command {
 	return c
 }
 
-// allowOf is the allow list of the managed tile at p, read from its env's
-// managed list.
-func (a *app) allowOf(c *cobra.Command, p string) ([]string, error) {
+// managedOf is the instance row of the managed tile at p, read from its
+// env's managed list.
+func (a *app) managedOf(c *cobra.Command, p string) (map[string]any, error) {
 	v, err := a.call(GET, p, nil)
 	if err != nil {
 		return nil, err
@@ -1012,26 +1096,22 @@ func (a *app) allowOf(c *cobra.Command, p string) ([]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("%s is not a managed tile with an instance", cell(t["slug"]))
 	}
-	xs, _ := m["allow"].([]any)
-	out := []string{}
-	for _, x := range xs {
-		out = append(out, cell(x))
-	}
-	return out, nil
+	return m, nil
 }
 
-// envPairs replaces a managed tile's env pairs.
+// envPairs replaces a managed tile's env pairs after printing the diff and
+// asking.
 func (a *app) envPairs() *cobra.Command {
 	var empty bool
 	c := leaf(
 		"env-pairs <tile> [consumer-env=env ...]",
-		"managed.env-pairs",
-		"Replace a managed tile's env pairs: a consumer's env name to one of this stack's envs",
+		"tile.get,managed.list,managed.env-pairs",
+		"Replace a managed tile's env pairs (a consumer's env name to one of this stack's envs); prints the diff, then asks",
 		atLeast(1),
 		nil,
 	)
 	c.Flags().BoolVar(&empty, "clear", false, "empty the map")
-	c.RunE = a.at(atTile, func(_ *cobra.Command, p string, args []string) error {
+	c.RunE = a.at(atTile, func(c *cobra.Command, p string, args []string) error {
 		pairs := map[string]string{}
 		for _, s := range args[1:] {
 			k, v, err := kv(s)
@@ -1045,6 +1125,34 @@ func (a *app) envPairs() *cobra.Command {
 			return usage("--clear takes no pairs")
 		case !empty && len(pairs) == 0:
 			return usage("give consumer-env=env pairs, or --clear")
+		}
+		m, err := a.managedOf(c, p)
+		if err != nil {
+			return err
+		}
+		old, _ := m["env_pairs"].(map[string]any) // null when never set
+		keys := slices.Collect(maps.Keys(pairs))
+		for k := range old {
+			if _, ok := pairs[k]; !ok {
+				keys = append(keys, k)
+			}
+		}
+		slices.Sort(keys)
+		var rows [][]string
+		for _, k := range keys {
+			was, now := "", pairs[k]
+			if x, ok := old[k]; ok {
+				was = cell(x)
+			}
+			if was != now {
+				rows = append(rows, []string{k, cell(was), cell(now)})
+			}
+		}
+		if !a.json {
+			a.table([]string{"consumer env", "old", "new"}, rows)
+		}
+		if err := a.confirm("Replace the env pairs of " + last(p) + "?"); err != nil {
+			return err
 		}
 		v, err := a.call(PUT, p+"/env-pairs", map[string]any{"env_pairs": pairs})
 		if err != nil {
@@ -1137,6 +1245,11 @@ func (a *app) sliceTiles() *cobra.Command {
 			"Keep or drop the data when the slice tile is removed",
 			exact(2),
 			a.at(atTile, func(_ *cobra.Command, p string, args []string) error {
+				if args[1] == "drop" {
+					if err := a.confirm("Drop " + last(p) + "'s data when the slice tile is removed?"); err != nil {
+						return err
+					}
+				}
 				v, err := a.call(PUT, p+"/on-remove", map[string]string{"on_remove": args[1]})
 				if err != nil {
 					return err
@@ -1203,12 +1316,17 @@ func (a *app) params() *cobra.Command {
 		if err != nil {
 			return err
 		}
+		xs, _ := v.([]any)
+		for _, x := range xs {
+			if m, _ := x.(map[string]any); !reveal && !a.json && m["kind"] == "secret" {
+				m["value"] = "****"
+			}
+		}
 		if len(args) == 1 {
 			col, name, err := param(args[0])
 			if err != nil {
 				return err
 			}
-			xs, _ := v.([]any)
 			for _, x := range xs {
 				m, _ := x.(map[string]any)
 				if m["collection"] == col && m["name"] == name {
@@ -1249,7 +1367,13 @@ func (a *app) params() *cobra.Command {
 		if len(body) == 0 {
 			return usage("nothing to set")
 		}
-		_, err = a.call(PATCH, p+"/params", body)
+		v, err := a.call(PATCH, p+"/params", body)
+		rs, _ := v.([]any)
+		for _, r := range rs {
+			m, _ := r.(map[string]any)
+			_, _ = fmt.Fprintf(a.errw, "redeploying %s (%s): stackr job log %s --follow\n",
+				cell(m["tile"]), cell(m["env"]), cell(m["job"]))
+		}
 		return err
 	}
 	set := leaf("set <collection.NAME=value>...", "org.params-set,stack.params-set,env.params-set",
@@ -1393,15 +1517,41 @@ func (a *app) volumes() *cobra.Command {
 				return a.show(v, volumeCols...)
 			}),
 		add,
-		leaf("rm <volume-id>", "volume.delete", "Delete a volume and its data", exact(1),
-			a.at(atOrg, func(_ *cobra.Command, p string, args []string) error {
-				if err := a.confirm("Delete volume " + args[0] + " and the data in it? Backups already taken are kept."); err != nil {
+		leaf("rm <volume>", "org.volumes,stack.volumes,env.volumes,volume.delete", "Delete a volume and its data", exact(1),
+			a.at(atOrg, func(c *cobra.Command, p string, args []string) error {
+				id, name, err := a.volume(c, args[0])
+				if err != nil {
 					return err
 				}
-				_, err := a.call(DELETE, p+"/volumes/"+args[0], nil)
+				if err := a.confirm("Delete volume " + name + " and the data in it? Backups already taken are kept."); err != nil {
+					return err
+				}
+				_, err = a.call(DELETE, p+"/volumes/"+id, nil)
 				return err
 			})),
 	))
+}
+
+// volume finds a volume by id or slug at the linked env, stack and org, in
+// that order, for the name a confirmation shows.
+// ponytail: one outside the linked levels goes by the id as given, and the
+// server 404s a wrong one.
+func (a *app) volume(c *cobra.Command, ref string) (id, name string, err error) {
+	for _, lv := range []level{atEnv, atStack, atOrg} {
+		p, err := a.path(c, lv, "")
+		if err != nil {
+			continue
+		}
+		v, err := a.find(p+"/volumes", "volume", ref, "id", "slug")
+		var e *apiErr
+		switch {
+		case err == nil:
+			return cell(v["id"]), cell(v["slug"]) + " (" + cell(v["scope_kind"]) + ")", nil
+		case errors.As(err, &e):
+			return "", "", err
+		}
+	}
+	return ref, ref, nil
 }
 
 func (a *app) backups() *cobra.Command {

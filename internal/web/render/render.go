@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"net/url"
 	"strings"
 
@@ -107,14 +108,37 @@ func Shell(c echo.Context, title string) components.Shell {
 	return s
 }
 
-// Theme puts the viewer's theme on the request context, so the error page
-// (hamr renders it with no echo.Context) draws in it too. Mount after
-// Access.Load.
+// Theme puts the viewer's theme, the request id and the CSRF token on the
+// request context, so the error page (hamr renders it with no echo.Context)
+// draws in the theme, shows the id and can log out. Mount after Access.Load,
+// the CSRF and the logging middleware.
 func Theme(next echo.HandlerFunc) echo.HandlerFunc {
 	return func(c echo.Context) error {
+		csrf, _ := c.Get("csrf").(string)
+		r := c.Request()
+		c.SetRequest(r.WithContext(components.WithRequest(r.Context(), c.Response().Header().Get(middleware.HeaderRequestID), csrf)))
 		if p := middleware.Principal(c); p != nil {
-			r := c.Request()
+			r = c.Request()
 			c.SetRequest(r.WithContext(components.WithTheme(r.Context(), p.User.Theme)))
+		}
+		return next(c)
+	}
+}
+
+// DrawerTab pushes ?drawer=&tab= for a drawer tab picked from the phone
+// select, as the tab links do: the select sends its node as ?drawer=, the
+// links do not. A reply that is not a 200 pushes nothing.
+func DrawerTab(next echo.HandlerFunc) echo.HandlerFunc {
+	return func(c echo.Context) error {
+		r := c.Request()
+		node, tab := c.QueryParam("drawer"), c.QueryParam("tab")
+		if node != "" && tab != "" && r.Header.Get(htmx.HeaderTarget) == components.DrawerRoot {
+			res := c.Response()
+			res.Before(func() {
+				if res.Status == http.StatusOK {
+					res.Header().Set(htmx.HeaderPushURL, "?drawer="+url.QueryEscape(node)+"&tab="+url.QueryEscape(tab))
+				}
+			})
 		}
 		return next(c)
 	}

@@ -3,7 +3,9 @@ package jobs_test
 import (
 	"context"
 	"errors"
+	"os"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -283,6 +285,29 @@ func TestWaiting(t *testing.T) {
 	}
 	set <- true
 	waitState(t, l, id, job.Done)
+}
+
+// A parked job re-run every poll says what it waits on once.
+func TestWaitingSaysOnce(t *testing.T) {
+	var calls atomic.Int32
+	h := func(context.Context, *jobs.Run) error {
+		if calls.Add(1) < 4 {
+			return errs.Unset{Param: "app.db_url"}
+		}
+		return nil
+	}
+	r, l := setup(t, map[jobs.Kind]jobs.Handler{"a": h}, jobs.Options{})
+	start(t, r)
+	id := enqueue(t, r, "a", "t1")
+	waitState(t, l, id, job.Done)
+	j, _ := l.Get(ctx, id)
+	b, err := os.ReadFile(j.LogPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(b) != "waiting: param app.db_url is not set; the job resumes once it is\n" {
+		t.Errorf("log = %q", b)
+	}
 }
 
 func TestFailures(t *testing.T) {

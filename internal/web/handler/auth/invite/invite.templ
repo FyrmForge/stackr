@@ -50,15 +50,15 @@ templ accept(base, err string) {
 templ register(base string, f Form) {
 	@c.Form("invite-register", base+"/register") {
 		@c.FormError(f.Errors["general"])
-		@c.Field(c.FieldView{Name: "name", Label: "Name", Value: f.Name, Required: true, Error: f.Errors["name"]})
+		@c.Field(c.FieldView{Name: "name", Label: "Name", Value: f.Name, Autocomplete: "name", Required: true, Error: f.Errors["name"]})
 		<div>
 			<label for="email" class="label">Email</label>
 			<input id="email" name="email" type="email" value={ f.Email } class="input" readonly autocomplete="username"/>
 			@c.FieldError("email", f.Errors["email"])
 		</div>
-		@c.Field(c.FieldView{Name: "password", Label: "Password", Type: "password", Required: true, Error: f.Errors["password"],
+		@c.Field(c.FieldView{Name: "password", Label: "Password", Type: "password", Autocomplete: "new-password", Required: true, Error: f.Errors["password"],
 			Help: "At least 8 characters with uppercase, lowercase, a number, and a special character."})
-		@c.Field(c.FieldView{Name: "confirm_password", Label: "Confirm password", Type: "password", Required: true, Error: f.Errors["confirm_password"]})
+		@c.Field(c.FieldView{Name: "confirm_password", Label: "Confirm password", Type: "password", Autocomplete: "new-password", Required: true, Error: f.Errors["confirm_password"]})
 		@c.Submit("Join " + f.Org)
 	}
 }

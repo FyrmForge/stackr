@@ -36,7 +36,6 @@ func TestCreateTileBySource(t *testing.T) {
 		}
 	}
 	for _, v := range []c.ConfirmView{
-		Restart("api", "/r", "#d"),
 		Stop("api", "/s", "#d"),
 		Delete("api", "/d", "#d"),
 		Rollback("dev", "release 3", "/rb", "#d"),

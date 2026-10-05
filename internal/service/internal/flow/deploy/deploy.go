@@ -286,7 +286,7 @@ func (f *Flow) rollout(
 		s := spec(t, r)
 		s.Name = fmt.Sprintf("%s-%d", r.name, i+1)
 		logf(log, "starting %s\n", s.Name)
-		id, err := f.Tiles.Start(ctx, t, s)
+		id, err := f.Tiles.Start(ctx, t, s, log)
 		if err != nil {
 			// Whatever ran before keeps running (overlap), and no half set of
 			// new replicas is left behind.

@@ -28,6 +28,7 @@ type Job struct {
 type JobStore interface {
 	Create(ctx context.Context, j Job) error
 	Get(ctx context.Context, id string) (Job, error)
+	// ListByState is newest first.
 	ListByState(ctx context.Context, states ...string) ([]Job, error)
 	// ListTouching is the newest jobs whose lock set holds any of tileIDs,
 	// optionally of one kind ("" = any), newest first, at most limit.
@@ -42,13 +43,13 @@ type jobs struct{ crud[Job] }
 
 func (s jobs) ListByState(ctx context.Context, states ...string) ([]Job, error) {
 	if len(states) == 0 {
-		return s.many(ctx, "1 = 1") // ponytail: every job; a limit when the table outgrows one screen
+		return s.many(ctx, "1 = 1 ORDER BY created_at DESC")
 	}
 	args := make([]any, len(states))
 	for i, st := range states {
 		args[i] = st
 	}
-	return s.many(ctx, "state IN (?"+strings.Repeat(", ?", len(states)-1)+")", args...)
+	return s.many(ctx, "state IN (?"+strings.Repeat(", ?", len(states)-1)+") ORDER BY created_at DESC", args...)
 }
 
 func (s jobs) ListTouching(ctx context.Context, tileIDs []string, kind string, limit int) ([]Job, error) {

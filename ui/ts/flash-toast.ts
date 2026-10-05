@@ -1,7 +1,8 @@
 // <flash-toast kind="success|warning|error"> shows one message. The server
 // fills it (full page or out-of-band swap); htmx request failures fill it
-// here. A click dismisses it; anything but an error dismisses itself after
-// 4s (v0's timing), fading out over FADE_MS through [leaving].
+// here, unless the open drawer took one (defaultPrevented). A click
+// dismisses it; anything but an error dismisses itself after 4s (v0's
+// timing), fading out over FADE_MS through [leaving].
 // Empty = hidden (CSS :empty).
 const DISMISS_MS = 4000;
 const FADE_MS = 500;
@@ -12,6 +13,7 @@ class FlashToast extends HTMLElement {
   private onClick = (): void => this.dismiss();
 
   private onResponseError = (e: Event): void => {
+    if (e.defaultPrevented) return;
     const xhr = (e as CustomEvent<{ xhr: { status: number; statusText: string } }>).detail.xhr;
     this.show("error", `Request failed: ${xhr.status} ${xhr.statusText}`.trim());
   };

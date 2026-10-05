@@ -353,6 +353,29 @@ func TestLadderRule(t *testing.T) {
 	}
 }
 
+// A release with no stack file lands only on tiles the env has: into an env
+// with none of them it is refused, and the env stays on no release.
+func TestPromoteIntoEmptyEnvRefused(t *testing.T) {
+	w := setup(t)
+	r := w.release(t, "", release.Pin{Slug: "api", Repo: "nginx", Digest: "sha256:one"})
+	_, err := w.f.D.Envs.SetRelease(ctx, w.dev, r.ID)
+	must(t, err)
+	p, err := w.f.Plan(ctx, w.prd.ID, r.ID, io.Discard)
+	must(t, err)
+	want := "prd has none of release #1's tiles; add them first"
+	if len(p.Blockers) != 1 || p.Blockers[0] != want {
+		t.Errorf("blockers = %v", p.Blockers)
+	}
+	if _, err := w.f.Apply(ctx, w.prd.ID, r.ID, io.Discard, nil); err == nil {
+		t.Error("an empty promote applied")
+	}
+	got, err := w.f.D.Envs.Get(ctx, w.prd.ID)
+	must(t, err)
+	if got.ReleaseID != nil {
+		t.Errorf("prd marked on release %s", *got.ReleaseID)
+	}
+}
+
 // DECIDE 140: a rollback of a tile whose tag was edited outside the stack
 // file puts the pinned tag back on the row.
 func TestRollbackRestoresTheTag(t *testing.T) {

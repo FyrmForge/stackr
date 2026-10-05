@@ -49,11 +49,13 @@ func TestTabs(t *testing.T) {
 				Manage:  true,
 				Roles:   []string{"owner"},
 				Members: []MemberRow{{UserID: "u1", Email: "a@b.c", Role: "owner"}},
-				Invites: []InviteRow{{Email: "new@b.c", Role: "member"}},
+				Invites: []InviteRow{{Email: "new@b.c", Role: "member", Link: "https://x/invite/i1"}},
 			}),
 			[]string{
 				"a@b.c",
 				`hx-post="/o/members/u1/role"`,
+				"Remove a@b.c?",
+				`data-copy="https://x/invite/i1"`,
 				`<option value="owner" selected>`,
 				"new@b.c",
 				`hx-post="/o/invite"`,
@@ -67,12 +69,13 @@ func TestTabs(t *testing.T) {
 		},
 		"keys": {
 			Keys(KeysView{
-				Base: "/o",
+				Base:   "/o",
+				Minted: "tok123",
 				Keys: []KeyRow{
 					{ID: "k1", Name: "laptop"},
 				},
 			}),
-			[]string{"laptop", `hx-post="/o/keys/k1/revoke"`, `hx-post="/o/keys"`},
+			[]string{"laptop", "Revoke laptop?", `hx-post="/o/keys/k1/revoke"`, `hx-post="/o/keys"`, `data-copy="tok123"`, `hx-history="false"`, "not shown again"},
 			nil,
 		},
 		"backups": {

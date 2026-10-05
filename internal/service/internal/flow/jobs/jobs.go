@@ -87,6 +87,12 @@ type Runner struct {
 	wake    chan struct{}
 	stop    context.CancelFunc
 	wg      sync.WaitGroup
+
+	// parked is the param each waiting job's log last named, so a job
+	// re-run every poll says what it waits on once, not every poll.
+	// ponytail: a waiting job superseded or cancelled keeps its entry until
+	// a restart; a few bytes each.
+	parked map[string]string
 }
 
 func New(jobs *job.Leaf, handlers map[Kind]Handler, dataDir string, opt Options) *Runner {
@@ -105,6 +111,7 @@ func New(jobs *job.Leaf, handlers map[Kind]Handler, dataDir string, opt Options)
 		logDir:   filepath.Join(dataDir, "jobs"),
 		opt:      opt,
 		running:  map[string]*active{},
+		parked:   map[string]string{},
 		wake:     make(chan struct{}, 1),
 	}
 }
@@ -258,6 +265,9 @@ func (r *Runner) run(parent context.Context, j store.Job, a *active) {
 	if state == job.Waiting {
 		err = r.jobs.Park(fresh, j, param)
 	} else {
+		r.mu.Lock()
+		delete(r.parked, j.ID)
+		r.mu.Unlock()
 		err = r.jobs.Finish(fresh, j, state, reason)
 	}
 	if err != nil {
@@ -301,6 +311,13 @@ func (r *Runner) call(ctx context.Context, j store.Job, a *active) (state, reaso
 		return job.Failed, "stopped after the " + r.opt.Cap.String() + " cap", ""
 	}
 	if u, ok := errs.IsUnset(err); ok {
+		r.mu.Lock()
+		said := r.parked[j.ID] == u.Param
+		r.parked[j.ID] = u.Param
+		r.mu.Unlock()
+		if !said {
+			_, _ = fmt.Fprintf(f, "waiting: %v; the job resumes once it is\n", u)
+		}
 		return job.Waiting, "", u.Param
 	}
 	return job.Failed, err.Error(), ""

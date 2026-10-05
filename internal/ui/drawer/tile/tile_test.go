@@ -214,3 +214,16 @@ func TestTabsPerKind(t *testing.T) {
 		}
 	}
 }
+
+// Restart is safe to repeat, so it posts without a dialog; Stop still asks.
+func TestRestartHasNoConfirm(t *testing.T) {
+	var b strings.Builder
+	v := View{Name: "api", Kind: "service", Base: "/t"}
+	if err := actions(v).Render(context.Background(), &b); err != nil {
+		t.Fatal(err)
+	}
+	if got := b.String(); strings.Contains(got, "Restart api?") || !strings.Contains(got, `hx-post="/t/restart"`) ||
+		!strings.Contains(got, "Stop api?") {
+		t.Errorf("header actions:\n%s", got)
+	}
+}

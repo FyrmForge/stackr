@@ -3,9 +3,10 @@ package main
 import (
 	"bytes"
 	"context"
-	"fmt"
 	"encoding/json"
+	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -175,6 +176,8 @@ func TestUsageExitsTwo(t *testing.T) {
 		{"tile", "bogus"},
 		{"tile", "set", "--nope"},
 		{"key", "add"},
+		{"invites", "add", "--help"},
+		{"org", "bogus", "--help"},
 	} {
 		if code, _, _ := cli(t, args...); code != 2 {
 			t.Errorf("%v = %d, want 2", args, code)
@@ -263,9 +266,9 @@ func TestTileArgOnlyWhereUseNamesIt(t *testing.T) {
 		"domain ls web":                      "GET " + p + "web/domains ",
 		"set web --port 8080":                "PATCH " + p + "web ",
 		"domain set a.example.com --path /x": "GET " + p + "api/domains ",
-		"allow --set acme:*":                 "PUT " + p + "api/allow ",
+		"allow --set acme:*":                 "GET " + p + "api ",
 		"access --slice db --access read":    "PUT " + p + "api/slice-access ",
-		"env-pairs pg dev=dev":               "PUT " + p + "pg/env-pairs ",
+		"env-pairs pg dev=dev":               "GET " + p + "pg ",
 	} {
 		r.reqs = nil
 		cli(t, append(append([]string{"tile"}, strings.Fields(args)...), at...)...)
@@ -413,22 +416,6 @@ func TestSliceVerbsRoutes(t *testing.T) {
 		want string
 	}{
 		{
-			[]string{"tile", "allow", "pg", "--set", "acme:shop:*", "--set", "acme:blog:*:api"},
-			"PUT " + env + `/tiles/pg/allow {"allow":["acme:shop:*","acme:blog:*:api"]}`,
-		},
-		{
-			[]string{"tile", "allow", "pg", "--set", ""},
-			"PUT " + env + `/tiles/pg/allow {"allow":[]}`,
-		},
-		{
-			[]string{"tile", "env-pairs", "pg", "staging=dev", "prod=prod"},
-			"PUT " + env + `/tiles/pg/env-pairs {"env_pairs":{"prod":"prod","staging":"dev"}}`,
-		},
-		{
-			[]string{"tile", "env-pairs", "pg", "--clear"},
-			"PUT " + env + `/tiles/pg/env-pairs {"env_pairs":{}}`,
-		},
-		{
 			[]string{"tile", "access", "api", "--slice", "db", "--access", "read"},
 			"PUT " + env + `/tiles/api/slice-access {"access":"read","slice":"db"}`,
 		},
@@ -449,7 +436,7 @@ func TestSliceVerbsRoutes(t *testing.T) {
 			"GET " + env + "/tiles/db/bindings ",
 		},
 		{
-			[]string{"slice", "on-remove", "db", "drop"},
+			[]string{"slice", "on-remove", "db", "drop", "-y"},
 			"PUT " + env + `/tiles/db/on-remove {"on_remove":"drop"}`,
 		},
 	} {
@@ -468,6 +455,7 @@ func TestSliceVerbsRoutes(t *testing.T) {
 		{"tile", "env-pairs", "pg", "dev"},
 		{"slice", "add", "db"},
 		{"tile", "access", "api", "--slice", "db"},
+		{"slice", "on-remove", "db", "drop"},
 	} {
 		r.reqs = nil
 		if code, _, _ := cli(t, append(args, at...)...); code == 0 || len(r.reqs) != 0 {
@@ -693,6 +681,288 @@ func TestPromoteAsks(t *testing.T) {
 		r = serve(false)
 		if code, _, errw := cli(t, append([]string{"-y"}, verb...)...); code == 0 || posted(r) || !strings.Contains(errw, "blocked") {
 			t.Errorf("%s blocked = %d %q, posted %v", verb[0], code, errw, posted(r))
+		}
+	}
+}
+
+// fake is a recorder that answers by the longest matching path suffix (""
+// answers the rest) and records the query too.
+func fake(t *testing.T, answers map[string]string) *recorder {
+	t.Helper()
+	r := &recorder{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		b, _ := io.ReadAll(req.Body)
+		r.mu.Lock()
+		r.reqs = append(r.reqs, req.Method+" "+req.URL.RequestURI()+" "+string(b))
+		r.mu.Unlock()
+		best := ""
+		for suffix := range answers {
+			if strings.HasSuffix(req.URL.Path, suffix) && len(suffix) > len(best) {
+				best = suffix
+			}
+		}
+		_, _ = io.WriteString(w, answers[best])
+	}))
+	t.Cleanup(srv.Close)
+	useServer(t, srv.URL)
+	return r
+}
+
+// writes is the requests of r that are not reads.
+func writes(r *recorder) []string {
+	var out []string
+	for _, q := range r.reqs {
+		if !strings.HasPrefix(q, "GET ") {
+			out = append(out, q)
+		}
+	}
+	return out
+}
+
+// env-pairs and allow --set replace a whole map or list: they print what
+// changes, then ask; -y sends it.
+func TestReplaceShowsDiffAndAsks(t *testing.T) {
+	const env = "/api/v1/orgs/acme/stacks/shop/envs/dev"
+	answers := map[string]string{
+		"/tiles/pg": `{"id":"t1","slug":"pg"}`,
+		"/managed":  `[{"tile_id":"t1","allow":["acme:old:*"],"env_pairs":{"staging":"dev"}}]`,
+	}
+	at := []string{"--stack", "shop", "--env", "dev"}
+	for _, c := range []struct {
+		args       []string
+		diff, want string
+	}{
+		{
+			[]string{"tile", "env-pairs", "pg", "staging=dev", "prod=prod"},
+			"prod\t(none)\tprod",
+			"PUT " + env + `/tiles/pg/env-pairs {"env_pairs":{"prod":"prod","staging":"dev"}}`,
+		},
+		{
+			[]string{"tile", "env-pairs", "pg", "--clear"},
+			"staging\tdev\t(none)",
+			"PUT " + env + `/tiles/pg/env-pairs {"env_pairs":{}}`,
+		},
+		{
+			[]string{"tile", "allow", "pg", "--set", "acme:shop:*"},
+			"remove\tacme:old:*\nadd\tacme:shop:*",
+			"PUT " + env + `/tiles/pg/allow {"allow":["acme:shop:*"]}`,
+		},
+		{
+			[]string{"tile", "allow", "pg", "--set", ""},
+			"remove\tacme:old:*",
+			"PUT " + env + `/tiles/pg/allow {"allow":[]}`,
+		},
+	} {
+		args := slices.Concat(c.args, at)
+		r := fake(t, answers)
+		code, out, errw := cli(t, args...)
+		if code == 0 || !strings.Contains(out, c.diff) || !strings.Contains(errw, "of pg?") || len(writes(r)) != 0 {
+			t.Errorf("%s without a yes = %d %q %q, wrote %q", c.args, code, out, errw, writes(r))
+		}
+		r = fake(t, answers)
+		if code, _, errw := cli(t, append(args, "-y")...); code != 0 || len(writes(r)) != 1 || writes(r)[0] != c.want {
+			t.Errorf("%s -y = %d %s, wrote %q, want %q", c.args, code, errw, writes(r), c.want)
+		}
+	}
+}
+
+// The rm verbs look the object up first: the question names it, the
+// DELETE goes by its id, and a wrong one fails before the question.
+func TestRmNamesWhatItRemoves(t *testing.T) {
+	const org = "/api/v1/orgs/acme"
+	answers := map[string]string{
+		"/backup-dests": `[{"id":"d1","name":"s3-eu"}]`,
+		"/credentials":  `[{"id":"c1","name":"ghcr"}]`,
+		"/members":      `[{"user_id":"u1","email":"u@x.io"}]`,
+		"/invites":      `[{"id":"i1","email":"new@x.io"}]`,
+		"/volumes":      `[{"id":"v1","slug":"pgdata","scope_kind":"org"}]`,
+	}
+	for _, c := range []struct{ args, name, want string }{
+		{"dest rm s3-eu", "s3-eu", "DELETE " + org + "/backup-dests/d1 "},
+		{"org creds rm ghcr", "ghcr", "DELETE " + org + "/credentials/c1 "},
+		{"org members rm u1", "u@x.io", "DELETE " + org + "/members/u1 "},
+		{"org invites rm i1", "new@x.io", "DELETE " + org + "/invites/i1 "},
+		{"volume rm pgdata", "pgdata (org)", "DELETE " + org + "/volumes/v1 "},
+	} {
+		r := fake(t, answers)
+		code, _, errw := cli(t, strings.Fields(c.args)...)
+		if code == 0 || !strings.Contains(errw, " "+c.name+" ") && !strings.Contains(errw, " "+c.name+"?") || len(writes(r)) != 0 {
+			t.Errorf("%s without a yes = %d %q, wrote %q", c.args, code, errw, writes(r))
+		}
+		r = fake(t, answers)
+		if code, _, errw := cli(t, append(strings.Fields(c.args), "-y")...); code != 0 || len(writes(r)) != 1 || writes(r)[0] != c.want {
+			t.Errorf("%s -y = %d %s, wrote %q, want %q", c.args, code, errw, writes(r), c.want)
+		}
+	}
+	for _, args := range []string{"dest rm nope -y", "org creds rm nope -y", "org members rm nope -y"} {
+		r := fake(t, answers)
+		if code, _, errw := cli(t, strings.Fields(args)...); code == 0 || !strings.Contains(errw, `"nope"`) || len(writes(r)) != 0 {
+			t.Errorf("%s = %d %q, wrote %q", args, code, errw, writes(r))
+		}
+	}
+}
+
+// org approve prints the plan, then asks; a blocked plan never gets the
+// question.
+func TestOrgApproveAsks(t *testing.T) {
+	plan := func(blockers string) map[string]string {
+		return map[string]string{
+			"/plans/p1": `{"id":"p1","status":"pending","plan":"{\"changes\":[{\"kind\":\"org\",\"new\":\"Acme\"}],\"blockers\":` + blockers + `}"}`,
+			"":          `{"id":"j1","state":"queued"}`,
+		}
+	}
+	r := fake(t, plan("[]"))
+	code, out, errw := cli(t, "org", "approve", "p1", "--no-wait")
+	if code == 0 || !strings.Contains(out, "Acme") || !strings.Contains(errw, "Apply config plan p1?") || len(writes(r)) != 0 {
+		t.Errorf("approve without a yes = %d %q %q, wrote %q", code, out, errw, writes(r))
+	}
+	r = fake(t, plan("[]"))
+	if code, _, errw := cli(t, "org", "approve", "p1", "--no-wait", "-y"); code != 0 || len(writes(r)) != 1 {
+		t.Errorf("approve -y = %d %s, wrote %q", code, errw, writes(r))
+	}
+	r = fake(t, plan(`[\"no\"]`))
+	if code, _, errw := cli(t, "org", "approve", "p1", "--no-wait", "-y"); code == 0 || !strings.Contains(errw, "blocked") || len(writes(r)) != 0 {
+		t.Errorf("blocked approve = %d %q, wrote %q", code, errw, writes(r))
+	}
+}
+
+// After a write, the handle the next command needs: a rename's slug, a new
+// key's id, an invite's link. org create is one call.
+func TestWritesPrintTheNextHandle(t *testing.T) {
+	r := fake(t, map[string]string{"": `{"id":"x1","slug":"shop-v2","token":"tok","key":{"id":"k1"}}`})
+	for _, c := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"stack", "rename", "Shop v2", "--stack", "shop"}, "slug: shop-v2"},
+		{[]string{"tile", "rename", "api", "API v2", "--stack", "shop", "--env", "dev"}, "slug: shop-v2"},
+		{[]string{"key", "add", "ci"}, "key id: k1"},
+		{[]string{"org", "invites", "add"}, "/invite/x1"},
+	} {
+		if code, out, errw := cli(t, c.args...); code != 0 || !strings.Contains(out, c.want) {
+			t.Errorf("%s = %d %q %q, want %q", c.args, code, out, errw, c.want)
+		}
+	}
+	r.reqs = nil
+	if code, _, errw := cli(t, "org", "create", "Shop v2"); code != 0 ||
+		len(r.reqs) != 1 || r.reqs[0] != `POST /api/v1/orgs {"name":"Shop v2"}` {
+		t.Errorf("org create = %d %s, sent %q", code, errw, r.reqs)
+	}
+}
+
+// A rename moves the directory links on the old slug; others stay.
+func TestRenameMovesLinks(t *testing.T) {
+	fake(t, map[string]string{"": `{"slug":"api-v2"}`})
+	p := os.Getenv("STACKR_CONFIG")
+	var cfg config
+	b, _ := os.ReadFile(p)
+	_ = json.Unmarshal(b, &cfg)
+	cfg.Links = map[string]link{
+		"/a": {Stack: "shop", Env: "dev", Tile: "api"},
+		"/b": {Stack: "shop", Env: "prd", Tile: "api"},
+		"/c": {Stack: "shop"},
+	}
+	b, _ = json.Marshal(cfg)
+	if err := os.WriteFile(p, b, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if code, _, errw := cli(t, "tile", "rename", "api", "API v2", "--stack", "shop", "--env", "dev"); code != 0 {
+		t.Fatalf("rename = %d %s", code, errw)
+	}
+	b, _ = os.ReadFile(p)
+	cfg = config{}
+	_ = json.Unmarshal(b, &cfg)
+	want := map[string]link{
+		"/a": {Stack: "shop", Env: "dev", Tile: "api-v2"},
+		"/b": {Stack: "shop", Env: "prd", Tile: "api"},
+		"/c": {Stack: "shop"},
+	}
+	if !maps.Equal(cfg.Links, want) {
+		t.Errorf("links = %+v, want %+v", cfg.Links, want)
+	}
+}
+
+// params get masks a secret's value unless --reveal.
+func TestParamsGetMasksSecrets(t *testing.T) {
+	fake(t, map[string]string{"/params": `[{"collection":"c","name":"s","kind":"secret","value":""}]`})
+	if code, out, errw := cli(t, "params", "get", "--level", "org"); code != 0 || !strings.Contains(out, "****") {
+		t.Errorf("params get = %d %q %q, want the secret masked", code, out, errw)
+	}
+}
+
+// params set names the tiles it redeploys.
+func TestParamsSetNamesRedeploys(t *testing.T) {
+	fake(t, map[string]string{"/params": `[{"env":"dev","tile":"web","job":"j1"}]`})
+	code, _, errw := cli(t, "params", "set", "app.color=green", "--stack", "shop", "--env", "dev")
+	if code != 0 || errw != "redeploying web (dev): stackr job log j1 --follow\n" {
+		t.Errorf("params set = %d %q, want the redeploy named", code, errw)
+	}
+}
+
+// tile status shows why the last job failed.
+func TestTileStatusShowsJobError(t *testing.T) {
+	fake(t, map[string]string{"/status": `{"word":"none","replicas":[],` +
+		`"last_job":{"id":"j1","kind":"deploy","state":"failed","error":"worker: exited: fatal: no queue"}}`})
+	code, out, _ := cli(t, "tile", "status", "worker", "--stack", "shop", "--env", "dev")
+	if code != 0 || !strings.Contains(out, "deploy failed j1: worker: exited: fatal: no queue") {
+		t.Errorf("tile status = %d %q, want the job's error", code, out)
+	}
+}
+
+// login takes the key from STACKR_KEY, so it stays off argv.
+func TestLoginReadsKeyFromEnv(t *testing.T) {
+	var auth string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		auth = req.Header.Get("Authorization")
+		_, _ = io.WriteString(w, `[{"slug":"acme","id":"o1"}]`)
+	}))
+	t.Cleanup(srv.Close)
+	t.Setenv("STACKR_CONFIG", filepath.Join(t.TempDir(), "config.json"))
+	t.Setenv("STACKR_KEY", "sk-env")
+	if code, _, errw := cli(t, "login", srv.URL); code != 0 || auth != "Bearer sk-env" {
+		t.Errorf("login = %d %s, sent %q", code, errw, auth)
+	}
+}
+
+// STACKR_KEY, STACKR_SERVER and STACKR_ORG alone authenticate: no login, no
+// config file written.
+func TestEnvAuthenticatesWithoutConfig(t *testing.T) {
+	var auth, path string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		auth, path = req.Header.Get("Authorization"), req.URL.Path
+		_, _ = io.WriteString(w, `[]`)
+	}))
+	t.Cleanup(srv.Close)
+	cfg := filepath.Join(t.TempDir(), "config.json")
+	t.Setenv("STACKR_CONFIG", cfg)
+	t.Setenv("STACKR_KEY", "sk-ci")
+	t.Setenv("STACKR_SERVER", srv.URL)
+	t.Setenv("STACKR_ORG", "acme")
+	if code, _, errw := cli(t, "org", "members", "ls"); code != 0 || auth != "Bearer sk-ci" || path != "/api/v1/orgs/acme/members" {
+		t.Errorf("members ls = %d %s, sent %q to %q", code, errw, auth, path)
+	}
+	if _, err := os.Stat(cfg); err == nil {
+		t.Error("the config file was written")
+	}
+}
+
+// job ls asks for the newest 20 unless told; env create takes promote once
+// the stack has an env, and needs --from-kind for its first.
+func TestListAndCreateDefaults(t *testing.T) {
+	r := fake(t, nil)
+	cli(t, "job", "ls")
+	cli(t, "job", "ls", "--limit", "0", "--state", "failed")
+	want := []string{"GET /api/v1/admin/jobs?limit=20 ", "GET /api/v1/admin/jobs?limit=0&state=failed "}
+	if !slices.Equal(r.reqs, want) {
+		t.Errorf("job ls sent %q, want %q", r.reqs, want)
+	}
+	for envs, want := range map[string]string{`[]`: "", `[{"slug":"dev"}]`: `"from_kind":"promote"`} {
+		r := fake(t, map[string]string{"/envs": envs})
+		code, _, errw := cli(t, "env", "create", "prod", "--stack", "shop")
+		w := writes(r)
+		if want == "" && (code != 2 || len(w) != 0 || !strings.Contains(errw, "--from-kind")) ||
+			want != "" && (code != 0 || len(w) != 1 || !strings.Contains(w[0], want)) {
+			t.Errorf("env create with envs %s = %d %q, wrote %q", envs, code, errw, w)
 		}
 	}
 }

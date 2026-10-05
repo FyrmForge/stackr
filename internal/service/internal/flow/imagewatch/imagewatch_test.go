@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -145,7 +146,8 @@ func TestCheck(t *testing.T) {
 	mk(prd.ID, "api", "nginx:1", "auto", "")               // promote rung: no direct release
 
 	// Round 1: every image moved; one release for dev, none for prd.
-	ups, err := f.Check(ctx, Scope{}, io.Discard)
+	var log strings.Builder
+	ups, err := f.Check(ctx, Scope{}, &log)
 	must(t, err)
 	want := []string{"digest nginx:1", "tags redis", "digest redis:7.2.0"}
 	if !slices.Equal(reg.calls, want) {
@@ -153,6 +155,9 @@ func TestCheck(t *testing.T) {
 	}
 	if len(ups) != 1 || ups[0].EnvID != dev.ID || ups[0].Auto {
 		t.Fatalf("updates = %+v, want one manual update for dev", ups)
+	}
+	if !strings.Contains(log.String(), "dev: wrote release #1\n") {
+		t.Errorf("log = %q, want dev: wrote release #1", log.String())
 	}
 	pins, err := f.Releases.Pins(ctx, ups[0].ReleaseID)
 	must(t, err)

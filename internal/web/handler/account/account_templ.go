@@ -354,7 +354,7 @@ func password(v PasswordView) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = c.Field(c.FieldView{Name: "current_password", Label: "Current password", Type: "password", Required: true, Error: v.Errors["current_password"]}).Render(ctx, templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = c.Field(c.FieldView{Name: "current_password", Label: "Current password", Type: "password", Autocomplete: "current-password", Required: true, Error: v.Errors["current_password"]}).Render(ctx, templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -362,7 +362,7 @@ func password(v PasswordView) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = c.Field(c.FieldView{Name: "password", Label: "New password", Type: "password", Required: true, Error: v.Errors["password"],
+			templ_7745c5c3_Err = c.Field(c.FieldView{Name: "password", Label: "New password", Type: "password", Autocomplete: "new-password", Required: true, Error: v.Errors["password"],
 				Help: "At least 8 characters with upper and lower case, a number and a symbol."}).Render(ctx, templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
@@ -371,7 +371,7 @@ func password(v PasswordView) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = c.Field(c.FieldView{Name: "confirm_password", Label: "Confirm new password", Type: "password", Required: true, Error: v.Errors["confirm_password"]}).Render(ctx, templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = c.Field(c.FieldView{Name: "confirm_password", Label: "Confirm new password", Type: "password", Autocomplete: "new-password", Required: true, Error: v.Errors["confirm_password"]}).Render(ctx, templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

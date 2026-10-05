@@ -4,18 +4,24 @@
 // close it: the body empties, ?drawer and ?tab leave the URL through
 // history.replaceState (the one place an element touches the URL), and a
 // bubbling "drawer-closed" fires. While open, Tab cycles inside the drawer
-// and closing hands focus back to what opened it.
+// and closing hands focus back to what opened it. An edited form asks
+// before a close drops it; a failed request into the open drawer shows
+// there, with its request id, instead of as a toast.
 // ponytail: a close during an in-flight open reopens on arrival; add a
 // request guard if that shows up.
 const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), select, textarea, [tabindex]:not([tabindex="-1"])';
 
+type Failed = { target?: Element; xhr?: { status: number; getResponseHeader(name: string): string | null } };
+
 class SideDrawer extends HTMLElement {
   private opener: HTMLElement | null = null;
+  private dirty = false;
 
   private onSwap = (e: Event): void => {
     const target = (e as CustomEvent<{ target?: Element }>).detail?.target;
     const body = this.body();
     if (!body || !target || !body.contains(target)) return;
+    this.dirty = false;
     const was = document.activeElement as HTMLElement | null;
     if (!this.hasAttribute("open") && was && !this.contains(was)) this.opener = was;
     this.setAttribute("open", "");
@@ -29,12 +35,30 @@ class SideDrawer extends HTMLElement {
     if ((e.target as Element).closest("[data-close], [data-backdrop]")) this.close();
   };
 
-  // A 404 aimed into the drawer means what it showed is gone (a deleted
-  // tile's refresh after its job): close rather than keep the stale body.
+  // Only a form's own fields count: not a confirm's typed word, not the
+  // log pane's filters.
+  private onEdit = (e: Event): void => {
+    const el = e.target as Element;
+    if (el.closest("form") && !el.closest("dialog") && this.body()?.contains(el)) this.dirty = true;
+  };
+
+  // An error aimed into the open drawer is the drawer's to show, so the
+  // toast stands down (defaultPrevented). A 404 means what it showed is
+  // gone (a deleted tile's refresh after its job): close, quietly.
   private onError = (e: Event): void => {
-    const d = (e as CustomEvent<{ target?: Element; xhr?: { status: number } }>).detail;
+    const d = (e as CustomEvent<Failed>).detail;
     const body = this.body();
-    if (d?.xhr?.status === 404 && body && d.target && body.contains(d.target)) this.close();
+    if (!this.hasAttribute("open") || !body || !d?.target || !body.contains(d.target)) return;
+    e.preventDefault();
+    if (d.xhr?.status === 404) return this.close(true);
+    body.querySelector("[data-request-error]")?.remove();
+    const p = document.createElement("p");
+    p.className = "banner banner-danger";
+    p.setAttribute("role", "alert");
+    p.dataset.requestError = "";
+    const id = d.xhr?.getResponseHeader("X-Request-ID");
+    p.textContent = "Something went wrong. Try again." + (id ? ` Request id: ${id}` : "");
+    (body.querySelector("#drawer-view")?.lastElementChild ?? body).prepend(p);
   };
 
   // A native <dialog> open anywhere takes Escape for itself.
@@ -53,24 +77,31 @@ class SideDrawer extends HTMLElement {
 
   connectedCallback(): void {
     document.addEventListener("htmx:afterSwap", this.onSwap);
-    document.addEventListener("htmx:responseError", this.onError);
+    document.addEventListener("htmx:responseError", this.onError, true);
     document.addEventListener("keydown", this.onKey);
     this.addEventListener("click", this.onClick);
+    this.addEventListener("input", this.onEdit);
+    this.addEventListener("change", this.onEdit);
   }
 
   disconnectedCallback(): void {
     document.removeEventListener("htmx:afterSwap", this.onSwap);
-    document.removeEventListener("htmx:responseError", this.onError);
+    document.removeEventListener("htmx:responseError", this.onError, true);
     document.removeEventListener("keydown", this.onKey);
     this.removeEventListener("click", this.onClick);
+    this.removeEventListener("input", this.onEdit);
+    this.removeEventListener("change", this.onEdit);
   }
 
   private body(): HTMLElement | null {
     return this.querySelector<HTMLElement>("#drawer-body");
   }
 
-  private close(): void {
+  // force skips the unsaved-edits question (the body is already gone).
+  private close(force = false): void {
     if (!this.hasAttribute("open")) return;
+    if (this.dirty && !force && !window.confirm("Discard your unsaved changes?")) return;
+    this.dirty = false;
     this.removeAttribute("open");
     this.removeAttribute("tab");
     this.body()?.replaceChildren();

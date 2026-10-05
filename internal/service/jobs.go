@@ -181,6 +181,8 @@ func (o *Orchestrator) handlers() map[jobs.Kind]jobs.Handler {
 				if u.Auto {
 					if _, perr := o.enqueuePromote(ctx, u.EnvID, u.ReleaseID); perr != nil {
 						err = errors.Join(err, perr)
+					} else {
+						_, _ = fmt.Fprintf(r.Log, "%s: promoting release #%d\n", u.Env, u.Number)
 					}
 				}
 			}
@@ -425,9 +427,10 @@ func (o *Orchestrator) PollJob(ctx context.Context, id string, offset int64) (Jo
 	return o.jobRows.Poll(ctx, id, offset)
 }
 
-// Jobs lists jobs in the given states (none = every state).
-func (o *Orchestrator) Jobs(ctx context.Context, states ...string) ([]Job, error) {
-	return o.jobRows.List(ctx, states...)
+// Jobs lists jobs in the given states (none = every state), newest first,
+// at most limit (0 = no cap).
+func (o *Orchestrator) Jobs(ctx context.Context, limit int, states ...string) ([]Job, error) {
+	return o.jobRows.Recent(ctx, limit, states...)
 }
 
 // TileJobs is the newest jobs touching the tiles, newest first.

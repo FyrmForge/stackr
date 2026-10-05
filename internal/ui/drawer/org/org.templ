@@ -24,7 +24,7 @@ type SettingsView struct {
 }
 
 type MembersView struct {
-	Base    string   // actions: /invite, /members/<user>/role, /members/<user>/remove
+	Base    string   // actions: /invite, /invites/<id>/revoke, /members/<user>/role, /members/<user>/remove
 	Manage  bool     // member.manage: change roles, remove, invite
 	Self    string   // the viewer's user id: no role change or remove on their own row
 	Roles   []string // what the org takes, the pickers' options
@@ -34,11 +34,12 @@ type MembersView struct {
 
 type MemberRow struct{ UserID, Name, Email, Role string }
 
-type InviteRow struct{ Email, Role, Expires string }
+type InviteRow struct{ ID, Email, Role, Expires, Link string } // Link: the full invite URL
 
 type KeysView struct {
-	Base string // POST /keys (name), /keys/<id>/revoke
-	Keys []KeyRow
+	Base   string // POST /keys (name), /keys/<id>/revoke
+	Minted string // the token a mint just made; "" = none
+	Keys   []KeyRow
 }
 
 type KeyRow struct{ ID, Name, Created string }
@@ -131,7 +132,7 @@ func stacks(n int) string {
 templ Settings(v SettingsView) {
 	<div id="tab-settings">
 		@c.Section("Organization", "organization", "The name is the slug in every URL below it, so renaming moves them.") {
-			<form hx-post={ v.Rename } hx-target={ target() } hx-swap="outerHTML" class="space-y-4">
+			<form novalidate hx-post={ v.Rename } hx-target={ target() } hx-swap="outerHTML" class="space-y-4">
 				@c.Field(c.FieldView{Name: "name", Label: "Name", Value: v.Name, Required: true, Help: "Renaming breaks existing links.", Disabled: v.Rename == "", Why: "Only an owner can rename this organization."})
 				if v.Rename != "" {
 					<button type="submit" class="btn btn-primary btn-sm">Rename</button>
@@ -174,7 +175,7 @@ templ Members(v MembersView) {
 	<div id="tab-members">
 		if v.Manage {
 			@c.Section("Add people", "organization", "Everyone gets an invite link to accept, and that link is a credential.") {
-				<form hx-post={ v.Base + "/invite" } hx-target={ target() } hx-swap="outerHTML" class="people-add space-y-4">
+				<form novalidate hx-post={ v.Base + "/invite" } hx-target={ target() } hx-swap="outerHTML" class="people-add space-y-4">
 					<div>
 						<label for="people-email" class="label">Email address</label>
 						<input id="people-email" name="email" type="email" required placeholder="person@example.com" class="input"/>
@@ -200,7 +201,7 @@ templ Members(v MembersView) {
 							}
 						</span>
 						if v.Manage && m.UserID != v.Self {
-							<form hx-post={ v.Base + "/members/" + m.UserID + "/role" } hx-target={ target() } hx-swap="outerHTML" class="flex items-center gap-2">
+							<form novalidate hx-post={ v.Base + "/members/" + m.UserID + "/role" } hx-target={ target() } hx-swap="outerHTML" class="flex items-center gap-2">
 								<select name="role" class="input !w-24 !py-1 text-xs" aria-label={ "Role of " + m.Email }>
 									for _, r := range v.Roles {
 										<option value={ r } selected?={ r == m.Role }>{ r }</option>
@@ -208,7 +209,13 @@ templ Members(v MembersView) {
 								</select>
 								<button type="submit" class="btn btn-ghost btn-sm">Set</button>
 							</form>
-							<button type="button" class="btn btn-danger btn-sm" hx-post={ v.Base + "/members/" + m.UserID + "/remove" } hx-target={ target() } hx-swap="outerHTML">Remove</button>
+							@c.Confirm(c.ConfirmView{
+								Button:  "Remove",
+								Title:   "Remove " + nameOr(m.Name, m.Email) + "?",
+								Warning: "They lose access to this organization.",
+								Action:  v.Base + "/members/" + m.UserID + "/remove",
+								Target:  target(),
+							})
 						} else {
 							<span class="text-xs px-1.5 py-0.5 rounded bg-rw-inset text-rw-muted">{ m.Role }</span>
 						}
@@ -222,6 +229,15 @@ templ Members(v MembersView) {
 							<span class="block text-xs text-rw-warning">Invited, expires { i.Expires }</span>
 						</span>
 						<span class="text-xs px-1.5 py-0.5 rounded bg-rw-inset text-rw-muted">{ i.Role }</span>
+						// the link is a credential: keep it out of htmx's history cache
+						<button type="button" data-copy={ i.Link } hx-history="false" class="btn btn-ghost btn-sm">Copy link</button>
+						@c.Confirm(c.ConfirmView{
+							Button:  "Revoke",
+							Title:   "Revoke the invite for " + i.Email + "?",
+							Warning: "The link stops working.",
+							Action:  v.Base + "/invites/" + i.ID + "/revoke",
+							Target:  target(),
+						})
 					</li>
 				}
 			</ul>
@@ -239,10 +255,20 @@ func nameOr(name, email string) string {
 templ Keys(v KeysView) {
 	<div id="tab-keys">
 		@c.Section("Mint a key", "organization", "An API key for the stackr CLI, scoped to this organization. It is shown once, when minted.") {
-			<form hx-post={ v.Base + "/keys" } hx-target={ target() } hx-swap="outerHTML" class="space-y-4">
+			<form novalidate hx-post={ v.Base + "/keys" } hx-target={ target() } hx-swap="outerHTML" class="space-y-4">
 				@c.Field(c.FieldView{Name: "key_name", Label: "Name", Placeholder: "laptop", Required: true})
 				<button type="submit" class="btn btn-primary btn-sm">Mint key</button>
 			</form>
+			if v.Minted != "" {
+				// a one-time token: keep it out of htmx's history cache
+				<div class="panel p-4 mt-4 space-y-2" role="status" hx-history="false">
+					<p class="text-sm text-rw-text">Copy this key now. It is not shown again.</p>
+					<div class="flex items-center gap-2">
+						<code class="min-w-0 flex-1 break-all font-mono text-xs text-rw-text">{ v.Minted }</code>
+						<button type="button" data-copy={ v.Minted } class="btn btn-ghost btn-sm">Copy</button>
+					</div>
+				</div>
+			}
 		}
 		@c.Section("Your keys", "organization", "") {
 			if len(v.Keys) == 0 {
@@ -255,7 +281,13 @@ templ Keys(v KeysView) {
 								<span class="text-sm text-rw-text">{ k.Name }</span>
 								<span class="text-rw-faint text-xs">{ k.Created }</span>
 							</span>
-							<button type="button" class="btn btn-danger btn-sm" hx-post={ v.Base + "/keys/" + k.ID + "/revoke" } hx-target={ target() } hx-swap="outerHTML">Revoke</button>
+							@c.Confirm(c.ConfirmView{
+								Button:  "Revoke",
+								Title:   "Revoke " + k.Name + "?",
+								Warning: "Anything using this key stops working.",
+								Action:  v.Base + "/keys/" + k.ID + "/revoke",
+								Target:  target(),
+							})
 						</li>
 					}
 				</ul>
@@ -291,7 +323,7 @@ templ Domains(v DomainsView) {
 				<p class="text-sm text-rw-faint mb-5">No domains yet.</p>
 			}
 			if v.Add != "" {
-				<form hx-post={ v.Add } hx-target={ target() } hx-swap="outerHTML" class="space-y-4">
+				<form novalidate hx-post={ v.Add } hx-target={ target() } hx-swap="outerHTML" class="space-y-4">
 					<div>
 						<label for="domain-host" class="label">Host</label>
 						<input id="domain-host" name="host" type="text" required placeholder="example.com" value={ v.Host } class="input font-mono"/>
@@ -324,7 +356,7 @@ templ Config(v ConfigView) {
 			if len(v.Connectors) == 0 && v.Repo == "" {
 				<p class="text-sm text-rw-muted">Connect GitHub first. The org file is fetched through a connector. <a href={ templ.SafeURL(v.Canvas) } class="link">Connectors</a></p>
 			} else {
-				<form hx-post={ v.Base + "/config" } hx-target={ target() } hx-swap="outerHTML">
+				<form novalidate hx-post={ v.Base + "/config" } hx-target={ target() } hx-swap="outerHTML">
 					<fieldset disabled?={ v.Base == "" } class="space-y-4">
 						<legend class="sr-only">Config repository</legend>
 						<div>

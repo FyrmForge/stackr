@@ -7,10 +7,12 @@ import (
 	"testing"
 
 	"github.com/FyrmForge/hamr/pkg/server"
+	"github.com/labstack/echo/v4"
 
 	"github.com/FyrmForge/stackr/internal/middleware"
 	"github.com/FyrmForge/stackr/internal/service/servicetest"
 	"github.com/FyrmForge/stackr/internal/web"
+	"github.com/FyrmForge/stackr/internal/web/render"
 )
 
 // One route, three ways: a plain GET gets the layout, an htmx navigation
@@ -56,7 +58,7 @@ func TestPageRendersBothWays(t *testing.T) {
 		for _, want := range []string{
 			"Nothing here yet.",
 			`id="shell-rail"`, // the signed-in shell: v0's rail shows no email
-			`href="/acme/shop/dev/api"`,
+			`href="/acme/shop/dev"`,
 			`aria-current="page"`,
 			"<title>Overview - stackr</title>",
 		} {
@@ -69,6 +71,27 @@ func TestPageRendersBothWays(t *testing.T) {
 		}
 		if got := strings.Contains(body, `hx-swap-oob="true"`); got == tt.full {
 			t.Errorf("%s: out-of-band header = %v, want %v", tt.name, got, !tt.full)
+		}
+	}
+}
+
+// The phone tab select asks for Base?tab=&drawer=node and gets the same
+// pushed URL the tab links carry; a request without the node pushes none.
+func TestDrawerTabPushesURL(t *testing.T) {
+	e := echo.New()
+	h := render.DrawerTab(func(c echo.Context) error { return c.NoContent(http.StatusOK) })
+	for query, want := range map[string]string{
+		"tab=vars&drawer=org:1": "?drawer=org%3A1&tab=vars",
+		"tab=vars":              "",
+	} {
+		req := httptest.NewRequest(http.MethodGet, "/-/drawer?"+query, nil)
+		req.Header.Set("HX-Target", "drawer-view")
+		rec := httptest.NewRecorder()
+		if err := h(e.NewContext(req, rec)); err != nil {
+			t.Fatal(err)
+		}
+		if got := rec.Header().Get("HX-Push-Url"); got != want {
+			t.Errorf("%s: HX-Push-Url = %q, want %q", query, got, want)
 		}
 	}
 }

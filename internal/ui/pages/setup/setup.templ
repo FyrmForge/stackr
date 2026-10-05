@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	c "github.com/FyrmForge/stackr/internal/ui/components"
+	"github.com/FyrmForge/stackr/internal/ui/dialog"
 )
 
 // Frame is what every step's shell draws: the heading and the stepper.
@@ -212,7 +213,7 @@ templ nav(href, label string) {
 // buttons post to /setup, which makes the draft.
 templ Branch() {
 	@shell(Frame{Title: "Set up your organization", Subtitle: "Stacks, variables, domains and people all live inside one."}) {
-		<form hx-post="/setup" class="space-y-3">
+		<form novalidate hx-post="/setup" class="space-y-3">
 			<button type="submit" name="mode" value="config" class="w-full text-left panel px-4 py-3.5 hover:border-rw-accent transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-rw-accent/60">
 				<span class="block text-sm font-semibold text-rw-text">Describe it in a config file</span>
 				<span class="block mt-0.5 text-xs text-rw-muted">One file in a GitHub repo declares the whole organization, its name included.</span>
@@ -245,7 +246,7 @@ templ Name(v NameView) {
 // name still in the box.
 templ NameForm(v NameView) {
 	<div id="setup-name">
-		<form hx-post={ v.Base + "/name" } hx-target="#setup-name" hx-swap="outerHTML" class="space-y-5">
+		<form novalidate hx-post={ v.Base + "/name" } hx-target="#setup-name" hx-swap="outerHTML" class="space-y-5">
 			<div>
 				<label class="label" for="setup-org-name">Organization name</label>
 				<input
@@ -274,7 +275,7 @@ templ NameForm(v NameView) {
 // switchTo is the branch switch, both ways, so step 1 is not a one-way
 // door. To "ui" drops the binding.
 templ switchTo(base, mode, label string) {
-	<form hx-post={ base + "/mode" } class="mt-3">
+	<form novalidate hx-post={ base + "/mode" } class="mt-3">
 		<input type="hidden" name="mode" value={ mode }/>
 		<button type="submit" class="btn btn-ghost btn-sm w-full">{ label }</button>
 	</form>
@@ -304,7 +305,7 @@ templ ConnectorBody(v GitHubView) {
 	<div>
 		if !v.Connected {
 			// templint:ignore no-native-form-actions -- the answer is the page that posts the manifest to GitHub; it must replace the document
-			<form method="post" action={ templ.SafeURL(v.Base + "/connector") } class="space-y-5">
+			<form novalidate method="post" action={ templ.SafeURL(v.Base + "/connector") } class="space-y-5">
 				<input type="hidden" name="csrf_token" value={ v.CSRF }/>
 				<div>
 					<label class="label" for="setup-gh-org">GitHub organization (optional)</label>
@@ -359,7 +360,7 @@ templ GitHubRedirect(action, manifest string) {
 			<p class="text-sm text-rw-muted mb-6">GitHub creates the app from the manifest we just built. Approve it there and you land back here.</p>
 			<div class="mx-auto h-6 w-6 rounded-full border-2 border-rw-border border-t-rw-accent animate-spin" role="status" aria-label="Redirecting"></div>
 			// templint:ignore no-native-form-actions -- GitHub's manifest flow requires a browser form POST
-			<form id="github-manifest" method="post" action={ templ.SafeURL(action) }>
+			<form novalidate id="github-manifest" method="post" action={ templ.SafeURL(action) }>
 				<input type="hidden" name="manifest" value={ manifest }/>
 				// The page submits itself; the button is only for browsers
 				// with scripts off.
@@ -397,7 +398,7 @@ templ ConfigBody(v GitHubView) {
 			@nav(v.Base+"/config", "I installed it, check again")
 			@switchTo(v.Base, "ui", "Fill it in here instead")
 		} else {
-			<form hx-post={ v.Base + "/config" } class="space-y-5">
+			<form novalidate hx-post={ v.Base + "/config" } class="space-y-5">
 				<div>
 					<label class="label" for="setup-conn">Connector</label>
 					<select id="setup-conn" name="connector_id" class="input">
@@ -492,7 +493,7 @@ templ Plan(v PlanView) {
 				<span class="text-rw-faint">{ v.When }</span>
 			}
 			if v.Replan != "" {
-				<form hx-post={ v.Replan } class="ml-auto">
+				<form novalidate hx-post={ v.Replan } class="ml-auto">
 					<input type="hidden" name="plan_only" value="1"/>
 					<button type="submit" class="btn btn-ghost btn-sm">Plan again</button>
 				</form>
@@ -524,6 +525,7 @@ templ Plan(v PlanView) {
 			<div class="flex flex-wrap items-center gap-2 mt-6">
 				if v.Approve != "" {
 					<form
+						novalidate
 						hx-post={ v.Approve }
 						if len(v.Destroys) > 0 {
 							hx-confirm={ "This apply DESTROYS: " + strings.Join(v.Destroys, ", ") + ". Continue?" }
@@ -533,7 +535,7 @@ templ Plan(v PlanView) {
 					</form>
 				}
 				if v.Reject != "" {
-					<form hx-post={ v.Reject }>
+					<form novalidate hx-post={ v.Reject }>
 						<button type="submit" class="btn btn-ghost btn-sm">Reject</button>
 					</form>
 				}
@@ -639,7 +641,7 @@ templ Domain(v DomainView) {
 			}
 			@nav(v.Next, "Continue")
 		} else {
-			<form hx-post={ v.Base + "/domain" } class="space-y-5">
+			<form novalidate hx-post={ v.Base + "/domain" } class="space-y-5">
 				<div>
 					<label class="label" for="setup-host">Host</label>
 					<input type="text" id="setup-host" name="host" required value={ v.Prefill } placeholder="example.com" class="input font-mono"/>
@@ -689,7 +691,7 @@ templ peoplePanel(v TeamView) {
 							<span class="block text-sm text-rw-text truncate">{ u.Name }</span>
 							<span class="block text-xs text-rw-faint truncate">{ u.Email }</span>
 						</span>
-						<form hx-post={ v.Base + "/team/members" } class="flex items-center gap-1.5">
+						<form novalidate hx-post={ v.Base + "/team/members" } class="flex items-center gap-1.5">
 							<input type="hidden" name="email" value={ u.Email }/>
 							<select name="role" aria-label={ "Role for " + u.Name } class="input !w-24 !py-1 text-xs">
 								for _, r := range v.Roles {
@@ -703,7 +705,7 @@ templ peoplePanel(v TeamView) {
 			</ul>
 		</div>
 	}
-	<form hx-post={ v.Base + "/team/members" } class="people-add space-y-4">
+	<form novalidate hx-post={ v.Base + "/team/members" } class="people-add space-y-4">
 		<div>
 			<label class="label" for="people-email">Email address</label>
 			<input type="email" id="people-email" name="email" required placeholder="person@example.com" class="input"/>
@@ -736,7 +738,7 @@ templ peopleList(v TeamView) {
 					}
 				</span>
 				if p.State == "member" && !p.Self {
-					<form hx-post={ v.Base + "/team/members/" + p.UserID + "/role" } class="flex items-center gap-1.5">
+					<form novalidate hx-post={ v.Base + "/team/members/" + p.UserID + "/role" } class="flex items-center gap-1.5">
 						<select name="role" aria-label={ "Role for " + p.Name } class="input !w-24 !py-1 text-xs">
 							for _, r := range v.Roles {
 								<option value={ r } selected?={ r == p.Role }>{ r }</option>
@@ -744,9 +746,12 @@ templ peopleList(v TeamView) {
 						</select>
 						<button type="submit" class="btn btn-ghost btn-sm">Set</button>
 					</form>
-					<form hx-post={ v.Base + "/team/members/" + p.UserID + "/remove" } hx-confirm={ "Remove " + p.Name + " from " + v.Org + "?" }>
-						<button type="submit" class="btn btn-danger btn-sm">Remove</button>
-					</form>
+					@c.Confirm(c.ConfirmView{
+						Button:  "Remove",
+						Title:   "Remove " + p.Name + " from " + v.Org + "?",
+						Warning: "They lose access to this organization.",
+						Action:  v.Base + "/team/members/" + p.UserID + "/remove",
+					})
 				} else {
 					<span class="text-xs px-1.5 py-0.5 rounded bg-rw-inset text-rw-muted">{ p.Role }</span>
 					if p.State == "pending" {
@@ -811,18 +816,33 @@ templ Done(v DoneView) {
 				<a href={ templ.SafeURL(v.Base + "/name") } class="btn btn-primary w-full">Name it</a>
 			}
 		} else {
-			<form hx-post={ v.Base + "/done" }>
+			<form novalidate hx-post={ v.Base + "/done" }>
 				<button type="submit" class="btn btn-primary w-full">Finish and go to { v.Name }</button>
 			</form>
 		}
 		// Discard sits here because this is the page every gated route lands
-		// an owner on. It is a real delete, which is why it asks first.
+		// an owner on. It is a real delete, which is why it asks for the name.
 		if !v.Finished {
-			<form hx-post={ v.Base + "/discard" } hx-confirm="Delete this organization and everything set up in it?" class="mt-8 pt-4 border-t border-rw-border text-center">
-				<button type="submit" class="inline-block px-4 py-3.5 text-xs text-rw-faint hover:text-rw-danger transition-colors">Discard this organization</button>
-			</form>
+			<div class="mt-8 pt-4 border-t border-rw-border flex justify-center">
+				@c.Confirm(discard(v))
+			</div>
 		}
 	}
+}
+
+// discard is the org delete as a typed confirm; a draft has no name of its
+// own to type, so it takes "discard".
+func discard(v DoneView) c.ConfirmView {
+	word := v.Name
+	if v.Draft {
+		word = "discard"
+	}
+	d := dialog.DeleteOrg(word, v.Base+"/discard", "")
+	d.Button, d.Quiet = "Discard this organization", true
+	if v.Draft {
+		d.Title = "Discard this organization?"
+	}
+	return d
 }
 
 // Holding is what anyone but an owner sees inside an unfinished org. Not a

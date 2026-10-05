@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	_ "github.com/joho/godotenv/autoload"
+	_ "time/tzdata" // CRON_TZ and --tz beyond UTC, on hosts without zoneinfo
 
 	"github.com/FyrmForge/hamr/pkg/config"
 	"github.com/FyrmForge/hamr/pkg/email"

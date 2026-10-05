@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"maps"
+	"strings"
 	"time"
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
@@ -59,10 +60,10 @@ type Gate struct{ Poll, Grace, Deadline time.Duration }
 var DefaultGate = Gate{Poll: time.Second, Grace: 10 * time.Second, Deadline: 60 * time.Second}
 
 // Start runs one replica from a resolved spec and gates it. A replica that
-// fails the gate is removed and the error returned; whatever ran before
-// keeps running. The VIP is not touched: the flow calls Route when the
-// rollout says so.
-func (l *Leaf) Start(ctx context.Context, t store.Tile, spec docker.ContainerSpec) (string, error) {
+// fails the gate is removed and the error returned, its last output first
+// copied into log; whatever ran before keeps running. The VIP is not
+// touched: the flow calls Route when the rollout says so.
+func (l *Leaf) Start(ctx context.Context, t store.Tile, spec docker.ContainerSpec, log io.Writer) (string, error) {
 	spec.Labels = maps.Clone(spec.Labels)
 	if spec.Labels == nil {
 		spec.Labels = map[string]string{}
@@ -73,10 +74,27 @@ func (l *Leaf) Start(ctx context.Context, t store.Tile, spec docker.ContainerSpe
 		return "", err
 	}
 	if err := l.gate(ctx, id, time.Duration(t.HealthcheckStartPeriodS)*time.Second); err != nil {
+		if ctx.Err() == nil {
+			err = l.lastWords(ctx, id, err, log)
+		}
 		_ = l.docker.StopRemove(context.WithoutCancel(ctx), id)
 		return "", fmt.Errorf("%s: %w", t.Slug, err)
 	}
 	return id, nil
+}
+
+// lastWords copies a failed replica's last output into log before it is
+// removed, and puts its last line in front of err: most often the app
+// saying why, so it comes first where a narrow column cuts.
+func (l *Leaf) lastWords(ctx context.Context, id string, err error, log io.Writer) error {
+	out, lerr := l.docker.Logs(ctx, id, 20)
+	out = strings.TrimSpace(out)
+	if lerr != nil || out == "" {
+		return err
+	}
+	_, _ = io.WriteString(log, "its last output:\n"+out+"\n")
+	last := out[strings.LastIndexByte(out, '\n')+1:]
+	return fmt.Errorf("%s (%w)", last[:min(len(last), 200)], err)
 }
 
 // RunOnce runs one run-to-completion container: no health gate, no restart,

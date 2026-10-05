@@ -19,13 +19,31 @@ const (
 	atTile
 )
 
-// scoped gives a noun the --stack/--env (and --tile) flags that beat the
-// directory link.
+// orgLevel are the verbs under a scoped noun that act on the org, so
+// --stack/--env mean nothing to them.
+var orgLevel = map[string]bool{"stack.list": true, "stack.create": true, "volume.delete": true}
+
+// scoped gives a noun's verbs the --stack/--env (and --tile) flags that beat
+// the directory link; org-level verbs do not get them.
 func scoped(c *cobra.Command, tile bool) *cobra.Command {
-	c.PersistentFlags().String("stack", "", "the stack (default: the linked one)")
-	c.PersistentFlags().String("env", "", "the environment (default: the linked one)")
-	if tile {
-		c.PersistentFlags().String("tile", "", "the tile (default: the linked one)")
+	if len(c.Commands()) == 0 {
+		if orgLevel[c.Annotations["op"]] {
+			return c
+		}
+		add := func(name, usage string) {
+			if c.Flags().Lookup(name) == nil {
+				c.Flags().String(name, "", usage)
+			}
+		}
+		add("stack", "the stack (default: the linked one)")
+		add("env", "the environment (default: the linked one)")
+		if tile {
+			add("tile", "the tile (default: the linked one)")
+		}
+		return c
+	}
+	for _, sub := range c.Commands() {
+		scoped(sub, tile)
 	}
 	return c
 }
@@ -38,10 +56,11 @@ func flag(c *cobra.Command, name string) string {
 }
 
 func (a *app) orgPath() (string, error) {
-	if a.cfg.Org == "" {
-		return "", errors.New("no org; run stackr login <url> --org <slug>")
+	slug := a.env("ORG", a.cfg.Org)
+	if slug == "" {
+		return "", errors.New("no org; run stackr login <url> --org <slug>, or set STACKR_ORG")
 	}
-	return "/orgs/" + url.PathEscape(a.cfg.Org), nil
+	return "/orgs/" + url.PathEscape(slug), nil
 }
 
 // path is the API path down to lv: a flag beats the link, and a level

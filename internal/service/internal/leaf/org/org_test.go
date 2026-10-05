@@ -197,3 +197,23 @@ func TestSetEnvColors(t *testing.T) {
 		t.Errorf("stored %s", got.EnvColors)
 	}
 }
+
+// A revoke deletes the invite, and only through its own org.
+func TestRevokeInvite(t *testing.T) {
+	st, l := setup(t)
+	owner := seedUser(t, st, "o@x.io", false)
+	o, _ := l.StartDraft(ctx, owner.ID)
+	inv, err := l.Invite(ctx, o.ID, "j@x.io", "", owner.ID, false, time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := l.RevokeInvite(ctx, "other-org", inv.ID); !errors.Is(err, errs.ErrNotFound) {
+		t.Errorf("other org revoke = %v", err)
+	}
+	if err := l.RevokeInvite(ctx, o.ID, inv.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := l.Lookup(ctx, inv.ID, time.Now()); !errors.Is(err, errs.ErrNotFound) {
+		t.Errorf("revoked invite lookup = %v", err)
+	}
+}

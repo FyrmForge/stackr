@@ -20,6 +20,7 @@ module.exports = {
           inset:    "rgb(var(--rw-inset) / <alpha-value>)",
           border:   "rgb(var(--rw-border) / <alpha-value>)",
           strong:   "rgb(var(--rw-strong) / <alpha-value>)",
+          field:    "rgb(var(--rw-field) / <alpha-value>)",
           text:     "rgb(var(--rw-text) / <alpha-value>)",
           muted:    "rgb(var(--rw-muted) / <alpha-value>)",
           faint:    "rgb(var(--rw-faint) / <alpha-value>)",

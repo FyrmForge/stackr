@@ -6,10 +6,12 @@ import (
 	"bufio"
 	"context"
 	"errors"
+	"fmt"
 	"io"
-	"net/http"
 	"os"
 	"os/signal"
+	"slices"
+	"strings"
 
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
@@ -35,7 +37,7 @@ func run(ctx context.Context, args []string, in io.Reader, out, errw io.Writer, 
 		errw:    errw,
 		tty:     tty,
 		cfgPath: configPath(),
-		client:  http.DefaultClient,
+		client:  newClient(),
 	}
 	root := a.root()
 	root.SetArgs(args)
@@ -43,6 +45,9 @@ func run(ctx context.Context, args []string, in io.Reader, out, errw io.Writer, 
 	root.SetOut(out)
 	root.SetErr(errw)
 	if err := a.load(); err != nil {
+		return a.fail(err)
+	}
+	if err := helpOnUnknown(root, args); err != nil {
 		return a.fail(err)
 	}
 	if err := root.ExecuteContext(ctx); err != nil {
@@ -56,8 +61,15 @@ func run(ctx context.Context, args []string, in io.Reader, out, errw io.Writer, 
 
 func (a *app) root() *cobra.Command {
 	root := &cobra.Command{
-		Use:           "stackr",
-		Short:         "Drive a stackr server from the terminal",
+		Use:   "stackr",
+		Short: "Drive a stackr server from the terminal",
+		Long: `Drive a stackr server from the terminal.
+
+Environment (each beats the config file; nothing here is written to disk):
+  STACKR_KEY     API key, so CI needs no login
+  STACKR_SERVER  server URL
+  STACKR_ORG     org slug
+  STACKR_CONFIG  config file path`,
 		Version:       version,
 		SilenceErrors: true,
 		SilenceUsage:  true,
@@ -68,6 +80,17 @@ func (a *app) root() *cobra.Command {
 	root.PersistentFlags().BoolVarP(&a.yes, "yes", "y", false, "skip confirmation prompts (never overrides a server refusal)")
 	root.SetFlagErrorFunc(func(_ *cobra.Command, err error) error { return usageErr{err.Error()} })
 	root.AddCommand(a.commands()...)
+	root.SetHelpCommand(&cobra.Command{
+		Use:   "help [command]",
+		Short: "Help about any command",
+		RunE: func(c *cobra.Command, args []string) error {
+			t, rest, err := root.Find(args)
+			if err != nil || (t == root && len(args) > 0) || len(rest) > 0 {
+				return group(root, args)
+			}
+			return t.Help()
+		},
+	})
 	return root
 }
 
@@ -75,9 +98,31 @@ func (a *app) root() *cobra.Command {
 // prints help (exit 0); with an unknown word, a usage error (exit 2).
 func group(c *cobra.Command, args []string) error {
 	if len(args) > 0 {
-		return usage("unknown command %q for %q", args[0], c.CommandPath())
+		msg := fmt.Sprintf("unknown command %q for %q", args[0], c.CommandPath())
+		c.SuggestionsMinimumDistance = 2
+		if s := c.SuggestionsFor(args[0]); len(s) > 0 {
+			msg += "; did you mean " + strings.Join(s, ", ") + "?"
+		}
+		return usageErr{msg}
 	}
 	return c.Help()
+}
+
+// helpOnUnknown: cobra answers "stackr <unknown> --help" with the parent's
+// help and exit 0; it gets group's usage error instead.
+func helpOnUnknown(root *cobra.Command, args []string) error {
+	if !slices.Contains(args, "--help") && !slices.Contains(args, "-h") {
+		return nil
+	}
+	t, rest, err := root.Find(args)
+	if err != nil || !t.HasSubCommands() {
+		return nil
+	}
+	t.InitDefaultHelpFlag()
+	if t.ParseFlags(rest) != nil || t.Flags().NArg() == 0 {
+		return nil
+	}
+	return group(t, t.Flags().Args())
 }
 
 func noun(use, short string, subs ...*cobra.Command) *cobra.Command {
