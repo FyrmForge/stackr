@@ -310,6 +310,31 @@ func TestWaitingSaysOnce(t *testing.T) {
 	}
 }
 
+// A parked job re-run every poll logs each tile's deploy line once.
+func TestDeployLineOnce(t *testing.T) {
+	var calls atomic.Int32
+	h := func(_ context.Context, r *jobs.Run) error {
+		_, _ = r.Log.Write([]byte("deploying api\n"))
+		if calls.Add(1) < 4 {
+			return errs.Unset{Param: "app.db_url"}
+		}
+		return nil
+	}
+	r, l := setup(t, map[jobs.Kind]jobs.Handler{"a": h}, jobs.Options{})
+	start(t, r)
+	id := enqueue(t, r, "a", "t1")
+	waitState(t, l, id, job.Done)
+	j, _ := l.Get(ctx, id)
+	b, err := os.ReadFile(j.LogPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "deploying api\nwaiting: param app.db_url is not set; the job resumes once it is\n"
+	if string(b) != want {
+		t.Errorf("log = %q", b)
+	}
+}
+
 func TestFailures(t *testing.T) {
 	block := func(ctx context.Context, _ *jobs.Run) error {
 		<-ctx.Done()

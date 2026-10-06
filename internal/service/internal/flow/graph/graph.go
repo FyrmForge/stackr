@@ -119,9 +119,10 @@ type Node struct {
 	Status string // worst-of word; "" before the status pass
 	X, Y   int
 	W, H   int
-	Saved  bool // the position is a row, not arranged
-	System bool // behind the divider
-	Static bool // not draggable (ghosts, vars)
+	Saved  bool   // the position is a row, not arranged
+	System bool   // behind the divider
+	Static bool   // not draggable (ghosts, vars)
+	Sync   string // env sync tag: new | edited | removed; "" = none
 	Color  string
 	Deck   int // 0-2 layers behind a drill-down card
 	Subs   []Sub
@@ -173,6 +174,8 @@ type In struct {
 	Show    Show
 	Status  bool
 	Traffic []ltraffic.Edge
+	Sync    map[string]string // env canvas: tile slug -> new | edited | removed; nil = no overlay
+	New     []store.Tile      // env canvas: the rows a sync would create, drawn as ghosts
 }
 
 // Build is the canvas at s.
@@ -661,6 +664,7 @@ func (f *Flow) env(ctx context.Context, v *View, envID string, in In) error {
 		if err != nil {
 			return err
 		}
+		n.Sync = in.Sync[t.Slug]
 		for _, sl := range n.Volumes {
 			mounted[sl] = true
 		}
@@ -668,6 +672,15 @@ func (f *Flow) env(ctx context.Context, v *View, envID string, in In) error {
 			proxied = true
 			v.Edges = append(v.Edges, Edge{EdgeIngress, KindProxy, n.ID})
 		}
+		v.Nodes = append(v.Nodes, n)
+	}
+	// Sync ghosts: tiles the target lacks, drawn like unsaved cards. No edges.
+	for _, t := range in.New {
+		n, err := f.tileCard(ctx, t, vols, false)
+		if err != nil {
+			return err
+		}
+		n.ID, n.Static, n.Sync = "sync:"+t.Slug, true, "new"
 		v.Nodes = append(v.Nodes, n)
 	}
 
@@ -712,7 +725,8 @@ func (f *Flow) env(ctx context.Context, v *View, envID string, in In) error {
 		}
 	}
 	for i := range v.Nodes {
-		if v.Nodes[i].Kind != KindSlice {
+		// A sync ghost has no row to resolve a target from.
+		if v.Nodes[i].Kind != KindSlice || v.Nodes[i].Sync == "new" {
 			continue
 		}
 		if err := f.sliceCard(ctx, v, i, byID[v.Nodes[i].ID]); err != nil {

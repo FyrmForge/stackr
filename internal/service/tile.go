@@ -206,7 +206,10 @@ func (o *Orchestrator) Logs(ctx context.Context, tileID, containerID string, tai
 	if err != nil {
 		return "", err
 	}
-	i := slices.IndexFunc(js, func(j Job) bool { return j.Kind == string(kindDeploy) || j.Kind == string(kindPromote) })
+	i := slices.IndexFunc(js, func(j Job) bool {
+		return j.Kind == string(kindDeploy) || j.Kind == string(kindPromote) ||
+			j.Kind == string(kindEnvSync)
+	})
 	if i < 0 {
 		return "", errs.Conflictf("the tile has no container and no deploy yet; deploy it first")
 	}

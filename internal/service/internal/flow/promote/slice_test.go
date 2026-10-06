@@ -684,7 +684,8 @@ func TestSliceRemoveForgetsAccess(t *testing.T) {
 	if len(rep.SliceAccess) != 1 {
 		t.Fatalf("reporter slice_access before = %v", rep.SliceAccess)
 	}
-	must(t, w.f.Remove(ctx, w.dev, []store.Tile{sl}, io.Discard))
+	_, err = w.f.Remove(ctx, w.dev, []store.Tile{sl}, io.Discard)
+	must(t, err)
 	rep, err = d.Tiles.Get(ctx, rep.ID)
 	must(t, err)
 	if len(rep.SliceAccess) != 0 {
@@ -783,7 +784,7 @@ func TestSliceInstanceRemovalRefused(t *testing.T) {
 	_, err := w.f.Apply(ctx, w.dev.ID, w.shopRelease(t, "c1", sliceShopFile).ID, io.Discard, nil)
 	must(t, err)
 	n := len(w.fake.Calls())
-	err = w.f.Remove(ctx, w.envs["staging"], []store.Tile{w.pg["staging"]}, io.Discard)
+	_, err = w.f.Remove(ctx, w.envs["staging"], []store.Tile{w.pg["staging"]}, io.Discard)
 	if _, ok := errs.IsConflict(err); !ok {
 		t.Fatalf("remove = %v, want a conflict", err)
 	}

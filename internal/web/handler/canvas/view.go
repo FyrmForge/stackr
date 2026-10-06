@@ -193,7 +193,9 @@ func envCard(u *ui.Node, n service.GraphNode, base string) {
 		Host:       n.Host,
 		NewVersion: n.NewVersion,
 	}
-	if url, tab := envDrawer(base, n.Kind, n.ID, n.Slug); url != "" {
+	// a sync ghost is a tile the env does not have yet: no drawer to open
+	cv.Sync, cv.Ghost = n.Sync, strings.HasPrefix(n.ID, "sync:")
+	if url, tab := envDrawer(base, n.Kind, n.ID, n.Slug); url != "" && !cv.Ghost {
 		cv.Drawer, cv.Tab = url+"?tab="+tab, tab
 	}
 	f := cards.FooterView{
@@ -241,7 +243,7 @@ func envCard(u *ui.Node, n service.GraphNode, base string) {
 		default:
 			url, tab = envDrawer(base, s.Kind, s.ID, "")
 		}
-		if url != "" {
+		if url != "" && !cv.Ghost {
 			sv.Drawer, sv.Tab = url+"?tab="+tab, tab
 		}
 		cv.Subs = append(cv.Subs, sv)

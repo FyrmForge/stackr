@@ -4,6 +4,7 @@ import (
 	"context"
 	"slices"
 
+	hamrmw "github.com/FyrmForge/hamr/pkg/middleware"
 	"github.com/a-h/templ"
 	"github.com/labstack/echo/v4"
 
@@ -23,6 +24,8 @@ func (h *handler) envTab(c echo.Context, cd card, f *comp.DrawerView) (templ.Com
 		return envui.Logs(), nil
 	case "releases":
 		return h.releasesTab(c, cd, f)
+	case "sync":
+		return h.syncTab(c, cd, f)
 	case "order":
 		es, err := h.orch.Ladder(ctx, e.StackID)
 		v := orderView(es)
@@ -135,6 +138,21 @@ func (h *handler) mountEnv(site *echo.Group, a *middleware.Access) {
 		}
 		c.Set(jobKey, queued{job: j, page: urlOf(cd.s)})
 		return "Queued: the job below follows it.", nil
+	}), write)
+	site.POST(e+"/sync/:from", h.envAction("sync", func(c echo.Context, cd card) (string, error) {
+		form, _ := c.FormParams()
+		j, err := h.orch.EnvSync(c.Request().Context(), cd.s.Env.ID, c.Param("from"), form["keep"], c.FormValue("sig"))
+		if msg, ok := refused(err); err != nil && ok && c.FormValue("bar") != "" {
+			// the bar has no drawer to show the refusal in: back to the
+			// review, re-planned, with the reason as a flash
+			hamrmw.SetFlash(c, msg, hamrmw.FlashError)
+			return redirect(c, urlOf(cd.s)+"?drawer=env:"+cd.s.Env.ID+"&tab=sync&"+syncQ{from: c.Param("from")}.query())
+		}
+		if err != nil {
+			return "", err
+		}
+		// the full page leaves the review: no tags, ghosts or bar, the stream back
+		return redirect(c, urlOf(cd.s)+"?drawer=env:"+cd.s.Env.ID+"&tab=sync&job="+j.ID)
 	}), write)
 	site.POST(e+"/settings", h.saveRung(
 		"env",

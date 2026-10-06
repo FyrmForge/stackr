@@ -437,6 +437,7 @@ func (a *app) envs() *cobra.Command {
 		a.rename("rename <name>", "env.rename", "Rename the environment", atEnv),
 		a.put("color <color>", "env.color", "Set the environment's panel colour", atEnv, "/color", "color"),
 		from,
+		a.envSync(),
 		a.settingsCmd("env.get,env.settings", "Show or change the environment's settings defaults", atEnv),
 		leaf("reorder <env>...", "env.list,env.reorder", "Set the promote order, bottom rung first", atLeast(1),
 			a.at(atStack, func(_ *cobra.Command, p string, args []string) error {
@@ -467,23 +468,40 @@ func (a *app) envs() *cobra.Command {
 // plan prints what a promote would change, and its blockers (B20: the
 // one field the job itself refuses on).
 func (a *app) plan(p, rel string) (bool, error) {
-	v, err := a.call(GET, p+"/plan/"+rel, nil)
+	ok, _, err := a.showPlan(p + "/plan/" + rel)
+	return ok, err
+}
+
+// showPlan reads the plan at path and prints it (the body with --json); it
+// returns can_deploy and the plan for a caller that reads it further.
+func (a *app) showPlan(path string) (bool, map[string]any, error) {
+	v, ok, pl, err := a.fetchPlan(path)
 	if err != nil {
-		return false, err
+		return false, nil, err
+	}
+	if a.json {
+		return ok, pl, a.show(v)
+	}
+	a.changes(pl, "warnings", "blockers")
+	return ok, pl, nil
+}
+
+// fetchPlan reads a plan without printing it.
+func (a *app) fetchPlan(path string) (any, bool, map[string]any, error) {
+	v, err := a.call(GET, path, nil)
+	if err != nil {
+		return nil, false, nil, err
 	}
 	m, _ := v.(map[string]any)
 	ok, _ := m["can_deploy"].(bool)
-	if a.json {
-		return ok, a.show(v)
-	}
 	pl, _ := m["plan"].(map[string]any)
-	a.changes(pl, "warnings", "blockers")
-	return ok, nil
+	return v, ok, pl, nil
 }
 
 // changes prints a plan's changes as a table, then each line of lists
 // (a plan's warnings, notes, blockers) on stderr.
 func (a *app) changes(pl map[string]any, lists ...string) {
+	a.planShown = true
 	changes, _ := pl["changes"].([]any)
 	rows := make([][]string, 0, len(changes))
 	for _, c := range changes {
@@ -497,7 +515,9 @@ func (a *app) changes(pl map[string]any, lists ...string) {
 			cell(ch["note"]),
 		})
 	}
-	a.table([]string{"change", "tile", "field", "old", "new", "note"}, rows)
+	if len(rows) > 0 { // no empty-table "(none)" above a lone blocker
+		a.table([]string{"change", "tile", "field", "old", "new", "note"}, rows)
+	}
 	for _, list := range lists {
 		xs, _ := pl[list].([]any)
 		for _, x := range xs {
@@ -553,6 +573,105 @@ func (a *app) move(c *cobra.Command, p, release string, dry bool, verb, question
 		return err
 	}
 	return a.orgJob(c, POST, p+"/"+verb+"/"+rel, nil, verb)
+}
+
+// envSync is promote's shape for setup: the plan, a refusal on blockers, a
+// yes, then the job. --tile syncs only the named tagged tiles.
+func (a *app) envSync() *cobra.Command {
+	var from string
+	var tiles []string
+	var dry bool
+	c := waits(leaf("sync", "sync.plan,sync.run",
+		"Make --env match another env's setup (tiles, settings, params, volumes): prints the plan, then asks", exact(0),
+		a.at(atEnv, func(c *cobra.Command, p string, _ []string) error {
+			if from == "" {
+				return usage("--from is required: the env to sync from")
+			}
+			for i, t := range tiles {
+				tiles[i] = strings.TrimSpace(t)
+			}
+			tiles = slices.DeleteFunc(tiles, func(t string) bool { return t == "" })
+			path := p + "/sync-plan/" + url.PathEscape(from)
+			var ok bool
+			var pl map[string]any
+			var err error
+			if len(tiles) == 0 {
+				ok, pl, err = a.showPlan(path)
+			} else {
+				_, _, pl, err = a.fetchPlan(path)
+			}
+			if err != nil {
+				return err
+			}
+			if len(tiles) > 0 {
+				tagged := map[string]bool{}
+				for _, t := range syncTiles(pl) {
+					tagged[cell(t["slug"])] = true
+				}
+				named := map[string]bool{}
+				for _, n := range tiles {
+					if !tagged[n] {
+						return usage("no changes for tile %s", n)
+					}
+					named[n] = true
+				}
+				var drop []string
+				for _, s := range slices.Sorted(maps.Keys(tagged)) {
+					if !named[s] {
+						drop = append(drop, s)
+					}
+				}
+				if ok, pl, err = a.showPlan(path + "?drop=" + url.QueryEscape(strings.Join(drop, ","))); err != nil {
+					return err
+				}
+			}
+			changes, _ := pl["changes"].([]any)
+			blockers, _ := pl["blockers"].([]any)
+			empty := len(changes) == 0 && len(blockers) == 0
+			if dry {
+				if empty && !a.json {
+					a.say("nothing to sync")
+				}
+				return nil
+			}
+			if !ok {
+				if empty {
+					return errors.New("nothing to sync")
+				}
+				return errors.New("the sync is blocked; see the blockers above")
+			}
+			keep := []string{}
+			for _, t := range syncTiles(pl) {
+				if d, _ := t["dropped"].(bool); !d {
+					keep = append(keep, cell(t["slug"]))
+				}
+			}
+			noun := "tiles"
+			if len(keep) == 1 {
+				noun = "tile"
+			}
+			if err := a.confirm(fmt.Sprintf("Sync %d %s from %s into %s?", len(keep), noun, from, last(p))); err != nil {
+				return err
+			}
+			return a.orgJob(c, POST, p+"/sync/"+url.PathEscape(from),
+				map[string]any{"keep": keep, "sig": pl["sig"]}, "sync")
+		})))
+	c.Flags().StringVar(&from, "from", "", "the env of the stack to sync from (slug); required")
+	c.Flags().StringSliceVar(&tiles, "tile", nil, "sync only these tiles (slugs, comma list)")
+	c.Flags().BoolVar(&dry, "dry-run", false, "print the plan and change nothing")
+	return c
+}
+
+// syncTiles is the tagged tiles of a sync plan.
+func syncTiles(pl map[string]any) []map[string]any {
+	var out []map[string]any
+	xs, _ := pl["tiles"].([]any)
+	for _, x := range xs {
+		if m, ok := x.(map[string]any); ok {
+			out = append(out, m)
+		}
+	}
+	return out
 }
 
 // ---- tile ----

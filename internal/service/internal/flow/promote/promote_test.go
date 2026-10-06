@@ -532,6 +532,32 @@ func TestPlanShowsRunKinds(t *testing.T) {
 	}
 }
 
+// A setting change prints old and new; env still prints keys only.
+func TestPlanShowsSettingValues(t *testing.T) {
+	w := syncWorld(t)
+	d := imgTile("nginx:1", 80)
+	d.MemLimitMB, d.CPULimit, d.Replicas = 512, 0.5, 2
+	d.EnvJSON = `{"A":"topsecret"}`
+	w.mk(t, w.dev, "api", d)
+	p := imgTile("nginx:1", 80)
+	p.MemLimitMB, p.Replicas = 256, 1
+	p.EnvJSON = `{"A":"oldsecret"}`
+	w.mk(t, w.prd, "api", p)
+	got := map[string]Change{}
+	for _, c := range w.syncPlan(t).Changes {
+		got[c.Field] = c
+	}
+	if l := got["limits"]; l.Old != "256 MB" || l.New != "512 MB, 0.5 cpus" {
+		t.Errorf("limits = %+v", l)
+	}
+	if r := got["replicas"]; r.Old != "1" || r.New != "2" {
+		t.Errorf("replicas = %+v", r)
+	}
+	if e := got["env"]; e.Old != "" || e.New != "" {
+		t.Errorf("env shows values: %+v", e)
+	}
+}
+
 // autoFile has one tile whose domain is domain (a YAML block under
 // "- "), and the stack's domains: when reserve is set.
 func autoFile(domain, reserve string) string {
@@ -804,6 +830,25 @@ func TestDomainGrammar(t *testing.T) {
 		_, err := Load([]byte(autoFile(domain, "")), nil, "acme")
 		if err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("%q: err = %v, want %q", domain, err, want)
+		}
+	}
+}
+
+// A change line never has a double space or a dangling colon, whichever of
+// old, new and field is empty.
+func TestChangeLine(t *testing.T) {
+	for want, c := range map[string]Change{
+		"create c -> image":           {Kind: "create", Tile: "c", New: "image"},
+		"param app.mode":              {Kind: "param", Field: "app.mode"},
+		"volume data":                 {Kind: "volume", New: "data"},
+		"orphan old (note)":           {Kind: "orphan", Old: "old", Note: "note"},
+		"managed db allow -> +x":      {Kind: "managed", Tile: "db", Field: "allow", New: "+x"},
+		"update api env (+A -B)":      {Kind: "update", Tile: "api", Field: "env", Note: "+A -B"},
+		"update api port: 80 -> 8080": {Kind: "update", Tile: "api", Field: "port", Old: "80", New: "8080"},
+		"delete api":                  {Kind: "delete", Tile: "api"},
+	} {
+		if got := c.Line(); got != want {
+			t.Errorf("Line() = %q, want %q", got, want)
 		}
 	}
 }

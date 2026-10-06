@@ -30,6 +30,9 @@ type CardView struct {
 	Host       bool // privileged or devices: the red "host" chip
 	NewVersion bool // image watch saw a newer digest or tag
 
+	Sync  string // env sync review: new | edited | removed; "" = none
+	Ghost bool   // a tile the sync would add: dashed, no drawer, nothing running
+
 	Footer FooterView
 	Subs   []SubView // attached volumes, replicas 2 to 4
 }
@@ -113,6 +116,18 @@ func Class(kind string) string {
 		return base + " card-deck bg-rw-surface border-rw-border hover:border-rw-accent/60"
 	}
 	return base + " bg-rw-surface border-rw-border hover:border-rw-accent/60 shadow-rw"
+}
+
+// syncChip is the tag a sync review puts on a card: its words and tone.
+// It rides the card's top edge: the face has no height to spare for a row.
+func syncChip(tag string) (text, class string) {
+	switch tag {
+	case "new":
+		return "New", "border-rw-success/60 text-rw-success"
+	case "removed":
+		return "Removed", "border-rw-danger/60 text-rw-danger"
+	}
+	return "Edited", "border-rw-warn/60 text-rw-warn"
 }
 
 // KindLabel is the chip under a card's name (v0 kindLabel); "" where the

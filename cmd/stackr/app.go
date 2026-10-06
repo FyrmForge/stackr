@@ -38,6 +38,7 @@ type app struct {
 	client    *http.Client
 	ctx       context.Context
 	noEnv     bool // login: its own arguments, not STACKR_*, say where and as whom
+	planShown bool // a plan was printed as a table: a job's own "plan:" log lines repeat it
 }
 
 // config is the one file the CLI keeps, 0600.
@@ -184,6 +185,9 @@ func notFound(path string) string {
 		in = append(in, un(segs[i]))
 	}
 	kind := strings.TrimSuffix(segs[len(segs)-2], "s")
+	if kind == "sync-plan" { // the name is the env synced from, inside the stack
+		kind, in = "env", in[:len(in)-1]
+	}
 	msg := fmt.Sprintf("no %s %q", kind, un(segs[len(segs)-1]))
 	if len(in) > 0 {
 		msg += " in " + strings.Join(in, "/")

@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -55,6 +56,36 @@ type jobOut struct {
 	Log string `json:"log"`
 }
 
+// planFilter drops a job log's "plan:" lines, which the CLI printed as a
+// table already. Log chunks can end mid-line, so it holds the tail back.
+type planFilter struct {
+	w   io.Writer
+	buf []byte
+}
+
+func (f *planFilter) Write(p []byte) (int, error) {
+	f.buf = append(f.buf, p...)
+	for {
+		i := bytes.IndexByte(f.buf, '\n')
+		if i < 0 {
+			return len(p), nil
+		}
+		if line := f.buf[:i+1]; !bytes.HasPrefix(line, []byte("plan: ")) {
+			if _, err := f.w.Write(line); err != nil {
+				return 0, err
+			}
+		}
+		f.buf = f.buf[i+1:]
+	}
+}
+
+func (f *planFilter) flush() {
+	if !bytes.HasPrefix(f.buf, []byte("plan: ")) {
+		_, _ = f.w.Write(f.buf)
+	}
+	f.buf = nil
+}
+
 // follow watches a job to its end: its log to stdout (stderr under
 // --json), then the finished job. The exit reflects the job, not the
 // request. Ctrl-C stops watching, and says the work goes on.
@@ -72,6 +103,11 @@ func (a *app) follow(base string, job any, what string) error {
 	logw := a.out
 	if a.json {
 		logw = a.errw
+	}
+	if a.planShown && !a.json {
+		pf := &planFilter{w: logw}
+		defer pf.flush()
+		logw = pf
 	}
 	var end jobOut
 	var raw []byte

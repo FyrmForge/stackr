@@ -70,10 +70,7 @@ func (f *Flow) Apply(ctx context.Context, envID, releaseID string, log io.Writer
 		}
 	}
 	err = f.apply(ctx, w, log)
-	p.Deployed = w.deployed
-	for _, t := range w.deletes {
-		p.Removed = append(p.Removed, t.ID)
-	}
+	p.Deployed, p.Removed = w.deployed, w.removed
 	return p, err
 }
 
@@ -235,7 +232,9 @@ func (f *Flow) applyInstances(ctx context.Context, w *work, e store.Environment)
 
 // deleteTiles: consumers first, so an instance goes after its slices.
 func (f *Flow) deleteTiles(ctx context.Context, w *work, e store.Environment, log io.Writer) error {
-	return f.Remove(ctx, e, w.deletes, log)
+	var err error
+	w.removed, err = f.Remove(ctx, e, w.deletes, log)
+	return err
 }
 
 // Remove takes tiles of env e off the box and out of the store: containers,
@@ -244,7 +243,8 @@ func (f *Flow) deleteTiles(ctx context.Context, w *work, e store.Environment, lo
 // network last). Consumers go first, then slices, then managed tiles, so
 // nothing goes while something in this env still binds it. An engine
 // failure on a binding is logged, not fatal: its row goes with the tile.
-func (f *Flow) Remove(ctx context.Context, e store.Environment, ts []store.Tile, log io.Writer) error {
+// It returns the ids of the tiles it removed, also on an error.
+func (f *Flow) Remove(ctx context.Context, e store.Environment, ts []store.Tile, log io.Writer) (removed []string, err error) {
 	d := f.D
 	order := slices.Clone(ts)
 	slices.SortStableFunc(order, func(a, b store.Tile) int {
@@ -262,25 +262,25 @@ func (f *Flow) Remove(ctx context.Context, e store.Environment, ts []store.Tile,
 				// (or a forced Engines.Teardown) is the way out, a UI verb for
 				// the forced drop when someone needs it.
 				if _, err := d.Managed.Teardown(ctx, m, false); err != nil {
-					return err
+					return removed, err
 				}
 				if err := f.orphan(ctx, e, m); err != nil {
-					return err
+					return removed, err
 				}
 				// Before the container, so the engine can still reach it.
 				if err := d.Engines.Teardown(ctx, t, false, log); err != nil {
-					return err
+					return removed, err
 				}
 				net = managed.Network(m.ID)
 			case !errors.Is(err, errs.ErrNotFound):
-				return err
+				return removed, err
 			}
 		}
 		if err := d.Tiles.Teardown(ctx, t, e.Network); err != nil {
-			return err
+			return removed, err
 		}
 		if err := d.Domains.CloseIngress(ctx, t.ID); err != nil {
-			return err
+			return removed, err
 		}
 		switch {
 		case net != "":
@@ -291,18 +291,18 @@ func (f *Flow) Remove(ctx context.Context, e store.Environment, ts []store.Tile,
 		case t.Kind == tile.Slice:
 			p, ok, err := d.Managed.ProvisionOf(ctx, t.ID)
 			if err != nil {
-				return err
+				return removed, err
 			}
 			if ok {
 				drop := deref(t.OnRemove) == tile.Drop || e.Type == environment.Ephemeral
 				if err := d.Engines.Drop(ctx, p, drop, log); err != nil {
-					return err
+					return removed, err
 				}
 			}
 		default:
 			bound, err := d.Managed.Bound(ctx, t.ID)
 			if err != nil {
-				return err
+				return removed, err
 			}
 			for _, id := range slices.Sorted(maps.Keys(bound)) {
 				if err := d.Engines.Unbind(ctx, bound[id]); err != nil {
@@ -312,15 +312,16 @@ func (f *Flow) Remove(ctx context.Context, e store.Environment, ts []store.Tile,
 		}
 		if t.Kind == tile.Slice {
 			if err := f.forgetSlice(ctx, e, t.Slug); err != nil {
-				return err
+				return removed, err
 			}
 		}
 		if err := d.Tiles.Delete(ctx, t.ID); err != nil {
-			return err
+			return removed, err
 		}
+		removed = append(removed, t.ID)
 		logf(log, "removed %s\n", t.Slug)
 	}
-	return nil
+	return removed, nil
 }
 
 // forgetSlice drops every slice_access entry naming slice slug from the

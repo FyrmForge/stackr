@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
@@ -32,6 +33,7 @@ type (
 const (
 	kindDeploy      jobs.Kind = "deploy"
 	kindPromote     jobs.Kind = "promote"
+	kindEnvSync     jobs.Kind = "env-sync"
 	kindPush        jobs.Kind = "push"
 	kindPR          jobs.Kind = "pr"
 	kindDelete      jobs.Kind = "delete"
@@ -61,6 +63,13 @@ type tileJob struct {
 type promoteJob struct {
 	EnvID     string `json:"env_id"`
 	ReleaseID string `json:"release_id"`
+}
+
+type envSyncJob struct {
+	EnvID  string   `json:"env_id"`
+	FromID string   `json:"from_id"`
+	Keep   []string `json:"keep"`
+	Sig    string   `json:"sig"`
 }
 
 type pushJob struct {
@@ -114,6 +123,12 @@ func payload[P any](f func(context.Context, *jobs.Run, P) error) jobs.Handler {
 }
 
 func (o *Orchestrator) handlers() map[jobs.Kind]jobs.Handler {
+	// parkedSyncs holds the deploys a parked sync still owes, by job id. A
+	// parked job runs its handler again, and the sync's rows are written by
+	// then. ponytail: in memory, so a sync still waiting at a restart
+	// re-plans on resume and fails on its own writes (the tiles deploy by
+	// hand); a superseded one keeps its entry until a restart, a few bytes.
+	var parkedSyncs sync.Map
 	return map[jobs.Kind]jobs.Handler{
 		kindDeploy: payload(func(ctx context.Context, r *jobs.Run, p tileJob) error {
 			if err := o.deploy.Redeploy(ctx, p.TileID, r.Log, r.Swap); err != nil {
@@ -123,6 +138,27 @@ func (o *Orchestrator) handlers() map[jobs.Kind]jobs.Handler {
 		}),
 		kindPromote: payload(func(ctx context.Context, r *jobs.Run, p promoteJob) error {
 			plan, err := o.promote.Apply(ctx, p.EnvID, p.ReleaseID, r.Log, r.Swap)
+			if plan != nil {
+				err = errors.Join(err, o.dropRuns(plan.Removed), o.afterDeploy(ctx, plan.Deployed, true))
+			}
+			return err
+		}),
+		kindEnvSync: payload(func(ctx context.Context, r *jobs.Run, p envSyncJob) error {
+			var plan *promote.Sync
+			var err error
+			if owed, ok := parkedSyncs.Load(r.Job.ID); ok {
+				// Parked after its writes: deploy what it still owes, no re-plan.
+				if err = r.Swap(); err == nil {
+					plan, err = o.promote.SyncRollout(ctx, owed.([]string), r.Log)
+				}
+			} else {
+				plan, err = o.promote.SyncApply(ctx, p.EnvID, p.FromID, p.Keep, p.Sig, r.Log, r.Swap)
+			}
+			if _, parked := errs.IsUnset(err); parked && plan != nil && len(plan.Owed) > 0 {
+				parkedSyncs.Store(r.Job.ID, plan.Owed)
+			} else {
+				parkedSyncs.Delete(r.Job.ID)
+			}
 			if plan != nil {
 				err = errors.Join(err, o.dropRuns(plan.Removed), o.afterDeploy(ctx, plan.Deployed, true))
 			}
@@ -343,7 +379,7 @@ func (o *Orchestrator) runPR(ctx context.Context, r *jobs.Run, p prJob) error {
 		if err != nil {
 			return err
 		}
-		if err := o.promote.Remove(ctx, e, ts, r.Log); err != nil {
+		if _, err := o.promote.Remove(ctx, e, ts, r.Log); err != nil {
 			return err
 		}
 		if err := o.dropRuns(ids(ts)); err != nil {
@@ -387,7 +423,7 @@ func (o *Orchestrator) runDelete(ctx context.Context, r *jobs.Run, p tileJob) er
 	if err != nil {
 		return err
 	}
-	if err := o.promote.Remove(ctx, e, []store.Tile{t}, r.Log); err != nil {
+	if _, err := o.promote.Remove(ctx, e, []store.Tile{t}, r.Log); err != nil {
 		return err
 	}
 	if tile.RunToCompletion(t.Kind) {

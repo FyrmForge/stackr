@@ -43,7 +43,7 @@ type Change struct {
 type Plan struct {
 	Stack    string   `json:"stack"`
 	Env      string   `json:"env"`
-	Release  int      `json:"release"`
+	Release  int      `json:"release,omitempty"`
 	Changes  []Change `json:"changes"`
 	Blockers []string `json:"blockers,omitempty"`
 	Warnings []string `json:"warnings,omitempty"`
@@ -55,8 +55,41 @@ type Plan struct {
 }
 
 // shownValues are the tile keys whose old and new values the plan prints:
-// never a credential, and what a reader of a cron or function diff needs.
+// never a credential, and what a reader of a cron, function or setting diff
+// needs. Never env, build_args, command or files (they carry secrets), nor
+// the healthcheck command, so "healthcheck" prints its timings only.
 var shownValues = map[string]func(store.Tile) string{
+	"limits": func(t store.Tile) string {
+		var b []string
+		if t.MemLimitMB > 0 {
+			b = append(b, strconv.Itoa(t.MemLimitMB)+" MB")
+		}
+		if t.CPULimit > 0 {
+			b = append(b, strconv.FormatFloat(t.CPULimit, 'f', -1, 64)+" cpus")
+		}
+		if len(b) == 0 {
+			return "none"
+		}
+		return strings.Join(b, ", ")
+	},
+	"replicas":        func(t store.Tile) string { return strconv.Itoa(t.Replicas) },
+	"port":            func(t store.Tile) string { return strconv.Itoa(t.ContainerPort) },
+	"published_ports": func(t store.Tile) string { return t.PublishedPorts },
+	"update_policy":   func(t store.Tile) string { return t.UpdatePolicy },
+	"tag_policy":      func(t store.Tile) string { return t.TagPolicy },
+	"restart":         func(t store.Tile) string { return t.RestartPolicy },
+	"user":            func(t store.Tile) string { return t.User },
+	"shm_size_mb":     func(t store.Tile) string { return strconv.Itoa(t.ShmSizeMB) },
+	"health_path":     func(t store.Tile) string { return t.HealthPath },
+	"healthcheck": func(t store.Tile) string {
+		return fmt.Sprintf("every %ds, timeout %ds, %d retries, start %ds",
+			t.HealthcheckIntervalS, t.HealthcheckTimeoutS, t.HealthcheckRetries, t.HealthcheckStartPeriodS)
+	},
+	"watch_paths":     func(t store.Tile) string { return t.WatchPaths },
+	"dockerfile":      func(t store.Tile) string { return t.DockerfilePath },
+	"build_context":   func(t store.Tile) string { return t.BuildContext },
+	"git_url":         func(t store.Tile) string { return t.GitURL },
+	"depends_on":      func(t store.Tile) string { return t.DependsOn },
 	"schedule":        func(t store.Tile) string { return t.Schedule },
 	"trigger":         func(t store.Tile) string { return t.Trigger },
 	"timeout_minutes": func(t store.Tile) string { return strconv.Itoa(t.TimeoutMinutes) },
@@ -73,17 +106,24 @@ func (p *Plan) block(format string, a ...any) {
 
 func (p *Plan) add(c Change) { p.Changes = append(p.Changes, c) }
 
-// Line is the change as one job-log line: "update api env: a -> b (note)".
+// Line is the change as one job-log line: "update api port: 80 -> 8080 (note)".
+// An empty old, new or field leaves no gap: "create c -> image", "volume data".
 func (c Change) Line() string {
 	s := c.Kind
 	if c.Tile != "" {
 		s += " " + c.Tile
 	}
 	if c.Field != "" {
-		s += " " + c.Field + ":"
+		s += " " + c.Field
+		if c.Old != "" {
+			s += ":"
+		}
 	}
-	if c.Old != "" || c.New != "" {
-		s += " " + c.Old + " -> " + c.New
+	switch {
+	case c.Old != "" && c.New != "", (c.Old != "" || c.New != "") && (c.Tile != "" || c.Field != ""):
+		s += " " + strings.TrimSpace(c.Old+" -> "+c.New)
+	case c.Old != "" || c.New != "":
+		s += " " + c.Old + c.New
 	}
 	if c.Note != "" {
 		s += " (" + c.Note + ")"
@@ -122,6 +162,8 @@ type work struct {
 	unpin     map[string]bool // image tiles whose tag moved: run the tag, pin again
 	sync      bool
 	deployed  []string // tile ids rolled out, filled by apply
+	removed   []string // tile ids actually removed, filled by apply
+	owed      []string // tile ids a parked sync rollout still has to deploy
 }
 
 // instanceWork is a managed tile's allow list and env pairs as the file
@@ -833,7 +875,7 @@ func (f *Flow) planDeletes(ctx context.Context, p *Plan, w *work, live []store.T
 				}
 				for _, pr := range ps {
 					if !gone[pr.TileID] {
-						p.block("tile %s still holds a slice this promote keeps; remove its slice tile first", t.Slug)
+						p.block("tile %s still holds a slice that stays; remove its slice tile first", t.Slug)
 						break
 					}
 				}

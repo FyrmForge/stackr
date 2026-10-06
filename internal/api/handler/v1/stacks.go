@@ -2,6 +2,7 @@ package v1
 
 import (
 	"encoding/json"
+	"strings"
 
 	"github.com/labstack/echo/v4"
 
@@ -18,6 +19,12 @@ type (
 		Repo        string `json:"repo"`
 		Branch      string `json:"branch"`
 		Path        string `json:"path"`
+	}
+
+	// SyncIn is the review's answer: the tiles to sync and its signature.
+	SyncIn struct {
+		Keep []string `json:"keep"`
+		Sig  string   `json:"sig"`
 	}
 
 	// Blob is a settings rung, a JSON object the service checks.
@@ -128,6 +135,26 @@ func (h *H) Promote() Endpoint {
 func (h *H) Rollback() Endpoint {
 	return Job(func(c echo.Context, _ None) (service.Job, error) {
 		return h.Orch.Rollback(rc(c), envID(c), c.Param("release"))
+	})
+}
+
+// PlanEnvSync is the dry run of syncing the env from :from (a slug in the
+// stack); drop is a comma list of tagged slugs left out.
+func (h *H) PlanEnvSync() Endpoint {
+	return Get(func(c echo.Context) (service.EnvSyncPlan, error) {
+		var drop []string
+		for _, s := range strings.Split(c.QueryParam("drop"), ",") {
+			if s = strings.TrimSpace(s); s != "" {
+				drop = append(drop, s)
+			}
+		}
+		return h.Orch.PlanEnvSync(rc(c), envID(c), c.Param("from"), drop)
+	}).Q("drop")
+}
+
+func (h *H) EnvSync() Endpoint {
+	return Job(func(c echo.Context, in SyncIn) (service.Job, error) {
+		return h.Orch.EnvSync(rc(c), envID(c), c.Param("from"), in.Keep, in.Sig)
 	})
 }
 

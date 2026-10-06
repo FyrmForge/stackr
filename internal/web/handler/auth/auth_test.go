@@ -191,6 +191,7 @@ func TestLoginFixFirstMessages(t *testing.T) {
 // Past ten tries on one email from one address, login answers 429 with the
 // form and a time to come back; another email, or another address, goes on.
 // Past a hundred tries from one address across emails, it is limited too.
+// Only wrong passwords count.
 func TestLoginRateLimit(t *testing.T) {
 	s := webtest.New(t)
 	try := func(ip, email string) *httptest.ResponseRecorder {
@@ -221,6 +222,25 @@ func TestLoginRateLimit(t *testing.T) {
 	}
 	if rec := try("198.51.100.9", "a@acme.test"); rec.Code == http.StatusTooManyRequests {
 		t.Error("the same email from another address was limited")
+	}
+	// a right password gives its try back: signing in often never locks out
+	if err := s.Orch.SetPassword(context.Background(), owner(t, s), "right-password-1"); err != nil {
+		t.Fatal(err)
+	}
+	for i := range 15 {
+		req := httptest.NewRequest("POST", "/login", strings.NewReader(url.Values{
+			"email": {"owner@acme.test"}, "password": {"right-password-1"},
+		}.Encode()))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		req.Header.Set("HX-Request", "true")
+		req.Header.Set("X-CSRF-Token", "tok")
+		req.AddCookie(&http.Cookie{Name: "csrf", Value: "tok"})
+		req.RemoteAddr = "203.0.113.50:1234"
+		rec := httptest.NewRecorder()
+		s.Handler().ServeHTTP(rec, req)
+		if rec.Code == http.StatusTooManyRequests {
+			t.Fatalf("good login %d limited", i+1)
+		}
 	}
 	limited := false
 	for i := range 101 {

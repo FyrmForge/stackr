@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime/debug"
+	"strings"
 	"sync"
 	"time"
 
@@ -93,6 +94,34 @@ type Runner struct {
 	// ponytail: a waiting job superseded or cancelled keeps its entry until
 	// a restart; a few bytes each.
 	parked map[string]string
+
+	// deployed holds the "deploying <tile>" lines each job's log already
+	// has, so a parked job re-run every poll logs each tile's line once.
+	deployed map[string]map[string]bool
+}
+
+// onceLog drops a "deploying <tile>" line its job's log already has.
+// Promote and env sync both log it before a deploy that can park.
+type onceLog struct {
+	r  *Runner
+	id string
+	w  io.Writer
+}
+
+func (o onceLog) Write(p []byte) (int, error) {
+	if line := string(p); strings.HasPrefix(line, "deploying ") && strings.Count(line, "\n") == 1 && strings.HasSuffix(line, "\n") {
+		o.r.mu.Lock()
+		seen := o.r.deployed[o.id][line]
+		if o.r.deployed[o.id] == nil {
+			o.r.deployed[o.id] = map[string]bool{}
+		}
+		o.r.deployed[o.id][line] = true
+		o.r.mu.Unlock()
+		if seen {
+			return len(p), nil
+		}
+	}
+	return o.w.Write(p)
 }
 
 func New(jobs *job.Leaf, handlers map[Kind]Handler, dataDir string, opt Options) *Runner {
@@ -112,6 +141,7 @@ func New(jobs *job.Leaf, handlers map[Kind]Handler, dataDir string, opt Options)
 		opt:      opt,
 		running:  map[string]*active{},
 		parked:   map[string]string{},
+		deployed: map[string]map[string]bool{},
 		wake:     make(chan struct{}, 1),
 	}
 }
@@ -267,6 +297,7 @@ func (r *Runner) run(parent context.Context, j store.Job, a *active) {
 	} else {
 		r.mu.Lock()
 		delete(r.parked, j.ID)
+		delete(r.deployed, j.ID)
 		r.mu.Unlock()
 		err = r.jobs.Finish(fresh, j, state, reason)
 	}
@@ -295,7 +326,7 @@ func (r *Runner) call(ctx context.Context, j store.Job, a *active) (state, reaso
 	}()
 	err = h(ctx, &Run{
 		Job: j,
-		Log: f,
+		Log: onceLog{r: r, id: j.ID, w: f},
 		a:   a,
 		r:   r,
 	})

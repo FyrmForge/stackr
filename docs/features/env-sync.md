@@ -1,7 +1,7 @@
 # Feature: Environment compare and sync
 
-Status: planned, not built. Agreed with darthvader 2026-10-02; design pass
-2026-10-05.
+Status: built 2026-10-05, on the rig as v0.6.0-dev.10 (QA passed). Agreed with darthvader
+2026-10-02; design pass 2026-10-05.
 
 ## Summary
 Railway's sync, copied. On a stack managed in the UI (no config repo), the env

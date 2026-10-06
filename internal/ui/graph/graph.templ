@@ -1,6 +1,9 @@
 package graph
 
-import "github.com/FyrmForge/stackr/internal/ui/graph/cards"
+import (
+	c "github.com/FyrmForge/stackr/internal/ui/components"
+	"github.com/FyrmForge/stackr/internal/ui/graph/cards"
+)
 
 // Page is a canvas page: home's "Organizations" bar (every other level
 // has the shell's top bar), then #graph, which fills the shell's column.
@@ -27,6 +30,18 @@ templ Page(v View) {
 			<span>{ v.Banner.Text }</span>
 		</a>
 	}
+	if v.SyncBar != nil {
+		<div id="sync-bar" role="status" class="relative z-40 flex flex-wrap items-center gap-2 px-4 sm:px-6 py-2 text-sm border-b border-rw-border bg-rw-surface text-rw-text shrink-0">
+			<span>{ v.SyncBar.Text }</span>
+			<div class="ml-auto flex flex-wrap items-center gap-2">
+				<button type="button" class="btn btn-ghost btn-sm" hx-get={ v.SyncBar.Review } hx-target="#drawer-body">Review</button>
+				if v.SyncBar.Deploy != nil {
+					@c.Confirm(*v.SyncBar.Deploy)
+				}
+				<a href={ templ.SafeURL(v.SyncBar.Cancel) } hx-get={ v.SyncBar.Cancel } hx-target="#main" hx-push-url="true" class="btn btn-ghost btn-sm">Cancel</a>
+			</div>
+		</div>
+	}
 	<div
 		id="graph"
 		class="flex min-h-0 flex-1 flex-col"
@@ -37,6 +52,15 @@ templ Page(v View) {
 		}
 	>
 		@Canvas(v)
+	</div>
+}
+
+// DrawerOOB is a drawer answered along with a page: an htmx navigation
+// leaves the drawer to its own GET, so a review that moves the canvas
+// (Drop, Undo) sends the open drawer's new body with it.
+templ DrawerOOB(body templ.Component) {
+	<div id="drawer-body" hx-swap-oob="innerHTML">
+		@body
 	</div>
 }
 

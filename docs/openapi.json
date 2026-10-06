@@ -840,6 +840,27 @@
         ],
         "type": "object"
       },
+      "EnvSyncPlan": {
+        "properties": {
+          "can_deploy": {
+            "type": "boolean"
+          },
+          "plan": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Sync"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "can_deploy"
+        ],
+        "type": "object"
+      },
       "Environment": {
         "properties": {
           "auto": {
@@ -2592,6 +2613,98 @@
         ],
         "type": "object"
       },
+      "Sync": {
+        "properties": {
+          "blockers": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "changes": {
+            "items": {
+              "$ref": "#/components/schemas/promote.Change"
+            },
+            "type": "array"
+          },
+          "env": {
+            "type": "string"
+          },
+          "from": {
+            "type": "string"
+          },
+          "release": {
+            "type": "integer"
+          },
+          "sig": {
+            "type": "string"
+          },
+          "stack": {
+            "type": "string"
+          },
+          "tiles": {
+            "items": {
+              "$ref": "#/components/schemas/SyncTile"
+            },
+            "type": "array"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "stack",
+          "env",
+          "changes",
+          "from",
+          "tiles",
+          "sig"
+        ],
+        "type": "object"
+      },
+      "SyncIn": {
+        "properties": {
+          "keep": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "sig": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "keep",
+          "sig"
+        ],
+        "type": "object"
+      },
+      "SyncTile": {
+        "properties": {
+          "dropped": {
+            "type": "boolean"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "slug": {
+            "type": "string"
+          },
+          "tag": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "slug",
+          "kind",
+          "tag"
+        ],
+        "type": "object"
+      },
       "TagIn": {
         "properties": {
           "tag": {
@@ -3846,7 +3959,6 @@
         "required": [
           "stack",
           "env",
-          "release",
           "changes"
         ],
         "type": "object"
@@ -8721,6 +8833,147 @@
           }
         },
         "x-verb": "tile.write"
+      }
+    },
+    "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}/sync-plan/{from}": {
+      "get": {
+        "operationId": "sync.plan",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "stack",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "env",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "from",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "drop",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EnvSyncPlan"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "deployment.read"
+      }
+    },
+    "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}/sync/{from}": {
+      "post": {
+        "operationId": "sync.run",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "stack",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "env",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "from",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SyncIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Job"
+                }
+              }
+            },
+            "description": "Accepted"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "env.write"
       }
     },
     "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}/tiles": {

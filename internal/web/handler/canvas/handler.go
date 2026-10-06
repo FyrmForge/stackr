@@ -93,17 +93,34 @@ func show(c echo.Context) service.GraphShow {
 }
 
 func (h *handler) view(c echo.Context) (ui.View, error) {
-	return h.build(c.Request().Context(), where(c), show(c), c.QueryParam("focus"))
+	v, err := h.build(c.Request().Context(), where(c), show(c), c.QueryParam("focus"), syncOf(c))
+	if v.SyncBar != nil && !can(c, middleware.ScopeOf(c), "env.write") { // the review is for anyone; deploying it is not
+		v.SyncBar.Deploy = nil
+	}
+	return v, err
 }
 
 // build is the canvas as drawn, the env's traffic lanes at the last
-// sample included (so a "graph" swap keeps them).
-func (h *handler) build(ctx context.Context, l level, sh service.GraphShow, focus string) (ui.View, error) {
-	gv, err := h.orch.Canvas(ctx, l.scope, sh)
+// sample included (so a "graph" swap keeps them). With a sync review (env
+// canvas only) it is the canvas with the sync laid over it and no stream:
+// the overlay is recomputed on each navigation instead.
+func (h *handler) build(ctx context.Context, l level, sh service.GraphShow, focus string, q syncQ) (ui.View, error) {
+	var gv service.GraphView
+	var pl service.EnvSyncPlan
+	var err error
+	review := q.from != "" && l.scope.Kind == service.CanvasEnv
+	if review {
+		gv, pl, err = h.orch.EnvSyncCanvas(ctx, l.scope.ID, q.from, q.drop, sh)
+	} else {
+		gv, err = h.orch.Canvas(ctx, l.scope, sh)
+	}
 	if err != nil {
 		return ui.View{}, err
 	}
 	v := mapView(gv, l, sh, focus)
+	if review {
+		v.Events, v.SyncBar, v.Review = "", syncBar(l, pl, q), q.query()
+	}
 	if v.Lanes != nil {
 		es, err := h.orch.Traffic(ctx, l.scope.ID)
 		if err != nil {
@@ -139,19 +156,30 @@ func (h *handler) Page(c echo.Context) error {
 	var actions templ.Component
 	if l := where(c); l.scope.Kind == service.CanvasHome {
 		v.Create = createButtons(c, l)
-	} else if cs := createButtons(c, l); len(cs) > 0 {
-		actions = ui.Actions(cs)
+	} else {
+		cs := createButtons(c, l)
+		sync, err := h.syncButton(c, l)
+		if err != nil {
+			return middleware.HTTPError(err)
+		}
+		if cs = append(cs, sync...); len(cs) > 0 {
+			actions = ui.Actions(cs)
+		}
 	}
 	if v.Banner, err = h.planBanner(c); err != nil {
 		return middleware.HTTPError(err)
 	}
 	var drawer templ.Component
-	if id := c.QueryParam("drawer"); id != "" && !isHTMX(c) {
+	if id := c.QueryParam("drawer"); id != "" && (!isHTMX(c) || reviewOpen(c, syncOf(c))) {
 		if drawer, err = h.drawer(c, v, id, c.QueryParam("tab")); err != nil {
 			return middleware.HTTPError(err)
 		}
 	}
-	return render.PageWith(c, http.StatusOK, where(c).title, ui.Page(v), actions, drawer)
+	body := ui.Page(v)
+	if drawer != nil && isHTMX(c) { // Drop and Undo move the canvas; the open drawer follows
+		body = templ.Join(body, ui.DrawerOOB(drawer))
+	}
+	return render.PageWith(c, http.StatusOK, where(c).title, body, actions, drawer)
 }
 
 // carryOn is v0's home rule: someone whose only org is the one they are
@@ -298,7 +326,7 @@ func (h *handler) Poll(c echo.Context) producer {
 			return nil, nil
 		}
 		last = time.Now()
-		v, err := h.build(ctx, l, sh, "")
+		v, err := h.build(ctx, l, sh, "", syncQ{})
 		if err != nil {
 			return nil, err
 		}

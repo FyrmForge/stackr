@@ -141,6 +141,8 @@ func routes(h *v1.H) []Route {
 		{GET, env + "/plan/:release", "promote.plan", "deployment.read", h.PlanPromote()},
 		{POST, env + "/promote/:release", "promote.run", "env.write", h.Promote()},
 		{POST, env + "/rollback/:release", "promote.rollback", "env.write", h.Rollback()},
+		{GET, env + "/sync-plan/:from", "sync.plan", "deployment.read", h.PlanEnvSync()},
+		{POST, env + "/sync/:from", "sync.run", "env.write", h.EnvSync()},
 		{GET, env + "/tiles", "tile.list", "tile.read", h.Tiles()},
 		{POST, env + "/tiles", "tile.create", "tile.write", h.CreateTile()},
 		{GET, env + "/managed", "managed.list", "tile.read", h.ManagedInstances()},

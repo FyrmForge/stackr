@@ -5,7 +5,7 @@ package cards
 // opens it on click and pushes ?drawer=&tab=.
 templ Card(v CardView) {
 	<div
-		class={ Class(v.Kind) }
+		class={ Class(v.Kind), templ.KV("border-dashed opacity-70", v.Ghost) }
 		data-kind={ v.Kind }
 		if v.Drawer != "" {
 			hx-get={ v.Drawer }
@@ -26,6 +26,10 @@ templ Card(v CardView) {
 		} else {
 			<div class="p-3.5">
 				@Top(v.Kind, v.Name, v.Detail, v.Host, v.NewVersion)
+				if v.Sync != "" {
+					{{ text, class := syncChip(v.Sync) }}
+					<span class={ "absolute -top-2.5 right-3 z-10 rounded-md border bg-rw-surface px-1.5 py-0.5 text-[10px]", class }>{ text }</span>
+				}
 				@Footer(v.ID, v.Footer)
 			</div>
 		}

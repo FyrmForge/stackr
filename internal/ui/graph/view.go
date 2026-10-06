@@ -34,6 +34,18 @@ type View struct {
 	Create  []Create     // the level's create dialogs the viewer may open
 	Lanes   []cards.Lane // env traffic at the last sample; nil = no lanes layer
 	Banner  *Banner      // the strip over the canvas; nil = none
+	SyncBar *SyncBar     // the env sync review's strip; nil = none
+	Review  string       // the review the page carries, "sync=dev&drop=a,b"; kept on the helper routes and the show switches
+}
+
+// SyncBar is the strip under the banner while an env sync is under review:
+// the count, Review (the drawer's tab), Deploy (the drawer's confirm; nil
+// = the viewer cannot, or the plan is blocked or empty) and Cancel (the env
+// page, no review).
+type SyncBar struct {
+	Text           string
+	Review, Cancel string // URLs
+	Deploy         *c.ConfirmView
 }
 
 // Banner is v0's orgPlanBanner: a strip over the canvas linking to what
@@ -90,8 +102,19 @@ type Rung struct {
 	Behind            bool
 }
 
-// Route is a helper route of this canvas, show params kept.
-func (v View) Route(name string) string { return v.Base + "/-/" + name + v.Query }
+// Route is a helper route of this canvas, show params and review kept.
+func (v View) Route(name string) string { return v.Base + "/-/" + name + v.carry(v.Query) }
+
+// carry is a "?a=b" query with the review's params added.
+func (v View) carry(q string) string {
+	switch {
+	case v.Review == "":
+		return q
+	case q == "":
+		return "?" + v.Review
+	}
+	return q + "&" + v.Review
+}
 
 // Foot is what the card's footer is, here and on the stream: v0's strip
 // by kind ("open settings" on vars and connectors, the status word on the
@@ -120,7 +143,7 @@ func (v View) Toggle(name string) string {
 	if path == "" {
 		path = "/"
 	}
-	return path + s.Query()
+	return path + v.carry(s.Query())
 }
 
 // Query spells the off flags, "" when everything is drawn.

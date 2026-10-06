@@ -966,3 +966,122 @@ func TestListAndCreateDefaults(t *testing.T) {
 		}
 	}
 }
+
+// env sync is promote's shape: the plan first, a refusal on blockers, a yes
+// before the POST; --tile names the kept tiles and re-reads the plan with
+// the rest dropped.
+func TestEnvSyncAsks(t *testing.T) {
+	serve := func(blockers string) *recorder {
+		r := &recorder{}
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+			b, _ := io.ReadAll(req.Body)
+			r.mu.Lock()
+			r.reqs = append(r.reqs, req.Method+" "+req.URL.RequestURI()+" "+string(b))
+			r.mu.Unlock()
+			if !strings.Contains(req.URL.Path, "/sync-plan/") {
+				_, _ = io.WriteString(w, `{"id":"j1","state":"queued"}`)
+				return
+			}
+			dropB := strings.Contains(req.URL.Query().Get("drop"), "b")
+			_, _ = fmt.Fprintf(w, `{"can_deploy":%t,"plan":{"sig":"s1","changes":[{"kind":"create","tile":"a"}],"blockers":%s,`+
+				`"tiles":[{"slug":"a","kind":"image","tag":"new"},{"slug":"b","kind":"image","tag":"new","dropped":%t}]}}`,
+				blockers == "[]", blockers, dropB)
+		}))
+		t.Cleanup(srv.Close)
+		useServer(t, srv.URL)
+		return r
+	}
+	at := []string{"env", "sync", "--from", "dev", "--stack", "shop", "--env", "staging", "--no-wait"}
+	const plan = "GET /api/v1/orgs/acme/stacks/shop/envs/staging/sync-plan/dev"
+
+	r := serve("[]")
+	if code, _, errw := cli(t, slices.Concat([]string{"env", "sync", "--stack", "shop", "--env", "staging"})...); code == 0 || !strings.Contains(errw, "--from") || len(r.reqs) != 0 {
+		t.Errorf("sync without --from = %d %q, sent %q", code, errw, r.reqs)
+	}
+	r = serve("[]")
+	if code, _, _ := cli(t, slices.Concat(at, []string{"--dry-run"})...); code != 0 || len(writes(r)) != 0 {
+		t.Errorf("sync --dry-run = %d, wrote %q", code, writes(r))
+	}
+	r = serve(`["tile x is in use"]`)
+	if code, _, errw := cli(t, slices.Concat([]string{"-y"}, at)...); code == 0 || !strings.Contains(errw, "blocked") || len(writes(r)) != 0 {
+		t.Errorf("sync blocked = %d %q, wrote %q", code, errw, writes(r))
+	}
+	r = serve("[]")
+	if code, _, errw := cli(t, at...); code == 0 || !strings.Contains(errw, "refusing without --yes") || len(writes(r)) != 0 {
+		t.Errorf("sync without a yes = %d %q, wrote %q", code, errw, writes(r))
+	}
+	r = serve("[]")
+	if code, _, errw := cli(t, slices.Concat([]string{"-y"}, at)...); code != 0 || len(writes(r)) != 1 ||
+		!strings.Contains(writes(r)[0], `/sync/dev {"keep":["a","b"],"sig":"s1"}`) {
+		t.Errorf("sync -y = %d %q, wrote %q", code, errw, writes(r))
+	}
+	r = serve("[]")
+	code, _, errw := cli(t, slices.Concat([]string{"-y"}, at, []string{"--tile", "a"})...)
+	if w := writes(r); code != 0 || len(w) != 1 || !strings.Contains(w[0], `{"keep":["a"],"sig":"s1"}`) ||
+		!slices.Contains(r.reqs, plan+"?drop=b ") {
+		t.Errorf("sync --tile a = %d %q, sent %q", code, errw, r.reqs)
+	}
+	r = serve("[]")
+	if code, _, errw := cli(t, slices.Concat([]string{"-y"}, at, []string{"--tile", "zz"})...); code == 0 || !strings.Contains(errw, "no changes for tile zz") || len(writes(r)) != 0 {
+		t.Errorf("sync --tile zz = %d %q, wrote %q", code, errw, writes(r))
+	}
+}
+
+// env sync's printer: an empty plan says so, a blocker-only plan prints no
+// empty table, --tile values are trimmed, an unknown --from names the env,
+// and the job's "plan:" log lines are not repeated under the table.
+func TestEnvSyncOutput(t *testing.T) {
+	var planBody string
+	var logChunks []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		switch {
+		case strings.HasSuffix(req.URL.Path, "/sync-plan/nope"):
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = io.WriteString(w, `{"error":"Not Found"}`)
+		case strings.Contains(req.URL.Path, "/sync-plan/"):
+			_, _ = io.WriteString(w, planBody)
+		case req.Method == http.MethodPost:
+			_, _ = io.WriteString(w, `{"id":"j1","state":"queued"}`)
+		default: // the job's event stream
+			for i, c := range logChunks {
+				b, _ := json.Marshal(map[string]any{"job": map[string]any{"id": "j1", "state": "done"}, "log": c})
+				name := "log"
+				if i == len(logChunks)-1 {
+					name = "end"
+				}
+				_, _ = fmt.Fprintf(w, "event: %s\ndata: %s\n\n", name, b)
+			}
+		}
+	}))
+	t.Cleanup(srv.Close)
+	useServer(t, srv.URL)
+	at := []string{"env", "sync", "--from", "dev", "--stack", "shop", "--env", "staging"}
+
+	planBody = `{"can_deploy":false,"plan":{"changes":[],"blockers":[]}}`
+	if code, out, errw := cli(t, slices.Concat(at, []string{"--dry-run"})...); code != 0 ||
+		!strings.Contains(errw+out, "nothing to sync") || strings.Contains(errw+out, "(none)") {
+		t.Errorf("empty plan = %d %q %q", code, out, errw)
+	}
+	planBody = `{"can_deploy":false,"plan":{"changes":[],"blockers":["an environment cannot sync from itself"]}}`
+	if _, out, errw := cli(t, slices.Concat(at, []string{"--dry-run"})...); strings.Contains(errw+out, "(none)") ||
+		!strings.Contains(errw, "blocker: an environment cannot sync from itself") {
+		t.Errorf("blocker-only plan = %q %q", out, errw)
+	}
+
+	planBody = `{"can_deploy":true,"plan":{"sig":"s1","changes":[{"kind":"create","tile":"a"}],"blockers":[],` +
+		`"tiles":[{"slug":"a","kind":"image","tag":"new"},{"slug":"b","kind":"image","tag":"new"}]}}`
+	if code, _, errw := cli(t, slices.Concat(at, []string{"--dry-run", "--tile", "a, b"})...); code != 0 {
+		t.Errorf("--tile \"a, b\" = %d %q", code, errw)
+	}
+
+	// the plan line is split across two chunks; the other lines stay
+	logChunks = []string{"plan: create a -> ima", "ge\nreleased a\n", "plan: delete b\nsync: done\n"}
+	code, out, errw := cli(t, slices.Concat([]string{"-y"}, at)...)
+	if code != 0 || strings.Contains(out, "plan:") || !strings.Contains(out, "released a\n") {
+		t.Errorf("sync -y log = %d %q %q", code, out, errw)
+	}
+
+	if code, _, errw := cli(t, "env", "sync", "--from", "nope", "--stack", "shop", "--env", "staging"); code == 0 || !strings.Contains(errw, `no env "nope" in shop`) {
+		t.Errorf("unknown --from = %d %q", code, errw)
+	}
+}
