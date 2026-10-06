@@ -645,7 +645,7 @@ func TestPromoteAsks(t *testing.T) {
 			case strings.HasSuffix(req.URL.Path, "/releases"):
 				_, _ = io.WriteString(w, `[{"id":"r7","number":7}]`)
 			case strings.Contains(req.URL.Path, "/plan/"):
-				_, _ = fmt.Fprintf(w, `{"can_deploy":%t,"plan":{"changes":[]}}`, canDeploy)
+				_, _ = fmt.Fprintf(w, `{"can_deploy":%t,"plan":{"changes":[{"kind":"image","tile":"api"}]}}`, canDeploy)
 			default:
 				_, _ = io.WriteString(w, `{"id":"j1","state":"queued"}`)
 			}
@@ -1083,5 +1083,61 @@ func TestEnvSyncOutput(t *testing.T) {
 
 	if code, _, errw := cli(t, "env", "sync", "--from", "nope", "--stack", "shop", "--env", "staging"); code == 0 || !strings.Contains(errw, `no env "nope" in shop`) {
 		t.Errorf("unknown --from = %d %q", code, errw)
+	}
+}
+
+// An empty, unblocked plan prints that nothing changes and posts nothing.
+func TestPromoteEmptyPlan(t *testing.T) {
+	r := fake(t, map[string]string{
+		"/releases": `[{"id":"r7","number":7}]`,
+		"/plan/r7":  `{"can_deploy":true,"plan":{"changes":[]}}`,
+	})
+	code, _, errw := cli(t, "-y", "promote", "7", "--stack", "shop", "--env", "prod")
+	if code != 0 || errw != "nothing to change: prod already runs release 7\n" || len(writes(r)) != 0 {
+		t.Errorf("empty promote = %d %q, writes %v", code, errw, writes(r))
+	}
+}
+
+// params get and rm suggest the closest name; rm sends no DELETE for a typo.
+func TestParamsDidYouMean(t *testing.T) {
+	r := fake(t, map[string]string{"/params": `[{"collection":"app","name":"mode","kind":"param","value":"x"}]`})
+	if code, _, errw := cli(t, "params", "get", "app.mdoe", "--stack", "shop", "--env", "dev"); code == 0 || !strings.Contains(errw, "did you mean app.mode?") {
+		t.Errorf("params get typo = %d %q", code, errw)
+	}
+	if code, _, errw := cli(t, "-y", "params", "rm", "app.mdoe", "--stack", "shop", "--env", "dev"); code == 0 ||
+		!strings.Contains(errw, "did you mean app.mode?") || len(writes(r)) != 0 {
+		t.Errorf("params rm typo = %d %q, writes %v", code, errw, writes(r))
+	}
+}
+
+// params rm names the tiles it redeploys.
+func TestParamsRmNamesRedeploys(t *testing.T) {
+	fake(t, map[string]string{
+		"/params":          `[{"collection":"app","name":"mode","kind":"param","value":"x"}]`,
+		"/params/app/mode": `[{"env":"dev","tile":"web","job":"j1"}]`,
+	})
+	code, _, errw := cli(t, "-y", "params", "rm", "app.mode", "--stack", "shop", "--env", "dev")
+	if code != 0 || errw != "redeploying web (dev): stackr job log j1 --follow\n" {
+		t.Errorf("params rm = %d %q, want the redeploy named", code, errw)
+	}
+}
+
+// A positional name's field error prints without its field prefix.
+func TestBlankNameError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusUnprocessableEntity)
+		_, _ = io.WriteString(w, `{"error":"name: Give the stack a name."}`)
+	}))
+	t.Cleanup(srv.Close)
+	useServer(t, srv.URL)
+	if code, _, errw := cli(t, "stack", "create", ""); code == 0 || errw != "error: Give the stack a name.\n" {
+		t.Errorf("stack create \"\" = %d %q", code, errw)
+	}
+}
+
+// The journey verbs show an example in --help.
+func TestPromoteHelpExample(t *testing.T) {
+	if code, out, _ := cli(t, "promote", "--help"); code != 0 || !strings.Contains(out, "stackr promote 7") {
+		t.Errorf("promote --help = %d %q, want an example", code, out)
 	}
 }

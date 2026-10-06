@@ -561,7 +561,9 @@ func (h *handler) mode(c echo.Context) error {
 // brings the owner back to this step.
 func (h *handler) connector(c echo.Context) error {
 	og := middleware.ScopeOf(c).Org
-	_, action, manifest, err := h.orch.BeginConnector(c.Request().Context(), og.ID, c.FormValue("gh_org"))
+	_, action, manifest, err := h.orch.BeginConnector(
+		c.Request().Context(), og.ID, middleware.Principal(c).User.ID, c.FormValue("gh_org"),
+	)
 	if err != nil {
 		return back(c, err, base(og)+"/connector")
 	}

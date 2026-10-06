@@ -50,10 +50,11 @@ type NoConnector struct{ Host string }
 
 func (e NoConnector) Error() string { return "no connected git connector for " + e.Host }
 
-// config is the encrypted connectors.config: the nonce while pending, the
-// App once connected.
+// config is the encrypted connectors.config: the nonce and the user who
+// began while pending, the App once connected.
 type config struct {
 	State string         `json:"state,omitempty"`
+	User  string         `json:"user,omitempty"`
 	App   *githubapp.App `json:"app,omitempty"`
 }
 
@@ -118,14 +119,15 @@ func (l *Leaf) ListConnected(ctx context.Context, orgID string) ([]store.Connect
 }
 
 // Begin makes the pending row and returns where to POST the manifest.
-// ghOrg: create the App under that GitHub org instead of the user.
-func (l *Leaf) Begin(ctx context.Context, orgID, ghOrg string) (c store.Connector, action, manifest string, err error) {
+// ghOrg: create the App under that GitHub org instead of the user. userID is
+// who started it; only they can complete it.
+func (l *Leaf) Begin(ctx context.Context, orgID, userID, ghOrg string) (c store.Connector, action, manifest string, err error) {
 	if _, err := l.conns.GetByHost(ctx, orgID, GitHubHost); err == nil {
 		return c, "", "", errs.Conflictf("this org already has a %s connector", GitHubHost)
 	}
 	nonce := make([]byte, 16)
 	_, _ = rand.Read(nonce)
-	cfg, _ := json.Marshal(config{State: hex.EncodeToString(nonce)})
+	cfg, _ := json.Marshal(config{State: hex.EncodeToString(nonce), User: userID})
 	c = store.Connector{
 		ID:        uuid.NewString(),
 		OrgID:     orgID,
@@ -142,15 +144,16 @@ func (l *Leaf) Begin(ctx context.Context, orgID, ghOrg string) (c store.Connecto
 }
 
 // Complete takes GitHub's callback. The state must match the pending row's
-// nonce, or a stray callback could fill in someone else's row.
-func (l *Leaf) Complete(ctx context.Context, state, code string) (store.Connector, error) {
+// nonce and the caller must be the user who began, or a stray callback could
+// fill in someone else's row.
+func (l *Leaf) Complete(ctx context.Context, userID, state, code string) (store.Connector, error) {
 	id, nonce, _ := strings.Cut(state, ".")
 	c, err := l.conns.Get(ctx, id)
 	if err != nil {
 		return c, err
 	}
 	cfg := parse(c)
-	if cfg.App != nil || cfg.State == "" || subtle.ConstantTimeCompare([]byte(cfg.State), []byte(nonce)) != 1 {
+	if cfg.App != nil || cfg.State == "" || cfg.User != userID || subtle.ConstantTimeCompare([]byte(cfg.State), []byte(nonce)) != 1 {
 		return store.Connector{}, errs.Refusedf("this GitHub callback does not match a pending connector")
 	}
 	app, err := l.app.ConvertManifest(ctx, code)

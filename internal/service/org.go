@@ -331,14 +331,15 @@ func (o *Orchestrator) Connectors(ctx context.Context, orgID string) ([]Connecto
 // BeginConnector makes the pending row; the browser POSTs manifest to action.
 func (o *Orchestrator) BeginConnector(
 	ctx context.Context,
-	orgID, ghOrg string,
+	orgID, userID, ghOrg string,
 ) (c Connector, action, manifest string, err error) {
-	return o.conns.Begin(ctx, orgID, ghOrg)
+	return o.conns.Begin(ctx, orgID, userID, ghOrg)
 }
 
-// CompleteConnector takes GitHub's manifest callback.
-func (o *Orchestrator) CompleteConnector(ctx context.Context, state, code string) (Connector, error) {
-	return o.conns.Complete(ctx, state, code)
+// CompleteConnector takes GitHub's manifest callback; userID must be the user
+// who began it.
+func (o *Orchestrator) CompleteConnector(ctx context.Context, userID, state, code string) (Connector, error) {
+	return o.conns.Complete(ctx, userID, state, code)
 }
 
 // ConnectorInstallURL is GitHub's install page for the app; "" while pending.

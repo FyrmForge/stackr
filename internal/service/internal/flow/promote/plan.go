@@ -845,7 +845,49 @@ func (f *Flow) sliceTarget(ctx context.Context, p *Plan, w *work, row store.Tile
 	if err != nil {
 		return block("%v", err)
 	}
+	written := false
+	if w.re != nil {
+		_, written = w.re.Tiles[tg.Tile]
+	}
+	if st.ID != w.st.ID || env != w.e.Slug || !written {
+		up, err := f.sourceRunning(ctx, st, env, tg.Tile)
+		if err != nil {
+			return "", false, err
+		}
+		if !up {
+			return block("%s/%s/%s is not running; start it first", st.Slug, env, tg.Tile)
+		}
+	}
 	return st.Slug + "/" + env + "/" + tg.Tile, true, nil
+}
+
+// sourceRunning: the instance a slice provisions from has a running replica.
+// A missing row counts as running: the address rules own "unreachable".
+func (f *Flow) sourceRunning(ctx context.Context, st store.Stack, env, slug string) (bool, error) {
+	e, err := f.D.Envs.GetBySlug(ctx, st.ID, env)
+	if errors.Is(err, errs.ErrNotFound) {
+		return true, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	t, err := f.D.Tiles.GetBySlug(ctx, e.ID, slug)
+	if errors.Is(err, errs.ErrNotFound) {
+		return true, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	cs, err := f.D.Tiles.Replicas(ctx, t)
+	if err != nil {
+		return false, err
+	}
+	for _, c := range cs {
+		if c.State == "running" {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // planDeletes: live tiles the file no longer declares. Never destructive:
@@ -998,6 +1040,26 @@ func (f *Flow) planImages(ctx context.Context, p *Plan, w *work, pins map[string
 		}
 		p.add(Change{Kind: "image", Tile: c.Slug, Note: c.Kind})
 		w.redeploy[c.Slug] = true
+	}
+	// A tile added after the env took this release has no diff row but
+	// never ran: deploy it. A stopped tile keeps its containers, so it is
+	// left alone.
+	live, err := f.D.Tiles.List(ctx, w.e.ID)
+	if err != nil {
+		return err
+	}
+	for _, t := range live {
+		if _, ok := pins[t.Slug]; !ok || w.redeploy[t.Slug] || t.Slug == release.ConfigSlug || tile.RunToCompletion(t.Kind) {
+			continue
+		}
+		cs, err := f.D.Tiles.Replicas(ctx, t)
+		if err != nil {
+			return err
+		}
+		if len(cs) == 0 {
+			p.add(Change{Kind: "image", Tile: t.Slug, Note: "not deployed yet"})
+			w.redeploy[t.Slug] = true
+		}
 	}
 	for _, n := range slices.Sorted(maps.Keys(tiles)) {
 		if tiles[n] && pins[n].ImageID == nil {

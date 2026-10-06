@@ -146,13 +146,14 @@ func (h *handler) mountEnv(site *echo.Group, a *middleware.Access) {
 			// the bar has no drawer to show the refusal in: back to the
 			// review, re-planned, with the reason as a flash
 			hamrmw.SetFlash(c, msg, hamrmw.FlashError)
-			return redirect(c, urlOf(cd.s)+"?drawer=env:"+cd.s.Env.ID+"&tab=sync&"+syncQ{from: c.Param("from")}.query())
+			return redirect(c, urlOf(cd.s)+"?drawer=env:"+cd.s.Env.ID+"&tab=sync&"+syncQ{from: c.Param("from"), drop: dropList(c.FormValue("drop"))}.query())
 		}
 		if err != nil {
 			return "", err
 		}
-		// the full page leaves the review: no tags, ghosts or bar, the stream back
-		return redirect(c, urlOf(cd.s)+"?drawer=env:"+cd.s.Env.ID+"&tab=sync&job="+j.ID)
+		// the full page leaves the review (a ?job= page draws none: no tags,
+		// ghosts or bar, the stream back); sync= only names the drawer's source
+		return redirect(c, urlOf(cd.s)+"?drawer=env:"+cd.s.Env.ID+"&tab=sync&sync="+c.Param("from")+"&job="+j.ID)
 	}), write)
 	site.POST(e+"/settings", h.saveRung(
 		"env",

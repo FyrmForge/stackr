@@ -40,11 +40,17 @@ func (o *Orchestrator) SetParams(ctx context.Context, s ParamScope, es []ParamEn
 	return o.redeploy(ctx, ts)
 }
 
-func (o *Orchestrator) DeleteParam(ctx context.Context, s ParamScope, collection, name string) error {
+// DeleteParam drops one param or secret; running tiles under the scope
+// redeploy, and the answer names them.
+func (o *Orchestrator) DeleteParam(ctx context.Context, s ParamScope, collection, name string) ([]Redeploy, error) {
 	if err := o.params.Delete(ctx, s, collection, name); err != nil {
-		return err
+		return nil, err
 	}
-	return o.redeployScope(ctx, s)
+	ts, err := o.scopeTiles(ctx, s)
+	if err != nil {
+		return nil, err
+	}
+	return o.redeploy(ctx, ts)
 }
 
 // redeployScope redeploys the running tiles a scope's params reach.

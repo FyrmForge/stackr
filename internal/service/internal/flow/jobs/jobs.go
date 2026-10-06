@@ -287,13 +287,15 @@ func (r *Runner) run(parent context.Context, j store.Job, a *active) {
 		ctx, cancel = context.WithTimeout(parent, r.opt.Cap)
 	}
 	defer cancel()
-	state, reason, param := r.call(ctx, j, a)
+	rn := &Run{Job: j, a: a, r: r}
+	state, reason, param := r.call(ctx, rn)
 
 	// The run's context is dead exactly when there is something to record.
 	fresh := context.Background()
 	var err error
 	if state == job.Waiting {
-		err = r.jobs.Park(fresh, j, param)
+		// rn.Job, not j: a handler may have rewritten its payload.
+		err = r.jobs.Park(fresh, rn.Job, param)
 	} else {
 		r.mu.Lock()
 		delete(r.parked, j.ID)
@@ -307,7 +309,8 @@ func (r *Runner) run(parent context.Context, j store.Job, a *active) {
 }
 
 // call runs the handler and turns its outcome into a state.
-func (r *Runner) call(ctx context.Context, j store.Job, a *active) (state, reason, param string) {
+func (r *Runner) call(ctx context.Context, rn *Run) (state, reason, param string) {
+	j := rn.Job
 	h, ok := r.handlers[Kind(j.Kind)]
 	if !ok {
 		return job.Failed, fmt.Sprintf("no handler for job kind %q", j.Kind), ""
@@ -324,12 +327,8 @@ func (r *Runner) call(ctx context.Context, j store.Job, a *active) (state, reaso
 			state, reason = job.Failed, fmt.Sprintf("panic: %v", p)
 		}
 	}()
-	err = h(ctx, &Run{
-		Job: j,
-		Log: onceLog{r: r, id: j.ID, w: f},
-		a:   a,
-		r:   r,
-	})
+	rn.Log = onceLog{r: r, id: j.ID, w: f}
+	err = h(ctx, rn)
 
 	switch cause := context.Cause(ctx); {
 	case err == nil:

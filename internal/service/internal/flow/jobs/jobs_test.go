@@ -287,6 +287,23 @@ func TestWaiting(t *testing.T) {
 	waitState(t, l, id, job.Done)
 }
 
+// A handler may rewrite its payload before it parks; the parked row keeps it.
+func TestParkKeepsPayload(t *testing.T) {
+	h := func(ctx context.Context, r *jobs.Run) error {
+		r.Job.Payload = `{"owed":["t1"]}`
+		return errs.Unset{Param: "DB_URL"}
+	}
+	r, l := setup(t, map[jobs.Kind]jobs.Handler{"a": h}, jobs.Options{
+		ParamSet: func(context.Context, string) (bool, error) { return false, nil },
+	})
+	start(t, r)
+	id := enqueue(t, r, "a", "t1")
+	waitState(t, l, id, job.Waiting)
+	if j, _ := l.Get(ctx, id); j.Payload != `{"owed":["t1"]}` {
+		t.Errorf("payload = %q", j.Payload)
+	}
+}
+
 // A parked job re-run every poll says what it waits on once.
 func TestWaitingSaysOnce(t *testing.T) {
 	var calls atomic.Int32

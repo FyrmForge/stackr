@@ -2,7 +2,9 @@ package service_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"slices"
 	"testing"
 	"time"
 
@@ -359,6 +361,23 @@ func TestEnvSyncResumesAfterPark(t *testing.T) {
 		t.Fatalf("%d containers ran before the secret was set", n)
 	}
 	r.row(t, r.staging.ID, "worker") // the rows are written
+	parked, err := o.GetJob(ctx, j.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var pay struct {
+		Owed  []string `json:"owed"`
+		OrgID string   `json:"org_id"`
+	}
+	if err := json.Unmarshal([]byte(parked.Payload), &pay); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{r.row(t, r.staging.ID, "api").ID, r.row(t, r.staging.ID, "worker").ID}
+	slices.Sort(pay.Owed)
+	slices.Sort(want)
+	if !slices.Equal(pay.Owed, want) || pay.OrgID == "" {
+		t.Errorf("parked payload = %s, want owed %v and org_id", parked.Payload, want)
+	}
 
 	secret(r.staging.ID)
 	if got := r.jobIs(t, j.ID, "done"); got.Error != "" {

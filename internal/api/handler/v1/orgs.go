@@ -154,7 +154,7 @@ func (h *H) Connectors() Endpoint {
 
 func (h *H) BeginConnector() Endpoint {
 	return JSON(201, func(c echo.Context, in ConnectorIn) (ConnectorBegun, error) {
-		conn, action, manifest, err := h.Orch.BeginConnector(rc(c), orgID(c), in.GitHubOrg)
+		conn, action, manifest, err := h.Orch.BeginConnector(rc(c), orgID(c), who(c), in.GitHubOrg)
 		return ConnectorBegun{conn, action, manifest}, err
 	})
 }

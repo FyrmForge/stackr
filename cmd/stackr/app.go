@@ -149,9 +149,10 @@ func newClient() *http.Client {
 }
 
 // flagNames turns API field names in a server message into the flags that
-// set them: tile fields by the flag map in stack.go, limits.* by hand.
+// set them: tile fields by the flag map in stack.go, limits.* by hand. It
+// also drops the "name: " prefix of a positional argument's field error.
 var flagNames = sync.OnceValue(func() *strings.Replacer {
-	pairs := []string{"limits.memory_mb", "--memory", "limits.cpu", "--cpus"}
+	pairs := []string{"limits.memory_mb", "--memory", "limits.cpu", "--cpus", "name: ", "", "slug: ", ""}
 	for flag, field := range tileFlags(&cobra.Command{}) {
 		if strings.Contains(field, "_") { // plain words (user, image) would mangle prose
 			pairs = append(pairs, field, "--"+flag)
@@ -534,4 +535,37 @@ func changed(c *cobra.Command, keys map[string]string) (map[string]any, error) {
 		return nil, err
 	}
 	return body, err
+}
+
+// closest is the entry of have within two edits of want, or "".
+func closest(want string, have []string) string {
+	best, bd := "", 3
+	for _, h := range have {
+		if d := editDistance(want, h); d < bd {
+			best, bd = h, d
+		}
+	}
+	return best
+}
+
+// editDistance is the Levenshtein distance between a and b.
+func editDistance(a, b string) int {
+	ra, rb := []rune(a), []rune(b)
+	prev := make([]int, len(rb)+1)
+	for j := range prev {
+		prev[j] = j
+	}
+	for i := 1; i <= len(ra); i++ {
+		cur := make([]int, len(rb)+1)
+		cur[0] = i
+		for j := 1; j <= len(rb); j++ {
+			cost := 1
+			if ra[i-1] == rb[j-1] {
+				cost = 0
+			}
+			cur[j] = min(prev[j]+1, cur[j-1]+1, prev[j-1]+cost)
+		}
+		prev = cur
+	}
+	return prev[len(rb)]
 }

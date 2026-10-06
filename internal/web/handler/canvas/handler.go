@@ -93,7 +93,11 @@ func show(c echo.Context) service.GraphShow {
 }
 
 func (h *handler) view(c echo.Context) (ui.View, error) {
-	v, err := h.build(c.Request().Context(), where(c), show(c), c.QueryParam("focus"), syncOf(c))
+	q := syncOf(c)
+	if c.QueryParam("job") != "" { // a deploy's page: sync= names the drawer's source, no review
+		q = syncQ{}
+	}
+	v, err := h.build(c.Request().Context(), where(c), show(c), c.QueryParam("focus"), q)
 	if v.SyncBar != nil && !can(c, middleware.ScopeOf(c), "env.write") { // the review is for anyone; deploying it is not
 		v.SyncBar.Deploy = nil
 	}

@@ -194,6 +194,10 @@ func TestEnvSyncBarRefusalRedirects(t *testing.T) {
 	post := "/acme/shop/staging/-/drawer/sync/dev"
 	rec := s.Do(t, "POST", post, url.Values{"keep": {"api"}, "sig": {"stale"}, "bar": {"1"}})
 	want := "/acme/shop/staging?drawer=env:" + st.ID + "&tab=sync&sync=dev"
+	// a dropped tile survives the refusal
+	if rec := s.Do(t, "POST", post, url.Values{"keep": {"api"}, "sig": {"stale"}, "bar": {"1"}, "drop": {"api"}}); rec.Header().Get("HX-Redirect") != want+"&drop=api" {
+		t.Errorf("refusal drops drop=: %q", rec.Header().Get("HX-Redirect"))
+	}
 	if to := rec.Header().Get("HX-Redirect"); rec.Code != 200 || to != want {
 		t.Errorf("refused bar deploy = %d, redirect %q, want %q", rec.Code, to, want)
 	}
@@ -224,11 +228,11 @@ func TestEnvSyncDeployLeavesReview(t *testing.T) {
 	}
 	rec := s.Do(t, "POST", "/acme/shop/staging/-/drawer/sync/dev", url.Values{"keep": {"api"}, "sig": {pl.Plan.Sig}})
 	to := rec.Header().Get("HX-Redirect")
-	if want := "/acme/shop/staging?drawer=env:" + st.ID + "&tab=sync&job="; !strings.HasPrefix(to, want) {
+	if want := "/acme/shop/staging?drawer=env:" + st.ID + "&tab=sync&sync=dev&job="; !strings.HasPrefix(to, want) {
 		t.Fatalf("redirect = %q, want %q...", to, want)
 	}
-	if strings.Contains(to, "&sync=") || strings.Contains(to, "?sync=") {
-		t.Errorf("the redirect keeps the review: %q", to)
+	if !strings.Contains(to, "&sync=dev&job=") { // the drawer keeps its source
+		t.Errorf("the redirect loses the source: %q", to)
 	}
 	body := s.DoNoCSRF(t, "GET", to).Body.String() // a fresh load, as the redirect makes
 	for _, bad := range []string{`id="sync-bar"`, `node-id="sync:`, ">New<"} {
@@ -236,7 +240,8 @@ func TestEnvSyncDeployLeavesReview(t *testing.T) {
 			t.Errorf("the page after deploy still has %q", bad)
 		}
 	}
-	for _, want := range []string{"/staging/-/jobs/", "sse-connect"} {
+	body = html.UnescapeString(body)
+	for _, want := range []string{"/staging/-/jobs/", "sse-connect", "?tab=sync&sync=dev\" hx-trigger=\"sse:end"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("no %q in\n%s", want, body)
 		}

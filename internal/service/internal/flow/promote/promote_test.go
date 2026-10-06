@@ -275,6 +275,8 @@ func TestPlanThenApply(t *testing.T) {
 	if e.Color != "blue" {
 		t.Errorf("color = %q", e.Color)
 	}
+	// The fake does not keep what apply runs; the tile is up.
+	w.running(w.tileIn(t, w.dev, "api"))
 	again, err := w.f.Plan(ctx, w.dev.ID, *e.ReleaseID, io.Discard)
 	must(t, err)
 	if len(again.Changes) != 0 || again.Blocked() {
@@ -769,6 +771,7 @@ func TestReservationRows(t *testing.T) {
 	}
 	e, err := w.f.D.Envs.Get(ctx, w.dev.ID)
 	must(t, err)
+	w.running(w.tileIn(t, w.dev, "api"))
 	if again := planOK(t, w, e, store.Release{ID: *e.ReleaseID}); len(again.Changes) != 0 {
 		t.Errorf("re-plan = %s", kinds(again))
 	}
@@ -850,5 +853,32 @@ func TestChangeLine(t *testing.T) {
 		if got := c.Line(); got != want {
 			t.Errorf("Line() = %q, want %q", got, want)
 		}
+	}
+}
+
+// Re-promoting the release an env already runs deploys a tile added since
+// that never ran; a stopped tile keeps its containers and is left alone.
+func TestRepromoteDeploysNeverRunTile(t *testing.T) {
+	w := syncWorld(t)
+	api := w.mk(t, w.prd, "api", imgTile("nginx:1", 80))
+	w.mk(t, w.prd, "worker", imgTile("nginx:1", 80))
+	stopped := w.mk(t, w.prd, "cache", imgTile("nginx:1", 80))
+	w.running(api)
+	w.fake.Containers = append(w.fake.Containers, docker.Container{
+		ID:     "stopped-" + stopped.ID,
+		State:  "exited",
+		Labels: map[string]string{tile.LabelTile: stopped.ID, tile.LabelRole: "replica"},
+	})
+	r := w.release(t, "",
+		release.Pin{Slug: "api", Repo: "nginx", Digest: "sha256:one"},
+		release.Pin{Slug: "worker", Repo: "nginx", Digest: "sha256:one"},
+		release.Pin{Slug: "cache", Repo: "nginx", Digest: "sha256:one"})
+	_, err := w.f.D.Envs.SetRelease(ctx, w.dev, r.ID)
+	must(t, err)
+	_, err = w.f.D.Envs.SetRelease(ctx, w.prd, r.ID)
+	must(t, err)
+	p := planOK(t, w, w.prd, r)
+	if got := kinds(p); got != "image:worker" || p.Changes[0].Note != "not deployed yet" {
+		t.Errorf("plan = %q %+v, want only the never-run worker", got, p.Changes)
 	}
 }

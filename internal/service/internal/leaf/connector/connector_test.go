@@ -18,6 +18,8 @@ import (
 
 var ctx = context.Background()
 
+const user = "u1"
+
 type fakeApp struct {
 	state        string
 	notInstalled bool
@@ -66,10 +68,10 @@ func seedOrg(t *testing.T, st *store.Store) string {
 
 func connect(t *testing.T, l *connector.Leaf, f *fakeApp, org string) store.Connector {
 	t.Helper()
-	if _, _, _, err := l.Begin(ctx, org, ""); err != nil {
+	if _, _, _, err := l.Begin(ctx, org, user, ""); err != nil {
 		t.Fatal(err)
 	}
-	c, err := l.Complete(ctx, f.state, "code")
+	c, err := l.Complete(ctx, user, f.state, "code")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -82,7 +84,7 @@ func TestHandshake(t *testing.T) {
 	l := connector.New(st.Connectors, f)
 	org := seedOrg(t, st)
 
-	c, action, _, err := l.Begin(ctx, org, "")
+	c, action, _, err := l.Begin(ctx, org, user, "")
 	if err != nil || !strings.Contains(action, c.ID+".") || connector.Connected(c) {
 		t.Fatalf("begin = %+v %s %v", c, action, err)
 	}
@@ -95,10 +97,13 @@ func TestHandshake(t *testing.T) {
 	if _, secret, _ := l.WebhookSecret(ctx, c.ID); secret != "" {
 		t.Error("pending connector has a webhook secret")
 	}
-	if _, err := l.Complete(ctx, c.ID+".wrong", "code"); !errors.Is(err, errs.ErrRefused) {
+	if _, err := l.Complete(ctx, user, c.ID+".wrong", "code"); !errors.Is(err, errs.ErrRefused) {
 		t.Errorf("wrong nonce = %v", err)
 	}
-	c, err = l.Complete(ctx, f.state, "code")
+	if _, err := l.Complete(ctx, "u2", f.state, "code"); !errors.Is(err, errs.ErrRefused) {
+		t.Errorf("another user's callback = %v", err)
+	}
+	c, err = l.Complete(ctx, user, f.state, "code")
 	if err != nil || !connector.Connected(c) || c.Name != "GitHub · stackr-x" {
 		t.Fatalf("complete = %+v %v", c, err)
 	}
@@ -116,10 +121,10 @@ func TestHandshake(t *testing.T) {
 	if rs, err := l.Repos(ctx, org, c.ID); err != nil || len(rs) != 1 || rs[0].FullName != "acme/api" {
 		t.Errorf("installed repos = %v %v", rs, err)
 	}
-	if _, err := l.Complete(ctx, f.state, "code"); !errors.Is(err, errs.ErrRefused) {
+	if _, err := l.Complete(ctx, user, f.state, "code"); !errors.Is(err, errs.ErrRefused) {
 		t.Errorf("replayed callback = %v", err)
 	}
-	if _, _, _, err := l.Begin(ctx, org, ""); err == nil {
+	if _, _, _, err := l.Begin(ctx, org, user, ""); err == nil {
 		t.Error("second github connector in one org")
 	}
 

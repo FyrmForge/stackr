@@ -126,6 +126,7 @@ func (h *handler) beginConnector(c echo.Context) error {
 	_, action, manifest, err := h.orch.BeginConnector(
 		c.Request().Context(),
 		middleware.ScopeOf(c).Org.ID,
+		middleware.Principal(c).User.ID,
 		c.FormValue("github_org"),
 	)
 	if err != nil {
@@ -141,14 +142,15 @@ func (h *handler) beginConnector(c echo.Context) error {
 }
 
 // GET /settings/github/callback?code=&state=: GitHub made the app. The
-// state's nonce is the proof the caller began this install; the connector
+// state's nonce, and the signed-in user matching who began, prove the caller began this install; the connector
 // drawer then opens on its org's canvas, or the setup wizard's connector
 // step takes it back while the org is unfinished (v0's setup cookie: only
 // the wizard reaches an unfinished org). A refused handshake is v0's
 // flash on the home canvas; a real failure is the error page.
 func (h *handler) githubCallback(c echo.Context) error {
 	ctx := c.Request().Context()
-	k, err := h.orch.CompleteConnector(ctx, c.QueryParam("state"), c.QueryParam("code"))
+	uid := middleware.Principal(c).User.ID
+	k, err := h.orch.CompleteConnector(ctx, uid, c.QueryParam("state"), c.QueryParam("code"))
 	if err != nil {
 		var he *echo.HTTPError
 		if !errors.As(middleware.HTTPError(err), &he) {
@@ -157,7 +159,7 @@ func (h *handler) githubCallback(c echo.Context) error {
 		hamrmw.SetFlash(c, "GitHub connection failed: "+fmt.Sprint(he.Message), hamrmw.FlashError)
 		return c.Redirect(http.StatusSeeOther, "/")
 	}
-	orgs, err := h.orch.Orgs(ctx, middleware.Principal(c).User.ID)
+	orgs, err := h.orch.Orgs(ctx, uid)
 	if err != nil {
 		return middleware.HTTPError(err)
 	}

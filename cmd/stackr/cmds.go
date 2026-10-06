@@ -116,6 +116,7 @@ func (a *app) login() *cobra.Command {
 			a.say("logged in to %s, org %s", server, cell(a.cfg.Org))
 			return nil
 		})
+	c.Example = "  stackr login https://stackr.example.com\n  stackr login https://stackr.example.com --with-key $KEY --org acme"
 	c.Flags().StringVar(&key, "with-key", "", "an API key made in the panel, instead of the browser flow (or STACKR_KEY, which keeps it off argv)")
 	c.Flags().StringVar(&org, "org", "", "the org to work in (its slug)")
 	host, _ := os.Hostname()
@@ -822,6 +823,7 @@ func (a *app) jobs() *cobra.Command {
 			return err
 		},
 	)
+	log.Example = "  stackr job log j1\n  stackr job log j1 --follow"
 	log.Flags().BoolVarP(&follow, "follow", "f", false, "stream until the job ends")
 	var states []string
 	var limit int

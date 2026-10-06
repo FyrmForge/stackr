@@ -466,3 +466,20 @@ func TestDrawerReads(t *testing.T) {
 		t.Errorf("tile volumes = %+v", vs)
 	}
 }
+
+// Deleting a param a running tile reads redeploys it, and the answer names
+// the tile, env and job; a stopped tile is left alone.
+func TestDeleteParamNamesRedeploys(t *testing.T) {
+	w := newWorld(t)
+	ctx := context.Background()
+	up := w.tile(t, "api", true)
+	w.tile(t, "worker", false)
+	s := ParamScope{Kind: "stack", ID: w.stack}
+	_, err := w.orch.SetParams(ctx, s, []ParamEntry{{Collection: "app", Name: "mode", Kind: "param", Value: "fast"}})
+	must(t, err)
+	rs, err := w.orch.DeleteParam(ctx, s, "app", "mode")
+	must(t, err)
+	if len(rs) != 1 || rs[0].Env != "dev" || rs[0].Tile != "api" || rs[0].Job == "" {
+		t.Fatalf("DeleteParam named %+v, want the %s tile in dev with a job", rs, up.Slug)
+	}
+}

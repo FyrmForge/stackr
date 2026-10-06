@@ -7274,8 +7274,18 @@
           }
         ],
         "responses": {
-          "204": {
-            "description": "No Content"
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Redeploy"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
           },
           "default": {
             "content": {
@@ -8506,8 +8516,18 @@
           }
         ],
         "responses": {
-          "204": {
-            "description": "No Content"
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Redeploy"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
           },
           "default": {
             "content": {
@@ -11668,8 +11688,18 @@
           }
         ],
         "responses": {
-          "204": {
-            "description": "No Content"
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Redeploy"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
           },
           "default": {
             "content": {

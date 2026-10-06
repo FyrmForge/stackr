@@ -257,6 +257,7 @@ func (a *app) stacks() *cobra.Command {
 			}
 			return a.show(v, stackCols...)
 		}))
+	create.Example = "  stackr stack create shop --desc \"The web shop\""
 	create.Flags().StringVar(&desc, "desc", "", "a one-line description")
 	var repo, branch, path, conn string
 	var unbind bool
@@ -395,6 +396,7 @@ func (a *app) envs() *cobra.Command {
 			}
 			return a.show(v, envCols...)
 		}))
+	create.Example = "  stackr env create staging --stack shop"
 	create.Flags().StringVar(&typ, "type", "static", "static or ephemeral")
 	create.Flags().StringVar(&base, "base", "", "the env id an ephemeral env copies")
 	create.Flags().StringVar(&color, "color", "", "the panel colour")
@@ -465,13 +467,6 @@ func (a *app) envs() *cobra.Command {
 
 // ---- promote ----
 
-// plan prints what a promote would change, and its blockers (B20: the
-// one field the job itself refuses on).
-func (a *app) plan(p, rel string) (bool, error) {
-	ok, _, err := a.showPlan(p + "/plan/" + rel)
-	return ok, err
-}
-
 // showPlan reads the plan at path and prints it (the body with --json); it
 // returns can_deploy and the plan for a caller that reads it further.
 func (a *app) showPlan(path string) (bool, map[string]any, error) {
@@ -534,6 +529,7 @@ func (a *app) promote() *cobra.Command {
 			return a.move(c, p, args[0], dry, "promote",
 				fmt.Sprintf("Promote release %s to %s?", args[0], last(p)))
 		})))
+	c.Example = "  stackr promote 7 --stack shop --env prod\n  stackr promote 7 --stack shop --env prod --dry-run"
 	c.Flags().BoolVar(&dry, "dry-run", false, "print the plan and change nothing")
 	return scoped(c, false)
 }
@@ -562,9 +558,20 @@ func (a *app) move(c *cobra.Command, p, release string, dry bool, verb, question
 	if err != nil {
 		return err
 	}
-	ok, err := a.plan(p, rel)
-	if err != nil || dry {
+	ok, pl, err := a.showPlan(p + "/plan/" + rel)
+	if err != nil {
 		return err
+	}
+	changes, _ := pl["changes"].([]any)
+	blockers, _ := pl["blockers"].([]any)
+	if len(changes) == 0 && len(blockers) == 0 {
+		if !a.json {
+			_, _ = fmt.Fprintf(a.errw, "nothing to change: %s already runs release %s\n", last(p), release)
+		}
+		return nil
+	}
+	if dry {
+		return nil
 	}
 	if !ok {
 		return fmt.Errorf("the %s is blocked; see the blockers above", verb)
@@ -656,6 +663,7 @@ func (a *app) envSync() *cobra.Command {
 			return a.orgJob(c, POST, p+"/sync/"+url.PathEscape(from),
 				map[string]any{"keep": keep, "sig": pl["sig"]}, "sync")
 		})))
+	c.Example = "  stackr env sync --from dev --stack shop --env staging\n  stackr env sync --from dev --stack shop --env staging --tile api"
 	c.Flags().StringVar(&from, "from", "", "the env of the stack to sync from (slug); required")
 	c.Flags().StringSliceVar(&tiles, "tile", nil, "sync only these tiles (slugs, comma list)")
 	c.Flags().BoolVar(&dry, "dry-run", false, "print the plan and change nothing")
@@ -854,6 +862,7 @@ func (a *app) tiles() *cobra.Command {
 	var kind string
 	create := leaf("create <name>", "tile.create", "Make a tile in --env", exact(1), nil)
 	createKeys := tileFlags(create)
+	create.Example = "  stackr tile create api --stack shop --env dev --image nginx:1.27"
 	create.Flags().StringVar(&kind, "kind", "image", "image, service (built from git), cron or function")
 	create.RunE = a.at(atEnv, func(c *cobra.Command, p string, args []string) error {
 		body, err := changed(c, createKeys)
@@ -871,6 +880,7 @@ func (a *app) tiles() *cobra.Command {
 		return a.show(v, tileCols...)
 	})
 	set := leaf("set [tile]", "tile.update", "Change tile settings; only the flags given are sent", upTo(1), nil)
+	set.Example = "  stackr tile set api --stack shop --env dev --image nginx:1.28"
 	setKeys := tileFlags(set)
 	set.RunE = a.at(atTile, func(c *cobra.Command, p string, _ []string) error {
 		body, err := changed(c, setKeys)
@@ -1452,7 +1462,7 @@ func (a *app) params() *cobra.Command {
 					return a.show(m, paramCols...)
 				}
 			}
-			return fmt.Errorf("no param %s at this level", args[0])
+			return noParam(args[0], xs)
 		}
 		return a.show(v, paramCols...)
 	}
@@ -1487,17 +1497,13 @@ func (a *app) params() *cobra.Command {
 			return usage("nothing to set")
 		}
 		v, err := a.call(PATCH, p+"/params", body)
-		rs, _ := v.([]any)
-		for _, r := range rs {
-			m, _ := r.(map[string]any)
-			_, _ = fmt.Fprintf(a.errw, "redeploying %s (%s): stackr job log %s --follow\n",
-				cell(m["tile"]), cell(m["env"]), cell(m["job"]))
-		}
+		a.redeploying(v)
 		return err
 	}
 	set := leaf("set <collection.NAME=value>...", "org.params-set,stack.params-set,env.params-set",
 		"Set params; others at the level stay", atLeast(1),
 		func(c *cobra.Command, args []string) error { return send(c, args) })
+	set.Example = "  stackr params set app.mode=prod --env dev\n  stackr params set app.token=s3cret --secret --env dev"
 	merge := leaf("merge", "org.params-set,stack.params-set,env.params-set",
 		"Set every collection.NAME=value line of a file (-f, \"-\" stdin); others stay", exact(0),
 		func(c *cobra.Command, _ []string) error {
@@ -1580,14 +1586,55 @@ func (a *app) params() *cobra.Command {
 				if err != nil {
 					return err
 				}
+				have, err := a.call(GET, p+"/params", nil)
+				if err != nil {
+					return err
+				}
+				xs, _ := have.([]any)
+				if !hasParam(xs, col, name) {
+					return noParam(args[0], xs)
+				}
 				if err := a.confirm("Delete param " + args[0] + "? Tiles that read it fail their next deploy until it is set again."); err != nil {
 					return err
 				}
-				_, err = a.call(DELETE, p+"/params/"+url.PathEscape(col)+"/"+url.PathEscape(name), nil)
+				v, err := a.call(DELETE, p+"/params/"+url.PathEscape(col)+"/"+url.PathEscape(name), nil)
+				a.redeploying(v)
 				return err
 			},
 		),
 	))
+}
+
+// redeploying prints a line per tile a param change redeploys.
+func (a *app) redeploying(v any) {
+	rs, _ := v.([]any)
+	for _, r := range rs {
+		m, _ := r.(map[string]any)
+		_, _ = fmt.Fprintf(a.errw, "redeploying %s (%s): stackr job log %s --follow\n",
+			cell(m["tile"]), cell(m["env"]), cell(m["job"]))
+	}
+}
+
+// paramNames is collection.NAME for each param in the level's list.
+func paramNames(xs []any) []string {
+	out := make([]string, 0, len(xs))
+	for _, x := range xs {
+		m, _ := x.(map[string]any)
+		out = append(out, cell(m["collection"])+"."+cell(m["name"]))
+	}
+	return out
+}
+
+func hasParam(xs []any, col, name string) bool {
+	return slices.Contains(paramNames(xs), col+"."+name)
+}
+
+// noParam is the unknown-param error, with the closest name if one is near.
+func noParam(want string, xs []any) error {
+	if s := closest(want, paramNames(xs)); s != "" {
+		return fmt.Errorf("no param %s at this level; did you mean %s?", want, s)
+	}
+	return fmt.Errorf("no param %s at this level", want)
 }
 
 func readFile(a *app, name string) ([]byte, error) {

@@ -11,7 +11,6 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
@@ -70,6 +69,10 @@ type envSyncJob struct {
 	FromID string   `json:"from_id"`
 	Keep   []string `json:"keep"`
 	Sig    string   `json:"sig"`
+	// Owed is set once the sync parks after its writes: the tiles still to
+	// deploy. A parked job runs its handler again, and a re-plan would read
+	// those writes as drift.
+	Owed []string `json:"owed,omitempty"`
 }
 
 type pushJob struct {
@@ -122,13 +125,18 @@ func payload[P any](f func(context.Context, *jobs.Run, P) error) jobs.Handler {
 	}
 }
 
+// withOwed sets owed in a job payload, keeping every other key (org_id).
+func withOwed(payload string, owed []string) string {
+	var m map[string]any
+	if json.Unmarshal([]byte(payload), &m) != nil || m == nil {
+		m = map[string]any{}
+	}
+	m["owed"] = owed
+	b, _ := json.Marshal(m)
+	return string(b)
+}
+
 func (o *Orchestrator) handlers() map[jobs.Kind]jobs.Handler {
-	// parkedSyncs holds the deploys a parked sync still owes, by job id. A
-	// parked job runs its handler again, and the sync's rows are written by
-	// then. ponytail: in memory, so a sync still waiting at a restart
-	// re-plans on resume and fails on its own writes (the tiles deploy by
-	// hand); a superseded one keeps its entry until a restart, a few bytes.
-	var parkedSyncs sync.Map
 	return map[jobs.Kind]jobs.Handler{
 		kindDeploy: payload(func(ctx context.Context, r *jobs.Run, p tileJob) error {
 			if err := o.deploy.Redeploy(ctx, p.TileID, r.Log, r.Swap); err != nil {
@@ -146,18 +154,16 @@ func (o *Orchestrator) handlers() map[jobs.Kind]jobs.Handler {
 		kindEnvSync: payload(func(ctx context.Context, r *jobs.Run, p envSyncJob) error {
 			var plan *promote.Sync
 			var err error
-			if owed, ok := parkedSyncs.Load(r.Job.ID); ok {
+			if len(p.Owed) > 0 {
 				// Parked after its writes: deploy what it still owes, no re-plan.
 				if err = r.Swap(); err == nil {
-					plan, err = o.promote.SyncRollout(ctx, owed.([]string), r.Log)
+					plan, err = o.promote.SyncRollout(ctx, p.Owed, r.Log)
 				}
 			} else {
 				plan, err = o.promote.SyncApply(ctx, p.EnvID, p.FromID, p.Keep, p.Sig, r.Log, r.Swap)
 			}
 			if _, parked := errs.IsUnset(err); parked && plan != nil && len(plan.Owed) > 0 {
-				parkedSyncs.Store(r.Job.ID, plan.Owed)
-			} else {
-				parkedSyncs.Delete(r.Job.ID)
+				r.Job.Payload = withOwed(r.Job.Payload, plan.Owed)
 			}
 			if plan != nil {
 				err = errors.Join(err, o.dropRuns(plan.Removed), o.afterDeploy(ctx, plan.Deployed, true))

@@ -124,12 +124,8 @@ func (h *handler) SetVars(c echo.Context) error {
 func (h *handler) DeleteVar(c echo.Context) error {
 	s := middleware.ScopeOf(c)
 	ps, _ := paramScope(s)
-	return h.varsAfter(
-		c,
-		s,
-		"Deleted.",
-		h.orch.DeleteParam(c.Request().Context(), ps, c.FormValue("collection"), c.FormValue("name")),
-	)
+	_, err := h.orch.DeleteParam(c.Request().Context(), ps, c.FormValue("collection"), c.FormValue("name"))
+	return h.varsAfter(c, s, "Deleted.", err)
 }
 
 func (h *handler) varsAfter(c echo.Context, s service.Scope, note string, err error) error {

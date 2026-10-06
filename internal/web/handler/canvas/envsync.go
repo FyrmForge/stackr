@@ -26,13 +26,18 @@ type syncQ struct {
 }
 
 func syncOf(c echo.Context) syncQ {
-	q := syncQ{from: c.QueryParam("sync")}
-	for _, s := range strings.Split(c.QueryParam("drop"), ",") {
-		if s = strings.TrimSpace(s); s != "" {
-			q.drop = append(q.drop, s)
+	return syncQ{from: c.QueryParam("sync"), drop: dropList(c.QueryParam("drop"))}
+}
+
+// dropList is a "a,b" drop list as the query and the bar form carry it.
+func dropList(s string) []string {
+	var out []string
+	for _, t := range strings.Split(s, ",") {
+		if t = strings.TrimSpace(t); t != "" {
+			out = append(out, t)
 		}
 	}
-	return q
+	return out
 }
 
 // query is the review as the env page carries it, "sync=dev&drop=a,b".
@@ -47,12 +52,13 @@ func (q syncQ) query() string {
 // syncConfirm is the question Deploy asks, on the bar and in the drawer.
 // drawer is the env's drawer route; env is the name of the env synced into.
 // The bar's answer swaps nothing (the drawer it would swap may be closed):
-// it posts bar=1 and the server redirects on a refusal too.
-func syncConfirm(drawer, env, from string, keep []string, sig string, bar bool) *comp.ConfirmView {
+// it posts bar=1 and the server redirects on a refusal too, back to the
+// review with the tiles dropped (drop).
+func syncConfirm(drawer, env, from string, keep, drop []string, sig string, bar bool) *comp.ConfirmView {
 	vals := map[string]any{"keep": keep, "sig": sig}
 	target := "#" + comp.DrawerRoot
 	if bar {
-		vals["bar"], target = "1", ""
+		vals["bar"], vals["drop"], target = "1", strings.Join(drop, ","), ""
 	}
 	raw, _ := json.Marshal(vals)
 	return &comp.ConfirmView{
@@ -80,7 +86,7 @@ func syncBar(l level, pl service.EnvSyncPlan, q syncQ) *ui.SyncBar {
 		}
 	}
 	if pl.CanDeploy {
-		b.Deploy = syncConfirm(l.base+"/-/drawer", l.title, q.from, keep, pl.Plan.Sig, true)
+		b.Deploy = syncConfirm(l.base+"/-/drawer", l.title, q.from, keep, q.drop, pl.Plan.Sig, true)
 	}
 	b.Text = count(len(keep)) + " from " + q.from
 	if pl.Plan.Blocked() {
@@ -144,7 +150,7 @@ func (h *handler) syncTab(c echo.Context, cd card, f *comp.DrawerView) (templ.Co
 		// only a job that locked this env: a job id from elsewhere shows the review
 		if j, err := h.orch.GetJob(ctx, id); err == nil && slices.Contains(j.LockSet, "env:"+e.ID) {
 			jv := render.JobView(urlOf(cd.s), j)
-			jv.Refresh = f.Base + "?tab=sync"
+			jv.Refresh = f.Base + "?tab=sync&sync=" + q.from
 			v.Job = &jv
 			return envui.Sync(v), nil
 		}
@@ -190,7 +196,7 @@ func (h *handler) syncTab(c echo.Context, cd card, f *comp.DrawerView) (templ.Co
 		}
 	}
 	if pl.CanDeploy && can(c, cd.s, "env.write") {
-		v.Deploy = syncConfirm(f.Base, e.Name, q.from, keep, p.Sig, false)
+		v.Deploy = syncConfirm(f.Base, e.Name, q.from, keep, nil, p.Sig, false)
 	}
 	return envui.Sync(v), nil
 }

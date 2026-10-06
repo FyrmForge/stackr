@@ -443,6 +443,25 @@ func TestSyncReachableSlice(t *testing.T) {
 	}
 }
 
+// A slice whose source instance is stopped blocks the sync at plan time.
+func TestSyncStoppedSourceBlocks(t *testing.T) {
+	w := newSliceWorld(t)
+	w.st.ConfigRepo = ""
+	must(t, w.s.Stacks.Update(ctx, w.st))
+	from := "infra:production:pg-db"
+	w.mk(t, w.dev, "app-db", store.Tile{Kind: tile.Slice, ProvisionFrom: &from})
+	for i, c := range w.fake.Containers {
+		if c.ID == "pg-production" {
+			w.fake.Containers[i].State = "exited"
+		}
+	}
+	s := w.syncPlan(t)
+	want := "slice app-db: infra/production/pg-db is not running; start it first"
+	if len(s.Blockers) != 1 || s.Blockers[0] != want {
+		t.Errorf("blockers: %v", s.Blockers)
+	}
+}
+
 // A sync that fails before its deletes reports nothing removed, so the
 // caller keeps the run history of the tiles that are still there.
 func TestSyncFailedApplyRemovesNothing(t *testing.T) {
