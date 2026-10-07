@@ -16,6 +16,7 @@ type resolved struct {
 	cmd         []string
 	ports       map[string]string
 	devices     []docker.Device
+	privileged  bool // t.Privileged and the stack's grant says so
 	networks    []docker.NetAttach
 	cpu         float64
 	memMB       int
@@ -36,7 +37,7 @@ func spec(t store.Tile, r resolved) docker.ContainerSpec {
 		MemLimitMB:         r.memMB,
 		User:               t.User,
 		ShmSizeMB:          t.ShmSizeMB,
-		Privileged:         t.Privileged,
+		Privileged:         r.privileged,
 		Devices:            r.devices,
 		Restart:            restart(t.RestartPolicy),
 		HealthCmd:          t.HealthcheckCmd,
@@ -64,8 +65,10 @@ func restart(p string) string {
 }
 
 // publishedPorts parses "host:container[/udp]" lines. It cuts on the first
-// ":" only, so "/udp" rides along in the container value for the wrapper. A
-// bad line is a warning, never fatal: one typo must not block a deploy.
+// ":" only, so "/udp" rides along in the container value for the wrapper. The
+// key is "host" for tcp and "host/udp" for udp, so one host port bound on
+// both protocols keeps both. A bad line is a warning, never fatal: one typo
+// must not block a deploy.
 func publishedPorts(s string) (map[string]string, []string) {
 	lines := tile.Lines(s)
 	if len(lines) == 0 {
@@ -80,6 +83,9 @@ func publishedPorts(s string) (map[string]string, []string) {
 		if !ok || host == "" || cont == "" {
 			warn = append(warn, fmt.Sprintf("skipping bad published port %q (want host:container[/udp])", l))
 			continue
+		}
+		if _, proto, _ := strings.Cut(cont, "/"); proto != "" && proto != "tcp" {
+			host += "/" + proto
 		}
 		out[host] = cont
 	}

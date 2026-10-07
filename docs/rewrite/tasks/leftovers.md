@@ -134,7 +134,8 @@ a different fix and is not in this plan.
 Traced: no code, doc or setting names it. Caddy config is built in
 `leaf/domain/caddy.go` (`server()` adds `trusted_proxies` from the
 `trusted_proxies` setting).
-Decision: deferred. Nothing in front of the rig speaks PROXY and the k8s
+Decision: deferred (reconfirmed 2026-10-07 with the migration blitz: pass-through
+routes use the layer4 wrapper directly, no PROXY hop). Nothing in front of the rig speaks PROXY and the k8s
 backend ingress will not use Caddy's listener. Smallest version if wanted: a
 `proxy_protocol_from` setting (`leaf/settings/catalogue.go`), wired in
 `internal/service/wiring.go` and emitted as a `listener_wrappers`
@@ -157,6 +158,30 @@ Items still marked "Lean (b), later" are triaged:
 - Deferred, no current harm: 17 (parked jobs re-run blind; A1 makes the
   re-run safe), 107 log levels, 109 instance drawer tabs, 112 domain detach
   tile check (env.write gates it), 118 card footer bits, 101 lane labels.
+
+### H. Migration blitz ceilings
+Left on purpose, from `blitz-seams.md`: the Approve button for host access sits
+on the stack drawer, not on the parked job row (`ui/components/job_status.templ`
+is shared by every drawer); a host grant only grows
+(approve adds, revoke clears it); a `files:` commit folder is written once per
+commit. Options: (a) keep; (b) build each. Lean (a) until one bites.
+
+Recorded in the blitz fix round, not fixed:
+- Promote or rollback that parks at deploy time after `SetRelease` moved the
+  env pointer finishes Done on resume without redeploying (also an older
+  `errs.Unset` gap).
+- `ParamSet` never auto-requeues a covered host-access park; `Requeue` can
+  resurrect a superseded job.
+- Slice provisioning and earlier volume lines run before the host-access gate
+  inside `resolve`.
+- Cron, function and one-shot runs fail instead of parking on host access.
+- A grant covers the whole stack, PR envs included; a stopped privileged
+  container restarts without a check.
+- Rendered template folders of deleted tiles and of cron tiles are never
+  pruned; template refs are invisible to plan and dependency ordering; no
+  `files:` dst collision check at save time.
+- Route create check-then-insert race; route vs tile attach race; browser
+  connection reuse with broad pass-through certs (docs).
 
 ## Waves
 

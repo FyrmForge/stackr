@@ -1,0 +1,309 @@
+{
+  "admin": {
+    "listen": "0.0.0.0:2019"
+  },
+  "apps": {
+    "http": {
+      "servers": {
+        "http": {
+          "listen": [
+            ":80"
+          ],
+          "routes": [
+            {
+              "handle": [
+                {
+                  "handler": "static_response",
+                  "headers": {
+                    "Location": [
+                      "https://{http.request.host}{http.request.uri}"
+                    ]
+                  },
+                  "status_code": 308
+                }
+              ],
+              "match": [
+                {
+                  "host": [
+                    "app.example.com"
+                  ]
+                }
+              ],
+              "terminal": true
+            }
+          ]
+        },
+        "https": {
+          "automatic_https": {
+            "disable_redirects": true
+          },
+          "listen": [
+            ":443"
+          ],
+          "routes": [
+            {
+              "handle": [
+                {
+                  "handle_response": [
+                    {
+                      "match": {
+                        "status_code": [
+                          2
+                        ]
+                      },
+                      "routes": [
+                        {
+                          "handle": [
+                            {
+                              "handler": "vars"
+                            }
+                          ]
+                        },
+                        {
+                          "handle": [
+                            {
+                              "handler": "headers",
+                              "request": {
+                                "delete": [
+                                  "Remote-User"
+                                ]
+                              }
+                            }
+                          ]
+                        },
+                        {
+                          "handle": [
+                            {
+                              "handler": "headers",
+                              "request": {
+                                "set": {
+                                  "Remote-User": [
+                                    "{http.reverse_proxy.header.Remote-User}"
+                                  ]
+                                }
+                              }
+                            }
+                          ],
+                          "match": [
+                            {
+                              "not": [
+                                {
+                                  "vars": {
+                                    "{http.reverse_proxy.header.Remote-User}": [
+                                      ""
+                                    ]
+                                  }
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "handle": [
+                            {
+                              "handler": "headers",
+                              "request": {
+                                "delete": [
+                                  "Remote-Groups"
+                                ]
+                              }
+                            }
+                          ]
+                        },
+                        {
+                          "handle": [
+                            {
+                              "handler": "headers",
+                              "request": {
+                                "set": {
+                                  "Remote-Groups": [
+                                    "{http.reverse_proxy.header.Remote-Groups}"
+                                  ]
+                                }
+                              }
+                            }
+                          ],
+                          "match": [
+                            {
+                              "not": [
+                                {
+                                  "vars": {
+                                    "{http.reverse_proxy.header.Remote-Groups}": [
+                                      ""
+                                    ]
+                                  }
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "handle": [
+                            {
+                              "handler": "headers",
+                              "request": {
+                                "delete": [
+                                  "Remote-Name"
+                                ]
+                              }
+                            }
+                          ]
+                        },
+                        {
+                          "handle": [
+                            {
+                              "handler": "headers",
+                              "request": {
+                                "set": {
+                                  "Remote-Name": [
+                                    "{http.reverse_proxy.header.Remote-Name}"
+                                  ]
+                                }
+                              }
+                            }
+                          ],
+                          "match": [
+                            {
+                              "not": [
+                                {
+                                  "vars": {
+                                    "{http.reverse_proxy.header.Remote-Name}": [
+                                      ""
+                                    ]
+                                  }
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "handle": [
+                            {
+                              "handler": "headers",
+                              "request": {
+                                "delete": [
+                                  "Remote-Email"
+                                ]
+                              }
+                            }
+                          ]
+                        },
+                        {
+                          "handle": [
+                            {
+                              "handler": "headers",
+                              "request": {
+                                "set": {
+                                  "Remote-Email": [
+                                    "{http.reverse_proxy.header.Remote-Email}"
+                                  ]
+                                }
+                              }
+                            }
+                          ],
+                          "match": [
+                            {
+                              "not": [
+                                {
+                                  "vars": {
+                                    "{http.reverse_proxy.header.Remote-Email}": [
+                                      ""
+                                    ]
+                                  }
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "routes": [
+                        {
+                          "handle": [
+                            {
+                              "handler": "copy_response"
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ],
+                  "handler": "reverse_proxy",
+                  "headers": {
+                    "request": {
+                      "delete": [
+                        "X-Original-Url",
+                        "X-Original-Method"
+                      ],
+                      "set": {
+                        "Host": [
+                          "{http.reverse_proxy.upstream.hostport}"
+                        ],
+                        "X-Forwarded-Host": [
+                          "{http.request.host}"
+                        ],
+                        "X-Forwarded-Method": [
+                          "{http.request.method}"
+                        ],
+                        "X-Forwarded-Uri": [
+                          "{http.request.uri}"
+                        ]
+                      }
+                    }
+                  },
+                  "rewrite": {
+                    "method": "GET",
+                    "uri": "/api/verify?"
+                  },
+                  "transport": {
+                    "protocol": "http",
+                    "tls": {}
+                  },
+                  "upstreams": [
+                    {
+                      "dial": "auth.example.com:443"
+                    }
+                  ]
+                },
+                {
+                  "handler": "reverse_proxy",
+                  "upstreams": [
+                    {
+                      "dial": "web-r1:8080"
+                    },
+                    {
+                      "dial": "web-r2:8080"
+                    }
+                  ]
+                }
+              ],
+              "match": [
+                {
+                  "host": [
+                    "app.example.com"
+                  ]
+                }
+              ],
+              "terminal": true
+            }
+          ]
+        }
+      }
+    },
+    "tls": {
+      "automation": {
+        "policies": [
+          {
+            "issuers": [
+              {
+                "email": "ops@stackr.io",
+                "module": "acme"
+              }
+            ]
+          }
+        ]
+      }
+    }
+  }
+}

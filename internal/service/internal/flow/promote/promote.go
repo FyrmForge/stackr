@@ -38,6 +38,9 @@ type Flow struct {
 	Config func(ctx context.Context, st store.Stack, commit string, log io.Writer) ([]byte, Fetcher, error)
 	// DNS01 reports whether a DNS-01 provider is configured (wildcards).
 	DNS01 func(ctx context.Context) bool
+	// RouteHeld reports whether an external route holds a host: a stack
+	// file domain on it is blocked, as a UI domain is refused.
+	RouteHeld func(ctx context.Context, host string) (bool, error)
 	// Build builds one service tile at a commit and returns the image row id.
 	Build func(ctx context.Context, st store.Stack, t store.Tile, commit string, log io.Writer) (string, error)
 }
@@ -56,6 +59,9 @@ func (f *Flow) Apply(ctx context.Context, envID, releaseID string, log io.Writer
 		return nil, err
 	}
 	if p.Blocked() {
+		if err := needsApproval(p, w.st); err != nil {
+			return p, err
+		}
 		return p, errs.Conflictf("%s", strings.Join(p.Blockers, "; "))
 	}
 	if len(p.Changes) == 0 {
@@ -321,7 +327,50 @@ func (f *Flow) Remove(ctx context.Context, e store.Environment, ts []store.Tile,
 		removed = append(removed, t.ID)
 		logf(log, "removed %s\n", t.Slug)
 	}
+	if len(removed) > 0 {
+		// Share volumes have no row; the ones no remaining tile row names go.
+		st, err := d.Stacks.Get(ctx, e.StackID)
+		if err != nil {
+			return removed, err
+		}
+		uses, err := f.shareUses(ctx, st.OrgID)
+		if err != nil {
+			return removed, err
+		}
+		held, err := d.Volumes.SweepShares(ctx, st.OrgID, uses)
+		if err != nil {
+			return removed, err
+		}
+		if len(held) > 0 {
+			logf(log, "warning: %d share volumes stay: a container holds them\n", len(held))
+		}
+	}
 	return removed, nil
+}
+
+// shareUses is every share line of every tile row in the org: the keep set
+// of a share sweep.
+func (f *Flow) shareUses(ctx context.Context, orgID string) ([]volume.ShareUse, error) {
+	d := f.D
+	sts, err := d.Stacks.List(ctx, orgID)
+	if err != nil {
+		return nil, err
+	}
+	var uses []volume.ShareUse
+	for _, st := range sts {
+		ts, err := d.Tiles.ListByStack(ctx, st.ID)
+		if err != nil {
+			return nil, err
+		}
+		for _, t := range ts {
+			for _, l := range tile.Lines(t.Volumes) {
+				if m, err := tile.ParseMount(l); err == nil && m.Kind == tile.MountShare {
+					uses = append(uses, volume.ShareUse{Share: m.Share, Sub: m.Sub})
+				}
+			}
+		}
+	}
+	return uses, nil
 }
 
 // forgetSlice drops every slice_access entry naming slice slug from the

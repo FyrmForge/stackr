@@ -406,11 +406,10 @@ func TestRollbackRestoresTheTag(t *testing.T) {
 func TestFileBlockers(t *testing.T) {
 	w := setup(t)
 	w.files["c1"] = strings.Replace(shopFile, "api.example.com", "${{ params.web.host }}", 1)
-	w.files["c1"] = strings.Replace(w.files["c1"], "      port: 80\n", "      port: 80\n      files: [\"a:/b\"]\n", 1)
 	r := w.release(t, "c1")
 	p, err := w.f.Plan(ctx, w.dev.ID, r.ID, io.Discard)
 	must(t, err)
-	if !p.Blocked() || !strings.Contains(strings.Join(p.Blockers, "|"), "files:") {
+	if !p.Blocked() || !strings.Contains(strings.Join(p.Blockers, "|"), "params.web.host") {
 		t.Errorf("blockers = %v", p.Blockers)
 	}
 	if _, err := w.f.Apply(ctx, w.dev.ID, r.ID, io.Discard, nil); err == nil {
@@ -715,6 +714,31 @@ func TestDomainBlockers(t *testing.T) {
 	p, err = w.f.Plan(ctx, w.dev.ID, w.release(t, "c2").ID, io.Discard)
 	must(t, err)
 	if !strings.Contains(strings.Join(p.Blockers, "|"), "starts with another organization's slug") {
+		t.Errorf("blockers = %v", p.Blockers)
+	}
+}
+
+// A stack file domain on a host an external route holds is a blocker.
+func TestDomainOnRouteHostBlocked(t *testing.T) {
+	w := setup(t)
+	w.f.RouteHeld = func(_ context.Context, h string) (bool, error) { return h == "legacy.example.com", nil }
+	w.files["c1"] = autoFile("host: legacy.example.com", "")
+	p, err := w.f.Plan(ctx, w.dev.ID, w.release(t, "c1").ID, io.Discard)
+	must(t, err)
+	if !strings.Contains(strings.Join(p.Blockers, "|"), "legacy.example.com is an external route") {
+		t.Errorf("blockers = %v", p.Blockers)
+	}
+}
+
+// A stack file's own domains: row on an external route's host is a blocker
+// too: the tiles named under it would take the route's names.
+func TestResourceOnRouteHostBlocked(t *testing.T) {
+	w := setup(t)
+	w.f.RouteHeld = func(_ context.Context, h string) (bool, error) { return h == "legacy.example.com", nil }
+	w.files["c1"] = autoFile("host: shop.io", "host: legacy.example.com")
+	p, err := w.f.Plan(ctx, w.dev.ID, w.release(t, "c1").ID, io.Discard)
+	must(t, err)
+	if !strings.Contains(strings.Join(p.Blockers, "|"), "legacy.example.com is an external route") {
 		t.Errorf("blockers = %v", p.Blockers)
 	}
 }

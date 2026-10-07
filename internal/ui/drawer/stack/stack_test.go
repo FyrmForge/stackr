@@ -8,6 +8,26 @@ import (
 	c "github.com/FyrmForge/stackr/internal/ui/components"
 )
 
+func TestHostAccess(t *testing.T) {
+	var b strings.Builder
+	_ = Settings(SettingsView{Name: "none"}).Render(context.Background(), &b)
+	if strings.Contains(b.String(), "Host access") {
+		t.Error("a stack with no host access shows the section")
+	}
+	b.Reset()
+	_ = Settings(SettingsView{Name: "mon", Host: HostView{
+		Lines:      []string{"host:/a:/b"},
+		Privileged: true,
+		Pending:    []string{"device:/dev/x"},
+		Approve:    c.ConfirmView{Button: "Approve", Title: "Approve?", Action: "/approve", Primary: true},
+	}}).Render(context.Background(), &b)
+	for _, w := range []string{"Host access", "host:/a:/b", "privileged", "waiting: device:/dev/x", `hx-post="/approve"`} {
+		if !strings.Contains(b.String(), w) {
+			t.Errorf("no %s in\n%s", w, b.String())
+		}
+	}
+}
+
 func TestTabs(t *testing.T) {
 	var b strings.Builder
 	_ = Settings(SettingsView{

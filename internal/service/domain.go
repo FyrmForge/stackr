@@ -16,6 +16,8 @@ type (
 	Domain       = store.Domain
 	DomainSpec   = domain.Spec // RawCaddy is admin-only: only SetRawCaddy writes it
 	DomainExtras = domain.Extras
+	// ForwardAuth is the forward-auth block of DomainExtras.
+	ForwardAuth = domain.ForwardAuth
 )
 
 func (o *Orchestrator) Domains(ctx context.Context, tileID string) ([]Domain, error) {
@@ -61,6 +63,9 @@ func (o *Orchestrator) AttachDomain(ctx context.Context, tileID string, s Domain
 	if s.Auto {
 		host, res, err := o.autoHost(ctx, t)
 		if err != nil {
+			return Domain{}, err
+		}
+		if err := o.checkRouteHost(ctx, host); err != nil {
 			return Domain{}, err
 		}
 		s.Host = host
@@ -190,6 +195,9 @@ func (o *Orchestrator) refreshAutoHosts(ctx context.Context, ts []Tile) error {
 			if host == d.Host {
 				continue
 			}
+			if err := o.checkRouteHost(ctx, host); err != nil {
+				return err
+			}
 			s, err := specOf(d)
 			if err != nil {
 				return err
@@ -222,8 +230,9 @@ func (o *Orchestrator) DetachDomain(ctx context.Context, id string) error {
 // SyncProxy rebuilds and pushes the whole proxy config now.
 func (o *Orchestrator) SyncProxy(ctx context.Context) error { return o.sync.Sync(ctx) }
 
-// checkSquat refuses a host leading with another org's slug; the tile's own
-// org never counts against it (leaf/domainres CheckOrgSquat).
+// checkSquat refuses a host leading with another org's slug (the tile's own
+// org never counts against it, leaf/domainres CheckOrgSquat) and a host an
+// external route holds.
 func (o *Orchestrator) checkSquat(ctx context.Context, t Tile, host string) error {
 	st, err := o.stacks.Get(ctx, t.StackID)
 	if err != nil {
@@ -233,7 +242,11 @@ func (o *Orchestrator) checkSquat(ctx context.Context, t Tile, host string) erro
 	if err != nil {
 		return err
 	}
-	return domainres.CheckOrgSquat(strings.ToLower(strings.TrimSpace(host)), st.OrgID, orgs)
+	host = strings.ToLower(strings.TrimSpace(host))
+	if err := domainres.CheckOrgSquat(host, st.OrgID, orgs); err != nil {
+		return err
+	}
+	return o.checkRouteHost(ctx, host)
 }
 
 func (o *Orchestrator) dns01(ctx context.Context) bool {

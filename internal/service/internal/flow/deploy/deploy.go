@@ -26,6 +26,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/credential"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/domain"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/environment"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/hostgrant"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/image"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/job"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/managed"
@@ -54,6 +55,13 @@ type Flow struct {
 	Creds    *credential.Leaf
 	Settings *settings.Leaf
 	Jobs     *job.Leaf
+	// HostGrants is the stack's approved host access (host: mounts,
+	// devices, privileged); nil = nothing is granted.
+	HostGrants *hostgrant.Leaf
+
+	// DataDir is where fileBinds writes a tile's config files; set from
+	// Config.DataDir.
+	DataDir string
 
 	// Sync re-pushes the proxy config (leaf/domain Syncer.Sync); nil = none.
 	Sync func(context.Context) error
@@ -173,7 +181,20 @@ func (f *Flow) Run(ctx context.Context, t store.Tile, ref string, log io.Writer,
 		return digest, f.Engines.Ready(ctx, t)
 	}
 	f.prune(ctx, t, e, log)
+	f.pruneFolders(ctx, t, log)
 	return digest, nil
+}
+
+// pruneFolders drops the tile's config file folders no replica mounts any
+// more. A failure is logged: the deploy already rolled out.
+func (f *Flow) pruneFolders(ctx context.Context, t store.Tile, log io.Writer) {
+	ms, err := f.Tiles.Mounts(ctx, t)
+	if err == nil {
+		err = f.pruneFiles(t, ms)
+	}
+	if err != nil {
+		logf(log, "warning: prune config files: %v\n", err)
+	}
 }
 
 // Spec is the container a run of t starts on ref: the same facts, networks,
@@ -225,10 +246,6 @@ func (f *Flow) prepare(
 	}
 	if ref == "" {
 		return resolved{}, e, "", fmt.Errorf("%s: no image to run", t.Slug)
-	}
-	if strings.TrimSpace(t.Files) != "" {
-		// ponytail: files: mounts are not materialized yet (DECIDE 27).
-		return resolved{}, e, "", errs.Conflictf("%s: files: mounts are not supported yet", t.Slug)
 	}
 	if err := f.bind(ctx, t, e, st, o, log); err != nil {
 		return resolved{}, e, "", err
@@ -319,6 +336,31 @@ func (f *Flow) remove(ctx context.Context, t store.Tile, cs []docker.Container) 
 	return nil
 }
 
+// volumeBind is a "volume:/abs[:ro]" line: the env's volume, created on first
+// use, as a Docker bind.
+func (f *Flow) volumeBind(ctx context.Context, t store.Tile, e store.Environment, m tile.Mount) (string, error) {
+	v, err := f.Volumes.BySlug(ctx, volume.Scope{Kind: "env", ID: e.ID}, m.Volume)
+	if errors.Is(err, errs.ErrNotFound) {
+		return "", errs.Conflictf("%s mounts volume %q, which this environment does not declare", t.Slug, m.Volume)
+	}
+	if err != nil {
+		return "", err
+	}
+	name, err := f.Volumes.Ensure(ctx, v)
+	if err != nil {
+		return "", err
+	}
+	return name + ":" + m.Path + roSuffix(m), nil
+}
+
+// roSuffix is ":ro" for a read-only mount, "" otherwise.
+func roSuffix(m tile.Mount) string {
+	if m.RO {
+		return ":ro"
+	}
+	return ""
+}
+
 // route points the VIP and the proxy at the running replicas.
 func (f *Flow) route(ctx context.Context, t store.Tile, e store.Environment) error {
 	if err := f.Tiles.Route(ctx, t, e.Network); err != nil {
@@ -348,6 +390,14 @@ func (f *Flow) resolve(
 	rr := params.NewResolver(snap)
 	r := resolved{name: "stackr-" + t.Slug + "-" + short(t.ID) + "-" + rnd()}
 
+	// Host access first: a tile the grant does not cover parks before
+	// anything else is read or changed.
+	g, err := f.checkAccess(ctx, st, t)
+	if err != nil {
+		return r, err
+	}
+	r.privileged = t.Privileged && g.Privileged
+
 	// An unset value parks the job (errs.Unset); any other failure fails it.
 	// A tile never starts with an unresolved reference.
 	env, err := envMap(t.EnvJSON)
@@ -372,19 +422,30 @@ func (f *Flow) resolve(
 		if err != nil {
 			return r, err
 		}
-		sl, rest, _ := strings.Cut(l, ":")
-		v, err := f.Volumes.BySlug(ctx, volume.Scope{Kind: "env", ID: e.ID}, sl)
-		if errors.Is(err, errs.ErrNotFound) {
-			return r, errs.Conflictf("%s mounts volume %q, which this environment does not declare", t.Slug, sl)
+		m, err := tile.ParseMount(l)
+		if err != nil {
+			return r, errs.Invalidf("volumes", "%s", err.Error())
+		}
+		var src string
+		switch m.Kind {
+		case tile.MountShare:
+			src, err = f.shareBind(ctx, o, t, m)
+		case tile.MountHost:
+			src, err = f.hostBind(ctx, st, t, m)
+		default:
+			src, err = f.volumeBind(ctx, t, e, m)
 		}
 		if err != nil {
 			return r, err
 		}
-		name, err := f.Volumes.Ensure(ctx, v)
+		r.binds = append(r.binds, src)
+	}
+	if strings.TrimSpace(t.Files) != "" {
+		fb, err := f.fileBinds(ctx, t, e, st, rr)
 		if err != nil {
 			return r, err
 		}
-		r.binds = append(r.binds, name+":"+rest)
+		r.binds = append(r.binds, fb...)
 	}
 
 	r.cmd = def.Cmd

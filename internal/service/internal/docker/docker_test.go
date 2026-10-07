@@ -23,7 +23,7 @@ func TestHealthWord(t *testing.T) {
 }
 
 func TestPortBindings(t *testing.T) {
-	exposed, bind := portBindings(map[string]string{"8080": "80", "5353": "53/udp"})
+	exposed, bind := portBindings(map[string]string{"8080": "80", "53": "53", "53/udp": "53/udp"})
 	for _, p := range []nat.Port{"80/tcp", "53/udp"} {
 		if _, ok := exposed[p]; !ok {
 			t.Errorf("port %s not exposed", p)
@@ -31,6 +31,12 @@ func TestPortBindings(t *testing.T) {
 	}
 	if b := bind["80/tcp"]; len(b) != 1 || b[0].HostPort != "8080" {
 		t.Errorf("80/tcp bound to %v", b)
+	}
+	if b := bind["53/udp"]; len(b) != 1 || b[0].HostPort != "53" {
+		t.Errorf("53/udp bound to %v", b)
+	}
+	if b := bind["53/tcp"]; len(b) != 1 || b[0].HostPort != "53" {
+		t.Errorf("53/tcp bound to %v", b)
 	}
 	if e, b := portBindings(nil); e != nil || b != nil {
 		t.Error("no ports should give nil sets")

@@ -1186,6 +1186,52 @@ fix, ship, re-test.
     bridge IP (DECIDE 28 as built: host-network stackrd routes to any
     bridge IP; a bridge-network stackrd would have to join the instance
     network). The test env, tiles and bucket were removed afterwards.
+## Migration blitz (2026-10-07, plan `docs/rewrite/tasks/migration-blitz.md`)
+
+Six serverconfig-migration features built in waves (contract, six parallel
+workers, seams, rig). Next rig build v0.6.0-dev.14. Rig QA: `scripts/qa/blitz.sh`.
+
+1. **Routes.** Admin-only hosts that go outside stackr: `passthrough` (layer4
+   SNI, no cert of ours, `:80` proxied for the backend's ACME), `http`,
+   `https` (`insecure` for self-signed upstreams). `stackr admin route
+   ls|add|rm`, admin drawer tab.
+2. **Network shares.** NFS or SMB declared once per org; tiles mount
+   `share:<slug>/<sub>:/abs[:ro]`; databases refused on a share.
+3. **Config files.** `files:` lines fetched from the config repo at the
+   release's commit, written under the data dir, bind-mounted read only;
+   `${{ }}` expanded only on `:template` lines.
+4. **Forward auth.** `forward_auth` in a domain's `proxy` block (URL plus
+   headers to copy), Caddy standard modules only.
+5. **UDP ports.** `host:container/udp` published; tcp and udp on one host
+   port both bind (covered by `TestSplitCommandAndPorts`).
+6. **Host access.** `host:` mount lines, `privileged` and devices need a
+   server admin's approval per stack; a differing set parks the job ("waiting:
+   host access"), `stackr host-grant approve` requeues it.
+
+Decisions (from `tasks/routes.md`): routes are server-level and admin only,
+never in an org file; one host has one owner, squat-checked against tile
+domains and domain resources both ways; pass-through needs HTTPS on and takes
+a wildcard host with no DNS-01; layer4 compiles into `stackrd proxy` (no user
+modules); `files:` is config-file only (no upload in v1), a writing app gets a
+volume with the file overlaid; forward-auth provider is reached by its public
+URL, an unauthenticated path is a second domain row; the leftover F PROXY
+protocol stays deferred; the volume file browser comes back after the
+migration.
+
+Seams (wave 2) landed: `Leaf.Mounts` on the tile leaf and a post-rollout
+`pruneFiles` in `deploy.Run`; the `CreateDomainResource` and stack file
+domain checks against route hosts; `TestRoutesLoad` (a pass-through plus an
+https route load in real Caddy with layer4); `tile.ParseMount` in the graph,
+volume and env views; `service.ForwardAuth`; the host-grant revoke route
+(`DELETE /orgs/:org/stacks/:stack/host-grant`, op `hostgrant.revoke`) and
+`stackr host-grant revoke`; a plan-time host access check in env sync (it
+parks on an admin like a promote); the openapi regenerated.
+
+Ponytail ceilings: a `files:` commit folder is written once, so a template does
+not follow a param edit until the next config commit; a grant is union-only
+(a dropped line never parks, approve adds, only revoke shrinks it); the
+Approve button is on the stack drawer, not on the parked job row.
+
 ## DECIDE:
 
 Silent calls the planner made under rule 9 / "fix obvious gaps"; flip any

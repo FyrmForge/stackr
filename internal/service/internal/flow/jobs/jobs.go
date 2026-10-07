@@ -350,6 +350,16 @@ func (r *Runner) call(ctx context.Context, rn *Run) (state, reason, param string
 		}
 		return job.Waiting, "", u.Param
 	}
+	if n, ok := errs.IsNeedsApproval(err); ok {
+		r.mu.Lock()
+		said := r.parked[j.ID] == n.What
+		r.parked[j.ID] = n.What
+		r.mu.Unlock()
+		if !said {
+			_, _ = fmt.Fprintf(f, "%v\n", n)
+		}
+		return job.Waiting, "", n.What
+	}
 	return job.Failed, err.Error(), ""
 }
 

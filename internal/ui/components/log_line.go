@@ -21,7 +21,7 @@ var logLevels = []struct {
 var jsonLevels = map[string]string{
 	"fatal": "error", "panic": "error", "error": "error", "err": "error",
 	"warn": "warn", "warning": "warn",
-	"info": "info",
+	"info":  "info",
 	"debug": "debug", "trace": "debug",
 }
 

@@ -287,6 +287,10 @@ type ProxyConf struct {
 	Methods     []string          `yaml:"methods"`
 	StripPrefix bool              `yaml:"strip_prefix"`
 	SecHeaders  bool              `yaml:"security_headers"`
+	ForwardAuth *struct {
+		URL         string   `yaml:"url"`
+		CopyHeaders []string `yaml:"copy_headers"`
+	} `yaml:"forward_auth"`
 }
 
 // SliceAccessConf is one slice_access entry: a slice tile of the env and
@@ -331,6 +335,10 @@ type ResolvedEnv struct {
 
 // Fetcher loads an included file by repo-relative path.
 type Fetcher func(path string) ([]byte, error)
+
+// Lister is the files under a repo-relative path: the folder's files, the
+// path itself for a file, nil when it is not there.
+type Lister func(path string) ([]string, error)
 
 // strictYAML decodes refusing unknown keys, top level included.
 func strictYAML(data []byte, out any) error {
@@ -784,9 +792,14 @@ func checkRefs(env string, re ResolvedEnv) error {
 	for _, n := range slices.Sorted(maps.Keys(re.Tiles)) {
 		tc := re.Tiles[n]
 		for _, l := range tc.Volumes {
-			v, _, _ := strings.Cut(l, ":")
-			if _, ok := re.Volumes[v]; !ok {
-				return fmt.Errorf("environment %s tile %s: volume %q is not declared under volumes", env, n, v)
+			// host: and share: lines name no env volume; a line that does not
+			// parse is tile.Validate's to report.
+			m, err := tile.ParseMount(l)
+			if err != nil || m.Kind != tile.MountVolume {
+				continue
+			}
+			if _, ok := re.Volumes[m.Volume]; !ok {
+				return fmt.Errorf("environment %s tile %s: volume %q is not declared under volumes", env, n, m.Volume)
 			}
 		}
 		for _, body := range refBodies(tc) {

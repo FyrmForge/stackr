@@ -84,6 +84,9 @@ func routes(h *v1.H) []Route {
 		{POST, org + "/domain-resources", "domain-resource.create", "domain.resource", h.CreateOrgDomainResource()},
 		{PATCH, org + "/domain-resources/:resource", "domain-resource.update", "domain.resource", h.UpdateDomainResource()},
 		{DELETE, org + "/domain-resources/:resource", "domain-resource.delete", "domain.resource", h.DeleteDomainResource()},
+		{GET, org + "/shares", "share.list", "share.read", h.Shares()},
+		{POST, org + "/shares", "share.create", "share.write", h.CreateShare()},
+		{DELETE, org + "/shares/:share", "share.delete", "share.write", h.DeleteShare()},
 		{GET, org + "/jobs/:job", "job.get", "deployment.read", h.GetJob()},
 		{GET, org + "/jobs/:job/log", "job.log", "deployment.read", h.PollJob()},
 		{GET, org + "/jobs/:job/events", "job.events", "deployment.read", h.JobEvents()},
@@ -115,6 +118,9 @@ func routes(h *v1.H) []Route {
 		{GET, org + "/stacks", "stack.list", "org.read", h.Stacks()},
 		{POST, org + "/stacks", "stack.create", "stack.create", h.CreateStack()},
 		{GET, stack, "stack.get", "org.read", h.GetStack()},
+		{GET, stack + "/host-grant", "hostgrant.get", "org.read", h.HostGrant()},
+		{POST, stack + "/host-grant/approve", "hostgrant.approve", "hostgrant.approve", h.ApproveHostGrant()},
+		{DELETE, stack + "/host-grant", "hostgrant.revoke", "hostgrant.approve", h.RevokeHostGrant()},
 		{PUT, stack + "/name", "stack.rename", "stack.write", h.RenameStack()},
 		{PUT, stack + "/config-repo", "stack.config-repo", "stack.write", h.SetConfigRepo()},
 
@@ -213,6 +219,9 @@ func routes(h *v1.H) []Route {
 		{POST, "/admin/domain-resources", "admin.domain-resource-create", "serverdefaults.set", h.CreateInstanceDomainResource()},
 		{PATCH, "/admin/domain-resources/:resource", "admin.domain-resource-update", "serverdefaults.set", h.UpdateDomainResource()},
 		{DELETE, "/admin/domain-resources/:resource", "admin.domain-resource-delete", "serverdefaults.set", h.DeleteDomainResource()},
+		{GET, "/admin/routes", "admin.route-list", "route.admin", h.Routes()},
+		{POST, "/admin/routes", "admin.route-create", "route.admin", h.CreateRoute()},
+		{DELETE, "/admin/routes/:route", "admin.route-delete", "route.admin", h.DeleteRoute()},
 	}
 }
 

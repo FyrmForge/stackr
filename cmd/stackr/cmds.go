@@ -56,6 +56,8 @@ func (a *app) commands() []*cobra.Command {
 		a.orgs(),
 		a.dests(),
 		a.domainResources(),
+		a.shares(),
+		a.hostGrant(),
 		a.jobs(),
 		a.admin(),
 	}, a.stackCommands()...)
@@ -1035,6 +1037,7 @@ func (a *app) admin() *cobra.Command {
 			},
 		),
 		defaults,
+		a.routes(),
 	)
 }
 

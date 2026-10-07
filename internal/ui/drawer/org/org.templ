@@ -12,7 +12,7 @@ import (
 )
 
 // Tabs in strip order.
-var Tabs = []string{"settings", "members", "keys", "params", "domains", "backups", "config"}
+var Tabs = []string{"settings", "members", "keys", "params", "domains", "shares", "backups", "config"}
 
 type SettingsView struct {
 	Name    string
@@ -335,6 +335,66 @@ templ Domains(v DomainsView) {
 					</label>
 					@c.Field(c.FieldView{Name: "acme_email", Label: "ACME email", Type: "email", Placeholder: "ops@example.com", Help: "Certificates under this host are issued on this account. Empty uses the server's."})
 					<button type="submit" class="btn btn-primary btn-sm">Add domain</button>
+				</form>
+			}
+		}
+	</div>
+}
+
+// SharesView is the org's network shares: NFS or SMB exports a tile line
+// share:<slug>/<sub>:/path mounts.
+type SharesView struct {
+	Add  string // POST slug, kind, source, options, user, password; "" = not an owner
+	Rows []ShareRow
+}
+
+type ShareRow struct {
+	Slug, Kind, Source, Options, User, Password string
+	Delete                                      c.ConfirmView // Action "" = not an owner
+}
+
+templ Shares(v SharesView) {
+	<div id="tab-shares">
+		@c.Section("Network shares", "organization", "NFS or SMB exports tiles can mount.") {
+			if len(v.Rows) > 0 {
+				<ul class="space-y-2 mb-5">
+					for _, r := range v.Rows {
+						<li class="panel px-3 py-2.5 flex flex-wrap items-center gap-2">
+							<span class="font-mono text-sm text-rw-text">{ r.Slug }</span>
+							<span class="text-xs px-1.5 py-0.5 rounded bg-rw-inset text-rw-muted">{ r.Kind }</span>
+							<span class="font-mono text-xs text-rw-faint">{ r.Source }</span>
+							if r.Options != "" {
+								<span class="font-mono text-xs text-rw-faint">{ r.Options }</span>
+							}
+							if r.User != "" {
+								<span class="text-xs text-rw-faint">user { r.User }</span>
+							}
+							if r.Delete.Action != "" {
+								<span class="ml-auto">
+									@c.Confirm(r.Delete)
+								</span>
+							}
+						</li>
+					}
+				</ul>
+			} else {
+				<p class="text-sm text-rw-faint mb-5">No shares yet.</p>
+			}
+			if v.Add != "" {
+				<form novalidate hx-post={ v.Add } hx-target={ target() } hx-swap="outerHTML" class="space-y-4">
+					@c.Field(c.FieldView{Name: "slug", Label: "Name", Placeholder: "media", Required: true})
+					<div>
+						<label for="share-kind" class="label">Kind</label>
+						<select id="share-kind" name="kind" class="input">
+							<option value="nfs">nfs</option>
+							<option value="smb">smb</option>
+						</select>
+					</div>
+					@c.Field(c.FieldView{Name: "source", Label: "Source", Placeholder: "nas.lan:/export", Help: "nfs: host:/path. smb: //host/share.", Required: true})
+					@c.Field(c.FieldView{Name: "options", Label: "Options", Placeholder: "nfsvers=4"})
+					@c.Field(c.FieldView{Name: "user", Label: "SMB user", Placeholder: "bob"})
+					@c.Field(c.FieldView{Name: "password", Label: "SMB password ref", Placeholder: "${{ org.params.nas.password }}", Help: "A param ref, never the password."})
+					<button type="submit" class="btn btn-primary btn-sm">Add share</button>
 				</form>
 			}
 		}

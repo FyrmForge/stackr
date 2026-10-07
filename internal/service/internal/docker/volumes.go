@@ -42,6 +42,12 @@ func (d *Client) RemoveVolume(ctx context.Context, name string) error {
 	return err
 }
 
+// IsVolumeInUse: Docker refused a remove because a container references the
+// volume (409; the text is the fallback for a daemon that words it only).
+func IsVolumeInUse(err error) bool {
+	return err != nil && (cerrdefs.IsConflict(err) || strings.Contains(err.Error(), "volume is in use"))
+}
+
 // InspectVolume and ListVolumes fill SizeBytes from DiskUsage (a full scan,
 // click-time only) and UsedBy/HeldBy from one container list.
 func (d *Client) InspectVolume(ctx context.Context, name string) (VolumeInfo, error) {

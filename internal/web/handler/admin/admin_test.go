@@ -28,6 +28,7 @@ func TestAdminDrawer(t *testing.T) {
 		"settings": `id="admin-settings"`,
 		"users":    "owner@acme.test",
 		"update":   "/-/admin/update/check",
+		"routes":   `id="tab-routes"`,
 		"caddy":    `name="proxy_custom"`,
 		"backups":  "No panel backups yet",
 	} {
@@ -50,7 +51,22 @@ func TestAdminDrawer(t *testing.T) {
 		t.Error("no admin button in the nav")
 	}
 
-	rec := s.As(t, root, "POST", "/-/admin/settings", url.Values{"workers": {"3"}, "cpu_limit": {""}})
+	rec := s.As(t, root, "POST", "/-/admin/routes", url.Values{"route_host": {"pve.example.com"}, "route_mode": {"https"}, "route_target": {"10.0.0.5:8006"}})
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "Route added.") || !strings.Contains(rec.Body.String(), "10.0.0.5:8006") {
+		t.Fatalf("add route = %d %s", rec.Code, rec.Body)
+	}
+	rs, err := s.Orch.ExternalRoutes(ctx)
+	if err != nil || len(rs) != 1 {
+		t.Fatalf("routes = %v, %v", rs, err)
+	}
+	if rec := s.As(t, root, "POST", "/-/admin/routes", url.Values{"route_host": {"x.io"}, "route_mode": {"tcp"}}); rec.Code != http.StatusUnprocessableEntity {
+		t.Errorf("bad route = %d, want 422", rec.Code)
+	}
+	if rec := s.As(t, root, "POST", "/-/admin/routes/"+rs[0].ID+"/delete", nil); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "Route removed.") {
+		t.Errorf("remove route = %d %s", rec.Code, rec.Body)
+	}
+
+	rec = s.As(t, root, "POST", "/-/admin/settings", url.Values{"workers": {"3"}, "cpu_limit": {""}})
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "Saved.") {
 		t.Fatalf("save = %d %s", rec.Code, rec.Body)
 	}

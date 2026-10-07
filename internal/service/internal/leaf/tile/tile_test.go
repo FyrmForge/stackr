@@ -178,6 +178,65 @@ func TestKindWhitelist(t *testing.T) {
 	}
 }
 
+func TestParseMount(t *testing.T) {
+	for _, c := range []struct {
+		line string
+		want tile.Mount
+		ok   bool
+	}{
+		{"data:/var/lib/data", tile.Mount{Kind: tile.MountVolume, Volume: "data", Path: "/var/lib/data"}, true},
+		{"data:/d:ro", tile.Mount{Kind: tile.MountVolume, Volume: "data", Path: "/d", RO: true}, true},
+		{"host:/d", tile.Mount{Kind: tile.MountVolume, Volume: "host", Path: "/d"}, true},
+		{"host:/srv/x:/data", tile.Mount{Kind: tile.MountHost, Host: "/srv/x", Path: "/data"}, true},
+		{"host:/srv/x:/data:ro", tile.Mount{Kind: tile.MountHost, Host: "/srv/x", Path: "/data", RO: true}, true},
+		{"host:/srv/../etc:/data", tile.Mount{}, false},
+		{"host:/srv/x:/data, host:/:/h", tile.Mount{}, false},
+		{"host:/srv/a,b:/data", tile.Mount{}, false},
+		{"host:/srv/x:/data:rw", tile.Mount{}, false},
+		{"share:media/a/b:/data", tile.Mount{Kind: tile.MountShare, Share: "media", Sub: "a/b", Path: "/data"}, true},
+		{"share:media:/data:ro", tile.Mount{Kind: tile.MountShare, Share: "media", Path: "/data", RO: true}, true},
+		{"share:media/../x:/data", tile.Mount{}, false},
+		{"share:Bad Slug/a:/data", tile.Mount{}, false},
+		{"data:rel", tile.Mount{}, false},
+		{"data", tile.Mount{}, false},
+	} {
+		got, err := tile.ParseMount(c.line)
+		if (err == nil) != c.ok || (c.ok && got != c.want) {
+			t.Errorf("ParseMount(%q) = %+v, %v; want %+v ok=%v", c.line, got, err, c.want, c.ok)
+		}
+	}
+}
+
+func TestParseDeviceRefusesComma(t *testing.T) {
+	if _, err := tile.ParseDevice("/dev/null, privileged"); err == nil {
+		t.Error("a device line with a comma was accepted")
+	}
+	if _, err := tile.ParseDevice("/dev/null:/dev/x:rw"); err != nil {
+		t.Errorf("a plain device line: %v", err)
+	}
+}
+
+func TestParsePort(t *testing.T) {
+	for _, c := range []struct {
+		line       string
+		host, cont int
+		proto      string
+		ok         bool
+	}{
+		{"8080:80", 8080, 80, "tcp", true},
+		{"53:53/udp", 53, 53, "udp", true},
+		{"53:53/tcp", 53, 53, "tcp", true},
+		{"53:53/sctp", 0, 0, "", false},
+		{"0:80", 0, 0, "", false},
+		{"80", 0, 0, "", false},
+	} {
+		h, cn, p, err := tile.ParsePort(c.line)
+		if (err == nil) != c.ok || h != c.host || cn != c.cont || p != c.proto {
+			t.Errorf("ParsePort(%q) = %d %d %q %v", c.line, h, cn, p, err)
+		}
+	}
+}
+
 // B26 for the run-to-completion kinds, refusals worded as tilelifecycle has them.
 func TestRunKinds(t *testing.T) {
 	cronRow := func(t *store.Tile) { t.Kind, t.Schedule, t.Command = tile.Cron, "*/5 * * * *", "./sweep" }

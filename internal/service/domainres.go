@@ -47,6 +47,9 @@ func (o *Orchestrator) CreateDomainResource(
 		IncludeEnvOnDefault: includeEnvOnDefault,
 		ACMEEmail:           acmeEmail,
 	}
+	if err := o.checkRouteHost(ctx, host); err != nil {
+		return DomainResource{}, err
+	}
 	r, err := o.domainres.Create(ctx, spec, ownOrgID, orgs)
 	if err != nil || r.ACMEEmail == "" {
 		return r, err

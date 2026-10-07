@@ -117,6 +117,25 @@ func TestCheckoutReadDiff(t *testing.T) {
 	if _, err := r.ReadFile(ctx, second, "nope"); err == nil {
 		t.Fatal("missing file read")
 	}
+	if names, err := r.ListTree(ctx, second, "docs"); err != nil || !slices.Equal(names, []string{"docs/readme"}) {
+		t.Fatalf("list folder: %v %v", names, err)
+	}
+	if names, err := r.ListTree(ctx, second, "stackr-compose.yml"); err != nil || names != nil {
+		t.Fatalf("list a file: %v %v", names, err)
+	}
+	isDir := func(p string) bool {
+		d, err := r.IsDir(ctx, second, p)
+		if err != nil {
+			t.Fatalf("IsDir %s: %v", p, err)
+		}
+		return d
+	}
+	if !isDir("app") || isDir("stackr-compose.yml") || isDir("nope") {
+		t.Fatal("IsDir")
+	}
+	if !r.Has(ctx, second) || r.Has(ctx, strings.Repeat("a", 40)) {
+		t.Fatal("Has")
+	}
 	paths, err := r.ChangedPaths(ctx, first, second)
 	if err != nil || !slices.Equal(paths, []string{"docs/readme", "stackr-compose.yml"}) {
 		t.Fatalf("changed paths: %v %v", paths, err)
@@ -150,5 +169,13 @@ func TestProtocolAllowlist(t *testing.T) {
 	r := Repo{Dir: filepath.Join(t.TempDir(), "c"), URL: "file://" + bare}
 	if _, err := r.Checkout(context.Background(), "", &strings.Builder{}); err == nil {
 		t.Fatal("file:// clone allowed under https:ssh")
+	}
+}
+
+// A git failure is an error, not "not a folder".
+func TestIsDirError(t *testing.T) {
+	r := Repo{Dir: filepath.Join(t.TempDir(), "no-clone")}
+	if _, err := r.IsDir(context.Background(), strings.Repeat("a", 40), "app"); err == nil {
+		t.Fatal("a missing clone read as not a folder")
 	}
 }

@@ -14,7 +14,9 @@ import (
 	"time"
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
+	"github.com/FyrmForge/stackr/internal/service/internal/flow/deploy"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/environment"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/hostgrant"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/params"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/volume"
@@ -102,6 +104,9 @@ func (f *Flow) SyncApply(
 		return nil, err
 	}
 	if s.Blocked() {
+		if err := needsApproval(&s.Plan, st); err != nil {
+			return s, err
+		}
 		return s, errs.Conflictf("%s", strings.Join(s.Blockers, "; "))
 	}
 	if len(s.Changes) == 0 {
@@ -358,9 +363,32 @@ func (f *Flow) syncWork(
 	}
 	dangling(p, rows)
 	envNotes(p, items)
+	if err := f.syncHostAccess(ctx, p, st, wants); err != nil {
+		return nil, nil, err
+	}
 	s.Creates = w.creates
 	s.Sig = w.sig()
 	return s, w, nil
+}
+
+// syncHostAccess blocks, as a promote does, when the tiles the sync adds or
+// edits ask for host access the stack's grant lacks. Apply parks on it.
+func (f *Flow) syncHostAccess(ctx context.Context, p *Plan, st store.Stack, wants map[string]store.Tile) error {
+	if f.D.HostGrants == nil {
+		return nil
+	}
+	have, err := f.D.HostGrants.Of(ctx, st.ID)
+	if err != nil {
+		return err
+	}
+	var rows []store.Tile
+	for _, n := range slices.Sorted(maps.Keys(wants)) {
+		rows = append(rows, wants[n])
+	}
+	if m := deploy.HostSet(rows...).Missing(have); len(m) > 0 {
+		p.block("%s", hostgrant.Text(m))
+	}
+	return nil
 }
 
 // syncKind is the managed and slice rows of one New or Edited tile.
@@ -511,8 +539,9 @@ func (f *Flow) syncParams(
 func mounts(t store.Tile) []string {
 	var out []string
 	for _, l := range tile.Lines(t.Volumes) {
-		sl, _, _ := strings.Cut(l, ":")
-		out = append(out, sl)
+		if m, err := tile.ParseMount(l); err == nil && m.Kind == tile.MountVolume {
+			out = append(out, m.Volume)
+		}
 	}
 	return out
 }

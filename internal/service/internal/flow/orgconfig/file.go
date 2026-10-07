@@ -12,6 +12,7 @@ import (
 	"go.yaml.in/yaml/v3"
 
 	"github.com/FyrmForge/stackr/internal/service/internal/githubapp"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/volume"
 	"github.com/FyrmForge/stackr/internal/service/internal/slug"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
@@ -33,6 +34,7 @@ type File struct {
 	EnvColors map[string]string           `yaml:"env_colors,omitempty"` // nil: the key is absent, say nothing
 	Stacks    map[string]StackRef         `yaml:"stacks,omitempty"`
 	Domains   []Reservation               `yaml:"domains,omitempty"`
+	Shares    map[string]Share            `yaml:"shares,omitempty"` // nil: the key is absent, say nothing; {} removes every share
 	Moved     []Move                      `yaml:"moved,omitempty"`
 }
 
@@ -114,6 +116,28 @@ type Reservation struct {
 	IncludeEnvOnDefault bool   `yaml:"include_env_on_default"`
 }
 
+// Share is one network share (leaf/volume). User and Password are plain text
+// and an ${{ org.params }} ref: the file is in git, so never the password.
+type Share struct {
+	Kind     string `yaml:"kind"` // nfs | smb
+	Source   string `yaml:"source"`
+	Options  string `yaml:"options,omitempty"`
+	User     string `yaml:"user,omitempty"`
+	Password string `yaml:"password,omitempty"`
+}
+
+// Spec is the share as the volume leaf takes it.
+func (s Share) Spec(slug string) volume.ShareSpec {
+	return volume.ShareSpec{
+		Slug:        slug,
+		Kind:        s.Kind,
+		Source:      s.Source,
+		Options:     s.Options,
+		User:        s.User,
+		PasswordRef: s.Password,
+	}
+}
+
 // Move is one rename, read before the rest of the file (DECIDE 184).
 type Move struct {
 	From string `yaml:"from"` // stack.<slug>
@@ -124,7 +148,7 @@ type Move struct {
 var removedKeys = map[string]string{
 	"vars":     "declare them under params:",
 	"secrets":  "declare them under params: with type: secret",
-	"storage":  "storage shares are not in v1",
+	"storage":  "network shares are under shares:",
 	"ui_edits": "drop it; drift never promotes",
 }
 
@@ -170,6 +194,11 @@ func Parse(data []byte) (*File, error) {
 			return nil, fmt.Errorf("domains: %s declared twice", d.Host)
 		}
 		seen[d.Host] = true
+	}
+	for sl, sh := range f.Shares {
+		if err := volume.CheckShare(sh.Spec(sl)); err != nil {
+			return nil, fmt.Errorf("shares.%s: %w", sl, err)
+		}
 	}
 	for _, m := range f.Moved {
 		if err := checkMove(m); err != nil {

@@ -682,8 +682,7 @@ func (h *handler) mounts(c echo.Context, slug string) ([]volume.Mount, error) {
 	var out []volume.Mount
 	for _, t := range ts {
 		for _, l := range strings.Split(t.Volumes, "\n") {
-			path, ok := strings.CutPrefix(strings.TrimSpace(l), slug+":")
-			if ok {
+			if sl, path, ok := service.MountedVolume(l); ok && sl == slug {
 				out = append(out, volume.Mount{Tile: t.Name, Path: path})
 			}
 		}

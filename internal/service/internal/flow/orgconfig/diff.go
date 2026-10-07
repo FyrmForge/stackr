@@ -12,14 +12,16 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/domainres"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/org"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/params"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/route"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/settings"
 	"github.com/FyrmForge/stackr/internal/service/internal/slug"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
 
 // Change is one line of a plan, flow/promote's Change shape. Kind is org,
-// param, param-update, defaults, colors, create, rebind, rename, domain or
-// domain-update; create, domain and param add, the rest change. Tile names
+// param, param-update, defaults, colors, create, rebind, rename, domain,
+// domain-update, share, share-update or share-delete; create, domain, param
+// and share add, the rest change. Tile names
 // the stack or host the line is about.
 // ponytail: a copy of promote's type, not an import (flows do not import
 // flows); a third user moves it into a shared package.
@@ -33,7 +35,7 @@ type Change struct {
 }
 
 // Plan is what applying the file would do, in the order apply walks it:
-// moved: renames, the org, params, defaults, colors, stacks, domains.
+// moved: renames, the org, params, defaults, colors, stacks, domains, shares.
 // Blockers refuse the apply; Notes do not.
 type Plan struct {
 	Changes  []Change `json:"changes"`
@@ -55,7 +57,7 @@ func (p *Plan) Summary() string {
 	var add, change int
 	for _, c := range p.Changes {
 		switch c.Kind {
-		case "create", "domain", "param":
+		case "create", "domain", "param", "share":
 			add++
 		default:
 			change++
@@ -89,7 +91,10 @@ type Live struct {
 	Stacks     []StackLive             // the org's stacks
 	Params     map[string]params.Value // the org's own params, keyed collection.name
 	Domains    []store.DomainResource  // every domain resource on the server
+	Routes     []store.Route           // every external route: a domain resource may not sit on one
 	Connectors []store.Connector       // the org's connected connectors
+	Shares     []store.Share           // the org's network shares
+	ShareUsers map[string][]string     // share slug -> slugs of the tiles whose lines mount it
 }
 
 // StackLive is one stack.
@@ -99,7 +104,8 @@ type StackLive struct {
 
 // Diff is the plan for f against live. The file creates and updates, never
 // deletes: a stack, param or domain it no longer names is left as it is
-// (DECIDE 185, 188, 191).
+// (DECIDE 185, 188, 191). The one exception is shares: when the file has a
+// shares: block, a share it does not name goes.
 func Diff(f *File, live Live) Plan {
 	var p Plan
 	stacks := map[string]StackLive{}
@@ -132,6 +138,7 @@ func Diff(f *File, live Live) Plan {
 	}
 	p.stacks(f.Stacks, live, stacks)
 	p.domains(f.Domains, live)
+	p.shares(f.Shares, live)
 	return p
 }
 
@@ -338,6 +345,10 @@ func (p *Plan) domains(rs []Reservation, live Live) {
 		}
 		i := slices.IndexFunc(live.Domains, func(d store.DomainResource) bool { return d.Host == row.Host })
 		if i < 0 {
+			if route.Holds(live.Routes, row.Host) {
+				p.block("domains: %s is an external route", row.Host)
+				continue
+			}
 			p.add(Change{
 				Kind: "domain",
 				New:  row.Host,
@@ -382,4 +393,61 @@ func canonSettings(blob string) string {
 func jsonOf(v any) string {
 	b, _ := json.Marshal(v)
 	return string(b)
+}
+
+// shares creates, updates and, when the file has a shares: block, deletes the
+// org's network shares. A delete is blocked while a tile line mounts the
+// share (the verb would refuse it).
+func (p *Plan) shares(decls map[string]Share, live Live) {
+	if decls == nil {
+		return
+	}
+	have := map[string]store.Share{}
+	for _, s := range live.Shares {
+		have[s.Slug] = s
+	}
+	for _, sl := range slices.Sorted(maps.Keys(decls)) {
+		d := decls[sl]
+		cur, ok := have[sl]
+		if !ok {
+			p.add(Change{
+				Kind: "share",
+				Tile: sl,
+				New:  d.Source,
+				Note: d.Kind,
+			})
+			continue
+		}
+		for _, f := range []struct{ name, old, new string }{
+			{"kind", cur.Kind, d.Kind},
+			{"source", cur.Source, d.Source},
+			{"options", cur.Options, d.Options},
+			{"user", cur.User, d.User},
+			{"password", cur.PasswordRef, d.Password},
+		} {
+			if f.old != f.new {
+				p.add(Change{
+					Kind:  "share-update",
+					Tile:  sl,
+					Field: f.name,
+					Old:   f.old,
+					New:   f.new,
+				})
+			}
+		}
+	}
+	for _, s := range live.Shares {
+		if _, ok := decls[s.Slug]; ok {
+			continue
+		}
+		if by := live.ShareUsers[s.Slug]; len(by) > 0 {
+			p.block("shares.%s: %s still mount it; drop the lines first", s.Slug, strings.Join(by, ", "))
+			continue
+		}
+		p.add(Change{
+			Kind: "share-delete",
+			Tile: s.Slug,
+			Old:  s.Source,
+		})
+	}
 }

@@ -453,23 +453,95 @@ func Lines(s string) []string {
 	return out
 }
 
-// parseMount: "volume-slug:/container/path[:ro]".
-func parseMount(l string) error {
-	parts := strings.Split(l, ":")
-	if len(parts) < 2 || len(parts) > 3 || !slug.Valid(parts[0]) || !path.IsAbs(parts[1]) ||
-		(len(parts) == 3 && parts[2] != "ro") {
-		return fmt.Errorf("%q: want volume:/container/path[:ro]", l)
-	}
-	return nil
+// Mount kinds: where a volume line's source lives.
+const (
+	MountVolume = "volume" // a named volume of the env
+	MountHost   = "host"   // a path on the server, needs an admin's grant
+	MountShare  = "share"  // a sub path of an org's network share
+)
+
+// Mount is one parsed volumes line.
+type Mount struct {
+	Kind   string
+	Volume string // MountVolume: the volume slug
+	Host   string // MountHost: the absolute host path
+	Share  string // MountShare: the share slug
+	Sub    string // MountShare: the path inside the share, "" = its root
+	Path   string // the absolute container path
+	RO     bool
 }
 
-// parsePorts: "host:container", both 1-65535.
-func parsePorts(l string) error {
-	h, c, ok := strings.Cut(l, ":")
-	if !ok || !port(h) || !port(c) {
-		return fmt.Errorf("%q: want hostport:containerport", l)
+// ParseMount: "volume:/abs[:ro]", "host:/host/path:/abs[:ro]" or
+// "share:slug/sub:/abs[:ro]". A line whose first word is "host" with a
+// second absolute path, or "share" with a relative source, is the long form;
+// "host:/abs" stays a volume named host.
+func ParseMount(l string) (Mount, error) {
+	parts := strings.Split(l, ":")
+	m := Mount{Kind: MountVolume}
+	rest := parts[1:]
+	switch {
+	case len(parts) >= 3 && parts[0] == "host" && path.IsAbs(parts[2]):
+		m.Kind = MountHost
+		// A "," would split the line apart in the host access ask text.
+		if strings.Contains(l, ",") || !cleanAbs(parts[1]) {
+			return m, fmt.Errorf("%q: the host path is absolute, with no .. or // and no commas", l)
+		}
+		m.Host, rest = parts[1], parts[2:]
+	case len(parts) >= 3 && parts[0] == "share" && !path.IsAbs(parts[1]):
+		m.Kind = MountShare
+		name, sub, _ := strings.Cut(parts[1], "/")
+		if !slug.Valid(name) || strings.HasPrefix(sub, "/") || hasDotDot(sub) {
+			return m, fmt.Errorf("%q: want share:slug[/sub/path]:/container/path[:ro]", l)
+		}
+		m.Share, m.Sub, rest = name, path.Clean("/" + sub)[1:], parts[2:]
+	default:
+		if len(parts) < 2 || !slug.Valid(parts[0]) {
+			return m, fmt.Errorf("%q: want volume:/container/path[:ro]", l)
+		}
+		m.Volume = parts[0]
 	}
-	return nil
+	if len(rest) < 1 || len(rest) > 2 || !path.IsAbs(rest[0]) || (len(rest) == 2 && rest[1] != "ro") {
+		return m, fmt.Errorf("%q: want volume:/path[:ro], host:/host:/path[:ro] or share:slug/sub:/path[:ro]", l)
+	}
+	m.Path, m.RO = rest[0], len(rest) == 2
+	return m, nil
+}
+
+// cleanAbs: an absolute path already in its cleaned form.
+func cleanAbs(p string) bool { return path.IsAbs(p) && path.Clean(p) == p }
+
+func hasDotDot(p string) bool {
+	for _, e := range strings.Split(p, "/") {
+		if e == ".." {
+			return true
+		}
+	}
+	return false
+}
+
+func parseMount(l string) error {
+	_, err := ParseMount(l)
+	return err
+}
+
+// ParsePort: "host:container[/udp]", both 1-65535; proto is "tcp" or "udp".
+func ParsePort(l string) (host, cont int, proto string, err error) {
+	h, c, ok := strings.Cut(l, ":")
+	c, proto, _ = strings.Cut(c, "/")
+	if proto == "" {
+		proto = "tcp"
+	}
+	if !ok || !port(h) || !port(c) || (proto != "tcp" && proto != "udp") {
+		return 0, 0, "", fmt.Errorf("%q: want hostport:containerport[/udp]", l)
+	}
+	host, _ = strconv.Atoi(h)
+	cont, _ = strconv.Atoi(c)
+	return host, cont, proto, nil
+}
+
+func parsePorts(l string) error {
+	_, _, _, err := ParsePort(l)
+	return err
 }
 
 func port(s string) bool {
@@ -488,9 +560,9 @@ func ParseDevice(l string) (docker.Device, error) {
 	if len(parts) > 2 {
 		d.Perms = parts[2]
 	}
-	if len(parts) > 3 || !path.IsAbs(d.Host) || !path.IsAbs(d.Container) ||
+	if len(parts) > 3 || strings.Contains(l, ",") || !path.IsAbs(d.Host) || !path.IsAbs(d.Container) ||
 		d.Perms == "" || strings.Trim(d.Perms, "rwm") != "" {
-		return d, fmt.Errorf("%q: want /dev/host[:/dev/container[:rwm]]", l)
+		return d, fmt.Errorf("%q: want /dev/host[:/dev/container[:rwm]], no commas", l)
 	}
 	return d, nil
 }

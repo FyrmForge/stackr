@@ -46,6 +46,8 @@ func (h *handler) orgTab(c echo.Context, cd card, f *comp.DrawerView) (templ.Com
 		return h.vars(c, cd.s, "", "")
 	case "domains":
 		return h.orgDomains(c, cd, f.Base)
+	case "shares":
+		return h.orgShares(c, cd, f.Base)
 	case "backups":
 		return h.orgDests(c, cd, f.Base)
 	case "config":
@@ -103,6 +105,41 @@ func (h *handler) orgDests(c echo.Context, cd card, base string) (templ.Componen
 		v.Rows = append(v.Rows, r)
 	}
 	return orgui.Backups(v), nil
+}
+
+// orgShares is the org's network shares; an owner adds and removes them.
+func (h *handler) orgShares(c echo.Context, cd card, base string) (templ.Component, error) {
+	ss, err := h.orch.Shares(c.Request().Context(), cd.s.Org.ID)
+	if err != nil {
+		return nil, err
+	}
+	owner := can(c, cd.s, "share.write")
+	v := orgui.SharesView{}
+	if owner {
+		v.Add = base + "/shares"
+	}
+	for _, s := range ss {
+		row := orgui.ShareRow{
+			Slug:     s.Slug,
+			Kind:     s.Kind,
+			Source:   s.Source,
+			Options:  s.Options,
+			User:     s.User,
+			Password: s.PasswordRef,
+		}
+		if owner {
+			row.Delete = comp.ConfirmView{
+				Button:  "Remove",
+				Title:   "Remove share \"" + s.Slug + "\"?",
+				Warning: "The export is untouched. Refused while a tile mounts it.",
+				Action:  base + "/shares/" + s.ID + "/delete",
+				Target:  "#" + comp.DrawerRoot,
+				Quiet:   true,
+			}
+		}
+		v.Rows = append(v.Rows, row)
+	}
+	return orgui.Shares(v), nil
 }
 
 // orgDomains is the org's domain resources and the instance's, which it
@@ -265,6 +302,22 @@ func (h *handler) mountOrg(site *echo.Group, a *middleware.Access) {
 	site.POST(o+"/domains/:resource/delete", h.orgAction("domains", func(c echo.Context, _ *service.Org) (string, error) {
 		return "Domain resource removed.", h.orch.DeleteDomainResource(c.Request().Context(), c.Param("resource"))
 	}), res)
+	shr := a.Require("share.write")
+	site.POST(o+"/shares", h.orgAction("shares", func(c echo.Context, og *service.Org) (string, error) {
+		f := c.FormValue
+		s, err := h.orch.CreateShare(c.Request().Context(), og.ID, service.ShareSpec{
+			Slug:        f("slug"),
+			Kind:        f("kind"),
+			Source:      f("source"),
+			Options:     f("options"),
+			User:        f("user"),
+			PasswordRef: f("password"),
+		})
+		return "Share " + s.Slug + " added.", err
+	}), shr)
+	site.POST(o+"/shares/:share/delete", h.orgAction("shares", func(c echo.Context, og *service.Org) (string, error) {
+		return "Share removed.", h.orch.DeleteShare(c.Request().Context(), og.ID, c.Param("share"))
+	}), shr)
 	site.POST(o+"/backups", h.orgAction("backups", func(c echo.Context, og *service.Org) (string, error) {
 		f := c.FormValue
 		_, err := h.orch.CreateBackupDest(c.Request().Context(), &og.ID, service.BackupDestSpec{

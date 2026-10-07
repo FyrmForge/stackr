@@ -16,7 +16,7 @@ import (
 // Export is live written as the org file: the org's params (a secret by
 // name and type only, the file goes in git), defaults, env colours, the
 // stacks bound to a repo (a stack with no file has nothing to point at)
-// and the org's domains. Diffing it against the same live is clean. Block
+// the org's domains and its network shares. Diffing it against the same live is clean. Block
 // style, v0's two-space indent.
 func Export(live Live) ([]byte, error) {
 	og := live.Org
@@ -69,6 +69,18 @@ func Export(live Live) ([]byte, error) {
 			ACMEEmail:           d.ACMEEmail,
 			IncludeEnvOnDefault: d.IncludeEnvOnDefault,
 		})
+	}
+	for _, sh := range live.Shares {
+		if f.Shares == nil {
+			f.Shares = map[string]Share{}
+		}
+		f.Shares[sh.Slug] = Share{
+			Kind:     sh.Kind,
+			Source:   sh.Source,
+			Options:  sh.Options,
+			User:     sh.User,
+			Password: sh.PasswordRef,
+		}
 	}
 	slices.SortFunc(f.Domains, func(a, b Reservation) int { return strings.Compare(a.Host, b.Host) })
 	var buf bytes.Buffer

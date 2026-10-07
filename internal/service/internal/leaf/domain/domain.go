@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/url"
 	"regexp"
 	"slices"
 	"strings"
@@ -69,6 +70,14 @@ type Extras struct {
 	Methods     []string          `json:"methods,omitempty"`
 	StripPrefix bool              `json:"strip_prefix,omitempty"`
 	SecHeaders  bool              `json:"sec_headers,omitempty"`
+	ForwardAuth *ForwardAuth      `json:"forward_auth,omitempty"`
+}
+
+// ForwardAuth hands each request to an auth provider by its public URL first;
+// a 2xx lets it through with CopyHeaders copied onto the request.
+type ForwardAuth struct {
+	URL         string   `json:"url"`
+	CopyHeaders []string `json:"copy_headers,omitempty"`
 }
 
 // BasicAuth: Password may be a ${{ }} ref, expanded at build time.
@@ -284,6 +293,9 @@ func checkExtras(e Extras) error {
 	if t := e.Timeouts; t != nil && (t.Dial < 0 || t.Read < 0 || t.Write < 0) {
 		return errs.Invalidf("proxy.timeouts", "must not be negative")
 	}
+	if err := checkProxyStrings(e); err != nil {
+		return err
+	}
 	for k := range e.Headers {
 		if k == "" || strings.ContainsAny(k, " :\r\n") {
 			return errs.Invalidf("proxy.headers", "%q is not a header name", k)
@@ -307,4 +319,42 @@ func ExtrasOf(d store.Domain) (Extras, error) {
 		return e, errors.New("domain " + d.Host + d.Path + ": proxy_json: " + err.Error())
 	}
 	return e, nil
+}
+
+// CheckBraces refuses `{` and `}` in a user string headed for Caddy, which
+// expands placeholders in most of its strings ({env.X}, {file.X}).
+func CheckBraces(field, s string) error {
+	if strings.ContainsAny(s, "{}") {
+		return errs.Invalidf(field, "must not contain { or }")
+	}
+	return nil
+}
+
+var headerTokenRe = regexp.MustCompile("^[A-Za-z0-9!#$%&'*+.^_`|~-]+$")
+
+// checkProxyStrings is every user string that lands in the Caddy JSON, the
+// ones Caddy would expand as placeholders or that name a header. checkExtras
+// runs it on write; domainRoute runs it again on build, so a row that got
+// into the store another way leaves its tile out instead of serving open.
+func checkProxyStrings(e Extras) error {
+	if fa := e.ForwardAuth; fa != nil {
+		u, err := url.Parse(fa.URL)
+		if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" {
+			return errs.Invalidf("proxy.forward_auth.url", "must be an http or https URL with a host")
+		}
+		if err := CheckBraces("proxy.forward_auth.url", fa.URL); err != nil {
+			return err
+		}
+		for _, n := range fa.CopyHeaders {
+			if !headerTokenRe.MatchString(n) {
+				return errs.Invalidf("proxy.forward_auth.copy_headers", "%q is not a header name", n)
+			}
+		}
+	}
+	for k, v := range e.Headers {
+		if err := CheckBraces("proxy.headers", k+v); err != nil {
+			return err
+		}
+	}
+	return nil
 }

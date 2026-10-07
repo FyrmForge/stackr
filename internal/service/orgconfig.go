@@ -256,7 +256,16 @@ func (o *Orchestrator) orgLive(ctx context.Context, og store.Org) (orgconfig.Liv
 	if live.Domains, err = o.domainres.ListAll(ctx); err != nil {
 		return live, err
 	}
+	if live.Routes, err = o.routes.List(ctx); err != nil {
+		return live, err
+	}
 	if live.Connectors, err = o.conns.ListConnected(ctx, og.ID); err != nil {
+		return live, err
+	}
+	if live.Shares, err = o.volumes.Shares(ctx, og.ID); err != nil {
+		return live, err
+	}
+	if live.ShareUsers, err = o.shareUsers(ctx, og.ID); err != nil {
 		return live, err
 	}
 	sts, err := o.stacks.List(ctx, og.ID)
@@ -347,7 +356,7 @@ func (o *Orchestrator) walkOrgPlan(
 		switch c.Kind {
 		case "param", "param-update":
 			key = "param"
-		case "rebind", "domain-update":
+		case "rebind", "domain-update", "share-update":
 			key = c.Kind + ":" + c.Tile
 		}
 		if key != "" {
@@ -386,6 +395,10 @@ func (o *Orchestrator) walkOrgPlan(
 			}
 		case "domain", "domain-update":
 			err = o.putOrgDomain(ctx, og.ID, cmp.Or(c.Tile, c.New), f.Domains, live.Domains)
+		case "share", "share-update":
+			err = o.putOrgShare(ctx, og.ID, c.Tile, f.Shares[c.Tile], live.Shares)
+		case "share-delete":
+			err = o.DeleteShare(ctx, og.ID, c.Tile)
 		}
 		if err != nil {
 			return bound, fmt.Errorf("%s %s: %w", c.Kind, what, err)
@@ -487,5 +500,21 @@ func (o *Orchestrator) putOrgDomain(
 		return err
 	}
 	_, err := o.UpdateDomainResource(ctx, have[j].ID, r.IncludeEnvOnDefault, r.ACMEEmail)
+	return err
+}
+
+// putOrgShare creates or updates the org share slug from its shares: entry.
+func (o *Orchestrator) putOrgShare(
+	ctx context.Context,
+	orgID, slug string,
+	want orgconfig.Share,
+	have []store.Share,
+) error {
+	i := slices.IndexFunc(have, func(s store.Share) bool { return s.Slug == slug })
+	if i < 0 {
+		_, err := o.CreateShare(ctx, orgID, want.Spec(slug))
+		return err
+	}
+	_, err := o.UpdateShare(ctx, orgID, slug, want.Spec(slug))
 	return err
 }

@@ -97,6 +97,7 @@ func (d *Client) Wait(ctx context.Context, id string) (int, error) {
 	}
 }
 
+// portBindings: ports is keyed by host[/udp], valued by container[/udp].
 func portBindings(ports map[string]string) (nat.PortSet, nat.PortMap) {
 	if len(ports) == 0 {
 		return nil, nil
@@ -108,7 +109,9 @@ func portBindings(ports map[string]string) (nat.PortSet, nat.PortMap) {
 		}
 		p := nat.Port(cont)
 		exposed[p] = struct{}{}
-		bindings[p] = append(bindings[p], nat.PortBinding{HostIP: "0.0.0.0", HostPort: host})
+		// a udp key is "host/udp" so both protocols of a port survive
+		hp, _, _ := strings.Cut(host, "/")
+		bindings[p] = append(bindings[p], nat.PortBinding{HostIP: "0.0.0.0", HostPort: hp})
 	}
 	return exposed, bindings
 }
@@ -182,6 +185,7 @@ func (d *Client) List(ctx context.Context, labels map[string]string) ([]Containe
 	return out, nil
 }
 
+// labelFilter matches every label as key=value.
 func labelFilter(labels map[string]string) filters.Args {
 	f := filters.NewArgs()
 	for k, v := range labels {

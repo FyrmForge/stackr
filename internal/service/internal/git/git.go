@@ -99,6 +99,49 @@ func (r Repo) ReadFile(ctx context.Context, commit, path string) ([]byte, error)
 	return r.git(ctx, "show", commit+":"+filepath.ToSlash(filepath.Clean(path)))
 }
 
+// ListTree lists the files under the folder path at commit, recursively and
+// repo-relative; nil when path is not a folder there.
+func (r Repo) ListTree(ctx context.Context, commit, path string) ([]string, error) {
+	if err := refOK(commit); err != nil {
+		return nil, err
+	}
+	// The trailing slash makes ls-tree match a folder only, never a file.
+	out, err := r.git(ctx, "ls-tree", "-r", "-z", "--name-only", commit, "--", filepath.ToSlash(filepath.Clean(path))+"/")
+	if err != nil {
+		return nil, err
+	}
+	var names []string
+	for _, n := range strings.Split(string(out), "\x00") {
+		if n != "" {
+			names = append(names, n)
+		}
+	}
+	return names, nil
+}
+
+// IsDir reports whether path is a folder at commit. A git failure (no clone,
+// unknown commit) is an error, never "not a folder".
+func (r Repo) IsDir(ctx context.Context, commit, path string) (bool, error) {
+	if err := refOK(commit); err != nil {
+		return false, err
+	}
+	// ls-tree prints nothing, and succeeds, for a path that is not there.
+	out, err := r.git(ctx, "ls-tree", "-z", commit, "--", filepath.ToSlash(filepath.Clean(path)))
+	if err != nil {
+		return false, err
+	}
+	return strings.HasPrefix(string(out), "040000 tree "), nil
+}
+
+// Has reports whether the clone holds commit.
+func (r Repo) Has(ctx context.Context, commit string) bool {
+	if refOK(commit) != nil {
+		return false
+	}
+	_, err := r.git(ctx, "cat-file", "-e", commit+"^{commit}")
+	return err == nil
+}
+
 // ChangedPaths lists the paths that differ between two commits of the local
 // clone (for watch_paths).
 func (r Repo) ChangedPaths(ctx context.Context, from, to string) ([]string, error) {

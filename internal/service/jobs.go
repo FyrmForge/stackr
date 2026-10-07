@@ -140,7 +140,7 @@ func (o *Orchestrator) handlers() map[jobs.Kind]jobs.Handler {
 	return map[jobs.Kind]jobs.Handler{
 		kindDeploy: payload(func(ctx context.Context, r *jobs.Run, p tileJob) error {
 			if err := o.deploy.Redeploy(ctx, p.TileID, r.Log, r.Swap); err != nil {
-				return err
+				return parkOnApproval(r, err)
 			}
 			return o.afterDeploy(ctx, []string{p.TileID}, false)
 		}),
@@ -149,7 +149,7 @@ func (o *Orchestrator) handlers() map[jobs.Kind]jobs.Handler {
 			if plan != nil {
 				err = errors.Join(err, o.dropRuns(plan.Removed), o.afterDeploy(ctx, plan.Deployed, true))
 			}
-			return err
+			return parkOnApproval(r, err)
 		}),
 		kindEnvSync: payload(func(ctx context.Context, r *jobs.Run, p envSyncJob) error {
 			var plan *promote.Sync
@@ -162,13 +162,15 @@ func (o *Orchestrator) handlers() map[jobs.Kind]jobs.Handler {
 			} else {
 				plan, err = o.promote.SyncApply(ctx, p.EnvID, p.FromID, p.Keep, p.Sig, r.Log, r.Swap)
 			}
-			if _, parked := errs.IsUnset(err); parked && plan != nil && len(plan.Owed) > 0 {
+			_, unset := errs.IsUnset(err)
+			_, approval := errs.IsNeedsApproval(err)
+			if (unset || approval) && plan != nil && len(plan.Owed) > 0 {
 				r.Job.Payload = withOwed(r.Job.Payload, plan.Owed)
 			}
 			if plan != nil {
 				err = errors.Join(err, o.dropRuns(plan.Removed), o.afterDeploy(ctx, plan.Deployed, true))
 			}
-			return err
+			return parkOnApproval(r, err)
 		}),
 		kindRun: payload(func(ctx context.Context, r *jobs.Run, p runJob) error {
 			return o.run.Do(ctx, p.RunID, r.Log)

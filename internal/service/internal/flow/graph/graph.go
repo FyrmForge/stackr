@@ -921,7 +921,11 @@ func (f *Flow) tileCard(ctx context.Context, t store.Tile, vols map[string]strin
 		n.Domains = append(n.Domains, d.Host)
 	}
 	for _, l := range tile.Lines(t.Volumes) {
-		sl, path, _ := strings.Cut(l, ":")
+		m, err := tile.ParseMount(strings.TrimSpace(l))
+		if err != nil || m.Kind != tile.MountVolume {
+			continue // host: and share: lines are no env volume
+		}
+		sl, path := m.Volume, m.Path
 		n.Volumes = append(n.Volumes, sl)
 		id, ok := vols[sl]
 		if !ok {

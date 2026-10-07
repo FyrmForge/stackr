@@ -21,6 +21,17 @@ type SettingsView struct {
 	Path       string
 	Unbind     c.ConfirmView // Action "" = nothing bound, or read-only
 	Delete     c.ConfirmView
+	Host       HostView
+}
+
+// HostView is the stack's host access: what a server admin approved, what
+// its parked jobs still ask for, and Approve for a server admin when
+// something waits. The zero value draws nothing.
+type HostView struct {
+	Lines      []string
+	Privileged bool
+	Pending    []string
+	Approve    c.ConfirmView // Action "" = the viewer cannot approve, or nothing waits
 }
 
 type Option struct{ Value, Label string }
@@ -71,6 +82,26 @@ templ Settings(v SettingsView) {
 				<div class="flex flex-wrap items-center gap-2 mt-5 pt-5 border-t border-rw-border">
 					@c.Confirm(v.Unbind)
 				</div>
+			}
+		}
+		if len(v.Host.Lines) > 0 || v.Host.Privileged || len(v.Host.Pending) > 0 {
+			@c.Section("Host access", "stack", "Set by a server admin.") {
+				<ul id="host-access" class="font-mono text-sm space-y-1">
+					for _, l := range v.Host.Lines {
+						<li>{ l }</li>
+					}
+					if v.Host.Privileged {
+						<li>privileged</li>
+					}
+					for _, l := range v.Host.Pending {
+						<li class="text-rw-warn">waiting: { l }</li>
+					}
+				</ul>
+				if v.Host.Approve.Action != "" {
+					<div class="mt-4">
+						@c.Confirm(v.Host.Approve)
+					</div>
+				}
 			}
 		}
 		if v.Base != "" {

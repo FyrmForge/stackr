@@ -135,6 +135,21 @@ func TestAttachRules(t *testing.T) {
 			Port:   80,
 			Extras: domain.Extras{BasicAuth: &domain.BasicAuth{}},
 		}, false, "proxy.basic_auth.user"},
+		{"forward auth without a scheme", api, domain.Spec{
+			Host:   "b.example.com",
+			Port:   80,
+			Extras: domain.Extras{ForwardAuth: &domain.ForwardAuth{URL: "auth.example.com/check"}},
+		}, false, "proxy.forward_auth.url"},
+		{"forward auth on ftp", api, domain.Spec{
+			Host:   "b.example.com",
+			Port:   80,
+			Extras: domain.Extras{ForwardAuth: &domain.ForwardAuth{URL: "ftp://auth.example.com"}},
+		}, false, "proxy.forward_auth.url"},
+		{"forward auth without a host", api, domain.Spec{
+			Host:   "b.example.com",
+			Port:   80,
+			Extras: domain.Extras{ForwardAuth: &domain.ForwardAuth{URL: "https:///check"}},
+		}, false, "proxy.forward_auth.url"},
 		{"raw not json", api, domain.Spec{Host: "b.example.com", Port: 80, RawCaddy: "{"}, false, "raw_caddy"},
 		{"taken host", api, domain.Spec{Host: "A.example.com", Port: 80}, false, ""},
 	} {

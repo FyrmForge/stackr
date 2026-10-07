@@ -491,6 +491,16 @@ stacks:
 			blocker: "already a domain resource",
 		},
 		{
+			name: "domain on an external route",
+			file: v1 + `domains:
+  - host: legacy.acme.io
+`,
+			live: func(l *orgconfig.Live) {
+				l.Routes = []store.Route{{Host: "legacy.acme.io"}}
+			},
+			blocker: "external route",
+		},
+		{
 			name: "domain squatting another org",
 			file: v1 + `domains:
   - host: globex.acme.io

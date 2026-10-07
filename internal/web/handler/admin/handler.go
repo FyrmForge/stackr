@@ -54,6 +54,20 @@ func (h *handler) Mount(g *echo.Group, a *middleware.Access) {
 		j, err := h.orch.PanelBackupNow(c.Request().Context())
 		return "Backup queued.", &j, err
 	}), a.Require("container.admin"))
+	routes := a.Require("route.admin")
+	g.POST(b+"/routes", h.act("routes", func(c echo.Context) (string, *service.Job, error) {
+		f := c.FormValue
+		_, err := h.orch.CreateExternalRoute(c.Request().Context(), service.ExternalRouteSpec{
+			Host:     f("route_host"),
+			Mode:     f("route_mode"),
+			Target:   f("route_target"),
+			Insecure: f("route_insecure") != "",
+		})
+		return "Route added.", nil, err
+	}), routes)
+	g.POST(b+"/routes/:route/delete", h.act("routes", func(c echo.Context) (string, *service.Job, error) {
+		return "Route removed.", nil, h.orch.DeleteExternalRoute(c.Request().Context(), c.Param("route"))
+	}), routes)
 	dests := a.Require("serverdefaults.set")
 	g.POST(b+"/dests", h.act("backups", func(c echo.Context) (string, *service.Job, error) {
 		f := c.FormValue
@@ -193,6 +207,25 @@ func (h *handler) tab(c echo.Context, tab string, x extra) (templ.Component, err
 			v.Rows = append(v.Rows, r)
 		}
 		return ui.Users(v), err
+	case "routes":
+		rs, err := h.orch.ExternalRoutes(ctx)
+		v := ui.RoutesView{Add: ui.Base + "/routes"}
+		for _, r := range rs {
+			v.Rows = append(v.Rows, ui.Route{
+				Host:     r.Host,
+				Mode:     r.Mode,
+				Target:   r.Target,
+				Insecure: r.Insecure,
+				Remove: comp.ConfirmView{
+					Button:  "Remove",
+					Title:   "Remove the route for " + r.Host + "?",
+					Warning: "The host stops being served.",
+					Action:  ui.Base + "/routes/" + r.ID + "/delete",
+					Target:  "#" + comp.DrawerRoot,
+				},
+			})
+		}
+		return ui.Routes(v), err
 	case "update":
 		v := ui.UpdateView{}
 		if x.check != nil {

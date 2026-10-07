@@ -87,6 +87,11 @@ func (o *Orchestrator) SetSetting(ctx context.Context, key, raw string) error {
 			}
 		}
 	}
+	if key == "panel_domain" {
+		if err := o.checkPanelRoutes(ctx, raw); err != nil {
+			return err
+		}
+	}
 	if err := o.settings.Set(ctx, key, raw); err != nil {
 		return err
 	}

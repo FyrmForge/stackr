@@ -78,6 +78,20 @@
         ],
         "type": "object"
       },
+      "ApproveHostGrantIn": {
+        "properties": {
+          "pending": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "pending"
+        ],
+        "type": "object"
+      },
       "BackupDest": {
         "properties": {
           "bucket": {
@@ -953,6 +967,16 @@
               }
             ]
           },
+          "forward_auth": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ForwardAuth"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "headers": {
             "additionalProperties": {
               "type": "string"
@@ -990,6 +1014,23 @@
         },
         "type": "object"
       },
+      "ForwardAuth": {
+        "properties": {
+          "copy_headers": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "url"
+        ],
+        "type": "object"
+      },
       "FromIn": {
         "properties": {
           "auto": {
@@ -1006,6 +1047,48 @@
           "kind",
           "branch",
           "auto"
+        ],
+        "type": "object"
+      },
+      "HostGrant": {
+        "properties": {
+          "approved_by": {
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "granted": {
+            "type": "boolean"
+          },
+          "lines": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "pending": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "privileged": {
+            "type": "boolean"
+          },
+          "stack_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "stack_id",
+          "granted",
+          "lines",
+          "privileged",
+          "approved_by",
+          "created_at",
+          "pending"
         ],
         "type": "object"
       },
@@ -2212,6 +2295,61 @@
         ],
         "type": "object"
       },
+      "Route": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "host": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "insecure": {
+            "type": "boolean"
+          },
+          "mode": {
+            "type": "string"
+          },
+          "target": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "host",
+          "mode",
+          "target",
+          "insecure",
+          "created_at"
+        ],
+        "type": "object"
+      },
+      "RouteIn": {
+        "properties": {
+          "host": {
+            "type": "string"
+          },
+          "insecure": {
+            "type": "boolean"
+          },
+          "mode": {
+            "type": "string"
+          },
+          "target": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "host",
+          "mode",
+          "target",
+          "insecure"
+        ],
+        "type": "object"
+      },
       "Run": {
         "properties": {
           "created_at": {
@@ -2412,6 +2550,77 @@
             ]
           }
         },
+        "type": "object"
+      },
+      "ShareIn": {
+        "properties": {
+          "kind": {
+            "type": "string"
+          },
+          "options": {
+            "type": "string"
+          },
+          "password_ref": {
+            "type": "string"
+          },
+          "slug": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          },
+          "user": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "slug",
+          "kind",
+          "source",
+          "options",
+          "user",
+          "password_ref"
+        ],
+        "type": "object"
+      },
+      "ShareOut": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "options": {
+            "type": "string"
+          },
+          "password_ref": {
+            "type": "string"
+          },
+          "slug": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          },
+          "user": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "slug",
+          "kind",
+          "source",
+          "options",
+          "user",
+          "password_ref",
+          "created_at"
+        ],
         "type": "object"
       },
       "SliceAccess": {
@@ -4737,6 +4946,106 @@
           }
         },
         "x-verb": "proxy.admin"
+      }
+    },
+    "/api/v1/admin/routes": {
+      "get": {
+        "operationId": "admin.route-list",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Route"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "route.admin"
+      },
+      "post": {
+        "operationId": "admin.route-create",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RouteIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Route"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "route.admin"
+      }
+    },
+    "/api/v1/admin/routes/{route}": {
+      "delete": {
+        "operationId": "admin.route-delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "route",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "route.admin"
       }
     },
     "/api/v1/admin/settings/{setting}": {
@@ -7392,6 +7701,132 @@
           }
         },
         "x-verb": "backup.write"
+      }
+    },
+    "/api/v1/orgs/{org}/shares": {
+      "get": {
+        "operationId": "share.list",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ShareOut"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "share.read"
+      },
+      "post": {
+        "operationId": "share.create",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ShareIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ShareOut"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "share.write"
+      }
+    },
+    "/api/v1/orgs/{org}/shares/{share}": {
+      "delete": {
+        "operationId": "share.delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "share",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "share.write"
       }
     },
     "/api/v1/orgs/{org}/stacks": {
@@ -11339,6 +11774,145 @@
           }
         },
         "x-verb": "tile.write"
+      }
+    },
+    "/api/v1/orgs/{org}/stacks/{stack}/host-grant": {
+      "delete": {
+        "operationId": "hostgrant.revoke",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "stack",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "hostgrant.approve"
+      },
+      "get": {
+        "operationId": "hostgrant.get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "stack",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HostGrant"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "org.read"
+      }
+    },
+    "/api/v1/orgs/{org}/stacks/{stack}/host-grant/approve": {
+      "post": {
+        "operationId": "hostgrant.approve",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "stack",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApproveHostGrantIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HostGrant"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "hostgrant.approve"
       }
     },
     "/api/v1/orgs/{org}/stacks/{stack}/image-check": {

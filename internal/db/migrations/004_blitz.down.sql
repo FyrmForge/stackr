@@ -1,0 +1,3 @@
+DROP TABLE IF EXISTS host_grants;
+DROP TABLE IF EXISTS shares;
+DROP TABLE IF EXISTS routes;

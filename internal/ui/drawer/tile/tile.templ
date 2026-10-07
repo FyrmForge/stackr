@@ -674,6 +674,7 @@ templ domains(v View, d DomainsView) {
 			<input type="text" name="path" aria-label="Path prefix" placeholder="/ (path prefix)" title="Route only requests under this path prefix to this tile" class="input !w-32"/>
 			<input type="number" name="port" aria-label="Container port" placeholder="port" min="1" max="65535" class="input !w-24"/>
 			<input type="text" name="redirect_to" aria-label="Redirect to" placeholder="redirect to (optional)" title="Requests to this host 301 to the given host instead of being served" class="input !w-48"/>
+			<input type="url" name="forward_auth" aria-label="Forward auth URL" placeholder="forward auth URL (optional)" title="Each request is checked against this URL first; 2xx lets it through" class="input !w-56"/>
 			<label class="text-sm text-rw-muted flex items-center gap-1.5">
 				<input type="checkbox" name="https" value="1" checked class="accent-rw-accent"/> HTTPS
 			</label>

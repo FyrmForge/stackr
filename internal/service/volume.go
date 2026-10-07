@@ -41,6 +41,17 @@ func (o *Orchestrator) DeleteVolume(ctx context.Context, id string) error {
 	return o.volumes.Delete(ctx, v, by)
 }
 
+// MountedVolume reads a volumes line that names an env volume: its slug and
+// the container path. host: and share: lines (and lines that do not parse)
+// name none.
+func MountedVolume(line string) (slug, path string, ok bool) {
+	m, err := tile.ParseMount(strings.TrimSpace(line))
+	if err != nil || m.Kind != tile.MountVolume {
+		return "", "", false
+	}
+	return m.Volume, m.Path, true
+}
+
 // mounters are the tiles whose volumes lines name an env volume.
 func (o *Orchestrator) mounters(ctx context.Context, v Volume) ([]Tile, error) {
 	if v.ScopeKind != "env" {
@@ -50,7 +61,7 @@ func (o *Orchestrator) mounters(ctx context.Context, v Volume) ([]Tile, error) {
 	var out []Tile
 	for _, t := range ts {
 		for _, l := range tile.Lines(t.Volumes) {
-			if strings.HasPrefix(l, v.Slug+":") {
+			if sl, _, ok := MountedVolume(l); ok && sl == v.Slug {
 				out = append(out, t)
 				break
 			}
@@ -77,7 +88,7 @@ func (o *Orchestrator) TileVolumes(ctx context.Context, tileID string) ([]Volume
 	var out []Volume
 	for _, v := range vs {
 		for _, l := range tile.Lines(t.Volumes) {
-			if strings.HasPrefix(l, v.Slug+":") {
+			if sl, _, ok := MountedVolume(l); ok && sl == v.Slug {
 				out = append(out, v)
 				break
 			}

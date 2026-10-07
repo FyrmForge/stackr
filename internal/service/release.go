@@ -17,7 +17,9 @@ type (
 )
 
 // PromotePlan is the dry run and its verdict: CanDeploy is false exactly
-// when Plan.Blockers is not empty, the same list Promote refuses with (B20).
+// when Plan.Blockers is not empty, the same list Promote refuses with (B20),
+// except a plan blocked only on host access: that queues and parks on an
+// admin's approval.
 type PromotePlan struct {
 	Plan      *Plan `json:"plan"`
 	CanDeploy bool  `json:"can_deploy"`
@@ -43,7 +45,7 @@ func (o *Orchestrator) PlanPromote(ctx context.Context, envID, releaseID string)
 	if err != nil {
 		return PromotePlan{}, err
 	}
-	return PromotePlan{Plan: p, CanDeploy: !p.Blocked()}, nil
+	return PromotePlan{Plan: p, CanDeploy: !p.Blocked() || p.OnlyHostAccess()}, nil
 }
 
 // Promote queues taking releaseID into envID. The job re-plans and refuses

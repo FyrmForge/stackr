@@ -2,8 +2,10 @@ package canvas
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"slices"
+	"strings"
 
 	"github.com/a-h/templ"
 	"github.com/labstack/echo/v4"
@@ -41,6 +43,24 @@ func (h *handler) stackTab(c echo.Context, cd card, f *comp.DrawerView) (templ.C
 		Repo:      st.ConfigRepo,
 		Branch:    st.ConfigBranch,
 		Path:      st.ConfigPath,
+	}
+	g, err := h.orch.HostGrant(ctx, st.ID)
+	if err != nil {
+		return nil, err
+	}
+	v.Host = stackui.HostView{Lines: g.Lines, Privileged: g.Privileged, Pending: g.Pending}
+	if len(g.Pending) > 0 && can(c, cd.s, "hostgrant.approve") {
+		// The set shown rides along; the server refuses when the ask moved.
+		vals, _ := json.Marshal(map[string]string{"pending": strings.Join(g.Pending, "\n")})
+		v.Host.Approve = comp.ConfirmView{
+			Button:  "Approve",
+			Title:   "Approve host access?",
+			Warning: "The stack's tiles get " + strings.Join(g.Pending, ", ") + ". Parked jobs resume.",
+			Action:  f.Base + "/host-grant/approve",
+			Target:  "#" + comp.DrawerRoot,
+			Primary: true,
+			Vals:    string(vals),
+		}
 	}
 	for _, k := range cs {
 		v.Connectors = append(v.Connectors, stackui.Option{Value: k.ID, Label: k.Name + " (" + k.Host + ")"})
@@ -103,6 +123,10 @@ func (h *handler) mountStack(site *echo.Group, a *middleware.Access) {
 		)
 		return "Config repo saved.", err
 	}), write)
+	site.POST(s+"/host-grant/approve", h.stackAction("settings", func(c echo.Context, cd card) (string, error) {
+		_, err := h.orch.ApproveHostGrant(c.Request().Context(), cd.s.Stack.ID, middleware.Principal(c).User.ID, strings.Split(c.FormValue("pending"), "\n"))
+		return "Host access approved.", err
+	}), a.Require("hostgrant.approve"))
 	site.POST(s+"/unbind", h.stackAction("settings", func(c echo.Context, cd card) (string, error) {
 		_, err := h.orch.SetConfigRepo(c.Request().Context(), cd.s.Stack.ID, "", "", "", "")
 		return "Unbound: the stack is managed from the UI.", err

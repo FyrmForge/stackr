@@ -52,7 +52,11 @@ func (o *Orchestrator) proxyConfig(ctx context.Context) (json.RawMessage, error)
 			in.Accounts = append(in.Accounts, domain.Account{Host: r.Host, Email: r.ACMEEmail})
 		}
 	}
-	return o.deploy.ProxyConfig(ctx, in)
+	ext, err := o.externalRoutes(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return o.deploy.ProxyConfig(ctx, in, ext)
 }
 
 // publicBase is a managed tile's public URL: its auto name under the
@@ -202,7 +206,16 @@ func (o *Orchestrator) stackFile(
 		path = promote.DefaultPath
 	}
 	data, err := r.ReadFile(ctx, commit, path)
-	fetch := func(p string) ([]byte, error) { return r.ReadFile(ctx, commit, p) }
+	fetch := func(p string) ([]byte, error) {
+		if strings.HasSuffix(p, "/") {
+			// ponytail: a trailing slash asks for the folder's files, NUL
+			// joined, so Config keeps one Fetcher type; a typed lister
+			// when a second caller needs one.
+			names, err := r.ListTree(ctx, commit, p)
+			return []byte(strings.Join(names, "\x00")), err
+		}
+		return r.ReadFile(ctx, commit, p)
+	}
 	return data, fetch, err
 }
 

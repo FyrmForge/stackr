@@ -95,7 +95,13 @@ func goldens() []golden {
 		},
 	}}
 
+	fa := &domain.ForwardAuth{URL: "https://auth.example.com/api/verify"}
 	return []golden{
+		{"forward_auth", install, one(row("app.example.com", domain.Extras{ForwardAuth: fa}))},
+		{"forward_auth_basic", install, one(row("app.example.com", domain.Extras{
+			ForwardAuth: &domain.ForwardAuth{URL: "http://authelia:9091", CopyHeaders: []string{"X-User"}},
+			BasicAuth:   &domain.BasicAuth{User: "u", Password: "${{ secrets.web.pw }}"},
+		}))},
 		{"plain", install, one(row("app.example.com", domain.Extras{}))},
 		{"basic_auth", install, one(row("app.example.com", domain.Extras{
 			BasicAuth: &domain.BasicAuth{User: "u", Password: "${{ secrets.web.pw }}"},
@@ -133,7 +139,7 @@ var bcryptRe = regexp.MustCompile(`\$2a\$05\$[./A-Za-z0-9]{53}`)
 func TestGolden(t *testing.T) {
 	for _, g := range goldens() {
 		t.Run(g.name, func(t *testing.T) {
-			cfg, err := domain.Build(g.in, g.tiles, expand)
+			cfg, err := domain.Build(g.in, g.tiles, nil, expand)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -175,6 +181,7 @@ func TestBasicAuthFailsClosed(t *testing.T) {
 		cfg, err := domain.Build(
 			install,
 			one(row("a.io", domain.Extras{BasicAuth: &domain.BasicAuth{User: "u", Password: pw}})),
+			nil,
 			expand,
 		)
 		must(t, err)
@@ -199,8 +206,8 @@ func TestBasicAuthFailsClosed(t *testing.T) {
 func TestAutoRendersSame(t *testing.T) {
 	a, b := row("a.io", domain.Extras{SecHeaders: true}), row("a.io", domain.Extras{SecHeaders: true})
 	b.Auto = true
-	ca, _ := domain.Build(install, one(a), expand)
-	cb, _ := domain.Build(install, one(b), expand)
+	ca, _ := domain.Build(install, one(a), nil, expand)
+	cb, _ := domain.Build(install, one(b), nil, expand)
 	if !bytes.Equal(ca, cb) {
 		t.Errorf("auto changed the render:\n%s\n%s", ca, cb)
 	}
@@ -213,14 +220,14 @@ func TestBrokenTileLeftOut(t *testing.T) {
 		one(row("good.io", domain.Extras{})),
 		domain.TileRoute{TileID: "t-bad", Domains: []store.Domain{bad}},
 	)
-	cfg, err := domain.Build(install, tiles, expand)
+	cfg, err := domain.Build(install, tiles, nil, expand)
 	if err == nil || !strings.Contains(err.Error(), "t-bad") {
 		t.Errorf("err = %v", err)
 	}
 	if !bytes.Contains(cfg, []byte("good.io")) || bytes.Contains(cfg, []byte("bad.io")) {
 		t.Errorf("cfg = %s", cfg)
 	}
-	if _, err := domain.Build(domain.Install{}, nil, nil); err == nil {
+	if _, err := domain.Build(domain.Install{}, nil, nil, nil); err == nil {
 		t.Error("a config without the admin listener built")
 	}
 }

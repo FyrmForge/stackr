@@ -47,6 +47,9 @@ type Tables struct {
 	Volumes          VolumeStore
 	Domains          DomainStore
 	DomainResources  DomainResourceStore
+	Routes           RouteStore
+	Shares           ShareStore
+	HostGrants       HostGrantStore
 	Credentials      CredentialStore
 	Connectors       ConnectorStore
 	ManagedInstances ManagedInstanceStore
@@ -81,6 +84,9 @@ func bind(q querier, box *secrets.Box) Tables {
 		Volumes:          volumes{crud[Volume]{q, box, volumesT}},
 		Domains:          domains{crud[Domain]{q, box, domainsT}},
 		DomainResources:  domainResources{crud[DomainResource]{q, box, domainResourcesT}},
+		Routes:           routes{crud[Route]{q, box, routesT}},
+		Shares:           shares{crud[Share]{q, box, sharesT}},
+		HostGrants:       hostGrants{crud[HostGrant]{q, box, hostGrantsT}},
 		Credentials:      credentials{crud[Credential]{q, box, credentialsT}},
 		Connectors:       connectors{crud[Connector]{q, box, connectorsT}},
 		ManagedInstances: managedInstances{crud[ManagedInstance]{q, box, managedInstancesT}},

@@ -29,6 +29,7 @@ var verbLevels = map[Verb]Level{
 	"registry.image.list": LevelRead,
 	"org.config.export":   LevelRead,
 	"deployment.read":     LevelRead,
+	"share.read":          LevelRead,
 	"tile.read":           LevelRead,
 
 	"stack.create":      LevelWrite,
@@ -59,6 +60,7 @@ var verbLevels = map[Verb]Level{
 	"org.setup.step":            LevelOwner,
 	"org.setup.domain":          LevelOwner,
 	"org.setup.connector":       LevelOwner,
+	"share.write":               LevelOwner,
 
 	"admin.read":         LevelAdmin,
 	"serverdefaults.set": LevelAdmin,
@@ -67,6 +69,8 @@ var verbLevels = map[Verb]Level{
 	"proxy.admin":        LevelAdmin,
 	"user.admin":         LevelAdmin,
 	"org.create":         LevelAdmin,
+	"route.admin":        LevelAdmin,
+	"hostgrant.approve":  LevelAdmin,
 }
 
 // User is the request's principal, loaded once per request from live rows:

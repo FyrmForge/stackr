@@ -25,7 +25,7 @@ type ContainerSpec struct {
 	Env      []string          // KEY=VALUE
 	Labels   map[string]string //
 	Volumes  []string          // "name-or-hostpath:/container/path[:ro]"
-	Ports    map[string]string // hostPort -> containerPort (published)
+	Ports    map[string]string // host[/udp] -> container[/udp] (published)
 	Networks []NetAttach       // every network, joined at create
 	// HostNetwork runs in the host's network namespace; Networks and Ports
 	// are ignored (the proxy and stackrd itself).

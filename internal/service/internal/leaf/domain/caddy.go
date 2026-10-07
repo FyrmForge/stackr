@@ -60,10 +60,11 @@ type placed struct {
 	r          any
 }
 
-// Build turns every exposed tile into one whole Caddy config. A tile whose
-// rows will not parse is left out (a dead route beats a wrong one) and
-// named in the error; the config is still good to push.
-func Build(in Install, tiles []TileRoute, expand Expand) (json.RawMessage, error) {
+// Build turns every exposed tile and every external route into one whole
+// Caddy config. A tile whose rows will not parse is left out (a dead route
+// beats a wrong one) and named in the error; the config is still good to
+// push.
+func Build(in Install, tiles []TileRoute, routes []Route, expand Expand) (json.RawMessage, error) {
 	if in.AdminListen == "" {
 		return nil, errors.New("domain: the Caddy config needs the admin listen address")
 	}
@@ -113,11 +114,26 @@ func Build(in Install, tiles []TileRoute, expand Expand) (json.RawMessage, error
 		plain, secure = append(plain, p...), append(secure, s...)
 	}
 
+	// Routes to other machines (admin-made) sit after the tiles; the sort in
+	// server orders them with the rest.
+	rp, rs, wrapper := externalRoutes(routes, tlsOn)
+	plain, secure = append(plain, rp...), append(secure, rs...)
+	for _, p := range rs {
+		if p.host != "" {
+			httpsHosts[p.host] = true
+		}
+	}
+
 	servers := route{"http": server(":80", plain, in.TrustedProxies)}
 	apps := route{"http": route{"servers": servers}}
 	if tlsOn {
 		servers["https"] = server(":443", secure, in.TrustedProxies)
 		servers["https"].(route)["automatic_https"] = route{"disable_redirects": true}
+		if wrapper != nil {
+			// The layer4 wrapper reads the SNI before TLS terminates; the
+			// tls wrapper must be listed explicitly once there is a list.
+			servers["https"].(route)["listener_wrappers"] = []route{wrapper, {"wrapper": "tls"}}
+		}
 		apps["tls"] = route{"automation": route{"policies": policies(in, httpsHosts)}}
 	} else {
 		servers["http"].(route)["automatic_https"] = route{"disable": true}
@@ -218,20 +234,11 @@ func domainRoute(d store.Domain, t TileRoute, expand Expand) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	var hs []route
-	if auth := e.BasicAuth; auth != nil || t.Protect != nil {
-		if auth == nil {
-			auth = t.Protect
-		}
-		user, hash := credentials(*auth, expand)
-		hs = append(hs, route{
-			"handler": "authentication",
-			"providers": route{"http_basic": route{
-				"hash":     route{"algorithm": "bcrypt"},
-				"accounts": []route{{"username": user, "password": hash}},
-			}},
-		})
+	if err := checkProxyStrings(e); err != nil {
+		return nil, err
 	}
+	var hs []route
+	hs = append(hs, authHandlers(e, t, expand)...)
 	if e.MaxBodyMB > 0 {
 		hs = append(hs, route{"handler": "request_body", "max_size": e.MaxBodyMB << 20})
 	}

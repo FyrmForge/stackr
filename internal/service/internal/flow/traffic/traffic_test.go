@@ -295,8 +295,8 @@ func TestEdgesSlices(t *testing.T) {
 		{From: slice["jobs"], To: ids["jobs"]}: 200,
 		{From: ids["cron"], To: ids["pg"]}:     100,
 		{From: ids["pg"], To: ids["cron"]}:     200,
-		{From: far.ID, To: ids["pg"]}:         100,
-		{From: ids["pg"], To: far.ID}:         200,
+		{From: far.ID, To: ids["pg"]}:          100,
+		{From: ids["pg"], To: far.ID}:          200,
 	}
 	names := map[string]string{
 		ids["web"]:    "web",

@@ -424,6 +424,44 @@ func TestRoundTrip(t *testing.T) {
 	if err != nil || len(resources) != 3 {
 		t.Fatalf("domain resources = %d, %v; want 3", len(resources), err)
 	}
+	roundTrip(t, s.Routes, store.Route{
+		ID:        "rt9",
+		Host:      "pve.example.com",
+		Mode:      "https",
+		Target:    "10.0.0.2:8006",
+		Insecure:  true,
+		CreatedAt: t0,
+	}, func(r *store.Route) { r.Mode, r.Insecure = "http", false })
+	routeRows, err := s.Routes.List(ctx)
+	if err != nil || len(routeRows) != 1 {
+		t.Fatalf("routes = %d, %v; want 1", len(routeRows), err)
+	}
+	roundTrip(t, s.Shares, store.Share{
+		ID:          "sh1",
+		OrgID:       "o1",
+		Slug:        "media",
+		Kind:        "smb",
+		Source:      "nas/media",
+		User:        "${{ org.params.NAS_USER }}",
+		PasswordRef: "${{ org.params.NAS_PASS }}",
+		CreatedAt:   t0,
+	}, func(r *store.Share) { r.Kind, r.Options = "nfs", "vers=4" })
+	if got, err := s.Shares.GetBySlug(ctx, "o1", "media"); err != nil || got.ID != "sh1" {
+		t.Fatalf("share by slug = %v, %v", got, err)
+	}
+	if rows, err := s.Shares.ListByOrg(ctx, "o1"); err != nil || len(rows) != 1 {
+		t.Fatalf("shares by org = %d, %v; want 1", len(rows), err)
+	}
+	roundTrip(t, s.HostGrants, store.HostGrant{
+		ID:         "hg1",
+		StackID:    "s1",
+		Lines:      "host:/a:/b",
+		ApprovedBy: "u1",
+		CreatedAt:  t0,
+	}, func(r *store.HostGrant) { r.Lines, r.Privileged = "host:/a:/b\nhost:/c:/d", true })
+	if got, err := s.HostGrants.GetByStack(ctx, "s1"); err != nil || got.ID != "hg1" {
+		t.Fatalf("grant by stack = %v, %v", got, err)
+	}
 	roundTrip(t, s.Domains, store.Domain{
 		ID:            "d1",
 		TileID:        "t1",
@@ -558,6 +596,9 @@ func TestRoundTrip(t *testing.T) {
 		{"backup_destinations", s.BackupDests.Delete, "bd1"},
 		{"connectors", s.Connectors.Delete, "cn1"},
 		{"credentials", s.Credentials.Delete, "c1"},
+		{"host_grants", s.HostGrants.Delete, "hg1"},
+		{"shares", s.Shares.Delete, "sh1"},
+		{"routes", s.Routes.Delete, "rt9"},
 		{"domains", s.Domains.Delete, "d1"},
 		{"domain_resources", s.DomainResources.Delete, "dr2"},
 		{"volumes", s.Volumes.Delete, "v1"},

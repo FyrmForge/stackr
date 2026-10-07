@@ -156,6 +156,7 @@ type work struct {
 	deletes   []store.Tile
 	domains   map[string]domainWork   // by tile slug
 	instances map[string]instanceWork // managed tiles whose allow or env_pairs moved, by slug
+	list      Lister                  // reads the config repo's tree at the pinned commit
 	sliced    []string                // slice tiles created or moved: their consumers redeploy
 	base      string                  // a PR env's base env slug; "" on a static env
 	redeploy  map[string]bool
@@ -245,6 +246,7 @@ func (f *Flow) plan(ctx context.Context, envID, releaseID string, log io.Writer)
 			p.block("stack file at %s: %v", short(cp.CommitSHA), err)
 			return p, w, nil
 		}
+		w.list = listOf(fetch)
 		if e.BaseEnvID != nil {
 			if base, err := d.Envs.Get(ctx, *e.BaseEnvID); err == nil {
 				w.base = base.Slug
@@ -380,10 +382,6 @@ func (f *Flow) planConfig(ctx context.Context, p *Plan, w *work, r *Resolved) er
 	}
 	for _, name := range slices.Sorted(maps.Keys(re.Tiles)) {
 		tc := re.Tiles[name]
-		if len(tc.Files) > 0 { // DECIDE 27
-			p.block("tile %s: files: is not supported yet", name)
-			continue
-		}
 		if tc.Type == tile.Managed && !deploy.KnownEngine(tc.Engine) {
 			p.block("tile %s: engine %q is not supported (postgres or s3)", name, tc.Engine)
 			continue
@@ -431,7 +429,13 @@ func (f *Flow) planConfig(ctx context.Context, p *Plan, w *work, r *Resolved) er
 			}
 		}
 	}
-	return f.planDeletes(ctx, p, w, live)
+	if err := f.planDeletes(ctx, p, w, live); err != nil {
+		return err
+	}
+	if err := f.planFiles(ctx, p, w); err != nil {
+		return err
+	}
+	return f.checkHostAccess(ctx, p, w)
 }
 
 // refsTile: tc's env or command refs ${{ tile.<slugName>.<output> }}.
@@ -522,6 +526,16 @@ func (f *Flow) planResources(ctx context.Context, p *Plan, w *work, r *Resolved)
 		}
 		i := slices.IndexFunc(all, func(h store.DomainResource) bool { return h.Host == row.Host })
 		if i < 0 {
+			if f.RouteHeld != nil {
+				held, err := f.RouteHeld(ctx, row.Host)
+				if err != nil {
+					return err
+				}
+				if held {
+					p.block("domains: %s is an external route", row.Host)
+					continue
+				}
+			}
 			p.add(Change{Kind: "stack", Field: "domains", New: row.Host})
 			w.resCreate = append(w.resCreate, row)
 			w.sync = true // its ACME account
@@ -652,6 +666,15 @@ func (f *Flow) planDomains(
 			}
 		}
 		row, ok := findDomain(have, key)
+		if !ok && f.RouteHeld != nil {
+			held, err := f.RouteHeld(ctx, host)
+			if err != nil {
+				return err
+			}
+			if held {
+				p.block("tile %s: %s is an external route", name, host)
+			}
+		}
 		switch {
 		case !ok:
 			p.add(Change{Kind: "domain", Tile: name, New: key})
@@ -1196,6 +1219,9 @@ func specOf(dc DomainConf, host string, port int) domain.Spec {
 		}
 		if x.BasicAuth != nil {
 			sp.Extras.BasicAuth = &domain.BasicAuth{User: x.BasicAuth.User, Password: x.BasicAuth.Password}
+		}
+		if x.ForwardAuth != nil {
+			sp.Extras.ForwardAuth = &domain.ForwardAuth{URL: x.ForwardAuth.URL, CopyHeaders: x.ForwardAuth.CopyHeaders}
 		}
 		if x.Timeouts != nil {
 			sp.Extras.Timeouts = &domain.Timeouts{Dial: x.Timeouts.Dial, Read: x.Timeouts.Read, Write: x.Timeouts.Write}

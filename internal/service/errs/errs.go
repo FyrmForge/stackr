@@ -68,6 +68,15 @@ func (e Unset) Error() string {
 	return "param " + e.Param + " is not set"
 }
 
+// NeedsApproval is a change that waits on a server admin: host access a
+// stack has not been granted. A job that meets it parks with What instead of
+// failing; approving the grant requeues it.
+type NeedsApproval struct{ Stack, What string }
+
+func (e NeedsApproval) Error() string {
+	return "waiting: " + e.What + "; a server admin approves it on the stack"
+}
+
 func Refusedf(format string, a ...any) error {
 	return Refused{Msg: fmt.Sprintf(format, a...)}
 }
@@ -80,7 +89,7 @@ func Invalidf(field, format string, a ...any) error {
 	return Invalid{Field: field, Msg: fmt.Sprintf(format, a...)}
 }
 
-// IsInvalid, IsConflict and IsUnset unwrap through wrapping.
+// IsInvalid, IsConflict, IsUnset and IsNeedsApproval unwrap through wrapping.
 func IsInvalid(err error) (Invalid, bool) {
 	var v Invalid
 	return v, errors.As(err, &v)
@@ -93,5 +102,10 @@ func IsConflict(err error) (Conflict, bool) {
 
 func IsUnset(err error) (Unset, bool) {
 	var v Unset
+	return v, errors.As(err, &v)
+}
+
+func IsNeedsApproval(err error) (NeedsApproval, bool) {
+	var v NeedsApproval
 	return v, errors.As(err, &v)
 }

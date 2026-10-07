@@ -153,6 +153,23 @@ func (l *Leaf) Replicas(ctx context.Context, t store.Tile) ([]docker.Container, 
 	return l.docker.List(ctx, map[string]string{LabelTile: t.ID, LabelRole: "replica"})
 }
 
+// Mounts are the "src -> dst" mounts of every replica of t.
+func (l *Leaf) Mounts(ctx context.Context, t store.Tile) ([]string, error) {
+	cs, err := l.Replicas(ctx, t)
+	if err != nil {
+		return nil, err
+	}
+	var out []string
+	for _, c := range cs {
+		d, err := l.docker.Inspect(ctx, c.ID)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, d.Mounts...)
+	}
+	return out, nil
+}
+
 // Addresses maps every IP of every running tile container (replicas, runs
 // and the pause container that holds the VIP) to its tile id.
 func (l *Leaf) Addresses(ctx context.Context) (map[string]string, error) {

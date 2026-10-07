@@ -317,6 +317,9 @@ func (h *handler) AttachDomain(c echo.Context) error {
 		RedirectTo: strings.TrimSpace(c.FormValue("redirect_to")),
 		HTTPS:      &https,
 	}
+	if u := strings.TrimSpace(c.FormValue("forward_auth")); u != "" {
+		s.Extras.ForwardAuth = &service.ForwardAuth{URL: u}
+	}
 	if p := c.FormValue("port"); p != "" {
 		n, err := strconv.Atoi(p)
 		if err != nil {

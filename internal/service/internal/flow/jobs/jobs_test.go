@@ -287,6 +287,32 @@ func TestWaiting(t *testing.T) {
 	waitState(t, l, id, job.Done)
 }
 
+// A job that needs a server admin's approval parks with the text, and an
+// unresolvable ParamSet keeps it parked until something requeues it.
+func TestWaitingApproval(t *testing.T) {
+	h := func(context.Context, *jobs.Run) error {
+		return errs.NeedsApproval{Stack: "s1", What: "host access: +host:/a:/b"}
+	}
+	r, l := setup(t, map[jobs.Kind]jobs.Handler{"a": h}, jobs.Options{
+		ParamSet: func(context.Context, string) (bool, error) { return false, nil },
+	})
+	start(t, r)
+	id := enqueue(t, r, "a", "t1")
+	waitState(t, l, id, job.Waiting)
+	j, _ := l.Get(ctx, id)
+	if j.WaitingParam == nil || *j.WaitingParam != "host access: +host:/a:/b" {
+		t.Fatalf("waiting_param = %v", j.WaitingParam)
+	}
+	b, err := os.ReadFile(j.LogPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "waiting: host access: +host:/a:/b; a server admin approves it on the stack\n"
+	if string(b) != want {
+		t.Errorf("log = %q", b)
+	}
+}
+
 // A handler may rewrite its payload before it parks; the parked row keeps it.
 func TestParkKeepsPayload(t *testing.T) {
 	h := func(ctx context.Context, r *jobs.Run) error {

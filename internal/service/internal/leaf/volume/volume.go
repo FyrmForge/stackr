@@ -25,6 +25,7 @@ import (
 type Docker interface {
 	CreateVolume(ctx context.Context, name, driver string, opts, labels map[string]string) error
 	RemoveVolume(ctx context.Context, name string) error
+	ListVolumes(ctx context.Context, labels map[string]string) ([]docker.VolumeInfo, error)
 	InspectVolume(ctx context.Context, name string) (docker.VolumeInfo, error)
 	EnsureTool(ctx context.Context) error
 	TarVolume(ctx context.Context, name string, w io.Writer, live bool) error
@@ -36,6 +37,7 @@ type Scope struct{ Kind, ID string }
 
 type Leaf struct {
 	volumes store.VolumeStore
+	shares  store.ShareStore // nil until WithShares; network shares live in share.go
 	docker  Docker
 }
 

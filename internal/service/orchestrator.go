@@ -41,6 +41,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/domain"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/domainres"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/environment"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/hostgrant"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/image"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/job"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/managed"
@@ -49,6 +50,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/panel"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/params"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/release"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/route"
 	lrun "github.com/FyrmForge/stackr/internal/service/internal/leaf/run"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/settings"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/stack"
@@ -169,6 +171,8 @@ type Orchestrator struct {
 	volumes   *volume.Leaf
 	domains   *domain.Leaf
 	domainres *domainres.Leaf
+	routes    *route.Leaf
+	hostgrant *hostgrant.Leaf
 	creds     *credential.Leaf
 	conns     *connector.Leaf
 	managed   *managed.Leaf
@@ -222,6 +226,12 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 	if cfg.DataDir == "" {
 		return nil, errors.New("service: DataDir is required")
 	}
+	// A relative path is a volume name to Docker when it lands in a bind.
+	abs, err := filepath.Abs(cfg.DataDir)
+	if err != nil {
+		return nil, err
+	}
+	cfg.DataDir = abs
 	if err := os.MkdirAll(cfg.DataDir, 0o750); err != nil {
 		return nil, err
 	}
@@ -287,9 +297,11 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 	orch.tiles = build("leaf/tile", func() *tile.Leaf { return tile.New(st.Tiles, d, o.vip) })
 	orch.images = build("leaf/image", func() *image.Leaf { return image.New(st.Images, d) })
 	orch.params = build("leaf/params", func() *params.Leaf { return params.New(st.Params) })
-	orch.volumes = build("leaf/volume", func() *volume.Leaf { return volume.New(st.Volumes, d) })
+	orch.volumes = build("leaf/volume", func() *volume.Leaf { return volume.New(st.Volumes, d).WithShares(st.Shares) })
 	orch.domains = build("leaf/domain", func() *domain.Leaf { return domain.New(st.Domains, d, ProxyContainer) })
 	orch.domainres = build("leaf/domainres", func() *domainres.Leaf { return domainres.New(st.DomainResources) })
+	orch.routes = build("leaf/route", func() *route.Leaf { return route.New(st.Routes) })
+	orch.hostgrant = build("leaf/hostgrant", func() *hostgrant.Leaf { return hostgrant.New(st.HostGrants) })
 	orch.creds = build("leaf/credential", func() *credential.Leaf { return credential.New(st.Credentials) })
 	orch.conns = build("leaf/connector", func() *connector.Leaf {
 		return connector.New(st.Connectors, githubapp.New(cfg.BaseURL))
@@ -324,21 +336,23 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 	})
 	orch.deploy = build("flow/deploy", func() *deploy.Flow {
 		return &deploy.Flow{
-			Tiles:    orch.tiles,
-			Envs:     orch.envs,
-			Stacks:   orch.stacks,
-			Orgs:     orch.orgs,
-			Volumes:  orch.volumes,
-			Images:   orch.images,
-			Releases: orch.releases,
-			Params:   orch.params,
-			Managed:  orch.managed,
-			Domains:  orch.domains,
-			Creds:    orch.creds,
-			Settings: orch.settings,
-			Jobs:     orch.jobRows,
-			Sync:     orch.sync.Sync,
-			Engines:  orch.engines,
+			Tiles:      orch.tiles,
+			Envs:       orch.envs,
+			Stacks:     orch.stacks,
+			Orgs:       orch.orgs,
+			Volumes:    orch.volumes,
+			Images:     orch.images,
+			Releases:   orch.releases,
+			Params:     orch.params,
+			Managed:    orch.managed,
+			Domains:    orch.domains,
+			Creds:      orch.creds,
+			Settings:   orch.settings,
+			Jobs:       orch.jobRows,
+			HostGrants: orch.hostgrant,
+			DataDir:    cfg.DataDir,
+			Sync:       orch.sync.Sync,
+			Engines:    orch.engines,
 		}
 	})
 	orch.promote = build("flow/promote", func() *promote.Flow {
@@ -352,6 +366,7 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 			Config:    orch.stackFile,
 			Build:     b,
 			DNS01:     orch.dns01,
+			RouteHeld: orch.routes.Covers,
 		}
 	})
 	orch.backup = build("flow/backup", func() *fbackup.Flow {
@@ -424,9 +439,14 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 		}
 	})
 	orch.jobs = build("flow/jobs", func() *jobs.Runner {
-		// ponytail: no ParamSet, a parked job is requeued every poll and its
-		// handler re-checks (DECIDE 17 (b)).
+		// ponytail: a parked job is requeued every poll and its handler
+		// re-checks (DECIDE 17 (b)); but a host access approval is no param:
+		// only ApproveHostGrant requeues those.
 		return jobs.New(orch.jobRows, orch.handlers(), cfg.DataDir, jobs.Options{
+			ParamSet: func(_ context.Context, param string) (bool, error) {
+				_, approval := hostgrant.Parse(param)
+				return !approval, nil
+			},
 			Workers: func(ctx context.Context) (int, error) { return orch.settings.Int(ctx, "workers") },
 			// A run holds its own clock: the tile's timeout_minutes.
 			Uncapped: map[jobs.Kind]bool{kindRun: true},

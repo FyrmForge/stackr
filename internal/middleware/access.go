@@ -215,6 +215,8 @@ var byVerb = map[string]bool{
 	"setting":    true,
 	"step":       true, // a setup wizard step's name
 	"run":        true, // the verb takes the tile too and refuses another tile's run
+	"route":      true, // an admin route's id; org-less, the verb is admin-level
+	"share":      true, // the verb takes the org and refuses another org's share
 	"invite":     true, // the verb takes the org and refuses another org's invite
 	"from":       true, // an env slug the service resolves inside the env's own stack
 }

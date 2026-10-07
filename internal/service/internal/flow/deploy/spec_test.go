@@ -18,8 +18,8 @@ func TestSplitCommandAndPorts(t *testing.T) {
 	if _, err := splitCommand(`echo "open`); err == nil {
 		t.Error("unterminated quote accepted")
 	}
-	p, warn := publishedPorts("8080:80\n5353:53/udp\nbad")
-	if p["8080"] != "80" || p["5353"] != "53/udp" || len(warn) != 1 {
+	p, warn := publishedPorts("8080:80\n5353:53/udp\n53:53\n53:53/udp\nbad")
+	if p["8080"] != "80" || p["5353/udp"] != "53/udp" || p["53"] != "53" || p["53/udp"] != "53/udp" || len(warn) != 1 {
 		t.Errorf("ports = %v, warn %v", p, warn)
 	}
 	if RepoOf("localhost:5000/a/b:1") != "localhost:5000/a/b" || RepoOf("nginx@sha256:x") != "nginx" {

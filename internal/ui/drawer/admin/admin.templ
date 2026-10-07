@@ -5,7 +5,7 @@ package admin
 
 import c "github.com/FyrmForge/stackr/internal/ui/components"
 
-var Tabs = []string{"settings", "users", "update", "caddy", "backups"}
+var Tabs = []string{"settings", "users", "routes", "update", "caddy", "backups"}
 
 // Base is where every tab and action lives.
 const Base = "/-/admin"
@@ -131,6 +131,66 @@ templ Update(v UpdateView) {
 					@c.PostButton("Check for update", Base+"/update/check")
 				}
 			</div>
+		}
+	</div>
+}
+
+// RoutesView is the admin's routes: hosts that go to an address outside
+// stackr. Add "" = read-only.
+type RoutesView struct {
+	Add  string // POST the new route
+	Rows []Route
+}
+
+// Route is one row; Remove.Action "" = may not.
+type Route struct {
+	Host, Mode, Target string
+	Insecure           bool
+	Remove             c.ConfirmView
+}
+
+templ Routes(v RoutesView) {
+	<div id="tab-routes">
+		if v.Add != "" {
+			@c.Section("Add a route", "instance", "Pass-through sends raw TLS by name and keeps the target's own certificate. http and https terminate TLS here.") {
+				<form hx-post={ v.Add } hx-target={ target() } hx-swap="outerHTML" class="space-y-4">
+					@c.Field(c.FieldView{Name: "route_host", Label: "Host", Placeholder: "pve.example.com", Required: true, Help: "*.example.com works for pass-through."})
+					<div>
+						<label for="route_mode" class="label">Mode</label>
+						<select id="route_mode" name="route_mode" class="input">
+							<option value="passthrough">passthrough</option>
+							<option value="http">http</option>
+							<option value="https">https</option>
+						</select>
+					</div>
+					@c.Field(c.FieldView{Name: "route_target", Label: "Target", Placeholder: "192.168.1.10:8006", Required: true, Help: "host or host:port. Port defaults to 80 for http, 443 otherwise."})
+					<label class="flex items-center gap-2 text-sm text-rw-text"><input type="checkbox" name="route_insecure" value="1" class="accent-rw-accent"/> Do not verify the target's certificate (https only)</label>
+					<button type="submit" class="btn btn-primary btn-sm">Add route</button>
+				</form>
+			}
+		}
+		@c.Section("Routes", "instance", "Hosts that go to an address outside stackr.") {
+			if len(v.Rows) == 0 {
+				<p class="text-sm text-rw-faint">No routes yet.</p>
+			} else {
+				<ul class="space-y-2">
+					for _, r := range v.Rows {
+						<li class="panel px-4 py-3 text-sm flex flex-wrap items-center gap-2">
+							<span class="text-rw-text">{ r.Host }</span>
+							@c.Chip(r.Mode, "")
+							if r.Insecure {
+								@c.Chip("unverified", "warn")
+							}
+							<span class="font-mono text-xs text-rw-faint truncate">{ r.Target }</span>
+							if r.Remove.Action != "" {
+								<span class="ml-auto">
+									@c.Confirm(r.Remove)
+								</span>
+							}
+						</li>
+					}
+				</ul>
+			}
 		}
 	</div>
 }

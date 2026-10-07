@@ -20,6 +20,12 @@ type Call struct {
 
 func (c Call) String() string { return c.Method + "(" + strings.Join(c.Args, ", ") + ")" }
 
+// VolumeCreate is one CreateVolume call in full.
+type VolumeCreate struct {
+	Name, Driver string
+	Opts, Labels map[string]string
+}
+
 type Fake struct {
 	mu    sync.Mutex
 	calls []Call
@@ -33,6 +39,7 @@ type Fake struct {
 	Containers []docker.Container
 	Details    map[string]docker.Detail
 	Volumes    []docker.VolumeInfo
+	Created    []VolumeCreate    // every CreateVolume, with its driver, opts and labels
 	Digests    map[string]string // ref -> digest
 	Members    map[string][]string
 	Networks   []string
@@ -110,6 +117,7 @@ func (f *Fake) List(_ context.Context, labels map[string]string) ([]docker.Conta
 	return out, f.rec("List")
 }
 
+// matches mirrors labelFilter: every wanted label is an exact key=value.
 func matches(have, want map[string]string) bool {
 	for k, v := range want {
 		if have[k] != v {
@@ -166,7 +174,10 @@ func (f *Fake) MemberAddr(_ context.Context, network, id string) (string, string
 	return "", "", f.rec("MemberAddr", network, id)
 }
 
-func (f *Fake) CreateVolume(_ context.Context, name, _ string, _, _ map[string]string) error {
+func (f *Fake) CreateVolume(_ context.Context, name, driver string, opts, labels map[string]string) error {
+	f.mu.Lock()
+	f.Created = append(f.Created, VolumeCreate{name, driver, opts, labels})
+	f.mu.Unlock()
 	return f.rec("CreateVolume", name)
 }
 

@@ -126,7 +126,7 @@ func TestOwnDrawerFreshLoad(t *testing.T) {
 func TestDrawerTabs(t *testing.T) {
 	s := webtest.New(t)
 	for path, tabs := range map[string][]string{
-		"/acme/-/drawer":          {"settings", "members", "keys", "params", "domains", "backups"},
+		"/acme/-/drawer":          {"settings", "members", "keys", "params", "domains", "shares", "backups"},
 		"/acme/shop/-/drawer":     {"settings", "params", "releases"},
 		"/acme/shop/dev/-/drawer": {"settings", "releases", "params", "order", "logs"},
 		"/acme/-/vars":            {"editor"},

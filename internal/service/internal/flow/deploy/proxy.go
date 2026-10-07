@@ -12,8 +12,9 @@ import (
 
 // ProxyConfig is the Syncer's Build: every domain row, grouped by tile, with
 // the facts the rows lack (running replica names, the protect cascade, the
-// tile's params for basic-auth refs), turned into one whole Caddy config.
-func (f *Flow) ProxyConfig(ctx context.Context, in domain.Install) (json.RawMessage, error) {
+// tile's params for basic-auth refs), plus the admin-made external routes ext,
+// turned into one whole Caddy config.
+func (f *Flow) ProxyConfig(ctx context.Context, in domain.Install, ext []domain.Route) (json.RawMessage, error) {
 	ds, err := f.Domains.List(ctx)
 	if err != nil {
 		return nil, err
@@ -39,7 +40,7 @@ func (f *Flow) ProxyConfig(ctx context.Context, in domain.Install) (json.RawMess
 		r.Domains = byTile[id]
 		routes = append(routes, r)
 	}
-	return domain.Build(in, routes, nil)
+	return domain.Build(in, routes, ext, nil)
 }
 
 func (f *Flow) tileRoute(ctx context.Context, id string, server settings.Settings) (domain.TileRoute, error) {

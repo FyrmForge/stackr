@@ -101,7 +101,7 @@ func (o *Orchestrator) PlanEnvSync(ctx context.Context, envID, from string, drop
 	if err != nil {
 		return EnvSyncPlan{}, err
 	}
-	return EnvSyncPlan{Plan: p, CanDeploy: !p.Blocked() && len(p.Changes) > 0}, nil
+	return EnvSyncPlan{Plan: p, CanDeploy: (!p.Blocked() || p.OnlyHostAccess()) && len(p.Changes) > 0}, nil
 }
 
 // EnvSync queues the sync of the kept tiles. sig is the review's; the job
