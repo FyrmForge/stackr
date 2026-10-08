@@ -128,8 +128,8 @@ templ Status(v View, s StatusView) {
 			}
 		</div>
 		<div>
-			<div class="label">Ports</div>
-			if s.Port == "" && len(s.Ports) == 0 {
+			<div class="label">Access</div>
+			if s.Port == "" && len(s.Ports) == 0 && len(s.Access) == 0 {
 				<p class="text-sm text-rw-faint">No ports configured.</p>
 			} else {
 				<ul class="space-y-1 text-sm text-rw-muted">
@@ -138,6 +138,19 @@ templ Status(v View, s StatusView) {
 					}
 					for _, p := range s.Ports {
 						<li>host port <span class="font-mono text-rw-text">{ p }</span> published directly</li>
+					}
+					for _, p := range s.Access {
+						<li class="flex flex-wrap items-center gap-2">
+							<span class="text-rw-text">{ p.Label }</span>
+							if p.Detail != "" {
+								<span class="font-mono text-xs">{ p.Detail }</span>
+							}
+							if p.Waiting {
+								@c.Chip("waiting", "warn")
+							} else {
+								@c.Chip("approved", "success")
+							}
+						</li>
 					}
 				</ul>
 			}
@@ -177,6 +190,32 @@ templ Logs(v View, l LogsView) {
 			}
 		} else {
 			@c.LogPane(l.Pane)
+		}
+	</div>
+}
+
+// Terminal is a shell in the chosen replica: xterm over a websocket, both
+// loaded here (the vendored scripts are classic, the element a module).
+templ Terminal(v View, t TerminalView) {
+	<div class="space-y-3" id="tab-terminal">
+		if len(t.Replicas) > 1 {
+			<div class="flex items-center gap-2">
+				<label class="text-xs text-rw-faint" for="term-container">Replica</label>
+				<select id="term-container" name="container" class="input !w-60 !py-1.5 text-sm" hx-get={ v.Base + "?tab=terminal" } hx-target={ "#" + Root } hx-swap="outerHTML">
+					for _, r := range t.Replicas {
+						<option value={ r.ID } selected?={ r.ID == t.Container }>{ r.Name }</option>
+					}
+				</select>
+			</div>
+		}
+		if t.Container == "" {
+			<p class="text-rw-muted text-sm">No container is running yet.</p>
+		} else {
+			<link rel="stylesheet" href={ c.StaticURL("css/xterm.css") }/>
+			<script src={ c.StaticURL("js/vendor/xterm.js") }></script>
+			<script src={ c.StaticURL("js/vendor/xterm-addon-fit.js") }></script>
+			<script type="module" src={ c.StaticURL("js/elements/term-pane.js") }></script>
+			<term-pane url={ t.URL } class="block h-96 overflow-hidden rounded-lg bg-black p-2"></term-pane>
 		}
 	</div>
 }
@@ -440,8 +479,9 @@ var (
 	sourceKeys   = []string{"git_url", "branch", "image", "update_policy", "tag_policy"}
 	buildKeys    = []string{"dockerfile", "build_context", "watch_paths", "build_args", "volumes", "files"}
 	runKeys      = []string{"schedule", "trigger", "timeout_minutes"}
-	runtimeKeys  = []string{"command", "user", "shm_size_mb", "restart_policy", "replicas", "privileged", "devices"}
-	networkKeys  = []string{"port", "endpoint_protocol", "published_ports"}
+	runtimeKeys  = []string{"command", "user", "shm_size_mb", "restart_policy", "replicas"}
+	networkKeys  = []string{"port", "endpoint_protocol"}
+	elevatedKeys = []string{"privileged", "devices", "lan", "host_network", "published_ports"}
 	resourceKeys = []string{"cpu_limit", "mem_limit_mb"}
 	healthKeys   = []string{"health_path", "healthcheck_cmd", "healthcheck_interval_s", "healthcheck_timeout_s", "healthcheck_retries", "healthcheck_start_period_s"}
 	startupKeys  = []string{"depends_on"}
@@ -460,6 +500,7 @@ func jumps(s SettingsView) []jump {
 		{jump{"sec-run", runTitle(s)}, runKeys},
 		{jump{"sec-runtime", "Runtime"}, runtimeKeys},
 		{jump{"sec-network", "Networking"}, networkKeys},
+		{jump{"sec-elevated", "Elevated access"}, elevatedKeys},
 		{jump{"sec-resources", "Resources"}, resourceKeys},
 		{jump{"sec-health", "Health"}, healthKeys},
 		{jump{"sec-startup", "Startup"}, startupKeys},
@@ -555,26 +596,33 @@ templ Settings(v View, s SettingsView) {
 							}
 						</div>
 						@number(s, "replicas", "Replicas (a tile with a volume runs one: two writers on one volume corrupt it)", "1", "1")
-						if s.Has("privileged") {
-							<details open?={ s.Vals["privileged"] == "1" || s.Vals["devices"] != "" }>
-								<summary class="text-sm text-rw-muted cursor-pointer select-none">Host access</summary>
-								<div class="mt-2 space-y-3">
-									<label class="text-sm flex items-center gap-2">
-										<input type="checkbox" name="privileged" value="1" checked?={ s.Vals["privileged"] == "1" } class="accent-rw-accent"/>
-										<span>Privileged</span>
-										<span class="text-xs text-rw-danger">full host access: the container can do anything root on the host can</span>
-									</label>
-									@area(s, "devices", "Devices (host[:container[:perms]] per line)", "/dev/kmsg")
-								</div>
-							</details>
-						}
 					}
 				}
 				if s.Any(networkKeys...) {
 					@c.PanelSection("sec-network", "Networking", "How traffic reaches this tile. Domains are managed below, outside this form.") {
 						@number(s, "port", "Container port", "", "1")
 						@text(s, "endpoint_protocol", "Endpoint protocol (the scheme of ${{ tile.<name>.url }}: http, https or tcp)", "http", true)
-						@area(s, "published_ports", "Published ports (host:container per line, bypasses the proxy, applies on next deploy)", "8443:8443")
+					}
+				}
+				if s.Any(elevatedKeys...) {
+					@c.PanelSection("sec-elevated", "Elevated access", "Needs a server admin's approval; the deploy waits until it is given.") {
+						if s.Has("privileged") {
+							<label class="text-sm flex items-center gap-2">
+								<input type="checkbox" name="privileged" value="1" checked?={ s.Vals["privileged"] == "1" } class="accent-rw-accent"/>
+								<span>Privileged</span>
+								<span class="text-xs text-rw-danger">can do anything root on the host can</span>
+							</label>
+						}
+						@area(s, "devices", "Devices (host[:container[:perms]] per line)", "/dev/kmsg")
+						@area(s, "lan", "LAN access (ip or cidr, optional :port, or all; one per line)", "192.168.1.10:8123")
+						@area(s, "published_ports", "Server ports (host:container per line, bypasses the proxy)", "8443:8443")
+						if s.Has("host_network") {
+							<label class="text-sm flex items-center gap-2">
+								<input type="checkbox" name="host_network" value="1" checked?={ s.Vals["host_network"] == "1" } class="accent-rw-accent"/>
+								<span>Host network</span>
+								<span class="text-xs text-rw-danger">uses the server's network, no isolation; one replica</span>
+							</label>
+						}
 					}
 				}
 				if s.Any(resourceKeys...) {

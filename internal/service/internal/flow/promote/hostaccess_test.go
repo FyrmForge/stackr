@@ -42,7 +42,7 @@ func TestHostAccessParksUntilApproved(t *testing.T) {
 
 	p, err := w.f.Plan(ctx, w.dev.ID, r.ID, io.Discard)
 	must(t, err)
-	want := "host access: host:/var/run/docker.sock:/var/run/docker.sock:ro"
+	want := "elevated access: mon host:/var/run/docker.sock:/var/run/docker.sock:ro"
 	if len(p.Blockers) != 1 || p.Blockers[0] != want {
 		t.Fatalf("blockers = %q; want %q", p.Blockers, want)
 	}
@@ -78,14 +78,14 @@ func TestHostAccessParksUntilApproved(t *testing.T) {
 	// A changed line is new access.
 	w.files["c2"] = strings.Replace(sockFile, "/var/run/docker.sock:/var/run/docker.sock:ro", "/etc:/host-etc", 1)
 	if p, err = w.f.Plan(ctx, w.dev.ID, w.release(t, "c2").ID, io.Discard); err != nil || len(p.Blockers) != 1 ||
-		!strings.Contains(p.Blockers[0], "host:/etc:/host-etc") {
+		!strings.Contains(p.Blockers[0], "mon host:/etc:/host-etc") {
 		t.Fatalf("changed line: %v %v", p.Blockers, err)
 	}
 
 	// Privileged with no grant parks too.
 	w.files["c3"] = strings.Replace(sockFile, "      port: 80\n", "      port: 80\n      privileged: true\n", 1)
 	if p, err = w.f.Plan(ctx, w.dev.ID, w.release(t, "c3").ID, io.Discard); err != nil || len(p.Blockers) != 1 ||
-		p.Blockers[0] != "host access: privileged" {
+		p.Blockers[0] != "elevated access: mon privileged" {
 		t.Fatalf("privileged: %v %v", p.Blockers, err)
 	}
 
@@ -158,5 +158,38 @@ func TestParkedPromoteResumesDeploy(t *testing.T) {
 	must(t, err)
 	if !slices.Equal(p.Deployed, []string{api.ID}) {
 		t.Errorf("deployed = %v; want the parked tile on the new release", p.Deployed)
+	}
+}
+
+// A tile that refs a host-network tile gets a plan warning: no slug or VIP
+// reaches it.
+func TestPlanWarnsOnRefToHostNetworkTile(t *testing.T) {
+	w := setup(t)
+	w.f.D.HostGrants = hostgrant.New(w.s.HostGrants)
+	w.files["c1"] = `
+version: 1
+stack: shop
+ladder: [dev, prd]
+head: main
+base:
+  tiles:
+    mon:
+      image: nginx:1
+      port: 80
+      network: host
+    web:
+      image: nginx:1
+      port: 80
+      env:
+        MON: "${{ tile.mon.url }}"
+environments:
+  dev: {}
+  prd: {}
+`
+	p, err := w.f.Plan(ctx, w.dev.ID, w.release(t, "c1").ID, io.Discard)
+	must(t, err)
+	want := "tile web refs mon, which runs on the host network; reach it by the server address and a granted port"
+	if !slices.Contains(p.Warnings, want) {
+		t.Errorf("warnings = %q; want %q", p.Warnings, want)
 	}
 }

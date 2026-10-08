@@ -1,0 +1,96 @@
+package admin
+
+import (
+	"github.com/FyrmForge/stackr/internal/ui/access"
+	c "github.com/FyrmForge/stackr/internal/ui/components"
+)
+
+// AccessView is the Elevated access tab: the stacks with a request open
+// (approved with the same checkboxes as the stack drawer), then every grant
+// per tile.
+type AccessView struct {
+	Waiting []WaitingStack
+	Rows    []AccessRow
+	Filter  AccessFilter
+}
+
+// WaitingStack is one stack with a request open.
+type WaitingStack struct {
+	Where string // "org / stack"
+	Form  access.ApproveView
+}
+
+// AccessRow is one tile's grant.
+type AccessRow struct {
+	Org, Stack, Tile string
+	Perms            []access.Perm
+	By, When         string
+	Revoke           c.ConfirmView
+}
+
+// AccessFilter is the list's filters, applied by the handler: the org and
+// permission pickers and a text search.
+type AccessFilter struct {
+	Org, Perm, Q string
+	Orgs, Perms  []AccessOption
+}
+
+type AccessOption struct{ Value, Label string }
+
+templ Access(v AccessView) {
+	<div id="tab-access">
+		if len(v.Waiting) > 0 {
+			@c.Section("Waiting", "instance", "Deploys parked until you answer.") {
+				<div class="space-y-5">
+					for _, w := range v.Waiting {
+						<div class="panel p-4">
+							<div class="mb-3 text-sm text-rw-text">{ w.Where }</div>
+							@access.Approve(w.Form)
+						</div>
+					}
+				</div>
+			}
+		}
+		@c.Section("Elevated access", "instance", "Every grant on this server, per tile.") {
+			<form hx-get={ Base } hx-target={ target() } hx-swap="outerHTML" hx-trigger="change" novalidate onsubmit="return false" class="mb-4 flex flex-wrap gap-2">
+				<input type="hidden" name="tab" value="access"/>
+				<select name="org" class="input w-auto" aria-label="Organization">
+					<option value="">All orgs</option>
+					for _, o := range v.Filter.Orgs {
+						<option value={ o.Value } selected?={ o.Value == v.Filter.Org }>{ o.Label }</option>
+					}
+				</select>
+				<select name="perm" class="input w-auto" aria-label="Permission">
+					<option value="">Any permission</option>
+					for _, o := range v.Filter.Perms {
+						<option value={ o.Value } selected?={ o.Value == v.Filter.Perm }>{ o.Label }</option>
+					}
+				</select>
+				<input type="search" name="q" value={ v.Filter.Q } placeholder="Search" class="input w-auto" aria-label="Search"/>
+			</form>
+			if len(v.Rows) == 0 {
+				<p class="text-sm text-rw-faint">Nothing is granted.</p>
+			} else {
+				<ul class="space-y-2">
+					for _, r := range v.Rows {
+						<li class="panel px-4 py-3 text-sm">
+							<div class="flex flex-wrap items-center gap-2">
+								<span class="text-rw-muted">{ r.Org } / { r.Stack } /</span>
+								<span class="font-mono text-rw-text">{ r.Tile }</span>
+								if r.Revoke.Action != "" {
+									<span class="ml-auto">
+										@c.Confirm(r.Revoke)
+									</span>
+								}
+							</div>
+							<div class="mt-2">
+								@access.Rows(r.Perms)
+							</div>
+							<div class="mt-2 text-xs text-rw-faint">approved by { r.By } · { r.When }</div>
+						</li>
+					}
+				</ul>
+			}
+		}
+	</div>
+}

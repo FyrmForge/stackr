@@ -80,6 +80,8 @@ type Container struct {
 	Health string            `json:"health"`
 	Labels map[string]string `json:"labels"`
 	IPs    []string          `json:"ips"`
+	// HostNetwork: the container runs in the host's network namespace.
+	HostNetwork bool `json:"-"`
 }
 
 // Detail is the curated inspect: everything a health gate reads comes off
@@ -96,6 +98,7 @@ type Detail struct {
 	HealthRetries                     int
 	Ports, Mounts                     []string
 	Networks                          map[string]string // network name -> IP
+	HostNetwork                       bool              // runs in the host's network namespace
 }
 
 type VolumeInfo struct {
@@ -120,6 +123,9 @@ var ErrNotFound = errors.New("docker: no such object")
 // ErrStillRunning: an exec's output ended while the command was still running,
 // so its exit code (0) means nothing.
 var ErrStillRunning = errors.New("docker: command still running when its output ended")
+
+// ErrNotRunning: an exec was refused because the container is not running.
+var ErrNotRunning = errors.New("docker: container is not running")
 
 // ExitError is a command (exec or tool container) that exited non-zero.
 type ExitError struct {

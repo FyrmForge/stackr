@@ -14,10 +14,10 @@ import (
 	"github.com/docker/docker/api/types/network"
 )
 
-// envRange is the pool stackr carves its networks from, one /24 each.
+// EnvRange is the pool stackr carves its networks from, one /24 each.
 // Docker's own default pools run out near 30 networks.
 // ponytail: 256 networks; widen the range (or the prefix) when a box needs more.
-var envRange = netip.MustParsePrefix("10.213.0.0/16")
+var EnvRange = netip.MustParsePrefix("10.213.0.0/16")
 
 const (
 	subnetBits  = 24
@@ -27,7 +27,7 @@ const (
 var errNoSubnet = errors.New("no free network space in 10.213.0.0/16 for a new environment; remove one, or move the host off that range")
 
 // EnsureNetwork creates a plain bridge network carrying labels on the first
-// free /24 of envRange; one that already exists is fine (its labels and
+// free /24 of EnvRange; one that already exists is fine (its labels and
 // subnet are left as they are).
 func (d *Client) EnsureNetwork(ctx context.Context, name string, labels map[string]string) error {
 	// Every network, not a name filter: the filter is a SUBSTRING match, and
@@ -62,7 +62,7 @@ func (d *Client) EnsureNetwork(ctx context.Context, name string, labels map[stri
 // usedSubnets is every prefix a new network must stay clear of: the subnets
 // of all Docker networks (any driver; IPv6 and subnet-less configs are
 // skipped harmlessly) and the addresses of the host's interfaces. An
-// interface network at least as narrow as envRange blocks its whole subnet
+// interface network at least as narrow as EnvRange blocks its whole subnet
 // (a route conflict); a wider one (a 10.0.0.0/8 LAN, loopback) and any IPv6
 // address block only the host's own address.
 func usedSubnets(nets []network.Summary, addrs []net.Addr) []netip.Prefix {
@@ -84,7 +84,7 @@ func usedSubnets(nets []network.Summary, addrs []net.Addr) []netip.Prefix {
 			continue
 		}
 		ip = ip.Unmap()
-		if ones, _ := ipn.Mask.Size(); ip.Is4() && ones >= envRange.Bits() {
+		if ones, _ := ipn.Mask.Size(); ip.Is4() && ones >= EnvRange.Bits() {
 			used = append(used, netip.PrefixFrom(ip, ones).Masked())
 		} else {
 			used = append(used, netip.PrefixFrom(ip, ip.BitLen()))
@@ -93,11 +93,11 @@ func usedSubnets(nets []network.Summary, addrs []net.Addr) []netip.Prefix {
 	return used
 }
 
-// firstFreeSubnet is the first /24 of envRange overlapping nothing in used.
+// firstFreeSubnet is the first /24 of EnvRange overlapping nothing in used.
 func firstFreeSubnet(used []netip.Prefix) (netip.Prefix, bool) {
-	b := envRange.Addr().As4()
+	b := EnvRange.Addr().As4()
 	base := binary.BigEndian.Uint32(b[:])
-	for i := range 1 << (subnetBits - envRange.Bits()) {
+	for i := range 1 << (subnetBits - EnvRange.Bits()) {
 		binary.BigEndian.PutUint32(b[:], base+uint32(i)<<(32-subnetBits))
 		p := netip.PrefixFrom(netip.AddrFrom4(b), subnetBits)
 		if !slices.ContainsFunc(used, p.Overlaps) {

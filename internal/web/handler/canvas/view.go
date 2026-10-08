@@ -8,6 +8,7 @@ import (
 	"github.com/a-h/templ"
 
 	"github.com/FyrmForge/stackr/internal/service"
+	"github.com/FyrmForge/stackr/internal/ui/access"
 	ui "github.com/FyrmForge/stackr/internal/ui/graph"
 	"github.com/FyrmForge/stackr/internal/ui/graph/cards"
 )
@@ -28,7 +29,7 @@ func drawerPath(n service.GraphNode) string {
 
 // mapView is the service's view as the templ reads it: links, drawer
 // routes and the stream URL added.
-func mapView(gv service.GraphView, l level, sh service.GraphShow, focus string) ui.View {
+func mapView(gv service.GraphView, l level, sh service.GraphShow, focus string, g service.HostGrant) ui.View {
 	v := ui.View{
 		Base:    l.base,
 		Toggles: l.scope.Kind == service.CanvasEnv,
@@ -78,7 +79,7 @@ func mapView(gv service.GraphView, l level, sh service.GraphShow, focus string) 
 			})
 		}
 		if l.scope.Kind == service.CanvasEnv {
-			envCard(&u, n, l.base)
+			envCard(&u, n, l.base, g)
 		} else if len(n.Domains) > 0 {
 			u.Footer = cards.Footer(n.ID, exposed(n, l.scope.Kind))
 		}
@@ -184,7 +185,7 @@ func envDrawer(base, kind, id, slug string) (url, tab string) {
 
 // envCard gives an env node session C's card (internal/ui/graph/cards):
 // body, chips, sub-tiles and the live footer the stream re-sends.
-func envCard(u *ui.Node, n service.GraphNode, base string) {
+func envCard(u *ui.Node, n service.GraphNode, base string, g service.HostGrant) {
 	cv := cards.CardView{
 		ID:         n.ID,
 		Kind:       n.Kind,
@@ -193,6 +194,10 @@ func envCard(u *ui.Node, n service.GraphNode, base string) {
 		Host:       n.Host,
 		NewVersion: n.NewVersion,
 	}
+	if p, ok := access.Strongest(g.Lines, n.Slug); ok {
+		cv.Access.Chip, cv.Access.Title = p.Chip, p.Label
+	}
+	cv.Access.Waiting = access.Waits(g.Pending, n.Slug)
 	// a sync ghost is a tile the env does not have yet: no drawer to open
 	cv.Sync, cv.Ghost = n.Sync, strings.HasPrefix(n.ID, "sync:")
 	if url, tab := envDrawer(base, n.Kind, n.ID, n.Slug); url != "" && !cv.Ghost {

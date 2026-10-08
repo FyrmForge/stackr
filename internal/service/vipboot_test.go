@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -13,6 +15,7 @@ import (
 
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	"github.com/FyrmForge/stackr/internal/service/internal/dockerfake"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/hostgrant"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 	"github.com/FyrmForge/stackr/internal/service/internal/storetest"
@@ -28,7 +31,12 @@ func TestRebuildVIPsKeepsOtherTiles(t *testing.T) {
 	var scripts []string
 	table := vip.New() // the restarted panel's empty table
 	table.Restore = func(_ context.Context, s string) error { scripts = append(scripts, s); return nil }
-	table.Exec = func(context.Context, ...string) error { return nil }
+	table.Exec = func(_ context.Context, argv ...string) error { // -D finds nothing, like iptables with no jump
+		if argv[1] == "-D" {
+			return context.Canceled
+		}
+		return nil
+	}
 	orch, err := New(
 		Config{DataDir: dir, SecretsKey: testKey, Conntrack: dir + "/nf_conntrack"},
 		WithDocker(fake),
@@ -67,7 +75,7 @@ func TestRebuildVIPsKeepsOtherTiles(t *testing.T) {
 
 	must(t, orch.rebuildVIPs(ctx))
 	scripts = nil
-	must(t, orch.tiles.Route(ctx, tiles["a"], "n"))
+	must(t, orch.tiles.Route(ctx, tiles["a"], "n", nil))
 	if len(scripts) != 1 {
 		t.Fatalf("restore calls = %d, want 1", len(scripts))
 	}
@@ -109,7 +117,12 @@ func newBootRig(t *testing.T) bootRig {
 		*scripts = append(*scripts, s)
 		return ctx.Err()
 	}
-	table.Exec = func(context.Context, ...string) error { return nil }
+	table.Exec = func(_ context.Context, argv ...string) error { // -D finds nothing, like iptables with no jump
+		if argv[1] == "-D" {
+			return context.Canceled
+		}
+		return nil
+	}
 	orch, err := New(
 		Config{DataDir: dir, SecretsKey: testKey, Conntrack: dir + "/nf_conntrack"},
 		WithDocker(fake),
@@ -238,5 +251,98 @@ func TestWatchTickRebuildsVIPs(t *testing.T) {
 	must(t, r.orch.watchTick(context.Background()))
 	if len(*r.scripts) == 0 || !strings.Contains((*r.scripts)[len(*r.scripts)-1], "-d 10.0.0.4/32") {
 		t.Fatalf("watchTick did not rebuild the VIP table: %v", *r.scripts)
+	}
+}
+
+// Docker dials a loopback resolver from the host, so only the others need a
+// firewall exception.
+func TestResolvers(t *testing.T) {
+	conf := "# x\nnameserver 127.0.0.53\nnameserver 192.168.1.1\nnameserver fe80::1\nsearch lan\nnameserver 1.1.1.1\n"
+	if got := resolvers(conf); len(got) != 2 || got[0] != "192.168.1.1" || got[1] != "1.1.1.1" {
+		t.Fatalf("got %v", got)
+	}
+}
+
+// lanRig gives tile a a lan ask and tile b another; only what the stack's
+// grant holds may reach the VIP table.
+func lanRig(t *testing.T) bootRig {
+	t.Helper()
+	r := newBootRig(t)
+	for slug, lan := range map[string]string{"a": "192.168.1.50:445", "b": "192.168.1.60:80"} {
+		tl := r.tiles[slug]
+		tl.Lan = lan
+		must(t, r.st.Tiles.Update(context.Background(), tl))
+		r.tiles[slug] = tl
+	}
+	now := time.Now()
+	must(t, r.st.Users.Create(context.Background(), store.User{ID: "adm", Email: "a@b.c", Name: "A", Role: "admin", Active: true, CreatedAt: now, UpdatedAt: now}))
+	return r
+}
+
+func lastScript(r bootRig) string { return (*r.scripts)[len(*r.scripts)-1] }
+
+// A granted lan line reaches the rules of that tile's replica only; an
+// ungranted one never does; revoke rebuilds without it at once.
+func TestLanGrantReachesRulesAndRevokeCutsIt(t *testing.T) {
+	ctx := context.Background()
+	r := lanRig(t)
+	grant := hostgrant.Set{Lines: []string{"a lan:192.168.1.50:445"}}
+	if _, err := r.orch.hostgrant.Approve(ctx, r.stack, "adm", grant); err != nil {
+		t.Fatal(err)
+	}
+	must(t, r.orch.rebuildVIPs(ctx))
+	s := lastScript(r)
+	if !strings.Contains(s, "-s 10.0.0.3/32 -d 192.168.1.50") {
+		t.Fatalf("granted lan line missing for a's replica:\n%s", s)
+	}
+	if strings.Contains(s, "192.168.1.60") || strings.Contains(s, "-s 10.0.0.5/32 -d 192.168.1") {
+		t.Fatalf("ungranted lan line reached the rules:\n%s", s)
+	}
+	*r.scripts = nil
+	must(t, r.orch.RevokeHostGrant(ctx, r.stack, "a"))
+	r.orch.vipAsync.Wait()
+	if len(*r.scripts) != 1 || strings.Contains(lastScript(r), "192.168.1.50") {
+		t.Fatalf("revoke did not rebuild without the lan rule: %v", *r.scripts)
+	}
+}
+
+// Approve applies the lan rules at once, without a redeploy.
+func TestApproveHostGrantRebuildsRules(t *testing.T) {
+	ctx := context.Background()
+	r := lanRig(t)
+	must(t, r.orch.rebuildVIPs(ctx))
+	*r.scripts = nil
+	if _, err := r.orch.hostgrant.Approve(ctx, r.stack, "adm", hostgrant.Set{Lines: []string{"a lan:192.168.1.50:445"}}); err != nil {
+		t.Fatal(err)
+	}
+	r.orch.rerouteVIPs(ctx) // what ApproveHostGrant calls after it grants
+	if !strings.Contains(lastScript(r), "-s 10.0.0.3/32 -d 192.168.1.50") {
+		t.Fatalf("approval not applied:\n%s", lastScript(r))
+	}
+}
+
+// The minute tick applies the iptables script once: VIPs and filter base together.
+func TestWatchTickAppliesOnce(t *testing.T) {
+	r := newBootRig(t)
+	must(t, r.orch.watchTick(context.Background()))
+	if len(*r.scripts) != 1 {
+		t.Fatalf("watchTick applied %d scripts, want 1", len(*r.scripts))
+	}
+}
+
+// On a systemd-resolved host both files are read: the stub is loopback and
+// skipped, the real upstream sits in the second.
+func TestVipBaseReadsBothResolvConfs(t *testing.T) {
+	dir := t.TempDir()
+	a, b := dir+"/a", dir+"/b"
+	must(t, os.WriteFile(a, []byte("nameserver 127.0.0.53\nnameserver 192.168.1.1\n"), 0o600))
+	must(t, os.WriteFile(b, []byte("nameserver 192.168.1.1\nnameserver 9.9.9.9\n"), 0o600))
+	old := resolvConfs
+	resolvConfs = []string{a, b, dir + "/missing"}
+	t.Cleanup(func() { resolvConfs = old })
+	r := newBootRig(t)
+	got := r.orch.vipBase(context.Background()).Resolvers
+	if !slices.Equal(got, []string{"192.168.1.1", "9.9.9.9"}) {
+		t.Fatalf("got %v", got)
 	}
 }

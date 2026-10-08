@@ -80,6 +80,12 @@
       },
       "ApproveHostGrantIn": {
         "properties": {
+          "grant": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
           "pending": {
             "items": {
               "type": "string"
@@ -88,7 +94,8 @@
           }
         },
         "required": [
-          "pending"
+          "pending",
+          "grant"
         ],
         "type": "object"
       },
@@ -1144,9 +1151,6 @@
             },
             "type": "array"
           },
-          "privileged": {
-            "type": "boolean"
-          },
           "stack_id": {
             "type": "string"
           }
@@ -1155,7 +1159,6 @@
           "stack_id",
           "granted",
           "lines",
-          "privileged",
           "approved_by",
           "created_at",
           "pending"
@@ -1645,7 +1648,27 @@
               }
             ]
           },
+          "host_network": {
+            "oneOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "image_ref": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "lan": {
             "oneOf": [
               {
                 "type": "string"
@@ -3266,6 +3289,9 @@
           "healthcheck_timeout_s": {
             "type": "integer"
           },
+          "host_network": {
+            "type": "boolean"
+          },
           "id": {
             "type": "string"
           },
@@ -3273,6 +3299,9 @@
             "type": "string"
           },
           "kind": {
+            "type": "string"
+          },
+          "lan": {
             "type": "string"
           },
           "mem_limit_mb": {
@@ -3395,6 +3424,8 @@
           "shm_size_mb",
           "privileged",
           "devices",
+          "lan",
+          "host_network",
           "restart_policy",
           "depends_on",
           "files",
@@ -3604,6 +3635,16 @@
               }
             ]
           },
+          "host_network": {
+            "oneOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "image_ref": {
             "oneOf": [
               {
@@ -3616,6 +3657,16 @@
           },
           "kind": {
             "type": "string"
+          },
+          "lan": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "mem_limit_mb": {
             "oneOf": [
@@ -3969,7 +4020,27 @@
               }
             ]
           },
+          "host_network": {
+            "oneOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "image_ref": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "lan": {
             "oneOf": [
               {
                 "type": "string"
@@ -5401,6 +5472,38 @@
           }
         },
         "x-verb": "serverdefaults.set"
+      }
+    },
+    "/api/v1/admin/host-grants": {
+      "get": {
+        "operationId": "admin.host-grants",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/HostGrant"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "admin.read"
       }
     },
     "/api/v1/admin/image-check": {
@@ -11523,7 +11626,79 @@
             "description": "error"
           }
         },
-        "x-verb": "container.admin"
+        "x-verb": "tile.write"
+      }
+    },
+    "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}/tiles/{tile}/forward": {
+      "get": {
+        "operationId": "tile.forward",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "stack",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "env",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "tile",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "container",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "port",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "websocket": {}
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "tile.write"
       }
     },
     "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}/tiles/{tile}/image-check": {
@@ -12670,6 +12845,78 @@
               }
             },
             "description": "Accepted"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "tile.write"
+      }
+    },
+    "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}/tiles/{tile}/terminal": {
+      "get": {
+        "operationId": "tile.terminal",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "stack",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "env",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "tile",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "container",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "shell",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "websocket": {}
+            },
+            "description": "OK"
           },
           "default": {
             "content": {

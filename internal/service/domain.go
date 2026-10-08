@@ -80,9 +80,11 @@ func (o *Orchestrator) AttachDomain(ctx context.Context, tileID string, s Domain
 	if err != nil {
 		return Domain{}, err
 	}
-	ids := make([]string, len(cs))
-	for i, c := range cs {
-		ids[i] = c.ID
+	var ids []string
+	for _, c := range cs {
+		if !c.HostNetwork { // on the host's network: no ingress network to join
+			ids = append(ids, c.ID)
+		}
 	}
 	d, err := o.domains.Attach(ctx, tileID, s, o.dns01(ctx), ids)
 	if err != nil {

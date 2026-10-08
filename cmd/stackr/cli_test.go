@@ -1149,3 +1149,21 @@ func TestPromoteHelpExample(t *testing.T) {
 		t.Errorf("promote --help = %d %q, want an example", code, out)
 	}
 }
+
+// ssh needs a terminal and refuses --json; neither reaches the server.
+func TestSSHNeedsTerminal(t *testing.T) {
+	r := &recorder{}
+	r.serve(t)
+	for _, args := range [][]string{
+		{"ssh", "api", "--stack", "shop", "--env", "dev"},
+		{"tile", "ssh", "api", "--stack", "shop", "--env", "dev", "--json"},
+	} {
+		code, _, errw := cli(t, args...)
+		if code != 2 || !strings.Contains(errw, "ssh") || len(r.reqs) != 0 {
+			t.Errorf("%v = %d %q, sent %q; want exit 2 and no request", args, code, errw, r.reqs)
+		}
+	}
+	if _, _, errw := cli(t, "ssh", "api", "--stack", "shop", "--env", "dev"); !strings.Contains(errw, "stackr tile exec") {
+		t.Errorf("no-tty message = %q, want the tile exec pointer", errw)
+	}
+}

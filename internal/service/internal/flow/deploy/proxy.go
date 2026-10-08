@@ -3,6 +3,7 @@ package deploy
 import (
 	"context"
 	"encoding/json"
+	"slices"
 
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/domain"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/params"
@@ -66,8 +67,15 @@ func (f *Flow) tileRoute(ctx context.Context, id string, server settings.Setting
 		return r, err
 	}
 	for _, c := range cs {
-		if c.State == "running" {
-			r.Upstreams = append(r.Upstreams, c.Name)
+		if c.State != "running" {
+			continue
+		}
+		up := c.Name
+		if c.HostNetwork { // decided by the container, not the row: the old bridged one keeps its name until the swap
+			up = domain.HostUpstream
+		}
+		if !slices.Contains(r.Upstreams, up) {
+			r.Upstreams = append(r.Upstreams, up)
 		}
 	}
 	r.HealthPath = t.HealthPath

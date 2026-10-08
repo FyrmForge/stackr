@@ -11,6 +11,7 @@ import (
 
 	"github.com/a-h/templ"
 
+	"github.com/FyrmForge/stackr/internal/ui/access"
 	c "github.com/FyrmForge/stackr/internal/ui/components"
 )
 
@@ -25,7 +26,7 @@ func Drawer(v View, body templ.Component) templ.Component {
 		Title:    v.Name,
 		Kind:     v.Source,
 		Base:     v.Base,
-		Tabs:     Tabs(v.Kind),
+		Tabs:     v.tabs(),
 		Labels:   labels,
 		Tab:      v.Tab,
 		Error:    v.Error,
@@ -55,6 +56,7 @@ type View struct {
 	Status   string // a TileBadge word; "" = unknown
 	Stopped  bool   // offer Start, not Stop / Restart
 	Paused   bool   // cron: offer Resume
+	Terminal bool   // the viewer may open a shell (tile.write): show the Terminal tab
 	Location string // "stack / env"
 	EnvColor string
 
@@ -72,13 +74,24 @@ func Tabs(kind string) []string {
 	return []string{"status", "jobs", "logs", "env", "access", "settings", "backups"}
 }
 
+// tabs is Tabs plus Terminal after Logs, for a viewer who may shell in and
+// a kind that keeps a container (cron and function tiles run per job).
+func (v View) tabs() []string {
+	t := Tabs(v.Kind)
+	if i := slices.Index(t, "logs"); v.Terminal && v.Kind != "cron" && v.Kind != "function" {
+		t = slices.Insert(slices.Clone(t), i+1, "terminal")
+	}
+	return t
+}
+
 // Tab is the tab a request asks for, as the kind has it: the old domains
-// and image tabs live in Settings now.
-func Tab(kind, tab string) string {
+// and image tabs live in Settings now. terminal says the Terminal tab is
+// offered.
+func Tab(kind, tab string, terminal bool) string {
 	if tab == "domains" || tab == "image" {
 		tab = "settings"
 	}
-	if !slices.Contains(Tabs(kind), tab) {
+	if !slices.Contains(View{Kind: kind, Terminal: terminal}.tabs(), tab) {
 		return Tabs(kind)[0]
 	}
 	return tab
@@ -96,8 +109,9 @@ type StatusView struct {
 	Job      *c.JobStatusView // the newest job; nil = none yet
 	JobWhen  string
 	URLs     []DomainRow
-	Port     string   // the container port; "" = none
-	Ports    []string // published host:container pairs
+	Port     string        // the container port; "" = none
+	Ports    []string      // published host:container pairs
+	Access   []access.Perm // elevated access held or waiting, strongest first
 }
 
 type ReplicaView struct{ ID, Name, State, Health string }
@@ -108,6 +122,14 @@ type LogsView struct {
 	Run       string // a run's log instead of a replica's
 	Runs      bool   // a cron or function: its logs are its runs'
 	Pane      c.LogPaneView
+}
+
+// TerminalView is the Terminal tab: the shell endpoint for the chosen
+// replica.
+type TerminalView struct {
+	Replicas  []ReplicaView
+	Container string // the replica shelled into; "" = none running
+	URL       string // the terminal websocket endpoint, container included
 }
 
 type DomainsView struct {

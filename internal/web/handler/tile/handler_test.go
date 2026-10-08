@@ -5,6 +5,7 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/FyrmForge/stackr/internal/service"
 	"github.com/FyrmForge/stackr/internal/web/webtest"
@@ -183,5 +184,50 @@ func TestAccessTab(t *testing.T) {
 	})
 	if rec.Code != 422 || !strings.Contains(rec.Body.String(), "no slice tile nope") {
 		t.Errorf("unknown slice = %d\n%s", rec.Code, rec.Body)
+	}
+}
+
+// The Terminal tab needs tile.write: an owner sees it and its shell
+// endpoint; a viewer neither sees the tab nor gets the tab by asking.
+func TestTerminalTab(t *testing.T) {
+	s := webtest.New(t)
+	rec := s.Do(t, "GET", drawer+"?tab=terminal", nil)
+	body := rec.Body.String()
+	for _, w := range []string{`tab=terminal`, `id="tab-terminal"`} {
+		if rec.Code != 200 || !strings.Contains(body, w) {
+			t.Errorf("owner terminal = %d, lacks %q\n%s", rec.Code, w, body)
+		}
+	}
+	viewer := s.User(t, "viewer@acme.test", false)
+	s.Member(t, s.Org, viewer, "viewer")
+	rec = s.As(t, s.Session(t, viewer), "GET", drawer+"?tab=terminal", nil)
+	body = rec.Body.String()
+	if rec.Code != 200 || strings.Contains(body, "terminal") {
+		t.Errorf("viewer terminal = %d, want the tab absent\n%s", rec.Code, body)
+	}
+}
+
+// The status tab's Access block lists the port, then each permission the
+// tile holds or waits on.
+func TestStatusAccess(t *testing.T) {
+	s := webtest.New(t)
+	ctx := context.Background()
+	if _, _, err := s.Orch.UpdateTile(ctx, s.Tile.ID, func(t *service.Tile) error { t.Devices = "/dev/ttyUSB0"; return nil }); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Orch.Deploy(ctx, s.Tile.ID); err != nil {
+		t.Fatal(err)
+	}
+	for range 500 {
+		if g, _ := s.Orch.HostGrant(ctx, s.Tile.Stack); len(g.Pending) > 0 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	body := s.Do(t, "GET", drawer+"?tab=status", nil).Body.String()
+	for _, w := range []string{">Access<", "container port", "Device", "/dev/ttyUSB0", "waiting"} {
+		if !strings.Contains(body, w) {
+			t.Errorf("no %q in\n%s", w, body)
+		}
 	}
 }

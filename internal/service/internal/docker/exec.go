@@ -9,7 +9,9 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
+	cerrdefs "github.com/containerd/errdefs"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/pkg/stdcopy"
 )
@@ -174,6 +176,50 @@ func (d *Client) ExecStream(
 		return d.execResult(ctx, execID.ID, stderr.String())
 	}
 	return pr, wait, nil
+}
+
+// ExecTTY runs cmd on a TTY and hands back the raw stream: no stdcopy
+// demux, a TTY merges stdout and stderr. resize follows the user's window;
+// exit reads the code once the stream has ended (WithoutCancel, as
+// execResult); closing conn releases the exec.
+func (d *Client) ExecTTY(
+	ctx context.Context,
+	id string,
+	cmd []string,
+) (conn io.ReadWriteCloser, resize func(cols, rows uint) error, exit func() (int, error), err error) {
+	execID, err := d.cli.ContainerExecCreate(ctx, id, container.ExecOptions{
+		Cmd:          cmd,
+		Tty:          true,
+		AttachStdin:  true,
+		AttachStdout: true,
+		AttachStderr: true,
+	})
+	if cerrdefs.IsConflict(err) { // the daemon's "container is not running"
+		return nil, nil, nil, ErrNotRunning
+	}
+	if err != nil {
+		return nil, nil, nil, wrap(err)
+	}
+	att, err := d.cli.ContainerExecAttach(ctx, execID.ID, container.ExecAttachOptions{Tty: true})
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	resize = func(cols, rows uint) error {
+		return d.cli.ContainerExecResize(context.WithoutCancel(ctx), execID.ID,
+			container.ResizeOptions{Width: cols, Height: rows})
+	}
+	exit = func() (int, error) {
+		// The daemon may mark the exec finished a beat after the stream ends.
+		for range 20 {
+			insp, err := d.cli.ContainerExecInspect(context.WithoutCancel(ctx), execID.ID)
+			if err != nil || !insp.Running {
+				return insp.ExitCode, err
+			}
+			time.Sleep(50 * time.Millisecond)
+		}
+		return 0, ErrStillRunning
+	}
+	return att.Conn, resize, exit, nil
 }
 
 // demux splits an exec's frames: stdout to out, stderr to stderr only.

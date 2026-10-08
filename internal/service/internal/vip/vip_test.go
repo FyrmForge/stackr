@@ -8,8 +8,9 @@ import (
 
 func TestRender(t *testing.T) {
 	got := Render(
-		map[string][]string{"10.0.0.9": {"10.0.0.3"}, "10.0.0.5": {"10.0.0.3"}},
-		map[string][]string{"10.0.0.5": {"10.0.0.6", "10.0.0.7", "10.0.0.8"}, "10.0.1.2": {"10.0.1.3"}},
+		map[string]Entry{"10.0.0.9": {Replicas: []string{"10.0.0.3"}}, "10.0.0.5": {Replicas: []string{"10.0.0.3"}}},
+		map[string]Entry{"10.0.0.5": {Replicas: []string{"10.0.0.6", "10.0.0.7", "10.0.0.8"}}, "10.0.1.2": {Replicas: []string{"10.0.1.3"}}},
+		Base{},
 	)
 	want := `*nat
 :STACKR-VIP - [0:0]
@@ -28,7 +29,7 @@ COMMIT
 	if got != want {
 		t.Fatalf("got:\n%s\nwant:\n%s", got, want)
 	}
-	if got := Render(nil, nil); got != "*nat\n:STACKR-VIP - [0:0]\nCOMMIT\n" {
+	if got := Render(nil, nil, Base{}); got != "*nat\n:STACKR-VIP - [0:0]\nCOMMIT\n" {
 		t.Fatalf("empty: %q", got)
 	}
 }
@@ -53,10 +54,10 @@ func TestTable(t *testing.T) {
 		return nil
 	}
 	ctx := context.Background()
-	if err := tb.Set(ctx, "10.0.0.5", []string{"10.0.0.6"}); err != nil {
+	if err := tb.Set(ctx, "10.0.0.5", []string{"10.0.0.6"}, nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := tb.Set(ctx, "10.0.0.9", []string{"10.0.0.10"}); err != nil {
+	if err := tb.Set(ctx, "10.0.0.9", []string{"10.0.0.10"}, nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := tb.Remove(ctx, "10.0.0.5"); err != nil {
@@ -78,10 +79,10 @@ func TestTable(t *testing.T) {
 	if strings.Join(argvs[:6], "\n") != strings.Join(wantArgv, "\n") {
 		t.Fatalf("argv:\n%s", strings.Join(argvs, "\n"))
 	}
-	if err := tb.Set(ctx, "10.0.0.5", []string{"10.0.0.6\n-F"}); err == nil {
+	if err := tb.Set(ctx, "10.0.0.5", []string{"10.0.0.6\n-F"}, nil); err == nil {
 		t.Fatal("non-IP accepted")
 	}
-	if err := tb.Rebuild(ctx, map[string][]string{}); err != nil {
+	if err := tb.Rebuild(ctx, map[string]Entry{}, Base{}); err != nil {
 		t.Fatal(err)
 	}
 	if last := scripts[len(scripts)-1]; !strings.Contains(last, "-X STKR-10.0.0.9") {

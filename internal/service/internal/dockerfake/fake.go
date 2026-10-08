@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"net"
 	"slices"
 	"strings"
 	"sync"
@@ -57,9 +58,12 @@ type Fake struct {
 	Gone          []string // refs LocalDigest reports missing
 	BuildID       string
 	ExecOut       string
-	TarOut        []byte // what TarVolume writes
-	Untarred      []byte // what UntarVolume last read
-	ExecIn        []byte // what ExecStream's stdin last carried
+	TarOut        []byte    // what TarVolume writes
+	Untarred      []byte    // what UntarVolume last read
+	ExecIn        []byte    // what ExecStream's stdin last carried
+	TTYServer     net.Conn  // the far end of the last ExecTTY pipe: the "container" side
+	TTYExit       int       // what ExecTTY's exit answers
+	Resizes       [][2]uint // every resize ExecTTY got, cols then rows
 	LogsOut       string
 	StreamOut     []string        // the lines StreamLogs sends
 	ExitCode      int             // what Wait answers
@@ -363,4 +367,32 @@ func (f *Fake) ExecStream(
 	}
 	err := f.rec("ExecStream", append([]string{id}, cmd...)...)
 	return strings.NewReader(f.ExecOut), func() error { return nil }, err
+}
+
+// ExecTTY is a net.Pipe: the caller gets one end, the test the other in
+// TTYServer. Resizes are recorded.
+func (f *Fake) ExecTTY(_ context.Context, id string, cmd []string) (
+	io.ReadWriteCloser, func(cols, rows uint) error, func() (int, error), error,
+) {
+	if err := f.rec("ExecTTY", append([]string{id}, cmd...)...); err != nil {
+		return nil, nil, nil, err
+	}
+	a, b := net.Pipe()
+	f.mu.Lock()
+	f.TTYServer = b
+	f.mu.Unlock()
+	resize := func(cols, rows uint) error {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		f.Resizes = append(f.Resizes, [2]uint{cols, rows})
+		return nil
+	}
+	return a, resize, func() (int, error) { return f.TTYExit, nil }, nil
+}
+
+// ResizeLog is a copy of the resizes ExecTTY got.
+func (f *Fake) ResizeLog() [][2]uint {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([][2]uint(nil), f.Resizes...)
 }

@@ -35,6 +35,7 @@ func (h *handler) Mount(g *echo.Group, a *middleware.Access) {
 	)
 	g.POST(b+"/settings", h.SaveSettings, a.Require("serverdefaults.set"))
 	h.mountParams(g, a)
+	h.mountAccess(g, a)
 	g.POST(b+"/users/:user/admin", h.act("users", func(c echo.Context) (string, *service.Job, error) {
 		return "Saved.", nil, h.orch.SetAdmin(c.Request().Context(), c.Param("user"), c.QueryParam("admin") == "true")
 	}), a.Require("user.admin"))
@@ -139,6 +140,8 @@ func frame(tab string) comp.DrawerView {
 		Base:  ui.Base,
 		Tabs:  ui.Tabs,
 		Tab:   tab,
+		// "access" would read "Access", which is the tile's own word
+		Labels: map[string]string{"access": "Elevated access"},
 	}
 	if !slices.Contains(ui.Tabs, tab) {
 		f.Tab = ui.Tabs[0]
@@ -243,6 +246,8 @@ func (h *handler) tab(c echo.Context, tab string, x extra) (templ.Component, err
 			})
 		}
 		return ui.Routes(v), err
+	case "access":
+		return h.accessTab(c)
 	case "update":
 		v := ui.UpdateView{}
 		if x.check != nil {

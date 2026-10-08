@@ -32,6 +32,8 @@ var (
 		"user",
 		"privileged",
 		"devices",
+		"lan",
+		"host_network",
 		"files",
 		"volumes",
 		"depends_on",
@@ -97,6 +99,10 @@ func field(t *service.Tile, key string) any {
 		return &t.Privileged
 	case "devices":
 		return &t.Devices
+	case "lan":
+		return &t.Lan
+	case "host_network":
+		return &t.HostNetwork
 	case "files":
 		return &t.Files
 	case "volumes":

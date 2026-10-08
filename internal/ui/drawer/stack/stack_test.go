@@ -5,26 +5,37 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/FyrmForge/stackr/internal/ui/access"
 	c "github.com/FyrmForge/stackr/internal/ui/components"
 )
 
 func TestHostAccess(t *testing.T) {
 	var b strings.Builder
 	_ = Settings(SettingsView{Name: "none"}).Render(context.Background(), &b)
-	if strings.Contains(b.String(), "Host access") {
+	if strings.Contains(b.String(), "Elevated access") {
 		t.Error("a stack with no host access shows the section")
 	}
 	b.Reset()
 	_ = Settings(SettingsView{Name: "mon", Host: HostView{
-		Lines:      []string{"host:/a:/b"},
-		Privileged: true,
-		Pending:    []string{"device:/dev/x"},
-		Approve:    c.ConfirmView{Button: "Approve", Title: "Approve?", Action: "/approve", Primary: true},
+		Tiles: access.Group([]string{"web host:/a:/b", "web privileged"}, []string{"web device:/dev/x"}),
+		Approve: &access.ApproveView{
+			ID:      "a",
+			Action:  "/approve",
+			Name:    "mon",
+			Pending: []string{"web device:/dev/x"},
+			Tiles:   access.Group(nil, []string{"web device:/dev/x"}),
+		},
 	}}).Render(context.Background(), &b)
-	for _, w := range []string{"Host access", "host:/a:/b", "privileged", "waiting: device:/dev/x", `hx-post="/approve"`} {
+	for _, w := range []string{
+		"Elevated access", "Host folder", "Privileged", "Device", "waiting",
+		`hx-post="/approve"`, `name="grant" value="web device:/dev/x" checked`,
+	} {
 		if !strings.Contains(b.String(), w) {
 			t.Errorf("no %s in\n%s", w, b.String())
 		}
+	}
+	if strings.Contains(b.String(), `name="confirm"`) {
+		t.Error("a device asks for the stack name")
 	}
 }
 

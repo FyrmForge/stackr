@@ -38,6 +38,8 @@ type TilePatch struct {
 	ShmSizeMB               *int     `json:"shm_size_mb,omitempty"`
 	Privileged              *bool    `json:"privileged,omitempty"`
 	Devices                 *string  `json:"devices,omitempty"`
+	Lan                     *string  `json:"lan,omitempty"`
+	HostNetwork             *bool    `json:"host_network,omitempty"`
 	RestartPolicy           *string  `json:"restart_policy,omitempty"`
 	DependsOn               *string  `json:"depends_on,omitempty"`
 	Files                   *string  `json:"files,omitempty"`

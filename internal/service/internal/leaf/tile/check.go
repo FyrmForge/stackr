@@ -3,6 +3,7 @@ package tile
 import (
 	"encoding/json"
 	"fmt"
+	"net/netip"
 	"path"
 	"regexp"
 	"strconv"
@@ -109,6 +110,8 @@ var fields = []field{
 	{"user", str(func(t *store.Tile) string { return t.User })},
 	{"privileged", func(t *store.Tile) bool { return t.Privileged }},
 	{"devices", str(func(t *store.Tile) string { return t.Devices })},
+	{"lan", str(func(t *store.Tile) string { return t.Lan })},
+	{"host_network", func(t *store.Tile) bool { return t.HostNetwork }},
 	{"files", str(func(t *store.Tile) string { return t.Files })},
 	{"volumes", str(func(t *store.Tile) string { return t.Volumes })},
 	{"depends_on", str(func(t *store.Tile) string { return t.DependsOn })},
@@ -138,6 +141,8 @@ var refusals = map[string]string{
 	"user":           "user applies to service tiles only",
 	"privileged":     "privileged applies to service tiles only",
 	"devices":        "devices apply to service tiles only",
+	"lan":            "lan applies to service and image tiles only",
+	"host_network":   "network: host applies to service and image tiles only",
 	"healthcheck":    "healthcheck applies to service tiles only",
 	"provision_from": "provision_from applies to slice tiles only",
 	"default_access": "default_access applies to slice tiles only",
@@ -178,6 +183,8 @@ var (
 		"user",
 		"privileged",
 		"devices",
+		"lan",
+		"host_network",
 		"files",
 		"volumes",
 		"depends_on",
@@ -312,6 +319,16 @@ func Validate(t *store.Tile) error {
 	if t.Replicas > 1 && strings.TrimSpace(t.Volumes) != "" {
 		return errs.Invalidf("replicas", "this tile holds a volume, so it can only run one replica: two writers on one volume corrupt it")
 	}
+	if t.HostNetwork {
+		switch {
+		case t.Replicas > 1:
+			return errs.Invalidf("replicas", "network: host runs one replica")
+		case strings.TrimSpace(t.PublishedPorts) != "":
+			return errs.Invalidf("published_ports", "network: host binds the server's ports itself; drop published_ports")
+		case strings.TrimSpace(t.Lan) != "":
+			return errs.Invalidf("lan", "network: host already reaches the whole LAN; drop lan")
+		}
+	}
 	return checkLists(t)
 }
 
@@ -432,6 +449,10 @@ func checkLists(t *store.Tile) error {
 			return err
 		}},
 		{"published_ports", t.PublishedPorts, parsePorts},
+		{"lan", t.Lan, func(l string) error {
+			_, err := ParseLAN(l)
+			return err
+		}},
 	} {
 		for _, l := range Lines(list.v) {
 			if err := list.parse(l); err != nil {
@@ -537,6 +558,52 @@ func ParsePort(l string) (host, cont int, proto string, err error) {
 	host, _ = strconv.Atoi(h)
 	cont, _ = strconv.Atoi(c)
 	return host, cont, proto, nil
+}
+
+// LANRule is one parsed lan line: everything the baseline blocks (All), or
+// an address or range, optionally narrowed to one port (0 = every port).
+type LANRule struct {
+	All  bool
+	Net  netip.Prefix
+	Port int
+}
+
+// ParseLAN: "all", or "<ip|cidr>[:port]" (port 1-65535).
+func ParseLAN(l string) (LANRule, error) {
+	bad := fmt.Errorf("%q: want all, or an IP or CIDR with an optional :port", l)
+	if l == "all" {
+		return LANRule{All: true}, nil
+	}
+	net, p, hasPort := l, "", false
+	if _, ok := lanNet(l); !ok {
+		if i := strings.LastIndex(l, ":"); i >= 0 {
+			net, p, hasPort = l[:i], l[i+1:], true
+		}
+	}
+	var r LANRule
+	var ok bool
+	if r.Net, ok = lanNet(net); !ok {
+		return r, bad
+	}
+	if !r.Net.Addr().Is4() {
+		return r, fmt.Errorf("%q: lan takes IPv4 addresses only", l)
+	}
+	if hasPort {
+		if !port(p) {
+			return r, bad
+		}
+		r.Port, _ = strconv.Atoi(p)
+	}
+	return r, nil
+}
+
+// lanNet reads an IP (as its single-address prefix) or a CIDR.
+func lanNet(s string) (netip.Prefix, bool) {
+	if pf, err := netip.ParsePrefix(s); err == nil {
+		return pf, true
+	}
+	a, err := netip.ParseAddr(s)
+	return netip.PrefixFrom(a, a.BitLen()), err == nil
 }
 
 func parsePorts(l string) error {

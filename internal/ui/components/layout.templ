@@ -1,5 +1,7 @@
 package components
 
+import "strconv"
+
 // Layout is the full page: the shell around body. render.Page picks it for
 // a plain request and Fragment for an htmx one; pages never call either.
 // Signed in, v0's shell: the icon rail (a bottom bar on phones) and a
@@ -86,7 +88,10 @@ templ rail(s Shell, oob bool) {
 				}
 			}
 			if s.Admin {
-				<button type="button" title="Admin" aria-label="Admin" class={ railIdle } hx-get="/-/admin?tab=settings" hx-target="#drawer-body" hx-push-url="?drawer=admin&tab=settings">
+				<button type="button" title={ adminTitle(s.Waiting) } aria-label={ adminTitle(s.Waiting) } class={ railIdle, "relative" } hx-get={ adminTab(s.Waiting) } hx-target="#drawer-body" hx-push-url={ "?drawer=admin&tab=" + adminTabKey(s.Waiting) }>
+					if s.Waiting > 0 {
+						<span id="rail-waiting" class="absolute -top-0.5 -right-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-rw-warn px-1 text-[10px] font-semibold text-rw-surface">{ strconv.Itoa(s.Waiting) }</span>
+					}
 					<svg class="h-[18px] w-[18px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
 						<circle cx="12" cy="12" r="3"></circle>
 						<path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
@@ -108,6 +113,24 @@ templ rail(s Shell, oob bool) {
 			</button>
 		</div>
 	</aside>
+}
+
+// adminTabKey is the tab the admin icon opens: the elevated access
+// requests while any wait, else settings.
+func adminTabKey(waiting int) string {
+	if waiting > 0 {
+		return "access"
+	}
+	return "settings"
+}
+
+func adminTab(waiting int) string { return "/-/admin?tab=" + adminTabKey(waiting) }
+
+func adminTitle(waiting int) string {
+	if waiting > 0 {
+		return "Admin: " + strconv.Itoa(waiting) + " waiting for approval"
+	}
+	return "Admin"
 }
 
 // railIdle is a rail button at rest (v0 railIcon, not active).

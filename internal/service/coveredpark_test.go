@@ -32,7 +32,7 @@ func TestCoveredParkResumes(t *testing.T) {
 	if j = w.waiting(t, j.ID); j.State != job.Waiting {
 		t.Fatalf("deploy = %s %q, want parked", j.State, j.Error)
 	}
-	_, err = w.orch.hostgrant.Approve(ctx, w.stack, "adm", hostgrant.Set{Lines: []string{line}})
+	_, err = w.orch.hostgrant.Approve(ctx, w.stack, "adm", hostgrant.Set{Lines: []string{"mon " + line}})
 	must(t, err)
 	if j = w.wait(t, j.ID); j.State != job.Done {
 		t.Fatalf("covered park = %s %q, want it resumed", j.State, j.Error)

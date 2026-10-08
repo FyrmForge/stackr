@@ -1,0 +1,5 @@
+ALTER TABLE tiles DROP COLUMN host_network;
+ALTER TABLE tiles DROP COLUMN lan;
+
+DELETE FROM host_grants;
+ALTER TABLE host_grants ADD COLUMN privileged INTEGER NOT NULL DEFAULT 0;

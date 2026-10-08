@@ -308,7 +308,7 @@ func (f *Flow) rollout(
 	if err != nil {
 		return err
 	}
-	overlap := t.Kind != tile.Managed && len(r.binds) == 0
+	overlap := t.Kind != tile.Managed && len(r.binds) == 0 && !r.hostNet
 	if !overlap {
 		return f.stopFirst(ctx, t, e, r, old, log, swap)
 	}
@@ -459,13 +459,41 @@ func roSuffix(m tile.Mount) string {
 
 // route points the VIP and the proxy at the running replicas.
 func (f *Flow) route(ctx context.Context, t store.Tile, e store.Environment) error {
-	if err := f.Tiles.Route(ctx, t, e.Network); err != nil {
+	if t.HostNetwork { // no pause container, no VIP: only the proxy follows
+		if err := f.Tiles.DropPause(ctx, t, e.Network); err != nil {
+			return err
+		}
+		if f.Sync == nil {
+			return nil
+		}
+		return f.Sync(ctx)
+	}
+	var lan []string
+	if f.HostGrants != nil {
+		g, err := f.HostGrants.Of(ctx, t.StackID)
+		if err != nil {
+			return err
+		}
+		lan = LanLines(g, t)
+	}
+	if err := f.Tiles.Route(ctx, t, e.Network, lan); err != nil {
 		return err
 	}
 	if f.Sync == nil {
 		return nil
 	}
 	return f.Sync(ctx)
+}
+
+// LanLines are the "lan:..." perms (slug stripped) t asks for and g holds.
+func LanLines(g hostgrant.Set, t store.Tile) []string {
+	var out []string
+	for _, l := range HostSet(t).Lines {
+		if _, perm := hostgrant.Split(l); strings.HasPrefix(perm, hostgrant.LAN) && g.Has(l) {
+			out = append(out, perm)
+		}
+	}
+	return out
 }
 
 // resolve gathers every fact the spec needs, in the order that matters:
@@ -492,7 +520,8 @@ func (f *Flow) resolve(
 	if err != nil {
 		return r, err
 	}
-	r.privileged = t.Privileged && g.Privileged
+	r.privileged = t.Privileged && g.Has(hostgrant.Line(t.Slug, hostgrant.Privileged))
+	r.hostNet = t.HostNetwork && g.Has(hostgrant.Line(t.Slug, hostgrant.NetworkHost))
 
 	// An unset value parks the job (errs.Unset); any other failure fails it.
 	// A tile never starts with an unresolved reference.
@@ -556,7 +585,9 @@ func (f *Flow) resolve(
 	}
 
 	var warn []string
-	r.ports, warn = publishedPorts(t.PublishedPorts)
+	if !r.hostNet {
+		r.ports, warn = publishedPorts(t.PublishedPorts)
+	}
 	for _, w := range warn {
 		logf(log, "warning: %s\n", w)
 	}
@@ -583,6 +614,12 @@ func (f *Flow) resolve(
 	}
 	r.cpu, r.memMB = settings.Resolve(levels...).EffectiveLimits(t.CPULimit, t.MemLimitMB)
 
+	if r.hostNet {
+		if len(rr.Networks()) > 0 {
+			return r, errs.Conflictf("%s runs on the host network and cannot join another tile's network", t.Slug)
+		}
+		return r, nil
+	}
 	net, err := f.Envs.Network(ctx, e)
 	if err != nil {
 		return r, err

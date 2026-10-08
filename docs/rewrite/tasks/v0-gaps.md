@@ -34,13 +34,13 @@ interactive terminal (drawer tab and `stackr ssh`), see `leftovers.md`.
 - tile metrics/resources: Later. infra fork: Later. infra public: gone.
 - image ls/tags/rm, registry set --domain: gone (DECIDE 45), built-in
   registry Later; `admin images` lists but cannot delete.
-- `stackr forward`: gone by DECIDE 45, now wanted back.
+- `stackr forward`: gone by DECIDE 45, built 2026-10-08.
 
 ## UI / canvas
 - Search palette and `/`: Later. Notification centre: Later.
 - Containers page (all docker containers, system ones too): gone
   (PROGRESS.md:396-398).
-- Browser terminal: gone by DECIDE 1, now wanted back.
+- Browser terminal: gone by DECIDE 1, built 2026-10-08 (and `stackr ssh`).
 - Metrics charts: Later. SQL row browser, S3 file browser: Later.
 - Volume file browser: missing (next item after the migration readiness).
 - Env compare panel: gone for v1 (DECIDE 150).

@@ -49,7 +49,7 @@ func TestHostAccessParksApprovesRevokes(t *testing.T) {
 	})
 	must(t, err)
 
-	const ask = "host access: host:/var/run/docker.sock:/var/run/docker.sock:ro"
+	const ask = "elevated access: mon host:/var/run/docker.sock:/var/run/docker.sock:ro"
 	j, err := w.orch.Deploy(ctx, tl.ID)
 	must(t, err)
 	if j = w.waiting(t, j.ID); j.State != job.Waiting || j.WaitingParam == nil || *j.WaitingParam != ask {
@@ -64,9 +64,9 @@ func TestHostAccessParksApprovesRevokes(t *testing.T) {
 		t.Fatalf("grant before approval = %+v", g)
 	}
 
-	g, err = w.orch.ApproveHostGrant(ctx, w.stack, "adm", g.Pending)
+	g, err = w.orch.ApproveHostGrant(ctx, w.stack, "adm", g.Pending, nil)
 	must(t, err)
-	if !g.Granted || g.ApprovedBy != "adm" || !slices.Equal(g.Lines, []string{"host:/var/run/docker.sock:/var/run/docker.sock:ro"}) || len(g.Pending) != 0 {
+	if !g.Granted || g.ApprovedBy != "adm" || !slices.Equal(g.Lines, []string{"mon host:/var/run/docker.sock:/var/run/docker.sock:ro"}) || len(g.Pending) != 0 {
 		t.Fatalf("grant after approval = %+v", g)
 	}
 	if j = w.wait(t, j.ID); j.State != job.Done {
@@ -79,11 +79,11 @@ func TestHostAccessParksApprovesRevokes(t *testing.T) {
 	if j = w.wait(t, j.ID); j.State != job.Done {
 		t.Fatalf("redeploy = %s %q", j.State, j.Error)
 	}
-	if _, err = w.orch.ApproveHostGrant(ctx, w.stack, "adm", g.Pending); err == nil || !strings.Contains(err.Error(), "no job waits") {
+	if _, err = w.orch.ApproveHostGrant(ctx, w.stack, "adm", g.Pending, nil); err == nil || !strings.Contains(err.Error(), "no job waits") {
 		t.Fatalf("approve with nothing waiting = %v", err)
 	}
 
-	must(t, w.orch.RevokeHostGrant(ctx, w.stack))
+	must(t, w.orch.RevokeHostGrant(ctx, w.stack, ""))
 	j, err = w.orch.Deploy(ctx, tl.ID)
 	must(t, err)
 	if j = w.waiting(t, j.ID); j.State != job.Waiting {
@@ -120,13 +120,13 @@ func TestPromoteParksOnHostAccess(t *testing.T) {
 	}
 	j, err := w.orch.Promote(ctx, w.env, rel.ID)
 	must(t, err)
-	const ask = "host access: host:/var/run/docker.sock:/s:ro"
+	const ask = "elevated access: mon host:/var/run/docker.sock:/s:ro"
 	if j = w.waiting(t, j.ID); j.State != job.Waiting || j.WaitingParam == nil || *j.WaitingParam != ask {
 		t.Fatalf("promote = %s %v %q, want parked on %q", j.State, j.WaitingParam, j.Error, ask)
 	}
 	pg, err := w.orch.HostGrant(ctx, w.stack)
 	must(t, err)
-	if _, err = w.orch.ApproveHostGrant(ctx, w.stack, "adm", pg.Pending); err != nil {
+	if _, err = w.orch.ApproveHostGrant(ctx, w.stack, "adm", pg.Pending, nil); err != nil {
 		t.Fatal(err)
 	}
 	if j = w.wait(t, j.ID); j.State != job.Done {
@@ -163,18 +163,61 @@ func TestApproveHostGrantRefusesChangedAsk(t *testing.T) {
 	shown := g.Pending
 	park("b", "host:/:/h")
 
-	_, err = w.orch.ApproveHostGrant(ctx, w.stack, "adm", shown)
+	_, err = w.orch.ApproveHostGrant(ctx, w.stack, "adm", shown, nil)
 	if !isConflict(err) || !strings.Contains(err.Error(), "the ask changed; review it again") {
 		t.Fatalf("approve of the old set = %v", err)
 	}
 	if g, _ = w.orch.HostGrant(ctx, w.stack); g.Granted || len(g.Pending) != 2 {
 		t.Fatalf("a refused approval granted: %+v", g)
 	}
-	g, err = w.orch.ApproveHostGrant(ctx, w.stack, "adm", g.Pending)
+	g, err = w.orch.ApproveHostGrant(ctx, w.stack, "adm", g.Pending, nil)
 	must(t, err)
-	if !slices.Equal(g.Lines, []string{"host:/:/h", "host:/srv/a:/a"}) {
+	if !slices.Equal(g.Lines, []string{"a host:/srv/a:/a", "b host:/:/h"}) {
 		t.Fatalf("grant = %+v", g)
 	}
 }
 
 func isConflict(err error) bool { _, ok := errs.IsConflict(err); return ok }
+
+// A subset approve grants only those lines; the requeued job re-parks on the
+// rest.
+func TestApproveHostGrantSubset(t *testing.T) {
+	w := newWorld(t)
+	ctx := context.Background()
+	now := time.Now()
+	must(t, w.st.Users.Create(ctx, store.User{ID: "adm", Email: "a@b.c", Name: "A", Role: "admin", Active: true, CreatedAt: now, UpdatedAt: now}))
+	w.fake.RunID = "c1"
+	w.fake.Details = map[string]docker.Detail{"c1": {Running: true, Health: "healthy", Networks: map[string]string{"n": "10.0.0.5"}}}
+	tl := w.tile(t, "mon", false)
+	_, _, err := w.orch.UpdateTile(ctx, tl.ID, func(t *Tile) error {
+		t.Volumes = "host:/srv/a:/a\nhost:/srv/b:/b"
+		return nil
+	})
+	must(t, err)
+	j, err := w.orch.Deploy(ctx, tl.ID)
+	must(t, err)
+	w.waiting(t, j.ID)
+	g, err := w.orch.HostGrant(ctx, w.stack)
+	must(t, err)
+	if len(g.Pending) != 2 {
+		t.Fatalf("pending = %v", g.Pending)
+	}
+	g, err = w.orch.ApproveHostGrant(ctx, w.stack, "adm", g.Pending, []string{"mon host:/srv/a:/a"})
+	must(t, err)
+	if !slices.Equal(g.Lines, []string{"mon host:/srv/a:/a"}) {
+		t.Fatalf("grant = %+v", g)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		if g, err = w.orch.HostGrant(ctx, w.stack); err == nil && slices.Equal(g.Pending, []string{"mon host:/srv/b:/b"}) {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("job did not re-park on the remainder: %+v %v", g, err)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if len(w.fake.Specs) != 0 {
+		t.Fatal("a container started on a partial grant")
+	}
+}

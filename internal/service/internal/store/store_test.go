@@ -264,6 +264,8 @@ func TestRoundTrip(t *testing.T) {
 		ShmSizeMB:               64,
 		Privileged:              true,
 		Devices:                 "/dev/x",
+		Lan:                     "all",
+		HostNetwork:             true,
 		RestartPolicy:           "always",
 		DependsOn:               "db",
 		Files:                   "{}",
@@ -472,10 +474,10 @@ func TestRoundTrip(t *testing.T) {
 	roundTrip(t, s.HostGrants, store.HostGrant{
 		ID:         "hg1",
 		StackID:    "s1",
-		Lines:      "host:/a:/b",
+		Lines:      "s host:/a:/b",
 		ApprovedBy: "u1",
 		CreatedAt:  t0,
-	}, func(r *store.HostGrant) { r.Lines, r.Privileged = "host:/a:/b\nhost:/c:/d", true })
+	}, func(r *store.HostGrant) { r.Lines = "s host:/a:/b\ns host:/c:/d" })
 	if got, err := s.HostGrants.GetByStack(ctx, "s1"); err != nil || got.ID != "hg1" {
 		t.Fatalf("grant by stack = %v, %v", got, err)
 	}

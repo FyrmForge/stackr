@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"slices"
 	"strings"
 	"time"
@@ -293,6 +294,45 @@ func (o *Orchestrator) Terminal(
 	stdin io.Reader,
 ) (io.Reader, func() error, error) {
 	return o.tiles.Terminal(ctx, tileID, containerID, cmd, stdin)
+}
+
+// shellArgv is the default shell: bash when the image has it, else sh.
+var shellArgv = []string{"sh", "-c", "command -v bash >/dev/null && exec bash || exec sh"}
+
+// Shell opens an interactive TTY in a replica (containerID "" = a running
+// one; shell "" = bash, else sh). Everything that can fail does so here, so
+// the caller can still answer with a status. The returned finish closes the
+// stream, logs the session and gives the shell's exit code.
+func (o *Orchestrator) Shell(ctx context.Context, user, tileID, containerID, shell string) (
+	conn io.ReadWriteCloser, resize func(cols, rows uint) error, finish func() int, err error,
+) {
+	id, err := o.replica(ctx, tileID, containerID)
+	if errors.Is(err, errNoContainer) {
+		return nil, nil, nil, errs.Conflictf("the tile has no container to open a terminal in")
+	}
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	cmd := shellArgv
+	if shell != "" {
+		cmd = []string{shell}
+	}
+	conn, resize, exit, err := o.tiles.TTY(ctx, tileID, id, cmd)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	start := time.Now()
+	slog.Info("terminal opened", "user", user, "tile", tileID, "container", id, "shell", cmd[len(cmd)-1])
+	return conn, resize, func() int {
+		_ = conn.Close()
+		code, err := exit()
+		if err != nil {
+			code = 1
+		}
+		slog.Info("terminal closed", "user", user, "tile", tileID, "container", id,
+			"duration", time.Since(start).Round(time.Second), "exit", code)
+		return code
+	}, nil
 }
 
 // ExitCode is the command's non-zero exit when a Terminal wait reports one.

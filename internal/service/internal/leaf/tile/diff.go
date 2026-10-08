@@ -134,6 +134,8 @@ func Diff(old, cur store.Tile) Changed {
 	mark("shm_size_mb", old.ShmSizeMB == cur.ShmSizeMB)
 	mark("privileged", old.Privileged == cur.Privileged)
 	mark("devices", old.Devices == cur.Devices)
+	mark("lan", old.Lan == cur.Lan)
+	mark("host_network", old.HostNetwork == cur.HostNetwork)
 	mark("restart", oldR == curR)
 	mark("depends_on", old.DependsOn == cur.DependsOn)
 	mark("files", old.Files == cur.Files)

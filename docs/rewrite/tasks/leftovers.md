@@ -401,6 +401,8 @@ rename-link across orgs: dropped or deferred as stated above.
   (`docs/rewrite/extracts/graph-ref.md`). The rewrite dropped the noun
   (PROGRESS.md DECIDE 45) and parked it ("Later", `ui-plan.md`). Bring it
   back.
+- Built 2026-10-08 (`terminal-forward.md`): no relay, the host-network
+  panel dials the replica IP; forward cards stay parked.
 
 ## Interactive shell (darthvader 2026-10-07: wanted, the full real terminal)
 - Wanted: `stackr ssh [tile]`, a real shell in a replica (TTY, raw mode,
@@ -412,4 +414,4 @@ rename-link across orgs: dropped or deferred as stated above.
 - v0 also had a web terminal (`internal/stackrd/handlers/web/handler/
   container/terminal.go` at v0.5.0); the rewrite UI has none.
 - Agreed: both, a Terminal tab in the tile drawer and `stackr ssh`, one
-  backend.
+  backend. Built 2026-10-08 (`terminal-forward.md`).

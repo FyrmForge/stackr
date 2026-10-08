@@ -208,8 +208,10 @@ func TestTabsPerKind(t *testing.T) {
 		{"service", "domains", "settings"},
 		{"image", "image", "settings"},
 		{"service", "runs", "status"},
+		{"service", "terminal", "terminal"},
+		{"cron", "terminal", "runs"},
 	} {
-		if got := Tab(tc.kind, tc.tab); got != tc.want {
+		if got := Tab(tc.kind, tc.tab, true); got != tc.want {
 			t.Errorf("Tab(%s, %s) = %s, want %s", tc.kind, tc.tab, got, tc.want)
 		}
 	}

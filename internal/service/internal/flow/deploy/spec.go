@@ -23,6 +23,7 @@ type resolved struct {
 	ports       map[string]string
 	devices     []docker.Device
 	privileged  bool // t.Privileged and the stack's grant says so
+	hostNet     bool // t.HostNetwork and the grant says so
 	networks    []docker.NetAttach
 	cpu         float64
 	memMB       int
@@ -44,6 +45,7 @@ func spec(t store.Tile, r resolved) docker.ContainerSpec {
 		User:               t.User,
 		ShmSizeMB:          t.ShmSizeMB,
 		Privileged:         r.privileged,
+		HostNetwork:        r.hostNet,
 		Devices:            r.devices,
 		Restart:            restart(t.RestartPolicy),
 		HealthCmd:          t.HealthcheckCmd,

@@ -1,8 +1,8 @@
-// Package hostgrant owns host_grants: the host access a server admin
-// approved for a stack. A stack's wanted access is the host mount lines,
-// device lines and privileged flag of its tiles (Set); the row is the
-// approved Set. Which lines a tile has comes in as a Set (the flows parse
-// them), so this leaf reads no other leaf.
+// Package hostgrant owns host_grants: the elevated access a server admin
+// approved for a stack. A stack's wanted access is the per tile permission
+// lines of its tiles (Set); the row is the approved Set. Which lines a tile
+// has comes in as a Set (the flows parse them), so this leaf reads no other
+// leaf.
 package hostgrant
 
 import (
@@ -18,20 +18,37 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
 
+// Permission kinds: what follows the tile slug in a line. A host mount
+// perm starts "host:".
 const (
-	// Device marks a device line in a Set; a host mount line starts "host:".
+	Host = "host:"
+	// Device marks a device perm; the rest is the tile's device line.
 	Device = "device:"
-	// Privileged is the token a missing privileged flag shows as.
+	// Privileged is the whole perm of the privileged flag.
 	Privileged = "privileged"
-	// Prefix starts the text of a NeedsApproval for host access.
-	Prefix = "host access: "
+	// LAN marks a LAN perm: "lan:<ip|cidr[:port]>" or "lan:all".
+	LAN = "lan:"
+	// Port marks a published server port: "port:<hostport>[/udp]".
+	Port = "port:"
+	// NetworkHost is the perm of the host network flag.
+	NetworkHost = "network:host"
+	// Prefix starts the text of a NeedsApproval for elevated access.
+	Prefix = "elevated access: "
 )
 
-// Set is the host access a stack uses or was granted. Lines is sorted and
-// unique: "host:/a:/b[:ro]" mounts and "device:<line>" devices.
+// Set is the elevated access a stack uses or was granted. Lines is sorted
+// and unique: "<tile-slug> <perm>" (see Line).
 type Set struct {
-	Lines      []string
-	Privileged bool
+	Lines []string
+}
+
+// Line is the grant line of a tile's permission.
+func Line(slug, perm string) string { return slug + " " + perm }
+
+// Split is Line backwards. A line with no perm gives an empty perm.
+func Split(line string) (slug, perm string) {
+	slug, perm, _ = strings.Cut(line, " ")
+	return slug, perm
 }
 
 // Norm sorts and dedupes the lines.
@@ -45,12 +62,23 @@ func (s Set) Norm() Set {
 // Has reports whether the set holds the line.
 func (s Set) Has(line string) bool { return slices.Contains(s.Lines, line) }
 
-// Empty is no access at all.
-func (s Set) Empty() bool { return len(s.Lines) == 0 && !s.Privileged }
+// ForTile is the lines of one tile (slug included), in order.
+func (s Set) ForTile(slug string) Set {
+	var out Set
+	for _, l := range s.Lines {
+		if sl, _ := Split(l); sl == slug {
+			out.Lines = append(out.Lines, l)
+		}
+	}
+	return out
+}
 
-// Missing is what s asks for that have does not grant: lines, then
-// "privileged". Only additions need approval; ponytail: dropping a line
-// never parks, and a re-added one needs the row revoked to be asked again.
+// Empty is no access at all.
+func (s Set) Empty() bool { return len(s.Lines) == 0 }
+
+// Missing is what s asks for that have does not grant. Only additions need
+// approval; ponytail: dropping a line never parks, and a re-added one needs
+// the row revoked to be asked again.
 func (s Set) Missing(have Set) []string {
 	var out []string
 	for _, l := range s.Lines {
@@ -58,15 +86,12 @@ func (s Set) Missing(have Set) []string {
 			out = append(out, l)
 		}
 	}
-	if s.Privileged && !have.Privileged {
-		out = append(out, Privileged)
-	}
 	return out
 }
 
 // Union is both sets' access.
 func (s Set) Union(o Set) Set {
-	return Set{Lines: slices.Concat(s.Lines, o.Lines), Privileged: s.Privileged || o.Privileged}.Norm()
+	return Set{Lines: slices.Concat(s.Lines, o.Lines)}.Norm()
 }
 
 // Text is the NeedsApproval text for the missing access.
@@ -83,9 +108,7 @@ func Parse(what string) (Set, bool) {
 	}
 	var s Set
 	for _, it := range strings.Split(rest, ", ") {
-		if it == Privileged {
-			s.Privileged = true
-		} else if it != "" {
+		if it != "" {
 			s.Lines = append(s.Lines, it)
 		}
 	}
@@ -107,7 +130,7 @@ func (l *Leaf) Of(ctx context.Context, stackID string) (Set, error) {
 	if errors.Is(err, errs.ErrNotFound) {
 		return Set{}, nil
 	}
-	return Set{Lines: lines(g.Lines), Privileged: g.Privileged}.Norm(), err
+	return Set{Lines: lines(g.Lines)}.Norm(), err
 }
 
 // Check is nil when want is inside the stack's grant, else a NeedsApproval
@@ -133,23 +156,38 @@ func (l *Leaf) Approve(ctx context.Context, stackID, userID string, ask Set) (st
 	} else if err != nil {
 		return g, err
 	}
-	have := Set{Lines: lines(g.Lines), Privileged: g.Privileged}
-	u := have.Union(ask)
-	g.Lines, g.Privileged, g.ApprovedBy = strings.Join(u.Lines, "\n"), u.Privileged, userID
+	u := Set{Lines: lines(g.Lines)}.Union(ask)
+	g.Lines, g.ApprovedBy = strings.Join(u.Lines, "\n"), userID
 	if fresh {
 		return g, l.rows.Create(ctx, g)
 	}
 	return g, l.rows.Update(ctx, g)
 }
 
-// Revoke deletes the row. Running tiles stay; the next deploy asks again.
-func (l *Leaf) Revoke(ctx context.Context, stackID string) error {
+// Revoke removes the tile's lines, or the whole row when tileSlug is "" or
+// nothing is left. Running tiles stay; the next deploy asks again.
+func (l *Leaf) Revoke(ctx context.Context, stackID, tileSlug string) error {
 	g, err := l.rows.GetByStack(ctx, stackID)
 	if err != nil {
 		return err
 	}
-	return l.rows.Delete(ctx, g.ID)
+	var keep []string
+	if tileSlug != "" {
+		for _, ln := range lines(g.Lines) {
+			if sl, _ := Split(ln); sl != tileSlug {
+				keep = append(keep, ln)
+			}
+		}
+	}
+	if len(keep) == 0 {
+		return l.rows.Delete(ctx, g.ID)
+	}
+	g.Lines = strings.Join(keep, "\n")
+	return l.rows.Update(ctx, g)
 }
+
+// All is every stack's grant row, for the admin list.
+func (l *Leaf) All(ctx context.Context) ([]store.HostGrant, error) { return l.rows.List(ctx) }
 
 func lines(s string) []string {
 	var out []string

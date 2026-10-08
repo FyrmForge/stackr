@@ -82,7 +82,11 @@ func Build(in Install, tiles []TileRoute, routes []Route, expand Expand) (json.R
 		serve := route{
 			"match":    []route{{"host": []string{h}}},
 			"terminal": true,
-			"handle":   []route{{"handler": "reverse_proxy", "upstreams": []route{{"dial": in.PanelUpstream}}}},
+			// X-Forwarded-For is set to the client Caddy resolved (its trusted
+			// proxies applied), not appended: the panel trusts only Caddy, so a
+			// front proxy's address would otherwise stand in for every user.
+			"handle": []route{{"handler": "reverse_proxy", "upstreams": []route{{"dial": in.PanelUpstream}},
+				"headers": route{"request": route{"set": route{"X-Forwarded-For": []string{"{http.vars.client_ip}"}}}}}},
 		}
 		if tlsOn {
 			secure = append(secure, placed{"", "", serve})

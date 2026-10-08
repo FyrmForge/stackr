@@ -40,6 +40,8 @@ type Docker interface {
 	Logs(ctx context.Context, id string, tail int) (string, error)
 	Exec(ctx context.Context, id string, cmd []string) (string, error)
 	ExecStream(ctx context.Context, id string, cmd []string, stdin io.Reader) (io.Reader, func() error, error)
+	ExecTTY(ctx context.Context, id string, cmd []string) (
+		io.ReadWriteCloser, func(cols, rows uint) error, func() (int, error), error)
 	Start(ctx context.Context, id string) error
 	Pause(ctx context.Context, id string) error
 	Unpause(ctx context.Context, id string) error
@@ -49,7 +51,7 @@ type Docker interface {
 
 // VIP is the slice of internal/vip this leaf needs.
 type VIP interface {
-	Set(ctx context.Context, vip string, replicas []string) error
+	Set(ctx context.Context, vip string, replicas, lan []string) error
 	Remove(ctx context.Context, vip string) error
 }
 
@@ -257,10 +259,11 @@ func (l *Leaf) Pause(ctx context.Context, t store.Tile, network string) (string,
 	return d.Networks[network], nil
 }
 
-// Route points the VIP at the running replicas' addresses on network.
+// Route points the VIP at the running replicas' addresses on network. lan is
+// the tile's granted "lan:..." perms.
 // ponytail: stackrd rebuilds every VIP on boot (service.rebuildVIPs) from these same
 // reads; that loop is the orchestrator's, not here.
-func (l *Leaf) Route(ctx context.Context, t store.Tile, network string) error {
+func (l *Leaf) Route(ctx context.Context, t store.Tile, network string, lan []string) error {
 	ip, err := l.Pause(ctx, t, network)
 	if err != nil {
 		return err
@@ -282,7 +285,7 @@ func (l *Leaf) Route(ctx context.Context, t store.Tile, network string) error {
 	if len(ips) == 0 {
 		return l.vip.Remove(ctx, ip)
 	}
-	return l.vip.Set(ctx, ip, ips)
+	return l.vip.Set(ctx, ip, ips, lan)
 }
 
 // Teardown removes every container of the tile and its VIP rules.
@@ -292,14 +295,34 @@ func (l *Leaf) Teardown(ctx context.Context, t store.Tile, network string) error
 		return err
 	}
 	for _, c := range cs {
-		if c.Labels[LabelRole] == "pause" {
-			if d, err := l.docker.Inspect(ctx, c.ID); err == nil && d.Networks[network] != "" {
-				if err := l.vip.Remove(ctx, d.Networks[network]); err != nil {
-					return err
-				}
+		if err := l.remove(ctx, c, network); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// remove drops one container; a pause container takes its VIP rules with it.
+func (l *Leaf) remove(ctx context.Context, c docker.Container, network string) error {
+	if c.Labels[LabelRole] == "pause" {
+		if d, err := l.docker.Inspect(ctx, c.ID); err == nil && d.Networks[network] != "" {
+			if err := l.vip.Remove(ctx, d.Networks[network]); err != nil {
+				return err
 			}
 		}
-		if err := l.docker.StopRemove(ctx, c.ID); err != nil {
+	}
+	return l.docker.StopRemove(ctx, c.ID)
+}
+
+// DropPause removes the tile's pause container and its VIP: a tile that moved
+// to the host network has neither.
+func (l *Leaf) DropPause(ctx context.Context, t store.Tile, network string) error {
+	cs, err := l.docker.List(ctx, map[string]string{LabelTile: t.ID, LabelRole: "pause"})
+	if err != nil {
+		return err
+	}
+	for _, c := range cs {
+		if err := l.remove(ctx, c, network); err != nil {
 			return err
 		}
 	}
@@ -383,6 +406,21 @@ func (l *Leaf) Terminal(
 		return nil, nil, err
 	}
 	return l.docker.ExecStream(ctx, id, cmd, stdin)
+}
+
+// TTY opens an interactive shell on a TTY in the container; the guard as
+// Exec. The raw stream, a resize and the exit read come straight from docker.
+func (l *Leaf) TTY(ctx context.Context, tileID, id string, cmd []string) (
+	io.ReadWriteCloser, func(cols, rows uint) error, func() (int, error), error,
+) {
+	if err := l.guard(ctx, tileID, id, "opened a terminal into"); err != nil {
+		return nil, nil, nil, err
+	}
+	conn, resize, exit, err := l.docker.ExecTTY(ctx, id, cmd)
+	if errors.Is(err, docker.ErrNotRunning) {
+		return nil, nil, nil, errs.Conflictf("that container is not running")
+	}
+	return conn, resize, exit, err
 }
 
 // Follow streams the container's log lines until stop is called.

@@ -466,9 +466,10 @@ func (o *Orchestrator) runDelete(ctx context.Context, r *jobs.Run, p tileJob) er
 // the VIP rules from Docker: after a host reboot the boot rebuild can run
 // before the containers are up (cost note on rebuildVIPs).
 func (o *Orchestrator) watchTick(ctx context.Context) error {
-	o.rerouteVIPs(ctx)
-	if d, err := o.docker.Inspect(ctx, ProxyContainer); err == nil && d.Started != "" &&
-		d.Started != o.proxyStarted.Swap(d.Started) {
+	d, err := o.docker.Inspect(ctx, ProxyContainer)
+	restarted := err == nil && d.Started != "" && d.Started != o.proxyStarted.Swap(d.Started)
+	o.rerouteVIPs(ctx) // VIPs and filter base in one apply; a restarted proxy has a new IP in it
+	if restarted {
 		if err := o.sync.Sync(ctx); err != nil {
 			return err
 		}

@@ -20,6 +20,7 @@ var elements = map[string]int{
 	"log-pane":        150,
 	"password-toggle": 150,
 	"side-drawer":     150,
+	"term-pane":       150,
 	"theme-toggle":    150,
 }
 
@@ -88,6 +89,7 @@ var contract = map[string][]string{
 		"history.replaceState",
 		`"drawer"`,
 	},
+	"term-pane":       {`"url"`, `"resize"`, `"exit"`},
 	"theme-toggle":    {`"theme"`},
 	"password-toggle": {"[data-toggle]", `"aria-pressed"`},
 }

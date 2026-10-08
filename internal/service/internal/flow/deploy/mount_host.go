@@ -2,6 +2,7 @@ package deploy
 
 import (
 	"context"
+	"strconv"
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/hostgrant"
@@ -14,21 +15,42 @@ func HostLine(m tile.Mount) string {
 	return "host:" + m.Host + ":" + m.Path + roSuffix(m)
 }
 
-// HostSet is the host access tiles ask for: their host mount lines, device
-// lines and privileged flag. A line that does not parse is left out; the
-// tile's own validation reports it.
+// HostSet is the elevated access tiles ask for, one "<slug> <perm>" line
+// each: host mounts, devices, privileged, LAN access, published server ports
+// and host networking. A line that does not parse is left out; the tile's
+// own validation reports it.
 func HostSet(ts ...store.Tile) hostgrant.Set {
 	var s hostgrant.Set
 	for _, t := range ts {
+		add := func(perm string) { s.Lines = append(s.Lines, hostgrant.Line(t.Slug, perm)) }
 		for _, l := range tile.Lines(t.Volumes) {
 			if m, err := tile.ParseMount(l); err == nil && m.Kind == tile.MountHost {
-				s.Lines = append(s.Lines, HostLine(m))
+				add(HostLine(m))
 			}
 		}
 		for _, l := range tile.Lines(t.Devices) {
-			s.Lines = append(s.Lines, hostgrant.Device+l)
+			add(hostgrant.Device + l)
 		}
-		s.Privileged = s.Privileged || t.Privileged
+		for _, l := range tile.Lines(t.Lan) {
+			if _, err := tile.ParseLAN(l); err == nil {
+				add(hostgrant.LAN + l)
+			}
+		}
+		for _, l := range tile.Lines(t.PublishedPorts) {
+			if h, _, proto, err := tile.ParsePort(l); err == nil {
+				p := hostgrant.Port + strconv.Itoa(h)
+				if proto == "udp" {
+					p += "/udp"
+				}
+				add(p)
+			}
+		}
+		if t.Privileged {
+			add(hostgrant.Privileged)
+		}
+		if t.HostNetwork {
+			add(hostgrant.NetworkHost)
+		}
 	}
 	return s.Norm()
 }
@@ -47,13 +69,13 @@ func (f *Flow) checkAccess(ctx context.Context, st store.Stack, t store.Tile) (h
 }
 
 // hostBind is a "host:/a:/b[:ro]" line: a server path as a Docker bind, once
-// the stack's host grant covers it. The lines were expanded before they got
+// the stack's grant covers it for this tile. The lines were expanded before they got
 // here, so a line built from a param is checked as it will run.
 func (f *Flow) hostBind(ctx context.Context, st store.Stack, t store.Tile, m tile.Mount) (string, error) {
 	if f.HostGrants == nil {
 		return "", errs.Conflictf("%s: host mounts need the grant leaf", t.Slug)
 	}
-	if err := f.HostGrants.Check(ctx, st.ID, hostgrant.Set{Lines: []string{HostLine(m)}}); err != nil {
+	if err := f.HostGrants.Check(ctx, st.ID, hostgrant.Set{Lines: []string{hostgrant.Line(t.Slug, HostLine(m))}}); err != nil {
 		return "", err
 	}
 	return m.Host + ":" + m.Path + roSuffix(m), nil

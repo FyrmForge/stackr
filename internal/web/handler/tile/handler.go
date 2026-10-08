@@ -17,9 +17,11 @@ import (
 	"github.com/labstack/echo/v4"
 
 	"github.com/FyrmForge/stackr/internal/api/stream"
+	"github.com/FyrmForge/stackr/internal/authz"
 	"github.com/FyrmForge/stackr/internal/middleware"
 	"github.com/FyrmForge/stackr/internal/service"
 	"github.com/FyrmForge/stackr/internal/service/errs"
+	"github.com/FyrmForge/stackr/internal/ui/access"
 	comp "github.com/FyrmForge/stackr/internal/ui/components"
 	ui "github.com/FyrmForge/stackr/internal/ui/drawer/tile"
 	"github.com/FyrmForge/stackr/internal/web/render"
@@ -65,6 +67,13 @@ func base(c echo.Context) string {
 	return render.EnvURL(c) + "/-/tiles/" + tileOf(c).Slug
 }
 
+// canShell is whether the viewer may open a shell: the verb the terminal
+// endpoint itself needs.
+func canShell(c echo.Context, s service.Scope) bool {
+	p := middleware.Principal(c)
+	return p != nil && authz.Can(p.Access, "tile.write", authz.Resource{OrgID: s.Org.ID}) == nil
+}
+
 // head is what every answer's header reads, once per request.
 type head struct {
 	status service.TileStatus
@@ -92,7 +101,8 @@ func (h *handler) view(c echo.Context, tab string) (ui.View, head, error) {
 		Kind:     t.Kind,
 		Source:   source(*t),
 		Base:     base(c),
-		Tab:      ui.Tab(t.Kind, tab),
+		Tab:      ui.Tab(t.Kind, tab, canShell(c, s)),
+		Terminal: canShell(c, s),
 		Status:   st.Word,
 		Stopped:  st.Word == "stopped",
 		Paused:   t.Paused,
@@ -133,6 +143,11 @@ func (h *handler) show(c echo.Context, status int, v ui.View, hd head, ty *typed
 			return middleware.HTTPError(err)
 		}
 		sv := statusView(render.EnvURL(c), *t, hd.status, ds)
+		g, err := h.orch.HostGrant(ctx, t.StackID)
+		if err != nil {
+			return middleware.HTTPError(err)
+		}
+		sv.Access = access.ForTile(g.Lines, g.Pending, t.Slug)
 		if sv.Job != nil {
 			sv.Job.Refresh = v.Base + "?tab=status"
 		}
@@ -149,6 +164,8 @@ func (h *handler) show(c echo.Context, status int, v ui.View, hd head, ty *typed
 			}
 		}
 		body = ui.Logs(v, logsView(c, v.Base, *t, hd.status, last))
+	case "terminal":
+		body = ui.Terminal(v, terminalView(c, hd.status))
 	case "env":
 		body = ui.Env(v, envView(t.EnvJSON))
 	case "access":

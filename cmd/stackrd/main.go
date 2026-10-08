@@ -182,6 +182,7 @@ func run(log *slog.Logger, generate bool) error {
 		TLSOff:       tlsOff,
 		ProxyAdmin:   config.GetEnvOrDefault("STACKR_PROXY_ADMIN", ""),
 		PanelSpec:    spec,
+		PanelBind:    envHost,
 
 		PanelDomain:    config.GetEnvOrDefault("PANEL_DOMAIN", ""),
 		RootDomain:     config.GetEnvOrDefault("ROOT_DOMAIN", ""),

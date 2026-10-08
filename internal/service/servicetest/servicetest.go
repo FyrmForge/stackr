@@ -324,7 +324,7 @@ func (e *Env) Bound(t *testing.T, sliceTileID, instanceTileID, consumerTileID, a
 // noVIP stands in for the iptables VIP table, which needs root.
 type noVIP struct{}
 
-func (noVIP) Set(context.Context, string, []string) error {
+func (noVIP) Set(context.Context, string, []string, []string) error {
 	return nil
 }
 

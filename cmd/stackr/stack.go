@@ -52,7 +52,8 @@ func tileFlags(c *cobra.Command) map[string]string {
 		{"health-path", "HTTP health path"},
 		{"healthcheck", "health check command"},
 		{"user", "run as user"},
-		{"devices", "devices"},
+		{"devices", "devices (needs admin approval)"},
+		{"lan", "LAN access, one ip|cidr[:port] or all per line (needs admin approval)"},
 		{"restart", "restart policy"},
 		{"depends-on", "tiles to start first"},
 		{"files", "files to mount"},
@@ -78,7 +79,8 @@ func tileFlags(c *cobra.Command) map[string]string {
 		f.Int(s[0], 0, s[1])
 	}
 	f.Float64("cpus", 0, "CPU limit")
-	f.Bool("privileged", false, "run privileged")
+	f.Bool("privileged", false, "run privileged (needs admin approval)")
+	f.Bool("host-network", false, "use the server's network (needs admin approval)")
 	return map[string]string{
 		"image":               "image_ref",
 		"git":                 "git_url",
@@ -96,6 +98,8 @@ func tileFlags(c *cobra.Command) map[string]string {
 		"healthcheck":         "healthcheck_cmd",
 		"user":                "user",
 		"devices":             "devices",
+		"lan":                 "lan",
+		"host-network":        "host_network",
 		"restart":             "restart_policy",
 		"depends-on":          "depends_on",
 		"files":               "files",
@@ -1002,7 +1006,9 @@ func (a *app) tiles() *cobra.Command {
 				return a.show(m, "word", "replicas", "last_job", "last_run", "next_run", "paused")
 			})),
 		a.logs(),
+		a.forward(),
 		exec,
+		a.ssh(),
 		a.runNow(),
 		a.pause("pause [tile]", "Pause a cron tile's schedule", true),
 		a.pause("resume [tile]", "Resume a cron tile's schedule", false),

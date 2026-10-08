@@ -185,11 +185,12 @@ func (d *Client) List(ctx context.Context, labels map[string]string) ([]Containe
 	out := make([]Container, 0, len(cs))
 	for _, c := range cs {
 		row := Container{
-			ID:     c.ID,
-			Image:  c.Image,
-			State:  c.State,
-			Health: healthWord(c.Status),
-			Labels: c.Labels,
+			ID:          c.ID,
+			Image:       c.Image,
+			State:       c.State,
+			Health:      healthWord(c.Status),
+			Labels:      c.Labels,
+			HostNetwork: c.HostConfig.NetworkMode == "host",
 		}
 		if len(c.Names) > 0 {
 			row.Name = strings.TrimPrefix(c.Names[0], "/")
@@ -265,6 +266,9 @@ func (d *Client) Inspect(ctx context.Context, id string) (Detail, error) {
 				det.Networks[name] = n.IPAddress
 			}
 		}
+	}
+	if info.HostConfig != nil {
+		det.HostNetwork = info.HostConfig.NetworkMode == "host"
 	}
 	for _, m := range info.Mounts {
 		src := m.Source

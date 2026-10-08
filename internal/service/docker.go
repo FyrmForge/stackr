@@ -73,6 +73,10 @@ type Docker interface {
 		cmd []string,
 		stdin io.Reader,
 	) (out io.Reader, wait func() error, err error)
+	// ExecTTY is an interactive exec on a TTY: a raw stream, a resize and
+	// the exit code once the stream has ended.
+	ExecTTY(ctx context.Context, id string, cmd []string) (
+		conn io.ReadWriteCloser, resize func(cols, rows uint) error, exit func() (int, error), err error)
 }
 
 var _ Docker = (*docker.Client)(nil)

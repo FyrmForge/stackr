@@ -54,6 +54,7 @@ var Gzip = server.GzipConfig{
 	Enabled: true,
 	Skipper: func(c echo.Context) bool {
 		p := c.Request().URL.Path
-		return strings.HasSuffix(p, "/events") || strings.HasSuffix(p, "/logs/stream") || strings.HasSuffix(p, "/exec")
+		return strings.HasSuffix(p, "/events") || strings.HasSuffix(p, "/logs/stream") || strings.HasSuffix(p, "/exec") ||
+			strings.HasSuffix(p, "/terminal") || strings.HasSuffix(p, "/forward")
 	},
 }

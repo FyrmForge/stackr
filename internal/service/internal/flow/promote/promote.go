@@ -182,9 +182,15 @@ func (f *Flow) apply(ctx context.Context, w *work, log io.Writer, swap func() er
 				return err
 			}
 		}
-		reps, err := replicaIDs(ctx, d, t)
+		cs, err := d.Tiles.Replicas(ctx, t)
 		if err != nil {
 			return err
+		}
+		var reps []string
+		for _, c := range cs {
+			if !c.HostNetwork { // on the host's network: no ingress network to join
+				reps = append(reps, c.ID)
+			}
 		}
 		for _, sp := range dw.add {
 			if _, err := d.Domains.Attach(ctx, t.ID, sp, dns01, reps); err != nil {

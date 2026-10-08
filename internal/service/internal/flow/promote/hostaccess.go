@@ -12,9 +12,9 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
 
-// checkHostAccess compares the host lines, privileged flags and devices the
-// plan would run with against the stack's approved host_grants row; what the
-// row lacks is a blocker Apply turns into errs.NeedsApproval.
+// checkHostAccess compares the per tile elevated access lines the plan would
+// run with against the stack's approved host_grants row; what the row lacks
+// is a blocker Apply turns into errs.NeedsApproval.
 func (f *Flow) checkHostAccess(ctx context.Context, p *Plan, w *work) error {
 	if w.re == nil || f.D.HostGrants == nil {
 		return nil
@@ -33,7 +33,7 @@ func (f *Flow) checkHostAccess(ctx context.Context, p *Plan, w *work) error {
 	return nil
 }
 
-// OnlyHostAccess is a plan whose one blocker is host access: promoting it
+// OnlyHostAccess is a plan whose one blocker is elevated access: promoting it
 // queues a job that parks on an admin, so it is not a refusal.
 func (p *Plan) OnlyHostAccess() bool {
 	return len(p.Blockers) == 1 && strings.HasPrefix(p.Blockers[0], hostgrant.Prefix)

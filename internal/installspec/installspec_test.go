@@ -13,16 +13,17 @@ import (
 var update = flag.Bool("update", false, "rewrite golden files")
 
 var tlsIn = Input{
-	Root:      "example.com",
-	PanelHost: "stkr.example.com",
-	HTTPS:     true,
-	Email:     "ops@example.com",
-	Proxies:   "203.0.113.0/24",
-	DNS01:     true,
-	HTTPPort:  "80",
-	HTTPSPort: "443",
-	DataDir:   "/var/lib/stackr",
-	Bind:      "172.17.0.1",
+	Root:         "example.com",
+	PanelHost:    "stkr.example.com",
+	HTTPS:        true,
+	Email:        "ops@example.com",
+	Proxies:      "203.0.113.0/24",
+	DNS01:        true,
+	HTTPPort:     "80",
+	HTTPSPort:    "443",
+	DataDir:      "/var/lib/stackr",
+	Bind:         "172.17.0.1",
+	BridgeSubnet: "172.17.0.0/16",
 }
 
 var plainIn = Input{

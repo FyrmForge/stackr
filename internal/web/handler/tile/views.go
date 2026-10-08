@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"maps"
+	"net/url"
 	"slices"
 	"strconv"
 	"strings"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/labstack/echo/v4"
 
+	"github.com/FyrmForge/stackr/internal/middleware"
 	"github.com/FyrmForge/stackr/internal/service"
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	comp "github.com/FyrmForge/stackr/internal/ui/components"
@@ -98,6 +100,18 @@ func logsView(c echo.Context, base string, t service.Tile, s service.TileStatus,
 		url = base + "/logs/stream?run=" + v.Run
 	}
 	v.Pane = comp.LogPaneView{StreamURL: url, Level: c.QueryParam("level"), Search: c.QueryParam("q")}
+	return v
+}
+
+// terminalView shells into a replica: the one asked for, else the first.
+func terminalView(c echo.Context, s service.TileStatus) ui.TerminalView {
+	sc := middleware.ScopeOf(c)
+	v := ui.TerminalView{Replicas: replicas(s), Container: c.QueryParam("container")}
+	if v.Container == "" && len(v.Replicas) > 0 {
+		v.Container = v.Replicas[0].ID
+	}
+	v.URL = "/api/v1/orgs/" + sc.Org.Slug + "/stacks/" + sc.Stack.Slug + "/envs/" + sc.Env.Slug +
+		"/tiles/" + sc.Tile.Slug + "/terminal?container=" + url.QueryEscape(v.Container)
 	return v
 }
 

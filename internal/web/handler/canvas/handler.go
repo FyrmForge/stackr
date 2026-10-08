@@ -39,6 +39,7 @@ var Every = 3 * time.Second
 // level is the canvas the request is on.
 type level struct {
 	scope service.CanvasScope
+	stack string // the stack's id on an env canvas, for its elevated access
 	base  string // "" on home
 	title string
 	empty string // v0's line for a canvas with nothing on it yet
@@ -50,6 +51,7 @@ func where(c echo.Context) level {
 	case sc.Env != nil:
 		return level{
 			scope: service.CanvasScope{Kind: service.CanvasEnv, ID: sc.Env.ID},
+			stack: sc.Stack.ID,
 			base:  "/" + sc.Org.Slug + "/" + sc.Stack.Slug + "/" + sc.Env.Slug,
 			title: sc.Env.Name,
 			empty: "No tiles in this environment yet.",
@@ -121,7 +123,13 @@ func (h *handler) build(ctx context.Context, l level, sh service.GraphShow, focu
 	if err != nil {
 		return ui.View{}, err
 	}
-	v := mapView(gv, l, sh, focus)
+	var g service.HostGrant
+	if l.stack != "" {
+		if g, err = h.orch.HostGrant(ctx, l.stack); err != nil {
+			return ui.View{}, err
+		}
+	}
+	v := mapView(gv, l, sh, focus, g)
 	if review {
 		v.Events, v.SyncBar, v.Review = "", syncBar(l, pl, q), q.query()
 	}

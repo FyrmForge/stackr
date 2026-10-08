@@ -107,6 +107,10 @@ type Config struct {
 	// Conntrack is the host conntrack table the traffic sample reads;
 	// "" = /proc/net/nf_conntrack (the panel is host-network).
 	Conntrack string
+	// PanelBind is the address the host-network panel listens on (the
+	// installer's HOST: docker0's gateway); the filter rules let only Caddy
+	// reach it. "" = no panel rule.
+	PanelBind string
 }
 
 // Option changes how New builds the tree; tests use it.
@@ -200,9 +204,10 @@ type Orchestrator struct {
 	sched     *schedule.Runner
 	sync      *domain.Syncer
 
-	gitEnv       []string     // WithGit: clone env that replaces the connector's
-	proxyStarted atomic.Value // the proxy container's last seen start time
-	repoLocks    sync.Map     // clone dir -> *sync.Mutex
+	gitEnv       []string       // WithGit: clone env that replaces the connector's
+	proxyStarted atomic.Value   // the proxy container's last seen start time
+	vipAsync     sync.WaitGroup // rerouteVIPsAsync runs in flight; tests wait on it
+	repoLocks    sync.Map       // clone dir -> *sync.Mutex
 	cli          cliCodes
 }
 
@@ -534,6 +539,7 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 	if err := orch.rebuildVIPs(ctx); err != nil {
 		slog.Warn("vip: boot rebuild failed", "err", err)
 	}
+	orch.vipLegacy(ctx)
 	if err := orch.jobs.Start(ctx); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("start job runner: %w", err)

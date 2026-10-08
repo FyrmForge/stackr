@@ -11,6 +11,24 @@
       "url": "https://unpkg.com/htmx-ext-sse@2.2.4/dist/sse.min.js",
       "out": "ui/static/js/vendor/sse.min.js",
       "sha256": "98a46496de0c3605fbffdce9167ba427bdd9553184f83f149c261891a92c0136"
+    },
+    "xterm-addon-fit": {
+      "version": "0.11.0",
+      "url": "https://unpkg.com/@xterm/addon-fit@0.11.0/lib/addon-fit.js",
+      "out": "ui/static/js/vendor/xterm-addon-fit.js",
+      "sha256": "ba3ea256ce0620a0992a197d6c9baea64823fc93d8da07a9e366ca9943c18527"
+    },
+    "xterm-css": {
+      "version": "6.0.0",
+      "url": "https://unpkg.com/@xterm/xterm@6.0.0/css/xterm.css",
+      "out": "ui/static/css/xterm.css",
+      "sha256": "854a7c0fb70e8b1a083c16797ab827299fb18744f5ad34f227b48337e33293c6"
+    },
+    "xterm": {
+      "version": "6.0.0",
+      "url": "https://unpkg.com/@xterm/xterm@6.0.0/lib/xterm.js",
+      "out": "ui/static/js/vendor/xterm.js",
+      "sha256": "14903579ff54664cd72f8e8699e6961a6272c21863ec1c3b118cdc8af5d4a972"
     }
   }
 }

@@ -1317,7 +1317,8 @@ you disagree with:
 1. Step 6 drops the terminal (xterm + websocket exec) and the YAML code
    editor from v1. v1 scope lists "container logs and restart" only.
    Options: (a) keep dropped, (b) add `<term-pane>` to the whitelist as a
-   plan item for step 6.
+   plan item for step 6. **Reversed 2026-10-08: terminal tab and `stackr
+   ssh` built, see `tasks/terminal-forward.md`.**
 2. Self-upgrade had no carry-over row. Added `service/admin.go` as extract
    `admin-upgrade.md` and a `flow/upgrade` task in step 3. Options: (a)
    keep, (b) redesign upgrade in a later round.
@@ -1558,7 +1559,8 @@ Raised by step 3 session B (builder took the lean; flip any):
    `link` takes flags, no picker; nouns are `params`, `managed`, `key`;
    the old aliases and the forward/storage/image/proxy nouns are gone;
    `tile set` prints the redeploy job's log command instead of following
-   it. Options: (a) keep; (b) restore any of them. Lean (a).
+   it. Options: (a) keep; (b) restore any of them. Lean (a). **`forward`
+   restored 2026-10-08, see `tasks/terminal-forward.md`.**
 46. **Child-id org check.** `:release`, `:domain`, etc. are checked
    against the org only, not the stack or env in the path; an unknown
    param fails closed (500). Options: (a) keep, the verb rejects a

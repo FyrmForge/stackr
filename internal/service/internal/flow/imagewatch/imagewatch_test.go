@@ -28,7 +28,7 @@ var ctx = context.Background()
 
 type vipStub struct{}
 
-func (vipStub) Set(context.Context, string, []string) error {
+func (vipStub) Set(context.Context, string, []string, []string) error {
 	return nil
 }
 

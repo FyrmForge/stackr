@@ -128,10 +128,14 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 		return err
 	}
 	in.Bind = r.bridgeGateway(ctx)
+	in.BridgeSubnet = r.bridgeSubnet(ctx)
 
 	// A re-run with other answers would leave the running containers
-	// disagreeing with the saved ones the upgrade rebuilds from.
-	if old, err := installspec.Load(in.DataDir); err == nil && !reflect.DeepEqual(old, in) {
+	// disagreeing with the saved ones the upgrade rebuilds from. Bind and
+	// BridgeSubnet are read off the box, not answered, so they never count:
+	// an install.json from before a field existed still re-runs.
+	if old, err := installspec.Load(in.DataDir); err == nil &&
+		!reflect.DeepEqual(withBox(old, in), in) {
 		return fmt.Errorf("already installed with other answers (%s); change them there or reinstall from a clean data dir",
 			filepath.Join(in.DataDir, installspec.File))
 	}
@@ -436,6 +440,15 @@ func (r runner) bridgeGateway(ctx context.Context) string {
 	return gw
 }
 
+// bridgeSubnet is the default bridge's subnet, where Caddy gets its address.
+func (r runner) bridgeSubnet(ctx context.Context) string {
+	sn, err := read(ctx, "docker", "network", "inspect", "bridge", "--format", "{{(index .IPAM.Config 0).Subnet}}")
+	if err != nil || sn == "" {
+		return "172.17.0.0/16" // docker's default; a dry run off-box lands here
+	}
+	return sn
+}
+
 func read(ctx context.Context, name string, args ...string) (string, error) {
 	b, err := exec.CommandContext(ctx, name, args...).Output()
 	return strings.TrimSpace(string(b)), err
@@ -515,4 +528,10 @@ func newInstallID() string {
 		panic(err) // crypto/rand does not fail
 	}
 	return hex.EncodeToString(b)
+}
+
+// withBox is old with the fields read off the box taken from now.
+func withBox(old, now installspec.Input) installspec.Input {
+	old.Bind, old.BridgeSubnet = now.Bind, now.BridgeSubnet
+	return old
 }

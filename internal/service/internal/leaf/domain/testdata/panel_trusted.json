@@ -73,6 +73,15 @@
               "handle": [
                 {
                   "handler": "reverse_proxy",
+                  "headers": {
+                    "request": {
+                      "set": {
+                        "X-Forwarded-For": [
+                          "{http.vars.client_ip}"
+                        ]
+                      }
+                    }
+                  },
                   "upstreams": [
                     {
                       "dial": "stackrd:8080"

@@ -98,6 +98,10 @@ var (
 	methodRe = regexp.MustCompile(`^[A-Z]+$`)
 )
 
+// HostUpstream is the host as the proxy sees it (it resolves to host-gateway):
+// the upstream of a tile on the host network.
+const HostUpstream = "stackr"
+
 // Ingress is the tile's ingress network: its replicas and the proxy, nothing else.
 func Ingress(tileID string) string { return "stackr-ingress-" + tileID }
 

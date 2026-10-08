@@ -18,7 +18,10 @@ type Shell struct {
 	Crumbs []Link // org / stack / env / tile, from the URL
 	Nav    []Link // top-level sections; Active marks the one the URL is in
 	Admin  bool   // the nav opens the admin drawer
-	Flash  Flash
+	// Waiting is the badge on the admin icon: stacks with a request for
+	// elevated access open. 0 = none (and always 0 for a non-admin).
+	Waiting int
+	Flash   Flash
 	// EnvColor is the URL's env hue (one of EnvColors): the top bar's band
 	// and the env crumb's dot. "" = no env, or no hue picked.
 	EnvColor string

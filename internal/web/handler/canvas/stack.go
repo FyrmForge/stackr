@@ -2,10 +2,8 @@ package canvas
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
 	"slices"
-	"strings"
 
 	"github.com/a-h/templ"
 	"github.com/labstack/echo/v4"
@@ -13,6 +11,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/middleware"
 	"github.com/FyrmForge/stackr/internal/service"
 	"github.com/FyrmForge/stackr/internal/service/errs"
+	"github.com/FyrmForge/stackr/internal/ui/access"
 	comp "github.com/FyrmForge/stackr/internal/ui/components"
 	"github.com/FyrmForge/stackr/internal/ui/dialog"
 	stackui "github.com/FyrmForge/stackr/internal/ui/drawer/stack"
@@ -20,6 +19,13 @@ import (
 
 func (h *handler) stackTab(c echo.Context, cd card, f *comp.DrawerView) (templ.Component, error) {
 	ctx, st := c.Request().Context(), cd.s.Stack
+	g, err := h.orch.HostGrant(ctx, st.ID)
+	if err != nil {
+		return nil, err
+	}
+	if len(g.Lines)+len(g.Pending) > 0 {
+		f.Scope = "elevated access"
+	}
 	switch f.Tab {
 	case "params":
 		return h.vars(c, cd.s, "", "")
@@ -45,22 +51,15 @@ func (h *handler) stackTab(c echo.Context, cd card, f *comp.DrawerView) (templ.C
 		Branch:    st.ConfigBranch,
 		Path:      st.ConfigPath,
 	}
-	g, err := h.orch.HostGrant(ctx, st.ID)
-	if err != nil {
-		return nil, err
-	}
-	v.Host = stackui.HostView{Lines: g.Lines, Privileged: g.Privileged, Pending: g.Pending}
+	v.Host = stackui.HostView{Tiles: access.Group(g.Lines, g.Pending)}
 	if len(g.Pending) > 0 && can(c, cd.s, "hostgrant.approve") {
 		// The set shown rides along; the server refuses when the ask moved.
-		vals, _ := json.Marshal(map[string]string{"pending": strings.Join(g.Pending, "\n")})
-		v.Host.Approve = comp.ConfirmView{
-			Button:  "Approve",
-			Title:   "Approve host access?",
-			Warning: "The stack's tiles get " + strings.Join(g.Pending, ", ") + ". Parked jobs resume.",
+		v.Host.Approve = &access.ApproveView{
+			ID:      "host-approve",
 			Action:  f.Base + "/host-grant/approve",
-			Target:  "#" + comp.DrawerRoot,
-			Primary: true,
-			Vals:    string(vals),
+			Name:    st.Name,
+			Pending: g.Pending,
+			Tiles:   access.Group(nil, g.Pending),
 		}
 	}
 	for _, k := range cs {
@@ -129,8 +128,13 @@ func (h *handler) mountStack(site *echo.Group, a *middleware.Access) {
 		return "Config repo saved.", err
 	}), write)
 	site.POST(s+"/host-grant/approve", h.stackAction("settings", func(c echo.Context, cd card) (string, error) {
-		_, err := h.orch.ApproveHostGrant(c.Request().Context(), cd.s.Stack.ID, middleware.Principal(c).User.ID, strings.Split(c.FormValue("pending"), "\n"))
-		return "Host access approved.", err
+		f, _ := c.FormParams()
+		pending, grant, msg := access.Read(f, cd.s.Stack.Name)
+		if msg != "" {
+			return "", errs.Invalidf("grant", "%s", msg)
+		}
+		_, err := h.orch.ApproveHostGrant(c.Request().Context(), cd.s.Stack.ID, middleware.Principal(c).User.ID, pending, grant)
+		return "Elevated access approved.", err
 	}), a.Require("hostgrant.approve"))
 	site.POST(s+"/unbind", h.stackAction("settings", func(c echo.Context, cd card) (string, error) {
 		_, err := h.orch.SetConfigRepo(c.Request().Context(), cd.s.Stack.ID, "", "", "", "")

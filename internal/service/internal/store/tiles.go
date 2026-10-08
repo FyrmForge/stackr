@@ -41,6 +41,8 @@ type Tile struct {
 	ShmSizeMB               int             `db:"shm_size_mb" json:"shm_size_mb"`
 	Privileged              bool            `db:"privileged" json:"privileged"`
 	Devices                 string          `db:"devices" json:"devices"`
+	Lan                     string          `db:"lan" json:"lan"` // lines: ip|cidr[:port] or all
+	HostNetwork             bool            `db:"host_network" json:"host_network"`
 	RestartPolicy           string          `db:"restart_policy" json:"restart_policy"`
 	DependsOn               string          `db:"depends_on" json:"depends_on"`
 	Files                   string          `db:"files" json:"files"`

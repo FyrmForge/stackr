@@ -4,7 +4,10 @@
 // handler.
 package stack
 
-import c "github.com/FyrmForge/stackr/internal/ui/components"
+import (
+	"github.com/FyrmForge/stackr/internal/ui/access"
+	c "github.com/FyrmForge/stackr/internal/ui/components"
+)
 
 var Tabs = []string{"settings", "params", "releases"}
 
@@ -24,14 +27,13 @@ type SettingsView struct {
 	Host       HostView
 }
 
-// HostView is the stack's host access: what a server admin approved, what
-// its parked jobs still ask for, and Approve for a server admin when
-// something waits. The zero value draws nothing.
+// HostView is the stack's elevated access, per tile: what a server admin
+// approved and what its parked jobs still ask for. Approve is the form for
+// a server admin when something waits; nil = the viewer cannot approve, or
+// nothing waits. The zero value draws nothing.
 type HostView struct {
-	Lines      []string
-	Privileged bool
-	Pending    []string
-	Approve    c.ConfirmView // Action "" = the viewer cannot approve, or nothing waits
+	Tiles   []access.TilePerms
+	Approve *access.ApproveView
 }
 
 type Option struct{ Value, Label string }
@@ -84,22 +86,21 @@ templ Settings(v SettingsView) {
 				</div>
 			}
 		}
-		if len(v.Host.Lines) > 0 || v.Host.Privileged || len(v.Host.Pending) > 0 {
-			@c.Section("Host access", "stack", "Set by a server admin.") {
-				<ul id="host-access" class="font-mono text-sm space-y-1">
-					for _, l := range v.Host.Lines {
-						<li>{ l }</li>
+		if len(v.Host.Tiles) > 0 {
+			@c.Section("Elevated access", "stack", "Set by a server admin, per tile.") {
+				<div id="host-access" class="space-y-3">
+					for _, t := range v.Host.Tiles {
+						<div>
+							<div class="mb-1 font-mono text-xs text-rw-muted">{ t.Tile }</div>
+							@access.Rows(t.Perms)
+						</div>
 					}
-					if v.Host.Privileged {
-						<li>privileged</li>
-					}
-					for _, l := range v.Host.Pending {
-						<li class="text-rw-warn">waiting: { l }</li>
-					}
-				</ul>
-				if v.Host.Approve.Action != "" {
-					<div class="mt-4">
-						@c.Confirm(v.Host.Approve)
+				</div>
+				if v.Host.Approve != nil {
+					<div class="mt-4 pt-4 border-t border-rw-border">
+						<div class="label">Review request</div>
+						<p class="mb-3 text-xs text-rw-faint">Untick what you do not grant.</p>
+						@access.Approve(*v.Host.Approve)
 					</div>
 				}
 			}

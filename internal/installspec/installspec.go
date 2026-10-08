@@ -6,6 +6,7 @@
 package installspec
 
 import (
+	"cmp"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -28,7 +29,8 @@ const (
 	// the proxy publishes it on loopback only.
 	AdminURL = "http://127.0.0.1:2019"
 	// DockerRanges are the private ranges docker hands out networks from;
-	// the panel trusts X-Forwarded-For from them (the proxy's address).
+	// the panel trusts X-Forwarded-For from them (the proxy's address) until
+	// the install records the bridge subnet (Input.BridgeSubnet).
 	// ponytail: all of RFC 1918, not the box's own pools; the panel listens
 	// on the bridge gateway only, so a spoofer must already be on the box.
 	DockerRanges = "10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"
@@ -53,6 +55,10 @@ type Input struct {
 	// Bind is the panel's listen address: the default bridge's gateway, the
 	// address `host-gateway` names inside the proxy.
 	Bind string `json:"bind"`
+	// BridgeSubnet is the default bridge's subnet, where Caddy sits: the
+	// only range the panel trusts X-Forwarded-For from. Empty (an older
+	// install) keeps DockerRanges until the installer runs again.
+	BridgeSubnet string `json:"bridge_subnet,omitempty"`
 	// InstallID names this box's panel archives, so two installs on one
 	// bucket never prune each other's. Empty (an older install) is "default".
 	InstallID string `json:"install_id,omitempty"`
@@ -114,7 +120,7 @@ func Panel(image string, in Input) Container {
 		"DATABASE_PATH=" + in.DataDir + "/stackr.db",
 		"HOST=" + in.Bind,
 		"PORT=" + PanelPort,
-		"TRUSTED_PROXIES=" + DockerRanges,
+		"TRUSTED_PROXIES=" + cmp.Or(in.BridgeSubnet, DockerRanges),
 		"STACKR_PROXY_ADMIN=" + AdminURL,
 		"STACKR_IMAGE=" + image,
 	}

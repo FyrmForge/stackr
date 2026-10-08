@@ -223,6 +223,8 @@ type TileConf struct {
 	ShmSizeMB  int          `yaml:"shm_size_mb"`
 	Privileged bool         `yaml:"privileged"`
 	Devices    []string     `yaml:"devices"`
+	LAN        []string     `yaml:"lan"`     // ip|cidr[:port] or all; needs an admin's approval
+	Network    string       `yaml:"network"` // "" or host; needs an admin's approval
 	Restart    string       `yaml:"restart"`
 	DependsOn  []string     `yaml:"depends_on"`
 	Files      []string     `yaml:"files"`
@@ -633,6 +635,17 @@ func checkTile(name string, tc TileConf, orgSlug string) error {
 			name,
 			tc.Replicas,
 		)
+	}
+	switch {
+	case tc.Network != "" && tc.Network != "host":
+		return fmt.Errorf("tile %s: network %q must be host (or left out)", name, tc.Network)
+	case tc.Network != "host":
+	case tc.Replicas > 1:
+		return fmt.Errorf("tile %s: network: host runs one replica", name)
+	case len(tc.PublishedPorts) > 0:
+		return fmt.Errorf("tile %s: network: host binds the server's ports itself; drop published_ports", name)
+	case len(tc.LAN) > 0:
+		return fmt.Errorf("tile %s: network: host already reaches the whole LAN; drop lan", name)
 	}
 	for _, a := range tc.SliceAccess {
 		switch {

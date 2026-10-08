@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"net/netip"
 	"slices"
 	"strings"
 	"testing"
@@ -23,7 +24,7 @@ var ctx = context.Background()
 
 type vipStub struct{ set map[string][]string }
 
-func (v *vipStub) Set(_ context.Context, ip string, rs []string) error {
+func (v *vipStub) Set(_ context.Context, ip string, rs, _ []string) error {
 	v.set[ip] = rs
 	return nil
 }
@@ -168,6 +169,14 @@ func TestKindWhitelist(t *testing.T) {
 		{"file outside the repo", func(t *store.Tile) { t.Files = "../x:/etc/x" }, "files"},
 		{"replicas with a mount", func(t *store.Tile) { t.Volumes, t.Replicas = "data:/data", 2 }, "replicas"},
 		{"replicas without a mount", func(t *store.Tile) { t.Replicas = 3 }, ""},
+		{"lan ok", func(t *store.Tile) { t.Lan = "192.168.1.10:8123\n10.0.0.0/24\nall" }, ""},
+		{"bad lan", func(t *store.Tile) { t.Lan = "router" }, "lan"},
+		{"lan port out of range", func(t *store.Tile) { t.Lan = "10.0.0.1:70000" }, "lan"},
+		{"host network ok", func(t *store.Tile) { t.HostNetwork = true }, ""},
+		{"host network with replicas", func(t *store.Tile) { t.HostNetwork, t.Replicas = true, 2 }, "replicas"},
+		{"host network with ports", func(t *store.Tile) { t.HostNetwork, t.PublishedPorts = true, "80:80" }, "published_ports"},
+		{"host network with lan", func(t *store.Tile) { t.HostNetwork, t.Lan = true, "all" }, "lan"},
+		{"managed with host network", func(t *store.Tile) { t.Kind, t.GitURL, t.HostNetwork = tile.Managed, "", true }, "host_network"},
 	} {
 		row := store.Tile{Name: "x", Kind: tile.Service, GitURL: "https://github.com/a/b"}
 		c.edit(&row)
@@ -213,6 +222,31 @@ func TestParseDeviceRefusesComma(t *testing.T) {
 	}
 	if _, err := tile.ParseDevice("/dev/null:/dev/x:rw"); err != nil {
 		t.Errorf("a plain device line: %v", err)
+	}
+}
+
+func TestParseLAN(t *testing.T) {
+	for _, c := range []struct {
+		line string
+		want tile.LANRule
+		ok   bool
+	}{
+		{"all", tile.LANRule{All: true}, true},
+		{"192.168.1.10", tile.LANRule{Net: netip.MustParsePrefix("192.168.1.10/32")}, true},
+		{"192.168.1.10:8123", tile.LANRule{Net: netip.MustParsePrefix("192.168.1.10/32"), Port: 8123}, true},
+		{"10.0.0.0/24", tile.LANRule{Net: netip.MustParsePrefix("10.0.0.0/24")}, true},
+		{"10.0.0.0/24:53", tile.LANRule{Net: netip.MustParsePrefix("10.0.0.0/24"), Port: 53}, true},
+		{"10.0.0.0/24:0", tile.LANRule{}, false},
+		{"10.0.0.1:x", tile.LANRule{}, false},
+		{"router.lan", tile.LANRule{}, false},
+		{"fd00::1", tile.LANRule{}, false},
+		{"2001:db8::/32", tile.LANRule{}, false},
+		{"", tile.LANRule{}, false},
+	} {
+		got, err := tile.ParseLAN(c.line)
+		if (err == nil) != c.ok || (c.ok && got != c.want) {
+			t.Errorf("ParseLAN(%q) = %+v %v", c.line, got, err)
+		}
 	}
 }
 
@@ -270,6 +304,16 @@ func TestRunKinds(t *testing.T) {
 			"cron from an image",
 			"",
 			then(cronRow, func(t *store.Tile) { t.GitURL, t.ImageRef = "", "alpine:3" }),
+		},
+		{
+			"cron with lan",
+			"lan applies to service and image tiles only",
+			then(cronRow, func(t *store.Tile) { t.Lan = "192.168.1.10:445" }),
+		},
+		{
+			"cron with host network",
+			"network: host applies to service and image tiles only",
+			then(cronRow, func(t *store.Tile) { t.HostNetwork = true }),
 		},
 		{
 			"cron without a schedule",
@@ -645,7 +689,7 @@ func TestRouteAndTeardown(t *testing.T) {
 		"r1": {Running: true, Networks: map[string]string{"n": "10.0.0.3"}},
 		"r2": {Networks: map[string]string{"n": "10.0.0.4"}},
 	}
-	must(t, l.Route(ctx, api, "n"))
+	must(t, l.Route(ctx, api, "n", nil))
 	if got := v.set["10.0.0.2"]; !slices.Equal(got, []string{"10.0.0.3"}) {
 		t.Errorf("vip = %v, want only the running replica", got)
 	}

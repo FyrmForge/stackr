@@ -1,6 +1,7 @@
 package main
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 
@@ -144,5 +145,19 @@ func TestInstallID(t *testing.T) {
 	fillFrom(&in, saved, map[string]bool{})
 	if in.InstallID != saved.InstallID {
 		t.Errorf("a re-run dropped the saved install id: %q", in.InstallID)
+	}
+}
+
+// An install.json saved before BridgeSubnet existed, or on a box whose
+// bridge moved, still re-runs: box facts are not answers.
+func TestWithBoxIgnoresBoxFacts(t *testing.T) {
+	now := installspec.Input{Root: "example.com", Bind: "172.17.0.1", BridgeSubnet: "172.17.0.0/16"}
+	old := installspec.Input{Root: "example.com", Bind: "172.18.0.1"}
+	if !reflect.DeepEqual(withBox(old, now), now) {
+		t.Error("box facts made a re-run look like other answers")
+	}
+	old.Root = "other.com"
+	if reflect.DeepEqual(withBox(old, now), now) {
+		t.Error("a changed answer was hidden")
 	}
 }

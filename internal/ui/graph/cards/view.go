@@ -28,6 +28,7 @@ type CardView struct {
 	Tab    string // the tab Drawer opens on, pushed as ?tab=
 
 	Host       bool // privileged or devices: the red "host" chip
+	Access     Access
 	NewVersion bool // image watch saw a newer digest or tag
 
 	Sync  string // env sync review: new | edited | removed; "" = none
@@ -35,6 +36,14 @@ type CardView struct {
 
 	Footer FooterView
 	Subs   []SubView // attached volumes, replicas 2 to 4
+}
+
+// Access is a tile's elevated access on its card: the chip naming the
+// strongest permission it holds (red like "host", which it replaces), and
+// "Waiting for an admin" while a request is open.
+type Access struct {
+	Chip, Title string
+	Waiting     bool
 }
 
 // FooterView is a card's live strip (v0 NodeFooter). The env events

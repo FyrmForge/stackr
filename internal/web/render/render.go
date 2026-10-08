@@ -73,6 +73,9 @@ func Shell(c echo.Context, title string) components.Shell {
 		s.Theme = p.User.Theme
 		s.Nav = append(s.Nav, link("Orgs", "/", path), link("Account", "/account", path))
 		s.Admin = p.Access.Admin
+		if count, ok := c.Get(waitingKey).(func() int); ok && s.Admin {
+			s.Waiting = count()
+		}
 	}
 	sc := middleware.ScopeOf(c)
 	href := ""
@@ -106,6 +109,26 @@ func Shell(c echo.Context, title string) components.Shell {
 		s.Settings = href + "/-/drawer"
 	}
 	return s
+}
+
+const waitingKey = "host_waiting"
+
+// Waiting lets the shell show the admin rail's badge: for a server admin it
+// leaves a lazy count of stacks waiting on elevated access, which Shell
+// reads only when a page draws the rail (assets and API calls never pay).
+// Mount after Access.Load.
+func Waiting(orch *service.Orchestrator) echo.MiddlewareFunc {
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			if p := middleware.Principal(c); p != nil && p.Access.Admin {
+				c.Set(waitingKey, func() int {
+					n, _ := orch.HostGrantsWaiting(c.Request().Context())
+					return n
+				})
+			}
+			return next(c)
+		}
+	}
 }
 
 // Theme puts the viewer's theme, the request id and the CSRF token on the

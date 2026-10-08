@@ -25,7 +25,7 @@ templ Card(v CardView) {
 			</div>
 		} else {
 			<div class="p-3.5">
-				@Top(v.Kind, v.Name, v.Detail, v.Host, v.NewVersion)
+				@top(v.Kind, v.Name, v.Detail, v.Host, v.NewVersion, v.Access)
 				if v.Sync != "" {
 					{{ text, class := syncChip(v.Sync) }}
 					<span class={ "absolute -top-2.5 right-3 z-10 rounded-md border bg-rw-surface px-1.5 py-0.5 text-[10px]", class }>{ text }</span>
@@ -39,6 +39,10 @@ templ Card(v CardView) {
 // Top is a card's head row (v0 nodeCardBody): the icon, the name, the
 // detail and its chips.
 templ Top(kind, name, detail string, host, newVersion bool) {
+	@top(kind, name, detail, host, newVersion, Access{})
+}
+
+templ top(kind, name, detail string, host, newVersion bool, acc Access) {
 	<div class="flex items-center gap-2.5">
 		<span class="node-icon flex h-7 w-7 items-center justify-center rounded-md bg-rw-inset text-rw-muted shrink-0">
 			@Icon(kind)
@@ -50,8 +54,13 @@ templ Top(kind, name, detail string, host, newVersion bool) {
 				if KindLabel(kind) != "" {
 					<span class="shrink-0 rounded-md border border-rw-border bg-rw-inset px-1.5 py-0.5 text-[10px] text-rw-muted">{ KindLabel(kind) }</span>
 				}
-				if host {
+				if acc.Chip != "" {
+					<span class="shrink-0 rounded-md border border-rw-danger/40 bg-rw-danger/10 px-1.5 py-0.5 text-[10px] text-rw-danger" title={ acc.Title }>{ acc.Chip }</span>
+				} else if host {
 					<span class="shrink-0 rounded-md border border-rw-danger/40 bg-rw-danger/10 px-1.5 py-0.5 text-[10px] text-rw-danger" title="runs privileged or with host devices">host</span>
+				}
+				if acc.Waiting {
+					<span class="shrink-0 rounded-md border border-rw-warn/40 bg-rw-warn/10 px-1.5 py-0.5 text-[10px] text-rw-warn">Waiting for an admin</span>
 				}
 				if newVersion {
 					<span class="shrink-0 rounded-md border border-rw-warn/40 bg-rw-warn/10 px-1.5 py-0.5 text-[10px] text-rw-warn" title="a newer image is in the registry. Deploy to update">new version</span>

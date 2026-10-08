@@ -2,12 +2,19 @@ package v1
 
 import (
 	"context"
+	"encoding/json"
+	"io"
+	"log/slog"
+	"net"
 	"strconv"
+	"time"
 
+	"github.com/coder/websocket"
 	"github.com/labstack/echo/v4"
 
 	"github.com/FyrmForge/stackr/internal/api/stream"
 	"github.com/FyrmForge/stackr/internal/service"
+	"github.com/FyrmForge/stackr/internal/service/errs"
 )
 
 const eventStream = "text/event-stream"
@@ -96,4 +103,138 @@ func (h *H) Exec() Endpoint {
 		c.Response().Header().Set("X-Exit-Code", strconv.Itoa(code))
 		return nil
 	}).Q("cmd", "container")
+}
+
+// ForwardPortHeader carries the port the tunnel reached back on the upgrade
+// response, so a client that asked for the default learns what it got.
+const ForwardPortHeader = "X-Stackr-Port"
+
+// Forward tunnels a websocket to a TCP port in one replica
+// (?container=, ?port=), the server half of `stackr forward`: one socket
+// per local connection, binary frames are the bytes. The dial comes first
+// so every failure is an HTTP status.
+func (h *H) Forward() Endpoint {
+	return Streamed("websocket", func(c echo.Context) error {
+		port := 0
+		if err := echo.QueryParamsBinder(c).Int("port", &port).BindError(); err != nil {
+			return errs.Invalidf("port", "invalid port")
+		}
+		conn, port, err := h.Orch.DialTile(rc(c), tileID(c), c.QueryParam("container"), port)
+		if err != nil {
+			return err
+		}
+		defer func() { _ = conn.Close() }()
+		c.Response().Header().Set(ForwardPortHeader, strconv.Itoa(port))
+		ws, ctx, done, err := stream.Socket(c)
+		if err != nil {
+			return nil // Accept already wrote the error response
+		}
+		defer done()
+		// a failed ping ends ctx; closing conn unblocks the copy below
+		go func() { <-ctx.Done(); _ = conn.Close() }()
+		started := time.Now()
+		slog.Info("port-forward opened", "user", who(c), "tile", tileID(c), "port", port)
+		defer func() {
+			slog.Info("port-forward closed", "user", who(c), "tile", tileID(c), "port", port,
+				"duration", time.Since(started).Round(time.Second))
+		}()
+		// Half-close, not first one wins: a client that finishes sending
+		// (curl, psql) sends a text {"type":"eof"} frame and must still get
+		// the reply, so the tile's side is CloseWrite'n and the copy back
+		// runs until it closes. A read error means the client is gone.
+		ws.SetReadLimit(-1)
+		go func() {
+			for {
+				typ, b, err := ws.Read(ctx)
+				if err != nil {
+					_ = conn.Close()
+					return
+				}
+				if typ == websocket.MessageBinary {
+					if _, err := conn.Write(b); err != nil {
+						return
+					}
+					continue
+				}
+				var m struct{ Type string }
+				if json.Unmarshal(b, &m) == nil && m.Type == "eof" {
+					if t, ok := conn.(*net.TCPConn); ok {
+						_ = t.CloseWrite()
+					}
+					return
+				}
+			}
+		}()
+		_, _ = io.Copy(websocket.NetConn(ctx, ws, websocket.MessageBinary), conn)
+		_ = ws.Close(websocket.StatusNormalClosure, "") // the tile ended: a clean end, not a dropped line
+		return nil
+	}).Q("container", "port")
+}
+
+// Terminal is an interactive shell in one replica over a websocket
+// (?container=, ?shell=). Binary frames are the terminal's bytes both ways;
+// a text frame {"type":"resize","cols":n,"rows":n} in resizes it; the last
+// frame out is text {"type":"exit","code":n}. Everything that can fail
+// (no replica, a system container, exec create) answers an HTTP status
+// before the upgrade.
+func (h *H) Terminal() Endpoint {
+	return Streamed("websocket", func(c echo.Context) error {
+		conn, resize, finish, err := h.Orch.Shell(context.WithoutCancel(rc(c)),
+			who(c), tileID(c), c.QueryParam("container"), c.QueryParam("shell"))
+		if err != nil {
+			return err
+		}
+		ws, ctx, done, err := stream.Socket(c)
+		if err != nil {
+			finish()
+			return nil
+		}
+		defer done()
+		out, gone := make(chan struct{}), make(chan struct{})
+		go func() { // the shell's bytes to the client
+			defer close(out)
+			buf := make([]byte, 32<<10)
+			for {
+				n, err := conn.Read(buf)
+				if n > 0 && ws.Write(ctx, websocket.MessageBinary, buf[:n]) != nil {
+					return
+				}
+				if err != nil {
+					return
+				}
+			}
+		}()
+		go func() { // the client's keys and resizes to the shell
+			defer close(gone)
+			for {
+				typ, b, err := ws.Read(ctx)
+				if err != nil {
+					return
+				}
+				if typ == websocket.MessageBinary {
+					if _, err := conn.Write(b); err != nil {
+						return
+					}
+					continue
+				}
+				var m struct {
+					Type       string
+					Cols, Rows uint
+				}
+				if json.Unmarshal(b, &m) == nil && m.Type == "resize" && m.Cols > 0 && m.Rows > 0 {
+					_ = resize(m.Cols, m.Rows)
+				}
+			}
+		}()
+		select {
+		case <-out: // the shell ended: tell the client how
+			code := finish()
+			msg, _ := json.Marshal(map[string]any{"type": "exit", "code": code})
+			_ = ws.Write(ctx, websocket.MessageText, msg)
+			_ = ws.Close(websocket.StatusNormalClosure, "")
+		case <-gone:
+			finish()
+		}
+		return nil
+	}).Q("container", "shell")
 }

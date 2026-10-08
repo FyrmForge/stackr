@@ -1,0 +1,90 @@
+package access
+
+import c "github.com/FyrmForge/stackr/internal/ui/components"
+
+// ApproveView is the approve form: what is asked, one checkbox per line
+// (all ticked; unticking narrows), and the stack's name to type when a full
+// trust perm is waiting.
+type ApproveView struct {
+	ID      string
+	Action  string
+	StackID string // posted as "stack" for the admin tab; "" = the URL names it
+	Name    string // the stack's name, typed to approve full trust
+	Pending []string
+	Tiles   []TilePerms
+}
+
+func target() string { return "#" + c.DrawerRoot }
+
+func (v ApproveView) risky() bool { return NeedName(v.Pending) }
+
+func (v ApproveView) confirm() c.ConfirmView {
+	cv := c.ConfirmView{
+		Button:  "Approve",
+		Title:   "Approve elevated access?",
+		Warning: "Unticked lines keep waiting. Parked jobs resume once everything they ask for is granted.",
+		Action:  v.Action,
+		Target:  target(),
+		Primary: true,
+	}
+	// The dialog is rendered with the form, before any untick, so it names
+	// the condition rather than claiming full trust is being granted.
+	if v.risky() {
+		cv.Warning, cv.Primary = "A ticked full trust line gives control of the server. "+cv.Warning, false
+	}
+	return cv
+}
+
+templ Approve(v ApproveView) {
+	<form id={ v.ID } novalidate onsubmit="return false" class="space-y-3">
+		for _, l := range v.Pending {
+			<input type="hidden" name="pending" value={ l }/>
+		}
+		if v.StackID != "" {
+			<input type="hidden" name="stack" value={ v.StackID }/>
+		}
+		for _, t := range v.Tiles {
+			<fieldset class="space-y-1.5">
+				<legend class="mb-1 font-mono text-xs text-rw-muted">{ t.Tile }</legend>
+				for _, p := range t.Perms {
+					<label class="flex flex-wrap items-center gap-2 text-sm text-rw-text">
+						<input type="checkbox" name="grant" value={ p.Line } checked class="accent-rw-accent"/>
+						<span>{ p.Label }</span>
+						if p.Detail != "" {
+							<span class="font-mono text-xs text-rw-muted">{ p.Detail }</span>
+						}
+						if p.Risky() {
+							@c.Chip("full trust", "danger")
+						}
+					</label>
+				}
+			</fieldset>
+		}
+		if v.risky() {
+			<div>
+				<label class="label" for={ v.ID + "-confirm" }>Type <span class="font-mono text-rw-text">{ v.Name }</span> to approve full trust</label>
+				<input id={ v.ID + "-confirm" } name="confirm" type="text" class="input font-mono" autocomplete="off"/>
+				<p class="mt-1.5 text-xs text-rw-faint">Needed while host networking or the docker socket is ticked.</p>
+			</div>
+		}
+		@c.Confirm(v.confirm())
+	</form>
+}
+
+// Rows is a tile's permissions as a plain list: label, detail, and a chip
+// for what still waits.
+templ Rows(ps []Perm) {
+	<ul class="space-y-1 text-sm text-rw-muted">
+		for _, p := range ps {
+			<li class="flex flex-wrap items-center gap-2">
+				<span class="text-rw-text">{ p.Label }</span>
+				if p.Detail != "" {
+					<span class="font-mono text-xs">{ p.Detail }</span>
+				}
+				if p.Waiting {
+					@c.Chip("waiting", "warn")
+				}
+			</li>
+		}
+	</ul>
+}

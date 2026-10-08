@@ -72,6 +72,8 @@ var shownValues = map[string]func(store.Tile) string{
 	"replicas":        func(t store.Tile) string { return strconv.Itoa(t.Replicas) },
 	"port":            func(t store.Tile) string { return strconv.Itoa(t.ContainerPort) },
 	"published_ports": func(t store.Tile) string { return t.PublishedPorts },
+	"lan":             func(t store.Tile) string { return t.Lan },
+	"host_network":    func(t store.Tile) string { return strconv.FormatBool(t.HostNetwork) },
 	"update_policy":   func(t store.Tile) string { return t.UpdatePolicy },
 	"tag_policy":      func(t store.Tile) string { return t.TagPolicy },
 	"restart":         func(t store.Tile) string { return t.RestartPolicy },
@@ -398,6 +400,17 @@ func (f *Flow) planConfig(ctx context.Context, p *Plan, w *work, r *Resolved) er
 		for _, n := range slices.Sorted(maps.Keys(re.Tiles)) {
 			if refsTile(re.Tiles[n], sl) {
 				w.redeploy[n] = true
+			}
+		}
+	}
+	for _, y := range slices.Sorted(maps.Keys(re.Tiles)) {
+		if re.Tiles[y].Network != "host" {
+			continue
+		}
+		for _, x := range slices.Sorted(maps.Keys(re.Tiles)) {
+			if x != y && refsTile(re.Tiles[x], y) {
+				p.Warnings = append(p.Warnings, fmt.Sprintf(
+					"tile %s refs %s, which runs on the host network; reach it by the server address and a granted port", x, y))
 			}
 		}
 	}
@@ -1199,6 +1212,8 @@ func toRow(name string, tc TileConf, st store.Stack, e store.Environment) store.
 		ShmSizeMB:               tc.ShmSizeMB,
 		Privileged:              tc.Privileged,
 		Devices:                 lines(tc.Devices),
+		Lan:                     lines(tc.LAN),
+		HostNetwork:             tc.Network == "host",
 		RestartPolicy:           tc.Restart,
 		DependsOn:               lines(tc.DependsOn),
 		Files:                   lines(tc.Files),

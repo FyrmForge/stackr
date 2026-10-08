@@ -61,6 +61,8 @@ func (a *app) commands() []*cobra.Command {
 		a.jobs(),
 		a.admin(),
 		a.serverConfig(),
+		a.forward(),
+		a.ssh(),
 	}, a.stackCommands()...)
 }
 
@@ -988,6 +990,7 @@ func (a *app) admin() *cobra.Command {
 			func(_ *cobra.Command, args []string) error {
 				return a.token(a.call(POST, "/admin/keys", map[string]string{"name": args[0]}))
 			}),
+		list("host-grants", "admin.host-grants", "List every stack's elevated access and what waits for approval", "/admin/host-grants", "stack_id", "lines", "approved_by", "pending"),
 		list("images", "admin.images", "List the images stackr knows", "/admin/images", imageCols...),
 		adminJob(
 			"image-check",
