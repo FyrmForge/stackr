@@ -141,3 +141,32 @@ func TestResourceVersusWildcardRoute(t *testing.T) {
 		t.Errorf("route target with a placeholder = %v, want invalid", err)
 	}
 }
+
+// The panel vhost sorts first, so a tile domain on the panel host would be
+// dead: refused, and so is a panel_domain a tile domain holds.
+func TestPanelHostShadowing(t *testing.T) {
+	w := newWorld(t)
+	ctx := context.Background()
+	api := w.tile(t, "api", false)
+	must(t, w.orch.SetSetting(ctx, "panel_domain", "panel.example.com"))
+	if _, err := w.orch.AttachDomain(ctx, api.ID, DomainSpec{Host: "Panel.Example.com."}); !isConflict(err) {
+		t.Errorf("tile domain on the panel host = %v, want conflict", err)
+	}
+	_, err := w.orch.AttachDomain(ctx, api.ID, DomainSpec{Host: "api.example.com"})
+	must(t, err)
+	if err := w.orch.SetSetting(ctx, "panel_domain", "api.example.com"); !isConflict(err) {
+		t.Errorf("panel_domain on a tile domain = %v, want conflict", err)
+	}
+	// a resource is a namespace, not a route: it shadows nothing
+	_, err = w.orch.CreateDomainResource(ctx, "org", w.org, "res.example.com", false, "")
+	must(t, err)
+	must(t, w.orch.SetSetting(ctx, "panel_domain", "res.example.com"))
+	must(t, w.orch.SetSetting(ctx, "panel_domain", "panel.example.com"))
+	// a box already in that state can still save the value it has
+	must(t, w.orch.settings.Set(ctx, "panel_domain", "api.example.com"))
+	must(t, w.orch.SetSetting(ctx, "panel_domain", "api.example.com"))
+	must(t, w.orch.SetSetting(ctx, "panel_domain", "panel.example.com"))
+	if v, _ := w.orch.settings.Get(ctx, "panel_domain"); v != "panel.example.com" {
+		t.Errorf("panel_domain = %q after the refusals", v)
+	}
+}

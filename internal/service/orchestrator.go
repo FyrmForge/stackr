@@ -159,30 +159,32 @@ type Orchestrator struct {
 	store    *store.Store
 	sessions *auth.SessionManager
 	docker   Docker
+	vip      tile.VIP // the boot rebuild reads it (vipboot.go)
 
-	users     *user.Leaf
-	orgs      *org.Leaf
-	orgPlans  *orgplan.Leaf
-	stacks    *stack.Leaf
-	envs      *environment.Leaf
-	tiles     *tile.Leaf
-	images    *image.Leaf
-	params    *params.Leaf
-	volumes   *volume.Leaf
-	domains   *domain.Leaf
-	domainres *domainres.Leaf
-	routes    *route.Leaf
-	hostgrant *hostgrant.Leaf
-	creds     *credential.Leaf
-	conns     *connector.Leaf
-	managed   *managed.Leaf
-	releases  *release.Leaf
-	jobRows   *job.Leaf
-	backups   *backup.Leaf
-	settings  *settings.Leaf
-	runs      *lrun.Leaf
-	traffic   *ltraffic.Leaf
-	canvas    *canvas.Leaf
+	users       *user.Leaf
+	orgs        *org.Leaf
+	orgPlans    *orgplan.Leaf
+	serverPlans *orgplan.Server
+	stacks      *stack.Leaf
+	envs        *environment.Leaf
+	tiles       *tile.Leaf
+	images      *image.Leaf
+	params      *params.Leaf
+	volumes     *volume.Leaf
+	domains     *domain.Leaf
+	domainres   *domainres.Leaf
+	routes      *route.Leaf
+	hostgrant   *hostgrant.Leaf
+	creds       *credential.Leaf
+	conns       *connector.Leaf
+	managed     *managed.Leaf
+	releases    *release.Leaf
+	jobRows     *job.Leaf
+	backups     *backup.Leaf
+	settings    *settings.Leaf
+	runs        *lrun.Leaf
+	traffic     *ltraffic.Leaf
+	canvas      *canvas.Leaf
 
 	deploy    *deploy.Flow
 	engines   *mflow.Flow
@@ -282,6 +284,7 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 		db:     db,
 		store:  st,
 		docker: d,
+		vip:    o.vip,
 		gitEnv: o.gitEnv,
 	}
 	orch.sessions = build("sessions", func() *auth.SessionManager {
@@ -292,6 +295,7 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 	orch.users = build("leaf/user", func() *user.Leaf { return user.New(st.Users, st.Sessions, st.APIKeys) })
 	orch.orgs = build("leaf/org", func() *org.Leaf { return org.New(st.Orgs, st.OrgMembers, st.Invites) })
 	orch.orgPlans = build("leaf/orgplan", func() *orgplan.Leaf { return orgplan.New(st.OrgPlans) })
+	orch.serverPlans = build("leaf/orgplan server", func() *orgplan.Server { return orgplan.NewServer(st.ServerPlans) })
 	orch.stacks = build("leaf/stack", func() *stack.Leaf { return stack.New(st.Stacks) })
 	orch.envs = build("leaf/environment", func() *environment.Leaf { return environment.New(st.Environments, d) })
 	orch.tiles = build("leaf/tile", func() *tile.Leaf { return tile.New(st.Tiles, d, o.vip) })
@@ -304,7 +308,11 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 	orch.hostgrant = build("leaf/hostgrant", func() *hostgrant.Leaf { return hostgrant.New(st.HostGrants) })
 	orch.creds = build("leaf/credential", func() *credential.Leaf { return credential.New(st.Credentials) })
 	orch.conns = build("leaf/connector", func() *connector.Leaf {
-		return connector.New(st.Connectors, githubapp.New(cfg.BaseURL))
+		app := githubapp.New(cfg.BaseURL).WithPanelHost(func() string {
+			v, _ := orch.settings.Get(context.Background(), "panel_domain")
+			return v
+		})
+		return connector.New(st.Connectors, app)
 	})
 	orch.managed = build("leaf/managed",
 		func() *managed.Leaf { return managed.New(st.ManagedInstances, st.Provisions, st.Bindings) })
@@ -353,6 +361,8 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 			DataDir:    cfg.DataDir,
 			Sync:       orch.sync.Sync,
 			Engines:    orch.engines,
+			Runs:       orch.runs,
+			RunFirst:   orch.runFirst,
 		}
 	})
 	orch.promote = build("flow/promote", func() *promote.Flow {
@@ -370,11 +380,16 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 		}
 	})
 	orch.backup = build("flow/backup", func() *fbackup.Flow {
+		scratch := filepath.Join(cfg.DataDir, "backups", "scratch")
+		// A crash leaves unencrypted db and cert tars here; nothing runs yet.
+		if err := os.RemoveAll(scratch); err != nil {
+			slog.Warn("backup scratch not cleared", "dir", scratch, "error", err)
+		}
 		return &fbackup.Flow{
 			Backups: orch.backups,
 			Volumes: orch.volumes,
 			Tiles:   orch.tiles,
-			Scratch: filepath.Join(cfg.DataDir, "backups", "scratch"),
+			Scratch: scratch,
 		}
 	})
 	orch.container = build("flow/container", func() *container.Flow { return &container.Flow{Tiles: orch.tiles} })
@@ -440,12 +455,22 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 	})
 	orch.jobs = build("flow/jobs", func() *jobs.Runner {
 		// ponytail: a parked job is requeued every poll and its handler
-		// re-checks (DECIDE 17 (b)); but a host access approval is no param:
-		// only ApproveHostGrant requeues those.
+		// re-checks (DECIDE 17 (b)); a host access park resumes once its
+		// stack's grant covers the ask, however the grant got there.
 		return jobs.New(orch.jobRows, orch.handlers(), cfg.DataDir, jobs.Options{
-			ParamSet: func(_ context.Context, param string) (bool, error) {
-				_, approval := hostgrant.Parse(param)
-				return !approval, nil
+			ParamSet: func(ctx context.Context, j store.Job) (bool, error) {
+				ask, approval := hostgrant.Parse(*j.WaitingParam)
+				if !approval {
+					return true, nil
+				}
+				var p struct {
+					HostAccess *hostAccess `json:"host_access"`
+				}
+				if json.Unmarshal([]byte(j.Payload), &p) != nil || p.HostAccess == nil {
+					return false, nil
+				}
+				have, err := orch.hostgrant.Of(ctx, p.HostAccess.Stack)
+				return err == nil && len(ask.Missing(have)) == 0, err
 			},
 			Workers: func(ctx context.Context) (int, error) { return orch.settings.Int(ctx, "workers") },
 			// A run holds its own clock: the tile's timeout_minutes.
@@ -468,8 +493,17 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 				_, err := orch.enqueue(ctx, kindOrphans, nil, "orphans")
 				return err
 			},
-			Watch: orch.watchTick,
-			Crons: orch.deployedCrons,
+			PanelBackup: func(ctx context.Context) error {
+				_, err := orch.enqueue(ctx, kindPanelBackup, panelBackupJob{Scheduled: true}, orch.panelLock(true)...)
+				return err
+			},
+			Cleanup: func(ctx context.Context) error {
+				_, err := orch.enqueue(ctx, kindCleanup, nil, "cleanup")
+				return err
+			},
+			Settings: orch.scheduleSettings,
+			Watch:    orch.watchTick,
+			Crons:    orch.deployedCrons,
 			Cron: func(ctx context.Context, t store.Tile) error {
 				_, _, err := orch.queueRun(ctx, t.ID, lrun.Schedule)
 				return err
@@ -495,6 +529,10 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 		// A root that will not parse, or one a resource already holds, is
 		// reported, never fatal: the panel still serves.
 		slog.Warn("domains: instance resource not seeded", "root", root, "err", err)
+	}
+	// Before the workers start, so no deploy can declare a chain first.
+	if err := orch.rebuildVIPs(ctx); err != nil {
+		slog.Warn("vip: boot rebuild failed", "err", err)
 	}
 	if err := orch.jobs.Start(ctx); err != nil {
 		_ = db.Close()

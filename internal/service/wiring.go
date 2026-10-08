@@ -16,7 +16,9 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/orgconfig"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/promote"
+	"github.com/FyrmForge/stackr/internal/service/internal/flow/serverconfig"
 	"github.com/FyrmForge/stackr/internal/service/internal/git"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/connector"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/domain"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/domainres"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/panel"
@@ -42,6 +44,7 @@ func (o *Orchestrator) proxyConfig(ctx context.Context) (json.RawMessage, error)
 		PanelHost:      get("panel_domain"),
 		PanelUpstream:  o.cfg.PanelUpstream,
 		TrustedProxies: splitList(get("trusted_proxies")),
+		Custom:         get("proxy_custom"),
 	}
 	rs, err := o.domainres.ListAll(ctx)
 	if err != nil {
@@ -173,7 +176,8 @@ func (o *Orchestrator) cloneEnv(ctx context.Context, orgID, connectorID, url str
 	var c store.Connector
 	var err error
 	if connectorID != "" {
-		c, err = o.conns.Get(ctx, orgID, connectorID)
+		// a read: the org's own connector or a server one shared with it
+		c, err = o.conns.Usable(ctx, orgID, connectorID)
 	} else {
 		c, err = o.conns.For(ctx, orgID, url)
 	}
@@ -181,6 +185,24 @@ func (o *Orchestrator) cloneEnv(ctx context.Context, orgID, connectorID, url str
 		return nil, err
 	}
 	return o.conns.CloneEnv(ctx, c, url)
+}
+
+// tileConnector is the connector a tile's clone names: a tile has no
+// connector field, so when several shared server connectors serve its
+// host, its stack's config connector breaks the tie if it serves the host
+// too. "" lets clone resolve by host.
+func (o *Orchestrator) tileConnector(ctx context.Context, st store.Stack, url string) string {
+	if o.gitEnv != nil || st.ConfigConnectorID == "" {
+		return ""
+	}
+	if _, err := o.conns.For(ctx, st.OrgID, url); !errors.As(err, &connector.Ambiguous{}) {
+		return ""
+	}
+	c, err := o.conns.Usable(ctx, st.OrgID, st.ConfigConnectorID)
+	if err != nil || !connector.Connected(c) || c.Host != connector.Host(url) {
+		return ""
+	}
+	return c.ID
 }
 
 // stackFile is promote's Config: the stack file at commit of the config repo,
@@ -233,6 +255,48 @@ func (o *Orchestrator) orgFile(ctx context.Context, og store.Org, commit string,
 	return data, sha, err
 }
 
+// serverFile is the server config file at commit ("" = the bound branch's
+// head) and the commit it was read at; "" when the clone itself failed. The
+// binding's connector is a server connector, looked up as one: the org-side
+// resolution never runs here.
+func (o *Orchestrator) serverFile(ctx context.Context, commit string, log io.Writer) ([]byte, string, error) {
+	b, err := o.ServerConfigBinding(ctx)
+	if err != nil {
+		return nil, "", err
+	}
+	if b.Repo == "" {
+		return nil, "", errs.Conflictf("The server has no config repo; bind one first.")
+	}
+	env := o.gitEnv
+	if env == nil {
+		if b.ConnectorID == "" {
+			return nil, "", errs.Conflictf("The server's config repo names no connector; bind one.")
+		}
+		c, err := o.conns.Server(ctx, b.ConnectorID)
+		if err != nil {
+			return nil, "", err
+		}
+		if env, err = o.conns.CloneEnv(ctx, c, b.Repo); err != nil {
+			return nil, "", err
+		}
+	}
+	dir := filepath.Join(o.cfg.DataDir, "repos", "serverconfig")
+	unlock := o.repoLock(dir)
+	defer unlock()
+	r := git.Repo{
+		Dir:    dir,
+		URL:    b.Repo,
+		Branch: b.Branch,
+		Auth:   func(context.Context) []string { return env },
+	}
+	sha, err := r.Checkout(ctx, commit, log)
+	if err != nil {
+		return nil, "", err
+	}
+	data, err := r.ReadFile(ctx, sha, cmp.Or(b.Path, serverconfig.DefaultPath))
+	return data, sha, err
+}
+
 // buildTile is promote's Build: clone the tile's repo at commit, build its
 // Dockerfile, return the image row id.
 func (o *Orchestrator) buildTile(
@@ -249,7 +313,7 @@ func (o *Orchestrator) buildTile(
 	dir := filepath.Join(o.cfg.DataDir, "repos", t.ID)
 	unlock := o.repoLock(dir)
 	defer unlock()
-	r, _, err := o.clone(ctx, st.OrgID, "", t.GitURL, t.GitBranch, dir, commit, log)
+	r, _, err := o.clone(ctx, st.OrgID, o.tileConnector(ctx, st, t.GitURL), t.GitURL, t.GitBranch, dir, commit, log)
 	if err != nil {
 		return "", err
 	}
@@ -294,7 +358,7 @@ func (o *Orchestrator) upgradeArchive(ctx context.Context, log io.Writer) (strin
 	if o.cfg.PanelSpec == nil {
 		return "", errors.New("no panel spec: this install cannot upgrade itself")
 	}
-	r, err := o.panelBackup(ctx, log)
+	r, err := o.panelBackup(ctx, log, "upgrade")
 	return r.ObjectKey, err
 }
 

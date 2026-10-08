@@ -83,6 +83,7 @@ func routes(h *v1.H) []Route {
 		{GET, org + "/domain-resources", "domain-resource.list", "domain.resource", h.DomainResources()},
 		{POST, org + "/domain-resources", "domain-resource.create", "domain.resource", h.CreateOrgDomainResource()},
 		{PATCH, org + "/domain-resources/:resource", "domain-resource.update", "domain.resource", h.UpdateDomainResource()},
+		{POST, org + "/domain-resources/:resource/rename", "domain-resource.rename", "domain.resource", h.RenameDomainResource()},
 		{DELETE, org + "/domain-resources/:resource", "domain-resource.delete", "domain.resource", h.DeleteDomainResource()},
 		{GET, org + "/shares", "share.list", "share.read", h.Shares()},
 		{POST, org + "/shares", "share.create", "share.write", h.CreateShare()},
@@ -218,10 +219,31 @@ func routes(h *v1.H) []Route {
 		{GET, "/admin/domain-resources", "admin.domain-resource-list", "admin.read", h.AllDomainResources()},
 		{POST, "/admin/domain-resources", "admin.domain-resource-create", "serverdefaults.set", h.CreateInstanceDomainResource()},
 		{PATCH, "/admin/domain-resources/:resource", "admin.domain-resource-update", "serverdefaults.set", h.UpdateDomainResource()},
+		{POST, "/admin/domain-resources/:resource/rename", "admin.domain-resource-rename", "serverdefaults.set", h.RenameDomainResource()},
 		{DELETE, "/admin/domain-resources/:resource", "admin.domain-resource-delete", "serverdefaults.set", h.DeleteDomainResource()},
 		{GET, "/admin/routes", "admin.route-list", "route.admin", h.Routes()},
 		{POST, "/admin/routes", "admin.route-create", "route.admin", h.CreateRoute()},
 		{DELETE, "/admin/routes/:route", "admin.route-delete", "route.admin", h.DeleteRoute()},
+
+		// the server config file (stackr-server.yml); admin only. A plan by
+		// id has no org here: the verb is admin-level, as /admin/jobs/:job.
+		{GET, "/admin/config-repo", "admin.config-repo-get", "admin.read", h.ServerConfigRepo()},
+		{PUT, "/admin/config-repo", "admin.config-repo", "serverconfig.bind", h.SetServerConfigRepo()},
+		{POST, "/admin/config/plan", "admin.config-plan", "serverconfig.bind", h.PlanServerConfig()},
+		{POST, "/admin/config/plan-file", "admin.config-plan-file", "serverconfig.bind", h.PlanServerFile()},
+		{POST, "/admin/config/plan-preview", "admin.config-plan-preview", "serverconfig.bind", h.PreviewServerConfig()},
+		{GET, "/admin/config/plans", "admin.config-plans", "admin.read", h.ServerPlans()},
+		{GET, "/admin/config/plans/:plan", "admin.config-plan-get", "admin.read", h.ServerPlan()},
+		{POST, "/admin/config/plans/:plan/approve", "admin.config-plan-approve", "serverplan.approve", h.ApproveServerPlan()},
+		{POST, "/admin/config/plans/:plan/reject", "admin.config-plan-reject", "serverplan.approve", h.RejectServerPlan()},
+		{GET, "/admin/config/export", "admin.config-export", "admin.read", h.ExportServerConfig()},
+
+		// server connectors: no org, shared with named orgs or all of them
+		{GET, "/admin/connectors", "admin.connector-list", "admin.read", h.ServerConnectors()},
+		{POST, "/admin/connectors", "admin.connector-begin", "connector.admin", h.BeginServerConnector()},
+		{PUT, "/admin/connectors/:connector/name", "admin.connector-rename", "connector.admin", h.RenameServerConnector()},
+		{PUT, "/admin/connectors/:connector/shares", "admin.connector-share", "connector.admin", h.ShareConnector()},
+		{DELETE, "/admin/connectors/:connector", "admin.connector-delete", "connector.admin", h.DeleteServerConnector()},
 	}
 }
 
@@ -229,21 +251,29 @@ func routes(h *v1.H) []Route {
 func scoped(h *v1.H) []Route {
 	var out []Route
 	for _, s := range []struct {
-		base, name string
-		at         v1.At
+		base, name  string
+		at          v1.At
+		read, write authz.Verb // masked listing; secrets, set and delete
+		volumes     bool
 	}{
-		{org, "org", v1.AtOrg},
-		{stack, "stack", v1.AtStack},
-		{env, "env", v1.AtEnv},
+		{org, "org", v1.AtOrg, "tile.read", "variable.write", true},
+		{stack, "stack", v1.AtStack, "tile.read", "variable.write", true},
+		{env, "env", v1.AtEnv, "tile.read", "variable.write", true},
+		// the server scope: admin only, no volumes; only the server file reads it
+		{"/admin", "admin", v1.AtServer, "admin.read", "serverparams.write", false},
 	} {
 		out = append(out,
-			Route{http.MethodGet, s.base + "/params", s.name + ".params", "tile.read", h.Params(s.at)},
-			Route{http.MethodGet, s.base + "/params/secrets", s.name + ".secrets", "variable.write", h.Secrets(s.at)},
-			Route{http.MethodPatch, s.base + "/params", s.name + ".params-set", "variable.write", h.SetParams(s.at)},
-			Route{http.MethodDelete, s.base + "/params/:collection/:name", s.name + ".param-delete", "variable.write", h.DeleteParam(s.at)},
-			Route{http.MethodGet, s.base + "/volumes", s.name + ".volumes", "org.read", h.Volumes(s.at)},
-			Route{http.MethodPost, s.base + "/volumes", s.name + ".volume-declare", "tile.write", h.DeclareVolume(s.at)},
+			Route{http.MethodGet, s.base + "/params", s.name + ".params", s.read, h.Params(s.at)},
+			Route{http.MethodGet, s.base + "/params/secrets", s.name + ".secrets", s.write, h.Secrets(s.at)},
+			Route{http.MethodPatch, s.base + "/params", s.name + ".params-set", s.write, h.SetParams(s.at)},
+			Route{http.MethodDelete, s.base + "/params/:collection/:name", s.name + ".param-delete", s.write, h.DeleteParam(s.at)},
 		)
+		if s.volumes {
+			out = append(out,
+				Route{http.MethodGet, s.base + "/volumes", s.name + ".volumes", "org.read", h.Volumes(s.at)},
+				Route{http.MethodPost, s.base + "/volumes", s.name + ".volume-declare", "tile.write", h.DeclareVolume(s.at)},
+			)
+		}
 	}
 	return out
 }

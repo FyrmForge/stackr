@@ -151,7 +151,7 @@ Items still marked "Lean (b), later" are triaged:
   mismatch with the existing "does not match a pending connector" text. No
   schema change.
 - Needs darthvader (product): 21 and 171 roles (see E); 127 `proxy_custom`
-  stored but never read (wire it into the Caddy build, or drop the field);
+  ~~stored but never read~~ (wired in by the server config blitz, DECIDE 222);
   133 Roll back vs Promote wording when the target env derived its own
   release; 88 and 104 resolve verbs for the params editor and tile settings
   (a feature, not a fix).
@@ -167,11 +167,12 @@ is shared by every drawer); a host grant only grows
 commit. Options: (a) keep; (b) build each. Lean (a) until one bites.
 
 Recorded in the blitz fix round, not fixed:
-- Promote or rollback that parks at deploy time after `SetRelease` moved the
+- ~~Promote or rollback that parks at deploy time after `SetRelease` moved the
   env pointer finishes Done on resume without redeploying (also an older
-  `errs.Unset` gap).
-- `ParamSet` never auto-requeues a covered host-access park; `Requeue` can
-  resurrect a superseded job.
+  `errs.Unset` gap).~~ Landed in the ready blitz (R3).
+- ~~`ParamSet` never auto-requeues a covered host-access park; `Requeue` can
+  resurrect a superseded job.~~ Landed in the ready blitz (R3). Ceiling:
+  `Requeue` is read-then-write, not one conditional update.
 - Slice provisioning and earlier volume lines run before the host-access gate
   inside `resolve`.
 - Cron, function and one-shot runs fail instead of parking on host access.
@@ -182,6 +183,54 @@ Recorded in the blitz fix round, not fixed:
   `files:` dst collision check at save time.
 - Route create check-then-insert race; route vs tile attach race; browser
   connection reuse with broad pass-through certs (docs).
+
+Recorded in the ready blitz, not done:
+- ~~`stackr` VIP table never rebuilt at boot.~~ Landed (`service.rebuildVIPs`).
+- Managed Postgres runs list does not label an old admin-only dump. The
+  cluster-format dump starts with `-- stackr dump format: cluster`; labelling
+  needs the format stored on the backup run row (a new column, so a migration)
+  read at backup time in `flow/backup/backup.go`. Restore needs nothing.
+- `depends_on: x:completed` on a non-run tile (image, service) always fails at
+  deploy ("did not complete"); refusing it at save time needs a cross-tile
+  check, since `leaf/tile/check.go` `ParseDep` sees one tile.
+- Cleanup ceilings: rollback depth is the constant 5 (not read from the
+  release list); build cache is pruned through the CLI (`buildx prune`); a
+  digest-pinned image a tag-started container runs reads as current.
+
+### I. Server config blitz ceilings (wave 2, 2026-10-07)
+Closed in wave 2: a bad `proxy_custom` is taken back in `SetSettings`; the
+settings PUT (`SetSetting`) refuses `server_config_*`; the org file blocks several
+shared connectors on one host; a stack binds to a shared server connector;
+generated redirects are 308; the GitHub App manifest and the session cookie
+follow `panel_domain`; a tile domain on the panel host is refused.
+Still open, none blocks the rig:
+- `leaf/route` should export a `Check(Spec, tlsOn, dns01)`; `serverconfig.NormTarget`
+  and the route checks in `flow/serverconfig/diff.go` are a copy.
+- `planfile` should take the `params` diff and the `Defaults` struct (three
+  copies: stack file, org file, server file).
+- `backup.Dest` should take an optional archive key on create, so a file-given
+  `archive_key` (the DR path) needs no store write in `serverWalk.createDest`.
+- No code audits secret reveals; the CLI `--reveal` help says "audited".
+- Server refs in a tile param or an org file field are refused at deploy, not
+  at save (no leaf may import `leaf/params`); the stack file is the one
+  plan-time check.
+- A managed tile's published URL (`S3_ENDPOINT` and kin) keeps the old host
+  after a rename until the stack's next reconcile; declared org rows and stack
+  rows never follow a root rename; a rename has no transaction across writes.
+- `SetSettings` accepts `panel_domain` as `localhost` or a bare IP, which drops
+  the panel vhost (the file diff refuses it; the settings form does not).
+- Exact-host http or https external routes on the panel host (only pass-through
+  is refused) shadow the panel or are shadowed by it; same for a domain resource
+  created on the panel host.
+- `auth.expireLegacy` (the old `Domain=` session cookie cleanup) can go once no
+  browser holds one. Removed on 2026-10-08 (no users, no compat).
+- The tile drawer labels every redirect row "301"; a generated one is a 308.
+- `GET /orgs/:org/connectors` lists the org's own connectors only; no route
+  lists the usable set.
+- `defaults.protect_password` exports as stored; a literal password lands in
+  the exported file.
+- Existing GitHub Apps keep the webhook URL they were made with; stackr cannot
+  patch it (`PATCH /app/hook/config` with the App JWT).
 
 ## Waves
 
@@ -298,3 +347,69 @@ Status line with the shipped version and QA result.
 Roles, typeface, `proxy_custom`, DECIDE 133, resolve verbs: darthvader's
 call. Undo, shell resource completion, `--json` cleanup, PROXY protocol,
 rename-link across orgs: dropped or deferred as stated above.
+
+## Disk cleanup (fix round G1)
+- Pulled image-watch digests are never removed by the cleanup sweep (only
+  `stackr.built` images are).
+- The `stackr.built` label is not scoped to one install; two installs on one
+  Docker daemon sweep each other's builds.
+- A built image whose Docker image is gone and whose row no release pins
+  keeps its row (nothing lists Docker images to prove it is gone).
+
+## Managed Postgres restore (fix round G3)
+- `pg_dumpall` is not one snapshot across databases: a slice provisioned
+  while the dump runs can land half in it. The restore refuses a slice or
+  binding made after the run, so such a dump is refused on its own instance.
+- The cluster dump carries `\restrict` lines (psql 17.6+); the instance runs
+  the moving `postgres:17` tag, so an older psql in a pinned image would
+  fail on the load.
+- The UI does not label an old admin-only dump yet (the run row has no
+  format column; the archive's first line does).
+- The restore job locks the volume and the instance tile, not the tiles
+  bound to it: a deploy of a bound tile can restart it during the load.
+
+## Health ordering (fix round G4)
+- Design: a dependency failure inside a promote leaves the env on the new
+  release (R3's resume reads that pointer to finish the rollout), so the job
+  fails with "partly rolled out ... promote again to finish it" and nothing
+  is rolled back. A tile whose own deploy never ran is not undone either.
+- With a `:healthy` or `:completed` edge in the env, promote and sync mark
+  the job swapping per tile (after its wait), not before the row writes; the
+  writes are then cancellable and a re-run re-plans from whatever landed.
+- The queued-behind check fails on any queued job touching the dependency
+  (any kind), including one queued only for a free worker, not just the
+  deploy's own lock.
+- An on_deploy function whose run a dependent already ran is still queued
+  again by `afterDeploy` when the dependent's job resumed in a new process
+  (the marker is per job run; the resume check reads the last run row).
+
+## DNS connectors for wildcard certificates (darthvader 2026-10-07)
+- Today: one installer question, Cloudflare only, token in the proxy env.
+- Wanted: a DNS connector kind (Namecheap, Cloudflare, ...), each holding a
+  provider API token; a domain resource points at one to get a wildcard
+  certificate, else per-host certificates. Caddy takes a provider per
+  subject group, so domains on different DNS hosts mix.
+- Catch: a connector token is pushed in the Caddy config, which Caddy
+  autosaves into `stackr-caddy` (now in the panel archive). Turn autosave
+  off (stackrd pushes the full config at boot) or accept it on disk.
+- Namecheap: API needs an account that qualifies and a whitelisted IP, and
+  its setHosts call rewrites every record. acme-dns (one CNAME) avoids it.
+
+## Port forwarding (darthvader 2026-10-07: "we need that")
+- v0 had `stackr forward`: an ephemeral relay to a tile's port from the
+  laptop, shown on the canvas as a forward card with user avatars
+  (`docs/rewrite/extracts/graph-ref.md`). The rewrite dropped the noun
+  (PROGRESS.md DECIDE 45) and parked it ("Later", `ui-plan.md`). Bring it
+  back.
+
+## Interactive shell (darthvader 2026-10-07: wanted, the full real terminal)
+- Wanted: `stackr ssh [tile]`, a real shell in a replica (TTY, raw mode,
+  resize, ctrl-c reaches the process). Today `stackr tile exec [tile] --
+  <cmd>` pipes stdin and streams output over plain HTTP with no TTY
+  (`docker/exec.go` never sets Tty), so `-- sh` has no prompt or line
+  editing. Needs a TTY exec plus a two-way stream (websocket or hijack).
+- Shell: bash if the image has it, else sh; `--shell` overrides.
+- v0 also had a web terminal (`internal/stackrd/handlers/web/handler/
+  container/terminal.go` at v0.5.0); the rewrite UI has none.
+- Agreed: both, a Terminal tab in the tile drawer and `stackr ssh`, one
+  backend.

@@ -357,3 +357,60 @@ func TestSeedInstance(t *testing.T) {
 		t.Errorf("seeded %+v", r)
 	}
 }
+
+// Rename moves the host and nothing else; a taken host is a conflict, a
+// squat is refused, a stack row is not renamed here.
+func TestRename(t *testing.T) {
+	_, l, orgs := world(t)
+	r, err := l.Create(ctx, domainres.Spec{Level: domainres.Org, OwnerID: "o1", Host: "acme.io", ACMEEmail: "ops@acme.io"}, "o1", orgs)
+	must(t, err)
+	_, err = l.Create(ctx, domainres.Spec{Level: domainres.Org, OwnerID: "o1", Host: "taken.io"}, "o1", orgs)
+	must(t, err)
+
+	got, err := l.Rename(ctx, r, " New.IO ", "o1", orgs)
+	must(t, err)
+	if stored, _ := l.Get(ctx, r.ID); stored.Host != "new.io" || got.Host != "new.io" ||
+		stored.ACMEEmail != "ops@acme.io" || !stored.Declared || stored.OrgID == nil {
+		t.Errorf("renamed = %+v, want only the host moved", stored)
+	}
+	if _, err := l.Rename(ctx, got, "taken.io", "o1", orgs); err == nil {
+		t.Error("renamed onto a taken host")
+	} else if _, ok := errs.IsConflict(err); !ok {
+		t.Errorf("taken = %v, want a conflict", err)
+	}
+	if _, err := l.Rename(ctx, got, "new.io", "o1", orgs); err == nil {
+		t.Error("renamed to its own host")
+	}
+	if _, err := l.Rename(ctx, got, "globex.io", "o1", orgs); err == nil {
+		t.Error("renamed onto another org's slug")
+	}
+	if _, err := l.Rename(ctx, got, "*.new.io", "o1", orgs); err == nil {
+		t.Error("renamed to a wildcard")
+	}
+	// Your own slug is no squat.
+	if _, err := l.Rename(ctx, got, "acme.dev", "o1", orgs); err != nil {
+		t.Errorf("own slug = %v", err)
+	}
+	st := got
+	st.Level = domainres.Stack
+	invalid(t, errOf(l.Rename(ctx, st, "x.io", "o1", orgs)), "level")
+}
+
+func errOf(_ store.DomainResource, err error) error { return err }
+
+func TestRehost(t *testing.T) {
+	for _, c := range []struct {
+		host, want string
+		ok         bool
+	}{
+		{"example.com", "new.io", true},
+		{"api.shop.acme.example.com", "api.shop.acme.new.io", true},
+		{"badexample.com", "", false},
+		{"api.example.org", "", false},
+	} {
+		got, ok := domainres.Rehost("example.com", "new.io", c.host)
+		if got != c.want || ok != c.ok {
+			t.Errorf("Rehost(%q) = %q %v, want %q %v", c.host, got, ok, c.want, c.ok)
+		}
+	}
+}

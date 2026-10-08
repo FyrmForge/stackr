@@ -122,12 +122,16 @@ func (l *Leaf) Update(ctx context.Context, d store.BackupDest, s Dest) (store.Ba
 	return d, l.dests.Update(ctx, d)
 }
 
-// Delete refuses the local destination and one a schedule still points at
-// (the schedule would silently fall back to local). Its run rows go with it;
-// the archives stay in the bucket.
-func (l *Leaf) Delete(ctx context.Context, d store.BackupDest) error {
+// Delete refuses the local destination and one a schedule or the panel's own
+// backup (usedByPanel, a fact from the caller) still points at: they would
+// silently fall back to local. Its run rows go with it; the archives stay in
+// the bucket.
+func (l *Leaf) Delete(ctx context.Context, d store.BackupDest, usedByPanel bool) error {
 	if d.Kind == Local {
 		return errs.Refusedf("the local destination is part of the install")
+	}
+	if usedByPanel {
+		return errs.Conflictf("the panel backup still uses %s", d.Name)
 	}
 	all, err := l.schedules.List(ctx)
 	if err != nil {
@@ -425,6 +429,9 @@ func (l *Leaf) Finish(
 	size int64,
 	runErr error,
 ) (store.BackupRun, error) {
+	// The job may have been cancelled (a superseded run): the row still closes.
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+	defer cancel()
 	now := time.Now().UTC()
 	r.FinishedAt = &now
 	r.ObjectKey = objectKey
@@ -495,8 +502,14 @@ func Prefix(orgID, volumeID, scheduleID string) string {
 }
 
 // PanelPrefix never lands under an org's (org ids are uuids, never "_panel").
-func PanelPrefix(installID string) string {
-	return "stackr/_panel/" + installID
+// Each trigger has its own, so pruning scheduled archives never reaches the
+// pre-upgrade or manual ones.
+func PanelPrefix(installID, trigger string) string {
+	dir := trigger
+	if trigger == "schedule" {
+		dir = "scheduled"
+	}
+	return "stackr/_panel/" + installID + "/" + dir
 }
 
 // OrphanPrefix is where the orphan job's last archive of a volume goes.
@@ -519,7 +532,8 @@ type Objects interface {
 // with their run rows. keep <= 0 keeps everything. Best effort: a failed
 // delete is skipped (its row stays), never an error, because a prune must
 // not fail a run that already uploaded. The pre-restore run never calls it.
-func (l *Leaf) Prune(ctx context.Context, obj Objects, prefix string, keep int) []string {
+// A protect key (the one the run just wrote) is never deleted.
+func (l *Leaf) Prune(ctx context.Context, obj Objects, prefix string, keep int, protect ...string) []string {
 	if keep <= 0 {
 		return nil
 	}
@@ -530,7 +544,7 @@ func (l *Leaf) Prune(ctx context.Context, obj Objects, prefix string, keep int) 
 	slices.Sort(keys)
 	var gone []string
 	for _, k := range keys[:len(keys)-keep] {
-		if obj.Delete(ctx, k) == nil {
+		if !slices.Contains(protect, k) && obj.Delete(ctx, k) == nil {
 			gone = append(gone, k)
 		}
 	}

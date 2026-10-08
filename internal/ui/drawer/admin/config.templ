@@ -1,0 +1,100 @@
+package admin
+
+import c "github.com/FyrmForge/stackr/internal/ui/components"
+
+// ConfigView is the server file as a tab: the export, the binding form, the
+// latest plan with its answers, the queued apply, then the last plans.
+type ConfigView struct {
+	Base       string // POST /config, /plan; "" = may not bind
+	Export     string // GET the stackr-server.yml
+	Connectors []ConnectorOption
+	Connector  string
+	Repo       string
+	Branch     string
+	Path       string
+	Auto       bool
+	Unbind     c.ConfirmView // Action "" = nothing bound, or may not
+	Job        *c.JobStatusView
+	Latest     *ConfigPlan // nil = no plan yet
+	Plans      []c.PlanRow // the plans before the latest, newest first
+}
+
+type ConnectorOption struct{ Value, Label string }
+
+// ConfigPlan is the latest plan: its row, and the dry run with its answers.
+type ConfigPlan struct {
+	Row    c.PlanRow
+	Review c.PlanReviewView
+}
+
+templ Config(v ConfigView) {
+	<div id="tab-config">
+		@c.Section("Export", "instance", "This server's live state as a stackr-server.yml, the way into config-as-code. Secrets come out as names, never values.") {
+			<a href={ templ.SafeURL(v.Export) } download="stackr-server.yml" class="btn btn-ghost btn-sm">Download stackr-server.yml</a>
+		}
+		@c.Section("Config as code", "instance", "One file declares the server. Its plans wait for an admin's approve unless Auto apply is on.") {
+			if len(v.Connectors) == 0 && v.Repo == "" {
+				<p class="text-sm text-rw-muted">Create a server connector first, in the Connectors tab. The server file is fetched through it.</p>
+			} else {
+				<form novalidate hx-post={ v.Base + "/config" } hx-target={ target() } hx-swap="outerHTML">
+					<fieldset disabled?={ v.Base == "" } class="space-y-4">
+						<legend class="sr-only">Config repository</legend>
+						<div>
+							<label for="server-connector" class="label">Connector</label>
+							<select id="server-connector" name="connector" class="input">
+								<option value="">(unbind)</option>
+								for _, o := range v.Connectors {
+									<option value={ o.Value } selected?={ o.Value == v.Connector }>{ o.Label }</option>
+								}
+							</select>
+						</div>
+						@c.Field(c.FieldView{Name: "repo", Label: "Repository (owner/name)", Value: v.Repo, Placeholder: "you/serverconfig"})
+						@c.Field(c.FieldView{Name: "branch", Label: "Branch (empty = default)", Value: v.Branch})
+						@c.Field(c.FieldView{Name: "path", Label: "File path (empty = stackr-server.yml)", Value: v.Path})
+						<label class="flex items-center gap-2 text-sm text-rw-text"><input type="checkbox" name="auto" value="1" checked?={ v.Auto } class="accent-rw-accent"/> Auto apply a plan with no impact lines and no removals</label>
+						if v.Base != "" {
+							<div class="flex flex-wrap items-center gap-2">
+								<button type="submit" class="btn btn-primary btn-sm">Save and plan</button>
+								if v.Repo != "" {
+									<button type="button" class="btn btn-ghost btn-sm" hx-post={ v.Base + "/config/plan" } hx-target={ target() } hx-swap="outerHTML">Plan now</button>
+								}
+							</div>
+						}
+					</fieldset>
+				</form>
+			}
+			if v.Unbind.Action != "" {
+				<div class="flex flex-wrap items-center gap-2 mt-5 pt-5 border-t border-rw-border">
+					@c.Confirm(v.Unbind)
+				</div>
+			}
+		}
+		if v.Job != nil {
+			<div class="mb-4">
+				@c.JobStatus(*v.Job)
+			</div>
+		}
+		if v.Latest != nil {
+			@c.Section("Latest plan", "instance", "") {
+				<div class="space-y-4">
+					@c.PlanLine(v.Latest.Row)
+					if v.Latest.Row.Error != "" {
+						<div class="banner banner-danger" role="alert">{ v.Latest.Row.Error }</div>
+					} else {
+						@c.PlanReview(v.Latest.Review)
+					}
+				</div>
+			}
+		}
+		if len(v.Plans) > 0 {
+			<h2 class="text-sm font-medium text-rw-muted mb-2">Plans</h2>
+			<ul class="space-y-2">
+				for _, r := range v.Plans {
+					<li class="panel px-4 py-3">
+						@c.PlanLine(r)
+					</li>
+				}
+			</ul>
+		}
+	</div>
+}

@@ -6,6 +6,7 @@ package setup
 
 import (
 	"cmp"
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -183,8 +184,11 @@ func (h *handler) github(c echo.Context, og *service.Org, st string) error {
 				DefaultBranch: r.DefaultBranch,
 			})
 		}
-		if v.InstallURL, err = h.orch.ConnectorInstallURL(ctx, og.ID, conns[0].ID); err != nil {
-			return middleware.HTTPError(err)
+		// installing a shared server App is the admin's job: no link for it
+		if i := slices.IndexFunc(conns, func(k service.Connector) bool { return k.OrgID != nil }); i >= 0 {
+			if v.InstallURL, err = h.orch.ConnectorInstallURL(ctx, og.ID, conns[i].ID); err != nil {
+				return middleware.HTTPError(err)
+			}
 		}
 	}
 	if st == "connector" {
@@ -226,10 +230,17 @@ func (h *handler) domainPage(c echo.Context, og *service.Org) (pages.Frame, temp
 			v.Prefill = og.Slug + "." + r.Host
 		}
 	}
-	if u, err := url.Parse(comp.BaseURL); v.Prefill == "" && err == nil && u.Hostname() != "" {
+	if u, err := url.Parse(h.panelURL(c.Request().Context(), "")); v.Prefill == "" && err == nil && u.Hostname() != "" {
 		v.Prefill = og.Slug + "." + u.Hostname()
 	}
 	return v.Frame, pages.Domain(v), nil
+}
+
+// panelURL is path on the panel's public address (comp.PanelURL with the
+// panel_domain setting), as the org drawer's invite links are built.
+func (h *handler) panelURL(ctx context.Context, path string) string {
+	host, _ := h.orch.Setting(ctx, "panel_domain")
+	return comp.PanelURL(host, path)
 }
 
 // team is the org's members, its open invites and the ones that ran out,
@@ -283,7 +294,7 @@ func (h *handler) team(c echo.Context, og *service.Org) (pages.Frame, templ.Comp
 			Role:    i.Role,
 			State:   "pending",
 			Expires: i.ExpiresAt.Local().Format("Jan 2 2006"),
-			Link:    comp.AbsoluteURL("/invite/" + i.ID),
+			Link:    h.panelURL(ctx, "/invite/"+i.ID),
 		}
 		if i.ExpiresAt.Before(now) {
 			p.State = "expired"
@@ -617,7 +628,11 @@ func (h *handler) bind(c echo.Context) error {
 // the apply and moves on when it lands.
 func (h *handler) approve(c echo.Context) error {
 	og, id := middleware.ScopeOf(c).Org, c.Param("plan")
-	j, err := h.orch.ApproveOrgPlan(c.Request().Context(), id)
+	vals, _ := c.FormParams()
+	j, err := h.orch.ApproveOrgPlan(c.Request().Context(), id, service.ApproveOpts{
+		Ticked:  vals["ticked"],
+		Confirm: c.FormValue("confirm") != "",
+	})
 	if err != nil {
 		return back(c, err, planURL(og, id, ""))
 	}

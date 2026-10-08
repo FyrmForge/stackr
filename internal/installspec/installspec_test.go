@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -111,6 +112,24 @@ func TestCheckRoot(t *testing.T) {
 	} {
 		if got, err := CheckRoot(in); err != nil || got != want {
 			t.Errorf("%q: %q %v, want %q", in, got, err, want)
+		}
+	}
+}
+
+// The panel's env carries the install id, so archives are named by it; an
+// install without one sets nothing and the panel keeps "default".
+func TestPanelInstallID(t *testing.T) {
+	has := func(in Input) bool {
+		return slices.Contains(Panel(Image("1.2.3"), in).Env, "STACKR_INSTALL_ID="+in.InstallID)
+	}
+	withID := plainIn
+	withID.InstallID = "9f2c41d7a0b34e5a"
+	if !has(withID) {
+		t.Errorf("panel env lacks the install id: %v", Panel(Image("1.2.3"), withID).Env)
+	}
+	for _, e := range Panel(Image("1.2.3"), plainIn).Env {
+		if strings.HasPrefix(e, "STACKR_INSTALL_ID") {
+			t.Errorf("an install without an id sets %q", e)
 		}
 	}
 }

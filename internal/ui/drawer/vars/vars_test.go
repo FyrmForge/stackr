@@ -36,3 +36,12 @@ func TestEditor(t *testing.T) {
 		}
 	}
 }
+
+func TestEditorLead(t *testing.T) {
+	var b strings.Builder
+	_ = Editor(View{Scope: "the server", Lead: "Only the server file reads these."}).Render(context.Background(), &b)
+	got := b.String()
+	if !strings.Contains(got, "Only the server file reads these.") || strings.Contains(got, "redeploys") {
+		t.Errorf("lead not used in\n%s", got)
+	}
+}

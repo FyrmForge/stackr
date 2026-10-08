@@ -8,7 +8,10 @@ import (
 	"time"
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
+	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/hostgrant"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/release"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
 
@@ -115,5 +118,45 @@ func TestSyncHostAccessParks(t *testing.T) {
 	}
 	if _, err := w.f.D.Tiles.GetBySlug(ctx, w.prd.ID, "mon"); err == nil {
 		t.Error("the sync wrote a tile before approval")
+	}
+}
+
+// A promote that parks at deploy time after SetRelease moved the env pointer
+// must, once approved, redeploy the tile still running the old image: the
+// resume sees an empty release diff.
+func TestParkedPromoteResumesDeploy(t *testing.T) {
+	w := syncWorld(t)
+	w.f.D.HostGrants = hostgrant.New(w.s.HostGrants)
+	row := imgTile("nginx:1", 80)
+	row.Volumes = "host:/srv/x:/data"
+	api := w.mk(t, w.prd, "api", row)
+	w.fake.Containers = append(w.fake.Containers, docker.Container{
+		ID:     "run-" + api.ID,
+		State:  "running",
+		Image:  "nginx@sha256:one",
+		Labels: map[string]string{tile.LabelTile: api.ID, tile.LabelRole: "replica"},
+	})
+	r1 := w.release(t, "", release.Pin{Slug: "api", Repo: "nginx", Digest: "sha256:one"})
+	r2 := w.release(t, "", release.Pin{Slug: "api", Repo: "nginx", Digest: "sha256:two"})
+	_, err := w.f.D.Envs.SetRelease(ctx, w.prd, r1.ID)
+	must(t, err)
+	_, err = w.f.D.Envs.SetRelease(ctx, w.dev, r2.ID)
+	must(t, err)
+
+	_, err = w.f.Apply(ctx, w.prd.ID, r2.ID, io.Discard, nil)
+	n, ok := errs.IsNeedsApproval(err)
+	if !ok {
+		t.Fatalf("apply = %v, want NeedsApproval", err)
+	}
+	ask, _ := hostgrant.Parse(n.What)
+	now := time.Now()
+	must(t, w.s.Users.Create(ctx, store.User{ID: "adm", Email: "a@b.c", Name: "A", Role: "admin", Active: true, CreatedAt: now, UpdatedAt: now}))
+	_, err = w.f.D.HostGrants.Approve(ctx, w.st.ID, "adm", ask)
+	must(t, err)
+
+	p, err := w.f.Apply(ctx, w.prd.ID, r2.ID, io.Discard, nil)
+	must(t, err)
+	if !slices.Equal(p.Deployed, []string{api.ID}) {
+		t.Errorf("deployed = %v; want the parked tile on the new release", p.Deployed)
 	}
 }

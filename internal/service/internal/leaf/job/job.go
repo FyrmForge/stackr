@@ -139,16 +139,16 @@ func (l *Leaf) Finish(ctx context.Context, j store.Job, state, reason string) er
 	return l.jobs.Update(ctx, j)
 }
 
-// Park sets a job waiting on a param.
+// Park sets a running job waiting on a param, with j's payload. A row no
+// longer running (cancelled while the handler returned) stays as it is.
 func (l *Leaf) Park(ctx context.Context, j store.Job, param string) error {
-	j.State, j.WaitingParam = Waiting, &param
-	return l.jobs.Update(ctx, j)
+	return l.jobs.ParkIfRunning(ctx, j.ID, param, j.Payload)
 }
 
-// Requeue puts a waiting job back in line, at its original age.
+// Requeue puts a waiting job back in line, at its original age, in one
+// conditional write: one cancelled or superseded since j was read stays so.
 func (l *Leaf) Requeue(ctx context.Context, j store.Job) error {
-	j.State, j.WaitingParam = Queued, nil
-	return l.jobs.Update(ctx, j)
+	return l.jobs.RequeueIfWaiting(ctx, j.ID)
 }
 
 // History is the newest jobs touching any of tileIDs (one tile, or every

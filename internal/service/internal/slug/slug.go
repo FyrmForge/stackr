@@ -40,10 +40,10 @@ func Valid(s string) bool {
 	return slugRe.MatchString(s)
 }
 
-// Reserved is a slug a ref would read as a keyword: `params` is the only one
-// ("Param store and refs").
+// Reserved is a slug a ref or a share list would read as a keyword: `params`
+// ("Param store and refs") and `all` (a connector shared with every org).
 func Reserved(s string) bool {
-	return s == "params"
+	return s == "params" || s == "all"
 }
 
 // ValidName reports whether s is a param collection or param name.

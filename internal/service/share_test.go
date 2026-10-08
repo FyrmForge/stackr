@@ -8,8 +8,9 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 )
 
-// The org file creates, updates and deletes shares through the verbs, and a
-// mounted share cannot be deleted by the verb.
+// The org file creates, updates and (when the approver ticks the removal row)
+// deletes shares through the verbs, and a mounted share cannot be deleted by
+// the verb.
 func TestOrgFileShares(t *testing.T) {
 	ctx := context.Background()
 	r := newOrgRig(t)
@@ -52,6 +53,19 @@ shares:
     options: nfsvers=4
 `)
 	r.push(t, "acme/org", sha)
+	// the drop is a removal row, so the plan waits for an approve even with
+	// config_auto on; the approver ticks it
+	var pl service.OrgPlan
+	eventually(t, "the plan with the removal row", func() bool {
+		pl = r.plans(t)[0]
+		return pl.Commit == sha && pl.Status == "pending"
+	})
+	if now, _ := r.env.Orch.Shares(ctx, r.org); len(now) != 2 {
+		t.Fatalf("an unapproved plan changed the shares: %+v", now)
+	}
+	if _, err := r.env.Orch.ApproveOrgPlan(ctx, pl.ID, service.ApproveOpts{Ticked: []string{"share:docs"}}); err != nil {
+		t.Fatal(err)
+	}
 	eventually(t, "media updated, docs gone", func() bool {
 		ss, _ := r.env.Orch.Shares(ctx, r.org)
 		return len(ss) == 1 && ss[0].Options == "nfsvers=4"

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -82,7 +83,8 @@ func restore(ctx context.Context, args []string, out io.Writer) error {
 		}
 	}
 	db := filepath.Join(dataDir, "stackr.db")
-	if err := os.Rename(db, filepath.Join(stage, "stackr.db.before-restore")); err != nil &&
+	replaced := filepath.Join(dataDir, "stackr.db.before-restore-"+filepath.Base(stage)[len("restore-"):])
+	if err := os.Rename(db, replaced); err != nil &&
 		!errors.Is(err, os.ErrNotExist) {
 		return err
 	}
@@ -93,15 +95,84 @@ func restore(ctx context.Context, args []string, out io.Writer) error {
 			return err
 		}
 	}
+	// Certificates are re-issuable (rate limits aside), the database is not:
+	// a proxy volume that fails to restore warns and the restore goes on.
+	if err := restoreCaddy(ctx, r, *image, stage); err != nil {
+		r.say("  warning: proxy volume not restored, certificates will be re-issued:", err)
+	}
 	if err := r.docker(ctx, installspec.Panel(*image, in).RunArgs()...); err != nil {
 		return err
 	}
-	r.say("Restored", fs.Arg(0), "on", *image+". The replaced database is in", stage)
+	if err := dropStage(stage); err != nil {
+		r.say("  warning: delete", stage, "by hand, it holds unencrypted certificate keys:", err)
+	}
+	r.say("Restored", fs.Arg(0), "on", *image+". The replaced database is", replaced)
 	return nil
 }
 
+// restoreCaddy puts the staged proxy volume (certificates, keys, ACME
+// accounts) back before the proxy serves anything: stop it, wipe and untar
+// into stackr-caddy, start it. An archive without one is a no-op. The panel
+// image does the untar: it is already here and ships tar and sh.
+func restoreCaddy(ctx context.Context, r runner, image, stage string) error {
+	tarball := filepath.Join(stage, caddyMember)
+	f, err := os.Open(tarball)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	defer func() { _ = f.Close() }()
+	if r.dry || r.exists(ctx, "container", installspec.ProxyName) {
+		if err := r.docker(ctx, "stop", installspec.ProxyName); err != nil {
+			return err
+		}
+		defer func() {
+			if serr := r.docker(ctx, "start", installspec.ProxyName); serr != nil {
+				r.say("  warning: start the proxy by hand:", serr)
+			}
+		}()
+	}
+	args := []string{
+		"run", "--rm", "-i", "--entrypoint", "sh", "-v", installspec.ProxyVolume + ":/data", image,
+		"-c", untarScript("/data"),
+	}
+	if r.dry {
+		r.say("  would run: docker", quote(args))
+		return nil
+	}
+	r.say("  docker run (untar into", installspec.ProxyVolume+")")
+	cmd := exec.CommandContext(ctx, "docker", args...)
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = f, r.out, r.out
+	return cmd.Run()
+}
+
+// untarScript keeps a copy of dir's tree, wipes dir and untars stdin into
+// it; when the untar fails the copy goes back, so a bad tarball never costs
+// the certificates.
+func untarScript(dir string) string {
+	wipe := "rm -rf " + dir + "/..?* " + dir + "/.[!.]* " + dir + "/* 2>/dev/null"
+	return "prev=$(mktemp -d) && cp -a " + dir + "/. \"$prev\"/ || exit 1\n" +
+		wipe + "\n" +
+		"if ! tar -xzf - -C " + dir + "; then\n" +
+		"  " + wipe + "\n" +
+		"  cp -a \"$prev\"/. " + dir + "/\n" +
+		"  echo 'untar failed; the previous tree is back' >&2\n" +
+		"  exit 1\n" +
+		"fi\n"
+}
+
+// dropStage removes the staging dir: it holds the unencrypted proxy volume,
+// certificate keys included.
+func dropStage(stage string) error { return os.RemoveAll(stage) }
+
+// caddyMember is the proxy volume's tar inside a panel archive.
+const caddyMember = "caddy.tar.gz"
+
 // unpack decrypts a panel archive into dir and returns the build it names.
-// Only the three names a panel archive holds are accepted.
+// Only the names a panel archive holds are accepted; the proxy volume's tar
+// is optional (older archives have none).
 func unpack(src io.Reader, pass, dir string) (string, error) {
 	id, err := age.NewScryptIdentity(pass)
 	if err != nil {
@@ -119,6 +190,7 @@ func unpack(src io.Reader, pass, dir string) (string, error) {
 		return "", err
 	}
 	want := map[string]os.FileMode{"stackr.db": 0o600, installspec.KeyFile: 0o600, "VERSION": 0o644}
+	optional := map[string]os.FileMode{caddyMember: 0o600}
 	var version string
 	tr := tar.NewReader(gz)
 	for {
@@ -130,6 +202,9 @@ func unpack(src io.Reader, pass, dir string) (string, error) {
 			return "", err
 		}
 		mode, ok := want[h.Name]
+		if !ok {
+			mode, ok = optional[h.Name]
+		}
 		if !ok || h.Typeflag != tar.TypeReg {
 			return "", fmt.Errorf("unexpected entry %q; not a panel archive", h.Name)
 		}

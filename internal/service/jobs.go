@@ -48,11 +48,20 @@ const (
 	kindRun         jobs.Kind = "run"
 	kindOrgPlan     jobs.Kind = "org-plan"
 	kindOrgApply    jobs.Kind = "org-apply"
+	kindServerPlan  jobs.Kind = "server-plan"
+	kindServerApply jobs.Kind = "server-apply"
+	kindCleanup     jobs.Kind = "cleanup"
 )
 
 type runJob struct {
 	TileID string `json:"tile_id"`
 	RunID  string `json:"run_id"`
+}
+
+// panelBackupJob is the panel-backup payload; Scheduled marks a cron run
+// (the manual button sends none).
+type panelBackupJob struct {
+	Scheduled bool `json:"scheduled"`
 }
 
 type tileJob struct {
@@ -139,12 +148,14 @@ func withOwed(payload string, owed []string) string {
 func (o *Orchestrator) handlers() map[jobs.Kind]jobs.Handler {
 	return map[jobs.Kind]jobs.Handler{
 		kindDeploy: payload(func(ctx context.Context, r *jobs.Run, p tileJob) error {
+			ctx = withRanFirst(ctx, r.Job.CreatedAt)
 			if err := o.deploy.Redeploy(ctx, p.TileID, r.Log, r.Swap); err != nil {
 				return parkOnApproval(r, err)
 			}
 			return o.afterDeploy(ctx, []string{p.TileID}, false)
 		}),
 		kindPromote: payload(func(ctx context.Context, r *jobs.Run, p promoteJob) error {
+			ctx = withRanFirst(ctx, r.Job.CreatedAt)
 			plan, err := o.promote.Apply(ctx, p.EnvID, p.ReleaseID, r.Log, r.Swap)
 			if plan != nil {
 				err = errors.Join(err, o.dropRuns(plan.Removed), o.afterDeploy(ctx, plan.Deployed, true))
@@ -152,13 +163,12 @@ func (o *Orchestrator) handlers() map[jobs.Kind]jobs.Handler {
 			return parkOnApproval(r, err)
 		}),
 		kindEnvSync: payload(func(ctx context.Context, r *jobs.Run, p envSyncJob) error {
+			ctx = withRanFirst(ctx, r.Job.CreatedAt)
 			var plan *promote.Sync
 			var err error
 			if len(p.Owed) > 0 {
 				// Parked after its writes: deploy what it still owes, no re-plan.
-				if err = r.Swap(); err == nil {
-					plan, err = o.promote.SyncRollout(ctx, p.Owed, r.Log)
-				}
+				plan, err = o.promote.SyncRollout(ctx, p.Owed, r.Log, r.Swap)
 			} else {
 				plan, err = o.promote.SyncApply(ctx, p.EnvID, p.FromID, p.Keep, p.Sig, r.Log, r.Swap)
 			}
@@ -205,10 +215,14 @@ func (o *Orchestrator) handlers() map[jobs.Kind]jobs.Handler {
 			}
 			return o.backup.Orphans(ctx, time.Duration(days)*24*time.Hour, local, r.Log)
 		},
-		kindPanelBackup: func(ctx context.Context, r *jobs.Run) error {
-			_, err := o.panelBackup(ctx, r.Log)
+		kindPanelBackup: payload(func(ctx context.Context, r *jobs.Run, p panelBackupJob) error {
+			trigger := "manual"
+			if p.Scheduled {
+				trigger = "schedule"
+			}
+			_, err := o.panelBackup(ctx, r.Log, trigger)
 			return err
-		},
+		}),
 		kindUpgrade: payload(func(ctx context.Context, r *jobs.Run, p upgradeJob) error {
 			archive, err := o.upgrade.Upgrade(ctx, p.Tag, r.Log)
 			if err == nil {
@@ -236,7 +250,10 @@ func (o *Orchestrator) handlers() map[jobs.Kind]jobs.Handler {
 			_, err := o.planOrg(ctx, p.OrgID, r.Log)
 			return err
 		}),
-		kindOrgApply: payload(o.runOrgApply),
+		kindOrgApply:    payload(o.runOrgApply),
+		kindServerPlan:  payload(o.runServerPlan),
+		kindServerApply: payload(o.runServerApply),
+		kindCleanup:     o.runCleanup,
 	}
 }
 
@@ -445,8 +462,11 @@ func (o *Orchestrator) runDelete(ctx context.Context, r *jobs.Run, p tileJob) er
 
 // watchTick runs every minute: re-push the proxy config when the proxy
 // container restarted (it boots from its autosave, which may be stale), and
-// queue an image-watch sweep when the interval is due.
+// queue an image-watch sweep when the interval is due. It also re-declares
+// the VIP rules from Docker: after a host reboot the boot rebuild can run
+// before the containers are up (cost note on rebuildVIPs).
 func (o *Orchestrator) watchTick(ctx context.Context) error {
+	o.rerouteVIPs(ctx)
 	if d, err := o.docker.Inspect(ctx, ProxyContainer); err == nil && d.Started != "" &&
 		d.Started != o.proxyStarted.Swap(d.Started) {
 		if err := o.sync.Sync(ctx); err != nil {

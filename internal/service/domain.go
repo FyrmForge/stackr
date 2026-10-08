@@ -185,7 +185,7 @@ func (o *Orchestrator) refreshAutoHosts(ctx context.Context, ts []Tile) error {
 			return err
 		}
 		for _, d := range ds {
-			if !d.Auto {
+			if !d.Auto || generatedRedirect(d) {
 				continue
 			}
 			host, res, err := o.autoHost(ctx, t)
@@ -207,6 +207,9 @@ func (o *Orchestrator) refreshAutoHosts(ctx context.Context, ts []Tile) error {
 			if _, err := o.domains.Update(ctx, d, s, o.dns01(ctx)); err != nil {
 				return err
 			}
+			if err := o.repointRedirects(ctx, d.Host, host); err != nil {
+				return err
+			}
 			moved = true
 		}
 	}
@@ -214,6 +217,30 @@ func (o *Orchestrator) refreshAutoHosts(ctx context.Context, ts []Tile) error {
 		return nil
 	}
 	return o.sync.Sync(ctx)
+}
+
+// repointRedirects sends every generated redirect that pointed at from to
+// to: the row it was made for moved, and a redirect to a host nothing serves
+// is dead.
+func (o *Orchestrator) repointRedirects(ctx context.Context, from, to string) error {
+	ds, err := o.domains.List(ctx)
+	if err != nil {
+		return err
+	}
+	for _, r := range ds {
+		if !generatedRedirect(r) || r.RedirectTo != from {
+			continue
+		}
+		s, err := specOf(r)
+		if err != nil {
+			return err
+		}
+		s.RedirectTo = to
+		if _, err := o.domains.Update(ctx, r, s, o.dns01(ctx)); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (o *Orchestrator) DetachDomain(ctx context.Context, id string) error {
@@ -231,8 +258,8 @@ func (o *Orchestrator) DetachDomain(ctx context.Context, id string) error {
 func (o *Orchestrator) SyncProxy(ctx context.Context) error { return o.sync.Sync(ctx) }
 
 // checkSquat refuses a host leading with another org's slug (the tile's own
-// org never counts against it, leaf/domainres CheckOrgSquat) and a host an
-// external route holds.
+// org never counts against it, leaf/domainres CheckOrgSquat), the panel's host
+// and a host an external route holds.
 func (o *Orchestrator) checkSquat(ctx context.Context, t Tile, host string) error {
 	st, err := o.stacks.Get(ctx, t.StackID)
 	if err != nil {
@@ -246,8 +273,15 @@ func (o *Orchestrator) checkSquat(ctx context.Context, t Tile, host string) erro
 	if err := domainres.CheckOrgSquat(host, st.OrgID, orgs); err != nil {
 		return err
 	}
+	if err := o.checkPanelTaken(ctx, host); err != nil {
+		return err
+	}
 	return o.checkRouteHost(ctx, host)
 }
+
+// Wildcard says whether certificates are wildcards (DNS-01); without it every
+// host gets its own, under Let's Encrypt's weekly limit per domain.
+func (o *Orchestrator) Wildcard(ctx context.Context) bool { return o.dns01(ctx) }
 
 func (o *Orchestrator) dns01(ctx context.Context) bool {
 	p, _ := o.settings.Get(ctx, "dns_provider")

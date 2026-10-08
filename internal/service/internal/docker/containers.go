@@ -15,6 +15,23 @@ import (
 
 // Run creates and starts a container from a resolved spec and returns its id.
 func (d *Client) Run(ctx context.Context, spec ContainerSpec) (string, error) {
+	id, err := d.Create(ctx, spec)
+	if err != nil {
+		return "", err
+	}
+	// A container that cannot start is not left lying around under a name the
+	// retry will collide with.
+	if err := d.cli.ContainerStart(ctx, id, container.StartOptions{}); err != nil {
+		_ = d.cli.ContainerRemove(context.WithoutCancel(ctx), id, container.RemoveOptions{Force: true, RemoveVolumes: true})
+		return "", err
+	}
+	return id, nil
+}
+
+// Create makes a container from a resolved spec without starting it: a spec
+// the daemon refuses (a limit above the host's) fails here, before anything
+// that runs has been touched.
+func (d *Client) Create(ctx context.Context, spec ContainerSpec) (string, error) {
 	labels := map[string]string{LabelManaged: "true"}
 	maps.Copy(labels, spec.Labels)
 
@@ -73,13 +90,17 @@ func (d *Client) Run(ctx context.Context, spec ContainerSpec) (string, error) {
 	if err != nil {
 		return "", wrap(err)
 	}
-	// A container that cannot start is not left lying around under a name the
-	// retry will collide with.
-	if err := d.cli.ContainerStart(ctx, resp.ID, container.StartOptions{}); err != nil {
-		_ = d.cli.ContainerRemove(context.WithoutCancel(ctx), resp.ID, container.RemoveOptions{Force: true, RemoveVolumes: true})
-		return "", err
-	}
 	return resp.ID, nil
+}
+
+// HostInfo is what the daemon's host has: the ceiling for a container's
+// cpu and memory limits.
+func (d *Client) HostInfo(ctx context.Context) (HostInfo, error) {
+	info, err := d.cli.Info(ctx)
+	if err != nil {
+		return HostInfo{}, err
+	}
+	return HostInfo{CPUs: info.NCPU, MemBytes: info.MemTotal}, nil
 }
 
 // Wait blocks until the container is not running and returns its exit
@@ -223,6 +244,9 @@ func (d *Client) Inspect(ctx context.Context, id string) (Detail, error) {
 	}
 	if info.Config != nil {
 		det.Image = info.Config.Image
+		if h := info.Config.Healthcheck; h != nil {
+			det.HealthInterval, det.HealthStartPeriod, det.HealthRetries = h.Interval, h.StartPeriod, h.Retries
+		}
 	}
 	if st := info.State; st != nil {
 		det.State, det.Started, det.Running = st.Status, st.StartedAt, st.Running

@@ -1,9 +1,13 @@
 package api_test
 
 import (
+	"context"
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/google/uuid"
 
 	"github.com/FyrmForge/stackr/internal/service"
 	"github.com/FyrmForge/stackr/internal/service/servicetest"
@@ -104,5 +108,38 @@ func TestOrgConfig(t *testing.T) {
 	yml := want(member, "GET", base+"/export", "", 200)
 	if !strings.Contains(yml, "org: acme") {
 		t.Errorf("export = %s, want the org", yml)
+	}
+}
+
+// An approve body carries the ticked removals and the confirm; no body is a
+// plain approve, a typo in it is a 400, and the service refuses a risky
+// plan unconfirmed whatever the client did.
+func TestApproveBody(t *testing.T) {
+	w := newWorld(t)
+	seed := func() string {
+		t.Helper()
+		p := service.OrgPlan{
+			ID: uuid.NewString(), OrgID: w.acme, Status: "pending", Ticked: []string{}, CreatedAt: time.Now(),
+			Plan: `{"changes":[{"kind":"defaults","impact":"redeploys 3 tiles"},` +
+				`{"kind":"share-delete","key":"share:old","optional":true}]}`,
+		}
+		if err := w.env.Store.OrgPlans.Create(context.Background(), p); err != nil {
+			t.Fatal(err)
+		}
+		return "/orgs/acme/config/plans/" + p.ID + "/approve"
+	}
+	for _, c := range []struct {
+		name, body string
+		code       int
+	}{
+		{"no body", "", 409},
+		{"empty object", `{}`, 409},
+		{"a typo", `{"confirmed":true}`, 400},
+		{"a tick outside the plan", `{"confirm":true,"ticked":["share:media"]}`, 400},
+		{"confirmed and ticked", `{"confirm":true,"ticked":["share:old"]}`, 202},
+	} {
+		if code, out := w.do(t, w.owner, "POST", seed(), c.body); code != c.code {
+			t.Errorf("%s = %d %s, want %d", c.name, code, out, c.code)
+		}
 	}
 }

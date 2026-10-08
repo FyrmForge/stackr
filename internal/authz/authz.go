@@ -71,6 +71,10 @@ var verbLevels = map[Verb]Level{
 	"org.create":         LevelAdmin,
 	"route.admin":        LevelAdmin,
 	"hostgrant.approve":  LevelAdmin,
+	"serverconfig.bind":  LevelAdmin, // bind, plan, preview the server file
+	"serverplan.approve": LevelAdmin,
+	"connector.admin":    LevelAdmin, // server connectors: create, rename, share, delete
+	"serverparams.write": LevelAdmin, // server params: reveal secrets, set, delete
 }
 
 // User is the request's principal, loaded once per request from live rows:

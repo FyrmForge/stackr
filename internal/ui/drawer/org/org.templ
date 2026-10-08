@@ -51,6 +51,8 @@ type DomainsView struct {
 	Example string // the help text's host: the org's first, or example.com
 	Host    string // the add form's prefill: <slug>.<instance host> while the org has no row
 	Rows    []DomainRow
+	// NoWildcard: no DNS-01, so every host is its own certificate
+	NoWildcard bool
 }
 
 type DomainRow struct {
@@ -59,6 +61,7 @@ type DomainRow struct {
 	IncludeEnv bool
 	ACMEEmail  string
 	Delete     c.ConfirmView // Action "" = none (the instance's row, or not an owner)
+	Rename     string        // POST host; "" = none (the instance's row, or not an owner)
 }
 
 // levelWord is how v0 names a resource's level.
@@ -88,39 +91,18 @@ type ConfigView struct {
 	Unbind     c.ConfirmView // Action "" = nothing bound, or not an owner
 	Job        *c.JobStatusView
 	Latest     *PlanBox  // nil = no plan, or the viewer may not read plans
-	Plans      []PlanRow // the last plans, newest first
+	Plans      []c.PlanRow // the last plans, newest first
 }
 
 type Option struct{ Value, Label string }
 
-// PlanBox is the latest plan: its row, the dry run, and the two answers.
+// PlanBox is the latest plan: its row, and the dry run with its answers.
 type PlanBox struct {
-	Row     PlanRow
-	Ask     c.PromoteAsk
-	Approve string // POST; "" = not pending, blocked, or not an owner
-	Reject  string // POST; "" = not pending, or not an owner
-}
-
-type PlanRow struct {
-	Status  string
-	Summary string
-	When    string
-	Commit  string // short
-	Error   string
+	Row    c.PlanRow
+	Review c.PlanReviewView
 }
 
 func target() string { return "#" + c.DrawerRoot }
-
-// planTone is v0's planStatus chip: pending warns, error is danger.
-func planTone(status string) string {
-	switch status {
-	case "pending":
-		return "warn"
-	case "error":
-		return "danger"
-	}
-	return ""
-}
 
 func stacks(n int) string {
 	if n == 1 {
@@ -316,11 +298,29 @@ templ Domains(v DomainsView) {
 									@c.Confirm(r.Delete)
 								</span>
 							}
+							if r.Rename != "" {
+								<form novalidate onsubmit="return false" class="basis-full flex flex-wrap items-center gap-2">
+									<label for={ "rename-" + r.Host } class="sr-only">New host for { r.Host }</label>
+									<input id={ "rename-" + r.Host } name="host" type="text" required placeholder="new host" class="input font-mono flex-1 min-w-40"/>
+									@c.Confirm(c.ConfirmView{
+										Button:  "Rename",
+										Title:   "Rename " + r.Host + "?",
+										Warning: "Every hostname under it moves and the old one redirects. Point DNS at the new name first.",
+										Action:  r.Rename,
+										Target:  target(),
+										Primary: true,
+									})
+									<p class="basis-full text-xs text-rw-faint">Names under it move; the old ones redirect. Point DNS first.</p>
+								</form>
+							}
 						</li>
 					}
 				</ul>
 			} else {
 				<p class="text-sm text-rw-faint mb-5">No domains yet.</p>
+			}
+			if v.NoWildcard {
+				<p class="text-xs text-rw-faint mb-5">No wildcard certificates: each host gets its own, and Let's Encrypt allows about 50 a week per domain.</p>
 			}
 			if v.Add != "" {
 				<form novalidate hx-post={ v.Add } hx-target={ target() } hx-swap="outerHTML" class="space-y-4">
@@ -431,7 +431,7 @@ templ Config(v ConfigView) {
 						@c.Field(c.FieldView{Name: "repo", Label: "Repository (owner/name)", Value: v.Repo, Placeholder: "you/serverconfig"})
 						@c.Field(c.FieldView{Name: "branch", Label: "Branch (empty = default)", Value: v.Branch})
 						@c.Field(c.FieldView{Name: "path", Label: "File path (empty = stackr-org.yml)", Value: v.Path})
-						<label class="flex items-center gap-2 text-sm text-rw-text"><input type="checkbox" name="auto" value="1" checked?={ v.Auto } class="accent-rw-accent"/> Auto apply a plan with no blocker</label>
+						<label class="flex items-center gap-2 text-sm text-rw-text"><input type="checkbox" name="auto" value="1" checked?={ v.Auto } class="accent-rw-accent"/> Auto apply a plan with no impact lines and no removals</label>
 						if v.Base != "" {
 							<div class="flex flex-wrap items-center gap-2">
 								<button type="submit" class="btn btn-primary btn-sm">Save and plan</button>
@@ -457,21 +457,11 @@ templ Config(v ConfigView) {
 		if v.Latest != nil {
 			@c.Section("Latest plan", "organization", "") {
 				<div class="space-y-4">
-					@planLine(v.Latest.Row)
+					@c.PlanLine(v.Latest.Row)
 					if v.Latest.Row.Error != "" {
 						<div class="banner banner-danger" role="alert">{ v.Latest.Row.Error }</div>
 					} else {
-						@c.Ask(v.Latest.Ask)
-					}
-					if v.Latest.Approve != "" || v.Latest.Reject != "" {
-						<div class="flex flex-wrap items-center gap-2">
-							if v.Latest.Approve != "" {
-								<button type="button" class="btn btn-primary btn-sm" hx-post={ v.Latest.Approve } hx-target={ target() } hx-swap="outerHTML">Approve</button>
-							}
-							if v.Latest.Reject != "" {
-								<button type="button" class="btn btn-ghost btn-sm" hx-post={ v.Latest.Reject } hx-target={ target() } hx-swap="outerHTML">Reject</button>
-							}
-						</div>
+						@c.PlanReview(v.Latest.Review)
 					}
 				</div>
 			}
@@ -481,23 +471,10 @@ templ Config(v ConfigView) {
 			<ul class="space-y-2">
 				for _, r := range v.Plans {
 					<li class="panel px-4 py-3">
-						@planLine(r)
+						@c.PlanLine(r)
 					</li>
 				}
 			</ul>
 		}
-	</div>
-}
-
-// planLine is one plan as v0's plans page drew it: status, summary, the
-// commit, when.
-templ planLine(r PlanRow) {
-	<div class="flex flex-wrap items-center gap-3 text-sm">
-		@c.Chip(r.Status, planTone(r.Status))
-		<span class="text-rw-text">{ r.Summary }</span>
-		if r.Commit != "" {
-			<span class="text-xs text-rw-faint font-mono">{ r.Commit }</span>
-		}
-		<span class="text-xs text-rw-faint ml-auto">{ r.When }</span>
 	</div>
 }

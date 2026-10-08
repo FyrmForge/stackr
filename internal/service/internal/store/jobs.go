@@ -34,6 +34,12 @@ type JobStore interface {
 	// optionally of one kind ("" = any), newest first, at most limit.
 	ListTouching(ctx context.Context, tileIDs []string, kind string, limit int) ([]Job, error)
 	Update(ctx context.Context, j Job) error
+	// RequeueIfWaiting puts a waiting job back in line; a row in any other
+	// state is left as it is (no error).
+	RequeueIfWaiting(ctx context.Context, id string) error
+	// ParkIfRunning sets a running job waiting on param with payload; a row
+	// in any other state (cancelled meanwhile) is left as it is.
+	ParkIfRunning(ctx context.Context, id, param, payload string) error
 	Delete(ctx context.Context, id string) error
 }
 
@@ -50,6 +56,19 @@ func (s jobs) ListByState(ctx context.Context, states ...string) ([]Job, error) 
 		args[i] = st
 	}
 	return s.many(ctx, "state IN (?"+strings.Repeat(", ?", len(states)-1)+") ORDER BY created_at DESC", args...)
+}
+
+func (s jobs) RequeueIfWaiting(ctx context.Context, id string) error {
+	_, err := s.q.ExecContext(ctx,
+		`UPDATE jobs SET state = 'queued', waiting_param = NULL WHERE id = ? AND state = 'waiting'`, id)
+	return err
+}
+
+func (s jobs) ParkIfRunning(ctx context.Context, id, param, payload string) error {
+	_, err := s.q.ExecContext(ctx,
+		`UPDATE jobs SET state = 'waiting', waiting_param = ?, payload = ? WHERE id = ? AND state = 'running'`,
+		param, payload, id)
+	return err
 }
 
 func (s jobs) ListTouching(ctx context.Context, tileIDs []string, kind string, limit int) ([]Job, error) {

@@ -31,6 +31,7 @@ const (
 // Docker is the slice of the wrapper this leaf needs.
 type Docker interface {
 	Run(ctx context.Context, spec docker.ContainerSpec) (string, error)
+	Create(ctx context.Context, spec docker.ContainerSpec) (string, error)
 	Stop(ctx context.Context, id string) error
 	Restart(ctx context.Context, id string) error
 	StopRemove(ctx context.Context, id string) error
@@ -64,23 +65,54 @@ var DefaultGate = Gate{Poll: time.Second, Grace: 10 * time.Second, Deadline: 60 
 // copied into log; whatever ran before keeps running. The VIP is not
 // touched: the flow calls Route when the rollout says so.
 func (l *Leaf) Start(ctx context.Context, t store.Tile, spec docker.ContainerSpec, log io.Writer) (string, error) {
+	id, err := l.docker.Run(ctx, replica(t, spec))
+	if err != nil {
+		return "", err
+	}
+	if err := l.gated(ctx, t, id, log); err != nil {
+		return "", err
+	}
+	return id, nil
+}
+
+// CreateReplica makes one replica from a resolved spec without starting it, so a
+// spec the daemon refuses fails before the replicas that run are touched.
+// Launch starts it.
+func (l *Leaf) CreateReplica(ctx context.Context, t store.Tile, spec docker.ContainerSpec) (string, error) {
+	return l.docker.Create(ctx, replica(t, spec))
+}
+
+// Launch starts a replica CreateReplica made and gates it; one that fails to start
+// or to pass is removed and the error returned, as Start does.
+func (l *Leaf) Launch(ctx context.Context, t store.Tile, id string, log io.Writer) error {
+	if err := l.docker.Start(ctx, id); err != nil {
+		_ = l.docker.StopRemove(context.WithoutCancel(ctx), id)
+		return fmt.Errorf("%s: %w", t.Slug, err)
+	}
+	return l.gated(ctx, t, id, log)
+}
+
+// replica is spec with the labels that make it t's replica.
+func replica(t store.Tile, spec docker.ContainerSpec) docker.ContainerSpec {
 	spec.Labels = maps.Clone(spec.Labels)
 	if spec.Labels == nil {
 		spec.Labels = map[string]string{}
 	}
 	spec.Labels[LabelTile], spec.Labels[LabelRole] = t.ID, "replica"
-	id, err := l.docker.Run(ctx, spec)
-	if err != nil {
-		return "", err
-	}
+	return spec
+}
+
+// gated waits for the replica to pass the health gate; one that does not is
+// removed, its last output copied into log first.
+func (l *Leaf) gated(ctx context.Context, t store.Tile, id string, log io.Writer) error {
 	if err := l.gate(ctx, id, time.Duration(t.HealthcheckStartPeriodS)*time.Second); err != nil {
 		if ctx.Err() == nil {
 			err = l.lastWords(ctx, id, err, log)
 		}
 		_ = l.docker.StopRemove(context.WithoutCancel(ctx), id)
-		return "", fmt.Errorf("%s: %w", t.Slug, err)
+		return fmt.Errorf("%s: %w", t.Slug, err)
 	}
-	return id, nil
+	return nil
 }
 
 // lastWords copies a failed replica's last output into log before it is
@@ -153,6 +185,11 @@ func (l *Leaf) Replicas(ctx context.Context, t store.Tile) ([]docker.Container, 
 	return l.docker.List(ctx, map[string]string{LabelTile: t.ID, LabelRole: "replica"})
 }
 
+// Inspect is docker's live read of one container (a replica from Replicas).
+func (l *Leaf) Inspect(ctx context.Context, id string) (docker.Detail, error) {
+	return l.docker.Inspect(ctx, id)
+}
+
 // Mounts are the "src -> dst" mounts of every replica of t.
 func (l *Leaf) Mounts(ctx context.Context, t store.Tile) ([]string, error) {
 	cs, err := l.Replicas(ctx, t)
@@ -221,7 +258,7 @@ func (l *Leaf) Pause(ctx context.Context, t store.Tile, network string) (string,
 }
 
 // Route points the VIP at the running replicas' addresses on network.
-// ponytail: stackrd rebuilds every VIP on boot (vip.Rebuild) from these same
+// ponytail: stackrd rebuilds every VIP on boot (service.rebuildVIPs) from these same
 // reads; that loop is the orchestrator's, not here.
 func (l *Leaf) Route(ctx context.Context, t store.Tile, network string) error {
 	ip, err := l.Pause(ctx, t, network)

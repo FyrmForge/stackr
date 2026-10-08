@@ -52,8 +52,9 @@ type Repo struct {
 }
 
 type Client struct {
-	baseURL string // stackr's own public URL, for the manifest's callback URLs
-	apiURL  string // GitHub's API; a field so tests can point it at a fake
+	baseURL string        // stackr's own public URL, for the manifest's callback URLs
+	panel   func() string // the panel_domain setting; "" keeps baseURL's host
+	apiURL  string        // GitHub's API; a field so tests can point it at a fake
 	http    *http.Client
 
 	mu     sync.Mutex
@@ -69,6 +70,31 @@ func New(baseURL string) *Client {
 	}
 }
 
+// WithPanelHost makes the manifest's URLs follow the panel_domain setting
+// (host only; the scheme and port stay baseURL's), so an App made after the
+// panel moved does not register the old host.
+func (c *Client) WithPanelHost(f func() string) *Client {
+	c.panel = f
+	return c
+}
+
+// base is baseURL with its host swapped for the panel's, when one is set.
+func (c *Client) base() string {
+	if c.panel == nil {
+		return c.baseURL
+	}
+	host := c.panel()
+	u, err := url.Parse(c.baseURL)
+	if host == "" || err != nil || u.Host == "" {
+		return c.baseURL
+	}
+	if p := u.Port(); p != "" {
+		host += ":" + p
+	}
+	u.Host = host
+	return strings.TrimRight(u.String(), "/")
+}
+
 // Manifest returns the GitHub form action and the manifest JSON to POST there.
 // state is "<connectorID>.<nonce>" and comes back on the callback. A non-empty
 // ghOrg creates the app under that GitHub org (needs org admin): private apps
@@ -79,8 +105,9 @@ func (c *Client) Manifest(connectorID, ghOrg, state string) (action, manifest st
 	if len(connectorID) < 4 {
 		return "", "", fmt.Errorf("githubapp: connector id %q too short", connectorID)
 	}
-	host := c.baseURL
-	if u, e := url.Parse(c.baseURL); e == nil && u.Host != "" {
+	base := c.base()
+	host := base
+	if u, e := url.Parse(base); e == nil && u.Host != "" {
 		host = u.Host
 	}
 	// App names are globally unique on GitHub; the suffix avoids clashes
@@ -92,11 +119,11 @@ func (c *Client) Manifest(connectorID, ghOrg, state string) (action, manifest st
 	name += "-" + connectorID[:4]
 	b, err := json.Marshal(map[string]any{
 		"name":         name,
-		"url":          c.baseURL,
+		"url":          base,
 		"public":       false,
-		"redirect_url": c.baseURL + "/settings/github/callback",
+		"redirect_url": base + "/settings/github/callback",
 		"hook_attributes": map[string]any{
-			"url": c.baseURL + "/hooks/connectors/" + connectorID,
+			"url": base + "/hooks/connectors/" + connectorID,
 		},
 		// Fixed at app creation: widening later makes every owner re-approve
 		// by hand, so checks/pull_requests/statuses are asked for up front.

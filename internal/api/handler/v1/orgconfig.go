@@ -19,7 +19,20 @@ type (
 	OrgFileIn struct {
 		File string `json:"file"` // a stackr-org.yml
 	}
+	// ApproveIn is an approve's body, for the org plan and the server plan:
+	// the removal keys to apply and the confirm of a risky plan. No body is
+	// a plain approve.
+	ApproveIn struct {
+		Ticked  []string `json:"ticked"`
+		Confirm bool     `json:"confirm"`
+	}
 )
+
+func (ApproveIn) BodyOptional() {}
+
+func (in ApproveIn) opts() service.ApproveOpts {
+	return service.ApproveOpts{Ticked: in.Ticked, Confirm: in.Confirm}
+}
 
 // maxOrgFile caps a plan-preview body, as v0 did.
 const maxOrgFile = 2 << 20
@@ -55,8 +68,8 @@ func (h *H) OrgPlan() Endpoint {
 }
 
 func (h *H) ApproveOrgPlan() Endpoint {
-	return Job(func(c echo.Context, _ None) (service.Job, error) {
-		return h.Orch.ApproveOrgPlan(rc(c), c.Param("plan"))
+	return Job(func(c echo.Context, in ApproveIn) (service.Job, error) {
+		return h.Orch.ApproveOrgPlan(rc(c), c.Param("plan"), in.opts())
 	})
 }
 

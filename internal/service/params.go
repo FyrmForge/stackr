@@ -13,6 +13,10 @@ type (
 	Param      = store.Param
 )
 
+// ServerParamScope is the server's params (admin only): read by the server
+// file's items and by nothing else.
+var ServerParamScope = ParamScope(params.ServerScope)
+
 // Params lists a scope's entries. secrets=false never reads a secret row
 // (B37): a caller without the right gets params only.
 func (o *Orchestrator) Params(ctx context.Context, s ParamScope, secrets bool) ([]Param, error) {
@@ -51,6 +55,21 @@ func (o *Orchestrator) DeleteParam(ctx context.Context, s ParamScope, collection
 		return nil, err
 	}
 	return o.redeploy(ctx, ts)
+}
+
+// ExpandServerRefs resolves the ${{ server.params.<collection>.<name> }} refs
+// in one item of the server file (a backup dest key, later a connector
+// token). A missing value is errs.Unset naming server.params.<collection>.<name>;
+// any other ref form is refused. It is the only reader of the server scope.
+func (o *Orchestrator) ExpandServerRefs(ctx context.Context, s string) (string, error) {
+	if !params.HasRef(s) {
+		return s, nil
+	}
+	vals, err := o.params.Values(ctx, params.ServerScope, true)
+	if err != nil {
+		return "", err
+	}
+	return params.NewResolver(params.Snapshot{ServerParams: vals}).Expand(params.InServerFile, s)
 }
 
 // redeployScope redeploys the running tiles a scope's params reach.

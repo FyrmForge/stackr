@@ -129,9 +129,9 @@ func (d *Client) execResult(ctx context.Context, execID, stderr string) error {
 	return nil
 }
 
-// ExecStream runs cmd with optional stdin and streams stdout and stderr
-// interleaved. The caller must call wait even on a stream it abandons: wait
-// reports the exit and releases the exec.
+// ExecStream runs cmd with optional stdin and streams stdout; stderr is kept
+// apart for the ExitError. The caller must call wait even on a stream it
+// abandons: wait reports the exit and releases the exec.
 func (d *Client) ExecStream(
 	ctx context.Context,
 	id string,
@@ -161,7 +161,7 @@ func (d *Client) ExecStream(
 	var stderr strings.Builder
 	copyDone := make(chan struct{})
 	go func() {
-		_, err := stdcopy.StdCopy(pw, io.MultiWriter(pw, &stderr), att.Reader)
+		err := demux(att.Reader, pw, &stderr)
 		_ = pw.CloseWithError(err)
 		close(copyDone)
 	}()
@@ -174,6 +174,12 @@ func (d *Client) ExecStream(
 		return d.execResult(ctx, execID.ID, stderr.String())
 	}
 	return pr, wait, nil
+}
+
+// demux splits an exec's frames: stdout to out, stderr to stderr only.
+func demux(src io.Reader, out io.Writer, stderr *strings.Builder) error {
+	_, err := stdcopy.StdCopy(out, stderr, src)
+	return err
 }
 
 // IsExit reports whether err is a non-zero exit, and its code.

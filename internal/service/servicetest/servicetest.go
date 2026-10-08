@@ -229,9 +229,29 @@ func (e *Env) Connector(t *testing.T, orgID, secret string) string {
 	must(t, err)
 	must(t, e.Store.Connectors.Create(context.Background(), store.Connector{
 		ID:        id,
-		OrgID:     orgID,
+		OrgID:     &orgID,
 		Provider:  "github",
 		Name:      "github",
+		Host:      "github.com",
+		Config:    string(cfg),
+		CreatedAt: now,
+	}))
+	return id
+}
+
+// ServerConnector seeds a connected server connector (no org, shared with
+// none) named name, whose webhook secret is secret, and returns its id.
+func (e *Env) ServerConnector(t *testing.T, name, secret string) string {
+	t.Helper()
+	id := uuid.NewString()
+	cfg, err := json.Marshal(map[string]any{
+		"app": map[string]any{"id": 2, "slug": "stackr-" + name, "webhook_secret": secret},
+	})
+	must(t, err)
+	must(t, e.Store.Connectors.Create(context.Background(), store.Connector{
+		ID:        id,
+		Provider:  "github",
+		Name:      name,
 		Host:      "github.com",
 		Config:    string(cfg),
 		CreatedAt: now,

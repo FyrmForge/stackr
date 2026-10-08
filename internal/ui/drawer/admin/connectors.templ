@@ -1,0 +1,97 @@
+package admin
+
+import c "github.com/FyrmForge/stackr/internal/ui/components"
+
+// ConnectorsView is the server's git connectors: GitHub Apps the admin owns
+// and shares with organizations. Begin "" = may not add or change one.
+type ConnectorsView struct {
+	Begin    string // POST github_org
+	Action   string // GitHub's manifest URL once begun; "" = step one
+	Manifest string
+	Rows     []ServerConnector
+}
+
+// ServerConnector is one row. InstallURL "" = the handshake has not finished.
+type ServerConnector struct {
+	ID, Name, Host, InstallURL string
+	All                        bool
+	Orgs                       []OrgShare
+	Rename, Share              string // POST; "" = read-only
+	Delete                     c.ConfirmView
+}
+
+// OrgShare is an organization and whether the connector is shared with it.
+type OrgShare struct {
+	ID, Name string
+	On       bool
+}
+
+templ Connectors(v ConnectorsView) {
+	<div id="tab-connectors">
+		if v.Begin != "" {
+			@c.Section("Add a GitHub connector", "instance", "The server owns the app. Share it with the organizations that may clone through it.") {
+				if v.Action == "" {
+					<form hx-post={ v.Begin } hx-target={ target() } hx-swap="outerHTML" class="space-y-4">
+						@c.Field(c.FieldView{Name: "github_org", Label: "GitHub org", Placeholder: "acme", Help: "Empty is your personal account."})
+						<button type="submit" class="btn btn-primary btn-sm">Continue</button>
+					</form>
+				} else {
+					// templint:ignore no-native-form-actions -- GitHub's manifest flow requires a browser form POST
+					<form method="post" action={ templ.SafeURL(v.Action) } class="space-y-4">
+						<input type="hidden" name="manifest" value={ v.Manifest }/>
+						<p class="text-sm text-rw-muted">GitHub creates the app, then sends you back here.</p>
+						<button type="submit" class="btn btn-primary btn-sm">Continue on GitHub</button>
+					</form>
+				}
+			}
+		}
+		@c.Section("Server connectors", "instance", "Not shared with anyone until you choose.") {
+			if len(v.Rows) == 0 {
+				<p class="text-sm text-rw-faint">No server connectors yet.</p>
+			} else {
+				<ul class="space-y-3">
+					for _, r := range v.Rows {
+						<li class="panel px-4 py-3 text-sm space-y-3">
+							<div class="flex flex-wrap items-center gap-2">
+								<span class="text-rw-text">{ r.Name }</span>
+								@c.Chip(r.Host, "")
+								if r.InstallURL == "" {
+									@c.Chip("pending", "warn")
+								} else {
+									<a href={ templ.SafeURL(r.InstallURL) } target="_blank" rel="noopener noreferrer" class="text-xs text-rw-accent hover:underline">Install on GitHub</a>
+								}
+								if r.Delete.Action != "" {
+									<span class="ml-auto">
+										@c.Confirm(r.Delete)
+									</span>
+								}
+							</div>
+							if r.Rename != "" {
+								<form hx-post={ r.Rename } hx-target={ target() } hx-swap="outerHTML" class="flex items-end gap-2">
+									<div class="grow">
+										<label for={ "conn-name-" + r.ID } class="label">Name</label>
+										<input id={ "conn-name-" + r.ID } name="name" value={ r.Name } class="input" required/>
+									</div>
+									<button type="submit" class="btn btn-ghost btn-sm">Rename</button>
+								</form>
+							}
+							if r.Share != "" {
+								<form hx-post={ r.Share } hx-target={ target() } hx-swap="outerHTML" class="space-y-2">
+									<fieldset class="space-y-1">
+										<legend class="label">Shared with</legend>
+										<label class="flex items-center gap-2 text-rw-text"><input type="checkbox" name="all" value="1" checked?={ r.All } class="accent-rw-accent"/> All organizations</label>
+										<p class="text-xs text-rw-faint">Every owner of every organization can clone every repository this app is installed on.</p>
+										for _, o := range r.Orgs {
+											<label class="flex items-center gap-2 text-rw-text"><input type="checkbox" name="org" value={ o.ID } checked?={ o.On } class="accent-rw-accent"/> { o.Name }</label>
+										}
+									</fieldset>
+									<button type="submit" class="btn btn-ghost btn-sm">Save sharing</button>
+								</form>
+							}
+						</li>
+					}
+				</ul>
+			}
+		}
+	</div>
+}

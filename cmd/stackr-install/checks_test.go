@@ -130,3 +130,19 @@ func TestDoneText(t *testing.T) {
 		t.Error("a re-run printed the passphrase or the new admin")
 	}
 }
+
+// Each fresh install names its own panel archives; a re-run keeps the saved
+// id (a different one would fail the "other answers" check, and orphan the
+// archives already in the bucket).
+func TestInstallID(t *testing.T) {
+	a, b := newInstallID(), newInstallID()
+	if len(a) != 16 || strings.Trim(a, "0123456789abcdef") != "" || a == b {
+		t.Errorf("ids = %q %q, want two distinct 16-char hex strings", a, b)
+	}
+	saved := installspec.Input{Root: "example.com", InstallID: "9f2c41d7a0b34e5a"}
+	in := installspec.Input{}
+	fillFrom(&in, saved, map[string]bool{})
+	if in.InstallID != saved.InstallID {
+		t.Errorf("a re-run dropped the saved install id: %q", in.InstallID)
+	}
+}

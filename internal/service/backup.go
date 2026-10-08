@@ -2,10 +2,12 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"path/filepath"
 	"strings"
 
+	"github.com/FyrmForge/stackr/internal/installspec"
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	fbackup "github.com/FyrmForge/stackr/internal/service/internal/flow/backup"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/jobs"
@@ -20,10 +22,6 @@ type (
 	BackupDestSpec = backup.Dest
 	ScheduleSpec   = backup.Schedule
 )
-
-// panelKeep is how many panel archives stay.
-// ponytail: fixed; a settings knob when someone needs another number.
-const panelKeep = 14
 
 func (o *Orchestrator) BackupDests(ctx context.Context, orgID string) ([]BackupDest, error) {
 	return o.backups.Visible(ctx, orgID)
@@ -54,7 +52,11 @@ func (o *Orchestrator) DeleteBackupDest(ctx context.Context, orgID, id string) e
 	if err != nil {
 		return err
 	}
-	return o.backups.Delete(ctx, d)
+	panelDest, err := o.settings.Get(ctx, "panel_backup_dest")
+	if err != nil {
+		return err
+	}
+	return o.backups.Delete(ctx, d, panelDest == d.ID)
 }
 
 func (o *Orchestrator) ownDest(ctx context.Context, orgID, id string) (BackupDest, error) {
@@ -174,11 +176,36 @@ func (o *Orchestrator) RestoreBackup(ctx context.Context, runID, sourceVolumeID,
 	} else if a != b {
 		return Job{}, errs.ErrNotFound
 	}
+	lock := []string{"volume:" + dst.ID}
+	if dst.InstanceID != nil {
+		// No Provision or Bind while the dump loads: a deploy locks its own
+		// tile only, so the instance, its slices and their consumers are all
+		// held.
+		it, err := o.instanceTile(ctx, *dst.InstanceID)
+		if err != nil {
+			return Job{}, err
+		}
+		lock = append(lock, it.ID)
+		ps, err := o.managed.ByInstance(ctx, *dst.InstanceID)
+		if err != nil {
+			return Job{}, err
+		}
+		for _, p := range ps {
+			lock = append(lock, p.TileID)
+		}
+		cs, err := o.consumers(ctx, dst)
+		if err != nil {
+			return Job{}, err
+		}
+		for _, c := range cs {
+			lock = append(lock, c.ID)
+		}
+	}
 	return o.enqueue(
 		ctx,
 		kindRestore,
 		restoreJob{RunID: runID, SourceVolumeID: src.ID, TargetVolumeID: dst.ID},
-		"volume:"+dst.ID,
+		lock...,
 	)
 }
 
@@ -189,7 +216,17 @@ func (o *Orchestrator) PanelBackups(ctx context.Context) ([]BackupRun, error) {
 
 // PanelBackupNow queues an archive of the panel database.
 func (o *Orchestrator) PanelBackupNow(ctx context.Context) (Job, error) {
-	return o.enqueue(ctx, kindPanelBackup, nil, "panel-backup")
+	return o.enqueue(ctx, kindPanelBackup, nil, o.panelLock(false)...)
+}
+
+// panelLock is a panel backup job's lock set: the panel lock, so it never
+// overlaps an upgrade, and a key per origin, so a manual click and a
+// scheduled run do not supersede (cancel) each other.
+func (o *Orchestrator) panelLock(scheduled bool) []string {
+	if scheduled {
+		return []string{"panel", "panel-backup:scheduled"}
+	}
+	return []string{"panel", "panel-backup:manual"}
 }
 
 func (o *Orchestrator) runBackup(ctx context.Context, r *jobs.Run, p backupJob) error {
@@ -248,6 +285,17 @@ func (o *Orchestrator) runRestore(ctx context.Context, r *jobs.Run, p restoreJob
 	if err != nil {
 		return err
 	}
+	var cluster func(context.Context) error
+	if method == "dump" {
+		if sub.Consumers, err = o.consumers(ctx, v); err != nil {
+			return err
+		}
+		src, err := o.volumes.Get(ctx, p.SourceVolumeID)
+		if err != nil {
+			return err
+		}
+		cluster = func(ctx context.Context) error { return o.clusterRestoreOK(ctx, run, src, v) }
+	}
 	local, err := o.localDest(ctx)
 	if err != nil {
 		return err
@@ -257,7 +305,76 @@ func (o *Orchestrator) runRestore(ctx context.Context, r *jobs.Run, p restoreJob
 		SourceVolumeID: p.SourceVolumeID,
 		Target:         sub,
 		Pre:            fbackup.Spec{Dest: local, Prefix: backup.Prefix(org, v.ID, "")},
+		Cluster:        cluster,
 	}, r.Log)
+}
+
+// clusterRestoreOK vets a whole-instance dump before its instance is wiped.
+// The dump holds the databases and roles of its own instance: on another it
+// would drop that one's slices and load names it does not track, and on its
+// own it would drop what was made after the backup.
+func (o *Orchestrator) clusterRestoreOK(ctx context.Context, run store.BackupRun, src, dst store.Volume) error {
+	if src.InstanceID == nil || dst.InstanceID == nil || *src.InstanceID != *dst.InstanceID {
+		return errs.Refusedf("restore a cluster dump onto the instance it came from")
+	}
+	ps, err := o.managed.ByInstance(ctx, *dst.InstanceID)
+	if err != nil {
+		return err
+	}
+	var late []string
+	for _, p := range ps {
+		if p.CreatedAt.After(run.CreatedAt) {
+			late = append(late, "slice "+p.DBName)
+		}
+		bs, err := o.managed.Bindings(ctx, p.ID)
+		if err != nil {
+			return err
+		}
+		for _, b := range bs {
+			if b.CreatedAt.After(run.CreatedAt) {
+				late = append(late, "binding "+b.DBUser)
+			}
+		}
+	}
+	if len(late) > 0 {
+		return errs.Refusedf(
+			"%s made after this backup would be dropped by the restore: %s; remove them first",
+			dst.Slug,
+			strings.Join(late, ", "),
+		)
+	}
+	return nil
+}
+
+// consumers are the tiles bound to a slice of v's instance, once each.
+func (o *Orchestrator) consumers(ctx context.Context, v store.Volume) ([]store.Tile, error) {
+	if v.InstanceID == nil {
+		return nil, nil
+	}
+	ps, err := o.managed.ByInstance(ctx, *v.InstanceID)
+	if err != nil {
+		return nil, err
+	}
+	var out []store.Tile
+	seen := map[string]bool{}
+	for _, p := range ps {
+		bs, err := o.managed.Bindings(ctx, p.ID)
+		if err != nil {
+			return nil, err
+		}
+		for _, b := range bs {
+			if seen[b.ConsumerTileID] {
+				continue
+			}
+			seen[b.ConsumerTileID] = true
+			t, err := o.tiles.Get(ctx, b.ConsumerTileID)
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, t)
+		}
+	}
+	return out, nil
 }
 
 // subject gathers what flow/backup needs about a volume: who mounts it, and
@@ -283,7 +400,10 @@ func (o *Orchestrator) subject(ctx context.Context, v store.Volume, method strin
 		if s.Dump, err = o.engines.Backup(ctx, it, method); err != nil {
 			return s, err
 		}
-		s.Load, err = o.engines.Restore(ctx, it, method, "")
+		if s.Load, err = o.engines.Restore(ctx, it, method, ""); err != nil {
+			return s, err
+		}
+		s.Marker, err = o.engines.DumpMarker(ctx, it)
 		return s, err
 	}
 	var err error
@@ -337,19 +457,57 @@ func (o *Orchestrator) localDest(ctx context.Context) (store.BackupDest, error) 
 	return o.backups.EnsureLocal(ctx, filepath.Join(o.cfg.DataDir, "backups"))
 }
 
-func (o *Orchestrator) panelBackup(ctx context.Context, log io.Writer) (store.BackupRun, error) {
-	local, err := o.localDest(ctx)
+// panelFixedKeep is how many manual and pre-upgrade archives stay; only the
+// scheduled ones follow panel_backup_keep.
+const panelFixedKeep = 14
+
+// panelBackup archives the panel under trigger schedule, manual or upgrade,
+// each with its own prefix and prune. A scheduled run goes to
+// panel_backup_dest (a global destination; local when unset or gone, with a
+// warning in the log) and keeps panel_backup_keep; a manual one and the
+// pre-upgrade archive stay local and keep panelFixedKeep.
+func (o *Orchestrator) panelBackup(ctx context.Context, log io.Writer, trigger string) (store.BackupRun, error) {
+	dest, err := o.localDest(ctx)
 	if err != nil {
 		return store.BackupRun{}, err
+	}
+	keep := panelFixedKeep
+	if trigger == "schedule" {
+		id, err := o.settings.Get(ctx, "panel_backup_dest")
+		if err != nil {
+			return store.BackupRun{}, err
+		}
+		if id != "" {
+			d, err := o.backups.Get(ctx, id)
+			if err == nil && d.OrgID != nil {
+				err = errs.ErrNotFound
+			}
+			if err != nil {
+				_, _ = fmt.Fprintf(log, "warning: panel backup destination %s is gone (%v); using the local one\n", id, err)
+			} else {
+				dest = d
+			}
+		}
+		if keep, err = o.settings.Int(ctx, "panel_backup_keep"); err != nil {
+			return store.BackupRun{}, err
+		}
 	}
 	return o.backup.PanelBackup(ctx, fbackup.Panel{
 		Vacuum: func(ctx context.Context, path string) error {
 			_, err := o.db.ExecContext(ctx, "VACUUM INTO ?", path)
 			return err
 		},
+		Caddy: func(ctx context.Context, w io.Writer) error {
+			// live: the proxy keeps writing (ACME renewals) while it is read.
+			if _, err := o.docker.InspectVolume(ctx, installspec.ProxyVolume); err != nil {
+				return err
+			}
+			return o.docker.TarVolume(ctx, installspec.ProxyVolume, w, true)
+		},
+		Trigger:    trigger,
 		MasterKey:  o.cfg.SecretsKey,
 		Version:    o.cfg.Version,
 		Passphrase: o.cfg.Passphrase,
 		InstallID:  o.cfg.InstallID,
-	}, local, panelKeep, log)
+	}, dest, keep, log)
 }

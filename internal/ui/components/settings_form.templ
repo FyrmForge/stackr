@@ -45,16 +45,22 @@ var knobs = map[string]knob{
 	"image_check_interval":       {"Image check interval (minutes)", "Images"},
 	"cleanup_enabled":            {"Nightly cleanup", "Images"},
 	"orphan_retention_days":      {"Orphan retention (days)", "Volumes"},
+	"orphans_enabled":            {"Orphan sweep", "Volumes"},
+	"orphans_schedule":           {"Orphan sweep schedule", "Volumes"},
+	"cleanup_schedule":           {"Cleanup schedule", "Images"},
+	"panel_backup_enabled":       {"Panel backups", "Backups"},
+	"panel_backup_schedule":      {"Panel backup schedule", "Backups"},
+	"panel_backup_keep":          {"Panel backups kept", "Backups"},
+	"panel_backup_dest":          {"Panel backup destination id", "Backups"},
 	"panel_domain":               {"Panel domain", "Panel and proxy"},
 	"acme_email":                 {"ACME email", "Panel and proxy"},
 	"trusted_proxies":            {"Trusted proxies", "Panel and proxy"},
 	"dns_provider":               {"DNS provider", "Panel and proxy"},
-	"dns_env":                    {"DNS credentials", "Panel and proxy"},
 	"proxy_custom":               {"Custom Caddy config", "Panel and proxy"},
 	"root_domain":                {"Root domain", "Panel and proxy"},
 }
 
-var knobSections = []string{"Resources", "Protect", "Jobs", "Images", "Volumes", "Panel and proxy", "Other"}
+var knobSections = []string{"Resources", "Protect", "Jobs", "Images", "Volumes", "Backups", "Panel and proxy", "Other"}
 
 func knobLabel(key string) string {
 	if k, ok := knobs[key]; ok {

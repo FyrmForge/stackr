@@ -19,7 +19,8 @@ import (
 // orgplan.approve holders.
 func (h *handler) configTab(c echo.Context, cd card, f *comp.DrawerView) (templ.Component, error) {
 	ctx, og := c.Request().Context(), cd.s.Org
-	cs, err := h.orch.Connectors(ctx, og.ID)
+	// the picker: the org's own connectors and the server ones shared with it
+	cs, err := h.orch.ConnectedConnectors(ctx, og.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -33,7 +34,11 @@ func (h *handler) configTab(c echo.Context, cd card, f *comp.DrawerView) (templ.
 		Auto:      og.ConfigAuto,
 	}
 	for _, k := range cs {
-		v.Connectors = append(v.Connectors, orgui.Option{Value: k.ID, Label: k.Name + " (" + k.Host + ")"})
+		label := k.Name + " (" + k.Host + ")"
+		if k.OrgID == nil {
+			label += ", server"
+		}
+		v.Connectors = append(v.Connectors, orgui.Option{Value: k.ID, Label: label})
 	}
 	if can(c, cd.s, "org.config.bind") {
 		v.Base = f.Base
@@ -73,21 +78,26 @@ func (h *handler) configTab(c echo.Context, cd card, f *comp.DrawerView) (templ.
 		}
 	}
 	box := &orgui.PlanBox{
-		Row: v.Plans[0],
-		Ask: comp.PromoteAsk{Target: og.Name, Plan: render.OrgPlanView(pl)},
+		Row:    v.Plans[0],
+		Review: comp.PlanReviewView{Plan: render.OrgPlanView(pl)},
 	}
-	if latest.Status == "pending" && can(c, cd.s, "orgplan.approve") {
-		box.Reject = f.Base + "/plans/" + latest.ID + "/reject"
+	switch {
+	case latest.Status == "pending" && latest.DecidedAt != nil: // approved; the apply is running
+		box.Review.Applying, box.Review.Ticked = true, latest.Ticked
+	case latest.Status == "applied":
+		box.Review.Done, box.Review.Ticked = true, latest.Ticked
+	case latest.Status == "pending" && can(c, cd.s, "orgplan.approve"):
+		box.Review.Reject = f.Base + "/plans/" + latest.ID + "/reject"
 		if !pl.Blocked() {
-			box.Approve = f.Base + "/plans/" + latest.ID + "/approve"
+			box.Review.Approve = f.Base + "/plans/" + latest.ID + "/approve"
 		}
 	}
 	v.Latest, v.Plans = box, v.Plans[1:]
 	return orgui.Config(v), nil
 }
 
-func planRow(p service.OrgPlan) orgui.PlanRow {
-	return orgui.PlanRow{
+func planRow(p service.OrgPlan) comp.PlanRow {
+	return comp.PlanRow{
 		Status:  p.Status,
 		Summary: p.Summary,
 		When:    p.CreatedAt.Local().Format("Jan 2 15:04"),
@@ -148,7 +158,7 @@ func (h *handler) mountOrgConfig(site *echo.Group, a *middleware.Access) {
 		return "Planned: " + p.Summary + ".", err
 	}), bind)
 	site.POST(o+"/plans/:plan/approve", h.orgAction("config", func(c echo.Context, og *service.Org) (string, error) {
-		j, err := h.orch.ApproveOrgPlan(c.Request().Context(), c.Param("plan"))
+		j, err := h.orch.ApproveOrgPlan(c.Request().Context(), c.Param("plan"), render.ApproveOpts(c))
 		if err != nil {
 			return "", err
 		}

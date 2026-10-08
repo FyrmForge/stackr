@@ -198,15 +198,22 @@ func OrgPlanView(p service.OrgConfigPlan) components.PlanView {
 	}
 	for _, ch := range p.Changes {
 		cv := components.ChangeView{
-			Kind:  ch.Kind,
-			Tile:  ch.Tile,
-			Field: ch.Field,
-			Old:   ch.Old,
-			New:   ch.New,
-			Note:  ch.Note,
+			Kind:     ch.Kind,
+			Tile:     ch.Tile,
+			Field:    ch.Field,
+			Old:      ch.Old,
+			New:      ch.New,
+			Note:     ch.Note,
+			Impact:   ch.Impact,
+			Key:      ch.Key,
+			Optional: ch.Optional,
 		}
-		if ch.Kind == "domain" || ch.Kind == "param" {
-			cv.Kind, cv.Tile = "create", ch.Kind
+		switch ch.Kind {
+		case "domain", "param", "share":
+			if !ch.Optional {
+				cv.Kind = "create"
+				cv.Tile = strings.TrimSpace(ch.Kind + " " + ch.Tile)
+			}
 		}
 		pv.Changes = append(pv.Changes, cv)
 	}

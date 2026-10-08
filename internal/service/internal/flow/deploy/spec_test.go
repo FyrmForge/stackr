@@ -3,6 +3,8 @@ package deploy
 import (
 	"slices"
 	"testing"
+
+	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
 
 func TestSplitCommandAndPorts(t *testing.T) {
@@ -24,5 +26,18 @@ func TestSplitCommandAndPorts(t *testing.T) {
 	}
 	if RepoOf("localhost:5000/a/b:1") != "localhost:5000/a/b" || RepoOf("nginx@sha256:x") != "nginx" {
 		t.Error("repoOf")
+	}
+}
+
+// A replica names the ref it was started for: the pinned one when the deploy
+// knows it, else the image it runs.
+func TestSpecRefLabel(t *testing.T) {
+	got := spec(store.Tile{}, resolved{image: "nginx:1", pinRef: "nginx@sha256:one"}).Labels[LabelRef]
+	if got != "nginx@sha256:one" {
+		t.Errorf("label = %q; want the pinned ref", got)
+	}
+	got = spec(store.Tile{}, resolved{image: "nginx:1"}).Labels[LabelRef]
+	if got != "nginx:1" {
+		t.Errorf("label = %q; want the image", got)
 	}
 }

@@ -445,3 +445,23 @@ func TestRepoPicker(t *testing.T) {
 		}
 	}
 }
+
+// An org whose only connector is a shared server one still gets through
+// the connector and config steps: installing a server App is the admin's
+// job, so there is no install link, but the pages render.
+func TestSharedServerConnectorOnly(t *testing.T) {
+	g := servicetest.NewGit(t)
+	s := webtest.NewWith(t, []service.Option{g.Option()})
+	uid, sess := admin(t, s)
+	og, _ := draft(t, s, uid, sess, "config")
+	srv := s.ServerConnector(t, "gh-main", "whsec")
+	if _, err := s.Orch.ShareConnector(context.Background(), srv, []string{og.ID}, false); err != nil {
+		t.Fatal(err)
+	}
+	b := "/" + og.Slug + "/-/setup"
+	for _, step := range []string{"/connector?body=1", "/config?body=1"} {
+		if rec := s.As(t, sess, "GET", b+step, nil); rec.Code != http.StatusOK {
+			t.Errorf("GET %s = %d", step, rec.Code)
+		}
+	}
+}

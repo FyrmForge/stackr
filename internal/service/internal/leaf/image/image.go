@@ -5,6 +5,7 @@ package image
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"slices"
 	"strings"
@@ -13,6 +14,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
+	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	"github.com/FyrmForge/stackr/internal/service/internal/git"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
@@ -27,7 +29,7 @@ const LabelBuilt = "stackr.built"
 const Grace = time.Hour
 
 type Docker interface {
-	PruneImages(ctx context.Context, labels map[string]string, keep []string) ([]string, error)
+	PruneImages(ctx context.Context, labels map[string]string, keep []string) ([]string, int64, error)
 	Pull(ctx context.Context, ref, auth string, log io.Writer) error
 	LocalDigest(ctx context.Context, ref string) (string, error)
 	EnsureBuilder(ctx context.Context, name string, memMB int) error
@@ -76,6 +78,10 @@ func (l *Leaf) Name(ctx context.Context, repoName, sha, jobID string) (string, e
 	return ref + "-" + jobID[:min(8, len(jobID))], nil
 }
 
+// ErrCleanedUp: a build of ours whose Docker image Cleanup removed; the
+// caller names the tile.
+var ErrCleanedUp = errors.New("the image was cleaned up; rebuild it")
+
 // Ensure makes ref present on the box and returns its registry digest ("" for
 // an image built here). A build of ours is never pulled (it was never
 // pushed), nor is a digest-pinned ref already here (it cannot have moved);
@@ -83,6 +89,9 @@ func (l *Leaf) Name(ctx context.Context, repoName, sha, jobID string) (string, e
 // auth is the X-Registry-Auth blob, "" = anonymous.
 func (l *Leaf) Ensure(ctx context.Context, ref, auth string, log io.Writer) (string, error) {
 	if i, err := l.images.GetByRef(ctx, ref); err == nil && i.BuiltAt != nil {
+		if _, err := l.docker.LocalDigest(ctx, ref); errors.Is(err, docker.ErrNotFound) {
+			return "", fmt.Errorf("%s: %w", ref, ErrCleanedUp)
+		}
 		return "", nil
 	}
 	if strings.Contains(ref, "@sha256:") {
@@ -147,35 +156,40 @@ func (l *Leaf) upsert(ctx context.Context, ref string, edit func(*store.Image)) 
 	return i, l.images.Update(ctx, i)
 }
 
-// Cleanup removes built images no release references. keep is every image
-// id the release_tiles rows point at. Builds younger than Grace stay too.
-// Watch-cache rows (never built here) are left alone. Returns the refs
-// removed from the box.
-func (l *Leaf) Cleanup(ctx context.Context, keep []string) ([]string, error) {
+// Cleanup removes built images no kept release reaches. keep is the image
+// ids to keep; builds younger than Grace stay too. Watch-cache rows (never
+// built here) are left alone. extra are more refs or ids to keep (what
+// containers use). A row goes only when its Docker image did and no release
+// still pins it (pinned is every id any release references): the row is
+// what the release's pin points at. Returns the ids of the images removed
+// from the box and the bytes that freed (up to: layers can be shared).
+func (l *Leaf) Cleanup(ctx context.Context, keep, pinned, extra []string) ([]string, int64, error) {
 	all, err := l.images.List(ctx)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
-	var keepRefs []string
+	keepRefs := slices.Clone(extra)
 	var drop []store.Image
 	cutoff := time.Now().Add(-Grace)
 	for _, i := range all {
 		switch {
 		case i.BuiltAt == nil:
-		case slices.Contains(keep, i.ID) || i.BuiltAt.After(cutoff):
+		case slices.Contains(keep, i.ID) || slices.Contains(extra, i.Ref) || slices.Contains(extra, i.Digest) ||
+			i.BuiltAt.After(cutoff):
 			keepRefs = append(keepRefs, i.Ref, i.Digest)
 		default:
 			drop = append(drop, i)
 		}
 	}
-	removed, err := l.docker.PruneImages(ctx, map[string]string{LabelBuilt: "true"}, keepRefs)
-	if err != nil {
-		return removed, err
-	}
+	// A partial failure still reports what went: its rows go too.
+	removed, freed, pruneErr := l.docker.PruneImages(ctx, map[string]string{LabelBuilt: "true"}, keepRefs)
 	for _, i := range drop {
+		if slices.Contains(pinned, i.ID) || !slices.Contains(removed, i.Digest) {
+			continue
+		}
 		if err := l.images.Delete(ctx, i.ID); err != nil {
-			return removed, err
+			return removed, freed, errors.Join(pruneErr, err)
 		}
 	}
-	return removed, nil
+	return removed, freed, pruneErr
 }

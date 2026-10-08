@@ -5,14 +5,13 @@ package orgconfig
 
 import (
 	"fmt"
-	"io"
-	"regexp"
 	"strings"
 
 	"go.yaml.in/yaml/v3"
 
 	"github.com/FyrmForge/stackr/internal/service/internal/githubapp"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/volume"
+	"github.com/FyrmForge/stackr/internal/service/internal/planfile"
 	"github.com/FyrmForge/stackr/internal/service/internal/slug"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
@@ -38,12 +37,8 @@ type File struct {
 	Moved     []Move                      `yaml:"moved,omitempty"`
 }
 
-// Param is one declaration, the stack file's grammar. A secret is name and
-// type only: the file is in git.
-type Param struct {
-	Type  string  `yaml:"type"` // param | secret
-	Value *string `yaml:"value,omitempty"`
-}
+// Param is one declaration, the stack file's grammar.
+type Param = planfile.Param
 
 // Defaults is the org rung of the settings cascade, leaf/settings.Settings
 // with yaml keys; nil = say nothing here.
@@ -152,12 +147,10 @@ var removedKeys = map[string]string{
 	"ui_edits": "drop it; drift never promotes",
 }
 
-var unknownField = regexp.MustCompile(`^(?:line \d+: )?field (\S+) not found in type \S+$`)
-
 // Parse decodes and checks the whole file; Diff trusts what it returns.
 func Parse(data []byte) (*File, error) {
 	var f File
-	if err := strictYAML(data, &f); err != nil {
+	if err := planfile.StrictYAML(data, &f, removedKeys); err != nil {
 		return nil, fmt.Errorf("yaml: %w", err)
 	}
 	if f.Version != 1 {
@@ -169,7 +162,7 @@ func Parse(data []byte) (*File, error) {
 	if slug.Make(f.Org) == "" {
 		return nil, fmt.Errorf("org: %q needs at least one letter or digit", f.Org)
 	}
-	if err := checkParams(f.Params); err != nil {
+	if err := planfile.CheckParams(f.Params); err != nil {
 		return nil, err
 	}
 	if f.Defaults != nil && (f.Defaults.ProtectUser == nil) != (f.Defaults.ProtectPassword == nil) {
@@ -231,58 +224,4 @@ func checkMove(m Move) error {
 		return fmt.Errorf("moved: %s moves nowhere", m.From)
 	}
 	return nil
-}
-
-func checkParams(ps map[string]map[string]Param) error {
-	for c, entries := range ps {
-		if !slug.ValidName(c) {
-			return fmt.Errorf("params: collection %q is lower-case letters, digits and _", c)
-		}
-		for n, p := range entries {
-			switch {
-			case !slug.ValidName(n):
-				return fmt.Errorf("params: %s.%s: a name is lower-case letters, digits and _", c, n)
-			case p.Type == "secret" && p.Value != nil:
-				return fmt.Errorf("params: %s.%s is a secret; its value never goes in the file", c, n)
-			case p.Type != "secret" && p.Type != "param":
-				return fmt.Errorf("params: %s.%s: type must be param or secret", c, n)
-			}
-		}
-	}
-	return nil
-}
-
-// strictYAML decodes refusing unknown keys, top level included.
-// ponytail: strictYAML, humanYAML and checkParams are copies of
-// flow/promote's (flows do not import flows); a third copy moves them into
-// a shared package.
-func strictYAML(data []byte, out any) error {
-	dec := yaml.NewDecoder(strings.NewReader(string(data)))
-	dec.KnownFields(true)
-	if err := dec.Decode(out); err != nil && err != io.EOF {
-		return humanYAML(err)
-	}
-	return nil
-}
-
-// humanYAML rewrites yaml.v3's unknown-key errors, which name a Go type.
-func humanYAML(err error) error {
-	te, ok := err.(*yaml.TypeError)
-	if !ok {
-		return err
-	}
-	msgs := make([]string, 0, len(te.Errors))
-	for _, e := range te.Errors {
-		m := unknownField.FindStringSubmatch(e)
-		if m == nil {
-			msgs = append(msgs, e)
-			continue
-		}
-		s := "unknown key " + m[1]
-		if hint := removedKeys[m[1]]; hint != "" {
-			s += " (no longer supported: " + hint + ")"
-		}
-		msgs = append(msgs, s)
-	}
-	return fmt.Errorf("%s", strings.Join(msgs, "; "))
 }

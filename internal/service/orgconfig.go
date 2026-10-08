@@ -51,7 +51,8 @@ func (o *Orchestrator) SetOrgConfigRepo(
 		return og, err
 	}
 	if connectorID != "" && repo != "" {
-		if _, err := o.conns.Get(ctx, og.ID, connectorID); err != nil {
+		// the org's own connector, or a server one shared with it
+		if _, err := o.conns.Usable(ctx, og.ID, connectorID); err != nil {
 			return og, err // another org's connector is not there
 		}
 	}
@@ -88,7 +89,7 @@ func (o *Orchestrator) PreviewOrgConfig(ctx context.Context, orgID string, file 
 	if err != nil {
 		return OrgConfigPlan{}, err
 	}
-	return orgconfig.Diff(f, live), nil
+	return o.orgLimitBlock(ctx, f, orgconfig.Diff(f, live)), nil
 }
 
 // OrgPlans is the org's newest plans, newest first, at most limit.
@@ -101,14 +102,16 @@ func (o *Orchestrator) OrgPlan(ctx context.Context, id string) (OrgPlan, error) 
 }
 
 // ApproveOrgPlan approves a pending plan with no blocker and queues its
-// apply. A blocked plan is refused with the blocker text; an approved,
-// applied or rejected one is refused by leaf/orgplan.
-func (o *Orchestrator) ApproveOrgPlan(ctx context.Context, id string) (Job, error) {
+// apply. A blocked plan is refused with the blocker text; a risky one
+// without opts.Confirm, and a tick that is no removal row of the plan, are
+// refused too; an approved, applied or rejected one is refused by
+// leaf/orgplan.
+func (o *Orchestrator) ApproveOrgPlan(ctx context.Context, id string, opts ApproveOpts) (Job, error) {
 	pl, err := o.orgPlans.Get(ctx, id)
 	if err != nil {
 		return Job{}, err
 	}
-	return o.approveOrgPlan(ctx, pl)
+	return o.approveOrgPlan(ctx, pl, opts)
 }
 
 // RejectOrgPlan ends a pending plan nobody approved.
@@ -175,7 +178,7 @@ func (o *Orchestrator) planOrg(ctx context.Context, orgID string, log io.Writer)
 	if err != nil {
 		return OrgPlan{}, err
 	}
-	p := orgconfig.Diff(f, live)
+	p := o.orgLimitBlock(ctx, f, orgconfig.Diff(f, live))
 	blob, err := json.Marshal(p)
 	if err != nil {
 		return OrgPlan{}, err
@@ -192,11 +195,11 @@ func (o *Orchestrator) planOrg(ctx context.Context, orgID string, log io.Writer)
 		Status:  status,
 	})
 	_, _ = fmt.Fprintf(log, "org plan at %s: %s\n", sha, p.Summary())
-	if err != nil || status != orgplan.Pending || p.Blocked() || !og.ConfigAuto {
+	if err != nil || status != orgplan.Pending || !p.AutoOK() || !og.ConfigAuto {
 		return row, err
 	}
 	_, _ = fmt.Fprintf(log, "auto apply is on: approved\n")
-	_, err = o.approveOrgPlan(ctx, row)
+	_, err = o.approveOrgPlan(ctx, row, ApproveOpts{})
 	return row, err
 }
 
@@ -214,18 +217,14 @@ func (o *Orchestrator) createOrgPlan(ctx context.Context, p OrgPlan) (OrgPlan, e
 // approveOrgPlan stamps the approve and queues the apply, detached from
 // ctx: an approved plan with no apply job would sit approved for good.
 // The lock names the plan too, so a later apply never supersedes it.
-func (o *Orchestrator) approveOrgPlan(ctx context.Context, pl OrgPlan) (Job, error) {
+func (o *Orchestrator) approveOrgPlan(ctx context.Context, pl OrgPlan, opts ApproveOpts) (Job, error) {
 	if pl.Status == orgplan.Pending {
-		var p OrgConfigPlan
-		if err := json.Unmarshal([]byte(pl.Plan), &p); err != nil {
-			return Job{}, fmt.Errorf("org plan %s: %w", pl.ID, err)
-		}
-		if p.Blocked() {
-			return Job{}, errs.Conflictf("This plan is blocked: %s", strings.Join(p.Blockers, "; "))
+		if err := checkApprove(pl.ID, pl.Plan, opts); err != nil {
+			return Job{}, err
 		}
 	}
 	ctx = context.WithoutCancel(ctx)
-	if _, err := o.orgPlans.Approve(ctx, pl.ID); err != nil {
+	if _, err := o.orgPlans.Approve(ctx, pl.ID, opts.Ticked, opts.Confirm); err != nil {
 		return Job{}, err
 	}
 	return o.enqueue(
@@ -295,6 +294,7 @@ func (o *Orchestrator) runOrgApply(ctx context.Context, r *jobs.Run, p orgApplyJ
 // (the org may have moved since the plan), walks the changes, then queues
 // a push of each stack it created or rebound so its file makes its envs.
 func (o *Orchestrator) applyOrgPlan(ctx context.Context, planID string, log io.Writer) error {
+	ctx, queued := withRedeploys(ctx)
 	pl, err := o.orgPlans.Get(ctx, planID)
 	if err != nil {
 		return err
@@ -315,10 +315,12 @@ func (o *Orchestrator) applyOrgPlan(ctx context.Context, planID string, log io.W
 	if err != nil {
 		return err
 	}
-	plan := orgconfig.Diff(f, live)
+	plan := o.orgLimitBlock(ctx, f, orgconfig.Diff(f, live))
 	if plan.Blocked() {
 		return fmt.Errorf("blocked: %s", strings.Join(plan.Blockers, "; "))
 	}
+	// a removal row applies only when the approver ticked it
+	plan.Plan = plan.OnlyTicked(pl.Ticked)
 	bound, err := o.walkOrgPlan(ctx, og, f, live, plan, log)
 	if err != nil {
 		return err
@@ -330,6 +332,7 @@ func (o *Orchestrator) applyOrgPlan(ctx context.Context, planID string, log io.W
 	for _, s := range bound {
 		errList = append(errList, o.pushBound(ctx, s, f.Stacks[s.Slug], pl.Commit, log))
 	}
+	errList = append(errList, queued.await(ctx, o, log))
 	return errors.Join(errList...)
 }
 

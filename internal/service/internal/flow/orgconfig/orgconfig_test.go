@@ -10,6 +10,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/orgconfig"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/org"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/params"
+	"github.com/FyrmForge/stackr/internal/service/internal/planfile"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
 
@@ -368,6 +369,25 @@ func TestDiff(t *testing.T) {
 			blocker: "no connected connector for https://gitlab.example.com/acme/blog",
 		},
 		{
+			name: "two shared connectors on the host need a name",
+			file: v1 + `stacks:
+  blog:
+    repo: acme/blog
+`,
+			live: func(l *orgconfig.Live) {
+				l.Connectors = []store.Connector{{ID: "sv1", Host: "github.com"}, {ID: "sv2", Host: "github.com"}}
+			},
+			changes: []orgconfig.Change{
+				{
+					Kind: "create",
+					Tile: "blog",
+					New:  "https://github.com/acme/blog",
+					Note: "file stackr-compose.yml",
+				},
+			},
+			blocker: "name the connector to use",
+		},
+		{
 			name: "a connector that is not the org's",
 			file: v1 + `stacks:
   blog:
@@ -627,7 +647,7 @@ func TestParseRefuses(t *testing.T) {
 }
 
 func TestPlanJSONAndSummary(t *testing.T) {
-	p := orgconfig.Plan{
+	p := orgconfig.Plan{Plan: planfile.Plan{
 		Changes: []orgconfig.Change{
 			{
 				Kind: "create",
@@ -659,7 +679,7 @@ func TestPlanJSONAndSummary(t *testing.T) {
 		Notes: []string{
 			"params.email.token is declared and not set",
 		},
-	}
+	}}
 	b, err := json.Marshal(p)
 	if err != nil {
 		t.Fatal(err)
@@ -676,5 +696,32 @@ func TestPlanJSONAndSummary(t *testing.T) {
 	}
 	if s := (&orgconfig.Plan{}).Summary(); s != "no changes" {
 		t.Errorf("empty summary = %q", s)
+	}
+}
+
+// A plan row stored before the shared planfile.Plan reads back whole, and
+// marshals to the same bytes: the embed is flat in JSON.
+func TestStoredPlanJSONUnchanged(t *testing.T) {
+	const stored = `{"changes":[{"kind":"create","tile":"blog","new":"https://github.com/acme/blog"}],` +
+		`"blockers":["b"],"notes":["n"]}`
+	var p orgconfig.Plan
+	if err := json.Unmarshal([]byte(stored), &p); err != nil {
+		t.Fatal(err)
+	}
+	if len(p.Changes) != 1 || !p.Blocked() || p.Notes[0] != "n" {
+		t.Fatalf("plan = %+v", p)
+	}
+	if b, err := json.Marshal(p); err != nil || string(b) != stored {
+		t.Errorf("marshal = %s, %v; want %s", b, err, stored)
+	}
+}
+
+func TestSummaryCountsRemovalRows(t *testing.T) {
+	p := orgconfig.Plan{Plan: planfile.Plan{Changes: []orgconfig.Change{
+		{Kind: "share", Tile: "media"},
+		{Kind: "share-delete", Tile: "old", Key: "share:old", Optional: true},
+	}}}
+	if s := p.Summary(); s != "1 to add, 1 removal to review" {
+		t.Errorf("summary = %q", s)
 	}
 }

@@ -2,6 +2,7 @@ package deploy_test
 
 import (
 	"context"
+	"errors"
 	"io"
 	"slices"
 	"strings"
@@ -166,21 +167,73 @@ func TestOverlapRollout(t *testing.T) {
 	}
 }
 
-func TestStopThenStartWithAMount(t *testing.T) {
+// mountWorld is setup with a volume mount, so the tile stops before it
+// starts, and its old replica reported running.
+func mountWorld(t *testing.T) *world {
 	w := setup(t)
 	_, _, err := w.f.Volumes.Declare(ctx, volume.Scope{Kind: "env", ID: w.env.ID}, "data", 0, nil)
 	must(t, err)
 	w.tile.Volumes = "data:/var/lib/data"
+	w.fake.Containers[0].State = "running"
+	return w
+}
+
+func TestStopThenStartWithAMount(t *testing.T) {
+	w := mountWorld(t)
 	if _, err := w.f.Run(ctx, w.tile, "nginx@sha256:aa", io.Discard, nil); err != nil {
 		t.Fatal(err)
 	}
 	c := w.fake.Calls()
-	run, gone := at(c, "Run", ""), at(c, "StopRemove", "old")
-	if gone < 0 || run < gone {
-		t.Fatalf("want the old replica gone before the new one runs: %v", c)
+	create, stop, start, gone := at(c, "Create", ""), at(c, "Stop", "old"), at(c, "Start", "new"), at(c, "StopRemove", "old")
+	if create < 0 || stop < create || start < stop || gone < start {
+		t.Fatalf("want create, then the old one stopped, then the new one started, then the old one removed: %v", c)
 	}
 	if b := w.fake.Specs[0].Volumes; len(b) != 1 || b[0][len(b[0])-len(":/var/lib/data"):] != ":/var/lib/data" {
 		t.Errorf("binds = %v", b)
+	}
+}
+
+// A create the daemon refuses (a limit above the host's) must find the old
+// replica still running: nothing stopped, nothing removed.
+func TestCreateErrorKeepsOldRunning(t *testing.T) {
+	w := mountWorld(t)
+	w.fake.Err = map[string]error{"Create": errors.New("range of CPUs is from 0.01 to 1.00")}
+	if _, err := w.f.Run(ctx, w.tile, "nginx@sha256:aa", io.Discard, nil); err == nil {
+		t.Fatal("want the create error")
+	}
+	c := w.fake.Calls()
+	if at(c, "Stop", "") >= 0 || at(c, "StopRemove", "") >= 0 {
+		t.Errorf("want the old replica untouched: %v", c)
+	}
+}
+
+// A start that fails after the old replica stopped brings it back and drops
+// the new one.
+func TestStartErrorBringsOldBack(t *testing.T) {
+	w := mountWorld(t)
+	w.fake.Err = map[string]error{"Start(new)": errors.New("port is already allocated")}
+	if _, err := w.f.Run(ctx, w.tile, "nginx@sha256:aa", io.Discard, nil); err == nil {
+		t.Fatal("want the start error")
+	}
+	c := w.fake.Calls()
+	if at(c, "Stop", "old") < 0 || at(c, "Start", "old") < 0 {
+		t.Errorf("want old stopped, then started again: %v", c)
+	}
+	if at(c, "StopRemove", "new") < 0 || at(c, "StopRemove", "old") >= 0 {
+		t.Errorf("want new removed and old kept: %v", c)
+	}
+}
+
+// A gate failure of the new replica does the same.
+func TestStopFirstGateFailureBringsOldBack(t *testing.T) {
+	w := mountWorld(t)
+	w.fake.Details["new"] = docker.Detail{Running: true, Health: "unhealthy"}
+	if _, err := w.f.Run(ctx, w.tile, "nginx@sha256:aa", io.Discard, nil); err == nil {
+		t.Fatal("want the gate to fail")
+	}
+	c := w.fake.Calls()
+	if at(c, "Start", "old") < 0 || at(c, "StopRemove", "old") >= 0 {
+		t.Errorf("want old running again: %v", c)
 	}
 }
 
@@ -218,6 +271,8 @@ func TestParkOnUnset(t *testing.T) {
 	})
 	must(t, err)
 	j, err := w2.f.Jobs.Create(ctx, "deploy", job.LockSet(db.ID), "{}", nil, t.TempDir())
+	must(t, err)
+	j, err = w2.f.Jobs.Start(ctx, j)
 	must(t, err)
 	must(t, w2.f.Jobs.Park(ctx, j, "db.password"))
 	w2.tile.DependsOn = "db"
@@ -371,5 +426,41 @@ func TestEditedTagRedeploysAndRepins(t *testing.T) {
 	must(t, err)
 	if p := pins["api"]; p.Digest != "sha256:two" || p.Repo != "nginx:2" {
 		t.Errorf("pin = %+v, want nginx:2 at sha256:two", p)
+	}
+}
+
+// A tag-started image tile's replica carries the digest pin in its stackr.ref
+// label, the same ref Current answers once the env is pinned, so a parked
+// promote can tell it apart from a moved pin (G5).
+func TestTagStartedReplicaLabelledWithPin(t *testing.T) {
+	w := setup(t)
+	w.fake.Digests = map[string]string{"nginx:1": "sha256:now"}
+	must(t, w.f.Redeploy(ctx, w.tile.ID, io.Discard, nil))
+	e, err := w.f.Envs.Get(ctx, w.env.ID)
+	must(t, err)
+	cur, pinned, err := w.f.Current(ctx, w.tile, e)
+	must(t, err)
+	if !pinned || cur != "nginx@sha256:now" {
+		t.Fatalf("current = %q pinned=%v", cur, pinned)
+	}
+	if got := w.fake.Specs[0].Labels[deploy.LabelRef]; got != cur {
+		t.Errorf("replica label %s = %q, want the pin %q", deploy.LabelRef, got, cur)
+	}
+}
+
+// A built pin whose Docker image was cleaned up fails naming the tile, not
+// the ref, and not as a pull (G1).
+func TestCleanedUpBuildNamesTheTile(t *testing.T) {
+	w := setup(t)
+	im, err := w.f.Images.Built(ctx, "stkr/shop-api:abc1234", "sha256:built")
+	must(t, err)
+	r, err := w.f.Releases.Create(ctx, w.tile.StackID, "test", []release.Pin{{Slug: "api", ImageID: &im.ID}})
+	must(t, err)
+	_, err = w.f.Envs.SetRelease(ctx, w.env, r.ID)
+	must(t, err)
+	w.fake.Gone = []string{im.Ref}
+	err = w.f.Redeploy(ctx, w.tile.ID, io.Discard, nil)
+	if err == nil || err.Error() != "the image for api was cleaned up; rebuild it" {
+		t.Errorf("err = %v, want the tile named", err)
 	}
 }

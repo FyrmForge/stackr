@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/FyrmForge/hamr/pkg/server"
+	"github.com/google/uuid"
 
 	"github.com/FyrmForge/stackr/internal/api/stream"
 	"github.com/FyrmForge/stackr/internal/middleware"
@@ -186,5 +187,110 @@ func TestOrgPlanBanner(t *testing.T) {
 	if !strings.Contains(body, "Config invalid. View details") || !strings.Contains(body, href) ||
 		!strings.Contains(body, "bg-rw-danger/10") {
 		t.Errorf("error banner:\n%s", body)
+	}
+}
+
+// A plan with a removal row and an impact line: the owner sees an unticked
+// box and an "are you sure?", the approve posts the ticks and the confirm,
+// and the service stamps both on the row. A viewer sees neither.
+func TestOrgPlanReview(t *testing.T) {
+	r := newConfigRig(t)
+	ctx := context.Background()
+	seed := func() service.OrgPlan {
+		t.Helper()
+		p := service.OrgPlan{
+			ID: uuid.NewString(), OrgID: r.owner.org, Status: "pending", Ticked: []string{}, CreatedAt: time.Now(),
+			Summary: "1 to change, 1 removal to review, needs confirm",
+			Plan: `{"changes":[` +
+				`{"kind":"defaults","field":"cpu_limit","new":"2","impact":"redeploys 3 tiles"},` +
+				`{"kind":"share-delete","tile":"nas","key":"share:nas","optional":true}]}`,
+		}
+		if err := r.owner.env.Store.OrgPlans.Create(ctx, p); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	p := seed()
+	approve := "/acme/-/drawer/plans/" + p.ID + "/approve"
+	body := r.owner.do(t, "GET", "/acme/-/drawer?tab=config", nil, true).Body.String()
+	for _, want := range []string{
+		`name="ticked"`, `value="share:nas"`, "redeploys 3 tiles", "Are you sure?", `hx-post="` + approve + `"`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("owner tab lacks %q:\n%s", want, body)
+		}
+	}
+	if regexp.MustCompile(`name="ticked"[^>]*checked`).MatchString(body) {
+		t.Error("a removal is ticked by default")
+	}
+	vb := r.viewer.do(t, "GET", "/acme/-/drawer?tab=config", nil, true).Body.String()
+	if strings.Contains(vb, `name="ticked"`) || strings.Contains(vb, "redeploys 3 tiles") {
+		t.Errorf("a viewer sees the plan:\n%s", vb)
+	}
+
+	// no confirm: refused, nothing stamped
+	rec := r.owner.do(t, "POST", approve, url.Values{"ticked": {"share:nas"}}, true)
+	if rec.Code != http.StatusUnprocessableEntity || !strings.Contains(rec.Body.String(), "impact lines") {
+		t.Errorf("approve without confirm = %d\n%s", rec.Code, rec.Body)
+	}
+	// a key that is not a removal: refused
+	rec = r.owner.do(t, "POST", approve, url.Values{"ticked": {"share:ghost"}, "confirm": {"1"}}, true)
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Errorf("approve with a stray tick = %d\n%s", rec.Code, rec.Body)
+	}
+	got, err := r.owner.env.Store.OrgPlans.Get(ctx, p.ID)
+	if err != nil || got.Status != "pending" || len(got.Ticked) != 0 {
+		t.Fatalf("a refused approve changed the row: %+v %v", got, err)
+	}
+
+	rec = r.owner.do(t, "POST", approve, url.Values{"ticked": {"share:nas"}, "confirm": {"1"}}, true)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "Approved: the apply is queued.") {
+		t.Fatalf("approve = %d\n%s", rec.Code, rec.Body)
+	}
+	got, err = r.owner.env.Store.OrgPlans.Get(ctx, p.ID)
+	if err != nil || !got.Confirmed || len(got.Ticked) != 1 || got.Ticked[0] != "share:nas" {
+		t.Errorf("row after approve = %+v %v, want confirmed with share:nas ticked", got, err)
+	}
+}
+
+// An approved plan stays pending until its apply ends: the tab shows it as
+// applying, with no Approve, Reject or removal boxes to press again.
+func TestOrgConfigApplyingPlan(t *testing.T) {
+	r := newConfigRig(t)
+	r.file(t, regionFile)
+	r.owner.do(t, "POST", "/acme/-/drawer/config", url.Values{"connector": {r.conn}, "repo": {"acme/org"}}, true)
+	p := r.latest(t)
+	now := time.Now()
+	p.DecidedAt = &now // what Approve stamps; seeded so a fast apply cannot end the plan first
+	if err := r.owner.env.Store.OrgPlans.Update(context.Background(), p); err != nil {
+		t.Fatal(err)
+	}
+	body := r.owner.do(t, "GET", "/acme/-/drawer?tab=config", nil, true).Body.String()
+	for _, gone := range []string{"/approve", "/reject"} {
+		if strings.Contains(body, gone) {
+			t.Errorf("an applying plan still offers %q:\n%s", gone, body)
+		}
+	}
+	if !strings.Contains(body, "Applying") {
+		t.Errorf("no applying note:\n%s", body)
+	}
+}
+
+// An applied org plan keeps showing what the approver ticked: removed for
+// the ticked removal, no "remove?" left over.
+func TestOrgPlanAppliedShowsTicks(t *testing.T) {
+	r := newConfigRig(t)
+	now := time.Now()
+	p := service.OrgPlan{
+		ID: uuid.NewString(), OrgID: r.owner.org, Status: "applied", Ticked: []string{"share:nas"}, DecidedAt: &now, CreatedAt: now,
+		Summary: "1 removal to review",
+		Plan:    `{"changes":[{"kind":"share-delete","tile":"nas","key":"share:nas","optional":true}]}`,
+	}
+	if err := r.owner.env.Store.OrgPlans.Create(context.Background(), p); err != nil {
+		t.Fatal(err)
+	}
+	body := r.owner.do(t, "GET", "/acme/-/drawer?tab=config", nil, true).Body.String()
+	if !strings.Contains(body, ">removed<") || strings.Contains(body, "remove?") {
+		t.Errorf("applied org plan does not show its ticks:\n%s", body)
 	}
 }

@@ -17,6 +17,30 @@ type OrgPlan struct {
 	Error     string     `db:"error" json:"error"`
 	CreatedAt time.Time  `db:"created_at" json:"created_at"`
 	DecidedAt *time.Time `db:"decided_at" json:"decided_at"`
+	// Ticked is the removal keys the approver ticked; Confirmed says they
+	// confirmed a plan with impact lines. Both are stamped by Approve.
+	Ticked    StringList `db:"ticked" json:"ticked"`
+	Confirmed bool       `db:"confirmed" json:"confirmed"`
+}
+
+// PlanRefs points at the columns a plan's status machine reads and writes,
+// so one machine (leaf/orgplan) serves org_config_plans and
+// server_config_plans. Scope is the plan's owner for superseding: the org
+// id, "" for the server's.
+type PlanRefs struct {
+	Scope     string
+	ID        *string
+	Status    *string
+	Error     *string
+	CreatedAt *time.Time
+	DecidedAt **time.Time
+	Ticked    *StringList
+	Confirmed *bool
+}
+
+// Refs is the machine's view of the row.
+func (p *OrgPlan) Refs() PlanRefs {
+	return PlanRefs{p.OrgID, &p.ID, &p.Status, &p.Error, &p.CreatedAt, &p.DecidedAt, &p.Ticked, &p.Confirmed}
 }
 
 type OrgPlanStore interface {

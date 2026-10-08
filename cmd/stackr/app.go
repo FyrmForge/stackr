@@ -161,6 +161,12 @@ var flagNames = sync.OnceValue(func() *strings.Replacer {
 	return strings.NewReplacer(pairs...)
 })
 
+// settingsPath is a defaults rung write (`--set knob=value`), whose errors
+// already name the knob the user typed.
+func settingsPath(path string) bool {
+	return strings.HasSuffix(path, "/settings") || strings.HasSuffix(path, "/admin/defaults")
+}
+
 // notFound words a 404 by what was asked for: the last name/kind pair of
 // the request path, inside the names above it ("no tile "x" in shop/dev").
 func notFound(path string) string {
@@ -293,7 +299,9 @@ func (a *app) request(method, path string, body any) (*http.Response, error) {
 		if res.StatusCode == http.StatusNotFound && strings.EqualFold(e.Msg, http.StatusText(404)) {
 			e.Msg = notFound(path)
 		}
-		e.Msg = flagNames().Replace(e.Msg)
+		if !settingsPath(path) { // --set takes knob names: keep them
+			e.Msg = flagNames().Replace(e.Msg)
+		}
 		return nil, e
 	}
 	return res, nil

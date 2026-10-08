@@ -15,6 +15,14 @@ import (
 	orgui "github.com/FyrmForge/stackr/internal/ui/drawer/org"
 )
 
+// panelURL is path on the panel's public address (comp.PanelURL with the
+// panel_domain setting), so an invite link made after the panel moved does
+// not name the old host.
+func (h *handler) panelURL(ctx context.Context, path string) string {
+	host, _ := h.orch.Setting(ctx, "panel_domain")
+	return comp.PanelURL(host, path)
+}
+
 func day(t time.Time) string { return t.Format("2 Jan 2006") }
 
 // mintedKey carries a just-minted token from the mint to the keys tab it
@@ -150,7 +158,7 @@ func (h *handler) orgDomains(c echo.Context, cd card, base string) (templ.Compon
 		return nil, err
 	}
 	owner := can(c, cd.s, "domain.resource")
-	v := orgui.DomainsView{Example: "example.com"}
+	v := orgui.DomainsView{Example: "example.com", NoWildcard: !h.orch.Wildcard(c.Request().Context())}
 	if owner {
 		v.Add = base + "/domains"
 	}
@@ -170,6 +178,7 @@ func (h *handler) orgDomains(c echo.Context, cd card, base string) (templ.Compon
 				Target:  "#" + comp.DrawerRoot,
 				Quiet:   true,
 			}
+			row.Rename = base + "/domains/" + r.ID + "/rename"
 		}
 		v.Rows = append(v.Rows, row)
 	}
@@ -220,7 +229,7 @@ func (h *handler) membersView(c echo.Context, cd card, base string) (orgui.Membe
 			Email:   i.Email,
 			Role:    i.Role,
 			Expires: i.ExpiresAt.Format("Jan 2 2006"),
-			Link:    comp.AbsoluteURL("/invite/" + i.ID),
+			Link:    h.panelURL(ctx, "/invite/"+i.ID),
 		})
 	}
 	return v, err
@@ -263,7 +272,7 @@ func (h *handler) mountOrg(site *echo.Group, a *middleware.Access) {
 			c.FormValue("role"),
 			middleware.Principal(c).User.ID,
 		)
-		return "Invite link: " + comp.AbsoluteURL("/invite/"+i.ID), err
+		return "Invite link: " + h.panelURL(c.Request().Context(), "/invite/"+i.ID), err
 	}), manage)
 	site.POST(o+"/invites/:invite/revoke", h.orgAction("members", func(c echo.Context, og *service.Org) (string, error) {
 		return "Invite revoked.", h.orch.RevokeInvite(c.Request().Context(), og.ID, c.Param("invite"))
@@ -301,6 +310,10 @@ func (h *handler) mountOrg(site *echo.Group, a *middleware.Access) {
 	}), res)
 	site.POST(o+"/domains/:resource/delete", h.orgAction("domains", func(c echo.Context, _ *service.Org) (string, error) {
 		return "Domain resource removed.", h.orch.DeleteDomainResource(c.Request().Context(), c.Param("resource"))
+	}), res)
+	site.POST(o+"/domains/:resource/rename", h.orgAction("domains", func(c echo.Context, _ *service.Org) (string, error) {
+		r, err := h.orch.RenameDomainResource(c.Request().Context(), c.Param("resource"), c.FormValue("host"))
+		return "Domain renamed to " + r.Host + ". Old names redirect until removed.", err
 	}), res)
 	shr := a.Require("share.write")
 	site.POST(o+"/shares", h.orgAction("shares", func(c echo.Context, og *service.Org) (string, error) {

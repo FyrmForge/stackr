@@ -383,6 +383,16 @@ func (f *Flow) Restore(ctx context.Context, it store.Tile, method, target string
 	return e.Restore(method, target, f.facts(ctx, it, m, def)), nil
 }
 
+// DumpMarker is the first line an engine's whole-instance dump starts with,
+// "" when its dumps are not whole-instance ones.
+func (f *Flow) DumpMarker(ctx context.Context, it store.Tile) (string, error) {
+	_, e, err := f.instance(ctx, it.ID)
+	if m, ok := e.(interface{ DumpMarker() string }); ok {
+		return m.DumpMarker(), err
+	}
+	return "", err
+}
+
 // Methods are the backup methods the tile's engine offers.
 func (f *Flow) Methods(ctx context.Context, it store.Tile) ([]string, error) {
 	_, e, err := f.instance(ctx, it.ID)

@@ -2,9 +2,7 @@ package main
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
-	"io"
 	"os"
 
 	"github.com/spf13/cobra"
@@ -74,6 +72,11 @@ func (a *app) orgConfig(org func(func(p string) error) error) []*cobra.Command {
 					err = a.show(v)
 				} else {
 					a.changes(pl, "notes", "blockers")
+					a.review(pl)
+					ch, _ := pl["changes"].([]any)
+					if bl, _ := pl["blockers"].([]any); len(ch) == 0 && len(bl) == 0 {
+						_, _ = fmt.Fprintln(a.out, "no changes")
+					}
 				}
 				if err != nil || !detailed {
 					return err
@@ -88,34 +91,32 @@ func (a *app) orgConfig(org func(func(p string) error) error) []*cobra.Command {
 	var force bool
 	export := leaf("export", "org.export", "Write the org as a stackr-org.yml (stdout, or -o FILE)", exact(0),
 		func(*cobra.Command, []string) error {
-			if out != "" && !force {
-				if _, err := os.Stat(out); err == nil {
-					return fmt.Errorf("%s already exists; pass --force to overwrite it", out)
-				}
-			}
-			return org(func(p string) error {
-				res, err := a.request(GET, p+"/config/export", nil)
-				if err != nil {
-					return err
-				}
-				defer func() { _ = res.Body.Close() }()
-				b, err := io.ReadAll(res.Body)
-				if err != nil {
-					return err
-				}
-				if out == "" {
-					_, err = a.out.Write(b)
-					return err
-				}
-				if err := os.WriteFile(out, b, 0o644); err != nil {
-					return err
-				}
-				a.say("Wrote %s", out)
-				return nil
-			})
+			return org(func(p string) error { return a.export(p+"/config/export", out, force) })
 		})
 	export.Flags().StringVarP(&out, "output", "o", "", "write here instead of stdout")
 	export.Flags().BoolVar(&force, "force", false, "overwrite an existing -o file")
+
+	var remove []string
+	approve := waits(leaf("approve <plan>", "org.plan-get,org.plan-approve", "Apply a pending config plan: prints it, then asks",
+		exact(1), func(c *cobra.Command, args []string) error {
+			return org(func(p string) error {
+				pp := p + "/config/plans/" + args[0]
+				v, err := a.call(GET, pp, nil)
+				if err != nil {
+					return err
+				}
+				if err := a.orgPlan(v); err != nil {
+					return err
+				}
+				m, _ := v.(map[string]any)
+				body, err := a.approveBody(m, remove, "Apply config plan "+args[0]+"?")
+				if err != nil {
+					return err
+				}
+				return a.orgJob(c, POST, pp+"/approve", body, "org apply")
+			})
+		}))
+	approve.Flags().StringArrayVar(&remove, "remove", nil, "tick a removal row to apply it (repeatable; the plan lists the keys)")
 
 	return []*cobra.Command{
 		bind,
@@ -150,28 +151,7 @@ func (a *app) orgConfig(org func(func(p string) error) error) []*cobra.Command {
 					return a.orgPlan(v)
 				})
 			}),
-		waits(leaf("approve <plan>", "org.plan-get,org.plan-approve", "Apply a pending config plan: prints it, then asks",
-			exact(1), func(c *cobra.Command, args []string) error {
-				return org(func(p string) error {
-					pp := p + "/config/plans/" + args[0]
-					v, err := a.call(GET, pp, nil)
-					if err != nil {
-						return err
-					}
-					if err := a.orgPlan(v); err != nil {
-						return err
-					}
-					m, _ := v.(map[string]any)
-					pl, _ := planOf(m)
-					if bl, _ := pl["blockers"].([]any); len(bl) > 0 {
-						return errors.New("the plan is blocked; see the blockers above")
-					}
-					if err := a.confirm("Apply config plan " + args[0] + "?"); err != nil {
-						return err
-					}
-					return a.orgJob(c, POST, pp+"/approve", nil, "org apply")
-				})
-			})),
+		approve,
 		leaf("reject <plan>", "org.plan-reject", "Close a pending config plan unapplied", exact(1),
 			func(_ *cobra.Command, args []string) error {
 				return org(func(p string) error {
@@ -186,13 +166,19 @@ func (a *app) orgConfig(org func(func(p string) error) error) []*cobra.Command {
 	}
 }
 
-// orgPlan prints a plan row, then its changes when it has any.
+// orgPlan prints an org plan row, then its changes when it has any.
 func (a *app) orgPlan(v any) error {
+	return a.planRow(v, "id", "status", "summary", "commit", "error")
+}
+
+// planRow prints a plan row's cols, then its changes, impact lines and
+// removal rows when it has any.
+func (a *app) planRow(v any, cols ...string) error {
 	if a.json {
 		return a.show(v)
 	}
 	m, _ := v.(map[string]any)
-	if err := a.show(m, "id", "status", "summary", "commit", "error"); err != nil {
+	if err := a.show(m, cols...); err != nil {
 		return err
 	}
 	pl, err := planOf(m)
@@ -200,6 +186,7 @@ func (a *app) orgPlan(v any) error {
 		return err
 	}
 	a.changes(pl, "notes", "blockers")
+	a.review(pl)
 	return nil
 }
 

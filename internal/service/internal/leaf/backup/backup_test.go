@@ -133,7 +133,7 @@ func TestVisibility(t *testing.T) {
 	if _, err := l.Create(ctx, &org, s3("hetzner", false)); err == nil {
 		t.Error("duplicate name accepted")
 	}
-	if err := l.Delete(ctx, local); !errors.Is(err, errs.ErrRefused) {
+	if err := l.Delete(ctx, local, false); !errors.Is(err, errs.ErrRefused) {
 		t.Errorf("delete local = %v", err)
 	}
 
@@ -180,7 +180,7 @@ func TestSchedules(t *testing.T) {
 	if _, err := l.AddSchedule(ctx, vol, org, methods, backup.Schedule{Cron: "@daily", DestID: &mine.ID}); err != nil {
 		t.Fatal(err)
 	}
-	if err := l.Delete(ctx, mine); err == nil {
+	if err := l.Delete(ctx, mine, false); err == nil {
 		t.Error("deleted a destination a schedule uses")
 	}
 }
@@ -218,7 +218,7 @@ func TestPrune(t *testing.T) {
 	sA, _ := l.AddSchedule(ctx, vol, org, []string{"tar"}, backup.Schedule{Cron: "@daily", Keep: 2})
 	sB, _ := l.AddSchedule(ctx, vol, org, []string{"tar"}, backup.Schedule{Cron: "@hourly", Keep: 2})
 	pA, pB := backup.Prefix(org, vol, sA.ID), backup.Prefix(org, vol, sB.ID)
-	if pA == pB || strings.HasPrefix(backup.PanelPrefix("x"), "stackr/"+org) {
+	if pA == pB || strings.HasPrefix(backup.PanelPrefix("x", "manual"), "stackr/"+org) {
 		t.Fatal("prefixes collide")
 	}
 
@@ -284,5 +284,84 @@ func TestRestorable(t *testing.T) {
 	}
 	if _, err := l.Start(ctx, backup.KindPanel, &vol, nil, local.ID, "manual"); err == nil {
 		t.Error("panel run with a volume accepted")
+	}
+}
+
+// Panel archives sit under one prefix per trigger, so pruning one trigger's
+// archives never reaches another's, and the install id keeps two boxes on
+// one bucket apart.
+func TestPanelPrefix(t *testing.T) {
+	seen := map[string]string{}
+	for _, id := range []string{"a", "b"} {
+		for _, trig := range []string{"schedule", "manual", "upgrade"} {
+			p := backup.PanelPrefix(id, trig)
+			if prev, dup := seen[p]; dup {
+				t.Errorf("%s/%s and %s share %q", id, trig, prev, p)
+			}
+			seen[p] = id + "/" + trig
+		}
+	}
+	if got, want := backup.PanelPrefix("a", "schedule"), "stackr/_panel/a/scheduled"; got != want {
+		t.Errorf("schedule prefix = %q, want %q", got, want)
+	}
+	for p := range seen {
+		for q := range seen {
+			if p != q && strings.HasPrefix(q+"/", p+"/") {
+				t.Errorf("%q lists %q", p, q)
+			}
+		}
+	}
+}
+
+// Prune never deletes the key a run just wrote, even when it sorts oldest
+// (a box with a skewed clock, or archives dated ahead).
+func TestPruneKeepsProtected(t *testing.T) {
+	st := servicetest.Store(t)
+	l := leaf(st)
+	p := backup.PanelPrefix("i", "schedule")
+	day := time.Date(2026, 9, 1, 3, 0, 0, 0, time.UTC)
+	obj := &objects{}
+	for i := range 4 {
+		obj.keys = append(obj.keys, backup.ObjectKey(p, "panel.tar.gz.age", day.AddDate(0, 0, i)))
+	}
+	fresh := obj.keys[0] // sorts oldest
+	gone := l.Prune(ctx, obj, p, 2, fresh)
+	if slices.Contains(gone, fresh) || !slices.Contains(obj.keys, fresh) {
+		t.Errorf("pruned the protected key: gone %v", gone)
+	}
+}
+
+// A destination the panel backup names is refused like one a schedule uses.
+func TestDeleteRefusesPanelDest(t *testing.T) {
+	st := servicetest.Store(t)
+	l := leaf(st)
+	d, err := l.Create(ctx, nil, s3("offsite", false))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := errs.IsConflict(l.Delete(ctx, d, true)); !ok {
+		t.Error("delete of the panel's destination was not refused as a conflict")
+	}
+	if err := l.Delete(ctx, d, false); err != nil {
+		t.Errorf("delete of an unused destination = %v", err)
+	}
+}
+
+// A run whose job was cancelled still closes: the finish does not use the
+// cancelled context.
+func TestFinishSurvivesCancel(t *testing.T) {
+	st := servicetest.Store(t)
+	l := leaf(st)
+	local, _ := l.EnsureLocal(ctx, "/b")
+	r, err := l.Start(ctx, backup.KindPanel, nil, nil, local.ID, "manual")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dead, cancel := context.WithCancel(ctx)
+	cancel()
+	_, _ = l.Finish(dead, r, "", 0, context.Canceled)
+	got, err := l.GetRun(ctx, r.ID)
+	if err != nil || got.Status != backup.Failed || got.FinishedAt == nil {
+		t.Errorf("run after a cancelled finish = %q (%v), want failed", got.Status, err)
 	}
 }

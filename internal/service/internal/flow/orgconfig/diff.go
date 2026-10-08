@@ -2,6 +2,7 @@ package orgconfig
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"maps"
 	"slices"
@@ -14,36 +15,22 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/params"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/route"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/settings"
+	"github.com/FyrmForge/stackr/internal/service/internal/planfile"
 	"github.com/FyrmForge/stackr/internal/service/internal/slug"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
 
-// Change is one line of a plan, flow/promote's Change shape. Kind is org,
-// param, param-update, defaults, colors, create, rebind, rename, domain,
+// Change is one line of a plan, planfile's shape. Kind is org, param,
+// param-update, defaults, colors, create, rebind, rename, domain,
 // domain-update, share, share-update or share-delete; create, domain, param
-// and share add, the rest change. Tile names
-// the stack or host the line is about.
-// ponytail: a copy of promote's type, not an import (flows do not import
-// flows); a third user moves it into a shared package.
-type Change struct {
-	Kind  string `json:"kind"`
-	Tile  string `json:"tile,omitempty"`
-	Field string `json:"field,omitempty"`
-	Old   string `json:"old,omitempty"`
-	New   string `json:"new,omitempty"`
-	Note  string `json:"note,omitempty"`
-}
+// and share add, the rest change. Tile names the stack or host the line is
+// about.
+type Change = planfile.Change
 
 // Plan is what applying the file would do, in the order apply walks it:
 // moved: renames, the org, params, defaults, colors, stacks, domains, shares.
 // Blockers refuse the apply; Notes do not.
-type Plan struct {
-	Changes  []Change `json:"changes"`
-	Blockers []string `json:"blockers,omitempty"`
-	Notes    []string `json:"notes,omitempty"`
-}
-
-func (p *Plan) Blocked() bool { return len(p.Blockers) > 0 }
+type Plan struct{ planfile.Plan }
 
 func (p *Plan) block(format string, a ...any) {
 	p.Blockers = append(p.Blockers, fmt.Sprintf(format, a...))
@@ -52,34 +39,15 @@ func (p *Plan) block(format string, a ...any) {
 func (p *Plan) add(c Change) { p.Changes = append(p.Changes, c) }
 
 // Summary is v0's one line: "2 to add, 1 to change, 1 blocker". The file
-// never deletes, so nothing is ever to destroy.
+// never deletes: a removal row is one to review, ticked or not at approve.
 func (p *Plan) Summary() string {
-	var add, change int
-	for _, c := range p.Changes {
-		switch c.Kind {
+	return p.Plan.Summary(func(kind string) bool {
+		switch kind {
 		case "create", "domain", "param", "share":
-			add++
-		default:
-			change++
+			return true
 		}
-	}
-	var parts []string
-	if add > 0 {
-		parts = append(parts, fmt.Sprintf("%d to add", add))
-	}
-	if change > 0 {
-		parts = append(parts, fmt.Sprintf("%d to change", change))
-	}
-	if len(parts) == 0 {
-		parts = append(parts, "no changes")
-	}
-	switch n := len(p.Blockers); {
-	case n == 1:
-		parts = append(parts, "1 blocker")
-	case n > 1:
-		parts = append(parts, fmt.Sprintf("%d blockers", n))
-	}
-	return strings.Join(parts, ", ")
+		return false
+	})
 }
 
 // Live is what the file is diffed against, gathered by the orchestrator.
@@ -104,8 +72,8 @@ type StackLive struct {
 
 // Diff is the plan for f against live. The file creates and updates, never
 // deletes: a stack, param or domain it no longer names is left as it is
-// (DECIDE 185, 188, 191). The one exception is shares: when the file has a
-// shares: block, a share it does not name goes.
+// (DECIDE 185, 188, 191). Shares: when the file has a shares: block, a share
+// it does not name is an unticked removal row, applied only when ticked.
 func Diff(f *File, live Live) Plan {
 	var p Plan
 	stacks := map[string]StackLive{}
@@ -291,32 +259,29 @@ func rebind(s, field, from, to string) Change {
 }
 
 // needConnector blocks a binding nothing can clone: the named connector is
-// not the org's, or the repo's host has none.
+// not one the org can use, the repo's host has none, or several shared ones
+// serve it.
 func (p *Plan) needConnector(s string, b Binding, conns []store.Connector) {
-	if connectorOf(b, conns) != "" {
-		return
-	}
-	if b.ConnectorID != "" {
+	_, err := connector.Resolve(conns, b.ConnectorID, connector.Host(b.Repo))
+	switch {
+	case err == nil:
+	case errors.As(err, &connector.Ambiguous{}):
+		p.block("stacks.%s: %v", s, err)
+	case b.ConnectorID != "":
 		p.block("stacks.%s: connector %s is not one of this org's connected connectors", s, b.ConnectorID)
-		return
+	default:
+		p.block("stacks.%s: no connected connector for %s; connect one first", s, b.Repo)
 	}
-	p.block("stacks.%s: no connected connector for %s; connect one first", s, b.Repo)
 }
 
-// connectorOf is the connector a clone of b uses (wiring.clone's rule): the
-// named one when it is the org's, else the org's for the repo's host; ""
-// when there is none.
+// connectorOf is the connector a clone of b uses (connector.Resolve's rule);
+// "" when there is none or the choice is ambiguous.
 func connectorOf(b Binding, conns []store.Connector) string {
-	i := slices.IndexFunc(conns, func(c store.Connector) bool {
-		if b.ConnectorID != "" {
-			return c.ID == b.ConnectorID
-		}
-		return c.Host == connector.Host(b.Repo)
-	})
-	if i < 0 {
+	c, err := connector.Resolve(conns, b.ConnectorID, connector.Host(b.Repo))
+	if err != nil {
 		return ""
 	}
-	return conns[i].ID
+	return c.ID
 }
 
 func pathOf(path string) string {
@@ -395,9 +360,10 @@ func jsonOf(v any) string {
 	return string(b)
 }
 
-// shares creates, updates and, when the file has a shares: block, deletes the
-// org's network shares. A delete is blocked while a tile line mounts the
-// share (the verb would refuse it).
+// shares creates, updates and, when the file has a shares: block, offers to
+// delete the org's network shares: a share the block no longer names is an
+// unticked removal row. A share a tile line mounts gets a note, not a row:
+// the verb would refuse it, and a blocker would make the plan unapprovable.
 func (p *Plan) shares(decls map[string]Share, live Live) {
 	if decls == nil {
 		return
@@ -441,13 +407,16 @@ func (p *Plan) shares(decls map[string]Share, live Live) {
 			continue
 		}
 		if by := live.ShareUsers[s.Slug]; len(by) > 0 {
-			p.block("shares.%s: %s still mount it; drop the lines first", s.Slug, strings.Join(by, ", "))
+			// no row: a removal the verb would refuse must not make the plan unapprovable
+			p.Notes = append(p.Notes, fmt.Sprintf("shares.%s stays: %s still mount it; drop the lines first", s.Slug, strings.Join(by, ", ")))
 			continue
 		}
 		p.add(Change{
-			Kind: "share-delete",
-			Tile: s.Slug,
-			Old:  s.Source,
+			Kind:     "share-delete",
+			Tile:     s.Slug,
+			Old:      s.Source,
+			Optional: true,
+			Key:      "share:" + s.Slug,
 		})
 	}
 }

@@ -45,7 +45,7 @@ func RegisterRoutes(srv *server.Server, deps *Deps) {
 	e := srv.Echo()
 
 	// Content Security Policy.
-	csp := "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'"
+	csp := "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:"
 
 	// Site routes.
 	site := e.Group("")

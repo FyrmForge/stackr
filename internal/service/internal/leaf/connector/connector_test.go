@@ -170,3 +170,265 @@ func TestConnectorScope(t *testing.T) {
 		t.Errorf("cross-org rename = %v", err)
 	}
 }
+
+func connectServer(t *testing.T, l *connector.Leaf, f *fakeApp) store.Connector {
+	t.Helper()
+	if _, _, _, err := l.BeginServer(ctx, user, ""); err != nil {
+		t.Fatal(err)
+	}
+	c, err := l.Complete(ctx, user, f.state, "code")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return c
+}
+
+// An org reads the server connectors shared with it and nothing else, and
+// never writes through one: delete, rename and Get stay org-only.
+func TestServerConnectorReadsWidenWritesDoNot(t *testing.T) {
+	st := servicetest.Store(t)
+	f := &fakeApp{}
+	l := connector.New(st.Connectors, f)
+	acme, other := seedOrg(t, st), seedOrg(t, st)
+	srv := connectServer(t, l, f)
+
+	if cs, _ := l.ListConnected(ctx, acme); len(cs) != 0 {
+		t.Fatalf("unshared connector listed: %+v", cs)
+	}
+	if _, err := l.Usable(ctx, acme, srv.ID); !errors.Is(err, errs.ErrNotFound) {
+		t.Errorf("unshared usable = %v", err)
+	}
+	if _, err := l.SetShares(ctx, srv.ID, []string{acme}, false); err != nil {
+		t.Fatal(err)
+	}
+	cs, err := l.ListConnected(ctx, acme)
+	if err != nil || len(cs) != 1 || cs[0].ID != srv.ID || cs[0].Config != "" {
+		t.Fatalf("shared ListConnected = %+v %v", cs, err)
+	}
+	if cs, _ := l.ListConnected(ctx, other); len(cs) != 0 {
+		t.Errorf("an unnamed org sees it: %+v", cs)
+	}
+	if cs, _ := l.List(ctx, acme); len(cs) != 1 || !cs[0].Shared || cs[0].Config != "" {
+		t.Errorf("List lacks the shared connector, marked and stripped: %+v", cs)
+	}
+	if _, err := l.Usable(ctx, acme, srv.ID); err != nil {
+		t.Errorf("shared usable = %v", err)
+	}
+	if rs, err := l.Repos(ctx, acme, srv.ID); err != nil || len(rs) != 1 {
+		t.Errorf("shared repos = %v %v", rs, err)
+	}
+	if _, err := l.Get(ctx, acme, srv.ID); !errors.Is(err, errs.ErrNotFound) {
+		t.Errorf("org Get reached a server connector: %v", err)
+	}
+	if _, err := l.Rename(ctx, acme, srv.ID, "mine"); !errors.Is(err, errs.ErrNotFound) {
+		t.Errorf("org rename of a server connector = %v", err)
+	}
+	if err := l.Delete(ctx, acme, srv.ID); !errors.Is(err, errs.ErrNotFound) {
+		t.Errorf("org delete of a server connector = %v", err)
+	}
+	if _, err := l.InstallURL(ctx, acme, srv.ID); err == nil {
+		t.Error("org read a server connector's install url")
+	}
+	// all orgs
+	if _, err := l.SetShares(ctx, srv.ID, []string{acme}, true); err != nil {
+		t.Fatal(err)
+	}
+	if cs, _ := l.ListConnected(ctx, other); len(cs) != 1 {
+		t.Errorf("share-all not seen by another org: %+v", cs)
+	}
+	if ids, _ := l.SharedOrgs(ctx, srv.ID); len(ids) != 0 {
+		t.Errorf("share-all keeps named rows: %v", ids)
+	}
+	// none again
+	if _, err := l.SetShares(ctx, srv.ID, nil, false); err != nil {
+		t.Fatal(err)
+	}
+	if cs, _ := l.ListConnected(ctx, other); len(cs) != 0 {
+		t.Errorf("revoked share still listed: %+v", cs)
+	}
+}
+
+// For: the named connector wins, then the org's own for the host, then
+// exactly one shared server connector; several shared is a refusal that
+// says to name one.
+func TestResolveHost(t *testing.T) {
+	st := servicetest.Store(t)
+	f := &fakeApp{}
+	l := connector.New(st.Connectors, f)
+	acme := seedOrg(t, st)
+	url := "https://github.com/acme/api"
+
+	s1 := connectServer(t, l, f)
+	if _, err := l.For(ctx, acme, url); !errors.As(err, &connector.NoConnector{}) {
+		t.Errorf("unshared = %v", err)
+	}
+	_, _ = l.SetShares(ctx, s1.ID, nil, true)
+	if c, err := l.For(ctx, acme, url); err != nil || c.ID != s1.ID {
+		t.Fatalf("one shared = %+v %v", c, err)
+	} else if env, err := l.CloneEnv(ctx, c, url); err != nil || len(env) != 3 {
+		t.Errorf("shared clone env = %v %v", env, err)
+	}
+
+	_, _ = l.RenameServer(ctx, s1.ID, "one") // the fake app names every App alike
+	s2 := connectServer(t, l, f)
+	_, _ = l.SetShares(ctx, s2.ID, []string{acme}, false)
+	if _, err := l.For(ctx, acme, url); !errors.As(err, &connector.Ambiguous{}) ||
+		!strings.Contains(err.Error(), "name the connector to use") {
+		t.Errorf("two shared = %v", err)
+	}
+	cs, _ := l.ListConnected(ctx, acme)
+	if c, err := connector.Resolve(cs, s2.ID, "github.com"); err != nil || c.ID != s2.ID {
+		t.Errorf("named = %+v %v", c, err)
+	}
+	if _, err := connector.Resolve(cs, "nope", "github.com"); !errors.As(err, &connector.NoConnector{}) {
+		t.Errorf("unknown named = %v", err)
+	}
+
+	own := connect(t, l, f, acme)
+	if c, err := l.For(ctx, acme, url); err != nil || c.ID != own.ID {
+		t.Errorf("own wins = %+v %v", c, err)
+	}
+	cs, _ = l.ListConnected(ctx, acme)
+	if len(cs) != 3 || cs[0].ID != own.ID {
+		t.Errorf("own first = %+v", cs)
+	}
+}
+
+// Server connector names are unique (the server file names them); a pending
+// one does not take the name a second pending one needs.
+func TestServerConnectorNames(t *testing.T) {
+	st := servicetest.Store(t)
+	f := &fakeApp{}
+	l := connector.New(st.Connectors, f)
+
+	for range 2 {
+		if _, _, _, err := l.BeginServer(ctx, user, ""); err != nil {
+			t.Fatalf("second pending server connector: %v", err)
+		}
+	}
+	a := connectServer(t, l, f)
+	if _, err := l.RenameServer(ctx, a.ID, "  "); !errors.As(err, &errs.Invalid{}) {
+		t.Errorf("blank name = %v", err)
+	}
+	b, _, _, _ := l.BeginServer(ctx, user, "")
+	if _, err := l.RenameServer(ctx, b.ID, a.Name); !errors.As(err, &errs.Conflict{}) {
+		t.Errorf("duplicate name = %v", err)
+	}
+	if c, err := l.RenameServer(ctx, a.ID, "main"); err != nil || c.Name != "main" || c.Config != "" {
+		t.Errorf("rename = %+v %v", c, err)
+	}
+	// an org may reuse a server connector's name
+	org := seedOrg(t, st)
+	oc := connect(t, l, f, org)
+	if c, err := l.Rename(ctx, org, oc.ID, "main"); err != nil || c.Name != "main" {
+		t.Errorf("org reuses a server name = %+v %v", c, err)
+	}
+	if _, err := l.RenameServer(ctx, oc.ID, "x"); !errors.Is(err, errs.ErrNotFound) {
+		t.Errorf("server rename of an org's connector = %v", err)
+	}
+	if err := l.DeleteServer(ctx, oc.ID); !errors.Is(err, errs.ErrNotFound) {
+		t.Errorf("server delete of an org's connector = %v", err)
+	}
+	if err := l.DeleteServer(ctx, a.ID); err != nil {
+		t.Errorf("delete server connector: %v", err)
+	}
+}
+
+// The handshake of a server connector is bound to the admin who began it.
+func TestServerHandshakeUser(t *testing.T) {
+	st := servicetest.Store(t)
+	f := &fakeApp{}
+	l := connector.New(st.Connectors, f)
+	c, _, _, err := l.BeginServer(ctx, user, "")
+	if err != nil || c.OrgID != nil {
+		t.Fatalf("begin = %+v %v", c, err)
+	}
+	if _, err := l.Complete(ctx, "u2", f.state, "code"); !errors.Is(err, errs.ErrRefused) {
+		t.Errorf("another user completed it: %v", err)
+	}
+	if u, _ := l.ServerInstallURL(ctx, c.ID); u != "" {
+		t.Errorf("pending install url = %q", u)
+	}
+	if _, err := l.Complete(ctx, user, f.state, "code"); err != nil {
+		t.Fatal(err)
+	}
+	if u, _ := l.ServerInstallURL(ctx, c.ID); u != "https://github.com/apps/stackr-x/installations/new" {
+		t.Errorf("install url = %q", u)
+	}
+}
+
+// racy lets one write land between the leaf's read of a row and its write.
+type racy struct {
+	store.ConnectorStore
+	after func()
+}
+
+func (r *racy) Get(ctx context.Context, id string) (store.Connector, error) {
+	c, err := r.ConnectorStore.Get(ctx, id)
+	if f := r.after; f != nil {
+		r.after = nil
+		f()
+	}
+	return c, err
+}
+
+// A share or rename that reads a pending row, then loses the race with
+// Complete, must not write the pending config back over the App.
+func TestShareRenameKeepCompletedConfig(t *testing.T) {
+	for name, act := range map[string]func(*connector.Leaf, string) error{
+		"share": func(l *connector.Leaf, id string) error {
+			_, err := l.SetShares(ctx, id, nil, true)
+			return err
+		},
+		"rename": func(l *connector.Leaf, id string) error {
+			_, err := l.RenameServer(ctx, id, "main")
+			return err
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			st := servicetest.Store(t)
+			f := &fakeApp{}
+			plain := connector.New(st.Connectors, f)
+			pending, _, _, err := plain.BeginServer(ctx, user, "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			r := &racy{ConnectorStore: st.Connectors}
+			r.after = func() {
+				if _, err := plain.Complete(ctx, user, f.state, "code"); err != nil {
+					t.Error(err)
+				}
+			}
+			if err := act(connector.New(r, f), pending.ID); err != nil {
+				t.Fatal(err)
+			}
+			got, err := plain.Server(ctx, pending.ID)
+			if err != nil || !connector.Connected(got) {
+				t.Fatalf("the App was lost: %+v %v", got, err)
+			}
+		})
+	}
+}
+
+// Complete keeps what a share did while GitHub was converting the manifest.
+func TestCompleteKeepsShares(t *testing.T) {
+	st := servicetest.Store(t)
+	f := &fakeApp{}
+	plain := connector.New(st.Connectors, f)
+	pending, _, _, err := plain.BeginServer(ctx, user, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := &racy{ConnectorStore: st.Connectors}
+	r.after = func() {
+		if _, err := plain.SetShares(ctx, pending.ID, nil, true); err != nil {
+			t.Error(err)
+		}
+	}
+	if _, err := connector.New(r, f).Complete(ctx, user, f.state, "code"); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := plain.Server(ctx, pending.ID); !got.ShareAll || !connector.Connected(got) {
+		t.Errorf("share-all or App lost: %+v", got)
+	}
+}

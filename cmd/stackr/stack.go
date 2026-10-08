@@ -1430,7 +1430,7 @@ func param(s string) (string, string, error) {
 func (a *app) params() *cobra.Command {
 	var reveal, secret, force bool
 	var out, file string
-	get := leaf("get [collection.NAME]", "org.params,stack.params,env.params,org.secrets,stack.secrets,env.secrets",
+	get := leaf("get [collection.NAME]", "org.params,stack.params,env.params,admin.params,org.secrets,stack.secrets,env.secrets,admin.secrets",
 		"List params at the level; secrets stay masked unless --reveal", upTo(1), nil)
 	get.RunE = func(c *cobra.Command, args []string) error {
 		p, err := a.levelPath(c)
@@ -1500,11 +1500,11 @@ func (a *app) params() *cobra.Command {
 		a.redeploying(v)
 		return err
 	}
-	set := leaf("set <collection.NAME=value>...", "org.params-set,stack.params-set,env.params-set",
+	set := leaf("set <collection.NAME=value>...", "org.params-set,stack.params-set,env.params-set,admin.params-set",
 		"Set params; others at the level stay", atLeast(1),
 		func(c *cobra.Command, args []string) error { return send(c, args) })
 	set.Example = "  stackr params set app.mode=prod --env dev\n  stackr params set app.token=s3cret --secret --env dev"
-	merge := leaf("merge", "org.params-set,stack.params-set,env.params-set",
+	merge := leaf("merge", "org.params-set,stack.params-set,env.params-set,admin.params-set",
 		"Set every collection.NAME=value line of a file (-f, \"-\" stdin); others stay", exact(0),
 		func(c *cobra.Command, _ []string) error {
 			b, err := readFile(a, file)
@@ -1524,7 +1524,7 @@ func (a *app) params() *cobra.Command {
 	for _, c := range []*cobra.Command{set, merge} {
 		c.Flags().BoolVar(&secret, "secret", false, "store the values as secrets")
 	}
-	export := leaf("export", "org.secrets,stack.secrets,env.secrets",
+	export := leaf("export", "org.secrets,stack.secrets,env.secrets,admin.secrets",
 		"Write every param, secrets included, as collection.NAME=value; the one command that puts secrets on disk", exact(0),
 		func(c *cobra.Command, _ []string) error {
 			p, err := a.levelPath(c)
@@ -1567,14 +1567,15 @@ func (a *app) params() *cobra.Command {
 		})
 	export.Flags().StringVarP(&out, "output", "o", "", "the file (0600; default stdout)")
 	export.Flags().BoolVar(&force, "force", false, "overwrite an existing file")
-	return levelFlag(noun("params", "The param store: org, stack and env levels",
+	return levelFlag(noun("params", "The param store: org, stack and env levels, and the server's own (--level server, admin only)",
 		get,
 		set,
 		merge,
+		a.paramsImport(),
 		export,
 		leaf(
 			"rm <collection.NAME>",
-			"org.param-delete,stack.param-delete,env.param-delete",
+			"org.param-delete,stack.param-delete,env.param-delete,admin.param-delete",
 			"Delete a param at the level",
 			exact(1),
 			func(c *cobra.Command, args []string) error {
@@ -1594,7 +1595,11 @@ func (a *app) params() *cobra.Command {
 				if !hasParam(xs, col, name) {
 					return noParam(args[0], xs)
 				}
-				if err := a.confirm("Delete param " + args[0] + "? Tiles that read it fail their next deploy until it is set again."); err != nil {
+				warn := "Tiles that read it fail their next deploy until it is set again."
+				if flag(c, "level") == "server" {
+					warn = "Server file items that read it are blocked until it is set again."
+				}
+				if err := a.confirm("Delete param " + args[0] + "? " + warn); err != nil {
 					return err
 				}
 				v, err := a.call(DELETE, p+"/params/"+url.PathEscape(col)+"/"+url.PathEscape(name), nil)

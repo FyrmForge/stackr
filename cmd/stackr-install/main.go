@@ -79,7 +79,9 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 	// install with no admin; the error says to re-run with --admin-email.
 	saved, err := installspec.Load(in.DataDir)
 	fresh := err != nil
-	if !fresh {
+	if fresh {
+		in.InstallID = newInstallID()
+	} else {
 		fillFrom(&in, saved, given)
 	}
 	password := os.Getenv(passwordEnv)
@@ -204,6 +206,7 @@ func fillFrom(in *installspec.Input, saved installspec.Input, given map[string]b
 			pick()
 		}
 	}
+	in.InstallID = saved.InstallID
 }
 
 // apply copies the asked answers into the install; given flags stay.
@@ -503,4 +506,13 @@ so everything arrives through Caddy. Use the admin CLI on this box instead:
 
   stackr --help
 `, w, in.PanelHost, w, "*."+root, root)
+}
+
+// newInstallID names this box's panel archives in a shared bucket.
+func newInstallID() string {
+	b := make([]byte, 8)
+	if _, err := rand.Read(b); err != nil {
+		panic(err) // crypto/rand does not fail
+	}
+	return hex.EncodeToString(b)
 }

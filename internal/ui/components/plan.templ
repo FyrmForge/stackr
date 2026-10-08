@@ -1,5 +1,7 @@
 package components
 
+import "slices"
+
 // PlanView is a promote or rollback dry run (service.PromotePlan), or a
 // release diff: what would change, what blocks it, what to watch.
 // CanDeploy is the service's verdict; the page greys its button on it.
@@ -9,16 +11,66 @@ type PlanView struct {
 	Blockers  []string
 	Warnings  []string
 	CanDeploy bool
+	// Ticks draws a removal row's checkbox; false = the viewer cannot approve.
+	Ticks bool
+	// Applying: the plan is approved and its apply has not ended; a removal
+	// row shows whether the approver ticked it, and nothing can be changed.
+	Applying bool
+	// Done: the apply ended; the same ticks read "removed" in place of "removing".
+	Done bool
 }
 
-// ChangeView mirrors promote.Change.
+// ChangeView mirrors promote.Change, and planfile.Change for the config
+// files: Impact marks a risky change, Optional a removal row the approver
+// ticks (Key is what the form posts).
 type ChangeView struct {
-	Kind  string // env | stack | param | volume | orphan | create | update | delete | domain | slice | detach | image
-	Tile  string
-	Field string
-	Old   string
-	New   string
-	Note  string
+	Kind     string // env | stack | param | volume | orphan | create | update | delete | domain | slice | detach | image
+	Tile     string
+	Field    string
+	Old      string
+	New      string
+	Note     string
+	Impact   string
+	Key      string
+	Optional bool
+	Ticked   bool // Applying only: the approver ticked this removal
+}
+
+// Impacts is the plan's impact lines, in plan order.
+func (p PlanView) Impacts() []string {
+	var out []string
+	for _, c := range p.Changes {
+		if c.Impact != "" {
+			out = append(out, c.Impact)
+		}
+	}
+	return out
+}
+
+// PlanReviewView is a config plan with its answers: the dry run, the
+// removal ticks, Approve (behind an "are you sure?" while the plan has
+// impact lines) and Reject. A URL is "" when the viewer may not use it.
+type PlanReviewView struct {
+	Plan    PlanView
+	Origin  string // "From a local file, not the repo."; "" = nothing to say
+	Approve string // POST ticked and confirm
+	Reject  string // POST
+	// Applying: approved, the apply still running; no answers are offered.
+	Applying bool
+	// Done: applied; the ticks show as removed and kept, nothing is offered.
+	Done   bool
+	Ticked []string // the removal keys the approver ticked
+}
+
+// PlanRow is one stored plan in a plans list: status, summary, the commit
+// (or its source when it came from a local file), when.
+type PlanRow struct {
+	Status  string
+	Summary string
+	When    string
+	Commit  string // short
+	Source  string // "local" = a file posted from a machine, not the repo
+	Error   string
 }
 
 // Plan is v0's plan review: blockers and warnings as banners, then one
@@ -50,9 +102,29 @@ templ Plan(p PlanView) {
 		}
 		<ul class="space-y-2">
 			for _, c := range p.Changes {
-				<li class="panel px-4 py-2.5 text-sm">
+				<li class={ "panel px-4 py-2.5 text-sm", templ.KV("border-rw-warn/40", c.Impact != "") }>
 					<div class="flex flex-wrap items-center gap-2 font-mono">
-						<span class={ planSignClass(c.Kind) } aria-hidden="true">{ planSign(c.Kind) }</span>
+						<span class={ planSignClass(c) } aria-hidden="true">{ planSign(c) }</span>
+						if c.Optional {
+							if p.Applying {
+								if c.Ticked {
+									if p.Done {
+										@Chip("removed", "warn")
+									} else {
+										@Chip("removing", "warn")
+									}
+								} else {
+									@Chip("kept", "")
+								}
+							} else if p.Ticks {
+								<label class="flex items-center gap-1.5 text-rw-warn">
+									<input type="checkbox" name="ticked" value={ c.Key } class="accent-rw-accent" aria-label={ "Remove " + c.Field }/>
+									remove?
+								</label>
+							} else {
+								@Chip("remove?", "warn")
+							}
+						}
 						<span class="text-rw-faint">{ c.Kind }</span>
 						if c.Tile != "" {
 							<span class="text-rw-text">{ c.Tile }</span>
@@ -74,6 +146,9 @@ templ Plan(p PlanView) {
 							</span>
 						}
 					</div>
+					if c.Impact != "" {
+						<p class="mt-1 pl-6 text-xs font-medium text-rw-warn">{ c.Impact }</p>
+					}
 					if c.Note != "" {
 						<p class="mt-1 pl-6 text-xs text-rw-muted">{ c.Note }</p>
 					}
@@ -83,8 +158,11 @@ templ Plan(p PlanView) {
 	</section>
 }
 
-func planSign(kind string) string {
-	switch kind {
+func planSign(c ChangeView) string {
+	if c.Optional {
+		return "-"
+	}
+	switch c.Kind {
 	case "create":
 		return "+"
 	case "delete", "orphan", "detach":
@@ -94,12 +172,100 @@ func planSign(kind string) string {
 }
 
 // planSignClass spells every class in full so tailwind keeps them.
-func planSignClass(kind string) string {
-	switch planSign(kind) {
+func planSignClass(c ChangeView) string {
+	switch planSign(c) {
 	case "+":
 		return "text-rw-success shrink-0 w-4"
 	case "-":
 		return "text-rw-danger shrink-0 w-4"
 	}
 	return "text-rw-warn shrink-0 w-4"
+}
+
+// PlanReview is a config plan and what the viewer can do with it. The
+// removal ticks and the approve share one form, so an approve posts the
+// ticked keys; a plan with impact lines asks "are you sure?" first and the
+// yes adds confirm.
+templ PlanReview(v PlanReviewView) {
+	<form novalidate class="space-y-4">
+		if v.Origin != "" {
+			<p class="text-xs text-rw-muted">{ v.Origin }</p>
+		}
+		if v.Applying {
+			<p class="text-sm text-rw-warn" role="status">Applying: approved, the changes are being applied.</p>
+		}
+		@Plan(reviewPlan(v))
+		if (v.Approve != "" && len(v.Plan.Blockers) == 0) || v.Reject != "" {
+			<div class="flex flex-wrap items-center gap-2">
+				if v.Approve != "" && len(v.Plan.Blockers) == 0 {
+					if impacts := v.Plan.Impacts(); len(impacts) > 0 {
+						@Confirm(ConfirmView{
+							Button:  "Approve",
+							Title:   "Are you sure?",
+							Warning: "This plan has impact lines. Approve only when you are ready for them.",
+							Body:    impactList(impacts),
+							Action:  v.Approve,
+							Target:  "#" + DrawerRoot,
+							Vals:    `{"confirm":"1"}`,
+							Primary: true,
+						})
+					} else {
+						<button type="button" class="btn btn-primary btn-sm" hx-post={ v.Approve } hx-target={ "#" + DrawerRoot } hx-swap="outerHTML">Approve</button>
+					}
+				}
+				if v.Reject != "" {
+					<button type="button" class="btn btn-ghost btn-sm" hx-post={ v.Reject } hx-target={ "#" + DrawerRoot } hx-swap="outerHTML">Reject</button>
+				}
+			</div>
+		}
+	</form>
+}
+
+// reviewPlan is the plan with its ticks on when the viewer can approve.
+func reviewPlan(v PlanReviewView) PlanView {
+	p := v.Plan
+	p.Ticks = v.Approve != ""
+	if v.Applying || v.Done {
+		p.Applying, p.Done = true, v.Done
+		p.Changes = slices.Clone(p.Changes)
+		for i, c := range p.Changes {
+			p.Changes[i].Ticked = c.Optional && slices.Contains(v.Ticked, c.Key)
+		}
+	}
+	return p
+}
+
+templ impactList(impacts []string) {
+	<ul class="modal-list">
+		for _, i := range impacts {
+			<li class="modal-list-row text-rw-warn">{ i }</li>
+		}
+	</ul>
+}
+
+// PlanLine is one plan in a plans list: status, summary, the commit or
+// its source, when.
+templ PlanLine(r PlanRow) {
+	<div class="flex flex-wrap items-center gap-3 text-sm">
+		@Chip(r.Status, planTone(r.Status))
+		<span class="text-rw-text">{ r.Summary }</span>
+		if r.Source == "local" {
+			@Chip("local file", "")
+		}
+		if r.Commit != "" {
+			<span class="text-xs text-rw-faint font-mono">{ r.Commit }</span>
+		}
+		<span class="text-xs text-rw-faint ml-auto">{ r.When }</span>
+	</div>
+}
+
+// planTone is the status chip: pending warns, error is danger.
+func planTone(status string) string {
+	switch status {
+	case "pending":
+		return "warn"
+	case "error":
+		return "danger"
+	}
+	return ""
 }

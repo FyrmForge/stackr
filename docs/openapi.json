@@ -92,6 +92,24 @@
         ],
         "type": "object"
       },
+      "ApproveIn": {
+        "properties": {
+          "confirm": {
+            "type": "boolean"
+          },
+          "ticked": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "ticked",
+          "confirm"
+        ],
+        "type": "object"
+      },
       "BackupDest": {
         "properties": {
           "bucket": {
@@ -306,6 +324,12 @@
           "field": {
             "type": "string"
           },
+          "impact": {
+            "type": "string"
+          },
+          "key": {
+            "type": "string"
+          },
           "kind": {
             "type": "string"
           },
@@ -317,6 +341,9 @@
           },
           "old": {
             "type": "string"
+          },
+          "optional": {
+            "type": "boolean"
           },
           "tile": {
             "type": "string"
@@ -388,19 +415,33 @@
             "type": "string"
           },
           "org_id": {
-            "type": "string"
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "provider": {
             "type": "string"
+          },
+          "share_all": {
+            "type": "boolean"
+          },
+          "shared": {
+            "type": "boolean"
           }
         },
         "required": [
           "id",
-          "org_id",
           "provider",
           "name",
           "host",
-          "created_at"
+          "created_at",
+          "share_all",
+          "shared"
         ],
         "type": "object"
       },
@@ -431,6 +472,24 @@
         },
         "required": [
           "github_org"
+        ],
+        "type": "object"
+      },
+      "ConnectorShareIn": {
+        "properties": {
+          "all": {
+            "type": "boolean"
+          },
+          "org_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "org_ids",
+          "all"
         ],
         "type": "object"
       },
@@ -679,6 +738,17 @@
           "port",
           "redirect_to",
           "proxy"
+        ],
+        "type": "object"
+      },
+      "DomainRenameIn": {
+        "properties": {
+          "host": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "host"
         ],
         "type": "object"
       },
@@ -1337,6 +1407,9 @@
           "allow_zero": {
             "type": "boolean"
           },
+          "config_only": {
+            "type": "boolean"
+          },
           "default": {
             "type": "string"
           },
@@ -1361,6 +1434,7 @@
           "scopes",
           "allow_zero",
           "read_only",
+          "config_only",
           "desc"
         ],
         "type": "object"
@@ -1969,6 +2043,9 @@
           "commit": {
             "type": "string"
           },
+          "confirmed": {
+            "type": "boolean"
+          },
           "created_at": {
             "format": "date-time",
             "type": "string"
@@ -2001,6 +2078,12 @@
           },
           "summary": {
             "type": "string"
+          },
+          "ticked": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
           }
         },
         "required": [
@@ -2011,7 +2094,9 @@
           "plan",
           "status",
           "error",
-          "created_at"
+          "created_at",
+          "ticked",
+          "confirmed"
         ],
         "type": "object"
       },
@@ -2486,6 +2571,186 @@
         ],
         "type": "object"
       },
+      "ServerBinding": {
+        "properties": {
+          "auto": {
+            "type": "boolean"
+          },
+          "branch": {
+            "type": "string"
+          },
+          "connector_id": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "repo": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "connector_id",
+          "repo",
+          "branch",
+          "path",
+          "auto"
+        ],
+        "type": "object"
+      },
+      "ServerConfigRepoIn": {
+        "properties": {
+          "auto": {
+            "type": "boolean"
+          },
+          "branch": {
+            "type": "string"
+          },
+          "connector_id": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "repo": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "connector_id",
+          "repo",
+          "branch",
+          "path",
+          "auto"
+        ],
+        "type": "object"
+      },
+      "ServerConnector": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "host": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "org_id": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "org_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "share_all": {
+            "type": "boolean"
+          },
+          "shared": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "provider",
+          "name",
+          "host",
+          "created_at",
+          "share_all",
+          "shared",
+          "org_ids"
+        ],
+        "type": "object"
+      },
+      "ServerFileIn": {
+        "properties": {
+          "file": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "file"
+        ],
+        "type": "object"
+      },
+      "ServerPlan": {
+        "properties": {
+          "commit": {
+            "type": "string"
+          },
+          "confirmed": {
+            "type": "boolean"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "decided_at": {
+            "oneOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "error": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "plan": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "ticked": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "commit",
+          "summary",
+          "plan",
+          "status",
+          "error",
+          "created_at",
+          "source",
+          "ticked",
+          "confirmed"
+        ],
+        "type": "object"
+      },
       "SetPassIn": {
         "properties": {
           "password": {
@@ -2832,7 +3097,7 @@
           },
           "changes": {
             "items": {
-              "$ref": "#/components/schemas/promote.Change"
+              "$ref": "#/components/schemas/Change"
             },
             "type": "array"
           },
@@ -4109,32 +4374,6 @@
         ],
         "type": "object"
       },
-      "promote.Change": {
-        "properties": {
-          "field": {
-            "type": "string"
-          },
-          "kind": {
-            "type": "string"
-          },
-          "new": {
-            "type": "string"
-          },
-          "note": {
-            "type": "string"
-          },
-          "old": {
-            "type": "string"
-          },
-          "tile": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "kind"
-        ],
-        "type": "object"
-      },
       "promote.Plan": {
         "properties": {
           "blockers": {
@@ -4145,7 +4384,7 @@
           },
           "changes": {
             "items": {
-              "$ref": "#/components/schemas/promote.Change"
+              "$ref": "#/components/schemas/Change"
             },
             "type": "array"
           },
@@ -4168,6 +4407,32 @@
         "required": [
           "stack",
           "env",
+          "changes"
+        ],
+        "type": "object"
+      },
+      "serverconfig.Plan": {
+        "properties": {
+          "blockers": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "changes": {
+            "items": {
+              "$ref": "#/components/schemas/Change"
+            },
+            "type": "array"
+          },
+          "notes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
           "changes"
         ],
         "type": "object"
@@ -4330,6 +4595,556 @@
           }
         },
         "x-verb": "serverdefaults.set"
+      }
+    },
+    "/api/v1/admin/config-repo": {
+      "get": {
+        "operationId": "admin.config-repo-get",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServerBinding"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "admin.read"
+      },
+      "put": {
+        "operationId": "admin.config-repo",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ServerConfigRepoIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServerBinding"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "serverconfig.bind"
+      }
+    },
+    "/api/v1/admin/config/export": {
+      "get": {
+        "operationId": "admin.config-export",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/yaml": {}
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "admin.read"
+      }
+    },
+    "/api/v1/admin/config/plan": {
+      "post": {
+        "operationId": "admin.config-plan",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServerPlan"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "serverconfig.bind"
+      }
+    },
+    "/api/v1/admin/config/plan-file": {
+      "post": {
+        "operationId": "admin.config-plan-file",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ServerFileIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServerPlan"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "serverconfig.bind"
+      }
+    },
+    "/api/v1/admin/config/plan-preview": {
+      "post": {
+        "operationId": "admin.config-plan-preview",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ServerFileIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/serverconfig.Plan"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "serverconfig.bind"
+      }
+    },
+    "/api/v1/admin/config/plans": {
+      "get": {
+        "operationId": "admin.config-plans",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ServerPlan"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "admin.read"
+      }
+    },
+    "/api/v1/admin/config/plans/{plan}": {
+      "get": {
+        "operationId": "admin.config-plan-get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "plan",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServerPlan"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "admin.read"
+      }
+    },
+    "/api/v1/admin/config/plans/{plan}/approve": {
+      "post": {
+        "operationId": "admin.config-plan-approve",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "plan",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApproveIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Job"
+                }
+              }
+            },
+            "description": "Accepted"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "serverplan.approve"
+      }
+    },
+    "/api/v1/admin/config/plans/{plan}/reject": {
+      "post": {
+        "operationId": "admin.config-plan-reject",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "plan",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServerPlan"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "serverplan.approve"
+      }
+    },
+    "/api/v1/admin/connectors": {
+      "get": {
+        "operationId": "admin.connector-list",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ServerConnector"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "admin.read"
+      },
+      "post": {
+        "operationId": "admin.connector-begin",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConnectorIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectorBegun"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "connector.admin"
+      }
+    },
+    "/api/v1/admin/connectors/{connector}": {
+      "delete": {
+        "operationId": "admin.connector-delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "connector",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "connector.admin"
+      }
+    },
+    "/api/v1/admin/connectors/{connector}/name": {
+      "put": {
+        "operationId": "admin.connector-rename",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "connector",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NameIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServerConnector"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "connector.admin"
+      }
+    },
+    "/api/v1/admin/connectors/{connector}/shares": {
+      "put": {
+        "operationId": "admin.connector-share",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "connector",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConnectorShareIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServerConnector"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "connector.admin"
       }
     },
     "/api/v1/admin/defaults": {
@@ -4510,6 +5325,54 @@
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/DomainResourceSetIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DomainResource"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "serverdefaults.set"
+      }
+    },
+    "/api/v1/admin/domain-resources/{resource}/rename": {
+      "post": {
+        "operationId": "admin.domain-resource-rename",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "resource",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DomainRenameIn"
               }
             }
           },
@@ -4924,6 +5787,162 @@
           }
         },
         "x-verb": "container.admin"
+      }
+    },
+    "/api/v1/admin/params": {
+      "get": {
+        "operationId": "admin.params",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Param"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "admin.read"
+      },
+      "patch": {
+        "operationId": "admin.params-set",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "items": {
+                  "$ref": "#/components/schemas/ParamIn"
+                },
+                "type": "array"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Redeploy"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "serverparams.write"
+      }
+    },
+    "/api/v1/admin/params/secrets": {
+      "get": {
+        "operationId": "admin.secrets",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Param"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "serverparams.write"
+      }
+    },
+    "/api/v1/admin/params/{collection}/{name}": {
+      "delete": {
+        "operationId": "admin.param-delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "collection",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Redeploy"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "serverparams.write"
       }
     },
     "/api/v1/admin/proxy/sync": {
@@ -6239,6 +7258,16 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApproveIn"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "202": {
             "content": {
@@ -6822,6 +7851,62 @@
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/DomainResourceSetIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DomainResource"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "domain.resource"
+      }
+    },
+    "/api/v1/orgs/{org}/domain-resources/{resource}/rename": {
+      "post": {
+        "operationId": "domain-resource.rename",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "resource",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DomainRenameIn"
               }
             }
           },

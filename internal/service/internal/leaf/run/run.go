@@ -157,12 +157,25 @@ func (l *Leaf) Active(ctx context.Context, tileID string) (store.Run, bool, erro
 	return rs[i], true, err
 }
 
-// Interrupted fails every run left running (the process died under it);
-// boot calls it before the job runner starts.
+// Interrupted fails every run left running (the process died under it) and
+// every queued run no job carries (it died between Queue and Begin); boot
+// calls it before the job runner starts.
 func (l *Leaf) Interrupted(ctx context.Context) error {
 	rs, err := l.runs.ListByStatus(ctx, Running)
+	if err != nil {
+		return err
+	}
 	for _, r := range rs {
 		if _, err := l.Finish(ctx, r.ID, nil, Failed, "stackrd restarted while this run was going"); err != nil {
+			return err
+		}
+	}
+	qs, err := l.runs.ListByStatus(ctx, Queued)
+	for _, r := range qs {
+		if r.JobID != "" {
+			continue // its job is still queued and will run it
+		}
+		if _, err := l.Finish(ctx, r.ID, nil, Failed, "stackrd restarted before this run started"); err != nil {
 			return err
 		}
 	}

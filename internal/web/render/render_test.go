@@ -3,6 +3,7 @@ package render_test
 import (
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 
@@ -10,6 +11,7 @@ import (
 	"github.com/labstack/echo/v4"
 
 	"github.com/FyrmForge/stackr/internal/middleware"
+	"github.com/FyrmForge/stackr/internal/service"
 	"github.com/FyrmForge/stackr/internal/service/servicetest"
 	"github.com/FyrmForge/stackr/internal/web"
 	"github.com/FyrmForge/stackr/internal/web/render"
@@ -93,5 +95,23 @@ func TestDrawerTabPushesURL(t *testing.T) {
 		if got := rec.Header().Get("HX-Push-Url"); got != want {
 			t.Errorf("%s: HX-Push-Url = %q, want %q", query, got, want)
 		}
+	}
+}
+
+func TestParamEntries(t *testing.T) {
+	got := render.ParamEntries(map[string][]string{
+		"secret.s3.key": {""}, "param.s3.region": {"eu"}, "junk": {"x"}, "param.bad": {"x"},
+		"new_collection": {" s3 "}, "new_name": {" bucket "}, "new_kind": {"param"}, "new_value": {"b"},
+	})
+	want := []service.ParamEntry{
+		{Collection: "s3", Name: "key", Kind: "secret"},
+		{Collection: "s3", Name: "region", Kind: "param", Value: "eu"},
+		{Collection: "s3", Name: "bucket", Kind: "param", Value: "b"},
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("entries = %+v, want %+v", got, want)
+	}
+	if got := render.ParamEntries(map[string][]string{"new_name": {" "}}); len(got) != 0 {
+		t.Errorf("a blank new row = %+v", got)
 	}
 }

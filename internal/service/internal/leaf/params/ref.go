@@ -20,6 +20,7 @@ import (
 //	${{ tile.<slug>.<output> }}            sibling tile or slice tile, same env
 //	${{ stackr.<NAME> }}                   what the server says about itself
 //	${{ org.backups.<name> }}              a backup destination
+//	${{ server.params.<collection>.<name> }}  the server scope, in the server file only
 //	${{ env.name }}                        the consumer's env slug (provision_from only)
 //
 // An unset param is errs.Unset (the job parks); every other failure is a
@@ -52,6 +53,9 @@ const (
 	KindStackr   Kind = "stackr"
 	KindBackup   Kind = "backup"
 	KindEnv      Kind = "env"
+	// KindServerParam is a server-scope param or secret. Only the server
+	// file's own items may read it (InServerFile): an org never reads one.
+	KindServerParam Kind = "server_param"
 )
 
 type Ref struct {
@@ -90,6 +94,10 @@ func Parse(body string) (Ref, error) {
 		r.Kind, r.Slug, r.Name = KindParam, p[1], p[2]
 	case len(p) == 4 && p[0] == "org" && p[1] == "params":
 		r.Kind, r.Slug, r.Name = KindOrgParam, p[2], p[3]
+	case len(p) == 4 && p[0] == "server" && p[1] == "params":
+		r.Kind, r.Slug, r.Name = KindServerParam, p[2], p[3]
+	case p[0] == "server":
+		return r, fmt.Errorf("%s: want server.params.<collection>.<name>", r.Source)
 	case len(p) == 3 && p[0] == "org" && p[1] == "backups":
 		r.Kind, r.Name = KindBackup, p[2]
 		if !slug.Valid(r.Name) {
@@ -129,7 +137,7 @@ func Parse(body string) (Ref, error) {
 		return r, fmt.Errorf("%s: want params.<collection>.<name>, org.params.<collection>.<name>, "+
 			"self.<output>, tile.<slug>.<output>, stackr.<NAME>, org.backups.<name> or env.name", r.Source)
 	}
-	if (r.Kind == KindParam || r.Kind == KindOrgParam) && !slug.ValidName(r.Slug) {
+	if (r.Kind == KindParam || r.Kind == KindOrgParam || r.Kind == KindServerParam) && !slug.ValidName(r.Slug) {
 		return r, fmt.Errorf("%s: %q is not a valid collection name", r.Source, r.Slug)
 	}
 	// A tile's outputs are env-key shaped: DATABASE_URL beside host and port.
@@ -153,6 +161,9 @@ const (
 	InBackupDest Where = "backup_dest" // org.backups only
 	// InProvisionFrom is a slice tile's target: params and env.name only.
 	InProvisionFrom Where = "provision_from"
+	// InServerFile is an item of stackr-server.yml (a backup dest key, later a
+	// connector token): the only place server.params resolve.
+	InServerFile Where = "server_file"
 )
 
 func allowed(w Where, k Kind) bool {
@@ -160,13 +171,15 @@ func allowed(w Where, k Kind) bool {
 	case InEnv, InCommand:
 		// ponytail: env.name is for provision_from; an env value could take
 		// it too once someone needs the env's name in a container.
-		return k != KindBackup && k != KindEnv
+		return k != KindBackup && k != KindEnv && k != KindServerParam
 	case InProvisionFrom:
 		return k == KindParam || k == KindEnv
 	case InDomain:
 		return k == KindParam || k == KindOrgParam
 	case InBackupDest:
 		return k == KindBackup
+	case InServerFile:
+		return k == KindServerParam
 	}
 	return false
 }
@@ -185,10 +198,13 @@ type Snapshot struct {
 	EnvParams   map[string]Value // "<collection>.<name>", the consumer's env
 	StackParams map[string]Value
 	OrgParams   map[string]Value
-	Stackr      map[string]string // PROXY_IP / PROXY_CIDR
-	Backups     map[string]string // backup name -> destination
-	Self        Source
-	Tiles       map[string]Source // by slug, the consumer's env
+	// ServerParams is filled only for InServerFile; every other caller leaves
+	// it nil, and the resolver refuses the ref before it looks.
+	ServerParams map[string]Value
+	Stackr       map[string]string // PROXY_IP / PROXY_CIDR
+	Backups      map[string]string // backup name -> destination
+	Self         Source
+	Tiles        map[string]Source // by slug, the consumer's env
 }
 
 // Source is one referenceable tile: a service's built-in outputs, or a
@@ -244,6 +260,9 @@ func (rr *Resolver) one(w Where, body string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	if r.Kind == KindServerParam && w != InServerFile {
+		return "", fmt.Errorf("%s: server params are readable only in the server file (stackr-server.yml), never in %s", r.Source, w)
+	}
 	if !allowed(w, r.Kind) {
 		return "", fmt.Errorf("%s: a %s ref is not allowed in %s", r.Source, r.Kind, w)
 	}
@@ -272,6 +291,9 @@ func (rr *Resolver) lookup(w Where, r Ref) (string, error) {
 	case KindOrgParam:
 		v, ok := rr.snap.OrgParams[key]
 		return param(v, ok, "org."+key)
+	case KindServerParam:
+		v, ok := rr.snap.ServerParams[key]
+		return param(v, ok, "server.params."+key)
 	case KindStackr:
 		if v := rr.snap.Stackr[r.Name]; v != "" {
 			return v, nil
@@ -362,4 +384,23 @@ func (e Endpoint) Outputs() map[string]string {
 		break
 	}
 	return out
+}
+
+// ServerRefs are the server params ("collection.name") a server-file item
+// refs, in order. Any other ref form, or a malformed one, is an error: the
+// server file reads server.params and nothing else. The caller checks each
+// key against what exists, so a missing one blocks only its own item.
+func ServerRefs(s string) ([]string, error) {
+	var out []string
+	for _, body := range Refs(s) {
+		r, err := Parse(body)
+		switch {
+		case err != nil:
+			return nil, err
+		case r.Kind != KindServerParam:
+			return nil, fmt.Errorf("%s: the server file reads only ${{ server.params.<collection>.<name> }}", r.Source)
+		}
+		out = append(out, r.Slug+"."+r.Name)
+	}
+	return out, nil
 }

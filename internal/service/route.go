@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"slices"
 
 	"github.com/FyrmForge/stackr/internal/installspec"
 	"github.com/FyrmForge/stackr/internal/service/errs"
@@ -87,12 +88,34 @@ func (o *Orchestrator) checkPanelHost(ctx context.Context, host string) error {
 	return nil
 }
 
+// checkPanelTaken refuses a tile domain on the panel's own host: the panel
+// vhost sorts first, so the tile would be dead.
+func (o *Orchestrator) checkPanelTaken(ctx context.Context, host string) error {
+	panel, _ := o.settings.Get(ctx, "panel_domain")
+	if panel = installspec.CleanHost(panel); panel != "" && installspec.CleanHost(host) == panel {
+		return errs.Conflictf("%s is the panel's address.", panel)
+	}
+	return nil
+}
+
 // checkPanelRoutes is the reverse: a panel_domain a pass-through route
-// covers is refused.
+// covers, or a tile domain already holds, is refused. The value it already
+// has passes (a save that changes nothing must not fail).
 func (o *Orchestrator) checkPanelRoutes(ctx context.Context, panel string) error {
 	panel = installspec.CleanHost(panel)
 	if panel == "" {
 		return nil
+	}
+	cur, _ := o.settings.Get(ctx, "panel_domain")
+	if installspec.CleanHost(cur) == panel {
+		return nil
+	}
+	ds, err := o.domains.List(ctx)
+	if err != nil {
+		return err
+	}
+	if slices.ContainsFunc(ds, func(d store.Domain) bool { return installspec.CleanHost(d.Host) == panel }) {
+		return errs.Conflictf("%s is a tile domain: the panel would shadow it.", panel)
 	}
 	rows, err := o.routes.List(ctx)
 	if err != nil {

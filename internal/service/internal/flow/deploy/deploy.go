@@ -19,6 +19,7 @@ import (
 	"maps"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
@@ -33,6 +34,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/org"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/params"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/release"
+	lrun "github.com/FyrmForge/stackr/internal/service/internal/leaf/run"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/settings"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/stack"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
@@ -69,6 +71,15 @@ type Flow struct {
 	// tile's container and readiness, a slice tile's provision and every
 	// consumer's binding; nil = no managed tiles here.
 	Engines *mflow.Flow
+
+	// Runs reads a function or cron tile's runs for a `tile:completed`
+	// dependency; RunFirst runs an on_deploy function (and fails when its
+	// run does) before its dependent rolls. Nil = no wait on completion.
+	Runs     *lrun.Leaf
+	RunFirst func(ctx context.Context, tileID string, log io.Writer) error
+	// DepSleep waits one poll of a dependency wait; nil = a ctx-aware timer.
+	// Tests replace it so no wait takes real time.
+	DepSleep func(ctx context.Context, d time.Duration) error
 }
 
 // Redeploy runs the tile on the image its env's current release pins (B34:
@@ -158,6 +169,9 @@ func (f *Flow) Run(ctx context.Context, t store.Tile, ref string, log io.Writer,
 		swap = func() error { return nil }
 	}
 	if t.Kind == tile.Slice {
+		if err := swap(); err != nil {
+			return "", err
+		}
 		return "", f.provision(ctx, t, log)
 	}
 	r, e, digest, err := f.prepare(ctx, t, ref, log)
@@ -169,6 +183,9 @@ func (f *Flow) Run(ctx context.Context, t store.Tile, ref string, log io.Writer,
 		// starts its container.
 		f.prune(ctx, t, e, log)
 		return digest, nil
+	}
+	if err := f.awaitDeps(ctx, t, log); err != nil {
+		return "", err
 	}
 	if _, err := f.Images.Ensure(ctx, tile.PauseImage, "", log); err != nil {
 		return "", fmt.Errorf("pull %s: %w", tile.PauseImage, err)
@@ -263,8 +280,16 @@ func (f *Flow) prepare(
 	}
 	logf(log, "pulling %s\n", ref)
 	digest, err := f.Images.Ensure(ctx, ref, auth, log)
+	if errors.Is(err, image.ErrCleanedUp) {
+		return r, e, "", fmt.Errorf("the image for %s was cleaned up; rebuild it", t.Slug)
+	}
 	if err != nil {
 		return r, e, "", fmt.Errorf("pull %s: %w", ref, err)
+	}
+	if digest != "" {
+		// The replica label carries the pin so a tag-started tile compares
+		// with a later digest pin (promote's runsOther).
+		r.pinRef = RepoOf(ref) + "@" + digest
 	}
 	r.image = ref
 	return r, e, digest, nil
@@ -284,19 +309,12 @@ func (f *Flow) rollout(
 		return err
 	}
 	overlap := t.Kind != tile.Managed && len(r.binds) == 0
-	n := max(t.Replicas, 1)
 	if !overlap {
-		n = 1
+		return f.stopFirst(ctx, t, e, r, old, log, swap)
 	}
+	n := max(t.Replicas, 1)
 	if err := swap(); err != nil {
 		return err
-	}
-	if !overlap {
-		logf(log, "stopping %d replica(s): this tile holds data, so it stops before it starts\n", len(old))
-		if err := f.remove(ctx, t, old); err != nil {
-			return err
-		}
-		old = nil
 	}
 	var started []string
 	for i := range n {
@@ -334,6 +352,84 @@ func (f *Flow) remove(ctx context.Context, t store.Tile, cs []docker.Container) 
 		}
 	}
 	return nil
+}
+
+// stopFirst is the rollout of a tile that holds data: the old replica stops
+// before the new one starts, but the new one is created first (a spec the
+// daemon refuses, like a limit above the host's, fails with nothing touched),
+// and a new replica that does not start or pass the gate is removed and the
+// old ones that ran are started again, so the tile is never left with
+// nothing.
+func (f *Flow) stopFirst(
+	ctx context.Context,
+	t store.Tile,
+	e store.Environment,
+	r resolved,
+	old []docker.Container,
+	log io.Writer,
+	swap func() error,
+) error {
+	if err := swap(); err != nil {
+		return err
+	}
+	s := spec(t, r)
+	s.Name = r.name + "-1"
+	logf(log, "creating %s\n", s.Name)
+	id, err := f.Tiles.CreateReplica(ctx, t, s)
+	if err != nil {
+		return err
+	}
+	logf(log, "stopping %d replica(s): this tile holds data, so it stops before it starts\n", len(old))
+	var stopped []docker.Container
+	for _, c := range old {
+		if c.State != "running" {
+			continue
+		}
+		if err := f.Tiles.Stop(ctx, t.ID, c.ID); err != nil && !errors.Is(err, errs.ErrNotFound) {
+			f.revive(ctx, t, e, stopped, id, log)
+			return err
+		}
+		stopped = append(stopped, c)
+	}
+	logf(log, "starting %s\n", s.Name)
+	if err := f.Tiles.Launch(ctx, t, id, log); err != nil {
+		f.revive(ctx, t, e, stopped, "", log)
+		return err
+	}
+	if err := f.route(ctx, t, e); err != nil {
+		return err
+	}
+	logf(log, "removing %d old replica(s)\n", len(old))
+	if err := f.remove(ctx, t, old); err != nil {
+		return err
+	}
+	return f.route(ctx, t, e)
+}
+
+// revive starts the replicas a failed stop-first rollout stopped and drops
+// the new one that never ran (drop "" = Launch already removed it). It runs
+// on a context that survives a cancel; its own failures are logged, the
+// rollout's error is what the job reports.
+func (f *Flow) revive(
+	ctx context.Context,
+	t store.Tile,
+	e store.Environment,
+	stopped []docker.Container,
+	drop string,
+	log io.Writer,
+) {
+	ctx = context.WithoutCancel(ctx)
+	if drop != "" {
+		_ = f.Tiles.Remove(ctx, t.ID, drop)
+	}
+	for _, c := range stopped {
+		if err := f.Tiles.StartContainer(ctx, t.ID, c.ID); err != nil {
+			logf(log, "warning: start the old replica %s again: %v\n", c.Name, err)
+		}
+	}
+	if err := f.route(ctx, t, e); err != nil {
+		logf(log, "warning: route the old replica: %v\n", err)
+	}
 }
 
 // volumeBind is a "volume:/abs[:ro]" line: the env's volume, created on first

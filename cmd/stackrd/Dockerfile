@@ -14,6 +14,8 @@ FROM alpine:3.21
 # ponytail: alpine's iptables is the nft backend; a host whose docker still
 # writes legacy iptables needs iptables-legacy here instead.
 RUN apk --no-cache add ca-certificates iptables git docker-cli docker-cli-buildx
+# Pull the base's security fixes (libcrypto) that landed after the alpine tag.
+RUN apk upgrade --no-cache
 COPY --from=builder /stackrd /stackrd
 # The CLI, reached through the installer's /usr/local/bin/stackr wrapper.
 COPY --from=builder /stackr /stackr

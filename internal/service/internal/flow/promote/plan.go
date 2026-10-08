@@ -14,6 +14,7 @@ import (
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/address"
+	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/deploy"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/domain"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/domainres"
@@ -23,19 +24,15 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/settings"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/volume"
+	"github.com/FyrmForge/stackr/internal/service/internal/planfile"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
 
-// Change is one line of a plan. Values that may be credentials (env,
-// params) never appear, only that they moved.
-type Change struct {
-	Kind  string `json:"kind"` // env | stack | param | volume | orphan | create | update | delete | domain | slice | managed | image
-	Tile  string `json:"tile,omitempty"`
-	Field string `json:"field,omitempty"`
-	Old   string `json:"old,omitempty"`
-	New   string `json:"new,omitempty"`
-	Note  string `json:"note,omitempty"`
-}
+// Change is one line of a plan, planfile's shape. Kind is env | stack |
+// param | volume | orphan | create | update | delete | domain | slice |
+// managed | image. Values that may be credentials (env, params) never
+// appear, only that they moved.
+type Change = planfile.Change
 
 // Plan is what a promote would do. Blockers is the one answer to "what
 // blocks this promote" (B20): the dry run shows it, the real run refuses
@@ -105,31 +102,6 @@ func (p *Plan) block(format string, a ...any) {
 }
 
 func (p *Plan) add(c Change) { p.Changes = append(p.Changes, c) }
-
-// Line is the change as one job-log line: "update api port: 80 -> 8080 (note)".
-// An empty old, new or field leaves no gap: "create c -> image", "volume data".
-func (c Change) Line() string {
-	s := c.Kind
-	if c.Tile != "" {
-		s += " " + c.Tile
-	}
-	if c.Field != "" {
-		s += " " + c.Field
-		if c.Old != "" {
-			s += ":"
-		}
-	}
-	switch {
-	case c.Old != "" && c.New != "", (c.Old != "" || c.New != "") && (c.Tile != "" || c.Field != ""):
-		s += " " + strings.TrimSpace(c.Old+" -> "+c.New)
-	case c.Old != "" || c.New != "":
-		s += " " + c.Old + c.New
-	}
-	if c.Note != "" {
-		s += " (" + c.Note + ")"
-	}
-	return s
-}
 
 // work is everything the real run needs, computed once by plan so the dry
 // run and the real run cannot drift apart.
@@ -691,6 +663,11 @@ func (f *Flow) planDomains(
 		}
 	}
 	for _, row := range have {
+		// A generated redirect (a resource rename's old host) is no file row:
+		// auto with redirect_to, which the file grammar forbids together.
+		if row.Auto && row.RedirectTo != "" {
+			continue
+		}
 		if !want[row.Host+row.Path] {
 			p.add(Change{Kind: "domain", Tile: name, Old: row.Host + row.Path})
 			dw.remove = append(dw.remove, row)
@@ -1072,6 +1049,19 @@ func (f *Flow) planImages(ctx context.Context, p *Plan, w *work, pins map[string
 		return err
 	}
 	for _, t := range live {
+		if t.Kind == tile.Function && t.Trigger == tile.OnDeploy && !w.redeploy[t.Slug] {
+			// A parked promote already moved the env's release, so its resume
+			// sees an empty diff: a function whose pin moved since its last
+			// run is deployed now, and its run queued from plan.Deployed.
+			moved, err := f.pinMovedSinceRun(ctx, t, pins[t.Slug])
+			if err != nil {
+				return err
+			}
+			if moved {
+				p.add(Change{Kind: "image", Tile: t.Slug, Note: "changed since its last run"})
+				w.redeploy[t.Slug] = true
+			}
+		}
 		if _, ok := pins[t.Slug]; !ok || w.redeploy[t.Slug] || t.Slug == release.ConfigSlug || tile.RunToCompletion(t.Kind) {
 			continue
 		}
@@ -1082,6 +1072,14 @@ func (f *Flow) planImages(ctx context.Context, p *Plan, w *work, pins map[string
 		if len(cs) == 0 {
 			p.add(Change{Kind: "image", Tile: t.Slug, Note: "not deployed yet"})
 			w.redeploy[t.Slug] = true
+			continue
+		}
+		// A promote that parked at deploy time already moved the env's
+		// release, so its resume sees an empty diff: a tile still running
+		// another image than the release pins is deployed now.
+		if f.runsOther(ctx, t, w.e, cs) {
+			p.add(Change{Kind: "image", Tile: t.Slug, Note: "runs another image"})
+			w.redeploy[t.Slug] = true
 		}
 	}
 	for _, n := range slices.Sorted(maps.Keys(tiles)) {
@@ -1090,6 +1088,50 @@ func (f *Flow) planImages(ctx context.Context, p *Plan, w *work, pins map[string
 		}
 	}
 	return nil
+}
+
+// pinMovedSinceRun reports whether t's newest run was made on another pin
+// than cur. No runs, or none that recorded a release, read as not moved.
+func (f *Flow) pinMovedSinceRun(ctx context.Context, t store.Tile, cur release.Pin) (bool, error) {
+	if f.D.Runs == nil || cur.Slug == "" {
+		return false, nil
+	}
+	r, ok, err := f.D.Runs.Last(ctx, t.ID)
+	if err != nil || !ok || r.ReleaseID == nil {
+		return false, err
+	}
+	old, err := f.D.Releases.Pins(ctx, *r.ReleaseID)
+	if err != nil {
+		return false, err
+	}
+	o, ok := old[t.Slug]
+	if !ok {
+		return false, nil
+	}
+	return len(release.Diff(map[string]release.Pin{t.Slug: o}, map[string]release.Pin{t.Slug: cur})) > 0, nil
+}
+
+// runsOther reports whether a running replica of t was started on an image
+// other than the one e's release pins for it.
+// A replica names the ref it was started for in its stackr.ref label; one
+// without it (started before the label) falls back to the image it names.
+// ponytail: that fallback cannot compare a tag-started tile with a digest
+// pin, so it reads as current; the label is the fix and ages the case out.
+func (f *Flow) runsOther(ctx context.Context, t store.Tile, e store.Environment, cs []docker.Container) bool {
+	ref, pinned, err := f.D.Current(ctx, t, e)
+	if err != nil || !pinned || ref == "" {
+		return false
+	}
+	return slices.ContainsFunc(cs, func(c docker.Container) bool {
+		if c.State != "running" {
+			return false
+		}
+		if l := c.Labels[deploy.LabelRef]; l != "" {
+			return l != ref
+		}
+		return c.Image != "" && c.Image != ref &&
+			(strings.Contains(c.Image, "@") || !strings.Contains(ref, "@"))
+	})
 }
 
 // desiredTiles is slug → "builds from git" of what the env will run after

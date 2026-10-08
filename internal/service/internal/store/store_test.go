@@ -130,11 +130,28 @@ func TestRoundTrip(t *testing.T) {
 		Summary:   "1 to add",
 		Plan:      `{"changes":[]}`,
 		Status:    "pending",
+		Ticked:    store.StringList{},
 		CreatedAt: t0,
 	}, func(p *store.OrgPlan) {
 		p.Status = "error"
 		p.Error = "boom"
 		p.DecidedAt = ptr(t1)
+		p.Ticked, p.Confirmed = store.StringList{"share:media"}, true
+	})
+	roundTrip(t, s.ServerPlans, store.ServerPlan{
+		ID:        "sp1",
+		Commit:    "abc123",
+		Summary:   "1 to add",
+		Plan:      `{"changes":[]}`,
+		Status:    "pending",
+		Source:    "local",
+		File:      "version: 1\n",
+		Ticked:    store.StringList{},
+		CreatedAt: t0,
+	}, func(p *store.ServerPlan) {
+		p.Status = "applied"
+		p.DecidedAt = ptr(t1)
+		p.Ticked, p.Confirmed = store.StringList{"route:a.example.com", "dest:old"}, true
 	})
 	roundTrip(t, s.OrgMembers, store.OrgMember{
 		ID:        "m1",
@@ -492,13 +509,13 @@ func TestRoundTrip(t *testing.T) {
 	}, func(c *store.Credential) { c.Password = "tok2" })
 	roundTrip(t, s.Connectors, store.Connector{
 		ID:        "cn1",
-		OrgID:     "o1",
+		OrgID:     ptr("o1"),
 		Provider:  "github",
 		Name:      "gh",
 		Host:      "github.com",
 		Config:    `{"key":"PEM"}`,
 		CreatedAt: t0,
-	}, func(c *store.Connector) { c.Config = "{}" })
+	}, func(c *store.Connector) { c.Config, c.OrgID, c.ShareAll = "{}", nil, true })
 	roundTrip(t, s.BackupDests, store.BackupDest{
 		ID:         "bd1",
 		OrgID:      ptr("o1"),
@@ -591,6 +608,7 @@ func TestRoundTrip(t *testing.T) {
 	}{
 		{"jobs", s.Jobs.Delete, "j1"},
 		{"org_config_plans", s.OrgPlans.Delete, "op1"},
+		{"server_config_plans", s.ServerPlans.Delete, "sp1"},
 		{"backup_runs", s.BackupRuns.Delete, "br1"},
 		{"backup_schedules", s.BackupSchedules.Delete, "bs1"},
 		{"backup_destinations", s.BackupDests.Delete, "bd1"},

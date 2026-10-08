@@ -56,7 +56,11 @@ type Knob struct {
 	Scopes    Scope  `json:"scopes"`
 	AllowZero bool   `json:"allow_zero"` // an explicit 0 is a real value, not "clear"
 	ReadOnly  bool   `json:"read_only"`  // the installer sets it; Set refuses
-	Desc      string `json:"desc"`
+	// ConfigOnly marks the server file's own binding (server_config_*): the
+	// Config tab and bind verb own them, so the Settings tab and the server
+	// file's settings: block skip them.
+	ConfigOnly bool   `json:"config_only"`
+	Desc       string `json:"desc"`
 }
 
 // DefaultsKey is the settings-table row holding the server rung of the
@@ -148,11 +152,10 @@ var Catalogue = []Knob{
 		Desc:   "the domain the panel answers on",
 	},
 	{
-		Key:      "root_domain",
-		Type:     TStr,
-		Scopes:   Flat,
-		ReadOnly: true,
-		Desc:     "the installer's root domain; tiles get names under it",
+		Key:    "root_domain",
+		Type:   TStr,
+		Scopes: Flat,
+		Desc:   "the root domain; tiles get names under it",
 	},
 	{
 		Key:    "acme_email",
@@ -173,12 +176,6 @@ var Catalogue = []Knob{
 		Desc:   "DNS-01 provider for the wildcard certificate",
 	},
 	{
-		Key:    "dns_env",
-		Type:   TStr,
-		Scopes: Flat,
-		Desc:   "the provider's credentials, k=v lines",
-	},
-	{
 		Key:    "proxy_custom",
 		Type:   TStr,
 		Scopes: Flat,
@@ -191,7 +188,112 @@ var Catalogue = []Knob{
 		Scopes:  Flat,
 		Desc:    "nightly image and build cache sweep",
 	},
+	{
+		Key:     "cleanup_schedule",
+		Type:    TStr,
+		Default: "30 4 * * *",
+		Scopes:  Flat,
+		Desc:    "when the sweep runs, a cron line; empty is the default time (cleanup_enabled is the switch)",
+	},
+	{
+		Key:     "orphans_enabled",
+		Type:    TBool,
+		Default: "true",
+		Scopes:  Flat,
+		Desc:    "back up and delete orphaned volumes past retention",
+	},
+	{
+		Key:     "orphans_schedule",
+		Type:    TStr,
+		Default: "@daily",
+		Scopes:  Flat,
+		Desc:    "when orphaned volumes past retention are backed up and deleted, a cron line; empty is the default time",
+	},
+	{
+		Key:     "panel_backup_enabled",
+		Type:    TBool,
+		Default: "true",
+		Scopes:  Flat,
+		Desc:    "the panel archives itself on its schedule",
+	},
+	{
+		Key:     "panel_backup_schedule",
+		Type:    TStr,
+		Default: "0 3 * * *",
+		Scopes:  Flat,
+		Desc:    "when the panel archives itself, a cron line; empty is the default time",
+	},
+	{
+		Key:     "panel_backup_keep",
+		Type:    TInt,
+		Default: "14",
+		Scopes:  Flat,
+		Desc:    "scheduled panel archives kept at the destination",
+	},
+	{
+		Key:    "panel_backup_dest",
+		Type:   TStr,
+		Scopes: Flat,
+		Desc:   "global backup destination id for panel archives; empty is local",
+	},
+
+	// The server file's binding (stackr-server.yml); written by
+	// BindServerConfig, shown on the admin Config tab.
+	{
+		Key:        "server_config_connector",
+		Type:       TStr,
+		Scopes:     Flat,
+		ConfigOnly: true,
+		Desc:       "id of the server connector the server file is read through",
+	},
+	{
+		Key:        "server_config_repo",
+		Type:       TStr,
+		Scopes:     Flat,
+		ConfigOnly: true,
+		Desc:       "the repo that holds stackr-server.yml; empty is unbound",
+	},
+	{
+		Key:        "server_config_branch",
+		Type:       TStr,
+		Scopes:     Flat,
+		ConfigOnly: true,
+		Desc:       "the branch of the server file; empty is the repo's default",
+	},
+	{
+		Key:        "server_config_path",
+		Type:       TStr,
+		Scopes:     Flat,
+		ConfigOnly: true,
+		Desc:       "path of the server file in the repo; empty is stackr-server.yml",
+	},
+	{
+		Key:        "server_config_auto",
+		Type:       TBool,
+		Default:    "false",
+		Scopes:     Flat,
+		ConfigOnly: true,
+		Desc:       "apply a server plan with no impact lines and no removals by itself",
+	},
 }
+
+// Default is a knob's catalogue default, "" for an unknown key.
+func Default(key string) string {
+	k, _ := lookup(key)
+	return k.Default
+}
+
+// cronKnobs hold a five-field cron line (CRON_TZ= allowed). An empty write
+// removes the row, so the default time applies; the on/off switches are
+// separate knobs.
+var cronKnobs = map[string]bool{
+	"panel_backup_schedule": true,
+	"cleanup_schedule":      true,
+	"orphans_schedule":      true,
+}
+
+// IsCron says whether key holds a cron line.
+func IsCron(key string) bool { return cronKnobs[key] }
 
 func lookup(key string) (Knob, bool) {
 	i := slices.IndexFunc(Catalogue, func(k Knob) bool { return k.Key == key })

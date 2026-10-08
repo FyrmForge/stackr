@@ -28,6 +28,7 @@ func TestDiffShares(t *testing.T) {
 		live    func(*orgconfig.Live)
 		changes []orgconfig.Change
 		blocker string
+		note    string
 	}{
 		{name: "no block says nothing", file: v1, live: withShares},
 		{
@@ -51,17 +52,17 @@ func TestDiffShares(t *testing.T) {
 			file: v1 + "shares: {}\n",
 			live: withShares,
 			changes: []orgconfig.Change{
-				{Kind: "share-delete", Tile: "media", Old: "nas:/export"},
+				{Kind: "share-delete", Tile: "media", Old: "nas:/export", Optional: true, Key: "share:media"},
 			},
 		},
 		{
-			name: "delete while mounted",
+			name: "delete while mounted stays, with a note",
 			file: v1 + "shares: {}\n",
 			live: func(l *orgconfig.Live) {
 				withShares(l)
 				l.ShareUsers = map[string][]string{"media": {"web"}}
 			},
-			blocker: "web still mount it",
+			note: "web still mount it",
 		},
 	} {
 		t.Run(c.name, func(t *testing.T) {
@@ -78,6 +79,7 @@ func TestDiffShares(t *testing.T) {
 				t.Errorf("changes = %+v\nwant %+v", p.Changes, c.changes)
 			}
 			one(t, "blockers", p.Blockers, c.blocker)
+			one(t, "notes", p.Notes, c.note)
 		})
 	}
 }

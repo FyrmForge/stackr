@@ -1232,6 +1232,83 @@ not follow a param edit until the next config commit; a grant is union-only
 (a dropped line never parks, approve adds, only revoke shrinks it); the
 Approve button is on the stack drawer, not on the parked job row.
 
+## Ready blitz (2026-10-07, plan `docs/rewrite/tasks/ready-blitz.md`)
+
+Landed: scheduled panel backups (schedule, keep, destination as admin
+settings; proxy data volume in the archive; `stackr-install restore` puts it
+back); disk cleanup job (dangling and unreferenced stackr images, build cache
+older than 7 days); job-state fixes (a parked promote resumes and deploys what
+differs, `Requeue` never revives a cancelled or superseded job, a covered
+host-access park resumes after `ParamSet`); `db:healthy` and `x:completed`
+ordering in `depends_on`, single-tile deploys included; `stackr params import`
+(a world-readable file warns and imports, an unreadable one is an error);
+VIP table rebuilt at boot (`service.rebuildVIPs`); managed Postgres dump covers
+every database and role. Wave 2: an on_deploy function a dependent already ran
+in the same deploy is not queued again by `afterDeploy`; the stale `Route`
+comment points at `rebuildVIPs`. Security sweep: `docs/security/`.
+
+Ceilings: rollback depth for the cleanup keep set is the constant 5; build
+cache is pruned by shelling to the CLI (`buildx prune`); `Requeue` is
+read-then-write; a digest-pinned image whose container was started by tag
+reads as current. Not done: the "admin only" label on old Postgres dumps (needs
+a new column); see `tasks/leftovers.md` section H.
+
+## Server config blitz (2026-10-07, plan `docs/rewrite/tasks/serverconfig-blitz.md`, design `serverconfig.md`)
+
+The server is config as code like an org: `stackr-server.yml`, planned,
+approved, applied and exported by the same machinery as `stackr-org.yml`.
+Built in waves (contract, seven parallel workers, seams). Rig is wave 3
+(v0.6.0-dev.17). Seams and per-worker notes: `tasks/serverconfig-seams.md`.
+
+1. **The file.** `version: 1` with `settings:`, `defaults:` (the server
+   cascade rung), `params:`, `routes:`, `backup_dests:`, `domains:`
+   (instance domain resources, `from:` renames one), `connectors:` (shares by
+   name, never created) and `orgs:` (slug, name, config repo, connector,
+   auto). Fed by a bound repo (a push plans it) or by `stackr server
+   plan|apply <file>` from any machine with an admin key; a local plan is
+   tagged "from a local file, not the repo" and needs the same approval.
+   `stackr server export` writes the live server back; export then plan reads
+   clean. Admin drawer Config tab, `stackr server ...`, `/admin/config/*`.
+2. **Server connectors.** `connectors.org_id` is nullable; shared with none
+   (default), named orgs or all orgs (the warning: every org owner can clone
+   every repo the App covers). Reads widen to the shared ones (picker,
+   clone, org and stack binding), writes never reach one. A host with several
+   shared connectors and none of the org's own needs the connector named.
+   Admin drawer Connectors tab, `stackr server connectors ...`.
+3. **Server params.** A `server` scope (migration 006), admin only.
+   `${{ server.params.<col>.<name> }}` resolves in the server file only and is
+   refused everywhere else. Admin drawer Params tab, `--level server`.
+4. **Removal rows and impact lines.** The file never deletes on its own:
+   anything live it no longer names is an unticked "remove?" row. A risky
+   change carries an impact line, and approving a plan with any asks "are you
+   sure?"; both are enforced in the service (`ApproveOpts{Ticked, Confirm}`),
+   for org plans too (a dropped org share is a removal row now). Auto-apply
+   fires only for a plan with no blocker, no impact line and no removal row.
+5. **Root domain rename.** `root_domain` is settable: it renames the instance
+   domain resource, rewrites every auto and apex host under it, keeps each old
+   host as a generated 308 redirect and pushes the proxy once. Org domain
+   resources rename the same way (`stackr domain rename`, the org drawer).
+6. **`proxy_custom` is read.** A JSON array of Caddy route objects appended
+   after stackr's own on the main server; the panel vhost and tiles stay first.
+7. **Panel host.** Traced by S6 (cookie, GitHub App, CLI keys, installer env).
+   Fixed in wave 2: the session cookie is host-only (the old `Domain=` cookie is
+   expired on the next login or logout), the GitHub App manifest follows
+   `panel_domain`, a tile domain on the panel host and a changed `panel_domain`
+   a tile domain holds are refused.
+
+Wave 2 closed the seams: a bad `proxy_custom` is taken back by `SetSettings`
+(not just the file apply); `SetSetting` (the settings PUT) refuses the
+`server_config_*` knobs (bind checks the connector); the org file blocks a
+host with several shared connectors; a stack can bind to a shared server
+connector; generated redirects answer 308; `dns_env` is gone.
+
+Ceilings: `archive_key` in a file is written straight through the store (the
+backup leaf has no field); a server secret reveal is not audited anywhere (the
+CLI help says it is); the exported file holds `defaults.protect_password` as
+stored, so treat it like a secret; managed tiles keep the old published URL
+after a root rename until the stack's next reconcile; no transaction across a
+rename's writes. Not done, see `tasks/leftovers.md` section I.
+
 ## DECIDE:
 
 Silent calls the planner made under rule 9 / "fix obvious gaps"; flip any
@@ -1763,3 +1840,15 @@ Raised by step 6 session D (builder took the lean; flip any):
 138. **(step 6) Small UI misses from the smoke, not fixed:** the function status tab offers Restart/Stop; an admin can disable themselves; log lines show docker's E/O prefix; htmx logs an `Event` console error when a page's SSE stream is torn down on navigation. Options: (a) fix in step 7; (b) keep. Lean (a). **Resolved in step 6e: the E/O prefix in phase 3a, admin self-disable in 3b; in phase 4 the function tile offers no Restart/Stop and `<log-pane>` closes the page's streams on `pagehide`, so no `Event` error (checked on the VM).**
 139. **(step 6) Handler audit output is not empty.** Every remaining hit is a false positive, explained in commits a013293 and the progress commit (three new templ `if set` hits: job refresher, create-tile command, runs poller). Options: (a) keep; (b) teach the script those shapes. Lean (b).
 140. **(step 6) Editing an image tile's tag does nothing on redeploy.** Once a release pins the tile, `deploy.Redeploy` runs the pinned digest; a new `image_ref` (API PATCH; the web has no field for it) only lands when image watch's "Check now" derives a release and that release is promoted. The image tab also shows "running digest: none" for a running tile. Options: (a) keep, image watch is the path; (b) `UpdateTile` derives a release when `image_ref` changes, and the web gets an image field. Lean (b), step 7. **Fixed 2026-09-24 (v0.0.14, checked on the VM):** an image pin's `repo` now holds the ref it came from, tag included; a plain deploy/redeploy whose pin no longer matches the tile's ref runs the tag and pins it (one release); promote and rollback still run the release as pinned. The image tab has an Image field. "Running digest" and the graph's new-version chip read the env's release pin (the images table only knows builds, so the chip never lit for pulled tiles). Promote and rollback also write a pin's tag back onto a tile edited outside the stack file, so a redeploy after a rollback stays put (v0.0.15, checked on the VM: roll back #6→#5, then Deploy, stays on v1.10.1).
+
+Raised by the server config blitz (2026-10-07; builders took the lean, flip any):
+
+216. **(server config) One file, one machinery.** `stackr-server.yml` is planned, approved, applied and exported like the org file; local apply stays allowed once a repo is bound (the bootstrap and DR path), tagged as local. Options: (a) keep; (b) repo only. Lean (a).
+217. **(server config) Server connectors.** `connectors.org_id` is nullable; shared with none, named orgs or all orgs. Reads widen, writes never reach one; the file names connectors and never creates them (GitHub App creation is a browser flow). Options: (a) keep; (b) share-all only. Lean (a).
+218. **(server config) Server params scope.** `scope_kind 'server'`, admin only, refs readable in the server file alone, verb `serverparams.write` apart from `serverdefaults.set`; the CLI flag is `--level server`. Options: (a) keep; (b) `--scope`. Lean (a).
+219. **(server config) Removals are rows, not blockers.** A removal the verb would refuse (a dest in use, a domain with tiles, a share a binding names) is a note, never a row and never a blocker, since a blocker makes the whole plan unapprovable. Orgs and params are never removed. Options: (a) keep; (b) blockers. Lean (a).
+220. **(server config) Impact lines and removal ticks are service rules.** `ApproveOpts` enforces both for server and org plans; auto-apply needs `AutoOK`. Options: (a) keep; (b) UI only. Lean (a).
+221. **(server config) A root domain change is a rename.** It rewrites auto and apex hosts, leaves literal and declared rows, and keeps the old host as a generated redirect (`Auto && RedirectTo != ""`, no column), 308. Options: (a) keep; (b) a marker column. Lean (a).
+222. **(server config) `proxy_custom` shape (resolves 127).** A JSON array of Caddy route objects appended after ours on the main server, additive, never a whole-config replace; checked at save, and a value Caddy cannot load is taken back by `SetSettings`. Options: (a) keep; (b) a whole-config replace. Lean (a).
+223. **(server config) The panel host follows `panel_domain`.** The session cookie is host-only and the GitHub App manifest reads the setting; existing Apps keep the webhook URL they were made with, and CLI keys keep the old host (both in the impact line). Options: (a) keep; (b) patch the App's hook config. Lean (a).
+224. **(server config) An org created by the file is owned by the approver**, so creating an org is an impact line and never auto-applies. Options: (a) keep; (b) a named owner in the file. Lean (a).

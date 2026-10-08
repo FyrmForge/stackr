@@ -14,23 +14,33 @@ import (
 )
 
 func (h *handler) connectorTab(c echo.Context, cd card, f *comp.DrawerView) (templ.Component, error) {
-	install, err := h.orch.ConnectorInstallURL(c.Request().Context(), cd.s.Org.ID, cd.conn.ID)
+	install, err := h.installURL(c, cd)
 	if err != nil {
 		return nil, err
 	}
 	if f.Tab == "repos" {
-		return connui.Repos(connui.ReposView{Check: f.Base + "/check", InstallURL: install}), nil
+		return connui.Repos(connui.ReposView{Check: f.Base + "/check", InstallURL: install, Shared: cd.conn.Shared}), nil
 	}
 	v := connui.SettingsView{
 		Name:       cd.conn.Name,
 		Host:       cd.conn.Host,
 		InstallURL: install,
+		Shared:     cd.conn.Shared,
 	}
-	if can(c, cd.s, "connector.write") {
+	if can(c, cd.s, "connector.write") && !cd.conn.Shared {
 		v.Base = f.Base
 		v.Delete = dialog.DeleteConnector(cd.conn.Name, f.Base+"/delete", "#"+comp.DrawerRoot)
 	}
 	return connui.Settings(v), nil
+}
+
+// installURL is the app's GitHub install page; "" for a shared server
+// connector, whose install is the admin's to manage.
+func (h *handler) installURL(c echo.Context, cd card) (string, error) {
+	if cd.conn.Shared {
+		return "", nil
+	}
+	return h.orch.ConnectorInstallURL(c.Request().Context(), cd.s.Org.ID, cd.conn.ID)
 }
 
 func (h *handler) mountConnector(site *echo.Group, a *middleware.Access) {
@@ -43,7 +53,7 @@ func (h *handler) mountConnector(site *echo.Group, a *middleware.Access) {
 			return middleware.HTTPError(err)
 		}
 		ctx := c.Request().Context()
-		install, err := h.orch.ConnectorInstallURL(ctx, cd.s.Org.ID, cd.conn.ID)
+		install, err := h.installURL(c, cd)
 		if err != nil {
 			return middleware.HTTPError(err)
 		}
@@ -51,7 +61,7 @@ func (h *handler) mountConnector(site *echo.Group, a *middleware.Access) {
 		if err != nil {
 			return middleware.HTTPError(err)
 		}
-		v := connui.ReposView{Check: cd.frame("repos").Base + "/check", InstallURL: install, Checked: true}
+		v := connui.ReposView{Check: cd.frame("repos").Base + "/check", InstallURL: install, Shared: cd.conn.Shared, Checked: true}
 		for _, r := range repos {
 			v.Repos = append(v.Repos, r.FullName)
 		}

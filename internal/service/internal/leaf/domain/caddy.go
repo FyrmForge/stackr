@@ -34,6 +34,11 @@ type Install struct {
 	TrustedProxies []string
 	PanelHost      string // the panel's public host; skipped when a bare IP, localhost or ""
 	PanelUpstream  string // the panel's internal dial address, e.g. stackrd:8080
+	// Custom is proxy_custom: a JSON array of Caddy HTTP route objects,
+	// appended after every route of ours on the main server (https, or http
+	// with TLS off). Additive, never a whole-config replace, so the panel
+	// vhost and the tiles always survive it.
+	Custom string
 }
 
 // Account is a domain resource that names its own ACME email. A host
@@ -93,7 +98,7 @@ func Build(in Install, tiles []TileRoute, routes []Route, expand Expand) (json.R
 		var err error
 		for _, d := range t.Domains {
 			var serve any
-			if serve, err = domainRoute(d, t, expand); err != nil {
+			if serve, err = domainRoute(d, t, expand, tlsOn); err != nil {
 				break
 			}
 			secured := tlsOn && d.HTTPS
@@ -124,10 +129,25 @@ func Build(in Install, tiles []TileRoute, routes []Route, expand Expand) (json.R
 		}
 	}
 
-	servers := route{"http": server(":80", plain, in.TrustedProxies)}
+	custom, err := customRoutes(in.Custom)
+	if err != nil {
+		bad = append(bad, err) // left out like a broken tile; the rest still pushes
+	}
+	httpTail := custom
+	if tlsOn {
+		httpTail = nil
+		for _, h := range customHosts(custom) {
+			if !httpsHosts[h] { // a host stackr already routes has its :80 route
+				plain = append(plain, placed{h, "", forceRoute(h, "")})
+			}
+			httpsHosts[h] = true // the same certificate rules as every other host
+		}
+	}
+
+	servers := route{"http": server(":80", plain, in.TrustedProxies, httpTail)}
 	apps := route{"http": route{"servers": servers}}
 	if tlsOn {
-		servers["https"] = server(":443", secure, in.TrustedProxies)
+		servers["https"] = server(":443", secure, in.TrustedProxies, custom)
 		servers["https"].(route)["automatic_https"] = route{"disable_redirects": true}
 		if wrapper != nil {
 			// The layer4 wrapper reads the SNI before TLS terminates; the
@@ -147,7 +167,7 @@ func Build(in Install, tiles []TileRoute, routes []Route, expand Expand) (json.R
 
 // server orders routes the way Caddy needs them (it takes the first match):
 // the panel first, exact hosts before wildcards, longer paths first.
-func server(listen string, rs []placed, trusted []string) route {
+func server(listen string, rs []placed, trusted []string, tail []json.RawMessage) route {
 	sort.SliceStable(rs, func(i, j int) bool {
 		a, b := rs[i], rs[j]
 		if (a.host == "") != (b.host == "") {
@@ -168,11 +188,50 @@ func server(listen string, rs []placed, trusted []string) route {
 	for i, r := range rs {
 		routes[i] = r.r
 	}
+	for _, r := range tail {
+		routes = append(routes, r) // after ours: the first match wins
+	}
 	s := route{"listen": []string{listen}, "routes": routes}
 	if ranges := dedup(trusted); len(ranges) > 0 {
 		s["trusted_proxies"] = route{"source": "static", "ranges": ranges}
 	}
 	return s
+}
+
+// customRoutes is proxy_custom as routes. "" is none; anything but a JSON
+// array of objects is an error naming the setting.
+func customRoutes(raw string) ([]json.RawMessage, error) {
+	if strings.TrimSpace(raw) == "" {
+		return nil, nil
+	}
+	var rs []json.RawMessage
+	if err := json.Unmarshal([]byte(raw), &rs); err != nil {
+		return nil, fmt.Errorf("proxy_custom: need a JSON array of Caddy routes: %w", err)
+	}
+	for i, r := range rs {
+		var o map[string]any
+		if json.Unmarshal(r, &o) != nil || o == nil {
+			return nil, fmt.Errorf("proxy_custom: item %d is not a route object", i+1)
+		}
+	}
+	return rs, nil
+}
+
+// customHosts are the host matchers of the custom routes, so their
+// certificates follow the instance's account and DNS rules.
+func customHosts(rs []json.RawMessage) (hosts []string) {
+	for _, r := range rs {
+		var m struct {
+			Match []struct {
+				Host []string `json:"host"`
+			} `json:"match"`
+		}
+		_ = json.Unmarshal(r, &m)
+		for _, x := range m.Match {
+			hosts = append(hosts, x.Host...)
+		}
+	}
+	return hosts
 }
 
 func dedup(in []string) []string {
@@ -211,7 +270,7 @@ func forceRoute(host, path string) route {
 	}
 }
 
-func domainRoute(d store.Domain, t TileRoute, expand Expand) (any, error) {
+func domainRoute(d store.Domain, t TileRoute, expand Expand, tlsOn bool) (any, error) {
 	if t.Expand != nil {
 		expand = t.Expand
 	}
@@ -219,14 +278,25 @@ func domainRoute(d store.Domain, t TileRoute, expand Expand) (any, error) {
 		return json.RawMessage(d.RawCaddy), nil
 	}
 	if d.RedirectTo != "" {
-		// No auth, no headers: the 301 fires first anyway.
+		// No auth, no headers: the redirect fires first anyway. A generated
+		// one (a rename's old host, Auto) is a 308; a declared one a 301.
+		// A generated row carries the target's HTTPS flag (the rename copies
+		// it), so its Location's scheme follows it; a declared target is
+		// whatever the admin named, https.
+		code, scheme := 301, "https://"
+		if d.Auto {
+			code = 308
+			if !tlsOn || !d.HTTPS {
+				scheme = "http://"
+			}
+		}
 		return route{
 			"match":    match(d.Host, d.Path, nil),
 			"terminal": true,
 			"handle": []route{{
 				"handler":     "static_response",
-				"status_code": 301,
-				"headers":     route{"Location": []string{"https://" + d.RedirectTo + "{http.request.uri}"}},
+				"status_code": code,
+				"headers":     route{"Location": []string{scheme + d.RedirectTo + "{http.request.uri}"}},
 			}},
 		}, nil
 	}

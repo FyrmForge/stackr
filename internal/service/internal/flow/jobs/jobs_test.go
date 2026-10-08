@@ -12,6 +12,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/jobs"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/job"
+	"github.com/FyrmForge/stackr/internal/service/internal/store"
 	"github.com/FyrmForge/stackr/internal/service/servicetest"
 )
 
@@ -264,8 +265,8 @@ func TestWaiting(t *testing.T) {
 		return nil
 	}
 	r, l := setup(t, map[jobs.Kind]jobs.Handler{"a": h}, jobs.Options{
-		ParamSet: func(_ context.Context, p string) (bool, error) {
-			if p != "DB_URL" {
+		ParamSet: func(_ context.Context, j store.Job) (bool, error) {
+			if p := *j.WaitingParam; p != "DB_URL" {
 				return false, errors.New("wrong param " + p)
 			}
 			select {
@@ -294,7 +295,7 @@ func TestWaitingApproval(t *testing.T) {
 		return errs.NeedsApproval{Stack: "s1", What: "host access: +host:/a:/b"}
 	}
 	r, l := setup(t, map[jobs.Kind]jobs.Handler{"a": h}, jobs.Options{
-		ParamSet: func(context.Context, string) (bool, error) { return false, nil },
+		ParamSet: func(context.Context, store.Job) (bool, error) { return false, nil },
 	})
 	start(t, r)
 	id := enqueue(t, r, "a", "t1")
@@ -320,7 +321,7 @@ func TestParkKeepsPayload(t *testing.T) {
 		return errs.Unset{Param: "DB_URL"}
 	}
 	r, l := setup(t, map[jobs.Kind]jobs.Handler{"a": h}, jobs.Options{
-		ParamSet: func(context.Context, string) (bool, error) { return false, nil },
+		ParamSet: func(context.Context, store.Job) (bool, error) { return false, nil },
 	})
 	start(t, r)
 	id := enqueue(t, r, "a", "t1")
@@ -448,4 +449,25 @@ func TestRestartRecovery(t *testing.T) {
 	if !strings.Contains(got.Error, "restarted") {
 		t.Fatalf("error = %q", got.Error)
 	}
+}
+
+// A cancel that lands after the handler returned and before the job parks
+// wins: the job ends cancelled, not parked.
+func TestCancelBeatsPark(t *testing.T) {
+	h := func(context.Context, *jobs.Run) error { return errs.Unset{Param: "DB_URL"} }
+	r, l := setup(t, map[jobs.Kind]jobs.Handler{"a": h}, jobs.Options{
+		ParamSet: func(context.Context, store.Job) (bool, error) { return false, nil },
+	})
+	id := ""
+	var once atomic.Bool
+	r.BeforePark(func() {
+		if once.CompareAndSwap(false, true) {
+			if err := r.Cancel(ctx, id); err != nil {
+				t.Error(err)
+			}
+		}
+	})
+	id = enqueue(t, r, "a", "t1")
+	start(t, r)
+	waitState(t, l, id, job.Cancelled)
 }

@@ -6,6 +6,7 @@ package backup
 
 import (
 	"archive/tar"
+	"bufio"
 	"compress/gzip"
 	"context"
 	"errors"
@@ -46,6 +47,11 @@ type Subject struct {
 	Engine  store.Tile   // the managed tile Dump and Load exec in
 	Dump    []string     // nil = tar the volume
 	Load    []string     // restore argv, reads the dump on stdin
+	// Consumers are the tiles that hold connections to the instance (the
+	// bound ones); a dump restore stops them for the wipe and load.
+	Consumers []store.Tile
+	// Marker is the first line of the engine's whole-instance dump, "" = none.
+	Marker string
 }
 
 func (s Subject) dumps() bool { return len(s.Dump) > 0 }
@@ -185,11 +191,15 @@ type Restore struct {
 	RunID, SourceVolumeID string
 	Target                Subject
 	Pre                   Spec // the pre-restore backup of the target
+	// Cluster vets a whole-instance dump (first line Target.Marker) before
+	// anything is touched; its error ends the restore. nil = no check.
+	Cluster func(ctx context.Context) error
 }
 
 // Restore, in the order that makes every recoverable failure come first:
-// claim the target, check the run, back the target up (the way back),
-// download, verify, then stop, wipe and untar (or load the dump), start.
+// claim the target, check the run, download, verify (and, for a
+// whole-instance dump, vet it), back the target up (the way back), then
+// stop, wipe and untar (or load the dump), start.
 func (f *Flow) Restore(ctx context.Context, in Restore, log io.Writer) error {
 	t := in.Target
 	if !f.claim(t.Volume.ID) {
@@ -207,13 +217,6 @@ func (f *Flow) Restore(ctx context.Context, in Restore, log io.Writer) error {
 	if err != nil {
 		return err
 	}
-	pre := in.Pre
-	pre.Trigger, pre.ScheduleID = bk.PreRestore, nil
-	logf(log, "backing up %s before the restore\n", t.Volume.Slug)
-	if _, err := f.backup(ctx, t, pre, log); err != nil {
-		return fmt.Errorf("pre-restore backup (nothing was touched): %w", err)
-	}
-
 	logf(log, "downloading %s\n", r.ObjectKey)
 	plain, err := f.fetch(ctx, dest, r.ObjectKey, t.Volume.ID)
 	if err != nil {
@@ -223,21 +226,32 @@ func (f *Flow) Restore(ctx context.Context, in Restore, log io.Writer) error {
 	if err := verify(plain, !t.dumps()); err != nil {
 		return fmt.Errorf("archive check (nothing was touched): %w", err)
 	}
+	if t.dumps() && t.Marker != "" && in.Cluster != nil {
+		whole, err := startsWith(plain, t.Marker)
+		if err != nil {
+			return fmt.Errorf("archive check (nothing was touched): %w", err)
+		}
+		if whole {
+			if err := in.Cluster(ctx); err != nil {
+				return err
+			}
+		}
+	}
+	pre := in.Pre
+	pre.Trigger, pre.ScheduleID = bk.PreRestore, nil
+	logf(log, "backing up %s before the restore\n", t.Volume.Slug)
+	preRun, err := f.backup(ctx, t, pre, log)
+	if err != nil {
+		return fmt.Errorf("pre-restore backup (nothing was touched): %w", err)
+	}
 	if _, err := plain.Seek(0, io.SeekStart); err != nil {
 		return err
 	}
 	if t.dumps() {
-		gz, err := gzip.NewReader(plain)
-		if err != nil {
-			return err
+		if err := f.load(ctx, t, plain, log); err != nil {
+			return fmt.Errorf("%w (the instance may be half restored; the backup taken before it is run %s)", err, preRun.ID)
 		}
-		logf(log, "loading the dump into %s\n", t.Engine.Slug)
-		out, wait, err := f.Tiles.Stream(ctx, t.Engine, t.Load, gz)
-		if err != nil {
-			return err
-		}
-		_, _ = io.Copy(io.Discard, out)
-		return wait()
+		return nil
 	}
 	logf(log, "stopping holders of %s\n", t.Volume.Slug)
 	resume, err := f.Tiles.Quiesce(ctx, t.Holders)
@@ -247,6 +261,47 @@ func (f *Flow) Restore(ctx context.Context, in Restore, log io.Writer) error {
 	defer resume()
 	logf(log, "restoring into %s\n", t.Volume.Slug)
 	return f.Volumes.Untar(ctx, t.Volume, plain)
+}
+
+// load streams the dump into the engine with its consumers stopped: an app
+// writing while the load runs breaks it after the wipe (duplicate keys, a
+// primary key never built). They start again on every path.
+func (f *Flow) load(ctx context.Context, t Subject, plain io.Reader, log io.Writer) error {
+	gz, err := gzip.NewReader(plain)
+	if err != nil {
+		return err
+	}
+	if len(t.Consumers) > 0 {
+		logf(log, "stopping the tiles that use %s\n", t.Engine.Slug)
+		resume, err := f.Tiles.Quiesce(ctx, t.Consumers)
+		if err != nil {
+			return err
+		}
+		defer resume()
+	}
+	logf(log, "loading the dump into %s\n", t.Engine.Slug)
+	out, wait, err := f.Tiles.Stream(ctx, t.Engine, t.Load, gz)
+	if err != nil {
+		return err
+	}
+	_, _ = io.Copy(io.Discard, out)
+	return wait()
+}
+
+// startsWith reports whether the gzipped dump in f opens with line.
+func startsWith(f *os.File, line string) (bool, error) {
+	if _, err := f.Seek(0, io.SeekStart); err != nil {
+		return false, err
+	}
+	gz, err := gzip.NewReader(f)
+	if err != nil {
+		return false, err
+	}
+	first, err := bufio.NewReader(gz).ReadString('\n')
+	if err != nil && !errors.Is(err, io.EOF) {
+		return false, err
+	}
+	return strings.TrimSpace(first) == line, nil
 }
 
 // fetch downloads and decrypts an archive into a spool file.
@@ -328,13 +383,24 @@ func (f *Flow) Orphans(ctx context.Context, retention time.Duration, dest store.
 
 // Panel is the self-backup's facts: a consistent copy of the database
 // (VACUUM INTO, taken by the store), the master key, the build, and the
-// recovery passphrase the installer printed.
+// recovery passphrase the installer printed. Caddy streams the proxy's data
+// volume (certificates, keys, ACME accounts) as a gzipped tar; nil = none.
+// Trigger is schedule or manual ("" = manual).
 type Panel struct {
 	Vacuum     func(ctx context.Context, path string) error
+	Caddy      func(ctx context.Context, w io.Writer) error
+	Trigger    string
 	MasterKey  string
 	Version    string
 	Passphrase string
 	InstallID  string
+}
+
+func (p Panel) trigger() string {
+	if p.Trigger == "" {
+		return "manual"
+	}
+	return p.Trigger
 }
 
 // PanelBackup writes the panel archive (stackr.db, keys/master.key,
@@ -347,21 +413,22 @@ func (f *Flow) PanelBackup(
 	keep int,
 	log io.Writer,
 ) (store.BackupRun, error) {
-	r, err := f.Backups.Start(ctx, bk.KindPanel, nil, nil, dest.ID, "manual")
+	trigger := p.trigger()
+	r, err := f.Backups.Start(ctx, bk.KindPanel, nil, nil, dest.ID, trigger)
 	if err != nil {
 		return r, err
 	}
-	key, size, err := f.writePanel(ctx, p, dest)
+	key, size, err := f.writePanel(ctx, p, dest, log)
 	if r, ferr := f.Backups.Finish(ctx, r, key, size, err); ferr != nil || err != nil {
 		return r, errors.Join(err, ferr)
 	}
-	prefix := bk.PanelPrefix(p.InstallID)
-	f.Backups.Prune(ctx, open(dest), prefix, keep)
+	prefix := bk.PanelPrefix(p.InstallID, trigger)
+	f.Backups.Prune(ctx, open(dest), prefix, keep, key)
 	logf(log, "panel backup %s\n", key)
 	return f.Backups.GetRun(ctx, r.ID)
 }
 
-func (f *Flow) writePanel(ctx context.Context, p Panel, dest store.BackupDest) (string, int64, error) {
+func (f *Flow) writePanel(ctx context.Context, p Panel, dest store.BackupDest, log io.Writer) (string, int64, error) {
 	if p.MasterKey == "" {
 		// A backup that cannot be restored must not report success.
 		return "", 0, errors.New("the master key is not loaded; refusing a panel backup that cannot be restored")
@@ -377,6 +444,8 @@ func (f *Flow) writePanel(ctx context.Context, p Panel, dest store.BackupDest) (
 	if err := p.Vacuum(ctx, db); err != nil {
 		return "", 0, fmt.Errorf("vacuum into: %w", err)
 	}
+	caddy := f.panelCaddy(ctx, p, log)
+	defer func() { _ = os.Remove(caddy) }()
 	spool, err := f.spool("panel")
 	if err != nil {
 		return "", 0, err
@@ -386,7 +455,7 @@ func (f *Flow) writePanel(ctx context.Context, p Panel, dest store.BackupDest) (
 	if err != nil {
 		return "", 0, err
 	}
-	if err := panelTar(enc, db, p); err != nil {
+	if err := panelTar(enc, db, caddy, p); err != nil {
 		return "", 0, err
 	}
 	if err := enc.Close(); err != nil {
@@ -396,13 +465,36 @@ func (f *Flow) writePanel(ctx context.Context, p Panel, dest store.BackupDest) (
 	if _, err := spool.Seek(0, io.SeekStart); err != nil {
 		return "", 0, err
 	}
-	key := bk.ObjectKey(bk.PanelPrefix(p.InstallID), "panel.tar.gz.age", time.Now())
+	key := bk.ObjectKey(bk.PanelPrefix(p.InstallID, p.trigger()), "panel.tar.gz.age", time.Now())
 	return key, size, open(dest).Put(ctx, key, spool)
+}
+
+// panelCaddy spools the proxy volume's tar and returns its path, "" when
+// there is none. A proxy volume that cannot be read costs the certificates,
+// not the backup: they re-issue, the database does not.
+func (f *Flow) panelCaddy(ctx context.Context, p Panel, log io.Writer) string {
+	if p.Caddy == nil {
+		return ""
+	}
+	path := filepath.Join(f.Scratch, fmt.Sprintf("caddy-%d.tar.gz", time.Now().UnixNano()))
+	out, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_EXCL, 0o600)
+	if err == nil {
+		err = p.Caddy(ctx, out)
+		if cerr := out.Close(); err == nil {
+			err = cerr
+		}
+	}
+	if err != nil {
+		_ = os.Remove(path)
+		logf(log, "proxy volume not archived (certificates will be re-issued on restore): %v\n", err)
+		return ""
+	}
+	return path
 }
 
 // panelTar: keys/master.key is where the panel reads it back from, so the
 // archive unpacks straight over the data dir.
-func panelTar(w io.Writer, db string, p Panel) error {
+func panelTar(w io.Writer, db, caddy string, p Panel) error {
 	f, err := os.Open(db)
 	if err != nil {
 		return err
@@ -446,10 +538,32 @@ func panelTar(w io.Writer, db string, p Panel) error {
 			return err
 		}
 	}
+	if caddy != "" {
+		if err := tarFile(tw, "caddy.tar.gz", caddy, now); err != nil {
+			return err
+		}
+	}
 	if err := tw.Close(); err != nil {
 		return err
 	}
 	return gz.Close()
+}
+
+func tarFile(tw *tar.Writer, name, path string, now time.Time) error {
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = f.Close() }()
+	fi, err := f.Stat()
+	if err != nil {
+		return err
+	}
+	if err := tw.WriteHeader(&tar.Header{Name: name, Mode: 0o600, Size: fi.Size(), ModTime: now}); err != nil {
+		return err
+	}
+	_, err = io.Copy(tw, f)
+	return err
 }
 
 // keyWorkFactor: a destination key is 256 random bits, so scrypt's cost buys

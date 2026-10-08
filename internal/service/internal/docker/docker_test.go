@@ -92,3 +92,13 @@ func TestPickDigest(t *testing.T) {
 		t.Errorf("port read as tag: %q", got)
 	}
 }
+
+func TestParsePrune(t *testing.T) {
+	n, total, _ := parsePrune("abc\ndef\nTotal:\t1.2GB\n")
+	if n != 2 || total != "1.2GB" {
+		t.Errorf("got %d %q", n, total)
+	}
+	if n, total, _ = parsePrune("Total:\t0B\n"); n != 0 || total != "0B" {
+		t.Errorf("empty: %d %q", n, total)
+	}
+}

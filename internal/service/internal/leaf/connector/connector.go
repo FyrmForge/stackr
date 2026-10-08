@@ -1,7 +1,9 @@
-// Package connector owns git connectors: one GitHub App per org and host.
+// Package connector owns git connectors: one GitHub App per org and host,
+// or a server connector (no org) the admin shares with named orgs or all.
 // It runs the connect handshake (pending row, state check, manifest
-// conversion), resolves a git_url to its org's connector, and mints the
-// clone credential. A connector never serves another org.
+// conversion), resolves a git_url to a connector, and mints the clone
+// credential. Reads widen to the server connectors shared with the org;
+// writes never do: Get, Rename and Delete reach an org's own rows only.
 package connector
 
 import (
@@ -50,6 +52,17 @@ type NoConnector struct{ Host string }
 
 func (e NoConnector) Error() string { return "no connected git connector for " + e.Host }
 
+// Ambiguous is a git_url whose host several shared server connectors serve,
+// and the org has none of its own: the binding must name one.
+type Ambiguous struct {
+	Host  string
+	Names []string
+}
+
+func (e Ambiguous) Error() string {
+	return "several shared git connectors serve " + e.Host + " (" + strings.Join(e.Names, ", ") + "); name the connector to use"
+}
+
 // config is the encrypted connectors.config: the nonce and the user who
 // began while pending, the App once connected.
 type config struct {
@@ -76,11 +89,24 @@ func (l *Leaf) InstallURL(ctx context.Context, orgID, id string) (string, error)
 	if err != nil {
 		return "", err
 	}
+	return installURL(c), nil
+}
+
+// ServerInstallURL is InstallURL for a server connector.
+func (l *Leaf) ServerInstallURL(ctx context.Context, id string) (string, error) {
+	c, err := l.Server(ctx, id)
+	if err != nil {
+		return "", err
+	}
+	return installURL(c), nil
+}
+
+func installURL(c store.Connector) string {
 	app := parse(c).App
 	if app == nil {
-		return "", nil
+		return ""
 	}
-	return "https://github.com/apps/" + app.Slug + "/installations/new", nil
+	return "https://github.com/apps/" + app.Slug + "/installations/new"
 }
 
 // Get refuses a connector of another org (as not found). The id can come from a stack row
@@ -91,31 +117,117 @@ func (l *Leaf) Get(ctx context.Context, orgID, id string) (store.Connector, erro
 	if err != nil {
 		return c, err
 	}
-	if c.OrgID != orgID {
-		slog.Error("connector requested by another org", "connector", id, "owner", c.OrgID, "org", orgID)
+	// A server connector (nil OrgID) is never an org's to write through
+	// Get: orgs only read it, through Usable, ListConnected and For.
+	if c.OrgID == nil || *c.OrgID != orgID {
+		owner := "server"
+		if c.OrgID != nil {
+			owner = *c.OrgID
+		}
+		slog.Error("connector requested by another org", "connector", id, "owner", owner, "org", orgID)
 		return store.Connector{}, errs.ErrNotFound // not yours = not there
 	}
 	return c, nil
 }
 
-// List is the org's connectors, config stripped.
+// List is the org's connectors, its own first, then the server connectors
+// shared with it (Shared set: writes through Get still refuse them),
+// config stripped.
 func (l *Leaf) List(ctx context.Context, orgID string) ([]store.Connector, error) {
-	cs, err := l.conns.ListByOrg(ctx, orgID)
+	return l.list(ctx, orgID, false)
+}
+
+// ListConnected is List less the connectors that have not finished
+// GitHub's handshake.
+func (l *Leaf) ListConnected(ctx context.Context, orgID string) ([]store.Connector, error) {
+	return l.list(ctx, orgID, true)
+}
+
+func (l *Leaf) list(ctx context.Context, orgID string, connected bool) ([]store.Connector, error) {
+	own, err := l.conns.ListByOrg(ctx, orgID)
+	if err != nil {
+		return nil, err
+	}
+	shared, err := l.conns.ListSharedWith(ctx, orgID)
+	if err != nil {
+		return nil, err
+	}
+	cs := slices.Concat(own, shared)
+	if connected {
+		cs = slices.DeleteFunc(cs, func(c store.Connector) bool { return !Connected(c) })
+	}
+	for i := range cs {
+		cs[i].Config = ""
+		cs[i].Shared = cs[i].OrgID == nil
+	}
+	return cs, nil
+}
+
+// Usable is Get for reads: the org's own connector, or a server connector
+// shared with the org. Anything else is not found. Never use it to write.
+func (l *Leaf) Usable(ctx context.Context, orgID, id string) (store.Connector, error) {
+	c, err := l.conns.Get(ctx, id)
+	if err != nil {
+		return c, err
+	}
+	if c.OrgID != nil && *c.OrgID == orgID {
+		return c, nil
+	}
+	if c.OrgID == nil {
+		shared, err := l.conns.ListSharedWith(ctx, orgID)
+		if err != nil {
+			return store.Connector{}, err
+		}
+		if slices.ContainsFunc(shared, func(s store.Connector) bool { return s.ID == id }) {
+			return c, nil
+		}
+	}
+	slog.Error("connector requested by another org", "connector", id, "org", orgID)
+	return store.Connector{}, errs.ErrNotFound
+}
+
+// Server is a server connector by id; an org's row is not found.
+func (l *Leaf) Server(ctx context.Context, id string) (store.Connector, error) {
+	c, err := l.conns.Get(ctx, id)
+	if err != nil {
+		return c, err
+	}
+	if c.OrgID != nil {
+		return store.Connector{}, errs.ErrNotFound
+	}
+	return c, nil
+}
+
+// ListServer is the server connectors, config stripped.
+func (l *Leaf) ListServer(ctx context.Context) ([]store.Connector, error) {
+	cs, err := l.conns.ListServer(ctx)
 	for i := range cs {
 		cs[i].Config = ""
 	}
 	return cs, err
 }
 
-// ListConnected is the org's connectors that finished GitHub's handshake,
-// config stripped: the ones a clone can use.
-func (l *Leaf) ListConnected(ctx context.Context, orgID string) ([]store.Connector, error) {
-	cs, err := l.conns.ListByOrg(ctx, orgID)
-	cs = slices.DeleteFunc(cs, func(c store.Connector) bool { return !Connected(c) })
-	for i := range cs {
-		cs[i].Config = ""
+// SharedOrgs is the org ids a server connector is shared with by name.
+func (l *Leaf) SharedOrgs(ctx context.Context, id string) ([]string, error) {
+	return l.conns.ShareOrgs(ctx, id)
+}
+
+// SetShares sets who may read a server connector: all orgs (all wins and
+// clears the named ones), or exactly orgIDs; none when both are empty. The
+// caller has checked the ids name orgs.
+func (l *Leaf) SetShares(ctx context.Context, id string, orgIDs []string, all bool) (store.Connector, error) {
+	c, err := l.Server(ctx, id)
+	if err != nil {
+		return c, err
 	}
-	return cs, err
+	if all {
+		orgIDs = nil
+	}
+	if err := l.conns.SetShares(ctx, id, orgIDs); err != nil {
+		return c, err
+	}
+	c.ShareAll = all
+	return c, l.conns.SetShareAll(ctx, id, all)
 }
 
 // Begin makes the pending row and returns where to POST the manifest.
@@ -125,6 +237,17 @@ func (l *Leaf) Begin(ctx context.Context, orgID, userID, ghOrg string) (c store.
 	if _, err := l.conns.GetByHost(ctx, orgID, GitHubHost); err == nil {
 		return c, "", "", errs.Conflictf("this org already has a %s connector", GitHubHost)
 	}
+	return l.begin(ctx, &orgID, userID, ghOrg)
+}
+
+// BeginServer is Begin for a server connector. A server may hold several
+// per host, so there is no host check; the pending name carries the id
+// because server connector names are unique.
+func (l *Leaf) BeginServer(ctx context.Context, userID, ghOrg string) (store.Connector, string, string, error) {
+	return l.begin(ctx, nil, userID, ghOrg)
+}
+
+func (l *Leaf) begin(ctx context.Context, orgID *string, userID, ghOrg string) (c store.Connector, action, manifest string, err error) {
 	nonce := make([]byte, 16)
 	_, _ = rand.Read(nonce)
 	cfg, _ := json.Marshal(config{State: hex.EncodeToString(nonce), User: userID})
@@ -136,6 +259,9 @@ func (l *Leaf) Begin(ctx context.Context, orgID, userID, ghOrg string) (c store.
 		Host:      GitHubHost,
 		Config:    string(cfg),
 		CreatedAt: time.Now().UTC(),
+	}
+	if orgID == nil {
+		c.Name = "GitHub (connecting… " + c.ID[:8] + ")"
 	}
 	if action, manifest, err = l.app.Manifest(c.ID, ghOrg, c.ID+"."+hex.EncodeToString(nonce)); err != nil {
 		return c, "", "", err
@@ -162,7 +288,7 @@ func (l *Leaf) Complete(ctx context.Context, userID, state, code string) (store.
 	}
 	b, _ := json.Marshal(config{App: &app})
 	c.Config, c.Name = string(b), "GitHub · "+app.Slug
-	return c, l.conns.Update(ctx, c)
+	return c, l.conns.SetApp(ctx, c.ID, c.Name, c.Config)
 }
 
 func (l *Leaf) Rename(ctx context.Context, orgID, id, name string) (store.Connector, error) {
@@ -170,14 +296,40 @@ func (l *Leaf) Rename(ctx context.Context, orgID, id, name string) (store.Connec
 	if err != nil {
 		return c, err
 	}
+	return l.rename(ctx, c, name)
+}
+
+// RenameServer renames a server connector; names are unique among them.
+func (l *Leaf) RenameServer(ctx context.Context, id, name string) (store.Connector, error) {
+	c, err := l.Server(ctx, id)
+	if err != nil {
+		return c, err
+	}
+	return l.rename(ctx, c, name)
+}
+
+func (l *Leaf) rename(ctx context.Context, c store.Connector, name string) (store.Connector, error) {
 	if c.Name = strings.TrimSpace(name); c.Name == "" {
 		return c, errs.Invalidf("name", "a connector needs a name")
 	}
-	return c, l.conns.Update(ctx, c)
+	if err := l.conns.SetName(ctx, c.ID, c.Name); err != nil {
+		return c, err
+	}
+	c.Config = ""
+	return c, nil
 }
 
 func (l *Leaf) Delete(ctx context.Context, orgID, id string) error {
 	if _, err := l.Get(ctx, orgID, id); err != nil {
+		return err
+	}
+	return l.conns.Delete(ctx, id)
+}
+
+// DeleteServer deletes a server connector and, by cascade, its shares. The
+// caller has checked nothing binds it.
+func (l *Leaf) DeleteServer(ctx context.Context, id string) error {
+	if _, err := l.Server(ctx, id); err != nil {
 		return err
 	}
 	return l.conns.Delete(ctx, id)
@@ -192,17 +344,52 @@ func Host(gitURL string) string {
 	return strings.ToLower(u.Host)
 }
 
-// For resolves a tile's git_url to its org's connected connector.
+// For resolves a tile's git_url to a connected connector of the org, by
+// Resolve's rule.
 func (l *Leaf) For(ctx context.Context, orgID, gitURL string) (store.Connector, error) {
-	host := Host(gitURL)
-	c, err := l.conns.GetByHost(ctx, orgID, host)
-	if err != nil || !Connected(c) {
-		if err == nil || errors.Is(err, errs.ErrNotFound) {
-			return store.Connector{}, NoConnector{Host: host}
-		}
-		return c, err
+	cs, err := l.ListConnected(ctx, orgID)
+	if err != nil {
+		return store.Connector{}, err
 	}
-	return c, nil
+	c, err := Resolve(cs, "", Host(gitURL))
+	if err != nil {
+		return store.Connector{}, err
+	}
+	// ListConnected strips the config the token mint needs.
+	return l.conns.Get(ctx, c.ID)
+}
+
+// Resolve picks the connector a clone of a repo on host uses, from conns (an
+// org's ListConnected: its connected ones, then the server connectors shared
+// with it): the one named by id wins; else the org's own for the host; else exactly one
+// shared server connector. None is NoConnector, several Ambiguous.
+func Resolve(conns []store.Connector, named, host string) (store.Connector, error) {
+	if named != "" {
+		if i := slices.IndexFunc(conns, func(c store.Connector) bool { return c.ID == named }); i >= 0 {
+			return conns[i], nil
+		}
+		return store.Connector{}, NoConnector{Host: host}
+	}
+	on := func(own bool) []store.Connector {
+		return slices.DeleteFunc(slices.Clone(conns), func(c store.Connector) bool {
+			return c.Host != host || (c.OrgID != nil) != own
+		})
+	}
+	if own := on(true); len(own) > 0 {
+		return own[0], nil
+	}
+	switch shared := on(false); len(shared) {
+	case 0:
+		return store.Connector{}, NoConnector{Host: host}
+	case 1:
+		return shared[0], nil
+	default:
+		names := make([]string, len(shared))
+		for i, c := range shared {
+			names[i] = c.Name
+		}
+		return store.Connector{}, Ambiguous{Host: host, Names: names}
+	}
 }
 
 // CloneEnv is the GIT_CONFIG_* environment that authenticates a fetch of
@@ -219,7 +406,7 @@ func (l *Leaf) CloneEnv(ctx context.Context, c store.Connector, gitURL string) (
 // Empty (no error) when the app is not installed anywhere yet, or installed
 // with no repos picked; either way nothing can be cloned through it.
 func (l *Leaf) Repos(ctx context.Context, orgID, id string) ([]githubapp.Repo, error) {
-	c, err := l.Get(ctx, orgID, id)
+	c, err := l.Usable(ctx, orgID, id)
 	if err != nil {
 		return nil, err
 	}

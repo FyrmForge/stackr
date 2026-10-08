@@ -5,7 +5,7 @@ package admin
 
 import c "github.com/FyrmForge/stackr/internal/ui/components"
 
-var Tabs = []string{"settings", "users", "routes", "update", "caddy", "backups"}
+var Tabs = []string{"settings", "users", "routes", "update", "caddy", "backups", "config", "params", "connectors"}
 
 // Base is where every tab and action lives.
 const Base = "/-/admin"
@@ -47,9 +47,20 @@ type BackupsView struct {
 	Now   string // POST; "" = may not
 	Job   *c.JobStatusView
 	Rows  []Backup
+	Sched PanelSchedule
 }
 
-type Backup struct{ Status, Trigger, When, Size, Error string }
+// PanelSchedule is the panel backup's switch, cron line, how many archives
+// stay and where they go. Action "" = read-only.
+type PanelSchedule struct {
+	Action, Schedule, Keep, Dest string
+	Enabled                      bool
+	Dests                        []DestOption
+}
+
+type DestOption struct{ Value, Label string }
+
+type Backup struct{ Status, Trigger, When, Size, Error, Dest string }
 
 func target() string { return "#" + c.DrawerRoot }
 
@@ -197,10 +208,10 @@ templ Routes(v RoutesView) {
 
 templ Caddy(v CaddyView) {
 	<div id="tab-caddy">
-		@c.Section("Extra Caddy config", "instance", "Stored for the proxy; the proxy builder does not read it yet. Per-domain raw Caddy lives in a tile's domains tab.") {
+		@c.Section("Extra Caddy config", "instance", "A JSON array of Caddy routes, added after stackr's own. Per-domain raw Caddy lives in a tile's domains tab.") {
 			<form hx-post={ v.Action } hx-target={ target() } hx-swap="outerHTML" class="space-y-3">
 				<label for="proxy_custom" class="sr-only">Extra Caddy config (proxy_custom)</label>
-				<textarea id="proxy_custom" name="proxy_custom" rows="12" class="input font-mono text-xs" disabled?={ v.Action == "" }>{ v.Value }</textarea>
+				<textarea id="proxy_custom" name="proxy_custom" rows="12" class="input font-mono text-xs" placeholder="[]" disabled?={ v.Action == "" }>{ v.Value }</textarea>
 				if v.Action != "" {
 					<button type="submit" class="btn btn-primary btn-sm">Save</button>
 				}
@@ -219,6 +230,28 @@ templ Backups(v BackupsView) {
 		@c.Dests(v.Dests)
 		@c.Section("Stackr's own database", "instance", "A consistent copy of the panel database, taken while it is serving. The archive carries the master key that decrypts every secret in it, so keep it somewhere private. Restore it on the host with stackr-install restore.") {
 			<div class="space-y-3">
+				if v.Sched.Action != "" {
+					<form hx-post={ v.Sched.Action } hx-target={ target() } hx-swap="outerHTML" class="space-y-3">
+						<label class="flex items-center gap-2 text-sm text-rw-text"><input type="checkbox" id="panel_backup_enabled" name="panel_backup_enabled" value="1" checked?={ v.Sched.Enabled } class="accent-rw-accent"/> Back up on a schedule</label>
+						@c.Field(c.FieldView{Name: "panel_backup_schedule", Label: "Schedule", Value: v.Sched.Schedule, Help: "Five-field cron. Empty is 3:00 daily."})
+						@c.Field(c.FieldView{Name: "panel_backup_keep", Label: "Keep", Type: "number", Value: v.Sched.Keep, Help: "Archives kept at the destination."})
+						<div>
+							<label for="panel_backup_dest" class="label">Destination</label>
+							<select id="panel_backup_dest" name="panel_backup_dest" class="input">
+								<option value="" selected?={ v.Sched.Dest == "" }>Local</option>
+								for _, d := range v.Sched.Dests {
+									<option value={ d.Value } selected?={ v.Sched.Dest == d.Value }>{ d.Label }</option>
+								}
+							</select>
+						</div>
+						<button type="submit" class="btn btn-primary btn-sm">Save</button>
+					</form>
+				}
+				if len(v.Rows) == 0 {
+					<p class="text-sm text-rw-muted">Last run: none yet.</p>
+				} else {
+					<p class="text-sm text-rw-muted">Last run: { v.Rows[0].When }, { v.Rows[0].Status }, to { v.Rows[0].Dest }.</p>
+				}
 				if v.Now != "" {
 					@c.PostButton("Back up now", v.Now)
 				}
@@ -233,7 +266,7 @@ templ Backups(v BackupsView) {
 							<li class="panel px-4 py-3 text-sm flex flex-wrap items-center gap-2">
 								@c.JobBadge(b.Status)
 								<span class="text-rw-text">{ b.When }</span>
-								<span class="text-rw-faint">{ b.Trigger }</span>
+								<span class="text-rw-faint">{ b.Trigger }, { b.Dest }</span>
 								if b.Error != "" {
 									<span class="text-xs text-rw-danger">{ b.Error }</span>
 								}

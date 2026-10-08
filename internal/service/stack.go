@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 	"slices"
-	"strconv"
 	"strings"
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
@@ -56,7 +55,7 @@ func (o *Orchestrator) SetConfigRepo(ctx context.Context, id, connectorID, repo,
 		return st, err
 	}
 	if connectorID != "" && repo != "" {
-		if _, err := o.conns.Get(ctx, st.OrgID, connectorID); err != nil {
+		if _, err := o.conns.Usable(ctx, st.OrgID, connectorID); err != nil {
 			return st, err // another org's connector is not there
 		}
 	}
@@ -68,6 +67,9 @@ func (o *Orchestrator) SetConfigRepo(ctx context.Context, id, connectorID, repo,
 func (o *Orchestrator) SetStackSettings(ctx context.Context, id, blob string) (Stack, error) {
 	st, err := o.stacks.Get(ctx, id)
 	if err != nil {
+		return st, err
+	}
+	if err := o.checkBlobLimits(ctx, blob); err != nil {
 		return st, err
 	}
 	if st, err = o.stacks.SetSettings(ctx, st, blob); err != nil {
@@ -89,7 +91,9 @@ var (
 // Webhook takes one GitHub delivery for a connector: a push queues a push
 // job per stack of the org that uses the repo, and a plan of the org's
 // config file when it lands on the org's binding; a pull_request queues a
-// PR-env job.
+// PR-env job. A server connector's delivery queues the server plan when it
+// lands on the server file's binding, then does the same for every org the
+// connector is shared with (serverWebhook).
 // The caller maps ErrBadSignature to 401 and ErrBadPayload to 400.
 func (o *Orchestrator) Webhook(ctx context.Context, connectorID, event, signature string, body []byte) error {
 	c, secret, err := o.conns.WebhookSecret(ctx, connectorID)
@@ -100,66 +104,21 @@ func (o *Orchestrator) Webhook(ctx context.Context, connectorID, event, signatur
 	if err != nil {
 		return err
 	}
-	var repo string
+	d := delivery{ev: ev}
 	switch {
 	case ev.Push != nil && !ev.Push.Deleted && strings.HasPrefix(ev.Push.Ref, "refs/heads/"):
-		repo = ev.Push.Repository.CloneURL
+		d.repo = ev.Push.Repository.CloneURL
+		d.branch = strings.TrimPrefix(ev.Push.Ref, "refs/heads/")
+		d.defaultBranch = ev.Push.Repository.DefaultBranch
 	case ev.PR != nil:
-		repo = ev.PR.Repository.CloneURL
+		d.repo = ev.PR.Repository.CloneURL
 	default:
 		return nil
 	}
-	if p := ev.Push; p != nil {
-		branch := strings.TrimPrefix(p.Ref, "refs/heads/")
-		if err := o.queueOrgPlan(ctx, c.OrgID, repo, branch, p.Repository.DefaultBranch); err != nil {
-			return err
-		}
+	if c.OrgID == nil {
+		return o.serverWebhook(ctx, c, d)
 	}
-	sts, err := o.stacks.List(ctx, c.OrgID)
-	if err != nil {
-		return err
-	}
-	for _, st := range sts {
-		if ok, err := o.usesRepo(ctx, st, repo); err != nil || !ok {
-			if err != nil {
-				return err
-			}
-			continue
-		}
-		if p := ev.Push; p != nil {
-			_, err = o.enqueuePush(ctx, pushJob{
-				StackID: st.ID,
-				Event: promote.Event{
-					Repo:    repo,
-					Branch:  strings.TrimPrefix(p.Ref, "refs/heads/"),
-					Commit:  p.After,
-					Changed: p.ChangedFiles(),
-				},
-				DefaultBranch: p.Repository.DefaultBranch,
-			})
-		} else {
-			pr := ev.PR
-			_, err = o.enqueue(
-				ctx,
-				kindPR,
-				prJob{
-					StackID: st.ID,
-					Action:  pr.Action,
-					Number:  pr.Number,
-					Repo:    repo,
-					Head:    pr.PullRequest.Head.Ref,
-					SHA:     pr.PullRequest.Head.SHA,
-					Base:    pr.PullRequest.Base.Ref,
-				},
-				"push:"+st.ID,
-				"pr:"+st.ID+":"+strconv.Itoa(pr.Number),
-			)
-		}
-		if err != nil {
-			return err
-		}
-	}
-	return nil
+	return o.orgWebhook(ctx, *c.OrgID, d)
 }
 
 // enqueuePush queues a push job; a newer push of the same stack, repo and

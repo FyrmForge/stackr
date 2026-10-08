@@ -343,6 +343,25 @@ func TestOnDeployRuns(t *testing.T) {
 	}
 }
 
+// A function a dependent already ran inside this deploy is not queued again
+// by afterDeploy.
+func TestAfterDeploySkipsRunFirst(t *testing.T) {
+	w := newWorld(t)
+	fn := w.promoteTile(t, "migrate",
+		"    migrate:\n      kind: function\n      image: busybox:1\n      trigger: on_deploy\n")
+	ctx := withRanFirst(context.Background(), time.Time{})
+	before, err := w.orch.Runs(ctx, fn.ID, 0)
+	must(t, err)
+	w.wait(t, before[0].JobID)
+	must(t, w.orch.runFirst(ctx, fn.ID, io.Discard))
+	must(t, w.orch.afterDeploy(ctx, []string{fn.ID}, false))
+	after, err := w.orch.Runs(ctx, fn.ID, 0)
+	must(t, err)
+	if len(after) != len(before)+1 {
+		t.Fatalf("runs = %d, want %d (runFirst only)", len(after), len(before)+1)
+	}
+}
+
 // Step 3b: a promote of a stack file with a cron tile registers its
 // schedule entry; pausing the tile takes the entry out.
 func TestPromoteRegistersCron(t *testing.T) {

@@ -318,6 +318,14 @@ func TestDomainResourceRoutes(t *testing.T) {
 			"rm r1 -y",
 			"DELETE /api/v1/admin/domain-resources/r1 ",
 		},
+		{
+			"rename r1 new.io --org acme -y",
+			"POST " + org + `/domain-resources/r1/rename {"host":"new.io"}`,
+		},
+		{
+			"rename r1 new.io -y",
+			`POST /api/v1/admin/domain-resources/r1/rename {"host":"new.io"}`,
+		},
 	} {
 		r.reqs = nil
 		if code, _, errw := cli(t, append([]string{"domain"}, strings.Fields(c.args)...)...); code != 0 {

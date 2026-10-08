@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"io"
+	"time"
 
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 )
@@ -14,6 +15,8 @@ import (
 type Docker interface {
 	// Containers.
 	Run(ctx context.Context, spec docker.ContainerSpec) (id string, err error)
+	Create(ctx context.Context, spec docker.ContainerSpec) (id string, err error)
+	HostInfo(ctx context.Context) (docker.HostInfo, error)
 	Start(ctx context.Context, id string) error
 	Stop(ctx context.Context, id string) error
 	Restart(ctx context.Context, id string) error
@@ -49,7 +52,9 @@ type Docker interface {
 	Tag(ctx context.Context, src, dst string) error
 	RemoveImage(ctx context.Context, ref string) error
 	ListImages(ctx context.Context, labels map[string]string) ([]docker.Image, error)
-	PruneImages(ctx context.Context, labels map[string]string, keep []string) (removed []string, err error)
+	PruneImages(ctx context.Context, labels map[string]string, keep []string) (removed []string, bytes int64, err error)
+	PruneDangling(ctx context.Context, labels map[string]string) (n int, bytes int64, err error)
+	BuildCachePrune(ctx context.Context, builder string, olderThan time.Duration) (n int, total string, err error)
 	EnsureBuilder(ctx context.Context, name string, memMB int) error
 	Build(
 		ctx context.Context,

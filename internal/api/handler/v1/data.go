@@ -85,6 +85,11 @@ func AtEnv(c echo.Context) (string, string) {
 	return "env", envID(c)
 }
 
+// AtServer is the server scope: no route param, one scope.
+func AtServer(echo.Context) (string, string) {
+	return service.ServerParamScope.Kind, service.ServerParamScope.ID
+}
+
 func paramScope(c echo.Context, at At) service.ParamScope {
 	k, id := at(c)
 	return service.ParamScope{Kind: k, ID: id}

@@ -2,6 +2,7 @@ package service_test
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/FyrmForge/stackr/internal/service"
@@ -22,7 +23,8 @@ func byKey(t *testing.T, orch *service.Orchestrator) map[string]service.ServerSe
 }
 
 // The admin form posts every row: only changed values are written, and a
-// secret is never echoed nor cleared by an empty field.
+// secret is never echoed nor cleared by an empty field. The server file's
+// binding is the Config tab's, not a row here.
 func TestServerSettings(t *testing.T) {
 	env := servicetest.New(t)
 	orch, ctx := env.Orch, context.Background()
@@ -30,13 +32,19 @@ func TestServerSettings(t *testing.T) {
 	for k, s := range byKey(t, orch) {
 		all[k] = s.Value
 	}
+	for k := range all {
+		if strings.HasPrefix(k, "server_config_") || k == "dns_env" {
+			t.Errorf("the Settings tab lists %s", k)
+		}
+	}
 	if err := orch.SetServerSettings(ctx, all); err != nil {
 		t.Fatal(err)
 	}
 	if d, _ := orch.SettingDefaults(ctx); d.JSON() != "{}" {
 		t.Errorf("an untouched form wrote the server rung: %s", d.JSON())
 	}
-	all["workers"], all["mem_limit_mb"], all["dns_env"] = "4", "512", "TOKEN=x"
+	all["workers"], all["mem_limit_mb"] = "4", "512"
+	all["protect_user"], all["protect_password"] = "u", "hunter2"
 	if err := orch.SetServerSettings(ctx, all); err != nil {
 		t.Fatal(err)
 	}
@@ -44,15 +52,15 @@ func TestServerSettings(t *testing.T) {
 	if got["workers"].Value != "4" || got["mem_limit_mb"].Value != "512" || got["mem_limit_mb"].DecidedBy != "server" {
 		t.Errorf("not written: %+v %+v", got["workers"], got["mem_limit_mb"])
 	}
-	if s := got["dns_env"]; s.Value != "" || s.Effective != "set" {
+	if s := got["protect_password"]; s.Value != "" || s.Effective != "set" {
 		t.Errorf("secret echoed: %+v", s)
 	}
-	all["dns_env"] = ""
+	all["protect_password"] = ""
 	if err := orch.SetServerSettings(ctx, all); err != nil {
 		t.Fatal(err)
 	}
-	if v, _ := orch.Setting(ctx, "dns_env"); v != "TOKEN=x" {
-		t.Errorf("an empty secret field cleared it: %q", v)
+	if d, _ := orch.SettingDefaults(ctx); d.ProtectPassword == nil || *d.ProtectPassword != "hunter2" {
+		t.Errorf("an empty secret field cleared it: %+v", d.ProtectPassword)
 	}
 	all["workers"] = "x"
 	if err := orch.SetServerSettings(ctx, all); err == nil {

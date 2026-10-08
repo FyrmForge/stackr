@@ -76,6 +76,33 @@ func TestOrgConfigRoutes(t *testing.T) {
 
 // preview --detailed-exitcode: 0 no changes, 2 changes, 1 blocked, and
 // nothing on stderr for the code alone.
+// A clean file says so; a blocked or changed one does not.
+func TestOrgPreviewSaysNoChanges(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "stackr-org.yml")
+	if err := os.WriteFile(file, []byte("version: 1\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		answer string
+		want   bool
+	}{
+		{`{"changes":[]}`, true},
+		{`{"changes":[],"notes":["x"]}`, true},
+		{`{"changes":[{"kind":"org","old":"a","new":"b"}]}`, false},
+		{`{"changes":[],"blockers":["no"]}`, false},
+	} {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			_, _ = io.WriteString(w, c.answer)
+		}))
+		useServer(t, srv.URL)
+		code, out, errw := cli(t, "org", "preview", "-f", file)
+		srv.Close()
+		if code != 0 || strings.Contains(out, "no changes") != c.want {
+			t.Errorf("preview of %s = %d out %q err %q, want no-changes line %v", c.answer, code, out, errw, c.want)
+		}
+	}
+}
+
 func TestOrgPreviewExitCode(t *testing.T) {
 	file := filepath.Join(t.TempDir(), "stackr-org.yml")
 	if err := os.WriteFile(file, []byte("version: 1\n"), 0o600); err != nil {

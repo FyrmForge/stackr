@@ -106,6 +106,9 @@ func (o *Orchestrator) SetOrgSettings(ctx context.Context, orgID, blob string) (
 	if err != nil {
 		return og, err
 	}
+	if err := o.checkBlobLimits(ctx, blob); err != nil {
+		return og, err
+	}
 	if og, err = o.orgs.SetSettings(ctx, og, blob); err != nil {
 		return og, err
 	}

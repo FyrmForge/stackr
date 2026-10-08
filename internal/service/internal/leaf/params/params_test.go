@@ -163,10 +163,14 @@ func snap() params.Snapshot {
 			"domains.base": {V: "x.io"},
 		},
 		OrgParams: map[string]params.Value{"email.org_only": {V: "org"}},
-		Env:       "dev",
-		Stackr:    map[string]string{params.ProxyIP: "10.0.0.1"},
-		Backups:   map[string]string{"s3-main": "s3://b"},
-		Self:      params.Source{Outputs: map[string]string{"host": "api"}},
+		ServerParams: map[string]params.Value{
+			"s3.secret_key": {V: "sk", Secret: true},
+			"s3.region":     {V: "eu"},
+		},
+		Env:     "dev",
+		Stackr:  map[string]string{params.ProxyIP: "10.0.0.1"},
+		Backups: map[string]string{"s3-main": "s3://b"},
+		Self:    params.Source{Outputs: map[string]string{"host": "api"}},
 		Tiles: map[string]params.Source{
 			"api-db": {
 				Slice:    true,
@@ -224,6 +228,19 @@ func TestResolve(t *testing.T) {
 		{params.InDomain, "api.${{ params.domains.base }}", "api.x.io", ""},
 		{params.InDomain, "${{ params.db.pass }}", "", "is a secret"},
 		{params.InDomain, "${{ tile.api.host }}", "", "not allowed in domain"},
+		// server.params resolve in the server file and nowhere else
+		{params.InServerFile, "${{ server.params.s3.secret_key }}", "sk", ""},
+		{params.InServerFile, "a-${{server.params.s3.region}}", "a-eu", ""},
+		{params.InServerFile, "${{ server.params.s3.nope }}", "", "unset"},
+		{params.InServerFile, "${{ params.email.host }}", "", "not allowed in server_file"},
+		{params.InServerFile, "${{ org.params.email.org_only }}", "", "not allowed in server_file"},
+		{params.InServerFile, "${{ server.params.S3.x }}", "", "not a valid collection"},
+		{params.InServerFile, "${{ server.s3.x }}", "", "want server.params"},
+		{params.InEnv, "${{ server.params.s3.secret_key }}", "", "only in the server file"},
+		{params.InCommand, "${{ server.params.s3.secret_key }}", "", "only in the server file"},
+		{params.InDomain, "${{ server.params.s3.region }}", "", "only in the server file"},
+		{params.InBackupDest, "${{ server.params.s3.region }}", "", "only in the server file"},
+		{params.InProvisionFrom, "${{ server.params.s3.region }}", "", "only in the server file"},
 		{params.InCommand, "run --db ${{ tile.api-db.DATABASE_URL }} ${{ params.email.sender }}", "run --db pg://api-db env@x.io", ""},
 		{params.InEnv, "${{ params.email.sender }}-${{ params.email.nope }}", "", "unset"}, // never half-expanded
 	} {
@@ -248,6 +265,50 @@ func TestResolve(t *testing.T) {
 	var gone params.Removed
 	if _, err := params.Parse("stack.cache.host"); !errors.As(err, &gone) || gone.Form != "stack.cache" {
 		t.Errorf("stack ref = %v, want Removed", err)
+	}
+}
+
+// The server file names the server params it reads; anything else is refused.
+func TestServerRefs(t *testing.T) {
+	keys, err := params.ServerRefs("${{ server.params.s3.secret_key }}:${{server.params.s3.region}}")
+	if err != nil || strings.Join(keys, ",") != "s3.secret_key,s3.region" {
+		t.Errorf("keys = %v, %v", keys, err)
+	}
+	if keys, err := params.ServerRefs("plain"); err != nil || len(keys) != 0 {
+		t.Errorf("plain = %v, %v", keys, err)
+	}
+	for _, bad := range []string{
+		"${{ params.s3.x }}", "${{ org.params.s3.x }}", "${{ server.params.S3.x }}", "${{ server.nope }}",
+	} {
+		if keys, err := params.ServerRefs(bad); err == nil || keys != nil {
+			t.Errorf("%q = %v, %v; want a refusal", bad, keys, err)
+		}
+	}
+}
+
+// The server scope is a scope like the rest: its own rows, a secret masked.
+func TestServerScope(t *testing.T) {
+	l := params.New(servicetest.Store(t).Params)
+	must(t, l.Merge(ctx, params.ServerScope, []params.Entry{
+		{Collection: "s3", Name: "region", Kind: params.Param, Value: "eu"},
+		{Collection: "s3", Name: "secret_key", Kind: params.Secret, Value: "sk"},
+	}))
+	must(t, l.Set(ctx, org, params.Entry{Collection: "s3", Name: "region", Kind: params.Param, Value: "us"}))
+	ps, err := l.Masked(ctx, params.ServerScope)
+	if err != nil || len(ps) != 2 {
+		t.Fatalf("masked = %+v, %v", ps, err)
+	}
+	for _, p := range ps {
+		if p.Kind == params.Secret && p.Value != "" {
+			t.Errorf("masked secret carries %q", p.Value)
+		}
+	}
+	vals, _ := l.Values(ctx, params.ServerScope, true)
+	if vals["s3.region"].V != "eu" || vals["s3.secret_key"].V != "sk" {
+		t.Errorf("server values = %v; the org row must not leak in", vals)
+	}
+	if orgVals, _ := l.Values(ctx, org, true); len(orgVals) != 1 {
+		t.Errorf("org values = %v; a server row reached the org", orgVals)
 	}
 }
 

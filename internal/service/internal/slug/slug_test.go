@@ -64,3 +64,12 @@ func TestOfHost(t *testing.T) {
 		}
 	}
 }
+
+// "all" would read as the share-all switch in a connector's share list.
+func TestReserved(t *testing.T) {
+	for s, want := range map[string]bool{"params": true, "all": true, "acme": false, "all-in": false} {
+		if Reserved(s) != want {
+			t.Errorf("Reserved(%q) = %v", s, !want)
+		}
+	}
+}

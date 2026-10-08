@@ -107,8 +107,8 @@ func Prepare(s Spec, ownOrgID string, orgs []store.Org) (store.DomainResource, e
 }
 
 // Update sets the env flag and the account the resource's certificates are
-// issued on ("" puts them back on the instance account). The host and
-// level never move.
+// issued on ("" puts them back on the instance account). The host moves
+// only through Rename, and the level never does.
 func (l *Leaf) Update(
 	ctx context.Context,
 	r store.DomainResource,
@@ -122,6 +122,56 @@ func (l *Leaf) Update(
 	r.IncludeEnvOnDefault = includeEnvOnDefault
 	r.ACMEEmail = email
 	return r, l.rows.Update(ctx, r)
+}
+
+// CheckRename is the host Rename would write, every check but a host
+// another resource holds done: the service pre-checks the whole rename
+// before it writes anything. ownOrgID and orgs are as for Create.
+func CheckRename(r store.DomainResource, host, ownOrgID string, orgs []store.Org) (string, error) {
+	if r.Level == Stack {
+		return "", errs.Invalidf("level", "A stack's domains are renamed in its stack file.")
+	}
+	host, err := checkHost(host)
+	if err != nil {
+		return "", err
+	}
+	if host == r.Host {
+		return "", errs.Conflictf("%s is already this domain's host.", host)
+	}
+	return host, CheckOrgSquat(host, ownOrgID, orgs)
+}
+
+// Rename moves r to host. The row keeps its id, level and declared mark;
+// the tile domains it named are the service's to move.
+func (l *Leaf) Rename(
+	ctx context.Context,
+	r store.DomainResource,
+	host, ownOrgID string,
+	orgs []store.Org,
+) (store.DomainResource, error) {
+	host, err := CheckRename(r, host, ownOrgID, orgs)
+	if err != nil {
+		return r, err
+	}
+	r.Host = host
+	err = l.rows.Update(ctx, r)
+	if _, taken := errs.IsConflict(err); taken {
+		return r, errs.Conflictf("%s is already a domain resource.", host)
+	}
+	return r, err
+}
+
+// Rehost is host with the resource's old host swapped for its new one: an
+// auto name (tile.stack.org.<old>) or the apex (<old>) the resource named.
+// false for a host that does not sit under old.
+func Rehost(oldHost, newHost, host string) (string, bool) {
+	switch {
+	case host == oldHost:
+		return newHost, true
+	case strings.HasSuffix(host, "."+oldHost):
+		return strings.TrimSuffix(host, oldHost) + newHost, true
+	}
+	return "", false
 }
 
 // Delete removes the resource. named is how many tile domains carry its id;

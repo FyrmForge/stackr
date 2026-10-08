@@ -53,6 +53,9 @@ type Input struct {
 	// Bind is the panel's listen address: the default bridge's gateway, the
 	// address `host-gateway` names inside the proxy.
 	Bind string `json:"bind"`
+	// InstallID names this box's panel archives, so two installs on one
+	// bucket never prune each other's. Empty (an older install) is "default".
+	InstallID string `json:"install_id,omitempty"`
 }
 
 // BaseURL is how the operator reaches the panel.
@@ -99,25 +102,29 @@ func Panel(image string, in Input) Container {
 	if in.DNS01 {
 		dns = "cloudflare"
 	}
+	env := []string{
+		"BASE_URL=" + in.BaseURL(),
+		"STACKR_TLS=" + tls,
+		"PANEL_DOMAIN=" + in.PanelHost,
+		"ROOT_DOMAIN=" + strings.TrimPrefix(in.Root, "*."), // tiles get names under it
+		"ACME_EMAIL=" + in.Email,
+		"CADDY_TRUSTED_PROXIES=" + in.Proxies,
+		"DNS_PROVIDER=" + dns,
+		"DATA_DIR=" + in.DataDir,
+		"DATABASE_PATH=" + in.DataDir + "/stackr.db",
+		"HOST=" + in.Bind,
+		"PORT=" + PanelPort,
+		"TRUSTED_PROXIES=" + DockerRanges,
+		"STACKR_PROXY_ADMIN=" + AdminURL,
+		"STACKR_IMAGE=" + image,
+	}
+	if in.InstallID != "" {
+		env = append(env, "STACKR_INSTALL_ID="+in.InstallID)
+	}
 	return Container{
-		Name:  PanelName,
-		Image: image,
-		Env: []string{
-			"BASE_URL=" + in.BaseURL(),
-			"STACKR_TLS=" + tls,
-			"PANEL_DOMAIN=" + in.PanelHost,
-			"ROOT_DOMAIN=" + strings.TrimPrefix(in.Root, "*."), // tiles get names under it
-			"ACME_EMAIL=" + in.Email,
-			"CADDY_TRUSTED_PROXIES=" + in.Proxies,
-			"DNS_PROVIDER=" + dns,
-			"DATA_DIR=" + in.DataDir,
-			"DATABASE_PATH=" + in.DataDir + "/stackr.db",
-			"HOST=" + in.Bind,
-			"PORT=" + PanelPort,
-			"TRUSTED_PROXIES=" + DockerRanges,
-			"STACKR_PROXY_ADMIN=" + AdminURL,
-			"STACKR_IMAGE=" + image,
-		},
+		Name:   PanelName,
+		Image:  image,
+		Env:    env,
 		Labels: map[string]string{LabelRole: "panel"},
 		Volumes: []string{
 			"/var/run/docker.sock:/var/run/docker.sock",

@@ -60,6 +60,7 @@ func (a *app) commands() []*cobra.Command {
 		a.hostGrant(),
 		a.jobs(),
 		a.admin(),
+		a.serverConfig(),
 	}, a.stackCommands()...)
 }
 
@@ -500,7 +501,7 @@ func (a *app) orgs() *cobra.Command {
 				"connector.list",
 				"List connectors",
 				exact(0),
-				get("/connectors", "id", "name", "provider", "host"),
+				get("/connectors", "id", "name", "provider", "host", "shared"),
 			),
 			leaf("rename <id> <name>", "connector.rename", "Rename a connector", exact(2),
 				func(_ *cobra.Command, args []string) error {
@@ -755,10 +756,31 @@ func (a *app) domainResources() *cobra.Command {
 			return err
 		},
 	)
-	for _, c := range []*cobra.Command{ls, rm} {
+	rename := leaf(
+		"rename <id or host> <new host>",
+		"domain-resource.list,domain-resource.rename,admin.domain-resource-list,admin.domain-resource-rename",
+		"Move a domain resource to a new host: its auto hosts follow, and each old host redirects to its new one",
+		exact(2),
+		func(_ *cobra.Command, args []string) error {
+			id := args[0]
+			cur, err := a.find(base(), "domain resource", args[0], "id", "host")
+			if err == nil {
+				id = cell(cur["id"])
+			}
+			if err := a.confirm("Rename domain resource " + args[0] + " to " + args[1] + "? Every hostname under it moves and the old one redirects. Point DNS at the new name first."); err != nil {
+				return err
+			}
+			v, err := a.call(POST, base()+"/"+url.PathEscape(id)+"/rename", map[string]any{"host": args[1]})
+			if err != nil {
+				return err
+			}
+			return a.show(v, resCols...)
+		},
+	)
+	for _, c := range []*cobra.Command{ls, rm, rename} {
 		c.Flags().StringVar(&org, "org", "", "the org (its slug); without it, every resource on the server (admin)")
 	}
-	return noun("domain", "Domain resources: the hosts tiles get names under", ls, add, rm)
+	return noun("domain", "Domain resources: the hosts tiles get names under", ls, add, rm, rename)
 }
 
 // resourceOwner is where a new domain resource is posted: /admin for the

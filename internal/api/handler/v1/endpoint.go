@@ -124,6 +124,9 @@ func decode(c echo.Context, v any) error {
 	d := json.NewDecoder(bytes.NewReader(body))
 	d.DisallowUnknownFields()
 	err = d.Decode(v)
+	if _, optional := v.(interface{ BodyOptional() }); optional && errors.Is(err, io.EOF) {
+		return nil // an input that marks its body optional: no body is the zero value
+	}
 	if errors.Is(err, io.EOF) {
 		return errs.Invalidf("", "request body is required")
 	}

@@ -617,6 +617,47 @@ func (h *handler) Submit(c echo.Context) error {
 - `middleware.GetSubjectID(c) string` — get authenticated user ID
 - `middleware.GetSubject(c) any` — get loaded user object (needs SubjectLoader)
 
+## Config as code
+
+Two files, one machinery (`planfile`, `leaf/orgplan`, `svc/approve.go`):
+`stackr-org.yml` (one org: stacks, params, shares, domains, defaults; owners
+approve) and `stackr-server.yml` (the server: settings, the cascade rung,
+server params, external routes, global backup destinations, instance domains,
+connector shares, orgs and their bindings; server admins approve). Each is
+planned from a bound repo (a push) or a local file, shown as a plan, approved,
+applied by a job and exported back. Code: `flow/orgconfig`, `flow/serverconfig`
+(pure `Parse`, `Diff`, `Export`), `svc/orgconfig.go`, `svc/serverconfig.go`
+and `serverconfig_apply.go`.
+
+- **Plans are data.** `planfile.Change` carries `Impact` (a risky change; the
+  approver must confirm), and `Optional` plus `Key` (a removal row, unticked).
+  `Plan.AutoOK()` (no blocker, no impact, no removal) gates auto-apply. The
+  apply walks `plan.OnlyTicked(row.Ticked)`, never the raw diff, and
+  `ApproveOpts{Ticked, Confirm}` is enforced in the service, not the UI.
+- **A file never deletes on its own.** Anything live that the file no longer
+  names is a removal row. Orgs and server params are never removed. A removal
+  the verb would refuse is a note on the plan, not a blocker.
+- **Locks.** `serverconfig`, `serverplan:<id>`, and `orgconfig:<org>` for each
+  existing org the apply touches.
+- **Server connectors** (`connectors.org_id` NULL) are shared with none, named
+  orgs or all orgs. Org reads widen to the shared ones (`Usable`,
+  `ListConnected`); org writes (`Get`, `Rename`, `Delete`) never reach one.
+  Resolve a repo host with `connector.Resolve`.
+- **Server params** (`params.ServerScope`, admin only) are readable only by the
+  server file, as `${{ server.params.<col>.<name> }}`; every other place
+  refuses the ref. Do not add a second reader.
+- **Root and panel domain.** `root_domain` is settable and renames the instance
+  domain resource (`SetSettings`); the old hosts stay as generated redirects
+  (`Auto && RedirectTo != ""`). The panel host is `panel_domain`, never
+  `BASE_URL`.
+- **Exports are sensitive.** Secrets are named, never written, but
+  `defaults.protect_password` is exported as stored; keep the file out of a
+  public repo.
+- Migrations: 005 (server connectors, server plans) and 006 (server params)
+  are applied on dev boxes and frozen; the next one is 007.
+- Generated files stay generated: `go run ./cmd/stackrd --dump-openapi >
+  docs/openapi.json` after a route change, `templ generate` after a `.templ`.
+
 ## Environment
 
 - `DATA_DIR` — database, job logs and other state (default `./data`)

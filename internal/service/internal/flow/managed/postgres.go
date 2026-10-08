@@ -265,21 +265,64 @@ func (pg) Bindings(i Instance, s Slice) []Binding {
 	}
 }
 
+// pgClusterMarker is the first line of a whole-instance dump. A dump without
+// it is an old admin-only one (pg_dump of the admin DB) and restores as such.
+const pgClusterMarker = `-- stackr dump format: cluster`
+
+// Backup is pg_dumpall, not one pg_dump per slice database: it carries the
+// roles (slice users, bound creds, password hashes), every database with
+// its owner, ACLs and default privileges, in one plain SQL stream, so the
+// restore is a wipe of every slice then one load with nothing to pair up.
+// Per-database dumps would need a separate globals dump, a database list
+// and a bundle format, and still lose the grants that live on the roles.
+// exec keeps pg_dumpall's exit status as the script's.
 func (pg) Backup(method string, i Instance) []string {
 	if method != "dump" {
 		return nil
 	}
-	return []string{"env", "PGPASSWORD=" + i.AdminPassword, "pg_dump", "-U", i.AdminUser, "-d", i.AdminDB}
+	script := `echo '` + pgClusterMarker + `'; exec pg_dumpall -U "$0"`
+	return []string{"env", "PGPASSWORD=" + i.AdminPassword, "sh", "-c", script, i.AdminUser}
 }
+
+// DumpMarker is the first line of a whole-instance dump (flow.DumpMarker).
+func (pg) DumpMarker() string { return pgClusterMarker }
+
+// pgWipe drops every database and role but the target and the admin user,
+// so the load starts from an empty instance. Sliced databases hold
+// connections from running tiles; FORCE closes them.
+const pgWipe = `SELECT format('DROP DATABASE %I WITH (FORCE)', datname) FROM pg_database
+ WHERE datname NOT IN ('template0', 'template1', current_database()) \gexec
+SELECT format('DROP OWNED BY %I', rolname) FROM pg_roles
+ WHERE rolname !~ '^pg_' AND rolname <> current_user \gexec
+SELECT format('DROP ROLE %I', rolname) FROM pg_roles
+ WHERE rolname !~ '^pg_' AND rolname <> current_user \gexec
+DROP SCHEMA public CASCADE;
+CREATE SCHEMA public;`
 
 // Restore wipes, then restores: a bare psql < dump merges. sh, not bash
 // (alpine images); the password is a positional arg, never script text.
+// The first line of the stream picks the path. A cluster dump re-creates the
+// admin user, which exists and cannot be dropped, so its two statements are
+// filtered out, from the globals section only (before the first \connect):
+// after it a COPY row or a function body line can read the same. An old
+// admin-only dump gets the old schema-only wipe.
 func (pg) Restore(method, target string, i Instance) []string {
 	if method != "dump" {
 		return nil
 	}
-	script := `PGPASSWORD="$0" psql -v ON_ERROR_STOP=1 -U "$1" -d "$2" ` +
+	script := `IFS= read -r first
+if [ "$first" = '` + pgClusterMarker + `' ]; then
+PGPASSWORD="$0" psql -q -v ON_ERROR_STOP=1 -U "$1" -d "$2" >/dev/null <<'SQL' &&
+` + pgWipe + `
+SQL
+LC_ALL=C awk -v u="$1" 'BEGIN { r = "^(CREATE|ALTER) ROLE \"?" u "\"?( |;)" }
+/^\\connect / { data = 1 }
+!data && $0 ~ r { next }
+{ print }' | PGPASSWORD="$0" psql -q -v ON_ERROR_STOP=1 -U "$1" -d "$2" >/dev/null
+else
+PGPASSWORD="$0" psql -v ON_ERROR_STOP=1 -U "$1" -d "$2" ` +
 		`-c 'DROP SCHEMA public CASCADE' -c 'CREATE SCHEMA public' >/dev/null && ` +
-		`PGPASSWORD="$0" psql -v ON_ERROR_STOP=1 -U "$1" -d "$2" >/dev/null`
+		`{ printf '%s\n' "$first"; cat; } | PGPASSWORD="$0" psql -v ON_ERROR_STOP=1 -U "$1" -d "$2" >/dev/null
+fi`
 	return []string{"sh", "-c", script, i.AdminPassword, i.AdminUser, target}
 }

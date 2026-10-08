@@ -301,6 +301,9 @@ func (f *Flow) org(ctx context.Context, v *View, orgID string, in In) error {
 	for _, c := range cs {
 		n := card("connector:"+c.ID, KindConnector, c.Name)
 		n.Slug, n.Detail = c.ID, c.Host
+		if c.Shared {
+			n.Detail += " · shared"
+		}
 		v.Nodes = append(v.Nodes, n)
 	}
 	vars, err := f.vars(ctx, params.Scope{Kind: "org", ID: orgID})

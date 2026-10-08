@@ -202,14 +202,17 @@ files_check() {
 	sr stack config-repo --repo "$CONFIG_REPO" --connector "$CONFIG_CONNECTOR" --stack "$QA" >/dev/null
 	sr params set qa.greeting=hello --stack "$QA" >/dev/null
 	# Binding makes no release: a push does (the connector's webhook). Touch
-	# conf/app.txt through the GitHub API, then wait for release 1.
-	local sha
+	# conf/app.txt through the GitHub API, then wait for a new release and
+	# promote the newest (a re-run of the script is not release 1).
+	local sha before rel
+	before="$(sr release ls --stack "$QA" 2>/dev/null | grep -c . || true)"
 	sha="$(gh api "repos/$CONFIG_REPO/contents/conf/app.txt" --jq .sha)"
 	gh api -X PUT "repos/$CONFIG_REPO/contents/conf/app.txt" -f message=qa-blitz -f sha="$sha" \
 		-f content="$(printf 'plain-file\n' | base64 -w0)" >/dev/null
-	poll 60 sr release get 1 --stack "$QA" >/dev/null 2>&1 || true
+	poll 90 test "$(sr release ls --stack "$QA" 2>/dev/null | grep -c . || true)" -gt "$before" || true
+	rel="$(sr release ls --stack "$QA" 2>/dev/null | head -n1 | awk '{print $1}')"
 	local prom
-	prom="$(sr promote 1 $T -y 2>&1)" || echo "  promote 1: $(tail -n 3 <<<"$prom" | tr '\n' '|')"
+	prom="$(sr promote "$rel" $T -y 2>&1)" || echo "  promote $rel: $(tail -n 3 <<<"$prom" | tr '\n' '|')"
 	local plain tmpl
 	plain="$(sr tile exec qa-files $T -- cat /etc/app.txt </dev/null 2>&1 || true)"
 	tmpl="$(sr tile exec qa-files $T -- cat /etc/t.txt </dev/null 2>&1 || true)"
@@ -254,7 +257,8 @@ fwdauth_check() {
 hostgrant_check() {
 	mktile qa-hg --volumes "host:/var/run/docker.sock:/sock:ro"
 	deploy qa-hg
-	poll 30 jobstate qa-hg waiting || true
+	# The queue may be busy (two workers): give the park time to come.
+	poll 90 jobstate qa-hg waiting || true
 	local log
 	log="$(sr job log "$(sr tile status qa-hg $T 2>&1 | grep -i last_job | awk '{print $NF}')" 2>&1 || true)"
 	expect hostgrant-parks "$(grep -i -m1 'host access' <<<"$log" || status qa-hg)" grep -qi "waiting: host access" <<<"$log"

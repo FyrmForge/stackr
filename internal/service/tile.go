@@ -81,6 +81,9 @@ func (o *Orchestrator) CreateTile(ctx context.Context, t Tile) (Tile, error) {
 	if t.Kind == tile.Managed {
 		return Tile{}, errs.Invalidf("kind", "Create a managed tile with its engine.")
 	}
+	if err := o.checkLimits(ctx, t.CPULimit, t.MemLimitMB, "limits.cpu", "limits.memory_mb"); err != nil {
+		return Tile{}, err
+	}
 	return o.tiles.Create(ctx, t)
 }
 
@@ -95,6 +98,20 @@ func (o *Orchestrator) UpdateTile(ctx context.Context, id string, edit func(*Til
 	cur := old
 	if err := edit(&cur); err != nil {
 		return old, nil, err
+	}
+	// only a limit this edit changed: a tile already over the host's size
+	// can still be renamed or retargeted
+	if cur.CPULimit != old.CPULimit || cur.MemLimitMB != old.MemLimitMB {
+		cpu, mem := cur.CPULimit, cur.MemLimitMB
+		if cur.CPULimit == old.CPULimit {
+			cpu = 0
+		}
+		if cur.MemLimitMB == old.MemLimitMB {
+			mem = 0
+		}
+		if err := o.checkLimits(ctx, cpu, mem, "limits.cpu", "limits.memory_mb"); err != nil {
+			return old, nil, err
+		}
 	}
 	t, effects, err := o.tiles.Update(ctx, old, cur)
 	if err != nil {
@@ -293,10 +310,10 @@ func (o *Orchestrator) CheckImages(ctx context.Context, stackID, tileID string) 
 // Images is every image row with its watch cache.
 func (o *Orchestrator) Images(ctx context.Context) ([]Image, error) { return o.images.List(ctx) }
 
-// redeployIfRunning queues a deploy for a tile with replicas; nil job = not running.
+// redeployIfRunning queues a deploy for a tile with replicas, or one a
+// failed deploy left with none (reachedByRedeploy); nil job = not running.
 func (o *Orchestrator) redeployIfRunning(ctx context.Context, t Tile) (*Job, error) {
-	cs, err := o.tiles.Replicas(ctx, t)
-	if err != nil || len(cs) == 0 {
+	if ok, err := o.reachedByRedeploy(ctx, t); err != nil || !ok {
 		return nil, err
 	}
 	j, err := o.Deploy(ctx, t.ID)
@@ -333,6 +350,7 @@ func (o *Orchestrator) redeploy(ctx context.Context, ts []Tile) ([]Redeploy, err
 			return out, err
 		}
 		out = append(out, Redeploy{Env: e.Slug, Tile: t.Slug, Job: j.ID})
+		noteRedeploy(ctx, out[len(out)-1])
 	}
 	return out, nil
 }

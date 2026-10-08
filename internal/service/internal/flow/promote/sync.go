@@ -115,12 +115,11 @@ func (f *Flow) SyncApply(
 	for _, c := range s.Changes {
 		logf(log, "plan: %s\n", c.Line())
 	}
-	if swap != nil {
-		if err := swap(); err != nil {
-			return s, err
-		}
+	late, err := f.swapOrDefer(ctx, w, swap)
+	if err != nil {
+		return s, err
 	}
-	err = f.applySync(ctx, w, log)
+	err = f.applySync(ctx, w, log, late)
 	s.Deployed, s.Owed, s.Removed = w.deployed, w.owed, w.removed
 	return s, err
 }
@@ -128,9 +127,9 @@ func (f *Flow) SyncApply(
 // SyncRollout deploys the tiles a parked sync still owes (Sync.Owed). Its
 // rows are already written, so it plans nothing and checks no sig: a re-plan
 // would read the sync's own writes as drift.
-func (f *Flow) SyncRollout(ctx context.Context, owed []string, log io.Writer) (*Sync, error) {
+func (f *Flow) SyncRollout(ctx context.Context, owed []string, log io.Writer, swap func() error) (*Sync, error) {
 	w := &work{}
-	err := f.syncDeploy(ctx, w, owed, log)
+	err := f.syncDeploy(ctx, w, owed, log, swap)
 	return &Sync{Deployed: w.deployed, Owed: w.owed}, err
 }
 
@@ -722,7 +721,7 @@ func (w *work) sig() string {
 // builds from git (nothing built yet); an Edited tile, and a consumer of a
 // new or moved slice, only when it has replicas. Every deploy is Redeploy,
 // which owns pins and the first-run derive.
-func (f *Flow) applySync(ctx context.Context, w *work, log io.Writer) error {
+func (f *Flow) applySync(ctx context.Context, w *work, log io.Writer, swap func() error) error {
 	d, e := f.D, w.e
 	if len(w.params) > 0 {
 		if err := d.Params.Merge(ctx, params.Scope{Kind: "env", ID: e.ID}, w.params); err != nil {
@@ -807,12 +806,12 @@ func (f *Flow) applySync(ctx context.Context, w *work, log io.Writer) error {
 			ids = append(ids, t.ID)
 		}
 	}
-	return f.syncDeploy(ctx, w, ids, log)
+	return f.syncDeploy(ctx, w, ids, log, swap)
 }
 
 // syncDeploy redeploys the tiles in order. When one fails, w.owed holds it
 // and the rest: a deploy parked on an unset param is resumed from there.
-func (f *Flow) syncDeploy(ctx context.Context, w *work, ids []string, log io.Writer) error {
+func (f *Flow) syncDeploy(ctx context.Context, w *work, ids []string, log io.Writer, swap func() error) error {
 	for i, id := range ids {
 		t, err := f.D.Tiles.Get(ctx, id)
 		switch {
@@ -824,7 +823,7 @@ func (f *Flow) syncDeploy(ctx context.Context, w *work, ids []string, log io.Wri
 			return err
 		}
 		logf(log, "deploying %s\n", t.Slug)
-		if err := f.D.Redeploy(ctx, id, log, nil); err != nil {
+		if err := f.D.Redeploy(ctx, id, log, swap); err != nil {
 			w.owed = ids[i:]
 			return fmt.Errorf("deploy %s: %w", t.Slug, err)
 		}

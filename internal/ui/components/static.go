@@ -1,5 +1,10 @@
 package components
 
+import (
+	"net/url"
+	"strings"
+)
+
 // BaseURL is the application's public origin (e.g. "https://example.com").
 // Empty in dev; set from main via the BASE_URL env var.
 var BaseURL string
@@ -26,4 +31,19 @@ func AbsoluteURL(path string) string {
 		return path
 	}
 	return BaseURL + path
+}
+
+// PanelURL is AbsoluteURL on the panel's own host (the panel_domain setting)
+// with BaseURL's scheme and port, so a link made after the panel moved does
+// not name the old host. An empty host, or BaseURL unset, is AbsoluteURL.
+func PanelURL(host, path string) string {
+	u, err := url.Parse(BaseURL)
+	if host == "" || err != nil || u.Host == "" {
+		return AbsoluteURL(path)
+	}
+	if p := u.Port(); p != "" {
+		host += ":" + p
+	}
+	u.Host = host
+	return strings.TrimRight(u.String(), "/") + path
 }

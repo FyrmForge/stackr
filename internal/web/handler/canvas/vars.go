@@ -2,8 +2,6 @@ package canvas
 
 import (
 	"net/http"
-	"sort"
-	"strings"
 
 	"github.com/FyrmForge/hamr/pkg/respond"
 	"github.com/a-h/templ"
@@ -13,6 +11,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service"
 	comp "github.com/FyrmForge/stackr/internal/ui/components"
 	"github.com/FyrmForge/stackr/internal/ui/drawer/vars"
+	"github.com/FyrmForge/stackr/internal/web/render"
 )
 
 // paramScope is the deepest level s names.
@@ -70,44 +69,6 @@ func (h *handler) vars(c echo.Context, s service.Scope, errMsg, note string) (te
 	return vars.Editor(v), nil
 }
 
-// entries reads the editor's form: param.<collection>.<name>,
-// secret.<collection>.<name> (empty = keep the stored one) and the new_ row.
-func entries(form map[string][]string) []service.ParamEntry {
-	var out []service.ParamEntry
-	for k, vs := range form {
-		kind, rest, ok := strings.Cut(k, ".")
-		coll, name, ok2 := strings.Cut(rest, ".")
-		if !ok || !ok2 || (kind != "param" && kind != "secret") {
-			continue
-		}
-		out = append(out, service.ParamEntry{
-			Collection: coll,
-			Name:       name,
-			Kind:       kind,
-			Value:      vs[0],
-		})
-	}
-	sort.Slice(out, func(i, j int) bool {
-		return out[i].Collection+"."+out[i].Name < out[j].Collection+"."+out[j].Name
-	})
-	if n := strings.TrimSpace(first(form["new_name"])); n != "" {
-		out = append(out, service.ParamEntry{
-			Collection: strings.TrimSpace(first(form["new_collection"])),
-			Name:       n,
-			Kind:       first(form["new_kind"]),
-			Value:      first(form["new_value"]),
-		})
-	}
-	return out
-}
-
-func first(vs []string) string {
-	if len(vs) == 0 {
-		return ""
-	}
-	return vs[0]
-}
-
 // POST <level>/-/vars: merge the form; answers the editor into #vars-editor.
 func (h *handler) SetVars(c echo.Context) error {
 	form, err := c.FormParams()
@@ -116,7 +77,7 @@ func (h *handler) SetVars(c echo.Context) error {
 	}
 	s := middleware.ScopeOf(c)
 	ps, _ := paramScope(s)
-	_, err = h.orch.SetParams(c.Request().Context(), ps, entries(form))
+	_, err = h.orch.SetParams(c.Request().Context(), ps, render.ParamEntries(form))
 	return h.varsAfter(c, s, "Saved.", err)
 }
 

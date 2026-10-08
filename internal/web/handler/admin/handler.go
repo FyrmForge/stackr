@@ -4,6 +4,7 @@
 package admin
 
 import (
+	"cmp"
 	"net/http"
 	"net/url"
 	"slices"
@@ -33,6 +34,7 @@ func (h *handler) Mount(g *echo.Group, a *middleware.Access) {
 		a.Require("admin.read"),
 	)
 	g.POST(b+"/settings", h.SaveSettings, a.Require("serverdefaults.set"))
+	h.mountParams(g, a)
 	g.POST(b+"/users/:user/admin", h.act("users", func(c echo.Context) (string, *service.Job, error) {
 		return "Saved.", nil, h.orch.SetAdmin(c.Request().Context(), c.Param("user"), c.QueryParam("admin") == "true")
 	}), a.Require("user.admin"))
@@ -54,6 +56,19 @@ func (h *handler) Mount(g *echo.Group, a *middleware.Access) {
 		j, err := h.orch.PanelBackupNow(c.Request().Context())
 		return "Backup queued.", &j, err
 	}), a.Require("container.admin"))
+	g.POST(b+"/backups/schedule", h.act("backups", func(c echo.Context) (string, *service.Job, error) {
+		on := "false"
+		if c.FormValue("panel_backup_enabled") != "" {
+			on = "true"
+		}
+		err := h.orch.SetSettings(c.Request().Context(), map[string]string{
+			"panel_backup_enabled":  on,
+			"panel_backup_schedule": c.FormValue("panel_backup_schedule"),
+			"panel_backup_keep":     c.FormValue("panel_backup_keep"),
+			"panel_backup_dest":     c.FormValue("panel_backup_dest"),
+		})
+		return "Saved.", nil, err
+	}), a.Require("serverdefaults.set"))
 	routes := a.Require("route.admin")
 	g.POST(b+"/routes", h.act("routes", func(c echo.Context) (string, *service.Job, error) {
 		f := c.FormValue
@@ -68,6 +83,7 @@ func (h *handler) Mount(g *echo.Group, a *middleware.Access) {
 	g.POST(b+"/routes/:route/delete", h.act("routes", func(c echo.Context) (string, *service.Job, error) {
 		return "Route removed.", nil, h.orch.DeleteExternalRoute(c.Request().Context(), c.Param("route"))
 	}), routes)
+	h.mountConfig(g, a)
 	dests := a.Require("serverdefaults.set")
 	g.POST(b+"/dests", h.act("backups", func(c echo.Context) (string, *service.Job, error) {
 		f := c.FormValue
@@ -83,6 +99,7 @@ func (h *handler) Mount(g *echo.Group, a *middleware.Access) {
 		return "Destination added.", nil, err
 	}), dests)
 	g.POST(b+"/dests/:dest/share", h.act("backups", h.share), dests)
+	h.mountConnectors(g, a)
 	g.POST(b+"/dests/:dest/delete", h.act("backups", func(c echo.Context) (string, *service.Job, error) {
 		return "Destination removed.", nil, h.orch.DeleteBackupDest(c.Request().Context(), "", c.Param("dest"))
 	}), dests)
@@ -242,9 +259,16 @@ func (h *handler) tab(c echo.Context, tab string, x extra) (templ.Component, err
 			}
 		}
 		return ui.Update(v), nil
+	case "config":
+		return h.configTab(c, job)
+	case "params":
+		body, err := h.params(c, "", "")
+		return body, err
 	case "caddy":
 		val, err := h.orch.Setting(ctx, "proxy_custom")
 		return ui.Caddy(ui.CaddyView{Action: ui.Base + "/caddy", Sync: ui.Base + "/caddy/sync", Value: val}), err
+	case "connectors":
+		return h.connectorsTab(c, nil)
 	case "backups":
 		ds, err := h.orch.GlobalBackupDests(ctx)
 		if err != nil {
@@ -252,6 +276,30 @@ func (h *handler) tab(c echo.Context, tab string, x extra) (templ.Component, err
 		}
 		rs, err := h.orch.PanelBackups(ctx)
 		v := ui.BackupsView{Dests: destsView(ds), Now: ui.Base + "/backups", Job: job}
+		v.Sched.Action = ui.Base + "/backups/schedule"
+		for _, k := range []struct {
+			key string
+			to  *string
+		}{{"panel_backup_schedule", &v.Sched.Schedule}, {"panel_backup_keep", &v.Sched.Keep}, {"panel_backup_dest", &v.Sched.Dest}} {
+			var serr error
+			if *k.to, serr = h.orch.Setting(ctx, k.key); serr != nil {
+				return nil, serr
+			}
+		}
+		on, serr := h.orch.Setting(ctx, "panel_backup_enabled")
+		if serr != nil {
+			return nil, serr
+		}
+		v.Sched.Enabled = on == "true"
+		destName := map[string]string{}
+		for _, d := range ds {
+			destName[d.ID] = d.Name
+		}
+		for _, d := range ds {
+			if d.Kind != "local" {
+				v.Sched.Dests = append(v.Sched.Dests, ui.DestOption{Value: d.ID, Label: d.Name})
+			}
+		}
 		for _, r := range rs {
 			v.Rows = append(v.Rows, ui.Backup{
 				Status:  r.Status,
@@ -259,6 +307,7 @@ func (h *handler) tab(c echo.Context, tab string, x extra) (templ.Component, err
 				When:    r.CreatedAt.Local().Format("Jan 2 15:04"),
 				Size:    render.Size(r.SizeBytes),
 				Error:   r.Error,
+				Dest:    cmp.Or(destName[r.DestID], "a removed destination"),
 			})
 		}
 		return ui.Backups(v), err

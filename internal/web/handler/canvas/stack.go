@@ -26,7 +26,8 @@ func (h *handler) stackTab(c echo.Context, cd card, f *comp.DrawerView) (templ.C
 	case "releases":
 		return h.releasesTab(c, cd, f)
 	}
-	cs, err := h.orch.Connectors(ctx, cd.s.Org.ID)
+	// the org's own connectors and the server ones shared with it
+	cs, err := h.orch.ConnectedConnectors(ctx, cd.s.Org.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -63,7 +64,11 @@ func (h *handler) stackTab(c echo.Context, cd card, f *comp.DrawerView) (templ.C
 		}
 	}
 	for _, k := range cs {
-		v.Connectors = append(v.Connectors, stackui.Option{Value: k.ID, Label: k.Name + " (" + k.Host + ")"})
+		label := k.Name + " (" + k.Host + ")"
+		if k.OrgID == nil {
+			label += ", server"
+		}
+		v.Connectors = append(v.Connectors, stackui.Option{Value: k.ID, Label: label})
 	}
 	if !can(c, cd.s, "stack.write") {
 		v.Cascade.ReadOnly, v.Cascade.Why = true, "Changing defaults needs write access to this stack."

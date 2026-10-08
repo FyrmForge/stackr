@@ -209,6 +209,16 @@ templ nav(href, label string) {
 	<a href={ templ.SafeURL(href) } class="btn btn-ghost btn-sm w-full mt-3">{ label }</a>
 }
 
+// install is the GitHub install link; an org whose only connector is a
+// shared server App has none, since installing that App is the admin's job.
+templ install(href string) {
+	if href != "" {
+		<a href={ templ.SafeURL(href) } target="_blank" rel="noopener" class="btn btn-primary w-full">Install it on GitHub</a>
+	} else {
+		<p class="text-sm text-rw-muted">Ask a server admin to install the shared GitHub App on your repositories.</p>
+	}
+}
+
 // Branch is step 1, the fork the rest of the wizard hangs off. Both
 // buttons post to /setup, which makes the draft.
 templ Branch() {
@@ -317,7 +327,7 @@ templ ConnectorBody(v GitHubView) {
 			@nav(v.Next, "Skip for now")
 		} else if len(v.Repos) == 0 {
 			<p class="text-sm text-rw-muted mb-5">The app is created. Now choose the repositories it may access, otherwise stackr cannot read any of them.</p>
-			<a href={ templ.SafeURL(v.InstallURL) } target="_blank" rel="noopener" class="btn btn-primary w-full">Install it on GitHub</a>
+			@install(v.InstallURL)
 			@nav(v.Base+"/connector", "I installed it, check again")
 		} else {
 			<p class="text-sm text-rw-muted mb-3">Connected and installed on { repoCount(len(v.Repos)) }.</p>
@@ -332,7 +342,9 @@ templ ConnectorBody(v GitHubView) {
 				}
 			</ul>
 			<a href={ templ.SafeURL(v.Next) } class="btn btn-primary w-full">Continue</a>
-			@nav(v.InstallURL, "Change which repositories it can see")
+			if v.InstallURL != "" {
+				@nav(v.InstallURL, "Change which repositories it can see")
+			}
 		}
 	</div>
 }
@@ -394,7 +406,7 @@ templ ConfigBody(v GitHubView) {
 			@switchTo(v.Base, "ui", "Fill it in here instead")
 		} else if len(v.Repos) == 0 {
 			<p class="text-sm text-rw-muted mb-5">The GitHub app for this organization is not installed on any repository yet, so there is nothing for it to read. Install it, then come back.</p>
-			<a href={ templ.SafeURL(v.InstallURL) } target="_blank" rel="noopener" class="btn btn-primary w-full">Install it on GitHub</a>
+			@install(v.InstallURL)
 			@nav(v.Base+"/config", "I installed it, check again")
 			@switchTo(v.Base, "ui", "Fill it in here instead")
 		} else {

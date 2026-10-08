@@ -70,17 +70,16 @@ func (f *Flow) Apply(ctx context.Context, envID, releaseID string, log io.Writer
 	for _, c := range p.Changes {
 		logf(log, "plan: %s\n", c.Line())
 	}
-	if swap != nil {
-		if err := swap(); err != nil {
-			return p, err
-		}
+	late, err := f.swapOrDefer(ctx, w, swap)
+	if err != nil {
+		return p, err
 	}
-	err = f.apply(ctx, w, log)
+	err = f.apply(ctx, w, log, late)
 	p.Deployed, p.Removed = w.deployed, w.removed
 	return p, err
 }
 
-func (f *Flow) apply(ctx context.Context, w *work, log io.Writer) error {
+func (f *Flow) apply(ctx context.Context, w *work, log io.Writer, swap func() error) error {
 	d, e := f.D, w.e
 	var err error
 	if w.envEdit != nil {
@@ -205,7 +204,41 @@ func (f *Flow) apply(ctx context.Context, w *work, log io.Writer) error {
 			return err
 		}
 	}
-	return f.rollout(ctx, w, e, log)
+	return f.rollout(ctx, w, e, log, swap)
+}
+
+// swapOrDefer marks the job swapping before the first write, unless a tile of
+// the rollout waits on a dependency: the wait must stay cancellable, so the
+// swap is handed on (late) and comes per tile, once its wait is over.
+// ponytail: with a wait in the env the row writes are cancellable too; a
+// re-run re-plans from whatever landed.
+func (f *Flow) swapOrDefer(ctx context.Context, w *work, swap func() error) (late func() error, err error) {
+	if swap == nil {
+		return nil, nil
+	}
+	live, err := f.D.Tiles.List(ctx, w.e.ID)
+	if err != nil {
+		return nil, err
+	}
+	rows := append(slices.Clone(live), w.creates...)
+	for _, u := range w.updates {
+		rows = append(rows, u[1])
+	}
+	if slices.ContainsFunc(rows, deploy.Waits) {
+		return swap, nil
+	}
+	return nil, swap()
+}
+
+// partly is a tile's rollout failure once the env already points at the new
+// release: some tiles run it and some do not. A park keeps its own text.
+func partly(slug string, err error) error {
+	_, unset := errs.IsUnset(err)
+	_, approval := errs.IsNeedsApproval(err)
+	if unset || approval {
+		return fmt.Errorf("deploy %s: %w", slug, err)
+	}
+	return fmt.Errorf("deploy %s: %w; the environment is partly rolled out on the new release, promote again to finish it", slug, err)
 }
 
 // applyInstances writes the file's allow list and env pairs onto each
@@ -428,7 +461,7 @@ func (f *Flow) orphan(ctx context.Context, e store.Environment, m store.ManagedI
 // (their provision needs the instance up), then the rest, each pass in
 // depends_on order. Image tiles whose tag moved run the tag and are pinned
 // again in one derived release.
-func (f *Flow) rollout(ctx context.Context, w *work, e store.Environment, log io.Writer) error {
+func (f *Flow) rollout(ctx context.Context, w *work, e store.Environment, log io.Writer, swap func() error) error {
 	d := f.D
 	live, err := d.Tiles.List(ctx, e.ID)
 	if err != nil {
@@ -476,9 +509,9 @@ func (f *Flow) rollout(ctx context.Context, w *work, e store.Environment, log io
 			}
 		}
 		logf(log, "deploying %s\n", s)
-		digest, err := d.Run(ctx, t, ref, log, nil)
+		digest, err := d.Run(ctx, t, ref, log, swap)
 		if err != nil {
-			return fmt.Errorf("deploy %s: %w", s, err)
+			return partly(s, err)
 		}
 		w.deployed = append(w.deployed, t.ID)
 		if tile.Pulls(t) && !pinned && digest != "" {

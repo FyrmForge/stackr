@@ -2,9 +2,13 @@ package settings
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
+
+	"github.com/robfig/cron/v3"
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
@@ -53,6 +57,18 @@ func (l *Leaf) Int(ctx context.Context, key string) (int, error) {
 // knob outright. The empty string removes the row, falling back to the boot
 // value or default.
 func (l *Leaf) Set(ctx context.Context, key, raw string) error {
+	if err := Check(key, raw); err != nil {
+		return err
+	}
+	if raw = strings.TrimSpace(raw); raw == "" {
+		return l.rows.Delete(ctx, key)
+	}
+	return l.rows.Set(ctx, key, raw)
+}
+
+// Check is everything Set refuses, without writing: a form with several
+// knobs checks them all before saving any.
+func Check(key, raw string) error {
 	k, ok := lookup(key)
 	if !ok || k.Scopes != Flat {
 		return errs.Invalidf(key, "no install setting named %q", key)
@@ -60,17 +76,31 @@ func (l *Leaf) Set(ctx context.Context, key, raw string) error {
 	if k.ReadOnly {
 		return errs.Invalidf(key, "%s comes from the installer and cannot be changed here", key)
 	}
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return l.rows.Delete(ctx, key)
+	if raw = strings.TrimSpace(raw); raw == "" {
+		return nil
 	}
 	if err := validate(k, raw); err != nil {
 		return errs.Invalidf(key, "%s", err.Error())
 	}
-	return l.rows.Set(ctx, key, raw)
+	return nil
 }
 
 func validate(k Knob, raw string) error {
+	if cronKnobs[k.Key] {
+		if _, err := cron.ParseStandard(raw); err != nil {
+			return fmt.Errorf("%q is not a cron line (five fields): %s", raw, err)
+		}
+	}
+	if k.Key == "proxy_custom" {
+		// ponytail: shape only; Caddy rejects a route it cannot load at the push.
+		var rs []map[string]any
+		if err := json.Unmarshal([]byte(raw), &rs); err != nil {
+			return fmt.Errorf("must be a JSON array of Caddy route objects: %s", err)
+		}
+		if slices.ContainsFunc(rs, func(m map[string]any) bool { return m == nil }) {
+			return fmt.Errorf("must be a JSON array of Caddy route objects, not null")
+		}
+	}
 	switch k.Type {
 	case TInt:
 		v, err := strconv.Atoi(raw)

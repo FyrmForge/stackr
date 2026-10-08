@@ -118,6 +118,25 @@ func TestNotInstalledAndRepos(t *testing.T) {
 	}
 }
 
+// An App made after the panel moved registers the new host (port kept).
+func TestManifestFollowsPanelHost(t *testing.T) {
+	for _, c := range []struct{ base, panel, want string }{
+		{"https://old.example.com", "new.example.com", "https://new.example.com/hooks/connectors/abcdef12"},
+		{"https://old.example.com:8443", "new.example.com", "https://new.example.com:8443/hooks/connectors/abcdef12"},
+		{"https://old.example.com", "", "https://old.example.com/hooks/connectors/abcdef12"},
+	} {
+		cl := New(c.base).WithPanelHost(func() string { return c.panel })
+		_, m, err := cl.Manifest("abcdef12", "", "s")
+		var got struct {
+			URL  string
+			Hook struct{ URL string } `json:"hook_attributes"`
+		}
+		if err != nil || json.Unmarshal([]byte(m), &got) != nil || got.Hook.URL != c.want || !strings.HasPrefix(c.want, got.URL) {
+			t.Errorf("%s + %q: manifest %+v %v, want hook %s", c.base, c.panel, got, err, c.want)
+		}
+	}
+}
+
 func TestManifestAndConvert(t *testing.T) {
 	c := New("https://stackr.example.com/")
 	action, m, err := c.Manifest("abcdef12", "acme", "abcdef12.nonce")

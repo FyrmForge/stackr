@@ -9,6 +9,9 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/google/uuid"
 
 	"github.com/FyrmForge/stackr/internal/service"
 	"github.com/FyrmForge/stackr/internal/service/errs"
@@ -173,14 +176,14 @@ domains:
 `)
 	r.bind(t, false)
 	pl := r.plans(t)[0]
-	j, err := r.env.Orch.ApproveOrgPlan(ctx, pl.ID)
+	j, err := r.env.Orch.ApproveOrgPlan(ctx, pl.ID, service.ApproveOpts{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if j.Kind != "org-apply" {
 		t.Errorf("job kind = %s", j.Kind)
 	}
-	if _, err := r.env.Orch.ApproveOrgPlan(ctx, pl.ID); !isConflict(err) {
+	if _, err := r.env.Orch.ApproveOrgPlan(ctx, pl.ID, service.ApproveOpts{}); !isConflict(err) {
 		t.Errorf("second approve = %v, want Conflict", err)
 	}
 	r.applied(t, pl.ID)
@@ -244,7 +247,7 @@ func TestBlockedAndRejectedOrgPlans(t *testing.T) {
 	r.orgFile(t, "version: 1\norg: acme\nmoved:\n  - from: stack.weblog\n    to: stack.blog\n")
 	r.bind(t, false)
 	pl := r.plans(t)[0]
-	_, err := r.env.Orch.ApproveOrgPlan(ctx, pl.ID)
+	_, err := r.env.Orch.ApproveOrgPlan(ctx, pl.ID, service.ApproveOpts{})
 	if !isConflict(err) || !strings.Contains(err.Error(), "moved: neither stack.weblog nor stack.blog exists") {
 		t.Errorf("approve of a blocked plan = %v, want Conflict with the blocker", err)
 	}
@@ -261,7 +264,7 @@ func TestBlockedAndRejectedOrgPlans(t *testing.T) {
 	if rej.Status != "rejected" {
 		t.Errorf("rejected plan = %s", rej.Status)
 	}
-	if _, err := r.env.Orch.ApproveOrgPlan(ctx, pl.ID); !isConflict(err) {
+	if _, err := r.env.Orch.ApproveOrgPlan(ctx, pl.ID, service.ApproveOpts{}); !isConflict(err) {
 		t.Errorf("approve after reject = %v, want Conflict", err)
 	}
 }
@@ -326,4 +329,95 @@ func TestWebhookQueuesOrgPlan(t *testing.T) {
 func isConflict(err error) bool {
 	var c errs.Conflict
 	return errors.As(err, &c)
+}
+
+// A plan with an impact line needs the approver's confirm, and a tick must
+// name one of the plan's removal rows; both are stored on the row.
+func TestApproveOrgPlanContract(t *testing.T) {
+	ctx := context.Background()
+	r := newOrgRig(t)
+	seed := func(plan string) service.OrgPlan {
+		t.Helper()
+		p := service.OrgPlan{
+			ID: uuid.NewString(), OrgID: r.org, Plan: plan,
+			Status: "pending", Ticked: []string{}, CreatedAt: time.Now(),
+		}
+		if err := r.env.Store.OrgPlans.Create(ctx, p); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	risky := seed(`{"changes":[` +
+		`{"kind":"defaults","field":"defaults","impact":"redeploys 3 tiles"},` +
+		`{"kind":"share-delete","tile":"old","key":"share:old","optional":true}]}`)
+
+	_, err := r.env.Orch.ApproveOrgPlan(ctx, risky.ID, service.ApproveOpts{})
+	if !isConflict(err) || !strings.Contains(err.Error(), "This plan has impact lines; confirm to approve.") {
+		t.Fatalf("unconfirmed approve = %v, want the impact refusal", err)
+	}
+	_, err = r.env.Orch.ApproveOrgPlan(ctx, risky.ID, service.ApproveOpts{Confirm: true, Ticked: []string{"share:media"}})
+	if _, ok := errs.IsInvalid(err); !ok {
+		t.Fatalf("a tick outside the plan's removals = %v, want Invalid", err)
+	}
+	if p, _ := r.env.Orch.OrgPlan(ctx, risky.ID); p.DecidedAt != nil {
+		t.Fatal("a refused approve stamped the row")
+	}
+	if _, err := r.env.Orch.ApproveOrgPlan(ctx, risky.ID, service.ApproveOpts{
+		Confirm: true,
+		Ticked:  []string{"share:old"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	p, err := r.env.Orch.OrgPlan(ctx, risky.ID)
+	if err != nil || p.DecidedAt == nil || !p.Confirmed || len(p.Ticked) != 1 || p.Ticked[0] != "share:old" {
+		t.Errorf("approved row = %+v, %v; want the tick and the confirm stored", p, err)
+	}
+
+	quiet := seed(`{"changes":[{"kind":"param","field":"a.b"}]}`)
+	if _, err := r.env.Orch.ApproveOrgPlan(ctx, quiet.ID, service.ApproveOpts{Ticked: []string{"share:old"}}); err == nil {
+		t.Error("a tick on a plan with no removal rows passed")
+	}
+	if _, err := r.env.Orch.ApproveOrgPlan(ctx, quiet.ID, service.ApproveOpts{}); err != nil {
+		t.Errorf("a plain plan needs no confirm: %v", err)
+	}
+}
+
+// A share the file's shares: block no longer names is a removal row: it
+// stays live unless the approver ticked it.
+func TestOrgShareRemovalNeedsATick(t *testing.T) {
+	ctx := context.Background()
+	r := newOrgRig(t)
+	if _, err := r.env.Orch.CreateShare(ctx, r.org, service.ShareSpec{Slug: "media", Kind: "nfs", Source: "nas:/e"}); err != nil {
+		t.Fatal(err)
+	}
+	shares := func() int {
+		ss, err := r.env.Orch.Shares(ctx, r.org)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return len(ss)
+	}
+	r.orgFile(t, "version: 1\norg: acme\nparams:\n  app:\n    a:\n      type: param\n      value: one\nshares: {}\n")
+	r.bind(t, false)
+	pl := r.plans(t)[0]
+	if _, err := r.env.Orch.ApproveOrgPlan(ctx, pl.ID, service.ApproveOpts{}); err != nil {
+		t.Fatal(err)
+	}
+	r.applied(t, pl.ID)
+	if shares() != 1 {
+		t.Fatal("an unticked removal row deleted the share")
+	}
+
+	// the plan again: the param is done, the removal row is still there
+	pl, err := r.env.Orch.PlanOrgConfig(ctx, r.org)
+	if err != nil || !strings.Contains(pl.Plan, `"key":"share:media"`) {
+		t.Fatalf("replan = %+v, %v; want the removal row", pl, err)
+	}
+	if _, err := r.env.Orch.ApproveOrgPlan(ctx, pl.ID, service.ApproveOpts{Ticked: []string{"share:media"}}); err != nil {
+		t.Fatal(err)
+	}
+	r.applied(t, pl.ID)
+	if shares() != 0 {
+		t.Error("a ticked removal row left the share")
+	}
 }

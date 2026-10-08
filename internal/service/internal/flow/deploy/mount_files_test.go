@@ -70,14 +70,24 @@ func filesWorld(t *testing.T) (*world, string) {
 // mountFake makes the old replica mount every bind a Run was given.
 type mountFake struct{ *dockerfake.Fake }
 
-func (m mountFake) Run(ctx context.Context, s docker.ContainerSpec) (string, error) {
+func (m mountFake) mount(s docker.ContainerSpec) {
 	d := m.Details["old"]
 	d.Mounts = nil
 	for _, v := range s.Volumes {
 		d.Mounts = append(d.Mounts, strings.SplitN(v, ":", 2)[0]+" -> "+strings.Split(v, ":")[1])
 	}
 	m.Details["old"] = d
+}
+
+func (m mountFake) Run(ctx context.Context, s docker.ContainerSpec) (string, error) {
+	m.mount(s)
 	return m.Fake.Run(ctx, s)
+}
+
+// Create is the stop-first path's Run.
+func (m mountFake) Create(ctx context.Context, s docker.ContainerSpec) (string, error) {
+	m.mount(s)
+	return m.Fake.Create(ctx, s)
 }
 
 func TestFilesLandReadOnly(t *testing.T) {

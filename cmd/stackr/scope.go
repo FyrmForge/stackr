@@ -110,9 +110,11 @@ func (a *app) levelPath(c *cobra.Command) (string, error) {
 		return a.path(c, atStack, "")
 	case "env":
 		return a.path(c, atEnv, "")
+	case "server":
+		return "/admin", nil // admin only; read by the server file and nothing else
 	case "":
 	default:
-		return "", usage("--level is org, stack or env, not %q", lv)
+		return "", usage("--level is org, stack, env or server, not %q", lv)
 	}
 	for _, lv := range []level{atEnv, atStack} {
 		if p, err := a.path(c, lv, ""); err == nil {
@@ -123,7 +125,7 @@ func (a *app) levelPath(c *cobra.Command) (string, error) {
 }
 
 func levelFlag(c *cobra.Command) *cobra.Command {
-	c.PersistentFlags().String("level", "", "org, stack or env (default: the most specific given or linked)")
+	c.PersistentFlags().String("level", "", "org, stack, env or server (default: the most specific given or linked)")
 	return scoped(c, false)
 }
 

@@ -1,6 +1,7 @@
 package docker
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -9,6 +10,7 @@ import (
 	"os/exec"
 	"slices"
 	"strings"
+	"time"
 
 	cerrdefs "github.com/containerd/errdefs"
 	"github.com/docker/docker/api/types/image"
@@ -113,20 +115,27 @@ func (d *Client) ListImages(ctx context.Context, labels map[string]string) ([]Im
 	}
 	out := make([]Image, 0, len(ims))
 	for _, im := range ims {
-		out = append(out, Image{ID: im.ID, Tags: im.RepoTags, Labels: im.Labels})
+		out = append(out, Image{ID: im.ID, Tags: im.RepoTags, Labels: im.Labels, Size: im.Size})
 	}
 	return out, nil
 }
 
 // PruneImages removes every image carrying labels unless its id or one of its
 // tags is in keep. Which images to keep is the caller's; an image still used
-// by a container is skipped. Returns the refs removed.
-func (d *Client) PruneImages(ctx context.Context, labels map[string]string, keep []string) ([]string, error) {
+// by a container is skipped. Returns the ids of the images actually removed
+// (an untagged-only or conflicted one is not) and their size, which can
+// overstate what frees: layers are shared.
+func (d *Client) PruneImages(
+	ctx context.Context,
+	labels map[string]string,
+	keep []string,
+) ([]string, int64, error) {
 	ims, err := d.ListImages(ctx, labels)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	var removed []string
+	var freed int64
 	var errs []error
 	for _, im := range ims {
 		if slices.Contains(keep, im.ID) ||
@@ -140,14 +149,70 @@ func (d *Client) PruneImages(ctx context.Context, labels map[string]string, keep
 		for _, ref := range refs {
 			switch err := d.RemoveImage(ctx, ref); {
 			case err == nil:
-				removed = append(removed, ref)
+				if ref == refs[len(refs)-1] {
+					removed = append(removed, im.ID)
+					freed += im.Size
+				}
 			case cerrdefs.IsConflict(err), errors.Is(err, ErrNotFound):
 			default:
 				errs = append(errs, err)
 			}
 		}
 	}
-	return removed, errors.Join(errs...)
+	return removed, freed, errors.Join(errs...)
+}
+
+// PruneDangling removes untagged, unused images carrying labels; images of
+// other tools have none of ours and stay. Returns how many and their size.
+func (d *Client) PruneDangling(ctx context.Context, labels map[string]string) (int, int64, error) {
+	f := labelFilter(labels)
+	f.Add("dangling", "true")
+	rep, err := d.cli.ImagesPrune(ctx, f)
+	if err != nil {
+		return 0, 0, wrap(err)
+	}
+	return len(rep.ImagesDeleted), int64(rep.SpaceReclaimed), nil //nolint:gosec // a size, never near the limit
+}
+
+// BuildCachePrune drops build cache older than olderThan from builder, the
+// buildx builder the builds run in (the daemon's own cache is not used).
+// Returns how many entries went and the "Total" line buildx prints. Shells
+// out: buildx has no API.
+func (d *Client) BuildCachePrune(ctx context.Context, builder string, olderThan time.Duration) (int, string, error) {
+	cmd := exec.CommandContext(ctx, "docker", "buildx", "prune", "--builder", builder, "--force",
+		"--filter", "until="+olderThan.String())
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	return buildCacheResult(string(out), stderr.String(), err)
+}
+
+// buildCacheResult turns one buildx prune run into its answer. No builder is
+// 0 removed: a box that never built has nothing to prune.
+func buildCacheResult(out, errOut string, runErr error) (int, string, error) {
+	if runErr != nil {
+		if strings.Contains(errOut, "no builder") {
+			return 0, "", nil
+		}
+		return 0, "", fmt.Errorf("buildx prune: %w: %s", runErr, strings.TrimSpace(errOut))
+	}
+	return parsePrune(out)
+}
+
+// parsePrune reads buildx's prune stdout: a header, one id per line, then
+// "Total:\t<size>". Only a lone token that is not the header is an id.
+func parsePrune(out string) (int, string, error) {
+	n, total := 0, ""
+	for _, l := range strings.Split(strings.TrimSpace(out), "\n") {
+		switch l = strings.TrimSpace(l); {
+		case l == "":
+		case strings.HasPrefix(l, "Total:"):
+			total = strings.TrimSpace(strings.TrimPrefix(l, "Total:"))
+		case len(strings.Fields(l)) == 1 && !strings.HasSuffix(l, ":"):
+			n++
+		}
+	}
+	return n, total, nil
 }
 
 // EnsureBuilder creates a buildx docker-container builder capped at memMB with

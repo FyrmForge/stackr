@@ -60,6 +60,9 @@ func (f *Flow) Queue(ctx context.Context, tileID, trigger string) (r store.Run, 
 	return r, false, err
 }
 
+// Busy: the tile has a run still going (see busy).
+func (f *Flow) Busy(ctx context.Context, tileID string) (bool, error) { return f.busy(ctx, tileID) }
+
 // busy: the tile has a run still going. A queued or running row whose job
 // already ended (cancelled while queued, lost) is closed here instead, so
 // one lost job never blocks the tile's runs for good.

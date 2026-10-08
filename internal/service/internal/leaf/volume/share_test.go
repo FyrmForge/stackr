@@ -37,6 +37,8 @@ func TestCheckShare(t *testing.T) {
 		"nfs creds":       {Slug: "a", Kind: "nfs", Source: "nas:/e", User: "bob"},
 		"user no pass":    {Slug: "a", Kind: "smb", Source: "//nas/e", User: "bob"},
 		"literal pass":    {Slug: "a", Kind: "smb", Source: "//nas/e", User: "bob", PasswordRef: "hunter2"},
+		"server pass":     {Slug: "a", Kind: "smb", Source: "//nas/e", User: "bob", PasswordRef: "${{ server.params.nas.pw }}"},
+		"server user":     {Slug: "a", Kind: "smb", Source: "//nas/e", User: "${{ server.params.nas.user }}", PasswordRef: "${{ org.params.nas.pw }}"},
 		"options space":   {Slug: "a", Kind: "nfs", Source: "nas:/e", Options: "ro nolock"},
 		"options device":  {Slug: "a", Kind: "nfs", Source: "nas:/e", Options: "device=/x"},
 		"options secrets": {Slug: "a", Kind: "smb", Source: "//nas/e", Options: "password=x"},

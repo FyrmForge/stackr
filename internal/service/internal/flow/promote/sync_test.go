@@ -225,7 +225,7 @@ func TestSyncParams(t *testing.T) {
 	must(t, w.f.D.Params.Merge(ctx, params.Scope{Kind: "env", ID: w.prd.ID}, []params.Entry{
 		{Collection: "app", Name: "key", Kind: params.Secret, Value: "prd-key"},
 	}))
-	done, err := w.f.SyncRollout(ctx, parked.Owed, io.Discard)
+	done, err := w.f.SyncRollout(ctx, parked.Owed, io.Discard, nil)
 	if err != nil || len(done.Deployed) != 1 || done.Deployed[0] != api.ID || len(done.Owed) != 0 {
 		t.Errorf("rollout = %+v, %v", done, err)
 	}

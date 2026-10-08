@@ -5,9 +5,12 @@ package dockerfake
 
 import (
 	"context"
+	"errors"
 	"io"
+	"slices"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 )
@@ -30,30 +33,38 @@ type Fake struct {
 	mu    sync.Mutex
 	calls []Call
 
-	// Err makes a method fail: Err["Pull"] = errors.New("registry down").
+	// Err makes a method fail: Err["Pull"] = errors.New("registry down"). A
+	// key can also name one call, as Call.String does: Err["Start(new)"].
 	Err map[string]error
 	// Scripted answers.
-	RunID      string
-	RunIDs     []string               // when set, each Run takes the next one instead of RunID
-	Specs      []docker.ContainerSpec // every spec Run was given
-	Containers []docker.Container
-	Details    map[string]docker.Detail
-	Volumes    []docker.VolumeInfo
-	Created    []VolumeCreate    // every CreateVolume, with its driver, opts and labels
-	Digests    map[string]string // ref -> digest
-	Members    map[string][]string
-	Networks   []string
-	GatewayIPs []string // what Gateways answers
-	Images     []docker.Image
-	BuildID    string
-	ExecOut    string
-	TarOut     []byte // what TarVolume writes
-	Untarred   []byte // what UntarVolume last read
-	ExecIn     []byte // what ExecStream's stdin last carried
-	LogsOut    string
-	StreamOut  []string // the lines StreamLogs sends
-	ExitCode   int      // what Wait answers
-	WaitBlock  bool     // Wait blocks until its ctx ends
+	RunID         string
+	RunIDs        []string               // when set, each Run takes the next one instead of RunID
+	Specs         []docker.ContainerSpec // every spec Run was given
+	Containers    []docker.Container
+	Details       map[string]docker.Detail
+	Volumes       []docker.VolumeInfo
+	Created       []VolumeCreate    // every CreateVolume, with its driver, opts and labels
+	Digests       map[string]string // ref -> digest
+	Members       map[string][]string
+	Networks      []string
+	GatewayIPs    []string // what Gateways answers
+	Images        []docker.Image
+	Dangling      int // what PruneDangling removes
+	DanglingBytes int64
+	CacheRemoved  int      // what BuildCachePrune removes
+	CacheTotal    string   // and the size it reports
+	InUse         []string // image ids a prune cannot remove (a container uses them)
+	Gone          []string // refs LocalDigest reports missing
+	BuildID       string
+	ExecOut       string
+	TarOut        []byte // what TarVolume writes
+	Untarred      []byte // what UntarVolume last read
+	ExecIn        []byte // what ExecStream's stdin last carried
+	LogsOut       string
+	StreamOut     []string        // the lines StreamLogs sends
+	ExitCode      int             // what Wait answers
+	WaitBlock     bool            // Wait blocks until its ctx ends
+	Host          docker.HostInfo // what HostInfo answers; zero = unknown, no ceiling
 }
 
 func New() *Fake { return &Fake{} }
@@ -68,7 +79,11 @@ func (f *Fake) Calls() []Call {
 func (f *Fake) rec(method string, args ...string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.calls = append(f.calls, Call{method, args})
+	c := Call{method, args}
+	f.calls = append(f.calls, c)
+	if err := f.Err[c.String()]; err != nil {
+		return err
+	}
 	return f.Err[method]
 }
 
@@ -81,6 +96,23 @@ func (f *Fake) Run(_ context.Context, s docker.ContainerSpec) (string, error) {
 	}
 	f.mu.Unlock()
 	return id, f.rec("Run", s.Name, s.Image)
+}
+
+// Create is Run without the start: it takes the next scripted id and records
+// the spec like Run does.
+func (f *Fake) Create(_ context.Context, s docker.ContainerSpec) (string, error) {
+	f.mu.Lock()
+	f.Specs = append(f.Specs, s)
+	id := f.RunID
+	if len(f.RunIDs) > 0 {
+		id, f.RunIDs = f.RunIDs[0], f.RunIDs[1:]
+	}
+	f.mu.Unlock()
+	return id, f.rec("Create", s.Name, s.Image)
+}
+
+func (f *Fake) HostInfo(context.Context) (docker.HostInfo, error) {
+	return f.Host, f.rec("HostInfo")
 }
 
 func (f *Fake) Start(_ context.Context, id string) error {
@@ -231,6 +263,9 @@ func (f *Fake) Pull(_ context.Context, ref, _ string, _ io.Writer) error {
 }
 
 func (f *Fake) LocalDigest(_ context.Context, ref string) (string, error) {
+	if slices.Contains(f.Gone, ref) {
+		return "", errors.Join(docker.ErrNotFound, f.rec("LocalDigest", ref))
+	}
 	return f.Digests[ref], f.rec("LocalDigest", ref)
 }
 
@@ -256,8 +291,33 @@ func (f *Fake) ListImages(_ context.Context, labels map[string]string) ([]docker
 	return out, f.rec("ListImages")
 }
 
-func (f *Fake) PruneImages(_ context.Context, _ map[string]string, keep []string) ([]string, error) {
-	return nil, f.rec("PruneImages", keep...)
+// PruneImages drops every labelled image not in keep from Images, except
+// the InUse ones. Returns the ids removed.
+func (f *Fake) PruneImages(_ context.Context, labels map[string]string, keep []string) ([]string, int64, error) {
+	var removed []string
+	var freed int64
+	var left []docker.Image
+	for _, im := range f.Images {
+		if !matches(im.Labels, labels) || slices.Contains(keep, im.ID) || slices.Contains(f.InUse, im.ID) ||
+			slices.ContainsFunc(im.Tags, func(t string) bool { return slices.Contains(keep, t) }) {
+			left = append(left, im)
+			continue
+		}
+		removed = append(removed, im.ID)
+		freed += im.Size
+	}
+	f.Images = left
+	return removed, freed, f.rec("PruneImages", keep...)
+}
+
+// PruneDangling answers the scripted Dangling count and bytes.
+func (f *Fake) PruneDangling(_ context.Context, _ map[string]string) (int, int64, error) {
+	return f.Dangling, f.DanglingBytes, f.rec("PruneDangling")
+}
+
+// BuildCachePrune answers the scripted CacheRemoved count and CacheTotal.
+func (f *Fake) BuildCachePrune(_ context.Context, builder string, olderThan time.Duration) (int, string, error) {
+	return f.CacheRemoved, f.CacheTotal, f.rec("BuildCachePrune", builder, olderThan.String())
 }
 
 func (f *Fake) Build(

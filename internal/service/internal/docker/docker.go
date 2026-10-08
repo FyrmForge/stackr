@@ -7,6 +7,7 @@ package docker
 import (
 	"errors"
 	"fmt"
+	"time"
 
 	cerrdefs "github.com/containerd/errdefs"
 	"github.com/docker/docker/client"
@@ -54,6 +55,12 @@ type ContainerSpec struct {
 	HealthStartPeriodS int
 }
 
+// HostInfo is the daemon host's capacity; 0 = not reported.
+type HostInfo struct {
+	CPUs     int
+	MemBytes int64
+}
+
 // NetAttach is one network the container joins, with its DNS aliases there.
 type NetAttach struct {
 	Name    string
@@ -82,8 +89,13 @@ type Detail struct {
 	Running                         bool
 	Health                          string
 	RestartCount                    int
-	Ports, Mounts                   []string
-	Networks                        map[string]string // network name -> IP
+	// HealthInterval, HealthStartPeriod and HealthRetries are the container's
+	// effective HEALTHCHECK timings (the image's own when the spec set none);
+	// zero = docker's default.
+	HealthInterval, HealthStartPeriod time.Duration
+	HealthRetries                     int
+	Ports, Mounts                     []string
+	Networks                          map[string]string // network name -> IP
 }
 
 type VolumeInfo struct {
@@ -99,6 +111,7 @@ type Image struct {
 	ID     string
 	Tags   []string // repo:tag
 	Labels map[string]string
+	Size   int64
 }
 
 // ErrNotFound: the container, network, volume or image does not exist.

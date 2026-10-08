@@ -15,15 +15,32 @@ type SettingsView struct {
 	Name       string
 	Host       string
 	InstallURL string // GitHub's install page; "" = handshake not finished
+	Shared     bool   // a server connector: read-only here
 	Delete     c.ConfirmView
+}
+
+func renameWhy(v SettingsView) string {
+	if v.Shared {
+		return "GitHub App on " + v.Host + ". Only a server admin can rename it."
+	}
+	return "GitHub App on " + v.Host + ". Renaming needs write."
+}
+
+func settingsHelp(shared bool) string {
+	if shared {
+		return "Shared with this organization by a server admin; only they can change it."
+	}
+	return "A private GitHub App for this organization, so there are no tokens to copy around."
 }
 
 templ Settings(v SettingsView) {
 	<div id="tab-settings">
-		@c.Section("Connector", "organization", "A private GitHub App for this organization, so there are no tokens to copy around.") {
+		@c.Section("Connector", "organization", settingsHelp(v.Shared)) {
 			<div class="panel px-4 py-3 flex flex-wrap items-center gap-3 mb-5">
 				<span class="text-sm text-rw-text">{ v.Name }</span>
-				if v.InstallURL != "" {
+				if v.Shared {
+					<span class="text-rw-faint text-xs ml-auto">shared from the server</span>
+				} else if v.InstallURL != "" {
 					<a href={ templ.SafeURL(v.InstallURL) } target="_blank" rel="noopener" class="btn btn-ghost btn-sm ml-auto">Manage installation</a>
 					if v.Base != "" {
 						<button type="button" class="btn btn-ghost btn-sm" hx-post={ v.Base + "/check" } hx-target={ "#" + c.DrawerRoot } hx-swap="outerHTML">Check installation</button>
@@ -32,11 +49,11 @@ templ Settings(v SettingsView) {
 					<span class="text-rw-faint text-xs ml-auto">setup not finished</span>
 				}
 			</div>
-			if v.InstallURL != "" {
+			if v.InstallURL != "" && !v.Shared {
 				<p class="text-sm text-rw-muted mb-4">The app must be installed on your GitHub account or org before a repo can be cloned through it. Manage installation opens GitHub's page for that; pick the repos there, then Check installation.</p>
 			}
 			<form hx-post={ v.Base + "/rename" } hx-target={ "#" + c.DrawerRoot } hx-swap="outerHTML" class="space-y-4">
-				@c.Field(c.FieldView{Name: "name", Label: "Name", Value: v.Name, Required: true, Help: "GitHub App on " + v.Host + ".", Disabled: v.Base == "", Why: "GitHub App on " + v.Host + ". Renaming needs write."})
+				@c.Field(c.FieldView{Name: "name", Label: "Name", Value: v.Name, Required: true, Help: "GitHub App on " + v.Host + ".", Disabled: v.Base == "", Why: renameWhy(v)})
 				if v.Base != "" {
 					<button type="submit" class="btn btn-primary btn-sm">Rename</button>
 				}
@@ -55,6 +72,7 @@ templ Settings(v SettingsView) {
 type ReposView struct {
 	Check      string // POST, answers the drawer on this tab
 	InstallURL string // "" = handshake not finished
+	Shared     bool   // a server connector: no install links
 	Checked    bool
 	Repos      []string // full names
 }
@@ -69,11 +87,13 @@ func repoCount(n int) string {
 templ Repos(v ReposView) {
 	<div id="tab-repos">
 		@c.Section("Repositories", "organization", "The repositories the app may read. Creating the app on GitHub is not installing it: an app installed nowhere can clone nothing.") {
-			if v.InstallURL == "" {
+			if v.InstallURL == "" && !v.Shared {
 				<p class="text-sm text-rw-muted">The GitHub handshake did not finish. Delete this connector and create it again.</p>
 			} else if !v.Checked {
 				<p class="text-sm text-rw-muted mb-4">Ask GitHub which repositories the app is installed on.</p>
 				<button type="button" class="btn btn-primary btn-sm" hx-post={ v.Check } hx-target={ "#" + c.DrawerRoot } hx-swap="outerHTML">Check installation</button>
+			} else if len(v.Repos) == 0 && v.Shared {
+				<p class="text-sm text-rw-muted">The app is installed on no repositories. Ask a server admin to add some.</p>
 			} else if len(v.Repos) == 0 {
 				<p class="text-sm text-rw-muted mb-5">The app is created. Now choose the repositories it may access, otherwise stackr cannot read any of them.</p>
 				<div class="flex flex-wrap gap-2">
@@ -88,7 +108,9 @@ templ Repos(v ReposView) {
 					}
 				</ul>
 				<div class="flex flex-wrap gap-2">
-					<a href={ templ.SafeURL(v.InstallURL) } target="_blank" rel="noopener" class="btn btn-ghost btn-sm">Change which repositories it can see</a>
+					if !v.Shared {
+						<a href={ templ.SafeURL(v.InstallURL) } target="_blank" rel="noopener" class="btn btn-ghost btn-sm">Change which repositories it can see</a>
+					}
 					<button type="button" class="btn btn-ghost btn-sm" hx-post={ v.Check } hx-target={ "#" + c.DrawerRoot } hx-swap="outerHTML">Check again</button>
 				</div>
 			}

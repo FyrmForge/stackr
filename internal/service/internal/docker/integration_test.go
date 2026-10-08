@@ -318,11 +318,11 @@ func TestImages(t *testing.T) {
 	if err := d.Tag(ctx, tag, second); err != nil {
 		t.Fatal(err)
 	}
-	if removed, err := d.PruneImages(ctx, labels, []string{second}); err != nil || len(removed) != 0 {
+	if removed, _, err := d.PruneImages(ctx, labels, []string{second}); err != nil || len(removed) != 0 {
 		t.Fatalf("prune kept by tag: %v %v", removed, err)
 	}
-	removed, err := d.PruneImages(ctx, labels, nil)
-	if err != nil || len(removed) != 2 {
+	removed, _, err := d.PruneImages(ctx, labels, nil)
+	if err != nil || len(removed) != 1 {
 		t.Fatalf("prune: %v %v", removed, err)
 	}
 	if ims, _ := d.ListImages(ctx, labels); len(ims) != 0 {

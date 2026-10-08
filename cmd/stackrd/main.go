@@ -114,8 +114,8 @@ func main() {
 func run(log *slog.Logger, generate bool) error {
 	components.StaticBaseURL = envStaticBaseURL
 
-	// Base URL (cookie domain & CORS).
-	baseOrigin, baseDomain, err := config.ParseBaseURL(envBaseURL)
+	// Base URL (CORS).
+	baseOrigin, _, err := config.ParseBaseURL(envBaseURL)
 	if err != nil {
 		return fmt.Errorf("invalid BASE_URL: %w", err)
 	}
@@ -173,7 +173,9 @@ func run(log *slog.Logger, generate bool) error {
 		SecretsKey: masterKey,
 		// A Secure cookie never comes back over plain HTTP.
 		CookieSecure: !envDevMode && !tlsOff,
-		CookieDomain: baseDomain,
+		// Host-only, so the session follows panel_domain to a new host and
+		// is never sent to the tiles under the panel's domain.
+		CookieDomain: "",
 		Version:      version,
 		BaseURL:      envBaseURL,
 		InstallID:    config.GetEnvOrDefault("STACKR_INSTALL_ID", "default"),

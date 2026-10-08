@@ -3,12 +3,16 @@ package image_test
 import (
 	"context"
 	"errors"
+	"io"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	"github.com/FyrmForge/stackr/internal/service/internal/dockerfake"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/image"
+	"github.com/FyrmForge/stackr/internal/service/internal/store"
 	"github.com/FyrmForge/stackr/internal/service/servicetest"
 )
 
@@ -29,8 +33,11 @@ func TestCleanupKeepsReleased(t *testing.T) {
 	if err := st.Images.Update(ctx, old); err != nil {
 		t.Fatal(err)
 	}
+	fake.Images = append(fake.Images, docker.Image{
+		ID: old.Digest, Tags: []string{old.Ref}, Labels: map[string]string{image.LabelBuilt: "true"},
+	})
 
-	if _, err := l.Cleanup(ctx, []string{released.ID}); err != nil {
+	if _, _, err := l.Cleanup(ctx, []string{released.ID}, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	calls := fake.Calls()
@@ -72,5 +79,98 @@ func TestNameAndWatchCache(t *testing.T) {
 	}
 	if i, _ = l.Checked(ctx, "nginx:1", "sha256:b", "", nil); i.LastError != "" || i.LastDigest != "sha256:b" {
 		t.Errorf("success kept the error: %+v", i)
+	}
+}
+
+// aged is a stackr build on the box, old enough for Cleanup to take.
+func aged(t *testing.T, l *image.Leaf, st *store.Store, fake *dockerfake.Fake, ref string) store.Image {
+	t.Helper()
+	i, err := l.Built(ctx, ref, "sha256:"+ref)
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().Add(-2 * image.Grace)
+	i.BuiltAt = &old
+	if err := st.Images.Update(ctx, i); err != nil {
+		t.Fatal(err)
+	}
+	fake.Images = append(fake.Images, docker.Image{
+		ID: i.Digest, Tags: []string{ref}, Size: 100, Labels: map[string]string{image.LabelBuilt: "true"},
+	})
+	return i
+}
+
+// A release can reference an image past the keep set; its Docker image goes
+// but its row stays, or the release loses its pin for good.
+func TestCleanupKeepsPinnedRow(t *testing.T) {
+	st := servicetest.Store(t)
+	fake := dockerfake.New()
+	l := image.New(st.Images, fake)
+	pinned := aged(t, l, st, fake, "stkr/a:1111111")
+
+	removed, _, err := l.Cleanup(ctx, nil, []string{pinned.ID}, nil)
+	if err != nil || len(removed) != 1 {
+		t.Fatalf("removed %v, %v", removed, err)
+	}
+	if _, err := l.Get(ctx, pinned.ID); err != nil {
+		t.Errorf("a release's image row was deleted: %v", err)
+	}
+}
+
+// An image Docker kept (a container uses it) keeps its row, or the next
+// deploy of it would pull a build that was never pushed.
+func TestCleanupKeepsRowOfSurvivor(t *testing.T) {
+	st := servicetest.Store(t)
+	fake := dockerfake.New()
+	l := image.New(st.Images, fake)
+	stuck := aged(t, l, st, fake, "stkr/a:1111111")
+	gone := aged(t, l, st, fake, "stkr/a:2222222")
+	fake.InUse = []string{stuck.Digest}
+
+	if _, _, err := l.Cleanup(ctx, nil, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := l.Get(ctx, stuck.ID); err != nil {
+		t.Errorf("row of an image Docker kept was deleted: %v", err)
+	}
+	if _, err := l.Get(ctx, gone.ID); err == nil {
+		t.Error("row of a removed image kept")
+	}
+}
+
+// A built image whose Docker image was cleaned up fails with the cause, not
+// a pull of a ref that was never pushed.
+func TestEnsureCleanedUp(t *testing.T) {
+	st := servicetest.Store(t)
+	fake := dockerfake.New()
+	l := image.New(st.Images, fake)
+	i := aged(t, l, st, fake, "stkr/a:1111111")
+	fake.Gone = []string{i.Ref}
+
+	_, err := l.Ensure(ctx, i.Ref, "", io.Discard)
+	if err == nil || !strings.Contains(err.Error(), "was cleaned up; rebuild it") {
+		t.Errorf("err = %v", err)
+	}
+	for _, c := range fake.Calls() {
+		if c.Method == "Pull" {
+			t.Error("pulled a build of ours")
+		}
+	}
+}
+
+// One image failing to go does not strand the rows of the ones that did.
+func TestCleanupPartialError(t *testing.T) {
+	st := servicetest.Store(t)
+	fake := dockerfake.New()
+	l := image.New(st.Images, fake)
+	gone := aged(t, l, st, fake, "stkr/a:1111111")
+	fake.Err = map[string]error{"PruneImages": errors.New("remove stkr/a:2: boom")}
+
+	removed, _, err := l.Cleanup(ctx, nil, nil, nil)
+	if err == nil || len(removed) != 1 {
+		t.Fatalf("removed %v, %v", removed, err)
+	}
+	if _, err := l.Get(ctx, gone.ID); err == nil {
+		t.Error("row of a removed image kept after a partial error")
 	}
 }

@@ -1,5 +1,5 @@
 // Package params owns the param store (collections of params and secrets at
-// org, stack and env scope) and the one ${{ }} resolver (ref.go). Kind is
+// org, stack, env and server scope) and the one ${{ }} resolver (ref.go). Kind is
 // fixed at creation, except param → secret, one way.
 package params
 
@@ -21,8 +21,14 @@ const (
 	Secret = "secret"
 )
 
-// Scope is where an entry lives: org, stack or env, and that row's id.
+// Scope is where an entry lives: org, stack, env or the server, and that
+// row's id.
 type Scope struct{ Kind, ID string }
+
+// ServerScope is the one server scope (admin only). Its rows are read by the
+// server file's items and by nothing else: no org, stack or tile resolver
+// ever loads it.
+var ServerScope = Scope{Kind: "server", ID: "server"}
 
 // Entry is one write. A secret with an empty Value is declared, not set: the
 // stack file and a masked CLI listing both send those, and neither may

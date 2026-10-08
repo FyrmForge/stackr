@@ -60,6 +60,17 @@ func (t *Table) Rebuild(ctx context.Context, all map[string][]string) error {
 	return t.apply(ctx, clone(all))
 }
 
+// Merge rewrites the rules of every VIP in all and keeps the rest as they
+// are: a rebuild that could not read every tile must not drop the ones it
+// could not read.
+func (t *Table) Merge(ctx context.Context, all map[string][]string) error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	next := clone(t.vips)
+	maps.Copy(next, clone(all))
+	return t.apply(ctx, next)
+}
+
 func (t *Table) apply(ctx context.Context, next map[string][]string) error {
 	// The script is text: an address that is not one must never reach it.
 	for v, ips := range next {

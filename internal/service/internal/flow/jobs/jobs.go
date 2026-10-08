@@ -72,9 +72,10 @@ type Options struct {
 	// Workers is re-read every pass, so a settings change applies within
 	// one poll. nil = 2.
 	Workers func(ctx context.Context) (int, error)
-	// ParamSet reports whether a parked job's param resolves now. nil =
-	// requeue every parked job each poll and let the handler re-check.
-	ParamSet func(ctx context.Context, param string) (bool, error)
+	// ParamSet reports whether a parked job's param (j.WaitingParam) resolves
+	// now. nil = requeue every parked job each poll and let the handler
+	// re-check.
+	ParamSet func(ctx context.Context, j store.Job) (bool, error)
 }
 
 type Runner struct {
@@ -98,6 +99,10 @@ type Runner struct {
 	// deployed holds the "deploying <tile>" lines each job's log already
 	// has, so a parked job re-run every poll logs each tile's line once.
 	deployed map[string]map[string]bool
+
+	// beforePark runs between a handler's return and the park write; tests
+	// land a cancel there.
+	beforePark func()
 }
 
 // onceLog drops a "deploying <tile>" line its job's log already has.
@@ -216,11 +221,15 @@ func (r *Runner) unpark(ctx context.Context) {
 	}
 	for _, j := range parked {
 		if r.opt.ParamSet != nil && j.WaitingParam != nil {
-			if ok, err := r.opt.ParamSet(ctx, *j.WaitingParam); err != nil || !ok {
+			if ok, err := r.opt.ParamSet(ctx, j); err != nil || !ok {
 				continue
 			}
 		}
+		// Under the lock Cancel and Enqueue hold, so a finish cannot land
+		// between Requeue's read and write.
+		r.mu.Lock()
 		_ = r.jobs.Requeue(ctx, j)
+		r.mu.Unlock()
 	}
 }
 
@@ -294,9 +303,25 @@ func (r *Runner) run(parent context.Context, j store.Job, a *active) {
 	fresh := context.Background()
 	var err error
 	if state == job.Waiting {
-		// rn.Job, not j: a handler may have rewritten its payload.
-		err = r.jobs.Park(fresh, rn.Job, param)
-	} else {
+		if r.beforePark != nil {
+			r.beforePark()
+		}
+		// Cancel and Enqueue cancel the run under the lock; parking under it
+		// too means a job stopped since its handler returned is finished,
+		// never parked.
+		r.mu.Lock()
+		switch cause := context.Cause(parent); {
+		case errors.Is(cause, ErrSuperseded):
+			state = job.Superseded
+		case cause != nil:
+			state = job.Cancelled
+		default:
+			// rn.Job, not j: a handler may have rewritten its payload.
+			err = r.jobs.Park(fresh, rn.Job, param)
+		}
+		r.mu.Unlock()
+	}
+	if state != job.Waiting {
 		r.mu.Lock()
 		delete(r.parked, j.ID)
 		delete(r.deployed, j.ID)

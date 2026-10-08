@@ -1,6 +1,7 @@
 package deploy
 
 import (
+	"cmp"
 	"fmt"
 	"strings"
 
@@ -9,9 +10,14 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
 
+// LabelRef is the replica label naming the image ref it was started for: the
+// pinned one (repo@digest) when the deploy knows it, else what it ran.
+const LabelRef = "stackr.ref"
+
 // resolved is every fact spec needs that the row does not hold.
 type resolved struct {
 	name, image string
+	pinRef      string // repo@digest of image when known; "" = image itself
 	env, binds  []string
 	cmd         []string
 	ports       map[string]string
@@ -46,6 +52,7 @@ func spec(t store.Tile, r resolved) docker.ContainerSpec {
 		HealthRetries:      t.HealthcheckRetries,
 		HealthStartPeriodS: t.HealthcheckStartPeriodS,
 	}
+	s.Labels = map[string]string{LabelRef: cmp.Or(r.pinRef, r.image)}
 	// Docker's 30s default would hold the deploy gate half a minute for the
 	// first check.
 	if s.HealthCmd != "" && s.HealthIntervalS == 0 {
