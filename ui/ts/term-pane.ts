@@ -59,7 +59,10 @@ class TermPane extends HTMLElement {
       term.write(`\r\n[disconnected]${why}\r\n`);
     };
     term.onData((d) => {
-      if (ws.readyState === WebSocket.OPEN) ws.send(new TextEncoder().encode(d));
+      if (ws.readyState !== WebSocket.OPEN) return;
+      // the server reads frames up to 1 MiB: a big paste goes in 32 KiB parts
+      const b = new TextEncoder().encode(d);
+      for (let i = 0; i < b.length; i += 32768) ws.send(b.subarray(i, i + 32768));
     });
     term.onResize((s) => resize(s.cols, s.rows));
     this.watch = new ResizeObserver(() => fit.fit());

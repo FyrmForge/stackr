@@ -26,12 +26,23 @@ type PullRequest struct {
 		Head struct {
 			Ref string `json:"ref"`
 			SHA string `json:"sha"` // the commit GitHub announced; pin to it, not the branch tip
+			// Repo is null once the fork is deleted.
+			Repo *struct {
+				FullName string `json:"full_name"`
+			} `json:"repo"`
 		} `json:"head"`
 		Base struct {
 			Ref string `json:"ref"`
 		} `json:"base"`
 	} `json:"pull_request"`
 	Repository Repository `json:"repository"`
+}
+
+// IsFork: the head lives in another repo than the one the PR targets. A head
+// repo that is gone counts as a fork.
+func (p *PullRequest) IsFork() bool {
+	h := p.PullRequest.Head.Repo
+	return h == nil || !strings.EqualFold(h.FullName, p.Repository.FullName)
 }
 
 // Push is a push delivery.

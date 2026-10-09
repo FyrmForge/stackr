@@ -213,8 +213,16 @@ type Param struct {
 	Generate int `yaml:"generate,omitempty"`
 }
 
-// CheckParams is the params: grammar every file shares.
-func CheckParams(ps map[string]map[string]Param) error {
+// IsRef reports whether s is exactly one ${{ ... }} reference and nothing
+// else; a mixed value like "${{ a.b }}x" carries a literal and is not.
+func IsRef(s string) bool {
+	s = strings.TrimSpace(s)
+	return strings.HasPrefix(s, "${{") && strings.HasSuffix(s, "}}") && strings.Count(s, "${{") == 1 && strings.Count(s, "}}") == 1
+}
+
+// CheckParams is the params: grammar every file shares. generate: is acted
+// on only by the stack file (allowGenerate).
+func CheckParams(ps map[string]map[string]Param, allowGenerate bool) error {
 	for c, entries := range ps {
 		if !slug.ValidName(c) {
 			return fmt.Errorf("params: collection %q is lower-case letters, digits and _", c)
@@ -223,6 +231,8 @@ func CheckParams(ps map[string]map[string]Param) error {
 			switch {
 			case !slug.ValidName(n):
 				return fmt.Errorf("params: %s.%s: a name is lower-case letters, digits and _", c, n)
+			case p.Generate != 0 && !allowGenerate:
+				return fmt.Errorf("params: %s.%s: generate is only read in a stack file", c, n)
 			case p.Generate != 0 && p.Type != "secret":
 				return fmt.Errorf("params: %s.%s: generate is only for type: secret", c, n)
 			case p.Generate != 0 && p.Value != nil:

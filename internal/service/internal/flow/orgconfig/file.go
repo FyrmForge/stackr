@@ -162,7 +162,7 @@ func Parse(data []byte) (*File, error) {
 	if slug.Make(f.Org) == "" {
 		return nil, fmt.Errorf("org: %q needs at least one letter or digit", f.Org)
 	}
-	if err := planfile.CheckParams(f.Params); err != nil {
+	if err := planfile.CheckParams(f.Params, false); err != nil {
 		return nil, err
 	}
 	if f.Defaults != nil && (f.Defaults.ProtectUser == nil) != (f.Defaults.ProtectPassword == nil) {

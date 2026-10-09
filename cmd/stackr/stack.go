@@ -54,7 +54,7 @@ func tileFlags(c *cobra.Command) map[string]string {
 		{"healthcheck", "health check command"},
 		{"user", "run as user"},
 		{"devices", "devices (needs admin approval)"},
-		{"lan", "LAN access, one ip|cidr[:port] or all per line (needs admin approval)"},
+		{"lan", "LAN access, one ip|cidr[:port] per line (needs admin approval)"},
 		{"restart", "restart policy"},
 		{"depends-on", "tiles to start first"},
 		{"files", "files to mount"},

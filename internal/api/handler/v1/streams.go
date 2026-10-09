@@ -115,6 +115,9 @@ const ForwardPortHeader = "X-Stackr-Port"
 // so every failure is an HTTP status.
 func (h *H) Forward() Endpoint {
 	return Streamed("websocket", func(c echo.Context) error {
+		if err := stream.Check(c); err != nil {
+			return err
+		}
 		port := 0
 		if err := echo.QueryParamsBinder(c).Int("port", &port).BindError(); err != nil {
 			return errs.Invalidf("port", "invalid port")
@@ -142,7 +145,7 @@ func (h *H) Forward() Endpoint {
 		// (curl, psql) sends a text {"type":"eof"} frame and must still get
 		// the reply, so the tile's side is CloseWrite'n and the copy back
 		// runs until it closes. A read error means the client is gone.
-		ws.SetReadLimit(-1)
+		ws.SetReadLimit(1 << 20)
 		go func() {
 			for {
 				typ, b, err := ws.Read(ctx)
@@ -161,7 +164,12 @@ func (h *H) Forward() Endpoint {
 					if t, ok := conn.(*net.TCPConn); ok {
 						_ = t.CloseWrite()
 					}
-					return
+					// keep reading: pongs are only processed inside Read
+					for {
+						if _, _, err := ws.Read(ctx); err != nil {
+							return
+						}
+					}
 				}
 			}
 		}()
@@ -179,6 +187,9 @@ func (h *H) Forward() Endpoint {
 // before the upgrade.
 func (h *H) Terminal() Endpoint {
 	return Streamed("websocket", func(c echo.Context) error {
+		if err := stream.Check(c); err != nil {
+			return err
+		}
 		conn, resize, finish, err := h.Orch.Shell(context.WithoutCancel(rc(c)),
 			who(c), tileID(c), c.QueryParam("container"), c.QueryParam("shell"))
 		if err != nil {
@@ -190,6 +201,7 @@ func (h *H) Terminal() Endpoint {
 			return nil
 		}
 		defer done()
+		ws.SetReadLimit(1 << 20)
 		out, gone := make(chan struct{}), make(chan struct{})
 		go func() { // the shell's bytes to the client
 			defer close(out)

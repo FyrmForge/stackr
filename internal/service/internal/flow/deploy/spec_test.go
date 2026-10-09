@@ -41,3 +41,19 @@ func TestSpecRefLabel(t *testing.T) {
 		t.Errorf("label = %q; want the image", got)
 	}
 }
+
+// A bridge tile drops NET_RAW; host networking and privileged keep it.
+func TestSpecDropsNetRaw(t *testing.T) {
+	for name, c := range map[string]struct {
+		r    resolved
+		drop bool
+	}{
+		"bridge":     {resolved{}, true},
+		"host net":   {resolved{hostNet: true}, false},
+		"privileged": {resolved{privileged: true}, false},
+	} {
+		if got := slices.Contains(spec(store.Tile{}, c.r).CapDrop, "NET_RAW"); got != c.drop {
+			t.Errorf("%s: dropped = %v", name, got)
+		}
+	}
+}

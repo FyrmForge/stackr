@@ -236,6 +236,7 @@ func (f *Flow) plan(ctx context.Context, envID, releaseID string, log io.Writer)
 			return p, w, nil
 		}
 		w.re = &re
+		f.dropGrantTiles(p, w, log)
 		if err := f.planConfig(ctx, p, w, r); err != nil {
 			return nil, nil, err
 		}

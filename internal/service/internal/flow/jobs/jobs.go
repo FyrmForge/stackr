@@ -49,6 +49,9 @@ func (r *Run) Swap() error {
 	return nil
 }
 
+// ErrFinished is Cancel on a job already past cancelling (a Conflict).
+var ErrFinished = errs.Conflictf("the job already finished")
+
 var (
 	// ErrSuperseded is the cancel cause when a newer job takes over.
 	ErrSuperseded = errors.New("superseded by a newer job")
@@ -448,7 +451,7 @@ func (r *Runner) Cancel(ctx context.Context, id string) error {
 		return err
 	}
 	if !job.Cancellable(j.State) {
-		return errs.Conflictf("the job already finished")
+		return ErrFinished
 	}
 	return r.jobs.Finish(ctx, j, job.Cancelled, "")
 }

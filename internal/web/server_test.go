@@ -11,6 +11,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/middleware"
 	"github.com/FyrmForge/stackr/internal/service/servicetest"
 	"github.com/FyrmForge/stackr/internal/web"
+	"github.com/FyrmForge/stackr/internal/web/webtest"
 )
 
 // The panel's checkboxes draw their tick from a data: SVG background in
@@ -27,5 +28,26 @@ func TestCSPAllowsDataImages(t *testing.T) {
 	csp := rec.Header().Get("Content-Security-Policy")
 	if !strings.Contains(csp, "img-src 'self' data:") {
 		t.Errorf("CSP = %q, want img-src 'self' data:", csp)
+	}
+}
+
+// The web is session only: a viewer's API key on a web POST is a 401, so the
+// key mint and the CLI login approval cannot be reached with one.
+func TestWebRefusesKeys(t *testing.T) {
+	s := webtest.New(t)
+	u := s.User(t, "viewer@acme.test", false)
+	s.Member(t, s.Org, u, "viewer")
+	key := s.APIKey(t, u, s.Org)
+	for _, path := range []string{"/acme/-/drawer/keys", "/cli/authorize/acme"} {
+		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader("name=x&port=1&state=s"))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		req.Header.Set("Authorization", "Bearer "+key)
+		req.Header.Set("X-CSRF-Token", "tok")
+		req.AddCookie(&http.Cookie{Name: "csrf", Value: "tok"})
+		rec := httptest.NewRecorder()
+		s.Handler().ServeHTTP(rec, req)
+		if rec.Code != http.StatusUnauthorized {
+			t.Errorf("POST %s with a key = %d, want 401", path, rec.Code)
+		}
 	}
 }

@@ -158,7 +158,7 @@ func Parse(data []byte) (*File, error) {
 	for _, check := range []func() error{
 		f.checkSettings,
 		f.checkDefaults,
-		func() error { return planfile.CheckParams(f.Params) },
+		func() error { return planfile.CheckParams(f.Params, false) },
 		f.checkRoutes,
 		f.checkDests,
 		f.checkDomains,

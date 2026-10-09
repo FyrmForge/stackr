@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"slices"
 	"strings"
 
@@ -45,7 +46,16 @@ func (o *Orchestrator) DeleteStack(ctx context.Context, id string) error {
 	if len(es) > 0 {
 		return errs.Conflictf("Remove this stack's environments first.")
 	}
-	return o.stacks.Delete(ctx, id)
+	if err := o.stacks.Delete(ctx, id); err != nil {
+		return err
+	}
+	o.cancelWaiting(ctx, func(j Job) bool {
+		var p struct {
+			HostAccess *hostAccess `json:"host_access"`
+		}
+		return json.Unmarshal([]byte(j.Payload), &p) == nil && p.HostAccess != nil && p.HostAccess.Stack == id
+	})
+	return nil
 }
 
 // SetConfigRepo points the stack at its stackr-compose.yml (config-as-code).

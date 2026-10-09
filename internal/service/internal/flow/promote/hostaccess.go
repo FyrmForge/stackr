@@ -2,12 +2,15 @@ package promote
 
 import (
 	"context"
+	"fmt"
+	"io"
 	"maps"
 	"slices"
 	"strings"
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/deploy"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/environment"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/hostgrant"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
@@ -31,6 +34,25 @@ func (f *Flow) checkHostAccess(ctx context.Context, p *Plan, w *work) error {
 		p.block("%s", hostgrant.Text(m))
 	}
 	return nil
+}
+
+// dropGrantTiles: a PR env never gets elevated access, so a tile of it that
+// needs a grant is left out of the plan, with a note, not parked.
+func (f *Flow) dropGrantTiles(p *Plan, w *work, log io.Writer) {
+	if w.e.Type != environment.Ephemeral {
+		return
+	}
+	tiles := maps.Clone(w.re.Tiles)
+	for _, name := range slices.Sorted(maps.Keys(tiles)) {
+		if len(deploy.HostSet(toRow(name, tiles[name], w.st, w.e)).Lines) == 0 {
+			continue
+		}
+		delete(tiles, name)
+		msg := fmt.Sprintf("tile %s needs elevated host access; PR envs never get it, so it is skipped in %s", name, w.e.Slug)
+		p.Warnings = append(p.Warnings, msg)
+		logf(log, "%s\n", msg)
+	}
+	w.re.Tiles = tiles
 }
 
 // OnlyHostAccess is a plan whose one blocker is elevated access: promoting it

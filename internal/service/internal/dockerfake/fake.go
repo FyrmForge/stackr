@@ -124,7 +124,19 @@ func (f *Fake) Start(_ context.Context, id string) error {
 }
 
 func (f *Fake) Stop(_ context.Context, id string) error {
+	f.stopped(id)
 	return f.rec("Stop", id)
+}
+
+// stopped mimics the daemon: a stopped container is not running and has no
+// network address.
+func (f *Fake) stopped(id string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if d, ok := f.Details[id]; ok {
+		d.Running, d.Networks = false, nil
+		f.Details[id] = d
+	}
 }
 
 func (f *Fake) Restart(_ context.Context, id string) error {
@@ -132,7 +144,20 @@ func (f *Fake) Restart(_ context.Context, id string) error {
 }
 
 func (f *Fake) StopRemove(_ context.Context, id string) error {
+	f.stopped(id)
 	return f.rec("StopRemove", id)
+}
+
+func (f *Fake) Rename(_ context.Context, id, name string) error {
+	f.mu.Lock()
+	for i, c := range f.Containers {
+		if c.ID == id || c.Name == id {
+			f.Containers[i].Name = name
+			break
+		}
+	}
+	f.mu.Unlock()
+	return f.rec("Rename", id, name)
 }
 
 func (f *Fake) Pause(_ context.Context, id string) error {

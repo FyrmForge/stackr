@@ -27,11 +27,16 @@ type ContainerSpec struct {
 	Labels   map[string]string //
 	Volumes  []string          // "name-or-hostpath:/container/path[:ro]"
 	Ports    map[string]string // host[/udp] -> container[/udp] (published)
+	// AnyIP publishes Ports on every host address, IPv6 included (the
+	// proxy); unset binds IPv4 only.
+	AnyIP bool
 	Networks []NetAttach       // every network, joined at create
 	// HostNetwork runs in the host's network namespace; Networks and Ports
 	// are ignored (the proxy and stackrd itself).
 	HostNetwork bool
 	CapAdd      []string // e.g. NET_ADMIN
+	ExtraHosts  []string // "name:ip" or "name:host-gateway"
+	CapDrop     []string // e.g. NET_RAW
 	CPULimit    float64  // cores, 0 = unlimited
 	MemLimitMB  int      // MB, 0 = unlimited
 
@@ -97,6 +102,7 @@ type Detail struct {
 	HealthInterval, HealthStartPeriod time.Duration
 	HealthRetries                     int
 	Ports, Mounts                     []string
+	Env                               []string          // KEY=VALUE, as created
 	Networks                          map[string]string // network name -> IP
 	HostNetwork                       bool              // runs in the host's network namespace
 }

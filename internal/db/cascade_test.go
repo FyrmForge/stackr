@@ -56,7 +56,7 @@ func TestOrgDeleteCascades(t *testing.T) {
 		{`INSERT INTO orgs VALUES ('o1','Acme','acme','','','{}',NULL,'',?,'','','','',0)`, []any{now}},
 		{`INSERT INTO org_members VALUES ('m1','o1','u1','owner',?)`, []any{now}},
 		{`INSERT INTO invites VALUES ('i1','o1','x@y.z','owner','u1',?,?,NULL)`, []any{now, now}},
-		{`INSERT INTO api_keys VALUES ('k1','u1','o1','ci','hash',?)`, []any{now}},
+		{`INSERT INTO api_keys (id, user_id, org_id, name, token_hash, created_at) VALUES ('k1','u1','o1','ci','hash',?)`, []any{now}},
 		{`INSERT INTO stacks VALUES ('s1','o1','Shop','shop','','{}','','','','',?)`, []any{now}},
 		{`INSERT INTO environments VALUES ('e1','s1','Dev','dev','static',NULL,'{}','',0,'net',NULL,'branch','main',1,?)`, []any{now}},
 		{`INSERT INTO params VALUES ('p1','org','o1','email','key','secret','enc1:x',?,?)`, []any{now, now}},

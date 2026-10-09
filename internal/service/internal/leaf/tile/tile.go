@@ -25,6 +25,16 @@ type Leaf struct {
 	vip    VIP
 	// Gate is the health gate's timing; tests shorten it.
 	Gate Gate
+	// Early, when set, is told when a replica or run container is up (on) and
+	// when it is gone or failed its gate (!on), so the tile's lan rules can
+	// exist before the replica is routed.
+	Early func(ctx context.Context, t store.Tile, id string, on bool)
+}
+
+func (l *Leaf) early(ctx context.Context, t store.Tile, id string, on bool) {
+	if l.Early != nil {
+		l.Early(ctx, t, id, on)
+	}
 }
 
 func New(tiles store.TileStore, d Docker, v VIP) *Leaf {

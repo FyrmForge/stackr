@@ -80,7 +80,7 @@ func (h *handler) Password(c echo.Context) error {
 
 // POST /account/keys/:key/revoke answers the key list.
 func (h *handler) Revoke(c echo.Context) error {
-	err := h.orch.RevokeKey(c.Request().Context(), me(c).ID, c.Param("key"))
+	err := h.orch.RevokeKey(c.Request().Context(), middleware.Principal(c), c.Param("key"))
 	msg, ok := render.Refused(err)
 	if err != nil && !ok {
 		return middleware.HTTPError(err)

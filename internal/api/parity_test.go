@@ -26,20 +26,17 @@ func TestPromoteParity(t *testing.T) {
 		}
 		return rel.ID != ""
 	})
-	// shop's release aimed at blog/dev is blocked.
-	st, err := w.env.Orch.CreateStack(ctx, w.acme, "blog", "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := w.env.Orch.CreateEnv(
+	// shop's release aimed at a static env of the same stack is blocked.
+	var err error
+	if _, err = w.env.Orch.CreateEnv(
 		ctx,
-		st.ID,
-		"dev",
+		w.tile.Stack,
+		"qa",
 		service.EnvSpec{Type: "static", FromKind: "branch", FromBranch: "main"},
 	); err != nil {
 		t.Fatal(err)
 	}
-	const env = "/orgs/acme/stacks/blog/envs/dev"
+	const env = "/orgs/acme/stacks/shop/envs/qa"
 
 	code, body := w.do(t, w.owner, "GET", env+"/plan/"+rel.ID, "")
 	var pp service.PromotePlan
@@ -50,6 +47,18 @@ func TestPromoteParity(t *testing.T) {
 		t.Fatalf("plan = %s, want blocked", body)
 	}
 	want := strings.Join(pp.Plan.Blockers, "; ")
+
+	// a release of another stack is a 404 on every verb
+	w.env.Stack(t, w.acme, "web")
+	for _, verb := range []string{"plan", "promote", "rollback"} {
+		m := "POST"
+		if verb == "plan" {
+			m = "GET"
+		}
+		if code, _ := w.do(t, w.owner, m, "/orgs/acme/stacks/web/envs/dev/"+verb+"/"+rel.ID, ""); code != 404 {
+			t.Errorf("foreign release %s = %d, want 404", verb, code)
+		}
+	}
 
 	for _, verb := range []string{"promote", "rollback"} {
 		code, body := w.do(t, w.owner, "POST", env+"/"+verb+"/"+rel.ID, "")

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/FyrmForge/stackr/internal/service"
 	"github.com/FyrmForge/stackr/internal/web/webtest"
 )
 
@@ -21,7 +22,7 @@ func TestAccount(t *testing.T) {
 	if err := s.Orch.SetPassword(ctx, u, "0ld!Password"); err != nil {
 		t.Fatal(err)
 	}
-	_, k, err := s.Orch.MintKey(ctx, u, s.Org, "laptop")
+	_, k, err := s.Orch.MintKey(ctx, &service.Principal{User: service.User{ID: u}}, s.Org, "laptop", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -13,6 +13,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/domainres"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/params"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/settings"
+	"github.com/FyrmForge/stackr/internal/service/internal/planfile"
 	"github.com/FyrmForge/stackr/internal/service/internal/slug"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
@@ -52,7 +53,7 @@ func Export(live Live) ([]byte, error) {
 	f := File{Version: 1}
 	f.Settings = exportSettings(live)
 	if d := Defaults(live.Defaults); d != (Defaults{}) {
-		if pw := d.ProtectPassword; pw != nil && !strings.HasPrefix(strings.TrimSpace(*pw), "${{") {
+		if pw := d.ProtectPassword; pw != nil && !planfile.IsRef(*pw) {
 			d.ProtectUser, d.ProtectPassword = nil, nil
 		}
 		if d != (Defaults{}) {

@@ -162,8 +162,10 @@ func run(log *slog.Logger, generate bool) error {
 	// The installer's saved answers: the upgrade rebuilds the panel from
 	// the same spec the installer ran. None (dev) = no self-upgrade.
 	var spec func(string) service.ContainerSpec
+	var proxy func(string, string) service.ContainerSpec
 	if in, err := installspec.Load(envDataDir); err == nil {
 		spec = panelSpec(in)
+		proxy = proxySpec(in)
 	}
 
 	// The service tree: store, migrations, Docker, leaves and flows.
@@ -182,7 +184,9 @@ func run(log *slog.Logger, generate bool) error {
 		TLSOff:       tlsOff,
 		ProxyAdmin:   config.GetEnvOrDefault("STACKR_PROXY_ADMIN", ""),
 		PanelSpec:    spec,
+		ProxySpec:    proxy,
 		PanelBind:    envHost,
+		PanelPort:    envPort,
 
 		PanelDomain:    config.GetEnvOrDefault("PANEL_DOMAIN", ""),
 		RootDomain:     config.GetEnvOrDefault("ROOT_DOMAIN", ""),
@@ -275,6 +279,22 @@ func createAdmin(args []string, stdin io.Reader, out io.Writer) error {
 	}
 	_, _ = fmt.Fprintln(out, "admin", u.Email, "created")
 	return nil
+}
+
+// proxySpec builds the upgrade's proxy container from the install spec.
+func proxySpec(in installspec.Input) func(string, string) service.ContainerSpec {
+	return func(image, dnsToken string) service.ContainerSpec {
+		c := installspec.Proxy(image, in, dnsToken)
+		ports := map[string]string{}
+		for _, p := range c.Ports {
+			host, ctr, _ := strings.Cut(p, ":")
+			ports[host] = ctr
+		}
+		return service.ContainerSpec{
+			Name: c.Name, Image: c.Image, Cmd: c.Cmd, Env: c.Env, Labels: c.Labels,
+			Volumes: c.Volumes, Ports: ports, AnyIP: true, ExtraHosts: c.ExtraHosts, Restart: c.Restart,
+		}
+	}
 }
 
 // panelSpec builds the upgrade's panel container from the install spec.

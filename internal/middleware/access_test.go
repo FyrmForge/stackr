@@ -121,9 +121,9 @@ func TestAccess(t *testing.T) {
 		}
 	}
 
-	// The key path works on the web router too: one middleware.
-	if got := do(t, h, cookie, "/acme", cred{key: creds["owner"].key}); got != 200 {
-		t.Errorf("owner key on web = %d, want 200", got)
+	// The web is session only: a key there is a 401.
+	if got := do(t, h, cookie, "/acme", cred{key: creds["owner"].key}); got != 401 {
+		t.Errorf("owner key on web = %d, want 401", got)
 	}
 	// Session on the API router too.
 	if got := do(t, h, cookie, "/api/v1/orgs/acme", cred{session: creds["owner"].session}); got != 200 {

@@ -70,9 +70,9 @@ func TestHostAccessGate(t *testing.T) {
 // covered by the first tile's approved line.
 func TestHostSetLines(t *testing.T) {
 	a := store.Tile{Slug: "a", Volumes: "host:/srv:/srv:ro\nvol:/data", Devices: "/dev/dri", Privileged: true,
-		Lan: "192.168.1.10:8123\nall\nbogus", PublishedPorts: "8080:80\n5353:5353/udp\nbad", HostNetwork: true}
+		Lan: "192.168.1.10:8123\n10.1.2.3/8\nall\nbogus", PublishedPorts: "8080:80\n5353:5353/udp\nbad", HostNetwork: true}
 	want := []string{
-		"a device:/dev/dri", "a host:/srv:/srv:ro", "a lan:192.168.1.10:8123", "a lan:all",
+		"a device:/dev/dri", "a host:/srv:/srv:ro", "a lan:10.0.0.0/8", "a lan:192.168.1.10:8123",
 		"a network:host", "a port:5353/udp", "a port:8080", "a privileged",
 	}
 	if got := deploy.HostSet(a).Lines; !slices.Equal(got, want) {

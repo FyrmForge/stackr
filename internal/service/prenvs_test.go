@@ -47,8 +47,8 @@ func TestPREnvsOptIn(t *testing.T) {
 	}
 	pr := func(action string) {
 		t.Helper()
-		hook("pull_request", `{"action":"`+action+`","number":7,"repository":{"clone_url":"https://github.com/acme/shop.git"},`+
-			`"pull_request":{"head":{"ref":"feat","sha":"def5678"},"base":{"ref":"main"}}}`)
+		hook("pull_request", `{"action":"`+action+`","number":7,"repository":{"clone_url":"https://github.com/acme/shop.git","full_name":"acme/shop"},`+
+			`"pull_request":{"head":{"ref":"feat","sha":"def5678","repo":{"full_name":"acme/shop"}},"base":{"ref":"main"}}}`)
 	}
 	has := func() bool {
 		es, err := env.Orch.Envs(ctx, st.ID)
@@ -119,4 +119,57 @@ func TestPREnvsBadFileSaysWhy(t *testing.T) {
 		}
 		return false
 	})
+}
+
+// A pull request from a fork builds nothing unless pr_envs.forks is true.
+func TestPREnvsForks(t *testing.T) {
+	ctx := context.Background()
+	g := servicetest.NewGit(t)
+	env := servicetest.NewWith(t, []service.Option{g.Option()})
+	org := env.Org(t, "acme")
+	conn := env.Connector(t, org, "whsec")
+	st, err := env.Orch.CreateStack(ctx, org, "shop", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := env.Orch.SetConfigRepo(ctx, st.ID, conn, "acme/shop", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	hook := func(event, body string) {
+		t.Helper()
+		mac := hmac.New(sha256.New, []byte("whsec"))
+		mac.Write([]byte(body))
+		if err := env.Orch.Webhook(ctx, conn, event, "sha256="+hex.EncodeToString(mac.Sum(nil)), []byte(body)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	file := func(extra string) {
+		t.Helper()
+		sha := g.Commit(t, "acme/shop", "main", map[string]string{
+			"stackr-compose.yml": "version: 1\nstack: shop\nladder:\n  - dev\nhead: main\n" + extra,
+		})
+		hook("push", `{"ref":"refs/heads/main","after":"`+sha+`",`+
+			`"repository":{"clone_url":"https://github.com/acme/shop.git","default_branch":"main"},`+
+			`"commits":[{"modified":["stackr-compose.yml"]}]}`)
+	}
+	fork := func(n string) {
+		t.Helper()
+		hook("pull_request", `{"action":"opened","number":`+n+`,"repository":{"clone_url":"https://github.com/acme/shop.git","full_name":"acme/shop"},`+
+			`"pull_request":{"head":{"ref":"feat","sha":"def5678","repo":{"full_name":"mallory/shop"}},"base":{"ref":"main"}}}`)
+	}
+	has := func(name string) bool {
+		es, err := env.Orch.Envs(ctx, st.ID)
+		return err == nil && slices.ContainsFunc(es, func(e service.Environment) bool { return e.Name == name })
+	}
+	file("pr_envs:\n  enabled: true\n")
+	eventually(t, "dev", func() bool { return has("dev") })
+	fork("8")
+	file("pr_envs:\n  enabled: true\n") // queued behind the PR job
+	eventually(t, "the queue to drain", func() bool { return has("dev") })
+	if has("pr-8") {
+		t.Fatal("pr-8 made for a fork with forks off")
+	}
+	file("pr_envs:\n  enabled: true\n  forks: true\n")
+	fork("9")
+	eventually(t, "pr-9 made", func() bool { return has("pr-9") })
 }

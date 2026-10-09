@@ -28,6 +28,9 @@ type Table struct {
 	mu   sync.Mutex
 	vips map[string]Entry
 	base Base
+	// early are replicas at their health gate: their lan rules exist before
+	// the VIP routes to them (Allow); apply drops one once a VIP lists it.
+	early map[string][]string
 	// Restore applies a restore script, Exec runs an argv, Read runs one and
 	// returns its output; tests swap all three.
 	Restore func(ctx context.Context, script string) error
@@ -46,6 +49,38 @@ func (t *Table) Set(ctx context.Context, vip string, replicas, lan []string) err
 	next := clone(t.vips)
 	next[vip] = Entry{slices.Clone(replicas), slices.Clone(lan)}
 	return t.apply(ctx, next, t.base)
+}
+
+// Allow opens a tile's lan grants to one replica address before the VIP
+// routes to it, so an app that needs the LAN at start passes its health gate.
+// No lan clears it. Route's Set takes over once the replica is routed.
+func (t *Table) Allow(ctx context.Context, ip string, lan []string) error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if a, err := netip.ParseAddr(ip); err != nil || !a.Is4() {
+		return fmt.Errorf("vip: %q is not an IPv4 address", ip)
+	}
+	old, had := t.early[ip]
+	if len(lan) == 0 && !had {
+		return nil
+	}
+	if t.early == nil {
+		t.early = map[string][]string{}
+	}
+	if len(lan) == 0 {
+		delete(t.early, ip)
+	} else {
+		t.early[ip] = slices.Clone(lan)
+	}
+	if err := t.apply(ctx, clone(t.vips), t.base); err != nil {
+		if had {
+			t.early[ip] = old
+		} else {
+			delete(t.early, ip)
+		}
+		return err
+	}
+	return nil
 }
 
 // Legacy reports a host whose iptables lacks DOCKER-USER while Docker runs:
@@ -74,11 +109,16 @@ func (t *Table) Rebuild(ctx context.Context, all map[string]Entry, b Base) error
 
 // Merge rewrites the rules of every VIP in all and keeps the rest as they
 // are, with b as the filter inputs: a rebuild that could not read every tile
-// must not drop the ones it could not read.
-func (t *Table) Merge(ctx context.Context, all map[string]Entry, b Base) error {
+// must not drop the ones it could not read. drop names the VIPs that are
+// known to be gone (a deleted tile, a tile with no replicas): they go even
+// though the rebuild is partial.
+func (t *Table) Merge(ctx context.Context, all map[string]Entry, drop []string, b Base) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	next := clone(t.vips)
+	for _, v := range drop {
+		delete(next, v)
+	}
 	maps.Copy(next, clone(all))
 	return t.apply(ctx, next, b)
 }
@@ -97,13 +137,32 @@ func (t *Table) apply(ctx context.Context, next map[string]Entry, base Base) err
 			}
 		}
 	}
+	// Replicas a VIP routes to are no longer early.
+	early := maps.Clone(t.early)
+	if early == nil {
+		early = map[string][]string{}
+	}
+	for _, e := range next {
+		for _, ip := range e.Replicas {
+			delete(early, ip)
+		}
+	}
+	for _, l := range early {
+		for _, line := range l {
+			if _, err := parseLan(line); err != nil {
+				return err
+			}
+		}
+	}
 	if err := base.check(); err != nil {
 		return err
 	}
-	if err := t.Restore(ctx, Render(t.vips, next, base)); err != nil {
+	withEarly := base
+	withEarly.early = early
+	if err := t.Restore(ctx, Render(t.vips, next, withEarly)); err != nil {
 		return err
 	}
-	t.vips, t.base = next, base
+	t.vips, t.base, t.early = next, base, early
 	for _, hook := range []string{"PREROUTING", "OUTPUT"} {
 		// -C fails when the jump is missing; only then insert it.
 		if t.Exec(ctx, "iptables", "-t", "nat", "-C", hook, "-j", Chain) != nil {
@@ -115,7 +174,16 @@ func (t *Table) apply(ctx context.Context, next map[string]Entry, base Base) err
 	if !base.Range.IsValid() {
 		return nil
 	}
-	for _, h := range [][2]string{{"FORWARD", FwdChain}, {"INPUT", InChain}} {
+	// FWD hangs off DOCKER-USER, which Docker leaves alone on a restart; a
+	// host without it falls back to FORWARD.
+	fwd := "FORWARD"
+	if t.Exec(ctx, "iptables", "-S", "DOCKER-USER") == nil {
+		fwd = "DOCKER-USER"
+		// Delete until -D fails: the jump an older build left in FORWARD goes.
+		for t.Exec(ctx, "iptables", "-D", "FORWARD", "-j", FwdChain) == nil {
+		}
+	}
+	for _, h := range [][2]string{{fwd, FwdChain}, {"INPUT", InChain}} {
 		hook, chain := h[0], h[1]
 		// Docker puts its own jumps on top at every daemon start: ours must
 		// be rule 1, so anything else is removed and re-inserted there.

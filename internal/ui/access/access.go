@@ -6,6 +6,7 @@
 package access
 
 import (
+	"net/netip"
 	"net/url"
 	"slices"
 	"strings"
@@ -53,9 +54,6 @@ func Parse(line string) Perm {
 		p.Kind, p.Label, p.Chip, p.Detail = KindDevice, "Device", "device", perm[len("device:"):]
 	case strings.HasPrefix(perm, "lan:"):
 		p.Kind, p.Label, p.Chip, p.Detail = KindLAN, "LAN access", "lan", perm[len("lan:"):]
-		if p.Detail == "all" {
-			p.Detail = "all of the LAN"
-		}
 	case strings.HasPrefix(perm, "port:"):
 		p.Kind, p.Label, p.Chip, p.Detail = KindPort, "Server port", "port", perm[len("port:"):]
 	case isDockerSock(perm):
@@ -64,6 +62,41 @@ func Parse(line string) Perm {
 		p.Kind, p.Label, p.Chip, p.Detail = KindFolder, "Host folder", "folder", perm[len("host:"):]
 	}
 	return p
+}
+
+// Warn is the plain line for a LAN range that reaches more than the LAN:
+// the server's own addresses (addrs, the panel's among them), the cloud
+// metadata address or the tailnet range. "" = nothing to say.
+func (p Perm) Warn(addrs []string, panel string) string {
+	if p.Kind != KindLAN {
+		return ""
+	}
+	rng, _, _ := strings.Cut(p.Detail, ":")
+	if !strings.Contains(rng, "/") {
+		rng += "/32"
+	}
+	net, err := netip.ParsePrefix(rng)
+	if err != nil {
+		return ""
+	}
+	var hits []string
+	has := func(s string) bool { a, err := netip.ParseAddr(s); return err == nil && net.Contains(a) }
+	if slices.ContainsFunc(addrs, has) {
+		hits = append(hits, "this server")
+	}
+	if panel != "" && has(panel) {
+		hits = append(hits, "the panel")
+	}
+	if has("169.254.169.254") {
+		hits = append(hits, "the cloud metadata address")
+	}
+	if net.Overlaps(netip.MustParsePrefix("100.64.0.0/10")) {
+		hits = append(hits, "the tailnet range")
+	}
+	if len(hits) == 0 {
+		return ""
+	}
+	return "Also reaches " + strings.Join(hits, ", ") + "."
 }
 
 // isDockerSock: a host: perm whose source is the docker socket, or a folder

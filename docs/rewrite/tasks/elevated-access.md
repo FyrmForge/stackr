@@ -42,7 +42,7 @@ Probe containers on three env networks:
 | Docker socket | Controls every container on the server | built, as a host mount; show it as its own row |
 | Devices | A host device (GPU, USB, /dev/dri) | built (W5) |
 | Privileged | Every kernel capability, all devices | built (W5) |
-| LAN access | Listed addresses (IP or CIDR, optional port), or all of the LAN | new |
+| LAN access | Listed addresses (IP or CIDR, optional port),  | new |
 | Server ports | Bind listed ports on the server | new (today ungated) |
 | Host networking | The server's own network: discovery (mDNS, SSDP, DHCP), no isolation | new, full trust |
 

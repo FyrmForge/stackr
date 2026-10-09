@@ -705,9 +705,9 @@ templ peoplePanel(v TeamView) {
 						</span>
 						<form novalidate hx-post={ v.Base + "/team/members" } class="flex items-center gap-1.5">
 							<input type="hidden" name="email" value={ u.Email }/>
-							<select name="role" aria-label={ "Role for " + u.Name } class="input !w-24 !py-1 text-xs">
+							<select name="role" aria-label={ "Role for " + u.Name } class="input !w-56 !py-1 text-xs">
 								for _, r := range v.Roles {
-									<option value={ r } selected?={ r == "owner" }>{ r }</option>
+									<option value={ r } selected?={ r == "owner" }>{ r + ": " + roleHelp(r) }</option>
 								}
 							</select>
 							<button type="submit" class="btn btn-ghost btn-sm">Invite</button>
@@ -751,9 +751,9 @@ templ peopleList(v TeamView) {
 				</span>
 				if p.State == "member" && !p.Self {
 					<form novalidate hx-post={ v.Base + "/team/members/" + p.UserID + "/role" } class="flex items-center gap-1.5">
-						<select name="role" aria-label={ "Role for " + p.Name } class="input !w-24 !py-1 text-xs">
+						<select name="role" aria-label={ "Role for " + p.Name } class="input !w-56 !py-1 text-xs">
 							for _, r := range v.Roles {
-								<option value={ r } selected?={ r == p.Role }>{ r }</option>
+								<option value={ r } selected?={ r == p.Role }>{ r + ": " + roleHelp(r) }</option>
 							}
 						</select>
 						<button type="submit" class="btn btn-ghost btn-sm">Set</button>
@@ -775,6 +775,19 @@ templ peopleList(v TeamView) {
 	</ul>
 }
 
+// roleHelp is the one line under each role in a picker.
+func roleHelp(r string) string {
+	switch r {
+	case "viewer":
+		return "Sees everything, changes nothing."
+	case "member":
+		return "Deploys and edits stacks."
+	case "owner":
+		return "Also people and org settings."
+	}
+	return ""
+}
+
 // roleButtons is the role picker as a segmented control: the radio hides
 // and its label carries the checked state.
 templ roleButtons(roles []string) {
@@ -784,7 +797,10 @@ templ roleButtons(roles []string) {
 			for _, r := range roles {
 				<label class="flex-1 cursor-pointer">
 					<input type="radio" name="role" value={ r } checked?={ r == "owner" } class="peer sr-only"/>
-					<span class="block text-center rounded-lg border border-rw-border bg-rw-inset px-3 py-1.5 text-sm text-rw-muted transition-colors hover:text-rw-text peer-checked:border-rw-accent peer-checked:bg-rw-accent/10 peer-checked:text-rw-text peer-focus-visible:ring-2 peer-focus-visible:ring-rw-accent/40">{ r }</span>
+					<span class="block text-center rounded-lg border border-rw-border bg-rw-inset px-3 py-1.5 text-sm text-rw-muted transition-colors hover:text-rw-text peer-checked:border-rw-accent peer-checked:bg-rw-accent/10 peer-checked:text-rw-text peer-focus-visible:ring-2 peer-focus-visible:ring-rw-accent/40">
+						{ r }
+						<span class="block text-xs text-rw-faint">{ roleHelp(r) }</span>
+					</span>
 				</label>
 			}
 		</div>

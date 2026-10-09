@@ -55,7 +55,14 @@ func (a *Access) Browser() *hamrmw.BrowserAuth { return a.browser }
 
 // Load puts the principal in the context. A bearer token that matches no
 // key is a 401; no credentials at all is an anonymous request.
-func (a *Access) Load() echo.MiddlewareFunc {
+func (a *Access) Load() echo.MiddlewareFunc { return a.load(true) }
+
+// LoadSession is Load for the web: the browser session only. A bearer
+// header there is a 401, so no key reaches a page route (its guards live on
+// the API and in the service, not on every form).
+func (a *Access) LoadSession() echo.MiddlewareFunc { return a.load(false) }
+
+func (a *Access) load(keys bool) echo.MiddlewareFunc {
 	session := a.browser.Load()
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		viaSession := session(next)
@@ -63,6 +70,9 @@ func (a *Access) Load() echo.MiddlewareFunc {
 			token, ok := strings.CutPrefix(c.Request().Header.Get(echo.HeaderAuthorization), "Bearer ")
 			if !ok {
 				return viaSession(c)
+			}
+			if !keys {
+				return echo.NewHTTPError(http.StatusUnauthorized, "API keys do not open web pages")
 			}
 			p, err := a.orch.KeyPrincipal(c.Request().Context(), strings.TrimSpace(token))
 			if errors.Is(err, errs.ErrNotFound) {
@@ -100,11 +110,20 @@ func (a *Access) Require(v authz.Verb) echo.MiddlewareFunc {
 			if s.Org != nil {
 				r.OrgID = s.Org.ID
 			}
+			if s.Stack != nil {
+				r.StackID = s.Stack.ID
+			}
+			// An org-level route naming a child (job, volume) takes the
+			// child's stack, so a stack key can follow its own rows.
+			stack, cerr := a.children(c, s)
+			if r.StackID == "" {
+				r.StackID = stack
+			}
+			if cerr != nil {
+				return cerr // before authz, so a missing id and a foreign one both answer 404
+			}
 			if err := authz.Can(p.Access, v, r); err != nil {
 				return HTTPError(err)
-			}
-			if err := a.children(c, s); err != nil {
-				return err
 			}
 			if s.Org != nil && s.Org.SetupDoneAt == nil && !setupOpen(c) {
 				return SetupPending{
@@ -228,31 +247,44 @@ func KnownParam(name string) bool {
 	return child || byVerb[name]
 }
 
-// children refuses a child id from another org with the same 404 as a
-// missing one. An unlisted param fails closed.
-// ponytail: org-level only; v1 roles are per org, so an id of another tile
-// in the same org reaches nothing the caller cannot already reach.
-func (a *Access) children(c echo.Context, s service.Scope) error {
+// children refuses a child id from another org, or from another stack, env
+// or tile than the route names, with the same 404 as a missing one. An
+// unlisted param fails closed. It returns the stack the children sit in, for
+// an org-level route that names none.
+func (a *Access) children(c echo.Context, s service.Scope) (string, error) {
+	var stack string
 	for _, name := range c.ParamNames() {
 		kind, child := childKinds[name]
 		if !child {
 			if byVerb[name] {
 				continue
 			}
-			return echo.NewHTTPError(http.StatusInternalServerError, "route param "+name+" has no org check")
+			return "", echo.NewHTTPError(http.StatusInternalServerError, "route param "+name+" has no org check")
 		}
 		if s.Org == nil {
 			continue // an org-less route: its verb is admin-level
 		}
-		org, err := a.orch.OrgOf(c.Request().Context(), kind, c.Param(name))
+		ch, err := a.orch.ChildOf(c.Request().Context(), kind, c.Param(name))
 		if err != nil && !errors.Is(err, errs.ErrNotFound) {
-			return err
+			return "", err
 		}
-		if err != nil || org != s.Org.ID {
-			return echo.NewHTTPError(http.StatusNotFound)
+		if err != nil || ch.Org != s.Org.ID ||
+			differs(ch.Stack, s.Stack, func(x *service.Stack) string { return x.ID }) ||
+			differs(ch.Env, s.Env, func(x *service.Environment) string { return x.ID }) ||
+			differs(ch.Tile, s.Tile, func(x *service.Tile) string { return x.ID }) ||
+			(stack != "" && ch.Stack != "" && ch.Stack != stack) {
+			return "", echo.NewHTTPError(http.StatusNotFound)
+		}
+		if ch.Stack != "" {
+			stack = ch.Stack
 		}
 	}
-	return nil
+	return stack, nil
+}
+
+// differs: the row sits at a level the route also names, and not the same one.
+func differs[T any](row string, route *T, id func(*T) string) bool {
+	return row != "" && route != nil && row != id(route)
 }
 
 // Principal is the loaded principal, nil for an anonymous request.

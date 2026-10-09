@@ -13,6 +13,11 @@ type APIKey struct {
 	Name      string    `db:"name" json:"name"`
 	TokenHash string    `db:"token_hash" json:"-"`
 	CreatedAt time.Time `db:"created_at" json:"created_at"`
+	// Level is the key's ceiling: "" none, else viewer|member|owner|admin.
+	Level string `db:"level" json:"level"`
+	// StackID narrows the key to one stack; Stack is its slug, filled on list.
+	StackID *string `db:"stack_id" json:"-"`
+	Stack   string  `db:"-" json:"stack"`
 }
 
 type APIKeyStore interface {

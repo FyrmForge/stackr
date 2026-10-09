@@ -20,6 +20,7 @@ type (
 type Principal struct {
 	User   User
 	Access authz.User
+	KeyID  string // the API key behind the request, "" for a session
 }
 
 // SessionPrincipal loads the principal behind a browser session.
@@ -28,7 +29,7 @@ func (o *Orchestrator) SessionPrincipal(ctx context.Context, userID string) (*Pr
 	if err != nil {
 		return nil, err
 	}
-	return o.principal(ctx, u, false, "")
+	return o.principal(ctx, u, nil)
 }
 
 // KeyPrincipal loads the principal behind a bearer token. The key carries
@@ -38,29 +39,35 @@ func (o *Orchestrator) KeyPrincipal(ctx context.Context, token string) (*Princip
 	if err != nil {
 		return nil, err
 	}
-	org := ""
-	if k.OrgID != nil {
-		org = *k.OrgID
+	p, err := o.principal(ctx, u, &k)
+	if p != nil {
+		p.KeyID = k.ID
 	}
-	return o.principal(ctx, u, true, org)
+	return p, err
 }
 
-func (o *Orchestrator) principal(ctx context.Context, u User, key bool, keyOrg string) (*Principal, error) {
+func (o *Orchestrator) principal(ctx context.Context, u User, k *store.APIKey) (*Principal, error) {
 	roles, err := o.orgs.Roles(ctx, u.ID)
 	if err != nil {
 		return nil, err
 	}
-	return &Principal{
-		User: u,
-		Access: authz.User{
-			ID:     u.ID,
-			Admin:  u.Admin(),
-			Active: u.Active,
-			Roles:  roles,
-			Key:    key,
-			KeyOrg: keyOrg,
-		},
-	}, nil
+	a := authz.User{ID: u.ID, Admin: u.Admin(), Active: u.Active, Roles: roles}
+	if k != nil {
+		a.Key = true
+		if k.OrgID != nil {
+			a.KeyOrg = *k.OrgID
+		}
+		if k.StackID != nil {
+			a.KeyStack = *k.StackID
+		}
+		var ok bool
+		a.KeyLevel, ok = authz.ParseLevel(k.Level)
+		a.KeyCapped = ok
+		if k.Level != "" && !ok {
+			return nil, errs.ErrNotFound // an unknown ceiling fails closed, not as no ceiling
+		}
+	}
+	return &Principal{User: u, Access: a}, nil
 }
 
 // Scope is what /:org/:stack/:env/:tile resolved to; nil past the last

@@ -54,6 +54,11 @@ func spec(t store.Tile, r resolved) docker.ContainerSpec {
 		HealthRetries:      t.HealthcheckRetries,
 		HealthStartPeriodS: t.HealthcheckStartPeriodS,
 	}
+	// Bridge tiles lose NET_RAW (address spoofing past the LAN grants); a
+	// host-network or privileged tile keeps it.
+	if !r.hostNet && !r.privileged {
+		s.CapDrop = []string{"NET_RAW"}
+	}
 	s.Labels = map[string]string{LabelRef: cmp.Or(r.pinRef, r.image)}
 	// Docker's 30s default would hold the deploy gate half a minute for the
 	// first check.

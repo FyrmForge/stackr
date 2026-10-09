@@ -64,6 +64,8 @@ func (d *Client) Create(ctx context.Context, spec ContainerSpec) (string, error)
 		RestartPolicy: container.RestartPolicy{Name: container.RestartPolicyMode(spec.Restart)},
 		Privileged:    spec.Privileged,
 		CapAdd:        spec.CapAdd,
+		ExtraHosts:    spec.ExtraHosts,
+		CapDrop:       spec.CapDrop,
 		ShmSize:       int64(spec.ShmSizeMB) << 20,
 		Resources: container.Resources{
 			NanoCPUs: int64(spec.CPULimit * 1e9),
@@ -75,7 +77,7 @@ func (d *Client) Create(ctx context.Context, spec ContainerSpec) (string, error)
 	if spec.HostNetwork {
 		hostCfg.NetworkMode = network.NetworkHost
 	} else {
-		cfg.ExposedPorts, hostCfg.PortBindings = portBindings(spec.Ports)
+		cfg.ExposedPorts, hostCfg.PortBindings = portBindings(spec.Ports, spec.AnyIP)
 		netCfg = &network.NetworkingConfig{EndpointsConfig: map[string]*network.EndpointSettings{}}
 		for _, n := range spec.Networks {
 			netCfg.EndpointsConfig[n.Name] = &network.EndpointSettings{Aliases: n.Aliases}
@@ -119,7 +121,7 @@ func (d *Client) Wait(ctx context.Context, id string) (int, error) {
 }
 
 // portBindings: ports is keyed by host[/udp], valued by container[/udp].
-func portBindings(ports map[string]string) (nat.PortSet, nat.PortMap) {
+func portBindings(ports map[string]string, anyIP bool) (nat.PortSet, nat.PortMap) {
 	if len(ports) == 0 {
 		return nil, nil
 	}
@@ -132,7 +134,11 @@ func portBindings(ports map[string]string) (nat.PortSet, nat.PortMap) {
 		exposed[p] = struct{}{}
 		// a udp key is "host/udp" so both protocols of a port survive
 		hp, _, _ := strings.Cut(host, "/")
-		bindings[p] = append(bindings[p], nat.PortBinding{HostIP: "0.0.0.0", HostPort: hp})
+		ip := "0.0.0.0"
+		if anyIP {
+			ip = "" // docker's default: both families
+		}
+		bindings[p] = append(bindings[p], nat.PortBinding{HostIP: ip, HostPort: hp})
 	}
 	return exposed, bindings
 }
@@ -159,6 +165,11 @@ func (d *Client) Restart(ctx context.Context, id string) error {
 func (d *Client) StopRemove(ctx context.Context, id string) error {
 	_ = d.cli.ContainerStop(ctx, id, container.StopOptions{})
 	return wrap(d.cli.ContainerRemove(ctx, id, container.RemoveOptions{Force: true, RemoveVolumes: true}))
+}
+
+// Rename gives a container another name (its id and networks stay).
+func (d *Client) Rename(ctx context.Context, id, name string) error {
+	return wrap(d.cli.ContainerRename(ctx, id, name))
 }
 
 // Pause is SIGSTOP via the cgroup: files stop changing, which makes a tar of
@@ -244,7 +255,7 @@ func (d *Client) Inspect(ctx context.Context, id string) (Detail, error) {
 		Networks:     map[string]string{},
 	}
 	if info.Config != nil {
-		det.Image = info.Config.Image
+		det.Image, det.Env = info.Config.Image, info.Config.Env
 		if h := info.Config.Healthcheck; h != nil {
 			det.HealthInterval, det.HealthStartPeriod, det.HealthRetries = h.Interval, h.StartPeriod, h.Retries
 		}

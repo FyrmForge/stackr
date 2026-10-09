@@ -19,6 +19,7 @@ import (
 	"maps"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
@@ -64,6 +65,10 @@ type Flow struct {
 	// DataDir is where fileBinds writes a tile's config files; set from
 	// Config.DataDir.
 	DataDir string
+
+	// VIPLock, when set, is held while route reads the grants and sets the
+	// VIP, so a revoke's rebuild (which holds it) cannot be overwritten.
+	VIPLock sync.Locker
 
 	// Sync re-pushes the proxy config (leaf/domain Syncer.Sync); nil = none.
 	Sync func(context.Context) error
@@ -468,6 +473,21 @@ func (f *Flow) route(ctx context.Context, t store.Tile, e store.Environment) err
 		}
 		return f.Sync(ctx)
 	}
+	if err := f.routeVIP(ctx, t, e); err != nil {
+		return err
+	}
+	if f.Sync == nil {
+		return nil
+	}
+	return f.Sync(ctx)
+}
+
+// routeVIP reads the grants and sets the VIP as one step under VIPLock.
+func (f *Flow) routeVIP(ctx context.Context, t store.Tile, e store.Environment) error {
+	if f.VIPLock != nil {
+		f.VIPLock.Lock()
+		defer f.VIPLock.Unlock()
+	}
 	var lan []string
 	if f.HostGrants != nil {
 		g, err := f.HostGrants.Of(ctx, t.StackID)
@@ -476,13 +496,7 @@ func (f *Flow) route(ctx context.Context, t store.Tile, e store.Environment) err
 		}
 		lan = LanLines(g, t)
 	}
-	if err := f.Tiles.Route(ctx, t, e.Network, lan); err != nil {
-		return err
-	}
-	if f.Sync == nil {
-		return nil
-	}
-	return f.Sync(ctx)
+	return f.Tiles.Route(ctx, t, e.Network, lan)
 }
 
 // LanLines are the "lan:..." perms (slug stripped) t asks for and g holds.
@@ -513,6 +527,12 @@ func (f *Flow) resolve(
 	}
 	rr := params.NewResolver(snap)
 	r := resolved{name: "stackr-" + t.Slug + "-" + short(t.ID) + "-" + rnd()}
+
+	// PR envs never hold grants (a fork PR runs unreviewed code): a tile
+	// asking for host access is not deployed there, and does not park.
+	if e.Type == environment.Ephemeral && !HostSet(t).Empty() {
+		return r, errs.Conflictf("%s asks for elevated host access; PR envs never get it, so it is not deployed", t.Slug)
+	}
 
 	// Host access first: a tile the grant does not cover parks before
 	// anything else is read or changed.

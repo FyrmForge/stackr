@@ -16,7 +16,7 @@ var StaticManifest = map[string]string{
 	"js/elements/log-pane.js": "js/elements/log-pane.695cb2926c42.js",
 	"js/elements/password-toggle.js": "js/elements/password-toggle.cf296dcb046e.js",
 	"js/elements/side-drawer.js": "js/elements/side-drawer.ef4983d8a67f.js",
-	"js/elements/term-pane.js": "js/elements/term-pane.2e1d4cd30950.js",
+	"js/elements/term-pane.js": "js/elements/term-pane.70f08ef74b6d.js",
 	"js/elements/theme-toggle.js": "js/elements/theme-toggle.2b6c88b4c400.js",
 	"js/main.js": "js/main.df85fec68818.js",
 	"js/vendor/htmx.min.js": "js/vendor/htmx.min.e209dda5c823.js",

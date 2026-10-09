@@ -560,20 +560,29 @@ func ParsePort(l string) (host, cont int, proto string, err error) {
 	return host, cont, proto, nil
 }
 
-// LANRule is one parsed lan line: everything the baseline blocks (All), or
-// an address or range, optionally narrowed to one port (0 = every port).
+// LANRule is one parsed lan line: an IPv4 address or range (Net is masked,
+// 0.0.0.0/0 included), optionally narrowed to one port (0 = every port).
 type LANRule struct {
-	All  bool
 	Net  netip.Prefix
 	Port int
 }
 
-// ParseLAN: "all", or "<ip|cidr>[:port]" (port 1-65535).
-func ParseLAN(l string) (LANRule, error) {
-	bad := fmt.Errorf("%q: want all, or an IP or CIDR with an optional :port", l)
-	if l == "all" {
-		return LANRule{All: true}, nil
+// String is the normalized line: the masked range (a single address bare),
+// then ":port".
+func (r LANRule) String() string {
+	s := r.Net.String()
+	if r.Net.IsSingleIP() {
+		s = r.Net.Addr().String()
 	}
+	if r.Port != 0 {
+		s += ":" + strconv.Itoa(r.Port)
+	}
+	return s
+}
+
+// ParseLAN: "<ip|cidr>[:port]" (port 1-65535); the range is stored masked.
+func ParseLAN(l string) (LANRule, error) {
+	bad := fmt.Errorf("%q: want an IP or CIDR with an optional :port", l)
 	net, p, hasPort := l, "", false
 	if _, ok := lanNet(l); !ok {
 		if i := strings.LastIndex(l, ":"); i >= 0 {
@@ -588,6 +597,7 @@ func ParseLAN(l string) (LANRule, error) {
 	if !r.Net.Addr().Is4() {
 		return r, fmt.Errorf("%q: lan takes IPv4 addresses only", l)
 	}
+	r.Net = r.Net.Masked()
 	if hasPort {
 		if !port(p) {
 			return r, bad

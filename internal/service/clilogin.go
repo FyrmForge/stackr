@@ -29,7 +29,12 @@ type cliCodes struct {
 // CLICode is the browser half of CLI login: the signed-in user approves,
 // and gets a one-time code for the CLI to exchange. The code, not the key,
 // passes through the browser.
-func (o *Orchestrator) CLICode(ctx context.Context, userID, orgID, name string) (string, error) {
+func (o *Orchestrator) CLICode(ctx context.Context, by *Principal, orgID, name string) (string, error) {
+	// the code buys an uncapped key, so a limited key may not ask for one
+	if by.Access.KeyCapped || by.Access.KeyStack != "" {
+		return "", errs.Refusedf("a key with a role or stack limit cannot approve a CLI login")
+	}
+	userID := by.User.ID
 	b := make([]byte, 32)
 	if _, err := rand.Read(b); err != nil {
 		return "", err
@@ -68,5 +73,5 @@ func (o *Orchestrator) ExchangeCLICode(ctx context.Context, code string) (string
 	if !ok || time.Now().After(v.exp) {
 		return "", APIKey{}, errs.Invalidf("code", "login code is unknown, used or expired")
 	}
-	return o.MintKey(ctx, v.userID, v.orgID, v.name)
+	return o.mintKey(ctx, v.userID, v.orgID, v.name, "", "") // a CLI login: no ceiling, no stack
 }

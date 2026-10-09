@@ -37,12 +37,33 @@ type MemberRow struct{ UserID, Name, Email, Role string }
 type InviteRow struct{ ID, Email, Role, Expires, Link string } // Link: the full invite URL
 
 type KeysView struct {
-	Base   string // POST /keys (name), /keys/<id>/revoke
+	Base   string // POST /keys (name, level, stack), /keys/<id>/revoke
 	Minted string // the token a mint just made; "" = none
+	Roles  []string // the ceilings the viewer may mint: up to their own role (admin only for admins)
+	Stacks []StackOpt // the org's stacks, for a key limited to one
 	Keys   []KeyRow
 }
 
-type KeyRow struct{ ID, Name, Created string }
+type StackOpt struct{ Slug, Name string }
+
+// KeyRow: Role is the key's ceiling ("" = the user's full rights), Stack the
+// slug it is limited to ("" = the whole org).
+type KeyRow struct{ ID, Name, Created, Role, Stack string }
+
+// roleHelp is the one line under each role in a picker.
+func roleHelp(r string) string {
+	switch r {
+	case "viewer":
+		return "Sees everything, changes nothing."
+	case "member":
+		return "Deploys and edits stacks."
+	case "owner":
+		return "Also people and org settings."
+	case "admin":
+		return "Server admin, every org."
+	}
+	return ""
+}
 
 // DomainsView is v0's orgDomainsPage: the org's domain resources, then the
 // instance's it also names tiles under.
@@ -143,7 +164,10 @@ templ roleButtons(roles []string, name, picked string) {
 		for _, r := range roles {
 			<label class="flex-1">
 				<input type="radio" name={ name } value={ r } checked?={ r == picked } class="peer sr-only"/>
-				<span class="block text-center rounded-lg border border-rw-border bg-rw-inset px-3 py-1.5 text-sm text-rw-muted transition-colors hover:text-rw-text cursor-pointer peer-checked:border-rw-accent peer-checked:bg-rw-accent/10 peer-checked:text-rw-text peer-focus-visible:ring-2 peer-focus-visible:ring-rw-accent/40">{ r }</span>
+				<span class="block text-center rounded-lg border border-rw-border bg-rw-inset px-3 py-1.5 text-sm text-rw-muted transition-colors hover:text-rw-text cursor-pointer peer-checked:border-rw-accent peer-checked:bg-rw-accent/10 peer-checked:text-rw-text peer-focus-visible:ring-2 peer-focus-visible:ring-rw-accent/40">
+					{ r }
+					<span class="block text-xs text-rw-faint">{ roleHelp(r) }</span>
+				</span>
 			</label>
 		}
 	</div>
@@ -171,7 +195,7 @@ templ Members(v MembersView) {
 				</form>
 			}
 		}
-		@c.Section("People", "organization", "Everyone here is an owner, with full control of the organization.") {
+		@c.Section("People", "organization", "Viewers see everything. Members deploy and edit stacks. Owners also manage people and settings.") {
 			<ul class="space-y-2">
 				for _, m := range v.Members {
 					<li class="panel px-3 py-2.5 flex flex-wrap items-center gap-2">
@@ -184,7 +208,7 @@ templ Members(v MembersView) {
 						</span>
 						if v.Manage && m.UserID != v.Self {
 							<form novalidate hx-post={ v.Base + "/members/" + m.UserID + "/role" } hx-target={ target() } hx-swap="outerHTML" class="flex items-center gap-2">
-								<select name="role" class="input !w-24 !py-1 text-xs" aria-label={ "Role of " + m.Email }>
+								<select name="role" class="input !w-28 !py-1 text-xs" aria-label={ "Role of " + m.Email }>
 									for _, r := range v.Roles {
 										<option value={ r } selected?={ r == m.Role }>{ r }</option>
 									}
@@ -227,6 +251,13 @@ templ Members(v MembersView) {
 	</div>
 }
 
+func stackWord(slug string) string {
+	if slug == "" {
+		return "whole org"
+	}
+	return slug
+}
+
 func nameOr(name, email string) string {
 	if name != "" {
 		return name
@@ -239,6 +270,25 @@ templ Keys(v KeysView) {
 		@c.Section("Mint a key", "organization", "An API key for the stackr CLI, scoped to this organization. It is shown once, when minted.") {
 			<form novalidate hx-post={ v.Base + "/keys" } hx-target={ target() } hx-swap="outerHTML" class="space-y-4">
 				@c.Field(c.FieldView{Name: "key_name", Label: "Name", Placeholder: "laptop", Required: true})
+				if len(v.Roles) > 0 {
+					<div>
+						<label for="key-level" class="label">Role</label>
+						<select id="key-level" name="level" class="input">
+							for _, r := range v.Roles {
+								<option value={ r } selected?={ r == "member" }>{ r + ": " + roleHelp(r) }</option>
+							}
+						</select>
+					</div>
+				}
+				<div>
+					<label for="key-stack" class="label">Stack</label>
+					<select id="key-stack" name="stack" class="input">
+						<option value="">Whole org</option>
+						for _, st := range v.Stacks {
+							<option value={ st.Slug }>{ nameOr(st.Name, st.Slug) }</option>
+						}
+					</select>
+				</div>
 				<button type="submit" class="btn btn-primary btn-sm">Mint key</button>
 			</form>
 			if v.Minted != "" {
@@ -262,6 +312,10 @@ templ Keys(v KeysView) {
 							<span class="min-w-0">
 								<span class="text-sm text-rw-text">{ k.Name }</span>
 								<span class="text-rw-faint text-xs">{ k.Created }</span>
+								if k.Role != "" {
+									<span class="text-xs px-1.5 py-0.5 rounded bg-rw-inset text-rw-muted">{ k.Role }</span>
+								}
+								<span class="text-xs px-1.5 py-0.5 rounded bg-rw-inset text-rw-muted">{ stackWord(k.Stack) }</span>
 							</span>
 							@c.Confirm(c.ConfirmView{
 								Button:  "Revoke",

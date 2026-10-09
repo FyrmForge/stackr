@@ -57,6 +57,7 @@ type View struct {
 	Stopped  bool   // offer Start, not Stop / Restart
 	Paused   bool   // cron: offer Resume
 	Terminal bool   // the viewer may open a shell (tile.write): show the Terminal tab
+	ReadOnly bool   // the viewer may not write: no action buttons, no Access or Settings tab
 	Location string // "stack / env"
 	EnvColor string
 
@@ -81,17 +82,20 @@ func (v View) tabs() []string {
 	if i := slices.Index(t, "logs"); v.Terminal && v.Kind != "cron" && v.Kind != "function" {
 		t = slices.Insert(slices.Clone(t), i+1, "terminal")
 	}
+	if v.ReadOnly {
+		t = slices.DeleteFunc(slices.Clone(t), func(k string) bool { return k == "access" || k == "settings" })
+	}
 	return t
 }
 
 // Tab is the tab a request asks for, as the kind has it: the old domains
 // and image tabs live in Settings now. terminal says the Terminal tab is
 // offered.
-func Tab(kind, tab string, terminal bool) string {
+func Tab(kind, tab string, terminal, readOnly bool) string {
 	if tab == "domains" || tab == "image" {
 		tab = "settings"
 	}
-	if !slices.Contains(View{Kind: kind, Terminal: terminal}.tabs(), tab) {
+	if !slices.Contains(View{Kind: kind, Terminal: terminal, ReadOnly: readOnly}.tabs(), tab) {
 		return Tabs(kind)[0]
 	}
 	return tab

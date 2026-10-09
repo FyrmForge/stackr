@@ -347,3 +347,49 @@ func (e *Env) QueuedJob(t *testing.T, orgID, tileID string) string {
 	}))
 	return id
 }
+
+// Release seeds a release of the stack and returns its id.
+func (e *Env) Release(t *testing.T, stackID string, number int) string {
+	t.Helper()
+	id := uuid.NewString()
+	must(t, e.Store.Releases.Create(context.Background(), store.Release{
+		ID: id, StackID: stackID, Number: number, CreatedAt: now,
+	}))
+	return id
+}
+
+// Volume seeds a volume under scope (org, env or stack) and returns its id.
+func (e *Env) Volume(t *testing.T, kind, scopeID, slug string) string {
+	t.Helper()
+	id := uuid.NewString()
+	must(t, e.Store.Volumes.Create(context.Background(), store.Volume{
+		ID: id, ScopeKind: kind, ScopeID: scopeID, Slug: slug, Name: slug, CreatedAt: now,
+	}))
+	return id
+}
+
+// Domain seeds a domain row on the tile and returns its id.
+func (e *Env) Domain(t *testing.T, tileID, host string) string {
+	t.Helper()
+	id := uuid.NewString()
+	must(t, e.Store.Domains.Create(context.Background(), store.Domain{
+		ID: id, TileID: tileID, Host: host, HTTPS: true, ProxyJSON: "{}", CreatedAt: now,
+	}))
+	return id
+}
+
+// Stack seeds a second stack in the org with one env "dev" and one tile
+// "api", for tests that need a stack the first one's key must not reach.
+func (e *Env) Stack(t *testing.T, orgID, slug string) Tile {
+	t.Helper()
+	ctx := context.Background()
+	st, err := e.Orch.CreateStack(ctx, orgID, slug, "")
+	must(t, err)
+	en, err := e.Orch.CreateEnv(ctx, st.ID, "dev", service.EnvSpec{Type: "static", FromKind: "branch", FromBranch: "main"})
+	must(t, err)
+	tl, err := e.Orch.CreateTile(ctx, service.Tile{
+		StackID: st.ID, EnvironmentID: en.ID, Name: "api", Kind: "image", ImageRef: "nginx:1", ContainerPort: 80,
+	})
+	must(t, err)
+	return Tile{Stack: st.ID, Env: en.ID, ID: tl.ID}
+}

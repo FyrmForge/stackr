@@ -81,3 +81,16 @@ func TestBlockerAndFileOwned(t *testing.T) {
 		t.Error("a config-managed stack's default access must not post")
 	}
 }
+
+// A read-only slice drawer has no forms and no delete.
+func TestReadOnlyNoWrites(t *testing.T) {
+	var b strings.Builder
+	if err := Overview(View{Base: "/e", Name: "db", ReadOnly: true, Provisioned: true}).Render(context.Background(), &b); err != nil {
+		t.Fatal(err)
+	}
+	for _, w := range []string{"<form", "Delete tile"} {
+		if strings.Contains(b.String(), w) {
+			t.Errorf("read-only drawer has %q", w)
+		}
+	}
+}

@@ -48,7 +48,7 @@ func TestIptables(t *testing.T) {
 	// even after a second apply and after another rule lands on top.
 	base := Base{Range: netip.MustParsePrefix("10.213.0.0/16"), Resolvers: []string{"192.168.1.1"}, ProxyIP: "172.17.0.2", PanelBind: "172.17.0.1", PanelPort: 8080}
 	t.Cleanup(func() {
-		for _, h := range [][2]string{{"FORWARD", FwdChain}, {"INPUT", InChain}} {
+		for _, h := range [][2]string{{"DOCKER-USER", FwdChain}, {"INPUT", InChain}} {
 			_ = run(ctx, "iptables", "-D", h[0], "-j", h[1])
 			_ = run(ctx, "iptables", "-F", h[1])
 			_ = run(ctx, "iptables", "-X", h[1])
@@ -57,16 +57,16 @@ func TestIptables(t *testing.T) {
 	if err := tb.Rebuild(ctx, nil, base); err != nil {
 		t.Fatal(err)
 	}
-	if err := run(ctx, "iptables", "-I", "FORWARD", "1", "-j", "ACCEPT"); err != nil { // a foreign rule on top
+	if err := run(ctx, "iptables", "-I", "DOCKER-USER", "1", "-j", "ACCEPT"); err != nil { // a foreign rule on top
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = run(ctx, "iptables", "-D", "FORWARD", "-j", "ACCEPT") })
+	t.Cleanup(func() { _ = run(ctx, "iptables", "-D", "DOCKER-USER", "-j", "ACCEPT") })
 	if err := tb.Rebuild(ctx, nil, base); err != nil { // same base: the jump moves back to 1
 		t.Fatal(err)
 	}
-	out, _ := exec.Command("iptables", "-S", "FORWARD").CombinedOutput()
-	if lines := strings.Split(string(out), "\n"); lines[1] != "-A FORWARD -j "+FwdChain || strings.Count(string(out), FwdChain) != 1 {
-		t.Fatalf("FORWARD:\n%s", out)
+	out, _ := exec.Command("iptables", "-S", "DOCKER-USER").CombinedOutput()
+	if lines := strings.Split(string(out), "\n"); lines[1] != "-A DOCKER-USER -j "+FwdChain || strings.Count(string(out), FwdChain) != 1 {
+		t.Fatalf("DOCKER-USER:\n%s", out)
 	}
 	out, _ = exec.Command("iptables", "-S", FwdChain).CombinedOutput()
 	if s := string(out); strings.LastIndex(s, "RETURN") > strings.Index(s, "-d 10.0.0.0/8 -j DROP") {

@@ -98,11 +98,12 @@ func TestRouteTable(t *testing.T) {
 // (403 on an admin verb), an owner below an admin verb is 403.
 func TestEveryRouteGated(t *testing.T) {
 	w := newWorld(t)
+	dom := w.env.Domain(t, w.tile.ID, "gated.example.com") // a real child id: a missing one is 404 before the gate
 	for _, r := range api.Routes(&v1.H{}) {
 		if r.Verb == api.Public {
 			continue
 		}
-		path := fill(r.Path)
+		path := strings.Replace(fill(r.Path), "/domains/x", "/domains/"+dom, 1)
 		if got, _ := w.do(t, "", r.Method, path, "{}"); got != 401 {
 			t.Errorf("anonymous %s %s = %d, want 401", r.Method, path, got)
 		}

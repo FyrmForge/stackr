@@ -392,6 +392,25 @@ func TestPromoteRegistersCron(t *testing.T) {
 	}
 }
 
+// StopRun on a run whose job already finished still closes the row.
+func TestStopRunJobAlreadyFinished(t *testing.T) {
+	w := newWorld(t)
+	w.fake.WaitBlock = true
+	ctx := context.Background()
+	cron := w.promoteCron(t)
+	j, r, err := w.orch.RunTile(ctx, cron.ID)
+	must(t, err)
+	must(t, w.orch.jobs.Cancel(ctx, j.ID))
+	w.wait(t, j.ID)
+	// the row may have closed itself; reopen it so the finished-job path runs
+	_, err = w.st.DB().ExecContext(ctx, `UPDATE runs SET status = 'running', finished_at = NULL WHERE id = ?`, r.ID)
+	must(t, err)
+	must(t, w.orch.StopRun(ctx, cron.ID, r.ID))
+	if r, _ = w.orch.Run(ctx, cron.ID, r.ID); r.Status != "cancelled" {
+		t.Fatalf("run after StopRun = %+v", r)
+	}
+}
+
 // Step 3b verbs: a manual run, the overlap refusal, StopRun (ownership
 // first), and the Stop/Restart guards.
 func TestRunVerbs(t *testing.T) {

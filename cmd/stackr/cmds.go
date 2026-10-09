@@ -22,7 +22,7 @@ const (
 
 var (
 	jobCols   = []string{"id", "kind", "state", "error", "created_at"}
-	keyCols   = []string{"id", "name", "org_id", "created_at"}
+	keyCols   = []string{"id", "name", "org_id", "level", "stack", "created_at"}
 	destCols  = []string{"id", "name", "kind", "endpoint", "bucket", "shared", "org_id"}
 	orgCols   = []string{"slug", "name", "id"}
 	userCols  = []string{"email", "name", "role", "active", "id"}
@@ -223,6 +223,25 @@ func (a *app) knobs() *cobra.Command {
 }
 
 func (a *app) keys() *cobra.Command {
+	var level, stack string
+	add := leaf("add <name>", "key.mint", "Make a key for this org; the token is shown once", exact(1),
+		func(_ *cobra.Command, args []string) error {
+			op, err := a.orgPath()
+			if err != nil {
+				return err
+			}
+			body := map[string]string{"name": args[0]}
+			if level != "" {
+				body["level"] = level
+			}
+			if stack != "" {
+				body["stack"] = stack
+			}
+			return a.token(a.call(POST, op+"/keys", body))
+		})
+	add.Aliases = []string{"create"}
+	add.Flags().StringVar(&level, "role", "", "viewer, member or owner: the most the key may do (default: your own rights)")
+	add.Flags().StringVar(&stack, "stack", "", "limit the key to one stack, by slug (default: the whole org)")
 	return noun("key", "Your API keys",
 		leaf("ls", "key.list", "List your API keys", exact(0), func(*cobra.Command, []string) error {
 			v, err := a.call(GET, "/me/keys", nil)
@@ -231,14 +250,7 @@ func (a *app) keys() *cobra.Command {
 			}
 			return a.show(v, keyCols...)
 		}),
-		leaf("add <name>", "key.mint", "Make a key for this org; the token is shown once", exact(1),
-			func(_ *cobra.Command, args []string) error {
-				op, err := a.orgPath()
-				if err != nil {
-					return err
-				}
-				return a.token(a.call(POST, op+"/keys", map[string]string{"name": args[0]}))
-			}),
+		add,
 		leaf("rm <id>", "key.revoke", "Revoke a key", exact(1), func(_ *cobra.Command, args []string) error {
 			if err := a.confirm("Revoke API key " + args[0] + "? Anything using it stops working."); err != nil {
 				return err
@@ -299,8 +311,8 @@ func (a *app) orgs() *cobra.Command {
 				return a.show(m, "id", "email", "role", "expires_at", "link")
 			})
 		})
-	invite.Flags().StringVar(&email, "email", "", "who it is for (empty: anyone holding the link)")
-	invite.Flags().StringVar(&inviteRole, "role", "owner", "owner, the only role in v1: full control of the org")
+	invite.Flags().StringVar(&email, "email", "", "who it is for (required)")
+	invite.Flags().StringVar(&inviteRole, "role", "owner", "viewer, member or owner: viewer sees, member deploys and edits stacks, owner also manages people and settings")
 	setRole := leaf("set <user-id>", "member.role", "Change a member's role", exact(1),
 		func(_ *cobra.Command, args []string) error {
 			return org(func(p string) error {
@@ -308,7 +320,7 @@ func (a *app) orgs() *cobra.Command {
 				return err
 			})
 		})
-	setRole.Flags().StringVar(&setRoleTo, "role", "", "owner, the only role in v1")
+	setRole.Flags().StringVar(&setRoleTo, "role", "", "viewer, member or owner")
 	_ = setRole.MarkFlagRequired("role")
 
 	credAdd := leaf("add <name>", "credential.create", "Add a registry credential", exact(1),

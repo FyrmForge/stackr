@@ -193,10 +193,18 @@ func (h *H) Keys() Endpoint {
 	return Get(func(c echo.Context) ([]service.APIKey, error) { return list(h.Orch.Keys(rc(c), who(c))) })
 }
 
+// KeyIn is a key to mint: Level is the optional ceiling (viewer, member,
+// owner), Stack the optional stack slug.
+type KeyIn struct {
+	Name  string `json:"name"`
+	Level string `json:"level,omitempty"`
+	Stack string `json:"stack,omitempty"`
+}
+
 // MintKey binds the key to the route's org with the caller's live role (B36).
 func (h *H) MintKey() Endpoint {
-	return JSON(201, func(c echo.Context, in NameIn) (KeyOut, error) {
-		tok, k, err := h.Orch.MintKey(rc(c), who(c), orgID(c), in.Name)
+	return JSON(201, func(c echo.Context, in KeyIn) (KeyOut, error) {
+		tok, k, err := h.Orch.MintKey(rc(c), middleware.Principal(c), orgID(c), in.Name, in.Level, in.Stack)
 		return KeyOut{tok, k}, err
 	})
 }
@@ -210,7 +218,7 @@ type CodeIn struct {
 // code it hands to the CLI's loopback listener.
 func (h *H) CLICode() Endpoint {
 	return JSON(201, func(c echo.Context, in NameIn) (CodeIn, error) {
-		code, err := h.Orch.CLICode(rc(c), who(c), orgID(c), in.Name)
+		code, err := h.Orch.CLICode(rc(c), middleware.Principal(c), orgID(c), in.Name)
 		return CodeIn{code}, err
 	})
 }
@@ -226,13 +234,15 @@ func (h *H) ExchangeCLICode() Endpoint {
 // MintUnboundKey is the admin's key for no org in particular.
 func (h *H) MintUnboundKey() Endpoint {
 	return JSON(201, func(c echo.Context, in NameIn) (KeyOut, error) {
-		tok, k, err := h.Orch.MintKey(rc(c), who(c), "", in.Name)
+		tok, k, err := h.Orch.MintKey(rc(c), middleware.Principal(c), "", in.Name, "", "")
 		return KeyOut{tok, k}, err
 	})
 }
 
 func (h *H) RevokeKey() Endpoint {
-	return Done(func(c echo.Context, _ None) error { return h.Orch.RevokeKey(rc(c), who(c), c.Param("key")) })
+	return Done(func(c echo.Context, _ None) error {
+		return h.Orch.RevokeKey(rc(c), middleware.Principal(c), c.Param("key"))
+	})
 }
 
 func (h *H) Settings() Endpoint {

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -100,6 +101,7 @@ type prJob struct {
 	Head    string `json:"head"`
 	SHA     string `json:"sha"`
 	Base    string `json:"base"`
+	Fork    bool   `json:"fork,omitempty"` // head repo differs from the repo the PR targets
 }
 
 type backupJob struct {
@@ -156,9 +158,10 @@ func (o *Orchestrator) handlers() map[jobs.Kind]jobs.Handler {
 		}),
 		kindPromote: payload(func(ctx context.Context, r *jobs.Run, p promoteJob) error {
 			ctx = withRanFirst(ctx, r.Job.CreatedAt)
+			pre, _ := o.tiles.List(ctx, p.EnvID)
 			plan, err := o.promote.Apply(ctx, p.EnvID, p.ReleaseID, r.Log, r.Swap)
 			if plan != nil {
-				err = errors.Join(err, o.dropRuns(plan.Removed), o.afterDeploy(ctx, plan.Deployed, true))
+				err = errors.Join(err, o.dropRuns(plan.Removed), o.dropRemoved(ctx, pre, plan.Removed), o.afterDeploy(ctx, plan.Deployed, true))
 			}
 			return parkOnApproval(r, err)
 		}),
@@ -166,6 +169,7 @@ func (o *Orchestrator) handlers() map[jobs.Kind]jobs.Handler {
 			ctx = withRanFirst(ctx, r.Job.CreatedAt)
 			var plan *promote.Sync
 			var err error
+			pre, _ := o.tiles.List(ctx, p.EnvID)
 			if len(p.Owed) > 0 {
 				// Parked after its writes: deploy what it still owes, no re-plan.
 				plan, err = o.promote.SyncRollout(ctx, p.Owed, r.Log, r.Swap)
@@ -178,7 +182,7 @@ func (o *Orchestrator) handlers() map[jobs.Kind]jobs.Handler {
 				r.Job.Payload = withOwed(r.Job.Payload, plan.Owed)
 			}
 			if plan != nil {
-				err = errors.Join(err, o.dropRuns(plan.Removed), o.afterDeploy(ctx, plan.Deployed, true))
+				err = errors.Join(err, o.dropRuns(plan.Removed), o.dropRemoved(ctx, pre, plan.Removed), o.afterDeploy(ctx, plan.Deployed, true))
 			}
 			return parkOnApproval(r, err)
 		}),
@@ -411,18 +415,22 @@ func (o *Orchestrator) runPR(ctx context.Context, r *jobs.Run, p prJob) error {
 			return err
 		}
 		o.sched.Reload(ctx)
-		if err := o.envs.Delete(ctx, e, 0); err != nil {
+		if err := o.DeleteEnv(ctx, e.ID); err != nil {
 			return err
 		}
 		return o.sync.Sync(ctx)
 	}
-	on, err := o.prEnabled(ctx, p.StackID, r.Log)
+	on, forks, err := o.prEnabled(ctx, p.StackID, r.Log)
 	if err != nil {
 		_, _ = fmt.Fprintf(r.Log, "%v; PR envs off\n", err)
 		return nil
 	}
 	if !on {
 		_, _ = fmt.Fprintf(r.Log, "PR envs are off for this stack; set pr_envs.enabled in the stack file\n")
+		return nil
+	}
+	if p.Fork && !forks {
+		_, _ = fmt.Fprintf(r.Log, "pull request %d is from a fork; set pr_envs.forks to build those\n", p.Number)
 		return nil
 	}
 	if !exists {
@@ -445,36 +453,37 @@ func (o *Orchestrator) runPR(ctx context.Context, r *jobs.Run, p prJob) error {
 			return err
 		}
 	}
-	return o.runPush(ctx, p.StackID, promote.Event{Repo: p.Repo, Branch: p.Head, Commit: p.SHA}, r.Log)
+	return o.runPush(ctx, p.StackID, promote.Event{Repo: p.Repo, Branch: p.Head, Commit: p.SHA, PR: true, PRNumber: p.Number}, r.Log)
 }
 
-// prEnabled is pr_envs.enabled in the stack file at the config branch head.
-// A stack with no config repo is off; a file that does not load is an error.
-func (o *Orchestrator) prEnabled(ctx context.Context, stackID string, log io.Writer) (bool, error) {
+// prEnabled is pr_envs.enabled and pr_envs.forks in the stack file at the
+// config branch head. A stack with no config repo is off; a file that does
+// not load is an error.
+func (o *Orchestrator) prEnabled(ctx context.Context, stackID string, log io.Writer) (enabled, forks bool, err error) {
 	st, err := o.stacks.Get(ctx, stackID)
 	if err != nil {
-		return false, err
+		return false, false, err
 	}
 	if st.ConfigRepo == "" {
-		return false, nil
+		return false, false, nil
 	}
 	_, sha, err := o.configHead(ctx, st)
 	if err != nil {
-		return false, err
+		return false, false, err
 	}
 	data, fetch, err := o.stackFile(ctx, st, sha, log)
 	if err != nil {
-		return false, fmt.Errorf("stack file at %s: %w", shortSHA(sha), err)
+		return false, false, fmt.Errorf("stack file at %s: %w", shortSHA(sha), err)
 	}
 	org, err := o.orgs.Get(ctx, st.OrgID)
 	if err != nil {
-		return false, err
+		return false, false, err
 	}
 	f, err := promote.Load(data, fetch, org.Slug)
 	if err != nil {
-		return false, fmt.Errorf("stack file at %s: %w", shortSHA(sha), err)
+		return false, false, fmt.Errorf("stack file at %s: %w", shortSHA(sha), err)
 	}
-	return f.PREnabled, nil
+	return f.PREnabled, f.PRForks, nil
 }
 
 func shortSHA(s string) string {
@@ -496,6 +505,10 @@ func (o *Orchestrator) runDelete(ctx context.Context, r *jobs.Run, p tileJob) er
 	if _, err := o.promote.Remove(ctx, e, []store.Tile{t}, r.Log); err != nil {
 		return err
 	}
+	if err := o.dropTileGrant(ctx, t); err != nil {
+		return err
+	}
+	o.cancelWaitingTile(ctx, t.ID)
 	if tile.RunToCompletion(t.Kind) {
 		if err := o.dropRuns([]string{t.ID}); err != nil {
 			return err
@@ -515,6 +528,10 @@ func (o *Orchestrator) watchTick(ctx context.Context) error {
 	restarted := err == nil && d.Started != "" && d.Started != o.proxyStarted.Swap(d.Started)
 	o.rerouteVIPs(ctx) // VIPs and filter base in one apply; a restarted proxy has a new IP in it
 	if restarted {
+		// A recreated proxy starts on none of the ingress networks.
+		if err := o.domains.ReopenIngress(ctx); err != nil {
+			slog.Warn("proxy: ingress rejoin failed", "err", err)
+		}
 		if err := o.sync.Sync(ctx); err != nil {
 			return err
 		}

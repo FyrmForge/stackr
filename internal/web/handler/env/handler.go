@@ -511,6 +511,7 @@ func (h *handler) slice(c echo.Context, note string, actErr error) error {
 		Status:        word,
 		Location:      s.Stack.Name + " / " + s.Env.Name,
 		EnvColor:      s.Env.Color,
+		ReadOnly:      !can(c, s, "tile.write"),
 		Error:         msg,
 		ProvisionFrom: sv.ProvisionFrom,
 		Blocker:       sv.Blocker,
@@ -579,7 +580,7 @@ func (h *handler) BackupNow(c echo.Context) error {
 
 func (h *handler) Restore(c echo.Context) error {
 	id := c.Param("volume")
-	_, err := h.orch.RestoreBackup(c.Request().Context(), c.QueryParam("run"), id, id)
+	_, err := h.orch.RestoreBackup(c.Request().Context(), middleware.Principal(c), c.QueryParam("run"), id, id)
 	return h.volume(c, "backups", "restore queued", err)
 }
 

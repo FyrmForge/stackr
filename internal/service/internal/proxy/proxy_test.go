@@ -3,8 +3,10 @@ package proxy
 import (
 	"context"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -62,5 +64,26 @@ func TestPushGet(t *testing.T) {
 	}
 	if err := c.Push(ctx, []byte(`{"bad":1}`)); err == nil || !strings.Contains(err.Error(), "loading config: bad") {
 		t.Fatalf("rejected push: %v", err)
+	}
+}
+
+// A unix:// address talks over the socket, whatever host the URL names.
+func TestUnixSocket(t *testing.T) {
+	dir, err := os.MkdirTemp("", "adm")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	sock := dir + "/admin.sock"
+	l, err := net.Listen("unix", sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = io.WriteString(w, `{"ok":true}`) })}
+	go func() { _ = srv.Serve(l) }()
+	t.Cleanup(func() { _ = srv.Close() })
+	got, err := New("unix://" + sock).Get(context.Background())
+	if err != nil || string(got) != `{"ok":true}` {
+		t.Fatalf("got %s, %v", got, err)
 	}
 }

@@ -7,6 +7,8 @@ package installspec
 
 import (
 	"cmp"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -25,9 +27,17 @@ const (
 	Repo        = "ghcr.io/fyrmforge/stackr"
 	LabelRole   = "stackr.role" // panel | proxy; the upgrade finds the panel by it
 	PanelPort   = "8080"
-	// AdminURL is where the host-network panel reaches Caddy's admin API:
-	// the proxy publishes it on loopback only.
-	AdminURL = "http://127.0.0.1:2019"
+	// LabelSpec stamps a container with the Hash of the spec it was made
+	// from, so a re-run or upgrade can tell a stale proxy from a current one.
+	LabelSpec = "stackr.spec"
+	// DNSTokenEnv is the proxy's DNS-01 token variable.
+	DNSTokenEnv = "DNS_API_TOKEN"
+	// ProxyAdminDir is where the proxy container sees the directory that
+	// holds Caddy's admin socket; the host side is <DataDir>/proxy. The admin
+	// API is a unix socket so no network, tile or LAN, can reach it.
+	ProxyAdminDir = "/run/stackr-admin"
+	// ProxyAdminListen is Caddy's admin listener inside the proxy.
+	ProxyAdminListen = "unix/" + ProxyAdminDir + "/admin.sock"
 	// DockerRanges are the private ranges docker hands out networks from;
 	// the panel trusts X-Forwarded-For from them (the proxy's address) until
 	// the install records the bridge subnet (Input.BridgeSubnet).
@@ -63,6 +73,9 @@ type Input struct {
 	// bucket never prune each other's. Empty (an older install) is "default".
 	InstallID string `json:"install_id,omitempty"`
 }
+
+// AdminDir is the host directory holding the proxy's admin socket.
+func (in Input) AdminDir() string { return in.DataDir + "/proxy" }
 
 // BaseURL is how the operator reaches the panel.
 func (in Input) BaseURL() string {
@@ -121,7 +134,7 @@ func Panel(image string, in Input) Container {
 		"HOST=" + in.Bind,
 		"PORT=" + PanelPort,
 		"TRUSTED_PROXIES=" + cmp.Or(in.BridgeSubnet, DockerRanges),
-		"STACKR_PROXY_ADMIN=" + AdminURL,
+		"STACKR_PROXY_ADMIN=unix://" + in.AdminDir() + "/admin.sock",
 		"STACKR_IMAGE=" + image,
 	}
 	if in.InstallID != "" {
@@ -143,27 +156,51 @@ func Panel(image string, in Input) Container {
 }
 
 // Proxy is `stackrd proxy`: Caddy with its data and config dirs on the
-// named volume, the admin API on loopback, `stackr` naming the panel.
+// named volume, the admin API on a unix socket, `stackr` naming the panel.
 func Proxy(image string, in Input, dnsToken string) Container {
-	ports := []string{in.HTTPPort + ":80", "127.0.0.1:2019:2019"}
+	ports := []string{in.HTTPPort + ":80"}
 	if in.HTTPS {
 		ports = append(ports, in.HTTPSPort+":443")
 	}
 	env := []string{"XDG_DATA_HOME=/caddy/data", "XDG_CONFIG_HOME=/caddy/config"}
 	if dnsToken != "" {
-		env = append(env, "DNS_API_TOKEN="+dnsToken)
+		env = append(env, DNSTokenEnv+"="+dnsToken)
 	}
-	return Container{
+	c := Container{
 		Name:       ProxyName,
 		Image:      image,
 		Cmd:        []string{"proxy"},
 		Env:        env,
 		Labels:     map[string]string{LabelRole: "proxy"},
-		Volumes:    []string{ProxyVolume + ":/caddy"},
+		Volumes:    []string{ProxyVolume + ":/caddy", in.AdminDir() + ":" + ProxyAdminDir},
 		Ports:      ports,
 		ExtraHosts: []string{PanelName + ":host-gateway"},
 		Restart:    "unless-stopped",
 	}
+	c.Labels[LabelSpec] = c.Hash()
+	return c
+}
+
+// Hash fingerprints everything the container is made from (image, cmd, env,
+// mounts, ports, hosts, labels but its own stamp). Equal hash = nothing to
+// recreate.
+func (c Container) Hash() string {
+	l := maps.Clone(c.Labels)
+	delete(l, LabelSpec)
+	c.Labels = l
+	b, _ := json.Marshal(c) // plain strings and maps: cannot fail
+	h := sha256.Sum256(b)
+	return hex.EncodeToString(h[:8])
+}
+
+// TokenFrom finds the DNS-01 token in a container's env, "" when none.
+func TokenFrom(env []string) string {
+	for _, e := range env {
+		if v, ok := strings.CutPrefix(e, DNSTokenEnv+"="); ok {
+			return v
+		}
+	}
+	return ""
 }
 
 // RunArgs is the `docker run` for c, flags in a fixed order.

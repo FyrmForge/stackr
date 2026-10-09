@@ -17,6 +17,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"time"
 
@@ -161,9 +162,7 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 			return err
 		}
 	}
-	if proxyUp {
-		r.say("  have", installspec.ProxyName)
-	} else if err := r.docker(ctx, installspec.Proxy(image, in, *dnsToken).RunArgs()...); err != nil {
+	if err := r.ensureProxy(ctx, image, in, *dnsToken, proxyUp); err != nil {
 		return err
 	}
 	// The panel may be renamed stackr-<version> by an upgrade; its label is
@@ -188,6 +187,70 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 	}
 	_, _ = fmt.Fprint(out, doneText(in, newKey, admin, r.dry))
 	return nil
+}
+
+// ensureProxy creates the proxy, or replaces one made from another spec (an
+// older image, no admin socket mount) keeping the stackr-caddy volume. The
+// DNS-01 token lives only on the container, so a re-run without
+// --dns-token carries the running one over.
+func (r runner) ensureProxy(ctx context.Context, image string, in installspec.Input, token string, up bool) error {
+	// A crashed earlier swap left the old proxy aside: put it back when the
+	// main one is gone, drop it when the main one runs.
+	aside := installspec.ProxyName + "-old"
+	if r.exists(ctx, "container", aside) {
+		if up {
+			if err := r.docker(ctx, "rm", "-f", aside); err != nil {
+				return err
+			}
+		} else {
+			if err := r.docker(ctx, "rename", aside, installspec.ProxyName); err != nil {
+				return err
+			}
+			if err := r.docker(ctx, "start", installspec.ProxyName); err != nil {
+				return err
+			}
+			up = true
+		}
+	}
+	if up && token == "" {
+		env, _ := read(ctx, "docker", "inspect", "-f", `{{range .Config.Env}}{{println .}}{{end}}`, installspec.ProxyName)
+		token = installspec.TokenFrom(strings.Split(env, "\n"))
+	}
+	want := installspec.Proxy(image, in, token)
+	if !up {
+		return r.docker(ctx, want.RunArgs()...)
+	}
+	have, _ := read(ctx, "docker", "inspect", "-f", `{{index .Config.Labels "`+installspec.LabelSpec+`"}}`, installspec.ProxyName)
+	if strings.TrimSpace(have) == want.Labels[installspec.LabelSpec] {
+		r.say("  have", installspec.ProxyName)
+		return nil
+	}
+	r.say("  replacing", installspec.ProxyName, "(its spec changed)")
+	// Set the old one aside and stop it (that frees the ports); it comes back
+	// if the new one will not run, so a failure never leaves the box proxyless.
+	if err := r.docker(ctx, "rename", installspec.ProxyName, aside); err != nil {
+		return err
+	}
+	if err := r.docker(ctx, "stop", aside); err != nil {
+		return r.rollbackProxy(ctx, aside, err)
+	}
+	if err := r.docker(ctx, want.RunArgs()...); err != nil {
+		return r.rollbackProxy(ctx, aside, err)
+	}
+	return r.docker(ctx, "rm", "-f", aside)
+}
+
+// rollbackProxy removes what the failed run left and restarts the old proxy.
+func (r runner) rollbackProxy(ctx context.Context, aside string, cause error) error {
+	r.say("  proxy swap failed, restoring the old one")
+	_ = r.docker(ctx, "rm", "-f", installspec.ProxyName)
+	if err := r.docker(ctx, "rename", aside, installspec.ProxyName); err != nil {
+		return fmt.Errorf("%w; restore old proxy: %v", cause, err)
+	}
+	if err := r.docker(ctx, "start", installspec.ProxyName); err != nil {
+		return fmt.Errorf("%w; restart old proxy: %v", cause, err)
+	}
+	return cause
 }
 
 // passwordEnv carries the admin password on an unattended run: never a flag,
@@ -349,7 +412,7 @@ func (r runner) say(a ...any) { _, _ = fmt.Fprintln(r.out, a...) }
 
 func (r runner) docker(ctx context.Context, args ...string) error {
 	if r.dry {
-		r.say("  would run: docker", quote(args))
+		r.say("  would run: docker", quote(maskToken(args)))
 		return nil
 	}
 	r.say("  docker", strings.Join(args[:min(2, len(args))], " "))
@@ -455,6 +518,17 @@ func read(ctx context.Context, name string, args ...string) (string, error) {
 }
 
 // quote breaks the line before every flag so a container create is readable.
+// maskToken hides the DNS-01 token (read live off the proxy) in dry output.
+func maskToken(args []string) []string {
+	out := slices.Clone(args)
+	for i, a := range out {
+		if _, ok := strings.CutPrefix(a, installspec.DNSTokenEnv+"="); ok {
+			out[i] = installspec.DNSTokenEnv + "=***"
+		}
+	}
+	return out
+}
+
 func quote(args []string) string {
 	var b strings.Builder
 	for i, a := range args {

@@ -108,10 +108,11 @@ func (v *VolumeNode) UnmarshalYAML(n *yaml.Node) error {
 	return strictNode(n, &v.Conf)
 }
 
-// PREnvs: only Enabled is read (Resolved.PREnabled); PR envs are opt-in.
+// PREnvs: Enabled and Forks are read (Resolved.PREnabled, PRForks); PR envs are opt-in.
 // Against and Tiles are refused by Parse until they are built.
 type PREnvs struct {
 	Enabled *bool               `yaml:"enabled"`
+	Forks   *bool               `yaml:"forks"` // build PRs from forks too; off by default
 	Against []string            `yaml:"against"`
 	Tiles   map[string]TileNode `yaml:"tiles"`
 }
@@ -224,7 +225,7 @@ type TileConf struct {
 	ShmSizeMB  int          `yaml:"shm_size_mb"`
 	Privileged bool         `yaml:"privileged"`
 	Devices    []string     `yaml:"devices"`
-	LAN        []string     `yaml:"lan"`     // ip|cidr[:port] or all; needs an admin's approval
+	LAN        []string     `yaml:"lan"`     // ip|cidr[:port], any IPv4 address or range (stored masked); needs an admin's approval
 	Network    string       `yaml:"network"` // "" or host; needs an admin's approval
 	Restart    string       `yaml:"restart"`
 	DependsOn  []string     `yaml:"depends_on"`
@@ -324,6 +325,8 @@ type Resolved struct {
 	Envs     map[string]ResolvedEnv
 	// PREnabled is pr_envs.enabled; absent means off.
 	PREnabled bool
+	// PRForks is pr_envs.forks: build pull requests from forks too.
+	PRForks bool
 }
 
 type ResolvedEnv struct {
@@ -433,6 +436,9 @@ func Load(data []byte, fetch Fetcher, orgSlug string) (*Resolved, error) {
 		if err := strictYAML(b, &x); err != nil {
 			return nil, fmt.Errorf("include %s: %w", inc, err)
 		}
+		if x.PREnvs != nil { // pr_envs (enabled, forks, against, tiles) is the main file's alone
+			return nil, fmt.Errorf("include %s: pr_envs belongs in the main stack file", inc)
+		}
 		if f.Base.Tiles == nil {
 			f.Base.Tiles = map[string]RawMap{}
 		}
@@ -481,8 +487,9 @@ func resolve(f *File, orgSlug string) (*Resolved, error) {
 		Domains:   f.Domains,
 		Envs:      map[string]ResolvedEnv{},
 		PREnabled: f.PREnvs != nil && f.PREnvs.Enabled != nil && *f.PREnvs.Enabled,
+		PRForks:   f.PREnvs != nil && f.PREnvs.Forks != nil && *f.PREnvs.Forks,
 	}
-	if err := planfile.CheckParams(f.Params); err != nil {
+	if err := planfile.CheckParams(f.Params, true); err != nil {
 		return nil, err
 	}
 	order, envs := f.Envs.Order, f.Envs.Envs

@@ -21,6 +21,7 @@ type Docker interface {
 	Stop(ctx context.Context, id string) error
 	Restart(ctx context.Context, id string) error
 	StopRemove(ctx context.Context, id string) error
+	Rename(ctx context.Context, id, name string) error
 	Pause(ctx context.Context, id string) error
 	Unpause(ctx context.Context, id string) error
 	List(ctx context.Context, labels map[string]string) ([]docker.Container, error)

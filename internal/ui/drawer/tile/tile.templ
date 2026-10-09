@@ -11,6 +11,7 @@ import (
 // stops, restarts and deploys; a cron runs and pauses; a function runs and
 // deploys.
 templ actions(v View) {
+	if !v.ReadOnly {
 	switch v.Kind {
 		case "cron":
 			@c.PrimaryPost("Run now", v.Base+"/run")
@@ -32,6 +33,7 @@ templ actions(v View) {
 				@c.PostButton("Restart", v.Base+"/restart")
 			}
 			@c.PrimaryPost("Deploy", v.Base+"/deploy")
+	}
 	}
 }
 
@@ -110,7 +112,11 @@ templ Status(v View, s StatusView) {
 		<div>
 			<div class="label">URLs</div>
 			if len(s.URLs) == 0 {
-				<p class="text-sm text-rw-faint">No domains attached. Add one in Settings.</p>
+				<p class="text-sm text-rw-faint">No domains attached.
+					if !v.ReadOnly {
+						{ " Add one in Settings." }
+					}
+				</p>
 			} else {
 				<ul class="space-y-1.5">
 					for _, d := range s.URLs {
@@ -276,11 +282,14 @@ templ Env(v View, e EnvView) {
 						if r.Ref {
 							@c.Chip("reference", "accent")
 						}
+if !v.ReadOnly {
 						<button type="button" class="text-rw-faint hover:text-rw-danger shrink-0" aria-label={ "Delete " + r.Name } hx-post={ v.Base + "/env" } hx-vals={ dropVals(r.Name) } hx-target={ "#" + Root } hx-swap="outerHTML">×</button>
+}
 					</li>
 				}
 			</ul>
 		}
+if !v.ReadOnly {
 		<details class="group mt-4">
 			<summary class="btn btn-ghost btn-sm cursor-pointer list-none select-none group-open:hidden">Edit variables</summary>
 			<form novalidate hx-post={ v.Base + "/env" } hx-target={ "#" + Root } hx-swap="outerHTML" class="space-y-4">
@@ -297,6 +306,7 @@ templ Env(v View, e EnvView) {
 				</div>
 			</form>
 		</details>
+}
 	</div>
 }
 

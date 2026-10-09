@@ -1,7 +1,9 @@
 package docker
 
 import (
+	"bufio"
 	"bytes"
+	"io"
 	"strings"
 	"testing"
 
@@ -27,5 +29,26 @@ func TestDemuxKeepsStderrOutOfTheStream(t *testing.T) {
 	}
 	if got := stderr.String(); got != "pg_dumpall: warning\n" {
 		t.Errorf("stderr = %q", got)
+	}
+}
+
+// The wrapper's first line is the shell's pid; the rest of the stream stays
+// for the terminal.
+func TestReadPidLeavesTheStream(t *testing.T) {
+	r := bufio.NewReader(strings.NewReader("42\r\n$ "))
+	pid, err := readPid(r)
+	if err != nil || pid != 42 {
+		t.Fatalf("pid = %d, %v, want 42", pid, err)
+	}
+	if rest, _ := io.ReadAll(r); string(rest) != "$ " {
+		t.Errorf("rest = %q", rest)
+	}
+}
+
+// An image without sh answers the wrapper with the OCI error text.
+func TestReadPidNoSh(t *testing.T) {
+	r := bufio.NewReader(strings.NewReader("OCI runtime exec failed: exec: \"sh\": not found\r\n"))
+	if _, err := readPid(r); err == nil || !strings.Contains(err.Error(), "no sh") {
+		t.Fatalf("err = %v, want the no sh error", err)
 	}
 }

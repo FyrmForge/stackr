@@ -144,7 +144,7 @@ func (h *handler) releasesTab(c echo.Context, cd card, f *comp.DrawerView) (temp
 	if p.CanDeploy && can(c, cd.s, "env.write") {
 		cv.Action = f.Base + "/promote/" + plan
 		if cd.kind == "stack" {
-			cv.Action = f.Base + "/promote/" + e.ID + "/" + plan
+			cv.Action = f.Base + "/promote/" + e.Slug + "/" + plan
 		}
 	}
 	v.Ask = &cv

@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/FyrmForge/stackr/internal/authz"
 	"github.com/FyrmForge/stackr/internal/installspec"
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/serverconfig"
@@ -44,8 +45,23 @@ func (o *Orchestrator) SetPassword(ctx context.Context, userID, next string) err
 }
 
 // MintKey makes an API key bound to orgID with the minter's live role
-// there (B36); orgID "" is an unbound, admin-only key. The token is shown once.
-func (o *Orchestrator) MintKey(ctx context.Context, userID, orgID, name string) (string, APIKey, error) {
+// there (B36); orgID "" is an unbound, admin-only key. level is the optional
+// ceiling (viewer|member|owner|admin) and stack an optional stack slug in the
+// org; the ceiling may not exceed the minter's role. The token is shown once.
+func (o *Orchestrator) MintKey(ctx context.Context, by *Principal, orgID, name, level, stack string) (string, APIKey, error) {
+	// a stack key mints nothing; a capped key cannot mint past its own
+	// ceiling (no level = no ceiling)
+	if acc := by.Access; acc.KeyStack != "" {
+		return "", APIKey{}, errs.Refusedf("a stack key cannot mint keys")
+	} else if acc.KeyCapped {
+		if l, ok := authz.ParseLevel(level); !ok || l > acc.KeyLevel {
+			return "", APIKey{}, errs.Refusedf("a key cannot mint above its own level")
+		}
+	}
+	return o.mintKey(ctx, by.User.ID, orgID, name, level, stack)
+}
+
+func (o *Orchestrator) mintKey(ctx context.Context, userID, orgID, name, level, stack string) (string, APIKey, error) {
 	u, err := o.users.Get(ctx, userID)
 	if err != nil {
 		return "", APIKey{}, err
@@ -60,15 +76,46 @@ func (o *Orchestrator) MintKey(ctx context.Context, userID, orgID, name string) 
 			return "", APIKey{}, errs.ErrNotFound
 		}
 	}
-	return o.users.MintKey(ctx, u, orgID, role, name)
+	stackID := ""
+	if stack != "" {
+		if orgID == "" {
+			return "", APIKey{}, errs.Invalidf("stack", "a stack key needs an organization")
+		}
+		st, err := o.stacks.GetBySlug(ctx, orgID, stack)
+		if errors.Is(err, errs.ErrNotFound) {
+			return "", APIKey{}, errs.Invalidf("stack", "no stack %q in this organization", stack)
+		}
+		if err != nil {
+			return "", APIKey{}, err
+		}
+		stackID = st.ID
+	}
+	tok, k, err := o.users.MintKey(ctx, u, orgID, role, name, level, stackID)
+	k.Stack = stack
+	return tok, k, err
 }
 
+// Keys lists the user's keys; Stack is the slug of the stack a key is limited to.
 func (o *Orchestrator) Keys(ctx context.Context, userID string) ([]APIKey, error) {
-	return o.users.Keys(ctx, userID)
+	ks, err := o.users.Keys(ctx, userID)
+	for i := range ks {
+		if ks[i].StackID == nil {
+			continue
+		}
+		if st, err := o.stacks.Get(ctx, *ks[i].StackID); err == nil {
+			ks[i].Stack = st.Slug
+		}
+	}
+	return ks, err
 }
 
-func (o *Orchestrator) RevokeKey(ctx context.Context, userID, keyID string) error {
-	return o.users.RevokeKey(ctx, userID, keyID)
+// RevokeKey deletes one of the caller's keys; a capped or stack key may
+// revoke only itself.
+func (o *Orchestrator) RevokeKey(ctx context.Context, by *Principal, keyID string) error {
+	if (by.Access.KeyCapped || by.Access.KeyStack != "") && keyID != by.KeyID {
+		return errs.Refusedf("a limited key can revoke only itself")
+	}
+	return o.users.RevokeKey(ctx, by.User.ID, keyID)
 }
 
 // ---- settings: the one catalogue ----

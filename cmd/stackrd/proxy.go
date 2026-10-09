@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -37,8 +38,16 @@ func startProxy(admin string) error {
 	bare := fmt.Appendf(nil, `{"admin":{"listen":%q}}`, admin)
 	cfg, err := os.ReadFile(caddy.ConfigAutosavePath)
 	if err == nil {
-		if err = caddy.Load(cfg, true); err == nil {
-			return nil
+		// An autosave from before the admin socket still names the old
+		// listen address; it must never come back.
+		var m map[string]json.RawMessage
+		if err = json.Unmarshal(cfg, &m); err == nil {
+			m["admin"], _ = json.Marshal(map[string]string{"listen": admin})
+			if cfg, err = json.Marshal(m); err == nil {
+				if err = caddy.Load(cfg, true); err == nil {
+					return nil
+				}
+			}
 		}
 	}
 	if err2 := caddy.Load(bare, true); err2 != nil {

@@ -20,6 +20,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/settings"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/volume"
+	"github.com/FyrmForge/stackr/internal/service/internal/planfile"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
 
@@ -83,7 +84,15 @@ func (f *Flow) Export(ctx context.Context, stackID, envID string) ([]byte, []str
 		envs = append(envs, e)
 	}
 	if len(envs) == 0 {
+		if envID != "" {
+			if e, err := d.Envs.Get(ctx, envID); err == nil && e.Type == environment.Ephemeral {
+				return nil, nil, errs.Conflictf("%s is a PR env; a PR env is not on the ladder, so it is not exported.", e.Slug)
+			}
+		}
 		return nil, nil, errs.Conflictf("This stack has no environment to export.")
+	}
+	if st.ConfigRepo != "" {
+		warns = append(warns, "pr_envs: not carried; add it to the file by hand if the stack uses PR envs")
 	}
 	res, err := f.Resources.ListAll(ctx)
 	if err != nil {
@@ -178,11 +187,21 @@ func (f *Flow) exportParams(ctx context.Context, st store.Stack, envs []store.En
 
 func declare(key string, stack map[string]params.Value, envs []map[string]params.Value, warns *[]string) (omap, bool) {
 	if v, ok := stack[key]; ok {
+		differs := false
 		for _, ev := range envs {
-			if e, ok := ev[key]; ok && (e.Secret != v.Secret || e.V != v.V) {
-				*warns = append(*warns, "params."+key+": an environment overrides the stack value; the override is not carried")
-				break
+			e, ok := ev[key]
+			switch {
+			case !ok:
+			case e.Secret != v.Secret:
+				*warns = append(*warns, "params."+key+": a secret in one scope and a param in another; left out")
+				return nil, false
+			case e.V != v.V:
+				differs = true
 			}
+		}
+		if differs && !v.Secret {
+			*warns = append(*warns, "params."+key+": an environment overrides the stack value; declared without a value")
+			return omap{{"type", params.Param}}, true
 		}
 		return declOf(v), true
 	}
@@ -290,7 +309,7 @@ func defaultsMap(blob string) map[string]any {
 	b, _ := json.Marshal(Defaults(s))
 	var m map[string]any
 	_ = json.Unmarshal(b, &m)
-	if pw, ok := m["protect_password"].(string); ok && !strings.HasPrefix(strings.TrimSpace(pw), "${{") {
+	if pw, ok := m["protect_password"].(string); ok && !planfile.IsRef(pw) {
 		delete(m, "protect_user")
 		delete(m, "protect_password")
 	}
@@ -508,7 +527,7 @@ func exportDomain(row store.Domain, t store.Tile, res []store.DomainResource) (o
 	}
 	p := omap{}
 	if a := ex.BasicAuth; a != nil {
-		if strings.HasPrefix(strings.TrimSpace(a.Password), "${{") {
+		if planfile.IsRef(a.Password) {
 			p.put("basic_auth", omap{{"user", a.User}, {"password", a.Password}})
 		} else {
 			warn = "basic auth password is not a param ref; left out, planning this file removes the basic auth, add it by hand"

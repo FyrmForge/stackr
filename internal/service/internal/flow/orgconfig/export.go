@@ -11,6 +11,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/domainres"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/params"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/settings"
+	"github.com/FyrmForge/stackr/internal/service/internal/planfile"
 )
 
 // Export is live written as the org file: the org's params (a secret by
@@ -45,7 +46,7 @@ func Export(live Live) ([]byte, error) {
 		return nil, err
 	}
 	if d := Defaults(s); d != (Defaults{}) {
-		if pw := d.ProtectPassword; pw != nil && !strings.HasPrefix(strings.TrimSpace(*pw), "${{") {
+		if pw := d.ProtectPassword; pw != nil && !planfile.IsRef(*pw) {
 			d.ProtectUser, d.ProtectPassword = nil, nil
 		}
 		if d != (Defaults{}) {

@@ -144,8 +144,15 @@ func (o *Orchestrator) RenameTile(ctx context.Context, id, name string) (Tile, e
 	if err != nil {
 		return t, err
 	}
+	old := t
 	if t, err = o.tiles.Rename(ctx, t, name); err != nil {
 		return t, err
+	}
+	if t.Slug != old.Slug { // the new name asks the admin again
+		if err := o.dropTileGrant(ctx, old); err != nil {
+			return t, err
+		}
+		o.cancelWaitingTile(ctx, id)
 	}
 	return t, o.refreshAutoHosts(ctx, []Tile{t})
 }

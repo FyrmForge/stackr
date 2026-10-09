@@ -19,9 +19,8 @@ const (
 	LevelAdmin
 )
 
-// verbLevels is the one table. v1 has two roles (org owner, stackr admin),
-// so only the owner/admin split bites today; the ladder is kept as the
-// record of which contested verbs were decided which way. Where the old
+// verbLevels is the one table. org roles are viewer (read), member (write) and owner,
+// above them the stackr admin; the ladder is the record of which contested verbs were decided which way. Where the old
 // panel and API disagreed, the higher level is the entry.
 var verbLevels = map[Verb]Level{
 	"org.read":            LevelRead,
@@ -87,10 +86,16 @@ type User struct {
 	Roles  map[string]string // org id -> role
 	Key    bool              // authenticated by an API key
 	KeyOrg string            // the org the key is bound to, "" = unbound
+	// KeyCapped: the key has a ceiling, KeyLevel. A key does the lower of its
+	// ceiling and its user's live rights.
+	KeyCapped bool
+	KeyLevel  Level
+	KeyStack  string // the one stack the key is limited to, "" = all
 }
 
-// Resource is what the URL resolved to. Only the org matters in v1.
-type Resource struct{ OrgID string }
+// Resource is what the URL resolved to. StackID is "" for an org-wide
+// resource (no stack in the path).
+type Resource struct{ OrgID, StackID string }
 
 // Can is the only place in the product that decides this. errs.ErrNotFound
 // for outside the org (a 403 would confirm the id exists), errs.ErrRefused
@@ -101,7 +106,8 @@ func Can(u User, v Verb, r Resource) error {
 	}
 	need := LevelOf(v)
 	if need == LevelAdmin {
-		if !u.Admin {
+		// a key capped below admin never passes an admin verb, whoever mints it
+		if !u.Admin || u.KeyStack != "" || (u.KeyCapped && u.KeyLevel < LevelAdmin) {
 			return errs.ErrRefused
 		}
 		return nil
@@ -113,6 +119,19 @@ func Can(u User, v Verb, r Resource) error {
 	have, member := u.level(r.OrgID)
 	if !member {
 		return errs.ErrNotFound
+	}
+	if u.KeyCapped {
+		have = min(have, u.KeyLevel)
+	}
+	if u.KeyStack != "" {
+		// Inside the key's org, so a refusal reveals nothing for an org-wide
+		// resource (ErrRefused); another stack's id is ErrNotFound as ever.
+		if r.StackID == "" {
+			return errs.ErrRefused
+		}
+		if r.StackID != u.KeyStack {
+			return errs.ErrNotFound
+		}
 	}
 	if have < need {
 		return errs.ErrRefused
@@ -152,6 +171,14 @@ func RoleLevel(role string) (Level, bool) {
 		return LevelRead, true
 	}
 	return LevelRead, false
+}
+
+// ParseLevel reads a key ceiling: viewer, member, owner or admin.
+func ParseLevel(s string) (Level, bool) {
+	if s == "admin" {
+		return LevelAdmin, true
+	}
+	return RoleLevel(s)
 }
 
 // LevelOf: an unregistered verb needs admin, so a verb that forgets to name

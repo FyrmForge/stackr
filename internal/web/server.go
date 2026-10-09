@@ -57,7 +57,7 @@ func RegisterRoutes(srv *server.Server, deps *Deps) {
 	site.Use(hamrmw.FlashWithConfig(hamrmw.FlashConfig{Secure: !deps.DevMode}))
 	site.Use(hamrmw.CSRFWithConfig(hamrmw.CSRFConfig{Secure: !deps.DevMode}))
 
-	site.Use(deps.Access.Load())
+	site.Use(deps.Access.LoadSession())
 	site.Use(render.Theme)
 	site.Use(render.Waiting(deps.Orch))
 	site.Use(render.DrawerTab)

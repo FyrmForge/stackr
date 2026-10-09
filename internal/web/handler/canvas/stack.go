@@ -3,7 +3,6 @@ package canvas
 import (
 	"context"
 	"net/http"
-	"slices"
 
 	"github.com/a-h/templ"
 	"github.com/labstack/echo/v4"
@@ -54,7 +53,10 @@ func (h *handler) stackTab(c echo.Context, cd card, f *comp.DrawerView) (templ.C
 	v.Host = stackui.HostView{Tiles: access.Group(g.Lines, g.Pending)}
 	if len(g.Pending) > 0 && can(c, cd.s, "hostgrant.approve") {
 		// The set shown rides along; the server refuses when the ask moved.
+		addrs, panel := h.orch.HostAddrs()
 		v.Host.Approve = &access.ApproveView{
+			Addrs:   addrs,
+			Panel:   panel,
 			ID:      "host-approve",
 			Action:  f.Base + "/host-grant/approve",
 			Name:    st.Name,
@@ -148,22 +150,17 @@ func (h *handler) mountStack(site *echo.Group, a *middleware.Access) {
 			return err
 		},
 	), write)
-	// a promote from the stack's releases: the env must be this stack's
+	// a promote from the stack's releases: :env is a slug, resolved inside this stack
 	site.POST(s+"/promote/:env/:release", h.stackAction("releases", func(c echo.Context, cd card) (string, error) {
-		ctx := c.Request().Context()
-		es, err := h.orch.Ladder(ctx, cd.s.Stack.ID)
-		if err != nil {
-			return "", err
-		}
-		i := slices.IndexFunc(es, func(e service.Environment) bool { return e.ID == c.Param("env") })
-		if i < 0 {
+		e := cd.s.Env
+		if e == nil {
 			return "", errs.ErrNotFound
 		}
-		j, err := h.orch.Promote(ctx, es[i].ID, c.Param("release"))
+		j, err := h.orch.Promote(c.Request().Context(), e.ID, c.Param("release"))
 		if err != nil {
 			return "", err
 		}
-		c.Set(jobKey, queued{job: j, page: urlOf(cd.s) + "/" + es[i].Slug})
+		c.Set(jobKey, queued{job: j, page: urlOf(cd.s) + "/" + e.Slug})
 		return "Queued: the job below follows it.", nil
 	}), a.Require("env.write"))
 	site.POST(s+"/delete", h.stackAction("settings", func(c echo.Context, cd card) (string, error) {

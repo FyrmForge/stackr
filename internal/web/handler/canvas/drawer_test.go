@@ -287,9 +287,8 @@ func TestOrgDomains(t *testing.T) {
 		t.Fatal(err)
 	}
 	body = v.do(t, "GET", "/acme/-/drawer?tab=domains", nil, true).Body.String()
-	if !strings.Contains(body, "acme.io") || strings.Contains(body, `hx-post="/acme/-/drawer/domains"`) ||
-		strings.Contains(body, "/acme/-/drawer/domains/") {
-		t.Errorf("a viewer lists the rows but gets no form or delete:\n%s", body)
+	if strings.Contains(body, "acme.io") || !strings.Contains(body, "Your role cannot list domains.") {
+		t.Errorf("a viewer gets no domain rows:\n%s", body)
 	}
 	if rec := v.do(t, "POST", "/acme/-/drawer/domains", url.Values{"host": {"x.io"}}, true); rec.Code != http.StatusForbidden {
 		t.Errorf("viewer add = %d, want 403", rec.Code)

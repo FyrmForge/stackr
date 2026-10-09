@@ -39,7 +39,7 @@ docker run
   -e
   TRUSTED_PROXIES=10.0.0.0/8,172.16.0.0/12,192.168.0.0/16
   -e
-  STACKR_PROXY_ADMIN=http://127.0.0.1:2019
+  STACKR_PROXY_ADMIN=unix:///srv/stackr/proxy/admin.sock
   -e
   STACKR_IMAGE=ghcr.io/fyrmforge/stackr:1.2.3
   ghcr.io/fyrmforge/stackr:1.2.3

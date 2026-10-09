@@ -252,6 +252,7 @@ func (o *Orchestrator) orgWebhook(ctx context.Context, orgID string, d delivery)
 					Head:    pr.PullRequest.Head.Ref,
 					SHA:     pr.PullRequest.Head.SHA,
 					Base:    pr.PullRequest.Base.Ref,
+					Fork:    pr.IsFork(),
 				},
 				"push:"+st.ID,
 				"pr:"+st.ID+":"+strconv.Itoa(pr.Number),

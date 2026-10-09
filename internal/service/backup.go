@@ -157,8 +157,9 @@ func (o *Orchestrator) BackupNow(ctx context.Context, volumeID, destID, method, 
 }
 
 // RestoreBackup queues a restore of a run of source into target (the same
-// volume, or another in the same org: cross-volume restore).
-func (o *Orchestrator) RestoreBackup(ctx context.Context, runID, sourceVolumeID, targetVolumeID string) (Job, error) {
+// volume, or another in the same org: cross-volume restore). A stack key
+// (by.Access.KeyStack) restores only inside its own stack.
+func (o *Orchestrator) RestoreBackup(ctx context.Context, by *Principal, runID, sourceVolumeID, targetVolumeID string) (Job, error) {
 	src, err := o.volumes.Get(ctx, sourceVolumeID)
 	if err != nil {
 		return Job{}, err
@@ -167,13 +168,18 @@ func (o *Orchestrator) RestoreBackup(ctx context.Context, runID, sourceVolumeID,
 	if err != nil {
 		return Job{}, err
 	}
-	a, err := o.volumeOrg(ctx, src)
+	a, err := o.volumeChild(ctx, src.ID)
 	if err != nil {
 		return Job{}, err
 	}
-	if b, err := o.volumeOrg(ctx, dst); err != nil {
+	b, err := o.volumeChild(ctx, dst.ID)
+	if err != nil {
 		return Job{}, err
-	} else if a != b {
+	}
+	if a.Org != b.Org {
+		return Job{}, errs.ErrNotFound
+	}
+	if by != nil && by.Access.KeyStack != "" && (a.Stack != by.Access.KeyStack || b.Stack != a.Stack) {
 		return Job{}, errs.ErrNotFound
 	}
 	lock := []string{"volume:" + dst.ID}

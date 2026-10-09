@@ -91,7 +91,7 @@ func TestExportKeepsDomainWithLiteralBasicAuth(t *testing.T) {
 	if !strings.Contains(got, "api.example.com") || strings.Contains(got, "hunter2") || strings.Contains(got, "basic_auth") {
 		t.Errorf("export:\n%s", got)
 	}
-	if len(warns) != 1 || !strings.Contains(warns[0], "api.example.com") || !strings.Contains(warns[0], "basic") {
+	if len(warns) != 2 || !strings.Contains(warns[1], "api.example.com") || !strings.Contains(warns[1], "basic") {
 		t.Errorf("warnings = %v", warns)
 	}
 
@@ -114,6 +114,10 @@ func TestExportDefaultsLeaveLiteralProtectPassword(t *testing.T) {
 	m := defaultsMap(`{"protect":true,"protect_user":"bob","protect_password":"hunter2"}`)
 	if b, _ := json.Marshal(m); strings.Contains(string(b), "hunter2") || strings.Contains(string(b), "protect_user") {
 		t.Errorf("m = %s", b)
+	}
+	m = defaultsMap(`{"protect_user":"bob","protect_password":"${{ params.a.b }}hunter2"}`)
+	if b, _ := json.Marshal(m); strings.Contains(string(b), "hunter2") {
+		t.Errorf("mixed value leaked: %s", b)
 	}
 	m = defaultsMap(`{"protect_user":"bob","protect_password":"${{ params.a.b }}"}`)
 	if m["protect_password"] == nil {
@@ -164,5 +168,55 @@ func TestExportLadderPlansCleanPerEnv(t *testing.T) {
 		if len(p.Changes) != 0 || p.Blocked() {
 			t.Errorf("plan of %s = %s %v\n%s", e.Slug, kinds(p), p.Blockers, got)
 		}
+	}
+}
+
+// A stack param an env overrides is declared without a value; the file plans
+// clean on every env.
+func TestExportOverriddenStackParamPlansClean(t *testing.T) {
+	w := setup(t)
+	must(t, w.f.D.Params.Set(ctx, params.Scope{Kind: "stack", ID: w.st.ID}, params.Entry{Collection: "app", Name: "region", Kind: params.Param, Value: "eu"}))
+	must(t, w.f.D.Params.Set(ctx, params.Scope{Kind: "env", ID: w.prd.ID}, params.Entry{Collection: "app", Name: "region", Kind: params.Param, Value: "us"}))
+	out, warns, err := w.f.Export(ctx, w.st.ID, "")
+	must(t, err)
+	if len(warns) == 0 || strings.Contains(string(out), "eu") {
+		t.Fatalf("warns = %v\n%s", warns, out)
+	}
+	w.files["c1"] = string(out)
+	rel := w.release(t, "c1")
+	for _, e := range []store.Environment{w.dev, w.prd} {
+		_, err = w.f.D.Envs.SetRelease(ctx, e, rel.ID)
+		must(t, err)
+		p, err := w.f.Plan(ctx, e.ID, rel.ID, io.Discard)
+		must(t, err)
+		if len(p.Changes) != 0 || p.Blocked() {
+			t.Errorf("plan of %s = %s %v\n%s", e.Slug, kinds(p), p.Blockers, out)
+		}
+	}
+}
+
+// The pr_envs warning follows the config repo, not an existing PR env.
+func TestExportWarnsPREnvsWithConfigRepo(t *testing.T) {
+	w := setup(t)
+	has := func() bool {
+		_, warns, err := w.f.Export(ctx, w.st.ID, "")
+		if err != nil {
+			t.Skipf("export of an empty stack: %v", err)
+		}
+		for _, x := range warns {
+			if strings.HasPrefix(x, "pr_envs") {
+				return true
+			}
+		}
+		return false
+	}
+	w.mk(t, w.dev, "api", store.Tile{Kind: tile.Image, ImageRef: "nginx:1", ContainerPort: 80})
+	if !has() {
+		t.Fatal("no pr_envs warning with a config repo")
+	}
+	w.st.ConfigRepo = ""
+	must(t, w.s.Stacks.Update(ctx, w.st))
+	if has() {
+		t.Fatal("warned without a config repo")
 	}
 }

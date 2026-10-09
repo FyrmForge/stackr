@@ -169,6 +169,24 @@ func TestStrictYAML(t *testing.T) {
 	}
 }
 
+func TestCheckParamsGenerateOnlyInStackFile(t *testing.T) {
+	in := map[string]map[string]planfile.Param{"app": {"s": {Type: "secret", Generate: 32}}}
+	if err := planfile.CheckParams(in, true); err != nil {
+		t.Errorf("stack file: %v", err)
+	}
+	if err := planfile.CheckParams(in, false); err == nil || !strings.Contains(err.Error(), "only read in a stack file") {
+		t.Errorf("org/server file: err = %v", err)
+	}
+}
+
+func TestIsRef(t *testing.T) {
+	for in, want := range map[string]bool{"${{ params.a.b }}": true, " ${{ a.b }} ": true, "${{ a.b }}hunter2": false, "x${{ a.b }}": false, "${{ a }}${{ b }}": false, "hunter2": false} {
+		if planfile.IsRef(in) != want {
+			t.Errorf("IsRef(%q) = %v", in, !want)
+		}
+	}
+}
+
 func TestCheckParams(t *testing.T) {
 	val := "x"
 	for name, c := range map[string]struct {
@@ -182,7 +200,7 @@ func TestCheckParams(t *testing.T) {
 		"type":          {map[string]map[string]planfile.Param{"app": {"s": {Type: "other"}}}, "type must be param or secret"},
 		"empty is fine": {nil, ""},
 	} {
-		err := planfile.CheckParams(c.in)
+		err := planfile.CheckParams(c.in, true)
 		if (c.want == "") != (err == nil) || (err != nil && !strings.Contains(err.Error(), c.want)) {
 			t.Errorf("%s: err = %v, want %q", name, err, c.want)
 		}

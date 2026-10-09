@@ -64,28 +64,53 @@ func TestMintKey(t *testing.T) {
 	u, admin := seed(t, st, "u@x.io", false), seed(t, st, "a@x.io", true)
 	org := seedOrg(t, st)
 
-	if _, _, err := l.MintKey(ctx, u, "", "", "k"); !errors.Is(err, errs.ErrRefused) {
+	if _, _, err := l.MintKey(ctx, u, "", "", "k", "", ""); !errors.Is(err, errs.ErrRefused) {
 		t.Errorf("non-admin unbound key = %v, want refused", err)
 	}
-	if _, _, err := l.MintKey(ctx, u, org, "", "k"); !errors.Is(err, errs.ErrNotFound) {
+	if _, _, err := l.MintKey(ctx, u, org, "", "k", "", ""); !errors.Is(err, errs.ErrNotFound) {
 		t.Errorf("mint into an org the minter is not in = %v", err)
 	}
-	_, _, err := l.MintKey(ctx, u, org, "owner", "  ")
+	_, _, err := l.MintKey(ctx, u, org, "owner", "  ", "", "")
 	if v, ok := errs.IsInvalid(err); !ok || v.Field != "name" {
 		t.Errorf("blank name = %v, want invalid on name", err)
 	}
-	tok, k, err := l.MintKey(ctx, u, org, "owner", "k")
+	tok, k, err := l.MintKey(ctx, u, org, "owner", "k", "", "")
 	if err != nil || k.OrgID == nil || *k.OrgID != org {
 		t.Fatalf("mint = %+v, %v", k, err)
 	}
 	if _, got, err := l.ByKey(ctx, tok); err != nil || got.ID != k.ID || got.TokenHash == tok {
 		t.Errorf("ByKey = %+v, %v", got, err)
 	}
-	if _, _, err := l.MintKey(ctx, admin, "", "", "k"); err != nil {
+	if _, _, err := l.MintKey(ctx, admin, "", "", "k", "", ""); err != nil {
 		t.Errorf("admin unbound key: %v", err)
 	}
 	if err := l.RevokeKey(ctx, admin.ID, k.ID); !errors.Is(err, errs.ErrNotFound) {
 		t.Errorf("revoke someone else's key = %v", err)
+	}
+}
+
+// A ceiling above the minter's role is refused; an admin ceiling needs an admin.
+func TestMintKeyCeiling(t *testing.T) {
+	st := servicetest.Store(t)
+	l := user.New(st.Users, st.Sessions, st.APIKeys)
+	u, admin := seed(t, st, "u@x.io", false), seed(t, st, "a@x.io", true)
+	org := seedOrg(t, st)
+
+	for role, bad := range map[string][]string{"viewer": {"member", "owner", "admin"}, "member": {"owner", "admin"}, "owner": {"admin"}} {
+		for _, level := range bad {
+			if _, _, err := l.MintKey(ctx, u, org, role, "k", level, ""); !errors.Is(err, errs.ErrRefused) {
+				t.Errorf("%s minting %s = %v, want refused", role, level, err)
+			}
+		}
+	}
+	if _, k, err := l.MintKey(ctx, u, org, "member", "k", "member", ""); err != nil || k.Level != "member" {
+		t.Errorf("member minting member = %+v, %v", k, err)
+	}
+	if _, _, err := l.MintKey(ctx, u, org, "owner", "k", "boss", ""); err == nil {
+		t.Error("unknown level accepted")
+	}
+	if _, k, err := l.MintKey(ctx, admin, org, "", "k", "admin", ""); err != nil || k.Level != "admin" {
+		t.Errorf("admin minting admin = %+v, %v", k, err)
 	}
 }
 
@@ -175,7 +200,7 @@ func TestLosePowers(t *testing.T) {
 		if err := l.SetActive(ctx, b.ID, true); err != nil {
 			t.Fatal(err)
 		}
-		tok, _, err := l.MintKey(ctx, b, org, "owner", "k")
+		tok, _, err := l.MintKey(ctx, b, org, "owner", "k", "", "")
 		if err != nil {
 			t.Fatal(err)
 		}

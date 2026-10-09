@@ -167,6 +167,11 @@ func TestSetMessage(t *testing.T) {
 	if g, _ := l.Get(ctx, r2.ID); g.Message != "" {
 		t.Errorf("empty message stored as %q", g.Message)
 	}
+	ctl, err := l.SetMessage(ctx, r2, "a\x1b[31mb\tc\r")
+	must(t, err)
+	if ctl.Message != "a[31mbc" {
+		t.Errorf("control characters kept: %q", ctl.Message)
+	}
 	long, err := l.SetMessage(ctx, r2, strings.Repeat("é", 300))
 	must(t, err)
 	if n := len([]rune(long.Message)); n != 200 {

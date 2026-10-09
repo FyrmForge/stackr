@@ -28,6 +28,9 @@
           "id": {
             "type": "string"
           },
+          "level": {
+            "type": "string"
+          },
           "name": {
             "type": "string"
           },
@@ -41,6 +44,9 @@
               }
             ]
           },
+          "stack": {
+            "type": "string"
+          },
           "user_id": {
             "type": "string"
           }
@@ -49,7 +55,9 @@
           "id",
           "user_id",
           "name",
-          "created_at"
+          "created_at",
+          "level",
+          "stack"
         ],
         "type": "object"
       },
@@ -1387,6 +1395,23 @@
           "log",
           "next",
           "end"
+        ],
+        "type": "object"
+      },
+      "KeyIn": {
+        "properties": {
+          "level": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "stack": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
         ],
         "type": "object"
       },
@@ -8438,7 +8463,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/NameIn"
+                "$ref": "#/components/schemas/KeyIn"
               }
             }
           },

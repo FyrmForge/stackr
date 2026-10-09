@@ -20,6 +20,7 @@ type View struct {
 	Status             string // a TileBadge word
 	Location, EnvColor string
 	Error, Note        string
+	ReadOnly           bool // the viewer may not write: no forms, no delete
 
 	ProvisionFrom string // as written
 	Target        string // "stack/env/tile" it resolves to; "" = Blocker says why
@@ -67,9 +68,11 @@ templ Overview(v View) {
 			<p class="text-xs text-rw-faint font-mono">provision_from: { v.ProvisionFrom }</p>
 		}
 		@c.PanelSection("slice-default-access", "Default access", "What a tile that refs this slice gets when its slice_access does not name it.") {
-			if v.FileOwned {
+			if v.FileOwned || v.ReadOnly {
 				<p class="text-sm text-rw-text font-mono">{ v.DefaultAccess }</p>
-				<p class="text-xs text-rw-faint">Set in the stack file.</p>
+				if v.FileOwned {
+					<p class="text-xs text-rw-faint">Set in the stack file.</p>
+				}
 			} else {
 				<form hx-post={ v.Base + "/default-access" } hx-trigger="change" hx-target={ "#" + Root } hx-swap="outerHTML">
 					<label for="slice-default" class="sr-only">Default access</label>
@@ -85,6 +88,9 @@ templ Overview(v View) {
 			})
 		}
 		@c.PanelSection("slice-on-remove", "On remove", "What removing this tile does to its database or bucket. An ephemeral env always drops.") {
+			if v.ReadOnly {
+				<p class="text-sm text-rw-text font-mono">{ onRemoveWord(v.OnRemove) }</p>
+			} else {
 			<form hx-post={ v.Base + "/on-remove" } hx-trigger="change" hx-target={ "#" + Root } hx-swap="outerHTML">
 				<label for="slice-on-remove-select" class="sr-only">On remove</label>
 				<select id="slice-on-remove-select" name="on_remove" class="input w-auto">
@@ -92,6 +98,7 @@ templ Overview(v View) {
 					<option value="drop" selected?={ v.OnRemove == "drop" }>drop</option>
 				</select>
 			</form>
+			}
 		}
 		@c.PanelSection("slice-status", "Status", "") {
 			@c.Facts() {
@@ -100,6 +107,7 @@ templ Overview(v View) {
 				@c.Fact("Network", v.Network)
 			}
 		}
+		if !v.ReadOnly {
 		@c.DangerZone("Deleting this tile unbinds its consumers, then keeps or drops its data as On remove says.", v.Name, "") {
 			@c.Confirm(c.ConfirmView{
 				Button:  "Delete tile",
@@ -110,6 +118,7 @@ templ Overview(v View) {
 				Action:  v.Base + "/delete",
 				Target:  "#" + Root,
 			})
+		}
 		}
 	</div>
 }

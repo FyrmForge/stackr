@@ -5,6 +5,7 @@ import (
 
 	"github.com/labstack/echo/v4"
 
+	"github.com/FyrmForge/stackr/internal/middleware"
 	"github.com/FyrmForge/stackr/internal/service"
 )
 
@@ -195,7 +196,7 @@ func (h *H) BackupNow() Endpoint {
 // same volume or another in the org.
 func (h *H) RestoreBackup() Endpoint {
 	return Job(func(c echo.Context, in RestoreIn) (service.Job, error) {
-		return h.Orch.RestoreBackup(rc(c), in.RunID, c.Param("volume"), in.TargetVolumeID)
+		return h.Orch.RestoreBackup(rc(c), middleware.Principal(c), in.RunID, c.Param("volume"), in.TargetVolumeID)
 	})
 }
 

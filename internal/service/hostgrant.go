@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"net"
 	"slices"
 	"strings"
 	"time"
@@ -173,6 +174,9 @@ func (o *Orchestrator) ListHostGrants(ctx context.Context) ([]HostGrant, error) 
 	out := []HostGrant{}
 	seen := map[string]bool{}
 	for _, r := range rows {
+		if o.stackGone(ctx, r.StackID) {
+			continue
+		}
 		g, err := o.HostGrant(ctx, r.StackID)
 		if err != nil {
 			return nil, err
@@ -187,7 +191,8 @@ func (o *Orchestrator) ListHostGrants(ctx context.Context) ([]HostGrant, error) 
 		var p struct {
 			HostAccess *hostAccess `json:"host_access"`
 		}
-		if json.Unmarshal([]byte(j.Payload), &p) != nil || p.HostAccess == nil || seen[p.HostAccess.Stack] {
+		if json.Unmarshal([]byte(j.Payload), &p) != nil || p.HostAccess == nil || seen[p.HostAccess.Stack] ||
+			o.stackGone(ctx, p.HostAccess.Stack) {
 			continue
 		}
 		g, err := o.HostGrant(ctx, p.HostAccess.Stack)
@@ -197,4 +202,16 @@ func (o *Orchestrator) ListHostGrants(ctx context.Context) ([]HostGrant, error) 
 		out, seen[p.HostAccess.Stack] = append(out, g), true
 	}
 	return out, nil
+}
+
+// HostAddrs are the server's own IPv4 addresses and the panel's, for the
+// approve screen's range warnings.
+func (o *Orchestrator) HostAddrs() (addrs []string, panel string) {
+	as, _ := net.InterfaceAddrs()
+	for _, a := range as {
+		if p, ok := a.(*net.IPNet); ok && p.IP.To4() != nil {
+			addrs = append(addrs, p.IP.String())
+		}
+	}
+	return addrs, o.cfg.PanelBind
 }

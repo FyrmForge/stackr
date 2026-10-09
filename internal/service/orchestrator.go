@@ -19,6 +19,7 @@ import (
 	"github.com/jmoiron/sqlx"
 
 	appdb "github.com/FyrmForge/stackr/internal/db"
+	"github.com/FyrmForge/stackr/internal/installspec"
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	fbackup "github.com/FyrmForge/stackr/internal/service/internal/flow/backup"
@@ -68,7 +69,7 @@ import (
 // ProxyAdmin is where `stackrd proxy` serves Caddy's admin API, and the
 // admin listener every pushed config carries (without it Caddy falls back to
 // its own localhost and stackrd loses the proxy).
-const ProxyAdmin = "0.0.0.0:2019"
+const ProxyAdmin = installspec.ProxyAdminListen
 
 // ProxyContainer is the proxy's container name on the box.
 const ProxyContainer = "stackr-proxy"
@@ -104,6 +105,9 @@ type Config struct {
 	// PanelSpec is the panel's container spec for an image, the installer's
 	// one spec; nil refuses self-upgrade.
 	PanelSpec func(image string) ContainerSpec
+	// ProxySpec is stackr-proxy's spec for an image and its DNS-01 token,
+	// the same installer spec; an upgrade recreates a stale proxy from it.
+	ProxySpec func(image, dnsToken string) ContainerSpec
 	// Conntrack is the host conntrack table the traffic sample reads;
 	// "" = /proc/net/nf_conntrack (the panel is host-network).
 	Conntrack string
@@ -111,6 +115,8 @@ type Config struct {
 	// installer's HOST: docker0's gateway); the filter rules let only Caddy
 	// reach it. "" = no panel rule.
 	PanelBind string
+	// PanelPort is the port the panel really listens on (its PORT).
+	PanelPort int
 }
 
 // Option changes how New builds the tree; tests use it.
@@ -204,10 +210,13 @@ type Orchestrator struct {
 	sched     *schedule.Runner
 	sync      *domain.Syncer
 
-	gitEnv       []string       // WithGit: clone env that replaces the connector's
-	proxyStarted atomic.Value   // the proxy container's last seen start time
-	vipAsync     sync.WaitGroup // rerouteVIPsAsync runs in flight; tests wait on it
-	repoLocks    sync.Map       // clone dir -> *sync.Mutex
+	gitEnv       []string            // WithGit: clone env that replaces the connector's
+	proxyStarted atomic.Value        // the proxy container's last seen start time
+	vipAsync     sync.WaitGroup      // rerouteVIPsAsync runs in flight; tests wait on it
+	vipMu        sync.Mutex          // one VIP rebuild at a time
+	earlyMu      sync.Mutex          // guards earlyIPs
+	earlyIPs     map[string]earlyEnt // container id -> address holding early lan rules
+	repoLocks    sync.Map            // clone dir -> *sync.Mutex
 	cli          cliCodes
 }
 
@@ -311,6 +320,8 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 	orch.domainres = build("leaf/domainres", func() *domainres.Leaf { return domainres.New(st.DomainResources) })
 	orch.routes = build("leaf/route", func() *route.Leaf { return route.New(st.Routes) })
 	orch.hostgrant = build("leaf/hostgrant", func() *hostgrant.Leaf { return hostgrant.New(st.HostGrants) })
+	orch.earlyIPs = map[string]earlyEnt{}
+	orch.tiles.Early = orch.earlyLan
 	orch.creds = build("leaf/credential", func() *credential.Leaf { return credential.New(st.Credentials) })
 	orch.conns = build("leaf/connector", func() *connector.Leaf {
 		app := githubapp.New(cfg.BaseURL).WithPanelHost(func() string {
@@ -363,6 +374,7 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 			Settings:   orch.settings,
 			Jobs:       orch.jobRows,
 			HostGrants: orch.hostgrant,
+			VIPLock:    &orch.vipMu,
 			DataDir:    cfg.DataDir,
 			Sync:       orch.sync.Sync,
 			Engines:    orch.engines,
@@ -416,6 +428,9 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 			Version: cfg.Version,
 			Archive: orch.upgradeArchive,
 			Spec:    orch.panelSpec,
+
+			Docker:    d,
+			ProxySpec: cfg.ProxySpec,
 		}
 	})
 	orch.run = build("flow/run", func() *frun.Flow {

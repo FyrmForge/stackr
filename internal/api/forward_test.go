@@ -144,9 +144,12 @@ func TestForwardNoPort(t *testing.T) {
 		t.Fatal(err)
 	}
 	w.env.Replica(w.tile.ID, "127.0.0.1")
-	code, body := w.do(t, w.owner, "GET", "/orgs/acme/stacks/shop/envs/dev/tiles/api/forward", "")
-	if code != 400 || !strings.Contains(body, "declares no port") {
-		t.Errorf("no port = %d %s, want 400", code, body)
+	srv := httptest.NewServer(w.h)
+	defer srv.Close()
+	_, resp, _ := websocket.Dial(ctx, "ws"+strings.TrimPrefix(srv.URL, "http")+forwardPath,
+		&websocket.DialOptions{HTTPHeader: http.Header{"Authorization": {"Bearer " + w.owner}}})
+	if resp == nil || resp.StatusCode != 400 {
+		t.Errorf("no port = %v, want 400", resp)
 	}
 }
 

@@ -30,8 +30,24 @@ type Flow struct {
 	// spec, so a new env var reaches upgrades as well as fresh installs.
 	Spec func(image string) docker.ContainerSpec
 	URL  string // "" = ReleasesURL; tests point it at a fake
+	// Docker and ProxySpec let an upgrade bring stackr-proxy along: its spec
+	// for image and the DNS-01 token it already runs with. Nil = the proxy
+	// is left alone.
+	Docker    ProxyDocker
+	ProxySpec func(image, dnsToken string) docker.ContainerSpec
 
 	upgrading sync.Mutex
+}
+
+// ProxyDocker is the slice of the daemon the proxy recreate uses.
+type ProxyDocker interface {
+	List(ctx context.Context, labels map[string]string) ([]docker.Container, error)
+	Inspect(ctx context.Context, id string) (docker.Detail, error)
+	StopRemove(ctx context.Context, id string) error
+	Rename(ctx context.Context, id, name string) error
+	Stop(ctx context.Context, id string) error
+	Start(ctx context.Context, id string) error
+	Run(ctx context.Context, spec docker.ContainerSpec) (string, error)
 }
 
 // Upgradable is false for dev builds: no release to compare, no image of
@@ -109,6 +125,11 @@ func (f *Flow) Upgrade(ctx context.Context, tag string, log io.Writer) (string, 
 	if err != nil {
 		return "", fmt.Errorf("pre-upgrade backup: %w", err)
 	}
+	// Before the panel moves: the new panel finds the admin socket mounted,
+	// and stackrd re-pushes the config when it sees the proxy start (watchTick).
+	if err := f.EnsureProxy(ctx, image); err != nil {
+		return "", err
+	}
 	spec := f.Spec(image)
 	spec.Image = image
 	// The old container still holds its name until the new one passes.
@@ -118,6 +139,87 @@ func (f *Flow) Upgrade(ctx context.Context, tag string, log io.Writer) (string, 
 		return "", err
 	}
 	return archive, nil
+}
+
+// EnsureProxy recreates stackr-proxy from image when the spec it was made
+// from (installspec.LabelSpec) differs from the wanted one: a proxy from
+// before the admin socket has no stamp, so it is always replaced. The named
+// volume keeps certs and autosave; sites blip for seconds. A box with no
+// proxy container (the installer owns creating it) is left alone.
+// The swap is transactional: the old proxy is renamed aside and stopped (that
+// frees the ports), and comes back if the new one will not run. A leftover
+// aside from a crashed attempt is cleared or restored first.
+func (f *Flow) EnsureProxy(ctx context.Context, image string) error {
+	if f.Docker == nil || f.ProxySpec == nil {
+		return nil
+	}
+	cs, err := f.Docker.List(ctx, map[string]string{installspec.LabelRole: "proxy"})
+	if err != nil {
+		return err
+	}
+	var cur, aside *docker.Container
+	for i := range cs {
+		switch cs[i].Name {
+		case installspec.ProxyName + OldSuffix:
+			aside = &cs[i]
+		default:
+			cur = &cs[i]
+		}
+	}
+	if cur == nil && aside != nil { // crashed between the stop and the run
+		if err := f.Docker.Rename(ctx, aside.ID, installspec.ProxyName); err != nil {
+			return fmt.Errorf("restore old proxy: %w", err)
+		}
+		if err := f.Docker.Start(ctx, aside.ID); err != nil {
+			return fmt.Errorf("restore old proxy: %w", err)
+		}
+		cur, aside = aside, nil
+	}
+	if cur == nil {
+		return nil
+	}
+	if aside != nil {
+		if err := f.Docker.StopRemove(ctx, aside.ID); err != nil {
+			return fmt.Errorf("remove leftover proxy: %w", err)
+		}
+	}
+	d, err := f.Docker.Inspect(ctx, cur.ID)
+	if err != nil {
+		return err
+	}
+	want := f.ProxySpec(image, installspec.TokenFrom(d.Env))
+	if cur.Labels[installspec.LabelSpec] == want.Labels[installspec.LabelSpec] {
+		return nil
+	}
+	if err := f.Docker.Rename(ctx, cur.ID, installspec.ProxyName+OldSuffix); err != nil {
+		return fmt.Errorf("set old proxy aside: %w", err)
+	}
+	if err := f.Docker.Stop(ctx, cur.ID); err != nil {
+		return f.rollback(ctx, cur.ID, want.Name, fmt.Errorf("stop old proxy: %w", err))
+	}
+	if _, err := f.Docker.Run(ctx, want); err != nil {
+		return f.rollback(ctx, cur.ID, want.Name, fmt.Errorf("run new proxy: %w", err))
+	}
+	if err := f.Docker.StopRemove(ctx, cur.ID); err != nil {
+		return fmt.Errorf("remove old proxy: %w", err)
+	}
+	return nil
+}
+
+// OldSuffix names the proxy set aside during a swap (stackr-proxy-old).
+const OldSuffix = "-old"
+
+// rollback drops whatever the failed run left under the proxy's name and
+// puts the old container back.
+func (f *Flow) rollback(ctx context.Context, oldID, name string, cause error) error {
+	_ = f.Docker.StopRemove(ctx, name)
+	if err := f.Docker.Rename(ctx, oldID, name); err != nil {
+		return fmt.Errorf("%w; restore old proxy: %v", cause, err)
+	}
+	if err := f.Docker.Start(ctx, oldID); err != nil {
+		return fmt.Errorf("%w; restart old proxy: %v", cause, err)
+	}
+	return cause
 }
 
 // ImageRef maps a release tag (v0.1.1) to its image, as the installer does.

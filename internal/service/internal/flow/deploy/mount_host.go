@@ -32,8 +32,8 @@ func HostSet(ts ...store.Tile) hostgrant.Set {
 			add(hostgrant.Device + l)
 		}
 		for _, l := range tile.Lines(t.Lan) {
-			if _, err := tile.ParseLAN(l); err == nil {
-				add(hostgrant.LAN + l)
+			if r, err := tile.ParseLAN(l); err == nil {
+				add(hostgrant.LAN + r.String())
 			}
 		}
 		for _, l := range tile.Lines(t.PublishedPorts) {

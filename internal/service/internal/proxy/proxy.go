@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"strings"
 	"sync"
@@ -23,8 +24,16 @@ type Client struct {
 	mu sync.Mutex // one push at a time: a reload mid-reload is a race
 }
 
+// New takes an http URL, or unix:///path to a socket.
 func New(addr string) *Client {
-	return &Client{Addr: strings.TrimRight(addr, "/"), HTTP: &http.Client{Timeout: 30 * time.Second}}
+	c := &Client{Addr: strings.TrimRight(addr, "/"), HTTP: &http.Client{Timeout: 30 * time.Second}}
+	if sock, ok := strings.CutPrefix(addr, "unix://"); ok {
+		c.Addr = "http://stackr-proxy"
+		c.HTTP.Transport = &http.Transport{DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+			return (&net.Dialer{}).DialContext(ctx, "unix", sock)
+		}}
+	}
+	return c
 }
 
 // Push replaces Caddy's whole config (POST /load). Caddy applies it

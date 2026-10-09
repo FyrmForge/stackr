@@ -51,3 +51,36 @@ func TestEnvReleases(t *testing.T) {
 		t.Errorf("promote = %d\n%s", rec.Code, rec.Body)
 	}
 }
+
+// The stack drawer's Promote names the env by slug, and the route takes it.
+func TestStackReleasesPromote(t *testing.T) {
+	s := webtest.New(t)
+	s.Healthy(s.Tile.Env)
+	ctx := context.Background()
+	j, err := s.Orch.Deploy(ctx, s.Tile.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for end := time.Now().Add(10 * time.Second); ; time.Sleep(20 * time.Millisecond) {
+		if j, err = s.Orch.GetJob(ctx, j.ID); err != nil || j.FinishedAt != nil || time.Now().After(end) {
+			break
+		}
+	}
+	rs, err := s.Orch.Releases(ctx, s.Tile.Stack)
+	if err != nil || len(rs) != 1 {
+		t.Fatalf("releases = %v, %v", rs, err)
+	}
+	id := rs[0].ID
+	base := "/acme/shop/-/drawer"
+	body := get(t, s, base+"?tab=releases&env="+s.Tile.Env+"&plan="+id)
+	if !strings.Contains(body, base+"/promote/dev/"+id) {
+		t.Errorf("dry run lacks the slug url:\n%s", body)
+	}
+	rec := s.Do(t, "POST", base+"/promote/dev/"+id, nil)
+	if rec.Code != 200 || !strings.Contains(rec.Body.String(), "Queued") {
+		t.Errorf("promote = %d\n%s", rec.Code, rec.Body)
+	}
+	if rec := s.Do(t, "POST", base+"/promote/"+s.Tile.Env+"/"+id, nil); rec.Code != 404 {
+		t.Errorf("promote by env id = %d, want 404", rec.Code)
+	}
+}

@@ -10,15 +10,17 @@ import (
 )
 
 // Filter chains: FWD sees what a stackr container sends through the host,
-// IN what it sends to the host itself. Each gets a position-1 jump.
+// IN what it sends to the host itself. FWD is jumped to from DOCKER-USER
+// (Docker keeps that chain across restarts, FORWARD it rewrites), IN from
+// INPUT, each at position 1.
 const (
 	FwdChain = "STACKR-FWD"
 	InChain  = "STACKR-IN"
 )
 
 // Entry is one VIP's state: the live replica IPs and the lan grants of its
-// tile (a grant line, "lan:all", "lan:192.168.1.10:8123"; the "lan:" prefix
-// is optional).
+// tile (a grant line, "lan:192.168.1.0/24", "lan:192.168.1.10:8123"; the
+// "lan:" prefix is optional).
 type Entry struct {
 	Replicas []string
 	Lan      []string
@@ -29,10 +31,12 @@ type Entry struct {
 type Base struct {
 	Range     netip.Prefix // the pool stackr networks come from (docker.EnvRange)
 	Resolvers []string     // DNS servers a container may reach on :53
-	ProxyIP   string       // Caddy on docker0; "" = unknown, the hairpin and panel rules are left out
+	ProxyIP   string       // Caddy on docker0; "" = unknown, the hairpin rule is left out
 	Front     []string     // IPs or CIDRs of the front proxy, reachable on 80/443
 	PanelBind string       // the panel's listen address; "" = not locked
-	PanelPort int
+	PanelPort int          // the panel's real listen port
+
+	early map[string][]string // set by Table: replica IP -> lan lines, before it is routed
 }
 
 // private are the ranges a tile cannot start connections to unless granted.
@@ -40,17 +44,13 @@ var private = []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "169.254
 
 // lanSpec is a parsed lan grant.
 type lanSpec struct {
-	all  bool
 	dst  netip.Prefix
 	port int // 0 = any
 }
 
-// parseLan reads all | ip | cidr, each with an optional :port.
+// parseLan reads ip | cidr, each with an optional :port.
 func parseLan(line string) (lanSpec, error) {
 	s := strings.TrimPrefix(strings.TrimSpace(line), "lan:")
-	if s == "all" {
-		return lanSpec{all: true}, nil
-	}
 	var l lanSpec
 	if i := strings.LastIndexByte(s, ':'); i >= 0 {
 		p, err := strconv.Atoi(s[i+1:])
@@ -115,22 +115,25 @@ func (b Base) check() error {
 
 // lanRules are the match specs of every replica's lan grants, shared by
 // STACKR-FWD and STACKR-IN.
-func lanRules(next map[string]Entry) []string {
+func lanRules(next map[string]Entry, early map[string][]string) []string {
 	var out []string
+	// A replica still at its health gate has no VIP entry yet.
+	pending := map[string]Entry{}
+	for ip, lan := range early {
+		pending[ip] = Entry{Replicas: []string{ip}, Lan: lan}
+	}
+	next = merged(next, pending)
 	for _, v := range slices.Sorted(maps.Keys(next)) {
 		e := next[v]
 		for _, rep := range e.Replicas {
 			for _, line := range e.Lan {
 				l, _ := parseLan(line)
-				switch {
-				case l.all:
-					out = append(out, fmt.Sprintf("-s %s/32 -j RETURN", rep))
-				case l.port == 0:
+				if l.port == 0 {
 					out = append(out, fmt.Sprintf("-s %s/32 -d %s -j RETURN", rep, l.dst))
-				default:
-					for _, proto := range []string{"tcp", "udp"} {
-						out = append(out, fmt.Sprintf("-s %s/32 -d %s -p %s --dport %d -j RETURN", rep, l.dst, proto, l.port))
-					}
+					continue
+				}
+				for _, proto := range []string{"tcp", "udp"} {
+					out = append(out, fmt.Sprintf("-s %s/32 -d %s -p %s --dport %d -j RETURN", rep, l.dst, proto, l.port))
 				}
 			}
 		}
@@ -160,7 +163,7 @@ func renderFilter(next map[string]Entry, b Base) string {
 		d, _ := target(fr)
 		f("-d %s -p tcp -m multiport --dports 80,443 -j RETURN", d)
 	}
-	lans := lanRules(next)
+	lans := lanRules(next, b.early)
 	for _, r := range lans {
 		f("%s", r)
 	}
@@ -176,14 +179,28 @@ func renderFilter(next map[string]Entry, b Base) string {
 		in("-s %s -d %s -p udp --dport 53 -j RETURN", rng, d)
 		in("-s %s -d %s -p tcp --dport 53 -j RETURN", rng, d)
 	}
-	// The panel rule comes before the lan returns: no grant opens the panel.
-	if b.ProxyIP != "" && b.PanelBind != "" && b.PanelPort > 0 {
-		in("-d %s/32 -p tcp --dport %d ! -s %s/32 -j DROP", b.PanelBind, b.PanelPort, b.ProxyIP)
-	}
 	for _, r := range lans { // a lan grant to the server's own address opens INPUT too
 		in("%s", r)
+	}
+	// After the lan returns: an admin-approved range that covers the panel
+	// opens it. Always on, whatever Caddy's address is.
+	if b.PanelBind != "" && b.PanelPort > 0 {
+		in("-s %s -d %s/32 -p tcp --dport %d -j DROP", rng, b.PanelBind, b.PanelPort)
 	}
 	in("-s %s -j DROP", rng)
 	w.WriteString("COMMIT\n")
 	return w.String()
+}
+
+// merged is a and b under one map; keys of b that clash with a's get a
+// suffix, only the rules rendered from them matter.
+func merged(a, b map[string]Entry) map[string]Entry {
+	out := maps.Clone(a)
+	if out == nil {
+		out = map[string]Entry{}
+	}
+	for k, v := range b {
+		out["early-"+k] = v
+	}
+	return out
 }

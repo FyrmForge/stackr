@@ -207,6 +207,26 @@ func TestTerminalTab(t *testing.T) {
 	}
 }
 
+// A viewer's drawer has no write buttons and no Access or Settings tab, even
+// when asked for; an owner has Deploy.
+func TestViewerDrawerReadOnly(t *testing.T) {
+	s := webtest.New(t)
+	if body := s.Do(t, "GET", drawer, nil).Body.String(); !strings.Contains(body, "Deploy") {
+		t.Fatalf("owner drawer lacks Deploy\n%s", body)
+	}
+	viewer := s.User(t, "viewer@acme.test", false)
+	s.Member(t, s.Org, viewer, "viewer")
+	vs := s.Session(t, viewer)
+	for _, tab := range []string{"status", "settings", "access"} {
+		body := s.As(t, vs, "GET", drawer+"?tab="+tab, nil).Body.String()
+		for _, w := range []string{`/deploy"`, `/restart"`, `tab=settings`, `tab=access`, `id="tab-settings"`} {
+			if strings.Contains(body, w) {
+				t.Errorf("viewer tab=%s shows %q", tab, w)
+			}
+		}
+	}
+}
+
 // The status tab's Access block lists the port, then each permission the
 // tile holds or waits on.
 func TestStatusAccess(t *testing.T) {

@@ -35,14 +35,15 @@ const (
 // InviteTTL is how long an invite link works ("Auth mechanics": 7 days).
 const InviteTTL = 7 * 24 * time.Hour
 
-// Owner is the one role v1 writes (two roles: stackr admin and org owner).
+// Owner is the top org role; the stackr admin sits above it.
 const Owner = "owner"
 
 // roles is every role the leaf writes, in the pickers' order.
-// ponytail: owner only (DECIDE 171, darthvader 2026-09-25); member and
-// viewer are Later. authz already ranks them.
+// DECIDE 171 (owner only) is superseded: member and viewer ship (roles.md).
 var roles = []string{
 	Owner,
+	"member",
+	"viewer",
 }
 
 // AssignableRoles is every role AddMember, SetRole and Invite take.

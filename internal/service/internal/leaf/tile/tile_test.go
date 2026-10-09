@@ -169,13 +169,13 @@ func TestKindWhitelist(t *testing.T) {
 		{"file outside the repo", func(t *store.Tile) { t.Files = "../x:/etc/x" }, "files"},
 		{"replicas with a mount", func(t *store.Tile) { t.Volumes, t.Replicas = "data:/data", 2 }, "replicas"},
 		{"replicas without a mount", func(t *store.Tile) { t.Replicas = 3 }, ""},
-		{"lan ok", func(t *store.Tile) { t.Lan = "192.168.1.10:8123\n10.0.0.0/24\nall" }, ""},
+		{"lan ok", func(t *store.Tile) { t.Lan = "192.168.1.10:8123\n10.0.0.0/24\n0.0.0.0/0" }, ""},
 		{"bad lan", func(t *store.Tile) { t.Lan = "router" }, "lan"},
 		{"lan port out of range", func(t *store.Tile) { t.Lan = "10.0.0.1:70000" }, "lan"},
 		{"host network ok", func(t *store.Tile) { t.HostNetwork = true }, ""},
 		{"host network with replicas", func(t *store.Tile) { t.HostNetwork, t.Replicas = true, 2 }, "replicas"},
 		{"host network with ports", func(t *store.Tile) { t.HostNetwork, t.PublishedPorts = true, "80:80" }, "published_ports"},
-		{"host network with lan", func(t *store.Tile) { t.HostNetwork, t.Lan = true, "all" }, "lan"},
+		{"host network with lan", func(t *store.Tile) { t.HostNetwork, t.Lan = true, "10.0.0.0/8" }, "lan"},
 		{"managed with host network", func(t *store.Tile) { t.Kind, t.GitURL, t.HostNetwork = tile.Managed, "", true }, "host_network"},
 	} {
 		row := store.Tile{Name: "x", Kind: tile.Service, GitURL: "https://github.com/a/b"}
@@ -231,7 +231,10 @@ func TestParseLAN(t *testing.T) {
 		want tile.LANRule
 		ok   bool
 	}{
-		{"all", tile.LANRule{All: true}, true},
+		{"all", tile.LANRule{}, false},
+		{"0.0.0.0/0", tile.LANRule{Net: netip.MustParsePrefix("0.0.0.0/0")}, true},
+		{"192.168.1.5/24", tile.LANRule{Net: netip.MustParsePrefix("192.168.1.0/24")}, true},
+		{"192.168.1.5/24:80", tile.LANRule{Net: netip.MustParsePrefix("192.168.1.0/24"), Port: 80}, true},
 		{"192.168.1.10", tile.LANRule{Net: netip.MustParsePrefix("192.168.1.10/32")}, true},
 		{"192.168.1.10:8123", tile.LANRule{Net: netip.MustParsePrefix("192.168.1.10/32"), Port: 8123}, true},
 		{"10.0.0.0/24", tile.LANRule{Net: netip.MustParsePrefix("10.0.0.0/24")}, true},
@@ -696,5 +699,34 @@ func TestRouteAndTeardown(t *testing.T) {
 	must(t, l.Teardown(ctx, api, "n"))
 	if len(v.set) != 0 {
 		t.Errorf("vip left: %v", v.set)
+	}
+}
+
+// A replica that fails its gate, and a gated one removed by a failed rollout,
+// both tell Early they are gone.
+func TestEarlyOffOnGateFailureAndRemove(t *testing.T) {
+	l, fake, _, base := setup(t)
+	var on, off []string
+	l.Early = func(_ context.Context, _ store.Tile, id string, v bool) {
+		if v {
+			on = append(on, id)
+		} else {
+			off = append(off, id)
+		}
+	}
+	fake.RunID = "bad"
+	fake.Details = map[string]docker.Detail{"bad": {Running: true, Health: "unhealthy"}}
+	tl, err := l.Create(ctx, svc(base, "api"))
+	must(t, err)
+	if _, err := l.Start(ctx, tl, docker.ContainerSpec{Name: "api-1"}, io.Discard); err == nil {
+		t.Fatal("gate passed")
+	}
+	if !slices.Equal(on, []string{"bad"}) || !slices.Equal(off, []string{"bad"}) {
+		t.Fatalf("gate failure: on %v off %v", on, off)
+	}
+	fake.Containers = []docker.Container{{ID: "ok", Labels: map[string]string{tile.LabelTile: tl.ID}}}
+	must(t, l.Remove(ctx, tl.ID, "ok"))
+	if !slices.Equal(off, []string{"bad", "ok"}) {
+		t.Fatalf("remove: off %v", off)
 	}
 }

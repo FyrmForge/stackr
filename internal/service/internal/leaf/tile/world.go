@@ -107,10 +107,12 @@ func replica(t store.Tile, spec docker.ContainerSpec) docker.ContainerSpec {
 // gated waits for the replica to pass the health gate; one that does not is
 // removed, its last output copied into log first.
 func (l *Leaf) gated(ctx context.Context, t store.Tile, id string, log io.Writer) error {
+	l.early(ctx, t, id, true)
 	if err := l.gate(ctx, id, time.Duration(t.HealthcheckStartPeriodS)*time.Second); err != nil {
 		if ctx.Err() == nil {
 			err = l.lastWords(ctx, id, err, log)
 		}
+		l.early(context.WithoutCancel(ctx), t, id, false)
 		_ = l.docker.StopRemove(context.WithoutCancel(ctx), id)
 		return fmt.Errorf("%s: %w", t.Slug, err)
 	}
@@ -153,6 +155,8 @@ func (l *Leaf) RunOnce(
 		return -1, err
 	}
 	defer func() { _ = l.docker.StopRemove(context.WithoutCancel(ctx), id) }()
+	l.early(ctx, t, id, true)
+	defer l.early(context.WithoutCancel(ctx), t, id, false)
 	lines, stop, err := l.docker.StreamLogs(context.WithoutCancel(ctx), id, -1)
 	if err != nil {
 		return -1, err
@@ -451,6 +455,8 @@ func (l *Leaf) Remove(ctx context.Context, tileID, id string) error {
 	if err != nil {
 		return err
 	}
+	// A gated replica not yet routed still holds early lan rules.
+	l.early(context.WithoutCancel(ctx), store.Tile{ID: tileID}, c.ID, false)
 	return l.docker.StopRemove(ctx, c.ID)
 }
 

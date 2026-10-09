@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
+	"github.com/FyrmForge/stackr/internal/service/internal/flow/jobs"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/release"
 	lrun "github.com/FyrmForge/stackr/internal/service/internal/leaf/run"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
@@ -256,8 +257,11 @@ func (o *Orchestrator) StopRun(ctx context.Context, tileID, runID string) error 
 		return err
 	}
 	if r.JobID != "" {
+		// A job that already finished is fine: the row still closes.
 		if err := o.jobs.Cancel(ctx, r.JobID); err != nil {
-			return err
+			if !errors.Is(err, jobs.ErrFinished) {
+				return err
+			}
 		}
 	}
 	_, err = o.runs.Finish(ctx, r.ID, nil, lrun.Cancelled, "stopped")

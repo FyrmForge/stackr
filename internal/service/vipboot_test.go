@@ -357,3 +357,217 @@ func TestVipBaseExpandsCloudflare(t *testing.T) {
 		t.Fatalf("front = %v", got)
 	}
 }
+
+// A partial rebuild (one tile unreadable) still drops a deleted tile's VIP
+// and the VIP of a tile with no replicas, and keeps the unreadable tile's.
+func TestRebuildVIPsPartialDropsStale(t *testing.T) {
+	ctx := context.Background()
+	r := newBootRig(t)
+	r.addTile(t, "c", "10.0.0.6", "10.0.0.7")
+	r.addTile(t, "d", "10.0.0.8", "10.0.0.9")
+	must(t, r.orch.rebuildVIPs(ctx))
+	*r.scripts = nil
+	must(t, r.st.Tiles.Delete(ctx, r.tiles["c"].ID))                                                   // c: row gone, pause left
+	r.fake.Details["rd"] = docker.Detail{Running: false, Networks: map[string]string{"n": "10.0.0.9"}} // d: no replicas
+	r.fake.Details["pa"] = docker.Detail{Running: true, Networks: map[string]string{}}                 // a: unreadable
+	_ = r.orch.rebuildVIPs(ctx)
+	s := lastScript(r)
+	if !strings.Contains(s, "-A STACKR-VIP -d 10.0.0.2/32") || !strings.Contains(s, "-A STACKR-VIP -d 10.0.0.4/32") {
+		t.Errorf("kept or healthy VIPs missing:\n%s", s)
+	}
+	for _, gone := range []string{"10.0.0.6", "10.0.0.8"} {
+		if strings.Contains(s, "-A STACKR-VIP -d "+gone+"/32") {
+			t.Errorf("stale VIP %s survived a partial rebuild:\n%s", gone, s)
+		}
+	}
+}
+
+// The tick and the async revoke rebuild one at a time.
+func TestRebuildVIPsSerialised(t *testing.T) {
+	r := newBootRig(t)
+	r.orch.vipMu.Lock()
+	done := make(chan error)
+	go func() { done <- r.orch.rebuildVIPs(context.Background()) }()
+	select {
+	case <-done:
+		t.Fatal("rebuild ran while another held the lock")
+	case <-time.After(50 * time.Millisecond):
+	}
+	r.orch.vipMu.Unlock()
+	must(t, <-done)
+}
+
+// A starting replica gets its tile's granted lan rules before it is routed,
+// and loses them when it goes.
+func TestEarlyLanRules(t *testing.T) {
+	ctx := context.Background()
+	r := lanRig(t)
+	if _, err := r.orch.hostgrant.Approve(ctx, r.stack, "adm", hostgrant.Set{Lines: []string{"a lan:192.168.1.50:445"}}); err != nil {
+		t.Fatal(err)
+	}
+	must(t, r.orch.rebuildVIPs(ctx))
+	r.fake.Details["rnew"] = docker.Detail{Running: true, Networks: map[string]string{"n": "10.0.0.20"}}
+	r.orch.earlyLan(ctx, r.tiles["a"], "rnew", true)
+	if !strings.Contains(lastScript(r), "-s 10.0.0.20/32 -d 192.168.1.50") {
+		t.Fatalf("early replica has no lan rule:\n%s", lastScript(r))
+	}
+	r.orch.earlyLan(ctx, r.tiles["a"], "rnew", false)
+	if strings.Contains(lastScript(r), "10.0.0.20") {
+		t.Fatalf("early rule outlived the replica:\n%s", lastScript(r))
+	}
+}
+
+// The panel lock uses the port the panel listens on.
+func TestVipBasePanelPort(t *testing.T) {
+	r := newBootRig(t)
+	r.orch.cfg.PanelPort = 9191
+	if got := r.orch.vipBase(context.Background()).PanelPort; got != 9191 {
+		t.Fatalf("panel port %d", got)
+	}
+}
+
+// A run container loses its early rule on exit even though Docker has
+// cleared its address by then.
+func TestEarlyLanClearedAfterStop(t *testing.T) {
+	ctx := context.Background()
+	r := lanRig(t)
+	if _, err := r.orch.hostgrant.Approve(ctx, r.stack, "adm", hostgrant.Set{Lines: []string{"a lan:192.168.1.50:445"}}); err != nil {
+		t.Fatal(err)
+	}
+	must(t, r.orch.rebuildVIPs(ctx))
+	r.fake.Details["rnew"] = docker.Detail{Running: true, Networks: map[string]string{"n": "10.0.0.20"}}
+	r.orch.earlyLan(ctx, r.tiles["a"], "rnew", true)
+	must(t, r.fake.StopRemove(ctx, "rnew"))
+	r.orch.earlyLan(ctx, r.tiles["a"], "rnew", false)
+	must(t, r.orch.rebuildVIPs(ctx))
+	if strings.Contains(lastScript(r), "10.0.0.20") {
+		t.Fatalf("early rule outlived the stopped run:\n%s", lastScript(r))
+	}
+}
+
+// A revoke while the container still runs cuts its rule at the next rebuild;
+// a crashed container's entry is dropped there too.
+func TestEarlyLanRevokeAndCrashAtRebuild(t *testing.T) {
+	ctx := context.Background()
+	r := lanRig(t)
+	if _, err := r.orch.hostgrant.Approve(ctx, r.stack, "adm", hostgrant.Set{Lines: []string{"a lan:192.168.1.50:445"}}); err != nil {
+		t.Fatal(err)
+	}
+	r.fake.Details["rnew"] = docker.Detail{Running: true, Networks: map[string]string{"n": "10.0.0.20"}}
+	r.fake.Details["rdead"] = docker.Detail{Running: true, Networks: map[string]string{"n": "10.0.0.21"}}
+	r.orch.earlyLan(ctx, r.tiles["a"], "rnew", true)
+	r.orch.earlyLan(ctx, r.tiles["a"], "rdead", true)
+	must(t, r.orch.rebuildVIPs(ctx))
+	s := lastScript(r)
+	if !strings.Contains(s, "-s 10.0.0.20/32 -d 192.168.1.50") || !strings.Contains(s, "-s 10.0.0.21/32 -d 192.168.1.50") {
+		t.Fatalf("early rules missing:\n%s", s)
+	}
+	must(t, r.fake.Stop(ctx, "rdead")) // crashed, no gate-failure callback
+	must(t, r.orch.RevokeHostGrant(ctx, r.stack, "a"))
+	r.orch.vipAsync.Wait()
+	if s := lastScript(r); strings.Contains(s, "10.0.0.20") || strings.Contains(s, "10.0.0.21") {
+		t.Fatalf("early rules survived revoke or crash:\n%s", s)
+	}
+}
+
+// A recreated proxy starts on no ingress network: the tick that sees its new
+// start time joins it to each domain tile's network before the push.
+func TestWatchTickRejoinsIngressOnProxyRestart(t *testing.T) {
+	ctx := context.Background()
+	r := newBootRig(t)
+	tl := r.tiles["a"]
+	must(t, r.st.Domains.Create(ctx, domainRow(tl.ID, "a.acme.io", nil)))
+	r.fake.Details[ProxyContainer] = docker.Detail{Running: true, Started: "t1"}
+	must(t, r.orch.watchTick(ctx)) // first sight counts as a start
+	r.fake.Details[ProxyContainer] = docker.Detail{Running: true, Started: "t2"}
+	n := len(r.fake.Calls())
+	must(t, r.orch.watchTick(ctx))
+	want := "Connect(" + domain.Ingress(tl.ID) + ", " + ProxyContainer + ", )"
+	if !slices.ContainsFunc(r.fake.Calls()[n:], func(c dockerfake.Call) bool { return c.String() == want }) {
+		t.Fatalf("proxy not rejoined: %v", r.fake.Calls()[n:])
+	}
+	n = len(r.fake.Calls())
+	must(t, r.orch.watchTick(ctx)) // same start time: no rejoin
+	for _, c := range r.fake.Calls()[n:] {
+		if c.Method == "Connect" {
+			t.Fatalf("rejoined without a restart: %v", c)
+		}
+	}
+}
+
+// inspectHook runs fn on every Inspect, to land another call in the gap
+// between a read and the Allow that follows it.
+type inspectHook struct {
+	Docker
+	fn func(id string)
+}
+
+func (h inspectHook) Inspect(ctx context.Context, id string) (docker.Detail, error) {
+	d, err := h.Docker.Inspect(ctx, id)
+	if h.fn != nil {
+		h.fn(id)
+	}
+	return d, err
+}
+
+func earlyRig(t *testing.T) bootRig {
+	t.Helper()
+	r := lanRig(t)
+	if _, err := r.orch.hostgrant.Approve(context.Background(), r.stack, "adm", hostgrant.Set{Lines: []string{"a lan:192.168.1.50:445"}}); err != nil {
+		t.Fatal(err)
+	}
+	must(t, r.orch.rebuildVIPs(context.Background()))
+	r.fake.Details["rnew"] = docker.Detail{Running: true, Networks: map[string]string{"n": "10.0.0.20"}}
+	return r
+}
+
+// The off path lands between the sweep's snapshot and its Allow: the sweep
+// must not put the cleared rule back.
+func TestSweepEarlyOffPathInterleaved(t *testing.T) {
+	ctx := context.Background()
+	r := earlyRig(t)
+	r.orch.earlyLan(ctx, r.tiles["a"], "rnew", true)
+	h := inspectHook{Docker: r.orch.docker}
+	h.fn = func(id string) {
+		if id == "rnew" {
+			h.fn = nil
+			r.orch.earlyLan(ctx, r.tiles["a"], "rnew", false)
+		}
+	}
+	r.orch.docker = &h
+	r.orch.sweepEarly(ctx)
+	if strings.Contains(lastScript(r), "10.0.0.20") {
+		t.Fatalf("sweep re-added a cleared early rule:\n%s", lastScript(r))
+	}
+	if len(r.orch.earlyIPs) != 0 {
+		t.Fatalf("early entries left: %v", r.orch.earlyIPs)
+	}
+}
+
+// A revoke lands after the on path's first reads: the rule must not be added.
+func TestEarlyLanOnPathRevokedMeanwhile(t *testing.T) {
+	ctx := context.Background()
+	r := earlyRig(t)
+	h := inspectHook{Docker: r.orch.docker}
+	h.fn = func(string) { must(t, r.orch.hostgrant.Revoke(ctx, r.stack, "a")) }
+	r.orch.docker = &h
+	r.orch.earlyLan(ctx, r.tiles["a"], "rnew", true)
+	if strings.Contains(lastScript(r), "10.0.0.20") || len(r.orch.earlyIPs) != 0 {
+		t.Fatalf("stale early rule added after revoke:\n%s", lastScript(r))
+	}
+}
+
+// Once a VIP routes the replica its early entry is forgotten.
+func TestEarlyEntryDroppedWhenRouted(t *testing.T) {
+	ctx := context.Background()
+	r := earlyRig(t)
+	r.fake.Details["rnew"] = docker.Detail{Running: true, Networks: map[string]string{"n": "10.0.0.3"}} // a's routed replica
+	r.orch.earlyLan(ctx, r.tiles["a"], "rnew", true)
+	if len(r.orch.earlyIPs) != 1 {
+		t.Fatalf("early entry missing: %v", r.orch.earlyIPs)
+	}
+	must(t, r.orch.rebuildVIPs(ctx))
+	if len(r.orch.earlyIPs) != 0 {
+		t.Fatalf("routed replica still tracked: %v", r.orch.earlyIPs)
+	}
+}

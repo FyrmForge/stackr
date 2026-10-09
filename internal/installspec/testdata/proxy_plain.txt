@@ -6,12 +6,14 @@ docker run
   unless-stopped
   --label
   stackr.role=proxy
+  --label
+  stackr.spec=ce6f44fa1328176f
   -v
   stackr-caddy:/caddy
+  -v
+  /srv/stackr/proxy:/run/stackr-admin
   -p
   8081:80
-  -p
-  127.0.0.1:2019:2019
   --add-host
   stackr:host-gateway
   -e

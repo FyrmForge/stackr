@@ -78,6 +78,16 @@ func TestTabs(t *testing.T) {
 			[]string{"laptop", "Revoke laptop?", `hx-post="/o/keys/k1/revoke"`, `hx-post="/o/keys"`, `data-copy="tok123"`, `hx-history="false"`, "not shown again"},
 			nil,
 		},
+		"keys role and stack": {
+			Keys(KeysView{
+				Base:   "/o",
+				Roles:  []string{"viewer", "member"},
+				Stacks: []StackOpt{{Slug: "shop", Name: "Shop"}},
+				Keys:   []KeyRow{{ID: "k1", Name: "ci", Role: "viewer", Stack: "shop"}},
+			}),
+			[]string{`name="level"`, `name="stack"`, "Whole org", `value="shop"`, "Sees everything, changes nothing.", ">viewer<", ">shop<"},
+			[]string{`value="owner"`},
+		},
 		"backups": {
 			Backups(c.DestsView{
 				Scope: "organization",

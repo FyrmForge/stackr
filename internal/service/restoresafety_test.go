@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"io"
 	"slices"
 	"strings"
@@ -10,6 +11,8 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/FyrmForge/stackr/internal/authz"
+	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	fbackup "github.com/FyrmForge/stackr/internal/service/internal/flow/backup"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/jobs"
@@ -179,11 +182,39 @@ func TestRestoreLocksTheInstanceTile(t *testing.T) {
 		ID: uuid.NewString(), ProvisionID: p.ID, ConsumerTileID: api.ID, Access: "write",
 		DBUser: "shop_dev_orders_api", Outputs: "{}", CreatedAt: time.Now(),
 	}))
-	j, err := w.orch.RestoreBackup(ctx, "no-such-run", v.ID, v.ID)
+	j, err := w.orch.RestoreBackup(ctx, nil, "no-such-run", v.ID, v.ID)
 	must(t, err)
 	for _, want := range []string{tl.ID, slice.ID, api.ID} {
 		if !slices.Contains(j.LockSet, want) {
 			t.Errorf("lock set = %v, want it to hold %s", j.LockSet, want)
+		}
+	}
+}
+
+// A stack key restores only inside its stack (404 otherwise); other callers keep the org-wide rule, and a job carries its stack_id.
+func TestRestoreStaysInTheStack(t *testing.T) {
+	w := newWorld(t)
+	ctx := context.Background()
+	mk := func(kind, scope, slug string) store.Volume {
+		v := store.Volume{ID: uuid.NewString(), ScopeKind: kind, ScopeID: scope, Slug: slug, Name: slug, CreatedAt: time.Now()}
+		must(t, w.st.Volumes.Create(ctx, v))
+		return v
+	}
+	st, err := w.orch.CreateStack(ctx, w.org, "other", "")
+	must(t, err)
+	a, a2, b, o := mk("stack", w.stack, "a"), mk("stack", w.stack, "a2"), mk("stack", st.ID, "b"), mk("org", w.org, "o")
+	key := &Principal{Access: authz.User{KeyStack: w.stack}}
+	j, err := w.orch.RestoreBackup(ctx, key, "r", a.ID, a2.ID)
+	must(t, err)
+	if !strings.Contains(j.Payload, `"stack_id":"`+w.stack+`"`) {
+		t.Errorf("payload = %s, want stack_id %s", j.Payload, w.stack)
+	}
+	for _, c := range [][2]string{{a.ID, b.ID}, {a.ID, o.ID}, {b.ID, a.ID}, {o.ID, a.ID}} {
+		if _, err := w.orch.RestoreBackup(ctx, key, "r", c[0], c[1]); !errors.Is(err, errs.ErrNotFound) {
+			t.Errorf("stack key restore %s into %s = %v, want not found", c[0], c[1], err)
+		}
+		if _, err := w.orch.RestoreBackup(ctx, nil, "r", c[0], c[1]); err != nil {
+			t.Errorf("session restore %s into %s = %v, want allowed", c[0], c[1], err)
 		}
 	}
 }

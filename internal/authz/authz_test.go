@@ -106,6 +106,46 @@ func TestCan(t *testing.T) {
 	}
 }
 
+func TestCanKeyScope(t *testing.T) {
+	key := func(role string, capped bool, ceiling Level, stack string) User {
+		return User{ID: "u", Active: true, Roles: map[string]string{"o1": role}, Key: true, KeyOrg: "o1",
+			KeyCapped: capped, KeyLevel: ceiling, KeyStack: stack}
+	}
+	org, shop, web := Resource{OrgID: "o1"}, Resource{OrgID: "o1", StackID: "s1"}, Resource{OrgID: "o1", StackID: "s2"}
+	adminKey := key("", true, LevelOwner, "")
+	adminKey.Admin = true
+	uncapped := adminKey
+	uncapped.KeyCapped = false
+	tests := []struct {
+		name string
+		u    User
+		v    Verb
+		r    Resource
+		want error
+	}{
+		{"viewer ceiling reads", key("owner", true, LevelRead, ""), "org.read", org, nil},
+		{"viewer ceiling cannot deploy", key("owner", true, LevelRead, ""), "tile.write", shop, errs.ErrRefused},
+		{"member ceiling deploys", key("owner", true, LevelWrite, ""), "tile.write", shop, nil},
+		{"member ceiling cannot own", key("owner", true, LevelWrite, ""), "member.manage", org, errs.ErrRefused},
+		{"owner ceiling, role demoted to viewer", key("viewer", true, LevelOwner, ""), "tile.write", shop, errs.ErrRefused},
+		{"owner ceiling, role demoted to member", key("member", true, LevelOwner, ""), "member.manage", org, errs.ErrRefused},
+		{"no ceiling is the role", key("member", false, 0, ""), "tile.write", shop, nil},
+		{"stack key on its stack", key("owner", true, LevelWrite, "s1"), "tile.write", shop, nil},
+		{"stack key on another stack", key("owner", true, LevelWrite, "s1"), "tile.write", web, errs.ErrNotFound},
+		{"stack key on an org verb", key("owner", true, LevelOwner, "s1"), "member.manage", org, errs.ErrRefused},
+		{"stack key on an org read", key("owner", true, LevelRead, "s1"), "org.read", org, errs.ErrRefused},
+		{"admin user, owner ceiling, admin verb", adminKey, "user.admin", org, errs.ErrRefused},
+		{"admin user, owner ceiling, owner verb", adminKey, "member.manage", org, nil},
+		{"admin user, owner ceiling, above it", func() User { u := adminKey; u.KeyLevel = LevelRead; return u }(), "tile.write", shop, errs.ErrRefused},
+		{"admin user, no ceiling, admin verb", uncapped, "user.admin", org, nil},
+	}
+	for _, tt := range tests {
+		if got := Can(tt.u, tt.v, tt.r); !errors.Is(got, tt.want) || (tt.want == nil && got != nil) {
+			t.Errorf("%s: Can = %v, want %v", tt.name, got, tt.want)
+		}
+	}
+}
+
 func TestStandingChanged(t *testing.T) {
 	tests := []struct {
 		name, org, from, to string

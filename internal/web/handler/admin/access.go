@@ -125,7 +125,10 @@ func (h *handler) accessTab(c echo.Context) (templ.Component, error) {
 		}
 		where := st.org + " / " + st.name
 		if len(g.Pending) > 0 {
+			addrs, panel := h.orch.HostAddrs()
 			v.Waiting = append(v.Waiting, ui.WaitingStack{Where: where, Form: access.ApproveView{
+				Addrs:   addrs,
+				Panel:   panel,
 				ID:      "access-" + g.StackID,
 				Action:  ui.Base + "/access/approve",
 				StackID: g.StackID,

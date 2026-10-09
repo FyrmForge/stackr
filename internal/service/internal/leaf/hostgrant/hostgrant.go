@@ -26,7 +26,7 @@ const (
 	Device = "device:"
 	// Privileged is the whole perm of the privileged flag.
 	Privileged = "privileged"
-	// LAN marks a LAN perm: "lan:<ip|cidr[:port]>" or "lan:all".
+	// LAN marks a LAN perm: "lan:<ip|cidr>[:port]", the range masked.
 	LAN = "lan:"
 	// Port marks a published server port: "port:<hostport>[/udp]".
 	Port = "port:"
@@ -184,6 +184,32 @@ func (l *Leaf) Revoke(ctx context.Context, stackID, tileSlug string) error {
 	}
 	g.Lines = strings.Join(keep, "\n")
 	return l.rows.Update(ctx, g)
+}
+
+// Retain cuts the tile's lines down to keep in one write and reports whether
+// anything changed; the row (with its approver and age) stays, and goes only
+// when nothing is left. A stack with no row is a no-op.
+func (l *Leaf) Retain(ctx context.Context, stackID, tileSlug string, keep []string) (bool, error) {
+	g, err := l.rows.GetByStack(ctx, stackID)
+	if errors.Is(err, errs.ErrNotFound) {
+		return false, nil
+	} else if err != nil {
+		return false, err
+	}
+	var next []string
+	for _, ln := range lines(g.Lines) {
+		if sl, _ := Split(ln); sl != tileSlug || slices.Contains(keep, ln) {
+			next = append(next, ln)
+		}
+	}
+	if len(next) == len(lines(g.Lines)) {
+		return false, nil
+	}
+	if len(next) == 0 {
+		return true, l.rows.Delete(ctx, g.ID)
+	}
+	g.Lines = strings.Join(next, "\n")
+	return true, l.rows.Update(ctx, g)
 }
 
 // All is every stack's grant row, for the admin list.

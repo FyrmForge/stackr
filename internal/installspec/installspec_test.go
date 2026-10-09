@@ -134,3 +134,27 @@ func TestPanelInstallID(t *testing.T) {
 		}
 	}
 }
+
+// The stamp changes with anything the proxy is made from and with nothing
+// else, so a re-run or upgrade recreates exactly the stale one.
+func TestProxyHashStamp(t *testing.T) {
+	in := Input{Root: "x.io", PanelHost: "x.io", HTTPPort: "80", DataDir: "/data"}
+	base := Proxy("img:1", in, "")
+	if base.Labels[LabelSpec] == "" || base.Labels[LabelSpec] != Proxy("img:1", in, "").Labels[LabelSpec] {
+		t.Fatal("stamp missing or unstable")
+	}
+	other := in
+	other.DataDir = "/other"
+	for name, c := range map[string]Container{
+		"image": Proxy("img:2", in, ""),
+		"token": Proxy("img:1", in, "tok"),
+		"mount": Proxy("img:1", other, ""),
+	} {
+		if c.Labels[LabelSpec] == base.Labels[LabelSpec] {
+			t.Errorf("%s change kept the stamp", name)
+		}
+	}
+	if got := TokenFrom(Proxy("img:1", in, "tok").Env); got != "tok" {
+		t.Errorf("TokenFrom = %q", got)
+	}
+}

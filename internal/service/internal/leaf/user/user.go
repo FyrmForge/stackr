@@ -16,6 +16,7 @@ import (
 	"github.com/FyrmForge/hamr/pkg/auth"
 	"github.com/google/uuid"
 
+	"github.com/FyrmForge/stackr/internal/authz"
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
@@ -173,8 +174,11 @@ func (l *Leaf) ByKey(ctx context.Context, token string) (store.User, store.APIKe
 // MintKey creates an API key and returns its bearer token, shown once; only
 // the hash is stored. A key never holds more than its minter (B36): it is
 // bound to orgID, where the minter must hold roleInOrg (the caller reads the
-// membership); an unbound key (orgID "") is admin-only (DECIDE 13).
-func (l *Leaf) MintKey(ctx context.Context, u store.User, orgID, roleInOrg, name string) (string, store.APIKey, error) {
+// membership); an unbound key (orgID "") is admin-only (DECIDE 13). level is
+// the key's ceiling ("" = none, else viewer|member|owner|admin) and may not
+// exceed the minter's rung in that org; stackID narrows it to one stack
+// (the caller checked it is in the org).
+func (l *Leaf) MintKey(ctx context.Context, u store.User, orgID, roleInOrg, name, level, stackID string) (string, store.APIKey, error) {
 	admin := u.Role == "admin"
 	name = strings.TrimSpace(name)
 	switch {
@@ -187,12 +191,26 @@ func (l *Leaf) MintKey(ctx context.Context, u store.User, orgID, roleInOrg, name
 	case orgID != "" && roleInOrg == "" && !admin:
 		return "", store.APIKey{}, errs.ErrNotFound
 	}
+	if level != "" {
+		ceiling, ok := authz.ParseLevel(level)
+		if !ok {
+			return "", store.APIKey{}, errs.Invalidf("level", "level must be viewer, member, owner or admin")
+		}
+		have := authz.LevelAdmin
+		if !admin {
+			have, _ = authz.RoleLevel(roleInOrg)
+		}
+		if ceiling > have {
+			return "", store.APIKey{}, errs.Refusedf("a key cannot be above your own role")
+		}
+	}
 	b := make([]byte, 32)
 	if _, err := rand.Read(b); err != nil {
 		return "", store.APIKey{}, err
 	}
 	token := hex.EncodeToString(b)
 	k := store.APIKey{
+		Level:     level,
 		ID:        uuid.NewString(),
 		UserID:    u.ID,
 		Name:      name,
@@ -201,6 +219,9 @@ func (l *Leaf) MintKey(ctx context.Context, u store.User, orgID, roleInOrg, name
 	}
 	if orgID != "" {
 		k.OrgID = &orgID
+	}
+	if stackID != "" {
+		k.StackID = &stackID
 	}
 	return token, k, l.keys.Create(ctx, k)
 }

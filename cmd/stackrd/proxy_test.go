@@ -101,3 +101,25 @@ func TestProxyModulesCoverBuilder(t *testing.T) {
 		}
 	}
 }
+
+// An autosave from before the admin socket must not bring its old listen
+// address back.
+func TestStartProxyOverridesAutosaveAdmin(t *testing.T) {
+	dir, err := os.MkdirTemp("", "stackr-proxy")
+	must(t, err)
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	caddy.ConfigAutosavePath = dir + "/autosave.json"
+	caddy.DefaultStorage.Path = dir
+	t.Setenv("XDG_DATA_HOME", dir)
+	must(t, os.WriteFile(caddy.ConfigAutosavePath, []byte(`{"admin":{"listen":"0.0.0.0:2019"}}`), 0o600))
+	sock := dir + "/a.sock"
+	must(t, startProxy("unix/"+sock))
+	t.Cleanup(func() { _ = caddy.Stop() })
+	if _, err := os.Stat(sock); err != nil {
+		t.Fatalf("admin socket not served: %v", err)
+	}
+	if c, err := net.Dial("tcp", "127.0.0.1:2019"); err == nil {
+		_ = c.Close()
+		t.Fatal("old listen address came back")
+	}
+}

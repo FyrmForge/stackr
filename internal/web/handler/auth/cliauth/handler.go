@@ -56,7 +56,7 @@ func (h *handler) Approve(c echo.Context) error {
 	}
 	code, err := h.orch.CLICode(
 		c.Request().Context(),
-		middleware.Principal(c).User.ID,
+		middleware.Principal(c),
 		middleware.ScopeOf(c).Org.ID,
 		c.FormValue("name"),
 	)

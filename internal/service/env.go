@@ -84,7 +84,11 @@ func (o *Orchestrator) DeleteEnv(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
-	return o.envs.Delete(ctx, e, len(ts))
+	if err := o.envs.Delete(ctx, e, len(ts)); err != nil {
+		return err
+	}
+	o.cancelWaitingFor(ctx, "env:"+id)
+	return nil
 }
 
 func (o *Orchestrator) onEnv(

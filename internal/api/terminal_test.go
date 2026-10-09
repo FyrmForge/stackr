@@ -25,8 +25,14 @@ func TestTerminal(t *testing.T) {
 	if code, _ := w.do(t, "", "GET", termPath, ""); code != 401 {
 		t.Errorf("no key = %d, want 401", code)
 	}
-	if code, body := w.do(t, w.owner, "GET", termPath, ""); code != 409 {
-		t.Errorf("no replica = %d %s, want 409", code, body)
+	srv := httptest.NewServer(w.h)
+	defer srv.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	h := http.Header{"Authorization": {"Bearer " + w.owner}}
+	url := "ws" + strings.TrimPrefix(srv.URL, "http") + "/api/v1" + termPath
+	if _, resp, _ := websocket.Dial(ctx, url, &websocket.DialOptions{HTTPHeader: h}); resp == nil || resp.StatusCode != 409 {
+		t.Errorf("no replica = %v, want 409", resp)
 	}
 
 	fake := w.env.Docker
@@ -35,13 +41,7 @@ func TestTerminal(t *testing.T) {
 		Labels: map[string]string{"stackr.tile": w.tile.ID, "stackr.role": "replica"},
 	}}
 	fake.TTYExit = 3
-	srv := httptest.NewServer(w.h)
-	defer srv.Close()
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	h := http.Header{"Authorization": {"Bearer " + w.owner}}
-	ws, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(srv.URL, "http")+"/api/v1"+termPath,
-		&websocket.DialOptions{HTTPHeader: h})
+	ws, _, err := websocket.Dial(ctx, url, &websocket.DialOptions{HTTPHeader: h})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -81,5 +81,38 @@ func TestTerminal(t *testing.T) {
 	}
 	if err != nil || typ != websocket.MessageText || json.Unmarshal(b, &m) != nil || m.Type != "exit" || m.Code != 3 {
 		t.Errorf("last frame = %v %q, %v; want exit 3", typ, b, err)
+	}
+}
+
+// A plain GET (a cross-site link) or a cross-origin upgrade is refused before
+// the exec is created: nothing runs in the tile.
+func TestTerminalRefusesBeforeExec(t *testing.T) {
+	w := newWorld(t)
+	w.env.Docker.Containers = []service.Container{{
+		ID: "c-1", State: "running",
+		Labels: map[string]string{"stackr.tile": w.tile.ID, "stackr.role": "replica"},
+	}}
+	if code, _ := w.do(t, w.owner, "GET", termPath+"?shell=reboot", ""); code != 426 {
+		t.Errorf("plain GET = %d, want 426", code)
+	}
+	srv := httptest.NewServer(w.h)
+	defer srv.Close()
+	req, _ := http.NewRequest("GET", srv.URL+"/api/v1"+termPath+"?shell=reboot", nil)
+	req.Header.Set("Authorization", "Bearer "+w.owner)
+	req.Header.Set("Upgrade", "websocket")
+	req.Header.Set("Connection", "Upgrade")
+	req.Header.Set("Origin", "https://evil.example")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != 403 {
+		t.Errorf("cross-origin = %d, want 403", resp.StatusCode)
+	}
+	for _, c := range w.env.Docker.Calls() {
+		if strings.HasPrefix(c.String(), "ExecTTY") {
+			t.Errorf("exec ran: %s", c)
+		}
 	}
 }

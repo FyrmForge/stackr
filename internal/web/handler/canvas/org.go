@@ -1,13 +1,16 @@
 package canvas
 
 import (
+	"cmp"
 	"context"
+	"errors"
 	"slices"
 	"time"
 
 	"github.com/a-h/templ"
 	"github.com/labstack/echo/v4"
 
+	"github.com/FyrmForge/stackr/internal/authz"
 	"github.com/FyrmForge/stackr/internal/middleware"
 	"github.com/FyrmForge/stackr/internal/service"
 	comp "github.com/FyrmForge/stackr/internal/ui/components"
@@ -46,13 +49,35 @@ func (h *handler) orgTab(c echo.Context, cd card, f *comp.DrawerView) (templ.Com
 		v.Minted, _ = c.Get(mintedKey).(string)
 		for _, k := range ks {
 			if k.OrgID != nil && *k.OrgID == og.ID {
-				v.Keys = append(v.Keys, orgui.KeyRow{ID: k.ID, Name: k.Name, Created: day(k.CreatedAt)})
+				v.Keys = append(v.Keys, orgui.KeyRow{ID: k.ID, Name: k.Name, Created: day(k.CreatedAt), Role: k.Level, Stack: k.Stack})
 			}
 		}
+		acc := middleware.Principal(c).Access
+		have := authz.LevelAdmin
+		if !acc.Admin {
+			have, _ = authz.RoleLevel(acc.Roles[og.ID])
+		}
+		for _, r := range h.orch.Roles() {
+			if l, _ := authz.RoleLevel(r); l <= have {
+				v.Roles = append(v.Roles, r)
+			}
+		}
+		if acc.Admin {
+			v.Roles = append(v.Roles, "admin")
+		}
+		sts, serr := h.orch.Stacks(ctx, og.ID)
+		for _, st := range sts {
+			v.Stacks = append(v.Stacks, orgui.StackOpt{Slug: st.Slug, Name: st.Name})
+		}
+		err = errors.Join(err, serr)
 		return orgui.Keys(v), err
 	case "params":
 		return h.vars(c, cd.s, "", "")
 	case "domains":
+		if !can(c, cd.s, "domain.resource") {
+			f.Error = "Your role cannot list domains."
+			return templ.NopComponent, nil
+		}
 		return h.orgDomains(c, cd, f.Base)
 	case "shares":
 		return h.orgShares(c, cd, f.Base)
@@ -286,15 +311,17 @@ func (h *handler) mountOrg(site *echo.Group, a *middleware.Access) {
 	site.POST(o+"/keys", h.orgAction("keys", func(c echo.Context, og *service.Org) (string, error) {
 		tok, _, err := h.orch.MintKey(
 			c.Request().Context(),
-			middleware.Principal(c).User.ID,
+			middleware.Principal(c),
 			og.ID,
-			c.FormValue("key_name"),
+			cmp.Or(c.FormValue("name"), c.FormValue("key_name")),
+			c.FormValue("level"),
+			c.FormValue("stack"),
 		)
 		c.Set(mintedKey, tok) // the keys tab shows it once, with a Copy
 		return "", err
 	}), a.Require("org.read"))
 	site.POST(o+"/keys/:key/revoke", h.orgAction("keys", func(c echo.Context, _ *service.Org) (string, error) {
-		return "Key revoked.", h.orch.RevokeKey(c.Request().Context(), middleware.Principal(c).User.ID, c.Param("key"))
+		return "Key revoked.", h.orch.RevokeKey(c.Request().Context(), middleware.Principal(c), c.Param("key"))
 	}), a.Require("org.read"))
 	res := a.Require("domain.resource")
 	site.POST(o+"/domains", h.orgAction("domains", func(c echo.Context, og *service.Org) (string, error) {

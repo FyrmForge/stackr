@@ -1167,3 +1167,22 @@ func TestSSHNeedsTerminal(t *testing.T) {
 		t.Errorf("no-tty message = %q, want the tile exec pointer", errw)
 	}
 }
+
+// key add sends the ceiling and stack only when asked; key ls shows both.
+func TestKeyAddRoleAndStack(t *testing.T) {
+	r := fake(t, map[string]string{"/keys": `{"token":"tok","key":{"id":"k1"}}`, "/me/keys": `[{"id":"k1","name":"ci","level":"viewer","stack":"shop"}]`})
+	if code, _, errw := cli(t, "key", "create", "ci", "--role", "viewer", "--stack", "shop"); code != 0 {
+		t.Fatalf("key create = %d %s", code, errw)
+	}
+	if w := writes(r); len(w) != 1 || !strings.HasSuffix(w[0], `/keys {"level":"viewer","name":"ci","stack":"shop"}`) {
+		t.Errorf("sent %q", w)
+	}
+	if code, out, _ := cli(t, "key", "ls"); code != 0 || !strings.Contains(out, "viewer") || !strings.Contains(out, "shop") {
+		t.Errorf("key ls = %d %q", code, out)
+	}
+	r.reqs = nil
+	cli(t, "key", "add", "plain")
+	if w := writes(r); len(w) != 1 || strings.Contains(w[0], "level") {
+		t.Errorf("plain add sent %q", w)
+	}
+}

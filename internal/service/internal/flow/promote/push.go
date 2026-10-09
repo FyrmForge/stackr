@@ -7,6 +7,7 @@ import (
 	"maps"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/environment"
@@ -21,6 +22,10 @@ import (
 type Event struct {
 	Repo, Branch, Commit, Message string
 	Changed                       []string
+	// PR marks a pull request event, the only thing that builds a PR env.
+	PR bool
+	// PRNumber is the pull request's; with PR set only env pr-<n> is built.
+	PRNumber int
 }
 
 // Push turns a push into a release: the config pin moves when the push is
@@ -46,6 +51,13 @@ func (f *Flow) Push(
 	var from []store.Environment
 	for _, e := range envs {
 		if e.FromKind == environment.FromBranch && e.FromBranch == ev.Branch {
+			if ev.PR && (e.Slug != "pr-"+strconv.Itoa(ev.PRNumber) || e.Type != environment.Ephemeral) {
+				continue // a PR event builds its own env, never a static one on the same branch
+			}
+			if e.Type == environment.Ephemeral && !ev.PR {
+				logf(log, "%s is a PR env; only its pull request events build it\n", e.Slug)
+				continue
+			}
 			from = append(from, e)
 		}
 	}

@@ -181,14 +181,18 @@ func (d *Client) ExecStream(
 // ExecTTY runs cmd on a TTY and hands back the raw stream: no stdcopy
 // demux, a TTY merges stdout and stderr. resize follows the user's window;
 // exit reads the code once the stream has ended (WithoutCancel, as
-// execResult); closing conn releases the exec.
+// execResult); closing conn releases the exec and, if the command still
+// runs, sends it SIGHUP (the closed attach stream alone leaves it behind).
+// The panel has no host pid namespace, so the signal goes by a second exec
+// in the container, to the pid a `sh -c 'echo $$; exec ...'` wrapper
+// printed first.
 func (d *Client) ExecTTY(
 	ctx context.Context,
 	id string,
 	cmd []string,
 ) (conn io.ReadWriteCloser, resize func(cols, rows uint) error, exit func() (int, error), err error) {
 	execID, err := d.cli.ContainerExecCreate(ctx, id, container.ExecOptions{
-		Cmd:          cmd,
+		Cmd:          append([]string{"sh", "-c", `echo $$; exec "$@"`, "sh"}, cmd...),
 		Tty:          true,
 		AttachStdin:  true,
 		AttachStdout: true,
@@ -202,6 +206,11 @@ func (d *Client) ExecTTY(
 	}
 	att, err := d.cli.ContainerExecAttach(ctx, execID.ID, container.ExecAttachOptions{Tty: true})
 	if err != nil {
+		return nil, nil, nil, err
+	}
+	pid, err := readPid(att.Reader)
+	if err != nil {
+		att.Close()
 		return nil, nil, nil, err
 	}
 	resize = func(cols, rows uint) error {
@@ -219,7 +228,42 @@ func (d *Client) ExecTTY(
 		}
 		return 0, ErrStillRunning
 	}
-	return att.Conn, resize, exit, nil
+	hup := func() {
+		ctx, stop := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer stop()
+		if insp, err := d.cli.ContainerExecInspect(ctx, execID.ID); err == nil && insp.Running {
+			_, _ = d.Exec(ctx, id, []string{"sh", "-c", `kill -HUP "$1"`, "sh", strconv.Itoa(pid)})
+		}
+	}
+	return &ttyConn{Reader: att.Reader, conn: att.Conn, hup: hup}, resize, exit, nil
+}
+
+// ttyConn reads through the attach's buffered reader (the pid line came off
+// it) and hangs the shell up on Close.
+type ttyConn struct {
+	io.Reader
+	conn io.WriteCloser
+	hup  func()
+}
+
+func (t *ttyConn) Write(b []byte) (int, error) { return t.conn.Write(b) }
+func (t *ttyConn) Close() error {
+	err := t.conn.Close()
+	t.hup()
+	return err
+}
+
+// readPid takes the wrapper's first line, the shell's pid in the container.
+func readPid(r *bufio.Reader) (int, error) {
+	line, err := r.ReadString('\n')
+	if err != nil {
+		return 0, err
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(line))
+	if err != nil {
+		return 0, errors.New("the container has no sh")
+	}
+	return pid, nil
 }
 
 // demux splits an exec's frames: stdout to out, stderr to stderr only.

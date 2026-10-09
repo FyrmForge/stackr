@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/google/uuid"
 
@@ -88,6 +89,12 @@ func (l *Leaf) List(ctx context.Context, stackID string) ([]store.Release, error
 // returns r with it. "" is a no-op.
 func (l *Leaf) SetMessage(ctx context.Context, r store.Release, msg string) (store.Release, error) {
 	msg, _, _ = strings.Cut(strings.TrimSpace(msg), "\n")
+	msg = strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return -1
+		}
+		return r
+	}, msg)
 	if rs := []rune(strings.TrimSpace(msg)); len(rs) > 200 {
 		msg = string(rs[:200])
 	}
