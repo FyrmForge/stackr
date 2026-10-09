@@ -757,6 +757,10 @@ func (h *handler) backups(c echo.Context, vol service.Volume) (volume.BackupsVie
 	}
 	names := map[string]string{"": "local disk"}
 	for _, d := range dests {
+		if d.Kind == "local" { // the "" option above already is the local disk
+			names[d.ID] = names[""]
+			continue
+		}
 		names[d.ID] = d.Name
 		b.Dests = append(b.Dests, volume.Option{Value: d.ID, Label: d.Name})
 	}
