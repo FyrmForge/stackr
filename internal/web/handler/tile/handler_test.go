@@ -231,3 +231,58 @@ func TestStatusAccess(t *testing.T) {
 		}
 	}
 }
+
+// Cancel shows on a live job row for a writer, posts, and the job ends
+// cancelled; a viewer sees no button and gets a 403.
+func TestCancelJob(t *testing.T) {
+	s := webtest.New(t)
+	id := s.QueuedJob(t, s.Org, s.Tile.ID)
+	cancel := drawer + "/jobs/" + id + "/cancel"
+	rec := s.Do(t, "GET", drawer+"?tab=jobs", nil)
+	if rec.Code != 200 || !strings.Contains(rec.Body.String(), cancel) {
+		t.Fatalf("owner jobs = %d, lacks %q\n%s", rec.Code, cancel, rec.Body)
+	}
+	viewer := s.User(t, "viewer@acme.test", false)
+	s.Member(t, s.Org, viewer, "viewer")
+	vs := s.Session(t, viewer)
+	rec = s.As(t, vs, "GET", drawer+"?tab=jobs", nil)
+	if rec.Code != 200 || strings.Contains(rec.Body.String(), "/cancel") {
+		t.Errorf("viewer jobs = %d, want no cancel\n%s", rec.Code, rec.Body)
+	}
+	if rec = s.As(t, vs, "POST", cancel, url.Values{}); rec.Code != 403 {
+		t.Errorf("viewer cancel = %d, want 403", rec.Code)
+	}
+	if rec = s.Do(t, "POST", drawer+"/jobs/nope/cancel", url.Values{}); rec.Code != 404 {
+		t.Errorf("unknown job = %d, want 404", rec.Code)
+	}
+	rec = s.Do(t, "POST", cancel, url.Values{})
+	if rec.Code != 200 || !strings.Contains(rec.Body.String(), "job cancelled") || strings.Contains(rec.Body.String(), "/cancel") {
+		t.Fatalf("cancel = %d\n%s", rec.Code, rec.Body)
+	}
+	j, err := s.Orch.GetJob(context.Background(), id)
+	if err != nil || j.State != "cancelled" {
+		t.Errorf("job = %q, %v", j.State, err)
+	}
+}
+
+// A job past the newest 20 still cancels; one that finished meanwhile shows
+// the conflict, not "job cancelled"; another tile's job is a 404.
+func TestCancelJobLookup(t *testing.T) {
+	s := webtest.New(t)
+	old := s.QueuedJob(t, s.Org, s.Tile.ID)
+	for range 25 {
+		s.QueuedJob(t, s.Org, s.Tile.ID)
+	}
+	rec := s.Do(t, "POST", drawer+"/jobs/"+old+"/cancel", url.Values{})
+	if rec.Code != 200 || !strings.Contains(rec.Body.String(), "job cancelled") {
+		t.Fatalf("old job cancel = %d\n%s", rec.Code, rec.Body)
+	}
+	rec = s.Do(t, "POST", drawer+"/jobs/"+old+"/cancel", url.Values{})
+	if !strings.Contains(rec.Body.String(), "the job already finished") || strings.Contains(rec.Body.String(), "job cancelled") {
+		t.Errorf("finished job cancel = %d\n%s", rec.Code, rec.Body)
+	}
+	other := s.QueuedJob(t, s.Org, "some-other-tile")
+	if rec = s.Do(t, "POST", drawer+"/jobs/"+other+"/cancel", url.Values{}); rec.Code != 404 {
+		t.Errorf("other tile's job = %d, want 404", rec.Code)
+	}
+}

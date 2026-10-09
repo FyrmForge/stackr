@@ -196,7 +196,7 @@ func server(listen string, rs []placed, trusted []string, tail []json.RawMessage
 		routes = append(routes, r) // after ours: the first match wins
 	}
 	s := route{"listen": []string{listen}, "routes": routes}
-	if ranges := dedup(trusted); len(ranges) > 0 {
+	if ranges := dedup(ExpandProxies(trusted, false)); len(ranges) > 0 {
 		s["trusted_proxies"] = route{"source": "static", "ranges": ranges}
 	}
 	return s
@@ -475,4 +475,40 @@ func hashOf(pw string) string {
 	}
 	v, _ := hashes.LoadOrStore(key, string(h))
 	return v.(string)
+}
+
+// CloudflareKeyword in the trusted_proxies setting stands for CloudflareV4
+// and CloudflareV6.
+const CloudflareKeyword = "cloudflare"
+
+// Cloudflare's published edge ranges (cloudflare.com/ips), baked in.
+// ponytail: static; refresh by hand when Cloudflare announces a change.
+var (
+	CloudflareV4 = []string{
+		"173.245.48.0/20", "103.21.244.0/22", "103.22.200.0/22", "103.31.4.0/22",
+		"141.101.64.0/18", "108.162.192.0/18", "190.93.240.0/20", "188.114.96.0/20",
+		"197.234.240.0/22", "198.41.128.0/17", "162.158.0.0/15", "104.16.0.0/13",
+		"104.24.0.0/14", "172.64.0.0/13", "131.0.72.0/22",
+	}
+	CloudflareV6 = []string{
+		"2400:cb00::/32", "2606:4700::/32", "2803:f800::/32", "2405:b500::/32",
+		"2405:8100::/32", "2a06:98c0::/29", "2c0f:f248::/32",
+	}
+)
+
+// ExpandProxies replaces the cloudflare keyword with its ranges (IPv4
+// only when v4Only: the firewall filter has no IPv6).
+func ExpandProxies(in []string, v4Only bool) []string {
+	var out []string
+	for _, r := range in {
+		if !strings.EqualFold(r, CloudflareKeyword) {
+			out = append(out, r)
+			continue
+		}
+		out = append(out, CloudflareV4...)
+		if !v4Only {
+			out = append(out, CloudflareV6...)
+		}
+	}
+	return out
 }

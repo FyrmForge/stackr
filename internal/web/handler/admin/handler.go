@@ -42,6 +42,9 @@ func (h *handler) Mount(g *echo.Group, a *middleware.Access) {
 	g.POST(b+"/users/:user/disable", h.act("users", func(c echo.Context) (string, *service.Job, error) {
 		return "User disabled.", nil, h.orch.DisableUser(c.Request().Context(), c.Param("user"))
 	}), a.Require("user.admin"))
+	g.POST(b+"/users/:user/enable", h.act("users", func(c echo.Context) (string, *service.Job, error) {
+		return "User enabled.", nil, h.orch.EnableUser(c.Request().Context(), c.Param("user"))
+	}), a.Require("user.admin"))
 	g.POST(b+"/update/check", h.Check, a.Require("admin.read"))
 	g.POST(b+"/update/run", h.act("update", func(c echo.Context) (string, *service.Job, error) {
 		j, err := h.orch.Upgrade(c.Request().Context(), c.QueryParam("tag"))
@@ -223,6 +226,9 @@ func (h *handler) tab(c echo.Context, tab string, x extra) (templ.Component, err
 			// v0: an admin is never disabled, remove the admin first
 			if u.Active && !u.Admin() {
 				r.Disable = ui.Base + "/users/" + u.ID + "/disable"
+			}
+			if !u.Active {
+				r.Enable = ui.Base + "/users/" + u.ID + "/enable"
 			}
 			v.Rows = append(v.Rows, r)
 		}

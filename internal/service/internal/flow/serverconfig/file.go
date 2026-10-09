@@ -250,9 +250,12 @@ func CheckSetting(key, raw string) (string, error) {
 		}
 	case "trusted_proxies":
 		for _, r := range strings.FieldsFunc(raw, func(r rune) bool { return r == ',' || r == ' ' || r == '\n' }) {
+			if strings.EqualFold(r, "cloudflare") { // expanded to Cloudflare's ranges where it is used
+				continue
+			}
 			if _, err := netip.ParsePrefix(r); err != nil {
 				if _, err := netip.ParseAddr(r); err != nil {
-					return "", fmt.Errorf("%q is not an IP or CIDR", r)
+					return "", fmt.Errorf("%q is not an IP, a CIDR or cloudflare", r)
 				}
 			}
 		}

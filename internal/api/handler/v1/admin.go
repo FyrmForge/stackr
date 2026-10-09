@@ -40,6 +40,10 @@ func (h *H) SetAdmin() Endpoint {
 	return Done(func(c echo.Context, in AdminIn) error { return h.Orch.SetAdmin(rc(c), c.Param("user"), in.Admin) })
 }
 
+func (h *H) EnableUser() Endpoint {
+	return Done(func(c echo.Context, _ None) error { return h.Orch.EnableUser(rc(c), c.Param("user")) })
+}
+
 func (h *H) DisableUser() Endpoint {
 	return Done(func(c echo.Context, _ None) error { return h.Orch.DisableUser(rc(c), c.Param("user")) })
 }

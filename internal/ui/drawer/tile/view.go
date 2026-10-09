@@ -171,7 +171,8 @@ type AccessBinding struct{ Slice, Link, Access, User, Since string }
 
 type JobsView struct{ Rows []JobRow }
 
-type JobRow struct{ Kind, State, When, Error string }
+// Cancel is the cancel action's URL; "" = no button (finished, or no verb).
+type JobRow struct{ Kind, State, When, Error, Cancel string }
 
 type ImageView struct {
 	Ref, Digest, LastDigest, LastTag, Checked, LastError string

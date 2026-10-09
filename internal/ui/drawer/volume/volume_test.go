@@ -19,7 +19,9 @@ func TestEveryTabRenders(t *testing.T) {
 		ID:   "v1",
 		Name: "uploads",
 		Base: v.Base,
+		Edit: true,
 		Schedules: []Schedule{{
+			ID:     "s1",
 			Method: "volume",
 			Cron:   "0 2 * * *",
 			Dest:   "b2",
@@ -49,7 +51,7 @@ func TestEveryTabRenders(t *testing.T) {
 		},
 		"backups": {
 			Backups(b),
-			[]string{"0 2 * * *", "Volume archive", "/backup\"", "/restore?run=r1", "local disk", `hx-trigger="every 2s"`, `hx-select="#backup-history-v1"`},
+			[]string{"0 2 * * *", "Volume archive", "/backup\"", "/restore?run=r1", "local disk", "/schedules\"", "/schedules/s1/delete", `hx-trigger="every 2s"`, `hx-select="#backup-history-v1"`},
 		},
 		"settings": {
 			Settings(v, ""),

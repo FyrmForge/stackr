@@ -964,7 +964,15 @@ func (f *Flow) planParams(ctx context.Context, p *Plan, w *work, r *Resolved) er
 				p.add(Change{Kind: "param", Field: key, Note: "becomes a secret"})
 				w.params = append(w.params, params.Entry{Collection: c, Name: n, Kind: params.Secret})
 			case decl.Type == params.Secret && !ok:
-				if _, atStack := stackHave[key]; !atStack {
+				if _, atStack := stackHave[key]; atStack {
+					break
+				}
+				if decl.Generate > 0 {
+					p.add(Change{Kind: "param", Field: key, Note: "generated"})
+					w.params = append(w.params, params.Entry{
+						Collection: c, Name: n, Kind: params.Secret, Value: params.Generate(decl.Generate),
+					})
+				} else {
 					p.Warnings = append(
 						p.Warnings,
 						"params."+key+" is declared and not set; tiles that read it wait until it is",

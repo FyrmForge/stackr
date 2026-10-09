@@ -13,6 +13,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/installspec"
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/serverconfig"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/domain"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/settings"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
@@ -126,10 +127,12 @@ func (o *Orchestrator) SetSettings(ctx context.Context, vals map[string]string) 
 		}
 		if key == "trusted_proxies" {
 			for _, r := range splitList(raw) {
+				if strings.EqualFold(r, domain.CloudflareKeyword) {
+					continue
+				}
 				if _, err := netip.ParsePrefix(r); err != nil {
 					if _, err := netip.ParseAddr(r); err != nil {
-						// ponytail: no "cloudflare" keyword; list its ranges by hand until the proxy fetches them.
-						return errs.Invalidf("trusted_proxies", "%q is not an IP or CIDR.", r)
+						return errs.Invalidf("trusted_proxies", "%q is not an IP, a CIDR or cloudflare.", r)
 					}
 				}
 			}

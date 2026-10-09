@@ -69,7 +69,7 @@ func (h *handler) releasesTab(c echo.Context, cd card, f *comp.DrawerView) (temp
 	}
 	rows := make([]comp.ReleaseRow, len(rs))
 	for i, r := range rs {
-		rows[i] = comp.ReleaseRow{Number: strconv.Itoa(r.Number), By: byWord(r.CreatedBy, who), When: day(r.CreatedAt)}
+		rows[i] = comp.ReleaseRow{Number: strconv.Itoa(r.Number), By: byWord(r.CreatedBy, who), Commit: r.Commit, When: day(r.CreatedAt)}
 		for _, e := range es {
 			if runs(e) == r.Number {
 				rows[i].Envs = append(rows[i].Envs, comp.EnvRun{Name: e.Name, Color: hues[e.ID]})

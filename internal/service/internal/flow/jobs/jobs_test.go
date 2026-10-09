@@ -239,8 +239,8 @@ func TestCancel(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitState(t, l, building, job.Cancelled)
-	if err := r.Cancel(ctx, building); err != nil {
-		t.Fatalf("cancelling a finished job: %v, want nil", err)
+	if _, ok := errs.IsConflict(r.Cancel(ctx, building)); !ok {
+		t.Fatal("cancelling a finished job: want a Conflict")
 	}
 
 	swapping := enqueue(t, r, "s", "t2")

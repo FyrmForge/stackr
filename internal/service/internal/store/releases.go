@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"strings"
 	"time"
 )
 
@@ -12,6 +13,9 @@ type Release struct {
 	Number    int       `db:"number" json:"number"`
 	CreatedAt time.Time `db:"created_at" json:"created_at"`
 	CreatedBy string    `db:"created_by" json:"created_by"`
+	// Commit is the commit its pins were cut from ("" = none); filled by the
+	// release leaf on List/Get, never stored here.
+	Commit string `db:"-" json:"commit,omitempty"`
 }
 
 type ReleaseStore interface {
@@ -51,6 +55,9 @@ type ReleaseTileStore interface {
 	Create(ctx context.Context, r ReleaseTile) error
 	Get(ctx context.Context, id string) (ReleaseTile, error)
 	ListByRelease(ctx context.Context, releaseID string) ([]ReleaseTile, error)
+	// ConfigCommits is the config pin's commit per release id, one query;
+	// a release without a config pin is absent.
+	ConfigCommits(ctx context.Context, releaseIDs []string) (map[string]string, error)
 	// ImageIDs is every image any release pins: image cleanup keeps them.
 	ImageIDs(ctx context.Context) ([]string, error)
 	Update(ctx context.Context, r ReleaseTile) error
@@ -69,4 +76,25 @@ func (s releaseTiles) ImageIDs(ctx context.Context) ([]string, error) {
 	var ids []string
 	err := s.q.SelectContext(ctx, &ids, "SELECT DISTINCT image_id FROM release_tiles WHERE image_id IS NOT NULL")
 	return ids, mapErr(err)
+}
+
+func (s releaseTiles) ConfigCommits(ctx context.Context, releaseIDs []string) (map[string]string, error) {
+	out := map[string]string{}
+	if len(releaseIDs) == 0 {
+		return out, nil
+	}
+	args := make([]any, len(releaseIDs))
+	for i, id := range releaseIDs {
+		args[i] = id
+	}
+	var rows []struct {
+		ReleaseID string `db:"release_id"`
+		CommitSHA string `db:"commit_sha"`
+	}
+	err := s.q.SelectContext(ctx, &rows,
+		"SELECT release_id, commit_sha FROM release_tiles WHERE slug = '_config' AND commit_sha != '' AND release_id IN (?"+strings.Repeat(", ?", len(releaseIDs)-1)+")", args...)
+	for _, r := range rows {
+		out[r.ReleaseID] = r.CommitSHA
+	}
+	return out, mapErr(err)
 }

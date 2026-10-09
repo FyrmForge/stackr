@@ -72,6 +72,12 @@ func (h *H) GetOrg() Endpoint {
 	return Get(func(c echo.Context) (service.Org, error) { return *scope(c).Org, nil })
 }
 
+func (h *H) SetOrgSettings() Endpoint {
+	return JSON(200, func(c echo.Context, in Blob) (service.Org, error) {
+		return h.Orch.SetOrgSettings(rc(c), orgID(c), string(in))
+	})
+}
+
 func (h *H) RenameOrg() Endpoint {
 	return JSON(200, func(c echo.Context, in NameIn) (service.Org, error) {
 		return h.Orch.RenameOrg(rc(c), orgID(c), in.Name)

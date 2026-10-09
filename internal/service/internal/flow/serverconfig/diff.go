@@ -402,7 +402,13 @@ func norm(key, v string) string {
 	case key == "panel_domain" || key == "root_domain":
 		return installspec.CleanHost(v)
 	case key == "trusted_proxies":
-		return strings.Join(strings.FieldsFunc(v, func(r rune) bool { return r == ',' || r == ' ' || r == '\n' }), ",")
+		fs := strings.FieldsFunc(v, func(r rune) bool { return r == ',' || r == ' ' || r == '\n' })
+		for i, f := range fs {
+			if strings.EqualFold(f, "cloudflare") {
+				fs[i] = "cloudflare"
+			}
+		}
+		return strings.Join(fs, ",")
 	}
 	return v
 }

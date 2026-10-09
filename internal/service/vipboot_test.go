@@ -15,6 +15,7 @@ import (
 
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	"github.com/FyrmForge/stackr/internal/service/internal/dockerfake"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/domain"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/hostgrant"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
@@ -344,5 +345,15 @@ func TestVipBaseReadsBothResolvConfs(t *testing.T) {
 	got := r.orch.vipBase(context.Background()).Resolvers
 	if !slices.Equal(got, []string{"192.168.1.1", "9.9.9.9"}) {
 		t.Fatalf("got %v", got)
+	}
+}
+
+// The cloudflare keyword reaches the firewall as its IPv4 ranges only.
+func TestVipBaseExpandsCloudflare(t *testing.T) {
+	r := newBootRig(t)
+	must(t, r.orch.SetSetting(context.Background(), "trusted_proxies", "192.168.1.100,cloudflare"))
+	got := r.orch.vipBase(context.Background()).Front
+	if len(got) != 1+len(domain.CloudflareV4) || got[0] != "192.168.1.100" || !slices.Contains(got, "173.245.48.0/20") {
+		t.Fatalf("front = %v", got)
 	}
 }

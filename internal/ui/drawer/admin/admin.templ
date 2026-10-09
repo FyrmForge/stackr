@@ -20,6 +20,7 @@ type User struct {
 	Admin, Active bool
 	Promote       string // POST, flips admin
 	Disable       string // POST
+	Enable        string // POST
 }
 
 // UpdateView is the self-upgrade. Checked says a check ran this answer;
@@ -90,6 +91,15 @@ templ Users(v UsersView) {
 									Title:   "Disable " + u.Email + "?",
 									Warning: "Their sessions and API keys stop working at once.",
 									Action:  u.Disable,
+									Target:  target(),
+								})
+							}
+							if u.Enable != "" {
+								@c.Confirm(c.ConfirmView{
+									Button:  "Enable",
+									Title:   "Enable " + u.Email + "?",
+									Warning: "Their old sessions and API keys stay revoked.",
+									Action:  u.Enable,
 									Target:  target(),
 								})
 							}

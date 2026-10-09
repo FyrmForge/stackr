@@ -416,6 +416,15 @@ func (o *Orchestrator) runPR(ctx context.Context, r *jobs.Run, p prJob) error {
 		}
 		return o.sync.Sync(ctx)
 	}
+	on, err := o.prEnabled(ctx, p.StackID, r.Log)
+	if err != nil {
+		_, _ = fmt.Fprintf(r.Log, "%v; PR envs off\n", err)
+		return nil
+	}
+	if !on {
+		_, _ = fmt.Fprintf(r.Log, "PR envs are off for this stack; set pr_envs.enabled in the stack file\n")
+		return nil
+	}
 	if !exists {
 		envs, err := o.envs.Ladder(ctx, p.StackID)
 		if err != nil {
@@ -437,6 +446,42 @@ func (o *Orchestrator) runPR(ctx context.Context, r *jobs.Run, p prJob) error {
 		}
 	}
 	return o.runPush(ctx, p.StackID, promote.Event{Repo: p.Repo, Branch: p.Head, Commit: p.SHA}, r.Log)
+}
+
+// prEnabled is pr_envs.enabled in the stack file at the config branch head.
+// A stack with no config repo is off; a file that does not load is an error.
+func (o *Orchestrator) prEnabled(ctx context.Context, stackID string, log io.Writer) (bool, error) {
+	st, err := o.stacks.Get(ctx, stackID)
+	if err != nil {
+		return false, err
+	}
+	if st.ConfigRepo == "" {
+		return false, nil
+	}
+	_, sha, err := o.configHead(ctx, st)
+	if err != nil {
+		return false, err
+	}
+	data, fetch, err := o.stackFile(ctx, st, sha, log)
+	if err != nil {
+		return false, fmt.Errorf("stack file at %s: %w", shortSHA(sha), err)
+	}
+	org, err := o.orgs.Get(ctx, st.OrgID)
+	if err != nil {
+		return false, err
+	}
+	f, err := promote.Load(data, fetch, org.Slug)
+	if err != nil {
+		return false, fmt.Errorf("stack file at %s: %w", shortSHA(sha), err)
+	}
+	return f.PREnabled, nil
+}
+
+func shortSHA(s string) string {
+	if len(s) > 7 {
+		return s[:7]
+	}
+	return s
 }
 
 func (o *Orchestrator) runDelete(ctx context.Context, r *jobs.Run, p tileJob) error {
@@ -504,7 +549,7 @@ func (o *Orchestrator) TileJobs(ctx context.Context, tileIDs []string, limit int
 }
 
 // CancelJob stops a queued, waiting or building job. Mid-swap is a
-// Conflict; an already finished job is not an error.
+// Conflict, and so is an already finished job.
 func (o *Orchestrator) CancelJob(ctx context.Context, id string) error {
 	return o.jobs.Cancel(ctx, id)
 }

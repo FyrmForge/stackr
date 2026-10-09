@@ -6,6 +6,7 @@ import (
 
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/serverconfig"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/params"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/settings"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
 
@@ -246,5 +247,21 @@ func TestExportSkipsValuesParseRefuses(t *testing.T) {
 	}
 	if p := serverconfig.Diff(f, l); p.Blocked() || len(p.Changes) != 0 {
 		t.Errorf("plan = %+v", p)
+	}
+}
+
+// A literal protect password never reaches the exported file.
+func TestExportLeavesLiteralProtectPassword(t *testing.T) {
+	l := live()
+	l.Defaults = settings.Settings{ProtectUser: ptr("bob"), ProtectPassword: ptr("hunter2")}
+	out, err := serverconfig.Export(l)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(out), "hunter2") || !strings.HasPrefix(string(out), "# warning:") {
+		t.Errorf("export:\n%s", out)
+	}
+	if _, err := serverconfig.Parse(out); err != nil {
+		t.Fatalf("%v\n%s", err, out)
 	}
 }

@@ -231,7 +231,17 @@ templ Jobs(v View, j JobsView) {
 					<li class="panel px-4 py-3 flex flex-wrap items-center gap-x-3 gap-y-2">
 						<span class="text-sm text-rw-text font-mono">{ r.Kind }</span>
 						<span class="text-xs text-rw-faint whitespace-nowrap">{ r.When }</span>
-						<span class="ml-auto">
+						<span class="ml-auto flex items-center gap-2">
+							if r.Cancel != "" {
+								@c.Confirm(c.ConfirmView{
+									Button:  "Cancel",
+									Title:   "Cancel this job?",
+									Warning: "A job already swapping in cannot be cancelled.",
+									Action:  r.Cancel,
+									Target:  "#" + Root,
+									Quiet:   true,
+								})
+							}
 							@c.JobBadge(r.State)
 						</span>
 						if r.Error != "" {

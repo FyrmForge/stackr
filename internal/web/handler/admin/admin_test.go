@@ -99,6 +99,15 @@ func TestAdminDrawer(t *testing.T) {
 		t.Errorf("make admin = %d", rec.Code)
 	}
 
+	if rec := s.As(t, root, "POST", "/-/admin/users/"+owner+"/disable", nil); rec.Code != http.StatusOK ||
+		!strings.Contains(rec.Body.String(), "/users/"+owner+"/enable") {
+		t.Errorf("disable = %d, no enable button in\n%s", rec.Code, rec.Body)
+	}
+	if rec := s.As(t, root, "POST", "/-/admin/users/"+owner+"/enable", nil); rec.Code != http.StatusOK ||
+		strings.Contains(rec.Body.String(), "/users/"+owner+"/enable") {
+		t.Errorf("enable = %d, row did not flip in\n%s", rec.Code, rec.Body)
+	}
+
 	rec = s.As(t, root, "POST", "/-/admin/backups", nil)
 	m := regexp.MustCompile(`sse-connect="(/-/jobs/[^"]+/events)"`).FindStringSubmatch(rec.Body.String())
 	if rec.Code != http.StatusOK || m == nil {

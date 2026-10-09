@@ -2333,6 +2333,9 @@
       },
       "Release": {
         "properties": {
+          "commit": {
+            "type": "string"
+          },
           "created_at": {
             "format": "date-time",
             "type": "string"
@@ -6417,6 +6420,37 @@
         "x-verb": "user.admin"
       }
     },
+    "/api/v1/admin/users/{user}/enable": {
+      "post": {
+        "operationId": "admin.user-enable",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "user",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "user.admin"
+      }
+    },
     "/api/v1/admin/users/{user}/password": {
       "put": {
         "operationId": "admin.user-password",
@@ -8889,6 +8923,52 @@
           }
         },
         "x-verb": "backup.write"
+      }
+    },
+    "/api/v1/orgs/{org}/settings": {
+      "put": {
+        "operationId": "org.settings",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {}
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Org"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "orgdefaults.set"
       }
     },
     "/api/v1/orgs/{org}/shares": {
@@ -13106,6 +13186,48 @@
           }
         },
         "x-verb": "tile.write"
+      }
+    },
+    "/api/v1/orgs/{org}/stacks/{stack}/export": {
+      "get": {
+        "operationId": "stack.export",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "stack",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/yaml": {}
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "org.read"
       }
     },
     "/api/v1/orgs/{org}/stacks/{stack}/host-grant": {

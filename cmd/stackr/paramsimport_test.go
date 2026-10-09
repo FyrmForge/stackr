@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -133,5 +134,20 @@ func TestParamsImportUnreadableFails(t *testing.T) {
 	code, _, errw := cli(t, "params", "import", filepath.Join(t.TempDir(), "nope"), "--scope", "org", "--collection", "app")
 	if code == 0 || len(writes(r)) != 0 {
 		t.Errorf("missing file = %d %q writes %v, want an error and no write", code, errw, writes(r))
+	}
+}
+
+func TestParamsSetGenerate(t *testing.T) {
+	r := fake(t, map[string]string{"/params": `[]`})
+	code, out, errw := cli(t, "params", "set", "app.token", "--generate", "--length", "20", "--stack", "shop", "--env", "dev")
+	if code != 0 {
+		t.Fatalf("set = %d %q %q", code, out, errw)
+	}
+	w := writes(r)
+	if len(w) != 1 || !strings.Contains(w[0], `"kind":"secret"`) || !regexp.MustCompile(`"value":"[A-Za-z0-9]{20}"`).MatchString(w[0]) {
+		t.Fatalf("writes = %v", w)
+	}
+	if code, _, _ := cli(t, "params", "set", "app.token=x", "--generate", "--stack", "shop", "--env", "dev"); code == 0 {
+		t.Error("--generate with a value was accepted")
 	}
 }

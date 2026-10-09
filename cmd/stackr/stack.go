@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -22,7 +23,7 @@ var (
 	tileCols    = []string{"slug", "name", "kind", "image_ref", "git_url", "container_port", "id"}
 	managedCols = []string{"engine", "allow", "env_pairs", "tile_id", "id"}
 	sliceCols   = []string{"slug", "kind", "provision_from", "default_access", "on_remove", "id"}
-	releaseCols = []string{"number", "created_by", "created_at", "id"}
+	releaseCols = []string{"number", "commit", "created_by", "created_at", "id"}
 	domainCols  = []string{"host", "path", "container_port", "https", "force_https", "redirect_to", "id"}
 	paramCols   = []string{"collection", "name", "kind", "value", "scope_kind"}
 	volumeCols  = []string{"slug", "name", "max_size_mb", "scope_kind", "orphaned_at", "id"}
@@ -317,6 +318,7 @@ func (a *app) stacks() *cobra.Command {
 		a.get("get", "stack.get", "Show the stack", atStack, "", stackCols...),
 		create,
 		a.rename("rename <name>", "stack.rename", "Rename the stack", atStack),
+		a.stackExport(),
 		configRepo,
 		a.settingsCmd("stack.get,stack.settings", "Show or change the stack's settings defaults", atStack),
 		waits(leaf("image-check", "stack.image-check",
@@ -1473,10 +1475,27 @@ func (a *app) params() *cobra.Command {
 		return a.show(v, paramCols...)
 	}
 	get.Flags().BoolVar(&reveal, "reveal", false, "show secret values (needs write access; audited)")
+	var gen bool
+	var length int
 	send := func(c *cobra.Command, lines []string) error {
 		p, err := a.levelPath(c)
 		if err != nil {
 			return err
+		}
+		if gen {
+			if len(lines) == 0 {
+				return usage("--generate takes collection.NAME, no value")
+			}
+			if length < 16 || length > 128 {
+				return usage("--length is 16 to 128")
+			}
+			secret = true
+			for i, l := range lines {
+				if strings.Contains(l, "=") {
+					return usage("--generate takes collection.NAME, no value")
+				}
+				lines[i] = l + "=" + genSecret(length)
+			}
 		}
 		kind := "param"
 		if secret {
@@ -1506,7 +1525,7 @@ func (a *app) params() *cobra.Command {
 		a.redeploying(v)
 		return err
 	}
-	set := leaf("set <collection.NAME=value>...", "org.params-set,stack.params-set,env.params-set,admin.params-set",
+	set := leaf("set <collection.NAME[=value]>...", "org.params-set,stack.params-set,env.params-set,admin.params-set",
 		"Set params; others at the level stay", atLeast(1),
 		func(c *cobra.Command, args []string) error { return send(c, args) })
 	set.Example = "  stackr params set app.mode=prod --env dev\n  stackr params set app.token=s3cret --secret --env dev"
@@ -1530,6 +1549,8 @@ func (a *app) params() *cobra.Command {
 	for _, c := range []*cobra.Command{set, merge} {
 		c.Flags().BoolVar(&secret, "secret", false, "store the values as secrets")
 	}
+	set.Flags().BoolVar(&gen, "generate", false, "set each NAME to a fresh random secret (no =value)")
+	set.Flags().IntVar(&length, "length", 32, "length of a generated secret, 16 to 128")
 	export := leaf("export", "org.secrets,stack.secrets,env.secrets,admin.secrets",
 		"Write every param, secrets included, as collection.NAME=value; the one command that puts secrets on disk", exact(0),
 		func(c *cobra.Command, _ []string) error {
@@ -1889,4 +1910,14 @@ func rate(bps float64) string {
 		return fmt.Sprintf("%.1f KB/s", bps/(1<<10))
 	}
 	return fmt.Sprintf("%.0f B/s", bps)
+}
+
+// genSecret is a random alphanumeric secret of n characters. The server's
+// params.Generate is internal to the service, which the CLI never imports.
+func genSecret(n int) string {
+	var b strings.Builder
+	for b.Len() < n {
+		b.WriteString(rand.Text())
+	}
+	return b.String()[:n]
 }

@@ -635,7 +635,9 @@ the org, stack, env and admin drawers, the account page and the auth pages
    **Resolved in step 7 task 5: (a), `SetOrgSettings` and the org drawer's Defaults save for an owner.**
 167. **(step 6e) Release rows read "Release N"**, not v0's commit sha and
    message: releases carry neither. Options: (a) keep; (b) store them at
-   derive. Lean (b) once git tiles land.
+   derive. Lean (b) once git tiles land. Built 2026-10-08: the short sha
+   (from the release's pins) shows on drawer rows and in `releases ls`; the
+   message is still not stored, so not shown.
 168. **(step 6e) The stack drawer promotes through its own route**
    (`/promote/:env/:release`), the env drawer through its own. Options:
    (a) keep; (b) one route. Lean (a).

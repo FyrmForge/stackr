@@ -1,6 +1,9 @@
 # Terminal and port forward
 
-Status: plan 2026-10-08, from the v0.5.0 code (darthvader: "it worked
+Status: built 2026-10-08 (commit d3f0f93), verified on the rig as
+v0.6.0-dev.21: `stackr ssh` (TTY, exit code), the drawer Terminal tab in
+a browser, `stackr forward` to bridge and host-network tiles. Planned
+from the v0.5.0 code (darthvader: "it worked
 well") and a Fable survey of the rewrite. Wanted in `leftovers.md`
 ("Port forwarding", "Interactive shell"). Terminal first; forward reuses
 its websocket plumbing.

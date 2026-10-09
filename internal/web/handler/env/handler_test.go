@@ -344,3 +344,53 @@ func TestJobEvents(t *testing.T) {
 		t.Errorf("job events:\n%s", body)
 	}
 }
+
+// A volume's schedules round-trip in the drawer: add, list, delete; a
+// viewer sees no buttons and gets a 403 on post.
+func TestVolumeSchedules(t *testing.T) {
+	s := webtest.New(t)
+	ctx := context.Background()
+	v, err := s.Orch.DeclareVolume(ctx, service.VolumeScope{Kind: "env", ID: s.Tile.Env}, "uploads", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := "/acme/shop/dev/-/volumes/" + v.ID
+	rec := s.Do(t, "POST", base+"/schedules", url.Values{
+		"schedule": {"0 3 * * *"}, "tz": {"UTC"}, "method": {"volume"}, "keep": {"5"}, "mode": {"pause"},
+	})
+	if rec.Code != 200 || !strings.Contains(rec.Body.String(), "schedule added") ||
+		!strings.Contains(rec.Body.String(), "0 3 * * *") {
+		t.Fatalf("add = %d\n%s", rec.Code, rec.Body)
+	}
+	rec = s.Do(t, "POST", base+"/schedules", url.Values{"schedule": {"nope"}, "method": {"volume"}})
+	if rec.Code != 422 {
+		t.Errorf("bad cron = %d, want 422", rec.Code)
+	}
+	ss, err := s.Orch.BackupSchedules(ctx, v.ID)
+	if err != nil || len(ss) != 1 || ss[0].Keep != 5 {
+		t.Fatalf("schedules = %v, %v", ss, err)
+	}
+
+	viewer := s.User(t, "viewer@acme.test", false)
+	s.Member(t, s.Org, viewer, "viewer")
+	vs := s.Session(t, viewer)
+	rec = s.As(t, vs, "GET", base+"?tab=backups", nil)
+	if rec.Code != 200 || !strings.Contains(rec.Body.String(), "0 3 * * *") ||
+		strings.Contains(rec.Body.String(), "/schedules") {
+		t.Errorf("viewer drawer = %d\n%s", rec.Code, rec.Body)
+	}
+	if rec = s.As(t, vs, "POST", base+"/schedules/"+ss[0].ID+"/delete", url.Values{}); rec.Code != 403 {
+		t.Errorf("viewer delete = %d, want 403", rec.Code)
+	}
+	if rec = s.As(t, vs, "POST", base+"/schedules", url.Values{"schedule": {"0 3 * * *"}}); rec.Code != 403 {
+		t.Errorf("viewer add = %d, want 403", rec.Code)
+	}
+
+	rec = s.Do(t, "POST", base+"/schedules/"+ss[0].ID+"/delete", url.Values{})
+	if rec.Code != 200 || !strings.Contains(rec.Body.String(), "schedule deleted") {
+		t.Fatalf("delete = %d\n%s", rec.Code, rec.Body)
+	}
+	if ss, _ = s.Orch.BackupSchedules(ctx, v.ID); len(ss) != 0 {
+		t.Errorf("after delete = %v", ss)
+	}
+}

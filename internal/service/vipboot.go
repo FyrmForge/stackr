@@ -16,6 +16,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/deploy"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/domain"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/hostgrant"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
 	"github.com/FyrmForge/stackr/internal/service/internal/vip"
@@ -144,8 +145,8 @@ func (o *Orchestrator) vipBase(ctx context.Context) vip.Base {
 		}
 	}
 	if raw, err := o.settings.Get(ctx, "trusted_proxies"); err == nil {
-		for _, f := range splitList(raw) {
-			// "cloudflare" and IPv6 ranges are not in this IPv4-only table.
+		for _, f := range domain.ExpandProxies(splitList(raw), true) {
+			// IPv6 ranges are not in this IPv4-only table.
 			if p, err := netip.ParsePrefix(f); err == nil && p.Addr().Is4() {
 				b.Front = append(b.Front, f)
 			} else if a, err := netip.ParseAddr(f); err == nil && a.Is4() {

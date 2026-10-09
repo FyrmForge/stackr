@@ -108,7 +108,8 @@ func (v *VolumeNode) UnmarshalYAML(n *yaml.Node) error {
 	return strictNode(n, &v.Conf)
 }
 
-// PREnvs is parsed for its shape; PR envs are the connector's (step 4).
+// PREnvs: only Enabled is read (Resolved.PREnabled); PR envs are opt-in.
+// Against and Tiles are refused by Parse until they are built.
 type PREnvs struct {
 	Enabled *bool               `yaml:"enabled"`
 	Against []string            `yaml:"against"`
@@ -321,6 +322,8 @@ type Resolved struct {
 	Defaults Defaults
 	Domains  []Reservation
 	Envs     map[string]ResolvedEnv
+	// PREnabled is pr_envs.enabled; absent means off.
+	PREnabled bool
 }
 
 type ResolvedEnv struct {
@@ -369,6 +372,8 @@ var removedKeys = map[string]string{
 	"allow_overlap":    "runs of one tile never overlap; a run that would is recorded cancelled",
 	"basic_auth_user":  "use proxy: basic_auth: on the domain",
 	"security_headers": "use proxy: security_headers: on the domain",
+	"default":          "use generate: <length> on a type: secret param",
+	"length":           "use generate: <length> on a type: secret param",
 	"backup":           "backup: goes under the volume in volumes:",
 }
 
@@ -396,6 +401,14 @@ func Parse(data []byte) (*File, error) {
 	}
 	if err := f.Defaults.check(); err != nil {
 		return nil, fmt.Errorf("defaults: %w", err)
+	}
+	if pr := f.PREnvs; pr != nil {
+		if len(pr.Against) > 0 {
+			return nil, fmt.Errorf("pr_envs.against is not built yet; remove it")
+		}
+		if len(pr.Tiles) > 0 {
+			return nil, fmt.Errorf("pr_envs.tiles is not built yet; remove it")
+		}
 	}
 	return &f, nil
 }
@@ -462,11 +475,12 @@ func resolve(f *File, orgSlug string) (*Resolved, error) {
 		return nil, fmt.Errorf("stack name required")
 	}
 	r := &Resolved{
-		Stack:    f.Stack,
-		Params:   f.Params,
-		Defaults: f.Defaults,
-		Domains:  f.Domains,
-		Envs:     map[string]ResolvedEnv{},
+		Stack:     f.Stack,
+		Params:    f.Params,
+		Defaults:  f.Defaults,
+		Domains:   f.Domains,
+		Envs:      map[string]ResolvedEnv{},
+		PREnabled: f.PREnvs != nil && f.PREnvs.Enabled != nil && *f.PREnvs.Enabled,
 	}
 	if err := planfile.CheckParams(f.Params); err != nil {
 		return nil, err

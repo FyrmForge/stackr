@@ -331,3 +331,19 @@ func (noVIP) Set(context.Context, string, []string, []string) error {
 func (noVIP) Remove(context.Context, string) error {
 	return nil
 }
+
+// QueuedJob records a queued deploy of the tile that nothing picks up, and
+// returns its id.
+func (e *Env) QueuedJob(t *testing.T, orgID, tileID string) string {
+	t.Helper()
+	id := uuid.NewString()
+	must(t, e.Store.Jobs.Create(context.Background(), store.Job{
+		ID:        id,
+		Kind:      "deploy",
+		State:     "queued",
+		LockSet:   store.StringList{tileID},
+		Payload:   `{"org_id":"` + orgID + `"}`,
+		CreatedAt: time.Now(),
+	}))
+	return id
+}

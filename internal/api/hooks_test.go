@@ -87,26 +87,21 @@ func TestWebhookPush(t *testing.T) {
 	})
 }
 
-// A PR opened against main makes pr-7 from dev; closing it removes it.
+// A PR opened with no pr_envs in the stack file makes nothing (the opt-in
+// cases are in internal/service/prenvs_test.go).
 func TestWebhookPR(t *testing.T) {
 	w, conn := hookWorld(t)
-	pr := func(action string) string {
-		return `{"action":"` + action + `","number":7,"repository":{"clone_url":"` + repo + `"},` +
-			`"pull_request":{"head":{"ref":"feat","sha":"def5678"},"base":{"ref":"main"}}}`
-	}
-	has := func() bool {
-		es, err := w.env.Orch.Envs(context.Background(), w.tile.Stack)
-		if err != nil {
-			t.Fatal(err)
-		}
-		return slices.ContainsFunc(es, func(e service.Environment) bool { return e.Name == "pr-7" })
-	}
-	if code := w.hook(t, conn, "pull_request", "whsec", pr("opened")); code != 204 {
+	body := `{"action":"opened","number":7,"repository":{"clone_url":"` + repo + `"},` +
+		`"pull_request":{"head":{"ref":"feat","sha":"def5678"},"base":{"ref":"main"}}}`
+	if code := w.hook(t, conn, "pull_request", "whsec", body); code != 204 {
 		t.Fatalf("opened = %d", code)
 	}
-	eventually(t, "pr-7 made", has)
-	if code := w.hook(t, conn, "pull_request", "whsec", pr("closed")); code != 204 {
-		t.Fatalf("closed = %d", code)
+	time.Sleep(200 * time.Millisecond)
+	es, err := w.env.Orch.Envs(context.Background(), w.tile.Stack)
+	if err != nil {
+		t.Fatal(err)
 	}
-	eventually(t, "pr-7 removed", func() bool { return !has() })
+	if slices.ContainsFunc(es, func(e service.Environment) bool { return e.Name == "pr-7" }) {
+		t.Fatal("pr-7 made with no pr_envs")
+	}
 }

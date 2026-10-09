@@ -202,15 +202,21 @@ func without(blob, name string) string {
 	return encode(m)
 }
 
-func jobsView(js []service.Job) ui.JobsView {
+// jobsView is the rows; base is the tile's drawer URL, "" = the viewer
+// may not cancel.
+func jobsView(base string, js []service.Job) ui.JobsView {
 	var v ui.JobsView
 	for _, j := range js {
-		v.Rows = append(v.Rows, ui.JobRow{
+		r := ui.JobRow{
 			Kind:  j.Kind,
 			State: j.State,
 			When:  when(&j.CreatedAt),
 			Error: j.Error,
-		})
+		}
+		if base != "" && j.FinishedAt == nil {
+			r.Cancel = base + "/jobs/" + j.ID + "/cancel"
+		}
+		v.Rows = append(v.Rows, r)
 	}
 	return v
 }

@@ -62,6 +62,8 @@ func (h *handler) Mount(g *echo.Group, a *middleware.Access) {
 	g.POST(e+"/slices/:tile/delete", h.SliceDelete, a.Require("tile.write"))
 	g.GET(e+"/volumes/:volume", h.Volume, a.Require("org.read"))
 	g.POST(e+"/volumes/:volume/backup", h.BackupNow, a.Require("backup.write"))
+	g.POST(e+"/volumes/:volume/schedules", h.AddSchedule, a.Require("backup.write"))
+	g.POST(e+"/volumes/:volume/schedules/:schedule/delete", h.DeleteSchedule, a.Require("backup.write"))
 	g.POST(e+"/volumes/:volume/restore", h.Restore, a.Require("backup.write"))
 	g.POST(e+"/volumes/:volume/delete", h.DeleteVolume, a.Require("tile.write"))
 	g.GET(e+"/proxy", h.Proxy, a.Require("tile.read"))
@@ -581,6 +583,39 @@ func (h *handler) Restore(c echo.Context) error {
 	return h.volume(c, "backups", "restore queued", err)
 }
 
+// AddSchedule takes the CLI's fields: schedule, tz, method, dest, keep, mode.
+func (h *handler) AddSchedule(c echo.Context) error {
+	keep, err := strconv.Atoi(strings.TrimSpace(c.FormValue("keep")))
+	if err != nil && c.FormValue("keep") != "" {
+		return h.volume(c, "backups", "", errs.Invalidf("keep", "keep is a number"))
+	}
+	s := service.ScheduleSpec{
+		Method:   c.FormValue("method"),
+		Cron:     c.FormValue("schedule"),
+		Timezone: c.FormValue("tz"),
+		Keep:     keep,
+		Mode:     c.FormValue("mode"),
+	}
+	if d := c.FormValue("dest"); d != "" {
+		s.DestID = &d
+	}
+	_, err = h.orch.AddBackupSchedule(c.Request().Context(), c.Param("volume"), s)
+	return h.volume(c, "backups", "schedule added", err)
+}
+
+// DeleteSchedule only deletes a schedule of this volume.
+func (h *handler) DeleteSchedule(c echo.Context) error {
+	ctx := c.Request().Context()
+	ss, err := h.orch.BackupSchedules(ctx, c.Param("volume"))
+	if err != nil {
+		return middleware.HTTPError(err)
+	}
+	if !slices.ContainsFunc(ss, func(s service.BackupSchedule) bool { return s.ID == c.Param("schedule") }) {
+		return echo.NewHTTPError(http.StatusNotFound, "no such schedule")
+	}
+	return h.volume(c, "backups", "schedule deleted", h.orch.DeleteBackupSchedule(ctx, c.Param("schedule")))
+}
+
 func (h *handler) DeleteVolume(c echo.Context) error {
 	err := h.orch.DeleteVolume(c.Request().Context(), c.Param("volume"))
 	if err == nil {
@@ -700,6 +735,9 @@ func (h *handler) backups(c echo.Context, vol service.Volume) (volume.BackupsVie
 		Base:  render.EnvURL(c) + "/-/volumes/" + vol.ID,
 		Dests: []volume.Option{{Value: "", Label: "local disk"}},
 	}
+	if p := middleware.Principal(c); p != nil {
+		b.Edit = authz.Can(p.Access, "backup.write", authz.Resource{OrgID: scope(c).Org.ID}) == nil
+	}
 	scheds, err := h.orch.BackupSchedules(ctx, vol.ID)
 	if err != nil {
 		return b, err
@@ -727,8 +765,11 @@ func (h *handler) backups(c echo.Context, vol service.Volume) (volume.BackupsVie
 			dest = *s.DestID
 		}
 		b.Schedules = append(b.Schedules, volume.Schedule{
+			ID:     s.ID,
 			Method: s.Method,
 			Cron:   s.Cron,
+			TZ:     s.Timezone,
+			Mode:   s.Mode,
 			Dest:   names[dest],
 			Keep:   fmt.Sprint(s.Keep),
 		})

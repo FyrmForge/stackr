@@ -47,6 +47,7 @@ func (h *handler) Mount(g *echo.Group, a *middleware.Access) {
 	} {
 		g.POST(d+"/"+verb, h.tileJob(verb, f), write)
 	}
+	g.POST(d+"/jobs/:job/cancel", h.CancelJob, require("deployment.cancel"))
 	g.POST(d+"/run", h.Run, write)
 	g.POST(d+"/pause", h.Pause, write)
 	g.POST(d+"/runs/:run/stop", h.StopRun, write)
@@ -72,6 +73,12 @@ func base(c echo.Context) string {
 func canShell(c echo.Context, s service.Scope) bool {
 	p := middleware.Principal(c)
 	return p != nil && authz.Can(p.Access, "tile.write", authz.Resource{OrgID: s.Org.ID}) == nil
+}
+
+// can is whether the viewer holds verb in this org.
+func can(c echo.Context, verb string) bool {
+	p := middleware.Principal(c)
+	return p != nil && authz.Can(p.Access, authz.Verb(verb), authz.Resource{OrgID: middleware.ScopeOf(c).Org.ID}) == nil
 }
 
 // head is what every answer's header reads, once per request.
@@ -189,7 +196,11 @@ func (h *handler) show(c echo.Context, status int, v ui.View, hd head, ty *typed
 		if err != nil {
 			return middleware.HTTPError(err)
 		}
-		body = ui.Jobs(v, jobsView(js))
+		cancel := ""
+		if can(c, "deployment.cancel") {
+			cancel = v.Base
+		}
+		body = ui.Jobs(v, jobsView(cancel, js))
 	case "runs":
 		rs, err := h.orch.Runs(ctx, t.ID, 20)
 		if err != nil {
@@ -313,6 +324,19 @@ func (h *handler) Pause(c echo.Context) error {
 		*tileOf(c) = t // the header offers the other one
 	}
 	return h.after(c, "runs", map[bool]string{true: "schedule paused", false: "schedule resumed"}[paused], err)
+}
+
+// CancelJob cancels one of this tile's own jobs, then shows the Deployments tab.
+func (h *handler) CancelJob(c echo.Context) error {
+	ctx := c.Request().Context()
+	j, err := h.orch.GetJob(ctx, c.Param("job"))
+	if err != nil {
+		return middleware.HTTPError(err)
+	}
+	if !slices.Contains(j.LockSet, tileOf(c).ID) {
+		return echo.NewHTTPError(http.StatusNotFound, "no such job")
+	}
+	return h.after(c, "jobs", "job cancelled", h.orch.CancelJob(ctx, c.Param("job")))
 }
 
 func (h *handler) StopRun(c echo.Context) error {

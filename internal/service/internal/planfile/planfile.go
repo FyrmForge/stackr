@@ -208,6 +208,9 @@ func (p Plan) Summary(isAdd func(kind string) bool) string {
 type Param struct {
 	Type  string  `yaml:"type"` // param | secret
 	Value *string `yaml:"value,omitempty"`
+	// Generate is a secret's length: stackr makes the value once, the first
+	// time the env has none, and never changes it.
+	Generate int `yaml:"generate,omitempty"`
 }
 
 // CheckParams is the params: grammar every file shares.
@@ -220,6 +223,12 @@ func CheckParams(ps map[string]map[string]Param) error {
 			switch {
 			case !slug.ValidName(n):
 				return fmt.Errorf("params: %s.%s: a name is lower-case letters, digits and _", c, n)
+			case p.Generate != 0 && p.Type != "secret":
+				return fmt.Errorf("params: %s.%s: generate is only for type: secret", c, n)
+			case p.Generate != 0 && p.Value != nil:
+				return fmt.Errorf("params: %s.%s: generate and value are exclusive", c, n)
+			case p.Generate != 0 && (p.Generate < 16 || p.Generate > 128):
+				return fmt.Errorf("params: %s.%s: generate is a length from 16 to 128", c, n)
 			case p.Type == "secret" && p.Value != nil:
 				return fmt.Errorf("params: %s.%s is a secret; its value never goes in the file", c, n)
 			case p.Type != "secret" && p.Type != "param":

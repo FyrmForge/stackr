@@ -431,8 +431,8 @@ func (r *Runner) Enqueue(
 }
 
 // Cancel stops a job. A running job is cancelled through its context, except
-// mid-swap, which is never aborted. A finished job is not an error: the
-// caller is racing the work, the normal case for a stop button.
+// mid-swap, which is never aborted. A finished job is a Conflict: the stop
+// button raced the work and must not claim it cancelled anything.
 func (r *Runner) Cancel(ctx context.Context, id string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -448,7 +448,7 @@ func (r *Runner) Cancel(ctx context.Context, id string) error {
 		return err
 	}
 	if !job.Cancellable(j.State) {
-		return nil
+		return errs.Conflictf("the job already finished")
 	}
 	return r.jobs.Finish(ctx, j, job.Cancelled, "")
 }

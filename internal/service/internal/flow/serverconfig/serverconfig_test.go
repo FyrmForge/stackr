@@ -142,7 +142,7 @@ func TestParseRefuses(t *testing.T) {
 		{"list value", v1 + "settings:\n  workers: [1]\n", "single value"},
 		{"bad email", v1 + "settings:\n  acme_email: nope\n", "email"},
 		{"provider not built", v1 + "settings:\n  dns_provider: route53\n", "cloudflare"},
-		{"bad cidr", v1 + "settings:\n  trusted_proxies: 10.0.0.0/99\n", "not an IP or CIDR"},
+		{"bad cidr", v1 + "settings:\n  trusted_proxies: 10.0.0.0/99\n", "not an IP, a CIDR or cloudflare"},
 		{"proxy_custom not an array", v1 + "settings:\n  proxy_custom: '{}'\n", "JSON array"},
 		{"wildcard panel", v1 + "settings:\n  panel_domain: '*.example.com'\n", "wildcard"},
 		{"half a basic auth pair", v1 + "defaults:\n  protect_user: bob\n", "password"},
@@ -1091,5 +1091,12 @@ func TestPanelRouteCheckOnlyLooksAtWhatMoves(t *testing.T) {
 	has(t, "blockers", p.Blockers, "raw2.ops.net is shadowed by the panel domain")
 	if len(p.Blockers) != 1 {
 		t.Errorf("only the exact host is shadowed, not the wildcard: %q", p.Blockers)
+	}
+}
+
+// The cloudflare keyword is a trusted_proxies entry the panel expands.
+func TestTrustedProxiesCloudflareKeyword(t *testing.T) {
+	if _, err := serverconfig.CheckSetting("trusted_proxies", "192.168.1.100, Cloudflare"); err != nil {
+		t.Fatal(err)
 	}
 }

@@ -285,6 +285,12 @@ func (a *app) export(path, out string, force bool) error {
 	if err != nil {
 		return err
 	}
+	for _, l := range strings.Split(string(b), "\n") {
+		if !strings.HasPrefix(l, "# warning:") {
+			break
+		}
+		_, _ = fmt.Fprintln(a.errw, strings.TrimPrefix(l, "# "))
+	}
 	if out == "" {
 		_, err = a.out.Write(b)
 		return err

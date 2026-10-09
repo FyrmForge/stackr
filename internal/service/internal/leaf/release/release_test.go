@@ -117,3 +117,30 @@ func TestReleases(t *testing.T) {
 		t.Errorf("by number = %+v", got)
 	}
 }
+
+func TestListCommits(t *testing.T) {
+	st := servicetest.Store(t)
+	org, stack := uuid.NewString(), uuid.NewString()
+	now := time.Now()
+	must(t, st.Orgs.Create(ctx, store.Org{ID: org, Name: "o", Slug: "o", EnvColors: "{}", Settings: "{}", CreatedAt: now}))
+	must(t, st.Stacks.Create(ctx, store.Stack{ID: stack, OrgID: org, Name: "s", Slug: "s", Settings: "{}", CreatedAt: now}))
+	l := release.New(st.Releases, st.ReleaseTiles)
+	r1, err := l.Create(ctx, stack, "push", []release.Pin{
+		{Slug: release.ConfigSlug, CommitSHA: "c1"},
+		{Slug: "api", CommitSHA: "a1"},
+	})
+	must(t, err)
+	r2, err := l.Create(ctx, stack, "push", []release.Pin{{Slug: "api", CommitSHA: "a2"}})
+	must(t, err)
+	list, err := l.List(ctx, stack)
+	must(t, err)
+	if list[0].ID != r2.ID || list[0].Commit != "" || list[1].Commit != "c1" {
+		t.Errorf("list commits = %q, %q (a tile sha must not stand in for the config's)", list[0].Commit, list[1].Commit)
+	}
+	if g, _ := l.Get(ctx, r1.ID); g.Commit != "c1" {
+		t.Errorf("get commit = %q", g.Commit)
+	}
+	if g, _ := l.GetByNumber(ctx, stack, 2); g.Commit != "" {
+		t.Errorf("by number commit = %q", g.Commit)
+	}
+}

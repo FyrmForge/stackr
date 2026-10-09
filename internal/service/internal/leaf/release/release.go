@@ -44,17 +44,43 @@ type Pin struct {
 }
 
 func (l *Leaf) Get(ctx context.Context, id string) (store.Release, error) {
-	return l.releases.Get(ctx, id)
+	r, err := l.releases.Get(ctx, id)
+	if err != nil {
+		return r, err
+	}
+	return l.withCommit(ctx, r)
 }
 
 func (l *Leaf) GetByNumber(ctx context.Context, stackID string, n int) (store.Release, error) {
-	return l.releases.GetByNumber(ctx, stackID, n)
+	r, err := l.releases.GetByNumber(ctx, stackID, n)
+	if err != nil {
+		return r, err
+	}
+	return l.withCommit(ctx, r)
 }
 
-// List is the stack's releases, newest first.
+func (l *Leaf) withCommit(ctx context.Context, r store.Release) (store.Release, error) {
+	cs, err := l.tiles.ConfigCommits(ctx, []string{r.ID})
+	r.Commit = cs[r.ID]
+	return r, err
+}
+
+// List is the stack's releases, newest first. Commit is the config pin's
+// commit; a release without one shows none.
 func (l *Leaf) List(ctx context.Context, stackID string) ([]store.Release, error) {
 	rs, err := l.releases.ListByStack(ctx, stackID)
+	if err != nil {
+		return rs, err
+	}
 	sort.Slice(rs, func(i, j int) bool { return rs[i].Number > rs[j].Number })
+	ids := make([]string, len(rs))
+	for i := range rs {
+		ids[i] = rs[i].ID
+	}
+	cs, err := l.tiles.ConfigCommits(ctx, ids)
+	for i := range rs {
+		rs[i].Commit = cs[rs[i].ID]
+	}
 	return rs, err
 }
 

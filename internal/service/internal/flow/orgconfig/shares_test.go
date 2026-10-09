@@ -112,3 +112,23 @@ func TestSharesParseAndExport(t *testing.T) {
 		t.Errorf("export diffs against itself: %+v", p)
 	}
 }
+
+// A literal protect password never reaches the exported file.
+func TestExportLeavesLiteralProtectPassword(t *testing.T) {
+	l := live()
+	l.Org.Settings = `{"protect_user":"bob","protect_password":"hunter2"}`
+	out, err := orgconfig.Export(l)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(out), "hunter2") || !strings.HasPrefix(string(out), "# warning:") {
+		t.Errorf("export:\n%s", out)
+	}
+	f, err := orgconfig.Parse(out)
+	if err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	if f.Defaults != nil {
+		t.Errorf("defaults = %+v", f.Defaults)
+	}
+}

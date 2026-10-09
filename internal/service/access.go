@@ -128,6 +128,12 @@ func (o *Orchestrator) DisableUser(ctx context.Context, userID string) error {
 	return o.users.SetActive(ctx, userID, false)
 }
 
+// EnableUser turns the account back on. Only the flag returns: the sessions
+// and keys DisableUser closed stay closed.
+func (o *Orchestrator) EnableUser(ctx context.Context, userID string) error {
+	return o.users.SetActive(ctx, userID, true)
+}
+
 // SetAdmin grants or takes the stackr admin role. Taking it closes the
 // user's sessions and keys (B16).
 func (o *Orchestrator) SetAdmin(ctx context.Context, userID string, admin bool) error {

@@ -61,7 +61,7 @@ func TestEveryTabRenders(t *testing.T) {
 			[]string{"<log-pane"},
 		},
 		"backups": {
-			Backups(v, []volume.BackupsView{{ID: "v1", Name: "pg-data", Base: "/o/s/e/-/volumes/v1", Methods: []string{"dump", "volume"}}}),
+			Backups(v, []volume.BackupsView{{ID: "v1", Name: "pg-data", Base: "/o/s/e/-/volumes/v1", Edit: true, Methods: []string{"dump", "volume"}}}),
 			[]string{"Database dump", "/-/volumes/v1/backup", "No runs yet."},
 		},
 		"settings": {

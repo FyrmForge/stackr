@@ -286,8 +286,12 @@ func TestDeployIsAJobRow(t *testing.T) {
 func TestTrustedProxiesRefusesNonCIDR(t *testing.T) {
 	w := newWorld(t)
 	ctx := context.Background()
-	if err := w.orch.SetSetting(ctx, "trusted_proxies", "10.0.0.0/8, cloudflare"); err == nil {
-		t.Fatal("cloudflare accepted as a CIDR")
+	if err := w.orch.SetSetting(ctx, "trusted_proxies", "10.0.0.0/8, cloudfare"); err == nil {
+		t.Fatal("a misspelt keyword accepted as a CIDR")
+	}
+	must(t, w.orch.SetSetting(ctx, "trusted_proxies", "10.0.0.0/8, cloudflare"))
+	if p := w.lastPush(); !strings.Contains(p, `"173.245.48.0/20"`) || !strings.Contains(p, `"2400:cb00::/32"`) {
+		t.Errorf("cloudflare not expanded in the push: %s", p)
 	}
 	must(t, w.orch.SetSetting(ctx, "trusted_proxies", "10.0.0.0/8, 192.168.1.1"))
 	if !strings.Contains(w.lastPush(), `"10.0.0.0/8"`) {

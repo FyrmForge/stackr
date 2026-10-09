@@ -20,6 +20,7 @@ type EnvRun struct{ Name, Color, Runs string }
 type ReleaseRow struct {
 	Number string
 	By     string // who or what cut it
+	Commit string // full commit sha ("" = none)
 	When   string
 	Envs   []EnvRun // the envs running it
 	Moves  []ReleaseMove
@@ -83,6 +84,9 @@ templ Releases(v ReleasesView) {
 							<span class="block text-rw-text truncate">Release { r.Number }</span>
 							<span class="block text-[10px] text-rw-faint truncate">{ r.By } · { r.When }</span>
 						</span>
+						if r.Commit != "" {
+							<span class="font-mono text-[10px] text-rw-faint" title={ r.Commit }>{ r.Commit[:min(12, len(r.Commit))] }</span>
+						}
 						for _, e := range r.Envs {
 							<span class={ "log-chip", envClass(e.Color) }>{ e.Name }</span>
 						}

@@ -401,6 +401,7 @@ func (a *app) orgs() *cobra.Command {
 		}),
 		leaf("get", "org.get", "Show this org", exact(0), get("", orgCols...)),
 		create,
+		a.orgSettings(),
 		leaf("use <slug>", "", "Work in another org (the key must reach it)", exact(1),
 			func(_ *cobra.Command, args []string) error {
 				a.cfg.Org = args[0]
@@ -977,6 +978,14 @@ func (a *app) admin() *cobra.Command {
 				_, err := a.call(POST, "/admin/users/"+args[0]+"/disable", nil)
 				return err
 			}),
+		leaf("enable <user-id>", "admin.user-enable", "Enable a user; closed sessions and keys stay closed", exact(1),
+			func(_ *cobra.Command, args []string) error {
+				if err := a.confirm("Enable user " + args[0] + "? Their old sessions and API keys stay revoked."); err != nil {
+					return err
+				}
+				_, err := a.call(POST, "/admin/users/"+args[0]+"/enable", nil)
+				return err
+			}),
 		leaf("password <user-id>", "admin.user-password", "Set a user's password", exact(1),
 			func(_ *cobra.Command, args []string) error {
 				pw, err := a.secret("", "STACKR_NEW_PASSWORD", "New password")
@@ -1064,6 +1073,13 @@ func (a *app) admin() *cobra.Command {
 		defaults,
 		a.routes(),
 	)
+}
+
+// orgSettings is settingsCmd at the org, named settings.
+func (a *app) orgSettings() *cobra.Command {
+	c := a.settingsCmd("org.get,org.settings", "Show or change the org's settings defaults", atOrg)
+	c.Use = "settings"
+	return c
 }
 
 // settingsCmd is `defaults` at a stack or env: the rung is a JSON object,

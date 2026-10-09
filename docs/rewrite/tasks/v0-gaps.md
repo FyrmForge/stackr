@@ -1,6 +1,7 @@
 # v0 features the rewrite does not have
 
-Status: survey 2026-10-07 (v0 = tag v0.5.0), nothing triaged yet.
+Status: survey 2026-10-07 (v0 = tag v0.5.0); triaged 2026-10-08 against
+d3f0f93 (Fable), see "Triage" at the end.
 **gone** = dropped by a decision, **Later** = parked, **missing** = silently
 missing, **partly** = half there. Wanted back so far: port forwarding,
 interactive terminal (drawer tab and `stackr ssh`), see `leftovers.md`.
@@ -99,3 +100,36 @@ entries by `route` + per-domain raw Caddy; middlewares by domain extras;
 auto-domain by `auto:`/`apex:`; cron toggle by `tile pause`; key scopes by
 role; org switcher by the home canvas; `update-policy` by image watch +
 env `auto:`; admin cleanup by the scheduled cleanup job.
+
+## Triage (2026-10-08, against d3f0f93)
+Done since the survey: `proxy_custom` (DECIDE 222), run history pruning
+(keep last 50, `leaf/run`), log pane level filter and search, env colours
+in the env drawer (palette), `stackr forward`, browser terminal and
+`stackr ssh`. `moved:` exists for stacks in the org file, not for tiles.
+
+New, missed by the survey:
+- `params.Generate` exists with no callers; a v0 file with `default:` /
+  `length:` on a param is refused by strict YAML on first promote.
+- `pr_envs:` is parsed and ignored, and `runPR` deploys every PR whose base
+  branch has an env: no opt-in, unlike v0 (`enabled: true` needed).
+
+Build order, all nine agreed 2026-10-08 (small unless marked):
+1. Honour `pr_envs.enabled`, default off: PR envs are opt-in per stack
+   file, as v0 (darthvader 2026-10-08). BUILT: `runPR` reads the stack file
+   at the config branch head; `against` and `tiles` still unread.
+2. Re-enable a disabled user. Items 2, 4, 5, 6, 7: lead decided, plain
+   fixes.
+3. Generated secrets: `generate: <length>` on a secret in the stack file
+   (made once, never rotated by a redeploy), `params set NAME --generate`
+   (agreed 2026-10-08).
+4. Job Cancel in the web.
+5. Commit sha on release rows (closes DECIDE 167).
+6. Org settings API route and CLI (stack and env have one).
+7. `cloudflare` keyword in `trusted_proxies`.
+8. Per-volume backup schedules in the volume drawer (medium; agreed).
+9. `stack export` to stackr-compose.yml, like the org and server exports
+   (medium; agreed); the stack-file plan preview for CI later.
+
+Drop: `env reset`, tile rollback --tag, image delete, containers page,
+volume create without a tile, tile-level `moved:`, `allow_overlap`, every
+unported knob except `cron_timeout_min` (later). Everything else: later.

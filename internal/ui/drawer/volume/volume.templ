@@ -113,9 +113,10 @@ type BackupsView struct {
 	Methods   []string
 	Live      bool // a run is queued or running: History polls
 	Poll      int  // polls left while a just-queued job has no run row yet
+	Edit      bool // the viewer may add and delete schedules and back up now
 }
 
-type Schedule struct{ Method, Cron, Dest, Keep string }
+type Schedule struct{ ID, Method, Cron, TZ, Dest, Keep, Mode string }
 
 type Run struct {
 	ID, Status, Trigger, When, Size, Error string
@@ -136,7 +137,7 @@ func methodLabel(m string) string {
 }
 
 // Backups is v0's backup panel: a panel per schedule, Back up now, the
-// history. Schedules are read-only here (the CLI and API edit them).
+// history. Schedules are added and deleted here; Edit gates the buttons.
 templ Backups(b BackupsView) {
 	<div class="space-y-4">
 		for _, s := range b.Schedules {
@@ -145,9 +146,24 @@ templ Backups(b BackupsView) {
 					<span class="text-sm font-medium text-rw-text">{ methodLabel(s.Method) }</span>
 					<span class="text-xs text-rw-faint">{ s.Dest }</span>
 				</div>
-				<p class="text-xs text-rw-muted"><span class="font-mono text-rw-text">{ s.Cron }</span> · keeps the newest { s.Keep }</p>
+				<p class="text-xs text-rw-muted"><span class="font-mono text-rw-text">{ s.Cron }</span> { s.TZ } · keeps the newest { s.Keep }</p>
+				if b.Edit {
+					@c.Confirm(c.ConfirmView{
+						Button:  "Delete",
+						Title:   "Delete this schedule?",
+						Warning: "Backups stop on it.",
+						Kept:    []string{"archives already in the destination"},
+						Action:  b.Base + "/schedules/" + s.ID + "/delete",
+						Target:  "#" + Root,
+						Quiet:   true,
+					})
+				}
 			</div>
 		}
+		if b.Edit {
+			@scheduleForm(b)
+		}
+		if b.Edit {
 		<form hx-post={ b.Base + "/backup" } hx-target={ "#" + Root } hx-swap="outerHTML" class="panel p-5 space-y-4">
 			<h4 class="text-sm font-medium text-rw-text">Back up now</h4>
 			<div class="grid gap-4 sm:grid-cols-2">
@@ -170,8 +186,46 @@ templ Backups(b BackupsView) {
 			</div>
 			<button type="submit" class="btn btn-primary btn-sm">Back up now</button>
 		</form>
+		}
 		@History(b)
 	</div>
+}
+
+// scheduleForm adds a schedule: the CLI's fields.
+templ scheduleForm(b BackupsView) {
+	<form hx-post={ b.Base + "/schedules" } hx-target={ "#" + Root } hx-swap="outerHTML" class="panel p-5 space-y-4">
+		<h4 class="text-sm font-medium text-rw-text">Schedule backups</h4>
+		<div class="grid gap-4 sm:grid-cols-2">
+			@c.Field(c.FieldView{Name: "schedule", Label: "Schedule", Help: "Five-field cron."})
+			@c.Field(c.FieldView{Name: "tz", Label: "Time zone", Value: "UTC"})
+			<label class="block">
+				<span class="block text-xs text-rw-faint mb-1">What to back up</span>
+				<select name="method" class="input">
+					for _, m := range b.Methods {
+						<option value={ m }>{ methodLabel(m) }</option>
+					}
+				</select>
+			</label>
+			<label class="block">
+				<span class="block text-xs text-rw-faint mb-1">Destination</span>
+				<select name="dest" class="input">
+					for _, d := range b.Dests {
+						<option value={ d.Value }>{ d.Label }</option>
+					}
+				</select>
+			</label>
+			@c.Field(c.FieldView{Name: "keep", Label: "Keep", Type: "number", Value: "7", Help: "Archives kept. 0 keeps all."})
+			<label class="block">
+				<span class="block text-xs text-rw-faint mb-1">While it runs</span>
+				<select name="mode" class="input">
+					<option value="pause">Pause tiles</option>
+					<option value="stop">Stop tiles</option>
+					<option value="live">Leave running</option>
+				</select>
+			</label>
+		</div>
+		<button type="submit" class="btn btn-primary btn-sm">Add schedule</button>
+	</form>
 }
 
 // History polls its own drawer every 2 s while a run is live, or a few

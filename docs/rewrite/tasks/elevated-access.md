@@ -1,6 +1,9 @@
 # Elevated access and network isolation
 
-Status: agreed with darthvader 2026-10-08 (voice), not built. Grows the
+Status: agreed with darthvader 2026-10-08 (voice); built and verified on
+the rig as v0.6.0-dev.21 (commit d3f0f93): probe matrix from every env,
+grant, narrowed approve, revoke, host networking. Gated server ports and
+IPv6 not exercised on the rig. Grows the
 host grant from the migration blitz (W5, `leaf/hostgrant`,
 `flow/promote/hostaccess.go`, `flow/deploy/mount_host.go`) into one set of
 elevated permissions a tile asks for and an admin approves.
@@ -92,7 +95,7 @@ tiles), panel access for a container SDK or agent.
   privileged, ports and host networking change on the next deploy,
   since they are baked into the container.
 
-## Panel lockdown (next point, not yet agreed)
+## Panel lockdown (built)
 Only Caddy reaches the panel; the panel trusts `X-Forwarded-For` only from
 Caddy's address. Rules live in the stackr-owned iptables chain beside the
 VIP rules.
@@ -101,3 +104,9 @@ VIP rules.
 - Stack file syntax: `lan: [ip|cidr[:port] | all]`, `published_ports`, `network: host`.
 - UI: fraedi `stackr/design` board 5 "Elevated access" (67dc8754).
 - Implementation plan: `elevated-access-blitz.md` (Fable, 7 waves).
+
+## Known limits
+- Grants are per tile slug within a stack: `web` in dev and in prod share
+  one grant; a rename orphans the lines and the next deploy asks again.
+- Networks made before the /24 change sit outside 10.213.0.0/16 and are
+  not filtered; the rig's were recreated 2026-10-08.
