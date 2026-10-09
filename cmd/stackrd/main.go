@@ -22,6 +22,7 @@ import (
 	"github.com/FyrmForge/hamr/pkg/middleware"
 	"github.com/FyrmForge/hamr/pkg/server"
 	"github.com/FyrmForge/stackr/internal/api"
+	"github.com/FyrmForge/stackr/internal/api/stream"
 	"github.com/FyrmForge/stackr/internal/installspec"
 	appmw "github.com/FyrmForge/stackr/internal/middleware"
 	"github.com/FyrmForge/stackr/internal/service"
@@ -140,6 +141,8 @@ func run(log *slog.Logger, generate bool) error {
 	if err != nil {
 		return fmt.Errorf("create server: %w", err)
 	}
+	// open event streams end on shutdown instead of holding it to its timeout
+	srv.Echo().Server.RegisterOnShutdown(stream.Stop)
 
 	if baseOrigin != "" {
 		srv.Echo().Use(middleware.CORSWithConfig(middleware.CORSConfig{

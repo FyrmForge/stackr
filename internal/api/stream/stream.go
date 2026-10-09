@@ -11,6 +11,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/labstack/echo/v4"
@@ -29,7 +30,26 @@ var PollEvery = 500 * time.Millisecond
 // cap on open streams if they pile up.
 func detach(c echo.Context) (ctx context.Context, gone func() bool) {
 	req := c.Request().Context()
-	return context.WithoutCancel(req), func() bool { return errors.Is(req.Err(), context.Canceled) }
+	return context.WithoutCancel(req), func() bool { return errors.Is(req.Err(), context.Canceled) || stopped() }
+}
+
+var (
+	stopping = make(chan struct{})
+	stopOnce sync.Once
+)
+
+// Stop ends every open stream at its next poll. The server calls it on
+// shutdown, which otherwise waits its whole timeout on the browsers
+// holding one open.
+func Stop() { stopOnce.Do(func() { close(stopping) }) }
+
+func stopped() bool {
+	select {
+	case <-stopping:
+		return true
+	default:
+		return false
+	}
 }
 
 func start(c echo.Context) {
@@ -135,6 +155,8 @@ func Lines[T string | HTML](c echo.Context, lines <-chan T, stop func()) error {
 			if ping(c) != nil || gone() {
 				return nil
 			}
+		case <-stopping:
+			return nil
 		}
 	}
 }
