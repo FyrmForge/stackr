@@ -234,6 +234,7 @@ func (o *Orchestrator) orgWebhook(ctx context.Context, orgID string, d delivery)
 					Repo:    d.repo,
 					Branch:  d.branch,
 					Commit:  p.After,
+					Message: p.HeadCommit.Message,
 					Changed: p.ChangedFiles(),
 				},
 				DefaultBranch: p.Repository.DefaultBranch,

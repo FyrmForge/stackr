@@ -307,6 +307,8 @@ func (f *Flow) planConfig(ctx context.Context, p *Plan, w *work, r *Resolved) er
 	if ed != e {
 		w.envEdit = &ed
 	}
+	have, _ := settings.Parse(e.Settings)
+	planfile.KeepSecretPair(&re.Defaults.ProtectUser, &re.Defaults.ProtectPassword, have.ProtectUser, have.ProtectPassword)
 	if blob := defaultsJSON(re.Defaults); blob != canonSettings(e.Settings) {
 		p.add(Change{Kind: "env", Field: "defaults"})
 		w.envBlob = blob
@@ -319,6 +321,8 @@ func (f *Flow) planConfig(ctx context.Context, p *Plan, w *work, r *Resolved) er
 	// Stack-level keys land with the bottom rung, where new config enters
 	// the ladder, so a rollback higher up never rewrites them (DECIDE 31).
 	if w.bottom {
+		have, _ := settings.Parse(w.st.Settings)
+		planfile.KeepSecretPair(&r.Defaults.ProtectUser, &r.Defaults.ProtectPassword, have.ProtectUser, have.ProtectPassword)
 		if blob := defaultsJSON(r.Defaults); blob != canonSettings(w.st.Settings) {
 			p.add(Change{Kind: "stack", Field: "defaults"})
 			w.stackBlob = &blob
@@ -957,6 +961,7 @@ func (f *Flow) planParams(ctx context.Context, p *Plan, w *work, r *Resolved) er
 		for _, n := range slices.Sorted(maps.Keys(r.Params[c])) {
 			decl, key := r.Params[c][n], c+"."+n
 			old, ok := have[key]
+			sv, atStack := stackHave[key]
 			switch {
 			case decl.Type == params.Param && ok && old.Secret:
 				p.block("params.%s is a secret; a secret is never turned back into a param", key)
@@ -964,7 +969,7 @@ func (f *Flow) planParams(ctx context.Context, p *Plan, w *work, r *Resolved) er
 				p.add(Change{Kind: "param", Field: key, Note: "becomes a secret"})
 				w.params = append(w.params, params.Entry{Collection: c, Name: n, Kind: params.Secret})
 			case decl.Type == params.Secret && !ok:
-				if _, atStack := stackHave[key]; atStack {
+				if atStack {
 					break
 				}
 				if decl.Generate > 0 {
@@ -978,6 +983,8 @@ func (f *Flow) planParams(ctx context.Context, p *Plan, w *work, r *Resolved) er
 						"params."+key+" is declared and not set; tiles that read it wait until it is",
 					)
 				}
+			case decl.Type == params.Param && decl.Value != nil && !ok && atStack && !sv.Secret && sv.V == *decl.Value:
+				// the env inherits the same value from the stack
 			case decl.Type == params.Param && decl.Value != nil && (!ok || old.V != *decl.Value):
 				p.add(Change{Kind: "param", Field: key})
 				w.params = append(w.params, params.Entry{

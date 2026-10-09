@@ -637,7 +637,9 @@ the org, stack, env and admin drawers, the account page and the auth pages
    message: releases carry neither. Options: (a) keep; (b) store them at
    derive. Lean (b) once git tiles land. Built 2026-10-08: the short sha
    (from the release's pins) shows on drawer rows and in `releases ls`; the
-   message is still not stored, so not shown.
+   first line of the head commit's message (200 chars) is now stored on `releases.message` (migration 008)
+   when a push to the config repo cuts the release, and shows on rows, `release ls` and `get`; apply, image-watch
+   and manual cuts have none, and the clone path stays empty.
 168. **(step 6e) The stack drawer promotes through its own route**
    (`/promote/:env/:release`), the env drawer through its own. Options:
    (a) keep; (b) one route. Lean (a).

@@ -51,11 +51,9 @@ func destRef(name, key string) string {
 func Export(live Live) ([]byte, error) {
 	f := File{Version: 1}
 	f.Settings = exportSettings(live)
-	var warn string
 	if d := Defaults(live.Defaults); d != (Defaults{}) {
 		if pw := d.ProtectPassword; pw != nil && !strings.HasPrefix(strings.TrimSpace(*pw), "${{") {
 			d.ProtectUser, d.ProtectPassword = nil, nil
-			warn = "# warning: protect_user and protect_password hold a literal secret and are left out; planning this file clears them, add them by hand\n"
 		}
 		if d != (Defaults{}) {
 			f.Defaults = &d
@@ -102,7 +100,7 @@ func Export(live Live) ([]byte, error) {
 		return nil, err
 	}
 	err := enc.Close()
-	return append([]byte(warn), buf.Bytes()...), err
+	return buf.Bytes(), err
 }
 
 // exportSettings writes each Flat knob whose effective value is not the

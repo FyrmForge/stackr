@@ -23,7 +23,7 @@ var (
 	tileCols    = []string{"slug", "name", "kind", "image_ref", "git_url", "container_port", "id"}
 	managedCols = []string{"engine", "allow", "env_pairs", "tile_id", "id"}
 	sliceCols   = []string{"slug", "kind", "provision_from", "default_access", "on_remove", "id"}
-	releaseCols = []string{"number", "commit", "created_by", "created_at", "id"}
+	releaseCols = []string{"number", "commit", "message", "created_by", "created_at", "id"}
 	domainCols  = []string{"host", "path", "container_port", "https", "force_https", "redirect_to", "id"}
 	paramCols   = []string{"collection", "name", "kind", "value", "scope_kind"}
 	volumeCols  = []string{"slug", "name", "max_size_mb", "scope_kind", "orphaned_at", "id"}

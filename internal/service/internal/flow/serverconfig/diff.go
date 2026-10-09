@@ -14,6 +14,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/params"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/route"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/settings"
+	"github.com/FyrmForge/stackr/internal/service/internal/planfile"
 	"github.com/FyrmForge/stackr/internal/service/internal/slug"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
@@ -524,7 +525,10 @@ func (d *differ) defaults() {
 	if d.f.Defaults == nil {
 		return
 	}
-	want, have := settings.Settings(*d.f.Defaults), d.live.Defaults
+	have := d.live.Defaults
+	// Applied from f too, so an omitted secret pair keeps its live value.
+	planfile.KeepSecretPair(&d.f.Defaults.ProtectUser, &d.f.Defaults.ProtectPassword, have.ProtectUser, have.ProtectPassword)
+	want := settings.Settings(*d.f.Defaults)
 	var rows []Change
 	num := func(v *float64) string {
 		if v == nil {

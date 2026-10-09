@@ -16,6 +16,9 @@ type Release struct {
 	// Commit is the commit its pins were cut from ("" = none); filled by the
 	// release leaf on List/Get, never stored here.
 	Commit string `db:"-" json:"commit,omitempty"`
+	// Message is the first line of that commit's message; "" when the cut had
+	// none (apply, image watch, manual deploy).
+	Message string `db:"message" json:"message,omitempty"`
 }
 
 type ReleaseStore interface {

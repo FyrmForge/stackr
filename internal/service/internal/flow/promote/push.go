@@ -16,10 +16,11 @@ import (
 )
 
 // Event is one push, already verified: repo as sent, the branch name, the
-// head commit and the changed paths (nil = unknown, build everything).
+// head commit, its message ("" = unknown) and the changed paths (nil =
+// unknown, build everything).
 type Event struct {
-	Repo, Branch, Commit string
-	Changed              []string
+	Repo, Branch, Commit, Message string
+	Changed                       []string
 }
 
 // Push turns a push into a release: the config pin moves when the push is
@@ -104,6 +105,11 @@ func (f *Flow) Push(
 	r, err := d.Releases.Derive(ctx, stackID, base, "push", pins...)
 	if err != nil {
 		return store.Release{}, nil, err
+	}
+	if isConfig { // the shown sha is the config pin's, so is its message
+		if r, err = d.Releases.SetMessage(ctx, r, ev.Message); err != nil {
+			return store.Release{}, nil, err
+		}
 	}
 	var auto []store.Environment
 	for _, e := range from {

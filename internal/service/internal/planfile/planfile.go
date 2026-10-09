@@ -275,3 +275,16 @@ func humanYAML(err error, removed map[string]string) error {
 	}
 	return fmt.Errorf("%s", strings.Join(msgs, "; "))
 }
+
+// KeepSecretPair settles protect_user + protect_password of a file's defaults
+// rung against live. Exports leave a literal password out, so a file that
+// omits the pair means "untouched": both are taken from live. An explicit
+// empty pair means "clear": both become nil, the form a cleared rung has.
+func KeepSecretPair(user, pass **string, liveUser, livePass *string) {
+	switch {
+	case *user == nil && *pass == nil:
+		*user, *pass = liveUser, livePass
+	case *user != nil && *pass != nil && **user == "" && **pass == "":
+		*user, *pass = nil, nil
+	}
+}

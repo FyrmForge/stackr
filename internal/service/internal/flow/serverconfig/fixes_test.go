@@ -1,6 +1,7 @@
 package serverconfig_test
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -250,18 +251,33 @@ func TestExportSkipsValuesParseRefuses(t *testing.T) {
 	}
 }
 
-// A literal protect password never reaches the exported file.
-func TestExportLeavesLiteralProtectPassword(t *testing.T) {
+// Export leaves a literal password out; planning the export reads clean, an
+// explicit empty pair clears it, another value diffs.
+func TestProtectPairKeptWhenOmitted(t *testing.T) {
 	l := live()
 	l.Defaults = settings.Settings{ProtectUser: ptr("bob"), ProtectPassword: ptr("hunter2")}
 	out, err := serverconfig.Export(l)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(out), "hunter2") || !strings.HasPrefix(string(out), "# warning:") {
+	if strings.Contains(string(out), "hunter2") || strings.HasPrefix(string(out), "#") {
 		t.Errorf("export:\n%s", out)
 	}
-	if _, err := serverconfig.Parse(out); err != nil {
+	f, err := serverconfig.Parse(out)
+	if err != nil {
 		t.Fatalf("%v\n%s", err, out)
+	}
+	if p := serverconfig.Diff(f, l); len(p.Changes) != 0 || p.Blocked() {
+		t.Errorf("export diffs against itself: %+v", p)
+	}
+	for name, pair := range map[string]string{"clear": "''", "change": "other"} {
+		f := parse(t, "defaults: {protect_user: "+pair+", protect_password: "+pair+"}\n")
+		var got []string
+		for _, c := range serverconfig.Diff(f, l).Changes {
+			got = append(got, c.Kind+":"+c.Field)
+		}
+		if !slices.Contains(got, "defaults:protect_password") {
+			t.Errorf("%s: %v", name, got)
+		}
 	}
 }

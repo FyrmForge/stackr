@@ -84,6 +84,20 @@ func (l *Leaf) List(ctx context.Context, stackID string) ([]store.Release, error
 	return rs, err
 }
 
+// SetMessage stores the first line of the commit message on r (capped), and
+// returns r with it. "" is a no-op.
+func (l *Leaf) SetMessage(ctx context.Context, r store.Release, msg string) (store.Release, error) {
+	msg, _, _ = strings.Cut(strings.TrimSpace(msg), "\n")
+	if rs := []rune(strings.TrimSpace(msg)); len(rs) > 200 {
+		msg = string(rs[:200])
+	}
+	if msg == "" {
+		return r, nil
+	}
+	r.Message = strings.TrimSpace(msg)
+	return r, l.releases.Update(ctx, r)
+}
+
 // Digest is the digest a release pins for slug: what a pulled tile runs
 // (the images table only knows builds). "" when nothing is pinned.
 func (l *Leaf) Digest(ctx context.Context, releaseID *string, slug string) (string, error) {

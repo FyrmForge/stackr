@@ -113,22 +113,32 @@ func TestSharesParseAndExport(t *testing.T) {
 	}
 }
 
-// A literal protect password never reaches the exported file.
-func TestExportLeavesLiteralProtectPassword(t *testing.T) {
+// Export leaves a literal password out; planning the export reads clean, an
+// explicit empty pair clears it, another value diffs.
+func TestProtectPairKeptWhenOmitted(t *testing.T) {
 	l := live()
-	l.Org.Settings = `{"protect_user":"bob","protect_password":"hunter2"}`
+	l.Org.Settings = `{"cpu_limit":1,"protect_user":"bob","protect_password":"hunter2"}`
 	out, err := orgconfig.Export(l)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(out), "hunter2") || !strings.HasPrefix(string(out), "# warning:") {
+	if strings.Contains(string(out), "hunter2") || strings.HasPrefix(string(out), "#") {
 		t.Errorf("export:\n%s", out)
 	}
 	f, err := orgconfig.Parse(out)
 	if err != nil {
 		t.Fatalf("%v\n%s", err, out)
 	}
-	if f.Defaults != nil {
-		t.Errorf("defaults = %+v", f.Defaults)
+	if p := orgconfig.Diff(f, l); len(p.Changes) != 0 || p.Blocked() {
+		t.Errorf("export diffs against itself: %+v", p)
+	}
+	for name, pair := range map[string]string{"clear": "''", "change": "other"} {
+		f, err := orgconfig.Parse([]byte("version: 1\norg: Acme\ndefaults: {cpu_limit: 1, protect_user: " + pair + ", protect_password: " + pair + "}\n"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if p := orgconfig.Diff(f, l); len(p.Changes) != 1 || p.Changes[0].Kind != "defaults" {
+			t.Errorf("%s: %+v", name, p)
+		}
 	}
 }

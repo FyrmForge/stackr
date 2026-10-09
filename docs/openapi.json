@@ -2346,6 +2346,9 @@
           "id": {
             "type": "string"
           },
+          "message": {
+            "type": "string"
+          },
           "number": {
             "type": "integer"
           },

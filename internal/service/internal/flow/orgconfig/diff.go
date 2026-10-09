@@ -84,6 +84,9 @@ func Diff(f *File, live Live) Plan {
 	p.org(f.Org, live)
 	p.params(f.Params, live.Params)
 	if f.Defaults != nil {
+		have, _ := settings.Parse(live.Org.Settings)
+		// Applied from f too, so an omitted secret pair keeps its live value.
+		planfile.KeepSecretPair(&f.Defaults.ProtectUser, &f.Defaults.ProtectPassword, have.ProtectUser, have.ProtectPassword)
 		if jsonOf(*f.Defaults) != canonSettings(live.Org.Settings) {
 			// values never shown: protect_password is a credential
 			p.add(Change{

@@ -6,7 +6,7 @@ import (
 	"github.com/labstack/echo/v4"
 )
 
-// ExportStack answers one env of the stack as a stackr-compose.yml download.
+// ExportStack answers the stack (or the ?env= one) as a stackr-compose.yml download.
 func (h *H) ExportStack() Endpoint {
 	return Streamed("application/yaml", func(c echo.Context) error {
 		b, err := h.Orch.ExportStack(rc(c), stackID(c), c.QueryParam("env"))

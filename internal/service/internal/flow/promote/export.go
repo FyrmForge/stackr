@@ -49,25 +49,41 @@ func (m omap) MarshalYAML() (any, error) {
 	return n, nil
 }
 
-// Export writes one env live as a stackr-compose.yml: the tiles, volumes,
-// params and domains of the env as the file keys that make them, defaults
-// left out. A secret is its name only, a ref stays a ref. Planning the result
-// against the same env reads clean. Read-only.
+// Export writes a stack live as a stackr-compose.yml: every env of the
+// ladder (envID ""), or just the one env, with the tiles, volumes, params and
+// domains as the file keys that make them, defaults left out. A promote env
+// carries from: promote. A secret is its name only, a ref stays a ref.
+// Planning the result against each exported env reads clean. Read-only.
 //
-// ponytail: one env per file, no ladder; a promote env drops its from: (the
-// bottom rung cannot say promote). Backup schedules, literal domain hosts
-// that came from a params ref and a literal basic-auth password are not
-// carried.
-func (f *Flow) Export(ctx context.Context, envID string) ([]byte, []string, error) {
+// ponytail: the file has one params: block for the whole stack, so a param
+// that differs between envs (or is missing in some) keeps its name and loses
+// its value, with a warning. Backup schedules, literal domain hosts that came
+// from a params ref, a literal basic-auth password and a literal protect
+// password are not carried. A promote env exported alone has no rung below it
+// in the file, so its from: is left out.
+func (f *Flow) Export(ctx context.Context, stackID, envID string) ([]byte, []string, error) {
 	var warns []string
 	d := f.D
-	e, err := d.Envs.Get(ctx, envID)
+	st, err := d.Stacks.Get(ctx, stackID)
 	if err != nil {
 		return nil, nil, err
 	}
-	st, err := d.Stacks.Get(ctx, e.StackID)
+	ladder, err := d.Envs.Ladder(ctx, st.ID)
 	if err != nil {
 		return nil, nil, err
+	}
+	var envs []store.Environment
+	for i, e := range ladder {
+		if envID != "" && e.ID != envID {
+			continue
+		}
+		if e.FromKind == environment.FromPromote && (i == 0 || envID != "") {
+			warns = append(warns, "environment "+e.Slug+": promotes from a rung the file does not hold; from: left out")
+		}
+		envs = append(envs, e)
+	}
+	if len(envs) == 0 {
+		return nil, nil, errs.Conflictf("This stack has no environment to export.")
 	}
 	res, err := f.Resources.ListAll(ctx)
 	if err != nil {
@@ -77,27 +93,14 @@ func (f *Flow) Export(ctx context.Context, envID string) ([]byte, []string, erro
 	out.put("version", 1)
 	out.put("stack", st.Slug)
 
-	// params: this env's declared names; a secret never gives its value.
-	vals, err := d.Params.Values(ctx, params.Scope{Kind: "env", ID: e.ID}, true)
+	ps, err := f.exportParams(ctx, st, envs, &warns)
 	if err != nil {
 		return nil, nil, err
-	}
-	ps := map[string]map[string]any{}
-	for _, key := range slices.Sorted(maps.Keys(vals)) {
-		c, n, _ := strings.Cut(key, ".")
-		if ps[c] == nil {
-			ps[c] = map[string]any{}
-		}
-		if vals[key].Secret {
-			ps[c][n] = omap{{"type", params.Secret}}
-		} else {
-			ps[c][n] = omap{{"type", params.Param}, {"value", vals[key].V}}
-		}
 	}
 	if len(ps) > 0 {
 		out.put("params", ps)
 	}
-	if m := defaultsMap(st.Settings, "defaults", &warns); len(m) > 0 {
+	if m := defaultsMap(st.Settings); len(m) > 0 {
 		out.put("defaults", m)
 	}
 	var doms []any
@@ -118,30 +121,136 @@ func (f *Flow) Export(ctx context.Context, envID string) ([]byte, []string, erro
 		out.put("domains", doms)
 	}
 
-	// The env section: its knobs, tiles and volumes.
+	em := omap{}
+	for _, e := range envs {
+		body, err := f.exportEnv(ctx, st, e, ladder[0].ID == e.ID || envID != "", res, &warns)
+		if err != nil {
+			return nil, nil, err
+		}
+		em.put(e.Slug, body)
+	}
+	out.put("environments", em)
+
+	var buf bytes.Buffer
+	enc := yaml.NewEncoder(&buf)
+	enc.SetIndent(2)
+	if err := enc.Encode(out); err != nil {
+		return nil, nil, err
+	}
+	return buf.Bytes(), warns, enc.Close()
+}
+
+// exportParams is the file's params: block. A name is declared once for the
+// whole stack: a stack-scope entry wins, an env-scope one carries its value
+// only when every exported env holds the same.
+func (f *Flow) exportParams(ctx context.Context, st store.Stack, envs []store.Environment, warns *[]string) (map[string]map[string]any, error) {
+	stackVals, err := f.D.Params.Values(ctx, params.Scope{Kind: "stack", ID: st.ID}, true)
+	if err != nil {
+		return nil, err
+	}
+	envVals := make([]map[string]params.Value, len(envs))
+	keys := map[string]bool{}
+	for k := range stackVals {
+		keys[k] = true
+	}
+	for i, e := range envs {
+		if envVals[i], err = f.D.Params.Values(ctx, params.Scope{Kind: "env", ID: e.ID}, true); err != nil {
+			return nil, err
+		}
+		for k := range envVals[i] {
+			keys[k] = true
+		}
+	}
+	out := map[string]map[string]any{}
+	for _, key := range slices.Sorted(maps.Keys(keys)) {
+		d, ok := declare(key, stackVals, envVals, warns)
+		if !ok {
+			continue
+		}
+		c, n, _ := strings.Cut(key, ".")
+		if out[c] == nil {
+			out[c] = map[string]any{}
+		}
+		out[c][n] = d
+	}
+	return out, nil
+}
+
+func declare(key string, stack map[string]params.Value, envs []map[string]params.Value, warns *[]string) (omap, bool) {
+	if v, ok := stack[key]; ok {
+		for _, ev := range envs {
+			if e, ok := ev[key]; ok && (e.Secret != v.Secret || e.V != v.V) {
+				*warns = append(*warns, "params."+key+": an environment overrides the stack value; the override is not carried")
+				break
+			}
+		}
+		return declOf(v), true
+	}
+	var first params.Value
+	same, n := true, 0
+	for _, ev := range envs {
+		v, ok := ev[key]
+		if !ok {
+			continue
+		}
+		switch {
+		case n == 0:
+			first = v
+		case v.Secret != first.Secret:
+			*warns = append(*warns, "params."+key+": a secret in one environment and a param in another; left out")
+			return nil, false
+		case v.V != first.V:
+			same = false
+		}
+		n++
+	}
+	if !first.Secret && (!same || n < len(envs)) {
+		*warns = append(*warns, "params."+key+": not the same in every environment; declared without a value")
+		return omap{{"type", params.Param}}, true
+	}
+	return declOf(first), true
+}
+
+func declOf(v params.Value) omap {
+	if v.Secret {
+		return omap{{"type", params.Secret}}
+	}
+	return omap{{"type", params.Param}, {"value", v.V}}
+}
+
+// exportEnv is one environment section: its from/branch, knobs, tiles and
+// volumes. alone is true when the env has no rung below it in the file.
+func (f *Flow) exportEnv(ctx context.Context, st store.Stack, e store.Environment, alone bool, res []store.DomainResource, warns *[]string) (omap, error) {
+	d := f.D
 	env := omap{}
-	if e.FromKind == environment.FromBranch {
+	switch {
+	case e.FromKind == environment.FromBranch:
 		env.put("branch", e.FromBranch)
 		if !e.Auto {
 			env.put("auto", false)
+		}
+	case e.FromKind == environment.FromPromote && !alone:
+		env.put("from", environment.FromPromote)
+		if e.Auto {
+			env.put("auto", true)
 		}
 	}
 	if e.Color != "" {
 		env.put("color", e.Color)
 	}
-	if m := defaultsMap(e.Settings, "environment defaults", &warns); len(m) > 0 {
+	if m := defaultsMap(e.Settings); len(m) > 0 {
 		env.put("defaults", m)
 	}
 	live, err := d.Tiles.List(ctx, e.ID)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	slices.SortFunc(live, func(a, b store.Tile) int { return cmp.Compare(a.Slug, b.Slug) })
 	tiles := omap{}
 	for _, t := range live {
-		body, err := f.exportTile(ctx, st, t, res, &warns)
+		body, err := f.exportTile(ctx, st, t, res, warns)
 		if err != nil {
-			return nil, nil, err
+			return nil, err
 		}
 		tiles.put(t.Slug, body)
 	}
@@ -150,7 +259,7 @@ func (f *Flow) Export(ctx context.Context, envID string) ([]byte, []string, erro
 	}
 	vols, err := d.Volumes.List(ctx, volume.Scope{Kind: "env", ID: e.ID})
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	slices.SortFunc(vols, func(a, b store.Volume) int { return cmp.Compare(a.Slug, b.Slug) })
 	vm := omap{}
@@ -167,21 +276,13 @@ func (f *Flow) Export(ctx context.Context, envID string) ([]byte, []string, erro
 	if len(vm) > 0 {
 		env.put("volumes", vm)
 	}
-	out.put("environments", omap{{e.Slug, env}})
-
-	var buf bytes.Buffer
-	enc := yaml.NewEncoder(&buf)
-	enc.SetIndent(2)
-	if err := enc.Encode(out); err != nil {
-		return nil, nil, err
-	}
-	return buf.Bytes(), warns, enc.Close()
+	return env, nil
 }
 
 // defaultsMap is a settings blob as the defaults: keys that are set.
-// The basic-auth pair is a secret: it is left out, with a warning, and the
-// plan of the export then shows it cleared.
-func defaultsMap(blob, where string, warns *[]string) map[string]any {
+// A literal basic-auth pair is a secret and is left out (the plan reads an
+// omitted pair as untouched).
+func defaultsMap(blob string) map[string]any {
 	s, err := settings.Parse(blob)
 	if err != nil {
 		return nil
@@ -192,7 +293,6 @@ func defaultsMap(blob, where string, warns *[]string) map[string]any {
 	if pw, ok := m["protect_password"].(string); ok && !strings.HasPrefix(strings.TrimSpace(pw), "${{") {
 		delete(m, "protect_user")
 		delete(m, "protect_password")
-		*warns = append(*warns, where+": protect_user and protect_password hold a literal secret and are left out; planning this file clears them, add them by hand")
 	}
 	return m
 }

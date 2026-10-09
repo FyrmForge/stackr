@@ -464,11 +464,15 @@ func TestPushBuildsAndReleases(t *testing.T) {
 			Repo:    "git@github.com:acme/shop.git",
 			Branch:  "main",
 			Commit:  "c9",
+			Message: "ship api\n\nbody",
 			Changed: []string{"api/main.go"},
 		},
 		io.Discard,
 	)
 	must(t, err)
+	if got, _ := w.f.D.Releases.Get(ctx, r.ID); got.Message != "ship api" {
+		t.Errorf("stored message = %q", got.Message)
+	}
 	if len(built) != 1 || built[0] != "api@c9" || len(auto) != 1 || auto[0].Slug != "dev" {
 		t.Fatalf("built %v auto %v", built, auto)
 	}
@@ -904,5 +908,49 @@ func TestRepromoteDeploysNeverRunTile(t *testing.T) {
 	p := planOK(t, w, w.prd, r)
 	if got := kinds(p); got != "image:worker" || p.Changes[0].Note != "not deployed yet" {
 		t.Errorf("plan = %q %+v, want only the never-run worker", got, p.Changes)
+	}
+}
+
+// A file that omits the protect pair leaves the live one alone; an explicit
+// empty pair clears it; a different value diffs.
+func TestPlanProtectPair(t *testing.T) {
+	const base = "version: 1\nstack: shop\nladder: [dev, prd]\nhead: main\n"
+	const tiles = "base:\n  tiles:\n    api: {image: nginx:1, port: 80}\n"
+	w := setup(t)
+	w.fake.Digests = map[string]string{"nginx:1": "sha256:one"}
+	_, err := w.f.D.Envs.SetSettings(ctx, w.dev, `{"protect":true,"protect_user":"bob","protect_password":"hunter2"}`)
+	must(t, err)
+	has := func(file string) bool {
+		w.files["cp"] = file
+		for _, c := range planOK(t, w, w.dev, w.release(t, "cp")).Changes {
+			if c.Kind == "env" && c.Field == "defaults" {
+				return true
+			}
+		}
+		return false
+	}
+	keep := "environments:\n  dev:\n    defaults: {protect: true}\n  prd: {from: promote}\n"
+	if has(base + tiles + keep) {
+		t.Error("omitted pair read as a change")
+	}
+	if !has(base + tiles + "environments:\n  dev:\n    defaults: {protect: true, protect_user: '', protect_password: ''}\n  prd: {from: promote}\n") {
+		t.Error("explicit empty pair did not clear")
+	}
+	if !has(base + tiles + "environments:\n  dev:\n    defaults: {protect: true, protect_user: bob, protect_password: other}\n  prd: {from: promote}\n") {
+		t.Error("new password did not diff")
+	}
+}
+
+// A valued param the stack already holds with the same value is inherited,
+// not written again into the env.
+func TestPlanParamInheritedFromStack(t *testing.T) {
+	w := setup(t)
+	w.fake.Digests = map[string]string{"nginx:1": "sha256:one"}
+	must(t, w.f.D.Params.Set(ctx, params.Scope{Kind: "stack", ID: w.st.ID}, params.Entry{Collection: "app", Name: "mode", Kind: params.Param, Value: "fast"}))
+	w.files["pi"] = "version: 1\nstack: shop\nladder: [dev, prd]\nhead: main\nparams:\n  app:\n    mode: {type: param, value: fast}\nbase:\n  tiles:\n    api: {image: nginx:1, port: 80}\nenvironments:\n  dev: {}\n  prd: {from: promote}\n"
+	for _, c := range planOK(t, w, w.dev, w.release(t, "pi")).Changes {
+		if c.Kind == "param" {
+			t.Errorf("param written: %+v", c)
+		}
 	}
 }

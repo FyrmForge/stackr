@@ -21,6 +21,7 @@ type ReleaseRow struct {
 	Number string
 	By     string // who or what cut it
 	Commit string // full commit sha ("" = none)
+	Message string // commit message, first line ("" = none)
 	When   string
 	Envs   []EnvRun // the envs running it
 	Moves  []ReleaseMove
@@ -83,6 +84,9 @@ templ Releases(v ReleasesView) {
 						<span class="min-w-0 flex-1">
 							<span class="block text-rw-text truncate">Release { r.Number }</span>
 							<span class="block text-[10px] text-rw-faint truncate">{ r.By } · { r.When }</span>
+							if r.Message != "" {
+								<span class="block text-[10px] text-rw-muted truncate" title={ r.Message }>{ r.Message }</span>
+							}
 						</span>
 						if r.Commit != "" {
 							<span class="font-mono text-[10px] text-rw-faint" title={ r.Commit }>{ r.Commit[:min(12, len(r.Commit))] }</span>

@@ -133,3 +133,9 @@ Build order, all nine agreed 2026-10-08 (small unless marked):
 Drop: `env reset`, tile rollback --tag, image delete, containers page,
 volume create without a tile, tile-level `moved:`, `allow_overlap`, every
 unported knob except `cron_timeout_min` (later). Everything else: later.
+
+Rule (config-as-code defaults): the secret pair `protect_user` +
+`protect_password` is left untouched when a file omits it, in the stack, org
+and server files, so export then apply never clears password protection.
+Clearing needs an explicit empty pair (`protect_user: ""`,
+`protect_password: ""`). Other knobs keep whole-rung semantics.

@@ -36,9 +36,12 @@ type PullRequest struct {
 
 // Push is a push delivery.
 type Push struct {
-	Ref     string `json:"ref"`     // refs/heads/<branch>
-	After   string `json:"after"`   // head commit SHA
-	Deleted bool   `json:"deleted"` // branch/tag deletion push
+	Ref        string `json:"ref"`     // refs/heads/<branch>
+	After      string `json:"after"`   // head commit SHA
+	Deleted    bool   `json:"deleted"` // branch/tag deletion push
+	HeadCommit struct {
+		Message string `json:"message"`
+	} `json:"head_commit"`
 	Commits []struct {
 		Added    []string `json:"added"`
 		Removed  []string `json:"removed"`

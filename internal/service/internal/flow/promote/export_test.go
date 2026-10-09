@@ -5,6 +5,9 @@ import (
 	"io"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/google/uuid"
 
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/domain"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/params"
@@ -43,7 +46,7 @@ func TestExportPlansClean(t *testing.T) {
 	w.running(api)
 	w.running(web)
 
-	out, _, err := w.f.Export(ctx, w.dev.ID)
+	out, _, err := w.f.Export(ctx, w.st.ID, w.dev.ID)
 	must(t, err)
 	got := string(out)
 	if strings.Contains(got, "s3cret-value") || !strings.Contains(got, "type: secret") {
@@ -82,7 +85,7 @@ func TestExportKeepsDomainWithLiteralBasicAuth(t *testing.T) {
 	must(t, err)
 	w.running(api)
 
-	out, warns, err := w.f.Export(ctx, w.dev.ID)
+	out, warns, err := w.f.Export(ctx, w.st.ID, w.dev.ID)
 	must(t, err)
 	got := string(out)
 	if !strings.Contains(got, "api.example.com") || strings.Contains(got, "hunter2") || strings.Contains(got, "basic_auth") {
@@ -105,16 +108,61 @@ func TestExportKeepsDomainWithLiteralBasicAuth(t *testing.T) {
 	}
 }
 
-// A literal protect password is never written; a ref is.
+// A literal protect password is never written, and no warning claims the plan
+// clears it; a ref is written.
 func TestExportDefaultsLeaveLiteralProtectPassword(t *testing.T) {
-	var warns []string
-	m := defaultsMap(`{"protect":true,"protect_user":"bob","protect_password":"hunter2"}`, "defaults", &warns)
-	if b, _ := json.Marshal(m); strings.Contains(string(b), "hunter2") || strings.Contains(string(b), "protect_user") || len(warns) != 1 {
-		t.Errorf("m = %s warns = %v", b, warns)
+	m := defaultsMap(`{"protect":true,"protect_user":"bob","protect_password":"hunter2"}`)
+	if b, _ := json.Marshal(m); strings.Contains(string(b), "hunter2") || strings.Contains(string(b), "protect_user") {
+		t.Errorf("m = %s", b)
 	}
-	warns = nil
-	m = defaultsMap(`{"protect_user":"bob","protect_password":"${{ params.a.b }}"}`, "defaults", &warns)
-	if m["protect_password"] == nil || len(warns) != 0 {
-		t.Errorf("ref dropped: %v %v", m, warns)
+	m = defaultsMap(`{"protect_user":"bob","protect_password":"${{ params.a.b }}"}`)
+	if m["protect_password"] == nil {
+		t.Errorf("ref dropped: %v", m)
+	}
+}
+
+// The whole ladder round-trips: dev (branch), staging and production
+// (promote), a stack param, an env param per env. Every env plans clean.
+func TestExportLadderPlansCleanPerEnv(t *testing.T) {
+	w := setup(t)
+	now := time.Now()
+	mkEnv := func(name string, pos int) store.Environment {
+		return store.Environment{
+			ID: uuid.NewString(), StackID: w.st.ID, Name: name, Slug: name, Type: "static",
+			Settings: "{}", Network: "n", Position: pos, FromKind: "promote", CreatedAt: now,
+		}
+	}
+	stg, prod := w.prd, mkEnv("production", 2) // dev, prd (staging), production
+	must(t, w.s.Environments.Create(ctx, prod))
+	envs := []store.Environment{w.dev, stg, prod}
+	must(t, w.f.D.Params.Set(ctx, params.Scope{Kind: "stack", ID: w.st.ID}, params.Entry{Collection: "app", Name: "region", Kind: params.Param, Value: "eu"}))
+	for _, e := range envs {
+		sc := params.Scope{Kind: "env", ID: e.ID}
+		must(t, w.f.D.Params.Set(ctx, sc, params.Entry{Collection: "app", Name: "name_" + e.Slug, Kind: params.Param, Value: "v-" + e.Slug}))
+		must(t, w.f.D.Params.Set(ctx, sc, params.Entry{Collection: "app", Name: "mode", Kind: params.Param, Value: "m-" + e.Slug}))
+		must(t, w.f.D.Params.Set(ctx, sc, params.Entry{Collection: "app", Name: "key", Kind: params.Secret, Value: "s3cret-" + e.Slug}))
+	}
+	out, _, err := w.f.Export(ctx, w.st.ID, "")
+	must(t, err)
+	got := string(out)
+	if strings.Contains(got, "s3cret") || strings.Count(got, "from: promote") != 2 || !strings.Contains(got, "branch: main") ||
+		!strings.Contains(got, "region") {
+		t.Fatalf("export:\n%s", got)
+	}
+	r, err := Load(out, nil, "acme")
+	must(t, err)
+	if r.Envs["prd"].FromKind != "promote" || r.Envs["production"].FromKind != "promote" || r.Envs["dev"].FromKind != "branch" {
+		t.Errorf("ladder lost: %+v", r.Envs)
+	}
+	w.files["c1"] = got
+	rel := w.release(t, "c1")
+	for _, e := range envs {
+		_, err = w.f.D.Envs.SetRelease(ctx, e, rel.ID)
+		must(t, err)
+		p, err := w.f.Plan(ctx, e.ID, rel.ID, io.Discard)
+		must(t, err)
+		if len(p.Changes) != 0 || p.Blocked() {
+			t.Errorf("plan of %s = %s %v\n%s", e.Slug, kinds(p), p.Blockers, got)
+		}
 	}
 }

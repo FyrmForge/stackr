@@ -3,6 +3,7 @@ package release_test
 import (
 	"context"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -142,5 +143,33 @@ func TestListCommits(t *testing.T) {
 	}
 	if g, _ := l.GetByNumber(ctx, stack, 2); g.Commit != "" {
 		t.Errorf("by number commit = %q", g.Commit)
+	}
+}
+
+func TestSetMessage(t *testing.T) {
+	st := servicetest.Store(t)
+	org, stack := uuid.NewString(), uuid.NewString()
+	now := time.Now()
+	must(t, st.Orgs.Create(ctx, store.Org{ID: org, Name: "o", Slug: "o", EnvColors: "{}", Settings: "{}", CreatedAt: now}))
+	must(t, st.Stacks.Create(ctx, store.Stack{ID: stack, OrgID: org, Name: "s", Slug: "s", Settings: "{}", CreatedAt: now}))
+	l := release.New(st.Releases, st.ReleaseTiles)
+	r1, err := l.Create(ctx, stack, "push", nil)
+	must(t, err)
+	r2, err := l.Create(ctx, stack, "push", nil)
+	must(t, err)
+	_, err = l.SetMessage(ctx, r1, " fix the thing\n\nlong body")
+	must(t, err)
+	_, err = l.SetMessage(ctx, r2, "")
+	must(t, err)
+	if g, _ := l.Get(ctx, r1.ID); g.Message != "fix the thing" {
+		t.Errorf("message = %q", g.Message)
+	}
+	if g, _ := l.Get(ctx, r2.ID); g.Message != "" {
+		t.Errorf("empty message stored as %q", g.Message)
+	}
+	long, err := l.SetMessage(ctx, r2, strings.Repeat("é", 300))
+	must(t, err)
+	if n := len([]rune(long.Message)); n != 200 {
+		t.Errorf("capped to %d runes", n)
 	}
 }
