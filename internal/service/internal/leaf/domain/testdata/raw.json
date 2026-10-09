@@ -30,6 +30,14 @@
                 }
               ],
               "terminal": true
+            },
+            {
+              "handle": [
+                {
+                  "handler": "static_response",
+                  "status_code": 404
+                }
+              ]
             }
           ]
         },
@@ -53,6 +61,14 @@
                 {
                   "handler": "file_server",
                   "browse": {}
+                }
+              ]
+            },
+            {
+              "handle": [
+                {
+                  "handler": "static_response",
+                  "status_code": 404
                 }
               ]
             }

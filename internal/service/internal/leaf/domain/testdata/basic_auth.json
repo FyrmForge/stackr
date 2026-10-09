@@ -30,6 +30,14 @@
                 }
               ],
               "terminal": true
+            },
+            {
+              "handle": [
+                {
+                  "handler": "static_response",
+                  "status_code": 404
+                }
+              ]
             }
           ]
         },
@@ -79,6 +87,14 @@
                 }
               ],
               "terminal": true
+            },
+            {
+              "handle": [
+                {
+                  "handler": "static_response",
+                  "status_code": 404
+                }
+              ]
             }
           ]
         }

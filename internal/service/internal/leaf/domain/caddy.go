@@ -195,6 +195,9 @@ func server(listen string, rs []placed, trusted []string, tail []json.RawMessage
 	for _, r := range tail {
 		routes = append(routes, r) // after ours: the first match wins
 	}
+	// A host nothing routes is a 404, not Caddy's empty 200. ACME HTTP
+	// challenges are answered before the routes run.
+	routes = append(routes, route{"handle": []route{{"handler": "static_response", "status_code": 404}}})
 	s := route{"listen": []string{listen}, "routes": routes}
 	if ranges := dedup(ExpandProxies(trusted, false)); len(ranges) > 0 {
 		s["trusted_proxies"] = route{"source": "static", "ranges": ranges}

@@ -31,7 +31,7 @@ func serverRoutes(t *testing.T, cfg []byte, srv string) []json.RawMessage {
 
 // proxy_custom is a JSON array of Caddy routes appended after stackr's own on
 // the main server (https, or http when TLS is off): additive, so the panel
-// vhost and the tiles stay first.
+// vhost and the tiles stay first; only the unknown-host 404 comes after.
 func TestCustomRoutesAppended(t *testing.T) {
 	in := install
 	in.PanelHost, in.PanelUpstream = "panel.example.com", "stackrd:8080"
@@ -41,11 +41,12 @@ func TestCustomRoutesAppended(t *testing.T) {
 		t.Fatal(err)
 	}
 	secure := serverRoutes(t, cfg, "https")
-	if n := len(secure); n != 3 {
-		t.Fatalf("https routes = %d, want panel, tile, custom:\n%s", n, cfg)
+	if n := len(secure); n != 4 {
+		t.Fatalf("https routes = %d, want panel, tile, custom, 404:\n%s", n, cfg)
 	}
-	if !strings.Contains(string(secure[0]), "stackrd:8080") || !bytes.Equal(secure[2], []byte(customRoute)) {
-		t.Errorf("panel must stay first and the custom route last:\n%s", cfg)
+	if !strings.Contains(string(secure[0]), "stackrd:8080") || !bytes.Equal(secure[2], []byte(customRoute)) ||
+		!strings.Contains(string(secure[3]), `"status_code":404`) {
+		t.Errorf("panel must stay first and the custom route last before the 404:\n%s", cfg)
 	}
 	for _, r := range serverRoutes(t, cfg, "http") {
 		if strings.Contains(string(r), `"body":"hi"`) { // its host may redirect; the route may not
@@ -59,8 +60,8 @@ func TestCustomRoutesAppended(t *testing.T) {
 		t.Fatal(err)
 	}
 	plain := serverRoutes(t, cfg, "http")
-	if len(plain) != 2 || !bytes.Equal(plain[1], []byte(customRoute)) {
-		t.Errorf("TLS off: custom route not last on http:\n%s", cfg)
+	if len(plain) != 3 || !bytes.Equal(plain[1], []byte(customRoute)) {
+		t.Errorf("TLS off: custom route not last before the 404 on http:\n%s", cfg)
 	}
 }
 

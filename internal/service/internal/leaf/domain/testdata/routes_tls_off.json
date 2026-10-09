@@ -79,6 +79,14 @@
                 }
               ],
               "terminal": true
+            },
+            {
+              "handle": [
+                {
+                  "handler": "static_response",
+                  "status_code": 404
+                }
+              ]
             }
           ]
         }

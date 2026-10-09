@@ -155,29 +155,78 @@ func (w *world) wait(t *testing.T, id string) Job {
 	return Job{}
 }
 
-// B34: a param change on a running tile queues its redeploy (the release
-// image, flow/deploy's Redeploy); a stopped tile is left alone.
+// B34: a param change on a running tile that reads it queues its redeploy
+// (the release image, flow/deploy's Redeploy); a stopped tile, a running
+// tile that does not read it and a write that changes nothing are left alone.
 func TestParamChangeRedeploysRunningTiles(t *testing.T) {
 	w := newWorld(t)
 	ctx := context.Background()
 	up := w.tile(t, "api", true)
 	down := w.tile(t, "worker", false)
-	rs, err := w.orch.SetParams(ctx, ParamScope{Kind: "stack", ID: w.stack}, []ParamEntry{
-		{
-			Collection: "app",
-			Name:       "mode",
-			Kind:       "param",
-			Value:      "fast",
-		},
-	})
-	must(t, err)
-	js, err := w.orch.TileJobs(ctx, []string{up.ID, down.ID}, 10)
+	other := w.tile(t, "web", true)
+	for _, tl := range []Tile{up, down} {
+		_, err := w.st.DB().ExecContext(ctx, `UPDATE tiles SET env_json = ? WHERE id = ?`,
+			`{"MODE":"${{ params.app.mode }}"}`, tl.ID)
+		must(t, err)
+	}
+	set := func() []Redeploy {
+		rs, err := w.orch.SetParams(ctx, ParamScope{Kind: "stack", ID: w.stack}, []ParamEntry{
+			{Collection: "app", Name: "mode", Kind: "param", Value: "fast"},
+		})
+		must(t, err)
+		return rs
+	}
+	rs := set()
+	js, err := w.orch.TileJobs(ctx, []string{up.ID, down.ID, other.ID}, 10)
 	must(t, err)
 	if len(js) != 1 || js[0].Kind != string(kindDeploy) || !slices.Contains(js[0].LockSet, up.ID) {
 		t.Fatalf("jobs after a param change = %+v, want one deploy of %s", js, up.Slug)
 	}
 	if want := []Redeploy{{Env: "dev", Tile: "api", Job: js[0].ID}}; !slices.Equal(rs, want) {
 		t.Errorf("SetParams named %+v, want %+v", rs, want)
+	}
+	if rs := set(); len(rs) != 0 {
+		t.Errorf("same value again named %+v, want none", rs)
+	}
+}
+
+// A :template files line reads every key; a slice ref reads what the
+// slice's provision_from reads.
+func TestParamReaders(t *testing.T) {
+	w := newWorld(t)
+	ctx := context.Background()
+	tpl := w.tile(t, "tpl", true)
+	via := w.tile(t, "via", true)
+	sl := w.tile(t, "db", false)
+	for _, q := range [][]any{
+		{`UPDATE tiles SET files = 'conf/app.yml:/etc/app.yml:template' WHERE id = ?`, tpl.ID},
+		{`UPDATE tiles SET env_json = '{"DB":"${{ tile.db.url }}"}' WHERE id = ?`, via.ID},
+		{`UPDATE tiles SET kind = 'slice', provision_from = '${{ params.app.src }}' WHERE id = ?`, sl.ID},
+	} {
+		_, err := w.st.DB().ExecContext(ctx, q[0].(string), q[1:]...)
+		must(t, err)
+	}
+	ts, err := w.orch.scopeTiles(ctx, ParamScope{Kind: "stack", ID: w.stack})
+	must(t, err)
+	names := func(keys ...string) []string {
+		m := map[string]bool{}
+		for _, k := range keys {
+			m[k] = true
+		}
+		rs, err := w.orch.readers(ctx, ParamScope{Kind: "stack", ID: w.stack}, ts, m)
+		must(t, err)
+		var out []string
+		for _, r := range rs {
+			out = append(out, r.Slug)
+		}
+		slices.Sort(out)
+		return out
+	}
+	if got := names("app.other"); !slices.Equal(got, []string{"tpl"}) {
+		t.Errorf("readers of app.other = %v, want [tpl]", got)
+	}
+	if got := names("app.src"); !slices.Equal(got, []string{"tpl", "via"}) {
+		t.Errorf("readers of app.src = %v, want [tpl via]", got)
 	}
 }
 
@@ -516,8 +565,10 @@ func TestDeleteParamNamesRedeploys(t *testing.T) {
 	ctx := context.Background()
 	up := w.tile(t, "api", true)
 	w.tile(t, "worker", false)
+	_, err := w.st.DB().ExecContext(ctx, `UPDATE tiles SET env_json = ? WHERE id = ?`, `{"MODE":"${{ params.app.mode }}"}`, up.ID)
+	must(t, err)
 	s := ParamScope{Kind: "stack", ID: w.stack}
-	_, err := w.orch.SetParams(ctx, s, []ParamEntry{{Collection: "app", Name: "mode", Kind: "param", Value: "fast"}})
+	_, err = w.orch.SetParams(ctx, s, []ParamEntry{{Collection: "app", Name: "mode", Kind: "param", Value: "fast"}})
 	must(t, err)
 	rs, err := w.orch.DeleteParam(ctx, s, "app", "mode")
 	must(t, err)
