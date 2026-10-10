@@ -1,6 +1,6 @@
 # Ready blitz fix round: Opus review findings
 
-Status: go 2026-10-07 (darthvader). Six workers in parallel, then a Fable
+Status: built, committed in 0c42588 (go 2026-10-07). Six workers in parallel, then a Fable
 verification pass, then rig v0.6.0-dev.16.
 
 Rules: same as `ready-blitz.md` (no git writes, no stash; no hand edits to

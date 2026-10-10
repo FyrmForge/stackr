@@ -1,6 +1,6 @@
 # Ready blitz: what stackr needs before the serverconfig move and a prod release
 
-Status: go 2026-10-07 (darthvader). DR itself is parked in `recovery.md`. The serverconfig move itself happens
+Status: built, committed in 0c42588 (go 2026-10-07). DR itself is parked in `recovery.md`. The serverconfig move itself happens
 elsewhere, by hand; nothing here writes into `~/Projects/serverconfig`.
 
 Rules for every worker: no git write ops (no stash either). Never hand-edit

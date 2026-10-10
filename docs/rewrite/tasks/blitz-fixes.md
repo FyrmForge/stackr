@@ -1,6 +1,6 @@
 # Blitz fix round: Opus review findings
 
-Status: agreed 2026-10-07 (darthvader "go"). Five workers in parallel, then
+Status: built, committed in ddaa87e. Was agreed 2026-10-07 (darthvader "go"). Five workers in parallel, then
 a verification pass, then rig v0.6.0-dev.15.
 
 Rules for every worker: same as `migration-blitz.md` (no git writes, no

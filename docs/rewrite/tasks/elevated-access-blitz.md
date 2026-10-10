@@ -1,6 +1,6 @@
 # Elevated access: builder plan
 
-Status: Fable survey 2026-10-08; spec in `elevated-access.md`. Lead decisions on its "Needs the user" items are in that file.
+Status: built, committed in d3f0f93. Fable survey 2026-10-08; spec in `elevated-access.md`. Lead decisions on its "Needs the user" items are in that file.
 
 ## Where things live today (facts the plan builds on)
 - Grant row: `internal/db/migrations/004_blitz.up.sql` `host_grants(id, stack_id UNIQUE, lines TEXT, privileged INT, approved_by, created_at)`; `internal/service/internal/store/host_grants.go` (`HostGrant`, `GetByStack`). Migrations are numbered per blitz (004, 005, 006 after the 2026-09-14 squash); a new `007_elevated` file is the pattern, no squash needed.

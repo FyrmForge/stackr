@@ -1,6 +1,6 @@
 # Server config blitz: stackr-server.yml for Sonnet builders
 
-Status: plan, waiting for darthvader's go. Design and every decision:
+Status: built, committed in 0c42588. Design and every decision:
 `serverconfig.md` (read it first; this file only says who builds what).
 Stacks on the uncommitted ready blitz: commit that first so review diffs
 stay apart.

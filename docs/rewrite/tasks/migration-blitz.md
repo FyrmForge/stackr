@@ -1,6 +1,6 @@
 # Migration blitz: six features in waves for Sonnet workers
 
-Status: plan 2026-10-07, awaiting go. Decisions are in `routes.md` (the
+Status: built, committed in ddaa87e (plan 2026-10-07). Decisions are in `routes.md` (the
 "Migration list" section is the contract). The next rig build is
 v0.6.0-dev.14.
 

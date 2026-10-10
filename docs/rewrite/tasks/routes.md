@@ -1,6 +1,6 @@
 # External routes: pass-through and routes to other machines
 
-Status: draft 2026-10-06, under discussion.
+Status: decided and built, committed in ddaa87e (draft 2026-10-06).
 
 ## Problem
 The serverconfig Traefik carries six hosts that are not containers on the

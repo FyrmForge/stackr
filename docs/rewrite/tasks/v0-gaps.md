@@ -1,6 +1,6 @@
 # v0 features the rewrite does not have
 
-Status: survey 2026-10-07 (v0 = tag v0.5.0); triaged 2026-10-08 against
+Status: all nine agreed items built, committed in d4985ec. Survey 2026-10-07 (v0 = tag v0.5.0); triaged 2026-10-08 against
 d3f0f93 (Fable), see "Triage" at the end.
 **gone** = dropped by a decision, **Later** = parked, **missing** = silently
 missing, **partly** = half there. Wanted back so far: port forwarding,

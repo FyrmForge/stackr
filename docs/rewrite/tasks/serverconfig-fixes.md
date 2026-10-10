@@ -1,7 +1,7 @@
 # Server config blitz fix round: Opus review findings
 
-Status: in progress 2026-10-07 under darthvader's go on `serverconfig-blitz.md`
-(wave 2 includes the fix round). Five Sonnet fixers in parallel, then one
+Status: built, committed in 0c42588 (go 2026-10-07 on `serverconfig-blitz.md`;
+wave 2 included the fix round). Five Sonnet fixers in parallel, then one
 Fable verification pass.
 
 Rules: as `serverconfig-blitz.md` (no git writes, no stash; no hand edits to
