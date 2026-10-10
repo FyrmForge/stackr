@@ -2,6 +2,7 @@ package canvas
 
 import (
 	"context"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -139,7 +140,9 @@ func (h *handler) releasesTab(c echo.Context, cd card, f *comp.DrawerView) (temp
 		Open:    true,
 		Body:    comp.Ask(ask),
 		Target:  "#" + comp.DrawerRoot,
-		Include: "[name=ticked]",
+	}
+	if ask.Plan.Ticks && slices.ContainsFunc(ask.Plan.Changes, func(c comp.ChangeView) bool { return c.Optional }) {
+		cv.Include = "[name=ticked]" // htmx logs an error when the selector finds nothing
 	}
 	switch {
 	case ask.Back:

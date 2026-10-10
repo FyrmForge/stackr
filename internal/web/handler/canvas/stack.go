@@ -161,7 +161,7 @@ func (h *handler) mountStack(site *echo.Group, a *middleware.Access) {
 		if err != nil {
 			return "", err
 		}
-		c.Set(jobKey, queued{job: j, page: urlOf(cd.s) + "/" + e.Slug})
+		c.Set(jobKey, queued{job: j, page: urlOf(cd.s)})
 		return "Queued: the job below follows it.", nil
 	}), a.Require("env.write"))
 	site.POST(s+"/delete", h.stackAction("settings", func(c echo.Context, cd card) (string, error) {

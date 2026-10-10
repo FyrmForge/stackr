@@ -42,8 +42,8 @@ func TestEnvReleases(t *testing.T) {
 	if !strings.Contains(body, "Promote #1 to dev?") || !strings.Contains(body, base+"/promote/"+id) {
 		t.Errorf("dry run:\n%s", body)
 	}
-	if !strings.Contains(body, `hx-include="find [name=ticked]"`) {
-		t.Errorf("the promote form does not carry the plan's ticks:\n%s", body)
+	if strings.Contains(body, "hx-include") { // no removal rows: no ticks to include
+		t.Errorf("a plan with no removals includes ticks:\n%s", body)
 	}
 	if body = get(t, s, base+"?tab=releases&plan=nope"); strings.Contains(body, "Promote #") {
 		t.Errorf("an unknown release was planned:\n%s", body)
