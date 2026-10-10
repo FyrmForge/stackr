@@ -16,6 +16,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/imagewatch"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/jobs"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/job"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/params"
 	lrun "github.com/FyrmForge/stackr/internal/service/internal/leaf/run"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
@@ -82,10 +83,25 @@ func (o *Orchestrator) CreateTile(ctx context.Context, t Tile) (Tile, error) {
 	if t.Kind == tile.Managed {
 		return Tile{}, errs.Invalidf("kind", "Create a managed tile with its engine.")
 	}
+	if err := refuseServerRefs(t); err != nil {
+		return Tile{}, err
+	}
 	if err := o.checkLimits(ctx, t.CPULimit, t.MemLimitMB, "limits.cpu", "limits.memory_mb"); err != nil {
 		return Tile{}, err
 	}
 	return o.tiles.Create(ctx, t)
+}
+
+// refuseServerRefs: a server param ref in a tile's env, volumes or command
+// is refused at save, as the deploy would refuse it.
+func refuseServerRefs(t Tile) error {
+	if err := params.RefuseServerRefs(params.InEnv, t.EnvJSON, t.Volumes); err != nil {
+		return errs.Invalidf("env", "%s", err.Error())
+	}
+	if err := params.RefuseServerRefs(params.InCommand, t.Command); err != nil {
+		return errs.Invalidf("command", "%s", err.Error())
+	}
+	return nil
 }
 
 // UpdateTile reads the row, applies edit, and writes the whole row back, so
@@ -98,6 +114,9 @@ func (o *Orchestrator) UpdateTile(ctx context.Context, id string, edit func(*Til
 	}
 	cur := old
 	if err := edit(&cur); err != nil {
+		return old, nil, err
+	}
+	if err := refuseServerRefs(cur); err != nil {
 		return old, nil, err
 	}
 	// only a limit this edit changed: a tile already over the host's size

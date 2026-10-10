@@ -148,6 +148,15 @@ type DomainRow struct {
 	Raw                  string
 }
 
+// RedirectCode is the status the Caddy route sends: a generated redirect
+// (a rename's old host) is a 308, a declared one a 301.
+func (r DomainRow) RedirectCode() string {
+	if r.Auto {
+		return "308"
+	}
+	return "301"
+}
+
 type EnvView struct {
 	Rows []EnvRow
 	Text string   // KEY=VALUE per line, for the editor

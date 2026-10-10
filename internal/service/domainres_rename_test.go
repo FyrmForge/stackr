@@ -457,3 +457,31 @@ func TestRenameRedirectKeepsHTTPSFlags(t *testing.T) {
 		t.Errorf("redirect = %+v, want https and force off like the moved row", red)
 	}
 }
+
+// A managed tile's stored S3_ENDPOINT follows a rename of the resource its
+// auto host sits under, and the consumer reading it redeploys.
+func TestRenameRepublishesManagedURL(t *testing.T) {
+	w := newRenameWorld(t)
+	ctx := context.Background()
+	files, err := w.orch.CreateManagedTile(ctx, Tile{EnvironmentID: w.env, Name: "files"}, "s3")
+	must(t, err)
+	m, err := w.st.ManagedInstances.GetByTile(ctx, files.ID)
+	must(t, err)
+	_, err = w.orch.AttachDomain(ctx, files.ID, DomainSpec{Auto: true, Port: 9000})
+	must(t, err)
+	p := store.Provision{ID: uuid.NewString(), TileID: files.ID, InstanceID: m.ID, DBName: "b", DBUser: "u", CreatedAt: time.Now()}
+	must(t, w.st.Provisions.Create(ctx, p))
+	old, _ := json.Marshal(map[string]string{"S3_ENDPOINT": "https://files.shop.acme.example.com"})
+	must(t, w.st.Bindings.Create(ctx, store.Binding{
+		ID: uuid.NewString(), ProvisionID: p.ID, ConsumerTileID: w.api.ID,
+		Access: "write", DBUser: "u", Outputs: string(old), CreatedAt: time.Now(),
+	}))
+
+	_, err = w.orch.RenameDomainResource(ctx, w.inst.ID, "new.io")
+	must(t, err)
+	bs, err := w.st.Bindings.ListByProvision(ctx, p.ID)
+	must(t, err)
+	if len(bs) != 1 || !strings.Contains(bs[0].Outputs, `"S3_ENDPOINT":"https://files.shop.acme.new.io"`) {
+		t.Errorf("binding outputs = %+v, want S3_ENDPOINT on the new host", bs)
+	}
+}

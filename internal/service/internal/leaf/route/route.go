@@ -46,7 +46,7 @@ func (l *Leaf) Get(ctx context.Context, id string) (store.Route, error) { return
 // and domain resources); tlsOn is false under STACKR_TLS=off, dns01 whether
 // wildcard certificates can be issued.
 func (l *Leaf) Create(ctx context.Context, s Spec, taken []string, tlsOn, dns01 bool) (store.Route, error) {
-	r, err := prepare(s, tlsOn, dns01)
+	r, err := Check(s, tlsOn, dns01)
 	if err != nil {
 		return r, err
 	}
@@ -88,7 +88,9 @@ func Holds(rows []store.Route, host string) bool {
 
 func (l *Leaf) Delete(ctx context.Context, id string) error { return l.rows.Delete(ctx, id) }
 
-func prepare(s Spec, tlsOn, dns01 bool) (store.Route, error) {
+// Check validates a Spec and returns the route it would store: host and
+// target normalised. tlsOn and dns01 as for Create.
+func Check(s Spec, tlsOn, dns01 bool) (store.Route, error) {
 	r := store.Route{ID: uuid.NewString(), Mode: s.Mode, CreatedAt: time.Now().UTC()}
 	switch s.Mode {
 	case Passthrough, HTTP, HTTPS:

@@ -181,9 +181,8 @@ func show(v string) string {
 
 // params creates and updates the server scope's params, never deletes; a
 // secret is never turned back into a param, and one declared but not set is
-// a note (an item that needs it blocks on its own). ponytail: the same walk
-// as flow/orgconfig's, flows do not import flows; planfile takes it when a
-// third file needs it.
+// a note (an item that needs it blocks on its own). Not shared with
+// orgconfig and promote: theirs walk per-env entries and remove.
 func (d *differ) params() {
 	for _, c := range slices.Sorted(maps.Keys(d.f.Params)) {
 		for _, n := range slices.Sorted(maps.Keys(d.f.Params[c])) {

@@ -290,13 +290,30 @@ func (rr *Resolver) Expand(w Where, val string) (string, error) {
 	return out, nil
 }
 
+func serverRefErr(r Ref, w Where) error {
+	return fmt.Errorf("%s: server params are readable only in the server file (stackr-server.yml), never in %s", r.Source, w)
+}
+
+// RefuseServerRefs is the save-time half of that rule: an error for the first
+// server ref in vals, with the text Expand gives at deploy.
+func RefuseServerRefs(w Where, vals ...string) error {
+	for _, v := range vals {
+		for _, b := range Refs(v) {
+			if r, err := Parse(b); err == nil && r.Kind == KindServerParam {
+				return serverRefErr(r, w)
+			}
+		}
+	}
+	return nil
+}
+
 func (rr *Resolver) one(w Where, body string) (string, error) {
 	r, err := Parse(body)
 	if err != nil {
 		return "", err
 	}
 	if r.Kind == KindServerParam && w != InServerFile {
-		return "", fmt.Errorf("%s: server params are readable only in the server file (stackr-server.yml), never in %s", r.Source, w)
+		return "", serverRefErr(r, w)
 	}
 	if !allowed(w, r.Kind) {
 		return "", fmt.Errorf("%s: a %s ref is not allowed in %s", r.Source, r.Kind, w)

@@ -23,6 +23,7 @@ const user = "u1"
 type fakeApp struct {
 	state        string
 	notInstalled bool
+	hooked       []string // SetHookURL calls; the first fails
 }
 
 func (f *fakeApp) Manifest(id, _, state string) (string, string, error) {
@@ -48,6 +49,14 @@ func (f *fakeApp) Token(_ context.Context, key string, app githubapp.App) (strin
 
 func (f *fakeApp) Repos(_ context.Context, token string) ([]githubapp.Repo, error) {
 	return []githubapp.Repo{{FullName: "acme/api", DefaultBranch: "main"}}, nil
+}
+
+func (f *fakeApp) SetHookURL(_ context.Context, id string, _ githubapp.App) error {
+	f.hooked = append(f.hooked, id)
+	if len(f.hooked) == 1 {
+		return errors.New("boom")
+	}
+	return nil
 }
 
 func seedOrg(t *testing.T, st *store.Store) string {
@@ -168,6 +177,21 @@ func TestConnectorScope(t *testing.T) {
 	}
 	if _, err := l.Rename(ctx, mine, c.ID, "x"); !errors.Is(err, errs.ErrNotFound) {
 		t.Errorf("cross-org rename = %v", err)
+	}
+}
+
+// A failing App does not stop the others; the error comes back.
+func TestSyncHooksContinuesPastFailure(t *testing.T) {
+	st := servicetest.Store(t)
+	f := &fakeApp{}
+	l := connector.New(st.Connectors, f)
+	connect(t, l, f, seedOrg(t, st))
+	connect(t, l, f, seedOrg(t, st))
+	if err := l.SyncHooks(ctx); err == nil || !strings.Contains(err.Error(), "boom") {
+		t.Errorf("sync = %v, want the joined failure", err)
+	}
+	if len(f.hooked) != 2 {
+		t.Errorf("hooked %v, want both connectors tried", f.hooked)
 	}
 }
 

@@ -66,3 +66,16 @@ func TestServerParams(t *testing.T) {
 		t.Errorf("delete again = %v, want not found", err)
 	}
 }
+
+// A server ref in a tile's env or command is refused at save, not at deploy.
+func TestTileRefusesServerRefs(t *testing.T) {
+	w := newWorld(t)
+	tl := w.tile(t, "api", false)
+	_, _, err := w.orch.UpdateTile(context.Background(), tl.ID, func(x *Tile) error {
+		x.EnvJSON = `{"K":"${{ server.params.s3.region }}"}`
+		return nil
+	})
+	if err == nil || !strings.Contains(err.Error(), "server params are readable only in the server file") {
+		t.Errorf("err = %v", err)
+	}
+}

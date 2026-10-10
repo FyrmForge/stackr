@@ -170,3 +170,22 @@ func TestPanelHostShadowing(t *testing.T) {
 		t.Errorf("panel_domain = %q after the refusals", v)
 	}
 }
+
+// An http or https route on the panel host is shadowed by the panel vhost:
+// refused at create, and so is a panel_domain such a route holds.
+func TestHTTPRouteOnPanelHost(t *testing.T) {
+	w := newWorld(t)
+	ctx := context.Background()
+	must(t, w.orch.SetSetting(ctx, "panel_domain", "panel.example.com"))
+	for _, mode := range []string{"http", "https"} {
+		_, err := w.orch.CreateExternalRoute(ctx, ExternalRouteSpec{Host: "Panel.Example.com", Mode: mode, Target: "10.0.0.5:8080"})
+		if _, ok := errs.IsConflict(err); !ok {
+			t.Errorf("%s route on the panel host = %v, want conflict", mode, err)
+		}
+	}
+	_, err := w.orch.CreateExternalRoute(ctx, ExternalRouteSpec{Host: "app.example.com", Mode: "http", Target: "10.0.0.5:8080"})
+	must(t, err)
+	if err := w.orch.SetSetting(ctx, "panel_domain", "app.example.com"); !isConflict(err) {
+		t.Errorf("panel_domain on an http route host = %v, want conflict", err)
+	}
+}

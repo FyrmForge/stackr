@@ -207,6 +207,7 @@ func (o *Orchestrator) SetSettings(ctx context.Context, vals map[string]string) 
 	}
 	_, custom := vals["proxy_custom"]
 	was, _ := o.settings.Get(ctx, "proxy_custom")
+	panelWas, _ := o.settings.Get(ctx, "panel_domain")
 	reload := false
 	rank := func(k string) int {
 		switch k {
@@ -235,6 +236,12 @@ func (o *Orchestrator) SetSettings(ctx context.Context, vals map[string]string) 
 		o.sched.Reload(ctx)
 	}
 	err := o.sync.Sync(ctx)
+	if p, ok := vals["panel_domain"]; ok && p != panelWas {
+		// GitHub Apps keep the webhook URL they were made with; a failure is
+		// logged per App and does not fail the save. Runs even after a failed
+		// push: the row is written, and a re-save of it would not get here.
+		_ = o.SyncGitHubHooks(ctx)
+	}
 	if err != nil && custom {
 		// Caddy checks proxy_custom only at the push, after the row is
 		// written; a value it cannot load would fail every later push, so

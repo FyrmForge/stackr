@@ -67,8 +67,8 @@ func (o *Orchestrator) proxyConfig(ctx context.Context) (json.RawMessage, error)
 // once a domain row routes that name to the tile. "" otherwise: an
 // unrouted name as S3_ENDPOINT would send every consumer to a host nothing
 // serves.
-// ponytail: bindings are not re-published when the visible resources move;
-// the next attach or reconcile carries the new name.
+// ponytail: a domain resource rename re-publishes the bindings; other moves
+// of the visible resources (a new nearer resource) do not.
 func (o *Orchestrator) publicBase(ctx context.Context, t store.Tile) string {
 	host, _, err := o.autoHost(ctx, t)
 	if err != nil {

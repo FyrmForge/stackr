@@ -5,6 +5,7 @@
 package githubapp
 
 import (
+	"bytes"
 	"context"
 	"crypto"
 	"crypto/rand"
@@ -123,7 +124,7 @@ func (c *Client) Manifest(connectorID, ghOrg, state string) (action, manifest st
 		"public":       false,
 		"redirect_url": base + "/settings/github/callback",
 		"hook_attributes": map[string]any{
-			"url": base + "/hooks/connectors/" + connectorID,
+			"url": c.HookURL(connectorID),
 		},
 		// Fixed at app creation: widening later makes every owner re-approve
 		// by hand, so checks/pull_requests/statuses are asked for up front.
@@ -145,6 +146,38 @@ func (c *Client) Manifest(connectorID, ghOrg, state string) (action, manifest st
 		action = "https://github.com/organizations/" + url.PathEscape(ghOrg) + "/settings/apps/new"
 	}
 	return action + "?state=" + url.QueryEscape(state), string(b), nil
+}
+
+// HookURL is where GitHub delivers a connector's webhooks: the panel host now.
+func (c *Client) HookURL(connectorID string) string {
+	return c.base() + "/hooks/connectors/" + connectorID
+}
+
+// SetHookURL points the App's webhook at HookURL(connectorID) with the app
+// JWT (PATCH /app/hook/config): an App made before the panel moved keeps the
+// URL it was registered with otherwise.
+func (c *Client) SetHookURL(ctx context.Context, connectorID string, app App) error {
+	jwt, err := signJWT(fmt.Sprint(app.ID), app.PEM)
+	if err != nil {
+		return err
+	}
+	body, _ := json.Marshal(map[string]string{"url": c.HookURL(connectorID)})
+	req, err := http.NewRequestWithContext(ctx, http.MethodPatch, c.apiURL+"/app/hook/config", bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Accept", "application/vnd.github+json")
+	req.Header.Set("Authorization", "Bearer "+jwt)
+	req.Header.Set("Content-Type", "application/json")
+	res, err := c.http.Do(req)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = res.Body.Close() }()
+	if res.StatusCode >= 300 {
+		return fmt.Errorf("github PATCH /app/hook/config: %s", res.Status)
+	}
+	return nil
 }
 
 // ConvertManifest trades the callback code for the app's credentials. One

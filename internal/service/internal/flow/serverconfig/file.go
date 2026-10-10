@@ -3,13 +3,11 @@ package serverconfig
 import (
 	"encoding/json"
 	"fmt"
-	"net"
 	"net/mail"
 	"net/netip"
 	"net/url"
 	"regexp"
 	"slices"
-	"strconv"
 	"strings"
 
 	"go.yaml.in/yaml/v3"
@@ -17,6 +15,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/installspec"
 	"github.com/FyrmForge/stackr/internal/service/internal/githubapp"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/params"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/route"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/settings"
 	"github.com/FyrmForge/stackr/internal/service/internal/planfile"
 	"github.com/FyrmForge/stackr/internal/service/internal/slug"
@@ -46,17 +45,8 @@ func (f *File) setting(key string) (string, bool) {
 // Param is one declaration, the other files' grammar.
 type Param = planfile.Param
 
-// Defaults is the server rung of the settings cascade: the same fields as
-// leaf/settings.Settings (the conversion below relies on it), with yaml
-// keys. ponytail: orgconfig has the same struct, and flows do not import
-// flows; the third copy moves into planfile.
-type Defaults struct {
-	CPULimit        *float64 `yaml:"cpu_limit,omitempty" json:"cpu_limit,omitempty"`
-	MemLimitMB      *int     `yaml:"mem_limit_mb,omitempty" json:"mem_limit_mb,omitempty"`
-	Protect         *bool    `yaml:"protect,omitempty" json:"protect,omitempty"`
-	ProtectUser     *string  `yaml:"protect_user,omitempty" json:"protect_user,omitempty"`
-	ProtectPassword *string  `yaml:"protect_password,omitempty" json:"protect_password,omitempty"`
-}
+// Defaults is the server rung of the settings cascade.
+type Defaults = planfile.Defaults
 
 // Route is an external route: a host that goes to an address outside stackr.
 type Route struct {
@@ -285,58 +275,21 @@ func (f *File) checkDefaults() error {
 
 // ---- routes ----
 
-var routeModes = []string{"passthrough", "http", "https"}
-
 func (f *File) checkRoutes() error {
 	seen := map[string]bool{}
 	for i, r := range f.Routes {
-		if strings.ContainsAny(r.Host, "/: ") {
-			return fmt.Errorf("routes: %q is not a bare hostname", r.Host)
-		}
-		host, err := installspec.CheckRoot(r.Host)
+		// The TLS and DNS-provider checks need the settings the file lands on: diff.go.
+		rt, err := route.Check(route.Spec{Host: r.Host, Mode: r.Mode, Target: r.Target, Insecure: r.Insecure}, true, true)
 		switch {
 		case err != nil:
 			return fmt.Errorf("routes: %s: %w", r.Host, err)
-		case seen[host]:
-			return fmt.Errorf("routes: %s declared twice", host)
-		case !slices.Contains(routeModes, r.Mode):
-			return fmt.Errorf("routes: %s: mode is passthrough, http or https", host)
-		case r.Insecure && r.Mode != "https":
-			return fmt.Errorf("routes: %s: insecure only applies to an https route", host)
+		case seen[rt.Host]:
+			return fmt.Errorf("routes: %s declared twice", rt.Host)
 		}
-		seen[host] = true
-		target, err := NormTarget(r.Target, r.Mode)
-		if err != nil {
-			return fmt.Errorf("routes: %s: %w", host, err)
-		}
-		f.Routes[i].Host, f.Routes[i].Target = host, target
+		seen[rt.Host] = true
+		f.Routes[i].Host, f.Routes[i].Target = rt.Host, rt.Target
 	}
 	return nil
-}
-
-// NormTarget is host:port with the mode's default port filled in, the way
-// leaf/route stores it. ponytail: the same rules as leaf/route's checkTarget
-// (a leaf is not importable from a flow's parse, and it is unexported);
-// dedupe when route exports a Check.
-func NormTarget(t, mode string) (string, error) {
-	t = strings.TrimSpace(t)
-	port := "443"
-	if mode == "http" {
-		port = "80"
-	}
-	h, p, err := net.SplitHostPort(t)
-	if err != nil {
-		h = strings.Trim(t, "[]")
-	} else if p != "" {
-		port = p
-	}
-	if n, err := strconv.Atoi(port); err != nil || n < 1 || n > 65535 {
-		return "", fmt.Errorf("%s is not a port", port)
-	}
-	if h == "" || strings.ContainsAny(h, "/ @?#{}") || strings.Contains(h, "://") {
-		return "", fmt.Errorf("give the target as host or host:port")
-	}
-	return net.JoinHostPort(h, port), nil
 }
 
 // ---- backup dests ----

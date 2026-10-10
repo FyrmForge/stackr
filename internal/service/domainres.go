@@ -8,6 +8,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/installspec"
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/domainres"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
 
@@ -319,9 +320,11 @@ func (o *Orchestrator) panelDomain(ctx context.Context) string {
 
 // applyRename writes a checked rename: the resources, then the tile domains
 // (each old host keeps a generated redirect to its new one), no proxy push.
-// ponytail: no transaction across the leaves; the checks above leave a
-// failed write only to a store error, and the caller still pushes so the
-// proxy matches whatever landed.
+// Managed tiles whose domain moved then re-publish their URLs and redeploy
+// the tiles that read them.
+// ponytail: no transaction across the writes, so a store error mid-way leaves
+// a partial rename (the caller still pushes so the proxy matches what landed);
+// one store transaction around the writes would make it all-or-nothing.
 func (o *Orchestrator) applyRename(ctx context.Context, p renamePlan, orgs []store.Org) error {
 	dns01 := o.dns01(ctx)
 	for i, c := range p.res {
@@ -367,7 +370,39 @@ func (o *Orchestrator) applyRename(ctx context.Context, p renamePlan, orgs []sto
 			return err
 		}
 	}
-	return nil
+	return o.republishManaged(ctx, p.rows)
+}
+
+// republishManaged refreshes the stored URLs of the managed tiles that own
+// rows and redeploys their running readers.
+func (o *Orchestrator) republishManaged(ctx context.Context, rows []Domain) error {
+	seen := map[string]bool{}
+	var readers []Tile
+	for _, d := range rows {
+		if seen[d.TileID] {
+			continue
+		}
+		seen[d.TileID] = true
+		t, err := o.tiles.Get(ctx, d.TileID)
+		if err != nil {
+			return err
+		}
+		if t.Kind != tile.Managed {
+			continue
+		}
+		ids, err := o.engines.Republish(ctx, t)
+		if err != nil {
+			return err
+		}
+		for _, id := range ids {
+			c, err := o.tiles.Get(ctx, id)
+			if err != nil {
+				return err
+			}
+			readers = append(readers, c)
+		}
+	}
+	return o.redeployUnion(ctx, readers)
 }
 
 // RenameDomainResource moves a domain resource to a new host: every auto and

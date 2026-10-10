@@ -494,33 +494,15 @@ func (w *serverWalk) dests() error {
 		}
 		if exists {
 			_, err = w.o.UpdateBackupDest(w.ctx, "", cur.ID, spec)
-		} else {
-			err = w.createDest(fd, spec)
+		} else if spec.ArchiveKey, err = w.o.ExpandServerRefs(w.ctx, fd.ArchiveKey); err == nil {
+			// A file that carries the key (a rebuilt box reading the old archives) keeps it.
+			_, err = w.o.CreateBackupDest(w.ctx, nil, spec)
 		}
 		if err != nil {
 			return fmt.Errorf("%s: %w", fd.Name, err)
 		}
 	}
 	return nil
-}
-
-// createDest makes the destination. The leaf gives every one a random archive
-// key; a file that carries the key (a rebuilt box reading the old archives)
-// has it written over that one.
-// ponytail: straight to the store, since the leaf's Dest has no archive key;
-// give it one if a second caller needs it.
-func (w *serverWalk) createDest(fd serverconfig.Dest, spec BackupDestSpec) error {
-	d, err := w.o.CreateBackupDest(w.ctx, nil, spec)
-	if err != nil || fd.ArchiveKey == "" {
-		return err
-	}
-	if d, err = w.o.backups.Get(w.ctx, d.ID); err != nil {
-		return err
-	}
-	if d.ArchiveKey, err = w.o.ExpandServerRefs(w.ctx, fd.ArchiveKey); err != nil {
-		return err
-	}
-	return w.o.store.BackupDests.Update(w.ctx, d)
 }
 
 // panelDest points the panel's scheduled backup at the destination the file

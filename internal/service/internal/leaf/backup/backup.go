@@ -5,6 +5,7 @@
 package backup
 
 import (
+	"cmp"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -53,10 +54,11 @@ func New(dests store.BackupDestStore, schedules store.BackupScheduleStore, runs 
 
 // Dest is an S3 destination as the form or API gives it. An empty SecretKey
 // on Update keeps the stored one. Shared only means something on a global
-// (admin) destination: it lets every org pick it.
+// (admin) destination: it lets every org pick it. ArchiveKey only counts on
+// Create: empty generates one, set keeps the key old archives were sealed with.
 type Dest struct {
-	Name, Endpoint, Region, Bucket, AccessKey, SecretKey string
-	Shared                                               bool
+	Name, Endpoint, Region, Bucket, AccessKey, SecretKey, ArchiveKey string
+	Shared                                                           bool
 }
 
 // EnsureLocal returns the install's local destination (dir), creating it on
@@ -94,7 +96,7 @@ func (l *Leaf) Create(ctx context.Context, orgID *string, s Dest) (store.BackupD
 		ID:         uuid.NewString(),
 		OrgID:      orgID,
 		Kind:       S3,
-		ArchiveKey: newKey(),
+		ArchiveKey: cmp.Or(s.ArchiveKey, newKey()),
 		CreatedAt:  time.Now().UTC(),
 	}
 	if s.SecretKey == "" {

@@ -12,6 +12,7 @@ import (
 	"go.yaml.in/yaml/v3"
 
 	"github.com/FyrmForge/stackr/internal/service/internal/githubapp"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/params"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tier"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/volume"
 	"github.com/FyrmForge/stackr/internal/service/internal/planfile"
@@ -175,15 +176,8 @@ func strictNode(n *yaml.Node, out any) error {
 	return planfile.StrictYAML(b, out, nil)
 }
 
-// Defaults is the org rung of the settings cascade, leaf/settings.Settings
-// with yaml keys; nil = say nothing here.
-type Defaults struct {
-	CPULimit        *float64 `yaml:"cpu_limit,omitempty" json:"cpu_limit,omitempty"`
-	MemLimitMB      *int     `yaml:"mem_limit_mb,omitempty" json:"mem_limit_mb,omitempty"`
-	Protect         *bool    `yaml:"protect,omitempty" json:"protect,omitempty"`
-	ProtectUser     *string  `yaml:"protect_user,omitempty" json:"protect_user,omitempty"`
-	ProtectPassword *string  `yaml:"protect_password,omitempty" json:"protect_password,omitempty"`
-}
+// Defaults is the org rung of the settings cascade; nil = say nothing here.
+type Defaults = planfile.Defaults
 
 // StackRef says where a stack's file is and nothing else (DECIDE 182):
 // repo (with branch, path, connector) for the stack's own repo, or path
@@ -306,6 +300,18 @@ func Parse(data []byte) (*File, error) {
 	}
 	if err = planfile.CheckParams(f.Params.Tiered, true); err != nil {
 		return nil, err
+	}
+	for _, b := range f.Blocks() {
+		for k, e := range b {
+			if err := params.RefuseServerRefs(params.InEnv, e.Value); err != nil {
+				return nil, fmt.Errorf("params %s: %w", k, err)
+			}
+		}
+	}
+	for sl, sh := range f.Shares {
+		if err := params.RefuseServerRefs(params.InEnv, sh.User, sh.Password); err != nil {
+			return nil, fmt.Errorf("shares.%s: %w", sl, err)
+		}
 	}
 	if f.Defaults != nil && (f.Defaults.ProtectUser == nil) != (f.Defaults.ProtectPassword == nil) {
 		return nil, fmt.Errorf("defaults: protect_user and protect_password go together")

@@ -37,6 +37,7 @@ type App interface {
 	ConvertManifest(ctx context.Context, code string) (githubapp.App, error)
 	Token(ctx context.Context, key string, app githubapp.App) (string, error)
 	Repos(ctx context.Context, token string) ([]githubapp.Repo, error)
+	SetHookURL(ctx context.Context, connectorID string, app githubapp.App) error
 }
 
 type Leaf struct {

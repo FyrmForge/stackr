@@ -229,3 +229,19 @@ func TestRestartHasNoConfirm(t *testing.T) {
 		t.Errorf("header actions:\n%s", got)
 	}
 }
+
+// A generated redirect row is a 308 in Caddy, a declared one a 301.
+func TestDomainRedirectCode(t *testing.T) {
+	var b strings.Builder
+	d := DomainsView{Rows: []DomainRow{
+		{ID: "a", Host: "old.acme.dev", Redirect: "new.acme.dev", Auto: true},
+		{ID: "b", Host: "x.acme.dev", Redirect: "y.acme.dev"},
+	}}
+	if err := domains(View{Base: "/t"}, d).Render(context.Background(), &b); err != nil {
+		t.Fatal(err)
+	}
+	got := b.String()
+	if !strings.Contains(got, "308 → new.acme.dev") || !strings.Contains(got, "301 → y.acme.dev") {
+		t.Errorf("redirect codes:\n%s", got)
+	}
+}

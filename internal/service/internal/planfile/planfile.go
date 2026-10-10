@@ -299,3 +299,14 @@ func KeepSecretPair(user, pass **string, liveUser, livePass *string) {
 		*user, *pass = nil, nil
 	}
 }
+
+// Defaults is one rung of the settings cascade in an org or server file:
+// leaf/settings.Settings with yaml keys (a conversion relies on the fields).
+// The stack file keeps its own, whose yaml keys are not omitempty.
+type Defaults struct {
+	CPULimit        *float64 `yaml:"cpu_limit,omitempty" json:"cpu_limit,omitempty"`
+	MemLimitMB      *int     `yaml:"mem_limit_mb,omitempty" json:"mem_limit_mb,omitempty"`
+	Protect         *bool    `yaml:"protect,omitempty" json:"protect,omitempty"`
+	ProtectUser     *string  `yaml:"protect_user,omitempty" json:"protect_user,omitempty"`
+	ProtectPassword *string  `yaml:"protect_password,omitempty" json:"protect_password,omitempty"`
+}

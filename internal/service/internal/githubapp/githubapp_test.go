@@ -137,6 +137,26 @@ func TestManifestFollowsPanelHost(t *testing.T) {
 	}
 }
 
+func TestSetHookURL(t *testing.T) {
+	_, pemKey := testKey(t)
+	var got struct{ URL string }
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPatch || r.URL.Path != "/app/hook/config" ||
+			!strings.HasPrefix(r.Header.Get("Authorization"), "Bearer ey") {
+			http.Error(w, "bad request", http.StatusBadRequest)
+			return
+		}
+		_ = json.NewDecoder(r.Body).Decode(&got)
+	}))
+	defer srv.Close()
+	c := New("https://old.example.com").WithPanelHost(func() string { return "new.example.com" })
+	c.apiURL = srv.URL
+	if err := c.SetHookURL(context.Background(), "abcdef12", App{ID: 1, PEM: pemKey}); err != nil ||
+		got.URL != "https://new.example.com/hooks/connectors/abcdef12" {
+		t.Fatalf("patch: %q %v", got.URL, err)
+	}
+}
+
 func TestManifestAndConvert(t *testing.T) {
 	c := New("https://stackr.example.com/")
 	action, m, err := c.Manifest("abcdef12", "acme", "abcdef12.nonce")

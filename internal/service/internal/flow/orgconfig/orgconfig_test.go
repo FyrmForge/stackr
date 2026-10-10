@@ -633,6 +633,15 @@ func TestParseRefuses(t *testing.T) {
 			want: "unknown key vars (no longer supported: declare them under params:)",
 		},
 		{
+			name: "a server ref in a param",
+			file: v1 + `params:
+  email:
+    all:
+      host: ${{ server.params.s3.region }}
+`,
+			want: "server params are readable only in the server file",
+		},
+		{
 			name: "a secret with a value",
 			file: v1 + `params:
   email:

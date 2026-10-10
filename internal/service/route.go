@@ -31,10 +31,12 @@ func (o *Orchestrator) CreateExternalRoute(ctx context.Context, s ExternalRouteS
 	if err != nil {
 		return ExternalRoute{}, err
 	}
+	check := o.checkPanelTaken // the panel vhost sorts first: an exact http route would be dead
 	if s.Mode == route.Passthrough {
-		if err := o.checkPanelHost(ctx, s.Host); err != nil {
-			return ExternalRoute{}, err
-		}
+		check = o.checkPanelHost
+	}
+	if err := check(ctx, s.Host); err != nil {
+		return ExternalRoute{}, err
 	}
 	r, err := o.routes.Create(ctx, s, taken, !o.cfg.TLSOff, o.dns01(ctx))
 	if err != nil {
@@ -124,6 +126,9 @@ func (o *Orchestrator) checkPanelRoutes(ctx context.Context, panel string) error
 	for _, r := range rows {
 		if r.Mode == route.Passthrough && route.Overlap(r.Host, panel) {
 			return errs.Conflictf("The pass-through route for %s covers %s: the panel would be unreachable.", r.Host, panel)
+		}
+		if r.Mode != route.Passthrough && installspec.CleanHost(r.Host) == panel {
+			return errs.Conflictf("%s is an external route's host: the panel would shadow it.", panel)
 		}
 	}
 	return nil

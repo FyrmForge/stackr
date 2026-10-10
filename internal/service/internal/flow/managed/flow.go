@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"slices"
 	"strconv"
 	"time"
@@ -266,6 +267,44 @@ func (f *Flow) Bind(ctx context.Context, p store.Provision, c store.Tile, access
 		Password: g.Password,
 		Outputs:  outputs(e.Bindings(inst, as)),
 	})
+}
+
+// Republish recomputes the outputs stored on every binding of instance tile
+// it (its public URL moved) and returns the consumers whose values changed.
+func (f *Flow) Republish(ctx context.Context, it store.Tile) ([]string, error) {
+	m, e, err := f.instance(ctx, it.ID)
+	if err != nil {
+		return nil, err
+	}
+	inst := f.facts(ctx, it, m, e.Definition())
+	ps, err := f.Instances.ByInstance(ctx, m.ID)
+	if err != nil {
+		return nil, err
+	}
+	var moved []string
+	for _, p := range ps {
+		bs, err := f.Instances.Bindings(ctx, p.ID)
+		if err != nil {
+			return moved, err
+		}
+		for _, b := range bs {
+			as := slice(p)
+			as.User, as.Password = b.DBUser, b.DBPassword
+			have, err := managed.Outputs(b)
+			if err != nil {
+				return moved, err
+			}
+			want := outputs(e.Bindings(inst, as))
+			if maps.Equal(have, want) {
+				continue
+			}
+			if _, err := f.Instances.SetOutputs(ctx, b, want); err != nil {
+				return moved, err
+			}
+			moved = append(moved, b.ConsumerTileID)
+		}
+	}
+	return moved, nil
 }
 
 // Unbind drops the consumer's cred on its slice and the binding row; what

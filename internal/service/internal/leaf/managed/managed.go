@@ -344,6 +344,16 @@ func (l *Leaf) SetAccess(ctx context.Context, b store.Binding, access string) (s
 	return b, l.bindings.Update(ctx, b)
 }
 
+// SetOutputs replaces the values minted for a binding's cred (the cred stays).
+func (l *Leaf) SetOutputs(ctx context.Context, b store.Binding, outputs map[string]string) (store.Binding, error) {
+	out, err := json.Marshal(outputs)
+	if err != nil {
+		return b, err
+	}
+	b.Outputs = string(out)
+	return b, l.bindings.Update(ctx, b)
+}
+
 // Unbind removes a binding's row once the engine dropped its cred.
 func (l *Leaf) Unbind(ctx context.Context, id string) error {
 	return l.bindings.Delete(ctx, id)

@@ -1491,7 +1491,7 @@ func (a *app) params() *cobra.Command {
 		}
 		return a.show(v, paramCols...)
 	}
-	get.Flags().BoolVar(&reveal, "reveal", false, "show secret values (needs write access; audited)")
+	get.Flags().BoolVar(&reveal, "reveal", false, "show secret values (needs write access; logged)")
 	var gen bool
 	var length int
 	send := func(c *cobra.Command, lines []string) error {

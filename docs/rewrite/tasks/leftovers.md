@@ -203,34 +203,25 @@ settings PUT (`SetSetting`) refuses `server_config_*`; the org file blocks sever
 shared connectors on one host; a stack binds to a shared server connector;
 generated redirects are 308; the GitHub App manifest and the session cookie
 follow `panel_domain`; a tile domain on the panel host is refused.
+Closed 2026-10-10 (uncommitted at writing): panel host refuses http/https
+routes; a rename re-publishes managed tile URLs; server refs refused at save (tile create/update, org file
+parse); secret reveals logged (API handler); GitHub App webhook URL patched
+when `panel_domain` changes; drawer shows 308 on generated redirects;
+`route.Check` shared with the server file; org and server `Defaults` are one
+`planfile.Defaults`; a backup dest takes its archive key on create. Found
+already fixed: panel_domain localhost/IP, protect_password export, usable
+connectors (the org list carries shared server connectors). Dropped: a domain
+resource on the panel host serves nothing, so it shadows nothing.
+
 Still open, none blocks the rig:
-- `leaf/route` should export a `Check(Spec, tlsOn, dns01)`; `serverconfig.NormTarget`
-  and the route checks in `flow/serverconfig/diff.go` are a copy.
-- `planfile` should take the `params` diff and the `Defaults` struct (three
-  copies: stack file, org file, server file).
-- `backup.Dest` should take an optional archive key on create, so a file-given
-  `archive_key` (the DR path) needs no store write in `serverWalk.createDest`.
-- No code audits secret reveals; the CLI `--reveal` help says "audited".
-- Server refs in a tile param or an org file field are refused at deploy, not
-  at save (no leaf may import `leaf/params`); the stack file is the one
-  plan-time check.
-- A managed tile's published URL (`S3_ENDPOINT` and kin) keeps the old host
-  after a rename until the stack's next reconcile; declared org rows and stack
-  rows never follow a root rename; a rename has no transaction across writes.
-- `SetSettings` accepts `panel_domain` as `localhost` or a bare IP, which drops
-  the panel vhost (the file diff refuses it; the settings form does not).
-- Exact-host http or https external routes on the panel host (only pass-through
-  is refused) shadow the panel or are shadowed by it; same for a domain resource
-  created on the panel host.
-- `auth.expireLegacy` (the old `Domain=` session cookie cleanup) can go once no
-  browser holds one. Removed on 2026-10-08 (no users, no compat).
-- The tile drawer labels every redirect row "301"; a generated one is a 308.
-- `GET /orgs/:org/connectors` lists the org's own connectors only; no route
-  lists the usable set.
-- `defaults.protect_password` exports as stored; a literal password lands in
-  the exported file.
-- Existing GitHub Apps keep the webhook URL they were made with; stackr cannot
-  patch it (`PATCH /app/hook/config` with the App JWT).
+- A rename has no transaction across its writes (`applyRename`): a store error
+  mid-way leaves a partial rename. One store transaction would fix it.
+- Declared params (stack, org, tier, PR scopes) that still name a renamed host
+  are not flagged; they are their files' to change. A warning on the rename
+  plan needs a scan of every scope kind and a place in the UI/CLI to show it.
+- The three params diffs (stack, org, server file) are different walks, not
+  copies; the stack file `Defaults` differs in tags and stays its own.
+- The web admin server-params page reveals secrets without the log line.
 
 ## Waves
 

@@ -53,6 +53,8 @@ type ConnectorStore interface {
 	Get(ctx context.Context, id string) (Connector, error)
 	GetByHost(ctx context.Context, orgID, host string) (Connector, error)
 	ListByOrg(ctx context.Context, orgID string) ([]Connector, error)
+	// ListAll is every connector, org and server.
+	ListAll(ctx context.Context) ([]Connector, error)
 	// ListServer is the server connectors (no org), by name.
 	ListServer(ctx context.Context) ([]Connector, error)
 	// ListSharedWith is the server connectors an org may read: shared with
@@ -102,6 +104,10 @@ func (s connectors) SetApp(ctx context.Context, id, name, config string) error {
 
 func (s connectors) ListByOrg(ctx context.Context, orgID string) ([]Connector, error) {
 	return s.many(ctx, "org_id = ?", orgID)
+}
+
+func (s connectors) ListAll(ctx context.Context) ([]Connector, error) {
+	return s.many(ctx, "1 = 1 ORDER BY id")
 }
 
 func (s connectors) ListServer(ctx context.Context) ([]Connector, error) {
