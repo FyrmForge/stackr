@@ -97,6 +97,17 @@ func (o *Orchestrator) changeParams(ctx context.Context, s ParamScope, write fun
 // out env skipEnv itself (a promote or sync): that env's tiles are left to
 // it and only readers elsewhere redeploy ("" = none skipped).
 func (o *Orchestrator) changeParamsFrom(ctx context.Context, s ParamScope, skipEnv string, write func() error) ([]Redeploy, error) {
+	ts, err := o.stageParams(ctx, s, skipEnv, write)
+	if err != nil {
+		return nil, err
+	}
+	return o.redeploy(ctx, ts)
+}
+
+// stageParams runs write and returns the tiles that read a key it moved,
+// without redeploying them. A stack_pr write also copies its secrets into the
+// open PR envs first, so a failed redeploy never leaves a PR env's copy stale.
+func (o *Orchestrator) stageParams(ctx context.Context, s ParamScope, skipEnv string, write func() error) ([]Tile, error) {
 	before, err := o.params.Values(ctx, s, true)
 	if err != nil {
 		return nil, err
@@ -120,7 +131,7 @@ func (o *Orchestrator) changeParamsFrom(ctx context.Context, s ParamScope, skipE
 		}
 	}
 	if len(keys) == 0 {
-		return []Redeploy{}, nil
+		return nil, nil
 	}
 	ts, err := o.scopeTiles(ctx, s)
 	if err != nil {
@@ -132,29 +143,43 @@ func (o *Orchestrator) changeParamsFrom(ctx context.Context, s ParamScope, skipE
 	if ts, err = o.readers(ctx, s, ts, keys, false); err != nil {
 		return nil, err
 	}
-	out, err := o.redeploy(ctx, ts)
-	if err != nil || s.Kind != "stack_pr" {
-		return out, err
+	if s.Kind != "stack_pr" {
+		return ts, nil
 	}
 	more, err := o.pushPRSecrets(ctx, s, before, after, keys)
-	return append(out, more...), err
+	if err != nil {
+		return nil, err
+	}
+	seen := map[string]bool{}
+	for _, t := range ts {
+		seen[t.ID] = true
+	}
+	for _, t := range more {
+		if !seen[t.ID] {
+			seen[t.ID] = true
+			ts = append(ts, t)
+		}
+	}
+	return ts, nil
 }
 
 // pushPRSecrets copies a changed secret of the stack's pr block into every
-// open PR env's own scope (a deleted one is deleted there) and redeploys the
+// open PR env's own scope (a deleted one is deleted there) and returns their
 // readers. A plain change never reaches a PR env: it took its copy at creation.
-func (o *Orchestrator) pushPRSecrets(ctx context.Context, s ParamScope, before, after map[string]params.Value, keys map[string]bool) ([]Redeploy, error) {
+// ponytail: copies are not one transaction; a store error midway leaves later
+// PR envs on the old secret until the next stack_pr change.
+func (o *Orchestrator) pushPRSecrets(ctx context.Context, s ParamScope, before, after map[string]params.Value, keys map[string]bool) ([]Tile, error) {
 	es, err := o.envs.List(ctx, s.ID)
 	if err != nil {
 		return nil, err
 	}
-	out := []Redeploy{}
+	var out []Tile
 	for _, e := range es {
 		if e.Type != environment.Ephemeral {
 			continue
 		}
 		sc := ParamScope{Kind: "env", ID: e.ID}
-		more, err := o.changeParams(ctx, sc, func() error {
+		more, err := o.stageParams(ctx, sc, "", func() error {
 			for _, k := range slices.Sorted(maps.Keys(keys)) {
 				c, n, _ := strings.Cut(k, ".")
 				switch v, ok := after[k]; {
@@ -170,10 +195,10 @@ func (o *Orchestrator) pushPRSecrets(ctx context.Context, s ParamScope, before, 
 			}
 			return nil
 		})
-		out = append(out, more...)
 		if err != nil {
-			return out, err
+			return nil, err
 		}
+		out = append(out, more...)
 	}
 	return out, nil
 }

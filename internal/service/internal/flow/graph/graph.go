@@ -482,14 +482,14 @@ func (f *Flow) vars(ctx context.Context, ss ...params.Scope) (Node, error) {
 	return n, err
 }
 
-// orgScopes are the scopes the org's grid edits: its tiers and pr block, or
-// the one org-wide block while it has no tiers.
+// orgScopes are the scopes the org's grid edits: its pr block and its tiers,
+// or the org-wide block (all) while it has no tiers.
 func (f *Flow) orgScopes(ctx context.Context, orgID string) ([]params.Scope, error) {
 	ts, err := f.Tiers.List(ctx, orgID)
-	if len(ts) == 0 {
-		return []params.Scope{{Kind: "org", ID: orgID}}, err
-	}
 	ss := []params.Scope{{Kind: "org_pr", ID: orgID}}
+	if len(ts) == 0 {
+		return append(ss, params.Scope{Kind: "org", ID: orgID}), err
+	}
 	for _, t := range ts {
 		ss = append(ss, params.Scope{Kind: "tier", ID: t.ID})
 	}

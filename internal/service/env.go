@@ -61,11 +61,11 @@ func (o *Orchestrator) RenameEnv(ctx context.Context, id, name string) (Environm
 	// [old] and [new] refs from other envs, and its own view if it joins or
 	// leaves a tier
 	sc := ParamScope{Kind: "env", ID: id}
-	var was bool
+	var was Tier
 	var old []Tile
 	e, err := o.onEnv(ctx, id, func(e Environment) (Environment, error) {
 		var err error
-		if _, was, err = o.envTier(ctx, e); err != nil {
+		if was, _, err = o.envTier(ctx, e); err != nil {
 			return e, err
 		}
 		if old, err = o.readersOf(ctx, sc, true); err != nil {
@@ -87,9 +87,9 @@ func (o *Orchestrator) RenameEnv(ctx context.Context, id, name string) (Environm
 	if err != nil {
 		return e, err
 	}
-	if _, in, err := o.envTier(ctx, e); err != nil {
+	if t, _, err := o.envTier(ctx, e); err != nil {
 		return e, err
-	} else if in != was {
+	} else if t.ID != was.ID { // joined, left or moved between tiers
 		now = append(now, ts...)
 	}
 	return e, o.redeployUnion(ctx, old, now)

@@ -12,6 +12,7 @@ import (
 	"go.yaml.in/yaml/v3"
 
 	"github.com/FyrmForge/stackr/internal/service/internal/githubapp"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tier"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/volume"
 	"github.com/FyrmForge/stackr/internal/service/internal/planfile"
 	"github.com/FyrmForge/stackr/internal/service/internal/slug"
@@ -346,8 +347,8 @@ func checkTiers(ts Tiers) error {
 	seen := map[string]bool{}
 	for _, t := range ts {
 		switch {
-		case !slug.Valid(t.Slug) || slug.Reserved(t.Slug) || t.Slug == planfile.PR:
-			return fmt.Errorf("tiers: %q is not a tier slug (pr is reserved)", t.Slug)
+		case !slug.Valid(t.Slug) || tier.Reserved(t.Slug):
+			return fmt.Errorf("tiers: %q is not a tier slug (pr and order are reserved)", t.Slug)
 		case seen[t.Slug]:
 			return fmt.Errorf("tiers: %s declared twice", t.Slug)
 		}

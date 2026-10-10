@@ -421,6 +421,17 @@ func (o *Orchestrator) walkOrgPlan(
 		case "param", "param-update", "param-remove":
 			what = strings.TrimSpace(c.Tile + " " + c.Field)
 		}
+		if (c.Kind == "param" || c.Kind == "param-update" || c.Kind == "param-remove") && c.Tile == orgconfig.All {
+			// all is read only once no tier is left; an unticked tier removal holds it
+			ts, err := o.tiers.List(ctx, og.ID)
+			if err != nil {
+				return bound, err
+			}
+			if len(ts) > 0 {
+				_, _ = fmt.Fprintf(log, "held %s %s: the org still has tiers\n", c.Kind, what)
+				continue
+			}
+		}
 		_, _ = fmt.Fprintf(log, "%s %s\n", c.Kind, what)
 		var err error
 		switch c.Kind {

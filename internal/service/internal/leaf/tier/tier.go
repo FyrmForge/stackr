@@ -72,11 +72,15 @@ func (l *Leaf) Rename(ctx context.Context, t store.Tier, sl string) (store.Tier,
 	return t, l.tiers.Update(ctx, t)
 }
 
+// Reserved is a slug no tier may take: pr (the PR block) and order (the
+// API's reorder route), besides the generic reserved slugs.
+func Reserved(sl string) bool { return sl == PR || sl == "order" || slug.Reserved(sl) }
+
 func (l *Leaf) check(ctx context.Context, t *store.Tier, sl string) error {
 	switch {
 	case !slug.Valid(sl):
 		return errs.Invalidf("slug", "%q is not a valid tier name.", sl)
-	case sl == PR || sl == "order" || slug.Reserved(sl):
+	case Reserved(sl):
 		return errs.Invalidf("slug", "%q is reserved.", sl)
 	}
 	if other, err := l.tiers.GetBySlug(ctx, t.OrgID, sl); err == nil && other.ID != t.ID {

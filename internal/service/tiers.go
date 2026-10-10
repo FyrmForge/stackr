@@ -132,19 +132,26 @@ func (o *Orchestrator) DeleteTier(ctx context.Context, orgID, slug string) error
 			}
 		}
 	}
+	// [slug] refs elsewhere lose the block (no env is in it: refused above)
+	refs, err := o.readersOf(ctx, ParamScope{Kind: "tier", ID: t.ID}, true)
+	if err != nil {
+		return err
+	}
 	if err := o.tiers.Delete(ctx, t.ID); err != nil {
 		return err
 	}
 	// the last tier gone: the org's readers go back to org blocks
 	left, err := o.tiers.List(ctx, orgID)
-	if err != nil || len(left) > 0 {
-		return err
-	}
-	ts, err := o.readersOf(ctx, ParamScope{Kind: "org", ID: orgID}, false)
 	if err != nil {
 		return err
 	}
-	return o.redeployRunning(ctx, ts)
+	var org []Tile
+	if len(left) == 0 {
+		if org, err = o.readersOf(ctx, ParamScope{Kind: "org", ID: orgID}, false); err != nil {
+			return err
+		}
+	}
+	return o.redeployUnion(ctx, refs, org)
 }
 
 // SetTierLock locks or unlocks the tier for every env in it.

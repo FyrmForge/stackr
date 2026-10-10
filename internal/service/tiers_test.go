@@ -66,6 +66,33 @@ func TestTierChangesRedeploy(t *testing.T) {
 	}
 }
 
+// Codex round 2: deleting a tier that is not the last still redeploys its
+// [x] readers, and an env renamed from one tier to another redeploys.
+func TestTierDeleteAndMoveRedeploy(t *testing.T) {
+	w := newWorld(t)
+	ctx := context.Background()
+	tl := w.tile(t, "plain", true) // in dev
+	qual := w.tile(t, "qual", true)
+	w.setEnv(t, qual, "org.params.c[stage].n")
+	for _, s := range []string{"dev", "prod", "stage"} {
+		_, err := w.orch.CreateTier(ctx, w.org, s)
+		must(t, err)
+	}
+	_, err := w.orch.SetTierLock(ctx, w.org, "stage", false)
+	must(t, err)
+	q := w.deploys(t, qual)
+	must(t, w.orch.DeleteTier(ctx, w.org, "stage"))
+	if w.deploys(t, qual) != q+1 {
+		t.Errorf("tier deleted: qual %d, want %d", w.deploys(t, qual), q+1)
+	}
+	n := w.deploys(t, tl)
+	_, err = w.orch.RenameEnv(ctx, w.env, "prod")
+	must(t, err)
+	if w.deploys(t, tl) != n+1 {
+		t.Errorf("dev renamed to prod: %d deploys, want %d", w.deploys(t, tl), n+1)
+	}
+}
+
 // A tier made over a live env's slug redeploys that env's running tiles (they
 // gain the tier block), even when the org already has tiers.
 func TestCreateTierRedeploysLiveEnv(t *testing.T) {
