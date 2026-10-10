@@ -58,6 +58,8 @@ type Environment struct {
 	FromBranch string    `db:"from_branch" json:"from_branch"`
 	Auto       bool      `db:"auto" json:"auto"`
 	CreatedAt  time.Time `db:"created_at" json:"created_at"`
+	// Locked is the lock of an off-tier env; a tiered env uses its tier's.
+	Locked bool `db:"locked" json:"locked"`
 }
 
 type EnvironmentStore interface {

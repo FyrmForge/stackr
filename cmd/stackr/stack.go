@@ -445,6 +445,8 @@ func (a *app) envs() *cobra.Command {
 		a.rename("rename <name>", "env.rename", "Rename the environment", atEnv),
 		a.put("color <color>", "env.color", "Set the environment's panel colour", atEnv, "/color", "color"),
 		from,
+		a.envLock(true),
+		a.envLock(false),
 		a.envSync(),
 		a.settingsCmd("env.get,env.settings", "Show or change the environment's settings defaults", atEnv),
 		leaf("reorder <env>...", "env.list,env.reorder", "Set the promote order, bottom rung first", atLeast(1),
@@ -529,14 +531,16 @@ func (a *app) changes(pl map[string]any, lists ...string) {
 
 func (a *app) promote() *cobra.Command {
 	var dry bool
+	var remove []string
 	c := waits(leaf("promote <release>", "release.list,promote.plan,promote.run",
 		"Promote a release (number or id) into --env: prints the plan, then asks", exact(1),
 		a.at(atEnv, func(c *cobra.Command, p string, args []string) error {
 			return a.move(c, p, args[0], dry, "promote",
-				fmt.Sprintf("Promote release %s to %s?", args[0], last(p)))
+				fmt.Sprintf("Promote release %s to %s?", args[0], last(p)), remove)
 		})))
 	c.Example = "  stackr promote 7 --stack shop --env prod\n  stackr promote 7 --stack shop --env prod --dry-run"
 	c.Flags().BoolVar(&dry, "dry-run", false, "print the plan and change nothing")
+	c.Flags().StringArrayVar(&remove, "remove", nil, "tick a removal row to apply it (repeatable; the plan lists the keys)")
 	return scoped(c, false)
 }
 
@@ -550,7 +554,7 @@ func (a *app) rollback() *cobra.Command {
 				return usage("--tag is required: the last good release is a judgement (stackr release ls lists them)")
 			}
 			return a.move(c, p, tag, dry, "rollback",
-				fmt.Sprintf("Roll %s back to release %s?", last(p), tag))
+				fmt.Sprintf("Roll %s back to release %s?", last(p), tag), nil)
 		})))
 	c.Flags().StringVar(&tag, "tag", "", "the release to go back to (number or id); required")
 	c.Flags().BoolVar(&dry, "dry-run", false, "print the plan and change nothing")
@@ -559,7 +563,7 @@ func (a *app) rollback() *cobra.Command {
 
 // move is promote and rollback, one server path (B2): the plan, a refusal
 // on blockers, then a yes before anything deploys. -y answers for CI.
-func (a *app) move(c *cobra.Command, p, release string, dry bool, verb, question string) error {
+func (a *app) move(c *cobra.Command, p, release string, dry bool, verb, question string, remove []string) error {
 	rel, err := a.release(c, release)
 	if err != nil {
 		return err
@@ -567,6 +571,9 @@ func (a *app) move(c *cobra.Command, p, release string, dry bool, verb, question
 	ok, pl, err := a.showPlan(p + "/plan/" + rel)
 	if err != nil {
 		return err
+	}
+	if verb == "promote" && !a.json {
+		a.review(pl)
 	}
 	changes, _ := pl["changes"].([]any)
 	blockers, _ := pl["blockers"].([]any)
@@ -582,10 +589,20 @@ func (a *app) move(c *cobra.Command, p, release string, dry bool, verb, question
 	if !ok {
 		return fmt.Errorf("the %s is blocked; see the blockers above", verb)
 	}
+	var body any
+	if len(remove) > 0 {
+		keys := removalKeys(pl)
+		for _, k := range remove {
+			if !slices.Contains(keys, k) {
+				return usage("--remove %s is no removal row of this plan (rows: %s)", k, cmpJoin(keys))
+			}
+		}
+		body = map[string]any{"ticked": remove}
+	}
 	if err := a.confirm(question); err != nil {
 		return err
 	}
-	return a.orgJob(c, POST, p+"/"+verb+"/"+rel, nil, verb)
+	return a.orgJob(c, POST, p+"/"+verb+"/"+rel, body, verb)
 }
 
 // envSync is promote's shape for setup: the plan, a refusal on blockers, a
@@ -1438,10 +1455,10 @@ func param(s string) (string, string, error) {
 func (a *app) params() *cobra.Command {
 	var reveal, secret, force bool
 	var out, file string
-	get := leaf("get [collection.NAME]", "org.params,stack.params,env.params,admin.params,org.secrets,stack.secrets,env.secrets,admin.secrets",
+	get := leaf("get [collection.NAME]", "org.params,env.params,tier.params,org-pr.params,stack-pr.params,admin.params,org.secrets,env.secrets,tier.secrets,org-pr.secrets,stack-pr.secrets,admin.secrets",
 		"List params at the level; secrets stay masked unless --reveal", upTo(1), nil)
 	get.RunE = func(c *cobra.Command, args []string) error {
-		p, err := a.levelPath(c)
+		p, err := a.paramsPath(c)
 		if err != nil {
 			return err
 		}
@@ -1478,7 +1495,7 @@ func (a *app) params() *cobra.Command {
 	var gen bool
 	var length int
 	send := func(c *cobra.Command, lines []string) error {
-		p, err := a.levelPath(c)
+		p, err := a.paramsPath(c)
 		if err != nil {
 			return err
 		}
@@ -1525,11 +1542,11 @@ func (a *app) params() *cobra.Command {
 		a.redeploying(v)
 		return err
 	}
-	set := leaf("set <collection.NAME[=value]>...", "org.params-set,stack.params-set,env.params-set,admin.params-set",
+	set := leaf("set <collection.NAME[=value]>...", "org.params-set,env.params-set,tier.params-set,org-pr.params-set,stack-pr.params-set,admin.params-set",
 		"Set params; others at the level stay", atLeast(1),
 		func(c *cobra.Command, args []string) error { return send(c, args) })
 	set.Example = "  stackr params set app.mode=prod --env dev\n  stackr params set app.token=s3cret --secret --env dev"
-	merge := leaf("merge", "org.params-set,stack.params-set,env.params-set,admin.params-set",
+	merge := leaf("merge", "org.params-set,env.params-set,tier.params-set,org-pr.params-set,stack-pr.params-set,admin.params-set",
 		"Set every collection.NAME=value line of a file (-f, \"-\" stdin); others stay", exact(0),
 		func(c *cobra.Command, _ []string) error {
 			b, err := readFile(a, file)
@@ -1551,10 +1568,10 @@ func (a *app) params() *cobra.Command {
 	}
 	set.Flags().BoolVar(&gen, "generate", false, "set each NAME to a fresh random secret (no =value)")
 	set.Flags().IntVar(&length, "length", 32, "length of a generated secret, 16 to 128")
-	export := leaf("export", "org.secrets,stack.secrets,env.secrets,admin.secrets",
+	export := leaf("export", "org.secrets,env.secrets,tier.secrets,org-pr.secrets,stack-pr.secrets,admin.secrets",
 		"Write every param, secrets included, as collection.NAME=value; the one command that puts secrets on disk", exact(0),
 		func(c *cobra.Command, _ []string) error {
-			p, err := a.levelPath(c)
+			p, err := a.paramsPath(c)
 			if err != nil {
 				return err
 			}
@@ -1594,7 +1611,7 @@ func (a *app) params() *cobra.Command {
 		})
 	export.Flags().StringVarP(&out, "output", "o", "", "the file (0600; default stdout)")
 	export.Flags().BoolVar(&force, "force", false, "overwrite an existing file")
-	return levelFlag(noun("params", "The param store: org, stack and env levels, and the server's own (--level server, admin only)",
+	return levelFlag(noun("params", "The param store: org and env levels, a tier's (--tier), the PR blocks (--pr), and the server's own (--level server, admin only)",
 		get,
 		set,
 		merge,
@@ -1602,11 +1619,11 @@ func (a *app) params() *cobra.Command {
 		export,
 		leaf(
 			"rm <collection.NAME>",
-			"org.param-delete,stack.param-delete,env.param-delete,admin.param-delete",
+			"org.param-delete,env.param-delete,tier.param-delete,org-pr.param-delete,stack-pr.param-delete,admin.param-delete",
 			"Delete a param at the level",
 			exact(1),
 			func(c *cobra.Command, args []string) error {
-				p, err := a.levelPath(c)
+				p, err := a.paramsPath(c)
 				if err != nil {
 					return err
 				}
@@ -1634,7 +1651,19 @@ func (a *app) params() *cobra.Command {
 				return err
 			},
 		),
-	))
+	), true)
+}
+
+// envLock locks or unlocks an off-tier env; a tiered env takes its tier's.
+func (a *app) envLock(locked bool) *cobra.Command {
+	use, short := "unlock", "Unlock the environment: other envs may read its params"
+	if locked {
+		use, short = "lock", "Lock the environment: other envs cannot read its params"
+	}
+	return leaf(use, "env.lock", short, exact(0), a.at(atEnv, func(_ *cobra.Command, p string, _ []string) error {
+		_, err := a.call(PUT, p+"/lock", map[string]bool{"locked": locked})
+		return err
+	}))
 }
 
 // redeploying prints a line per tile a param change redeploys.
@@ -1727,7 +1756,7 @@ func (a *app) volumes() *cobra.Command {
 				_, err = a.call(DELETE, p+"/volumes/"+id, nil)
 				return err
 			})),
-	))
+	), false)
 }
 
 // volume finds a volume by id or slug at the linked env, stack and org, in

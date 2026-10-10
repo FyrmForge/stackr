@@ -20,17 +20,17 @@ const LabelManaged = "stackr.managed"
 // ContainerSpec is a resolved container: every value is final, nothing here
 // is looked up, defaulted from a row, or validated against a domain rule.
 type ContainerSpec struct {
-	Name     string
-	Image    string            // by digest when the caller pins one
-	Cmd      []string          // override image CMD (nil = image default)
-	Env      []string          // KEY=VALUE
-	Labels   map[string]string //
-	Volumes  []string          // "name-or-hostpath:/container/path[:ro]"
-	Ports    map[string]string // host[/udp] -> container[/udp] (published)
+	Name    string
+	Image   string            // by digest when the caller pins one
+	Cmd     []string          // override image CMD (nil = image default)
+	Env     []string          // KEY=VALUE
+	Labels  map[string]string //
+	Volumes []string          // "name-or-hostpath:/container/path[:ro]"
+	Ports   map[string]string // host[/udp] -> container[/udp] (published)
 	// AnyIP publishes Ports on every host address, IPv6 included (the
 	// proxy); unset binds IPv4 only.
-	AnyIP bool
-	Networks []NetAttach       // every network, joined at create
+	AnyIP    bool
+	Networks []NetAttach // every network, joined at create
 	// HostNetwork runs in the host's network namespace; Networks and Ports
 	// are ignored (the proxy and stackrd itself).
 	HostNetwork bool

@@ -56,7 +56,7 @@ func TestGenerateGrammar(t *testing.T) {
 		"too long":   "{type: secret, generate: 200}",
 		"v0 default": "{type: secret, default: generated, length: 32}",
 	} {
-		f := "version: 1\nstack: s\nparams:\n  a:\n    b: " + decl + "\n"
+		f := "version: 1\nstack: s\nparams:\n  a:\n    production:\n      b: " + decl + "\n"
 		if _, err := Load([]byte(f), nil, "acme"); err == nil {
 			t.Errorf("%s: loaded", name)
 		}

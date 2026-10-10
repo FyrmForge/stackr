@@ -21,6 +21,25 @@ type SettingsView struct {
 	Cascade c.SettingsFormView
 	Stacks  int           // a delete is refused while any remain
 	Delete  c.ConfirmView // shown when Rename is set
+	Tiers   TiersView
+}
+
+// TiersView is the org's ladder of tiers. Base is where an owner posts
+// (/tiers, /tiers/order, /tiers/<slug>/rename|delete|lock); "" = read-only.
+type TiersView struct {
+	Base    string
+	Managed bool // an org file is bound: edits here show as drift on its next plan
+	Rows    []TierRow
+}
+
+// TierRow: Up and Down are the whole order after moving this tier, nil =
+// at the end (the button is disabled).
+type TierRow struct {
+	Slug     string
+	Stacks   int
+	Locked   bool
+	Up, Down []string
+	Delete   c.ConfirmView
 }
 
 type MembersView struct {
@@ -142,6 +161,7 @@ templ Settings(v SettingsView) {
 				}
 			</form>
 		}
+		@Tiers(v.Tiers)
 		@c.Section("Resource defaults", "organization", "Applied to every service in this organization that does not set its own. Stacks, environments and services can still override them.") {
 			@c.SettingsForm(v.Cascade)
 		}
@@ -155,6 +175,71 @@ templ Settings(v SettingsView) {
 			}
 		}
 	</div>
+}
+
+templ Tiers(v TiersView) {
+	@c.Section("Tiers", "organization", "Envs named like a tier join it. Listed bottom first.") {
+		if v.Base == "" {
+			<p class="banner mb-4">Only an owner can change tiers.</p>
+		} else if v.Managed {
+			<p class="banner mb-4" role="status">Set in the org file. Edits here show as drift on the next plan.</p>
+		}
+		<ul class="space-y-2">
+			for i, t := range v.Rows {
+				<li class="panel px-3 py-2.5 flex flex-wrap items-center gap-2">
+					<span class="w-5 text-xs text-rw-faint font-mono shrink-0">{ strconv.Itoa(i + 1) }</span>
+					<span class="min-w-[8rem] flex-1">
+						<span class="font-mono text-sm text-rw-text">{ t.Slug }</span>
+						<span class="block text-xs text-rw-faint">{ "in " + stacks(t.Stacks) }</span>
+					</span>
+					if v.Base == "" {
+						if t.Locked {
+							@c.Chip("locked", "accent")
+						} else {
+							@c.Chip("open", "")
+						}
+					} else {
+						<span class="ml-auto flex flex-wrap items-center gap-2">
+							<span class="flex items-center gap-1">
+								@tierMove(v.Base, "Move "+t.Slug+" up", "↑", t.Up)
+								@tierMove(v.Base, "Move "+t.Slug+" down", "↓", t.Down)
+							</span>
+							<form novalidate hx-post={ v.Base + "/" + t.Slug + "/lock" } hx-trigger="change" hx-target={ target() } hx-swap="outerHTML">
+								<label class="text-sm flex items-center gap-2 text-rw-text"><input type="checkbox" name="locked" value="1" checked?={ t.Locked } aria-label={ "Lock " + t.Slug } class="accent-rw-accent"/> <span>Locked</span></label>
+							</form>
+							<details class="contents">
+								<summary class="btn btn-ghost btn-sm cursor-pointer list-none">Rename</summary>
+								<form novalidate hx-post={ v.Base + "/" + t.Slug + "/rename" } hx-target={ target() } hx-swap="outerHTML" class="basis-full flex flex-wrap items-center gap-2 pt-2 mt-1 border-t border-rw-border">
+									<input name="name" value={ t.Slug } required class="input font-mono flex-1 min-w-32" aria-label={ "New name for " + t.Slug }/>
+									<button type="submit" class="btn btn-primary btn-sm">Save</button>
+									<p class="basis-full text-xs text-rw-faint">Envs keep the old name until renamed to match.</p>
+								</form>
+							</details>
+							@c.Confirm(t.Delete)
+						</span>
+					}
+				</li>
+			}
+		</ul>
+		<p class="mt-3 text-xs text-rw-faint">A locked tier is read from inside it only.</p>
+		if v.Base != "" {
+			<form novalidate hx-post={ v.Base } hx-target={ target() } hx-swap="outerHTML" class="flex gap-2 mt-4">
+				<input type="text" name="slug" required class="input font-mono" placeholder="tier name" aria-label="New tier name"/>
+				<button type="submit" class="btn btn-ghost btn-sm shrink-0">Add tier</button>
+			</form>
+			<p class="mt-1.5 text-xs text-rw-faint">A new tier starts locked.</p>
+		}
+	}
+}
+
+// tierMove posts the whole new order; nil = at the end of the ladder.
+templ tierMove(base, label, arrow string, ids []string) {
+	<form novalidate hx-post={ base + "/order" } hx-target={ target() } hx-swap="outerHTML">
+		for _, id := range ids {
+			<input type="hidden" name="slugs" value={ id }/>
+		}
+		<button type="submit" class="btn btn-ghost btn-sm" aria-label={ label } disabled?={ ids == nil }>{ arrow }</button>
+	</form>
 }
 
 // roleButtons is v0's segmented role picker: the roles as radios in one

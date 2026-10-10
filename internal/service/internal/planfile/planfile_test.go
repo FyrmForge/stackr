@@ -1,7 +1,10 @@
 package planfile_test
 
 import (
+	"reflect"
+
 	"encoding/json"
+	"go.yaml.in/yaml/v3"
 	"strings"
 	"testing"
 
@@ -169,12 +172,12 @@ func TestStrictYAML(t *testing.T) {
 	}
 }
 
-func TestCheckParamsGenerateOnlyInStackFile(t *testing.T) {
+func TestCheckWideGenerateOnlyInStackFile(t *testing.T) {
 	in := map[string]map[string]planfile.Param{"app": {"s": {Type: "secret", Generate: 32}}}
-	if err := planfile.CheckParams(in, true); err != nil {
+	if err := planfile.CheckWide(in, true); err != nil {
 		t.Errorf("stack file: %v", err)
 	}
-	if err := planfile.CheckParams(in, false); err == nil || !strings.Contains(err.Error(), "only read in a stack file") {
+	if err := planfile.CheckWide(in, false); err == nil || !strings.Contains(err.Error(), "only read in a stack file") {
 		t.Errorf("org/server file: err = %v", err)
 	}
 }
@@ -187,7 +190,7 @@ func TestIsRef(t *testing.T) {
 	}
 }
 
-func TestCheckParams(t *testing.T) {
+func TestCheckWide(t *testing.T) {
 	val := "x"
 	for name, c := range map[string]struct {
 		in   map[string]map[string]planfile.Param
@@ -200,9 +203,97 @@ func TestCheckParams(t *testing.T) {
 		"type":          {map[string]map[string]planfile.Param{"app": {"s": {Type: "other"}}}, "type must be param or secret"},
 		"empty is fine": {nil, ""},
 	} {
-		err := planfile.CheckParams(c.in, true)
+		err := planfile.CheckWide(c.in, true)
 		if (c.want == "") != (err == nil) || (err != nil && !strings.Contains(err.Error(), c.want)) {
 			t.Errorf("%s: err = %v, want %q", name, err, c.want)
 		}
+	}
+}
+
+func TestParamsGrammar(t *testing.T) {
+	for name, c := range map[string]struct{ in, want string }{
+		"ok":            {"app:\n  dev|pr:\n    host: a\n    pw: {type: secret}\n  prod:\n    host: b\n    n: 8080\n", ""},
+		"conflict":      {"app:\n  dev|prod:\n    host: a\n  prod:\n    host: b\n", `app.host is set for prod by both "dev|prod" and "prod"`},
+		"other group":   {"app:\n  dev:\n    host: a\nweb:\n  dev:\n    host: b\n", ""},
+		"bad env":       {"app:\n  Dev:\n    host: a\n", "not an env slug"},
+		"empty part":    {"app:\n  dev|:\n    host: a\n", "not an env slug"},
+		"twice":         {"app:\n  dev|dev:\n    host: a\n", "names dev twice"},
+		"bad name":      {"app:\n  dev:\n    A-b: x\n", "lower-case"},
+		"bad group":     {"App:\n  dev:\n    a: x\n", `collection "App"`},
+		"unknown key":   {"app:\n  dev:\n    a: {type: secret, value: x}\n", "unknown key value"},
+		"generate":      {"app:\n  dev:\n    a: {type: secret, generate: 32}\n", ""},
+		"short":         {"app:\n  dev:\n    a: {type: secret, generate: 8}\n", "from 16 to 128"},
+		"pr is a slug":  {"app:\n  pr:\n    a: x\n", ""},
+		"empty is fine": {"", ""},
+	} {
+		var ps map[string]planfile.Group
+		err := planfile.StrictYAML([]byte(c.in), &ps, nil)
+		if err == nil {
+			err = planfile.CheckParams(ps, true)
+		}
+		if (c.want == "") != (err == nil) || (err != nil && !strings.Contains(err.Error(), c.want)) {
+			t.Errorf("%s: err = %v, want %q", name, err, c.want)
+		}
+	}
+	var ps map[string]planfile.Group
+	_ = planfile.StrictYAML([]byte("app:\n  dev:\n    a: x\n"), &ps, nil)
+	if err := planfile.CheckParams(ps, false); err != nil {
+		t.Errorf("generate off, no generate: %v", err)
+	}
+	_ = planfile.StrictYAML([]byte("app:\n  dev:\n    a: {type: secret, generate: 32}\n"), &ps, nil)
+	if err := planfile.CheckParams(ps, false); err == nil || !strings.Contains(err.Error(), "only read in a stack file") {
+		t.Errorf("generate off: %v", err)
+	}
+}
+
+func TestExpandAndRoundTrip(t *testing.T) {
+	src := "app:\n  dev|staging:\n    host: a\n    pw: {type: secret}\n  prod:\n    host: b\n    key: {type: secret, generate: 32}\n"
+	var ps map[string]planfile.Group
+	if err := planfile.StrictYAML([]byte(src), &ps, nil); err != nil {
+		t.Fatal(err)
+	}
+	got, err := planfile.Expand(ps)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 3 || got["dev"]["app.host"].Value != "a" || got["staging"]["app.host"].Value != "a" ||
+		!got["dev"]["app.pw"].Secret || got["prod"]["app.key"].Generate != 32 || got["prod"]["app.host"].Value != "b" {
+		t.Errorf("expand = %+v", got)
+	}
+	out, err := yaml.Marshal(ps)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var again map[string]planfile.Group
+	if err := planfile.StrictYAML(out, &again, nil); err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	if !reflect.DeepEqual(ps, again) {
+		t.Errorf("round trip:\n%s\n%+v\n%+v", out, ps, again)
+	}
+	if !strings.Contains(string(out), "host: a") || strings.Contains(string(out), "type: param") {
+		t.Errorf("shape:\n%s", out)
+	}
+	if err := planfile.CheckEnvKeys(got, []string{"dev", "staging", "prod"}, "a tier"); err != nil {
+		t.Error(err)
+	}
+	if err := planfile.CheckEnvKeys(got, []string{"dev"}, "a tier"); err == nil {
+		t.Error("unknown env accepted")
+	}
+}
+
+func TestCollapse(t *testing.T) {
+	blocks := map[string]map[string]planfile.Entry{
+		"dev":  {"app.host": {Value: "a"}, "app.pw": {Secret: true}},
+		"prod": {"app.host": {Value: "a"}, "app.pw": {Secret: true}, "web.x": {Value: "1"}},
+		"pr":   {"app.host": {Value: "b"}},
+	}
+	got := planfile.Collapse(blocks, []string{"dev", "prod"})
+	if _, ok := got["app"]["dev|prod"]; !ok || len(got["app"]) != 2 || got["app"]["pr"]["host"].Value != "b" || got["web"]["prod"]["x"].Value != "1" {
+		t.Errorf("collapse = %+v", got)
+	}
+	back, err := planfile.Expand(got)
+	if err != nil || !reflect.DeepEqual(back, blocks) {
+		t.Errorf("round trip = %+v, %v", back, err)
 	}
 }

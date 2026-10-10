@@ -94,6 +94,9 @@ func (h *handler) orgTab(c echo.Context, cd card, f *comp.DrawerView) (templ.Com
 		cascade.ReadOnly, cascade.Why = true, "Changing defaults needs an owner of this organization."
 	}
 	v := orgui.SettingsView{Name: og.Name, Slug: og.Slug, Cascade: cascade}
+	if v.Tiers, err = h.tiersView(c, cd, f.Base); err != nil {
+		return nil, err
+	}
 	if !can(c, cd.s, "org.write") {
 		return orgui.Settings(v), nil
 	}
@@ -105,6 +108,64 @@ func (h *handler) orgTab(c echo.Context, cd card, f *comp.DrawerView) (templ.Com
 	v.Rename = f.Base + "/rename"
 	v.Delete = dialog.DeleteOrg(og.Name, f.Base+"/delete", "#"+comp.DrawerRoot)
 	return orgui.Settings(v), nil
+}
+
+// tiersView is the ladder; an owner (tier.write) also gets the verbs' base.
+// ponytail: stack counts walk every stack's envs; a count verb replaces it.
+func (h *handler) tiersView(c echo.Context, cd card, base string) (orgui.TiersView, error) {
+	ctx, og := c.Request().Context(), cd.s.Org
+	v := orgui.TiersView{Managed: og.ConfigRepo != ""}
+	ts, err := h.orch.Tiers(ctx, og.ID)
+	if err != nil {
+		return v, err
+	}
+	sts, err := h.orch.Stacks(ctx, og.ID)
+	if err != nil {
+		return v, err
+	}
+	in := map[string]int{}
+	for _, st := range sts {
+		es, err := h.orch.Envs(ctx, st.ID)
+		if err != nil {
+			return v, err
+		}
+		for _, e := range es {
+			if e.Type == "static" {
+				in[e.Slug]++
+			}
+		}
+	}
+	owner := can(c, cd.s, "tier.write")
+	if owner {
+		v.Base = base + "/tiers"
+	}
+	slugs := make([]string, len(ts))
+	for i, t := range ts {
+		slugs[i] = t.Slug
+	}
+	swap := func(i, j int) []string {
+		if j < 0 || j >= len(slugs) {
+			return nil
+		}
+		o := slices.Clone(slugs)
+		o[i], o[j] = o[j], o[i]
+		return o
+	}
+	for i, t := range ts {
+		r := orgui.TierRow{Slug: t.Slug, Stacks: in[t.Slug], Locked: t.Locked, Up: swap(i, i-1), Down: swap(i, i+1)}
+		if owner {
+			r.Delete = comp.ConfirmView{
+				Button:  "Delete",
+				Title:   "Delete tier " + t.Slug + "?",
+				Warning: "Refused while a stack env is still named " + t.Slug + ". Its tier params go with it.",
+				Action:  v.Base + "/" + t.Slug + "/delete",
+				Target:  "#" + comp.DrawerRoot,
+				Quiet:   true,
+			}
+		}
+		v.Rows = append(v.Rows, r)
+	}
+	return v, nil
 }
 
 // orgDests is the org's own destinations and the install's shared ones,
@@ -373,6 +434,26 @@ func (h *handler) mountOrg(site *echo.Group, a *middleware.Access) {
 	site.POST(o+"/backups/:dest/delete", h.orgAction("backups", func(c echo.Context, og *service.Org) (string, error) {
 		return "Destination deleted.", h.orch.DeleteBackupDest(c.Request().Context(), og.ID, c.Param("dest"))
 	}), a.Require("destination.write"))
+	tw := a.Require("tier.write")
+	site.POST(o+"/tiers", h.orgAction("settings", func(c echo.Context, og *service.Org) (string, error) {
+		t, err := h.orch.CreateTier(c.Request().Context(), og.ID, c.FormValue("slug"))
+		return "Tier " + t.Slug + " added.", err
+	}), tw)
+	site.POST(o+"/tiers/order", h.orgAction("settings", func(c echo.Context, og *service.Org) (string, error) {
+		form, _ := c.FormParams()
+		return "Order saved.", h.orch.ReorderTiers(c.Request().Context(), og.ID, form["slugs"])
+	}), tw)
+	site.POST(o+"/tiers/:tier/rename", h.orgAction("settings", func(c echo.Context, og *service.Org) (string, error) {
+		_, err := h.orch.RenameTier(c.Request().Context(), og.ID, c.Param("tier"), c.FormValue("name"))
+		return "Tier renamed.", err
+	}), tw)
+	site.POST(o+"/tiers/:tier/delete", h.orgAction("settings", func(c echo.Context, og *service.Org) (string, error) {
+		return "Tier deleted.", h.orch.DeleteTier(c.Request().Context(), og.ID, c.Param("tier"))
+	}), tw)
+	site.POST(o+"/tiers/:tier/lock", h.orgAction("settings", func(c echo.Context, og *service.Org) (string, error) {
+		_, err := h.orch.SetTierLock(c.Request().Context(), og.ID, c.Param("tier"), c.FormValue("locked") != "")
+		return "Lock saved.", err
+	}), tw)
 	h.mountOrgConfig(site, a)
 	site.POST(o+"/settings", h.saveRung(
 		"org",

@@ -2,7 +2,7 @@
 // plan's shape (Change, Plan), the approve contract (impact lines, removal
 // ticks), the strict YAML decode and the params grammar. A sibling of slug:
 // flows and the service import it, it imports no leaf and no flow.
-// flow/promote's stack file uses the decode, Param and CheckParams.
+// flow/promote's stack file uses the decode, Entry and CheckParams.
 package planfile
 
 import (
@@ -220,9 +220,10 @@ func IsRef(s string) bool {
 	return strings.HasPrefix(s, "${{") && strings.HasSuffix(s, "}}") && strings.Count(s, "${{") == 1 && strings.Count(s, "}}") == 1
 }
 
-// CheckParams is the params: grammar every file shares. generate: is acted
-// on only by the stack file (allowGenerate).
-func CheckParams(ps map[string]map[string]Param, allowGenerate bool) error {
+// CheckWide is the one-value-per-name params: grammar (the server file only;
+// org files use CheckParams). generate: is acted on only by the stack file
+// (allowGenerate).
+func CheckWide(ps map[string]map[string]Param, allowGenerate bool) error {
 	for c, entries := range ps {
 		if !slug.ValidName(c) {
 			return fmt.Errorf("params: collection %q is lower-case letters, digits and _", c)

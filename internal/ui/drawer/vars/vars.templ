@@ -13,6 +13,7 @@ type View struct {
 	Error  string
 	Note   string
 	Editor c.ParamEditorView
+	Grid   *Grid // set: the per-env grid instead of Editor
 }
 
 templ Editor(v View) {
@@ -26,6 +27,10 @@ templ Editor(v View) {
 		if v.Note != "" {
 			<p class="banner" role="status">{ v.Note }</p>
 		}
-		@c.ParamEditor(v.Editor)
+		if v.Grid != nil {
+			@grid(v)
+		} else {
+			@c.ParamEditor(v.Editor)
+		}
 	</div>
 }

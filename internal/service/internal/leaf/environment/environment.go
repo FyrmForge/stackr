@@ -195,6 +195,7 @@ func (l *Leaf) Create(ctx context.Context, stackID, name string, sp Spec) (store
 		Color:     sp.Color,
 		Position:  pos,
 		Network:   "stackr-env-" + id,
+		Locked:    true,
 		CreatedAt: time.Now().UTC(),
 	}
 	if err := l.name(ctx, &e, name); err != nil {
@@ -240,7 +241,7 @@ func (l *Leaf) name(ctx context.Context, e *store.Environment, name string) erro
 		return errs.Invalidf("name", "Give the environment a name.")
 	case sl == "":
 		return errs.Invalidf("name", "That name needs at least one letter or digit, since it becomes the URL.")
-	case slug.Reserved(sl):
+	case sl == "pr" || slug.Reserved(sl): // pr is the PR params block
 		return errs.Invalidf("name", "%q is reserved.", sl)
 	}
 	if other, err := l.envs.GetBySlug(ctx, e.StackID, sl); err == nil && other.ID != e.ID {
@@ -337,6 +338,12 @@ func (l *Leaf) SetSettings(ctx context.Context, e store.Environment, blob string
 
 func (l *Leaf) SetColor(ctx context.Context, e store.Environment, color string) (store.Environment, error) {
 	e.Color = color
+	return e, l.envs.Update(ctx, e)
+}
+
+// SetLocked writes the env's own lock; a tiered env reads its tier's instead.
+func (l *Leaf) SetLocked(ctx context.Context, e store.Environment, locked bool) (store.Environment, error) {
+	e.Locked = locked
 	return e, l.envs.Update(ctx, e)
 }
 

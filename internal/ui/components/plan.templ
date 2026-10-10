@@ -34,6 +34,9 @@ type ChangeView struct {
 	Key      string
 	Optional bool
 	Ticked   bool // Applying only: the approver ticked this removal
+	// Apply is a POST that does this row by itself (a lock change is not
+	// part of Approve); Vals is its form as JSON.
+	Apply, Vals string
 }
 
 // Impacts is the plan's impact lines, in plan order.
@@ -151,6 +154,11 @@ templ Plan(p PlanView) {
 					}
 					if c.Note != "" {
 						<p class="mt-1 pl-6 text-xs text-rw-muted">{ c.Note }</p>
+					}
+					if c.Apply != "" {
+						<div class="mt-2 pl-6">
+							<button type="button" class="btn btn-primary btn-sm" hx-post={ c.Apply } hx-vals={ c.Vals } hx-target={ "#" + DrawerRoot } hx-swap="outerHTML">Apply lock change</button>
+						</div>
 					}
 				</li>
 			}

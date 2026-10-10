@@ -1186,3 +1186,24 @@ func TestKeyAddRoleAndStack(t *testing.T) {
 		t.Errorf("plain add sent %q", w)
 	}
 }
+
+// promote --remove ticks an optional row of the plan: the key is posted, a
+// key outside the plan is refused before anything is sent.
+func TestPromoteRemove(t *testing.T) {
+	at := []string{"-y", "promote", "7", "--stack", "shop", "--env", "prod", "--no-wait"}
+	answers := map[string]string{
+		"/releases":   `[{"id":"r7","number":7}]`,
+		"/plan/r7":    `{"can_deploy":true,"plan":{"changes":[{"kind":"param","tile":"app","field":"pw","key":"param:app.pw","optional":true}]}}`,
+		"/promote/r7": `{"id":"j1","state":"queued"}`,
+	}
+	r := fake(t, answers)
+	code, _, errw := cli(t, append(at, "--remove", "param:app.pw")...)
+	if w := writes(r); code != 0 || len(w) != 1 || !strings.Contains(w[0], `{"ticked":["param:app.pw"]}`) ||
+		!strings.Contains(errw, "param:app.pw") {
+		t.Errorf("--remove = %d %q, writes %v", code, errw, w)
+	}
+	r = fake(t, answers)
+	if code, _, _ = cli(t, append(at, "--remove", "param:nope")...); code == 0 || len(writes(r)) != 0 {
+		t.Errorf("a key outside the plan = %d, writes %v", code, writes(r))
+	}
+}

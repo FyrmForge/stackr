@@ -7,6 +7,7 @@ import (
 
 	"github.com/FyrmForge/stackr/internal/middleware"
 	"github.com/FyrmForge/stackr/internal/service"
+	"github.com/FyrmForge/stackr/internal/service/errs"
 )
 
 type (
@@ -84,6 +85,48 @@ func AtStack(c echo.Context) (string, string) {
 
 func AtEnv(c echo.Context) (string, string) {
 	return "env", envID(c)
+}
+
+// AtTier is the tier scope; InTier has already checked the slug.
+func AtTier(h *H) At {
+	return func(c echo.Context) (string, string) {
+		t, _ := h.tier(c)
+		return "tier", t.ID
+	}
+}
+
+// tier is the route's tier, by slug inside the route's org.
+func (h *H) tier(c echo.Context) (service.Tier, error) {
+	ts, err := h.Orch.Tiers(rc(c), orgID(c))
+	for _, t := range ts {
+		if t.Slug == c.Param("tier") {
+			return t, nil
+		}
+	}
+	if err == nil {
+		err = errs.ErrNotFound
+	}
+	return service.Tier{}, err
+}
+
+// InTier refuses a tier the org lacks with a 404 before e runs.
+func (h *H) InTier(e Endpoint) Endpoint {
+	run := e.Handle
+	e.Handle = func(c echo.Context) error {
+		if _, err := h.tier(c); err != nil {
+			return err
+		}
+		return run(c)
+	}
+	return e
+}
+
+func AtOrgPR(c echo.Context) (string, string) {
+	return "org_pr", orgID(c)
+}
+
+func AtStackPR(c echo.Context) (string, string) {
+	return "stack_pr", stackID(c)
 }
 
 // AtServer is the server scope: no route param, one scope.

@@ -24,23 +24,9 @@ func Export(live Live) ([]byte, error) {
 	f := File{
 		Version: 1,
 		Org:     og.Name,
-		Params:  map[string]map[string]Param{},
 		Stacks:  map[string]StackRef{},
 	}
-	for key, v := range live.Params {
-		c, n, _ := strings.Cut(key, ".")
-		if f.Params[c] == nil {
-			f.Params[c] = map[string]Param{}
-		}
-		decl := Param{Type: params.Secret}
-		if !v.Secret {
-			decl = Param{
-				Type:  params.Param,
-				Value: &v.V,
-			}
-		}
-		f.Params[c][n] = decl
-	}
+	exportParams(&f, live)
 	s, err := settings.Parse(og.Settings)
 	if err != nil {
 		return nil, err
@@ -97,4 +83,39 @@ func Export(live Live) ([]byte, error) {
 	}
 	err = enc.Close()
 	return buf.Bytes(), err
+}
+
+// exportParams writes the ladder and the param blocks: tier slugs and pr, or
+// all and pr without tiers. Envs with the same block share an a|b key and a
+// secret is name and type only.
+func exportParams(f *File, live Live) {
+	blocks := map[string]map[string]planfile.Entry{}
+	read := func(env string, vals map[string]params.Value) {
+		if len(vals) == 0 {
+			return
+		}
+		blocks[env] = map[string]planfile.Entry{}
+		for key, v := range vals {
+			e := planfile.Entry{Secret: v.Secret}
+			if !v.Secret {
+				e.Value = v.V
+			}
+			blocks[env][key] = e
+		}
+	}
+	if len(live.Tiers) == 0 {
+		read(All, live.Params)
+	}
+	for _, t := range live.Tiers {
+		f.Tiers = append(f.Tiers, Tier{Slug: t.Slug, Locked: t.Locked})
+		read(t.Slug, live.TierParams[t.Slug])
+	}
+	read(planfile.PR, live.PRParams)
+	order := append(f.Tiers.Slugs(), planfile.PR)
+	if len(f.Tiers) == 0 {
+		order = []string{All, planfile.PR}
+	}
+	if g := planfile.Collapse(blocks, order); len(g) > 0 {
+		f.Params.Tiered = g
+	}
 }

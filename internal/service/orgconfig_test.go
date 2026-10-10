@@ -160,11 +160,9 @@ func TestApproveOrgPlanApplies(t *testing.T) {
 org: acme
 params:
   app:
-    region:
-      type: param
-      value: eu
-    token:
-      type: secret
+    all:
+      region: eu
+      token: {type: secret}
 env_colors:
   dev: sky
 stacks:
@@ -275,7 +273,7 @@ func TestOrgAutoApply(t *testing.T) {
 	r := newOrgRig(t)
 	r.orgFile(t, "version: 1\norg: acme\n")
 	r.bind(t, true)
-	sha := r.orgFile(t, "version: 1\norg: acme\nparams:\n  app:\n    region:\n      type: param\n      value: us\n")
+	sha := r.orgFile(t, "version: 1\norg: acme\nparams:\n  app:\n    all:\n      region: us\n")
 	r.push(t, "acme/org", sha)
 	eventually(t, "the auto apply", func() bool {
 		ps := r.plans(t)
@@ -287,6 +285,20 @@ func TestOrgAutoApply(t *testing.T) {
 	}
 	if len(vs) != 1 || vs[0].Value != "us" {
 		t.Errorf("org params = %+v, want app.region = us", vs)
+	}
+}
+
+// An auto org never applies an unlock: the plan stays pending for an owner.
+func TestOrgAutoSkipsUnlock(t *testing.T) {
+	r := newOrgRig(t)
+	r.orgFile(t, "version: 1\norg: acme\n")
+	r.bind(t, true)
+	sha := r.orgFile(t, "version: 1\norg: acme\ntiers:\n  dev: {locked: false}\n")
+	r.push(t, "acme/org", sha)
+	eventually(t, "the plan", func() bool { ps := r.plans(t); return ps[0].Commit == sha })
+	time.Sleep(300 * time.Millisecond)
+	if ps := r.plans(t); ps[0].Status != "pending" {
+		t.Errorf("status = %s, want pending", ps[0].Status)
 	}
 }
 
@@ -397,7 +409,7 @@ func TestOrgShareRemovalNeedsATick(t *testing.T) {
 		}
 		return len(ss)
 	}
-	r.orgFile(t, "version: 1\norg: acme\nparams:\n  app:\n    a:\n      type: param\n      value: one\nshares: {}\n")
+	r.orgFile(t, "version: 1\norg: acme\nparams:\n  app:\n    all:\n      a: one\nshares: {}\n")
 	r.bind(t, false)
 	pl := r.plans(t)[0]
 	if _, err := r.env.Orch.ApproveOrgPlan(ctx, pl.ID, service.ApproveOpts{}); err != nil {
@@ -419,5 +431,158 @@ func TestOrgShareRemovalNeedsATick(t *testing.T) {
 	r.applied(t, pl.ID)
 	if shares() != 0 {
 		t.Error("a ticked removal row left the share")
+	}
+}
+
+// A tiered file makes the ladder, locks and per-tier blocks; the export of the
+// result previews clean, and a panel edit shows as drift.
+func TestOrgTiersApply(t *testing.T) {
+	ctx := context.Background()
+	r := newOrgRig(t)
+	r.orgFile(t, `version: 1
+org: acme
+tiers:
+  dev: {locked: false}
+  prod:
+params:
+  smtp:
+    dev|prod:
+      host: smtp.example.com
+    prod:
+      pw: {type: secret, generate: 32}
+    pr:
+      host: sandbox
+`)
+	r.bind(t, false)
+	pl := r.plans(t)[0]
+	if !strings.Contains(pl.Plan, "org-wide params stop being read") {
+		t.Errorf("no first-tier warning: %s", pl.Plan)
+	}
+	// dev is an unlocked new tier: an impact line, so the approve needs a confirm
+	if _, err := r.env.Orch.ApproveOrgPlan(ctx, pl.ID, service.ApproveOpts{}); !isConflict(err) {
+		t.Fatalf("approve without confirm = %v, want Conflict", err)
+	}
+	if _, err := r.env.Orch.ApproveOrgPlan(ctx, pl.ID, service.ApproveOpts{Confirm: true}); err != nil {
+		t.Fatal(err)
+	}
+	r.applied(t, pl.ID)
+
+	ts, err := r.env.Orch.Tiers(ctx, r.org)
+	if err != nil || len(ts) != 2 || ts[0].Slug != "dev" || ts[0].Locked || ts[1].Slug != "prod" || !ts[1].Locked {
+		t.Fatalf("tiers = %+v, %v", ts, err)
+	}
+	vals := func(kind, id string) map[string]string {
+		ps, err := r.env.Orch.Params(ctx, service.ParamScope{Kind: kind, ID: id}, true)
+		if err != nil {
+			t.Fatal(err)
+		}
+		m := map[string]string{}
+		for _, p := range ps {
+			m[p.Collection+"."+p.Name] = p.Value
+		}
+		return m
+	}
+	if dev := vals("tier", ts[0].ID); len(dev) != 1 || dev["smtp.host"] != "smtp.example.com" {
+		t.Errorf("dev block = %v", dev)
+	}
+	if prod := vals("tier", ts[1].ID); prod["smtp.host"] != "smtp.example.com" || len(prod["smtp.pw"]) != 32 {
+		t.Errorf("prod block = %v", prod)
+	}
+	if pr := vals("org_pr", r.org); pr["smtp.host"] != "sandbox" || len(pr) != 1 {
+		t.Errorf("pr block = %v", pr)
+	}
+	if wide := vals("org", r.org); len(wide) != 0 {
+		t.Errorf("org-wide = %v", wide)
+	}
+
+	out, err := r.env.Orch.ExportOrgConfig(ctx, r.org)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(out), "type: secret") || strings.Contains(string(out), "{") {
+		t.Errorf("export shape:\n%s", out)
+	}
+	pv, err := r.env.Orch.PreviewOrgConfig(ctx, r.org, out)
+	if err != nil || len(pv.Changes) > 0 || len(pv.Blockers) > 0 {
+		t.Fatalf("export previews %+v, %v\n%s", pv, err, out)
+	}
+
+	if _, err := r.env.Orch.SetParams(ctx, service.ParamScope{Kind: "tier", ID: ts[0].ID},
+		[]service.ParamEntry{{Collection: "smtp", Name: "host", Kind: "param", Value: "ui.example.com"}}); err != nil {
+		t.Fatal(err)
+	}
+	pv, err = r.env.Orch.PreviewOrgConfig(ctx, r.org, out)
+	if err != nil || len(pv.Changes) != 1 || pv.Changes[0].Old != "ui.example.com" ||
+		!strings.Contains(pv.Changes[0].Note, "panel has ui.example.com, file says smtp.example.com") {
+		t.Errorf("drift preview = %+v, %v", pv, err)
+	}
+
+	// A rename is a moved: entry; the tier keeps its params, so only the
+	// rename row shows.
+	renamed := strings.NewReplacer("dev|prod:", "local|prod:", "  dev:", "  local:").Replace(string(out)) +
+		"moved:\n  - from: tier.dev\n    to: tier.local\n"
+	pv, err = r.env.Orch.PreviewOrgConfig(ctx, r.org, []byte(renamed))
+	if err != nil || len(pv.Blockers) > 0 {
+		t.Fatalf("rename preview = %+v, %v\n%s", pv, err, renamed)
+	}
+	var ks []string
+	for _, c := range pv.Changes {
+		ks = append(ks, c.Kind)
+	}
+	if got := strings.Join(ks, " "); got != "tier-rename param-update" {
+		t.Errorf("rename rows = %s (the param-update is the drift edit above)", got)
+	}
+}
+
+// A param the bound file does not set is removed with the plan, in the org
+// and pr scopes alike; a secret stays until its removal row is ticked.
+func TestOrgParamRemoval(t *testing.T) {
+	ctx := context.Background()
+	r := newOrgRig(t)
+	set := func(kind string, es ...service.ParamEntry) {
+		if _, err := r.env.Orch.SetParams(ctx, service.ParamScope{Kind: kind, ID: r.org}, es); err != nil {
+			t.Fatal(err)
+		}
+	}
+	set("org",
+		service.ParamEntry{Collection: "app", Name: "keep", Kind: "param", Value: "k"},
+		service.ParamEntry{Collection: "app", Name: "old", Kind: "param", Value: "o"},
+		service.ParamEntry{Collection: "app", Name: "sec", Kind: "secret", Value: "s"})
+	set("org_pr", service.ParamEntry{Collection: "app", Name: "old", Kind: "param", Value: "o"})
+	names := func(kind string) string {
+		ps, err := r.env.Orch.Params(ctx, service.ParamScope{Kind: kind, ID: r.org}, true)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out []string
+		for _, p := range ps {
+			out = append(out, p.Name)
+		}
+		slices.Sort(out)
+		return strings.Join(out, ",")
+	}
+	r.orgFile(t, "version: 1\norg: acme\nparams:\n  app:\n    all:\n      keep: k\n")
+	r.bind(t, false)
+	pl := r.plans(t)[0]
+	if _, err := r.env.Orch.ApproveOrgPlan(ctx, pl.ID, service.ApproveOpts{}); err != nil {
+		t.Fatal(err)
+	}
+	r.applied(t, pl.ID)
+	if got := names("org"); got != "keep,sec" {
+		t.Errorf("org after an unticked apply = %q, want the plain name gone and the secret kept", got)
+	}
+	if got := names("org_pr"); got != "" {
+		t.Errorf("org_pr = %q, want the plain name gone", got)
+	}
+	pl, err := r.env.Orch.PlanOrgConfig(ctx, r.org)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.env.Orch.ApproveOrgPlan(ctx, pl.ID, service.ApproveOpts{Ticked: []string{"param-remove:all:app.sec"}}); err != nil {
+		t.Fatal(err)
+	}
+	r.applied(t, pl.ID)
+	if got := names("org"); got != "keep" {
+		t.Errorf("org after a ticked secret removal = %q", got)
 	}
 }

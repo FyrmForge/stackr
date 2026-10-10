@@ -100,3 +100,15 @@ func TestPlanReviewDoneShowsTicks(t *testing.T) {
 		}
 	}
 }
+
+// A lock row carries its own Apply button; other rows do not.
+func TestPlanApplyLock(t *testing.T) {
+	var sb strings.Builder
+	p := PlanView{Changes: []ChangeView{{Kind: "lock", Tile: "demo", Old: "locked", New: "unlocked", Apply: "/x/lock", Vals: `{"locked":""}`}, {Kind: "param", Field: "a"}}}
+	if err := Plan(p).Render(context.Background(), &sb); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Count(sb.String(), "Apply lock change") != 1 || !strings.Contains(sb.String(), `hx-post="/x/lock"`) {
+		t.Errorf("plan:\n%s", sb.String())
+	}
+}

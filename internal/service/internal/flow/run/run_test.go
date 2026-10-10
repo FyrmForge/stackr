@@ -26,6 +26,7 @@ import (
 	lrun "github.com/FyrmForge/stackr/internal/service/internal/leaf/run"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/settings"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/stack"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tier"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/volume"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
@@ -67,6 +68,7 @@ func setup(t *testing.T) (*run.Flow, *dockerfake.Fake, store.Tile) {
 		Images:   image.New(st.Images, fake),
 		Releases: release.New(st.Releases, st.ReleaseTiles),
 		Params:   params.New(st.Params),
+		Tiers:    tier.New(st.Tiers),
 		Managed:  managed.New(st.ManagedInstances, st.Provisions, st.Bindings),
 		Domains:  domain.New(st.Domains, fake, "proxy"),
 		Creds:    credential.New(st.Credentials),

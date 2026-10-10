@@ -170,7 +170,7 @@ func TestParamChangeRedeploysRunningTiles(t *testing.T) {
 		must(t, err)
 	}
 	set := func() []Redeploy {
-		rs, err := w.orch.SetParams(ctx, ParamScope{Kind: "stack", ID: w.stack}, []ParamEntry{
+		rs, err := w.orch.SetParams(ctx, ParamScope{Kind: "env", ID: w.env}, []ParamEntry{
 			{Collection: "app", Name: "mode", Kind: "param", Value: "fast"},
 		})
 		must(t, err)
@@ -206,14 +206,14 @@ func TestParamReaders(t *testing.T) {
 		_, err := w.st.DB().ExecContext(ctx, q[0].(string), q[1:]...)
 		must(t, err)
 	}
-	ts, err := w.orch.scopeTiles(ctx, ParamScope{Kind: "stack", ID: w.stack})
+	ts, err := w.orch.scopeTiles(ctx, ParamScope{Kind: "env", ID: w.env})
 	must(t, err)
 	names := func(keys ...string) []string {
 		m := map[string]bool{}
 		for _, k := range keys {
 			m[k] = true
 		}
-		rs, err := w.orch.readers(ctx, ParamScope{Kind: "stack", ID: w.stack}, ts, m)
+		rs, err := w.orch.readers(ctx, ParamScope{Kind: "env", ID: w.env}, ts, m, false)
 		must(t, err)
 		var out []string
 		for _, r := range rs {
@@ -567,12 +567,71 @@ func TestDeleteParamNamesRedeploys(t *testing.T) {
 	w.tile(t, "worker", false)
 	_, err := w.st.DB().ExecContext(ctx, `UPDATE tiles SET env_json = ? WHERE id = ?`, `{"MODE":"${{ params.app.mode }}"}`, up.ID)
 	must(t, err)
-	s := ParamScope{Kind: "stack", ID: w.stack}
+	s := ParamScope{Kind: "env", ID: w.env}
 	_, err = w.orch.SetParams(ctx, s, []ParamEntry{{Collection: "app", Name: "mode", Kind: "param", Value: "fast"}})
 	must(t, err)
 	rs, err := w.orch.DeleteParam(ctx, s, "app", "mode")
 	must(t, err)
 	if len(rs) != 1 || rs[0].Env != "dev" || rs[0].Tile != "api" || rs[0].Job == "" {
 		t.Fatalf("DeleteParam named %+v, want the %s tile in dev with a job", rs, up.Slug)
+	}
+}
+
+// A change reaches only the tiles that read it: the env's own tiles by a
+// plain ref, tiles anywhere by an [x] ref naming it; tier, pr and org
+// scopes likewise.
+func TestParamReadersByScope(t *testing.T) {
+	w := newWorld(t)
+	ctx := context.Background()
+	envs := map[string]string{"dev": w.env}
+	for _, sl := range []string{"prod", "demo", "pr-1"} {
+		id, typ := uuid.NewString(), "static"
+		if sl == "pr-1" {
+			typ = "ephemeral"
+		}
+		must(t, w.st.Environments.Create(ctx, store.Environment{
+			ID: id, StackID: w.stack, Name: sl, Slug: sl, Type: typ, Settings: "{}", Network: "n-" + sl,
+			FromKind: "branch", FromBranch: "main", CreatedAt: time.Now(),
+		}))
+		envs[sl] = id
+	}
+	dev, err := w.orch.CreateTier(ctx, w.org, "dev")
+	must(t, err)
+	for _, c := range []struct{ name, env, ref string }{
+		{"a", "dev", "params.c.n"}, {"b", "prod", "params.c.n"}, {"c", "demo", "params.c[dev].n"},
+		{"d", "pr-1", "params.c.n"}, {"i", "demo", "params.c[pr].n"},
+		{"e", "dev", "org.params.c.n"}, {"f", "prod", "org.params.c.n"}, {"g", "demo", "org.params.c[dev].n"},
+		{"h", "pr-1", "org.params.c.n"}, {"j", "demo", "org.params.c[pr].n"},
+	} {
+		tl, err := w.orch.CreateTile(ctx, Tile{StackID: w.stack, EnvironmentID: envs[c.env], Name: c.name,
+			Kind: tile.Image, ImageRef: "nginx:1", ContainerPort: 80})
+		must(t, err)
+		_, err = w.st.DB().ExecContext(ctx, `UPDATE tiles SET env_json = ? WHERE id = ?`, `{"V":"${{ `+c.ref+` }}"}`, tl.ID)
+		must(t, err)
+	}
+	for _, c := range []struct {
+		s    ParamScope
+		want string
+	}{
+		{ParamScope{Kind: "env", ID: envs["dev"]}, "a c"},
+		{ParamScope{Kind: "env", ID: envs["prod"]}, "b"},
+		{ParamScope{Kind: "tier", ID: dev.ID}, "e g"},
+		{ParamScope{Kind: "stack_pr", ID: w.stack}, "i"}, // a PR env keeps its own copy: only [pr] refs read this
+		{ParamScope{Kind: "env", ID: envs["pr-1"]}, "d"},
+		{ParamScope{Kind: "org_pr", ID: w.org}, "h j"},
+		{ParamScope{Kind: "org", ID: w.org}, ""}, // a tiered org: no env reads it
+	} {
+		ts, err := w.orch.scopeTiles(ctx, c.s)
+		must(t, err)
+		rs, err := w.orch.readers(ctx, c.s, ts, map[string]bool{"c.n": true}, false)
+		must(t, err)
+		var got []string
+		for _, r := range rs {
+			got = append(got, r.Slug)
+		}
+		slices.Sort(got)
+		if g := strings.Join(got, " "); g != c.want {
+			t.Errorf("%s readers = %q, want %q", c.s.Kind, g, c.want)
+		}
 	}
 }

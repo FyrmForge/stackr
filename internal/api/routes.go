@@ -116,6 +116,14 @@ func routes(h *v1.H) []Route {
 		{POST, org + "/volumes/:volume/backups", "backup.now", "backup.write", h.BackupNow()},
 		{POST, org + "/volumes/:volume/restore", "backup.restore", "backup.write", h.RestoreBackup()},
 
+		// tiers: order is a static segment, it wins over :tier
+		{GET, org + "/tiers", "tier.list", "org.read", h.Tiers()},
+		{POST, org + "/tiers", "tier.create", "tier.write", h.CreateTier()},
+		{PUT, org + "/tiers/order", "tier.order", "tier.write", h.ReorderTiers()},
+		{PUT, org + "/tiers/:tier", "tier.rename", "tier.write", h.RenameTier()},
+		{DELETE, org + "/tiers/:tier", "tier.delete", "tier.write", h.DeleteTier()},
+		{PUT, org + "/tiers/:tier/lock", "tier.lock", "tier.write", h.SetTierLock()},
+
 		// stacks
 		{GET, org + "/stacks", "stack.list", "org.read", h.Stacks()},
 		{POST, org + "/stacks", "stack.create", "stack.create", h.CreateStack()},
@@ -143,6 +151,7 @@ func routes(h *v1.H) []Route {
 		{GET, env + "/traffic", "env.traffic", "tile.read", h.Traffic()},
 		{GET, env + "/events", "env.events", "tile.read", h.EnvEvents()},
 		{PUT, env + "/name", "env.rename", "env.write", h.RenameEnv()},
+		{PUT, env + "/lock", "env.lock", "env.lock", h.SetEnvLock()},
 		{PUT, env + "/color", "env.color", "env.write", h.SetEnvColor()},
 		{PUT, env + "/from", "env.from", "env.write", h.SetEnvFrom()},
 		{PUT, env + "/settings", "env.settings", "env.write", h.SetEnvSettings()},
@@ -263,17 +272,25 @@ func scoped(h *v1.H) []Route {
 		volumes     bool
 	}{
 		{org, "org", v1.AtOrg, "tile.read", "variable.write", true},
-		{stack, "stack", v1.AtStack, "tile.read", "variable.write", true},
+		{org + "/tiers/:tier", "tier", v1.AtTier(h), "tile.read", "variable.write", false},
+		{org + "/pr", "org-pr", v1.AtOrgPR, "tile.read", "variable.write", false},
+		{stack + "/pr", "stack-pr", v1.AtStackPR, "tile.read", "variable.write", false},
 		{env, "env", v1.AtEnv, "tile.read", "variable.write", true},
 		// the server scope: admin only, no volumes; only the server file reads it
 		{"/admin", "admin", v1.AtServer, "admin.read", "serverparams.write", false},
 	} {
-		out = append(out,
-			Route{http.MethodGet, s.base + "/params", s.name + ".params", s.read, h.Params(s.at)},
-			Route{http.MethodGet, s.base + "/params/secrets", s.name + ".secrets", s.write, h.Secrets(s.at)},
-			Route{http.MethodPatch, s.base + "/params", s.name + ".params-set", s.write, h.SetParams(s.at)},
-			Route{http.MethodDelete, s.base + "/params/:collection/:name", s.name + ".param-delete", s.write, h.DeleteParam(s.at)},
-		)
+		rs := []Route{
+			{http.MethodGet, s.base + "/params", s.name + ".params", s.read, h.Params(s.at)},
+			{http.MethodGet, s.base + "/params/secrets", s.name + ".secrets", s.write, h.Secrets(s.at)},
+			{http.MethodPatch, s.base + "/params", s.name + ".params-set", s.write, h.SetParams(s.at)},
+			{http.MethodDelete, s.base + "/params/:collection/:name", s.name + ".param-delete", s.write, h.DeleteParam(s.at)},
+		}
+		if s.name == "tier" { // a tier slug the org lacks is a 404, not an empty scope
+			for i := range rs {
+				rs[i].E = h.InTier(rs[i].E)
+			}
+		}
+		out = append(out, rs...)
 		if s.volumes {
 			out = append(out,
 				Route{http.MethodGet, s.base + "/volumes", s.name + ".volumes", "org.read", h.Volumes(s.at)},
@@ -281,5 +298,9 @@ func scoped(h *v1.H) []Route {
 			)
 		}
 	}
-	return out
+	// the stack has volumes but no params of its own: env and pr blocks hold them
+	return append(out,
+		Route{http.MethodGet, stack + "/volumes", "stack.volumes", "org.read", h.Volumes(v1.AtStack)},
+		Route{http.MethodPost, stack + "/volumes", "stack.volume-declare", "tile.write", h.DeclareVolume(v1.AtStack)},
+	)
 }

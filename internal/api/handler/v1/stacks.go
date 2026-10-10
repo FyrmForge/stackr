@@ -6,6 +6,7 @@ import (
 
 	"github.com/labstack/echo/v4"
 
+	"github.com/FyrmForge/stackr/internal/middleware"
 	"github.com/FyrmForge/stackr/internal/service"
 )
 
@@ -126,9 +127,17 @@ func (h *H) PlanPromote() Endpoint {
 	})
 }
 
+// PromoteIn is a promote's optional body: the plan's secret removal rows
+// (Change.Key) to apply; unticked ones stay.
+type PromoteIn struct {
+	Ticked []string `json:"ticked"`
+}
+
+func (PromoteIn) BodyOptional() {}
+
 func (h *H) Promote() Endpoint {
-	return Job(func(c echo.Context, _ None) (service.Job, error) {
-		return h.Orch.Promote(rc(c), envID(c), c.Param("release"))
+	return Job(func(c echo.Context, in PromoteIn) (service.Job, error) {
+		return h.Orch.PromoteTicked(rc(c), envID(c), c.Param("release"), in.Ticked)
 	})
 }
 
@@ -170,6 +179,11 @@ func (h *H) Ladder() Endpoint {
 
 func (h *H) CreateEnv() Endpoint {
 	return JSON(201, func(c echo.Context, in EnvIn) (service.Environment, error) {
+		if in.Type != "ephemeral" {
+			if err := h.Orch.JoinsLockedTier(rc(c), middleware.Principal(c), stackID(c), in.Name, ""); err != nil {
+				return service.Environment{}, err
+			}
+		}
 		return h.Orch.CreateEnv(rc(c), stackID(c), in.Name, service.EnvSpec{
 			Type:       in.Type,
 			Base:       in.Base,
@@ -196,6 +210,11 @@ func (h *H) Traffic() Endpoint {
 
 func (h *H) RenameEnv() Endpoint {
 	return JSON(200, func(c echo.Context, in NameIn) (service.Environment, error) {
+		if e := scope(c).Env; e.Type == "static" {
+			if err := h.Orch.JoinsLockedTier(rc(c), middleware.Principal(c), e.StackID, in.Name, e.Slug); err != nil {
+				return *e, err
+			}
+		}
 		return h.Orch.RenameEnv(rc(c), envID(c), in.Name)
 	})
 }

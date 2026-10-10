@@ -16,9 +16,11 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/orgconfig"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/promote"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/domainres"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/environment"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/orgplan"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/params"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/settings"
+	"github.com/FyrmForge/stackr/internal/service/internal/planfile"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
 
@@ -252,6 +254,9 @@ func (o *Orchestrator) orgLive(ctx context.Context, og store.Org) (orgconfig.Liv
 	if live.Params, err = o.params.Values(ctx, params.Scope{Kind: "org", ID: og.ID}, true); err != nil {
 		return live, err
 	}
+	if err = o.tierLive(ctx, &live); err != nil {
+		return live, err
+	}
 	if live.Domains, err = o.domainres.ListAll(ctx); err != nil {
 		return live, err
 	}
@@ -275,6 +280,44 @@ func (o *Orchestrator) orgLive(ctx context.Context, og store.Org) (orgconfig.Liv
 		live.Stacks = append(live.Stacks, orgconfig.StackLive{Stack: st})
 	}
 	return live, nil
+}
+
+// tierLive fills the tier side of live: the ladder, each tier's params, the
+// pr block, and which stack envs sit in which tier.
+func (o *Orchestrator) tierLive(ctx context.Context, live *orgconfig.Live) error {
+	og := live.Org
+	var err error
+	if live.PRParams, err = o.params.Values(ctx, params.Scope{Kind: "org_pr", ID: og.ID}, true); err != nil {
+		return err
+	}
+	if live.Tiers, err = o.tiers.List(ctx, og.ID); err != nil || len(live.Tiers) == 0 {
+		return err
+	}
+	live.TierParams = map[string]map[string]params.Value{}
+	live.TierUsers = map[string][]string{}
+	for _, t := range live.Tiers {
+		if live.TierParams[t.Slug], err = o.params.Values(ctx, params.Scope{Kind: "tier", ID: t.ID}, true); err != nil {
+			return err
+		}
+	}
+	sts, err := o.stacks.List(ctx, og.ID)
+	if err != nil {
+		return err
+	}
+	for _, st := range sts {
+		es, err := o.envs.List(ctx, st.ID)
+		if err != nil {
+			return err
+		}
+		for _, e := range es {
+			if _, in, err := o.tiers.Of(ctx, og.ID, e.Slug); err != nil {
+				return err
+			} else if in && e.Type == environment.Static {
+				live.TierUsers[e.Slug] = append(live.TierUsers[e.Slug], st.Slug+"/"+e.Slug)
+			}
+		}
+	}
+	return nil
 }
 
 // runOrgApply is the apply job: the plan ends applied, or error with what
@@ -358,7 +401,9 @@ func (o *Orchestrator) walkOrgPlan(
 		key := ""
 		switch c.Kind {
 		case "param", "param-update":
-			key = "param"
+			key = "param:" + c.Tile
+		case "tier-order":
+			key = c.Kind
 		case "rebind", "domain-update", "share-update":
 			key = c.Kind + ":" + c.Tile
 		}
@@ -373,8 +418,8 @@ func (o *Orchestrator) walkOrgPlan(
 		switch c.Kind {
 		case "rename":
 			what = c.Old + " → " + c.New
-		case "param", "param-update":
-			what = c.Field
+		case "param", "param-update", "param-remove":
+			what = strings.TrimSpace(c.Tile + " " + c.Field)
 		}
 		_, _ = fmt.Fprintf(log, "%s %s\n", c.Kind, what)
 		var err error
@@ -385,7 +430,17 @@ func (o *Orchestrator) walkOrgPlan(
 		case "org":
 			_, err = o.RenameOrg(ctx, og.ID, c.New)
 		case "param", "param-update":
-			_, err = o.SetParams(ctx, ParamScope{Kind: "org", ID: og.ID}, orgParams(f, plan))
+			err = o.putOrgParams(ctx, og, f, plan, c.Tile)
+		case "tier":
+			_, err = o.CreateTier(ctx, og.ID, c.Tile)
+		case "tier-rename":
+			_, err = o.RenameTier(ctx, og.ID, c.Old, c.New)
+		case "tier-lock":
+			_, err = o.SetTierLock(ctx, og.ID, c.Tile, c.New == "locked")
+		case "tier-delete":
+			err = o.DeleteTier(ctx, og.ID, c.Tile)
+		case "tier-order":
+			err = o.orderOrgTiers(ctx, og.ID, f.Tiers.Slugs())
 		case "defaults":
 			_, err = o.SetOrgSettings(ctx, og.ID, settings.Settings(*f.Defaults).JSON())
 		case "colors":
@@ -402,6 +457,8 @@ func (o *Orchestrator) walkOrgPlan(
 			err = o.putOrgShare(ctx, og.ID, c.Tile, f.Shares[c.Tile], live.Shares)
 		case "share-delete":
 			err = o.DeleteShare(ctx, og.ID, c.Tile)
+		case "param-remove":
+			err = o.removeOrgParam(ctx, og, c.Tile, c.Field)
 		}
 		if err != nil {
 			return bound, fmt.Errorf("%s %s: %w", c.Kind, what, err)
@@ -410,23 +467,83 @@ func (o *Orchestrator) walkOrgPlan(
 	return bound, nil
 }
 
-// orgParams is one entry per param line of the plan, as the file declares
-// it: a param with its value, a secret declared (Merge keeps its value).
-func orgParams(f *orgconfig.File, plan orgconfig.Plan) []ParamEntry {
+// putOrgParams writes the plan's param rows of one env key: all is the
+// org-wide scope, pr the org's PR scope, anything else a tier.
+func (o *Orchestrator) putOrgParams(ctx context.Context, og store.Org, f *orgconfig.File, plan orgconfig.Plan, tile string) error {
+	sc, err := o.orgParamScope(ctx, og, tile)
+	if err != nil {
+		return err
+	}
+	_, err = o.SetParams(ctx, sc, orgParams(f, plan, tile))
+	return err
+}
+
+func (o *Orchestrator) orgParamScope(ctx context.Context, og store.Org, tile string) (ParamScope, error) {
+	sc := ParamScope{Kind: "org", ID: og.ID}
+	switch tile {
+	case orgconfig.All:
+	case planfile.PR:
+		sc.Kind = "org_pr"
+	default:
+		t, err := o.tiers.GetBySlug(ctx, og.ID, tile)
+		if err != nil {
+			return sc, err
+		}
+		sc = ParamScope{Kind: "tier", ID: t.ID}
+	}
+	return sc, nil
+}
+
+// removeOrgParam drops one name from an env key's scope (see putOrgParams).
+func (o *Orchestrator) removeOrgParam(ctx context.Context, og store.Org, tile, key string) error {
+	sc, err := o.orgParamScope(ctx, og, tile)
+	if err != nil {
+		return err
+	}
+	col, name, _ := strings.Cut(key, ".")
+	_, err = o.DeleteParam(ctx, sc, col, name)
+	return err
+}
+
+// orderOrgTiers puts the file's order on the ladder; a tier the file does
+// not name (a removal that was not ticked) keeps its place above.
+func (o *Orchestrator) orderOrgTiers(ctx context.Context, orgID string, want []string) error {
+	have, err := o.Tiers(ctx, orgID)
+	if err != nil {
+		return err
+	}
+	var order []string
+	for _, s := range want {
+		if slices.ContainsFunc(have, func(t Tier) bool { return t.Slug == s }) {
+			order = append(order, s)
+		}
+	}
+	for _, t := range have {
+		if !slices.Contains(order, t.Slug) {
+			order = append(order, t.Slug)
+		}
+	}
+	return o.ReorderTiers(ctx, orgID, order)
+}
+
+// orgParams is one entry per param line of the plan for a tile, as the file
+// declares it: a param with its value, a secret declared (Merge keeps its
+// value), a generated secret with a fresh one.
+func orgParams(f *orgconfig.File, plan orgconfig.Plan, tile string) []ParamEntry {
 	var es []ParamEntry
 	for _, c := range plan.Changes {
-		if c.Kind != "param" && c.Kind != "param-update" {
+		if (c.Kind != "param" && c.Kind != "param-update") || c.Tile != tile {
 			continue
 		}
 		col, name, _ := strings.Cut(c.Field, ".")
-		decl := f.Params[col][name]
-		e := ParamEntry{
-			Collection: col,
-			Name:       name,
-			Kind:       decl.Type,
-		}
-		if decl.Value != nil {
-			e.Value = *decl.Value
+		e := ParamEntry{Collection: col, Name: name}
+		decl := f.Blocks()[tile][c.Field]
+		e.Kind, e.Value = params.Param, decl.Value
+		if decl.Secret {
+			e.Kind, e.Value = params.Secret, ""
+			if decl.Generate > 0 && c.Note == "generated" {
+				e.Value = params.Generate(decl.Generate)
+			}
 		}
 		es = append(es, e)
 	}

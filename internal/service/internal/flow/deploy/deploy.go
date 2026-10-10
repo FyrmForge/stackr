@@ -38,6 +38,7 @@ import (
 	lrun "github.com/FyrmForge/stackr/internal/service/internal/leaf/run"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/settings"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/stack"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tier"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/volume"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
@@ -53,6 +54,7 @@ type Flow struct {
 	Images   *image.Leaf
 	Releases *release.Leaf
 	Params   *params.Leaf
+	Tiers    *tier.Leaf
 	Managed  *managed.Leaf
 	Domains  *domain.Leaf
 	Creds    *credential.Leaf
@@ -574,7 +576,7 @@ func (f *Flow) resolve(
 		var src string
 		switch m.Kind {
 		case tile.MountShare:
-			src, err = f.shareBind(ctx, o, t, m)
+			src, err = f.shareBind(ctx, o, e, st, t, m)
 		case tile.MountHost:
 			src, err = f.hostBind(ctx, st, t, m)
 		default:

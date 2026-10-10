@@ -27,6 +27,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/release"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/settings"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/stack"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tier"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/volume"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
@@ -86,6 +87,7 @@ func setup(t *testing.T) *world {
 		Creds:    credential.New(s.Credentials),
 		Settings: settings.New(s.Settings, nil),
 		Jobs:     job.New(s.Jobs),
+		Tiers:    tier.New(s.Tiers),
 	}
 	d.Engines = &mflow.Flow{
 		Tiles:     tiles,
@@ -166,8 +168,9 @@ ladder: [dev, prd]
 head: main
 params:
   app:
-    mode: {type: param, value: fast}
-    key: {type: secret}
+    dev|prd:
+      mode: fast
+      key: {type: secret}
 volumes:
   data: {max_size_mb: 100}
 base:
@@ -229,7 +232,7 @@ func TestGrammar(t *testing.T) {
 
 	for name, bad := range map[string]string{
 		"unknown key":    "version: 1\nstack: s\nbase:\n  tiles:\n    a: {image: x, colour: red}\n",
-		"secret value":   "version: 1\nstack: s\nparams:\n  a:\n    b: {type: secret, value: x}\n",
+		"secret value":   "version: 1\nstack: s\nparams:\n  a:\n    production:\n      b: {type: secret, value: x}\n",
 		"cycle":          "version: 1\nstack: s\nbase:\n  tiles:\n    a: {image: x, depends_on: [b]}\n    b: {image: x, depends_on: [a]}\n",
 		"shared":         "version: 1\nstack: s\nshared:\n  db: {engine: postgres}\n",
 		"bottom promote": "version: 1\nstack: s\nenvironments:\n  dev: {from: promote}\n",
@@ -938,19 +941,5 @@ func TestPlanProtectPair(t *testing.T) {
 	}
 	if !has(base + tiles + "environments:\n  dev:\n    defaults: {protect: true, protect_user: bob, protect_password: other}\n  prd: {from: promote}\n") {
 		t.Error("new password did not diff")
-	}
-}
-
-// A valued param the stack already holds with the same value is inherited,
-// not written again into the env.
-func TestPlanParamInheritedFromStack(t *testing.T) {
-	w := setup(t)
-	w.fake.Digests = map[string]string{"nginx:1": "sha256:one"}
-	must(t, w.f.D.Params.Set(ctx, params.Scope{Kind: "stack", ID: w.st.ID}, params.Entry{Collection: "app", Name: "mode", Kind: params.Param, Value: "fast"}))
-	w.files["pi"] = "version: 1\nstack: shop\nladder: [dev, prd]\nhead: main\nparams:\n  app:\n    mode: {type: param, value: fast}\nbase:\n  tiles:\n    api: {image: nginx:1, port: 80}\nenvironments:\n  dev: {}\n  prd: {from: promote}\n"
-	for _, c := range planOK(t, w, w.dev, w.release(t, "pi")).Changes {
-		if c.Kind == "param" {
-			t.Errorf("param written: %+v", c)
-		}
 	}
 }

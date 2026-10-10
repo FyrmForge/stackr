@@ -54,6 +54,7 @@ func (a *app) commands() []*cobra.Command {
 		a.knobs(),
 		a.keys(),
 		a.orgs(),
+		a.tiers(),
 		a.dests(),
 		a.domainResources(),
 		a.shares(),

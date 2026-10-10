@@ -16,7 +16,7 @@ var ctx = context.Background()
 // Scope ids need no parent rows: params carry no foreign key (triggers clean up).
 var (
 	org   = params.Scope{Kind: "org", ID: "o1"}
-	stack = params.Scope{Kind: "stack", ID: "s1"}
+	stack = params.Scope{Kind: "stack_pr", ID: "s1"}
 	env   = params.Scope{Kind: "env", ID: "e1"}
 )
 
@@ -156,9 +156,6 @@ func snap() params.Snapshot {
 		EnvParams: map[string]params.Value{
 			"email.sender": {V: "env@x.io"},
 			"db.pass":      {V: "s3", Secret: true},
-		},
-		StackParams: map[string]params.Value{
-			"email.sender": {V: "stack@x.io"},
 			"email.host":   {V: "smtp"},
 			"domains.base": {V: "x.io"},
 		},
@@ -198,8 +195,8 @@ func TestResolve(t *testing.T) {
 		err   string // substring; "unset" means errs.Unset
 	}{
 		{params.InEnv, "plain", "plain", ""},
-		{params.InEnv, "${{ params.email.sender }}", "env@x.io", ""},  // B5: env before stack
-		{params.InEnv, "${{params.email.host}}", "smtp", ""},          // falls to stack
+		{params.InEnv, "${{ params.email.sender }}", "env@x.io", ""}, // B5
+		{params.InEnv, "${{params.email.host}}", "smtp", ""},
 		{params.InEnv, "${{ params.email.org_only }}", "", "unset"},   // B5: never reaches org
 		{params.InEnv, "${{ org.params.email.org_only }}", "org", ""}, // deliberately
 		{params.InEnv, "${{ params.email.nope }}", "", "unset"},
@@ -221,6 +218,7 @@ func TestResolve(t *testing.T) {
 		{params.InProvisionFrom, "infra:${{ env.name }}:pg-db", "infra:dev:pg-db", ""},
 		{params.InProvisionFrom, "${{ params.email.host }}:dev:pg-db", "smtp:dev:pg-db", ""},
 		{params.InProvisionFrom, "${{ tile.api.host }}:dev:pg-db", "", "not allowed in provision_from"},
+		{params.InProvisionFrom, "${{ params.db.pass }}:dev:pg-db", "", "db.pass is a secret"},
 		{params.InEnv, "${{ params.Email.x }}", "", "not a valid collection"},
 		{params.InEnv, "${{ org.backups.s3-main }}", "", "not allowed in env"},
 		{params.InBackupDest, "${{ org.backups.s3-main }}", "s3://b", ""},
@@ -317,5 +315,106 @@ func TestGenerate(t *testing.T) {
 	if len(a) != 32 || a == b ||
 		strings.Trim(a, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789") != "" {
 		t.Errorf("generate = %q, %q", a, b)
+	}
+}
+
+func tierSnap() params.Snapshot {
+	return params.Snapshot{
+		Env: "dev", Tier: "dev",
+		EnvParams: map[string]params.Value{"db.host": {V: "dev-db"}},
+		OrgParams: map[string]params.Value{"db.pass": {V: "dev-pw", Secret: true}},
+		Other: map[string]params.Block{
+			"stack:prod": {Locked: true},
+			"stack:test": {Values: map[string]params.Value{"db.host": {V: "test-db"}}},
+			"stack:pr":   {Values: map[string]params.Value{"db.host": {V: "pr-db"}}},
+			"org:prod":   {Locked: true},
+			"org:test":   {Values: map[string]params.Value{"db.pass": {V: "test-pw", Secret: true}, "db.user": {V: "u"}}},
+			"org:pr":     {Values: map[string]params.Value{"db.pass": {V: "pr-pw"}}},
+		},
+	}
+}
+
+func TestQualifiedParse(t *testing.T) {
+	for _, c := range []struct {
+		in   string
+		kind params.Kind
+		slug string
+		env  string
+		err  string
+	}{
+		{"params.db[prod].host", params.KindParam, "db", "prod", ""},
+		{" org.params.db[pr].pass ", params.KindOrgParam, "db", "pr", ""},
+		{"params.db.host", params.KindParam, "db", "", ""},
+		{"params.db[].host", "", "", "", "want db[<env>]"},
+		{"params.db[Prod].host", "", "", "", "want db[<env>]"},
+		{"params.db[prod.host", "", "", "", "want db[<env>]"},
+		{"params.db[a.b].host", "", "", "", "an [env] qualifier is only valid"},
+		{"params.db.host[prod]", "", "", "", "not a valid name"},
+		{"tile.api[prod].host", "", "", "", "an [env] qualifier is only valid"},
+		{"self.host[prod]", "", "", "", "an [env] qualifier is only valid"},
+		{"stackr.PROXY_IP[prod]", "", "", "", "an [env] qualifier is only valid"},
+		{"org.backups.s3[prod]", "", "", "", "an [env] qualifier is only valid"},
+		{"server.params.s3[prod].x", "", "", "", "an [env] qualifier is only valid"},
+	} {
+		r, err := params.Parse(c.in)
+		switch {
+		case c.err != "" && (err == nil || !strings.Contains(err.Error(), c.err)):
+			t.Errorf("%q = %+v, %v; want error %q", c.in, r, err, c.err)
+		case c.err == "" && (err != nil || r.Kind != c.kind || r.Slug != c.slug || r.Env != c.env):
+			t.Errorf("%q = %+v, %v", c.in, r, err)
+		}
+	}
+	if got := params.Refs("a ${{ params.db[prod].host }} b ${{ org.params.db[pr].x }}"); len(got) != 2 || got[0] != "params.db[prod].host" {
+		t.Errorf("Refs = %v", got)
+	}
+}
+
+func TestQualifiedResolve(t *testing.T) {
+	for _, c := range []struct {
+		where params.Where
+		in    string
+		want  string
+		err   string // substring; "unset:<param>" means errs.Unset
+	}{
+		{params.InEnv, "${{ params.db[dev].host }}", "dev-db", ""},       // own block
+		{params.InEnv, "${{ org.params.db[dev].pass }}", "dev-pw", ""},   // own tier
+		{params.InEnv, "${{ params.db[test].host }}", "test-db", ""},     // unlocked
+		{params.InEnv, "${{ org.params.db[test].pass }}", "test-pw", ""}, // unlocked
+		{params.InEnv, "${{ params.db[pr].host }}", "pr-db", ""},         // PR blocks
+		{params.InEnv, "${{ org.params.db[pr].pass }}", "pr-pw", ""},     // PR blocks
+		{params.InEnv, "${{ params.db[prod].host }}", "", "prod is locked; unlock it to read it from here"},
+		{params.InEnv, "${{ org.params.db[prod].pass }}", "", "${{ org.params.db[prod].pass }}: prod is locked"},
+		{params.InEnv, "${{ params.db[nope].host }}", "", "no env nope"},
+		{params.InEnv, "${{ org.params.db[nope].pass }}", "", "no tier nope"},
+		{params.InEnv, "${{ params.db[test].nope }}", "", "unset:db[test].nope"},
+		{params.InEnv, "${{ org.params.db[test].nope }}", "", "unset:org.db[test].nope"},
+		{params.InEnv, "${{ params.db[dev].nope }}", "", "unset:db[dev].nope"},
+		{params.InDomain, "${{ org.params.db[test].pass }}", "", "is a secret"},
+		{params.InDomain, "${{ org.params.db[test].user }}", "u", ""},
+	} {
+		got, err := params.NewResolver(tierSnap()).Expand(c.where, c.in)
+		var unset errs.Unset
+		switch {
+		case strings.HasPrefix(c.err, "unset:"):
+			if !errors.As(err, &unset) || unset.Param != strings.TrimPrefix(c.err, "unset:") {
+				t.Errorf("%q = %q, %v; want unset %q", c.in, got, err, c.err)
+			}
+		case c.err != "" && (err == nil || !strings.Contains(err.Error(), c.err)):
+			t.Errorf("%q = %q, %v; want error %q", c.in, got, err, c.err)
+		case c.err == "" && (err != nil || got != c.want):
+			t.Errorf("%q = %q, %v; want %q", c.in, got, err, c.want)
+		}
+	}
+	// Off-tier: no own org block, so the tier name is looked up in Other.
+	s := tierSnap()
+	s.Tier = ""
+	if _, err := params.NewResolver(s).Expand(params.InEnv, "${{ org.params.db[dev].pass }}"); err == nil || !strings.Contains(err.Error(), "no tier dev") {
+		t.Errorf("off-tier own tier = %v", err)
+	}
+	// An own block is readable even when locked.
+	s = tierSnap()
+	s.Other["org:dev"] = params.Block{Locked: true}
+	if got, err := params.NewResolver(s).Expand(params.InEnv, "${{ org.params.db[dev].pass }}"); err != nil || got != "dev-pw" {
+		t.Errorf("own locked = %q, %v", got, err)
 	}
 }

@@ -91,19 +91,9 @@ func (f *Flow) tileRoute(ctx context.Context, id string, server settings.Setting
 		r.Protect = &domain.BasicAuth{User: p.ProtectUser, Password: p.ProtectPassword}
 	}
 	// Domain refs see params only (never a secret, never a tile output).
-	var snap params.Snapshot
-	for _, sc := range []struct {
-		dst  *map[string]params.Value
-		kind string
-		id   string
-	}{
-		{&snap.EnvParams, "env", e.ID},
-		{&snap.StackParams, "stack", st.ID},
-		{&snap.OrgParams, "org", o.ID},
-	} {
-		if *sc.dst, err = f.Params.Values(ctx, params.Scope{Kind: sc.kind, ID: sc.id}, false); err != nil {
-			return r, err
-		}
+	snap, err := f.ParamSnapshot(ctx, e, st, false)
+	if err != nil {
+		return r, err
 	}
 	rr := params.NewResolver(snap)
 	r.Expand = func(s string) (string, error) { return rr.Expand(params.InDomain, s) }

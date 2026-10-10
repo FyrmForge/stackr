@@ -23,7 +23,7 @@ func TestOrgConfig(t *testing.T) {
 	member := w.env.APIKey(t, u, w.acme)
 	conn := w.env.Connector(t, w.acme, "whsec")
 	g.Commit(t, "acme/org", "main", map[string]string{
-		"stackr-org.yml": "version: 1\norg: acme\nparams:\n  app:\n    region:\n      type: param\n      value: us\n",
+		"stackr-org.yml": "version: 1\norg: acme\nparams:\n  app:\n    all:\n      region: us\n",
 	})
 	const base = "/orgs/acme/config"
 	want := func(key, method, path, body string, code int) string {

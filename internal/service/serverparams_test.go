@@ -57,7 +57,7 @@ func TestServerParams(t *testing.T) {
 	}
 
 	// an org's view never holds the rows
-	if ps, err := w.orch.Params(ctx, ParamScope{Kind: "stack", ID: w.stack}, true); err != nil || len(ps) != 0 {
+	if ps, err := w.orch.Params(ctx, ParamScope{Kind: "stack_pr", ID: w.stack}, true); err != nil || len(ps) != 0 {
 		t.Errorf("stack params = %+v, %v; a server row reached a stack", ps, err)
 	}
 	_, err = w.orch.DeleteParam(ctx, ServerParamScope, "s3", "region")

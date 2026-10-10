@@ -123,22 +123,27 @@ type work struct {
 	visible   []store.DomainResource // what auto and apex resolve against, the above included
 	isDefault bool                   // the env is the ladder's top rung (DECIDE 192)
 	params    []params.Entry
-	declare   map[string]VolumeConf
-	orphan    []store.Volume
-	creates   []store.Tile
-	updates   [][2]store.Tile // old, new
-	deletes   []store.Tile
-	domains   map[string]domainWork   // by tile slug
-	instances map[string]instanceWork // managed tiles whose allow or env_pairs moved, by slug
-	list      Lister                  // reads the config repo's tree at the pinned commit
-	sliced    []string                // slice tiles created or moved: their consumers redeploy
-	base      string                  // a PR env's base env slug; "" on a static env
-	redeploy  map[string]bool
-	unpin     map[string]bool // image tiles whose tag moved: run the tag, pin again
-	sync      bool
-	deployed  []string // tile ids rolled out, filled by apply
-	removed   []string // tile ids actually removed, filled by apply
-	owed      []string // tile ids a parked sync rollout still has to deploy
+	// paramScope (set by planParams) is where params land: the env's own scope.
+	paramScope params.Scope
+	prParams   []params.Entry // a static env's promote also writes the file's pr block to the stack pr scope
+	drops      []paramDrop    // names the file no longer sets
+	ticked     []string       // secret removal keys the caller ticked
+	declare    map[string]VolumeConf
+	orphan     []store.Volume
+	creates    []store.Tile
+	updates    [][2]store.Tile // old, new
+	deletes    []store.Tile
+	domains    map[string]domainWork   // by tile slug
+	instances  map[string]instanceWork // managed tiles whose allow or env_pairs moved, by slug
+	list       Lister                  // reads the config repo's tree at the pinned commit
+	sliced     []string                // slice tiles created or moved: their consumers redeploy
+	base       string                  // a PR env's base env slug; "" on a static env
+	redeploy   map[string]bool
+	unpin      map[string]bool // image tiles whose tag moved: run the tag, pin again
+	sync       bool
+	deployed   []string // tile ids rolled out, filled by apply
+	removed    []string // tile ids actually removed, filled by apply
+	owed       []string // tile ids a parked sync rollout still has to deploy
 }
 
 // instanceWork is a managed tile's allow list and env pairs as the file
@@ -949,53 +954,142 @@ func (f *Flow) planDeletes(ctx context.Context, p *Plan, w *work, live []store.T
 	return nil
 }
 
+// pscope is where this work's params land; a sync with no file never sets it.
+func (w *work) pscope() params.Scope {
+	if w.paramScope.Kind != "" {
+		return w.paramScope
+	}
+	return params.Scope{Kind: "env", ID: w.e.ID}
+}
+
+// paramDrop is a param the file no longer sets: apply deletes it. A secret
+// is an optional plan row (key) and goes only when ticked.
+type paramDrop struct {
+	scope      params.Scope
+	coll, name string
+	secret     bool
+	key        string
+}
+
+// planParams diffs the file's block for this env against the env's own scope
+// (a PR env too: its copy of the stack's pr block). A static env also diffs
+// the file's pr block against the stack's pr scope, the template new PR envs
+// copy. Everything in a file-bound scope is managed: a name the block does
+// not set is removed (see diffParams).
 func (f *Flow) planParams(ctx context.Context, p *Plan, w *work, r *Resolved) error {
-	have, err := f.D.Params.Values(ctx, params.Scope{Kind: "env", ID: w.e.ID}, true)
-	if err != nil {
-		return err
-	}
-	stackHave, err := f.D.Params.Values(ctx, params.Scope{Kind: "stack", ID: w.st.ID}, true)
-	if err != nil {
-		return err
-	}
-	for _, c := range slices.Sorted(maps.Keys(r.Params)) {
-		for _, n := range slices.Sorted(maps.Keys(r.Params[c])) {
-			decl, key := r.Params[c][n], c+"."+n
-			old, ok := have[key]
-			sv, atStack := stackHave[key]
-			switch {
-			case decl.Type == params.Param && ok && old.Secret:
-				p.block("params.%s is a secret; a secret is never turned back into a param", key)
-			case decl.Type == params.Secret && ok && !old.Secret:
-				p.add(Change{Kind: "param", Field: key, Note: "becomes a secret"})
-				w.params = append(w.params, params.Entry{Collection: c, Name: n, Kind: params.Secret})
-			case decl.Type == params.Secret && !ok:
-				if atStack {
-					break
-				}
-				if decl.Generate > 0 {
-					p.add(Change{Kind: "param", Field: key, Note: "generated"})
-					w.params = append(w.params, params.Entry{
-						Collection: c, Name: n, Kind: params.Secret, Value: params.Generate(decl.Generate),
-					})
-				} else {
-					p.Warnings = append(
-						p.Warnings,
-						"params."+key+" is declared and not set; tiles that read it wait until it is",
-					)
-				}
-			case decl.Type == params.Param && decl.Value != nil && !ok && atStack && !sv.Secret && sv.V == *decl.Value:
-				// the env inherits the same value from the stack
-			case decl.Type == params.Param && decl.Value != nil && (!ok || old.V != *decl.Value):
-				p.add(Change{Kind: "param", Field: key})
-				w.params = append(w.params, params.Entry{
-					Collection: c,
-					Name:       n,
-					Kind:       params.Param,
-					Value:      *decl.Value,
-				})
-			}
+	w.paramScope = params.Scope{Kind: "env", ID: w.e.ID}
+	if w.e.Type == environment.Ephemeral {
+		if err := f.diffParams(ctx, p, w, w.paramScope, r.Params[planfile.PR], true, "", &w.params); err != nil {
+			return err
 		}
+		return f.planLock(ctx, p, w)
+	}
+	if err := f.diffParams(ctx, p, w, w.paramScope, r.Params[w.e.Slug], false, "", &w.params); err != nil {
+		return err
+	}
+	pr := params.Scope{Kind: "stack_pr", ID: w.st.ID}
+	if err := f.diffParams(ctx, p, w, pr, r.Params[planfile.PR], false, planfile.PR, &w.prParams); err != nil {
+		return err
+	}
+	return f.planLock(ctx, p, w)
+}
+
+// diffParams diffs block against scope, appending the writes to out. A plain
+// value the panel holds differently is drift: the row shows both and applying
+// sets the file's. A secret has no value in the file, so it never drifts.
+// fromBranch (a PR env): a secret entry only declares, a missing one warns
+// and none is ever written; a value never comes from the branch.
+// A name the live scope holds and block does not set is a removal: plain
+// ones apply with the plan, secrets are optional rows that need a tick.
+// label names a non-env scope in the rows ("pr").
+func (f *Flow) diffParams(
+	ctx context.Context,
+	p *Plan,
+	w *work,
+	scope params.Scope,
+	block map[string]planfile.Entry,
+	fromBranch bool,
+	label string,
+	out *[]params.Entry,
+) error {
+	have, err := f.D.Params.Values(ctx, scope, true)
+	if err != nil {
+		return err
+	}
+	where := ""
+	if label != "" {
+		where = label + "."
+	}
+	for _, key := range slices.Sorted(maps.Keys(block)) {
+		decl := block[key]
+		c, n, _ := strings.Cut(key, ".")
+		old, ok := have[key]
+		switch {
+		case !decl.Secret && ok && old.Secret:
+			p.block("params.%s%s is a secret; a secret is never turned back into a param", where, key)
+		case decl.Secret && fromBranch && !ok:
+			p.Warnings = append(p.Warnings, "params."+key+" is declared and not set; tiles that read it wait until it is")
+		case decl.Secret && fromBranch:
+		case decl.Secret && ok && !old.Secret:
+			p.add(Change{Kind: "param", Field: where + key, Note: "becomes a secret"})
+			*out = append(*out, params.Entry{Collection: c, Name: n, Kind: params.Secret})
+		case decl.Secret && !ok && decl.Generate > 0:
+			p.add(Change{Kind: "param", Field: where + key, Note: "generated"})
+			*out = append(*out, params.Entry{
+				Collection: c, Name: n, Kind: params.Secret, Value: params.Generate(decl.Generate),
+			})
+		case decl.Secret && !ok:
+			p.Warnings = append(p.Warnings, "params."+where+key+" is declared and not set; tiles that read it wait until it is")
+		case decl.Secret:
+		case !ok:
+			p.add(Change{Kind: "param", Field: where + key, New: decl.Value})
+			*out = append(*out, params.Entry{Collection: c, Name: n, Kind: params.Param, Value: decl.Value})
+		case old.V != decl.Value:
+			p.add(Change{
+				Kind: "param", Field: where + key, Old: old.V, New: decl.Value,
+				Note: "panel has " + old.V + ", file says " + decl.Value,
+			})
+			*out = append(*out, params.Entry{Collection: c, Name: n, Kind: params.Param, Value: decl.Value})
+		}
+	}
+	for _, key := range slices.Sorted(maps.Keys(have)) {
+		if _, set := block[key]; set {
+			continue
+		}
+		c, n, _ := strings.Cut(key, ".")
+		d := paramDrop{scope: scope, coll: c, name: n, secret: have[key].Secret, key: "param:" + where + key}
+		ch := Change{Kind: "param", Field: where + key, Note: "removed: the file no longer sets it"}
+		if d.secret {
+			ch.Note = "secret removed: the file no longer sets it; a generated value cannot be recovered, tick to delete"
+			ch.Optional, ch.Key = true, d.key
+		} else {
+			ch.Old = have[key].V
+		}
+		p.add(ch)
+		w.drops = append(w.drops, d)
+	}
+	return nil
+}
+
+// planLock: a file lock that differs from the env's is a row that does not
+// apply; locking is a member's call, made in the panel (SetEnvLock). A tiered
+// env has its tier's lock, so the file's says nothing there.
+func (f *Flow) planLock(ctx context.Context, p *Plan, w *work) error {
+	if w.re == nil || w.re.Locked == nil || w.e.Type == environment.Ephemeral {
+		return nil
+	}
+	if _, in, err := f.D.Tiers.Of(ctx, w.st.OrgID, w.e.Slug); err != nil {
+		return err
+	} else if in {
+		p.Warnings = append(p.Warnings, "environments."+w.e.Slug+".locked is ignored; "+w.e.Slug+" is in an org tier, which holds the lock")
+		return nil
+	}
+	if *w.re.Locked != w.e.Locked {
+		word := func(l bool) string { return map[bool]string{true: "locked", false: "unlocked"}[l] }
+		p.add(Change{
+			Kind: "lock", Tile: w.e.Slug, Old: word(w.e.Locked), New: word(*w.re.Locked),
+			Note: "needs a member to apply in the panel",
+		})
 	}
 	return nil
 }
@@ -1187,19 +1281,17 @@ func builds(tc TileConf) bool {
 }
 
 func (f *Flow) resolver(ctx context.Context, w *work) (*params.Resolver, error) {
-	s := params.Snapshot{Env: w.e.Slug}
-	var err error
-	if s.EnvParams, err = f.D.Params.Values(ctx, params.Scope{Kind: "env", ID: w.e.ID}, true); err != nil {
-		return nil, err
-	}
-	if s.StackParams, err = f.D.Params.Values(ctx, params.Scope{Kind: "stack", ID: w.st.ID}, true); err != nil {
-		return nil, err
-	}
-	if s.OrgParams, err = f.D.Params.Values(ctx, params.Scope{Kind: "org", ID: w.st.OrgID}, true); err != nil {
+	s, err := f.D.ParamSnapshot(ctx, w.e, w.st, true)
+	if err != nil {
 		return nil, err
 	}
 	for _, e := range w.params { // this promote's own values count
 		s.EnvParams[e.Collection+"."+e.Name] = params.Value{V: e.Value, Secret: e.Kind == params.Secret}
+	}
+	for _, d := range w.drops { // and so do its plain removals
+		if !d.secret && d.scope == w.pscope() {
+			delete(s.EnvParams, d.coll+"."+d.name)
+		}
 	}
 	return params.NewResolver(s), nil
 }

@@ -103,6 +103,27 @@ func (a *app) path(c *cobra.Command, lv level, tile string) (string, error) {
 // level that does not resolve is an error, never a quieter level.
 // Unnamed, the most specific one given or linked.
 func (a *app) levelPath(c *cobra.Command) (string, error) {
+	t, pr, lv := flag(c, "tier"), flag(c, "pr") == "true", flag(c, "level")
+	switch {
+	case t != "" && pr:
+		return "", usage("--tier and --pr are different scopes; pass one")
+	case (t != "" || pr) && (flag(c, "env") != "" || lv == "env"):
+		return "", usage("--tier and --pr name the scope themselves; drop --env and --level env")
+	case t != "" && lv != "" && lv != "org", pr && lv != "" && lv != "org" && lv != "stack":
+		return "", usage("--tier and --pr do not combine with --level %s", lv)
+	}
+	if t != "" {
+		p, err := a.orgPath()
+		return p + "/tiers/" + url.PathEscape(t), err
+	}
+	if pr { // the stack's PR block, or the org's with --level org
+		if lv != "org" {
+			p, err := a.path(c, atStack, "")
+			return p + "/pr", err
+		}
+		p, err := a.orgPath()
+		return p + "/pr", err
+	}
 	switch lv := flag(c, "level"); lv {
 	case "org":
 		return a.path(c, atOrg, "")
@@ -124,8 +145,35 @@ func (a *app) levelPath(c *cobra.Command) (string, error) {
 	return a.path(c, atOrg, "")
 }
 
-func levelFlag(c *cobra.Command) *cobra.Command {
-	c.PersistentFlags().String("level", "", "org, stack, env or server (default: the most specific given or linked)")
+// paramsPath is levelPath for params: a stack holds no params of its own, so
+// a stack with no env named is asked to pick one.
+func (a *app) paramsPath(c *cobra.Command) (string, error) {
+	switch flag(c, "level") {
+	case "stack":
+		if flag(c, "pr") == "true" {
+			break
+		}
+		return "", usage("a stack has no params of its own; use --env, --pr, or --level org")
+	case "":
+		if flag(c, "tier") == "" && flag(c, "pr") != "true" {
+			if p, err := a.path(c, atEnv, ""); err == nil {
+				return p, nil
+			}
+			if _, err := a.path(c, atStack, ""); err == nil {
+				return "", usage("a stack has no params of its own; pick --env, --pr, or --level org")
+			}
+		}
+	}
+	return a.levelPath(c)
+}
+
+// levelFlag adds --level; params also get --tier and --pr (volumes have none).
+func levelFlag(c *cobra.Command, params bool) *cobra.Command {
+	c.PersistentFlags().String("level", "", "org, env or server (stack too, for volumes); default: the env given or linked, else the org")
+	if params {
+		c.PersistentFlags().String("tier", "", "an org tier's params")
+		c.PersistentFlags().Bool("pr", false, "the PR block: the stack's (--stack or linked), else with --level org the org's")
+	}
 	return scoped(c, false)
 }
 

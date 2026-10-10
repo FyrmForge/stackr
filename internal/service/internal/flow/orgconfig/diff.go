@@ -22,13 +22,15 @@ import (
 
 // Change is one line of a plan, planfile's shape. Kind is org, param,
 // param-update, defaults, colors, create, rebind, rename, domain,
-// domain-update, share, share-update or share-delete; create, domain, param
-// and share add, the rest change. Tile names the stack or host the line is
-// about.
+// domain-update, share, share-update, share-delete, tier, tier-rename,
+// tier-lock, tier-order, tier-delete or param-remove; create, domain, param, share and tier
+// add, the rest change. Tile names the stack, host or tier the line is about;
+// a param row names its env key there: a tier, pr, or all without tiers.
 type Change = planfile.Change
 
 // Plan is what applying the file would do, in the order apply walks it:
-// moved: renames, the org, params, defaults, colors, stacks, domains, shares.
+// moved: renames, the org, tiers, params, defaults, colors, stacks, domains,
+// shares.
 // Blockers refuse the apply; Notes do not.
 type Plan struct{ planfile.Plan }
 
@@ -43,7 +45,7 @@ func (p *Plan) add(c Change) { p.Changes = append(p.Changes, c) }
 func (p *Plan) Summary() string {
 	return p.Plan.Summary(func(kind string) bool {
 		switch kind {
-		case "create", "domain", "param", "share":
+		case "create", "domain", "param", "share", "tier":
 			return true
 		}
 		return false
@@ -54,15 +56,19 @@ func (p *Plan) Summary() string {
 // The org's settings and env colors are read off Org.
 type Live struct {
 	Org        store.Org
-	Orgs       []store.Org             // every org: the rename and squat checks
-	Claims     []org.Claim             // every domain on the server and its org: the rename check
-	Stacks     []StackLive             // the org's stacks
-	Params     map[string]params.Value // the org's own params, keyed collection.name
-	Domains    []store.DomainResource  // every domain resource on the server
-	Routes     []store.Route           // every external route: a domain resource may not sit on one
-	Connectors []store.Connector       // the org's connected connectors
-	Shares     []store.Share           // the org's network shares
-	ShareUsers map[string][]string     // share slug -> slugs of the tiles whose lines mount it
+	Orgs       []store.Org                        // every org: the rename and squat checks
+	Claims     []org.Claim                        // every domain on the server and its org: the rename check
+	Stacks     []StackLive                        // the org's stacks
+	Params     map[string]params.Value            // the org's own params, keyed collection.name
+	Tiers      []store.Tier                       // bottom first
+	TierParams map[string]map[string]params.Value // tier slug -> its params
+	PRParams   map[string]params.Value            // the org's pr block
+	TierUsers  map[string][]string                // tier slug -> "stack/env" of the stack envs in it
+	Domains    []store.DomainResource             // every domain resource on the server
+	Routes     []store.Route                      // every external route: a domain resource may not sit on one
+	Connectors []store.Connector                  // the org's connected connectors
+	Shares     []store.Share                      // the org's network shares
+	ShareUsers map[string][]string                // share slug -> slugs of the tiles whose lines mount it
 }
 
 // StackLive is one stack.
@@ -81,8 +87,23 @@ func Diff(f *File, live Live) Plan {
 		stacks[s.Stack.Slug] = s
 	}
 	p.moved(f.Moved, stacks)
+	tiers, tierParams := p.movedTiers(f.Moved, live)
 	p.org(f.Org, live)
-	p.params(f.Params, live.Params)
+	// Every scope the file manages: a name it does not set is removed.
+	scopes := map[string]map[string]params.Value{planfile.PR: live.PRParams}
+	if len(f.Tiers) > 0 {
+		p.tiers(f.Tiers, tiers, live)
+		for _, t := range f.Tiers { // a tier the file drops goes with its params
+			scopes[t.Slug] = tierParams[t.Slug]
+		}
+	} else {
+		if len(tiers) > 0 {
+			// no tiers: block against live tiers drops them all
+			p.tiers(nil, tiers, live)
+		}
+		scopes[All] = live.Params
+	}
+	p.tierParams(f.Blocks(), scopes)
 	if f.Defaults != nil {
 		have, _ := settings.Parse(live.Org.Settings)
 		// Applied from f too, so an omitted secret pair keeps its live value.
@@ -117,6 +138,9 @@ func Diff(f *File, live Live) Plan {
 // diff sees it under its new slug (DECIDE 184).
 func (p *Plan) moved(moves []Move, stacks map[string]StackLive) {
 	for _, m := range moves {
+		if !strings.HasPrefix(m.From, "stack.") {
+			continue
+		}
 		_, from, _ := strings.Cut(m.From, ".")
 		_, to, _ := strings.Cut(m.To, ".")
 		_, hasFrom := stacks[from]
@@ -141,6 +165,40 @@ func (p *Plan) moved(moves []Move, stacks map[string]StackLive) {
 		stacks[to] = s
 		delete(stacks, from)
 	}
+}
+
+// movedTiers is moved for tier.<slug> entries: the tiers and their params as
+// the rest of the diff sees them, under their new slugs.
+func (p *Plan) movedTiers(moves []Move, live Live) ([]store.Tier, map[string]map[string]params.Value) {
+	tiers := slices.Clone(live.Tiers)
+	vals := maps.Clone(live.TierParams)
+	if vals == nil {
+		vals = map[string]map[string]params.Value{}
+	}
+	for _, m := range moves {
+		if !strings.HasPrefix(m.From, "tier.") {
+			continue
+		}
+		_, from, _ := strings.Cut(m.From, ".")
+		_, to, _ := strings.Cut(m.To, ".")
+		i := slices.IndexFunc(tiers, func(t store.Tier) bool { return t.Slug == from })
+		j := slices.IndexFunc(tiers, func(t store.Tier) bool { return t.Slug == to })
+		switch {
+		case i >= 0 && j >= 0:
+			p.block("moved: %s and %s both exist; delete one by hand first", m.From, m.To)
+		case i < 0 && j < 0:
+			p.block("moved: neither %s nor %s exists", m.From, m.To)
+		case i >= 0:
+			if users := live.TierUsers[from]; len(users) > 0 {
+				p.block("moved: %s is still the tier of %s; rename those envs first", m.From, strings.Join(users, ", "))
+			}
+			p.add(Change{Kind: "tier-rename", Old: from, New: to, Impact: "envs named " + from + " leave the tier"})
+			tiers[i].Slug = to
+			vals[to] = vals[from]
+			delete(vals, from)
+		}
+	}
+	return tiers, vals
 }
 
 // org renames when the name differs. A slug move is blocked when another
@@ -172,38 +230,114 @@ func (p *Plan) org(name string, live Live) {
 	}
 }
 
-// params creates (param) and updates (param-update), never deletes (DECIDE
-// 185); a secret is never turned back into a param. A param's row carries
-// its new value; a secret's value is never in the file, so never in a row.
-func (p *Plan) params(decls map[string]map[string]Param, have map[string]params.Value) {
-	for _, c := range slices.Sorted(maps.Keys(decls)) {
-		for _, n := range slices.Sorted(maps.Keys(decls[c])) {
-			decl, key := decls[c][n], c+"."+n
+// tiers makes the ladder the file names. New tiers start locked and sit on
+// top, so a file that puts one lower is a tier-order row. A tier the file
+// drops is a removal row, and a blocker while a stack env still has its slug.
+func (p *Plan) tiers(want Tiers, have []store.Tier, live Live) {
+	if len(have) == 0 {
+		p.Notes = append(p.Notes, "org-wide params stop being read once tiers exist")
+	}
+	if len(want) == 0 && len(have) > 0 {
+		p.Notes = append(p.Notes, "org-wide params are read again once the last tier goes")
+	}
+	haveBy := map[string]store.Tier{}
+	var order []string // the ladder as it will stand after the creates
+	for _, t := range have {
+		haveBy[t.Slug] = t
+		if slices.ContainsFunc(want, func(w Tier) bool { return w.Slug == t.Slug }) {
+			order = append(order, t.Slug)
+		}
+	}
+	for _, w := range want {
+		t, ok := haveBy[w.Slug]
+		if !ok {
+			// a new tier starts locked; its tier-lock row below carries any unlock impact
+			p.add(Change{Kind: "tier", Tile: w.Slug})
+			order = append(order, w.Slug)
+			t.Locked = true
+		}
+		if t.Locked != w.Locked {
+			c := Change{Kind: "tier-lock", Tile: w.Slug, Old: lockWord(t.Locked), New: lockWord(w.Locked)}
+			if !w.Locked {
+				c.Impact = w.Slug + " becomes readable from other envs"
+			}
+			p.add(c)
+		}
+	}
+	for _, t := range have {
+		if slices.ContainsFunc(want, func(w Tier) bool { return w.Slug == t.Slug }) {
+			continue
+		}
+		if users := live.TierUsers[t.Slug]; len(users) > 0 {
+			p.block("tiers: %s is still the tier of %s; rename those envs or keep the tier", t.Slug, strings.Join(users, ", "))
+		}
+		p.add(Change{
+			Kind:     "tier-delete",
+			Tile:     t.Slug,
+			Note:     "the tier and its params go; its envs keep running",
+			Optional: true,
+			Key:      "tier:" + t.Slug,
+		})
+	}
+	if !slices.Equal(order, want.Slugs()) {
+		p.add(Change{Kind: "tier-order", Old: strings.Join(order, ", "), New: strings.Join(want.Slugs(), ", ")})
+	}
+}
+
+func lockWord(locked bool) string {
+	if locked {
+		return "locked"
+	}
+	return "unlocked"
+}
+
+// tierParams diffs each env key's block (a tier, all or pr) against the live
+// values of its scope. A plain value the panel holds differently is drift: the
+// row shows both and applying sets the file's. A secret has no value in the
+// file, so it never drifts. A tier the file creates has no live values yet.
+// A live name the file does not set is a removal row: a plain one applies
+// with the plan, a secret needs a tick (a generated one cannot be recovered).
+func (p *Plan) tierParams(blocks map[string]map[string]planfile.Entry, scopes map[string]map[string]params.Value) {
+	envs := slices.Sorted(maps.Keys(blocks))
+	for env := range scopes {
+		if !slices.Contains(envs, env) {
+			envs = append(envs, env)
+		}
+	}
+	slices.Sort(envs)
+	for _, env := range envs {
+		have, block := scopes[env], blocks[env]
+		for _, key := range slices.Sorted(maps.Keys(block)) {
+			decl := block[key]
 			old, ok := have[key]
 			switch {
-			case decl.Type == params.Param && ok && old.Secret:
-				p.block("params.%s is a secret; a secret is never turned back into a param", key)
-			case decl.Type == params.Secret && ok && !old.Secret:
+			case !decl.Secret && ok && old.Secret:
+				p.block("params.%s (%s) is a secret; a secret is never turned back into a param", key, env)
+			case decl.Secret && ok && !old.Secret:
+				p.add(Change{Kind: "param-update", Tile: env, Field: key, Note: "becomes a secret"})
+			case decl.Secret && !ok && decl.Generate > 0:
+				p.add(Change{Kind: "param", Tile: env, Field: key, Note: "generated"})
+			case decl.Secret && !ok:
+				p.Notes = append(p.Notes, "params."+key+" ("+env+") is declared and not set; tiles that read it wait until it is")
+			case decl.Secret:
+			case !ok:
+				p.add(Change{Kind: "param", Tile: env, Field: key, New: decl.Value})
+			case old.V != decl.Value:
 				p.add(Change{
-					Kind:  "param-update",
-					Field: key,
-					Note:  "becomes a secret",
-				})
-			case decl.Type == params.Secret && !ok:
-				p.Notes = append(p.Notes, "params."+key+" is declared and not set; tiles that read it wait until it is")
-			case decl.Type == params.Param && decl.Value != nil && !ok:
-				p.add(Change{
-					Kind:  "param",
-					Field: key,
-					New:   *decl.Value,
-				})
-			case decl.Type == params.Param && decl.Value != nil && old.V != *decl.Value:
-				p.add(Change{
-					Kind:  "param-update",
-					Field: key,
-					New:   *decl.Value,
+					Kind: "param-update", Tile: env, Field: key, Old: old.V, New: decl.Value,
+					Note: "panel has " + old.V + ", file says " + decl.Value,
 				})
 			}
+		}
+		for _, key := range slices.Sorted(maps.Keys(have)) {
+			if _, ok := block[key]; ok {
+				continue
+			}
+			c := Change{Kind: "param-remove", Tile: env, Field: key, Note: "the file does not set it"}
+			if have[key].Secret {
+				c.Optional, c.Key = true, "param-remove:"+env+":"+key
+			}
+			p.add(c)
 		}
 	}
 }

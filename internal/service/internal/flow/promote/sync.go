@@ -141,6 +141,10 @@ func (f *Flow) syncEnvs(ctx context.Context, envID, fromID string) (e, src store
 	if src, err = d.Envs.Get(ctx, fromID); err != nil {
 		return
 	}
+	if e.Type == environment.Ephemeral {
+		err = errs.Conflictf("%s is a PR env; it is built from its pull request, so nothing syncs into it", e.Slug)
+		return
+	}
 	st, err = d.Stacks.Get(ctx, e.StackID)
 	return
 }
@@ -462,7 +466,7 @@ func rowMap(blob string) map[string]string {
 }
 
 // syncParams: a plain param a kept row reads that the env lacks is copied
-// with its value; a secret is a warning unless the stack shares it. A name
+// with its value; a secret is a warning. A name
 // already set in the env keeps its value.
 func (f *Flow) syncParams(
 	ctx context.Context,
@@ -509,10 +513,6 @@ func (f *Flow) syncParams(
 	if err != nil {
 		return err
 	}
-	shared, err := vals("stack", w.st.ID)
-	if err != nil {
-		return err
-	}
 	for _, key := range slices.Sorted(maps.Keys(reads)) {
 		r := reads[key]
 		sv, ok := from[key]
@@ -521,9 +521,6 @@ func (f *Flow) syncParams(
 			continue
 		}
 		if sv.Secret {
-			if _, inStack := shared[key]; inStack {
-				continue
-			}
 			p.Warnings = append(p.Warnings, fmt.Sprintf(
 				"params.%s is a secret and is not set in %s; %s read it", key, w.e.Slug, strings.Join(r.tiles, ", ")))
 			continue
@@ -723,10 +720,8 @@ func (w *work) sig() string {
 // which owns pins and the first-run derive.
 func (f *Flow) applySync(ctx context.Context, w *work, log io.Writer, swap func() error) error {
 	d, e := f.D, w.e
-	if len(w.params) > 0 {
-		if err := d.Params.Merge(ctx, params.Scope{Kind: "env", ID: e.ID}, w.params); err != nil {
-			return err
-		}
+	if err := f.applyParams(ctx, w); err != nil {
+		return err
 	}
 	scope := volume.Scope{Kind: "env", ID: e.ID}
 	for _, n := range slices.Sorted(maps.Keys(w.declare)) {

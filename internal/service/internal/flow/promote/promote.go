@@ -41,6 +41,10 @@ type Flow struct {
 	// RouteHeld reports whether an external route holds a host: a stack
 	// file domain on it is blocked, as a UI domain is refused.
 	RouteHeld func(ctx context.Context, host string) (bool, error)
+	// WriteParams runs a params write through the service's change path, so
+	// readers in other envs than skipEnv (the env being rolled out) redeploy.
+	// Nil runs the write as is.
+	WriteParams func(ctx context.Context, s params.Scope, skipEnv string, write func() error) error
 	// Build builds one service tile at a commit and returns the image row id.
 	Build func(ctx context.Context, st store.Stack, t store.Tile, commit string, log io.Writer) (string, error)
 }
@@ -54,10 +58,17 @@ func (f *Flow) Plan(ctx context.Context, envID, releaseID string, log io.Writer)
 // Apply promotes. Blocked: a conflict naming every blocker, the same text
 // the dry run shows.
 func (f *Flow) Apply(ctx context.Context, envID, releaseID string, log io.Writer, swap func() error) (*Plan, error) {
+	return f.ApplyTicked(ctx, envID, releaseID, nil, log, swap)
+}
+
+// ApplyTicked is Apply with the secret removal rows (Change.Key) the caller
+// ticked; an unticked one stays.
+func (f *Flow) ApplyTicked(ctx context.Context, envID, releaseID string, ticked []string, log io.Writer, swap func() error) (*Plan, error) {
 	p, w, err := f.plan(ctx, envID, releaseID, log)
 	if err != nil {
 		return nil, err
 	}
+	w.ticked = ticked
 	if p.Blocked() {
 		if err := needsApproval(p, w.st); err != nil {
 			return p, err
@@ -77,6 +88,48 @@ func (f *Flow) Apply(ctx context.Context, envID, releaseID string, log io.Writer
 	err = f.apply(ctx, w, log, late)
 	p.Deployed, p.Removed = w.deployed, w.removed
 	return p, err
+}
+
+// applyParams writes the work's params: the env's own scope and, for a static
+// env, the stack's pr scope. Plain removals go with the plan, a secret only
+// when ticked. Each scope is one write through WriteParams, so readers in
+// other envs redeploy and a changed pr secret reaches the open PR envs.
+func (f *Flow) applyParams(ctx context.Context, w *work) error {
+	for _, g := range []struct {
+		scope params.Scope
+		es    []params.Entry
+	}{{w.pscope(), w.params}, {params.Scope{Kind: "stack_pr", ID: w.st.ID}, w.prParams}} {
+		var drops []paramDrop
+		for _, d := range w.drops {
+			if d.scope == g.scope && (!d.secret || slices.Contains(w.ticked, d.key)) {
+				drops = append(drops, d)
+			}
+		}
+		if len(g.es) == 0 && len(drops) == 0 {
+			continue
+		}
+		write := func() error {
+			if len(g.es) > 0 {
+				if err := f.D.Params.Merge(ctx, g.scope, g.es); err != nil {
+					return err
+				}
+			}
+			for _, d := range drops {
+				if err := f.D.Params.Delete(ctx, g.scope, d.coll, d.name); err != nil && !errors.Is(err, errs.ErrNotFound) {
+					return err
+				}
+			}
+			return nil
+		}
+		if f.WriteParams == nil {
+			if err := write(); err != nil {
+				return err
+			}
+		} else if err := f.WriteParams(ctx, g.scope, w.e.ID, write); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (f *Flow) apply(ctx context.Context, w *work, log io.Writer, swap func() error) error {
@@ -124,10 +177,8 @@ func (f *Flow) apply(ctx context.Context, w *work, log io.Writer, swap func() er
 			return fmt.Errorf("domains: %s: %w", r.Host, err)
 		}
 	}
-	if len(w.params) > 0 {
-		if err := d.Params.Merge(ctx, params.Scope{Kind: "env", ID: e.ID}, w.params); err != nil {
-			return err
-		}
+	if err := f.applyParams(ctx, w); err != nil {
+		return err
 	}
 	scope := volume.Scope{Kind: "env", ID: e.ID}
 	for _, n := range slices.Sorted(maps.Keys(w.declare)) {

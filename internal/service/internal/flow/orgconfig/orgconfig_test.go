@@ -2,6 +2,7 @@ package orgconfig_test
 
 import (
 	"encoding/json"
+	"go.yaml.in/yaml/v3"
 	"reflect"
 	"slices"
 	"strings"
@@ -63,15 +64,6 @@ func live() orgconfig.Live {
 					ID:   "s2",
 					Slug: "legacy",
 				},
-			},
-		},
-		Params: map[string]params.Value{
-			"email.sender": {
-				V: "old@acme.test",
-			},
-			"email.api_key": {
-				V:      "k",
-				Secret: true,
 			},
 		},
 		Domains: []store.DomainResource{
@@ -150,15 +142,18 @@ func TestDiff(t *testing.T) {
 		},
 		{
 			name: "param created with its value",
+			live: withParams,
 			file: v1 + `params:
   email:
-    from:
-      type: param
-      value: noreply@acme.test
+    all:
+      from: noreply@acme.test
+      sender: old@acme.test
+      api_key: {type: secret}
 `,
 			changes: []orgconfig.Change{
 				{
 					Kind:  "param",
+					Tile:  "all",
 					Field: "email.from",
 					New:   "noreply@acme.test",
 				},
@@ -166,30 +161,37 @@ func TestDiff(t *testing.T) {
 		},
 		{
 			name: "param value changed",
+			live: withParams,
 			file: v1 + `params:
   email:
-    sender:
-      type: param
-      value: new@acme.test
+    all:
+      sender: new@acme.test
+      api_key: {type: secret}
 `,
 			changes: []orgconfig.Change{
 				{
 					Kind:  "param-update",
+					Tile:  "all",
 					Field: "email.sender",
+					Old:   "old@acme.test",
 					New:   "new@acme.test",
+					Note:  "panel has old@acme.test, file says new@acme.test",
 				},
 			},
 		},
 		{
 			name: "a param that becomes a secret carries no value",
+			live: withParams,
 			file: v1 + `params:
   email:
-    sender:
-      type: secret
+    all:
+      sender: {type: secret}
+      api_key: {type: secret}
 `,
 			changes: []orgconfig.Change{
 				{
 					Kind:  "param-update",
+					Tile:  "all",
 					Field: "email.sender",
 					Note:  "becomes a secret",
 				},
@@ -197,20 +199,24 @@ func TestDiff(t *testing.T) {
 		},
 		{
 			name: "secret declared without a value is a note",
+			live: withParams,
 			file: v1 + `params:
   email:
-    token:
-      type: secret
+    all:
+      token: {type: secret}
+      sender: old@acme.test
+      api_key: {type: secret}
 `,
-			note: "params.email.token is declared and not set",
+			note: "params.email.token (all) is declared and not set",
 		},
 		{
 			name: "a secret is never turned back into a param",
+			live: withParams,
 			file: v1 + `params:
   email:
-    api_key:
-      type: param
-      value: k
+    all:
+      api_key: k
+      sender: old@acme.test
 `,
 			blocker: "never turned back",
 		},
@@ -630,11 +636,10 @@ func TestParseRefuses(t *testing.T) {
 			name: "a secret with a value",
 			file: v1 + `params:
   email:
-    token:
-      type: secret
-      value: x
+    all:
+      token: {type: secret, value: x}
 `,
-			want: "its value never goes in the file",
+			want: "unknown key value",
 		},
 	} {
 		t.Run(c.name, func(t *testing.T) {
@@ -677,7 +682,7 @@ func TestPlanJSONAndSummary(t *testing.T) {
 			"org: another organization already uses the slug \"globex\"",
 		},
 		Notes: []string{
-			"params.email.token is declared and not set",
+			"params.email.token (all) is declared and not set",
 		},
 	}}
 	b, err := json.Marshal(p)
@@ -723,5 +728,254 @@ func TestSummaryCountsRemovalRows(t *testing.T) {
 	}}}
 	if s := p.Summary(); s != "1 to add, 1 removal to review" {
 		t.Errorf("summary = %q", s)
+	}
+}
+
+// withParams gives the org two live org-wide params, one of them a secret.
+func withParams(l *orgconfig.Live) {
+	l.Params = map[string]params.Value{
+		"email.sender":  {V: "old@acme.test"},
+		"email.api_key": {V: "k", Secret: true},
+	}
+}
+
+func TestParseTiersAndParams(t *testing.T) {
+	tiers := "tiers:\n  dev: {locked: false}\n  staging: {locked: true}\n  prod:\n"
+	f, err := orgconfig.Parse([]byte(v1 + tiers + "params:\n  smtp:\n    dev|staging:\n      host: h\n      pw: {type: secret}\n    prod:\n      pw: {type: secret, generate: 32}\n    pr:\n      host: sandbox\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := f.Tiers; !reflect.DeepEqual(got, orgconfig.Tiers{{"dev", false}, {"staging", true}, {"prod", true}}) {
+		t.Errorf("tiers = %+v", got)
+	}
+	if f.Params.Tiered["smtp"]["dev|staging"]["host"].Value != "h" {
+		t.Errorf("params = %+v", f.Params)
+	}
+	out, err := yaml.Marshal(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	g, err := orgconfig.Parse(out)
+	if err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	if !reflect.DeepEqual(f.Tiers, g.Tiers) || !reflect.DeepEqual(f.Params.Tiered, g.Params.Tiered) ||
+		strings.Index(string(out), "dev:") > strings.Index(string(out), "staging:") {
+		t.Errorf("round trip:\n%s", out)
+	}
+
+	// No tiers: the same shape with the env keys all and pr, and it round trips.
+	w, err := orgconfig.Parse([]byte(v1 + "params:\n  smtp:\n    all:\n      host: h\n      pw: {type: secret}\n    pr:\n      host: sandbox\n"))
+	if err != nil || w.Params.Tiered["smtp"]["all"]["host"].Value != "h" || w.Blocks()["pr"]["smtp.host"].Value != "sandbox" {
+		t.Fatalf("untiered = %+v, %v", w.Params, err)
+	}
+	out, _ = yaml.Marshal(w)
+	if w2, err := orgconfig.Parse(out); err != nil || !reflect.DeepEqual(w.Params.Tiered, w2.Params.Tiered) {
+		t.Errorf("untiered round trip: %v\n%s", err, out)
+	}
+	if n, _ := yaml.Marshal(orgconfig.File{Version: 1, Org: "Acme"}); strings.Contains(string(n), "params") || strings.Contains(string(n), "tiers") {
+		t.Errorf("empty file prints %s", n)
+	}
+
+	for name, c := range map[string]struct{ src, want string }{
+		"unknown tier":  {tiers + "params:\n  a:\n    demo:\n      x: y\n", `"demo" is not a tier of this org`},
+		"old shape":     {tiers + "params:\n  a:\n    x: {type: param, value: y}\n", `"x" is not a tier of this org`},
+		"tier key none": {"params:\n  a:\n    dev:\n      x: y\n", `"dev" is not an env key of an org with no tiers`},
+		"old wide":      {"params:\n  a:\n    x: {type: param, value: y}\n", `"x" is not an env key of an org with no tiers`},
+		"all, tiered":   {tiers + "params:\n  a:\n    all:\n      x: y\n", "all is for an org with no tiers"},
+		"all as tier":   {"tiers:\n  all: {}\n", "not a tier slug"},
+		"conflict":      {tiers + "params:\n  a:\n    dev|prod:\n      x: y\n    prod:\n      x: z\n", `by both "dev|prod" and "prod"`},
+		"pr tier":       {"tiers:\n  pr: {locked: true}\n", "pr is reserved"},
+		"tier twice":    {"tiers:\n  dev: {}\n  dev: {}\n", "declared twice"},
+		"bad slug":      {"tiers:\n  Dev: {}\n", "not a tier slug"},
+		"tier key":      {"tiers:\n  dev: {lock: true}\n", "unknown key lock"},
+		"tiers a list":  {"tiers: [dev]\n", "tiers is a map"},
+	} {
+		if _, err := orgconfig.Parse([]byte(v1 + c.src)); err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("%s: err = %v, want %q", name, err, c.want)
+		}
+	}
+}
+
+// tiersLive is acme with tiers dev (open) and prod (locked), a stack env in
+// prod, and values in both blocks and pr.
+func tiersLive() orgconfig.Live {
+	l := live()
+	l.Tiers = []store.Tier{{ID: "t1", Slug: "dev", Position: 0}, {ID: "t2", Slug: "prod", Position: 1, Locked: true}}
+	l.TierParams = map[string]map[string]params.Value{
+		"dev":  {"smtp.host": {V: "d"}, "smtp.pw": {V: "x", Secret: true}},
+		"prod": {"smtp.host": {V: "p"}},
+	}
+	l.PRParams = map[string]params.Value{"smtp.host": {V: "sandbox"}}
+	l.TierUsers = map[string][]string{"prod": {"shop/prod"}}
+	return l
+}
+
+func rowKinds(p orgconfig.Plan) string {
+	var ks []string
+	for _, c := range p.Changes {
+		ks = append(ks, c.Kind+":"+c.Tile+c.Field+c.Old+">"+c.New)
+	}
+	return strings.Join(ks, " ")
+}
+
+func TestDiffTiers(t *testing.T) {
+	parse := func(body string) *orgconfig.File {
+		f, err := orgconfig.Parse([]byte(v1 + body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return f
+	}
+	same := "tiers:\n  dev: {locked: false}\n  prod: {locked: true}\nparams:\n  smtp:\n    dev:\n      host: d\n      pw: {type: secret}\n    prod:\n      host: p\n    pr:\n      host: sandbox\n"
+	if p := orgconfig.Diff(parse(same), tiersLive()); len(p.Changes) != 0 || p.Blocked() || len(p.Notes) != 0 {
+		t.Errorf("same file: %s %v %v", rowKinds(p), p.Blockers, p.Notes)
+	}
+
+	for name, c := range map[string]struct{ file, want string }{
+		"lock":   {strings.Replace(same, "dev: {locked: false}", "dev: {locked: true}", 1), "tier-lock:devunlocked>locked"},
+		"order":  {strings.Replace(same, "  dev: {locked: false}\n  prod: {locked: true}\n", "  prod: {locked: true}\n  dev: {locked: false}\n", 1), "tier-order:dev, prod>prod, dev"},
+		"create": {strings.Replace(same, "  prod: {locked: true}\n", "  prod: {locked: true}\n  qa: {locked: false}\n", 1), "tier:qa> tier-lock:qalocked>unlocked"},
+		"drift":  {strings.Replace(same, "host: d", "host: new", 1), "param-update:devsmtp.hostd>new"},
+		"add":    {same + "    dev|prod:\n      region: eu\n", "param:devsmtp.region>eu param:prodsmtp.region>eu"},
+		"pr":     {strings.Replace(same, "host: sandbox", "host: other", 1), "param-update:prsmtp.hostsandbox>other"},
+		"secret": {strings.Replace(same, "      host: p\n", "      host: p\n      pw: {type: secret}\n", 1), ""},
+	} {
+		p := orgconfig.Diff(parse(c.file), tiersLive())
+		if got := rowKinds(p); got != c.want {
+			t.Errorf("%s: rows = %q, want %q (blockers %v)", name, got, c.want, p.Blockers)
+		}
+	}
+
+	// A dropped tier is a removal row, and a blocker while a stack env has its slug.
+	devOnly := "tiers:\n  dev: {locked: false}\nparams:\n  smtp:\n    dev:\n      host: d\n      pw: {type: secret}\n    pr:\n      host: sandbox\n"
+	p := orgconfig.Diff(parse(devOnly), tiersLive())
+	if len(p.Removals()) != 1 || p.Removals()[0].Key != "tier:prod" || len(p.Blockers) != 1 ||
+		!strings.Contains(p.Blockers[0], "shop/prod") {
+		t.Errorf("drop prod: rows %s, blockers %v", rowKinds(p), p.Blockers)
+	}
+	l := tiersLive()
+	l.TierUsers = nil
+	if p := orgconfig.Diff(parse(devOnly), l); p.Blocked() || len(p.Removals()) != 1 {
+		t.Errorf("drop unused prod: %s %v", rowKinds(p), p.Blockers)
+	}
+
+	// The plan that adds the first tier warns; tier-less files keep the wide shape.
+	l = live()
+	p = orgconfig.Diff(parse("tiers:\n  dev:\n"), l)
+	if !slices.ContainsFunc(p.Notes, func(n string) bool { return strings.Contains(n, "org-wide params stop being read") }) ||
+		rowKinds(p) != "tier:dev>" {
+		t.Errorf("first tier: %s %v", rowKinds(p), p.Notes)
+	}
+	// Unlocks, unlocked new tiers and renames carry an impact, so none is auto;
+	// locking carries none.
+	ladder := "tiers:\n  dev: {locked: false}\n  prod: {locked: true}\n"
+	keep := "params:\n  smtp:\n    dev:\n      host: d\n      pw: {type: secret}\n    prod:\n      host: p\n    pr:\n      host: sandbox\n"
+	for name, c := range map[string]struct {
+		file   string
+		impact bool
+	}{
+		"unlock":     {strings.Replace(ladder, "prod: {locked: true}", "prod: {locked: false}", 1), true},
+		"new open":   {ladder + "  qa: {locked: false}\n", true},
+		"lock":       {strings.Replace(ladder, "dev: {locked: false}", "dev: {locked: true}", 1), false},
+		"new locked": {ladder + "  qa: {locked: true}\n", false},
+	} {
+		if p := orgconfig.Diff(parse(c.file+keep), tiersLive()); p.AutoOK() == c.impact {
+			t.Errorf("%s: AutoOK = %v, rows %s", name, p.AutoOK(), rowKinds(p))
+		}
+	}
+	// No tiers: block drops every live tier, blocked while stack envs carry the slug.
+	for _, body := range []string{"", "tiers:\n"} {
+		p = orgconfig.Diff(parse(body), tiersLive())
+		if len(p.Removals()) != 2 || len(p.Blockers) != 1 || !strings.Contains(p.Blockers[0], "shop/prod") ||
+			!slices.ContainsFunc(p.Notes, func(n string) bool { return strings.Contains(n, "read again") }) {
+			t.Errorf("no tiers %q: rows %s, blockers %v, notes %v", body, rowKinds(p), p.Blockers, p.Notes)
+		}
+	}
+	l = tiersLive()
+	l.TierUsers = nil
+	if p = orgconfig.Diff(parse(""), l); p.Blocked() || len(p.Removals()) != 2 {
+		t.Errorf("no tiers, none in use: %s %v", rowKinds(p), p.Blockers)
+	}
+	// A param a tiered file does not set is a removal row: plain applies with
+	// the plan, a secret needs a tick; a dropped tier's params go with it; the
+	// org scope is not read by a tiered org, so it is not managed.
+	l = tiersLive()
+	l.Params = map[string]params.Value{"x.y": {V: "z"}}
+	p = orgconfig.Diff(parse(strings.Replace(same, "      pw: {type: secret}\n", "", 1)), l)
+	if got := rowKinds(p); got != "param-remove:devsmtp.pw>" || len(p.Removals()) != 1 || p.Removals()[0].Key != "param-remove:dev:smtp.pw" {
+		t.Errorf("tiered removal rows = %q", got)
+	}
+	p = orgconfig.Diff(parse(strings.Replace(same, "    pr:\n      host: sandbox\n", "", 1)), tiersLive())
+	if got := rowKinds(p); got != "param-remove:prsmtp.host>" || len(p.Removals()) != 0 || !p.AutoOK() {
+		t.Errorf("plain removal = %q, optional %d", got, len(p.Removals()))
+	}
+	// A tier rename is a blocker while a stack env carries the old slug.
+	p = orgconfig.Diff(parse("tiers:\n  dev: {locked: false}\n  live: {locked: true}\nmoved:\n  - from: tier.prod\n    to: tier.live\n"), tiersLive())
+	if len(p.Blockers) == 0 || !strings.Contains(p.Blockers[0], "shop/prod") {
+		t.Errorf("rename in use: blockers %v", p.Blockers)
+	}
+	// A moved: tier rename keeps the tier's values.
+	p = orgconfig.Diff(parse("tiers:\n  local: {locked: false}\n  prod: {locked: true}\nparams:\n  smtp:\n    local:\n      host: d\n      pw: {type: secret}\n    prod:\n      host: p\n    pr:\n      host: sandbox\nmoved:\n  - from: tier.dev\n    to: tier.local\n"), tiersLive())
+	if got := rowKinds(p); got != "tier-rename:dev>local" {
+		t.Errorf("rename rows = %q", got)
+	}
+}
+
+// An org with no tiers uses all (the org scope) and pr (org_pr); a name the
+// file leaves out is removed from either, a secret only when ticked.
+func TestDiffUntiered(t *testing.T) {
+	parse := func(body string) *orgconfig.File {
+		f, err := orgconfig.Parse([]byte(v1 + body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return f
+	}
+	l := live()
+	withParams(&l)
+	l.PRParams = map[string]params.Value{"email.sender": {V: "sandbox"}, "email.pw": {V: "s", Secret: true}}
+	same := "params:\n  email:\n    all:\n      sender: old@acme.test\n      api_key: {type: secret}\n    pr:\n      sender: sandbox\n      pw: {type: secret}\n"
+	if p := orgconfig.Diff(parse(same), l); len(p.Changes) != 0 || p.Blocked() {
+		t.Errorf("same file: %s %v", rowKinds(p), p.Blockers)
+	}
+	p := orgconfig.Diff(parse(strings.Replace(strings.Replace(same, "sender: old@acme.test", "sender: new\n      region: eu", 1), "      sender: sandbox\n", "", 1)), l)
+	if got := rowKinds(p); got != "param:allemail.region>eu param-update:allemail.senderold@acme.test>new param-remove:premail.sender>" &&
+		got != "param-update:allemail.senderold@acme.test>new param:allemail.region>eu param-remove:premail.sender>" {
+		t.Errorf("rows = %q", got)
+	}
+	// nothing set: plain names go with the plan, secrets wait for a tick
+	p = orgconfig.Diff(parse(""), l)
+	var keys []string
+	for _, c := range p.Removals() {
+		keys = append(keys, c.Key)
+	}
+	slices.Sort(keys)
+	if len(p.Changes) != 4 || !slices.Equal(keys, []string{"param-remove:all:email.api_key", "param-remove:pr:email.pw"}) || p.AutoOK() {
+		t.Errorf("empty file: %s keys %v", rowKinds(p), keys)
+	}
+	if got := p.OnlyTicked(nil); len(got.Changes) != 2 {
+		t.Errorf("unticked apply keeps %d rows, want the 2 plain", len(got.Changes))
+	}
+}
+
+// Export of an untiered org writes all and pr, and diffing it back is clean.
+func TestExportUntieredParams(t *testing.T) {
+	l := live()
+	withParams(&l)
+	l.PRParams = map[string]params.Value{"email.sender": {V: "sandbox"}}
+	out, err := orgconfig.Export(l)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(out), "all:") || !strings.Contains(string(out), "pr:") {
+		t.Errorf("export lacks all/pr:\n%s", out)
+	}
+	f, err := orgconfig.Parse(out)
+	if err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	if p := orgconfig.Diff(f, l); len(p.Changes) != 0 {
+		t.Errorf("export diffs: %s", rowKinds(p))
 	}
 }

@@ -86,12 +86,14 @@ func (h *handler) createLevel(kind string) echo.HandlerFunc {
 			url = "/" + s.Org.Slug + "/" + st.Slug
 		case "env":
 			var e service.Environment
-			e, err = h.orch.CreateEnv(
-				ctx,
-				s.Stack.ID,
-				v.Name,
-				service.EnvSpec{Type: "static", FromKind: v.From, FromBranch: v.Branch},
-			)
+			if err = h.orch.JoinsLockedTier(ctx, middleware.Principal(c), s.Stack.ID, v.Name, ""); err == nil {
+				e, err = h.orch.CreateEnv(
+					ctx,
+					s.Stack.ID,
+					v.Name,
+					service.EnvSpec{Type: "static", FromKind: v.From, FromBranch: v.Branch},
+				)
+			}
 			url = "/" + s.Org.Slug + "/" + s.Stack.Slug + "/" + e.Slug
 		}
 		if err != nil {

@@ -60,6 +60,19 @@ func TestPromoteParity(t *testing.T) {
 		}
 	}
 
+	// a promote body's ticked keys ride into the job
+	if code, body := w.do(t, w.owner, "POST", env+"/promote/"+rel.ID, `{"ticked":["param:app.pw"]}`); code != 202 {
+		t.Fatalf("promote with ticked = %d %s", code, body)
+	}
+	js, _ := w.env.Orch.Jobs(ctx, 20)
+	var got bool
+	for _, j := range js {
+		got = got || strings.Contains(j.Payload, `"ticked":["param:app.pw"]`)
+	}
+	if !got {
+		t.Errorf("no promote job carries the ticks: %+v", js)
+	}
+
 	for _, verb := range []string{"promote", "rollback"} {
 		code, body := w.do(t, w.owner, "POST", env+"/"+verb+"/"+rel.ID, "")
 		var j service.Job

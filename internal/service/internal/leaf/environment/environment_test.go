@@ -79,6 +79,9 @@ func TestLadder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if _, err := l.Create(ctx, s, "PR", branch("x")); err == nil {
+		t.Error("env named pr accepted")
+	}
 	if _, err := l.Create(ctx, s, "PROD", branch("x")); err == nil {
 		t.Error("duplicate slug accepted")
 	}

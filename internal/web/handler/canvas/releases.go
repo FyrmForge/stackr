@@ -117,6 +117,11 @@ func (h *handler) releasesTab(c echo.Context, cd card, f *comp.DrawerView) (temp
 		return nil, err
 	}
 	ask := comp.PromoteAsk{Back: n < cur, Target: e.Name, Plan: planView(p)}
+	canGo := p.CanDeploy && can(c, cd.s, "env.write")
+	ask.Plan.Ticks = canGo
+	if cd.kind == "env" && can(c, cd.s, "env.lock") {
+		applyLocks(&ask.Plan, "/"+cd.s.Org.Slug+"/"+cd.s.Stack.Slug+"/"+e.Slug+"/-/drawer/lock")
+	}
 	lo, hi := min(n, cur), max(n, cur)
 	for i, r := range rs {
 		if r.Number > lo && r.Number <= hi {
@@ -134,6 +139,7 @@ func (h *handler) releasesTab(c echo.Context, cd card, f *comp.DrawerView) (temp
 		Open:    true,
 		Body:    comp.Ask(ask),
 		Target:  "#" + comp.DrawerRoot,
+		Include: "[name=ticked]",
 	}
 	switch {
 	case ask.Back:
@@ -141,7 +147,7 @@ func (h *handler) releasesTab(c echo.Context, cd card, f *comp.DrawerView) (temp
 	case ask.Skipped != "":
 		cv.Button = "Promote anyway"
 	}
-	if p.CanDeploy && can(c, cd.s, "env.write") {
+	if canGo {
 		cv.Action = f.Base + "/promote/" + plan
 		if cd.kind == "stack" {
 			cv.Action = f.Base + "/promote/" + e.Slug + "/" + plan
@@ -160,15 +166,28 @@ func planView(p service.PromotePlan) comp.PlanView {
 	}
 	for _, ch := range p.Plan.Changes {
 		pv.Changes = append(pv.Changes, comp.ChangeView{
-			Kind:  ch.Kind,
-			Tile:  ch.Tile,
-			Field: ch.Field,
-			Old:   ch.Old,
-			New:   ch.New,
-			Note:  ch.Note,
+			Kind:     ch.Kind,
+			Tile:     ch.Tile,
+			Field:    ch.Field,
+			Old:      ch.Old,
+			New:      ch.New,
+			Note:     ch.Note,
+			Key:      ch.Key,
+			Optional: ch.Optional,
 		})
 	}
 	return pv
+}
+
+// applyLocks gives each lock row its own button: the file's value, set by
+// SetEnvLock, then the releases tab again.
+func applyLocks(pv *comp.PlanView, action string) {
+	for i, ch := range pv.Changes {
+		if ch.Kind == "lock" {
+			pv.Changes[i].Apply = action
+			pv.Changes[i].Vals = `{"tab":"releases","locked":"` + map[bool]string{true: "1", false: ""}[ch.New == "locked"] + `"}`
+		}
+	}
 }
 
 // who names users by id, for "user:<id>" in a release's CreatedBy.

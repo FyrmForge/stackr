@@ -197,6 +197,14 @@ func TestRoundTrip(t *testing.T) {
 		CreatedAt: t0,
 		CreatedBy: "u1",
 	}, func(r *store.Release) { r.Number = 2 })
+	roundTrip(t, s.Tiers, store.Tier{
+		ID:        "ti1",
+		OrgID:     "o1",
+		Slug:      "prod",
+		Position:  1,
+		Locked:    true,
+		CreatedAt: t0,
+	}, func(x *store.Tier) { x.Slug, x.Position, x.Locked = "live", 0, false })
 	roundTrip(t, s.Environments, store.Environment{
 		ID:         "e1",
 		StackID:    "s1",
@@ -210,8 +218,10 @@ func TestRoundTrip(t *testing.T) {
 		FromKind:   "branch",
 		FromBranch: "main",
 		Auto:       true,
+		Locked:     true,
 		CreatedAt:  t0,
 	}, func(e *store.Environment) {
+		e.Locked = false
 		e.ReleaseID = ptr("r1")
 		e.FromKind = "promote"
 		e.Auto = false
@@ -629,6 +639,7 @@ func TestRoundTrip(t *testing.T) {
 		{"release_tiles", s.ReleaseTiles.Delete, "rt1"},
 		{"images", s.Images.Delete, "img1"},
 		{"tiles", s.Tiles.Delete, "t2"},
+		{"tiers", s.Tiers.Delete, "ti1"},
 		{"environments", s.Environments.Delete, "e2"},
 		{"releases", s.Releases.Delete, "r1"},
 		{"api_keys", s.APIKeys.Delete, "k1"},

@@ -246,6 +246,19 @@ func (a *app) approveBody(row map[string]any, remove []string, question string) 
 	return body, nil
 }
 
+// removalKeys are the keys of a plan's optional rows.
+func removalKeys(pl map[string]any) []string {
+	var keys []string
+	changes, _ := pl["changes"].([]any)
+	for _, c := range changes {
+		ch, _ := c.(map[string]any)
+		if k, _ := ch["key"].(string); k != "" && ch["optional"] == true {
+			keys = append(keys, k)
+		}
+	}
+	return keys
+}
+
 func cmpJoin(keys []string) string {
 	if len(keys) == 0 {
 		return "none"

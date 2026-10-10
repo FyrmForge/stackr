@@ -54,6 +54,12 @@ func (o *Orchestrator) Promote(ctx context.Context, envID, releaseID string) (Jo
 	return o.enqueuePromote(ctx, envID, releaseID)
 }
 
+// PromoteTicked is Promote that also applies the plan's secret removal rows
+// (Change.Key) named in ticked; unticked ones stay.
+func (o *Orchestrator) PromoteTicked(ctx context.Context, envID, releaseID string, ticked []string) (Job, error) {
+	return o.enqueuePromote(ctx, envID, releaseID, ticked...)
+}
+
 // Rollback is Promote with an older release: one path, one rule (B2).
 func (o *Orchestrator) Rollback(ctx context.Context, envID, releaseID string) (Job, error) {
 	return o.Promote(ctx, envID, releaseID)

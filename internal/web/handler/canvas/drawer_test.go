@@ -206,6 +206,7 @@ func TestDrawerActions(t *testing.T) {
 		t.Errorf("delete a stack with envs = %d %s", rec.Code, rec.Body)
 	}
 	rec = s.Do(t, "POST", "/acme/-/vars", url.Values{
+		"scope":          {"org"},
 		"new_collection": {"db"},
 		"new_name":       {"pass"},
 		"new_kind":       {"secret"},

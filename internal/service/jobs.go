@@ -72,6 +72,8 @@ type tileJob struct {
 type promoteJob struct {
 	EnvID     string `json:"env_id"`
 	ReleaseID string `json:"release_id"`
+	// Ticked are the secret removal rows (Change.Key) the caller approved.
+	Ticked []string `json:"ticked,omitempty"`
 }
 
 type envSyncJob struct {
@@ -159,7 +161,7 @@ func (o *Orchestrator) handlers() map[jobs.Kind]jobs.Handler {
 		kindPromote: payload(func(ctx context.Context, r *jobs.Run, p promoteJob) error {
 			ctx = withRanFirst(ctx, r.Job.CreatedAt)
 			pre, _ := o.tiles.List(ctx, p.EnvID)
-			plan, err := o.promote.Apply(ctx, p.EnvID, p.ReleaseID, r.Log, r.Swap)
+			plan, err := o.promote.ApplyTicked(ctx, p.EnvID, p.ReleaseID, p.Ticked, r.Log, r.Swap)
 			if plan != nil {
 				err = errors.Join(err, o.dropRuns(plan.Removed), o.dropRemoved(ctx, pre, plan.Removed), o.afterDeploy(ctx, plan.Deployed, true))
 			}
@@ -272,7 +274,7 @@ func (o *Orchestrator) enqueue(ctx context.Context, kind jobs.Kind, p any, lock 
 }
 
 // enqueuePromote locks the env and every tile it runs now.
-func (o *Orchestrator) enqueuePromote(ctx context.Context, envID, releaseID string) (Job, error) {
+func (o *Orchestrator) enqueuePromote(ctx context.Context, envID, releaseID string, ticked ...string) (Job, error) {
 	ts, err := o.tiles.List(ctx, envID)
 	if err != nil {
 		return Job{}, err
@@ -281,7 +283,7 @@ func (o *Orchestrator) enqueuePromote(ctx context.Context, envID, releaseID stri
 	for _, t := range ts {
 		lock = append(lock, t.ID)
 	}
-	b, _ := json.Marshal(promoteJob{EnvID: envID, ReleaseID: releaseID})
+	b, _ := json.Marshal(promoteJob{EnvID: envID, ReleaseID: releaseID, Ticked: ticked})
 	return o.jobs.Enqueue(ctx, kindPromote, lock, string(o.withOrg(ctx, b)), &releaseID)
 }
 
@@ -348,6 +350,12 @@ func (o *Orchestrator) ladderEnvs(ctx context.Context, p pushJob, log io.Writer)
 		re := file.Envs[name]
 		if re.FromKind == "" {
 			_, _ = fmt.Fprintf(log, "env %s: the file gives it no branch or promote; not made\n", name)
+			continue
+		}
+		if t, in, err := o.tiers.Of(ctx, st.OrgID, name); err != nil {
+			return err
+		} else if in && t.Locked {
+			_, _ = fmt.Fprintf(log, "env %s: joins locked tier %s; an org owner makes it in the panel; not made\n", name, name)
 			continue
 		}
 		e, err := o.envs.Create(ctx, st.ID, name, environment.Spec{
@@ -449,7 +457,11 @@ func (o *Orchestrator) runPR(ctx context.Context, r *jobs.Run, p prJob) error {
 			_, _ = fmt.Fprintf(r.Log, "no env builds %s here; no PR env\n", p.Base)
 			return nil
 		}
-		if _, err := o.envs.CloneRow(ctx, *base, name, p.Head); err != nil {
+		pr, err := o.envs.CloneRow(ctx, *base, name, p.Head)
+		if err != nil {
+			return err
+		}
+		if err := o.seedPREnv(ctx, pr); err != nil {
 			return err
 		}
 	}

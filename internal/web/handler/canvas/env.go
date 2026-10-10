@@ -1,6 +1,7 @@
 package canvas
 
 import (
+	"cmp"
 	"context"
 	"slices"
 
@@ -13,6 +14,7 @@ import (
 	comp "github.com/FyrmForge/stackr/internal/ui/components"
 	"github.com/FyrmForge/stackr/internal/ui/dialog"
 	envui "github.com/FyrmForge/stackr/internal/ui/drawer/env"
+	"github.com/FyrmForge/stackr/internal/web/render"
 )
 
 func (h *handler) envTab(c echo.Context, cd card, f *comp.DrawerView) (templ.Component, error) {
@@ -53,6 +55,9 @@ func (h *handler) envTab(c echo.Context, cd card, f *comp.DrawerView) (templ.Com
 		Color:   e.Color,
 		Cascade: cascade,
 	}
+	if v.Lock, err = h.lockView(c, cd, f.Base); err != nil {
+		return nil, err
+	}
 	if write {
 		v.Base = f.Base
 		v.Delete = dialog.DeleteEnv(e.Name, f.Base+"/delete", "#"+comp.DrawerRoot)
@@ -60,6 +65,25 @@ func (h *handler) envTab(c echo.Context, cd card, f *comp.DrawerView) (templ.Com
 		v.Cascade.ReadOnly, v.Cascade.Why = true, "Changing overrides needs write access to this environment."
 	}
 	return envui.Settings(v), nil
+}
+
+// lockView: a PR env has no lock; a tiered env shows its tier's.
+func (h *handler) lockView(c echo.Context, cd card, base string) (envui.LockView, error) {
+	e := cd.s.Env
+	v := envui.LockView{Show: e.Type == "static", Locked: e.Locked, Name: e.Slug}
+	if !v.Show {
+		return v, nil
+	}
+	if can(c, cd.s, "env.lock") {
+		v.Base = base + "/lock"
+	}
+	ts, err := h.orch.Tiers(c.Request().Context(), cd.s.Org.ID)
+	for _, t := range ts {
+		if t.Slug == e.Slug {
+			v.Tiered, v.Locked = true, t.Locked
+		}
+	}
+	return v, err
 }
 
 // orderView gives each rung the whole order after one move up or down.
@@ -107,7 +131,12 @@ func (h *handler) mountEnv(site *echo.Group, a *middleware.Access) {
 	write := a.Require("env.write")
 	stackURL := func(cd card) string { return "/" + cd.s.Org.Slug + "/" + cd.s.Stack.Slug }
 	site.POST(e+"/rename", h.envAction("settings", func(c echo.Context, cd card) (string, error) {
-		en, err := h.orch.RenameEnv(c.Request().Context(), cd.s.Env.ID, c.FormValue("name"))
+		ctx := c.Request().Context()
+		err := h.orch.JoinsLockedTier(ctx, middleware.Principal(c), cd.s.Stack.ID, c.FormValue("name"), cd.s.Env.Slug)
+		if err != nil {
+			return "", err
+		}
+		en, err := h.orch.RenameEnv(ctx, cd.s.Env.ID, c.FormValue("name"))
 		if err != nil {
 			return "", err
 		}
@@ -127,12 +156,17 @@ func (h *handler) mountEnv(site *echo.Group, a *middleware.Access) {
 		_, err := h.orch.SetEnvColor(c.Request().Context(), cd.s.Env.ID, c.FormValue("color"))
 		return "Colour saved.", err
 	}), write)
+	site.POST(e+"/lock", func(c echo.Context) error {
+		cd, _ := h.cardOf(c, "env")
+		_, err := h.orch.SetEnvLock(c.Request().Context(), cd.s.Env.ID, c.FormValue("locked") != "")
+		return h.after(c, cd, cmp.Or(c.FormValue("tab"), "settings"), "Lock saved.", err)
+	}, a.Require("env.lock"))
 	site.POST(e+"/order", h.envAction("order", func(c echo.Context, cd card) (string, error) {
 		form, _ := c.FormParams()
 		return "Order saved.", h.orch.ReorderEnvs(c.Request().Context(), cd.s.Stack.ID, form["ids"])
 	}), write)
 	site.POST(e+"/promote/:release", h.envAction("releases", func(c echo.Context, cd card) (string, error) {
-		j, err := h.orch.Promote(c.Request().Context(), cd.s.Env.ID, c.Param("release"))
+		j, err := h.orch.PromoteTicked(c.Request().Context(), cd.s.Env.ID, c.Param("release"), render.ApproveOpts(c).Ticked)
 		if err != nil {
 			return "", err
 		}

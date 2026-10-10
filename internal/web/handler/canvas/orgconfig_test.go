@@ -63,7 +63,7 @@ func (r configRig) latest(t *testing.T) service.OrgPlan {
 	return ps[0]
 }
 
-const regionFile = "version: 1\norg: acme\nparams:\n  app:\n    region:\n      type: param\n      value: us\n"
+const regionFile = "version: 1\norg: acme\nparams:\n  app:\n    all:\n      region: us\n"
 
 // The Config tab: an owner binds and the plan renders under the form with
 // its answers; a viewer reads the binding but no plan and no Approve;

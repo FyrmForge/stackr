@@ -30,7 +30,7 @@ type File struct {
 	Include  []string                          `yaml:"include"`
 	Ladder   []string                          `yaml:"ladder"` // bottom rung first; with head:
 	Head     string                            `yaml:"head"`   // the branch the bottom rung builds from
-	Params   map[string]map[string]Param       `yaml:"params"`
+	Params   map[string]planfile.Group         `yaml:"params"`
 	Defaults Defaults                          `yaml:"defaults"`
 	Domains  []Reservation                     `yaml:"domains"`
 	Volumes  map[string]VolumeNode             `yaml:"volumes"`
@@ -39,9 +39,6 @@ type File struct {
 	PREnvs   *PREnvs                           `yaml:"pr_envs"`
 	Shared   map[string]RawMap                 `yaml:"shared"`
 }
-
-// Param is one declaration, shared with the org and server files.
-type Param = planfile.Param
 
 // Defaults is one rung of the settings cascade; nil = say nothing here.
 type Defaults struct {
@@ -157,6 +154,7 @@ type EnvConf struct {
 	From     string                `yaml:"from"`   // a branch, or promote
 	Branch   string                `yaml:"branch"` // spelling of from: <branch>
 	Auto     *bool                 `yaml:"auto"`   // branch envs default on
+	Locked   *bool                 `yaml:"locked"` // nil: the file says nothing
 	Color    string                `yaml:"color"`
 	Defaults Defaults              `yaml:"defaults"`
 	Tiles    map[string]TileNode   `yaml:"tiles"`
@@ -317,9 +315,11 @@ func (m *EnvMap) UnmarshalYAML(n *yaml.Node) error {
 
 // Resolved is the file after includes and overlays.
 type Resolved struct {
-	Stack    string
-	Order    []string // the ladder, bottom rung first
-	Params   map[string]map[string]Param
+	Stack string
+	Order []string // the ladder, bottom rung first
+	// Params is one block per env (the ladder's slugs, and pr for PR envs):
+	// env -> "group.name" -> entry.
+	Params   map[string]map[string]planfile.Entry
 	Defaults Defaults
 	Domains  []Reservation
 	Envs     map[string]ResolvedEnv
@@ -332,6 +332,7 @@ type Resolved struct {
 type ResolvedEnv struct {
 	FromKind, FromBranch string
 	Auto                 bool
+	Locked               *bool // nil: the file says nothing
 	Color                string
 	Defaults             Defaults
 	Tiles                map[string]TileConf
@@ -452,14 +453,19 @@ func Load(data []byte, fetch Fetcher, orgSlug string) (*Resolved, error) {
 			f.Volumes[n] = v
 		}
 		if f.Params == nil {
-			f.Params = map[string]map[string]Param{}
+			f.Params = map[string]planfile.Group{}
 		}
-		for c, ps := range x.Params {
+		for c, g := range x.Params {
 			if f.Params[c] == nil {
-				f.Params[c] = map[string]Param{}
+				f.Params[c] = planfile.Group{}
 			}
-			for n, p := range ps {
-				f.Params[c][n] = p
+			for key, ps := range g {
+				if f.Params[c][key] == nil {
+					f.Params[c][key] = map[string]planfile.Entry{}
+				}
+				for n, e := range ps {
+					f.Params[c][key][n] = e
+				}
 			}
 		}
 		if f.Envs.Envs == nil {
@@ -482,7 +488,6 @@ func resolve(f *File, orgSlug string) (*Resolved, error) {
 	}
 	r := &Resolved{
 		Stack:     f.Stack,
-		Params:    f.Params,
 		Defaults:  f.Defaults,
 		Domains:   f.Domains,
 		Envs:      map[string]ResolvedEnv{},
@@ -490,6 +495,10 @@ func resolve(f *File, orgSlug string) (*Resolved, error) {
 		PRForks:   f.PREnvs != nil && f.PREnvs.Forks != nil && *f.PREnvs.Forks,
 	}
 	if err := planfile.CheckParams(f.Params, true); err != nil {
+		return nil, err
+	}
+	var err error
+	if r.Params, err = planfile.Expand(f.Params); err != nil {
 		return nil, err
 	}
 	order, envs := f.Envs.Order, f.Envs.Envs
@@ -503,7 +512,13 @@ func resolve(f *File, orgSlug string) (*Resolved, error) {
 		order = []string{"production"}
 	}
 	r.Order = order
+	if err := planfile.CheckEnvKeys(r.Params, order, "an environment of this stack"); err != nil {
+		return nil, err
+	}
 	for i, name := range order {
+		if name == "pr" {
+			return nil, fmt.Errorf("environment %q is reserved: it is the PR params block", name)
+		}
 		if !slug.Valid(name) {
 			return nil, fmt.Errorf("environment %q: a name is lower-case letters, digits and single hyphens", name)
 		}
@@ -512,6 +527,7 @@ func resolve(f *File, orgSlug string) (*Resolved, error) {
 			return nil, fmt.Errorf("environment %s defaults: %w", name, err)
 		}
 		re := ResolvedEnv{
+			Locked:   ec.Locked,
 			Color:    ec.Color,
 			Defaults: ec.Defaults,
 			Tiles:    map[string]TileConf{},
@@ -958,6 +974,9 @@ func mergeEnv(base, x EnvConf) EnvConf {
 	}
 	if base.Auto == nil {
 		base.Auto = x.Auto
+	}
+	if base.Locked == nil {
+		base.Locked = x.Locked
 	}
 	if base.Color == "" {
 		base.Color = x.Color

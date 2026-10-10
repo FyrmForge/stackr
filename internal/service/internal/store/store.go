@@ -41,6 +41,7 @@ type Tables struct {
 	Invites          InviteStore
 	Stacks           StackStore
 	Environments     EnvironmentStore
+	Tiers            TierStore
 	Tiles            TileStore
 	Images           ImageStore
 	Params           ParamStore
@@ -79,6 +80,7 @@ func bind(q querier, box *secrets.Box) Tables {
 		Invites:          invites{crud[Invite]{q, box, invitesT}},
 		Stacks:           stacks{crud[Stack]{q, box, stacksT}},
 		Environments:     environments{crud[Environment]{q, box, environmentsT}},
+		Tiers:            tiers{crud[Tier]{q, box, tiersT}},
 		Tiles:            tiles{crud[Tile]{q, box, tilesT}},
 		Images:           images{crud[Image]{q, box, imagesT}},
 		Params:           params{crud[Param]{q, box, paramsT}},

@@ -64,7 +64,7 @@ func SideDrawer(body templ.Component, tab string) templ.Component {
 				return templ_7745c5c3_Err
 			}
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 5, "><div data-backdrop></div><aside role=\"dialog\" aria-modal=\"true\" aria-label=\"Details\" aria-labelledby=\"drawer-title\" class=\"fixed top-0 right-0 z-40 h-full w-full max-w-2xl overflow-y-auto border-l border-rw-border bg-rw-surface\"><div id=\"drawer-body\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 5, "><div data-backdrop></div><aside role=\"dialog\" aria-modal=\"true\" aria-label=\"Details\" aria-labelledby=\"drawer-title\" class=\"fixed top-0 right-0 z-40 h-full w-full max-w-2xl has-[[data-wide]]:max-w-4xl overflow-y-auto border-l border-rw-border bg-rw-surface\"><div id=\"drawer-body\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

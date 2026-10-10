@@ -15,6 +15,8 @@ type ConfirmView struct {
 	Target  string
 	Quiet   bool   // the opener is a ghost button (a header Stop / Restart)
 	Vals    string // hx-vals JSON posted with the action; "" = none
+	Include string // hx-include selector, searched inside the dialog (the plan's ticks)
+	Label   string // aria-label of the opener when its text is not enough
 
 	Open    bool            // asked on arrival, no opener (the promote question)
 	Primary bool            // the yes is not destructive: primary, not danger
@@ -50,10 +52,13 @@ templ confirm(v ConfirmView, swap string) {
 		if v.Vals != "" {
 			hx-vals={ v.Vals }
 		}
+		if v.Include != "" {
+			hx-include={ "find " + v.Include }
+		}
 	>
 		<confirm-dialog word={ v.Word } open?={ v.Open }>
 			if !v.Open {
-				<button type="button" class={ "btn btn-sm", templ.KV("btn-ghost", v.Quiet), templ.KV("btn-primary", !v.Quiet && v.Primary), templ.KV("btn-danger", !v.Quiet && !v.Primary) } data-open>{ v.Button }</button>
+				<button type="button" class={ "btn btn-sm", templ.KV("btn-ghost", v.Quiet), templ.KV("btn-primary", !v.Quiet && v.Primary), templ.KV("btn-danger", !v.Quiet && !v.Primary) } data-open if v.Label != "" { aria-label={ v.Label } }>{ v.Button }</button>
 			}
 			<dialog class="modal-panel text-rw-text">
 				<div class="modal-head">

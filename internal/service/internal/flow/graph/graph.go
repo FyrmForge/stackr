@@ -27,6 +27,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/release"
 	lrun "github.com/FyrmForge/stackr/internal/service/internal/leaf/run"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/stack"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tier"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
 	ltraffic "github.com/FyrmForge/stackr/internal/service/internal/leaf/traffic"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/volume"
@@ -39,6 +40,7 @@ type Flow struct {
 	Envs     *environment.Leaf
 	Tiles    *tile.Leaf
 	Params   *params.Leaf
+	Tiers    *tier.Leaf
 	Volumes  *volume.Leaf
 	Domains  *domain.Leaf
 	Managed  *managed.Leaf
@@ -306,7 +308,11 @@ func (f *Flow) org(ctx context.Context, v *View, orgID string, in In) error {
 		}
 		v.Nodes = append(v.Nodes, n)
 	}
-	vars, err := f.vars(ctx, params.Scope{Kind: "org", ID: orgID})
+	ss, err := f.orgScopes(ctx, orgID)
+	if err != nil {
+		return err
+	}
+	vars, err := f.vars(ctx, ss...)
 	if err != nil {
 		return err
 	}
@@ -362,13 +368,6 @@ func (f *Flow) stack(ctx context.Context, v *View, stackID string, in In) error 
 		return err
 	}
 	v.Compare = rs
-	vars, err := f.vars(ctx, params.Scope{Kind: "stack", ID: stackID})
-	if err != nil {
-		return err
-	}
-	if vars.shown() {
-		v.Nodes = append(v.Nodes, vars)
-	}
 	proxied := false
 	for i, e := range es {
 		ts, err := f.Tiles.List(ctx, e.ID)
@@ -393,9 +392,6 @@ func (f *Flow) stack(ctx context.Context, v *View, stackID string, in In) error 
 			proxied = true
 		}
 		v.Nodes = append(v.Nodes, n)
-		if vars.shown() && reads(ts, params.KindParam) {
-			v.Edges = append(v.Edges, Edge{EdgeShared, vars.ID, n.ID})
-		}
 	}
 	if proxied {
 		v.Nodes = append(v.Nodes, proxyCard())
@@ -461,12 +457,22 @@ func (n Node) shown() bool {
 	return n.Params+n.Secrets > 0
 }
 
-func (f *Flow) vars(ctx context.Context, s params.Scope) (Node, error) {
-	ps, err := f.Params.List(ctx, s, true)
+// vars is the Variables card: the distinct names across the scopes the
+// level edits (the params grid's rows).
+func (f *Flow) vars(ctx context.Context, ss ...params.Scope) (Node, error) {
 	n := card(KindVars, KindVars, "Variables")
-	n.Static = true // v0's vars card is pinned where the layout puts it
-	for _, p := range ps {
-		if p.Kind == params.Secret {
+	n.Static = true            // v0's vars card is pinned where the layout puts it
+	names := map[string]bool{} // "coll.name" -> secret
+	var err error
+	for _, s := range ss {
+		ps, e := f.Params.List(ctx, s, true)
+		err = errors.Join(err, e)
+		for _, p := range ps {
+			names[p.Collection+"."+p.Name] = names[p.Collection+"."+p.Name] || p.Kind == params.Secret
+		}
+	}
+	for _, secret := range names {
+		if secret {
 			n.Secrets++
 		} else {
 			n.Params++
@@ -474,6 +480,25 @@ func (f *Flow) vars(ctx context.Context, s params.Scope) (Node, error) {
 	}
 	n.Detail = plural(n.Params, "param") + " · " + plural(n.Secrets, "secret")
 	return n, err
+}
+
+// orgScopes are the scopes the org's grid edits: its tiers and pr block, or
+// the one org-wide block while it has no tiers.
+func (f *Flow) orgScopes(ctx context.Context, orgID string) ([]params.Scope, error) {
+	ts, err := f.Tiers.List(ctx, orgID)
+	if len(ts) == 0 {
+		return []params.Scope{{Kind: "org", ID: orgID}}, err
+	}
+	ss := []params.Scope{{Kind: "org_pr", ID: orgID}}
+	for _, t := range ts {
+		ss = append(ss, params.Scope{Kind: "tier", ID: t.ID})
+	}
+	return ss, err
+}
+
+// envScope is where an env's own params sit (a PR env keeps its own copy).
+func envScope(e store.Environment) params.Scope {
+	return params.Scope{Kind: "env", ID: e.ID}
 }
 
 func buildsFrom(ts []store.Tile, host string) bool {
@@ -644,7 +669,7 @@ func (f *Flow) env(ctx context.Context, v *View, envID string, in In) error {
 	for _, t := range ts {
 		bySlug[t.Slug], byID[t.ID] = t, t
 	}
-	vars, err := f.vars(ctx, params.Scope{Kind: "env", ID: envID})
+	vars, err := f.vars(ctx, envScope(e))
 	if err != nil {
 		return err
 	}

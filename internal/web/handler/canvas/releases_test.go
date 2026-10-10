@@ -2,6 +2,7 @@ package canvas_test
 
 import (
 	"context"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -41,6 +42,9 @@ func TestEnvReleases(t *testing.T) {
 	if !strings.Contains(body, "Promote #1 to dev?") || !strings.Contains(body, base+"/promote/"+id) {
 		t.Errorf("dry run:\n%s", body)
 	}
+	if !strings.Contains(body, `hx-include="find [name=ticked]"`) {
+		t.Errorf("the promote form does not carry the plan's ticks:\n%s", body)
+	}
 	if body = get(t, s, base+"?tab=releases&plan=nope"); strings.Contains(body, "Promote #") {
 		t.Errorf("an unknown release was planned:\n%s", body)
 	}
@@ -49,6 +53,16 @@ func TestEnvReleases(t *testing.T) {
 		!strings.Contains(rec.Body.String(), "/-/jobs/") ||
 		!strings.Contains(rec.Body.String(), `hx-get="`+base+`?tab=releases" hx-trigger="sse:end"`) {
 		t.Errorf("promote = %d\n%s", rec.Code, rec.Body)
+	}
+	// the ticked removal rows ride the form into the job
+	s.Do(t, "POST", base+"/promote/"+id, url.Values{"ticked": {"param:app.pw", "param:pr.app.pw"}})
+	js, _ := s.Orch.Jobs(ctx, 20)
+	var got bool
+	for _, j := range js {
+		got = got || strings.Contains(j.Payload, `"ticked":["param:app.pw","param:pr.app.pw"]`)
+	}
+	if !got {
+		t.Errorf("no promote job carries the ticks: %+v", js)
 	}
 }
 

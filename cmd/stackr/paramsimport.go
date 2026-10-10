@@ -94,7 +94,7 @@ func dotenvValue(v string) (string, bool) {
 func (a *app) paramsImport() *cobra.Command {
 	var scope, collection string
 	var secret, dry bool
-	c := leaf("import <file>", "org.params-set,stack.params-set,env.params-set,admin.params-set",
+	c := leaf("import <file>", "org.params-set,env.params-set,tier.params-set,org-pr.params-set,stack-pr.params-set,admin.params-set",
 		"Set a param per KEY=VALUE line of a .env file, in one collection; others at the level stay", exact(1),
 		func(c *cobra.Command, args []string) error {
 			if collection == "" || !paramNameRe.MatchString(collection) {
@@ -105,7 +105,7 @@ func (a *app) paramsImport() *cobra.Command {
 					return err
 				}
 			}
-			p, err := a.levelPath(c)
+			p, err := a.paramsPath(c)
 			if err != nil {
 				return err
 			}
@@ -141,7 +141,7 @@ func (a *app) paramsImport() *cobra.Command {
 			return err
 		})
 	c.Example = "  stackr params import .env --scope env --stack shop --env dev --collection app --secret"
-	c.Flags().StringVar(&scope, "scope", "", "org, stack or env (same as --level)")
+	c.Flags().StringVar(&scope, "scope", "", "org or env (same as --level)")
 	c.Flags().StringVar(&collection, "collection", "", "the collection every name lands in")
 	c.Flags().BoolVar(&secret, "secret", false, "store the values as secrets")
 	c.Flags().BoolVar(&dry, "dry-run", false, "print the names that would be set, never the values")

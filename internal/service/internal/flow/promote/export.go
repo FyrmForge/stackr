@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"maps"
 	"slices"
 	"strings"
 
@@ -102,7 +101,7 @@ func (f *Flow) Export(ctx context.Context, stackID, envID string) ([]byte, []str
 	out.put("version", 1)
 	out.put("stack", st.Slug)
 
-	ps, err := f.exportParams(ctx, st, envs, &warns)
+	ps, err := f.exportParams(ctx, st, envs, envID == "")
 	if err != nil {
 		return nil, nil, err
 	}
@@ -149,92 +148,39 @@ func (f *Flow) Export(ctx context.Context, stackID, envID string) ([]byte, []str
 	return buf.Bytes(), warns, enc.Close()
 }
 
-// exportParams is the file's params: block. A name is declared once for the
-// whole stack: a stack-scope entry wins, an env-scope one carries its value
-// only when every exported env holds the same.
-func (f *Flow) exportParams(ctx context.Context, st store.Stack, envs []store.Environment, warns *[]string) (map[string]map[string]any, error) {
-	stackVals, err := f.D.Params.Values(ctx, params.Scope{Kind: "stack", ID: st.ID}, true)
-	if err != nil {
-		return nil, err
+// exportParams is the file's params: block: per group, one block per env
+// holding that env's own values (a secret by name and type only), the pr
+// block from the stack's PR scope, envs with the same block sharing a key.
+func (f *Flow) exportParams(ctx context.Context, st store.Stack, envs []store.Environment, withPR bool) (map[string]planfile.Group, error) {
+	blocks := map[string]map[string]planfile.Entry{}
+	read := func(env string, sc params.Scope) error {
+		vals, err := f.D.Params.Values(ctx, sc, true)
+		if err != nil || len(vals) == 0 {
+			return err
+		}
+		blocks[env] = map[string]planfile.Entry{}
+		for key, v := range vals {
+			e := planfile.Entry{Secret: v.Secret}
+			if !v.Secret {
+				e.Value = v.V
+			}
+			blocks[env][key] = e
+		}
+		return nil
 	}
-	envVals := make([]map[string]params.Value, len(envs))
-	keys := map[string]bool{}
-	for k := range stackVals {
-		keys[k] = true
-	}
-	for i, e := range envs {
-		if envVals[i], err = f.D.Params.Values(ctx, params.Scope{Kind: "env", ID: e.ID}, true); err != nil {
+	var order []string
+	for _, e := range envs {
+		order = append(order, e.Slug)
+		if err := read(e.Slug, params.Scope{Kind: "env", ID: e.ID}); err != nil {
 			return nil, err
 		}
-		for k := range envVals[i] {
-			keys[k] = true
+	}
+	if withPR {
+		if err := read(planfile.PR, params.Scope{Kind: "stack_pr", ID: st.ID}); err != nil {
+			return nil, err
 		}
 	}
-	out := map[string]map[string]any{}
-	for _, key := range slices.Sorted(maps.Keys(keys)) {
-		d, ok := declare(key, stackVals, envVals, warns)
-		if !ok {
-			continue
-		}
-		c, n, _ := strings.Cut(key, ".")
-		if out[c] == nil {
-			out[c] = map[string]any{}
-		}
-		out[c][n] = d
-	}
-	return out, nil
-}
-
-func declare(key string, stack map[string]params.Value, envs []map[string]params.Value, warns *[]string) (omap, bool) {
-	if v, ok := stack[key]; ok {
-		differs := false
-		for _, ev := range envs {
-			e, ok := ev[key]
-			switch {
-			case !ok:
-			case e.Secret != v.Secret:
-				*warns = append(*warns, "params."+key+": a secret in one scope and a param in another; left out")
-				return nil, false
-			case e.V != v.V:
-				differs = true
-			}
-		}
-		if differs && !v.Secret {
-			*warns = append(*warns, "params."+key+": an environment overrides the stack value; declared without a value")
-			return omap{{"type", params.Param}}, true
-		}
-		return declOf(v), true
-	}
-	var first params.Value
-	same, n := true, 0
-	for _, ev := range envs {
-		v, ok := ev[key]
-		if !ok {
-			continue
-		}
-		switch {
-		case n == 0:
-			first = v
-		case v.Secret != first.Secret:
-			*warns = append(*warns, "params."+key+": a secret in one environment and a param in another; left out")
-			return nil, false
-		case v.V != first.V:
-			same = false
-		}
-		n++
-	}
-	if !first.Secret && (!same || n < len(envs)) {
-		*warns = append(*warns, "params."+key+": not the same in every environment; declared without a value")
-		return omap{{"type", params.Param}}, true
-	}
-	return declOf(first), true
-}
-
-func declOf(v params.Value) omap {
-	if v.Secret {
-		return omap{{"type", params.Secret}}
-	}
-	return omap{{"type", params.Param}, {"value", v.V}}
+	return planfile.Collapse(blocks, append(order, planfile.PR)), nil
 }
 
 // exportEnv is one environment section: its from/branch, knobs, tiles and
@@ -256,6 +202,11 @@ func (f *Flow) exportEnv(ctx context.Context, st store.Stack, e store.Environmen
 	}
 	if e.Color != "" {
 		env.put("color", e.Color)
+	}
+	if _, in, err := f.D.Tiers.Of(ctx, st.OrgID, e.Slug); err != nil {
+		return nil, err
+	} else if !in {
+		env.put("locked", e.Locked)
 	}
 	if m := defaultsMap(e.Settings); len(m) > 0 {
 		env.put("defaults", m)

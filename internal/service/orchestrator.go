@@ -55,6 +55,7 @@ import (
 	lrun "github.com/FyrmForge/stackr/internal/service/internal/leaf/run"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/settings"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/stack"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tier"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
 	ltraffic "github.com/FyrmForge/stackr/internal/service/internal/leaf/traffic"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/user"
@@ -177,6 +178,7 @@ type Orchestrator struct {
 	serverPlans *orgplan.Server
 	stacks      *stack.Leaf
 	envs        *environment.Leaf
+	tiers       *tier.Leaf
 	tiles       *tile.Leaf
 	images      *image.Leaf
 	params      *params.Leaf
@@ -312,6 +314,7 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 	orch.serverPlans = build("leaf/orgplan server", func() *orgplan.Server { return orgplan.NewServer(st.ServerPlans) })
 	orch.stacks = build("leaf/stack", func() *stack.Leaf { return stack.New(st.Stacks) })
 	orch.envs = build("leaf/environment", func() *environment.Leaf { return environment.New(st.Environments, d) })
+	orch.tiers = build("leaf/tier", func() *tier.Leaf { return tier.New(st.Tiers) })
 	orch.tiles = build("leaf/tile", func() *tile.Leaf { return tile.New(st.Tiles, d, o.vip) })
 	orch.images = build("leaf/image", func() *image.Leaf { return image.New(st.Images, d) })
 	orch.params = build("leaf/params", func() *params.Leaf { return params.New(st.Params) })
@@ -368,6 +371,7 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 			Images:     orch.images,
 			Releases:   orch.releases,
 			Params:     orch.params,
+			Tiers:      orch.tiers,
 			Managed:    orch.managed,
 			Domains:    orch.domains,
 			Creds:      orch.creds,
@@ -388,12 +392,13 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 			b = o.build
 		}
 		return &promote.Flow{
-			D:         orch.deploy,
-			Resources: orch.domainres,
-			Config:    orch.stackFile,
-			Build:     b,
-			DNS01:     orch.dns01,
-			RouteHeld: orch.routes.Covers,
+			D:           orch.deploy,
+			Resources:   orch.domainres,
+			Config:      orch.stackFile,
+			Build:       b,
+			DNS01:       orch.dns01,
+			RouteHeld:   orch.routes.Covers,
+			WriteParams: orch.writeParams,
 		}
 	})
 	orch.backup = build("flow/backup", func() *fbackup.Flow {
@@ -460,6 +465,7 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 			Envs:     orch.envs,
 			Tiles:    orch.tiles,
 			Params:   orch.params,
+			Tiers:    orch.tiers,
 			Volumes:  orch.volumes,
 			Domains:  orch.domains,
 			Managed:  orch.managed,

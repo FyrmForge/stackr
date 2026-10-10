@@ -14,6 +14,7 @@ import (
 	comp "github.com/FyrmForge/stackr/internal/ui/components"
 	"github.com/FyrmForge/stackr/internal/ui/dialog"
 	stackui "github.com/FyrmForge/stackr/internal/ui/drawer/stack"
+	"github.com/FyrmForge/stackr/internal/web/render"
 )
 
 func (h *handler) stackTab(c echo.Context, cd card, f *comp.DrawerView) (templ.Component, error) {
@@ -156,7 +157,7 @@ func (h *handler) mountStack(site *echo.Group, a *middleware.Access) {
 		if e == nil {
 			return "", errs.ErrNotFound
 		}
-		j, err := h.orch.Promote(c.Request().Context(), e.ID, c.Param("release"))
+		j, err := h.orch.PromoteTicked(c.Request().Context(), e.ID, c.Param("release"), render.ApproveOpts(c).Ticked)
 		if err != nil {
 			return "", err
 		}

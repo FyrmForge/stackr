@@ -1,5 +1,5 @@
 // Package params owns the param store (collections of params and secrets at
-// org, stack, env and server scope) and the one ${{ }} resolver (ref.go). Kind is
+// org, tier, env, PR and server scope) and the one ${{ }} resolver (ref.go). Kind is
 // fixed at creation, except param → secret, one way.
 package params
 

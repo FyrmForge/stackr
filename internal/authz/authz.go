@@ -34,6 +34,7 @@ var verbLevels = map[Verb]Level{
 	"stack.create":      LevelWrite,
 	"stack.write":       LevelWrite,
 	"env.write":         LevelWrite,
+	"env.lock":          LevelWrite,
 	"tile.write":        LevelWrite,
 	"variable.write":    LevelWrite,
 	"domain.write":      LevelWrite,
@@ -60,6 +61,7 @@ var verbLevels = map[Verb]Level{
 	"org.setup.domain":          LevelOwner,
 	"org.setup.connector":       LevelOwner,
 	"share.write":               LevelOwner,
+	"tier.write":                LevelOwner, // tiers: add, rename, order, delete, lock
 
 	"admin.read":         LevelAdmin,
 	"serverdefaults.set": LevelAdmin,

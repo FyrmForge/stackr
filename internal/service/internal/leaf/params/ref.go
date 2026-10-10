@@ -16,6 +16,8 @@ import (
 //
 //	${{ params.<collection>.<name> }}      env then stack, nearest wins, stops at stack
 //	${{ org.params.<collection>.<name> }}  org, deliberately
+//	${{ params.<collection>[<env>].<name> }}      another env's block ("pr" for the PR block)
+//	${{ org.params.<collection>[<tier>].<name> }} another tier's org block
 //	${{ self.<output> }}                   the consumer's own outputs
 //	${{ tile.<slug>.<output> }}            sibling tile or slice tile, same env
 //	${{ stackr.<NAME> }}                   what the server says about itself
@@ -61,6 +63,7 @@ const (
 type Ref struct {
 	Kind   Kind
 	Slug   string // tile slug, or the param collection
+	Env    string // the [x] qualifier of a param ref: an env or tier slug, or "pr"; "" when absent
 	Name   string // output, param name, stackr NAME, backup name
 	Source string // the ref as written; every error carries it
 }
@@ -89,6 +92,26 @@ func Parse(body string) (Ref, error) {
 	b := strings.TrimSpace(body)
 	p := strings.Split(b, ".")
 	r := Ref{Source: "${{ " + b + " }}"}
+	// The [x] qualifier sits on the collection of params and org.params only.
+	ci := -1
+	switch {
+	case len(p) == 3 && p[0] == "params":
+		ci = 1
+	case len(p) == 4 && p[0] == "org" && p[1] == "params":
+		ci = 2
+	}
+	switch {
+	case ci >= 0:
+		if i := strings.IndexByte(p[ci], '['); i >= 0 {
+			e := strings.TrimSuffix(p[ci][i+1:], "]")
+			if e == p[ci][i+1:] || !slug.Valid(e) {
+				return r, fmt.Errorf("%s: want %s[<env>], where <env> is a slug or pr", r.Source, p[ci][:i])
+			}
+			p[ci], r.Env = p[ci][:i], e
+		}
+	case strings.ContainsAny(b, "[]"):
+		return r, fmt.Errorf("%s: an [env] qualifier is only valid on params.<collection>[<env>].<name> and org.params.<collection>[<tier>].<name>", r.Source)
+	}
 	switch {
 	case len(p) == 3 && p[0] == "params":
 		r.Kind, r.Slug, r.Name = KindParam, p[1], p[2]
@@ -194,10 +217,16 @@ type Value struct {
 // the resolver makes no store call. Secret filtering happens while filling
 // it (Values with secrets=false), never in here.
 type Snapshot struct {
-	Env         string           // the consumer's env slug, for ${{ env.name }}
-	EnvParams   map[string]Value // "<collection>.<name>", the consumer's env
-	StackParams map[string]Value
-	OrgParams   map[string]Value
+	Env       string           // the consumer's env slug, for ${{ env.name }}
+	EnvParams map[string]Value // "<collection>.<name>", the consumer's own stack block (its env, or the stack pr block)
+	OrgParams map[string]Value // the consumer's own org block (its tier, the org pr block, or the untiered org)
+	// Tier is the consumer env's tier slug, "" when off-tier or a PR env. With
+	// Env, it makes params.c[Env] and org.params.c[Tier] the own block.
+	Tier string
+	// Other holds the blocks a [x] ref may name, keyed "stack:<env>" and
+	// "org:<tier>" ("stack:pr", "org:pr" for the PR blocks). A locked block has
+	// no Values.
+	Other map[string]Block
 	// ServerParams is filled only for InServerFile; every other caller leaves
 	// it nil, and the resolver refuses the ref before it looks.
 	ServerParams map[string]Value
@@ -205,6 +234,12 @@ type Snapshot struct {
 	Backups      map[string]string // backup name -> destination
 	Self         Source
 	Tiles        map[string]Source // by slug, the consumer's env
+}
+
+// Block is one stack or org param block as another env may see it.
+type Block struct {
+	Locked bool
+	Values map[string]Value
 }
 
 // Source is one referenceable tile: a service's built-in outputs, or a
@@ -277,16 +312,17 @@ func (rr *Resolver) lookup(w Where, r Ref) (string, error) {
 			return "", errs.Unset{Param: unset}
 		case v.Secret && w == InDomain:
 			return "", fmt.Errorf("%s: %s is a secret, and a domain is public", r.Source, key)
+		case v.Secret && w == InProvisionFrom:
+			return "", fmt.Errorf("%s: %s is a secret, and a provision_from target reaches plans and logs", r.Source, key)
 		}
 		return v.V, nil
 	}
+	if r.Env != "" {
+		return rr.qualified(r, param)
+	}
 	switch r.Kind {
 	case KindParam:
-		// Env, then stack. Stops at stack: org is a trust boundary.
-		if v, ok := rr.snap.EnvParams[key]; ok {
-			return param(v, ok, key)
-		}
-		v, ok := rr.snap.StackParams[key]
+		v, ok := rr.snap.EnvParams[key]
 		return param(v, ok, key)
 	case KindOrgParam:
 		v, ok := rr.snap.OrgParams[key]
@@ -318,6 +354,28 @@ func (rr *Resolver) lookup(w Where, r Ref) (string, error) {
 		return rr.tile(r)
 	}
 	return "", fmt.Errorf("%s: unsupported reference", r.Source)
+}
+
+// qualified reads params.c[x].n and org.params.c[x].n: the own block, or one
+// named in Other that is not locked.
+func (rr *Resolver) qualified(r Ref, param func(Value, bool, string) (string, error)) (string, error) {
+	key := r.Slug + "." + r.Name
+	vals, unset, own, what, pre := rr.snap.EnvParams, r.Slug+"["+r.Env+"]."+r.Name, r.Env == rr.snap.Env, "env", "stack:"
+	if r.Kind == KindOrgParam {
+		vals, unset, own, what, pre = rr.snap.OrgParams, "org."+unset, rr.snap.Tier != "" && r.Env == rr.snap.Tier, "tier", "org:"
+	}
+	if !own {
+		b, ok := rr.snap.Other[pre+r.Env]
+		switch {
+		case !ok:
+			return "", fmt.Errorf("%s: no %s %s", r.Source, what, r.Env)
+		case b.Locked:
+			return "", fmt.Errorf("%s: %s is locked; unlock it to read it from here", r.Source, r.Env)
+		}
+		vals = b.Values
+	}
+	v, ok := vals[key]
+	return param(v, ok, unset)
 }
 
 func (rr *Resolver) tile(r Ref) (string, error) {

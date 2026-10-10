@@ -139,7 +139,6 @@ func TestExportLadderPlansCleanPerEnv(t *testing.T) {
 	stg, prod := w.prd, mkEnv("production", 2) // dev, prd (staging), production
 	must(t, w.s.Environments.Create(ctx, prod))
 	envs := []store.Environment{w.dev, stg, prod}
-	must(t, w.f.D.Params.Set(ctx, params.Scope{Kind: "stack", ID: w.st.ID}, params.Entry{Collection: "app", Name: "region", Kind: params.Param, Value: "eu"}))
 	for _, e := range envs {
 		sc := params.Scope{Kind: "env", ID: e.ID}
 		must(t, w.f.D.Params.Set(ctx, sc, params.Entry{Collection: "app", Name: "name_" + e.Slug, Kind: params.Param, Value: "v-" + e.Slug}))
@@ -149,8 +148,7 @@ func TestExportLadderPlansCleanPerEnv(t *testing.T) {
 	out, _, err := w.f.Export(ctx, w.st.ID, "")
 	must(t, err)
 	got := string(out)
-	if strings.Contains(got, "s3cret") || strings.Count(got, "from: promote") != 2 || !strings.Contains(got, "branch: main") ||
-		!strings.Contains(got, "region") {
+	if strings.Contains(got, "s3cret") || strings.Count(got, "from: promote") != 2 || !strings.Contains(got, "branch: main") {
 		t.Fatalf("export:\n%s", got)
 	}
 	r, err := Load(out, nil, "acme")
@@ -167,30 +165,6 @@ func TestExportLadderPlansCleanPerEnv(t *testing.T) {
 		must(t, err)
 		if len(p.Changes) != 0 || p.Blocked() {
 			t.Errorf("plan of %s = %s %v\n%s", e.Slug, kinds(p), p.Blockers, got)
-		}
-	}
-}
-
-// A stack param an env overrides is declared without a value; the file plans
-// clean on every env.
-func TestExportOverriddenStackParamPlansClean(t *testing.T) {
-	w := setup(t)
-	must(t, w.f.D.Params.Set(ctx, params.Scope{Kind: "stack", ID: w.st.ID}, params.Entry{Collection: "app", Name: "region", Kind: params.Param, Value: "eu"}))
-	must(t, w.f.D.Params.Set(ctx, params.Scope{Kind: "env", ID: w.prd.ID}, params.Entry{Collection: "app", Name: "region", Kind: params.Param, Value: "us"}))
-	out, warns, err := w.f.Export(ctx, w.st.ID, "")
-	must(t, err)
-	if len(warns) == 0 || strings.Contains(string(out), "eu") {
-		t.Fatalf("warns = %v\n%s", warns, out)
-	}
-	w.files["c1"] = string(out)
-	rel := w.release(t, "c1")
-	for _, e := range []store.Environment{w.dev, w.prd} {
-		_, err = w.f.D.Envs.SetRelease(ctx, e, rel.ID)
-		must(t, err)
-		p, err := w.f.Plan(ctx, e.ID, rel.ID, io.Discard)
-		must(t, err)
-		if len(p.Changes) != 0 || p.Blocked() {
-			t.Errorf("plan of %s = %s %v\n%s", e.Slug, kinds(p), p.Blockers, out)
 		}
 	}
 }

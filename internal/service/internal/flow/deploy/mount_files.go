@@ -14,6 +14,7 @@ import (
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/git"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/environment"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/params"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/release"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
@@ -216,12 +217,33 @@ func syncDir(p string) error {
 }
 
 // paramsVersion is a non-secret stamp of the params a template can see: the
-// env, stack and org scopes, by count and newest updated_at. Masked never
+// scopes it reads (its own blocks and every one a [x] ref may name), by count and newest updated_at. Masked never
 // reads a secret value.
 func (f *Flow) paramsVersion(ctx context.Context, e store.Environment, st store.Stack) (string, error) {
 	var n int
 	var newest time.Time
-	for _, s := range []params.Scope{{Kind: "env", ID: e.ID}, {Kind: "stack", ID: st.ID}, {Kind: "org", ID: st.OrgID}} {
+	tiers, err := f.Tiers.List(ctx, st.OrgID)
+	if err != nil {
+		return "", err
+	}
+	es, err := f.Envs.List(ctx, st.ID)
+	if err != nil {
+		return "", err
+	}
+	env, org, _ := ownScopes(e, st, tiers)
+	scopes := []params.Scope{env, {Kind: "stack_pr", ID: st.ID}, {Kind: "org_pr", ID: st.OrgID}}
+	if org != nil {
+		scopes = append(scopes, *org)
+	}
+	for _, t := range tiers {
+		scopes = append(scopes, params.Scope{Kind: "tier", ID: t.ID})
+	}
+	for _, x := range es {
+		if x.Type != environment.Ephemeral {
+			scopes = append(scopes, params.Scope{Kind: "env", ID: x.ID})
+		}
+	}
+	for _, s := range scopes {
 		ps, err := f.Params.Masked(ctx, s)
 		if err != nil {
 			return "", err
@@ -233,5 +255,17 @@ func (f *Flow) paramsVersion(ctx context.Context, e store.Environment, st store.
 			}
 		}
 	}
-	return strconv.Itoa(n) + "-" + strconv.FormatInt(newest.UnixMicro(), 36), nil
+	// a lock or a tier rename moves what [x] refs may read without touching a row
+	var locks []string
+	for _, t := range tiers {
+		locks = append(locks, t.Slug+":"+strconv.FormatBool(t.Locked))
+	}
+	for _, x := range es {
+		if x.Type != environment.Ephemeral {
+			locks = append(locks, x.Slug+":"+strconv.FormatBool(x.Locked))
+		}
+	}
+	_, _, tierSlug := ownScopes(e, st, tiers)
+	sum := sha256.Sum256([]byte(strings.Join(locks, ",") + "|" + tierSlug))
+	return strconv.Itoa(n) + "-" + strconv.FormatInt(newest.UnixMicro(), 36) + "-" + hex.EncodeToString(sum[:3]), nil
 }

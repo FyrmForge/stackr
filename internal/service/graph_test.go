@@ -21,9 +21,9 @@ import (
 // world is the fixture tree every level test reads:
 //
 //	acme (owner) ── connector gh ──config/source──> shop
-//	shop: dev (release 2), prod (release 1), stack param
+//	shop: dev (release 2), prod (release 1)
 //	dev: api ─ref→ worker, api ─ref→ slice tile main ─shared→ pg,
-//	     api ─shared→ ghost stack.cache, vars ─shared→ api,
+//	     api ─shared→ ghost stack.cache, env vars ─shared→ api,
 //	     web ─startup→ api, api mounts uploads, domain on api,
 //	     volume old detached, api's last job failed
 //	beta: a second org, empty
@@ -119,15 +119,6 @@ func seedWorld(t *testing.T) world {
 			Name:       "pw",
 			Kind:       "secret",
 			Value:      "s",
-		},
-	})
-	must(err)
-	_, err = e.Orch.SetParams(ctx, service.ParamScope{Kind: "stack", ID: w.shop}, []service.ParamEntry{
-		{
-			Collection: "app",
-			Name:       "region",
-			Kind:       "param",
-			Value:      "eu",
 		},
 	})
 	must(err)
@@ -321,11 +312,11 @@ func TestCanvasStack(t *testing.T) {
 	if p := ns["env:"+w.prod]; p.Status != "" || p.Detail != "0 tiles" {
 		t.Errorf("prod has no tiles, status = %q, detail = %q", p.Status, p.Detail)
 	}
-	if vars := ns["vars"]; vars.Params != 1 || vars.Secrets != 0 {
-		t.Errorf("stack vars = %+v, want 1 param", vars)
+	if _, ok := ns["vars"]; ok {
+		t.Error("stack canvas draws a vars card; stack has no params scope")
 	}
-	if got, want := strings.Join(edges(v), "|"), "ingress proxy env:"+w.dev+"|shared vars env:"+w.dev; got != want {
-		t.Errorf("stack edges = %v, want the proxy and vars -> dev only (prod has no domain, reads nothing)", got)
+	if got, want := strings.Join(edges(v), "|"), "ingress proxy env:"+w.dev; got != want {
+		t.Errorf("stack edges = %v, want the proxy -> dev only (prod has no domain)", got)
 	}
 	if len(v.Compare) != 2 || v.Compare[0].Release != 2 || v.Compare[1].Release != 1 || !v.Compare[1].Behind ||
 		v.Compare[0].Behind {
