@@ -311,6 +311,9 @@ func HTTPError(err error) error {
 		return echo.NewHTTPError(http.StatusForbidden, err.Error())
 	case errors.Is(err, errs.ErrBusy):
 		return echo.NewHTTPError(http.StatusServiceUnavailable)
+	case service.DockerUnreachable(err):
+		return echo.NewHTTPError(http.StatusServiceUnavailable,
+			"Docker is not reachable on this server. Try again once it is back.")
 	case errors.As(err, new(SetupPending)):
 		return echo.NewHTTPError(http.StatusConflict, err.Error())
 	case errors.Is(err, service.ErrBadSignature):

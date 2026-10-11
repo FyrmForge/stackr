@@ -1,0 +1,18 @@
+# The local proxy for STACKR_FAKE_HOST: our own `stackrd proxy` (Caddy plus
+# the layer4 and Cloudflare modules), run from the binary hamr dev builds.
+# The admin socket lands in data/proxy-admin, where STACKR_PROXY_ADMIN points.
+# Routed URLs answer 502 on the fake host: no tile is really running.
+services:
+  stackr-proxy:
+    image: debian:stable-slim # bin/stackrd links glibc, so not alpine
+    command: ["/stackr/stackrd", "proxy"]
+    user: "${UID:-1000}:${GID:-1000}" # the socket must be readable by stackrd
+    environment:
+      XDG_DATA_HOME: /caddy/data
+      XDG_CONFIG_HOME: /caddy/config
+    volumes:
+      - ./bin:/stackr:ro # the directory, so a rebuilt binary shows up on restart
+      - ./data/proxy-admin:/run/stackr-admin
+      - ./data/proxy-caddy:/caddy
+    ports:
+      - "127.0.0.1:8880:80"

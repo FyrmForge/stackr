@@ -22,6 +22,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/installspec"
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
+	"github.com/FyrmForge/stackr/internal/service/internal/fakehost"
 	fbackup "github.com/FyrmForge/stackr/internal/service/internal/flow/backup"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/container"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/deploy"
@@ -118,6 +119,10 @@ type Config struct {
 	PanelBind string
 	// PanelPort is the port the panel really listens on (its PORT).
 	PanelPort int
+	// FakeHost runs on a simulated Docker, VIP table and conntrack whose
+	// state lives in this directory (STACKR_FAKE_HOST, local development
+	// only). It forces TLSOff: the local proxy never asks for certificates.
+	FakeHost string
 }
 
 // Option changes how New builds the tree; tests use it.
@@ -260,6 +265,25 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 		// ponytail: the installer (step 5) gives the panel this network alias,
 		// so the route survives the upgrade's stackr-<version> rename.
 		cfg.PanelUpstream = "stackr:8080"
+	}
+	if cfg.FakeHost != "" {
+		fh, err := fakehost.New(cfg.FakeHost)
+		if err != nil {
+			return nil, err
+		}
+		if o.docker == nil {
+			o.docker = fh
+		}
+		if o.vip == nil {
+			o.vip = fakehost.VIP{}
+		}
+		if cfg.Conntrack == "" {
+			if cfg.Conntrack, err = fh.Conntrack(); err != nil {
+				return nil, err
+			}
+		}
+		cfg.TLSOff = true
+		slog.Warn("fake host: Docker, VIP and conntrack are simulated; local development only", "dir", cfg.FakeHost)
 	}
 	if cfg.Conntrack == "" {
 		cfg.Conntrack = ftraffic.DefaultPath

@@ -171,6 +171,11 @@ func run(log *slog.Logger, generate bool) error {
 		proxy = proxySpec(in)
 	}
 
+	fake := fakeHost()
+	if fake != "" && !envDevMode {
+		return errors.New("STACKR_FAKE_HOST needs DEV_MODE=true: the fake host is for local development only")
+	}
+
 	// The service tree: store, migrations, Docker, leaves and flows.
 	orch, err := service.New(service.Config{
 		DataDir:    envDataDir,
@@ -190,6 +195,7 @@ func run(log *slog.Logger, generate bool) error {
 		ProxySpec:    proxy,
 		PanelBind:    envHost,
 		PanelPort:    envPort,
+		FakeHost:     fake,
 
 		PanelDomain:    config.GetEnvOrDefault("PANEL_DOMAIN", ""),
 		RootDomain:     config.GetEnvOrDefault("ROOT_DOMAIN", ""),
@@ -318,4 +324,14 @@ func panelSpec(in installspec.Input) func(string) service.ContainerSpec {
 			Restart:     c.Restart,
 		}
 	}
+}
+
+// fakeHost is the fake host's state directory when STACKR_FAKE_HOST is set:
+// no root, no tile containers, no firewall rules. Local development only:
+// run refuses it without DEV_MODE.
+func fakeHost() string {
+	if !config.GetEnvOrDefaultBool("STACKR_FAKE_HOST", false) {
+		return ""
+	}
+	return filepath.Join(envDataDir, "fakehost")
 }

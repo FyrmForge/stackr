@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
+	"github.com/FyrmForge/stackr/internal/service/internal/fakehost"
 )
 
 // Docker is everything the service tree asks of the daemon. The real client
@@ -80,7 +81,14 @@ type Docker interface {
 		conn io.ReadWriteCloser, resize func(cols, rows uint) error, exit func() (int, error), err error)
 }
 
-var _ Docker = (*docker.Client)(nil)
+var (
+	_ Docker = (*docker.Client)(nil)
+	_ Docker = (*fakehost.Docker)(nil)
+)
+
+// DockerUnreachable reports whether err is the Docker daemon not answering:
+// the edge answers 503, not 500.
+func DockerUnreachable(err error) bool { return docker.Unreachable(err) }
 
 // Type aliases so callers outside the service tree can build and read specs.
 type (

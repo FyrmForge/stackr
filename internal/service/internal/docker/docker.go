@@ -133,6 +133,15 @@ var ErrStillRunning = errors.New("docker: command still running when its output 
 // ErrNotRunning: an exec was refused because the container is not running.
 var ErrNotRunning = errors.New("docker: container is not running")
 
+// ErrUnreachable: the daemon did not answer. The SDK has its own error for
+// it; this one is for stand-ins (the fake host's blip).
+var ErrUnreachable = errors.New("docker: the daemon is not reachable")
+
+// Unreachable reports whether err is the daemon not answering, from any call.
+func Unreachable(err error) bool {
+	return errors.Is(err, ErrUnreachable) || client.IsErrConnectionFailed(err)
+}
+
 // ExitError is a command (exec or tool container) that exited non-zero.
 type ExitError struct {
 	Code   int

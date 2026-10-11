@@ -2,11 +2,14 @@ package middleware_test
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
 	"github.com/FyrmForge/hamr/pkg/server"
+	"github.com/docker/docker/client"
 	"github.com/labstack/echo/v4"
 
 	"github.com/FyrmForge/stackr/internal/api"
@@ -208,5 +211,15 @@ func TestChildIDsStayInTheirOrg(t *testing.T) {
 	}
 	if org, err := env.Orch.OrgOf(ctx, "job", del.ID); err != nil || org != other {
 		t.Errorf("OrgOf(deleted tile's job) = %q, %v; want %q", org, err, other)
+	}
+}
+
+// A daemon that does not answer is a 503 with a sentence, not a bare 500.
+func TestHTTPErrorDockerUnreachable(t *testing.T) {
+	down := client.ErrorConnectionFailed("unix:///var/run/docker.sock") //nolint:staticcheck // the SDK's own error, as a real call returns it
+	err := middleware.HTTPError(fmt.Errorf("tile status: %w", down))
+	var he *echo.HTTPError
+	if !errors.As(err, &he) || he.Code != http.StatusServiceUnavailable {
+		t.Fatalf("HTTPError = %v; want a 503", err)
 	}
 }

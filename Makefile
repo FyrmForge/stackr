@@ -23,6 +23,8 @@ install:
 	go install github.com/FyrmForge/hamr/cmd/hamr@$(HAMR_VERSION)
 	go install github.com/a-h/templ/cmd/templ@$(TEMPL_VERSION)
 	cd ui && npm install
+	@# The fake host's proxy binds these as your user; Docker would make them root's.
+	mkdir -p data/proxy-admin data/proxy-caddy
 
 ## check-templ: Verify templ is installed
 check-templ:

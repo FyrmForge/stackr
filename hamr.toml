@@ -83,6 +83,11 @@ watch = ["ui/static/**/*"]
 cmd = "hamr gen static"
 debounce = 200
 
+# The local proxy for STACKR_FAKE_HOST (docker-compose.dev.yaml).
+[[dev.docker_compose]]
+name = "proxy"
+file = "docker-compose.dev.yaml"
+
 [lint.templ]
 # Each rule is enabled by listing it with "warning" or "error". Omit a rule or
 # set it to "off" to disable it. Unknown rule IDs fail with an error.
