@@ -65,10 +65,11 @@ type Fake struct {
 	TTYExit       int       // what ExecTTY's exit answers
 	Resizes       [][2]uint // every resize ExecTTY got, cols then rows
 	LogsOut       string
-	StreamOut     []string        // the lines StreamLogs sends
-	ExitCode      int             // what Wait answers
-	WaitBlock     bool            // Wait blocks until its ctx ends
-	Host          docker.HostInfo // what HostInfo answers; zero = unknown, no ceiling
+	StreamOut     []string             // the lines StreamLogs sends
+	ExitCode      int                  // what Wait answers
+	WaitBlock     bool                 // Wait blocks until its ctx ends
+	Host          docker.HostInfo      // what HostInfo answers; zero = unknown, no ceiling
+	Addrs         map[string][2]string // network -> what MemberAddr answers (ip, cidr)
 }
 
 func New() *Fake { return &Fake{} }
@@ -232,7 +233,8 @@ func (f *Fake) NetworkMembers(_ context.Context, network string) ([]string, erro
 }
 
 func (f *Fake) MemberAddr(_ context.Context, network, id string) (string, string, error) {
-	return "", "", f.rec("MemberAddr", network, id)
+	a := f.Addrs[network]
+	return a[0], a[1], f.rec("MemberAddr", network, id)
 }
 
 func (f *Fake) CreateVolume(_ context.Context, name, driver string, opts, labels map[string]string) error {

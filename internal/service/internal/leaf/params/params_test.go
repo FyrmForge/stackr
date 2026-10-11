@@ -210,7 +210,7 @@ func TestResolve(t *testing.T) {
 		{params.InEnv, "${{ stack.cache.host }}", "", "stack.cache refs are gone; declare a slice tile, see DECIDE 194"},
 		{params.InEnv, "${{ org.cache.host }}", "", "org.cache refs are gone; declare a slice tile, see DECIDE 194"},
 		{params.InEnv, "${{ stackr.PROXY_IP }}", "10.0.0.1", ""},
-		{params.InEnv, "${{ stackr.PROXY_CIDR }}", "", "not known yet"},
+		{params.InEnv, "${{ stackr.PROXY_CIDR }}", "", "only a tile with a domain"},
 		{params.InEnv, "${{ stackr.HOME }}", "", "not a stackr value"},
 		{params.InEnv, "${{ tile.params.url }}", "", "reserved"},
 		{params.InEnv, "${{ env.x }}", "", "the only env ref"},

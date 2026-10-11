@@ -351,7 +351,7 @@ func (rr *Resolver) lookup(w Where, r Ref) (string, error) {
 		if v := rr.snap.Stackr[r.Name]; v != "" {
 			return v, nil
 		}
-		return "", fmt.Errorf("%s: not known yet; the proxy records it when it attaches to this environment's network", r.Source)
+		return "", fmt.Errorf("%s: only a tile with a domain has one; the proxy reaches the tile over that domain's network", r.Source)
 	case KindEnv:
 		if rr.snap.Env == "" {
 			return "", fmt.Errorf("%s: no environment here", r.Source)

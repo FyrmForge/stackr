@@ -209,17 +209,18 @@ func TestFilesParamEditRemounts(t *testing.T) {
 	first := bindSrc(w, 0)
 	time.Sleep(10 * time.Millisecond)
 	must(t, w.f.Params.Merge(ctx, params.Scope{Kind: "env", ID: w.env.ID}, []params.Entry{
-		{Collection: "app", Name: "key", Kind: params.Secret, Value: "n3w"},
+		{Collection: "app", Name: "key", Kind: params.Secret, Value: "n3w-key"},
 	}))
 	mustRun(t, w)
 	if bindSrc(w, 0) == first {
 		t.Fatal("the folder was reused after a param edit")
 	}
-	if got := readBind(t, bindSrc(w, 0)); got != "key: n3w\n" {
+	if got := readBind(t, bindSrc(w, 0)); got != "key: n3w-key\n" {
 		t.Errorf("template = %q", got)
 	}
-	if strings.Contains(bindSrc(w, 0), "n3w") || strings.Contains(bindSrc(w, 0), "s3cret") {
-		t.Error("a secret value is in the path")
+	// a hyphen keeps the value from matching the path's base-36 stamp
+	if strings.Contains(bindSrc(w, 0), "n3w-key") || strings.Contains(bindSrc(w, 0), "s3cret") {
+		t.Errorf("a secret value is in the path %s", bindSrc(w, 0))
 	}
 }
 

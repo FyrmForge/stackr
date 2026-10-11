@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
+	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	"github.com/FyrmForge/stackr/internal/service/internal/dockerfake"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/domain"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
@@ -237,5 +238,28 @@ func TestIngressLifecycle(t *testing.T) {
 	}
 	if ds, _ := l.ListByTile(ctx, web); len(ds) != 0 {
 		t.Errorf("rows = %v", ds)
+	}
+}
+
+// ProxyOn is what stackr.PROXY_IP/PROXY_CIDR read: nothing for a tile with
+// no domain, else the proxy's address on the tile's ingress network, which
+// it opens first.
+func TestProxyOn(t *testing.T) {
+	l, fake, web, api := setup(t)
+	fake.Details = map[string]docker.Detail{"stackr-proxy": {ID: "p1"}}
+	fake.Addrs = map[string][2]string{domain.Ingress(web): {"10.213.9.2", "10.213.9.0/24"}}
+	if ip, cidr, err := l.ProxyOn(ctx, api); err != nil || ip != "" || cidr != "" {
+		t.Fatalf("no domain: %q %q %v", ip, cidr, err)
+	}
+	_, err := l.Attach(ctx, web, domain.Spec{Host: "a.io", Port: 80}, false, nil)
+	must(t, err)
+	n := len(fake.Calls())
+	ip, cidr, err := l.ProxyOn(ctx, web)
+	must(t, err)
+	if ip != "10.213.9.2" || cidr != "10.213.9.0/24" {
+		t.Errorf("got %q %q", ip, cidr)
+	}
+	if got := fake.Calls()[n].String(); got != "EnsureNetwork("+domain.Ingress(web)+")" {
+		t.Errorf("first call %s, want the network opened", got)
 	}
 }

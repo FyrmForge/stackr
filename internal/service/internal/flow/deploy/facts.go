@@ -15,8 +15,8 @@ import (
 // snapshot is everything the resolver may see for tile t: its param blocks
 // (ParamSnapshot) and every tile of its env, a slice tile as t's binding sees it. A
 // managed instance is reached through a slice tile, never by name.
-// ponytail: stackr.PROXY_IP and org.backups are not filled; a ref to either
-// fails the deploy with the resolver's own message until they are.
+// ponytail: org.backups is not filled; a ref to it fails the deploy with
+// the resolver's own message until it is.
 func (f *Flow) snapshot(
 	ctx context.Context,
 	t store.Tile,
@@ -26,6 +26,11 @@ func (f *Flow) snapshot(
 	s, err := f.ParamSnapshot(ctx, e, st, true)
 	if err != nil {
 		return s, err
+	}
+	if ip, cidr, err := f.Domains.ProxyOn(ctx, t.ID); err != nil {
+		return s, err
+	} else if ip != "" {
+		s.Stackr = map[string]string{params.ProxyIP: ip, params.ProxyCIDR: cidr}
 	}
 
 	bound, err := f.Managed.Bound(ctx, t.ID) // by slice tile id

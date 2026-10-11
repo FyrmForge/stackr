@@ -28,6 +28,7 @@ type Docker interface {
 	Connect(ctx context.Context, netName, containerID string, aliases []string) error
 	Disconnect(ctx context.Context, netName, containerID string) error
 	NetworkMembers(ctx context.Context, name string) ([]string, error)
+	MemberAddr(ctx context.Context, netName, containerID string) (ip, cidr string, err error)
 	Inspect(ctx context.Context, id string) (docker.Detail, error)
 }
 
@@ -211,6 +212,31 @@ func (l *Leaf) ProxyAddrs(ctx context.Context) ([]string, error) {
 		}
 	}
 	return out, nil
+}
+
+// ProxyOn is what stackr.PROXY_IP and stackr.PROXY_CIDR read for tile
+// tileID: the proxy's address on the tile's ingress network, and that
+// network's subnet. The network opens first (the deploy joins it later,
+// after the env is resolved). "" for a tile with no domain: the proxy never
+// reaches it.
+// ponytail: the IP is read at deploy; a recreated proxy may rejoin with
+// another one until the tile redeploys. The subnet stays, so trust that.
+func (l *Leaf) ProxyOn(ctx context.Context, tileID string) (ip, cidr string, err error) {
+	ds, err := l.domains.ListByTile(ctx, tileID)
+	if err != nil || len(ds) == 0 {
+		return "", "", err
+	}
+	if err := l.OpenIngress(ctx, tileID, nil); err != nil {
+		return "", "", err
+	}
+	d, err := l.docker.Inspect(ctx, l.proxy)
+	if errors.Is(err, docker.ErrNotFound) {
+		return "", "", nil
+	}
+	if err != nil {
+		return "", "", err
+	}
+	return l.docker.MemberAddr(ctx, Ingress(tileID), d.ID)
 }
 
 // CloseIngress disconnects every member of the tile's ingress network and
