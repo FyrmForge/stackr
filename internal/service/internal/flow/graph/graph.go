@@ -123,7 +123,7 @@ type Node struct {
 	W, H   int
 	Saved  bool   // the position is a row, not arranged
 	System bool   // behind the divider
-	Static bool   // not draggable (ghosts, vars)
+	Static bool   // not draggable (a sync preview card)
 	Sync   string // env sync tag: new | edited | removed; "" = none
 	Color  string
 	Deck   int // 0-2 layers behind a drill-down card
@@ -461,7 +461,6 @@ func (n Node) shown() bool {
 // level edits (the params grid's rows).
 func (f *Flow) vars(ctx context.Context, ss ...params.Scope) (Node, error) {
 	n := card(KindVars, KindVars, "Variables")
-	n.Static = true            // v0's vars card is pinned where the layout puts it
 	names := map[string]bool{} // "coll.name" -> secret
 	var err error
 	for _, s := range ss {
@@ -913,7 +912,7 @@ func ghost(v *View, id, name, detail string) string {
 		return id
 	}
 	n := card(id, KindRef, name)
-	n.Detail, n.Static = detail, true
+	n.Detail = detail
 	v.Nodes = append(v.Nodes, n)
 	return id
 }

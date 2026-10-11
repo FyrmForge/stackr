@@ -57,6 +57,17 @@ func (o *Orchestrator) ServerConnectorInstallURL(ctx context.Context, id string)
 	return o.conns.ServerInstallURL(ctx, id)
 }
 
+// ServerConnectorRepos is ConnectorRepos for a server connector.
+func (o *Orchestrator) ServerConnectorRepos(ctx context.Context, id string) ([]Repo, error) {
+	return o.conns.ServerRepos(ctx, id)
+}
+
+// ConnectorOrgID is the org owning connector id, nil for a server
+// connector: where to send a browser back from GitHub. Not an access check.
+func (o *Orchestrator) ConnectorOrgID(ctx context.Context, id string) (*string, error) {
+	return o.conns.OrgOf(ctx, id)
+}
+
 // BeginServerConnector makes the pending server connector; the browser POSTs
 // manifest to action. userID is the admin who started it; only they can
 // complete it.

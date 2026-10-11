@@ -30,3 +30,19 @@ func TestLogLineMarkup(t *testing.T) {
 		t.Errorf("got  %s\nwant %s", b.String(), want)
 	}
 }
+
+func TestLogLineANSI(t *testing.T) {
+	l := NewLogLine("", "\x1b[2m11:22PM\x1b[0m \x1b[91mERR\x1b[0m \x1b[1mboom\x1b[0m\x1b[K")
+	if l.Text != "11:22PM ERR boom" || l.Level != "error" {
+		t.Fatalf("text %q level %q", l.Text, l.Level)
+	}
+	var b strings.Builder
+	_ = LogLine(l).Render(context.Background(), &b)
+	want := `<div data-level="error"><span data-ts></span><span data-d>11:22PM</span><span> </span><span data-c="red">ERR</span><span> </span><span data-b>boom</span></div>`
+	if b.String() != want {
+		t.Errorf("got  %s\nwant %s", b.String(), want)
+	}
+	if NewLogLine("", "plain").Segs != nil {
+		t.Error("a plain line got segments")
+	}
+}

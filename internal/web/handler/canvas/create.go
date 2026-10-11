@@ -144,16 +144,14 @@ func (h *handler) beginConnector(c echo.Context) error {
 }
 
 // GET /settings/github/callback?code=&state=: GitHub made the app. The
-// state's nonce, and the signed-in user matching who began, prove the caller began this install; the connector
-// drawer then opens on its org's canvas, or the admin drawer's Connectors
-// tab for a server connector, or the setup wizard's connector
-// step takes it back while the org is unfinished (v0's setup cookie: only
-// the wizard reaches an unfinished org). A refused handshake is v0's
-// flash on the home canvas; a real failure is the error page.
+// state's nonce, and the signed-in user matching who began, prove the
+// caller began this install. Making the app is not installing it, so the
+// browser goes straight on to GitHub's install page; the app's setup_url
+// brings it back to githubInstalled. A refused handshake is v0's flash on
+// the home canvas; a real failure is the error page.
 func (h *handler) githubCallback(c echo.Context) error {
 	ctx := c.Request().Context()
-	uid := middleware.Principal(c).User.ID
-	k, err := h.orch.CompleteConnector(ctx, uid, c.QueryParam("state"), c.QueryParam("code"))
+	k, err := h.orch.CompleteConnector(ctx, middleware.Principal(c).User.ID, c.QueryParam("state"), c.QueryParam("code"))
 	if err != nil {
 		var he *echo.HTTPError
 		if !errors.As(middleware.HTTPError(err), &he) {
@@ -162,23 +160,50 @@ func (h *handler) githubCallback(c echo.Context) error {
 		hamrmw.SetFlash(c, "GitHub connection failed: "+fmt.Sprint(he.Message), hamrmw.FlashError)
 		return c.Redirect(http.StatusSeeOther, "/")
 	}
-	if k.OrgID == nil { // a server connector: back to the admin drawer's Connectors tab
-		hamrmw.SetFlash(c, "GitHub App created. Now install it on the repos you want to share.", hamrmw.FlashSuccess)
+	var install string
+	if k.OrgID == nil {
+		install, err = h.orch.ServerConnectorInstallURL(ctx, k.ID)
+	} else {
+		install, err = h.orch.ConnectorInstallURL(ctx, *k.OrgID, k.ID)
+	}
+	if err != nil {
+		return middleware.HTTPError(err)
+	}
+	return c.Redirect(http.StatusSeeOther, install)
+}
+
+// GET /settings/github/installed/:connector?setup_action=: GitHub's setup_url,
+// after an install or a change of its repos. Back to where the install shows:
+// the admin drawer's Connectors tab for a server connector, the setup
+// wizard's connector step while the org is unfinished (only the wizard
+// reaches it), else the connector drawer's Repos tab. Each of those checks
+// access itself; an org the user is not in goes home.
+func (h *handler) githubInstalled(c echo.Context) error {
+	ctx := c.Request().Context()
+	id := c.Param("connector")
+	orgID, err := h.orch.ConnectorOrgID(ctx, id)
+	if errors.Is(err, errs.ErrNotFound) {
+		return c.Redirect(http.StatusSeeOther, "/")
+	}
+	if err != nil {
+		return middleware.HTTPError(err)
+	}
+	hamrmw.SetFlash(c, "GitHub App installed.", hamrmw.FlashSuccess)
+	if orgID == nil {
 		return c.Redirect(http.StatusSeeOther, "/?drawer=admin&tab=connectors")
 	}
-	orgs, err := h.orch.Orgs(ctx, uid)
+	orgs, err := h.orch.Orgs(ctx, middleware.Principal(c).User.ID)
 	if err != nil {
 		return middleware.HTTPError(err)
 	}
 	for _, o := range orgs {
-		if o.ID != *k.OrgID {
+		if o.ID != *orgID {
 			continue
 		}
 		if o.SetupDoneAt == nil {
-			hamrmw.SetFlash(c, "GitHub App created. Now install it on the repos you want to deploy.", hamrmw.FlashSuccess)
 			return c.Redirect(http.StatusSeeOther, "/"+o.Slug+"/-/setup/connector")
 		}
-		return c.Redirect(http.StatusSeeOther, "/"+o.Slug+"?drawer=connector:"+k.ID+"&tab=settings")
+		return c.Redirect(http.StatusSeeOther, "/"+o.Slug+"?drawer=connector:"+id+"&tab=repos")
 	}
 	return c.Redirect(http.StatusSeeOther, "/")
 }
@@ -208,4 +233,5 @@ func (h *handler) Mount(site *echo.Group, a *middleware.Access) {
 	site.GET("/:org/-/new-connector", h.newConnector, a.Require("connector.write"))
 	site.POST("/:org/-/new-connector", h.beginConnector, a.Require("connector.write"))
 	site.GET("/settings/github/callback", h.githubCallback, a.LoginFirst(), a.Authed())
+	site.GET("/settings/github/installed/:connector", h.githubInstalled, a.LoginFirst(), a.Authed())
 }

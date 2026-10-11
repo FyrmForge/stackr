@@ -123,6 +123,10 @@ func (c *Client) Manifest(connectorID, ghOrg, state string) (action, manifest st
 		"url":          base,
 		"public":       false,
 		"redirect_url": base + "/settings/github/callback",
+		// where GitHub sends the browser after an install, and after a
+		// later change of repos (setup_on_update)
+		"setup_url":       base + "/settings/github/installed/" + connectorID,
+		"setup_on_update": true,
 		"hook_attributes": map[string]any{
 			"url": c.HookURL(connectorID),
 		},

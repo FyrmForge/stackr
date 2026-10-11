@@ -32,8 +32,25 @@ class SideDrawer extends HTMLElement {
   };
 
   private onClick = (e: Event): void => {
-    if ((e.target as Element).closest("[data-close], [data-backdrop]")) this.close();
+    const el = e.target as Element;
+    if (el.closest("[data-expand]")) return this.expand(!this.hasAttribute("full"));
+    if (el.closest("[data-close], [data-backdrop]")) this.close();
   };
+
+  // "full" outlives the body, so the next drawer opens full too; every
+  // settle (a new drawer, a tab, an action's answer) tells the fresh
+  // header's button. Full fills the shell under the top bar, whose height
+  // varies (env band, wrapped crumbs), so it is measured here.
+  // ponytail: measured per toggle and settle, not on resize; add a
+  // ResizeObserver if a wrapping top bar ever overlaps.
+  private expand(on: boolean): void {
+    this.toggleAttribute("full", on);
+    const top = document.getElementById("shell-header")?.getBoundingClientRect().bottom ?? 0;
+    this.style.setProperty("--shell-top", `${top}px`);
+    this.querySelector("[data-expand]")?.setAttribute("aria-pressed", String(on));
+  }
+
+  private onSettle = (): void => this.expand(this.hasAttribute("full"));
 
   // Only a form's own fields count: not a confirm's typed word, not the
   // log pane's filters.
@@ -77,6 +94,7 @@ class SideDrawer extends HTMLElement {
 
   connectedCallback(): void {
     document.addEventListener("htmx:afterSwap", this.onSwap);
+    document.addEventListener("htmx:afterSettle", this.onSettle);
     document.addEventListener("htmx:responseError", this.onError, true);
     document.addEventListener("keydown", this.onKey);
     this.addEventListener("click", this.onClick);
@@ -86,6 +104,7 @@ class SideDrawer extends HTMLElement {
 
   disconnectedCallback(): void {
     document.removeEventListener("htmx:afterSwap", this.onSwap);
+    document.removeEventListener("htmx:afterSettle", this.onSettle);
     document.removeEventListener("htmx:responseError", this.onError, true);
     document.removeEventListener("keydown", this.onKey);
     this.removeEventListener("click", this.onClick);

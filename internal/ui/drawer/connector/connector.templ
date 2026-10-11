@@ -67,8 +67,8 @@ templ Settings(v SettingsView) {
 	</div>
 }
 
-// ReposView is the install check: Checked false shows the button, true
-// shows what GitHub answered (v0's setup step 2 states).
+// ReposView is the install check: Checked false asks GitHub as the tab
+// loads, true shows what GitHub answered (v0's setup step 2 states).
 type ReposView struct {
 	Check      string // POST, answers the drawer on this tab
 	InstallURL string // "" = handshake not finished
@@ -90,8 +90,7 @@ templ Repos(v ReposView) {
 			if v.InstallURL == "" && !v.Shared {
 				<p class="text-sm text-rw-muted">The GitHub handshake did not finish. Delete this connector and create it again.</p>
 			} else if !v.Checked {
-				<p class="text-sm text-rw-muted mb-4">Ask GitHub which repositories the app is installed on.</p>
-				<button type="button" class="btn btn-primary btn-sm" hx-post={ v.Check } hx-target={ "#" + c.DrawerRoot } hx-swap="outerHTML">Check installation</button>
+				<p class="text-sm text-rw-muted" hx-post={ v.Check } hx-trigger="load" hx-target={ "#" + c.DrawerRoot } hx-swap="outerHTML" aria-busy="true">Asking GitHub…</p>
 			} else if len(v.Repos) == 0 && v.Shared {
 				<p class="text-sm text-rw-muted">The app is installed on no repositories. Ask a server admin to add some.</p>
 			} else if len(v.Repos) == 0 {

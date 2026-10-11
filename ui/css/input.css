@@ -508,6 +508,21 @@ side-drawer[open] > aside {
   visibility: visible;
   transition: transform 280ms cubic-bezier(0, 0, 0.2, 1), visibility 0s;
 }
+/* [full] (the header's expand button): the shell's content area, between
+   the rail and under the top bar (--shell-top, set by the element). The
+   rail is a bottom bar on phones. !important beats the aside's max-w-2xl
+   and its has-[[data-wide]] variant. */
+side-drawer[full] > aside {
+  max-width: none !important;
+  width: auto; height: auto;
+  top: var(--shell-top, 0); left: 0; bottom: 3.5rem;
+  border-left: 0;
+}
+@media (min-width: 640px) {
+  side-drawer[full] > aside { left: 3.5rem; bottom: 0; }
+}
+/* the shell stays undimmed; a click on it still closes the drawer */
+side-drawer[full][open] [data-backdrop] { opacity: 0; }
 @media (prefers-reduced-motion: reduce) {
   side-drawer [data-backdrop],
   side-drawer > aside,
@@ -636,6 +651,13 @@ log-pane [data-level="error"] { border-left-color: rgb(var(--rw-danger)) !import
 log-pane [data-level="warn"] { border-left-color: rgb(var(--rw-warn)) !important; color: rgb(var(--rw-warn)) !important; }
 log-pane [data-level="info"] [data-tok] { color: rgb(var(--rw-accent)); }
 log-pane [data-level="debug"] { color: rgb(var(--rw-faint)) !important; }
+/* a line's own terminal colours (LogSeg), folded onto the palette */
+log-pane [data-lines] [data-b] { font-weight: 600; }
+log-pane [data-lines] [data-d], log-pane [data-lines] [data-c="black"] { color: rgb(var(--rw-faint)); }
+log-pane [data-lines] [data-c="red"] { color: rgb(var(--rw-danger)); }
+log-pane [data-lines] [data-c="green"] { color: rgb(var(--rw-success)); }
+log-pane [data-lines] [data-c="yellow"] { color: rgb(var(--rw-warn)); }
+log-pane [data-lines] :is([data-c="blue"], [data-c="magenta"], [data-c="cyan"]) { color: rgb(var(--rw-accent)); }
 log-pane [data-lines]:not([data-wrap]) { overflow-x: auto; }
 log-pane [data-lines][data-wrap] { word-break: break-all; }
 log-pane [data-status] { margin-left: auto; font-size: 0.75rem; color: rgb(var(--rw-faint)); }

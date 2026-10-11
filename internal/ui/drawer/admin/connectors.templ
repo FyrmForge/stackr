@@ -1,6 +1,10 @@
 package admin
 
-import c "github.com/FyrmForge/stackr/internal/ui/components"
+import (
+	"fmt"
+
+	c "github.com/FyrmForge/stackr/internal/ui/components"
+)
 
 // ConnectorsView is the server's git connectors: GitHub Apps the admin owns
 // and shares with organizations. Begin "" = may not add or change one.
@@ -12,8 +16,9 @@ type ConnectorsView struct {
 }
 
 // ServerConnector is one row. InstallURL "" = the handshake has not finished.
+// Check answers the row's InstallStatus as it loads.
 type ServerConnector struct {
-	ID, Name, Host, InstallURL string
+	ID, Name, Host, InstallURL, Check string
 	All                        bool
 	Orgs                       []OrgShare
 	Rename, Share              string // POST; "" = read-only
@@ -58,7 +63,8 @@ templ Connectors(v ConnectorsView) {
 								if r.InstallURL == "" {
 									@c.Chip("pending", "warn")
 								} else {
-									<a href={ templ.SafeURL(r.InstallURL) } target="_blank" rel="noopener noreferrer" class="text-xs text-rw-accent hover:underline">Install on GitHub</a>
+									<span hx-post={ r.Check } hx-trigger="load" hx-swap="outerHTML" aria-busy="true" class="text-xs text-rw-faint">checking…</span>
+									<a href={ templ.SafeURL(r.InstallURL) } target="_blank" rel="noopener noreferrer" class="text-xs text-rw-accent hover:underline">Manage on GitHub</a>
 								}
 								if r.Delete.Action != "" {
 									<span class="ml-auto">
@@ -94,4 +100,19 @@ templ Connectors(v ConnectorsView) {
 			}
 		}
 	</div>
+}
+
+// InstallStatus is what GitHub answered for a row: the repos the app may
+// read, none (not installed, or installed on nothing), or no answer.
+templ InstallStatus(repos int, failed bool) {
+	switch {
+		case failed:
+			@c.Chip("GitHub did not answer", "danger")
+		case repos == 0:
+			@c.Chip("not installed", "warn")
+		case repos == 1:
+			@c.Chip("installed · 1 repo", "success")
+		default:
+			@c.Chip(fmt.Sprintf("installed · %d repos", repos), "success")
+	}
 }

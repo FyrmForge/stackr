@@ -1,7 +1,8 @@
 // Package traffic is the 5 s sampling tick: which IP is which tile (tile
 // leaf) and which is the proxy (its container, domain leaf; every stackr
 // network's gateway, environment leaf), the host conntrack table (the panel is host-network, so
-// /proc/net/nf_conntrack is the host's), one leaf/traffic Sample. A read,
+// /proc/net/nf_conntrack is the host's; a kernel without that file is
+// asked over netlink by conntrack -L), one leaf/traffic Sample. A read,
 // not a container op, so it runs inline on the scheduler, never as a job.
 package traffic
 
@@ -11,6 +12,7 @@ import (
 	"errors"
 	"io/fs"
 	"os"
+	"os/exec"
 	"sort"
 	"time"
 
@@ -39,7 +41,7 @@ type Flow struct {
 // Tick samples once. An unreadable table is skipped quietly (Check said so
 // at boot) before any Docker call.
 func (f *Flow) Tick(ctx context.Context) error {
-	data, err := os.ReadFile(f.Path)
+	data, err := read(ctx, f.Path)
 	if err != nil {
 		return nil
 	}
@@ -69,14 +71,30 @@ func (f *Flow) Tick(ctx context.Context) error {
 	return nil
 }
 
-// Check is the boot warning, "" when the table looks usable: the file must
-// exist (some kernels lack procfs conntrack) and carry byte counters
+// read is the conntrack table: the procfs file, or, on a kernel built
+// without it (newer ones), the same lines from conntrack -L over netlink.
+// Both are key=value lines the leaf parses alike.
+func read(ctx context.Context, path string) ([]byte, error) {
+	data, err := os.ReadFile(path)
+	if !errors.Is(err, fs.ErrNotExist) {
+		return data, err
+	}
+	ctx, cancel := context.WithTimeout(ctx, 4*time.Second)
+	defer cancel()
+	if out, xerr := exec.CommandContext(ctx, "conntrack", "-L").Output(); xerr == nil {
+		return out, nil
+	}
+	return nil, err
+}
+
+// Check is the boot warning, "" when the table looks usable: it must be
+// readable (the file, or conntrack -L) and carry byte counters
 // (net.netfilter.nf_conntrack_acct=1). An empty table says nothing either way.
 func Check(path string) string {
-	data, err := os.ReadFile(path)
+	data, err := read(context.Background(), path)
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
-		return "traffic: no conntrack table; tile traffic stays empty (kernel without CONFIG_NF_CONNTRACK_PROCFS?)"
+		return "traffic: no conntrack table, and conntrack -L failed; tile traffic stays empty"
 	case err != nil:
 		return "traffic: cannot read the conntrack table: " + err.Error()
 	case len(bytes.TrimSpace(data)) > 0 && !bytes.Contains(data, []byte("bytes=")):

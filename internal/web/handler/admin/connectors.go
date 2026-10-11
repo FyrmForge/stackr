@@ -1,6 +1,8 @@
 package admin
 
 import (
+	"errors"
+	"log/slog"
 	"net/http"
 	"slices"
 	"strings"
@@ -11,6 +13,7 @@ import (
 
 	"github.com/FyrmForge/stackr/internal/middleware"
 	"github.com/FyrmForge/stackr/internal/service"
+	"github.com/FyrmForge/stackr/internal/service/errs"
 	comp "github.com/FyrmForge/stackr/internal/ui/components"
 	ui "github.com/FyrmForge/stackr/internal/ui/drawer/admin"
 	"github.com/FyrmForge/stackr/internal/web/render"
@@ -37,6 +40,7 @@ func (h *handler) mountConnectors(g *echo.Group, a *middleware.Access) {
 		_, err = h.orch.ShareConnector(c.Request().Context(), c.Param("connector"), form["org"], form.Get("all") != "")
 		return "Saved.", nil, err
 	}), admin)
+	g.POST(b+"/:connector/check", h.checkConnector, admin)
 	g.POST(b+"/:connector/delete", h.act("connectors", func(c echo.Context) (string, *service.Job, error) {
 		return "Connector removed.", nil, h.orch.DeleteServerConnector(c.Request().Context(), c.Param("connector"))
 	}), admin)
@@ -70,6 +74,20 @@ func (h *handler) beginConnector(c echo.Context) error {
 	return respond.HTML(c, status, comp.Drawer(f, body))
 }
 
+// POST /-/admin/connectors/:connector/check: a row's install status, asked
+// of GitHub as the row loads. GitHub not answering is a chip, not an error
+// page: the rest of the tab still works.
+func (h *handler) checkConnector(c echo.Context) error {
+	repos, err := h.orch.ServerConnectorRepos(c.Request().Context(), c.Param("connector"))
+	if errors.Is(err, errs.ErrNotFound) {
+		return middleware.HTTPError(err)
+	}
+	if err != nil {
+		slog.Warn("github install check", "connector", c.Param("connector"), "err", err)
+	}
+	return respond.HTML(c, http.StatusOK, ui.InstallStatus(len(repos), err != nil))
+}
+
 func (h *handler) connectorsTab(c echo.Context, b *begun) (templ.Component, error) {
 	ctx := c.Request().Context()
 	cs, err := h.orch.ServerConnectors(ctx)
@@ -96,6 +114,7 @@ func (h *handler) connectorsTab(c echo.Context, b *begun) (templ.Component, erro
 			Host:       k.Host,
 			InstallURL: install,
 			All:        k.ShareAll,
+			Check:      base + "/check",
 			Rename:     base + "/name",
 			Share:      base + "/share",
 			Delete: comp.ConfirmView{

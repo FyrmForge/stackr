@@ -468,7 +468,8 @@ func TestPushBuildsAndReleases(t *testing.T) {
 			Branch:  "main",
 			Commit:  "c9",
 			Message: "ship api\n\nbody",
-			Changed: []string{"api/main.go"},
+			// only the stack file: api has no build yet, so it builds anyway
+			Changed: []string{DefaultPath},
 		},
 		io.Discard,
 	)
@@ -484,21 +485,22 @@ func TestPushBuildsAndReleases(t *testing.T) {
 	if pins["api"].ImageID == nil || pins[release.ConfigSlug].CommitSHA != "c9" {
 		t.Errorf("pins = %+v", pins)
 	}
-	built = nil
-	_, _, err = w.f.Push(
-		ctx,
-		w.st.ID,
-		Event{
-			Repo:    "acme/shop",
-			Branch:  "main",
-			Commit:  "c9",
-			Changed: []string{"docs/x"},
-		},
-		io.Discard,
-	)
+	_, err = w.f.Apply(ctx, w.dev.ID, r.ID, io.Discard, nil)
 	must(t, err)
-	if len(built) != 0 {
-		t.Errorf("watch paths ignored: built %v", built)
+	// dev runs a build of api now: neither a push outside its watch paths
+	// nor a stack-file-only one rebuilds it
+	for _, changed := range []string{"docs/x", DefaultPath} {
+		built = nil
+		_, _, err = w.f.Push(
+			ctx,
+			w.st.ID,
+			Event{Repo: "acme/shop", Branch: "main", Commit: "c9", Changed: []string{changed}},
+			io.Discard,
+		)
+		must(t, err)
+		if len(built) != 0 {
+			t.Errorf("%s: built %v", changed, built)
+		}
 	}
 }
 

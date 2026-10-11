@@ -20,9 +20,19 @@ class SideDrawer extends HTMLElement {
         this.querySelector("[data-close]")?.focus();
     };
     onClick = (e) => {
-        if (e.target.closest("[data-close], [data-backdrop]"))
+        const el = e.target;
+        if (el.closest("[data-expand]"))
+            return this.expand(!this.hasAttribute("full"));
+        if (el.closest("[data-close], [data-backdrop]"))
             this.close();
     };
+    expand(on) {
+        this.toggleAttribute("full", on);
+        const top = document.getElementById("shell-header")?.getBoundingClientRect().bottom ?? 0;
+        this.style.setProperty("--shell-top", `${top}px`);
+        this.querySelector("[data-expand]")?.setAttribute("aria-pressed", String(on));
+    }
+    onSettle = () => this.expand(this.hasAttribute("full"));
     onEdit = (e) => {
         const el = e.target;
         if (el.closest("form") && !el.closest("dialog") && this.body()?.contains(el))
@@ -63,6 +73,7 @@ class SideDrawer extends HTMLElement {
     };
     connectedCallback() {
         document.addEventListener("htmx:afterSwap", this.onSwap);
+        document.addEventListener("htmx:afterSettle", this.onSettle);
         document.addEventListener("htmx:responseError", this.onError, true);
         document.addEventListener("keydown", this.onKey);
         this.addEventListener("click", this.onClick);
@@ -71,6 +82,7 @@ class SideDrawer extends HTMLElement {
     }
     disconnectedCallback() {
         document.removeEventListener("htmx:afterSwap", this.onSwap);
+        document.removeEventListener("htmx:afterSettle", this.onSettle);
         document.removeEventListener("htmx:responseError", this.onError, true);
         document.removeEventListener("keydown", this.onKey);
         this.removeEventListener("click", this.onClick);

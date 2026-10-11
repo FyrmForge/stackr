@@ -80,10 +80,29 @@ func (f *Flow) Push(
 	if err != nil {
 		return store.Release{}, nil, err
 	}
+	// ponytail: the base is the first matching env's release; two envs on
+	// one branch drifting apart on other pins is not reconciled here.
+	base := deref(from[0].ReleaseID)
+	if base == "" && from[0].BaseEnvID != nil {
+		// A new PR env starts from what its base env runs.
+		if be, err := d.Envs.Get(ctx, *from[0].BaseEnvID); err == nil {
+			base = deref(be.ReleaseID)
+		}
+	}
+	built := map[string]release.Pin{}
+	if base != "" {
+		if built, err = d.Releases.Pins(ctx, base); err != nil {
+			return store.Release{}, nil, err
+		}
+	}
 	onlyConfig := isConfig && configOnly(ev.Changed, st.ConfigPath)
 	for _, t := range rows {
-		if onlyConfig || NormalizeRepo(t.GitURL) != repo || t.GitBranch != ev.Branch ||
-			!watchMatch(tile.Lines(t.WatchPaths), ev.Changed) {
+		if NormalizeRepo(t.GitURL) != repo || t.GitBranch != ev.Branch {
+			continue
+		}
+		// A stack-file-only push, or one outside the watch paths, keeps the
+		// tile's build; a tile with none yet (a new stack, a new tile) builds.
+		if (onlyConfig || !watchMatch(tile.Lines(t.WatchPaths), ev.Changed)) && built[t.Slug].ImageID != nil {
 			continue
 		}
 		if f.Build == nil {
@@ -104,15 +123,6 @@ func (f *Flow) Push(
 	}
 	if len(pins) == 0 {
 		return store.Release{}, nil, nil
-	}
-	// ponytail: the base is the first matching env's release; two envs on
-	// one branch drifting apart on other pins is not reconciled here.
-	base := deref(from[0].ReleaseID)
-	if base == "" && from[0].BaseEnvID != nil {
-		// A new PR env starts from what its base env runs.
-		if be, err := d.Envs.Get(ctx, *from[0].BaseEnvID); err == nil {
-			base = deref(be.ReleaseID)
-		}
 	}
 	r, err := d.Releases.Derive(ctx, stackID, base, "push", pins...)
 	if err != nil {

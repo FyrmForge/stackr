@@ -173,7 +173,7 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 		return err
 	}
 	if err := r.write(wrapperPath,
-		func() error { return os.WriteFile(wrapperPath, []byte(wrapper), 0o755) }); err != nil {
+		func() error { return os.WriteFile(wrapperPath, []byte(wrapper(in.DataDir)), 0o755) }); err != nil {
 		return err
 	}
 	if needAdmin {
@@ -366,11 +366,15 @@ func waitHealthy(ctx context.Context, url string) error {
 // step 4: the CLI speaks HTTP only, so /stackr must dial $HOST:$PORT from
 // the panel's env (the bridge gateway, not localhost) and needs a way to
 // authenticate from inside the container.
+// The CLI's login lives in the data dir (mounted at the same path in the
+// panel): in the container's home it went with every upgrade's recreate.
 const wrapperPath = "/usr/local/bin/stackr"
 
-const wrapper = `#!/bin/sh
-exec docker exec -i "$(docker ps -q --filter label=stackr.role=panel | head -n1)" /stackr "$@"
+func wrapper(dataDir string) string {
+	return `#!/bin/sh
+exec docker exec -i -e STACKR_CONFIG=` + filepath.Join(dataDir, "cli.json") + ` "$(docker ps -q --filter label=stackr.role=panel | head -n1)" /stackr "$@"
 `
+}
 
 // preflight refuses a box that cannot be installed on.
 func preflight(ctx context.Context) error {

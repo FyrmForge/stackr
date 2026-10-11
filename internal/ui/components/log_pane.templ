@@ -48,18 +48,37 @@ templ LogPane(v LogPaneView) {
 
 // LogLineView is one line as the stream sends it. Level is the parsed
 // level ("" = unknown); the element filters on it and the CSS colours the
-// edge by it. Tok is the level word as Text spells it, drawn bold.
+// edge by it. Tok is the level word as Text spells it, drawn bold. Segs is
+// a line that came with terminal colours: Text without them, Segs drawn.
 type LogLineView struct {
 	Time  string
 	Level string
 	Text  string
 	Tok   string
+	Segs  []LogSeg
 }
 
 // LogLine is one line on one line: the lines box is white-space: pre, so
 // templ's spacing around statements would show.
 templ LogLine(l LogLineView) {
-	<div data-level={ l.Level }><span data-ts>{ l.stamp() }</span>{ l.part(0) }<span data-tok>{ l.part(1) }</span>{ l.part(2) }</div>
+	if l.Segs != nil {
+		<div data-level={ l.Level }><span data-ts>{ l.stamp() }</span>@logSegs(l.Segs)</div>
+	} else {
+		<div data-level={ l.Level }><span data-ts>{ l.stamp() }</span>{ l.part(0) }<span data-tok>{ l.part(1) }</span>{ l.part(2) }</div>
+	}
+}
+
+// logSegs draws a coloured line's runs; the look is CSS on the data attrs.
+templ logSegs(segs []LogSeg) {
+	for _, g := range segs {
+		<span
+			if g.Color != "" {
+				data-c={ g.Color }
+			}
+			data-b?={ g.Bold }
+			data-d?={ g.Dim }
+		>{ g.Text }</span>
+	}
 }
 
 func (l LogLineView) stamp() string {

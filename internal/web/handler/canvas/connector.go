@@ -46,7 +46,8 @@ func (h *handler) installURL(c echo.Context, cd card) (string, error) {
 func (h *handler) mountConnector(site *echo.Group, a *middleware.Access) {
 	k := "/:org/-/connectors/:connector"
 	site.GET(k, h.drawerRoute("connector"), a.Require("org.read"))
-	// the install check: one GitHub round trip, so on click, never on a tab open
+	// the install check: one GitHub round trip, so only when the Repos tab
+	// opens or a button asks, never on the drawer's default tab
 	site.POST(k+"/check", func(c echo.Context) error {
 		cd, err := h.cardOf(c, "connector")
 		if err != nil {

@@ -470,22 +470,12 @@ func TestCanvasPositions(t *testing.T) {
 			t.Errorf("%s not saved by the first drop", id)
 		}
 	}
-	for _, c := range []struct {
-		id   string
-		want error
-	}{
-		{"nope", errs.ErrNotFound},
-		{"vars", nil},
-	} {
-		err := orch.SetPosition(ctx, s, c.id, service.Point{X: 1, Y: 1})
-		if c.want != nil && !errors.Is(err, c.want) {
-			t.Errorf("%s: %v, want %v", c.id, err, c.want)
-		}
-		if c.want == nil {
-			if _, ok := errs.IsInvalid(err); !ok {
-				t.Errorf("%s: %v, want invalid (a static card does not move)", c.id, err)
-			}
-		}
+	if err := orch.SetPosition(ctx, s, "nope", service.Point{X: 1, Y: 1}); !errors.Is(err, errs.ErrNotFound) {
+		t.Errorf("nope: %v, want not found", err)
+	}
+	// the Variables card moves like a tile card
+	if err := orch.SetPosition(ctx, s, "vars", service.Point{X: 1, Y: 1}); err != nil {
+		t.Errorf("vars: %v", err)
 	}
 	// Another canvas keeps its own rows; reset forgets only this one.
 	if err := orch.SetPosition(

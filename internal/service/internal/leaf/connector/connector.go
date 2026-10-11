@@ -403,6 +403,13 @@ func (l *Leaf) CloneEnv(ctx context.Context, c store.Connector, gitURL string) (
 	return githubapp.CloneAuth(gitURL, tok), nil
 }
 
+// OrgOf is who owns connector id: its org, or nil for a server connector.
+// For routing a browser GitHub sent back; never an access check.
+func (l *Leaf) OrgOf(ctx context.Context, id string) (*string, error) {
+	c, err := l.conns.Get(ctx, id)
+	return c.OrgID, err
+}
+
 // Repos asks GitHub which repositories the app may read: the install check.
 // Empty (no error) when the app is not installed anywhere yet, or installed
 // with no repos picked; either way nothing can be cloned through it.
@@ -411,6 +418,19 @@ func (l *Leaf) Repos(ctx context.Context, orgID, id string) ([]githubapp.Repo, e
 	if err != nil {
 		return nil, err
 	}
+	return l.repos(ctx, c)
+}
+
+// ServerRepos is Repos for a server connector.
+func (l *Leaf) ServerRepos(ctx context.Context, id string) ([]githubapp.Repo, error) {
+	c, err := l.Server(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	return l.repos(ctx, c)
+}
+
+func (l *Leaf) repos(ctx context.Context, c store.Connector) ([]githubapp.Repo, error) {
 	tok, err := l.Token(ctx, c)
 	if errors.Is(err, githubapp.ErrNotInstalled) {
 		return nil, nil
