@@ -61,3 +61,6 @@ ds-bundle/
 
 # QA round docs (per-run findings, not the recipe)
 docs/qa/rounds/
+/stackr-install
+/stackrd
+/stackr
