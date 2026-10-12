@@ -60,3 +60,24 @@ func TestBuildAllPerIngressNode(t *testing.T) {
 		t.Errorf("same-node upstream should stay container names: %s", head)
 	}
 }
+
+// The port-forward probe answers each node's own id, first on both servers.
+func TestBuildAllProbe(t *testing.T) {
+	in := install
+	in.DefaultIngress, in.Probe = "head", "/.well-known/stackr-probe/abc"
+	edge := one(row("far.example.com", domain.Extras{}))[0]
+	edge.IngressNode = "edge"
+	all, err := domain.BuildAll(in, []domain.TileRoute{edge}, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for node, cfg := range all {
+		probe := `{"handle":[{"body":"` + node + `","handler":"static_response","status_code":200}],"match":[{"path":["/.well-known/stackr-probe/abc"]}],"terminal":true}`
+		if got := strings.Count(string(cfg), probe); got != 2 {
+			t.Errorf("%s: probe route %d times, want on :80 and :443", node, got)
+		}
+		if !strings.Contains(string(cfg), `"routes":[`+probe) {
+			t.Errorf("%s: the probe is not the first route", node)
+		}
+	}
+}

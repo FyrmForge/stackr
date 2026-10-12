@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"crypto/tls"
+	"encoding/json"
 	"errors"
 	"io"
 	"net"
@@ -263,5 +264,30 @@ func TestCaddyPassThrough(t *testing.T) {
 	}
 	if b, _ := io.ReadAll(resp.Body); string(b) != "POST /load" {
 		t.Fatalf("%q", b)
+	}
+}
+
+// The probe fetches only probe URLs and reports who answered; nothing
+// answering is an empty result, not an error.
+func TestProbe(t *testing.T) {
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, "node-1\n")
+	}))
+	defer target.Close()
+	call := func(u string) (int, ProbeResult) {
+		rec := httptest.NewRecorder()
+		(&Server{}).probe(rec, httptest.NewRequest("POST", "/v1/probe", strings.NewReader(`{"url":"`+u+`"}`)))
+		var r ProbeResult
+		_ = json.Unmarshal(rec.Body.Bytes(), &r)
+		return rec.Code, r
+	}
+	if code, r := call(target.URL + ProbePrefix + "abc"); code != 200 || r.Status != 200 || r.Body != "node-1" {
+		t.Errorf("probe = %d %+v", code, r)
+	}
+	if code, _ := call(target.URL + "/admin"); code != 400 {
+		t.Errorf("a non-probe URL = %d, want 400", code)
+	}
+	if code, r := call("http://127.0.0.1:1" + ProbePrefix + "abc"); code != 200 || r.Status != 0 {
+		t.Errorf("nothing listening = %d %+v, want an empty result", code, r)
 	}
 }

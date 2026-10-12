@@ -23,3 +23,14 @@ func (c *Client) MeshInfo(ctx context.Context) (worker.MeshInfo, error) {
 	err := c.call(ctx, "GET", "/v1/mesh", "", nil, &i)
 	return i, err
 }
+
+// Probe has the node fetch a port-forward probe URL (POST /v1/probe).
+func (c *Client) Probe(ctx context.Context, url string) (worker.ProbeResult, error) {
+	b, err := json.Marshal(worker.Probe{URL: url})
+	if err != nil {
+		return worker.ProbeResult{}, err
+	}
+	var r worker.ProbeResult
+	err = c.call(ctx, "POST", "/v1/probe", "application/json", b, &r)
+	return r, err
+}

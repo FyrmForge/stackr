@@ -42,6 +42,10 @@ type Install struct {
 	// DefaultIngress is the node the panel route and any route without an
 	// ingress node of its own follow. Only BuildNode and BuildAll read it.
 	DefaultIngress string
+	// Probe is the port-forward probe's path: on every host, over HTTP and
+	// HTTPS, it answers ProbeID (BuildNode sets it to the node's id), so a
+	// request from outside tells which node a NAT forwards to. "" = none.
+	Probe, ProbeID string
 }
 
 // Account is a domain resource that names its own ACME email. A host
@@ -111,6 +115,12 @@ func Build(in Install, tiles []TileRoute, routes []Route, expand Expand) (json.R
 		} else {
 			plain = append(plain, placed{"", "", serve})
 		}
+	}
+
+	if in.Probe != "" && in.ProbeID != "" {
+		r := route{"match": []route{{"path": []string{in.Probe}}}, "terminal": true,
+			"handle": []route{{"handler": "static_response", "status_code": 200, "body": in.ProbeID}}}
+		plain, secure = append(plain, placed{"", in.Probe, r}), append(secure, placed{"", in.Probe, r})
 	}
 
 	for _, t := range tiles {
@@ -192,6 +202,7 @@ func BuildNode(node string, in Install, tiles []TileRoute, routes []NodeRoute, e
 	if in.DefaultIngress != node {
 		in.PanelHost = ""
 	}
+	in.ProbeID = node
 	var ts []TileRoute
 	for _, t := range tiles {
 		if at(t.IngressNode) {

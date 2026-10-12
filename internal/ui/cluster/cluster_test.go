@@ -22,14 +22,14 @@ func sample() cluster.Map {
 			{ID: "h", Name: "home", Role: "controller", Status: "online", Tags: []string{"ingress", "egress"},
 				Domains: []string{"home.example.com", "a.example.com", "b.example.com"}, ExitEnvs: []string{"smoke/web/dev"},
 				Envs: envs("healthy", "degraded", "healthy", "stopped", "healthy")},
-			{ID: "n", Name: "nas", Role: "worker", Status: "online", Envs: envs("down")},
+			{ID: "n", Name: "nas", Role: "worker", Status: "online", Envs: envs("down"), Tags: []string{"ingress"}, NoForward: true},
 			{ID: "f", Name: "fsn1", Role: "worker", Status: "online", Public: []string{"203.0.113.5"},
 				Tags: []string{"ingress"}, Domains: []string{"shop.example.com"}, ExitEnvs: []string{"acme/prod/web", "x/y/z"},
 				Envs: envs("moving")},
 			{ID: "g", Name: "fsn2", Role: "worker", Status: "unreachable"},
 		},
 		Nets: []cluster.Net{
-			{ID: "192.168.1.0/24", CIDR: "192.168.1.0/24", Nodes: []string{"h", "n"}, Router: true},
+			{ID: "192.168.1.0/24", CIDR: "192.168.1.0/24", Nodes: []string{"h", "n"}, Router: true, Forward: "h"},
 			{ID: "10.20.0.0/24", CIDR: "10.20.0.0/24", Nodes: []string{"f", "g"}},
 		},
 		Links: []cluster.Link{
@@ -67,6 +67,7 @@ func TestMapDraws(t *testing.T) {
 		"Not answering", "Healthy", "Moving",
 		"Public IP", "203.0.113.5", "No public IP",
 		`node-id="net:10.20.0.0/24"`, // a box drags by its handle
+		"No port forward", "NAT forwards to",
 		`data-extent="`,
 	} {
 		if !strings.Contains(body, want) {

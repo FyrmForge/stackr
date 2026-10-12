@@ -1,6 +1,7 @@
 package service
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -92,5 +93,34 @@ func TestBuildClusterMapUnreachable(t *testing.T) {
 	}
 	if last := m.Networks[len(m.Networks)-1]; last.ID != "unknown" || last.Router {
 		t.Errorf("last network = %+v, want the unknown box without a router", last)
+	}
+}
+
+// Two ingress nodes behind one NAT: the router forwards to home, so nas is
+// not reachable. Unsure and nobody answering makes no claim.
+func TestApplyProbes(t *testing.T) {
+	m := ClusterMap{
+		Nodes: []ClusterNode{
+			{ID: "home", Net: "lan", Tags: []string{"ingress"}},
+			{ID: "nas", Net: "lan", Tags: []string{"ingress"}},
+			{ID: "pi", Net: "lan2", Tags: []string{"ingress"}},
+		},
+		Networks: []ClusterNet{{ID: "lan", Router: true}, {ID: "lan2", Router: true}},
+	}
+	applyProbes(&m, map[string]string{"home": "home", "nas": "home", "pi": ""}, map[string]bool{"lan2": true})
+	if m.Networks[0].Forward != "home" || m.Networks[0].Unsure {
+		t.Errorf("lan = %+v, want forwarding to home, sure", m.Networks[0])
+	}
+	if m.Nodes[0].NoForward || !m.Nodes[1].NoForward {
+		t.Errorf("home %v nas %v, want only nas unreachable", m.Nodes[0].NoForward, m.Nodes[1].NoForward)
+	}
+	if m.Nodes[2].NoForward || m.Networks[1].Forward != "" {
+		t.Errorf("an unsure probe nobody answered claimed %+v %+v", m.Nodes[2], m.Networks[1])
+	}
+}
+
+func TestProbePath(t *testing.T) {
+	if p := probePath("ctl"); !strings.HasPrefix(p, worker.ProbePrefix) || len(p) != len(worker.ProbePrefix)+24 || p == probePath("other") {
+		t.Errorf("probePath = %q", p)
 	}
 }

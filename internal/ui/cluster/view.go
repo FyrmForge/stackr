@@ -55,6 +55,7 @@ type Node struct {
 	ID, Name, Role, Status, Docker, Net string
 	Tags, Public, Domains, ExitEnvs     []string
 	Envs                                []Env
+	NoForward                           bool // ingress behind a NAT the internet does not reach
 }
 
 type Env struct{ Name, Href, Health string }
@@ -63,6 +64,8 @@ type Net struct {
 	ID, CIDR string
 	Nodes    []string
 	Router   bool
+	Forward  string // the node the NAT forwards to; "" = not known
+	Unsure   bool   // Forward came from inside the network
 }
 
 type Link struct {
@@ -112,7 +115,7 @@ type Tunnel struct{ D string }
 // Arrow is a public ingress or exit arrow, or a backup line.
 type Arrow struct {
 	D    string
-	Kind string // ingress | exit | short | backup
+	Kind string // ingress | exit | short (NAT to its node) | unsure | backup
 }
 
 type S3 struct {
@@ -233,10 +236,21 @@ func Build(m Map, base string, notes []graph.Note, create []graph.Create) graph.
 					in: hasTag(n, "ingress"), exit: n.ExitEnvs, host: n.Domains})
 			}
 		}
-		// The NAT sits in the header; public traffic for the box goes through it.
+		// The NAT sits in the header; public traffic for the box goes through
+		// it, to the node it forwards to.
 		if c.Router {
 			rx, ry := bx+w-padX-routerSize, by+10
 			sh.Routers = append(sh.Routers, Router{rx, ry})
+			if r, ok := pos[c.Forward]; ok {
+				kind := "short"
+				if c.Unsure {
+					kind = "unsure"
+				}
+				sh.Arrows = append(sh.Arrows, Arrow{
+					D:    fmt.Sprintf("M%d,%d C%d,%d %d,%d %d,%d", rx+routerSize/2, ry+routerSize, rx+routerSize/2, ry+routerSize+40, r.cx(), r.y-40, r.cx(), r.y-2),
+					Kind: kind,
+				})
+			}
 			s := slot{cx: rx + routerSize/2, y: by, to: ry}
 			for _, n := range members {
 				if hasTag(n, "ingress") {

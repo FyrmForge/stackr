@@ -2,6 +2,10 @@ package service
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"io"
+	"net/http"
 	"net/netip"
 	"slices"
 	"strings"
@@ -66,6 +70,8 @@ type ClusterNode struct {
 	Domains []string
 	// ExitEnvs are the env paths whose traffic leaves the internet here.
 	ExitEnvs []string
+	// NoForward: an ingress node behind a NAT that the probe did not reach.
+	NoForward bool
 }
 
 type ClusterEnv struct {
@@ -81,6 +87,11 @@ type ClusterNet struct {
 	// Router: nothing in the network has a public address, so it is
 	// reached through a NAT router.
 	Router bool
+	// Forward is the node the router forwards to: the one that answered the
+	// port-forward probe from outside. Unsure: the controller probed its own
+	// network (no public worker to ask), which a router may not loop back.
+	Forward string
+	Unsure  bool
 }
 
 // ClusterLink is one tunnel between a connected pair. MS < 0 = not measured:
@@ -327,10 +338,130 @@ func (o *Orchestrator) ClusterMap(ctx context.Context) (ClusterMap, error) {
 		m.Nodes[i].DefaultIngress = m.Nodes[i].ID == defIng
 		m.Nodes[i].DefaultExit = m.Nodes[i].ID == defExit
 	}
+	o.probeForwards(ctx, ctl, &m)
 	if m.Backups, err = o.clusterBackups(ctx, ctl); err != nil {
 		return m, err
 	}
 	return m, nil
+}
+
+// probePath is the port-forward probe's path: secret to outsiders, the
+// same on every node of the cluster.
+func probePath(ctl string) string {
+	sum := sha256.Sum256([]byte("stackr-probe:" + ctl))
+	return worker.ProbePrefix + hex.EncodeToString(sum[:12])
+}
+
+// ponytail: process-wide like clusterFactsCache; probes run inline in the
+// map's gather, so a slow router costs one map load per TTL.
+var probeCache sync.Map
+
+const probeTTL = time.Minute
+
+type cachedProbe struct {
+	who string // the node id that answered, "" = nobody
+	at  time.Time
+}
+
+// probeForwards asks, for each ingress node behind a NAT, who answers its
+// host from outside: a public worker in another network fetches
+// https://<host><probe path> and the answering Caddy says its node id. With
+// no public worker the controller fetches it itself and the answer is unsure.
+func (o *Orchestrator) probeForwards(ctx context.Context, ctl string, m *ClusterMap) {
+	panelHost, _ := o.settings.Get(ctx, "panel_domain")
+	answers := map[string]string{}
+	unsure := map[string]bool{}
+	for _, c := range m.Networks {
+		if !c.Router {
+			continue
+		}
+		var vantage string
+		for _, n := range m.Nodes {
+			if n.Role == node.Worker && n.Status == NodeOnline && len(n.Public) > 0 && n.Net != c.ID {
+				vantage = n.ID
+				break
+			}
+		}
+		unsure[c.ID] = vantage == ""
+		for _, n := range m.Nodes {
+			if n.Net != c.ID || !slices.Contains(n.Tags, "ingress") {
+				continue
+			}
+			hosts := n.Domains
+			if n.DefaultIngress && panelHost != "" {
+				hosts = append([]string{panelHost}, hosts...)
+			}
+			i := slices.IndexFunc(hosts, func(h string) bool { return !strings.HasPrefix(h, "*.") })
+			if i < 0 {
+				continue // nothing to ask for: no claim either way
+			}
+			if who, ok := o.probe(ctx, vantage, "https://"+hosts[i]+probePath(ctl)); ok {
+				answers[n.ID] = who
+			}
+		}
+	}
+	applyProbes(m, answers, unsure)
+}
+
+// probe fetches url from the vantage worker, or from here when it is "".
+// ok is false when the vantage could not be asked: no answer either way.
+func (o *Orchestrator) probe(ctx context.Context, vantage, url string) (string, bool) {
+	key := vantage + " " + url
+	if v, ok := probeCache.Load(key); ok && time.Since(v.(cachedProbe).at) < probeTTL {
+		return v.(cachedProbe).who, true
+	}
+	cctx, cancel := context.WithTimeout(ctx, 6*time.Second)
+	defer cancel()
+	var who string
+	if vantage == "" {
+		if req, err := http.NewRequestWithContext(cctx, http.MethodGet, url, nil); err == nil {
+			if resp, err := http.DefaultClient.Do(req); err == nil {
+				b, _ := io.ReadAll(io.LimitReader(resp.Body, 128))
+				_ = resp.Body.Close()
+				if resp.StatusCode == http.StatusOK {
+					who = strings.TrimSpace(string(b))
+				}
+			}
+		}
+	} else {
+		cl, err := o.nodeExtras(vantage)
+		if err != nil {
+			return "", false
+		}
+		r, err := cl.Probe(cctx, url)
+		if err != nil {
+			return "", false
+		}
+		if r.Status == http.StatusOK {
+			who = r.Body
+		}
+	}
+	probeCache.Store(key, cachedProbe{who, time.Now()})
+	return who, true
+}
+
+// applyProbes is the decision half, pure: answers maps each probed ingress
+// node to the node id that answered ("" = nobody). The network's Forward is
+// a node of its own that answered; a probed node that is not the one
+// answering is NoForward, unless the probe was unsure and nobody answered.
+func applyProbes(m *ClusterMap, answers map[string]string, unsure map[string]bool) {
+	net := map[string]int{}
+	for i, c := range m.Networks {
+		net[c.ID] = i
+	}
+	for i := range m.Nodes {
+		n := &m.Nodes[i]
+		who, probed := answers[n.ID]
+		ci, ok := net[n.Net]
+		if !probed || !ok {
+			continue
+		}
+		c := &m.Networks[ci]
+		if who != "" && slices.ContainsFunc(m.Nodes, func(x ClusterNode) bool { return x.ID == who && x.Net == c.ID }) {
+			c.Forward, c.Unsure = who, unsure[c.ID]
+		}
+		n.NoForward = who != n.ID && (who != "" || !unsure[c.ID])
+	}
 }
 
 // healthRank orders the dots: what needs a look first.

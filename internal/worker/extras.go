@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -118,6 +119,57 @@ func Interfaces() []Iface {
 		out = append(out, fi)
 	}
 	return out
+}
+
+// ProbePrefix is where the port-forward probe's path lives; a node's Caddy
+// answers its id there (domain.Install.Probe).
+const ProbePrefix = "/.well-known/stackr-probe/"
+
+// Probe is POST /v1/probe: fetch URL from this node, which sits outside the
+// network being probed, and say who answered.
+type Probe struct {
+	URL string `json:"url"`
+}
+
+// ProbeResult is the answer's status and body ("" when nothing answered).
+type ProbeResult struct {
+	Status int    `json:"status"`
+	Body   string `json:"body"`
+}
+
+var probeClient = &http.Client{
+	Timeout:       5 * time.Second,
+	CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+}
+
+func (s *Server) probe(w http.ResponseWriter, r *http.Request) {
+	b, ok := readBody(w, r)
+	if !ok {
+		return
+	}
+	var p Probe
+	if err := json.Unmarshal(b, &p); err != nil {
+		fail(w, 400, err)
+		return
+	}
+	u, err := url.Parse(p.URL)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || !strings.HasPrefix(u.Path, ProbePrefix) {
+		fail(w, 400, fmt.Errorf("%q is not a probe URL", p.URL))
+		return
+	}
+	req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, u.String(), nil)
+	if err != nil {
+		fail(w, 400, err)
+		return
+	}
+	var out ProbeResult
+	if resp, err := probeClient.Do(req); err == nil {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 128))
+		_ = resp.Body.Close()
+		out = ProbeResult{Status: resp.StatusCode, Body: strings.TrimSpace(string(body))}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(out)
 }
 
 // routes reads /proc/net/route (hex, little-endian): IPv4 routes by

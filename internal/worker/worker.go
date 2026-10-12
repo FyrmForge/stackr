@@ -99,6 +99,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("PUT /v1/state", s.putState)
 	mux.HandleFunc("GET /v1/state", s.getState)
 	mux.HandleFunc("POST /v1/replay", s.replay)
+	mux.HandleFunc("POST /v1/probe", s.probe)
 	if s.cfg.CaddySock != "" {
 		mux.Handle("/v1/caddy/", http.StripPrefix("/v1/caddy", unixProxy(s.cfg.CaddySock)))
 	}
