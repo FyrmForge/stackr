@@ -46,6 +46,11 @@ import (
 
 // Flow holds the leaves it sequences; it has no Docker handle of its own.
 type Flow struct {
+	// Remote reports an env running on a worker: its tiles are reached by
+	// VIP over the tunnel, never by joining the controller's ingress
+	// network. nil means every env runs on the controller.
+	Remote func(ctx context.Context, e store.Environment) bool
+
 	Tiles    *tile.Leaf
 	Envs     *environment.Leaf
 	Stacks   *stack.Leaf
@@ -659,7 +664,7 @@ func (f *Flow) resolve(
 	if err != nil {
 		return r, err
 	}
-	if len(ds) > 0 {
+	if len(ds) > 0 && (f.Remote == nil || !f.Remote(ctx, e)) {
 		if err := f.Domains.OpenIngress(ctx, t.ID, nil); err != nil {
 			return r, err
 		}

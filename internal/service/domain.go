@@ -86,6 +86,9 @@ func (o *Orchestrator) AttachDomain(ctx context.Context, tileID string, s Domain
 			ids = append(ids, c.ID)
 		}
 	}
+	if o.envRemote(ctx, t.EnvironmentID) { // a worker's tile is reached by VIP over the tunnel
+		ids = nil
+	}
 	d, err := o.domains.Attach(ctx, tileID, s, o.dns01(ctx), ids)
 	if err != nil {
 		return d, err

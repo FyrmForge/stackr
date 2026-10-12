@@ -35,6 +35,16 @@ func (o *Orchestrator) controllerID(ctx context.Context) (string, error) {
 	return n.ID, err
 }
 
+// envRemote reports an env that runs on a worker, not the controller.
+func (o *Orchestrator) envRemote(ctx context.Context, envID string) bool {
+	e, err := o.envs.Get(ctx, envID)
+	if err != nil || e.NodeID == "" {
+		return false
+	}
+	ctl, err := o.controllerID(ctx)
+	return err == nil && e.NodeID != ctl
+}
+
 // withController is ctx for controller-only work.
 func (o *Orchestrator) withController(ctx context.Context) (context.Context, error) {
 	id, err := o.controllerID(ctx)
