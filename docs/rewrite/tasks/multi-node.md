@@ -515,3 +515,10 @@ Marketplace = a signed index of manifests. UI extensions (described UI,
 sandboxed embedded pages) come later. First targets: Cloudflare Tunnel and
 Tailscale/Headscale as ways in, a rebalancer.
 
+## Later: personal devices on the mesh (CLI)
+
+`stackr vpn` (name open) puts a laptop on the mesh as a device peer of one
+node; multi-hop routing then reaches every node. Device peers never act as a
+hop, get access rules (which nodes, envs, ports), short-lived keys and an
+audit trail.
+
