@@ -295,6 +295,9 @@ func (e moveEnv) Start(ctx context.Context, envID, nodeID string) error {
 		return err
 	}
 	log := moveLog(ctx)
+	// the job's ctx names the node it started on; the deploy (image pulls
+	// included) runs on the target
+	ctx = docker.WithNode(ctx, nodeID)
 	var done []string
 	for _, t := range deployOrder(ts) {
 		_, _ = fmt.Fprintf(log, "deploying %s on the new node\n", t.Slug)
