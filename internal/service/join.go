@@ -22,6 +22,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/node"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/securitylog"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
+	"github.com/FyrmForge/stackr/internal/worker"
 )
 
 // The join flow: an admin mints a token (join.token), the new machine posts
@@ -89,6 +90,10 @@ type JoinStatus struct {
 	WGAddress string `json:"wg_address,omitempty"`
 	CertPEM   string `json:"cert_pem,omitempty"`
 	CAPEM     string `json:"ca_pem,omitempty"`
+	// Mesh is the node's first mesh spec, once the controller has planned
+	// it; the installer waits for it and the worker brings its tunnel up
+	// from it at start.
+	Mesh *worker.MeshSpec `json:"mesh,omitempty"`
 }
 
 // JoinedNode is a node an admin confirmed.
@@ -265,10 +270,18 @@ func (o *Orchestrator) JoinStatus(ctx context.Context, token string) (JoinStatus
 	if err != nil {
 		return JoinStatus{}, err
 	}
-	return JoinStatus{
+	st := JoinStatus{
 		Status: JoinConfirmed, NodeID: n.ID, Range: n.RangeCIDR, WGAddress: n.WGAddress,
 		CertPEM: row.CertPEM, CAPEM: string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: ca.Cert.Raw})),
-	}, nil
+	}
+	if o.mesh != nil {
+		if spec, ok := o.mesh.Spec(n.ID); ok {
+			st.Mesh = &spec
+		} else {
+			o.mesh.Kick()
+		}
+	}
+	return st, nil
 }
 
 // PendingJoins (server admin) lists nodes waiting to be confirmed.

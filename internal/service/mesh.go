@@ -90,6 +90,17 @@ type meshSvc struct {
 	wgPK   map[string]string // wg public key per node, for a row that holds none (the controller's)
 	pushed map[string][32]byte
 	via    map[[2]string]string // relay host per node pair, from the last sync
+	specs  map[string]worker.MeshSpec
+}
+
+// Spec is the node's mesh spec from the last sync: a joining worker gets
+// its first one in the join answer, so its tunnel comes up without the
+// controller dialling it outside the mesh.
+func (m *meshSvc) Spec(nodeID string) (worker.MeshSpec, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	s, ok := m.specs[nodeID]
+	return s, ok
 }
 
 func newMeshSvc(st *store.Store, nodes MeshNodes) *meshSvc {
@@ -162,7 +173,7 @@ func (m *meshSvc) Sync(ctx context.Context, only string, force bool) error {
 		via[pairKey(r.A, r.B)] = r.Host
 	}
 	m.mu.Lock()
-	m.via = via
+	m.via, m.specs = via, specs
 	m.mu.Unlock()
 	// Exit sides first, so a client's first probe finds its link answering.
 	ids := make([]string, 0, len(specs))
@@ -378,6 +389,13 @@ func (m *meshSvc) gather(ctx context.Context) (meshIn, error) {
 			mn.PublicKey = m.wgPK[n.ID]
 		}
 		m.mu.Unlock()
+		if !haveF {
+			// Not reached yet (a node that just joined): what it reported
+			// at join, so peers can dial it before its tunnel is up.
+			if jt, err := m.st.JoinTokens.GetByNode(ctx, n.ID); err == nil && jt.Facts != "" {
+				haveF = json.Unmarshal([]byte(jt.Facts), &f) == nil
+			}
+		}
 		if haveF {
 			mn.Ifaces = ifacePrefixes(f)
 			mn.Public = publicAddrs(f)
@@ -555,9 +573,10 @@ func wanAddr(n meshNodeIn) netip.Addr {
 
 // autoRelays are in.Relays plus one relay for every pair that cannot reach
 // each other at all (no shared LAN, neither has an address the other can
-// dial), hosted on the first node with a public IPv4. A pair whose NATs are
-// not known yet, or are the same address, gets none: the relay tells the
-// sides apart by address.
+// dial), hosted on the first node with a public IPv4. Both sides get the
+// relay as a candidate at once (a new worker has only its join spec); the
+// host opens the pair once it has seen both NATs (buildMesh). A pair behind
+// the same NAT address gets none: the relay tells the sides apart by address.
 // ponytail: one host for every pair; spread them when a relay host's
 // bandwidth matters.
 func autoRelays(in meshIn) []MeshRelay {
@@ -593,7 +612,7 @@ func autoRelays(in meshIn) []MeshRelay {
 				len(mesh.Candidates(b.Node, a.Node, netip.AddrPort{})) > 0 {
 				continue
 			}
-			if !a.NAT.IsValid() || !b.NAT.IsValid() || a.NAT == b.NAT {
+			if a.NAT.IsValid() && a.NAT == b.NAT {
 				continue
 			}
 			lo, hi := rangeSlot(a.Range), rangeSlot(b.Range)

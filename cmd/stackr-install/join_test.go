@@ -50,8 +50,12 @@ func fakePanel(t *testing.T, final string) (*httptest.Server, string, *atomic.In
 				_, _ = w.Write([]byte(`{"status":"rejected"}`))
 				return
 			}
-			b, _ := json.Marshal(joinStatus{Status: "confirmed", NodeID: "n1", WGAddress: "10.207.255.2",
-				CertPEM: string(iss.CertPEM), CAPEM: string(caPEM)})
+			st := joinStatus{Status: "confirmed", NodeID: "n1", WGAddress: "10.207.255.2",
+				CertPEM: string(iss.CertPEM), CAPEM: string(caPEM)}
+			if polls.Load() >= 3 { // confirmed first, the mesh spec a sync later
+				st.Mesh = json.RawMessage(`{"listen_port":51820}`)
+			}
+			b, _ := json.Marshal(st)
 			_, _ = w.Write(b)
 		default:
 			http.NotFound(w, r)
@@ -74,7 +78,7 @@ func TestJoinConfirmed(t *testing.T) {
 	key, _ := clusterca.NewKey()
 	csr, _ := clusterca.NewCSR(key)
 	st, err := callTo(ts, fp).run(context.Background(), csr, "pub", map[string]any{"interfaces": []any{}})
-	if err != nil || st.WGAddress != "10.207.255.2" || polls.Load() != 2 {
+	if err != nil || st.WGAddress != "10.207.255.2" || polls.Load() != 3 || len(st.Mesh) == 0 {
 		t.Fatalf("%+v %v polls=%d", st, err, polls.Load())
 	}
 }
@@ -106,8 +110,8 @@ func TestJoinArgsAndUnit(t *testing.T) {
 	if fp, err := normalizeFP(strings.ToUpper(strings.Repeat("ab:", 31) + "ab")); err != nil || fp != strings.Repeat("ab", 32) {
 		t.Errorf("normalizeFP = %q %v", fp, err)
 	}
-	u := workerUnit("/var/lib/stackr-worker")
-	for _, want := range []string{"After=network-online.target docker.service", "worker --state-dir /var/lib/stackr-worker --addr :7443"} {
+	u := workerUnit("/var/lib/stackr-worker", "10.207.255.3")
+	for _, want := range []string{"After=network-online.target docker.service", "worker --state-dir /var/lib/stackr-worker --addr 10.207.255.3:7443"} {
 		if !strings.Contains(u, want) {
 			t.Errorf("unit lacks %q:\n%s", want, u)
 		}

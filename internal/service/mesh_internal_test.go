@@ -234,11 +234,23 @@ func TestBuildMeshAutoRelay(t *testing.T) {
 	if r := autoRelays(in); len(r) != 0 {
 		t.Fatalf("same LAN relays = %+v", r)
 	}
-	// NAT not seen yet: no relay.
+	// NAT not seen yet (a new worker): the sides already aim at the relay,
+	// the host opens it only once both NATs are known.
 	in.Nodes[1] = home("b", 1, "192.168.5.10/24", "81.2.69.160")
 	in.Nodes[1].NAT = netip.Addr{}
+	specs = buildMesh(in)
+	if len(specs["h"].Relays) != 0 {
+		t.Fatalf("relay opened before the NAT is known: %+v", specs["h"].Relays)
+	}
+	for _, p := range specs["b"].Peers {
+		if p.NodeID == "a" && (len(p.Candidates) != 1 || p.Candidates[0] != relayAt) {
+			t.Fatalf("b->a = %v", p.Candidates)
+		}
+	}
+	// Same NAT address: the relay cannot tell them apart.
+	in.Nodes[1].NAT = in.Nodes[0].NAT
 	if r := autoRelays(in); len(r) != 0 {
-		t.Fatalf("unknown NAT relays = %+v", r)
+		t.Fatalf("same NAT relays = %+v", r)
 	}
 }
 

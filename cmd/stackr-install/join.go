@@ -36,6 +36,9 @@ type joinStatus struct {
 	WGAddress string `json:"wg_address"`
 	CertPEM   string `json:"cert_pem"`
 	CAPEM     string `json:"ca_pem"`
+	// Mesh is the node's first mesh spec; the worker brings its tunnel up
+	// from it, so the controller never dials the node outside the mesh.
+	Mesh json.RawMessage `json:"mesh"`
 }
 
 // joinCall is one trip to the panel: the request, the polling, and the
@@ -104,7 +107,7 @@ func (j joinCall) run(ctx context.Context, csrPEM []byte, wgPub string, facts an
 		return st, fmt.Errorf("join request: %w", err)
 	}
 	j.say("Waiting for an admin to confirm this node in the panel (Nodes, pending)...")
-	for st.Status != "confirmed" {
+	for st.Status != "confirmed" || len(st.Mesh) == 0 || string(st.Mesh) == "null" {
 		if st.Status == "rejected" {
 			return st, errors.New("the admin rejected this node")
 		}
@@ -144,11 +147,10 @@ func (j joinCall) run(ctx context.Context, csrPEM []byte, wgPub string, facts an
 }
 
 // workerUnit is the systemd unit for `stackrd worker`. The worker listens on
-// every address: the controller first reaches it directly (the mesh does not
-// exist until the controller pushes it), and only its mTLS cert gets in. It
-// replays its saved state itself at start; After=docker.service keeps
-// DOCKER-USER there.
-func workerUnit(stateDir string) string {
+// its tunnel address only (bound before wg0 has it, see worker.Run); it
+// brings the tunnel up from its saved mesh spec at start, the first one from
+// the join answer. After=docker.service keeps DOCKER-USER there.
+func workerUnit(stateDir, wgAddr string) string {
 	return fmt.Sprintf(`[Unit]
 Description=stackr worker
 After=network-online.target docker.service
@@ -156,13 +158,13 @@ Wants=network-online.target
 Requires=docker.service
 
 [Service]
-ExecStart=%[1]s worker --state-dir %[2]s --addr :%[3]s
+ExecStart=%[1]s worker --state-dir %[2]s --addr %[4]s:%[3]s
 Restart=always
 RestartSec=3
 
 [Install]
 WantedBy=multi-user.target
-`, joinBinary, stateDir, joinWorkerPort)
+`, joinBinary, stateDir, joinWorkerPort, wgAddr)
 }
 
 // join is `stackr-install join`: turn this machine into a worker node of
@@ -246,12 +248,13 @@ func join(ctx context.Context, args []string, out io.Writer) error {
 		mode os.FileMode
 	}{
 		"node.key": {kb, 0o600}, "node.crt": {[]byte(st.CertPEM), 0o644}, "cluster-ca.crt": {[]byte(st.CAPEM), 0o644},
+		worker.MeshFile: {st.Mesh, 0o600},
 	} {
 		if err := os.WriteFile(filepath.Join(*stateDir, name), f.b, f.mode); err != nil {
 			return err
 		}
 	}
-	if err := os.WriteFile(joinUnitPath, []byte(workerUnit(*stateDir)), 0o644); err != nil {
+	if err := os.WriteFile(joinUnitPath, []byte(workerUnit(*stateDir, strings.Split(st.WGAddress, "/")[0])), 0o644); err != nil {
 		return err
 	}
 	for _, c := range [][]string{{"daemon-reload"}, {"enable", "--now", "stackr-worker.service"}} {

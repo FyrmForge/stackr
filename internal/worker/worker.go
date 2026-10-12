@@ -118,10 +118,11 @@ func Run(ctx context.Context, cfg Config) error {
 	}
 	tc := cfg.TLS.Clone()
 	tc.NextProtos = []string{"http/1.1"}
-	ln, err := tls.Listen("tcp", cfg.Addr, tc)
+	raw, err := (&net.ListenConfig{Control: freebind}).Listen(ctx, "tcp", cfg.Addr)
 	if err != nil {
 		return err
 	}
+	ln := tls.NewListener(raw, tc)
 	s := New(cfg)
 	defer s.Stop()
 	go s.reassertLoop()
