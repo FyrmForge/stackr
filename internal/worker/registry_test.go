@@ -33,17 +33,18 @@ func TestRegistryProxy(t *testing.T) {
 		t.Fatal(err)
 	}
 	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, httptest.NewRequest("GET", "http://127.0.0.1:5000/v2/", nil))
+	h.ServeHTTP(rec, httptest.NewRequest("GET", "http://localhost:5000/v2/", nil))
 	if host != "registry.example.com" || certs != 1 {
 		t.Errorf("front saw host %q, %d client certs", host, certs)
 	}
 	if rec.Code != 401 || rec.Body.String() != "no" {
 		t.Errorf("got %d %q", rec.Code, rec.Body)
 	}
-	if got := rec.Header().Get("WWW-Authenticate"); got != `Bearer realm="http://127.0.0.1:5000/token",service="stackr"` {
+	if got := rec.Header().Get("WWW-Authenticate"); got != `Bearer realm="http://localhost:5000/token",service="stackr"` {
 		t.Errorf("challenge = %s", got)
 	}
-	if got := rec.Header().Get("Location"); got != "http://127.0.0.1:5000/v2/a/b/c/blobs/uploads/u1?_state=x" {
+	// Docker sends its token only to the host string it used: keep it.
+	if got := rec.Header().Get("Location"); got != "http://localhost:5000/v2/a/b/c/blobs/uploads/u1?_state=x" {
 		t.Errorf("upload location = %s", got)
 	}
 }

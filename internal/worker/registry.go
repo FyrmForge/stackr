@@ -25,6 +25,9 @@ type RegistryConfig struct {
 	Listen    string // "" = RegistryListen
 }
 
+// inHost carries the request's own Host to ModifyResponse.
+type inHost struct{}
+
 var realmRe = regexp.MustCompile(`realm="[^"]*"`)
 
 // registryProxy forwards everything to the front. The token realm in the
@@ -42,17 +45,24 @@ func registryProxy(c RegistryConfig, listen string) (http.Handler, error) {
 		Rewrite: func(r *httputil.ProxyRequest) {
 			r.SetURL(u)
 			r.Out.Host = c.Host
+			r.Out = r.Out.WithContext(context.WithValue(r.Out.Context(), inHost{}, r.In.Host))
 		},
 		FlushInterval: -1,
 		Transport:     &http.Transport{TLSClientConfig: tc, ForceAttemptHTTP2: false},
 		ModifyResponse: func(res *http.Response) error {
+			// The host the client used ("localhost:5000"): Docker only sends its
+			// token back to the same host string.
+			host, _ := res.Request.Context().Value(inHost{}).(string)
+			if host == "" {
+				host = listen
+			}
 			if h := res.Header.Get("WWW-Authenticate"); h != "" {
-				res.Header.Set("WWW-Authenticate", realmRe.ReplaceAllLiteralString(h, `realm="http://`+listen+`/token"`))
+				res.Header.Set("WWW-Authenticate", realmRe.ReplaceAllLiteralString(h, `realm="http://`+host+`/token"`))
 			}
 			// A push's upload URLs name the registry host; keep them on this
 			// listener, so the blobs go over the mesh too.
 			if l, err := url.Parse(res.Header.Get("Location")); err == nil && l.Host == c.Host {
-				l.Scheme, l.Host = "http", listen
+				l.Scheme, l.Host = "http", host
 				res.Header.Set("Location", l.String())
 			}
 			return nil
