@@ -61,6 +61,25 @@ func TestBuildAllPerIngressNode(t *testing.T) {
 	}
 }
 
+// Trusted proxies are the controller's front proxies: a worker's Caddy
+// never trusts them.
+func TestBuildAllTrustedProxiesOnControllerOnly(t *testing.T) {
+	in := install
+	in.DefaultIngress, in.Controller = "ctl", "ctl"
+	in.TrustedProxies = []string{"192.168.1.100/32"}
+	in.IngressNodes = []string{"w1"}
+	all, err := domain.BuildAll(in, nil, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(all["ctl"]), "192.168.1.100/32") {
+		t.Error("the controller lost its trusted proxy")
+	}
+	if strings.Contains(string(all["w1"]), "192.168.1.100/32") {
+		t.Error("a worker trusts the controller's front proxy")
+	}
+}
+
 // The port-forward probe answers each node's own id, first on both servers.
 func TestBuildAllProbe(t *testing.T) {
 	in := install
