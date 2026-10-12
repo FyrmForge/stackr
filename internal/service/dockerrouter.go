@@ -35,6 +35,9 @@ type DockerRouter struct {
 	clients map[string]Docker
 	// OwnRegistry answers stackr's registry host (Pull); nil = none.
 	OwnRegistry func(ctx context.Context) string
+	// ToolReady makes sure a node's tool image can be pulled (EnsureTool);
+	// nil = nothing to do.
+	ToolReady func(ctx context.Context, nodeID string) error
 }
 
 // NewRouter routes to the given clients, by node id.
@@ -204,6 +207,11 @@ func (r *DockerRouter) ListVolumes(ctx context.Context, labels map[string]string
 }
 
 func (r *DockerRouter) EnsureTool(ctx context.Context) error {
+	if id, ok := docker.NodeFrom(ctx); ok && r.ToolReady != nil {
+		if err := r.ToolReady(ctx, id); err != nil {
+			return fmt.Errorf("tool image: %w", err)
+		}
+	}
 	return r.do(ctx, func(c Docker) error { return c.EnsureTool(ctx) })
 }
 

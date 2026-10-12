@@ -165,7 +165,21 @@ func wrap(err error) error {
 }
 
 // Client is the daemon wrapper.
-type Client struct{ cli *client.Client }
+type Client struct {
+	cli  *client.Client
+	tool string // the tool containers' image, "" = ToolImage
+}
+
+// SetTool makes the tool containers run ref instead of ToolImage: a worker
+// takes stackr's own helper from the cluster registry, not Docker Hub.
+func (d *Client) SetTool(ref string) { d.tool = ref }
+
+func (d *Client) toolImage() string {
+	if d.tool != "" {
+		return d.tool
+	}
+	return ToolImage
+}
 
 func New() (*Client, error) {
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())

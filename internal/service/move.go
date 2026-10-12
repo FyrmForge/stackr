@@ -43,7 +43,7 @@ type moveJob struct {
 // moveFlow is the flow wired to this orchestrator; it holds no state of its
 // own (the rows are the state), so it is cheap to build per call.
 func (o *Orchestrator) moveFlow() *move.Flow {
-	return &move.Flow{Moves: o.store.Moves, Nodes: moveNodes{o}, Env: moveEnv{o}, EnsureRsync: o.rsyncSteps().ensure}
+	return &move.Flow{Moves: o.store.Moves, Nodes: moveNodes{o}, Env: moveEnv{o}, EnsureRsync: o.helperReady}
 }
 
 // rsyncDockerfile is the live-move helper. The controller builds it once
@@ -91,7 +91,11 @@ func (o *Orchestrator) rsyncSteps() rsyncSteps {
 			return res.StatusCode == http.StatusOK, nil
 		},
 		local: func(ctx context.Context) bool {
-			_, err := o.docker.LocalDigest(ctx, ref)
+			ctx, err := o.withController(ctx)
+			if err != nil {
+				return false
+			}
+			_, err = o.docker.LocalDigest(ctx, ref)
 			return err == nil
 		},
 		build: func(ctx context.Context) error {
@@ -104,17 +108,25 @@ func (o *Orchestrator) rsyncSteps() rsyncSteps {
 			if err := os.WriteFile(df, []byte(rsyncDockerfile), 0o644); err != nil {
 				return err
 			}
+			ctx, err = o.withController(ctx)
+			if err != nil {
+				return err
+			}
 			_, err = o.images.Build(ctx, dir, df, ref, nil, io.Discard)
 			return err
 		},
-		push: func(ctx context.Context) error {
-			// ponytail: the docker CLI, as image builds use; the client has no push.
-			if out, err := exec.CommandContext(ctx, "docker", "push", ref).CombinedOutput(); err != nil {
-				return fmt.Errorf("push %s: %w: %s", ref, err, strings.TrimSpace(string(out)))
-			}
-			return nil
-		},
+		push: func(ctx context.Context) error { return pushLocal(ctx, ref) },
 	}
+}
+
+// pushLocal pushes a localhost:5000/... image from the controller's daemon
+// into the cluster registry (on the controller that address is the registry).
+func pushLocal(ctx context.Context, ref string) error {
+	// ponytail: the docker CLI, as image builds use; the client has no push.
+	if out, err := exec.CommandContext(ctx, "docker", "push", ref).CombinedOutput(); err != nil {
+		return fmt.Errorf("push %s: %w: %s", ref, err, strings.TrimSpace(string(out)))
+	}
+	return nil
 }
 
 // MoveEnv (org owner; the target must be open to the org) moves an env to

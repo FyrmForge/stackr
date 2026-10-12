@@ -17,6 +17,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/installspec"
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
+	"github.com/FyrmForge/stackr/internal/service/internal/flow/move"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/node"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/securitylog"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
@@ -353,6 +354,7 @@ func (o *Orchestrator) refreshNodeClients(ctx context.Context) error {
 			delete(want, n.ID)
 			continue
 		}
+		d.SetTool(move.RsyncImage) // pulled over the mesh, see EnsureTool
 		r.Set(n.ID, d)
 		if nv, ok := o.vip.(*nodeVIPs); ok {
 			vctx, cancel := context.WithTimeout(ctx, 5*time.Second)
