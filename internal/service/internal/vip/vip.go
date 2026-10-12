@@ -51,6 +51,26 @@ func (t *Table) Set(ctx context.Context, vip string, replicas, lan []string) err
 	return t.apply(ctx, next, t.base)
 }
 
+// AllowTCP opens (on) or closes the host's INPUT to tcp ports lo..hi from
+// src, one rule, safe to repeat: the live move's rsync helper on the target
+// admits the source node, and only while the move runs.
+func (t *Table) AllowTCP(ctx context.Context, src string, lo, hi int, on bool) error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	rule := []string{"INPUT", "-s", src, "-p", "tcp", "--dport", fmt.Sprintf("%d:%d", lo, hi),
+		"-m", "comment", "--comment", "stackr-move", "-j", "ACCEPT"}
+	ipt := func(op string, rest ...string) []string { return append([]string{"iptables", op}, rest...) }
+	if on {
+		if t.Exec(ctx, ipt("-C", rule...)...) == nil {
+			return nil
+		}
+		return t.Exec(ctx, ipt("-I", append([]string{"INPUT", "1"}, rule[1:]...)...)...)
+	}
+	for t.Exec(ctx, ipt("-D", rule...)...) == nil {
+	}
+	return nil
+}
+
 // Allow opens a tile's lan grants to one replica address before the VIP
 // routes to it, so an app that needs the LAN at start passes its health gate.
 // No lan clears it. Route's Set takes over once the replica is routed.

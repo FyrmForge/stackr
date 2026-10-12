@@ -52,6 +52,7 @@ const (
 	kindServerPlan  jobs.Kind = "server-plan"
 	kindServerApply jobs.Kind = "server-apply"
 	kindCleanup     jobs.Kind = "cleanup"
+	kindMoveEnv     jobs.Kind = "move-env"
 )
 
 type runJob struct {
@@ -309,6 +310,7 @@ func (o *Orchestrator) handlers() map[jobs.Kind]jobs.Handler {
 		kindServerPlan:  controllerJob(o, payload(o.runServerPlan)),
 		kindServerApply: controllerJob(o, payload(o.runServerApply)),
 		kindCleanup:     o.runCleanup,
+		kindMoveEnv:     payload(o.runMove),
 	}
 }
 

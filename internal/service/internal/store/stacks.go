@@ -79,6 +79,9 @@ type EnvironmentStore interface {
 	// SetSubnet writes the env's /24 and nothing else, so reserving one
 	// cannot clobber a row the caller read earlier.
 	SetSubnet(ctx context.Context, id, subnet string) error
+	// SetNode is the one writer of the node, for moves: it also clears the
+	// subnet, which belongs to the old node's range.
+	SetNode(ctx context.Context, id, nodeID string) error
 	Update(ctx context.Context, e Environment) error
 	Delete(ctx context.Context, id string) error
 }
@@ -109,6 +112,11 @@ func (s environments) ListByStack(ctx context.Context, stackID string) ([]Enviro
 
 func (s environments) SetSubnet(ctx context.Context, id, subnet string) error {
 	res, err := s.q.ExecContext(ctx, `UPDATE environments SET subnet = ? WHERE id = ?`, subnet, id)
+	return affected(res, err)
+}
+
+func (s environments) SetNode(ctx context.Context, id, nodeID string) error {
+	res, err := s.q.ExecContext(ctx, `UPDATE environments SET node_id = ?, subnet = '' WHERE id = ?`, nodeID, id)
 	return affected(res, err)
 }
 

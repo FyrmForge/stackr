@@ -177,6 +177,9 @@ func newTwoNodes(t *testing.T) *twoNodes {
 		tb.Read = func(context.Context, ...string) (string, error) { return "", nil }
 		return tb
 	}
+	if nv, ok := n.orch.vip.(*nodeVIPs); ok { // the tile leaf still holds this one: a worker table for it too
+		nv.Attach("w1", vipStub{})
+	}
 	n.ctlRS, n.wRS = &[]string{}, &[]string{}
 	n.orch.vip = newNodeVIPs(map[string]tile.VIP{ctl.ID: table(n.ctlRS), "w1": table(n.wRS)})
 

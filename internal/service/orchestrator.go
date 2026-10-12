@@ -568,7 +568,7 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 			},
 			Workers: func(ctx context.Context) (int, error) { return orch.settings.Int(ctx, "workers") },
 			// A run holds its own clock: the tile's timeout_minutes.
-			Uncapped: map[jobs.Kind]bool{kindRun: true},
+			Uncapped: map[jobs.Kind]bool{kindRun: true, kindMoveEnv: true},
 		})
 	})
 	orch.sched = build("flow/schedule", func() *schedule.Runner {
@@ -632,6 +632,9 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 	if err := orch.jobs.Start(ctx); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("start job runner: %w", err)
+	}
+	if err := orch.resumeMoves(ctx); err != nil {
+		slog.Warn("moves: resume failed", "err", err)
 	}
 	if err := orch.sched.Boot(ctx); err != nil {
 		// A bad schedule row is reported, never fatal: the rest still run.

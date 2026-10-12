@@ -26,6 +26,8 @@ const (
 	NodeBootstrap = "node.bootstrap" // the controller row was made
 	RegistryToken = "registry.token" // the registry front issued a token
 	CertIssue     = "cert.issue"     // the cluster CA signed a certificate
+	MoveStart     = "move.start"
+	MoveFinish    = "move.finish"
 )
 
 // Event is what a caller records; Append stamps the id and time.

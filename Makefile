@@ -77,6 +77,7 @@ release:
 	@[[ "$(RELEASE)" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-dev\.[0-9]+)?$$ ]] || { echo "usage: make release RELEASE=vX.Y.Z or vX.Y.Z-dev.N" >&2; exit 1; }
 	$(MAKE) build
 	docker build --platform linux/amd64 --build-arg VERSION=$(RELEASE) -f cmd/stackrd/Dockerfile -t ghcr.io/fyrmforge/stackr:$(RELEASE:v%=%) .
+	docker build --platform linux/amd64 -t stackr-rsync:1 images/rsync
 	GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "-X main.version=$(RELEASE)" -o bin/stackr-install-linux-amd64 ./cmd/stackr-install
 
 ## generate: Generate static pages
