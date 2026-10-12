@@ -433,9 +433,12 @@ joined to 109 across the home NAT. Nothing below may be dropped.
 
 ### W3b Open items (to plan, one at a time)
 
-- **Cross-node links:** not built. Host = instance VIP when nodes differ
-  (flow/managed), no managed-network join across nodes (deploy facts.go,
-  managed.go), link flows in vipboot.go.
+- **Cross-node links (agreed):** not built. Keep the link's name; when nodes
+  differ the consumer gets an ExtraHosts entry name -> instance VIP (no DNS
+  server), skips the managed-network join (deploy facts.go, managed.go), and
+  one flow opens that env to that port (vipboot.go). A database move
+  recreates its linked apps. Later, maybe: a per-node resolver as Docker's
+  `--dns` upstream for a stackr zone, so moves need no recreate.
 - **Node registry pulls:** join unit has no `--registry-url`; Caddy ends TLS
   before the registry front; the panel has no mTLS listener on wg.
 - **Relays never chosen:** the relay is plumbed, `meshSvc.Relays` is never
