@@ -73,6 +73,8 @@ type Tables struct {
 	RegistryTokens   RegistryTokenStore
 	Moves            MoveStore
 	JoinTokens       JoinTokenStore
+	NodeOrgs         NodeOrgStore
+	ForgottenNodes   ForgottenNodeStore
 }
 
 func bind(q querier, box *secrets.Box) Tables {
@@ -119,6 +121,8 @@ func bind(q querier, box *secrets.Box) Tables {
 		RegistryTokens:   registryTokens{crud[RegistryToken]{q, box, registryTokensT}},
 		Moves:            moves{crud[EnvMove]{q, box, movesT}},
 		JoinTokens:       joinTokens{crud[JoinToken]{q, box, joinTokensT}},
+		NodeOrgs:         nodeOrgs{q},
+		ForgottenNodes:   forgottenNodes{q},
 	}
 }
 

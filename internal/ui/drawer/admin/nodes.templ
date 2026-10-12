@@ -1,0 +1,446 @@
+package admin
+
+import (
+	"fmt"
+	"strings"
+
+	c "github.com/FyrmForge/stackr/internal/ui/components"
+)
+
+// NodesView is the admin Nodes tab. Add "" = may not add a node.
+type NodesView struct {
+	Add   string // GET: opens the add-node steps
+	Lost  []LostEnvRow
+	Rows  []NodeRow
+	Adder *AddNodeView // the open add-node steps, nil = closed
+}
+
+// NodeRow is one node card. Open is a GET that answers the node drawer.
+type NodeRow struct {
+	Name, Role, Status, Open string
+	Tags                     []string
+	Envs                     int
+	Disk                     string // "34 GB free", "" = not reported
+	Cores, Mem               string // "4 cores", "8 GB"
+}
+
+// LostEnvRow is an env of a forgotten node, with the nodes it can go to.
+type LostEnvRow struct {
+	Path, Node string
+	Volumes    int
+	Action     string // POST env=&node=
+	EnvID      string
+	Nodes      []Option
+}
+
+// Option is a select choice.
+type Option struct{ Value, Label string }
+
+// AddNodeView is the three steps: Step 1 asks name and tags, 2 shows the
+// command and waits, 3 confirms the machine that called in.
+type AddNodeView struct {
+	Step  int
+	Error string
+	// Step 1
+	Name   string
+	Tags   []string // the choices
+	Picked []string
+	Create string // POST name, tag
+	Cancel string // GET: closes the steps
+	// Step 2
+	Command string
+	Expires string
+	Poll    string // GET, 204 until the node has called in
+	// Step 3
+	Pending *PendingRow
+}
+
+// PendingRow is the machine that called in.
+type PendingRow struct {
+	Name, System, Confirm, Reject string
+	Addresses                     []string
+}
+
+// NodeView is the node drawer's body. Only the active tab's fields are set.
+type NodeView struct {
+	ID, Name, Role, Status string
+	Controller             bool
+	Tags                   []string
+	// Overview
+	Range, WGAddress                  string
+	Docker, Kernel, Hardware, Disk    string
+	Uptime                            string
+	HasFacts                          bool
+	// Envs
+	Envs []NodeEnvRow
+	// Network
+	Ifaces []IfaceRow
+	// Tags and open to orgs
+	TagsAction  string // POST tag=
+	AllTags     []string
+	RoutesNote  string
+	OrgsAction  string // POST org=; "" = the controller, open to all
+	Orgs        []NodeOrgRow
+	// Security
+	Certs  []CertRow
+	Remove c.ConfirmView
+	Forget c.ConfirmView
+	Back   string
+}
+
+type NodeEnvRow struct {
+	Path, Pin string
+	Tiles     int
+}
+
+type IfaceRow struct{ Name, Addr, Kind string }
+
+type NodeOrgRow struct {
+	ID, Name string
+	On       bool
+}
+
+type CertRow struct{ Serial, Issued, Expires, RenewFrom, State string }
+
+// ForgetBody is the list inside the forget dialog.
+type ForgetBody struct {
+	Name string
+	Lost []string
+}
+
+func plural(n int, one string) string {
+	if n == 1 {
+		return fmt.Sprintf("%d %s", n, one)
+	}
+	return fmt.Sprintf("%d %ss", n, one)
+}
+
+func statusTone(s string) string {
+	switch s {
+	case "online":
+		return "success"
+	case "joined":
+		return "warn"
+	}
+	return "danger"
+}
+
+func statusWord(s string) string {
+	switch s {
+	case "online":
+		return "Online"
+	case "joined":
+		return "Joined, not seen yet"
+	}
+	return strings.ToUpper(s[:1]) + s[1:]
+}
+
+func picked(v *AddNodeView, t string) bool {
+	for _, p := range v.Picked {
+		if p == t {
+			return true
+		}
+	}
+	return false
+}
+
+templ Nodes(v NodesView) {
+	<div id="tab-nodes">
+		if len(v.Lost) > 0 {
+			@c.Section("Lost envs", "instance", "Pick a node for each. They start empty; restore a volume's backup after.") {
+				<ul class="space-y-3">
+					for _, l := range v.Lost {
+						<li class="panel px-4 py-3 text-sm space-y-2">
+							<div class="flex flex-wrap items-center gap-2">
+								<span class="text-rw-text">{ l.Path }</span>
+								@c.Chip(l.Node+" was forgotten", "warn")
+								<span class="text-xs text-rw-faint">{ plural(l.Volumes, "volume") }</span>
+							</div>
+							if len(l.Nodes) > 0 {
+								<form hx-post={ l.Action } hx-target={ target() } hx-swap="outerHTML" class="flex items-end gap-2">
+									<input type="hidden" name="env" value={ l.EnvID }/>
+									<div>
+										<label for={ "lost-" + l.EnvID } class="label">Redeploy on</label>
+										<select id={ "lost-" + l.EnvID } name="node" class="input">
+											for _, n := range l.Nodes {
+												<option value={ n.Value }>{ n.Label }</option>
+											}
+										</select>
+									</div>
+									<button type="submit" class="btn btn-primary btn-sm">Redeploy empty</button>
+								</form>
+							}
+						</li>
+					}
+				</ul>
+			}
+		}
+		@c.Section("Nodes", "instance", "Machines this panel runs envs on.") {
+			if v.Adder != nil {
+				@AddNode(*v.Adder)
+			}
+			<ul class="space-y-3">
+				for _, r := range v.Rows {
+					<li class="panel px-4 py-3 text-sm">
+						<div class="flex flex-wrap items-center gap-2">
+							<button type="button" hx-get={ r.Open } hx-target={ target() } hx-swap="outerHTML" class="text-rw-text font-medium hover:underline">{ r.Name }</button>
+							@c.Chip(r.Role, "")
+							for _, t := range r.Tags {
+								@c.Chip(t, "accent")
+							}
+							if len(r.Tags) == 0 {
+								<span class="text-xs text-rw-faint">no tags</span>
+							}
+							<span class="ml-auto">@c.Chip(statusWord(r.Status), statusTone(r.Status))</span>
+						</div>
+						<p class="mt-2 text-xs text-rw-muted">
+							{ plural(r.Envs, "env") }
+							if r.Cores != "" {
+								· { r.Cores } · { r.Mem }
+							}
+							if r.Disk != "" {
+								· { r.Disk }
+							}
+						</p>
+					</li>
+				}
+			</ul>
+			if len(v.Rows) == 1 && v.Adder == nil {
+				<div class="mt-4">
+					<p class="text-rw-text">Only this server so far</p>
+					<p class="text-sm text-rw-muted">Add a node to run envs on another machine.</p>
+				</div>
+			}
+			if v.Add != "" && v.Adder == nil {
+				<div class="mt-4">
+					<button type="button" hx-get={ v.Add } hx-target={ target() } hx-swap="outerHTML" class="btn btn-primary btn-sm">Add node</button>
+				</div>
+			}
+		}
+	</div>
+}
+
+templ addSteps(step int) {
+	<ol class="flex items-center gap-4 text-xs text-rw-muted mb-4">
+		for i, s := range []string{"Name", "Run the command", "Confirm"} {
+			<li class={ templ.KV("text-rw-text font-medium", i+1 == step) }>{ fmt.Sprint(i+1) } { s }</li>
+		}
+	</ol>
+}
+
+// AddNode is the add-node dialog's body: the three steps on the join API.
+templ AddNode(v AddNodeView) {
+	<div id="add-node" class="panel px-4 py-4 mb-4 space-y-4" if v.Step == 2 { hx-get={ v.Poll } hx-trigger="every 3s" hx-target="#add-node" hx-swap="outerHTML" }>
+		<h3 class="text-sm font-semibold text-rw-text">Add a node</h3>
+		@addSteps(v.Step)
+		if v.Error != "" {
+			<p class="text-sm text-rw-danger" role="alert">{ v.Error }</p>
+		}
+		switch v.Step {
+			case 1:
+				<form hx-post={ v.Create } hx-target={ target() } hx-swap="outerHTML" class="space-y-4">
+					@c.Field(c.FieldView{Name: "name", Label: "Name", Value: v.Name, Placeholder: "vps-fsn1", Help: "Lowercase, used in pins and the CLI."})
+					<fieldset class="space-y-1">
+						<legend class="label">Tags</legend>
+						for _, t := range v.Tags {
+							<label class="flex items-center gap-2 text-rw-text"><input type="checkbox" name="tag" value={ t } checked?={ picked(&v, t) } class="accent-rw-accent"/> { t }</label>
+						}
+						<p class="text-xs text-rw-faint">You can change these later.</p>
+					</fieldset>
+					<div class="flex gap-2">
+						<button type="button" hx-get={ v.Cancel } hx-target={ target() } hx-swap="outerHTML" class="btn btn-ghost btn-sm">Cancel</button>
+						<button type="submit" class="btn btn-primary btn-sm">Get join command</button>
+					</div>
+				</form>
+			case 2:
+				<p class="text-sm text-rw-muted">Run this on the new machine as root. It works once and expires { v.Expires }.</p>
+				<pre class="panel px-3 py-2 text-xs font-mono whitespace-pre-wrap break-all select-all">{ v.Command }</pre>
+				<p class="text-sm text-rw-muted" aria-live="polite">Waiting for { v.Name } to call in…</p>
+				<button type="button" hx-get={ v.Cancel } hx-target={ target() } hx-swap="outerHTML" class="btn btn-ghost btn-sm">Cancel</button>
+			case 3:
+				if v.Pending != nil {
+					<p class="text-sm text-rw-muted">{ v.Pending.Name } called in. Check it is the machine you expect.</p>
+					<dl class="text-sm grid grid-cols-[8rem_1fr] gap-y-1">
+						<dt class="text-rw-muted">Name</dt>
+						<dd class="text-rw-text">{ v.Pending.Name }</dd>
+						<dt class="text-rw-muted">Addresses</dt>
+						<dd class="text-rw-text font-mono text-xs">{ strings.Join(v.Pending.Addresses, ", ") }</dd>
+						<dt class="text-rw-muted">System</dt>
+						<dd class="text-rw-text">{ v.Pending.System }</dd>
+					</dl>
+					<div class="flex gap-2">
+						<form hx-post={ v.Pending.Reject } hx-target={ target() } hx-swap="outerHTML">
+							<button type="submit" class="btn btn-ghost btn-sm">Reject</button>
+						</form>
+						<form hx-post={ v.Pending.Confirm } hx-target={ target() } hx-swap="outerHTML">
+							<button type="submit" class="btn btn-primary btn-sm">Add { v.Pending.Name }</button>
+						</form>
+					</div>
+				}
+		}
+	</div>
+}
+
+templ ForgetWarning(b ForgetBody) {
+	<p class="text-sm text-rw-text">Use this only if { b.Name } is gone for good.</p>
+	if len(b.Lost) > 0 {
+		<p class="text-sm text-rw-muted mt-2">Lost until you redeploy:</p>
+		<ul class="text-sm text-rw-text list-disc pl-5">
+			for _, l := range b.Lost {
+				<li>{ l }</li>
+			}
+		</ul>
+	}
+	<p class="text-sm text-rw-muted mt-2">Cut off at once:</p>
+	<ul class="text-sm text-rw-text list-disc pl-5">
+		<li>its certificate and registry access</li>
+		<li>its links to every other node</li>
+	</ul>
+}
+
+// NodeBody is one tab of the node drawer.
+templ NodeBody(tab string, v NodeView) {
+	<div id={ "node-" + tab }>
+		switch tab {
+			case "envs":
+				@c.Section("Envs on this node", "", "Pins decide where new envs go. Moving an existing env is a separate step.") {
+					if len(v.Envs) == 0 {
+						<p class="text-sm text-rw-faint">No envs on this node.</p>
+					} else {
+						<ul class="space-y-2">
+							for _, e := range v.Envs {
+								<li class="panel px-4 py-3 text-sm flex flex-wrap items-center gap-2">
+									<span class="text-rw-text">{ e.Path }</span>
+									<span class="text-xs text-rw-faint">{ e.Pin }</span>
+									<span class="ml-auto text-xs text-rw-muted">{ plural(e.Tiles, "tile") }</span>
+								</li>
+							}
+						</ul>
+					}
+				}
+			case "network":
+				@c.Section("Interfaces", "", "Reported by the node.") {
+					if len(v.Ifaces) == 0 {
+						<p class="text-sm text-rw-faint">Nothing reported yet.</p>
+					} else {
+						<ul class="space-y-2">
+							for _, i := range v.Ifaces {
+								<li class="panel px-4 py-2 text-sm flex flex-wrap items-center gap-3">
+									<span class="font-mono text-rw-text">{ i.Name }</span>
+									<span class="font-mono text-xs text-rw-muted">{ i.Addr }</span>
+									@c.Chip(i.Kind, "")
+								</li>
+							}
+						</ul>
+					}
+				}
+			case "tags":
+				@c.Section("Tags", "", "What this node can do.") {
+					if v.RoutesNote != "" {
+						<p class="text-sm text-rw-muted mb-3">{ v.RoutesNote } Tag another node as ingress before removing this tag.</p>
+					}
+					<form hx-post={ v.TagsAction } hx-target={ target() } hx-swap="outerHTML" class="space-y-2">
+						for _, t := range v.AllTags {
+							<label class="flex items-center gap-2 text-rw-text"><input type="checkbox" name="tag" value={ t } checked?={ hasTag(v.Tags, t) } class="accent-rw-accent"/> { t } <span class="text-xs text-rw-faint">{ tagHelp(t) }</span></label>
+						}
+						<button type="submit" class="btn btn-primary btn-sm">Save tags</button>
+					</form>
+				}
+				@c.Section("Open to orgs", "", "Owners of an open org can pin envs here. Admins can pin anywhere.") {
+					if v.OrgsAction == "" {
+						<p class="text-sm text-rw-muted">The controller is open to every organization.</p>
+					} else {
+						<form hx-post={ v.OrgsAction } hx-target={ target() } hx-swap="outerHTML" class="space-y-2">
+							for _, o := range v.Orgs {
+								<label class="flex items-center gap-2 text-rw-text"><input type="checkbox" name="org" value={ o.ID } checked?={ o.On } class="accent-rw-accent"/> { o.Name }</label>
+							}
+							if len(v.Orgs) == 0 {
+								<p class="text-sm text-rw-faint">No organizations yet.</p>
+							}
+							<button type="submit" class="btn btn-ghost btn-sm">Save</button>
+						</form>
+					}
+				}
+			case "security":
+				@c.Section("Connection", "", "") {
+					if len(v.Certs) == 0 {
+						<p class="text-sm text-rw-faint">No certificate issued.</p>
+					}
+					for _, ce := range v.Certs {
+						<dl class="panel px-4 py-3 text-sm grid grid-cols-[8rem_1fr] gap-y-1 mb-2">
+							<dt class="text-rw-muted">Serial</dt>
+							<dd class="font-mono text-xs text-rw-text">{ ce.Serial }</dd>
+							<dt class="text-rw-muted">Issued</dt>
+							<dd class="text-rw-text">{ ce.Issued }</dd>
+							<dt class="text-rw-muted">Expires</dt>
+							<dd class="text-rw-text">{ ce.Expires } · renews on its own from { ce.RenewFrom }</dd>
+							<dt class="text-rw-muted">State</dt>
+							<dd class="text-rw-text">{ ce.State }</dd>
+						</dl>
+					}
+				}
+				if !v.Controller {
+					@c.Section("Remove this node", "", "Remove needs its envs moved first. Forget is for a node that is gone for good.") {
+						<div class="flex gap-2">
+							@c.Confirm(v.Remove)
+							@c.Confirm(v.Forget)
+						</div>
+					}
+				}
+			default:
+				@c.Section("Node", "", "") {
+					<dl class="text-sm grid grid-cols-[8rem_1fr] gap-y-1">
+						<dt class="text-rw-muted">Status</dt>
+						<dd class="text-rw-text">{ statusWord(v.Status) }</dd>
+						<dt class="text-rw-muted">Network range</dt>
+						<dd class="font-mono text-xs text-rw-text">{ v.Range }</dd>
+						if v.WGAddress != "" {
+							<dt class="text-rw-muted">Address</dt>
+							<dd class="font-mono text-xs text-rw-text">{ v.WGAddress }</dd>
+						}
+						if v.HasFacts {
+							<dt class="text-rw-muted">Hardware</dt>
+							<dd class="text-rw-text">{ v.Hardware }</dd>
+							<dt class="text-rw-muted">System</dt>
+							<dd class="text-rw-text">{ v.Kernel }</dd>
+							<dt class="text-rw-muted">Docker</dt>
+							<dd class="text-rw-text">{ v.Docker }</dd>
+							<dt class="text-rw-muted">Up</dt>
+							<dd class="text-rw-text">{ v.Uptime }</dd>
+							<dt class="text-rw-muted">Disk</dt>
+							<dd class="text-rw-text">{ v.Disk }</dd>
+						} else {
+							<dt class="text-rw-muted">Hardware</dt>
+							<dd class="text-rw-faint">Not reported yet.</dd>
+						}
+					</dl>
+				}
+		}
+	</div>
+}
+
+func hasTag(tags []string, t string) bool {
+	for _, x := range tags {
+		if x == t {
+			return true
+		}
+	}
+	return false
+}
+
+func tagHelp(t string) string {
+	switch t {
+	case "ingress":
+		return "Takes public web traffic."
+	case "egress":
+		return "Apps can send their internet traffic out through it."
+	case "builder":
+		return "Builds images."
+	}
+	return ""
+}
+
+// NodeBack is the link from a node drawer to the Nodes tab.
+templ NodeBack(href string) {
+	<button type="button" hx-get={ href } hx-target={ target() } hx-swap="outerHTML" class="text-xs text-rw-accent hover:underline mb-3">Back to nodes</button>
+}

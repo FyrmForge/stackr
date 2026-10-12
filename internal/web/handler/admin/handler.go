@@ -104,6 +104,7 @@ func (h *handler) Mount(g *echo.Group, a *middleware.Access) {
 	}), dests)
 	g.POST(b+"/dests/:dest/share", h.act("backups", h.share), dests)
 	h.mountConnectors(g, a)
+	h.mountNodes(g, a)
 	g.POST(b+"/dests/:dest/delete", h.act("backups", func(c echo.Context) (string, *service.Job, error) {
 		return "Destination removed.", nil, h.orch.DeleteBackupDest(c.Request().Context(), "", c.Param("dest"))
 	}), dests)
@@ -156,6 +157,7 @@ func frame(tab string) comp.DrawerView {
 type extra struct {
 	job   *service.Job
 	check *ui.UpdateView
+	adder *ui.AddNodeView
 }
 
 // GET /-/admin?tab=
@@ -233,6 +235,8 @@ func (h *handler) tab(c echo.Context, tab string, x extra) (templ.Component, err
 			v.Rows = append(v.Rows, r)
 		}
 		return ui.Users(v), err
+	case "nodes":
+		return h.nodesTab(c, x.adder)
 	case "routes":
 		rs, err := h.orch.ExternalRoutes(ctx)
 		v := ui.RoutesView{Add: ui.Base + "/routes"}
