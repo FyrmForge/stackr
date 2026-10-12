@@ -279,33 +279,16 @@ func (r runner) ensureDocker(ctx context.Context) error {
 	return r.run(ctx, "systemctl", "enable", "--now", "docker")
 }
 
-// ensureWireGuard loads the kernel module, installing wireguard-tools from
-// the distro when the module is not there. The worker drives the interface
-// through netlink, so no wg binary is needed beyond the package.
+// ensureWireGuard makes sure the kernel has WireGuard. The worker talks to it
+// through netlink, so no userspace tools are needed. A container shares the
+// host's kernel: there the module must already be loaded on the host.
 func (r runner) ensureWireGuard(ctx context.Context) error {
-	if _, err := read(ctx, "modprobe", "wireguard"); err == nil {
+	if _, err := os.Stat("/sys/module/wireguard"); err == nil {
 		r.say("  have wireguard")
 		return nil
 	}
-	r.say("  wireguard is missing, installing it")
-	var install []string
-	switch {
-	case have("apt-get"):
-		install = []string{"sh", "-c", "apt-get update && apt-get install -y wireguard-tools"}
-	case have("dnf"):
-		install = []string{"dnf", "install", "-y", "wireguard-tools"}
-	case have("apk"):
-		install = []string{"apk", "add", "wireguard-tools"}
-	case have("pacman"):
-		install = []string{"pacman", "-S", "--noconfirm", "wireguard-tools"}
-	default:
-		return errors.New("wireguard is missing and no known package manager is here: install wireguard, then run this again")
-	}
-	if err := r.run(ctx, install[0], install[1:]...); err != nil {
-		return fmt.Errorf("install wireguard: %w", err)
-	}
 	if err := r.run(ctx, "modprobe", "wireguard"); err != nil {
-		return fmt.Errorf("wireguard: the kernel has no module: %w", err)
+		return fmt.Errorf("wireguard: the kernel has no module (in a container, load it on the host): %w", err)
 	}
 	return nil
 }
