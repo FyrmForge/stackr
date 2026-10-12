@@ -92,12 +92,8 @@ func (f *Flow) Container(ctx context.Context, t store.Tile) (Container, error) {
 	return c, nil
 }
 
-// alias is the instance's name on its network. Not the bare slug: a
-// consumer's own env may hold a tile of that slug, and the consumer sits on
-// both networks.
-func alias(t store.Tile, m store.ManagedInstance) string {
-	return t.Slug + "-" + m.ID[:min(8, len(m.ID))]
-}
+// alias is the instance's name on its network (managed.Alias).
+func alias(t store.Tile, m store.ManagedInstance) string { return managed.Alias(t.Slug, m.ID) }
 
 // Ready polls the engine's own probe until it answers or the wait runs out.
 // It does not pre-check for a container: a fresh instance has none running

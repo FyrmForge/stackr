@@ -129,6 +129,9 @@ func (o *Orchestrator) runMove(ctx context.Context, r *jobs.Run, p moveJob) erro
 		}
 		o.auditMove(ctx, securitylog.MoveFinish, p, m, cause)
 	}
+	if err == nil && m.Phase == move.Done {
+		err = o.relinkMoved(ctx, m.EnvID)
+	}
 	return err
 }
 

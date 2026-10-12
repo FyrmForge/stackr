@@ -53,6 +53,13 @@ func Network(instanceID string) string {
 	return "stackr-managed-" + instanceID
 }
 
+// Alias is the instance's name for consumers: on its network on the same
+// node, an ExtraHosts line to its VIP from another node. Not the bare slug: a
+// consumer's own env may hold a tile of that slug.
+func Alias(slug, instanceID string) string {
+	return slug + "-" + instanceID[:min(8, len(instanceID))]
+}
+
 // Create makes the instance row for a managed tile, with a fresh admin
 // password and no allow list (the tile's own env only). endpoint is where
 // the S3 API is reached, "" = the tile's alias.

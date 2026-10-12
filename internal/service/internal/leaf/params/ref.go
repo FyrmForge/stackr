@@ -249,16 +249,18 @@ type Source struct {
 	Slice    bool
 	Attached bool   // slice only: a binding exists for this consumer
 	Network  string // network the consumer must join; "" on its own env network
+	Host     string // "name:ip" ExtraHosts line instead of Network: the instance is on another node
 }
 
 type Resolver struct {
-	snap Snapshot
-	deps map[string]bool
-	nets map[string]bool
+	snap  Snapshot
+	deps  map[string]bool
+	nets  map[string]bool
+	hosts map[string]bool
 }
 
 func NewResolver(s Snapshot) *Resolver {
-	return &Resolver{snap: s, deps: map[string]bool{}, nets: map[string]bool{}}
+	return &Resolver{snap: s, deps: map[string]bool{}, nets: map[string]bool{}, hosts: map[string]bool{}}
 }
 
 // Deps are the slugs referenced; Networks the shared networks to join.
@@ -268,6 +270,11 @@ func (rr *Resolver) Deps() []string {
 
 func (rr *Resolver) Networks() []string {
 	return slices.Sorted(maps.Keys(rr.nets))
+}
+
+// Hosts are the ExtraHosts lines for instances on other nodes.
+func (rr *Resolver) Hosts() []string {
+	return slices.Sorted(maps.Keys(rr.hosts))
 }
 
 // Expand substitutes every ref in one string sitting at w. Any failure is an
@@ -411,7 +418,9 @@ func (rr *Resolver) tile(r Ref) (string, error) {
 	rr.deps[r.Slug] = true
 	// Blank: the instance never deployed; joining "" would fail on the
 	// network instead of on the dependency.
-	if src.Network != "" {
+	if src.Host != "" {
+		rr.hosts[src.Host] = true
+	} else if src.Network != "" {
 		rr.nets[src.Network] = true
 	}
 	return v, nil

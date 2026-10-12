@@ -48,7 +48,7 @@ func (f *Flow) snapshot(
 		case tile.Managed:
 			continue
 		case tile.Slice:
-			src, err := f.sliceSource(ctx, bound, x)
+			src, err := f.sliceSource(ctx, bound, x, e)
 			if err != nil {
 				return s, err
 			}
@@ -68,9 +68,10 @@ func (f *Flow) snapshot(
 }
 
 // sliceSource is slice tile x as the consumer's binding sees it: that cred's
-// outputs, and the instance's network, which every consumer joins (the
-// instance may sit in another env or stack).
-func (f *Flow) sliceSource(ctx context.Context, bound map[string]store.Binding, x store.Tile) (params.Source, error) {
+// outputs, and the instance's network, which every consumer on its node joins
+// (the instance may sit in another env or stack). A consumer on another node
+// gets an ExtraHosts line to the instance's VIP instead.
+func (f *Flow) sliceSource(ctx context.Context, bound map[string]store.Binding, x store.Tile, e store.Environment) (params.Source, error) {
 	b, ok := bound[x.ID]
 	src := params.Source{
 		Slice:    true,
@@ -87,6 +88,11 @@ func (f *Flow) sliceSource(ctx context.Context, bound map[string]store.Binding, 
 	p, err := f.Managed.GetProvision(ctx, b.ProvisionID)
 	if err != nil {
 		return src, err
+	}
+	if f.LinkHost != nil {
+		if src.Host, err = f.LinkHost(ctx, e, p.InstanceID); err != nil || src.Host != "" {
+			return src, err
+		}
 	}
 	src.Network = managed.Network(p.InstanceID)
 	return src, nil
