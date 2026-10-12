@@ -2,10 +2,12 @@ package service
 
 import (
 	"context"
+	"net/netip"
 	"strings"
 	"testing"
 
 	"github.com/FyrmForge/stackr/internal/authz"
+	"github.com/FyrmForge/stackr/internal/mesh"
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/move"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/job"
@@ -100,5 +102,17 @@ func TestDeployOrderPutsDependenciesFirst(t *testing.T) {
 	}
 	if strings.Join(got, " ") != "pg db api web" {
 		t.Errorf("order = %v", got)
+	}
+}
+
+// The controller's row holds no wg address: a move to it takes the transit
+// address its range implies.
+func TestMoveAddrOfController(t *testing.T) {
+	n := newTwoNodes(t)
+	got, err := moveNodes{n.orch}.Addr(context.Background(), n.ctl.ID)
+	must(t, err)
+	r := netip.MustParsePrefix(n.ctl.RangeCIDR)
+	if want, _ := mesh.TransitAddr(r); got != want.String() {
+		t.Fatalf("controller addr = %q, want %s", got, want)
 	}
 }

@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/FyrmForge/stackr/internal/authz"
+	"github.com/FyrmForge/stackr/internal/mesh"
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/jobs"
@@ -201,10 +202,16 @@ func (n moveNodes) Addr(ctx context.Context, nodeID string) (string, error) {
 		return "", err
 	}
 	a, _, _ := strings.Cut(nd.WGAddress, "/")
-	if _, err := netip.ParseAddr(a); err != nil {
-		return "", errs.Conflictf("node %s has no WireGuard address", nd.Name)
+	if _, err := netip.ParseAddr(a); err == nil {
+		return a, nil
 	}
-	return a, nil
+	// The controller's row holds none: its address follows from its range.
+	if r, err := netip.ParsePrefix(nd.RangeCIDR); err == nil {
+		if t, err := mesh.TransitAddr(r); err == nil {
+			return t.String(), nil
+		}
+	}
+	return "", errs.Conflictf("node %s has no WireGuard address", nd.Name)
 }
 
 // nodeDocker is one node's slice of the router: every call carries the node.
