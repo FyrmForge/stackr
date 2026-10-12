@@ -451,6 +451,15 @@ joined to 109 across the home NAT. Nothing below may be dropped.
   controller picks one automatically for every pair where neither node has a
   public address and they share no LAN: host = any node with a public
   address, one port per pair. Last candidate only; the map shows "via <node>".
+- **Routing through a peer (agreed, replaces the automatic UDP relay):** when
+  two nodes have no working direct tunnel, traffic between them goes through
+  a node both can reach: on each end the via node's peer entry carries the
+  other end's range and transit /32, and the via node forwards
+  stackr0 -> stackr0. The controller picks via nodes from the handshake
+  state every node reports. A node whose tunnel to the controller is down
+  calls the panel's public URL (request signed with its node key; the join
+  exception reused for recovery), reports its addresses and fetches its
+  current mesh spec. Proof: h2 with no public IP reaches 109 and mn111 via h1.
 - **Outside the tunnel:** liveness checks only ("are you alive"), no data,
   no commands. A new worker gets its first mesh spec in the join answer
   instead of a push to its public address.
