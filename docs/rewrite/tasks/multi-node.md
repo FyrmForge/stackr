@@ -439,8 +439,15 @@ joined to 109 across the home NAT. Nothing below may be dropped.
   one flow opens that env to that port (vipboot.go). A database move
   recreates its linked apps. Later, maybe: a per-node resolver as Docker's
   `--dns` upstream for a stackr zone, so moves need no recreate.
-- **Node registry pulls:** join unit has no `--registry-url`; Caddy ends TLS
-  before the registry front; the panel has no mTLS listener on wg.
+- **Rule (darthvader):** all node-to-node traffic goes over WireGuard. Caddy
+  is for external traffic only. The one exception is the join itself (no
+  tunnel exists yet). Audit: the controller's fallback that dials a
+  worker's extras API on its public address (d656b72) must end once wg0 is
+  up.
+- **Node registry pulls (agreed):** the panel gets a listener on its wg
+  transit address that only takes node certs; join writes
+  `--registry-url` (that address) and `--registry-host` into the worker
+  unit; the worker's 127.0.0.1:5000 front pulls through the tunnel.
 - **Relays never chosen:** the relay is plumbed, `meshSvc.Relays` is never
   set, so two NAT'd nodes that cannot reach each other get no path.
 - **IPv6 endpoints** are tried when the controller has no IPv6; minutes of

@@ -15,6 +15,10 @@ func TestFailoverWalksCandidates(t *testing.T) {
 	f := &Failover{A: rec, Iface: "wg0", Stale: 100 * time.Second, Now: func() time.Time { return now }}
 	peers := []mesh.Peer{{PublicKey: "k", Candidates: []netip.AddrPort{ap("10.0.0.2:1"), ap("1.2.3.4:1"), ap("5.6.7.8:9")}}}
 	f.Reset(peers)
+	if len(rec.Moves) != 1 || rec.Moves[0].Endpoint != ap("10.0.0.2:1") {
+		t.Fatalf("a new peer starts on its first candidate: %v", rec.Moves)
+	}
+	rec.Moves = nil
 
 	moved := func() int { m, _ := f.Tick(); return len(m) }
 	if moved() != 0 { // inside the window of the first candidate

@@ -62,7 +62,10 @@ func (f *Failover) now() time.Time {
 }
 
 // Reset takes a new peer set. A peer whose candidates did not change keeps
-// its position, so a repeated push does not restart the walk.
+// its position, so a repeated push does not restart the walk. A new or
+// changed one starts over on its first candidate, the best path: the kernel
+// keeps an existing peer's endpoint, so without this a peer that gained a
+// private path (or a worker that restarted) would stay where it was.
 func (f *Failover) Reset(peers []mesh.Peer) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -73,6 +76,9 @@ func (f *Failover) Reset(peers []mesh.Peer) {
 			continue
 		}
 		next[p.PublicKey] = &state{cands: p.Candidates, since: f.now()}
+		if len(p.Candidates) > 0 {
+			_ = f.A.SetEndpoint(f.Iface, p.PublicKey, p.Candidates[0]) // best effort: the walk moves on if it does not hold
+		}
 	}
 	f.peers = next
 }
