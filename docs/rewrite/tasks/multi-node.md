@@ -380,3 +380,21 @@ Lanes:
 - **I4 Mesh and exits runtime.** Controller side: new `internal/service/mesh.go` builds peer lists (`mesh.Peers`), relay pairs and exit plans per node and pushes them to workers through a new additive extras call (`/v1/mesh`). Worker side: the worker runs `wgapply.Kernel` (or the recorder in fake mode), the failover loop, `relay.Manager`, the exit ladders with real runner and pinger; persists it all in the saved state; replay at start. Owns `internal/worker/`, new `internal/service/mesh.go`, `internal/exits/` runtime glue.
 - **I5 Moves.** Job kind "move env", orchestrator verb (Begin + enqueue), job runs `Run`, boot resumes `Unfinished`; the Env adapter (stop on the current node, start on the target by setting `node_id` and deploying, remove containers); the one firewall rule on the target for the source during a move; `images/rsync` build in the Makefile release path. Owns new `internal/service/move.go`, `jobs.go`.
 - **I6 Join flow backend and audit leftovers.** Migration `017` join tokens (hashed, single use, TTL, typed name and tags); API: admin creates a join token (returns the command with the CA fingerprint), unauthenticated POST join with token + CSR + WireGuard public key + facts creating a pending node, admin confirm or reject, node cert issued from the CA; all audited. Plus: admin params reveal goes through `RevealSecrets`; regenerate `docs/openapi.json` and `docs/llms*.txt` with the repo's generator. Owns migration 017, new `internal/service/join.go`, new store and leaf for join tokens, the API handlers and routes for join, `internal/web/handler/admin/params.go`.
+
+## Wave 2: UI, CLI, installer, fake mode (started 2026-10-12)
+Designs: fraedi UI 8 board 0877c0d0 (artboards also at
+`/tmp/claude-1000/-home-darthvader-FyrmForge-stackr/10d11dff-c68c-46af-81a5-851d1685d8e0/scratchpad/mn-design/out/*.light.html`)
+and the CLI journeys doc b5414190. Build the real screens with the app's
+templ components, matching the artboards; terse copy; controller and
+worker in all copy; no em dashes. Orchestrator verbs go in new files under
+`internal/service/`; lane I7 (final wiring) owns orchestrator.go and main.go
+while it runs; report any one-line wiring instead. Route registration files
+(`internal/web/server.go`, `internal/api/routes.go`, `cmd/stackr/cmds.go`)
+are shared: add your lines, keep them grouped, expect a merge.
+
+- **U1 Nodes admin:** admin Nodes tab, node cards, empty state, node drawer (Overview, Envs, Network, Tags with the controller untag refusal, Security with Rejoin, danger area remove and forget), add-node dialog (3 steps on the join API), forget confirm and lost-envs page, node open to orgs.
+- **U2 Cluster map:** the Cluster rail entry and canvas (same canvas as the org/stack/env graphs): network boxes from reported interfaces, public nodes on the box edge, router marker, tunnel links with latency, ingress and exit arrows, S3 backups, stacked env cards three deep with health dots, legend; node click opens U1's drawer.
+- **U3 Placement:** Runs on, Ingress and Exits in org, stack and env settings; tile ingress and exits; exit ladder editor with live rung state and the no-internet state; move dialog and move progress view.
+- **U4 Security and registry pages:** admin Security log page with filters and row expand; controller warning on the elevated-grant approve screen; org Registry tab.
+- **C1 CLI:** every command in the CLI journeys doc: node (add, ls, show, tag, untag, open, close, rejoin, remove, forget, confirm), pin, ingress, exit, env move, env lost/restore, cluster status, admin audit, registry login; --json, exit code 3 for needs --yes.
+- **I8 Installer join and fake mode:** `stackr-install join --panel --token --ca-sha256` (installs Docker and WireGuard, makes keys, requests, polls status, writes certs, starts `stackrd worker`); fake mode: `hamr dev` runs two fake workers (`stackrd worker` on fakehost dirs, Recorder WG) that join the local panel automatically.
