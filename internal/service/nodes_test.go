@@ -55,6 +55,27 @@ func TestRouterNeedsANode(t *testing.T) {
 	}
 }
 
+// A node's tool image is made pullable first (the registry helper on a
+// worker); a failure stops the tool call before it reaches the node.
+func TestRouterToolReady(t *testing.T) {
+	a := dockerfake.New()
+	r := NewRouter(map[string]Docker{"w1": a})
+	var asked []string
+	r.ToolReady = func(_ context.Context, id string) error {
+		asked = append(asked, id)
+		return nil
+	}
+	ctx := WithNode(context.Background(), "w1")
+	must(t, r.EnsureTool(ctx))
+	if !slices.Equal(asked, []string{"w1"}) || len(a.Calls()) != 1 {
+		t.Fatalf("asked %v, calls %v", asked, a.Calls())
+	}
+	r.ToolReady = func(context.Context, string) error { return errors.New("no registry") }
+	if err := r.EnsureTool(ctx); err == nil || len(a.Calls()) != 1 {
+		t.Fatalf("err %v, calls %v", err, a.Calls())
+	}
+}
+
 // Each call goes to the client of the node in its context, and only there.
 func TestRouterPicksTheNodesClient(t *testing.T) {
 	a, b := dockerfake.New(), dockerfake.New()
@@ -162,7 +183,8 @@ func newTwoNodes(t *testing.T) *twoNodes {
 	n.orch, err = New(cfg, WithDocker(router), WithVIP(vipStub{}), proxy)
 	must(t, err)
 	t.Cleanup(func() { _ = n.orch.Close() })
-	n.orch.envs.WithPlacement(n.orch.envPins) // service.New wires this; saying it twice is harmless
+	n.orch.envs.WithPlacement(n.orch.envPins)                       // service.New wires this; saying it twice is harmless
+	n.orch.helperReady = func(context.Context) error { return nil } // no cluster registry here
 	n.orch.tiles.Gate = tile.Gate{Poll: 5 * time.Millisecond, Grace: 10 * time.Millisecond, Deadline: time.Second}
 
 	table := func(rs *[]string) *vip.Table {

@@ -237,9 +237,12 @@ type Orchestrator struct {
 
 	cluster   *clusterPKI   // the CA, the controller cert, the worker clients (nodeclients.go)
 	stopNodes chan struct{} // ends watchNodeClients
-	mesh      *meshSvc      // the node mesh and exits (mesh.go, multinode.go)
-	stopMesh  context.CancelFunc
-	stopOnce  sync.Once
+	// helperReady puts the mesh's helper image in the cluster registry
+	// (rsyncSteps); tests swap it.
+	helperReady func(context.Context) error
+	mesh        *meshSvc // the node mesh and exits (mesh.go, multinode.go)
+	stopMesh    context.CancelFunc
+	stopOnce    sync.Once
 }
 
 // onBuild is a test hook: every constructor New calls reports its name here,
@@ -378,8 +381,15 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 		cluster:   cl,
 		stopNodes: make(chan struct{}),
 	}
+	orch.helperReady = orch.rsyncSteps().ensure
 	if r, ok := d.(*DockerRouter); ok {
 		r.OwnRegistry = orch.RegistryHost
+		r.ToolReady = func(ctx context.Context, nodeID string) error {
+			if nodeID == ctl.ID {
+				return nil // the controller keeps ToolImage from Docker Hub
+			}
+			return orch.helperReady(ctx)
+		}
 	}
 	orch.startMesh(ctl.ID)
 	if err := orch.refreshNodeClients(ctx); err != nil {

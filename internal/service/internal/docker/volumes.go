@@ -124,13 +124,13 @@ func (d *Client) volumeInfos(ctx context.Context, vols []*volume.Volume) ([]Volu
 // points it at an image it already has.
 var ToolImage = "alpine:3"
 
-// EnsureTool pulls ToolImage if it is not on the host. Call it before
+// EnsureTool pulls the tool image if it is not on the host. Call it before
 // freezing a container: a pull inside the pause window is downtime.
 func (d *Client) EnsureTool(ctx context.Context) error {
-	if _, err := d.cli.ImageInspect(ctx, ToolImage); err == nil {
+	if _, err := d.cli.ImageInspect(ctx, d.toolImage()); err == nil {
 		return nil
 	}
-	return d.Pull(ctx, ToolImage, "", io.Discard)
+	return d.Pull(ctx, d.toolImage(), "", io.Discard)
 }
 
 // TarVolume streams a gzipped tar of the whole volume into w, members
@@ -212,7 +212,7 @@ func (d *Client) toolContainer(
 	created, err := d.cli.ContainerCreate(
 		ctx,
 		&container.Config{
-			Image: ToolImage,
+			Image: d.toolImage(),
 			// CLEARED: an image of ours has our binary as ENTRYPOINT, which
 			// would turn `sh -c ...` into its arguments.
 			Entrypoint:   strslice.StrSlice{},

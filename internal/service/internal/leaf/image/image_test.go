@@ -158,6 +158,32 @@ func TestEnsureCleanedUp(t *testing.T) {
 	}
 }
 
+// A pushed build is pulled from the cluster registry by a node that lacks
+// it (a worker, or the controller after a cleanup), and only then.
+func TestEnsurePullsPushedBuild(t *testing.T) {
+	st := servicetest.Store(t)
+	fake := dockerfake.New()
+	l := image.New(st.Images, fake)
+	i := aged(t, l, st, fake, image.ClusterRegistry+"o/s/web:1111111")
+
+	if _, err := l.Ensure(ctx, i.Ref, "", io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	fake.Gone = []string{i.Ref}
+	if _, err := l.Ensure(ctx, i.Ref, "", io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	var pulls []string
+	for _, c := range fake.Calls() {
+		if c.Method == "Pull" {
+			pulls = append(pulls, c.Args[0])
+		}
+	}
+	if len(pulls) != 1 || pulls[0] != i.Ref {
+		t.Errorf("pulls = %v, want one of %s", pulls, i.Ref)
+	}
+}
+
 // One image failing to go does not strand the rows of the ones that did.
 func TestCleanupPartialError(t *testing.T) {
 	st := servicetest.Store(t)

@@ -14,6 +14,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/FyrmForge/stackr/internal/installspec"
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/deploy"
@@ -25,6 +26,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/domain"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/domainres"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/panel"
+	"github.com/FyrmForge/stackr/internal/service/internal/regfront"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
 
@@ -424,12 +426,28 @@ func (o *Orchestrator) buildTile(
 			return "", err
 		}
 	}
-	ref, err := o.images.Name(ctx, "stkr/"+og.Slug+"_"+st.Slug+"_"+t.Slug, commit, uuid.NewString())
+	// Builds run on the controller, where the checkout is, and go into the
+	// cluster registry: the env's node, and any node a move takes it to,
+	// pulls the same image over the mesh.
+	// ponytail: the controller is the only builder; a builder-tagged worker
+	// needs the build context shipped over the worker API first.
+	ctx, err = o.withController(ctx)
+	if err != nil {
+		return "", err
+	}
+	repo := "localhost:" + installspec.RegistryPort + "/" + regfront.Repo(og.Slug, st.Slug, t.Slug)
+	ref, err := o.images.Name(ctx, repo, commit, uuid.NewString())
 	if err != nil {
 		return "", err
 	}
 	img, err := o.images.Build(ctx, bctx, df, ref, args, log)
-	return img.ID, err
+	if err != nil {
+		return "", err
+	}
+	if err := pushLocal(ctx, ref); err != nil {
+		return "", err
+	}
+	return img.ID, nil
 }
 
 // panelSpec is the upgrade's container spec; the installer supplies it.
