@@ -488,6 +488,17 @@ func TestRouterPullsOwnRegistryLocally(t *testing.T) {
 	if err := r.Pull(ctx, "nginx:1.27", "", nil); err != nil {
 		t.Fatal(err)
 	}
+	// A digest ref cannot be tagged: it is pulled and used by its local name.
+	pinned := "registry.stkr.example.com/acme/web/api@sha256:aa"
+	if err := r.Pull(ctx, pinned, "", nil); err != nil {
+		t.Fatal(err)
+	}
+	if got := r.pinnedLocal(ctx, pinned); got != "localhost:5000/acme/web/api@sha256:aa" {
+		t.Fatalf("pinnedLocal = %s", got)
+	}
+	if got := r.pinnedLocal(ctx, "registry.stkr.example.com/acme/web/api:b1"); got != "registry.stkr.example.com/acme/web/api:b1" {
+		t.Fatalf("tag ref rewritten: %s", got)
+	}
 	var got []string
 	for _, c := range a.Calls() {
 		got = append(got, c.String())
@@ -496,6 +507,7 @@ func TestRouterPullsOwnRegistryLocally(t *testing.T) {
 		"Pull(localhost:5000/acme/web/api:b1)",
 		"Tag(localhost:5000/acme/web/api:b1, registry.stkr.example.com/acme/web/api:b1)",
 		"Pull(nginx:1.27)",
+		"Pull(localhost:5000/acme/web/api@sha256:aa)",
 	}
 	if !slices.Equal(got, want) {
 		t.Fatalf("calls = %v, want %v", got, want)

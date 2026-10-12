@@ -99,10 +99,12 @@ func (r *DockerRouter) do(ctx context.Context, f func(Docker) error) error {
 }
 
 func (r *DockerRouter) Run(ctx context.Context, spec docker.ContainerSpec) (string, error) {
+	spec.Image = r.pinnedLocal(ctx, spec.Image)
 	return via(r, ctx, func(c Docker) (string, error) { return c.Run(ctx, spec) })
 }
 
 func (r *DockerRouter) Create(ctx context.Context, spec docker.ContainerSpec) (string, error) {
+	spec.Image = r.pinnedLocal(ctx, spec.Image)
 	return via(r, ctx, func(c Docker) (string, error) { return c.Create(ctx, spec) })
 }
 
@@ -226,20 +228,43 @@ func (r *DockerRouter) UntarVolume(ctx context.Context, name string, rd io.Reade
 // Pull fetches ref on ctx's node. An image of stackr's own registry
 // (registry.<panel domain>/...) comes from localhost:5000 on that node: the
 // registry itself on the controller, the worker's front over the mesh
-// elsewhere. It is then tagged with the ref, so containers name it as given.
+// elsewhere. A tag ref is then tagged with the ref, so containers name it as
+// given; Docker refuses to tag a digest ref, so that one is used under its
+// localhost name everywhere instead (pinnedLocal).
 func (r *DockerRouter) Pull(ctx context.Context, ref, auth string, log io.Writer) error {
 	return r.do(ctx, func(c Docker) error {
-		if own := r.ownRegistry(ctx); own != "" {
-			if path, ok := strings.CutPrefix(ref, own+"/"); ok {
-				local := "localhost:" + installspec.RegistryPort + "/" + path
-				if err := c.Pull(ctx, local, "", log); err != nil {
-					return err
-				}
-				return c.Tag(ctx, local, ref)
+		if local, ok := r.ownLocal(ctx, ref); ok {
+			if err := c.Pull(ctx, local, "", log); err != nil {
+				return err
 			}
+			if strings.Contains(ref, "@") {
+				return nil
+			}
+			return c.Tag(ctx, local, ref)
 		}
 		return c.Pull(ctx, ref, auth, log)
 	})
+}
+
+// ownLocal maps an image of stackr's own registry to its localhost:5000 name.
+func (r *DockerRouter) ownLocal(ctx context.Context, ref string) (string, bool) {
+	own := r.ownRegistry(ctx)
+	if own == "" {
+		return "", false
+	}
+	path, ok := strings.CutPrefix(ref, own+"/")
+	if !ok {
+		return "", false
+	}
+	return "localhost:" + installspec.RegistryPort + "/" + path, true
+}
+
+// pinnedLocal is the name a digest ref of the own registry has on a node.
+func (r *DockerRouter) pinnedLocal(ctx context.Context, ref string) string {
+	if local, ok := r.ownLocal(ctx, ref); ok && strings.Contains(ref, "@") {
+		return local
+	}
+	return ref
 }
 
 // ownRegistry is RegistryHost, "" until the orchestrator sets it.
@@ -251,6 +276,7 @@ func (r *DockerRouter) ownRegistry(ctx context.Context) string {
 }
 
 func (r *DockerRouter) LocalDigest(ctx context.Context, ref string) (string, error) {
+	ref = r.pinnedLocal(ctx, ref)
 	return via(r, ctx, func(c Docker) (string, error) { return c.LocalDigest(ctx, ref) })
 }
 
