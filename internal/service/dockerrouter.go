@@ -331,6 +331,10 @@ func (r *DockerRouter) Build(
 	})
 }
 
+func (r *DockerRouter) Push(ctx context.Context, ref string) error {
+	return r.do(ctx, func(c Docker) error { return c.Push(ctx, ref) })
+}
+
 func (r *DockerRouter) Logs(ctx context.Context, id string, tail int) (string, error) {
 	return via(r, ctx, func(c Docker) (string, error) { return c.Logs(ctx, id, tail) })
 }

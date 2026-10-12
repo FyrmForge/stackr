@@ -70,6 +70,7 @@ type Docker interface {
 		buildArgs, labels map[string]string,
 		log io.Writer,
 	) (imageID string, err error)
+	Push(ctx context.Context, ref string) error
 
 	// Logs and exec.
 	Logs(ctx context.Context, id string, tail int) (string, error)

@@ -426,25 +426,39 @@ func (o *Orchestrator) buildTile(
 			return "", err
 		}
 	}
-	// Builds run on the controller, where the checkout is, and go into the
-	// cluster registry: the env's node, and any node a move takes it to,
-	// pulls the same image over the mesh.
-	// ponytail: the controller is the only builder; a builder-tagged worker
-	// needs the build context shipped over the worker API first.
-	ctx, err = o.withController(ctx)
+	// The checkout stays on the controller; a builder-tagged worker gets the
+	// build context streamed over the mesh (the docker CLI through its
+	// proxied Docker). The image goes into the cluster registry: the env's
+	// node, and any node a move takes it to, pulls it over the mesh.
+	ctl, err := o.controllerID(ctx)
 	if err != nil {
 		return "", err
 	}
-	repo := "localhost:" + installspec.RegistryPort + "/" + regfront.Repo(og.Slug, st.Slug, t.Slug)
-	ref, err := o.images.Name(ctx, repo, commit, uuid.NewString())
+	repo := regfront.Repo(og.Slug, st.Slug, t.Slug)
+	ref, err := o.images.Name(ctx, "localhost:"+installspec.RegistryPort+"/"+repo, commit, uuid.NewString())
 	if err != nil {
 		return "", err
 	}
-	img, err := o.images.Build(ctx, bctx, df, ref, args, log)
+	return buildFallback(o.builderNode(ctx, ctl), ctl,
+		func(n string) (string, error) { return o.buildOn(ctx, n, repo, ref, bctx, df, args, log) },
+		func(n string) bool { return o.nodeAnswers(ctx, n) }, log)
+}
+
+// buildOn builds ref on nodeID and pushes it into the cluster registry. A
+// worker may push repo only while this runs.
+func (o *Orchestrator) buildOn(
+	ctx context.Context,
+	nodeID, repo, ref, dir, dockerfile string,
+	args map[string]string,
+	log io.Writer,
+) (string, error) {
+	defer o.builds.hold(nodeID, repo)()
+	ctx = docker.WithNode(ctx, nodeID)
+	img, err := o.images.Build(ctx, dir, dockerfile, ref, args, log)
 	if err != nil {
 		return "", err
 	}
-	if err := pushLocal(ctx, ref); err != nil {
+	if err := o.docker.Push(ctx, ref); err != nil {
 		return "", err
 	}
 	return img.ID, nil

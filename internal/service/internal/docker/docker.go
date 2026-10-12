@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	cerrdefs "github.com/containerd/errdefs"
@@ -167,7 +168,8 @@ func wrap(err error) error {
 // Client is the daemon wrapper.
 type Client struct {
 	cli  *client.Client
-	tool string // the tool containers' image, "" = ToolImage
+	tool string    // the tool containers' image, "" = ToolImage
+	px   *cliProxy // a worker's: how the docker CLI reaches it; nil = local
 }
 
 // SetTool makes the tool containers run ref instead of ToolImage: a worker
@@ -196,5 +198,9 @@ func NewRemote(host string, hc *http.Client) (*Client, error) {
 	if err != nil {
 		return nil, fmt.Errorf("docker client for %s: %w", host, err)
 	}
-	return &Client{cli: cli}, nil
+	d := &Client{cli: cli}
+	if tr, ok := hc.Transport.(*http.Transport); ok && tr.TLSClientConfig != nil {
+		d.px = newCLIProxy(strings.TrimPrefix(host, "tcp://"), tr.TLSClientConfig)
+	}
+	return d, nil
 }

@@ -49,6 +49,12 @@ func registryProxy(c RegistryConfig, listen string) (http.Handler, error) {
 			if h := res.Header.Get("WWW-Authenticate"); h != "" {
 				res.Header.Set("WWW-Authenticate", realmRe.ReplaceAllLiteralString(h, `realm="http://`+listen+`/token"`))
 			}
+			// A push's upload URLs name the registry host; keep them on this
+			// listener, so the blobs go over the mesh too.
+			if l, err := url.Parse(res.Header.Get("Location")); err == nil && l.Host == c.Host {
+				l.Scheme, l.Host = "http", listen
+				res.Header.Set("Location", l.String())
+			}
 			return nil
 		},
 	}, nil

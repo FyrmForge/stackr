@@ -14,6 +14,7 @@ func TestRegistryProxy(t *testing.T) {
 	front := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		host, certs = r.Host, len(r.TLS.PeerCertificates)
 		w.Header().Set("WWW-Authenticate", `Bearer realm="https://registry.example.com/token",service="stackr"`)
+		w.Header().Set("Location", "https://registry.example.com/v2/a/b/c/blobs/uploads/u1?_state=x")
 		w.WriteHeader(http.StatusUnauthorized)
 		_, _ = io.WriteString(w, "no")
 	}))
@@ -41,5 +42,8 @@ func TestRegistryProxy(t *testing.T) {
 	}
 	if got := rec.Header().Get("WWW-Authenticate"); got != `Bearer realm="http://127.0.0.1:5000/token",service="stackr"` {
 		t.Errorf("challenge = %s", got)
+	}
+	if got := rec.Header().Get("Location"); got != "http://127.0.0.1:5000/v2/a/b/c/blobs/uploads/u1?_state=x" {
+		t.Errorf("upload location = %s", got)
 	}
 }

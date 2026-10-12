@@ -33,6 +33,7 @@ type Facts struct {
 	Kernel      string  `json:"kernel"`
 	CPUs        int     `json:"cpus"`
 	MemBytes    uint64  `json:"mem_bytes"`
+	MemFree     uint64  `json:"mem_free"` // MemAvailable: what a build could use
 	UptimeS     float64 `json:"uptime_s"`
 	// Seen is where each wg peer (by public key) sends from, for peers with a
 	// fresh handshake: a peer behind a NAT shows as the NAT's address.
@@ -207,7 +208,7 @@ func (s *Server) facts(w http.ResponseWriter, r *http.Request) {
 	f := Facts{CPUs: runtime.NumCPU(), Interfaces: Interfaces()}
 	b, _ := os.ReadFile("/proc/sys/kernel/osrelease")
 	f.Kernel = strings.TrimSpace(string(b))
-	f.MemBytes = memTotal()
+	f.MemBytes, f.MemFree = meminfo("MemTotal:"), meminfo("MemAvailable:")
 	if f2 := strings.Fields(readFile("/proc/uptime")); len(f2) > 0 {
 		f.UptimeS, _ = strconv.ParseFloat(f2[0], 64)
 	}
@@ -261,9 +262,10 @@ func ParseResolvers(conf string) []string {
 	return out
 }
 
-func memTotal() uint64 {
+// meminfo is one /proc/meminfo line ("MemTotal:") in bytes.
+func meminfo(key string) uint64 {
 	for _, l := range strings.Split(readFile("/proc/meminfo"), "\n") {
-		if v, ok := strings.CutPrefix(l, "MemTotal:"); ok {
+		if v, ok := strings.CutPrefix(l, key); ok {
 			if f := strings.Fields(v); len(f) > 0 {
 				kb, _ := strconv.ParseUint(f[0], 10, 64)
 				return kb << 10
