@@ -99,9 +99,8 @@ func (o *Orchestrator) placement(ctx context.Context) deploy.Placement {
 		if ctl, err := o.controllerID(ctx); err != nil || node == ctl {
 			return ingress, node, ""
 		}
-		cs, err := o.docker.List(WithNode(ctx, node), map[string]string{"stackr.tile": t.ID, "stackr.role": "pause"})
-		if err == nil && len(cs) > 0 && len(cs[0].IPs) > 0 {
-			vip = cs[0].IPs[0]
+		if v, ok := o.tileVIP(ctx, node, t.ID); ok {
+			vip = v.String()
 		}
 		return ingress, node, vip
 	}

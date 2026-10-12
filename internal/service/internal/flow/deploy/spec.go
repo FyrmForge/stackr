@@ -25,6 +25,7 @@ type resolved struct {
 	privileged  bool // t.Privileged and the stack's grant says so
 	hostNet     bool // t.HostNetwork and the grant says so
 	networks    []docker.NetAttach
+	extraHosts  []string // "name:ip" for linked instances on other nodes
 	cpu         float64
 	memMB       int
 }
@@ -40,6 +41,7 @@ func spec(t store.Tile, r resolved) docker.ContainerSpec {
 		Volumes:            r.binds,
 		Ports:              r.ports,
 		Networks:           r.networks,
+		ExtraHosts:         r.extraHosts,
 		CPULimit:           r.cpu,
 		MemLimitMB:         r.memMB,
 		User:               t.User,

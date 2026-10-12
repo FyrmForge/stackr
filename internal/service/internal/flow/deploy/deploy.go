@@ -50,6 +50,10 @@ type Flow struct {
 	// VIP over the tunnel, never by joining the controller's ingress
 	// network. nil means every env runs on the controller.
 	Remote func(ctx context.Context, e store.Environment) bool
+	// LinkHost is the ExtraHosts line ("alias:vip") a consumer in env e uses
+	// for a managed instance on another node; "" = same node, join its
+	// network. nil means every instance is on the consumer's node.
+	LinkHost func(ctx context.Context, e store.Environment, instanceID string) (string, error)
 
 	Tiles    *tile.Leaf
 	Envs     *environment.Leaf
@@ -641,6 +645,7 @@ func (f *Flow) resolve(
 	}
 	r.cpu, r.memMB = settings.Resolve(levels...).EffectiveLimits(t.CPULimit, t.MemLimitMB)
 
+	r.extraHosts = rr.Hosts()
 	if r.hostNet {
 		if len(rr.Networks()) > 0 {
 			return r, errs.Conflictf("%s runs on the host network and cannot join another tile's network", t.Slug)

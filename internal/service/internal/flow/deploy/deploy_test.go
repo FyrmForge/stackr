@@ -349,6 +349,20 @@ func TestSliceRef(t *testing.T) {
 		t.Errorf("networks = %+v, want %s", w.fake.Specs[0].Networks, managed.Network(m.ID))
 	}
 
+	// On another node: an ExtraHosts line to the instance's VIP, no network.
+	w.f.LinkHost = func(_ context.Context, _ store.Environment, id string) (string, error) {
+		return managed.Alias("pg-db", id) + ":10.209.0.5", nil
+	}
+	last, err := w.f.Spec(ctx, w.tile, "nginx@sha256:aa", io.Discard)
+	must(t, err)
+	if want := managed.Alias("pg-db", m.ID) + ":10.209.0.5"; !slices.Equal(last.ExtraHosts, []string{want}) {
+		t.Errorf("extra hosts = %v, want %s", last.ExtraHosts, want)
+	}
+	if slices.ContainsFunc(last.Networks, func(n docker.NetAttach) bool { return n.Name == managed.Network(m.ID) }) {
+		t.Errorf("a consumer on another node joined the instance network: %+v", last.Networks)
+	}
+	w.f.LinkHost = nil
+
 	// A slice has no containers: its deploy is a provision, and a spec of
 	// it is refused.
 	if _, err := w.f.Spec(ctx, sl, "", io.Discard); !isInvalid(err) {

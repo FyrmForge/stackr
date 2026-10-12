@@ -268,15 +268,14 @@ func (o *Orchestrator) vipBase(ctx context.Context, n store.Node) vip.Base {
 			}
 		}
 	}
-	b.Flows = o.ingressFlows(ctx, n)
+	b.Flows = append(o.ingressFlows(ctx, n), o.linkFlows(ctx, n)...)
 	return b
 }
 
 // ingressFlows are the accepts a node needs for tiles it runs whose ingress
 // node is another node: that node's Caddy dials the tile's VIP over the mesh
 // (masqueraded to its transit address).
-// ponytail: tcp on the domain's port only; links (managed consumers) are not
-// flows yet.
+// ponytail: tcp on the domain's port only.
 func (o *Orchestrator) ingressFlows(ctx context.Context, n store.Node) []vip.Flow {
 	envs, err := o.store.Environments.ListByNode(ctx, n.ID)
 	if err != nil {
@@ -312,12 +311,8 @@ func (o *Orchestrator) ingressFlows(ctx context.Context, n store.Node) []vip.Flo
 			if err != nil {
 				continue
 			}
-			cs, err := o.docker.List(WithNode(ctx, n.ID), map[string]string{"stackr.tile": t.ID, "stackr.role": "pause"})
-			if err != nil || len(cs) == 0 || len(cs[0].IPs) == 0 {
-				continue
-			}
-			v, err := netip.ParseAddr(cs[0].IPs[0])
-			if err != nil {
+			v, ok := o.tileVIP(ctx, n.ID, t.ID)
+			if !ok {
 				continue
 			}
 			ports := map[int]bool{}
