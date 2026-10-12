@@ -4,6 +4,7 @@ import (
 	"crypto/tls"
 	"io"
 	"net"
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"strings"
@@ -56,5 +57,18 @@ func TestCLIProxy(t *testing.T) {
 	}
 	if got := d.builderName("stackr-builder"); got == "stackr-builder" || strings.ContainsAny(got, ".:") {
 		t.Fatalf("builder name = %q", got)
+	}
+}
+
+// The SDK wraps the transport in place; a worker's client must still get its
+// CLI proxy, or builds and pushes run against the controller's daemon.
+func TestNewRemoteKeepsCLIProxy(t *testing.T) {
+	hc := &http.Client{Transport: &http.Transport{TLSClientConfig: &tls.Config{}}}
+	d, err := NewRemote("tcp://10.207.255.2:7443", hc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.px == nil || d.builderName("stackr-builder") != "stackr-builder-10-207-255-2-7443" {
+		t.Fatalf("worker client has no CLI proxy")
 	}
 }

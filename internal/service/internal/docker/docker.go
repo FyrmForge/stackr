@@ -194,13 +194,14 @@ func New() (*Client, error) {
 // NewRemote dials a worker node's proxied Docker API: host is "tcp://addr"
 // and hc carries the mTLS transport (workerclient.DockerOptions).
 func NewRemote(host string, hc *http.Client) (*Client, error) {
+	// Read the TLS config first: the SDK wraps hc.Transport (tracing) in place.
+	var px *cliProxy
+	if tr, ok := hc.Transport.(*http.Transport); ok && tr.TLSClientConfig != nil {
+		px = newCLIProxy(strings.TrimPrefix(host, "tcp://"), tr.TLSClientConfig)
+	}
 	cli, err := client.NewClientWithOpts(client.WithHost(host), client.WithHTTPClient(hc), client.WithAPIVersionNegotiation())
 	if err != nil {
 		return nil, fmt.Errorf("docker client for %s: %w", host, err)
 	}
-	d := &Client{cli: cli}
-	if tr, ok := hc.Transport.(*http.Transport); ok && tr.TLSClientConfig != nil {
-		d.px = newCLIProxy(strings.TrimPrefix(host, "tcp://"), tr.TLSClientConfig)
-	}
-	return d, nil
+	return &Client{cli: cli, px: px}, nil
 }

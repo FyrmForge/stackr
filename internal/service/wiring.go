@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"path/filepath"
 	"strings"
@@ -453,6 +454,7 @@ func (o *Orchestrator) buildOn(
 	log io.Writer,
 ) (string, error) {
 	defer o.builds.hold(nodeID, repo)()
+	slog.Info("build: placed", "node", nodeID, "ref", ref)
 	ctx = docker.WithNode(ctx, nodeID)
 	img, err := o.images.Build(ctx, dir, dockerfile, ref, args, log)
 	if err != nil {
