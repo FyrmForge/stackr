@@ -442,14 +442,18 @@ joined to 109 across the home NAT. Nothing below may be dropped.
 - **Rule (darthvader):** all node-to-node traffic goes over WireGuard. Caddy
   is for external traffic only. The one exception is the join itself (no
   tunnel exists yet). Audit: the controller's fallback that dials a
-  worker's extras API on its public address (d656b72) must end once wg0 is
-  up.
+  worker's extras API on its public address (d656b72) goes.
 - **Node registry pulls (agreed):** the panel gets a listener on its wg
   transit address that only takes node certs; join writes
   `--registry-url` (that address) and `--registry-host` into the worker
   unit; the worker's 127.0.0.1:5000 front pulls through the tunnel.
-- **Relays never chosen:** the relay is plumbed, `meshSvc.Relays` is never
-  set, so two NAT'd nodes that cannot reach each other get no path.
+- **Relays (agreed):** plumbed but `meshSvc.Relays` is never set. The
+  controller picks one automatically for every pair where neither node has a
+  public address and they share no LAN: host = any node with a public
+  address, one port per pair. Last candidate only; the map shows "via <node>".
+- **Outside the tunnel:** liveness checks only ("are you alive"), no data,
+  no commands. A new worker gets its first mesh spec in the join answer
+  instead of a push to its public address.
 - **IPv6 endpoints** are tried when the controller has no IPv6; minutes of
   failover before IPv4.
 - **Release images not on ghcr (last, the final test):** join cannot pull
