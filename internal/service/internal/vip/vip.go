@@ -287,6 +287,11 @@ func Render(prev, next map[string]Entry, base Base) string {
 	for _, v := range append(slices.Clone(vips), gone...) {
 		b.WriteString(":" + vipChain(v) + " - [0:0]\n")
 	}
+	if base.meshOn() {
+		// cluster traffic keeps its source into the mesh: the other node
+		// reads the calling env from it (Docker's MASQUERADE comes after)
+		fmt.Fprintf(&b, "-A %s -o %s -s %s -j ACCEPT\n", NATChain, base.WGIface, base.Cluster.Masked())
+	}
 	for _, v := range vips {
 		fmt.Fprintf(&b, "-A %s -d %s/32 -j %s\n", Chain, v, vipChain(v))
 		ips := next[v].Replicas
@@ -304,7 +309,15 @@ func Render(prev, next map[string]Entry, base Base) string {
 	}
 	b.WriteString("COMMIT\n")
 	if base.Range.IsValid() {
-		b.WriteString("*raw\n:" + RawChain + " - [0:0]\nCOMMIT\n")
+		b.WriteString("*raw\n:" + RawChain + " - [0:0]\n")
+		if base.meshOn() {
+			// past Docker's per-container raw drop: the stateful decision is
+			// STACKR-XN's, in FORWARD
+			for _, src := range base.clusterNets() {
+				fmt.Fprintf(&b, "-A %s -i %s -s %s -d %s -j ACCEPT\n", RawChain, base.WGIface, src, base.Range.Masked())
+			}
+		}
+		b.WriteString("COMMIT\n")
 		b.WriteString(renderFilter(next, base))
 	}
 	return b.String()

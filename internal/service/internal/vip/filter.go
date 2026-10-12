@@ -66,8 +66,26 @@ type Base struct {
 	// the panel listener.
 	WGPanelPort int
 
+	// Flows are the cross-node connections this node accepts (or, Out, sends):
+	// ingress from another node's Caddy, link consumers. Each one is a single
+	// accept in STACKR-XN on the pre-NAT VIP and port.
+	Flows []Flow
+
 	early map[string][]string // set by Table: replica IP -> lan lines, before it is routed
 }
+
+// Flow is one cross-node connection: Src (a node's transit /32 or an env's
+// range) to a VIP and tcp port. Out marks the sending side (a local consumer
+// to a remote VIP), which only needs to pass the supernet drop.
+type Flow struct {
+	Src  netip.Prefix
+	VIP  netip.Addr
+	Port int
+	Out  bool
+}
+
+// meshOn is a node in a cluster: the mesh interface and the supernet known.
+func (b Base) meshOn() bool { return b.WGIface != "" && b.Cluster.IsValid() && b.Range.IsValid() }
 
 // private are the ranges a tile cannot start connections to unless granted.
 var private = []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "169.254.0.0/16", "100.64.0.0/10"}
@@ -200,6 +218,11 @@ func renderFilter(next map[string]Entry, b Base) string {
 	w.WriteString("*filter\n:" + FwdChain + " - [0:0]\n:" + InChain + " - [0:0]\n:" + XNChain + " - [0:0]\n")
 	f := func(format string, a ...any) { fmt.Fprintf(&w, "-A "+FwdChain+" "+format+"\n", a...) }
 	f("-m conntrack ! --ctstate NEW -j RETURN")
+	if b.meshOn() {
+		// from the mesh, the per-flow accepts are the only way in; Docker's
+		// own FORWARD rules drop the rest
+		f("-i %s -j %s", b.WGIface, XNChain)
+	}
 	// A source outside this node's range is not a container of this node;
 	// what it may reach is the mesh's business (STACKR-XN, wg0), not ours.
 	f("! -s %s -j RETURN", rng)
@@ -268,6 +291,14 @@ func renderFilter(next map[string]Entry, b Base) string {
 		in("-s %s -d %s/32 -p tcp --dport %d -j DROP", rng, b.PanelBind, b.PanelPort)
 	}
 	in("-s %s -j DROP", rng)
+	for _, fl := range b.Flows {
+		if fl.Out {
+			fmt.Fprintf(&w, "-A %s -s %s -d %s/32 -p tcp --dport %d -j ACCEPT\n", XNChain, fl.Src.Masked(), fl.VIP, fl.Port)
+			continue
+		}
+		fmt.Fprintf(&w, "-A %s -i %s -s %s -p tcp -m conntrack --ctstate NEW --ctorigdst %s --ctorigdstport %d -j ACCEPT\n",
+			XNChain, b.WGIface, fl.Src.Masked(), fl.VIP, fl.Port)
+	}
 	w.WriteString("COMMIT\n")
 	return w.String()
 }

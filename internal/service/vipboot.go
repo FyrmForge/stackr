@@ -268,7 +268,69 @@ func (o *Orchestrator) vipBase(ctx context.Context, n store.Node) vip.Base {
 			}
 		}
 	}
+	b.Flows = o.ingressFlows(ctx, n)
 	return b
+}
+
+// ingressFlows are the accepts a node needs for tiles it runs whose ingress
+// node is another node: that node's Caddy dials the tile's VIP over the mesh
+// (masqueraded to its transit address).
+// ponytail: tcp on the domain's port only; links (managed consumers) are not
+// flows yet.
+func (o *Orchestrator) ingressFlows(ctx context.Context, n store.Node) []vip.Flow {
+	envs, err := o.store.Environments.ListByNode(ctx, n.ID)
+	if err != nil {
+		return nil
+	}
+	var out []vip.Flow
+	for _, e := range envs {
+		ts, err := o.store.Tiles.ListByEnv(ctx, e.ID)
+		if err != nil {
+			continue
+		}
+		for _, t := range ts {
+			ds, err := o.domains.ListByTile(ctx, t.ID)
+			if err != nil || len(ds) == 0 {
+				continue
+			}
+			ing, err := o.IngressFor(ctx, t.ID)
+			if err != nil || ing == "" || ing == n.ID {
+				continue
+			}
+			in, err := o.store.Nodes.Get(ctx, ing)
+			if err != nil {
+				continue
+			}
+			rng, err := netip.ParsePrefix(in.RangeCIDR)
+			if err != nil {
+				continue
+			}
+			src, err := mesh.TransitAddr(rng)
+			if err != nil {
+				continue
+			}
+			cs, err := o.docker.List(WithNode(ctx, n.ID), map[string]string{"stackr.tile": t.ID, "stackr.role": "pause"})
+			if err != nil || len(cs) == 0 || len(cs[0].IPs) == 0 {
+				continue
+			}
+			v, err := netip.ParseAddr(cs[0].IPs[0])
+			if err != nil {
+				continue
+			}
+			ports := map[int]bool{}
+			for _, d := range ds {
+				p := d.ContainerPort
+				if p == 0 {
+					p = t.ContainerPort
+				}
+				if p > 0 && !ports[p] {
+					ports[p] = true
+					out = append(out, vip.Flow{Src: netip.PrefixFrom(src, 32), VIP: v, Port: p})
+				}
+			}
+		}
+	}
+	return out
 }
 
 // earlyLan is tile.Leaf.Early: a starting replica or run container gets its
