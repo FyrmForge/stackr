@@ -3,6 +3,7 @@ package domain_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -10,6 +11,27 @@ import (
 
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/domain"
 )
+
+// Two nodes each get their own config; one failing does not stop the other.
+func TestSyncPushesEachNode(t *testing.T) {
+	got := map[string]string{}
+	s := &domain.Syncer{
+		BuildAll: func(context.Context) (map[string]json.RawMessage, error) {
+			return map[string]json.RawMessage{"a": json.RawMessage(`1`), "b": json.RawMessage(`2`)}, nil
+		},
+		PushNode: func(_ context.Context, n string, c json.RawMessage) error {
+			if n == "a" {
+				return errors.New("down")
+			}
+			got[n] = string(c)
+			return nil
+		},
+	}
+	err := s.Sync(context.Background())
+	if err == nil || got["b"] != "2" || len(got) != 1 {
+		t.Fatalf("err %v got %v", err, got)
+	}
+}
 
 // Saves that land while a push runs collapse into exactly one follow-up run,
 // and that run sees the last save.

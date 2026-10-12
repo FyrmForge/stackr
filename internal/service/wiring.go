@@ -5,7 +5,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
+	"net/http"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -14,6 +16,7 @@ import (
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
+	"github.com/FyrmForge/stackr/internal/service/internal/flow/deploy"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/orgconfig"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/promote"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/serverconfig"
@@ -31,7 +34,21 @@ import (
 // proxyConfig is the Syncer's Build: install facts from settings, the
 // domain resources' ACME accounts, then every domain row through
 // flow/deploy.
+//
+// Kept for the Syncer's single-config Build until orchestrator.go sets
+// BuildAll: it is the controller's config only.
 func (o *Orchestrator) proxyConfig(ctx context.Context) (json.RawMessage, error) {
+	cfgs, err := o.proxyConfigs(ctx)
+	ctl, cerr := o.controllerID(ctx)
+	if cerr != nil {
+		return nil, errors.Join(err, cerr)
+	}
+	return cfgs[ctl], err
+}
+
+// proxyConfigs is the Syncer's BuildAll: one Caddy config per ingress node,
+// keyed by node id. The controller is the default ingress node.
+func (o *Orchestrator) proxyConfigs(ctx context.Context) (map[string]json.RawMessage, error) {
 	get := func(k string) string {
 		v, _ := o.settings.Get(ctx, k)
 		return v
@@ -55,11 +72,82 @@ func (o *Orchestrator) proxyConfig(ctx context.Context) (json.RawMessage, error)
 			in.Accounts = append(in.Accounts, domain.Account{Host: r.Host, Email: r.ACMEEmail})
 		}
 	}
-	ext, err := o.externalRoutes(ctx)
+	ctl, err := o.controllerID(ctx)
 	if err != nil {
 		return nil, err
 	}
-	return o.deploy.ProxyConfig(ctx, in, ext)
+	in.DefaultIngress = ctl
+	routes, err := o.externalRoutes(ctx)
+	if err != nil {
+		return nil, err
+	}
+	// ponytail: routes and tiles carry no ingress pick yet, so all follow the
+	// default ingress node; add the pick here when the column lands.
+	ext := make([]domain.NodeRoute, len(routes))
+	for i, r := range routes {
+		ext[i] = domain.NodeRoute{Route: r}
+	}
+	return o.deploy.ProxyConfigs(ctx, in, ext, o.placement(ctx))
+}
+
+// placement answers deploy.Placement: the tile's env node and, when that is
+// not the controller, the tile's VIP (its pause container's address on the
+// env network) so another node's Caddy can reach it. A tile whose VIP cannot
+// be read keeps "" and is served by container name, as before.
+func (o *Orchestrator) placement(ctx context.Context) deploy.Placement {
+	return func(tileID string) (ingress, node, vip string) {
+		t, err := o.store.Tiles.Get(ctx, tileID)
+		if err != nil {
+			return "", "", ""
+		}
+		node, err = o.envNode(ctx, t.EnvironmentID)
+		if err != nil {
+			return "", "", ""
+		}
+		if ctl, err := o.controllerID(ctx); err != nil || node == ctl {
+			return "", node, ""
+		}
+		cs, err := o.docker.List(WithNode(ctx, node), map[string]string{"stackr.tile": t.ID, "stackr.role": "pause"})
+		if err == nil && len(cs) > 0 && len(cs[0].IPs) > 0 {
+			vip = cs[0].IPs[0]
+		}
+		return "", node, vip
+	}
+}
+
+// caddyNode is one worker's Caddy admin API through its extras client
+// (workerclient.Client satisfies it).
+type caddyNode interface {
+	Caddy(ctx context.Context, method, path string, body []byte) (*http.Response, error)
+}
+
+// proxyPush is the Syncer's PushNode. The controller's config goes to the
+// local admin socket (push); a worker's goes through worker(id), which
+// returns nil for a node with no connection.
+func proxyPush(controller func(context.Context) (string, error), push func(context.Context, json.RawMessage) error, worker func(nodeID string) caddyNode) func(context.Context, string, json.RawMessage) error {
+	return func(ctx context.Context, node string, cfg json.RawMessage) error {
+		ctl, err := controller(ctx)
+		if err != nil {
+			return err
+		}
+		if node == ctl {
+			return push(ctx, cfg)
+		}
+		w := worker(node)
+		if w == nil {
+			return fmt.Errorf("%w: no connection to node %s", errs.ErrBusy, node)
+		}
+		resp, err := w.Caddy(ctx, http.MethodPost, "/load", cfg)
+		if err != nil {
+			return err
+		}
+		defer func() { _ = resp.Body.Close() }()
+		if resp.StatusCode != http.StatusOK {
+			b, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<10))
+			return fmt.Errorf("caddy on node %s: %s: %s", node, resp.Status, strings.TrimSpace(string(b)))
+		}
+		return nil
+	}
 }
 
 // publicBase is a managed tile's public URL: its auto name under the

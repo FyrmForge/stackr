@@ -3,6 +3,8 @@ package domain
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"sync"
 	"time"
 )
@@ -14,6 +16,11 @@ import (
 type Syncer struct {
 	Build func(context.Context) (json.RawMessage, error) // the flow: rows + facts -> Build
 	Push  func(context.Context, json.RawMessage) error   // proxy.Client.Push
+
+	// BuildAll and PushNode, when both are set, replace Build and Push: one
+	// config per ingress node, each pushed to that node's Caddy.
+	BuildAll func(context.Context) (map[string]json.RawMessage, error)
+	PushNode func(ctx context.Context, node string, cfg json.RawMessage) error
 
 	run  sync.Mutex // held for a whole run
 	mu   sync.Mutex // guards the counters
@@ -45,15 +52,31 @@ func (s *Syncer) Sync(ctx context.Context) error {
 
 	rctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), Timeout)
 	defer cancel()
-	cfg, err := s.Build(rctx)
-	if cfg != nil {
-		// A partial build (a tile left out) still pushes; its error still returns.
-		if perr := s.Push(rctx, cfg); perr != nil {
-			err = perr
-		}
-	}
+	err := s.once(rctx)
 	s.mu.Lock()
 	s.done, s.err = covers, err
 	s.mu.Unlock()
 	return err
+}
+
+// once is one build and push. A partial build (a tile left out, a node
+// whose config failed) still pushes what built; its error still returns.
+func (s *Syncer) once(ctx context.Context) error {
+	if s.BuildAll == nil || s.PushNode == nil {
+		cfg, err := s.Build(ctx)
+		if cfg != nil {
+			if perr := s.Push(ctx, cfg); perr != nil {
+				err = perr
+			}
+		}
+		return err
+	}
+	cfgs, err := s.BuildAll(ctx)
+	errs := []error{err}
+	for node, cfg := range cfgs { // one node down must not hold back the others
+		if perr := s.PushNode(ctx, node, cfg); perr != nil {
+			errs = append(errs, fmt.Errorf("push to node %q: %w", node, perr))
+		}
+	}
+	return errors.Join(errs...)
 }
