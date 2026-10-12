@@ -14,7 +14,19 @@ type ApproveView struct {
 	Tiles   []TilePerms
 	Addrs   []string // the server's own addresses, for the range warnings
 	Panel   string   // the panel's address
+	// Controller is set when envs of the stack run on the controller and a
+	// worker exists; the form warns and offers the move, never blocks.
+	Controller *ControllerWarn
 }
+
+// ControllerWarn names the controller and the stack's envs running on it.
+type ControllerWarn struct {
+	Node string
+	Envs []ControllerEnv
+}
+
+// ControllerEnv is one env; Move opens its drawer, where it is moved.
+type ControllerEnv struct{ Name, Move string }
 
 func target() string { return "#" + c.DrawerRoot }
 
@@ -44,6 +56,22 @@ templ Approve(v ApproveView) {
 		}
 		if v.StackID != "" {
 			<input type="hidden" name="stack" value={ v.StackID }/>
+		}
+		if v.Controller != nil {
+			<div class="rounded border border-rw-warn/40 p-3 text-sm" role="note">
+				for _, e := range v.Controller.Envs {
+					<p class="text-rw-text">
+						<span class="font-mono">{ e.Name }</span>
+						runs on { v.Controller.Node }, the controller.
+					</p>
+				}
+				<p class="mt-1 text-rw-muted">Docker socket or host networking here can reach every node. Run it on a worker if you can.</p>
+				<p class="mt-2 flex flex-wrap gap-3">
+					for _, e := range v.Controller.Envs {
+						<a href={ templ.SafeURL(e.Move) } hx-get={ e.Move } hx-target={ target() } hx-swap="outerHTML" class="text-rw-accent underline">Move { e.Name }</a>
+					}
+				</p>
+			</div>
 		}
 		for _, t := range v.Tiles {
 			<fieldset class="space-y-1.5">

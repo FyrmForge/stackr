@@ -25,7 +25,7 @@ import (
 )
 
 // Tabs in strip order.
-var Tabs = []string{"settings", "members", "keys", "params", "domains", "shares", "backups", "config"}
+var Tabs = []string{"settings", "members", "keys", "params", "domains", "registry", "shares", "backups", "config"}
 
 type SettingsView struct {
 	Name    string

@@ -55,14 +55,19 @@ func (h *handler) stackTab(c echo.Context, cd card, f *comp.DrawerView) (templ.C
 	if len(g.Pending) > 0 && can(c, cd.s, "hostgrant.approve") {
 		// The set shown rides along; the server refuses when the ask moved.
 		addrs, panel := h.orch.HostAddrs()
+		warn, werr := render.ControllerWarn(c.Request().Context(), h.orch, cd.s.Org.Slug, st.ID, st.Slug)
+		if werr != nil {
+			return nil, werr
+		}
 		v.Host.Approve = &access.ApproveView{
-			Addrs:   addrs,
-			Panel:   panel,
-			ID:      "host-approve",
-			Action:  f.Base + "/host-grant/approve",
-			Name:    st.Name,
-			Pending: g.Pending,
-			Tiles:   access.Group(nil, g.Pending),
+			Addrs:      addrs,
+			Panel:      panel,
+			ID:         "host-approve",
+			Action:     f.Base + "/host-grant/approve",
+			Name:       st.Name,
+			Pending:    g.Pending,
+			Tiles:      access.Group(nil, g.Pending),
+			Controller: warn,
 		}
 	}
 	for _, k := range cs {

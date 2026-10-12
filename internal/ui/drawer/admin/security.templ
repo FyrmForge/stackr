@@ -1,0 +1,84 @@
+package admin
+
+import c "github.com/FyrmForge/stackr/internal/ui/components"
+
+// SecurityView is the Security log tab: filters, then one row per audited
+// act, newest first. A row opens to the detail the act recorded.
+type SecurityView struct {
+	Filter  SecurityFilter
+	Rows    []SecurityRow
+	Actions []AccessOption // the action picker
+	Actors  []AccessOption // the actor picker
+	Windows []AccessOption // the time picker
+	More    string         // GET for older rows; "" = this is all of them
+}
+
+// SecurityFilter is what the pickers hold now.
+type SecurityFilter struct{ Action, Actor, Window string }
+
+// SecurityRow is one event. Refused marks an act that was turned away.
+type SecurityRow struct {
+	When, Actor, Action, Target string
+	Refused                     bool
+	Details                     []SecurityDetail
+}
+
+type SecurityDetail struct{ Label, Value string }
+
+templ Security(v SecurityView) {
+	<div id="tab-security">
+		@c.Section("Security log", "instance", "Every sign-in, grant, key and node change. Kept forever.") {
+			<form hx-get={ Base } hx-target={ target() } hx-swap="outerHTML" hx-trigger="change" novalidate onsubmit="return false" class="mb-4 flex flex-wrap gap-2">
+				<input type="hidden" name="tab" value="security"/>
+				@securityPicker("action", "Action", "Any action", v.Actions, v.Filter.Action)
+				@securityPicker("actor", "Actor", "Anyone", v.Actors, v.Filter.Actor)
+				@securityPicker("window", "Time", "All time", v.Windows, v.Filter.Window)
+			</form>
+			if len(v.Rows) == 0 {
+				<p class="text-sm text-rw-faint">Nothing matches.</p>
+			} else {
+				<ul class="space-y-2">
+					for _, r := range v.Rows {
+						<li class="panel text-sm">
+							<details>
+								<summary class="flex cursor-pointer flex-wrap items-center gap-x-3 gap-y-1 px-4 py-3">
+									<span class="w-28 shrink-0 text-xs text-rw-faint">{ r.When }</span>
+									<span class="text-rw-text">{ r.Actor }</span>
+									<span class="text-rw-muted">{ r.Action }</span>
+									<span class="font-mono text-xs text-rw-muted">{ r.Target }</span>
+									<span class="ml-auto">
+										if r.Refused {
+											@c.Chip("refused", "warn")
+										} else {
+											@c.Chip("ok", "")
+										}
+									</span>
+								</summary>
+								if len(r.Details) > 0 {
+									<dl class="grid grid-cols-[8rem_1fr] gap-x-3 gap-y-1 border-t border-rw-border px-4 py-3 text-xs">
+										for _, d := range r.Details {
+											<dt class="text-rw-faint">{ d.Label }</dt>
+											<dd class="whitespace-pre-wrap break-all font-mono text-rw-muted">{ d.Value }</dd>
+										}
+									</dl>
+								}
+							</details>
+						</li>
+					}
+				</ul>
+				if v.More != "" {
+					<button type="button" hx-get={ v.More } hx-target={ target() } hx-swap="outerHTML" class="btn btn-ghost btn-sm mt-3">Show older</button>
+				}
+			}
+		}
+	</div>
+}
+
+templ securityPicker(name, label, any string, opts []AccessOption, cur string) {
+	<select name={ name } class="input w-auto" aria-label={ label }>
+		<option value="">{ any }</option>
+		for _, o := range opts {
+			<option value={ o.Value } selected?={ o.Value == cur }>{ o.Label }</option>
+		}
+	</select>
+}

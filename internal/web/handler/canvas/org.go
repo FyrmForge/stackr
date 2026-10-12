@@ -79,6 +79,8 @@ func (h *handler) orgTab(c echo.Context, cd card, f *comp.DrawerView) (templ.Com
 			return templ.NopComponent, nil
 		}
 		return h.orgDomains(c, cd, f.Base)
+	case "registry":
+		return h.orgRegistry(c, cd)
 	case "shares":
 		return h.orgShares(c, cd, f.Base)
 	case "backups":

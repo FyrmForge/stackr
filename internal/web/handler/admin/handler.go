@@ -144,7 +144,7 @@ func frame(tab string) comp.DrawerView {
 		Tabs:  ui.Tabs,
 		Tab:   tab,
 		// "access" would read "Access", which is the tile's own word
-		Labels: map[string]string{"access": "Elevated access"},
+		Labels: map[string]string{"access": "Elevated access", "security": "Security log"},
 	}
 	if !slices.Contains(ui.Tabs, tab) {
 		f.Tab = ui.Tabs[0]
@@ -254,6 +254,8 @@ func (h *handler) tab(c echo.Context, tab string, x extra) (templ.Component, err
 		return ui.Routes(v), err
 	case "access":
 		return h.accessTab(c)
+	case "security":
+		return h.securityTab(c)
 	case "update":
 		v := ui.UpdateView{}
 		if x.check != nil {

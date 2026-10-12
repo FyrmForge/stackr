@@ -16,6 +16,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/ui/access"
 	comp "github.com/FyrmForge/stackr/internal/ui/components"
 	ui "github.com/FyrmForge/stackr/internal/ui/drawer/admin"
+	"github.com/FyrmForge/stackr/internal/web/render"
 )
 
 func (h *handler) mountAccess(g *echo.Group, a *middleware.Access) {
@@ -47,7 +48,7 @@ func (h *handler) mountAccess(g *echo.Group, a *middleware.Access) {
 	}), approve)
 }
 
-type stackName struct{ id, name, slug, org, orgID string }
+type stackName struct{ id, name, slug, org, orgID, orgSlug string }
 
 // stackNames is every stack by id, with its org: a grant names only the
 // stack's id.
@@ -65,7 +66,7 @@ func (h *handler) stackNames(ctx context.Context) (map[string]stackName, error) 
 			return nil, err
 		}
 		for _, s := range ss {
-			out[s.ID] = stackName{id: s.ID, name: s.Name, slug: s.Slug, org: o.Name, orgID: o.ID}
+			out[s.ID] = stackName{id: s.ID, name: s.Name, slug: s.Slug, org: o.Name, orgID: o.ID, orgSlug: o.Slug}
 		}
 	}
 	return out, nil
@@ -126,15 +127,20 @@ func (h *handler) accessTab(c echo.Context) (templ.Component, error) {
 		where := st.org + " / " + st.name
 		if len(g.Pending) > 0 {
 			addrs, panel := h.orch.HostAddrs()
+			warn, err := render.ControllerWarn(ctx, h.orch, st.orgSlug, st.id, st.slug)
+			if err != nil {
+				return nil, err
+			}
 			v.Waiting = append(v.Waiting, ui.WaitingStack{Where: where, Form: access.ApproveView{
-				Addrs:   addrs,
-				Panel:   panel,
-				ID:      "access-" + g.StackID,
-				Action:  ui.Base + "/access/approve",
-				StackID: g.StackID,
-				Name:    st.name,
-				Pending: g.Pending,
-				Tiles:   access.Group(nil, g.Pending),
+				Addrs:      addrs,
+				Panel:      panel,
+				ID:         "access-" + g.StackID,
+				Action:     ui.Base + "/access/approve",
+				StackID:    g.StackID,
+				Name:       st.name,
+				Pending:    g.Pending,
+				Tiles:      access.Group(nil, g.Pending),
+				Controller: warn,
 			}})
 		}
 		if v.Filter.Org != "" && v.Filter.Org != st.orgID {
