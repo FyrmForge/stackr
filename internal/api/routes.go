@@ -51,6 +51,8 @@ func routes(h *v1.H) []Route {
 		{GET, "/settings", "settings.catalogue", Self, h.Settings()},
 		{POST, "/auth/exchange", "key.exchange", Public, h.ExchangeCLICode()},
 		{GET, "/invites/:token", "invite.get", Public, h.LookupInvite()},
+		{POST, "/join", "join.request", Public, h.RequestJoin()},
+		{POST, "/join/status", "join.status", Public, h.JoinStatus()},
 		{POST, "/invites/:token/accept", "invite.accept", Self, h.AcceptInvite()},
 
 		// orgs
@@ -210,6 +212,10 @@ func routes(h *v1.H) []Route {
 		{PUT, "/admin/users/:user/password", "admin.user-password", "user.admin", h.SetPassword()},
 		{POST, "/admin/keys", "admin.key-mint", "user.admin", h.MintUnboundKey()},
 		{GET, "/admin/security-log", "admin.security-log", "audit.read", h.SecurityLog()},
+		{POST, "/admin/join-tokens", "admin.join-token", "node.manage", h.CreateJoinToken()},
+		{GET, "/admin/join-requests", "admin.join-requests", "node.manage", h.PendingJoins()},
+		{POST, "/admin/join-requests/:node/confirm", "admin.join-confirm", "node.manage", h.ConfirmJoin()},
+		{POST, "/admin/join-requests/:node/reject", "admin.join-reject", "node.manage", h.RejectJoin()},
 		{GET, "/admin/host-grants", "admin.host-grants", "admin.read", h.HostGrants()},
 		{GET, "/admin/images", "admin.images", "admin.read", h.Images()},
 		{POST, "/admin/image-check", "admin.image-check", "container.admin", h.CheckAllImages()},

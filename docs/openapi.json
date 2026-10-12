@@ -1000,6 +1000,9 @@
           "network": {
             "type": "string"
           },
+          "node_id": {
+            "type": "string"
+          },
           "position": {
             "type": "integer"
           },
@@ -1022,6 +1025,9 @@
           "stack_id": {
             "type": "string"
           },
+          "subnet": {
+            "type": "string"
+          },
           "type": {
             "type": "string"
           }
@@ -1040,7 +1046,9 @@
           "from_branch",
           "auto",
           "created_at",
-          "locked"
+          "locked",
+          "node_id",
+          "subnet"
         ],
         "type": "object"
       },
@@ -1399,6 +1407,148 @@
           "log",
           "next",
           "end"
+        ],
+        "type": "object"
+      },
+      "JoinRequest": {
+        "properties": {
+          "csr": {
+            "type": "string"
+          },
+          "facts": {},
+          "token": {
+            "type": "string"
+          },
+          "wg_public_key": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "token",
+          "csr",
+          "wg_public_key",
+          "facts"
+        ],
+        "type": "object"
+      },
+      "JoinStatus": {
+        "properties": {
+          "ca_pem": {
+            "type": "string"
+          },
+          "cert_pem": {
+            "type": "string"
+          },
+          "node_id": {
+            "type": "string"
+          },
+          "range": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "wg_address": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "JoinStatusIn": {
+        "properties": {
+          "token": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "token"
+        ],
+        "type": "object"
+      },
+      "JoinTokenOut": {
+        "properties": {
+          "ca_fingerprint": {
+            "type": "string"
+          },
+          "command": {
+            "type": "string"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "node_name": {
+            "type": "string"
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "token": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "token",
+          "node_name",
+          "tags",
+          "expires_at",
+          "ca_fingerprint",
+          "command"
+        ],
+        "type": "object"
+      },
+      "JoinTokenSpec": {
+        "properties": {
+          "node_name": {
+            "type": "string"
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "ttl_minutes": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "node_name",
+          "tags",
+          "ttl_minutes"
+        ],
+        "type": "object"
+      },
+      "JoinedNode": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "range": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "wg_address": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "range",
+          "wg_address",
+          "status"
         ],
         "type": "object"
       },
@@ -2025,6 +2175,16 @@
           "name": {
             "type": "string"
           },
+          "node_id": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "settings": {
             "type": "string"
           },
@@ -2254,6 +2414,39 @@
         },
         "required": [
           "paused"
+        ],
+        "type": "object"
+      },
+      "PendingJoin": {
+        "properties": {
+          "facts": {},
+          "name": {
+            "type": "string"
+          },
+          "node_id": {
+            "type": "string"
+          },
+          "requested_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "wg_public_key": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "node_id",
+          "name",
+          "tags",
+          "wg_public_key",
+          "facts",
+          "requested_at"
         ],
         "type": "object"
       },
@@ -2651,6 +2844,54 @@
           "timezone",
           "keep",
           "mode"
+        ],
+        "type": "object"
+      },
+      "SecurityEvent": {
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "actor_id": {
+            "type": "string"
+          },
+          "at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "detail": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "ip": {
+            "type": "string"
+          },
+          "key_id": {
+            "type": "string"
+          },
+          "target_id": {
+            "type": "string"
+          },
+          "target_kind": {
+            "type": "string"
+          },
+          "user_agent": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "at",
+          "action",
+          "actor_id",
+          "key_id",
+          "target_kind",
+          "target_id",
+          "ip",
+          "user_agent",
+          "detail"
         ],
         "type": "object"
       },
@@ -3154,6 +3395,16 @@
           },
           "name": {
             "type": "string"
+          },
+          "node_id": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "org_id": {
             "type": "string"
@@ -5879,6 +6130,146 @@
         "x-verb": "admin.read"
       }
     },
+    "/api/v1/admin/join-requests": {
+      "get": {
+        "operationId": "admin.join-requests",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/PendingJoin"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "node.manage"
+      }
+    },
+    "/api/v1/admin/join-requests/{node}/confirm": {
+      "post": {
+        "operationId": "admin.join-confirm",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "node",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JoinedNode"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "node.manage"
+      }
+    },
+    "/api/v1/admin/join-requests/{node}/reject": {
+      "post": {
+        "operationId": "admin.join-reject",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "node",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "node.manage"
+      }
+    },
+    "/api/v1/admin/join-tokens": {
+      "post": {
+        "operationId": "admin.join-token",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JoinTokenSpec"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JoinTokenOut"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "node.manage"
+      }
+    },
     "/api/v1/admin/keys": {
       "post": {
         "operationId": "admin.key-mint",
@@ -6285,6 +6676,88 @@
           }
         },
         "x-verb": "route.admin"
+      }
+    },
+    "/api/v1/admin/security-log": {
+      "get": {
+        "operationId": "admin.security-log",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "action",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "actor",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "target_kind",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "target",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "since",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "until",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/SecurityEvent"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "audit.read"
       }
     },
     "/api/v1/admin/settings/{setting}": {
@@ -6743,6 +7216,86 @@
           }
         },
         "x-verb": "@self"
+      }
+    },
+    "/api/v1/join": {
+      "post": {
+        "operationId": "join.request",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JoinRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JoinStatus"
+                }
+              }
+            },
+            "description": "Accepted"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "security": [],
+        "x-verb": "@public"
+      }
+    },
+    "/api/v1/join/status": {
+      "post": {
+        "operationId": "join.status",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JoinStatusIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JoinStatus"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "security": [],
+        "x-verb": "@public"
       }
     },
     "/api/v1/me": {

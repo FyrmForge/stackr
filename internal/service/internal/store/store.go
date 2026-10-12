@@ -72,6 +72,7 @@ type Tables struct {
 	ExitLadders      ExitLadderStore
 	RegistryTokens   RegistryTokenStore
 	Moves            MoveStore
+	JoinTokens       JoinTokenStore
 }
 
 func bind(q querier, box *secrets.Box) Tables {
@@ -117,6 +118,7 @@ func bind(q querier, box *secrets.Box) Tables {
 		ExitLadders:      exitLadders{q},
 		RegistryTokens:   registryTokens{crud[RegistryToken]{q, box, registryTokensT}},
 		Moves:            moves{crud[EnvMove]{q, box, movesT}},
+		JoinTokens:       joinTokens{crud[JoinToken]{q, box, joinTokensT}},
 	}
 }
 

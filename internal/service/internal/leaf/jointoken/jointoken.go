@@ -1,0 +1,104 @@
+// Package jointoken owns join_tokens: the single use, short lived secrets an
+// admin hands to a new worker, and what that worker sends back with one (CSR,
+// WireGuard key, facts) until an admin confirms or rejects it. Only a hash of
+// a token is stored.
+package jointoken
+
+import (
+	"context"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base32"
+	"encoding/hex"
+	"encoding/json"
+	"strings"
+	"time"
+
+	"github.com/google/uuid"
+
+	"github.com/FyrmForge/stackr/internal/service/errs"
+	"github.com/FyrmForge/stackr/internal/service/internal/store"
+)
+
+// Security log actions of the join flow.
+const (
+	ActionToken   = "join.token"
+	ActionRequest = "join.request"
+	ActionConfirm = "node.confirm"
+	ActionReject  = "node.reject"
+	ActionCert    = "cert.issue"
+)
+
+// Prefix marks a join token, so a leaked one is recognisable.
+const Prefix = "stkjoin_"
+
+type Leaf struct{ rows store.JoinTokenStore }
+
+func New(rows store.JoinTokenStore) *Leaf { return &Leaf{rows} }
+
+// Hash is what is stored for a token.
+func Hash(token string) string {
+	h := sha256.Sum256([]byte(token))
+	return hex.EncodeToString(h[:])
+}
+
+// Mint stores a new token for a node name and tags and returns the token,
+// which exists nowhere else.
+func (l *Leaf) Mint(ctx context.Context, name string, tags []string, by string, ttl time.Duration) (string, store.JoinToken, error) {
+	b := make([]byte, 20)
+	if _, err := rand.Read(b); err != nil {
+		return "", store.JoinToken{}, err
+	}
+	token := Prefix + strings.ToLower(base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(b))
+	t, _ := json.Marshal(tags)
+	now := time.Now().UTC()
+	row := store.JoinToken{
+		ID: uuid.NewString(), Hash: Hash(token), NodeName: name, Tags: string(t),
+		CreatedBy: by, CreatedAt: now, ExpiresAt: now.Add(ttl),
+	}
+	return token, row, l.rows.Create(ctx, row)
+}
+
+// Spend uses the token up and returns its row. An unknown, expired or used
+// token is one answer (ErrNotFound), so a probe learns nothing.
+func (l *Leaf) Spend(ctx context.Context, token string) (store.JoinToken, error) {
+	h := Hash(token)
+	if err := l.rows.Spend(ctx, h, time.Now().UTC()); err != nil {
+		return store.JoinToken{}, err
+	}
+	return l.rows.GetByHash(ctx, h)
+}
+
+// Record keeps what the joining node sent.
+func (l *Leaf) Record(ctx context.Context, t store.JoinToken, nodeID, csr, wgKey, facts string) error {
+	t.NodeID, t.CSR, t.WGPublicKey, t.Facts = nodeID, csr, wgKey, facts
+	return l.rows.Update(ctx, t)
+}
+
+// ByToken is the row of a spent token (the worker polling its status). A
+// token never spent is not found: there is nothing to poll yet.
+func (l *Leaf) ByToken(ctx context.Context, token string) (store.JoinToken, error) {
+	t, err := l.rows.GetByHash(ctx, Hash(token))
+	if err == nil && t.UsedAt == nil {
+		return store.JoinToken{}, errs.ErrNotFound
+	}
+	return t, err
+}
+
+func (l *Leaf) ByNode(ctx context.Context, nodeID string) (store.JoinToken, error) {
+	return l.rows.GetByNode(ctx, nodeID)
+}
+
+// SetCert keeps the issued cert for the worker to fetch.
+func (l *Leaf) SetCert(ctx context.Context, t store.JoinToken, certPEM string) error {
+	t.CertPEM = certPEM
+	return l.rows.Update(ctx, t)
+}
+
+func (l *Leaf) SetRejected(ctx context.Context, t store.JoinToken, at time.Time) error {
+	t.RejectedAt = &at
+	return l.rows.Update(ctx, t)
+}
+
+// Used is every spent token, oldest first.
+func (l *Leaf) Used(ctx context.Context) ([]store.JoinToken, error) { return l.rows.Used(ctx) }
