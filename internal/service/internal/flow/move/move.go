@@ -47,10 +47,6 @@ const (
 	RolledBack = "rolled_back"
 )
 
-// RsyncImage is the helper image (images/rsync); both nodes must be able to
-// pull it. A var: an air-gapped install points it at an image it has.
-var RsyncImage = "stackr-rsync:1"
-
 // RsyncPort is the first host port a target helper publishes; volume i uses
 // RsyncPort+i.
 const RsyncPort = 8873
@@ -253,16 +249,7 @@ func (f *Flow) prepare(ctx context.Context, m store.EnvMove) error {
 		return err
 	}
 	for _, d := range []Docker{src, dst} {
-		if m.Live {
-			// a node that has the helper (loaded with the release) keeps it;
-			// only a missing one is pulled
-			if _, err := d.LocalDigest(ctx, RsyncImage); err == nil {
-				continue
-			}
-			if err := d.Pull(ctx, RsyncImage, "", io.Discard); err != nil {
-				return fmt.Errorf("pull %s: %w", RsyncImage, err)
-			}
-		} else if err := d.EnsureTool(ctx); err != nil {
+		if err := d.EnsureTool(ctx); err != nil { // the tar or rsync helpers' image
 			return err
 		}
 	}
@@ -375,8 +362,17 @@ func helperName(moveID string, i int, role string) string {
 	return fmt.Sprintf("stkr-rsync-%s-%d-%s", moveID, i, role)
 }
 
+// The helpers run on the tool image every node already pulls (EnsureTool)
+// and add rsync at start, so no image has to reach the nodes. ponytail: apk
+// needs the node's internet; an air-gapped install points docker.ToolImage
+// at an image with rsync, where the add is skipped.
+const withRsync = `command -v rsync >/dev/null || apk add -q --no-cache rsync || exit 20; `
+
+// daemonScript serves /data to RSYNC_ALLOW alone.
+const daemonScript = withRsync + `printf 'use chroot = no\nnumeric ids = yes\n[data]\n path = /data\n read only = no\n uid = 0\n gid = 0\n hosts allow = %s\n hosts deny = *\n' "$RSYNC_ALLOW" > /tmp/rsyncd.conf && exec rsync --daemon --no-detach --config=/tmp/rsyncd.conf`
+
 // retry covers the daemon still starting (rsync exit 10: connection refused).
-const clientScript = `i=0; while :; do rsync %s /data/ rsync://%s:%d/data/; rc=$?; if [ $rc -ne 10 ] || [ $i -ge 30 ]; then exit $rc; fi; i=$((i+1)); sleep 1; done`
+const clientScript = withRsync + `i=0; while :; do rsync %s /data/ rsync://%s:%d/data/; rc=$?; if [ $rc -ne 10 ] || [ $i -ge 60 ]; then exit $rc; fi; i=$((i+1)); sleep 1; done`
 
 func pass(ctx context.Context, src, dst Docker, moveID string, i int, v store.Volume, srcAddr, dstAddr string, check bool) error {
 	port := RsyncPort + i
@@ -386,8 +382,8 @@ func pass(ctx context.Context, src, dst Docker, moveID string, i int, v store.Vo
 	_ = src.StopRemove(ctx, client)
 	did, err := dst.Run(ctx, docker.ContainerSpec{
 		Name:    daemon,
-		Image:   RsyncImage,
-		Cmd:     []string{"daemon"},
+		Image:   docker.ToolImage,
+		Cmd:     []string{"sh", "-c", daemonScript},
 		Env:     []string{"RSYNC_ALLOW=" + srcAddr},
 		Labels:  map[string]string{docker.LabelManaged: "true"},
 		Volumes: []string{v.Name + ":/data"},
@@ -404,7 +400,7 @@ func pass(ctx context.Context, src, dst Docker, moveID string, i int, v store.Vo
 	}
 	cid, err := src.Run(ctx, docker.ContainerSpec{
 		Name:    client,
-		Image:   RsyncImage,
+		Image:   docker.ToolImage,
 		Cmd:     []string{"sh", "-c", fmt.Sprintf(clientScript, flags, dstAddr, port)},
 		Labels:  map[string]string{docker.LabelManaged: "true"},
 		Volumes: []string{v.Name + ":/data:ro"},
