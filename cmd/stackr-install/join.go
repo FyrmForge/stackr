@@ -68,6 +68,9 @@ func normalizeFP(s string) (string, error) {
 	return s, nil
 }
 
+// errBusy is the panel turning a call away for its rate limit.
+var errBusy = errors.New("panel busy")
+
 func (j joinCall) post(ctx context.Context, path string, in any) (joinStatus, error) {
 	body, _ := json.Marshal(in)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, j.panel+"/api/v1"+path, bytes.NewReader(body))
@@ -81,6 +84,9 @@ func (j joinCall) post(ctx context.Context, path string, in any) (joinStatus, er
 	}
 	defer resp.Body.Close()
 	b, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if resp.StatusCode == http.StatusTooManyRequests {
+		return joinStatus{}, errBusy
+	}
 	if resp.StatusCode/100 != 2 {
 		return joinStatus{}, fmt.Errorf("panel answered %d: %s", resp.StatusCode, strings.TrimSpace(string(b)))
 	}
@@ -107,9 +113,14 @@ func (j joinCall) run(ctx context.Context, csrPEM []byte, wgPub string, facts an
 			return st, ctx.Err()
 		case <-time.After(j.poll):
 		}
-		if st, err = j.post(ctx, "/join/status", map[string]string{"token": j.token}); err != nil {
+		next, err := j.post(ctx, "/join/status", map[string]string{"token": j.token})
+		if errors.Is(err, errBusy) {
+			continue // the panel's rate limit: keep waiting
+		}
+		if err != nil {
 			return st, fmt.Errorf("join status: %w", err)
 		}
+		st = next
 	}
 	got, err := fingerprint([]byte(st.CAPEM))
 	if err != nil {
@@ -223,7 +234,7 @@ func join(ctx context.Context, args []string, out io.Writer) error {
 		return err
 	}
 	r.say("  made this node's keys")
-	j := joinCall{panel: u.String(), token: *token, caSHA: fp, poll: 3 * time.Second, say: r.say,
+	j := joinCall{panel: u.String(), token: *token, caSHA: fp, poll: 10 * time.Second, say: r.say,
 		client: &http.Client{Timeout: 30 * time.Second}}
 	st, err := j.run(ctx, csr, wgPub, map[string]any{"interfaces": worker.Interfaces()})
 	if err != nil {
