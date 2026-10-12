@@ -1,6 +1,7 @@
 package worker
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -234,7 +235,9 @@ func (s *Server) meshNet(spec MeshSpec) error {
 		}
 	}
 	if err := s.cfg.Mesh.WG.Apply(wgapply.Config{Iface: iface, PrivateKey: priv,
-		ListenPort: spec.ListenPort, Address: spec.Address, Peers: spec.Peers}); err != nil {
+		// The node's own port wins over a saved or pushed spec: a spec saved
+		// before a port change would otherwise strand the node off the mesh.
+		ListenPort: cmp.Or(s.cfg.Mesh.WGPort, mesh.DefaultPort), Address: spec.Address, Peers: spec.Peers}); err != nil {
 		return err
 	}
 	if s.mesh.fo == nil {

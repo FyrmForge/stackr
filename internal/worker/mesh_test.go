@@ -118,6 +118,10 @@ func TestApplyMeshAndReplay(t *testing.T) {
 	if !ok || cfg.PrivateKey == "" || cfg.Iface != mesh.Iface || len(cfg.Peers) != 1 {
 		t.Fatalf("wg config = %+v", cfg)
 	}
+	// The spec says 51820 (an old controller); the node keeps its own port.
+	if cfg.ListenPort != mesh.DefaultPort {
+		t.Fatalf("listen port = %d, want %d", cfg.ListenPort, mesh.DefaultPort)
+	}
 	for _, want := range []string{
 		"ip link add " + exits.Iface("nx") + " type wireguard", // client link
 		"ip link add " + exits.Iface("nc") + " type wireguard", // exit side
