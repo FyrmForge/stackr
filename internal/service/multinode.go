@@ -61,7 +61,8 @@ func (o *Orchestrator) startMesh(ctlID string) {
 	if local != nil {
 		o.mesh.ctlID, o.mesh.Registry, o.mesh.Panel = ctlID, o.meshRegistry, o.panelURL()
 	}
-	go o.mesh.Run(ctx)
+	// Not started here: its first sync reads leaves New builds after this.
+	o.runMesh = func() { go o.mesh.Run(ctx) }
 	if local != nil {
 		go o.serveRegistryWG(ctx)
 		go func() {

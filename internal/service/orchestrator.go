@@ -248,6 +248,7 @@ type Orchestrator struct {
 	helperReady func(context.Context) error
 	mesh        *meshSvc // the node mesh and exits (mesh.go, multinode.go)
 	stopMesh    context.CancelFunc
+	runMesh     func() // starts the mesh loop once New has built every leaf
 	stopOnce    sync.Once
 }
 
@@ -690,6 +691,9 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 			slog.Warn("proxy: boot push failed", "err", err)
 		}
 	}()
+	if orch.runMesh != nil {
+		orch.runMesh()
+	}
 	return orch, nil
 }
 
