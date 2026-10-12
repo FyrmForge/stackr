@@ -356,15 +356,15 @@ func required(r *http.Request) (need []Scope, ok bool) {
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		act = Push
 	}
-	need = []Scope{{repo, []string{act}}}
-	// a cross-repo blob mount also reads the source
-	if from := r.URL.Query().Get("from"); from != "" && r.Method == http.MethodPost {
-		if _, _, _, valid := ParseRepo(from); !valid {
-			return nil, false
-		}
-		need = append(need, Scope{from, []string{Pull}})
+	return []Scope{{repo, []string{act}}}, true
+}
+
+// mountFrom is the source repo of a cross-repo blob mount, "" for none.
+func mountFrom(r *http.Request) string {
+	if r.Method != http.MethodPost {
+		return ""
 	}
-	return need, true
+	return r.URL.Query().Get("from")
 }
 
 func (s *Server) serveV2(w http.ResponseWriter, r *http.Request) {
@@ -390,6 +390,14 @@ func (s *Server) serveV2(w http.ResponseWriter, r *http.Request) {
 			s.challenge(w, need, "insufficient_scope")
 			return
 		}
+	}
+	// A mount reads its source; without pull there, drop the mount and the
+	// registry starts a plain upload instead, as the spec allows.
+	if from := mountFrom(r); from != "" && !c.permits(from, Pull) {
+		q := r.URL.Query()
+		q.Del("mount")
+		q.Del("from")
+		r.URL.RawQuery = q.Encode()
 	}
 	s.once.Do(func() {
 		s.proxy = httputil.NewSingleHostReverseProxy(s.Backend)

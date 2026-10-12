@@ -192,3 +192,19 @@ func TestSystemOrgPullOnly(t *testing.T) {
 		t.Fatalf("node on %s = %v, want pull only", repo, got)
 	}
 }
+
+// A builder pushing web may not read api: a mount from api becomes a plain
+// upload, the registry never sees the mount.
+func TestMountWithoutSourceIsPlainUpload(t *testing.T) {
+	var audit []Issued
+	_, front, seen := newServer(t, Facts{Kind: KindNode, Subject: "n1", PushRepos: []string{"acme/shop/web"}}, &audit)
+	defer front.Close()
+	tok := mint(t, front.URL, "repository:acme/shop/web:pull,push repository:acme/shop/api:pull")
+	res := get(t, "POST", front.URL+"/v2/acme/shop/web/blobs/uploads/?mount=sha256:1&from=acme/shop/api", tok)
+	if res.StatusCode == 401 {
+		t.Fatalf("mount refused: %d", res.StatusCode)
+	}
+	if q := (*seen)[len(*seen)-1].URL.RawQuery; q != "" {
+		t.Fatalf("registry saw %q, want no mount", q)
+	}
+}
