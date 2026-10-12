@@ -69,8 +69,10 @@ func readBody(w http.ResponseWriter, r *http.Request) ([]byte, bool) {
 	return b, true
 }
 
-func (s *Server) facts(w http.ResponseWriter, r *http.Request) {
-	f := Facts{CPUs: runtime.NumCPU(), Interfaces: []Iface{}}
+// Interfaces is this machine's interfaces with their prefixes; the join
+// request reports the same list before a worker exists.
+func Interfaces() []Iface {
+	out := []Iface{}
 	ifs, _ := net.Interfaces()
 	for _, i := range ifs {
 		fi := Iface{Name: i.Name, Prefixes: []string{}}
@@ -81,8 +83,13 @@ func (s *Server) facts(w http.ResponseWriter, r *http.Request) {
 				fi.Public = fi.Public || isPublic(p.Addr())
 			}
 		}
-		f.Interfaces = append(f.Interfaces, fi)
+		out = append(out, fi)
 	}
+	return out
+}
+
+func (s *Server) facts(w http.ResponseWriter, r *http.Request) {
+	f := Facts{CPUs: runtime.NumCPU(), Interfaces: Interfaces()}
 	b, _ := os.ReadFile("/proc/sys/kernel/osrelease")
 	f.Kernel = strings.TrimSpace(string(b))
 	f.MemBytes = memTotal()

@@ -20,6 +20,9 @@ func runWorker(ctx context.Context, cfg worker.Config) error {
 	if cfg.Runner == nil {
 		cfg.Runner = worker.ExecRunner{}
 	}
+	if cfg.Mesh.WG == nil {
+		cfg.Mesh.WG = kernelWG()
+	}
 	return worker.Run(ctx, cfg)
 }
 

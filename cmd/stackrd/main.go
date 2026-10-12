@@ -223,6 +223,13 @@ func run(log *slog.Logger, generate bool) error {
 		return fmt.Errorf("start service: %w", err)
 	}
 	defer func() { _ = orch.Close() }()
+	if fake != "" {
+		fctx, stopFake := context.WithCancel(context.Background())
+		defer stopFake()
+		if err := startFakeWorkers(fctx, orch, fake); err != nil {
+			return err
+		}
+	}
 
 	// Email sender. In dev (EMAIL_MOCK=true), ships messages to the hamr dev
 	// inbox at HAMR_DEV_URL/__hamr/mail. Swap for a real provider adapter in

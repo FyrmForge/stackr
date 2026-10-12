@@ -107,6 +107,14 @@ func loadKey(path string) (priv, pub string, err error) {
 	return k.String(), k.PublicKey().String(), nil
 }
 
+// EnsureWGKey makes the node's WireGuard key in stateDir when missing and
+// returns its public half: the installer needs it for the join request
+// before any worker runs.
+func EnsureWGKey(stateDir string) (string, error) {
+	_, pub, err := loadKey(filepath.Join(stateDir, "wg.key"))
+	return pub, err
+}
+
 func (s *Server) wgKeyPath() string   { return filepath.Join(s.cfg.StateDir, "wg.key") }
 func (s *Server) exitKeyPath() string { return filepath.Join(s.cfg.StateDir, "exit.key") }
 
