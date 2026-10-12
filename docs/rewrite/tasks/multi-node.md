@@ -491,3 +491,17 @@ joined to 109 across the home NAT. Nothing below may be dropped.
 
 Done in this wave: join's Docker install proven on h2; a mesh peer added
 before its addresses were known now gets an endpoint (147ec2c).
+
+## Next after multi-node: extension connectors (agreed 2026-10-12)
+
+Connectors as container image + manifest, not code in stackr. Declarative
+connectors (run this image with these settings) and hook connectors (a small
+versioned HTTP protocol). Fixed slots with contracts (way in, log source,
+metrics, git source, secret store, notifier, placement policy) plus a generic
+actions slot. Each connector gets a scoped API token and event subscriptions,
+so automations like node rebalancing (node down -> move its envs) are
+connectors. Permissions shown at install; no Docker socket, no panel DB.
+Marketplace = a signed index of manifests. UI extensions (described UI,
+sandboxed embedded pages) come later. First targets: Cloudflare Tunnel and
+Tailscale/Headscale as ways in, a rebalancer.
+
