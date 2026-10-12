@@ -94,6 +94,11 @@ func TestBuildClusterMapUnreachable(t *testing.T) {
 	if last := m.Networks[len(m.Networks)-1]; last.ID != "unknown" || last.Router {
 		t.Errorf("last network = %+v, want the unknown box without a router", last)
 	}
+	w := n("w", "worker", facts(iface("eth0", true, "198.51.100.2/32")), false)
+	w.Alive = true
+	if s := buildClusterMap([]clusterNodeIn{w}).Nodes[0].Status; s != NodeTunnelDown {
+		t.Errorf("tunnel missed, liveness answered: status = %q, want %q", s, NodeTunnelDown)
+	}
 }
 
 // Two ingress nodes behind one NAT: the router forwards to home, so nas is

@@ -43,6 +43,7 @@ type Config struct {
 	WG         WGApplier // nil = /v1/wg answers 501
 	Mesh       MeshConfig
 	Registry   RegistryConfig // the controller's registry on 127.0.0.1:5000; URL "" = off
+	AliveAddr  string         // public liveness listener (AlivePort); "" = off
 	// DockerUserWait bounds how long replay waits for the DOCKER-USER chain
 	// (0 = 2m); DockerUserPoll is the gap between checks (0 = 1s).
 	DockerUserWait time.Duration
@@ -130,6 +131,13 @@ func Run(ctx context.Context, cfg Config) error {
 		go func() {
 			if err := serveRegistry(ctx, cfg.Registry); err != nil {
 				slog.Error("worker: registry proxy", "err", err)
+			}
+		}()
+	}
+	if cfg.AliveAddr != "" {
+		go func() {
+			if err := serveAlive(ctx, cfg.AliveAddr); err != nil {
+				slog.Error("worker: liveness listener", "err", err)
 			}
 		}()
 	}

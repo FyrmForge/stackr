@@ -517,6 +517,17 @@ func ifacePrefixes(f worker.Facts) []netip.Prefix {
 	return out
 }
 
+// publicOf is a node's public addresses from its last known facts.
+func (m *meshSvc) publicOf(id string) []netip.Addr {
+	m.mu.Lock()
+	f, ok := m.facts[id]
+	m.mu.Unlock()
+	if !ok {
+		return nil
+	}
+	return publicAddrs(f)
+}
+
 var cgnat = netip.MustParsePrefix("100.64.0.0/10")
 
 func publicAddrs(f worker.Facts) []netip.Addr {

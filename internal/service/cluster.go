@@ -38,6 +38,7 @@ const (
 const (
 	NodeOnline      = "online"
 	NodeUnreachable = "unreachable" // a worker that did not answer just now
+	NodeTunnelDown  = "tunnel-down" // missed over the tunnel, answers its public liveness port
 )
 
 // Tunnel kinds: how the two ends reach each other.
@@ -113,6 +114,7 @@ type clusterNodeIn struct {
 	Node     store.Node
 	Facts    *worker.Facts // nil = never reported
 	Up       bool          // answered just now
+	Alive    bool          // not Up, but its public liveness port answered
 	RTT      time.Duration // 0 = not measured
 	Envs     []ClusterEnv
 	Domains  []string
@@ -159,6 +161,8 @@ func buildClusterMap(in []clusterNodeIn) ClusterMap {
 		switch {
 		case n.Node.Role == node.Controller, n.Up && n.Node.Status == node.StatusOnline:
 			cn.Status = NodeOnline
+		case n.Node.Role != node.Controller && n.Alive:
+			cn.Status = NodeTunnelDown
 		case n.Node.Status == node.StatusOnline:
 			cn.Status = NodeUnreachable
 		}
@@ -264,6 +268,7 @@ func (o *Orchestrator) ClusterMap(ctx context.Context) (ClusterMap, error) {
 		go func() {
 			defer wg.Done()
 			in[i].Facts, in[i].Up, in[i].RTT = o.clusterFacts(ctx, n)
+			in[i].Alive = !in[i].Up && o.HostAlive(n.ID)
 		}()
 	}
 	wg.Wait()

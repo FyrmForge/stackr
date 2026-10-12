@@ -43,6 +43,8 @@ func workerConfig(args []string) (worker.Config, error) {
 	caddy := fs.String("caddy-sock", config.GetEnvOrDefault("STACKR_WORKER_CADDY_SOCK", installspec.WorkerProxyAdminDir+"/admin.sock"),
 		"Caddy admin socket of the proxy the controller starts on an ingress node (\"\" = off)")
 	regURL := fs.String("registry-url", config.GetEnvOrDefault("STACKR_WORKER_REGISTRY_URL", ""), "controller panel address on its transit IP, e.g. https://10.213.0.1 (STACKR_WORKER_REGISTRY_URL); serves its registry on 127.0.0.1:5000 (\"\" = off)")
+	alive := fs.String("alive-addr", config.GetEnvOrDefault("STACKR_WORKER_ALIVE_ADDR", ":"+worker.AlivePort),
+		"public liveness listener, answers a fixed line only (STACKR_WORKER_ALIVE_ADDR; \"\" = off)")
 	regHost := fs.String("registry-host", config.GetEnvOrDefault("STACKR_WORKER_REGISTRY_HOST", ""), "registry host name, registry.<panel domain> (STACKR_WORKER_REGISTRY_HOST)")
 	if err := fs.Parse(args); err != nil {
 		return worker.Config{}, err
@@ -80,8 +82,8 @@ func workerConfig(args []string) (worker.Config, error) {
 		reg = worker.RegistryConfig{URL: *regURL, Host: *regHost, TLS: clusterca.ControllerClientConfig(caCert, own)}
 	}
 	return worker.Config{
-		Registry: reg,
-		TLS:      tc, Addr: *addr, DockerSock: *sock, CaddySock: *caddy, StateDir: *state,
+		Registry: reg, AliveAddr: *alive,
+		TLS: tc, Addr: *addr, DockerSock: *sock, CaddySock: *caddy, StateDir: *state,
 		Runner: worker.ExecRunner{}, Mesh: worker.MeshConfig{WG: workerWG()},
 	}, nil
 }
