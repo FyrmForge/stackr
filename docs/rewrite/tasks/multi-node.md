@@ -456,6 +456,14 @@ joined to 109 across the home NAT. Nothing below may be dropped.
   instead of a push to its public address.
 - **IPv6 endpoints** are tried when the controller has no IPv6; minutes of
   failover before IPv4.
+- **Git-built images on workers:** builds stay local on the node that built
+  them and are never pushed to the registry; a git-built tile on a worker
+  may have no image. Check where builds run, push to the registry.
+- **Live move rsync:** now apk-installs rsync in alpine:3 at start (40d4e76),
+  so both nodes need internet during a move. Discuss: ship the helper
+  through the registry over wg instead.
+- **Unbound admin key on-box** still needs --org to log in with several orgs.
+- **Cluster map rebuild** on the base graph (proposed, awaiting darthvader).
 - **Release images not on ghcr (last, the final test):** join cannot pull
   the worker image.
 - **Rsync helper image** is not distributed to nodes (live moves).
