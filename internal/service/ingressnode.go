@@ -69,6 +69,13 @@ func (o *Orchestrator) ensureNodeProxy(ctx context.Context, nodeID string) error
 	if !want {
 		return nil
 	}
+	// No proxy of ours runs there now, so a held 80 or 443 is someone
+	// else's: say so instead of starting a Caddy that cannot bind.
+	if cl, err := o.nodeExtras(nodeID); err == nil {
+		if f, err := cl.Facts(ctx); err == nil && len(f.Busy) > 0 {
+			return fmt.Errorf("ingress on %s: port %v is in use by something else; stackr's proxy needs 80 and 443", n.Name, f.Busy)
+		}
+	}
 	if _, err := o.docker.LocalDigest(nctx, spec.Image); err != nil {
 		if err := o.docker.Pull(nctx, spec.Image, "", io.Discard); err != nil {
 			return fmt.Errorf("proxy image on %s: %w", n.Name, err)

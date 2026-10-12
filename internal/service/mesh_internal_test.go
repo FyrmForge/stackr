@@ -224,7 +224,7 @@ func TestBuildMeshAutoRelay(t *testing.T) {
 				t.Fatalf("a->b = %v", p.Candidates)
 			}
 		case "h":
-			if len(p.Candidates) != 1 || p.Candidates[0] != netip.MustParseAddrPort("89.167.81.29:51820") {
+			if len(p.Candidates) != 1 || p.Candidates[0] != netip.MustParseAddrPort("89.167.81.29:51871") {
 				t.Fatalf("a->h = %v", p.Candidates)
 			}
 		}
@@ -257,7 +257,7 @@ func TestBuildMeshAutoRelay(t *testing.T) {
 // A public node's wg endpoint for a NAT'd node is that node's NAT address.
 func TestLearnNAT(t *testing.T) {
 	m := &meshSvc{facts: map[string]worker.Facts{
-		"h": {Seen: map[string]string{"wg-a": "109.148.70.232:1459", "wg-b": "10.0.0.2:51820"}},
+		"h": {Seen: map[string]string{"wg-a": "109.148.70.232:1459", "wg-b": "10.0.0.2:51871"}},
 	}}
 	in := meshIn{Nodes: []meshNodeIn{tnode("h", 2, "89.167.81.29"), tnode("a", 0, "203.0.113.1"), tnode("b", 1, "203.0.113.2")}}
 	in.Nodes[1].Public, in.Nodes[2].Public = nil, nil

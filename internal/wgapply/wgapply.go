@@ -15,7 +15,7 @@ import (
 
 // Config is the full desired state of the node's mesh interface.
 type Config struct {
-	Iface      string // e.g. wg0
+	Iface      string // e.g. stackr0
 	PrivateKey string
 	ListenPort int
 	Address    netip.Prefix // node transit address with the transit mask
@@ -36,6 +36,10 @@ type Applier interface {
 	// peers with a handshake younger than StaleAfter: a peer behind a NAT
 	// shows up as the NAT's public address.
 	Seen(iface string) (map[string]netip.AddrPort, error)
+	// RemoveOwned deletes iface only when it is a WireGuard interface
+	// holding privateKey (one stackr made); anything else, or no such
+	// interface, is left alone and is not an error.
+	RemoveOwned(iface, privateKey string) (bool, error)
 }
 
 // StaleAfter is how old a handshake may get before the next candidate is

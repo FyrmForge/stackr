@@ -56,8 +56,8 @@ type MeshRelay struct {
 }
 
 const (
-	// MeshWGPort is the wg listen port of every node's mesh interface.
-	MeshWGPort = 51820
+	// MeshWGPort is a node's mesh listen port until its facts name its own.
+	MeshWGPort = mesh.DefaultPort
 
 	exitPortBase  = 52000  // + pair index
 	exitPrefBase  = 10000  // subject blocks, two prefs per source
@@ -72,8 +72,8 @@ const (
 )
 
 var (
-	exitNet    = netip.MustParseAddr("10.251.0.0") // /30 per (client, exit) pair
-	pingTarget = "1.1.1.1"                         // the own uplink's probe
+	exitNet    = mesh.ExitNet.Addr() // /30 per (client, exit) pair
+	pingTarget = "1.1.1.1"           // the own uplink's probe
 )
 
 type meshSvc struct {
@@ -407,6 +407,9 @@ func (m *meshSvc) gather(ctx context.Context) (meshIn, error) {
 		if haveF {
 			mn.Ifaces = ifacePrefixes(f)
 			mn.Public = publicAddrs(f)
+			if f.WGPort > 0 && f.WGPort < 65536 {
+				mn.Port = uint16(f.WGPort)
+			}
 		}
 		envs, err := m.st.Environments.ListByNode(ctx, n.ID)
 		if err != nil {

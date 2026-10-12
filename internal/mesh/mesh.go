@@ -13,7 +13,23 @@ import (
 var (
 	Supernet = netip.MustParsePrefix("10.208.0.0/12")
 	Transit  = netip.MustParsePrefix("10.207.255.0/24")
+	// ExitNet holds the exit links: a /30 per (client, exit) pair of the 16
+	// node slots.
+	ExitNet = netip.MustParsePrefix("10.251.0.0/22")
 )
+
+// Iface is the mesh's WireGuard interface on every node. Not wg0, and the
+// port not 51820: those are WireGuard's defaults, likely already taken by a
+// VPN the box runs.
+const Iface = "stackr0"
+
+// DefaultPort is the mesh's UDP listen port; a node may pick another at
+// install or join (--wg-port) and reports it in its facts.
+const DefaultPort = 51871
+
+// LegacyIface is the interface name before stackr0; a node removes it on
+// upgrade when it is the one stackr made (its private key is the node's).
+const LegacyIface = "wg0"
 
 // NodePrefixLen is the size of one node's container range.
 const NodePrefixLen = 16

@@ -17,6 +17,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 )
 
@@ -110,6 +111,8 @@ type Input struct {
 	// InstallID names this box's panel archives, so two installs on one
 	// bucket never prune each other's. Empty (an older install) is "default".
 	InstallID string `json:"install_id,omitempty"`
+	// WGPort is the controller's mesh UDP port; 0 is mesh.DefaultPort.
+	WGPort int `json:"wg_port,omitempty"`
 }
 
 // AdminDir is the host directory holding the proxy's admin socket.
@@ -178,6 +181,9 @@ func Panel(image string, in Input) Container {
 	if in.InstallID != "" {
 		env = append(env, "STACKR_INSTALL_ID="+in.InstallID)
 	}
+	if in.WGPort != 0 {
+		env = append(env, "STACKR_MESH_WG_PORT="+strconv.Itoa(in.WGPort))
+	}
 	return Container{
 		Name:   PanelName,
 		Image:  image,
@@ -225,7 +231,7 @@ const WorkerProxyAdminDir = "/var/lib/stackr-worker/proxy"
 
 // NodeProxy is the proxy on an ingress worker: Proxy's Caddy on the host
 // network, so it binds 80 and 443 itself and reaches local tiles and other
-// nodes' VIPs (over wg0, from its transit address) without NAT. It serves no
+// nodes' VIPs (over stackr0, from its transit address) without NAT. It serves no
 // panel. Certificates live on its own stackr-caddy volume.
 func NodeProxy(image string) Container {
 	env := []string{"XDG_DATA_HOME=/caddy/data", "XDG_CONFIG_HOME=/caddy/config"}

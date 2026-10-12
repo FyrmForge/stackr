@@ -39,12 +39,12 @@ func (o *Orchestrator) startMesh(ctlID string) {
 			DockerSock: "/var/run/docker.sock",
 			StateDir:   filepath.Join(o.cfg.DataDir, "keys"),
 			Runner:     runner,
-			Mesh:       worker.MeshConfig{WG: o.cfg.MeshWG},
+			Mesh:       worker.MeshConfig{WG: o.cfg.MeshWG, WGPort: o.cfg.MeshWGPort},
 		})
 	}
 	o.mesh = newMeshSvc(o.store, func(id string) (MeshNode, bool) {
 		if id == ctlID {
-			// A single-node install runs no wg0.
+			// A single-node install runs no mesh interface.
 			if ns, err := o.store.Nodes.List(context.Background()); local == nil || err != nil || len(ns) < 2 {
 				return nil, false
 			}

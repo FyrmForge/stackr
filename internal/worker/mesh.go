@@ -29,7 +29,7 @@ import (
 // the worker makes them (wg.key, exit.key in the state dir) and GET /v1/mesh
 // reports the public halves.
 type MeshSpec struct {
-	Iface      string // wg interface, "wg0" when empty
+	Iface      string // wg interface, mesh.Iface when empty
 	Address    netip.Prefix
 	ListenPort int
 	Peers      []mesh.Peer
@@ -75,6 +75,9 @@ type MeshConfig struct {
 	FailoverEvery time.Duration   // 0 = 15s
 	LadderEvery   time.Duration   // 0 = 5s
 	ReassertEvery time.Duration   // 0 = 30s; re-adds exit rules a chain rebuild flushed
+	// WGPort is the UDP port this node's mesh listens on, reported in its
+	// facts so the controller plans it; 0 = mesh.DefaultPort.
+	WGPort int
 }
 
 type runningLadder struct {
@@ -92,6 +95,8 @@ type meshState struct {
 	reMu    sync.Mutex
 	// registry is set once the registry proxy runs (startRegistry).
 	registry bool
+	// legacyGone is set once the pre-stackr0 wg0 was checked for.
+	legacyGone bool
 }
 
 // MeshFile in the state dir is the last applied mesh spec, replayed at
@@ -214,7 +219,19 @@ func (s *Server) meshNet(spec MeshSpec) error {
 	}
 	iface := spec.Iface
 	if iface == "" {
-		iface = "wg0"
+		iface = mesh.Iface
+	}
+	if !s.mesh.legacyGone {
+		// Before stackr0 the mesh was wg0: drop it if it is ours, so the old
+		// and new tunnels never fight over the peers. A user's own wg0 stays.
+		if gone, err := s.cfg.Mesh.WG.RemoveOwned(mesh.LegacyIface, priv); err != nil {
+			slog.Warn("worker: remove old wg0", "err", err)
+		} else {
+			s.mesh.legacyGone = true
+			if gone {
+				slog.Info("worker: removed the old wg0 mesh interface")
+			}
+		}
 	}
 	if err := s.cfg.Mesh.WG.Apply(wgapply.Config{Iface: iface, PrivateKey: priv,
 		ListenPort: spec.ListenPort, Address: spec.Address, Peers: spec.Peers}); err != nil {

@@ -115,7 +115,7 @@ func TestApplyMeshAndReplay(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfg, ok := rec.Last()
-	if !ok || cfg.PrivateKey == "" || cfg.Iface != "wg0" || len(cfg.Peers) != 1 {
+	if !ok || cfg.PrivateKey == "" || cfg.Iface != mesh.Iface || len(cfg.Peers) != 1 {
 		t.Fatalf("wg config = %+v", cfg)
 	}
 	for _, want := range []string{

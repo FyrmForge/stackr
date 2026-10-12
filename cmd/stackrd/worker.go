@@ -12,6 +12,7 @@ import (
 	"github.com/FyrmForge/hamr/pkg/config"
 	"github.com/FyrmForge/stackr/internal/clusterca"
 	"github.com/FyrmForge/stackr/internal/installspec"
+	"github.com/FyrmForge/stackr/internal/mesh"
 	"github.com/FyrmForge/stackr/internal/wgapply"
 	"github.com/FyrmForge/stackr/internal/worker"
 )
@@ -46,6 +47,8 @@ func workerConfig(args []string) (worker.Config, error) {
 	alive := fs.String("alive-addr", config.GetEnvOrDefault("STACKR_WORKER_ALIVE_ADDR", ":"+worker.AlivePort),
 		"public liveness listener, answers a fixed line only (STACKR_WORKER_ALIVE_ADDR; \"\" = off)")
 	regHost := fs.String("registry-host", config.GetEnvOrDefault("STACKR_WORKER_REGISTRY_HOST", ""), "registry host name, registry.<panel domain> (STACKR_WORKER_REGISTRY_HOST)")
+	wgPort := fs.Int("wg-port", config.GetEnvOrDefaultInt("STACKR_WORKER_WG_PORT", mesh.DefaultPort),
+		"UDP port of the mesh's WireGuard interface (STACKR_WORKER_WG_PORT)")
 	if err := fs.Parse(args); err != nil {
 		return worker.Config{}, err
 	}
@@ -84,7 +87,7 @@ func workerConfig(args []string) (worker.Config, error) {
 	return worker.Config{
 		Registry: reg, AliveAddr: *alive,
 		TLS: tc, Addr: *addr, DockerSock: *sock, CaddySock: *caddy, StateDir: *state,
-		Runner: worker.ExecRunner{}, Mesh: worker.MeshConfig{WG: workerWG()},
+		Runner: worker.ExecRunner{}, Mesh: worker.MeshConfig{WG: workerWG(), WGPort: *wgPort},
 	}, nil
 }
 

@@ -24,8 +24,8 @@ const (
 	// DOCKER-USER: FwdChain keeps the only rule-1 claim there.
 	XNChain = "STACKR-XN"
 	// RawChain hangs off raw PREROUTING and NATChain off nat POSTROUTING,
-	// each at rule 1. Empty for now: the mesh (step 3) fills them (the wg0
-	// accept for the supernet, the no-SNAT accept into wg0).
+	// each at rule 1. Empty for now: the mesh (step 3) fills them (the mesh
+	// accept for the supernet, the no-SNAT accept into the mesh interface).
 	RawChain = "STACKR-RAW"
 	NATChain = "STACKR-NAT"
 )
@@ -225,7 +225,7 @@ func renderFilter(next map[string]Entry, b Base) string {
 		f("-i %s -j %s", b.WGIface, XNChain)
 	}
 	// A source outside this node's range is not a container of this node;
-	// what it may reach is the mesh's business (STACKR-XN, wg0), not ours.
+	// what it may reach is the mesh's business (STACKR-XN, the mesh interface), not ours.
 	f("! -s %s -j RETURN", rng)
 	f("-d %s -j RETURN", rng)
 	// The supernet and the transit net sit above every grant: a lan:10.0.0.0/8

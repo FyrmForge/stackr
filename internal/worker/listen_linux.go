@@ -2,8 +2,8 @@ package worker
 
 import "syscall"
 
-// freebind lets the listener take the node's tunnel address before wg0 has
-// it: the worker brings wg0 up from its saved mesh spec after it listens.
+// freebind lets the listener take the node's tunnel address before stackr0 has
+// it: the worker brings stackr0 up from its saved mesh spec after it listens.
 func freebind(_, _ string, c syscall.RawConn) error {
 	var err error
 	if cerr := c.Control(func(fd uintptr) {

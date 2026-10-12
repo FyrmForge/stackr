@@ -232,7 +232,7 @@ func (o *Orchestrator) vipBase(ctx context.Context, n store.Node) vip.Base {
 		slog.Warn("vip: node range does not parse, no filter table", "node", n.Name, "range", n.RangeCIDR)
 	}
 	b := vip.Base{Range: rng, Cluster: cluster.SupernetPrefix, PanelBind: o.cfg.PanelBind, PanelPort: o.cfg.PanelPort,
-		WGIface: "wg0"}
+		WGIface: mesh.Iface}
 	if t, err := mesh.TransitAddr(netip.MustParsePrefix(cluster.ControllerRange)); err == nil {
 		b.WGController = t
 	}

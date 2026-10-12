@@ -59,8 +59,8 @@ func (o *Orchestrator) RegistryHandler() http.Handler {
 
 // serveRegistryWG serves the registry front to workers over the mesh: the
 // controller's transit address, the panel port (the one STACKR-IN lets in
-// from wg0), worker certs only. The address exists once a second node
-// brings wg0 up, so the bind is retried until then.
+// from stackr0), worker certs only. The address exists once a second node
+// brings stackr0 up, so the bind is retried until then.
 func (o *Orchestrator) serveRegistryWG(ctx context.Context) {
 	addr, ok := o.registryWGAddr()
 	if !ok {

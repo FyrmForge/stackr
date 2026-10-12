@@ -77,3 +77,6 @@ func (r *Recorder) Last() (Config, bool) {
 	}
 	return r.Applied[len(r.Applied)-1], true
 }
+
+// RemoveOwned records nothing: the fake has no stale interfaces.
+func (r *Recorder) RemoveOwned(string, string) (bool, error) { return false, nil }

@@ -171,3 +171,24 @@ func (Kernel) SetEndpoint(iface, publicKey string, ep netip.AddrPort) error {
 func ipNet(p netip.Prefix) *net.IPNet {
 	return &net.IPNet{IP: p.Addr().AsSlice(), Mask: net.CIDRMask(p.Bits(), p.Addr().BitLen())}
 }
+
+func (Kernel) RemoveOwned(iface, privateKey string) (bool, error) {
+	c, err := wgctrl.New()
+	if err != nil {
+		return false, err
+	}
+	defer c.Close()
+	dev, err := c.Device(iface)
+	if err != nil {
+		return false, nil // no such interface, or not WireGuard
+	}
+	key, err := wgtypes.ParseKey(privateKey)
+	if err != nil || dev.PrivateKey != key {
+		return false, nil // someone else's tunnel
+	}
+	link, err := netlink.LinkByName(iface)
+	if err != nil {
+		return false, nil
+	}
+	return true, netlink.LinkDel(link)
+}

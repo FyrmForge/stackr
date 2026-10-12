@@ -216,6 +216,7 @@ func run(log *slog.Logger, generate bool) error {
 		FakeHost:     fake,
 		MeshWG:       controllerWG(fake),
 		MeshRunner:   worker.ExecRunner{},
+		MeshWGPort:   config.GetEnvOrDefaultInt("STACKR_MESH_WG_PORT", 0),
 
 		PanelDomain:    config.GetEnvOrDefault("PANEL_DOMAIN", ""),
 		RootDomain:     config.GetEnvOrDefault("ROOT_DOMAIN", ""),

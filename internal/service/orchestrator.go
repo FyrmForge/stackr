@@ -129,9 +129,12 @@ type Config struct {
 	FakeHost string
 	// MeshWG and MeshRunner put the controller's own node in the mesh: the
 	// kernel wg applier and the command runner of a real host. Nil MeshWG
-	// (a fake host, a test) leaves the controller out; it then runs no wg0.
+	// (a fake host, a test) leaves the controller out; it then runs no mesh.
 	MeshWG     wgapply.Applier
 	MeshRunner worker.Runner
+	// MeshWGPort is the controller's mesh UDP port (STACKR_MESH_WG_PORT,
+	// the installer's --wg-port); 0 = mesh.DefaultPort.
+	MeshWGPort int
 }
 
 // Option changes how New builds the tree; tests use it.

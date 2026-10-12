@@ -1,6 +1,7 @@
 package worker
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -19,6 +20,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/FyrmForge/stackr/internal/mesh"
 )
 
 const maxBody = 4 << 20
@@ -40,6 +43,31 @@ type Facts struct {
 	Seen map[string]string `json:"seen,omitempty"`
 	// Resolvers are the host's IPv4 DNS servers.
 	Resolvers []string `json:"resolvers,omitempty"`
+	// WGPort is the UDP port the node's mesh listens on (0 from an older
+	// worker: mesh.DefaultPort).
+	WGPort int `json:"wg_port,omitempty"`
+	// Busy are the ingress ports (80, 443) something already listens on; the
+	// controller reads them before it starts a proxy there.
+	Busy []int `json:"busy,omitempty"`
+}
+
+// IngressPorts are what a node's ingress proxy binds on the host.
+var IngressPorts = []int{80, 443}
+
+// busyPorts tries to bind each TCP port on every address; only "in use"
+// counts (a non-root fake worker may not bind low ports at all).
+func busyPorts(ports []int) []int {
+	var out []int
+	for _, p := range ports {
+		l, err := net.Listen("tcp", ":"+strconv.Itoa(p))
+		if errors.Is(err, syscall.EADDRINUSE) {
+			out = append(out, p)
+		}
+		if err == nil {
+			_ = l.Close()
+		}
+	}
+	return out
 }
 
 type Iface struct {
@@ -216,8 +244,10 @@ func (s *Server) facts(w http.ResponseWriter, r *http.Request) {
 		f.DockerError = err.Error()
 	}
 	f.Resolvers = Resolvers()
+	f.WGPort = cmp.Or(s.cfg.Mesh.WGPort, mesh.DefaultPort)
+	f.Busy = busyPorts(IngressPorts)
 	if s.cfg.Mesh.WG != nil {
-		if seen, err := s.cfg.Mesh.WG.Seen("wg0"); err == nil && len(seen) > 0 {
+		if seen, err := s.cfg.Mesh.WG.Seen(mesh.Iface); err == nil && len(seen) > 0 {
 			f.Seen = map[string]string{}
 			for k, ep := range seen {
 				f.Seen[k] = ep.String()
