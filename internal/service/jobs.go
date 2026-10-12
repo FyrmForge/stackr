@@ -149,9 +149,23 @@ func withOwed(payload string, owed []string) string {
 	return string(b)
 }
 
+// handlers names the node each job kind runs on:
+//
+//   - deploy, promote, env-sync, run, restart, stop, start and delete work
+//     on one env, so on its node (the tile and volume leaves find it again
+//     for their own Docker calls);
+//   - push, image-watch, the org and server plans and applies, orphans and
+//     the panel's own backup and upgrade are controller work: a push builds
+//     on the controller, the plans read git and call the verbs that find
+//     each env's node themselves;
+//   - cleanup loops over the nodes.
 func (o *Orchestrator) handlers() map[jobs.Kind]jobs.Handler {
 	return map[jobs.Kind]jobs.Handler{
 		kindDeploy: payload(func(ctx context.Context, r *jobs.Run, p tileJob) error {
+			ctx, err := o.withTileNode(ctx, p.TileID)
+			if err != nil {
+				return err
+			}
 			ctx = withRanFirst(ctx, r.Job.CreatedAt)
 			if err := o.deploy.Redeploy(ctx, p.TileID, r.Log, r.Swap); err != nil {
 				return parkOnApproval(r, err)
@@ -159,6 +173,10 @@ func (o *Orchestrator) handlers() map[jobs.Kind]jobs.Handler {
 			return o.afterDeploy(ctx, []string{p.TileID}, false)
 		}),
 		kindPromote: payload(func(ctx context.Context, r *jobs.Run, p promoteJob) error {
+			ctx, err := o.withEnvIDNode(ctx, p.EnvID)
+			if err != nil {
+				return err
+			}
 			ctx = withRanFirst(ctx, r.Job.CreatedAt)
 			pre, _ := o.tiles.List(ctx, p.EnvID)
 			plan, err := o.promote.ApplyTicked(ctx, p.EnvID, p.ReleaseID, p.Ticked, r.Log, r.Swap)
@@ -168,9 +186,12 @@ func (o *Orchestrator) handlers() map[jobs.Kind]jobs.Handler {
 			return parkOnApproval(r, err)
 		}),
 		kindEnvSync: payload(func(ctx context.Context, r *jobs.Run, p envSyncJob) error {
+			ctx, err := o.withEnvIDNode(ctx, p.EnvID)
+			if err != nil {
+				return err
+			}
 			ctx = withRanFirst(ctx, r.Job.CreatedAt)
 			var plan *promote.Sync
-			var err error
 			pre, _ := o.tiles.List(ctx, p.EnvID)
 			if len(p.Owed) > 0 {
 				// Parked after its writes: deploy what it still owes, no re-plan.
@@ -189,9 +210,17 @@ func (o *Orchestrator) handlers() map[jobs.Kind]jobs.Handler {
 			return parkOnApproval(r, err)
 		}),
 		kindRun: payload(func(ctx context.Context, r *jobs.Run, p runJob) error {
+			ctx, err := o.withTileNode(ctx, p.TileID)
+			if err != nil {
+				return err
+			}
 			return o.run.Do(ctx, p.RunID, r.Log)
 		}),
 		kindPush: payload(func(ctx context.Context, r *jobs.Run, p pushJob) error {
+			ctx, err := o.withController(ctx)
+			if err != nil {
+				return err
+			}
 			if err := o.ladderEnvs(ctx, p, r.Log); err != nil {
 				return err
 			}
@@ -200,17 +229,21 @@ func (o *Orchestrator) handlers() map[jobs.Kind]jobs.Handler {
 		kindPR:     payload(o.runPR),
 		kindDelete: payload(o.runDelete),
 		kindRestart: payload(func(ctx context.Context, r *jobs.Run, p tileJob) error {
-			return o.onTile(ctx, p.TileID, func(t Tile) error { return o.container.Restart(ctx, t, r.Log) })
+			return o.onTile(ctx, p.TileID, func(ctx context.Context, t Tile) error { return o.container.Restart(ctx, t, r.Log) })
 		}),
 		kindStop: payload(func(ctx context.Context, r *jobs.Run, p tileJob) error {
-			return o.onTile(ctx, p.TileID, func(t Tile) error { return o.container.Stop(ctx, t, r.Log) })
+			return o.onTile(ctx, p.TileID, func(ctx context.Context, t Tile) error { return o.container.Stop(ctx, t, r.Log) })
 		}),
 		kindStart: payload(func(ctx context.Context, r *jobs.Run, p tileJob) error {
-			return o.onTile(ctx, p.TileID, func(t Tile) error { return o.container.Start(ctx, t, r.Log) })
+			return o.onTile(ctx, p.TileID, func(ctx context.Context, t Tile) error { return o.container.Start(ctx, t, r.Log) })
 		}),
 		kindBackup:  payload(o.runBackup),
 		kindRestore: payload(o.runRestore),
 		kindOrphans: func(ctx context.Context, r *jobs.Run) error {
+			ctx, err := o.withController(ctx)
+			if err != nil {
+				return err
+			}
 			days, err := o.settings.Int(ctx, "orphan_retention_days")
 			if err != nil {
 				return err
@@ -222,14 +255,22 @@ func (o *Orchestrator) handlers() map[jobs.Kind]jobs.Handler {
 			return o.backup.Orphans(ctx, time.Duration(days)*24*time.Hour, local, r.Log)
 		},
 		kindPanelBackup: payload(func(ctx context.Context, r *jobs.Run, p panelBackupJob) error {
+			ctx, err := o.withController(ctx)
+			if err != nil {
+				return err
+			}
 			trigger := "manual"
 			if p.Scheduled {
 				trigger = "schedule"
 			}
-			_, err := o.panelBackup(ctx, r.Log, trigger)
+			_, err = o.panelBackup(ctx, r.Log, trigger)
 			return err
 		}),
 		kindUpgrade: payload(func(ctx context.Context, r *jobs.Run, p upgradeJob) error {
+			ctx, err := o.withController(ctx)
+			if err != nil {
+				return err
+			}
 			archive, err := o.upgrade.Upgrade(ctx, p.Tag, r.Log)
 			if err == nil {
 				// The local destination is <data>/backups; the key is the path under it.
@@ -240,6 +281,10 @@ func (o *Orchestrator) handlers() map[jobs.Kind]jobs.Handler {
 			return err
 		}),
 		kindImageWatch: payload(func(ctx context.Context, r *jobs.Run, sc imagewatch.Scope) error {
+			ctx, err := o.withController(ctx)
+			if err != nil {
+				return err
+			}
 			ups, err := o.watch.Check(ctx, sc, r.Log)
 			for _, u := range ups {
 				if u.Auto {
@@ -253,13 +298,29 @@ func (o *Orchestrator) handlers() map[jobs.Kind]jobs.Handler {
 			return err
 		}),
 		kindOrgPlan: payload(func(ctx context.Context, r *jobs.Run, p orgPlanJob) error {
-			_, err := o.planOrg(ctx, p.OrgID, r.Log)
+			ctx, err := o.withController(ctx)
+			if err != nil {
+				return err
+			}
+			_, err = o.planOrg(ctx, p.OrgID, r.Log)
 			return err
 		}),
-		kindOrgApply:    payload(o.runOrgApply),
-		kindServerPlan:  payload(o.runServerPlan),
-		kindServerApply: payload(o.runServerApply),
+		kindOrgApply:    controllerJob(o, payload(o.runOrgApply)),
+		kindServerPlan:  controllerJob(o, payload(o.runServerPlan)),
+		kindServerApply: controllerJob(o, payload(o.runServerApply)),
 		kindCleanup:     o.runCleanup,
+	}
+}
+
+// controllerJob runs h on the controller: its Docker calls are the panel's
+// own, or go through leaves that find an env's node themselves.
+func controllerJob(o *Orchestrator, h jobs.Handler) jobs.Handler {
+	return func(ctx context.Context, r *jobs.Run) error {
+		ctx, err := o.withController(ctx)
+		if err != nil {
+			return err
+		}
+		return h(ctx, r)
 	}
 }
 
@@ -287,12 +348,17 @@ func (o *Orchestrator) enqueuePromote(ctx context.Context, envID, releaseID stri
 	return o.jobs.Enqueue(ctx, kindPromote, lock, string(o.withOrg(ctx, b)), &releaseID)
 }
 
-func (o *Orchestrator) onTile(ctx context.Context, id string, f func(Tile) error) error {
+// onTile runs f on the tile's node.
+func (o *Orchestrator) onTile(ctx context.Context, id string, f func(context.Context, Tile) error) error {
 	t, err := o.tiles.Get(ctx, id)
 	if err != nil {
 		return err
 	}
-	return f(t)
+	ctx, err = o.withEnvIDNode(ctx, t.EnvironmentID)
+	if err != nil {
+		return err
+	}
+	return f(ctx, t)
 }
 
 // runPush turns a push into a release and promotes it into the auto envs.
@@ -412,6 +478,9 @@ func (o *Orchestrator) runPR(ctx context.Context, r *jobs.Run, p prJob) error {
 		if !exists || e.Type != environment.Ephemeral {
 			return nil
 		}
+		if ctx, err = o.withEnvNode(ctx, e); err != nil {
+			return err
+		}
 		ts, err := o.tiles.List(ctx, e.ID)
 		if err != nil {
 			return err
@@ -461,9 +530,17 @@ func (o *Orchestrator) runPR(ctx context.Context, r *jobs.Run, p prJob) error {
 		if err != nil {
 			return err
 		}
-		if err := o.seedPREnv(ctx, pr); err != nil {
+		prCtx, err := o.withEnvNode(ctx, pr)
+		if err != nil {
 			return err
 		}
+		if err := o.seedPREnv(prCtx, pr); err != nil {
+			return err
+		}
+	}
+	// The build runs on the controller; the promotes it queues run on each env's node.
+	if ctx, err = o.withController(ctx); err != nil {
+		return err
 	}
 	return o.runPush(ctx, p.StackID, promote.Event{Repo: p.Repo, Branch: p.Head, Commit: p.SHA, PR: true, PRNumber: p.Number}, r.Log)
 }
@@ -514,6 +591,9 @@ func (o *Orchestrator) runDelete(ctx context.Context, r *jobs.Run, p tileJob) er
 	if err != nil {
 		return err
 	}
+	if ctx, err = o.withEnvNode(ctx, e); err != nil {
+		return err
+	}
 	if _, err := o.promote.Remove(ctx, e, []store.Tile{t}, r.Log); err != nil {
 		return err
 	}
@@ -530,21 +610,24 @@ func (o *Orchestrator) runDelete(ctx context.Context, r *jobs.Run, p tileJob) er
 	return o.sync.Sync(ctx)
 }
 
-// watchTick runs every minute: re-push the proxy config when the proxy
-// container restarted (it boots from its autosave, which may be stale), and
-// queue an image-watch sweep when the interval is due. It also re-declares
-// the VIP rules from Docker: after a host reboot the boot rebuild can run
-// before the containers are up (cost note on rebuildVIPs).
+// watchTick runs every minute, in three scopes:
+//
+//   - the controller: re-push the proxy config when the proxy container
+//     restarted (it boots from its autosave, which may be stale);
+//   - every node: re-declare the VIP rules from Docker (after a host reboot
+//     the boot rebuild can run before the containers are up; cost note on
+//     rebuildVIPs). A restarted proxy has a new IP in the filter base, so
+//     this runs before the proxy's networks are rejoined;
+//   - every env, as one job: queue an image-watch sweep when the interval
+//     is due.
 func (o *Orchestrator) watchTick(ctx context.Context) error {
-	d, err := o.docker.Inspect(ctx, ProxyContainer)
-	restarted := err == nil && d.Started != "" && d.Started != o.proxyStarted.Swap(d.Started)
-	o.rerouteVIPs(ctx) // VIPs and filter base in one apply; a restarted proxy has a new IP in it
+	restarted, err := o.proxyRestarted(ctx)
+	if err != nil {
+		return err
+	}
+	o.rerouteVIPs(ctx)
 	if restarted {
-		// A recreated proxy starts on none of the ingress networks.
-		if err := o.domains.ReopenIngress(ctx); err != nil {
-			slog.Warn("proxy: ingress rejoin failed", "err", err)
-		}
-		if err := o.sync.Sync(ctx); err != nil {
+		if err := o.rejoinProxy(ctx); err != nil {
 			return err
 		}
 	}
@@ -554,6 +637,40 @@ func (o *Orchestrator) watchTick(ctx context.Context) error {
 	}
 	_, err = o.enqueue(ctx, kindImageWatch, imagewatch.Scope{}, "imagewatch", "imagewatch:all")
 	return err
+}
+
+// trafficTick is the scheduler's traffic sample: the conntrack table it
+// reads is the controller host's, so it is controller work.
+func (o *Orchestrator) trafficTick(ctx context.Context) error {
+	ctx, err := o.withController(ctx)
+	if err != nil {
+		return err
+	}
+	return o.sample.Tick(ctx)
+}
+
+// proxyRestarted reports whether the proxy container (on the controller) has
+// a new start time since the last tick.
+func (o *Orchestrator) proxyRestarted(ctx context.Context) (bool, error) {
+	ctx, err := o.withController(ctx)
+	if err != nil {
+		return false, err
+	}
+	d, err := o.docker.Inspect(ctx, ProxyContainer)
+	return err == nil && d.Started != "" && d.Started != o.proxyStarted.Swap(d.Started), nil
+}
+
+// rejoinProxy puts a recreated proxy back on the ingress networks (it starts
+// on none of them) and pushes its config.
+func (o *Orchestrator) rejoinProxy(ctx context.Context) error {
+	ctx, err := o.withController(ctx)
+	if err != nil {
+		return err
+	}
+	if err := o.domains.ReopenIngress(ctx); err != nil {
+		slog.Warn("proxy: ingress rejoin failed", "err", err)
+	}
+	return o.sync.Sync(ctx)
 }
 
 // GetJob returns one job row.

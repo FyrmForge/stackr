@@ -72,6 +72,7 @@ var verbLevels = map[Verb]Level{
 	"org.create":         LevelAdmin,
 	"route.admin":        LevelAdmin,
 	"hostgrant.approve":  LevelAdmin,
+	"audit.read":         LevelAdmin, // the security log
 	"serverconfig.bind":  LevelAdmin, // bind, plan, preview the server file
 	"serverplan.approve": LevelAdmin,
 	"connector.admin":    LevelAdmin, // server connectors: create, rename, share, delete

@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"slices"
 	"strconv"
@@ -11,6 +12,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/jobs"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/image"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/job"
+	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
 
 // rollbackDepth is how many releases each env stays rollback-reachable on,
@@ -58,23 +60,43 @@ func (o *Orchestrator) runCleanup(ctx context.Context, r *jobs.Run) error {
 		_, _ = fmt.Fprintf(r.Log, "%s: %d removed, %s reclaimed\n", what, n, size)
 	}
 
-	n, b, err := o.docker.PruneDangling(ctx, built)
-	note("dangling images", n, byteSize(b), err)
+	// Every node prunes its own Docker; an image row is deleted only after
+	// they all have (Settle).
+	_ = o.eachNode(ctx, func(ctx context.Context, nd store.Node) error {
+		n, b, err := o.docker.PruneDangling(ctx, built)
+		note("dangling images on "+nd.Name, n, byteSize(b), err)
+		return nil
+	})
 
+	n, b := 0, int64(0)
 	keep, pinned, running, err := o.cleanupKeep(ctx)
+	var plan image.Plan
+	if err == nil {
+		plan, err = o.images.Plan(ctx, keep, running)
+	}
 	if err == nil {
 		var gone []string
-		var freed int64
-		gone, freed, err = o.images.Cleanup(ctx, keep, pinned, running)
-		n, b = len(gone), freed
+		pruneErr := o.eachNode(ctx, func(ctx context.Context, _ store.Node) error {
+			g, freed, err := o.images.Prune(ctx, plan)
+			gone, b = append(gone, g...), b+freed
+			return err
+		})
+		// The rows of what any node removed go, a failed node's partial answer
+		// included. What a failed node still holds has no row left to keep it,
+		// so its next sweep prunes it by the build label.
+		err = errors.Join(pruneErr, o.images.Settle(ctx, plan, pinned, gone))
+		n = len(gone)
 	}
 	note("built images", n, "up to "+byteSize(b), err)
 
-	n, total, err := o.docker.BuildCachePrune(ctx, image.Builder, buildCacheAge)
-	if total == "" {
-		total = "0 B"
-	}
-	note("build cache", n, total, err)
+	_ = o.eachNode(ctx, func(ctx context.Context, nd store.Node) error {
+		n, total, err := o.docker.BuildCachePrune(ctx, image.Builder, buildCacheAge)
+		if total == "" {
+			total = "0 B"
+		}
+		note("build cache on "+nd.Name, n, total, err)
+		return nil
+	})
 	return failed
 }
 
@@ -156,12 +178,17 @@ func (o *Orchestrator) cleanupKeep(ctx context.Context) (ids, pinned, running []
 	if pinned, err = o.releases.ImageIDs(ctx); err != nil {
 		return nil, nil, nil, err
 	}
-	cs, err := o.docker.List(ctx, nil)
+	// What any container on any node uses stays: an image ref is the same
+	// on every node.
+	err = o.eachNode(ctx, func(ctx context.Context, _ store.Node) error {
+		cs, err := o.docker.List(ctx, nil)
+		for _, c := range cs {
+			running = append(running, c.Image)
+		}
+		return err
+	})
 	if err != nil {
 		return nil, nil, nil, err
-	}
-	for _, c := range cs {
-		running = append(running, c.Image)
 	}
 	return ids, pinned, running, nil
 }

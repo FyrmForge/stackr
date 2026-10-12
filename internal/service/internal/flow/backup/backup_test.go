@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/FyrmForge/stackr/internal/installspec"
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	"github.com/FyrmForge/stackr/internal/service/internal/dockerfake"
@@ -298,6 +299,54 @@ func TestPanelArchiveCaddy(t *testing.T) {
 	}
 	if !strings.Contains(log.String(), "proxy volume not archived") {
 		t.Errorf("log = %q", log.String())
+	}
+}
+
+// With every optional member present the archive holds exactly
+// installspec.PanelState, in order, with the key files' bytes; with the
+// optional files absent it holds the required ones. stackr-install's
+// TestUnpackPanelState reads the same list, so the sides cannot drift.
+func TestPanelArchiveState(t *testing.T) {
+	w := setup(t)
+	data := t.TempDir()
+	caddy := func(_ context.Context, out io.Writer) error {
+		_, err := out.Write(tarGz(t, "data/a", "x"))
+		return err
+	}
+	p := Panel{
+		MasterKey: "mk", Version: "v1.2.3", Passphrase: "pw", InstallID: "i1", DataDir: data,
+		Vacuum: func(_ context.Context, path string) error { return os.WriteFile(path, []byte("sqlite"), 0o600) },
+	}
+	var req, all []string
+	for _, m := range installspec.PanelState {
+		all = append(all, m.Name)
+		if !m.Optional {
+			req = append(req, m.Name)
+		}
+	}
+	r, err := w.f.PanelBackup(ctx, p, w.dest, 0, io.Discard)
+	must(t, err)
+	if got := panelMembers(t, filepath.Join(w.dest.Endpoint, r.ObjectKey), "pw"); !slices.Equal(got.names, req) {
+		t.Errorf("bare members = %v, want %v", got.names, req)
+	}
+
+	for _, m := range installspec.PanelState {
+		if m.OnDisk && m.Name != installspec.DBFile && m.Name != installspec.KeyFile {
+			must(t, os.MkdirAll(filepath.Dir(filepath.Join(data, m.Name)), 0o700))
+			must(t, os.WriteFile(filepath.Join(data, m.Name), []byte("body-"+m.Name), 0o600))
+		}
+	}
+	p.Caddy = caddy
+	r, err = w.f.PanelBackup(ctx, p, w.dest, 0, io.Discard)
+	must(t, err)
+	got := panelMembers(t, filepath.Join(w.dest.Endpoint, r.ObjectKey), "pw")
+	if !slices.Equal(got.names, all) {
+		t.Fatalf("members = %v, want %v", got.names, all)
+	}
+	for _, k := range []string{installspec.ClusterCAKeyFile, installspec.ClusterCACertFile, installspec.WGKeyFile} {
+		if string(got.bodies[k]) != "body-"+k {
+			t.Errorf("%s = %q", k, got.bodies[k])
+		}
 	}
 }
 

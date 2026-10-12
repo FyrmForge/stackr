@@ -7,6 +7,7 @@ package environment
 import (
 	"context"
 	"errors"
+	"net/netip"
 	"sort"
 	"strings"
 	"time"
@@ -29,18 +30,78 @@ const (
 
 // Networks is the slice of the Docker wrapper this leaf needs.
 type Networks interface {
-	EnsureNetwork(ctx context.Context, name string, labels map[string]string) error
+	EnsureNetwork(ctx context.Context, name string, subnet netip.Prefix, labels map[string]string) error
+	UsedSubnets(ctx context.Context) ([]netip.Prefix, error)
 	RemoveNetwork(ctx context.Context, name string) error
 	Gateways(ctx context.Context, labels map[string]string) ([]string, error)
+}
+
+// Pins are the facts placement needs from the other tables, read by the
+// caller: the stack's and the org's node pins, and the controller.
+type Pins struct {
+	Stack, Org *string
+	Controller string
+}
+
+// Place is the node a new env runs on: its own pin, then the stack's, then
+// the org's, then the controller. Pins decide only where new envs go; an env
+// already made never moves because a pin changed.
+func Place(env string, p Pins) string {
+	for _, id := range []string{env, deref(p.Stack), deref(p.Org)} {
+		if id != "" {
+			return id
+		}
+	}
+	return p.Controller
+}
+
+func deref(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
 }
 
 type Leaf struct {
 	envs store.EnvironmentStore
 	net  Networks
+	res  docker.Reserver                                         // leaf/node; set by WithSubnets
+	pins func(ctx context.Context, stackID string) (Pins, error) // set by WithPlacement
+	ctl  func(context.Context) (string, error)                   // the controller's node id; set by WithController
 }
 
 func New(envs store.EnvironmentStore, net Networks) *Leaf {
 	return &Leaf{envs: envs, net: net}
+}
+
+// WithSubnets sets who reserves the /24 of a network from its node's range
+// (leaf/node). Without it a network that must be made cannot get a subnet.
+func (l *Leaf) WithSubnets(r docker.Reserver) *Leaf {
+	l.res = r
+	return l
+}
+
+// WithPlacement sets how Create reads the pins of a stack, its org and the
+// controller, so every create path places an env the same way.
+func (l *Leaf) WithPlacement(pins func(ctx context.Context, stackID string) (Pins, error)) *Leaf {
+	l.pins = pins
+	return l
+}
+
+// WithController sets how the leaf finds the controller, for the one thing it
+// reads that belongs to no env: Gateways. Without it ctx is left as it came.
+func (l *Leaf) WithController(f func(context.Context) (string, error)) *Leaf {
+	l.ctl = f
+	return l
+}
+
+// onNode puts the env's node in ctx for the Docker calls made for it. An env
+// without one (a row from before nodes) leaves ctx alone.
+func onNode(ctx context.Context, e store.Environment) context.Context {
+	if e.NodeID == "" {
+		return ctx
+	}
+	return docker.WithNode(ctx, e.NodeID)
 }
 
 func (l *Leaf) Get(ctx context.Context, id string) (store.Environment, error) {
@@ -162,6 +223,9 @@ func (l *Leaf) Below(ctx context.Context, e store.Environment) (store.Environmen
 
 // Spec is what Create needs beyond the name. Base is a PR env's base env id.
 type Spec struct {
+	// NodeID pins this env to a node; "" places it by the stack's and org's
+	// pins, else on the controller (Place).
+	NodeID     string
 	Type       string
 	Base       *string
 	Color      string
@@ -185,6 +249,14 @@ func (l *Leaf) Create(ctx context.Context, stackID, name string, sp Spec) (store
 	if sp.Type != Static && sp.Type != Ephemeral {
 		return store.Environment{}, errs.Invalidf("type", "Unknown environment type %q.", sp.Type)
 	}
+	node := sp.NodeID
+	if node == "" && l.pins != nil {
+		p, err := l.pins(ctx, stackID)
+		if err != nil {
+			return store.Environment{}, err
+		}
+		node = Place("", p)
+	}
 	id := uuid.NewString()
 	e := store.Environment{
 		ID:        id,
@@ -195,6 +267,7 @@ func (l *Leaf) Create(ctx context.Context, stackID, name string, sp Spec) (store
 		Color:     sp.Color,
 		Position:  pos,
 		Network:   "stackr-env-" + id,
+		NodeID:    node,
 		Locked:    true,
 		CreatedAt: time.Now().UTC(),
 	}
@@ -208,11 +281,12 @@ func (l *Leaf) Create(ctx context.Context, stackID, name string, sp Spec) (store
 	return e, l.envs.Create(ctx, e)
 }
 
-// CloneRow is a PR env made from base: same settings and color, its own
+// CloneRow is a PR env made from base: same node, settings and color, its own
 // branch, ephemeral, off the ladder. Tiles, params and slices are the
 // flow's (see the envops rules), never this row's.
 func (l *Leaf) CloneRow(ctx context.Context, base store.Environment, name, branch string) (store.Environment, error) {
 	e, err := l.Create(ctx, base.StackID, name, Spec{
+		NodeID:     base.NodeID,
 		Type:       Ephemeral,
 		Base:       &base.ID,
 		Color:      base.Color,
@@ -347,21 +421,70 @@ func (l *Leaf) SetLocked(ctx context.Context, e store.Environment, locked bool) 
 	return e, l.envs.Update(ctx, e)
 }
 
-// Network ensures the env's Docker network and returns its name.
+// Network ensures the env's Docker network on the env's node and returns its
+// name. The /24 comes from the node's range: written on the row first, then
+// the network is made on it; an env that has one keeps it.
 func (l *Leaf) Network(ctx context.Context, e store.Environment) (string, error) {
-	return e.Network, l.net.EnsureNetwork(ctx, e.Network, map[string]string{"stackr.env": e.ID})
+	ctx = onNode(ctx, e)
+	labels := map[string]string{"stackr.env": e.ID}
+	if e.Subnet != "" {
+		p, err := netip.ParsePrefix(e.Subnet)
+		if err != nil {
+			return e.Network, err
+		}
+		return e.Network, l.net.EnsureNetwork(ctx, e.Network, p, labels)
+	}
+	known, err := l.known(ctx, e.NodeID)
+	if err != nil {
+		return e.Network, err
+	}
+	_, err = docker.EnsureReserved(ctx, l.net, l.res, e.Network, labels, known, func(p netip.Prefix) error {
+		return l.envs.SetSubnet(ctx, e.ID, p.String())
+	})
+	return e.Network, err
+}
+
+// known are the blocks the node's envs already hold on their rows, made or
+// not yet.
+func (l *Leaf) known(ctx context.Context, nodeID string) ([]netip.Prefix, error) {
+	if nodeID == "" {
+		return nil, nil
+	}
+	es, err := l.envs.ListByNode(ctx, nodeID)
+	var out []netip.Prefix
+	for _, e := range es {
+		if p, perr := netip.ParsePrefix(e.Subnet); perr == nil {
+			out = append(out, p)
+		}
+	}
+	return out, err
 }
 
 // Gateways are the gateway IPs of every stackr network (env, shared,
-// ingress): where the host, and so the host-network panel, meets them.
+// ingress) on the controller: where the host, and so the host-network panel,
+// meets them. Other nodes' gateways are theirs.
 func (l *Leaf) Gateways(ctx context.Context) ([]string, error) {
+	if l.ctl != nil {
+		id, err := l.ctl(ctx)
+		if err != nil {
+			return nil, err
+		}
+		ctx = docker.WithNode(ctx, id)
+	}
 	return l.net.Gateways(ctx, map[string]string{docker.LabelManaged: "true"})
 }
 
 // Shared ensures a network that crosses envs (a stack- or org-scoped
-// managed instance's); the name is the caller's.
+// managed instance's); the name is the caller's and the node is the one in
+// ctx, whose range the block comes from.
 func (l *Leaf) Shared(ctx context.Context, name string) error {
-	return l.net.EnsureNetwork(ctx, name, map[string]string{"stackr.shared": "true"})
+	node, _ := docker.NodeFrom(ctx)
+	known, err := l.known(ctx, node)
+	if err != nil {
+		return err
+	}
+	_, err = docker.EnsureReserved(ctx, l.net, l.res, name, map[string]string{"stackr.shared": "true"}, known, nil)
+	return err
 }
 
 // DropShared removes a network Shared made; a missing one is fine, one with
@@ -380,7 +503,7 @@ func (l *Leaf) Delete(ctx context.Context, e store.Environment, tileCount int) e
 	if tileCount > 0 {
 		return errs.Conflictf("Remove this environment's tiles first.")
 	}
-	if err := l.net.RemoveNetwork(ctx, e.Network); err != nil {
+	if err := l.net.RemoveNetwork(onNode(ctx, e), e.Network); err != nil {
 		return err
 	}
 	return l.envs.Delete(ctx, e.ID)

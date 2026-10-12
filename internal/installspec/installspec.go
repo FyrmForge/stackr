@@ -49,7 +49,40 @@ const (
 	// KeyFile is the master key under the data dir; the panel archive
 	// restores it to the same place.
 	KeyFile = "keys/master.key"
+	// Cluster files under the data dir; the panel archive carries them so a
+	// restored head is the same head (same CA, same WireGuard identity).
+	ClusterCAKeyFile  = "keys/cluster-ca.key"
+	ClusterCACertFile = "keys/cluster-ca.crt"
+	WGKeyFile         = "keys/wg.key"
+	// DBFile, VersionMember and CaddyMember are the other archive names.
+	DBFile        = "stackr.db"
+	VersionMember = "VERSION"
+	CaddyMember   = "caddy.tar.gz"
 )
+
+// Member is one entry of the panel archive.
+type Member struct {
+	Name     string
+	Mode     int64
+	Optional bool // may be missing from an archive (and from the box at backup)
+	// OnDisk: the file lives at Name under the data dir, and restore moves
+	// it back there. VERSION and the proxy volume tar do not.
+	OnDisk bool
+}
+
+// PanelState is everything the panel needs to come back, in archive order.
+// PanelBackup writes exactly these members and `stackr-install restore`
+// accepts exactly these; any other entry is refused. A new key file is added
+// here and nowhere else. Later: registry storage.
+var PanelState = []Member{
+	{Name: DBFile, Mode: 0o600, OnDisk: true},
+	{Name: KeyFile, Mode: 0o600, OnDisk: true},
+	{Name: VersionMember, Mode: 0o644},
+	{Name: ClusterCAKeyFile, Mode: 0o600, Optional: true, OnDisk: true},
+	{Name: ClusterCACertFile, Mode: 0o644, Optional: true, OnDisk: true},
+	{Name: WGKeyFile, Mode: 0o600, Optional: true, OnDisk: true},
+	{Name: CaddyMember, Mode: 0o600, Optional: true},
+}
 
 // Input is everything about this install the containers vary on.
 type Input struct {

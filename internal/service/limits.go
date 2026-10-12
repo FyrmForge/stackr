@@ -5,30 +5,72 @@ import (
 	"fmt"
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
+	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/orgconfig"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/serverconfig"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/node"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/settings"
+	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
 
-// checkLimits refuses a cpu or memory limit the Docker host cannot give
-// (0 = unlimited, always fine). A container created above the host's size
-// fails to create, and a cascade change would send every tile there. The
-// message names the host's limit; the fields name the caller's keys.
+// checkLimits refuses a cpu or memory limit the node cannot give (0 =
+// unlimited, always fine). A container created above the host's size fails
+// to create, and a cascade change would send every tile there. The message
+// names the host's limit; the fields name the caller's keys. A tile's limit
+// is checked against its env's node.
 // ponytail: an unreachable daemon or one that reports no size skips the
 // check; the deploy then fails on its own with Docker's words.
-func (o *Orchestrator) checkLimits(ctx context.Context, cpu float64, memMB int, cpuField, memField string) error {
+func (o *Orchestrator) checkLimits(
+	ctx context.Context,
+	n store.Node,
+	cpu float64,
+	memMB int,
+	cpuField, memField string,
+) error {
 	if cpu <= 0 && memMB <= 0 {
 		return nil
 	}
-	h, err := o.docker.HostInfo(ctx)
+	h, err := o.docker.HostInfo(docker.WithNode(ctx, n.ID))
 	if err != nil {
 		return nil
 	}
+	host := "This host"
+	if n.Role != node.Controller {
+		host = "Node " + n.Name
+	}
 	if cpu > 0 && h.CPUs > 0 && cpu > float64(h.CPUs) {
-		return errs.Invalidf(cpuField, "This host has %s; the limit can be at most %d.", plural(h.CPUs, "CPU"), h.CPUs)
+		return errs.Invalidf(cpuField, "%s has %s; the limit can be at most %d.", host, plural(h.CPUs, "CPU"), h.CPUs)
 	}
 	if hostMB := int(h.MemBytes >> 20); memMB > 0 && hostMB > 0 && memMB > hostMB {
-		return errs.Invalidf(memField, "This host has %d MB of memory; the limit can be at most %d.", hostMB, hostMB)
+		return errs.Invalidf(memField, "%s has %d MB of memory; the limit can be at most %d.", host, hostMB, hostMB)
+	}
+	return nil
+}
+
+// checkLimitsEverywhere is checkLimits for a limit that reaches tiles on any
+// node (a cascade rung): it must fit every one, the smallest decides.
+// ponytail: all nodes, not just the ones the org or stack has envs on; scope
+// it when pins and the placement UI make that cheap to ask.
+func (o *Orchestrator) checkLimitsEverywhere(
+	ctx context.Context,
+	cpu float64,
+	memMB int,
+	cpuField, memField string,
+) error {
+	if cpu <= 0 && memMB <= 0 {
+		return nil
+	}
+	if _, err := o.controllerID(ctx); err != nil { // a database nobody bootstrapped
+		return err
+	}
+	ns, err := o.nodeLeaf().List(ctx)
+	if err != nil {
+		return err
+	}
+	for _, n := range ns {
+		if err := o.checkLimits(ctx, n, cpu, memMB, cpuField, memField); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -50,7 +92,7 @@ func (o *Orchestrator) checkSettingLimits(ctx context.Context, s settings.Settin
 	if s.MemLimitMB != nil {
 		mem = *s.MemLimitMB
 	}
-	return o.checkLimits(ctx, cpu, mem, "cpu_limit", "mem_limit_mb")
+	return o.checkLimitsEverywhere(ctx, cpu, mem, "cpu_limit", "mem_limit_mb")
 }
 
 // checkBlobLimits is checkSettingLimits for a stored blob; one that does not

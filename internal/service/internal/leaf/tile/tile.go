@@ -15,6 +15,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
+	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	"github.com/FyrmForge/stackr/internal/service/internal/slug"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
@@ -29,6 +30,34 @@ type Leaf struct {
 	// when it is gone or failed its gate (!on), so the tile's lan rules can
 	// exist before the replica is routed.
 	Early func(ctx context.Context, t store.Tile, id string, on bool)
+	// Node, when set, is the node an env runs on ("" = the controller): every
+	// Docker call the leaf makes for a tile goes to its env's node.
+	Node func(ctx context.Context, envID string) (nodeID string, err error)
+}
+
+// at is ctx for Docker calls on the node of envID.
+func (l *Leaf) at(ctx context.Context, envID string) (context.Context, error) {
+	if l.Node == nil {
+		return ctx, nil
+	}
+	id, err := l.Node(ctx, envID)
+	if err != nil {
+		return ctx, err
+	}
+	return docker.WithNode(ctx, id), nil
+}
+
+// atTile is at for the env of tile tileID; "" (the admin's containers
+// screen) leaves ctx as the caller made it.
+func (l *Leaf) atTile(ctx context.Context, tileID string) (context.Context, error) {
+	if tileID == "" || l.Node == nil {
+		return ctx, nil
+	}
+	t, err := l.tiles.Get(ctx, tileID)
+	if err != nil {
+		return ctx, err
+	}
+	return l.at(ctx, t.EnvironmentID)
 }
 
 func (l *Leaf) early(ctx context.Context, t store.Tile, id string, on bool) {

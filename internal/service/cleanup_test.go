@@ -14,6 +14,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/image"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/release"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
+	"github.com/FyrmForge/stackr/internal/service/internal/storetest"
 )
 
 // builtImage is a stackr build on the box, old enough for cleanup to take.
@@ -100,7 +101,7 @@ func TestCleanupKeepSet(t *testing.T) {
 			t.Errorf("%s kept: %s", gone, have)
 		}
 	}
-	for _, want := range []string{"dangling images: ", "built images: 2 removed, up to 200 B", "build cache: "} {
+	for _, want := range []string{"dangling images on controller: ", "built images: 2 removed, up to 200 B", "build cache on controller: "} {
 		if !strings.Contains(log, want) {
 			t.Errorf("log misses %q:\n%s", want, log)
 		}
@@ -131,7 +132,8 @@ func TestCleanupDepthIsPerEnv(t *testing.T) {
 	must(t, w.orch.SetSetting(ctx, "cleanup_enabled", "true"))
 	prod := uuid.NewString()
 	must(t, w.st.Environments.Create(ctx, store.Environment{
-		ID: prod, StackID: w.stack, Name: "prod", Slug: "prod", Type: "static", Settings: "{}",
+		NodeID: storetest.Controller(t, w.st).ID,
+		ID:     prod, StackID: w.stack, Name: "prod", Slug: "prod", Type: "static", Settings: "{}",
 		Network: "p", FromKind: "branch", FromBranch: "main", CreatedAt: time.Now(),
 	}))
 	var rels []string

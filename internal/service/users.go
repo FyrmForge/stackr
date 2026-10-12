@@ -6,6 +6,8 @@ import (
 
 	"github.com/FyrmForge/hamr/pkg/auth"
 
+	"github.com/FyrmForge/stackr/internal/service/errs"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/securitylog"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/user"
 	"github.com/FyrmForge/stackr/internal/service/internal/secrets"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
@@ -57,13 +59,32 @@ func withUsers(ctx context.Context, cfg Config, do func(*user.Leaf) error) error
 	return do(user.New(st.Users, st.Sessions, st.APIKeys))
 }
 
-// Login checks the credentials and opens a session.
-func (o *Orchestrator) Login(ctx context.Context, email, password string) (*auth.Session, error) {
+// Login checks the credentials and opens a session. Either way one security
+// event is written; a success shares its transaction with the session.
+func (o *Orchestrator) Login(ctx context.Context, email, password string, meta RequestMeta) (*auth.Session, error) {
 	u, err := o.users.Authenticate(ctx, email, password)
+	if err != nil {
+		if _, bad := errs.IsInvalid(err); bad {
+			if aerr := o.auditLogin(ctx, securitylog.LoginBad, email, meta); aerr != nil {
+				return nil, aerr
+			}
+		}
+		return nil, err
+	}
+	var s *auth.Session
+	err = o.store.Tx(ctx, func(tx store.Tx) (err error) {
+		if s, err = o.openSession(ctx, tx, u.ID); err != nil {
+			return err
+		}
+		return audit(tx).Append(ctx, securitylog.Event{
+			Action: securitylog.LoginOK, ActorID: u.ID, TargetKind: "user", TargetID: u.ID,
+			IP: meta.IP, UserAgent: meta.UserAgent,
+		})
+	})
 	if err != nil {
 		return nil, err
 	}
-	return o.sessions.CreateSession(ctx, u.ID, nil)
+	return s, nil
 }
 
 // Logout closes the session behind a cookie token; an unknown token is a no-op.

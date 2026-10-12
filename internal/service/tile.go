@@ -44,6 +44,9 @@ func (o *Orchestrator) TileStatus(ctx context.Context, id string) (TileStatus, e
 	if err != nil {
 		return TileStatus{}, err
 	}
+	if ctx, err = o.withEnvIDNode(ctx, t.EnvironmentID); err != nil {
+		return TileStatus{}, err
+	}
 	s, err := o.tiles.State(ctx, t)
 	if err != nil {
 		return TileStatus{}, err
@@ -86,8 +89,14 @@ func (o *Orchestrator) CreateTile(ctx context.Context, t Tile) (Tile, error) {
 	if err := refuseServerRefs(t); err != nil {
 		return Tile{}, err
 	}
-	if err := o.checkLimits(ctx, t.CPULimit, t.MemLimitMB, "limits.cpu", "limits.memory_mb"); err != nil {
-		return Tile{}, err
+	if t.CPULimit > 0 || t.MemLimitMB > 0 {
+		n, err := o.nodeOfEnvID(ctx, t.EnvironmentID)
+		if err != nil {
+			return Tile{}, err
+		}
+		if err := o.checkLimits(ctx, n, t.CPULimit, t.MemLimitMB, "limits.cpu", "limits.memory_mb"); err != nil {
+			return Tile{}, err
+		}
 	}
 	return o.tiles.Create(ctx, t)
 }
@@ -129,7 +138,11 @@ func (o *Orchestrator) UpdateTile(ctx context.Context, id string, edit func(*Til
 		if cur.MemLimitMB == old.MemLimitMB {
 			mem = 0
 		}
-		if err := o.checkLimits(ctx, cpu, mem, "limits.cpu", "limits.memory_mb"); err != nil {
+		n, err := o.nodeOfEnvID(ctx, cur.EnvironmentID)
+		if err != nil {
+			return old, nil, err
+		}
+		if err := o.checkLimits(ctx, n, cpu, mem, "limits.cpu", "limits.memory_mb"); err != nil {
 			return old, nil, err
 		}
 	}
@@ -235,6 +248,10 @@ func (o *Orchestrator) StopTile(ctx context.Context, id string) (Job, error) {
 // FollowLogs streams it. A tile with no container answers the tail of its
 // last job's log: a replica that failed its start left its output there.
 func (o *Orchestrator) Logs(ctx context.Context, tileID, containerID string, tail int) (string, error) {
+	ctx, err := o.withTileNode(ctx, tileID)
+	if err != nil {
+		return "", err
+	}
 	id, err := o.replica(ctx, tileID, containerID)
 	if !errors.Is(err, errNoContainer) {
 		if err != nil {
@@ -282,6 +299,10 @@ func (o *Orchestrator) FollowLogs(
 	tileID, containerID string,
 	tail int,
 ) (<-chan string, func(), error) {
+	ctx, err := o.withTileNode(ctx, tileID)
+	if err != nil {
+		return nil, nil, err
+	}
 	id, err := o.replica(ctx, tileID, containerID)
 	if errors.Is(err, errNoContainer) {
 		return nil, nil, errs.Conflictf("the tile has no container to follow; stackr logs shows its last job's log")
@@ -304,6 +325,9 @@ func (o *Orchestrator) replica(ctx context.Context, tileID, id string) (string, 
 	if err != nil {
 		return "", err
 	}
+	if ctx, err = o.withEnvIDNode(ctx, t.EnvironmentID); err != nil {
+		return "", err
+	}
 	cs, err := o.tiles.Replicas(ctx, t)
 	if err != nil || len(cs) == 0 {
 		return "", cmp.Or(err, errNoContainer)
@@ -319,6 +343,10 @@ func (o *Orchestrator) Terminal(
 	cmd []string,
 	stdin io.Reader,
 ) (io.Reader, func() error, error) {
+	ctx, err := o.withTileNode(ctx, tileID)
+	if err != nil {
+		return nil, nil, err
+	}
 	return o.tiles.Terminal(ctx, tileID, containerID, cmd, stdin)
 }
 
@@ -332,6 +360,10 @@ var shellArgv = []string{"sh", "-c", "command -v bash >/dev/null && exec bash ||
 func (o *Orchestrator) Shell(ctx context.Context, user, tileID, containerID, shell string) (
 	conn io.ReadWriteCloser, resize func(cols, rows uint) error, finish func() int, err error,
 ) {
+	ctx, err = o.withTileNode(ctx, tileID)
+	if err != nil {
+		return nil, nil, nil, err
+	}
 	id, err := o.replica(ctx, tileID, containerID)
 	if errors.Is(err, errNoContainer) {
 		return nil, nil, nil, errs.Conflictf("the tile has no container to open a terminal in")

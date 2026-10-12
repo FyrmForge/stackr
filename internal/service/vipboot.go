@@ -10,9 +10,11 @@ import (
 	"os"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
+	"github.com/FyrmForge/stackr/internal/service/internal/cluster"
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/deploy"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/domain"
@@ -39,26 +41,97 @@ import (
 // shows up in the Docker daemon's load. A deploy routing between the reads
 // and the Rebuild is overwritten until the next tick.
 func (o *Orchestrator) rebuildVIPs(ctx context.Context) error {
-	r, ok := o.vip.(interface {
+	// The minute tick and the async revoke rebuild share this lock, and the
+	// grants are read inside it: a revoke can never be overwritten by a
+	// rebuild that read the grants before it.
+	// ponytail: one lock for every node (deploy.Flow.VIPLock is a plain
+	// sync.Locker, no node in it); a slow node holds up the others' rebuild.
+	o.vipMu.Lock()
+	defer o.vipMu.Unlock()
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Minute)
+	defer cancel()
+	return o.eachNode(ctx, o.rebuildNodeVIPs)
+}
+
+// nodeVIPs is the VIP table of every node: the tile.VIP the tile leaf holds
+// sends each call to the table of the node in its ctx. A table is whatever
+// the node's iptables are driven through (the local vip.Table on the
+// controller; a worker's, step 3).
+type nodeVIPs struct {
+	mu     sync.RWMutex
+	tables map[string]tile.VIP
+}
+
+func newNodeVIPs(tables map[string]tile.VIP) *nodeVIPs {
+	return &nodeVIPs{tables: maps.Clone(tables)}
+}
+
+// Attach sets or replaces a node's table.
+func (n *nodeVIPs) Attach(nodeID string, t tile.VIP) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	n.tables[nodeID] = t
+}
+
+// For is the table of the node in ctx.
+func (n *nodeVIPs) For(ctx context.Context) (tile.VIP, error) {
+	id, ok := docker.NodeFrom(ctx)
+	if !ok {
+		return nil, docker.ErrNoNode
+	}
+	n.mu.RLock()
+	defer n.mu.RUnlock()
+	t, ok := n.tables[id]
+	if !ok {
+		return nil, fmt.Errorf("%w: no VIP table for node %s", errs.ErrBusy, id)
+	}
+	return t, nil
+}
+
+func (n *nodeVIPs) Set(ctx context.Context, v string, replicas, lan []string) error {
+	t, err := n.For(ctx)
+	if err != nil {
+		return err
+	}
+	return t.Set(ctx, v, replicas, lan)
+}
+
+func (n *nodeVIPs) Remove(ctx context.Context, v string) error {
+	t, err := n.For(ctx)
+	if err != nil {
+		return err
+	}
+	return t.Remove(ctx, v)
+}
+
+// vipFor is the VIP table of the node in ctx. A single table (a test stub,
+// or a build without nodeVIPs) serves every node.
+func (o *Orchestrator) vipFor(ctx context.Context) (tile.VIP, error) {
+	if nv, ok := o.vip.(*nodeVIPs); ok {
+		return nv.For(ctx)
+	}
+	return o.vip, nil
+}
+
+// rebuildNodeVIPs is rebuildVIPs for one node (ctx names it), under vipMu.
+func (o *Orchestrator) rebuildNodeVIPs(ctx context.Context, n store.Node) error {
+	t, err := o.vipFor(ctx)
+	if err != nil {
+		return err
+	}
+	r, ok := t.(interface {
 		Rebuild(context.Context, map[string]vip.Entry, vip.Base) error
 		Merge(context.Context, map[string]vip.Entry, []string, vip.Base) error
 	})
 	if !ok {
 		return nil // a test stub: nothing to declare
 	}
-	// The minute tick and the async revoke rebuild share this lock, and the
-	// grants are read inside it: a revoke can never be overwritten by a
-	// rebuild that read the grants before it.
-	o.vipMu.Lock()
-	defer o.vipMu.Unlock()
-	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Minute)
-	defer cancel()
-	o.sweepEarly(ctx)
+	o.sweepEarly(ctx, n.ID)
 	pauses, err := o.docker.List(ctx, map[string]string{tile.LabelRole: "pause"})
 	if err != nil {
 		return err
 	}
-	base := o.vipBase(ctx)
+	base := o.vipBase(ctx, n)
 	all := collectVIP{}
 	grants := map[string]hostgrant.Set{} // one read per stack
 	leaf := tile.New(o.store.Tiles, o.docker, all)
@@ -109,13 +182,13 @@ func (o *Orchestrator) rebuildVIPs(ctx context.Context) error {
 		if err := r.Merge(ctx, all, drop, base); err != nil {
 			return err
 		}
-		o.dropRouted(all)
+		o.dropRouted(n.ID, all)
 		return fmt.Errorf("vip: rebuild kept the old rules of %v: could not read them", failed)
 	}
 	if err := r.Rebuild(ctx, all, base); err != nil {
 		return err
 	}
-	o.dropRouted(all)
+	o.dropRouted(n.ID, all)
 	return nil
 }
 
@@ -143,10 +216,14 @@ func (o *Orchestrator) rerouteVIPsAsync(ctx context.Context) {
 // the host, Caddy's docker0 address, the front proxy and the panel's listen
 // address. rebuildVIPs applies it with the VIPs in one restore, so the nat
 // rules are never applied from an empty table.
-func (o *Orchestrator) vipBase(ctx context.Context) vip.Base {
+func (o *Orchestrator) vipBase(ctx context.Context, n store.Node) vip.Base {
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Minute)
 	defer cancel()
-	b := vip.Base{Range: docker.EnvRange, PanelBind: o.cfg.PanelBind, PanelPort: o.cfg.PanelPort}
+	rng, err := netip.ParsePrefix(n.RangeCIDR)
+	if err != nil {
+		slog.Warn("vip: node range does not parse, no filter table", "node", n.Name, "range", n.RangeCIDR)
+	}
+	b := vip.Base{Range: rng, Cluster: cluster.SupernetPrefix, PanelBind: o.cfg.PanelBind, PanelPort: o.cfg.PanelPort}
 	for _, p := range resolvConfs {
 		if raw, err := os.ReadFile(p); err == nil {
 			for _, r := range resolvers(string(raw)) {
@@ -160,7 +237,7 @@ func (o *Orchestrator) vipBase(ctx context.Context) vip.Base {
 		slog.Warn("vip: proxy address unknown", "err", err)
 	} else {
 		for _, a := range addrs {
-			if ip, err := netip.ParseAddr(a); err == nil && ip.Is4() && !docker.EnvRange.Contains(ip) {
+			if ip, err := netip.ParseAddr(a); err == nil && ip.Is4() && !rng.Contains(ip) {
 				b.ProxyIP = a
 				break
 			}
@@ -191,27 +268,40 @@ func (o *Orchestrator) vipBase(ctx context.Context) vip.Base {
 // earlyIPs with that address, so the off path, the on path and sweepEarly
 // cannot leave a stale rule behind by interleaving.
 func (o *Orchestrator) earlyLan(ctx context.Context, t store.Tile, id string, on bool) {
-	a, ok := o.vip.(interface {
-		Allow(context.Context, string, []string) error
-	})
-	if !ok || t.HostNetwork {
+	if t.HostNetwork {
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
 	defer cancel()
+	e, err := o.store.Environments.Get(ctx, t.EnvironmentID)
+	if err != nil {
+		return
+	}
+	// The rules live on the env's node, whatever node the caller's ctx names.
+	if ctx, err = o.withEnvNode(ctx, e); err != nil {
+		return
+	}
+	node, _ := docker.NodeFrom(ctx)
+	key := earlyKey(node, id)
+	tbl, err := o.vipFor(ctx)
+	if err != nil {
+		return
+	}
+	a, ok := tbl.(interface {
+		Allow(context.Context, string, []string) error
+	})
+	if !ok {
+		return
+	}
 	if !on {
 		o.earlyMu.Lock()
 		defer o.earlyMu.Unlock()
-		if ent, ok := o.earlyIPs[id]; ok {
-			delete(o.earlyIPs, id)
+		if ent, ok := o.earlyIPs[key]; ok {
+			delete(o.earlyIPs, key)
 			if err := a.Allow(ctx, ent.ip, nil); err != nil {
 				slog.Warn("vip: early lan rules", "tile", t.Slug, "err", err)
 			}
 		}
-		return
-	}
-	e, err := o.store.Environments.Get(ctx, t.EnvironmentID)
-	if err != nil {
 		return
 	}
 	d, err := o.docker.Inspect(ctx, id)
@@ -232,22 +322,32 @@ func (o *Orchestrator) earlyLan(ctx context.Context, t store.Tile, id string, on
 	if len(lan) == 0 {
 		return
 	}
-	o.earlyIPs[id] = earlyEnt{tile: t.ID, ip: ip}
+	o.earlyIPs[key] = earlyEnt{node: node, id: id, tile: t.ID, ip: ip}
 	if err := a.Allow(ctx, ip, lan); err != nil {
 		slog.Warn("vip: early lan rules", "tile", t.Slug, "err", err)
 	}
 }
 
-// earlyEnt is one container holding early lan rules.
-type earlyEnt struct{ tile, ip string }
+// earlyEnt is one container holding early lan rules, on one node.
+type earlyEnt struct{ node, id, tile, ip string }
 
-// sweepEarly runs inside rebuildVIPs (under vipMu): an early entry whose
-// container is no longer running, or whose tile's grant no longer has lan
-// lines, is cleared; the others are re-declared from the current grants, so
-// a revoke during a running job cuts its rule at once. The reads run outside
-// earlyMu; the Allow runs inside it and only if the entry is unchanged.
-func (o *Orchestrator) sweepEarly(ctx context.Context) {
-	a, ok := o.vip.(interface {
+// earlyKey keys earlyIPs by node as well as container: a container id is
+// only unique on its own daemon.
+func earlyKey(node, id string) string { return node + "/" + id }
+
+// sweepEarly runs inside rebuildVIPs (under vipMu), for the node in ctx: an
+// early entry whose container is no longer running, or whose tile's grant no
+// longer has lan lines, is cleared; the others are re-declared from the
+// current grants, so a revoke during a running job cuts its rule at once. The
+// reads run outside earlyMu; the Allow runs inside it and only if the entry
+// is unchanged.
+func (o *Orchestrator) sweepEarly(ctx context.Context, node string) {
+	ctx = docker.WithNode(ctx, node)
+	tbl, err := o.vipFor(ctx)
+	if err != nil {
+		return
+	}
+	a, ok := tbl.(interface {
 		Allow(context.Context, string, []string) error
 	})
 	if !ok {
@@ -256,9 +356,12 @@ func (o *Orchestrator) sweepEarly(ctx context.Context) {
 	o.earlyMu.Lock()
 	snap := maps.Clone(o.earlyIPs)
 	o.earlyMu.Unlock()
-	for id, ent := range snap {
+	for key, ent := range snap {
+		if ent.node != node {
+			continue
+		}
 		var lan []string
-		d, err := o.docker.Inspect(ctx, id)
+		d, err := o.docker.Inspect(ctx, ent.id)
 		gone := errors.Is(err, errs.ErrNotFound) || (err == nil && !d.Running)
 		if err != nil && !gone {
 			continue // unreadable now: keep, the next tick retries
@@ -277,9 +380,9 @@ func (o *Orchestrator) sweepEarly(ctx context.Context) {
 			}
 		}
 		o.earlyMu.Lock()
-		if o.earlyIPs[id] == ent { // the off path or a new owner may have moved on
+		if o.earlyIPs[key] == ent { // the off path or a new owner may have moved on
 			if len(lan) == 0 {
-				delete(o.earlyIPs, id)
+				delete(o.earlyIPs, key)
 			}
 			if err := a.Allow(ctx, ent.ip, lan); err != nil {
 				slog.Warn("vip: early lan sweep", "ip", ent.ip, "err", err)
@@ -292,8 +395,8 @@ func (o *Orchestrator) sweepEarly(ctx context.Context) {
 // dropRouted forgets the early entries whose address a VIP now lists: the VIP
 // rules (and Table.apply, which drops the early rule) take over, so the entry
 // is not re-applied each minute and its address is not cleared later under a
-// new owner.
-func (o *Orchestrator) dropRouted(all map[string]vip.Entry) {
+// new owner. An address means something only on its own node.
+func (o *Orchestrator) dropRouted(node string, all map[string]vip.Entry) {
 	routed := map[string]bool{}
 	for _, e := range all {
 		for _, ip := range e.Replicas {
@@ -302,25 +405,32 @@ func (o *Orchestrator) dropRouted(all map[string]vip.Entry) {
 	}
 	o.earlyMu.Lock()
 	defer o.earlyMu.Unlock()
-	for id, ent := range o.earlyIPs {
-		if routed[ent.ip] {
-			delete(o.earlyIPs, id)
+	for key, ent := range o.earlyIPs {
+		if ent.node == node && routed[ent.ip] {
+			delete(o.earlyIPs, key)
 		}
 	}
 }
 
-// vipLegacy warns once at boot about a legacy iptables backend.
+// vipLegacy warns at boot, per node, about a legacy iptables backend.
 func (o *Orchestrator) vipLegacy(ctx context.Context) {
-	t, ok := o.vip.(interface{ Legacy(context.Context) bool })
-	if !ok {
-		return // a test stub
-	}
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Minute)
 	defer cancel()
-	if t.Legacy(ctx) {
-		slog.Warn("iptables: DOCKER-USER is missing, the host looks like the legacy backend; " +
-			"tiles stay isolated but a tile cannot reach this server's own 80/443")
-	}
+	_ = o.eachNode(ctx, func(ctx context.Context, n store.Node) error {
+		tbl, err := o.vipFor(ctx)
+		if err != nil {
+			return nil
+		}
+		t, ok := tbl.(interface{ Legacy(context.Context) bool })
+		if !ok {
+			return nil // a test stub
+		}
+		if t.Legacy(ctx) {
+			slog.Warn("iptables: DOCKER-USER is missing, the host looks like the legacy backend; "+
+				"tiles stay isolated but a tile cannot reach this server's own 80/443", "node", n.Name)
+		}
+		return nil
+	})
 }
 
 // resolvConfs are read and joined: on a systemd-resolved host the first is the

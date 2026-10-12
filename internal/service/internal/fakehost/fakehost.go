@@ -65,7 +65,7 @@ func (c *ctr) running() bool { return c.State == "running" || c.State == "paused
 
 type network struct {
 	Name   string
-	Subnet string // a /24 of docker.EnvRange
+	Subnet string // a /24 the caller reserved from a node range
 	Labels map[string]string
 }
 
@@ -586,7 +586,10 @@ func (n *network) gateway() string {
 	return netip.AddrFrom4(a).String()
 }
 
-func (d *Docker) EnsureNetwork(ctx context.Context, name string, labels map[string]string) error {
+// EnsureNetwork follows the real client: a zero subnet only asks whether the
+// network is there (docker.ErrNeedsSubnet when not), a taken one is refused as
+// an overlap. The subnet is the caller's; the fake never picks one.
+func (d *Docker) EnsureNetwork(ctx context.Context, name string, subnet netip.Prefix, labels map[string]string) error {
 	if err := d.chaos.hit(ctx, "networks", "EnsureNetwork"); err != nil {
 		return err
 	}
@@ -595,21 +598,34 @@ func (d *Docker) EnsureNetwork(ctx context.Context, name string, labels map[stri
 	if _, ok := d.st.Networks[name]; ok {
 		return nil
 	}
-	used := map[string]bool{}
-	for _, n := range d.st.Networks {
-		used[n.Subnet] = true
+	if !subnet.IsValid() {
+		return docker.ErrNeedsSubnet
 	}
-	base := docker.EnvRange.Addr().As4()
-	for i := range 256 {
-		a := base
-		a[2] = byte(i)
-		s := netip.PrefixFrom(netip.AddrFrom4(a), 24).String()
-		if !used[s] {
-			d.st.Networks[name] = &network{Name: name, Subnet: s, Labels: withManaged(labels)}
-			return d.save()
+	s := subnet.Masked().String()
+	for _, n := range d.st.Networks {
+		if n.Subnet == s {
+			return fmt.Errorf("%w: Pool overlaps with other one on this address space", docker.ErrSubnetTaken)
 		}
 	}
-	return errors.New("no free network space in 10.213.0.0/16 for a new environment")
+	d.st.Networks[name] = &network{Name: name, Subnet: s, Labels: withManaged(labels)}
+	return d.save()
+}
+
+// UsedSubnets are the subnets of the fake's networks; it has no host
+// interfaces to add.
+func (d *Docker) UsedSubnets(ctx context.Context) ([]netip.Prefix, error) {
+	if err := d.chaos.hit(ctx, "networks", "UsedSubnets"); err != nil {
+		return nil, err
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	var out []netip.Prefix
+	for _, n := range d.st.Networks {
+		if p, err := netip.ParsePrefix(n.Subnet); err == nil {
+			out = append(out, p)
+		}
+	}
+	return out, nil
 }
 
 func (d *Docker) RemoveNetwork(ctx context.Context, name string) error {

@@ -47,6 +47,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/image"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/job"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/managed"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/node"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/org"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/orgplan"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/panel"
@@ -54,6 +55,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/release"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/route"
 	lrun "github.com/FyrmForge/stackr/internal/service/internal/leaf/run"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/securitylog"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/settings"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/stack"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tier"
@@ -319,6 +321,27 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 	d := o.docker
 
 	st := build("store", func() *store.Store { return store.New(db, box) })
+	nodes := build("leaf/node", func() *node.Leaf { return node.New(st.Nodes) })
+	// The controller row is made once; "the head" is that row, never this process.
+	ctl, created, err := nodes.Bootstrap(ctx)
+	if err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("controller node: %w", err)
+	}
+	if created {
+		if err := st.Tx(ctx, func(tx store.Tx) error {
+			return audit(tx).Append(ctx, securitylog.Event{
+				Action: securitylog.NodeBootstrap, TargetKind: "node", TargetID: ctl.ID,
+			})
+		}); err != nil {
+			_ = db.Close()
+			return nil, fmt.Errorf("controller node: %w", err)
+		}
+	}
+	if _, routed := d.(*DockerRouter); !routed { // WithDocker may bring its own router
+		d = NewRouter(map[string]Docker{ctl.ID: d})
+	}
+	o.vip = newNodeVIPs(map[string]tile.VIP{ctl.ID: o.vip})
 	orch := &Orchestrator{
 		cfg:    cfg,
 		db:     db,
@@ -337,18 +360,23 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 	orch.orgPlans = build("leaf/orgplan", func() *orgplan.Leaf { return orgplan.New(st.OrgPlans) })
 	orch.serverPlans = build("leaf/orgplan server", func() *orgplan.Server { return orgplan.NewServer(st.ServerPlans) })
 	orch.stacks = build("leaf/stack", func() *stack.Leaf { return stack.New(st.Stacks) })
-	orch.envs = build("leaf/environment", func() *environment.Leaf { return environment.New(st.Environments, d) })
+	orch.envs = build("leaf/environment", func() *environment.Leaf {
+		return environment.New(st.Environments, d).WithSubnets(nodes).WithPlacement(orch.envPins).WithController(orch.controllerID)
+	})
 	orch.tiers = build("leaf/tier", func() *tier.Leaf { return tier.New(st.Tiers) })
 	orch.tiles = build("leaf/tile", func() *tile.Leaf { return tile.New(st.Tiles, d, o.vip) })
 	orch.images = build("leaf/image", func() *image.Leaf { return image.New(st.Images, d) })
 	orch.params = build("leaf/params", func() *params.Leaf { return params.New(st.Params) })
-	orch.volumes = build("leaf/volume", func() *volume.Leaf { return volume.New(st.Volumes, d).WithShares(st.Shares) })
-	orch.domains = build("leaf/domain", func() *domain.Leaf { return domain.New(st.Domains, d, ProxyContainer) })
+	orch.volumes = build("leaf/volume", func() *volume.Leaf { return volume.New(st.Volumes, d).WithShares(st.Shares).WithNode(orch.scopeNode) })
+	orch.domains = build("leaf/domain", func() *domain.Leaf {
+		return domain.New(st.Domains, d, ProxyContainer).WithSubnets(nodes).WithController(orch.controllerID)
+	})
 	orch.domainres = build("leaf/domainres", func() *domainres.Leaf { return domainres.New(st.DomainResources) })
 	orch.routes = build("leaf/route", func() *route.Leaf { return route.New(st.Routes) })
 	orch.hostgrant = build("leaf/hostgrant", func() *hostgrant.Leaf { return hostgrant.New(st.HostGrants) })
 	orch.earlyIPs = map[string]earlyEnt{}
 	orch.tiles.Early = orch.earlyLan
+	orch.tiles.Node = orch.envNode
 	orch.creds = build("leaf/credential", func() *credential.Leaf { return credential.New(st.Credentials) })
 	orch.conns = build("leaf/connector", func() *connector.Leaf {
 		app := githubapp.New(cfg.BaseURL).WithPanelHost(func() string {
@@ -558,7 +586,7 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 				_, _, err := orch.queueRun(ctx, t.ID, lrun.Schedule)
 				return err
 			},
-			Traffic: orch.sample.Tick,
+			Traffic: orch.trafficTick,
 		})
 	})
 

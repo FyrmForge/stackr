@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
+	"github.com/FyrmForge/stackr/internal/service/internal/storetest"
 	"github.com/google/uuid"
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
@@ -139,7 +140,8 @@ func TestTemplateReadersNeedReadableScope(t *testing.T) {
 	must(t, err)
 	prod := uuid.NewString()
 	must(t, w.st.Environments.Create(ctx, store.Environment{
-		ID: prod, StackID: w.stack, Name: "prod", Slug: "prod", Type: "static", Settings: "{}", Network: "n2",
+		NodeID: storetest.Controller(t, w.st).ID,
+		ID:     prod, StackID: w.stack, Name: "prod", Slug: "prod", Type: "static", Settings: "{}", Network: "n2",
 		Locked: true, FromKind: "branch", FromBranch: "main", CreatedAt: time.Now(),
 	}))
 	count := func(env string) int {
@@ -234,7 +236,8 @@ func TestSetEnvLockRefusesPREnv(t *testing.T) {
 	w := newWorld(t)
 	ctx := context.Background()
 	must(t, w.st.Environments.Create(ctx, store.Environment{
-		ID: "pr9", StackID: w.stack, Name: "pr-9", Slug: "pr-9", Type: "ephemeral", Settings: "{}",
+		NodeID: storetest.Controller(t, w.st).ID,
+		ID:     "pr9", StackID: w.stack, Name: "pr-9", Slug: "pr-9", Type: "ephemeral", Settings: "{}",
 		Network: "n9", FromKind: "branch", FromBranch: "feat", CreatedAt: time.Now(),
 	}))
 	if _, err := w.orch.SetEnvLock(ctx, "pr9", true); !isConflict(err) || !strings.Contains(err.Error(), "PR envs have no lock") {

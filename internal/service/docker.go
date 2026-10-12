@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"io"
+	"net/netip"
 	"time"
 
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
@@ -30,7 +31,12 @@ type Docker interface {
 	Wait(ctx context.Context, id string) (exitCode int, err error)
 
 	// Networks.
-	EnsureNetwork(ctx context.Context, name string, labels map[string]string) error
+	// EnsureNetwork makes a bridge network on the subnet the caller reserved
+	// from the node's range; a zero subnet only asks whether it exists
+	// (docker.ErrNeedsSubnet when not).
+	EnsureNetwork(ctx context.Context, name string, subnet netip.Prefix, labels map[string]string) error
+	// UsedSubnets are the prefixes a new network must stay clear of.
+	UsedSubnets(ctx context.Context) ([]netip.Prefix, error)
 	RemoveNetwork(ctx context.Context, name string) error
 	ListNetworks(ctx context.Context, labels map[string]string) ([]string, error)
 	Gateways(ctx context.Context, labels map[string]string) ([]string, error)
@@ -84,6 +90,7 @@ type Docker interface {
 var (
 	_ Docker = (*docker.Client)(nil)
 	_ Docker = (*fakehost.Docker)(nil)
+	_ Docker = (*DockerRouter)(nil)
 )
 
 // DockerUnreachable reports whether err is the Docker daemon not answering:

@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"strings"
 	"time"
 )
 
@@ -18,6 +19,8 @@ type Stack struct {
 	ConfigBranch      string    `db:"config_branch" json:"config_branch"`
 	ConfigPath        string    `db:"config_path" json:"config_path"`
 	CreatedAt         time.Time `db:"created_at" json:"created_at"`
+	// NodeID pins new envs of this stack to a node; nil = no pin.
+	NodeID *string `db:"node_id" json:"node_id"`
 }
 
 type StackStore interface {
@@ -60,6 +63,11 @@ type Environment struct {
 	CreatedAt  time.Time `db:"created_at" json:"created_at"`
 	// Locked is the lock of an off-tier env; a tiered env uses its tier's.
 	Locked bool `db:"locked" json:"locked"`
+	// NodeID is the node the env runs on; it never changes under the env
+	// (pins on the org and stack only decide where new envs go). Subnet is
+	// the env's /24 from that node's range, "" until reserved.
+	NodeID string `db:"node_id" json:"node_id"`
+	Subnet string `db:"subnet" json:"subnet"`
 }
 
 type EnvironmentStore interface {
@@ -67,6 +75,10 @@ type EnvironmentStore interface {
 	Get(ctx context.Context, id string) (Environment, error)
 	GetBySlug(ctx context.Context, stackID, slug string) (Environment, error)
 	ListByStack(ctx context.Context, stackID string) ([]Environment, error)
+	ListByNode(ctx context.Context, nodeID string) ([]Environment, error)
+	// SetSubnet writes the env's /24 and nothing else, so reserving one
+	// cannot clobber a row the caller read earlier.
+	SetSubnet(ctx context.Context, id, subnet string) error
 	Update(ctx context.Context, e Environment) error
 	Delete(ctx context.Context, id string) error
 }
@@ -75,10 +87,31 @@ var environmentsT = newTable[Environment]("environments", nil)
 
 type environments struct{ crud[Environment] }
 
+// envUpdate is the env UPDATE without node_id and subnet: callers write back
+// whole rows they read earlier, and a stale copy must not undo a reserved
+// subnet. SetSubnet is the one writer of the subnet, and the node never
+// changes under an env (moves, step 8, get their own setter).
+var envUpdate = strings.NewReplacer(", node_id = :node_id", "", ", subnet = :subnet", "").Replace(environmentsT.update)
+
+// Update writes every column of e except node_id and subnet, matched by id.
+func (s environments) Update(ctx context.Context, e Environment) error {
+	res, err := s.q.NamedExecContext(ctx, envUpdate, e)
+	return affected(res, err)
+}
+
 func (s environments) GetBySlug(ctx context.Context, stackID, slug string) (Environment, error) {
 	return s.one(ctx, "stack_id = ? AND slug = ?", stackID, slug)
 }
 
 func (s environments) ListByStack(ctx context.Context, stackID string) ([]Environment, error) {
 	return s.many(ctx, "stack_id = ?", stackID)
+}
+
+func (s environments) SetSubnet(ctx context.Context, id, subnet string) error {
+	res, err := s.q.ExecContext(ctx, `UPDATE environments SET subnet = ? WHERE id = ?`, subnet, id)
+	return affected(res, err)
+}
+
+func (s environments) ListByNode(ctx context.Context, nodeID string) ([]Environment, error) {
+	return s.many(ctx, "node_id = ?", nodeID)
 }

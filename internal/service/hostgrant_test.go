@@ -18,6 +18,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/release"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
+	"github.com/FyrmForge/stackr/internal/service/internal/storetest"
 )
 
 // waiting polls until the job is parked.
@@ -87,7 +88,7 @@ func TestHostAccessParksApprovesRevokes(t *testing.T) {
 		t.Fatalf("approve with nothing waiting = %v", err)
 	}
 
-	must(t, w.orch.RevokeHostGrant(ctx, w.stack, ""))
+	must(t, w.orch.RevokeHostGrant(ctx, w.stack, "", "adm"))
 	j, err = w.orch.Deploy(ctx, tl.ID)
 	must(t, err)
 	if j = w.waiting(t, j.ID); j.State != job.Waiting {
@@ -329,7 +330,8 @@ func TestPRClosedCancelsParkedJobs(t *testing.T) {
 	w := newWorld(t)
 	ctx := context.Background()
 	must(t, w.st.Environments.Create(ctx, store.Environment{
-		ID: "pr7", StackID: w.stack, Name: "pr-7", Slug: "pr-7", Type: "ephemeral", Settings: "{}",
+		NodeID: storetest.Controller(t, w.st).ID,
+		ID:     "pr7", StackID: w.stack, Name: "pr-7", Slug: "pr-7", Type: "ephemeral", Settings: "{}",
 		Network: "n7", FromKind: "branch", FromBranch: "feat", CreatedAt: time.Now(),
 	}))
 	j := w.parkedRaw(t, "promote", `{"env_id":"pr7"}`, "env:pr7")
@@ -345,7 +347,8 @@ func TestPREnvTileWithHostAccessNotDeployed(t *testing.T) {
 	w := newWorld(t)
 	ctx := context.Background()
 	must(t, w.st.Environments.Create(ctx, store.Environment{
-		ID: "pr7", StackID: w.stack, Name: "pr-7", Slug: "pr-7", Type: "ephemeral", Settings: "{}",
+		NodeID: storetest.Controller(t, w.st).ID,
+		ID:     "pr7", StackID: w.stack, Name: "pr-7", Slug: "pr-7", Type: "ephemeral", Settings: "{}",
 		Network: "n7", FromKind: "branch", FromBranch: "feat", CreatedAt: time.Now(),
 	}))
 	tl, err := w.orch.CreateTile(ctx, Tile{StackID: w.stack, EnvironmentID: "pr7", Name: "mon", Kind: tile.Image, ImageRef: "nginx:1", ContainerPort: 80, Devices: "/dev/dri"})
@@ -416,7 +419,8 @@ func dropRig(t *testing.T, devices string, lines ...string) (*world, Tile, store
 	w := newWorld(t)
 	ctx := context.Background()
 	must(t, w.st.Environments.Create(ctx, store.Environment{
-		ID: "prod", StackID: w.stack, Name: "prod", Slug: "prod", Type: "static", Settings: "{}",
+		NodeID: storetest.Controller(t, w.st).ID,
+		ID:     "prod", StackID: w.stack, Name: "prod", Slug: "prod", Type: "static", Settings: "{}",
 		Network: "np", FromKind: "branch", FromBranch: "main", CreatedAt: time.Now(),
 	}))
 	dev := w.tile(t, "mon", false)

@@ -21,6 +21,7 @@ import (
 
 	"filippo.io/age"
 
+	"github.com/FyrmForge/stackr/internal/installspec"
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	bk "github.com/FyrmForge/stackr/internal/service/internal/leaf/backup"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
@@ -387,8 +388,11 @@ func (f *Flow) Orphans(ctx context.Context, retention time.Duration, dest store.
 // volume (certificates, keys, ACME accounts) as a gzipped tar; nil = none.
 // Trigger is schedule or manual ("" = manual).
 type Panel struct {
-	Vacuum     func(ctx context.Context, path string) error
-	Caddy      func(ctx context.Context, w io.Writer) error
+	Vacuum func(ctx context.Context, path string) error
+	Caddy  func(ctx context.Context, w io.Writer) error
+	// DataDir holds the other files of installspec.PanelState (the cluster
+	// CA, the WireGuard key); each is archived when present. "" = none.
+	DataDir    string
 	Trigger    string
 	MasterKey  string
 	Version    string
@@ -492,54 +496,36 @@ func (f *Flow) panelCaddy(ctx context.Context, p Panel, log io.Writer) string {
 	return path
 }
 
-// panelTar: keys/master.key is where the panel reads it back from, so the
-// archive unpacks straight over the data dir.
+// panelTar writes installspec.PanelState in order, so the archive unpacks
+// straight over the data dir. Optional members that are absent are skipped.
 func panelTar(w io.Writer, db, caddy string, p Panel) error {
-	f, err := os.Open(db)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = f.Close() }()
-	fi, err := f.Stat()
-	if err != nil {
-		return err
-	}
 	gz := gzip.NewWriter(w)
 	tw := tar.NewWriter(gz)
 	now := time.Now().UTC()
-	if err := tw.WriteHeader(&tar.Header{
-		Name:    "stackr.db",
-		Mode:    0o600,
-		Size:    fi.Size(),
-		ModTime: now,
-	}); err != nil {
-		return err
-	}
-	if _, err := io.Copy(tw, f); err != nil {
-		return err
-	}
-	for _, m := range []struct {
-		name string
-		mode int64
-		body string
-	}{
-		{"keys/master.key", 0o600, p.MasterKey + "\n"},
-		{"VERSION", 0o644, p.Version + "\n"},
-	} {
-		if err := tw.WriteHeader(&tar.Header{
-			Name:    m.name,
-			Mode:    m.mode,
-			Size:    int64(len(m.body)),
-			ModTime: now,
-		}); err != nil {
-			return err
+	for _, m := range installspec.PanelState {
+		var err error
+		switch m.Name {
+		case installspec.DBFile:
+			err = tarFile(tw, m, db, now)
+		case installspec.KeyFile:
+			err = tarBytes(tw, m, p.MasterKey+"\n", now)
+		case installspec.VersionMember:
+			err = tarBytes(tw, m, p.Version+"\n", now)
+		case installspec.CaddyMember:
+			if caddy != "" {
+				err = tarFile(tw, m, caddy, now)
+			}
+		default:
+			if p.DataDir == "" {
+				continue
+			}
+			path := filepath.Join(p.DataDir, m.Name)
+			if _, serr := os.Stat(path); errors.Is(serr, os.ErrNotExist) && m.Optional {
+				continue
+			}
+			err = tarFile(tw, m, path, now)
 		}
-		if _, err := io.WriteString(tw, m.body); err != nil {
-			return err
-		}
-	}
-	if caddy != "" {
-		if err := tarFile(tw, "caddy.tar.gz", caddy, now); err != nil {
+		if err != nil {
 			return err
 		}
 	}
@@ -549,7 +535,15 @@ func panelTar(w io.Writer, db, caddy string, p Panel) error {
 	return gz.Close()
 }
 
-func tarFile(tw *tar.Writer, name, path string, now time.Time) error {
+func tarBytes(tw *tar.Writer, m installspec.Member, body string, now time.Time) error {
+	if err := tw.WriteHeader(&tar.Header{Name: m.Name, Mode: m.Mode, Size: int64(len(body)), ModTime: now}); err != nil {
+		return err
+	}
+	_, err := io.WriteString(tw, body)
+	return err
+}
+
+func tarFile(tw *tar.Writer, m installspec.Member, path string, now time.Time) error {
 	f, err := os.Open(path)
 	if err != nil {
 		return err
@@ -559,7 +553,7 @@ func tarFile(tw *tar.Writer, name, path string, now time.Time) error {
 	if err != nil {
 		return err
 	}
-	if err := tw.WriteHeader(&tar.Header{Name: name, Mode: 0o600, Size: fi.Size(), ModTime: now}); err != nil {
+	if err := tw.WriteHeader(&tar.Header{Name: m.Name, Mode: m.Mode, Size: fi.Size(), ModTime: now}); err != nil {
 		return err
 	}
 	_, err = io.Copy(tw, f)

@@ -1,0 +1,68 @@
+package wgapply
+
+import (
+	"net/netip"
+	"sync"
+	"time"
+)
+
+// Recorder is the fake Applier: it keeps every applied Config, the endpoint
+// moves and settable handshake times. Used by fake mode and tests.
+type Recorder struct {
+	mu         sync.Mutex
+	Applied    []Config
+	Moves      []Move
+	handshakes map[string]time.Time
+}
+
+// Move is one SetEndpoint call.
+type Move struct {
+	Iface, PublicKey string
+	Endpoint         netip.AddrPort
+}
+
+var _ Applier = (*Recorder)(nil)
+
+func (r *Recorder) Apply(cfg Config) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.Applied = append(r.Applied, cfg)
+	return nil
+}
+
+func (r *Recorder) Handshakes(string) (map[string]time.Time, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	out := make(map[string]time.Time, len(r.handshakes))
+	for k, v := range r.handshakes {
+		out[k] = v
+	}
+	return out, nil
+}
+
+func (r *Recorder) SetEndpoint(iface, key string, ep netip.AddrPort) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.Moves = append(r.Moves, Move{iface, key, ep})
+	return nil
+}
+
+// SetHandshake sets what Handshakes reports for a peer.
+func (r *Recorder) SetHandshake(key string, t time.Time) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.handshakes == nil {
+		r.handshakes = map[string]time.Time{}
+	}
+	r.handshakes[key] = t
+}
+
+// Last returns the most recent applied config.
+func (r *Recorder) Last() (Config, bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if len(r.Applied) == 0 {
+		return Config{}, false
+	}
+	return r.Applied[len(r.Applied)-1], true
+}

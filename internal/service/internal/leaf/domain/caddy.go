@@ -39,6 +39,9 @@ type Install struct {
 	// with TLS off). Additive, never a whole-config replace, so the panel
 	// vhost and the tiles always survive it.
 	Custom string
+	// DefaultIngress is the node the panel route and any route without an
+	// ingress node of its own follow. Only BuildNode and BuildAll read it.
+	DefaultIngress string
 }
 
 // Account is a domain resource that names its own ACME email. A host
@@ -53,6 +56,18 @@ type TileRoute struct {
 	Protect    *BasicAuth // the settings cascade's answer, when a domain carries none
 	Domains    []store.Domain
 	Expand     Expand // this tile's refs; nil = Build's
+	// IngressNode is the node whose Caddy serves the rows ("" = the default
+	// ingress node). Node is where the tile runs and VIP its address on the
+	// env network; when the two nodes differ the upstream is VIP:port, not
+	// the replica names.
+	IngressNode, Node, VIP string
+}
+
+// NodeRoute is an external route with the ingress node that serves it ("" =
+// the default ingress node).
+type NodeRoute struct {
+	Route
+	IngressNode string
 }
 
 // Expand resolves ${{ }} refs in a basic-auth password (params' resolver).
@@ -167,6 +182,60 @@ func Build(in Install, tiles []TileRoute, routes []Route, expand Expand) (json.R
 		return nil, err
 	}
 	return out, errors.Join(bad...)
+}
+
+// BuildNode is Build for one ingress node: only the tiles and routes that
+// node serves, and the panel route only on the default ingress node.
+func BuildNode(node string, in Install, tiles []TileRoute, routes []NodeRoute, expand Expand) (json.RawMessage, error) {
+	at := func(n string) bool { return n == node || n == "" && in.DefaultIngress == node }
+	if in.DefaultIngress != node {
+		in.PanelHost = ""
+	}
+	var ts []TileRoute
+	for _, t := range tiles {
+		if at(t.IngressNode) {
+			if t.IngressNode == "" {
+				t.IngressNode = in.DefaultIngress
+			}
+			ts = append(ts, t)
+		}
+	}
+	var rs []Route
+	for _, r := range routes {
+		if at(r.IngressNode) {
+			rs = append(rs, r.Route)
+		}
+	}
+	return Build(in, ts, rs, expand)
+}
+
+// BuildAll is one config per ingress node: every node a tile or route names,
+// plus the default ingress node. Errors are joined; configs that built are
+// still returned.
+func BuildAll(in Install, tiles []TileRoute, routes []NodeRoute, expand Expand) (map[string]json.RawMessage, error) {
+	nodes := map[string]bool{in.DefaultIngress: true}
+	for _, t := range tiles {
+		if t.IngressNode != "" {
+			nodes[t.IngressNode] = true
+		}
+	}
+	for _, r := range routes {
+		if r.IngressNode != "" {
+			nodes[r.IngressNode] = true
+		}
+	}
+	out := map[string]json.RawMessage{}
+	var errs []error
+	for n := range nodes {
+		cfg, err := BuildNode(n, in, tiles, routes, expand)
+		if cfg != nil {
+			out[n] = cfg
+		}
+		if err != nil {
+			errs = append(errs, fmt.Errorf("ingress node %q: %w", n, err))
+		}
+	}
+	return out, errors.Join(errs...)
 }
 
 // server orders routes the way Caddy needs them (it takes the first match):
@@ -344,6 +413,9 @@ func upstream(d store.Domain, t TileRoute, e Extras) route {
 	}
 	names := append([]string(nil), t.Upstreams...)
 	sort.Strings(names)
+	if t.VIP != "" && t.Node != "" && t.IngressNode != "" && t.Node != t.IngressNode {
+		names = []string{t.VIP} // another node's containers: only the VIP is reachable
+	}
 	ups := make([]route, len(names))
 	for i, n := range names {
 		ups[i] = route{"dial": n + ":" + strconv.Itoa(d.ContainerPort)}

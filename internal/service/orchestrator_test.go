@@ -97,6 +97,7 @@ func newWorld(t *testing.T) *world {
 		CreatedAt: now,
 	}))
 	must(t, w.st.Environments.Create(ctx, store.Environment{
+		NodeID:     storetest.Controller(t, w.st).ID,
 		ID:         w.env,
 		StackID:    w.stack,
 		Name:       "dev",
@@ -402,7 +403,7 @@ func TestAfterDeploySkipsRunFirst(t *testing.T) {
 	w := newWorld(t)
 	fn := w.promoteTile(t, "migrate",
 		"    migrate:\n      kind: function\n      image: busybox:1\n      trigger: on_deploy\n")
-	ctx := withRanFirst(context.Background(), time.Time{})
+	ctx := withRanFirst(ctlCtx(t, w.orch), time.Time{})
 	before, err := w.orch.Runs(ctx, fn.ID, 0)
 	must(t, err)
 	w.wait(t, before[0].JobID)
@@ -590,7 +591,8 @@ func TestParamReadersByScope(t *testing.T) {
 			typ = "ephemeral"
 		}
 		must(t, w.st.Environments.Create(ctx, store.Environment{
-			ID: id, StackID: w.stack, Name: sl, Slug: sl, Type: typ, Settings: "{}", Network: "n-" + sl,
+			NodeID: storetest.Controller(t, w.st).ID,
+			ID:     id, StackID: w.stack, Name: sl, Slug: sl, Type: typ, Settings: "{}", Network: "n-" + sl,
 			FromKind: "branch", FromBranch: "main", CreatedAt: time.Now(),
 		}))
 		envs[sl] = id

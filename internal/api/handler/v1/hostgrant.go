@@ -36,7 +36,7 @@ func (h *H) ApproveHostGrant() Endpoint {
 // parks again.
 func (h *H) RevokeHostGrant() Endpoint {
 	return Done(func(c echo.Context, _ None) error {
-		return h.Orch.RevokeHostGrant(rc(c), stackID(c), c.QueryParam("tile"))
+		return h.Orch.RevokeHostGrant(rc(c), stackID(c), c.QueryParam("tile"), who(c))
 	})
 }
 

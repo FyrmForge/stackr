@@ -8,6 +8,7 @@ import (
 	"errors"
 	"io"
 	"net"
+	"net/netip"
 	"slices"
 	"strings"
 	"sync"
@@ -48,7 +49,9 @@ type Fake struct {
 	Digests       map[string]string // ref -> digest
 	Members       map[string][]string
 	Networks      []string
-	GatewayIPs    []string // what Gateways answers
+	GatewayIPs    []string                // what Gateways answers
+	Used          []netip.Prefix          // what UsedSubnets answers
+	Subnets       map[string]netip.Prefix // network -> the subnet EnsureNetwork was last given
 	Images        []docker.Image
 	Dangling      int // what PruneDangling removes
 	DanglingBytes int64
@@ -204,8 +207,22 @@ func (f *Fake) Inspect(_ context.Context, id string) (docker.Detail, error) {
 	return f.Details[id], f.rec("Inspect", id)
 }
 
-func (f *Fake) EnsureNetwork(_ context.Context, name string, _ map[string]string) error {
+// EnsureNetwork records the call and, like a daemon with the network already
+// there, never asks for a subnet; Subnets keeps the ones callers offered.
+func (f *Fake) EnsureNetwork(_ context.Context, name string, subnet netip.Prefix, _ map[string]string) error {
+	if subnet.IsValid() {
+		f.mu.Lock()
+		if f.Subnets == nil {
+			f.Subnets = map[string]netip.Prefix{}
+		}
+		f.Subnets[name] = subnet
+		f.mu.Unlock()
+	}
 	return f.rec("EnsureNetwork", name)
+}
+
+func (f *Fake) UsedSubnets(context.Context) ([]netip.Prefix, error) {
+	return f.Used, f.rec("UsedSubnets")
 }
 
 func (f *Fake) ListNetworks(context.Context, map[string]string) ([]string, error) {

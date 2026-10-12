@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/netip"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -179,8 +180,16 @@ func TestNetworksAndVolumes(t *testing.T) {
 	d, ctx := newClient(t)
 	net := uniq("stkr-it-net")
 	labels := map[string]string{"stkr.test": net}
+	used, err := d.UsedSubnets(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sub, ok := FirstFree(netip.MustParsePrefix("10.208.0.0/12"), used)
+	if !ok {
+		t.Skip("no free block in the cluster supernet")
+	}
 	for range 2 {
-		if err := d.EnsureNetwork(ctx, net, labels); err != nil {
+		if err := d.EnsureNetwork(ctx, net, sub, labels); err != nil {
 			t.Fatal(err)
 		}
 	}

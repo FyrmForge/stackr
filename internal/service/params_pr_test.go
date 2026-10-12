@@ -11,6 +11,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
+	"github.com/FyrmForge/stackr/internal/service/internal/storetest"
 )
 
 // envTile makes a running image tile in env that reads ref.
@@ -33,7 +34,8 @@ func (w *world) newEnv(t *testing.T, slug, typ string) string {
 	t.Helper()
 	id := uuid.NewString()
 	must(t, w.st.Environments.Create(context.Background(), store.Environment{
-		ID: id, StackID: w.stack, Name: slug, Slug: slug, Type: typ, Settings: "{}", Network: "n-" + slug,
+		NodeID: storetest.Controller(t, w.st).ID,
+		ID:     id, StackID: w.stack, Name: slug, Slug: slug, Type: typ, Settings: "{}", Network: "n-" + slug,
 		FromKind: "branch", FromBranch: "main", CreatedAt: time.Now(),
 	}))
 	return id

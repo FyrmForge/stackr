@@ -13,6 +13,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/dockerfake"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/domainres"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
+	"github.com/FyrmForge/stackr/internal/service/internal/storetest"
 )
 
 // renameWorld is a world with the instance row, one tile with an auto host
@@ -372,7 +373,8 @@ func TestRenameDoesNotReclaimAnotherOrgsRedirect(t *testing.T) {
 	must(t, w.st.Orgs.Create(ctx, store.Org{ID: org, Name: "beta", Slug: "beta", EnvColors: "{}", Settings: "{}", CreatedAt: now}))
 	must(t, w.st.Stacks.Create(ctx, store.Stack{ID: stack, OrgID: org, Name: "shop", Slug: "shop", Settings: "{}", CreatedAt: now}))
 	must(t, w.st.Environments.Create(ctx, store.Environment{
-		ID: env, StackID: stack, Name: "dev", Slug: "dev", Type: "static", Settings: "{}",
+		NodeID: storetest.Controller(t, w.st).ID,
+		ID:     env, StackID: stack, Name: "dev", Slug: "dev", Type: "static", Settings: "{}",
 		Network: "nb", FromKind: "branch", FromBranch: "main", CreatedAt: now,
 	}))
 	bt, err := w.orch.CreateTile(ctx, Tile{StackID: stack, EnvironmentID: env, Name: "api", Kind: "image", ImageRef: "nginx:1", ContainerPort: 80})

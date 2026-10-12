@@ -21,6 +21,8 @@ type Org struct {
 	ConfigBranch      string     `db:"config_branch" json:"config_branch"`
 	ConfigPath        string     `db:"config_path" json:"config_path"`
 	ConfigAuto        bool       `db:"config_auto" json:"config_auto"`
+	// NodeID pins new envs of this org to a node; nil = no pin.
+	NodeID *string `db:"node_id" json:"node_id"`
 }
 
 type OrgStore interface {

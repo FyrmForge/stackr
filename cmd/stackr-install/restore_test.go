@@ -12,7 +12,17 @@ import (
 	"testing"
 
 	"filippo.io/age"
+
+	"github.com/FyrmForge/stackr/internal/installspec"
 )
+
+func panelNames() []string {
+	var n []string
+	for _, m := range installspec.PanelState {
+		n = append(n, m.Name)
+	}
+	return n
+}
 
 func archive(t *testing.T, pass string, files map[string]string) *bytes.Buffer {
 	t.Helper()
@@ -28,7 +38,7 @@ func archive(t *testing.T, pass string, files map[string]string) *bytes.Buffer {
 	}
 	gz := gzip.NewWriter(enc)
 	tw := tar.NewWriter(gz)
-	for _, name := range []string{"stackr.db", "keys/master.key", "VERSION", "caddy.tar.gz", "../evil"} {
+	for _, name := range append(panelNames(), "../evil", "keys/other.key") {
 		body, ok := files[name]
 		if !ok {
 			continue
@@ -158,5 +168,42 @@ func TestDropStage(t *testing.T) {
 	}
 	if _, err := os.Stat(stage); err == nil {
 		t.Error("the staging dir is still there")
+	}
+}
+
+// Every member of installspec.PanelState unpacks (the cluster keys among
+// them), optional ones may be missing, and a keys/ file outside the list is
+// refused. The backup side's test builds its archive from the same list.
+func TestUnpackPanelState(t *testing.T) {
+	all := map[string]string{}
+	for _, m := range installspec.PanelState {
+		all[m.Name] = "body-" + m.Name
+	}
+	all["VERSION"] = "v0.1.0\n"
+	dir := t.TempDir()
+	if _, err := unpack(archive(t, "pw", all), "pw", dir); err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range installspec.PanelState {
+		if m.Name == "VERSION" {
+			continue
+		}
+		if b, err := os.ReadFile(filepath.Join(dir, m.Name)); err != nil || string(b) != "body-"+m.Name {
+			t.Errorf("%s = %q %v", m.Name, b, err)
+		}
+	}
+	req := map[string]string{}
+	for _, m := range installspec.PanelState {
+		if !m.Optional {
+			req[m.Name] = "x"
+		}
+	}
+	req["VERSION"] = "v0.1.0\n"
+	if _, err := unpack(archive(t, "pw", req), "pw", t.TempDir()); err != nil {
+		t.Errorf("required members alone refused: %v", err)
+	}
+	req["keys/other.key"] = "x"
+	if _, err := unpack(archive(t, "pw", req), "pw", t.TempDir()); err == nil {
+		t.Error("a keys/ file outside installspec.PanelState was accepted")
 	}
 }

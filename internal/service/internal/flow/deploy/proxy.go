@@ -16,6 +16,35 @@ import (
 // tile's params for basic-auth refs), plus the admin-made external routes ext,
 // turned into one whole Caddy config.
 func (f *Flow) ProxyConfig(ctx context.Context, in domain.Install, ext []domain.Route) (json.RawMessage, error) {
+	routes, err := f.tileRoutes(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return domain.Build(in, routes, ext, nil)
+}
+
+// Placement answers where a tile is served and runs: its resolved ingress
+// node id, the node its containers run on, and its VIP on the env network
+// (used as the upstream when the two differ).
+type Placement func(tileID string) (ingressNode, node, vip string)
+
+// ProxyConfigs is ProxyConfig per ingress node: one config for each node in
+// the result, keyed by node id. Configs that built are returned with the
+// error naming the ones that did not.
+func (f *Flow) ProxyConfigs(ctx context.Context, in domain.Install, ext []domain.NodeRoute, place Placement) (map[string]json.RawMessage, error) {
+	routes, err := f.tileRoutes(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if place != nil {
+		for i := range routes {
+			routes[i].IngressNode, routes[i].Node, routes[i].VIP = place(routes[i].TileID)
+		}
+	}
+	return domain.BuildAll(in, routes, ext, nil)
+}
+
+func (f *Flow) tileRoutes(ctx context.Context) ([]domain.TileRoute, error) {
 	ds, err := f.Domains.List(ctx)
 	if err != nil {
 		return nil, err
@@ -41,7 +70,7 @@ func (f *Flow) ProxyConfig(ctx context.Context, in domain.Install, ext []domain.
 		r.Domains = byTile[id]
 		routes = append(routes, r)
 	}
-	return domain.Build(in, routes, ext, nil)
+	return routes, nil
 }
 
 func (f *Flow) tileRoute(ctx context.Context, id string, server settings.Settings) (domain.TileRoute, error) {

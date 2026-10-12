@@ -67,6 +67,10 @@ var DefaultGate = Gate{Poll: time.Second, Grace: 10 * time.Second, Deadline: 60 
 // copied into log; whatever ran before keeps running. The VIP is not
 // touched: the flow calls Route when the rollout says so.
 func (l *Leaf) Start(ctx context.Context, t store.Tile, spec docker.ContainerSpec, log io.Writer) (string, error) {
+	ctx, err := l.at(ctx, t.EnvironmentID)
+	if err != nil {
+		return "", err
+	}
 	id, err := l.docker.Run(ctx, replica(t, spec))
 	if err != nil {
 		return "", err
@@ -81,12 +85,20 @@ func (l *Leaf) Start(ctx context.Context, t store.Tile, spec docker.ContainerSpe
 // spec the daemon refuses fails before the replicas that run are touched.
 // Launch starts it.
 func (l *Leaf) CreateReplica(ctx context.Context, t store.Tile, spec docker.ContainerSpec) (string, error) {
+	ctx, err := l.at(ctx, t.EnvironmentID)
+	if err != nil {
+		return "", err
+	}
 	return l.docker.Create(ctx, replica(t, spec))
 }
 
 // Launch starts a replica CreateReplica made and gates it; one that fails to start
 // or to pass is removed and the error returned, as Start does.
 func (l *Leaf) Launch(ctx context.Context, t store.Tile, id string, log io.Writer) error {
+	ctx, err := l.at(ctx, t.EnvironmentID)
+	if err != nil {
+		return err
+	}
 	if err := l.docker.Start(ctx, id); err != nil {
 		_ = l.docker.StopRemove(context.WithoutCancel(ctx), id)
 		return fmt.Errorf("%s: %w", t.Slug, err)
@@ -150,6 +162,10 @@ func (l *Leaf) RunOnce(
 	}
 	spec.Labels[LabelTile], spec.Labels[LabelRole], spec.Labels[LabelRun] = t.ID, "run", runID
 	spec.Restart = "no"
+	ctx, err := l.at(ctx, t.EnvironmentID)
+	if err != nil {
+		return -1, err
+	}
 	id, err := l.docker.Run(ctx, spec)
 	if err != nil {
 		return -1, err
@@ -188,6 +204,10 @@ func (l *Leaf) gate(ctx context.Context, id string, startPeriod time.Duration) e
 
 // Replicas are the tile's replica containers, any state.
 func (l *Leaf) Replicas(ctx context.Context, t store.Tile) ([]docker.Container, error) {
+	ctx, err := l.at(ctx, t.EnvironmentID)
+	if err != nil {
+		return nil, err
+	}
 	return l.docker.List(ctx, map[string]string{LabelTile: t.ID, LabelRole: "replica"})
 }
 
@@ -198,6 +218,10 @@ func (l *Leaf) Inspect(ctx context.Context, id string) (docker.Detail, error) {
 
 // Mounts are the "src -> dst" mounts of every replica of t.
 func (l *Leaf) Mounts(ctx context.Context, t store.Tile) ([]string, error) {
+	ctx, err := l.at(ctx, t.EnvironmentID)
+	if err != nil {
+		return nil, err
+	}
 	cs, err := l.Replicas(ctx, t)
 	if err != nil {
 		return nil, err
@@ -216,6 +240,10 @@ func (l *Leaf) Mounts(ctx context.Context, t store.Tile) ([]string, error) {
 // Addresses maps every IP of every running tile container (replicas, runs
 // and the pause container that holds the VIP) to its tile id.
 func (l *Leaf) Addresses(ctx context.Context) (map[string]string, error) {
+	ctx, err := l.at(ctx, "")
+	if err != nil {
+		return nil, err
+	}
 	cs, err := l.docker.List(ctx, map[string]string{docker.LabelManaged: "true"})
 	if err != nil {
 		return nil, err
@@ -234,6 +262,10 @@ func (l *Leaf) Addresses(ctx context.Context) (map[string]string, error) {
 // Pause ensures the tile's pause container on network and returns its IP,
 // which is the tile's VIP.
 func (l *Leaf) Pause(ctx context.Context, t store.Tile, network string) (string, error) {
+	ctx, err := l.at(ctx, t.EnvironmentID)
+	if err != nil {
+		return "", err
+	}
 	cs, err := l.docker.List(ctx, map[string]string{LabelTile: t.ID, LabelRole: "pause"})
 	if err != nil {
 		return "", err
@@ -268,6 +300,10 @@ func (l *Leaf) Pause(ctx context.Context, t store.Tile, network string) (string,
 // ponytail: stackrd rebuilds every VIP on boot (service.rebuildVIPs) from these same
 // reads; that loop is the orchestrator's, not here.
 func (l *Leaf) Route(ctx context.Context, t store.Tile, network string, lan []string) error {
+	ctx, err := l.at(ctx, t.EnvironmentID)
+	if err != nil {
+		return err
+	}
 	ip, err := l.Pause(ctx, t, network)
 	if err != nil {
 		return err
@@ -294,6 +330,10 @@ func (l *Leaf) Route(ctx context.Context, t store.Tile, network string, lan []st
 
 // Teardown removes every container of the tile and its VIP rules.
 func (l *Leaf) Teardown(ctx context.Context, t store.Tile, network string) error {
+	ctx, err := l.at(ctx, t.EnvironmentID)
+	if err != nil {
+		return err
+	}
 	cs, err := l.docker.List(ctx, map[string]string{LabelTile: t.ID})
 	if err != nil {
 		return err
@@ -321,6 +361,10 @@ func (l *Leaf) remove(ctx context.Context, c docker.Container, network string) e
 // DropPause removes the tile's pause container and its VIP: a tile that moved
 // to the host network has neither.
 func (l *Leaf) DropPause(ctx context.Context, t store.Tile, network string) error {
+	ctx, err := l.at(ctx, t.EnvironmentID)
+	if err != nil {
+		return err
+	}
 	cs, err := l.docker.List(ctx, map[string]string{LabelTile: t.ID, LabelRole: "pause"})
 	if err != nil {
 		return err
@@ -371,6 +415,10 @@ func (l *Leaf) State(ctx context.Context, t store.Tile) (State, error) {
 // The container verbs. id is a container of this tile; tileID "" is the
 // admin's containers screen, where any non-system container goes.
 func (l *Leaf) Stop(ctx context.Context, tileID, id string) error {
+	ctx, err := l.atTile(ctx, tileID)
+	if err != nil {
+		return err
+	}
 	if err := l.guard(ctx, tileID, id, "stopped"); err != nil {
 		return err
 	}
@@ -378,6 +426,10 @@ func (l *Leaf) Stop(ctx context.Context, tileID, id string) error {
 }
 
 func (l *Leaf) StartContainer(ctx context.Context, tileID, id string) error {
+	ctx, err := l.atTile(ctx, tileID)
+	if err != nil {
+		return err
+	}
 	if err := l.guard(ctx, tileID, id, "started"); err != nil {
 		return err
 	}
@@ -385,6 +437,10 @@ func (l *Leaf) StartContainer(ctx context.Context, tileID, id string) error {
 }
 
 func (l *Leaf) Restart(ctx context.Context, tileID, id string) error {
+	ctx, err := l.atTile(ctx, tileID)
+	if err != nil {
+		return err
+	}
 	if err := l.guard(ctx, tileID, id, "stopped"); err != nil {
 		return err
 	}
@@ -393,6 +449,10 @@ func (l *Leaf) Restart(ctx context.Context, tileID, id string) error {
 
 // Exec runs an engine command (or a terminal line) in the container.
 func (l *Leaf) Exec(ctx context.Context, tileID, id string, cmd []string) (string, error) {
+	ctx, err := l.atTile(ctx, tileID)
+	if err != nil {
+		return "", err
+	}
 	if err := l.guard(ctx, tileID, id, "opened a terminal into"); err != nil {
 		return "", err
 	}
@@ -406,6 +466,10 @@ func (l *Leaf) Terminal(
 	cmd []string,
 	stdin io.Reader,
 ) (io.Reader, func() error, error) {
+	ctx, err := l.atTile(ctx, tileID)
+	if err != nil {
+		return nil, nil, err
+	}
 	if err := l.guard(ctx, tileID, id, "opened a terminal into"); err != nil {
 		return nil, nil, err
 	}
@@ -417,6 +481,10 @@ func (l *Leaf) Terminal(
 func (l *Leaf) TTY(ctx context.Context, tileID, id string, cmd []string) (
 	io.ReadWriteCloser, func(cols, rows uint) error, func() (int, error), error,
 ) {
+	ctx, err := l.atTile(ctx, tileID)
+	if err != nil {
+		return nil, nil, nil, err
+	}
 	if err := l.guard(ctx, tileID, id, "opened a terminal into"); err != nil {
 		return nil, nil, nil, err
 	}
@@ -429,6 +497,10 @@ func (l *Leaf) TTY(ctx context.Context, tileID, id string, cmd []string) (
 
 // Follow streams the container's log lines until stop is called.
 func (l *Leaf) Follow(ctx context.Context, tileID, id string, tail int) (<-chan string, func(), error) {
+	ctx, err := l.atTile(ctx, tileID)
+	if err != nil {
+		return nil, nil, err
+	}
 	if _, err := l.find(ctx, tileID, id); err != nil {
 		return nil, nil, err
 	}
@@ -436,6 +508,10 @@ func (l *Leaf) Follow(ctx context.Context, tileID, id string, tail int) (<-chan 
 }
 
 func (l *Leaf) Logs(ctx context.Context, tileID, id string, tail int) (string, error) {
+	ctx, err := l.atTile(ctx, tileID)
+	if err != nil {
+		return "", err
+	}
 	if _, err := l.find(ctx, tileID, id); err != nil {
 		return "", err
 	}
@@ -445,6 +521,10 @@ func (l *Leaf) Logs(ctx context.Context, tileID, id string, tail int) (string, e
 // Remove bends the guard for an exited system container: a previous
 // generation left by an upgrade must be clearable.
 func (l *Leaf) Remove(ctx context.Context, tileID, id string) error {
+	ctx, err := l.atTile(ctx, tileID)
+	if err != nil {
+		return err
+	}
 	c, err := l.find(ctx, tileID, id)
 	if errors.Is(err, errSystem) {
 		if d, ierr := l.docker.Inspect(ctx, id); ierr != nil || d.Running {
@@ -498,6 +578,15 @@ func (l *Leaf) find(ctx context.Context, tileID, id string) (docker.Container, e
 	return docker.Container{}, errs.ErrNotFound
 }
 
+// atFirst is at for the env of ts[0]: the tiles of one volume's consumers sit
+// in one env, which never spans nodes.
+func (l *Leaf) atFirst(ctx context.Context, ts []store.Tile) (context.Context, error) {
+	if len(ts) == 0 {
+		return ctx, nil
+	}
+	return l.at(ctx, ts[0].EnvironmentID)
+}
+
 // running is every running replica of ts.
 func (l *Leaf) running(ctx context.Context, ts []store.Tile) ([]string, error) {
 	var ids []string
@@ -518,6 +607,9 @@ func (l *Leaf) running(ctx context.Context, ts []store.Tile) ([]string, error) {
 // Freeze pauses every running replica of ts (a backup's pause mode); thaw
 // unpauses them and runs even after the caller's context is gone.
 func (l *Leaf) Freeze(ctx context.Context, ts []store.Tile) (thaw func(), err error) {
+	if ctx, err = l.atFirst(ctx, ts); err != nil {
+		return nil, err
+	}
 	ids, err := l.running(ctx, ts)
 	if err != nil {
 		return nil, err
@@ -541,6 +633,9 @@ func (l *Leaf) Freeze(ctx context.Context, ts []store.Tile) (thaw func(), err er
 // Quiesce stops every running replica of ts and waits for each to exit (a
 // stop that returns early gives a torn tar); resume starts them again.
 func (l *Leaf) Quiesce(ctx context.Context, ts []store.Tile) (resume func(), err error) {
+	if ctx, err = l.atFirst(ctx, ts); err != nil {
+		return nil, err
+	}
 	ids, err := l.running(ctx, ts)
 	if err != nil {
 		return nil, err
@@ -569,6 +664,10 @@ func (l *Leaf) Stream(
 	cmd []string,
 	stdin io.Reader,
 ) (io.Reader, func() error, error) {
+	ctx, err := l.at(ctx, t.EnvironmentID)
+	if err != nil {
+		return nil, nil, err
+	}
 	ids, err := l.running(ctx, []store.Tile{t})
 	if err != nil {
 		return nil, nil, err

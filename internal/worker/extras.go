@@ -1,0 +1,310 @@
+package worker
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net"
+	"net/http"
+	"net/netip"
+	"os"
+	"path/filepath"
+	"runtime"
+	"strconv"
+	"strings"
+	"syscall"
+	"time"
+)
+
+const maxBody = 4 << 20
+
+// Facts is GET /v1/facts.
+type Facts struct {
+	Interfaces  []Iface `json:"interfaces"`
+	DiskFree    uint64  `json:"disk_free"` // bytes free on the Docker root
+	DockerRoot  string  `json:"docker_root"`
+	Docker      string  `json:"docker"` // server version
+	DockerError string  `json:"docker_error,omitempty"`
+	Kernel      string  `json:"kernel"`
+	CPUs        int     `json:"cpus"`
+	MemBytes    uint64  `json:"mem_bytes"`
+	UptimeS     float64 `json:"uptime_s"`
+}
+
+type Iface struct {
+	Name     string   `json:"name"`
+	Prefixes []string `json:"prefixes"`
+	// Public is set when a public address is assigned directly on the
+	// interface (not private, CGNAT or link-local).
+	Public bool `json:"public"`
+}
+
+// State is the full applied state, replayed in this order.
+type State struct {
+	WG     json.RawMessage `json:"wg,omitempty"`
+	Routes [][]string      `json:"routes,omitempty"` // argv for `ip`
+	Chains string          `json:"chains,omitempty"` // iptables-restore payload
+	Jumps  string          `json:"jumps,omitempty"`  // iptables-restore payload
+}
+
+var cgnat = netip.MustParsePrefix("100.64.0.0/10")
+
+func isPublic(a netip.Addr) bool {
+	a = a.Unmap()
+	return a.IsGlobalUnicast() && !a.IsPrivate() && !cgnat.Contains(a)
+}
+
+func fail(w http.ResponseWriter, code int, err error) {
+	http.Error(w, err.Error(), code)
+}
+
+func readBody(w http.ResponseWriter, r *http.Request) ([]byte, bool) {
+	b, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxBody))
+	if err != nil {
+		fail(w, 400, err)
+		return nil, false
+	}
+	return b, true
+}
+
+func (s *Server) facts(w http.ResponseWriter, r *http.Request) {
+	f := Facts{CPUs: runtime.NumCPU(), Interfaces: []Iface{}}
+	ifs, _ := net.Interfaces()
+	for _, i := range ifs {
+		fi := Iface{Name: i.Name, Prefixes: []string{}}
+		addrs, _ := i.Addrs()
+		for _, a := range addrs {
+			if p, err := netip.ParsePrefix(a.String()); err == nil {
+				fi.Prefixes = append(fi.Prefixes, p.String())
+				fi.Public = fi.Public || isPublic(p.Addr())
+			}
+		}
+		f.Interfaces = append(f.Interfaces, fi)
+	}
+	b, _ := os.ReadFile("/proc/sys/kernel/osrelease")
+	f.Kernel = strings.TrimSpace(string(b))
+	f.MemBytes = memTotal()
+	if f2 := strings.Fields(readFile("/proc/uptime")); len(f2) > 0 {
+		f.UptimeS, _ = strconv.ParseFloat(f2[0], 64)
+	}
+	if err := s.dockerInfo(r.Context(), &f); err != nil {
+		f.DockerError = err.Error()
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(f)
+}
+
+func readFile(p string) string { b, _ := os.ReadFile(p); return string(b) }
+
+func memTotal() uint64 {
+	for _, l := range strings.Split(readFile("/proc/meminfo"), "\n") {
+		if v, ok := strings.CutPrefix(l, "MemTotal:"); ok {
+			if f := strings.Fields(v); len(f) > 0 {
+				kb, _ := strconv.ParseUint(f[0], 10, 64)
+				return kb << 10
+			}
+		}
+	}
+	return 0
+}
+
+func (s *Server) dockerInfo(ctx context.Context, f *Facts) error {
+	hc := &http.Client{Timeout: 10 * time.Second, Transport: &http.Transport{
+		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+			return (&net.Dialer{}).DialContext(ctx, "unix", s.cfg.DockerSock)
+		}}}
+	defer hc.CloseIdleConnections()
+	req, _ := http.NewRequestWithContext(ctx, "GET", "http://local/info", nil)
+	resp, err := hc.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	var info struct{ ServerVersion, DockerRootDir string }
+	if err := json.NewDecoder(resp.Body).Decode(&info); err != nil {
+		return err
+	}
+	f.Docker, f.DockerRoot = info.ServerVersion, info.DockerRootDir
+	var st syscall.Statfs_t
+	if err := syscall.Statfs(info.DockerRootDir, &st); err != nil {
+		return err
+	}
+	f.DiskFree = st.Bavail * uint64(st.Bsize)
+	return nil
+}
+
+func (s *Server) restore(ctx context.Context, payload []byte) error {
+	if len(payload) == 0 {
+		return nil
+	}
+	out, err := s.cfg.Runner.Run(ctx, payload, "iptables-restore", "--noflush")
+	if err != nil {
+		return fmt.Errorf("iptables-restore: %w: %s", err, out)
+	}
+	return nil
+}
+
+func (s *Server) iptables(w http.ResponseWriter, r *http.Request) {
+	b, ok := readBody(w, r)
+	if !ok {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.restore(r.Context(), b); err != nil {
+		fail(w, 500, err)
+		return
+	}
+	w.WriteHeader(204)
+}
+
+var errNoWG = errors.New("wg not available on this node")
+
+func (s *Server) applyWG(ctx context.Context, cfg []byte) error {
+	if s.cfg.WG == nil {
+		return errNoWG
+	}
+	return s.cfg.WG.Apply(ctx, cfg)
+}
+
+func (s *Server) wg(w http.ResponseWriter, r *http.Request) {
+	b, ok := readBody(w, r)
+	if !ok {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.applyWG(r.Context(), b); err != nil {
+		code := 500
+		if err == errNoWG {
+			code = 501
+		}
+		fail(w, code, err)
+		return
+	}
+	w.WriteHeader(204)
+}
+
+func (s *Server) statePath() string { return filepath.Join(s.cfg.StateDir, "applied.json") }
+
+func (s *Server) putState(w http.ResponseWriter, r *http.Request) {
+	b, ok := readBody(w, r)
+	if !ok {
+		return
+	}
+	var st State
+	if err := json.Unmarshal(b, &st); err != nil {
+		fail(w, 400, err)
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := writeAtomic(s.statePath(), b); err != nil {
+		fail(w, 500, err)
+		return
+	}
+	w.WriteHeader(204)
+}
+
+// writeAtomic: temp file, fsync, rename, so a crash never leaves half a state.
+func writeAtomic(path string, b []byte) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+	f, err := os.CreateTemp(filepath.Dir(path), ".applied-*")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(f.Name())
+	if _, err = f.Write(b); err == nil {
+		err = f.Sync()
+	}
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		return err
+	}
+	return os.Rename(f.Name(), path)
+}
+
+func (s *Server) getState(w http.ResponseWriter, r *http.Request) {
+	s.mu.Lock()
+	b, err := os.ReadFile(s.statePath())
+	s.mu.Unlock()
+	if errors.Is(err, os.ErrNotExist) {
+		http.NotFound(w, r)
+		return
+	}
+	if err != nil {
+		fail(w, 500, err)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_, _ = w.Write(b)
+}
+
+// replay re-applies the saved state in order: wg, routes, chains, then the
+// jumps, which wait for Docker to have made DOCKER-USER.
+func (s *Server) replay(w http.ResponseWriter, r *http.Request) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	ctx := r.Context()
+	b, err := os.ReadFile(s.statePath())
+	if errors.Is(err, os.ErrNotExist) {
+		w.WriteHeader(204) // nothing applied yet
+		return
+	}
+	var st State
+	if err == nil {
+		err = json.Unmarshal(b, &st)
+	}
+	if err != nil {
+		fail(w, 500, err)
+		return
+	}
+	if len(st.WG) > 0 {
+		if err := s.applyWG(ctx, st.WG); err != nil {
+			fail(w, 500, fmt.Errorf("wg: %w", err))
+			return
+		}
+	}
+	for _, argv := range st.Routes {
+		if out, err := s.cfg.Runner.Run(ctx, nil, "ip", argv...); err != nil {
+			fail(w, 500, fmt.Errorf("ip %v: %w: %s", argv, err, out))
+			return
+		}
+	}
+	if err := s.restore(ctx, []byte(st.Chains)); err != nil {
+		fail(w, 500, err)
+		return
+	}
+	if st.Jumps != "" {
+		if err := s.waitDockerUser(ctx); err != nil {
+			fail(w, 500, err)
+			return
+		}
+		if err := s.restore(ctx, []byte(st.Jumps)); err != nil {
+			fail(w, 500, err)
+			return
+		}
+	}
+	w.WriteHeader(204)
+}
+
+func (s *Server) waitDockerUser(ctx context.Context) error {
+	ctx, cancel := context.WithTimeout(ctx, s.cfg.DockerUserWait)
+	defer cancel()
+	for {
+		if _, err := s.cfg.Runner.Run(ctx, nil, "iptables", "-n", "-L", "DOCKER-USER"); err == nil {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return errors.New("DOCKER-USER chain never appeared")
+		case <-time.After(s.cfg.DockerUserPoll):
+		}
+	}
+}

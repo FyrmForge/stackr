@@ -12,6 +12,8 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/jobs"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/hostgrant"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/job"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/securitylog"
+	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
 
 // HostGrant is the elevated access a server admin approved for a stack, one
@@ -137,7 +139,16 @@ func (o *Orchestrator) ApproveHostGrant(ctx context.Context, stackID, userID str
 		}
 		ask = hostgrant.Set{Lines: grant}.Norm()
 	}
-	if _, err := o.hostgrant.Approve(ctx, stackID, userID, ask); err != nil {
+	err = o.store.Tx(ctx, func(tx store.Tx) error {
+		if _, err := hostgrant.New(tx.HostGrants).Approve(ctx, stackID, userID, ask); err != nil {
+			return err
+		}
+		return audit(tx).Append(ctx, securitylog.Event{
+			Action: securitylog.GrantApprove, ActorID: userID, TargetKind: "stack", TargetID: stackID,
+			Detail: strings.Join(ask.Lines, "\n"),
+		})
+	})
+	if err != nil {
 		return HostGrant{}, err
 	}
 	o.rerouteVIPsAsync(ctx) // lan access starts now
@@ -155,9 +166,18 @@ func (o *Orchestrator) ApproveHostGrant(ctx context.Context, stackID, userID str
 
 // RevokeHostGrant (server admin) removes one tile's lines from the stack's
 // grant, or the whole grant when tileSlug is "". Running tiles stay up; the
-// next deploy or promote that needs the access parks again.
-func (o *Orchestrator) RevokeHostGrant(ctx context.Context, stackID, tileSlug string) error {
-	if err := o.hostgrant.Revoke(ctx, stackID, tileSlug); err != nil {
+// next deploy or promote that needs the access parks again. actorID is the
+// admin revoking, for the security log.
+func (o *Orchestrator) RevokeHostGrant(ctx context.Context, stackID, tileSlug, actorID string) error {
+	err := o.store.Tx(ctx, func(tx store.Tx) error {
+		if err := hostgrant.New(tx.HostGrants).Revoke(ctx, stackID, tileSlug); err != nil {
+			return err
+		}
+		return audit(tx).Append(ctx, securitylog.Event{
+			Action: securitylog.GrantRevoke, ActorID: actorID, TargetKind: "stack", TargetID: stackID, Detail: tileSlug,
+		})
+	})
+	if err != nil {
 		return err
 	}
 	o.rerouteVIPsAsync(ctx) // cut LAN access now, not at the next deploy

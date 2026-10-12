@@ -42,7 +42,7 @@ func (w *world) runCount(t *testing.T, id string) int {
 // function's run queued: it would block every later run of it.
 func TestRunFirstUnsetLeavesNoQueuedRow(t *testing.T) {
 	w := newWorld(t)
-	ctx := withRanFirst(context.Background(), time.Time{})
+	ctx := withRanFirst(ctlCtx(t, w.orch), time.Time{})
 	fn := w.onDeployFn(t, `{"T":"${{ params.app.token }}"}`)
 	err := w.orch.runFirst(ctx, fn.ID, io.Discard)
 	if _, ok := errs.IsUnset(err); !ok {
@@ -70,7 +70,7 @@ func TestInterruptedClosesQueuedRunWithoutJob(t *testing.T) {
 // Two dependents on one function run it once in a deploy.
 func TestRunFirstOnceForTwoDependents(t *testing.T) {
 	w := newWorld(t)
-	ctx := withRanFirst(context.Background(), time.Time{})
+	ctx := withRanFirst(ctlCtx(t, w.orch), time.Time{})
 	fn := w.onDeployFn(t, "")
 	must(t, w.orch.runFirst(ctx, fn.ID, io.Discard))
 	must(t, w.orch.runFirst(ctx, fn.ID, io.Discard))
@@ -85,8 +85,8 @@ func TestRunFirstResumeDoesNotRerun(t *testing.T) {
 	w := newWorld(t)
 	since := time.Now().Add(-time.Minute)
 	fn := w.onDeployFn(t, "")
-	must(t, w.orch.runFirst(withRanFirst(context.Background(), since), fn.ID, io.Discard))
-	must(t, w.orch.runFirst(withRanFirst(context.Background(), since), fn.ID, io.Discard))
+	must(t, w.orch.runFirst(withRanFirst(ctlCtx(t, w.orch), since), fn.ID, io.Discard))
+	must(t, w.orch.runFirst(withRanFirst(ctlCtx(t, w.orch), since), fn.ID, io.Discard))
 	if n := w.runCount(t, fn.ID); n != 1 {
 		t.Fatalf("runs = %d, want 1", n)
 	}
@@ -95,7 +95,7 @@ func TestRunFirstResumeDoesNotRerun(t *testing.T) {
 // A run of the function already going is waited for, not a conflict.
 func TestRunFirstWaitsForAnActiveRun(t *testing.T) {
 	w := newWorld(t)
-	ctx := withRanFirst(context.Background(), time.Time{})
+	ctx := withRanFirst(ctlCtx(t, w.orch), time.Time{})
 	fn := w.onDeployFn(t, "")
 	going, err := w.orch.runs.Start(ctx, fn.ID, nil, lrun.Manual)
 	must(t, err)

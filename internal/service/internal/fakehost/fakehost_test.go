@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"testing"
@@ -19,8 +20,17 @@ func TestStateSurvivesReload(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := d.EnsureNetwork(ctx, "env-a", nil); err != nil {
+	if err := d.EnsureNetwork(ctx, "env-a", netip.Prefix{}, nil); !errors.Is(err, docker.ErrNeedsSubnet) {
+		t.Fatalf("no subnet: %v", err)
+	}
+	if err := d.EnsureNetwork(ctx, "env-a", netip.MustParsePrefix("10.213.0.0/24"), nil); err != nil {
 		t.Fatal(err)
+	}
+	if err := d.EnsureNetwork(ctx, "env-b", netip.MustParsePrefix("10.213.0.0/24"), nil); !errors.Is(err, docker.ErrSubnetTaken) {
+		t.Fatalf("taken subnet: %v", err)
+	}
+	if used, err := d.UsedSubnets(ctx); err != nil || len(used) != 1 || used[0].String() != "10.213.0.0/24" {
+		t.Fatalf("used = %v, %v", used, err)
 	}
 	id, err := d.Run(ctx, docker.ContainerSpec{Name: "web", Image: "nginx", Networks: []docker.NetAttach{{Name: "env-a"}}})
 	if err != nil {

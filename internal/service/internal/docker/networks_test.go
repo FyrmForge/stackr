@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -24,24 +25,41 @@ func prefixes(ss ...string) []netip.Prefix {
 	return out
 }
 
-func TestFirstFreeSubnet(t *testing.T) {
+var rng213 = netip.MustParsePrefix("10.213.0.0/16")
+
+func TestFirstFree(t *testing.T) {
 	for name, tc := range map[string]struct {
+		rng  string
 		used []string
 		want string
 	}{
-		"empty":         {nil, "10.213.0.0/24"},
-		"skips used":    {[]string{"10.213.0.0/24", "10.213.1.0/24"}, "10.213.2.0/24"},
-		"wider overlap": {[]string{"10.213.0.0/23"}, "10.213.2.0/24"},
-		"host address":  {[]string{"10.213.0.7/32"}, "10.213.1.0/24"},
-		"gap is reused": {[]string{"10.213.0.0/24", "10.213.2.0/24"}, "10.213.1.0/24"},
-		"foreign nets":  {[]string{"172.17.0.0/16", "10.0.0.0/24"}, "10.213.0.0/24"},
-		"ipv6 ignored":  {[]string{"fd00::/64"}, "10.213.0.0/24"},
-		"last block":    {[]string{"10.213.0.0/17", "10.213.128.0/18", "10.213.192.0/19", "10.213.224.0/20", "10.213.240.0/21", "10.213.248.0/22", "10.213.252.0/23", "10.213.254.0/24"}, "10.213.255.0/24"},
+		"empty":         {"10.213.0.0/16", nil, "10.213.0.0/24"},
+		"skips used":    {"10.213.0.0/16", []string{"10.213.0.0/24", "10.213.1.0/24"}, "10.213.2.0/24"},
+		"wider overlap": {"10.213.0.0/16", []string{"10.213.0.0/23"}, "10.213.2.0/24"},
+		"host address":  {"10.213.0.0/16", []string{"10.213.0.7/32"}, "10.213.1.0/24"},
+		"gap is reused": {"10.213.0.0/16", []string{"10.213.0.0/24", "10.213.2.0/24"}, "10.213.1.0/24"},
+		"foreign nets":  {"10.213.0.0/16", []string{"172.17.0.0/16", "10.0.0.0/24"}, "10.213.0.0/24"},
+		"ipv6 ignored":  {"10.213.0.0/16", []string{"fd00::/64"}, "10.213.0.0/24"},
+		"last block": {"10.213.0.0/16", []string{
+			"10.213.0.0/17", "10.213.128.0/18", "10.213.192.0/19", "10.213.224.0/20",
+			"10.213.240.0/21", "10.213.248.0/22", "10.213.252.0/23", "10.213.254.0/24",
+		}, "10.213.255.0/24"},
+		// A range other than 10.213: a worker's own /16, and the whole supernet.
+		"worker range":  {"10.209.0.0/16", []string{"10.209.0.0/24", "10.213.0.0/24"}, "10.209.1.0/24"},
+		"other node":    {"10.209.0.0/16", []string{"10.213.0.0/16"}, "10.209.0.0/24"},
+		"supernet":      {"10.208.0.0/12", []string{"10.208.0.0/16", "10.209.0.0/16"}, "10.210.0.0/24"},
+		"unaligned arg": {"10.209.7.9/16", nil, "10.209.0.0/24"},
 	} {
-		got, ok := firstFreeSubnet(prefixes(tc.used...))
+		got, ok := FirstFree(netip.MustParsePrefix(tc.rng), prefixes(tc.used...))
 		if !ok || got.String() != tc.want {
 			t.Errorf("%s: got %v %v, want %s", name, got, ok, tc.want)
 		}
+	}
+	if _, ok := FirstFree(netip.MustParsePrefix("10.209.0.0/16"), prefixes("10.209.0.0/16")); ok {
+		t.Error("a full range yielded a block")
+	}
+	if _, ok := FirstFree(netip.MustParsePrefix("10.209.0.0/25"), nil); ok {
+		t.Error("a range narrower than a network yielded a block")
 	}
 }
 
@@ -79,47 +97,8 @@ func TestUsedSubnets(t *testing.T) {
 
 	// A host /16 on the range leaves no block.
 	full := &net.IPNet{IP: net.ParseIP("10.213.0.5"), Mask: net.CIDRMask(16, 32)}
-	if _, ok := firstFreeSubnet(usedSubnets(nil, []net.Addr{full})); ok {
+	if _, ok := FirstFree(rng213, usedSubnets(nil, []net.Addr{full})); ok {
 		t.Error("a host /16 on the range should leave no block")
-	}
-}
-
-func TestCreateInFreeSubnet(t *testing.T) {
-	// Full range: plain error, create never called.
-	called := false
-	err := createInFreeSubnet(prefixes("10.213.0.0/16"), func(netip.Prefix) error { called = true; return nil })
-	if !errors.Is(err, errNoSubnet) || called {
-		t.Fatalf("full range: err=%v called=%v", err, called)
-	}
-	if want := "no free network space in 10.213.0.0/16 for a new environment; remove one, or move the host off that range"; err.Error() != want {
-		t.Errorf("message = %q", err)
-	}
-
-	// Refused overlaps move on to the next block.
-	var tried []string
-	overlap := errors.New("Error response from daemon: invalid pool request: Pool overlaps with other one on this address space")
-	err = createInFreeSubnet(nil, func(p netip.Prefix) error {
-		tried = append(tried, p.String())
-		if len(tried) < 3 {
-			return overlap
-		}
-		return nil
-	})
-	if err != nil || len(tried) != 3 || tried[2] != "10.213.2.0/24" {
-		t.Fatalf("retry: err=%v tried=%v", err, tried)
-	}
-
-	// Other errors stop at once.
-	n := 0
-	boom := errors.New("daemon down")
-	if err = createInFreeSubnet(nil, func(netip.Prefix) error { n++; return boom }); !errors.Is(err, boom) || n != 1 {
-		t.Errorf("hard error: err=%v n=%d", err, n)
-	}
-
-	// Endless overlaps give up after subnetTries.
-	n = 0
-	if err = createInFreeSubnet(nil, func(netip.Prefix) error { n++; return overlap }); !errors.Is(err, overlap) || n != subnetTries {
-		t.Errorf("give up: err=%v n=%d", err, n)
 	}
 }
 
@@ -175,67 +154,143 @@ func fakeDaemon(t *testing.T, list []network.Summary, create func(n int) (int, s
 	return &Client{cli: cli}, &offered
 }
 
-// firstHostFree is the block EnsureNetwork should pick on an otherwise empty
-// daemon, whatever this machine's interfaces hold.
-func firstHostFree(t *testing.T, used ...netip.Prefix) string {
-	t.Helper()
-	addrs, _ := net.InterfaceAddrs()
-	p, ok := firstFreeSubnet(append(usedSubnets(nil, addrs), used...))
-	if !ok {
-		t.Skip("host interfaces cover the whole range")
-	}
-	return p.String()
-}
-
 func TestEnsureNetwork(t *testing.T) {
 	ctx := context.Background()
+	sub := netip.MustParsePrefix("10.209.4.0/24")
+	created := func(int) (int, string) { return http.StatusCreated, "" }
 
-	// A free range: the first block goes in the create's IPAM config.
-	cli, offered := fakeDaemon(t, nil, func(int) (int, string) { return http.StatusCreated, "" })
-	if err := cli.EnsureNetwork(ctx, "env-a", nil); err != nil {
+	// The given subnet, and only it, goes in the create's IPAM config.
+	cli, offered := fakeDaemon(t, nil, created)
+	if err := cli.EnsureNetwork(ctx, "env-a", sub, nil); err != nil {
 		t.Fatal(err)
 	}
-	if want := firstHostFree(t); len(*offered) != 1 || (*offered)[0] != want {
-		t.Errorf("offered %v, want [%s]", *offered, want)
-	}
-
-	// Docker's subnets are skipped, and a refused overlap (403 with a JSON
-	// message, as the daemon sends it) moves to the next block.
-	taken := []network.Summary{{Name: "other", IPAM: network.IPAM{Config: []network.IPAMConfig{{Subnet: "10.213.0.0/24"}}}}}
-	cli, offered = fakeDaemon(t, taken, func(n int) (int, string) {
-		if n == 1 {
-			return http.StatusForbidden, "invalid pool request: Pool overlaps with other one on this address space"
-		}
-		return http.StatusCreated, ""
-	})
-	if err := cli.EnsureNetwork(ctx, "env-a", nil); err != nil {
-		t.Fatal(err)
-	}
-	if len(*offered) != 2 || (*offered)[0] == (*offered)[1] || (*offered)[0] == "10.213.0.0/24" {
+	if len(*offered) != 1 || (*offered)[0] != "10.209.4.0/24" {
 		t.Errorf("offered %v", *offered)
 	}
 
-	// A network of that exact name exists: nothing is created. A longer name
-	// containing it does not count.
-	cli, offered = fakeDaemon(t, []network.Summary{{Name: "env-a"}}, func(int) (int, string) { return http.StatusCreated, "" })
-	if err := cli.EnsureNetwork(ctx, "env-a", nil); err != nil || len(*offered) != 0 {
+	// No subnet and no such network: Docker is never asked to pick one.
+	cli, offered = fakeDaemon(t, nil, created)
+	if err := cli.EnsureNetwork(ctx, "env-a", netip.Prefix{}, nil); !errors.Is(err, ErrNeedsSubnet) || len(*offered) != 0 {
+		t.Errorf("no subnet: err=%v offered=%v", err, *offered)
+	}
+
+	// A refused overlap (403 with a JSON message, as the daemon sends it) is
+	// ErrSubnetTaken, so the caller reserves another block.
+	cli, _ = fakeDaemon(t, nil, func(int) (int, string) {
+		return http.StatusForbidden, "invalid pool request: Pool overlaps with other one on this address space"
+	})
+	if err := cli.EnsureNetwork(ctx, "env-a", sub, nil); !errors.Is(err, ErrSubnetTaken) {
+		t.Errorf("overlap: %v", err)
+	}
+
+	// A network of that exact name exists: nothing is created, with or
+	// without a subnet. A longer name containing it does not count.
+	cli, offered = fakeDaemon(t, []network.Summary{{Name: "env-a"}}, created)
+	if err := cli.EnsureNetwork(ctx, "env-a", netip.Prefix{}, nil); err != nil || len(*offered) != 0 {
 		t.Errorf("existing: err=%v offered=%v", err, *offered)
 	}
-	cli, offered = fakeDaemon(t, []network.Summary{{Name: "env-a-2"}}, func(int) (int, string) { return http.StatusCreated, "" })
-	if err := cli.EnsureNetwork(ctx, "env-a", nil); err != nil || len(*offered) != 1 {
+	cli, offered = fakeDaemon(t, []network.Summary{{Name: "env-a-2"}}, created)
+	if err := cli.EnsureNetwork(ctx, "env-a", sub, nil); err != nil || len(*offered) != 1 {
 		t.Errorf("substring: err=%v offered=%v", err, *offered)
 	}
 
 	// A concurrent create of the same name is success.
 	cli, _ = fakeDaemon(t, nil, func(int) (int, string) { return http.StatusConflict, "network with name env-a already exists" })
-	if err := cli.EnsureNetwork(ctx, "env-a", nil); err != nil {
+	if err := cli.EnsureNetwork(ctx, "env-a", sub, nil); err != nil {
 		t.Errorf("already exists: %v", err)
 	}
+}
 
-	// A full range is the plain error and creates nothing.
-	full := []network.Summary{{IPAM: network.IPAM{Config: []network.IPAMConfig{{Subnet: "10.213.0.0/16"}}}}}
-	cli, offered = fakeDaemon(t, full, func(int) (int, string) { return http.StatusCreated, "" })
-	if err := cli.EnsureNetwork(ctx, "env-a", nil); !errors.Is(err, errNoSubnet) || len(*offered) != 0 {
-		t.Errorf("full: err=%v offered=%v", err, *offered)
+func TestUsedSubnetsFromDaemon(t *testing.T) {
+	cli, _ := fakeDaemon(t, []network.Summary{
+		{IPAM: network.IPAM{Config: []network.IPAMConfig{{Subnet: "10.209.4.0/24"}}}},
+	}, func(int) (int, string) { return http.StatusCreated, "" })
+	used, err := cli.UsedSubnets(context.Background())
+	if err != nil || !slices.Contains(used, netip.MustParsePrefix("10.209.4.0/24")) {
+		t.Fatalf("used = %v, %v", used, err)
+	}
+}
+
+// netFake is a Networker over a map, enough to drive EnsureReserved.
+type netFake struct {
+	nets     map[string]netip.Prefix
+	used     []netip.Prefix
+	taken    map[string]bool // subnets Docker refuses though used does not list them
+	attempts []string
+}
+
+func (f *netFake) EnsureNetwork(_ context.Context, name string, sub netip.Prefix, _ map[string]string) error {
+	if _, ok := f.nets[name]; ok {
+		return nil
+	}
+	if !sub.IsValid() {
+		return ErrNeedsSubnet
+	}
+	f.attempts = append(f.attempts, sub.String())
+	if f.taken[sub.String()] {
+		return ErrSubnetTaken
+	}
+	f.nets[name] = sub
+	return nil
+}
+
+func (f *netFake) UsedSubnets(context.Context) ([]netip.Prefix, error) { return f.used, nil }
+
+// pickFrom reserves from one node's range the way leaf/node does.
+type pickFrom map[string]netip.Prefix
+
+func (p pickFrom) Reserve(_ context.Context, node string, used []netip.Prefix) (netip.Prefix, error) {
+	b, ok := FirstFree(p[node], used)
+	if !ok {
+		return b, errors.New("full")
+	}
+	return b, nil
+}
+
+func TestEnsureReserved(t *testing.T) {
+	ranges := pickFrom{"w1": netip.MustParsePrefix("10.209.0.0/16")}
+	ctx := WithNode(context.Background(), "w1")
+	f := &netFake{
+		nets:  map[string]netip.Prefix{},
+		used:  prefixes("10.209.0.0/24"),
+		taken: map[string]bool{"10.209.2.0/24": true},
+	}
+
+	// Docker's networks, the caller's known blocks and a block Docker refuses
+	// are all stepped over; commit sees each offer before the create.
+	var committed []string
+	p, err := EnsureReserved(ctx, f, ranges, "env-a", nil, prefixes("10.209.1.0/24"), func(p netip.Prefix) error {
+		committed = append(committed, p.String())
+		return nil
+	})
+	if err != nil || p.String() != "10.209.3.0/24" || f.nets["env-a"] != p {
+		t.Fatalf("p=%v err=%v nets=%v", p, err, f.nets)
+	}
+	if strings.Join(committed, ",") != "10.209.2.0/24,10.209.3.0/24" {
+		t.Errorf("committed %v", committed)
+	}
+
+	// Already there: nothing reserved, the zero prefix.
+	p, err = EnsureReserved(ctx, f, ranges, "env-a", nil, nil, func(netip.Prefix) error {
+		t.Error("commit on an existing network")
+		return nil
+	})
+	if err != nil || p.IsValid() {
+		t.Errorf("existing: p=%v err=%v", p, err)
+	}
+
+	// No node in the context is an error, not a guess.
+	if _, err := EnsureReserved(context.Background(), f, ranges, "env-b", nil, nil, nil); !errors.Is(err, ErrNoNode) {
+		t.Errorf("no node: %v", err)
+	}
+
+	// Endless refusals give up after subnetTries offers.
+	f = &netFake{nets: map[string]netip.Prefix{}, taken: map[string]bool{}}
+	for i := range 20 {
+		f.taken[netip.PrefixFrom(netip.AddrFrom4([4]byte{10, 209, byte(i), 0}), 24).String()] = true
+	}
+	if _, err := EnsureReserved(ctx, f, ranges, "env-c", nil, nil, nil); !errors.Is(err, ErrSubnetTaken) ||
+		len(f.attempts) != subnetTries {
+		t.Errorf("give up: err=%v attempts=%v", err, f.attempts)
 	}
 }

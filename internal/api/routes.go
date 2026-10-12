@@ -209,6 +209,7 @@ func routes(h *v1.H) []Route {
 		{POST, "/admin/users/:user/enable", "admin.user-enable", "user.admin", h.EnableUser()},
 		{PUT, "/admin/users/:user/password", "admin.user-password", "user.admin", h.SetPassword()},
 		{POST, "/admin/keys", "admin.key-mint", "user.admin", h.MintUnboundKey()},
+		{GET, "/admin/security-log", "admin.security-log", "audit.read", h.SecurityLog()},
 		{GET, "/admin/host-grants", "admin.host-grants", "admin.read", h.HostGrants()},
 		{GET, "/admin/images", "admin.images", "admin.read", h.Images()},
 		{POST, "/admin/image-check", "admin.image-check", "container.admin", h.CheckAllImages()},

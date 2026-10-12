@@ -3,12 +3,14 @@ package vip
 import (
 	"context"
 	"net/netip"
+	"slices"
 	"strings"
 	"testing"
 )
 
 var testBase = Base{
 	Range:     netip.MustParsePrefix("10.213.0.0/16"),
+	Cluster:   netip.MustParsePrefix("10.208.0.0/12"),
 	Resolvers: []string{"192.168.1.1"},
 	ProxyIP:   "172.17.0.2",
 	Front:     []string{"192.168.1.100", "173.245.48.0/20"},
@@ -29,9 +31,13 @@ func TestRenderFilter(t *testing.T) {
 	want := `*filter
 :STACKR-FWD - [0:0]
 :STACKR-IN - [0:0]
+:STACKR-XN - [0:0]
 -A STACKR-FWD -m conntrack ! --ctstate NEW -j RETURN
 -A STACKR-FWD ! -s 10.213.0.0/16 -j RETURN
 -A STACKR-FWD -d 10.213.0.0/16 -j RETURN
+-A STACKR-FWD -j STACKR-XN
+-A STACKR-FWD -d 10.208.0.0/12 -j DROP
+-A STACKR-FWD -d 10.207.255.0/24 -j DROP
 -A STACKR-FWD -d 192.168.1.1/32 -p udp --dport 53 -j RETURN
 -A STACKR-FWD -d 192.168.1.1/32 -p tcp --dport 53 -j RETURN
 -A STACKR-FWD -d 172.17.0.2/32 -p tcp -m multiport --dports 80,443 -j ACCEPT
@@ -51,6 +57,8 @@ func TestRenderFilter(t *testing.T) {
 -A STACKR-IN -i lo -j RETURN
 -A STACKR-IN -s 10.213.0.0/16 -d 192.168.1.1/32 -p udp --dport 53 -j RETURN
 -A STACKR-IN -s 10.213.0.0/16 -d 192.168.1.1/32 -p tcp --dport 53 -j RETURN
+-A STACKR-IN -s 10.213.0.0/16 -d 10.208.0.0/12 -j DROP
+-A STACKR-IN -s 10.213.0.0/16 -d 10.207.255.0/24 -j DROP
 -A STACKR-IN -s 10.213.1.3/32 -d 192.168.1.10/32 -p tcp --dport 8123 -j RETURN
 -A STACKR-IN -s 10.213.1.3/32 -d 192.168.1.10/32 -p udp --dport 8123 -j RETURN
 -A STACKR-IN -s 10.213.1.4/32 -d 192.168.1.10/32 -p tcp --dport 8123 -j RETURN
@@ -77,7 +85,7 @@ func TestFilterTable(t *testing.T) {
 	tb.Exec = func(_ context.Context, argv ...string) error {
 		j := strings.Join(argv, " ")
 		argvs = append(argvs, j)
-		if argv[1] == "-D" {
+		if has(argv, "-D") {
 			if deleted[j] {
 				return context.Canceled
 			}
@@ -127,9 +135,14 @@ func TestFilterTable(t *testing.T) {
 	}
 
 	// Jumps are asserted at position 1: missing or displaced is re-inserted.
-	want := "iptables -D FORWARD -j STACKR-FWD\niptables -D FORWARD -j STACKR-FWD\niptables -D DOCKER-USER -j STACKR-FWD\niptables -D DOCKER-USER -j STACKR-FWD\niptables -I DOCKER-USER 1 -j STACKR-FWD\n" +
-		"iptables -D INPUT -j STACKR-IN\niptables -D INPUT -j STACKR-IN\niptables -I INPUT 1 -j STACKR-IN"
-	if got := strings.Join(argvs[len(argvs)-8:], "\n"); got != want {
+	want := strings.Join([]string{
+		"iptables -D FORWARD -j STACKR-FWD", "iptables -D FORWARD -j STACKR-FWD",
+		"iptables -t raw -D PREROUTING -j STACKR-RAW", "iptables -t raw -D PREROUTING -j STACKR-RAW", "iptables -t raw -I PREROUTING 1 -j STACKR-RAW",
+		"iptables -t nat -D POSTROUTING -j STACKR-NAT", "iptables -t nat -D POSTROUTING -j STACKR-NAT", "iptables -t nat -I POSTROUTING 1 -j STACKR-NAT",
+		"iptables -D DOCKER-USER -j STACKR-FWD", "iptables -D DOCKER-USER -j STACKR-FWD", "iptables -I DOCKER-USER 1 -j STACKR-FWD",
+		"iptables -D INPUT -j STACKR-IN", "iptables -D INPUT -j STACKR-IN", "iptables -I INPUT 1 -j STACKR-IN",
+	}, "\n")
+	if got := strings.Join(argvs[len(argvs)-14:], "\n"); got != want {
 		t.Fatalf("jumps:\n%s", got)
 	}
 	argvs = nil
@@ -185,7 +198,7 @@ func TestFilterJumpFallsBackToForward(t *testing.T) {
 	tb.Restore = func(context.Context, string) error { return nil }
 	tb.Exec = func(_ context.Context, argv ...string) error {
 		argvs = append(argvs, strings.Join(argv, " "))
-		if argv[1] == "-S" || argv[1] == "-D" {
+		if has(argv, "-S") || has(argv, "-D") {
 			return context.Canceled
 		}
 		return nil
@@ -206,7 +219,7 @@ func TestAllowEarlyLan(t *testing.T) {
 	tb := New()
 	tb.Restore = func(_ context.Context, s string) error { scripts = append(scripts, s); return nil }
 	tb.Exec = func(_ context.Context, argv ...string) error {
-		if argv[1] == "-D" {
+		if has(argv, "-D") {
 			return context.Canceled
 		}
 		return nil
@@ -262,3 +275,7 @@ func TestMergeDrops(t *testing.T) {
 		t.Fatalf("merge:\n%s", s)
 	}
 }
+
+// has reports whether argv carries the word w; a -t table flag shifts the
+// positions, so stubs look for the verb instead of indexing.
+func has(argv []string, w string) bool { return slices.Contains(argv, w) }

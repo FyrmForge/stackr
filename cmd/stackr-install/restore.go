@@ -90,8 +90,18 @@ func restore(ctx context.Context, args []string, out io.Writer) error {
 	}
 	_ = os.Remove(db + "-wal")
 	_ = os.Remove(db + "-shm")
-	for _, name := range []string{"stackr.db", installspec.KeyFile} {
-		if err := os.Rename(filepath.Join(stage, name), filepath.Join(dataDir, name)); err != nil {
+	for _, m := range installspec.PanelState {
+		if !m.OnDisk {
+			continue
+		}
+		src := filepath.Join(stage, m.Name)
+		if _, err := os.Stat(src); m.Optional && errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err := os.MkdirAll(filepath.Dir(filepath.Join(dataDir, m.Name)), 0o700); err != nil {
+			return err
+		}
+		if err := os.Rename(src, filepath.Join(dataDir, m.Name)); err != nil {
 			return err
 		}
 	}
@@ -168,11 +178,11 @@ func untarScript(dir string) string {
 func dropStage(stage string) error { return os.RemoveAll(stage) }
 
 // caddyMember is the proxy volume's tar inside a panel archive.
-const caddyMember = "caddy.tar.gz"
+const caddyMember = installspec.CaddyMember
 
 // unpack decrypts a panel archive into dir and returns the build it names.
-// Only the names a panel archive holds are accepted; the proxy volume's tar
-// is optional (older archives have none).
+// Only the members of installspec.PanelState are accepted; the optional ones
+// (cluster keys, the proxy volume's tar) may be missing.
 func unpack(src io.Reader, pass, dir string) (string, error) {
 	id, err := age.NewScryptIdentity(pass)
 	if err != nil {
@@ -189,8 +199,14 @@ func unpack(src io.Reader, pass, dir string) (string, error) {
 	if err := os.MkdirAll(filepath.Join(dir, "keys"), 0o700); err != nil {
 		return "", err
 	}
-	want := map[string]os.FileMode{"stackr.db": 0o600, installspec.KeyFile: 0o600, "VERSION": 0o644}
-	optional := map[string]os.FileMode{caddyMember: 0o600}
+	want, optional := map[string]os.FileMode{}, map[string]os.FileMode{}
+	for _, m := range installspec.PanelState {
+		if m.Optional {
+			optional[m.Name] = os.FileMode(m.Mode)
+		} else {
+			want[m.Name] = os.FileMode(m.Mode)
+		}
+	}
 	var version string
 	tr := tar.NewReader(gz)
 	for {

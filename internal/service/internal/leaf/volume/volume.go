@@ -39,6 +39,45 @@ type Leaf struct {
 	volumes store.VolumeStore
 	shares  store.ShareStore // nil until WithShares; network shares live in share.go
 	docker  Docker
+	// Node, when set, is the node a scope's volumes live on: an env's own
+	// node; "" (a stack, an org, a share) is the controller.
+	Node func(ctx context.Context, scopeKind, scopeID string) (nodeID string, err error)
+}
+
+// WithNode sets how the leaf finds the node a scope's volumes live on.
+func (l *Leaf) WithNode(f func(ctx context.Context, scopeKind, scopeID string) (string, error)) *Leaf {
+	l.Node = f
+	return l
+}
+
+// at is ctx for Docker calls on the node v lives on.
+func (l *Leaf) at(ctx context.Context, v store.Volume) (context.Context, error) {
+	if l.Node == nil {
+		return ctx, nil
+	}
+	id, err := l.Node(ctx, v.ScopeKind, v.ScopeID)
+	if err != nil {
+		return ctx, err
+	}
+	return docker.WithNode(ctx, id), nil
+}
+
+// orController keeps the node ctx already names, else the controller's: a
+// share belongs to an org, its volumes to whichever node mounts them.
+// ponytail: a share's volumes on workers are not swept until nodes can be
+// walked from here; deploys create them on the env's node via ctx.
+func (l *Leaf) orController(ctx context.Context) (context.Context, error) {
+	if l.Node == nil {
+		return ctx, nil
+	}
+	if _, ok := docker.NodeFrom(ctx); ok {
+		return ctx, nil
+	}
+	id, err := l.Node(ctx, "", "")
+	if err != nil {
+		return ctx, err
+	}
+	return docker.WithNode(ctx, id), nil
 }
 
 func New(volumes store.VolumeStore, d Docker) *Leaf { return &Leaf{volumes: volumes, docker: d} }
@@ -106,6 +145,10 @@ func (l *Leaf) Declare(
 // ponytail: max_size_mb is recorded, not enforced; the local driver has no
 // quota.
 func (l *Leaf) Ensure(ctx context.Context, v store.Volume) (string, error) {
+	ctx, err := l.at(ctx, v)
+	if err != nil {
+		return v.Name, err
+	}
 	return v.Name, l.docker.CreateVolume(ctx, v.Name, "local", nil, map[string]string{"stackr.volume": v.ID})
 }
 
@@ -137,6 +180,10 @@ func (l *Leaf) Expired(ctx context.Context, retention time.Duration, now time.Ti
 // size Docker cannot tell (-1) or an inspect error counts as data; only a
 // volume that is gone or measured empty does not.
 func (l *Leaf) HoldsData(ctx context.Context, v store.Volume) bool {
+	ctx, err := l.at(ctx, v)
+	if err != nil {
+		return true
+	}
 	info, err := l.docker.InspectVolume(ctx, v.Name)
 	if errors.Is(err, docker.ErrNotFound) {
 		return false
@@ -151,6 +198,10 @@ func (l *Leaf) Delete(ctx context.Context, v store.Volume, mountedBy []string) e
 	if len(mountedBy) > 0 {
 		return errs.Conflictf("detach the volume from %s before deleting it", strings.Join(mountedBy, ", "))
 	}
+	ctx, err := l.at(ctx, v)
+	if err != nil {
+		return err
+	}
 	if err := l.docker.RemoveVolume(ctx, v.Name); err != nil {
 		return err
 	}
@@ -159,6 +210,10 @@ func (l *Leaf) Delete(ctx context.Context, v store.Volume, mountedBy []string) e
 
 // SizeBytes is the volume's uncompressed size; -1 when Docker cannot tell.
 func (l *Leaf) SizeBytes(ctx context.Context, v store.Volume) int64 {
+	ctx, err := l.at(ctx, v)
+	if err != nil {
+		return -1
+	}
 	info, err := l.docker.InspectVolume(ctx, v.Name)
 	if err != nil {
 		return -1
@@ -171,11 +226,19 @@ func (l *Leaf) EnsureTool(ctx context.Context) error { return l.docker.EnsureToo
 
 // Tar streams a gzipped tar of the volume into w.
 func (l *Leaf) Tar(ctx context.Context, v store.Volume, w io.Writer, live bool) error {
+	ctx, err := l.at(ctx, v)
+	if err != nil {
+		return err
+	}
 	return l.docker.TarVolume(ctx, v.Name, w, live)
 }
 
 // Untar WIPES the volume and extracts src into it. The caller verifies the
 // archive first: there is no way back from the wipe.
 func (l *Leaf) Untar(ctx context.Context, v store.Volume, src io.Reader) error {
+	ctx, err := l.at(ctx, v)
+	if err != nil {
+		return err
+	}
 	return l.docker.UntarVolume(ctx, v.Name, src)
 }

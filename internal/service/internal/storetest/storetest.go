@@ -5,6 +5,7 @@
 package storetest
 
 import (
+	"context"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -12,6 +13,7 @@ import (
 	"github.com/FyrmForge/hamr/pkg/db/sqlite"
 
 	appdb "github.com/FyrmForge/stackr/internal/db"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/node"
 	"github.com/FyrmForge/stackr/internal/service/internal/secrets"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
@@ -46,4 +48,15 @@ func Open(t *testing.T, path string) *store.Store {
 		t.Fatal(err)
 	}
 	return store.New(db, box)
+}
+
+// Controller is the controller node row of st, made when missing, as the boot
+// path does. An env fixture that bypasses the env leaf puts its ID in node_id.
+func Controller(t *testing.T, st *store.Store) store.Node {
+	t.Helper()
+	n, err := node.New(st.Nodes).Controller(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return n
 }

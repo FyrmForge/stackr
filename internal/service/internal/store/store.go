@@ -34,6 +34,7 @@ type Tables struct {
 	Users            UserStore
 	Sessions         SessionStore
 	APIKeys          APIKeyStore
+	Nodes            NodeStore
 	Orgs             OrgStore
 	OrgPlans         OrgPlanStore
 	ServerPlans      ServerPlanStore
@@ -66,6 +67,11 @@ type Tables struct {
 	Runs             RunStore
 	Positions        PositionStore
 	Annotations      AnnotationStore
+	SecurityEvents   SecurityEventStore
+	NodeCerts        NodeCertStore
+	ExitLadders      ExitLadderStore
+	RegistryTokens   RegistryTokenStore
+	Moves            MoveStore
 }
 
 func bind(q querier, box *secrets.Box) Tables {
@@ -73,6 +79,7 @@ func bind(q querier, box *secrets.Box) Tables {
 		Users:            users{crud[User]{q, box, usersT}},
 		Sessions:         sessions{q},
 		APIKeys:          apiKeys{crud[APIKey]{q, box, apiKeysT}},
+		Nodes:            nodes{crud[Node]{q, box, nodesT}},
 		Orgs:             orgs{crud[Org]{q, box, orgsT}},
 		OrgPlans:         orgPlans{crud[OrgPlan]{q, box, orgPlansT}},
 		ServerPlans:      serverPlans{crud[ServerPlan]{q, box, serverPlansT}},
@@ -105,6 +112,11 @@ func bind(q querier, box *secrets.Box) Tables {
 		Runs:             runs{crud[Run]{q, box, runsT}},
 		Positions:        positions{q},
 		Annotations:      annotations{crud[Annotation]{q, box, annotationsT}},
+		SecurityEvents:   securityEvents{crud[SecurityEvent]{q, box, securityEventsT}},
+		NodeCerts:        nodeCerts{q},
+		ExitLadders:      exitLadders{q},
+		RegistryTokens:   registryTokens{crud[RegistryToken]{q, box, registryTokensT}},
+		Moves:            moves{crud[EnvMove]{q, box, movesT}},
 	}
 }
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"maps"
 	"net"
 	"net/netip"
@@ -14,24 +15,33 @@ import (
 	"github.com/docker/docker/api/types/network"
 )
 
-// EnvRange is the pool stackr carves its networks from, one /24 each.
-// Docker's own default pools run out near 30 networks.
-// ponytail: 256 networks; widen the range (or the prefix) when a box needs more.
-var EnvRange = netip.MustParsePrefix("10.213.0.0/16")
-
 const (
-	subnetBits  = 24
-	subnetTries = 5 // picks per create, when concurrent creates race for a block
+	// NetBits is the size of one stackr network; a node's range is cut into
+	// them (leaf/node reserves, never Docker). Docker's own default pools
+	// run out near 30 networks.
+	NetBits = 24
+	// rangeBits is the prefix length of a node range: a host interface at least
+	// this narrow sits inside one, so it blocks its whole subnet; a wider one
+	// (a 10.0.0.0/8 LAN, loopback) blocks only the host's own address.
+	rangeBits = 16
 )
 
-var errNoSubnet = errors.New("no free network space in 10.213.0.0/16 for a new environment; remove one, or move the host off that range")
+var (
+	// ErrNeedsSubnet is EnsureNetwork refusing to invent a subnet: the
+	// network is not there and the caller gave none. Reserve one and ask again.
+	ErrNeedsSubnet = errors.New("docker: network does not exist and no subnet was given")
+	// ErrSubnetTaken is Docker refusing a subnet as an overlap: something
+	// else holds it that the caller's list did not show.
+	ErrSubnetTaken = errors.New("docker: subnet is taken")
+)
 
-// EnsureNetwork creates a plain bridge network carrying labels on the first
-// free /24 of EnvRange; one that already exists is fine (its labels and
-// subnet are left as they are).
-func (d *Client) EnsureNetwork(ctx context.Context, name string, labels map[string]string) error {
-	// Every network, not a name filter: the filter is a SUBSTRING match, and
-	// the free-block pick needs every subnet on the host anyway.
+// EnsureNetwork creates a plain bridge network carrying labels on the given
+// subnet, which the caller reserved. One that already exists is fine (its
+// labels and subnet are left as they are), so a zero subnet only asks
+// whether it is there: ErrNeedsSubnet when it is not. Docker refusing the
+// subnet as an overlap is ErrSubnetTaken.
+func (d *Client) EnsureNetwork(ctx context.Context, name string, subnet netip.Prefix, labels map[string]string) error {
+	// Every network, not a name filter: the filter is a SUBSTRING match.
 	nets, err := d.cli.NetworkList(ctx, network.ListOptions{})
 	if err != nil {
 		return err
@@ -39,32 +49,45 @@ func (d *Client) EnsureNetwork(ctx context.Context, name string, labels map[stri
 	if slices.ContainsFunc(nets, func(n network.Summary) bool { return n.Name == name }) {
 		return nil
 	}
+	if !subnet.IsValid() {
+		return ErrNeedsSubnet
+	}
 	all := map[string]string{LabelManaged: "true"}
 	maps.Copy(all, labels)
-	// Failing to read the host's interfaces only loses the host check; Docker
-	// still refuses a block that overlaps one of its own networks.
-	addrs, _ := net.InterfaceAddrs()
-	return createInFreeSubnet(usedSubnets(nets, addrs), func(subnet netip.Prefix) error {
-		_, err := d.cli.NetworkCreate(ctx, name, network.CreateOptions{
-			Driver: "bridge",
-			Labels: all,
-			IPAM:   &network.IPAM{Config: []network.IPAMConfig{{Subnet: subnet.String()}}},
-		})
-		// A concurrent create of the same name reports "already exists";
-		// both callers wanted it.
-		if err != nil && (cerrdefs.IsConflict(err) || strings.Contains(err.Error(), "already exists")) {
-			return nil
-		}
-		return err
+	_, err = d.cli.NetworkCreate(ctx, name, network.CreateOptions{
+		Driver: "bridge",
+		Labels: all,
+		IPAM:   &network.IPAM{Config: []network.IPAMConfig{{Subnet: subnet.Masked().String()}}},
 	})
+	// A concurrent create of the same name reports "already exists"; both
+	// callers wanted it.
+	if err != nil && (cerrdefs.IsConflict(err) || strings.Contains(err.Error(), "already exists")) {
+		return nil
+	}
+	if err != nil && isOverlap(err) {
+		return fmt.Errorf("%w: %v", ErrSubnetTaken, err)
+	}
+	return err
 }
 
-// usedSubnets is every prefix a new network must stay clear of: the subnets
+// UsedSubnets is every prefix a new network must stay clear of: the subnets
 // of all Docker networks (any driver; IPv6 and subnet-less configs are
-// skipped harmlessly) and the addresses of the host's interfaces. An
-// interface network at least as narrow as EnvRange blocks its whole subnet
-// (a route conflict); a wider one (a 10.0.0.0/8 LAN, loopback) and any IPv6
-// address block only the host's own address.
+// skipped harmlessly) and the addresses of this host's interfaces.
+// ponytail: the host's own interfaces only; a remote node's come from its
+// worker facts (step 4 checks every node's reported interfaces).
+func (d *Client) UsedSubnets(ctx context.Context) ([]netip.Prefix, error) {
+	nets, err := d.cli.NetworkList(ctx, network.ListOptions{})
+	if err != nil {
+		return nil, err
+	}
+	// Failing to read the interfaces only loses the host check; Docker still
+	// refuses a block that overlaps one of its own networks.
+	addrs, _ := net.InterfaceAddrs()
+	return usedSubnets(nets, addrs), nil
+}
+
+// usedSubnets is the prefixes of the Docker networks and the interface
+// addresses; see rangeBits for which interfaces block more than their address.
 func usedSubnets(nets []network.Summary, addrs []net.Addr) []netip.Prefix {
 	var used []netip.Prefix
 	for _, n := range nets {
@@ -84,7 +107,7 @@ func usedSubnets(nets []network.Summary, addrs []net.Addr) []netip.Prefix {
 			continue
 		}
 		ip = ip.Unmap()
-		if ones, _ := ipn.Mask.Size(); ip.Is4() && ones >= EnvRange.Bits() {
+		if ones, _ := ipn.Mask.Size(); ip.Is4() && ones >= rangeBits {
 			used = append(used, netip.PrefixFrom(ip, ones).Masked())
 		} else {
 			used = append(used, netip.PrefixFrom(ip, ip.BitLen()))
@@ -93,36 +116,22 @@ func usedSubnets(nets []network.Summary, addrs []net.Addr) []netip.Prefix {
 	return used
 }
 
-// firstFreeSubnet is the first /24 of EnvRange overlapping nothing in used.
-func firstFreeSubnet(used []netip.Prefix) (netip.Prefix, bool) {
-	b := EnvRange.Addr().As4()
+// FirstFree is the first /24 of rng overlapping nothing in used.
+func FirstFree(rng netip.Prefix, used []netip.Prefix) (netip.Prefix, bool) {
+	if !rng.Addr().Is4() || rng.Bits() > NetBits {
+		return netip.Prefix{}, false
+	}
+	rng = rng.Masked()
+	b := rng.Addr().As4()
 	base := binary.BigEndian.Uint32(b[:])
-	for i := range 1 << (subnetBits - EnvRange.Bits()) {
-		binary.BigEndian.PutUint32(b[:], base+uint32(i)<<(32-subnetBits))
-		p := netip.PrefixFrom(netip.AddrFrom4(b), subnetBits)
+	for i := range 1 << (NetBits - rng.Bits()) {
+		binary.BigEndian.PutUint32(b[:], base+uint32(i)<<(32-NetBits))
+		p := netip.PrefixFrom(netip.AddrFrom4(b), NetBits)
 		if !slices.ContainsFunc(used, p.Overlaps) {
 			return p, true
 		}
 	}
 	return netip.Prefix{}, false
-}
-
-// createInFreeSubnet offers create the first free block. Docker refusing it
-// as an overlap (another create won the block) marks it used and tries the
-// next, a few times.
-func createInFreeSubnet(used []netip.Prefix, create func(netip.Prefix) error) error {
-	var err error
-	for range subnetTries {
-		p, ok := firstFreeSubnet(used)
-		if !ok {
-			return errNoSubnet
-		}
-		if err = create(p); err == nil || !isOverlap(err) {
-			return err
-		}
-		used = append(used, p)
-	}
-	return err
 }
 
 // isOverlap matches the refusals for a subnet already taken. Docker sends

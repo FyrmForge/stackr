@@ -42,6 +42,9 @@ func (o *Orchestrator) DialTile(ctx context.Context, tileID, container string, p
 	if err != nil {
 		return nil, 0, err
 	}
+	if ctx, err = o.withEnvNode(ctx, env); err != nil {
+		return nil, 0, err
+	}
 	id, err := o.replica(ctx, tileID, container)
 	if errors.Is(err, errNoContainer) {
 		return nil, 0, errs.Conflictf("tile is not running")

@@ -9,6 +9,10 @@ import (
 // IP is the container's address on network, the guard as Exec: a system
 // container or another tile's is refused.
 func (l *Leaf) IP(ctx context.Context, tileID, id, network string) (string, error) {
+	ctx, err := l.atTile(ctx, tileID)
+	if err != nil {
+		return "", err
+	}
 	if err := l.guard(ctx, tileID, id, "tunnelled into"); err != nil {
 		return "", err
 	}

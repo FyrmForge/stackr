@@ -163,6 +163,10 @@ func (l *Leaf) DeleteShare(ctx context.Context, s store.Share, mountedBy []strin
 	if len(mountedBy) > 0 {
 		return errs.Conflictf("detach the share from %s before deleting it", strings.Join(mountedBy, ", "))
 	}
+	ctx, err := l.orController(ctx)
+	if err != nil {
+		return err
+	}
 	vs, err := l.docker.ListVolumes(ctx, map[string]string{ShareLabel: s.ID})
 	if err != nil {
 		return err
@@ -189,6 +193,9 @@ type ShareUse struct{ Share, Sub string }
 func (l *Leaf) SweepShares(ctx context.Context, orgID string, uses []ShareUse) (held []string, err error) {
 	if l.shares == nil {
 		return nil, nil
+	}
+	if ctx, err = l.orController(ctx); err != nil {
+		return nil, err
 	}
 	ss, err := l.shares.ListByOrg(ctx, orgID)
 	if err != nil {
@@ -283,5 +290,8 @@ func (l *Leaf) EnsureShare(ctx context.Context, s store.Share, sub, user, passwo
 		return "", err
 	}
 	name := ShareVolumeName(s, sub)
+	if ctx, err = l.orController(ctx); err != nil {
+		return name, err
+	}
 	return name, l.docker.CreateVolume(ctx, name, "local", opts, map[string]string{ShareLabel: s.ID})
 }

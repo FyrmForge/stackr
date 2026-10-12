@@ -42,7 +42,7 @@ func (h *handler) mountAccess(g *echo.Group, a *middleware.Access) {
 		if c.QueryParam("tile") == "" { // "" would revoke the whole stack
 			return "", nil, errs.Invalidf("tile", "name a tile")
 		}
-		err := h.orch.RevokeHostGrant(c.Request().Context(), c.QueryParam("stack"), c.QueryParam("tile"))
+		err := h.orch.RevokeHostGrant(c.Request().Context(), c.QueryParam("stack"), c.QueryParam("tile"), middleware.Principal(c).User.ID)
 		return "Access revoked.", nil, err
 	}), approve)
 }

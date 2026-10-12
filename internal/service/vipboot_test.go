@@ -33,7 +33,7 @@ func TestRebuildVIPsKeepsOtherTiles(t *testing.T) {
 	table := vip.New() // the restarted panel's empty table
 	table.Restore = func(_ context.Context, s string) error { scripts = append(scripts, s); return nil }
 	table.Exec = func(_ context.Context, argv ...string) error { // -D finds nothing, like iptables with no jump
-		if argv[1] == "-D" {
+		if slices.Contains(argv, "-D") {
 			return context.Canceled
 		}
 		return nil
@@ -52,7 +52,8 @@ func TestRebuildVIPsKeepsOtherTiles(t *testing.T) {
 	must(t, st.Orgs.Create(ctx, store.Org{ID: org, Name: "acme", Slug: "acme", EnvColors: "{}", Settings: "{}", CreatedAt: now}))
 	must(t, st.Stacks.Create(ctx, store.Stack{ID: stack, OrgID: org, Name: "shop", Slug: "shop", Settings: "{}", CreatedAt: now}))
 	must(t, st.Environments.Create(ctx, store.Environment{
-		ID: env, StackID: stack, Name: "dev", Slug: "dev", Type: "static", Settings: "{}",
+		NodeID: storetest.Controller(t, st).ID,
+		ID:     env, StackID: stack, Name: "dev", Slug: "dev", Type: "static", Settings: "{}",
 		Network: "n", FromKind: "branch", FromBranch: "main", CreatedAt: now,
 	}))
 	tiles := map[string]store.Tile{}
@@ -87,6 +88,20 @@ func TestRebuildVIPsKeepsOtherTiles(t *testing.T) {
 	}
 }
 
+// ctlNode is the controller row of a test panel.
+func ctlNode(t *testing.T, o *Orchestrator) store.Node {
+	t.Helper()
+	n, err := o.nodeLeaf().Controller(context.Background())
+	must(t, err)
+	return n
+}
+
+// ctlCtx is a ctx on the controller, as a job's is.
+func ctlCtx(t *testing.T, o *Orchestrator) context.Context {
+	t.Helper()
+	return docker.WithNode(context.Background(), ctlNode(t, o).ID)
+}
+
 func bootTile(stackID, envID, slug string) store.Tile {
 	return store.Tile{
 		ID: uuid.NewString(), StackID: stackID, EnvironmentID: envID, Name: slug, Slug: slug,
@@ -119,7 +134,7 @@ func newBootRig(t *testing.T) bootRig {
 		return ctx.Err()
 	}
 	table.Exec = func(_ context.Context, argv ...string) error { // -D finds nothing, like iptables with no jump
-		if argv[1] == "-D" {
+		if slices.Contains(argv, "-D") {
 			return context.Canceled
 		}
 		return nil
@@ -138,7 +153,8 @@ func newBootRig(t *testing.T) bootRig {
 	must(t, st.Orgs.Create(ctx, store.Org{ID: org, Name: "acme", Slug: "acme", EnvColors: "{}", Settings: "{}", CreatedAt: now}))
 	must(t, st.Stacks.Create(ctx, store.Stack{ID: stack, OrgID: org, Name: "shop", Slug: "shop", Settings: "{}", CreatedAt: now}))
 	must(t, st.Environments.Create(ctx, store.Environment{
-		ID: env, StackID: stack, Name: "dev", Slug: "dev", Type: "static", Settings: "{}",
+		NodeID: storetest.Controller(t, st).ID,
+		ID:     env, StackID: stack, Name: "dev", Slug: "dev", Type: "static", Settings: "{}",
 		Network: "n", FromKind: "branch", FromBranch: "main", CreatedAt: now,
 	}))
 	r := bootRig{orch: orch, fake: fake, table: table, scripts: scripts, st: st, stack: stack, env: env, tiles: map[string]store.Tile{}}
@@ -300,7 +316,7 @@ func TestLanGrantReachesRulesAndRevokeCutsIt(t *testing.T) {
 		t.Fatalf("ungranted lan line reached the rules:\n%s", s)
 	}
 	*r.scripts = nil
-	must(t, r.orch.RevokeHostGrant(ctx, r.stack, "a"))
+	must(t, r.orch.RevokeHostGrant(ctx, r.stack, "a", ""))
 	r.orch.vipAsync.Wait()
 	if len(*r.scripts) != 1 || strings.Contains(lastScript(r), "192.168.1.50") {
 		t.Fatalf("revoke did not rebuild without the lan rule: %v", *r.scripts)
@@ -342,7 +358,7 @@ func TestVipBaseReadsBothResolvConfs(t *testing.T) {
 	resolvConfs = []string{a, b, dir + "/missing"}
 	t.Cleanup(func() { resolvConfs = old })
 	r := newBootRig(t)
-	got := r.orch.vipBase(context.Background()).Resolvers
+	got := r.orch.vipBase(context.Background(), ctlNode(t, r.orch)).Resolvers
 	if !slices.Equal(got, []string{"192.168.1.1", "9.9.9.9"}) {
 		t.Fatalf("got %v", got)
 	}
@@ -352,7 +368,7 @@ func TestVipBaseReadsBothResolvConfs(t *testing.T) {
 func TestVipBaseExpandsCloudflare(t *testing.T) {
 	r := newBootRig(t)
 	must(t, r.orch.SetSetting(context.Background(), "trusted_proxies", "192.168.1.100,cloudflare"))
-	got := r.orch.vipBase(context.Background()).Front
+	got := r.orch.vipBase(context.Background(), ctlNode(t, r.orch)).Front
 	if len(got) != 1+len(domain.CloudflareV4) || got[0] != "192.168.1.100" || !slices.Contains(got, "173.245.48.0/20") {
 		t.Fatalf("front = %v", got)
 	}
@@ -421,7 +437,7 @@ func TestEarlyLanRules(t *testing.T) {
 func TestVipBasePanelPort(t *testing.T) {
 	r := newBootRig(t)
 	r.orch.cfg.PanelPort = 9191
-	if got := r.orch.vipBase(context.Background()).PanelPort; got != 9191 {
+	if got := r.orch.vipBase(context.Background(), ctlNode(t, r.orch)).PanelPort; got != 9191 {
 		t.Fatalf("panel port %d", got)
 	}
 }
@@ -463,7 +479,7 @@ func TestEarlyLanRevokeAndCrashAtRebuild(t *testing.T) {
 		t.Fatalf("early rules missing:\n%s", s)
 	}
 	must(t, r.fake.Stop(ctx, "rdead")) // crashed, no gate-failure callback
-	must(t, r.orch.RevokeHostGrant(ctx, r.stack, "a"))
+	must(t, r.orch.RevokeHostGrant(ctx, r.stack, "a", ""))
 	r.orch.vipAsync.Wait()
 	if s := lastScript(r); strings.Contains(s, "10.0.0.20") || strings.Contains(s, "10.0.0.21") {
 		t.Fatalf("early rules survived revoke or crash:\n%s", s)
@@ -535,7 +551,7 @@ func TestSweepEarlyOffPathInterleaved(t *testing.T) {
 		}
 	}
 	r.orch.docker = &h
-	r.orch.sweepEarly(ctx)
+	r.orch.sweepEarly(ctx, ctlNode(t, r.orch).ID)
 	if strings.Contains(lastScript(r), "10.0.0.20") {
 		t.Fatalf("sweep re-added a cleared early rule:\n%s", lastScript(r))
 	}

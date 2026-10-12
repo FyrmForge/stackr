@@ -62,6 +62,11 @@ func (h *handler) Page(c echo.Context) error {
 	)
 }
 
+// meta is what the security log keeps of a login request.
+func meta(c echo.Context) service.RequestMeta {
+	return service.RequestMeta{IP: c.RealIP(), UserAgent: c.Request().UserAgent()}
+}
+
 // POST /login
 func (h *handler) Submit(c echo.Context) error {
 	var f LoginForm
@@ -76,7 +81,7 @@ func (h *handler) Submit(c echo.Context) error {
 
 	log := logging.FromContext(c.Request().Context())
 
-	session, err := h.orch.Login(c.Request().Context(), f.Email, f.Password)
+	session, err := h.orch.Login(c.Request().Context(), f.Email, f.Password, meta(c))
 	if _, bad := errs.IsInvalid(err); bad {
 		log.Warn("login failed", "email", f.Email)
 		c.Set(failedKey, true)
@@ -207,6 +212,9 @@ func (h *handler) Limit() echo.MiddlewareFunc {
 				}
 				t.give(addr)
 				reset = resetAcct
+			}
+			if err := h.orch.LoginRefused(c.Request().Context(), c.FormValue("email"), meta(c)); err != nil {
+				return echo.NewHTTPError(http.StatusInternalServerError, "session error")
 			}
 			wait := max(1, int(time.Until(reset).Round(time.Minute).Minutes()))
 			c.Response().Header().Set("Retry-After", strconv.Itoa(int(time.Until(reset).Seconds())+1))

@@ -473,6 +473,10 @@ const panelFixedKeep = 14
 // warning in the log) and keeps panel_backup_keep; a manual one and the
 // pre-upgrade archive stay local and keep panelFixedKeep.
 func (o *Orchestrator) panelBackup(ctx context.Context, log io.Writer, trigger string) (store.BackupRun, error) {
+	ctx, err := o.withController(ctx)
+	if err != nil {
+		return store.BackupRun{}, err
+	}
 	dest, err := o.localDest(ctx)
 	if err != nil {
 		return store.BackupRun{}, err
@@ -515,5 +519,6 @@ func (o *Orchestrator) panelBackup(ctx context.Context, log io.Writer, trigger s
 		Version:    o.cfg.Version,
 		Passphrase: o.cfg.Passphrase,
 		InstallID:  o.cfg.InstallID,
+		DataDir:    o.cfg.DataDir,
 	}, dest, keep, log)
 }

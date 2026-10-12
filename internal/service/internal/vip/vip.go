@@ -183,22 +183,41 @@ func (t *Table) apply(ctx context.Context, next map[string]Entry, base Base) err
 		for t.Exec(ctx, "iptables", "-D", "FORWARD", "-j", FwdChain) == nil {
 		}
 	}
-	for _, h := range [][2]string{{fwd, FwdChain}, {"INPUT", InChain}} {
-		hook, chain := h[0], h[1]
-		// Docker puts its own jumps on top at every daemon start: ours must
-		// be rule 1, so anything else is removed and re-inserted there.
-		out, err := t.Read(ctx, "iptables", "-S", hook, "1")
-		if err == nil && strings.TrimSpace(out) == "-A "+hook+" -j "+chain {
-			continue
-		}
-		// Delete until -D fails: a duplicate jump must not survive.
-		for t.Exec(ctx, "iptables", "-D", hook, "-j", chain) == nil {
-		}
-		if err := t.Exec(ctx, "iptables", "-I", hook, "1", "-j", chain); err != nil {
+	// Docker 28+ drops traffic to containers in raw PREROUTING, so the raw
+	// and nat chains sit at rule 1 too, ahead of Docker's own.
+	for _, h := range []hook{
+		{"raw", "PREROUTING", RawChain},
+		{"nat", "POSTROUTING", NATChain},
+		{"", fwd, FwdChain},
+		{"", "INPUT", InChain},
+	} {
+		if err := t.first(ctx, h); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// hook is one jump of ours: chain in the table's hook chain ("" = filter).
+type hook struct{ table, name, chain string }
+
+// first makes h's jump rule 1 of its hook, once. Docker puts its own jumps on
+// top at every daemon start: ours must be rule 1, so anything else is removed
+// and re-inserted there.
+func (t *Table) first(ctx context.Context, h hook) error {
+	var tbl []string
+	if h.table != "" {
+		tbl = []string{"-t", h.table}
+	}
+	ipt := func(args ...string) []string { return append(append([]string{"iptables"}, tbl...), args...) }
+	out, err := t.Read(ctx, ipt("-S", h.name, "1")...)
+	if err == nil && strings.TrimSpace(out) == "-A "+h.name+" -j "+h.chain {
+		return nil
+	}
+	// Delete until -D fails: a duplicate jump must not survive.
+	for t.Exec(ctx, ipt("-D", h.name, "-j", h.chain)...) == nil {
+	}
+	return t.Exec(ctx, ipt("-I", h.name, "1", "-j", h.chain)...)
 }
 
 // Render is the iptables-restore --noflush script taking the rules from prev
@@ -209,6 +228,9 @@ func (t *Table) apply(ctx context.Context, next map[string]Entry, base Base) err
 func Render(prev, next map[string]Entry, base Base) string {
 	var b strings.Builder
 	b.WriteString("*nat\n:" + Chain + " - [0:0]\n")
+	if base.Range.IsValid() {
+		b.WriteString(":" + NATChain + " - [0:0]\n")
+	}
 	vips := slices.Sorted(maps.Keys(next))
 	var gone []string
 	for _, v := range slices.Sorted(maps.Keys(prev)) {
@@ -236,6 +258,7 @@ func Render(prev, next map[string]Entry, base Base) string {
 	}
 	b.WriteString("COMMIT\n")
 	if base.Range.IsValid() {
+		b.WriteString("*raw\n:" + RawChain + " - [0:0]\nCOMMIT\n")
 		b.WriteString(renderFilter(next, base))
 	}
 	return b.String()

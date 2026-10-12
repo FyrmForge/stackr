@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/netip"
 	"net/url"
 	"regexp"
 	"slices"
@@ -23,7 +24,8 @@ import (
 
 // Docker is the slice of the wrapper the ingress network needs.
 type Docker interface {
-	EnsureNetwork(ctx context.Context, name string, labels map[string]string) error
+	EnsureNetwork(ctx context.Context, name string, subnet netip.Prefix, labels map[string]string) error
+	UsedSubnets(ctx context.Context) ([]netip.Prefix, error)
 	RemoveNetwork(ctx context.Context, name string) error
 	Connect(ctx context.Context, netName, containerID string, aliases []string) error
 	Disconnect(ctx context.Context, netName, containerID string) error
@@ -35,11 +37,42 @@ type Docker interface {
 type Leaf struct {
 	domains store.DomainStore
 	docker  Docker
-	proxy   string // the proxy container; joins every ingress network
+	proxy   string                                // the proxy container; joins every ingress network
+	res     docker.Reserver                       // leaf/node; set by WithSubnets
+	ctl     func(context.Context) (string, error) // the controller's node id; set by WithController
 }
 
 func New(domains store.DomainStore, d Docker, proxyContainer string) *Leaf {
 	return &Leaf{domains: domains, docker: d, proxy: proxyContainer}
+}
+
+// WithController sets how the leaf finds the controller. The proxy and every
+// ingress network live there (step 5 gives other nodes their own), so every
+// Docker call of this leaf is controller-only work; without it ctx is left
+// as the caller made it.
+func (l *Leaf) WithController(f func(context.Context) (string, error)) *Leaf {
+	l.ctl = f
+	return l
+}
+
+// onController is ctx for a controller-only Docker call.
+func (l *Leaf) onController(ctx context.Context) (context.Context, error) {
+	if l.ctl == nil {
+		return ctx, nil
+	}
+	id, err := l.ctl(ctx)
+	if err != nil {
+		return ctx, err
+	}
+	return docker.WithNode(ctx, id), nil
+}
+
+// WithSubnets sets who reserves an ingress network's /24 from the range of
+// the node in ctx (leaf/node). Without it a network that must be made cannot
+// get a subnet.
+func (l *Leaf) WithSubnets(r docker.Reserver) *Leaf {
+	l.res = r
+	return l
 }
 
 // Spec is one domain as the stack file, form or API gives it. Always the
@@ -161,8 +194,13 @@ func (l *Leaf) Detach(ctx context.Context, d store.Domain) error {
 // OpenIngress creates the tile's ingress network and connects the proxy and
 // the given replicas. Idempotent.
 func (l *Leaf) OpenIngress(ctx context.Context, tileID string, replicas []string) error {
+	ctx, err := l.onController(ctx)
+	if err != nil {
+		return err
+	}
 	net := Ingress(tileID)
-	if err := l.docker.EnsureNetwork(ctx, net, map[string]string{"stackr.tile": tileID}); err != nil {
+	labels := map[string]string{"stackr.tile": tileID}
+	if _, err := docker.EnsureReserved(ctx, l.docker, l.res, net, labels, nil, nil); err != nil {
 		return err
 	}
 	for _, c := range append([]string{l.proxy}, replicas...) {
@@ -198,6 +236,10 @@ func (l *Leaf) ReopenIngress(ctx context.Context) error {
 // ProxyAddrs are the proxy container's IPs, one per network it has joined;
 // none when it is not there.
 func (l *Leaf) ProxyAddrs(ctx context.Context) ([]string, error) {
+	ctx, err := l.onController(ctx)
+	if err != nil {
+		return nil, err
+	}
 	d, err := l.docker.Inspect(ctx, l.proxy)
 	if errors.Is(err, docker.ErrNotFound) {
 		return nil, nil
@@ -229,6 +271,9 @@ func (l *Leaf) ProxyOn(ctx context.Context, tileID string) (ip, cidr string, err
 	if err := l.OpenIngress(ctx, tileID, nil); err != nil {
 		return "", "", err
 	}
+	if ctx, err = l.onController(ctx); err != nil {
+		return "", "", err
+	}
 	d, err := l.docker.Inspect(ctx, l.proxy)
 	if errors.Is(err, docker.ErrNotFound) {
 		return "", "", nil
@@ -243,6 +288,10 @@ func (l *Leaf) ProxyOn(ctx context.Context, tileID string) (ip, cidr string, err
 // removes it. Idempotent; the tile-delete flow calls it too, since the row
 // cascade never reaches Detach.
 func (l *Leaf) CloseIngress(ctx context.Context, tileID string) error {
+	ctx, err := l.onController(ctx)
+	if err != nil {
+		return err
+	}
 	net := Ingress(tileID)
 	members, err := l.docker.NetworkMembers(ctx, net)
 	if err != nil {

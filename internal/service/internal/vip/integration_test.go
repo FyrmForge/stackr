@@ -46,13 +46,18 @@ func TestIptables(t *testing.T) {
 	}
 	// The filter chains: drops after the returns, one jump at position 1
 	// even after a second apply and after another rule lands on top.
-	base := Base{Range: netip.MustParsePrefix("10.213.0.0/16"), Resolvers: []string{"192.168.1.1"}, ProxyIP: "172.17.0.2", PanelBind: "172.17.0.1", PanelPort: 8080}
+	base := Base{Range: netip.MustParsePrefix("10.213.0.0/16"), Cluster: netip.MustParsePrefix("10.208.0.0/12"), Resolvers: []string{"192.168.1.1"}, ProxyIP: "172.17.0.2", PanelBind: "172.17.0.1", PanelPort: 8080}
 	t.Cleanup(func() {
-		for _, h := range [][2]string{{"DOCKER-USER", FwdChain}, {"INPUT", InChain}} {
-			_ = run(ctx, "iptables", "-D", h[0], "-j", h[1])
-			_ = run(ctx, "iptables", "-F", h[1])
-			_ = run(ctx, "iptables", "-X", h[1])
+		for _, h := range [][3]string{
+			{"filter", "DOCKER-USER", FwdChain}, {"filter", "INPUT", InChain},
+			{"raw", "PREROUTING", RawChain}, {"nat", "POSTROUTING", NATChain},
+		} {
+			_ = run(ctx, "iptables", "-t", h[0], "-D", h[1], "-j", h[2])
+			_ = run(ctx, "iptables", "-t", h[0], "-F", h[2])
+			_ = run(ctx, "iptables", "-t", h[0], "-X", h[2])
 		}
+		_ = run(ctx, "iptables", "-F", XNChain)
+		_ = run(ctx, "iptables", "-X", XNChain)
 	})
 	if err := tb.Rebuild(ctx, nil, base); err != nil {
 		t.Fatal(err)
@@ -71,6 +76,13 @@ func TestIptables(t *testing.T) {
 	out, _ = exec.Command("iptables", "-S", FwdChain).CombinedOutput()
 	if s := string(out); strings.LastIndex(s, "RETURN") > strings.Index(s, "-d 10.0.0.0/8 -j DROP") {
 		t.Fatalf("drops before returns:\n%s", s)
+	}
+	// Our other hooks are on top of theirs once each, whatever the second apply did.
+	for _, h := range [][3]string{{"raw", "PREROUTING", RawChain}, {"nat", "POSTROUTING", NATChain}} {
+		out, _ = exec.Command("iptables", "-t", h[0], "-S", h[1]).CombinedOutput()
+		if lines := strings.Split(string(out), "\n"); lines[1] != "-A "+h[1]+" -j "+h[2] || strings.Count(string(out), h[2]) != 1 {
+			t.Fatalf("%s %s:\n%s", h[0], h[1], out)
+		}
 	}
 
 	if err := tb.Remove(ctx, "10.99.0.1"); err != nil {

@@ -156,40 +156,70 @@ func (l *Leaf) upsert(ctx context.Context, ref string, edit func(*store.Image)) 
 	return i, l.images.Update(ctx, i)
 }
 
-// Cleanup removes built images no kept release reaches. keep is the image
-// ids to keep; builds younger than Grace stay too. Watch-cache rows (never
-// built here) are left alone. extra are more refs or ids to keep (what
-// containers use). A row goes only when its Docker image did and no release
-// still pins it (pinned is every id any release references): the row is
-// what the release's pin points at. Returns the ids of the images removed
-// from the box and the bytes that freed (up to: layers can be shared).
-func (l *Leaf) Cleanup(ctx context.Context, keep, pinned, extra []string) ([]string, int64, error) {
+// Plan is what a cleanup sweep decided before any node is touched: the refs
+// every node's prune must keep, and the rows whose images are candidates to go.
+type Plan struct {
+	Keep []string
+	drop []store.Image
+}
+
+// Plan decides which built images a sweep may remove. keep is the image ids
+// to keep; builds younger than Grace stay too. Watch-cache rows (never built
+// here) are left alone. extra are more refs or ids to keep (what containers
+// use, on any node).
+func (l *Leaf) Plan(ctx context.Context, keep, extra []string) (Plan, error) {
 	all, err := l.images.List(ctx)
 	if err != nil {
-		return nil, 0, err
+		return Plan{}, err
 	}
-	keepRefs := slices.Clone(extra)
-	var drop []store.Image
+	p := Plan{Keep: slices.Clone(extra)}
 	cutoff := time.Now().Add(-Grace)
 	for _, i := range all {
 		switch {
 		case i.BuiltAt == nil:
 		case slices.Contains(keep, i.ID) || slices.Contains(extra, i.Ref) || slices.Contains(extra, i.Digest) ||
 			i.BuiltAt.After(cutoff):
-			keepRefs = append(keepRefs, i.Ref, i.Digest)
+			p.Keep = append(p.Keep, i.Ref, i.Digest)
 		default:
-			drop = append(drop, i)
+			p.drop = append(p.drop, i)
 		}
 	}
-	// A partial failure still reports what went: its rows go too.
-	removed, freed, pruneErr := l.docker.PruneImages(ctx, map[string]string{LabelBuilt: "true"}, keepRefs)
-	for _, i := range drop {
+	return p, nil
+}
+
+// Prune removes the unkept built images from the node ctx names. Run it on
+// every node before Settle: a row may go only once its image has.
+func (l *Leaf) Prune(ctx context.Context, p Plan) (removed []string, freed int64, err error) {
+	return l.docker.PruneImages(ctx, map[string]string{LabelBuilt: "true"}, p.Keep)
+}
+
+// Settle deletes the rows of the images Prune removed. A row goes only when
+// its Docker image did and no release still pins it (pinned is every id any
+// release references): the row is what the release's pin points at. removed
+// is the ids every node's Prune reported, a partial failure's included.
+func (l *Leaf) Settle(ctx context.Context, p Plan, pinned, removed []string) error {
+	for _, i := range p.drop {
 		if slices.Contains(pinned, i.ID) || !slices.Contains(removed, i.Digest) {
 			continue
 		}
 		if err := l.images.Delete(ctx, i.ID); err != nil {
-			return removed, freed, errors.Join(pruneErr, err)
+			return err
 		}
+	}
+	return nil
+}
+
+// Cleanup is Plan, Prune and Settle on the one node ctx names: the images
+// removed from the box and the bytes that freed (up to: layers can be
+// shared). A partial failure still reports what went: its rows go too.
+func (l *Leaf) Cleanup(ctx context.Context, keep, pinned, extra []string) ([]string, int64, error) {
+	p, err := l.Plan(ctx, keep, extra)
+	if err != nil {
+		return nil, 0, err
+	}
+	removed, freed, pruneErr := l.Prune(ctx, p)
+	if err := l.Settle(ctx, p, pinned, removed); err != nil {
+		return removed, freed, errors.Join(pruneErr, err)
 	}
 	return removed, freed, pruneErr
 }

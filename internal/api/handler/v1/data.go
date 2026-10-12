@@ -1,7 +1,6 @@
 package v1
 
 import (
-	"log/slog"
 	"net/http"
 
 	"github.com/labstack/echo/v4"
@@ -160,17 +159,7 @@ func (h *H) Params(at At) Endpoint {
 func (h *H) Secrets(at At) Endpoint {
 	return Get(func(c echo.Context) ([]service.Param, error) {
 		s := paramScope(c, at)
-		ps, err := h.Orch.Params(rc(c), s, true)
-		if err == nil {
-			var names []string
-			for _, p := range ps {
-				if p.Kind == "secret" {
-					names = append(names, p.Collection+"."+p.Name)
-				}
-			}
-			slog.Info("secrets revealed", "user", who(c), "scope", s.Kind, "id", s.ID, "names", names)
-		}
-		return list(ps, err)
+		return list(h.Orch.RevealSecrets(rc(c), middleware.Principal(c), s))
 	})
 }
 

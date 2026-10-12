@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"errors"
+	"fmt"
 	"maps"
 	"net/netip"
 	"slices"
@@ -15,7 +16,9 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/serverconfig"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/domain"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/securitylog"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/settings"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/user"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
 
@@ -58,10 +61,13 @@ func (o *Orchestrator) MintKey(ctx context.Context, by *Principal, orgID, name, 
 			return "", APIKey{}, errs.Refusedf("a key cannot mint above its own level")
 		}
 	}
-	return o.mintKey(ctx, by.User.ID, orgID, name, level, stack)
+	return o.mintKey(ctx, by.User.ID, by.KeyID, orgID, name, level, stack)
 }
 
-func (o *Orchestrator) mintKey(ctx context.Context, userID, orgID, name, level, stack string) (string, APIKey, error) {
+// mintKey is the one place a key is made (the CLI browser exchange too); keyID
+// is the key behind the request, "" for a session or an exchange. The key row
+// and its audit event commit together.
+func (o *Orchestrator) mintKey(ctx context.Context, userID, keyID, orgID, name, level, stack string) (string, APIKey, error) {
 	u, err := o.users.Get(ctx, userID)
 	if err != nil {
 		return "", APIKey{}, err
@@ -90,9 +96,22 @@ func (o *Orchestrator) mintKey(ctx context.Context, userID, orgID, name, level, 
 		}
 		stackID = st.ID
 	}
-	tok, k, err := o.users.MintKey(ctx, u, orgID, role, name, level, stackID)
+	var tok string
+	var k APIKey
+	err = o.store.Tx(ctx, func(tx store.Tx) (err error) {
+		if tok, k, err = user.New(tx.Users, tx.Sessions, tx.APIKeys).MintKey(ctx, u, orgID, role, name, level, stackID); err != nil {
+			return err
+		}
+		return audit(tx).Append(ctx, securitylog.Event{
+			Action: securitylog.KeyMint, ActorID: userID, KeyID: keyID, TargetKind: "api_key", TargetID: k.ID,
+			Detail: fmt.Sprintf("name=%s org=%s level=%s stack=%s", k.Name, orgID, level, stackID),
+		})
+	})
+	if err != nil {
+		return "", APIKey{}, err
+	}
 	k.Stack = stack
-	return tok, k, err
+	return tok, k, nil
 }
 
 // Keys lists the user's keys; Stack is the slug of the stack a key is limited to.
@@ -115,7 +134,14 @@ func (o *Orchestrator) RevokeKey(ctx context.Context, by *Principal, keyID strin
 	if (by.Access.KeyCapped || by.Access.KeyStack != "") && keyID != by.KeyID {
 		return errs.Refusedf("a limited key can revoke only itself")
 	}
-	return o.users.RevokeKey(ctx, by.User.ID, keyID)
+	return o.store.Tx(ctx, func(tx store.Tx) error {
+		if err := user.New(tx.Users, tx.Sessions, tx.APIKeys).RevokeKey(ctx, by.User.ID, keyID); err != nil {
+			return err
+		}
+		return audit(tx).Append(ctx, securitylog.Event{
+			Action: securitylog.KeyRevoke, ActorID: by.User.ID, KeyID: by.KeyID, TargetKind: "api_key", TargetID: keyID,
+		})
+	})
 }
 
 // ---- settings: the one catalogue ----

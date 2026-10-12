@@ -177,6 +177,18 @@ func TestRoundTrip(t *testing.T) {
 		TokenHash: "th",
 		CreatedAt: t0,
 	}, func(k *store.APIKey) { k.Name, k.OrgID = "ci2", nil })
+	roundTrip(t, s.Nodes, store.Node{
+		ID:          "n1",
+		Name:        "Controller",
+		Slug:        "controller",
+		Role:        "controller",
+		Tags:        `["ingress","egress","builder"]`,
+		RangeCIDR:   "10.213.0.0/16",
+		WGPublicKey: "k",
+		WGAddress:   "10.207.255.1",
+		Status:      "online",
+		CreatedAt:   t0,
+	}, func(n *store.Node) { n.Tags, n.Status, n.WGPublicKey = `["ingress"]`, "offline", "k2" })
 	roundTrip(t, s.Stacks, store.Stack{
 		ID:                "s1",
 		OrgID:             "o1",
@@ -189,7 +201,8 @@ func TestRoundTrip(t *testing.T) {
 		ConfigBranch:      "main",
 		ConfigPath:        "stackr.yml",
 		CreatedAt:         t0,
-	}, func(st *store.Stack) { st.Description, st.ConfigBranch = "d2", "dev" })
+		NodeID:            ptr("n1"),
+	}, func(st *store.Stack) { st.Description, st.ConfigBranch, st.NodeID = "d2", "dev", nil })
 	roundTrip(t, s.Releases, store.Release{
 		ID:        "r1",
 		StackID:   "s1",
@@ -220,6 +233,8 @@ func TestRoundTrip(t *testing.T) {
 		Auto:       true,
 		Locked:     true,
 		CreatedAt:  t0,
+		NodeID:     "n1",
+		Subnet:     "10.213.4.0/24",
 	}, func(e *store.Environment) {
 		e.Locked = false
 		e.ReleaseID = ptr("r1")
