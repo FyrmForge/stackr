@@ -13,6 +13,7 @@ import (
 	"net/netip"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -63,12 +64,20 @@ type fakeRunner struct {
 	stdin []string
 	// failDockerUser makes `iptables -n -L DOCKER-USER` fail this many times.
 	failDockerUser int
+	// haveJumps makes `iptables -C` find the rule; unset, no jump is in place.
+	haveJumps bool
 }
 
 func (f *fakeRunner) Run(_ context.Context, stdin []byte, name string, args ...string) ([]byte, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	call := name + " " + strings.Join(args, " ")
+	if name == "iptables" && slices.Contains(args, "-C") {
+		if f.haveJumps {
+			return nil, nil
+		}
+		return []byte("no rule"), errors.New("exit 1")
+	}
 	if name == "iptables" && f.failDockerUser > 0 {
 		f.failDockerUser--
 		return []byte("no chain"), errors.New("exit 1")
@@ -229,6 +238,18 @@ func TestStateReplayOrder(t *testing.T) {
 	}
 	if wg.got[0] != `{"iface":"wg0"}` {
 		t.Fatalf("wg got %q", wg.got)
+	}
+
+	// A restart without a reboot: the jumps are still there, none is added.
+	r.mu.Lock()
+	r.haveJumps = true
+	n := len(r.stdin)
+	r.mu.Unlock()
+	if resp, err := c.Post(ts.URL+"/v1/replay", "", nil); err != nil || resp.StatusCode != 204 {
+		t.Fatalf("%v %v", resp, err)
+	}
+	if len(r.stdin) != n+1 {
+		t.Fatalf("jumps restored again: %q", r.stdin[n:])
 	}
 }
 

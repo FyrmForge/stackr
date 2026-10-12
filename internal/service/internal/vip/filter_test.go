@@ -191,6 +191,19 @@ func TestFilterPanelLock(t *testing.T) {
 	}
 }
 
+// An ingress worker's Caddy is on the host network: its containers reach the
+// host on 80/443 before the range drop.
+func TestFilterHostProxy(t *testing.T) {
+	b := testBase
+	b.HostProxy = true
+	got := Render(nil, nil, b)
+	open := strings.Index(got, "-A STACKR-IN -s 10.213.0.0/16 -p tcp -m multiport --dports 80,443 -j RETURN")
+	drop := strings.Index(got, "-A STACKR-IN -s 10.213.0.0/16 -j DROP")
+	if open < 0 || drop < open {
+		t.Fatalf("open=%d drop=%d:\n%s", open, drop, got)
+	}
+}
+
 // Without DOCKER-USER (a host that lacks it) the jump goes into FORWARD.
 func TestFilterJumpFallsBackToForward(t *testing.T) {
 	var argvs []string

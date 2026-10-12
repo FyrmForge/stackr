@@ -53,6 +53,7 @@ type Base struct {
 	Cluster   netip.Prefix // the cluster supernet; with the transit net it is kept out of every grant. Zero = no cluster drops
 	Resolvers []string     // DNS servers a container may reach on :53
 	ProxyIP   string       // Caddy on docker0; "" = unknown, the hairpin rule is left out
+	HostProxy bool         // Caddy on the host network (an ingress worker): containers may reach the host on 80/443
 	Front     []string     // IPs or CIDRs of the front proxy, reachable on 80/443
 	PanelBind string       // the panel's listen address; "" = not locked
 	PanelPort int          // the panel's real listen port
@@ -289,6 +290,9 @@ func renderFilter(next map[string]Entry, b Base) string {
 	// opens it. Always on, whatever Caddy's address is.
 	if b.PanelBind != "" && b.PanelPort > 0 {
 		in("-s %s -d %s/32 -p tcp --dport %d -j DROP", rng, b.PanelBind, b.PanelPort)
+	}
+	if b.HostProxy {
+		in("-s %s -p tcp -m multiport --dports 80,443 -j RETURN", rng)
 	}
 	in("-s %s -j DROP", rng)
 	for _, fl := range b.Flows {

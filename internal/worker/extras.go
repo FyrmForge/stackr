@@ -309,6 +309,31 @@ func (s *Server) restore(ctx context.Context, payload []byte) error {
 	return nil
 }
 
+// missingJumps keeps the jump lines ("-I <hook> 1 -j <chain>") of a saved
+// payload that are not in place yet: a worker restart without a reboot still
+// has them, and inserting again would stack copies.
+func (s *Server) missingJumps(ctx context.Context, payload string) []byte {
+	var b strings.Builder
+	tbl, n := "", 0
+	for _, l := range strings.Split(payload, "\n") {
+		f := strings.Fields(l)
+		switch {
+		case len(f) == 1 && strings.HasPrefix(f[0], "*"):
+			tbl = f[0][1:]
+		case len(f) >= 4 && f[0] == "-I" && f[len(f)-2] == "-j" && tbl != "":
+			if _, err := s.cfg.Runner.Run(ctx, nil, "iptables", "-t", tbl, "-C", f[1], "-j", f[len(f)-1]); err == nil {
+				continue
+			}
+			n++
+		}
+		b.WriteString(l + "\n")
+	}
+	if n == 0 {
+		return nil
+	}
+	return []byte(b.String())
+}
+
 func (s *Server) iptables(w http.ResponseWriter, r *http.Request) {
 	b, ok := readBody(w, r)
 	if !ok {
@@ -465,7 +490,7 @@ func (s *Server) replayState(ctx context.Context) error {
 		}
 	}
 	if st.Jumps != "" {
-		if err := s.restore(ctx, []byte(st.Jumps)); err != nil {
+		if err := s.restore(ctx, s.missingJumps(ctx, st.Jumps)); err != nil {
 			return err
 		}
 	}

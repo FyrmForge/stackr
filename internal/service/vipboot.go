@@ -18,6 +18,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/deploy"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/domain"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/hostgrant"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/node"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 	"github.com/FyrmForge/stackr/internal/service/internal/vip"
@@ -243,6 +244,7 @@ func (o *Orchestrator) vipBase(ctx context.Context, n store.Node) vip.Base {
 		if f, ok, _ := o.clusterFacts(ctx, n); ok && len(f.Resolvers) > 0 {
 			b.Resolvers = f.Resolvers
 		}
+		b.HostProxy = slices.Contains(node.Tags(n), node.TagIngress)
 		b.Flows = append(o.ingressFlows(ctx, n), o.linkFlows(ctx, n)...)
 		return b
 	}
