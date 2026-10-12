@@ -451,3 +451,31 @@ func TestEnvAndScopeNode(t *testing.T) {
 		t.Errorf("a missing env = %v, want ErrNotFound", err)
 	}
 }
+
+// An image of stackr's own registry is pulled from localhost:5000 on the
+// node (the worker's front over the mesh) and tagged as named; others as is.
+func TestRouterPullsOwnRegistryLocally(t *testing.T) {
+	a := dockerfake.New()
+	r := NewRouter(map[string]Docker{"n1": a})
+	r.OwnRegistry = func(context.Context) string { return "registry.stkr.example.com" }
+	ctx := WithNode(context.Background(), "n1")
+
+	if err := r.Pull(ctx, "registry.stkr.example.com/acme/web/api:b1", "", nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Pull(ctx, "nginx:1.27", "", nil); err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, c := range a.Calls() {
+		got = append(got, c.String())
+	}
+	want := []string{
+		"Pull(localhost:5000/acme/web/api:b1)",
+		"Tag(localhost:5000/acme/web/api:b1, registry.stkr.example.com/acme/web/api:b1)",
+		"Pull(nginx:1.27)",
+	}
+	if !slices.Equal(got, want) {
+		t.Fatalf("calls = %v, want %v", got, want)
+	}
+}

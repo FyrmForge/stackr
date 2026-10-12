@@ -81,6 +81,10 @@ type meshSvc struct {
 	nodes MeshNodes
 	// Relays is read at each sync.
 	Relays []MeshRelay
+	// Registry names the controller's registry for a worker's spec; nil
+	// (or a nil answer) = none. Never set on the controller's own spec.
+	Registry func(ctx context.Context) *worker.RegistrySpec
+	ctlID    string
 
 	kick chan struct{}
 
@@ -158,6 +162,9 @@ func (m *meshSvc) Sync(ctx context.Context, only string, force bool) error {
 		cl, ok := m.nodes(id)
 		if !ok {
 			continue
+		}
+		if m.Registry != nil && id != m.ctlID {
+			spec.Registry = m.Registry(ctx)
 		}
 		b, _ := json.Marshal(spec)
 		sum := sha256.Sum256(b)

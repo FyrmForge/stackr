@@ -8,7 +8,10 @@ import (
 	"errors"
 	"net"
 	"net/http"
+	"log/slog"
+	"net/netip"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -17,9 +20,12 @@ import (
 	"github.com/FyrmForge/stackr/internal/authz"
 	"github.com/FyrmForge/stackr/internal/clusterca"
 	"github.com/FyrmForge/stackr/internal/installspec"
+	"github.com/FyrmForge/stackr/internal/mesh"
+	"github.com/FyrmForge/stackr/internal/service/internal/cluster"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/securitylog"
 	"github.com/FyrmForge/stackr/internal/service/internal/regfront"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
+	"github.com/FyrmForge/stackr/internal/worker"
 )
 
 // RegistryHostPrefix: the registry answers at registry.<panel domain>.
@@ -49,6 +55,57 @@ func (o *Orchestrator) RegistryHandler() http.Handler {
 			Authenticate: o.registryFacts, Audit: o.registryAudit,
 		}).ServeHTTP(w, r)
 	})
+}
+
+// serveRegistryWG serves the registry front to workers over the mesh: the
+// controller's transit address, the panel port (the one STACKR-IN lets in
+// from wg0), worker certs only. The address exists once a second node
+// brings wg0 up, so the bind is retried until then.
+func (o *Orchestrator) serveRegistryWG(ctx context.Context) {
+	addr, ok := o.registryWGAddr()
+	if !ok {
+		return
+	}
+	srv := &http.Server{
+		Handler:           o.RegistryHandler(),
+		TLSConfig:         clusterca.WorkerServerConfig(o.cluster.ca.Cert, o.cluster.cert, o.cluster.revoked),
+		ReadHeaderTimeout: 10 * time.Second,
+	}
+	for {
+		ln, err := net.Listen("tcp", addr)
+		if err == nil {
+			go func() { <-ctx.Done(); _ = srv.Close() }()
+			if err := srv.ServeTLS(ln, "", ""); !errors.Is(err, http.ErrServerClosed) {
+				slog.Warn("registry: mesh listener", "addr", addr, "err", err)
+			}
+			return
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(10 * time.Second):
+		}
+	}
+}
+
+// registryWGAddr is the mesh listener's host:port.
+func (o *Orchestrator) registryWGAddr() (string, bool) {
+	t, err := mesh.TransitAddr(netip.MustParsePrefix(cluster.ControllerRange))
+	if err != nil || o.cluster == nil || o.cfg.PanelPort == 0 {
+		return "", false
+	}
+	return net.JoinHostPort(t.String(), strconv.Itoa(o.cfg.PanelPort)), true
+}
+
+// meshRegistry is the registry a worker's mesh spec names; nil without a
+// panel domain (the front answers to registry.<panel domain> only).
+func (o *Orchestrator) meshRegistry(ctx context.Context) *worker.RegistrySpec {
+	addr, ok := o.registryWGAddr()
+	host := o.RegistryHost(ctx)
+	if !ok || host == "" {
+		return nil
+	}
+	return &worker.RegistrySpec{URL: "https://" + addr, Host: host}
 }
 
 // RegistryMiddleware is an echo Pre middleware: requests for

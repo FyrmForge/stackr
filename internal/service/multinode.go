@@ -58,8 +58,12 @@ func (o *Orchestrator) startMesh(ctlID string) {
 	})
 	ctx, cancel := context.WithCancel(context.Background())
 	o.stopMesh = cancel
+	if local != nil {
+		o.mesh.ctlID, o.mesh.Registry = ctlID, o.meshRegistry
+	}
 	go o.mesh.Run(ctx)
 	if local != nil {
+		go o.serveRegistryWG(ctx)
 		go func() {
 			defer local.Stop()
 			t := time.NewTicker(30 * time.Second)

@@ -57,6 +57,13 @@ type clusterPKI struct {
 	fails map[string]int
 }
 
+// cert is the controller's current cert (renew swaps it).
+func (c *clusterPKI) cert() tls.Certificate {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.own
+}
+
 type revAns struct {
 	revoked bool
 	at      time.Time
