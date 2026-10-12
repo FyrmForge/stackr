@@ -294,6 +294,9 @@ func (o *Orchestrator) ingressFlows(ctx context.Context, n store.Node) []vip.Flo
 				continue
 			}
 			ing, err := o.IngressFor(ctx, t.ID)
+			if err == nil && ing == "" {
+				ing, err = o.DefaultIngress(ctx)
+			}
 			if err != nil || ing == "" || ing == n.ID {
 				continue
 			}
