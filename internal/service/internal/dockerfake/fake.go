@@ -329,6 +329,8 @@ func (f *Fake) EnsureBuilder(_ context.Context, name string, _ int) error {
 	return f.rec("EnsureBuilder", name)
 }
 
+func (f *Fake) Push(_ context.Context, ref string) error { return f.rec("Push", ref) }
+
 func (f *Fake) ListImages(_ context.Context, labels map[string]string) ([]docker.Image, error) {
 	var out []docker.Image
 	for _, im := range f.Images {

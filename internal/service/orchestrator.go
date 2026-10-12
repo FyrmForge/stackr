@@ -233,6 +233,7 @@ type Orchestrator struct {
 	earlyMu      sync.Mutex          // guards earlyIPs
 	earlyIPs     map[string]earlyEnt // container id -> address holding early lan rules
 	repoLocks    sync.Map            // clone dir -> *sync.Mutex
+	builds       buildRepos          // repos a builder node may push right now (builders.go)
 	cli          cliCodes
 
 	cluster   *clusterPKI   // the CA, the controller cert, the worker clients (nodeclients.go)

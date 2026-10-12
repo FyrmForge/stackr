@@ -229,7 +229,7 @@ func (o *Orchestrator) nodeFacts(ctx context.Context, chain []*x509.Certificate)
 	if err != nil {
 		return regfront.Facts{}, err
 	}
-	f := regfront.Facts{Kind: regfront.KindNode, Subject: peer.NodeID}
+	f := regfront.Facts{Kind: regfront.KindNode, Subject: peer.NodeID, PushRepos: o.builds.of(peer.NodeID)}
 	for _, e := range envs {
 		st, err := o.store.Stacks.Get(ctx, e.StackID)
 		if err != nil {

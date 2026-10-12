@@ -1108,6 +1108,10 @@ func (d *Docker) EnsureBuilder(ctx context.Context, _ string, _ int) error {
 	return d.chaos.hit(ctx, "images", "EnsureBuilder")
 }
 
+func (d *Docker) Push(ctx context.Context, _ string) error {
+	return d.chaos.hit(ctx, "images", "Push")
+}
+
 func (d *Docker) Build(
 	ctx context.Context,
 	_, _, dockerfile, tag string,

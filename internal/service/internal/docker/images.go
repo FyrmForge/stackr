@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os/exec"
 	"slices"
 	"strings"
 	"time"
@@ -179,8 +178,12 @@ func (d *Client) PruneDangling(ctx context.Context, labels map[string]string) (i
 // Returns how many entries went and the "Total" line buildx prints. Shells
 // out: buildx has no API.
 func (d *Client) BuildCachePrune(ctx context.Context, builder string, olderThan time.Duration) (int, string, error) {
-	cmd := exec.CommandContext(ctx, "docker", "buildx", "prune", "--builder", builder, "--force",
+	cmd, done, err := d.command(ctx, "buildx", "prune", "--builder", d.builderName(builder), "--force",
 		"--filter", "until="+olderThan.String())
+	if err != nil {
+		return 0, "", err
+	}
+	defer done()
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
@@ -217,15 +220,29 @@ func parsePrune(out string) (int, string, error) {
 
 // EnsureBuilder creates a buildx docker-container builder capped at memMB with
 // a low cpu weight, so a build yields to running tiles. The daemon's own
-// builder ignores every resource flag. Shells out: buildx has no API.
+// builder ignores every resource flag. Shells out: buildx has no API. On a
+// worker the builder's container runs there, reached through the CLI proxy.
 func (d *Client) EnsureBuilder(ctx context.Context, name string, memMB int) error {
-	if exec.CommandContext(ctx, "docker", "buildx", "inspect", name).Run() == nil {
+	name = d.builderName(name)
+	cmd, done, err := d.command(ctx, "buildx", "inspect", name)
+	if err != nil {
+		return err
+	}
+	defer done()
+	if cmd.Run() == nil {
 		return nil
 	}
-	out, err := exec.CommandContext(ctx, "docker", "buildx", "create", "--name", name,
-		"--driver", "docker-container",
-		"--driver-opt", fmt.Sprintf("memory=%dm", memMB),
-		"--driver-opt", "cpu-shares=256").CombinedOutput()
+	args := []string{"buildx", "create", "--name", name, "--driver", "docker-container",
+		"--driver-opt", fmt.Sprintf("memory=%dm", memMB), "--driver-opt", "cpu-shares=256"}
+	if d.px != nil {
+		args = append(args, d.endpoint())
+	}
+	cmd, done2, err := d.command(ctx, args...)
+	if err != nil {
+		return err
+	}
+	defer done2()
+	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("buildx create: %w: %s", err, strings.TrimSpace(string(out)))
 	}
@@ -240,14 +257,18 @@ func (d *Client) Build(
 	buildArgs, labels map[string]string,
 	log io.Writer,
 ) (string, error) {
-	args := []string{"buildx", "build", "--builder", builder, "--load", "-f", dockerfile, "-t", tag, "--progress=plain"}
+	args := []string{"buildx", "build", "--builder", d.builderName(builder), "--load", "-f", dockerfile, "-t", tag, "--progress=plain"}
 	for k, v := range buildArgs {
 		args = append(args, "--build-arg", k+"="+v)
 	}
 	for k, v := range labels {
 		args = append(args, "--label", k+"="+v)
 	}
-	cmd := exec.CommandContext(ctx, "docker", append(args, ".")...)
+	cmd, done, err := d.command(ctx, append(args, ".")...)
+	if err != nil {
+		return "", err
+	}
+	defer done()
 	cmd.Dir, cmd.Stdout, cmd.Stderr = dir, log, log
 	if err := cmd.Run(); err != nil {
 		return "", fmt.Errorf("buildx build: %w", err)

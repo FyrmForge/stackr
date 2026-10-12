@@ -123,12 +123,15 @@ func TestRegistryNodeCert(t *testing.T) {
 		}
 		return c, is.Serial
 	}
-	req := func(c *x509.Certificate) *httptest.ResponseRecorder {
-		r := tokenReq("registry.panel.test", "", "repository:acme/shop/api:pull,push")
+	reqScope := func(c *x509.Certificate, sc string) *httptest.ResponseRecorder {
+		r := tokenReq("registry.panel.test", "", sc)
 		r.TLS = &tls.ConnectionState{PeerCertificates: []*x509.Certificate{c}}
 		w := httptest.NewRecorder()
 		e.Orch.RegistryHandler().ServeHTTP(w, r)
 		return w
+	}
+	req := func(c *x509.Certificate) *httptest.ResponseRecorder {
+		return reqScope(c, "repository:acme/shop/api:pull,push")
 	}
 	scope := func(node string) string {
 		rows, _ := e.Store.RegistryTokens.ListBySubject(ctx, node, 5)
@@ -141,6 +144,19 @@ func TestRegistryNodeCert(t *testing.T) {
 	c, serial := issue(env.NodeID)
 	if w := req(c); w.Code != 200 || scope(env.NodeID) != "acme/shop/api:pull" {
 		t.Fatalf("pinned node: %d %q", w.Code, scope(env.NodeID))
+	}
+	// A builder pushes a repo only while it builds it; a plain node never.
+	build := "repository:acme/shop/web:pull,push"
+	if reqScope(c, build); scope(env.NodeID) != "" {
+		t.Fatalf("plain node push = %q", scope(env.NodeID))
+	}
+	release := e.Orch.HoldBuild(env.NodeID, "acme/shop/web")
+	if reqScope(c, build); scope(env.NodeID) != "acme/shop/web:pull,push" {
+		t.Fatalf("builder push = %q", scope(env.NodeID))
+	}
+	release()
+	if reqScope(c, build); scope(env.NodeID) != "" {
+		t.Fatalf("after the build = %q", scope(env.NodeID))
 	}
 	if w := req(func() *x509.Certificate { c, _ := issue("not-a-node"); return c }()); w.Code != 401 {
 		t.Fatalf("unknown node = %d", w.Code)
