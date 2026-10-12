@@ -63,6 +63,7 @@ type Docker interface {
 	TarVolume(ctx context.Context, name string, w io.Writer, live bool) error
 	UntarVolume(ctx context.Context, name string, src io.Reader) error
 	Pull(ctx context.Context, ref, auth string, w io.Writer) error
+	LocalDigest(ctx context.Context, ref string) (string, error)
 	Run(ctx context.Context, spec docker.ContainerSpec) (string, error)
 	Wait(ctx context.Context, id string) (int, error)
 	StopRemove(ctx context.Context, id string) error
@@ -253,6 +254,11 @@ func (f *Flow) prepare(ctx context.Context, m store.EnvMove) error {
 	}
 	for _, d := range []Docker{src, dst} {
 		if m.Live {
+			// a node that has the helper (loaded with the release) keeps it;
+			// only a missing one is pulled
+			if _, err := d.LocalDigest(ctx, RsyncImage); err == nil {
+				continue
+			}
 			if err := d.Pull(ctx, RsyncImage, "", io.Discard); err != nil {
 				return fmt.Errorf("pull %s: %w", RsyncImage, err)
 			}

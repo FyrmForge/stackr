@@ -228,6 +228,9 @@ func (n nodeDocker) UntarVolume(ctx context.Context, name string, src io.Reader)
 func (n nodeDocker) Pull(ctx context.Context, ref, auth string, w io.Writer) error {
 	return n.d.Pull(n.c(ctx), ref, auth, w)
 }
+func (n nodeDocker) LocalDigest(ctx context.Context, ref string) (string, error) {
+	return n.d.LocalDigest(n.c(ctx), ref)
+}
 func (n nodeDocker) Run(ctx context.Context, spec docker.ContainerSpec) (string, error) {
 	return n.d.Run(n.c(ctx), spec)
 }
