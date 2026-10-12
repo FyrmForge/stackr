@@ -116,6 +116,8 @@ class GraphCanvas extends HTMLElement {
         this.s = clamp(Number(this.getAttribute("scale")) || 0.8);
         const b = this.bounds();
         if (b) {
+            const all = Math.min((this.clientWidth - 2 * MARGIN) / (b.w || 1), (this.clientHeight - 2 * MARGIN) / (b.h || 1));
+            this.s = Math.max(Math.min(this.s, all), Math.min(this.s, 0.5));
             this.px = Math.max((this.clientWidth - b.w * this.s) / 2 - b.x * this.s, MARGIN - b.x * this.s);
             this.py = Math.max((this.clientHeight - b.h * this.s) / 2 - b.y * this.s, MARGIN - b.y * this.s);
         }
@@ -297,19 +299,28 @@ class GraphCanvas extends HTMLElement {
                 if (g.length < 2)
                     continue;
                 g.sort((p, q) => p.toward - q.toward);
-                const span = Math.min(FAN_GAP * (g.length - 1), 0.6 * (across(g[0].side) ? g[0].box.h : g[0].box.w));
+                const span = Math.min((num(this, "fan-gap") || FAN_GAP) * (g.length - 1), 0.6 * (across(g[0].side) ? g[0].box.h : g[0].box.w));
                 g.forEach((e, i) => (e.offset = -span / 2 + (i * span) / (g.length - 1)));
             }
         }
         for (let i = 0; i < ends.length; i += 2)
             this.draw(ends[i], ends[i + 1]);
+        const placed = [];
         for (const p of this.paths()) {
             const label = p.nextElementSibling;
-            if (!label?.matches("text[data-edge-label]"))
+            if (!(label instanceof SVGTextElement) || !label.matches("[data-edge-label]"))
                 continue;
             const m = p.getPointAtLength(p.getTotalLength() / 2);
             label.setAttribute("x", String(m.x));
-            label.setAttribute("y", String(m.y + 4));
+            let r = { x: 0, y: 0, w: 0, h: 0 };
+            for (const dy of [0, 16, -16, 32, -32, 48, -48]) {
+                label.setAttribute("y", String(m.y + 4 + dy));
+                const bb = label.getBBox();
+                r = { x: bb.x, y: bb.y, w: bb.width, h: bb.height };
+                if (!placed.some((q) => touches(q, r)))
+                    break;
+            }
+            placed.push(r);
         }
         this.lanes();
     }

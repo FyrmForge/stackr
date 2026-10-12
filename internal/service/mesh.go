@@ -226,6 +226,7 @@ func (m *meshSvc) Sync(ctx context.Context, only string, force bool) error {
 // mesh and exits (best effort: it may be gone), then re-syncs the others.
 // Call it before deleting the row. The node's range stays taken (ForgetRange).
 func (m *meshSvc) RemoveNode(ctx context.Context, nodeID string) error {
+	_ = m.st.Settings.Delete(ctx, publicKey(nodeID))
 	rungs, err := m.st.ExitLadders.ListByNode(ctx, nodeID)
 	if err != nil {
 		return err
@@ -494,6 +495,7 @@ func (m *meshSvc) refresh(ctx context.Context, id string, cl MeshNode) {
 		m.mu.Lock()
 		m.facts[id] = f
 		m.mu.Unlock()
+		m.keepPublic(ctx, id, publicAddrs(f))
 	}
 	m.mu.Lock()
 	have := m.exitPK[id] != ""
@@ -522,10 +524,37 @@ func (m *meshSvc) publicOf(id string) []netip.Addr {
 	m.mu.Lock()
 	f, ok := m.facts[id]
 	m.mu.Unlock()
-	if !ok {
-		return nil
+	if ok {
+		return publicAddrs(f)
 	}
-	return publicAddrs(f)
+	// Not reached since the panel started (its tunnel may be down): the
+	// addresses it last reported.
+	v, _, _ := m.st.Settings.Get(context.Background(), publicKey(id))
+	var out []netip.Addr
+	for _, s := range strings.Fields(v) {
+		if a, err := netip.ParseAddr(s); err == nil {
+			out = append(out, a)
+		}
+	}
+	return out
+}
+
+// publicKey is the setting holding a node's last reported public addresses,
+// kept so the liveness check has somewhere to dial after a panel restart.
+func publicKey(id string) string { return "node.public." + id }
+
+// keepPublic stores a node's public addresses when they changed.
+func (m *meshSvc) keepPublic(ctx context.Context, id string, as []netip.Addr) {
+	var ss []string
+	for _, a := range as {
+		ss = append(ss, a.String())
+	}
+	v := strings.Join(ss, " ")
+	if old, _, err := m.st.Settings.Get(ctx, publicKey(id)); err == nil && old != v {
+		if err := m.st.Settings.Set(ctx, publicKey(id), v); err != nil {
+			slog.Warn("mesh: keep public addresses", "node", id, "err", err)
+		}
+	}
 }
 
 var cgnat = netip.MustParsePrefix("100.64.0.0/10")

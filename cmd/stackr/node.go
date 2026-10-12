@@ -195,6 +195,14 @@ func (a *app) nodeReject() *cobra.Command {
 		})
 }
 
+// stateWord is a node state as people read it; --json keeps the raw word.
+func stateWord(s string) string {
+	if s == "tunnel-down" {
+		return "tunnel down, host alive"
+	}
+	return s
+}
+
 func (a *app) nodeLs() *cobra.Command {
 	var state string
 	var pend bool
@@ -217,6 +225,7 @@ func (a *app) nodeLs() *cobra.Command {
 		}
 		for _, r := range rows {
 			m := asMap(r)
+			m["state"] = stateWord(cell(m["state"]))
 			m["tags"] = strings.Join(strs(m["tags"]), ",")
 			m["mem"], m["disk_free"] = gb(m["mem_total"]), gb(m["disk_free"])
 			if num(m["cpu"]) == 0 {
@@ -247,7 +256,7 @@ func (a *app) nodeShow() *cobra.Command {
 			rows := [][]string{
 				{"name", cell(n["name"])},
 				{"role", cell(n["role"])},
-				{"state", cell(n["state"])},
+				{"state", stateWord(cell(n["state"]))},
 				{"tags", strings.Join(strs(n["tags"]), ", ")},
 			}
 			if f := asMap(n["facts"]); f != nil {

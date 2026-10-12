@@ -37,6 +37,7 @@ type View struct {
 	SyncBar *SyncBar        // the env sync review's strip; nil = none
 	Over    templ.Component // drawn over the canvas with the chrome (the Cluster map's legend); nil = none
 	Review  string          // the review the page carries, "sync=dev&drop=a,b"; kept on the helper routes and the show switches
+	FanGap  int             // px between edge ends fanned out on one card side; 0 = the canvas default
 }
 
 // SyncBar is the strip under the banner while an env sync is under review:

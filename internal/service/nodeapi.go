@@ -259,7 +259,7 @@ func (o *Orchestrator) nodeOut(ctx context.Context, n store.Node) (NodeOut, erro
 		return NodeOut{}, err
 	}
 	out := NodeOut{
-		ID: n.ID, Name: n.Name, Role: n.Role, State: n.Status, Tags: node.Tags(n), Envs: len(es),
+		ID: n.ID, Name: n.Name, Role: n.Role, State: o.shownStatus(n), Tags: node.Tags(n), Envs: len(es),
 		OpenTo: o.orgSlugs(ctx, open), Range: n.RangeCIDR, WGAddress: n.WGAddress,
 	}
 	if f := o.reportedFacts(ctx, n); f != nil {

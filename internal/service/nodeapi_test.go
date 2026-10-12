@@ -342,3 +342,27 @@ func TestClusterStatusFlagsDownNodes(t *testing.T) {
 		t.Error("the cluster view leaks ranges to members")
 	}
 }
+
+// An offline worker that answers its liveness port lists as tunnel-down.
+func TestListNodesTunnelDown(t *testing.T) {
+	ctx := context.Background()
+	n := newTwoNodes(t)
+	w, err := n.st.Nodes.Get(ctx, "w1")
+	must(t, err)
+	w.Status = node.StatusOffline
+	must(t, n.st.Nodes.Update(ctx, w))
+	if n.orch.cluster == nil {
+		n.orch.cluster = &clusterPKI{}
+	}
+	n.orch.cluster.alive = map[string]bool{"w1": true}
+	ns, err := n.orch.ListNodes(ctx)
+	must(t, err)
+	if ns[1].State != NodeTunnelDown {
+		t.Errorf("w1 state = %q, want %q", ns[1].State, NodeTunnelDown)
+	}
+	d, err := n.orch.GetNode(ctx, "w1")
+	must(t, err)
+	if d.State != NodeTunnelDown {
+		t.Errorf("show state = %q", d.State)
+	}
+}

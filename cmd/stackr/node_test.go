@@ -97,6 +97,15 @@ func TestNodeLs(t *testing.T) {
 	if _, out, _ = cli(t, "--json", "node", "ls", "--pending"); !strings.Contains(out, `"name": "nas"`) || strings.Contains(out, "vps-fsn1") {
 		t.Errorf("--json = %q", out)
 	}
+	// A worker the tunnel misses but whose host answers reads as the panel says.
+	fake(t, map[string]string{"/nodes": strings.Replace(`[`+nodeJSON+`]`, `"online"`, `"tunnel-down"`, 1),
+		"/nodes/vps-fsn1": strings.Replace(nodeJSON, `"online"`, `"tunnel-down"`, 1)})
+	if _, out, _ = cli(t, "node", "ls"); !strings.Contains(out, "\ttunnel down, host alive\t") {
+		t.Errorf("tunnel down ls = %q", out)
+	}
+	if _, out, _ = cli(t, "node", "show", "vps-fsn1"); !strings.Contains(out, "state\ttunnel down, host alive") {
+		t.Errorf("tunnel down show = %q", out)
+	}
 }
 
 func TestNodeShow(t *testing.T) {

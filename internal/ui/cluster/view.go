@@ -93,10 +93,10 @@ const (
 	headH      = 64 // a box's header: its name and sub
 	padB       = 32
 	gapX       = 96
-	gapY       = 56
-	boxGap     = 160
-	top        = 240 // every box's top edge before any drop
+	boxGapY    = 140         // between stacked boxes: room for the tunnels across
+	netLeft    = sideW + 280 // boxes start right of the internet card
 	minBoxW    = 320
+	fanGap     = 28 // tunnels leaving one card side, apart
 )
 
 // IDs of the cards that are not nodes.
@@ -125,6 +125,15 @@ func cardH(n Node) int {
 
 func hasTag(n Node, t string) bool { return slices.Contains(n.Tags, t) }
 
+// publicTraffic: the node has its own ingress or exit edge to the internet
+// (not through a NAT), as Build draws them.
+func publicTraffic(n Node, c Net) bool {
+	if len(n.Public) == 0 && c.Router {
+		return false
+	}
+	return hasTag(n, "ingress") && len(n.Public) > 0 || len(n.ExitEnvs) > 0
+}
+
 func netTitle(c Net) (name, sub string) {
 	switch {
 	case c.ID == "unknown":
@@ -152,12 +161,14 @@ func Build(m Map, base string, notes []graph.Note, create []graph.Create) graph.
 		return r
 	}
 	var cards, boxes []graph.Node
-	nx, bottom := 0, top
+	// Default spots: boxes stacked top to bottom, each one row: the NAT,
+	// the node it forwards to, nodes with public traffic, the rest. Tunnels
+	// between boxes then cross only the gap, and the internet card on the
+	// left reaches the first cards of each row.
+	by := 0
 	for _, c := range m.Nets {
-		// Default spots: the NAT first, then the nodes two to a row.
 		var members []string
 		var rs []rect
-		y := top + headH
 		add := func(id string, r rect, card graph.Node) {
 			r = place(id, r)
 			card.ID, card.X, card.Y, card.W, card.H = id, r.x, r.y, r.w, r.h
@@ -171,22 +182,27 @@ func Build(m Map, base string, notes []graph.Note, create []graph.Create) graph.
 				ns = append(ns, n)
 			}
 		}
-		cols := min(len(ns), 2)
-		w := max(minBoxW, 2*padX+cols*cardW+max(cols-1, 0)*gapX)
-		if c.Router {
-			add(natID(c.ID), rect{nx + padX, y, natW, natH}, graph.Node{Kind: "nat", Name: "NAT", Card: natCard()})
-			y += natH + gapY
-		}
-		for i := 0; i < len(ns); i += 2 {
-			rowH := 0
-			for j := i; j < min(i+2, len(ns)); j++ {
-				n := ns[j]
-				h := cardH(n)
-				add(nodeID(n.ID), rect{nx + padX + (j-i)*(cardW+gapX), y, cardW, h},
-					graph.Node{Kind: "node", Name: n.Name, Card: nodeCard(n)})
-				rowH = max(rowH, h)
+		rank := func(n Node) int {
+			switch {
+			case c.Router && n.ID == c.Forward:
+				return 0
+			case publicTraffic(n, c):
+				return 1
 			}
-			y += rowH + gapY
+			return 2
+		}
+		slices.SortStableFunc(ns, func(a, b Node) int { return rank(a) - rank(b) })
+		rowY, rowH, x := by+headH, faceH, netLeft+padX
+		for _, n := range ns {
+			rowH = max(rowH, cardH(n))
+		}
+		if c.Router {
+			add(natID(c.ID), rect{x, rowY + (faceH-natH)/2, natW, natH}, graph.Node{Kind: "nat", Name: "NAT", Card: natCard()})
+			x += natW + gapX
+		}
+		for _, n := range ns {
+			add(nodeID(n.ID), rect{x, rowY, cardW, cardH(n)}, graph.Node{Kind: "node", Name: n.Name, Card: nodeCard(n)})
+			x += cardW + gapX
 		}
 		if len(members) == 0 {
 			continue
@@ -198,9 +214,9 @@ func Build(m Map, base string, notes []graph.Note, create []graph.Create) graph.
 			Members: members, Pad: [4]int{headH, padX, padB, padX}, MinW: minBoxW,
 			Card: netCard(name, sub),
 		})
-		bottom = max(bottom, y-gapY+padB)
-		nx += w + boxGap
+		by = rowY + rowH + padB + boxGapY
 	}
+	bottom := max(by-boxGapY, headH+faceH+padB)
 
 	// Edges. Public traffic of a node with its own address runs between it
 	// and the internet; a node behind a router's runs through the NAT, which
@@ -265,22 +281,23 @@ func Build(m Map, base string, notes []graph.Note, create []graph.Create) graph.
 	// The internet above the boxes, backup stores below them, when an edge
 	// reaches them.
 	if slices.ContainsFunc(edges, func(e graph.Edge) bool { return e.From == internetID || e.To == internetID }) {
-		r := place(internetID, rect{max(nx-boxGap, sideW)/2 - sideW/2, top - 200, sideW, sideH})
+		r := place(internetID, rect{0, bottom/2 - sideH/2, sideW, sideH})
 		cards = append(cards, graph.Node{ID: internetID, Kind: "internet", Name: "Internet",
 			X: r.x, Y: r.y, W: r.w, H: r.h, Card: sideCard("Internet", "globe")})
 	}
-	sx := 0
+	sx := netLeft
 	for _, b := range m.Backups {
 		if !slices.ContainsFunc(edges, func(e graph.Edge) bool { return e.To == s3ID(b.ID) }) {
 			continue
 		}
-		r := place(s3ID(b.ID), rect{sx, bottom + 140, sideW, sideH})
+		r := place(s3ID(b.ID), rect{sx, bottom + 120, sideW, sideH})
 		cards = append(cards, graph.Node{ID: s3ID(b.ID), Kind: "s3", Name: b.Name,
 			X: r.x, Y: r.y, W: r.w, H: r.h, Card: sideCard("S3 · "+b.Name, "bucket")})
 		sx += sideW + gapX
 	}
 
 	return graph.View{
+		FanGap: fanGap,
 		Base:   base,
 		Notes:  notes,
 		Create: create,
