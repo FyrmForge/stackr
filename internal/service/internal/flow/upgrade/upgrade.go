@@ -130,6 +130,9 @@ func (f *Flow) Upgrade(ctx context.Context, tag string, log io.Writer) (string, 
 	if err := f.EnsureProxy(ctx, image); err != nil {
 		return "", err
 	}
+	if err := f.EnsureRegistry(ctx); err != nil {
+		return "", err
+	}
 	spec := f.Spec(image)
 	spec.Image = image
 	// The old container still holds its name until the new one passes.

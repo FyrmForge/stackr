@@ -92,8 +92,9 @@ func (s Scope) String() string { return s.Repo + ":" + strings.Join(s.Actions, "
 type Facts struct {
 	Kind    Kind
 	Subject string // node, user or key id, for the audit
-	// Orgs are the org slugs a user may pull and push.
-	Orgs []string
+	// Orgs are the org slugs a user may pull and push; PullOrgs only pull.
+	Orgs     []string
+	PullOrgs []string
 	// PullRepos are the repos of envs pinned to the node.
 	PullRepos []string
 	// PushRepos are the repos of the builder's build jobs; pushing implies
@@ -111,6 +112,9 @@ func (f Facts) allowed(repo, action string) bool {
 	}
 	if slices.Contains(f.Orgs, org) {
 		return action == Pull || action == Push
+	}
+	if action == Pull && slices.Contains(f.PullOrgs, org) {
+		return true
 	}
 	switch action {
 	case Pull:

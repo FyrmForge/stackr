@@ -24,6 +24,7 @@ const (
 	GrantRevoke   = "grant.revoke"
 	SecretReveal  = "secrets.reveal"
 	NodeBootstrap = "node.bootstrap" // the controller row was made
+	RegistryToken = "registry.token" // the registry front issued a token
 )
 
 // Event is what a caller records; Append stamps the id and time.

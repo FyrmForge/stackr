@@ -95,7 +95,8 @@ func Build(in Install, tiles []TileRoute, routes []Route, expand Expand) (json.R
 
 	if h := in.PanelHost; h != "" && h != "localhost" && net.ParseIP(h) == nil && in.PanelUpstream != "" {
 		serve := route{
-			"match":    []route{{"host": []string{h}}},
+			// registry.<panel host> is the registry front, served by the panel.
+			"match":    []route{{"host": []string{h, "registry." + h}}},
 			"terminal": true,
 			// X-Forwarded-For is set to the client Caddy resolved (its trusted
 			// proxies applied), not appended: the panel trusts only Caddy, so a
@@ -105,8 +106,8 @@ func Build(in Install, tiles []TileRoute, routes []Route, expand Expand) (json.R
 		}
 		if tlsOn {
 			secure = append(secure, placed{"", "", serve})
-			plain = append(plain, placed{"", "", forceRoute(h, "")})
-			httpsHosts[h] = true
+			plain = append(plain, placed{"", "", forceRoute(h, "")}, placed{"", "", forceRoute("registry."+h, "")})
+			httpsHosts[h], httpsHosts["registry."+h] = true, true
 		} else {
 			plain = append(plain, placed{"", "", serve})
 		}

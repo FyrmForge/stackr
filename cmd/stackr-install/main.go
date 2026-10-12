@@ -165,6 +165,9 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 	if err := r.ensureProxy(ctx, image, in, *dnsToken, proxyUp); err != nil {
 		return err
 	}
+	if err := r.ensureRegistry(ctx); err != nil {
+		return err
+	}
 	// The panel may be renamed stackr-<version> by an upgrade; its label is
 	// what stays.
 	if id, _ := read(ctx, "docker", "ps", "-aq", "--filter", "label="+installspec.LabelRole+"=panel"); id != "" {

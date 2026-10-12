@@ -138,6 +138,9 @@ func portBindings(ports map[string]string, anyIP bool) (nat.PortSet, nat.PortMap
 		if anyIP {
 			ip = "" // docker's default: both families
 		}
+		if i, port, ok := strings.Cut(hp, ":"); ok { // "127.0.0.1:5000": loopback only
+			ip, hp = i, port
+		}
 		bindings[p] = append(bindings[p], nat.PortBinding{HostIP: ip, HostPort: hp})
 	}
 	return exposed, bindings

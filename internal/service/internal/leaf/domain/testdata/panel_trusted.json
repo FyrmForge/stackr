@@ -46,6 +46,27 @@
               "match": [
                 {
                   "host": [
+                    "registry.panel.example.com"
+                  ]
+                }
+              ],
+              "terminal": true
+            },
+            {
+              "handle": [
+                {
+                  "handler": "static_response",
+                  "headers": {
+                    "Location": [
+                      "https://{http.request.host}{http.request.uri}"
+                    ]
+                  },
+                  "status_code": 308
+                }
+              ],
+              "match": [
+                {
+                  "host": [
                     "app.example.com"
                   ]
                 }
@@ -100,7 +121,8 @@
               "match": [
                 {
                   "host": [
-                    "panel.example.com"
+                    "panel.example.com",
+                    "registry.panel.example.com"
                   ]
                 }
               ],
