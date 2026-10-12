@@ -82,6 +82,9 @@ type EnvironmentStore interface {
 	// SetNode is the one writer of the node, for moves: it also clears the
 	// subnet, which belongs to the old node's range.
 	SetNode(ctx context.Context, id, nodeID string) error
+	// AdoptUnplaced gives every env with no node this one (envs made before
+	// nodes existed) and reports how many.
+	AdoptUnplaced(ctx context.Context, nodeID string) (int64, error)
 	Update(ctx context.Context, e Environment) error
 	Delete(ctx context.Context, id string) error
 }
@@ -118,6 +121,14 @@ func (s environments) SetSubnet(ctx context.Context, id, subnet string) error {
 func (s environments) SetNode(ctx context.Context, id, nodeID string) error {
 	res, err := s.q.ExecContext(ctx, `UPDATE environments SET node_id = ?, subnet = '' WHERE id = ?`, nodeID, id)
 	return affected(res, err)
+}
+
+func (s environments) AdoptUnplaced(ctx context.Context, nodeID string) (int64, error) {
+	res, err := s.q.ExecContext(ctx, `UPDATE environments SET node_id = ? WHERE node_id = ''`, nodeID)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
 }
 
 func (s environments) ListByNode(ctx context.Context, nodeID string) ([]Environment, error) {

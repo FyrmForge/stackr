@@ -341,6 +341,13 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 		_ = db.Close()
 		return nil, fmt.Errorf("controller node: %w", err)
 	}
+	// envs from before nodes existed run on the controller
+	if n, err := st.Environments.AdoptUnplaced(ctx, ctl.ID); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("controller node: adopt envs: %w", err)
+	} else if n > 0 {
+		slog.Info("nodes: envs placed on the controller", "count", n)
+	}
 	if created {
 		if err := st.Tx(ctx, func(tx store.Tx) error {
 			return audit(tx).Append(ctx, securitylog.Event{
