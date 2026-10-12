@@ -14,7 +14,6 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/jobs"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/move"
-	"github.com/FyrmForge/stackr/internal/service/internal/leaf/node"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/securitylog"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/volume"
@@ -41,25 +40,30 @@ func (o *Orchestrator) moveFlow() *move.Flow {
 	return &move.Flow{Moves: o.store.Moves, Nodes: moveNodes{o}, Env: moveEnv{o}}
 }
 
-// MoveEnv (server admin) moves an env to another node as a job: cold (stop,
-// copy, start) or live (rsync while it runs, then stop and a checksum pass).
+// MoveEnv (org owner; the target must be open to the org) moves an env to
+// another node as a job: cold (stop, copy, start) or live (rsync while it
+// runs, then stop and a checksum pass).
 func (o *Orchestrator) MoveEnv(ctx context.Context, by *Principal, envID, toNode string, live bool) (Job, error) {
 	if by == nil {
 		return Job{}, errs.ErrRefused
 	}
-	if err := authz.Can(by.Access, "node.manage", authz.Resource{}); err != nil {
+	orgID, err := o.placementOrg(ctx, ScopeEnv, envID)
+	if err != nil {
+		return Job{}, err
+	}
+	if err := authz.Can(by.Access, "placement.write", authz.Resource{OrgID: orgID}); err != nil {
 		return Job{}, err
 	}
 	from, err := o.nodeOfEnvID(ctx, envID)
 	if err != nil {
 		return Job{}, err
 	}
-	to, err := o.store.Nodes.Get(ctx, toNode)
+	to, err := o.nodeByRef(ctx, toNode)
 	if err != nil {
 		return Job{}, err
 	}
-	if to.Status != node.StatusOnline {
-		return Job{}, errs.Conflictf("node %s is %s", to.Name, to.Status)
+	if err := o.nodeUsable(ctx, by, to, orgID); err != nil {
+		return Job{}, err
 	}
 	m, err := o.moveFlow().Begin(ctx, move.Request{EnvID: envID, From: from.ID, To: to.ID, Live: live})
 	if err != nil {

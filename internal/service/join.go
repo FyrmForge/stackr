@@ -146,21 +146,27 @@ func (o *Orchestrator) CreateJoinToken(ctx context.Context, by *Principal, spec 
 			return JoinTokenOut{}, errs.Invalidf("tags", "%q is not a tag; use %s", t, strings.Join(joinTags, ", "))
 		}
 	}
-	ttl := time.Duration(spec.TTLMinutes) * time.Minute
+	if _, err := o.store.Nodes.GetBySlug(ctx, name); err == nil {
+		return JoinTokenOut{}, errs.Conflictf("A node named %q already exists.", name)
+	}
+	return o.mintJoin(ctx, by, name, spec.Tags, spec.TTLMinutes)
+}
+
+// mintJoin is the token itself. A rejoin names a node that already exists
+// (RejoinNode set it to needs-rejoin); its request then reuses the row.
+func (o *Orchestrator) mintJoin(ctx context.Context, by *Principal, name string, tagList []string, ttlMinutes int) (JoinTokenOut, error) {
+	ttl := time.Duration(ttlMinutes) * time.Minute
 	switch {
-	case spec.TTLMinutes < 0 || ttl > JoinTokenMaxTTL:
+	case ttlMinutes < 0 || ttl > JoinTokenMaxTTL:
 		return JoinTokenOut{}, errs.Invalidf("ttl_minutes", "at most %d", int(JoinTokenMaxTTL.Minutes()))
 	case ttl == 0:
 		ttl = JoinTokenTTL
-	}
-	if _, err := o.store.Nodes.GetBySlug(ctx, name); err == nil {
-		return JoinTokenOut{}, errs.Conflictf("A node named %q already exists.", name)
 	}
 	ca, err := o.loadCA()
 	if err != nil {
 		return JoinTokenOut{}, err
 	}
-	tags := slices.Compact(slices.Sorted(slices.Values(spec.Tags)))
+	tags := slices.Compact(slices.Sorted(slices.Values(tagList)))
 	var out JoinTokenOut
 	err = o.store.Tx(ctx, func(tx store.Tx) error {
 		token, row, err := o.joinTokens(tx).Mint(ctx, name, tags, by.User.ID, ttl)
@@ -210,7 +216,7 @@ func (o *Orchestrator) RequestJoin(ctx context.Context, meta JoinMeta, req JoinR
 		}
 		var tags []string
 		_ = json.Unmarshal([]byte(row.Tags), &tags)
-		n, err := node.New(tx.Nodes).CreatePending(ctx, row.NodeName, tags, req.WGPublicKey)
+		n, err := node.New(tx.Nodes).CreatePendingOrRejoin(ctx, row.NodeName, tags, req.WGPublicKey, StateNeedsRejoin)
 		if err != nil {
 			return err
 		}
@@ -300,14 +306,23 @@ func (o *Orchestrator) ConfirmJoin(ctx context.Context, by *Principal, nodeID st
 	if err != nil {
 		return JoinedNode{}, err
 	}
+	// Ranges of removed nodes stay taken for good, and so do the networks the
+	// nodes report: read before the transaction opens.
+	reserved, err := o.mesh.reserved(ctx)
+	if err != nil {
+		return JoinedNode{}, err
+	}
 	var out store.Node
 	err = o.store.Tx(ctx, func(tx store.Tx) error {
 		used, err := o.joinTokens(tx).Used(ctx)
 		if err != nil {
 			return err
 		}
-		out, err = node.New(tx.Nodes).Confirm(ctx, nodeID, reportedPrefixes(used))
+		out, err = node.New(tx.Nodes).Confirm(ctx, nodeID, append(reportedPrefixes(used), reserved...))
 		if err != nil {
+			return err
+		}
+		if _, err := tx.NodeCerts.RevokeNode(ctx, out.ID, time.Now().UTC()); err != nil { // a rejoin retires the old certs
 			return err
 		}
 		iss, err := ca.IssueNode([]byte(row.CSR), out.ID, time.Now())
@@ -334,6 +349,9 @@ func (o *Orchestrator) ConfirmJoin(ctx context.Context, by *Principal, nodeID st
 			TargetKind: "node", TargetID: out.ID, Detail: "serial " + iss.Serial + " role " + iss.Role,
 		})
 	})
+	if err == nil {
+		o.kickMesh() // the controller adds the peer; the next refresh brings the worker online
+	}
 	return JoinedNode{ID: out.ID, Name: out.Name, Range: out.RangeCIDR, WGAddress: out.WGAddress, Status: out.Status}, err
 }
 

@@ -7,7 +7,19 @@ import (
 	"time"
 
 	"github.com/FyrmForge/stackr/internal/clusterca"
+	"github.com/FyrmForge/stackr/internal/wgapply"
 )
+
+func TestWorkerWG(t *testing.T) {
+	t.Setenv("STACKR_FAKE_HOST", "true")
+	if _, ok := workerWG().(*wgapply.Recorder); !ok {
+		t.Error("fake host did not get the recorder")
+	}
+	t.Setenv("STACKR_FAKE_HOST", "")
+	if _, ok := workerWG().(wgapply.Kernel); !ok {
+		t.Error("real host did not get the kernel applier")
+	}
+}
 
 func TestWorkerConfig(t *testing.T) {
 	dir := t.TempDir()

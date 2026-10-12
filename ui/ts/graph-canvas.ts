@@ -1,7 +1,8 @@
 // <graph-canvas scale snap straight fan-out arrows hover-focus nooverlap
 // badges boundary legend focus divider>: pan, zoom (wheel, pinch,
 // [data-zoom]) about the cursor, fit, shift+drag marquee, hover focus,
-// "focus" centring, <svg data-edges> re-path, <svg data-lanes> traffic lanes.
+// "focus" centring, <svg data-edges> re-path, <svg data-lanes> traffic lanes,
+// <svg data-net data-extent="x y w h"> a page-drawn layer that the fit includes.
 // Writes --px/--py/--s on itself (CSS makes the transforms), "selected"/"lit"
 // on nodes, "data-lit" on paths and lanes; fires "selection-changed"
 // (detail.ids). Look attributes follow [data-look] inputs (a checkbox, or
@@ -93,6 +94,9 @@ class GraphCanvas extends HTMLElement {
   // The cards' extent (notes and boxes left out, as v0 did).
   private bounds(): Box | null {
     const boxes = this.nodes().filter((n) => !idOf(n).startsWith("note:")).map((n) => this.box(n));
+    // A page that draws behind the cards (svg[data-net], the Cluster map) names the box it spans.
+    const [ex, ey, ew, eh] = (this.querySelector("svg[data-net]")?.getAttribute("data-extent") ?? "").split(" ").map(Number);
+    if (ew) boxes.push({ x: ex, y: ey, w: ew, h: eh });
     if (boxes.length === 0) return null;
     const x = Math.min(...boxes.map((b) => b.x));
     const y = Math.min(...boxes.map((b) => b.y));

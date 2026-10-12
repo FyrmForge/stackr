@@ -31,11 +31,14 @@ type View struct {
 	Divider int  // world x of that boundary (0 is a real place)
 	Empty   string
 	Compare []Rung
-	Create  []Create     // the level's create dialogs the viewer may open
-	Lanes   []cards.Lane // env traffic at the last sample; nil = no lanes layer
-	Banner  *Banner      // the strip over the canvas; nil = none
-	SyncBar *SyncBar     // the env sync review's strip; nil = none
-	Review  string       // the review the page carries, "sync=dev&drop=a,b"; kept on the helper routes and the show switches
+	Create  []Create        // the level's create dialogs the viewer may open
+	Lanes   []cards.Lane    // env traffic at the last sample; nil = no lanes layer
+	Banner  *Banner         // the strip over the canvas; nil = none
+	SyncBar *SyncBar        // the env sync review's strip; nil = none
+	Under   templ.Component // drawn behind the edges and cards (the Cluster map's boxes and tunnels); nil = none
+	Over    templ.Component // drawn over the canvas with the chrome (the Cluster map's legends); nil = none
+	Fixed   bool            // the cards are placed by the page and never move: no Arrange section
+	Review  string          // the review the page carries, "sync=dev&drop=a,b"; kept on the helper routes and the show switches
 }
 
 // SyncBar is the strip under the banner while an env sync is under review:

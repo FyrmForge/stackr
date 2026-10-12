@@ -115,15 +115,24 @@ func (o *Orchestrator) registryFacts(r *http.Request) (regfront.Facts, error) {
 	if tok == "" {
 		return regfront.Facts{}, errRegistryAuth
 	}
+	if strings.HasPrefix(tok, registryLoginPrefix) {
+		return o.loginFacts(ctx, tok)
+	}
 	p, err := o.KeyPrincipal(ctx, tok)
 	if err != nil || authz.Self(p.Access) != nil {
 		return regfront.Facts{}, errRegistryAuth
 	}
+	return o.userRegistryFacts(ctx, p), nil
+}
+
+// userRegistryFacts is what a user may do in the registry: admins anything,
+// others push and pull the orgs they write in and pull the ones they read.
+func (o *Orchestrator) userRegistryFacts(ctx context.Context, p *Principal) regfront.Facts {
 	f := regfront.Facts{Kind: regfront.KindUser, Subject: p.User.ID}
 	// A key bound to an org never gets admin, whatever its user is.
 	if p.Access.KeyOrg == "" && authz.Can(p.Access, "node.manage", authz.Resource{}) == nil {
 		f.Kind = regfront.KindAdmin
-		return f, nil
+		return f
 	}
 	for orgID := range p.Access.Roles {
 		og, err := o.store.Orgs.Get(ctx, orgID)
@@ -138,7 +147,7 @@ func (o *Orchestrator) registryFacts(r *http.Request) (regfront.Facts, error) {
 			f.PullOrgs = append(f.PullOrgs, og.Slug)
 		}
 	}
-	return f, nil
+	return f
 }
 
 // nodeFacts: the cert must chain to the cluster CA with the worker role and

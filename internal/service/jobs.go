@@ -168,6 +168,7 @@ func (o *Orchestrator) handlers() map[jobs.Kind]jobs.Handler {
 				return err
 			}
 			ctx = withRanFirst(ctx, r.Job.CreatedAt)
+			o.ensureMesh(ctx)
 			if err := o.deploy.Redeploy(ctx, p.TileID, r.Log, r.Swap); err != nil {
 				return parkOnApproval(r, err)
 			}
@@ -179,6 +180,7 @@ func (o *Orchestrator) handlers() map[jobs.Kind]jobs.Handler {
 				return err
 			}
 			ctx = withRanFirst(ctx, r.Job.CreatedAt)
+			o.ensureMesh(ctx)
 			pre, _ := o.tiles.List(ctx, p.EnvID)
 			plan, err := o.promote.ApplyTicked(ctx, p.EnvID, p.ReleaseID, p.Ticked, r.Log, r.Swap)
 			if plan != nil {

@@ -52,7 +52,11 @@ func (o *Orchestrator) JoinsLockedTier(ctx context.Context, by *Principal, stack
 }
 
 func (o *Orchestrator) CreateEnv(ctx context.Context, stackID, name string, s EnvSpec) (Environment, error) {
-	return o.envs.Create(ctx, stackID, name, s)
+	e, err := o.envs.Create(ctx, stackID, name, s)
+	if err == nil {
+		o.kickMesh()
+	}
+	return e, err
 }
 
 // RenameEnv moves name and slug, and the auto domains under the env with
@@ -142,6 +146,7 @@ func (o *Orchestrator) DeleteEnv(ctx context.Context, id string) error {
 		return err
 	}
 	o.cancelWaitingFor(ctx, "env:"+id)
+	o.kickMesh()
 	return nil
 }
 

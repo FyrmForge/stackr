@@ -90,6 +90,9 @@ class GraphCanvas extends HTMLElement {
     }
     bounds() {
         const boxes = this.nodes().filter((n) => !idOf(n).startsWith("note:")).map((n) => this.box(n));
+        const [ex, ey, ew, eh] = (this.querySelector("svg[data-net]")?.getAttribute("data-extent") ?? "").split(" ").map(Number);
+        if (ew)
+            boxes.push({ x: ex, y: ey, w: ew, h: eh });
         if (boxes.length === 0)
             return null;
         const x = Math.min(...boxes.map((b) => b.x));

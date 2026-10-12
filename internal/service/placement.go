@@ -538,7 +538,7 @@ func (o *Orchestrator) SetPin(ctx context.Context, by *Principal, kind, id, node
 	if nodeID != "" {
 		pin = &nodeID
 	}
-	return o.store.Tx(ctx, func(tx store.Tx) error {
+	err = o.store.Tx(ctx, func(tx store.Tx) error {
 		if kind == ScopeOrg {
 			og.NodeID = pin
 			if err := tx.Orgs.Update(ctx, og); err != nil {
@@ -556,6 +556,10 @@ func (o *Orchestrator) SetPin(ctx context.Context, by *Principal, kind, id, node
 		}
 		return o.auditPlacement(ctx, tx, by, "placement.pin", kind, id, "node "+nodeID)
 	})
+	if err == nil {
+		o.kickMesh()
+	}
+	return err
 }
 
 // MoveEnvsToPin (server admin) moves every env under the org or stack that
@@ -646,12 +650,16 @@ func (o *Orchestrator) SetExits(ctx context.Context, by *Principal, kind, id str
 			return errs.Invalidf("exits", "%s is not tagged egress", p.Name)
 		}
 	}
-	return o.store.Tx(ctx, func(tx store.Tx) error {
+	err = o.store.Tx(ctx, func(tx store.Tx) error {
 		if err := tx.ExitLadders.Set(ctx, kind, id, nodeIDs); err != nil {
 			return err
 		}
 		return o.auditPlacement(ctx, tx, by, "placement.exits", kind, id, strings.Join(nodeIDs, ","))
 	})
+	if err == nil {
+		o.kickMesh()
+	}
+	return err
 }
 
 // ExitsAdd appends a rung; ExitsRemove drops one. Both read the ladder in

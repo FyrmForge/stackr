@@ -31,7 +31,7 @@ const (
 // Routes is the whole API, the table the OpenAPI dump and the CLI coverage
 // test read. Verb levels live in authz; handlers never check.
 func Routes(h *v1.H) []Route {
-	return append(routes(h), scoped(h)...)
+	return append(append(routes(h), scoped(h)...), placement(h)...)
 }
 
 func routes(h *v1.H) []Route {
@@ -216,6 +216,19 @@ func routes(h *v1.H) []Route {
 		{GET, "/admin/join-requests", "admin.join-requests", "node.manage", h.PendingJoins()},
 		{POST, "/admin/join-requests/:node/confirm", "admin.join-confirm", "node.manage", h.ConfirmJoin()},
 		{POST, "/admin/join-requests/:node/reject", "admin.join-reject", "node.manage", h.RejectJoin()},
+
+		// nodes: reads for any member (redacted), writes for server admins
+		{GET, "/nodes", "node.list", Self, h.Nodes()},
+		{GET, "/nodes/:node", "node.get", Self, h.GetNode()},
+		{GET, "/cluster", "cluster.status", Self, h.Cluster()},
+		{POST, "/registry/login", "registry.login", Self, h.RegistryLogin()},
+		{PUT, "/admin/nodes/:node/tags", "admin.node-tags", "node.manage", h.TagNode()},
+		{POST, "/admin/nodes/:node/orgs", "admin.node-open", "node.manage", h.OpenNode()},
+		{DELETE, "/admin/nodes/:node/orgs/:org", "admin.node-close", "node.manage", h.CloseNode()},
+		{POST, "/admin/nodes/:node/rejoin", "admin.node-rejoin", "node.manage", h.RejoinNode()},
+		{POST, "/admin/nodes/:node/forget", "admin.node-forget", "node.manage", h.ForgetNode()},
+		{DELETE, "/admin/nodes/:node", "admin.node-remove", "node.manage", h.RemoveNode()},
+		{GET, org + "/lost-envs", "env.lost", "org.read", h.LostEnvs()},
 		{GET, "/admin/host-grants", "admin.host-grants", "admin.read", h.HostGrants()},
 		{GET, "/admin/images", "admin.images", "admin.read", h.Images()},
 		{POST, "/admin/image-check", "admin.image-check", "container.admin", h.CheckAllImages()},
@@ -310,4 +323,37 @@ func scoped(h *v1.H) []Route {
 		Route{http.MethodGet, stack + "/volumes", "stack.volumes", "org.read", h.Volumes(v1.AtStack)},
 		Route{http.MethodPost, stack + "/volumes", "stack.volume-declare", "tile.write", h.DeclareVolume(v1.AtStack)},
 	)
+}
+
+// placement are the routes that exist once per scope: pins (org and stack),
+// the ingress node and the exit list (org, stack, env and tile).
+func placement(h *v1.H) []Route {
+	out := []Route{
+		{http.MethodPost, env + "/move", "env.move", "placement.write", h.MoveEnv()},
+		{http.MethodPost, env + "/restore", "env.restore", "placement.write", h.RestoreEnv()},
+	}
+	for _, s := range []struct {
+		base, name string
+		at         v1.At
+		pin        bool
+	}{
+		{org, "org", v1.AtOrg, true},
+		{stack, "stack", v1.AtStack, true},
+		{env, "env", v1.AtEnv, false},
+		{tile, "tile", v1.AtTile, false},
+	} {
+		out = append(out,
+			Route{http.MethodGet, s.base + "/ingress", s.name + ".ingress", "org.read", h.Ingress(s.at)},
+			Route{http.MethodPut, s.base + "/ingress", s.name + ".ingress-set", "placement.write", h.SetIngress(s.at)},
+			Route{http.MethodGet, s.base + "/exits", s.name + ".exits", "org.read", h.Exits(s.at)},
+			Route{http.MethodPut, s.base + "/exits", s.name + ".exits-set", "placement.write", h.SetExits(s.at)},
+		)
+		if s.pin {
+			out = append(out,
+				Route{http.MethodGet, s.base + "/pin", s.name + ".pin", "org.read", h.Pin(s.at)},
+				Route{http.MethodPut, s.base + "/pin", s.name + ".pin-set", "placement.write", h.SetPin(s.at)},
+			)
+		}
+	}
+	return out
 }

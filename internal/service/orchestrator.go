@@ -68,6 +68,8 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/secrets"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 	"github.com/FyrmForge/stackr/internal/service/internal/vip"
+	"github.com/FyrmForge/stackr/internal/wgapply"
+	"github.com/FyrmForge/stackr/internal/worker"
 )
 
 // ProxyAdmin is where `stackrd proxy` serves Caddy's admin API, and the
@@ -125,6 +127,11 @@ type Config struct {
 	// state lives in this directory (STACKR_FAKE_HOST, local development
 	// only). It forces TLSOff: the local proxy never asks for certificates.
 	FakeHost string
+	// MeshWG and MeshRunner put the controller's own node in the mesh: the
+	// kernel wg applier and the command runner of a real host. Nil MeshWG
+	// (a fake host, a test) leaves the controller out; it then runs no wg0.
+	MeshWG     wgapply.Applier
+	MeshRunner worker.Runner
 }
 
 // Option changes how New builds the tree; tests use it.
@@ -230,6 +237,8 @@ type Orchestrator struct {
 
 	cluster   *clusterPKI   // the CA, the controller cert, the worker clients (nodeclients.go)
 	stopNodes chan struct{} // ends watchNodeClients
+	mesh      *meshSvc      // the node mesh and exits (mesh.go, multinode.go)
+	stopMesh  context.CancelFunc
 	stopOnce  sync.Once
 }
 
@@ -362,6 +371,7 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 		cluster:   cl,
 		stopNodes: make(chan struct{}),
 	}
+	orch.startMesh(ctl.ID)
 	if err := orch.refreshNodeClients(ctx); err != nil {
 		slog.Warn("nodes: worker clients not all built", "err", err)
 	}
@@ -636,6 +646,7 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 	if err := orch.resumeMoves(ctx); err != nil {
 		slog.Warn("moves: resume failed", "err", err)
 	}
+	go orch.dailyChores(context.Background())
 	if err := orch.sched.Boot(ctx); err != nil {
 		// A bad schedule row is reported, never fatal: the rest still run.
 		slog.Warn("scheduler: entries skipped", "err", err)
@@ -695,7 +706,12 @@ func bootSettings(cfg Config) map[string]string {
 
 // Close stops the scheduler and the job runner, then releases the database.
 func (o *Orchestrator) Close() error {
-	o.stopOnce.Do(func() { close(o.stopNodes) })
+	o.stopOnce.Do(func() {
+		close(o.stopNodes)
+		if o.stopMesh != nil {
+			o.stopMesh()
+		}
+	})
 	o.sched.Stop()
 	o.jobs.Close()
 	return o.db.Close()

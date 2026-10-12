@@ -18,6 +18,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/web/handler/auth/invite"
 	"github.com/FyrmForge/stackr/internal/web/handler/auth/login"
 	"github.com/FyrmForge/stackr/internal/web/handler/canvas"
+	"github.com/FyrmForge/stackr/internal/web/handler/cluster"
 	"github.com/FyrmForge/stackr/internal/web/handler/devemail"
 	"github.com/FyrmForge/stackr/internal/web/handler/devgallery"
 	"github.com/FyrmForge/stackr/internal/web/handler/env"
@@ -112,6 +113,9 @@ func RegisterRoutes(srv *server.Server, deps *Deps) {
 
 	// The admin drawer, opened from the nav on any page.
 	admin.NewHandler(deps.Orch).Mount(site, deps.Access)
+
+	// The Cluster map (/-/cluster): nodes, networks, tunnels, backups.
+	cluster.NewHandler(deps.Orch).Mount(site, deps.Access)
 
 	// The canvases, one per level. Require resolves each slug, 404s early
 	// and leaves org, stack and env in the context; home is the caller's.

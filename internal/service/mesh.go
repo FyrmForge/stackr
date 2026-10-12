@@ -17,6 +17,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/exits"
 	"github.com/FyrmForge/stackr/internal/mesh"
 	"github.com/FyrmForge/stackr/internal/relay"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/node"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 	"github.com/FyrmForge/stackr/internal/worker"
 )
@@ -86,12 +87,13 @@ type meshSvc struct {
 	mu     sync.Mutex
 	facts  map[string]worker.Facts
 	exitPK map[string]string // exit public key per node
+	wgPK   map[string]string // wg public key per node, for a row that holds none (the controller's)
 	pushed map[string][32]byte
 }
 
 func newMeshSvc(st *store.Store, nodes MeshNodes) *meshSvc {
 	return &meshSvc{st: st, nodes: nodes, kick: make(chan struct{}, 1),
-		facts: map[string]worker.Facts{}, exitPK: map[string]string{}, pushed: map[string][32]byte{}}
+		facts: map[string]worker.Facts{}, exitPK: map[string]string{}, wgPK: map[string]string{}, pushed: map[string][32]byte{}}
 }
 
 // Kick asks Run for a sync soon; it never blocks.
@@ -215,6 +217,7 @@ func (m *meshSvc) RemoveNode(ctx context.Context, nodeID string) error {
 	delete(m.pushed, nodeID)
 	delete(m.facts, nodeID)
 	delete(m.exitPK, nodeID)
+	delete(m.wgPK, nodeID)
 	m.mu.Unlock()
 	return m.Sync(ctx, "", false)
 }
@@ -242,6 +245,21 @@ func (m *meshSvc) AllocateNodeRange(ctx context.Context) (netip.Prefix, error) {
 		}
 	}
 	return mesh.AllocateRange(taken, ifaces)
+}
+
+// reserved is every prefix a new node range must avoid besides the node rows:
+// the forgotten ranges and the interfaces the nodes reported.
+func (m *meshSvc) reserved(ctx context.Context) ([]netip.Prefix, error) {
+	out, err := m.forgotten(ctx)
+	if err != nil {
+		return nil, err
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, f := range m.facts {
+		out = append(out, ifacePrefixes(f)...)
+	}
+	return out, nil
 }
 
 // ForgetRange keeps a removed node's range taken for good.
@@ -319,6 +337,9 @@ func (m *meshSvc) gather(ctx context.Context) (meshIn, error) {
 		return out, err
 	}
 	for _, n := range ns {
+		if n.Status == node.StatusPending { // no range yet ("pending:<id>")
+			continue
+		}
 		mn := meshNodeIn{Name: n.Name, Node: mesh.Node{ID: n.ID, PublicKey: n.WGPublicKey, Port: MeshWGPort}}
 		mn.Range, _ = netip.ParsePrefix(n.RangeCIDR)
 		if cl, ok := m.nodes(n.ID); ok {
@@ -327,6 +348,9 @@ func (m *meshSvc) gather(ctx context.Context) (meshIn, error) {
 		m.mu.Lock()
 		f, haveF := m.facts[n.ID]
 		mn.ExitKey = m.exitPK[n.ID]
+		if mn.PublicKey == "" {
+			mn.PublicKey = m.wgPK[n.ID]
+		}
 		m.mu.Unlock()
 		if haveF {
 			mn.Ifaces = ifacePrefixes(f)
@@ -399,6 +423,7 @@ func (m *meshSvc) refresh(ctx context.Context, id string, cl MeshNode) {
 	}
 	if info, err := cl.MeshInfo(cctx); err == nil {
 		m.mu.Lock()
+		m.wgPK[id] = info.WGPublic
 		m.exitPK[id] = info.ExitPublic
 		m.mu.Unlock()
 	}

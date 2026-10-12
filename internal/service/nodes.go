@@ -140,6 +140,9 @@ func (o *Orchestrator) eachNode(ctx context.Context, f func(ctx context.Context,
 	}
 	var errs []error
 	for _, n := range ns {
+		if n.Status == node.StatusPending || n.Status == node.StatusJoined { // never reachable yet
+			continue
+		}
 		if err := f(docker.WithNode(ctx, n.ID), n); err != nil {
 			errs = append(errs, fmt.Errorf("node %s: %w", n.Name, err))
 		}

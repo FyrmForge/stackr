@@ -39,6 +39,17 @@ func (l *Leaf) CreatePending(ctx context.Context, name string, tags []string, wg
 	return n, nil
 }
 
+// CreatePendingOrRejoin is CreatePending, except a worker already in the
+// table in state rejoin (a re-issued join command) goes back to pending with
+// the new WireGuard key and keeps its id, range and address.
+func (l *Leaf) CreatePendingOrRejoin(ctx context.Context, name string, tags []string, wgKey, rejoin string) (store.Node, error) {
+	if n, err := l.nodes.GetBySlug(ctx, name); err == nil && n.Status == rejoin {
+		n.Status, n.WGPublicKey = StatusPending, wgKey
+		return n, l.nodes.Update(ctx, n)
+	}
+	return l.CreatePending(ctx, name, tags, wgKey)
+}
+
 // Confirm gives a pending node the lowest free /16 of the supernet, avoiding
 // every range on a node row and every interface prefix in ifaces, and its
 // transit address. ErrNotFound when the node is not pending.
@@ -51,6 +62,10 @@ func (l *Leaf) Confirm(ctx context.Context, id string, ifaces []netip.Prefix) (s
 	}
 	if n.Status != StatusPending {
 		return n, errs.ErrNotFound
+	}
+	if _, err := netip.ParsePrefix(n.RangeCIDR); err == nil { // a rejoin keeps its range
+		n.Status = StatusJoined
+		return n, l.nodes.Update(ctx, n)
 	}
 	all, err := l.nodes.List(ctx)
 	if err != nil {

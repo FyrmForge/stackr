@@ -30,6 +30,14 @@ const (
 	NATChain = "STACKR-NAT"
 )
 
+// Ports the mesh interface accepts on the host: the exit links, one UDP port
+// per (client, exit) pair, and the worker API.
+const (
+	ExitPortLo    = 52000
+	ExitPortHi    = 52255
+	WorkerAPIPort = 7443
+)
+
 // Entry is one VIP's state: the live replica IPs and the lan grants of its
 // tile (a grant line, "lan:192.168.1.0/24", "lan:192.168.1.10:8123"; the
 // "lan:" prefix is optional).
@@ -48,6 +56,15 @@ type Base struct {
 	Front     []string     // IPs or CIDRs of the front proxy, reachable on 80/443
 	PanelBind string       // the panel's listen address; "" = not locked
 	PanelPort int          // the panel's real listen port
+	// WGIface is the mesh interface; set, STACKR-IN lets only the exit links
+	// (UDP ExitPortLo-ExitPortHi) and the worker API (WorkerAPIPort, from
+	// WGController alone when set) in from it and drops the rest.
+	WGIface      string
+	WGController netip.Addr
+	// WGPanelPort, set on the controller, is the panel's tcp port a worker
+	// reaches over the mesh: registry pulls go through the registry front on
+	// the panel listener.
+	WGPanelPort int
 
 	early map[string][]string // set by Table: replica IP -> lan lines, before it is routed
 }
@@ -114,6 +131,15 @@ func (b Base) check() error {
 		if _, err := target(f); err != nil {
 			return err
 		}
+	}
+	if b.WGIface != "" && (len(b.WGIface) > 15 || strings.ContainsAny(b.WGIface, " \t\n/")) {
+		return fmt.Errorf("vip: %q is not an interface name", b.WGIface)
+	}
+	if b.WGController.IsValid() && !b.WGController.Is4() {
+		return fmt.Errorf("vip: %s is not an IPv4 address", b.WGController)
+	}
+	if b.WGPanelPort < 0 || b.WGPanelPort > 65535 {
+		return fmt.Errorf("vip: panel port %d out of range", b.WGPanelPort)
 	}
 	for _, a := range []string{b.ProxyIP, b.PanelBind} {
 		if a == "" {
@@ -211,6 +237,18 @@ func renderFilter(next map[string]Entry, b Base) string {
 	in := func(format string, a ...any) { fmt.Fprintf(&w, "-A "+InChain+" "+format+"\n", a...) }
 	in("-m conntrack ! --ctstate NEW -j RETURN")
 	in("-i lo -j RETURN")
+	if b.WGIface != "" {
+		in("-i %s -p udp --dport %d:%d -j RETURN", b.WGIface, ExitPortLo, ExitPortHi)
+		if b.WGController.IsValid() {
+			in("-i %s -s %s/32 -p tcp --dport %d -j RETURN", b.WGIface, b.WGController, WorkerAPIPort)
+		} else {
+			in("-i %s -p tcp --dport %d -j RETURN", b.WGIface, WorkerAPIPort)
+		}
+		if b.WGPanelPort > 0 {
+			in("-i %s -p tcp --dport %d -j RETURN", b.WGIface, b.WGPanelPort)
+		}
+		in("-i %s -j DROP", b.WGIface)
+	}
 	for _, r := range b.Resolvers {
 		d, _ := target(r)
 		in("-s %s -d %s -p udp --dport 53 -j RETURN", rng, d)

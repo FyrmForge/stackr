@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/FyrmForge/stackr/internal/clusterca"
+	"github.com/FyrmForge/stackr/internal/installspec"
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/node"
@@ -26,11 +27,10 @@ import (
 // address. A node's wg_address may carry its own ":port" (tests, odd setups).
 const WorkerPort = "7443"
 
-// Controller cert files under the data dir. They are not in the panel state
-// set: a restored panel has the CA and issues a new controller cert.
+// Controller cert files under the data dir; both are in the panel state set.
 const (
-	controllerKeyFile  = "keys/controller.key"
-	controllerCertFile = "keys/controller.crt"
+	controllerKeyFile  = installspec.ControllerKeyFile
+	controllerCertFile = installspec.ControllerCertFile
 )
 
 // revokedTTL is how long a revoked-or-not answer is reused: the TLS verify
@@ -48,6 +48,10 @@ type clusterPKI struct {
 	rev  map[string]revAns
 	addr map[string]string // node id -> address its clients were built for
 	ext  map[string]*workerclient.Client
+	// probe is the client of every worker that could be online, fails the
+	// refreshes each missed in a row.
+	probe map[string]probeEnt
+	fails map[string]int
 }
 
 type revAns struct {
@@ -79,8 +83,28 @@ func (c *clusterPKI) revoked(serial string) bool {
 
 // bootCluster makes the cluster CA and the controller cert when missing (or
 // when the cert is due for renewal) and audits each cert it issues. ponytail:
-// renewal is checked at boot only; a panel up for two thirds of 90 days
-// needs a periodic check.
+// renewal is checked here at boot and daily after (renew).
+// renew replaces the controller cert when it is due (controllerCert decides)
+// and makes the clients dial with the new one. It reports whether it did.
+func (c *clusterPKI) renew(ctx context.Context, dataDir string) (bool, error) {
+	own, err := controllerCert(ctx, c.st, dataDir, c.ca)
+	if err != nil {
+		return false, err
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if len(own.Certificate) > 0 && len(c.own.Certificate) > 0 && string(own.Certificate[0]) == string(c.own.Certificate[0]) {
+		return false, nil
+	}
+	c.own = own
+	// Clients are rebuilt with the new cert on the next refresh; the router
+	// keeps serving through the old ones until then.
+	clear(c.addr)
+	clear(c.ext)
+	clear(c.probe)
+	return true, nil
+}
+
 func bootCluster(ctx context.Context, st *store.Store, dataDir string) (*clusterPKI, error) {
 	ca, err := clusterca.LoadCA(dataDir)
 	if errors.Is(err, os.ErrNotExist) {
@@ -96,7 +120,8 @@ func bootCluster(ctx context.Context, st *store.Store, dataDir string) (*cluster
 		return nil, fmt.Errorf("controller cert: %w", err)
 	}
 	return &clusterPKI{ca: ca, own: own, st: st, rev: map[string]revAns{},
-		addr: map[string]string{}, ext: map[string]*workerclient.Client{}}, nil
+		addr: map[string]string{}, ext: map[string]*workerclient.Client{},
+		probe: map[string]probeEnt{}, fails: map[string]int{}}, nil
 }
 
 // controllerCert loads the controller's cert and key, or issues a new pair.
@@ -166,12 +191,42 @@ func nodeAddr(n store.Node) string {
 	return net.JoinHostPort(a, WorkerPort)
 }
 
-// refreshNodeClients makes the router and the extras clients match the
-// nodes table: an online worker with an address gets a Docker client (mTLS,
-// pinned to its node id) and an extras client; a node that is gone, not
-// online or moved loses them. Clients it did not make (the controller's, a
-// test's) are never touched. Called at boot, by every verb that changes
-// nodes, and on a timer.
+// failsBeforeOffline is how many refreshes in a row a worker must miss
+// before it is marked offline and loses its router entry.
+const failsBeforeOffline = 2
+
+// probeEnt is the extras client a node is probed with, kept so its idle
+// connections are reused.
+type probeEnt struct {
+	addr string
+	ext  *workerclient.Client
+}
+
+// probeClient is the node's extras client for addr: the live one, or a
+// cached one for a node that is not online yet.
+func (c *clusterPKI) probeClient(id, addr string) *workerclient.Client {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.addr[id] == addr && c.ext[id] != nil {
+		return c.ext[id]
+	}
+	if e, ok := c.probe[id]; ok && e.addr == addr {
+		return e.ext
+	}
+	ext := workerclient.New(addr, clusterca.ClientConfig(c.ca.Cert, c.own, id, c.revoked))
+	c.probe[id] = probeEnt{addr, ext}
+	return ext
+}
+
+// refreshNodeClients makes the router, the extras clients and the VIP tables
+// match the nodes table, and keeps each worker's status true: a confirmed
+// worker (joined) or an offline one that answers its extras API becomes
+// online; an online one that misses failsBeforeOffline refreshes in a row
+// becomes offline. An online worker gets a Docker client (mTLS, pinned to its
+// node id), an extras client and a VIP table; one that is gone, not online or
+// moved loses them. Pending nodes are never touched. Clients it did not make
+// (the controller's, a test's) are left alone. Called at boot, by every verb
+// that changes nodes, and on a timer.
 func (o *Orchestrator) refreshNodeClients(ctx context.Context) error {
 	r, ok := o.docker.(*DockerRouter)
 	if !ok || o.cluster == nil {
@@ -182,33 +237,105 @@ func (o *Orchestrator) refreshNodeClients(ctx context.Context) error {
 		return err
 	}
 	c := o.cluster
-	want := map[string]string{}
-	var failed []error
+	type cand struct {
+		n    store.Node
+		addr string
+		ext  *workerclient.Client
+		up   bool
+	}
+	var cands []*cand
+	seen := map[string]bool{}
 	for _, n := range ns {
-		if n.Role != node.Worker || n.Status != node.StatusOnline {
+		if n.Role != node.Worker {
+			continue
+		}
+		switch n.Status {
+		case node.StatusOnline, node.StatusOffline, node.StatusJoined:
+		default: // pending: no range, no cert yet
 			continue
 		}
 		addr := nodeAddr(n)
 		if addr == "" {
 			continue
 		}
-		want[n.ID] = addr
+		seen[n.ID] = true
+		cands = append(cands, &cand{n: n, addr: addr, ext: c.probeClient(n.ID, addr)})
+	}
+	var wg sync.WaitGroup
+	for _, cd := range cands {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			pctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+			defer cancel()
+			_, err := cd.ext.Facts(pctx)
+			cd.up = err == nil
+		}()
+	}
+	wg.Wait()
+	c.mu.Lock()
+	for id := range c.probe {
+		if !seen[id] {
+			delete(c.probe, id)
+			delete(c.fails, id)
+		}
+	}
+	c.mu.Unlock()
+
+	want := map[string]string{}
+	var failed []error
+	changed := false
+	for _, cd := range cands {
+		n := cd.n
 		c.mu.Lock()
-		same := c.addr[n.ID] == addr
+		if cd.up {
+			c.fails[n.ID] = 0
+		} else {
+			c.fails[n.ID]++
+		}
+		fails := c.fails[n.ID]
+		c.mu.Unlock()
+		status := n.Status
+		switch {
+		case cd.up && status != node.StatusOnline:
+			status = node.StatusOnline
+		case !cd.up && status == node.StatusOnline && fails >= failsBeforeOffline:
+			status = node.StatusOffline
+		}
+		if status != n.Status {
+			n.Status = status
+			if err := o.store.Nodes.Update(ctx, n); err != nil {
+				failed = append(failed, fmt.Errorf("node %s: %w", n.Name, err))
+				continue
+			}
+			slog.Info("nodes: status changed", "node", n.Name, "status", status)
+			changed = true
+		}
+		if status != node.StatusOnline {
+			continue
+		}
+		want[n.ID] = cd.addr
+		c.mu.Lock()
+		same := c.addr[n.ID] == cd.addr
 		c.mu.Unlock()
 		if same {
 			continue
 		}
-		ext := workerclient.New(addr, clusterca.ClientConfig(c.ca.Cert, c.own, n.ID, c.revoked))
-		opts := ext.DockerOptions()
+		opts := cd.ext.DockerOptions()
 		d, err := docker.NewRemote(opts.Host, opts.HTTPClient)
 		if err != nil {
 			failed = append(failed, fmt.Errorf("node %s: %w", n.Name, err))
+			delete(want, n.ID)
 			continue
 		}
 		r.Set(n.ID, d)
+		if nv, ok := o.vip.(*nodeVIPs); ok {
+			vctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+			nv.Attach(n.ID, newWorkerVIP(vctx, cd.ext))
+			cancel()
+		}
 		c.mu.Lock()
-		c.addr[n.ID], c.ext[n.ID] = addr, ext
+		c.addr[n.ID], c.ext[n.ID] = cd.addr, cd.ext
 		c.mu.Unlock()
 	}
 	c.mu.Lock()
@@ -223,6 +350,12 @@ func (o *Orchestrator) refreshNodeClients(ctx context.Context) error {
 	c.mu.Unlock()
 	for _, id := range gone {
 		r.Remove(id)
+		if nv, ok := o.vip.(*nodeVIPs); ok {
+			nv.Detach(id)
+		}
+	}
+	if changed || len(gone) > 0 {
+		o.kickMesh()
 	}
 	return errors.Join(failed...)
 }
@@ -231,10 +364,14 @@ func (o *Orchestrator) refreshNodeClients(ctx context.Context) error {
 func (o *Orchestrator) watchNodeClients() {
 	t := time.NewTicker(30 * time.Second)
 	defer t.Stop()
+	day := time.NewTicker(24 * time.Hour)
+	defer day.Stop()
 	for {
 		select {
 		case <-o.stopNodes:
 			return
+		case <-day.C:
+			o.dailyChores(context.Background())
 		case <-t.C:
 			if err := o.refreshNodeClients(context.Background()); err != nil {
 				slog.Warn("nodes: client refresh failed", "err", err)

@@ -682,10 +682,10 @@ graph-canvas {
     background-size: calc(22px * var(--s)) calc(22px * var(--s));
     background-position: var(--px) var(--py);
 }
-graph-canvas > svg[data-edges], graph-canvas > svg[data-lanes], graph-canvas > graph-node {
+graph-canvas > svg[data-edges], graph-canvas > svg[data-lanes], graph-canvas > svg[data-net], graph-canvas > graph-node {
     position: absolute; left: 0; top: 0; transform-origin: 0 0;
 }
-graph-canvas > svg[data-edges], graph-canvas > svg[data-lanes] {
+graph-canvas > svg[data-edges], graph-canvas > svg[data-lanes], graph-canvas > svg[data-net] {
     width: 1px; height: 1px; overflow: visible; pointer-events: none;
     transform: translate(var(--px), var(--py)) scale(var(--s));
 }

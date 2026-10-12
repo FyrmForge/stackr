@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"slices"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/FyrmForge/stackr/internal/authz"
@@ -21,12 +20,6 @@ import (
 // The Nodes admin verbs: list and show nodes, edit tags, open a node to orgs,
 // remove, forget, and redeploy the envs a forgotten node left behind.
 //
-// Wiring (lane I7): after the mesh service is built, call
-//
-//	o.initNodeAdmin(o.mesh)
-//
-// so remove and forget tear the node's mesh down and tag changes re-sync it.
-// Without it the verbs still work; the mesh catches up on its next timer pass.
 
 // Node action names in the security log.
 const (
@@ -40,17 +33,7 @@ const (
 // NodeTags are the tags an admin may set.
 var NodeTags = []string{node.TagIngress, node.TagEgress, node.TagBuilder}
 
-// ponytail: one mesh service per process, held here until orchestrator.go has
-// a field for it; replace the map with o.mesh when I7 wires it.
-var nodeMesh sync.Map // *Orchestrator -> *meshSvc
-
-func (o *Orchestrator) initNodeAdmin(m *meshSvc) { nodeMesh.Store(o, m) }
-
-func (o *Orchestrator) meshSvc() *meshSvc {
-	m, _ := nodeMesh.Load(o)
-	ms, _ := m.(*meshSvc)
-	return ms
-}
+func (o *Orchestrator) meshSvc() *meshSvc { return o.mesh }
 
 func (m *meshSvc) factsOf(id string) (worker.Facts, bool) {
 	m.mu.Lock()
@@ -290,6 +273,15 @@ func (o *Orchestrator) SetNodeTags(ctx context.Context, by *Principal, id string
 			return errs.Conflictf("%s still serves the panel and %d routes. Tag another node as ingress first.", n.Name, len(rs))
 		}
 	}
+	if slices.Contains(node.Tags(n), node.TagIngress) && !slices.Contains(tags, node.TagIngress) {
+		picks, err := o.store.IngressPicks.ListByNode(ctx, n.ID)
+		if err != nil {
+			return err
+		}
+		if len(picks) > 0 {
+			return errs.Conflictf("%s is the ingress of %s; pick another ingress there first.", n.Name, o.scopePath(ctx, picks[0].ScopeKind, picks[0].ScopeID))
+		}
+	}
 	raw, _ := json.Marshal(tags)
 	n.Tags = string(raw)
 	err = o.store.Tx(ctx, func(tx store.Tx) error {
@@ -382,6 +374,7 @@ func (o *Orchestrator) dropNode(ctx context.Context, by *Principal, n store.Node
 	})
 	if err == nil {
 		o.refreshNodes(ctx)
+		o.kickMesh()
 	}
 	return err
 }

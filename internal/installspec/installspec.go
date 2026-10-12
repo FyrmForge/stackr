@@ -54,6 +54,9 @@ const (
 	ClusterCAKeyFile  = "keys/cluster-ca.key"
 	ClusterCACertFile = "keys/cluster-ca.crt"
 	WGKeyFile         = "keys/wg.key"
+	// The controller's own cert and key, so a restore keeps them.
+	ControllerKeyFile  = "keys/controller.key"
+	ControllerCertFile = "keys/controller.crt"
 	// DBFile, VersionMember and CaddyMember are the other archive names.
 	DBFile        = "stackr.db"
 	VersionMember = "VERSION"
@@ -81,6 +84,8 @@ var PanelState = []Member{
 	{Name: ClusterCAKeyFile, Mode: 0o600, Optional: true, OnDisk: true},
 	{Name: ClusterCACertFile, Mode: 0o644, Optional: true, OnDisk: true},
 	{Name: WGKeyFile, Mode: 0o600, Optional: true, OnDisk: true},
+	{Name: ControllerKeyFile, Mode: 0o600, Optional: true, OnDisk: true},
+	{Name: ControllerCertFile, Mode: 0o644, Optional: true, OnDisk: true},
 	{Name: CaddyMember, Mode: 0o600, Optional: true},
 }
 

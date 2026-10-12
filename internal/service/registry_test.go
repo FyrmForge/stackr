@@ -155,3 +155,48 @@ func TestRegistryNodeCert(t *testing.T) {
 		t.Fatalf("revoked = %d", w.Code)
 	}
 }
+
+// `stackr registry login` hands docker a short-lived token minted for the
+// caller: it works at the registry front for the caller's orgs only, and a
+// tampered or API-key-shaped value does not.
+func TestRegistryLoginToken(t *testing.T) {
+	e := servicetest.New(t, func(c *service.Config) { c.PanelDomain = "panel.test" })
+	ctx := context.Background()
+	org := e.Org(t, "acme")
+	e.Tile(t, org)
+	dev := e.User(t, "dev@x.test", false)
+	e.Member(t, org, dev, "member")
+	devKey := e.APIKey(t, dev, org)
+	p, err := e.Orch.KeyPrincipal(ctx, devKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := e.Orch.RegistryLogin(ctx, p)
+	if err != nil || out.Token == devKey || strings.Contains(out.Token, devKey) || time.Until(out.ExpiresAt) > service.RegistryLoginTTL {
+		t.Fatalf("login = %+v, %v", out, err)
+	}
+	srv := echo.New()
+	srv.Pre(e.Orch.RegistryMiddleware())
+	do := func(key, scope string) int {
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, tokenReq("registry.panel.test", key, scope))
+		return w.Code
+	}
+	if c := do(out.Token, "repository:acme/shop/api:pull,push"); c != 200 {
+		t.Fatalf("minted token = %d", c)
+	}
+	rows, _ := e.Store.RegistryTokens.ListBySubject(ctx, dev, 5)
+	if len(rows) != 1 || rows[0].Scope != "acme/shop/api:pull,push" {
+		t.Fatalf("row = %+v", rows)
+	}
+	if c := do(out.Token+"x", ""); c != 401 {
+		t.Errorf("tampered = %d", c)
+	}
+	if c := do("stackr-rl.e30.AAAA", ""); c != 401 {
+		t.Errorf("forged = %d", c)
+	}
+	// the login token is not an API key
+	if _, err := e.Orch.KeyPrincipal(ctx, out.Token); err == nil {
+		t.Error("the registry login token authenticated as an API key")
+	}
+}

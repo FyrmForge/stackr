@@ -81,6 +81,13 @@ func startFakeDaemon(t *testing.T) (*fakeDaemon, string) {
 // the panel's CA) over a fake daemon, and a node row pointing at it.
 func workerNode(t *testing.T, o *Orchestrator, id string) (*fakeDaemon, *httptest.Server, clusterca.Issued) {
 	t.Helper()
+	return workerNodeWith(t, o, id, node.StatusOnline, worker.Config{})
+}
+
+// workerNodeWith is workerNode with the node row's status and the worker's
+// config (its Docker socket is filled in).
+func workerNodeWith(t *testing.T, o *Orchestrator, id, status string, cfg worker.Config) (*fakeDaemon, *httptest.Server, clusterca.Issued) {
+	t.Helper()
 	daemon, sock := startFakeDaemon(t)
 	ca, err := clusterca.LoadCA(o.cfg.DataDir)
 	must(t, err)
@@ -95,13 +102,17 @@ func workerNode(t *testing.T, o *Orchestrator, id string) (*fakeDaemon, *httptes
 	own, err := tls.X509KeyPair(iss.CertPEM, kb)
 	must(t, err)
 
-	srv := httptest.NewUnstartedServer(worker.New(worker.Config{DockerSock: sock}).Handler())
+	cfg.DockerSock = sock
+	if cfg.StateDir == "" { // the worker keeps its mesh keys here, not in the package directory
+		cfg.StateDir = t.TempDir()
+	}
+	srv := httptest.NewUnstartedServer(worker.New(cfg).Handler())
 	srv.TLS = clusterca.ServerConfig(ca.Cert, own, nil)
 	srv.StartTLS()
 	t.Cleanup(srv.Close)
 	must(t, o.store.Nodes.Create(context.Background(), store.Node{
 		ID: id, Name: id, Slug: id, Role: node.Worker, Tags: "[]", RangeCIDR: "10." + strconv.Itoa(200+int(id[len(id)-1]-'0')) + ".0.0/16",
-		WGAddress: srv.Listener.Addr().String() + "/32", Status: node.StatusOnline, CreatedAt: time.Now(),
+		WGAddress: srv.Listener.Addr().String() + "/32", Status: status, CreatedAt: time.Now(),
 	}))
 	return daemon, srv, iss
 }
@@ -209,7 +220,7 @@ func (o *Orchestrator) extrasOrNil(id string) any {
 func TestNodeClientsFollowTheRows(t *testing.T) {
 	ctx := context.Background()
 	o := newClusterPanel(t)
-	workerNode(t, o, "w1")
+	_, srv1, _ := workerNode(t, o, "w1")
 	must(t, o.refreshNodeClients(ctx))
 	if _, err := o.docker.HostInfo(WithNode(ctx, "w1")); err != nil {
 		t.Fatal(err)
@@ -224,11 +235,16 @@ func TestNodeClientsFollowTheRows(t *testing.T) {
 		t.Error("a revoked worker cert was accepted")
 	}
 
-	n, err := o.store.Nodes.Get(ctx, "w1")
-	must(t, err)
-	n.Status = "offline"
-	must(t, o.store.Nodes.Update(ctx, n))
+	// A worker that stops answering goes offline after two missed refreshes.
+	srv1.Close()
 	must(t, o.refreshNodeClients(ctx))
+	if n, _ := o.store.Nodes.Get(ctx, "w1"); n.Status != node.StatusOnline {
+		t.Fatalf("one miss made the node %s", n.Status)
+	}
+	must(t, o.refreshNodeClients(ctx))
+	if n, _ := o.store.Nodes.Get(ctx, "w1"); n.Status != node.StatusOffline {
+		t.Fatalf("status = %s, want offline", n.Status)
+	}
 	if _, err := o.docker.HostInfo(WithNode(ctx, "w1")); !errors.Is(err, errs.ErrBusy) {
 		t.Errorf("offline node = %v, want ErrBusy", err)
 	}

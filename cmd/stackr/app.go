@@ -37,8 +37,9 @@ type app struct {
 	cfg       config
 	client    *http.Client
 	ctx       context.Context
-	noEnv     bool // login: its own arguments, not STACKR_*, say where and as whom
-	planShown bool // a plan was printed as a table: a job's own "plan:" log lines repeat it
+	orgSlug   string // --org on a placement command: beats STACKR_ORG and the config
+	noEnv     bool   // login: its own arguments, not STACKR_*, say where and as whom
+	planShown bool   // a plan was printed as a table: a job's own "plan:" log lines repeat it
 }
 
 // config is the one file the CLI keeps, 0600.
@@ -210,13 +211,25 @@ func (e exitErr) Error() string {
 	return fmt.Sprintf("exit %d", int(e))
 }
 
-// exitCode: 0 fine, 2 usage, 1 everything else.
+// needsYes is a prompt that cannot be asked (no terminal, or --json) and was
+// not answered with --yes: nothing changed, and a script can tell that from a
+// failure by exit code 3.
+type needsYes struct{ q string }
+
+func (e needsYes) Error() string {
+	return "refusing without --yes (non-interactive): " + e.q
+}
+
+// exitCode: 0 fine, 2 usage, 3 needs --yes, 1 everything else.
 func exitCode(err error) int {
 	var u usageErr
 	var x exitErr
+	var ny needsYes
 	switch {
 	case err == nil:
 		return 0
+	case errors.As(err, &ny):
+		return 3
 	case errors.As(err, &x):
 		return int(x)
 	case errors.As(err, &u), strings.HasPrefix(err.Error(), "unknown command"),
@@ -482,7 +495,7 @@ func (a *app) confirm(q string) error {
 		return nil
 	}
 	if a.json || !a.tty {
-		return fmt.Errorf("refusing without --yes (non-interactive): %s", q)
+		return needsYes{q}
 	}
 	_, _ = fmt.Fprintf(a.errw, "%s [y/N] ", q)
 	line, _ := a.in.ReadString('\n')

@@ -11,6 +11,7 @@ import (
 
 	"github.com/FyrmForge/hamr/pkg/config"
 	"github.com/FyrmForge/stackr/internal/clusterca"
+	"github.com/FyrmForge/stackr/internal/wgapply"
 	"github.com/FyrmForge/stackr/internal/worker"
 )
 
@@ -55,7 +56,19 @@ func workerConfig(args []string) (worker.Config, error) {
 	if err != nil {
 		return worker.Config{}, err
 	}
-	return worker.Config{TLS: tc, Addr: *addr, DockerSock: *sock, CaddySock: *caddy, StateDir: *state}, nil
+	return worker.Config{
+		TLS: tc, Addr: *addr, DockerSock: *sock, CaddySock: *caddy, StateDir: *state,
+		Runner: worker.ExecRunner{}, Mesh: worker.MeshConfig{WG: workerWG()},
+	}, nil
+}
+
+// workerWG is the kernel wg applier; STACKR_FAKE_HOST swaps in a recorder so
+// a laptop worker never touches the host's interfaces.
+func workerWG() wgapply.Applier {
+	if config.GetEnvOrDefaultBool("STACKR_FAKE_HOST", false) {
+		return &wgapply.Recorder{}
+	}
+	return wgapply.Kernel{}
 }
 
 // workerTLS is the worker's listener config: its own cert, clients must

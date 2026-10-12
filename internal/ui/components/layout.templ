@@ -87,6 +87,14 @@ templ rail(s Shell, oob bool) {
 					<path d="M3 3h7v7H3zM14 3h7v7h-7zM14 14h7v7h-7zM3 14h7v7H3z"></path>
 				}
 			}
+			if l, ok := s.nav("/-/cluster"); ok {
+				@railLink(l) {
+					<rect width="7" height="7" x="3" y="3" rx="1.5"></rect>
+					<rect width="7" height="7" x="14" y="3" rx="1.5"></rect>
+					<rect width="7" height="7" x="8.5" y="14" rx="1.5"></rect>
+					<path d="M10 6.5h4M7.5 10l2.5 4M16.5 10 14 14"></path>
+				}
+			}
 			if s.Admin {
 				<button type="button" title={ adminTitle(s.Waiting) } aria-label={ adminTitle(s.Waiting) } class={ railIdle, "relative" } hx-get={ adminTab(s.Waiting) } hx-target="#drawer-body" hx-push-url={ "?drawer=admin&tab=" + adminTabKey(s.Waiting) }>
 					if s.Waiting > 0 {

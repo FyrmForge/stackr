@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/FyrmForge/stackr/internal/mesh"
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/cluster"
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
@@ -71,6 +72,13 @@ func (n *nodeVIPs) Attach(nodeID string, t tile.VIP) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	n.tables[nodeID] = t
+}
+
+// Detach drops a node's table (the node is offline or gone).
+func (n *nodeVIPs) Detach(nodeID string) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	delete(n.tables, nodeID)
 }
 
 // For is the table of the node in ctx.
@@ -223,7 +231,14 @@ func (o *Orchestrator) vipBase(ctx context.Context, n store.Node) vip.Base {
 	if err != nil {
 		slog.Warn("vip: node range does not parse, no filter table", "node", n.Name, "range", n.RangeCIDR)
 	}
-	b := vip.Base{Range: rng, Cluster: cluster.SupernetPrefix, PanelBind: o.cfg.PanelBind, PanelPort: o.cfg.PanelPort}
+	b := vip.Base{Range: rng, Cluster: cluster.SupernetPrefix, PanelBind: o.cfg.PanelBind, PanelPort: o.cfg.PanelPort,
+		WGIface: "wg0"}
+	if t, err := mesh.TransitAddr(netip.MustParsePrefix(cluster.ControllerRange)); err == nil {
+		b.WGController = t
+	}
+	if id, err := o.controllerID(ctx); err == nil && n.ID == id {
+		b.WGPanelPort = o.cfg.PanelPort
+	}
 	for _, p := range resolvConfs {
 		if raw, err := os.ReadFile(p); err == nil {
 			for _, r := range resolvers(string(raw)) {

@@ -91,6 +91,7 @@ func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/facts", s.facts)
 	mux.HandleFunc("POST /v1/iptables", s.iptables)
+	mux.HandleFunc("POST /v1/allow-tcp", s.allowTCP)
 	mux.HandleFunc("POST /v1/wg", s.wg)
 	mux.HandleFunc("POST /v1/mesh", s.postMesh)
 	mux.HandleFunc("GET /v1/mesh", s.getMesh)

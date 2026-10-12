@@ -21,7 +21,7 @@ const (
 
 // orgLevel are the verbs under a scoped noun that act on the org, so
 // --stack/--env mean nothing to them.
-var orgLevel = map[string]bool{"stack.list": true, "stack.create": true, "volume.delete": true}
+var orgLevel = map[string]bool{"stack.list": true, "stack.create": true, "volume.delete": true, "env.lost": true}
 
 // scoped gives a noun's verbs the --stack/--env (and --tile) flags that beat
 // the directory link; org-level verbs do not get them.
@@ -56,7 +56,10 @@ func flag(c *cobra.Command, name string) string {
 }
 
 func (a *app) orgPath() (string, error) {
-	slug := a.env("ORG", a.cfg.Org)
+	slug := a.orgSlug
+	if slug == "" {
+		slug = a.env("ORG", a.cfg.Org)
+	}
 	if slug == "" {
 		return "", errors.New("no org; run stackr login <url> --org <slug>, or set STACKR_ORG")
 	}

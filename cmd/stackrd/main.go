@@ -30,6 +30,8 @@ import (
 	"github.com/FyrmForge/stackr/internal/service"
 	"github.com/FyrmForge/stackr/internal/ui/components"
 	"github.com/FyrmForge/stackr/internal/web"
+	"github.com/FyrmForge/stackr/internal/wgapply"
+	"github.com/FyrmForge/stackr/internal/worker"
 )
 
 // version is set at build time via ldflags.
@@ -212,6 +214,8 @@ func run(log *slog.Logger, generate bool) error {
 		PanelBind:    envHost,
 		PanelPort:    envPort,
 		FakeHost:     fake,
+		MeshWG:       controllerWG(fake),
+		MeshRunner:   worker.ExecRunner{},
 
 		PanelDomain:    config.GetEnvOrDefault("PANEL_DOMAIN", ""),
 		RootDomain:     config.GetEnvOrDefault("ROOT_DOMAIN", ""),
@@ -360,4 +364,14 @@ func fakeHost() string {
 		return ""
 	}
 	return filepath.Join(envDataDir, "fakehost")
+}
+
+// controllerWG is the wg applier of the controller's own node: the kernel on
+// a real host, none on the fake host (the dev panel must not touch the
+// machine's interfaces).
+func controllerWG(fake string) wgapply.Applier {
+	if fake != "" {
+		return nil
+	}
+	return wgapply.Kernel{}
 }

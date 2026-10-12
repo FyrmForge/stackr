@@ -73,6 +73,9 @@ func Shell(c echo.Context, title string) components.Shell {
 		s.Theme = p.User.Theme
 		s.Nav = append(s.Nav, link("Orgs", "/", path), link("Account", "/account", path))
 		s.Admin = p.Access.Admin
+		if s.Admin { // the Cluster map is the admin's
+			s.Nav = append(s.Nav, link("Cluster", "/-/cluster", path))
+		}
 		if count, ok := c.Get(waitingKey).(func() int); ok && s.Admin {
 			s.Waiting = count()
 		}

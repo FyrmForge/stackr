@@ -343,7 +343,7 @@ func TestPanelArchiveState(t *testing.T) {
 	if !slices.Equal(got.names, all) {
 		t.Fatalf("members = %v, want %v", got.names, all)
 	}
-	for _, k := range []string{installspec.ClusterCAKeyFile, installspec.ClusterCACertFile, installspec.WGKeyFile} {
+	for _, k := range []string{installspec.ClusterCAKeyFile, installspec.ClusterCACertFile, installspec.WGKeyFile, installspec.ControllerKeyFile, installspec.ControllerCertFile} {
 		if string(got.bodies[k]) != "body-"+k {
 			t.Errorf("%s = %q", k, got.bodies[k])
 		}

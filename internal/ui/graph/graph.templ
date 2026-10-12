@@ -102,6 +102,9 @@ templ Canvas(v View) {
 		}
 		class="min-h-0 flex-1 bg-rw-bg"
 	>
+		if v.Under != nil {
+			@v.Under
+		}
 		for _, n := range v.Notes {
 			@note(v, n)
 		}
@@ -129,6 +132,9 @@ templ Canvas(v View) {
 		}
 		if len(v.Compare) > 0 {
 			@compare(v.Compare)
+		}
+		if v.Over != nil {
+			@v.Over
 		}
 		@legend(v)
 		@controls(v)
@@ -357,6 +363,7 @@ templ viewPanel(v View) {
 				@look("nooverlap", "Keep cards from overlapping")
 				@look("hover-focus", "Highlight connections on hover")
 			</div>
+			if !v.Fixed {
 			<div class="border-t border-rw-border pt-4 space-y-3">
 				<p class="text-xs font-medium uppercase tracking-wide text-rw-muted">Arrange</p>
 				<label class="flex items-center gap-3 text-sm text-rw-text cursor-pointer">
@@ -366,6 +373,7 @@ templ viewPanel(v View) {
 				<button type="button" class="btn btn-ghost btn-sm w-full" hx-post={ v.Route("reset") } hx-target="#graph">Re-arrange</button>
 				<p class="text-xs text-rw-muted">Re-arranging replaces hand-placed positions.</p>
 			</div>
+			}
 		</div>
 	</div>
 }

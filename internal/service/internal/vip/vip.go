@@ -51,24 +51,50 @@ func (t *Table) Set(ctx context.Context, vip string, replicas, lan []string) err
 	return t.apply(ctx, next, t.base)
 }
 
-// AllowTCP opens (on) or closes the host's INPUT to tcp ports lo..hi from
-// src, one rule, safe to repeat: the live move's rsync helper on the target
-// admits the source node, and only while the move runs.
+// AllowTCP opens (on) or closes the host to tcp ports lo..hi from src, safe
+// to repeat: the live move's rsync helper on the target admits the source
+// node, and only while the move runs. The helper publishes its ports, so
+// Docker DNATs them and the packets are forwarded: one rule in INPUT (a
+// host-local listener) and one in DOCKER-USER (FORWARD without it) matching
+// the original destination port.
 func (t *Table) AllowTCP(ctx context.Context, src string, lo, hi int, on bool) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	rule := []string{"INPUT", "-s", src, "-p", "tcp", "--dport", fmt.Sprintf("%d:%d", lo, hi),
-		"-m", "comment", "--comment", "stackr-move", "-j", "ACCEPT"}
-	ipt := func(op string, rest ...string) []string { return append([]string{"iptables", op}, rest...) }
-	if on {
-		if t.Exec(ctx, ipt("-C", rule...)...) == nil {
-			return nil
-		}
-		return t.Exec(ctx, ipt("-I", append([]string{"INPUT", "1"}, rule[1:]...)...)...)
+	ports := fmt.Sprintf("%d:%d", lo, hi)
+	fwd := "FORWARD"
+	if t.Exec(ctx, "iptables", "-S", "DOCKER-USER") == nil {
+		fwd = "DOCKER-USER"
 	}
-	for t.Exec(ctx, ipt("-D", rule...)...) == nil {
+	rules := [][]string{
+		{"INPUT", "-s", src, "-p", "tcp", "--dport", ports, "-m", "comment", "--comment", "stackr-move", "-j", "ACCEPT"},
+		{fwd, "-s", src, "-p", "tcp", "-m", "conntrack", "--ctorigdstport", ports,
+			"-m", "comment", "--comment", "stackr-move", "-j", "ACCEPT"},
+	}
+	ipt := func(op string, rest ...string) []string { return append([]string{"iptables", op}, rest...) }
+	for _, rule := range rules {
+		if !on {
+			for t.Exec(ctx, ipt("-D", rule...)...) == nil {
+			}
+			continue
+		}
+		if t.Exec(ctx, ipt("-C", rule...)...) == nil {
+			continue
+		}
+		if err := t.Exec(ctx, ipt("-I", append([]string{rule[0], "1"}, rule[1:]...)...)...); err != nil {
+			return err
+		}
 	}
 	return nil
+}
+
+// Full is the script that rebuilds every rule from nothing: what a node
+// replays after a reboot. Not the delta Rebuild and Set send.
+func (t *Table) Full() string {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	b := t.base
+	b.early = t.early
+	return Render(nil, t.vips, b)
 }
 
 // Allow opens a tile's lan grants to one replica address before the VIP

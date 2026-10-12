@@ -371,7 +371,7 @@ func (a *app) releases() *cobra.Command {
 // ---- env ----
 
 func (a *app) envs() *cobra.Command {
-	var typ, base, color, createKind, fromKind, fromBranch string
+	var typ, base, color, createKind, fromKind, fromBranch, node string
 	var auto bool
 	create := leaf("create <name>", "env.list,env.create", "Make an environment", exact(1),
 		a.at(atStack, func(_ *cobra.Command, p string, args []string) error {
@@ -396,6 +396,9 @@ func (a *app) envs() *cobra.Command {
 			if base != "" {
 				body["base_env_id"] = base
 			}
+			if node != "" {
+				body["node"] = node
+			}
 			v, err := a.call(POST, p+"/envs", body)
 			if err != nil {
 				return err
@@ -406,6 +409,7 @@ func (a *app) envs() *cobra.Command {
 	create.Flags().StringVar(&typ, "type", "static", "static or ephemeral")
 	create.Flags().StringVar(&base, "base", "", "the env id an ephemeral env copies")
 	create.Flags().StringVar(&color, "color", "", "the panel colour")
+	create.Flags().StringVar(&node, "node", "", "run it on this node (default: the stack's or org's pin, else the controller)")
 	from := leaf("from", "env.from", "Set where the env's releases come from", exact(0),
 		a.at(atEnv, func(_ *cobra.Command, p string, _ []string) error {
 			_, err := a.call(PUT, p+"/from", map[string]any{"kind": fromKind, "branch": fromBranch, "auto": auto})
@@ -419,7 +423,10 @@ func (a *app) envs() *cobra.Command {
 		c.Flags().BoolVar(&auto, "auto", false, "deploy each new release on its own")
 	}
 	return scoped(noun("env", "Environments of the stack",
-		a.get("ls", "env.list", "List environments", atStack, "/envs", envCols...),
+		a.envLs(),
+		a.envMove(),
+		a.envLost(),
+		a.envRestore(),
 		a.get("ladder", "env.ladder", "List environments in promote order", atStack, "/ladder", envCols...),
 		a.get("get", "env.get", "Show the environment", atEnv, "", envCols...),
 		leaf("traffic", "env.traffic", "Show tile-to-tile traffic at the last 5 s sample", upTo(0),

@@ -33,6 +33,8 @@ var (
 // skipped are the API operations with no CLI verb, and why. The coverage
 // test holds every other route to a command.
 var skipped = map[string]string{
+	"join.request":                 "the new machine's installer posts it (stackr-install join)",
+	"join.status":                  "the new machine's installer polls it (stackr-install join)",
 	"key.cli_code":                 "the panel's CLI authorize page calls it; stackr login waits for its code",
 	"invite.get":                   "an invite link is opened in a browser",
 	"invite.accept":                "an invite link is accepted in a browser",
@@ -61,6 +63,12 @@ func (a *app) commands() []*cobra.Command {
 		a.hostGrant(),
 		a.jobs(),
 		a.admin(),
+		a.nodes(),
+		a.cluster(),
+		a.pin(),
+		a.ingress(),
+		a.exits(),
+		a.registry(),
 		a.serverConfig(),
 		a.forward(),
 		a.ssh(),
@@ -1084,6 +1092,7 @@ func (a *app) admin() *cobra.Command {
 			},
 		),
 		defaults,
+		a.adminAudit(),
 		a.routes(),
 	)
 }

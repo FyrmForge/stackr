@@ -36,7 +36,10 @@ const (
 )
 
 // Status of a node row.
-const StatusOnline = "online"
+const (
+	StatusOnline  = "online"
+	StatusOffline = "offline" // joined once, not answering
+)
 
 // holdFor is how long a reserved block stays claimed while its network or
 // env row is not yet visible to the next reservation.

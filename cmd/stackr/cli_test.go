@@ -150,7 +150,7 @@ func TestYesIsNotForce(t *testing.T) {
 	r := &recorder{}
 	r.serve(t)
 	code, _, errw := cli(t, "env", "rm", "--stack", "shop", "--env", "dev")
-	if code != 1 || !strings.Contains(errw, "refusing without --yes (non-interactive): Remove environment dev") ||
+	if code != 3 || !strings.Contains(errw, "refusing without --yes (non-interactive): Remove environment dev") ||
 		len(r.reqs) != 0 {
 		t.Errorf("no -y = %d %q, sent %q", code, errw, r.reqs)
 	}
