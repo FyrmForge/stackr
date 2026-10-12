@@ -157,6 +157,11 @@ func (s *Server) iptables(w http.ResponseWriter, r *http.Request) {
 		fail(w, 500, err)
 		return
 	}
+	// The payload redeclares chains the exits put rules in.
+	if err := s.reassert(r.Context()); err != nil {
+		fail(w, 500, err)
+		return
+	}
 	w.WriteHeader(204)
 }
 
@@ -247,51 +252,66 @@ func (s *Server) getState(w http.ResponseWriter, r *http.Request) {
 }
 
 // replay re-applies the saved state in order: wg, routes, chains, then the
-// jumps, which wait for Docker to have made DOCKER-USER.
+// jumps, which wait for Docker to have made DOCKER-USER, then the exits.
 func (s *Server) replay(w http.ResponseWriter, r *http.Request) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	ctx := r.Context()
-	b, err := os.ReadFile(s.statePath())
-	if errors.Is(err, os.ErrNotExist) {
-		w.WriteHeader(204) // nothing applied yet
-		return
-	}
-	var st State
-	if err == nil {
-		err = json.Unmarshal(b, &st)
-	}
-	if err != nil {
+	if err := s.replayState(r.Context()); err != nil {
 		fail(w, 500, err)
 		return
 	}
+	w.WriteHeader(204)
+}
+
+func (s *Server) replayState(ctx context.Context) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var st State
+	b, err := os.ReadFile(s.statePath())
+	if err == nil {
+		err = json.Unmarshal(b, &st)
+	} else if errors.Is(err, os.ErrNotExist) {
+		err = nil // nothing pushed yet
+	}
+	if err != nil {
+		return err
+	}
+	ms, err := s.savedMesh()
+	if err != nil {
+		return fmt.Errorf("mesh state: %w", err)
+	}
+	if ms != nil {
+		if err := s.meshNet(*ms); err != nil {
+			return fmt.Errorf("mesh: %w", err)
+		}
+	}
 	if len(st.WG) > 0 {
 		if err := s.applyWG(ctx, st.WG); err != nil {
-			fail(w, 500, fmt.Errorf("wg: %w", err))
-			return
+			return fmt.Errorf("wg: %w", err)
 		}
 	}
 	for _, argv := range st.Routes {
 		if out, err := s.cfg.Runner.Run(ctx, nil, "ip", argv...); err != nil {
-			fail(w, 500, fmt.Errorf("ip %v: %w: %s", argv, err, out))
-			return
+			return fmt.Errorf("ip %v: %w: %s", argv, err, out)
 		}
 	}
 	if err := s.restore(ctx, []byte(st.Chains)); err != nil {
-		fail(w, 500, err)
-		return
+		return err
+	}
+	if st.Jumps != "" || ms != nil && len(ms.Links)+len(ms.Serves) > 0 {
+		if err := s.waitDockerUser(ctx); err != nil {
+			return err
+		}
 	}
 	if st.Jumps != "" {
-		if err := s.waitDockerUser(ctx); err != nil {
-			fail(w, 500, err)
-			return
-		}
 		if err := s.restore(ctx, []byte(st.Jumps)); err != nil {
-			fail(w, 500, err)
-			return
+			return err
 		}
 	}
-	w.WriteHeader(204)
+	if ms != nil {
+		if err := s.meshExits(ctx, *ms); err != nil {
+			return fmt.Errorf("exits: %w", err)
+		}
+	}
+	return nil
 }
 
 func (s *Server) waitDockerUser(ctx context.Context) error {

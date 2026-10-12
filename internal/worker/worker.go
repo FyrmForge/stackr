@@ -9,6 +9,7 @@ import (
 	"context"
 	"crypto/tls"
 	"errors"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/http/httputil"
@@ -40,6 +41,7 @@ type Config struct {
 	StateDir   string
 	Runner     Runner    // iptables-restore, iptables, ip
 	WG         WGApplier // nil = /v1/wg answers 501
+	Mesh       MeshConfig
 	// DockerUserWait bounds how long replay waits for the DOCKER-USER chain
 	// (0 = 2m); DockerUserPoll is the gap between checks (0 = 1s).
 	DockerUserWait time.Duration
@@ -47,8 +49,11 @@ type Config struct {
 }
 
 type Server struct {
-	cfg Config
-	mu  sync.Mutex // serialises applies and replay
+	cfg    Config
+	mu     sync.Mutex // serialises applies and replay
+	ctx    context.Context
+	cancel context.CancelFunc
+	mesh   meshState
 }
 
 func New(cfg Config) *Server {
@@ -58,7 +63,9 @@ func New(cfg Config) *Server {
 	if cfg.DockerUserPoll == 0 {
 		cfg.DockerUserPoll = time.Second
 	}
-	return &Server{cfg: cfg}
+	s := &Server{cfg: cfg}
+	s.ctx, s.cancel = context.WithCancel(context.Background())
+	return s
 }
 
 func unixProxy(sock string) *httputil.ReverseProxy {
@@ -85,6 +92,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /v1/facts", s.facts)
 	mux.HandleFunc("POST /v1/iptables", s.iptables)
 	mux.HandleFunc("POST /v1/wg", s.wg)
+	mux.HandleFunc("POST /v1/mesh", s.postMesh)
+	mux.HandleFunc("GET /v1/mesh", s.getMesh)
 	mux.HandleFunc("PUT /v1/state", s.putState)
 	mux.HandleFunc("GET /v1/state", s.getState)
 	mux.HandleFunc("POST /v1/replay", s.replay)
@@ -110,7 +119,16 @@ func Run(ctx context.Context, cfg Config) error {
 	if err != nil {
 		return err
 	}
-	return serve(ctx, ln, New(cfg).Handler())
+	s := New(cfg)
+	defer s.Stop()
+	go s.reassertLoop()
+	// A restart restores the saved state (wg, routes, chains, exits) on its own.
+	go func() {
+		if err := s.replayState(ctx); err != nil {
+			slog.Error("worker: replay at start", "err", err)
+		}
+	}()
+	return serve(ctx, ln, s.Handler())
 }
 
 func serve(ctx context.Context, ln net.Listener, h http.Handler) error {
