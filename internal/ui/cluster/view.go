@@ -72,7 +72,7 @@ type Net struct {
 type Link struct {
 	A, B, Kind string
 	MS         float64 // < 0 = not measured
-	Via        string  // relay node name, "" = direct
+	Via        string  // the node the pair is routed through, "" = direct
 }
 
 type Backup struct {

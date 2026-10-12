@@ -100,7 +100,7 @@ type ClusterNet struct {
 type ClusterLink struct {
 	A, B, Kind string
 	MS         float64
-	Via        string // the relay node's name, "" = direct
+	Via        string // the node the pair is routed through, "" = direct
 }
 
 // ClusterBackup is an external S3 destination and the nodes that back up to it.
@@ -350,7 +350,7 @@ func (o *Orchestrator) ClusterMap(ctx context.Context) (ClusterMap, error) {
 			names[n.ID] = n.Name
 		}
 		for i, l := range m.Links {
-			if h := o.mesh.RelayVia(l.A, l.B); h != "" {
+			if h := o.mesh.Via(l.A, l.B); h != "" {
 				m.Links[i].Via = names[h]
 			}
 		}

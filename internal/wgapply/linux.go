@@ -94,13 +94,16 @@ func configurePeers(cfg Config) error {
 func syncRoutes(link netlink.Link, cfg Config) error {
 	want := map[string]bool{ipNet(cfg.Address.Masked()).String(): true}
 	for _, p := range cfg.Peers {
-		if len(p.AllowedIPs) == 0 {
-			continue
-		}
-		r := p.AllowedIPs[0] // the node range; the transit /32 rides the connected route
-		want[ipNet(r).String()] = true
-		if err := netlink.RouteReplace(&netlink.Route{LinkIndex: link.Attrs().Index, Dst: ipNet(r), Scope: netlink.SCOPE_LINK}); err != nil {
-			return fmt.Errorf("wgapply: route %s: %w", r, err)
+		// Node ranges: the peer's own and any it carries for a pair routed
+		// through it. Transit /32s ride the connected route.
+		for _, r := range p.AllowedIPs {
+			if cfg.Address.Masked().Contains(r.Addr()) {
+				continue
+			}
+			want[ipNet(r).String()] = true
+			if err := netlink.RouteReplace(&netlink.Route{LinkIndex: link.Attrs().Index, Dst: ipNet(r), Scope: netlink.SCOPE_LINK}); err != nil {
+				return fmt.Errorf("wgapply: route %s: %w", r, err)
+			}
 		}
 	}
 	have, err := netlink.RouteList(link, netlink.FAMILY_V4)

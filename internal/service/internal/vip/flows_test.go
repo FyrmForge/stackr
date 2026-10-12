@@ -31,6 +31,15 @@ func TestRenderMeshFlows(t *testing.T) {
 			t.Errorf("missing %q in:\n%s", want, out)
 		}
 	}
+	// A hop for a routed pair: mesh to mesh forwards, cluster addresses only,
+	// ahead of the conntrack return so replies pass too.
+	hop := "-A STACKR-FWD -i wg0 -o wg0 -s 10.207.255.0/24 -d 10.208.0.0/12 -j ACCEPT"
+	if i, j := strings.Index(out, hop), strings.Index(out, "-A STACKR-FWD -m conntrack ! --ctstate NEW -j RETURN"); i < 0 || i > j {
+		t.Errorf("mesh forward %q missing or after the conntrack return:\n%s", hop, out)
+	}
+	if strings.Count(out, "-i wg0 -o wg0") != 4 {
+		t.Errorf("want 4 mesh forward rules:\n%s", out)
+	}
 	// no mesh, no cluster rules
 	plain := Render(nil, nil, Base{Range: b.Range})
 	if strings.Contains(plain, "wg0") {

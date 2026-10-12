@@ -21,7 +21,6 @@ import (
 	"github.com/FyrmForge/stackr/internal/clusterca"
 	"github.com/FyrmForge/stackr/internal/exits"
 	"github.com/FyrmForge/stackr/internal/mesh"
-	"github.com/FyrmForge/stackr/internal/relay"
 	"github.com/FyrmForge/stackr/internal/wgapply"
 )
 
@@ -34,7 +33,6 @@ type MeshSpec struct {
 	Address    netip.Prefix
 	ListenPort int
 	Peers      []mesh.Peer
-	Relays     []relay.Pair
 	// Links are the exits this node routes over, Serves the nodes this node is
 	// an exit for. KeyFile and Uplink may be empty: the worker fills them.
 	Links   []exits.Link
@@ -90,7 +88,6 @@ type runningLadder struct {
 
 type meshState struct {
 	fo      *wgapply.Failover
-	relays  relay.Manager
 	applied *MeshSpec // the last good apply, key files and uplink filled in
 	ladders map[int]*runningLadder
 	reMu    sync.Mutex
@@ -209,7 +206,7 @@ func (s *Server) ApplyMesh(ctx context.Context, spec MeshSpec) error {
 	return writeAtomic(s.meshPath(), b)
 }
 
-// meshNet is the wg interface, the failover and the relays.
+// meshNet is the wg interface and the failover.
 func (s *Server) meshNet(spec MeshSpec) error {
 	if s.cfg.Mesh.WG == nil {
 		return errNoWG
@@ -248,7 +245,7 @@ func (s *Server) meshNet(spec MeshSpec) error {
 	}
 	s.mesh.fo.Reset(spec.Peers)
 	s.startRegistry(spec.Registry)
-	return s.mesh.relays.Sync(spec.Relays)
+	return nil
 }
 
 // startRegistry serves the controller's registry on 127.0.0.1:5000 once the
@@ -541,7 +538,7 @@ func (s *Server) savedMesh() (*MeshSpec, error) {
 	return &spec, nil
 }
 
-// Stop ends the background loops (failover, ladders, reassert) and the relays.
+// Stop ends the background loops (failover, ladders, reassert).
 func (s *Server) Stop() {
 	s.cancel()
 	s.mu.Lock()
@@ -550,5 +547,4 @@ func (s *Server) Stop() {
 		rl.cancel()
 		<-rl.done
 	}
-	s.mesh.relays.Close()
 }
