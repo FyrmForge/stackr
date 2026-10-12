@@ -47,6 +47,17 @@ func (r *Recorder) SetEndpoint(iface, key string, ep netip.AddrPort) error {
 	return nil
 }
 
+// Seen reports the last endpoint each peer was moved to.
+func (r *Recorder) Seen(string) (map[string]netip.AddrPort, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	out := map[string]netip.AddrPort{}
+	for _, m := range r.Moves {
+		out[m.PublicKey] = m.Endpoint
+	}
+	return out, nil
+}
+
 // SetHandshake sets what Handshakes reports for a peer.
 func (r *Recorder) SetHandshake(key string, t time.Time) {
 	r.mu.Lock()

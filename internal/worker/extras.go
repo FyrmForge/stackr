@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -33,6 +34,11 @@ type Facts struct {
 	CPUs        int     `json:"cpus"`
 	MemBytes    uint64  `json:"mem_bytes"`
 	UptimeS     float64 `json:"uptime_s"`
+	// Seen is where each wg peer (by public key) sends from, for peers with a
+	// fresh handshake: a peer behind a NAT shows as the NAT's address.
+	Seen map[string]string `json:"seen,omitempty"`
+	// Resolvers are the host's IPv4 DNS servers.
+	Resolvers []string `json:"resolvers,omitempty"`
 }
 
 type Iface struct {
@@ -208,11 +214,52 @@ func (s *Server) facts(w http.ResponseWriter, r *http.Request) {
 	if err := s.dockerInfo(r.Context(), &f); err != nil {
 		f.DockerError = err.Error()
 	}
+	f.Resolvers = Resolvers()
+	if s.cfg.Mesh.WG != nil {
+		if seen, err := s.cfg.Mesh.WG.Seen("wg0"); err == nil && len(seen) > 0 {
+			f.Seen = map[string]string{}
+			for k, ep := range seen {
+				f.Seen[k] = ep.String()
+			}
+		}
+	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(f)
 }
 
 func readFile(p string) string { b, _ := os.ReadFile(p); return string(b) }
+
+// ResolvConfs are read and joined: on a systemd-resolved host the first is the
+// 127.0.0.53 stub and the second names the real upstreams.
+var ResolvConfs = []string{"/etc/resolv.conf", "/run/systemd/resolve/resolv.conf"}
+
+// Resolvers are this host's IPv4 DNS servers, loopback stubs left out.
+func Resolvers() []string {
+	var out []string
+	for _, p := range ResolvConfs {
+		for _, r := range ParseResolvers(readFile(p)) {
+			if !slices.Contains(out, r) {
+				out = append(out, r)
+			}
+		}
+	}
+	return out
+}
+
+// ParseResolvers reads the IPv4 nameservers of a resolv.conf.
+func ParseResolvers(conf string) []string {
+	var out []string
+	for _, line := range strings.Split(conf, "\n") {
+		f := strings.Fields(line)
+		if len(f) < 2 || f[0] != "nameserver" {
+			continue
+		}
+		if a, err := netip.ParseAddr(f[1]); err == nil && a.Is4() && !a.IsLoopback() {
+			out = append(out, f[1])
+		}
+	}
+	return out
+}
 
 func memTotal() uint64 {
 	for _, l := range strings.Split(readFile("/proc/meminfo"), "\n") {

@@ -32,6 +32,10 @@ type Applier interface {
 	Handshakes(iface string) (map[string]time.Time, error)
 	// SetEndpoint moves one existing peer to another endpoint.
 	SetEndpoint(iface, publicKey string, ep netip.AddrPort) error
+	// Seen returns, per public key, where a peer's packets come from, for
+	// peers with a handshake younger than StaleAfter: a peer behind a NAT
+	// shows up as the NAT's public address.
+	Seen(iface string) (map[string]netip.AddrPort, error)
 }
 
 // StaleAfter is how old a handshake may get before the next candidate is

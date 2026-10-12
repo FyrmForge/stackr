@@ -134,6 +134,25 @@ func (Kernel) Handshakes(iface string) (map[string]time.Time, error) {
 	return out, nil
 }
 
+func (Kernel) Seen(iface string) (map[string]netip.AddrPort, error) {
+	c, err := wgctrl.New()
+	if err != nil {
+		return nil, err
+	}
+	defer c.Close()
+	dev, err := c.Device(iface)
+	if err != nil {
+		return nil, err
+	}
+	out := map[string]netip.AddrPort{}
+	for _, p := range dev.Peers {
+		if p.Endpoint != nil && time.Since(p.LastHandshakeTime) < StaleAfter {
+			out[p.PublicKey.String()] = p.Endpoint.AddrPort()
+		}
+	}
+	return out, nil
+}
+
 func (Kernel) SetEndpoint(iface, publicKey string, ep netip.AddrPort) error {
 	pk, err := wgtypes.ParseKey(publicKey)
 	if err != nil {
