@@ -144,3 +144,34 @@ func TestMapPlaced(t *testing.T) {
 		}
 	}
 }
+
+// Default spots: boxes stacked, one row each; the NAT, then the node it
+// forwards to; the internet left of every box; tunnels fan out wider.
+func TestMapLayout(t *testing.T) {
+	v := cluster.Build(sample(), cluster.Base, nil, nil)
+	at := map[string][4]int{}
+	for _, n := range v.Nodes {
+		at[n.ID] = [4]int{n.X, n.Y, n.W, n.H}
+	}
+	home, lan := at["net:192.168.1.0/24"], at["net:10.20.0.0/24"]
+	if lan[1] < home[1]+home[3]+100 {
+		t.Errorf("boxes not stacked with a gap: %v then %v", home, lan)
+	}
+	nat, h, n := at["nat:192.168.1.0/24"], at["node:h"], at["node:n"]
+	if !(nat[0] < h[0] && h[0] < n[0]) || h[1] != n[1] {
+		t.Errorf("row order NAT %v, forward target %v, rest %v", nat, h, n)
+	}
+	f, g := at["node:f"], at["node:g"]
+	if f[0] >= g[0] || f[1] != g[1] {
+		t.Errorf("public node %v not first in the row before %v", f, g)
+	}
+	in := at["internet"]
+	for _, b := range [][4]int{home, lan} {
+		if in[0]+in[2] >= b[0] {
+			t.Errorf("internet %v not left of box %v", in, b)
+		}
+	}
+	if v.FanGap == 0 {
+		t.Error("cluster map keeps the default fan gap")
+	}
+}

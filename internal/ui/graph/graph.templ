@@ -102,6 +102,9 @@ templ Canvas(v View) {
 		if v.Focus != "" {
 			focus={ v.Focus }
 		}
+		if v.FanGap > 0 {
+			fan-gap={ itoa(v.FanGap) }
+		}
 		class="min-h-0 flex-1 bg-rw-bg"
 	>
 		for _, n := range v.Notes {
