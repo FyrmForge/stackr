@@ -464,6 +464,16 @@ joined to 109 across the home NAT. Nothing below may be dropped.
   over wg.
 - **Unbound admin key on-box** still needs --org to log in with several orgs.
 - **Cluster map rebuild** on the base graph (done, dev.57; darthvader to try).
+- **Portability (agreed, beta):** stackr must install anywhere, nothing tied
+  to one setup. (1) WireGuard interface `stackr0`, default port 51871, an
+  installer flag to change it. (2) Docker: a minimum version, checked; when
+  missing, ask before running Docker's install script. (3) Every other host
+  dependency (systemd, iptables, ip, kernel WireGuard, ...) checked with a
+  minimum version and a clear error. (4) Fixed ports (7443, 7444, 5000,
+  relay range, 80/443 on ingress) checked free up front, clear error. (5)
+  Fixed ranges (transit 10.207.255.0/24, supernet 10.208.0.0/12): hard error
+  at controller setup and join when a box's networks overlap them, listed as
+  a system requirement; configurable ranges later.
 - **Release images not on ghcr (last, the final test):** join cannot pull
   the worker image.
 - **Rsync helper image** is not distributed to nodes (live moves).
