@@ -33,6 +33,37 @@ func TestSyncPushesEachNode(t *testing.T) {
 	}
 }
 
+// A Soft node's failed push does not fail the run; Retry pushes again only
+// while that node is failing.
+func TestSyncSoftNodeRetries(t *testing.T) {
+	down := true
+	pushes := 0
+	s := &domain.Syncer{
+		BuildAll: func(context.Context) (map[string]json.RawMessage, error) {
+			return map[string]json.RawMessage{"w": json.RawMessage(`1`)}, nil
+		},
+		PushNode: func(context.Context, string, json.RawMessage) error {
+			pushes++
+			if down {
+				return errors.New("down")
+			}
+			return nil
+		},
+		Soft: func(n string) bool { return n == "w" },
+	}
+	ctx := context.Background()
+	if err := s.Sync(ctx); err != nil {
+		t.Fatalf("soft failure failed the sync: %v", err)
+	}
+	down = false
+	if err := s.Retry(ctx); err != nil || pushes != 2 {
+		t.Fatalf("retry: err %v pushes %d", err, pushes)
+	}
+	if err := s.Retry(ctx); err != nil || pushes != 2 {
+		t.Fatalf("retry after recovery pushed again: %d", pushes)
+	}
+}
+
 // Saves that land while a push runs collapse into exactly one follow-up run,
 // and that run sees the last save.
 func TestSyncCoalesces(t *testing.T) {

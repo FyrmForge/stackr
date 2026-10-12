@@ -35,6 +35,12 @@ func (o *Orchestrator) controllerID(ctx context.Context) (string, error) {
 	return n.ID, err
 }
 
+// isWorker reports a node that is not the controller (unknown = worker).
+func (o *Orchestrator) isWorker(nodeID string) bool {
+	ctl, err := o.controllerID(context.Background())
+	return err != nil || nodeID != ctl
+}
+
 // envRemote reports an env that runs on a worker, not the controller.
 func (o *Orchestrator) envRemote(ctx context.Context, envID string) bool {
 	e, err := o.envs.Get(ctx, envID)
