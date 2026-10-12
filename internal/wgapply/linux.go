@@ -72,12 +72,13 @@ func configurePeers(cfg Config) error {
 			pc.AllowedIPs = append(pc.AllowedIPs, *ipNet(a))
 		}
 		// An existing peer keeps its current endpoint, so a repeated push does
-		// not undo a failover move.
-		exists := false
+		// not undo a failover move. One added before its addresses were known
+		// has none and takes the first candidate once there is one.
+		hasEndpoint := false
 		for _, d := range dev.Peers {
-			exists = exists || d.PublicKey == pk
+			hasEndpoint = hasEndpoint || d.PublicKey == pk && d.Endpoint != nil
 		}
-		if !exists && len(p.Candidates) > 0 {
+		if !hasEndpoint && len(p.Candidates) > 0 {
 			pc.Endpoint = net.UDPAddrFromAddrPort(p.Candidates[0])
 		}
 		wc.Peers = append(wc.Peers, pc)
