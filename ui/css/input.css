@@ -682,10 +682,10 @@ graph-canvas {
     background-size: calc(22px * var(--s)) calc(22px * var(--s));
     background-position: var(--px) var(--py);
 }
-graph-canvas > svg[data-edges], graph-canvas > svg[data-lanes], graph-canvas > svg[data-net], graph-canvas > graph-node {
+graph-canvas > svg[data-edges], graph-canvas > svg[data-lanes], graph-canvas > graph-node {
     position: absolute; left: 0; top: 0; transform-origin: 0 0;
 }
-graph-canvas > svg[data-edges], graph-canvas > svg[data-lanes], graph-canvas > svg[data-net] {
+graph-canvas > svg[data-edges], graph-canvas > svg[data-lanes] {
     width: 1px; height: 1px; overflow: visible; pointer-events: none;
     transform: translate(var(--px), var(--py)) scale(var(--s));
 }
@@ -694,7 +694,7 @@ graph-canvas > graph-node {
     z-index: 1;
     transform: translate(calc(var(--px) + var(--x, 0px) * var(--s)), calc(var(--py) + var(--y, 0px) * var(--s))) scale(var(--s));
 }
-graph-canvas > graph-node[node-id^="note:"] { z-index: 0; }
+graph-canvas > graph-node[node-id^="note:"], graph-canvas > graph-node[members] { z-index: 0; }
 graph-canvas > graph-node[static] { cursor: default; }
 graph-canvas > graph-node[dragging] { z-index: 10; }
 graph-canvas > graph-node[dragging], graph-canvas > graph-node[dragging] * { cursor: grabbing; }
@@ -748,7 +748,13 @@ graph-node .note-del { display: none; }
 graph-node:hover > .note-del, graph-node:focus-within > .note-del { display: flex; }
 
 /* Edges: arrows on the drawn edges only (never lanes or swatches). */
-graph-canvas[arrows] svg[data-edges] path[data-edge-kind] { marker-end: url(#edge-arrow); }
+graph-canvas[arrows] svg[data-edges] path[data-edge-kind]:not([data-edge-kind="tunnel"]) { marker-end: url(#edge-arrow); }
+/* An edge's label rides its middle (the element places it). */
+graph-canvas svg[data-edges] text[data-edge-label] {
+    font: 500 11px ui-monospace, monospace; fill: rgb(var(--rw-text));
+    paint-order: stroke; stroke: var(--rw-edge-label-halo); stroke-width: 4px;
+    text-anchor: middle; pointer-events: none;
+}
 /* The server boundary. */
 graph-canvas svg[data-edges] [data-divider] line { stroke: rgb(var(--rw-strong)); stroke-width: 1; stroke-dasharray: 3 3; }
 graph-canvas svg[data-edges] [data-divider] text {
@@ -773,7 +779,7 @@ graph-canvas svg[data-lanes] text {
 /* Hover focus: the card under the pointer keeps its edges and neighbours,
    everything else drops back. */
 graph-canvas > graph-node, graph-canvas svg[data-edges] path, graph-canvas svg[data-lanes] g { transition: opacity 120ms ease-out; }
-graph-canvas[focusing] > graph-node:not([lit]):not([node-id^="note:"]) { opacity: 0.28; }
+graph-canvas[focusing] > graph-node:not([lit]):not([node-id^="note:"]):not([members]) { opacity: 0.28; }
 graph-canvas[focusing] svg[data-edges] path[data-edge-kind]:not([data-lit]) { opacity: 0.4; }
 graph-canvas[focusing] svg[data-edges] path[data-edge-kind][data-lit] { stroke-opacity: 1; stroke-width: 2.4; }
 graph-canvas[focusing] svg[data-lanes] g:not([data-lit]) { opacity: 0.4; }

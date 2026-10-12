@@ -26,7 +26,7 @@ func TestClusterPage(t *testing.T) {
 		t.Fatalf("GET /-/cluster = %d %s", rec.Code, rec.Body)
 	}
 	body := rec.Body.String()
-	for _, want := range []string{"<graph-canvas", "data-net", "1 node · 1 network", "acme/shop/dev", `hx-push-url="?drawer=node:`} {
+	for _, want := range []string{"<graph-canvas", "members=", "1 node · 1 network", "acme/shop/dev", `hx-push-url="?drawer=node:`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("cluster page lacks %q", want)
 		}
@@ -54,7 +54,8 @@ func TestClusterDrawerLoad(t *testing.T) {
 	}
 }
 
-// Notes work as on every canvas; cards do not move.
+// Notes work as on every canvas; a node card's drop is kept, an env's is
+// refused.
 func TestClusterNotes(t *testing.T) {
 	s := webtest.New(t)
 	root := admin(t, s)
@@ -68,8 +69,12 @@ func TestClusterNotes(t *testing.T) {
 		t.Error("the note did not stick")
 	}
 	rec = s.As(t, root, "POST", "/-/cluster/-/positions", url.Values{"node_id": {"node:x"}, "x": {"1"}, "y": {"1"}})
+	if rec.Code != http.StatusNoContent {
+		t.Errorf("moving a node card = %d, want 204", rec.Code)
+	}
+	rec = s.As(t, root, "POST", "/-/cluster/-/positions", url.Values{"node_id": {"env:x:0"}, "x": {"1"}, "y": {"1"}})
 	if rec.Code != http.StatusUnprocessableEntity {
-		t.Errorf("moving a card = %d, want 422", rec.Code)
+		t.Errorf("moving an env = %d, want 422", rec.Code)
 	}
 	if rec := s.As(t, root, "POST", "/-/cluster/-/reset", nil); rec.Code != http.StatusOK {
 		t.Errorf("reset = %d", rec.Code)

@@ -1,8 +1,10 @@
 // <graph-canvas scale snap straight fan-out arrows hover-focus nooverlap
 // badges boundary legend focus divider>: pan, zoom (wheel, pinch,
 // [data-zoom]) about the cursor, fit, shift+drag marquee, hover focus,
-// "focus" centring, <svg data-edges> re-path, <svg data-lanes> traffic lanes,
-// <svg data-net data-extent="x y w h"> a page-drawn layer that the fit includes.
+// "focus" centring, <svg data-edges> re-path (a text[data-edge-label] right
+// after a path rides its middle), <svg data-lanes> traffic lanes, and
+// containers: a graph-node[members] (ids) with pad="top right bottom left"
+// and min-w is kept wrapped around the cards it names.
 // Writes --px/--py/--s on itself (CSS makes the transforms), "selected"/"lit"
 // on nodes, "data-lit" on paths and lanes; fires "selection-changed"
 // (detail.ids). Look attributes follow [data-look] inputs (a checkbox, or
@@ -98,9 +100,6 @@ class GraphCanvas extends HTMLElement {
   // The cards' extent (notes and boxes left out, as v0 did).
   private bounds(): Box | null {
     const boxes = this.nodes().filter((n) => !idOf(n).startsWith("note:")).map((n) => this.box(n));
-    // A page that draws behind the cards (svg[data-net], the Cluster map) names the box it spans.
-    const [ex, ey, ew, eh] = (this.querySelector("svg[data-net]")?.getAttribute("data-extent") ?? "").split(" ").map(Number);
-    if (ew) boxes.push({ x: ex, y: ey, w: ew, h: eh });
     if (boxes.length === 0) return null;
     const x = Math.min(...boxes.map((b) => b.x));
     const y = Math.min(...boxes.map((b) => b.y));
@@ -254,7 +253,7 @@ class GraphCanvas extends HTMLElement {
   // focus is a look (hover-focus) and off while anything is being dragged.
   private onOver = (e: PointerEvent): void => {
     if (!this.hasAttribute("hover-focus") || this.pan || this.marquee || this.querySelector("graph-node[dragging]")) return;
-    const n = e.type === "pointerleave" ? null : (e.target as Element).closest("graph-node");
+    const n = e.type === "pointerleave" ? null : (e.target as Element).closest("graph-node:not([members])");
     this.light(n && this.top(n));
   };
   // Lights a card, its edges, their lanes and far ends; CSS dims the rest.
@@ -277,6 +276,7 @@ class GraphCanvas extends HTMLElement {
   // order of their far ends. Cubic (control max(centre run/2, 60)) or
   // straight. Lanes follow their edges.
   private repath(): void {
+    this.wrap();
     const ends: End[] = [];
     for (const path of this.paths()) {
       const [fromId, toId] = [path.dataset.from ?? "", path.dataset.to ?? ""];
@@ -301,7 +301,30 @@ class GraphCanvas extends HTMLElement {
       }
     }
     for (let i = 0; i < ends.length; i += 2) this.draw(ends[i], ends[i + 1]);
+    for (const p of this.paths()) {
+      const label = p.nextElementSibling;
+      if (!label?.matches("text[data-edge-label]")) continue;
+      const m = p.getPointAtLength(p.getTotalLength() / 2);
+      label.setAttribute("x", String(m.x));
+      label.setAttribute("y", String(m.y + 4));
+    }
     this.lanes();
+  }
+  // Each container to its cards' extent plus its pad, no narrower than
+  // min-w. Only changed values are written: the observer re-runs repath.
+  private wrap(): void {
+    for (const c of this.querySelectorAll(":scope > graph-node[members]")) {
+      const bs = (c.getAttribute("members") ?? "").split(" ").map((id) => this.node(id)).filter((n): n is HTMLElement => n !== null).map((n) => this.box(n));
+      if (bs.length === 0) continue;
+      const [t, r, b, l] = (c.getAttribute("pad") ?? "").split(" ").map(Number);
+      const x = Math.min(...bs.map((q) => q.x)) - (l || 0);
+      const y = Math.min(...bs.map((q) => q.y)) - (t || 0);
+      const w = Math.max(Math.max(...bs.map((q) => q.x + q.w)) + (r || 0) - x, num(c, "min-w"));
+      const h = Math.max(...bs.map((q) => q.y + q.h)) + (b || 0) - y;
+      for (const [k, v] of [["x", x], ["y", y], ["w", w], ["h", h]] as const) {
+        if (num(c, k) !== Math.round(v)) c.setAttribute(k, String(Math.round(v)));
+      }
+    }
   }
   private draw(a: End, b: End): void {
     const [[ax, ay], [bx, by]] = [this.anchor(a), this.anchor(b)];

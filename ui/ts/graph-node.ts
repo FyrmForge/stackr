@@ -4,10 +4,9 @@
 // a lone drop on a "nooverlap" canvas is nudged off other cards (notes and
 // boxes don't count); then it writes its hidden x/y inputs and fires a
 // bubbling "node-moved". A "selected" card drags every selected card, each
-// fires its own. Static sub-tiles ride along inside. Enter or Space on a
-// card's [role=button] body clicks it.
+// fires its own; a container ([members]) drags its cards. Static sub-tiles
+// ride inside. Enter or Space on a card's [role=button] body clicks it.
 const [GRID, GAP, RINGS] = [22, 12, 12];
-
 type Start = [GraphNode, number, number];
 
 class GraphNode extends HTMLElement {
@@ -35,6 +34,8 @@ class GraphNode extends HTMLElement {
     this.removeEventListener("keydown", this.onKey);
   }
   private num = (name: string): number => Number(this.getAttribute(name)) || 0;
+  private members = (): GraphNode[] => (this.getAttribute("members") ?? "").split(" ").filter(Boolean)
+    .map((id) => this.canvas()?.querySelector(`:scope > graph-node[node-id="${CSS.escape(id)}"]`)).filter((n): n is GraphNode => n instanceof GraphNode);
   private canvas = (): Element | null => this.closest("graph-canvas");
   // Links and images inside a card must not start a native drag.
   private onNativeDrag = (e: Event): void => e.preventDefault();
@@ -57,9 +58,10 @@ class GraphNode extends HTMLElement {
     this.swallow = false;
     const canvas = this.canvas();
     if (e.button !== 0 || e.shiftKey || this.hasAttribute("static") || this.drag || this.parentElement !== canvas) return;
-    const group = this.hasAttribute("selected") && canvas
+    const picked = this.hasAttribute("selected") && canvas
       ? [...canvas.querySelectorAll<GraphNode>(":scope > graph-node[selected]:not([static])")]
       : [this];
+    const group = [...new Set(picked.flatMap((n) => [n, ...n.members()]))];
     this.drag = {
       id: e.pointerId, sx: e.clientX, sy: e.clientY, moved: false,
       slop: e.pointerType === "touch" ? 10 : 3,
@@ -118,7 +120,7 @@ class GraphNode extends HTMLElement {
   private nudge(): void {
     const [x0, y0] = [this.num("x"), this.num("y")];
     const others = [...(this.parentElement?.children ?? [])].filter(
-      (n): n is GraphNode => n instanceof GraphNode && n !== this && !n.getAttribute("node-id")?.startsWith("note:"),
+      (n): n is GraphNode => n instanceof GraphNode && n !== this && !n.hasAttribute("members") && !n.getAttribute("node-id")?.startsWith("note:"),
     );
     for (let r = 0; r <= RINGS; r++) {
       const ring: [number, number][] = [];

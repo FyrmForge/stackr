@@ -674,19 +674,23 @@ func (o *Orchestrator) clusterFacts(ctx context.Context, n store.Node) (*worker.
 // schema change.
 var ClusterScope = CanvasScope{Kind: CanvasHome, ID: "cluster"}
 
-// ClusterPositions is where admins dropped networks and nodes, by canvas id
-// ("net:<id>", "node:<id>"); the map's geometry reads them.
+// ClusterPositions is where admins dropped cards, by canvas id ("node:<id>",
+// "nat:<net>", "s3:<id>", "internet"); the map's geometry reads them.
 func (o *Orchestrator) ClusterPositions(ctx context.Context) (map[string]Point, error) {
 	return o.canvas.Positions(ctx, ClusterScope)
 }
 
-// PlaceCluster saves where a note, network or node on the Cluster canvas
-// was dropped.
+// PlaceCluster saves where a note, node, NAT, backup or the internet card
+// on the Cluster canvas was dropped. A network box is where its cards are.
 func (o *Orchestrator) PlaceCluster(ctx context.Context, id string, p Point) error {
 	if note, ok := strings.CutPrefix(id, "note:"); ok {
 		return o.canvas.Move(ctx, ClusterScope, note, p)
 	}
-	if !strings.HasPrefix(id, "net:") && !strings.HasPrefix(id, "node:") {
+	movable := id == "internet"
+	for _, p := range []string{"node:", "nat:", "s3:"} {
+		movable = movable || strings.HasPrefix(id, p)
+	}
+	if !movable {
 		return errs.Invalidf("node_id", "this card does not move")
 	}
 	return o.canvas.Save(ctx, ClusterScope, id, p)

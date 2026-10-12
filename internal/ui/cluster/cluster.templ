@@ -1,10 +1,6 @@
 package cluster
 
-import (
-	"strconv"
-
-	"github.com/FyrmForge/stackr/internal/ui/graph"
-)
+import "github.com/FyrmForge/stackr/internal/ui/graph"
 
 // Page is the Cluster page: its own bar (the shell's top bar shows only
 // where the URL has crumbs), then #graph, which holds the canvas and swaps
@@ -30,65 +26,47 @@ templ Page(v graph.View, m Map) {
 	</div>
 }
 
-// netLayer is everything behind the cards, in world coordinates under the
-// canvas's own pan and zoom (svg[data-net], graph.css).
-templ netLayer(s Shape) {
-	<svg data-net data-extent={ itoa(s.X) + " " + itoa(s.Y) + " " + itoa(s.W) + " " + itoa(s.H) } aria-hidden="true">
-		<defs>
-			<marker id="cluster-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-				<path d="M0,0 L10,5 L0,10 z" fill="rgb(var(--rw-accent))"></path>
-			</marker>
-			<marker id="cluster-arrow-faint" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-				<path d="M0,0 L10,5 L0,10 z" fill="rgb(var(--rw-faint))"></path>
-			</marker>
-		</defs>
-		for _, b := range s.Boxes {
-			<rect x={ itoa(b.X) } y={ itoa(b.Y) } width={ itoa(b.W) } height={ itoa(b.H) } rx="16" fill="rgb(var(--rw-inset) / .45)" stroke="rgb(var(--rw-strong))" stroke-width="1" stroke-dasharray="2 4"></rect>
-		}
-		for _, t := range s.Tunnels {
-			<path d={ t.D } fill="none" stroke="rgb(var(--rw-muted))" stroke-width="1.6" stroke-linecap="round"></path>
-		}
-		for _, a := range s.Arrows {
-			switch a.Kind {
-				case "ingress", "exit":
-					<path d={ a.D } fill="none" stroke="rgb(var(--rw-accent))" stroke-width="2.2" stroke-dasharray="7 4" marker-end="url(#cluster-arrow)"></path>
-				case "short":
-					<path d={ a.D } fill="none" stroke="rgb(var(--rw-accent))" stroke-width="2" marker-end="url(#cluster-arrow)"></path>
-				case "unsure":
-					<path d={ a.D } fill="none" stroke="rgb(var(--rw-accent))" stroke-width="2" stroke-dasharray="3 4" marker-end="url(#cluster-arrow)"></path>
-				default:
-					<path d={ a.D } fill="none" stroke="rgb(var(--rw-faint))" stroke-width="1.8" stroke-dasharray="2 4" stroke-linecap="round" marker-end="url(#cluster-arrow-faint)"></path>
-			}
-		}
-		for _, r := range s.Routers {
-			<rect x={ itoa(r.X) } y={ itoa(r.Y) } width="44" height="44" rx="8" fill="rgb(var(--rw-surface))" stroke="rgb(var(--rw-strong))" stroke-width="1"></rect>
-			<text x={ itoa(r.X + 22) } y={ itoa(r.Y + 26) } text-anchor="middle" fill="rgb(var(--rw-muted))" font-size="11" font-family="ui-sans-serif">NAT</text>
-		}
-		for _, l := range s.Labels {
-			<rect x={ itoa(l.plateX()) } y={ itoa(l.Y - 13) } width={ itoa(l.W) } height="18" rx="4" fill="rgb(var(--rw-bg))"></rect>
-			<text x={ itoa(l.X) } y={ itoa(l.Y) } text-anchor={ l.Anchor } fill="rgb(var(--rw-text))" font-size="11" font-family="ui-monospace, monospace">{ l.Text }</text>
-		}
-		for _, b := range s.S3s {
-			<rect x={ itoa(b.X) } y={ itoa(b.Y) } width={ itoa(b.W) } height={ itoa(b.H) } rx="10" fill="rgb(var(--rw-surface))" stroke="rgb(var(--rw-strong))" stroke-width="1"></rect>
-			<text x={ itoa(b.X + 18) } y={ itoa(b.Y + 27) } fill="rgb(var(--rw-text))" font-size="13" font-weight="600" font-family="ui-sans-serif">{ b.Name }</text>
-		}
-	</svg>
-}
-
-// netHandle is a box's name and sub, and what drags the box.
-templ netHandle(name, sub string) {
-	<div class="h-full cursor-move select-none px-[18px] pt-[14px]" title="Drag to move this network">
+// netCard is a network box: a dashed frame with its name and sub on top.
+// The canvas wraps it around its cards; pressing anywhere on it drags them.
+templ netCard(name, sub string) {
+	<div class="h-full cursor-move select-none rounded-2xl border border-dashed border-rw-strong bg-rw-inset/40 px-5 pt-4" title="Drag to move this network">
 		<div class="text-sm font-semibold text-rw-text truncate">{ name }</div>
 		<div class="text-xs text-rw-faint font-mono truncate">{ sub }</div>
 	</div>
 }
 
-// nodeCard is a node's face and the env sub-cards dealt under it. The face
-// opens the node's drawer (lane U1); a sub-card goes to its env.
+// natCard is a network's router: public traffic for the box goes through it.
+templ natCard() {
+	<div class="card-face h-full rounded-xl border border-rw-strong bg-rw-surface shadow-rw flex flex-col items-center justify-center">
+		<span class="text-sm font-semibold text-rw-text leading-tight">NAT</span>
+		<span class="text-[11px] text-rw-faint leading-tight">router</span>
+	</div>
+}
+
+// sideCard is the internet or a backup store.
+templ sideCard(name, icon string) {
+	<div class="card-face h-full rounded-xl border border-rw-border bg-rw-surface shadow-rw flex items-center gap-2.5 px-3.5">
+		<span class="flex h-7 w-7 items-center justify-center rounded-md bg-rw-inset text-rw-muted shrink-0">
+			<svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+				if icon == "globe" {
+					<circle cx="12" cy="12" r="10"></circle>
+					<path d="M2 12h20M12 2a15 15 0 0 1 0 20M12 2a15 15 0 0 0 0 20"></path>
+				} else {
+					<ellipse cx="12" cy="5" rx="9" ry="3"></ellipse>
+					<path d="M3 5v14c0 1.7 4 3 9 3s9-1.3 9-3V5M3 12c0 1.7 4 3 9 3s9-1.3 9-3"></path>
+				}
+			</svg>
+		</span>
+		<span class="text-sm font-semibold text-rw-text truncate">{ name }</span>
+	</div>
+}
+
+// nodeCard is a node's face with its envs listed inside. The face opens
+// the node's drawer (lane U1); an env row goes to its env.
 templ nodeCard(n Node) {
 	{{ word, tone, dot := statusTone(n.Status) }}
 	<div
-		class="card-face relative block h-full rounded-xl border bg-rw-surface border-rw-border hover:border-rw-accent/60 shadow-rw"
+		class="card-face relative flex h-full flex-col overflow-hidden rounded-xl border bg-rw-surface border-rw-border hover:border-rw-accent/60 shadow-rw"
 		hx-get={ NodeDrawer(n.ID, "") }
 		hx-target="#drawer-body"
 		hx-push-url={ NodePush(n.ID, "") }
@@ -139,67 +117,45 @@ templ nodeCard(n Node) {
 				}
 			</div>
 		</div>
-	</div>
-	for i, e := range subs(n) {
-		<graph-node node-id={ "env:" + n.ID + ":" + strconv.Itoa(i) } static>
-			<div
-				class="graph-node-sub relative h-full rounded-xl border cursor-pointer bg-rw-inset border-rw-border hover:border-rw-accent/60"
-				role="button"
-				tabindex="0"
-				if e.Health == "more" {
-					hx-get={ NodeDrawer(n.ID, "envs") }
-					hx-target="#drawer-body"
-					hx-push-url={ NodePush(n.ID, "envs") }
-				} else {
-					hx-get={ e.Href }
-					hx-target="#main"
-					hx-push-url="true"
+		if rs := rows(n); len(rs) > 0 {
+			<ul class="border-t border-rw-border px-2 py-1.5">
+				for _, e := range rs {
+					<li>
+						<div
+							class="flex h-[22px] items-center gap-2 rounded-md px-1.5 min-w-0 cursor-pointer hover:bg-rw-inset"
+							role="button"
+							tabindex="0"
+							hx-trigger="click consume"
+							if e.Health == "more" {
+								hx-get={ NodeDrawer(n.ID, "envs") }
+								hx-target="#drawer-body"
+								hx-push-url={ NodePush(n.ID, "envs") }
+							} else {
+								hx-get={ e.Href }
+								hx-target="#main"
+								hx-push-url="true"
+							}
+						>
+							if e.Health == "more" {
+								<span class="text-xs text-rw-faint truncate">{ e.Name }</span>
+							} else {
+								<span class={ "env-dot shrink-0", dotClass(e.Health) } title={ healthWord(e.Health) }></span>
+								<span class="sr-only">{ healthWord(e.Health) }:</span>
+								<span class="text-xs font-medium text-rw-text truncate font-mono">{ e.Name }</span>
+							}
+						</div>
+					</li>
 				}
-			>
-				<div class="absolute inset-x-0 bottom-0 flex h-7 items-center gap-2 px-3 min-w-0 text-rw-muted">
-					if e.Health == "more" {
-						<span class="text-xs text-rw-faint truncate">{ e.Name }</span>
-					} else {
-						<span class={ "env-dot shrink-0", dotClass(e.Health) } title={ healthWord(e.Health) }></span>
-						<span class="sr-only">{ healthWord(e.Health) }:</span>
-						<span class="text-xs font-medium text-rw-text truncate font-mono">{ e.Name }</span>
-					}
-				</div>
-			</div>
-		</graph-node>
-	}
+			</ul>
+		}
+	</div>
 }
 
-// legends are the key to the map: the links, and what the env dots mean.
-templ legends() {
-	<div class="absolute top-4 left-4 z-10 panel px-3 py-2.5 text-xs text-rw-muted shadow-rw pointer-events-none">
-		<p class="font-medium text-rw-text mb-1.5">Links</p>
-		<ul class="space-y-1">
-			<li class="flex items-center gap-2">
-				<svg width="28" height="8" aria-hidden="true"><line x1="0" y1="4" x2="28" y2="4" stroke="rgb(var(--rw-muted))" stroke-width="2"></line></svg>
-				Tunnel link, with latency
-			</li>
-			<li class="flex items-center gap-2">
-				<svg width="28" height="8" aria-hidden="true"><line x1="0" y1="4" x2="22" y2="4" stroke="rgb(var(--rw-accent))" stroke-width="2" stroke-dasharray="5 3"></line><path d="M22,0 L28,4 L22,8 z" fill="rgb(var(--rw-accent))"></path></svg>
-				Public traffic in (ingress)
-			</li>
-			<li class="flex items-center gap-2">
-				<svg width="28" height="8" aria-hidden="true"><line x1="0" y1="4" x2="22" y2="4" stroke="rgb(var(--rw-accent))" stroke-width="2" stroke-dasharray="5 3"></line><path d="M22,0 L28,4 L22,8 z" fill="rgb(var(--rw-accent))"></path></svg>
-				Public traffic out (exit)
-			</li>
-			<li class="flex items-center gap-2">
-				<svg width="28" height="8" aria-hidden="true"><line x1="0" y1="4" x2="22" y2="4" stroke="rgb(var(--rw-accent))" stroke-width="2"></line><path d="M22,0 L28,4 L22,8 z" fill="rgb(var(--rw-accent))"></path></svg>
-				NAT forwards to (dashed: unconfirmed)
-			</li>
-			<li class="flex items-center gap-2">
-				<svg width="28" height="8" aria-hidden="true"><line x1="0" y1="4" x2="28" y2="4" stroke="rgb(var(--rw-faint))" stroke-width="2" stroke-dasharray="2 3"></line></svg>
-				Backups to an external service
-			</li>
-		</ul>
-		<p class="mt-2 text-rw-faint max-w-[13rem]">Every link is encrypted.</p>
-	</div>
+// legend is what the env dots mean; the edge kinds are in the canvas's own
+// legend.
+templ legend() {
 	<div class="absolute bottom-4 left-4 z-10 panel px-3 py-2.5 text-xs text-rw-muted shadow-rw pointer-events-none">
-		<p class="font-medium text-rw-text mb-1.5">Env health on this node</p>
+		<p class="font-medium text-rw-text mb-1.5">Env health</p>
 		<ul class="flex flex-wrap gap-x-3 gap-y-1 max-w-[13rem]">
 			for _, h := range []string{"healthy", "degraded", "down", "stopped", "moving"} {
 				<li class="flex items-center gap-1.5">
@@ -208,5 +164,6 @@ templ legends() {
 				</li>
 			}
 		</ul>
+		<p class="mt-2 text-rw-faint">Every link is encrypted.</p>
 	</div>
 }

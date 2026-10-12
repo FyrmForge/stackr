@@ -94,9 +94,6 @@ class GraphCanvas extends HTMLElement {
     }
     bounds() {
         const boxes = this.nodes().filter((n) => !idOf(n).startsWith("note:")).map((n) => this.box(n));
-        const [ex, ey, ew, eh] = (this.querySelector("svg[data-net]")?.getAttribute("data-extent") ?? "").split(" ").map(Number);
-        if (ew)
-            boxes.push({ x: ex, y: ey, w: ew, h: eh });
         if (boxes.length === 0)
             return null;
         const x = Math.min(...boxes.map((b) => b.x));
@@ -257,7 +254,7 @@ class GraphCanvas extends HTMLElement {
     onOver = (e) => {
         if (!this.hasAttribute("hover-focus") || this.pan || this.marquee || this.querySelector("graph-node[dragging]"))
             return;
-        const n = e.type === "pointerleave" ? null : e.target.closest("graph-node");
+        const n = e.type === "pointerleave" ? null : e.target.closest("graph-node:not([members])");
         this.light(n && this.top(n));
     };
     light(n) {
@@ -277,6 +274,7 @@ class GraphCanvas extends HTMLElement {
             top.toggleAttribute("lit", family(top).some((id) => lit.has(id)));
     }
     repath() {
+        this.wrap();
         const ends = [];
         for (const path of this.paths()) {
             const [fromId, toId] = [path.dataset.from ?? "", path.dataset.to ?? ""];
@@ -305,7 +303,31 @@ class GraphCanvas extends HTMLElement {
         }
         for (let i = 0; i < ends.length; i += 2)
             this.draw(ends[i], ends[i + 1]);
+        for (const p of this.paths()) {
+            const label = p.nextElementSibling;
+            if (!label?.matches("text[data-edge-label]"))
+                continue;
+            const m = p.getPointAtLength(p.getTotalLength() / 2);
+            label.setAttribute("x", String(m.x));
+            label.setAttribute("y", String(m.y + 4));
+        }
         this.lanes();
+    }
+    wrap() {
+        for (const c of this.querySelectorAll(":scope > graph-node[members]")) {
+            const bs = (c.getAttribute("members") ?? "").split(" ").map((id) => this.node(id)).filter((n) => n !== null).map((n) => this.box(n));
+            if (bs.length === 0)
+                continue;
+            const [t, r, b, l] = (c.getAttribute("pad") ?? "").split(" ").map(Number);
+            const x = Math.min(...bs.map((q) => q.x)) - (l || 0);
+            const y = Math.min(...bs.map((q) => q.y)) - (t || 0);
+            const w = Math.max(Math.max(...bs.map((q) => q.x + q.w)) + (r || 0) - x, num(c, "min-w"));
+            const h = Math.max(...bs.map((q) => q.y + q.h)) + (b || 0) - y;
+            for (const [k, v] of [["x", x], ["y", y], ["w", w], ["h", h]]) {
+                if (num(c, k) !== Math.round(v))
+                    c.setAttribute(k, String(Math.round(v)));
+            }
+        }
     }
     draw(a, b) {
         const [[ax, ay], [bx, by]] = [this.anchor(a), this.anchor(b)];

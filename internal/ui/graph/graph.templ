@@ -1,6 +1,8 @@
 package graph
 
 import (
+	"strings"
+
 	c "github.com/FyrmForge/stackr/internal/ui/components"
 	"github.com/FyrmForge/stackr/internal/ui/graph/cards"
 )
@@ -102,9 +104,6 @@ templ Canvas(v View) {
 		}
 		class="min-h-0 flex-1 bg-rw-bg"
 	>
-		if v.Under != nil {
-			@v.Under
-		}
 		for _, n := range v.Notes {
 			@note(v, n)
 		}
@@ -119,6 +118,9 @@ templ Canvas(v View) {
 			}
 			for _, e := range v.Edges {
 				<path data-edge-kind={ e.Kind } data-from={ e.From } data-to={ e.To } d="M0,0" { EdgeAttrs(e.Kind)... }></path>
+				if e.Label != "" {
+					<text data-edge-label>{ e.Label }</text>
+				}
 			}
 		</svg>
 		if v.Lanes != nil {
@@ -166,6 +168,11 @@ templ node(v View, n Node) {
 		}
 		if n.Static {
 			static
+		}
+		if len(n.Members) > 0 {
+			members={ strings.Join(n.Members, " ") }
+			pad={ itoa(n.Pad[0]) + " " + itoa(n.Pad[1]) + " " + itoa(n.Pad[2]) + " " + itoa(n.Pad[3]) }
+			min-w={ itoa(n.MinW) }
 		}
 		hx-post={ v.Route("positions") }
 		hx-trigger="node-moved"
