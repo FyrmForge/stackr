@@ -285,8 +285,11 @@ func (o *Orchestrator) refreshNodeClients(ctx context.Context) error {
 			cd.up = err == nil
 			alive := false
 			if !cd.up && o.mesh != nil {
+				// Its own deadline: a dead tunnel spends all of pctx on Facts.
+				actx, acancel := context.WithTimeout(ctx, 5*time.Second)
+				defer acancel()
 				for _, a := range o.mesh.publicOf(cd.n.ID) {
-					if alive = worker.Alive(pctx, a.String()); alive {
+					if alive = worker.Alive(actx, a.String()); alive {
 						break
 					}
 				}
