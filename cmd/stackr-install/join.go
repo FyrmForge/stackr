@@ -144,10 +144,11 @@ func (j joinCall) run(ctx context.Context, csrPEM []byte, wgPub string, facts an
 }
 
 // workerUnit is the systemd unit for `stackrd worker`. The worker listens on
-// the node's mesh address, which wg0 does not carry until the head pushes
-// the mesh; putting it on lo first lets the listener bind. It replays its
-// saved state itself at start; After=docker.service keeps DOCKER-USER there.
-func workerUnit(stateDir, addr string) string {
+// every address: the controller first reaches it directly (the mesh does not
+// exist until the controller pushes it), and only its mTLS cert gets in. It
+// replays its saved state itself at start; After=docker.service keeps
+// DOCKER-USER there.
+func workerUnit(stateDir string) string {
 	return fmt.Sprintf(`[Unit]
 Description=stackr worker
 After=network-online.target docker.service
@@ -155,14 +156,13 @@ Wants=network-online.target
 Requires=docker.service
 
 [Service]
-ExecStartPre=-/usr/bin/env ip addr add %[3]s/32 dev lo
-ExecStart=%[1]s worker --state-dir %[2]s --addr %[3]s:%[4]s
+ExecStart=%[1]s worker --state-dir %[2]s --addr :%[3]s
 Restart=always
 RestartSec=3
 
 [Install]
 WantedBy=multi-user.target
-`, joinBinary, stateDir, addr, joinWorkerPort)
+`, joinBinary, stateDir, joinWorkerPort)
 }
 
 // join is `stackr-install join`: turn this machine into a worker node of
@@ -251,7 +251,7 @@ func join(ctx context.Context, args []string, out io.Writer) error {
 			return err
 		}
 	}
-	if err := os.WriteFile(joinUnitPath, []byte(workerUnit(*stateDir, st.WGAddress)), 0o644); err != nil {
+	if err := os.WriteFile(joinUnitPath, []byte(workerUnit(*stateDir)), 0o644); err != nil {
 		return err
 	}
 	for _, c := range [][]string{{"daemon-reload"}, {"enable", "--now", "stackr-worker.service"}} {
