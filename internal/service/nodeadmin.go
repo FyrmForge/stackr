@@ -92,13 +92,19 @@ func nodeAdmin(by *Principal) error {
 	return authz.Can(by.Access, "node.manage", authz.Resource{})
 }
 
+// shownStatus is the node's status as the panel, API and CLI show it: an
+// offline worker that still answers its liveness port is "tunnel-down".
+func (o *Orchestrator) shownStatus(n store.Node) string {
+	if n.Status == node.StatusOffline && o.HostAlive(n.ID) {
+		return NodeTunnelDown
+	}
+	return n.Status
+}
+
 func (o *Orchestrator) card(ctx context.Context, n store.Node) (NodeCard, error) {
 	es, err := o.store.Environments.ListByNode(ctx, n.ID)
-	if n.Status == node.StatusOffline && o.HostAlive(n.ID) {
-		n.Status = NodeTunnelDown
-	}
 	return NodeCard{
-		ID: n.ID, Name: n.Name, Role: n.Role, Status: n.Status, Range: n.RangeCIDR,
+		ID: n.ID, Name: n.Name, Role: n.Role, Status: o.shownStatus(n), Range: n.RangeCIDR,
 		Tags: node.Tags(n), Envs: len(es), Controller: n.Role == node.Controller,
 	}, err
 }
