@@ -31,8 +31,9 @@ func (o *Orchestrator) ingressNodes(ctx context.Context) []string {
 }
 
 // ensureNodeProxy brings a worker's proxy container to its tags: tagged
-// ingress = installspec.NodeProxy from the controller's own proxy image (and
-// DNS-01 token), recreated when its spec stamp differs; untagged = none. The
+// ingress = installspec.NodeProxy from the controller's own proxy image,
+// recreated when its spec stamp differs; untagged = none. The DNS-01 token
+// never leaves the controller: workers get certificates by HTTP-01. The
 // controller's proxy is the installer's, never touched here.
 func (o *Orchestrator) ensureNodeProxy(ctx context.Context, nodeID string) error {
 	ctl, err := o.controllerID(ctx)
@@ -51,7 +52,7 @@ func (o *Orchestrator) ensureNodeProxy(ctx context.Context, nodeID string) error
 		if err != nil {
 			return fmt.Errorf("controller proxy: %w", err)
 		}
-		spec = installspec.NodeProxy(d.Image, installspec.TokenFrom(d.Env))
+		spec = installspec.NodeProxy(d.Image)
 	}
 	cs, err := o.docker.List(nctx, map[string]string{installspec.LabelRole: "proxy"})
 	if err != nil {

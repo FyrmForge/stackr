@@ -207,7 +207,8 @@ func BuildNode(node string, in Install, tiles []TileRoute, routes []NodeRoute, e
 		in.PanelHost = ""
 	}
 	if in.Controller != "" && in.Controller != node {
-		in.TrustedProxies = nil
+		// A worker never holds the DNS-01 token: HTTP-01/TLS-ALPN only.
+		in.TrustedProxies, in.DNSProvider = nil, ""
 	}
 	in.ProbeID = node
 	var ts []TileRoute

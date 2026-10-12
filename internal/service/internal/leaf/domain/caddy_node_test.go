@@ -80,6 +80,27 @@ func TestBuildAllTrustedProxiesOnControllerOnly(t *testing.T) {
 	}
 }
 
+// Only the controller solves DNS-01; a worker's wildcard falls to the
+// HTTP-01 catch-all and its config never names the token.
+func TestBuildAllDNSChallengeOnControllerOnly(t *testing.T) {
+	in := install
+	in.DefaultIngress, in.Controller, in.DNSProvider = "ctl", "ctl", "cloudflare"
+	ctl := one(row("*.a.example.com", domain.Extras{}))[0]
+	ctl.IngressNode = "ctl"
+	w := one(row("*.b.example.com", domain.Extras{}))[0]
+	w.IngressNode = "w1"
+	all, err := domain.BuildAll(in, []domain.TileRoute{ctl, w}, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(all["ctl"]), domain.DNSTokenEnv) {
+		t.Error("the controller lost its DNS-01 issuer")
+	}
+	if strings.Contains(string(all["w1"]), domain.DNSTokenEnv) || strings.Contains(string(all["w1"]), "cloudflare") {
+		t.Error("a worker config carries the DNS-01 challenge")
+	}
+}
+
 // The port-forward probe answers each node's own id, first on both servers.
 func TestBuildAllProbe(t *testing.T) {
 	in := install
