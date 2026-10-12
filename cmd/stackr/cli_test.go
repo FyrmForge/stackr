@@ -211,6 +211,10 @@ func TestDeployFollows(t *testing.T) {
 	env.Healthy(env.Tile(t, org).Env)
 	t.Setenv("STACKR_CONFIG", filepath.Join(t.TempDir(), "config.json"))
 
+	// An empty key ($KEY unset) is refused, not a browser login that waits.
+	if code, _, errw := cli(t, "login", ts.URL, "--with-key", ""); code != 2 || !strings.Contains(errw, "--with-key is empty") {
+		t.Fatalf("login with an empty key = %d %s", code, errw)
+	}
 	if code, _, errw := cli(t, "login", ts.URL, "--with-key", key); code != 0 {
 		t.Fatalf("login = %d %s", code, errw)
 	}

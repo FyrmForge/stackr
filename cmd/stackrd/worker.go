@@ -69,7 +69,15 @@ func workerConfig(args []string) (worker.Config, error) {
 		if err != nil {
 			return worker.Config{}, fmt.Errorf("node cert: %w", err)
 		}
-		reg = worker.RegistryConfig{URL: *regURL, Host: *regHost, TLS: &tls.Config{Certificates: []tls.Certificate{own}, MinVersion: tls.VersionTLS12}}
+		b, err := os.ReadFile(def(ca, "cluster-ca.crt"))
+		if err != nil {
+			return worker.Config{}, fmt.Errorf("cluster CA cert: %w", err)
+		}
+		caCert, err := clusterca.ParseCertPEM(b)
+		if err != nil {
+			return worker.Config{}, fmt.Errorf("cluster CA cert: %w", err)
+		}
+		reg = worker.RegistryConfig{URL: *regURL, Host: *regHost, TLS: clusterca.ControllerClientConfig(caCert, own)}
 	}
 	return worker.Config{
 		Registry: reg,

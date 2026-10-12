@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	"github.com/FyrmForge/stackr/internal/service/internal/dockerfake"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 	"github.com/FyrmForge/stackr/internal/service/internal/storetest"
@@ -246,7 +247,8 @@ func TestLiveMove(t *testing.T) {
 		t.Fatalf("helpers: dst %d src %d", len(r.dst.Specs), len(r.src.Specs))
 	}
 	d := r.dst.Specs[0]
-	if d.Image != RsyncImage || d.Env[0] != "RSYNC_ALLOW=10.1.0.1" || d.Ports["8873"] != "873" {
+	if d.Image != docker.ToolImage || d.Env[0] != "RSYNC_ALLOW=10.1.0.1" || d.Ports["8873"] != "873" ||
+		!strings.Contains(d.Cmd[2], "rsync --daemon") {
 		t.Fatalf("daemon spec = %+v", d)
 	}
 	first, second := r.src.Specs[0], r.src.Specs[1]

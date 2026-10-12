@@ -17,6 +17,7 @@ import (
 
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
+	"github.com/FyrmForge/stackr/internal/clusterca"
 	"github.com/FyrmForge/stackr/internal/exits"
 	"github.com/FyrmForge/stackr/internal/mesh"
 	"github.com/FyrmForge/stackr/internal/relay"
@@ -38,6 +39,15 @@ type MeshSpec struct {
 	Links   []exits.Link
 	Serves  []exits.Serve
 	Ladders []LadderSpec
+	// Registry is the controller's registry front over the mesh; the worker
+	// serves it on 127.0.0.1:5000. nil on the controller itself.
+	Registry *RegistrySpec `json:",omitempty"`
+}
+
+// RegistrySpec: URL is https://<controller transit>:<panel port>, Host the
+// name the front answers to (registry.<panel domain>).
+type RegistrySpec struct {
+	URL, Host string
 }
 
 // LadderSpec is one subject (env subnets that share a ladder) and its rungs.
@@ -80,6 +90,8 @@ type meshState struct {
 	applied *MeshSpec // the last good apply, key files and uplink filled in
 	ladders map[int]*runningLadder
 	reMu    sync.Mutex
+	// registry is set once the registry proxy runs (startRegistry).
+	registry bool
 }
 
 const meshFile = "mesh.json"
@@ -213,7 +225,35 @@ func (s *Server) meshNet(spec MeshSpec) error {
 		})
 	}
 	s.mesh.fo.Reset(spec.Peers)
+	s.startRegistry(spec.Registry)
 	return s.mesh.relays.Sync(spec.Relays)
+}
+
+// startRegistry serves the controller's registry on 127.0.0.1:5000 once the
+// mesh names it, so a worker joined before the flag existed needs no unit
+// change. A --registry-url flag wins; the first named registry stays until
+// restart. ponytail: a changed URL (new panel domain) needs a worker restart.
+func (s *Server) startRegistry(r *RegistrySpec) {
+	if r == nil || s.cfg.Registry.URL != "" || s.mesh.registry || s.cfg.TLS == nil || len(s.cfg.TLS.Certificates) == 0 {
+		return
+	}
+	b, err := os.ReadFile(filepath.Join(s.cfg.StateDir, "cluster-ca.crt"))
+	if err != nil {
+		slog.Warn("worker: registry proxy, no cluster CA", "err", err)
+		return
+	}
+	ca, err := clusterca.ParseCertPEM(b)
+	if err != nil {
+		slog.Warn("worker: registry proxy, cluster CA", "err", err)
+		return
+	}
+	s.mesh.registry = true
+	c := RegistryConfig{URL: r.URL, Host: r.Host, TLS: clusterca.ControllerClientConfig(ca, s.cfg.TLS.Certificates[0])}
+	go func() {
+		if err := serveRegistry(s.ctx, c); err != nil {
+			slog.Error("worker: registry proxy", "err", err)
+		}
+	}()
 }
 
 // meshExits brings links, serves and ladders to spec. Only what changed since

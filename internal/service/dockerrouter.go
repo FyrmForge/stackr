@@ -5,9 +5,11 @@ import (
 	"fmt"
 	"io"
 	"net/netip"
+	"strings"
 	"sync"
 	"time"
 
+	"github.com/FyrmForge/stackr/internal/installspec"
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 )
@@ -31,6 +33,8 @@ func WithNode(ctx context.Context, nodeID string) context.Context {
 type DockerRouter struct {
 	mu      sync.RWMutex
 	clients map[string]Docker
+	// OwnRegistry answers stackr's registry host (Pull); nil = none.
+	OwnRegistry func(ctx context.Context) string
 }
 
 // NewRouter routes to the given clients, by node id.
@@ -211,8 +215,31 @@ func (r *DockerRouter) UntarVolume(ctx context.Context, name string, rd io.Reade
 	return r.do(ctx, func(c Docker) error { return c.UntarVolume(ctx, name, rd) })
 }
 
+// Pull fetches ref on ctx's node. An image of stackr's own registry
+// (registry.<panel domain>/...) comes from localhost:5000 on that node: the
+// registry itself on the controller, the worker's front over the mesh
+// elsewhere. It is then tagged with the ref, so containers name it as given.
 func (r *DockerRouter) Pull(ctx context.Context, ref, auth string, log io.Writer) error {
-	return r.do(ctx, func(c Docker) error { return c.Pull(ctx, ref, auth, log) })
+	return r.do(ctx, func(c Docker) error {
+		if own := r.ownRegistry(ctx); own != "" {
+			if path, ok := strings.CutPrefix(ref, own+"/"); ok {
+				local := "localhost:" + installspec.RegistryPort + "/" + path
+				if err := c.Pull(ctx, local, "", log); err != nil {
+					return err
+				}
+				return c.Tag(ctx, local, ref)
+			}
+		}
+		return c.Pull(ctx, ref, auth, log)
+	})
+}
+
+// ownRegistry is RegistryHost, "" until the orchestrator sets it.
+func (r *DockerRouter) ownRegistry(ctx context.Context) string {
+	if r.OwnRegistry == nil {
+		return ""
+	}
+	return r.OwnRegistry(ctx)
 }
 
 func (r *DockerRouter) LocalDigest(ctx context.Context, ref string) (string, error) {

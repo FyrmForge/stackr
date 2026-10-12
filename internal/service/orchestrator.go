@@ -378,6 +378,9 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 		cluster:   cl,
 		stopNodes: make(chan struct{}),
 	}
+	if r, ok := d.(*DockerRouter); ok {
+		r.OwnRegistry = orch.RegistryHost
+	}
 	orch.startMesh(ctl.ID)
 	if err := orch.refreshNodeClients(ctx); err != nil {
 		slog.Warn("nodes: worker clients not all built", "err", err)

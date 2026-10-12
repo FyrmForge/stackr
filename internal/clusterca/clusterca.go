@@ -271,6 +271,33 @@ func ClientConfig(ca *x509.Certificate, own tls.Certificate, nodeID string, revo
 	}
 }
 
+// WorkerServerConfig is the controller's listener on the mesh (the registry
+// front): it presents own, read per handshake so a renewal applies, and
+// demands a worker cert from the CA.
+func WorkerServerConfig(ca *x509.Certificate, own func() tls.Certificate, revoked func(serial string) bool) *tls.Config {
+	return &tls.Config{
+		MinVersion: tls.VersionTLS13,
+		GetCertificate: func(*tls.ClientHelloInfo) (*tls.Certificate, error) {
+			c := own()
+			return &c, nil
+		},
+		ClientAuth:            tls.RequireAnyClientCert,
+		VerifyPeerCertificate: verifier(ca, RoleWorker, "", revoked),
+	}
+}
+
+// ControllerClientConfig is a worker's dial config to the controller: it
+// presents own and verifies the controller cert against the CA.
+func ControllerClientConfig(ca *x509.Certificate, own tls.Certificate) *tls.Config {
+	return &tls.Config{
+		MinVersion:   tls.VersionTLS13,
+		Certificates: []tls.Certificate{own},
+		// Safe: VerifyPeerCertificate below does the whole check.
+		InsecureSkipVerify:    true,
+		VerifyPeerCertificate: verifier(ca, RoleController, "", nil),
+	}
+}
+
 // KeyPEM encodes a private key as PKCS#8 PEM.
 func KeyPEM(key crypto.PrivateKey) ([]byte, error) {
 	der, err := x509.MarshalPKCS8PrivateKey(key)

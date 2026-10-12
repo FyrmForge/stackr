@@ -292,3 +292,29 @@ func TestTLS(t *testing.T) {
 		t.Error("revoked worker accepted")
 	}
 }
+
+// The controller's mesh registry listener: workers in, controllers and
+// foreign workers out; the worker checks it reached the controller.
+func TestWorkerServer(t *testing.T) {
+	ca := mustCA(t)
+	other := mustCA(t)
+	real := time.Now()
+	ctl := issue(t, ca, "", real)
+	node := issue(t, ca, "n1", real)
+	srv := WorkerServerConfig(ca.Cert, func() tls.Certificate { return ctl.tls }, nil)
+
+	if cerr, serr := handshake(t, srv, ControllerClientConfig(ca.Cert, node.tls)); cerr != nil || serr != nil {
+		t.Fatalf("happy path: %v / %v", cerr, serr)
+	}
+	if cerr, serr := handshake(t, srv, ControllerClientConfig(ca.Cert, ctl.tls)); cerr == nil && serr == nil {
+		t.Error("controller client cert accepted")
+	}
+	if cerr, serr := handshake(t, srv, ControllerClientConfig(ca.Cert, issue(t, other, "n1", real).tls)); cerr == nil && serr == nil {
+		t.Error("foreign worker accepted")
+	}
+	// A worker posing as the controller.
+	fake := WorkerServerConfig(ca.Cert, func() tls.Certificate { return issue(t, ca, "n2", real).tls }, nil)
+	if cerr, _ := handshake(t, fake, ControllerClientConfig(ca.Cert, node.tls)); cerr == nil {
+		t.Error("worker accepted as the controller")
+	}
+}
