@@ -6,6 +6,8 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -202,7 +204,13 @@ func TestJoinConfirmIssuesCert(t *testing.T) {
 	if c.ActorID != adm.User.ID || c.TargetID != st1.NodeID {
 		t.Errorf("node.confirm = %+v", c)
 	}
-	ci := one(t, w, jointoken.ActionCert)
+	// boot also issues the controller cert; the node's is the one targeting it
+	var ci SecurityEvent
+	es, err := w.orch.SecurityLog(context.Background(), SecurityFilter{Action: jointoken.ActionCert, TargetKind: "node"})
+	if err != nil || len(es) != 1 {
+		t.Fatalf("node cert.issue rows = %d (%v), want 1", len(es), err)
+	}
+	ci = es[0]
 	if ci.TargetID != st1.NodeID || !strings.Contains(ci.Detail, peer.Serial) {
 		t.Errorf("cert.issue = %+v", ci)
 	}
@@ -275,6 +283,12 @@ func TestJoinConfirmRollsBackWithoutAudit(t *testing.T) {
 
 func TestJoinNeedsCA(t *testing.T) {
 	w, adm := secWorld(t)
+	// boot makes the CA; take it away to see minting refuse
+	for _, f := range []string{"cluster-ca.key", "cluster-ca.crt"} {
+		if err := os.Remove(filepath.Join(w.orch.cfg.DataDir, "keys", f)); err != nil {
+			t.Fatal(err)
+		}
+	}
 	_, err := w.orch.CreateJoinToken(context.Background(), adm, JoinTokenSpec{NodeName: "w1"})
 	if _, ok := errs.IsConflict(err); !ok {
 		t.Errorf("mint without a CA = %v, want conflict", err)
