@@ -10,6 +10,7 @@ import (
 
 	"github.com/FyrmForge/stackr/internal/middleware"
 	"github.com/FyrmForge/stackr/internal/service"
+	"github.com/FyrmForge/stackr/internal/worker"
 )
 
 // The two unauthenticated join calls share one budget per address: the token
@@ -101,6 +102,14 @@ type JoinStatusIn struct {
 func (h *H) JoinStatus() Endpoint {
 	return joinLimited(JSON(http.StatusOK, func(c echo.Context, in JoinStatusIn) (service.JoinStatus, error) {
 		return h.Orch.JoinStatus(rc(c), in.Token)
+	}))
+}
+
+// RecoverNode (public, rate limited like join) is a worker whose controller
+// went quiet fetching its mesh spec; the request is signed with its node key.
+func (h *H) RecoverNode() Endpoint {
+	return joinLimited(JSON(http.StatusOK, func(c echo.Context, in worker.RecoverRequest) (worker.MeshSpec, error) {
+		return h.Orch.RecoverNode(rc(c), in)
 	}))
 }
 

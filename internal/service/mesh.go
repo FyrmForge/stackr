@@ -16,15 +16,14 @@ import (
 
 	"github.com/FyrmForge/stackr/internal/exits"
 	"github.com/FyrmForge/stackr/internal/mesh"
-	"github.com/FyrmForge/stackr/internal/relay"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/node"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 	"github.com/FyrmForge/stackr/internal/worker"
 )
 
 // The mesh service is the controller's half of the node mesh and the exits:
-// it works out, for every node, the wg peers, the relay pairs and the exit
-// links and ladders from the nodes and exit_ladders tables, and pushes each
+// it works out, for every node, the wg peers (a pair with no direct tunnel
+// routed through a node both reach) and the exit links and ladders from the nodes and exit_ladders tables, and pushes each
 // node its whole desired state (POST /v1/mesh) on every change and on a timer.
 // The node applies only what differs from what it already runs.
 //
@@ -47,14 +46,6 @@ type MeshNode interface {
 // MeshNodes finds a node's worker; false when it has no client (yet).
 type MeshNodes func(nodeID string) (MeshNode, bool)
 
-// MeshRelay asks Host to relay the wg traffic of the pair A and B (node ids)
-// on Port. Nothing sets these by default: a relay is for a pair that cannot
-// reach each other directly.
-type MeshRelay struct {
-	Host, A, B string
-	Port       int
-}
-
 const (
 	// MeshWGPort is a node's mesh listen port until its facts name its own.
 	MeshWGPort = mesh.DefaultPort
@@ -67,7 +58,13 @@ const (
 	exitMarkBase  = 0x5000 // + client slot
 	maxSlots      = 16     // /16s in the supernet
 
-	meshEvery      = time.Minute
+	meshEvery = time.Minute
+	// factsFresh is how old a node's facts may be and still tell whether
+	// its tunnels are up: two missed syncs and they say nothing.
+	factsFresh = 2 * meshEvery
+	// downAfter is how long a pair must look down before it is routed
+	// through another node: the failover's probe of each candidate first.
+	downAfter      = 90 * time.Second
 	forgottenRange = "mesh.forgotten_ranges"
 )
 
@@ -79,21 +76,23 @@ var (
 type meshSvc struct {
 	st    *store.Store
 	nodes MeshNodes
-	// Relays is read at each sync.
-	Relays []MeshRelay
 	// Registry names the controller's registry for a worker's spec; nil
 	// (or a nil answer) = none. Never set on the controller's own spec.
 	Registry func(ctx context.Context) *worker.RegistrySpec
 	ctlID    string
+	// Panel is the panel's public URL, named in every worker's spec.
+	Panel string
 
 	kick chan struct{}
 
 	mu     sync.Mutex
 	facts  map[string]worker.Facts
-	exitPK map[string]string // exit public key per node
-	wgPK   map[string]string // wg public key per node, for a row that holds none (the controller's)
+	at     map[string]time.Time // when facts last came in, per node
+	exitPK map[string]string    // exit public key per node
+	wgPK   map[string]string    // wg public key per node, for a row that holds none (the controller's)
 	pushed map[string][32]byte
-	via    map[[2]string]string // relay host per node pair, from the last sync
+	next   map[[2]string]string    // {src, dst}: src's next hop to dst, from the last sync
+	down   map[[2]string]time.Time // since when a pair looked down
 	specs  map[string]worker.MeshSpec
 }
 
@@ -109,22 +108,23 @@ func (m *meshSvc) Spec(nodeID string) (worker.MeshSpec, bool) {
 
 func newMeshSvc(st *store.Store, nodes MeshNodes) *meshSvc {
 	return &meshSvc{st: st, nodes: nodes, kick: make(chan struct{}, 1),
-		facts: map[string]worker.Facts{}, exitPK: map[string]string{}, wgPK: map[string]string{}, pushed: map[string][32]byte{}}
+		facts: map[string]worker.Facts{}, at: map[string]time.Time{}, down: map[[2]string]time.Time{}, exitPK: map[string]string{}, wgPK: map[string]string{}, pushed: map[string][32]byte{}}
 }
 
-func pairKey(a, b string) [2]string {
-	if a > b {
-		a, b = b, a
-	}
-	return [2]string{a, b}
-}
-
-// RelayVia is the node relaying the pair's tunnel, "" when they connect
-// directly.
-func (m *meshSvc) RelayVia(a, b string) string {
+// Via is a's first hop towards b, "" when they connect directly.
+func (m *meshSvc) Via(a, b string) string {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return m.via[pairKey(a, b)]
+	return m.next[[2]string{a, b}]
+}
+
+// Report takes facts a node sent itself (a recovery call through the panel)
+// as if the controller had read them over the tunnel.
+func (m *meshSvc) Report(ctx context.Context, id string, f worker.Facts) {
+	m.mu.Lock()
+	m.facts[id], m.at[id] = f, time.Now()
+	m.mu.Unlock()
+	m.keepPublic(ctx, id, publicAddrs(f))
 }
 
 // Kick asks Run for a sync soon; it never blocks.
@@ -171,13 +171,22 @@ func (m *meshSvc) Sync(ctx context.Context, only string, force bool) error {
 	if err != nil {
 		return err
 	}
+	in.Next = m.routes(in, time.Now())
 	specs := buildMesh(in)
-	via := map[[2]string]string{}
-	for _, r := range autoRelays(in) {
-		via[pairKey(r.A, r.B)] = r.Host
+	// A worker's spec names the registry and the panel's public URL (where
+	// it recovers); the controller's own names neither.
+	var reg *worker.RegistrySpec
+	if m.Registry != nil {
+		reg = m.Registry(ctx)
+	}
+	for id, sp := range specs {
+		if id != m.ctlID {
+			sp.Registry, sp.Panel = reg, m.Panel
+			specs[id] = sp
+		}
 	}
 	m.mu.Lock()
-	m.via, m.specs = via, specs
+	m.next, m.specs = in.Next, specs
 	m.mu.Unlock()
 	// Exit sides first, so a client's first probe finds its link answering.
 	ids := make([]string, 0, len(specs))
@@ -196,9 +205,6 @@ func (m *meshSvc) Sync(ctx context.Context, only string, force bool) error {
 		cl, ok := m.nodes(id)
 		if !ok {
 			continue
-		}
-		if m.Registry != nil && id != m.ctlID {
-			spec.Registry = m.Registry(ctx)
 		}
 		b, _ := json.Marshal(spec)
 		sum := sha256.Sum256(b)
@@ -336,17 +342,21 @@ func (m *meshSvc) forgotten(ctx context.Context) ([]netip.Prefix, error) {
 // meshIn is everything buildMesh needs; gather reads it from the database and
 // the nodes.
 type meshIn struct {
-	Nodes  []meshNodeIn
-	Relays []MeshRelay
+	Nodes []meshNodeIn
+	// Next is, keyed {src, dst}, src's next hop to a dst it has no working
+	// tunnel to.
+	Next map[[2]string]string
 }
 
 type meshNodeIn struct {
 	mesh.Node
 	Name    string
 	ExitKey string
-	// NAT is the public address a node without one of its own is seen from
-	// (a public peer's wg endpoint for it): a relay admits only that.
-	NAT netip.Addr
+	// Fresh is set when the node's facts are recent enough to say which of
+	// its tunnels are up; Seen are the peers (by public key) it has a fresh
+	// handshake with.
+	Fresh bool
+	Seen  map[string]bool
 	// Envs are the exit ladders of the envs on this node, one per env with a
 	// subnet; Ladder is the resolved ordered node ids (empty = own uplink).
 	Envs []meshEnvIn
@@ -371,7 +381,7 @@ func (m *meshSvc) gather(ctx context.Context) (meshIn, error) {
 	if err != nil {
 		return meshIn{}, err
 	}
-	in := meshIn{Relays: m.Relays}
+	in := meshIn{}
 	stackOrg := map[string]string{}
 	ladder := func(kind, id string) ([]string, error) {
 		rs, err := m.st.ExitLadders.List(ctx, kind, id)
@@ -392,6 +402,7 @@ func (m *meshSvc) gather(ctx context.Context) (meshIn, error) {
 		}
 		m.mu.Lock()
 		f, haveF := m.facts[n.ID]
+		mn.Fresh = haveF && time.Since(m.at[n.ID]) < factsFresh
 		mn.ExitKey = m.exitPK[n.ID]
 		if mn.PublicKey == "" {
 			mn.PublicKey = m.wgPK[n.ID]
@@ -402,6 +413,12 @@ func (m *meshSvc) gather(ctx context.Context) (meshIn, error) {
 			// at join, so peers can dial it before its tunnel is up.
 			if jt, err := m.st.JoinTokens.GetByNode(ctx, n.ID); err == nil && jt.Facts != "" {
 				haveF = json.Unmarshal([]byte(jt.Facts), &f) == nil
+			}
+		}
+		if mn.Fresh {
+			mn.Seen = map[string]bool{}
+			for k := range f.Seen {
+				mn.Seen[k] = true
 			}
 		}
 		if haveF {
@@ -457,36 +474,7 @@ func (m *meshSvc) gather(ctx context.Context) (meshIn, error) {
 		}
 		in.Nodes = append(in.Nodes, mn)
 	}
-	m.learnNAT(&in)
 	return in, nil
-}
-
-// learnNAT sets NAT on every node with no public address of its own: the
-// address a public peer sees its handshakes come from.
-func (m *meshSvc) learnNAT(in *meshIn) {
-	byKey := map[string]int{}
-	for i, n := range in.Nodes {
-		if n.PublicKey != "" {
-			byKey[n.PublicKey] = i
-		}
-	}
-	m.mu.Lock()
-	for _, n := range in.Nodes {
-		if len(n.Public) == 0 {
-			continue
-		}
-		for k, ep := range m.facts[n.ID].Seen {
-			i, ok := byKey[k]
-			ap, err := netip.ParseAddrPort(ep)
-			if !ok || err != nil || len(in.Nodes[i].Public) > 0 {
-				continue
-			}
-			if a := ap.Addr().Unmap(); a.Is4() && a.IsGlobalUnicast() && !a.IsPrivate() && !cgnat.Contains(a) {
-				in.Nodes[i].NAT = a
-			}
-		}
-	}
-	m.mu.Unlock()
 }
 
 // refresh reads a node's facts and exit public key; a node that does not
@@ -496,7 +484,7 @@ func (m *meshSvc) refresh(ctx context.Context, id string, cl MeshNode) {
 	defer cancel()
 	if f, err := cl.Facts(cctx); err == nil {
 		m.mu.Lock()
-		m.facts[id] = f
+		m.facts[id], m.at[id] = f, time.Now()
 		m.mu.Unlock()
 		m.keepPublic(ctx, id, publicAddrs(f))
 	}
@@ -599,80 +587,49 @@ func pairBlock(client, exit int) (idx int, cAddr, sAddr netip.Addr) {
 	return idx, cAddr, sAddr
 }
 
-// relayPortBase + slot pair is a relay's UDP port on its host.
-const relayPortBase = 52300
-
-// v4Public is the node's first public IPv4 address, if any.
-func v4Public(n meshNodeIn) netip.Addr {
-	for _, a := range mesh.FilterAddrs(n.Public) {
-		if a.Is4() {
-			return a
-		}
-	}
-	return netip.Addr{}
-}
-
-// wanAddr is where a node's packets come from on the internet: its own
-// public IPv4, else its NAT's.
-func wanAddr(n meshNodeIn) netip.Addr {
-	if a := v4Public(n); a.IsValid() {
-		return a
-	}
-	return n.NAT
-}
-
-// autoRelays are in.Relays plus one relay for every pair that cannot reach
-// each other at all (no shared LAN, neither has an address the other can
-// dial), hosted on the first node with a public IPv4. Both sides get the
-// relay as a candidate at once (a new worker has only its join spec); the
-// host opens the pair once it has seen both NATs (buildMesh). A pair behind
-// the same NAT address gets none: the relay tells the sides apart by address.
-// ponytail: one host for every pair; spread them when a relay host's
-// bandwidth matters.
-func autoRelays(in meshIn) []MeshRelay {
-	out := slices.Clone(in.Relays)
-	has := func(a, b string) bool {
-		for _, r := range out {
-			if (r.A == a && r.B == b) || (r.A == b && r.B == a) {
-				return true
-			}
-		}
-		return false
-	}
-	var nodes []meshNodeIn
+// routes decides how nodes without a working tunnel reach each other. A
+// pair is up when either side's fresh facts show a recent handshake with
+// the other; one that has looked down for downAfter (at least one side
+// fresh) is down. A pair nobody can judge keeps its last state. Routes are
+// shortest paths over the up pairs (mesh.Routes): any number of hops,
+// preferring public nodes.
+func (m *meshSvc) routes(in meshIn, now time.Time) map[[2]string]string {
+	byID := map[string]meshNodeIn{}
+	var ids []string
 	for _, n := range in.Nodes {
 		if n.Range.IsValid() && n.Range.Bits() == mesh.NodePrefixLen && n.PublicKey != "" {
-			nodes = append(nodes, n)
+			byID[n.ID] = n
+			ids = append(ids, n.ID)
 		}
 	}
-	slices.SortFunc(nodes, func(a, b meshNodeIn) int { return strings.Compare(a.ID, b.ID) })
-	var host string
-	for _, n := range nodes {
-		if v4Public(n).IsValid() {
-			host = n.ID
-			break
+	sort.Strings(ids)
+	sees := func(a, b meshNodeIn) bool { return a.Seen[b.PublicKey] }
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	prev := m.next
+	up := map[[2]string]bool{}
+	for i, a := range ids {
+		for _, b := range ids[i+1:] {
+			na, nb := byID[a], byID[b]
+			k := mesh.PairKey(a, b)
+			switch {
+			case sees(na, nb) || sees(nb, na):
+				up[k] = true
+				delete(m.down, k)
+			case !na.Fresh && !nb.Fresh:
+				up[k] = prev[[2]string{a, b}] == "" // unknown: as last time
+			default:
+				if _, ok := m.down[k]; !ok {
+					m.down[k] = now
+				}
+				up[k] = now.Sub(m.down[k]) < downAfter
+			}
 		}
 	}
-	if host == "" {
-		return out
-	}
-	for i, a := range nodes {
-		for _, b := range nodes[i+1:] {
-			if has(a.ID, b.ID) || len(mesh.Candidates(a.Node, b.Node, netip.AddrPort{})) > 0 ||
-				len(mesh.Candidates(b.Node, a.Node, netip.AddrPort{})) > 0 {
-				continue
-			}
-			if a.NAT.IsValid() && a.NAT == b.NAT {
-				continue
-			}
-			lo, hi := rangeSlot(a.Range), rangeSlot(b.Range)
-			if lo > hi {
-				lo, hi = hi, lo
-			}
-			out = append(out, MeshRelay{Host: host, A: a.ID, B: b.ID, Port: relayPortBase + lo*maxSlots + hi})
-		}
-	}
-	return out
+	pub := func(id string) bool { return len(mesh.FilterAddrs(byID[id].Public)) > 0 }
+	// ponytail: hop count, not latency; weigh tunnels by latency once
+	// clusters have paths of equal length that differ much.
+	return mesh.Routes(ids, func(a, b string) bool { return up[mesh.PairKey(a, b)] }, pub)
 }
 
 // buildMesh is the whole plan: one spec per node. Pure, so it is tested with
@@ -686,23 +643,7 @@ func buildMesh(in meshIn) map[string]worker.MeshSpec {
 	}
 	usable := func(n meshNodeIn) bool { return n.Range.IsValid() && n.Range.Bits() == mesh.NodePrefixLen }
 
-	// Relay: the host's first public address and port stand in as the
-	// endpoint for the pair; the pair itself runs on the host.
-	relays := autoRelays(in)
-	relayAt := func(host string, port int) netip.AddrPort {
-		if a := v4Public(byID[host]); a.IsValid() {
-			return netip.AddrPortFrom(a, uint16(port))
-		}
-		return netip.AddrPort{}
-	}
-	relayFor := func(a, b string) netip.AddrPort {
-		for _, r := range relays {
-			if (r.A == a && r.B == b) || (r.A == b && r.B == a) {
-				return relayAt(r.Host, r.Port)
-			}
-		}
-		return netip.AddrPort{}
-	}
+	next := func(src, dst string) string { return in.Next[[2]string{src, dst}] }
 
 	// Per client node: its links by exit node and the sources routed over each.
 	type linkPlan struct{ sources []string }
@@ -717,16 +658,7 @@ func buildMesh(in meshIn) map[string]worker.MeshSpec {
 		if t, err := mesh.TransitAddr(n.Range); err == nil {
 			spec.Address = netip.PrefixFrom(t, mesh.Transit.Bits())
 		}
-		spec.Peers, _ = mesh.Peers(n.Node, all, relayFor)
-		for _, r := range relays {
-			if r.Host != n.ID {
-				continue
-			}
-			a, b := wanAddr(byID[r.A]), wanAddr(byID[r.B])
-			if a.IsValid() && b.IsValid() {
-				spec.Relays = append(spec.Relays, relay.Pair{Port: r.Port, A: a, B: b})
-			}
-		}
+		spec.Peers, _ = mesh.Peers(n.Node, all, next)
 
 		// Subjects: envs of this node that share a ladder.
 		groups := map[string][]string{}

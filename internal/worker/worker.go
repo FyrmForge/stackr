@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -44,6 +45,7 @@ type Config struct {
 	Mesh       MeshConfig
 	Registry   RegistryConfig // the controller's registry on 127.0.0.1:5000; URL "" = off
 	AliveAddr  string         // public liveness listener (AlivePort); "" = off
+	Recover    RecoverConfig  // recovery through the panel; no cert = off
 	// DockerUserWait bounds how long replay waits for the DOCKER-USER chain
 	// (0 = 2m); DockerUserPoll is the gap between checks (0 = 1s).
 	DockerUserWait time.Duration
@@ -56,6 +58,8 @@ type Server struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 	mesh   meshState
+	// lastCtl is when the controller last called (unix nanos).
+	lastCtl atomic.Int64
 }
 
 func New(cfg Config) *Server {
@@ -67,6 +71,7 @@ func New(cfg Config) *Server {
 	}
 	s := &Server{cfg: cfg}
 	s.ctx, s.cancel = context.WithCancel(context.Background())
+	s.heardController() // a fresh start gives the controller its full window
 	return s
 }
 
@@ -107,6 +112,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("/", unixProxy(s.cfg.DockerSock))
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set(VersionHeader, APIVersion)
+		s.heardController()
 		mux.ServeHTTP(w, r)
 	})
 }
@@ -127,6 +133,9 @@ func Run(ctx context.Context, cfg Config) error {
 	s := New(cfg)
 	defer s.Stop()
 	go s.reassertLoop()
+	if len(cfg.Recover.Own.Certificate) > 0 {
+		go s.recoverLoop(15 * time.Second)
+	}
 	if cfg.Registry.URL != "" {
 		go func() {
 			if err := serveRegistry(ctx, cfg.Registry); err != nil {

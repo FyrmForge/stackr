@@ -53,6 +53,7 @@ func routes(h *v1.H) []Route {
 		{GET, "/invites/:token", "invite.get", Public, h.LookupInvite()},
 		{POST, "/join", "join.request", Public, h.RequestJoin()},
 		{POST, "/join/status", "join.status", Public, h.JoinStatus()},
+		{POST, "/nodes/recover", "node.recover", Public, h.RecoverNode()},
 		{POST, "/invites/:token/accept", "invite.accept", Self, h.AcceptInvite()},
 
 		// orgs

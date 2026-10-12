@@ -2,11 +2,14 @@ package service
 
 import (
 	"context"
+	"maps"
 	"net/netip"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/FyrmForge/stackr/internal/exits"
 	"github.com/FyrmForge/stackr/internal/mesh"
@@ -196,74 +199,71 @@ func TestAllocateNodeRangeKeepsForgotten(t *testing.T) {
 	}
 }
 
-// Two NAT'd homes on different LANs get a relay on the public node, last in
-// each other's candidates; a home and the public node connect directly.
-func TestBuildMeshAutoRelay(t *testing.T) {
-	home := func(id string, slot int, lan, nat string) meshNodeIn {
-		n := tnode(id, slot, "203.0.113.250")
-		n.Public = nil
-		n.Ifaces = []netip.Prefix{netip.MustParsePrefix(lan)}
-		n.NAT = netip.MustParseAddr(nat)
-		return n
+// sees marks n's fresh handshakes with the given nodes.
+func sees(n meshNodeIn, ids ...string) meshNodeIn {
+	n.Fresh, n.Seen = true, map[string]bool{}
+	for _, id := range ids {
+		n.Seen["wg-"+id] = true
 	}
-	in := meshIn{Nodes: []meshNodeIn{
-		home("a", 0, "192.168.1.10/24", "109.148.70.232"),
-		home("b", 1, "192.168.5.10/24", "81.2.69.160"),
-		tnode("h", 2, "89.167.81.29"),
-	}}
-	specs := buildMesh(in)
-	relayAt := netip.MustParseAddrPort("89.167.81.29:52301")
-	if got := specs["h"].Relays; len(got) != 1 || got[0].Port != 52301 ||
-		got[0].A != netip.MustParseAddr("109.148.70.232") || got[0].B != netip.MustParseAddr("81.2.69.160") {
-		t.Fatalf("relays on h = %+v", got)
-	}
-	for _, p := range specs["a"].Peers {
-		switch p.NodeID {
-		case "b":
-			if len(p.Candidates) != 1 || p.Candidates[0] != relayAt {
-				t.Fatalf("a->b = %v", p.Candidates)
-			}
-		case "h":
-			if len(p.Candidates) != 1 || p.Candidates[0] != netip.MustParseAddrPort("89.167.81.29:51871") {
-				t.Fatalf("a->h = %v", p.Candidates)
-			}
-		}
-	}
-	// Same LAN: no relay.
-	in.Nodes[1] = home("b", 1, "192.168.1.11/24", "81.2.69.160")
-	if r := autoRelays(in); len(r) != 0 {
-		t.Fatalf("same LAN relays = %+v", r)
-	}
-	// NAT not seen yet (a new worker): the sides already aim at the relay,
-	// the host opens it only once both NATs are known.
-	in.Nodes[1] = home("b", 1, "192.168.5.10/24", "81.2.69.160")
-	in.Nodes[1].NAT = netip.Addr{}
-	specs = buildMesh(in)
-	if len(specs["h"].Relays) != 0 {
-		t.Fatalf("relay opened before the NAT is known: %+v", specs["h"].Relays)
-	}
-	for _, p := range specs["b"].Peers {
-		if p.NodeID == "a" && (len(p.Candidates) != 1 || p.Candidates[0] != relayAt) {
-			t.Fatalf("b->a = %v", p.Candidates)
-		}
-	}
-	// Same NAT address: the relay cannot tell them apart.
-	in.Nodes[1].NAT = in.Nodes[0].NAT
-	if r := autoRelays(in); len(r) != 0 {
-		t.Fatalf("same NAT relays = %+v", r)
-	}
+	return n
 }
 
-// A public node's wg endpoint for a NAT'd node is that node's NAT address.
-func TestLearnNAT(t *testing.T) {
-	m := &meshSvc{facts: map[string]worker.Facts{
-		"h": {Seen: map[string]string{"wg-a": "109.148.70.232:1459", "wg-b": "10.0.0.2:51871"}},
+// h2 lost its public address: only h1 still has a tunnel to it. After
+// downAfter the others reach h2 through h1 (on each end the next hop's peer
+// carries the far range; h2's own entry keeps its endpoints, nothing else);
+// when the direct tunnel is back, the route goes.
+func TestMeshRoutesThroughPeer(t *testing.T) {
+	h2 := tnode("h2", 3, "203.0.113.250")
+	h2.Public = nil
+	in := meshIn{Nodes: []meshNodeIn{
+		sees(tnode("ctl", 0, "109.148.70.232"), "h1", "m"),
+		sees(tnode("h1", 2, "89.167.81.29"), "ctl", "m", "h2"),
+		sees(h2, "h1"),
+		sees(tnode("m", 1, "109.148.70.233"), "ctl", "h1"),
 	}}
-	in := meshIn{Nodes: []meshNodeIn{tnode("h", 2, "89.167.81.29"), tnode("a", 0, "203.0.113.1"), tnode("b", 1, "203.0.113.2")}}
-	in.Nodes[1].Public, in.Nodes[2].Public = nil, nil
-	m.learnNAT(&in)
-	if in.Nodes[1].NAT != netip.MustParseAddr("109.148.70.232") || in.Nodes[2].NAT.IsValid() {
-		t.Fatalf("nat a=%v b=%v", in.Nodes[1].NAT, in.Nodes[2].NAT)
+	in.Nodes[0].Public, in.Nodes[3].Public = nil, nil // both at home, behind NAT
+	m := &meshSvc{down: map[[2]string]time.Time{}}
+	t0 := time.Unix(1_000_000, 0)
+	if r := m.routes(in, t0); len(r) != 0 {
+		t.Fatalf("routed before downAfter: %v", r)
+	}
+	in.Next = m.routes(in, t0.Add(downAfter))
+	m.next = in.Next
+	want := map[[2]string]string{{"ctl", "h2"}: "h1", {"h2", "ctl"}: "h1", {"m", "h2"}: "h1", {"h2", "m"}: "h1"}
+	if !maps.Equal(in.Next, want) {
+		t.Fatalf("routes = %v", in.Next)
+	}
+	specs := buildMesh(in)
+	peer := func(node, of string) mesh.Peer {
+		for _, p := range specs[node].Peers {
+			if p.NodeID == of {
+				return p
+			}
+		}
+		t.Fatalf("%s has no peer %s", node, of)
+		return mesh.Peer{}
+	}
+	h2r, h2t := netip.MustParsePrefix("10.211.0.0/16"), netip.MustParsePrefix("10.207.255.4/32")
+	if p := peer("ctl", "h1"); !slices.Contains(p.AllowedIPs, h2r) || !slices.Contains(p.AllowedIPs, h2t) {
+		t.Fatalf("ctl's h1 peer = %v", p.AllowedIPs)
+	}
+	if p := peer("ctl", "h2"); len(p.AllowedIPs) != 0 {
+		t.Fatalf("ctl's h2 peer still routes: %v", p.AllowedIPs)
+	}
+	if p := peer("h2", "h1"); !slices.Contains(p.AllowedIPs, netip.MustParsePrefix("10.208.0.0/16")) ||
+		!slices.Contains(p.AllowedIPs, netip.MustParsePrefix("10.209.0.0/16")) {
+		t.Fatalf("h2's h1 peer = %v", p.AllowedIPs)
+	}
+	// Nobody can judge ctl-h2 (stale facts): the route stays.
+	in.Nodes[0].Fresh, in.Nodes[2].Fresh = false, false
+	if r := m.routes(in, t0.Add(2*downAfter)); r[[2]string{"ctl", "h2"}] != "h1" {
+		t.Fatalf("unknown pair lost its route: %v", r)
+	}
+	// The direct tunnel is back.
+	in.Nodes[0] = sees(in.Nodes[0], "h1", "m", "h2")
+	in.Nodes[2].Fresh = true
+	if r := m.routes(in, t0.Add(3*downAfter)); r[[2]string{"ctl", "h2"}] != "" {
+		t.Fatalf("still routed after recovery: %v", r)
 	}
 }
 

@@ -218,6 +218,16 @@ func renderFilter(next map[string]Entry, b Base) string {
 	var w strings.Builder
 	w.WriteString("*filter\n:" + FwdChain + " - [0:0]\n:" + InChain + " - [0:0]\n:" + XNChain + " - [0:0]\n")
 	f := func(format string, a ...any) { fmt.Fprintf(&w, "-A "+FwdChain+" "+format+"\n", a...) }
+	if b.meshOn() {
+		// Mesh to mesh: this node is a hop for a pair without a tunnel of
+		// its own. Only cluster addresses pass; the far node's own accepts
+		// still decide what reaches its containers.
+		for _, s := range b.clusterNets() {
+			for _, d := range b.clusterNets() {
+				f("-i %s -o %s -s %s -d %s -j ACCEPT", b.WGIface, b.WGIface, s, d)
+			}
+		}
+	}
 	f("-m conntrack ! --ctstate NEW -j RETURN")
 	if b.meshOn() {
 		// from the mesh, the per-flow accepts are the only way in; Docker's

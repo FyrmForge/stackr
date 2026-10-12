@@ -233,6 +233,13 @@ func routes(table string) map[string][]string {
 }
 
 func (s *Server) facts(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(s.Facts(r.Context()))
+}
+
+// Facts is what the node reports about itself: GET /v1/facts, and the body
+// of a recovery call.
+func (s *Server) Facts(ctx context.Context) Facts {
 	f := Facts{CPUs: runtime.NumCPU(), Interfaces: Interfaces()}
 	b, _ := os.ReadFile("/proc/sys/kernel/osrelease")
 	f.Kernel = strings.TrimSpace(string(b))
@@ -240,7 +247,7 @@ func (s *Server) facts(w http.ResponseWriter, r *http.Request) {
 	if f2 := strings.Fields(readFile("/proc/uptime")); len(f2) > 0 {
 		f.UptimeS, _ = strconv.ParseFloat(f2[0], 64)
 	}
-	if err := s.dockerInfo(r.Context(), &f); err != nil {
+	if err := s.dockerInfo(ctx, &f); err != nil {
 		f.DockerError = err.Error()
 	}
 	f.Resolvers = Resolvers()
@@ -254,8 +261,7 @@ func (s *Server) facts(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(f)
+	return f
 }
 
 func readFile(p string) string { b, _ := os.ReadFile(p); return string(b) }

@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"net/netip"
+	"slices"
+	"strings"
 )
 
 // Address plan. Node ranges all sit inside Supernet so one firewall rule
@@ -161,9 +163,8 @@ func HasV6(n Node) bool {
 
 // Candidates orders how self can reach other: other's private addresses only
 // when self has an interface on the same subnet, then other's public
-// addresses (IPv6 ones only when self has IPv6), then the relay (zero
-// AddrPort means none).
-func Candidates(self, other Node, relay netip.AddrPort) []netip.AddrPort {
+// addresses (IPv6 ones only when self has IPv6).
+func Candidates(self, other Node) []netip.AddrPort {
 	var out []netip.AddrPort
 	seen := map[netip.AddrPort]bool{}
 	add := func(a netip.Addr) {
@@ -182,18 +183,26 @@ func Candidates(self, other Node, relay netip.AddrPort) []netip.AddrPort {
 			add(a)
 		}
 	}
-	if relay.IsValid() && !seen[relay] {
-		out = append(out, relay)
-	}
 	return out
 }
 
-// RelayFor returns the relay endpoint for a pair, if the controller has one.
-type RelayFor func(a, b string) netip.AddrPort
+// NextHop names the peer that carries self's traffic for dest when the two
+// have no direct tunnel, "" when they connect directly (or nothing reaches
+// dest).
+type NextHop func(self, dest string) string
 
-// Peers builds self's peer list: every other node with a range and key.
-func Peers(self Node, all []Node, relay RelayFor) ([]Peer, error) {
+// Peers builds self's peer list: every other node with a range and key. A
+// node reached through others keeps its own peer entry, so its endpoints
+// are still probed, but its range and transit address move to the next
+// hop's entry: WireGuard routes by AllowedIPs, which must not overlap on one
+// interface.
+func Peers(self Node, all []Node, next NextHop) ([]Peer, error) {
 	var out []Peer
+	idx := map[string]int{}
+	var moves []struct {
+		hop string
+		ps  []netip.Prefix
+	}
 	for _, o := range all {
 		if o.ID == self.ID || o.PublicKey == "" || !o.Range.IsValid() {
 			continue
@@ -202,16 +211,84 @@ func Peers(self Node, all []Node, relay RelayFor) ([]Peer, error) {
 		if err != nil {
 			return nil, err
 		}
-		var r netip.AddrPort
-		if relay != nil {
-			r = relay(self.ID, o.ID)
+		own := []netip.Prefix{o.Range, netip.PrefixFrom(t, 32)}
+		p := Peer{NodeID: o.ID, PublicKey: o.PublicKey, Candidates: Candidates(self, o)}
+		hop := ""
+		if next != nil {
+			hop = next(self.ID, o.ID)
 		}
-		out = append(out, Peer{
-			NodeID:     o.ID,
-			PublicKey:  o.PublicKey,
-			AllowedIPs: []netip.Prefix{o.Range, netip.PrefixFrom(t, 32)},
-			Candidates: Candidates(self, o, r),
-		})
+		if hop != "" && hop != o.ID {
+			moves = append(moves, struct {
+				hop string
+				ps  []netip.Prefix
+			}{hop, own})
+		} else {
+			p.AllowedIPs = own
+		}
+		idx[o.ID] = len(out)
+		out = append(out, p)
+	}
+	for _, m := range moves {
+		if i, ok := idx[m.hop]; ok {
+			out[i].AllowedIPs = append(out[i].AllowedIPs, m.ps...)
+		}
 	}
 	return out, nil
+}
+
+// Routes is every node's next hop towards every node it has no working
+// tunnel to, keyed {src, dst}: hop-count shortest paths over the graph of
+// working tunnels (up). Each node picks, among its neighbours one hop
+// closer to dst, a public one (pub) first, then the lowest id. All nodes
+// read one graph, so a next hop is always strictly closer to dst and the
+// routes are loop-free. A pair that is up, or that nothing connects, gets
+// no entry.
+func Routes(ids []string, up func(a, b string) bool, pub func(id string) bool) map[[2]string]string {
+	order := slices.Clone(ids)
+	slices.SortFunc(order, func(a, b string) int {
+		if pa, pb := pub(a), pub(b); pa != pb {
+			if pa {
+				return -1
+			}
+			return 1
+		}
+		return strings.Compare(a, b)
+	})
+	out := map[[2]string]string{}
+	for _, dst := range ids {
+		// BFS from dst: dist is each node's hop count to it.
+		dist := map[string]int{dst: 0}
+		queue := []string{dst}
+		for len(queue) > 0 {
+			x := queue[0]
+			queue = queue[1:]
+			for _, y := range order {
+				if _, seen := dist[y]; !seen && y != x && up(x, y) {
+					dist[y] = dist[x] + 1
+					queue = append(queue, y)
+				}
+			}
+		}
+		for _, src := range ids {
+			d, ok := dist[src]
+			if !ok || d < 2 { // unreachable, dst itself, or direct
+				continue
+			}
+			for _, n := range order {
+				if dn, ok := dist[n]; ok && dn == d-1 && up(src, n) {
+					out[[2]string{src, dst}] = n
+					break
+				}
+			}
+		}
+	}
+	return out
+}
+
+// PairKey is a and b in a fixed order, for maps keyed by pair.
+func PairKey(a, b string) [2]string {
+	if a > b {
+		a, b = b, a
+	}
+	return [2]string{a, b}
 }

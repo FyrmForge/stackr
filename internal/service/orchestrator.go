@@ -182,12 +182,14 @@ func WithProxy(push func(context.Context, json.RawMessage) error) Option {
 // Orchestrator is the single door into the service tree: the only thing
 // main, the API and the web handlers see. One method per user-facing verb.
 type Orchestrator struct {
-	cfg      Config
-	db       *sqlx.DB
-	store    *store.Store
-	sessions *auth.SessionManager
-	docker   Docker
-	vip      tile.VIP // the boot rebuild reads it (vipboot.go)
+	cfg Config
+	// recoverSeen are the nonces of recent recovery calls (RecoverNode).
+	recoverSeen recoverNonces
+	db          *sqlx.DB
+	store       *store.Store
+	sessions    *auth.SessionManager
+	docker      Docker
+	vip         tile.VIP // the boot rebuild reads it (vipboot.go)
 
 	users       *user.Leaf
 	orgs        *org.Leaf

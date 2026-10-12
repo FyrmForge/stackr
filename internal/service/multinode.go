@@ -59,7 +59,7 @@ func (o *Orchestrator) startMesh(ctlID string) {
 	ctx, cancel := context.WithCancel(context.Background())
 	o.stopMesh = cancel
 	if local != nil {
-		o.mesh.ctlID, o.mesh.Registry = ctlID, o.meshRegistry
+		o.mesh.ctlID, o.mesh.Registry, o.mesh.Panel = ctlID, o.meshRegistry, o.panelURL()
 	}
 	go o.mesh.Run(ctx)
 	if local != nil {
