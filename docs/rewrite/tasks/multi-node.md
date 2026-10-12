@@ -456,8 +456,9 @@ joined to 109 across the home NAT. Nothing below may be dropped.
   the worker image.
 - **Rsync helper image** is not distributed to nodes (live moves).
 - **On-box CLI** `stackr login --with-key` hangs; the box key is org-bound.
-- **Ingress on a worker:** built, never run on real machines; test on h1
-  (`*.h1.vulpe.dev`).
+- **Ingress on a worker:** not built. Workers run no Caddy (no proxy
+  container, no socket in the unit), so the ingress tag does nothing on a
+  worker. Test on h1 (`*.h1.vulpe.dev`) once built.
 - **Worker firewall** carries the controller's LAN addresses (DNS
   192.168.1.101, front proxy 192.168.1.100) on remote boxes: check.
 
