@@ -13,6 +13,7 @@ type Recorder struct {
 	Applied    []Config
 	Moves      []Move
 	handshakes map[string]time.Time
+	rx         map[string]int64
 }
 
 // Move is one SetEndpoint call.
@@ -30,12 +31,26 @@ func (r *Recorder) Apply(cfg Config) error {
 	return nil
 }
 
-func (r *Recorder) Handshakes(string) (map[string]time.Time, error) {
+// Stats reports the set handshakes and bytes, and each peer's last move as
+// its endpoint.
+func (r *Recorder) Stats(string) (map[string]PeerStat, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	out := make(map[string]time.Time, len(r.handshakes))
+	out := map[string]PeerStat{}
 	for k, v := range r.handshakes {
-		out[k] = v
+		st := out[k]
+		st.Handshake = v
+		out[k] = st
+	}
+	for k, v := range r.rx {
+		st := out[k]
+		st.Rx = v
+		out[k] = st
+	}
+	for _, m := range r.Moves {
+		st := out[m.PublicKey]
+		st.Endpoint = m.Endpoint
+		out[m.PublicKey] = st
 	}
 	return out, nil
 }
@@ -66,6 +81,16 @@ func (r *Recorder) SetHandshake(key string, t time.Time) {
 		r.handshakes = map[string]time.Time{}
 	}
 	r.handshakes[key] = t
+}
+
+// AddRx adds received bytes for a peer, as traffic from it would.
+func (r *Recorder) AddRx(key string, n int64) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.rx == nil {
+		r.rx = map[string]int64{}
+	}
+	r.rx[key] += n
 }
 
 // Last returns the most recent applied config.

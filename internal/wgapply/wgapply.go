@@ -27,9 +27,9 @@ type Applier interface {
 	// Apply creates the interface if missing, sets address, peers and one
 	// route per peer range, and removes peers and routes not in cfg.
 	Apply(cfg Config) error
-	// Handshakes returns the last handshake time per public key; the zero
-	// time means never.
-	Handshakes(iface string) (map[string]time.Time, error)
+	// Stats returns each peer's last handshake (zero: never), bytes
+	// received and current endpoint, by public key.
+	Stats(iface string) (map[string]PeerStat, error)
 	// SetEndpoint moves one existing peer to another endpoint.
 	SetEndpoint(iface, publicKey string, ep netip.AddrPort) error
 	// Seen returns, per public key, where a peer's packets come from, for
@@ -42,24 +42,56 @@ type Applier interface {
 	RemoveOwned(iface, privateKey string) (bool, error)
 }
 
-// StaleAfter is how old a handshake may get before the next candidate is
-// tried. Kernel WireGuard rehandshakes about every 2 minutes.
+// PeerStat is what the kernel reports for one peer.
+type PeerStat struct {
+	Handshake time.Time
+	Rx        int64
+	Endpoint  netip.AddrPort
+}
+
+// StaleAfter is the age past which a handshake no longer proves a path:
+// kernel WireGuard rehandshakes about every 2 minutes.
 const StaleAfter = 180 * time.Second
 
-// Failover walks each peer through its candidate list.
+// Failover timings. Every peer runs a 25 s persistent keepalive, so a live
+// path delivers something well inside Probe.
+const (
+	// Probe is how long a candidate just switched to gets to show a
+	// handshake or traffic from the peer at that endpoint.
+	Probe = 30 * time.Second
+	// Dead is how long a settled peer may go without receiving anything
+	// before its path counts as down (two keepalives missed).
+	Dead = 60 * time.Second
+	// Climb is how often a peer settled on a later candidate (the relay)
+	// retries the earlier, better ones.
+	Climb = 5 * time.Minute
+)
+
+// roundPause is the extra wait before the next round once every candidate
+// failed: 30 s, then 2 min, then 5 min from there on; success resets it.
+var roundPause = []time.Duration{30 * time.Second, 2 * time.Minute, 5 * time.Minute}
+
+// Failover walks each peer through its candidate list: Probe per candidate,
+// a growing pause between failed rounds, and a climb back to better
+// candidates every Climb while it sits on a later one.
 type Failover struct {
 	A     Applier
 	Iface string
-	Stale time.Duration    // zero means StaleAfter
 	Now   func() time.Time // zero means time.Now
 	mu    sync.Mutex
 	peers map[string]*state // by public key
 }
 
 type state struct {
-	cands []netip.AddrPort
-	idx   int
-	since time.Time // when the current candidate was set
+	cands   []netip.AddrPort
+	idx     int
+	since   time.Time // when the current candidate was set
+	probing bool      // the current candidate has not proven itself yet
+	home    int       // while climbing: the working candidate to return to; -1 otherwise
+	rounds  int       // full rounds failed in a row
+	rx      int64     // bytes received at the last tick
+	rxAt    time.Time // when rx last grew
+	climbAt time.Time // next climb, for a peer settled past its first candidate
 }
 
 func (f *Failover) now() time.Time {
@@ -83,7 +115,8 @@ func (f *Failover) Reset(peers []mesh.Peer) {
 			next[p.PublicKey] = old
 			continue
 		}
-		next[p.PublicKey] = &state{cands: p.Candidates, since: f.now()}
+		now := f.now()
+		next[p.PublicKey] = &state{cands: p.Candidates, since: now, rxAt: now, probing: true, home: -1}
 		if len(p.Candidates) > 0 {
 			_ = f.A.SetEndpoint(f.Iface, p.PublicKey, p.Candidates[0]) // best effort: the walk moves on if it does not hold
 		}
@@ -103,36 +136,97 @@ func sameCands(a, b []netip.AddrPort) bool {
 	return true
 }
 
-// Tick checks every peer once and moves stale ones to the next candidate,
-// wrapping after the last. A peer gets a full stale window on each candidate
-// before the next move. It returns the keys that moved.
+// window is how long the current candidate gets: Probe, plus the round
+// pause when a failed round has just wrapped back to the first.
+func (st *state) window() time.Duration {
+	if st.idx != 0 || st.rounds == 0 {
+		return Probe
+	}
+	return Probe + roundPause[min(st.rounds, len(roundPause))-1]
+}
+
+// Tick checks every peer once and moves it when its path failed or a climb
+// is due. It returns the keys that moved.
 func (f *Failover) Tick() ([]string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	hs, err := f.A.Handshakes(f.Iface)
+	stats, err := f.A.Stats(f.Iface)
 	if err != nil {
 		return nil, err
 	}
-	stale := f.Stale
-	if stale == 0 {
-		stale = StaleAfter
-	}
 	now := f.now()
 	var moved []string
+	move := func(key string, st *state, i int) error {
+		if err := f.A.SetEndpoint(f.Iface, key, st.cands[i]); err != nil {
+			return err
+		}
+		st.idx, st.since, st.probing = i, now, true
+		moved = append(moved, key)
+		return nil
+	}
 	for key, st := range f.peers {
 		if len(st.cands) < 2 {
 			continue
 		}
-		last := hs[key]
-		if now.Sub(st.since) < stale || (!last.IsZero() && now.Sub(last) < stale) {
+		ps := stats[key]
+		if ps.Rx != st.rx {
+			st.rx, st.rxAt = ps.Rx, now
+		}
+		if st.probing {
+			// Proven by a handshake since the switch, or by traffic from the
+			// peer at this endpoint (a live session moved to a new endpoint
+			// only rehandshakes after ~2 min; the kernel roams the endpoint
+			// to wherever the peer's packets really come from).
+			if ps.Handshake.After(st.since) || st.rxAt.After(st.since) && ps.Endpoint == st.cands[st.idx] {
+				st.probing, st.rounds, st.home = false, 0, -1
+				st.climbAt = now.Add(Climb)
+				continue
+			}
+			if now.Sub(st.since) < st.window() {
+				continue
+			}
+			if st.home >= 0 { // a climb candidate failed: next better one, or back home
+				next := st.idx + 1
+				if next < st.home {
+					if err := move(key, st, next); err != nil {
+						return moved, err
+					}
+					continue
+				}
+				home := st.home
+				if err := move(key, st, home); err != nil {
+					return moved, err
+				}
+				st.probing, st.home, st.rxAt = false, -1, now // it worked a moment ago
+				st.climbAt = now.Add(Climb)
+				continue
+			}
+			next := (st.idx + 1) % len(st.cands)
+			if next == 0 {
+				st.rounds++
+			}
+			if err := move(key, st, next); err != nil {
+				return moved, err
+			}
 			continue
 		}
-		next := (st.idx + 1) % len(st.cands)
-		if err := f.A.SetEndpoint(f.Iface, key, st.cands[next]); err != nil {
-			return moved, err
+		// Settled.
+		if now.Sub(st.rxAt) >= Dead {
+			next := (st.idx + 1) % len(st.cands)
+			if next == 0 {
+				st.rounds++
+			}
+			if err := move(key, st, next); err != nil {
+				return moved, err
+			}
+			continue
 		}
-		st.idx, st.since = next, now
-		moved = append(moved, key)
+		if st.idx > 0 && !now.Before(st.climbAt) {
+			st.home = st.idx
+			if err := move(key, st, 0); err != nil {
+				return moved, err
+			}
+		}
 	}
 	return moved, nil
 }

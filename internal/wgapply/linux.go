@@ -117,7 +117,7 @@ func syncRoutes(link netlink.Link, cfg Config) error {
 	return nil
 }
 
-func (Kernel) Handshakes(iface string) (map[string]time.Time, error) {
+func (Kernel) Stats(iface string) (map[string]PeerStat, error) {
 	c, err := wgctrl.New()
 	if err != nil {
 		return nil, err
@@ -127,9 +127,13 @@ func (Kernel) Handshakes(iface string) (map[string]time.Time, error) {
 	if err != nil {
 		return nil, err
 	}
-	out := map[string]time.Time{}
+	out := map[string]PeerStat{}
 	for _, p := range dev.Peers {
-		out[p.PublicKey.String()] = p.LastHandshakeTime
+		st := PeerStat{Handshake: p.LastHandshakeTime, Rx: p.ReceiveBytes}
+		if p.Endpoint != nil {
+			st.Endpoint = p.Endpoint.AddrPort()
+		}
+		out[p.PublicKey.String()] = st
 	}
 	return out, nil
 }
