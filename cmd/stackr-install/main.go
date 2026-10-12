@@ -4,6 +4,7 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -24,6 +25,7 @@ import (
 	"golang.org/x/term"
 
 	"github.com/FyrmForge/stackr/internal/installspec"
+	"github.com/FyrmForge/stackr/internal/mesh"
 )
 
 // version is set at build time via ldflags: the release this binary installs.
@@ -59,8 +61,15 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 	release := fs.String("version", "", "release to install (default: this installer's own)")
 	dry := fs.Bool("dry-run", false, "print what would change, change nothing")
 	adminEmail := fs.String("admin-email", "", "the stackr admin's email; the password comes from "+passwordEnv+" or a prompt")
+	fs.IntVar(&in.WGPort, "wg-port", 0, fmt.Sprintf("UDP port of the controller's mesh WireGuard (default %d)", mesh.DefaultPort))
+	yes := fs.Bool("yes", false, "install Docker with Docker's install script without asking, when it is missing")
 	if err := fs.Parse(args); err != nil {
 		return err
+	}
+	if in.WGPort != 0 {
+		if err := checkWGPort(in.WGPort); err != nil {
+			return err
+		}
 	}
 	given := map[string]bool{}
 	fs.Visit(func(f *flag.Flag) { given[f.Name] = true })
@@ -72,7 +81,7 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 	r := runner{dry: *dry, out: out}
 
 	if !r.dry {
-		if err := preflight(ctx); err != nil {
+		if err := preflight(ctx, r, *yes); err != nil {
 			return err
 		}
 	}
@@ -87,6 +96,22 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 		in.InstallID = newInstallID()
 	} else {
 		fillFrom(&in, saved, given)
+	}
+	if !r.dry {
+		miss := requirements(gatherHost(ctx), false, fresh)
+		if fresh {
+			ps := fixedPorts(false, cmp.Or(in.WGPort, mesh.DefaultPort))
+			if meshUp() {
+				ps = ps[1:]
+			}
+			if r.exists(ctx, "container", installspec.RegistryName) {
+				ps = ps[:len(ps)-1]
+			}
+			miss = append(miss, busyPorts(ps, hostBusy)...)
+		}
+		if err := failRequirements(r, miss); err != nil {
+			return err
+		}
 	}
 	password := os.Getenv(passwordEnv)
 	needAdmin := fresh || given["admin-email"]
@@ -274,6 +299,7 @@ func fillFrom(in *installspec.Input, saved installspec.Input, given map[string]b
 		"http-port":  func() { in.HTTPPort = saved.HTTPPort },
 		"https-port": func() { in.HTTPSPort = saved.HTTPSPort },
 		"dns-token":  func() { in.DNS01 = saved.DNS01 },
+		"wg-port":    func() { in.WGPort = saved.WGPort },
 	} {
 		if !given[flag] {
 			pick()
@@ -383,17 +409,11 @@ exec docker exec -i -e STACKR_CONFIG=` + filepath.Join(dataDir, "cli.json") + ` 
 }
 
 // preflight refuses a box that cannot be installed on.
-func preflight(ctx context.Context) error {
+func preflight(ctx context.Context, r runner, yes bool) error {
 	if os.Geteuid() != 0 {
 		return errors.New("run as root (docker, /var/lib and port 80 all need it)")
 	}
-	if _, err := exec.LookPath("docker"); err != nil {
-		return errors.New("docker is not installed; https://docs.docker.com/engine/install/")
-	}
-	if _, err := read(ctx, "docker", "info"); err != nil {
-		return errors.New("cannot talk to the docker daemon; is it running?")
-	}
-	return nil
+	return r.ensureDocker(ctx, yes)
 }
 
 // portBusy dials first: in a non-root run a low port cannot be bound

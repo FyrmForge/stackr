@@ -2,6 +2,42 @@
 
 A Go web application built with the [HAMR framework](https://github.com/FyrmForge/hamr).
 
+## System requirements
+
+What a box needs to run stackr, as a controller (`stackr-install`) or a
+worker (`stackr-install join`). The installer checks all of it up front and
+names whatever is missing.
+
+- **Linux, run as root.**
+- **Docker Engine 25.0 or newer**, with its default iptables firewall
+  backend (not `firewall-backend: nftables`). 25.0 is the first that attaches
+  a container to several networks when it is created. When Docker is missing
+  the installer offers Docker's install script (get.docker.com, needs curl);
+  `--yes` runs it without asking. An installed Docker is never upgraded.
+- **iptables 1.8 or newer.** A controller needs the nf_tables variant
+  (`iptables-nft`): the panel image writes nf_tables rules, which Docker's
+  chains only see in the same backend. A worker uses the host's own.
+- **WireGuard in the kernel:** Linux 5.6 or newer, or the `wireguard`
+  module. A single controller runs without it and warns; a worker refuses.
+  In a container (LXC) the module must be loaded on the host.
+- **Worker only:** systemd (the worker is a systemd service) and iproute2's
+  `ip`.
+- **Free ports**, checked on a first install:
+  - UDP 51871, the mesh's WireGuard (`--wg-port` to pick another; stackr's
+    interface is `stackr0`, so a VPN on `wg0`/51820 is left alone).
+  - Controller: TCP 80 and 443 (`--http-port`, `--https-port`), TCP
+    127.0.0.1:5000 (the image registry).
+  - Worker: TCP 7443 (worker API, tunnel only), TCP 7444 (liveness, public),
+    TCP 127.0.0.1:5000 (registry front). An ingress worker also needs TCP 80
+    and 443; tagging it ingress refuses while something else holds them.
+  - Exit links use UDP 52000 to 52255 and a relay node UDP 52300 and up,
+    one port per pair, only while one is set up.
+- **Address ranges stackr reserves.** A box whose networks overlap them
+  cannot install or join:
+  - 10.207.255.0/24, the mesh's tunnel addresses
+  - 10.208.0.0/12, the nodes' container ranges
+  - 10.251.0.0/22, the exit links
+
 ## Prerequisites
 
 - Go 1.27.1+

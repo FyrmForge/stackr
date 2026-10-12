@@ -37,7 +37,7 @@ func restore(ctx context.Context, args []string, out io.Writer) error {
 	if d := os.Getenv("STACKR_DATA_DIR"); d != "" {
 		dataDir = d
 	}
-	if err := preflight(ctx); err != nil {
+	if err := preflight(ctx, runner{out: out}, false); err != nil {
 		return err
 	}
 	in, err := installspec.Load(dataDir)

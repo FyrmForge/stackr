@@ -20,6 +20,7 @@ import (
 
 	"github.com/FyrmForge/stackr/internal/clusterca"
 	"github.com/FyrmForge/stackr/internal/installspec"
+	"github.com/FyrmForge/stackr/internal/mesh"
 	"github.com/FyrmForge/stackr/internal/worker"
 )
 
@@ -147,10 +148,10 @@ func (j joinCall) run(ctx context.Context, csrPEM []byte, wgPub string, facts an
 }
 
 // workerUnit is the systemd unit for `stackrd worker`. The worker listens on
-// its tunnel address only (bound before wg0 has it, see worker.Run); it
+// its tunnel address only (bound before stackr0 has it, see worker.Run); it
 // brings the tunnel up from its saved mesh spec at start, the first one from
 // the join answer. After=docker.service keeps DOCKER-USER there.
-func workerUnit(stateDir, wgAddr string) string {
+func workerUnit(stateDir, wgAddr string, wgPort int) string {
 	return fmt.Sprintf(`[Unit]
 Description=stackr worker
 After=network-online.target docker.service
@@ -158,13 +159,13 @@ Wants=network-online.target
 Requires=docker.service
 
 [Service]
-ExecStart=%[1]s worker --state-dir %[2]s --addr %[4]s:%[3]s
+ExecStart=%[1]s worker --state-dir %[2]s --addr %[4]s:%[3]s --wg-port %[5]d
 Restart=always
 RestartSec=3
 
 [Install]
 WantedBy=multi-user.target
-`, joinBinary, stateDir, joinWorkerPort, wgAddr)
+`, joinBinary, stateDir, joinWorkerPort, wgAddr, wgPort)
 }
 
 // join is `stackr-install join`: turn this machine into a worker node of
@@ -177,7 +178,12 @@ func join(ctx context.Context, args []string, out io.Writer) error {
 	stateDir := fs.String("state-dir", "/var/lib/stackr-worker", "where the worker keeps its certs and state")
 	release := fs.String("version", "", "release to install (default: this installer's own)")
 	dry := fs.Bool("dry-run", false, "print what would change, change nothing")
+	wgPort := fs.Int("wg-port", mesh.DefaultPort, "UDP port of this node's mesh WireGuard")
+	yes := fs.Bool("yes", false, "install Docker with Docker's install script without asking, when it is missing")
 	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if err := checkWGPort(*wgPort); err != nil {
 		return err
 	}
 	u, err := url.Parse(strings.TrimRight(*panel, "/"))
@@ -201,7 +207,22 @@ func join(ctx context.Context, args []string, out io.Writer) error {
 	}
 
 	r.say("Joining", u.String(), "as a stackr worker")
-	if err := r.ensureDocker(ctx); err != nil {
+	if err := r.ensureDocker(ctx, *yes); err != nil {
+		return err
+	}
+	// A rejoin runs on a box that already is a worker: its own services
+	// hold the ports, and its networks already sit in stackr's ranges.
+	_, err = os.Stat(filepath.Join(*stateDir, "node.crt"))
+	fresh := err != nil
+	miss := requirements(gatherHost(ctx), true, fresh)
+	if fresh && !r.dry {
+		ps := fixedPorts(true, *wgPort)
+		if meshUp() {
+			ps = ps[1:]
+		}
+		miss = append(miss, busyPorts(ps, hostBusy)...)
+	}
+	if err := failRequirements(r, miss); err != nil {
 		return err
 	}
 	if err := r.ensureWireGuard(ctx); err != nil {
@@ -238,7 +259,7 @@ func join(ctx context.Context, args []string, out io.Writer) error {
 	r.say("  made this node's keys")
 	j := joinCall{panel: u.String(), token: *token, caSHA: fp, poll: 10 * time.Second, say: r.say,
 		client: &http.Client{Timeout: 30 * time.Second}}
-	st, err := j.run(ctx, csr, wgPub, map[string]any{"interfaces": worker.Interfaces()})
+	st, err := j.run(ctx, csr, wgPub, map[string]any{"interfaces": worker.Interfaces(), "wg_port": *wgPort})
 	if err != nil {
 		return err
 	}
@@ -254,7 +275,7 @@ func join(ctx context.Context, args []string, out io.Writer) error {
 			return err
 		}
 	}
-	if err := os.WriteFile(joinUnitPath, []byte(workerUnit(*stateDir, strings.Split(st.WGAddress, "/")[0])), 0o644); err != nil {
+	if err := os.WriteFile(joinUnitPath, []byte(workerUnit(*stateDir, strings.Split(st.WGAddress, "/")[0], *wgPort)), 0o644); err != nil {
 		return err
 	}
 	for _, c := range [][]string{{"daemon-reload"}, {"enable", "--now", "stackr-worker.service"}} {
@@ -279,19 +300,6 @@ func (r runner) run(ctx context.Context, name string, args ...string) error {
 }
 
 func have(name string) bool { _, err := exec.LookPath(name); return err == nil }
-
-// ensureDocker installs Docker with Docker's own script when it is missing.
-func (r runner) ensureDocker(ctx context.Context) error {
-	if _, err := read(ctx, "docker", "version", "--format", "{{.Server.Version}}"); err == nil {
-		r.say("  have docker")
-		return nil
-	}
-	r.say("  docker is missing, installing it from get.docker.com")
-	if err := r.run(ctx, "sh", "-c", "curl -fsSL https://get.docker.com | sh"); err != nil {
-		return fmt.Errorf("install docker: %w", err)
-	}
-	return r.run(ctx, "systemctl", "enable", "--now", "docker")
-}
 
 // ensureWireGuard makes sure the kernel has WireGuard. The worker talks to it
 // through netlink, so no userspace tools are needed. A container shares the
