@@ -21,6 +21,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/securitylog"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 	"github.com/FyrmForge/stackr/internal/service/internal/workerclient"
+	"github.com/FyrmForge/stackr/internal/worker"
 )
 
 // WorkerPort is where `stackrd worker` listens on the node's WireGuard
@@ -52,6 +53,9 @@ type clusterPKI struct {
 	// refreshes each missed in a row.
 	probe map[string]probeEnt
 	fails map[string]int
+	// alive: workers that miss the tunnel but answer their public liveness
+	// port ("tunnel down, host alive"). In memory only.
+	alive map[string]bool
 }
 
 // cert is the controller's current cert (renew swaps it).
@@ -128,7 +132,7 @@ func bootCluster(ctx context.Context, st *store.Store, dataDir string) (*cluster
 	}
 	return &clusterPKI{ca: ca, own: own, st: st, rev: map[string]revAns{},
 		addr: map[string]string{}, ext: map[string]*workerclient.Client{},
-		probe: map[string]probeEnt{}, fails: map[string]int{}}, nil
+		probe: map[string]probeEnt{}, fails: map[string]int{}, alive: map[string]bool{}}, nil
 }
 
 // controllerCert loads the controller's cert and key, or issues a new pair.
@@ -279,6 +283,17 @@ func (o *Orchestrator) refreshNodeClients(ctx context.Context) error {
 			defer cancel()
 			_, err := cd.ext.Facts(pctx)
 			cd.up = err == nil
+			alive := false
+			if !cd.up && o.mesh != nil {
+				for _, a := range o.mesh.publicOf(cd.n.ID) {
+					if alive = worker.Alive(pctx, a.String()); alive {
+						break
+					}
+				}
+			}
+			c.mu.Lock()
+			c.alive[cd.n.ID] = alive
+			c.mu.Unlock()
 		}()
 	}
 	wg.Wait()
@@ -287,6 +302,7 @@ func (o *Orchestrator) refreshNodeClients(ctx context.Context) error {
 		if !seen[id] {
 			delete(c.probe, id)
 			delete(c.fails, id)
+			delete(c.alive, id)
 		}
 	}
 	c.mu.Unlock()
@@ -400,4 +416,15 @@ func (o *Orchestrator) nodeExtras(nodeID string) (*workerclient.Client, error) {
 		}
 	}
 	return nil, fmt.Errorf("%w: no connection to node %s", errs.ErrBusy, nodeID)
+}
+
+// HostAlive reports a worker the tunnel cannot reach that still answers its
+// public liveness port.
+func (o *Orchestrator) HostAlive(nodeID string) bool {
+	if o.cluster == nil {
+		return false
+	}
+	o.cluster.mu.Lock()
+	defer o.cluster.mu.Unlock()
+	return o.cluster.alive[nodeID]
 }

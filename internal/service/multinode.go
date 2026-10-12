@@ -76,6 +76,9 @@ func (o *Orchestrator) startMesh(ctlID string) {
 					if err := local.Reassert(ctx); err != nil && ctx.Err() == nil {
 						slog.Warn("mesh: controller exit rules", "err", err)
 					}
+					if err := o.sync.Retry(ctx); err != nil && ctx.Err() == nil {
+						slog.Warn("proxy: retry", "err", err)
+					}
 				}
 			}
 		}()

@@ -354,6 +354,8 @@ func statusTone(s string) (word, text, dot string) {
 		return "Online", "text-rw-success", "bg-rw-success"
 	case "unreachable":
 		return "Not answering", "text-rw-danger", "bg-rw-danger"
+	case "tunnel-down":
+		return "Tunnel down, host alive", "text-rw-warn", "bg-rw-warn"
 	}
 	return healthWord(s), "text-rw-warn", "bg-rw-warn"
 }

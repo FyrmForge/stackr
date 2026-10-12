@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"sync"
 	"time"
 )
@@ -21,12 +22,17 @@ type Syncer struct {
 	// config per ingress node, each pushed to that node's Caddy.
 	BuildAll func(context.Context) (map[string]json.RawMessage, error)
 	PushNode func(ctx context.Context, node string, cfg json.RawMessage) error
+	// Soft names nodes whose failed push is logged and retried (Retry)
+	// instead of failing the run: one ingress worker down must not fail a
+	// deploy or rollback it does not serve.
+	Soft func(node string) bool
 
-	run  sync.Mutex // held for a whole run
-	mu   sync.Mutex // guards the counters
-	want uint64     // requests so far
-	done uint64     // requests covered by a finished run
-	err  error      // that run's error
+	run  sync.Mutex      // held for a whole run
+	mu   sync.Mutex      // guards the counters
+	want uint64          // requests so far
+	done uint64          // requests covered by a finished run
+	err  error           // that run's error
+	soft map[string]bool // Soft nodes whose last push failed
 }
 
 // Timeout caps one run; the run never uses the caller's context, so a
@@ -74,9 +80,36 @@ func (s *Syncer) once(ctx context.Context) error {
 	cfgs, err := s.BuildAll(ctx)
 	errs := []error{err}
 	for node, cfg := range cfgs { // one node down must not hold back the others
-		if perr := s.PushNode(ctx, node, cfg); perr != nil {
+		perr := s.PushNode(ctx, node, cfg)
+		soft := s.Soft != nil && s.Soft(node)
+		s.mu.Lock()
+		if s.soft == nil {
+			s.soft = map[string]bool{}
+		}
+		s.soft[node] = perr != nil && soft
+		s.mu.Unlock()
+		switch {
+		case perr != nil && soft:
+			// ponytail: a deploy served by this node still succeeds; Retry
+			// repairs it within a tick. Per-tile strictness if that matters.
+			slog.Warn("proxy: push failed, will retry", "node", node, "err", perr)
+		case perr != nil:
 			errs = append(errs, fmt.Errorf("push to node %q: %w", node, perr))
 		}
 	}
 	return errors.Join(errs...)
+}
+
+// Retry runs a sync when a Soft node's last push failed.
+func (s *Syncer) Retry(ctx context.Context) error {
+	s.mu.Lock()
+	failed := false
+	for _, f := range s.soft {
+		failed = failed || f
+	}
+	s.mu.Unlock()
+	if !failed {
+		return nil
+	}
+	return s.Sync(ctx)
 }

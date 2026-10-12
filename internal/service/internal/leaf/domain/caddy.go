@@ -29,11 +29,12 @@ type Install struct {
 	AdminListen    string // required on every config, or Caddy falls back to its own localhost
 	ACMEEmail      string // the instance account
 	Accounts       []Account
-	DNSProvider    string // "" = no DNS-01, so no wildcard certificates
-	TLSOff         bool   // STACKR_TLS=off: plain HTTP only, no certificates
-	TrustedProxies []string
-	PanelHost      string // the panel's public host; skipped when a bare IP, localhost or ""
-	PanelUpstream  string // the panel's internal dial address, e.g. stackrd:8080
+	DNSProvider    string   // "" = no DNS-01, so no wildcard certificates
+	TLSOff         bool     // STACKR_TLS=off: plain HTTP only, no certificates
+	TrustedProxies []string // the controller's front proxies; other nodes get none
+	Controller     string   // the controller's node id; "" = every node keeps TrustedProxies
+	PanelHost      string   // the panel's public host; skipped when a bare IP, localhost or ""
+	PanelUpstream  string   // the panel's internal dial address, e.g. stackrd:8080
 	// Custom is proxy_custom: a JSON array of Caddy HTTP route objects,
 	// appended after every route of ours on the main server (https, or http
 	// with TLS off). Additive, never a whole-config replace, so the panel
@@ -204,6 +205,9 @@ func BuildNode(node string, in Install, tiles []TileRoute, routes []NodeRoute, e
 	at := func(n string) bool { return n == node || n == "" && in.DefaultIngress == node }
 	if in.DefaultIngress != node {
 		in.PanelHost = ""
+	}
+	if in.Controller != "" && in.Controller != node {
+		in.TrustedProxies = nil
 	}
 	in.ProbeID = node
 	var ts []TileRoute

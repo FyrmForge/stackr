@@ -94,6 +94,9 @@ func nodeAdmin(by *Principal) error {
 
 func (o *Orchestrator) card(ctx context.Context, n store.Node) (NodeCard, error) {
 	es, err := o.store.Environments.ListByNode(ctx, n.ID)
+	if n.Status == node.StatusOffline && o.HostAlive(n.ID) {
+		n.Status = NodeTunnelDown
+	}
 	return NodeCard{
 		ID: n.ID, Name: n.Name, Role: n.Role, Status: n.Status, Range: n.RangeCIDR,
 		Tags: node.Tags(n), Envs: len(es), Controller: n.Role == node.Controller,

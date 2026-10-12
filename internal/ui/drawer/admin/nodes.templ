@@ -131,7 +131,7 @@ func statusTone(s string) string {
 	switch s {
 	case "online":
 		return "success"
-	case "joined":
+	case "joined", "tunnel-down":
 		return "warn"
 	}
 	return "danger"
@@ -143,6 +143,8 @@ func statusWord(s string) string {
 		return "Online"
 	case "joined":
 		return "Joined, not seen yet"
+	case "tunnel-down":
+		return "Tunnel down, host alive"
 	}
 	return strings.ToUpper(s[:1]) + s[1:]
 }

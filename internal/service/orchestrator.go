@@ -447,7 +447,7 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 		}
 	})
 	orch.sync = build("leaf/domain.Syncer", func() *domain.Syncer {
-		return &domain.Syncer{BuildAll: orch.proxyConfigs, PushNode: orch.pushNodeProxy(proxyPush(orch.controllerID, o.push, orch.caddyFor))}
+		return &domain.Syncer{BuildAll: orch.proxyConfigs, PushNode: orch.pushNodeProxy(proxyPush(orch.controllerID, o.push, orch.caddyFor)), Soft: orch.isWorker}
 	})
 	orch.deploy = build("flow/deploy", func() *deploy.Flow {
 		return &deploy.Flow{
