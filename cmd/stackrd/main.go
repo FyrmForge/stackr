@@ -9,8 +9,10 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strings"
+	"syscall"
 
 	_ "github.com/joho/godotenv/autoload"
 	_ "time/tzdata" // CRON_TZ and --tz beyond UTC, on hosts without zoneinfo
@@ -80,6 +82,20 @@ func main() {
 	if flag.Arg(0) == "proxy" {
 		if err := runProxy(); err != nil {
 			fmt.Fprintln(os.Stderr, "stackrd proxy:", err)
+			os.Exit(1)
+		}
+		return
+	}
+	if flag.Arg(0) == "worker" {
+		// The node program: mTLS gatekeeper in front of the local Docker.
+		cfg, err := workerConfig(flag.Args()[1:])
+		if err == nil {
+			ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+			defer stop()
+			err = runWorker(ctx, cfg)
+		}
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "stackrd worker:", err)
 			os.Exit(1)
 		}
 		return
@@ -219,6 +235,9 @@ func run(log *slog.Logger, generate bool) error {
 
 	// One access middleware for both routers.
 	access := appmw.NewAccess(orch)
+
+	// registry.<panel host> goes to the registry front, everything else to the panel
+	srv.Echo().Pre(orch.RegistryMiddleware())
 
 	api.RegisterRoutes(srv, &api.Deps{
 		Orch:    orch,

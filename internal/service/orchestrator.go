@@ -227,6 +227,10 @@ type Orchestrator struct {
 	earlyIPs     map[string]earlyEnt // container id -> address holding early lan rules
 	repoLocks    sync.Map            // clone dir -> *sync.Mutex
 	cli          cliCodes
+
+	cluster   *clusterPKI   // the CA, the controller cert, the worker clients (nodeclients.go)
+	stopNodes chan struct{} // ends watchNodeClients
+	stopOnce  sync.Once
 }
 
 // onBuild is a test hook: every constructor New calls reports its name here,
@@ -338,6 +342,11 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 			return nil, fmt.Errorf("controller node: %w", err)
 		}
 	}
+	cl, err := bootCluster(ctx, st, cfg.DataDir)
+	if err != nil {
+		_ = db.Close()
+		return nil, err
+	}
 	if _, routed := d.(*DockerRouter); !routed { // WithDocker may bring its own router
 		d = NewRouter(map[string]Docker{ctl.ID: d})
 	}
@@ -349,7 +358,14 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 		docker: d,
 		vip:    o.vip,
 		gitEnv: o.gitEnv,
+
+		cluster:   cl,
+		stopNodes: make(chan struct{}),
 	}
+	if err := orch.refreshNodeClients(ctx); err != nil {
+		slog.Warn("nodes: worker clients not all built", "err", err)
+	}
+	go orch.watchNodeClients()
 	orch.sessions = build("sessions", func() *auth.SessionManager {
 		return auth.NewSessionManager(st.Sessions,
 			auth.WithCookieSecure(cfg.CookieSecure),
@@ -411,7 +427,7 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 		}
 	})
 	orch.sync = build("leaf/domain.Syncer", func() *domain.Syncer {
-		return &domain.Syncer{Build: orch.proxyConfig, Push: o.push}
+		return &domain.Syncer{BuildAll: orch.proxyConfigs, PushNode: proxyPush(orch.controllerID, o.push, orch.caddyFor)}
 	})
 	orch.deploy = build("flow/deploy", func() *deploy.Flow {
 		return &deploy.Flow{
@@ -676,6 +692,7 @@ func bootSettings(cfg Config) map[string]string {
 
 // Close stops the scheduler and the job runner, then releases the database.
 func (o *Orchestrator) Close() error {
+	o.stopOnce.Do(func() { close(o.stopNodes) })
 	o.sched.Stop()
 	o.jobs.Close()
 	return o.db.Close()

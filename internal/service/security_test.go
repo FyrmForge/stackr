@@ -275,9 +275,9 @@ func TestSecurityLogFiltersAndAppendOnly(t *testing.T) {
 		must(t, err)
 		return es
 	}
-	// 4: the controller's node.bootstrap row from boot, plus the three above.
-	if n := len(list(SecurityFilter{})); n != 4 {
-		t.Errorf("all = %d, want 4", n)
+	// 5: node.bootstrap and the controller cert.issue rows from boot, plus the three above.
+	if n := len(list(SecurityFilter{})); n != 5 {
+		t.Errorf("all = %d, want 5", n)
 	}
 	if es := list(SecurityFilter{}); es[0].Action != securitylog.LoginBad {
 		t.Errorf("newest = %s, want login.bad", es[0].Action)
@@ -288,8 +288,8 @@ func TestSecurityLogFiltersAndAppendOnly(t *testing.T) {
 	if n := len(list(SecurityFilter{TargetKind: "email", TargetID: "adm@x.test"})); n != 1 {
 		t.Errorf("by target = %d, want 1", n)
 	}
-	if n := len(list(SecurityFilter{Since: before, Until: time.Now().Add(time.Minute)})); n != 4 {
-		t.Errorf("in window = %d, want 4", n)
+	if n := len(list(SecurityFilter{Since: before, Until: time.Now().Add(time.Minute)})); n != 5 {
+		t.Errorf("in window = %d, want 5", n)
 	}
 	if n := len(list(SecurityFilter{Since: time.Now().Add(time.Minute)})); n != 0 {
 		t.Errorf("future window = %d, want 0", n)

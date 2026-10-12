@@ -7,6 +7,7 @@ package docker
 import (
 	"errors"
 	"fmt"
+	"net/http"
 	"time"
 
 	cerrdefs "github.com/containerd/errdefs"
@@ -170,6 +171,16 @@ func New() (*Client, error) {
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
 		return nil, fmt.Errorf("docker client: %w", err)
+	}
+	return &Client{cli: cli}, nil
+}
+
+// NewRemote dials a worker node's proxied Docker API: host is "tcp://addr"
+// and hc carries the mTLS transport (workerclient.DockerOptions).
+func NewRemote(host string, hc *http.Client) (*Client, error) {
+	cli, err := client.NewClientWithOpts(client.WithHost(host), client.WithHTTPClient(hc), client.WithAPIVersionNegotiation())
+	if err != nil {
+		return nil, fmt.Errorf("docker client for %s: %w", host, err)
 	}
 	return &Client{cli: cli}, nil
 }

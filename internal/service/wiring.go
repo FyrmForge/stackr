@@ -31,21 +31,6 @@ import (
 // Glue the flows take as funcs: the proxy config's install facts, the
 // stack file and tile builds from git, the panel's own spec and archive.
 
-// proxyConfig is the Syncer's Build: install facts from settings, the
-// domain resources' ACME accounts, then every domain row through
-// flow/deploy.
-//
-// Kept for the Syncer's single-config Build until orchestrator.go sets
-// BuildAll: it is the controller's config only.
-func (o *Orchestrator) proxyConfig(ctx context.Context) (json.RawMessage, error) {
-	cfgs, err := o.proxyConfigs(ctx)
-	ctl, cerr := o.controllerID(ctx)
-	if cerr != nil {
-		return nil, errors.Join(err, cerr)
-	}
-	return cfgs[ctl], err
-}
-
 // proxyConfigs is the Syncer's BuildAll: one Caddy config per ingress node,
 // keyed by node id. The controller is the default ingress node.
 func (o *Orchestrator) proxyConfigs(ctx context.Context) (map[string]json.RawMessage, error) {
@@ -113,6 +98,15 @@ func (o *Orchestrator) placement(ctx context.Context) deploy.Placement {
 		}
 		return "", node, vip
 	}
+}
+
+// caddyFor is a worker's Caddy admin API, nil while the node has no connection.
+func (o *Orchestrator) caddyFor(nodeID string) caddyNode {
+	c, err := o.nodeExtras(nodeID)
+	if err != nil || c == nil {
+		return nil
+	}
+	return c
 }
 
 // caddyNode is one worker's Caddy admin API through its extras client
