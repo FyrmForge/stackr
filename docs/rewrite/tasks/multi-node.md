@@ -398,3 +398,58 @@ are shared: add your lines, keep them grouped, expect a merge.
 - **U4 Security and registry pages:** admin Security log page with filters and row expand; controller warning on the elevated-grant approve screen; org Registry tab.
 - **C1 CLI:** every command in the CLI journeys doc: node (add, ls, show, tag, untag, open, close, rejoin, remove, forget, confirm), pin, ingress, exit, env move, env lost/restore, cluster status, admin audit, registry login; --json, exit code 3 for needs --yes.
 - **I8 Installer join and fake mode:** `stackr-install join --panel --token --ca-sha256` (installs Docker and WireGuard, makes keys, requests, polls status, writes certs, starts `stackrd worker`); fake mode: `hamr dev` runs two fake workers (`stackrd worker` on fakehost dirs, Recorder WG) that join the local panel automatically.
+
+## Wave 3: after the real-machine proofs (planned 2026-10-12)
+
+Proofs so far: 109 controller with LAN workers 110/111 (scratchpad
+`pve2/RESULTS.md`), then Hetzner h1 (89.167.81.29) and h2 (2.29.100.118)
+joined to 109 across the home NAT. Nothing below may be dropped.
+
+### W3a Cluster map (agreed, build next)
+
+1. **One LAN for /32 networks.** Hetzner gives each box a /32 on the
+   private interface; the real net is a route (10.0.0.0/16 via 10.0.0.1).
+   Facts gain each interface's routes (`internal/worker/extras.go`). A /32
+   address takes the route prefix that contains it, both for map grouping
+   (`netPrefix` in `internal/service/cluster.go`) and for the mesh's
+   private-path check (`Candidates` in `internal/mesh/mesh.go`), so h1 and
+   h2 tunnel over the private net.
+2. **Cards inside the box.** No NAT drawn on the edge; a card with a public
+   address gets a "Public IP" row (`internal/ui/cluster/`).
+3. **Drag nodes and networks, saved on the server.** Reuse the canvas
+   store the map already uses for notes (`ClusterScope`,
+   `MoveClusterNote`): node and net ids next to note ids, shared by every
+   admin, no schema change.
+4. **Port-forward probe (own commit).** Each ingress node's Caddy answers a
+   secret path with its node id. A public worker (fallback: the controller,
+   marked uncertain since hairpin NAT is unreliable) requests the NAT's
+   public IP on that path; the node that answers is the forwarded one. The
+   NAT's public IP is the endpoint public workers see for the controller.
+   The map's NAT arrow points at it; an ingress node behind a NAT that did
+   not answer gets "not reachable from the internet, check your port
+   forward".
+5. Tests: /32 route grouping, mesh path choice, probe result. Then live on
+   109, h1, h2.
+
+### W3b Open items (to plan, one at a time)
+
+- **Cross-node links:** not built. Host = instance VIP when nodes differ
+  (flow/managed), no managed-network join across nodes (deploy facts.go,
+  managed.go), link flows in vipboot.go.
+- **Node registry pulls:** join unit has no `--registry-url`; Caddy ends TLS
+  before the registry front; the panel has no mTLS listener on wg.
+- **Relays never chosen:** the relay is plumbed, `meshSvc.Relays` is never
+  set, so two NAT'd nodes that cannot reach each other get no path.
+- **IPv6 endpoints** are tried when the controller has no IPv6; minutes of
+  failover before IPv4.
+- **Release images not on ghcr (last, the final test):** join cannot pull
+  the worker image.
+- **Rsync helper image** is not distributed to nodes (live moves).
+- **On-box CLI** `stackr login --with-key` hangs; the box key is org-bound.
+- **Ingress on a worker:** built, never run on real machines; test on h1
+  (`*.h1.vulpe.dev`).
+- **Worker firewall** carries the controller's LAN addresses (DNS
+  192.168.1.101, front proxy 192.168.1.100) on remote boxes: check.
+
+Done in this wave: join's Docker install proven on h2; a mesh peer added
+before its addresses were known now gets an endpoint (147ec2c).
