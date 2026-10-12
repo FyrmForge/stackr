@@ -266,3 +266,31 @@ func TestLearnNAT(t *testing.T) {
 		t.Fatalf("nat a=%v b=%v", in.Nodes[1].NAT, in.Nodes[2].NAT)
 	}
 }
+
+// A node's public addresses outlive the panel: kept when reported, read
+// back by a fresh mesh (no facts yet), dropped with the node.
+func TestPublicAddrsKept(t *testing.T) {
+	ctx := context.Background()
+	st := storetest.Store(t)
+	ctrl := storetest.Controller(t, st)
+	wk := ctrl
+	wk.ID, wk.Name, wk.Slug, wk.Role, wk.RangeCIDR = "w1", "w1", "w1", "worker", "10.214.0.0/16"
+	if err := st.Nodes.Create(ctx, wk); err != nil {
+		t.Fatal(err)
+	}
+	fakes := map[string]*fakeMeshNode{ctrl.ID: {}, wk.ID: {}}
+	m := newMeshSvc(st, func(id string) (MeshNode, bool) { f, ok := fakes[id]; return f, ok })
+	if err := m.Sync(ctx, "", false); err != nil {
+		t.Fatal(err)
+	}
+	restarted := newMeshSvc(st, func(string) (MeshNode, bool) { return nil, false })
+	if got := restarted.publicOf("w1"); len(got) != 1 || got[0].String() != "203.0.113.7" {
+		t.Fatalf("after restart publicOf = %v", got)
+	}
+	if err := restarted.RemoveNode(ctx, "w1"); err != nil {
+		t.Fatal(err)
+	}
+	if got := restarted.publicOf("w1"); len(got) != 0 {
+		t.Errorf("forgotten node still has %v", got)
+	}
+}
