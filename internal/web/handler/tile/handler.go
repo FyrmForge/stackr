@@ -24,6 +24,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/ui/access"
 	comp "github.com/FyrmForge/stackr/internal/ui/components"
 	ui "github.com/FyrmForge/stackr/internal/ui/drawer/tile"
+	placementui "github.com/FyrmForge/stackr/internal/ui/placement"
 	"github.com/FyrmForge/stackr/internal/web/render"
 )
 
@@ -208,6 +209,8 @@ func (h *handler) show(c echo.Context, status int, v ui.View, hd head, ty *typed
 			return middleware.HTTPError(err)
 		}
 		body = ui.Runs(v, runsView(v.Base, hd.status, rs))
+	case "placement":
+		body = placementui.Load(v.Base + "/placement")
 	case "backups":
 		vs, err := h.orch.TileVolumes(ctx, t.ID)
 		if err != nil {

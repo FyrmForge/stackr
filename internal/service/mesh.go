@@ -361,6 +361,17 @@ func (m *meshSvc) gather(ctx context.Context) (meshIn, error) {
 			}
 			// The controller default is the own uplink: no ladder.
 			res := exits.Resolve(lv, nil)
+			// OwnRung ("own node" in the placement UI) is this env's node.
+			own := make([]string, 0, len(res.Nodes))
+			for _, id := range res.Nodes {
+				if id == OwnRung {
+					id = n.ID
+				}
+				if !slices.Contains(own, id) {
+					own = append(own, id)
+				}
+			}
+			res.Nodes = own
 			if res.Routed(n.ID) {
 				mn.Envs = append(mn.Envs, meshEnvIn{Subnet: e.Subnet, Ladder: res.Nodes})
 			}

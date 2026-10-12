@@ -22,7 +22,7 @@ import (
 	c "github.com/FyrmForge/stackr/internal/ui/components"
 )
 
-var Tabs = []string{"settings", "releases", "sync", "params", "order", "logs"}
+var Tabs = []string{"settings", "releases", "sync", "params", "order", "logs", "placement"}
 
 type SettingsView struct {
 	Base    string // POST /rename, /from, /color; "" = read-only

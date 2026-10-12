@@ -14,12 +14,21 @@ import (
 	comp "github.com/FyrmForge/stackr/internal/ui/components"
 	"github.com/FyrmForge/stackr/internal/ui/dialog"
 	envui "github.com/FyrmForge/stackr/internal/ui/drawer/env"
+	placementui "github.com/FyrmForge/stackr/internal/ui/placement"
 	"github.com/FyrmForge/stackr/internal/web/render"
 )
 
 func (h *handler) envTab(c echo.Context, cd card, f *comp.DrawerView) (templ.Component, error) {
 	ctx, e, write := c.Request().Context(), cd.s.Env, can(c, cd.s, "env.write")
+	// a move that ran or runs shows its progress as the last tab
+	if ms, err := h.orch.EnvMoveStatus(ctx, e.ID); err == nil && ms != nil && (ms.Active || f.Tab == "moving") {
+		f.Tabs = append(slices.Clone(f.Tabs), "moving")
+	}
 	switch f.Tab {
+	case "placement":
+		return placementui.Load(urlOf(cd.s) + "/-/placement"), nil
+	case "moving":
+		return placementui.Load(urlOf(cd.s) + "/-/placement/move/status"), nil
 	case "params":
 		return h.vars(c, cd.s, "", "")
 	case "logs":

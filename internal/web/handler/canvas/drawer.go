@@ -66,6 +66,9 @@ func (cd card) frame(tab string) comp.DrawerView {
 		f.Tabs = []string{"editor"}
 		f.Base = urlOf(s) + "/-/vars"
 	}
+	if cd.kind == "env" && tab == "moving" { // present only while a move exists (envTab)
+		f.Tabs = append(slices.Clone(f.Tabs), tab)
+	}
 	f.Tab = tab
 	if !slices.Contains(f.Tabs, tab) {
 		f.Tab = f.Tabs[0]

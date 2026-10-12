@@ -18,7 +18,7 @@ func ControllerWarn(ctx context.Context, o *service.Orchestrator, orgSlug, stack
 	for _, e := range envs {
 		w.Envs = append(w.Envs, access.ControllerEnv{
 			Name: e.Slug,
-			Move: "/" + orgSlug + "/" + stackSlug + "/" + e.Slug + "/-/drawer",
+			Move: "/" + orgSlug + "/" + stackSlug + "/" + e.Slug + "/-/drawer?tab=placement",
 		})
 	}
 	return w, nil

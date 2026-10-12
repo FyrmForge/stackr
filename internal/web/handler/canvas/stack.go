@@ -14,6 +14,7 @@ import (
 	comp "github.com/FyrmForge/stackr/internal/ui/components"
 	"github.com/FyrmForge/stackr/internal/ui/dialog"
 	stackui "github.com/FyrmForge/stackr/internal/ui/drawer/stack"
+	placementui "github.com/FyrmForge/stackr/internal/ui/placement"
 	"github.com/FyrmForge/stackr/internal/web/render"
 )
 
@@ -31,6 +32,8 @@ func (h *handler) stackTab(c echo.Context, cd card, f *comp.DrawerView) (templ.C
 		return h.vars(c, cd.s, "", "")
 	case "releases":
 		return h.releasesTab(c, cd, f)
+	case "placement":
+		return placementui.Load(urlOf(cd.s) + "/-/placement"), nil
 	}
 	// the org's own connectors and the server ones shared with it
 	cs, err := h.orch.ConnectedConnectors(ctx, cd.s.Org.ID)

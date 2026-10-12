@@ -196,8 +196,8 @@ func TestEveryTabRenders(t *testing.T) {
 // Settings, a key the kind lacks opens its first tab.
 func TestTabsPerKind(t *testing.T) {
 	for kind, want := range map[string]string{
-		"cron":    "runs logs jobs env access settings backups",
-		"service": "status jobs logs env access settings backups",
+		"cron":    "runs logs jobs env access settings placement backups",
+		"service": "status jobs logs env access settings placement backups",
 	} {
 		if got := strings.Join(Tabs(kind), " "); got != want {
 			t.Errorf("%s tabs = %s", kind, got)

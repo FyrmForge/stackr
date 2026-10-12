@@ -70,9 +70,9 @@ type View struct {
 // kind lacks falls back to its first tab.
 func Tabs(kind string) []string {
 	if kind == "cron" || kind == "function" {
-		return []string{"runs", "logs", "jobs", "env", "access", "settings", "backups"}
+		return []string{"runs", "logs", "jobs", "env", "access", "settings", "placement", "backups"}
 	}
-	return []string{"status", "jobs", "logs", "env", "access", "settings", "backups"}
+	return []string{"status", "jobs", "logs", "env", "access", "settings", "placement", "backups"}
 }
 
 // tabs is Tabs plus Terminal after Logs, for a viewer who may shell in and

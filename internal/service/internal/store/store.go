@@ -75,6 +75,7 @@ type Tables struct {
 	JoinTokens       JoinTokenStore
 	NodeOrgs         NodeOrgStore
 	ForgottenNodes   ForgottenNodeStore
+	IngressPicks     IngressPickStore
 }
 
 func bind(q querier, box *secrets.Box) Tables {
@@ -123,6 +124,7 @@ func bind(q querier, box *secrets.Box) Tables {
 		JoinTokens:       joinTokens{crud[JoinToken]{q, box, joinTokensT}},
 		NodeOrgs:         nodeOrgs{q},
 		ForgottenNodes:   forgottenNodes{q},
+		IngressPicks:     ingressPicks{q},
 	}
 }
 

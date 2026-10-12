@@ -21,6 +21,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/web/handler/devemail"
 	"github.com/FyrmForge/stackr/internal/web/handler/devgallery"
 	"github.com/FyrmForge/stackr/internal/web/handler/env"
+	"github.com/FyrmForge/stackr/internal/web/handler/placement"
 	"github.com/FyrmForge/stackr/internal/web/handler/scope"
 	"github.com/FyrmForge/stackr/internal/web/handler/setup"
 	"github.com/FyrmForge/stackr/internal/web/handler/tile"
@@ -143,6 +144,8 @@ func RegisterRoutes(srv *server.Server, deps *Deps) {
 	// The env canvas's drawers and dialogs (tasks 9 and 10), under /-/ too.
 	env.NewHandler(deps.Orch).Mount(site, deps.Access)
 	tile.NewHandler(deps.Orch).Mount(site, deps.Access)
+	// Runs on, ingress and exits for org, stack, env and tile; the env move.
+	placement.NewHandler(deps.Orch).Mount(site, deps.Access)
 }
 
 // RegisterStaticPages registers handlers for static generation and runtime

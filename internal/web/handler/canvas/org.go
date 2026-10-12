@@ -16,6 +16,7 @@ import (
 	comp "github.com/FyrmForge/stackr/internal/ui/components"
 	"github.com/FyrmForge/stackr/internal/ui/dialog"
 	orgui "github.com/FyrmForge/stackr/internal/ui/drawer/org"
+	placementui "github.com/FyrmForge/stackr/internal/ui/placement"
 )
 
 // panelURL is path on the panel's public address (comp.PanelURL with the
@@ -87,6 +88,8 @@ func (h *handler) orgTab(c echo.Context, cd card, f *comp.DrawerView) (templ.Com
 		return h.orgDests(c, cd, f.Base)
 	case "config":
 		return h.configTab(c, cd, f)
+	case "placement":
+		return placementui.Load(urlOf(cd.s) + "/-/placement"), nil
 	}
 	cascade, err := h.cascadeForm(c, cd, og.Settings)
 	if err != nil {

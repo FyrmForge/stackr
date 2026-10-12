@@ -1,0 +1,385 @@
+// Package placement is the Placement tab of an org, stack, env and tile:
+// Runs on, Ingress and Exits, the exit ladder editor, the move dialog and the
+// move progress view. The handler fills the views from the service; nothing
+// here decides.
+package placement
+
+import (
+	"strconv"
+
+	c "github.com/FyrmForge/stackr/internal/ui/components"
+)
+
+// Root is the id every answer replaces (outerHTML).
+const Root = "placement"
+
+func target() string { return "#" + Root }
+
+// Option is a node the viewer may pick.
+type Option struct{ ID, Name string }
+
+// Rung is one exit in the ladder. Up and Down are the whole ladder after
+// moving it; nil = at that end. State is in use, standby, down or "".
+type Rung struct {
+	NodeID, Name, State, Detail string
+	Own                         bool
+	Up, Down                    []string
+}
+
+// View is the tab. Base is the placement route all actions hang off; ""
+// means the viewer may not change anything.
+type View struct {
+	Base  string
+	Scope string // org | stack | env | tile
+	Error string // a refused action
+	Note  string // what an action did
+
+	// Runs on (not for a tile)
+	RunsOn    bool
+	Nodes     []Option
+	Pin       string // picked node id; "" = inherit (org, stack)
+	PinFrom   string // "From stack: vps-fsn1."
+	StayCount int    // envs under this org or stack that are not on the pin
+	StayWhere string
+	PinName   string // the pin in effect, for the banner
+	MoveAll   bool   // the viewer may move them (admin)
+	CanMove   bool   // env: the viewer may move it (admin)
+	Moving    string // env: link to the progress tab while a move runs
+
+	// Ingress
+	Ingress     string
+	IngressFrom string
+	IngressOpts []Option // nodes tagged ingress
+
+	// Exits
+	Inherited bool
+	ExitsFrom string
+	Rungs     []Rung
+	Spare     []Option // egress nodes not in the ladder
+	OwnListed bool
+	NoNet     bool
+	NoNetWhy  string
+}
+
+func (v View) editable() bool { return v.Base != "" }
+
+templ Placement(v View) {
+	<div id={ Root } class="space-y-6">
+		<p class="text-sm text-rw-muted">Where it runs and how traffic gets in and out.</p>
+		if v.Error != "" {
+			<p class="banner banner-danger" role="alert">{ v.Error }</p>
+		}
+		if v.Note != "" {
+			<p class="banner" role="status">{ v.Note }</p>
+		}
+		if v.RunsOn {
+			@runsOn(v)
+		}
+		@ingress(v)
+		@exits(v)
+		<div id="placement-dialog"></div>
+	</div>
+}
+
+templ runsOn(v View) {
+	@c.Section("Runs on", v.Scope, "") {
+		if v.Moving != "" {
+			<p class="banner" role="status"><a href={ templ.SafeURL(v.Moving) } class="link">Moving: see progress</a></p>
+		}
+		if v.Scope == "env" {
+			<label for="runs-on" class="sr-only">Runs on</label>
+			<select
+				id="runs-on"
+				name="to"
+				class="input w-auto"
+				disabled?={ !v.CanMove }
+				hx-get={ v.Base + "/move" }
+				hx-trigger="change"
+				hx-target="#placement-dialog"
+				hx-swap="innerHTML"
+			>
+				for _, n := range v.Nodes {
+					<option value={ n.ID } selected?={ n.ID == v.Pin }>{ n.Name }</option>
+				}
+			</select>
+			if v.PinFrom != "" {
+				<p class="mt-2 text-xs text-rw-faint">{ v.PinFrom }</p>
+			}
+			if !v.CanMove {
+				<p class="mt-2 text-xs text-rw-faint">Moving an environment needs a server admin.</p>
+			}
+		} else {
+			<form hx-post={ v.Base + "/pin" } hx-target={ target() } hx-swap="outerHTML" class="flex flex-wrap items-center gap-2">
+				<label for="runs-on" class="sr-only">Runs on</label>
+				<select id="runs-on" name="node" class="input w-auto" disabled?={ !v.editable() }>
+					<option value="" selected?={ v.Pin == "" }>Inherit</option>
+					for _, n := range v.Nodes {
+						<option value={ n.ID } selected?={ n.ID == v.Pin }>{ n.Name }</option>
+					}
+				</select>
+				if v.editable() {
+					<button type="submit" class="btn btn-primary btn-sm">Save</button>
+				}
+			</form>
+			<p class="mt-2 text-xs text-rw-faint">
+				New envs below this start here.
+				if v.PinFrom != "" {
+					{ " " + v.PinFrom }
+				}
+			</p>
+			if v.StayCount > 0 {
+				<div class="banner mt-3 flex flex-wrap items-center gap-3" role="status">
+					<span>
+						New envs go to { v.PinName }. { count(v.StayCount, "existing env") } stay on { v.StayWhere }.
+					</span>
+					if v.MoveAll && v.editable() {
+						<form hx-post={ v.Base + "/move-all" } hx-target={ target() } hx-swap="outerHTML" class="ml-auto">
+							<button type="submit" class="btn btn-ghost btn-sm">Move them too</button>
+						</form>
+					}
+				</div>
+			}
+		}
+	}
+}
+
+templ ingress(v View) {
+	@c.Section("Ingress", v.Scope, "") {
+		<form hx-post={ v.Base + "/ingress" } hx-target={ target() } hx-swap="outerHTML" class="flex flex-wrap items-center gap-2">
+			<label for="ingress-node" class="sr-only">Ingress</label>
+			<select id="ingress-node" name="node" class="input w-auto" disabled?={ !v.editable() }>
+				<option value="" selected?={ v.Ingress == "" }>Inherit</option>
+				for _, n := range v.IngressOpts {
+					<option value={ n.ID } selected?={ n.ID == v.Ingress }>{ n.Name }</option>
+				}
+			</select>
+			if v.editable() {
+				<button type="submit" class="btn btn-primary btn-sm">Save</button>
+			}
+		</form>
+		<p class="mt-2 text-xs text-rw-faint">
+			Public traffic comes in here.
+			if v.IngressFrom != "" {
+				{ " " + v.IngressFrom }
+			}
+		</p>
+	}
+}
+
+templ exits(v View) {
+	@c.Section("Exits", v.Scope, "") {
+		if v.NoNet {
+			<div class="banner banner-danger mb-3" role="alert">
+				<p class="font-medium">No internet for these apps.</p>
+				<p>Every exit in the list is down. Add own node to fall back to it.</p>
+				if v.NoNetWhy != "" {
+					<p class="text-xs">{ v.NoNetWhy }</p>
+				}
+			</div>
+		}
+		if len(v.Rungs) == 0 || v.Inherited {
+			<p class="text-sm text-rw-muted">
+				if v.ExitsFrom != "" {
+					{ v.ExitsFrom }
+				} else {
+					Inherit: out through the node the app runs on.
+				}
+			</p>
+		}
+		if len(v.Rungs) > 0 {
+			<ol class={ "space-y-2", templ.KV("opacity-70", v.Inherited) }>
+				for i, r := range v.Rungs {
+					<li class="panel px-4 py-3 flex flex-wrap items-center gap-3 text-sm">
+						<span class="w-5 text-rw-faint">{ strconv.Itoa(i+1) }</span>
+						<span class="flex-1 min-w-0 truncate text-rw-text">{ r.Name }</span>
+						if r.State != "" {
+							@c.Pill(r.State, stateTone(r.State))
+						}
+						if r.Detail != "" {
+							<span class="text-xs text-rw-faint">{ r.Detail }</span>
+						}
+						if v.editable() && !v.Inherited {
+							@reorder("Up", v.Base+"/exits", r.Up)
+							@reorder("Down", v.Base+"/exits", r.Down)
+							<form hx-post={ v.Base + "/exits/remove" } hx-target={ target() } hx-swap="outerHTML">
+								<input type="hidden" name="node" value={ r.NodeID }/>
+								<button type="submit" class="btn btn-ghost btn-sm" aria-label={ "Remove " + r.Name }>Remove</button>
+							</form>
+						}
+					</li>
+				}
+			</ol>
+		}
+		if v.editable() && (len(v.Spare) > 0 || !v.OwnListed) {
+			<form hx-post={ v.Base + "/exits/add" } hx-target={ target() } hx-swap="outerHTML" class="mt-3 flex flex-wrap items-center gap-2">
+				<label for="exit-add" class="sr-only">Add exit</label>
+				<select id="exit-add" name="node" class="input w-auto">
+					for _, n := range v.Spare {
+						<option value={ n.ID }>{ n.Name }</option>
+					}
+					if !v.OwnListed {
+						<option value="own">own node (no exit)</option>
+					}
+				</select>
+				<button type="submit" class="btn btn-ghost btn-sm">Add exit</button>
+			</form>
+		}
+		<p class="mt-2 text-xs text-rw-faint">Tried top to bottom. Never falls back unless listed.</p>
+	}
+}
+
+templ reorder(label, action string, ids []string) {
+	if ids != nil {
+		<form hx-post={ action } hx-target={ target() } hx-swap="outerHTML">
+			for _, id := range ids {
+				<input type="hidden" name="ids" value={ id }/>
+			}
+			<button type="submit" class="btn btn-ghost btn-sm">{ label }</button>
+		</form>
+	}
+}
+
+func stateTone(s string) string {
+	switch s {
+	case "in use":
+		return "ok"
+	case "down":
+		return "bad"
+	}
+	return ""
+}
+
+func count(n int, noun string) string {
+	if n == 1 {
+		return "1 " + noun
+	}
+	return strconv.Itoa(n) + " " + noun + "s"
+}
+
+// Load is the tab's body in a drawer: it fetches the Placement answer.
+templ Load(url string) {
+	<div hx-get={ url } hx-trigger="load" hx-target="this" hx-swap="outerHTML" hx-push-url="false" aria-busy="true" class="text-sm text-rw-muted">Loading…</div>
+}
+
+// MoveView is the move dialog for one env.
+type MoveView struct {
+	Base    string // POST here
+	Env     string
+	From    string
+	To      string
+	Targets []Option
+	ToID    string
+	Volumes int
+	Data    string // "12.4 GB"; "" = sizes not known
+}
+
+// Move is the dialog: target node, how (live by default, or cold), and what
+// moves. It opens on arrival.
+templ Move(v MoveView) {
+	@c.Confirm(c.ConfirmView{
+		Open:    true,
+		Primary: true,
+		Button:  "Move " + v.Env,
+		Title:   "Move " + v.Env + " to " + v.To + "?",
+		Action:  v.Base + "/move",
+		Target:  target(),
+		Include: "[data-move-field]",
+		Body:    moveBody(v),
+	})
+}
+
+templ moveBody(v MoveView) {
+	<div class="space-y-4">
+		<p class="text-sm text-rw-muted">{ v.Env } stops while its data copies.</p>
+		<div>
+			<label for="move-to" class="label">Move to</label>
+			<select id="move-to" name="to" class="input" data-move-field>
+				for _, n := range v.Targets {
+					<option value={ n.ID } selected?={ n.ID == v.ToID }>{ n.Name }</option>
+				}
+			</select>
+		</div>
+		<fieldset class="space-y-2 text-sm">
+			<legend class="label">How</legend>
+			<label class="flex items-start gap-2"><input type="radio" name="how" value="live" checked class="mt-1 accent-rw-accent" data-move-field/> <span><span class="font-medium text-rw-text">Live</span> Copies while running, then stops briefly.</span></label>
+			<label class="flex items-start gap-2"><input type="radio" name="how" value="cold" class="mt-1 accent-rw-accent" data-move-field/> <span><span class="font-medium text-rw-text">Cold</span> Stops first, then copies.</span></label>
+		</fieldset>
+		<dl class="text-sm grid grid-cols-[6rem_1fr] gap-y-1">
+			<dt class="text-rw-faint">Data</dt>
+			<dd class="text-rw-text">
+				{ count(v.Volumes, "volume") }
+				if v.Data != "" {
+					{ " · " + v.Data }
+				}
+			</dd>
+			<dt class="text-rw-faint">Old copy</dt>
+			<dd class="text-rw-text">kept on { v.From } until you remove it</dd>
+		</dl>
+	</div>
+}
+
+// StepView is one line of the progress view; State is done, running or
+// waiting.
+type StepView struct{ Label, State, Detail string }
+
+// ProgressView is the move progress tab. Refresh, while set, polls it.
+type ProgressView struct {
+	Env, From, To string
+	Started       string
+	State         string // running | done | rolled_back
+	Error         string
+	Steps         []StepView
+	Refresh       string
+}
+
+templ Progress(v ProgressView) {
+	<div
+		id={ Root }
+		class="space-y-4"
+		if v.Refresh != "" {
+			hx-get={ v.Refresh }
+			hx-trigger="every 2s"
+			hx-swap="outerHTML"
+		}
+	>
+		<div>
+			<h3 class="text-base font-semibold text-rw-text">Move to { v.To }</h3>
+			<p class="text-xs text-rw-faint">from { v.From } · started { v.Started }</p>
+		</div>
+		<ol class="space-y-2">
+			for i, s := range v.Steps {
+				<li class="panel px-4 py-3 flex flex-wrap items-center gap-3 text-sm">
+					<span class="w-5 text-rw-faint">{ strconv.Itoa(i+1) }</span>
+					<span class="flex-1 min-w-0 truncate text-rw-text">{ s.Label }</span>
+					if s.Detail != "" {
+						<span class="text-xs text-rw-faint">{ s.Detail }</span>
+					}
+					@c.Pill(s.State, stepTone(s.State))
+				</li>
+			}
+		</ol>
+		switch v.State {
+			case "running":
+				<p class="text-xs text-rw-faint">If it fails, { v.Env } starts again on { v.From }.</p>
+			case "rolled_back":
+				<p class="banner banner-danger" role="alert">
+					Rolled back: { v.Env } runs on { v.From }.
+					if v.Error != "" {
+						{ " " + v.Error }
+					}
+				</p>
+			case "done":
+				<p class="banner" role="status">Done: { v.Env } runs on { v.To }.</p>
+		}
+	</div>
+}
+
+func stepTone(s string) string {
+	switch s {
+	case "done":
+		return "ok"
+	case "running":
+		return "busy"
+	}
+	return ""
+}

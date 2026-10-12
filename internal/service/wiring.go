@@ -66,8 +66,8 @@ func (o *Orchestrator) proxyConfigs(ctx context.Context) (map[string]json.RawMes
 	if err != nil {
 		return nil, err
 	}
-	// ponytail: routes and tiles carry no ingress pick yet, so all follow the
-	// default ingress node; add the pick here when the column lands.
+	// ponytail: external routes carry no ingress pick, so they follow the
+	// default ingress node; tiles use IngressFor (ingress_picks).
 	ext := make([]domain.NodeRoute, len(routes))
 	for i, r := range routes {
 		ext[i] = domain.NodeRoute{Route: r}
@@ -89,14 +89,15 @@ func (o *Orchestrator) placement(ctx context.Context) deploy.Placement {
 		if err != nil {
 			return "", "", ""
 		}
+		ingress, _ = o.IngressFor(ctx, tileID)
 		if ctl, err := o.controllerID(ctx); err != nil || node == ctl {
-			return "", node, ""
+			return ingress, node, ""
 		}
 		cs, err := o.docker.List(WithNode(ctx, node), map[string]string{"stackr.tile": t.ID, "stackr.role": "pause"})
 		if err == nil && len(cs) > 0 && len(cs[0].IPs) > 0 {
 			vip = cs[0].IPs[0]
 		}
-		return "", node, vip
+		return ingress, node, vip
 	}
 }
 
