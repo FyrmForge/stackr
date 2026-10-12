@@ -460,9 +460,14 @@ joined to 109 across the home NAT. Nothing below may be dropped.
   the worker image.
 - **Rsync helper image** is not distributed to nodes (live moves).
 - **On-box CLI** `stackr login --with-key` hangs; the box key is org-bound.
-- **Ingress on a worker:** not built. Workers run no Caddy (no proxy
-  container, no socket in the unit), so the ingress tag does nothing on a
-  worker. Test on h1 (`*.h1.vulpe.dev`) once built.
+- **Ingress on a worker (agreed):** not built. Tagging a node ingress makes
+  the controller start the proxy image on it (80/443, own cert volume);
+  untag removes it. The worker exposes that Caddy's admin API to the
+  controller over wg only; the existing per-node configs
+  (`proxyConfigs`, `caddyFor`) are pushed there. Own ACME certs per
+  ingress node. Upstream = tile address locally, VIP over the tunnel
+  otherwise. The panel domain stays on the controller. Test on h1
+  (`*.h1.vulpe.dev`).
 - **Worker firewall** carries the controller's LAN addresses (DNS
   192.168.1.101, front proxy 192.168.1.100) on remote boxes: check.
 
