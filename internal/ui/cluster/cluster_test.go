@@ -57,70 +57,90 @@ func TestMapDraws(t *testing.T) {
 		"4 nodes · 2 networks",
 		`node-id="node:h"`, `node-id="node:f"`,
 		`hx-get="/-/admin/nodes/f"`, `hx-push-url="?drawer=node:f"`, // a node opens its drawer
-		">NAT<", "192.168.1.0/24", "behind a router",
+		`node-id="nat:192.168.1.0/24"`, ">NAT<", "192.168.1.0/24", "behind a router",
+		`node-id="internet"`, `node-id="s3:b"`, "S3 · nightly",
+		`members="nat:192.168.1.0/24 node:h node:n"`, // a box holds its NAT and nodes
 		"LAN · 0.3 ms", "internet · 21 ms",
-		">private<",                      // no latency known: just the kind
-		"home.example.com +2", "ingress", // ingress arrow labels
+		`data-edge-label>private<`, // no latency known: just the kind
+		"home.example.com +2", // through the NAT: the box's ingress names
+		"shop.example.com",    // straight to a public node
 		"smoke/web/dev exits here", "acme/prod/web +1 exit here",
-		"S3 · nightly",
-		"+2 more", // five envs: three dealt, the rest counted
+		"+2 more", // five envs: three listed, the rest counted
 		"Not answering", "Healthy", "Moving",
 		"Public IP", "203.0.113.5", "No public IP",
-		`node-id="net:10.20.0.0/24"`, // a box drags by its handle
-		"No port forward", "NAT forwards to",
-		`data-extent="`,
+		"No port forward",
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("page lacks %q", want)
 		}
 	}
-	// home deals three env sub-cards and the "+N more" one.
-	if got := strings.Count(body, `node-id="env:h:`); got != 4 {
-		t.Errorf("home has %d sub-cards, want 3 envs + more", got)
+	for _, want := range []string{
+		`data-edge-kind="ingress" data-from="internet" data-to="nat:192.168.1.0/24"`,
+		`data-edge-kind="forward" data-from="nat:192.168.1.0/24" data-to="node:h"`,
+		`data-edge-kind="ingress" data-from="internet" data-to="node:f"`,
+		`data-edge-kind="egress" data-from="node:f" data-to="internet"`,
+		`data-edge-kind="tunnel" data-from="node:h" data-to="node:n"`,
+		`data-edge-kind="backup" data-from="node:n" data-to="s3:b"`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("page lacks edge %s", want)
+		}
+	}
+	// home lists three envs and the "+N more" row inside its card.
+	if got := strings.Count(body, `hx-trigger="click consume"`); got != 4+1+1 {
+		t.Errorf("%d env rows, want home 4, nas 1, fsn1 1", got)
 	}
 }
 
-// Cards and box handles never overlap.
+// Cards never overlap each other, and every box holds its cards.
 func TestMapNoOverlap(t *testing.T) {
 	v := cluster.Build(sample(), cluster.Base, nil, nil)
+	byID := map[string]int{}
+	for i, n := range v.Nodes {
+		byID[n.ID] = i
+	}
 	for i, a := range v.Nodes {
+		for _, m := range a.Members {
+			b := v.Nodes[byID[m]]
+			if b.X < a.X || b.Y < a.Y || b.X+b.W > a.X+a.W || b.Y+b.H > a.Y+a.H {
+				t.Errorf("%s is not inside %s", b.ID, a.ID)
+			}
+		}
+		if len(a.Members) > 0 {
+			continue
+		}
 		for _, b := range v.Nodes[i+1:] {
-			if a.X < b.X+b.W && b.X < a.X+a.W && a.Y < b.Y+b.H && b.Y < a.Y+a.H {
+			if len(b.Members) == 0 && a.X < b.X+b.W && b.X < a.X+a.W && a.Y < b.Y+b.H && b.Y < a.Y+a.H {
 				t.Errorf("%s and %s overlap", a.ID, b.ID)
 			}
 		}
 	}
 }
 
-// A dropped box takes its cards along; a dropped card stays where it was
-// put inside its box, and Drop turns a drop into what Placed keeps.
+// A dropped card stays where it was put and its box wraps it; a box's own
+// drop is not kept (it goes where its cards are).
 func TestMapPlaced(t *testing.T) {
 	m := sample()
-	pos := func(m cluster.Map, id string) (int, int) {
+	at := func(id string) (x, y, w, h int) {
 		for _, n := range cluster.Build(m, cluster.Base, nil, nil).Nodes {
 			if n.ID == id {
-				return n.X, n.Y
+				return n.X, n.Y, n.W, n.H
 			}
 		}
 		t.Fatalf("no %s", id)
-		return 0, 0
+		return
 	}
-	nx, ny := pos(m, "net:10.20.0.0/24")
-	fx, fy := pos(m, "node:f")
-	m.Placed = map[string][2]int{"net:10.20.0.0/24": {nx + 100, ny + 40}}
-	if x, y := pos(m, "node:f"); x != fx+100 || y != fy+40 {
-		t.Errorf("fsn1 at %d,%d after its box moved, want %d,%d", x, y, fx+100, fy+40)
+	m.Placed = map[string][2]int{"node:f": {2000, 1500}}
+	if x, y, _, _ := at("node:f"); x != 2000 || y != 1500 {
+		t.Errorf("fsn1 at %d,%d, want 2000,1500", x, y)
 	}
-	v := cluster.Build(m, cluster.Base, nil, nil)
-	p, ok := cluster.Drop(v, m, "node:f", nx+100+300, ny+40+400)
-	if !ok || p != [2]int{300, 400} {
-		t.Fatalf("Drop = %v %v, want 300,400 relative to the box", p, ok)
+	bx, by, bw, bh := at("net:10.20.0.0/24")
+	if bx > 2000 || by > 1500 || bx+bw < 2000+240 || by+bh < 1500+156 {
+		t.Errorf("box %d,%d %dx%d does not hold fsn1", bx, by, bw, bh)
 	}
-	m.Placed["node:f"] = p
-	if x, y := pos(m, "node:f"); x != nx+400 || y != ny+440 {
-		t.Errorf("fsn1 at %d,%d, want where it was dropped", x, y)
-	}
-	if _, ok := cluster.Drop(v, m, "env:f:0", 0, 0); ok {
-		t.Error("an env sub-card does not move")
+	for id, want := range map[string]bool{"node:f": true, "nat:x": true, "internet": true, "s3:b": true, "net:x": false, "env:f:0": false} {
+		if cluster.Movable(id) != want {
+			t.Errorf("Movable(%s) = %v", id, !want)
+		}
 	}
 }

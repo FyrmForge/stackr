@@ -90,8 +90,9 @@ func (h *handler) Map(c echo.Context) error {
 	return respond.HTML(c, http.StatusOK, ui.Canvas(v))
 }
 
-// POST …/-/positions (node_id, x, y): a note saves where it is; a network
-// or node saves too and the canvas is redrawn around it (boxes, tunnels).
+// POST …/-/positions (node_id, x, y): a note, node, NAT, internet or backup
+// card saves where it was dropped. A network box is where its cards are
+// (each of them posts its own drop), so its drop is not kept.
 func (h *handler) Positions(c echo.Context) error {
 	id := c.FormValue("node_id")
 	x, errX := strconv.Atoi(c.FormValue("x"))
@@ -99,27 +100,16 @@ func (h *handler) Positions(c echo.Context) error {
 	if errX != nil || errY != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, "x and y are whole numbers")
 	}
-	ctx := c.Request().Context()
-	if strings.HasPrefix(id, "note:") {
-		if err := h.orch.PlaceCluster(ctx, id, service.Point{X: x, Y: y}); err != nil {
-			return middleware.HTTPError(err)
-		}
+	if strings.HasPrefix(id, "net:") {
 		return c.NoContent(http.StatusNoContent)
 	}
-	v, m, err := h.view(c)
-	if err != nil {
-		return middleware.HTTPError(err)
-	}
-	p, ok := cluster.Drop(v, m, id, x, y)
-	if !ok {
+	if !strings.HasPrefix(id, "note:") && !cluster.Movable(id) {
 		return echo.NewHTTPError(http.StatusUnprocessableEntity, "this card does not move")
 	}
-	if err := h.orch.PlaceCluster(ctx, id, service.Point{X: p[0], Y: p[1]}); err != nil {
+	if err := h.orch.PlaceCluster(c.Request().Context(), id, service.Point{X: x, Y: y}); err != nil {
 		return middleware.HTTPError(err)
 	}
-	c.Response().Header().Set("HX-Retarget", "#graph")
-	c.Response().Header().Set("HX-Reswap", "innerHTML")
-	return h.Map(c)
+	return c.NoContent(http.StatusNoContent)
 }
 
 // POST …/-/reset: every network and node back to its computed place.

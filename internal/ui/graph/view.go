@@ -35,8 +35,7 @@ type View struct {
 	Lanes   []cards.Lane    // env traffic at the last sample; nil = no lanes layer
 	Banner  *Banner         // the strip over the canvas; nil = none
 	SyncBar *SyncBar        // the env sync review's strip; nil = none
-	Under   templ.Component // drawn behind the edges and cards (the Cluster map's boxes and tunnels); nil = none
-	Over    templ.Component // drawn over the canvas with the chrome (the Cluster map's legends); nil = none
+	Over    templ.Component // drawn over the canvas with the chrome (the Cluster map's legend); nil = none
 	Review  string          // the review the page carries, "sync=dev&drop=a,b"; kept on the helper routes and the show switches
 }
 
@@ -73,23 +72,30 @@ type Node struct {
 	Slug                   string // the drill-down path segment; a connector's id
 	Status                 string // one word, "" = nothing to show
 	X, Y, W, H             int    // the card's own box; sub-tiles hang below it
-	System, Static         bool
-	Color                  string // env hue, "" = none
-	Deck                   int    // drill-down cards: 0 to 2 layers under the card
-	Href                   string // drill-down page; "" = none
-	Drawer                 string // drawer GET, with ?drawer=&tab=; "" = none
-	Push                   string // the URL the drawer pushes: ?drawer=<id>&tab=<tab>
-	Subs                   []Sub
-	Card                   templ.Component // replaces the generic face and sub-tiles (env kinds)
-	Footer                 templ.Component // replaces the generic footer; the stream sends it too
+	// Members makes the card a container (the Cluster map's network box):
+	// the canvas keeps it wrapped around these cards, Pad (top right bottom
+	// left) out and at least MinW wide, and it drags them along.
+	Members        []string
+	Pad            [4]int
+	MinW           int
+	System, Static bool
+	Color          string // env hue, "" = none
+	Deck           int    // drill-down cards: 0 to 2 layers under the card
+	Href           string // drill-down page; "" = none
+	Drawer         string // drawer GET, with ?drawer=&tab=; "" = none
+	Push           string // the URL the drawer pushes: ?drawer=<id>&tab=<tab>
+	Subs           []Sub
+	Card           templ.Component // replaces the generic face and sub-tiles (env kinds)
+	Footer         templ.Component // replaces the generic footer; the stream sends it too
 }
 
 // Sub is a sub-tile under a card; Drawer is its own drawer GET (env
 // cards), which a fresh load of ?drawer=<sub id> opens.
 type Sub struct{ ID, Kind, Name, Status, Drawer string }
 
-// Edge is one server-drawn edge; the canvas re-paths it.
-type Edge struct{ Kind, From, To string }
+// Edge is one server-drawn edge; the canvas re-paths it. Label rides its
+// middle ("" = none).
+type Edge struct{ Kind, From, To, Label string }
 
 // Note is an annotation: kind note (text) or box (a labelled frame).
 type Note struct {
@@ -180,6 +186,12 @@ var edgeLooks = map[string]templ.Attributes{
 	"startup": {"stroke": "var(--rw-amber)", "stroke-width": "1.2", "stroke-opacity": "0.5", "stroke-dasharray": "1 5"},
 	"config":  {"stroke": "var(--rw-edge-connector)", "stroke-opacity": "0.75"},
 	"source":  {"stroke": "var(--rw-edge-connector)", "stroke-dasharray": "4 6", "stroke-opacity": "0.4"},
+	// The Cluster map's: tunnels between nodes, a NAT's port forward (dashed
+	// while unconfirmed), backups to an outside store.
+	"tunnel":         {"stroke": "rgb(var(--rw-muted))", "stroke-width": "1.6"},
+	"forward":        {"stroke": "rgb(var(--rw-accent))", "stroke-width": "2"},
+	"forward-unsure": {"stroke": "rgb(var(--rw-accent))", "stroke-width": "2", "stroke-dasharray": "3 4"},
+	"backup":         {"stroke": "rgb(var(--rw-faint))", "stroke-dasharray": "2 4"},
 }
 
 // EdgeAttrs is an edge path's stroke for its kind (the dev gallery draws
@@ -199,6 +211,10 @@ var legendRows = []struct{ kind, label string }{
 	{"shared", "managed instance"},
 	{"ref", "reference"},
 	{"startup", "startup order"},
+	{"tunnel", "tunnel"},
+	{"forward", "port forward"},
+	{"forward-unsure", "port forward, unconfirmed"},
+	{"backup", "backup"},
 }
 
 // legend is the legend rows of the edge kinds on this canvas.

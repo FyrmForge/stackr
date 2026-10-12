@@ -28,6 +28,8 @@ class GraphNode extends HTMLElement {
         this.removeEventListener("keydown", this.onKey);
     }
     num = (name) => Number(this.getAttribute(name)) || 0;
+    members = () => (this.getAttribute("members") ?? "").split(" ").filter(Boolean)
+        .map((id) => this.canvas()?.querySelector(`:scope > graph-node[node-id="${CSS.escape(id)}"]`)).filter((n) => n instanceof GraphNode);
     canvas = () => this.closest("graph-canvas");
     onNativeDrag = (e) => e.preventDefault();
     onKey = (e) => {
@@ -49,9 +51,10 @@ class GraphNode extends HTMLElement {
         const canvas = this.canvas();
         if (e.button !== 0 || e.shiftKey || this.hasAttribute("static") || this.drag || this.parentElement !== canvas)
             return;
-        const group = this.hasAttribute("selected") && canvas
+        const picked = this.hasAttribute("selected") && canvas
             ? [...canvas.querySelectorAll(":scope > graph-node[selected]:not([static])")]
             : [this];
+        const group = [...new Set(picked.flatMap((n) => [n, ...n.members()]))];
         this.drag = {
             id: e.pointerId, sx: e.clientX, sy: e.clientY, moved: false,
             slop: e.pointerType === "touch" ? 10 : 3,
@@ -118,7 +121,7 @@ class GraphNode extends HTMLElement {
     }
     nudge() {
         const [x0, y0] = [this.num("x"), this.num("y")];
-        const others = [...(this.parentElement?.children ?? [])].filter((n) => n instanceof GraphNode && n !== this && !n.getAttribute("node-id")?.startsWith("note:"));
+        const others = [...(this.parentElement?.children ?? [])].filter((n) => n instanceof GraphNode && n !== this && !n.hasAttribute("members") && !n.getAttribute("node-id")?.startsWith("note:"));
         for (let r = 0; r <= RINGS; r++) {
             const ring = [];
             for (let i = -r; i <= r; i++)
