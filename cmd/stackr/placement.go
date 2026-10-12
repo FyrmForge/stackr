@@ -121,9 +121,13 @@ func (a *app) pin() *cobra.Command {
 }
 
 func (a *app) ingress() *cobra.Command {
-	var clear bool
-	get := leaf("get", "org.ingress,stack.ingress,env.ingress,tile.ingress", "Which node public traffic enters through", exact(0),
+	var clear, def bool
+	var getDef bool
+	get := leaf("get", "org.ingress,stack.ingress,env.ingress,tile.ingress,admin.node-defaults", "Which node public traffic enters through", exact(0),
 		func(c *cobra.Command, _ []string) error {
+			if getDef {
+				return a.showDefaults()
+			}
 			p, err := a.place(c, atTile)
 			if err != nil {
 				return err
@@ -139,9 +143,13 @@ func (a *app) ingress() *cobra.Command {
 			a.say("%s\t%s\t(from %s)", cell(m["scope"]), cell(m["node"]), cell(m["from"]))
 			return nil
 		})
-	get.Example = "  stackr ingress get --stack shop --env prod"
-	set := leaf("set [node]", "org.ingress-set,stack.ingress-set,env.ingress-set,tile.ingress-set", "Pick the ingress node of a scope", upTo(1),
+	get.Example = "  stackr ingress get --stack shop --env prod\n  stackr ingress get --default"
+	get.Flags().BoolVar(&getDef, "default", false, "show the cluster-wide default ingress and exit")
+	set := leaf("set [node]", "org.ingress-set,stack.ingress-set,env.ingress-set,tile.ingress-set,admin.default-ingress-set", "Pick the ingress node of a scope", upTo(1),
 		func(c *cobra.Command, args []string) error {
+			if def {
+				return a.setDefault(c, args, "/admin/default-ingress", "ingress")
+			}
 			if len(args) == 0 && !clear {
 				return usage("pass a node, or --clear")
 			}
@@ -172,13 +180,58 @@ func (a *app) ingress() *cobra.Command {
 		})
 	set.Example = "  stackr ingress set home --tile admin --stack shop --env prod\n  stackr ingress set vps-fsn1 --default"
 	set.Flags().BoolVar(&clear, "clear", false, "remove the pick; the scope inherits")
+	set.Flags().BoolVar(&def, "default", false, "set the cluster-wide default ingress to <node>")
 	scopeFlags(get, true)
 	scopeFlags(set, true)
 	return noun("ingress", "The node public traffic enters through", get, set)
 }
 
+func (a *app) showDefaults() error {
+	v, err := a.call(GET, "/admin/node-defaults", nil)
+	if err != nil {
+		return err
+	}
+	if a.json {
+		return a.show(v)
+	}
+	m := asMap(v)
+	exit := cell(m["exit"])
+	if exit == "(none)" || exit == "" {
+		exit = "each node's own uplink"
+	}
+	a.say("default ingress\t%s\ndefault exit\t%s", cell(m["ingress"]), exit)
+	return nil
+}
+
+// setDefault moves the cluster-wide default ingress or exit (admin).
+func (a *app) setDefault(c *cobra.Command, args []string, path, what string) error {
+	node := ""
+	if len(args) > 0 {
+		node = args[0]
+	}
+	if node == "" && what == "ingress" {
+		return usage("pass the node to make the default ingress")
+	}
+	if len(args) > 1 {
+		return usage("--default takes one node (none clears the default exit)")
+	}
+	v, err := a.call(PUT, path, map[string]string{"node": node})
+	if err != nil {
+		return err
+	}
+	if a.json {
+		return a.show(v)
+	}
+	if node == "" {
+		a.say("default exit cleared: every node goes out its own uplink")
+	} else {
+		a.say("default %s is now %s", what, node)
+	}
+	return nil
+}
+
 func (a *app) exits() *cobra.Command {
-	var clear bool
+	var clear, def bool
 	ls := leaf("ls", "org.exits,stack.exits,env.exits,tile.exits", "The exit list in force for a scope", exact(0),
 		func(c *cobra.Command, _ []string) error {
 			p, err := a.place(c, atTile)
@@ -200,8 +253,11 @@ func (a *app) exits() *cobra.Command {
 			return a.show(m["exits"], "position", "node", "state")
 		})
 	ls.Example = "  stackr exit ls --stack shop --env prod"
-	set := leaf("set [node]...", "org.exits-set,stack.exits-set,env.exits-set,tile.exits-set", "Set the ordered exit list of a scope", atLeast(0),
+	set := leaf("set [node]...", "org.exits-set,stack.exits-set,env.exits-set,tile.exits-set,admin.default-exit-set", "Set the ordered exit list of a scope", atLeast(0),
 		func(c *cobra.Command, args []string) error {
+			if def {
+				return a.setDefault(c, args, "/admin/default-exit", "exit")
+			}
 			if len(args) == 0 && !clear {
 				return usage("pass the exit nodes in order, or --clear")
 			}
@@ -232,6 +288,7 @@ func (a *app) exits() *cobra.Command {
 		})
 	set.Example = "  stackr exit set vps-fsn1 home --stack shop --env prod\n  stackr exit set --clear --stack shop --env prod"
 	set.Flags().BoolVar(&clear, "clear", false, "remove the list: the scope goes out through its own node")
+	set.Flags().BoolVar(&def, "default", false, "set the cluster-wide default exit to <node> (no node clears it)")
 	scopeFlags(ls, true)
 	scopeFlags(set, true)
 	return noun("exit", "The nodes traffic leaves the cluster through", ls, set)

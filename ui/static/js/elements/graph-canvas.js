@@ -35,7 +35,7 @@ class GraphCanvas extends HTMLElement {
             [this, "pointerdown", this.onDown], [this, "wheel", this.onWheel], [this, "click", this.onClick],
             [this, "change", this.onChange], [this, "pointerover", this.onOver], [this, "pointerleave", this.onOver],
             [window, "pointermove", this.onMove], [window, "pointerup", this.onUp], [window, "pointercancel", this.onUp],
-            [window, "resize", this.onResize], [document, "keydown", this.onKey],
+            [window, "resize", this.onResize], [document, "keydown", this.onKey], [document, "htmx:beforeRequest", this.onRefresh],
         ];
         for (const [t, name, fn] of pairs)
             (on ? t.addEventListener : t.removeEventListener).call(t, name, fn, { passive: false });
@@ -67,6 +67,10 @@ class GraphCanvas extends HTMLElement {
         this.wire(false);
     }
     onResize = () => this.apply();
+    onRefresh = (e) => {
+        if (e.target?.id === "graph" && this.querySelector("textarea:focus"))
+            e.preventDefault();
+    };
     nodes = () => [...this.querySelectorAll(":scope > graph-node")];
     node = (id) => this.querySelector(`graph-node[node-id="${CSS.escape(id)}"]`);
     paths = () => [...this.querySelectorAll("svg[data-edges] path[data-from]")];

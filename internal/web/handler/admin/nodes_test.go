@@ -50,7 +50,7 @@ func TestAdminNodes(t *testing.T) {
 		t.Fatalf("tags tab = %d\n%s", rec.Code, rec.Body)
 	}
 	rec = s.As(t, root, "POST", "/-/admin/nodes/"+id+"/tags", url.Values{"tag": {"builder"}})
-	if rec.Code != http.StatusUnprocessableEntity || !strings.Contains(rec.Body.String(), "Tag another node as ingress first") {
+	if rec.Code != http.StatusUnprocessableEntity || !strings.Contains(rec.Body.String(), "Set another default ingress first") {
 		t.Errorf("untag ingress = %d\n%s", rec.Code, rec.Body)
 	}
 

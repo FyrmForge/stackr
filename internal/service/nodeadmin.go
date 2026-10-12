@@ -260,18 +260,19 @@ func (o *Orchestrator) SetNodeTags(ctx context.Context, by *Principal, id string
 	if n.Status == node.StatusPending {
 		return errs.ErrNotFound
 	}
-	if n.Role == node.Controller && slices.Contains(node.Tags(n), node.TagIngress) && !slices.Contains(tags, node.TagIngress) {
-		other, err := o.otherIngress(ctx, n.ID)
-		if err != nil {
+	if slices.Contains(node.Tags(n), node.TagIngress) && !slices.Contains(tags, node.TagIngress) {
+		if di, err := o.DefaultIngress(ctx); err != nil {
 			return err
-		}
-		if !other {
+		} else if di == n.ID {
 			rs, err := o.routes.List(ctx)
 			if err != nil {
 				return err
 			}
-			return errs.Conflictf("%s still serves the panel and %d routes. Tag another node as ingress first.", n.Name, len(rs))
+			return errs.Conflictf("%s is the default ingress: it serves the panel and %d routes. Set another default ingress first.", n.Name, len(rs))
 		}
+	}
+	if slices.Contains(node.Tags(n), node.TagEgress) && !slices.Contains(tags, node.TagEgress) && o.DefaultExit(ctx) == n.ID {
+		return errs.Conflictf("%s is the default exit. Set another default exit (or clear it) first.", n.Name)
 	}
 	if slices.Contains(node.Tags(n), node.TagIngress) && !slices.Contains(tags, node.TagIngress) {
 		picks, err := o.store.IngressPicks.ListByNode(ctx, n.ID)
@@ -299,19 +300,6 @@ func (o *Orchestrator) SetNodeTags(ctx context.Context, by *Principal, id string
 		}
 	}
 	return err
-}
-
-func (o *Orchestrator) otherIngress(ctx context.Context, except string) (bool, error) {
-	ns, err := o.nodeLeaf().List(ctx)
-	if err != nil {
-		return false, err
-	}
-	for _, n := range ns {
-		if n.ID != except && n.Status != node.StatusPending && slices.Contains(node.Tags(n), node.TagIngress) {
-			return true, nil
-		}
-	}
-	return false, nil
 }
 
 // SetNodeOrgs (server admin) opens a worker to exactly these orgs. The

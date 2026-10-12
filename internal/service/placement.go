@@ -696,7 +696,7 @@ func (o *Orchestrator) ResolveExits(ctx context.Context, tileID string) (exits.R
 	if err != nil {
 		return exits.Resolution{}, err
 	}
-	return exits.Resolve(exits.Levels{Tile: ls[0], Env: ls[1], Stack: ls[2], Org: ls[3]}, nil), nil
+	return exits.Resolve(exits.Levels{Tile: ls[0], Env: ls[1], Stack: ls[2], Org: ls[3]}, defaultExitIDs(ctx, o.store)), nil
 }
 
 // IngressFor is the ingress node id in effect for a tile: the nearest pick

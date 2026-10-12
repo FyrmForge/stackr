@@ -55,10 +55,12 @@ type ClusterNode struct {
 	ID, Name, Role string
 	Tags           []string
 	Status         string
-	Docker         string   // the docker server version the node reported; "" = none
-	Net            string   // ClusterNet.ID
-	Public         []string // public addresses on its interfaces
-	Envs           []ClusterEnv
+	// DefaultIngress and DefaultExit mark the cluster-wide defaults.
+	DefaultIngress, DefaultExit bool
+	Docker                      string   // the docker server version the node reported; "" = none
+	Net                         string   // ClusterNet.ID
+	Public                      []string // public addresses on its interfaces
+	Envs                        []ClusterEnv
 	// Domains are the hosts this node's ingress answers on: the tiles whose
 	// ingress pick is this node, the rest on the controller.
 	Domains []string
@@ -263,6 +265,11 @@ func (o *Orchestrator) ClusterMap(ctx context.Context) (ClusterMap, error) {
 	for i, n := range in {
 		at[n.Node.ID] = i
 	}
+	defIng, err := o.DefaultIngress(ctx)
+	if err != nil {
+		return ClusterMap{}, err
+	}
+	defExit := o.DefaultExit(ctx)
 	moving, err := o.movingEnvs(ctx)
 	if err != nil {
 		return ClusterMap{}, err
@@ -296,7 +303,7 @@ func (o *Orchestrator) ClusterMap(ctx context.Context) (ClusterMap, error) {
 				}
 				j, ok := at[ing]
 				if !ok {
-					j = at[ctl]
+					j = at[defIng]
 				}
 				in[j].Domains = append(in[j].Domains, hosts[t.ID]...)
 			}
@@ -317,6 +324,10 @@ func (o *Orchestrator) ClusterMap(ctx context.Context) (ClusterMap, error) {
 		slices.Sort(in[i].ExitEnvs)
 	}
 	m := buildClusterMap(in)
+	for i := range m.Nodes {
+		m.Nodes[i].DefaultIngress = m.Nodes[i].ID == defIng
+		m.Nodes[i].DefaultExit = m.Nodes[i].ID == defExit
+	}
 	if m.Backups, err = o.clusterBackups(ctx, ctl); err != nil {
 		return m, err
 	}
@@ -420,7 +431,7 @@ func (o *Orchestrator) exitNode(ctx context.Context, e store.Environment, orgID 
 	if lv.Org, err = ladder("org", orgID); err != nil {
 		return "", err
 	}
-	if r := exits.Resolve(lv, nil); len(r.Nodes) > 0 {
+	if r := exits.Resolve(lv, defaultExitIDs(ctx, o.store)); len(r.Nodes) > 0 {
 		return r.Nodes[0], nil
 	}
 	return e.NodeID, nil

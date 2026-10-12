@@ -57,11 +57,11 @@ func (o *Orchestrator) proxyConfigs(ctx context.Context) (map[string]json.RawMes
 			in.Accounts = append(in.Accounts, domain.Account{Host: r.Host, Email: r.ACMEEmail})
 		}
 	}
-	ctl, err := o.controllerID(ctx)
+	di, err := o.DefaultIngress(ctx)
 	if err != nil {
 		return nil, err
 	}
-	in.DefaultIngress = ctl
+	in.DefaultIngress = di
 	routes, err := o.externalRoutes(ctx)
 	if err != nil {
 		return nil, err

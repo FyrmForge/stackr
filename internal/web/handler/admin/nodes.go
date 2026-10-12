@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"time"
 
@@ -58,6 +59,22 @@ func (h *handler) mountNodes(g *echo.Group, a *middleware.Access) {
 		}
 		return h.orch.SetNodeOrgs(c.Request().Context(), middleware.Principal(c), c.Param("node"), f["org"])
 	}), m)
+	g.POST(nodesBase+"/default-ingress", h.act("nodes", func(c echo.Context) (string, *service.Job, error) {
+		_, err := h.orch.SetDefaultIngress(c.Request().Context(), middleware.Principal(c), c.FormValue("node"))
+		return "Default ingress saved.", nil, err
+	}), m)
+	g.POST(nodesBase+"/default-exit", h.act("nodes", func(c echo.Context) (string, *service.Job, error) {
+		_, err := h.orch.SetDefaultExit(c.Request().Context(), middleware.Principal(c), c.FormValue("node"))
+		return "Default exit saved.", nil, err
+	}), m)
+	g.POST(nodesBase+"/:node/rejoin", func(c echo.Context) error {
+		out, err := h.orch.RejoinNode(c.Request().Context(), middleware.Principal(c), c.Param("node"))
+		if err != nil {
+			return h.nodeAnswer(c, "security", "", err)
+		}
+		c.Set("rejoin", out)
+		return h.nodeAnswer(c, "security", "New join command below.", nil)
+	}, m)
 	g.POST(nodesBase+"/:node/remove", h.leave("Node removed.", func(c echo.Context) error {
 		return h.orch.RemoveNode(c.Request().Context(), middleware.Principal(c), c.Param("node"))
 	}), m)
@@ -169,6 +186,23 @@ func (h *handler) nodesTab(c echo.Context, adder *ui.AddNodeView) (templ.Compone
 			Open: nodesBase + "/" + n.ID,
 		})
 	}
+	if len(ns) > 1 {
+		d := &ui.DefaultsView{IngressAction: nodesBase + "/default-ingress", ExitAction: nodesBase + "/default-exit"}
+		if id, err := h.orch.DefaultIngress(ctx); err == nil {
+			d.Ingress = id
+		}
+		d.Exit = h.orch.DefaultExit(ctx)
+		for _, n := range ns {
+			o := ui.Option{Value: n.ID, Label: n.Name}
+			if slices.Contains(n.Tags, "ingress") {
+				d.IngressNodes = append(d.IngressNodes, o)
+			}
+			if slices.Contains(n.Tags, "egress") {
+				d.ExitNodes = append(d.ExitNodes, o)
+			}
+		}
+		v.Defaults = d
+	}
 	for _, l := range lost {
 		r := ui.LostEnvRow{Path: l.Path, Node: l.Node, Volumes: l.Volumes, EnvID: l.ID, Action: nodesBase + "/lost/restore"}
 		for _, n := range ns {
@@ -198,8 +232,11 @@ func (h *handler) nodeAnswer(c echo.Context, tab, note string, actErr error) err
 	base := nodesBase + "/" + d.ID
 	f := comp.DrawerView{
 		Node: "node:" + d.ID, Title: d.Name, Kind: d.Role, Base: base, Tabs: nodeTabs, Tab: tab,
-		Scope: "instance", Note: note,
-		Actions: ui.NodeBack(ui.Base + "?tab=nodes"),
+		Note: note,
+	}
+	// Opened from the cluster map, "back" has nowhere to go.
+	if cur, err := url.Parse(c.Request().Header.Get("HX-Current-URL")); err != nil || !strings.HasPrefix(cur.Path, "/-/cluster") {
+		f.Actions = ui.NodeBack(ui.Base + "?tab=nodes")
 	}
 	status := http.StatusOK
 	if actErr != nil {
@@ -225,7 +262,7 @@ func (h *handler) nodeView(c echo.Context, d service.NodeDetail, base string) (u
 		v.HasFacts = true
 		v.Hardware = fmt.Sprintf("%d cores · %s", f.CPUs, gb(f.MemBytes))
 		v.Kernel, v.Docker = f.Kernel, f.Docker
-		v.Uptime = (time.Duration(f.UptimeS) * time.Second).Round(time.Hour).String()
+		v.Uptime = uptime(time.Duration(f.UptimeS) * time.Second)
 		v.Disk = render.Size(int64(f.DiskFree)) + " free"
 		for _, i := range f.Interfaces {
 			kind := "private network"
@@ -265,6 +302,11 @@ func (h *handler) nodeView(c echo.Context, d service.NodeDetail, base string) (u
 		})
 	}
 	if !d.Controller {
+		v.Rejoin = base + "/rejoin"
+		if out, ok := c.Get("rejoin").(service.JoinTokenOut); ok {
+			v.JoinCommand = out.Command
+			v.JoinExpires = "in " + fmt.Sprint(int(time.Until(out.ExpiresAt).Round(time.Minute).Minutes())) + " minutes"
+		}
 		lost, err := h.orch.ForgetPreview(c.Request().Context(), d.ID)
 		if err != nil {
 			return v, err
@@ -298,4 +340,15 @@ func contains(xs []string, s string) bool {
 		}
 	}
 	return false
+}
+
+// uptime reads "11 days", "3 h 20 min", "5 min".
+func uptime(d time.Duration) string {
+	switch {
+	case d >= 48*time.Hour:
+		return fmt.Sprintf("%d days", int(d/(24*time.Hour)))
+	case d >= time.Hour:
+		return fmt.Sprintf("%d h %d min", int(d/time.Hour), int(d%time.Hour/time.Minute))
+	}
+	return fmt.Sprintf("%d min", int(d/time.Minute))
 }

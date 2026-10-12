@@ -42,6 +42,7 @@ type Config struct {
 	Runner     Runner    // iptables-restore, iptables, ip
 	WG         WGApplier // nil = /v1/wg answers 501
 	Mesh       MeshConfig
+	Registry   RegistryConfig // the controller's registry on 127.0.0.1:5000; URL "" = off
 	// DockerUserWait bounds how long replay waits for the DOCKER-USER chain
 	// (0 = 2m); DockerUserPoll is the gap between checks (0 = 1s).
 	DockerUserWait time.Duration
@@ -123,6 +124,13 @@ func Run(ctx context.Context, cfg Config) error {
 	s := New(cfg)
 	defer s.Stop()
 	go s.reassertLoop()
+	if cfg.Registry.URL != "" {
+		go func() {
+			if err := serveRegistry(ctx, cfg.Registry); err != nil {
+				slog.Error("worker: registry proxy", "err", err)
+			}
+		}()
+	}
 	// A restart restores the saved state (wg, routes, chains, exits) on its own.
 	go func() {
 		if err := s.replayState(ctx); err != nil {

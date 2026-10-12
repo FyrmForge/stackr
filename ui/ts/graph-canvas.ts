@@ -47,7 +47,7 @@ class GraphCanvas extends HTMLElement {
       [this, "pointerdown", this.onDown], [this, "wheel", this.onWheel], [this, "click", this.onClick],
       [this, "change", this.onChange], [this, "pointerover", this.onOver], [this, "pointerleave", this.onOver],
       [window, "pointermove", this.onMove], [window, "pointerup", this.onUp], [window, "pointercancel", this.onUp],
-      [window, "resize", this.onResize], [document, "keydown", this.onKey],
+      [window, "resize", this.onResize], [document, "keydown", this.onKey], [document, "htmx:beforeRequest", this.onRefresh],
     ];
     for (const [t, name, fn] of pairs) (on ? t.addEventListener : t.removeEventListener).call(t, name, fn as EventListener, { passive: false });
   }
@@ -70,6 +70,10 @@ class GraphCanvas extends HTMLElement {
     this.wire(false);
   }
   private onResize = (): void => this.apply();
+  // The page refreshes #graph on a timer; skip a tick while someone types in a note.
+  private onRefresh = (e: Event): void => {
+    if ((e.target as Element | null)?.id === "graph" && this.querySelector("textarea:focus")) e.preventDefault();
+  };
   private nodes = (): HTMLElement[] => [...this.querySelectorAll<HTMLElement>(":scope > graph-node")];
   private node = (id: string): HTMLElement | null => this.querySelector<HTMLElement>(`graph-node[node-id="${CSS.escape(id)}"]`);
   private paths = (): SVGPathElement[] => [...this.querySelectorAll<SVGPathElement>("svg[data-edges] path[data-from]")];

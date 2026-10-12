@@ -760,8 +760,8 @@ func (o *Orchestrator) IngressGet(ctx context.Context, kind, id string) (Ingress
 			return out, nil
 		}
 	}
-	ctl, err := o.controllerID(ctx)
-	out.Node = o.nodeName(ctx, ctl)
+	di, err := o.DefaultIngress(ctx)
+	out.Node = o.nodeName(ctx, di)
 	return out, err
 }
 

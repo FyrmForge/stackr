@@ -139,3 +139,24 @@ func (h *H) RegistryLogin() Endpoint {
 		return h.Orch.RegistryLogin(rc(c), middleware.Principal(c))
 	})
 }
+
+// NodeDefaults is the cluster-wide default ingress and exit.
+func (h *H) NodeDefaults() Endpoint {
+	return Get(func(c echo.Context) (service.DefaultsOut, error) {
+		return h.Orch.Defaults(rc(c))
+	})
+}
+
+// SetDefaultIngress (server admin) moves the default ingress.
+func (h *H) SetDefaultIngress() Endpoint {
+	return JSON(200, func(c echo.Context, in NodeIn) (service.DefaultsOut, error) {
+		return h.Orch.SetDefaultIngress(rc(c), middleware.Principal(c), in.Node)
+	})
+}
+
+// SetDefaultExit (server admin) moves or clears the default exit.
+func (h *H) SetDefaultExit() Endpoint {
+	return JSON(200, func(c echo.Context, in NodeIn) (service.DefaultsOut, error) {
+		return h.Orch.SetDefaultExit(rc(c), middleware.Principal(c), in.Node)
+	})
+}

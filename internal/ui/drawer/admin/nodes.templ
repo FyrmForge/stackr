@@ -13,6 +13,15 @@ type NodesView struct {
 	Lost  []LostEnvRow
 	Rows  []NodeRow
 	Adder *AddNodeView // the open add-node steps, nil = closed
+	// Defaults is the cluster-wide default ingress and exit; nil = single node.
+	Defaults *DefaultsView
+}
+
+// DefaultsView is the "Default ingress / exit" control. Each form POSTs node=.
+type DefaultsView struct {
+	IngressAction, ExitAction string
+	Ingress, Exit             string // node id in force; Exit "" = each node's own uplink
+	IngressNodes, ExitNodes   []Option
 }
 
 // NodeRow is one node card. Open is a GET that answers the node drawer.
@@ -83,6 +92,9 @@ type NodeView struct {
 	Orgs        []NodeOrgRow
 	// Security
 	Certs  []CertRow
+	Rejoin      string // POST: a new join command; "" = the controller
+	JoinCommand string // the answer, shown once
+	JoinExpires string
 	Remove c.ConfirmView
 	Forget c.ConfirmView
 	Back   string
@@ -178,6 +190,9 @@ templ Nodes(v NodesView) {
 		@c.Section("Nodes", "instance", "Machines this panel runs envs on.") {
 			if v.Adder != nil {
 				@AddNode(*v.Adder)
+			}
+			if v.Defaults != nil {
+				@defaultsControl(*v.Defaults)
 			}
 			<ul class="space-y-3">
 				for _, r := range v.Rows {
@@ -380,6 +395,15 @@ templ NodeBody(tab string, v NodeView) {
 					}
 				}
 				if !v.Controller {
+					@c.Section("Rejoin", "", "If this node broke or was reinstalled, get a new join command. It keeps its name, range and envs; the old certificate stops working once the new request is confirmed.") {
+						if v.JoinCommand != "" {
+							<p class="text-sm text-rw-muted mb-2">Run this on the machine as root. It works once and expires { v.JoinExpires }.</p>
+							<pre class="panel px-3 py-2 text-xs font-mono whitespace-pre-wrap break-all select-all mb-3">{ v.JoinCommand }</pre>
+						}
+						<form hx-post={ v.Rejoin } hx-target={ target() } hx-swap="outerHTML">
+							<button type="submit" class="btn btn-ghost btn-sm">Rejoin</button>
+						</form>
+					}
 					@c.Section("Remove this node", "", "Remove needs its envs moved first. Forget is for a node that is gone for good.") {
 						<div class="flex gap-2">
 							@c.Confirm(v.Remove)
@@ -443,4 +467,32 @@ func tagHelp(t string) string {
 // NodeBack is the link from a node drawer to the Nodes tab.
 templ NodeBack(href string) {
 	<button type="button" hx-get={ href } hx-target={ target() } hx-swap="outerHTML" class="text-xs text-rw-accent hover:underline mb-3">Back to nodes</button>
+}
+
+templ defaultsControl(d DefaultsView) {
+	<div class="panel px-4 py-3 mb-3 text-sm grid gap-3 sm:grid-cols-2">
+		<form hx-post={ d.IngressAction } hx-target={ target() } hx-swap="outerHTML" class="flex items-end gap-2">
+			<div>
+				<label for="default-ingress" class="label">Default ingress</label>
+				<select id="default-ingress" name="node" class="input">
+					for _, n := range d.IngressNodes {
+						<option value={ n.Value } selected?={ n.Value == d.Ingress }>{ n.Label }</option>
+					}
+				</select>
+			</div>
+			<button type="submit" class="btn btn-ghost btn-sm">Set</button>
+		</form>
+		<form hx-post={ d.ExitAction } hx-target={ target() } hx-swap="outerHTML" class="flex items-end gap-2">
+			<div>
+				<label for="default-exit" class="label">Default exit</label>
+				<select id="default-exit" name="node" class="input">
+					<option value="" selected?={ d.Exit == "" }>Each node's own uplink</option>
+					for _, n := range d.ExitNodes {
+						<option value={ n.Value } selected?={ n.Value == d.Exit }>{ n.Label }</option>
+					}
+				</select>
+			</div>
+			<button type="submit" class="btn btn-ghost btn-sm">Set</button>
+		</form>
+	</div>
 }

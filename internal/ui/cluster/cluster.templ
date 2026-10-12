@@ -23,7 +23,7 @@ templ Page(v graph.View, m Map) {
 		id="graph"
 		class="flex min-h-0 flex-1 flex-col"
 		hx-get={ Base + "/map" }
-		hx-trigger="every 15s [!document.querySelector('graph-canvas textarea:focus')]"
+		hx-trigger="every 15s"
 		hx-swap="innerHTML"
 	>
 		@graph.Canvas(v)

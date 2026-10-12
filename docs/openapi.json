@@ -752,6 +752,21 @@
         ],
         "type": "object"
       },
+      "DefaultsOut": {
+        "properties": {
+          "exit": {
+            "type": "string"
+          },
+          "ingress": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "ingress",
+          "exit"
+        ],
+        "type": "object"
+      },
       "DestIn": {
         "properties": {
           "access_key": {
@@ -6266,6 +6281,84 @@
         "x-verb": "connector.admin"
       }
     },
+    "/api/v1/admin/default-exit": {
+      "put": {
+        "operationId": "admin.default-exit-set",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NodeIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DefaultsOut"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "node.manage"
+      }
+    },
+    "/api/v1/admin/default-ingress": {
+      "put": {
+        "operationId": "admin.default-ingress-set",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NodeIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DefaultsOut"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "node.manage"
+      }
+    },
     "/api/v1/admin/defaults": {
       "get": {
         "operationId": "admin.defaults",
@@ -6987,6 +7080,35 @@
           }
         },
         "x-verb": "user.admin"
+      }
+    },
+    "/api/v1/admin/node-defaults": {
+      "get": {
+        "operationId": "admin.node-defaults",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DefaultsOut"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "@self"
       }
     },
     "/api/v1/admin/nodes/{node}": {

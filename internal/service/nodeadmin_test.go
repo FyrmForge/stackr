@@ -32,7 +32,43 @@ func TestNodeAdminLifecycle(t *testing.T) {
 		t.Error("controller lost ingress with no other ingress node")
 	}
 	must(t, n.orch.SetNodeTags(ctx, adm, "w1", []string{"ingress", "egress"}))
+	// ...and keeps it while it is the default, even with another ingress node
+	if err := n.orch.SetNodeTags(ctx, adm, n.ctl.ID, []string{"builder"}); err == nil {
+		t.Error("controller lost ingress while it is the default")
+	}
+	if _, err := n.orch.SetDefaultIngress(ctx, &Principal{}, "w1"); err == nil {
+		t.Error("a non-admin moved the default ingress")
+	}
+	if _, err := n.orch.SetDefaultIngress(ctx, adm, n.ctl.ID+"x"); err == nil {
+		t.Error("default ingress set to a missing node")
+	}
+	d0, err := n.orch.SetDefaultIngress(ctx, adm, "w1")
+	must(t, err)
+	if d0.Ingress != "w1" {
+		t.Errorf("defaults = %+v", d0)
+	}
+	if id, _ := n.orch.DefaultIngress(ctx); id != "w1" {
+		t.Errorf("default ingress = %s", id)
+	}
 	must(t, n.orch.SetNodeTags(ctx, adm, n.ctl.ID, []string{"builder"}))
+	if _, err := n.orch.SetDefaultIngress(ctx, adm, n.ctl.ID); err == nil {
+		t.Error("default ingress set to a node without the tag")
+	}
+	if _, err := n.orch.SetDefaultExit(ctx, adm, n.ctl.ID); err == nil {
+		t.Error("default exit set to a node without the tag")
+	}
+	if _, err := n.orch.SetDefaultExit(ctx, adm, "w1"); err != nil {
+		t.Fatal(err)
+	}
+	if n.orch.DefaultExit(ctx) != "w1" || len(defaultExitIDs(ctx, n.st)) != 1 {
+		t.Error("default exit not stored")
+	}
+	if err := n.orch.SetNodeTags(ctx, adm, "w1", []string{"ingress"}); err == nil {
+		t.Error("w1 lost egress while it is the default exit")
+	}
+	if len(events(t, w, auditDefaultIngress)) != 1 || len(events(t, w, auditDefaultExit)) != 1 {
+		t.Error("default changes are not audited")
+	}
 	if err := n.orch.SetNodeTags(ctx, adm, "w1", []string{"gpu"}); err == nil {
 		t.Error("unknown tag accepted")
 	}

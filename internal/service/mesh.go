@@ -383,8 +383,8 @@ func (m *meshSvc) gather(ctx context.Context) (meshIn, error) {
 			if lv.Org, err = ladder("org", org); err != nil {
 				return meshIn{}, err
 			}
-			// The controller default is the own uplink: no ladder.
-			res := exits.Resolve(lv, nil)
+			// No default exit set = the own uplink: no ladder.
+			res := exits.Resolve(lv, defaultExitIDs(ctx, m.st))
 			// OwnRung ("own node" in the placement UI) is this env's node.
 			own := make([]string, 0, len(res.Nodes))
 			for _, id := range res.Nodes {

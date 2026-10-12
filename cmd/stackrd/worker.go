@@ -40,6 +40,8 @@ func workerConfig(args []string) (worker.Config, error) {
 	ca := fs.String("ca", "", "cluster CA cert (default <state-dir>/cluster-ca.crt)")
 	sock := fs.String("docker-sock", config.GetEnvOrDefault("STACKR_WORKER_DOCKER_SOCK", "/var/run/docker.sock"), "local Docker socket")
 	caddy := fs.String("caddy-sock", config.GetEnvOrDefault("STACKR_WORKER_CADDY_SOCK", ""), "local Caddy admin socket (\"\" = off)")
+	regURL := fs.String("registry-url", config.GetEnvOrDefault("STACKR_WORKER_REGISTRY_URL", ""), "controller panel address on its transit IP, e.g. https://10.213.0.1 (STACKR_WORKER_REGISTRY_URL); serves its registry on 127.0.0.1:5000 (\"\" = off)")
+	regHost := fs.String("registry-host", config.GetEnvOrDefault("STACKR_WORKER_REGISTRY_HOST", ""), "registry host name, registry.<panel domain> (STACKR_WORKER_REGISTRY_HOST)")
 	if err := fs.Parse(args); err != nil {
 		return worker.Config{}, err
 	}
@@ -56,8 +58,20 @@ func workerConfig(args []string) (worker.Config, error) {
 	if err != nil {
 		return worker.Config{}, err
 	}
+	var reg worker.RegistryConfig
+	if *regURL != "" {
+		if *regHost == "" {
+			return worker.Config{}, errors.New("--registry-host is required with --registry-url")
+		}
+		own, err := tls.LoadX509KeyPair(def(cert, "node.crt"), def(key, "node.key"))
+		if err != nil {
+			return worker.Config{}, fmt.Errorf("node cert: %w", err)
+		}
+		reg = worker.RegistryConfig{URL: *regURL, Host: *regHost, TLS: &tls.Config{Certificates: []tls.Certificate{own}, MinVersion: tls.VersionTLS12}}
+	}
 	return worker.Config{
-		TLS: tc, Addr: *addr, DockerSock: *sock, CaddySock: *caddy, StateDir: *state,
+		Registry: reg,
+		TLS:      tc, Addr: *addr, DockerSock: *sock, CaddySock: *caddy, StateDir: *state,
 		Runner: worker.ExecRunner{}, Mesh: worker.MeshConfig{WG: workerWG()},
 	}, nil
 }
