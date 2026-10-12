@@ -325,7 +325,7 @@ func (s *Server) jumpsFirst(ctx context.Context, payload string) error {
 			tbl = f[0][1:]
 		case len(f) >= 4 && f[0] == "-I" && f[len(f)-2] == "-j" && tbl != "":
 			hook, chain := f[1], f[len(f)-1]
-			if out, err := run("-t", tbl, "-S", hook, "1"); err == nil && strings.TrimSpace(out) == "-A "+hook+" -j "+chain {
+			if out, err := run("-t", tbl, "-S", hook); err == nil && onlyFirst(out, "-A "+hook+" -j "+chain) {
 				continue
 			}
 			for i := 0; i < 50; i++ { // every copy goes; capped in case -D never fails
@@ -339,6 +339,18 @@ func (s *Server) jumpsFirst(ctx context.Context, payload string) error {
 		}
 	}
 	return nil
+}
+
+// onlyFirst reports whether rule is the first of the -A lines in an
+// `iptables -S` listing and appears there once.
+func onlyFirst(listing, rule string) bool {
+	var rules []string
+	for _, l := range strings.Split(listing, "\n") {
+		if strings.HasPrefix(l, "-A ") {
+			rules = append(rules, strings.TrimSpace(l))
+		}
+	}
+	return len(rules) > 0 && rules[0] == rule && slices.Index(rules[1:], rule) < 0
 }
 
 // savedJumps is the jumps payload of the applied state, "" when there is none.

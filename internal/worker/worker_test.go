@@ -64,7 +64,7 @@ type fakeRunner struct {
 	stdin []string
 	// failDockerUser makes `iptables -n -L DOCKER-USER` fail this many times.
 	failDockerUser int
-	// haveJumps makes `iptables -S <hook> 1` show our jump first; unset, it
+	// haveJumps makes `iptables -S <hook>` show our jump first; unset, it
 	// is not in place.
 	haveJumps bool
 }
@@ -79,7 +79,7 @@ func (f *fakeRunner) Run(_ context.Context, stdin []byte, name string, args ...s
 	if name == "iptables" && slices.Contains(args, "-S") {
 		f.calls = append(f.calls, call)
 		if f.haveJumps {
-			return []byte("-A " + args[3] + " -j STACKR\n"), nil
+			return []byte("-N " + args[3] + "\n-A " + args[3] + " -j STACKR\n"), nil
 		}
 		return nil, nil
 	}
@@ -233,7 +233,7 @@ func TestStateReplayOrder(t *testing.T) {
 		"ip route replace 10.209.0.0/16 dev wg0",
 		"iptables-restore --noflush",
 		"iptables -n -L DOCKER-USER", // two earlier failures were not recorded
-		"iptables -t filter -S DOCKER-USER 1",
+		"iptables -t filter -S DOCKER-USER",
 		"iptables -t filter -I DOCKER-USER 1 -j STACKR",
 	}
 	if strings.Join(r.calls, "|") != strings.Join(want, "|") {
@@ -316,5 +316,19 @@ func TestProbe(t *testing.T) {
 	}
 	if code, r := call("http://127.0.0.1:1" + ProbePrefix + "abc"); code != 200 || r.Status != 0 {
 		t.Errorf("nothing listening = %d %+v, want an empty result", code, r)
+	}
+}
+
+func TestOnlyFirst(t *testing.T) {
+	const j = "-A INPUT -j STACKR-IN"
+	for in, want := range map[string]bool{
+		"-P INPUT ACCEPT\n" + j + "\n-A INPUT -j X\n": true,
+		"-P INPUT ACCEPT\n" + j + "\n" + j + "\n":     false, // a stacked copy
+		"-P INPUT ACCEPT\n-A INPUT -j X\n" + j + "\n": false, // not first
+		"-P INPUT ACCEPT\n":                           false,
+	} {
+		if got := onlyFirst(in, j); got != want {
+			t.Errorf("onlyFirst(%q) = %v", in, got)
+		}
 	}
 }
