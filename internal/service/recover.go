@@ -10,6 +10,8 @@ import (
 	"github.com/FyrmForge/stackr/internal/clusterca"
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/node"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/securitylog"
+	"github.com/FyrmForge/stackr/internal/service/internal/store"
 	"github.com/FyrmForge/stackr/internal/worker"
 )
 
@@ -62,13 +64,16 @@ func (o *Orchestrator) RecoverNode(ctx context.Context, req worker.RecoverReques
 		return worker.MeshSpec{}, refused
 	}
 	if d := now.Sub(time.Unix(p.Time, 0)); d > recoverSkew || d < -recoverSkew {
+		o.auditRecover(ctx, peer.NodeID, "refused: clock off by "+d.Round(time.Second).String())
 		return worker.MeshSpec{}, errs.Refusedf("the request's clock is off by %s", d.Round(time.Second))
 	}
 	if p.Nonce == "" || !o.recoverSeen.fresh(peer.NodeID+"/"+p.Nonce, now) {
+		o.auditRecover(ctx, peer.NodeID, "refused: replayed or missing nonce")
 		return worker.MeshSpec{}, refused
 	}
 	n, err := o.store.Nodes.Get(ctx, peer.NodeID)
 	if err != nil || n.Role != node.Worker || n.Status == node.StatusPending {
+		o.auditRecover(ctx, peer.NodeID, "refused: not a confirmed worker")
 		return worker.MeshSpec{}, refused
 	}
 	o.mesh.Report(ctx, n.ID, p.Facts)
@@ -81,5 +86,16 @@ func (o *Orchestrator) RecoverNode(ctx context.Context, req worker.RecoverReques
 		return worker.MeshSpec{}, errs.ErrBusy
 	}
 	slog.Info("recover: node fetched its mesh through the panel", "node", n.Name)
+	o.auditRecover(ctx, n.ID, "fetched its mesh: "+n.Name)
 	return spec, nil
+}
+
+// auditRecover records a recovery by a node whose certificate checked out;
+// best effort, a failed write never turns the node away.
+func (o *Orchestrator) auditRecover(ctx context.Context, nodeID, detail string) {
+	_ = o.store.Tx(ctx, func(tx store.Tx) error {
+		return audit(tx).Append(ctx, securitylog.Event{
+			Action: securitylog.NodeRecover, TargetKind: "node", TargetID: nodeID, Detail: detail,
+		})
+	})
 }

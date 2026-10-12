@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"errors"
+	"slices"
 	"testing"
 	"time"
 
@@ -90,4 +91,19 @@ func TestRecoverNode(t *testing.T) {
 	}
 	own = nodeCert(t, o, "w9") // ours, but no such node
 	refused("unknown node", worker.RecoverPayload{Time: now, Nonce: "n5"}, nil)
+
+	// The security log has the fetch and the refusals of verified certs;
+	// a bad signature or a foreign CA never names a node.
+	evs, err := o.SecurityLog(ctx, SecurityFilter{})
+	must(t, err)
+	var details []string
+	for _, e := range evs {
+		if e.Action == "node.recover" {
+			details = append(details, e.TargetID+" "+e.Detail)
+		}
+	}
+	if len(details) != 5 || !slices.Contains(details, "w1 fetched its mesh: w1") ||
+		!slices.Contains(details, "w9 refused: not a confirmed worker") {
+		t.Fatalf("node.recover rows = %q", details)
+	}
 }
