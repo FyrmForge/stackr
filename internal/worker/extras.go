@@ -309,29 +309,47 @@ func (s *Server) restore(ctx context.Context, payload []byte) error {
 	return nil
 }
 
-// missingJumps keeps the jump lines ("-I <hook> 1 -j <chain>") of a saved
-// payload that are not in place yet: a worker restart without a reboot still
-// has them, and inserting again would stack copies.
-func (s *Server) missingJumps(ctx context.Context, payload string) []byte {
-	var b strings.Builder
-	tbl, n := "", 0
+// jumpsFirst puts each jump of a saved payload ("-I <hook> 1 -j <chain>") at
+// rule 1 of its hook, once: Docker puts its own rules on top when it creates a
+// network or restarts, and a restart of the worker must not stack copies.
+func (s *Server) jumpsFirst(ctx context.Context, payload string) error {
+	run := func(args ...string) (string, error) {
+		out, err := s.cfg.Runner.Run(ctx, nil, "iptables", args...)
+		return string(out), err
+	}
+	tbl := ""
 	for _, l := range strings.Split(payload, "\n") {
 		f := strings.Fields(l)
 		switch {
 		case len(f) == 1 && strings.HasPrefix(f[0], "*"):
 			tbl = f[0][1:]
 		case len(f) >= 4 && f[0] == "-I" && f[len(f)-2] == "-j" && tbl != "":
-			if _, err := s.cfg.Runner.Run(ctx, nil, "iptables", "-t", tbl, "-C", f[1], "-j", f[len(f)-1]); err == nil {
+			hook, chain := f[1], f[len(f)-1]
+			if out, err := run("-t", tbl, "-S", hook, "1"); err == nil && strings.TrimSpace(out) == "-A "+hook+" -j "+chain {
 				continue
 			}
-			n++
+			for i := 0; i < 50; i++ { // every copy goes; capped in case -D never fails
+				if _, err := run("-t", tbl, "-D", hook, "-j", chain); err != nil {
+					break
+				}
+			}
+			if out, err := run("-t", tbl, "-I", hook, "1", "-j", chain); err != nil {
+				return fmt.Errorf("iptables -I %s: %w: %s", hook, err, out)
+			}
 		}
-		b.WriteString(l + "\n")
 	}
-	if n == 0 {
-		return nil
+	return nil
+}
+
+// savedJumps is the jumps payload of the applied state, "" when there is none.
+func (s *Server) savedJumps() string {
+	b, err := os.ReadFile(s.statePath())
+	if err != nil {
+		return ""
 	}
-	return []byte(b.String())
+	var st State
+	_ = json.Unmarshal(b, &st)
+	return st.Jumps
 }
 
 func (s *Server) iptables(w http.ResponseWriter, r *http.Request) {
@@ -342,6 +360,12 @@ func (s *Server) iptables(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := s.restore(r.Context(), b); err != nil {
+		fail(w, 500, err)
+		return
+	}
+	// A deploy makes its network before it pushes rules: Docker's rules for it
+	// went on top of ours.
+	if err := s.jumpsFirst(r.Context(), s.savedJumps()); err != nil {
 		fail(w, 500, err)
 		return
 	}
@@ -490,7 +514,7 @@ func (s *Server) replayState(ctx context.Context) error {
 		}
 	}
 	if st.Jumps != "" {
-		if err := s.restore(ctx, s.missingJumps(ctx, st.Jumps)); err != nil {
+		if err := s.jumpsFirst(ctx, st.Jumps); err != nil {
 			return err
 		}
 	}

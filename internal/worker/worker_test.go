@@ -64,7 +64,8 @@ type fakeRunner struct {
 	stdin []string
 	// failDockerUser makes `iptables -n -L DOCKER-USER` fail this many times.
 	failDockerUser int
-	// haveJumps makes `iptables -C` find the rule; unset, no jump is in place.
+	// haveJumps makes `iptables -S <hook> 1` show our jump first; unset, it
+	// is not in place.
 	haveJumps bool
 }
 
@@ -72,11 +73,15 @@ func (f *fakeRunner) Run(_ context.Context, stdin []byte, name string, args ...s
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	call := name + " " + strings.Join(args, " ")
-	if name == "iptables" && slices.Contains(args, "-C") {
+	if name == "iptables" && slices.Contains(args, "-D") {
+		return []byte("no rule"), errors.New("exit 1") // nothing to delete
+	}
+	if name == "iptables" && slices.Contains(args, "-S") {
+		f.calls = append(f.calls, call)
 		if f.haveJumps {
-			return nil, nil
+			return []byte("-A " + args[3] + " -j STACKR\n"), nil
 		}
-		return []byte("no rule"), errors.New("exit 1")
+		return nil, nil
 	}
 	if name == "iptables" && f.failDockerUser > 0 {
 		f.failDockerUser--
@@ -228,12 +233,13 @@ func TestStateReplayOrder(t *testing.T) {
 		"ip route replace 10.209.0.0/16 dev wg0",
 		"iptables-restore --noflush",
 		"iptables -n -L DOCKER-USER", // two earlier failures were not recorded
-		"iptables-restore --noflush",
+		"iptables -t filter -S DOCKER-USER 1",
+		"iptables -t filter -I DOCKER-USER 1 -j STACKR",
 	}
 	if strings.Join(r.calls, "|") != strings.Join(want, "|") {
 		t.Fatalf("order:\n%v", r.calls)
 	}
-	if r.stdin[0] != "*filter\nCOMMIT\n" || !strings.Contains(r.stdin[1], "DOCKER-USER") {
+	if len(r.stdin) != 1 || r.stdin[0] != "*filter\nCOMMIT\n" {
 		t.Fatalf("stdin %q", r.stdin)
 	}
 	if wg.got[0] != `{"iface":"wg0"}` {
@@ -243,13 +249,13 @@ func TestStateReplayOrder(t *testing.T) {
 	// A restart without a reboot: the jumps are still there, none is added.
 	r.mu.Lock()
 	r.haveJumps = true
-	n := len(r.stdin)
+	n := len(r.calls)
 	r.mu.Unlock()
 	if resp, err := c.Post(ts.URL+"/v1/replay", "", nil); err != nil || resp.StatusCode != 204 {
 		t.Fatalf("%v %v", resp, err)
 	}
-	if len(r.stdin) != n+1 {
-		t.Fatalf("jumps restored again: %q", r.stdin[n:])
+	if last := r.calls[len(r.calls)-1]; strings.Contains(last, " -I ") || len(r.calls) == n {
+		t.Fatalf("jump inserted again: %v", r.calls[n:])
 	}
 }
 

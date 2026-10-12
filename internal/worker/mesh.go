@@ -445,6 +445,12 @@ func (s *Server) reassertLoop() {
 			if err := s.Reassert(s.ctx); err != nil {
 				slog.Warn("worker: reassert exit rules", "err", err)
 			}
+			s.mu.Lock()
+			err := s.jumpsFirst(s.ctx, s.savedJumps())
+			s.mu.Unlock()
+			if err != nil {
+				slog.Warn("worker: iptables jumps", "err", err)
+			}
 		}
 	}
 }

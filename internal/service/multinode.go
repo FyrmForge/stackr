@@ -136,9 +136,9 @@ func (l localMesh) ApplyMesh(ctx context.Context, spec worker.MeshSpec) error {
 // sent as restore payloads. After every change the whole table is saved as the
 // worker's state, so a reboot replays it.
 //
-// ponytail: the jumps are tracked here, not read back from the node, so a
-// Docker restart on a worker that leaves stackrd-worker running loses our
-// rule-1 position until the worker restarts (its replay puts them back).
+// The jumps are tracked here, not read back from the node; the worker keeps
+// them at rule 1 itself (after each push, at replay and every 30 s), since
+// Docker puts its own rules on top when it makes a network or restarts.
 type workerVIP struct {
 	*vip.Table
 	ext *workerclient.Client
