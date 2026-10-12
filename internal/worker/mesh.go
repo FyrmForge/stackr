@@ -94,9 +94,11 @@ type meshState struct {
 	registry bool
 }
 
-const meshFile = "mesh.json"
+// MeshFile in the state dir is the last applied mesh spec, replayed at
+// start; the installer writes the first one from the join answer.
+const MeshFile = "mesh.json"
 
-func (s *Server) meshPath() string { return filepath.Join(s.cfg.StateDir, meshFile) }
+func (s *Server) meshPath() string { return filepath.Join(s.cfg.StateDir, MeshFile) }
 
 // loadKey reads a base64 WireGuard private key file, making it (0600) when
 // missing, and returns it with its public key.

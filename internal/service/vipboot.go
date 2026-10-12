@@ -7,9 +7,7 @@ import (
 	"log/slog"
 	"maps"
 	"net/netip"
-	"os"
 	"slices"
-	"strings"
 	"sync"
 	"time"
 
@@ -23,6 +21,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 	"github.com/FyrmForge/stackr/internal/service/internal/vip"
+	"github.com/FyrmForge/stackr/internal/worker"
 )
 
 // rebuildVIPs re-declares the VIP rule table from Docker: at boot, because
@@ -236,18 +235,21 @@ func (o *Orchestrator) vipBase(ctx context.Context, n store.Node) vip.Base {
 	if t, err := mesh.TransitAddr(netip.MustParsePrefix(cluster.ControllerRange)); err == nil {
 		b.WGController = t
 	}
-	if id, err := o.controllerID(ctx); err == nil && n.ID == id {
+	id, err := o.controllerID(ctx)
+	if err == nil && n.ID != id {
+		// A worker: its own resolvers; the controller's Caddy, front proxy
+		// and LAN are nothing to it.
+		b.Resolvers = worker.Resolvers() // until its facts are in
+		if f, ok, _ := o.clusterFacts(ctx, n); ok && len(f.Resolvers) > 0 {
+			b.Resolvers = f.Resolvers
+		}
+		b.Flows = o.ingressFlows(ctx, n)
+		return b
+	}
+	if err == nil {
 		b.WGPanelPort = o.cfg.PanelPort
 	}
-	for _, p := range resolvConfs {
-		if raw, err := os.ReadFile(p); err == nil {
-			for _, r := range resolvers(string(raw)) {
-				if !slices.Contains(b.Resolvers, r) {
-					b.Resolvers = append(b.Resolvers, r)
-				}
-			}
-		}
-	}
+	b.Resolvers = worker.Resolvers()
 	if addrs, err := o.domains.ProxyAddrs(ctx); err != nil {
 		slog.Warn("vip: proxy address unknown", "err", err)
 	} else {
@@ -506,26 +508,6 @@ func (o *Orchestrator) vipLegacy(ctx context.Context) {
 		}
 		return nil
 	})
-}
-
-// resolvConfs are read and joined: on a systemd-resolved host the first is the
-// loopback stub and Docker hands containers the second.
-var resolvConfs = []string{"/etc/resolv.conf", "/run/systemd/resolve/resolv.conf"}
-
-// resolvers are the IPv4 nameservers of a resolv.conf, loopback ones left
-// out: Docker dials those from the host, not from the container.
-func resolvers(conf string) []string {
-	var out []string
-	for _, line := range strings.Split(conf, "\n") {
-		f := strings.Fields(line)
-		if len(f) < 2 || f[0] != "nameserver" {
-			continue
-		}
-		if a, err := netip.ParseAddr(f[1]); err == nil && a.Is4() && !a.IsLoopback() {
-			out = append(out, f[1])
-		}
-	}
-	return out
 }
 
 var errBadVIPAddr = errors.New("not an IPv4 address")

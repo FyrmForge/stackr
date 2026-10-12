@@ -74,6 +74,17 @@ func TestCandidatesOrder(t *testing.T) {
 	if len(got) != 1 || got[0] != ap("203.0.113.9:51820") {
 		t.Fatal(got)
 	}
+	// other's IPv6 only when self has IPv6 (109 behind a v4-only NAT)
+	other.Public = []netip.Addr{ad("2001:db8::9"), ad("203.0.113.9")}
+	got = Candidates(self, other, netip.AddrPort{})
+	if len(got) != 1 || got[0] != ap("203.0.113.9:51820") {
+		t.Fatal(got)
+	}
+	self.Public = []netip.Addr{ad("2001:db8::2")}
+	got = Candidates(self, other, netip.AddrPort{})
+	if len(got) != 2 || got[0] != netip.AddrPortFrom(ad("2001:db8::9"), 51820) {
+		t.Fatal(got)
+	}
 }
 
 func TestPeers(t *testing.T) {

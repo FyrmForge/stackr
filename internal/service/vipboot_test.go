@@ -17,10 +17,12 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/dockerfake"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/domain"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/hostgrant"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/node"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 	"github.com/FyrmForge/stackr/internal/service/internal/storetest"
 	"github.com/FyrmForge/stackr/internal/service/internal/vip"
+	"github.com/FyrmForge/stackr/internal/worker"
 )
 
 // A panel restart gives a fresh vip.Table; without the boot rebuild the first
@@ -275,7 +277,7 @@ func TestWatchTickRebuildsVIPs(t *testing.T) {
 // firewall exception.
 func TestResolvers(t *testing.T) {
 	conf := "# x\nnameserver 127.0.0.53\nnameserver 192.168.1.1\nnameserver fe80::1\nsearch lan\nnameserver 1.1.1.1\n"
-	if got := resolvers(conf); len(got) != 2 || got[0] != "192.168.1.1" || got[1] != "1.1.1.1" {
+	if got := worker.ParseResolvers(conf); len(got) != 2 || got[0] != "192.168.1.1" || got[1] != "1.1.1.1" {
 		t.Fatalf("got %v", got)
 	}
 }
@@ -354,13 +356,30 @@ func TestVipBaseReadsBothResolvConfs(t *testing.T) {
 	a, b := dir+"/a", dir+"/b"
 	must(t, os.WriteFile(a, []byte("nameserver 127.0.0.53\nnameserver 192.168.1.1\n"), 0o600))
 	must(t, os.WriteFile(b, []byte("nameserver 192.168.1.1\nnameserver 9.9.9.9\n"), 0o600))
-	old := resolvConfs
-	resolvConfs = []string{a, b, dir + "/missing"}
-	t.Cleanup(func() { resolvConfs = old })
+	old := worker.ResolvConfs
+	worker.ResolvConfs = []string{a, b, dir + "/missing"}
+	t.Cleanup(func() { worker.ResolvConfs = old })
 	r := newBootRig(t)
 	got := r.orch.vipBase(context.Background(), ctlNode(t, r.orch)).Resolvers
 	if !slices.Equal(got, []string{"192.168.1.1", "9.9.9.9"}) {
 		t.Fatalf("got %v", got)
+	}
+}
+
+// A worker's table carries its own resolvers and none of the controller's
+// Caddy, front proxy or panel port (a remote box has no 192.168.1.100).
+func TestVipBaseWorkerUsesItsOwnFacts(t *testing.T) {
+	ctx := context.Background()
+	r := newBootRig(t)
+	must(t, r.orch.SetSetting(ctx, "trusted_proxies", "192.168.1.100"))
+	w := store.Node{ID: "w-vipbase", Name: "w1", Slug: "w1", Role: node.Worker, Tags: "[]",
+		RangeCIDR: "10.209.0.0/16", Status: node.StatusOnline, CreatedAt: time.Now()}
+	must(t, r.orch.store.Nodes.Create(ctx, w))
+	clusterFactsCache.Store(w.ID, cachedFacts{f: worker.Facts{Resolvers: []string{"185.12.64.1"}}, at: time.Now()})
+	t.Cleanup(func() { clusterFactsCache.Delete(w.ID) })
+	b := r.orch.vipBase(ctx, w)
+	if !slices.Equal(b.Resolvers, []string{"185.12.64.1"}) || len(b.Front) != 0 || b.ProxyIP != "" || b.WGPanelPort != 0 {
+		t.Fatalf("resolvers %v front %v proxy %q panel %d", b.Resolvers, b.Front, b.ProxyIP, b.WGPanelPort)
 	}
 }
 

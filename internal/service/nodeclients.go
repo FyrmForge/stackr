@@ -3,12 +3,10 @@ package service
 import (
 	"context"
 	"crypto/tls"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
 	"net"
-	"net/netip"
 	"os"
 	"path/filepath"
 	"strings"
@@ -17,7 +15,6 @@ import (
 
 	"github.com/FyrmForge/stackr/internal/clusterca"
 	"github.com/FyrmForge/stackr/internal/installspec"
-	"github.com/FyrmForge/stackr/internal/mesh"
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/node"
@@ -190,51 +187,6 @@ func mustRead(p string) []byte { b, _ := os.ReadFile(p); return b }
 
 // nodeAddr is where a worker node's listener is: its wg address, without a
 // prefix length, on WorkerPort unless the address names a port.
-// workerAddrs is where a worker's API can be dialled, in order: its tunnel
-// address, then the addresses it reported at join (public first). The tunnel
-// only exists once the mesh is pushed, and pushing needs the API, so a new
-// node is first reached directly.
-func (o *Orchestrator) workerAddrs(ctx context.Context, n store.Node) []string {
-	var out []string
-	if a := nodeAddr(n); a != "" {
-		out = append(out, a)
-	}
-	jt, err := o.store.JoinTokens.GetByNode(ctx, n.ID)
-	if err != nil || jt.Facts == "" {
-		return out
-	}
-	var f struct {
-		Interfaces []struct {
-			Name     string   `json:"name"`
-			Prefixes []string `json:"prefixes"`
-			Public   bool     `json:"public"`
-		} `json:"interfaces"`
-	}
-	if json.Unmarshal([]byte(jt.Facts), &f) != nil {
-		return out
-	}
-	var pub, priv []string
-	for _, i := range f.Interfaces {
-		if i.Name == "lo" || strings.HasPrefix(i.Name, "wg") || strings.HasPrefix(i.Name, "docker") ||
-			strings.HasPrefix(i.Name, "br-") || strings.HasPrefix(i.Name, "veth") {
-			continue
-		}
-		for _, p := range i.Prefixes {
-			pf, err := netip.ParsePrefix(p)
-			if err != nil || !pf.Addr().Is4() || !mesh.UsableEndpoint(pf.Addr()) {
-				continue
-			}
-			a := net.JoinHostPort(pf.Addr().String(), WorkerPort)
-			if i.Public {
-				pub = append(pub, a)
-			} else {
-				priv = append(priv, a)
-			}
-		}
-	}
-	return append(append(out, pub...), priv...)
-}
-
 func nodeAddr(n store.Node) string {
 	a, _, _ := strings.Cut(strings.TrimSpace(n.WGAddress), "/")
 	if a == "" {
@@ -293,11 +245,10 @@ func (o *Orchestrator) refreshNodeClients(ctx context.Context) error {
 	}
 	c := o.cluster
 	type cand struct {
-		n     store.Node
-		addr  string
-		ext   *workerclient.Client
-		up    bool
-		addrs []string
+		n    store.Node
+		addr string
+		ext  *workerclient.Client
+		up   bool
 	}
 	var cands []*cand
 	seen := map[string]bool{}
@@ -310,31 +261,24 @@ func (o *Orchestrator) refreshNodeClients(ctx context.Context) error {
 		default: // pending: no range, no cert yet
 			continue
 		}
-		addrs := o.workerAddrs(ctx, n)
-		if len(addrs) == 0 {
+		// Only through the tunnel: a new worker brings it up from the mesh
+		// spec in its join answer.
+		addr := nodeAddr(n)
+		if addr == "" {
 			continue
 		}
 		seen[n.ID] = true
-		cands = append(cands, &cand{n: n, addr: addrs[0], ext: c.probeClient(n.ID, addrs[0])})
-		cands[len(cands)-1].addrs = addrs
+		cands = append(cands, &cand{n: n, addr: addr, ext: c.probeClient(n.ID, addr)})
 	}
 	var wg sync.WaitGroup
 	for _, cd := range cands {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			// the first address that answers wins: the tunnel once the mesh
-			// is up, a direct address before it (mTLS is the gate either way)
-			for _, a := range cd.addrs {
-				ext := c.probeClient(cd.n.ID, a)
-				pctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-				_, err := ext.Facts(pctx)
-				cancel()
-				if err == nil {
-					cd.addr, cd.ext, cd.up = a, ext, true
-					return
-				}
-			}
+			pctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+			defer cancel()
+			_, err := cd.ext.Facts(pctx)
+			cd.up = err == nil
 		}()
 	}
 	wg.Wait()

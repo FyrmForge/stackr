@@ -71,6 +71,7 @@ type Net struct {
 type Link struct {
 	A, B, Kind string
 	MS         float64 // < 0 = not measured
+	Via        string  // relay node name, "" = direct
 }
 
 type Backup struct {
@@ -298,6 +299,9 @@ func Build(m Map, base string, notes []graph.Note, create []graph.Create) graph.
 			continue
 		}
 		label := l.Kind
+		if l.Via != "" {
+			label += " · via " + l.Via
+		}
 		if l.MS >= 0 {
 			label += " · " + trimMS(l.MS) + " ms"
 		}

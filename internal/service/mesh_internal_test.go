@@ -195,3 +195,74 @@ func TestAllocateNodeRangeKeepsForgotten(t *testing.T) {
 		t.Errorf("after forgetting = %v, %v", next, err)
 	}
 }
+
+// Two NAT'd homes on different LANs get a relay on the public node, last in
+// each other's candidates; a home and the public node connect directly.
+func TestBuildMeshAutoRelay(t *testing.T) {
+	home := func(id string, slot int, lan, nat string) meshNodeIn {
+		n := tnode(id, slot, "203.0.113.250")
+		n.Public = nil
+		n.Ifaces = []netip.Prefix{netip.MustParsePrefix(lan)}
+		n.NAT = netip.MustParseAddr(nat)
+		return n
+	}
+	in := meshIn{Nodes: []meshNodeIn{
+		home("a", 0, "192.168.1.10/24", "109.148.70.232"),
+		home("b", 1, "192.168.5.10/24", "81.2.69.160"),
+		tnode("h", 2, "89.167.81.29"),
+	}}
+	specs := buildMesh(in)
+	relayAt := netip.MustParseAddrPort("89.167.81.29:52301")
+	if got := specs["h"].Relays; len(got) != 1 || got[0].Port != 52301 ||
+		got[0].A != netip.MustParseAddr("109.148.70.232") || got[0].B != netip.MustParseAddr("81.2.69.160") {
+		t.Fatalf("relays on h = %+v", got)
+	}
+	for _, p := range specs["a"].Peers {
+		switch p.NodeID {
+		case "b":
+			if len(p.Candidates) != 1 || p.Candidates[0] != relayAt {
+				t.Fatalf("a->b = %v", p.Candidates)
+			}
+		case "h":
+			if len(p.Candidates) != 1 || p.Candidates[0] != netip.MustParseAddrPort("89.167.81.29:51820") {
+				t.Fatalf("a->h = %v", p.Candidates)
+			}
+		}
+	}
+	// Same LAN: no relay.
+	in.Nodes[1] = home("b", 1, "192.168.1.11/24", "81.2.69.160")
+	if r := autoRelays(in); len(r) != 0 {
+		t.Fatalf("same LAN relays = %+v", r)
+	}
+	// NAT not seen yet (a new worker): the sides already aim at the relay,
+	// the host opens it only once both NATs are known.
+	in.Nodes[1] = home("b", 1, "192.168.5.10/24", "81.2.69.160")
+	in.Nodes[1].NAT = netip.Addr{}
+	specs = buildMesh(in)
+	if len(specs["h"].Relays) != 0 {
+		t.Fatalf("relay opened before the NAT is known: %+v", specs["h"].Relays)
+	}
+	for _, p := range specs["b"].Peers {
+		if p.NodeID == "a" && (len(p.Candidates) != 1 || p.Candidates[0] != relayAt) {
+			t.Fatalf("b->a = %v", p.Candidates)
+		}
+	}
+	// Same NAT address: the relay cannot tell them apart.
+	in.Nodes[1].NAT = in.Nodes[0].NAT
+	if r := autoRelays(in); len(r) != 0 {
+		t.Fatalf("same NAT relays = %+v", r)
+	}
+}
+
+// A public node's wg endpoint for a NAT'd node is that node's NAT address.
+func TestLearnNAT(t *testing.T) {
+	m := &meshSvc{facts: map[string]worker.Facts{
+		"h": {Seen: map[string]string{"wg-a": "109.148.70.232:1459", "wg-b": "10.0.0.2:51820"}},
+	}}
+	in := meshIn{Nodes: []meshNodeIn{tnode("h", 2, "89.167.81.29"), tnode("a", 0, "203.0.113.1"), tnode("b", 1, "203.0.113.2")}}
+	in.Nodes[1].Public, in.Nodes[2].Public = nil, nil
+	m.learnNAT(&in)
+	if in.Nodes[1].NAT != netip.MustParseAddr("109.148.70.232") || in.Nodes[2].NAT.IsValid() {
+		t.Fatalf("nat a=%v b=%v", in.Nodes[1].NAT, in.Nodes[2].NAT)
+	}
+}
