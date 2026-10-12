@@ -15,7 +15,8 @@ func iface(name string, public bool, prefixes ...string) worker.Iface {
 }
 
 // Four nodes: a home LAN of two behind a router, and a cloud network of two
-// where one has the public address.
+// where one has the public address. The cloud hands out /32s and a route
+// (Hetzner), so the network is the route's.
 func TestBuildClusterMap(t *testing.T) {
 	node := func(id, role string, f *worker.Facts, up bool, rtt time.Duration) clusterNodeIn {
 		return clusterNodeIn{
@@ -32,9 +33,11 @@ func TestBuildClusterMap(t *testing.T) {
 		node("nas", "worker", facts(iface("eth0", false, "192.168.1.20/24")), true, 300*time.Microsecond),
 		node("fsn1", "worker", facts(
 			iface("eth0", true, "203.0.113.5/32"),
-			iface("enp7s0", false, "10.20.0.2/24"),
+			worker.Iface{Name: "enp7s0", Prefixes: []string{"10.20.0.2/32"}, Routes: []string{"10.20.0.0/16", "10.20.0.1/32"}},
 		), true, 21*time.Millisecond),
-		node("fsn2", "worker", facts(iface("enp7s0", false, "10.20.0.3/24")), true, 23*time.Millisecond),
+		node("fsn2", "worker", facts(
+			worker.Iface{Name: "enp7s0", Prefixes: []string{"10.20.0.3/32"}, Routes: []string{"10.20.0.0/16"}},
+		), true, 23*time.Millisecond),
 	})
 	if len(m.Networks) != 2 {
 		t.Fatalf("networks = %+v, want the LAN and the cloud network", m.Networks)
@@ -42,8 +45,8 @@ func TestBuildClusterMap(t *testing.T) {
 	if home := m.Networks[0]; home.CIDR != "192.168.1.0/24" || !home.Router || len(home.Nodes) != 2 {
 		t.Errorf("first network = %+v, want the controller's LAN behind a router", home)
 	}
-	if cloud := m.Networks[1]; cloud.CIDR != "10.20.0.0/24" || cloud.Router {
-		t.Errorf("second network = %+v, want 10.20.0.0/24 with a public node, no router", cloud)
+	if cloud := m.Networks[1]; cloud.CIDR != "10.20.0.0/16" || cloud.Router {
+		t.Errorf("second network = %+v, want 10.20.0.0/16 with a public node, no router", cloud)
 	}
 	if got := m.Nodes[2].Public; len(got) != 1 || got[0] != "203.0.113.5" {
 		t.Errorf("fsn1 public = %v", got)

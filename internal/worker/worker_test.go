@@ -152,6 +152,26 @@ func TestFacts(t *testing.T) {
 	}
 }
 
+// A Hetzner box: /proc/net/route as the kernel writes it, and its /32
+// private address widened to the route's network.
+func TestRoutesAndLANs(t *testing.T) {
+	table := "Iface\tDestination\tGateway\tFlags\tRefCnt\tUse\tMetric\tMask\tMTU\tWindow\tIRTT\n" +
+		"eth0\t00000000\t0101FFAC\t0003\t0\t0\t100\t00000000\t0\t0\t0\n" +
+		"enp7s0\t0000000A\t0100000A\t0003\t0\t0\t100\t0000FFFF\t0\t0\t0\n" +
+		"enp7s0\t0100000A\t00000000\t0005\t0\t0\t100\tFFFFFFFF\t0\t0\t0\n"
+	rs := routes(table)
+	if got := rs["enp7s0"]; len(got) != 2 || got[0] != "10.0.0.0/16" || got[1] != "10.0.0.1/32" {
+		t.Fatalf("enp7s0 routes = %v", got)
+	}
+	if len(rs["eth0"]) != 0 {
+		t.Errorf("eth0 routes = %v, want the default left out", rs["eth0"])
+	}
+	i := Iface{Name: "enp7s0", Prefixes: []string{"10.0.0.3/32", "fe80::1/64"}, Routes: rs["enp7s0"]}
+	if got := i.LANs(); len(got) != 2 || got[0].String() != "10.0.0.3/16" || got[1].String() != "fe80::1/64" {
+		t.Errorf("LANs = %v, want 10.0.0.3/16 and the v6 prefix as is", got)
+	}
+}
+
 func TestIsPublic(t *testing.T) {
 	for ip, want := range map[string]bool{
 		"8.8.8.8": true, "10.1.2.3": false, "192.168.1.1": false,

@@ -65,6 +65,8 @@ func TestMapDraws(t *testing.T) {
 		"S3 · nightly",
 		"+2 more", // five envs: three dealt, the rest counted
 		"Not answering", "Healthy", "Moving",
+		"Public IP", "203.0.113.5", "No public IP",
+		`node-id="net:10.20.0.0/24"`, // a box drags by its handle
 		`data-extent="`,
 	} {
 		if !strings.Contains(body, want) {
@@ -77,17 +79,47 @@ func TestMapDraws(t *testing.T) {
 	}
 }
 
-// Cards in one box never overlap, and the second box starts right of the first.
+// Cards and box handles never overlap.
 func TestMapNoOverlap(t *testing.T) {
 	v := cluster.Build(sample(), cluster.Base, nil, nil)
 	for i, a := range v.Nodes {
-		if !a.Static {
-			t.Errorf("%s moves; cluster cards are placed by the page", a.ID)
-		}
 		for _, b := range v.Nodes[i+1:] {
 			if a.X < b.X+b.W && b.X < a.X+a.W && a.Y < b.Y+b.H && b.Y < a.Y+a.H {
 				t.Errorf("%s and %s overlap", a.ID, b.ID)
 			}
 		}
+	}
+}
+
+// A dropped box takes its cards along; a dropped card stays where it was
+// put inside its box, and Drop turns a drop into what Placed keeps.
+func TestMapPlaced(t *testing.T) {
+	m := sample()
+	pos := func(m cluster.Map, id string) (int, int) {
+		for _, n := range cluster.Build(m, cluster.Base, nil, nil).Nodes {
+			if n.ID == id {
+				return n.X, n.Y
+			}
+		}
+		t.Fatalf("no %s", id)
+		return 0, 0
+	}
+	nx, ny := pos(m, "net:10.20.0.0/24")
+	fx, fy := pos(m, "node:f")
+	m.Placed = map[string][2]int{"net:10.20.0.0/24": {nx + 100, ny + 40}}
+	if x, y := pos(m, "node:f"); x != fx+100 || y != fy+40 {
+		t.Errorf("fsn1 at %d,%d after its box moved, want %d,%d", x, y, fx+100, fy+40)
+	}
+	v := cluster.Build(m, cluster.Base, nil, nil)
+	p, ok := cluster.Drop(v, m, "node:f", nx+100+300, ny+40+400)
+	if !ok || p != [2]int{300, 400} {
+		t.Fatalf("Drop = %v %v, want 300,400 relative to the box", p, ok)
+	}
+	m.Placed["node:f"] = p
+	if x, y := pos(m, "node:f"); x != nx+400 || y != ny+440 {
+		t.Errorf("fsn1 at %d,%d, want where it was dropped", x, y)
+	}
+	if _, ok := cluster.Drop(v, m, "env:f:0", 0, 0); ok {
+		t.Error("an env sub-card does not move")
 	}
 }

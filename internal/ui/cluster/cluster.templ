@@ -44,8 +44,6 @@ templ netLayer(s Shape) {
 		</defs>
 		for _, b := range s.Boxes {
 			<rect x={ itoa(b.X) } y={ itoa(b.Y) } width={ itoa(b.W) } height={ itoa(b.H) } rx="16" fill="rgb(var(--rw-inset) / .45)" stroke="rgb(var(--rw-strong))" stroke-width="1" stroke-dasharray="2 4"></rect>
-			<text x={ itoa(b.X + 18) } y={ itoa(b.Y + 28) } fill="rgb(var(--rw-text))" font-size="14" font-weight="600" font-family="var(--font-sans, ui-sans-serif)">{ b.Name }</text>
-			<text x={ itoa(b.X + 18) } y={ itoa(b.Y + 46) } fill="rgb(var(--rw-faint))" font-size="12" font-family="ui-monospace, monospace">{ b.Sub }</text>
 		}
 		for _, t := range s.Tunnels {
 			<path d={ t.D } fill="none" stroke="rgb(var(--rw-muted))" stroke-width="1.6" stroke-linecap="round"></path>
@@ -73,6 +71,14 @@ templ netLayer(s Shape) {
 			<text x={ itoa(b.X + 18) } y={ itoa(b.Y + 27) } fill="rgb(var(--rw-text))" font-size="13" font-weight="600" font-family="ui-sans-serif">{ b.Name }</text>
 		}
 	</svg>
+}
+
+// netHandle is a box's name and sub, and what drags the box.
+templ netHandle(name, sub string) {
+	<div class="h-full cursor-move select-none px-[18px] pt-[14px]" title="Drag to move this network">
+		<div class="text-sm font-semibold text-rw-text truncate">{ name }</div>
+		<div class="text-xs text-rw-faint font-mono truncate">{ sub }</div>
+	</div>
 }
 
 // nodeCard is a node's face and the env sub-cards dealt under it. The face
@@ -109,6 +115,14 @@ templ nodeCard(n Node) {
 			<div class="flex flex-wrap gap-1 mt-2 h-[18px] overflow-hidden">
 				for _, t := range n.Tags {
 					<span class="shrink-0 rounded-md border border-rw-border bg-rw-inset px-1.5 py-0.5 text-[10px] text-rw-muted">{ t }</span>
+				}
+			</div>
+			<div class="mt-2 flex items-center justify-between gap-2 text-xs min-w-0 h-4">
+				if ip := publicIP(n); ip != "" {
+					<span class="text-rw-faint shrink-0">Public IP</span>
+					<span class="font-mono text-rw-text truncate">{ ip }</span>
+				} else {
+					<span class="text-rw-faint">No public IP</span>
 				}
 			</div>
 			<div class="node-footer mt-3 pt-3 border-t border-rw-border flex items-center justify-between gap-2 min-w-0">

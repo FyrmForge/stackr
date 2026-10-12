@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"net"
 	"net/netip"
 	"slices"
 	"strings"
@@ -11,6 +10,7 @@ import (
 
 	"github.com/FyrmForge/stackr/internal/exits"
 	"github.com/FyrmForge/stackr/internal/mesh"
+	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/node"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 	"github.com/FyrmForge/stackr/internal/worker"
@@ -118,16 +118,15 @@ func excludedIface(name string) bool {
 }
 
 // netPrefix is the node's network: the masked prefix of the first IPv4
-// private address that is not the mesh's own.
+// private address that is not the mesh's own (a /32 widened, Iface.LANs).
 func netPrefix(f worker.Facts) (netip.Prefix, bool) {
 	for _, i := range f.Interfaces {
 		if excludedIface(i.Name) || i.Public {
 			continue
 		}
-		for _, s := range i.Prefixes {
-			p, err := netip.ParsePrefix(s)
+		for _, p := range i.LANs() {
 			a := p.Addr().Unmap()
-			if err != nil || !a.Is4() || !a.IsPrivate() || mesh.Supernet.Contains(a) || mesh.Transit.Contains(a) {
+			if !a.Is4() || !a.IsPrivate() || mesh.Supernet.Contains(a) || mesh.Transit.Contains(a) {
 				continue
 			}
 			return p.Masked(), true
@@ -492,7 +491,7 @@ const clusterFactsTTL = 15 * time.Second
 // worker's over its extras client (timed: that is the link latency).
 func (o *Orchestrator) clusterFacts(ctx context.Context, n store.Node) (*worker.Facts, bool, time.Duration) {
 	if n.Role == node.Controller {
-		return &worker.Facts{Interfaces: localIfaces()}, true, 0
+		return &worker.Facts{Interfaces: worker.Interfaces()}, true, 0
 	}
 	if v, ok := clusterFactsCache.Load(n.ID); ok {
 		if c := v.(cachedFacts); time.Since(c.at) < clusterFactsTTL {
@@ -527,37 +526,25 @@ func (o *Orchestrator) clusterFacts(ctx context.Context, n store.Node) (*worker.
 	return &c.f, true, c.rtt
 }
 
-// localIfaces is the controller's interfaces the way a worker reports them.
-func localIfaces() []worker.Iface {
-	var out []worker.Iface
-	ifs, _ := net.Interfaces()
-	for _, i := range ifs {
-		if i.Flags&net.FlagUp == 0 {
-			continue
-		}
-		wi := worker.Iface{Name: i.Name}
-		as, _ := i.Addrs()
-		for _, a := range as {
-			p, err := netip.ParsePrefix(a.String())
-			if err != nil {
-				continue
-			}
-			wi.Prefixes = append(wi.Prefixes, p.String())
-			if ad := p.Addr().Unmap(); ad.IsGlobalUnicast() && !ad.IsPrivate() && !cgnat.Contains(ad) {
-				wi.Public = true
-			}
-		}
-		out = append(out, wi)
-	}
-	return out
-}
-
-// ClusterScope is where the Cluster canvas keeps its notes and boxes: the
-// home scope under an id no user id can be, so no schema change. The cards
-// are drawn from the facts and never move; only notes do.
+// ClusterScope is where the Cluster canvas keeps its notes, boxes and
+// dropped positions: the home scope under an id no user id can be, so no
+// schema change.
 var ClusterScope = CanvasScope{Kind: CanvasHome, ID: "cluster"}
 
-// MoveClusterNote saves where a note on the Cluster canvas was dropped.
-func (o *Orchestrator) MoveClusterNote(ctx context.Context, noteID string, p Point) error {
-	return o.canvas.Move(ctx, ClusterScope, noteID, p)
+// ClusterPositions is where admins dropped networks and nodes, by canvas id
+// ("net:<id>", "node:<id>"); the map's geometry reads them.
+func (o *Orchestrator) ClusterPositions(ctx context.Context) (map[string]Point, error) {
+	return o.canvas.Positions(ctx, ClusterScope)
+}
+
+// PlaceCluster saves where a note, network or node on the Cluster canvas
+// was dropped.
+func (o *Orchestrator) PlaceCluster(ctx context.Context, id string, p Point) error {
+	if note, ok := strings.CutPrefix(id, "note:"); ok {
+		return o.canvas.Move(ctx, ClusterScope, note, p)
+	}
+	if !strings.HasPrefix(id, "net:") && !strings.HasPrefix(id, "node:") {
+		return errs.Invalidf("node_id", "this card does not move")
+	}
+	return o.canvas.Save(ctx, ClusterScope, id, p)
 }

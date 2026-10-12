@@ -1,7 +1,8 @@
 // Package cluster serves the Cluster map (lane U2): /-/cluster, the admin's
 // canvas of nodes, networks, tunnels, public arrows and backups. It is the
-// same canvas as the org, stack and env graphs (pan, zoom, notes); the
-// cards are placed from the service's facts and do not move, only notes do.
+// same canvas as the org, stack and env graphs (pan, zoom, notes); networks
+// and nodes are placed from the service's facts and stay where an admin
+// drops them.
 // Under "/-/cluster" it keeps the canvas's own helper routes ("/-/notes",
 // "/-/positions", "/-/reset") and "/map", the timer's refresh.
 package cluster
@@ -34,7 +35,7 @@ func (h *handler) Mount(g *echo.Group, a *middleware.Access) {
 	g.GET(cluster.Base, h.Page, a.LoginFirst(), admin)
 	g.GET(cluster.Base+"/map", h.Map, admin)
 	g.POST(cluster.Base+"/-/positions", h.Positions, admin)
-	g.POST(cluster.Base+"/-/reset", h.Map, admin) // nothing is hand-placed: a reset is a redraw
+	g.POST(cluster.Base+"/-/reset", h.Reset, admin)
 	g.POST(cluster.Base+"/-/notes", h.Notes, admin)
 	g.POST(cluster.Base+"/-/notes/delete", h.DeleteNote, admin)
 }
@@ -50,6 +51,14 @@ func (h *handler) view(c echo.Context) (ui.View, cluster.Map, error) {
 		return ui.View{}, cluster.Map{}, err
 	}
 	m := mapMap(cm)
+	placed, err := h.orch.ClusterPositions(ctx)
+	if err != nil {
+		return ui.View{}, cluster.Map{}, err
+	}
+	m.Placed = map[string][2]int{}
+	for id, p := range placed {
+		m.Placed[id] = [2]int{p.X, p.Y}
+	}
 	var notes []ui.Note
 	for _, a := range as {
 		notes = append(notes, ui.Note{ID: a.ID, Kind: a.Kind, Text: a.Text, X: a.X, Y: a.Y, W: a.W, H: a.H})
@@ -81,21 +90,44 @@ func (h *handler) Map(c echo.Context) error {
 	return respond.HTML(c, http.StatusOK, ui.Canvas(v))
 }
 
-// POST …/-/positions (node_id, x, y): only a note moves.
+// POST …/-/positions (node_id, x, y): a note saves where it is; a network
+// or node saves too and the canvas is redrawn around it (boxes, tunnels).
 func (h *handler) Positions(c echo.Context) error {
-	id, ok := strings.CutPrefix(c.FormValue("node_id"), "note:")
-	if !ok {
-		return echo.NewHTTPError(http.StatusUnprocessableEntity, "this card does not move")
-	}
+	id := c.FormValue("node_id")
 	x, errX := strconv.Atoi(c.FormValue("x"))
 	y, errY := strconv.Atoi(c.FormValue("y"))
 	if errX != nil || errY != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, "x and y are whole numbers")
 	}
-	if err := h.orch.MoveClusterNote(c.Request().Context(), id, service.Point{X: x, Y: y}); err != nil {
+	ctx := c.Request().Context()
+	if strings.HasPrefix(id, "note:") {
+		if err := h.orch.PlaceCluster(ctx, id, service.Point{X: x, Y: y}); err != nil {
+			return middleware.HTTPError(err)
+		}
+		return c.NoContent(http.StatusNoContent)
+	}
+	v, m, err := h.view(c)
+	if err != nil {
 		return middleware.HTTPError(err)
 	}
-	return c.NoContent(http.StatusNoContent)
+	p, ok := cluster.Drop(v, m, id, x, y)
+	if !ok {
+		return echo.NewHTTPError(http.StatusUnprocessableEntity, "this card does not move")
+	}
+	if err := h.orch.PlaceCluster(ctx, id, service.Point{X: p[0], Y: p[1]}); err != nil {
+		return middleware.HTTPError(err)
+	}
+	c.Response().Header().Set("HX-Retarget", "#graph")
+	c.Response().Header().Set("HX-Reswap", "innerHTML")
+	return h.Map(c)
+}
+
+// POST …/-/reset: every network and node back to its computed place.
+func (h *handler) Reset(c echo.Context) error {
+	if err := h.orch.ResetPositions(c.Request().Context(), service.ClusterScope); err != nil {
+		return middleware.HTTPError(err)
+	}
+	return h.Map(c)
 }
 
 // POST …/-/notes (id?, kind, text, x, y, w, h): create or save a note or

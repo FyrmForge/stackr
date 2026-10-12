@@ -432,11 +432,7 @@ func (m *meshSvc) refresh(ctx context.Context, id string, cl MeshNode) {
 func ifacePrefixes(f worker.Facts) []netip.Prefix {
 	var out []netip.Prefix
 	for _, i := range f.Interfaces {
-		for _, s := range i.Prefixes {
-			if p, err := netip.ParsePrefix(s); err == nil {
-				out = append(out, p)
-			}
-		}
+		out = append(out, i.LANs()...)
 	}
 	return out
 }

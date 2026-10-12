@@ -37,7 +37,6 @@ type View struct {
 	SyncBar *SyncBar        // the env sync review's strip; nil = none
 	Under   templ.Component // drawn behind the edges and cards (the Cluster map's boxes and tunnels); nil = none
 	Over    templ.Component // drawn over the canvas with the chrome (the Cluster map's legends); nil = none
-	Fixed   bool            // the cards are placed by the page and never move: no Arrange section
 	Review  string          // the review the page carries, "sync=dev&drop=a,b"; kept on the helper routes and the show switches
 }
 

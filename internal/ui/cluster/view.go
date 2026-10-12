@@ -2,8 +2,8 @@
 // canvas: network boxes, the nodes in them, tunnels, public arrows, router
 // markers and S3 backups. The service decides every fact (ClusterMap); the
 // handler maps it into Map; Build places it. Placement is geometry only:
-// boxes left to right, public nodes on a box's top edge, the rest in a grid
-// below, each node's envs dealt under its card.
+// boxes left to right, the nodes in a grid inside, each node's envs dealt
+// under its card; a box or card an admin dropped stays where it was put.
 package cluster
 
 import (
@@ -46,6 +46,9 @@ type Map struct {
 	Nets    []Net
 	Links   []Link
 	Backups []Backup
+	// Placed is where admins dropped things: "net:<id>" the box's corner,
+	// "node:<id>" the card relative to its box.
+	Placed map[string][2]int
 }
 
 type Node struct {
@@ -74,14 +77,13 @@ type Backup struct {
 
 // Geometry, in world pixels.
 const (
-	cardW, cardH = 220, 132
+	cardW, cardH = 220, 156
 	deckStep     = 28  // each env sub-card hangs this much lower (graph.css)
 	maxEnvs      = 3   // envs dealt under a card; the fourth sub-card is "+N more"
-	slotPitch    = 244 // public nodes along a box's top edge
 	gapX         = 130 // between nodes in a row: room for a tunnel label
 	rowGap       = 36
 	padX         = 40
-	headW        = 250 // the box's name sits left of its top-edge items
+	headH        = 64  // the box's name, its handle and the NAT
 	boxGap       = 220 // between boxes
 	top          = 260 // every box's top edge
 	arrowLen     = 136
@@ -101,10 +103,7 @@ type Shape struct {
 	X, Y, W, H int
 }
 
-type Box struct {
-	X, Y, W, H int
-	Name, Sub  string
-}
+type Box struct{ X, Y, W, H int }
 
 type Router struct{ X, Y int } // top-left of the square
 
@@ -184,86 +183,81 @@ func Build(m Map, base string, notes []graph.Note, create []graph.Create) graph.
 	pos := map[string]rect{}
 	netOf := map[string]int{}
 	var sh Shape
+	var handles []graph.Node
 	nx := padX
-	bottom := top
+	bottom, minX, minY, maxX := top, padX, top, padX
 	type slot struct {
-		cx, y int // centre x of the item and its top y
-		in    bool
-		exit  []string
-		host  []string
+		cx, y, to int // centre x, the box's top edge, where the arrow ends
+		in        bool
+		exit      []string
+		host      []string
 	}
 	var slots []slot
 	for ni, c := range m.Nets {
-		var edge, inner []Node
+		bx, by := nx, top
+		if p, ok := m.Placed["net:"+c.ID]; ok {
+			bx, by = p[0], p[1]
+		}
+		// Every node inside the box, two to a row under the header; a
+		// dropped node keeps its spot, relative to the box.
+		var members []Node
 		for _, id := range c.Nodes {
-			n, ok := byID[id]
-			if !ok {
-				continue
-			}
-			netOf[id] = ni
-			if len(n.Public) > 0 {
-				edge = append(edge, n)
-			} else {
-				inner = append(inner, n)
+			if n, ok := byID[id]; ok {
+				netOf[id] = ni
+				members = append(members, n)
 			}
 		}
-		// Top-edge items: the router marker first, then public nodes.
-		items := len(edge)
-		if c.Router {
-			items++
+		rel := map[string]rect{}
+		ry := headH + 16
+		for i := 0; i < len(members); i += 2 {
+			rowDeck := 0
+			for j := i; j < min(i+2, len(members)); j++ {
+				rel[members[j].ID] = rect{padX + (j-i)*(cardW+gapX), ry}
+				rowDeck = max(rowDeck, deck(members[j]))
+			}
+			ry += cardH + rowDeck + rowGap
 		}
-		edgeBand, k := 0, 0
-		var grp slot
+		cols := min(len(members), 2)
+		w := max(minBoxW, 2*padX+cols*cardW+max(cols-1, 0)*gapX)
+		h := max(headH+90, ry-rowGap+30)
+		for _, n := range members {
+			r := rel[n.ID]
+			if p, ok := m.Placed["node:"+n.ID]; ok {
+				r = rect{max(p[0], 16), max(p[1], headH)}
+			}
+			pos[n.ID] = rect{bx + r.x, by + r.y}
+			w = max(w, r.x+cardW+padX)
+			h = max(h, r.y+cardH+deck(n)+30)
+			if len(n.Public) > 0 && (hasTag(n, "ingress") || len(n.ExitEnvs) > 0) {
+				slots = append(slots, slot{cx: bx + r.x + cardW/2, y: by, to: by + r.y,
+					in: hasTag(n, "ingress"), exit: n.ExitEnvs, host: n.Domains})
+			}
+		}
+		// The NAT sits in the header; public traffic for the box goes through it.
 		if c.Router {
-			cx := nx + headW + k*slotPitch + cardW/2
-			sh.Routers = append(sh.Routers, Router{cx - routerSize/2, top - routerSize/2})
-			grp = slot{cx: cx, y: top - routerSize/2}
-			for _, n := range inner {
+			rx, ry := bx+w-padX-routerSize, by+10
+			sh.Routers = append(sh.Routers, Router{rx, ry})
+			s := slot{cx: rx + routerSize/2, y: by, to: ry}
+			for _, n := range members {
 				if hasTag(n, "ingress") {
-					grp.in = true
-					grp.host = append(grp.host, n.Domains...)
+					s.in = true
+					s.host = append(s.host, n.Domains...)
 				}
-				grp.exit = append(grp.exit, n.ExitEnvs...)
+				s.exit = append(s.exit, n.ExitEnvs...)
 			}
-			if grp.in || len(grp.exit) > 0 {
-				slots = append(slots, grp)
-			}
-			edgeBand = routerSize / 2
-			k++
-		}
-		for _, n := range edge {
-			x := nx + headW + k*slotPitch
-			pos[n.ID] = rect{x, top - 66}
-			edgeBand = max(edgeBand, 66+deck(n))
-			if hasTag(n, "ingress") || len(n.ExitEnvs) > 0 {
-				s := slot{cx: x + cardW/2, y: top - 66, exit: n.ExitEnvs, host: n.Domains}
-				s.in = hasTag(n, "ingress")
+			if s.in || len(s.exit) > 0 {
 				slots = append(slots, s)
 			}
-			k++
 		}
-		// The rest, two to a row.
-		y0 := top + max(90, edgeBand+32)
-		cols := min(len(inner), 2)
-		y := y0
-		innerBottom := 0
-		for i := 0; i < len(inner); i += 2 {
-			rowDeck := 0
-			for j := i; j < min(i+2, len(inner)); j++ {
-				pos[inner[j].ID] = rect{nx + padX + (j-i)*(cardW+gapX), y}
-				rowDeck = max(rowDeck, deck(inner[j]))
-			}
-			innerBottom = y + cardH + rowDeck + 30
-			y += cardH + rowDeck + rowGap
-		}
-		w := max(minBoxW, 2*padX+cols*cardW+max(cols-1, 0)*gapX)
-		if items > 0 {
-			w = max(w, headW+items*slotPitch-(slotPitch-cardW)+padX)
-		}
-		b := max(innerBottom, top+edgeBand+30+32)
 		name, sub := netTitle(c)
-		sh.Boxes = append(sh.Boxes, Box{X: nx, Y: top, W: w, H: b - top, Name: name, Sub: sub})
-		bottom = max(bottom, b)
+		sh.Boxes = append(sh.Boxes, Box{X: bx, Y: by, W: w, H: h})
+		handles = append(handles, graph.Node{
+			ID: "net:" + c.ID, Kind: "net", Name: name,
+			X: bx, Y: by, W: w - routerSize - 2*padX, H: headH,
+			Card: netHandle(name, sub),
+		})
+		bottom = max(bottom, by+h)
+		minX, minY, maxX = min(minX, bx), min(minY, by), max(maxX, bx+w)
 		nx += w + boxGap
 	}
 
@@ -329,11 +323,13 @@ func Build(m Map, base string, notes []graph.Note, create []graph.Create) graph.
 		sh.Labels = append(sh.Labels, plate(lx, ly+4, label, "middle"))
 	}
 
-	// Public ingress and exit arrows rise from the box edge.
+	// Public ingress and exit arrows cross the box's top edge to the card
+	// or the NAT that takes them.
 	for _, s := range slots {
+		y0 := s.y - arrowLen
 		if s.in {
 			x := s.cx - 30
-			sh.Arrows = append(sh.Arrows, Arrow{D: fmt.Sprintf("M%d,%d L%d,%d", x, s.y-arrowLen, x, s.y-2), Kind: "ingress"})
+			sh.Arrows = append(sh.Arrows, Arrow{D: fmt.Sprintf("M%d,%d L%d,%d", x, y0, x, s.to-2), Kind: "ingress"})
 			txt := "ingress"
 			if len(s.host) > 0 {
 				txt = s.host[0]
@@ -345,7 +341,7 @@ func Build(m Map, base string, notes []graph.Note, create []graph.Create) graph.
 		}
 		if len(s.exit) > 0 {
 			x := s.cx + 30
-			sh.Arrows = append(sh.Arrows, Arrow{D: fmt.Sprintf("M%d,%d L%d,%d", x, s.y-2, x, s.y-arrowLen), Kind: "exit"})
+			sh.Arrows = append(sh.Arrows, Arrow{D: fmt.Sprintf("M%d,%d L%d,%d", x, s.to-2, x, y0), Kind: "exit"})
 			txt := s.exit[0]
 			verb := " exits here"
 			if len(s.exit) > 1 {
@@ -354,12 +350,6 @@ func Build(m Map, base string, notes []graph.Note, create []graph.Create) graph.
 			}
 			sh.Labels = append(sh.Labels, plate(x+8, s.y-arrowLen/2+4, txt+verb, "start"))
 		}
-	}
-	for _, r := range sh.Routers { // the router hands traffic to the box below it
-		cx := r.X + routerSize/2
-		sh.Arrows = append(sh.Arrows,
-			Arrow{D: fmt.Sprintf("M%d,%d L%d,%d", cx+10, r.Y+routerSize, cx+10, r.Y+routerSize+36), Kind: "short"},
-			Arrow{D: fmt.Sprintf("M%d,%d L%d,%d", cx-10, r.Y+routerSize+36, cx-10, r.Y+routerSize), Kind: "short"})
 	}
 
 	// Backups sit under everything, each below the first node that writes to it.
@@ -398,21 +388,17 @@ func Build(m Map, base string, notes []graph.Note, create []graph.Create) graph.
 	}
 
 	// Extent: boxes, arrows above them, S3 below.
-	sh.X, sh.Y, sh.W, sh.H = 0, top-66-arrowLen-20, max(nx-boxGap, padX)+padX, bottom+padX-(top-66-arrowLen-20)
-	for _, n := range m.Nodes { // a node's own card beyond a box's edge counts too
-		if r, ok := pos[n.ID]; ok {
-			sh.W = max(sh.W, r.x+cardW+padX)
-		}
-	}
+	sh.X, sh.Y = minX-padX, minY-arrowLen-20
+	sh.W, sh.H = max(maxX, next)+padX-sh.X, bottom+padX-sh.Y
 
 	v := graph.View{
 		Base:   base,
-		Fixed:  true,
 		Notes:  notes,
 		Create: create,
 		Under:  netLayer(sh),
 		Over:   legends(),
 	}
+	v.Nodes = handles
 	for _, n := range m.Nodes {
 		r, ok := pos[n.ID]
 		if !ok {
@@ -420,7 +406,7 @@ func Build(m Map, base string, notes []graph.Note, create []graph.Create) graph.
 		}
 		v.Nodes = append(v.Nodes, graph.Node{
 			ID: "node:" + n.ID, Kind: "node", Name: n.Name,
-			X: r.x, Y: r.y, W: cardW, H: cardH, Static: true,
+			X: r.x, Y: r.y, W: cardW, H: cardH,
 			Card: nodeCard(n),
 		})
 	}
@@ -479,3 +465,44 @@ func Subtitle(m Map) string {
 }
 
 func itoa(n int) string { return strconv.Itoa(n) }
+
+// Drop is what Placed keeps for a box or card dropped at x, y: a box's
+// corner as is, a card relative to its box. ok is false for anything else.
+func Drop(v graph.View, m Map, id string, x, y int) (p [2]int, ok bool) {
+	if strings.HasPrefix(id, "net:") {
+		return [2]int{x, y}, slices.ContainsFunc(v.Nodes, func(n graph.Node) bool { return n.ID == id })
+	}
+	nid, isNode := strings.CutPrefix(id, "node:")
+	if !isNode {
+		return p, false
+	}
+	for _, c := range m.Nets {
+		if !slices.Contains(c.Nodes, nid) {
+			continue
+		}
+		for _, h := range v.Nodes {
+			if h.ID == "net:"+c.ID {
+				return [2]int{x - h.X, y - h.Y}, true
+			}
+		}
+	}
+	return p, false
+}
+
+// publicIP is the card's Public row: the first address, IPv4 first.
+func publicIP(n Node) string {
+	if len(n.Public) == 0 {
+		return ""
+	}
+	a := n.Public[0]
+	for _, p := range n.Public {
+		if !strings.Contains(p, ":") {
+			a = p
+			break
+		}
+	}
+	if len(n.Public) > 1 {
+		a += fmt.Sprintf(" +%d", len(n.Public)-1)
+	}
+	return a
+}

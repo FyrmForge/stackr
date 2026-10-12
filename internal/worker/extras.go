@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math/bits"
 	"net"
 	"net/http"
 	"net/netip"
@@ -39,6 +40,36 @@ type Iface struct {
 	// Public is set when a public address is assigned directly on the
 	// interface (not private, CGNAT or link-local).
 	Public bool `json:"public"`
+	// Routes are the IPv4 routes out of the interface, the default left out.
+	Routes []string `json:"routes,omitempty"`
+}
+
+// LANs are the interface's prefixes, a host address (/32) widened to the
+// route that holds it: a cloud private network (Hetzner) hands each box a
+// /32 and reaches the rest through a route (10.0.0.0/16 via 10.0.0.1).
+// The address is kept, so Masked is the network and Addr the box.
+func (i Iface) LANs() []netip.Prefix {
+	var out []netip.Prefix
+	for _, s := range i.Prefixes {
+		p, err := netip.ParsePrefix(s)
+		if err != nil {
+			continue
+		}
+		if p.IsSingleIP() {
+			best := -1
+			for _, r := range i.Routes {
+				rp, err := netip.ParsePrefix(r)
+				if err == nil && rp.Bits() < p.Bits() && rp.Bits() > best && rp.Contains(p.Addr()) {
+					best = rp.Bits()
+				}
+			}
+			if best >= 0 {
+				p = netip.PrefixFrom(p.Addr(), best)
+			}
+		}
+		out = append(out, p)
+	}
+	return out
 }
 
 // State is the full applied state, replayed in this order.
@@ -73,9 +104,10 @@ func readBody(w http.ResponseWriter, r *http.Request) ([]byte, bool) {
 // request reports the same list before a worker exists.
 func Interfaces() []Iface {
 	out := []Iface{}
+	rs := routes(readFile("/proc/net/route"))
 	ifs, _ := net.Interfaces()
 	for _, i := range ifs {
-		fi := Iface{Name: i.Name, Prefixes: []string{}}
+		fi := Iface{Name: i.Name, Prefixes: []string{}, Routes: rs[i.Name]}
 		addrs, _ := i.Addrs()
 		for _, a := range addrs {
 			if p, err := netip.ParsePrefix(a.String()); err == nil {
@@ -84,6 +116,31 @@ func Interfaces() []Iface {
 			}
 		}
 		out = append(out, fi)
+	}
+	return out
+}
+
+// routes reads /proc/net/route (hex, little-endian): IPv4 routes by
+// interface, the default left out.
+// ponytail: IPv4 only; IPv6 /128 cloud addresses stay single hosts.
+func routes(table string) map[string][]string {
+	le := func(h string) (uint32, bool) {
+		v, err := strconv.ParseUint(h, 16, 32)
+		return bits.ReverseBytes32(uint32(v)), err == nil
+	}
+	out := map[string][]string{}
+	for _, l := range strings.Split(table, "\n") {
+		f := strings.Fields(l)
+		if len(f) < 8 {
+			continue
+		}
+		d, ok1 := le(f[1])
+		m, ok2 := le(f[7])
+		if !ok1 || !ok2 || m == 0 {
+			continue
+		}
+		p := netip.PrefixFrom(netip.AddrFrom4([4]byte{byte(d >> 24), byte(d >> 16), byte(d >> 8), byte(d)}), bits.OnesCount32(m))
+		out[f[0]] = append(out[f[0]], p.Masked().String())
 	}
 	return out
 }
