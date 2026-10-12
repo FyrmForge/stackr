@@ -361,6 +361,11 @@ func (o *Orchestrator) refreshNodeClients(ctx context.Context) error {
 		r.Set(n.ID, d)
 		if nv, ok := o.vip.(*nodeVIPs); ok {
 			vctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+			if !cd.up {
+				// It just failed the probe: asking again would hold up boot
+				// 5 s per worker; the jump check clears any doubled jumps.
+				cancel()
+			}
 			nv.Attach(n.ID, newWorkerVIP(vctx, cd.ext))
 			cancel()
 		}
