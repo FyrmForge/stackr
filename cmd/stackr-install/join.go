@@ -150,8 +150,9 @@ func (j joinCall) run(ctx context.Context, csrPEM []byte, wgPub string, facts an
 // workerUnit is the systemd unit for `stackrd worker`. The worker listens on
 // its tunnel address only (bound before stackr0 has it, see worker.Run); it
 // brings the tunnel up from its saved mesh spec at start, the first one from
-// the join answer. After=docker.service keeps DOCKER-USER there.
-func workerUnit(stateDir, wgAddr string, wgPort int) string {
+// the join answer. --panel-url is where it recovers that spec when the
+// controller goes quiet. After=docker.service keeps DOCKER-USER there.
+func workerUnit(stateDir, wgAddr string, wgPort int, panel string) string {
 	return fmt.Sprintf(`[Unit]
 Description=stackr worker
 After=network-online.target docker.service
@@ -159,13 +160,13 @@ Wants=network-online.target
 Requires=docker.service
 
 [Service]
-ExecStart=%[1]s worker --state-dir %[2]s --addr %[4]s:%[3]s --wg-port %[5]d
+ExecStart=%[1]s worker --state-dir %[2]s --addr %[4]s:%[3]s --wg-port %[5]d --panel-url %[6]s
 Restart=always
 RestartSec=3
 
 [Install]
 WantedBy=multi-user.target
-`, joinBinary, stateDir, joinWorkerPort, wgAddr, wgPort)
+`, joinBinary, stateDir, joinWorkerPort, wgAddr, wgPort, panel)
 }
 
 // join is `stackr-install join`: turn this machine into a worker node of
@@ -275,7 +276,7 @@ func join(ctx context.Context, args []string, out io.Writer) error {
 			return err
 		}
 	}
-	if err := os.WriteFile(joinUnitPath, []byte(workerUnit(*stateDir, strings.Split(st.WGAddress, "/")[0], *wgPort)), 0o644); err != nil {
+	if err := os.WriteFile(joinUnitPath, []byte(workerUnit(*stateDir, strings.Split(st.WGAddress, "/")[0], *wgPort, u.String())), 0o644); err != nil {
 		return err
 	}
 	for _, c := range [][]string{{"daemon-reload"}, {"enable", "--now", "stackr-worker.service"}} {

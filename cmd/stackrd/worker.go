@@ -49,6 +49,8 @@ func workerConfig(args []string) (worker.Config, error) {
 	regHost := fs.String("registry-host", config.GetEnvOrDefault("STACKR_WORKER_REGISTRY_HOST", ""), "registry host name, registry.<panel domain> (STACKR_WORKER_REGISTRY_HOST)")
 	wgPort := fs.Int("wg-port", config.GetEnvOrDefaultInt("STACKR_WORKER_WG_PORT", mesh.DefaultPort),
 		"UDP port of the mesh's WireGuard interface (STACKR_WORKER_WG_PORT)")
+	panel := fs.String("panel-url", config.GetEnvOrDefault("STACKR_WORKER_PANEL_URL", ""),
+		"the panel's public URL, where the worker recovers its mesh when the controller goes quiet (STACKR_WORKER_PANEL_URL; \"\" = the one the controller names)")
 	if err := fs.Parse(args); err != nil {
 		return worker.Config{}, err
 	}
@@ -84,8 +86,12 @@ func workerConfig(args []string) (worker.Config, error) {
 		}
 		reg = worker.RegistryConfig{URL: *regURL, Host: *regHost, TLS: clusterca.ControllerClientConfig(caCert, own)}
 	}
+	own, err := tls.LoadX509KeyPair(def(cert, "node.crt"), def(key, "node.key"))
+	if err != nil {
+		return worker.Config{}, fmt.Errorf("node cert: %w", err)
+	}
 	return worker.Config{
-		Registry: reg, AliveAddr: *alive,
+		Registry: reg, AliveAddr: *alive, Recover: worker.RecoverConfig{Own: own, Panel: *panel},
 		TLS: tc, Addr: *addr, DockerSock: *sock, CaddySock: *caddy, StateDir: *state,
 		Runner: worker.ExecRunner{}, Mesh: worker.MeshConfig{WG: workerWG(), WGPort: *wgPort},
 	}, nil

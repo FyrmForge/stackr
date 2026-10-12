@@ -41,6 +41,9 @@ type MeshSpec struct {
 	// Registry is the controller's registry front over the mesh; the worker
 	// serves it on 127.0.0.1:5000. nil on the controller itself.
 	Registry *RegistrySpec `json:",omitempty"`
+	// Panel is the panel's public URL, where the worker recovers its spec
+	// when the controller goes quiet. "" on the controller itself.
+	Panel string `json:",omitempty"`
 }
 
 // RegistrySpec: URL is https://<controller transit>:<panel port>, Host the

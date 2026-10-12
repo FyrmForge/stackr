@@ -58,13 +58,13 @@ const (
 	exitMarkBase  = 0x5000 // + client slot
 	maxSlots      = 16     // /16s in the supernet
 
-	meshEvery      = time.Minute
+	meshEvery = time.Minute
 	// factsFresh is how old a node's facts may be and still tell whether
 	// its tunnels are up: two missed syncs and they say nothing.
 	factsFresh = 2 * meshEvery
 	// downAfter is how long a pair must look down before it is routed
 	// through another node: the failover's probe of each candidate first.
-	downAfter = 90 * time.Second
+	downAfter      = 90 * time.Second
 	forgottenRange = "mesh.forgotten_ranges"
 )
 
@@ -80,16 +80,18 @@ type meshSvc struct {
 	// (or a nil answer) = none. Never set on the controller's own spec.
 	Registry func(ctx context.Context) *worker.RegistrySpec
 	ctlID    string
+	// Panel is the panel's public URL, named in every worker's spec.
+	Panel string
 
 	kick chan struct{}
 
 	mu     sync.Mutex
 	facts  map[string]worker.Facts
 	at     map[string]time.Time // when facts last came in, per node
-	exitPK map[string]string // exit public key per node
-	wgPK   map[string]string // wg public key per node, for a row that holds none (the controller's)
+	exitPK map[string]string    // exit public key per node
+	wgPK   map[string]string    // wg public key per node, for a row that holds none (the controller's)
 	pushed map[string][32]byte
-	next   map[[2]string]string // {src, dst}: src's next hop to dst, from the last sync
+	next   map[[2]string]string    // {src, dst}: src's next hop to dst, from the last sync
 	down   map[[2]string]time.Time // since when a pair looked down
 	specs  map[string]worker.MeshSpec
 }
@@ -114,6 +116,15 @@ func (m *meshSvc) Via(a, b string) string {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.next[[2]string{a, b}]
+}
+
+// Report takes facts a node sent itself (a recovery call through the panel)
+// as if the controller had read them over the tunnel.
+func (m *meshSvc) Report(ctx context.Context, id string, f worker.Facts) {
+	m.mu.Lock()
+	m.facts[id], m.at[id] = f, time.Now()
+	m.mu.Unlock()
+	m.keepPublic(ctx, id, publicAddrs(f))
 }
 
 // Kick asks Run for a sync soon; it never blocks.
@@ -162,6 +173,18 @@ func (m *meshSvc) Sync(ctx context.Context, only string, force bool) error {
 	}
 	in.Next = m.routes(in, time.Now())
 	specs := buildMesh(in)
+	// A worker's spec names the registry and the panel's public URL (where
+	// it recovers); the controller's own names neither.
+	var reg *worker.RegistrySpec
+	if m.Registry != nil {
+		reg = m.Registry(ctx)
+	}
+	for id, sp := range specs {
+		if id != m.ctlID {
+			sp.Registry, sp.Panel = reg, m.Panel
+			specs[id] = sp
+		}
+	}
 	m.mu.Lock()
 	m.next, m.specs = in.Next, specs
 	m.mu.Unlock()
@@ -182,9 +205,6 @@ func (m *meshSvc) Sync(ctx context.Context, only string, force bool) error {
 		cl, ok := m.nodes(id)
 		if !ok {
 			continue
-		}
-		if m.Registry != nil && id != m.ctlID {
-			spec.Registry = m.Registry(ctx)
 		}
 		b, _ := json.Marshal(spec)
 		sum := sha256.Sum256(b)

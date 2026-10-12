@@ -110,8 +110,9 @@ func TestJoinArgsAndUnit(t *testing.T) {
 	if fp, err := normalizeFP(strings.ToUpper(strings.Repeat("ab:", 31) + "ab")); err != nil || fp != strings.Repeat("ab", 32) {
 		t.Errorf("normalizeFP = %q %v", fp, err)
 	}
-	u := workerUnit("/var/lib/stackr-worker", "10.207.255.3", 51900)
-	for _, want := range []string{"After=network-online.target docker.service", "worker --state-dir /var/lib/stackr-worker --addr 10.207.255.3:7443 --wg-port 51900"} {
+	u := workerUnit("/var/lib/stackr-worker", "10.207.255.3", 51900, "https://stkr.example.com")
+	for _, want := range []string{"After=network-online.target docker.service",
+		"worker --state-dir /var/lib/stackr-worker --addr 10.207.255.3:7443 --wg-port 51900 --panel-url https://stkr.example.com"} {
 		if !strings.Contains(u, want) {
 			t.Errorf("unit lacks %q:\n%s", want, u)
 		}
