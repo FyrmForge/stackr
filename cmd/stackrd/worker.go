@@ -11,6 +11,7 @@ import (
 
 	"github.com/FyrmForge/hamr/pkg/config"
 	"github.com/FyrmForge/stackr/internal/clusterca"
+	"github.com/FyrmForge/stackr/internal/installspec"
 	"github.com/FyrmForge/stackr/internal/wgapply"
 	"github.com/FyrmForge/stackr/internal/worker"
 )
@@ -39,7 +40,8 @@ func workerConfig(args []string) (worker.Config, error) {
 	key := fs.String("key", "", "node key (default <state-dir>/node.key)")
 	ca := fs.String("ca", "", "cluster CA cert (default <state-dir>/cluster-ca.crt)")
 	sock := fs.String("docker-sock", config.GetEnvOrDefault("STACKR_WORKER_DOCKER_SOCK", "/var/run/docker.sock"), "local Docker socket")
-	caddy := fs.String("caddy-sock", config.GetEnvOrDefault("STACKR_WORKER_CADDY_SOCK", ""), "local Caddy admin socket (\"\" = off)")
+	caddy := fs.String("caddy-sock", config.GetEnvOrDefault("STACKR_WORKER_CADDY_SOCK", installspec.WorkerProxyAdminDir+"/admin.sock"),
+		"Caddy admin socket of the proxy the controller starts on an ingress node (\"\" = off)")
 	regURL := fs.String("registry-url", config.GetEnvOrDefault("STACKR_WORKER_REGISTRY_URL", ""), "controller panel address on its transit IP, e.g. https://10.213.0.1 (STACKR_WORKER_REGISTRY_URL); serves its registry on 127.0.0.1:5000 (\"\" = off)")
 	regHost := fs.String("registry-host", config.GetEnvOrDefault("STACKR_WORKER_REGISTRY_HOST", ""), "registry host name, registry.<panel domain> (STACKR_WORKER_REGISTRY_HOST)")
 	if err := fs.Parse(args); err != nil {

@@ -67,6 +67,7 @@ func (o *Orchestrator) proxyConfigs(ctx context.Context) (map[string]json.RawMes
 		return nil, err
 	}
 	in.Probe = probePath(ctl)
+	in.IngressNodes = o.ingressNodes(ctx)
 	routes, err := o.externalRoutes(ctx)
 	if err != nil {
 		return nil, err

@@ -283,6 +283,7 @@ func (o *Orchestrator) SetNodeTags(ctx context.Context, by *Principal, id string
 			return errs.Conflictf("%s is the ingress of %s; pick another ingress there first.", n.Name, o.scopePath(ctx, picks[0].ScopeKind, picks[0].ScopeID))
 		}
 	}
+	ingressChanged := slices.Contains(node.Tags(n), node.TagIngress) != slices.Contains(tags, node.TagIngress)
 	raw, _ := json.Marshal(tags)
 	n.Tags = string(raw)
 	err = o.store.Tx(ctx, func(tx store.Tx) error {
@@ -297,6 +298,9 @@ func (o *Orchestrator) SetNodeTags(ctx context.Context, by *Principal, id string
 	if err == nil {
 		if m := o.meshSvc(); m != nil {
 			m.Kick()
+		}
+		if ingressChanged {
+			go o.ingressTagged(n.ID)
 		}
 	}
 	return err

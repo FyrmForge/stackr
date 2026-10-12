@@ -81,3 +81,22 @@ func TestBuildAllProbe(t *testing.T) {
 		}
 	}
 }
+
+// A node tagged ingress gets a config (and so its probe) with nothing routed
+// to it; a tile on a worker is dialled by VIP even from that worker's Caddy.
+func TestBuildAllIngressNodesAndWorkerLocal(t *testing.T) {
+	in := install
+	in.DefaultIngress, in.IngressNodes, in.Probe = "head", []string{"head", "idle", "w1"}, "/.well-known/stackr-probe/abc"
+	local := one(row("w1.example.com", domain.Extras{}))[0]
+	local.IngressNode, local.Node, local.VIP = "w1", "w1", "10.210.1.2"
+	all, err := domain.BuildAll(in, []domain.TileRoute{local}, nil, nil)
+	if err != nil || len(all) != 3 {
+		t.Fatalf("%v: %d configs, want head, idle and w1", err, len(all))
+	}
+	if !strings.Contains(string(all["idle"]), `"body":"idle"`) {
+		t.Error("idle ingress node has no probe")
+	}
+	if w1 := string(all["w1"]); !strings.Contains(w1, `"10.210.1.2:8080"`) || strings.Contains(w1, "web-r1") {
+		t.Errorf("worker-local upstream should be the VIP: %s", w1)
+	}
+}

@@ -42,6 +42,9 @@ type Install struct {
 	// DefaultIngress is the node the panel route and any route without an
 	// ingress node of its own follow. Only BuildNode and BuildAll read it.
 	DefaultIngress string
+	// IngressNodes are the nodes tagged ingress: BuildAll makes each one a
+	// config even with nothing routed to it, so its probe answers.
+	IngressNodes []string
 	// Probe is the port-forward probe's path: on every host, over HTTP and
 	// HTTPS, it answers ProbeID (BuildNode sets it to the node's id), so a
 	// request from outside tells which node a NAT forwards to. "" = none.
@@ -222,10 +225,13 @@ func BuildNode(node string, in Install, tiles []TileRoute, routes []NodeRoute, e
 }
 
 // BuildAll is one config per ingress node: every node a tile or route names,
-// plus the default ingress node. Errors are joined; configs that built are
-// still returned.
+// every node tagged ingress, plus the default ingress node. Errors are
+// joined; configs that built are still returned.
 func BuildAll(in Install, tiles []TileRoute, routes []NodeRoute, expand Expand) (map[string]json.RawMessage, error) {
 	nodes := map[string]bool{in.DefaultIngress: true}
+	for _, n := range in.IngressNodes {
+		nodes[n] = true
+	}
 	for _, t := range tiles {
 		if t.IngressNode != "" {
 			nodes[t.IngressNode] = true
@@ -425,8 +431,10 @@ func upstream(d store.Domain, t TileRoute, e Extras) route {
 	}
 	names := append([]string(nil), t.Upstreams...)
 	sort.Strings(names)
-	if t.VIP != "" && t.Node != "" && t.IngressNode != "" && t.Node != t.IngressNode {
-		names = []string{t.VIP} // another node's containers: only the VIP is reachable
+	if t.VIP != "" {
+		// A tile on a worker: its replicas join no ingress network, so even
+		// that worker's own Caddy (host network) reaches it by VIP only.
+		names = []string{t.VIP}
 	}
 	ups := make([]route, len(names))
 	for i, n := range names {

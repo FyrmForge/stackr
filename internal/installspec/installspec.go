@@ -219,6 +219,33 @@ func Proxy(image string, in Input, dnsToken string) Container {
 	return c
 }
 
+// WorkerProxyAdminDir is the host dir of an ingress worker's Caddy admin
+// socket; `stackrd worker` passes its admin API through from there.
+const WorkerProxyAdminDir = "/var/lib/stackr-worker/proxy"
+
+// NodeProxy is the proxy on an ingress worker: Proxy's Caddy on the host
+// network, so it binds 80 and 443 itself and reaches local tiles and other
+// nodes' VIPs (over wg0, from its transit address) without NAT. It serves no
+// panel. Certificates live on its own stackr-caddy volume.
+func NodeProxy(image, dnsToken string) Container {
+	env := []string{"XDG_DATA_HOME=/caddy/data", "XDG_CONFIG_HOME=/caddy/config"}
+	if dnsToken != "" {
+		env = append(env, DNSTokenEnv+"="+dnsToken)
+	}
+	c := Container{
+		Name:        ProxyName,
+		Image:       image,
+		Cmd:         []string{"proxy"},
+		Env:         env,
+		Labels:      map[string]string{LabelRole: "proxy"},
+		Volumes:     []string{ProxyVolume + ":/caddy", WorkerProxyAdminDir + ":" + ProxyAdminDir},
+		HostNetwork: true,
+		Restart:     "unless-stopped",
+	}
+	c.Labels[LabelSpec] = c.Hash()
+	return c
+}
+
 // Hash fingerprints everything the container is made from (image, cmd, env,
 // mounts, ports, hosts, labels but its own stamp). Equal hash = nothing to
 // recreate.
