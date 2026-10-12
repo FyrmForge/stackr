@@ -31,6 +31,7 @@ import (
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
+	"github.com/FyrmForge/stackr/internal/service/internal/regfront"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
 
@@ -91,7 +92,15 @@ type Flow struct {
 	Nodes Nodes
 	Env   Env
 	Now   func() time.Time // nil = time.Now
+	// EnsureRsync puts the rsync helper in the cluster registry (on the
+	// controller) before a live move pulls it on both nodes; nil = skip.
+	EnsureRsync func(ctx context.Context) error
 }
+
+// RsyncImage is the live-move helper (alpine + rsync). Every node pulls it
+// from localhost:5000: the registry itself on the controller, the worker's
+// registry front over the mesh elsewhere, so no node needs the internet.
+var RsyncImage = "localhost:5000/" + regfront.SystemOrg + "/tools/rsync:1"
 
 // Request is one move to begin.
 type Request struct {
@@ -248,9 +257,23 @@ func (f *Flow) prepare(ctx context.Context, m store.EnvMove) error {
 	if err != nil {
 		return err
 	}
+	if m.Live && f.EnsureRsync != nil {
+		if err := f.EnsureRsync(ctx); err != nil {
+			return fmt.Errorf("rsync helper: %w", err)
+		}
+	}
 	for _, d := range []Docker{src, dst} {
-		if err := d.EnsureTool(ctx); err != nil { // the tar or rsync helpers' image
-			return err
+		if !m.Live {
+			if err := d.EnsureTool(ctx); err != nil { // the tar helpers' image
+				return err
+			}
+			continue
+		}
+		if _, err := d.LocalDigest(ctx, RsyncImage); err == nil {
+			continue
+		}
+		if err := d.Pull(ctx, RsyncImage, "", io.Discard); err != nil {
+			return fmt.Errorf("pull %s: %w", RsyncImage, err)
 		}
 	}
 	for _, v := range vols {
@@ -362,17 +385,11 @@ func helperName(moveID string, i int, role string) string {
 	return fmt.Sprintf("stkr-rsync-%s-%d-%s", moveID, i, role)
 }
 
-// The helpers run on the tool image every node already pulls (EnsureTool)
-// and add rsync at start, so no image has to reach the nodes. ponytail: apk
-// needs the node's internet; an air-gapped install points docker.ToolImage
-// at an image with rsync, where the add is skipped.
-const withRsync = `command -v rsync >/dev/null || apk add -q --no-cache rsync || exit 20; `
-
 // daemonScript serves /data to RSYNC_ALLOW alone.
-const daemonScript = withRsync + `printf 'use chroot = no\nnumeric ids = yes\n[data]\n path = /data\n read only = no\n uid = 0\n gid = 0\n hosts allow = %s\n hosts deny = *\n' "$RSYNC_ALLOW" > /tmp/rsyncd.conf && exec rsync --daemon --no-detach --config=/tmp/rsyncd.conf`
+const daemonScript = `printf 'use chroot = no\nnumeric ids = yes\n[data]\n path = /data\n read only = no\n uid = 0\n gid = 0\n hosts allow = %s\n hosts deny = *\n' "$RSYNC_ALLOW" > /tmp/rsyncd.conf && exec rsync --daemon --no-detach --config=/tmp/rsyncd.conf`
 
 // retry covers the daemon still starting (rsync exit 10: connection refused).
-const clientScript = withRsync + `i=0; while :; do rsync %s /data/ rsync://%s:%d/data/; rc=$?; if [ $rc -ne 10 ] || [ $i -ge 60 ]; then exit $rc; fi; i=$((i+1)); sleep 1; done`
+const clientScript = `i=0; while :; do rsync %s /data/ rsync://%s:%d/data/; rc=$?; if [ $rc -ne 10 ] || [ $i -ge 60 ]; then exit $rc; fi; i=$((i+1)); sleep 1; done`
 
 func pass(ctx context.Context, src, dst Docker, moveID string, i int, v store.Volume, srcAddr, dstAddr string, check bool) error {
 	port := RsyncPort + i
@@ -382,7 +399,7 @@ func pass(ctx context.Context, src, dst Docker, moveID string, i int, v store.Vo
 	_ = src.StopRemove(ctx, client)
 	did, err := dst.Run(ctx, docker.ContainerSpec{
 		Name:    daemon,
-		Image:   docker.ToolImage,
+		Image:   RsyncImage,
 		Cmd:     []string{"sh", "-c", daemonScript},
 		Env:     []string{"RSYNC_ALLOW=" + srcAddr},
 		Labels:  map[string]string{docker.LabelManaged: "true"},
@@ -400,7 +417,7 @@ func pass(ctx context.Context, src, dst Docker, moveID string, i int, v store.Vo
 	}
 	cid, err := src.Run(ctx, docker.ContainerSpec{
 		Name:    client,
-		Image:   docker.ToolImage,
+		Image:   RsyncImage,
 		Cmd:     []string{"sh", "-c", fmt.Sprintf(clientScript, flags, dstAddr, port)},
 		Labels:  map[string]string{docker.LabelManaged: "true"},
 		Volumes: []string{v.Name + ":/data:ro"},

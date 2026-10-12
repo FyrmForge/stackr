@@ -10,7 +10,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	"github.com/FyrmForge/stackr/internal/service/internal/dockerfake"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 	"github.com/FyrmForge/stackr/internal/service/internal/storetest"
@@ -234,6 +233,9 @@ func TestOneUnfinishedMovePerEnv(t *testing.T) {
 
 func TestLiveMove(t *testing.T) {
 	r := newRig(t)
+	ensured := 0
+	r.f.EnsureRsync = func(context.Context) error { ensured++; return nil }
+	r.dst.Gone = []string{RsyncImage} // the source has the helper, the target pulls it
 	m := r.begin(t, true)
 	got, err := r.f.Run(context.Background(), m.ID, nil)
 	if err != nil || got.Phase != Done {
@@ -246,8 +248,14 @@ func TestLiveMove(t *testing.T) {
 	if len(r.dst.Specs) != 2 || len(r.src.Specs) != 2 {
 		t.Fatalf("helpers: dst %d src %d", len(r.dst.Specs), len(r.src.Specs))
 	}
+	if ensured != 1 {
+		t.Fatalf("EnsureRsync calls = %d, want 1", ensured)
+	}
+	if slices.Contains(methods(r.src), "Pull") || !slices.Contains(methods(r.dst), "Pull") {
+		t.Fatalf("pulls: src %v dst %v, want only the target", methods(r.src), methods(r.dst))
+	}
 	d := r.dst.Specs[0]
-	if d.Image != docker.ToolImage || d.Env[0] != "RSYNC_ALLOW=10.1.0.1" || d.Ports["8873"] != "873" ||
+	if d.Image != RsyncImage || d.Env[0] != "RSYNC_ALLOW=10.1.0.1" || d.Ports["8873"] != "873" ||
 		!strings.Contains(d.Cmd[2], "rsync --daemon") {
 		t.Fatalf("daemon spec = %+v", d)
 	}

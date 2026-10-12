@@ -184,3 +184,11 @@ func TestFrontFlow(t *testing.T) {
 		t.Errorf("forged: %d", res.StatusCode)
 	}
 }
+
+func TestSystemOrgPullOnly(t *testing.T) {
+	repo := SystemOrg + "/tools/rsync"
+	got := Decide(Facts{Kind: KindNode, Subject: "n1"}, []Scope{{repo, []string{Pull, Push}}})
+	if len(got) != 1 || len(got[0].Actions) != 1 || got[0].Actions[0] != Pull {
+		t.Fatalf("node on %s = %v, want pull only", repo, got)
+	}
+}

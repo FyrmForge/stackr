@@ -5,11 +5,16 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net/http"
 	"net/netip"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"slices"
 	"strings"
 
 	"github.com/FyrmForge/stackr/internal/authz"
+	"github.com/FyrmForge/stackr/internal/installspec"
 	"github.com/FyrmForge/stackr/internal/mesh"
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
@@ -38,7 +43,78 @@ type moveJob struct {
 // moveFlow is the flow wired to this orchestrator; it holds no state of its
 // own (the rows are the state), so it is cheap to build per call.
 func (o *Orchestrator) moveFlow() *move.Flow {
-	return &move.Flow{Moves: o.store.Moves, Nodes: moveNodes{o}, Env: moveEnv{o}}
+	return &move.Flow{Moves: o.store.Moves, Nodes: moveNodes{o}, Env: moveEnv{o}, EnsureRsync: o.rsyncSteps().ensure}
+}
+
+// rsyncDockerfile is the live-move helper. The controller builds it once
+// (its own internet only) and pushes it to the cluster registry; nodes pull
+// it from there over the mesh.
+const rsyncDockerfile = "FROM alpine:3\nRUN apk add --no-cache rsync\n"
+
+// rsyncSteps puts move.RsyncImage in the registry: there already = done,
+// else push the controller's local copy, building it first if missing.
+type rsyncSteps struct {
+	inRegistry func(context.Context) (bool, error)
+	local      func(context.Context) bool
+	build      func(context.Context) error
+	push       func(context.Context) error
+}
+
+func (s rsyncSteps) ensure(ctx context.Context) error {
+	if ok, err := s.inRegistry(ctx); err != nil || ok {
+		return err
+	}
+	if !s.local(ctx) {
+		if err := s.build(ctx); err != nil {
+			return fmt.Errorf("build: %w", err)
+		}
+	}
+	return s.push(ctx)
+}
+
+func (o *Orchestrator) rsyncSteps() rsyncSteps {
+	ref := move.RsyncImage
+	repo, tag, _ := strings.Cut(strings.TrimPrefix(ref, "localhost:"+installspec.RegistryPort+"/"), ":")
+	return rsyncSteps{
+		inRegistry: func(ctx context.Context) (bool, error) {
+			url := "http://127.0.0.1:" + installspec.RegistryPort + "/v2/" + repo + "/manifests/" + tag
+			req, err := http.NewRequestWithContext(ctx, http.MethodHead, url, nil)
+			if err != nil {
+				return false, err
+			}
+			req.Header.Set("Accept", "application/vnd.docker.distribution.manifest.v2+json, application/vnd.oci.image.index.v1+json, application/vnd.oci.image.manifest.v1+json")
+			res, err := http.DefaultClient.Do(req)
+			if err != nil {
+				return false, fmt.Errorf("registry: %w", err)
+			}
+			res.Body.Close()
+			return res.StatusCode == http.StatusOK, nil
+		},
+		local: func(ctx context.Context) bool {
+			_, err := o.docker.LocalDigest(ctx, ref)
+			return err == nil
+		},
+		build: func(ctx context.Context) error {
+			dir, err := os.MkdirTemp(o.cfg.DataDir, "rsync-build-")
+			if err != nil {
+				return err
+			}
+			defer os.RemoveAll(dir)
+			df := filepath.Join(dir, "Dockerfile")
+			if err := os.WriteFile(df, []byte(rsyncDockerfile), 0o644); err != nil {
+				return err
+			}
+			_, err = o.images.Build(ctx, dir, df, ref, nil, io.Discard)
+			return err
+		},
+		push: func(ctx context.Context) error {
+			// ponytail: the docker CLI, as image builds use; the client has no push.
+			if out, err := exec.CommandContext(ctx, "docker", "push", ref).CombinedOutput(); err != nil {
+				return fmt.Errorf("push %s: %w: %s", ref, err, strings.TrimSpace(string(out)))
+			}
+			return nil
+		},
+	}
 }
 
 // MoveEnv (org owner; the target must be open to the org) moves an env to

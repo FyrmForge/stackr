@@ -61,6 +61,10 @@ const (
 	DefaultTTL = 5 * time.Minute
 )
 
+// SystemOrg holds stackr's own images (the live-move rsync helper). The dot
+// keeps it out of the org slug space; every authenticated caller may pull it.
+const SystemOrg = "stackr.system"
+
 var slug = regexp.MustCompile(`^[a-z0-9]+(?:[._-][a-z0-9]+)*$`)
 
 // Repo is the repository of a tile's image.
@@ -109,6 +113,9 @@ func (f Facts) allowed(repo, action string) bool {
 	org, _, _, ok := ParseRepo(repo)
 	if !ok {
 		return false
+	}
+	if org == SystemOrg {
+		return action == Pull
 	}
 	if slices.Contains(f.Orgs, org) {
 		return action == Pull || action == Push
