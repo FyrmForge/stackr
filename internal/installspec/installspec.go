@@ -227,11 +227,8 @@ const WorkerProxyAdminDir = "/var/lib/stackr-worker/proxy"
 // network, so it binds 80 and 443 itself and reaches local tiles and other
 // nodes' VIPs (over wg0, from its transit address) without NAT. It serves no
 // panel. Certificates live on its own stackr-caddy volume.
-func NodeProxy(image, dnsToken string) Container {
+func NodeProxy(image string) Container {
 	env := []string{"XDG_DATA_HOME=/caddy/data", "XDG_CONFIG_HOME=/caddy/config"}
-	if dnsToken != "" {
-		env = append(env, DNSTokenEnv+"="+dnsToken)
-	}
 	c := Container{
 		Name:        ProxyName,
 		Image:       image,
