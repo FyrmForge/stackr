@@ -87,6 +87,11 @@ func (a *app) login() *cobra.Command {
 				return usage("the server is a URL: https://stackr.example.com")
 			}
 			a.cfg.Server = server
+			// An empty --with-key (an unset $KEY) used to fall through to the
+			// browser flow and wait for an approval nobody was asked for.
+			if c.Flags().Changed("with-key") && key == "" {
+				return usage("--with-key is empty")
+			}
 			if key == "" {
 				key = os.Getenv("STACKR_KEY")
 			}
