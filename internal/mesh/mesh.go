@@ -111,9 +111,42 @@ type Peer struct {
 	Candidates []netip.AddrPort
 }
 
+// lanAddrs are other's private addresses on a subnet self also has.
+func lanAddrs(self, other Node) []netip.Addr {
+	var out []netip.Addr
+	for _, p := range other.Ifaces {
+		a := p.Addr().Unmap()
+		if !UsableEndpoint(a) || !a.IsPrivate() {
+			continue
+		}
+		for _, mine := range self.Ifaces {
+			if mine.Masked().Contains(a) && mine.Addr().Unmap() != a {
+				out = append(out, a)
+				break
+			}
+		}
+	}
+	return out
+}
+
+// SameLAN reports whether a and b share a private subnet.
+func SameLAN(a, b Node) bool { return len(lanAddrs(a, b)) > 0 }
+
+// HasV6 reports whether n has a public IPv6 address of its own: without one
+// it cannot reach anybody's IPv6.
+func HasV6(n Node) bool {
+	for _, a := range FilterAddrs(n.Public) {
+		if a.Is6() {
+			return true
+		}
+	}
+	return false
+}
+
 // Candidates orders how self can reach other: other's private addresses only
 // when self has an interface on the same subnet, then other's public
-// addresses, then the relay (zero AddrPort means none).
+// addresses (IPv6 ones only when self has IPv6), then the relay (zero
+// AddrPort means none).
 func Candidates(self, other Node, relay netip.AddrPort) []netip.AddrPort {
 	var out []netip.AddrPort
 	seen := map[netip.AddrPort]bool{}
@@ -124,20 +157,14 @@ func Candidates(self, other Node, relay netip.AddrPort) []netip.AddrPort {
 			out = append(out, ap)
 		}
 	}
-	for _, p := range other.Ifaces {
-		a := p.Addr().Unmap()
-		if !UsableEndpoint(a) || !a.IsPrivate() {
-			continue
-		}
-		for _, mine := range self.Ifaces {
-			if mine.Masked().Contains(a) && mine.Addr().Unmap() != a {
-				add(a)
-				break
-			}
-		}
-	}
-	for _, a := range FilterAddrs(other.Public) {
+	for _, a := range lanAddrs(self, other) {
 		add(a)
+	}
+	v6 := HasV6(self)
+	for _, a := range FilterAddrs(other.Public) {
+		if a.Is4() || v6 {
+			add(a)
+		}
 	}
 	if relay.IsValid() && !seen[relay] {
 		out = append(out, relay)
