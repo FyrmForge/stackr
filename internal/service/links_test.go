@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"net/netip"
+	"slices"
 	"testing"
 	"time"
 
@@ -54,7 +55,7 @@ func TestCrossNodeLink(t *testing.T) {
 		t.Errorf("controller flows = %+v, want %+v", got, want)
 	}
 	want.Out = true
-	if got := n.orch.linkFlows(ctx, w1); len(got) != 1 || got[0] != want {
+	if got := n.orch.vipBase(ctx, w1).Flows; !slices.Contains(got, want) {
 		t.Errorf("w1 flows = %+v, want %+v", got, want)
 	}
 }

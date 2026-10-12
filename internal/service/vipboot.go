@@ -243,7 +243,7 @@ func (o *Orchestrator) vipBase(ctx context.Context, n store.Node) vip.Base {
 		if f, ok, _ := o.clusterFacts(ctx, n); ok && len(f.Resolvers) > 0 {
 			b.Resolvers = f.Resolvers
 		}
-		b.Flows = o.ingressFlows(ctx, n)
+		b.Flows = append(o.ingressFlows(ctx, n), o.linkFlows(ctx, n)...)
 		return b
 	}
 	if err == nil {
