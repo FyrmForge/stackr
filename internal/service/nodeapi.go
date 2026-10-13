@@ -647,6 +647,15 @@ func (o *Orchestrator) ClusterStatus(ctx context.Context) (ClusterOut, error) {
 	for _, l := range m.Links {
 		up[[2]string{l.A, l.B}] = l
 	}
+	// A down link has no kind; two nodes in one network still label as lan.
+	sameNet := func(a, b string) bool {
+		for _, nt := range m.Networks {
+			if slices.Contains(nt.Nodes, a) && slices.Contains(nt.Nodes, b) {
+				return true
+			}
+		}
+		return false
+	}
 	for i, a := range m.Nodes {
 		for _, b := range m.Nodes[i+1:] {
 			l := ClusterStatusLink{A: a.Name, B: b.Name, State: "down"}
@@ -658,7 +667,7 @@ func (o *Orchestrator) ClusterStatus(ctx context.Context) (ClusterOut, error) {
 			switch {
 			case ml.Via != "":
 				l.Path = "via " + ml.Via
-			case kind == LinkLAN || kind == LinkPrivate:
+			case kind == LinkLAN || kind == LinkPrivate || kind == "" && sameNet(a.ID, b.ID):
 				l.Path = "lan"
 			case len(a.Public) > 0 || len(b.Public) > 0:
 				l.Path = "public"
