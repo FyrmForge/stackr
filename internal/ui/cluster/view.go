@@ -97,14 +97,15 @@ const (
 	padB       = 32
 	gapX       = 96
 	boxGapY    = 140         // between stacked boxes: room for the tunnels across
-	netLeft    = sideW + 280 // boxes start right of the internet card
+	netLeft    = 0
+	inetGap    = 40 // an internet card sits this far above its node's row
 	minBoxW    = 320
 	fanGap     = 28 // tunnels leaving one card side, apart
 )
 
-// IDs of the cards that are not nodes.
-const internetID = "internet"
-
+// IDs of the cards that are not nodes. Each node or NAT with public
+// traffic has its own internet card, so lines never converge on one.
+func internetID(from string) string { return "internet:" + from }
 func natID(net string) string { return "nat:" + net }
 func boxID(net string) string { return "net:" + net }
 func nodeID(id string) string { return "node:" + id }
@@ -164,17 +165,22 @@ func Build(m Map, base string, notes []graph.Note, create []graph.Create) graph.
 		return r
 	}
 	var cards, boxes []graph.Node
+	at := map[string]rect{} // where each card landed, for its internet card
+	top := map[string]int{} // the top of each card's row
 	// Default spots: boxes stacked top to bottom, each one row: the NAT,
 	// the node it forwards to, nodes with public traffic, the rest. Tunnels
-	// between boxes then cross only the gap, and the internet card on the
-	// left reaches the first cards of each row.
+	// between boxes then cross only the gap; each internet card sits above
+	// its own card, outside the box.
 	by := 0
 	for _, c := range m.Nets {
 		var members []string
 		var rs []rect
 		add := func(id string, r rect, card graph.Node) {
+			lift := r.y - (by + headH) // how far below its row top the card sits
 			r = place(id, r)
 			card.ID, card.X, card.Y, card.W, card.H = id, r.x, r.y, r.w, r.h
+			at[id] = r
+			top[id] = r.y - lift // follows the card when it is dragged
 			cards = append(cards, card)
 			members = append(members, id)
 			rs = append(rs, r)
@@ -243,11 +249,19 @@ func Build(m Map, base string, notes []graph.Note, create []graph.Create) graph.
 		edges = append(edges, graph.Edge{Kind: kind, From: nodeID(l.A), To: nodeID(l.B), Label: label})
 	}
 	public := func(from string, in bool, hosts, exits []string) {
+		if !in && len(exits) == 0 {
+			return
+		}
+		inet := internetID(from)
+		r := at[from]
+		r = place(inet, rect{r.x + (r.w-sideW)/2, top[from] - headH - inetGap - sideH, sideW, sideH})
+		cards = append(cards, graph.Node{ID: inet, Kind: "internet", Name: "Internet",
+			X: r.x, Y: r.y, W: r.w, H: r.h, Card: sideCard("Internet", "globe")})
 		if in {
-			edges = append(edges, graph.Edge{Kind: "ingress", From: internetID, To: from, Label: hostsLabel(hosts)})
+			edges = append(edges, graph.Edge{Kind: "ingress", From: inet, To: from, Label: hostsLabel(hosts)})
 		}
 		if len(exits) > 0 {
-			edges = append(edges, graph.Edge{Kind: "egress", From: from, To: internetID, Label: exitsLabel(exits)})
+			edges = append(edges, graph.Edge{Kind: "egress", From: from, To: inet, Label: exitsLabel(exits)})
 		}
 	}
 	for _, c := range m.Nets {
@@ -288,13 +302,7 @@ func Build(m Map, base string, notes []graph.Note, create []graph.Create) graph.
 		}
 	}
 
-	// The internet above the boxes, backup stores below them, when an edge
-	// reaches them.
-	if slices.ContainsFunc(edges, func(e graph.Edge) bool { return e.From == internetID || e.To == internetID }) {
-		r := place(internetID, rect{0, bottom/2 - sideH/2, sideW, sideH})
-		cards = append(cards, graph.Node{ID: internetID, Kind: "internet", Name: "Internet",
-			X: r.x, Y: r.y, W: r.w, H: r.h, Card: sideCard("Internet", "globe")})
-	}
+	// Backup stores below the boxes, when an edge reaches them.
 	sx := netLeft
 	for _, b := range m.Backups {
 		if !slices.ContainsFunc(edges, func(e graph.Edge) bool { return e.To == s3ID(b.ID) }) {
@@ -404,7 +412,7 @@ func Subtitle(m Map) string {
 // Movable reports whether a drop on id is kept: node, NAT, internet and
 // backup cards. A box is where its cards are, so its own drop is not.
 func Movable(id string) bool {
-	return id == internetID || strings.HasPrefix(id, "node:") || strings.HasPrefix(id, "nat:") || strings.HasPrefix(id, "s3:")
+	return strings.HasPrefix(id, "internet:") || strings.HasPrefix(id, "node:") || strings.HasPrefix(id, "nat:") || strings.HasPrefix(id, "s3:")
 }
 
 // publicIP is the card's Public row: the first address, IPv4 first.
