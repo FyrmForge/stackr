@@ -350,9 +350,9 @@ func hostsLabel(hosts []string) string {
 
 func exitsLabel(exits []string) string {
 	if len(exits) == 1 {
-		return exits[0] + " exits here"
+		return "egress · " + exits[0]
 	}
-	return fmt.Sprintf("%s +%d exit here", exits[0], len(exits)-1)
+	return fmt.Sprintf("egress · %s +%d", exits[0], len(exits)-1)
 }
 
 func trimMS(ms float64) string {
