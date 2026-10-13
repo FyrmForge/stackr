@@ -190,11 +190,29 @@ var edgeLooks = map[string]templ.Attributes{
 	// The Cluster map's: encrypted tunnels between nodes (fainter on a LAN),
 	// a NAT's port forward (long dashes, dotted while unconfirmed), backups to
 	// an outside store.
-	"tunnel":         {"stroke": "var(--rw-teal)", "stroke-width": "2.6"},
-	"tunnel-lan":     {"stroke": "var(--rw-teal)", "stroke-width": "2", "stroke-opacity": "0.5"},
+	"tunnel":         {"stroke": "var(--rw-teal)", "stroke-width": "6"},
+	"tunnel-lan":     {"stroke": "var(--rw-teal)", "stroke-width": "4.5", "stroke-opacity": "0.55"},
 	"forward":        {"stroke": "var(--rw-env-sky)", "stroke-width": "2", "stroke-dasharray": "8 3"},
 	"forward-unsure": {"stroke": "var(--rw-env-sky)", "stroke-width": "2", "stroke-dasharray": "2 4"},
 	"backup":         {"stroke": "rgb(var(--rw-faint))", "stroke-dasharray": "2 4"},
+}
+
+// edgeCores hollow a kind into a pipe: a background-coloured stroke drawn
+// over the edge leaves two parallel lines (a tunnel looks like one).
+var edgeCores = map[string]templ.Attributes{
+	"tunnel":     {"stroke-width": "2.6"},
+	"tunnel-lan": {"stroke-width": "1.9"},
+}
+
+// EdgeCore is the pipe's inner stroke for a kind; ok false for a plain line.
+func EdgeCore(kind string) (templ.Attributes, bool) {
+	core, ok := edgeCores[kind]
+	if !ok {
+		return nil, false
+	}
+	a := templ.Attributes{"fill": "none", "stroke": "rgb(var(--rw-bg))", "stroke-linecap": "round"}
+	maps.Copy(a, core)
+	return a, true
 }
 
 // EdgeAttrs is an edge path's stroke for its kind (the dev gallery draws

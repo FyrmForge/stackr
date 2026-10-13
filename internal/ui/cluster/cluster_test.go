@@ -84,6 +84,7 @@ func TestMapDraws(t *testing.T) {
 		`data-edge-kind="tunnel-lan" data-from="node:h" data-to="node:n"`,
 		`data-edge-kind="tunnel" data-from="node:h" data-to="node:f"`,
 		`data-edge-kind="backup" data-from="node:n" data-to="s3:b"`,
+		"data-edge-core", // a tunnel is drawn as a pipe
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("page lacks edge %s", want)
