@@ -4,9 +4,13 @@ import (
 	"bytes"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/FyrmForge/stackr/internal/clusterca"
+	"github.com/FyrmForge/stackr/internal/installspec"
 	comp "github.com/FyrmForge/stackr/internal/ui/components"
 	ui "github.com/FyrmForge/stackr/internal/ui/drawer/admin"
 	"github.com/FyrmForge/stackr/internal/web/webtest"
@@ -72,6 +76,47 @@ func TestTrustViewNotRejoined(t *testing.T) {
 	} {
 		if !strings.Contains(b.String(), want) {
 			t.Errorf("no %q in\n%s", want, b.String())
+		}
+	}
+}
+
+// An admin runs every trust button end to end: rotate (a worker on the old
+// root keeps it running), the forced finish, revoke the controller cert,
+// break glass, then a rejoin command for the worker left out.
+func TestAdminClusterTrustVerbs(t *testing.T) {
+	s := webtest.New(t)
+	root := s.Session(t, s.User(t, "root@x.test", true))
+	b, err := os.ReadFile(filepath.Join(s.Config.DataDir, installspec.ClusterCACertFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ca, err := clusterca.ParseCertPEM(b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	w1 := s.Worker(t, "w1", clusterca.Fingerprint(ca))
+
+	for _, step := range []struct {
+		path string
+		form url.Values
+		say  string // in the answer
+		tab  string // on the Nodes tab after
+	}{
+		{"trust/rotate-root", nil, "Rotating the root.", "Still on the old root: w1."},
+		{"trust/finish-rollover", nil, "Rollover finished.", "None running."},
+		{"trust/revoke-controller-cert", nil, "The controller has a new certificate.", "None running."},
+		{"trust/break-glass", url.Values{"confirm": {"break glass"}}, "Break glass done.", "Not rejoined"},
+		{w1 + "/trust-rejoin", nil, "New join command below.", "Not rejoined"},
+	} {
+		rec := s.As(t, root, "POST", "/-/admin/nodes/"+step.path, step.form)
+		if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), step.say) {
+			t.Fatalf("POST %s = %d, no %q in\n%s", step.path, rec.Code, step.say, rec.Body)
+		}
+		if step.path == w1+"/trust-rejoin" && !strings.Contains(rec.Body.String(), "stackr-install join") {
+			t.Fatalf("no rejoin command in\n%s", rec.Body)
+		}
+		if rec := s.As(t, root, "GET", "/-/admin?tab=nodes", nil); !strings.Contains(rec.Body.String(), step.tab) {
+			t.Fatalf("after %s: no %q on the Nodes tab", step.path, step.tab)
 		}
 	}
 }

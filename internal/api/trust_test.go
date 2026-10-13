@@ -30,3 +30,41 @@ func TestClusterTrustAPI(t *testing.T) {
 		}
 	}
 }
+
+// An admin runs every trust verb end to end: rotate (a second refused while
+// one runs; a worker on the old root keeps it running), the forced finish,
+// revoke the controller cert, break glass (a second within the gap refused).
+func TestClusterTrustAPIVerbs(t *testing.T) {
+	w := newWorld(t)
+	fp := func() string {
+		_, body := w.do(t, w.admin, "GET", "/admin/cluster-trust", "")
+		i := strings.Index(body, `"fingerprint":"`) + len(`"fingerprint":"`)
+		return body[i : i+64]
+	}
+	before := fp()
+	w.env.Worker(t, "w1", before)
+	steps := []struct {
+		path string
+		code int
+		want string // in the trust read after
+	}{
+		{"rotate-root", 204, `"on_old_root":[{`},
+		{"rotate-root", 409, `"rolling_over":true`},
+		{"finish-rollover", 204, `"rolling_over":false`},
+		{"finish-rollover", 409, `"rolling_over":false`},
+		{"revoke-controller-cert", 204, `"rolling_over":false`},
+		{"break-glass", 204, `"not_rejoined":[{`},
+		{"break-glass", 409, `"break_glass_at":"`},
+	}
+	for _, s := range steps {
+		if code, body := w.do(t, w.admin, "POST", "/admin/cluster-trust/"+s.path, ""); code != s.code {
+			t.Fatalf("POST %s = %d %s, want %d", s.path, code, body, s.code)
+		}
+		if _, body := w.do(t, w.admin, "GET", "/admin/cluster-trust", ""); !strings.Contains(body, s.want) {
+			t.Fatalf("after %s: no %s in %s", s.path, s.want, body)
+		}
+		if s.path == "rotate-root" && fp() == before {
+			t.Fatal("rotate-root kept the root")
+		}
+	}
+}

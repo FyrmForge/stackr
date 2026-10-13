@@ -20,6 +20,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	"github.com/FyrmForge/stackr/internal/service/internal/dockerfake"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/node"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/user"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 	"github.com/FyrmForge/stackr/internal/service/internal/storetest"
@@ -116,6 +117,23 @@ func (e *Env) User(t *testing.T, email string, admin bool) string {
 		Theme:        "system",
 		CreatedAt:    now,
 		UpdatedAt:    now,
+	}))
+	return id
+}
+
+// Worker seeds an online worker node and a live cert of it signed by the
+// root with fingerprint issuer; returns the node id.
+func (e *Env) Worker(t *testing.T, name, issuer string) string {
+	t.Helper()
+	ctx := context.Background()
+	id := uuid.NewString()
+	must(t, e.Store.Nodes.Create(ctx, store.Node{
+		ID: id, Name: name, Slug: name, Role: node.Worker, Tags: "[]", RangeCIDR: "10.209.0.0/16", WGAddress: "10.207.255.2",
+		WGPublicKey: "wg-" + name, Status: node.StatusOnline, CreatedAt: now,
+	}))
+	must(t, e.Store.NodeCerts.Create(ctx, store.NodeCert{
+		Serial: hex.EncodeToString([]byte(id))[:16], NodeID: id, Role: "worker", NotAfter: time.Now().Add(90 * 24 * time.Hour),
+		Issuer: issuer, CreatedAt: now,
 	}))
 	return id
 }
