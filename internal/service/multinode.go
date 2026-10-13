@@ -41,6 +41,8 @@ func (o *Orchestrator) startMesh(ctlID string) {
 			StateDir:   filepath.Join(o.cfg.DataDir, "keys"),
 			Runner:     runner,
 			Mesh:       worker.MeshConfig{WG: o.cfg.MeshWG, WGPort: o.cfg.MeshWGPort},
+			HostRoot:   o.cfg.HostRoot,
+			DiskPath:   o.cfg.DataDir,
 		})
 	}
 	o.mesh = newMeshSvc(o.store, func(id string) (MeshNode, bool) {

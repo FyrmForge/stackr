@@ -65,6 +65,7 @@ import (
 	ltraffic "github.com/FyrmForge/stackr/internal/service/internal/leaf/traffic"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/user"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/volume"
+	"github.com/FyrmForge/stackr/internal/service/internal/metrics"
 	"github.com/FyrmForge/stackr/internal/service/internal/proxy"
 	"github.com/FyrmForge/stackr/internal/service/internal/s3"
 	"github.com/FyrmForge/stackr/internal/service/internal/secrets"
@@ -144,6 +145,11 @@ type Config struct {
 	// ProbeDests makes a backup destination pass a test write before it is
 	// saved. Off for tests with no bucket behind them.
 	ProbeDests bool
+	// HostRoot is where the panel container sees the host's /proc and
+	// /sys/fs/cgroup (STACKR_HOST_ROOT; "" = this process's own).
+	HostRoot string
+	// Metrics is the metrics store; nil = in memory.
+	Metrics metrics.Store
 }
 
 // Option changes how New builds the tree; tests use it.
@@ -275,6 +281,7 @@ type Orchestrator struct {
 	// for a new panel (unix nanos, 0 = never): process memory, so the new
 	// panel starts without it (UpgradeUnderway).
 	upgradeLaunched atomic.Int64
+	metrics         metricsState
 	localWorker     *worker.Server // the controller's own node in the mesh, nil on a fake host
 	rotation        rotation       // mesh key rotation (rotate.go)
 	stopOnce        sync.Once
@@ -701,6 +708,7 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 			Crons:    orch.deployedCrons,
 			Cron:     orch.scheduleCron,
 			Traffic:  orch.trafficTick,
+			Metrics:  orch.metricsTick,
 		})
 	})
 

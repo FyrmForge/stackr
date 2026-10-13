@@ -46,6 +46,8 @@ type Drivers struct {
 	Cron  func(ctx context.Context, t store.Tile) error
 	// Traffic samples conntrack every 5 s (flow/traffic); nil = no entry.
 	Traffic func(ctx context.Context) error
+	// Metrics samples every node's counters every 30 s; nil = no entry.
+	Metrics func(ctx context.Context) error
 }
 
 type Entry struct {
@@ -105,6 +107,9 @@ func Entries(d Drivers, scheds []store.BackupSchedule, crons []store.Tile, set m
 	}
 	if d.Traffic != nil {
 		out = append(out, Entry{Name: "traffic", Spec: "@every 5s", Fire: d.Traffic})
+	}
+	if d.Metrics != nil {
+		out = append(out, Entry{Name: "metrics", Spec: "@every 30s", Fire: d.Metrics})
 	}
 	for _, s := range scheds {
 		spec := s.Cron

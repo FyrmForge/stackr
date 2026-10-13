@@ -164,6 +164,14 @@ func (m *meshSvc) Report(ctx context.Context, id string, f worker.Facts) {
 }
 
 // Kick asks Run for a sync soon; it never blocks.
+// FactsOf is the node's last facts the mesh read; false when none yet.
+func (m *meshSvc) FactsOf(id string) (worker.Facts, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	f, ok := m.facts[id]
+	return f, ok
+}
+
 func (m *meshSvc) Kick() {
 	select {
 	case m.kick <- struct{}{}:

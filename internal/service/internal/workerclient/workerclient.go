@@ -88,6 +88,13 @@ func (c *Client) Traffic(ctx context.Context) (worker.Traffic, error) {
 	return t, err
 }
 
+// Metrics is one sample of the node's host and tile container counters.
+func (c *Client) Metrics(ctx context.Context) (worker.Metrics, error) {
+	var m worker.Metrics
+	err := c.call(ctx, "GET", "/v1/metrics", "", nil, &m)
+	return m, err
+}
+
 // ApplyIPTables sends an iptables-restore payload (applied with --noflush).
 func (c *Client) ApplyIPTables(ctx context.Context, payload string) error {
 	return c.call(ctx, "POST", "/v1/iptables", "text/plain", []byte(payload), nil)
