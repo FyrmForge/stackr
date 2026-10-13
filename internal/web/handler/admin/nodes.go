@@ -106,7 +106,7 @@ func (h *handler) mountNodes(g *echo.Group, a *middleware.Access) {
 	}), m)
 	g.POST(nodesBase+"/trust/revoke-controller-cert", h.act("nodes", func(c echo.Context) (string, *service.Job, error) {
 		err := h.orch.RevokeControllerCert(c.Request().Context(), middleware.Principal(c))
-		return "The controller has a new certificate. The old one no longer works.", nil, err
+		return "Replacing the controller certificate. Workers stop accepting the old one within minutes.", nil, err
 	}), m)
 	g.POST(nodesBase+"/trust/break-glass", h.act("nodes", func(c echo.Context) (string, *service.Job, error) {
 		if c.FormValue("confirm") != breakGlassWord {

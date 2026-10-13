@@ -104,7 +104,7 @@ func TestAdminClusterTrustVerbs(t *testing.T) {
 	}{
 		{"trust/rotate-root", nil, "Rotating the root.", "Still on the old root: w1."},
 		{"trust/finish-rollover", nil, "Rollover finished.", "None running."},
-		{"trust/revoke-controller-cert", nil, "The controller has a new certificate.", "None running."},
+		{"trust/revoke-controller-cert", nil, "Replacing the controller certificate.", "None running."},
 		{"trust/break-glass", url.Values{"confirm": {"break glass"}}, "Break glass done.", "Not rejoined"},
 		{w1 + "/trust-rejoin", nil, "New join command below.", "Not rejoined"},
 	} {

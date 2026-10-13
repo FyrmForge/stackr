@@ -28,7 +28,7 @@ func TestClusterRotateRootAndRevoke(t *testing.T) {
 	}{
 		{[]string{"rotate-root"}, "rotate-root", "Rotating the root"},
 		{[]string{"rotate-root", "--finish"}, "finish-rollover", "Rollover finished"},
-		{[]string{"revoke-controller-cert"}, "revoke-controller-cert", "new certificate"},
+		{[]string{"revoke-controller-cert"}, "revoke-controller-cert", "Replacing the controller certificate"},
 	} {
 		r := fake(t, map[string]string{})
 		if code, _, _ := cli(t, append([]string{"cluster"}, c.args...)...); code != 3 || len(writes(r)) != 0 {

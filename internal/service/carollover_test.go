@@ -54,6 +54,7 @@ func TestRotateRootAllOnline(t *testing.T) {
 	o := rolloverRig(t)
 	oldFP := rootFP(o)
 	must(t, o.RotateRoot(ctx, adminP()))
+	o.trustAsync.Wait()
 	newFP := rootFP(o)
 	if newFP == oldFP {
 		t.Fatal("the root did not change")
@@ -115,6 +116,7 @@ func TestRotateRootWaitsForOfflineNode(t *testing.T) {
 	ctx := context.Background()
 	o := rolloverRig(t)
 	must(t, o.RotateRoot(ctx, adminP()))
+	o.trustAsync.Wait()
 	workerAsks(t, o, "w1")
 	must(t, o.rootRolloverTick(ctx))
 	if len(o.cluster.roots()) != 2 {
@@ -140,6 +142,7 @@ func TestRotateRootSettle(t *testing.T) {
 	ctx := context.Background()
 	o := rolloverRig(t)
 	must(t, o.RotateRoot(ctx, adminP()))
+	o.trustAsync.Wait()
 	workerAsks(t, o, "w1")
 	workerAsks(t, o, "w2")
 	rolloverSettle = time.Hour
@@ -156,6 +159,7 @@ func TestForceFinishMarksNeedsRejoin(t *testing.T) {
 		t.Fatal("force finish without a rollover")
 	}
 	must(t, o.RotateRoot(ctx, adminP()))
+	o.trustAsync.Wait()
 	workerAsks(t, o, "w1")
 	must(t, o.FinishRollover(ctx, adminP()))
 	if len(o.cluster.roots()) != 1 {
@@ -203,6 +207,7 @@ func TestRolloverResumesAfterRestart(t *testing.T) {
 	ctx := context.Background()
 	o := rolloverRig(t)
 	must(t, o.RotateRoot(ctx, adminP()))
+	o.trustAsync.Wait()
 	workerAsks(t, o, "w1")
 	workerAsks(t, o, "w2")
 	pki, err := bootCluster(ctx, o.store, o.cfg.DataDir)
@@ -239,6 +244,7 @@ func TestJoinCommandCarriesNewFingerprint(t *testing.T) {
 	o := rolloverRig(t)
 	o.cfg.BaseURL = "https://panel.test"
 	must(t, o.RotateRoot(ctx, adminP()))
+	o.trustAsync.Wait()
 	out, err := o.CreateJoinToken(ctx, adminP(), JoinTokenSpec{NodeName: "w3"})
 	must(t, err)
 	if out.Fingerprint != rootFP(o) || !strings.Contains(out.Command, "--ca-sha256 "+rootFP(o)) {

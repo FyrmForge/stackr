@@ -129,6 +129,7 @@ func TestRevokeDropsOldSerial(t *testing.T) {
 	o, an := ctlRig(t)
 	old := ctlSerial(t, o)
 	must(t, o.RevokeControllerCert(context.Background(), nil))
+	o.trustAsync.Wait()
 	next := ctlSerial(t, o)
 	if next == old {
 		t.Fatal("not replaced")
@@ -153,10 +154,46 @@ func TestRenewNotBlockedByDeadWorker(t *testing.T) {
 	old := ctlSerial(t, o)
 	start := time.Now()
 	must(t, o.RevokeControllerCert(context.Background(), nil))
+	o.trustAsync.Wait()
 	if ctlSerial(t, o) == old {
 		t.Fatal("not switched")
 	}
 	if d := time.Since(start); d > 5*time.Second {
 		t.Fatalf("took %v", d)
 	}
+}
+
+// With a worker that never answers, revoke and rotate still return at once
+// (the switch waits detached, past the request); a second call while one
+// waits is refused; Close cancels the wait.
+func TestTrustVerbsReturnWhileWorkerDead(t *testing.T) {
+	defer func(b time.Duration) { controllerAckBound = b }(controllerAckBound)
+	o, an := ctlRig(t)
+	an.fail = true
+	controllerAckBound = time.Hour
+	start := time.Now()
+	must(t, o.RevokeControllerCert(context.Background(), nil))
+	if err := o.RevokeControllerCert(context.Background(), nil); err == nil {
+		t.Fatal("a second revoke ran beside the first")
+	}
+	if d := time.Since(start); d > 2*time.Second {
+		t.Fatalf("revoke blocked %v", d)
+	}
+	must(t, o.Close())
+	if d := time.Since(start); d > 5*time.Second {
+		t.Fatalf("close waited %v", d)
+	}
+
+	o, an = ctlRig(t)
+	an.fail = true
+	controllerAckBound = time.Hour
+	start = time.Now()
+	must(t, o.RotateRoot(context.Background(), adminP()))
+	if err := o.RotateRoot(context.Background(), adminP()); err == nil {
+		t.Fatal("a second rotate ran beside the first")
+	}
+	if d := time.Since(start); d > 2*time.Second {
+		t.Fatalf("rotate blocked %v", d)
+	}
+	must(t, o.Close())
 }

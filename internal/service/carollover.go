@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/FyrmForge/stackr/internal/clusterca"
@@ -44,6 +45,10 @@ var rolloverSettle = 6 * time.Hour
 // rare.
 var rolloverMu sync.Mutex
 
+// rolloverDetached is set while RotateRoot's pushes run past the request
+// (holding rolloverMu): a second RotateRoot is refused, not blocked.
+var rolloverDetached atomic.Bool
+
 // swapCA makes ca the signing root and roots the trust list in one step.
 func (c *clusterPKI) swapCA(ca *clusterca.CA, roots []*x509.Certificate) {
 	c.mu.Lock()
@@ -52,15 +57,52 @@ func (c *clusterPKI) swapCA(ca *clusterca.CA, roots []*x509.Certificate) {
 }
 
 // RotateRoot starts a planned rollover of the cluster root and returns once
-// the first step is durable; the daily rootRolloverTick resumes the rest.
+// the first step is durable (the pushes run detached); the daily
+// rootRolloverTick resumes the rest.
 // Refuses while a rollover runs; node admin only.
 func (o *Orchestrator) RotateRoot(ctx context.Context, by *Principal) error {
 	if err := nodeAdmin(by); err != nil {
 		return err
 	}
+	if rolloverDetached.Load() {
+		return errs.Conflictf("A root rollover is already running.")
+	}
 	rolloverMu.Lock()
-	defer rolloverMu.Unlock()
-	return o.startRollover(ctx, by)
+	st, err := o.startRollover(ctx, by)
+	if err != nil {
+		rolloverMu.Unlock()
+		return err
+	}
+	rolloverDetached.Store(true)
+	// The pushes wait up to controllerAckBound for every worker (an offline
+	// one never answers): past the request, so they run detached.
+	o.detach(ctx, func(ctx context.Context) {
+		defer rolloverMu.Unlock()
+		defer rolloverDetached.Store(false)
+		if err := o.advanceRollover(ctx, by, st, true); err != nil {
+			slog.Warn("cluster: root rollover", "err", err)
+		}
+	})
+	return nil
+}
+
+// detach runs f past the request that started it: not cancelled with the
+// request, cancelled when the panel stops, waited for by Close.
+func (o *Orchestrator) detach(ctx context.Context, f func(context.Context)) {
+	ctx, cancel := context.WithCancel(context.WithoutCancel(ctx))
+	o.trustAsync.Add(1)
+	go func() {
+		select {
+		case <-o.stopNodes:
+			cancel()
+		case <-ctx.Done():
+		}
+	}()
+	go func() {
+		defer o.trustAsync.Done()
+		defer cancel()
+		f(ctx)
+	}()
 }
 
 // FinishRollover (node admin) drops the old root now. Workers still
@@ -127,7 +169,11 @@ func (o *Orchestrator) rootRolloverTick(ctx context.Context) error {
 		return o.advanceRollover(ctx, nil, st, false)
 	}
 	if time.Until(o.cluster.ca.Cert.NotAfter) < rolloverLead {
-		return o.startRollover(ctx, nil)
+		st, err := o.startRollover(ctx, nil)
+		if err != nil {
+			return err
+		}
+		return o.advanceRollover(ctx, nil, st, true)
 	}
 	return nil
 }
@@ -141,25 +187,25 @@ func actorOf(by *Principal) (userID, keyID string) {
 }
 
 // startRollover is RotateRoot with the lock held and the caller vetted.
-func (o *Orchestrator) startRollover(ctx context.Context, by *Principal) error {
+func (o *Orchestrator) startRollover(ctx context.Context, by *Principal) (store.ClusterCA, error) {
 	uid, kid := actorOf(by)
 	if o.cluster == nil {
-		return errs.Conflictf("The cluster CA is not set up on this panel yet.")
+		return store.ClusterCA{}, errs.Conflictf("The cluster CA is not set up on this panel yet.")
 	}
 	st, err := o.reconcileRollover(ctx)
 	if err != nil {
-		return err
+		return st, err
 	}
 	if st.RollingOver() {
-		return errs.Conflictf("A root rollover is already running.")
+		return st, errs.Conflictf("A root rollover is already running.")
 	}
 	next, err := clusterca.NewCA(time.Now())
 	if err != nil {
-		return err
+		return st, err
 	}
 	old := o.cluster.ca
 	if err := clusterca.RotateCA(o.cfg.DataDir, next); err != nil {
-		return err
+		return st, err
 	}
 	// Sign with the new root from here, trust both.
 	o.cluster.swapCA(next, []*x509.Certificate{next.Cert, old.Cert})
@@ -179,10 +225,10 @@ func (o *Orchestrator) startRollover(ctx context.Context, by *Principal) error {
 		})
 	})
 	if err != nil {
-		return err
+		return st, err
 	}
 	slog.Info("cluster: root rollover started", "root", st.CurrentFP)
-	return o.advanceRollover(ctx, by, st, true)
+	return st, nil
 }
 
 // advanceRollover does the steps that are safe to repeat: the controller

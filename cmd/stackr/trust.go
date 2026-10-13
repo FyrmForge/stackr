@@ -116,7 +116,7 @@ func (a *app) clusterRevokeControllerCert() *cobra.Command {
 			if _, err := a.call(POST, "/admin/cluster-trust/revoke-controller-cert", nil); err != nil {
 				return err
 			}
-			a.say("The controller has a new certificate. The old one no longer works.")
+			a.say("Replacing the controller certificate. Workers stop accepting the old one within minutes.")
 			return nil
 		})
 }

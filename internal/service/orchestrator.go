@@ -242,6 +242,7 @@ type Orchestrator struct {
 	gitEnv       []string            // WithGit: clone env that replaces the connector's
 	proxyStarted atomic.Value        // the proxy container's last seen start time
 	vipAsync     sync.WaitGroup      // rerouteVIPsAsync runs in flight; tests wait on it
+	trustAsync   sync.WaitGroup      // detached rollover / controller cert steps (detach); Close waits
 	vipLocks     sync.Map            // node ID -> *sync.Mutex: one VIP rebuild per node at a time
 	earlyMu      sync.Mutex          // guards earlyIPs
 	earlyIPs     map[string]earlyEnt // container id -> address holding early lan rules
@@ -774,6 +775,7 @@ func (o *Orchestrator) Close() error {
 			o.stopMesh()
 		}
 	})
+	o.trustAsync.Wait()
 	o.sched.Stop()
 	o.jobs.Close()
 	return o.db.Close()

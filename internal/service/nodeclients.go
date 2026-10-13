@@ -14,6 +14,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/FyrmForge/stackr/internal/clusterca"
@@ -56,12 +57,14 @@ type clusterPKI struct {
 	announced []string
 	// rollMu runs one controller cert renewal at a time.
 	rollMu sync.Mutex
-	own    tls.Certificate
-	st     *store.Store
-	mu     sync.Mutex
-	rev    map[string]revAns
-	addr   map[string]string // node id -> address its clients were built for
-	ext    map[string]*workerclient.Client
+	// revoking is set while a RevokeControllerCert runs detached.
+	revoking atomic.Bool
+	own      tls.Certificate
+	st       *store.Store
+	mu       sync.Mutex
+	rev      map[string]revAns
+	addr     map[string]string // node id -> address its clients were built for
+	ext      map[string]*workerclient.Client
 	// probe is the client of every worker that could be online, fails the
 	// refreshes each missed in a row.
 	probe map[string]probeEnt

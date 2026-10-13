@@ -44,13 +44,24 @@ func (o *Orchestrator) announceControllerCert(ctx context.Context) error {
 // RevokeControllerCert replaces the controller cert now: the next serial is
 // announced beside the old one, the controller switches, and the old serial
 // leaves the list and is revoked, so every worker refuses it. Audited to by.
+// Returns once started; the switch lands within controllerAckBound.
 func (o *Orchestrator) RevokeControllerCert(ctx context.Context, by *Principal) error {
 	if o.cluster == nil {
 		return errors.ErrUnsupported
 	}
-	o.cluster.rollMu.Lock()
-	defer o.cluster.rollMu.Unlock()
-	return o.rollController(ctx, by, true)
+	if !o.cluster.revoking.CompareAndSwap(false, true) {
+		return errs.Conflictf("The controller certificate is being replaced. Try again in a few minutes.")
+	}
+	// Waits up to controllerAckBound for every worker: past the request.
+	o.detach(ctx, func(ctx context.Context) {
+		defer o.cluster.revoking.Store(false)
+		o.cluster.rollMu.Lock()
+		defer o.cluster.rollMu.Unlock()
+		if err := o.rollController(ctx, by, true); err != nil {
+			slog.Warn("cluster: revoke controller cert", "err", err)
+		}
+	})
+	return nil
 }
 
 // rollController holds rollMu. revoke forces a renewal and revokes the old
