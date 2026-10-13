@@ -26,8 +26,13 @@ const (
 
 	// PauseImage holds the VIP: a do-nothing container whose only job is an
 	// IP on the env network with the tile's slug as its alias.
+	// Every node pulls it from the cluster registry's stackr.system copy
+	// (localhost:5000 is the registry itself on the controller, the worker's
+	// front elsewhere); the controller copies PauseUpstream in at boot.
 	// ponytail: pinned tag; the flow pulls it like any image.
-	PauseImage = "registry.k8s.io/pause:3.10"
+	PauseImage = "localhost:5000/stackr.system/pause:3.10"
+	// PauseUpstream is where the controller copies PauseImage from.
+	PauseUpstream = "registry.k8s.io/pause:3.10"
 )
 
 // Docker is the slice of the wrapper this leaf needs.

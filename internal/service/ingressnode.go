@@ -31,7 +31,8 @@ func (o *Orchestrator) ingressNodes(ctx context.Context) []string {
 }
 
 // ensureNodeProxy brings a worker's proxy container to its tags: tagged
-// ingress = installspec.NodeProxy from the controller's own proxy image,
+// ingress = installspec.NodeProxy from the controller's own proxy image as
+// stackr.system/stackr in the cluster registry,
 // recreated when its spec stamp differs; untagged = none. The DNS-01 token
 // never leaves the controller: workers get certificates by HTTP-01. The
 // controller's proxy is the installer's, never touched here.
@@ -48,11 +49,12 @@ func (o *Orchestrator) ensureNodeProxy(ctx context.Context, nodeID string) error
 	nctx := WithNode(ctx, nodeID)
 	var spec installspec.Container
 	if want {
-		d, err := o.docker.Inspect(WithNode(ctx, ctl), installspec.ProxyName)
+		img, err := o.controllerStackrImage(ctx)
 		if err != nil {
-			return fmt.Errorf("controller proxy: %w", err)
+			return err
 		}
-		spec = installspec.NodeProxy(d.Image)
+		// The worker pulls the registry copy, never ghcr (systemimages.go).
+		spec = installspec.NodeProxy(stackrSystemRef(img))
 	}
 	cs, err := o.docker.List(nctx, map[string]string{installspec.LabelRole: "proxy"})
 	if err != nil {

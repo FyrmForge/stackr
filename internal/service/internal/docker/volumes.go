@@ -120,9 +120,10 @@ func (d *Client) volumeInfos(ctx context.Context, vols []*volume.Volume) ([]Volu
 	return out, nil
 }
 
-// ToolImage is the throwaway container's image. A var: an air-gapped install
-// points it at an image it already has.
-var ToolImage = "alpine:3"
+// ToolImage is the throwaway container's image: the cluster registry's copy of
+// alpine:3 (the controller publishes it at boot, systemimages.go), pulled
+// from localhost:5000 like every stackr image. A var: tests point it elsewhere.
+var ToolImage = "localhost:5000/stackr.system/alpine:3"
 
 // EnsureTool pulls the tool image if it is not on the host. Call it before
 // freezing a container: a pull inside the pause window is downtime.
