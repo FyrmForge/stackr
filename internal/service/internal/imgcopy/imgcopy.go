@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"sort"
 	"strings"
@@ -53,6 +54,8 @@ type Result struct {
 //   - HEAD first: a HEAD on src does not count against Docker Hub's pull
 //     limit. When dst already holds that digest with every wanted platform,
 //     nothing is fetched.
+//   - A src pinned by digest that dst already holds with every wanted platform
+//     is not contacted at all: the content behind a digest never changes.
 //   - Credentials go only to the registry they were given for (srcAuth to
 //     src's, dstAuth to dst's) and are never logged.
 func Copy(ctx context.Context, src, dst string, srcAuth, dstAuth authn.Authenticator, platforms []string) (Result, error) {
@@ -77,25 +80,23 @@ func Copy(ctx context.Context, src, dst string, srcAuth, dstAuth authn.Authentic
 	so := []remote.Option{remote.WithContext(ctx), remote.WithAuth(orAnon(srcAuth))}
 	do := []remote.Option{remote.WithContext(ctx), remote.WithAuth(orAnon(dstAuth))}
 
-	// HEAD first. A registry that refuses HEAD falls through to the GET.
-	if h, err := remote.Head(srcRef, so...); err == nil {
-		d, err := remote.Get(dstRef.Context().Digest(h.Digest.String()), do...)
-		switch {
-		case err == nil:
-			res, ok, err := held(dstRef, d, wanted, do)
-			if err != nil {
-				return Result{}, err
-			}
-			if ok {
-				return res, nil
-			}
-		case !notFound(err):
-			return Result{}, fmt.Errorf("destination %s: %w", dstRef.Context(), err)
+	// A digest pin names fixed content: if dst holds it, src is not asked.
+	if pin, ok := srcRef.(name.Digest); ok {
+		if res, ok, err := heldAt(dstRef, pin.DigestStr(), wanted, do); err != nil || ok {
+			return res, err
+		}
+	} else if h, err := remote.Head(srcRef, so...); err == nil {
+		// HEAD first. A registry that refuses HEAD falls through to the GET.
+		if res, ok, err := heldAt(dstRef, h.Digest.String(), wanted, do); err != nil || ok {
+			return res, err
 		}
 	}
 
 	d, err := remote.Get(srcRef, so...)
 	if err != nil {
+		if unreachable(err) {
+			return Result{}, &UnreachableError{Registry: srcRef.Context().RegistryStr(), Err: fmt.Errorf("source %s: %w", srcRef, err)}
+		}
 		return Result{}, fmt.Errorf("source %s: %w", srcRef, err)
 	}
 	if d.MediaType.IsIndex() {
@@ -116,6 +117,61 @@ func Copy(ctx context.Context, src, dst string, srcAuth, dstAuth authn.Authentic
 	}
 	res, _, err := held(dstRef, dd, wanted, do)
 	return res, err
+}
+
+// heldAt is held for the manifest dst stores under digest; ok is false when
+// dst has none or lacks a wanted platform.
+func heldAt(dstRef name.Reference, digest string, wanted []want, do []remote.Option) (Result, bool, error) {
+	d, err := remote.Get(dstRef.Context().Digest(digest), do...)
+	switch {
+	case err == nil:
+		return held(dstRef, d, wanted, do)
+	case notFound(err):
+		return Result{}, false, nil
+	}
+	return Result{}, false, fmt.Errorf("destination %s: %w", dstRef.Context(), err)
+}
+
+// Held reports what dst (a ref with a tag) stores behind that tag, and
+// whether it covers every platform, without contacting any other registry.
+func Held(ctx context.Context, dst string, dstAuth authn.Authenticator, platforms []string) (Result, bool, error) {
+	dstRef, err := name.ParseReference(dst)
+	if err != nil {
+		return Result{}, false, fmt.Errorf("destination %q: %w", dst, err)
+	}
+	wanted := make([]want, 0, len(platforms))
+	for _, p := range platforms {
+		wanted = append(wanted, parseWant(p))
+	}
+	do := []remote.Option{remote.WithContext(ctx), remote.WithAuth(orAnon(dstAuth))}
+	h, err := remote.Head(dstRef, do...)
+	if notFound(err) {
+		return Result{}, false, nil
+	} else if err != nil {
+		return Result{}, false, fmt.Errorf("destination %s: %w", dstRef.Context(), err)
+	}
+	return heldAt(dstRef, h.Digest.String(), wanted, do)
+}
+
+// UnreachableError is Copy's answer when src could not be asked: a network
+// error, timeout or DNS failure, or a 5xx or 429 from its registry. A 401,
+// 403 or 404 is an answer, not this: a revoked credential or a deleted image
+// must fail, not fall back to an older copy.
+type UnreachableError struct {
+	Registry string
+	Err      error
+}
+
+func (e *UnreachableError) Error() string { return e.Err.Error() }
+func (e *UnreachableError) Unwrap() error { return e.Err }
+
+func unreachable(err error) bool {
+	var te *transport.Error
+	if errors.As(err, &te) {
+		return te.StatusCode == http.StatusTooManyRequests || te.StatusCode >= 500
+	}
+	var ne net.Error
+	return errors.As(err, &ne)
 }
 
 func copyIndex(d *remote.Descriptor, srcRef, dstRef name.Reference, wanted []want, do []remote.Option) error {

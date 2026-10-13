@@ -85,9 +85,10 @@ type Flow struct {
 	// Import brings an outside image into the cluster registry on the
 	// controller before a node pulls it (credID is the org's credential for
 	// ref, "" anonymous). imported=false: pull ref as it is. run is the ref the
-	// container starts with (a digest ref runs under its registry name). nil =
-	// every pull goes outside.
-	Import func(ctx context.Context, orgID, ref, credID string) (run string, imported bool, err error)
+	// container starts with (a digest ref runs under its registry name). log is
+	// the deploy log, for the warning when an unreachable upstream is answered
+	// from the registry's own copy. nil = every pull goes outside.
+	Import func(ctx context.Context, orgID, ref, credID string, log io.Writer) (run string, imported bool, err error)
 
 	// Sync re-pushes the proxy config (leaf/domain Syncer.Sync); nil = none.
 	Sync func(context.Context) error
@@ -305,7 +306,7 @@ func (f *Flow) prepare(
 	run, pullCtx := ref, ctx
 	if f.Import != nil {
 		var imported bool
-		if run, imported, err = f.Import(ctx, o.ID, ref, credID); err != nil {
+		if run, imported, err = f.Import(ctx, o.ID, ref, credID, log); err != nil {
 			return r, e, "", fmt.Errorf("import %s: %w", ref, err)
 		}
 		if imported {

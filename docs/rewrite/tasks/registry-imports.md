@@ -42,6 +42,20 @@ Status: plan agreed point by point with darthvader 2026-10-13. Not built.
   platforms, arrived, built or imported from where, used by which envs) and
   delete (warns and names the envs when in use). An admin view lists all
   orgs, total disk, the last cleanup's result, "Clean up now".
+- **Digest-pinned refs we already hold: no outside call.** For
+  `name@sha256:...`, when the registry already holds that digest under the
+  import repo with every wanted platform, `Import` contacts the upstream not
+  at all (content behind a digest never changes). A missing platform is
+  fetched from upstream as before.
+- **Tag refs: fall back to our copy when upstream is unreachable.** If
+  resolving the tag fails because the upstream cannot be reached or answers
+  5xx/429 (network, timeout, DNS, rate limit) and the registry holds that tag
+  with every wanted platform, the deploy uses the copy and writes a warning to
+  the deploy log ("could not reach <host> (<reason>); using the copy from
+  <age> ago, it may not be the newest"; age from `registry_images.created_at`,
+  else "an earlier import"). 401/403/404 still fail the deploy; no local copy
+  fails as before. `imgcopy.UnreachableError` tells the leaf; the deploy's
+  `Import` hook gets the deploy log.
 - **Later (not this plan):** vulnerability scans and allow/deny lists,
   hooked into the import step.
 
