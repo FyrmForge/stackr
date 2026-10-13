@@ -113,6 +113,14 @@ func (h *H) RecoverNode() Endpoint {
 	}))
 }
 
+// RenewNodeCert (public, rate limited) is a worker renewing its node cert
+// through the panel, signed with its current key.
+func (h *H) RenewNodeCert() Endpoint {
+	return joinLimited(JSON(http.StatusOK, func(c echo.Context, in worker.RecoverRequest) (worker.RenewAnswer, error) {
+		return h.Orch.RenewNodeCert(rc(c), in)
+	}))
+}
+
 // PendingJoins (server admin) lists the nodes waiting to be confirmed.
 func (h *H) PendingJoins() Endpoint {
 	return Get(func(c echo.Context) ([]service.PendingJoin, error) {

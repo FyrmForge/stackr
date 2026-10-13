@@ -53,6 +53,7 @@ type RecoverPayload struct {
 	// rotation they are how the controller learns the new ones.
 	WGPublic   string `json:"wg_public,omitempty"`
 	ExitPublic string `json:"exit_public,omitempty"`
+	CSR        string `json:"csr,omitempty"` // a renewal (RenewPanelPath)
 }
 
 // SignRecover builds a signed request with the node's own cert and key.
@@ -156,7 +157,7 @@ func (s *Server) recoverOnce(ctx context.Context) error {
 	nonce := make([]byte, 16)
 	_, _ = rand.Read(nonce)
 	wgPub, exitPub := s.publicKeys()
-	req, err := SignRecover(s.cfg.Recover.Own, RecoverPayload{Time: time.Now().Unix(), Nonce: hex.EncodeToString(nonce), Facts: s.Facts(ctx),
+	req, err := SignRecover(s.ownCert(), RecoverPayload{Time: time.Now().Unix(), Nonce: hex.EncodeToString(nonce), Facts: s.Facts(ctx),
 		WGPublic: wgPub, ExitPublic: exitPub})
 	if err != nil {
 		return err

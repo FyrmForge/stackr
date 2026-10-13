@@ -46,6 +46,8 @@ type Config struct {
 	Registry   RegistryConfig // the controller's registry on 127.0.0.1:5000; URL "" = off
 	AliveAddr  string         // public liveness listener (AlivePort); "" = off
 	Recover    RecoverConfig  // recovery through the panel; no cert = off
+	// RenewCertNow renews the node cert once at start even when not due.
+	RenewCertNow bool
 	// DockerUserWait bounds how long replay waits for the DOCKER-USER chain
 	// (0 = 2m); DockerUserPoll is the gap between checks (0 = 1s).
 	DockerUserWait time.Duration
@@ -60,6 +62,9 @@ type Server struct {
 	mesh   meshState
 	// lastCtl is when the controller last called (unix nanos).
 	lastCtl atomic.Int64
+	own     ownCert // the node cert, swapped on renewal
+	// renewNow makes the next cert check renew even when not due, once.
+	renewNow atomic.Bool
 }
 
 func New(cfg Config) *Server {
@@ -70,6 +75,12 @@ func New(cfg Config) *Server {
 		cfg.DockerUserPoll = time.Second
 	}
 	s := &Server{cfg: cfg}
+	if cfg.TLS != nil && len(cfg.TLS.Certificates) > 0 {
+		s.own.set(cfg.TLS.Certificates[0])
+	} else {
+		s.own.set(cfg.Recover.Own)
+	}
+	s.renewNow.Store(cfg.RenewCertNow)
 	s.ctx, s.cancel = context.WithCancel(context.Background())
 	s.heardController() // a fresh start gives the controller its full window
 	return s
@@ -124,20 +135,27 @@ func Run(ctx context.Context, cfg Config) error {
 	if cfg.TLS == nil {
 		return errors.New("worker: tls config required")
 	}
+	s := New(cfg)
+	defer s.Stop()
 	tc := cfg.TLS.Clone()
 	tc.NextProtos = []string{"http/1.1"}
+	if len(s.own.get().Certificate) > 0 {
+		tc.Certificates, tc.GetCertificate = nil, s.serverCert
+		go s.renewLoop()
+	}
 	raw, err := (&net.ListenConfig{Control: freebind}).Listen(ctx, "tcp", cfg.Addr)
 	if err != nil {
 		return err
 	}
 	ln := tls.NewListener(raw, tc)
-	s := New(cfg)
-	defer s.Stop()
 	go s.reassertLoop()
 	if len(cfg.Recover.Own.Certificate) > 0 {
 		go s.recoverLoop(15 * time.Second)
 	}
 	if cfg.Registry.URL != "" {
+		if cfg.Registry.TLS != nil {
+			cfg.Registry.TLS = s.withOwn(cfg.Registry.TLS)
+		}
 		go func() {
 			if err := serveRegistry(ctx, cfg.Registry); err != nil {
 				slog.Error("worker: registry proxy", "err", err)

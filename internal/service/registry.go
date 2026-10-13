@@ -67,7 +67,7 @@ func (o *Orchestrator) serveRegistryWG(ctx context.Context) {
 		return
 	}
 	srv := &http.Server{
-		Handler:           o.RegistryHandler(),
+		Handler:           o.meshHandler(),
 		TLSConfig:         clusterca.WorkerServerConfig(o.cluster.ca.Cert, o.cluster.cert, o.cluster.revoked),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
@@ -86,6 +86,19 @@ func (o *Orchestrator) serveRegistryWG(ctx context.Context) {
 		case <-time.After(10 * time.Second):
 		}
 	}
+}
+
+// meshHandler is the controller's mesh listener: node cert renewal, and the
+// registry front for everything else.
+func (o *Orchestrator) meshHandler() http.Handler {
+	reg := o.RegistryHandler()
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == worker.RenewTunnelPath {
+			o.renewTunnel(w, r)
+			return
+		}
+		reg.ServeHTTP(w, r)
+	})
 }
 
 // registryWGAddr is the mesh listener's host:port.

@@ -376,6 +376,8 @@ func statusTone(s string) (word, text, dot string) {
 		return "Not answering", "text-rw-danger", "bg-rw-danger"
 	case "tunnel-down":
 		return "Tunnel down, host alive", "text-rw-warn", "bg-rw-warn"
+	case "cert-expired":
+		return "Certificate expired: rejoin", "text-rw-danger", "bg-rw-danger"
 	}
 	return healthWord(s), "text-rw-warn", "bg-rw-warn"
 }

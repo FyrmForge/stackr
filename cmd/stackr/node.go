@@ -197,8 +197,11 @@ func (a *app) nodeReject() *cobra.Command {
 
 // stateWord is a node state as people read it; --json keeps the raw word.
 func stateWord(s string) string {
-	if s == "tunnel-down" {
+	switch s {
+	case "tunnel-down":
 		return "tunnel down, host alive"
+	case "cert-expired":
+		return "certificate expired: rejoin"
 	}
 	return s
 }
