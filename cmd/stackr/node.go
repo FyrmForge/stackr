@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/url"
 	"slices"
@@ -618,7 +619,8 @@ func (a *app) cluster() *cobra.Command {
 					for _, l := range links {
 						lm := asMap(l)
 						rtt := ""
-						if ms, _ := lm["ms"].(float64); ms > 0 {
+						if n, _ := lm["ms"].(json.Number); n != "" {
+							ms, _ := n.Float64()
 							rtt = fmt.Sprintf("  %.1f ms", ms)
 						}
 						a.say("  %-9s <-> %-9s %-8s %s%s", cell(lm["a"]), cell(lm["b"]), cell(lm["path"]), cell(lm["state"]), rtt)
