@@ -223,6 +223,7 @@ func Panel(image string, in Input) Container {
 		"TRUSTED_PROXIES=" + cmp.Or(in.BridgeSubnet, DockerRanges),
 		"STACKR_PROXY_ADMIN=unix://" + in.AdminDir() + "/admin.sock",
 		"STACKR_IMAGE=" + image,
+		"STACKR_HOST_ROOT=" + HostRoot,
 	}
 	if in.InstallID != "" {
 		env = append(env, "STACKR_INSTALL_ID="+in.InstallID)
@@ -238,6 +239,10 @@ func Panel(image string, in Input) Container {
 		Volumes: []string{
 			"/var/run/docker.sock:/var/run/docker.sock",
 			in.DataDir + ":" + in.DataDir,
+			// Read-only host views for container and host metrics: the
+			// panel's own cgroup namespace and pid namespace hide them.
+			"/sys/fs/cgroup:" + HostRoot + "/sys/fs/cgroup:ro",
+			"/proc:" + HostRoot + "/proc:ro",
 		},
 		HostNetwork: true,
 		CapAdd:      []string{"NET_ADMIN"},

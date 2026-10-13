@@ -56,6 +56,11 @@ type Config struct {
 	// RenewCertNow renews the node cert once at start even when not due.
 	RenewCertNow bool
 	Conntrack    string // conntrack table for /v1/traffic ("" = /proc/net/nf_conntrack)
+	// HostRoot prefixes /proc and /sys/fs/cgroup for /v1/metrics ("" on a
+	// worker; the panel container's read-only binds of the host's).
+	HostRoot string
+	// DiskPath is the filesystem /v1/metrics reports ("" = /).
+	DiskPath string
 	// DockerUserWait bounds how long replay waits for the DOCKER-USER chain
 	// (0 = 2m); DockerUserPoll is the gap between checks (0 = 1s).
 	DockerUserWait time.Duration
@@ -132,6 +137,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/replay", s.replay)
 	mux.HandleFunc("POST /v1/probe", s.probe)
 	mux.HandleFunc("GET /v1/traffic", s.traffic)
+	mux.HandleFunc("GET /v1/metrics", s.metrics)
 	if s.cfg.CaddySock != "" {
 		mux.Handle("/v1/caddy/", http.StripPrefix("/v1/caddy", unixProxy(s.cfg.CaddySock)))
 	}

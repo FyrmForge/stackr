@@ -18,6 +18,10 @@ docker run
   /var/run/docker.sock:/var/run/docker.sock
   -v
   /var/lib/stackr:/var/lib/stackr
+  -v
+  /sys/fs/cgroup:/host/sys/fs/cgroup:ro
+  -v
+  /proc:/host/proc:ro
   -e
   BASE_URL=https://stkr.example.com
   -e
@@ -46,4 +50,6 @@ docker run
   STACKR_PROXY_ADMIN=unix:///var/lib/stackr/proxy/admin.sock
   -e
   STACKR_IMAGE=ghcr.io/fyrmforge/stackr:1.2.3
+  -e
+  STACKR_HOST_ROOT=/host
   ghcr.io/fyrmforge/stackr:1.2.3

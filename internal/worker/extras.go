@@ -340,17 +340,7 @@ func ParseResolvers(conf string) []string {
 }
 
 // meminfo is one /proc/meminfo line ("MemTotal:") in bytes.
-func meminfo(key string) uint64 {
-	for _, l := range strings.Split(readFile("/proc/meminfo"), "\n") {
-		if v, ok := strings.CutPrefix(l, key); ok {
-			if f := strings.Fields(v); len(f) > 0 {
-				kb, _ := strconv.ParseUint(f[0], 10, 64)
-				return kb << 10
-			}
-		}
-	}
-	return 0
-}
+func meminfo(key string) uint64 { return meminfoIn(readFile("/proc/meminfo"), key) }
 
 func (s *Server) dockerInfo(ctx context.Context, f *Facts) error {
 	hc := &http.Client{Timeout: 10 * time.Second, Transport: &http.Transport{
