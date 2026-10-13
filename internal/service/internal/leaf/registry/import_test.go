@@ -130,6 +130,38 @@ func TestImportWaitsOnSweepGate(t *testing.T) {
 	}
 }
 
+// A sweep started while an import copies waits for the import to finish:
+// the garbage collect would take the blobs it put before its tag goes up.
+func TestSweepWaitsForImportInFlight(t *testing.T) {
+	st := servicetest.Store(t)
+	org := seedOrg(t, st)
+	copying, finish := make(chan struct{}), make(chan struct{})
+	l := registry.New(st.RegistryImages).
+		WithCopier(func(context.Context, string, string, authn.Authenticator, authn.Authenticator, []string) (imgcopy.Result, error) {
+			close(copying)
+			<-finish
+			return imgcopy.Result{Digest: "sha256:abc", Platforms: []string{"amd64"}}, nil
+		})
+	req := registry.ImportRequest{OrgID: org, OrgSlug: "acme", Ref: "ghcr.io/foo/bar:1", Platforms: []string{"amd64"}}
+	imported := make(chan error, 1)
+	go func() { _, err := l.Import(ctx, req); imported <- err }()
+	<-copying
+	swept := make(chan error, 1)
+	go func() { swept <- l.WhileGated(ctx, func(context.Context) error { return nil }) }()
+	select {
+	case <-swept:
+		t.Fatal("the sweep ran while an import was copying")
+	case <-time.After(100 * time.Millisecond):
+	}
+	close(finish)
+	if err := <-imported; err != nil {
+		t.Fatalf("import: %v", err)
+	}
+	if err := <-swept; err != nil {
+		t.Fatalf("sweep: %v", err)
+	}
+}
+
 func platformImage(t *testing.T, arch string) v1.Image {
 	t.Helper()
 	img, err := random.Image(64, 2)

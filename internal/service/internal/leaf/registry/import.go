@@ -56,9 +56,11 @@ func (l *Leaf) Import(ctx context.Context, req ImportRequest) (Imported, error) 
 	if len(req.Platforms) == 0 {
 		return Imported{}, fmt.Errorf("import %s: no platforms to hold", req.Ref)
 	}
-	if err := l.Wait(ctx); err != nil {
+	leave, err := l.Hold(ctx)
+	if err != nil {
 		return Imported{}, err
 	}
+	defer leave()
 	repo, tag := regfront.ImportName(req.OrgSlug, req.Ref)
 	dst := strings.TrimPrefix(l.base, "http://") + "/" + repo + ":" + tag
 	res, err := l.copy(ctx, req.Ref, dst, req.Auth, nil, req.Platforms)

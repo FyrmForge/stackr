@@ -344,8 +344,61 @@ type Pushed struct {
 // import (which writes to the registry directly) waits on it. The zero Gate is
 // open.
 type Gate struct {
-	mu   sync.Mutex
-	shut chan struct{} // non-nil while closed; closed when the gate opens
+	mu      sync.Mutex
+	shut    chan struct{} // non-nil while closed; closed when the gate opens
+	writers int           // writes in flight (TryEnter/Enter not yet left)
+}
+
+// TryEnter starts a write when the gate is open; leave ends it. ok is false
+// while the gate is shut. Drain waits for every entered write to leave.
+func (g *Gate) TryEnter() (leave func(), ok bool) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.shut != nil {
+		return nil, false
+	}
+	g.writers++
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			g.mu.Lock()
+			g.writers--
+			g.mu.Unlock()
+		})
+	}, true
+}
+
+// Enter waits for the gate to open, then starts a write as TryEnter does. A
+// writer holds it for its whole write (an import's every blob and manifest),
+// so a sweep never collects blobs a write has put but not yet tagged.
+func (g *Gate) Enter(ctx context.Context) (leave func(), err error) {
+	for {
+		if leave, ok := g.TryEnter(); ok {
+			return leave, nil
+		}
+		if err := g.Wait(ctx); err != nil {
+			return nil, err
+		}
+	}
+}
+
+// Drain waits until no write is in flight, or ctx's error. Call it with the
+// gate shut, so no new write starts meanwhile.
+// ponytail: polls every 50 ms; a sweep runs nightly.
+func (g *Gate) Drain(ctx context.Context) error {
+	for {
+		g.mu.Lock()
+		n := g.writers
+		g.mu.Unlock()
+		if n == 0 {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(50 * time.Millisecond):
+		}
+	}
 }
 
 // Close shuts the gate and returns the func that opens it again; ok is false
@@ -579,12 +632,16 @@ func (s *Server) serveV2(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if s.Gate != nil && r.Method != http.MethodGet && r.Method != http.MethodHead && s.Gate.Closed() {
-		w.Header().Set("Retry-After", gateRetryAfter)
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusServiceUnavailable)
-		_, _ = w.Write([]byte(`{"errors":[{"code":"UNAVAILABLE","message":"registry cleanup is running, retry shortly"}]}`))
-		return
+	if s.Gate != nil && r.Method != http.MethodGet && r.Method != http.MethodHead {
+		leave, open := s.Gate.TryEnter()
+		if !open {
+			w.Header().Set("Retry-After", gateRetryAfter)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_, _ = w.Write([]byte(`{"errors":[{"code":"UNAVAILABLE","message":"registry cleanup is running, retry shortly"}]}`))
+			return
+		}
+		defer leave()
 	}
 	// A mount reads its source; without pull there, drop the mount and the
 	// registry starts a plain upload instead, as the spec allows.

@@ -26,6 +26,11 @@ func Registry() Container {
 			// upgrade flow) places files, and the image's own config keeps
 			// the storage path and the :5000 address.
 			"REGISTRY_VALIDATION_MANIFESTS_INDEXES_PLATFORMS=none",
+			// No blob descriptor cache: after a garbage collect the in-memory
+			// one still answers for deleted blobs, so a re-import skips them
+			// and a pull gets a broken stream. "none" is an unknown type,
+			// which the registry takes as caching disabled.
+			"REGISTRY_STORAGE_CACHE_BLOBDESCRIPTOR=none",
 		},
 		Labels:  map[string]string{LabelRole: "registry"},
 		Volumes: []string{RegistryVolume + ":/var/lib/registry"},

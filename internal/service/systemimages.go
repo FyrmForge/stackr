@@ -122,9 +122,19 @@ func (o *Orchestrator) systemPublisher() systemPublisher {
 	return systemPublisher{
 		platforms: o.clusterPlatforms,
 		copy: func(ctx context.Context, src, dst string, platforms []string) (imgcopy.Result, error) {
+			leave, err := o.regs.Hold(ctx)
+			if err != nil {
+				return imgcopy.Result{}, err
+			}
+			defer leave()
 			return imgcopy.Copy(ctx, src, dst, nil, nil, platforms)
 		},
 		pushLocal: func(ctx context.Context, src, dst string) (imgcopy.Result, error) {
+			leave, err := o.regs.Hold(ctx)
+			if err != nil {
+				return imgcopy.Result{}, err
+			}
+			defer leave()
 			cctx, err := o.withController(ctx)
 			if err != nil {
 				return imgcopy.Result{}, err

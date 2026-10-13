@@ -115,6 +115,11 @@ func (o *Orchestrator) rsyncSteps() rsyncSteps {
 			return err
 		},
 		push: func(ctx context.Context) error {
+			leave, err := o.regs.Hold(ctx)
+			if err != nil {
+				return err
+			}
+			defer leave()
 			if err := pushLocal(ctx, ref); err != nil {
 				return err
 			}

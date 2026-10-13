@@ -35,6 +35,11 @@ const manifestAccept = "application/vnd.oci.image.index.v1+json, application/vnd
 // collect, and a blob written meanwhile could be collected.
 func (l *Leaf) Wait(ctx context.Context) error { return l.gate.Wait(ctx) }
 
+// Hold waits for the registry to accept writes and holds a sweep off until
+// leave is called. Every direct write to the registry (an import, a system
+// image push) holds it for the whole write.
+func (l *Leaf) Hold(ctx context.Context) (leave func(), err error) { return l.gate.Enter(ctx) }
+
 // Gate is the gate regfront reads (Server.Gate): shut, pushes through the
 // front answer 503 with Retry-After.
 func (l *Leaf) Gate() *regfront.Gate { return &l.gate }
@@ -50,6 +55,11 @@ func (l *Leaf) WhileGated(ctx context.Context, sweep func(context.Context) error
 		return ErrSweeping
 	}
 	defer open()
+	// Writes that started before the gate shut finish first: their blobs
+	// are untagged until their manifest goes up.
+	if err := l.gate.Drain(ctx); err != nil {
+		return fmt.Errorf("waiting for registry writes: %w", err)
+	}
 	return sweep(ctx)
 }
 
