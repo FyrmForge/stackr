@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 	"crypto/x509"
-	"errors"
 	"slices"
 	"strings"
 	"time"
@@ -15,23 +14,11 @@ import (
 
 // The cluster trust surface (docs/rewrite/tasks/ca-rollover.md, C5): what the
 // admin UI, API and CLI read and call. RotateRoot, BreakGlass and the
-// rollover itself are C2's and C4's; this file only reads their state and
-// holds the forced finish until C2 fills it.
+// rollover itself are C2's and C4's; this file only reads their state.
 
 // NodeNotRejoined is the shown status of a worker whose certificates were
 // all revoked by break glass and that has not used its rejoin command yet.
 const NodeNotRejoined = "not-rejoined"
-
-// FinishRollover forces the end of a running root rollover: the old root
-// leaves every trust list now, and nodes still holding an old-root cert need
-// a rejoin. Stub; filled by C2 (the forced finish its contract names).
-//
-// Contract: admin only (by); refuses (errs.Conflictf) when no rollover is
-// running; audited. Offline nodes that never got a new-root cert end up
-// revoked, so they show as "not rejoined" the way break glass leaves them.
-func (o *Orchestrator) FinishRollover(ctx context.Context, by *Principal) error {
-	return errors.ErrUnsupported
-}
 
 // TrustNode is a node named in the trust view.
 type TrustNode struct {

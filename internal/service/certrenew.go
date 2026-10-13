@@ -28,6 +28,9 @@ import (
 // out: it can no longer renew and must be rejoined.
 const NodeCertExpired = "cert-expired"
 
+// During a root rollover the asking cert may be from either root (roots()
+// holds both) while the answer is always from the new one (cluster.ca): this
+// is how a worker moves over, since the controller cannot hand it a cert.
 // renewNodeCert issues the renewal for nodeID and audits it with how it came.
 func (o *Orchestrator) renewNodeCert(ctx context.Context, nodeID string, csr []byte, via string) ([]byte, error) {
 	n, err := o.store.Nodes.Get(ctx, nodeID)

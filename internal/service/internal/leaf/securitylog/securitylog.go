@@ -36,6 +36,10 @@ const (
 	RegistryClean        = "registry.clean"         // a registry sweep finished (the schedule or "Clean up now")
 	CABreakGlass         = "ca.break_glass"         // the cluster root and every mesh key were wiped (start, then done)
 	NodeRejoined         = "node.rejoined"          // a worker came back after a rejoin command was confirmed
+	RootRolloverStart    = "root.rollover_start"    // a new cluster root was made; old and new are both trusted
+	RootRolloverPush     = "root.rollover_push"     // the trust list went to the workers
+	RootRolloverNode     = "root.rollover_node"     // a worker was marked needs-rejoin by a forced finish
+	RootRolloverFinish   = "root.rollover_finish"   // the old root was dropped (detail says whether forced)
 )
 
 // Event is what a caller records; Append stamps the id and time.

@@ -2,51 +2,325 @@ package service
 
 import (
 	"context"
+	"crypto/x509"
 	"errors"
+	"log/slog"
+	"os"
+	"sync"
+	"time"
+
+	"github.com/FyrmForge/stackr/internal/clusterca"
+	"github.com/FyrmForge/stackr/internal/service/errs"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/node"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/securitylog"
+	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
 
-// Planned root rollover (docs/rewrite/tasks/ca-rollover.md, C2). Stubs from
-// the contract wave; carollover.go is C2's file.
+// Planned root rollover (docs/rewrite/tasks/ca-rollover.md, C2).
+//
+// The controller makes a new root and trusts old and new at once (the trust
+// list rides every worker's mesh spec). From then on it signs only with the
+// new root. A worker cannot be handed a cert (its key never leaves it), so
+// each one asks for a renewal and gets one from the new root (certrenew.go);
+// the controller's own cert is reissued at once. When every worker's newest
+// cert is from the new root, the old root is dropped from the list and from
+// disk. The disk is the truth: a restart resumes from clusterca.LoadPrevCA,
+// and reconcileRollover mends cluster_ca when a crash left it behind.
+
+const (
+	// rolloverLead is how long before the root runs out the daily tick
+	// starts a rollover.
+	rolloverLead = 365 * 24 * time.Hour
+)
+
+// rolloverSettle is how long a new-root cert must have existed before its
+// node counts as moved: a worker that lost the renewal answer still holds
+// its old cert and keeps asking, and dropping the old root first would
+// strand it. A var so tests need not wait.
+var rolloverSettle = 6 * time.Hour
+
+// rolloverMu serializes RotateRoot, the forced finish and the tick.
+// ponytail: one process-wide lock; there is one controller and a rollover is
+// rare.
+var rolloverMu sync.Mutex
+
+// swapCA makes ca the signing root and roots the trust list in one step.
+func (c *clusterPKI) swapCA(ca *clusterca.CA, roots []*x509.Certificate) {
+	c.mu.Lock()
+	c.ca, c.trust = ca, roots
+	c.mu.Unlock()
+}
 
 // RotateRoot starts a planned rollover of the cluster root and returns once
 // the first step is durable; the daily rootRolloverTick resumes the rest.
-//
-// Contract:
-//   - Refuses (errs.Conflictf) while a rollover is running or in a cluster
-//     with no CA; admin only (by).
-//   - Makes a new CA and calls clusterca.RotateCA(DataDir, next): the old
-//     root becomes the previous root (cert only), the new one current. Saves
-//     store.ClusterCA{CurrentFP: new, PreviousFP: old, RolloverStartedAt: now,
-//     RolloverFinishedAt: nil}.
-//   - Sets o.cluster.ca to the new CA and o.cluster.setRoots(old and new), so
-//     both are trusted at once, then syncs the mesh (force) so every worker's
-//     spec carries both roots in TrustRoots (o.meshTrust reads the list).
-//   - Reissues the controller cert and every node cert from the new root
-//     without waiting for renewal; each issued cert records Issuer
-//     (Issued.Issuer) in node_certs.
-//   - When every unrevoked worker cert (NodeCerts.ListLive) has the new
-//     Issuer, drops the old root: clusterca.DropPrevCA, setRoots(new only),
-//     ClusterCA{PreviousFP: "", RolloverFinishedAt: now}, force-sync the mesh.
-//   - Every step is audited (securitylog); a failed step is retried by the
-//     tick, never rolled back.
-//
-// Forced finish (offline nodes marked needs-rejoin) is C2's call; the node
-// row state for it is C2's to add and goes in the seams file.
+// Refuses while a rollover runs; node admin only.
 func (o *Orchestrator) RotateRoot(ctx context.Context, by *Principal) error {
-	return errors.ErrUnsupported
+	if err := nodeAdmin(by); err != nil {
+		return err
+	}
+	rolloverMu.Lock()
+	defer rolloverMu.Unlock()
+	return o.startRollover(ctx, by)
+}
+
+// FinishRollover (node admin) drops the old root now. Workers still
+// holding an old-root cert can no longer be reached: they are marked
+// needs-rejoin and their certs revoked, each in the security log.
+func (o *Orchestrator) FinishRollover(ctx context.Context, by *Principal) error {
+	uid, kid := actorOf(by)
+	if err := nodeAdmin(by); err != nil {
+		return err
+	}
+	if o.cluster == nil {
+		return errs.Conflictf("The cluster CA is not set up on this panel yet.")
+	}
+	rolloverMu.Lock()
+	defer rolloverMu.Unlock()
+	st, err := o.reconcileRollover(ctx)
+	if err != nil {
+		return err
+	}
+	if !st.RollingOver() {
+		return errs.Conflictf("No root rollover is running.")
+	}
+	old, err := o.rootStragglers(ctx, st.CurrentFP, 0)
+	if err != nil {
+		return err
+	}
+	for _, n := range old {
+		err := o.store.Tx(ctx, func(tx store.Tx) error {
+			n.Status = StateNeedsRejoin
+			if err := tx.Nodes.Update(ctx, n); err != nil {
+				return err
+			}
+			if _, err := tx.NodeCerts.RevokeNode(ctx, n.ID, time.Now().UTC()); err != nil {
+				return err
+			}
+			return audit(tx).Append(ctx, securitylog.Event{
+				ActorID: uid, KeyID: kid,
+				Action: securitylog.RootRolloverNode, TargetKind: "node", TargetID: n.ID,
+				Detail: n.Name + " still on the old root, needs a rejoin",
+			})
+		})
+		if err != nil {
+			return err
+		}
+	}
+	return o.finishRollover(ctx, by, st, len(old) > 0)
 }
 
 // rootRolloverTick is the daily root check, run from the same loop that
-// renews the controller cert.
-//
-// Contract:
-//   - A rollover running (store.ClusterCA.RollingOver) is resumed: reissue
-//     nodes still on the old Issuer, finish when none is left. This is what
-//     survives a panel restart.
-//   - Otherwise, when the current root has under a year left
-//     (cert.NotAfter - now < 365 days), calls RotateRoot with a system
-//     principal.
-//   - A tick with nothing to do returns nil and writes nothing.
+// renews the controller cert. A rollover running is advanced (this is what
+// survives a panel restart); otherwise one starts when the current root has
+// under a year left. A tick with nothing to do writes nothing.
 func (o *Orchestrator) rootRolloverTick(ctx context.Context) error {
-	return errors.ErrUnsupported
+	if o.cluster == nil {
+		return nil
+	}
+	rolloverMu.Lock()
+	defer rolloverMu.Unlock()
+	st, err := o.reconcileRollover(ctx)
+	if err != nil {
+		return err
+	}
+	if st.RollingOver() {
+		return o.advanceRollover(ctx, nil, st, false)
+	}
+	if time.Until(o.cluster.ca.Cert.NotAfter) < rolloverLead {
+		return o.startRollover(ctx, nil)
+	}
+	return nil
+}
+
+// actorOf is who an event names; nil is the system (the tick).
+func actorOf(by *Principal) (userID, keyID string) {
+	if by == nil {
+		return "", ""
+	}
+	return by.User.ID, by.KeyID
+}
+
+// startRollover is RotateRoot with the lock held and the caller vetted.
+func (o *Orchestrator) startRollover(ctx context.Context, by *Principal) error {
+	uid, kid := actorOf(by)
+	if o.cluster == nil {
+		return errs.Conflictf("The cluster CA is not set up on this panel yet.")
+	}
+	st, err := o.reconcileRollover(ctx)
+	if err != nil {
+		return err
+	}
+	if st.RollingOver() {
+		return errs.Conflictf("A root rollover is already running.")
+	}
+	next, err := clusterca.NewCA(time.Now())
+	if err != nil {
+		return err
+	}
+	old := o.cluster.ca
+	if err := clusterca.RotateCA(o.cfg.DataDir, next); err != nil {
+		return err
+	}
+	// Sign with the new root from here, trust both.
+	o.cluster.swapCA(next, []*x509.Certificate{next.Cert, old.Cert})
+	now := time.Now().UTC()
+	st = store.ClusterCA{
+		CurrentFP: clusterca.Fingerprint(next.Cert), PreviousFP: clusterca.Fingerprint(old.Cert),
+		RolloverStartedAt: &now, BreakGlassAt: st.BreakGlassAt,
+	}
+	err = o.store.Tx(ctx, func(tx store.Tx) error {
+		if err := tx.ClusterCA.Save(ctx, st); err != nil {
+			return err
+		}
+		return audit(tx).Append(ctx, securitylog.Event{
+			ActorID: uid, KeyID: kid,
+			Action: securitylog.RootRolloverStart, TargetKind: "cluster_ca", TargetID: st.CurrentFP,
+			Detail: "new root " + st.CurrentFP + ", old root " + st.PreviousFP + " stays trusted until every node moved",
+		})
+	})
+	if err != nil {
+		return err
+	}
+	slog.Info("cluster: root rollover started", "root", st.CurrentFP)
+	return o.advanceRollover(ctx, by, st, true)
+}
+
+// advanceRollover does the steps that are safe to repeat: the controller
+// cert from the new root, the trust list to the workers, and the finish once
+// no worker is left on the old root. first audits the trust push (the tick
+// pushes quietly).
+func (o *Orchestrator) advanceRollover(ctx context.Context, by *Principal, st store.ClusterCA, first bool) error {
+	uid, kid := actorOf(by)
+	// Offline workers miss this push and get the list from their recovery
+	// fetch; a failed sync is retried by the next tick.
+	if o.mesh != nil {
+		if err := o.mesh.Sync(ctx, "", true); err != nil {
+			slog.Warn("cluster: root rollover trust push", "err", err)
+		}
+	}
+	// Workers trust both roots now; only then does the controller switch to a
+	// cert from the new one (announce both, switch, announce next).
+	if err := o.announceControllerCert(ctx); err != nil {
+		return err
+	}
+	if first {
+		err := o.store.Tx(ctx, func(tx store.Tx) error {
+			return audit(tx).Append(ctx, securitylog.Event{
+				ActorID: uid, KeyID: kid,
+				Action: securitylog.RootRolloverPush, TargetKind: "cluster_ca", TargetID: st.CurrentFP,
+				Detail: "trust list old and new sent to the workers",
+			})
+		})
+		if err != nil {
+			return err
+		}
+	}
+	left, err := o.rootStragglers(ctx, st.CurrentFP, rolloverSettle)
+	if err != nil {
+		return err
+	}
+	if len(left) > 0 {
+		return nil
+	}
+	return o.finishRollover(ctx, by, st, false)
+}
+
+// finishRollover drops the old root: from disk first (a crash after it is
+// mended by reconcileRollover), then from the trust list and cluster_ca.
+func (o *Orchestrator) finishRollover(ctx context.Context, by *Principal, st store.ClusterCA, forced bool) error {
+	uid, kid := actorOf(by)
+	if err := clusterca.DropPrevCA(o.cfg.DataDir); err != nil {
+		return err
+	}
+	o.cluster.swapCA(o.cluster.ca, []*x509.Certificate{o.cluster.ca.Cert})
+	now := time.Now().UTC()
+	prev := st.PreviousFP
+	st.PreviousFP, st.RolloverFinishedAt = "", &now
+	detail := "old root " + prev + " dropped, every node moved"
+	if forced {
+		detail = "old root " + prev + " dropped by an admin, nodes left on it need a rejoin"
+	}
+	err := o.store.Tx(ctx, func(tx store.Tx) error {
+		if err := tx.ClusterCA.Save(ctx, st); err != nil {
+			return err
+		}
+		return audit(tx).Append(ctx, securitylog.Event{
+			ActorID: uid, KeyID: kid,
+			Action: securitylog.RootRolloverFinish, TargetKind: "cluster_ca", TargetID: st.CurrentFP, Detail: detail,
+		})
+	})
+	if err != nil {
+		return err
+	}
+	slog.Info("cluster: root rollover finished", "root", st.CurrentFP, "forced", forced)
+	if o.mesh != nil {
+		if err := o.mesh.Sync(ctx, "", true); err != nil {
+			slog.Warn("cluster: root rollover final push", "err", err)
+		}
+	}
+	return nil
+}
+
+// reconcileRollover reads cluster_ca and mends it against the key files,
+// which are the truth: a previous root on disk with no rollover recorded
+// (crash after RotateCA) starts the record; a rollover recorded with no
+// previous root on disk (crash after DropPrevCA) finishes it.
+func (o *Orchestrator) reconcileRollover(ctx context.Context) (store.ClusterCA, error) {
+	st, _, err := o.store.ClusterCA.Get(ctx)
+	if err != nil {
+		return st, err
+	}
+	prev, err := clusterca.LoadPrevCA(o.cfg.DataDir)
+	hasPrev := err == nil
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return st, err
+	}
+	cur := o.cluster.ca.Cert
+	switch {
+	case hasPrev && !st.RollingOver():
+		now := time.Now().UTC()
+		st.CurrentFP, st.PreviousFP, st.RolloverStartedAt = clusterca.Fingerprint(cur), clusterca.Fingerprint(prev), &now
+		o.cluster.setRoots([]*x509.Certificate{cur, prev})
+	case !hasPrev && st.RollingOver():
+		now := time.Now().UTC()
+		st.PreviousFP, st.RolloverFinishedAt = "", &now
+		o.cluster.setRoots([]*x509.Certificate{cur})
+	default:
+		return st, nil
+	}
+	return st, o.store.ClusterCA.Save(ctx, st)
+}
+
+// rootStragglers are the confirmed workers whose newest live cert is not from
+// the root curFP, or is from it but younger than settle. A node waiting for a
+// rejoin gets a new-root cert when it is confirmed, and a node whose newest
+// cert has run out cannot renew either way: neither holds the rollover up.
+func (o *Orchestrator) rootStragglers(ctx context.Context, curFP string, settle time.Duration) ([]store.Node, error) {
+	ns, err := o.store.Nodes.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+	cs, err := o.store.NodeCerts.ListLive(ctx)
+	if err != nil {
+		return nil, err
+	}
+	newest := map[string]store.NodeCert{} // oldest first, so the last wins
+	for _, c := range cs {
+		if c.NodeID != "" {
+			newest[c.NodeID] = c
+		}
+	}
+	now := time.Now()
+	var out []store.Node
+	for _, n := range ns {
+		c, ok := newest[n.ID]
+		if n.Role != node.Worker || n.Status == node.StatusPending || n.Status == StateNeedsRejoin || !ok ||
+			c.NotAfter.Before(now.Add(-clusterca.ClockSlack)) {
+			continue
+		}
+		if c.Issuer != curFP || now.Sub(c.CreatedAt) < settle {
+			out = append(out, n)
+		}
+	}
+	return out, nil
 }

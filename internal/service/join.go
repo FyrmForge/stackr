@@ -2,10 +2,8 @@ package service
 
 import (
 	"context"
-	"crypto/sha256"
 	"crypto/x509"
 	"encoding/base64"
-	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
 	"errors"
@@ -125,10 +123,8 @@ func (o *Orchestrator) loadCA() (*clusterca.CA, error) {
 	return ca, err
 }
 
-func caFingerprint(ca *clusterca.CA) string {
-	h := sha256.Sum256(ca.Cert.Raw)
-	return hex.EncodeToString(h[:])
-}
+// caFingerprint names the current root in join commands.
+func caFingerprint(ca *clusterca.CA) string { return clusterca.Fingerprint(ca.Cert) }
 
 func (o *Orchestrator) panelURL() string {
 	switch {
