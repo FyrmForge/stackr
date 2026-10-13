@@ -10,7 +10,7 @@ var StaticManifest = map[string]string{
 	"images/favicon-32.png": "images/favicon-32.714289f559fa.png",
 	"images/logo-mark.png": "images/logo-mark.c7991eef2bbb.png",
 	"js/elements/confirm-dialog.js": "js/elements/confirm-dialog.b5196e834097.js",
-	"js/elements/flash-toast.js": "js/elements/flash-toast.62e7046d6006.js",
+	"js/elements/flash-toast.js": "js/elements/flash-toast.614ea70a3063.js",
 	"js/elements/graph-canvas.js": "js/elements/graph-canvas.a4c6cd50ae59.js",
 	"js/elements/graph-node.js": "js/elements/graph-node.e701f43c049c.js",
 	"js/elements/log-pane.js": "js/elements/log-pane.695cb2926c42.js",
