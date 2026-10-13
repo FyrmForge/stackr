@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -74,6 +75,27 @@ func (h *handler) mountNodes(g *echo.Group, a *middleware.Access) {
 		}
 		c.Set("rejoin", out)
 		return h.nodeAnswer(c, "security", "New join command below.", nil)
+	}, m)
+	g.POST(nodesBase+"/rotate", h.act("nodes", func(c echo.Context) (string, *service.Job, error) {
+		err := h.orch.RotateNodeKeys(c.Request().Context(), middleware.Principal(c), "")
+		return "Rotating every node's keys, one at a time. The security log shows each.", nil, err
+	}), m)
+	g.POST(nodesBase+"/rotate-every", h.act("nodes", func(c echo.Context) (string, *service.Job, error) {
+		days, err := strconv.Atoi(c.FormValue("days"))
+		if err != nil {
+			return "", nil, errs.Invalidf("days", "a whole number of days")
+		}
+		if err := h.orch.SetRotateSchedule(c.Request().Context(), middleware.Principal(c), days); err != nil {
+			return "", nil, err
+		}
+		if days == 0 {
+			return "Scheduled key rotation is off.", nil, nil
+		}
+		return fmt.Sprintf("Keys rotate every %d days.", days), nil, nil
+	}), m)
+	g.POST(nodesBase+"/:node/rotate", func(c echo.Context) error {
+		err := h.orch.RotateNodeKeys(c.Request().Context(), middleware.Principal(c), c.Param("node"))
+		return h.nodeAnswer(c, "security", "Rotating keys. The security log shows when it is done.", err)
 	}, m)
 	g.POST(nodesBase+"/:node/remove", h.leave("Node removed.", func(c echo.Context) error {
 		return h.orch.RemoveNode(c.Request().Context(), middleware.Principal(c), c.Param("node"))
@@ -187,7 +209,8 @@ func (h *handler) nodesTab(c echo.Context, adder *ui.AddNodeView) (templ.Compone
 		})
 	}
 	if len(ns) > 1 {
-		d := &ui.DefaultsView{IngressAction: nodesBase + "/default-ingress", ExitAction: nodesBase + "/default-exit"}
+		d := &ui.DefaultsView{IngressAction: nodesBase + "/default-ingress", ExitAction: nodesBase + "/default-exit",
+			RotateAction: nodesBase + "/rotate", RotateEvery: nodesBase + "/rotate-every", RotateDays: h.orch.RotateSchedule(ctx)}
 		if id, err := h.orch.DefaultIngress(ctx); err == nil {
 			d.Ingress = id
 		}
@@ -301,6 +324,7 @@ func (h *handler) nodeView(c echo.Context, d service.NodeDetail, base string) (u
 			RenewFrom: ce.RenewFrom.Format("Jan 2"),
 		})
 	}
+	v.Rotate = base + "/rotate"
 	if !d.Controller {
 		v.Rejoin = base + "/rejoin"
 		if out, ok := c.Get("rejoin").(service.JoinTokenOut); ok {

@@ -22,6 +22,10 @@ type DefaultsView struct {
 	IngressAction, ExitAction string
 	Ingress, Exit             string // node id in force; Exit "" = each node's own uplink
 	IngressNodes, ExitNodes   []Option
+	// RotateAction (POST) rotates every node's keys; RotateEvery (POST
+	// days=) sets the schedule, RotateDays the one in force (0 = off).
+	RotateAction, RotateEvery string
+	RotateDays                int
 }
 
 // NodeRow is one node card. Open is a GET that answers the node drawer.
@@ -92,6 +96,7 @@ type NodeView struct {
 	Orgs        []NodeOrgRow
 	// Security
 	Certs  []CertRow
+	Rotate      string // POST: replace the node's mesh keys
 	Rejoin      string // POST: a new join command; "" = the controller
 	JoinCommand string // the answer, shown once
 	JoinExpires string
@@ -396,6 +401,11 @@ templ NodeBody(tab string, v NodeView) {
 						</dl>
 					}
 				}
+				@c.Section("Keys", "", "Replace this node's WireGuard keys without a rejoin. Its tunnels blip for a moment; the security log shows when it is done.") {
+					<form hx-post={ v.Rotate } hx-target={ target() } hx-swap="outerHTML">
+						<button type="submit" class="btn btn-ghost btn-sm">Rotate keys</button>
+					</form>
+				}
 				if !v.Controller {
 					@c.Section("Rejoin", "", "If this node broke or was reinstalled, get a new join command. It keeps its name, range and envs; the old certificate stops working once the new request is confirmed.") {
 						if v.JoinCommand != "" {
@@ -495,6 +505,16 @@ templ defaultsControl(d DefaultsView) {
 				</select>
 			</div>
 			<button type="submit" class="btn btn-ghost btn-sm">Set</button>
+		</form>
+		<form hx-post={ d.RotateEvery } hx-target={ target() } hx-swap="outerHTML" class="flex items-end gap-2">
+			<div>
+				<label for="rotate-days" class="label">Rotate keys every (days, 0 = off)</label>
+				<input id="rotate-days" name="days" type="number" min="0" max="365" value={ fmt.Sprint(d.RotateDays) } class="input w-24"/>
+			</div>
+			<button type="submit" class="btn btn-ghost btn-sm">Set</button>
+		</form>
+		<form hx-post={ d.RotateAction } hx-target={ target() } hx-swap="outerHTML" class="flex items-end">
+			<button type="submit" class="btn btn-ghost btn-sm">Rotate all keys now</button>
 		</form>
 	</div>
 }
