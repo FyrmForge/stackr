@@ -77,9 +77,10 @@ type Flow struct {
 	// Config.DataDir.
 	DataDir string
 
-	// VIPLock, when set, is held while route reads the grants and sets the
-	// VIP, so a revoke's rebuild (which holds it) cannot be overwritten.
-	VIPLock sync.Locker
+	// VIPLock, when set, is the lock of the node in ctx, held while route
+	// reads the grants and sets the VIP, so a revoke's rebuild (which holds
+	// it) cannot be overwritten.
+	VIPLock func(context.Context) sync.Locker
 
 	// Sync re-pushes the proxy config (leaf/domain Syncer.Sync); nil = none.
 	Sync func(context.Context) error
@@ -496,8 +497,9 @@ func (f *Flow) route(ctx context.Context, t store.Tile, e store.Environment) err
 // routeVIP reads the grants and sets the VIP as one step under VIPLock.
 func (f *Flow) routeVIP(ctx context.Context, t store.Tile, e store.Environment) error {
 	if f.VIPLock != nil {
-		f.VIPLock.Lock()
-		defer f.VIPLock.Unlock()
+		l := f.VIPLock(ctx)
+		l.Lock()
+		defer l.Unlock()
 	}
 	var lan []string
 	if f.HostGrants != nil {
