@@ -3,6 +3,8 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"net/netip"
 	"slices"
 	"strings"
 	"testing"
@@ -305,7 +307,7 @@ func TestRejoinKeepsRangeAndEnvs(t *testing.T) {
 	}
 	// The box still has the cluster's networks: its tunnel and env bridge.
 	req := joinReq(t, out.Token)
-	req.Facts = json.RawMessage(`{"interfaces":[{"name":"stackr0","prefixes":["10.207.255.9/24"]},{"name":"br-1","prefixes":["10.208.0.128/24"]}]}`)
+	req.Facts = json.RawMessage(`{"interfaces":[{"name":"stackr0","prefixes":["10.207.255.9/24"]},{"name":"br-1","prefixes":["10.208.0.128/24"]}],"stackr_bridges":["br-1"]}`)
 	st, err := n.orch.RequestJoin(ctx, httpsMeta, req)
 	must(t, err)
 	if st.NodeID != "w1" {
@@ -337,6 +339,60 @@ func TestRejoinKeepsRangeAndEnvs(t *testing.T) {
 	must(t, err)
 	if _, err := n.orch.ConfirmJoin(ctx, adm, st3.NodeID); err != nil {
 		t.Fatalf("a new node refused over another node's networks: %v", err)
+	}
+}
+
+// A rejected rejoin (its installer died before confirm) goes back to
+// needs-rejoin with its name, address and envs; a fresh rejoin then works.
+func TestRejectRejoinKeepsNode(t *testing.T) {
+	ctx := context.Background()
+	n := newTwoNodes(t)
+	adm := adminP()
+	w, _ := n.st.Nodes.Get(ctx, "w1")
+	w.WGAddress = "10.207.255.9"
+	must(t, n.st.Nodes.Update(ctx, w))
+	out, err := n.orch.RejoinNode(ctx, adm, "w1")
+	must(t, err)
+	_, err = n.orch.RequestJoin(ctx, httpsMeta, joinReq(t, out.Token))
+	must(t, err)
+	must(t, n.orch.RejectJoin(ctx, adm, "w1"))
+	w, err = n.st.Nodes.Get(ctx, "w1")
+	must(t, err)
+	if w.Status != StateNeedsRejoin || w.Name != "w1" || w.WGAddress != "10.207.255.9" {
+		t.Fatalf("after reject: %+v", w)
+	}
+	if es, _ := n.st.Environments.ListByNode(ctx, "w1"); len(es) != 1 {
+		t.Errorf("envs on w1 = %d", len(es))
+	}
+	if s, _ := n.orch.JoinStatus(ctx, out.Token); s.Status != JoinRejected {
+		t.Errorf("old token = %s", s.Status)
+	}
+	out, err = n.orch.RejoinNode(ctx, adm, "w1")
+	must(t, err)
+	st, err := n.orch.RequestJoin(ctx, httpsMeta, joinReq(t, out.Token))
+	must(t, err)
+	if st.NodeID != "w1" {
+		t.Fatalf("the fresh rejoin made node %q", st.NodeID)
+	}
+	if _, err := n.orch.ConfirmJoin(ctx, adm, "w1"); err != nil {
+		t.Fatal(err)
+	}
+	if w, _ = n.st.Nodes.Get(ctx, "w1"); w.Status != node.StatusJoined || w.WGAddress != "10.207.255.9" {
+		t.Errorf("after fresh rejoin: %s %s", w.Status, w.WGAddress)
+	}
+}
+
+// A rejoin skips only stackr's own networks; a new node skips none.
+func TestReportedPrefixesRejoin(t *testing.T) {
+	row := store.JoinToken{Facts: `{"interfaces":[{"name":"stackr0","prefixes":["10.207.255.9/24"]},` +
+		`{"name":"br-1","prefixes":["10.208.0.1/24"]},{"name":"br-2","prefixes":["10.208.9.1/24"]},` +
+		`{"name":"eth0","prefixes":["192.168.1.5/24"]}],"stackr_bridges":["br-1"]}`}
+	str := func(ps []netip.Prefix) string { return fmt.Sprint(ps) }
+	if got := str(reportedPrefixes(row, true)); got != "[10.208.9.1/24 192.168.1.5/24]" {
+		t.Errorf("rejoin = %s", got)
+	}
+	if got := reportedPrefixes(row, false); len(got) != 4 {
+		t.Errorf("new node = %v", got)
 	}
 }
 

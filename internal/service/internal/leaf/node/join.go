@@ -91,14 +91,21 @@ func (l *Leaf) Confirm(ctx context.Context, id string, ifaces []netip.Prefix) (s
 	return n, l.nodes.Update(ctx, n)
 }
 
-// Reject deletes a pending node. ErrNotFound when the node is not pending.
-func (l *Leaf) Reject(ctx context.Context, id string) (store.Node, error) {
+// Reject deletes a pending node. A pending rejoin (it has its transit
+// address from before) goes back to state rejoin instead, keeping its name,
+// address and envs for the next join command. ErrNotFound when the node is
+// not pending.
+func (l *Leaf) Reject(ctx context.Context, id, rejoin string) (store.Node, error) {
 	n, err := l.nodes.Get(ctx, id)
 	if err != nil {
 		return n, err
 	}
 	if n.Status != StatusPending {
 		return n, errs.ErrNotFound
+	}
+	if n.WGAddress != "" {
+		n.Status = rejoin
+		return n, l.nodes.Update(ctx, n)
 	}
 	return n, l.nodes.Delete(ctx, id)
 }

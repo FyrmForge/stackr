@@ -266,7 +266,9 @@ func join(ctx context.Context, args []string, out io.Writer) error {
 	r.say("  made this node's keys")
 	j := joinCall{panel: u.String(), token: *token, caSHA: fp, poll: 10 * time.Second, say: r.say,
 		client: &http.Client{Timeout: 30 * time.Second}}
-	st, err := j.run(ctx, csr, wgPub, map[string]any{"interfaces": worker.Interfaces(), "wg_port": *wgPort})
+	st, err := j.run(ctx, csr, wgPub, map[string]any{
+		"interfaces": worker.Interfaces(), "wg_port": *wgPort, "stackr_bridges": stackrBridges(ctx),
+	})
 	if err != nil {
 		return err
 	}
@@ -365,4 +367,19 @@ func (r runner) fetchWorker(ctx context.Context, image string) error {
 		return err
 	}
 	return os.Rename(joinBinary+".new", joinBinary) // rename: a running worker keeps its old file
+}
+
+// stackrBridges are the host interfaces of the Docker networks stackr made
+// (label stackr.managed): a rejoining box still carries them, and the
+// controller's reserved-range check skips them there. A user-defined bridge
+// network's interface is br- and the first 12 of its id.
+func stackrBridges(ctx context.Context) []string {
+	ids, _ := read(ctx, "docker", "network", "ls", "-q", "--no-trunc", "--filter", "label=stackr.managed=true")
+	out := []string{}
+	for _, id := range strings.Fields(ids) {
+		if len(id) >= 12 {
+			out = append(out, "br-"+id[:12])
+		}
+	}
+	return out
 }

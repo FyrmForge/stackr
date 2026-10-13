@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/FyrmForge/stackr/internal/clusterca"
+	"github.com/FyrmForge/stackr/internal/mesh"
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/jointoken"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/node"
@@ -319,19 +320,11 @@ func (o *Orchestrator) ConfirmJoin(ctx context.Context, by *Principal, nodeID st
 	var rejoined bool
 	err = o.store.Tx(ctx, func(tx store.Tx) error {
 		prev, _ := tx.Nodes.Get(ctx, nodeID) // a rejoin already has its address
-		// This node's own networks only. A rejoin's box carries the cluster's
-		// networks (stackr0, its env bridges): nothing to check there.
-		// ponytail: a rejoining box with a foreign network on the reserved
-		// ranges is not caught; tell stackr's own apart by interface if it bites.
-		var ifaces []netip.Prefix
-		if prev.WGAddress == "" {
-			ifaces = reportedPrefixes([]store.JoinToken{row})
-		}
-		out, err = node.New(tx.Nodes).Confirm(ctx, nodeID, ifaces)
+		rejoined = prev.WGAddress != ""
+		out, err = node.New(tx.Nodes).Confirm(ctx, nodeID, reportedPrefixes(row, rejoined))
 		if err != nil {
 			return err
 		}
-		rejoined = prev.WGAddress != ""
 		if _, err := tx.NodeCerts.RevokeNode(ctx, out.ID, time.Now().UTC()); err != nil { // a rejoin retires the old certs
 			return err
 		}
@@ -373,7 +366,8 @@ func (o *Orchestrator) ConfirmJoin(ctx context.Context, by *Principal, nodeID st
 	return JoinedNode{ID: out.ID, Name: out.Name, WGAddress: out.WGAddress, Status: out.Status}, err
 }
 
-// RejectJoin (server admin) turns a pending node away and deletes its row.
+// RejectJoin (server admin) turns a pending node away and deletes its row; a
+// pending rejoin goes back to needs-rejoin, `node rejoin` mints a fresh command.
 func (o *Orchestrator) RejectJoin(ctx context.Context, by *Principal, nodeID string) error {
 	row, err := jointoken.New(o.store.JoinTokens).ByNode(ctx, nodeID)
 	if err != nil {
@@ -383,7 +377,7 @@ func (o *Orchestrator) RejectJoin(ctx context.Context, by *Principal, nodeID str
 		return errs.ErrNotFound
 	}
 	return o.store.Tx(ctx, func(tx store.Tx) error {
-		n, err := node.New(tx.Nodes).Reject(ctx, nodeID)
+		n, err := node.New(tx.Nodes).Reject(ctx, nodeID, StateNeedsRejoin)
 		if err != nil {
 			return err
 		}
@@ -397,27 +391,29 @@ func (o *Orchestrator) RejectJoin(ctx context.Context, by *Principal, nodeID str
 	})
 }
 
-// reportedPrefixes is every interface prefix the joined nodes reported, so a
-// new range never overlaps a network a machine already sits on.
-func reportedPrefixes(rows []store.JoinToken) []netip.Prefix {
+// reportedPrefixes is every interface prefix a joining node reported. A
+// rejoin's box still carries the cluster's own networks (stackr0, the Docker
+// bridges stackr made, which the installer names in stackr_bridges): those
+// are skipped there, everything else is checked like a new node's.
+func reportedPrefixes(r store.JoinToken, rejoin bool) []netip.Prefix {
+	var f struct {
+		Interfaces []struct {
+			Name     string   `json:"name"`
+			Prefixes []string `json:"prefixes"`
+		} `json:"interfaces"`
+		StackrBridges []string `json:"stackr_bridges"`
+	}
+	if json.Unmarshal([]byte(r.Facts), &f) != nil {
+		return nil
+	}
 	var out []netip.Prefix
-	for _, r := range rows {
-		if r.RejectedAt != nil {
+	for _, i := range f.Interfaces {
+		if rejoin && (i.Name == mesh.Iface || i.Name == mesh.LegacyIface || slices.Contains(f.StackrBridges, i.Name)) {
 			continue
 		}
-		var f struct {
-			Interfaces []struct {
-				Prefixes []string `json:"prefixes"`
-			} `json:"interfaces"`
-		}
-		if json.Unmarshal([]byte(r.Facts), &f) != nil {
-			continue
-		}
-		for _, i := range f.Interfaces {
-			for _, s := range i.Prefixes {
-				if p, err := netip.ParsePrefix(s); err == nil {
-					out = append(out, p)
-				}
+		for _, s := range i.Prefixes {
+			if p, err := netip.ParsePrefix(s); err == nil {
+				out = append(out, p)
 			}
 		}
 	}
