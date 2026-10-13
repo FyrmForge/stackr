@@ -16,7 +16,7 @@ import (
 // The cluster trust surface (docs/rewrite/tasks/ca-rollover.md, C5): what the
 // admin UI, API and CLI read and call. RotateRoot, BreakGlass and the
 // rollover itself are C2's and C4's; this file only reads their state and
-// holds the two calls no worker has named yet.
+// holds the forced finish until C2 fills it.
 
 // NodeNotRejoined is the shown status of a worker whose certificates were
 // all revoked by break glass and that has not used its rejoin command yet.
@@ -30,15 +30,6 @@ const NodeNotRejoined = "not-rejoined"
 // running; audited. Offline nodes that never got a new-root cert end up
 // revoked, so they show as "not rejoined" the way break glass leaves them.
 func (o *Orchestrator) FinishRollover(ctx context.Context, by *Principal) error {
-	return errors.ErrUnsupported
-}
-
-// RevokeControllerCert makes the controller issue itself a new cert and
-// announce only that one, so the old one stops working on every worker.
-// Stub; filled by C3 (renew now, old serial leaves the allow list).
-//
-// Contract: admin only (by); audited.
-func (o *Orchestrator) RevokeControllerCert(ctx context.Context, by *Principal) error {
 	return errors.ErrUnsupported
 }
 
