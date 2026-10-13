@@ -38,6 +38,8 @@ type JoinTokenStore interface {
 	Spend(ctx context.Context, hash string, now time.Time) error
 	// Used is every spent token, oldest first.
 	Used(ctx context.Context) ([]JoinToken, error)
+	// ExpireUnspent ends every token not yet spent and returns how many.
+	ExpireUnspent(ctx context.Context, now time.Time) (int, error)
 }
 
 var joinTokensT = newTable[JoinToken]("join_tokens", nil)
@@ -49,7 +51,7 @@ func (s joinTokens) GetByHash(ctx context.Context, hash string) (JoinToken, erro
 }
 
 func (s joinTokens) GetByNode(ctx context.Context, nodeID string) (JoinToken, error) {
-	return s.one(ctx, "node_id = ?", nodeID)
+	return s.one(ctx, "node_id = ? ORDER BY used_at DESC", nodeID) // newest: a rejoin leaves older rows
 }
 
 func (s joinTokens) Spend(ctx context.Context, hash string, now time.Time) error {
@@ -60,4 +62,13 @@ func (s joinTokens) Spend(ctx context.Context, hash string, now time.Time) error
 
 func (s joinTokens) Used(ctx context.Context) ([]JoinToken, error) {
 	return s.many(ctx, "used_at IS NOT NULL ORDER BY used_at")
+}
+
+func (s joinTokens) ExpireUnspent(ctx context.Context, now time.Time) (int, error) {
+	res, err := s.q.ExecContext(ctx, "UPDATE join_tokens SET expires_at = ? WHERE used_at IS NULL AND expires_at > ?", now, now)
+	if err != nil {
+		return 0, mapErr(err)
+	}
+	n, err := res.RowsAffected()
+	return int(n), err
 }

@@ -441,7 +441,7 @@ func (m *meshSvc) gather(ctx context.Context) (meshIn, error) {
 	}
 	m.refreshAll(ctx, ns)
 	for _, n := range ns {
-		if n.Status == node.StatusPending { // no transit address yet
+		if n.Status == node.StatusPending || n.Status == StateNeedsRejoin { // no transit address yet; or cut off until it rejoins with new keys
 			continue
 		}
 		mn := meshNodeIn{Name: n.Name, Node: mesh.Node{ID: n.ID, PublicKey: n.WGPublicKey, Port: MeshWGPort, Transit: transitOf(n)}}
@@ -538,7 +538,7 @@ func (m *meshSvc) refreshAll(ctx context.Context, ns []store.Node) {
 	sem := make(chan struct{}, refreshCap)
 	var wg sync.WaitGroup
 	for _, n := range ns {
-		if n.Status == node.StatusPending {
+		if n.Status == node.StatusPending || n.Status == StateNeedsRejoin {
 			continue
 		}
 		cl, ok := m.nodes(n.ID)

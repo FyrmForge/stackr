@@ -320,15 +320,18 @@ func (o *Orchestrator) ConfirmJoin(ctx context.Context, by *Principal, nodeID st
 		return JoinedNode{}, err
 	}
 	var out store.Node
+	var rejoined bool
 	err = o.store.Tx(ctx, func(tx store.Tx) error {
 		used, err := o.joinTokens(tx).Used(ctx)
 		if err != nil {
 			return err
 		}
+		prev, _ := tx.Nodes.Get(ctx, nodeID) // a rejoin already has its address
 		out, err = node.New(tx.Nodes).Confirm(ctx, nodeID, reportedPrefixes(used))
 		if err != nil {
 			return err
 		}
+		rejoined = prev.WGAddress != ""
 		if _, err := tx.NodeCerts.RevokeNode(ctx, out.ID, time.Now().UTC()); err != nil { // a rejoin retires the old certs
 			return err
 		}
@@ -345,6 +348,14 @@ func (o *Orchestrator) ConfirmJoin(ctx context.Context, by *Principal, nodeID st
 			return err
 		}
 		a := audit(tx)
+		if rejoined {
+			if err := a.Append(ctx, securitylog.Event{
+				Action: securitylog.NodeRejoined, ActorID: by.User.ID, KeyID: by.KeyID,
+				TargetKind: "node", TargetID: out.ID, Detail: "node " + out.Name,
+			}); err != nil {
+				return err
+			}
+		}
 		if err := a.Append(ctx, securitylog.Event{
 			Action: jointoken.ActionConfirm, ActorID: by.User.ID, KeyID: by.KeyID,
 			TargetKind: "node", TargetID: out.ID, Detail: "transit " + out.WGAddress,

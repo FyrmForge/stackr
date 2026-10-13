@@ -32,6 +32,8 @@ const (
 	NodeKeyRotate = "node.key_rotate" // a node's mesh and exit keys were replaced
 	NodeCertRenew = "node.cert_renew" // a worker renewed its node cert (over the tunnel or the panel)
 	RegistryClean = "registry.clean"  // a registry sweep finished (the schedule or "Clean up now")
+	CABreakGlass  = "ca.break_glass"  // the cluster root and every mesh key were wiped (start, then done)
+	NodeRejoined  = "node.rejoined"   // a worker came back after a rejoin command was confirmed
 )
 
 // Event is what a caller records; Append stamps the id and time.
