@@ -64,7 +64,7 @@ func TestMapDraws(t *testing.T) {
 		`data-edge-label>private<`, // no latency known: just the kind
 		"home.example.com +2",        // through the NAT: the box's ingress names
 		"shop.example.com",           // straight to a public node
-		"smoke/web/dev exits here", "acme/prod/web +1 exit here",
+		"egress · smoke/web/dev", "egress · acme/prod/web +1",
 		"+2 more", // five envs: three listed, the rest counted
 		"Not answering", "Healthy", "Moving",
 		"Public IP", "203.0.113.5", "No public IP",
