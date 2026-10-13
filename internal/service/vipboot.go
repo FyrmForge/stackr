@@ -135,11 +135,12 @@ func (o *Orchestrator) rebuildNodeVIPs(ctx context.Context, n store.Node) error 
 		return nil // a test stub: nothing to declare
 	}
 	o.sweepEarly(ctx, n.ID)
-	pauses, err := o.docker.List(ctx, map[string]string{tile.LabelRole: "pause"})
+	// One list for the whole node: routes and VIPs come off its rows, so the
+	// rebuild costs one Docker call per node, not three per tile.
+	rows, err := o.docker.List(ctx, nil)
 	if err != nil {
 		return err
 	}
-	base := o.vipBase(ctx, n)
 	all := collectVIP{}
 	grants := map[string]hostgrant.Set{} // one read per stack
 	leaf := tile.New(o.store.Tiles, o.docker, all)
@@ -150,15 +151,21 @@ func (o *Orchestrator) rebuildNodeVIPs(ctx context.Context, n store.Node) error 
 			failed = append(failed, slug)
 		}
 	}
-	for _, p := range pauses {
+	type paused struct {
+		t store.Tile
+		e store.Environment
+	}
+	var todo []paused
+	for _, p := range rows {
+		if p.Labels[tile.LabelRole] != "pause" {
+			continue
+		}
 		id := p.Labels[tile.LabelTile]
 		t, err := o.store.Tiles.Get(ctx, id)
 		if err != nil {
 			skip(id, err)
 			if errors.Is(err, errs.ErrNotFound) { // an orphan pause: its VIP is stale
-				if d, err := o.docker.Inspect(ctx, p.ID); err == nil {
-					drop = append(drop, slices.Collect(maps.Values(d.Networks))...)
-				}
+				drop = append(drop, slices.Collect(maps.Values(p.Nets))...)
 			}
 			continue
 		}
@@ -167,6 +174,13 @@ func (o *Orchestrator) rebuildNodeVIPs(ctx context.Context, n store.Node) error 
 			skip(t.Slug, err)
 			continue
 		}
+		o.reconcileVIP(ctx, n.ID, t, p.Nets[e.Network])
+		todo = append(todo, paused{t, e})
+	}
+	// After the reconcile: the flows read the stored VIPs.
+	base := o.vipBase(ctx, n)
+	for _, pt := range todo {
+		t, e := pt.t, pt.e
 		g, ok := grants[t.StackID]
 		if !ok {
 			if g, err = o.hostgrant.Of(ctx, t.StackID); err != nil {
@@ -175,7 +189,7 @@ func (o *Orchestrator) rebuildNodeVIPs(ctx context.Context, n store.Node) error 
 			}
 			grants[t.StackID] = g
 		}
-		if err := leaf.Route(ctx, t, e.Network, deploy.LanLines(g, t)); err != nil {
+		if err := leaf.RouteFrom(ctx, t, e.Network, deploy.LanLines(g, t), rows); err != nil {
 			skip(t.Slug, err)
 		}
 	}

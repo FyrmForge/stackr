@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"maps"
+	"slices"
 	"strings"
 	"time"
 
@@ -274,13 +276,24 @@ func (l *Leaf) Pause(ctx context.Context, t store.Tile, network string) (string,
 	if len(cs) > 0 {
 		id = cs[0].ID
 	} else {
-		id, err = l.docker.Run(ctx, docker.ContainerSpec{
+		spec := docker.ContainerSpec{
 			Name:     "stackr-pause-" + t.ID,
 			Image:    PauseImage,
 			Restart:  "always",
 			Labels:   map[string]string{LabelTile: t.ID, LabelRole: "pause"},
 			Networks: []docker.NetAttach{{Name: network, Aliases: []string{t.Slug}}},
-		})
+		}
+		if l.Pin != nil {
+			spec.Networks[0].IPv4 = l.Pin(ctx, t, network)
+		}
+		id, err = l.docker.Run(ctx, spec)
+		if err != nil && spec.Networks[0].IPv4 != "" {
+			// The pinned address is taken (an old network whose dynamic range
+			// overlaps it): Docker picks, the tile keeps working unpinned.
+			slog.Warn("tile: pinned VIP taken, Docker picks", "tile", t.Slug, "vip", spec.Networks[0].IPv4, "err", err)
+			spec.Networks[0].IPv4 = ""
+			id, err = l.docker.Run(ctx, spec)
+		}
 		if err != nil {
 			return "", err
 		}
@@ -326,6 +339,34 @@ func (l *Leaf) Route(ctx context.Context, t store.Tile, network string, lan []st
 		return l.vip.Remove(ctx, ip)
 	}
 	return l.vip.Set(ctx, ip, ips, lan)
+}
+
+// RouteFrom is Route from rows, one container list of the tile's node (with
+// Nets): no Docker call, so the minute rebuild costs one list per node.
+func (l *Leaf) RouteFrom(ctx context.Context, t store.Tile, network string, lan []string, rows []docker.Container) error {
+	var v string
+	var ips []string
+	for _, c := range rows {
+		if c.Labels[LabelTile] != t.ID {
+			continue
+		}
+		switch c.Labels[LabelRole] {
+		case "pause":
+			v = c.Nets[network]
+		case "replica":
+			if c.State == "running" && c.Nets[network] != "" {
+				ips = append(ips, c.Nets[network])
+			}
+		}
+	}
+	if v == "" {
+		return fmt.Errorf("%s: the pause container has no address on %s", t.Slug, network)
+	}
+	slices.Sort(ips)
+	if len(ips) == 0 {
+		return l.vip.Remove(ctx, v)
+	}
+	return l.vip.Set(ctx, v, ips, lan)
 }
 
 // Teardown removes every container of the tile and its VIP rules.

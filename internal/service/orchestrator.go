@@ -433,6 +433,7 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 	orch.earlyIPs = map[string]earlyEnt{}
 	orch.tiles.Early = orch.earlyLan
 	orch.tiles.Node = orch.envNode
+	orch.tiles.Pin = orch.pinVIP
 	orch.creds = build("leaf/credential", func() *credential.Leaf { return credential.New(st.Credentials) })
 	orch.conns = build("leaf/connector", func() *connector.Leaf {
 		app := githubapp.New(cfg.BaseURL).WithPanelHost(func() string {
