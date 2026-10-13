@@ -142,7 +142,7 @@ func TestRegistryCleanKnobs(t *testing.T) {
 		}
 		return v
 	}
-	if get("registry_cleanup_schedule") != "15 4 * * *" || get("registry_keep") != "5" {
+	if get("registry_cleanup_schedule") != "15 4 * * *" || get("registry_keep") != "3" {
 		t.Fatalf("defaults = %q, %q", get("registry_cleanup_schedule"), get("registry_keep"))
 	}
 	if err := l.Set(ctx, "registry_cleanup_schedule", "0 2 * * *"); err != nil || get("registry_cleanup_schedule") != "0 2 * * *" {

@@ -35,7 +35,7 @@ Status: plan agreed point by point with darthvader 2026-10-13. Not built.
   tag, digest, platforms, source (built / imported from `<upstream ref>`),
   who, when, size.
 - **Cleanup, nightly:** delete every version no env uses that is not among
-  the last 5 per repo; then the registry's garbage collect frees the disk.
+  the last 3 per repo; then the registry's garbage collect frees the disk.
   Pushes are refused (503, retried) for the seconds the sweep runs. A
   setting holds the schedule and the keep count.
 - **UI:** the org Registry tab gets a drill-down (versions: tag, size,
@@ -184,7 +184,7 @@ hook, `internal/service/internal/flow/move/move.go` (rsync helper ref).
 ### G4 Cleanup
 Owns a new `internal/service/registryclean.go`, the schedule entry, the
 settings `registry_cleanup_schedule` (default `15 4 * * *`) and
-`registry_keep` (default 5), and the push gate in regfront.
+`registry_keep` (default 3), and the push gate in regfront.
 - Mark: per repo, delete manifests not used by any env (current release,
   pinned releases and rollback targets count as used) beyond the newest
   `registry_keep`; delete their records. Deleting is by digest, which drops

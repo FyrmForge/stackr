@@ -209,7 +209,7 @@ var Catalogue = []Knob{
 	{
 		Key:     "registry_keep",
 		Type:    TInt,
-		Default: "5",
+		Default: "3",
 		Scopes:  Flat,
 		Desc:    "versions per registry repository the cleanup always keeps, newest first; older ones go unless an env uses them",
 	},
