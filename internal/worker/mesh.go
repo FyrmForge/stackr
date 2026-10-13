@@ -210,7 +210,7 @@ func (s *Server) uplink(ctx context.Context) (string, error) {
 func (s *Server) ApplyMesh(ctx context.Context, spec MeshSpec) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if err := s.cfg.Trust.Apply(spec.TrustRoots, spec.ControllerSerials); err != nil {
+	if err := s.applyTrust(spec.TrustRoots, spec.ControllerSerials); err != nil {
 		return err
 	}
 	if err := s.meshNet(spec); err != nil {

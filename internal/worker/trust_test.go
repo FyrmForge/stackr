@@ -294,3 +294,31 @@ func TestResetTrust(t *testing.T) {
 		t.Fatal("an empty answer must leave the CA file alone trusted, no allow list")
 	}
 }
+
+// A spec bringing a new signing root wakes the cert check at once; the same
+// list again does not.
+func TestNewSigningRootKicksRenewal(t *testing.T) {
+	ca, s, _ := certRig(t, time.Hour)
+	next, err := clusterca.NewCA(time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	pem := func(c *x509.Certificate) string { return string(clusterca.BundlePEM([]*x509.Certificate{c})) }
+	kicked := func() bool {
+		select {
+		case <-s.renewKick:
+			return true
+		default:
+			return false
+		}
+	}
+	if err := s.applyTrust([]string{pem(ca.Cert)}, nil); err != nil || kicked() {
+		t.Fatalf("same root kicked a renewal (err %v)", err)
+	}
+	if err := s.applyTrust([]string{pem(next.Cert), pem(ca.Cert)}, nil); err != nil || !kicked() {
+		t.Fatalf("new signing root did not kick a renewal (err %v)", err)
+	}
+	if err := s.applyTrust([]string{pem(next.Cert), pem(ca.Cert)}, nil); err != nil || kicked() {
+		t.Fatalf("an unchanged list kicked again (err %v)", err)
+	}
+}

@@ -70,6 +70,8 @@ type Server struct {
 	own     ownCert // the node cert, swapped on renewal
 	// renewNow makes the next cert check renew even when not due, once.
 	renewNow atomic.Bool
+	// renewKick wakes the cert check early: a new signing root arrived.
+	renewKick chan struct{}
 }
 
 func New(cfg Config) *Server {
@@ -82,7 +84,7 @@ func New(cfg Config) *Server {
 	if cfg.Trust == nil {
 		cfg.Trust = NewTrust(filepath.Join(cfg.StateDir, "cluster-ca.crt"))
 	}
-	s := &Server{cfg: cfg}
+	s := &Server{cfg: cfg, renewKick: make(chan struct{}, 1)}
 	if cfg.TLS != nil && len(cfg.TLS.Certificates) > 0 {
 		s.own.set(cfg.TLS.Certificates[0])
 	} else {

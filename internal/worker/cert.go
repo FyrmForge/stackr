@@ -123,8 +123,33 @@ func (s *Server) renewLoop() {
 		case <-s.ctx.Done():
 			return
 		case <-t.C:
+		case <-s.renewKick:
 		}
 	}
+}
+
+// applyTrust takes a spec's trust fields; a new signing root (a rollover
+// started) wakes the cert check now instead of at the next hourly tick.
+func (s *Server) applyTrust(roots, serials []string) error {
+	before := s.signingRoot()
+	if err := s.cfg.Trust.Apply(roots, serials); err != nil {
+		return err
+	}
+	if s.signingRoot() != before {
+		select {
+		case s.renewKick <- struct{}{}:
+		default:
+		}
+	}
+	return nil
+}
+
+// signingRoot is the fingerprint of the first root in the trust list.
+func (s *Server) signingRoot() string {
+	if r := s.cfg.Trust.Roots(); len(r) > 0 {
+		return clusterca.Fingerprint(r[0])
+	}
+	return ""
 }
 
 // renewOnce renews when the cert is due: tunnel first, then the panel.
