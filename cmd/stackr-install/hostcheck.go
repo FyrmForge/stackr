@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
@@ -43,6 +44,9 @@ type hostFacts struct {
 	Kernel    string // the running kernel's release
 	WGModule  bool   // the wireguard module is loaded
 	Interface []netip.Prefix
+	// DockerPools are Docker's default-address-pools (daemon.json): where
+	// Docker picks a subnet for a network nobody gave one.
+	DockerPools []netip.Prefix
 }
 
 func gatherHost(ctx context.Context) hostFacts {
@@ -57,6 +61,7 @@ func gatherHost(ctx context.Context) hostFacts {
 	f.Kernel = strings.TrimSpace(string(b))
 	_, err = os.Stat("/sys/module/wireguard")
 	f.WGModule = err == nil
+	f.DockerPools = dockerPools("/etc/docker/daemon.json")
 	ifs, _ := net.Interfaces()
 	for _, i := range ifs {
 		if i.Flags&net.FlagLoopback != 0 || i.Name == mesh.Iface {
@@ -70,6 +75,30 @@ func gatherHost(ctx context.Context) hostFacts {
 		}
 	}
 	return f
+}
+
+// dockerPools reads the default-address-pools bases out of a daemon.json;
+// none (no file, no setting) is Docker's built-in 172.17-31 and 192.168 pools.
+func dockerPools(path string) []netip.Prefix {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	var cfg struct {
+		Pools []struct {
+			Base string `json:"base"`
+		} `json:"default-address-pools"`
+	}
+	if json.Unmarshal(b, &cfg) != nil {
+		return nil
+	}
+	var out []netip.Prefix
+	for _, p := range cfg.Pools {
+		if pf, err := netip.ParsePrefix(p.Base); err == nil {
+			out = append(out, pf)
+		}
+	}
+	return out
 }
 
 var leadingVersion = regexp.MustCompile(`v?([0-9]+)\.([0-9]+)`)
@@ -95,7 +124,7 @@ var reservedRanges = []struct {
 	what string
 }{
 	{mesh.Transit, "the mesh's tunnel addresses"},
-	{mesh.Supernet, "the nodes' container ranges"},
+	{mesh.Supernet, "the cluster's network pool"},
 	{mesh.ExitNet, "the exit links"},
 }
 
@@ -137,6 +166,16 @@ func requirements(f hostFacts, worker, fresh bool) []string {
 		}
 		if !f.IP {
 			miss = append(miss, "the ip command (iproute2) is missing")
+		}
+	}
+	// A Docker pool on stackr's ranges lets Docker hand out a network of its
+	// own from the cluster's pool, clashing with an env on another node.
+	for _, p := range f.DockerPools {
+		for _, r := range reservedRanges {
+			if r.p.Overlaps(p.Masked()) {
+				miss = append(miss, fmt.Sprintf("Docker's default address pool %s overlaps %s, which stackr reserves for %s: change default-address-pools in /etc/docker/daemon.json",
+					p.Masked(), r.p, r.what))
+			}
 		}
 	}
 	if fresh {
