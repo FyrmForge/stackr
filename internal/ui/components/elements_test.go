@@ -20,6 +20,7 @@ var elements = map[string]int{
 	"log-pane":        150,
 	"password-toggle": 150,
 	"side-drawer":     150,
+	"tab-strip":       150,
 	"term-pane":       150,
 	"theme-toggle":    150,
 }

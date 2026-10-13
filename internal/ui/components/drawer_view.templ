@@ -54,7 +54,9 @@ templ Drawer(v DrawerView, body templ.Component) {
 					<option value={ t } selected?={ t == v.Tab }>{ v.TabLabel(t) }</option>
 				}
 			</select>
-			<nav class="hidden sm:flex gap-1 px-4 sm:px-6 border-b border-rw-border overflow-x-auto scrollbar-none" aria-label="Tabs">
+			<tab-strip class="relative hidden sm:block border-b border-rw-border">
+			<button type="button" data-prev hidden class="absolute left-0 inset-y-0 z-10 w-10 bg-gradient-to-r from-rw-surface via-rw-surface to-transparent text-rw-muted hover:text-rw-text" aria-label="Scroll tabs left">&lsaquo;</button>
+			<nav data-row class="flex gap-1 px-4 sm:px-6 overflow-x-auto scrollbar-none" aria-label="Tabs">
 				for _, t := range v.Tabs {
 					<a
 						href={ templ.SafeURL("?drawer=" + v.Node + "&tab=" + t) }
@@ -71,6 +73,8 @@ templ Drawer(v DrawerView, body templ.Component) {
 					>{ v.TabLabel(t) }</a>
 				}
 			</nav>
+			<button type="button" data-next hidden class="absolute right-0 inset-y-0 z-10 w-10 bg-gradient-to-l from-rw-surface via-rw-surface to-transparent text-rw-muted hover:text-rw-text" aria-label="Scroll tabs right">&rsaquo;</button>
+			</tab-strip>
 		}
 		<div class="p-6 space-y-4">
 			if v.Error != "" {

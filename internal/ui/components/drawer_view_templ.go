@@ -184,7 +184,7 @@ func Drawer(v DrawerView, body templ.Component) templ.Component {
 					return templ_7745c5c3_Err
 				}
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 12, "</select><nav class=\"hidden sm:flex gap-1 px-4 sm:px-6 border-b border-rw-border overflow-x-auto scrollbar-none\" aria-label=\"Tabs\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 12, "</select> <tab-strip class=\"relative hidden sm:block border-b border-rw-border\"><button type=\"button\" data-prev hidden class=\"absolute left-0 inset-y-0 z-10 w-10 bg-gradient-to-r from-rw-surface via-rw-surface to-transparent text-rw-muted hover:text-rw-text\" aria-label=\"Scroll tabs left\">&lsaquo;</button><nav data-row class=\"flex gap-1 px-4 sm:px-6 overflow-x-auto scrollbar-none\" aria-label=\"Tabs\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -203,7 +203,7 @@ func Drawer(v DrawerView, body templ.Component) templ.Component {
 				var templ_7745c5c3_Var9 templ.SafeURL
 				templ_7745c5c3_Var9, templ_7745c5c3_Err = templ.JoinURLErrs(templ.SafeURL("?drawer=" + v.Node + "&tab=" + t))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/drawer_view.templ`, Line: 60, Col: 61}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/drawer_view.templ`, Line: 62, Col: 61}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var9))
 				if templ_7745c5c3_Err != nil {
@@ -216,7 +216,7 @@ func Drawer(v DrawerView, body templ.Component) templ.Component {
 				var templ_7745c5c3_Var10 string
 				templ_7745c5c3_Var10, templ_7745c5c3_Err = templ.JoinStringErrs(v.Base + "?tab=" + t)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/drawer_view.templ`, Line: 61, Col: 35}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/drawer_view.templ`, Line: 63, Col: 35}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var10))
 				if templ_7745c5c3_Err != nil {
@@ -229,7 +229,7 @@ func Drawer(v DrawerView, body templ.Component) templ.Component {
 				var templ_7745c5c3_Var11 string
 				templ_7745c5c3_Var11, templ_7745c5c3_Err = templ.JoinStringErrs("#" + DrawerRoot)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/drawer_view.templ`, Line: 62, Col: 34}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/drawer_view.templ`, Line: 64, Col: 34}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var11))
 				if templ_7745c5c3_Err != nil {
@@ -242,7 +242,7 @@ func Drawer(v DrawerView, body templ.Component) templ.Component {
 				var templ_7745c5c3_Var12 string
 				templ_7745c5c3_Var12, templ_7745c5c3_Err = templ.JoinStringErrs("?drawer=" + v.Node + "&tab=" + t)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/drawer_view.templ`, Line: 64, Col: 53}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/drawer_view.templ`, Line: 66, Col: 53}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var12))
 				if templ_7745c5c3_Err != nil {
@@ -278,7 +278,7 @@ func Drawer(v DrawerView, body templ.Component) templ.Component {
 				var templ_7745c5c3_Var14 string
 				templ_7745c5c3_Var14, templ_7745c5c3_Err = templ.JoinStringErrs(v.TabLabel(t))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/drawer_view.templ`, Line: 71, Col: 21}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/drawer_view.templ`, Line: 73, Col: 21}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var14))
 				if templ_7745c5c3_Err != nil {
@@ -289,7 +289,7 @@ func Drawer(v DrawerView, body templ.Component) templ.Component {
 					return templ_7745c5c3_Err
 				}
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 22, "</nav>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 22, "</nav><button type=\"button\" data-next hidden class=\"absolute right-0 inset-y-0 z-10 w-10 bg-gradient-to-l from-rw-surface via-rw-surface to-transparent text-rw-muted hover:text-rw-text\" aria-label=\"Scroll tabs right\">&rsaquo;</button></tab-strip>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -306,7 +306,7 @@ func Drawer(v DrawerView, body templ.Component) templ.Component {
 			var templ_7745c5c3_Var15 string
 			templ_7745c5c3_Var15, templ_7745c5c3_Err = templ.JoinStringErrs(v.Error)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/drawer_view.templ`, Line: 77, Col: 58}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/drawer_view.templ`, Line: 81, Col: 58}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var15))
 			if templ_7745c5c3_Err != nil {
@@ -325,7 +325,7 @@ func Drawer(v DrawerView, body templ.Component) templ.Component {
 			var templ_7745c5c3_Var16 string
 			templ_7745c5c3_Var16, templ_7745c5c3_Err = templ.JoinStringErrs(v.Note)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/drawer_view.templ`, Line: 81, Col: 63}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/drawer_view.templ`, Line: 85, Col: 63}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var16))
 			if templ_7745c5c3_Err != nil {
@@ -396,7 +396,7 @@ func panelHeader(v DrawerView) templ.Component {
 		var templ_7745c5c3_Var18 string
 		templ_7745c5c3_Var18, templ_7745c5c3_Err = templ.JoinStringErrs(v.Title)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/drawer_view.templ`, Line: 100, Col: 88}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/drawer_view.templ`, Line: 104, Col: 88}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var18))
 		if templ_7745c5c3_Err != nil {
@@ -420,7 +420,7 @@ func panelHeader(v DrawerView) templ.Component {
 			var templ_7745c5c3_Var19 string
 			templ_7745c5c3_Var19, templ_7745c5c3_Err = templ.JoinStringErrs(v.Scope)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/drawer_view.templ`, Line: 105, Col: 156}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/drawer_view.templ`, Line: 109, Col: 156}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var19))
 			if templ_7745c5c3_Err != nil {
@@ -448,7 +448,7 @@ func panelHeader(v DrawerView) templ.Component {
 				var templ_7745c5c3_Var20 string
 				templ_7745c5c3_Var20, templ_7745c5c3_Err = templ.JoinStringErrs(v.Kind)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/drawer_view.templ`, Line: 111, Col: 48}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/drawer_view.templ`, Line: 115, Col: 48}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var20))
 				if templ_7745c5c3_Err != nil {
@@ -497,7 +497,7 @@ func panelHeader(v DrawerView) templ.Component {
 				var templ_7745c5c3_Var23 string
 				templ_7745c5c3_Var23, templ_7745c5c3_Err = templ.JoinStringErrs(v.Location)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/drawer_view.templ`, Line: 120, Col: 42}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/drawer_view.templ`, Line: 124, Col: 42}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var23))
 				if templ_7745c5c3_Err != nil {
@@ -642,7 +642,7 @@ func PostButton(label, action string) templ.Component {
 		var templ_7745c5c3_Var26 string
 		templ_7745c5c3_Var26, templ_7745c5c3_Err = templ.JoinStringErrs(action)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/drawer_view.templ`, Line: 181, Col: 68}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/drawer_view.templ`, Line: 185, Col: 68}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var26))
 		if templ_7745c5c3_Err != nil {
@@ -655,7 +655,7 @@ func PostButton(label, action string) templ.Component {
 		var templ_7745c5c3_Var27 string
 		templ_7745c5c3_Var27, templ_7745c5c3_Err = templ.JoinStringErrs("#" + DrawerRoot)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/drawer_view.templ`, Line: 181, Col: 99}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/drawer_view.templ`, Line: 185, Col: 99}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var27))
 		if templ_7745c5c3_Err != nil {
@@ -668,7 +668,7 @@ func PostButton(label, action string) templ.Component {
 		var templ_7745c5c3_Var28 string
 		templ_7745c5c3_Var28, templ_7745c5c3_Err = templ.JoinStringErrs(label)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/drawer_view.templ`, Line: 181, Col: 129}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/drawer_view.templ`, Line: 185, Col: 129}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var28))
 		if templ_7745c5c3_Err != nil {
@@ -711,7 +711,7 @@ func PrimaryPost(label, action string) templ.Component {
 		var templ_7745c5c3_Var30 string
 		templ_7745c5c3_Var30, templ_7745c5c3_Err = templ.JoinStringErrs(action)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/drawer_view.templ`, Line: 186, Col: 70}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/drawer_view.templ`, Line: 190, Col: 70}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var30))
 		if templ_7745c5c3_Err != nil {
@@ -724,7 +724,7 @@ func PrimaryPost(label, action string) templ.Component {
 		var templ_7745c5c3_Var31 string
 		templ_7745c5c3_Var31, templ_7745c5c3_Err = templ.JoinStringErrs("#" + DrawerRoot)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/drawer_view.templ`, Line: 186, Col: 101}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/drawer_view.templ`, Line: 190, Col: 101}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var31))
 		if templ_7745c5c3_Err != nil {
@@ -737,7 +737,7 @@ func PrimaryPost(label, action string) templ.Component {
 		var templ_7745c5c3_Var32 string
 		templ_7745c5c3_Var32, templ_7745c5c3_Err = templ.JoinStringErrs(label)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/drawer_view.templ`, Line: 186, Col: 131}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/drawer_view.templ`, Line: 190, Col: 131}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var32))
 		if templ_7745c5c3_Err != nil {
