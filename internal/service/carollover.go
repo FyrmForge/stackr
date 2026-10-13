@@ -51,52 +51,6 @@ func (c *clusterPKI) swapCA(ca *clusterca.CA, roots []*x509.Certificate) {
 	c.mu.Unlock()
 }
 
-// RootInfo is the cluster root as the admin sees it (C5 renders it).
-type RootInfo struct {
-	Fingerprint string    `json:"fingerprint"`
-	CreatedAt   time.Time `json:"created_at"`
-	ExpiresAt   time.Time `json:"expires_at"`
-	// Rolling is whether a rollover is running; then PreviousFingerprint is
-	// the old root and OldRootNodes the workers still holding a cert from it.
-	Rolling             bool       `json:"rolling"`
-	PreviousFingerprint string     `json:"previous_fingerprint,omitempty"`
-	OldRootNodes        []string   `json:"old_root_nodes,omitempty"` // node names
-	RolloverStartedAt   *time.Time `json:"rollover_started_at,omitempty"`
-	RolloverFinishedAt  *time.Time `json:"rollover_finished_at,omitempty"`
-}
-
-// RootInfo (node admin) is where the cluster root stands.
-func (o *Orchestrator) RootInfo(ctx context.Context, by *Principal) (RootInfo, error) {
-	if err := nodeAdmin(by); err != nil {
-		return RootInfo{}, err
-	}
-	if o.cluster == nil {
-		return RootInfo{}, errs.Conflictf("The cluster CA is not set up on this panel yet.")
-	}
-	rolloverMu.Lock()
-	defer rolloverMu.Unlock()
-	st, err := o.reconcileRollover(ctx)
-	if err != nil {
-		return RootInfo{}, err
-	}
-	cert := o.cluster.ca.Cert
-	out := RootInfo{
-		Fingerprint: clusterca.Fingerprint(cert), CreatedAt: cert.NotBefore.Add(clusterca.ClockSlack), ExpiresAt: cert.NotAfter,
-		Rolling: st.RollingOver(), RolloverStartedAt: st.RolloverStartedAt, RolloverFinishedAt: st.RolloverFinishedAt,
-	}
-	if out.Rolling {
-		out.PreviousFingerprint = st.PreviousFP
-		old, err := o.rootStragglers(ctx, out.Fingerprint, 0)
-		if err != nil {
-			return RootInfo{}, err
-		}
-		for _, n := range old {
-			out.OldRootNodes = append(out.OldRootNodes, n.Name)
-		}
-	}
-	return out, nil
-}
-
 // RotateRoot starts a planned rollover of the cluster root and returns once
 // the first step is durable; the daily rootRolloverTick resumes the rest.
 // Refuses while a rollover runs; node admin only.
@@ -109,10 +63,10 @@ func (o *Orchestrator) RotateRoot(ctx context.Context, by *Principal) error {
 	return o.startRollover(ctx, by)
 }
 
-// ForceFinishRootRollover (node admin) drops the old root now. Workers still
+// FinishRollover (node admin) drops the old root now. Workers still
 // holding an old-root cert can no longer be reached: they are marked
 // needs-rejoin and their certs revoked, each in the security log.
-func (o *Orchestrator) ForceFinishRootRollover(ctx context.Context, by *Principal) error {
+func (o *Orchestrator) FinishRollover(ctx context.Context, by *Principal) error {
 	uid, kid := actorOf(by)
 	if err := nodeAdmin(by); err != nil {
 		return err

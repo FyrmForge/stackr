@@ -131,15 +131,13 @@ Files: `internal/service/carollover.go` (+ test), `certrenew.go` comment,
 
 ### C2 for C5
 
-On `*Orchestrator` (`internal/service/carollover.go`), all node admin
-(`nodeAdmin`):
-- `RootInfo(ctx, by) (RootInfo, error)`: `Fingerprint`, `CreatedAt`,
-  `ExpiresAt`, `Rolling`, `PreviousFingerprint`, `OldRootNodes` (node names
-  still on an old-root cert, only while rolling), `RolloverStartedAt`,
-  `RolloverFinishedAt`.
+On `*Orchestrator` (`internal/service/carollover.go`), node admin:
 - `RotateRoot(ctx, by) error`: Conflict while one runs.
-- `ForceFinishRootRollover(ctx, by) error`: Conflict when none runs. The
-  confirm must say nodes still on the old root are marked needs-rejoin.
+- `FinishRollover(ctx, by) error` (the forced finish; C5's stub in `causi.go`
+  is removed, same signature): Conflict when none runs. Workers still on an
+  old-root cert get `needs-rejoin` and their certs revoked.
+- State: C5's `ClusterTrust` already reads `cluster_ca` and `ListLive`; C2
+  writes the row as C5 expects (`CurrentFP`, `RolloverStartedAt`).
 
 ### C2 needs
 

@@ -72,9 +72,9 @@ func TestRotateRootAllOnline(t *testing.T) {
 	if err != nil || own.CheckSignatureFrom(o.cluster.ca.Cert) != nil {
 		t.Fatalf("controller cert not from the new root: %v", err)
 	}
-	info, err := o.RootInfo(ctx, adminP())
+	info, err := o.ClusterTrust(ctx, adminP())
 	must(t, err)
-	if !info.Rolling || len(info.OldRootNodes) != 2 {
+	if !info.RollingOver || len(info.OnOldRoot) != 2 {
 		t.Fatalf("info = %+v", info)
 	}
 	workerAsks(t, o, "w1")
@@ -123,10 +123,10 @@ func TestRotateRootWaitsForOfflineNode(t *testing.T) {
 	if _, err := clusterca.LoadPrevCA(o.cfg.DataDir); err != nil {
 		t.Fatalf("previous root gone: %v", err)
 	}
-	info, err := o.RootInfo(ctx, adminP())
+	info, err := o.ClusterTrust(ctx, adminP())
 	must(t, err)
-	if len(info.OldRootNodes) != 1 || info.OldRootNodes[0] != "w2" {
-		t.Fatalf("old root nodes = %v", info.OldRootNodes)
+	if len(info.OnOldRoot) != 1 || info.OnOldRoot[0].Name != "w2" {
+		t.Fatalf("old root nodes = %v", info.OnOldRoot)
 	}
 	workerAsks(t, o, "w2")
 	must(t, o.rootRolloverTick(ctx))
@@ -152,12 +152,12 @@ func TestRotateRootSettle(t *testing.T) {
 func TestForceFinishMarksNeedsRejoin(t *testing.T) {
 	ctx := context.Background()
 	o := rolloverRig(t)
-	if err := o.ForceFinishRootRollover(ctx, adminP()); err == nil {
+	if err := o.FinishRollover(ctx, adminP()); err == nil {
 		t.Fatal("force finish without a rollover")
 	}
 	must(t, o.RotateRoot(ctx, adminP()))
 	workerAsks(t, o, "w1")
-	must(t, o.ForceFinishRootRollover(ctx, adminP()))
+	must(t, o.FinishRollover(ctx, adminP()))
 	if len(o.cluster.roots()) != 1 {
 		t.Fatal("old root kept after a forced finish")
 	}
