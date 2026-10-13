@@ -6,7 +6,6 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
-	"net/netip"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -15,7 +14,6 @@ import (
 
 	"github.com/FyrmForge/stackr/internal/authz"
 	"github.com/FyrmForge/stackr/internal/installspec"
-	"github.com/FyrmForge/stackr/internal/mesh"
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/jobs"
@@ -219,7 +217,7 @@ func (o *Orchestrator) runMove(ctx context.Context, r *jobs.Run, p moveJob) erro
 		o.auditMove(ctx, securitylog.MoveFinish, p, m, cause)
 	}
 	if err == nil && m.Phase == move.Done {
-		err = o.relinkMoved(ctx, m.EnvID)
+		err = o.relinkMoved(ctx, m.EnvID, m.FromNode, m.ToNode)
 	}
 	return err
 }
@@ -289,15 +287,8 @@ func (n moveNodes) Addr(ctx context.Context, nodeID string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	a, _, _ := strings.Cut(nd.WGAddress, "/")
-	if _, err := netip.ParseAddr(a); err == nil {
-		return a, nil
-	}
-	// The controller's row holds none: its address follows from its range.
-	if r, err := netip.ParsePrefix(nd.RangeCIDR); err == nil {
-		if t, err := mesh.TransitAddr(r); err == nil {
-			return t.String(), nil
-		}
+	if t := transitOf(nd); t.IsValid() {
+		return t.String(), nil
 	}
 	return "", errs.Conflictf("node %s has no WireGuard address", nd.Name)
 }

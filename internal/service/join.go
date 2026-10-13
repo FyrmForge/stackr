@@ -271,7 +271,7 @@ func (o *Orchestrator) JoinStatus(ctx context.Context, token string) (JoinStatus
 		return JoinStatus{}, err
 	}
 	st := JoinStatus{
-		Status: JoinConfirmed, NodeID: n.ID, Range: n.RangeCIDR, WGAddress: n.WGAddress,
+		Status: JoinConfirmed, NodeID: n.ID, WGAddress: n.WGAddress,
 		CertPEM: row.CertPEM, CAPEM: string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: ca.Cert.Raw})),
 	}
 	if o.mesh != nil {
@@ -305,7 +305,7 @@ func (o *Orchestrator) PendingJoins(ctx context.Context) ([]PendingJoin, error) 
 	return out, nil
 }
 
-// ConfirmJoin (server admin) gives a pending node its range and issues its
+// ConfirmJoin (server admin) gives a pending node its transit address and issues its
 // cert from the cluster CA. The worker fetches the cert through JoinStatus.
 func (o *Orchestrator) ConfirmJoin(ctx context.Context, by *Principal, nodeID string) (JoinedNode, error) {
 	row, err := jointoken.New(o.store.JoinTokens).ByNode(ctx, nodeID)
@@ -319,19 +319,13 @@ func (o *Orchestrator) ConfirmJoin(ctx context.Context, by *Principal, nodeID st
 	if err != nil {
 		return JoinedNode{}, err
 	}
-	// Ranges of removed nodes stay taken for good, and so do the networks the
-	// nodes report: read before the transaction opens.
-	reserved, err := o.mesh.reserved(ctx)
-	if err != nil {
-		return JoinedNode{}, err
-	}
 	var out store.Node
 	err = o.store.Tx(ctx, func(tx store.Tx) error {
 		used, err := o.joinTokens(tx).Used(ctx)
 		if err != nil {
 			return err
 		}
-		out, err = node.New(tx.Nodes).Confirm(ctx, nodeID, append(reportedPrefixes(used), reserved...))
+		out, err = node.New(tx.Nodes).Confirm(ctx, nodeID, reportedPrefixes(used))
 		if err != nil {
 			return err
 		}
@@ -353,7 +347,7 @@ func (o *Orchestrator) ConfirmJoin(ctx context.Context, by *Principal, nodeID st
 		a := audit(tx)
 		if err := a.Append(ctx, securitylog.Event{
 			Action: jointoken.ActionConfirm, ActorID: by.User.ID, KeyID: by.KeyID,
-			TargetKind: "node", TargetID: out.ID, Detail: "range " + out.RangeCIDR,
+			TargetKind: "node", TargetID: out.ID, Detail: "transit " + out.WGAddress,
 		}); err != nil {
 			return err
 		}
@@ -365,7 +359,7 @@ func (o *Orchestrator) ConfirmJoin(ctx context.Context, by *Principal, nodeID st
 	if err == nil {
 		o.kickMesh() // the controller adds the peer; the next refresh brings the worker online
 	}
-	return JoinedNode{ID: out.ID, Name: out.Name, Range: out.RangeCIDR, WGAddress: out.WGAddress, Status: out.Status}, err
+	return JoinedNode{ID: out.ID, Name: out.Name, WGAddress: out.WGAddress, Status: out.Status}, err
 }
 
 // RejectJoin (server admin) turns a pending node away and deletes its row.

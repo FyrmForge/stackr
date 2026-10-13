@@ -23,6 +23,11 @@ const (
 	// (step 5). Empty, it falls through. It is not a second jump from
 	// DOCKER-USER: FwdChain keeps the only rule-1 claim there.
 	XNChain = "STACKR-XN"
+	// FwdOwnChain and InOwnChain hold the rules for traffic from this node's
+	// own networks (Base.Own), jumped to once per network: a node's
+	// networks are many /24s of the cluster pool, no longer one range.
+	FwdOwnChain = "STACKR-FWD-OWN"
+	InOwnChain  = "STACKR-IN-OWN"
 	// RawChain hangs off raw PREROUTING and NATChain off nat POSTROUTING,
 	// each at rule 1. Empty for now: the mesh (step 3) fills them (the mesh
 	// accept for the supernet, the no-SNAT accept into the mesh interface).
@@ -49,14 +54,15 @@ type Entry struct {
 // Base is what the filter rules need beyond the VIPs. The zero value (no
 // Range) renders no filter table at all.
 type Base struct {
-	Range     netip.Prefix // this node's range, the pool its stackr networks come from
-	Cluster   netip.Prefix // the cluster supernet; with the transit net it is kept out of every grant. Zero = no cluster drops
-	Resolvers []string     // DNS servers a container may reach on :53
-	ProxyIP   string       // Caddy on docker0; "" = unknown, the hairpin rule is left out
-	HostProxy bool         // Caddy on the host network (an ingress worker): containers may reach the host on 80/443
-	Front     []string     // IPs or CIDRs of the front proxy, reachable on 80/443
-	PanelBind string       // the panel's listen address; "" = not locked
-	PanelPort int          // the panel's real listen port
+	Range     netip.Prefix   // the cluster pool every stackr network comes from (the supernet); zero = no filter table
+	Own       []netip.Prefix // this node's stackr networks (env, shared, ingress): the containers the filter is about
+	Cluster   netip.Prefix   // the cluster supernet; with the transit net it is kept out of every grant. Zero = no cluster drops
+	Resolvers []string       // DNS servers a container may reach on :53
+	ProxyIP   string         // Caddy on docker0; "" = unknown, the hairpin rule is left out
+	HostProxy bool           // Caddy on the host network (an ingress worker): containers may reach the host on 80/443
+	Front     []string       // IPs or CIDRs of the front proxy, reachable on 80/443
+	PanelBind string         // the panel's listen address; "" = not locked
+	PanelPort int            // the panel's real listen port
 	// WGIface is the mesh interface; set, STACKR-IN lets only the exit links
 	// (UDP ExitPortLo-ExitPortHi) and the worker API (WorkerAPIPort, from
 	// WGController alone when set) in from it and drops the rest.
@@ -138,6 +144,11 @@ func (b Base) check() error {
 	if !b.Range.Addr().Is4() {
 		return fmt.Errorf("vip: range %s is not IPv4", b.Range)
 	}
+	for _, o := range b.Own {
+		if !o.Addr().Is4() {
+			return fmt.Errorf("vip: network %s is not IPv4", o)
+		}
+	}
 	if b.Cluster.IsValid() && !b.Cluster.Addr().Is4() {
 		return fmt.Errorf("vip: cluster range %s is not IPv4", b.Cluster)
 	}
@@ -214,9 +225,13 @@ func lanRules(next map[string]Entry, early map[string][]string) []string {
 // renderFilter is the *filter section: both chains are declared (so
 // flushed) and rewritten whole. Addresses are already checked.
 func renderFilter(next map[string]Entry, b Base) string {
-	rng := b.Range.Masked().String()
 	var w strings.Builder
 	w.WriteString("*filter\n:" + FwdChain + " - [0:0]\n:" + InChain + " - [0:0]\n:" + XNChain + " - [0:0]\n")
+	w.WriteString(":" + FwdOwnChain + " - [0:0]\n:" + InOwnChain + " - [0:0]\n")
+	own := make([]string, len(b.Own))
+	for i, o := range b.Own {
+		own[i] = o.Masked().String()
+	}
 	f := func(format string, a ...any) { fmt.Fprintf(&w, "-A "+FwdChain+" "+format+"\n", a...) }
 	if b.meshOn() {
 		// Mesh to mesh: this node is a hop for a pair without a tunnel of
@@ -234,10 +249,17 @@ func renderFilter(next map[string]Entry, b Base) string {
 		// own FORWARD rules drop the rest
 		f("-i %s -j %s", b.WGIface, XNChain)
 	}
-	// A source outside this node's range is not a container of this node;
-	// what it may reach is the mesh's business (STACKR-XN, the mesh interface), not ours.
-	f("! -s %s -j RETURN", rng)
-	f("-d %s -j RETURN", rng)
+	// A source outside this node's networks is not a container of this node;
+	// what it may reach is the mesh's business (STACKR-XN, the mesh
+	// interface), not ours. Its own containers go on in FwdOwnChain.
+	for _, o := range own {
+		f("-s %s -j %s", o, FwdOwnChain)
+	}
+	f("-j RETURN")
+	f = func(format string, a ...any) { fmt.Fprintf(&w, "-A "+FwdOwnChain+" "+format+"\n", a...) }
+	for _, o := range own {
+		f("-d %s -j RETURN", o)
+	}
 	// The supernet and the transit net sit above every grant: a lan:10.0.0.0/8
 	// must not open the other nodes' ranges or the WireGuard links. Cross-node
 	// accepts (STACKR-XN) go first, so they are the only way in.
@@ -283,15 +305,20 @@ func renderFilter(next map[string]Entry, b Base) string {
 		}
 		in("-i %s -j DROP", b.WGIface)
 	}
+	// From the node's own networks: the rules below, in InOwnChain.
+	for _, o := range own {
+		in("-s %s -j %s", o, InOwnChain)
+	}
+	in = func(format string, a ...any) { fmt.Fprintf(&w, "-A "+InOwnChain+" "+format+"\n", a...) }
 	for _, r := range b.Resolvers {
 		d, _ := target(r)
-		in("-s %s -d %s -p udp --dport 53 -j RETURN", rng, d)
-		in("-s %s -d %s -p tcp --dport 53 -j RETURN", rng, d)
+		in("-d %s -p udp --dport 53 -j RETURN", d)
+		in("-d %s -p tcp --dport 53 -j RETURN", d)
 	}
 	// Same as in FWD: the host's own addresses on the WireGuard links, and
 	// every other node's range, are not reachable by a lan grant.
 	for _, c := range clusterDrops {
-		in("-s %s -d %s -j DROP", rng, c)
+		in("-d %s -j DROP", c)
 	}
 	for _, r := range lans { // a lan grant to the server's own address opens INPUT too
 		in("%s", r)
@@ -299,12 +326,12 @@ func renderFilter(next map[string]Entry, b Base) string {
 	// After the lan returns: an admin-approved range that covers the panel
 	// opens it. Always on, whatever Caddy's address is.
 	if b.PanelBind != "" && b.PanelPort > 0 {
-		in("-s %s -d %s/32 -p tcp --dport %d -j DROP", rng, b.PanelBind, b.PanelPort)
+		in("-d %s/32 -p tcp --dport %d -j DROP", b.PanelBind, b.PanelPort)
 	}
 	if b.HostProxy {
-		in("-s %s -p tcp -m multiport --dports 80,443 -j RETURN", rng)
+		in("-p tcp -m multiport --dports 80,443 -j RETURN")
 	}
-	in("-s %s -j DROP", rng)
+	in("-j DROP")
 	for _, fl := range b.Flows {
 		if fl.Out {
 			fmt.Fprintf(&w, "-A %s -s %s -d %s/32 -p tcp --dport %d -j ACCEPT\n", XNChain, fl.Src.Masked(), fl.VIP, fl.Port)

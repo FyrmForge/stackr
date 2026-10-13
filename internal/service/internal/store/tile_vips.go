@@ -6,6 +6,8 @@ import "context"
 type TileVIPStore interface {
 	// Get is the tile's VIP on node; "" when none is known there.
 	Get(ctx context.Context, tileID, nodeID string) (string, error)
+	// Of is the tile's VIP on whichever node it last ran; "" when none.
+	Of(ctx context.Context, tileID string) (string, error)
 	// Set records it; vip "" forgets the tile.
 	Set(ctx context.Context, tileID, nodeID, vip string) error
 }
@@ -15,6 +17,15 @@ type tileVIPs struct{ q querier }
 func (s tileVIPs) Get(ctx context.Context, tileID, nodeID string) (string, error) {
 	var vs []string
 	err := s.q.SelectContext(ctx, &vs, `SELECT vip FROM tile_vips WHERE tile_id = ? AND node_id = ?`, tileID, nodeID)
+	if err != nil || len(vs) == 0 {
+		return "", mapErr(err)
+	}
+	return vs[0], nil
+}
+
+func (s tileVIPs) Of(ctx context.Context, tileID string) (string, error) {
+	var vs []string
+	err := s.q.SelectContext(ctx, &vs, `SELECT vip FROM tile_vips WHERE tile_id = ?`, tileID)
 	if err != nil || len(vs) == 0 {
 		return "", mapErr(err)
 	}

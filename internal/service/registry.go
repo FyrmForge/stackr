@@ -9,7 +9,6 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
-	"net/netip"
 	"net/url"
 	"strconv"
 	"strings"
@@ -21,7 +20,6 @@ import (
 	"github.com/FyrmForge/stackr/internal/clusterca"
 	"github.com/FyrmForge/stackr/internal/installspec"
 	"github.com/FyrmForge/stackr/internal/mesh"
-	"github.com/FyrmForge/stackr/internal/service/internal/cluster"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/securitylog"
 	"github.com/FyrmForge/stackr/internal/service/internal/regfront"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
@@ -103,11 +101,10 @@ func (o *Orchestrator) meshHandler() http.Handler {
 
 // registryWGAddr is the mesh listener's host:port.
 func (o *Orchestrator) registryWGAddr() (string, bool) {
-	t, err := mesh.TransitAddr(netip.MustParsePrefix(cluster.ControllerRange))
-	if err != nil || o.cluster == nil || o.cfg.PanelPort == 0 {
+	if o.cluster == nil || o.cfg.PanelPort == 0 {
 		return "", false
 	}
-	return net.JoinHostPort(t.String(), strconv.Itoa(o.cfg.PanelPort)), true
+	return net.JoinHostPort(mesh.ControllerTransit.String(), strconv.Itoa(o.cfg.PanelPort)), true
 }
 
 // meshRegistry is the registry a worker's mesh spec names; nil without a

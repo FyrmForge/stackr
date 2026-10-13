@@ -54,16 +54,14 @@ func (o *Orchestrator) reconcileVIP(ctx context.Context, node string, t store.Ti
 	}
 }
 
-// pinVIP is tile.Leaf.Pin: the stored VIP when the tile had one on this node
-// (a recreated pause keeps its address), else a stable pick in the env
-// network's lower half, clear of every address in use there.
+// pinVIP is tile.Leaf.Pin: the stored VIP when the tile had one (a recreated
+// pause keeps its address, and so does a moved one: its env's network moves
+// with it), else a stable pick in the env network's lower half, clear of
+// every address in use there.
 func (o *Orchestrator) pinVIP(ctx context.Context, t store.Tile, network string) string {
 	node, err := o.envNode(ctx, t.EnvironmentID)
 	if err != nil {
 		return ""
-	}
-	if v, _ := o.store.TileVIPs.Get(ctx, t.ID, node); v != "" {
-		return v
 	}
 	e, err := o.store.Environments.Get(ctx, t.EnvironmentID)
 	if err != nil {
@@ -72,6 +70,11 @@ func (o *Orchestrator) pinVIP(ctx context.Context, t store.Tile, network string)
 	sub, err := netip.ParsePrefix(e.Subnet)
 	if err != nil {
 		return ""
+	}
+	if v, _ := o.store.TileVIPs.Of(ctx, t.ID); v != "" {
+		if a, err := netip.ParseAddr(v); err == nil && sub.Contains(a) {
+			return v
+		}
 	}
 	rows, err := o.docker.List(WithNode(ctx, node), map[string]string{docker.LabelManaged: "true"})
 	if err != nil {
@@ -220,9 +223,12 @@ func (o *Orchestrator) instanceBindings(ctx context.Context, tileID string) []st
 }
 
 // relinkMoved redeploys the running consumers outside env envID of the
-// instances it holds: a move changed the instance's VIP, or put it on or off
-// the consumer's node. Consumers inside the env moved with it.
-func (o *Orchestrator) relinkMoved(ctx context.Context, envID string) error {
+// instances it holds whose link changed kind: the move from node from to node
+// to put the instance on or off the consumer's node (a network join one way,
+// a hosts line to the VIP the other). The VIP itself never changes, the env's
+// network moves with it, so a consumer on a third node keeps running.
+// Consumers inside the env moved with it.
+func (o *Orchestrator) relinkMoved(ctx context.Context, envID, from, to string) error {
 	ts, err := o.store.Tiles.ListByEnv(ctx, envID)
 	if err != nil {
 		return err
@@ -236,7 +242,10 @@ func (o *Orchestrator) relinkMoved(ctx context.Context, envID string) error {
 			}
 			seen[b.ConsumerTileID] = true
 			ct, err := o.store.Tiles.Get(ctx, b.ConsumerTileID)
-			if err == nil && ct.EnvironmentID != envID {
+			if err != nil || ct.EnvironmentID == envID {
+				continue
+			}
+			if cn, err := o.envNode(ctx, ct.EnvironmentID); err == nil && (cn == from || cn == to) {
 				cons = append(cons, ct)
 			}
 		}

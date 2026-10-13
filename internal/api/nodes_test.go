@@ -46,8 +46,8 @@ func TestNodeAPI(t *testing.T) {
 	if err := json.Unmarshal([]byte(body), &ns); err != nil || code != 200 || len(ns) != 1 || ns[0].Role != "controller" || ns[0].Range != "" {
 		t.Fatalf("nodes for a member = %d %s (%v): want the controller, no range", code, body, err)
 	}
-	if _, body = w.do(t, w.admin, "GET", "/nodes/"+ns[0].Name, ""); !strings.Contains(body, `"range":"10.213.0.0/16"`) {
-		t.Errorf("admin sees the range: %s", body)
+	if _, body = w.do(t, w.admin, "GET", "/nodes/"+ns[0].Name, ""); !strings.Contains(body, `"wg_address":"10.207.255.6"`) {
+		t.Errorf("admin sees the address: %s", body)
 	}
 
 	// an owner pins the org to the controller and reads it back; an env is not pinned

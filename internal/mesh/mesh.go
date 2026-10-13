@@ -1,23 +1,27 @@
 // Package mesh is the controller-side pure logic of the node WireGuard mesh:
-// address plan, range allocation, untrusted report filtering and peer lists.
+// address plan, transit allocation, untrusted report filtering and peer lists.
 package mesh
 
 import (
 	"errors"
-	"fmt"
 	"net/netip"
 	"slices"
 	"strings"
 )
 
-// Address plan. Node ranges all sit inside Supernet so one firewall rule
-// covers "cluster"; Transit is outside it and holds the wg interface addresses.
+// Address plan. Every stackr network of every node is a /24 of Supernet,
+// handed out from one cluster pool, so one firewall rule covers "cluster" and
+// an env keeps its network when it moves; Transit is outside it and holds the
+// wg interface addresses, one per node.
 var (
 	Supernet = netip.MustParsePrefix("10.208.0.0/12")
 	Transit  = netip.MustParsePrefix("10.207.255.0/24")
-	// ExitNet holds the exit links: a /30 per (client, exit) pair of the 16
-	// node slots.
+	// ExitNet holds the exit links: a /30 per (client, exit) pair in use.
 	ExitNet = netip.MustParsePrefix("10.251.0.0/22")
+	// ControllerTransit is the controller's transit address. It is the one
+	// the /16-per-node plan gave the controller, kept so an upgraded cluster
+	// needs no re-handshake with it.
+	ControllerTransit = netip.MustParseAddr("10.207.255.6")
 )
 
 // Iface is the mesh's WireGuard interface on every node. Not wg0, and the
@@ -33,51 +37,31 @@ const DefaultPort = 51871
 // upgrade when it is the one stackr made (its private key is the node's).
 const LegacyIface = "wg0"
 
-// NodePrefixLen is the size of one node's container range.
-const NodePrefixLen = 16
+// ErrNoTransit means the transit net has no free address left: the cluster
+// holds as many nodes as it can.
+var ErrNoTransit = errors.New("mesh: no free transit address left")
 
-// ErrNoRange means the supernet has no free /16 left.
-var ErrNoRange = errors.New("mesh: no free node range in the cluster supernet")
-
-func overlaps(a, b netip.Prefix) bool { return a.Overlaps(b) }
-
-// AllocateRange picks the lowest /16 of the supernet that overlaps none of
-// taken (every range ever handed out, forgotten nodes included, so a range is
-// never reused) and none of ifaces (every node's reported interface prefixes).
-func AllocateRange(taken, ifaces []netip.Prefix) (netip.Prefix, error) {
-	base := Supernet.Addr().As4()
-	n := 1 << (NodePrefixLen - Supernet.Bits())
-	for i := range n {
-		a := base
-		a[1] += byte(i)
-		cand := netip.PrefixFrom(netip.AddrFrom4(a), NodePrefixLen)
-		if !free(cand, taken) || !free(cand, ifaces) {
-			continue
-		}
-		return cand, nil
-	}
-	return netip.Prefix{}, ErrNoRange
-}
-
-func free(c netip.Prefix, used []netip.Prefix) bool {
-	for _, u := range used {
-		if overlaps(c, u.Masked()) {
-			return false
-		}
-	}
-	return true
-}
-
-// TransitAddr is the node's address on the transit net, derived from its
-// range so it needs no allocator of its own: slot 0 is .1, slot 1 is .2, ...
-func TransitAddr(rng netip.Prefix) (netip.Addr, error) {
-	if rng.Bits() != NodePrefixLen || !Supernet.Contains(rng.Addr()) {
-		return netip.Addr{}, fmt.Errorf("mesh: %s is not a node range", rng)
-	}
-	slot := rng.Addr().As4()[1] - Supernet.Addr().As4()[1]
+// AllocTransit is the lowest transit address not in taken (every node's,
+// the controller's included). .0 and .255 are never handed out.
+func AllocTransit(taken []netip.Addr) (netip.Addr, error) {
 	a := Transit.Addr().As4()
-	a[3] = slot + 1
-	return netip.AddrFrom4(a), nil
+	for i := 1; i < 255; i++ {
+		a[3] = byte(i)
+		c := netip.AddrFrom4(a)
+		if c != ControllerTransit && !slices.Contains(taken, c) {
+			return c, nil
+		}
+	}
+	return netip.Addr{}, ErrNoTransit
+}
+
+// Slot is a node's small number, from its transit address (1..254): what
+// exit links number their tables and marks by.
+func Slot(transit netip.Addr) int {
+	if !Transit.Contains(transit) {
+		return 0
+	}
+	return int(transit.As4()[3])
 }
 
 var metadata = netip.MustParseAddr("169.254.169.254")
@@ -112,8 +96,9 @@ func FilterAddrs(in []netip.Addr) []netip.Addr {
 type Node struct {
 	ID        string
 	PublicKey string
-	Range     netip.Prefix
-	Port      uint16 // wg listen port
+	Transit   netip.Addr     // the node's address on the transit net
+	Subnets   []netip.Prefix // the networks of the envs on the node, from the cluster pool
+	Port      uint16         // wg listen port
 	// Ifaces are the node's reported interface prefixes (address with mask).
 	Ifaces []netip.Prefix
 	// Public are addresses reachable from outside, reported by the node.
@@ -124,7 +109,7 @@ type Node struct {
 type Peer struct {
 	NodeID     string
 	PublicKey  string
-	AllowedIPs []netip.Prefix // remote range and transit /32
+	AllowedIPs []netip.Prefix // remote env networks and transit /32
 	// Candidates are endpoints in the order to try. The first is current.
 	Candidates []netip.AddrPort
 }
@@ -191,9 +176,9 @@ func Candidates(self, other Node) []netip.AddrPort {
 // dest).
 type NextHop func(self, dest string) string
 
-// Peers builds self's peer list: every other node with a range and key. A
-// node reached through others keeps its own peer entry, so its endpoints
-// are still probed, but its range and transit address move to the next
+// Peers builds self's peer list: every other node with a transit address and
+// key. A node reached through others keeps its own peer entry, so its
+// endpoints are still probed, but its networks and transit address move to the next
 // hop's entry: WireGuard routes by AllowedIPs, which must not overlap on one
 // interface.
 func Peers(self Node, all []Node, next NextHop) ([]Peer, error) {
@@ -204,14 +189,10 @@ func Peers(self Node, all []Node, next NextHop) ([]Peer, error) {
 		ps  []netip.Prefix
 	}
 	for _, o := range all {
-		if o.ID == self.ID || o.PublicKey == "" || !o.Range.IsValid() {
+		if o.ID == self.ID || o.PublicKey == "" || !Transit.Contains(o.Transit) {
 			continue
 		}
-		t, err := TransitAddr(o.Range)
-		if err != nil {
-			return nil, err
-		}
-		own := []netip.Prefix{o.Range, netip.PrefixFrom(t, 32)}
+		own := append(slices.Clone(o.Subnets), netip.PrefixFrom(o.Transit, 32))
 		p := Peer{NodeID: o.ID, PublicKey: o.PublicKey, Candidates: Candidates(self, o)}
 		hop := ""
 		if next != nil {

@@ -14,7 +14,8 @@ import (
 )
 
 // Statuses of a node that is joining. A pending node has asked to join and
-// has no range yet; its range_cidr holds a unique placeholder until confirm.
+// has no transit address yet. range_cidr is a leftover of the /16-per-node
+// plan: it holds a unique placeholder, nothing reads it as a range.
 // Anything that walks the nodes (router, mesh) must skip StatusPending.
 const (
 	StatusPending = "pending"
@@ -50,11 +51,10 @@ func (l *Leaf) CreatePendingOrRejoin(ctx context.Context, name string, tags []st
 	return l.CreatePending(ctx, name, tags, wgKey)
 }
 
-// Confirm gives a pending node the lowest free /16 of the supernet, avoiding
-// every range on a node row and every interface prefix in ifaces, and its
-// transit address. ErrNotFound when the node is not pending.
-// ponytail: ranges of forgotten nodes are not kept, so a deleted node's range
-// can come back; keep a ranges-ever-issued list when forget node lands.
+// Confirm gives a pending node the lowest free transit address; a rejoin
+// keeps the one it had. ifaces are the node's reported interface prefixes:
+// one on the cluster's reserved ranges is refused, its networks would clash
+// with the cluster's.
 func (l *Leaf) Confirm(ctx context.Context, id string, ifaces []netip.Prefix) (store.Node, error) {
 	n, err := l.nodes.Get(ctx, id)
 	if err != nil {
@@ -63,29 +63,31 @@ func (l *Leaf) Confirm(ctx context.Context, id string, ifaces []netip.Prefix) (s
 	if n.Status != StatusPending {
 		return n, errs.ErrNotFound
 	}
-	if _, err := netip.ParsePrefix(n.RangeCIDR); err == nil { // a rejoin keeps its range
-		n.Status = StatusJoined
+	for _, p := range ifaces {
+		if p.Overlaps(mesh.Supernet) || p.Overlaps(mesh.Transit) {
+			return n, errs.Conflictf("Node %s has a network (%s) on the cluster's reserved range %s or %s; move it off first.",
+				n.Name, p, mesh.Supernet, mesh.Transit)
+		}
+	}
+	n.RangeCIDR, n.Status = n.ID, StatusJoined
+	if a, err := netip.ParseAddr(n.WGAddress); err == nil && mesh.Transit.Contains(a) {
 		return n, l.nodes.Update(ctx, n)
 	}
 	all, err := l.nodes.List(ctx)
 	if err != nil {
 		return n, err
 	}
-	var taken []netip.Prefix
+	var taken []netip.Addr
 	for _, o := range all {
-		if p, err := netip.ParsePrefix(o.RangeCIDR); err == nil {
-			taken = append(taken, p)
+		if a, err := netip.ParseAddr(o.WGAddress); err == nil {
+			taken = append(taken, a)
 		}
 	}
-	rng, err := mesh.AllocateRange(taken, ifaces)
+	addr, err := mesh.AllocTransit(taken)
 	if err != nil {
-		return n, errs.Conflictf("The cluster has no free network range left for a new node.")
+		return n, errs.Conflictf("The cluster has no free transit address left for a new node.")
 	}
-	addr, err := mesh.TransitAddr(rng)
-	if err != nil {
-		return n, err
-	}
-	n.RangeCIDR, n.WGAddress, n.Status = rng.String(), addr.String(), StatusJoined
+	n.WGAddress = addr.String()
 	return n, l.nodes.Update(ctx, n)
 }
 

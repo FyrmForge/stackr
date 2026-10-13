@@ -62,6 +62,12 @@ func TestRequirements(t *testing.T) {
 		{"a broad 10/8 LAN", func(f *hostFacts) {
 			f.Interface = []netip.Prefix{netip.MustParsePrefix("10.0.0.5/8")}
 		}, true, true, "overlaps"},
+		{"Docker pool on the cluster pool", func(f *hostFacts) {
+			f.DockerPools = []netip.Prefix{netip.MustParsePrefix("10.0.0.0/8")}
+		}, true, false, "default address pool 10.0.0.0/8 overlaps"},
+		{"Docker pool elsewhere", func(f *hostFacts) {
+			f.DockerPools = []netip.Prefix{netip.MustParsePrefix("172.80.0.0/12")}
+		}, true, true, ""},
 		{"overlap on a rejoin is ours", func(f *hostFacts) {
 			f.Interface = []netip.Prefix{netip.MustParsePrefix("10.210.4.1/24")}
 		}, true, false, ""},

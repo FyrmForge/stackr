@@ -54,10 +54,10 @@ const (
 	exitPortBase  = 52000  // + pair index
 	exitPrefBase  = 10000  // subject blocks, two prefs per source
 	exitPrefServe = 20000  // + client slot, the exit side's fwmark rule
-	exitTableLink = 1000   // + exit slot, client side
-	exitTableServ = 1100   // + client slot, exit side
+	exitTableLink = 1000   // + exit slot (mesh.Slot, 1..254), client side
+	exitTableServ = 1300   // + client slot, exit side
 	exitMarkBase  = 0x5000 // + client slot
-	maxSlots      = 16     // /16s in the supernet
+	maxPairs      = 256    // /30s in mesh.ExitNet, so exit pairs in use at once
 
 	meshEvery = time.Minute
 	// sampleEvery is how often facts are read between full pushes, so a
@@ -73,9 +73,9 @@ const (
 	rxSilent = 60 * time.Second
 	// downConfirm is how long a pair must look dead before it is routed
 	// through another node: one more sample, so a blip does not reroute.
-	downConfirm    = sampleEvery
-	routesKey      = "mesh.routes"
-	forgottenRange = "mesh.forgotten_ranges"
+	downConfirm = sampleEvery
+	routesKey   = "mesh.routes"
+	pairsKey    = "mesh.exit_pairs"
 )
 
 var (
@@ -219,7 +219,12 @@ func (m *meshSvc) plan(ctx context.Context) (meshIn, map[string]worker.MeshSpec,
 		return meshIn{}, nil, err
 	}
 	in.Next = m.routes(in, time.Now())
+	in.Pairs = m.loadPairs(ctx, in)
+	before := len(in.Pairs)
 	specs := buildMesh(in)
+	if len(in.Pairs) != before {
+		m.savePairs(ctx, in.Pairs)
+	}
 	// A worker's spec names the registry and the panel's public URL (where
 	// it recovers); the controller's own names neither.
 	var reg *worker.RegistrySpec
@@ -276,7 +281,7 @@ func (m *meshSvc) push(ctx context.Context, in meshIn, specs map[string]worker.M
 
 // RemoveNode takes the node out of every exit ladder and tells it to drop its
 // mesh and exits (best effort: it may be gone), then re-syncs the others.
-// Call it before deleting the row. The node's range stays taken (ForgetRange).
+// Call it before deleting the row.
 func (m *meshSvc) RemoveNode(ctx context.Context, nodeID string) error {
 	_ = m.st.Settings.Delete(ctx, publicKey(nodeID))
 	rungs, err := m.st.ExitLadders.ListByNode(ctx, nodeID)
@@ -316,73 +321,44 @@ func (m *meshSvc) RemoveNode(ctx context.Context, nodeID string) error {
 	return m.Sync(ctx, "", false)
 }
 
-// AllocateNodeRange is the next free /16 of the supernet: not any node's
-// range, not a forgotten one, not on any node's interfaces.
-func (m *meshSvc) AllocateNodeRange(ctx context.Context) (netip.Prefix, error) {
-	ns, err := m.st.Nodes.List(ctx)
-	if err != nil {
-		return netip.Prefix{}, err
-	}
-	taken, err := m.forgotten(ctx)
-	if err != nil {
-		return netip.Prefix{}, err
-	}
-	var ifaces []netip.Prefix
-	m.mu.Lock()
-	for _, f := range m.facts {
-		ifaces = append(ifaces, ifacePrefixes(f)...)
-	}
-	m.mu.Unlock()
-	for _, n := range ns {
-		if p, err := netip.ParsePrefix(n.RangeCIDR); err == nil {
-			taken = append(taken, p)
-		}
-	}
-	return mesh.AllocateRange(taken, ifaces)
-}
-
-// reserved is every prefix a new node range must avoid besides the node rows:
-// the forgotten ranges and the interfaces the nodes reported.
-func (m *meshSvc) reserved(ctx context.Context) ([]netip.Prefix, error) {
-	out, err := m.forgotten(ctx)
-	if err != nil {
-		return nil, err
-	}
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	for _, f := range m.facts {
-		out = append(out, ifacePrefixes(f)...)
-	}
-	return out, nil
-}
-
-// ForgetRange keeps a removed node's range taken for good.
-func (m *meshSvc) ForgetRange(ctx context.Context, cidr string) error {
-	cur, _, err := m.st.Settings.Get(ctx, forgottenRange)
-	if err != nil {
-		return err
-	}
-	if slices.Contains(strings.Split(cur, ","), cidr) {
-		return nil
-	}
-	if cur != "" {
-		cur += ","
-	}
-	return m.st.Settings.Set(ctx, forgottenRange, cur+cidr)
-}
-
-func (m *meshSvc) forgotten(ctx context.Context) ([]netip.Prefix, error) {
-	cur, _, err := m.st.Settings.Get(ctx, forgottenRange)
+// taken is every block of the cluster pool in use: each env's network and
+// each node's reported interfaces on the pool (its shared and ingress
+// bridges). The node leaf's Reserve avoids them, so a network is unique
+// across the cluster.
+func (m *meshSvc) taken(ctx context.Context) ([]netip.Prefix, error) {
+	subs, err := m.st.Environments.Subnets(ctx)
 	if err != nil {
 		return nil, err
 	}
 	var out []netip.Prefix
-	for _, s := range strings.Split(cur, ",") {
-		if p, err := netip.ParsePrefix(s); err == nil {
+	for _, sub := range subs {
+		if p, err := netip.ParsePrefix(sub); err == nil {
 			out = append(out, p)
 		}
 	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, f := range m.facts {
+		for _, p := range ifacePrefixes(f) {
+			if p.Overlaps(mesh.Supernet) {
+				out = append(out, p.Masked())
+			}
+		}
+	}
 	return out, nil
+}
+
+// transitOf is a node's transit address; the controller's row of a cluster
+// from before transit addresses were stored says nothing, its address is the
+// fixed one.
+func transitOf(n store.Node) netip.Addr {
+	if a, err := netip.ParseAddr(n.WGAddress); err == nil && mesh.Transit.Contains(a) {
+		return a
+	}
+	if n.Role == node.Controller {
+		return mesh.ControllerTransit
+	}
+	return netip.Addr{}
 }
 
 // meshIn is everything buildMesh needs; gather reads it from the database and
@@ -392,6 +368,10 @@ type meshIn struct {
 	// Next is, keyed {src, dst}, src's next hop to a dst it has no working
 	// tunnel to.
 	Next map[[2]string]string
+	// Pairs are the exit pairs' indices, keyed {client, exit}: each pair in
+	// use keeps its index, so its /30, port, tables and marks never move.
+	// buildMesh adds the new ones; nil = numbered fresh.
+	Pairs map[[2]string]int
 }
 
 type meshNodeIn struct {
@@ -440,11 +420,10 @@ func (m *meshSvc) gather(ctx context.Context) (meshIn, error) {
 	}
 	m.refreshAll(ctx, ns)
 	for _, n := range ns {
-		if n.Status == node.StatusPending { // no range yet ("pending:<id>")
+		if n.Status == node.StatusPending { // no transit address yet
 			continue
 		}
-		mn := meshNodeIn{Name: n.Name, Node: mesh.Node{ID: n.ID, PublicKey: n.WGPublicKey, Port: MeshWGPort}}
-		mn.Range, _ = netip.ParsePrefix(n.RangeCIDR)
+		mn := meshNodeIn{Name: n.Name, Node: mesh.Node{ID: n.ID, PublicKey: n.WGPublicKey, Port: MeshWGPort, Transit: transitOf(n)}}
 		m.mu.Lock()
 		f, haveF := m.facts[n.ID]
 		mn.Fresh = haveF && time.Since(m.at[n.ID]) < factsFresh
@@ -485,9 +464,11 @@ func (m *meshSvc) gather(ctx context.Context) (meshIn, error) {
 			return meshIn{}, err
 		}
 		for _, e := range envs {
-			if e.Subnet == "" {
+			sub, err := netip.ParsePrefix(e.Subnet)
+			if err != nil {
 				continue
 			}
+			mn.Subnets = append(mn.Subnets, sub)
 			var lv exits.Levels
 			if lv.Env, err = ladder("env", e.ID); err != nil {
 				return meshIn{}, err
@@ -647,23 +628,35 @@ func publicAddrs(f worker.Facts) []netip.Addr {
 	return out
 }
 
-// rangeSlot is the node's index in the supernet: 0 for 10.208/16 ... 15.
-func rangeSlot(r netip.Prefix) int {
-	return int(r.Addr().As4()[1]) - int(mesh.Supernet.Addr().As4()[1])
-}
-
-// pairBlock is the /30 of the exit link between client and exit slots; the
-// client is .1 and the exit .2. Slots never change (ranges are never reused),
-// so neither do the addresses, ports, tables and marks derived from them.
-func pairBlock(client, exit int) (idx int, cAddr, sAddr netip.Addr) {
-	idx = client*maxSlots + exit
+// pairBlock is the /30 of exit pair idx; the client is .1 and the exit .2.
+func pairBlock(idx int) (cAddr, sAddr netip.Addr) {
 	b := exitNet.As4()
 	b[2], b[3] = byte(idx*4/256), byte(idx*4%256)
 	b[3]++
 	cAddr = netip.AddrFrom4(b)
 	b[3]++
 	sAddr = netip.AddrFrom4(b)
-	return idx, cAddr, sAddr
+	return cAddr, sAddr
+}
+
+// pairIdx is pair {client, exit}'s index in pairs, the lowest free one
+// added when the pair is new; -1 when all maxPairs are in use.
+func pairIdx(pairs map[[2]string]int, client, exit string) int {
+	k := [2]string{client, exit}
+	if i, ok := pairs[k]; ok {
+		return i
+	}
+	used := map[int]bool{}
+	for _, i := range pairs {
+		used[i] = true
+	}
+	for i := range maxPairs {
+		if !used[i] {
+			pairs[k] = i
+			return i
+		}
+	}
+	return -1
 }
 
 // routes decides how nodes without a working tunnel reach each other. A
@@ -676,7 +669,7 @@ func (m *meshSvc) routes(in meshIn, now time.Time) map[[2]string]string {
 	byID := map[string]meshNodeIn{}
 	var ids []string
 	for _, n := range in.Nodes {
-		if n.Range.IsValid() && n.Range.Bits() == mesh.NodePrefixLen && n.PublicKey != "" {
+		if mesh.Transit.Contains(n.Transit) && n.PublicKey != "" {
 			byID[n.ID] = n
 			ids = append(ids, n.ID)
 		}
@@ -728,7 +721,10 @@ func buildMesh(in meshIn) map[string]worker.MeshSpec {
 		byID[n.ID] = n
 		all = append(all, n.Node)
 	}
-	usable := func(n meshNodeIn) bool { return n.Range.IsValid() && n.Range.Bits() == mesh.NodePrefixLen }
+	usable := func(n meshNodeIn) bool { return mesh.Transit.Contains(n.Transit) }
+	if in.Pairs == nil {
+		in.Pairs = map[[2]string]int{}
+	}
 
 	next := func(src, dst string) string { return in.Next[[2]string{src, dst}] }
 
@@ -742,9 +738,7 @@ func buildMesh(in meshIn) map[string]worker.MeshSpec {
 			continue
 		}
 		spec := worker.MeshSpec{ListenPort: int(n.Port)}
-		if t, err := mesh.TransitAddr(n.Range); err == nil {
-			spec.Address = netip.PrefixFrom(t, mesh.Transit.Bits())
-		}
+		spec.Address = netip.PrefixFrom(n.Transit, mesh.Transit.Bits())
 		spec.Peers, _ = mesh.Peers(n.Node, all, next)
 
 		// Subjects: envs of this node that share a ladder.
@@ -769,7 +763,6 @@ func buildMesh(in meshIn) map[string]worker.MeshSpec {
 		sort.Strings(keys)
 		clientLinks[n.ID] = map[string]*linkPlan{}
 		pref := exitPrefBase
-		self := rangeSlot(n.Range)
 		for _, k := range keys {
 			srcs := groups[k]
 			sort.Strings(srcs)
@@ -782,9 +775,13 @@ func buildMesh(in meshIn) map[string]worker.MeshSpec {
 					continue
 				}
 				x := byID[id]
-				_, _, sAddr := pairBlock(self, rangeSlot(x.Range))
+				idx := pairIdx(in.Pairs, n.ID, id)
+				if idx < 0 {
+					continue // ponytail: maxPairs exit pairs in use; widen ExitNet if a cluster needs more
+				}
+				_, sAddr := pairBlock(idx)
 				ls.Rungs = append(ls.Rungs, exits.Rung{NodeID: id, Iface: exits.Iface(id),
-					Table: exitTableLink + rangeSlot(x.Range), Target: sAddr.String()})
+					Table: exitTableLink + mesh.Slot(x.Transit), Target: sAddr.String()})
 				lp := clientLinks[n.ID][id]
 				if lp == nil {
 					lp = &linkPlan{}
@@ -800,7 +797,7 @@ func buildMesh(in meshIn) map[string]worker.MeshSpec {
 	// Links on the client side, serves on the exit side, from the same table.
 	for cid, links := range clientLinks {
 		c := byID[cid]
-		cs := rangeSlot(c.Range)
+		cs := mesh.Slot(c.Transit)
 		spec := specs[cid]
 		ids := make([]string, 0, len(links))
 		for id := range links {
@@ -812,10 +809,14 @@ func buildMesh(in meshIn) map[string]worker.MeshSpec {
 			if c.ExitKey == "" || x.ExitKey == "" {
 				continue // the node has not told us its exit key yet
 			}
-			xs := rangeSlot(x.Range)
-			idx, cAddr, sAddr := pairBlock(cs, xs)
+			xs := mesh.Slot(x.Transit)
+			idx, ok := in.Pairs[[2]string{cid, xid}]
+			if !ok {
+				continue
+			}
+			cAddr, sAddr := pairBlock(idx)
 			srcs := uniq(links[xid].sources)
-			xt, _ := mesh.TransitAddr(x.Range)
+			xt := x.Transit
 			spec.Links = append(spec.Links, exits.Link{
 				Iface: exits.Iface(xid), Port: exitPortBase + idx, PeerKey: x.ExitKey,
 				Endpoint: netip.AddrPortFrom(xt, uint16(exitPortBase+idx)).String(),
@@ -924,4 +925,47 @@ func (m *meshSvc) loadRoutes(ctx context.Context) {
 	m.mu.Lock()
 	m.next = next
 	m.mu.Unlock()
+}
+
+// loadPairs reads the exit pairs' indices, dropping those of nodes gone.
+func (m *meshSvc) loadPairs(ctx context.Context, in meshIn) map[[2]string]int {
+	out := map[[2]string]int{}
+	v, ok, err := m.st.Settings.Get(ctx, pairsKey)
+	if err != nil || !ok || v == "" {
+		return out
+	}
+	var rows []struct {
+		C, X string
+		I    int
+	}
+	if json.Unmarshal([]byte(v), &rows) != nil {
+		return out
+	}
+	known := map[string]bool{}
+	for _, n := range in.Nodes {
+		known[n.ID] = true
+	}
+	for _, r := range rows {
+		if known[r.C] && known[r.X] {
+			out[[2]string{r.C, r.X}] = r.I
+		}
+	}
+	return out
+}
+
+// savePairs keeps the exit pairs' indices.
+func (m *meshSvc) savePairs(ctx context.Context, pairs map[[2]string]int) {
+	type row struct {
+		C, X string
+		I    int
+	}
+	rows := make([]row, 0, len(pairs))
+	for k, i := range pairs {
+		rows = append(rows, row{k[0], k[1], i})
+	}
+	slices.SortFunc(rows, func(a, b row) int { return a.I - b.I })
+	b, _ := json.Marshal(rows)
+	if err := m.st.Settings.Set(ctx, pairsKey, string(b)); err != nil {
+		slog.Warn("mesh: keep exit pairs", "err", err)
+	}
 }

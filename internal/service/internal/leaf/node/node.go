@@ -8,15 +8,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/netip"
 	"sync"
 	"time"
 
 	"github.com/google/uuid"
 
+	"github.com/FyrmForge/stackr/internal/mesh"
 	"github.com/FyrmForge/stackr/internal/service/errs"
-	"github.com/FyrmForge/stackr/internal/service/internal/cluster"
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
@@ -42,16 +41,21 @@ const (
 )
 
 // holdFor is how long a reserved block stays claimed while its network or
-// env row is not yet visible to the next reservation.
+// env row is not yet visible to the next reservation (the node's facts, which
+// report its bridges, come in every 20 s).
 const holdFor = time.Minute
 
 // Leaf is the node leaf. One instance per process: it remembers the blocks it
 // just handed out.
 type Leaf struct {
 	nodes store.NodeStore
+	// Taken are the cluster's blocks in use beyond what a reservation's
+	// caller knows of its own node: every env's network and every node's
+	// reported interfaces (its shared and ingress bridges). Nil = none.
+	Taken func(ctx context.Context) ([]netip.Prefix, error)
 
 	mu   sync.Mutex
-	held map[string][]hold // node id -> blocks reserved a moment ago
+	held []hold // blocks reserved a moment ago, on any node
 }
 
 type hold struct {
@@ -60,7 +64,7 @@ type hold struct {
 }
 
 func New(nodes store.NodeStore) *Leaf {
-	return &Leaf{nodes: nodes, held: map[string][]hold{}}
+	return &Leaf{nodes: nodes}
 }
 
 func (l *Leaf) Get(ctx context.Context, id string) (store.Node, error) {
@@ -91,7 +95,8 @@ func (l *Leaf) Bootstrap(ctx context.Context) (n store.Node, created bool, err e
 		Slug:      "controller",
 		Role:      Controller,
 		Tags:      string(tags),
-		RangeCIDR: cluster.ControllerRange,
+		RangeCIDR: "controller",
+		WGAddress: mesh.ControllerTransit.String(),
 		Status:    StatusOnline,
 		CreatedAt: time.Now().UTC(),
 	}
@@ -118,36 +123,39 @@ func Tags(n store.Node) []string {
 	return t
 }
 
-// Reserve is the first /24 of the node's range that overlaps nothing in used
-// nor a block reserved a moment ago. The caller gathers used (the node's env
+// Reserve is the first /24 of the cluster pool that overlaps nothing in used,
+// nothing Taken reports and no block reserved a moment ago on any node: one
+// pool for the whole cluster, so a network is unique across nodes and an env
+// keeps its network when it moves. The caller gathers used (its node's env
 // subnets, Docker's networks and the host interfaces) and writes the block
 // down (envs.subnet) or creates the network with it before the hold lapses.
+// ponytail: a shared or ingress bridge another node made after the panel
+// restarted is seen once that node's facts are in (20 s); keep a blocks table
+// if that window ever bites.
 func (l *Leaf) Reserve(ctx context.Context, nodeID string, used []netip.Prefix) (netip.Prefix, error) {
-	n, err := l.nodes.Get(ctx, nodeID)
-	if err != nil {
-		return netip.Prefix{}, err
-	}
-	rng, err := netip.ParsePrefix(n.RangeCIDR)
-	if err != nil {
-		return netip.Prefix{}, fmt.Errorf("node %s: range %q: %w", n.Name, n.RangeCIDR, err)
+	if l.Taken != nil {
+		t, err := l.Taken(ctx)
+		if err != nil {
+			return netip.Prefix{}, err
+		}
+		used = append(used, t...)
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	now := time.Now()
-	live := l.held[nodeID][:0]
-	for _, h := range l.held[nodeID] {
+	live := l.held[:0]
+	for _, h := range l.held {
 		if now.Sub(h.at) < holdFor {
 			live = append(live, h)
 			used = append(used, h.p)
 		}
 	}
-	p, ok := docker.FirstFree(rng, used)
+	p, ok := docker.FirstFree(mesh.Supernet, used)
 	if !ok {
-		l.held[nodeID] = live
+		l.held = live
 		return netip.Prefix{}, errs.Conflictf(
-			"No free network space in %s on node %s for a new network; remove an environment, or move the host off that range.",
-			rng, n.Name)
+			"The cluster's network pool %s is full; remove an environment to free one.", mesh.Supernet)
 	}
-	l.held[nodeID] = append(live, hold{p, now})
+	l.held = append(live, hold{p, now})
 	return p, nil
 }

@@ -373,7 +373,7 @@ func TestVipBaseWorkerUsesItsOwnFacts(t *testing.T) {
 	r := newBootRig(t)
 	must(t, r.orch.SetSetting(ctx, "trusted_proxies", "192.168.1.100"))
 	w := store.Node{ID: "w-vipbase", Name: "w1", Slug: "w1", Role: node.Worker, Tags: "[]",
-		RangeCIDR: "10.209.0.0/16", Status: node.StatusOnline, CreatedAt: time.Now()}
+		RangeCIDR: "10.209.0.0/16", WGAddress: "10.207.255.2", Status: node.StatusOnline, CreatedAt: time.Now()}
 	must(t, r.orch.store.Nodes.Create(ctx, w))
 	clusterFactsCache.Store(w.ID, cachedFacts{f: worker.Facts{Resolvers: []string{"185.12.64.1"}}, at: time.Now()})
 	t.Cleanup(func() { clusterFactsCache.Delete(w.ID) })

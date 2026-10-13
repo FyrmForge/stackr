@@ -363,9 +363,12 @@ func TestCleanupPrunesEveryNode(t *testing.T) {
 }
 
 // The VIP rebuild declares each node's rules on its own table, from its own
-// daemon's pause containers, with its own range in the filter.
+// daemon's pause containers, with its own networks in the filter.
 func TestRebuildVIPsPerNode(t *testing.T) {
 	n := newTwoNodes(t)
+	ctx := context.Background()
+	must(t, n.st.Environments.SetSubnet(ctx, n.dev.ID, "10.208.5.0/24"))
+	must(t, n.st.Environments.SetSubnet(ctx, n.edge.ID, "10.208.6.0/24"))
 	pause := func(f *dockerfake.Fake, tl Tile, net, vipIP, repIP string) {
 		f.Containers = append(f.Containers,
 			docker.Container{ID: "p-" + tl.Slug, State: "running", Labels: map[string]string{tile.LabelTile: tl.ID, tile.LabelRole: "pause"}},
@@ -382,17 +385,17 @@ func TestRebuildVIPsPerNode(t *testing.T) {
 		t.Fatalf("restores: controller %d, w1 %d; want one each", len(*n.ctlRS), len(*n.wRS))
 	}
 	c, w := (*n.ctlRS)[0], (*n.wRS)[0]
-	for _, want := range []string{"-d 10.213.1.2/32", "! -s 10.213.0.0/16 -j RETURN", "-d 10.208.0.0/12 -j DROP"} {
+	for _, want := range []string{"-d 10.213.1.2/32", "-s 10.208.5.0/24 -j STACKR-FWD-OWN", "-d 10.208.0.0/12 -j DROP"} {
 		if !strings.Contains(c, want) {
 			t.Errorf("the controller's rules lack %q:\n%s", want, c)
 		}
 	}
-	for _, want := range []string{"-d 10.209.1.2/32", "! -s 10.209.0.0/16 -j RETURN", "-d 10.208.0.0/12 -j DROP"} {
+	for _, want := range []string{"-d 10.209.1.2/32", "-s 10.208.6.0/24 -j STACKR-FWD-OWN", "-d 10.208.0.0/12 -j DROP"} {
 		if !strings.Contains(w, want) {
 			t.Errorf("w1's rules lack %q:\n%s", want, w)
 		}
 	}
-	if strings.Contains(c, "10.209.1.") || strings.Contains(w, "10.213.1.") {
+	if strings.Contains(c, "10.209.1.") || strings.Contains(w, "10.213.1.") || strings.Contains(c, "10.208.6.") || strings.Contains(w, "10.208.5.") {
 		t.Errorf("one node's rules carry the other's tiles:\ncontroller:\n%s\nw1:\n%s", c, w)
 	}
 }

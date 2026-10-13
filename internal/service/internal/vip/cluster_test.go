@@ -24,8 +24,8 @@ func TestFilterKeepsClusterOutOfGrants(t *testing.T) {
 	}
 	grant := "-s 10.213.1.3/32 -d 10.0.0.0/8 -j RETURN"
 	for chain, dropPrefix := range map[string]string{
-		"STACKR-FWD": "-A STACKR-FWD -d ",
-		"STACKR-IN":  "-A STACKR-IN -s 10.213.0.0/16 -d ",
+		"STACKR-FWD-OWN": "-A STACKR-FWD-OWN -d ",
+		"STACKR-IN-OWN":  "-A STACKR-IN-OWN -d ",
 	} {
 		lan := at("-A " + chain + " " + grant)
 		for _, net := range []string{"10.208.0.0/12", "10.207.255.0/24"} {
@@ -34,10 +34,10 @@ func TestFilterKeepsClusterOutOfGrants(t *testing.T) {
 			}
 		}
 	}
-	remote := at("-A STACKR-FWD ! -s 10.213.0.0/16 -j RETURN")
-	local := at("-A STACKR-FWD -d 10.213.0.0/16 -j RETURN")
-	xn := at("-A STACKR-FWD -j STACKR-XN")
-	drop := at("-A STACKR-FWD -d 10.208.0.0/12 -j DROP")
+	remote := at("-A STACKR-FWD -j RETURN")
+	local := at("-A STACKR-FWD-OWN -d 10.213.1.0/24 -j RETURN")
+	xn := at("-A STACKR-FWD-OWN -j STACKR-XN")
+	drop := at("-A STACKR-FWD-OWN -d 10.208.0.0/12 -j DROP")
 	if remote >= local || local >= xn || xn >= drop {
 		t.Errorf("FWD order: remote-source return %d, local return %d, XN %d, supernet drop %d", remote, local, xn, drop)
 	}

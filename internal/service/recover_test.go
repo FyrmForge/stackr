@@ -40,7 +40,7 @@ func TestRecoverNode(t *testing.T) {
 	ctx := context.Background()
 	o := newClusterPanel(t)
 	must(t, o.store.Nodes.Create(ctx, store.Node{
-		ID: "w1", Name: "w1", Slug: "w1", Role: node.Worker, Tags: "[]", RangeCIDR: "10.209.0.0/16",
+		ID: "w1", Name: "w1", Slug: "w1", Role: node.Worker, Tags: "[]", RangeCIDR: "10.209.0.0/16", WGAddress: "10.207.255.2",
 		WGPublicKey: "wg-w1", Status: node.StatusOffline, CreatedAt: time.Now(),
 	}))
 	own := nodeCert(t, o, "w1")

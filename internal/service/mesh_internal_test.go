@@ -20,9 +20,14 @@ import (
 )
 
 func tnode(id string, slot int, pub string, envs ...meshEnvIn) meshNodeIn {
-	r := netip.MustParsePrefix("10." + strconv.Itoa(208+slot) + ".0.0/16")
+	tr := netip.MustParseAddr("10.207.255." + strconv.Itoa(slot+1))
+	var subs []netip.Prefix
+	for _, e := range envs {
+		subs = append(subs, netip.MustParsePrefix(e.Subnet))
+	}
 	return meshNodeIn{
-		Node:    mesh.Node{ID: id, PublicKey: "wg-" + id, Range: r, Port: MeshWGPort, Public: []netip.Addr{netip.MustParseAddr(pub)}},
+		Node: mesh.Node{ID: id, PublicKey: "wg-" + id, Transit: tr, Subnets: subs, Port: MeshWGPort,
+			Public: []netip.Addr{netip.MustParseAddr(pub)}},
 		Name:    id,
 		ExitKey: "ex-" + id,
 		Envs:    envs,
@@ -61,7 +66,7 @@ func TestBuildMeshExits(t *testing.T) {
 		byIface[l.Iface] = l
 	}
 	lc := byIface[exits.Iface("c")]
-	if strings.Join(lc.Sources, ",") != "10.208.1.0/24,10.208.2.0/24" || lc.PeerKey != "ex-c" || lc.Table != exitTableLink+5 {
+	if strings.Join(lc.Sources, ",") != "10.208.1.0/24,10.208.2.0/24" || lc.PeerKey != "ex-c" || lc.Table != exitTableLink+6 {
 		t.Errorf("link to c = %+v", lc)
 	}
 	// The exit side serves exactly those subnets, from the client's slot.
@@ -70,7 +75,7 @@ func TestBuildMeshExits(t *testing.T) {
 	}
 	sv := c.Serves[0]
 	if sv.Iface != exits.Iface("a") || strings.Join(sv.Subnets, ",") != "10.208.1.0/24,10.208.2.0/24" ||
-		sv.PeerKey != "ex-a" || sv.Mark != exitMarkBase || sv.Table != exitTableServ || sv.Port != lc.Port {
+		sv.PeerKey != "ex-a" || sv.Mark != exitMarkBase+1 || sv.Table != exitTableServ+1 || sv.Port != lc.Port {
 		t.Errorf("serve = %+v", sv)
 	}
 	// Both ends agree on the /30: client .1, exit .2, and the rung pings the exit end.
@@ -137,7 +142,7 @@ func TestMeshSyncPushesOnChangeAndRemoveNode(t *testing.T) {
 	ctrl := storetest.Controller(t, st)
 	wk := ctrl
 	wk.ID, wk.Name, wk.Slug, wk.Role = "w1", "w1", "w1", "worker"
-	wk.RangeCIDR, wk.WGPublicKey = "10.214.0.0/16", "wgkey-w1"
+	wk.RangeCIDR, wk.WGAddress, wk.WGPublicKey = "10.214.0.0/16", "10.207.255.7", "wgkey-w1"
 	if err := st.Nodes.Create(ctx, wk); err != nil {
 		t.Fatal(err)
 	}
@@ -180,24 +185,32 @@ func TestMeshSyncPushesOnChangeAndRemoveNode(t *testing.T) {
 	}
 }
 
-func TestAllocateNodeRangeKeepsForgotten(t *testing.T) {
-	ctx := context.Background()
+// The pool's taken blocks include every node's reported bridges on the pool
+// (shared and ingress networks have no env row): a new network is unique
+// cluster-wide.
+func TestPoolTakenSeesBridges(t *testing.T) {
 	st := storetest.Store(t)
-	storetest.Controller(t, st) // 10.213.0.0/16
+	storetest.Controller(t, st)
 	m := newMeshSvc(st, func(string) (MeshNode, bool) { return nil, false })
-	first, err := m.AllocateNodeRange(ctx)
-	if err != nil || first.String() != "10.208.0.0/16" {
-		t.Fatalf("first = %v, %v", first, err)
+	m.facts["w1"] = worker.Facts{Interfaces: []worker.Iface{
+		{Name: "br-x", Prefixes: []string{"10.208.9.1/24"}},
+		{Name: "eth0", Prefixes: []string{"192.168.1.5/24"}},
+	}}
+	got, err := m.taken(context.Background())
+	if err != nil || !slices.Equal(got, []netip.Prefix{netip.MustParsePrefix("10.208.9.0/24")}) {
+		t.Fatalf("taken = %v, %v", got, err)
 	}
-	if err := m.ForgetRange(ctx, first.String()); err != nil {
-		t.Fatal(err)
+}
+
+// Exit pairs keep their index across plans; a new pair takes the lowest free.
+func TestPairIdxStable(t *testing.T) {
+	p := map[[2]string]int{{"a", "c"}: 0, {"b", "c"}: 2}
+	if pairIdx(p, "a", "c") != 0 || pairIdx(p, "x", "c") != 1 || pairIdx(p, "y", "c") != 3 {
+		t.Fatal(p)
 	}
-	if err := m.ForgetRange(ctx, first.String()); err != nil { // twice is one entry
-		t.Fatal(err)
-	}
-	next, err := m.AllocateNodeRange(ctx)
-	if err != nil || next.String() != "10.209.0.0/16" {
-		t.Errorf("after forgetting = %v, %v", next, err)
+	c, s := pairBlock(1)
+	if c.String() != "10.251.0.5" || s.String() != "10.251.0.6" {
+		t.Fatal(c, s)
 	}
 }
 
@@ -221,14 +234,14 @@ func sees(n meshNodeIn, all []string, ids ...string) meshNodeIn {
 // carries the far range; h2's own entry keeps its endpoints, nothing else);
 // when the direct tunnel is back, the route goes.
 func TestMeshRoutesThroughPeer(t *testing.T) {
-	h2 := tnode("h2", 3, "203.0.113.250")
+	h2 := tnode("h2", 3, "203.0.113.250", meshEnvIn{Subnet: "10.208.30.0/24"})
 	h2.Public = nil
 	all := []string{"ctl", "h1", "h2", "m"}
 	in := meshIn{Nodes: []meshNodeIn{
-		sees(tnode("ctl", 0, "109.148.70.232"), all, "h1", "m"),
+		sees(tnode("ctl", 0, "109.148.70.232", meshEnvIn{Subnet: "10.208.10.0/24"}), all, "h1", "m"),
 		sees(tnode("h1", 2, "89.167.81.29"), all, "ctl", "m", "h2"),
 		sees(h2, all, "h1"),
-		sees(tnode("m", 1, "109.148.70.233"), all, "ctl", "h1"),
+		sees(tnode("m", 1, "109.148.70.233", meshEnvIn{Subnet: "10.208.20.0/24"}), all, "ctl", "h1"),
 	}}
 	in.Nodes[0].Public, in.Nodes[3].Public = nil, nil // both at home, behind NAT
 	m := &meshSvc{down: map[[2]string]time.Time{}}
@@ -252,15 +265,15 @@ func TestMeshRoutesThroughPeer(t *testing.T) {
 		t.Fatalf("%s has no peer %s", node, of)
 		return mesh.Peer{}
 	}
-	h2r, h2t := netip.MustParsePrefix("10.211.0.0/16"), netip.MustParsePrefix("10.207.255.4/32")
+	h2r, h2t := netip.MustParsePrefix("10.208.30.0/24"), netip.MustParsePrefix("10.207.255.4/32")
 	if p := peer("ctl", "h1"); !slices.Contains(p.AllowedIPs, h2r) || !slices.Contains(p.AllowedIPs, h2t) {
 		t.Fatalf("ctl's h1 peer = %v", p.AllowedIPs)
 	}
 	if p := peer("ctl", "h2"); len(p.AllowedIPs) != 0 {
 		t.Fatalf("ctl's h2 peer still routes: %v", p.AllowedIPs)
 	}
-	if p := peer("h2", "h1"); !slices.Contains(p.AllowedIPs, netip.MustParsePrefix("10.208.0.0/16")) ||
-		!slices.Contains(p.AllowedIPs, netip.MustParsePrefix("10.209.0.0/16")) {
+	if p := peer("h2", "h1"); !slices.Contains(p.AllowedIPs, netip.MustParsePrefix("10.208.10.0/24")) ||
+		!slices.Contains(p.AllowedIPs, netip.MustParsePrefix("10.208.20.0/24")) {
 		t.Fatalf("h2's h1 peer = %v", p.AllowedIPs)
 	}
 	// Nobody can judge ctl-h2 (stale facts): the route stays.
@@ -283,7 +296,7 @@ func TestPublicAddrsKept(t *testing.T) {
 	st := storetest.Store(t)
 	ctrl := storetest.Controller(t, st)
 	wk := ctrl
-	wk.ID, wk.Name, wk.Slug, wk.Role, wk.RangeCIDR = "w1", "w1", "w1", "worker", "10.214.0.0/16"
+	wk.ID, wk.Name, wk.Slug, wk.Role, wk.RangeCIDR, wk.WGAddress = "w1", "w1", "w1", "worker", "10.214.0.0/16", "10.207.255.7"
 	if err := st.Nodes.Create(ctx, wk); err != nil {
 		t.Fatal(err)
 	}
@@ -435,5 +448,28 @@ func TestRefreshAllParallelCapped(t *testing.T) {
 	}
 	if _, ok := m.facts["w39"]; !ok {
 		t.Error("answering node has no facts")
+	}
+}
+
+// An env's network moves with it: after a move its /24 rides the new node's
+// peer entry on every other node, the old node's entry no longer carries it.
+func TestMeshSubnetFollowsMove(t *testing.T) {
+	env := meshEnvIn{Subnet: "10.208.7.0/24"}
+	before := meshIn{Nodes: []meshNodeIn{tnode("ctl", 0, "203.0.113.1"), tnode("a", 1, "203.0.113.2", env), tnode("b", 2, "203.0.113.3")}}
+	after := meshIn{Nodes: []meshNodeIn{tnode("ctl", 0, "203.0.113.1"), tnode("a", 1, "203.0.113.2"), tnode("b", 2, "203.0.113.3", env)}}
+	sub := netip.MustParsePrefix(env.Subnet)
+	carries := func(in meshIn, of string) bool {
+		for _, p := range buildMesh(in)["ctl"].Peers {
+			if p.NodeID == of {
+				return slices.Contains(p.AllowedIPs, sub)
+			}
+		}
+		return false
+	}
+	if !carries(before, "a") || carries(before, "b") {
+		t.Fatal("before the move the subnet is not a's alone")
+	}
+	if carries(after, "a") || !carries(after, "b") {
+		t.Fatal("after the move the subnet did not follow to b")
 	}
 }

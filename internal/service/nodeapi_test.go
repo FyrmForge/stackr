@@ -245,9 +245,6 @@ func TestRemoveForgetRestore(t *testing.T) {
 	if rungs, _ := n.st.ExitLadders.List(ctx, "env", n.dev.ID); len(rungs) != 0 {
 		t.Errorf("exit rungs left: %v", rungs)
 	}
-	if v, _, _ := n.st.Settings.Get(ctx, forgottenRange); !strings.Contains(v, "10.230.0.0/16") {
-		t.Errorf("range not retired: %q", v)
-	}
 
 	out, err := n.orch.ForgetNodeRef(ctx, adm, "w1")
 	must(t, err)
@@ -314,8 +311,8 @@ func TestRejoinKeepsRangeAndEnvs(t *testing.T) {
 		t.Fatal(err)
 	}
 	w, _ = n.st.Nodes.Get(ctx, "w1")
-	if w.RangeCIDR != "10.209.0.0/16" || w.Status != node.StatusJoined {
-		t.Errorf("range %q status %s", w.RangeCIDR, w.Status)
+	if w.WGAddress == "" || w.Status != node.StatusJoined {
+		t.Errorf("transit %q status %s", w.WGAddress, w.Status)
 	}
 	if revoked, _ := n.st.NodeCerts.IsRevoked(ctx, "old-1"); !revoked {
 		t.Error("the old certificate still works")

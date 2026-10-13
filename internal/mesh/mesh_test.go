@@ -13,35 +13,22 @@ var (
 	ap = netip.MustParseAddrPort
 )
 
-func TestAllocateRange(t *testing.T) {
-	r, err := AllocateRange(nil, nil)
-	if err != nil || r != pf("10.208.0.0/16") {
-		t.Fatal(r, err)
-	}
-	r, _ = AllocateRange([]netip.Prefix{pf("10.208.0.0/16")}, []netip.Prefix{pf("10.209.4.7/24")})
-	if r != pf("10.210.0.0/16") {
-		t.Fatal(r)
-	}
-	// a forgotten range stays taken
-	all := make([]netip.Prefix, 0, 16)
-	for i := 208; i < 224; i++ {
-		all = append(all, netip.PrefixFrom(netip.AddrFrom4([4]byte{10, byte(i), 0, 0}), 16))
-	}
-	if _, err := AllocateRange(all, nil); err != ErrNoRange {
-		t.Fatal(err)
-	}
-	if _, err := AllocateRange(nil, []netip.Prefix{pf("10.0.0.0/8")}); err != ErrNoRange {
-		t.Fatal(err)
-	}
-}
-
-func TestTransitAddr(t *testing.T) {
-	a, err := TransitAddr(pf("10.211.0.0/16"))
-	if err != nil || a != ad("10.207.255.4") || !Transit.Contains(a) || Supernet.Contains(a) {
+func TestAllocTransit(t *testing.T) {
+	a, err := AllocTransit(nil)
+	if err != nil || a != ad("10.207.255.1") || Slot(a) != 1 {
 		t.Fatal(a, err)
 	}
-	if _, err := TransitAddr(pf("192.168.0.0/16")); err == nil {
-		t.Fatal("want error")
+	// taken ones and the controller's are skipped
+	taken := []netip.Addr{ad("10.207.255.1"), ad("10.207.255.2"), ad("10.207.255.3"), ad("10.207.255.4"), ad("10.207.255.5")}
+	if a, _ = AllocTransit(taken); a != ad("10.207.255.7") {
+		t.Fatal(a)
+	}
+	var all []netip.Addr
+	for i := 1; i < 255; i++ {
+		all = append(all, netip.AddrFrom4([4]byte{10, 207, 255, byte(i)}))
+	}
+	if _, err := AllocTransit(all); err != ErrNoTransit {
+		t.Fatal(err)
 	}
 }
 
@@ -90,15 +77,17 @@ func TestCandidatesOrder(t *testing.T) {
 }
 
 func TestPeers(t *testing.T) {
-	a := Node{ID: "a", PublicKey: "ka", Range: pf("10.208.0.0/16")}
-	b := Node{ID: "b", PublicKey: "kb", Range: pf("10.209.0.0/16"), Port: 1, Public: []netip.Addr{ad("203.0.113.9")}}
+	a := Node{ID: "a", PublicKey: "ka", Transit: ad("10.207.255.1"), Subnets: []netip.Prefix{pf("10.208.0.0/24")}}
+	b := Node{ID: "b", PublicKey: "kb", Transit: ad("10.207.255.2"), Subnets: []netip.Prefix{pf("10.208.7.0/24"), pf("10.208.3.0/24")},
+		Port: 1, Public: []netip.Addr{ad("203.0.113.9")}}
 	c := Node{ID: "c"} // not joined yet
 	ps, err := Peers(a, []Node{a, b, c}, nil)
 	if err != nil || len(ps) != 1 {
 		t.Fatal(ps, err)
 	}
 	p := ps[0]
-	if p.AllowedIPs[0] != pf("10.209.0.0/16") || p.AllowedIPs[1] != pf("10.207.255.2/32") || len(p.Candidates) != 1 {
+	want := []netip.Prefix{pf("10.208.7.0/24"), pf("10.208.3.0/24"), pf("10.207.255.2/32")}
+	if !slices.Equal(p.AllowedIPs, want) || len(p.Candidates) != 1 {
 		t.Fatal(p)
 	}
 }
@@ -106,9 +95,10 @@ func TestPeers(t *testing.T) {
 // A pair routed through v: on a, b's prefixes ride v's peer entry and b's
 // own entry keeps its endpoints but carries nothing.
 func TestPeersVia(t *testing.T) {
-	a := Node{ID: "a", PublicKey: "ka", Range: pf("10.208.0.0/16")}
-	b := Node{ID: "b", PublicKey: "kb", Range: pf("10.209.0.0/16"), Port: 1, Public: []netip.Addr{ad("203.0.113.9")}}
-	v := Node{ID: "v", PublicKey: "kv", Range: pf("10.210.0.0/16")}
+	a := Node{ID: "a", PublicKey: "ka", Transit: ad("10.207.255.1"), Subnets: []netip.Prefix{pf("10.208.0.0/24")}}
+	b := Node{ID: "b", PublicKey: "kb", Transit: ad("10.207.255.2"), Subnets: []netip.Prefix{pf("10.208.1.0/24")},
+		Port: 1, Public: []netip.Addr{ad("203.0.113.9")}}
+	v := Node{ID: "v", PublicKey: "kv", Transit: ad("10.207.255.3"), Subnets: []netip.Prefix{pf("10.208.2.0/24")}}
 	via := func(x, y string) string {
 		if PairKey(x, y) == PairKey("a", "b") {
 			return "v"
@@ -122,7 +112,7 @@ func TestPeersVia(t *testing.T) {
 	if ps[0].NodeID != "b" || len(ps[0].AllowedIPs) != 0 || len(ps[0].Candidates) != 1 {
 		t.Fatal(ps[0])
 	}
-	want := []netip.Prefix{pf("10.210.0.0/16"), pf("10.207.255.3/32"), pf("10.209.0.0/16"), pf("10.207.255.2/32")}
+	want := []netip.Prefix{pf("10.208.2.0/24"), pf("10.207.255.3/32"), pf("10.208.1.0/24"), pf("10.207.255.2/32")}
 	if !slices.Equal(ps[1].AllowedIPs, want) {
 		t.Fatal(ps[1].AllowedIPs)
 	}

@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"net/netip"
 	"strings"
 	"testing"
 
@@ -105,14 +104,16 @@ func TestDeployOrderPutsDependenciesFirst(t *testing.T) {
 	}
 }
 
-// The controller's row holds no wg address: a move to it takes the transit
-// address its range implies.
+// A controller row from before transit addresses were stored holds none: a
+// move to it takes the controller's fixed transit address.
 func TestMoveAddrOfController(t *testing.T) {
 	n := newTwoNodes(t)
+	ctl := n.ctl
+	ctl.WGAddress = ""
+	must(t, n.st.Nodes.Update(context.Background(), ctl))
 	got, err := moveNodes{n.orch}.Addr(context.Background(), n.ctl.ID)
 	must(t, err)
-	r := netip.MustParsePrefix(n.ctl.RangeCIDR)
-	if want, _ := mesh.TransitAddr(r); got != want.String() {
-		t.Fatalf("controller addr = %q, want %s", got, want)
+	if got != mesh.ControllerTransit.String() {
+		t.Fatalf("controller addr = %q, want %s", got, mesh.ControllerTransit)
 	}
 }

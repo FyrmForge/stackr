@@ -41,7 +41,7 @@ func csrPEM(t *testing.T) string {
 func joinReq(t *testing.T, token string) JoinRequest {
 	return JoinRequest{
 		Token: token, CSR: csrPEM(t), WGPublicKey: wgKey,
-		Facts: json.RawMessage(`{"interfaces":[{"name":"eth0","prefixes":["10.208.0.5/16"]}]}`),
+		Facts: json.RawMessage(`{"interfaces":[{"name":"eth0","prefixes":["192.168.50.5/24"]}]}`),
 	}
 }
 
@@ -174,13 +174,6 @@ func TestJoinConfirmIssuesCert(t *testing.T) {
 
 	n1, err := w.orch.ConfirmJoin(ctx, adm, st1.NodeID)
 	must(t, err)
-	if n1.Range != "10.208.0.0/16" && n1.Range != "10.209.0.0/16" {
-		// the join facts above report 10.208.0.0/16 in use
-		t.Errorf("range = %s", n1.Range)
-	}
-	if n1.Range == "10.208.0.0/16" {
-		t.Error("range overlaps a reported interface")
-	}
 	if n1.WGAddress == "" || n1.Status != "joined" {
 		t.Errorf("node = %+v", n1)
 	}
@@ -231,7 +224,7 @@ func TestJoinConfirmIssuesCert(t *testing.T) {
 	must(t, err)
 	n2, err := w.orch.ConfirmJoin(ctx, adm, st2.NodeID)
 	must(t, err)
-	if n2.Range == n1.Range || n2.WGAddress == n1.WGAddress {
+	if n2.WGAddress == n1.WGAddress {
 		t.Errorf("w2 = %+v shares with w1 = %+v", n2, n1)
 	}
 }

@@ -91,13 +91,29 @@ func configurePeers(cfg Config) error {
 	return c.ConfigureDevice(cfg.Iface, wc)
 }
 
+// onOtherLink reports whether r is a network of this host on another link: an
+// env's bridge still here while the env moves to the node the mesh now names.
+// The bridge's own route wins; replacing it would cut its containers off.
+func onOtherLink(link netlink.Link, r netip.Prefix) bool {
+	rs, err := netlink.RouteListFiltered(netlink.FAMILY_V4, &netlink.Route{Dst: ipNet(r)}, netlink.RT_FILTER_DST)
+	if err != nil {
+		return false
+	}
+	for _, x := range rs {
+		if x.LinkIndex != link.Attrs().Index {
+			return true
+		}
+	}
+	return false
+}
+
 func syncRoutes(link netlink.Link, cfg Config) error {
 	want := map[string]bool{ipNet(cfg.Address.Masked()).String(): true}
 	for _, p := range cfg.Peers {
 		// Node ranges: the peer's own and any it carries for a pair routed
 		// through it. Transit /32s ride the connected route.
 		for _, r := range p.AllowedIPs {
-			if cfg.Address.Masked().Contains(r.Addr()) {
+			if cfg.Address.Masked().Contains(r.Addr()) || onOtherLink(link, r) {
 				continue
 			}
 			want[ipNet(r).String()] = true

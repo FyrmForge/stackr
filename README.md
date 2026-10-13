@@ -35,7 +35,7 @@ names whatever is missing.
 - **Address ranges stackr reserves.** A box whose networks overlap them
   cannot install or join:
   - 10.207.255.0/24, the mesh's tunnel addresses
-  - 10.208.0.0/12, the nodes' container ranges
+  - 10.208.0.0/12, the cluster's network pool (every env, shared and ingress network is a /24 of it)
   - 10.251.0.0/22, the exit links
 
 ## Prerequisites

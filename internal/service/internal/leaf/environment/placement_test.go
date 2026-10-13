@@ -122,15 +122,14 @@ func TestCreatePlacesByPins(t *testing.T) {
 	}
 }
 
-// A network is made on a /24 of its env's node's range, written on the env
-// row first; shared networks come from the node in ctx. A range other than
-// 10.213 works the same.
-func TestNetworkReservesFromTheNodesRange(t *testing.T) {
+// A network is made on a /24 of the cluster pool, written on the env row
+// first, whichever node the env is on: blocks are unique across nodes.
+func TestNetworkReservesFromThePool(t *testing.T) {
 	st := storetest.Store(t)
 	nodes := node.New(st.Nodes)
 	ctl := storetest.Controller(t, st)
 	if err := st.Nodes.Create(ctx, store.Node{
-		ID: "w1", Name: "w1", Slug: "w1", Role: node.Worker, Tags: "[]", RangeCIDR: "10.209.0.0/16",
+		ID: "w1", Name: "w1", Slug: "w1", Role: node.Worker, Tags: "[]", RangeCIDR: "10.209.0.0/16", WGAddress: "10.207.255.2",
 		Status: node.StatusOnline, CreatedAt: time.Now(),
 	}); err != nil {
 		t.Fatal(err)
@@ -166,22 +165,22 @@ func TestNetworkReservesFromTheNodesRange(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if got, want := [3]string{subnet(a), subnet(b), subnet(c)}, [3]string{"10.209.0.0/24", "10.209.1.0/24", "10.213.0.0/24"}; got != want {
+	if got, want := [3]string{subnet(a), subnet(b), subnet(c)}, [3]string{"10.208.0.0/24", "10.208.1.0/24", "10.208.2.0/24"}; got != want {
 		t.Fatalf("subnets = %v, want %v", got, want)
 	}
 	// Making it again keeps the subnet and creates nothing new.
 	again, _ := l.Get(ctx, a.ID)
-	if _, err := l.Network(ctx, again); err != nil || subnet(a) != "10.209.0.0/24" {
+	if _, err := l.Network(ctx, again); err != nil || subnet(a) != "10.208.0.0/24" {
 		t.Fatalf("second Network: %q, %v", subnet(a), err)
 	}
 
-	// A shared network takes the next block of the node in ctx.
+	// A shared network takes the pool's next block too (made on the node in ctx).
 	if err := l.Shared(docker.WithNode(ctx, "w1"), "stackr-shared-x"); err != nil {
 		t.Fatal(err)
 	}
 	used, _ := host.UsedSubnets(ctx)
-	if !hasPrefix(used, "10.209.2.0/24") {
-		t.Fatalf("shared network not on w1's next block: %v", used)
+	if !hasPrefix(used, "10.208.3.0/24") {
+		t.Fatalf("shared network not on the next block: %v", used)
 	}
 	// No node in ctx for a network that must be made is an error, not a guess.
 	if err := l.Shared(ctx, "stackr-shared-y"); !errors.Is(err, docker.ErrNoNode) {

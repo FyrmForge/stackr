@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -390,6 +391,14 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 
 		cluster:   cl,
 		stopNodes: make(chan struct{}),
+	}
+	// Every network comes from one cluster pool: a reservation avoids every
+	// env's network and every node's reported bridges, not just its own node's.
+	nodes.Taken = func(ctx context.Context) ([]netip.Prefix, error) {
+		if m := orch.mesh; m != nil {
+			return m.taken(ctx)
+		}
+		return (&meshSvc{st: st}).taken(ctx) // single node: the env rows alone
 	}
 	orch.helperReady = orch.rsyncSteps().ensure
 	if r, ok := d.(*DockerRouter); ok {
