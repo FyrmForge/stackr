@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net/netip"
 	"slices"
 	"sort"
@@ -59,12 +60,19 @@ const (
 	maxSlots      = 16     // /16s in the supernet
 
 	meshEvery = time.Minute
+	// sampleEvery is how often facts are read between full pushes, so a
+	// dead tunnel shows within a minute.
+	sampleEvery = 20 * time.Second
 	// factsFresh is how old a node's facts may be and still tell whether
 	// its tunnels are up: two missed syncs and they say nothing.
 	factsFresh = 2 * meshEvery
-	// downAfter is how long a pair must look down before it is routed
-	// through another node: the failover's probe of each candidate first.
-	downAfter      = 90 * time.Second
+	// rxSilent is how long a peer may send nothing before its tunnel counts
+	// as dead: two missed 25 s keepalives.
+	rxSilent = 60 * time.Second
+	// downConfirm is how long a pair must look dead before it is routed
+	// through another node: one more sample, so a blip does not reroute.
+	downConfirm    = sampleEvery
+	routesKey      = "mesh.routes"
 	forgottenRange = "mesh.forgotten_ranges"
 )
 
@@ -91,8 +99,9 @@ type meshSvc struct {
 	exitPK map[string]string    // exit public key per node
 	wgPK   map[string]string    // wg public key per node, for a row that holds none (the controller's)
 	pushed map[string][32]byte
-	next   map[[2]string]string    // {src, dst}: src's next hop to dst, from the last sync
-	down   map[[2]string]time.Time // since when a pair looked down
+	next   map[[2]string]string           // {src, dst}: src's next hop to dst, from the last sync
+	down   map[[2]string]time.Time        // since when a pair looked down
+	rx     map[string]map[string]rxSample // per node, per peer key
 	specs  map[string]worker.MeshSpec
 }
 
@@ -108,7 +117,7 @@ func (m *meshSvc) Spec(nodeID string) (worker.MeshSpec, bool) {
 
 func newMeshSvc(st *store.Store, nodes MeshNodes) *meshSvc {
 	return &meshSvc{st: st, nodes: nodes, kick: make(chan struct{}, 1),
-		facts: map[string]worker.Facts{}, at: map[string]time.Time{}, down: map[[2]string]time.Time{}, exitPK: map[string]string{}, wgPK: map[string]string{}, pushed: map[string][32]byte{}}
+		facts: map[string]worker.Facts{}, at: map[string]time.Time{}, down: map[[2]string]time.Time{}, rx: map[string]map[string]rxSample{}, exitPK: map[string]string{}, wgPK: map[string]string{}, pushed: map[string][32]byte{}}
 }
 
 // Via is a's first hop towards b, "" when they connect directly.
@@ -123,6 +132,7 @@ func (m *meshSvc) Via(a, b string) string {
 func (m *meshSvc) Report(ctx context.Context, id string, f worker.Facts) {
 	m.mu.Lock()
 	m.facts[id], m.at[id] = f, time.Now()
+	m.sampleRx(id, f, m.at[id])
 	m.mu.Unlock()
 	m.keepPublic(ctx, id, publicAddrs(f))
 }
@@ -138,10 +148,14 @@ func (m *meshSvc) Kick() {
 // Run syncs at once, on every Kick and on a timer, until ctx ends. The timer
 // pass pushes every node again, which repairs a node that lost its state.
 func (m *meshSvc) Run(ctx context.Context) {
-	t := time.NewTicker(meshEvery)
+	m.loadRoutes(ctx) // the first push keeps the routes from before a restart
+	t := time.NewTicker(sampleEvery)
 	defer t.Stop()
-	force := true
+	force, last := true, time.Time{}
 	for {
+		if force {
+			last = time.Now()
+		}
 		if err := m.Sync(ctx, "", force); err != nil && ctx.Err() == nil {
 			slog.Warn("mesh: sync", "err", err)
 		}
@@ -152,7 +166,7 @@ func (m *meshSvc) Run(ctx context.Context) {
 			force = false
 			time.Sleep(time.Second) // a burst of changes is one sync
 		case <-t.C:
-			force = true
+			force = time.Since(last) >= meshEvery
 		}
 	}
 }
@@ -186,8 +200,12 @@ func (m *meshSvc) Sync(ctx context.Context, only string, force bool) error {
 		}
 	}
 	m.mu.Lock()
+	changed := !maps.Equal(m.next, in.Next)
 	m.next, m.specs = in.Next, specs
 	m.mu.Unlock()
+	if changed {
+		m.saveRoutes(ctx, in.Next)
+	}
 	// Exit sides first, so a client's first probe finds its link answering.
 	ids := make([]string, 0, len(specs))
 	for id := range specs {
@@ -353,10 +371,11 @@ type meshNodeIn struct {
 	Name    string
 	ExitKey string
 	// Fresh is set when the node's facts are recent enough to say which of
-	// its tunnels are up; Seen are the peers (by public key) it has a fresh
-	// handshake with.
+	// its tunnels are up; Hears is, per peer public key, 1 when the tunnel
+	// carries traffic (or a fresh handshake), -1 when the peer has sent
+	// nothing for rxSilent; absent = can't tell.
 	Fresh bool
-	Seen  map[string]bool
+	Hears map[string]int
 	// Envs are the exit ladders of the envs on this node, one per env with a
 	// subnet; Ladder is the resolved ordered node ids (empty = own uplink).
 	Envs []meshEnvIn
@@ -416,10 +435,17 @@ func (m *meshSvc) gather(ctx context.Context) (meshIn, error) {
 			}
 		}
 		if mn.Fresh {
-			mn.Seen = map[string]bool{}
+			mn.Hears = map[string]int{}
 			for k := range f.Seen {
-				mn.Seen[k] = true
+				mn.Hears[k] = 1
 			}
+			m.mu.Lock()
+			for k, smp := range m.rx[n.ID] {
+				if ev := smp.ev(time.Now()); ev != 0 {
+					mn.Hears[k] = ev // bytes beat a handshake up to 3 min old
+				}
+			}
+			m.mu.Unlock()
 		}
 		if haveF {
 			mn.Ifaces = ifacePrefixes(f)
@@ -485,6 +511,7 @@ func (m *meshSvc) refresh(ctx context.Context, id string, cl MeshNode) {
 	if f, err := cl.Facts(cctx); err == nil {
 		m.mu.Lock()
 		m.facts[id], m.at[id] = f, time.Now()
+		m.sampleRx(id, f, m.at[id])
 		m.mu.Unlock()
 		m.keepPublic(ctx, id, publicAddrs(f))
 	}
@@ -588,9 +615,9 @@ func pairBlock(client, exit int) (idx int, cAddr, sAddr netip.Addr) {
 }
 
 // routes decides how nodes without a working tunnel reach each other. A
-// pair is up when either side's fresh facts show a recent handshake with
-// the other; one that has looked down for downAfter (at least one side
-// fresh) is down. A pair nobody can judge keeps its last state. Routes are
+// pair is up when either side hears the other (Hears 1); one that a side
+// reports silent (Hears -1) for downConfirm is down. A pair nobody can
+// judge keeps its last state, so stale or missing facts never drop a route. Routes are
 // shortest paths over the up pairs (mesh.Routes): any number of hops,
 // preferring public nodes.
 func (m *meshSvc) routes(in meshIn, now time.Time) map[[2]string]string {
@@ -603,7 +630,12 @@ func (m *meshSvc) routes(in meshIn, now time.Time) map[[2]string]string {
 		}
 	}
 	sort.Strings(ids)
-	sees := func(a, b meshNodeIn) bool { return a.Seen[b.PublicKey] }
+	hears := func(a, b meshNodeIn) int {
+		if !a.Fresh {
+			return 0
+		}
+		return a.Hears[b.PublicKey]
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	prev := m.next
@@ -612,17 +644,18 @@ func (m *meshSvc) routes(in meshIn, now time.Time) map[[2]string]string {
 		for _, b := range ids[i+1:] {
 			na, nb := byID[a], byID[b]
 			k := mesh.PairKey(a, b)
+			ea, eb := hears(na, nb), hears(nb, na)
 			switch {
-			case sees(na, nb) || sees(nb, na):
+			case ea > 0 || eb > 0:
 				up[k] = true
 				delete(m.down, k)
-			case !na.Fresh && !nb.Fresh:
-				up[k] = prev[[2]string{a, b}] == "" // unknown: as last time
-			default:
+			case ea < 0 || eb < 0:
 				if _, ok := m.down[k]; !ok {
 					m.down[k] = now
 				}
-				up[k] = now.Sub(m.down[k]) < downAfter
+				up[k] = now.Sub(m.down[k]) < downConfirm
+			default:
+				up[k] = prev[[2]string{a, b}] == "" // unknown: as last time
 			}
 		}
 	}
@@ -758,4 +791,83 @@ func uniq(in []string) []string {
 	s := append([]string(nil), in...)
 	sort.Strings(s)
 	return slices.Compact(s)
+}
+
+// rxSample is what the controller knows of the bytes a node received from
+// one peer: the last count, when it was first read and when it last moved.
+type rxSample struct {
+	n              int64
+	first, changed time.Time
+}
+
+// ev is the sample's verdict: 1 when bytes moved within rxSilent, -1 when
+// they have not for rxSilent, 0 when there is not enough history yet.
+func (s rxSample) ev(now time.Time) int {
+	switch {
+	case !s.changed.IsZero() && now.Sub(s.changed) < rxSilent:
+		return 1
+	}
+	last := s.first
+	if s.changed.After(last) {
+		last = s.changed
+	}
+	if now.Sub(last) >= rxSilent {
+		return -1
+	}
+	return 0
+}
+
+// sampleRx records a node's per-peer received bytes. m.mu is held.
+func (m *meshSvc) sampleRx(id string, f worker.Facts, now time.Time) {
+	if m.rx == nil {
+		m.rx = map[string]map[string]rxSample{}
+	}
+	seen := m.rx[id]
+	if seen == nil {
+		seen = map[string]rxSample{}
+		m.rx[id] = seen
+	}
+	for k, n := range f.Rx {
+		s, ok := seen[k]
+		switch {
+		case !ok:
+			s = rxSample{n: n, first: now}
+		case n != s.n:
+			s.n, s.changed = n, now
+		}
+		seen[k] = s
+	}
+}
+
+// saveRoutes keeps the routing decision, so a restarted controller pushes
+// the same routes before it has heard from any node.
+func (m *meshSvc) saveRoutes(ctx context.Context, next map[[2]string]string) {
+	rows := make([][3]string, 0, len(next))
+	for k, v := range next {
+		rows = append(rows, [3]string{k[0], k[1], v})
+	}
+	slices.SortFunc(rows, func(a, b [3]string) int { return strings.Compare(a[0]+a[1], b[0]+b[1]) })
+	b, _ := json.Marshal(rows)
+	if err := m.st.Settings.Set(ctx, routesKey, string(b)); err != nil {
+		slog.Warn("mesh: keep routes", "err", err)
+	}
+}
+
+// loadRoutes reads the routing decision saved before a restart.
+func (m *meshSvc) loadRoutes(ctx context.Context) {
+	v, ok, err := m.st.Settings.Get(ctx, routesKey)
+	if err != nil || !ok || v == "" {
+		return
+	}
+	var rows [][3]string
+	if json.Unmarshal([]byte(v), &rows) != nil {
+		return
+	}
+	next := map[[2]string]string{}
+	for _, r := range rows {
+		next[[2]string{r[0], r[1]}] = r[2]
+	}
+	m.mu.Lock()
+	m.next = next
+	m.mu.Unlock()
 }

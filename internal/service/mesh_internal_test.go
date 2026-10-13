@@ -199,35 +199,42 @@ func TestAllocateNodeRangeKeepsForgotten(t *testing.T) {
 	}
 }
 
-// sees marks n's fresh handshakes with the given nodes.
-func sees(n meshNodeIn, ids ...string) meshNodeIn {
-	n.Fresh, n.Seen = true, map[string]bool{}
+// sees marks n fresh, hearing the given nodes and hearing nothing from the
+// rest of all (silent for rxSilent).
+func sees(n meshNodeIn, all []string, ids ...string) meshNodeIn {
+	n.Fresh, n.Hears = true, map[string]int{}
+	for _, id := range all {
+		if id != n.ID {
+			n.Hears["wg-"+id] = -1
+		}
+	}
 	for _, id := range ids {
-		n.Seen["wg-"+id] = true
+		n.Hears["wg-"+id] = 1
 	}
 	return n
 }
 
 // h2 lost its public address: only h1 still has a tunnel to it. After
-// downAfter the others reach h2 through h1 (on each end the next hop's peer
+// downConfirm the others reach h2 through h1 (on each end the next hop's peer
 // carries the far range; h2's own entry keeps its endpoints, nothing else);
 // when the direct tunnel is back, the route goes.
 func TestMeshRoutesThroughPeer(t *testing.T) {
 	h2 := tnode("h2", 3, "203.0.113.250")
 	h2.Public = nil
+	all := []string{"ctl", "h1", "h2", "m"}
 	in := meshIn{Nodes: []meshNodeIn{
-		sees(tnode("ctl", 0, "109.148.70.232"), "h1", "m"),
-		sees(tnode("h1", 2, "89.167.81.29"), "ctl", "m", "h2"),
-		sees(h2, "h1"),
-		sees(tnode("m", 1, "109.148.70.233"), "ctl", "h1"),
+		sees(tnode("ctl", 0, "109.148.70.232"), all, "h1", "m"),
+		sees(tnode("h1", 2, "89.167.81.29"), all, "ctl", "m", "h2"),
+		sees(h2, all, "h1"),
+		sees(tnode("m", 1, "109.148.70.233"), all, "ctl", "h1"),
 	}}
 	in.Nodes[0].Public, in.Nodes[3].Public = nil, nil // both at home, behind NAT
 	m := &meshSvc{down: map[[2]string]time.Time{}}
 	t0 := time.Unix(1_000_000, 0)
 	if r := m.routes(in, t0); len(r) != 0 {
-		t.Fatalf("routed before downAfter: %v", r)
+		t.Fatalf("routed before downConfirm: %v", r)
 	}
-	in.Next = m.routes(in, t0.Add(downAfter))
+	in.Next = m.routes(in, t0.Add(downConfirm))
 	m.next = in.Next
 	want := map[[2]string]string{{"ctl", "h2"}: "h1", {"h2", "ctl"}: "h1", {"m", "h2"}: "h1", {"h2", "m"}: "h1"}
 	if !maps.Equal(in.Next, want) {
@@ -256,13 +263,13 @@ func TestMeshRoutesThroughPeer(t *testing.T) {
 	}
 	// Nobody can judge ctl-h2 (stale facts): the route stays.
 	in.Nodes[0].Fresh, in.Nodes[2].Fresh = false, false
-	if r := m.routes(in, t0.Add(2*downAfter)); r[[2]string{"ctl", "h2"}] != "h1" {
+	if r := m.routes(in, t0.Add(2*downConfirm)); r[[2]string{"ctl", "h2"}] != "h1" {
 		t.Fatalf("unknown pair lost its route: %v", r)
 	}
 	// The direct tunnel is back.
-	in.Nodes[0] = sees(in.Nodes[0], "h1", "m", "h2")
+	in.Nodes[0] = sees(in.Nodes[0], all, "h1", "m", "h2")
 	in.Nodes[2].Fresh = true
-	if r := m.routes(in, t0.Add(3*downAfter)); r[[2]string{"ctl", "h2"}] != "" {
+	if r := m.routes(in, t0.Add(3*downConfirm)); r[[2]string{"ctl", "h2"}] != "" {
 		t.Fatalf("still routed after recovery: %v", r)
 	}
 }
@@ -292,5 +299,65 @@ func TestPublicAddrsKept(t *testing.T) {
 	}
 	if got := restarted.publicOf("w1"); len(got) != 0 {
 		t.Errorf("forgotten node still has %v", got)
+	}
+}
+
+// A peer's received bytes decide within a minute: moving = alive, still for
+// rxSilent = dead, too little history = no verdict (keep the last state).
+func TestRxVerdict(t *testing.T) {
+	m := &meshSvc{}
+	t0 := time.Unix(1_000_000, 0)
+	at := func(sec int) time.Time { return t0.Add(time.Duration(sec) * time.Second) }
+	m.sampleRx("a", worker.Facts{Rx: map[string]int64{"k": 100}}, at(0))
+	if ev := m.rx["a"]["k"].ev(at(20)); ev != 0 {
+		t.Fatalf("one sample = %d, want no verdict", ev)
+	}
+	m.sampleRx("a", worker.Facts{Rx: map[string]int64{"k": 150}}, at(20))
+	if ev := m.rx["a"]["k"].ev(at(40)); ev != 1 {
+		t.Fatalf("bytes moved = %d, want alive", ev)
+	}
+	m.sampleRx("a", worker.Facts{Rx: map[string]int64{"k": 150}}, at(60))
+	if ev := m.rx["a"]["k"].ev(at(79)); ev != 1 {
+		t.Fatalf("59 s silent = %d, want still alive", ev)
+	}
+	if ev := m.rx["a"]["k"].ev(at(80)); ev != -1 {
+		t.Fatalf("60 s silent = %d, want dead", ev)
+	}
+	// A restarted controller sees a dead peer for the first time: no
+	// verdict until rxSilent has passed, then dead.
+	n := &meshSvc{}
+	n.sampleRx("a", worker.Facts{Rx: map[string]int64{"k": 150}}, at(100))
+	if ev := n.rx["a"]["k"].ev(at(120)); ev != 0 {
+		t.Fatalf("fresh after restart = %d, want no verdict", ev)
+	}
+	if ev := n.rx["a"]["k"].ev(at(160)); ev != -1 {
+		t.Fatalf("still after restart = %d, want dead", ev)
+	}
+}
+
+// A restarted controller starts from the routes it saved, so its first push
+// keeps a routed pair routed while no node can judge it yet.
+func TestRoutesSurviveRestart(t *testing.T) {
+	ctx := context.Background()
+	st := storetest.Store(t)
+	want := map[[2]string]string{{"ctl", "h2"}: "h1", {"h2", "ctl"}: "h1"}
+	(&meshSvc{st: st}).saveRoutes(ctx, want)
+
+	m := &meshSvc{st: st, down: map[[2]string]time.Time{}}
+	m.loadRoutes(ctx)
+	if !maps.Equal(m.next, want) {
+		t.Fatalf("loaded = %v", m.next)
+	}
+	h2 := tnode("h2", 3, "192.0.2.2")
+	h2.Public = nil
+	in := meshIn{Nodes: []meshNodeIn{tnode("ctl", 0, "192.0.2.1"), tnode("h1", 2, "89.167.81.29"), h2}}
+	in.Nodes[0].Public = nil
+	// Fresh but no verdict on ctl-h2 yet (first samples after the restart).
+	for i := range in.Nodes {
+		in.Nodes[i].Fresh, in.Nodes[i].Hears = true, map[string]int{}
+	}
+	in.Nodes[1].Hears["wg-ctl"], in.Nodes[1].Hears["wg-h2"] = 1, 1
+	if r := m.routes(in, time.Unix(1_000_000, 0)); r[[2]string{"ctl", "h2"}] != "h1" {
+		t.Fatalf("first routes after restart = %v", r)
 	}
 }

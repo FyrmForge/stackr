@@ -41,6 +41,10 @@ type Facts struct {
 	// Seen is where each wg peer (by public key) sends from, for peers with a
 	// fresh handshake: a peer behind a NAT shows as the NAT's address.
 	Seen map[string]string `json:"seen,omitempty"`
+	// Rx is the bytes received from each wg peer (by public key) when the
+	// facts were read; the controller watches it move to tell a live
+	// tunnel from a dead one within a minute (keepalives every 25 s).
+	Rx map[string]int64 `json:"rx,omitempty"`
 	// Resolvers are the host's IPv4 DNS servers.
 	Resolvers []string `json:"resolvers,omitempty"`
 	// WGPort is the UDP port the node's mesh listens on (0 from an older
@@ -258,6 +262,12 @@ func (s *Server) Facts(ctx context.Context) Facts {
 			f.Seen = map[string]string{}
 			for k, ep := range seen {
 				f.Seen[k] = ep.String()
+			}
+		}
+		if st, err := s.cfg.Mesh.WG.Stats(mesh.Iface); err == nil && len(st) > 0 {
+			f.Rx = map[string]int64{}
+			for k, p := range st {
+				f.Rx[k] = p.Rx
 			}
 		}
 	}
