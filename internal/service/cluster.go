@@ -76,6 +76,9 @@ type ClusterNode struct {
 	// ReachedVia are the nodes others' traffic to this one is routed
 	// through (it has no working tunnel to them itself).
 	ReachedVia []string
+	// ViaDown are the ReachedVia hops that are not online: the node is cut
+	// off because its router is down.
+	ViaDown []string
 }
 
 type ClusterEnv struct {
@@ -104,6 +107,7 @@ type ClusterLink struct {
 	A, B, Kind string
 	MS         float64
 	Via        string // the node the pair is routed through, "" = direct
+	Down       bool   // a remembered direct tunnel whose end is not online
 }
 
 // ClusterBackup is an external S3 destination and the nodes that back up to it.
@@ -116,6 +120,7 @@ type ClusterBackup struct {
 type clusterNodeIn struct {
 	Node     store.Node
 	Facts    *worker.Facts // nil = never reported
+	Mem      *nodeMemory   // what the map saw while it answered; nil = nothing
 	Up       bool          // answered just now
 	Alive    bool          // not Up, but its public liveness port answered
 	Expired  bool          // a worker whose newest cert ran out
@@ -183,6 +188,9 @@ func buildClusterMap(in []clusterNodeIn) ClusterMap {
 			} else if len(cn.Public) > 0 {
 				key = "public:" + n.Node.ID
 			}
+		} else if mem := n.Mem; mem != nil && mem.Net != "" {
+			// Gone quiet since the panel started: where it was last seen.
+			cn.Docker, cn.Public, key = mem.Docker, mem.Public, mem.Net
 		}
 		cn.Net = key
 		if nets[key] == nil {
@@ -232,9 +240,21 @@ func buildClusterMap(in []clusterNodeIn) ClusterMap {
 	for _, n := range in {
 		rtt[n.Node.ID] = n.RTT
 	}
+	remembered := func(i, j int) string {
+		for _, x := range [][2]int{{i, j}, {j, i}} {
+			if mem := in[x[0]].Mem; mem != nil && mem.Links[in[x[1]].Node.ID] != "" {
+				return mem.Links[in[x[1]].Node.ID]
+			}
+		}
+		return ""
+	}
 	for i, a := range m.Nodes {
-		for _, b := range m.Nodes[i+1:] {
+		for j, b := range m.Nodes[i+1:] {
 			if a.Status != NodeOnline || b.Status != NodeOnline {
+				// A direct tunnel seen before stays drawn, down.
+				if kind := remembered(i, i+1+j); kind != "" {
+					m.Links = append(m.Links, ClusterLink{A: a.ID, B: b.ID, Kind: kind, MS: -1, Down: true})
+				}
 				continue
 			}
 			l := ClusterLink{A: a.ID, B: b.ID, Kind: LinkInternet, MS: -1}
@@ -274,6 +294,7 @@ func (o *Orchestrator) ClusterMap(ctx context.Context) (ClusterMap, error) {
 		go func() {
 			defer wg.Done()
 			in[i].Facts, in[i].Up, in[i].RTT = o.clusterFacts(ctx, n)
+			in[i].Mem = o.loadMemory(ctx, n.ID)
 			in[i].Alive = !in[i].Up && o.HostAlive(n.ID)
 			in[i].Expired = n.Role == node.Worker && o.certExpired(n.ID)
 		}()
@@ -357,7 +378,9 @@ func (o *Orchestrator) ClusterMap(ctx context.Context) (ClusterMap, error) {
 			names[n.ID] = n.Name
 		}
 		m.Links = directLinks(m.Links, m.Nodes, names, o.mesh.Direct, o.mesh.Via)
+		o.remember(ctx, &m, in, o.mesh.Direct)
 	}
+	recall(&m, in)
 	o.probeForwards(ctx, ctl, &m)
 	if m.Backups, err = o.clusterBackups(ctx, ctl); err != nil {
 		return m, err
@@ -710,7 +733,12 @@ func (o *Orchestrator) PlaceCluster(ctx context.Context, id string, p Point) err
 func directLinks(links []ClusterLink, nodes []ClusterNode, names map[string]string,
 	direct func(a, b string) (bool, bool), via func(a, b string) string) []ClusterLink {
 	var keep, routed []ClusterLink
+	var down []ClusterLink
 	for _, l := range links {
+		if l.Down {
+			down = append(down, l)
+			continue
+		}
 		if d, ok := direct(l.A, l.B); ok && !d {
 			if h := via(l.A, l.B); h != "" {
 				l.Via = names[h]
@@ -745,6 +773,5 @@ func directLinks(links []ClusterLink, nodes []ClusterNode, names map[string]stri
 	for i := range nodes {
 		slices.Sort(nodes[i].ReachedVia)
 	}
-	return keep
+	return append(keep, down...)
 }
-

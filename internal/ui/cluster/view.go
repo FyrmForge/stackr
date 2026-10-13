@@ -58,6 +58,7 @@ type Node struct {
 	Envs                                []Env
 	NoForward                           bool     // ingress behind a NAT the internet does not reach
 	ReachedVia                          []string // nodes the others' traffic to it is routed through
+	ViaDown                             []string // the ReachedVia hops that are not online
 }
 
 type Env struct{ Name, Href, Health string }
@@ -74,6 +75,7 @@ type Link struct {
 	A, B, Kind string
 	MS         float64 // < 0 = not measured
 	Via        string  // the node the pair is routed through, "" = direct
+	Down       bool    // a direct tunnel whose end is not online
 }
 
 type Backup struct {
@@ -234,6 +236,9 @@ func Build(m Map, base string, notes []graph.Note, create []graph.Create) graph.
 		kind := "tunnel"
 		if l.Kind != "internet" {
 			kind = "tunnel-lan"
+		}
+		if l.Down {
+			kind, label = "tunnel-down", "down"
 		}
 		edges = append(edges, graph.Edge{Kind: kind, From: nodeID(l.A), To: nodeID(l.B), Label: label})
 	}
@@ -421,4 +426,21 @@ func publicIP(n Node) string {
 }
 
 // viaList is the nodes a routed node is reached through, for its card.
-func viaList(n Node) string { return strings.Join(n.ReachedVia, ", ") }
+func viaList(n Node) string {
+	var out []string
+	for _, h := range n.ReachedVia {
+		if slices.Contains(n.ViaDown, h) {
+			h += " (down)"
+		}
+		out = append(out, h)
+	}
+	return strings.Join(out, ", ")
+}
+
+// viaClass warns when a hop the node is reached through is down.
+func viaClass(n Node) string {
+	if len(n.ViaDown) > 0 {
+		return "text-rw-warn"
+	}
+	return "text-rw-text"
+}

@@ -192,6 +192,7 @@ var edgeLooks = map[string]templ.Attributes{
 	// an outside store.
 	"tunnel":         {"stroke": "var(--rw-teal)", "stroke-width": "6"},
 	"tunnel-lan":     {"stroke": "var(--rw-teal)", "stroke-width": "4.5", "stroke-opacity": "0.55"},
+	"tunnel-down":    {"stroke": "rgb(var(--rw-danger))", "stroke-width": "4.5", "stroke-opacity": "0.6", "stroke-dasharray": "6 6", "stroke-linecap": "butt"},
 	"forward":        {"stroke": "var(--rw-env-sky)", "stroke-width": "2", "stroke-dasharray": "8 3"},
 	"forward-unsure": {"stroke": "var(--rw-env-sky)", "stroke-width": "2", "stroke-dasharray": "2 4"},
 	"backup":         {"stroke": "rgb(var(--rw-faint))", "stroke-dasharray": "2 4"},
@@ -200,8 +201,9 @@ var edgeLooks = map[string]templ.Attributes{
 // edgeCores hollow a kind into a pipe: a background-coloured stroke drawn
 // over the edge leaves two parallel lines (a tunnel looks like one).
 var edgeCores = map[string]templ.Attributes{
-	"tunnel":     {"stroke-width": "2.6"},
-	"tunnel-lan": {"stroke-width": "1.9"},
+	"tunnel":      {"stroke-width": "2.6"},
+	"tunnel-lan":  {"stroke-width": "1.9"},
+	"tunnel-down": {"stroke-width": "1.9"},
 }
 
 // EdgeCore is the pipe's inner stroke for a kind; ok false for a plain line.
@@ -234,6 +236,7 @@ var legendRows = []struct{ kind, label string }{
 	{"startup", "startup order"},
 	{"tunnel", "encrypted tunnel"},
 	{"tunnel-lan", "encrypted tunnel, LAN"},
+	{"tunnel-down", "tunnel down"},
 	{"forward", "port forward"},
 	{"forward-unsure", "port forward, unconfirmed"},
 	{"backup", "backup"},
