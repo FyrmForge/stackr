@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"os"
 	"os/exec"
@@ -25,6 +26,9 @@ import (
 type Traffic struct {
 	Tiles map[string]string `json:"tiles"` // container IP -> tile id
 	Lines string            `json:"lines"`
+	// Gateways of this node's stackr networks: the host side, where a
+	// host-network Caddy (an ingress worker's) reaches a tile from.
+	Gateways []string `json:"gateways,omitempty"`
 }
 
 // Labels the controller puts on tile containers (docker.LabelManaged,
@@ -40,7 +44,7 @@ const conntrackPath = "/proc/net/nf_conntrack"
 var acctKnob = "/proc/sys/net/netfilter/nf_conntrack_acct"
 
 func (s *Server) traffic(w http.ResponseWriter, r *http.Request) {
-	tiles, err := s.localTiles(r.Context())
+	tiles, gws, err := s.localTiles(r.Context())
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
@@ -51,7 +55,7 @@ func (s *Server) traffic(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(Traffic{Tiles: tiles, Lines: string(localLines(raw, tiles))})
+	_ = json.NewEncoder(w).Encode(Traffic{Tiles: tiles, Lines: string(localLines(raw, tiles)), Gateways: gws})
 }
 
 func (s *Server) conntrack() string {
@@ -62,28 +66,52 @@ func (s *Server) conntrack() string {
 }
 
 // localTiles maps every IP of this node's running tile containers to its
-// tile id, from the local Docker.
-func (s *Server) localTiles(ctx context.Context) (map[string]string, error) {
+// tile id, and lists the gateways of its stackr networks, from the local
+// Docker.
+func (s *Server) localTiles(ctx context.Context) (map[string]string, []string, error) {
 	hc := &http.Client{Timeout: 5 * time.Second, Transport: &http.Transport{
 		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
 			return (&net.Dialer{}).DialContext(ctx, "unix", s.cfg.DockerSock)
 		}}}
 	defer hc.CloseIdleConnections()
-	f := url.QueryEscape(`{"label":["` + labelManaged + `=true"],"status":["running"]}`)
-	req, _ := http.NewRequestWithContext(ctx, "GET", "http://local/containers/json?filters="+f, nil)
-	resp, err := hc.Do(req)
-	if err != nil {
-		return nil, err
+	get := func(path, filters string, v any) error {
+		req, _ := http.NewRequestWithContext(ctx, "GET", "http://local"+path+"?filters="+url.QueryEscape(filters), nil)
+		resp, err := hc.Do(req)
+		if err != nil {
+			return err
+		}
+		defer resp.Body.Close()
+		return json.NewDecoder(resp.Body).Decode(v)
 	}
-	defer resp.Body.Close()
+	managed := `"label":["` + labelManaged + `=true"]`
 	var cs []struct {
 		Labels          map[string]string
 		NetworkSettings struct {
 			Networks map[string]struct{ IPAddress string }
 		}
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&cs); err != nil {
-		return nil, err
+	if err := get("/containers/json", `{`+managed+`,"status":["running"]}`, &cs); err != nil {
+		return nil, nil, err
+	}
+	var ns []struct {
+		IPAM struct {
+			Config []struct{ Subnet, Gateway string }
+		}
+	}
+	if err := get("/networks", `{`+managed+`}`, &ns); err != nil {
+		return nil, nil, err
+	}
+	var gws []string
+	for _, n := range ns {
+		for _, c := range n.IPAM.Config {
+			// An unset gateway is Docker's default, the subnet's first host.
+			if p, err := netip.ParsePrefix(c.Subnet); c.Gateway == "" && err == nil {
+				c.Gateway = p.Masked().Addr().Next().String()
+			}
+			if c.Gateway != "" {
+				gws = append(gws, c.Gateway)
+			}
+		}
 	}
 	out := map[string]string{}
 	for _, c := range cs {
@@ -97,7 +125,7 @@ func (s *Server) localTiles(ctx context.Context) (map[string]string, error) {
 			}
 		}
 	}
-	return out, nil
+	return out, gws, nil
 }
 
 // ReadConntrack is the table: the procfs file, conntrack -L, or the kernel's

@@ -347,7 +347,7 @@ func TestTickWorkers(t *testing.T) {
 		if !up {
 			return nil
 		}
-		return map[string]worker.Traffic{"w1": {Tiles: app, Lines: workerLines}}
+		return map[string]worker.Traffic{"w1": {Tiles: app, Lines: workerLines, Gateways: []string{"10.210.1.1"}}}
 	}
 	tick := func(appDB, proxyApp int) {
 		t.Helper()
@@ -355,7 +355,12 @@ func TestTickWorkers(t *testing.T) {
 		// the controller's copy of the same connection, its counters off a
 		// little: counted here too, it would skew the lane
 		must(t, os.WriteFile(local, []byte(ctLine("10.210.1.5", "172.20.0.2", 7000, appDB+7, 2*appDB+7)), 0o644))
+		// the controller's gateway, the worker's own (its host-network Caddy)
+		// and another node's Caddy over the mesh (its transit address): all
+		// the proxy
 		workerLines = cross + ctLine("172.30.0.1", "10.210.1.5", 7001, proxyApp, proxyApp) +
+			ctLine("10.210.1.1", "10.210.1.5", 7003, proxyApp, proxyApp) +
+			ctLine("10.207.255.6", "10.210.1.5", 7004, proxyApp, proxyApp) +
 			ctLine("10.212.0.3", "10.211.0.4", 7002, 99999, 99999) // forwarded for others
 		must(t, fl.Tick(ctx))
 		*now = now.Add(5 * time.Second)
@@ -366,8 +371,8 @@ func TestTickWorkers(t *testing.T) {
 	want := map[ltraffic.Pair]float64{
 		{From: "app", To: "db"}:    1000, // once, not twice
 		{From: "db", To: "app"}:    2000,
-		{From: "proxy", To: "app"}: 100,
-		{From: "app", To: "proxy"}: 100,
+		{From: "proxy", To: "app"}: 300,
+		{From: "app", To: "proxy"}: 300,
 	}
 	if len(got) != len(want) {
 		t.Fatalf("snapshot = %v, want %v", got, want)
@@ -386,8 +391,8 @@ func TestTickWorkers(t *testing.T) {
 	}
 	up = true
 	tick(11000, 1100)
-	if v := fl.Traffic.Snapshot()[ltraffic.Pair{From: "proxy", To: "app"}]; v != 100 {
-		t.Errorf("after the gap: proxy->app = %v, want 100 (not its whole life)", v)
+	if v := fl.Traffic.Snapshot()[ltraffic.Pair{From: "proxy", To: "app"}]; v != 300 {
+		t.Errorf("after the gap: proxy->app = %v, want 300 (not its whole life)", v)
 	}
 }
 

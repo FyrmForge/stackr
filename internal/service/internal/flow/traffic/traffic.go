@@ -14,6 +14,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/FyrmForge/stackr/internal/mesh"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/domain"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/environment"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/managed"
@@ -100,6 +101,14 @@ func (f *Flow) Tick(ctx context.Context) error {
 	gws, err := f.Envs.Gateways(ctx)
 	if err != nil {
 		return err
+	}
+	for _, t := range remote {
+		gws = append(gws, t.Gateways...) // an ingress worker's host-network Caddy
+	}
+	// Another node's Caddy reaches a tile over the mesh from that node's
+	// transit address (no container address survives the hop).
+	for a := mesh.Transit.Addr().Next(); mesh.Transit.Contains(a); a = a.Next() {
+		gws = append(gws, a.String())
 	}
 	for _, ip := range append(proxy, gws...) {
 		ips[ip] = ltraffic.Proxy

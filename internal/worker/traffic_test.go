@@ -26,6 +26,11 @@ func TestTraffic(t *testing.T) {
 		if !strings.Contains(r.URL.RawQuery, "stackr.managed") {
 			t.Errorf("list not filtered: %s", r.URL.RawQuery)
 		}
+		if r.URL.Path == "/networks" {
+			_, _ = w.Write([]byte(`[{"IPAM":{"Config":[{"Subnet":"10.210.1.0/24","Gateway":"10.210.1.1"}]}},
+				{"IPAM":{"Config":[{"Subnet":"10.210.2.0/24"}]}}]`))
+			return
+		}
 		_, _ = w.Write([]byte(`[
 			{"Labels":{"stackr.managed":"true","stackr.tile":"app"},
 			 "NetworkSettings":{"Networks":{"env":{"IPAddress":"10.210.1.5"},"ing":{"IPAddress":"10.210.2.3"}}}},
@@ -54,6 +59,9 @@ func TestTraffic(t *testing.T) {
 	}
 	if len(got.Tiles) != 2 || got.Tiles["10.210.1.5"] != "app" || got.Tiles["10.210.2.3"] != "app" {
 		t.Errorf("tiles = %v", got.Tiles)
+	}
+	if strings.Join(got.Gateways, ",") != "10.210.1.1,10.210.2.1" {
+		t.Errorf("gateways = %v, want the set one and the unset one's first host", got.Gateways)
 	}
 	lines := strings.Split(strings.TrimSpace(got.Lines), "\n")
 	if len(lines) != 2 || !strings.Contains(lines[0], "sport=1 ") || !strings.Contains(lines[1], "sport=2 ") {
