@@ -303,6 +303,9 @@ func renderFilter(next map[string]Entry, b Base) string {
 		if b.WGPanelPort > 0 {
 			in("-i %s -p tcp --dport %d -j RETURN", b.WGIface, b.WGPanelPort)
 		}
+		// Peers ping each other's transit address for link latency; replies
+		// ride the conntrack RETURN above.
+		in("-i %s -s %s -d %s -p icmp --icmp-type echo-request -j RETURN", b.WGIface, cluster.Transit, cluster.Transit)
 		in("-i %s -j DROP", b.WGIface)
 	}
 	// From the node's own networks: the rules below, in InOwnChain.

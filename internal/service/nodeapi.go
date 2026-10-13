@@ -581,10 +581,11 @@ type ClusterGroup struct {
 
 // ClusterStatusLink is the path between two nodes.
 type ClusterStatusLink struct {
-	A     string `json:"a"`
-	B     string `json:"b"`
-	Path  string `json:"path"`  // lan | public | relay
-	State string `json:"state"` // up | down
+	A     string  `json:"a"`
+	B     string  `json:"b"`
+	Path  string  `json:"path"`         // lan | public | relay
+	State string  `json:"state"`        // up | down
+	MS    float64 `json:"ms,omitempty"` // pinged round trip over the mesh; 0 = not measured
 }
 
 // ClusterOut is `cluster status`.
@@ -662,6 +663,7 @@ func (o *Orchestrator) ClusterStatus(ctx context.Context) (ClusterOut, error) {
 			ml, ok := up[[2]string{a.ID, b.ID}]
 			if ok {
 				l.State = "up"
+				l.MS = max(ml.MS, 0)
 			}
 			kind := ml.Kind
 			switch {

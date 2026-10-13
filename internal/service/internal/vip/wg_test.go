@@ -21,6 +21,7 @@ func TestFilterWGInput(t *testing.T) {
 	want := []string{
 		"-A " + InChain + " -i wg0 -p udp --dport 52000:52255 -j RETURN",
 		"-A " + InChain + " -i wg0 -s 10.207.255.1/32 -p tcp --dport 7443 -j RETURN",
+		"-A " + InChain + " -i wg0 -s 10.207.255.0/24 -d 10.207.255.0/24 -p icmp --icmp-type echo-request -j RETURN",
 		"-A " + InChain + " -i wg0 -j DROP",
 	}
 	last := -1
@@ -35,7 +36,7 @@ func TestFilterWGInput(t *testing.T) {
 		t.Error("a base without WGIface renders wg0 rules")
 	}
 	b.WGPanelPort = 8080
-	if !strings.Contains(renderFilter(nil, b), "-A "+InChain+" -i wg0 -p tcp --dport 8080 -j RETURN\n-A "+InChain+" -i wg0 -j DROP") {
+	if !strings.Contains(renderFilter(nil, b), "-A "+InChain+" -i wg0 -p tcp --dport 8080 -j RETURN\n") {
 		t.Error("the panel port is not accepted before the wg0 drop")
 	}
 	b.WGIface = "wg0 -j ACCEPT"

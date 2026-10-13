@@ -3,7 +3,6 @@ package service
 import (
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 	"github.com/FyrmForge/stackr/internal/worker"
@@ -19,26 +18,30 @@ func iface(name string, public bool, prefixes ...string) worker.Iface {
 // where one has the public address. The cloud hands out /32s and a route
 // (Hetzner), so the network is the route's.
 func TestBuildClusterMap(t *testing.T) {
-	node := func(id, role string, f *worker.Facts, up bool, rtt time.Duration) clusterNodeIn {
+	node := func(id, role, transit string, f *worker.Facts, ping map[string]worker.PeerPing) clusterNodeIn {
+		f.Ping = ping
 		return clusterNodeIn{
-			Node:  store.Node{ID: id, Name: id, Role: role, Tags: `["ingress"]`, Status: "online"},
-			Facts: f, Up: up, RTT: rtt,
+			Node:  store.Node{ID: id, Name: id, Role: role, Tags: `["ingress"]`, Status: "online", WGAddress: transit},
+			Facts: f, Up: true,
 		}
 	}
+	// Latency is the pinged round trip, the lower of the two ends; a pair
+	// nobody got a reply for has none (fsn1 lost every probe to nas).
 	m := buildClusterMap([]clusterNodeIn{
-		node("home", "controller", facts(
+		node("home", "controller", "", facts(
 			iface("eth0", false, "192.168.1.10/24"),
 			iface("docker0", false, "172.17.0.1/16"),
 			iface("wg0", false, "10.207.255.1/24"),
-		), true, 0),
-		node("nas", "worker", facts(iface("eth0", false, "192.168.1.20/24")), true, 300*time.Microsecond),
-		node("fsn1", "worker", facts(
+		), map[string]worker.PeerPing{"10.207.255.1": {RTTms: 0.4}, "10.207.255.2": {RTTms: 21}, "10.207.255.3": {RTTms: 25}}),
+		node("nas", "worker", "10.207.255.1", facts(iface("eth0", false, "192.168.1.20/24")),
+			map[string]worker.PeerPing{"10.207.255.6": {RTTms: 0.3}}),
+		node("fsn1", "worker", "10.207.255.2", facts(
 			iface("eth0", true, "203.0.113.5/32"),
 			worker.Iface{Name: "enp7s0", Prefixes: []string{"10.20.0.2/32"}, Routes: []string{"10.20.0.0/16", "10.20.0.1/32"}},
-		), true, 21*time.Millisecond),
-		node("fsn2", "worker", facts(
+		), map[string]worker.PeerPing{"10.207.255.1": {Loss: 1}, "10.207.255.3": {RTTms: 0.8}}),
+		node("fsn2", "worker", "10.207.255.3", facts(
 			worker.Iface{Name: "enp7s0", Prefixes: []string{"10.20.0.3/32"}, Routes: []string{"10.20.0.0/16"}},
-		), true, 23*time.Millisecond),
+		), map[string]worker.PeerPing{"10.207.255.6": {RTTms: 23}}),
 	})
 	if len(m.Networks) != 2 {
 		t.Fatalf("networks = %+v, want the LAN and the cloud network", m.Networks)
@@ -64,7 +67,7 @@ func TestBuildClusterMap(t *testing.T) {
 		"home-fsn2": {LinkInternet, 23},
 		"nas-fsn1":  {LinkInternet, -1},
 		"nas-fsn2":  {LinkInternet, -1},
-		"fsn1-fsn2": {LinkPrivate, -1},
+		"fsn1-fsn2": {LinkPrivate, 0.8},
 	}
 	for _, l := range m.Links {
 		w := want[l.A+"-"+l.B]

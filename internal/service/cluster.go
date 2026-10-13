@@ -124,7 +124,6 @@ type clusterNodeIn struct {
 	Up       bool          // answered just now
 	Alive    bool          // not Up, but its public liveness port answered
 	Expired  bool          // a worker whose newest cert ran out
-	RTT      time.Duration // 0 = not measured
 	Envs     []ClusterEnv
 	Domains  []string
 	ExitEnvs []string
@@ -236,10 +235,6 @@ func buildClusterMap(in []clusterNodeIn) ClusterMap {
 		m.Networks = append(m.Networks, *c)
 	}
 	// One tunnel per connected pair; a node that does not answer has none up.
-	rtt := map[string]time.Duration{}
-	for _, n := range in {
-		rtt[n.Node.ID] = n.RTT
-	}
 	remembered := func(i, j int) string {
 		for _, x := range [][2]int{{i, j}, {j, i}} {
 			if mem := in[x[0]].Mem; mem != nil && mem.Links[in[x[1]].Node.ID] != "" {
@@ -264,15 +259,29 @@ func buildClusterMap(in []clusterNodeIn) ClusterMap {
 					l.Kind = LinkPrivate
 				}
 			}
-			if d := rtt[b.ID]; a.Role == node.Controller && d > 0 {
-				l.MS = float64(d) / float64(time.Millisecond)
-			} else if d := rtt[a.ID]; b.Role == node.Controller && d > 0 {
-				l.MS = float64(d) / float64(time.Millisecond)
+			if ms, ok := pingMS(in[i], in[i+1+j]); ok {
+				l.MS = ms
 			}
 			m.Links = append(m.Links, l)
 		}
 	}
 	return m
+}
+
+// pingMS is the pair's ICMP round trip as either end measured it over the
+// mesh, the lower when both did. No reply on either side: not measured.
+func pingMS(a, b clusterNodeIn) (float64, bool) {
+	best, ok := 0.0, false
+	for _, x := range [2][2]clusterNodeIn{{a, b}, {b, a}} {
+		if x[0].Facts == nil {
+			continue
+		}
+		p, has := x[0].Facts.Ping[transitOf(x[1].Node).String()]
+		if has && p.RTTms > 0 && (!ok || p.RTTms < best) {
+			best, ok = p.RTTms, true
+		}
+	}
+	return best, ok
 }
 
 // ClusterMap is the Cluster canvas's facts. Admin only (the caller's gate).
@@ -293,7 +302,7 @@ func (o *Orchestrator) ClusterMap(ctx context.Context) (ClusterMap, error) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			in[i].Facts, in[i].Up, in[i].RTT = o.clusterFacts(ctx, n)
+			in[i].Facts, in[i].Up, _ = o.clusterFacts(ctx, n)
 			in[i].Mem = o.loadMemory(ctx, n.ID)
 			in[i].Alive = !in[i].Up && o.HostAlive(n.ID)
 			in[i].Expired = n.Role == node.Worker && o.certExpired(n.ID)

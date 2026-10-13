@@ -617,7 +617,11 @@ func (a *app) cluster() *cobra.Command {
 					a.say("LINKS")
 					for _, l := range links {
 						lm := asMap(l)
-						a.say("  %-9s <-> %-9s %-8s %s", cell(lm["a"]), cell(lm["b"]), cell(lm["path"]), cell(lm["state"]))
+						rtt := ""
+						if ms, _ := lm["ms"].(float64); ms > 0 {
+							rtt = fmt.Sprintf("  %.1f ms", ms)
+						}
+						a.say("  %-9s <-> %-9s %-8s %s%s", cell(lm["a"]), cell(lm["b"]), cell(lm["path"]), cell(lm["state"]), rtt)
 					}
 					a.say("")
 				}
