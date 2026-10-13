@@ -1,6 +1,6 @@
 # Registry imports: every node pulls only from the cluster registry
 
-Status: plan, agreed point by point with darthvader 2026-10-13. Not built.
+Status: plan agreed point by point with darthvader 2026-10-13. Not built.
 
 ## Agreed
 
@@ -45,18 +45,23 @@ Status: plan, agreed point by point with darthvader 2026-10-13. Not built.
 - **Later (not this plan):** vulnerability scans and allow/deny lists,
   hooked into the import step.
 
-## Open points (to agree before Wave 0)
+## Points agreed before Wave 0 (all closed)
 
-1. Registry index validation: `list` (the cluster's CPU types, fixed in the
-   registry config, recreate to change) or `none` (accept any index; the
-   importer guarantees the platforms it needs).
-2. Imported repo name: `<org>/import.<host>/<path>-<h8>`: `<path>` is the
-   upstream path with `/` as `.`, `<h8>` the first 8 hex of sha256 of the full
-   upstream repo, so two upstreams never share a repo. Stack slugs have no
-   dots, so `import.<host>` never collides with a stack. Shows in the CLI and
-   UI.
-3. New table `registry_images` (the record).
-4. Per-node VIP lock (G6) in this plan.
+1. ~~Index validation~~ agreed: the registry's own store-time check is
+   `platforms: none`. This is NOT what gets copied: the importer still copies
+   only the CPU types the cluster's nodes have, and guarantees them (a fixed `list` would need the registry recreated
+   as CPU types come and go). A hand-pushed broken index fails on the node.
+2. ~~Repo name~~ agreed: the original name with the org in front, nothing
+   invented: `postgres:16` -> `<org>/docker.io/library/postgres:16`,
+   `ghcr.io/foo/bar:1` -> `<org>/ghcr.io/foo/bar:1`. Upstream names are unique;
+   the second part always holds a dot (a host) and stack slugs never do.
+3. ~~Record table~~ agreed: `registry_images`, owned by one leaf,
+   `internal/service/internal/leaf/registry`. Every registry operation (import,
+   delete, cleanup, list) goes through it and updates the table in the same
+   step; regfront calls it when a push (builder or developer) completes.
+   Nothing else in stackr talks to the registry. Listing: the registry decides
+   what exists, the table adds detail; a row with no image is not shown.
+4. ~~Per-node VIP lock~~ agreed, as G6.
 
 ## Decisions taken without asking
 
@@ -84,18 +89,27 @@ and `golangci-lint run` on them.
    repo, tag, digest, platforms text, source `built|imported|system`,
    upstream_ref, size, created_by, created_at; unique repo+digest). Store
    type, CRUD, `ListByOrg`, `ListAll`, `InUse` hook left to the service.
-3. `internal/service/internal/regfront`: accept the `import.<host>` second
-   part and `<path>-<h8>` third part. Users and admins: the per-org rules of
+3. `internal/service/internal/regfront`: accept import repos
+   `<org>/<host>/<path...>` of any depth (Docker's repo grammar), splitting a
+   request path into repo and endpoint from its end (`/manifests/<ref>`,
+   `/blobs/<digest>`, `/blobs/uploads/...`, `/tags/list`,
+   `/referrers/<digest>`), as the registry itself does. Users and admins: the per-org rules of
    tile repos. **Nodes:** a node may pull an import only when an env pinned to
    it uses that upstream ref (a new Facts entry), never by org alone, since
    one node hosts many orgs. Name helper `ImportRepo(org, upstreamRef)
-   string` plus tests, including a node token of org A asking for org B's
+   string` (Docker Hub short names normalised to `docker.io/library/...`)
+   plus tests, including a node token of org A asking for org B's
    import.
 4. `internal/installspec/registry.go`: mount a config file with
    `validation.manifests.indexes.platforms: none` and delete enabled; spec
    hash changes so upgrade recreates the container.
 5. `internal/service/internal/imgcopy`: the `Copy` signature (G1) as a stub,
    so G2 and G3 compile while G1 writes it.
+5b. `internal/service/internal/leaf/registry`: the leaf's API as stubs
+   (`Import`, `Pushed`, `Delete`, `List`, `Versions`, `Clean`), the only
+   holder of the registry address and the store; move the listing code of
+   `internal/service/registrylist.go` into it. regfront gets a `Pushed`
+   callback field.
 6. Interfaces and stubs, in a new `internal/service/imports.go`:
    `Import(ctx, orgID, ref, auth string, platforms []string) (localRef,
    digest string, err error)` returning `errors.ErrUnsupported`;
