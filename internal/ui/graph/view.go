@@ -76,9 +76,9 @@ type Node struct {
 	// Members makes the card a container (the Cluster map's network box):
 	// the canvas keeps it wrapped around these cards, Pad (top right bottom
 	// left) out and at least MinW wide, and it drags them along.
-	Members        []string
-	Pad            [4]int
-	MinW           int
+	Members []string
+	Pad     [4]int
+	MinW    int
 	// UserW and UserH are a box's hand-set size: it never wraps smaller.
 	UserW, UserH   int
 	System, Static bool
@@ -189,11 +189,11 @@ var edgeLooks = map[string]templ.Attributes{
 	"startup": {"stroke": "var(--rw-amber)", "stroke-width": "1.2", "stroke-opacity": "0.5", "stroke-dasharray": "1 5"},
 	"config":  {"stroke": "var(--rw-edge-connector)", "stroke-opacity": "0.75"},
 	"source":  {"stroke": "var(--rw-edge-connector)", "stroke-dasharray": "4 6", "stroke-opacity": "0.4"},
-	// The Cluster map's: encrypted tunnels between nodes (fainter on a LAN),
-	// a NAT's port forward (long dashes, dotted while unconfirmed), backups to
-	// an outside store.
-	"tunnel":         {"stroke": "var(--rw-teal)", "stroke-width": "6"},
-	"tunnel-lan":     {"stroke": "var(--rw-teal)", "stroke-width": "4.5", "stroke-opacity": "0.55"},
+	// The Cluster map's: encrypted tunnels between nodes (green over the
+	// internet, blue on a private network), a NAT's port forward (long dashes,
+	// dotted while unconfirmed), backups to an outside store.
+	"tunnel":         {"stroke": "var(--rw-tunnel-net)", "stroke-width": "6"},
+	"tunnel-lan":     {"stroke": "var(--rw-tunnel-lan)", "stroke-width": "5"},
 	"tunnel-down":    {"stroke": "rgb(var(--rw-danger))", "stroke-width": "4.5", "stroke-opacity": "0.6", "stroke-dasharray": "6 6", "stroke-linecap": "butt"},
 	"forward":        {"stroke": "var(--rw-env-sky)", "stroke-width": "2", "stroke-dasharray": "8 3"},
 	"forward-unsure": {"stroke": "var(--rw-env-sky)", "stroke-width": "2", "stroke-dasharray": "2 4"},
@@ -204,7 +204,7 @@ var edgeLooks = map[string]templ.Attributes{
 // over the edge leaves two parallel lines (a tunnel looks like one).
 var edgeCores = map[string]templ.Attributes{
 	"tunnel":      {"stroke-width": "2.6"},
-	"tunnel-lan":  {"stroke-width": "1.9"},
+	"tunnel-lan":  {"stroke-width": "2.2"},
 	"tunnel-down": {"stroke-width": "1.9"},
 }
 
@@ -236,8 +236,8 @@ var legendRows = []struct{ kind, label string }{
 	{"shared", "managed instance"},
 	{"ref", "reference"},
 	{"startup", "startup order"},
-	{"tunnel", "encrypted tunnel"},
-	{"tunnel-lan", "encrypted tunnel, LAN"},
+	{"tunnel", "encrypted tunnel, internet"},
+	{"tunnel-lan", "encrypted tunnel, private"},
 	{"tunnel-down", "tunnel down"},
 	{"forward", "port forward"},
 	{"forward-unsure", "port forward, unconfirmed"},

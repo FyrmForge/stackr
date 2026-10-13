@@ -55,6 +55,7 @@ type Map struct {
 type Node struct {
 	ID, Name, Role, Status, Docker, Net string
 	Tags, Public, Domains, ExitEnvs     []string
+	DomainEnvs                          map[string]string // domain -> env path
 	Envs                                []Env
 	NoForward                           bool     // ingress behind a NAT the internet does not reach
 	ReachedVia                          []string // nodes the others' traffic to it is routed through
@@ -96,7 +97,7 @@ const (
 	headH      = 64 // a box's header: its name and sub
 	padB       = 32
 	gapX       = 96
-	boxGapY    = 140         // between stacked boxes: room for the tunnels across
+	boxGapY    = 140 // between stacked boxes: room for the tunnels across
 	netLeft    = 0
 	inetGap    = 40 // an internet card sits this far above its node's row
 	minBoxW    = 320
@@ -106,10 +107,10 @@ const (
 // IDs of the cards that are not nodes. Each node or NAT with public
 // traffic has its own internet card, so lines never converge on one.
 func internetID(from string) string { return "internet:" + from }
-func natID(net string) string { return "nat:" + net }
-func boxID(net string) string { return "net:" + net }
-func nodeID(id string) string { return "node:" + id }
-func s3ID(id string) string   { return "s3:" + id }
+func natID(net string) string       { return "nat:" + net }
+func boxID(net string) string       { return "net:" + net }
+func nodeID(id string) string       { return "node:" + id }
+func s3ID(id string) string         { return "s3:" + id }
 
 // rows are the envs a card lists: the worst three, then "+N more".
 func rows(n Node) []Env {
@@ -236,9 +237,9 @@ func Build(m Map, base string, notes []graph.Note, create []graph.Create) graph.
 	// forwards to the node the probe found.
 	var edges []graph.Edge
 	for _, l := range m.Links {
-		label := l.Kind
+		label := "" // colour tells internet from private; the label is the latency
 		if l.MS >= 0 {
-			label += " · " + trimMS(l.MS) + " ms"
+			label = trimMS(l.MS) + " ms"
 		}
 		kind := "tunnel"
 		if l.Kind != "internet" {
@@ -249,44 +250,63 @@ func Build(m Map, base string, notes []graph.Note, create []graph.Create) graph.
 		}
 		edges = append(edges, graph.Edge{Kind: kind, From: nodeID(l.A), To: nodeID(l.B), Label: label})
 	}
-	public := func(from string, in bool, hosts, exits []string) {
-		if !in && len(exits) == 0 {
+	// The internet card says what reaches it, so its edges carry no labels.
+	public := func(from string, in bool, info inetInfo) {
+		if !in && len(info.Egress) == 0 {
 			return
 		}
 		inet := internetID(from)
+		info.ID = "inet-" + strings.NewReplacer(":", "-", "/", "-", ".", "-").Replace(from)
 		r := at[from]
 		r = place(inet, rect{r.x + (r.w-sideW)/2, top[from] - headH - inetGap - sideH, sideW, sideH})
 		cards = append(cards, graph.Node{ID: inet, Kind: "internet", Name: "Internet",
-			X: r.x, Y: r.y, W: r.w, H: r.h, Card: sideCard("Internet", "globe")})
+			X: r.x, Y: r.y, W: r.w, H: r.h, Card: inetCard(info)})
 		if in {
-			edges = append(edges, graph.Edge{Kind: "ingress", From: inet, To: from, Label: hostsLabel(hosts)})
+			edges = append(edges, graph.Edge{Kind: "ingress", From: inet, To: from})
 		}
-		if len(exits) > 0 {
-			edges = append(edges, graph.Edge{Kind: "egress", From: from, To: inet, Label: exitsLabel(exits)})
+		if len(info.Egress) > 0 {
+			edges = append(edges, graph.Edge{Kind: "egress", From: from, To: inet})
 		}
+	}
+	routes := func(n Node) []inetRoute {
+		var rs []inetRoute
+		for _, h := range n.Domains {
+			rs = append(rs, inetRoute{Host: h, Env: n.DomainEnvs[h]})
+		}
+		return rs
 	}
 	for _, c := range m.Nets {
 		var in bool
-		var hosts, exits []string
+		var nat inetInfo
 		for _, id := range c.Nodes {
 			n, ok := byID[id]
 			if !ok {
 				continue
 			}
 			if len(n.Public) > 0 || !c.Router {
-				public(nodeID(n.ID), hasTag(n, "ingress") && len(n.Public) > 0, n.Domains, n.ExitEnvs)
+				own := hasTag(n, "ingress") && len(n.Public) > 0
+				info := inetInfo{Public: n.Public, Egress: n.ExitEnvs}
+				if own {
+					info.Ingress = routes(n)
+				}
+				public(nodeID(n.ID), own, info)
 				continue
 			}
 			in = in || hasTag(n, "ingress")
 			if hasTag(n, "ingress") {
-				hosts = append(hosts, n.Domains...)
+				nat.Ingress = append(nat.Ingress, routes(n)...)
 			}
-			exits = append(exits, n.ExitEnvs...)
+			nat.Egress = append(nat.Egress, n.ExitEnvs...)
+			nat.NoForward = nat.NoForward || n.NoForward
 		}
 		if !c.Router {
 			continue
 		}
-		public(natID(c.ID), in, hosts, exits)
+		nat.Behind, nat.Unsure = true, c.Unsure
+		if f, ok := byID[c.Forward]; ok {
+			nat.Forward = f.Name
+		}
+		public(natID(c.ID), in, nat)
 		if _, ok := byID[c.Forward]; ok {
 			kind := "forward"
 			if c.Unsure {
@@ -338,22 +358,20 @@ func wrap(rs []rect, minW int) rect {
 	return b
 }
 
-func hostsLabel(hosts []string) string {
-	switch len(hosts) {
-	case 0:
-		return "ingress"
-	case 1:
-		return hosts[0]
-	}
-	return fmt.Sprintf("%s +%d", hosts[0], len(hosts)-1)
+// inetInfo is what an internet card lists when opened: the domains that
+// come in through it (each with its env), the envs that leave through it,
+// the public addresses, and the port forward of a NAT.
+type inetInfo struct {
+	ID                string // the popover's element id
+	Public            []string
+	Ingress           []inetRoute
+	Egress            []string // env paths
+	Behind            bool     // a NAT's card: the node behind it is Forward
+	Forward           string
+	Unsure, NoForward bool
 }
 
-func exitsLabel(exits []string) string {
-	if len(exits) == 1 {
-		return "egress · " + exits[0]
-	}
-	return fmt.Sprintf("egress · %s +%d", exits[0], len(exits)-1)
-}
+type inetRoute struct{ Host, Env string }
 
 func trimMS(ms float64) string {
 	if ms < 10 {

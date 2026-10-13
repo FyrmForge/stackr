@@ -1,6 +1,10 @@
 package cluster
 
-import "github.com/FyrmForge/stackr/internal/ui/graph"
+import (
+	"strings"
+
+	"github.com/FyrmForge/stackr/internal/ui/graph"
+)
 
 // Page is the Cluster page: its own bar (the shell's top bar shows only
 // where the URL has crumbs), then #graph, which holds the canvas and swaps
@@ -58,6 +62,59 @@ templ sideCard(name, icon string) {
 			</svg>
 		</span>
 		<span class="text-sm font-semibold text-rw-text truncate">{ name }</span>
+	</div>
+}
+
+// inetCard is a node's (or NAT's) internet: the face opens a panel listing
+// what comes in and goes out through it.
+templ inetCard(i inetInfo) {
+	<button type="button" popovertarget={ i.ID } class="block h-full w-full text-left cursor-pointer" aria-label="What reaches the internet here">
+		@sideCard("Internet", "globe")
+	</button>
+	<div id={ i.ID } popover class="inet-panel w-[min(28rem,92vw)] max-h-[80vh] overflow-auto rounded-xl border border-rw-border bg-rw-surface p-4 text-sm text-rw-text shadow-rw">
+		<div class="flex items-center justify-between gap-2">
+			<h3 class="text-sm font-semibold">Internet</h3>
+			<button type="button" popovertarget={ i.ID } popovertargetaction="hide" class="text-rw-faint hover:text-rw-text" aria-label="Close">×</button>
+		</div>
+		if len(i.Public) > 0 {
+			<p class="mt-2 text-xs text-rw-muted">Public: <span class="font-mono text-rw-text">{ strings.Join(i.Public, ", ") }</span></p>
+		}
+		if i.Behind {
+			<p class="mt-2 text-xs text-rw-muted">
+				Behind a router.
+				switch {
+					case i.Forward != "" && !i.Unsure:
+						Ports 80 and 443 forward to <span class="text-rw-text">{ i.Forward }</span>.
+					case i.Forward != "":
+						Ports 80 and 443 seem to forward to <span class="text-rw-text">{ i.Forward }</span> (not confirmed from outside).
+					case i.NoForward:
+						<span class="text-rw-warn">No port forward: the internet does not reach ingress here.</span>
+				}
+			</p>
+		}
+		<h4 class="mt-3 text-xs font-semibold uppercase tracking-wide text-rw-faint">Ingress</h4>
+		if len(i.Ingress) == 0 {
+			<p class="mt-1 text-xs text-rw-muted">None.</p>
+		}
+		<ul class="mt-1 space-y-1">
+			for _, r := range i.Ingress {
+				<li class="flex items-center justify-between gap-3 min-w-0">
+					<span class="font-mono text-xs truncate">{ r.Host }</span>
+					if r.Env != "" {
+						<a href={ templ.SafeURL("/" + r.Env) } class="text-xs text-rw-accent hover:underline truncate">{ r.Env }</a>
+					}
+				</li>
+			}
+		</ul>
+		<h4 class="mt-3 text-xs font-semibold uppercase tracking-wide text-rw-faint">Egress</h4>
+		if len(i.Egress) == 0 {
+			<p class="mt-1 text-xs text-rw-muted">None.</p>
+		}
+		<ul class="mt-1 space-y-1">
+			for _, e := range i.Egress {
+				<li><a href={ templ.SafeURL("/" + e) } class="text-xs text-rw-accent hover:underline">{ e }</a></li>
+			}
+		</ul>
 	</div>
 }
 

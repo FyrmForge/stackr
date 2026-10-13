@@ -124,7 +124,7 @@ templ Canvas(v View) {
 				@divider(v)
 			}
 			for _, e := range v.Edges {
-				<path data-edge-kind={ e.Kind } data-from={ e.From } data-to={ e.To } d="M0,0" { EdgeAttrs(e.Kind)... }></path>
+				<path data-edge-kind={ e.Kind } data-from={ e.From } data-to={ e.To } d="M0,0" { EdgeAttrs(e.Kind)... } data-edge-id={ e.From + "|" + e.To }></path>
 				if core, ok := EdgeCore(e.Kind); ok {
 					<path data-edge-core d="M0,0" { core... }></path>
 				}

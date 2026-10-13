@@ -42,6 +42,8 @@
   --rw-glow: 0 0 0 1px rgba(139,109,243,0.4), 0 6px 24px rgba(139,109,243,0.15);
   --rw-grid: #26262E;
   --rw-teal: #5EEAD4;
+  --rw-tunnel-net: #4ADE80;
+  --rw-tunnel-lan: #60A5FA;
   --rw-amber: #E0B341;
   /* Connector edges on the canvas: config (solid) and source (dashed) are one
      family. It must remain visible against both light and dark themes. */
@@ -110,6 +112,8 @@ html.light {
   --rw-glow: 0 0 0 1px rgba(109,79,224,0.4), 0 6px 24px rgba(109,79,224,0.15);
   --rw-grid: #D8D6E1;
   --rw-teal: #0E9488;
+  --rw-tunnel-net: #16A34A;
+  --rw-tunnel-lan: #2563EB;
   --rw-amber: #9A6F08;
   --rw-edge-connector: #3663B8;
   --rw-caret: #1B1A22;
@@ -178,6 +182,8 @@ html.light {
     --rw-glow: 0 0 0 1px rgba(109,79,224,0.4), 0 6px 24px rgba(109,79,224,0.15);
     --rw-grid: #D8D6E1;
     --rw-teal: #0E9488;
+    --rw-tunnel-net: #16A34A;
+    --rw-tunnel-lan: #2563EB;
     --rw-amber: #9A6F08;
     --rw-edge-connector: #3663B8;
     --rw-caret: #1B1A22;

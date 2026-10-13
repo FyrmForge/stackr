@@ -60,17 +60,16 @@ func TestMapDraws(t *testing.T) {
 		`node-id="nat:192.168.1.0/24"`, ">NAT<", "192.168.1.0/24", "behind a router",
 		`node-id="internet:nat:192.168.1.0/24"`, `node-id="internet:node:f"`, `node-id="s3:b"`, "S3 · nightly",
 		`members="nat:192.168.1.0/24 node:h node:n"`, // a box holds its NAT and nodes
-		"LAN · 0.3 ms", "internet · 21 ms",
-		`data-edge-label>private<`, // no latency known: just the kind
-		"home.example.com +2",        // through the NAT: the box's ingress names
-		"shop.example.com",           // straight to a public node
-		"egress · smoke/web/dev", "egress · acme/prod/web +1",
+		">0.3 ms<", ">21 ms<", // tunnels say only their latency; colour says internet or private
+		// The internet card's panel lists what comes in and goes out there.
+		`popovertarget="inet-nat-192-168-1-0-24"`, "home.example.com", "a.example.com",
+		"shop.example.com", `href="/acme/prod/web"`, `href="/smoke/web/dev"`, "Behind a router",
 		"+2 more", // five envs: three listed, the rest counted
 		"Not answering", "Healthy", "Moving",
 		"Public IP", "203.0.113.5", "No public IP",
 		"No port forward",
 		"Reached via", // a routed node names its hop
-		"encrypted tunnel", "encrypted tunnel, LAN", ">ingress<", ">egress<", "port forward",
+		"encrypted tunnel, internet", "encrypted tunnel, private", ">ingress<", ">egress<", "port forward",
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("page lacks %q", want)
@@ -89,6 +88,12 @@ func TestMapDraws(t *testing.T) {
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("page lacks edge %s", want)
+		}
+	}
+	// Tunnels name no kind and ingress and egress carry no label at all.
+	for _, bad := range []string{">LAN ·", ">internet ·", ">private<", "egress ·", "home.example.com +2"} {
+		if strings.Contains(body, bad) {
+			t.Errorf("page still labels an edge %q", bad)
 		}
 	}
 	// No shared internet card: two public sources, two cards; a tunnel over

@@ -71,6 +71,8 @@ type ClusterNode struct {
 	// Domains are the hosts this node's ingress answers on: the tiles whose
 	// ingress pick is this node, the rest on the controller.
 	Domains []string
+	// DomainEnvs is each of Domains' env path (org/stack/env).
+	DomainEnvs map[string]string
 	// ExitEnvs are the env paths whose traffic leaves the internet here.
 	ExitEnvs []string
 	// NoForward: an ingress node behind a NAT that the probe did not reach.
@@ -120,15 +122,16 @@ type ClusterBackup struct {
 
 // clusterNodeIn is one node as gather saw it.
 type clusterNodeIn struct {
-	Node     store.Node
-	Facts    *worker.Facts // nil = never reported
-	Mem      *nodeMemory   // what the map saw while it answered; nil = nothing
-	Up       bool          // answered just now
-	Alive    bool          // not Up, but its public liveness port answered
-	Expired  bool          // a worker whose newest cert ran out
-	Envs     []ClusterEnv
-	Domains  []string
-	ExitEnvs []string
+	Node       store.Node
+	Facts      *worker.Facts // nil = never reported
+	Mem        *nodeMemory   // what the map saw while it answered; nil = nothing
+	Up         bool          // answered just now
+	Alive      bool          // not Up, but its public liveness port answered
+	Expired    bool          // a worker whose newest cert ran out
+	Envs       []ClusterEnv
+	Domains    []string
+	DomainEnvs map[string]string
+	ExitEnvs   []string
 }
 
 // excluded are the interfaces that are not a LAN the node sits on.
@@ -166,7 +169,7 @@ func buildClusterMap(in []clusterNodeIn) ClusterMap {
 	for _, n := range in {
 		cn := ClusterNode{
 			ID: n.Node.ID, Name: n.Node.Name, Role: n.Node.Role, Tags: node.Tags(n.Node),
-			Envs: n.Envs, Domains: n.Domains, ExitEnvs: n.ExitEnvs, Status: n.Node.Status,
+			Envs: n.Envs, Domains: n.Domains, DomainEnvs: n.DomainEnvs, ExitEnvs: n.ExitEnvs, Status: n.Node.Status,
 		}
 		switch {
 		case n.Expired:
@@ -361,6 +364,12 @@ func (o *Orchestrator) ClusterMap(ctx context.Context) (ClusterMap, error) {
 					j = at[defIng]
 				}
 				in[j].Domains = append(in[j].Domains, hosts[t.ID]...)
+				if in[j].DomainEnvs == nil {
+					in[j].DomainEnvs = map[string]string{}
+				}
+				for _, h := range hosts[t.ID] {
+					in[j].DomainEnvs[h] = ce.Path
+				}
 			}
 			// The exit: the first rung of the env's resolved ladder, else its own node.
 			exit, err := o.exitNode(ctx, e, st.OrgID)
