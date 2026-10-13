@@ -532,13 +532,6 @@ node; multi-hop routing then reaches every node. Device peers never act as a
 hop, get access rules (which nodes, envs, ports), short-lived keys and an
 audit trail.
 
-## Metrics (agreed 2026-10-13)
+## Metrics and logs
 
-Container CPU/memory/network/block io/disk, node CPU/memory/disk and link
-ping RTT/loss, sampled every 30 s from cgroup v2 on each node, reported to the
-controller, stored in a separate `metrics.db` (SQLite, not in panel backups)
-behind a narrow MetricsStore interface: 24 h full detail, 7 days of 5-minute
-averages, size cap. Temporary: darthvader expects to move to DuckDB or
-VictoriaMetrics soon, so nothing outside the store knows it is SQLite.
-UI next: graphs on tiles, nodes, and a link drawer (click any map link).
-
+Parked; plan in `docs/rewrite/tasks/observability.md` (Victoria family, optional).
