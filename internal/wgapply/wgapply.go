@@ -83,6 +83,7 @@ type Failover struct {
 }
 
 type state struct {
+	node    string // the peer's node, so a rotated key keeps its place
 	cands   []netip.AddrPort
 	idx     int
 	since   time.Time // when the current candidate was set
@@ -110,13 +111,28 @@ func (f *Failover) Reset(peers []mesh.Peer) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	next := map[string]*state{}
+	byNode := map[string]*state{}
+	for _, st := range f.peers {
+		if st.node != "" {
+			byNode[st.node] = st
+		}
+	}
 	for _, p := range peers {
 		if old, ok := f.peers[p.PublicKey]; ok && sameCands(old.cands, p.Candidates) {
 			next[p.PublicKey] = old
 			continue
 		}
 		now := f.now()
-		next[p.PublicKey] = &state{cands: p.Candidates, since: now, rxAt: now, probing: true, home: -1}
+		// A node that rotated its key is a new peer to the kernel: it keeps
+		// the candidate it was on, so a NAT'd pair does not walk from the top.
+		if old, ok := byNode[p.NodeID]; ok && p.NodeID != "" && sameCands(old.cands, p.Candidates) {
+			st := *old
+			st.since, st.rxAt, st.probing, st.rx = now, now, true, 0
+			next[p.PublicKey] = &st
+			_ = f.A.SetEndpoint(f.Iface, p.PublicKey, p.Candidates[st.idx])
+			continue
+		}
+		next[p.PublicKey] = &state{node: p.NodeID, cands: p.Candidates, since: now, rxAt: now, probing: true, home: -1}
 		if len(p.Candidates) > 0 {
 			_ = f.A.SetEndpoint(f.Iface, p.PublicKey, p.Candidates[0]) // best effort: the walk moves on if it does not hold
 		}

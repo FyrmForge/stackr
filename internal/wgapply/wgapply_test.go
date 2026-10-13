@@ -154,6 +154,23 @@ func TestSingleCandidateNeverMoves(t *testing.T) {
 	}
 }
 
+// A node that rotated its key comes back as a new peer on the candidate it
+// was on, not the top of the walk.
+func TestRotatedKeyKeepsCandidate(t *testing.T) {
+	r := &rig{t: t, now: time.Unix(1000, 0), rec: &Recorder{}}
+	r.f = &Failover{A: r.rec, Iface: "stackr0", Now: func() time.Time { return r.now }}
+	r.f.Reset([]mesh.Peer{{NodeID: "n1", PublicKey: "old", Candidates: cands}})
+	r.at(30 * time.Second) // -> public
+	r.f.Reset([]mesh.Peer{{NodeID: "n1", PublicKey: "new", Candidates: cands}})
+	if last := r.rec.Moves[len(r.rec.Moves)-1]; last.PublicKey != "new" || last.Endpoint != cands[1] {
+		t.Fatalf("rotated peer set to %v", last)
+	}
+	r.f.Reset([]mesh.Peer{{NodeID: "n2", PublicKey: "other", Candidates: cands}})
+	if last := r.rec.Moves[len(r.rec.Moves)-1]; last.Endpoint != cands[0] {
+		t.Fatalf("a different node starts at the top: %v", last)
+	}
+}
+
 func TestSamePushKeepsPosition(t *testing.T) {
 	r := newRig(t)
 	r.at(30 * time.Second) // -> public
