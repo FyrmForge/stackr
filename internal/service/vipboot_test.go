@@ -130,6 +130,8 @@ func newBootRig(t *testing.T) bootRig {
 	ctx := context.Background()
 	dir := t.TempDir()
 	fake := dockerfake.New()
+	fake.Details = map[string]docker.Detail{} // before New: its boot goroutines read the fake
+	fake.Err = map[string]error{}
 	scripts := &[]string{}
 	table := vip.New()
 	table.Restore = func(ctx context.Context, s string) error {
@@ -161,8 +163,6 @@ func newBootRig(t *testing.T) bootRig {
 		Network: "n", FromKind: "branch", FromBranch: "main", CreatedAt: now,
 	}))
 	r := bootRig{orch: orch, fake: fake, table: table, scripts: scripts, st: st, stack: stack, env: env, tiles: map[string]store.Tile{}}
-	fake.Details = map[string]docker.Detail{}
-	fake.Err = map[string]error{}
 	for i, slug := range []string{"a", "b"} {
 		r.addTile(t, slug, "10.0.0."+string(rune('2'+2*i)), "10.0.0."+string(rune('3'+2*i)))
 	}
