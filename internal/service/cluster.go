@@ -122,16 +122,17 @@ type ClusterBackup struct {
 
 // clusterNodeIn is one node as gather saw it.
 type clusterNodeIn struct {
-	Node       store.Node
-	Facts      *worker.Facts // nil = never reported
-	Mem        *nodeMemory   // what the map saw while it answered; nil = nothing
-	Up         bool          // answered just now
-	Alive      bool          // not Up, but its public liveness port answered
-	Expired    bool          // a worker whose newest cert ran out
-	Envs       []ClusterEnv
-	Domains    []string
-	DomainEnvs map[string]string
-	ExitEnvs   []string
+	Node        store.Node
+	Facts       *worker.Facts // nil = never reported
+	Mem         *nodeMemory   // what the map saw while it answered; nil = nothing
+	Up          bool          // answered just now
+	Alive       bool          // not Up, but its public liveness port answered
+	Expired     bool          // a worker whose newest cert ran out
+	NotRejoined bool          // break glass revoked it and its rejoin is not used yet
+	Envs        []ClusterEnv
+	Domains     []string
+	DomainEnvs  map[string]string
+	ExitEnvs    []string
 }
 
 // excluded are the interfaces that are not a LAN the node sits on.
@@ -172,6 +173,8 @@ func buildClusterMap(in []clusterNodeIn) ClusterMap {
 			Envs: n.Envs, Domains: n.Domains, DomainEnvs: n.DomainEnvs, ExitEnvs: n.ExitEnvs, Status: n.Node.Status,
 		}
 		switch {
+		case n.NotRejoined:
+			cn.Status = NodeNotRejoined
 		case n.Expired:
 			cn.Status = NodeCertExpired
 		case n.Node.Role == node.Controller, n.Up && n.Node.Status == node.StatusOnline:
@@ -310,6 +313,7 @@ func (o *Orchestrator) ClusterMap(ctx context.Context) (ClusterMap, error) {
 			in[i].Facts, in[i].Up, _ = o.clusterFacts(ctx, n)
 			in[i].Mem = o.loadMemory(ctx, n.ID)
 			in[i].Alive = !in[i].Up && o.HostAlive(n.ID)
+			in[i].NotRejoined = o.notRejoined(n)
 			in[i].Expired = n.Role == node.Worker && o.certExpired(n.ID)
 		}()
 	}

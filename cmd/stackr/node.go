@@ -203,6 +203,8 @@ func stateWord(s string) string {
 		return "tunnel down, host alive"
 	case "cert-expired":
 		return "certificate expired: rejoin"
+	case "not-rejoined":
+		return "not rejoined: run stackr node rejoin <name>"
 	}
 	return s
 }
@@ -639,7 +641,8 @@ func (a *app) cluster() *cobra.Command {
 			return nil
 		})
 	st.Example = "  stackr cluster status\n  stackr cluster status --json"
-	return noun("cluster", "The cluster at a glance", st)
+	return noun("cluster", "The cluster at a glance, and its root of trust", st,
+		a.clusterTrust(), a.clusterRotateRoot(), a.clusterBreakGlass(), a.clusterRevokeControllerCert())
 }
 
 // ---- admin audit ----
