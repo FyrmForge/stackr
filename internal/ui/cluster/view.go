@@ -56,7 +56,8 @@ type Node struct {
 	ID, Name, Role, Status, Docker, Net string
 	Tags, Public, Domains, ExitEnvs     []string
 	Envs                                []Env
-	NoForward                           bool // ingress behind a NAT the internet does not reach
+	NoForward                           bool     // ingress behind a NAT the internet does not reach
+	ReachedVia                          []string // nodes the others' traffic to it is routed through
 }
 
 type Env struct{ Name, Href, Health string }
@@ -226,14 +227,15 @@ func Build(m Map, base string, notes []graph.Note, create []graph.Create) graph.
 	// forwards to the node the probe found.
 	var edges []graph.Edge
 	for _, l := range m.Links {
-		label := l.Kind
-		if l.Via != "" {
-			label += " · via " + l.Via
-		}
+		label := "🔒 " + l.Kind
 		if l.MS >= 0 {
 			label += " · " + trimMS(l.MS) + " ms"
 		}
-		edges = append(edges, graph.Edge{Kind: "tunnel", From: nodeID(l.A), To: nodeID(l.B), Label: label})
+		kind := "tunnel"
+		if l.Kind != "internet" {
+			kind = "tunnel-lan"
+		}
+		edges = append(edges, graph.Edge{Kind: kind, From: nodeID(l.A), To: nodeID(l.B), Label: label})
 	}
 	public := func(from string, in bool, hosts, exits []string) {
 		if in {
@@ -417,3 +419,6 @@ func publicIP(n Node) string {
 	}
 	return a
 }
+
+// viaList is the nodes a routed node is reached through, for its card.
+func viaList(n Node) string { return strings.Join(n.ReachedVia, ", ") }

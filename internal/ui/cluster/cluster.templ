@@ -101,6 +101,9 @@ templ nodeCard(n Node) {
 				if ip := publicIP(n); ip != "" {
 					<span class="text-rw-faint shrink-0">Public IP</span>
 					<span class="font-mono text-rw-text truncate">{ ip }</span>
+				} else if len(n.ReachedVia) > 0 {
+					<span class="text-rw-faint shrink-0">Reached via</span>
+					<span class="font-mono text-rw-text truncate">{ viaList(n) }</span>
 				} else if n.NoForward {
 					<span class="text-rw-warn truncate" title="The internet does not reach this node. Check the port forward on its router.">No port forward</span>
 				} else {

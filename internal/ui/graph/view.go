@@ -187,11 +187,13 @@ var edgeLooks = map[string]templ.Attributes{
 	"startup": {"stroke": "var(--rw-amber)", "stroke-width": "1.2", "stroke-opacity": "0.5", "stroke-dasharray": "1 5"},
 	"config":  {"stroke": "var(--rw-edge-connector)", "stroke-opacity": "0.75"},
 	"source":  {"stroke": "var(--rw-edge-connector)", "stroke-dasharray": "4 6", "stroke-opacity": "0.4"},
-	// The Cluster map's: tunnels between nodes, a NAT's port forward (dashed
-	// while unconfirmed), backups to an outside store.
-	"tunnel":         {"stroke": "rgb(var(--rw-muted))", "stroke-width": "1.6"},
-	"forward":        {"stroke": "rgb(var(--rw-accent))", "stroke-width": "2"},
-	"forward-unsure": {"stroke": "rgb(var(--rw-accent))", "stroke-width": "2", "stroke-dasharray": "3 4"},
+	// The Cluster map's: encrypted tunnels between nodes (fainter on a LAN),
+	// a NAT's port forward (long dashes, dotted while unconfirmed), backups to
+	// an outside store.
+	"tunnel":         {"stroke": "var(--rw-teal)", "stroke-width": "2.6"},
+	"tunnel-lan":     {"stroke": "var(--rw-teal)", "stroke-width": "2", "stroke-opacity": "0.5"},
+	"forward":        {"stroke": "var(--rw-env-sky)", "stroke-width": "2", "stroke-dasharray": "8 3"},
+	"forward-unsure": {"stroke": "var(--rw-env-sky)", "stroke-width": "2", "stroke-dasharray": "2 4"},
 	"backup":         {"stroke": "rgb(var(--rw-faint))", "stroke-dasharray": "2 4"},
 }
 
@@ -205,14 +207,15 @@ func EdgeAttrs(kind string) templ.Attributes {
 
 // legendRows is v0's legend order, with the words each kind reads as.
 var legendRows = []struct{ kind, label string }{
-	{"ingress", "public route"},
-	{"egress", "outbound"},
+	{"ingress", "ingress"},
+	{"egress", "egress"},
 	{"config", "config as code"},
 	{"source", "source repo"},
 	{"shared", "managed instance"},
 	{"ref", "reference"},
 	{"startup", "startup order"},
-	{"tunnel", "tunnel"},
+	{"tunnel", "encrypted tunnel"},
+	{"tunnel-lan", "encrypted tunnel, LAN"},
 	{"forward", "port forward"},
 	{"forward-unsure", "port forward, unconfirmed"},
 	{"backup", "backup"},

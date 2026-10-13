@@ -73,6 +73,9 @@ type ClusterNode struct {
 	ExitEnvs []string
 	// NoForward: an ingress node behind a NAT that the probe did not reach.
 	NoForward bool
+	// ReachedVia are the nodes others' traffic to this one is routed
+	// through (it has no working tunnel to them itself).
+	ReachedVia []string
 }
 
 type ClusterEnv struct {
@@ -353,11 +356,7 @@ func (o *Orchestrator) ClusterMap(ctx context.Context) (ClusterMap, error) {
 		for _, n := range m.Nodes {
 			names[n.ID] = n.Name
 		}
-		for i, l := range m.Links {
-			if h := o.mesh.Via(l.A, l.B); h != "" {
-				m.Links[i].Via = names[h]
-			}
-		}
+		m.Links = directLinks(m.Links, m.Nodes, names, o.mesh.Direct, o.mesh.Via)
 	}
 	o.probeForwards(ctx, ctl, &m)
 	if m.Backups, err = o.clusterBackups(ctx, ctl); err != nil {
@@ -704,3 +703,48 @@ func (o *Orchestrator) PlaceCluster(ctx context.Context, id string, p Point) err
 	}
 	return o.canvas.Save(ctx, ClusterScope, id, p)
 }
+
+// directLinks keeps the pairs whose own tunnel carries their traffic: a
+// routed pair is no line on the map. Its hop goes on the card of the end
+// with fewer working tunnels (both on a tie) as "reached via".
+func directLinks(links []ClusterLink, nodes []ClusterNode, names map[string]string,
+	direct func(a, b string) (bool, bool), via func(a, b string) string) []ClusterLink {
+	var keep, routed []ClusterLink
+	for _, l := range links {
+		if d, ok := direct(l.A, l.B); ok && !d {
+			if h := via(l.A, l.B); h != "" {
+				l.Via = names[h]
+				routed = append(routed, l)
+			}
+			continue
+		}
+		keep = append(keep, l)
+	}
+	tunnels := map[string]int{}
+	for _, l := range keep {
+		tunnels[l.A]++
+		tunnels[l.B]++
+	}
+	idx := map[string]int{}
+	for i, n := range nodes {
+		idx[n.ID] = i
+	}
+	add := func(id, hop string) {
+		if i, ok := idx[id]; ok && !slices.Contains(nodes[i].ReachedVia, hop) {
+			nodes[i].ReachedVia = append(nodes[i].ReachedVia, hop)
+		}
+	}
+	for _, l := range routed {
+		if tunnels[l.A] <= tunnels[l.B] {
+			add(l.A, l.Via)
+		}
+		if tunnels[l.B] <= tunnels[l.A] {
+			add(l.B, l.Via)
+		}
+	}
+	for i := range nodes {
+		slices.Sort(nodes[i].ReachedVia)
+	}
+	return keep
+}
+

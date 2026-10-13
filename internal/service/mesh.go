@@ -108,6 +108,7 @@ type meshSvc struct {
 	pushed map[string][32]byte
 	next   map[[2]string]string           // {src, dst}: src's next hop to dst, from the last sync
 	down   map[[2]string]time.Time        // since when a pair looked down
+	up     map[[2]string]bool             // per pair (PairKey): its own tunnel carries traffic, from the last sync
 	rx     map[string]map[string]rxSample // per node, per peer key
 	specs  map[string]worker.MeshSpec
 	// heard is the last rotated key and heardBy when the rotation gate stops
@@ -136,6 +137,15 @@ func (m *meshSvc) Via(a, b string) string {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.next[[2]string{a, b}]
+}
+
+// Direct reports whether a and b's own tunnel carries their traffic; ok is
+// false before the first sync has judged the pair.
+func (m *meshSvc) Direct(a, b string) (direct, ok bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	direct, ok = m.up[mesh.PairKey(a, b)]
+	return direct, ok
 }
 
 // Report takes facts a node sent itself (a recovery call through the panel)
@@ -706,6 +716,7 @@ func (m *meshSvc) routes(in meshIn, now time.Time) map[[2]string]string {
 			}
 		}
 	}
+	m.up = up
 	pub := func(id string) bool { return len(mesh.FilterAddrs(byID[id].Public)) > 0 }
 	// ponytail: hop count, not latency; weigh tunnels by latency once
 	// clusters have paths of equal length that differ much.

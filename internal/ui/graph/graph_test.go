@@ -43,7 +43,7 @@ func TestCanvasChrome(t *testing.T) {
 		}
 	}
 	_, legend, _ := strings.Cut(body, `class="graph-legend"`)
-	route := strings.Index(legend, "public route")
+	route := strings.Index(legend, "ingress")
 	ref := strings.Index(legend, "reference")
 	if route < 0 || ref < route {
 		t.Errorf("legend rows out of v0 order: public route at %d, reference at %d", route, ref)

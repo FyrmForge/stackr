@@ -26,7 +26,7 @@ func sample() cluster.Map {
 			{ID: "f", Name: "fsn1", Role: "worker", Status: "online", Public: []string{"203.0.113.5"},
 				Tags: []string{"ingress"}, Domains: []string{"shop.example.com"}, ExitEnvs: []string{"acme/prod/web", "x/y/z"},
 				Envs: envs("moving")},
-			{ID: "g", Name: "fsn2", Role: "worker", Status: "unreachable"},
+			{ID: "g", Name: "fsn2", Role: "worker", Status: "unreachable", ReachedVia: []string{"fsn1"}},
 		},
 		Nets: []cluster.Net{
 			{ID: "192.168.1.0/24", CIDR: "192.168.1.0/24", Nodes: []string{"h", "n"}, Router: true, Forward: "h"},
@@ -61,7 +61,7 @@ func TestMapDraws(t *testing.T) {
 		`node-id="internet"`, `node-id="s3:b"`, "S3 · nightly",
 		`members="nat:192.168.1.0/24 node:h node:n"`, // a box holds its NAT and nodes
 		"LAN · 0.3 ms", "internet · 21 ms",
-		`data-edge-label>private<`, // no latency known: just the kind
+		`data-edge-label>🔒 private<`, // no latency known: just the kind
 		"home.example.com +2", // through the NAT: the box's ingress names
 		"shop.example.com",    // straight to a public node
 		"smoke/web/dev exits here", "acme/prod/web +1 exit here",
@@ -69,6 +69,8 @@ func TestMapDraws(t *testing.T) {
 		"Not answering", "Healthy", "Moving",
 		"Public IP", "203.0.113.5", "No public IP",
 		"No port forward",
+		"Reached via", // a routed node names its hop
+		"encrypted tunnel", "encrypted tunnel, LAN", ">ingress<", ">egress<", "port forward",
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("page lacks %q", want)
@@ -79,7 +81,8 @@ func TestMapDraws(t *testing.T) {
 		`data-edge-kind="forward" data-from="nat:192.168.1.0/24" data-to="node:h"`,
 		`data-edge-kind="ingress" data-from="internet" data-to="node:f"`,
 		`data-edge-kind="egress" data-from="node:f" data-to="internet"`,
-		`data-edge-kind="tunnel" data-from="node:h" data-to="node:n"`,
+		`data-edge-kind="tunnel-lan" data-from="node:h" data-to="node:n"`,
+		`data-edge-kind="tunnel" data-from="node:h" data-to="node:f"`,
 		`data-edge-kind="backup" data-from="node:n" data-to="s3:b"`,
 	} {
 		if !strings.Contains(body, want) {
