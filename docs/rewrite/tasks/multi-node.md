@@ -540,3 +540,9 @@ Parked; plan in `docs/rewrite/tasks/observability.md` (Victoria family, optional
 
 Every node pulls only from the cluster registry; outside images are imported
 per org by the controller. Plan in `docs/rewrite/tasks/registry-imports.md`.
+
+## CA rollover
+
+Planned root rollover (overlap, automatic at a year left), break glass
+(wipe root and WireGuard keys, per-node rejoin), controller cert allow list
+on workers. Plan in `docs/rewrite/tasks/ca-rollover.md`.
