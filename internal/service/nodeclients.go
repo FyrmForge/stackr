@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -53,12 +54,14 @@ type clusterPKI struct {
 	// (hex): the current one, plus the next during a renewal. nil = no allow
 	// list yet.
 	announced []string
-	own   tls.Certificate
-	st    *store.Store
-	mu    sync.Mutex
-	rev   map[string]revAns
-	addr  map[string]string // node id -> address its clients were built for
-	ext   map[string]*workerclient.Client
+	// rollMu runs one controller cert renewal at a time.
+	rollMu sync.Mutex
+	own    tls.Certificate
+	st     *store.Store
+	mu     sync.Mutex
+	rev    map[string]revAns
+	addr   map[string]string // node id -> address its clients were built for
+	ext    map[string]*workerclient.Client
 	// probe is the client of every worker that could be online, fails the
 	// refreshes each missed in a row.
 	probe map[string]probeEnt
@@ -145,49 +148,6 @@ func (c *clusterPKI) revoked(serial string) bool {
 	return r
 }
 
-// bootCluster makes the cluster CA and the controller cert when missing (or
-// when the cert is due for renewal) and audits each cert it issues. ponytail:
-// renewal is checked here at boot and daily after (renew).
-// renew replaces the controller cert when it is due (controllerCert decides)
-// and makes the clients dial with the new one. It reports whether it did.
-func (c *clusterPKI) renew(ctx context.Context, dataDir string) (bool, error) {
-	own, err := controllerCert(ctx, c.st, dataDir, c.ca)
-	if err != nil {
-		return false, err
-	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if len(own.Certificate) > 0 && len(c.own.Certificate) > 0 && string(own.Certificate[0]) == string(c.own.Certificate[0]) {
-		return false, nil
-	}
-	c.own = own
-	// Clients are rebuilt with the new cert on the next refresh; the router
-	// keeps serving through the old ones until then.
-	clear(c.addr)
-	clear(c.ext)
-	clear(c.probe)
-	return true, nil
-}
-
-// announceControllerCert tells every worker which controller cert serials to
-// accept (docs/rewrite/tasks/ca-rollover.md, C3). Stub from the contract
-// wave; C3 owns it and the controller cert renewal around it.
-//
-// Contract:
-//   - Sets the announced list with o.cluster.setSerials and force-syncs the
-//     mesh so every reachable worker's spec carries it in ControllerSerials
-//     (o.meshTrust reads it); an offline worker gets it from its recovery
-//     fetch.
-//   - Steady state announces the current controller cert's serial alone.
-//     During a renewal C3 announces current and next first, switches the
-//     controller to the next cert once every reachable worker took the list
-//     (or after a bound), then announces the new one alone.
-//   - Idempotent: called daily and after every renewal, a repeat changes
-//     nothing and pushes nothing (the mesh push skips unchanged specs).
-func (o *Orchestrator) announceControllerCert(ctx context.Context) error {
-	return errors.ErrUnsupported
-}
-
 func bootCluster(ctx context.Context, st *store.Store, dataDir string) (*clusterPKI, error) {
 	ca, err := clusterca.LoadCA(dataDir)
 	if errors.Is(err, os.ErrNotExist) {
@@ -206,34 +166,58 @@ func bootCluster(ctx context.Context, st *store.Store, dataDir string) (*cluster
 	if err != nil {
 		return nil, fmt.Errorf("cluster CA: %w", err)
 	}
-	return &clusterPKI{ca: ca, trust: roots, own: own, st: st, rev: map[string]revAns{},
+	// The list holds the current serial from the first boot, so workers
+	// enforce it (an empty list means accept any, ca-rollover.md C1).
+	serial, err := certSerial(own)
+	if err != nil {
+		return nil, fmt.Errorf("controller cert: %w", err)
+	}
+	return &clusterPKI{ca: ca, trust: roots, announced: []string{serial}, own: own, st: st, rev: map[string]revAns{},
 		addr: map[string]string{}, ext: map[string]*workerclient.Client{},
 		probe: map[string]probeEnt{}, fails: map[string]int{}, alive: map[string]bool{}}, nil
 }
 
 // controllerCert loads the controller's cert and key, or issues a new pair.
+// A cert in its last third is kept: renewal goes through the announce
+// (rollController), so workers learn the next serial before it is used.
 func controllerCert(ctx context.Context, st *store.Store, dataDir string, ca *clusterca.CA) (tls.Certificate, error) {
 	kp, cp := filepath.Join(dataDir, controllerKeyFile), filepath.Join(dataDir, controllerCertFile)
 	if pair, err := tls.LoadX509KeyPair(cp, kp); err == nil {
 		if c, err := clusterca.ParseCertPEM(mustRead(cp)); err == nil &&
-			!clusterca.NeedsRenewal(c, time.Now()) && c.CheckSignatureFrom(ca.Cert) == nil {
+			time.Now().Before(c.NotAfter) && c.CheckSignatureFrom(ca.Cert) == nil {
 			return pair, nil
 		}
 	}
-	key, err := clusterca.NewKey()
+	n, err := issueController(ctx, st, ca)
 	if err != nil {
 		return tls.Certificate{}, err
+	}
+	return n.pair, n.save(dataDir)
+}
+
+// newController is a controller cert issued but not yet in use.
+type newController struct {
+	pair            tls.Certificate
+	certPEM, keyPEM []byte
+	serial          string
+}
+
+// issueController signs a controller cert and records and audits it. Nothing
+// is written to disk: save does that once the cert is to be used, so a crash
+// in between leaves only an unused row.
+func issueController(ctx context.Context, st *store.Store, ca *clusterca.CA) (newController, error) {
+	key, err := clusterca.NewKey()
+	if err != nil {
+		return newController{}, err
 	}
 	csr, err := clusterca.NewCSR(key)
 	if err != nil {
-		return tls.Certificate{}, err
+		return newController{}, err
 	}
 	iss, err := ca.IssueController(csr, time.Now())
 	if err != nil {
-		return tls.Certificate{}, err
+		return newController{}, err
 	}
-	// Row and audit event commit together; the files follow, and a crash
-	// between them only leaves an unused row.
 	err = st.Tx(ctx, func(tx store.Tx) error {
 		if err := tx.NodeCerts.Create(ctx, store.NodeCert{
 			Serial: iss.Serial, Role: iss.Role, Issuer: iss.Issuer, NotAfter: iss.NotAfter, CreatedAt: time.Now().UTC(),
@@ -245,22 +229,39 @@ func controllerCert(ctx context.Context, st *store.Store, dataDir string, ca *cl
 		})
 	})
 	if err != nil {
-		return tls.Certificate{}, err
+		return newController{}, err
 	}
 	kb, err := clusterca.KeyPEM(key)
 	if err != nil {
-		return tls.Certificate{}, err
+		return newController{}, err
 	}
+	pair, err := tls.X509KeyPair(iss.CertPEM, kb)
+	return newController{pair, iss.CertPEM, kb, iss.Serial}, err
+}
+
+// save writes the pair to the data dir (both files are panel state).
+func (n newController) save(dataDir string) error {
+	kp, cp := filepath.Join(dataDir, controllerKeyFile), filepath.Join(dataDir, controllerCertFile)
 	if err := os.MkdirAll(filepath.Dir(kp), 0o700); err != nil {
-		return tls.Certificate{}, err
+		return err
 	}
-	if err := os.WriteFile(kp, kb, 0o600); err != nil {
-		return tls.Certificate{}, err
+	if err := os.WriteFile(kp, n.keyPEM, 0o600); err != nil {
+		return err
 	}
-	if err := os.WriteFile(cp, iss.CertPEM, 0o644); err != nil {
-		return tls.Certificate{}, err
+	return os.WriteFile(cp, n.certPEM, 0o644)
+}
+
+// certSerial is the hex serial workers match against ControllerSerials (the
+// same form as clusterca.Peer.Serial).
+func certSerial(c tls.Certificate) (string, error) {
+	if len(c.Certificate) == 0 {
+		return "", errors.New("no certificate")
 	}
-	return tls.X509KeyPair(iss.CertPEM, kb)
+	x, err := x509.ParseCertificate(c.Certificate[0])
+	if err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(x.SerialNumber.Bytes()), nil
 }
 
 func mustRead(p string) []byte { b, _ := os.ReadFile(p); return b }

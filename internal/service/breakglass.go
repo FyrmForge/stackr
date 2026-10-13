@@ -19,37 +19,6 @@ import (
 // ponytail: no force flag; wait it out, or add one when someone needs it.
 const breakGlassGap = 10 * time.Minute
 
-// BreakGlassOut is where a break glass stands: when it happened and the
-// workers that have not rejoined yet (C5 shows it; RejoinNode mints each
-// node's command).
-type BreakGlassOut struct {
-	At          *time.Time `json:"at"`
-	NotRejoined []string   `json:"not_rejoined"`
-}
-
-// BreakGlassState answers the last break glass and which workers still wait
-// for a rejoin. At is nil when there was none.
-func (o *Orchestrator) BreakGlassState(ctx context.Context, by *Principal) (BreakGlassOut, error) {
-	if err := nodeAdmin(by); err != nil {
-		return BreakGlassOut{}, err
-	}
-	row, _, err := o.store.ClusterCA.Get(ctx)
-	if err != nil {
-		return BreakGlassOut{}, err
-	}
-	ns, err := o.store.Nodes.List(ctx)
-	if err != nil {
-		return BreakGlassOut{}, err
-	}
-	out := BreakGlassOut{At: row.BreakGlassAt, NotRejoined: []string{}}
-	for _, n := range ns {
-		if n.Role == node.Worker && n.Status == StateNeedsRejoin {
-			out.NotRejoined = append(out.NotRejoined, n.Name)
-		}
-	}
-	return out, nil
-}
-
 // BreakGlass wipes the cluster's trust and every WireGuard key in one
 // action (docs/rewrite/tasks/ca-rollover.md, C4): a new root with no overlap,
 // a new controller cert and mesh key, and every worker cut off in
@@ -87,16 +56,23 @@ func (o *Orchestrator) BreakGlass(ctx context.Context, by *Principal) error {
 		return err
 	}
 	c := o.cluster
-	c.mu.Lock()
-	c.ca, c.trust = ca, []*x509.Certificate{ca.Cert}
-	clear(c.rev)
-	c.mu.Unlock()
-	if _, err := c.renew(ctx, o.cfg.DataDir); err != nil { // a new controller cert from the new root
+	c.rollMu.Lock() // no controller cert renewal in between
+	defer c.rollMu.Unlock()
+	next, err := issueController(ctx, c.st, ca) // a new controller cert from the new root
+	if err != nil {
 		return err
 	}
-	if own, err := x509.ParseCertificate(c.cert().Certificate[0]); err == nil {
-		c.setSerials([]string{serialOf(own)}) // no old controller cert is accepted anywhere
+	if err := next.save(o.cfg.DataDir); err != nil {
+		return err
 	}
+	c.mu.Lock()
+	c.ca, c.trust, c.own = ca, []*x509.Certificate{ca.Cert}, next.pair
+	clear(c.rev)
+	clear(c.addr) // clients are rebuilt with the new cert on the next refresh
+	clear(c.ext)
+	clear(c.probe)
+	c.mu.Unlock()
+	c.setSerials([]string{next.serial}) // no old controller cert is accepted anywhere
 
 	// One transaction: the row, the cut-off workers, the dead certs and
 	// commands. A worker's own mesh key is replaced when it rejoins.

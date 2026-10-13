@@ -524,6 +524,67 @@
         ],
         "type": "object"
       },
+      "ClusterTrust": {
+        "properties": {
+          "break_glass_at": {
+            "oneOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "fingerprint": {
+            "type": "string"
+          },
+          "not_rejoined": {
+            "items": {
+              "$ref": "#/components/schemas/TrustNode"
+            },
+            "type": "array"
+          },
+          "on_old_root": {
+            "items": {
+              "$ref": "#/components/schemas/TrustNode"
+            },
+            "type": "array"
+          },
+          "rolling_over": {
+            "type": "boolean"
+          },
+          "rollover_started_at": {
+            "oneOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "fingerprint",
+          "created_at",
+          "expires_at",
+          "rolling_over",
+          "on_old_root",
+          "not_rejoined"
+        ],
+        "type": "object"
+      },
       "CodeIn": {
         "properties": {
           "code": {
@@ -1981,6 +2042,9 @@
           "desc": {
             "type": "string"
           },
+          "empty_off": {
+            "type": "boolean"
+          },
           "key": {
             "type": "string"
           },
@@ -1998,6 +2062,7 @@
           "default",
           "scopes",
           "allow_zero",
+          "empty_off",
           "read_only",
           "config_only",
           "desc"
@@ -2558,6 +2623,12 @@
           "Address": {
             "$ref": "#/components/schemas/Prefix"
           },
+          "ControllerSerials": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
           "Iface": {
             "type": "string"
           },
@@ -2598,6 +2669,12 @@
           "Serves": {
             "items": {
               "$ref": "#/components/schemas/Serve"
+            },
+            "type": "array"
+          },
+          "TrustRoots": {
+            "items": {
+              "type": "string"
             },
             "type": "array"
           }
@@ -5836,6 +5913,21 @@
         ],
         "type": "object"
       },
+      "TrustNode": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ],
+        "type": "object"
+      },
       "UpgradeOut": {
         "properties": {
           "latest": {
@@ -6280,6 +6372,123 @@
           }
         },
         "x-verb": "serverdefaults.set"
+      }
+    },
+    "/api/v1/admin/cluster-trust": {
+      "get": {
+        "operationId": "admin.cluster-trust",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClusterTrust"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "node.manage"
+      }
+    },
+    "/api/v1/admin/cluster-trust/break-glass": {
+      "post": {
+        "operationId": "admin.break-glass",
+        "parameters": [],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "node.manage"
+      }
+    },
+    "/api/v1/admin/cluster-trust/finish-rollover": {
+      "post": {
+        "operationId": "admin.root-finish",
+        "parameters": [],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "node.manage"
+      }
+    },
+    "/api/v1/admin/cluster-trust/revoke-controller-cert": {
+      "post": {
+        "operationId": "admin.controller-cert-revoke",
+        "parameters": [],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "node.manage"
+      }
+    },
+    "/api/v1/admin/cluster-trust/rotate-root": {
+      "post": {
+        "operationId": "admin.root-rotate",
+        "parameters": [],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "node.manage"
       }
     },
     "/api/v1/admin/config-repo": {

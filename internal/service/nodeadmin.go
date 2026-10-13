@@ -95,6 +95,9 @@ func nodeAdmin(by *Principal) error {
 // shownStatus is the node's status as the panel, API and CLI show it: an
 // offline worker that still answers its liveness port is "tunnel-down".
 func (o *Orchestrator) shownStatus(n store.Node) string {
+	if o.notRejoined(n) {
+		return NodeNotRejoined
+	}
 	if n.Role == node.Worker && n.Status != node.StatusPending && o.certExpired(n.ID) {
 		return NodeCertExpired
 	}

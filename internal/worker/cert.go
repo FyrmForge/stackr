@@ -134,14 +134,11 @@ func (s *Server) renewOnce(ctx context.Context, now time.Time) error {
 		return nil
 	}
 	leaf, err := x509.ParseCertificate(cur.Certificate[0])
-	if err != nil || !clusterca.NeedsRenewal(leaf, now) && !s.renewNow.Swap(false) {
+	if err != nil || !clusterca.NeedsRenewal(leaf, now) && !s.renewNow.Swap(false) && !s.offSigningRoot(leaf, now) {
 		return err
 	}
-	ca, err := s.clusterCA()
-	if err != nil {
-		return err
-	}
-	old, err := clusterca.Verify([]*x509.Certificate{ca}, []*x509.Certificate{leaf}, clusterca.RoleWorker, "", now)
+	roots := s.cfg.Trust.Roots()
+	old, err := clusterca.Verify(roots, []*x509.Certificate{leaf}, clusterca.RoleWorker, "", now)
 	if err != nil {
 		return fmt.Errorf("the node cert can no longer be renewed (%w): rejoin the node", err)
 	}
@@ -175,7 +172,7 @@ func (s *Server) renewOnce(ctx context.Context, now time.Time) error {
 	if err != nil {
 		return err
 	}
-	if _, err := clusterca.Verify([]*x509.Certificate{ca}, []*x509.Certificate{nl}, clusterca.RoleWorker, old.NodeID, now); err != nil {
+	if _, err := clusterca.Verify(roots, []*x509.Certificate{nl}, clusterca.RoleWorker, old.NodeID, now); err != nil {
 		return fmt.Errorf("renewed cert refused: %w", err)
 	}
 	if err := s.swapCertFiles(certPEM, kb); err != nil {
@@ -186,12 +183,17 @@ func (s *Server) renewOnce(ctx context.Context, now time.Time) error {
 	return nil
 }
 
-func (s *Server) clusterCA() (*x509.Certificate, error) {
-	b, err := os.ReadFile(filepath.Join(s.cfg.StateDir, "cluster-ca.crt"))
-	if err != nil {
-		return nil, err
+// offSigningRoot is true during a root rollover when the cert was issued by
+// an older root than the first one in the trust list (the root the controller
+// signs with now): the node then renews at once instead of waiting for its
+// last third, and keeps asking hourly until it holds a cert from that root.
+func (s *Server) offSigningRoot(leaf *x509.Certificate, now time.Time) bool {
+	roots := s.cfg.Trust.Roots()
+	if len(roots) < 2 {
+		return false
 	}
-	return clusterca.ParseCertPEM(b)
+	p, err := clusterca.Verify(roots, []*x509.Certificate{leaf}, clusterca.RoleWorker, "", now)
+	return err == nil && p.Issuer != clusterca.Fingerprint(roots[0])
 }
 
 // swapCertFiles keeps the current pair as .prev, then renames the new pair
@@ -236,11 +238,7 @@ func (s *Server) renewTunnel(ctx context.Context, csr []byte) ([]byte, error) {
 	if u == "" {
 		return nil, errors.New("no controller address known yet")
 	}
-	ca, err := s.clusterCA()
-	if err != nil {
-		return nil, err
-	}
-	tc := s.withOwn(clusterca.ControllerClientConfig(clusterca.StaticRoots(ca), tls.Certificate{}))
+	tc := s.withOwn(s.cfg.Trust.Guard(clusterca.ControllerClientConfig(s.cfg.Trust.Roots, tls.Certificate{})))
 	body, _ := json.Marshal(RenewRequest{CSR: string(csr)})
 	return renewPost(ctx, &http.Client{Transport: &http.Transport{TLSClientConfig: tc}}, u+RenewTunnelPath, body)
 }
@@ -283,3 +281,128 @@ func renewPost(ctx context.Context, c *http.Client, url string, body []byte) ([]
 	}
 	return []byte(a.Cert), nil
 }
+
+// Trust is the worker's live view of who the cluster trusts, kept in files
+// next to the CA file from join: the trust list (every root, one PEM bundle)
+// and the controller allow list (hex serials, one per line). TLS configs read
+// it per handshake, so a push applies without a restart; both files are
+// written temp + rename and read back at start, so a restart keeps enforcing
+// them.
+type Trust struct {
+	rootsFile, serialsFile string
+	mu                     sync.RWMutex
+	roots                  []*x509.Certificate
+	serials                map[string]bool // nil = no allow list
+}
+
+const (
+	trustRootsFile   = "trust-roots.pem"
+	trustSerialsFile = "controller-serials"
+)
+
+// NewTrust loads the trust list next to caFile: the list file when there is
+// one, else the join-time CA. A missing or unreadable CA leaves the list
+// empty, so nothing verifies.
+func NewTrust(caFile string) *Trust {
+	dir := filepath.Dir(caFile)
+	t := &Trust{rootsFile: filepath.Join(dir, trustRootsFile), serialsFile: filepath.Join(dir, trustSerialsFile)}
+	for _, f := range []string{t.rootsFile, caFile} {
+		if b, err := os.ReadFile(f); err == nil {
+			if roots, err := clusterca.ParseBundlePEM(b); err == nil && len(roots) > 0 {
+				t.roots = roots
+				break
+			}
+		}
+	}
+	if b, err := os.ReadFile(t.serialsFile); err == nil {
+		t.serials = serialSet(strings.Fields(string(b)))
+	}
+	return t
+}
+
+// Roots is the live trust list, for clusterca's TLS configs.
+func (t *Trust) Roots() []*x509.Certificate {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	return t.roots
+}
+
+// Refuses reports a controller serial (hex) the allow list leaves out; with
+// no list nothing is refused. The revoked hook of clusterca.ServerConfig.
+func (t *Trust) Refuses(serial string) bool {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	return t.serials != nil && !t.serials[normSerial(serial)]
+}
+
+// Guard adds the allow list to a client config that dials the controller
+// (clusterca.ControllerClientConfig has no revoked hook).
+func (t *Trust) Guard(tc *tls.Config) *tls.Config {
+	inner := tc.VerifyPeerCertificate
+	tc.VerifyPeerCertificate = func(raw [][]byte, chains [][]*x509.Certificate) error {
+		if err := inner(raw, chains); err != nil {
+			return err
+		}
+		c, err := x509.ParseCertificate(raw[0])
+		if err != nil {
+			return err
+		}
+		if t.Refuses(hex.EncodeToString(c.SerialNumber.Bytes())) {
+			return errors.New("worker: controller cert is not on the allow list")
+		}
+		return nil
+	}
+	return tc
+}
+
+// Apply takes the trust fields of a mesh spec. No roots = keep the current
+// list (a spec that omits it must not wipe trust). The allow list is taken as
+// sent: empty means none, any controller cert from a trusted root. Nothing is
+// changed when a root does not parse.
+func (t *Trust) Apply(rootsPEM, serials []string) error {
+	var roots []*x509.Certificate
+	if len(rootsPEM) > 0 {
+		var err error
+		if roots, err = clusterca.RootsFromPEM(rootsPEM); err != nil {
+			return fmt.Errorf("trust list: %w", err)
+		}
+	}
+	set := serialSet(serials)
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if len(roots) > 0 {
+		if err := writeAtomic(t.rootsFile, clusterca.BundlePEM(roots)); err != nil {
+			return err
+		}
+		t.roots = roots
+	}
+	if set == nil {
+		if err := os.Remove(t.serialsFile); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+	} else {
+		var b strings.Builder
+		for s := range set {
+			b.WriteString(s + "\n")
+		}
+		if err := writeAtomic(t.serialsFile, []byte(b.String())); err != nil {
+			return err
+		}
+	}
+	t.serials = set
+	return nil
+}
+
+func serialSet(l []string) map[string]bool {
+	if len(l) == 0 {
+		return nil
+	}
+	m := make(map[string]bool, len(l))
+	for _, s := range l {
+		m[normSerial(s)] = true
+	}
+	return m
+}
+
+// normSerial is a hex serial without case or leading zeros.
+func normSerial(s string) string { return strings.TrimLeft(strings.ToLower(strings.TrimSpace(s)), "0") }

@@ -6,7 +6,6 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"os"
 	"path/filepath"
 
 	"github.com/FyrmForge/hamr/pkg/config"
@@ -65,7 +64,8 @@ func workerConfig(args []string) (worker.Config, error) {
 		}
 		return filepath.Join(*state, name)
 	}
-	tc, err := workerTLS(def(cert, "node.crt"), def(key, "node.key"), def(ca, "cluster-ca.crt"))
+	trust := worker.NewTrust(def(ca, "cluster-ca.crt"))
+	tc, err := workerTLS(def(cert, "node.crt"), def(key, "node.key"), trust)
 	if err != nil {
 		return worker.Config{}, err
 	}
@@ -78,15 +78,7 @@ func workerConfig(args []string) (worker.Config, error) {
 		if err != nil {
 			return worker.Config{}, fmt.Errorf("node cert: %w", err)
 		}
-		b, err := os.ReadFile(def(ca, "cluster-ca.crt"))
-		if err != nil {
-			return worker.Config{}, fmt.Errorf("cluster CA cert: %w", err)
-		}
-		caCert, err := clusterca.ParseCertPEM(b)
-		if err != nil {
-			return worker.Config{}, fmt.Errorf("cluster CA cert: %w", err)
-		}
-		reg = worker.RegistryConfig{URL: *regURL, Host: *regHost, TLS: clusterca.ControllerClientConfig(clusterca.StaticRoots(caCert), own)}
+		reg = worker.RegistryConfig{URL: *regURL, Host: *regHost, TLS: trust.Guard(clusterca.ControllerClientConfig(trust.Roots, own))}
 	}
 	own, err := worker.LoadNodeCert(def(cert, "node.crt"), def(key, "node.key"))
 	if err != nil {
@@ -94,7 +86,7 @@ func workerConfig(args []string) (worker.Config, error) {
 	}
 	return worker.Config{
 		Registry: reg, AliveAddr: *alive, Recover: worker.RecoverConfig{Own: own, Panel: *panel},
-		TLS: tc, Addr: *addr, DockerSock: *sock, CaddySock: *caddy, StateDir: *state, RenewCertNow: *renewNow,
+		TLS: tc, Addr: *addr, DockerSock: *sock, CaddySock: *caddy, StateDir: *state, Trust: trust, RenewCertNow: *renewNow,
 		Runner: worker.ExecRunner{}, Mesh: worker.MeshConfig{WG: workerWG(), WGPort: *wgPort},
 	}, nil
 }
@@ -109,21 +101,15 @@ func workerWG() wgapply.Applier {
 }
 
 // workerTLS is the worker's listener config: its own cert, clients must
-// hold a controller cert from the CA. ponytail: no revoked check here, a
-// worker has no store; revocation reaches it when certs are renewed or the
-// controller pushes a list.
-func workerTLS(certFile, keyFile, caFile string) (*tls.Config, error) {
+// hold a controller cert from the live trust list and, when the controller
+// announced one, on its serial allow list. Both are read per handshake.
+func workerTLS(certFile, keyFile string, trust *worker.Trust) (*tls.Config, error) {
 	own, err := worker.LoadNodeCert(certFile, keyFile)
 	if err != nil {
 		return nil, fmt.Errorf("node cert: %w", err)
 	}
-	b, err := os.ReadFile(caFile)
-	if err != nil {
-		return nil, fmt.Errorf("cluster CA cert: %w", err)
+	if len(trust.Roots()) == 0 {
+		return nil, errors.New("cluster CA cert: none readable")
 	}
-	ca, err := clusterca.ParseCertPEM(b)
-	if err != nil {
-		return nil, fmt.Errorf("cluster CA cert: %w", err)
-	}
-	return clusterca.ServerConfig(clusterca.StaticRoots(ca), own, nil), nil
+	return clusterca.ServerConfig(trust.Roots, own, trust.Refuses), nil
 }

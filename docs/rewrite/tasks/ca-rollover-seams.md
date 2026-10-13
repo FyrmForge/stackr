@@ -111,10 +111,9 @@ that wiring (C3 may also call announce straight after a renewal).
 - `BreakGlass(ctx, by) error` (`internal/service/breakglass.go`): admin only
   (`node.manage`). Refuses (`errs.Conflictf`) a second run within 10 minutes
   (`breakGlassGap`); no force flag. It mints no commands.
-- `BreakGlassState(ctx, by) (BreakGlassOut, error)`: `At` (nil = never) and
-  `NotRejoined` (worker names in `StateNeedsRejoin`, which is the "not
-  rejoined" state; no new state). A node leaves the list when its rejoin is
-  confirmed.
+- State: C5's `ClusterTrust` (`BreakGlassAt`, `NotRejoined`, derived from
+  "no live cert since break glass"); break glass also sets the worker row to
+  `StateNeedsRejoin` so the mesh plan cuts it off.
 - Per-node command: `RejoinNode(ctx, by, ref)` as before (single use, 1h
   default TTL, carries the new root fingerprint). Minting again is fine; the
   older command of that node stays valid until spent or expired. The admin
@@ -145,3 +144,28 @@ that wiring (C3 may also call announce straight after a renewal).
 - `JoinTokenStore.GetByNode` now returns the newest row; it returned an
   arbitrary one, so a rejoin of any node that joined with a token before hit
   "not found" at confirm.
+## C3 for C5, C2 and C4 (controller cert allow list)
+
+File: `internal/service/controllercert.go` (and `nodeclients.go` for issuing).
+
+- C5: `(*Orchestrator).RevokeControllerCert(ctx, by *Principal) error` is an
+  immediate renewal: current+next announced, controller switches once every
+  reachable worker took the list (bound `controllerAckBound`, 5 min, logged),
+  next announced alone, old serial revoked in `node_certs`. Audited as
+  `securitylog.ControllerCertRevoke`; a due renewal is `ControllerCertRenew`.
+  `errors.ErrUnsupported` without a cluster. Blocks up to the bound: run it in
+  a goroutine or tell the admin it can take minutes.
+- C2: after swapping `o.cluster.ca` (with `setRoots`), call
+  `o.announceControllerCert(ctx)`. It sees a controller cert not signed by
+  the current root as due and reissues it from the new root through the
+  same announce, switch, announce-alone steps. Hold no `c.mu`; the call takes
+  `rollMu`.
+- C4: break glass must not announce the old controller serial. After
+  `SaveCA` of a fresh CA, set `o.cluster.ca` and `setRoots`, then
+  `issueController(ctx, st, ca)` + `.save(DataDir)`, swap `o.cluster.own`, and
+  `setSerials([]string{serial})` (no overlap). `announceControllerCert` would
+  announce old+new first, which is wrong there.
+- The list is set at boot (`bootCluster` announces the current serial), so
+  workers enforce from the first sync after an upgrade. `controllerCert` no
+  longer renews a due cert at boot (only a missing, expired or wrong-root one);
+  `announceControllerCert` does, from `dailyChores`, which `New` runs at boot.

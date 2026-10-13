@@ -2,8 +2,6 @@ package service
 
 import (
 	"context"
-	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -12,7 +10,6 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/node"
-	"github.com/FyrmForge/stackr/internal/service/internal/leaf/securitylog"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 	"github.com/FyrmForge/stackr/internal/worker"
 )
@@ -243,8 +240,7 @@ func TestConfirmTakesTransit(t *testing.T) {
 	}
 }
 
-// The daily chores renew a controller cert that is gone (the same path as one
-// that is due) and prune registry token rows long expired.
+// The daily chores prune registry token rows long expired.
 func TestDailyChores(t *testing.T) {
 	ctx := context.Background()
 	o := newClusterPanel(t)
@@ -255,18 +251,8 @@ func TestDailyChores(t *testing.T) {
 			ID: id, Kind: "user", SubjectID: "u", Scope: "", CreatedAt: exp.Add(-time.Minute), ExpiresAt: exp,
 		}))
 	}
-	before := o.cluster.own.Certificate[0]
-	must(t, os.Remove(filepath.Join(o.cfg.DataDir, controllerCertFile)))
 	o.dailyChores(ctx)
 
-	if string(o.cluster.own.Certificate[0]) == string(before) {
-		t.Error("the controller cert was not renewed")
-	}
-	es, err := o.SecurityLog(ctx, SecurityFilter{Action: securitylog.CertIssue})
-	must(t, err)
-	if len(es) != 2 {
-		t.Errorf("cert.issue rows = %d, want the boot cert and the renewal", len(es))
-	}
 	if _, err := o.store.RegistryTokens.Get(ctx, old); err == nil {
 		t.Error("a token expired a month ago was kept")
 	}

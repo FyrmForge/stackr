@@ -90,7 +90,7 @@ func TestBreakGlass(t *testing.T) {
 	if n := auditCount2(t, o, securitylog.CABreakGlass); n != 2 {
 		t.Errorf("ca.break_glass rows = %d, want start and done", n)
 	}
-	if st, err := o.BreakGlassState(ctx, adm); err != nil || st.At == nil || len(st.NotRejoined) != 1 || st.NotRejoined[0] != "w1" {
+	if st, err := o.ClusterTrust(ctx, adm); err != nil || st.BreakGlassAt == nil || len(st.NotRejoined) != 1 || st.NotRejoined[0].Name != "w1" {
 		t.Errorf("state = %+v %v", st, err)
 	}
 	// A second one right after is refused.
@@ -132,7 +132,7 @@ func TestBreakGlass(t *testing.T) {
 	if n := auditCount2(t, o, securitylog.NodeRejoined); n != 1 {
 		t.Errorf("node.rejoined rows = %d", n)
 	}
-	if st, _ := o.BreakGlassState(ctx, adm); len(st.NotRejoined) != 0 {
+	if st, _ := o.ClusterTrust(ctx, adm); len(st.NotRejoined) != 0 {
 		t.Errorf("still not rejoined: %v", st.NotRejoined)
 	}
 }
