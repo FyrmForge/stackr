@@ -61,6 +61,10 @@
         ],
         "type": "object"
       },
+      "AddrPort": {
+        "properties": {},
+        "type": "object"
+      },
       "AdminIn": {
         "properties": {
           "admin": {
@@ -1321,6 +1325,12 @@
       },
       "Facts": {
         "properties": {
+          "busy": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array"
+          },
           "cpus": {
             "type": "integer"
           },
@@ -1348,8 +1358,32 @@
           "mem_bytes": {
             "type": "integer"
           },
+          "mem_free": {
+            "type": "integer"
+          },
+          "resolvers": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "rx": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object"
+          },
+          "seen": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
+          },
           "uptime_s": {
             "type": "number"
+          },
+          "wg_port": {
+            "type": "integer"
           }
         },
         "required": [
@@ -1360,6 +1394,7 @@
           "kernel",
           "cpus",
           "mem_bytes",
+          "mem_free",
           "uptime_s"
         ],
         "type": "object"
@@ -1469,6 +1504,12 @@
           },
           "public": {
             "type": "boolean"
+          },
+          "routes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
           }
         },
         "required": [
@@ -1751,6 +1792,16 @@
           "cert_pem": {
             "type": "string"
           },
+          "mesh": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/MeshSpec"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "node_id": {
             "type": "string"
           },
@@ -1896,6 +1947,17 @@
         ],
         "type": "object"
       },
+      "KeyRotationIn": {
+        "properties": {
+          "days": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "days"
+        ],
+        "type": "object"
+      },
       "Knob": {
         "properties": {
           "allow_zero": {
@@ -1930,6 +1992,70 @@
           "read_only",
           "config_only",
           "desc"
+        ],
+        "type": "object"
+      },
+      "LadderSpec": {
+        "properties": {
+          "Rungs": {
+            "items": {
+              "$ref": "#/components/schemas/Rung"
+            },
+            "type": "array"
+          },
+          "Subject": {
+            "$ref": "#/components/schemas/Subject"
+          }
+        },
+        "required": [
+          "Subject",
+          "Rungs"
+        ],
+        "type": "object"
+      },
+      "Link": {
+        "properties": {
+          "Addr": {
+            "type": "string"
+          },
+          "Endpoint": {
+            "type": "string"
+          },
+          "Iface": {
+            "type": "string"
+          },
+          "KeyFile": {
+            "type": "string"
+          },
+          "MTU": {
+            "type": "integer"
+          },
+          "PeerKey": {
+            "type": "string"
+          },
+          "Port": {
+            "type": "integer"
+          },
+          "Sources": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "Table": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "Iface",
+          "KeyFile",
+          "Port",
+          "PeerKey",
+          "Endpoint",
+          "Addr",
+          "Table",
+          "Sources",
+          "MTU"
         ],
         "type": "object"
       },
@@ -2415,6 +2541,66 @@
           "role",
           "created_at",
           "email"
+        ],
+        "type": "object"
+      },
+      "MeshSpec": {
+        "properties": {
+          "Address": {
+            "$ref": "#/components/schemas/Prefix"
+          },
+          "Iface": {
+            "type": "string"
+          },
+          "Ladders": {
+            "items": {
+              "$ref": "#/components/schemas/LadderSpec"
+            },
+            "type": "array"
+          },
+          "Links": {
+            "items": {
+              "$ref": "#/components/schemas/Link"
+            },
+            "type": "array"
+          },
+          "ListenPort": {
+            "type": "integer"
+          },
+          "Panel": {
+            "type": "string"
+          },
+          "Peers": {
+            "items": {
+              "$ref": "#/components/schemas/Peer"
+            },
+            "type": "array"
+          },
+          "Registry": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/RegistrySpec"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "Serves": {
+            "items": {
+              "$ref": "#/components/schemas/Serve"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "Iface",
+          "Address",
+          "ListenPort",
+          "Peers",
+          "Links",
+          "Serves",
+          "Ladders"
         ],
         "type": "object"
       },
@@ -3027,6 +3213,35 @@
         ],
         "type": "object"
       },
+      "Peer": {
+        "properties": {
+          "AllowedIPs": {
+            "items": {
+              "$ref": "#/components/schemas/Prefix"
+            },
+            "type": "array"
+          },
+          "Candidates": {
+            "items": {
+              "$ref": "#/components/schemas/AddrPort"
+            },
+            "type": "array"
+          },
+          "NodeID": {
+            "type": "string"
+          },
+          "PublicKey": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "NodeID",
+          "PublicKey",
+          "AllowedIPs",
+          "Candidates"
+        ],
+        "type": "object"
+      },
       "PendingJoin": {
         "properties": {
           "facts": {},
@@ -3138,6 +3353,10 @@
         ],
         "type": "object"
       },
+      "Prefix": {
+        "properties": {},
+        "type": "object"
+      },
       "PromoteIn": {
         "properties": {
           "ticked": {
@@ -3184,6 +3403,25 @@
         ],
         "type": "object"
       },
+      "RecoverRequest": {
+        "properties": {
+          "cert": {
+            "type": "string"
+          },
+          "payload": {
+            "type": "string"
+          },
+          "sig": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "cert",
+          "payload",
+          "sig"
+        ],
+        "type": "object"
+      },
       "Redeploy": {
         "properties": {
           "env": {
@@ -3216,6 +3454,21 @@
         "required": [
           "token",
           "expires_at"
+        ],
+        "type": "object"
+      },
+      "RegistrySpec": {
+        "properties": {
+          "Host": {
+            "type": "string"
+          },
+          "URL": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "URL",
+          "Host"
         ],
         "type": "object"
       },
@@ -3473,6 +3726,33 @@
         ],
         "type": "object"
       },
+      "Rung": {
+        "properties": {
+          "Iface": {
+            "type": "string"
+          },
+          "NodeID": {
+            "type": "string"
+          },
+          "Own": {
+            "type": "boolean"
+          },
+          "Table": {
+            "type": "integer"
+          },
+          "Target": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "NodeID",
+          "Own",
+          "Iface",
+          "Table",
+          "Target"
+        ],
+        "type": "object"
+      },
       "ScheduleIn": {
         "properties": {
           "cron": {
@@ -3555,6 +3835,68 @@
           "ip",
           "user_agent",
           "detail"
+        ],
+        "type": "object"
+      },
+      "Serve": {
+        "properties": {
+          "Addr": {
+            "type": "string"
+          },
+          "Endpoint": {
+            "type": "string"
+          },
+          "Iface": {
+            "type": "string"
+          },
+          "KeyFile": {
+            "type": "string"
+          },
+          "MTU": {
+            "type": "integer"
+          },
+          "Mark": {
+            "type": "integer"
+          },
+          "PeerAddr": {
+            "type": "string"
+          },
+          "PeerKey": {
+            "type": "string"
+          },
+          "Port": {
+            "type": "integer"
+          },
+          "Pref": {
+            "type": "integer"
+          },
+          "Subnets": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "Table": {
+            "type": "integer"
+          },
+          "Uplink": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "Iface",
+          "KeyFile",
+          "Port",
+          "PeerKey",
+          "Endpoint",
+          "Addr",
+          "PeerAddr",
+          "Subnets",
+          "Uplink",
+          "Table",
+          "Mark",
+          "Pref",
+          "MTU"
         ],
         "type": "object"
       },
@@ -4106,6 +4448,24 @@
         "required": [
           "name",
           "description"
+        ],
+        "type": "object"
+      },
+      "Subject": {
+        "properties": {
+          "PrefBase": {
+            "type": "integer"
+          },
+          "Sources": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "Sources",
+          "PrefBase"
         ],
         "type": "object"
       },
@@ -7043,6 +7403,72 @@
         "x-verb": "node.manage"
       }
     },
+    "/api/v1/admin/key-rotation": {
+      "get": {
+        "operationId": "admin.key-rotation",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KeyRotationIn"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "node.manage"
+      },
+      "put": {
+        "operationId": "admin.key-rotation-set",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/KeyRotationIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KeyRotationIn"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "node.manage"
+      }
+    },
     "/api/v1/admin/keys": {
       "post": {
         "operationId": "admin.key-mint",
@@ -7109,6 +7535,28 @@
           }
         },
         "x-verb": "@self"
+      }
+    },
+    "/api/v1/admin/nodes/rotate": {
+      "post": {
+        "operationId": "admin.nodes-rotate",
+        "parameters": [],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "node.manage"
       }
     },
     "/api/v1/admin/nodes/{node}": {
@@ -7297,6 +7745,37 @@
               }
             },
             "description": "Created"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "node.manage"
+      }
+    },
+    "/api/v1/admin/nodes/{node}/rotate": {
+      "post": {
+        "operationId": "admin.node-rotate",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "node",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
           },
           "default": {
             "content": {
@@ -8532,6 +9011,46 @@
           }
         },
         "x-verb": "@self"
+      }
+    },
+    "/api/v1/nodes/recover": {
+      "post": {
+        "operationId": "node.recover",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecoverRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MeshSpec"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "security": [],
+        "x-verb": "@public"
       }
     },
     "/api/v1/nodes/{node}": {

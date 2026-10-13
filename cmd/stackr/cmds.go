@@ -35,6 +35,7 @@ var (
 var skipped = map[string]string{
 	"join.request":                 "the new machine's installer posts it (stackr-install join)",
 	"join.status":                  "the new machine's installer polls it (stackr-install join)",
+	"node.recover":                 "a worker whose controller went quiet calls it itself (stackrd worker)",
 	"key.cli_code":                 "the panel's CLI authorize page calls it; stackr login waits for its code",
 	"invite.get":                   "an invite link is opened in a browser",
 	"invite.accept":                "an invite link is accepted in a browser",

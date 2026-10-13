@@ -97,7 +97,7 @@ func (a *app) nodes() *cobra.Command {
 	return noun("node", "The cluster's machines: the controller and its workers",
 		a.nodeAdd(), a.nodeConfirm(), a.nodeReject(), a.nodeLs(), a.nodeShow(),
 		a.nodeTag(true), a.nodeTag(false), a.nodeOpen(true), a.nodeOpen(false),
-		a.nodeRejoin(), a.nodeRemove(), a.nodeForget())
+		a.nodeRejoin(), a.nodeRotate(), a.nodeRemove(), a.nodeForget())
 }
 
 func (a *app) nodeAdd() *cobra.Command {
@@ -419,6 +419,65 @@ func (a *app) nodeRejoin() *cobra.Command {
 			}
 			return nil
 		})
+}
+
+func (a *app) nodeRotate() *cobra.Command {
+	var all bool
+	every := -1
+	c := leaf("rotate [<name>]", "admin.node-rotate,admin.nodes-rotate,admin.key-rotation,admin.key-rotation-set",
+		"Replace a node's mesh keys without a rejoin; --all for every node, --every to schedule (server admin)",
+		cobra.MaximumNArgs(1),
+		func(_ *cobra.Command, args []string) error {
+			if every >= 0 {
+				v, err := a.call(PUT, "/admin/key-rotation", map[string]any{"days": every})
+				if err != nil {
+					return err
+				}
+				if a.json {
+					return a.show(v)
+				}
+				if every == 0 {
+					a.say("Scheduled key rotation is off.")
+				} else {
+					a.say("Every node's keys rotate every %d days, one node at a time.", every)
+				}
+				if len(args) == 0 && !all {
+					return nil
+				}
+			}
+			switch {
+			case all && len(args) == 0:
+				if _, err := a.call(POST, "/admin/nodes/rotate", nil); err != nil {
+					return err
+				}
+				a.say("Rotating every node's keys, one at a time. Each shows in the security log (stackr admin audit).")
+			case len(args) == 1 && !all:
+				if _, err := a.call(POST, "/admin/nodes/"+url.PathEscape(args[0])+"/rotate", nil); err != nil {
+					return err
+				}
+				a.say("Rotating %s's keys. Its tunnels blip for a moment; the security log shows when it is done.", args[0])
+			case every < 0:
+				v, err := a.call(GET, "/admin/key-rotation", nil)
+				if err != nil {
+					return err
+				}
+				if a.json {
+					return a.show(v)
+				}
+				if d := cell(asMap(v)["days"]); d != "0" {
+					a.say("Keys rotate every %s days. Give a node name or --all to rotate now.", d)
+				} else {
+					a.say("Scheduled key rotation is off. Give a node name or --all to rotate now.")
+				}
+			default:
+				return fmt.Errorf("give a node name or --all, not both")
+			}
+			return nil
+		})
+	c.Example = "  stackr node rotate h3\n  stackr node rotate --all\n  stackr node rotate --every 7"
+	c.Flags().BoolVar(&all, "all", false, "every node, one at a time")
+	c.Flags().IntVar(&every, "every", -1, "rotate every N days (0 = off)")
+	return c
 }
 
 func (a *app) nodeRemove() *cobra.Command {

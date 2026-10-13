@@ -74,6 +74,40 @@ func (h *H) RejoinNode() Endpoint {
 	})
 }
 
+// RotateNodeKeys (server admin) starts a rotation of the node's mesh and
+// exit keys; the outcome lands in the security log.
+func (h *H) RotateNodeKeys() Endpoint {
+	return Done(func(c echo.Context, _ None) error {
+		return h.Orch.RotateNodeKeys(rc(c), middleware.Principal(c), c.Param("node"))
+	})
+}
+
+// RotateAllKeys (server admin) rotates every node's keys, one at a time.
+func (h *H) RotateAllKeys() Endpoint {
+	return Done(func(c echo.Context, _ None) error {
+		return h.Orch.RotateNodeKeys(rc(c), middleware.Principal(c), "")
+	})
+}
+
+// KeyRotationIn is the rotation schedule in days, 0 = off.
+type KeyRotationIn struct {
+	Days int `json:"days"`
+}
+
+// KeyRotation is the rotation schedule.
+func (h *H) KeyRotation() Endpoint {
+	return JSON(200, func(c echo.Context, _ None) (KeyRotationIn, error) {
+		return KeyRotationIn{Days: h.Orch.RotateSchedule(rc(c))}, nil
+	})
+}
+
+// SetKeyRotation (server admin) sets the rotation schedule.
+func (h *H) SetKeyRotation() Endpoint {
+	return JSON(200, func(c echo.Context, in KeyRotationIn) (KeyRotationIn, error) {
+		return in, h.Orch.SetRotateSchedule(rc(c), middleware.Principal(c), in.Days)
+	})
+}
+
 // RemoveNode (server admin) takes a worker with no envs out.
 func (h *H) RemoveNode() Endpoint {
 	return Done(func(c echo.Context, _ None) error {
