@@ -2,8 +2,11 @@ package registry
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"strings"
+	"time"
 
 	"github.com/google/go-containerregistry/pkg/authn"
 
@@ -25,6 +28,9 @@ type ImportRequest struct {
 	Platforms []string
 	// By is the user id who caused it, "" for the system.
 	By string
+	// Log gets the warning when an unreachable upstream is answered from our
+	// own copy; nil = none.
+	Log io.Writer
 }
 
 // Imported is what an import left behind.
@@ -64,6 +70,22 @@ func (l *Leaf) Import(ctx context.Context, req ImportRequest) (Imported, error) 
 	repo, tag := regfront.ImportName(req.OrgSlug, req.Ref)
 	dst := strings.TrimPrefix(l.base, "http://") + "/" + repo + ":" + tag
 	res, err := l.copy(ctx, req.Ref, dst, req.Auth, nil, req.Platforms)
+	var down *imgcopy.UnreachableError
+	if errors.As(err, &down) && ctx.Err() == nil {
+		// The upstream is down, not saying no: a tag we already hold in full
+		// still runs. ponytail: any held copy, however old; a max age if it
+		// ever matters.
+		if held, ok, herr := imgcopy.Held(ctx, dst, nil, req.Platforms); herr == nil && ok {
+			age := "an earlier import"
+			if row, gerr := l.images.GetByRepoDigest(ctx, repo, held.Digest); gerr == nil {
+				age = sinceText(time.Since(row.CreatedAt)) + " ago"
+			}
+			if req.Log != nil {
+				_, _ = fmt.Fprintf(req.Log, "could not reach %s (%v); using the copy from %s, it may not be the newest\n", down.Registry, down.Err, age)
+			}
+			return Imported{LocalRef: l.Local(repo, tag), Digest: held.Digest}, nil
+		}
+	}
 	if err != nil {
 		return Imported{}, fmt.Errorf("import %s: %w", req.Ref, err)
 	}
@@ -77,4 +99,19 @@ func (l *Leaf) Import(ctx context.Context, req ImportRequest) (Imported, error) 
 		return Imported{}, fmt.Errorf("import %s: record: %w", req.Ref, err)
 	}
 	return Imported{LocalRef: l.Local(repo, tag), Digest: res.Digest}, nil
+}
+
+// sinceText is a coarse age: "5 minutes", "3 hours", "2 days".
+func sinceText(d time.Duration) string {
+	unit, n := "minute", int(d/time.Minute)
+	switch {
+	case d >= 48*time.Hour:
+		unit, n = "day", int(d/(24*time.Hour))
+	case d >= time.Hour:
+		unit, n = "hour", int(d/time.Hour)
+	}
+	if n != 1 {
+		unit += "s"
+	}
+	return fmt.Sprintf("%d %s", n, unit)
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"slices"
 	"testing"
 	"time"
@@ -193,20 +194,20 @@ func TestImportForDeploy(t *testing.T) {
 	n.orch.regs.WithBase("http://127.0.0.1:1").WithCopier(fakeCopy(&calls))
 	og, err := n.orch.store.Orgs.GetBySlug(ctx, "acme")
 	must(t, err)
-	if _, imported, _ := n.orch.importForDeploy(ctx, og.ID, "nginx:1", ""); imported || len(calls) != 0 {
+	if _, imported, _ := n.orch.importForDeploy(ctx, og.ID, "nginx:1", "", io.Discard); imported || len(calls) != 0 {
 		t.Fatal("imports are off by default")
 	}
 	n.orch.cfg.RegistryImports = true
 	for _, ref := range []string{"localhost:5000/acme/shop/web:abc", "localhost:5000/stackr.system/stackr:1", ""} {
-		if _, imported, err := n.orch.importForDeploy(ctx, og.ID, ref, ""); imported || err != nil || len(calls) != 0 {
+		if _, imported, err := n.orch.importForDeploy(ctx, og.ID, ref, "", io.Discard); imported || err != nil || len(calls) != 0 {
 			t.Fatalf("%q was imported: %v", ref, err)
 		}
 	}
-	run, imported, err := n.orch.importForDeploy(ctx, og.ID, "nginx:1", "")
+	run, imported, err := n.orch.importForDeploy(ctx, og.ID, "nginx:1", "", io.Discard)
 	if err != nil || !imported || run != "nginx:1" {
 		t.Fatalf("tag ref: %q %v %v", run, imported, err)
 	}
-	run, imported, err = n.orch.importForDeploy(ctx, og.ID, "ghcr.io/foo/bar@sha256:abcd", "")
+	run, imported, err = n.orch.importForDeploy(ctx, og.ID, "ghcr.io/foo/bar@sha256:abcd", "", io.Discard)
 	if err != nil || !imported || run != "localhost:5000/acme/ghcr.io/foo/bar@sha256:up" {
 		t.Fatalf("digest ref: %q %v %v", run, imported, err)
 	}

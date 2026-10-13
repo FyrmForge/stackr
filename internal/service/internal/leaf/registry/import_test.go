@@ -3,8 +3,11 @@ package registry_test
 import (
 	"context"
 	"errors"
+	"io"
+	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -236,5 +239,115 @@ func TestPushed(t *testing.T) {
 	}
 	if err := l.Pushed(ctx, registry.Push{OrgID: org, Repo: "acme/shop/none", Reference: "v1"}); err == nil {
 		t.Error("a push the registry does not have recorded")
+	}
+}
+
+// An upstream that cannot be reached (down, 503, 429) is answered from our
+// own copy of the tag with a warning in the log; a 401 or 404 still fails,
+// and so does a tag we never held.
+func TestImportUpstreamDown(t *testing.T) {
+	local := httptest.NewServer(ggcr.New())
+	defer local.Close()
+	var status atomic.Int32
+	mem := ggcr.New()
+	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if s := int(status.Load()); s != 0 {
+			w.WriteHeader(s)
+			return
+		}
+		mem.ServeHTTP(w, r)
+	}))
+	upHost := strings.TrimPrefix(up.URL, "http://")
+	st := servicetest.Store(t)
+	org := seedOrg(t, st)
+	l := registry.New(st.RegistryImages).WithBase(local.URL)
+	ref, err := name.ParseReference(upHost+"/lib/app:1", name.Insecure)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := remote.Write(ref, platformImage(t, "amd64")); err != nil {
+		t.Fatal(err)
+	}
+	req := func(log io.Writer, r string) registry.ImportRequest {
+		return registry.ImportRequest{OrgID: org, OrgSlug: "acme", Ref: r, Platforms: []string{"amd64"}, Log: log}
+	}
+	first, err := l.Import(ctx, req(nil, upHost+"/lib/app:1"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, s := range []int{503, 429} {
+		status.Store(int32(s))
+		var log strings.Builder
+		got, err := l.Import(ctx, req(&log, upHost+"/lib/app:1"))
+		if err != nil || got != first {
+			t.Fatalf("%d: import = %+v, %v; want %+v", s, got, err, first)
+		}
+		if !strings.Contains(log.String(), "could not reach "+upHost) || !strings.Contains(log.String(), "using the copy from") ||
+			!strings.Contains(log.String(), "may not be the newest") {
+			t.Fatalf("%d: log = %q", s, log.String())
+		}
+	}
+	// a platform we do not hold is no fallback
+	status.Store(503)
+	r := req(nil, upHost+"/lib/app:1")
+	r.Platforms = []string{"arm64"}
+	if _, err := l.Import(ctx, r); err == nil {
+		t.Error("a missing platform fell back to the copy")
+	}
+	// a tag we never held
+	if _, err := l.Import(ctx, req(nil, upHost+"/lib/other:1")); err == nil {
+		t.Error("no local copy, upstream down: import succeeded")
+	}
+	// an answer is not unreachable
+	for _, s := range []int{401, 403, 404} {
+		status.Store(int32(s))
+		if _, err := l.Import(ctx, req(nil, upHost+"/lib/app:1")); err == nil {
+			t.Errorf("%d fell back to the local copy", s)
+		}
+	}
+	// a closed server is
+	up.Close()
+	var log strings.Builder
+	if got, err := l.Import(ctx, req(&log, upHost+"/lib/app:1")); err != nil || got != first || !strings.Contains(log.String(), "could not reach") {
+		t.Fatalf("closed server: %+v, %v, %q", got, err, log.String())
+	}
+}
+
+// A digest pinned ref the registry holds never contacts the upstream.
+func TestImportPinnedHeldAsksNobody(t *testing.T) {
+	local := httptest.NewServer(ggcr.New())
+	defer local.Close()
+	var hits atomic.Int32
+	mem := ggcr.New()
+	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		mem.ServeHTTP(w, r)
+	}))
+	defer up.Close()
+	upHost := strings.TrimPrefix(up.URL, "http://")
+	img := platformImage(t, "amd64")
+	ref, err := name.ParseReference(upHost+"/lib/app:1", name.Insecure)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := remote.Write(ref, img); err != nil {
+		t.Fatal(err)
+	}
+	d, _ := img.Digest()
+	st := servicetest.Store(t)
+	org := seedOrg(t, st)
+	l := registry.New(st.RegistryImages).WithBase(local.URL)
+	req := registry.ImportRequest{OrgID: org, OrgSlug: "acme", Ref: upHost + "/lib/app@" + d.String(), Platforms: []string{"amd64"}}
+	if _, err := l.Import(ctx, req); err != nil {
+		t.Fatal(err)
+	}
+	hits.Store(0)
+	if _, err := l.Import(ctx, req); err != nil || hits.Load() != 0 {
+		t.Fatalf("held pinned import: err %v, %d requests upstream", err, hits.Load())
+	}
+	req.Platforms = []string{"arm64"}
+	if _, err := l.Import(ctx, req); err == nil || hits.Load() == 0 {
+		t.Fatalf("a missing platform: err %v, %d requests upstream", err, hits.Load())
 	}
 }

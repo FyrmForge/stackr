@@ -2,6 +2,7 @@ package imgcopy
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log"
 	"net/http"
@@ -328,4 +329,50 @@ func TestCopyKeepsAttestations(t *testing.T) {
 	noErr(t, err)
 	_, err = remote.Head(amdAtt)
 	noErr(t, err)
+}
+
+// A digest pinned src that dst holds with every wanted platform is not
+// contacted at all; with a platform missing it is fetched.
+func TestCopyPinnedHeldAsksNobody(t *testing.T) {
+	src, dst := newRig(t, false, "", ""), newRig(t, true, "", "")
+	pushIndex(t, src, "lib/app:1", "amd64", "arm64")
+	pin := src.host + "/lib/app@" + digestOf(t, src.host+"/lib/app:1")
+	d := dst.host + "/org/lib/app:sha256-x"
+	_, err := Copy(context.Background(), pin, d, nil, nil, []string{"amd64"})
+	noErr(t, err)
+
+	src.mark()
+	res, err := Copy(context.Background(), pin, d, nil, nil, []string{"amd64"})
+	noErr(t, err)
+	eq(t, []string{"amd64"}, res.Platforms)
+	zero(t, src.count(""), "a held pinned digest sends no request to src")
+
+	res, err = Copy(context.Background(), pin, d, nil, nil, []string{"amd64", "arm64"})
+	noErr(t, err)
+	eq(t, []string{"amd64", "arm64"}, res.Platforms)
+	positive(t, src.count("GET /v2/lib/app/manifests/"))
+}
+
+// Only an unreachable src (down, 5xx, 429) is an UnreachableError; a 401 or
+// 404 is an answer. Held reads dst alone.
+func TestCopyUnreachable(t *testing.T) {
+	dst := newRig(t, true, "", "")
+	d := dst.host + "/org/app:1"
+	for code, want := range map[int]bool{503: true, 429: true, 401: false, 404: false} {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(code) }))
+		_, err := Copy(context.Background(), strings.TrimPrefix(srv.URL, "http://")+"/lib/app:1", d, nil, nil, []string{"amd64"})
+		srv.Close()
+		var ue *UnreachableError
+		eq(t, want, errors.As(err, &ue), code)
+	}
+	srv := httptest.NewServer(http.NotFoundHandler())
+	gone := strings.TrimPrefix(srv.URL, "http://")
+	srv.Close()
+	_, err := Copy(context.Background(), gone+"/lib/app:1", d, nil, nil, []string{"amd64"})
+	var ue *UnreachableError
+	eq(t, true, errors.As(err, &ue), "closed server")
+
+	_, ok, err := Held(context.Background(), d, nil, []string{"amd64"})
+	noErr(t, err)
+	eq(t, false, ok)
 }

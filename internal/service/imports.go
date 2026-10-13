@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"io"
 	"log/slog"
 	"runtime"
 	"slices"
@@ -28,6 +29,12 @@ import (
 // controller, and never leaves it. platforms are the CPU types to hold; nil is
 // clusterPlatforms. The registry leaf does the copy and writes the record.
 func (o *Orchestrator) Import(ctx context.Context, orgID, ref, auth string, platforms []string) (localRef, digest string, err error) {
+	return o.importLogged(ctx, orgID, ref, auth, platforms, nil)
+}
+
+// importLogged is Import with a log: the warning for an unreachable upstream
+// answered from our own copy goes there (the deploy log).
+func (o *Orchestrator) importLogged(ctx context.Context, orgID, ref, auth string, platforms []string, log io.Writer) (localRef, digest string, err error) {
 	og, err := o.store.Orgs.Get(ctx, orgID)
 	if err != nil {
 		return "", "", err
@@ -35,7 +42,7 @@ func (o *Orchestrator) Import(ctx context.Context, orgID, ref, auth string, plat
 	if len(platforms) == 0 {
 		platforms = o.clusterPlatforms(ctx)
 	}
-	req := registry.ImportRequest{OrgID: orgID, OrgSlug: og.Slug, Ref: ref, Platforms: platforms}
+	req := registry.ImportRequest{OrgID: orgID, OrgSlug: og.Slug, Ref: ref, Platforms: platforms, Log: log}
 	if auth != "" {
 		c, err := o.creds.Get(ctx, orgID, auth)
 		if err != nil {
@@ -68,11 +75,11 @@ func (o *Orchestrator) outsideRef(ctx context.Context, ref string) bool {
 // digest-pinned ref cannot be tagged by Docker, so it runs under its
 // localhost name; a tag ref keeps the name the user gave (the router tags the
 // pulled copy with it).
-func (o *Orchestrator) importForDeploy(ctx context.Context, orgID, ref, credID string) (run string, imported bool, err error) {
+func (o *Orchestrator) importForDeploy(ctx context.Context, orgID, ref, credID string, log io.Writer) (run string, imported bool, err error) {
 	if !o.cfg.RegistryImports || !o.outsideRef(ctx, ref) {
 		return ref, false, nil
 	}
-	local, digest, err := o.Import(ctx, orgID, ref, credID, nil)
+	local, digest, err := o.importLogged(ctx, orgID, ref, credID, nil, log)
 	if err != nil {
 		return "", false, err
 	}
