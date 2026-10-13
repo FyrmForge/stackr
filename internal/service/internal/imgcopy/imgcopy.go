@@ -142,6 +142,9 @@ func copyIndex(d *remote.Descriptor, srcRef, dstRef name.Reference, wanted []wan
 		}
 		picks = append(picks, found.Digest)
 	}
+	// Docker pulls a platform's attestation manifest with it and fails when
+	// the index names one the registry lacks.
+	picks = append(picks, attestations(im, picks)...)
 	for _, h := range picks {
 		img, err := idx.Image(h)
 		if err != nil {
@@ -203,6 +206,7 @@ func held(dstRef name.Reference, d *remote.Descriptor, wanted []want, do []remot
 		if err != nil {
 			return res, false, err
 		}
+		var present []v1.Hash
 		for _, c := range im.Manifests {
 			if c.Platform == nil || c.Platform.OS != "linux" {
 				continue
@@ -218,6 +222,14 @@ func held(dstRef name.Reference, d *remote.Descriptor, wanted []want, do []remot
 				return res, false, err
 			}
 			if err := add(img, c.Platform); err != nil {
+				return res, false, err
+			}
+			present = append(present, c.Digest)
+		}
+		for _, a := range attestations(im, present) {
+			if _, err := remote.Head(dstRef.Context().Digest(a.String()), do...); notFound(err) {
+				return res, false, nil
+			} else if err != nil {
 				return res, false, err
 			}
 		}
@@ -256,6 +268,23 @@ func held(dstRef name.Reference, d *remote.Descriptor, wanted []want, do []remot
 		}
 	}
 	return res, true, nil
+}
+
+// attestations are the index's attestation manifests (BuildKit's
+// provenance and SBOM) that describe one of children.
+func attestations(im *v1.IndexManifest, children []v1.Hash) []v1.Hash {
+	var out []v1.Hash
+	for _, c := range im.Manifests {
+		if c.Annotations["vnd.docker.reference.type"] != "attestation-manifest" {
+			continue
+		}
+		for _, h := range children {
+			if c.Annotations["vnd.docker.reference.digest"] == h.String() {
+				out = append(out, c.Digest)
+			}
+		}
+	}
+	return out
 }
 
 func imagePlatform(img v1.Image) (*v1.Platform, error) {

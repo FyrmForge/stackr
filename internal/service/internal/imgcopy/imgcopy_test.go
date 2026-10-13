@@ -289,3 +289,43 @@ func zero(t *testing.T, n int, msg ...any) {
 		t.Errorf("want 0, got %d %v", n, msg)
 	}
 }
+
+// An index with BuildKit attestations (Docker Hub's official images): the
+// wanted platform's attestation is copied with it, the others' are not, and
+// a copy that lacks it is not taken as held.
+func TestCopyKeepsAttestations(t *testing.T) {
+	src, dst := newRig(t, false, "", ""), newRig(t, true, "", "")
+	idx := mutate.IndexMediaType(empty.Index, types.OCIImageIndex)
+	att := map[string]v1.Hash{}
+	for _, a := range []string{"amd64", "arm64"} {
+		img := archImage(t, a)
+		h, _ := img.Digest()
+		at, err := random.Image(64, 1)
+		noErr(t, err)
+		att[a], _ = at.Digest()
+		idx = mutate.AppendManifests(idx,
+			mutate.IndexAddendum{Add: img, Descriptor: v1.Descriptor{Platform: &v1.Platform{OS: "linux", Architecture: a}}},
+			mutate.IndexAddendum{Add: at, Descriptor: v1.Descriptor{
+				Platform:    &v1.Platform{OS: "unknown", Architecture: "unknown"},
+				Annotations: map[string]string{"vnd.docker.reference.type": "attestation-manifest", "vnd.docker.reference.digest": h.String()},
+			}})
+	}
+	noErr(t, remote.WriteIndex(ref(t, src.host+"/lib/app:1"), idx))
+	s, d := src.host+"/lib/app:1", dst.host+"/org/lib/app:1"
+
+	res, err := Copy(context.Background(), s, d, nil, nil, []string{"amd64"})
+	noErr(t, err)
+	eq(t, []string{"amd64"}, res.Platforms)
+	amdAtt := ref(t, dst.host+"/org/lib/app@"+att["amd64"].String())
+	_, err = remote.Head(amdAtt)
+	noErr(t, err)
+	_, err = remote.Head(ref(t, dst.host+"/org/lib/app@"+att["arm64"].String()))
+	isErr(t, err, "arm64 attestation must be absent")
+
+	// An earlier copy without the attestation is copied again.
+	noErr(t, remote.Delete(amdAtt))
+	_, err = Copy(context.Background(), s, d, nil, nil, []string{"amd64"})
+	noErr(t, err)
+	_, err = remote.Head(amdAtt)
+	noErr(t, err)
+}
