@@ -69,9 +69,11 @@ type HostInfo struct {
 }
 
 // NetAttach is one network the container joins, with its DNS aliases there.
+// IPv4 pins the address ("" = Docker picks one from the dynamic range).
 type NetAttach struct {
 	Name    string
 	Aliases []string
+	IPv4    string
 }
 
 type Device struct{ Host, Container, Perms string }
@@ -87,6 +89,8 @@ type Container struct {
 	Health string            `json:"health"`
 	Labels map[string]string `json:"labels"`
 	IPs    []string          `json:"ips"`
+	// Nets is the address per network name, running containers only.
+	Nets map[string]string `json:"-"`
 	// HostNetwork: the container runs in the host's network namespace.
 	HostNetwork bool `json:"-"`
 }

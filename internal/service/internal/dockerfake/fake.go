@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"maps"
 	"net"
 	"net/netip"
 	"slices"
@@ -176,6 +177,11 @@ func (f *Fake) List(_ context.Context, labels map[string]string) ([]docker.Conta
 	var out []docker.Container
 	for _, c := range f.Containers {
 		if matches(c.Labels, labels) {
+			// The daemon's list carries each running container's address
+			// per network; a fixture that only set Details gets it from there.
+			if d, ok := f.Details[c.ID]; c.Nets == nil && ok && d.Running && len(d.Networks) > 0 {
+				c.Nets = maps.Clone(d.Networks)
+			}
 			out = append(out, c)
 		}
 	}
