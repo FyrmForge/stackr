@@ -104,7 +104,11 @@ func (s *Server) revertKeys() error {
 			return err
 		}
 	}
-	return s.reapply()
+	if err := s.reapply(); err != nil {
+		return err
+	}
+	s.dropPrev() // back on the old keys: no rotation is pending any more
+	return nil
 }
 
 func (s *Server) dropPrev() {

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -93,6 +94,11 @@ func TestRotateSwapsAndReverts(t *testing.T) {
 	}
 	if pubOf(t, rec) != old || s.mustInfo(t).ExitPublic != oldExit {
 		t.Fatal("revert did not restore the old keys")
+	}
+	for _, p := range s.keyPaths() {
+		if _, err := os.Stat(p + ".prev"); err == nil {
+			t.Fatalf("%s.prev left after the revert", filepath.Base(p))
+		}
 	}
 }
 
