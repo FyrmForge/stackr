@@ -21,6 +21,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/securitylog"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/volume"
+	"github.com/FyrmForge/stackr/internal/service/internal/regfront"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
 
@@ -113,7 +114,14 @@ func (o *Orchestrator) rsyncSteps() rsyncSteps {
 			_, err = o.images.Build(ctx, dir, df, ref, nil, io.Discard)
 			return err
 		},
-		push: func(ctx context.Context) error { return pushLocal(ctx, ref) },
+		push: func(ctx context.Context) error {
+			if err := pushLocal(ctx, ref); err != nil {
+				return err
+			}
+			// the push went past the front, so write the system row here
+			o.registryPushed(ctx, regfront.Pushed{Repo: repo, Reference: tag, Kind: regfront.KindNode})
+			return nil
+		},
 	}
 }
 
