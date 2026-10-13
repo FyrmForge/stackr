@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/vishvananda/netlink"
 )
 
 // GET /v1/traffic: only lines with one of this node's tile containers at an
@@ -69,5 +71,18 @@ func TestEnableAcct(t *testing.T) {
 	enableAcct()
 	if b, _ := os.ReadFile(acctKnob); strings.TrimSpace(string(b)) != "1" {
 		t.Errorf("acct = %q, want 1", b)
+	}
+}
+
+// A netlink dump (no procfs file, no conntrack tool) renders in conntrack
+// -L's format, so the same filter and parser read it.
+func TestNetlinkFlowLine(t *testing.T) {
+	f := netlink.ConntrackFlow{FamilyType: netlink.FAMILY_V4}
+	f.Forward.Protocol, f.Forward.SrcIP, f.Forward.DstIP = 6, net.ParseIP("10.0.0.9"), net.ParseIP("10.210.0.3")
+	f.Forward.SrcPort, f.Forward.DstPort, f.Forward.Bytes = 40000, 80, 512
+	f.Reverse.SrcIP, f.Reverse.DstIP, f.Reverse.Bytes = net.ParseIP("10.210.0.3"), net.ParseIP("10.0.0.9"), 2048
+	got := localLines([]byte(f.String()+"\n"), map[string]string{"10.210.0.3": "web"})
+	if src, dst := origEnds(string(got)); src != "10.0.0.9" || dst != "10.210.0.3" {
+		t.Fatalf("kept %q, ends %s %s", got, src, dst)
 	}
 }

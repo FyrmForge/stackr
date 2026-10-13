@@ -11,8 +11,6 @@ import (
 	"context"
 	"errors"
 	"io/fs"
-	"os"
-	"os/exec"
 	"sort"
 	"time"
 
@@ -136,18 +134,7 @@ func (f *Flow) remote(ctx context.Context, now time.Time) map[string]worker.Traf
 // read is the conntrack table: the procfs file, or, on a kernel built
 // without it (newer ones), the same lines from conntrack -L over netlink.
 // Both are key=value lines the leaf parses alike.
-func read(ctx context.Context, path string) ([]byte, error) {
-	data, err := os.ReadFile(path)
-	if !errors.Is(err, fs.ErrNotExist) {
-		return data, err
-	}
-	ctx, cancel := context.WithTimeout(ctx, 4*time.Second)
-	defer cancel()
-	if out, xerr := exec.CommandContext(ctx, "conntrack", "-L").Output(); xerr == nil {
-		return out, nil
-	}
-	return nil, err
-}
+func read(ctx context.Context, path string) ([]byte, error) { return worker.ReadConntrack(ctx, path) }
 
 // Check is the boot warning, "" when the table looks usable: it must be
 // readable (the file, or conntrack -L) and carry byte counters
