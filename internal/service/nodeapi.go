@@ -643,24 +643,27 @@ func (o *Orchestrator) ClusterStatus(ctx context.Context) (ClusterOut, error) {
 		}
 		out.Groups = append(out.Groups, g)
 	}
-	up := map[[2]string]string{}
+	up := map[[2]string]ClusterLink{}
 	for _, l := range m.Links {
-		up[[2]string{l.A, l.B}] = l.Kind
+		up[[2]string{l.A, l.B}] = l
 	}
 	for i, a := range m.Nodes {
 		for _, b := range m.Nodes[i+1:] {
 			l := ClusterStatusLink{A: a.Name, B: b.Name, State: "down"}
-			kind, ok := up[[2]string{a.ID, b.ID}]
+			ml, ok := up[[2]string{a.ID, b.ID}]
 			if ok {
 				l.State = "up"
 			}
+			kind := ml.Kind
 			switch {
+			case ml.Via != "":
+				l.Path = "via " + ml.Via
 			case kind == LinkLAN || kind == LinkPrivate:
 				l.Path = "lan"
 			case len(a.Public) > 0 || len(b.Public) > 0:
 				l.Path = "public"
 			default:
-				l.Path = "relay"
+				l.Path = "none" // no LAN, no public side, no route yet
 			}
 			out.Links = append(out.Links, l)
 		}
