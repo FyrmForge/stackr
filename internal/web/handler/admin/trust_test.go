@@ -1,0 +1,77 @@
+package admin_test
+
+import (
+	"bytes"
+	"net/http"
+	"net/url"
+	"strings"
+	"testing"
+
+	comp "github.com/FyrmForge/stackr/internal/ui/components"
+	ui "github.com/FyrmForge/stackr/internal/ui/drawer/admin"
+	"github.com/FyrmForge/stackr/internal/web/webtest"
+)
+
+// The Nodes tab carries the cluster trust section for an admin: the root,
+// the buttons, and break glass saying plainly what stops.
+func TestAdminClusterTrust(t *testing.T) {
+	s := webtest.New(t)
+	root := s.Session(t, s.User(t, "root@x.test", true))
+
+	rec := s.As(t, root, "GET", "/-/admin?tab=nodes", nil)
+	body := rec.Body.String()
+	for _, want := range []string{
+		"Cluster trust", "Rotate root", "Revoke controller certificate", "Break glass",
+		"None running.", "Tunnels between nodes stop until each node rejoins.",
+		"Apps keep running where they are.", "Deploys and traffic between nodes stop.",
+	} {
+		if rec.Code != http.StatusOK || !strings.Contains(body, want) {
+			t.Fatalf("nodes tab = %d, no %q in\n%s", rec.Code, want, body)
+		}
+	}
+	if strings.Contains(body, "Finish rollover now") || strings.Contains(body, "—") {
+		t.Errorf("finish button with no rollover, or an em dash")
+	}
+
+	// break glass needs the typed words on the server too
+	rec = s.As(t, root, "POST", "/-/admin/nodes/trust/break-glass", url.Values{"confirm": {"yes"}})
+	if rec.Code != http.StatusUnprocessableEntity || !strings.Contains(rec.Body.String(), "break glass") {
+		t.Errorf("wrong word = %d\n%s", rec.Code, rec.Body)
+	}
+
+	// an org owner reaches none of it
+	for _, p := range []string{"rotate-root", "finish-rollover", "revoke-controller-cert", "break-glass"} {
+		if rec := s.Do(t, "POST", "/-/admin/nodes/trust/"+p, url.Values{"confirm": {"break glass"}}); rec.Code != http.StatusForbidden {
+			t.Errorf("owner POST %s = %d, want 403", p, rec.Code)
+		}
+	}
+	if rec := s.Do(t, "POST", "/-/admin/nodes/w1/trust-rejoin", nil); rec.Code != http.StatusForbidden {
+		t.Errorf("owner trust-rejoin = %d, want 403", rec.Code)
+	}
+}
+
+// After break glass the section lists each node not rejoined with a rejoin
+// action, and shows the command once it is made.
+func TestTrustViewNotRejoined(t *testing.T) {
+	v := ui.NodesView{Trust: ui.TrustView{
+		Fingerprint: "ab12", Created: "Jan 2, 2026", Expires: "Jan 2, 2036", RollingOver: true,
+		Since: "Oct 1, 2026", OnOldRoot: []string{"h3"},
+		Finish: comp.ConfirmView{Button: "Finish rollover now", Title: "t"},
+		NotRejoined: []ui.NotRejoinedRow{
+			{Name: "vm106", Rejoin: "/-/admin/nodes/n2/trust-rejoin"},
+			{Name: "h3", Rejoin: "/-/admin/nodes/n3/trust-rejoin", Command: "stackr-install join --token T", Expires: "in 30 minutes"},
+		},
+	}}
+	var b bytes.Buffer
+	if err := ui.Nodes(v).Render(t.Context(), &b); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"Still on the old root: h3.", "Finish rollover now", "Not rejoined", "vm106",
+		`hx-post="/-/admin/nodes/n2/trust-rejoin"`, "Rejoin command", "stackr-install join --token T", "Expires in 30 minutes.",
+	} {
+		if !strings.Contains(b.String(), want) {
+			t.Errorf("no %q in\n%s", want, b.String())
+		}
+	}
+}

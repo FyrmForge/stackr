@@ -27,6 +27,9 @@ var nodeTabs = []string{"overview", "envs", "network", "tags", "security"}
 
 const nodesBase = ui.Base + "/nodes"
 
+// breakGlassWord is what the admin types to confirm a break glass.
+const breakGlassWord = "break glass"
+
 // mountNodes is the Nodes tab, the add-node steps and the node drawer. Every
 // verb is node.manage, so the route's Require is the whole gate.
 func (h *handler) mountNodes(g *echo.Group, a *middleware.Access) {
@@ -93,6 +96,33 @@ func (h *handler) mountNodes(g *echo.Group, a *middleware.Access) {
 		}
 		return fmt.Sprintf("Keys rotate every %d days.", days), nil, nil
 	}), m)
+	g.POST(nodesBase+"/trust/rotate-root", h.act("nodes", func(c echo.Context) (string, *service.Job, error) {
+		err := h.orch.RotateRoot(c.Request().Context(), middleware.Principal(c))
+		return "Rotating the root. Every node gets a new certificate; the security log shows each step.", nil, err
+	}), m)
+	g.POST(nodesBase+"/trust/finish-rollover", h.act("nodes", func(c echo.Context) (string, *service.Job, error) {
+		err := h.orch.FinishRollover(c.Request().Context(), middleware.Principal(c))
+		return "Rollover finished. Nodes still on the old root need a rejoin.", nil, err
+	}), m)
+	g.POST(nodesBase+"/trust/revoke-controller-cert", h.act("nodes", func(c echo.Context) (string, *service.Job, error) {
+		err := h.orch.RevokeControllerCert(c.Request().Context(), middleware.Principal(c))
+		return "The controller has a new certificate. The old one no longer works.", nil, err
+	}), m)
+	g.POST(nodesBase+"/trust/break-glass", h.act("nodes", func(c echo.Context) (string, *service.Job, error) {
+		if c.FormValue("confirm") != breakGlassWord {
+			return "", nil, errs.Invalidf("confirm", "type %q to confirm", breakGlassWord)
+		}
+		err := h.orch.BreakGlass(c.Request().Context(), middleware.Principal(c))
+		return "Break glass done. Get a rejoin command for each node below.", nil, err
+	}), m)
+	g.POST(nodesBase+"/:node/trust-rejoin", func(c echo.Context) error {
+		out, err := h.orch.RejoinNode(c.Request().Context(), middleware.Principal(c), c.Param("node"))
+		if err != nil {
+			return h.answer(c, "nodes", "", extra{}, err)
+		}
+		c.Set("rejoin", out)
+		return h.answer(c, "nodes", "New join command below.", extra{}, nil)
+	}, m)
 	g.POST(nodesBase+"/:node/rotate", func(c echo.Context) error {
 		err := h.orch.RotateNodeKeys(c.Request().Context(), middleware.Principal(c), c.Param("node"))
 		return h.nodeAnswer(c, "security", "Rotating keys. The security log shows when it is done.", err)
@@ -235,7 +265,65 @@ func (h *handler) nodesTab(c echo.Context, adder *ui.AddNodeView) (templ.Compone
 		}
 		v.Lost = append(v.Lost, r)
 	}
+	if v.Trust, err = h.trustView(c); err != nil {
+		return nil, err
+	}
 	return ui.Nodes(v), nil
+}
+
+// trustView is the cluster trust section: the root, the buttons with what
+// each one costs, and the nodes break glass left unjoined.
+func (h *handler) trustView(c echo.Context) (ui.TrustView, error) {
+	t, err := h.orch.ClusterTrust(c.Request().Context(), middleware.Principal(c))
+	if err != nil {
+		return ui.TrustView{}, err
+	}
+	day := func(t time.Time) string { return t.Local().Format("Jan 2, 2006") }
+	v := ui.TrustView{
+		Fingerprint: t.Fingerprint, Created: day(t.CreatedAt), Expires: day(t.ExpiresAt), RollingOver: t.RollingOver,
+	}
+	if t.RolloverStartedAt != nil {
+		v.Since = day(*t.RolloverStartedAt)
+	}
+	if t.BreakGlassAt != nil {
+		v.BreakGlassAt = day(*t.BreakGlassAt)
+	}
+	for _, n := range t.OnOldRoot {
+		v.OnOldRoot = append(v.OnOldRoot, n.Name)
+	}
+	const act = nodesBase + "/trust/"
+	v.Rotate = comp.ConfirmView{
+		Button: "Rotate root", Title: "Rotate the root?", Quiet: true, Primary: true,
+		Warning: "Every node gets a new certificate. Nothing stops while it runs.",
+		Action:  act + "rotate-root", Target: "#" + comp.DrawerRoot,
+	}
+	v.Finish = comp.ConfirmView{
+		Button: "Finish rollover now", Title: "Finish the rollover now?", Quiet: true,
+		Warning: "The old root stops working. Nodes still on it need a rejoin.",
+		Action:  act + "finish-rollover", Target: "#" + comp.DrawerRoot,
+	}
+	v.RevokeController = comp.ConfirmView{
+		Button: "Revoke controller certificate", Title: "Revoke the controller certificate?", Quiet: true,
+		Warning: "The controller gets a new certificate. Workers stop accepting the old one.",
+		Action:  act + "revoke-controller-cert", Target: "#" + comp.DrawerRoot,
+	}
+	v.BreakGlass = comp.ConfirmView{
+		Button: "Break glass", Title: "Break glass?",
+		Warning: "Tunnels between nodes stop until each node rejoins. Apps keep running where they are. Deploys and traffic between nodes stop.",
+		Kept:    []string{"apps running on every node", "node names, envs and addresses"},
+		Word:    breakGlassWord, Action: act + "break-glass", Target: "#" + comp.DrawerRoot,
+		Vals: `{"confirm":"` + breakGlassWord + `"}`,
+	}
+	cmd, _ := c.Get("rejoin").(service.JoinTokenOut)
+	for _, n := range t.NotRejoined {
+		r := ui.NotRejoinedRow{Name: n.Name, Rejoin: nodesBase + "/" + n.ID + "/trust-rejoin"}
+		if cmd.Command != "" && c.Param("node") == n.ID {
+			r.Command = cmd.Command
+			r.Expires = "in " + fmt.Sprint(int(time.Until(cmd.ExpiresAt).Round(time.Minute).Minutes())) + " minutes"
+		}
+		v.NotRejoined = append(v.NotRejoined, r)
+	}
+	return v, nil
 }
 
 // GET /-/admin/nodes/:node?tab=

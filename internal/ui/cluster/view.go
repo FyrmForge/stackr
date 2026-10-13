@@ -418,6 +418,8 @@ func statusTone(s string) (word, text, dot string) {
 		return "Tunnel down, host alive", "text-rw-warn", "bg-rw-warn"
 	case "cert-expired":
 		return "Certificate expired: rejoin", "text-rw-danger", "bg-rw-danger"
+	case "not-rejoined":
+		return "Not rejoined", "text-rw-warn", "bg-rw-warn"
 	}
 	return healthWord(s), "text-rw-warn", "bg-rw-warn"
 }

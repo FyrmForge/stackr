@@ -143,14 +143,32 @@ On `*Orchestrator` (`internal/service/carollover.go`), all node admin
 
 ### C2 needs
 
-- C1 (worker): renew the node cert at once, not only in the last third, when
-  the cert's issuer is not `TrustRoots[0]` of the applied mesh spec (the first
-  root is the one the controller signs with), and keep asking until it is
-  (hourly check is enough). Today `renewOnce` only renews when due or on the
-  `renewNow` flag. Without this the rollover waits for natural renewal (up to
-  60 days) and the admin must force it.
-- C3 (`announceControllerCert`): the rollover reissues the controller cert
-  through `clusterPKI.renew` (new serial) and then calls
-  `announceControllerCert`. With an allow list active the new serial must be
-  announced before workers see it; C3 should have `renew` announce
-  current+next first when the signing root changed, or accept the short gap.
+- C1 and C3 are merged and cover this: workers renew at once when their
+  issuer is not `TrustRoots[0]`; `announceControllerCert` reissues a controller
+  cert from a replaced root. Nothing open.
+
+## C3 for C5, C2 and C4 (controller cert allow list)
+
+File: `internal/service/controllercert.go` (and `nodeclients.go` for issuing).
+
+- C5: `(*Orchestrator).RevokeControllerCert(ctx, by *Principal) error` is an
+  immediate renewal: current+next announced, controller switches once every
+  reachable worker took the list (bound `controllerAckBound`, 5 min, logged),
+  next announced alone, old serial revoked in `node_certs`. Audited as
+  `securitylog.ControllerCertRevoke`; a due renewal is `ControllerCertRenew`.
+  `errors.ErrUnsupported` without a cluster. Blocks up to the bound: run it in
+  a goroutine or tell the admin it can take minutes.
+- C2: after swapping `o.cluster.ca` (with `setRoots`), call
+  `o.announceControllerCert(ctx)`. It sees a controller cert not signed by
+  the current root as due and reissues it from the new root through the
+  same announce, switch, announce-alone steps. Hold no `c.mu`; the call takes
+  `rollMu`.
+- C4: break glass must not announce the old controller serial. After
+  `SaveCA` of a fresh CA, set `o.cluster.ca` and `setRoots`, then
+  `issueController(ctx, st, ca)` + `.save(DataDir)`, swap `o.cluster.own`, and
+  `setSerials([]string{serial})` (no overlap). `announceControllerCert` would
+  announce old+new first, which is wrong there.
+- The list is set at boot (`bootCluster` announces the current serial), so
+  workers enforce from the first sync after an upgrade. `controllerCert` no
+  longer renews a due cert at boot (only a missing, expired or wrong-root one);
+  `announceControllerCert` does, from `dailyChores`, which `New` runs at boot.

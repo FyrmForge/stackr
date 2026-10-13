@@ -237,21 +237,17 @@ func (o *Orchestrator) startRollover(ctx context.Context, by *Principal) error {
 // pushes quietly).
 func (o *Orchestrator) advanceRollover(ctx context.Context, by *Principal, st store.ClusterCA, first bool) error {
 	uid, kid := actorOf(by)
-	changed, err := o.cluster.renew(ctx, o.cfg.DataDir)
-	if err != nil {
-		return err
-	}
-	if changed {
-		if err := o.announceControllerCert(ctx); err != nil && !errors.Is(err, errors.ErrUnsupported) {
-			slog.Warn("cluster: controller cert announce failed", "err", err)
-		}
-	}
 	// Offline workers miss this push and get the list from their recovery
 	// fetch; a failed sync is retried by the next tick.
 	if o.mesh != nil {
 		if err := o.mesh.Sync(ctx, "", true); err != nil {
 			slog.Warn("cluster: root rollover trust push", "err", err)
 		}
+	}
+	// Workers trust both roots now; only then does the controller switch to a
+	// cert from the new one (announce both, switch, announce next).
+	if err := o.announceControllerCert(ctx); err != nil {
+		return err
 	}
 	if first {
 		err := o.store.Tx(ctx, func(tx store.Tx) error {

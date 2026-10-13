@@ -210,6 +210,9 @@ func (s *Server) uplink(ctx context.Context) (string, error) {
 func (s *Server) ApplyMesh(ctx context.Context, spec MeshSpec) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.cfg.Trust.Apply(spec.TrustRoots, spec.ControllerSerials); err != nil {
+		return err
+	}
 	if err := s.meshNet(spec); err != nil {
 		return err
 	}
@@ -270,18 +273,8 @@ func (s *Server) startRegistry(r *RegistrySpec) {
 	if r == nil || s.cfg.Registry.URL != "" || s.mesh.registry || len(s.own.get().Certificate) == 0 {
 		return
 	}
-	b, err := os.ReadFile(filepath.Join(s.cfg.StateDir, "cluster-ca.crt"))
-	if err != nil {
-		slog.Warn("worker: registry proxy, no cluster CA", "err", err)
-		return
-	}
-	ca, err := clusterca.ParseCertPEM(b)
-	if err != nil {
-		slog.Warn("worker: registry proxy, cluster CA", "err", err)
-		return
-	}
 	s.mesh.registry = true
-	c := RegistryConfig{URL: r.URL, Host: r.Host, TLS: s.withOwn(clusterca.ControllerClientConfig(clusterca.StaticRoots(ca), tls.Certificate{}))}
+	c := RegistryConfig{URL: r.URL, Host: r.Host, TLS: s.withOwn(s.cfg.Trust.Guard(clusterca.ControllerClientConfig(s.cfg.Trust.Roots, tls.Certificate{})))}
 	go func() {
 		if err := serveRegistry(s.ctx, c); err != nil {
 			slog.Error("worker: registry proxy", "err", err)

@@ -335,17 +335,9 @@ func (w *workerVIP) AllowTCP(ctx context.Context, src string, lo, hi int, on boo
 // audit trail of who pulled what.
 const registryTokenKeep = 7 * 24 * time.Hour
 
-// dailyChores renews the controller cert when it is due and prunes expired
-// registry tokens.
+// dailyChores renews and announces the controller cert (announceControllerCert;
+// New also runs it once at boot) and prunes expired registry tokens.
 func (o *Orchestrator) dailyChores(ctx context.Context) {
-	if o.cluster != nil {
-		changed, err := o.cluster.renew(ctx, o.cfg.DataDir)
-		if err != nil {
-			slog.Warn("cluster: controller cert renewal failed", "err", err)
-		} else if changed {
-			slog.Info("cluster: controller cert renewed")
-		}
-	}
 	// The contract stubs answer errors.ErrUnsupported until their workers land.
 	if err := o.announceControllerCert(ctx); err != nil && !errors.Is(err, errors.ErrUnsupported) {
 		slog.Warn("cluster: controller cert announce failed", "err", err)

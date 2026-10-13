@@ -51,12 +51,13 @@ func startFakeWorkers(ctx context.Context, orch *service.Orchestrator, fakeDir s
 		if err != nil {
 			return err
 		}
-		tc, err := workerTLS(filepath.Join(dir, "node.crt"), filepath.Join(dir, "node.key"), filepath.Join(dir, "cluster-ca.crt"))
+		trust := worker.NewTrust(filepath.Join(dir, "cluster-ca.crt"))
+		tc, err := workerTLS(filepath.Join(dir, "node.crt"), filepath.Join(dir, "node.key"), trust)
 		if err != nil {
 			return fmt.Errorf("fake worker %s: %w", n.name, err)
 		}
 		cfg := worker.Config{
-			TLS: tc, Addr: addr, DockerSock: sock, StateDir: dir, Runner: noRunner{},
+			TLS: tc, Addr: addr, DockerSock: sock, StateDir: dir, Trust: trust, Runner: noRunner{},
 			Mesh: worker.MeshConfig{WG: &wgapply.Recorder{}},
 		}
 		go func() {

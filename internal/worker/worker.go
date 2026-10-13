@@ -13,6 +13,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httputil"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -46,6 +47,9 @@ type Config struct {
 	Registry   RegistryConfig // the controller's registry on 127.0.0.1:5000; URL "" = off
 	AliveAddr  string         // public liveness listener (AlivePort); "" = off
 	Recover    RecoverConfig  // recovery through the panel; no cert = off
+	// Trust is the live trust list and controller allow list; nil = loaded
+	// from cluster-ca.crt in StateDir.
+	Trust *Trust
 	// RenewCertNow renews the node cert once at start even when not due.
 	RenewCertNow bool
 	Conntrack    string // conntrack table for /v1/traffic ("" = /proc/net/nf_conntrack)
@@ -74,6 +78,9 @@ func New(cfg Config) *Server {
 	}
 	if cfg.DockerUserPoll == 0 {
 		cfg.DockerUserPoll = time.Second
+	}
+	if cfg.Trust == nil {
+		cfg.Trust = NewTrust(filepath.Join(cfg.StateDir, "cluster-ca.crt"))
 	}
 	s := &Server{cfg: cfg}
 	if cfg.TLS != nil && len(cfg.TLS.Certificates) > 0 {
