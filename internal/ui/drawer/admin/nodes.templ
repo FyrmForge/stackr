@@ -15,6 +15,28 @@ type NodesView struct {
 	Adder *AddNodeView // the open add-node steps, nil = closed
 	// Defaults is the cluster-wide default ingress and exit; nil = single node.
 	Defaults *DefaultsView
+	Trust    TrustView
+}
+
+// TrustView is the cluster trust section of the Nodes tab: the root, the
+// rotate, break glass and revoke buttons, and the nodes break glass left
+// unjoined. A ConfirmView with no Action is not offered.
+type TrustView struct {
+	Fingerprint, Created, Expires string
+	RollingOver                   bool
+	Since                         string   // when the rollover started
+	OnOldRoot                     []string // node names still on the old root
+	BreakGlassAt                  string   // "" = never
+	Rotate, Finish                c.ConfirmView
+	BreakGlass, RevokeController  c.ConfirmView
+	NotRejoined                   []NotRejoinedRow
+}
+
+// NotRejoinedRow is a node waiting for its rejoin command. Command is set on
+// the row whose command was just made.
+type NotRejoinedRow struct {
+	Name, Rejoin       string // Rejoin is a POST
+	Command, Expires   string
 }
 
 // DefaultsView is the "Default ingress / exit" control. Each form POSTs node=.
@@ -136,7 +158,7 @@ func statusTone(s string) string {
 	switch s {
 	case "online":
 		return "success"
-	case "joined", "tunnel-down":
+	case "joined", "tunnel-down", "not-rejoined":
 		return "warn"
 	}
 	return "danger"
@@ -152,6 +174,8 @@ func statusWord(s string) string {
 		return "Tunnel down, host alive"
 	case "cert-expired":
 		return "Certificate expired: rejoin"
+	case "not-rejoined":
+		return "Not rejoined"
 	}
 	return strings.ToUpper(s[:1]) + s[1:]
 }
@@ -241,7 +265,67 @@ templ Nodes(v NodesView) {
 				</div>
 			}
 		}
+		if v.Trust.Fingerprint != "" {
+			@trustSection(v.Trust)
+		}
 	</div>
+}
+
+templ trustSection(t TrustView) {
+	@c.Section("Cluster trust", "instance", "The root every node's certificate comes from.") {
+		<dl class="panel px-4 py-3 text-sm grid grid-cols-[8rem_1fr] gap-y-1 mb-3">
+			<dt class="text-rw-muted">Root</dt>
+			<dd class="font-mono text-xs text-rw-text break-all">{ t.Fingerprint }</dd>
+			<dt class="text-rw-muted">Created</dt>
+			<dd class="text-rw-text">{ t.Created }</dd>
+			<dt class="text-rw-muted">Expires</dt>
+			<dd class="text-rw-text">{ t.Expires }</dd>
+			<dt class="text-rw-muted">Rollover</dt>
+			<dd class="text-rw-text">
+				if t.RollingOver {
+					Running since { t.Since }.
+					if len(t.OnOldRoot) > 0 {
+						Still on the old root: { strings.Join(t.OnOldRoot, ", ") }.
+					}
+				} else {
+					None running.
+				}
+			</dd>
+			if t.BreakGlassAt != "" {
+				<dt class="text-rw-muted">Break glass</dt>
+				<dd class="text-rw-text">{ t.BreakGlassAt }</dd>
+			}
+		</dl>
+		<div class="flex flex-wrap gap-2">
+			@c.Confirm(t.Rotate)
+			if t.RollingOver {
+				@c.Confirm(t.Finish)
+			}
+			@c.Confirm(t.RevokeController)
+			@c.Confirm(t.BreakGlass)
+		</div>
+		if len(t.NotRejoined) > 0 {
+			<h3 class="mt-4 mb-2 text-sm font-semibold text-rw-text">Not rejoined</h3>
+			<p class="mb-2 text-xs text-rw-muted">Run each command on its machine as root. A command works once.</p>
+			<ul class="space-y-2">
+				for _, r := range t.NotRejoined {
+					<li class="panel px-4 py-3 text-sm space-y-2">
+						<div class="flex flex-wrap items-center gap-2">
+							<span class="text-rw-text">{ r.Name }</span>
+							@c.Chip("Not rejoined", "warn")
+							<form hx-post={ r.Rejoin } hx-target={ target() } hx-swap="outerHTML" class="ml-auto">
+								<button type="submit" class="btn btn-ghost btn-sm">Rejoin command</button>
+							</form>
+						</div>
+						if r.Command != "" {
+							<p class="text-xs text-rw-muted">Expires { r.Expires }.</p>
+							<pre class="panel px-3 py-2 text-xs font-mono whitespace-pre-wrap break-all select-all">{ r.Command }</pre>
+						}
+					</li>
+				}
+			</ul>
+		}
+	}
 }
 
 templ addSteps(step int) {
