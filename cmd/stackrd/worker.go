@@ -47,6 +47,8 @@ func workerConfig(args []string) (worker.Config, error) {
 	alive := fs.String("alive-addr", config.GetEnvOrDefault("STACKR_WORKER_ALIVE_ADDR", ":"+worker.AlivePort),
 		"public liveness listener, answers a fixed line only (STACKR_WORKER_ALIVE_ADDR; \"\" = off)")
 	regHost := fs.String("registry-host", config.GetEnvOrDefault("STACKR_WORKER_REGISTRY_HOST", ""), "registry host name, registry.<panel domain> (STACKR_WORKER_REGISTRY_HOST)")
+	renewNow := fs.Bool("renew-cert-now", config.GetEnvOrDefaultBool("STACKR_WORKER_RENEW_CERT_NOW", false),
+		"renew the node cert at start even when not due (STACKR_WORKER_RENEW_CERT_NOW)")
 	wgPort := fs.Int("wg-port", config.GetEnvOrDefaultInt("STACKR_WORKER_WG_PORT", mesh.DefaultPort),
 		"UDP port of the mesh's WireGuard interface (STACKR_WORKER_WG_PORT)")
 	panel := fs.String("panel-url", config.GetEnvOrDefault("STACKR_WORKER_PANEL_URL", ""),
@@ -92,7 +94,7 @@ func workerConfig(args []string) (worker.Config, error) {
 	}
 	return worker.Config{
 		Registry: reg, AliveAddr: *alive, Recover: worker.RecoverConfig{Own: own, Panel: *panel},
-		TLS: tc, Addr: *addr, DockerSock: *sock, CaddySock: *caddy, StateDir: *state,
+		TLS: tc, Addr: *addr, DockerSock: *sock, CaddySock: *caddy, StateDir: *state, RenewCertNow: *renewNow,
 		Runner: worker.ExecRunner{}, Mesh: worker.MeshConfig{WG: workerWG(), WGPort: *wgPort},
 	}, nil
 }

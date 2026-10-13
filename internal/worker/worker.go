@@ -46,6 +46,8 @@ type Config struct {
 	Registry   RegistryConfig // the controller's registry on 127.0.0.1:5000; URL "" = off
 	AliveAddr  string         // public liveness listener (AlivePort); "" = off
 	Recover    RecoverConfig  // recovery through the panel; no cert = off
+	// RenewCertNow renews the node cert once at start even when not due.
+	RenewCertNow bool
 	// DockerUserWait bounds how long replay waits for the DOCKER-USER chain
 	// (0 = 2m); DockerUserPoll is the gap between checks (0 = 1s).
 	DockerUserWait time.Duration
@@ -61,6 +63,8 @@ type Server struct {
 	// lastCtl is when the controller last called (unix nanos).
 	lastCtl atomic.Int64
 	own     ownCert // the node cert, swapped on renewal
+	// renewNow makes the next cert check renew even when not due, once.
+	renewNow atomic.Bool
 }
 
 func New(cfg Config) *Server {
@@ -76,6 +80,7 @@ func New(cfg Config) *Server {
 	} else {
 		s.own.set(cfg.Recover.Own)
 	}
+	s.renewNow.Store(cfg.RenewCertNow)
 	s.ctx, s.cancel = context.WithCancel(context.Background())
 	s.heardController() // a fresh start gives the controller its full window
 	return s

@@ -134,7 +134,7 @@ func (s *Server) renewOnce(ctx context.Context, now time.Time) error {
 		return nil
 	}
 	leaf, err := x509.ParseCertificate(cur.Certificate[0])
-	if err != nil || !clusterca.NeedsRenewal(leaf, now) {
+	if err != nil || !clusterca.NeedsRenewal(leaf, now) && !s.renewNow.Swap(false) {
 		return err
 	}
 	ca, err := s.clusterCA()

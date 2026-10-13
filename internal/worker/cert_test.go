@@ -155,6 +155,31 @@ func TestRenewThroughPanel(t *testing.T) {
 	}
 }
 
+// The force flag renews a cert that is not due, once.
+func TestRenewNow(t *testing.T) {
+	ca, s, _ := certRig(t, time.Hour)
+	old := leaf(t, s.own.get())
+	calls := 0
+	panel := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		var req RecoverRequest
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		_, p, _ := OpenRecover(req)
+		_, _ = w.Write(signer(t, ca, p.CSR))
+	}))
+	defer panel.Close()
+	s.cfg.Recover.Panel = panel.URL
+	s.renewNow.Store(true)
+	for range 2 {
+		if err := s.renewOnce(context.Background(), time.Now()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if calls != 1 || leaf(t, s.own.get()).SerialNumber.Cmp(old.SerialNumber) == 0 {
+		t.Fatalf("calls = %d", calls)
+	}
+}
+
 // An expired cert cannot renew: the error says to rejoin, nothing is sent.
 func TestRenewExpired(t *testing.T) {
 	_, s, _ := certRig(t, 95*24*time.Hour)
