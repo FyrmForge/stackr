@@ -14,6 +14,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/FyrmForge/stackr/internal/service/internal/dockerfake"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/job"
@@ -291,6 +292,10 @@ func TestSetSettingsAllOrNothing(t *testing.T) {
 	w := newWorld(t)
 	ctx := context.Background()
 	before := func() int { w.mu.Lock(); defer w.mu.Unlock(); return len(w.pushed) }
+	// New's boot push runs in the background: count from after it.
+	for i := 0; i < 200 && before() == 0; i++ {
+		time.Sleep(10 * time.Millisecond)
+	}
 	n := before()
 	err := w.orch.SetSettings(ctx, map[string]string{
 		"panel_backup_schedule": "0 5 * * *",

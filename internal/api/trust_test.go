@@ -3,6 +3,7 @@ package api_test
 import (
 	"strings"
 	"testing"
+	"time"
 )
 
 // The trust routes are for server admins: anonymous gets 401, an org owner
@@ -57,7 +58,13 @@ func TestClusterTrustAPIVerbs(t *testing.T) {
 		{"break-glass", 409, `"break_glass_at":"`},
 	}
 	for _, s := range steps {
-		if code, body := w.do(t, w.admin, "POST", "/admin/cluster-trust/"+s.path, ""); code != s.code {
+		code, body := w.do(t, w.admin, "POST", "/admin/cluster-trust/"+s.path, "")
+		// The step before may still run detached for a moment: refused, retried.
+		for i := 0; i < 100 && s.code != 409 && strings.Contains(body, "Try again in a few minutes"); i++ {
+			time.Sleep(20 * time.Millisecond)
+			code, body = w.do(t, w.admin, "POST", "/admin/cluster-trust/"+s.path, "")
+		}
+		if code != s.code {
 			t.Fatalf("POST %s = %d %s, want %d", s.path, code, body, s.code)
 		}
 		if _, body := w.do(t, w.admin, "GET", "/admin/cluster-trust", ""); !strings.Contains(body, s.want) {

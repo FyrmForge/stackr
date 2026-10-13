@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/FyrmForge/stackr/internal/clusterca"
 	"github.com/FyrmForge/stackr/internal/installspec"
@@ -109,6 +110,11 @@ func TestAdminClusterTrustVerbs(t *testing.T) {
 		{w1 + "/trust-rejoin", nil, "New join command below.", "Not rejoined"},
 	} {
 		rec := s.As(t, root, "POST", "/-/admin/nodes/"+step.path, step.form)
+		// The step before may still run detached for a moment: refused, retried.
+		for i := 0; i < 100 && strings.Contains(rec.Body.String(), "Try again in a few minutes"); i++ {
+			time.Sleep(20 * time.Millisecond)
+			rec = s.As(t, root, "POST", "/-/admin/nodes/"+step.path, step.form)
+		}
 		if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), step.say) {
 			t.Fatalf("POST %s = %d, no %q in\n%s", step.path, rec.Code, step.say, rec.Body)
 		}
