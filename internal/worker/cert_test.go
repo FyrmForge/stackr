@@ -101,7 +101,7 @@ func TestRenewOverTunnel(t *testing.T) {
 		_ = json.NewDecoder(r.Body).Decode(&in)
 		_, _ = w.Write(signer(t, ca, in.CSR))
 	}))
-	srv.TLS = clusterca.WorkerServerConfig(ca.Cert, func() tls.Certificate { return ctl }, nil)
+	srv.TLS = clusterca.WorkerServerConfig(clusterca.StaticRoots(ca.Cert), func() tls.Certificate { return ctl }, nil)
 	srv.TLS.Certificates = []tls.Certificate{ctl} // httptest adds its own otherwise
 	srv.StartTLS()
 	defer srv.Close()

@@ -99,7 +99,7 @@ func (o *Orchestrator) openSigned(req worker.RecoverRequest, scope string, refus
 	if err != nil {
 		return clusterca.Peer{}, worker.RecoverPayload{}, refused
 	}
-	peer, err := clusterca.Verify(o.cluster.ca.Cert, []*x509.Certificate{cert}, clusterca.RoleWorker, "", now)
+	peer, err := clusterca.Verify(o.cluster.roots(), []*x509.Certificate{cert}, clusterca.RoleWorker, "", now)
 	if err != nil || o.cluster.revoked(peer.Serial) {
 		return clusterca.Peer{}, worker.RecoverPayload{}, refused
 	}

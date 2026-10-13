@@ -3,12 +3,14 @@ package service
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"log/slog"
 	"net"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -43,13 +45,20 @@ const revokedTTL = 10 * time.Second
 // cert, and a client per worker node (Docker through the router, extras
 // here).
 type clusterPKI struct {
-	ca   *clusterca.CA
-	own  tls.Certificate
-	st   *store.Store
-	mu   sync.Mutex
-	rev  map[string]revAns
-	addr map[string]string // node id -> address its clients were built for
-	ext  map[string]*workerclient.Client
+	ca *clusterca.CA
+	// trust is the list every cert is checked against: the current root, and
+	// the previous one while a rollover runs. nil = just ca.
+	trust []*x509.Certificate
+	// announced is the controller cert serials workers are told to accept
+	// (hex): the current one, plus the next during a renewal. nil = no allow
+	// list yet.
+	announced []string
+	own   tls.Certificate
+	st    *store.Store
+	mu    sync.Mutex
+	rev   map[string]revAns
+	addr  map[string]string // node id -> address its clients were built for
+	ext   map[string]*workerclient.Client
 	// probe is the client of every worker that could be online, fails the
 	// refreshes each missed in a row.
 	probe map[string]probeEnt
@@ -57,6 +66,49 @@ type clusterPKI struct {
 	// alive: workers that miss the tunnel but answer their public liveness
 	// port ("tunnel down, host alive"). In memory only.
 	alive map[string]bool
+}
+
+// roots is the live trust list (a clusterca.Roots). A rollover swaps it with
+// setRoots; a cluster that never rolled over has one root, ca's.
+func (c *clusterPKI) roots() []*x509.Certificate {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if len(c.trust) == 0 {
+		return []*x509.Certificate{c.ca.Cert}
+	}
+	return c.trust
+}
+
+// setRoots replaces the trust list.
+func (c *clusterPKI) setRoots(roots []*x509.Certificate) {
+	c.mu.Lock()
+	c.trust = roots
+	c.mu.Unlock()
+}
+
+// serials is a copy of the announced controller serials.
+func (c *clusterPKI) serials() []string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return slices.Clone(c.announced)
+}
+
+// setSerials replaces the announced controller serials; the next mesh sync
+// carries them to the workers.
+func (c *clusterPKI) setSerials(serials []string) {
+	c.mu.Lock()
+	c.announced = slices.Clone(serials)
+	c.mu.Unlock()
+}
+
+// meshTrust is what every worker's mesh spec carries (meshSvc.Trust): the
+// trust list as PEM and the announced controller serials. nil without a
+// cluster (single node).
+func (o *Orchestrator) meshTrust(context.Context) (roots, controllerSerials []string) {
+	if o.cluster == nil {
+		return nil, nil
+	}
+	return clusterca.RootsToPEM(o.cluster.roots()), o.cluster.serials()
 }
 
 // cert is the controller's current cert (renew swaps it).
@@ -117,6 +169,25 @@ func (c *clusterPKI) renew(ctx context.Context, dataDir string) (bool, error) {
 	return true, nil
 }
 
+// announceControllerCert tells every worker which controller cert serials to
+// accept (docs/rewrite/tasks/ca-rollover.md, C3). Stub from the contract
+// wave; C3 owns it and the controller cert renewal around it.
+//
+// Contract:
+//   - Sets the announced list with o.cluster.setSerials and force-syncs the
+//     mesh so every reachable worker's spec carries it in ControllerSerials
+//     (o.meshTrust reads it); an offline worker gets it from its recovery
+//     fetch.
+//   - Steady state announces the current controller cert's serial alone.
+//     During a renewal C3 announces current and next first, switches the
+//     controller to the next cert once every reachable worker took the list
+//     (or after a bound), then announces the new one alone.
+//   - Idempotent: called daily and after every renewal, a repeat changes
+//     nothing and pushes nothing (the mesh push skips unchanged specs).
+func (o *Orchestrator) announceControllerCert(ctx context.Context) error {
+	return errors.ErrUnsupported
+}
+
 func bootCluster(ctx context.Context, st *store.Store, dataDir string) (*clusterPKI, error) {
 	ca, err := clusterca.LoadCA(dataDir)
 	if errors.Is(err, os.ErrNotExist) {
@@ -131,7 +202,11 @@ func bootCluster(ctx context.Context, st *store.Store, dataDir string) (*cluster
 	if err != nil {
 		return nil, fmt.Errorf("controller cert: %w", err)
 	}
-	return &clusterPKI{ca: ca, own: own, st: st, rev: map[string]revAns{},
+	roots, err := clusterca.TrustRoots(dataDir)
+	if err != nil {
+		return nil, fmt.Errorf("cluster CA: %w", err)
+	}
+	return &clusterPKI{ca: ca, trust: roots, own: own, st: st, rev: map[string]revAns{},
 		addr: map[string]string{}, ext: map[string]*workerclient.Client{},
 		probe: map[string]probeEnt{}, fails: map[string]int{}, alive: map[string]bool{}}, nil
 }
@@ -161,7 +236,7 @@ func controllerCert(ctx context.Context, st *store.Store, dataDir string, ca *cl
 	// between them only leaves an unused row.
 	err = st.Tx(ctx, func(tx store.Tx) error {
 		if err := tx.NodeCerts.Create(ctx, store.NodeCert{
-			Serial: iss.Serial, Role: iss.Role, NotAfter: iss.NotAfter, CreatedAt: time.Now().UTC(),
+			Serial: iss.Serial, Role: iss.Role, Issuer: iss.Issuer, NotAfter: iss.NotAfter, CreatedAt: time.Now().UTC(),
 		}); err != nil {
 			return err
 		}
@@ -225,7 +300,7 @@ func (c *clusterPKI) probeClient(id, addr string) *workerclient.Client {
 	if e, ok := c.probe[id]; ok && e.addr == addr {
 		return e.ext
 	}
-	ext := workerclient.New(addr, clusterca.ClientConfig(c.ca.Cert, c.own, id, c.revoked))
+	ext := workerclient.New(addr, clusterca.ClientConfig(c.roots, c.own, id, c.revoked))
 	c.probe[id] = probeEnt{addr, ext}
 	return ext
 }

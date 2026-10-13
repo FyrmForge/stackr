@@ -69,6 +69,7 @@ type Tables struct {
 	Annotations      AnnotationStore
 	SecurityEvents   SecurityEventStore
 	NodeCerts        NodeCertStore
+	ClusterCA        ClusterCAStore
 	ExitLadders      ExitLadderStore
 	RegistryTokens   RegistryTokenStore
 	Moves            MoveStore
@@ -120,6 +121,7 @@ func bind(q querier, box *secrets.Box) Tables {
 		Annotations:      annotations{crud[Annotation]{q, box, annotationsT}},
 		SecurityEvents:   securityEvents{crud[SecurityEvent]{q, box, securityEventsT}},
 		NodeCerts:        nodeCerts{q},
+		ClusterCA:        clusterCAs{q},
 		ExitLadders:      exitLadders{q},
 		RegistryTokens:   registryTokens{crud[RegistryToken]{q, box, registryTokensT}},
 		Moves:            moves{crud[EnvMove]{q, box, movesT}},

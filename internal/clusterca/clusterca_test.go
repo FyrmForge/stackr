@@ -74,14 +74,14 @@ func TestIssueAndVerify(t *testing.T) {
 	if !node.NotAfter.Equal(now.Add(NodeLifetime)) || !node.cert.NotAfter.Equal(node.NotAfter) {
 		t.Fatalf("not after %v", node.NotAfter)
 	}
-	p, err := Verify(ca.Cert, []*x509.Certificate{node.cert}, RoleWorker, "", now)
+	p, err := Verify(one(ca), []*x509.Certificate{node.cert}, RoleWorker, "", now)
 	if err != nil || p.NodeID != "n1" || p.Role != RoleWorker || p.Serial != node.Serial {
 		t.Fatalf("verify node: %+v %v", p, err)
 	}
-	if _, err := Verify(ca.Cert, []*x509.Certificate{node.cert}, RoleWorker, "n1", now); err != nil {
+	if _, err := Verify(one(ca), []*x509.Certificate{node.cert}, RoleWorker, "n1", now); err != nil {
 		t.Fatalf("matching node id: %v", err)
 	}
-	p, err = Verify(ca.Cert, []*x509.Certificate{ctl.cert}, RoleController, "", now)
+	p, err = Verify(one(ca), []*x509.Certificate{ctl.cert}, RoleController, "", now)
 	if err != nil || p.Role != RoleController || p.NodeID != "" {
 		t.Fatalf("verify controller: %+v %v", p, err)
 	}
@@ -115,7 +115,7 @@ func TestVerifyRejects(t *testing.T) {
 		{"CA cert as leaf", []*x509.Certificate{ca.Cert}, RoleWorker, "", now, "leaf is a CA"},
 	}
 	for _, c := range cases {
-		_, err := Verify(ca.Cert, c.chain, c.role, c.id, c.at)
+		_, err := Verify(one(ca), c.chain, c.role, c.id, c.at)
 		if err == nil || !strings.Contains(err.Error(), c.want) {
 			t.Errorf("%s: err %v, want %q", c.name, err, c.want)
 		}
@@ -130,13 +130,13 @@ func TestClockSlack(t *testing.T) {
 
 	ok := []time.Time{end, end.Add(ClockSlack - time.Second), start.Add(-ClockSlack + time.Second)}
 	for _, at := range ok {
-		if _, err := Verify(ca.Cert, []*x509.Certificate{node.cert}, RoleWorker, "", at); err != nil {
+		if _, err := Verify(one(ca), []*x509.Certificate{node.cert}, RoleWorker, "", at); err != nil {
 			t.Errorf("at %v should pass: %v", at, err)
 		}
 	}
 	bad := []time.Time{end.Add(ClockSlack + time.Second), start.Add(-ClockSlack - time.Second)}
 	for _, at := range bad {
-		if _, err := Verify(ca.Cert, []*x509.Certificate{node.cert}, RoleWorker, "", at); err == nil {
+		if _, err := Verify(one(ca), []*x509.Certificate{node.cert}, RoleWorker, "", at); err == nil {
 			t.Errorf("at %v should fail", at)
 		}
 	}
@@ -199,7 +199,7 @@ func TestSaveLoadCA(t *testing.T) {
 	}
 	// The loaded CA signs certs the original CA cert accepts.
 	n := issue(t, got, "n1", now)
-	if _, err := Verify(ca.Cert, []*x509.Certificate{n.cert}, RoleWorker, "n1", now); err != nil {
+	if _, err := Verify(one(ca), []*x509.Certificate{n.cert}, RoleWorker, "n1", now); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -245,49 +245,49 @@ func TestTLS(t *testing.T) {
 	node := issue(t, ca, "n1", real)
 	node2 := issue(t, ca, "n2", real)
 
-	srv := ServerConfig(ca.Cert, node.tls, nil)
+	srv := ServerConfig(StaticRoots(ca.Cert), node.tls, nil)
 
-	if cerr, serr := handshake(t, srv, ClientConfig(ca.Cert, ctl.tls, "", nil)); cerr != nil || serr != nil {
+	if cerr, serr := handshake(t, srv, ClientConfig(StaticRoots(ca.Cert), ctl.tls, "", nil)); cerr != nil || serr != nil {
 		t.Fatalf("happy path: %v / %v", cerr, serr)
 	}
-	if cerr, serr := handshake(t, srv, ClientConfig(ca.Cert, ctl.tls, "n1", nil)); cerr != nil || serr != nil {
+	if cerr, serr := handshake(t, srv, ClientConfig(StaticRoots(ca.Cert), ctl.tls, "n1", nil)); cerr != nil || serr != nil {
 		t.Fatalf("pinned node: %v / %v", cerr, serr)
 	}
-	if cerr, _ := handshake(t, srv, ClientConfig(ca.Cert, ctl.tls, "n2", nil)); cerr == nil {
+	if cerr, _ := handshake(t, srv, ClientConfig(StaticRoots(ca.Cert), ctl.tls, "n2", nil)); cerr == nil {
 		t.Error("wrong node id accepted by client")
 	}
 	// A worker cert cannot dial a worker.
-	if cerr, serr := handshake(t, srv, ClientConfig(ca.Cert, node2.tls, "", nil)); cerr == nil && serr == nil {
+	if cerr, serr := handshake(t, srv, ClientConfig(StaticRoots(ca.Cert), node2.tls, "", nil)); cerr == nil && serr == nil {
 		t.Error("worker client cert accepted by server")
 	}
 	// No client cert at all.
-	if cerr, serr := handshake(t, srv, ClientConfig(ca.Cert, tls.Certificate{}, "", nil)); cerr == nil && serr == nil {
+	if cerr, serr := handshake(t, srv, ClientConfig(StaticRoots(ca.Cert), tls.Certificate{}, "", nil)); cerr == nil && serr == nil {
 		t.Error("anonymous client accepted")
 	}
 	// Controller signed by a different CA.
 	fctl := issue(t, other, "", real)
-	if cerr, serr := handshake(t, srv, ClientConfig(ca.Cert, fctl.tls, "", nil)); cerr == nil && serr == nil {
+	if cerr, serr := handshake(t, srv, ClientConfig(StaticRoots(ca.Cert), fctl.tls, "", nil)); cerr == nil && serr == nil {
 		t.Error("foreign controller accepted")
 	}
 	// Server presenting a cert from a different CA.
-	fsrv := ServerConfig(ca.Cert, issue(t, other, "n1", real).tls, nil)
-	if cerr, _ := handshake(t, fsrv, ClientConfig(ca.Cert, ctl.tls, "", nil)); cerr == nil {
+	fsrv := ServerConfig(StaticRoots(ca.Cert), issue(t, other, "n1", real).tls, nil)
+	if cerr, _ := handshake(t, fsrv, ClientConfig(StaticRoots(ca.Cert), ctl.tls, "", nil)); cerr == nil {
 		t.Error("foreign worker accepted")
 	}
 	// Expired worker cert.
 	old := issue(t, ca, "n1", real.Add(-NodeLifetime-2*ClockSlack))
-	osrv := ServerConfig(ca.Cert, old.tls, nil)
-	if cerr, _ := handshake(t, osrv, ClientConfig(ca.Cert, ctl.tls, "", nil)); cerr == nil {
+	osrv := ServerConfig(StaticRoots(ca.Cert), old.tls, nil)
+	if cerr, _ := handshake(t, osrv, ClientConfig(StaticRoots(ca.Cert), ctl.tls, "", nil)); cerr == nil {
 		t.Error("expired worker accepted")
 	}
 	// Revoked controller.
 	revoked := func(s string) bool { return s == ctl.Serial }
-	rsrv := ServerConfig(ca.Cert, node.tls, revoked)
-	if cerr, serr := handshake(t, rsrv, ClientConfig(ca.Cert, ctl.tls, "", nil)); cerr == nil && serr == nil {
+	rsrv := ServerConfig(StaticRoots(ca.Cert), node.tls, revoked)
+	if cerr, serr := handshake(t, rsrv, ClientConfig(StaticRoots(ca.Cert), ctl.tls, "", nil)); cerr == nil && serr == nil {
 		t.Error("revoked controller accepted")
 	}
 	// Revoked worker.
-	rcli := ClientConfig(ca.Cert, ctl.tls, "", func(s string) bool { return s == node.Serial })
+	rcli := ClientConfig(StaticRoots(ca.Cert), ctl.tls, "", func(s string) bool { return s == node.Serial })
 	if cerr, _ := handshake(t, srv, rcli); cerr == nil {
 		t.Error("revoked worker accepted")
 	}
@@ -301,20 +301,134 @@ func TestWorkerServer(t *testing.T) {
 	real := time.Now()
 	ctl := issue(t, ca, "", real)
 	node := issue(t, ca, "n1", real)
-	srv := WorkerServerConfig(ca.Cert, func() tls.Certificate { return ctl.tls }, nil)
+	srv := WorkerServerConfig(StaticRoots(ca.Cert), func() tls.Certificate { return ctl.tls }, nil)
 
-	if cerr, serr := handshake(t, srv, ControllerClientConfig(ca.Cert, node.tls)); cerr != nil || serr != nil {
+	if cerr, serr := handshake(t, srv, ControllerClientConfig(StaticRoots(ca.Cert), node.tls)); cerr != nil || serr != nil {
 		t.Fatalf("happy path: %v / %v", cerr, serr)
 	}
-	if cerr, serr := handshake(t, srv, ControllerClientConfig(ca.Cert, ctl.tls)); cerr == nil && serr == nil {
+	if cerr, serr := handshake(t, srv, ControllerClientConfig(StaticRoots(ca.Cert), ctl.tls)); cerr == nil && serr == nil {
 		t.Error("controller client cert accepted")
 	}
-	if cerr, serr := handshake(t, srv, ControllerClientConfig(ca.Cert, issue(t, other, "n1", real).tls)); cerr == nil && serr == nil {
+	if cerr, serr := handshake(t, srv, ControllerClientConfig(StaticRoots(ca.Cert), issue(t, other, "n1", real).tls)); cerr == nil && serr == nil {
 		t.Error("foreign worker accepted")
 	}
 	// A worker posing as the controller.
-	fake := WorkerServerConfig(ca.Cert, func() tls.Certificate { return issue(t, ca, "n2", real).tls }, nil)
-	if cerr, _ := handshake(t, fake, ControllerClientConfig(ca.Cert, node.tls)); cerr == nil {
+	fake := WorkerServerConfig(StaticRoots(ca.Cert), func() tls.Certificate { return issue(t, ca, "n2", real).tls }, nil)
+	if cerr, _ := handshake(t, fake, ControllerClientConfig(StaticRoots(ca.Cert), node.tls)); cerr == nil {
 		t.Error("worker accepted as the controller")
+	}
+}
+
+func one(ca *CA) []*x509.Certificate { return []*x509.Certificate{ca.Cert} }
+
+func TestVerifyTrustList(t *testing.T) {
+	a, b := mustCA(t), mustCA(t)
+	fromA := issue(t, a, "n1", now)
+	fromB := issue(t, b, "n1", now)
+	chain := func(l leaf) []*x509.Certificate { return []*x509.Certificate{l.cert} }
+	both := []*x509.Certificate{a.Cert, b.Cert}
+
+	p, err := Verify(both, chain(fromA), RoleWorker, "n1", now)
+	if err != nil || p.Issuer != Fingerprint(a.Cert) || fromA.Issuer != p.Issuer {
+		t.Fatalf("A in [A,B]: %+v %v", p, err)
+	}
+	p, err = Verify(both, chain(fromB), RoleWorker, "n1", now)
+	if err != nil || p.Issuer != Fingerprint(b.Cert) {
+		t.Fatalf("B in [A,B]: %+v %v", p, err)
+	}
+	if _, err := Verify(one(b), chain(fromA), RoleWorker, "", now); err == nil || !strings.Contains(err.Error(), "not signed by the cluster CA") {
+		t.Fatalf("A in [B]: %v", err)
+	}
+	if _, err := Verify(nil, chain(fromA), RoleWorker, "", now); err == nil {
+		t.Fatal("empty list accepted a cert")
+	}
+	// An expired root does not vouch.
+	if _, err := Verify(both, chain(fromA), RoleWorker, "", a.Cert.NotAfter.Add(2*time.Hour)); err == nil {
+		t.Fatal("expired root vouched")
+	}
+}
+
+func TestTLSTrustList(t *testing.T) {
+	a, b := mustCA(t), mustCA(t)
+	ctlA, ctlB := issue(t, a, "", now), issue(t, b, "", now)
+	node := issue(t, b, "n1", now)
+
+	// A node trusting [A,B] takes a controller from either root.
+	live := []*x509.Certificate{a.Cert, b.Cert}
+	srv := ServerConfig(func() []*x509.Certificate { return live }, node.tls, nil)
+	for _, c := range []leaf{ctlA, ctlB} {
+		if cerr, serr := handshake(t, srv, ClientConfig(StaticRoots(b.Cert), c.tls, "", nil)); cerr != nil || serr != nil {
+			t.Fatalf("controller from either root: %v %v", cerr, serr)
+		}
+	}
+	// The list is read per handshake: dropping A refuses A's controller.
+	live = []*x509.Certificate{b.Cert}
+	if cerr, serr := handshake(t, srv, ClientConfig(StaticRoots(b.Cert), ctlA.tls, "", nil)); cerr == nil && serr == nil {
+		t.Fatal("controller from a dropped root accepted")
+	}
+	if cerr, serr := handshake(t, srv, ClientConfig(StaticRoots(b.Cert), ctlB.tls, "", nil)); cerr != nil || serr != nil {
+		t.Fatalf("controller from the kept root: %v %v", cerr, serr)
+	}
+}
+
+func TestRolloverFiles(t *testing.T) {
+	dir := t.TempDir()
+	a, b := mustCA(t), mustCA(t)
+	if _, err := LoadPrevCA(dir); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("no rollover: %v", err)
+	}
+	if err := SaveCA(dir, a); err != nil {
+		t.Fatal(err)
+	}
+	roots, err := TrustRoots(dir)
+	if err != nil || len(roots) != 1 || !roots[0].Equal(a.Cert) {
+		t.Fatalf("one root: %v %v", roots, err)
+	}
+	if err := RotateCA(dir, b); err != nil {
+		t.Fatal(err)
+	}
+	cur, _ := LoadCA(dir)
+	prev, err := LoadPrevCA(dir)
+	if !cur.Cert.Equal(b.Cert) || err != nil || !prev.Equal(a.Cert) {
+		t.Fatalf("rotated: %v", err)
+	}
+	roots, err = TrustRoots(dir)
+	if err != nil || len(roots) != 2 || !roots[0].Equal(b.Cert) || !roots[1].Equal(a.Cert) {
+		t.Fatalf("two roots: %v %v", roots, err)
+	}
+	if err := DropPrevCA(dir); err != nil {
+		t.Fatal(err)
+	}
+	if err := DropPrevCA(dir); err != nil {
+		t.Fatalf("drop twice: %v", err)
+	}
+	if roots, _ = TrustRoots(dir); len(roots) != 1 || !roots[0].Equal(b.Cert) {
+		t.Fatalf("after drop: %v", roots)
+	}
+}
+
+func TestBundlePEM(t *testing.T) {
+	a, b := mustCA(t), mustCA(t)
+	roots := []*x509.Certificate{a.Cert, b.Cert}
+	got, err := ParseBundlePEM(BundlePEM(roots))
+	if err != nil || len(got) != 2 || !got[0].Equal(a.Cert) || !got[1].Equal(b.Cert) {
+		t.Fatalf("bundle: %v %v", got, err)
+	}
+	got, err = RootsFromPEM(RootsToPEM(roots))
+	if err != nil || len(got) != 2 || !got[1].Equal(b.Cert) {
+		t.Fatalf("roots: %v %v", got, err)
+	}
+	if got, err := RootsFromPEM(nil); err != nil || got != nil {
+		t.Fatalf("empty list: %v %v", got, err)
+	}
+	if _, err := ParseBundlePEM(nil); err == nil {
+		t.Fatal("empty bundle accepted")
+	}
+	k, _ := KeyPEM(a.Key)
+	if _, err := ParseBundlePEM(k); err == nil {
+		t.Fatal("key block accepted")
+	}
+	if _, err := RootsFromPEM([]string{"junk"}); err == nil {
+		t.Fatal("junk accepted")
 	}
 }

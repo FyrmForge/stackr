@@ -473,3 +473,33 @@ func TestMeshSubnetFollowsMove(t *testing.T) {
 		t.Fatal("after the move the subnet did not follow to b")
 	}
 }
+
+// Trust roots and controller serials ride every worker's spec and never the
+// controller's own; without a Trust hook both stay empty (today's behaviour).
+func TestMeshSpecCarriesTrust(t *testing.T) {
+	ctx := context.Background()
+	st := storetest.Store(t)
+	ctrl := storetest.Controller(t, st)
+	wk := ctrl
+	wk.ID, wk.Name, wk.Slug, wk.Role = "w1", "w1", "w1", "worker"
+	wk.RangeCIDR, wk.WGAddress, wk.WGPublicKey = "10.214.0.0/16", "10.207.255.7", "wgkey-w1"
+	if err := st.Nodes.Create(ctx, wk); err != nil {
+		t.Fatal(err)
+	}
+	m := newMeshSvc(st, func(string) (MeshNode, bool) { return nil, false })
+	m.ctlID = ctrl.ID
+	if _, specs, err := m.plan(ctx); err != nil || len(specs["w1"].TrustRoots) != 0 || len(specs["w1"].ControllerSerials) != 0 {
+		t.Fatalf("no hook: %+v %v", specs["w1"], err)
+	}
+	m.Trust = func(context.Context) ([]string, []string) { return []string{"root-pem"}, []string{"ab12"} }
+	_, specs, err := m.plan(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if w := specs["w1"]; len(w.TrustRoots) != 1 || w.TrustRoots[0] != "root-pem" || len(w.ControllerSerials) != 1 || w.ControllerSerials[0] != "ab12" {
+		t.Errorf("worker spec = %+v", w)
+	}
+	if c := specs[ctrl.ID]; len(c.TrustRoots) != 0 || len(c.ControllerSerials) != 0 {
+		t.Errorf("controller spec carries trust: %+v", c)
+	}
+}

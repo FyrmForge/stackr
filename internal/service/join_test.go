@@ -186,7 +186,7 @@ func TestJoinConfirmIssuesCert(t *testing.T) {
 	}
 	cert, err := x509.ParseCertificate(blk.Bytes)
 	must(t, err)
-	peer, err := clusterca.Verify(ca.Cert, []*x509.Certificate{cert}, clusterca.RoleWorker, st1.NodeID, time.Now())
+	peer, err := clusterca.Verify([]*x509.Certificate{ca.Cert}, []*x509.Certificate{cert}, clusterca.RoleWorker, st1.NodeID, time.Now())
 	if err != nil {
 		t.Fatalf("cert does not verify: %v", err)
 	}

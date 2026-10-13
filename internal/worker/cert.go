@@ -141,7 +141,7 @@ func (s *Server) renewOnce(ctx context.Context, now time.Time) error {
 	if err != nil {
 		return err
 	}
-	old, err := clusterca.Verify(ca, []*x509.Certificate{leaf}, clusterca.RoleWorker, "", now)
+	old, err := clusterca.Verify([]*x509.Certificate{ca}, []*x509.Certificate{leaf}, clusterca.RoleWorker, "", now)
 	if err != nil {
 		return fmt.Errorf("the node cert can no longer be renewed (%w): rejoin the node", err)
 	}
@@ -175,7 +175,7 @@ func (s *Server) renewOnce(ctx context.Context, now time.Time) error {
 	if err != nil {
 		return err
 	}
-	if _, err := clusterca.Verify(ca, []*x509.Certificate{nl}, clusterca.RoleWorker, old.NodeID, now); err != nil {
+	if _, err := clusterca.Verify([]*x509.Certificate{ca}, []*x509.Certificate{nl}, clusterca.RoleWorker, old.NodeID, now); err != nil {
 		return fmt.Errorf("renewed cert refused: %w", err)
 	}
 	if err := s.swapCertFiles(certPEM, kb); err != nil {
@@ -240,7 +240,7 @@ func (s *Server) renewTunnel(ctx context.Context, csr []byte) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	tc := s.withOwn(clusterca.ControllerClientConfig(ca, tls.Certificate{}))
+	tc := s.withOwn(clusterca.ControllerClientConfig(clusterca.StaticRoots(ca), tls.Certificate{}))
 	body, _ := json.Marshal(RenewRequest{CSR: string(csr)})
 	return renewPost(ctx, &http.Client{Transport: &http.Transport{TLSClientConfig: tc}}, u+RenewTunnelPath, body)
 }

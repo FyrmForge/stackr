@@ -97,6 +97,11 @@ type meshSvc struct {
 	ctlID    string
 	// Panel is the panel's public URL, named in every worker's spec.
 	Panel string
+	// Trust names the cluster's trust list (PEM roots) and the controller cert
+	// serials workers accept, for every worker's spec; nil (or empty answers)
+	// = none, which is today's behaviour. Never set on the controller's own
+	// spec.
+	Trust func(ctx context.Context) (roots, controllerSerials []string)
 
 	kick chan struct{}
 
@@ -241,9 +246,14 @@ func (m *meshSvc) plan(ctx context.Context) (meshIn, map[string]worker.MeshSpec,
 	if m.Registry != nil {
 		reg = m.Registry(ctx)
 	}
+	var roots, serials []string
+	if m.Trust != nil {
+		roots, serials = m.Trust(ctx)
+	}
 	for id, sp := range specs {
 		if id != m.ctlID {
 			sp.Registry, sp.Panel = reg, m.Panel
+			sp.TrustRoots, sp.ControllerSerials = roots, serials
 			specs[id] = sp
 		}
 	}

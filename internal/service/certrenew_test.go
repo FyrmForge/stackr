@@ -56,7 +56,7 @@ func TestRenewTunnel(t *testing.T) {
 	must(t, json.Unmarshal(w.Body.Bytes(), &a))
 	c, err := clusterca.ParseCertPEM([]byte(a.Cert))
 	must(t, err)
-	if p, err := clusterca.Verify(o.cluster.ca.Cert, []*x509.Certificate{c}, clusterca.RoleWorker, "w1", time.Now()); err != nil || p.NodeID != "w1" {
+	if p, err := clusterca.Verify(o.cluster.roots(), []*x509.Certificate{c}, clusterca.RoleWorker, "w1", time.Now()); err != nil || p.NodeID != "w1" {
 		t.Fatalf("renewed cert: %v", err)
 	}
 	es, err := o.SecurityLog(context.Background(), SecurityFilter{Action: securitylog.NodeCertRenew})
@@ -137,5 +137,37 @@ func TestControllerCertRenewsWhenDue(t *testing.T) {
 	must(t, err)
 	if !changed || clusterca.NeedsRenewal(c, time.Now()) {
 		t.Fatalf("changed %v, due %v", changed, clusterca.NeedsRenewal(c, time.Now()))
+	}
+}
+
+// A fresh cluster trusts one root and announces no controller serials; the
+// issuer of a renewed cert is that root.
+func TestMeshTrustOneRoot(t *testing.T) {
+	o, _ := renewRig(t)
+	roots, serials := o.meshTrust(context.Background())
+	if len(roots) != 1 || len(serials) != 0 {
+		t.Fatalf("roots %d, serials %v", len(roots), serials)
+	}
+	back, err := clusterca.RootsFromPEM(roots)
+	must(t, err)
+	if !back[0].Equal(o.cluster.ca.Cert) {
+		t.Fatal("the trust list is not the CA")
+	}
+	_, err = o.renewNodeCert(context.Background(), "w1", []byte(newCSR(t)), "tunnel")
+	must(t, err)
+	live, err := o.store.NodeCerts.ListLive(context.Background())
+	must(t, err)
+	if len(live) == 0 || live[len(live)-1].Issuer != clusterca.Fingerprint(o.cluster.ca.Cert) {
+		t.Fatalf("issuer not recorded: %+v", live)
+	}
+	other, err := clusterca.NewCA(time.Now())
+	must(t, err)
+	o.cluster.setRoots([]*x509.Certificate{other.Cert, o.cluster.ca.Cert})
+	if r, _ := o.meshTrust(context.Background()); len(r) != 2 {
+		t.Fatalf("roots after setRoots: %d", len(r))
+	}
+	o.cluster.setSerials([]string{"ab"})
+	if _, s := o.meshTrust(context.Background()); len(s) != 1 || s[0] != "ab" {
+		t.Fatalf("serials %v", s)
 	}
 }

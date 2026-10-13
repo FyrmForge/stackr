@@ -337,7 +337,7 @@ func (o *Orchestrator) ConfirmJoin(ctx context.Context, by *Principal, nodeID st
 			return err
 		}
 		if err := tx.NodeCerts.Create(ctx, store.NodeCert{
-			Serial: iss.Serial, NodeID: out.ID, Role: iss.Role, NotAfter: iss.NotAfter, CreatedAt: time.Now().UTC(),
+			Serial: iss.Serial, NodeID: out.ID, Role: iss.Role, Issuer: iss.Issuer, NotAfter: iss.NotAfter, CreatedAt: time.Now().UTC(),
 		}); err != nil {
 			return err
 		}

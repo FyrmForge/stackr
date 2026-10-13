@@ -45,6 +45,16 @@ type MeshSpec struct {
 	// Panel is the panel's public URL, where the worker recovers its spec
 	// when the controller goes quiet. "" on the controller itself.
 	Panel string `json:",omitempty"`
+	// TrustRoots is the cluster's trust list, one PEM root each: the current
+	// root, and the previous one while a rollover runs. The worker trusts
+	// exactly these (the worker owns applying it). Empty = the controller does
+	// not send one (an old controller, or the controller's own spec): keep
+	// the CA file from join.
+	TrustRoots []string `json:",omitempty"`
+	// ControllerSerials is the allow list of controller cert serials (hex):
+	// the worker accepts a controller only when its cert's serial is listed.
+	// Empty = no allow list, any controller cert from a trusted root.
+	ControllerSerials []string `json:",omitempty"`
 }
 
 // RegistrySpec: URL is https://<controller transit>:<panel port>, Host the
@@ -271,7 +281,7 @@ func (s *Server) startRegistry(r *RegistrySpec) {
 		return
 	}
 	s.mesh.registry = true
-	c := RegistryConfig{URL: r.URL, Host: r.Host, TLS: s.withOwn(clusterca.ControllerClientConfig(ca, tls.Certificate{}))}
+	c := RegistryConfig{URL: r.URL, Host: r.Host, TLS: s.withOwn(clusterca.ControllerClientConfig(clusterca.StaticRoots(ca), tls.Certificate{}))}
 	go func() {
 		if err := serveRegistry(s.ctx, c); err != nil {
 			slog.Error("worker: registry proxy", "err", err)

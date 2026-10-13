@@ -86,7 +86,7 @@ func workerConfig(args []string) (worker.Config, error) {
 		if err != nil {
 			return worker.Config{}, fmt.Errorf("cluster CA cert: %w", err)
 		}
-		reg = worker.RegistryConfig{URL: *regURL, Host: *regHost, TLS: clusterca.ControllerClientConfig(caCert, own)}
+		reg = worker.RegistryConfig{URL: *regURL, Host: *regHost, TLS: clusterca.ControllerClientConfig(clusterca.StaticRoots(caCert), own)}
 	}
 	own, err := worker.LoadNodeCert(def(cert, "node.crt"), def(key, "node.key"))
 	if err != nil {
@@ -125,5 +125,5 @@ func workerTLS(certFile, keyFile, caFile string) (*tls.Config, error) {
 	if err != nil {
 		return nil, fmt.Errorf("cluster CA cert: %w", err)
 	}
-	return clusterca.ServerConfig(ca, own, nil), nil
+	return clusterca.ServerConfig(clusterca.StaticRoots(ca), own, nil), nil
 }

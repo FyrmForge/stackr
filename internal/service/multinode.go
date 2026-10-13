@@ -61,6 +61,7 @@ func (o *Orchestrator) startMesh(ctlID string) {
 	go o.rotateSchedule(ctx)
 	if local != nil {
 		o.mesh.ctlID, o.mesh.Registry, o.mesh.Panel = ctlID, o.meshRegistry, o.panelURL()
+		o.mesh.Trust = o.meshTrust
 	}
 	// Not started here: its first sync reads leaves New builds after this.
 	o.runMesh = func() { go o.mesh.Run(ctx) }
@@ -344,6 +345,13 @@ func (o *Orchestrator) dailyChores(ctx context.Context) {
 		} else if changed {
 			slog.Info("cluster: controller cert renewed")
 		}
+	}
+	// The contract stubs answer errors.ErrUnsupported until their workers land.
+	if err := o.announceControllerCert(ctx); err != nil && !errors.Is(err, errors.ErrUnsupported) {
+		slog.Warn("cluster: controller cert announce failed", "err", err)
+	}
+	if err := o.rootRolloverTick(ctx); err != nil && !errors.Is(err, errors.ErrUnsupported) {
+		slog.Warn("cluster: root rollover tick failed", "err", err)
 	}
 	if err := o.store.RegistryTokens.DeleteExpiredBefore(ctx, time.Now().UTC().Add(-registryTokenKeep)); err != nil {
 		slog.Warn("registry: prune expired tokens", "err", err)

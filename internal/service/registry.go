@@ -68,7 +68,7 @@ func (o *Orchestrator) serveRegistryWG(ctx context.Context) {
 	}
 	srv := &http.Server{
 		Handler:           o.meshHandler(),
-		TLSConfig:         clusterca.WorkerServerConfig(o.cluster.ca.Cert, o.cluster.cert, o.cluster.revoked),
+		TLSConfig:         clusterca.WorkerServerConfig(o.cluster.roots, o.cluster.cert, o.cluster.revoked),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 	for {
@@ -223,11 +223,11 @@ func (o *Orchestrator) userRegistryFacts(ctx context.Context, p *Principal) regf
 // not be revoked; the node may pull the images of the envs pinned to it.
 // ponytail: no builder facts yet, build jobs do not run on workers.
 func (o *Orchestrator) nodeFacts(ctx context.Context, chain []*x509.Certificate) (regfront.Facts, error) {
-	ca, err := clusterca.LoadCA(o.cfg.DataDir)
+	roots, err := clusterca.TrustRoots(o.cfg.DataDir)
 	if err != nil {
 		return regfront.Facts{}, errRegistryAuth
 	}
-	peer, err := clusterca.Verify(ca.Cert, chain, clusterca.RoleWorker, "", time.Now())
+	peer, err := clusterca.Verify(roots, chain, clusterca.RoleWorker, "", time.Now())
 	if err != nil {
 		return regfront.Facts{}, errRegistryAuth
 	}

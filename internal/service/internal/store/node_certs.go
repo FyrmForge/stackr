@@ -8,10 +8,13 @@ import (
 // NodeCert is a row of node_certs: one cert the cluster CA issued. NodeID is
 // empty for the controller cert. RevokedAt is nil until revoked.
 type NodeCert struct {
-	Serial    string     `db:"serial" json:"serial"`
-	NodeID    string     `db:"node_id" json:"node_id"`
-	Role      string     `db:"role" json:"role"`
-	NotAfter  time.Time  `db:"not_after" json:"not_after"`
+	Serial   string    `db:"serial" json:"serial"`
+	NodeID   string    `db:"node_id" json:"node_id"`
+	Role     string    `db:"role" json:"role"`
+	NotAfter time.Time `db:"not_after" json:"not_after"`
+	// Issuer is the fingerprint of the root that signed it, "" for certs
+	// from before root rollovers.
+	Issuer    string     `db:"issuer" json:"issuer"`
 	RevokedAt *time.Time `db:"revoked_at" json:"revoked_at"`
 	CreatedAt time.Time  `db:"created_at" json:"created_at"`
 }
@@ -20,6 +23,9 @@ type NodeCertStore interface {
 	Create(ctx context.Context, c NodeCert) error
 	Get(ctx context.Context, serial string) (NodeCert, error)
 	ListByNode(ctx context.Context, nodeID string) ([]NodeCert, error)
+	// ListLive is every unrevoked cert, oldest first: a rollover reads the
+	// issuers of what nodes hold right now.
+	ListLive(ctx context.Context) ([]NodeCert, error)
 	// Revoke stamps one cert; ErrNotFound when the serial is unknown.
 	Revoke(ctx context.Context, serial string, at time.Time) error
 	// RevokeNode stamps every live cert of a node and returns how many.
@@ -35,11 +41,11 @@ type nodeCerts struct{ q querier }
 // NewNodeCerts binds the store to a querier. Tables does not wire it yet.
 func NewNodeCerts(q querier) NodeCertStore { return nodeCerts{q} }
 
-const nodeCertCols = "serial, node_id, role, not_after, revoked_at, created_at"
+const nodeCertCols = "serial, node_id, role, not_after, issuer, revoked_at, created_at"
 
 func (s nodeCerts) Create(ctx context.Context, c NodeCert) error {
 	_, err := s.q.NamedExecContext(ctx, "INSERT INTO node_certs ("+nodeCertCols+
-		") VALUES (:serial, :node_id, :role, :not_after, :revoked_at, :created_at)", c)
+		") VALUES (:serial, :node_id, :role, :not_after, :issuer, :revoked_at, :created_at)", c)
 	return mapErr(err)
 }
 
@@ -53,6 +59,13 @@ func (s nodeCerts) ListByNode(ctx context.Context, nodeID string) ([]NodeCert, e
 	var rows []NodeCert
 	err := s.q.SelectContext(ctx, &rows, "SELECT "+nodeCertCols+
 		" FROM node_certs WHERE node_id = ? ORDER BY created_at, serial", nodeID)
+	return rows, mapErr(err)
+}
+
+func (s nodeCerts) ListLive(ctx context.Context) ([]NodeCert, error) {
+	var rows []NodeCert
+	err := s.q.SelectContext(ctx, &rows, "SELECT "+nodeCertCols+
+		" FROM node_certs WHERE revoked_at IS NULL ORDER BY created_at, serial")
 	return rows, mapErr(err)
 }
 

@@ -40,7 +40,7 @@ func (o *Orchestrator) renewNodeCert(ctx context.Context, nodeID string, csr []b
 	}
 	err = o.store.Tx(ctx, func(tx store.Tx) error {
 		if err := tx.NodeCerts.Create(ctx, store.NodeCert{
-			Serial: iss.Serial, NodeID: nodeID, Role: iss.Role, NotAfter: iss.NotAfter, CreatedAt: time.Now().UTC(),
+			Serial: iss.Serial, NodeID: nodeID, Role: iss.Role, Issuer: iss.Issuer, NotAfter: iss.NotAfter, CreatedAt: time.Now().UTC(),
 		}); err != nil {
 			return err
 		}
@@ -63,7 +63,7 @@ func (o *Orchestrator) renewTunnel(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "worker cert required", http.StatusForbidden)
 		return
 	}
-	peer, err := clusterca.Verify(o.cluster.ca.Cert, r.TLS.PeerCertificates, clusterca.RoleWorker, "", time.Now())
+	peer, err := clusterca.Verify(o.cluster.roots(), r.TLS.PeerCertificates, clusterca.RoleWorker, "", time.Now())
 	if err != nil {
 		http.Error(w, "worker cert required", http.StatusForbidden)
 		return

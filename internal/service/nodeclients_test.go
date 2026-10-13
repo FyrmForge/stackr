@@ -107,7 +107,7 @@ func workerNodeWith(t *testing.T, o *Orchestrator, id, status string, cfg worker
 		cfg.StateDir = t.TempDir()
 	}
 	srv := httptest.NewUnstartedServer(worker.New(cfg).Handler())
-	srv.TLS = clusterca.ServerConfig(ca.Cert, own, nil)
+	srv.TLS = clusterca.ServerConfig(clusterca.StaticRoots(ca.Cert), own, nil)
 	srv.StartTLS()
 	t.Cleanup(srv.Close)
 	must(t, o.store.Nodes.Create(context.Background(), store.Node{
