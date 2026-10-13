@@ -207,13 +207,16 @@ func Build(m Map, base string, notes []graph.Note, create []graph.Create) graph.
 		if len(members) == 0 {
 			continue
 		}
-		b := wrap(rs, minBoxW)
-		name, sub := netTitle(c)
-		boxes = append(boxes, graph.Node{
-			ID: boxID(c.ID), Kind: "net", Name: name, X: b.x, Y: b.y, W: b.w, H: b.h,
-			Members: members, Pad: [4]int{headH, padX, padB, padX}, MinW: minBoxW,
-			Card: netCard(name, sub),
-		})
+		// A network with one node is no grouping: its cards stand alone.
+		if len(ns) >= 2 {
+			b := wrap(rs, minBoxW)
+			name, sub := netTitle(c)
+			boxes = append(boxes, graph.Node{
+				ID: boxID(c.ID), Kind: "net", Name: name, X: b.x, Y: b.y, W: b.w, H: b.h,
+				Members: members, Pad: [4]int{headH, padX, padB, padX}, MinW: minBoxW,
+				Card: netCard(name, sub),
+			})
+		}
 		by = rowY + rowH + padB + boxGapY
 	}
 	bottom := max(by-boxGapY, headH+faceH+padB)
