@@ -7,8 +7,16 @@ package imgcopy
 import (
 	"context"
 	"errors"
+	"fmt"
+	"net/http"
+	"sort"
+	"strings"
 
 	"github.com/google/go-containerregistry/pkg/authn"
+	"github.com/google/go-containerregistry/pkg/name"
+	v1 "github.com/google/go-containerregistry/pkg/v1"
+	"github.com/google/go-containerregistry/pkg/v1/remote"
+	"github.com/google/go-containerregistry/pkg/v1/remote/transport"
 )
 
 // Result is what a copy left in the destination.
@@ -48,5 +56,278 @@ type Result struct {
 //   - Credentials go only to the registry they were given for (srcAuth to
 //     src's, dstAuth to dst's) and are never logged.
 func Copy(ctx context.Context, src, dst string, srcAuth, dstAuth authn.Authenticator, platforms []string) (Result, error) {
-	return Result{}, errors.ErrUnsupported
+	srcRef, err := name.ParseReference(src)
+	if err != nil {
+		return Result{}, fmt.Errorf("source %q: %w", src, err)
+	}
+	dstRef, err := name.ParseReference(dst)
+	if err != nil {
+		return Result{}, fmt.Errorf("destination %q: %w", dst, err)
+	}
+	if _, ok := dstRef.(name.Tag); !ok {
+		return Result{}, fmt.Errorf("destination %q needs a tag", dst)
+	}
+	if len(platforms) == 0 {
+		return Result{}, errors.New("no platforms wanted")
+	}
+	wanted := make([]want, 0, len(platforms))
+	for _, p := range platforms {
+		wanted = append(wanted, parseWant(p))
+	}
+	so := []remote.Option{remote.WithContext(ctx), remote.WithAuth(orAnon(srcAuth))}
+	do := []remote.Option{remote.WithContext(ctx), remote.WithAuth(orAnon(dstAuth))}
+
+	// HEAD first. A registry that refuses HEAD falls through to the GET.
+	if h, err := remote.Head(srcRef, so...); err == nil {
+		d, err := remote.Get(dstRef.Context().Digest(h.Digest.String()), do...)
+		switch {
+		case err == nil:
+			res, ok, err := held(dstRef, d, wanted, do)
+			if err != nil {
+				return Result{}, err
+			}
+			if ok {
+				return res, nil
+			}
+		case !notFound(err):
+			return Result{}, fmt.Errorf("destination %s: %w", dstRef.Context(), err)
+		}
+	}
+
+	d, err := remote.Get(srcRef, so...)
+	if err != nil {
+		return Result{}, fmt.Errorf("source %s: %w", srcRef, err)
+	}
+	if d.MediaType.IsIndex() {
+		err = copyIndex(d, srcRef, dstRef, wanted, do)
+	} else {
+		err = copyImage(d, srcRef, dstRef, wanted, do)
+	}
+	if err != nil {
+		return Result{}, err
+	}
+	// The original bytes under the tag: the digest stays upstream's.
+	if err := remote.Put(dstRef, d, do...); err != nil {
+		return Result{}, fmt.Errorf("tag %s: %w", dstRef, err)
+	}
+	dd, err := remote.Get(dstRef.Context().Digest(d.Digest.String()), do...)
+	if err != nil {
+		return Result{}, err
+	}
+	res, _, err := held(dstRef, dd, wanted, do)
+	return res, err
+}
+
+func copyIndex(d *remote.Descriptor, srcRef, dstRef name.Reference, wanted []want, do []remote.Option) error {
+	idx, err := d.ImageIndex()
+	if err != nil {
+		return err
+	}
+	im, err := idx.IndexManifest()
+	if err != nil {
+		return err
+	}
+	// Resolve every wanted platform before copying anything.
+	var picks []v1.Hash
+	for _, w := range wanted {
+		var found *v1.Descriptor
+		for i := range im.Manifests {
+			if w.matches(im.Manifests[i].Platform) {
+				found = &im.Manifests[i]
+				break
+			}
+		}
+		if found == nil {
+			return fmt.Errorf("%s has no %s image, it has: %s", srcRef, w, strings.Join(platformsOf(im), ", "))
+		}
+		picks = append(picks, found.Digest)
+	}
+	for _, h := range picks {
+		img, err := idx.Image(h)
+		if err != nil {
+			return err
+		}
+		// Write skips blobs the destination already has.
+		if err := remote.Write(dstRef.Context().Digest(h.String()), img, do...); err != nil {
+			return fmt.Errorf("copy %s: %w", h, err)
+		}
+	}
+	return nil
+}
+
+func copyImage(d *remote.Descriptor, srcRef, dstRef name.Reference, wanted []want, do []remote.Option) error {
+	img, err := d.Image()
+	if err != nil {
+		return err
+	}
+	p, err := imagePlatform(img)
+	if err != nil {
+		return err
+	}
+	if !matchesAny(wanted, p) {
+		return fmt.Errorf("%s is a %s/%s image, wanted: %s", srcRef, p.OS, p.Architecture, wantList(wanted))
+	}
+	if err := remote.Write(dstRef.Context().Digest(d.Digest.String()), img, do...); err != nil {
+		return fmt.Errorf("copy %s: %w", d.Digest, err)
+	}
+	return nil
+}
+
+// held reports what dst stores behind d and whether that covers every wanted
+// platform. When it does, the tag is made to point at d too.
+func held(dstRef name.Reference, d *remote.Descriptor, wanted []want, do []remote.Option) (Result, bool, error) {
+	res := Result{Digest: d.Digest.String()}
+	have := map[string]*v1.Platform{}
+	add := func(img v1.Image, p *v1.Platform) error {
+		m, err := img.Manifest()
+		if err != nil {
+			return err
+		}
+		raw, err := img.RawManifest()
+		if err != nil {
+			return err
+		}
+		res.Size += int64(len(raw)) + m.Config.Size
+		for _, l := range m.Layers {
+			res.Size += l.Size
+		}
+		have[p.Architecture] = p
+		return nil
+	}
+	if d.MediaType.IsIndex() {
+		idx, err := d.ImageIndex()
+		if err != nil {
+			return res, false, err
+		}
+		im, err := idx.IndexManifest()
+		if err != nil {
+			return res, false, err
+		}
+		for _, c := range im.Manifests {
+			if c.Platform == nil || c.Platform.OS != "linux" {
+				continue
+			}
+			cd, err := remote.Get(dstRef.Context().Digest(c.Digest.String()), do...)
+			if notFound(err) {
+				continue
+			} else if err != nil {
+				return res, false, err
+			}
+			img, err := cd.Image()
+			if err != nil {
+				return res, false, err
+			}
+			if err := add(img, c.Platform); err != nil {
+				return res, false, err
+			}
+		}
+		for _, w := range wanted {
+			ok := false
+			for _, p := range have {
+				ok = ok || w.matches(p)
+			}
+			if !ok {
+				return res, false, nil
+			}
+		}
+	} else {
+		img, err := d.Image()
+		if err != nil {
+			return res, false, err
+		}
+		p, err := imagePlatform(img)
+		if err != nil {
+			return res, false, err
+		}
+		if !matchesAny(wanted, p) {
+			return res, false, nil
+		}
+		if err := add(img, p); err != nil {
+			return res, false, err
+		}
+	}
+	for a := range have {
+		res.Platforms = append(res.Platforms, a)
+	}
+	sort.Strings(res.Platforms)
+	if h, err := remote.Head(dstRef, do...); err != nil || h.Digest != d.Digest {
+		if err := remote.Put(dstRef, d, do...); err != nil {
+			return res, false, fmt.Errorf("tag %s: %w", dstRef, err)
+		}
+	}
+	return res, true, nil
+}
+
+func imagePlatform(img v1.Image) (*v1.Platform, error) {
+	cf, err := img.ConfigFile()
+	if err != nil {
+		return nil, err
+	}
+	return &v1.Platform{OS: cf.OS, Architecture: cf.Architecture, Variant: cf.Variant}, nil
+}
+
+// want is one wanted platform. ponytail: results name the CPU type only, so
+// two variants of one arch (arm/v6, arm/v7) collapse into one name.
+type want struct{ os, arch, variant string }
+
+func parseWant(p string) want {
+	parts := strings.Split(p, "/")
+	if len(parts) == 1 {
+		return want{"linux", parts[0], ""}
+	}
+	w := want{parts[0], parts[1], ""}
+	if len(parts) > 2 {
+		w.variant = parts[2]
+	}
+	return w
+}
+
+func (w want) String() string {
+	if w.variant != "" {
+		return w.os + "/" + w.arch + "/" + w.variant
+	}
+	return w.os + "/" + w.arch
+}
+
+func (w want) matches(p *v1.Platform) bool {
+	return p != nil && p.OS == w.os && p.Architecture == w.arch && (w.variant == "" || p.Variant == w.variant)
+}
+
+func matchesAny(ws []want, p *v1.Platform) bool {
+	for _, w := range ws {
+		if w.matches(p) {
+			return true
+		}
+	}
+	return false
+}
+
+func wantList(ws []want) string {
+	s := make([]string, len(ws))
+	for i, w := range ws {
+		s[i] = w.String()
+	}
+	return strings.Join(s, ", ")
+}
+
+func platformsOf(im *v1.IndexManifest) []string {
+	var out []string
+	for _, c := range im.Manifests {
+		if c.Platform != nil && c.Platform.OS != "unknown" {
+			out = append(out, c.Platform.OS+"/"+c.Platform.Architecture)
+		}
+	}
+	return out
+}
+
+func orAnon(a authn.Authenticator) authn.Authenticator {
+	if a == nil {
+		return authn.Anonymous
+	}
+	return a
+}
+
+func notFound(err error) bool {
+	var te *transport.Error
+	return errors.As(err, &te) && te.StatusCode == http.StatusNotFound
 }
