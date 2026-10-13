@@ -179,6 +179,9 @@ func TestTrustVerbsReturnWhileWorkerDead(t *testing.T) {
 	if d := time.Since(start); d > 2*time.Second {
 		t.Fatalf("revoke blocked %v", d)
 	}
+	if err := o.BreakGlass(context.Background(), adminP()); err == nil {
+		t.Fatal("break glass ran beside a revoke")
+	}
 	must(t, o.Close())
 	if d := time.Since(start); d > 5*time.Second {
 		t.Fatalf("close waited %v", d)
@@ -194,6 +197,12 @@ func TestTrustVerbsReturnWhileWorkerDead(t *testing.T) {
 	}
 	if d := time.Since(start); d > 2*time.Second {
 		t.Fatalf("rotate blocked %v", d)
+	}
+	if err := o.FinishRollover(context.Background(), adminP()); err == nil {
+		t.Fatal("finish ran beside the rollover's pushes")
+	}
+	if d := time.Since(start); d > 2*time.Second {
+		t.Fatalf("finish blocked %v", d)
 	}
 	must(t, o.Close())
 }

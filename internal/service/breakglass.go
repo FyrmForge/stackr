@@ -32,6 +32,9 @@ func (o *Orchestrator) BreakGlass(ctx context.Context, by *Principal) error {
 	if o.cluster == nil {
 		return errs.Conflictf("this install runs no cluster")
 	}
+	if o.cluster.revoking.Load() { // it holds rollMu for minutes with a worker offline
+		return errs.Conflictf("The controller certificate is being replaced. Try again in a few minutes.")
+	}
 	cur, _, err := o.store.ClusterCA.Get(ctx)
 	if err != nil {
 		return err

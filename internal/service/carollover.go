@@ -116,6 +116,9 @@ func (o *Orchestrator) FinishRollover(ctx context.Context, by *Principal) error 
 	if o.cluster == nil {
 		return errs.Conflictf("The cluster CA is not set up on this panel yet.")
 	}
+	if rolloverDetached.Load() { // its pushes can wait minutes on an offline worker
+		return errs.Conflictf("The rollover is still sending the trust list. Try again in a few minutes.")
+	}
 	rolloverMu.Lock()
 	defer rolloverMu.Unlock()
 	st, err := o.reconcileRollover(ctx)
