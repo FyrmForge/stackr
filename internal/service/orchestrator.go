@@ -567,6 +567,7 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 			Managed: orch.managed,
 			Traffic: orch.traffic,
 			Path:    cfg.Conntrack,
+			Remote:  orch.workerTraffic,
 		}
 	})
 	orch.graph = build("flow/graph", func() *graph.Flow {
