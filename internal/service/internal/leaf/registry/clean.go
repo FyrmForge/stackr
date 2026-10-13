@@ -14,7 +14,8 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/regfront"
 )
 
-// InUse says whether an env runs, pins or can roll back to a version.
+// InUse says whether an env runs, pins or can roll back to a version. Clean
+// asks a repo's versions newest first.
 type InUse func(ctx context.Context, repo, digest string) (bool, error)
 
 // Cleaned is what a Clean did.
@@ -196,14 +197,14 @@ func (l *Leaf) createdAt(ctx context.Context, repo, digest string) time.Time {
 }
 
 // Clean is the mark half of the nightly cleanup: per repo, every version
-// beyond the newest keep that inUse refuses, deleted as Delete does (manifest
+// beyond the newest keep(repo) that inUse refuses, deleted as Delete does (manifest
 // and row). A digest is deleted only when no tag on it is in use: inUse is
 // asked of the digest, which every tag on it shares. One repo failing is
 // noted in Errors and the rest go on. The sweep (gate pushes, garbage collect
 // --delete-untagged, ungate) is the service's, since it needs Docker; see
 // WhileGated.
 // ponytail: tags only; a manifest nothing tags is the garbage collect's.
-func (l *Leaf) Clean(ctx context.Context, keep int, inUse InUse) (Cleaned, error) {
+func (l *Leaf) Clean(ctx context.Context, keep func(repo string) int, inUse InUse) (Cleaned, error) {
 	var res Cleaned
 	repos, err := l.catalog(ctx)
 	if err != nil {
@@ -216,7 +217,7 @@ func (l *Leaf) Clean(ctx context.Context, keep int, inUse InUse) (Cleaned, error
 			note(repo, err)
 			continue
 		}
-		for _, v := range vs[min(keep, len(vs)):] {
+		for _, v := range vs[min(keep(repo), len(vs)):] {
 			used, err := inUse(ctx, repo, v.digest)
 			if err != nil {
 				// Unknown is as good as in use.

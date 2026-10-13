@@ -11,6 +11,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/FyrmForge/stackr/internal/installspec"
+	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/image"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/job"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/registry"
@@ -80,7 +82,9 @@ func (f *fakeRegistry) has(repo, tag string) bool {
 }
 
 // The sweep keeps the newest registry_keep per repo and what an env uses (a
-// built image its release pins, an imported one a tile names), deletes the
+// built image its release pins, an imported one a tile names); of stackr's own
+// images, the tags the code runs, the running stackr tag and its 2 newest
+// others, deletes the
 // rest with its rows while the gate is shut, runs the garbage collect and
 // opens the gate; the result is kept and in the security log.
 func TestRegistrySweep(t *testing.T) {
@@ -90,6 +94,8 @@ func TestRegistrySweep(t *testing.T) {
 	fr := &fakeRegistry{tags: map[string]map[string]string{
 		web:                    {"b1": "sha256:b1", "b2": "sha256:b2", "b3": "sha256:b3", "b4": "sha256:b4"},
 		"stackr.system/alpine": {"3": "sha256:s3", "2": "sha256:s2"},
+		"stackr.system/stackr": {"v1": "sha256:k1", "v2": "sha256:k2", "v3": "sha256:k3", "v4": "sha256:k4", "v5": "sha256:k5"},
+		"stackr.system/other":  {"x": "sha256:x"},
 		pg:                     {"14": "sha256:p14", "15": "sha256:p15", "16": "sha256:p16", "latest": "sha256:p16"},
 	}}
 	srv := httptest.NewServer(fr)
@@ -116,6 +122,14 @@ func TestRegistrySweep(t *testing.T) {
 	for i, tag := range []string{"14", "15", "16"} {
 		add(pg, tag, "sha256:p"+tag, i)
 	}
+	// stackr image versions, v5 newest; the controller runs v3 (rolled back).
+	for i, tag := range []string{"v1", "v2", "v3", "v4", "v5"} {
+		must(t, w.orch.regs.Record(ctx, store.RegistryImage{
+			Repo: "stackr.system/stackr", Tag: tag, Digest: "sha256:k" + tag[1:], Source: registry.SourceSystem,
+			Size: 100, CreatedAt: t0.Add(time.Duration(i) * time.Minute),
+		}))
+	}
+	w.fake.Details = map[string]docker.Detail{installspec.ProxyName: {Image: "ghcr.io/fyrmforge/stackr:v3"}}
 	// b1 is what the env's release pins (its ref in the registry), 15 what a tile names.
 	im, err := w.orch.images.Built(ctx, image.ClusterRegistry+web+":b1", "sha256:unrelated")
 	must(t, err)
@@ -142,7 +156,9 @@ func TestRegistrySweep(t *testing.T) {
 		want      bool
 	}{
 		{web, "b1", true}, {web, "b2", false}, {web, "b3", false}, {web, "b4", true},
-		{"stackr.system/alpine", "2", true}, {pg, "14", false}, {pg, "15", true}, {pg, "16", true}, {pg, "latest", true},
+		{"stackr.system/alpine", "3", true}, {"stackr.system/alpine", "2", false}, {"stackr.system/other", "x", true},
+		{"stackr.system/stackr", "v1", false}, {"stackr.system/stackr", "v2", false}, {"stackr.system/stackr", "v3", true},
+		{"stackr.system/stackr", "v4", true}, {"stackr.system/stackr", "v5", true}, {pg, "14", false}, {pg, "15", true}, {pg, "16", true}, {pg, "latest", true},
 	} {
 		if got := fr.has(c.repo, c.tag); got != c.want {
 			t.Errorf("%s:%s present = %v, want %v", c.repo, c.tag, got, c.want)
@@ -150,7 +166,7 @@ func TestRegistrySweep(t *testing.T) {
 	}
 	rows, err := w.st.RegistryImages.ListAll(ctx)
 	must(t, err)
-	if len(rows) != 4 { // b1, b4, 15, 16
+	if len(rows) != 7 { // b1, b4, 15, 16, v3, v4, v5
 		t.Errorf("rows left = %d: %+v", len(rows), rows)
 	}
 	if w.orch.regs.Gate().Closed() {
@@ -164,11 +180,11 @@ func TestRegistrySweep(t *testing.T) {
 		t.Errorf("no garbage collect run: %v", w.fake.Calls())
 	}
 	res, ok := w.orch.LastRegistryClean()
-	if !ok || res.Deleted != 3 || !res.Manual || len(res.Errors) != 0 || !res.Measured {
+	if !ok || res.Deleted != 6 || !res.Manual || len(res.Errors) != 0 || !res.Measured {
 		t.Errorf("result = %+v, %v", res, ok)
 	}
 	evs, err := w.orch.SecurityLog(ctx, SecurityFilter{Action: securitylog.RegistryClean})
-	if err != nil || len(evs) != 1 || evs[0].ActorID != "u1" || !strings.Contains(evs[0].Detail, "3 versions deleted") {
+	if err != nil || len(evs) != 1 || evs[0].ActorID != "u1" || !strings.Contains(evs[0].Detail, "6 versions deleted") {
 		t.Errorf("security log = %+v, %v", evs, err)
 	}
 }

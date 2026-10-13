@@ -178,7 +178,7 @@ func TestCleanRealRegistry(t *testing.T) {
 		return rp == repo && d == digestOf(t, imgs["t1"]), nil
 	}
 
-	got, err := l.Clean(ctx, 1, inUse)
+	got, err := l.Clean(ctx, func(string) int { return 1 }, inUse)
 	if err != nil || len(got.Errors) != 0 {
 		t.Fatalf("clean = %+v, %v", got, err)
 	}
@@ -220,7 +220,7 @@ func TestCleanRealRegistry(t *testing.T) {
 	}
 
 	// An inUse that cannot tell protects the version and is noted.
-	got, err = l.Clean(ctx, 0, func(context.Context, string, string) (bool, error) { return false, errors.New("boom") })
+	got, err = l.Clean(ctx, func(string) int { return 0 }, func(context.Context, string, string) (bool, error) { return false, errors.New("boom") })
 	if err != nil || got.Deleted != 0 || len(got.Errors) == 0 {
 		t.Errorf("unknown use = %+v, %v", got, err)
 	}

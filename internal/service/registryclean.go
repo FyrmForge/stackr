@@ -91,9 +91,17 @@ func (o *Orchestrator) runRegistryClean(ctx context.Context, r *jobs.Run, p regi
 			return fmt.Errorf("what is in use: %w", err)
 		}
 		before, berr := o.registryBytes(ctx)
-		c, err := o.regs.Clean(ctx, keep, func(_ context.Context, repo, digest string) (bool, error) {
-			// stackr's own images are never cleaned.
-			return used[digest] || strings.HasPrefix(repo, regfront.SystemOrg+"/"), nil
+		system := o.systemInUse()
+		c, err := o.regs.Clean(ctx, func(repo string) int {
+			if strings.HasPrefix(repo, systemRepoPrefix) {
+				return 0 // system decides alone, see systemInUse
+			}
+			return keep
+		}, func(ctx context.Context, repo, digest string) (bool, error) {
+			if strings.HasPrefix(repo, systemRepoPrefix) {
+				return system(ctx, repo, digest)
+			}
+			return used[digest], nil
 		})
 		res.Deleted, res.Errors = c.Deleted, c.Errors
 		if err != nil {
@@ -176,7 +184,7 @@ func (o *Orchestrator) registryBytes(ctx context.Context) (int64, error) {
 // by its pinned digest), and what each env's tiles name now, resolved through
 // the registry (an outside ref by its import repo and tag). A digest is kept
 // whole: every tag on it counts, since deleting by digest drops them all.
-// stackr.system repos are kept whole by runRegistryClean, not listed here.
+// stackr.system repos are systemInUse's, not listed here.
 // ponytail: digests match across repos; the same image in two repos keeps
 // both. Key by repo too if that ever holds back real disk.
 func (o *Orchestrator) registryInUse(ctx context.Context) (map[string]bool, error) {

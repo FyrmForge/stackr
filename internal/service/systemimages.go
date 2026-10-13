@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"github.com/FyrmForge/stackr/internal/installspec"
+	"github.com/FyrmForge/stackr/internal/service/internal/docker"
+	"github.com/FyrmForge/stackr/internal/service/internal/flow/move"
 	"github.com/FyrmForge/stackr/internal/service/internal/imgcopy"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/registry"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
@@ -180,4 +182,53 @@ func (o *Orchestrator) publishSystemImages(ctx context.Context) {
 		}
 	}
 	slog.Warn("system images: not all published", "err", err)
+}
+
+// stackrSpares is how many stackr image versions besides the running one the
+// registry sweep keeps, to roll an upgrade back.
+const stackrSpares = 2
+
+// systemInUse is the registry sweep's answer for stackr.system repos, which it
+// asks with no newest-N kept: the tool, pause and rsync images keep the tags
+// the code runs; the stackr image keeps the running controller's tag and the
+// newest stackrSpares others (Clean asks newest first, so the first others
+// asked are the newest); any other system repo is kept whole. Not safe for
+// concurrent use: one sweep, one value.
+func (o *Orchestrator) systemInUse() registry.InUse {
+	pinned := map[string]string{} // repo -> tag the code runs
+	for _, ref := range []string{docker.ToolImage, tile.PauseImage, move.RsyncImage} {
+		path := strings.TrimPrefix(ref, "localhost:"+installspec.RegistryPort+"/")
+		i := strings.LastIndex(path, ":")
+		pinned[path[:i]] = path[i+1:]
+	}
+	var current string
+	spares := map[string]bool{}
+	return func(ctx context.Context, repo, digest string) (bool, error) {
+		tag, ok := pinned[repo]
+		switch {
+		case ok:
+			d, err := o.regs.Resolve(ctx, repo, tag)
+			return d == digest, err
+		case repo != stackrRepo:
+			return true, nil
+		}
+		if current == "" {
+			img, err := o.controllerStackrImage(ctx)
+			if err != nil {
+				return true, err
+			}
+			ref := stackrSystemRef(img)
+			if current, err = o.regs.Resolve(ctx, stackrRepo, ref[strings.LastIndex(ref, ":")+1:]); err != nil {
+				return true, err
+			}
+		}
+		if digest == current || spares[digest] {
+			return true, nil
+		}
+		if len(spares) < stackrSpares {
+			spares[digest] = true
+			return true, nil
+		}
+		return false, nil
+	}
 }
