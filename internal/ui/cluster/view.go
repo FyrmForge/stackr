@@ -229,7 +229,7 @@ func Build(m Map, base string, notes []graph.Note, create []graph.Create) graph.
 	// forwards to the node the probe found.
 	var edges []graph.Edge
 	for _, l := range m.Links {
-		label := "🔒 " + l.Kind
+		label := l.Kind
 		if l.MS >= 0 {
 			label += " · " + trimMS(l.MS) + " ms"
 		}

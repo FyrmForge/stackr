@@ -61,7 +61,7 @@ func TestMapDraws(t *testing.T) {
 		`node-id="internet"`, `node-id="s3:b"`, "S3 · nightly",
 		`members="nat:192.168.1.0/24 node:h node:n"`, // a box holds its NAT and nodes
 		"LAN · 0.3 ms", "internet · 21 ms",
-		`data-edge-label>🔒 private<`, // no latency known: just the kind
+		`data-edge-label>private<`, // no latency known: just the kind
 		"home.example.com +2",        // through the NAT: the box's ingress names
 		"shop.example.com",           // straight to a public node
 		"smoke/web/dev exits here", "acme/prod/web +1 exit here",
