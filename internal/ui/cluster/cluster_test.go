@@ -145,6 +145,22 @@ func TestMapPlaced(t *testing.T) {
 	}
 }
 
+// A network with one node draws no box; the node and its NAT stand alone.
+func TestMapSingleNodeNetNoBox(t *testing.T) {
+	m := sample()
+	m.Nets[1].Nodes = []string{"f"}
+	m.Nets[0].Nodes = []string{"h"}
+	ids := map[string]bool{}
+	for _, n := range cluster.Build(m, cluster.Base, nil, nil).Nodes {
+		ids[n.ID] = true
+	}
+	for id, want := range map[string]bool{"net:10.20.0.0/24": false, "net:192.168.1.0/24": false, "node:f": true, "node:h": true, "nat:192.168.1.0/24": true} {
+		if ids[id] != want {
+			t.Errorf("%s drawn = %v, want %v", id, ids[id], want)
+		}
+	}
+}
+
 // Default spots: boxes stacked, one row each; the NAT, then the node it
 // forwards to; the internet left of every box; tunnels fan out wider.
 func TestMapLayout(t *testing.T) {

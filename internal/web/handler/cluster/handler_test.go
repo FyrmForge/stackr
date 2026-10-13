@@ -26,7 +26,7 @@ func TestClusterPage(t *testing.T) {
 		t.Fatalf("GET /-/cluster = %d %s", rec.Code, rec.Body)
 	}
 	body := rec.Body.String()
-	for _, want := range []string{"<graph-canvas", "members=", "1 node · 1 network", "acme/shop/dev", `hx-push-url="?drawer=node:`} {
+	for _, want := range []string{"<graph-canvas", "1 node · 1 network", "acme/shop/dev", `hx-push-url="?drawer=node:`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("cluster page lacks %q", want)
 		}
