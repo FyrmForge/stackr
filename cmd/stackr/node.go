@@ -204,7 +204,7 @@ func stateWord(s string) string {
 	case "cert-expired":
 		return "certificate expired: rejoin"
 	case "not-rejoined":
-		return "not rejoined: run stackr node rejoin <name>"
+		return "not rejoined: rejoin"
 	}
 	return s
 }
