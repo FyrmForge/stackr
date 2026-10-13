@@ -460,6 +460,7 @@ func (h *handler) mountOrg(site *echo.Group, a *middleware.Access) {
 		return "Lock saved.", err
 	}), tw)
 	h.mountOrgConfig(site, a)
+	h.mountRegistry(site, a)
 	site.POST(o+"/settings", h.saveRung(
 		"org",
 		func(s service.Scope) string { return s.Org.Settings },

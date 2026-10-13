@@ -105,6 +105,7 @@ func (h *handler) Mount(g *echo.Group, a *middleware.Access) {
 	g.POST(b+"/dests/:dest/share", h.act("backups", h.share), dests)
 	h.mountConnectors(g, a)
 	h.mountNodes(g, a)
+	h.mountRegistry(g, a)
 	g.POST(b+"/dests/:dest/delete", h.act("backups", func(c echo.Context) (string, *service.Job, error) {
 		return "Destination removed.", nil, h.orch.DeleteBackupDest(c.Request().Context(), "", c.Param("dest"))
 	}), dests)
@@ -286,6 +287,8 @@ func (h *handler) tab(c echo.Context, tab string, x extra) (templ.Component, err
 		return ui.Caddy(ui.CaddyView{Action: ui.Base + "/caddy", Sync: ui.Base + "/caddy/sync", Value: val}), err
 	case "connectors":
 		return h.connectorsTab(c, nil)
+	case "registry":
+		return h.registryTab(c, job)
 	case "backups":
 		ds, err := h.orch.GlobalBackupDests(ctx)
 		if err != nil {

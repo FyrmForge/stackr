@@ -3,56 +3,116 @@ package org
 import c "github.com/FyrmForge/stackr/internal/ui/components"
 
 // RegistryView is the Registry tab: how to log in and push, then the org's
-// repositories. Host "" = no panel domain is set, so there is no registry
-// address to show. Err is the registry's own failure text.
+// repositories, or with Repo set that repository's versions. Host "" = no
+// panel domain is set, so there is no registry address to show. Err is the
+// registry's own failure text.
 type RegistryView struct {
 	Host  string
 	Org   string
 	Repos []RepoRow
 	Err   string
+
+	// Repo is the repository open; Back returns to the list.
+	Repo     string
+	Back     string
+	Versions []VersionRow
 }
 
-// RepoRow is one repository; Latest is "tag · when", "" when unknown.
-type RepoRow struct{ Name, Tags, Latest, Size string }
+// RepoRow is one repository; Latest is "tag · when", "" when unknown. Open is
+// the GET that shows its versions.
+type RepoRow struct{ Name, Tags, Latest, Size, Open string }
+
+// VersionRow is one version. UsedBy names the envs that run it. Delete.Action
+// is "" when the viewer may not delete.
+type VersionRow struct {
+	Tag, Size, Platforms, Arrived, Source string
+	UsedBy                                []string
+	Delete                                c.ConfirmView
+}
 
 templ Registry(v RegistryView) {
 	<div id="tab-registry">
-		@c.Section("Registry", "organization", "Push your own images and deploy them as tiles.") {
-			if v.Host == "" {
-				<p class="text-sm text-rw-faint">Set the panel domain first: the registry lives at registry.&lt;panel domain&gt;.</p>
-			} else {
-				<pre class="panel overflow-x-auto px-4 py-3 font-mono text-xs text-rw-text">$ stackr registry login
-$ docker push { v.Host }/{ v.Org }/&lt;stack&gt;/&lt;tile&gt;:&lt;tag&gt;</pre>
-				<p class="mt-2 text-xs text-rw-faint">Tokens last 12 hours. Members can pull; owners can push.</p>
-			}
-		}
-		@c.Section("Repositories", "organization", "") {
-			if v.Err != "" {
-				<p class="text-sm text-rw-warn">{ v.Err }</p>
-			} else if len(v.Repos) == 0 {
-				<p class="text-sm text-rw-faint">No images pushed yet.</p>
-			} else {
-				<table class="w-full text-left text-sm">
-					<thead class="text-xs text-rw-faint">
-						<tr>
-							<th class="pb-2 font-normal">Repository</th>
-							<th class="pb-2 font-normal">Tags</th>
-							<th class="pb-2 font-normal">Latest</th>
-							<th class="pb-2 text-right font-normal">Size</th>
-						</tr>
-					</thead>
-					<tbody>
-						for _, r := range v.Repos {
-							<tr class="border-t border-rw-border">
-								<td class="py-2 font-mono text-rw-text">{ r.Name }</td>
-								<td class="py-2 text-rw-muted">{ r.Tags }</td>
-								<td class="py-2 font-mono text-xs text-rw-muted">{ r.Latest }</td>
-								<td class="py-2 text-right text-rw-muted">{ r.Size }</td>
-							</tr>
-						}
-					</tbody>
-				</table>
-			}
+		if v.Repo != "" {
+			@registryVersions(v)
+		} else {
+			@registryRepos(v)
 		}
 	</div>
+}
+
+templ registryRepos(v RegistryView) {
+	@c.Section("Registry", "organization", "Push your own images and deploy them as tiles.") {
+		if v.Host == "" {
+			<p class="text-sm text-rw-faint">Set the panel domain first: the registry lives at registry.&lt;panel domain&gt;.</p>
+		} else {
+			<pre class="panel overflow-x-auto px-4 py-3 font-mono text-xs text-rw-text">$ stackr registry login
+$ docker push { v.Host }/{ v.Org }/&lt;stack&gt;/&lt;tile&gt;:&lt;tag&gt;</pre>
+			<p class="mt-2 text-xs text-rw-faint">Tokens last 12 hours. Members can pull; owners can push.</p>
+		}
+	}
+	@c.Section("Repositories", "organization", "") {
+		if v.Err != "" {
+			<p class="text-sm text-rw-warn">{ v.Err }</p>
+		} else if len(v.Repos) == 0 {
+			<p class="text-sm text-rw-faint">No images yet.</p>
+		} else {
+			<table class="w-full text-left text-sm">
+				<thead class="text-xs text-rw-faint">
+					<tr>
+						<th class="pb-2 font-normal">Repository</th>
+						<th class="pb-2 font-normal">Tags</th>
+						<th class="pb-2 font-normal">Latest</th>
+						<th class="pb-2 text-right font-normal">Size</th>
+					</tr>
+				</thead>
+				<tbody>
+					for _, r := range v.Repos {
+						<tr class="border-t border-rw-border cursor-pointer hover:bg-rw-surface" hx-get={ r.Open } hx-target={ target() } hx-swap="outerHTML">
+							<td class="py-2 font-mono text-rw-text"><button type="button" class="font-mono hover:underline">{ r.Name }</button></td>
+							<td class="py-2 text-rw-muted">{ r.Tags }</td>
+							<td class="py-2 font-mono text-xs text-rw-muted">{ r.Latest }</td>
+							<td class="py-2 text-right text-rw-muted">{ r.Size }</td>
+						</tr>
+					}
+				</tbody>
+			</table>
+		}
+	}
+}
+
+templ registryVersions(v RegistryView) {
+	<button type="button" hx-get={ v.Back } hx-target={ target() } hx-swap="outerHTML" class="text-xs text-rw-accent hover:underline mb-3">Back to repositories</button>
+	@c.Section(v.Repo, "organization", "Deleting a version removes every tag on it.") {
+		if v.Err != "" {
+			<p class="text-sm text-rw-warn">{ v.Err }</p>
+		} else if len(v.Versions) == 0 {
+			<p class="text-sm text-rw-faint">No versions.</p>
+		} else {
+			<ul class="space-y-2">
+				for _, r := range v.Versions {
+					<li class="panel px-4 py-3 text-sm flex flex-wrap items-center gap-x-3 gap-y-1">
+						<span class="font-mono text-rw-text">{ r.Tag }</span>
+						<span class="text-rw-muted">{ r.Size }</span>
+						<span class="text-xs text-rw-faint">{ r.Platforms }</span>
+						<span class="text-xs text-rw-faint">{ r.Arrived }</span>
+						<span class="text-xs text-rw-muted">{ r.Source }</span>
+						if len(r.UsedBy) == 0 {
+							<span class="text-xs text-rw-faint">Not in use</span>
+						} else {
+							<span class="flex flex-wrap gap-1">
+								for _, e := range r.UsedBy {
+									@c.Chip(e, "accent")
+								}
+							</span>
+						}
+						if r.Delete.Action != "" {
+							<span class="ml-auto">
+								@c.Confirm(r.Delete)
+							</span>
+						}
+					</li>
+				}
+			</ul>
+		}
+	}
 }

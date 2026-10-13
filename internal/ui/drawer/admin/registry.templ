@@ -1,0 +1,68 @@
+package admin
+
+import c "github.com/FyrmForge/stackr/internal/ui/components"
+
+// RegistryView is the admin's Registry tab: what every org holds, and the
+// last cleanup. Clean "" = may not run one. Err is the registry's own
+// failure text.
+type RegistryView struct {
+	Total, Versions string
+	Orgs            []RegistryOrg
+	Last            string // "" = never ran
+	LastErrors      []string
+	Clean           c.ConfirmView
+	Job             *c.JobStatusView
+	Err             string
+}
+
+type RegistryOrg struct{ Org, Versions, Size string }
+
+templ Registry(v RegistryView) {
+	<div id="tab-registry">
+		@c.Section("Registry", "instance", "What the registry holds, per organization.") {
+			if v.Err != "" {
+				<p class="text-sm text-rw-warn">{ v.Err }</p>
+			} else {
+				<p class="text-sm text-rw-text">{ v.Total } in { v.Versions } versions</p>
+				if len(v.Orgs) > 0 {
+					<table class="mt-3 w-full text-left text-sm">
+						<thead class="text-xs text-rw-faint">
+							<tr>
+								<th class="pb-2 font-normal">Organization</th>
+								<th class="pb-2 font-normal">Versions</th>
+								<th class="pb-2 text-right font-normal">Size</th>
+							</tr>
+						</thead>
+						<tbody>
+							for _, o := range v.Orgs {
+								<tr class="border-t border-rw-border">
+									<td class="py-2 font-mono text-rw-text">{ o.Org }</td>
+									<td class="py-2 text-rw-muted">{ o.Versions }</td>
+									<td class="py-2 text-right text-rw-muted">{ o.Size }</td>
+								</tr>
+							}
+						</tbody>
+					</table>
+				}
+			}
+		}
+		@c.Section("Cleanup", "instance", "Deletes the versions no env runs beyond the newest few, then frees the disk.") {
+			<div class="space-y-3 text-sm">
+				if v.Last == "" {
+					<p class="text-rw-muted">Last cleanup: none yet.</p>
+				} else {
+					<p class="text-rw-muted">Last cleanup: { v.Last }</p>
+				}
+				for _, e := range v.LastErrors {
+					<p class="text-xs text-rw-danger">{ e }</p>
+				}
+				if v.Clean.Action != "" {
+					@c.Confirm(v.Clean)
+				}
+				if v.Job != nil {
+					@c.JobStatus(*v.Job)
+				}
+			</div>
+		}
+	</div>
+}

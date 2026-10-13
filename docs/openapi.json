@@ -434,6 +434,9 @@
           "b": {
             "type": "string"
           },
+          "ms": {
+            "type": "number"
+          },
           "path": {
             "type": "string"
           },
@@ -1360,6 +1363,12 @@
           },
           "mem_free": {
             "type": "integer"
+          },
+          "ping": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/PeerPing"
+            },
+            "type": "object"
           },
           "resolvers": {
             "items": {
@@ -3242,6 +3251,21 @@
         ],
         "type": "object"
       },
+      "PeerPing": {
+        "properties": {
+          "loss": {
+            "type": "number"
+          },
+          "rtt_ms": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "rtt_ms",
+          "loss"
+        ],
+        "type": "object"
+      },
       "PendingJoin": {
         "properties": {
           "facts": {},
@@ -3441,6 +3465,33 @@
         ],
         "type": "object"
       },
+      "RegistryCleanState": {
+        "properties": {
+          "at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "deleted": {
+            "type": "integer"
+          },
+          "errors": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "freed": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "at",
+          "deleted",
+          "freed",
+          "errors"
+        ],
+        "type": "object"
+      },
       "RegistryLoginOut": {
         "properties": {
           "expires_at": {
@@ -3454,6 +3505,38 @@
         "required": [
           "token",
           "expires_at"
+        ],
+        "type": "object"
+      },
+      "RegistryOverview": {
+        "properties": {
+          "bytes": {
+            "type": "integer"
+          },
+          "last_clean": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/RegistryCleanState"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "orgs": {
+            "items": {
+              "$ref": "#/components/schemas/Usage"
+            },
+            "type": "array"
+          },
+          "versions": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "orgs",
+          "versions",
+          "bytes"
         ],
         "type": "object"
       },
@@ -3521,6 +3604,45 @@
         "required": [
           "release",
           "pins"
+        ],
+        "type": "object"
+      },
+      "RenewAnswer": {
+        "properties": {
+          "cert": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "cert"
+        ],
+        "type": "object"
+      },
+      "Repository": {
+        "properties": {
+          "latest": {
+            "type": "string"
+          },
+          "latest_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "size": {
+            "type": "integer"
+          },
+          "tags": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "name",
+          "tags",
+          "latest",
+          "latest_at",
+          "size"
         ],
         "type": "object"
       },
@@ -5729,6 +5851,25 @@
         ],
         "type": "object"
       },
+      "Usage": {
+        "properties": {
+          "bytes": {
+            "type": "integer"
+          },
+          "org": {
+            "type": "string"
+          },
+          "versions": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "org",
+          "versions",
+          "bytes"
+        ],
+        "type": "object"
+      },
       "User": {
         "properties": {
           "active": {
@@ -5782,6 +5923,56 @@
         },
         "required": [
           "value"
+        ],
+        "type": "object"
+      },
+      "Version": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "created_by": {
+            "type": "string"
+          },
+          "digest": {
+            "type": "string"
+          },
+          "platforms": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "size": {
+            "type": "integer"
+          },
+          "source": {
+            "type": "string"
+          },
+          "tag": {
+            "type": "string"
+          },
+          "upstream_ref": {
+            "type": "string"
+          },
+          "used_by": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "tag",
+          "digest",
+          "platforms",
+          "size",
+          "created_at",
+          "source",
+          "upstream_ref",
+          "created_by",
+          "used_by"
         ],
         "type": "object"
       },
@@ -8108,6 +8299,64 @@
         "x-verb": "proxy.admin"
       }
     },
+    "/api/v1/admin/registry": {
+      "get": {
+        "operationId": "admin.registry",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegistryOverview"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "admin.read"
+      }
+    },
+    "/api/v1/admin/registry/clean": {
+      "post": {
+        "operationId": "admin.registry-clean",
+        "parameters": [],
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Job"
+                }
+              }
+            },
+            "description": "Accepted"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "container.admin"
+      }
+    },
     "/api/v1/admin/routes": {
       "get": {
         "operationId": "admin.route-list",
@@ -9033,6 +9282,46 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/MeshSpec"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "security": [],
+        "x-verb": "@public"
+      }
+    },
+    "/api/v1/nodes/renew": {
+      "post": {
+        "operationId": "node.cert_renew",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecoverRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RenewAnswer"
                 }
               }
             },
@@ -11650,6 +11939,145 @@
           }
         },
         "x-verb": "variable.write"
+      }
+    },
+    "/api/v1/orgs/{org}/registry": {
+      "get": {
+        "operationId": "registry.list",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Repository"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "registry.image.list"
+      }
+    },
+    "/api/v1/orgs/{org}/registry/versions": {
+      "delete": {
+        "operationId": "registry.delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "repo",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "tag",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "force",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "registry.tag.delete"
+      },
+      "get": {
+        "operationId": "registry.versions",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "repo",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Version"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "registry.image.list"
       }
     },
     "/api/v1/orgs/{org}/schedules/{schedule}": {

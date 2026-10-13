@@ -492,5 +492,5 @@ func (a *app) registry() *cobra.Command {
 	})
 	login.Example = "  stackr registry login\n  docker push registry.example.com/acme/shop/web:1.4"
 	login.Flags().StringVar(&host, "registry", "", "the registry host (default: registry. plus the server's host)")
-	return noun("registry", "The stackr image registry", login)
+	return noun("registry", "The stackr image registry", append([]*cobra.Command{login}, a.registryImages()...)...)
 }

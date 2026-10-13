@@ -127,3 +127,12 @@ and slug). Each filler adds its own `_test.go` file.
 - **G5** `leaf/registry/list.go`, `versions.go`, `delete.go`,
   `service/registrylist.go`, UI, API, CLI.
 - **G6** `service/vipboot.go`.
+
+## G5 needs (from G4 / integration)
+
+- `service/registrylist.go` ends with two stubs G4 replaces in `registryclean.go` (delete the stubs, keep the names or adjust the callers):
+  - `(o) lastRegistryClean(ctx) (*RegistryCleanState, error)`: nil = never ran. `RegistryCleanState{At, Deleted, Freed, Errors}` is defined in registrylist.go; map G4's `Cleaned` onto it (or move the type).
+  - `(o) cleanRegistryNow(ctx) (Job, error)`: enqueue the sweep job. Until then "Clean up now" and `POST /admin/registry/clean` answer unsupported (500).
+- "In use" in the UI (`registryUse`) is the env's current release only (built: `images.ref`, pulled: repo + digest). G4's `InUse` must also count pinned releases and rollback targets; it does not share this code.
+- Delete verb is the existing `registry.tag.delete` (owner), not the deploy role (`tile.write`, member). Say if members should delete: one line in `authz.go`.
+- `leaf.Usage` (admin totals) adds the rows' sizes, so shared layers count twice.
