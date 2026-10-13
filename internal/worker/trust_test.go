@@ -262,3 +262,35 @@ func TestRenewOffSigningRoot(t *testing.T) {
 		t.Fatalf("on the signing root: %v, calls %d", err, calls)
 	}
 }
+
+// A rejoin resets the trust files: the old roots and allow list go, the join
+// answer's take their place; with none, the new CA file alone is trusted.
+func TestResetTrust(t *testing.T) {
+	r := newTrustRig(t)
+	_, old := controller(t, r.ca1)
+	if err := r.trust.Apply(r.pems(r.ca1), []string{old}); err != nil {
+		t.Fatal(err)
+	}
+	// The join wrote the new root as the CA file.
+	if err := os.WriteFile(r.caFile, []byte(r.pems(r.ca2)[0]), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, fresh := controller(t, r.ca2)
+	if err := ResetTrust(r.caFile, r.pems(r.ca2), []string{fresh}); err != nil {
+		t.Fatal(err)
+	}
+	got := NewTrust(r.caFile)
+	if roots := got.Roots(); len(roots) != 1 || clusterca.Fingerprint(roots[0]) != clusterca.Fingerprint(r.ca2.Cert) {
+		t.Fatalf("roots after rejoin: %d, want the new root alone", len(roots))
+	}
+	if got.Refuses(fresh) || !got.Refuses(old) {
+		t.Fatal("allow list after rejoin: want the new serial only")
+	}
+	if err := ResetTrust(r.caFile, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	got = NewTrust(r.caFile)
+	if roots := got.Roots(); len(roots) != 1 || clusterca.Fingerprint(roots[0]) != clusterca.Fingerprint(r.ca2.Cert) || got.Refuses(old) {
+		t.Fatal("an empty answer must leave the CA file alone trusted, no allow list")
+	}
+}

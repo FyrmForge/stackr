@@ -320,6 +320,19 @@ func NewTrust(caFile string) *Trust {
 	return t
 }
 
+// ResetTrust starts the trust files next to caFile over from a join answer:
+// a rejoin must not keep the roots and allow list of before (NewTrust
+// prefers the list file to the CA file). No roots = the CA file alone.
+func ResetTrust(caFile string, roots, serials []string) error {
+	dir := filepath.Dir(caFile)
+	for _, f := range []string{trustRootsFile, trustSerialsFile} {
+		if err := os.Remove(filepath.Join(dir, f)); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+	}
+	return NewTrust(caFile).Apply(roots, serials)
+}
+
 // Roots is the live trust list, for clusterca's TLS configs.
 func (t *Trust) Roots() []*x509.Certificate {
 	t.mu.RLock()

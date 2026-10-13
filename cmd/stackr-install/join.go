@@ -282,6 +282,13 @@ func join(ctx context.Context, args []string, out io.Writer) error {
 			return err
 		}
 	}
+	var spec worker.MeshSpec
+	if err := json.Unmarshal(st.Mesh, &spec); err != nil {
+		return fmt.Errorf("the node's mesh spec: %w", err)
+	}
+	if err := worker.ResetTrust(filepath.Join(*stateDir, "cluster-ca.crt"), spec.TrustRoots, spec.ControllerSerials); err != nil {
+		return err
+	}
 	if err := os.WriteFile(joinUnitPath, []byte(workerUnit(*stateDir, strings.Split(st.WGAddress, "/")[0], *wgPort, u.String())), 0o644); err != nil {
 		return err
 	}
