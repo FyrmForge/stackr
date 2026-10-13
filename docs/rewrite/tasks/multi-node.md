@@ -535,3 +535,8 @@ audit trail.
 ## Metrics and logs
 
 Parked; plan in `docs/rewrite/tasks/observability.md` (Victoria family, optional).
+
+## Registry imports
+
+Every node pulls only from the cluster registry; outside images are imported
+per org by the controller. Plan in `docs/rewrite/tasks/registry-imports.md`.
