@@ -198,6 +198,8 @@ func (o *Orchestrator) rotateController(ctx context.Context, n store.Node, trigg
 		return err
 	}
 	m := o.mesh
+	m.syncMu.Lock() // no sync may push the old key between these pushes
+	defer m.syncMu.Unlock()
 	m.mu.Lock()
 	old := m.wgPK[n.ID]
 	m.mu.Unlock()

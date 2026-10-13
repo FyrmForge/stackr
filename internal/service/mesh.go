@@ -84,6 +84,9 @@ var (
 type meshSvc struct {
 	st    *store.Store
 	nodes MeshNodes
+	// syncMu runs one plan-and-push at a time: a sync planned with a key
+	// that a controller rotation is replacing must not push after it.
+	syncMu sync.Mutex
 	// Registry names the controller's registry for a worker's spec; nil
 	// (or a nil answer) = none. Never set on the controller's own spec.
 	Registry func(ctx context.Context) *worker.RegistrySpec
@@ -185,6 +188,8 @@ func (m *meshSvc) Ensure(ctx context.Context, nodeID string) error {
 // Sync computes every node's spec and pushes it: all nodes when only is "",
 // else that one. Unchanged specs are skipped unless force.
 func (m *meshSvc) Sync(ctx context.Context, only string, force bool) error {
+	m.syncMu.Lock()
+	defer m.syncMu.Unlock()
 	in, specs, err := m.plan(ctx)
 	if err != nil {
 		return err

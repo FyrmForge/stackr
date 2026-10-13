@@ -119,6 +119,11 @@ func TestRotateControllerOrder(t *testing.T) {
 	t.Cleanup(o.localWorker.Stop)
 	info, err := o.localWorker.MeshInfo()
 	must(t, err)
+	// The panel's own mesh loop would re-plan over the state set below:
+	// stop it and wait out a sync in flight (Run returns after it).
+	o.stopMesh()
+	o.mesh.syncMu.Lock()
+	o.mesh.syncMu.Unlock() //nolint:staticcheck // a barrier, not a section
 	var log []string
 	o.mesh.nodes = func(id string) (MeshNode, bool) {
 		if id == ctl {
