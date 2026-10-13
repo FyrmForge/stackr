@@ -22,6 +22,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/stack"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
 	ltraffic "github.com/FyrmForge/stackr/internal/service/internal/leaf/traffic"
+	"github.com/FyrmForge/stackr/internal/worker"
 )
 
 // DefaultPath is the host conntrack table as a host-network process sees it.
@@ -36,18 +37,60 @@ type Flow struct {
 	Traffic *ltraffic.Leaf
 	Path    string           // the conntrack file
 	Now     func() time.Time // nil = time.Now
+	// Remote is every worker's GET /v1/traffic by node id; a node that did
+	// not answer is absent. nil = the controller alone.
+	Remote func(ctx context.Context) map[string]worker.Traffic
+
+	// last is each worker's latest answer. A missed read reuses it: same
+	// cumulative counters, so that tick shows a gap instead of the node's
+	// connections counting in full again on the next answer. Tick runs on
+	// the scheduler only, one at a time.
+	last map[string]seenDump
 }
+
+type seenDump struct {
+	t  worker.Traffic
+	at time.Time
+}
+
+// staleAfter drops a worker's last answer (a node gone for good).
+// ponytail: a node back after this counts its open connections in full once.
+const staleAfter = 5 * time.Minute
 
 // Tick samples once. An unreadable table is skipped quietly (Check said so
 // at boot) before any Docker call.
 func (f *Flow) Tick(ctx context.Context) error {
 	data, err := read(ctx, f.Path)
-	if err != nil {
+	if err != nil && f.Remote == nil {
 		return nil
 	}
 	ips, err := f.Tiles.Addresses(ctx)
 	if err != nil {
 		return err
+	}
+	now := time.Now
+	if f.Now != nil {
+		now = f.Now
+	}
+	// Workers: their tiles join the map, and every table keeps only what its
+	// node counts, so a cross-node connection is not counted twice.
+	remote := f.remote(ctx, now())
+	all := map[string]bool{}
+	for ip := range ips {
+		all[ip] = true
+	}
+	for _, t := range remote {
+		for ip := range t.Tiles {
+			all[ip] = true
+		}
+	}
+	isTile := func(ip string) bool { return all[ip] }
+	data = ltraffic.Own(data, ips, isTile)
+	for _, t := range remote {
+		data = append(data, ltraffic.Own([]byte(t.Lines), t.Tiles, isTile)...)
+		for ip, id := range t.Tiles {
+			ips[ip] = id
+		}
 	}
 	// Ingress: Caddy reaches a tile from its own container on the ingress
 	// network; anything host-side (the host-network panel, docker's userland
@@ -63,12 +106,31 @@ func (f *Flow) Tick(ctx context.Context) error {
 	for _, ip := range append(proxy, gws...) {
 		ips[ip] = ltraffic.Proxy
 	}
-	now := time.Now
-	if f.Now != nil {
-		now = f.Now
-	}
 	f.Traffic.Sample(ips, data, now())
 	return nil
+}
+
+// remote is this tick's worker tables, a missed one standing in with its
+// last answer until staleAfter.
+func (f *Flow) remote(ctx context.Context, now time.Time) map[string]worker.Traffic {
+	if f.Remote == nil {
+		return nil
+	}
+	if f.last == nil {
+		f.last = map[string]seenDump{}
+	}
+	for id, t := range f.Remote(ctx) {
+		f.last[id] = seenDump{t, now}
+	}
+	out := map[string]worker.Traffic{}
+	for id, s := range f.last {
+		if now.Sub(s.at) > staleAfter {
+			delete(f.last, id)
+			continue
+		}
+		out[id] = s.t
+	}
+	return out
 }
 
 // read is the conntrack table: the procfs file, or, on a kernel built

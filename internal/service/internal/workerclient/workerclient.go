@@ -81,6 +81,13 @@ func (c *Client) Facts(ctx context.Context) (worker.Facts, error) {
 	return f, err
 }
 
+// Traffic is the node's conntrack lines that touch its own tiles.
+func (c *Client) Traffic(ctx context.Context) (worker.Traffic, error) {
+	var t worker.Traffic
+	err := c.call(ctx, "GET", "/v1/traffic", "", nil, &t)
+	return t, err
+}
+
 // ApplyIPTables sends an iptables-restore payload (applied with --noflush).
 func (c *Client) ApplyIPTables(ctx context.Context, payload string) error {
 	return c.call(ctx, "POST", "/v1/iptables", "text/plain", []byte(payload), nil)

@@ -63,6 +63,8 @@ const (
 	// sampleEvery is how often facts are read between full pushes, so a
 	// dead tunnel shows within a minute.
 	sampleEvery = 20 * time.Second
+	// refreshCap is how many nodes one cycle reads at once.
+	refreshCap = 16
 	// factsFresh is how old a node's facts may be and still tell whether
 	// its tunnels are up: two missed syncs and they say nothing.
 	factsFresh = 2 * meshEvery
@@ -79,6 +81,8 @@ const (
 var (
 	exitNet    = mesh.ExitNet.Addr() // /30 per (client, exit) pair
 	pingTarget = "1.1.1.1"           // the own uplink's probe
+	// refreshTimeout bounds one node's read in a cycle (a var for tests).
+	refreshTimeout = 5 * time.Second
 )
 
 type meshSvc struct {
@@ -434,15 +438,13 @@ func (m *meshSvc) gather(ctx context.Context) (meshIn, error) {
 		}
 		return out, err
 	}
+	m.refreshAll(ctx, ns)
 	for _, n := range ns {
 		if n.Status == node.StatusPending { // no range yet ("pending:<id>")
 			continue
 		}
 		mn := meshNodeIn{Name: n.Name, Node: mesh.Node{ID: n.ID, PublicKey: n.WGPublicKey, Port: MeshWGPort}}
 		mn.Range, _ = netip.ParsePrefix(n.RangeCIDR)
-		if cl, ok := m.nodes(n.ID); ok {
-			m.refresh(ctx, n.ID, cl)
-		}
 		m.mu.Lock()
 		f, haveF := m.facts[n.ID]
 		mn.Fresh = haveF && time.Since(m.at[n.ID]) < factsFresh
@@ -527,10 +529,36 @@ func (m *meshSvc) gather(ctx context.Context) (meshIn, error) {
 	return in, nil
 }
 
+// refreshAll reads every node at once, at most refreshCap at a time, so a
+// node that hangs costs the cycle one refreshTimeout, not one per node in
+// line. Only reads run in parallel: pushes keep their order (push).
+func (m *meshSvc) refreshAll(ctx context.Context, ns []store.Node) {
+	sem := make(chan struct{}, refreshCap)
+	var wg sync.WaitGroup
+	for _, n := range ns {
+		if n.Status == node.StatusPending {
+			continue
+		}
+		cl, ok := m.nodes(n.ID)
+		if !ok {
+			continue
+		}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			m.refresh(ctx, n.ID, cl)
+		}()
+	}
+	wg.Wait()
+}
+
 // refresh reads a node's facts and exit public key; a node that does not
-// answer keeps what was known.
+// answer keeps what was known, fresh for factsFresh (several missed reads),
+// so one miss never drops it.
 func (m *meshSvc) refresh(ctx context.Context, id string, cl MeshNode) {
-	cctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	cctx, cancel := context.WithTimeout(ctx, refreshTimeout)
 	defer cancel()
 	if f, err := cl.Facts(cctx); err == nil {
 		m.mu.Lock()

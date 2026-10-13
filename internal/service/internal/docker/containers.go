@@ -80,7 +80,11 @@ func (d *Client) Create(ctx context.Context, spec ContainerSpec) (string, error)
 		cfg.ExposedPorts, hostCfg.PortBindings = portBindings(spec.Ports, spec.AnyIP)
 		netCfg = &network.NetworkingConfig{EndpointsConfig: map[string]*network.EndpointSettings{}}
 		for _, n := range spec.Networks {
-			netCfg.EndpointsConfig[n.Name] = &network.EndpointSettings{Aliases: n.Aliases}
+			es := &network.EndpointSettings{Aliases: n.Aliases}
+			if n.IPv4 != "" {
+				es.IPAMConfig = &network.EndpointIPAMConfig{IPv4Address: n.IPv4}
+			}
+			netCfg.EndpointsConfig[n.Name] = es
 		}
 		if len(spec.Networks) > 0 {
 			// Without this docker also joins the default bridge.
@@ -210,9 +214,13 @@ func (d *Client) List(ctx context.Context, labels map[string]string) ([]Containe
 			row.Name = strings.TrimPrefix(c.Names[0], "/")
 		}
 		if c.NetworkSettings != nil {
-			for _, n := range c.NetworkSettings.Networks {
+			for name, n := range c.NetworkSettings.Networks {
 				if n != nil && n.IPAddress != "" {
 					row.IPs = append(row.IPs, n.IPAddress)
+					if row.Nets == nil {
+						row.Nets = map[string]string{}
+					}
+					row.Nets[name] = n.IPAddress
 				}
 			}
 		}

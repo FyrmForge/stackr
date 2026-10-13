@@ -127,6 +127,25 @@ func ends(ipTile map[string]string, src, dst string) (from, to string, ok bool) 
 	return from, to, from != to
 }
 
+// Own keeps the lines one node counts: the original source is one of its
+// tiles (local), or the source is no node's tile and the destination is one
+// of its. A connection between tiles on two nodes is in both nodes' tables;
+// it counts once, at the source's node. isTile answers for every node.
+func Own(conntrack []byte, local map[string]string, isTile func(ip string) bool) []byte {
+	var out strings.Builder
+	for _, line := range strings.Split(string(conntrack), "\n") {
+		src, _, dst, _, _ := flowFields(line, 0)
+		if src == "" {
+			continue
+		}
+		if local[src] != "" || (!isTile(src) && local[dst] != "") {
+			out.WriteString(line)
+			out.WriteByte('\n')
+		}
+	}
+	return []byte(out.String())
+}
+
 // Snapshot is a copy of the latest tick's lanes; a lane at 0 is absent.
 func (l *Leaf) Snapshot() map[Pair]float64 {
 	l.mu.Lock()

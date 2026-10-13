@@ -8,11 +8,13 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/FyrmForge/stackr/internal/exits"
 	"github.com/FyrmForge/stackr/internal/mesh"
+	"github.com/FyrmForge/stackr/internal/service/internal/store"
 	"github.com/FyrmForge/stackr/internal/service/internal/storetest"
 	"github.com/FyrmForge/stackr/internal/worker"
 )
@@ -369,5 +371,69 @@ func TestRoutesSurviveRestart(t *testing.T) {
 	}
 	if r := m.routes(in, time.Unix(1_000_060, 0).Add(downConfirm)); r[[2]string{"ctl", "h2"}] != "h1" {
 		t.Fatalf("route dropped after confirm: %v", r)
+	}
+}
+
+// countingNode answers Facts after a pause, or not at all (hang), and
+// records how many reads run at once.
+type countingNode struct {
+	fakeMeshNode
+	hang      bool
+	cur, peak *int32
+}
+
+func (c *countingNode) Facts(ctx context.Context) (worker.Facts, error) {
+	n := atomic.AddInt32(c.cur, 1)
+	defer atomic.AddInt32(c.cur, -1)
+	for {
+		p := atomic.LoadInt32(c.peak)
+		if n <= p || atomic.CompareAndSwapInt32(c.peak, p, n) {
+			break
+		}
+	}
+	if c.hang {
+		<-ctx.Done()
+		return worker.Facts{}, ctx.Err()
+	}
+	time.Sleep(50 * time.Millisecond)
+	return c.fakeMeshNode.Facts(ctx)
+}
+
+// Node reads run in parallel, capped, and two hanging nodes cost the cycle
+// one timeout, not one each.
+func TestRefreshAllParallelCapped(t *testing.T) {
+	st := storetest.Store(t)
+	old := refreshTimeout
+	refreshTimeout = 300 * time.Millisecond
+	t.Cleanup(func() { refreshTimeout = old })
+
+	var cur, peak int32
+	fakes := map[string]MeshNode{}
+	var ns []store.Node
+	for i := range 40 {
+		id := "w" + strconv.Itoa(i)
+		ns = append(ns, store.Node{ID: id, Status: "online"})
+		fakes[id] = &countingNode{hang: i < 2, cur: &cur, peak: &peak}
+	}
+	m := newMeshSvc(st, func(id string) (MeshNode, bool) { f, ok := fakes[id]; return f, ok })
+
+	start := time.Now()
+	m.refreshAll(context.Background(), ns)
+	took := time.Since(start)
+	if p := atomic.LoadInt32(&peak); p > refreshCap || p < 2 {
+		t.Errorf("peak concurrent reads = %d, want 2..%d", p, refreshCap)
+	}
+	// In line: 38 x 50 ms plus two timeouts, over 2 s. In parallel: about
+	// one timeout.
+	if took > 2*refreshTimeout {
+		t.Errorf("cycle took %v with two hung nodes", took)
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, ok := m.facts["w0"]; ok {
+		t.Error("hung node got facts")
+	}
+	if _, ok := m.facts["w39"]; !ok {
+		t.Error("answering node has no facts")
 	}
 }

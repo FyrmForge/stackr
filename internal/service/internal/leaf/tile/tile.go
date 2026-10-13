@@ -33,6 +33,9 @@ type Leaf struct {
 	// Node, when set, is the node an env runs on ("" = the controller): every
 	// Docker call the leaf makes for a tile goes to its env's node.
 	Node func(ctx context.Context, envID string) (nodeID string, err error)
+	// Pin, when set, is the address a new pause container is pinned to on
+	// network ("" = Docker picks): a pinned VIP survives restarts and reboots.
+	Pin func(ctx context.Context, t store.Tile, network string) string
 }
 
 // at is ctx for Docker calls on the node of envID.
