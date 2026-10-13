@@ -1,12 +1,14 @@
 package cluster_test
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"strings"
 	"testing"
 
+	"github.com/FyrmForge/stackr/internal/service"
 	"github.com/FyrmForge/stackr/internal/web/webtest"
 )
 
@@ -76,7 +78,33 @@ func TestClusterNotes(t *testing.T) {
 	if rec.Code != http.StatusUnprocessableEntity {
 		t.Errorf("moving an env = %d, want 422", rec.Code)
 	}
+	// A network box keeps a hand-set size; a plain drag (no w, h) saves nothing.
+	if rec := s.As(t, root, "POST", "/-/cluster/-/positions", url.Values{"node_id": {"net:lan"}, "x": {"1"}, "y": {"1"}}); rec.Code != http.StatusNoContent {
+		t.Errorf("dragging a box = %d, want 204", rec.Code)
+	}
+	if _, ok := mustPositions(t, s)["size:net:lan"]; ok {
+		t.Error("a plain box drag saved a size")
+	}
+	rec = s.As(t, root, "POST", "/-/cluster/-/positions", url.Values{"node_id": {"net:lan"}, "x": {"1"}, "y": {"1"}, "w": {"700"}, "h": {"300"}})
+	if rec.Code != http.StatusNoContent {
+		t.Errorf("sizing a box = %d, want 204", rec.Code)
+	}
+	if p := mustPositions(t, s)["size:net:lan"]; p.X != 700 || p.Y != 300 {
+		t.Errorf("saved size = %+v, want 700x300", p)
+	}
 	if rec := s.As(t, root, "POST", "/-/cluster/-/reset", nil); rec.Code != http.StatusOK {
 		t.Errorf("reset = %d", rec.Code)
 	}
+	if _, ok := mustPositions(t, s)["size:net:lan"]; ok {
+		t.Error("re-arrange kept the box size")
+	}
+}
+
+func mustPositions(t *testing.T, s *webtest.Site) map[string]service.Point {
+	t.Helper()
+	p, err := s.Orch.ClusterPositions(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return p
 }

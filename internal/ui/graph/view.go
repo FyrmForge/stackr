@@ -79,6 +79,8 @@ type Node struct {
 	Members        []string
 	Pad            [4]int
 	MinW           int
+	// UserW and UserH are a box's hand-set size: it never wraps smaller.
+	UserW, UserH   int
 	System, Static bool
 	Color          string // env hue, "" = none
 	Deck           int    // drill-down cards: 0 to 2 layers under the card
@@ -276,6 +278,15 @@ func hue(color string) string {
 
 func itoa(n int) string {
 	return strconv.Itoa(n)
+}
+
+// sizeVal is a box's saved size field: empty until it is resized by hand,
+// so a plain drag of the box posts no size.
+func sizeVal(n int) string {
+	if n <= 0 {
+		return ""
+	}
+	return itoa(n)
 }
 
 // behindTitle spells the arrow's tooltip; a rung with no release yet is

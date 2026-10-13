@@ -57,7 +57,7 @@ class GraphNode extends HTMLElement {
   private onDown = (e: PointerEvent): void => {
     this.swallow = false;
     const canvas = this.canvas();
-    if (e.button !== 0 || e.shiftKey || this.hasAttribute("static") || this.drag || this.parentElement !== canvas) return;
+    if (e.button !== 0 || e.shiftKey || this.hasAttribute("static") || this.drag || this.parentElement !== canvas || (e.target as Element).closest("[data-resize]")) return;
     const picked = this.hasAttribute("selected") && canvas
       ? [...canvas.querySelectorAll<GraphNode>(":scope > graph-node[selected]:not([static])")]
       : [this];

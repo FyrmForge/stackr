@@ -101,6 +101,15 @@ func (h *handler) Positions(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, "x and y are whole numbers")
 	}
 	if strings.HasPrefix(id, "net:") {
+		// Its place follows its cards; a hand-set size (w, h) is kept.
+		w, errW := strconv.Atoi(c.FormValue("w"))
+		hh, errH := strconv.Atoi(c.FormValue("h"))
+		if errW != nil || errH != nil || w <= 0 || hh <= 0 {
+			return c.NoContent(http.StatusNoContent)
+		}
+		if err := h.orch.PlaceCluster(c.Request().Context(), "size:"+id, service.Point{X: w, Y: hh}); err != nil {
+			return middleware.HTTPError(err)
+		}
 		return c.NoContent(http.StatusNoContent)
 	}
 	if !strings.HasPrefix(id, "note:") && !cluster.Movable(id) {

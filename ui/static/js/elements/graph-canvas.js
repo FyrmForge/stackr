@@ -25,6 +25,7 @@ class GraphCanvas extends HTMLElement {
     pan = null;
     marquee = null;
     pinch = null;
+    sizing = null;
     frame = 0;
     observer = new MutationObserver(() => {
         cancelAnimationFrame(this.frame);
@@ -48,7 +49,7 @@ class GraphCanvas extends HTMLElement {
             i.checked = this.hasAttribute(i.dataset.look ?? "") === (i.type !== "radio" || i.value === "1");
         });
         this.wire(true);
-        this.observer.observe(this, { subtree: true, childList: true, attributes: true, attributeFilter: ["x", "y", "w", "h"] });
+        this.observer.observe(this, { subtree: true, childList: true, attributes: true, attributeFilter: ["x", "y", "w", "h", "user-w", "user-h"] });
         const [px, py, s] = (stored(`view.${location.pathname}`, true) ?? "").split(",").map(Number);
         if (s) {
             [this.px, this.py, this.s] = [px, py, s];
@@ -151,6 +152,9 @@ class GraphCanvas extends HTMLElement {
             return this.endMarquee();
         }
         const t = e.target;
+        const box = t.closest("[data-resize]")?.parentElement;
+        if (box && e.button === 0)
+            return void (this.sizing = { box, p, w: num(box, "w"), h: num(box, "h") });
         if (e.button !== 0 || this.pointers.size > 2 || t.closest("a, button, input, label, select, textarea, [data-zoom], [popover]"))
             return;
         const card = t.closest("graph-node");
@@ -186,6 +190,10 @@ class GraphCanvas extends HTMLElement {
         }
         else if (this.marquee)
             this.lasso(p);
+        const z = this.sizing;
+        if (z)
+            for (const [k, v] of [["user-w", z.w + (p[0] - z.p[0]) / this.s], ["user-h", z.h + (p[1] - z.p[1]) / this.s]])
+                z.box.setAttribute(k, String(Math.round(Math.max(v, 120))));
     };
     onUp = (e) => {
         this.pointers.delete(e.pointerId);
@@ -193,6 +201,13 @@ class GraphCanvas extends HTMLElement {
             this.pinch = null;
         this.pan = null;
         this.endMarquee();
+        const box = this.sizing?.box;
+        this.sizing = null;
+        if (!box?.hasAttribute("user-w"))
+            return;
+        for (const k of ["w", "h"])
+            box.querySelector(`:scope > input[name=${k}]`).value = box.getAttribute(`user-${k}`) ?? "";
+        box.dispatchEvent(new CustomEvent("node-moved", { bubbles: true }));
     };
     lasso([x1, y1]) {
         const m = this.marquee;
@@ -336,8 +351,8 @@ class GraphCanvas extends HTMLElement {
             const [t, r, b, l] = (c.getAttribute("pad") ?? "").split(" ").map(Number);
             const x = Math.min(...bs.map((q) => q.x)) - (l || 0);
             const y = Math.min(...bs.map((q) => q.y)) - (t || 0);
-            const w = Math.max(Math.max(...bs.map((q) => q.x + q.w)) + (r || 0) - x, num(c, "min-w"));
-            const h = Math.max(...bs.map((q) => q.y + q.h)) + (b || 0) - y;
+            const w = Math.max(Math.max(...bs.map((q) => q.x + q.w)) + (r || 0) - x, num(c, "min-w"), num(c, "user-w"));
+            const h = Math.max(Math.max(...bs.map((q) => q.y + q.h)) + (b || 0) - y, num(c, "user-h"));
             for (const [k, v] of [["x", x], ["y", y], ["w", w], ["h", h]]) {
                 if (num(c, k) !== Math.round(v))
                     c.setAttribute(k, String(Math.round(v)));

@@ -738,7 +738,7 @@ func (o *Orchestrator) PlaceCluster(ctx context.Context, id string, p Point) err
 		return o.canvas.Move(ctx, ClusterScope, note, p)
 	}
 	movable := false
-	for _, p := range []string{"node:", "nat:", "s3:", "internet:"} {
+	for _, p := range []string{"node:", "nat:", "s3:", "internet:", "size:net:"} { // size: a box's w, h as x, y
 		movable = movable || strings.HasPrefix(id, p)
 	}
 	if !movable {

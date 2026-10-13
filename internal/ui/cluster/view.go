@@ -220,10 +220,11 @@ func Build(m Map, base string, notes []graph.Note, create []graph.Create) graph.
 		if len(ns) >= 2 {
 			b := wrap(rs, minBoxW)
 			name, sub := netTitle(c)
+			size := m.Placed["size:"+boxID(c.ID)] // a hand-set size: the box is at least this big
 			boxes = append(boxes, graph.Node{
-				ID: boxID(c.ID), Kind: "net", Name: name, X: b.x, Y: b.y, W: b.w, H: b.h,
+				ID: boxID(c.ID), Kind: "net", Name: name, X: b.x, Y: b.y, W: max(b.w, size[0]), H: max(b.h, size[1]),
 				Members: members, Pad: [4]int{headH, padX, padB, padX}, MinW: minBoxW,
-				Card: netCard(name, sub),
+				UserW: size[0], UserH: size[1], Card: netCard(name, sub),
 			})
 		}
 		by = rowY + rowH + padB + boxGapY

@@ -696,6 +696,12 @@ graph-canvas > graph-node {
 }
 graph-canvas > graph-node[node-id^="note:"], graph-canvas > graph-node[members] { z-index: 0; }
 graph-canvas > graph-node[static] { cursor: default; }
+/* A network box's corner: drag it to size the box (its cards still push it out). */
+.graph-resize {
+    position: absolute; right: 0; bottom: 0; z-index: 1; width: 16px; height: 16px; cursor: nwse-resize; touch-action: none;
+    background: linear-gradient(135deg, transparent 50%, rgb(var(--rw-faint) / 0.6) 50%);
+    border-bottom-right-radius: 10px;
+}
 graph-canvas > graph-node[dragging] { z-index: 10; }
 graph-canvas > graph-node[dragging], graph-canvas > graph-node[dragging] * { cursor: grabbing; }
 graph-canvas > graph-node[selected] { outline: 2px solid rgb(var(--rw-accent)); outline-offset: 2px; border-radius: 0.75rem; }
@@ -749,12 +755,14 @@ graph-node:hover > .note-del, graph-node:focus-within > .note-del { display: fle
 
 /* Edges: arrows on the drawn edges only (never lanes or swatches). */
 graph-canvas[arrows] svg[data-edges] path[data-edge-kind]:not([data-edge-kind^="tunnel"]) { marker-end: url(#edge-arrow); }
-/* An edge's label rides its middle (the element places it). */
+/* An edge's label rides its middle (the element places it), on a solid
+   backing so no line shows between its words. */
 graph-canvas svg[data-edges] text[data-edge-label] {
     font: 500 11px ui-monospace, monospace; fill: rgb(var(--rw-text));
-    paint-order: stroke; stroke: var(--rw-edge-label-halo); stroke-width: 4px;
+    filter: url(#edge-label-bg);
     text-anchor: middle; pointer-events: none;
 }
+graph-canvas svg[data-edges] #edge-label-bg feFlood { flood-color: var(--rw-edge-label-halo); }
 /* The server boundary. */
 graph-canvas svg[data-edges] [data-divider] line { stroke: rgb(var(--rw-strong)); stroke-width: 1; stroke-dasharray: 3 3; }
 graph-canvas svg[data-edges] [data-divider] text {

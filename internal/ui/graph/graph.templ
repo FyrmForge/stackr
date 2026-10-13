@@ -115,6 +115,10 @@ templ Canvas(v View) {
 				<marker id="edge-arrow" viewBox="0 0 8 8" refX="8" refY="4" markerWidth="5" markerHeight="5" orient="auto" fill="context-stroke" fill-opacity="0.8">
 					<path d="M0 0 L8 4 L0 8 z"></path>
 				</marker>
+				<filter id="edge-label-bg" x="-0.08" y="-0.2" width="1.16" height="1.4">
+					<feFlood></feFlood>
+					<feMerge><feMergeNode></feMergeNode><feMergeNode in="SourceGraphic"></feMergeNode></feMerge>
+				</filter>
 			</defs>
 			if v.Walled {
 				@divider(v)
@@ -179,6 +183,10 @@ templ node(v View, n Node) {
 			members={ strings.Join(n.Members, " ") }
 			pad={ itoa(n.Pad[0]) + " " + itoa(n.Pad[1]) + " " + itoa(n.Pad[2]) + " " + itoa(n.Pad[3]) }
 			min-w={ itoa(n.MinW) }
+			if n.UserW > 0 {
+				user-w={ itoa(n.UserW) }
+				user-h={ itoa(n.UserH) }
+			}
 		}
 		hx-post={ v.Route("positions") }
 		hx-trigger="node-moved"
@@ -189,6 +197,11 @@ templ node(v View, n Node) {
 		<input type="hidden" name="node_id" value={ n.ID }/>
 		<input type="hidden" name="x" value={ itoa(n.X) }/>
 		<input type="hidden" name="y" value={ itoa(n.Y) }/>
+		if len(n.Members) > 0 {
+			<input type="hidden" name="w" value={ sizeVal(n.UserW) }/>
+			<input type="hidden" name="h" value={ sizeVal(n.UserH) }/>
+			<span data-resize class="graph-resize" aria-hidden="true"></span>
+		}
 		if n.Card != nil {
 			@n.Card
 		} else {
