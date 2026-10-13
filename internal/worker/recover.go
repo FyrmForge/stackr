@@ -49,6 +49,10 @@ type RecoverPayload struct {
 	Time  int64  `json:"time"` // unix seconds
 	Nonce string `json:"nonce"`
 	Facts Facts  `json:"facts"`
+	// WGPublic and ExitPublic are the node's current public keys: after a
+	// rotation they are how the controller learns the new ones.
+	WGPublic   string `json:"wg_public,omitempty"`
+	ExitPublic string `json:"exit_public,omitempty"`
 }
 
 // SignRecover builds a signed request with the node's own cert and key.
@@ -151,7 +155,9 @@ func (s *Server) recoverOnce(ctx context.Context) error {
 	}
 	nonce := make([]byte, 16)
 	_, _ = rand.Read(nonce)
-	req, err := SignRecover(s.cfg.Recover.Own, RecoverPayload{Time: time.Now().Unix(), Nonce: hex.EncodeToString(nonce), Facts: s.Facts(ctx)})
+	wgPub, exitPub := s.publicKeys()
+	req, err := SignRecover(s.cfg.Recover.Own, RecoverPayload{Time: time.Now().Unix(), Nonce: hex.EncodeToString(nonce), Facts: s.Facts(ctx),
+		WGPublic: wgPub, ExitPublic: exitPub})
 	if err != nil {
 		return err
 	}

@@ -102,6 +102,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/wg", s.wg)
 	mux.HandleFunc("POST /v1/mesh", s.postMesh)
 	mux.HandleFunc("GET /v1/mesh", s.getMesh)
+	mux.HandleFunc("POST "+RotatePath, s.postRotate)
 	mux.HandleFunc("PUT /v1/state", s.putState)
 	mux.HandleFunc("GET /v1/state", s.getState)
 	mux.HandleFunc("POST /v1/replay", s.replay)
