@@ -159,6 +159,13 @@ func TestRegistryNodeCert(t *testing.T) {
 			t.Fatalf("pull of %s = %q", repo, got)
 		}
 	}
+	// A managed tile's engine image, before any deploy made its network.
+	if _, err := e.Orch.CreateManagedTile(ctx, service.Tile{StackID: tl.Stack, EnvironmentID: tl.Env, Name: "pg"}, "postgres"); err != nil {
+		t.Fatal(err)
+	}
+	if got := imp("acme/docker.io/library/postgres"); got != "acme/docker.io/library/postgres:pull" {
+		t.Fatalf("managed engine import = %q", got)
+	}
 	// A builder pushes a repo only while it builds it; a plain node never.
 	build := "repository:acme/shop/web:pull,push"
 	if reqScope(c, build); scope(env.NodeID) != "" {

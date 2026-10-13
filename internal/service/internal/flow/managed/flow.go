@@ -47,6 +47,20 @@ type Container struct {
 	Networks []docker.NetAttach // the instance network, with its alias there
 }
 
+// Image is the instance tile's image: its own pin, else the engine's. Unlike
+// Container it touches nothing (no volume, no network): the registry front
+// asks it for a node's pull scope, with no node to make them on.
+func (f *Flow) Image(ctx context.Context, t store.Tile) (string, error) {
+	_, e, err := f.instance(ctx, t.ID)
+	if err != nil {
+		return "", err
+	}
+	if t.ImageRef != "" {
+		return t.ImageRef, nil
+	}
+	return e.Definition().Image, nil
+}
+
 // Container gives flow/deploy the instance's container: the engine's
 // definition, its credentials as first-boot env, its volumes (env-scoped,
 // DECIDE 194) and the instance network every consumer of its slices joins.

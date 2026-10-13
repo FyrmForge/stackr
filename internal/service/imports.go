@@ -206,8 +206,8 @@ func (o *Orchestrator) tileImports(ctx context.Context, orgSlug string, e store.
 		refs = append(refs, t.ImageRef)
 	}
 	if t.Kind == tile.Managed {
-		if c, err := o.engines.Container(ctx, t); err == nil {
-			refs = append(refs, c.Image)
+		if img, err := o.engines.Image(ctx, t); err == nil {
+			refs = append(refs, img)
 		}
 	}
 	var out []string
