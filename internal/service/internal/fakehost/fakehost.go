@@ -325,7 +325,7 @@ func (d *Docker) HostInfo(ctx context.Context) (docker.HostInfo, error) {
 		return docker.HostInfo{}, err
 	}
 	// ponytail: a fixed 8 cores / 16 GB so tile limit checks run; a chaos knob if a test needs a small host.
-	return docker.HostInfo{CPUs: 8, MemBytes: 16 << 30}, nil
+	return docker.HostInfo{CPUs: 8, MemBytes: 16 << 30, Arch: "x86_64"}, nil
 }
 
 func (d *Docker) Start(ctx context.Context, id string) error {

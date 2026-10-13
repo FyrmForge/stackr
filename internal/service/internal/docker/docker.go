@@ -66,6 +66,9 @@ type ContainerSpec struct {
 type HostInfo struct {
 	CPUs     int
 	MemBytes int64
+	// Arch is the daemon's Architecture as Docker reports it ("x86_64",
+	// "aarch64"); "" = not reported.
+	Arch string
 }
 
 // NetAttach is one network the container joins, with its DNS aliases there.

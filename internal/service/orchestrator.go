@@ -137,6 +137,10 @@ type Config struct {
 	// MeshWGPort is the controller's mesh UDP port (STACKR_MESH_WG_PORT,
 	// the installer's --wg-port); 0 = mesh.DefaultPort.
 	MeshWGPort int
+	// RegistryImports sends every outside image a deploy runs through the
+	// cluster registry (imports.go). Off for a fake host and for tests with no
+	// registry behind them.
+	RegistryImports bool
 }
 
 // Option changes how New builds the tree; tests use it.
@@ -242,6 +246,7 @@ type Orchestrator struct {
 	earlyIPs     map[string]earlyEnt // container id -> address holding early lan rules
 	repoLocks    sync.Map            // clone dir -> *sync.Mutex
 	builds       buildRepos          // repos a builder node may push right now (builders.go)
+	platforms    platformCache       // each node's CPU type (imports.go)
 	cli          cliCodes
 
 	cluster   *clusterPKI   // the CA, the controller cert, the worker clients (nodeclients.go)
@@ -497,6 +502,7 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 			Tiers:      orch.tiers,
 			Managed:    orch.managed,
 			Domains:    orch.domains,
+			Import:     orch.importForDeploy,
 			Creds:      orch.creds,
 			Settings:   orch.settings,
 			Jobs:       orch.jobRows,

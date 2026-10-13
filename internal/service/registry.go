@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"slices"
 	"strings"
 	"time"
 
@@ -255,6 +256,11 @@ func (o *Orchestrator) nodeFacts(ctx context.Context, chain []*x509.Certificate)
 		}
 		for _, t := range ts {
 			f.PullRepos = append(f.PullRepos, regfront.Repo(og.Slug, st.Slug, t.Slug))
+			for _, r := range o.tileImports(ctx, og.Slug, e, t) {
+				if !slices.Contains(f.PullImports, r) {
+					f.PullImports = append(f.PullImports, r)
+				}
+			}
 		}
 	}
 	return f, nil

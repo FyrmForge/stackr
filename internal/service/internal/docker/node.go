@@ -20,6 +20,21 @@ func NodeFrom(ctx context.Context) (string, bool) {
 	return id, ok && id != ""
 }
 
+type importOrgKey struct{}
+
+// WithImportOrg marks a pull as the deploy of an outside image that was
+// imported into the cluster registry for an org (its slug): the router then
+// pulls the registry's copy and tags it with the original ref.
+func WithImportOrg(ctx context.Context, orgSlug string) context.Context {
+	return context.WithValue(ctx, importOrgKey{}, orgSlug)
+}
+
+// ImportOrgFrom is the org slug WithImportOrg set.
+func ImportOrgFrom(ctx context.Context) (string, bool) {
+	s, ok := ctx.Value(importOrgKey{}).(string)
+	return s, ok && s != ""
+}
+
 // ErrNoNode is a Docker call made without a node in its context. Every
 // caller decides which node it is for (see service/dockerrouter.go).
 var ErrNoNode = errors.New("docker: call has no node in its context")

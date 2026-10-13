@@ -2,9 +2,14 @@ package registry
 
 import (
 	"context"
-	"errors"
+	"fmt"
+	"strings"
 
 	"github.com/google/go-containerregistry/pkg/authn"
+
+	"github.com/FyrmForge/stackr/internal/service/internal/imgcopy"
+	"github.com/FyrmForge/stackr/internal/service/internal/regfront"
+	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
 
 // ImportRequest is one outside image to bring into the registry.
@@ -30,6 +35,24 @@ type Imported struct {
 	Digest string
 }
 
+// copier is imgcopy.Copy's shape, so a test can stand in for the network.
+type copier func(ctx context.Context, src, dst string, srcAuth, dstAuth authn.Authenticator, platforms []string) (imgcopy.Result, error)
+
+// WithCopier replaces the copy (tests).
+func (l *Leaf) WithCopier(c copier) *Leaf {
+	l.copy = c
+	return l
+}
+
+// WithGate sets the wait an import makes before it writes: the cleanup sweep
+// gates the registry while it collects garbage. It returns when the registry
+// is open, or with the context's error. nil = never gated.
+// ponytail: the hook G4's push gate fills in; until it is wired nothing waits.
+func (l *Leaf) WithGate(wait func(context.Context) error) *Leaf {
+	l.gate = wait
+	return l
+}
+
 // Import copies req.Ref into the registry under regfront.ImportName(OrgSlug,
 // Ref), by imgcopy.Copy from the upstream to the loopback registry, and
 // Records the version (source imported, upstream_ref req.Ref, the platforms
@@ -38,8 +61,29 @@ type Imported struct {
 // platform adds only that platform and updates the row. Waits while the
 // cleanup sweep gates the registry. Pull and registry errors come back
 // wrapped, never with the credential in them.
-//
-// Filled by G2.
 func (l *Leaf) Import(ctx context.Context, req ImportRequest) (Imported, error) {
-	return Imported{}, errors.ErrUnsupported
+	if len(req.Platforms) == 0 {
+		return Imported{}, fmt.Errorf("import %s: no platforms to hold", req.Ref)
+	}
+	if l.gate != nil {
+		if err := l.gate(ctx); err != nil {
+			return Imported{}, err
+		}
+	}
+	repo, tag := regfront.ImportName(req.OrgSlug, req.Ref)
+	dst := strings.TrimPrefix(l.base, "http://") + "/" + repo + ":" + tag
+	res, err := l.copy(ctx, req.Ref, dst, req.Auth, nil, req.Platforms)
+	if err != nil {
+		return Imported{}, fmt.Errorf("import %s: %w", req.Ref, err)
+	}
+	org := req.OrgID
+	err = l.Record(ctx, store.RegistryImage{
+		OrgID: &org, Repo: repo, Tag: tag, Digest: res.Digest,
+		Platforms: JoinPlatforms(res.Platforms), Source: SourceImported,
+		UpstreamRef: req.Ref, Size: res.Size, CreatedBy: req.By,
+	})
+	if err != nil {
+		return Imported{}, fmt.Errorf("import %s: record: %w", req.Ref, err)
+	}
+	return Imported{LocalRef: l.Local(repo, tag), Digest: res.Digest}, nil
 }

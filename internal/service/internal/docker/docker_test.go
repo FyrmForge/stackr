@@ -99,6 +99,18 @@ func TestPickDigest(t *testing.T) {
 	}
 }
 
+// An import is pulled as localhost:5000/<org>/... and tagged with the upstream
+// name, so its RepoDigests only name the registry repo; the digest must still
+// be the upstream index digest, never "" (that would read as an update).
+func TestPickDigestRetaggedImport(t *testing.T) {
+	rds := []string{"localhost:5000/acme/docker.io/library/postgres@sha256:index"}
+	for _, ref := range []string{"postgres:16", "postgres", "docker.io/library/postgres:16", "ghcr.io/foo/bar:1"} {
+		if got := pickDigest(ref, rds); got != "sha256:index" {
+			t.Errorf("pickDigest(%q) = %q, want the index digest", ref, got)
+		}
+	}
+}
+
 func TestParsePrune(t *testing.T) {
 	n, total, _ := parsePrune("abc\ndef\nTotal:\t1.2GB\n")
 	if n != 2 || total != "1.2GB" {

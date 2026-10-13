@@ -1,0 +1,172 @@
+package registry_test
+
+import (
+	"context"
+	"errors"
+	"net/http/httptest"
+	"strings"
+	"testing"
+
+	"github.com/google/go-containerregistry/pkg/authn"
+	"github.com/google/go-containerregistry/pkg/name"
+	ggcr "github.com/google/go-containerregistry/pkg/registry"
+	v1 "github.com/google/go-containerregistry/pkg/v1"
+	"github.com/google/go-containerregistry/pkg/v1/empty"
+	"github.com/google/go-containerregistry/pkg/v1/mutate"
+	"github.com/google/go-containerregistry/pkg/v1/random"
+	"github.com/google/go-containerregistry/pkg/v1/remote"
+
+	"github.com/FyrmForge/stackr/internal/service/internal/imgcopy"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/registry"
+	"github.com/FyrmForge/stackr/internal/service/servicetest"
+)
+
+// Import copies under the org's import name, with the credential going to the
+// copy as the source's, and records an imported version; a repeat with a new
+// platform updates the row instead of adding one.
+func TestImport(t *testing.T) {
+	st := servicetest.Store(t)
+	org := seedOrg(t, st)
+	var gotSrc, gotDst string
+	var gotAuth authn.Authenticator
+	l := registry.New(st.RegistryImages).WithCopier(func(_ context.Context, src, dst string, srcAuth, _ authn.Authenticator, p []string) (imgcopy.Result, error) {
+		gotSrc, gotDst, gotAuth = src, dst, srcAuth
+		return imgcopy.Result{Digest: "sha256:idx", Platforms: p, Size: 10 * int64(len(p))}, nil
+	})
+
+	auth := authn.FromConfig(authn.AuthConfig{Username: "u", Password: "p"})
+	got, err := l.Import(ctx, registry.ImportRequest{
+		OrgID: org, OrgSlug: "acme", Ref: "postgres:16", Auth: auth, Platforms: []string{"amd64"}, By: "u1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.LocalRef != "localhost:5000/acme/docker.io/library/postgres:16" || got.Digest != "sha256:idx" {
+		t.Fatalf("imported = %+v", got)
+	}
+	if gotSrc != "postgres:16" || gotAuth != auth || !strings.HasSuffix(gotDst, "/acme/docker.io/library/postgres:16") {
+		t.Fatalf("copy(%q -> %q, auth %v)", gotSrc, gotDst, gotAuth)
+	}
+	row, err := st.RegistryImages.GetByRepoDigest(ctx, "acme/docker.io/library/postgres", "sha256:idx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if row.Source != "imported" || row.UpstreamRef != "postgres:16" || row.Platforms != "amd64" || row.Size != 10 ||
+		row.CreatedBy != "u1" || row.OrgID == nil || *row.OrgID != org || row.Tag != "16" {
+		t.Fatalf("row = %+v", row)
+	}
+
+	if _, err := l.Import(ctx, registry.ImportRequest{OrgID: org, OrgSlug: "acme", Ref: "postgres:16", Platforms: []string{"amd64", "arm64"}}); err != nil {
+		t.Fatal(err)
+	}
+	rows, _ := st.RegistryImages.ListByRepo(ctx, "acme/docker.io/library/postgres")
+	if len(rows) != 1 || rows[0].Platforms != "amd64,arm64" || rows[0].CreatedBy != "u1" {
+		t.Fatalf("rows after a new platform = %+v", rows)
+	}
+}
+
+// A digest pinned ref lands under its sha256-<hex> tag; no platforms is an
+// error; a failed copy records nothing and the gate is waited on first.
+func TestImportEdges(t *testing.T) {
+	st := servicetest.Store(t)
+	org := seedOrg(t, st)
+	boom := errors.New("denied")
+	var order []string
+	l := registry.New(st.RegistryImages).
+		WithGate(func(context.Context) error { order = append(order, "gate"); return nil }).
+		WithCopier(func(_ context.Context, _, dst string, _, _ authn.Authenticator, _ []string) (imgcopy.Result, error) {
+			order = append(order, "copy "+dst[strings.Index(dst, "/")+1:])
+			return imgcopy.Result{}, boom
+		})
+	req := registry.ImportRequest{OrgID: org, OrgSlug: "acme", Ref: "ghcr.io/foo/bar@sha256:abcd", Platforms: []string{"amd64"}}
+	if _, err := l.Import(ctx, req); !errors.Is(err, boom) {
+		t.Fatalf("copy error lost: %v", err)
+	}
+	if strings.Join(order, ";") != "gate;copy acme/ghcr.io/foo/bar:sha256-abcd" {
+		t.Fatalf("order = %v", order)
+	}
+	if rows, _ := st.RegistryImages.ListAll(ctx); len(rows) != 0 {
+		t.Fatalf("a failed copy recorded %+v", rows)
+	}
+	req.Platforms = nil
+	if _, err := l.Import(ctx, req); err == nil {
+		t.Error("an import with no platforms ran")
+	}
+}
+
+func platformImage(t *testing.T, arch string) v1.Image {
+	t.Helper()
+	img, err := random.Image(64, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg, _ := img.ConfigFile()
+	cfg.Architecture, cfg.OS = arch, "linux"
+	img, err = mutate.ConfigFile(img, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return img
+}
+
+// Pushed reads the manifest back: an image gives its architecture and size,
+// an index the platforms it holds (an absent child is not counted); a push by
+// digest records nothing.
+func TestPushed(t *testing.T) {
+	reg := httptest.NewServer(ggcr.New())
+	defer reg.Close()
+	host := strings.TrimPrefix(reg.URL, "http://")
+	st := servicetest.Store(t)
+	org := seedOrg(t, st)
+	l := registry.New(st.RegistryImages).WithBase(reg.URL)
+
+	amd, arm := platformImage(t, "amd64"), platformImage(t, "arm64")
+	idx := mutate.AppendManifests(empty.Index,
+		mutate.IndexAddendum{Add: amd, Descriptor: v1.Descriptor{Platform: &v1.Platform{OS: "linux", Architecture: "amd64"}}},
+		mutate.IndexAddendum{Add: arm, Descriptor: v1.Descriptor{Platform: &v1.Platform{OS: "linux", Architecture: "arm64"}}},
+	)
+	write := func(ref string, put func(name.Reference) error) {
+		t.Helper()
+		r, err := name.ParseReference(host+"/"+ref, name.Insecure)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := put(r); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("acme/shop/api:v1", func(r name.Reference) error { return remote.Write(r, amd) })
+	write("acme/shop/web:v1", func(r name.Reference) error { return remote.WriteIndex(r, idx) })
+
+	if err := l.Pushed(ctx, registry.Push{OrgID: org, Repo: "acme/shop/api", Reference: "v1", By: "node1"}); err != nil {
+		t.Fatal(err)
+	}
+	d, _ := amd.Digest()
+	row, err := st.RegistryImages.GetByRepoDigest(ctx, "acme/shop/api", d.String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if row.Source != "built" || row.Platforms != "amd64" || row.Size < 64 || row.CreatedBy != "node1" || row.Tag != "v1" {
+		t.Fatalf("image row = %+v", row)
+	}
+
+	id, _ := idx.Digest()
+	if err := l.Pushed(ctx, registry.Push{OrgID: org, Repo: "acme/shop/web", Reference: "v1", Digest: id.String()}); err != nil {
+		t.Fatal(err)
+	}
+	row, err = st.RegistryImages.GetByRepoDigest(ctx, "acme/shop/web", id.String())
+	if err != nil || row.Platforms != "amd64,arm64" || row.Size < 128 {
+		t.Fatalf("index row = %+v, %v", row, err)
+	}
+
+	before, _ := st.RegistryImages.ListAll(ctx)
+	if err := l.Pushed(ctx, registry.Push{OrgID: org, Repo: "acme/shop/web", Reference: id.String()}); err != nil {
+		t.Fatal(err)
+	}
+	if after, _ := st.RegistryImages.ListAll(ctx); len(after) != len(before) {
+		t.Fatalf("a push by digest recorded: %+v", after)
+	}
+	if err := l.Pushed(ctx, registry.Push{OrgID: org, Repo: "acme/shop/none", Reference: "v1"}); err == nil {
+		t.Error("a push the registry does not have recorded")
+	}
+}

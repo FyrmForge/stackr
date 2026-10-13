@@ -81,6 +81,13 @@ type Flow struct {
 	// VIP, so a revoke's rebuild (which holds it) cannot be overwritten.
 	VIPLock sync.Locker
 
+	// Import brings an outside image into the cluster registry on the
+	// controller before a node pulls it (credID is the org's credential for
+	// ref, "" anonymous). imported=false: pull ref as it is. run is the ref the
+	// container starts with (a digest ref runs under its registry name). nil =
+	// every pull goes outside.
+	Import func(ctx context.Context, orgID, ref, credID string) (run string, imported bool, err error)
+
 	// Sync re-pushes the proxy config (leaf/domain Syncer.Sync); nil = none.
 	Sync func(context.Context) error
 	// Engines is flow/managed (the deploy -> managed edge): a managed
@@ -288,14 +295,25 @@ func (f *Flow) prepare(
 	if err != nil {
 		return r, e, "", err
 	}
-	auth := ""
+	auth, credID := "", ""
 	if c, ok, err := f.Creds.For(ctx, o.ID, ref); err != nil {
 		return r, e, "", err
 	} else if ok {
-		auth = credential.Auth(c)
+		auth, credID = credential.Auth(c), c.ID
+	}
+	run, pullCtx := ref, ctx
+	if f.Import != nil {
+		var imported bool
+		if run, imported, err = f.Import(ctx, o.ID, ref, credID); err != nil {
+			return r, e, "", fmt.Errorf("import %s: %w", ref, err)
+		}
+		if imported {
+			// the node pulls the registry's copy, which needs no credential
+			auth, pullCtx = "", docker.WithImportOrg(ctx, o.Slug)
+		}
 	}
 	logf(log, "pulling %s\n", ref)
-	digest, err := f.Images.Ensure(ctx, ref, auth, log)
+	digest, err := f.Images.Ensure(pullCtx, ref, auth, log)
 	if errors.Is(err, image.ErrCleanedUp) {
 		return r, e, "", fmt.Errorf("the image for %s was cleaned up; rebuild it", t.Slug)
 	}
@@ -307,7 +325,7 @@ func (f *Flow) prepare(
 		// with a later digest pin (promote's runsOther).
 		r.pinRef = RepoOf(ref) + "@" + digest
 	}
-	r.image = ref
+	r.image = run
 	return r, e, digest, nil
 }
 

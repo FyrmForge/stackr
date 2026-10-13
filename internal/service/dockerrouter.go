@@ -12,6 +12,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/installspec"
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
+	"github.com/FyrmForge/stackr/internal/service/internal/regfront"
 )
 
 // WithNode names the node a Docker call is for. The DockerRouter sends the
@@ -228,12 +229,13 @@ func (r *DockerRouter) UntarVolume(ctx context.Context, name string, rd io.Reade
 // Pull fetches ref on ctx's node. An image of stackr's own registry
 // (registry.<panel domain>/...) comes from localhost:5000 on that node: the
 // registry itself on the controller, the worker's front over the mesh
-// elsewhere. A tag ref is then tagged with the ref, so containers name it as
+// elsewhere. So does an outside image imported for the org in ctx
+// (imports.go). A tag ref is then tagged with the ref, so containers name it as
 // given; Docker refuses to tag a digest ref, so that one is used under its
 // localhost name everywhere instead (pinnedLocal).
 func (r *DockerRouter) Pull(ctx context.Context, ref, auth string, log io.Writer) error {
 	return r.do(ctx, func(c Docker) error {
-		if local, ok := r.ownLocal(ctx, ref); ok {
+		if local, ok := r.localOf(ctx, ref); ok {
 			if err := c.Pull(ctx, local, "", log); err != nil {
 				return err
 			}
@@ -259,9 +261,34 @@ func (r *DockerRouter) ownLocal(ctx context.Context, ref string) (string, bool) 
 	return "localhost:" + installspec.RegistryPort + "/" + path, true
 }
 
-// pinnedLocal is the name a digest ref of the own registry has on a node.
+// importLocal maps an outside ref that was imported for the org in ctx
+// (docker.WithImportOrg) to the registry copy every node pulls: a tag ref to
+// the import repo and tag, a digest ref to the import repo at that digest.
+func importLocal(ctx context.Context, ref string) (string, bool) {
+	slug, ok := docker.ImportOrgFrom(ctx)
+	if !ok {
+		return "", false
+	}
+	repo, tag := regfront.ImportName(slug, ref)
+	base := "localhost:" + installspec.RegistryPort + "/" + repo
+	if _, dg, pinned := strings.Cut(ref, "@"); pinned {
+		return base + "@" + dg, true
+	}
+	return base + ":" + tag, true
+}
+
+// localOf is ownLocal or importLocal: where this node pulls ref from.
+func (r *DockerRouter) localOf(ctx context.Context, ref string) (string, bool) {
+	if local, ok := r.ownLocal(ctx, ref); ok {
+		return local, true
+	}
+	return importLocal(ctx, ref)
+}
+
+// pinnedLocal is the name a digest ref of the own registry, or of an import,
+// has on a node.
 func (r *DockerRouter) pinnedLocal(ctx context.Context, ref string) string {
-	if local, ok := r.ownLocal(ctx, ref); ok && strings.Contains(ref, "@") {
+	if local, ok := r.localOf(ctx, ref); ok && strings.Contains(ref, "@") {
 		return local
 	}
 	return ref

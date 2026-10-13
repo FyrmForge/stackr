@@ -106,7 +106,7 @@ func (d *Client) HostInfo(ctx context.Context) (HostInfo, error) {
 	if err != nil {
 		return HostInfo{}, err
 	}
-	return HostInfo{CPUs: info.NCPU, MemBytes: info.MemTotal}, nil
+	return HostInfo{CPUs: info.NCPU, MemBytes: info.MemTotal, Arch: info.Architecture}, nil
 }
 
 // Wait blocks until the container is not running and returns its exit

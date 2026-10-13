@@ -463,6 +463,10 @@ func (o *Orchestrator) buildOn(
 	if err := o.docker.Push(ctx, ref); err != nil {
 		return "", err
 	}
+	// A push from the controller goes straight to the registry, past the
+	// front's callback; a worker's goes through it and records the same row.
+	_, tag, _ := strings.Cut(strings.TrimPrefix(ref, "localhost:"+installspec.RegistryPort+"/"+repo), ":")
+	o.registryPushed(ctx, regfront.Pushed{Repo: repo, Reference: tag, Kind: regfront.KindNode, Subject: nodeID})
 	return img.ID, nil
 }
 

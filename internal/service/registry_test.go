@@ -145,6 +145,20 @@ func TestRegistryNodeCert(t *testing.T) {
 	if w := req(c); w.Code != 200 || scope(env.NodeID) != "acme/shop/api:pull" {
 		t.Fatalf("pinned node: %d %q", w.Code, scope(env.NodeID))
 	}
+	// It may pull the import of the outside image its env runs (nginx:1),
+	// for its own org only, and no other import.
+	imp := func(repo string) string {
+		reqScope(c, "repository:"+repo+":pull")
+		return scope(env.NodeID)
+	}
+	if got := imp("acme/docker.io/library/nginx"); got != "acme/docker.io/library/nginx:pull" {
+		t.Fatalf("own import = %q", got)
+	}
+	for _, repo := range []string{"other/docker.io/library/nginx", "acme/docker.io/library/redis"} {
+		if got := imp(repo); got != "" {
+			t.Fatalf("pull of %s = %q", repo, got)
+		}
+	}
 	// A builder pushes a repo only while it builds it; a plain node never.
 	build := "repository:acme/shop/web:pull,push"
 	if reqScope(c, build); scope(env.NodeID) != "" {

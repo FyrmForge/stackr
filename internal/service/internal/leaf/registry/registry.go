@@ -22,6 +22,7 @@ import (
 
 	"github.com/FyrmForge/stackr/internal/installspec"
 	"github.com/FyrmForge/stackr/internal/service/errs"
+	"github.com/FyrmForge/stackr/internal/service/internal/imgcopy"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
 
@@ -36,10 +37,14 @@ type Leaf struct {
 	images store.RegistryImageStore
 	// base is the registry's HTTP address on the head's loopback.
 	base string
+	// copy and gate are import.go's: the filtered copy (imgcopy.Copy) and the
+	// cleanup sweep's wait.
+	copy copier
+	gate func(context.Context) error
 }
 
 func New(images store.RegistryImageStore) *Leaf {
-	return &Leaf{images: images, base: "http://127.0.0.1:" + installspec.RegistryPort}
+	return &Leaf{images: images, base: "http://127.0.0.1:" + installspec.RegistryPort, copy: imgcopy.Copy}
 }
 
 // WithBase points the leaf at another registry address (tests).
