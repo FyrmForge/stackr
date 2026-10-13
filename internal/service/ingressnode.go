@@ -55,6 +55,12 @@ func (o *Orchestrator) ensureNodeProxy(ctx context.Context, nodeID string) error
 		}
 		// The worker pulls the registry copy, never ghcr (systemimages.go).
 		spec = installspec.NodeProxy(stackrSystemRef(img))
+		// Pull before the old proxy goes: a failed pull keeps ingress up.
+		if _, err := o.docker.LocalDigest(nctx, spec.Image); err != nil {
+			if err := o.docker.Pull(nctx, spec.Image, "", io.Discard); err != nil {
+				return fmt.Errorf("proxy image on %s: %w", n.Name, err)
+			}
+		}
 	}
 	cs, err := o.docker.List(nctx, map[string]string{installspec.LabelRole: "proxy"})
 	if err != nil {
@@ -76,11 +82,6 @@ func (o *Orchestrator) ensureNodeProxy(ctx context.Context, nodeID string) error
 	if cl, err := o.nodeExtras(nodeID); err == nil {
 		if f, err := cl.Facts(ctx); err == nil && len(f.Busy) > 0 {
 			return fmt.Errorf("ingress on %s: port %v is in use by something else; stackr's proxy needs 80 and 443", n.Name, f.Busy)
-		}
-	}
-	if _, err := o.docker.LocalDigest(nctx, spec.Image); err != nil {
-		if err := o.docker.Pull(nctx, spec.Image, "", io.Discard); err != nil {
-			return fmt.Errorf("proxy image on %s: %w", n.Name, err)
 		}
 	}
 	if _, err := o.docker.Run(nctx, docker.ContainerSpec{

@@ -132,6 +132,21 @@ func ImportName(org, upstreamRef string) (repo, tag string) {
 	return org + "/" + host + "/" + path, tag
 }
 
+// systemRepo reports a repo under SystemOrg, of any depth
+// (stackr.system/stackr, stackr.system/tools/rsync).
+func systemRepo(repo string) bool {
+	p := strings.Split(repo, "/")
+	if len(p) < 2 || p[0] != SystemOrg {
+		return false
+	}
+	for _, s := range p[1:] {
+		if !slug.MatchString(s) {
+			return false
+		}
+	}
+	return true
+}
+
 // ParseImportRepo splits an import repository into the org and the upstream
 // name ("docker.io/library/postgres"). Any depth of three parts or more, every
 // part a slug, the second one a host (it holds a dot).
@@ -177,6 +192,9 @@ type Facts struct {
 func (f Facts) allowed(repo, action string) bool {
 	if f.Kind == KindAdmin {
 		return true
+	}
+	if systemRepo(repo) {
+		return action == Pull
 	}
 	org, _, _, ok := ParseRepo(repo)
 	imp := false
@@ -501,7 +519,7 @@ func splitPath(rest string) (repo, kind, ref string, ok bool) {
 }
 
 func validRepo(repo string) bool {
-	if _, _, _, ok := ParseRepo(repo); ok {
+	if _, _, _, ok := ParseRepo(repo); ok || systemRepo(repo) {
 		return true
 	}
 	_, _, ok := ParseImportRepo(repo)

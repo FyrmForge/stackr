@@ -186,10 +186,15 @@ func TestFrontFlow(t *testing.T) {
 }
 
 func TestSystemOrgPullOnly(t *testing.T) {
-	repo := SystemOrg + "/tools/rsync"
-	got := Decide(Facts{Kind: KindNode, Subject: "n1"}, []Scope{{repo, []string{Pull, Push}}})
-	if len(got) != 1 || len(got[0].Actions) != 1 || got[0].Actions[0] != Pull {
-		t.Fatalf("node on %s = %v, want pull only", repo, got)
+	// Two parts (stackr.system/stackr, the ingress Caddy image) as well as three.
+	for _, repo := range []string{SystemOrg + "/tools/rsync", SystemOrg + "/stackr", SystemOrg + "/pause"} {
+		got := Decide(Facts{Kind: KindNode, Subject: "n1"}, []Scope{{repo, []string{Pull, Push}}})
+		if len(got) != 1 || len(got[0].Actions) != 1 || got[0].Actions[0] != Pull {
+			t.Fatalf("node on %s = %v, want pull only", repo, got)
+		}
+		if !validRepo(repo) {
+			t.Fatalf("%s refused as a repo name", repo)
+		}
 	}
 }
 

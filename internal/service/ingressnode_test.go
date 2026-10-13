@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/FyrmForge/stackr/internal/installspec"
@@ -49,5 +50,27 @@ func TestNodeProxyFollowsIngressTag(t *testing.T) {
 	must(t, n.orch.ensureNodeProxy(ctx, n.ctl.ID))
 	if sawCall(n.ctlFake, "Run(") || sawCall(n.ctlFake, "StopRemove") {
 		t.Fatal("the controller's proxy was touched")
+	}
+}
+
+// A proxy image that cannot be pulled leaves the running proxy alone, so
+// ingress stays up while the registry copy is missing.
+func TestNodeProxyPullFailureKeepsOldProxy(t *testing.T) {
+	n := newTwoNodes(t)
+	ctx := context.Background()
+	n.ctlFake.Details = map[string]docker.Detail{installspec.ProxyName: {Image: "ghcr.io/fyrmforge/stackr:9.9.9"}}
+	w, err := n.st.Nodes.Get(ctx, "w1")
+	must(t, err)
+	w.Tags = `["ingress"]`
+	must(t, n.st.Nodes.Update(ctx, w))
+	img := "localhost:5000/stackr.system/stackr:9.9.9"
+	n.wFake.Gone = []string{img}
+	n.wFake.Err = map[string]error{"Pull": errors.New("not found")}
+	n.wFake.Containers = []docker.Container{{ID: "old", Name: installspec.ProxyName, Labels: map[string]string{installspec.LabelRole: "proxy"}}}
+	if err := n.orch.ensureNodeProxy(ctx, "w1"); err == nil {
+		t.Fatal("want the pull error")
+	}
+	if sawCall(n.wFake, "StopRemove") {
+		t.Fatal("the old proxy was removed before the new image was there")
 	}
 }
