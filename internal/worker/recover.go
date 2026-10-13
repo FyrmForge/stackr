@@ -49,6 +49,7 @@ type RecoverPayload struct {
 	Time  int64  `json:"time"` // unix seconds
 	Nonce string `json:"nonce"`
 	Facts Facts  `json:"facts"`
+	CSR   string `json:"csr,omitempty"` // a renewal (RenewPanelPath)
 }
 
 // SignRecover builds a signed request with the node's own cert and key.
@@ -151,7 +152,7 @@ func (s *Server) recoverOnce(ctx context.Context) error {
 	}
 	nonce := make([]byte, 16)
 	_, _ = rand.Read(nonce)
-	req, err := SignRecover(s.cfg.Recover.Own, RecoverPayload{Time: time.Now().Unix(), Nonce: hex.EncodeToString(nonce), Facts: s.Facts(ctx)})
+	req, err := SignRecover(s.ownCert(), RecoverPayload{Time: time.Now().Unix(), Nonce: hex.EncodeToString(nonce), Facts: s.Facts(ctx)})
 	if err != nil {
 		return err
 	}

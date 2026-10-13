@@ -3,6 +3,7 @@ package worker
 import (
 	"cmp"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -256,7 +257,7 @@ func (s *Server) meshNet(spec MeshSpec) error {
 // change. A --registry-url flag wins; the first named registry stays until
 // restart. ponytail: a changed URL (new panel domain) needs a worker restart.
 func (s *Server) startRegistry(r *RegistrySpec) {
-	if r == nil || s.cfg.Registry.URL != "" || s.mesh.registry || s.cfg.TLS == nil || len(s.cfg.TLS.Certificates) == 0 {
+	if r == nil || s.cfg.Registry.URL != "" || s.mesh.registry || len(s.own.get().Certificate) == 0 {
 		return
 	}
 	b, err := os.ReadFile(filepath.Join(s.cfg.StateDir, "cluster-ca.crt"))
@@ -270,7 +271,7 @@ func (s *Server) startRegistry(r *RegistrySpec) {
 		return
 	}
 	s.mesh.registry = true
-	c := RegistryConfig{URL: r.URL, Host: r.Host, TLS: clusterca.ControllerClientConfig(ca, s.cfg.TLS.Certificates[0])}
+	c := RegistryConfig{URL: r.URL, Host: r.Host, TLS: s.withOwn(clusterca.ControllerClientConfig(ca, tls.Certificate{}))}
 	go func() {
 		if err := serveRegistry(s.ctx, c); err != nil {
 			slog.Error("worker: registry proxy", "err", err)

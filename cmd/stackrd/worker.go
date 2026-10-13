@@ -72,7 +72,7 @@ func workerConfig(args []string) (worker.Config, error) {
 		if *regHost == "" {
 			return worker.Config{}, errors.New("--registry-host is required with --registry-url")
 		}
-		own, err := tls.LoadX509KeyPair(def(cert, "node.crt"), def(key, "node.key"))
+		own, err := worker.LoadNodeCert(def(cert, "node.crt"), def(key, "node.key"))
 		if err != nil {
 			return worker.Config{}, fmt.Errorf("node cert: %w", err)
 		}
@@ -86,7 +86,7 @@ func workerConfig(args []string) (worker.Config, error) {
 		}
 		reg = worker.RegistryConfig{URL: *regURL, Host: *regHost, TLS: clusterca.ControllerClientConfig(caCert, own)}
 	}
-	own, err := tls.LoadX509KeyPair(def(cert, "node.crt"), def(key, "node.key"))
+	own, err := worker.LoadNodeCert(def(cert, "node.crt"), def(key, "node.key"))
 	if err != nil {
 		return worker.Config{}, fmt.Errorf("node cert: %w", err)
 	}
@@ -111,7 +111,7 @@ func workerWG() wgapply.Applier {
 // worker has no store; revocation reaches it when certs are renewed or the
 // controller pushes a list.
 func workerTLS(certFile, keyFile, caFile string) (*tls.Config, error) {
-	own, err := tls.LoadX509KeyPair(certFile, keyFile)
+	own, err := worker.LoadNodeCert(certFile, keyFile)
 	if err != nil {
 		return nil, fmt.Errorf("node cert: %w", err)
 	}
