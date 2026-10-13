@@ -118,8 +118,9 @@ func fnv32(s string) uint32 {
 // UsedSubnets is every prefix a new network must stay clear of: the subnets
 // of all Docker networks (any driver; IPv6 and subnet-less configs are
 // skipped harmlessly) and the addresses of this host's interfaces.
-// ponytail: the host's own interfaces only; a remote node's come from its
-// worker facts (step 4 checks every node's reported interfaces).
+// A remote node's interfaces come from its worker facts, not from this
+// process's host: adding the panel host's bridges here made every worker
+// "own" the controller's networks.
 func (d *Client) UsedSubnets(ctx context.Context) ([]netip.Prefix, error) {
 	nets, err := d.cli.NetworkList(ctx, network.ListOptions{})
 	if err != nil {
@@ -127,7 +128,10 @@ func (d *Client) UsedSubnets(ctx context.Context) ([]netip.Prefix, error) {
 	}
 	// Failing to read the interfaces only loses the host check; Docker still
 	// refuses a block that overlaps one of its own networks.
-	addrs, _ := net.InterfaceAddrs()
+	var addrs []net.Addr
+	if !d.remote {
+		addrs, _ = net.InterfaceAddrs()
+	}
 	return usedSubnets(nets, addrs), nil
 }
 

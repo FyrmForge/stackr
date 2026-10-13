@@ -174,6 +174,9 @@ type Client struct {
 	cli  *client.Client
 	tool string    // the tool containers' image, "" = ToolImage
 	px   *cliProxy // a worker's: how the docker CLI reaches it; nil = local
+	// remote: another host's Docker, so this process's own interfaces say
+	// nothing about it.
+	remote bool
 }
 
 // SetTool makes the tool containers run ref instead of ToolImage: a worker
@@ -207,5 +210,5 @@ func NewRemote(host string, hc *http.Client) (*Client, error) {
 	if err != nil {
 		return nil, fmt.Errorf("docker client for %s: %w", host, err)
 	}
-	return &Client{cli: cli, px: px}, nil
+	return &Client{cli: cli, px: px, remote: true}, nil
 }

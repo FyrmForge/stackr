@@ -209,6 +209,13 @@ func TestUsedSubnetsFromDaemon(t *testing.T) {
 	if err != nil || !slices.Contains(used, netip.MustParsePrefix("10.209.4.0/24")) {
 		t.Fatalf("used = %v, %v", used, err)
 	}
+	// A worker's Docker: only its networks, never this host's interfaces
+	// (those made every worker "own" the controller's bridges).
+	cli.remote = true
+	used, err = cli.UsedSubnets(context.Background())
+	if err != nil || len(used) != 1 {
+		t.Fatalf("remote used = %v, %v; want the daemon's one network", used, err)
+	}
 }
 
 // netFake is a Networker over a map, enough to drive EnsureReserved.
