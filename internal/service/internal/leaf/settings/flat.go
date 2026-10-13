@@ -55,12 +55,15 @@ func (l *Leaf) Int(ctx context.Context, key string) (int, error) {
 
 // Set writes a flat knob, refusing what does not parse (B24) and a read-only
 // knob outright. The empty string removes the row, falling back to the boot
-// value or default.
+// value or default (an EmptyOff knob keeps it as empty).
 func (l *Leaf) Set(ctx context.Context, key, raw string) error {
 	if err := Check(key, raw); err != nil {
 		return err
 	}
 	if raw = strings.TrimSpace(raw); raw == "" {
+		if k, _ := lookup(key); k.EmptyOff {
+			return l.rows.Set(ctx, key, "")
+		}
 		return l.rows.Delete(ctx, key)
 	}
 	return l.rows.Set(ctx, key, raw)

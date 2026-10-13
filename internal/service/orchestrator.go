@@ -214,6 +214,7 @@ type Orchestrator struct {
 	hostgrant   *hostgrant.Leaf
 	creds       *credential.Leaf
 	regs        *registry.Leaf
+	regCleaned  lastRegistryClean
 	conns       *connector.Leaf
 	managed     *managed.Leaf
 	releases    *release.Leaf
@@ -655,6 +656,10 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 			},
 			Cleanup: func(ctx context.Context) error {
 				_, err := orch.enqueue(ctx, kindCleanup, nil, "cleanup")
+				return err
+			},
+			RegistryClean: func(ctx context.Context) error {
+				_, err := orch.enqueue(ctx, kindRegistryClean, registryCleanJob{}, "registry-clean")
 				return err
 			},
 			Settings: orch.scheduleSettings,

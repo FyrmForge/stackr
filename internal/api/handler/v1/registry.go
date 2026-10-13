@@ -42,5 +42,5 @@ func (h *H) RegistryOverview() Endpoint {
 
 // CleanRegistry (server admin) queues a cleanup sweep.
 func (h *H) CleanRegistry() Endpoint {
-	return Job(func(c echo.Context, _ None) (service.Job, error) { return h.Orch.CleanRegistryNow(rc(c)) })
+	return Job(func(c echo.Context, _ None) (service.Job, error) { return h.Orch.CleanRegistryNow(rc(c), who(c)) })
 }

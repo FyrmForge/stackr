@@ -16,7 +16,7 @@ import (
 
 func (h *handler) mountRegistry(g *echo.Group, a *middleware.Access) {
 	g.POST(ui.Base+"/registry/clean", h.act("registry", func(c echo.Context) (string, *service.Job, error) {
-		j, err := h.orch.CleanRegistryNow(c.Request().Context())
+		j, err := h.orch.CleanRegistryNow(c.Request().Context(), middleware.Principal(c).User.ID)
 		return "Cleanup queued.", &j, err
 	}), a.Require("container.admin"))
 }

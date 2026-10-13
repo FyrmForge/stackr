@@ -23,6 +23,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/installspec"
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/imgcopy"
+	"github.com/FyrmForge/stackr/internal/service/internal/regfront"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
 
@@ -37,10 +38,10 @@ type Leaf struct {
 	images store.RegistryImageStore
 	// base is the registry's HTTP address on the head's loopback.
 	base string
-	// copy and gate are import.go's: the filtered copy (imgcopy.Copy) and the
-	// cleanup sweep's wait.
+	// copy is import.go's filtered copy (imgcopy.Copy).
 	copy copier
-	gate func(context.Context) error
+	// gate is shut while the cleanup sweep runs (clean.go); Import waits on it.
+	gate regfront.Gate
 }
 
 func New(images store.RegistryImageStore) *Leaf {

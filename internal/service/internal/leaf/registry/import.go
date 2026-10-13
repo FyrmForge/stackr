@@ -44,15 +44,6 @@ func (l *Leaf) WithCopier(c copier) *Leaf {
 	return l
 }
 
-// WithGate sets the wait an import makes before it writes: the cleanup sweep
-// gates the registry while it collects garbage. It returns when the registry
-// is open, or with the context's error. nil = never gated.
-// ponytail: the hook G4's push gate fills in; until it is wired nothing waits.
-func (l *Leaf) WithGate(wait func(context.Context) error) *Leaf {
-	l.gate = wait
-	return l
-}
-
 // Import copies req.Ref into the registry under regfront.ImportName(OrgSlug,
 // Ref), by imgcopy.Copy from the upstream to the loopback registry, and
 // Records the version (source imported, upstream_ref req.Ref, the platforms
@@ -65,10 +56,8 @@ func (l *Leaf) Import(ctx context.Context, req ImportRequest) (Imported, error) 
 	if len(req.Platforms) == 0 {
 		return Imported{}, fmt.Errorf("import %s: no platforms to hold", req.Ref)
 	}
-	if l.gate != nil {
-		if err := l.gate(ctx); err != nil {
-			return Imported{}, err
-		}
+	if err := l.Wait(ctx); err != nil {
+		return Imported{}, err
 	}
 	repo, tag := regfront.ImportName(req.OrgSlug, req.Ref)
 	dst := strings.TrimPrefix(l.base, "http://") + "/" + repo + ":" + tag

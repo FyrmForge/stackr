@@ -93,17 +93,14 @@ class GraphNode extends HTMLElement {
     this.swallow = true;
     if (d.start.length === 1 && this.canvas()?.hasAttribute("nooverlap")) this.nudge();
     for (const [n] of d.start) n.commit();
-    // A card pushed past its box's edge grew the box: save the box's new
-    // corner too, once the canvas has re-wrapped it (its observer's frame).
+    // A card pushed past its box's edge grew the box: save its corner too, once re-wrapped.
     const moved = new Set(d.start.map(([n]) => n.getAttribute("node-id")));
     const boxes = [...(this.canvas()?.querySelectorAll(":scope > graph-node[members]") ?? [])]
       .filter((b): b is GraphNode => b instanceof GraphNode && !moved.has(b.getAttribute("node-id")) && b.members().some((m) => moved.has(m.getAttribute("node-id"))));
     if (boxes.length > 0) queueMicrotask(() => requestAnimationFrame(() => boxes.forEach((b) => b.commit())));
   };
   // A second finger means a pinch: put the cards back, the canvas zooms.
-  private onSecond = (e: PointerEvent): void => {
-    if (this.drag && e.pointerId !== this.drag.id) this.onCancel();
-  };
+  private onSecond = (e: PointerEvent): void => void (this.drag && e.pointerId !== this.drag.id && this.onCancel());
   private onCancel = (): void => {
     const start = this.drag?.start ?? [];
     this.end();
@@ -144,10 +141,7 @@ class GraphNode extends HTMLElement {
     return a.x < b.x + b.w + GAP && b.x < a.x + a.w + GAP && a.y < b.y + b.h + GAP && b.y < a.y + a.h + GAP;
   }
   private commit(): void {
-    for (const k of ["x", "y"]) {
-      const input = this.querySelector<HTMLInputElement>(`:scope > input[name=${k}]`);
-      if (input) input.value = this.getAttribute(k) ?? "";
-    }
+    for (const k of ["x", "y"]) { const i = this.querySelector<HTMLInputElement>(`:scope > input[name=${k}]`); if (i) i.value = this.getAttribute(k) ?? ""; }
     this.dispatchEvent(new CustomEvent("node-moved", { bubbles: true }));
   }
 }

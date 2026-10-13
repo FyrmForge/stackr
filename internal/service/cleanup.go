@@ -100,36 +100,34 @@ func (o *Orchestrator) runCleanup(ctx context.Context, r *jobs.Run) error {
 	return failed
 }
 
-// cleanupKeep is the image rows of every release a sweep must not strand:
-// each env's current release and the last rollbackDepth it was on (done
-// promote and rollback jobs), every release a live job targets (a parked
-// promote deploys it later), and the newest release of each stack (the next
-// promote). pinned is every image row any release references: those rows
-// stay even when the Docker image goes. running is the refs of what any
-// container on the box uses.
-func (o *Orchestrator) cleanupKeep(ctx context.Context) (ids, pinned, running []string, err error) {
+// keptReleases is the release ids a sweep must not strand: each env's current
+// release and the last rollbackDepth it was on (done promote and rollback
+// jobs), every release a live job targets (a parked promote deploys it
+// later), and the newest release of each stack (the next promote). The image
+// sweep and the registry sweep both keep what these pin.
+func (o *Orchestrator) keptReleases(ctx context.Context) (map[string]bool, error) {
 	orgs, err := o.orgs.ListAll(ctx)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, err
 	}
 	rels := map[string]bool{}
 	depth := map[string][]string{} // env id -> releases it was on, newest first
 	for _, org := range orgs {
 		stacks, err := o.stacks.List(ctx, org.ID)
 		if err != nil {
-			return nil, nil, nil, err
+			return nil, err
 		}
 		for _, s := range stacks {
 			rs, err := o.releases.List(ctx, s.ID) // newest first
 			if err != nil {
-				return nil, nil, nil, err
+				return nil, err
 			}
 			if len(rs) > 0 {
 				rels[rs[0].ID] = true
 			}
 			envs, err := o.envs.List(ctx, s.ID)
 			if err != nil {
-				return nil, nil, nil, err
+				return nil, err
 			}
 			for _, e := range envs {
 				depth[e.ID] = nil
@@ -141,7 +139,7 @@ func (o *Orchestrator) cleanupKeep(ctx context.Context) (ids, pinned, running []
 	}
 	js, err := o.jobRows.Recent(ctx, 0, job.Queued, job.Running, job.Waiting, job.Done) // newest first
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, err
 	}
 	for _, j := range js {
 		if j.ReleaseID == nil {
@@ -163,6 +161,17 @@ func (o *Orchestrator) cleanupKeep(ctx context.Context) (ids, pinned, running []
 		for _, id := range h {
 			rels[id] = true
 		}
+	}
+	return rels, nil
+}
+
+// cleanupKeep is the image rows the releases of keptReleases pin. pinned is
+// every image row any release references: those rows stay even when the Docker
+// image goes. running is the refs of what any container on the box uses.
+func (o *Orchestrator) cleanupKeep(ctx context.Context) (ids, pinned, running []string, err error) {
+	rels, err := o.keptReleases(ctx)
+	if err != nil {
+		return nil, nil, nil, err
 	}
 	for id := range rels {
 		pins, err := o.releases.Pins(ctx, id)

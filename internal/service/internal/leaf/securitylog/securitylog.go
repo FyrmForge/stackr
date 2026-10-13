@@ -31,6 +31,7 @@ const (
 	NodeRecover   = "node.recover"    // a worker fetched its mesh through the panel, or was refused
 	NodeKeyRotate = "node.key_rotate" // a node's mesh and exit keys were replaced
 	NodeCertRenew = "node.cert_renew" // a worker renewed its node cert (over the tunnel or the panel)
+	RegistryClean = "registry.clean"  // a registry sweep finished (the schedule or "Clean up now")
 )
 
 // Event is what a caller records; Append stamps the id and time.

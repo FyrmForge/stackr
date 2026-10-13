@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"errors"
 	"slices"
 	"strings"
 	"time"
@@ -90,6 +89,17 @@ func (o *Orchestrator) DeleteRegistryVersion(ctx context.Context, orgID, repo, t
 	if len(used) > 0 && !force {
 		return errs.Conflictf("%s:%s is in use by %s.", repo, tag, strings.Join(used, ", "))
 	}
+	// The cleanup's idea of in use also holds pinned releases and rollback
+	// targets; deleting one of those would strand a rollback.
+	if !force {
+		kept, err := o.registryInUse(ctx)
+		if err != nil {
+			return err
+		}
+		if kept[digest] {
+			return errs.Conflictf("%s:%s is pinned by a release or a rollback target.", repo, tag)
+		}
+	}
 	return o.regs.Delete(ctx, repo, digest)
 }
 
@@ -151,7 +161,7 @@ type RegistryOverview struct {
 	Last     *RegistryCleanState `json:"last_clean"` // nil = never ran
 }
 
-// RegistryCleanState is the result of one cleanup, as G4 keeps it.
+// RegistryCleanState is the result of one cleanup, as the sweep leaves it (RegistryClean).
 type RegistryCleanState struct {
 	At      time.Time `json:"at"`
 	Deleted int       `json:"deleted"`
@@ -170,23 +180,8 @@ func (o *Orchestrator) RegistryOverview(ctx context.Context) (RegistryOverview, 
 		v.Versions += u.Versions
 		v.Bytes += u.Bytes
 	}
-	v.Last, err = o.lastRegistryClean(ctx)
-	return v, err
-}
-
-// CleanRegistryNow queues a cleanup sweep.
-func (o *Orchestrator) CleanRegistryNow(ctx context.Context) (Job, error) {
-	return o.cleanRegistryNow(ctx)
-}
-
-// G4 STUBS: registryclean.go replaces these two with the stored result of the
-// last sweep and the enqueue of its job (see "G5 needs" in
-// registry-imports-seams.md). Until then there is no last result and a click
-// of "Clean up now" is unsupported.
-func (o *Orchestrator) lastRegistryClean(context.Context) (*RegistryCleanState, error) {
-	return nil, nil
-}
-
-func (o *Orchestrator) cleanRegistryNow(context.Context) (Job, error) {
-	return Job{}, errors.ErrUnsupported
+	if c, ok := o.LastRegistryClean(); ok {
+		v.Last = &RegistryCleanState{At: c.At, Deleted: c.Deleted, Freed: c.Freed, Errors: c.Errors}
+	}
+	return v, nil
 }

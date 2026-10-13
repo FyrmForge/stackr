@@ -387,3 +387,55 @@ func TestPushedNotCalledOnFailure(t *testing.T) {
 		t.Fatalf("code %d, called %v", rec.Code, called)
 	}
 }
+
+// A shut gate refuses writes with 503 and Retry-After and lets reads through;
+// opening it brings pushes back. Waiters wake on open and give up with their
+// context.
+func TestGate(t *testing.T) {
+	var audit []Issued
+	web := "acme/shop/web"
+	s, front, seen := newServer(t, Facts{Kind: KindUser, Subject: "u1", Orgs: []string{"acme"}}, &audit)
+	defer front.Close()
+	s.Gate = &Gate{}
+	tok := mint(t, front.URL, "repository:"+web+":pull,push")
+
+	open, ok := s.Gate.Close()
+	if !ok || !s.Gate.Closed() {
+		t.Fatal("gate did not close")
+	}
+	if _, again := s.Gate.Close(); again {
+		t.Error("a shut gate closed twice")
+	}
+	n := len(*seen)
+	for _, m := range []string{"PUT", "POST", "PATCH", "DELETE"} {
+		res := get(t, m, front.URL+"/v2/"+web+"/blobs/uploads/9f1c", tok)
+		if res.StatusCode != 503 || res.Header.Get("Retry-After") == "" {
+			t.Errorf("%s while shut = %d, Retry-After %q", m, res.StatusCode, res.Header.Get("Retry-After"))
+		}
+	}
+	if len(*seen) != n {
+		t.Error("a refused write reached the registry")
+	}
+	if res := get(t, "GET", front.URL+"/v2/"+web+"/manifests/v1", tok); res.StatusCode != 200 {
+		t.Errorf("read while shut = %d", res.StatusCode)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	if err := s.Gate.Wait(ctx); err == nil {
+		t.Error("Wait returned while shut")
+	}
+	woke := make(chan error, 1)
+	go func() { woke <- s.Gate.Wait(context.Background()) }()
+	open()
+	open() // twice is harmless
+	if err := <-woke; err != nil {
+		t.Errorf("Wait after open = %v", err)
+	}
+	if res := get(t, "PUT", front.URL+"/v2/"+web+"/manifests/v1", tok); res.StatusCode != 200 {
+		t.Errorf("push after open = %d", res.StatusCode)
+	}
+	if s.Gate.Closed() {
+		t.Error("gate still shut")
+	}
+}

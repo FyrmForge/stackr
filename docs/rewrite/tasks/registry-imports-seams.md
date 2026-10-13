@@ -55,7 +55,10 @@ error when absent)). The InUse question is not in the store.
 - `Server.Pushed func(context.Context, regfront.Pushed)`, called after a
   manifest PUT answered 2xx. `regfront.Pushed{Repo, Reference, Digest, Kind,
   Subject}`. Wired in `service/registry.go` to `Orchestrator.registryPushed`.
-- Not done (G4): the push gate (503 + Retry-After) in `Server`.
+- Push gate (G4, done): `regfront.Gate` (`Close() (open func(), ok bool)`,
+  `Closed()`, `Wait(ctx)`) and `Server.Gate *Gate`. While shut, every non-GET/HEAD
+  under `/v2/` answers 503 + `Retry-After: 10`; reads pass. Wired in
+  `service/registry.go` as `Gate: o.regs.Gate()` (one line, next to `Pushed:`).
 
 ## imgcopy (`internal/service/internal/imgcopy/imgcopy.go`), G1
 
@@ -79,7 +82,7 @@ of `Tables.RegistryImages`. One file per operation so workers do not collide.
 | `registry.go` | `Leaf`, `New`, `WithBase`, `Local`, `Record(ctx, store.RegistryImage)` (done: upsert by repo+digest, a repeat updates platforms and size only), `JoinPlatforms`, `SplitPlatforms`, `SourceBuilt/Imported/System` | done |
 | `list.go` | `List(ctx, orgSlug) ([]Repository, error)` (moved from `service/registrylist.go`, `""` = every org). Note: `built()` reads image manifests, so an imported *index* shows no "latest"; read the rows instead | G5 |
 | `import.go` | `Import(ctx, ImportRequest{OrgID, OrgSlug, Ref, Auth authn.Authenticator, Platforms, By}) (Imported{LocalRef, Digest}, error)` | G2 (calls G1's Copy, then `Record`) |
-| `push.go` | `Pushed(ctx, Push{OrgID, Repo, Reference, Digest, By}) error` | G2 |
+| `push.go` | `Pushed(ctx, Push{OrgID, Repo, Reference, Digest, By}) error`: records tag pushes only; a push by digest is not recorded (buildx puts each child manifest and attestation up by digest before the index goes up under the tag, and a row for a child would let the cleanup delete it from under the index) | G2 |
 | `versions.go` | `Versions(ctx, repo) ([]Version, error)`; `Version{Tag, Digest, Platforms, Size, CreatedAt, Source, UpstreamRef, CreatedBy, UsedBy}` (UsedBy filled by the service) | G5 |
 | `delete.go` | `Delete(ctx, repo, digest) error` (manifest + row; no in-use check) | G5 |
 | `clean.go` | `Clean(ctx, keep int, inUse InUse) (Cleaned, error)`; `InUse func(ctx, repo, digest) (bool, error)`; `Cleaned{Deleted, Freed, Errors}` | G4 |
@@ -110,12 +113,58 @@ and slug). Each filler adds its own `_test.go` file.
   envs pinned to the node (the same ref set the deploy imports). Without it a
   node cannot pull any import.
 
-## Settings (G4)
+## Settings (G4, done)
 
-`registry_cleanup_schedule` (default `15 4 * * *`) and `registry_keep`
-(default 5) are not created in Wave 0.
+`registry_cleanup_schedule` (cron, default `15 4 * * *`; **empty = off**: a
+new `Knob.EmptyOff`, so `Leaf.Set` stores "" instead of deleting the row) and
+`registry_keep` (int, default 5, 0 refused). Schedule entry `registry-clean`
+(`Drivers.RegistryClean`, `offSpec`), UI labels in `settings_form.templ`.
 
-## Worker map
+## Cleanup (G4, done)
+
+- `Leaf.Clean(ctx, keep, inUse)` is real: lists repos (paged catalog, n=1000;
+  **the registry answers 400 to `n` above 1000**, so `list.go`'s
+  `/v2/_catalog?n=10000` fails on a real `registry:3`: G5 must page or drop
+  `n`, see `Leaf.catalog` in `clean.go` to reuse), per repo resolves each tag
+  to its digest, orders digests newest first (row `created_at`, else the image
+  config's `created`, else zero = oldest), skips the newest `keep`, asks
+  `inUse(repo, digest)`, deletes the rest (DELETE by digest at the registry,
+  then `DeleteByRepoDigest`). `inUse` is per digest, so a digest with any tag
+  in use stays whole. `inUse` erroring protects the version and notes the error.
+  `removeManifest` in `clean.go` does what `Delete` (G5) should do; G5 may
+  switch it to `Delete` or keep both.
+- `Leaf.Resolve(ctx, repo, tag) (digest, err)`: HEAD, "" when absent.
+- **Gate for G2:** `Leaf.Wait(ctx) error` returns once the registry accepts
+  writes (the sweep gates the whole mark + collect). `Leaf.Import` must call
+  it before it writes (`if err := l.Wait(ctx); err != nil { return ... }`);
+  also before direct writes. `Leaf.Gate()` is the
+  `*regfront.Gate`; `Leaf.WhileGated(ctx, fn)` shuts it, runs fn, opens it
+  whatever fn returns (`ErrSweeping` if already shut).
+- Service (`registryclean.go`): job `kindRegistryClean` (lock `registry-clean`,
+  controller job). **For G5:** `o.CleanRegistryNow(ctx, byUserID) (Job, error)`
+  ("Clean up now", returns the queued job) and `o.LastRegistryClean()
+  (RegistryClean, bool)` with `RegistryClean{At, Took, Manual, Deleted, Freed,
+  Measured, Errors}` (in memory since the panel started; `Freed` is the registry
+  volume's `du` before minus after, row sizes when `du` failed). Every sweep
+  also writes a `registry.clean` security event (Detail = one readable line).
+- In use = pins (digest and image row ref) of `keptReleases` (new, split out of
+  `cleanupKeep` in `cleanup.go`: current, rollback depth, live-job and newest
+  releases) plus every env tile's `ImageRef` resolved through its import repo.
+  Digests match across repos (`ponytail:`). Every `stackr.system/` repo is
+  in use (never cleaned), per G3.
+- Real `registry:3` finding: `garbage-collect --delete-untagged` keeps
+  everything behind a tagged index (also with the arm64 child absent, under
+  `platforms: none`) and every tagged image; deleting one by digest then a
+  collect frees exactly its manifest, config and layer blobs; re-pushing it
+  works. Test: `leaf/registry/clean_test.go` (skips without docker).
+
+## G4 needs
+
+- G2: call `l.Wait(ctx)` at the top of `Leaf.Import` (see above), and give
+  system/G3 pushes the same.
+- G5: page `_catalog` (see above); the admin view reads `LastRegistryClean`,
+  the button calls `CleanRegistryNow`. A "registry sweep" job shows in the job
+  list under kind `registry-clean`.
 
 - **G1** `imgcopy/imgcopy.go` (and its tests).
 - **G2** `leaf/registry/import.go`, `push.go`; `service/imports.go`,
@@ -143,3 +192,27 @@ and slug). Each filler adds its own `_test.go` file.
 - "In use" in the UI (`registryUse`) is the env's current release only (built: `images.ref`, pulled: repo + digest). G4's `InUse` must also count pinned releases and rollback targets; it does not share this code.
 - Delete verb is the existing `registry.tag.delete` (owner), not the deploy role (`tile.write`, member). Say if members should delete: one line in `authz.go`.
 - `leaf.Usage` (admin totals) adds the rows' sizes, so shared layers count twice.
+
+## Seams closed (integration)
+
+1. **Gate**: closed. One gate: the `regfront.Gate` inside the leaf. `Import`
+   calls `Leaf.Wait` (G2's `WithGate` hook is removed); `Leaf.WhileGated`
+   shuts the same gate the front (`Gate: o.regs.Gate()`) reads. Test:
+   `TestImportWaitsOnSweepGate`.
+2. **Cleanup stubs**: closed. `registrylist.go` has no stubs;
+   `RegistryOverview` maps `LastRegistryClean` onto `RegistryCleanState`, and
+   `CleanRegistryNow(ctx, byUserID)` enqueues the real job (API and web
+   handlers pass the actor).
+3. **Catalog paging**: closed. `Leaf.List` and `Leaf.Usage` use the paged
+   `Leaf.catalog` (n=1000 and `last`).
+4. **Delete**: closed. `Leaf.Delete` is the one path (manifest, then row; the
+   row stays when the registry call fails); `Clean` calls it. `removeManifest`
+   is gone.
+5. **In use**: closed. `UsedBy` in the UI still names the envs running a
+   version now. `DeleteRegistryVersion` also refuses (unless forced) a digest
+   `registryInUse` keeps: pinned releases, rollback targets, live-job and
+   newest releases. One definition for the refusal and the sweep.
+6. **`Pushed` comment**: closed, see the leaf table.
+7. **Production wiring**: `cmd/stackrd/main.go` sets
+   `Config.RegistryImports: fake == ""`; the leaf is `registry.New`, which
+   holds `imgcopy.Copy` and the gate the front shares.

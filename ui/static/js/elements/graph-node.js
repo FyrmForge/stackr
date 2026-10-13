@@ -100,10 +100,7 @@ class GraphNode extends HTMLElement {
         if (boxes.length > 0)
             queueMicrotask(() => requestAnimationFrame(() => boxes.forEach((b) => b.commit())));
     };
-    onSecond = (e) => {
-        if (this.drag && e.pointerId !== this.drag.id)
-            this.onCancel();
-    };
+    onSecond = (e) => void (this.drag && e.pointerId !== this.drag.id && this.onCancel());
     onCancel = () => {
         const start = this.drag?.start ?? [];
         this.end();
@@ -148,9 +145,9 @@ class GraphNode extends HTMLElement {
     }
     commit() {
         for (const k of ["x", "y"]) {
-            const input = this.querySelector(`:scope > input[name=${k}]`);
-            if (input)
-                input.value = this.getAttribute(k) ?? "";
+            const i = this.querySelector(`:scope > input[name=${k}]`);
+            if (i)
+                i.value = this.getAttribute(k) ?? "";
         }
         this.dispatchEvent(new CustomEvent("node-moved", { bubbles: true }));
     }

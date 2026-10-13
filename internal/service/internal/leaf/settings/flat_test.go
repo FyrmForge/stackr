@@ -127,3 +127,35 @@ func TestProxyCustomChecked(t *testing.T) {
 		}
 	}
 }
+
+// The registry cleanup knobs: the schedule defaults to 04:15, a write of ""
+// keeps it off instead of bringing the default back, a bad cron line and a
+// keep of 0 are refused.
+func TestRegistryCleanKnobs(t *testing.T) {
+	l := settings.New(servicetest.Store(t).Settings, nil)
+	ctx := context.Background()
+	get := func(key string) string {
+		t.Helper()
+		v, err := l.Get(ctx, key)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return v
+	}
+	if get("registry_cleanup_schedule") != "15 4 * * *" || get("registry_keep") != "5" {
+		t.Fatalf("defaults = %q, %q", get("registry_cleanup_schedule"), get("registry_keep"))
+	}
+	if err := l.Set(ctx, "registry_cleanup_schedule", "0 2 * * *"); err != nil || get("registry_cleanup_schedule") != "0 2 * * *" {
+		t.Fatalf("set: %v, %q", err, get("registry_cleanup_schedule"))
+	}
+	if err := l.Set(ctx, "registry_cleanup_schedule", ""); err != nil || get("registry_cleanup_schedule") != "" {
+		t.Fatalf("empty = off: %v, %q", err, get("registry_cleanup_schedule"))
+	}
+	if l.Set(ctx, "registry_cleanup_schedule", "not cron") == nil || l.Set(ctx, "registry_keep", "0") == nil {
+		t.Error("a bad cron line or a keep of 0 was accepted")
+	}
+	// Other cron knobs still fall back to the default on an empty write.
+	if err := l.Set(ctx, "cleanup_schedule", ""); err != nil || get("cleanup_schedule") != "30 4 * * *" {
+		t.Errorf("cleanup_schedule empty = %q, %v", get("cleanup_schedule"), err)
+	}
+}

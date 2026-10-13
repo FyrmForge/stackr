@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
@@ -66,14 +67,13 @@ func TestImport(t *testing.T) {
 }
 
 // A digest pinned ref lands under its sha256-<hex> tag; no platforms is an
-// error; a failed copy records nothing and the gate is waited on first.
+// error; a failed copy records nothing.
 func TestImportEdges(t *testing.T) {
 	st := servicetest.Store(t)
 	org := seedOrg(t, st)
 	boom := errors.New("denied")
 	var order []string
 	l := registry.New(st.RegistryImages).
-		WithGate(func(context.Context) error { order = append(order, "gate"); return nil }).
 		WithCopier(func(_ context.Context, _, dst string, _, _ authn.Authenticator, _ []string) (imgcopy.Result, error) {
 			order = append(order, "copy "+dst[strings.Index(dst, "/")+1:])
 			return imgcopy.Result{}, boom
@@ -82,7 +82,7 @@ func TestImportEdges(t *testing.T) {
 	if _, err := l.Import(ctx, req); !errors.Is(err, boom) {
 		t.Fatalf("copy error lost: %v", err)
 	}
-	if strings.Join(order, ";") != "gate;copy acme/ghcr.io/foo/bar:sha256-abcd" {
+	if strings.Join(order, ";") != "copy acme/ghcr.io/foo/bar:sha256-abcd" {
 		t.Fatalf("order = %v", order)
 	}
 	if rows, _ := st.RegistryImages.ListAll(ctx); len(rows) != 0 {
@@ -91,6 +91,42 @@ func TestImportEdges(t *testing.T) {
 	req.Platforms = nil
 	if _, err := l.Import(ctx, req); err == nil {
 		t.Error("an import with no platforms ran")
+	}
+}
+
+// An import during a gated sweep waits for the gate the cleanup closes, then
+// proceeds; a context that ends first stops it.
+func TestImportWaitsOnSweepGate(t *testing.T) {
+	st := servicetest.Store(t)
+	org := seedOrg(t, st)
+	copied := make(chan struct{}, 1)
+	l := registry.New(st.RegistryImages).
+		WithCopier(func(context.Context, string, string, authn.Authenticator, authn.Authenticator, []string) (imgcopy.Result, error) {
+			copied <- struct{}{}
+			return imgcopy.Result{Digest: "sha256:abc", Platforms: []string{"amd64"}}, nil
+		})
+	req := registry.ImportRequest{OrgID: org, OrgSlug: "acme", Ref: "ghcr.io/foo/bar:1", Platforms: []string{"amd64"}}
+	release := make(chan struct{})
+	swept := make(chan struct{})
+	go func() {
+		_ = l.WhileGated(ctx, func(context.Context) error { close(swept); <-release; return nil })
+	}()
+	<-swept
+	short, cancel := context.WithTimeout(ctx, 50*time.Millisecond)
+	defer cancel()
+	if _, err := l.Import(short, req); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("import during the sweep = %v, want a deadline", err)
+	}
+	done := make(chan error, 1)
+	go func() { _, err := l.Import(ctx, req); done <- err }()
+	select {
+	case <-copied:
+		t.Fatal("import copied while the gate was shut")
+	case <-time.After(50 * time.Millisecond):
+	}
+	close(release)
+	if err := <-done; err != nil {
+		t.Fatalf("import after the sweep: %v", err)
 	}
 }
 

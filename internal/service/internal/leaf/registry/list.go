@@ -35,19 +35,17 @@ const tagCap = 20
 // the latest.
 func (l *Leaf) List(ctx context.Context, org string) ([]Repository, error) {
 	c := &client{base: l.base, http: &http.Client{Timeout: 5 * time.Second}}
-	var cat struct {
-		Repositories []string `json:"repositories"`
-	}
-	if _, err := c.get(ctx, "/v2/_catalog?n=10000", "", &cat); err != nil {
+	repos, err := l.catalog(ctx)
+	if err != nil {
 		return nil, fmt.Errorf("the registry did not answer: %w", err)
 	}
-	slices.Sort(cat.Repositories)
+	slices.Sort(repos)
 	rows, err := l.rows(ctx)
 	if err != nil {
 		return nil, err
 	}
 	var out []Repository
-	for _, name := range cat.Repositories {
+	for _, name := range repos {
 		if org != "" && !strings.HasPrefix(name, org+"/") {
 			continue
 		}
@@ -124,9 +122,6 @@ type info struct {
 	platforms []string
 }
 
-const manifestAccept = "application/vnd.docker.distribution.manifest.v2+json, application/vnd.oci.image.manifest.v1+json, " +
-	"application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.oci.image.index.v1+json"
-
 // inspect reads the manifest at ref (a tag or a digest): an image gives its
 // build time, layer size and CPU type from its config; an index gives only
 // the CPU types of its children (attestations, "unknown", left out).
@@ -188,11 +183,8 @@ type Usage struct {
 // ponytail: an overestimate of the disk; ask the registry volume for the
 // real figure if it matters.
 func (l *Leaf) Usage(ctx context.Context) ([]Usage, error) {
-	c := &client{base: l.base, http: &http.Client{Timeout: 5 * time.Second}}
-	var cat struct {
-		Repositories []string `json:"repositories"`
-	}
-	if _, err := c.get(ctx, "/v2/_catalog?n=10000", "", &cat); err != nil {
+	repos, err := l.catalog(ctx)
+	if err != nil {
 		return nil, fmt.Errorf("the registry did not answer: %w", err)
 	}
 	rows, err := l.rows(ctx)
@@ -201,7 +193,7 @@ func (l *Leaf) Usage(ctx context.Context) ([]Usage, error) {
 	}
 	by := map[string]*Usage{}
 	for _, r := range rows {
-		if !slices.Contains(cat.Repositories, r.Repo) {
+		if !slices.Contains(repos, r.Repo) {
 			continue
 		}
 		org, _, _ := strings.Cut(r.Repo, "/")
