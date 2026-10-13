@@ -34,6 +34,8 @@ const (
 	ControllerCertRenew  = "cert.controller_renew"  // the controller swapped to a new cert; the old serial left the allow list
 	ControllerCertRevoke = "cert.controller_revoke" // an admin replaced the controller cert now and revoked the old one
 	RegistryClean        = "registry.clean"         // a registry sweep finished (the schedule or "Clean up now")
+	CABreakGlass         = "ca.break_glass"         // the cluster root and every mesh key were wiped (start, then done)
+	NodeRejoined         = "node.rejoined"          // a worker came back after a rejoin command was confirmed
 )
 
 // Event is what a caller records; Append stamps the id and time.

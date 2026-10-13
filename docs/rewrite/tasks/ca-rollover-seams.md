@@ -106,6 +106,44 @@ that wiring (C3 may also call announce straight after a renewal).
   in `internal/service/internal/leaf/securitylog/securitylog.go`.
 - Surface (C5): nothing on API, CLI or UI exists yet.
 
+## C4 for C5 (break glass)
+
+- `BreakGlass(ctx, by) error` (`internal/service/breakglass.go`): admin only
+  (`node.manage`). Refuses (`errs.Conflictf`) a second run within 10 minutes
+  (`breakGlassGap`); no force flag. It mints no commands.
+- State: C5's `ClusterTrust` (`BreakGlassAt`, `NotRejoined`, derived from
+  "no live cert since break glass"); break glass also sets the worker row to
+  `StateNeedsRejoin` so the mesh plan cuts it off.
+- Per-node command: `RejoinNode(ctx, by, ref)` as before (single use, 1h
+  default TTL, carries the new root fingerprint). Minting again is fine; the
+  older command of that node stays valid until spent or expired. The admin
+  still confirms the node (`ConfirmJoin`, Pending joins) as for any rejoin.
+- Workers in `needs-rejoin` are skipped by the mesh plan (`mesh.go`), so
+  their tunnels are down from the moment the state is set, including a plain
+  `RejoinNode` on a live node (behaviour change from before).
+- Security log: `ca.break_glass` (twice: "started", then "done: ...") and
+  `node.rejoined` (on confirm of a rejoin, next to `node.confirm`).
+- Break glass also: expires every unspent join token, revokes every worker
+  cert, announces the new controller cert serial alone, rotates the
+  controller's mesh key (`rotateController`), clears `PreviousFP` and the
+  rollover stamps in `cluster_ca`.
+- Not done: pending join requests stay pending (confirm issues from the new
+  root, but the box holds the old fingerprint and refuses; reject and
+  re-mint).
+
+## C4 needs
+
+- `cmd/stackr-install/join.go` (+ `worker.EnsureWGKey`): a rejoin reuses
+  `wg.key` and `exit.key` in the state dir, so the worker keeps its old mesh
+  keys. For "new WireGuard keys" the join must delete both when a
+  `node.crt` already exists (a rejoin) before `EnsureWGKey`. Not changed by
+  C4 (not its file).
+- C1: a rejoining worker writes `cluster-ca.crt` from the join answer; the
+  trust-list file next to it must be reset to that one root, or the old root
+  survives there (join writes only the CA file today).
+- `JoinTokenStore.GetByNode` now returns the newest row; it returned an
+  arbitrary one, so a rejoin of any node that joined with a token before hit
+  "not found" at confirm.
 ## C3 for C5, C2 and C4 (controller cert allow list)
 
 File: `internal/service/controllercert.go` (and `nodeclients.go` for issuing).
