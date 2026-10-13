@@ -107,7 +107,7 @@ func (o *Orchestrator) shownStatus(n store.Node) string {
 func (o *Orchestrator) card(ctx context.Context, n store.Node) (NodeCard, error) {
 	es, err := o.store.Environments.ListByNode(ctx, n.ID)
 	return NodeCard{
-		ID: n.ID, Name: n.Name, Role: n.Role, Status: o.shownStatus(n), Range: n.RangeCIDR,
+		ID: n.ID, Name: n.Name, Role: n.Role, Status: o.shownStatus(n), Range: envNets(es),
 		Tags: node.Tags(n), Envs: len(es), Controller: n.Role == node.Controller,
 	}, err
 }
@@ -349,14 +349,13 @@ func (o *Orchestrator) SetNodeOrgs(ctx context.Context, by *Principal, id string
 }
 
 // dropNode revokes the node's certs, takes it out of the mesh and deletes the
-// row; its range stays taken. forget also records the node so its envs show
-// as lost.
+// row; its transit address is free again. forget also records the node so its
+// envs show as lost.
 func (o *Orchestrator) dropNode(ctx context.Context, by *Principal, n store.Node, action string, forget bool) error {
 	if m := o.meshSvc(); m != nil {
 		if err := m.RemoveNode(ctx, n.ID); err != nil {
 			return err
 		}
-		defer func() { _ = m.ForgetRange(ctx, n.RangeCIDR) }()
 	}
 	err := o.store.Tx(ctx, func(tx store.Tx) error {
 		now := time.Now().UTC()
@@ -553,4 +552,17 @@ func (o *Orchestrator) PendingNodeByName(ctx context.Context, name string) (Pend
 		return out, nil
 	}
 	return PendingNode{}, errs.ErrNotFound
+}
+
+// envNets is the networks of envs es, as a node shows them: its blocks of the
+// cluster pool, in order.
+func envNets(es []store.Environment) string {
+	var out []string
+	for _, e := range es {
+		if e.Subnet != "" {
+			out = append(out, e.Subnet)
+		}
+	}
+	slices.Sort(out)
+	return strings.Join(out, ", ")
 }

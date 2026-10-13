@@ -430,8 +430,10 @@ templ NodeBody(tab string, v NodeView) {
 					<dl class="text-sm grid grid-cols-[8rem_1fr] gap-y-1">
 						<dt class="text-rw-muted">Status</dt>
 						<dd class="text-rw-text">{ statusWord(v.Status) }</dd>
-						<dt class="text-rw-muted">Network range</dt>
-						<dd class="font-mono text-xs text-rw-text">{ v.Range }</dd>
+						if v.Range != "" {
+							<dt class="text-rw-muted">Networks</dt>
+							<dd class="font-mono text-xs text-rw-text">{ v.Range }</dd>
+						}
 						if v.WGAddress != "" {
 							<dt class="text-rw-muted">Address</dt>
 							<dd class="font-mono text-xs text-rw-text">{ v.WGAddress }</dd>

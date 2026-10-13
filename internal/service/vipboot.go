@@ -241,15 +241,9 @@ func (o *Orchestrator) rerouteVIPsAsync(ctx context.Context) {
 func (o *Orchestrator) vipBase(ctx context.Context, n store.Node) vip.Base {
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Minute)
 	defer cancel()
-	rng, err := netip.ParsePrefix(n.RangeCIDR)
-	if err != nil {
-		slog.Warn("vip: node range does not parse, no filter table", "node", n.Name, "range", n.RangeCIDR)
-	}
-	b := vip.Base{Range: rng, Cluster: cluster.SupernetPrefix, PanelBind: o.cfg.PanelBind, PanelPort: o.cfg.PanelPort,
-		WGIface: mesh.Iface}
-	if t, err := mesh.TransitAddr(netip.MustParsePrefix(cluster.ControllerRange)); err == nil {
-		b.WGController = t
-	}
+	rng := mesh.Supernet
+	b := vip.Base{Range: rng, Own: o.ownNets(ctx, n), Cluster: cluster.SupernetPrefix, PanelBind: o.cfg.PanelBind,
+		PanelPort: o.cfg.PanelPort, WGIface: mesh.Iface, WGController: mesh.ControllerTransit}
 	id, err := o.controllerID(ctx)
 	if err == nil && n.ID != id {
 		// A worker: its own resolvers; the controller's Caddy, front proxy
@@ -290,6 +284,35 @@ func (o *Orchestrator) vipBase(ctx context.Context, n store.Node) vip.Base {
 	return b
 }
 
+// ownNets are node n's stackr networks, the containers its filter is about:
+// its envs' networks (written down before they are made) and every network
+// of the cluster pool on its Docker (shared and ingress ones too).
+func (o *Orchestrator) ownNets(ctx context.Context, n store.Node) []netip.Prefix {
+	var out []netip.Prefix
+	add := func(p netip.Prefix) {
+		p = p.Masked()
+		if mesh.Supernet.Contains(p.Addr()) && !slices.Contains(out, p) {
+			out = append(out, p)
+		}
+	}
+	if es, err := o.store.Environments.ListByNode(ctx, n.ID); err == nil {
+		for _, e := range es {
+			if p, err := netip.ParsePrefix(e.Subnet); err == nil {
+				add(p)
+			}
+		}
+	}
+	if used, err := o.docker.UsedSubnets(WithNode(ctx, n.ID)); err == nil {
+		for _, p := range used {
+			add(p)
+		}
+	} else {
+		slog.Warn("vip: node networks unknown", "node", n.Name, "err", err)
+	}
+	slices.SortFunc(out, func(a, b netip.Prefix) int { return a.Addr().Compare(b.Addr()) })
+	return out
+}
+
 // ingressFlows are the accepts a node needs for tiles it runs whose ingress
 // node is another node: that node's Caddy dials the tile's VIP over the mesh
 // (masqueraded to its transit address).
@@ -321,12 +344,8 @@ func (o *Orchestrator) ingressFlows(ctx context.Context, n store.Node) []vip.Flo
 			if err != nil {
 				continue
 			}
-			rng, err := netip.ParsePrefix(in.RangeCIDR)
-			if err != nil {
-				continue
-			}
-			src, err := mesh.TransitAddr(rng)
-			if err != nil {
+			src := transitOf(in)
+			if !src.IsValid() {
 				continue
 			}
 			v, ok := o.tileVIP(ctx, n.ID, t.ID)

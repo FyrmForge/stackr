@@ -9,7 +9,8 @@ import (
 )
 
 var testBase = Base{
-	Range:     netip.MustParsePrefix("10.213.0.0/16"),
+	Range:     netip.MustParsePrefix("10.208.0.0/12"),
+	Own:       []netip.Prefix{netip.MustParsePrefix("10.213.1.0/24"), netip.MustParsePrefix("10.213.2.0/24")},
 	Cluster:   netip.MustParsePrefix("10.208.0.0/12"),
 	Resolvers: []string{"192.168.1.1"},
 	ProxyIP:   "172.17.0.2",
@@ -32,40 +33,47 @@ func TestRenderFilter(t *testing.T) {
 :STACKR-FWD - [0:0]
 :STACKR-IN - [0:0]
 :STACKR-XN - [0:0]
+:STACKR-FWD-OWN - [0:0]
+:STACKR-IN-OWN - [0:0]
 -A STACKR-FWD -m conntrack ! --ctstate NEW -j RETURN
--A STACKR-FWD ! -s 10.213.0.0/16 -j RETURN
--A STACKR-FWD -d 10.213.0.0/16 -j RETURN
--A STACKR-FWD -j STACKR-XN
--A STACKR-FWD -d 10.208.0.0/12 -j DROP
--A STACKR-FWD -d 10.207.255.0/24 -j DROP
--A STACKR-FWD -d 192.168.1.1/32 -p udp --dport 53 -j RETURN
--A STACKR-FWD -d 192.168.1.1/32 -p tcp --dport 53 -j RETURN
--A STACKR-FWD -d 172.17.0.2/32 -p tcp -m multiport --dports 80,443 -j ACCEPT
--A STACKR-FWD -d 192.168.1.100/32 -p tcp -m multiport --dports 80,443 -j RETURN
--A STACKR-FWD -d 173.245.48.0/20 -p tcp -m multiport --dports 80,443 -j RETURN
--A STACKR-FWD -s 10.213.1.3/32 -d 192.168.1.10/32 -p tcp --dport 8123 -j RETURN
--A STACKR-FWD -s 10.213.1.3/32 -d 192.168.1.10/32 -p udp --dport 8123 -j RETURN
--A STACKR-FWD -s 10.213.1.4/32 -d 192.168.1.10/32 -p tcp --dport 8123 -j RETURN
--A STACKR-FWD -s 10.213.1.4/32 -d 192.168.1.10/32 -p udp --dport 8123 -j RETURN
--A STACKR-FWD -s 10.213.2.3/32 -d 10.1.2.0/24 -j RETURN
--A STACKR-FWD -d 10.0.0.0/8 -j DROP
--A STACKR-FWD -d 172.16.0.0/12 -j DROP
--A STACKR-FWD -d 192.168.0.0/16 -j DROP
--A STACKR-FWD -d 169.254.0.0/16 -j DROP
--A STACKR-FWD -d 100.64.0.0/10 -j DROP
+-A STACKR-FWD -s 10.213.1.0/24 -j STACKR-FWD-OWN
+-A STACKR-FWD -s 10.213.2.0/24 -j STACKR-FWD-OWN
+-A STACKR-FWD -j RETURN
+-A STACKR-FWD-OWN -d 10.213.1.0/24 -j RETURN
+-A STACKR-FWD-OWN -d 10.213.2.0/24 -j RETURN
+-A STACKR-FWD-OWN -j STACKR-XN
+-A STACKR-FWD-OWN -d 10.208.0.0/12 -j DROP
+-A STACKR-FWD-OWN -d 10.207.255.0/24 -j DROP
+-A STACKR-FWD-OWN -d 192.168.1.1/32 -p udp --dport 53 -j RETURN
+-A STACKR-FWD-OWN -d 192.168.1.1/32 -p tcp --dport 53 -j RETURN
+-A STACKR-FWD-OWN -d 172.17.0.2/32 -p tcp -m multiport --dports 80,443 -j ACCEPT
+-A STACKR-FWD-OWN -d 192.168.1.100/32 -p tcp -m multiport --dports 80,443 -j RETURN
+-A STACKR-FWD-OWN -d 173.245.48.0/20 -p tcp -m multiport --dports 80,443 -j RETURN
+-A STACKR-FWD-OWN -s 10.213.1.3/32 -d 192.168.1.10/32 -p tcp --dport 8123 -j RETURN
+-A STACKR-FWD-OWN -s 10.213.1.3/32 -d 192.168.1.10/32 -p udp --dport 8123 -j RETURN
+-A STACKR-FWD-OWN -s 10.213.1.4/32 -d 192.168.1.10/32 -p tcp --dport 8123 -j RETURN
+-A STACKR-FWD-OWN -s 10.213.1.4/32 -d 192.168.1.10/32 -p udp --dport 8123 -j RETURN
+-A STACKR-FWD-OWN -s 10.213.2.3/32 -d 10.1.2.0/24 -j RETURN
+-A STACKR-FWD-OWN -d 10.0.0.0/8 -j DROP
+-A STACKR-FWD-OWN -d 172.16.0.0/12 -j DROP
+-A STACKR-FWD-OWN -d 192.168.0.0/16 -j DROP
+-A STACKR-FWD-OWN -d 169.254.0.0/16 -j DROP
+-A STACKR-FWD-OWN -d 100.64.0.0/10 -j DROP
 -A STACKR-IN -m conntrack ! --ctstate NEW -j RETURN
 -A STACKR-IN -i lo -j RETURN
--A STACKR-IN -s 10.213.0.0/16 -d 192.168.1.1/32 -p udp --dport 53 -j RETURN
--A STACKR-IN -s 10.213.0.0/16 -d 192.168.1.1/32 -p tcp --dport 53 -j RETURN
--A STACKR-IN -s 10.213.0.0/16 -d 10.208.0.0/12 -j DROP
--A STACKR-IN -s 10.213.0.0/16 -d 10.207.255.0/24 -j DROP
--A STACKR-IN -s 10.213.1.3/32 -d 192.168.1.10/32 -p tcp --dport 8123 -j RETURN
--A STACKR-IN -s 10.213.1.3/32 -d 192.168.1.10/32 -p udp --dport 8123 -j RETURN
--A STACKR-IN -s 10.213.1.4/32 -d 192.168.1.10/32 -p tcp --dport 8123 -j RETURN
--A STACKR-IN -s 10.213.1.4/32 -d 192.168.1.10/32 -p udp --dport 8123 -j RETURN
--A STACKR-IN -s 10.213.2.3/32 -d 10.1.2.0/24 -j RETURN
--A STACKR-IN -s 10.213.0.0/16 -d 172.17.0.1/32 -p tcp --dport 8080 -j DROP
--A STACKR-IN -s 10.213.0.0/16 -j DROP
+-A STACKR-IN -s 10.213.1.0/24 -j STACKR-IN-OWN
+-A STACKR-IN -s 10.213.2.0/24 -j STACKR-IN-OWN
+-A STACKR-IN-OWN -d 192.168.1.1/32 -p udp --dport 53 -j RETURN
+-A STACKR-IN-OWN -d 192.168.1.1/32 -p tcp --dport 53 -j RETURN
+-A STACKR-IN-OWN -d 10.208.0.0/12 -j DROP
+-A STACKR-IN-OWN -d 10.207.255.0/24 -j DROP
+-A STACKR-IN-OWN -s 10.213.1.3/32 -d 192.168.1.10/32 -p tcp --dport 8123 -j RETURN
+-A STACKR-IN-OWN -s 10.213.1.3/32 -d 192.168.1.10/32 -p udp --dport 8123 -j RETURN
+-A STACKR-IN-OWN -s 10.213.1.4/32 -d 192.168.1.10/32 -p tcp --dport 8123 -j RETURN
+-A STACKR-IN-OWN -s 10.213.1.4/32 -d 192.168.1.10/32 -p udp --dport 8123 -j RETURN
+-A STACKR-IN-OWN -s 10.213.2.3/32 -d 10.1.2.0/24 -j RETURN
+-A STACKR-IN-OWN -d 172.17.0.1/32 -p tcp --dport 8080 -j DROP
+-A STACKR-IN-OWN -j DROP
 COMMIT
 `
 	if got[i:] != want {
@@ -183,9 +191,9 @@ func TestFilterPanelLock(t *testing.T) {
 	b := testBase
 	b.ProxyIP = ""
 	got := Render(nil, map[string]Entry{"10.213.1.2": {Replicas: []string{"10.213.1.3"}, Lan: []string{"lan:172.17.0.0/16"}}}, b)
-	lan := strings.Index(got, "-A STACKR-IN -s 10.213.1.3/32 -d 172.17.0.0/16 -j RETURN")
-	panel := strings.Index(got, "-A STACKR-IN -s 10.213.0.0/16 -d 172.17.0.1/32 -p tcp --dport 8080 -j DROP")
-	drop := strings.Index(got, "-A STACKR-IN -s 10.213.0.0/16 -j DROP")
+	lan := strings.Index(got, "-A STACKR-IN-OWN -s 10.213.1.3/32 -d 172.17.0.0/16 -j RETURN")
+	panel := strings.Index(got, "-A STACKR-IN-OWN -d 172.17.0.1/32 -p tcp --dport 8080 -j DROP")
+	drop := strings.Index(got, "-A STACKR-IN-OWN -j DROP")
 	if lan < 0 || panel < lan || drop < panel {
 		t.Fatalf("order lan=%d panel=%d drop=%d:\n%s", lan, panel, drop, got)
 	}
@@ -197,8 +205,8 @@ func TestFilterHostProxy(t *testing.T) {
 	b := testBase
 	b.HostProxy = true
 	got := Render(nil, nil, b)
-	open := strings.Index(got, "-A STACKR-IN -s 10.213.0.0/16 -p tcp -m multiport --dports 80,443 -j RETURN")
-	drop := strings.Index(got, "-A STACKR-IN -s 10.213.0.0/16 -j DROP")
+	open := strings.Index(got, "-A STACKR-IN-OWN -p tcp -m multiport --dports 80,443 -j RETURN")
+	drop := strings.Index(got, "-A STACKR-IN-OWN -j DROP")
 	if open < 0 || drop < open {
 		t.Fatalf("open=%d drop=%d:\n%s", open, drop, got)
 	}
@@ -242,7 +250,7 @@ func TestAllowEarlyLan(t *testing.T) {
 	if err := tb.Rebuild(ctx, nil, testBase); err != nil {
 		t.Fatal(err)
 	}
-	const rule = "-A STACKR-FWD -s 10.213.1.9/32 -d 192.168.1.10/32 -j RETURN"
+	const rule = "-A STACKR-FWD-OWN -s 10.213.1.9/32 -d 192.168.1.10/32 -j RETURN"
 	if err := tb.Allow(ctx, "10.213.1.9", []string{"lan:192.168.1.10"}); err != nil {
 		t.Fatal(err)
 	}

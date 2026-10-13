@@ -79,9 +79,13 @@ type EnvironmentStore interface {
 	// SetSubnet writes the env's /24 and nothing else, so reserving one
 	// cannot clobber a row the caller read earlier.
 	SetSubnet(ctx context.Context, id, subnet string) error
-	// SetNode is the one writer of the node, for moves: it also clears the
-	// subnet, which belongs to the old node's range.
+	// SetNode is the one writer of the node, for moves. The subnet stays:
+	// it comes from the cluster pool, so the env keeps its network (and its
+	// tiles their VIPs) on the new node.
 	SetNode(ctx context.Context, id, nodeID string) error
+	// Subnets is every env's network, all nodes: the blocks of the cluster
+	// pool envs hold.
+	Subnets(ctx context.Context) ([]string, error)
 	// AdoptUnplaced gives every env with no node this one (envs made before
 	// nodes existed) and reports how many.
 	AdoptUnplaced(ctx context.Context, nodeID string) (int64, error)
@@ -119,8 +123,14 @@ func (s environments) SetSubnet(ctx context.Context, id, subnet string) error {
 }
 
 func (s environments) SetNode(ctx context.Context, id, nodeID string) error {
-	res, err := s.q.ExecContext(ctx, `UPDATE environments SET node_id = ?, subnet = '' WHERE id = ?`, nodeID, id)
+	res, err := s.q.ExecContext(ctx, `UPDATE environments SET node_id = ? WHERE id = ?`, nodeID, id)
 	return affected(res, err)
+}
+
+func (s environments) Subnets(ctx context.Context) ([]string, error) {
+	var out []string
+	err := s.q.SelectContext(ctx, &out, `SELECT subnet FROM environments WHERE subnet != ''`)
+	return out, mapErr(err)
 }
 
 func (s environments) AdoptUnplaced(ctx context.Context, nodeID string) (int64, error) {

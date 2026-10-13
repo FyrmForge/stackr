@@ -71,8 +71,8 @@ func TestFakeHostDeploysOnReservedSubnets(t *testing.T) {
 	}
 	dev, devTile := deployIn("dev")
 	prod, _ := deployIn("prod")
-	if dev.Subnet != "10.213.0.0/24" || prod.Subnet != "10.213.1.0/24" {
-		t.Fatalf("env subnets = %q and %q, want the first two /24s of the controller's range", dev.Subnet, prod.Subnet)
+	if dev.Subnet != "10.208.0.0/24" || prod.Subnet != "10.208.1.0/24" {
+		t.Fatalf("env subnets = %q and %q, want the first two /24s of the cluster pool", dev.Subnet, prod.Subnet)
 	}
 	ctl, err := orch.nodeLeaf().Controller(ctx)
 	must(t, err)
@@ -89,7 +89,7 @@ func TestFakeHostDeploysOnReservedSubnets(t *testing.T) {
 	for _, p := range used {
 		got = append(got, p.String())
 	}
-	for _, want := range []string{"10.213.0.0/24", "10.213.1.0/24", "10.213.2.0/24"} {
+	for _, want := range []string{"10.208.0.0/24", "10.208.1.0/24", "10.208.2.0/24"} {
 		found := false
 		for _, g := range got {
 			found = found || g == want

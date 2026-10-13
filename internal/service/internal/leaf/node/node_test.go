@@ -5,11 +5,9 @@ import (
 	"net/netip"
 	"slices"
 	"testing"
-	"time"
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/node"
-	"github.com/FyrmForge/stackr/internal/service/internal/store"
 	"github.com/FyrmForge/stackr/internal/service/internal/storetest"
 )
 
@@ -22,7 +20,7 @@ func TestBootstrapMakesOneController(t *testing.T) {
 	if err != nil || !created {
 		t.Fatalf("first boot: created=%v err=%v", created, err)
 	}
-	if n.Role != node.Controller || n.RangeCIDR != "10.213.0.0/16" || n.Status != node.StatusOnline {
+	if n.Role != node.Controller || n.WGAddress != "10.207.255.6" || n.Status != node.StatusOnline {
 		t.Fatalf("controller row: %+v", n)
 	}
 	if got := node.Tags(n); !slices.Equal(got, []string{"ingress", "egress", "builder"}) {
@@ -42,52 +40,52 @@ func TestBootstrapMakesOneController(t *testing.T) {
 	}
 }
 
-func worker(t *testing.T, st *store.Store, name, rng string) store.Node {
-	t.Helper()
-	n := store.Node{
-		ID: name, Name: name, Slug: name, Role: node.Worker, Tags: "[]",
-		RangeCIDR: rng, Status: node.StatusOnline, CreatedAt: time.Now(),
-	}
-	if err := st.Nodes.Create(ctx, n); err != nil {
-		t.Fatal(err)
-	}
-	return n
-}
-
-func TestReserveUsesTheNodesRange(t *testing.T) {
+// One pool for the cluster: blocks come from 10.208.0.0/12 whichever node
+// asks, skip what the caller uses, what Taken reports (other nodes' networks)
+// and what was just handed out on any node.
+func TestReservePool(t *testing.T) {
 	st := storetest.Store(t)
 	l := node.New(st.Nodes)
-	ctl, _, err := l.Bootstrap(ctx)
-	if err != nil {
-		t.Fatal(err)
+	other := []netip.Prefix{netip.MustParsePrefix("10.208.1.0/24")}
+	l.Taken = func(context.Context) ([]netip.Prefix, error) { return other, nil }
+	p, err := l.Reserve(ctx, "ctl", nil)
+	if err != nil || p.String() != "10.208.0.0/24" {
+		t.Fatalf("first block = %v, %v", p, err)
 	}
-	w := worker(t, st, "w1", "10.209.0.0/16")
-
-	p, err := l.Reserve(ctx, ctl.ID, nil)
-	if err != nil || p.String() != "10.213.0.0/24" {
-		t.Fatalf("controller block = %v, %v", p, err)
-	}
-	// The block just handed out is held even though nothing shows it yet.
-	p, err = l.Reserve(ctx, ctl.ID, []netip.Prefix{netip.MustParsePrefix("10.213.1.0/24")})
-	if err != nil || p.String() != "10.213.2.0/24" {
-		t.Fatalf("second controller block = %v, %v", p, err)
-	}
-	// Another range than 10.213: the worker's own /16.
-	p, err = l.Reserve(ctx, w.ID, []netip.Prefix{netip.MustParsePrefix("10.209.0.128/25")})
-	if err != nil || p.String() != "10.209.1.0/24" {
-		t.Fatalf("worker block = %v, %v", p, err)
-	}
-	if _, err := l.Reserve(ctx, "nope", nil); err == nil {
-		t.Fatal("reserved on a missing node")
+	// Held for the next caller, on another node; Taken's block is skipped.
+	p, err = l.Reserve(ctx, "w1", []netip.Prefix{netip.MustParsePrefix("10.208.2.0/24")})
+	if err != nil || p.String() != "10.208.3.0/24" {
+		t.Fatalf("second block = %v, %v", p, err)
 	}
 }
 
 func TestReserveExhausted(t *testing.T) {
 	st := storetest.Store(t)
 	l := node.New(st.Nodes)
-	w := worker(t, st, "w1", "10.209.0.0/16")
-	_, err := l.Reserve(ctx, w.ID, []netip.Prefix{netip.MustParsePrefix("10.209.0.0/16")})
+	_, err := l.Reserve(ctx, "w1", []netip.Prefix{netip.MustParsePrefix("10.208.0.0/12")})
 	if _, ok := errs.IsConflict(err); !ok {
-		t.Fatalf("full range: %v; want a Conflict", err)
+		t.Fatalf("full pool: %v; want a Conflict", err)
+	}
+}
+
+// Confirm hands out the lowest free transit address, skipping the
+// controller's; a rejoin keeps its own.
+func TestConfirmTransit(t *testing.T) {
+	st := storetest.Store(t)
+	l := node.New(st.Nodes)
+	if _, _, err := l.Bootstrap(ctx); err != nil {
+		t.Fatal(err)
+	}
+	p, err := l.CreatePending(ctx, "w1", nil, "k")
+	if err != nil {
+		t.Fatal(err)
+	}
+	n, err := l.Confirm(ctx, p.ID, []netip.Prefix{netip.MustParsePrefix("192.168.1.5/24")})
+	if err != nil || n.WGAddress != "10.207.255.1" || n.Status != node.StatusJoined {
+		t.Fatalf("confirm = %+v, %v", n, err)
+	}
+	p2, _ := l.CreatePending(ctx, "w2", nil, "k2")
+	if _, err := l.Confirm(ctx, p2.ID, []netip.Prefix{netip.MustParsePrefix("10.208.4.1/24")}); err == nil {
+		t.Fatal("a node on the cluster pool was confirmed")
 	}
 }

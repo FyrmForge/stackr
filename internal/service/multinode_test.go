@@ -230,18 +230,16 @@ func TestWorkerVIPAllowTCP(t *testing.T) {
 	}
 }
 
-// A removed node's range is never given to the next one.
-func TestConfirmSkipsForgottenRanges(t *testing.T) {
+// A joining node gets the lowest free transit address, never the controller's.
+func TestConfirmTakesTransit(t *testing.T) {
 	w, adm, _ := joinWorld(t)
 	ctx := context.Background()
-	// joinReq reports 10.208.0.0/16 in use; forget the next one too.
-	must(t, w.orch.mesh.ForgetRange(ctx, "10.209.0.0/16"))
 	st, err := w.orch.RequestJoin(ctx, httpsMeta, joinReq(t, mint(t, w, adm, "w1").Token))
 	must(t, err)
 	n, err := w.orch.ConfirmJoin(ctx, adm, st.NodeID)
 	must(t, err)
-	if n.Range != "10.210.0.0/16" {
-		t.Errorf("range = %s, want 10.210.0.0/16", n.Range)
+	if n.WGAddress != "10.207.255.1" {
+		t.Errorf("transit = %s, want 10.207.255.1", n.WGAddress)
 	}
 }
 

@@ -260,7 +260,7 @@ func (o *Orchestrator) nodeOut(ctx context.Context, n store.Node) (NodeOut, erro
 	}
 	out := NodeOut{
 		ID: n.ID, Name: n.Name, Role: n.Role, State: o.shownStatus(n), Tags: node.Tags(n), Envs: len(es),
-		OpenTo: o.orgSlugs(ctx, open), Range: n.RangeCIDR, WGAddress: n.WGAddress,
+		OpenTo: o.orgSlugs(ctx, open), Range: envNets(es), WGAddress: n.WGAddress,
 	}
 	if f := o.reportedFacts(ctx, n); f != nil {
 		out.CPU, out.MemTotal, out.DiskFree, out.Docker = f.CPUs, f.MemBytes, f.DiskFree, f.Docker

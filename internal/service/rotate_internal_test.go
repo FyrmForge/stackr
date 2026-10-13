@@ -32,7 +32,7 @@ func TestRecoverTakesRotatedKeys(t *testing.T) {
 	o := newClusterPanel(t)
 	old, peer := pubKey(t), "peer-of-w1"
 	must(t, o.store.Nodes.Create(ctx, store.Node{
-		ID: "w1", Name: "w1", Slug: "w1", Role: node.Worker, Tags: "[]", RangeCIDR: "10.209.0.0/16",
+		ID: "w1", Name: "w1", Slug: "w1", Role: node.Worker, Tags: "[]", RangeCIDR: "10.209.0.0/16", WGAddress: "10.207.255.2",
 		WGPublicKey: old, Status: node.StatusOnline, CreatedAt: time.Now(),
 	}))
 	o.mesh.mu.Lock()
@@ -112,7 +112,7 @@ func TestRotateControllerOrder(t *testing.T) {
 	must(t, o.store.Nodes.Update(ctx, c))
 	for i, id := range []string{"w1", "w2"} {
 		must(t, o.store.Nodes.Create(ctx, store.Node{ID: id, Name: id, Slug: id, Role: node.Worker, Tags: "[]",
-			RangeCIDR: []string{"10.209.0.0/16", "10.210.0.0/16"}[i], WGPublicKey: pubKey(t), Status: node.StatusOnline, CreatedAt: time.Now()}))
+			RangeCIDR: []string{"10.209.0.0/16", "10.210.0.0/16"}[i], WGAddress: []string{"10.207.255.2", "10.207.255.3"}[i], WGPublicKey: pubKey(t), Status: node.StatusOnline, CreatedAt: time.Now()}))
 	}
 	rec := &wgapply.Recorder{}
 	o.localWorker = worker.New(worker.Config{StateDir: t.TempDir(), Mesh: worker.MeshConfig{WG: rec}})
