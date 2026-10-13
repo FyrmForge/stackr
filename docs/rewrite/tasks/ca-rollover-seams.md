@@ -105,3 +105,52 @@ that wiring (C3 may also call announce straight after a renewal).
 - Security-log actions for the new events are not added; C2/C3/C4 add theirs
   in `internal/service/internal/leaf/securitylog/securitylog.go`.
 - Surface (C5): nothing on API, CLI or UI exists yet.
+
+## 6. C2 (planned rollover) as built
+
+Files: `internal/service/carollover.go` (+ test), `certrenew.go` comment,
+`join.go` (`caFingerprint` = `clusterca.Fingerprint`), security log actions
+`root.rollover_start`, `root.rollover_push`, `root.rollover_node`,
+`root.rollover_finish` (`securitylog.RootRollover*`).
+
+- Trust list order: current (signing) root first, previous second. After
+  `RotateRoot`, `clusterPKI.ca` is the new root; every issue site signs with it.
+- A worker is never handed a cert (its key stays on it): it asks. The
+  controller cert is reissued at once; each worker is on the new root after
+  its next renewal. State is `cluster_ca`; the key files are the truth
+  (`reconcileRollover` mends a crash either way).
+- Finish: every confirmed worker's newest live cert is from the new root and
+  at least `rolloverSettle` (6h) old (a worker that lost the renewal answer
+  keeps its old cert and must still verify). The daily tick checks; there is
+  no event-driven finish.
+- New node state for a forced finish: the existing `StateNeedsRejoin`
+  (`needs-rejoin`) with its certs revoked.
+- Join commands: `mintJoin` reads the current root from disk, so the
+  fingerprint follows a rotation; a node joining mid-rollover gets a new-root
+  cert and the new root as its CA file, and the full list from its mesh spec.
+
+### C2 for C5
+
+On `*Orchestrator` (`internal/service/carollover.go`), all node admin
+(`nodeAdmin`):
+- `RootInfo(ctx, by) (RootInfo, error)`: `Fingerprint`, `CreatedAt`,
+  `ExpiresAt`, `Rolling`, `PreviousFingerprint`, `OldRootNodes` (node names
+  still on an old-root cert, only while rolling), `RolloverStartedAt`,
+  `RolloverFinishedAt`.
+- `RotateRoot(ctx, by) error`: Conflict while one runs.
+- `ForceFinishRootRollover(ctx, by) error`: Conflict when none runs. The
+  confirm must say nodes still on the old root are marked needs-rejoin.
+
+### C2 needs
+
+- C1 (worker): renew the node cert at once, not only in the last third, when
+  the cert's issuer is not `TrustRoots[0]` of the applied mesh spec (the first
+  root is the one the controller signs with), and keep asking until it is
+  (hourly check is enough). Today `renewOnce` only renews when due or on the
+  `renewNow` flag. Without this the rollover waits for natural renewal (up to
+  60 days) and the admin must force it.
+- C3 (`announceControllerCert`): the rollover reissues the controller cert
+  through `clusterPKI.renew` (new serial) and then calls
+  `announceControllerCert`. With an allow list active the new serial must be
+  announced before workers see it; C3 should have `renew` announce
+  current+next first when the signing root changed, or accept the short gap.
