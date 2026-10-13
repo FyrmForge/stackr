@@ -15,23 +15,25 @@ import (
 
 // Actions.
 const (
-	LoginOK       = "login.ok"
-	LoginBad      = "login.bad"     // wrong password, unknown email or disabled account
-	LoginLimited  = "login.limited" // refused by the rate limit
-	KeyMint       = "key.mint"
-	KeyRevoke     = "key.revoke"
-	GrantApprove  = "grant.approve"
-	GrantRevoke   = "grant.revoke"
-	SecretReveal  = "secrets.reveal"
-	NodeBootstrap = "node.bootstrap" // the controller row was made
-	RegistryToken = "registry.token" // the registry front issued a token
-	CertIssue     = "cert.issue"     // the cluster CA signed a certificate
-	MoveStart     = "move.start"
-	MoveFinish    = "move.finish"
-	NodeRecover   = "node.recover"    // a worker fetched its mesh through the panel, or was refused
-	NodeKeyRotate = "node.key_rotate" // a node's mesh and exit keys were replaced
-	NodeCertRenew = "node.cert_renew" // a worker renewed its node cert (over the tunnel or the panel)
-	RegistryClean = "registry.clean"  // a registry sweep finished (the schedule or "Clean up now")
+	LoginOK              = "login.ok"
+	LoginBad             = "login.bad"     // wrong password, unknown email or disabled account
+	LoginLimited         = "login.limited" // refused by the rate limit
+	KeyMint              = "key.mint"
+	KeyRevoke            = "key.revoke"
+	GrantApprove         = "grant.approve"
+	GrantRevoke          = "grant.revoke"
+	SecretReveal         = "secrets.reveal"
+	NodeBootstrap        = "node.bootstrap" // the controller row was made
+	RegistryToken        = "registry.token" // the registry front issued a token
+	CertIssue            = "cert.issue"     // the cluster CA signed a certificate
+	MoveStart            = "move.start"
+	MoveFinish           = "move.finish"
+	NodeRecover          = "node.recover"           // a worker fetched its mesh through the panel, or was refused
+	NodeKeyRotate        = "node.key_rotate"        // a node's mesh and exit keys were replaced
+	NodeCertRenew        = "node.cert_renew"        // a worker renewed its node cert (over the tunnel or the panel)
+	ControllerCertRenew  = "cert.controller_renew"  // the controller swapped to a new cert; the old serial left the allow list
+	ControllerCertRevoke = "cert.controller_revoke" // an admin replaced the controller cert now and revoked the old one
+	RegistryClean        = "registry.clean"         // a registry sweep finished (the schedule or "Clean up now")
 )
 
 // Event is what a caller records; Append stamps the id and time.

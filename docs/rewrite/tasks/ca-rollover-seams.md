@@ -105,3 +105,29 @@ that wiring (C3 may also call announce straight after a renewal).
 - Security-log actions for the new events are not added; C2/C3/C4 add theirs
   in `internal/service/internal/leaf/securitylog/securitylog.go`.
 - Surface (C5): nothing on API, CLI or UI exists yet.
+
+## C3 for C5, C2 and C4 (controller cert allow list)
+
+File: `internal/service/controllercert.go` (and `nodeclients.go` for issuing).
+
+- C5: `(*Orchestrator).RevokeControllerCert(ctx, by *Principal) error` is an
+  immediate renewal: current+next announced, controller switches once every
+  reachable worker took the list (bound `controllerAckBound`, 5 min, logged),
+  next announced alone, old serial revoked in `node_certs`. Audited as
+  `securitylog.ControllerCertRevoke`; a due renewal is `ControllerCertRenew`.
+  `errors.ErrUnsupported` without a cluster. Blocks up to the bound: run it in
+  a goroutine or tell the admin it can take minutes.
+- C2: after swapping `o.cluster.ca` (with `setRoots`), call
+  `o.announceControllerCert(ctx)`. It sees a controller cert not signed by
+  the current root as due and reissues it from the new root through the
+  same announce, switch, announce-alone steps. Hold no `c.mu`; the call takes
+  `rollMu`.
+- C4: break glass must not announce the old controller serial. After
+  `SaveCA` of a fresh CA, set `o.cluster.ca` and `setRoots`, then
+  `issueController(ctx, st, ca)` + `.save(DataDir)`, swap `o.cluster.own`, and
+  `setSerials([]string{serial})` (no overlap). `announceControllerCert` would
+  announce old+new first, which is wrong there.
+- The list is set at boot (`bootCluster` announces the current serial), so
+  workers enforce from the first sync after an upgrade. `controllerCert` no
+  longer renews a due cert at boot (only a missing, expired or wrong-root one);
+  `announceControllerCert` does, from `dailyChores`, which `New` runs at boot.
