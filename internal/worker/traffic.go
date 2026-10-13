@@ -1,0 +1,151 @@
+package worker
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"io/fs"
+	"log/slog"
+	"net"
+	"net/http"
+	"net/url"
+	"os"
+	"os/exec"
+	"strings"
+	"time"
+)
+
+// Traffic is GET /v1/traffic: this node's conntrack lines that touch one of
+// its own tile containers, and those containers' IPs by tile id. The
+// controller runs the counters (leaf/traffic); lines with no local tile at
+// either end (traffic this node only forwards for others) never leave.
+type Traffic struct {
+	Tiles map[string]string `json:"tiles"` // container IP -> tile id
+	Lines string            `json:"lines"`
+}
+
+// Labels the controller puts on tile containers (docker.LabelManaged,
+// tile.LabelTile); the worker cannot import the service tree.
+const (
+	labelManaged = "stackr.managed"
+	labelTile    = "stackr.tile"
+)
+
+const conntrackPath = "/proc/net/nf_conntrack"
+
+// acctKnob is a var for the test.
+var acctKnob = "/proc/sys/net/netfilter/nf_conntrack_acct"
+
+func (s *Server) traffic(w http.ResponseWriter, r *http.Request) {
+	tiles, err := s.localTiles(r.Context())
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	raw, err := readConntrack(r.Context(), s.conntrack())
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusServiceUnavailable)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(Traffic{Tiles: tiles, Lines: string(localLines(raw, tiles))})
+}
+
+func (s *Server) conntrack() string {
+	if s.cfg.Conntrack != "" {
+		return s.cfg.Conntrack
+	}
+	return conntrackPath
+}
+
+// localTiles maps every IP of this node's running tile containers to its
+// tile id, from the local Docker.
+func (s *Server) localTiles(ctx context.Context) (map[string]string, error) {
+	hc := &http.Client{Timeout: 5 * time.Second, Transport: &http.Transport{
+		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+			return (&net.Dialer{}).DialContext(ctx, "unix", s.cfg.DockerSock)
+		}}}
+	defer hc.CloseIdleConnections()
+	f := url.QueryEscape(`{"label":["` + labelManaged + `=true"],"status":["running"]}`)
+	req, _ := http.NewRequestWithContext(ctx, "GET", "http://local/containers/json?filters="+f, nil)
+	resp, err := hc.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	var cs []struct {
+		Labels          map[string]string
+		NetworkSettings struct {
+			Networks map[string]struct{ IPAddress string }
+		}
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&cs); err != nil {
+		return nil, err
+	}
+	out := map[string]string{}
+	for _, c := range cs {
+		id := c.Labels[labelTile]
+		if id == "" {
+			continue
+		}
+		for _, n := range c.NetworkSettings.Networks {
+			if n.IPAddress != "" {
+				out[n.IPAddress] = id
+			}
+		}
+	}
+	return out, nil
+}
+
+// readConntrack is the table: the procfs file, or conntrack -L on a kernel
+// without it (same as the controller's flow/traffic read).
+func readConntrack(ctx context.Context, path string) ([]byte, error) {
+	data, err := os.ReadFile(path)
+	if !errors.Is(err, fs.ErrNotExist) {
+		return data, err
+	}
+	ctx, cancel := context.WithTimeout(ctx, 4*time.Second)
+	defer cancel()
+	if out, xerr := exec.CommandContext(ctx, "conntrack", "-L").Output(); xerr == nil {
+		return out, nil
+	}
+	return nil, err
+}
+
+// localLines keeps the lines whose original src or dst is a local tile IP.
+func localLines(raw []byte, tiles map[string]string) []byte {
+	var out bytes.Buffer
+	for _, line := range strings.Split(string(raw), "\n") {
+		if src, dst := origEnds(line); tiles[src] != "" || tiles[dst] != "" {
+			out.WriteString(line)
+			out.WriteByte('\n')
+		}
+	}
+	return out.Bytes()
+}
+
+// origEnds is the first src= and dst= of a conntrack line (the original
+// direction).
+func origEnds(line string) (src, dst string) {
+	for _, f := range strings.Fields(line) {
+		switch {
+		case src == "" && strings.HasPrefix(f, "src="):
+			src = f[4:]
+		case dst == "" && strings.HasPrefix(f, "dst="):
+			dst = f[4:]
+		}
+	}
+	return src, dst
+}
+
+// enableAcct turns on conntrack byte counters (join writes the sysctl.d
+// file too); a node without them has no traffic, so say so.
+func enableAcct() {
+	if b, err := os.ReadFile(acctKnob); err == nil && strings.TrimSpace(string(b)) == "1" {
+		return
+	}
+	if err := os.WriteFile(acctKnob, []byte("1\n"), 0o644); err != nil {
+		slog.Warn("worker: conntrack byte counters are off; tile traffic stays empty", "err", err)
+	}
+}

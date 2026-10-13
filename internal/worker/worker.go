@@ -48,6 +48,7 @@ type Config struct {
 	Recover    RecoverConfig  // recovery through the panel; no cert = off
 	// RenewCertNow renews the node cert once at start even when not due.
 	RenewCertNow bool
+	Conntrack    string // conntrack table for /v1/traffic ("" = /proc/net/nf_conntrack)
 	// DockerUserWait bounds how long replay waits for the DOCKER-USER chain
 	// (0 = 2m); DockerUserPoll is the gap between checks (0 = 1s).
 	DockerUserWait time.Duration
@@ -118,6 +119,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /v1/state", s.getState)
 	mux.HandleFunc("POST /v1/replay", s.replay)
 	mux.HandleFunc("POST /v1/probe", s.probe)
+	mux.HandleFunc("GET /v1/traffic", s.traffic)
 	if s.cfg.CaddySock != "" {
 		mux.Handle("/v1/caddy/", http.StripPrefix("/v1/caddy", unixProxy(s.cfg.CaddySock)))
 	}
@@ -148,6 +150,7 @@ func Run(ctx context.Context, cfg Config) error {
 		return err
 	}
 	ln := tls.NewListener(raw, tc)
+	enableAcct()
 	go s.reassertLoop()
 	if len(cfg.Recover.Own.Certificate) > 0 {
 		go s.recoverLoop(15 * time.Second)

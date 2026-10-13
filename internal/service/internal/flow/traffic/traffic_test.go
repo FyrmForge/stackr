@@ -2,6 +2,7 @@ package traffic_test
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -21,6 +22,7 @@ import (
 	ltraffic "github.com/FyrmForge/stackr/internal/service/internal/leaf/traffic"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 	"github.com/FyrmForge/stackr/internal/service/internal/storetest"
+	"github.com/FyrmForge/stackr/internal/worker"
 )
 
 func labelled(labels map[string]string) map[string]string {
@@ -317,6 +319,75 @@ func TestEdgesSlices(t *testing.T) {
 		if e.FromName != names[e.From] || e.ToName != names[e.To] {
 			t.Errorf("edge %+v named %s -> %s, want %s -> %s", e, e.FromName, e.ToName, names[e.From], names[e.To])
 		}
+	}
+}
+
+// ctLine is one conntrack entry: original src->dst, the reply back.
+func ctLine(src, dst string, sport, orig, reply int) string {
+	return "ipv4 2 tcp 6 86399 ESTABLISHED src=" + src + " dst=" + dst + " sport=" + itoa(sport) +
+		" dport=80 packets=3 bytes=" + itoa(orig) + " src=" + dst + " dst=" + src + " sport=80 dport=" +
+		itoa(sport) + " packets=3 bytes=" + itoa(reply) + " mark=0 use=1\n"
+}
+
+// A worker's tiles join the lanes: its app calls the controller's db (that
+// connection sits in both nodes' tables and counts once), its own Caddy
+// (a gateway) serves it, and a connection it only forwards is nobody's. A
+// missed read is a gap, and the next answer counts from where it left off,
+// not the connection's whole life.
+func TestTickWorkers(t *testing.T) {
+	ctx := context.Background()
+	fl, f, now := world()
+	f.GatewayIPs = append(f.GatewayIPs, "172.30.0.1")
+	local := filepath.Join(t.TempDir(), "ct")
+	fl.Path = local
+	app := map[string]string{"10.210.1.5": "app"}
+	var workerLines string
+	up := true
+	fl.Remote = func(context.Context) map[string]worker.Traffic {
+		if !up {
+			return nil
+		}
+		return map[string]worker.Traffic{"w1": {Tiles: app, Lines: workerLines}}
+	}
+	tick := func(appDB, proxyApp int) {
+		t.Helper()
+		cross := ctLine("10.210.1.5", "172.20.0.2", 7000, appDB, 2*appDB)
+		// the controller's copy of the same connection, its counters off a
+		// little: counted here too, it would skew the lane
+		must(t, os.WriteFile(local, []byte(ctLine("10.210.1.5", "172.20.0.2", 7000, appDB+7, 2*appDB+7)), 0o644))
+		workerLines = cross + ctLine("172.30.0.1", "10.210.1.5", 7001, proxyApp, proxyApp) +
+			ctLine("10.212.0.3", "10.211.0.4", 7002, 99999, 99999) // forwarded for others
+		must(t, fl.Tick(ctx))
+		*now = now.Add(5 * time.Second)
+	}
+	tick(1000, 100)
+	tick(6000, 600)
+	got := fl.Traffic.Snapshot()
+	want := map[ltraffic.Pair]float64{
+		{From: "app", To: "db"}:    1000, // once, not twice
+		{From: "db", To: "app"}:    2000,
+		{From: "proxy", To: "app"}: 100,
+		{From: "app", To: "proxy"}: 100,
+	}
+	if len(got) != len(want) {
+		t.Fatalf("snapshot = %v, want %v", got, want)
+	}
+	for p, v := range want {
+		if got[p] != v {
+			t.Errorf("%v = %v, want %v", p, got[p], v)
+		}
+	}
+
+	// The worker misses a tick: its lanes go quiet, no spike after.
+	up = false
+	tick(6000, 600)
+	if v := fl.Traffic.Snapshot()[ltraffic.Pair{From: "proxy", To: "app"}]; v != 0 {
+		t.Errorf("missed read: proxy->app = %v, want a gap", v)
+	}
+	up = true
+	tick(11000, 1100)
+	if v := fl.Traffic.Snapshot()[ltraffic.Pair{From: "proxy", To: "app"}]; v != 100 {
+		t.Errorf("after the gap: proxy->app = %v, want 100 (not its whole life)", v)
 	}
 }
 
