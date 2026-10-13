@@ -145,6 +145,8 @@ func statusWord(s string) string {
 		return "Joined, not seen yet"
 	case "tunnel-down":
 		return "Tunnel down, host alive"
+	case "cert-expired":
+		return "Certificate expired: rejoin"
 	}
 	return strings.ToUpper(s[:1]) + s[1:]
 }

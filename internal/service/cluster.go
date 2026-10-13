@@ -115,6 +115,7 @@ type clusterNodeIn struct {
 	Facts    *worker.Facts // nil = never reported
 	Up       bool          // answered just now
 	Alive    bool          // not Up, but its public liveness port answered
+	Expired  bool          // a worker whose newest cert ran out
 	RTT      time.Duration // 0 = not measured
 	Envs     []ClusterEnv
 	Domains  []string
@@ -159,6 +160,8 @@ func buildClusterMap(in []clusterNodeIn) ClusterMap {
 			Envs: n.Envs, Domains: n.Domains, ExitEnvs: n.ExitEnvs, Status: n.Node.Status,
 		}
 		switch {
+		case n.Expired:
+			cn.Status = NodeCertExpired
 		case n.Node.Role == node.Controller, n.Up && n.Node.Status == node.StatusOnline:
 			cn.Status = NodeOnline
 		case n.Node.Role != node.Controller && n.Alive:
@@ -269,6 +272,7 @@ func (o *Orchestrator) ClusterMap(ctx context.Context) (ClusterMap, error) {
 			defer wg.Done()
 			in[i].Facts, in[i].Up, in[i].RTT = o.clusterFacts(ctx, n)
 			in[i].Alive = !in[i].Up && o.HostAlive(n.ID)
+			in[i].Expired = n.Role == node.Worker && o.certExpired(n.ID)
 		}()
 	}
 	wg.Wait()
