@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -420,7 +421,8 @@ func TestRebuildVIPsPartialDropsStale(t *testing.T) {
 // The tick and the async revoke rebuild one at a time.
 func TestRebuildVIPsSerialised(t *testing.T) {
 	r := newBootRig(t)
-	r.orch.vipMu.Lock()
+	l := r.orch.vipLock(docker.WithNode(context.Background(), storetest.Controller(t, r.st).ID))
+	l.Lock()
 	done := make(chan error)
 	go func() { done <- r.orch.rebuildVIPs(context.Background()) }()
 	select {
@@ -428,8 +430,76 @@ func TestRebuildVIPsSerialised(t *testing.T) {
 		t.Fatal("rebuild ran while another held the lock")
 	case <-time.After(50 * time.Millisecond):
 	}
-	r.orch.vipMu.Unlock()
+	l.Unlock()
 	must(t, <-done)
+}
+
+// holdW1 makes w1's table block in Restore until release is called; entered
+// gets one value per Restore that reached it.
+func holdW1(t *testing.T, n *twoNodes) (entered chan struct{}, release func()) {
+	t.Helper()
+	gate := make(chan struct{})
+	entered = make(chan struct{}, 8)
+	n.orch.vip.(*nodeVIPs).tables["w1"].(*vip.Table).Restore = func(ctx context.Context, _ string) error {
+		entered <- struct{}{}
+		select {
+		case <-gate:
+		case <-ctx.Done():
+		}
+		return nil
+	}
+	var once sync.Once
+	release = func() { once.Do(func() { close(gate) }) }
+	t.Cleanup(release)
+	return entered, release
+}
+
+// A node that hangs holds up only itself: the others rebuild at once.
+func TestRebuildVIPsSlowNodeDoesNotBlockOthers(t *testing.T) {
+	n := newTwoNodes(t)
+	ctlDone := make(chan struct{}, 8)
+	n.orch.vip.(*nodeVIPs).tables[n.ctl.ID].(*vip.Table).Restore = func(context.Context, string) error {
+		ctlDone <- struct{}{}
+		return nil
+	}
+	entered, release := holdW1(t, n)
+	done := make(chan error, 1)
+	go func() { done <- n.orch.rebuildVIPs(context.Background()) }()
+	<-entered // w1 is stuck inside its rebuild
+	select {
+	case <-ctlDone:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the controller's rebuild waited for the stuck node")
+	}
+	release()
+	must(t, <-done)
+}
+
+// A node's tick and its async revoke rebuild run one at a time, on that
+// node's lock alone.
+func TestRebuildVIPsSerialisedPerNode(t *testing.T) {
+	n := newTwoNodes(t)
+	entered, release := holdW1(t, n)
+	done := make(chan error, 1)
+	go func() { done <- n.orch.rebuildVIPs(context.Background()) }() // the tick
+	<-entered
+	n.orch.rerouteVIPsAsync(context.Background()) // the revoke
+	select {
+	case <-entered:
+		t.Fatal("a second rebuild ran on w1 while the first held its lock")
+	case <-time.After(100 * time.Millisecond):
+	}
+	ctl := n.orch.vipLock(docker.WithNode(context.Background(), n.ctl.ID)).(*sync.Mutex)
+	if !ctl.TryLock() {
+		t.Fatal("the controller's lock was held by w1's rebuild")
+	}
+	ctl.Unlock()
+	release()
+	must(t, <-done)
+	n.orch.vipAsync.Wait()
+	if len(entered) != 1 {
+		t.Fatalf("w1 restored %d more times after the release, want 1", len(entered))
+	}
 }
 
 // A starting replica gets its tile's granted lan rules before it is routed,

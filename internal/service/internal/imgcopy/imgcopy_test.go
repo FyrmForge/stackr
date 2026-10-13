@@ -1,0 +1,291 @@
+package imgcopy
+
+import (
+	"context"
+	"io"
+	"log"
+	"net/http"
+	"net/http/httptest"
+	"reflect"
+	"strconv"
+	"strings"
+	"sync"
+	"testing"
+
+	"github.com/google/go-containerregistry/pkg/authn"
+	"github.com/google/go-containerregistry/pkg/name"
+	"github.com/google/go-containerregistry/pkg/registry"
+	v1 "github.com/google/go-containerregistry/pkg/v1"
+	"github.com/google/go-containerregistry/pkg/v1/empty"
+	"github.com/google/go-containerregistry/pkg/v1/mutate"
+	"github.com/google/go-containerregistry/pkg/v1/random"
+	"github.com/google/go-containerregistry/pkg/v1/remote"
+	"github.com/google/go-containerregistry/pkg/v1/types"
+)
+
+// rig is one registry with a request log. looseIndex stores index manifests
+// as they come, the way the cluster registry runs with index validation off;
+// go-containerregistry's in-memory registry rejects an index whose children
+// are absent, so the test fronts it with this.
+type rig struct {
+	host string
+	mu   sync.Mutex
+	reqs []string
+	idx  map[string][]byte // "repo@sha256:.." or "repo:tag" -> index bytes
+}
+
+func newRig(t *testing.T, loose bool, user, pass string) *rig {
+	t.Helper()
+	r := &rig{idx: map[string][]byte{}}
+	inner := registry.New(registry.Logger(log.New(io.Discard, "", 0)))
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		if user != "" {
+			if u, p, ok := req.BasicAuth(); !ok || u != user || p != pass {
+				w.Header().Set("WWW-Authenticate", `Basic realm="test"`)
+				w.WriteHeader(http.StatusUnauthorized)
+				return
+			}
+		}
+		r.mu.Lock()
+		r.reqs = append(r.reqs, req.Method+" "+req.URL.Path)
+		r.mu.Unlock()
+		if loose && r.serveIndex(w, req) {
+			return
+		}
+		inner.ServeHTTP(w, req)
+	}))
+	t.Cleanup(srv.Close)
+	r.host = strings.TrimPrefix(srv.URL, "http://")
+	return r
+}
+
+func (r *rig) serveIndex(w http.ResponseWriter, req *http.Request) bool {
+	i := strings.Index(req.URL.Path, "/manifests/")
+	if i < 0 {
+		return false
+	}
+	repo, ref := strings.TrimPrefix(req.URL.Path[:i], "/v2/"), req.URL.Path[i+len("/manifests/"):]
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	switch req.Method {
+	case http.MethodPut:
+		if !strings.Contains(req.Header.Get("Content-Type"), "index") && !strings.Contains(req.Header.Get("Content-Type"), "manifest.list") {
+			return false
+		}
+		b, _ := io.ReadAll(req.Body)
+		h, _, _ := v1.SHA256(strings.NewReader(string(b)))
+		r.idx[repo+"@"+h.String()] = b
+		r.idx[repo+":"+ref] = b
+		w.Header().Set("Docker-Content-Digest", h.String())
+		w.WriteHeader(http.StatusCreated)
+		return true
+	case http.MethodGet, http.MethodHead:
+		b, ok := r.idx[repo+"@"+ref]
+		if !ok {
+			b, ok = r.idx[repo+":"+ref]
+		}
+		if !ok {
+			return false
+		}
+		h, _, _ := v1.SHA256(strings.NewReader(string(b)))
+		w.Header().Set("Docker-Content-Digest", h.String())
+		w.Header().Set("Content-Type", string(types.OCIImageIndex))
+		w.Header().Set("Content-Length", strconv.Itoa(len(b)))
+		if req.Method == http.MethodGet {
+			_, _ = w.Write(b)
+		}
+		return true
+	}
+	return false
+}
+
+func (r *rig) mark() { r.mu.Lock(); r.reqs = nil; r.mu.Unlock() }
+
+func (r *rig) count(prefix string) (n int) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, q := range r.reqs {
+		if strings.HasPrefix(q, prefix) {
+			n++
+		}
+	}
+	return n
+}
+
+func archImage(t *testing.T, arch string) v1.Image {
+	t.Helper()
+	img, err := random.Image(512, 2)
+	noErr(t, err)
+	cf, err := img.ConfigFile()
+	noErr(t, err)
+	cf = cf.DeepCopy()
+	cf.OS, cf.Architecture = "linux", arch
+	img, err = mutate.ConfigFile(img, cf)
+	noErr(t, err)
+	return img
+}
+
+func pushIndex(t *testing.T, r *rig, repoTag string, arches ...string) (v1.ImageIndex, map[string]v1.Image) {
+	t.Helper()
+	idx := mutate.IndexMediaType(empty.Index, types.OCIImageIndex)
+	imgs := map[string]v1.Image{}
+	for _, a := range arches {
+		img := archImage(t, a)
+		imgs[a] = img
+		idx = mutate.AppendManifests(idx, mutate.IndexAddendum{
+			Add:        img,
+			Descriptor: v1.Descriptor{Platform: &v1.Platform{OS: "linux", Architecture: a}},
+		})
+	}
+	noErr(t, remote.WriteIndex(ref(t, r.host+"/"+repoTag), idx))
+	return idx, imgs
+}
+
+func digestOf(t *testing.T, s string) string {
+	t.Helper()
+	d, err := remote.Head(ref(t, s))
+	noErr(t, err)
+	return d.Digest.String()
+}
+
+func TestCopyIndexFiltersAndKeepsDigest(t *testing.T) {
+	src, dst := newRig(t, false, "", ""), newRig(t, true, "", "")
+	idx, imgs := pushIndex(t, src, "lib/app:1", "amd64", "arm64")
+	want, err := idx.Digest()
+	noErr(t, err)
+	s, d := src.host+"/lib/app:1", dst.host+"/org/lib/app:1"
+
+	res, err := Copy(context.Background(), s, d, nil, nil, []string{"amd64"})
+	noErr(t, err)
+	eq(t, want.String(), res.Digest)
+	eq(t, []string{"amd64"}, res.Platforms)
+	positive(t, res.Size)
+	eq(t, want.String(), digestOf(t, d))
+
+	amd, _ := imgs["amd64"].Digest()
+	arm, _ := imgs["arm64"].Digest()
+	_, err = remote.Head(ref(t, dst.host+"/org/lib/app@"+amd.String()))
+	noErr(t, err)
+	_, err = remote.Head(ref(t, dst.host+"/org/lib/app@"+arm.String()))
+	isErr(t, err, "arm64 manifest must be absent")
+
+	// A second run adds arm64 and copies only its blobs.
+	dst.mark()
+	src.mark()
+	res, err = Copy(context.Background(), s, d, nil, nil, []string{"amd64", "arm64"})
+	noErr(t, err)
+	eq(t, want.String(), res.Digest)
+	eq(t, []string{"amd64", "arm64"}, res.Platforms)
+	armCfg, _ := imgs["arm64"].ConfigName()
+	amdCfg, _ := imgs["amd64"].ConfigName()
+	positive(t, src.count("GET /v2/lib/app/blobs/"+armCfg.String()))
+	zero(t, src.count("GET /v2/lib/app/blobs/"+amdCfg.String()), "amd64 blobs were already there")
+	_, err = remote.Head(ref(t, dst.host+"/org/lib/app@"+arm.String()))
+	noErr(t, err)
+}
+
+func TestCopyHeadSkip(t *testing.T) {
+	src, dst := newRig(t, false, "", ""), newRig(t, true, "", "")
+	pushIndex(t, src, "lib/app:1", "amd64", "arm64")
+	s, d := src.host+"/lib/app:1", dst.host+"/org/lib/app:1"
+	_, err := Copy(context.Background(), s, d, nil, nil, []string{"amd64"})
+	noErr(t, err)
+
+	src.mark()
+	res, err := Copy(context.Background(), s, d, nil, nil, []string{"amd64"})
+	noErr(t, err)
+	eq(t, []string{"amd64"}, res.Platforms)
+	eq(t, 1, src.count("HEAD /v2/lib/app/manifests/"))
+	zero(t, src.count("GET /v2/lib/"), "a held digest fetches nothing from src")
+}
+
+func TestCopySingleImage(t *testing.T) {
+	src, dst := newRig(t, false, "", ""), newRig(t, true, "", "")
+	img := archImage(t, "amd64")
+	noErr(t, remote.Write(ref(t, src.host+"/lib/one:1"), img))
+	want, _ := img.Digest()
+
+	res, err := Copy(context.Background(), src.host+"/lib/one:1", dst.host+"/o/one:1", nil, nil, []string{"amd64"})
+	noErr(t, err)
+	eq(t, want.String(), res.Digest)
+	eq(t, []string{"amd64"}, res.Platforms)
+	eq(t, want.String(), digestOf(t, dst.host+"/o/one:1"))
+
+	_, err = Copy(context.Background(), src.host+"/lib/one:1", dst.host+"/o/two:1", nil, nil, []string{"arm64"})
+	errHas(t, err, "linux/amd64")
+	_, err = remote.Head(ref(t, dst.host+"/o/two:1"))
+	isErr(t, err, "nothing half-copied")
+}
+
+func TestCopyMissingPlatform(t *testing.T) {
+	src, dst := newRig(t, false, "", ""), newRig(t, true, "", "")
+	pushIndex(t, src, "lib/app:1", "amd64")
+	_, err := Copy(context.Background(), src.host+"/lib/app:1", dst.host+"/o/app:1", nil, nil, []string{"amd64", "arm64"})
+	errHas(t, err, "linux/arm64")
+	errHas(t, err, "linux/amd64")
+	zero(t, dst.count("PUT "), "nothing copied when a wanted platform is missing")
+}
+
+func TestCopyPrivateSource(t *testing.T) {
+	src, dst := newRig(t, false, "bot", "s3cret-fake"), newRig(t, true, "", "")
+	good := &authn.Basic{Username: "bot", Password: "s3cret-fake"}
+	noErr(t, remote.Write(ref(t, src.host+"/p/app:1"), archImage(t, "amd64"), remote.WithAuth(good)))
+
+	_, err := Copy(context.Background(), src.host+"/p/app:1", dst.host+"/o/app:1", &authn.Basic{Username: "bot", Password: "wrong"}, nil, []string{"amd64"})
+	isErr(t, err)
+	_, err = Copy(context.Background(), src.host+"/p/app:1", dst.host+"/o/app:1", nil, nil, []string{"amd64"})
+	isErr(t, err)
+
+	res, err := Copy(context.Background(), src.host+"/p/app:1", dst.host+"/o/app:1", good, nil, []string{"amd64"})
+	noErr(t, err)
+	eq(t, []string{"amd64"}, res.Platforms)
+}
+
+func ref(t *testing.T, s string) name.Reference {
+	t.Helper()
+	r, err := name.ParseReference(s)
+	noErr(t, err)
+	return r
+}
+
+func noErr(t *testing.T, err error) {
+	t.Helper()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func isErr(t *testing.T, err error, msg ...any) {
+	t.Helper()
+	if err == nil {
+		t.Fatal(append([]any{"expected an error"}, msg...)...)
+	}
+}
+
+func errHas(t *testing.T, err error, s string) {
+	t.Helper()
+	if err == nil || !strings.Contains(err.Error(), s) {
+		t.Fatalf("error %v does not mention %q", err, s)
+	}
+}
+
+func eq(t *testing.T, want, got any, msg ...any) {
+	t.Helper()
+	if !reflect.DeepEqual(want, got) {
+		t.Errorf("want %v, got %v %v", want, got, msg)
+	}
+}
+
+func positive[T int | int64](t *testing.T, n T) {
+	t.Helper()
+	if n <= 0 {
+		t.Errorf("want > 0, got %d", n)
+	}
+}
+
+func zero(t *testing.T, n int, msg ...any) {
+	t.Helper()
+	if n != 0 {
+		t.Errorf("want 0, got %d %v", n, msg)
+	}
+}

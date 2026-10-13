@@ -127,3 +127,11 @@ and slug). Each filler adds its own `_test.go` file.
 - **G5** `leaf/registry/list.go`, `versions.go`, `delete.go`,
   `service/registrylist.go`, UI, API, CLI.
 - **G6** `service/vipboot.go`.
+
+## G3 needs
+
+- `service/systemimages.go` publishes `stackr.system/{alpine:3,pause:3.10,stackr:<ver>}` at boot (real host only, `runMesh != nil`) with `imgcopy.Copy` and `Leaf.Record` source `system`. It calls `o.clusterPlatforms` (falls back to the controller's GOARCH while that is empty) and `o.recordImage`.
+- `tile.PauseImage` and `docker.ToolImage` are now `localhost:5000/stackr.system/...`. **G2:** `deploy.go` already pulls `tile.PauseImage` through `Images.Ensure`, which needs nothing more; just do not route a `localhost:5000/` ref through `Import`.
+- **G2:** the rsync helper (`service/move.go` `rsyncSteps`) still builds and `docker push`es itself and is not in `registry_images`. To record it, call `o.recordImage` there (source `system`, repo `stackr.system/tools/rsync`).
+- **G4:** the cleanup must treat `stackr.system/` rows as in use (all of them, or at least the running version's stackr tag and the `alpine`/`pause` repos).
+- Ingress Caddy on a worker is `localhost:5000/stackr.system/stackr:<tag>` of the controller proxy's tag; the spec hash changes, so the first ensure after this lands recreates every worker proxy once.

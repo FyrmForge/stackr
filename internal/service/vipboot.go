@@ -42,16 +42,36 @@ import (
 // shows up in the Docker daemon's load. A deploy routing between the reads
 // and the Rebuild is overwritten until the next tick.
 func (o *Orchestrator) rebuildVIPs(ctx context.Context) error {
-	// The minute tick and the async revoke rebuild share this lock, and the
-	// grants are read inside it: a revoke can never be overwritten by a
-	// rebuild that read the grants before it.
-	// ponytail: one lock for every node (deploy.Flow.VIPLock is a plain
-	// sync.Locker, no node in it); a slow node holds up the others' rebuild.
-	o.vipMu.Lock()
-	defer o.vipMu.Unlock()
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Minute)
 	defer cancel()
-	return o.eachNode(ctx, o.rebuildNodeVIPs)
+	// Nodes run side by side: a slow or unreachable one holds up only itself.
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	var failed []error
+	err := o.eachNode(ctx, func(ctx context.Context, n store.Node) error {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := o.rebuildNodeVIPs(ctx, n); err != nil {
+				mu.Lock()
+				defer mu.Unlock()
+				failed = append(failed, fmt.Errorf("node %s: %w", n.Name, err))
+			}
+		}()
+		return nil
+	})
+	wg.Wait()
+	return errors.Join(err, errors.Join(failed...))
+}
+
+// vipLock is the lock of the node in ctx. The node's minute tick, its async
+// revoke rebuild and a deploy's route share it, and the grants are read
+// inside it: a revoke can never be overwritten by a rebuild that read the
+// grants before it.
+func (o *Orchestrator) vipLock(ctx context.Context) sync.Locker {
+	id, _ := docker.NodeFrom(ctx)
+	l, _ := o.vipLocks.LoadOrStore(id, &sync.Mutex{})
+	return l.(*sync.Mutex)
 }
 
 // nodeVIPs is the VIP table of every node: the tile.VIP the tile leaf holds
@@ -121,8 +141,11 @@ func (o *Orchestrator) vipFor(ctx context.Context) (tile.VIP, error) {
 	return o.vip, nil
 }
 
-// rebuildNodeVIPs is rebuildVIPs for one node (ctx names it), under vipMu.
+// rebuildNodeVIPs is rebuildVIPs for one node (ctx names it), under its vipLock.
 func (o *Orchestrator) rebuildNodeVIPs(ctx context.Context, n store.Node) error {
+	l := o.vipLock(ctx)
+	l.Lock()
+	defer l.Unlock()
 	t, err := o.vipFor(ctx)
 	if err != nil {
 		return err
@@ -375,7 +398,7 @@ func (o *Orchestrator) ingressFlows(ctx context.Context, n store.Node) []vip.Flo
 // not inspect. Failures are logged: the tick rebuild still brings the rules a
 // minute later and drops the ones whose container is gone (sweepEarly).
 //
-// Lock order: vipMu -> earlyMu -> Table.mu, never the reverse. Every Allow for
+// Lock order: vipLock -> earlyMu -> Table.mu, never the reverse. Every Allow for
 // an early entry runs holding earlyMu and only while the entry is still in
 // earlyIPs with that address, so the off path, the on path and sweepEarly
 // cannot leave a stale rule behind by interleaving.
@@ -447,7 +470,7 @@ type earlyEnt struct{ node, id, tile, ip string }
 // only unique on its own daemon.
 func earlyKey(node, id string) string { return node + "/" + id }
 
-// sweepEarly runs inside rebuildVIPs (under vipMu), for the node in ctx: an
+// sweepEarly runs inside rebuildVIPs (under the node's vipLock), for the node in ctx: an
 // early entry whose container is no longer running, or whose tile's grant no
 // longer has lan lines, is cleared; the others are re-declared from the
 // current grants, so a revoke during a running job cuts its rule at once. The
