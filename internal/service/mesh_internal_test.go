@@ -360,4 +360,14 @@ func TestRoutesSurviveRestart(t *testing.T) {
 	if r := m.routes(in, time.Unix(1_000_000, 0)); r[[2]string{"ctl", "h2"}] != "h1" {
 		t.Fatalf("first routes after restart = %v", r)
 	}
+	// A minute on, the restarted controller's own samples say ctl-h2 is
+	// silent: during the confirm window the route must stay.
+	in.Nodes[0].Hears["wg-h2"], in.Nodes[2].Hears["wg-ctl"] = -1, -1
+	m.next = m.routes(in, time.Unix(1_000_060, 0))
+	if m.next[[2]string{"ctl", "h2"}] != "h1" {
+		t.Fatalf("route dropped while confirming: %v", m.next)
+	}
+	if r := m.routes(in, time.Unix(1_000_060, 0).Add(downConfirm)); r[[2]string{"ctl", "h2"}] != "h1" {
+		t.Fatalf("route dropped after confirm: %v", r)
+	}
 }

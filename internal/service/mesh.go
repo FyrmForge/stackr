@@ -653,7 +653,9 @@ func (m *meshSvc) routes(in meshIn, now time.Time) map[[2]string]string {
 				if _, ok := m.down[k]; !ok {
 					m.down[k] = now
 				}
-				up[k] = now.Sub(m.down[k]) < downConfirm
+				// Until confirmed, as last time: a routed pair whose direct
+				// path is still dead must not lose its route meanwhile.
+				up[k] = now.Sub(m.down[k]) < downConfirm && prev[[2]string{a, b}] == ""
 			default:
 				up[k] = prev[[2]string{a, b}] == "" // unknown: as last time
 			}
