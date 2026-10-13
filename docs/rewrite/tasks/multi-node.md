@@ -484,6 +484,16 @@ joined to 109 across the home NAT. Nothing below may be dropped.
   Fixed ranges (transit 10.207.255.0/24, supernet 10.208.0.0/12): hard error
   at controller setup and join when a box's networks overlap them, listed as
   a system requirement; configurable ranges later.
+- **Address pool (agreed 2026-10-13):** no per-node blocks. Env networks are
+  /24s handed out from the cluster pool (10.208.0.0/12, ~4,000) when an env is
+  created, freed when deleted; an env's network moves with it, so moves keep
+  addresses and cross-node links need no relink. Each node's peer
+  AllowedIPs/routes list the networks of the envs on it; firewall rules that
+  name a node block become per env network; transit addresses and exit-link
+  numbering get their own allocation. Limit: ~254 nodes (transit /24).
+  Scale fixes agreed alongside: fixed tile addresses stored at deploy (one
+  container list per node per rebuild), parallel mesh reads, worker traffic
+  stats.
 - **Release images not on ghcr (last, the final test):** join cannot pull
   the worker image.
 - **Rsync helper image** is not distributed to nodes (live moves).
