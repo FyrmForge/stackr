@@ -215,7 +215,15 @@ func (o *Orchestrator) rotateController(ctx context.Context, n store.Node, trigg
 		}
 	}
 	slices.SortStableFunc(workers, func(a, b string) int { return hops(in.Next, n.ID, b) - hops(in.Next, n.ID, a) })
-	_ = m.push(ctx, in, specs, workers, true) // a push lost to the switch is retried by recovery
+	for _, id := range workers {
+		// A direct worker applies the new key mid-request, so its reply
+		// crosses the tunnel it just rekeyed and never arrives: do not wait
+		// the client's full timeout for it. The spec is applied either way;
+		// a push that really failed is retried by recovery.
+		pctx, cancel := context.WithTimeout(ctx, rotatePushWait)
+		_ = m.push(pctx, in, specs, []string{id}, true)
+		cancel()
+	}
 	if err := o.localWorker.PromoteKeys(); err != nil {
 		return err
 	}
@@ -224,6 +232,10 @@ func (o *Orchestrator) rotateController(ctx context.Context, n store.Node, trigg
 	m.Kick()
 	return nil
 }
+
+// rotatePushWait is how long a controller rotation waits for each worker's
+// reply to the push that carries its new key.
+var rotatePushWait = 5 * time.Second // a var for tests
 
 // hops is how many hops src takes to reach dst on next (1 = direct).
 func hops(next map[[2]string]string, src, dst string) int {

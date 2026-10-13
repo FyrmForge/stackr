@@ -86,15 +86,20 @@ type orderNode struct {
 	id    string
 	log   *[]string
 	ctlID string
+	lost  bool
 }
 
 func (n orderNode) Facts(context.Context) (worker.Facts, error)       { return worker.Facts{}, nil }
 func (n orderNode) MeshInfo(context.Context) (worker.MeshInfo, error) { return worker.MeshInfo{}, nil }
-func (n orderNode) ApplyMesh(_ context.Context, sp worker.MeshSpec) error {
+func (n orderNode) ApplyMesh(ctx context.Context, sp worker.MeshSpec) error {
 	for _, p := range sp.Peers {
 		if p.NodeID == n.ctlID {
 			*n.log = append(*n.log, n.id+" "+p.PublicKey)
 		}
+	}
+	if n.lost { // applied, but the reply crossed the rekeyed tunnel
+		<-ctx.Done()
+		return ctx.Err()
 	}
 	return nil
 }
@@ -129,14 +134,22 @@ func TestRotateControllerOrder(t *testing.T) {
 		if id == ctl {
 			return localMesh{o.localWorker}, true
 		}
-		return orderNode{id: id, log: &log, ctlID: ctl}, true
+		return orderNode{id: id, log: &log, ctlID: ctl, lost: true}, true
 	}
+	// Every worker's reply is lost, as for a direct worker on the rig: the
+	// rotation must not wait the client's timeout for each.
+	defer func(w time.Duration) { rotatePushWait = w }(rotatePushWait)
+	rotatePushWait = 50 * time.Millisecond
 	o.mesh.mu.Lock()
 	o.mesh.wgPK[ctl], o.mesh.exitPK[ctl] = info.WGPublic, info.ExitPublic
 	o.mesh.next = map[[2]string]string{{ctl, "w2"}: "w1", {"w2", ctl}: "w1"} // w2 is routed via w1
 	o.mesh.mu.Unlock()
 
+	start := time.Now()
 	must(t, o.rotateController(ctx, c, "schedule"))
+	if d := time.Since(start); d > 2*time.Second {
+		t.Fatalf("the rotation waited %s on lost replies", d)
+	}
 	after, err := o.localWorker.MeshInfo()
 	must(t, err)
 	if after.WGPublic == info.WGPublic {
