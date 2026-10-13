@@ -22,7 +22,8 @@ DOMAIN="${RIG_DOMAIN:-stackr-test.vulpe.dev}"
 SERVER="${BLITZ_SERVER:-https://$DOMAIN}"
 ORG="${BLITZ_ORG:-smoke}"
 EMAIL="${RIG_ADMIN_EMAIL:-admin@test.com}"
-PASSWORD="${RIG_ADMIN_PASSWORD:-Test1234!}"
+PASSWORD="${RIG_ADMIN_PASSWORD:-$(sed -n 's/^UNIVERSAL_STACKR_PASSWORD=//p' "$(git rev-parse --show-toplevel)/.env" 2>/dev/null)}"
+[[ -n "$PASSWORD" ]] || { echo "set UNIVERSAL_STACKR_PASSWORD in .env" >&2; exit 1; }
 # Where the proxy listens, for curl --resolve and openssl (no DNS needed for
 # the qa hosts). The domain itself is fine on the rig.
 ADDR="${BLITZ_ADDR:-$DOMAIN}"

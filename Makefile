@@ -54,7 +54,7 @@ build: check-templ check-node-modules
 	$(MAKE) generate
 
 ADMIN_EMAIL    ?= admin@test.com
-ADMIN_PASSWORD ?= Test1234!
+ADMIN_PASSWORD ?= $(shell sed -n 's/^UNIVERSAL_STACKR_PASSWORD=//p' .env 2>/dev/null)
 
 ## admin: Make the dev admin on an empty DB (no /register; the installer does this on a box)
 admin:

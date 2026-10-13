@@ -30,7 +30,8 @@ EMAIL="${RIG_EMAIL:-dumitru.v.dv@gmail.com}"
 # sees real client addresses (the login limit keys on them). Never Tailscale.
 FRONT_PROXY="${RIG_FRONT_PROXY:-192.168.1.100/32}"
 ADMIN_EMAIL="${RIG_ADMIN_EMAIL:-admin@test.com}"
-ADMIN_PASSWORD="${RIG_ADMIN_PASSWORD:-Test1234!}"
+ADMIN_PASSWORD="${RIG_ADMIN_PASSWORD:-$(sed -n 's/^UNIVERSAL_STACKR_PASSWORD=//p' "$(git rev-parse --show-toplevel)/.env" 2>/dev/null)}"
+[[ -n "$ADMIN_PASSWORD" ]] || { echo "set UNIVERSAL_STACKR_PASSWORD in .env" >&2; exit 1; }
 IMAGE="ghcr.io/fyrmforge/stackr"
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
