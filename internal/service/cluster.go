@@ -388,7 +388,15 @@ func (o *Orchestrator) ClusterMap(ctx context.Context) (ClusterMap, error) {
 		for _, n := range m.Nodes {
 			names[n.ID] = n.Name
 		}
-		m.Pairs = m.Links // every pair, routed ones included: cluster status lists them
+		// Every pair, routed ones included and named by their hop: status lists them.
+		m.Pairs = slices.Clone(m.Links)
+		for i, l := range m.Pairs {
+			if d, ok := o.mesh.Direct(l.A, l.B); ok && !d {
+				if h := o.mesh.Via(l.A, l.B); h != "" {
+					m.Pairs[i].Via = names[h]
+				}
+			}
+		}
 		m.Links = directLinks(m.Links, m.Nodes, names, o.mesh.Direct, o.mesh.Via)
 		o.remember(ctx, &m, in, o.mesh.Direct)
 	}
