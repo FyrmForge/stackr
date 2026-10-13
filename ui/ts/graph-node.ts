@@ -93,6 +93,12 @@ class GraphNode extends HTMLElement {
     this.swallow = true;
     if (d.start.length === 1 && this.canvas()?.hasAttribute("nooverlap")) this.nudge();
     for (const [n] of d.start) n.commit();
+    // A card pushed past its box's edge grew the box: save the box's new
+    // corner too, once the canvas has re-wrapped it (its observer's frame).
+    const moved = new Set(d.start.map(([n]) => n.getAttribute("node-id")));
+    const boxes = [...(this.canvas()?.querySelectorAll(":scope > graph-node[members]") ?? [])]
+      .filter((b): b is GraphNode => b instanceof GraphNode && !moved.has(b.getAttribute("node-id")) && b.members().some((m) => moved.has(m.getAttribute("node-id"))));
+    if (boxes.length > 0) queueMicrotask(() => requestAnimationFrame(() => boxes.forEach((b) => b.commit())));
   };
   // A second finger means a pinch: put the cards back, the canvas zooms.
   private onSecond = (e: PointerEvent): void => {

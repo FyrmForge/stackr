@@ -94,6 +94,11 @@ class GraphNode extends HTMLElement {
             this.nudge();
         for (const [n] of d.start)
             n.commit();
+        const moved = new Set(d.start.map(([n]) => n.getAttribute("node-id")));
+        const boxes = [...(this.canvas()?.querySelectorAll(":scope > graph-node[members]") ?? [])]
+            .filter((b) => b instanceof GraphNode && !moved.has(b.getAttribute("node-id")) && b.members().some((m) => moved.has(m.getAttribute("node-id"))));
+        if (boxes.length > 0)
+            queueMicrotask(() => requestAnimationFrame(() => boxes.forEach((b) => b.commit())));
     };
     onSecond = (e) => {
         if (this.drag && e.pointerId !== this.drag.id)

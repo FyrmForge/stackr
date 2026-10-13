@@ -78,9 +78,12 @@ func TestClusterNotes(t *testing.T) {
 	if rec.Code != http.StatusUnprocessableEntity {
 		t.Errorf("moving an env = %d, want 422", rec.Code)
 	}
-	// A network box keeps a hand-set size; a plain drag (no w, h) saves nothing.
-	if rec := s.As(t, root, "POST", "/-/cluster/-/positions", url.Values{"node_id": {"net:lan"}, "x": {"1"}, "y": {"1"}}); rec.Code != http.StatusNoContent {
+	// A network box keeps where it was dropped; a plain drag (no w, h) saves no size.
+	if rec := s.As(t, root, "POST", "/-/cluster/-/positions", url.Values{"node_id": {"net:lan"}, "x": {"1"}, "y": {"2"}}); rec.Code != http.StatusNoContent {
 		t.Errorf("dragging a box = %d, want 204", rec.Code)
+	}
+	if p := mustPositions(t, s)["net:lan"]; p.X != 1 || p.Y != 2 {
+		t.Errorf("saved box corner = %+v, want 1,2", p)
 	}
 	if _, ok := mustPositions(t, s)["size:net:lan"]; ok {
 		t.Error("a plain box drag saved a size")

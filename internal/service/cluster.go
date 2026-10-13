@@ -741,13 +741,13 @@ func (o *Orchestrator) ClusterPositions(ctx context.Context) (map[string]Point, 
 }
 
 // PlaceCluster saves where a note, node, NAT, backup or an internet card
-// on the Cluster canvas was dropped. A network box is where its cards are.
+// on the Cluster canvas, or a network box, was dropped.
 func (o *Orchestrator) PlaceCluster(ctx context.Context, id string, p Point) error {
 	if note, ok := strings.CutPrefix(id, "note:"); ok {
 		return o.canvas.Move(ctx, ClusterScope, note, p)
 	}
 	movable := false
-	for _, p := range []string{"node:", "nat:", "s3:", "internet:", "size:net:"} { // size: a box's w, h as x, y
+	for _, p := range []string{"node:", "nat:", "s3:", "internet:", "net:", "size:net:"} { // size: a box's w, h as x, y
 		movable = movable || strings.HasPrefix(id, p)
 	}
 	if !movable {

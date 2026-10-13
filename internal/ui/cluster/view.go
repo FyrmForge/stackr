@@ -48,7 +48,8 @@ type Map struct {
 	Links   []Link
 	Backups []Backup
 	// Placed is where admins dropped cards ("node:", "nat:", "s3:" ids and
-	// "internet"), in world pixels. A box goes where its cards are.
+	// "internet", "net:" boxes), in world pixels. A box stays where it was
+	// dropped and grows to hold its cards.
 	Placed map[string][2]int
 }
 
@@ -219,7 +220,8 @@ func Build(m Map, base string, notes []graph.Note, create []graph.Create) graph.
 		}
 		// A network with one node is no grouping: its cards stand alone.
 		if len(ns) >= 2 {
-			b := wrap(rs, minBoxW)
+			at, moved := m.Placed[boxID(c.ID)] // where the box was dropped
+			b := wrap(rs, minBoxW, at, moved)
 			name, sub := netTitle(c)
 			size := m.Placed["size:"+boxID(c.ID)] // a hand-set size: the box is at least this big
 			boxes = append(boxes, graph.Node{
@@ -346,15 +348,19 @@ func Build(m Map, base string, notes []graph.Note, create []graph.Create) graph.
 	}
 }
 
-// wrap is the box around rs, as the canvas computes it (graph-canvas wrap).
-func wrap(rs []rect, minW int) rect {
+// wrap is the box around rs, as the canvas computes it (graph-canvas wrap):
+// a dropped box keeps its top left corner unless a card pokes past it.
+func wrap(rs []rect, minW int, at [2]int, moved bool) rect {
 	x0, y0, x1, y1 := rs[0].x, rs[0].y, rs[0].x+rs[0].w, rs[0].y+rs[0].h
 	for _, r := range rs[1:] {
 		x0, y0 = min(x0, r.x), min(y0, r.y)
 		x1, y1 = max(x1, r.x+r.w), max(y1, r.y+r.h)
 	}
-	b := rect{x0 - padX, y0 - headH, 0, y1 + padB - (y0 - headH)}
-	b.w = max(x1+padX-b.x, minW)
+	b := rect{x: x0 - padX, y: y0 - headH}
+	if moved {
+		b.x, b.y = min(b.x, at[0]), min(b.y, at[1])
+	}
+	b.w, b.h = max(x1+padX-b.x, minW), y1+padB-b.y
 	return b
 }
 

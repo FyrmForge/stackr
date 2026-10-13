@@ -349,8 +349,8 @@ class GraphCanvas extends HTMLElement {
             if (bs.length === 0)
                 continue;
             const [t, r, b, l] = (c.getAttribute("pad") ?? "").split(" ").map(Number);
-            const x = Math.min(...bs.map((q) => q.x)) - (l || 0);
-            const y = Math.min(...bs.map((q) => q.y)) - (t || 0);
+            const x = Math.min(num(c, "x"), Math.min(...bs.map((q) => q.x)) - (l || 0));
+            const y = Math.min(num(c, "y"), Math.min(...bs.map((q) => q.y)) - (t || 0));
             const w = Math.max(Math.max(...bs.map((q) => q.x + q.w)) + (r || 0) - x, num(c, "min-w"), num(c, "user-w"));
             const h = Math.max(Math.max(...bs.map((q) => q.y + q.h)) + (b || 0) - y, num(c, "user-h"));
             for (const [k, v] of [["x", x], ["y", y], ["w", w], ["h", h]]) {

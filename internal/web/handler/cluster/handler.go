@@ -91,8 +91,7 @@ func (h *handler) Map(c echo.Context) error {
 }
 
 // POST …/-/positions (node_id, x, y): a note, node, NAT, internet or backup
-// card saves where it was dropped. A network box is where its cards are
-// (each of them posts its own drop), so its drop is not kept.
+// card, or a network box, saves where it was dropped.
 func (h *handler) Positions(c echo.Context) error {
 	id := c.FormValue("node_id")
 	x, errX := strconv.Atoi(c.FormValue("x"))
@@ -101,7 +100,10 @@ func (h *handler) Positions(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, "x and y are whole numbers")
 	}
 	if strings.HasPrefix(id, "net:") {
-		// Its place follows its cards; a hand-set size (w, h) is kept.
+		if err := h.orch.PlaceCluster(c.Request().Context(), id, service.Point{X: x, Y: y}); err != nil {
+			return middleware.HTTPError(err)
+		}
+		// A hand-set size (w, h) is kept too.
 		w, errW := strconv.Atoi(c.FormValue("w"))
 		hh, errH := strconv.Atoi(c.FormValue("h"))
 		if errW != nil || errH != nil || w <= 0 || hh <= 0 {
