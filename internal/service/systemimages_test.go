@@ -102,7 +102,7 @@ func TestWaitStackrPublished(t *testing.T) {
 	}
 	o.markStackrPublished()
 	o.markStackrPublished() // twice is fine
-	if err := o.waitStackrPublished(ctx); err != nil {
+	if err := o.waitStackrPublished(context.Background()); err != nil {
 		t.Errorf("after the publish: %v", err)
 	}
 }
