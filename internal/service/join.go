@@ -318,12 +318,16 @@ func (o *Orchestrator) ConfirmJoin(ctx context.Context, by *Principal, nodeID st
 	var out store.Node
 	var rejoined bool
 	err = o.store.Tx(ctx, func(tx store.Tx) error {
-		used, err := o.joinTokens(tx).Used(ctx)
-		if err != nil {
-			return err
-		}
 		prev, _ := tx.Nodes.Get(ctx, nodeID) // a rejoin already has its address
-		out, err = node.New(tx.Nodes).Confirm(ctx, nodeID, reportedPrefixes(used))
+		// This node's own networks only. A rejoin's box carries the cluster's
+		// networks (stackr0, its env bridges): nothing to check there.
+		// ponytail: a rejoining box with a foreign network on the reserved
+		// ranges is not caught; tell stackr's own apart by interface if it bites.
+		var ifaces []netip.Prefix
+		if prev.WGAddress == "" {
+			ifaces = reportedPrefixes([]store.JoinToken{row})
+		}
+		out, err = node.New(tx.Nodes).Confirm(ctx, nodeID, ifaces)
 		if err != nil {
 			return err
 		}

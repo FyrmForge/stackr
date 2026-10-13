@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"slices"
 	"strings"
 	"testing"
@@ -293,13 +294,19 @@ func TestRejoinKeepsRangeAndEnvs(t *testing.T) {
 	old := store.NodeCert{Serial: "old-1", NodeID: "w1", Role: "worker", NotAfter: time.Now().Add(time.Hour), CreatedAt: time.Now()}
 	must(t, n.st.NodeCerts.Create(ctx, old))
 
+	w, _ := n.st.Nodes.Get(ctx, "w1")
+	w.WGAddress = "10.207.255.9" // it joined before
+	must(t, n.st.Nodes.Update(ctx, w))
 	out, err := n.orch.RejoinNode(ctx, adm, "w1")
 	must(t, err)
-	w, _ := n.st.Nodes.Get(ctx, "w1")
+	w, _ = n.st.Nodes.Get(ctx, "w1")
 	if w.Status != StateNeedsRejoin || !strings.Contains(out.Command, "--token") {
 		t.Fatalf("after rejoin: %s %q", w.Status, out.Command)
 	}
-	st, err := n.orch.RequestJoin(ctx, httpsMeta, joinReq(t, out.Token))
+	// The box still has the cluster's networks: its tunnel and env bridge.
+	req := joinReq(t, out.Token)
+	req.Facts = json.RawMessage(`{"interfaces":[{"name":"stackr0","prefixes":["10.207.255.9/24"]},{"name":"br-1","prefixes":["10.208.0.128/24"]}]}`)
+	st, err := n.orch.RequestJoin(ctx, httpsMeta, req)
 	must(t, err)
 	if st.NodeID != "w1" {
 		t.Fatalf("the request made node %q, want the existing w1", st.NodeID)
@@ -311,7 +318,7 @@ func TestRejoinKeepsRangeAndEnvs(t *testing.T) {
 		t.Fatal(err)
 	}
 	w, _ = n.st.Nodes.Get(ctx, "w1")
-	if w.WGAddress == "" || w.Status != node.StatusJoined {
+	if w.WGAddress != "10.207.255.9" || w.Status != node.StatusJoined {
 		t.Errorf("transit %q status %s", w.WGAddress, w.Status)
 	}
 	if revoked, _ := n.st.NodeCerts.IsRevoked(ctx, "old-1"); !revoked {
@@ -322,6 +329,14 @@ func TestRejoinKeepsRangeAndEnvs(t *testing.T) {
 	}
 	if c := auditCount(t, n, auditNodeRejoin); c != 1 {
 		t.Errorf("node.rejoin rows = %d", c)
+	}
+	// A new node is checked on its own networks, not on w1's rejoin facts.
+	t3, err := n.orch.CreateJoinToken(ctx, adm, JoinTokenSpec{NodeName: "w3"})
+	must(t, err)
+	st3, err := n.orch.RequestJoin(ctx, httpsMeta, joinReq(t, t3.Token))
+	must(t, err)
+	if _, err := n.orch.ConfirmJoin(ctx, adm, st3.NodeID); err != nil {
+		t.Fatalf("a new node refused over another node's networks: %v", err)
 	}
 }
 
