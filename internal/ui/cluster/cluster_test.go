@@ -62,8 +62,8 @@ func TestMapDraws(t *testing.T) {
 		`members="nat:192.168.1.0/24 node:h node:n"`, // a box holds its NAT and nodes
 		"LAN · 0.3 ms", "internet · 21 ms",
 		`data-edge-label>🔒 private<`, // no latency known: just the kind
-		"home.example.com +2", // through the NAT: the box's ingress names
-		"shop.example.com",    // straight to a public node
+		"home.example.com +2",        // through the NAT: the box's ingress names
+		"shop.example.com",           // straight to a public node
 		"smoke/web/dev exits here", "acme/prod/web +1 exit here",
 		"+2 more", // five envs: three listed, the rest counted
 		"Not answering", "Healthy", "Moving",
@@ -84,6 +84,7 @@ func TestMapDraws(t *testing.T) {
 		`data-edge-kind="tunnel-lan" data-from="node:h" data-to="node:n"`,
 		`data-edge-kind="tunnel" data-from="node:h" data-to="node:f"`,
 		`data-edge-kind="backup" data-from="node:n" data-to="s3:b"`,
+		"data-edge-core", // a tunnel is drawn as a pipe
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("page lacks edge %s", want)
@@ -166,6 +167,30 @@ func TestMapSingleNodeNetNoBox(t *testing.T) {
 		if ids[id] != want {
 			t.Errorf("%s drawn = %v, want %v", id, ids[id], want)
 		}
+	}
+}
+
+// A remembered tunnel to an offline node is drawn down; a node cut off
+// behind a down hop says so in the warning colour.
+func TestMapDownTunnelAndHop(t *testing.T) {
+	m := sample()
+	m.Links = append(m.Links, cluster.Link{A: "h", B: "n", Kind: "LAN", MS: -1, Down: true})
+	m.Nodes[0].ReachedVia, m.Nodes[0].ViaDown = []string{"h4"}, []string{"h4"}
+	m.Nodes[0].Public = nil
+	v := cluster.Build(m, cluster.Base, nil, nil)
+	found := false
+	for _, e := range v.Edges {
+		found = found || (e.Kind == "tunnel-down" && e.Label == "down")
+	}
+	if !found {
+		t.Error("no tunnel-down edge")
+	}
+	var b strings.Builder
+	if err := cluster.Page(v, m).Render(context.Background(), &b); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(b.String(), "h4 (down)") || !strings.Contains(b.String(), "tunnel down") {
+		t.Error("page lacks the down hop or the legend row")
 	}
 }
 

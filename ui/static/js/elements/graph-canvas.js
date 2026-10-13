@@ -269,6 +269,8 @@ class GraphCanvas extends HTMLElement {
             const [from, to] = [p.dataset.from ?? "", p.dataset.to ?? ""];
             const on = own.has(from) || own.has(to);
             p.toggleAttribute("data-lit", on);
+            if (p.nextElementSibling?.matches("[data-edge-core]"))
+                p.nextElementSibling.toggleAttribute("data-lit", on);
             if (on)
                 lit.add(from).add(to);
         }
@@ -307,7 +309,9 @@ class GraphCanvas extends HTMLElement {
             this.draw(ends[i], ends[i + 1]);
         const placed = [];
         for (const p of this.paths()) {
-            const label = p.nextElementSibling;
+            let label = p.nextElementSibling;
+            if (label?.matches("[data-edge-core]"))
+                (label.setAttribute("d", p.getAttribute("d") ?? ""), (label = label.nextElementSibling));
             if (!(label instanceof SVGTextElement) || !label.matches("[data-edge-label]"))
                 continue;
             const m = p.getPointAtLength(p.getTotalLength() / 2);

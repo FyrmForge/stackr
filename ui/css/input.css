@@ -748,7 +748,7 @@ graph-node .note-del { display: none; }
 graph-node:hover > .note-del, graph-node:focus-within > .note-del { display: flex; }
 
 /* Edges: arrows on the drawn edges only (never lanes or swatches). */
-graph-canvas[arrows] svg[data-edges] path[data-edge-kind]:not([data-edge-kind="tunnel"]) { marker-end: url(#edge-arrow); }
+graph-canvas[arrows] svg[data-edges] path[data-edge-kind]:not([data-edge-kind^="tunnel"]) { marker-end: url(#edge-arrow); }
 /* An edge's label rides its middle (the element places it). */
 graph-canvas svg[data-edges] text[data-edge-label] {
     font: 500 11px ui-monospace, monospace; fill: rgb(var(--rw-text));
@@ -781,7 +781,9 @@ graph-canvas svg[data-lanes] text {
 graph-canvas > graph-node, graph-canvas svg[data-edges] path, graph-canvas svg[data-lanes] g { transition: opacity 120ms ease-out; }
 graph-canvas[focusing] > graph-node:not([lit]):not([node-id^="note:"]):not([members]) { opacity: 0.28; }
 graph-canvas[focusing] svg[data-edges] path[data-edge-kind]:not([data-lit]) { opacity: 0.4; }
-graph-canvas[focusing] svg[data-edges] path[data-edge-kind][data-lit] { stroke-opacity: 1; stroke-width: 2.4; }
+graph-canvas[focusing] svg[data-edges] path[data-edge-kind][data-lit] { stroke-opacity: 1; }
+graph-canvas[focusing] svg[data-edges] path[data-edge-kind][data-lit]:not([data-edge-kind^="tunnel"]) { stroke-width: 2.4; }
+graph-canvas[focusing] svg[data-edges] path[data-edge-core]:not([data-lit]) { opacity: 0.4; }
 graph-canvas[focusing] svg[data-lanes] g:not([data-lit]) { opacity: 0.4; }
 
 /* Chrome: the control column, the legend, the env pill, the View panel. */

@@ -156,7 +156,7 @@ func mapMap(cm service.ClusterMap) cluster.Map {
 	for _, n := range cm.Nodes {
 		u := cluster.Node{
 			ID: n.ID, Name: n.Name, Role: n.Role, Status: n.Status, Docker: n.Docker, Net: n.Net,
-			Tags: n.Tags, Public: n.Public, Domains: n.Domains, ExitEnvs: n.ExitEnvs, NoForward: n.NoForward, ReachedVia: n.ReachedVia,
+			Tags: n.Tags, Public: n.Public, Domains: n.Domains, ExitEnvs: n.ExitEnvs, NoForward: n.NoForward, ReachedVia: n.ReachedVia, ViaDown: n.ViaDown,
 		}
 		for _, e := range n.Envs {
 			u.Envs = append(u.Envs, cluster.Env{Name: e.Path, Href: e.Href, Health: e.Health})
@@ -167,7 +167,7 @@ func mapMap(cm service.ClusterMap) cluster.Map {
 		m.Nets = append(m.Nets, cluster.Net{ID: n.ID, CIDR: n.CIDR, Nodes: n.Nodes, Router: n.Router, Forward: n.Forward, Unsure: n.Unsure})
 	}
 	for _, l := range cm.Links {
-		m.Links = append(m.Links, cluster.Link{A: l.A, B: l.B, Kind: l.Kind, MS: l.MS, Via: l.Via})
+		m.Links = append(m.Links, cluster.Link{A: l.A, B: l.B, Kind: l.Kind, MS: l.MS, Via: l.Via, Down: l.Down})
 	}
 	for _, b := range cm.Backups {
 		m.Backups = append(m.Backups, cluster.Backup{ID: b.ID, Name: b.Name, Nodes: b.Nodes})

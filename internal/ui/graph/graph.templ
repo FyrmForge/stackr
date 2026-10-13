@@ -121,6 +121,9 @@ templ Canvas(v View) {
 			}
 			for _, e := range v.Edges {
 				<path data-edge-kind={ e.Kind } data-from={ e.From } data-to={ e.To } d="M0,0" { EdgeAttrs(e.Kind)... }></path>
+				if core, ok := EdgeCore(e.Kind); ok {
+					<path data-edge-core d="M0,0" { core... }></path>
+				}
 				if e.Label != "" {
 					<text data-edge-label>{ e.Label }</text>
 				}
@@ -417,7 +420,12 @@ templ legend(v View) {
 		<div class="graph-legend">
 			for _, r := range rows {
 				<div class="graph-legend-row">
-					<svg width="26" height="8" aria-hidden="true"><line x1="1" y1="4" x2="25" y2="4" { EdgeAttrs(r.kind)... }></line></svg>
+					<svg width="26" height="8" aria-hidden="true">
+						<line x1="1" y1="4" x2="25" y2="4" { EdgeAttrs(r.kind)... }></line>
+						if core, ok := EdgeCore(r.kind); ok {
+							<line x1="1" y1="4" x2="25" y2="4" { core... }></line>
+						}
+					</svg>
 					{ r.label }
 				</div>
 			}

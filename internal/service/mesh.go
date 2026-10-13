@@ -294,6 +294,7 @@ func (m *meshSvc) push(ctx context.Context, in meshIn, specs map[string]worker.M
 // Call it before deleting the row.
 func (m *meshSvc) RemoveNode(ctx context.Context, nodeID string) error {
 	_ = m.st.Settings.Delete(ctx, publicKey(nodeID))
+	_ = m.st.Settings.Delete(ctx, memoryKey(nodeID)) // the map forgets it too
 	rungs, err := m.st.ExitLadders.ListByNode(ctx, nodeID)
 	if err != nil {
 		return err
