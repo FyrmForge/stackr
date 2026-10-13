@@ -75,7 +75,9 @@ func UsableEndpoint(a netip.Addr) bool {
 		a.IsLinkLocalUnicast(), a.IsLinkLocalMulticast(), a == metadata:
 		return false
 	}
-	return !Supernet.Contains(a) && !Transit.Contains(a)
+	// Exit links ride the mesh: a mesh endpoint on one would tunnel the mesh
+	// through itself.
+	return !Supernet.Contains(a) && !Transit.Contains(a) && !ExitNet.Contains(a)
 }
 
 // FilterAddrs keeps the usable, de-duplicated addresses in order.

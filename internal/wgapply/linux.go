@@ -10,6 +10,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/FyrmForge/stackr/internal/mesh"
 	"github.com/vishvananda/netlink"
 	"golang.zx2c4.com/wireguard/wgctrl"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
@@ -58,6 +59,23 @@ func configurePeers(cfg Config) error {
 	dev, err := c.Device(cfg.Iface)
 	if err != nil {
 		return err
+	}
+	// A peer stuck on an endpoint no candidate may hold (an exit-link
+	// address from before such were excluded) would tunnel the mesh through
+	// itself forever: drop it first, so it is re-added clean below.
+	var stale []wgtypes.PeerConfig
+	for _, d := range dev.Peers {
+		if d.Endpoint != nil && !mesh.UsableEndpoint(d.Endpoint.AddrPort().Addr()) {
+			stale = append(stale, wgtypes.PeerConfig{PublicKey: d.PublicKey, Remove: true})
+		}
+	}
+	if len(stale) > 0 {
+		if err := c.ConfigureDevice(cfg.Iface, wgtypes.Config{Peers: stale}); err != nil {
+			return err
+		}
+		if dev, err = c.Device(cfg.Iface); err != nil {
+			return err
+		}
 	}
 	want := map[wgtypes.Key]bool{}
 	wc := wgtypes.Config{PrivateKey: &key, ListenPort: &cfg.ListenPort}
