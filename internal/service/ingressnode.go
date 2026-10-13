@@ -57,6 +57,9 @@ func (o *Orchestrator) ensureNodeProxy(ctx context.Context, nodeID string) error
 		spec = installspec.NodeProxy(stackrSystemRef(img))
 		// Pull before the old proxy goes: a failed pull keeps ingress up.
 		if _, err := o.docker.LocalDigest(nctx, spec.Image); err != nil {
+			if err := o.waitStackrPublished(ctx); err != nil {
+				return fmt.Errorf("proxy image on %s: %w", n.Name, err)
+			}
 			if err := o.docker.Pull(nctx, spec.Image, "", io.Discard); err != nil {
 				return fmt.Errorf("proxy image on %s: %w", n.Name, err)
 			}

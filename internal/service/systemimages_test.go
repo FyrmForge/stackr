@@ -53,13 +53,20 @@ func fakePublisher(rows *[]store.RegistryImage, copies *[][2]string) systemPubli
 func TestPublishSystemImages(t *testing.T) {
 	var rows []store.RegistryImage
 	var copies [][2]string
-	if err := fakePublisher(&rows, &copies).publish(context.Background()); err != nil {
+	p := fakePublisher(&rows, &copies)
+	published := 0
+	p.published = func() { published = len(copies) }
+	if err := p.publish(context.Background()); err != nil {
 		t.Fatal(err)
 	}
+	if published != 1 {
+		t.Errorf("published after %d copies, want right after the stackr image", published)
+	}
+	// The stackr image first: ingress workers wait on it.
 	want := [][2]string{
+		{"ghcr.io/fyrmforge/stackr:0.6.0", "localhost:5000/stackr.system/stackr:0.6.0"},
 		{"alpine:3", "localhost:5000/stackr.system/alpine:3"},
 		{"registry.k8s.io/pause:3.10", "localhost:5000/stackr.system/pause:3.10"},
-		{"ghcr.io/fyrmforge/stackr:0.6.0", "localhost:5000/stackr.system/stackr:0.6.0"},
 	}
 	if len(copies) != len(want) {
 		t.Fatalf("copies = %v", copies)
@@ -77,11 +84,26 @@ func TestPublishSystemImages(t *testing.T) {
 			t.Errorf("row = %+v", r)
 		}
 	}
-	if rows[0].Repo != "stackr.system/alpine" || rows[0].Tag != "3" || rows[0].UpstreamRef != "alpine:3" {
-		t.Errorf("alpine row = %+v", rows[0])
+	if rows[1].Repo != "stackr.system/alpine" || rows[1].Tag != "3" || rows[1].UpstreamRef != "alpine:3" {
+		t.Errorf("alpine row = %+v", rows[1])
 	}
-	if rows[2].Repo != "stackr.system/stackr" || rows[2].Tag != "0.6.0" {
-		t.Errorf("stackr row = %+v", rows[2])
+	if rows[0].Repo != "stackr.system/stackr" || rows[0].Tag != "0.6.0" {
+		t.Errorf("stackr row = %+v", rows[0])
+	}
+}
+
+// A proxy pull waits for the boot publish, up to its deadline.
+func TestWaitStackrPublished(t *testing.T) {
+	o := &Orchestrator{stackrPublished: make(chan struct{})}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := o.waitStackrPublished(ctx); err == nil {
+		t.Error("did not wait for the publish")
+	}
+	o.markStackrPublished()
+	o.markStackrPublished() // twice is fine
+	if err := o.waitStackrPublished(ctx); err != nil {
+		t.Errorf("after the publish: %v", err)
 	}
 }
 

@@ -64,6 +64,7 @@ type systemPublisher struct {
 	pushLocal   func(ctx context.Context, src, dst string) (imgcopy.Result, error)
 	record      func(context.Context, store.RegistryImage) error
 	stackrImage func(context.Context) (string, error)
+	published   func() // after the stackr image is in; may be nil
 }
 
 // publish copies every system image in. One failing does not stop the rest;
@@ -88,10 +89,7 @@ func (p systemPublisher) publish(ctx context.Context) error {
 		}
 	}
 	local := func(repo, tag string) string { return "localhost:" + installspec.RegistryPort + "/" + repo + ":" + tag }
-	for _, c := range systemCopies {
-		res, err := p.copy(ctx, c.upstream, local(c.repo, c.tag), plat)
-		add(c.upstream, c.repo, c.tag, res, err)
-	}
+	// First: it is local and quick, and ingress workers wait on it.
 	// Not on any outside registry yet, only in the controller's Docker.
 	// ponytail: one CPU type (the controller's) until ghcr carries a
 	// multi-arch image; then this is one more entry of systemCopies.
@@ -102,6 +100,13 @@ func (p systemPublisher) publish(ctx context.Context) error {
 		tag := dst[strings.LastIndex(dst, ":")+1:]
 		res, err := p.pushLocal(ctx, img, dst)
 		add(img, stackrRepo, tag, res, err)
+		if err == nil && p.published != nil {
+			p.published()
+		}
+	}
+	for _, c := range systemCopies {
+		res, err := p.copy(ctx, c.upstream, local(c.repo, c.tag), plat)
+		add(c.upstream, c.repo, c.tag, res, err)
 	}
 	return errors.Join(errList...)
 }
@@ -160,6 +165,28 @@ func (o *Orchestrator) systemPublisher() systemPublisher {
 		},
 		record:      o.recordImage,
 		stackrImage: o.controllerStackrImage,
+		published:   o.markStackrPublished,
+	}
+}
+
+func (o *Orchestrator) markStackrPublished() {
+	if o.stackrPublished != nil {
+		o.stackrOnce.Do(func() { close(o.stackrPublished) })
+	}
+}
+
+// waitStackrPublished holds a node's pull of the stackr image until the boot
+// publish put the running version in the registry: right after an upgrade
+// the new tag is not there yet.
+func (o *Orchestrator) waitStackrPublished(ctx context.Context) error {
+	if o.stackrPublished == nil {
+		return nil
+	}
+	select {
+	case <-o.stackrPublished:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
 	}
 }
 
@@ -167,6 +194,7 @@ func (o *Orchestrator) systemPublisher() systemPublisher {
 // few tries. Ingress workers wait on the stackr image, so a success re-syncs
 // the proxy to bring any that failed to pull it.
 func (o *Orchestrator) publishSystemImages(ctx context.Context) {
+	defer o.markStackrPublished() // given up: a pull says what is missing
 	var err error
 	for i := range 5 {
 		if err = o.systemPublisher().publish(ctx); err == nil {

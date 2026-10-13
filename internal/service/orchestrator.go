@@ -260,9 +260,14 @@ type Orchestrator struct {
 	stopMesh    context.CancelFunc
 	runMesh     func() // starts the mesh loop once New has built every leaf
 	meshCtx     context.Context
-	localWorker *worker.Server // the controller's own node in the mesh, nil on a fake host
-	rotation    rotation       // mesh key rotation (rotate.go)
-	stopOnce    sync.Once
+	// stackrPublished closes once the boot publish put the running stackr
+	// image in the cluster registry (or gave up): an ingress worker's proxy
+	// pull waits on it after an upgrade (systemimages.go).
+	stackrPublished chan struct{}
+	stackrOnce      sync.Once
+	localWorker     *worker.Server // the controller's own node in the mesh, nil on a fake host
+	rotation        rotation       // mesh key rotation (rotate.go)
+	stopOnce        sync.Once
 }
 
 // onBuild is a test hook: every constructor New calls reports its name here,
@@ -400,6 +405,8 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 
 		cluster:   cl,
 		stopNodes: make(chan struct{}),
+
+		stackrPublished: make(chan struct{}),
 	}
 	// Every network comes from one cluster pool: a reservation avoids every
 	// env's network and every node's reported bridges, not just its own node's.
@@ -724,6 +731,8 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 		orch.runMesh()
 		// A real host only: a fake host or a test has no registry to fill.
 		go orch.publishSystemImages(orch.meshCtx)
+	} else {
+		orch.markStackrPublished() // no registry to fill
 	}
 	return orch, nil
 }
