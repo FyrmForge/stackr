@@ -249,6 +249,9 @@ type Orchestrator struct {
 	mesh        *meshSvc // the node mesh and exits (mesh.go, multinode.go)
 	stopMesh    context.CancelFunc
 	runMesh     func() // starts the mesh loop once New has built every leaf
+	meshCtx     context.Context
+	localWorker *worker.Server // the controller's own node in the mesh, nil on a fake host
+	rotation    rotation       // mesh key rotation (rotate.go)
 	stopOnce    sync.Once
 }
 

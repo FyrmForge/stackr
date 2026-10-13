@@ -28,7 +28,8 @@ const (
 	CertIssue     = "cert.issue"     // the cluster CA signed a certificate
 	MoveStart     = "move.start"
 	MoveFinish    = "move.finish"
-	NodeRecover   = "node.recover" // a worker fetched its mesh through the panel, or was refused
+	NodeRecover   = "node.recover"    // a worker fetched its mesh through the panel, or was refused
+	NodeKeyRotate = "node.key_rotate" // a node's mesh and exit keys were replaced
 )
 
 // Event is what a caller records; Append stamps the id and time.

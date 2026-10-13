@@ -103,6 +103,10 @@ type meshSvc struct {
 	down   map[[2]string]time.Time        // since when a pair looked down
 	rx     map[string]map[string]rxSample // per node, per peer key
 	specs  map[string]worker.MeshSpec
+	// heard is the last rotated key and heardBy when the rotation gate stops
+	// waiting to hear it (rotate.go).
+	heard   string
+	heardBy time.Time
 }
 
 // Spec is the node's mesh spec from the last sync: a joining worker gets
@@ -181,9 +185,29 @@ func (m *meshSvc) Ensure(ctx context.Context, nodeID string) error {
 // Sync computes every node's spec and pushes it: all nodes when only is "",
 // else that one. Unchanged specs are skipped unless force.
 func (m *meshSvc) Sync(ctx context.Context, only string, force bool) error {
-	in, err := m.gather(ctx)
+	in, specs, err := m.plan(ctx)
 	if err != nil {
 		return err
+	}
+	// Exit sides first, so a client's first probe finds its link answering.
+	ids := make([]string, 0, len(specs))
+	for id := range specs {
+		if only == "" || id == only {
+			ids = append(ids, id)
+		}
+	}
+	sort.SliceStable(ids, func(i, j int) bool {
+		return len(specs[ids[i]].Serves) > 0 && len(specs[ids[j]].Serves) == 0
+	})
+	return m.push(ctx, in, specs, ids, force)
+}
+
+// plan gathers the nodes, decides the routes and builds every node's spec,
+// keeping them as the last sync's.
+func (m *meshSvc) plan(ctx context.Context) (meshIn, map[string]worker.MeshSpec, error) {
+	in, err := m.gather(ctx)
+	if err != nil {
+		return meshIn{}, nil, err
 	}
 	in.Next = m.routes(in, time.Now())
 	specs := buildMesh(in)
@@ -206,20 +230,15 @@ func (m *meshSvc) Sync(ctx context.Context, only string, force bool) error {
 	if changed {
 		m.saveRoutes(ctx, in.Next)
 	}
-	// Exit sides first, so a client's first probe finds its link answering.
-	ids := make([]string, 0, len(specs))
-	for id := range specs {
-		ids = append(ids, id)
-	}
-	sort.SliceStable(ids, func(i, j int) bool {
-		return len(specs[ids[i]].Serves) > 0 && len(specs[ids[j]].Serves) == 0
-	})
+	return in, specs, nil
+}
+
+// push sends ids their specs, in that order; unchanged ones are skipped
+// unless force.
+func (m *meshSvc) push(ctx context.Context, in meshIn, specs map[string]worker.MeshSpec, ids []string, force bool) error {
 	var errs []error
 	for _, id := range ids {
 		spec := specs[id]
-		if only != "" && id != only {
-			continue
-		}
 		cl, ok := m.nodes(id)
 		if !ok {
 			continue

@@ -17,6 +17,13 @@ func (c *Client) ApplyMesh(ctx context.Context, spec worker.MeshSpec) error {
 	return c.call(ctx, "POST", "/v1/mesh", "application/json", b, nil)
 }
 
+// RotateKeys asks the node to make new mesh and exit keys (POST
+// /v1/mesh/rotate); it answers at once and hands the new public keys over
+// through the recovery path.
+func (c *Client) RotateKeys(ctx context.Context) error {
+	return c.call(ctx, "POST", worker.RotatePath, "", nil, nil)
+}
+
 // MeshInfo is the node's public keys and ladder states (GET /v1/mesh).
 func (c *Client) MeshInfo(ctx context.Context) (worker.MeshInfo, error) {
 	var i worker.MeshInfo

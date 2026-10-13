@@ -76,8 +76,16 @@ func (o *Orchestrator) RecoverNode(ctx context.Context, req worker.RecoverReques
 		o.auditRecover(ctx, peer.NodeID, "refused: not a confirmed worker")
 		return worker.MeshSpec{}, refused
 	}
+	force := false
+	if p.WGPublic != "" && p.WGPublic != n.WGPublicKey {
+		if err := o.takeNodeKeys(ctx, n, p.WGPublic, p.ExitPublic); err != nil {
+			o.auditRecover(ctx, n.ID, "refused: bad keys")
+			return worker.MeshSpec{}, err
+		}
+		force = true // every peer learns the new key now
+	}
 	o.mesh.Report(ctx, n.ID, p.Facts)
-	if err := o.mesh.Sync(ctx, "", false); err != nil {
+	if err := o.mesh.Sync(ctx, "", force); err != nil {
 		// Pushes to other nodes may fail; the spec below is computed anyway.
 		slog.Warn("recover: mesh sync", "node", n.Name, "err", err)
 	}

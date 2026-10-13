@@ -57,7 +57,8 @@ func (o *Orchestrator) startMesh(ctlID string) {
 		return c, true
 	})
 	ctx, cancel := context.WithCancel(context.Background())
-	o.stopMesh = cancel
+	o.stopMesh, o.meshCtx, o.localWorker = cancel, ctx, local
+	go o.rotateSchedule(ctx)
 	if local != nil {
 		o.mesh.ctlID, o.mesh.Registry, o.mesh.Panel = ctlID, o.meshRegistry, o.panelURL()
 	}

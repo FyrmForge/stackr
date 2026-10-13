@@ -36,6 +36,8 @@ var securityActions = []struct{ Key, Label string }{
 	{"registry.token", "registry token issued"},
 	{"move.start", "env move started"},
 	{"move.finish", "env move finished"},
+	{"node.recover", "node recovered through the panel"},
+	{"node.key_rotate", "node keys rotated"},
 }
 
 var securityWindows = []struct {
