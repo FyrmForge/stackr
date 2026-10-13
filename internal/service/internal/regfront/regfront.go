@@ -321,6 +321,63 @@ type Pushed struct {
 	Subject   string
 }
 
+// Gate shuts the registry's writes for a while: the cleanup sweep closes it
+// around the garbage collect, the front answers 503 while it is shut and an
+// import (which writes to the registry directly) waits on it. The zero Gate is
+// open.
+type Gate struct {
+	mu   sync.Mutex
+	shut chan struct{} // non-nil while closed; closed when the gate opens
+}
+
+// Close shuts the gate and returns the func that opens it again; ok is false
+// when it was already shut (another sweep), and nothing was changed.
+func (g *Gate) Close() (open func(), ok bool) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.shut != nil {
+		return nil, false
+	}
+	shut := make(chan struct{})
+	g.shut = shut
+	return func() {
+		g.mu.Lock()
+		defer g.mu.Unlock()
+		if g.shut == shut {
+			g.shut = nil
+			close(shut)
+		}
+	}, true
+}
+
+// Closed says whether the gate is shut.
+func (g *Gate) Closed() bool {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.shut != nil
+}
+
+// Wait returns once the gate is open, or ctx's error.
+func (g *Gate) Wait(ctx context.Context) error {
+	for {
+		g.mu.Lock()
+		shut := g.shut
+		g.mu.Unlock()
+		if shut == nil {
+			return nil
+		}
+		select {
+		case <-shut:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+}
+
+// gateRetryAfter is the seconds a refused writer is told to wait. The sweep
+// takes seconds; a builder retries on 503.
+const gateRetryAfter = "10"
+
 // Server is the front: the token endpoint at /token and the proxy under /v2/.
 type Server struct {
 	Key []byte
@@ -336,7 +393,10 @@ type Server struct {
 	// Pushed is called after a manifest PUT succeeded (a build or a developer
 	// finished a push), once per manifest, with the token's holder. Nil = none.
 	Pushed func(context.Context, Pushed)
-	Now    func() time.Time
+	// Gate, when closed, refuses every write with 503 and Retry-After: the
+	// cleanup sweep is collecting garbage. Reads go through. Nil = never shut.
+	Gate *Gate
+	Now  func() time.Time
 
 	once  sync.Once
 	proxy *httputil.ReverseProxy
@@ -500,6 +560,13 @@ func (s *Server) serveV2(w http.ResponseWriter, r *http.Request) {
 			s.challenge(w, need, "insufficient_scope")
 			return
 		}
+	}
+	if s.Gate != nil && r.Method != http.MethodGet && r.Method != http.MethodHead && s.Gate.Closed() {
+		w.Header().Set("Retry-After", gateRetryAfter)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = w.Write([]byte(`{"errors":[{"code":"UNAVAILABLE","message":"registry cleanup is running, retry shortly"}]}`))
+		return
 	}
 	// A mount reads its source; without pull there, drop the mount and the
 	// registry starts a plain upload instead, as the spec allows.

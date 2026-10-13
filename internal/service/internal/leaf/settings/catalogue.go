@@ -55,7 +55,10 @@ type Knob struct {
 	Default   string `json:"default"`
 	Scopes    Scope  `json:"scopes"`
 	AllowZero bool   `json:"allow_zero"` // an explicit 0 is a real value, not "clear"
-	ReadOnly  bool   `json:"read_only"`  // the installer sets it; Set refuses
+	// EmptyOff: an empty write is stored as empty, which means off, instead of
+	// removing the row (which would bring the default back).
+	EmptyOff bool `json:"empty_off"`
+	ReadOnly bool `json:"read_only"` // the installer sets it; Set refuses
 	// ConfigOnly marks the server file's own binding (server_config_*): the
 	// Config tab and bind verb own them, so the Settings tab and the server
 	// file's settings: block skip them.
@@ -196,6 +199,21 @@ var Catalogue = []Knob{
 		Desc:    "when the sweep runs, a cron line; empty is the default time (cleanup_enabled is the switch)",
 	},
 	{
+		Key:      "registry_cleanup_schedule",
+		Type:     TStr,
+		Default:  "15 4 * * *",
+		Scopes:   Flat,
+		EmptyOff: true,
+		Desc:     "when unused registry versions are deleted and the registry's disk is collected, a cron line; empty is off",
+	},
+	{
+		Key:     "registry_keep",
+		Type:    TInt,
+		Default: "5",
+		Scopes:  Flat,
+		Desc:    "versions per registry repository the cleanup always keeps, newest first; older ones go unless an env uses them",
+	},
+	{
 		Key:     "orphans_enabled",
 		Type:    TBool,
 		Default: "true",
@@ -287,9 +305,10 @@ func Default(key string) string {
 // removes the row, so the default time applies; the on/off switches are
 // separate knobs.
 var cronKnobs = map[string]bool{
-	"panel_backup_schedule": true,
-	"cleanup_schedule":      true,
-	"orphans_schedule":      true,
+	"panel_backup_schedule":     true,
+	"cleanup_schedule":          true,
+	"orphans_schedule":          true,
+	"registry_cleanup_schedule": true,
 }
 
 // IsCron says whether key holds a cron line.

@@ -93,7 +93,7 @@ func specs(es []Entry) map[string]string {
 
 func settingsDrivers() Drivers {
 	f := func(context.Context) error { return nil }
-	return Drivers{Orphans: f, Watch: f, PanelBackup: f, Cleanup: f}
+	return Drivers{Orphans: f, Watch: f, PanelBackup: f, Cleanup: f, RegistryClean: f}
 }
 
 // The knobs drive the entries: defaults, an override, cleanup off, off, a bad line.
@@ -200,5 +200,28 @@ func TestReloadKeepsTableOnReadError(t *testing.T) {
 	r.Reload(ctx)
 	if slices.Contains(r.Names(), "panel-backup") {
 		t.Errorf("a failed settings read applied the defaults: %v", r.Names())
+	}
+}
+
+// The registry sweep runs at its default time, takes an override, and an
+// empty line (stored empty) switches it off; a bad line drops only itself.
+func TestRegistryCleanEntry(t *testing.T) {
+	d := settingsDrivers()
+	if got := specs(Entries(d, nil, nil, nil)); got["registry-clean"] != "15 4 * * *" {
+		t.Errorf("default = %v", got)
+	}
+	if got := specs(Entries(d, nil, nil, map[string]string{"registry_cleanup_schedule": "0 2 * * 0"})); got["registry-clean"] != "0 2 * * 0" {
+		t.Errorf("override = %v", got)
+	}
+	if got := specs(Entries(d, nil, nil, map[string]string{"registry_cleanup_schedule": ""})); got["registry-clean"] != "" {
+		t.Errorf("empty = off, got %v", got)
+	}
+	got := specs(Entries(d, nil, nil, map[string]string{"registry_cleanup_schedule": "nope"}))
+	if _, ok := got["registry-clean"]; ok || got["orphans"] == "" {
+		t.Errorf("bad line = %v", got)
+	}
+	d.RegistryClean = nil
+	if _, ok := specs(Entries(d, nil, nil, nil))["registry-clean"]; ok {
+		t.Error("no driver, still an entry")
 	}
 }

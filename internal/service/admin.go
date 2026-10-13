@@ -156,12 +156,13 @@ func (o *Orchestrator) Setting(ctx context.Context, key string) (string, error) 
 
 // scheduleKnobs are the settings the cron table is built from.
 var scheduleKnobs = map[string]bool{
-	"panel_backup_enabled":  true,
-	"panel_backup_schedule": true,
-	"cleanup_schedule":      true,
-	"cleanup_enabled":       true,
-	"orphans_enabled":       true,
-	"orphans_schedule":      true,
+	"panel_backup_enabled":      true,
+	"panel_backup_schedule":     true,
+	"cleanup_schedule":          true,
+	"cleanup_enabled":           true,
+	"orphans_enabled":           true,
+	"orphans_schedule":          true,
+	"registry_cleanup_schedule": true,
 }
 
 // SetSetting writes one flat knob; see SetSettings. The server file's binding

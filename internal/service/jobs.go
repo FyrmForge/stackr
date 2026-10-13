@@ -31,28 +31,29 @@ type (
 
 // Job kinds: every container op is one of these, run by flow/jobs.
 const (
-	kindDeploy      jobs.Kind = "deploy"
-	kindPromote     jobs.Kind = "promote"
-	kindEnvSync     jobs.Kind = "env-sync"
-	kindPush        jobs.Kind = "push"
-	kindPR          jobs.Kind = "pr"
-	kindDelete      jobs.Kind = "delete"
-	kindRestart     jobs.Kind = "restart"
-	kindStop        jobs.Kind = "stop"
-	kindStart       jobs.Kind = "start"
-	kindBackup      jobs.Kind = "backup"
-	kindRestore     jobs.Kind = "restore"
-	kindOrphans     jobs.Kind = "orphans"
-	kindPanelBackup jobs.Kind = "panel-backup"
-	kindUpgrade     jobs.Kind = "upgrade"
-	kindImageWatch  jobs.Kind = "imagewatch"
-	kindRun         jobs.Kind = "run"
-	kindOrgPlan     jobs.Kind = "org-plan"
-	kindOrgApply    jobs.Kind = "org-apply"
-	kindServerPlan  jobs.Kind = "server-plan"
-	kindServerApply jobs.Kind = "server-apply"
-	kindCleanup     jobs.Kind = "cleanup"
-	kindMoveEnv     jobs.Kind = "move-env"
+	kindDeploy        jobs.Kind = "deploy"
+	kindPromote       jobs.Kind = "promote"
+	kindEnvSync       jobs.Kind = "env-sync"
+	kindPush          jobs.Kind = "push"
+	kindPR            jobs.Kind = "pr"
+	kindDelete        jobs.Kind = "delete"
+	kindRestart       jobs.Kind = "restart"
+	kindStop          jobs.Kind = "stop"
+	kindStart         jobs.Kind = "start"
+	kindBackup        jobs.Kind = "backup"
+	kindRestore       jobs.Kind = "restore"
+	kindOrphans       jobs.Kind = "orphans"
+	kindPanelBackup   jobs.Kind = "panel-backup"
+	kindUpgrade       jobs.Kind = "upgrade"
+	kindImageWatch    jobs.Kind = "imagewatch"
+	kindRun           jobs.Kind = "run"
+	kindOrgPlan       jobs.Kind = "org-plan"
+	kindOrgApply      jobs.Kind = "org-apply"
+	kindServerPlan    jobs.Kind = "server-plan"
+	kindServerApply   jobs.Kind = "server-apply"
+	kindCleanup       jobs.Kind = "cleanup"
+	kindRegistryClean jobs.Kind = "registry-clean"
+	kindMoveEnv       jobs.Kind = "move-env"
 )
 
 type runJob struct {
@@ -308,11 +309,12 @@ func (o *Orchestrator) handlers() map[jobs.Kind]jobs.Handler {
 			_, err = o.planOrg(ctx, p.OrgID, r.Log)
 			return err
 		}),
-		kindOrgApply:    controllerJob(o, payload(o.runOrgApply)),
-		kindServerPlan:  controllerJob(o, payload(o.runServerPlan)),
-		kindServerApply: controllerJob(o, payload(o.runServerApply)),
-		kindCleanup:     o.runCleanup,
-		kindMoveEnv:     payload(o.runMove),
+		kindOrgApply:      controllerJob(o, payload(o.runOrgApply)),
+		kindServerPlan:    controllerJob(o, payload(o.runServerPlan)),
+		kindServerApply:   controllerJob(o, payload(o.runServerApply)),
+		kindCleanup:       o.runCleanup,
+		kindRegistryClean: controllerJob(o, payload(o.runRegistryClean)),
+		kindMoveEnv:       payload(o.runMove),
 	}
 }
 

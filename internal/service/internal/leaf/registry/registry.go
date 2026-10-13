@@ -22,6 +22,7 @@ import (
 
 	"github.com/FyrmForge/stackr/internal/installspec"
 	"github.com/FyrmForge/stackr/internal/service/errs"
+	"github.com/FyrmForge/stackr/internal/service/internal/regfront"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
 
@@ -36,6 +37,8 @@ type Leaf struct {
 	images store.RegistryImageStore
 	// base is the registry's HTTP address on the head's loopback.
 	base string
+	// gate is shut while the cleanup sweep runs (clean.go).
+	gate regfront.Gate
 }
 
 func New(images store.RegistryImageStore) *Leaf {

@@ -31,6 +31,9 @@ type Drivers struct {
 	// is only scheduled while cleanup_enabled is on.
 	PanelBackup func(ctx context.Context) error
 	Cleanup     func(ctx context.Context) error
+	// RegistryClean enqueues the registry sweep; nil = no entry. Its line
+	// is registry_cleanup_schedule, empty = off.
+	RegistryClean func(ctx context.Context) error
 	// Settings is the effective flat knobs; a key it lacks takes the
 	// catalogue default, so nil works too.
 	Settings func(ctx context.Context) (map[string]string, error)
@@ -65,6 +68,15 @@ func knobSpec(set map[string]string, key string) (string, bool) {
 	return v, true
 }
 
+// offSpec is knobSpec for a knob whose empty value means off: a key the map
+// lacks takes the default, a key that is empty gives no entry.
+func offSpec(set map[string]string, key string) (string, bool) {
+	if v, ok := set[key]; ok && strings.TrimSpace(v) == "" {
+		return "", false
+	}
+	return knobSpec(set, key)
+}
+
 // knobOn is a switch knob; a missing or unreadable value takes the default.
 func knobOn(set map[string]string, key string) bool {
 	on, err := strconv.ParseBool(strings.TrimSpace(set[key]))
@@ -87,6 +99,9 @@ func Entries(d Drivers, scheds []store.BackupSchedule, crons []store.Tile, set m
 	}
 	if spec, ok := knobSpec(set, "cleanup_schedule"); ok && knobOn(set, "cleanup_enabled") && d.Cleanup != nil {
 		out = append(out, Entry{Name: "cleanup", Spec: spec, Fire: d.Cleanup})
+	}
+	if spec, ok := offSpec(set, "registry_cleanup_schedule"); ok && d.RegistryClean != nil {
+		out = append(out, Entry{Name: "registry-clean", Spec: spec, Fire: d.RegistryClean})
 	}
 	if d.Traffic != nil {
 		out = append(out, Entry{Name: "traffic", Spec: "@every 5s", Fire: d.Traffic})
