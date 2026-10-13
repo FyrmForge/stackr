@@ -14,6 +14,8 @@ import (
 	"os/exec"
 	"strings"
 	"time"
+
+	"github.com/vishvananda/netlink"
 )
 
 // Traffic is GET /v1/traffic: this node's conntrack lines that touch one of
@@ -43,7 +45,7 @@ func (s *Server) traffic(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
 	}
-	raw, err := readConntrack(r.Context(), s.conntrack())
+	raw, err := ReadConntrack(r.Context(), s.conntrack())
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusServiceUnavailable)
 		return
@@ -98,9 +100,10 @@ func (s *Server) localTiles(ctx context.Context) (map[string]string, error) {
 	return out, nil
 }
 
-// readConntrack is the table: the procfs file, or conntrack -L on a kernel
-// without it (same as the controller's flow/traffic read).
-func readConntrack(ctx context.Context, path string) ([]byte, error) {
+// ReadConntrack is the table: the procfs file, conntrack -L, or the kernel's
+// netlink dump (a distro kernel without the procfs file and no conntrack
+// tool, e.g. Ubuntu 26.04), all in conntrack -L's line format.
+func ReadConntrack(ctx context.Context, path string) ([]byte, error) {
 	data, err := os.ReadFile(path)
 	if !errors.Is(err, fs.ErrNotExist) {
 		return data, err
@@ -110,7 +113,16 @@ func readConntrack(ctx context.Context, path string) ([]byte, error) {
 	if out, xerr := exec.CommandContext(ctx, "conntrack", "-L").Output(); xerr == nil {
 		return out, nil
 	}
-	return nil, err
+	flows, nerr := netlink.ConntrackTableList(netlink.ConntrackTable, netlink.FAMILY_V4)
+	if nerr != nil {
+		return nil, err
+	}
+	var out bytes.Buffer
+	for _, f := range flows {
+		out.WriteString(f.String())
+		out.WriteByte('\n')
+	}
+	return out.Bytes(), nil
 }
 
 // localLines keeps the lines whose original src or dst is a local tile IP.
