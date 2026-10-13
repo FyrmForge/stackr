@@ -129,7 +129,9 @@ func (f *Failover) Reset(peers []mesh.Peer) {
 			st := *old
 			st.since, st.rxAt, st.probing, st.rx = now, now, true, 0
 			next[p.PublicKey] = &st
-			_ = f.A.SetEndpoint(f.Iface, p.PublicKey, p.Candidates[st.idx])
+			if st.idx < len(p.Candidates) { // a node reached only through a hop has none
+				_ = f.A.SetEndpoint(f.Iface, p.PublicKey, p.Candidates[st.idx])
+			}
 			continue
 		}
 		next[p.PublicKey] = &state{node: p.NodeID, cands: p.Candidates, since: now, rxAt: now, probing: true, home: -1}

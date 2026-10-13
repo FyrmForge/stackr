@@ -171,6 +171,18 @@ func TestRotatedKeyKeepsCandidate(t *testing.T) {
 	}
 }
 
+// A node reached only through a hop has no candidates; rotating its key
+// once crashed every node that applied the next push.
+func TestRotatedKeyNoCandidates(t *testing.T) {
+	r := &rig{t: t, now: time.Unix(1000, 0), rec: &Recorder{}}
+	r.f = &Failover{A: r.rec, Iface: "stackr0", Now: func() time.Time { return r.now }}
+	r.f.Reset([]mesh.Peer{{NodeID: "n1", PublicKey: "old"}})
+	r.f.Reset([]mesh.Peer{{NodeID: "n1", PublicKey: "new"}})
+	if len(r.rec.Moves) != 0 {
+		t.Fatalf("set an endpoint for a peer with none: %v", r.rec.Moves)
+	}
+}
+
 func TestSamePushKeepsPosition(t *testing.T) {
 	r := newRig(t)
 	r.at(30 * time.Second) // -> public
