@@ -6,11 +6,16 @@ package wgapply
 
 import (
 	"context"
+	"fmt"
+	"net"
 	"net/netip"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/FyrmForge/stackr/internal/mesh"
+	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 )
 
 // Config is the full desired state of the node's mesh interface.
@@ -263,4 +268,79 @@ func (f *Failover) Run(ctx context.Context, every time.Duration, onErr func(erro
 			}
 		}
 	}
+}
+
+// parseSet reads the argv of `wg set <iface> ...` that the exit link plans
+// emit (listen-port, private-key <file>, one peer with endpoint, allowed-ips,
+// persistent-keepalive) into a wgctrl config. The private key file is read
+// here; it is never echoed in errors.
+func parseSet(args []string, readFile func(string) ([]byte, error)) (string, wgtypes.Config, error) {
+	var cfg wgtypes.Config
+	if len(args) < 1 {
+		return "", cfg, fmt.Errorf("wg set: no interface")
+	}
+	iface, rest := args[0], args[1:]
+	var peer *wgtypes.PeerConfig
+	for i := 0; i < len(rest); i++ {
+		if i+1 >= len(rest) {
+			return "", cfg, fmt.Errorf("wg set: %s needs a value", rest[i])
+		}
+		k, v := rest[i], rest[i+1]
+		i++
+		switch k {
+		case "listen-port":
+			p, err := strconv.Atoi(v)
+			if err != nil {
+				return "", cfg, fmt.Errorf("wg set: listen-port %q", v)
+			}
+			cfg.ListenPort = &p
+		case "private-key":
+			b, err := readFile(v)
+			if err != nil {
+				return "", cfg, fmt.Errorf("wg set: private key %s: %w", v, err)
+			}
+			key, err := wgtypes.ParseKey(strings.TrimSpace(string(b)))
+			if err != nil {
+				return "", cfg, fmt.Errorf("wg set: private key %s is not a key", v)
+			}
+			cfg.PrivateKey = &key
+		case "peer":
+			pk, err := wgtypes.ParseKey(v)
+			if err != nil {
+				return "", cfg, fmt.Errorf("wg set: peer key %q", v)
+			}
+			cfg.Peers = append(cfg.Peers, wgtypes.PeerConfig{PublicKey: pk, ReplaceAllowedIPs: true})
+			peer = &cfg.Peers[len(cfg.Peers)-1]
+		case "endpoint", "allowed-ips", "persistent-keepalive":
+			if peer == nil {
+				return "", cfg, fmt.Errorf("wg set: %s before peer", k)
+			}
+			switch k {
+			case "endpoint":
+				ep, err := net.ResolveUDPAddr("udp", v)
+				if err != nil {
+					return "", cfg, fmt.Errorf("wg set: endpoint %q: %w", v, err)
+				}
+				peer.Endpoint = ep
+			case "allowed-ips":
+				for _, s := range strings.Split(v, ",") {
+					_, n, err := net.ParseCIDR(strings.TrimSpace(s))
+					if err != nil {
+						return "", cfg, fmt.Errorf("wg set: allowed-ips %q", s)
+					}
+					peer.AllowedIPs = append(peer.AllowedIPs, *n)
+				}
+			case "persistent-keepalive":
+				sec, err := strconv.Atoi(v)
+				if err != nil {
+					return "", cfg, fmt.Errorf("wg set: persistent-keepalive %q", v)
+				}
+				d := time.Duration(sec) * time.Second
+				peer.PersistentKeepaliveInterval = &d
+			}
+		default:
+			return "", cfg, fmt.Errorf("wg set: unsupported %q", k)
+		}
+	}
+	return iface, cfg, nil
 }

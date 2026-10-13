@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/FyrmForge/stackr/internal/mesh"
+	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 )
 
 var ap = netip.MustParseAddrPort
@@ -193,5 +194,31 @@ func TestSamePushKeepsPosition(t *testing.T) {
 	r.f.Reset([]mesh.Peer{{PublicKey: "k", Candidates: cands[1:]}})
 	if got := r.at(time.Second); got != cands[1] {
 		t.Fatalf("a changed push starts on its first: %v", got)
+	}
+}
+
+// The exit link plans' wg argv (exits.Link.Up, exits.Serve.Up) parse into a
+// wgctrl config; the key comes from the file, never the argv.
+func TestParseSet(t *testing.T) {
+	priv, _ := wgtypes.GeneratePrivateKey()
+	peer, _ := wgtypes.GeneratePrivateKey()
+	read := func(string) ([]byte, error) { return []byte(priv.String() + "\n"), nil }
+	link := []string{"wgx-1", "listen-port", "52000", "private-key", "/k", "peer", peer.PublicKey().String(),
+		"endpoint", "10.207.255.3:52000", "allowed-ips", "0.0.0.0/0", "persistent-keepalive", "25"}
+	iface, cfg, err := parseSet(link, read)
+	if err != nil || iface != "wgx-1" || *cfg.ListenPort != 52000 || *cfg.PrivateKey != priv || len(cfg.Peers) != 1 {
+		t.Fatalf("link: %v %+v", err, cfg)
+	}
+	p := cfg.Peers[0]
+	if p.Endpoint.String() != "10.207.255.3:52000" || len(p.AllowedIPs) != 1 || *p.PersistentKeepaliveInterval != 25*time.Second || !p.ReplaceAllowedIPs {
+		t.Fatalf("link peer: %+v", p)
+	}
+	serve := []string{"wgx-2", "listen-port", "52001", "private-key", "/k", "peer", peer.PublicKey().String(),
+		"allowed-ips", "10.208.1.0/24,10.251.0.1/32"}
+	if _, cfg, err = parseSet(serve, read); err != nil || len(cfg.Peers[0].AllowedIPs) != 2 || cfg.Peers[0].Endpoint != nil {
+		t.Fatalf("serve: %v %+v", err, cfg)
+	}
+	if _, _, err = parseSet([]string{"wgx-3", "endpoint", "1.2.3.4:1"}, read); err == nil {
+		t.Fatal("endpoint before peer accepted")
 	}
 }

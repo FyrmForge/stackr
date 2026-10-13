@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"os"
 	"time"
 
 	"github.com/vishvananda/netlink"
@@ -214,4 +215,18 @@ func (Kernel) RemoveOwned(iface, privateKey string) (bool, error) {
 		return false, nil
 	}
 	return true, netlink.LinkDel(link)
+}
+
+// Set does `wg set <args>` through wgctrl, for the exit link plans.
+func Set(args []string) error {
+	iface, cfg, err := parseSet(args, os.ReadFile)
+	if err != nil {
+		return err
+	}
+	c, err := wgctrl.New()
+	if err != nil {
+		return err
+	}
+	defer c.Close()
+	return c.ConfigureDevice(iface, cfg)
 }
