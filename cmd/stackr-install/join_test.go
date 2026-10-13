@@ -6,12 +6,15 @@ import (
 	"encoding/pem"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/FyrmForge/stackr/internal/clusterca"
+	"github.com/FyrmForge/stackr/internal/worker"
 )
 
 // fakePanel answers /join pending, then /join/status pending once, then the
@@ -116,5 +119,34 @@ func TestJoinArgsAndUnit(t *testing.T) {
 		if !strings.Contains(u, want) {
 			t.Errorf("unit lacks %q:\n%s", want, u)
 		}
+	}
+}
+
+// A box that joined before gets new WireGuard keys on a rejoin.
+func TestDropWGKeys(t *testing.T) {
+	dir := t.TempDir()
+	before, err := worker.EnsureWGKey(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range []string{"exit.key", "wg.key.prev"} {
+		if err := os.WriteFile(filepath.Join(dir, f), []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := dropWGKeys(dir); err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range []string{"wg.key", "exit.key", "wg.key.prev"} {
+		if _, err := os.Stat(filepath.Join(dir, f)); !os.IsNotExist(err) {
+			t.Errorf("%s survived: %v", f, err)
+		}
+	}
+	after, err := worker.EnsureWGKey(dir)
+	if err != nil || after == before {
+		t.Fatalf("key after rejoin = same %v, err %v", after == before, err)
+	}
+	if err := dropWGKeys(dir + "/missing"); err != nil {
+		t.Fatalf("missing keys: %v", err)
 	}
 }

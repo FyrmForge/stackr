@@ -254,6 +254,11 @@ func join(ctx context.Context, args []string, out io.Writer) error {
 	if err != nil {
 		return err
 	}
+	if !fresh {
+		if err := dropWGKeys(*stateDir); err != nil {
+			return err
+		}
+	}
 	wgPub, err := worker.EnsureWGKey(*stateDir) // the worker reads the same wg.key later
 	if err != nil {
 		return err
@@ -280,12 +285,25 @@ func join(ctx context.Context, args []string, out io.Writer) error {
 	if err := os.WriteFile(joinUnitPath, []byte(workerUnit(*stateDir, strings.Split(st.WGAddress, "/")[0], *wgPort, u.String())), 0o644); err != nil {
 		return err
 	}
-	for _, c := range [][]string{{"daemon-reload"}, {"enable", "--now", "stackr-worker.service"}} {
+	// restart, not enable --now: on a rejoin the old worker still runs, on
+	// the old cert and trust.
+	for _, c := range [][]string{{"daemon-reload"}, {"enable", "stackr-worker.service"}, {"restart", "stackr-worker.service"}} {
 		if err := r.run(ctx, "systemctl", c...); err != nil {
 			return err
 		}
 	}
 	r.say("This node is a worker now; the panel shows it under Nodes.")
+	return nil
+}
+
+// dropWGKeys removes the mesh and exit keys of a box that joined before, so
+// a rejoin (after break glass, say) comes back on new WireGuard keys.
+func dropWGKeys(stateDir string) error {
+	for _, f := range []string{"wg.key", "exit.key", "wg.key.prev", "exit.key.prev"} {
+		if err := os.Remove(filepath.Join(stateDir, f)); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+	}
 	return nil
 }
 
