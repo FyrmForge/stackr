@@ -131,21 +131,23 @@ func TestControllerCertRenewsWhenDue(t *testing.T) {
 	must(t, err)
 	must(t, os.WriteFile(filepath.Join(o.cfg.DataDir, controllerCertFile), iss.CertPEM, 0o644))
 	must(t, os.WriteFile(filepath.Join(o.cfg.DataDir, controllerKeyFile), kb, 0o600))
-	changed, err := o.cluster.renew(context.Background(), o.cfg.DataDir)
+	pair, err := tls.LoadX509KeyPair(filepath.Join(o.cfg.DataDir, controllerCertFile), filepath.Join(o.cfg.DataDir, controllerKeyFile))
 	must(t, err)
+	o.cluster.own = pair
+	must(t, o.announceControllerCert(context.Background()))
 	c, err := x509.ParseCertificate(o.cluster.cert().Certificate[0])
 	must(t, err)
-	if !changed || clusterca.NeedsRenewal(c, time.Now()) {
-		t.Fatalf("changed %v, due %v", changed, clusterca.NeedsRenewal(c, time.Now()))
+	if clusterca.NeedsRenewal(c, time.Now()) {
+		t.Fatal("still due")
 	}
 }
 
-// A fresh cluster trusts one root and announces no controller serials; the
+// A fresh cluster trusts one root and announces the controller's serial; the
 // issuer of a renewed cert is that root.
 func TestMeshTrustOneRoot(t *testing.T) {
 	o, _ := renewRig(t)
 	roots, serials := o.meshTrust(context.Background())
-	if len(roots) != 1 || len(serials) != 0 {
+	if len(roots) != 1 || len(serials) != 1 {
 		t.Fatalf("roots %d, serials %v", len(roots), serials)
 	}
 	back, err := clusterca.RootsFromPEM(roots)
