@@ -58,7 +58,7 @@ func TestMapDraws(t *testing.T) {
 		`node-id="node:h"`, `node-id="node:f"`,
 		`hx-get="/-/admin/nodes/f"`, `hx-push-url="?drawer=node:f"`, // a node opens its drawer
 		`node-id="nat:192.168.1.0/24"`, ">NAT<", "192.168.1.0/24", "behind a router",
-		`node-id="internet"`, `node-id="s3:b"`, "S3 · nightly",
+		`node-id="internet:nat:192.168.1.0/24"`, `node-id="internet:node:f"`, `node-id="s3:b"`, "S3 · nightly",
 		`members="nat:192.168.1.0/24 node:h node:n"`, // a box holds its NAT and nodes
 		"LAN · 0.3 ms", "internet · 21 ms",
 		`data-edge-label>private<`, // no latency known: just the kind
@@ -77,10 +77,11 @@ func TestMapDraws(t *testing.T) {
 		}
 	}
 	for _, want := range []string{
-		`data-edge-kind="ingress" data-from="internet" data-to="nat:192.168.1.0/24"`,
+		`data-edge-kind="ingress" data-from="internet:nat:192.168.1.0/24" data-to="nat:192.168.1.0/24"`,
 		`data-edge-kind="forward" data-from="nat:192.168.1.0/24" data-to="node:h"`,
-		`data-edge-kind="ingress" data-from="internet" data-to="node:f"`,
-		`data-edge-kind="egress" data-from="node:f" data-to="internet"`,
+		// one node's ingress and egress share its own internet card
+		`data-edge-kind="ingress" data-from="internet:node:f" data-to="node:f"`,
+		`data-edge-kind="egress" data-from="node:f" data-to="internet:node:f"`,
 		`data-edge-kind="tunnel-lan" data-from="node:h" data-to="node:n"`,
 		`data-edge-kind="tunnel" data-from="node:h" data-to="node:f"`,
 		`data-edge-kind="backup" data-from="node:n" data-to="s3:b"`,
@@ -89,6 +90,11 @@ func TestMapDraws(t *testing.T) {
 		if !strings.Contains(body, want) {
 			t.Errorf("page lacks edge %s", want)
 		}
+	}
+	// No shared internet card: two public sources, two cards; a tunnel over
+	// the internet stays node to node.
+	if strings.Contains(body, `node-id="internet"`) || strings.Count(body, `node-id="internet:`) != 2 {
+		t.Errorf("want two per-source internet cards and no shared one")
 	}
 	// home lists three envs and the "+N more" row inside its card.
 	if got := strings.Count(body, `hx-trigger="click consume"`); got != 4+1+1 {
@@ -147,7 +153,7 @@ func TestMapPlaced(t *testing.T) {
 	if bx > 2000 || by > 1500 || bx+bw < 2000+240 || by+bh < 1500+156 {
 		t.Errorf("box %d,%d %dx%d does not hold fsn1", bx, by, bw, bh)
 	}
-	for id, want := range map[string]bool{"node:f": true, "nat:x": true, "internet": true, "s3:b": true, "net:x": false, "env:f:0": false} {
+	for id, want := range map[string]bool{"node:f": true, "nat:x": true, "internet:node:f": true, "internet": false, "s3:b": true, "net:x": false, "env:f:0": false} {
 		if cluster.Movable(id) != want {
 			t.Errorf("Movable(%s) = %v", id, !want)
 		}
@@ -195,7 +201,7 @@ func TestMapDownTunnelAndHop(t *testing.T) {
 }
 
 // Default spots: boxes stacked, one row each; the NAT, then the node it
-// forwards to; the internet left of every box; tunnels fan out wider.
+// forwards to; an internet card above each source; tunnels fan out wider.
 func TestMapLayout(t *testing.T) {
 	v := cluster.Build(sample(), cluster.Base, nil, nil)
 	at := map[string][4]int{}
@@ -214,10 +220,11 @@ func TestMapLayout(t *testing.T) {
 	if f[0] >= g[0] || f[1] != g[1] {
 		t.Errorf("public node %v not first in the row before %v", f, g)
 	}
-	in := at["internet"]
-	for _, b := range [][4]int{home, lan} {
-		if in[0]+in[2] >= b[0] {
-			t.Errorf("internet %v not left of box %v", in, b)
+	// Each internet card sits above its own source, outside that box.
+	for src, b := range map[string][4]int{"nat:192.168.1.0/24": home, "node:f": lan} {
+		in := at["internet:"+src]
+		if in[2] == 0 || in[1]+in[3] > b[1] {
+			t.Errorf("internet card of %s %v not above its box %v", src, in, b)
 		}
 	}
 	if v.FanGap == 0 {
