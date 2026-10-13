@@ -407,7 +407,7 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 		r.OwnRegistry = orch.RegistryHost
 		r.ToolReady = func(ctx context.Context, nodeID string) error {
 			if nodeID == ctl.ID {
-				return nil // the controller keeps ToolImage from Docker Hub
+				return nil // the controller pulls ToolImage from its own registry
 			}
 			return orch.helperReady(ctx)
 		}
@@ -710,6 +710,8 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 	}()
 	if orch.runMesh != nil {
 		orch.runMesh()
+		// A real host only: a fake host or a test has no registry to fill.
+		go orch.publishSystemImages(orch.meshCtx)
 	}
 	return orch, nil
 }

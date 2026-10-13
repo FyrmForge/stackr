@@ -28,7 +28,7 @@ func TestNodeProxyFollowsIngressTag(t *testing.T) {
 		t.Fatalf("want one proxy run on w1, got %d", len(n.wFake.Specs))
 	}
 	s := n.wFake.Specs[0]
-	want := installspec.NodeProxy("ghcr.io/fyrmforge/stackr:9.9.9")
+	want := installspec.NodeProxy("localhost:5000/stackr.system/stackr:9.9.9") // the registry copy, not ghcr
 	if installspec.TokenFrom(s.Env) != "" {
 		t.Fatal("the controller's DNS-01 token reached a worker's proxy")
 	}
