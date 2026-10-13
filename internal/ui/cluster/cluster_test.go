@@ -93,6 +93,11 @@ func TestMapDraws(t *testing.T) {
 	if got := strings.Count(body, `hx-trigger="click consume"`); got != 4+1+1 {
 		t.Errorf("%d env rows, want home 4, nas 1, fsn1 1", got)
 	}
+	// The refresh is an `every` poll: flash-toast keeps its failures quiet
+	// (a panel restart) on that trigger alone.
+	if !strings.Contains(body, `hx-trigger="every 15s"`) {
+		t.Error("map refresh is not an every poll")
+	}
 }
 
 // Cards never overlap each other, and every box holds its cards.
