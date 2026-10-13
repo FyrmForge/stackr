@@ -36,6 +36,7 @@ var skipped = map[string]string{
 	"join.request":                 "the new machine's installer posts it (stackr-install join)",
 	"join.status":                  "the new machine's installer polls it (stackr-install join)",
 	"node.recover":                 "a worker whose controller went quiet calls it itself (stackrd worker)",
+	"node.cert_renew":              "a worker renews its own certificate (stackrd worker)",
 	"key.cli_code":                 "the panel's CLI authorize page calls it; stackr login waits for its code",
 	"invite.get":                   "an invite link is opened in a browser",
 	"invite.accept":                "an invite link is accepted in a browser",
@@ -1028,6 +1029,14 @@ func (a *app) admin() *cobra.Command {
 			}),
 		list("host-grants", "admin.host-grants", "List every stack's elevated access and what waits for approval", "/admin/host-grants", "stack_id", "lines", "approved_by", "pending"),
 		list("images", "admin.images", "List the images stackr knows", "/admin/images", imageCols...),
+		a.registryAdmin(adminJob(
+			"clean",
+			"admin.registry-clean",
+			"Delete the versions no env runs beyond the newest, then free the disk",
+			"/admin/registry/clean",
+			"registry cleanup",
+			"Clean up the registry now? Pushes pause for a few seconds.",
+		)),
 		adminJob(
 			"image-check",
 			"admin.image-check",

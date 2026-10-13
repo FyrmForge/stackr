@@ -135,3 +135,11 @@ and slug). Each filler adds its own `_test.go` file.
 - **G2:** the rsync helper (`service/move.go` `rsyncSteps`) still builds and `docker push`es itself and is not in `registry_images`. To record it, call `o.recordImage` there (source `system`, repo `stackr.system/tools/rsync`).
 - **G4:** the cleanup must treat `stackr.system/` rows as in use (all of them, or at least the running version's stackr tag and the `alpine`/`pause` repos).
 - Ingress Caddy on a worker is `localhost:5000/stackr.system/stackr:<tag>` of the controller proxy's tag; the spec hash changes, so the first ensure after this lands recreates every worker proxy once.
+## G5 needs (from G4 / integration)
+
+- `service/registrylist.go` ends with two stubs G4 replaces in `registryclean.go` (delete the stubs, keep the names or adjust the callers):
+  - `(o) lastRegistryClean(ctx) (*RegistryCleanState, error)`: nil = never ran. `RegistryCleanState{At, Deleted, Freed, Errors}` is defined in registrylist.go; map G4's `Cleaned` onto it (or move the type).
+  - `(o) cleanRegistryNow(ctx) (Job, error)`: enqueue the sweep job. Until then "Clean up now" and `POST /admin/registry/clean` answer unsupported (500).
+- "In use" in the UI (`registryUse`) is the env's current release only (built: `images.ref`, pulled: repo + digest). G4's `InUse` must also count pinned releases and rollback targets; it does not share this code.
+- Delete verb is the existing `registry.tag.delete` (owner), not the deploy role (`tile.write`, member). Say if members should delete: one line in `authz.go`.
+- `leaf.Usage` (admin totals) adds the rows' sizes, so shared layers count twice.
