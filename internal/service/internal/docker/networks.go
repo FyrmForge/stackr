@@ -57,7 +57,7 @@ func (d *Client) EnsureNetwork(ctx context.Context, name string, subnet netip.Pr
 	_, err = d.cli.NetworkCreate(ctx, name, network.CreateOptions{
 		Driver: "bridge",
 		Labels: all,
-		IPAM:   &network.IPAM{Config: []network.IPAMConfig{{Subnet: subnet.Masked().String()}}},
+		IPAM:   &network.IPAM{Config: []network.IPAMConfig{{Subnet: subnet.Masked().String(), IPRange: DynamicRange(subnet).String()}}},
 	})
 	// A concurrent create of the same name reports "already exists"; both
 	// callers wanted it.
@@ -68,6 +68,51 @@ func (d *Client) EnsureNetwork(ctx context.Context, name string, subnet netip.Pr
 		return fmt.Errorf("%w: %v", ErrSubnetTaken, err)
 	}
 	return err
+}
+
+// DynamicRange is the upper half of subnet, where Docker hands out addresses
+// on its own; the lower half is stackr's for pinned VIPs, so a container that
+// starts first after a reboot can never take a tile's VIP.
+func DynamicRange(subnet netip.Prefix) netip.Prefix {
+	p := subnet.Masked()
+	if p.Bits() >= 31 {
+		return p
+	}
+	half := netip.PrefixFrom(p.Addr(), p.Bits()+1)
+	a := p.Addr().As4()
+	bit := p.Bits() // the first host bit
+	a[bit/8] |= 0x80 >> (bit % 8)
+	return netip.PrefixFrom(netip.AddrFrom4(a), half.Bits())
+}
+
+// StaticAddr is the pinned address for key in subnet's lower half (past the
+// gateway): a stable hash, stepped past taken ones. "" when the half is full.
+func StaticAddr(subnet netip.Prefix, key string, taken func(netip.Addr) bool) string {
+	p := subnet.Masked()
+	if !p.Addr().Is4() || p.Bits() > 29 {
+		return ""
+	}
+	n := uint32(1) << (32 - p.Bits() - 1) // lower half size
+	base := binary.BigEndian.Uint32(p.Addr().AsSlice())
+	h := fnv32(key)
+	for i := uint32(0); i < n; i++ {
+		off := (h+i)%(n-2) + 2 // skip network .0 and gateway .1
+		var b [4]byte
+		binary.BigEndian.PutUint32(b[:], base+off)
+		a := netip.AddrFrom4(b)
+		if !taken(a) {
+			return a.String()
+		}
+	}
+	return ""
+}
+
+func fnv32(s string) uint32 {
+	h := uint32(2166136261)
+	for i := 0; i < len(s); i++ {
+		h = (h ^ uint32(s[i])) * 16777619
+	}
+	return h
 }
 
 // UsedSubnets is every prefix a new network must stay clear of: the subnets

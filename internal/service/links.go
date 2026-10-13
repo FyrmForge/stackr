@@ -2,9 +2,11 @@ package service
 
 import (
 	"context"
+	"log/slog"
 	"net/netip"
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
+	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	mflow "github.com/FyrmForge/stackr/internal/service/internal/flow/managed"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/managed"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
@@ -17,14 +19,71 @@ import (
 // env and instance port.
 
 // tileVIP is tile tileID's VIP on node: its pause container's address on the
-// env network.
+// env network, as stored (tile_vips). A tile not stored yet (deployed before
+// VIPs were) is read from Docker once and stored.
 func (o *Orchestrator) tileVIP(ctx context.Context, node, tileID string) (netip.Addr, bool) {
-	cs, err := o.docker.List(WithNode(ctx, node), map[string]string{"stackr.tile": tileID, "stackr.role": "pause"})
-	if err != nil || len(cs) == 0 || len(cs[0].IPs) == 0 {
-		return netip.Addr{}, false
+	s, _ := o.store.TileVIPs.Get(ctx, tileID, node)
+	if s == "" {
+		cs, err := o.docker.List(WithNode(ctx, node), map[string]string{"stackr.tile": tileID, "stackr.role": "pause"})
+		if err != nil || len(cs) == 0 || len(cs[0].IPs) == 0 {
+			return netip.Addr{}, false
+		}
+		s = cs[0].IPs[0]
+		_ = o.store.TileVIPs.Set(ctx, tileID, node, s)
 	}
-	v, err := netip.ParseAddr(cs[0].IPs[0])
+	v, err := netip.ParseAddr(s)
 	return v, err == nil
+}
+
+// reconcileVIP stores real, tile t's pause address on node read off the
+// rebuild's list, when the stored one differs. A stored one that changed is
+// drift (a pause recreated by hand, an old unpinned pause restarted): logged.
+func (o *Orchestrator) reconcileVIP(ctx context.Context, node string, t store.Tile, real string) {
+	if real == "" {
+		return
+	}
+	stored, err := o.store.TileVIPs.Get(ctx, t.ID, node)
+	if err != nil || stored == real {
+		return
+	}
+	if stored != "" {
+		slog.Warn("vip: address drift, stored the real one", "tile", t.Slug, "node", node, "stored", stored, "real", real)
+	}
+	if err := o.store.TileVIPs.Set(ctx, t.ID, node, real); err != nil {
+		slog.Warn("vip: store", "tile", t.Slug, "err", err)
+	}
+}
+
+// pinVIP is tile.Leaf.Pin: the stored VIP when the tile had one on this node
+// (a recreated pause keeps its address), else a stable pick in the env
+// network's lower half, clear of every address in use there.
+func (o *Orchestrator) pinVIP(ctx context.Context, t store.Tile, network string) string {
+	node, err := o.envNode(ctx, t.EnvironmentID)
+	if err != nil {
+		return ""
+	}
+	if v, _ := o.store.TileVIPs.Get(ctx, t.ID, node); v != "" {
+		return v
+	}
+	e, err := o.store.Environments.Get(ctx, t.EnvironmentID)
+	if err != nil {
+		return ""
+	}
+	sub, err := netip.ParsePrefix(e.Subnet)
+	if err != nil {
+		return ""
+	}
+	rows, err := o.docker.List(WithNode(ctx, node), map[string]string{docker.LabelManaged: "true"})
+	if err != nil {
+		return ""
+	}
+	used := map[netip.Addr]bool{}
+	for _, c := range rows {
+		if a, err := netip.ParseAddr(c.Nets[network]); err == nil {
+			used[a] = true
+		}
+	}
+	return docker.StaticAddr(sub, t.ID, func(a netip.Addr) bool { return used[a] })
 }
 
 // linkHost is deploy.Flow.LinkHost: "alias:vip" when the instance runs on

@@ -302,6 +302,14 @@ func (d *Docker) Create(ctx context.Context, spec docker.ContainerSpec) (string,
 		}
 		for _, n := range spec.Networks {
 			ip, err := d.assign(d.st.Networks[n.Name])
+			if n.IPv4 != "" {
+				ip, err = n.IPv4, nil
+				for _, o := range d.st.Containers {
+					if o.Nets[n.Name] == ip {
+						err = fmt.Errorf("Address already in use: %s on %s", ip, n.Name)
+					}
+				}
+			}
 			if err != nil {
 				return "", err
 			}
@@ -489,6 +497,7 @@ func (d *Docker) List(ctx context.Context, labels map[string]string) ([]docker.C
 			Labels: maps.Clone(c.Labels), HostNetwork: c.HostNetwork,
 		}
 		if c.running() {
+			row.Nets = maps.Clone(c.Nets)
 			for _, ip := range c.Nets {
 				row.IPs = append(row.IPs, ip)
 			}
