@@ -6,6 +6,25 @@ import (
 	"testing"
 )
 
+// The registry must take an index whose other platforms are absent, and the
+// spec hash must move so an upgrade recreates the container.
+func TestRegistryAcceptsPartialIndexes(t *testing.T) {
+	c := Registry()
+	for _, e := range []string{
+		"REGISTRY_VALIDATION_MANIFESTS_INDEXES_PLATFORMS=none",
+		"REGISTRY_STORAGE_DELETE_ENABLED=true",
+	} {
+		if !slices.Contains(c.Env, e) {
+			t.Errorf("env lacks %s: %v", e, c.Env)
+		}
+	}
+	old := c
+	old.Env = []string{"REGISTRY_STORAGE_DELETE_ENABLED=true"}
+	if old.Hash() == c.Hash() {
+		t.Error("spec hash ignores the validation setting")
+	}
+}
+
 func TestRegistryLocalOnly(t *testing.T) {
 	c := Registry()
 	for _, p := range c.Ports {

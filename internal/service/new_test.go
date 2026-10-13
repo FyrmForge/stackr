@@ -45,6 +45,7 @@ func TestNewBuildsEachOnce(t *testing.T) {
 		"leaf/domain",
 		"leaf/domainres",
 		"leaf/credential",
+		"leaf/registry",
 		"leaf/connector",
 		"leaf/managed",
 		"leaf/release",

@@ -50,7 +50,7 @@ func (o *Orchestrator) RegistryHandler() http.Handler {
 		}
 		(&regfront.Server{
 			Key: key, Realm: scheme + "://" + r.Host, Backend: backend,
-			Authenticate: o.registryFacts, Audit: o.registryAudit,
+			Authenticate: o.registryFacts, Audit: o.registryAudit, Pushed: o.registryPushed,
 		}).ServeHTTP(w, r)
 	})
 }

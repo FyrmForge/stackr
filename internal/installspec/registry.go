@@ -14,9 +14,19 @@ const (
 // 127.0.0.1 only, its data on a named volume. It does no auth of its own.
 func Registry() Container {
 	c := Container{
-		Name:    RegistryName,
-		Image:   RegistryImage,
-		Env:     []string{"REGISTRY_STORAGE_DELETE_ENABLED=true"},
+		Name:  RegistryName,
+		Image: RegistryImage,
+		Env: []string{
+			"REGISTRY_STORAGE_DELETE_ENABLED=true",
+			// Store-time index check off: an imported index keeps its
+			// upstream bytes with only the cluster's CPU types behind it, so
+			// the other platforms' manifests are absent on purpose. The
+			// importer guarantees the wanted ones. An env override rather
+			// than a config file: neither create path (stackr-install, the
+			// upgrade flow) places files, and the image's own config keeps
+			// the storage path and the :5000 address.
+			"REGISTRY_VALIDATION_MANIFESTS_INDEXES_PLATFORMS=none",
+		},
 		Labels:  map[string]string{LabelRole: "registry"},
 		Volumes: []string{RegistryVolume + ":/var/lib/registry"},
 		Ports:   []string{"127.0.0.1:" + RegistryPort + ":5000"},

@@ -53,6 +53,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/orgplan"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/panel"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/params"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/registry"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/release"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/route"
 	lrun "github.com/FyrmForge/stackr/internal/service/internal/leaf/run"
@@ -208,6 +209,7 @@ type Orchestrator struct {
 	routes      *route.Leaf
 	hostgrant   *hostgrant.Leaf
 	creds       *credential.Leaf
+	regs        *registry.Leaf
 	conns       *connector.Leaf
 	managed     *managed.Leaf
 	releases    *release.Leaf
@@ -444,6 +446,7 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 	orch.tiles.Node = orch.envNode
 	orch.tiles.Pin = orch.pinVIP
 	orch.creds = build("leaf/credential", func() *credential.Leaf { return credential.New(st.Credentials) })
+	orch.regs = build("leaf/registry", func() *registry.Leaf { return registry.New(st.RegistryImages) })
 	orch.conns = build("leaf/connector", func() *connector.Leaf {
 		app := githubapp.New(cfg.BaseURL).WithPanelHost(func() string {
 			v, _ := orch.settings.Get(context.Background(), "panel_domain")

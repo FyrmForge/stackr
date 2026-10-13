@@ -534,6 +534,35 @@ func TestRoundTrip(t *testing.T) {
 		Password:  "tok",
 		CreatedAt: t0,
 	}, func(c *store.Credential) { c.Password = "tok2" })
+	roundTrip(t, s.RegistryImages, store.RegistryImage{
+		ID:          "ri1",
+		OrgID:       ptr("o1"),
+		Repo:        "acme/docker.io/library/postgres",
+		Tag:         "16",
+		Digest:      "sha256:aa",
+		Platforms:   "amd64",
+		Source:      "imported",
+		UpstreamRef: "postgres:16",
+		Size:        1 << 40,
+		CreatedBy:   "u1",
+		CreatedAt:   t0,
+	}, func(r *store.RegistryImage) { r.Platforms, r.OrgID = "amd64,arm64", nil })
+	if got, err := s.RegistryImages.GetByRepoDigest(ctx, "acme/docker.io/library/postgres", "sha256:aa"); err != nil || got.ID != "ri1" {
+		t.Fatalf("image by digest = %v, %v", got, err)
+	}
+	if err := s.RegistryImages.Create(ctx, store.RegistryImage{
+		ID: "ri2", Repo: "acme/docker.io/library/postgres", Tag: "16", Digest: "sha256:aa", Source: "imported", CreatedAt: t0,
+	}); err == nil {
+		t.Fatal("same repo and digest twice were accepted")
+	} else if _, ok := errs.IsConflict(err); !ok {
+		t.Fatalf("same repo and digest twice: %v, want Conflict", err)
+	}
+	if all, err := s.RegistryImages.ListAll(ctx); err != nil || len(all) != 1 {
+		t.Fatalf("images = %v, %v", all, err)
+	}
+	if err := s.RegistryImages.DeleteByRepoDigest(ctx, "nope", "sha256:00"); err != nil {
+		t.Fatalf("forgetting an unknown version: %v", err)
+	}
 	roundTrip(t, s.Connectors, store.Connector{
 		ID:        "cn1",
 		OrgID:     ptr("o1"),
@@ -641,6 +670,7 @@ func TestRoundTrip(t *testing.T) {
 		{"backup_destinations", s.BackupDests.Delete, "bd1"},
 		{"connectors", s.Connectors.Delete, "cn1"},
 		{"credentials", s.Credentials.Delete, "c1"},
+		{"registry_images", s.RegistryImages.Delete, "ri1"},
 		{"host_grants", s.HostGrants.Delete, "hg1"},
 		{"shares", s.Shares.Delete, "sh1"},
 		{"routes", s.Routes.Delete, "rt9"},

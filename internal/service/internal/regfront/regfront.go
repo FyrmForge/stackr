@@ -3,13 +3,19 @@
 // speaks Docker's token auth to clients and enforces the token on every call
 // it proxies.
 //
-// Image naming: one repository per tile, "<org>/<stack>/<tile>", each part a
-// slug (lower-case letters, digits, '.', '_', '-'). Workers pull
-// "localhost:5000/<org>/<stack>/<tile>:<tag>", developers
-// "registry.<panel domain>/<org>/<stack>/<tile>:<tag>". The tag is the
-// caller's (a build id); nothing here reads it. Exactly three path parts, so
-// a request path splits unambiguously into repository and the registry's own
-// "blobs", "manifests", "tags" and "referrers" endpoints.
+// Image naming has two shapes. A tile's image is one repository,
+// "<org>/<stack>/<tile>", each part a slug (lower-case letters, digits, '.',
+// '_', '-'). Workers pull "localhost:5000/<org>/<stack>/<tile>:<tag>",
+// developers "registry.<panel domain>/<org>/<stack>/<tile>:<tag>". The tag is
+// the caller's (a build id); nothing here reads it.
+//
+// An import is a copy of an outside image: the upstream name with the org in
+// front, "<org>/<host>/<path...>" ("acme/docker.io/library/postgres"), any
+// depth. The second part always holds a dot (a registry host) and a stack
+// slug never does, so the two shapes cannot be confused. A request path
+// splits into repository and endpoint from its end, as the registry itself
+// routes it: "/manifests/<ref>", "/blobs/<digest>", "/blobs/uploads/[<id>]",
+// "/tags/list", "/referrers/<digest>".
 //
 // Who may do what is decided from facts the caller passes in (Facts): the
 // caller knows which envs are pinned where and which build jobs run on which
@@ -84,6 +90,64 @@ func ParseRepo(repo string) (org, stack, tile string, ok bool) {
 	return p[0], p[1], p[2], true
 }
 
+// ImportRepo is the repository an outside image is copied to: the org in
+// front of the upstream name, nothing invented. Docker Hub short names are
+// normalised ("postgres:16" and "library/postgres" both become
+// "<org>/docker.io/library/postgres"). The tag or digest is not part of it
+// (see ImportName). A host port cannot sit in a repository name, so
+// "host:5443" becomes "host_5443".
+func ImportRepo(org, upstreamRef string) string {
+	repo, _ := ImportName(org, upstreamRef)
+	return repo
+}
+
+// ImportName is ImportRepo plus the tag the copy lands under: the upstream
+// tag, "latest" when the ref has none, or "sha256-<hex>" for a digest pinned
+// ref, so a tag always names a version and nothing the registry cleans as
+// untagged can be a running image.
+func ImportName(org, upstreamRef string) (repo, tag string) {
+	ref := strings.TrimSpace(upstreamRef)
+	tag = "latest"
+	if i := strings.Index(ref, "@"); i >= 0 {
+		tag = strings.Replace(ref[i+1:], ":", "-", 1)
+		ref = ref[:i]
+		if j := strings.LastIndex(ref, ":"); j > strings.LastIndex(ref, "/") {
+			ref = ref[:j] // name:tag@digest: the digest wins
+		}
+	} else if j := strings.LastIndex(ref, ":"); j > strings.LastIndex(ref, "/") {
+		tag, ref = ref[j+1:], ref[:j]
+	}
+	host, path, hasHost := strings.Cut(ref, "/")
+	if !hasHost || (!strings.ContainsAny(host, ".:") && host != "localhost") {
+		host, path = "docker.io", ref // a Docker Hub short name
+	}
+	host = strings.ToLower(strings.ReplaceAll(host, ":", "_"))
+	switch host {
+	case "index.docker.io", "registry-1.docker.io", "registry.hub.docker.com":
+		host = "docker.io"
+	}
+	if host == "docker.io" && !strings.Contains(path, "/") {
+		path = "library/" + path
+	}
+	return org + "/" + host + "/" + path, tag
+}
+
+// ParseImportRepo splits an import repository into the org and the upstream
+// name ("docker.io/library/postgres"). Any depth of three parts or more, every
+// part a slug, the second one a host (it holds a dot).
+func ParseImportRepo(repo string) (org, upstream string, ok bool) {
+	p := strings.Split(repo, "/")
+	if len(p) < 3 || !strings.Contains(p[1], ".") {
+		return "", "", false
+	}
+	for _, s := range p {
+		if !slug.MatchString(s) {
+			return "", "", false
+		}
+	}
+	return p[0], strings.Join(p[1:], "/"), true
+}
+
 // Scope is access to one repository: actions are pull and push.
 type Scope struct {
 	Repo    string   `json:"repo"`
@@ -101,6 +165,10 @@ type Facts struct {
 	PullOrgs []string
 	// PullRepos are the repos of envs pinned to the node.
 	PullRepos []string
+	// PullImports are the import repos (see ImportRepo) of the upstream refs
+	// that envs pinned to the node run. A node pulls an import only from
+	// here, never by org: one node hosts many orgs.
+	PullImports []string
 	// PushRepos are the repos of the builder's build jobs; pushing implies
 	// pulling them.
 	PushRepos []string
@@ -111,6 +179,10 @@ func (f Facts) allowed(repo, action string) bool {
 		return true
 	}
 	org, _, _, ok := ParseRepo(repo)
+	imp := false
+	if o, _, isImp := ParseImportRepo(repo); isImp {
+		org, ok, imp = o, true, true
+	}
 	if !ok {
 		return false
 	}
@@ -122,6 +194,9 @@ func (f Facts) allowed(repo, action string) bool {
 	}
 	if action == Pull && slices.Contains(f.PullOrgs, org) {
 		return true
+	}
+	if imp { // nodes: exactly the imports their envs run
+		return action == Pull && slices.Contains(f.PullImports, repo)
 	}
 	switch action {
 	case Pull:
@@ -237,6 +312,15 @@ type Issued struct {
 	ExpiresAt time.Time
 }
 
+// Pushed is one finished manifest push.
+type Pushed struct {
+	Repo      string
+	Reference string // the tag, or the digest when pushed by digest
+	Digest    string // the registry's Docker-Content-Digest for it
+	Kind      Kind
+	Subject   string
+}
+
 // Server is the front: the token endpoint at /token and the proxy under /v2/.
 type Server struct {
 	Key []byte
@@ -249,7 +333,10 @@ type Server struct {
 	Authenticate func(*http.Request) (Facts, error)
 	// Audit records an issue; an error refuses the token.
 	Audit func(context.Context, Issued) error
-	Now   func() time.Time
+	// Pushed is called after a manifest PUT succeeded (a build or a developer
+	// finished a push), once per manifest, with the token's holder. Nil = none.
+	Pushed func(context.Context, Pushed)
+	Now    func() time.Time
 
 	once  sync.Once
 	proxy *httputil.ReverseProxy
@@ -334,6 +421,33 @@ func (s *Server) token(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// splitPath cuts a registry path (after /v2/) into repository, endpoint kind
+// ("blobs", "manifests", "tags", "referrers") and the endpoint's last part,
+// working from the end the way the registry's router does, so a repository
+// of any depth (and one with a part named like an endpoint) splits the same
+// here and there. ok is false for a path the registry API does not have.
+func splitPath(rest string) (repo, kind, ref string, ok bool) {
+	p := strings.Split(rest, "/")
+	n := len(p)
+	switch {
+	case n >= 3 && p[n-1] == "list" && p[n-2] == "tags":
+		return strings.Join(p[:n-2], "/"), "tags", "", true
+	case n >= 4 && p[n-3] == "blobs" && p[n-2] == "uploads":
+		return strings.Join(p[:n-3], "/"), "blobs", p[n-1], true
+	case n >= 3 && slices.Contains([]string{"blobs", "manifests", "referrers"}, p[n-2]):
+		return strings.Join(p[:n-2], "/"), p[n-2], p[n-1], true
+	}
+	return "", "", "", false
+}
+
+func validRepo(repo string) bool {
+	if _, _, _, ok := ParseRepo(repo); ok {
+		return true
+	}
+	_, _, ok := ParseImportRepo(repo)
+	return ok
+}
+
 // required is what the request needs. ok is false for a path the registry
 // API does not have.
 func required(r *http.Request) (need []Scope, ok bool) {
@@ -344,12 +458,8 @@ func required(r *http.Request) (need []Scope, ok bool) {
 	if rest == "_catalog" {
 		return []Scope{{CatalogRepo, []string{"*"}}}, true
 	}
-	p := strings.SplitN(rest, "/", 4)
-	if len(p) < 4 || !slices.Contains([]string{"blobs", "manifests", "tags", "referrers"}, p[3][:strings.IndexAny(p[3]+"/", "/")]) {
-		return nil, false
-	}
-	repo := strings.Join(p[:3], "/")
-	if _, _, _, valid := ParseRepo(repo); !valid {
+	repo, _, _, split := splitPath(rest)
+	if !split || !validRepo(repo) {
 		return nil, false
 	}
 	act := Pull
@@ -408,5 +518,47 @@ func (s *Server) serveV2(w http.ResponseWriter, r *http.Request) {
 			r.Header.Del("Authorization") // the registry needs none, and must not see ours
 		}
 	})
-	s.proxy.ServeHTTP(w, r)
+	if s.Pushed == nil || r.Method != http.MethodPut {
+		s.proxy.ServeHTTP(w, r)
+		return
+	}
+	sw := &statusWriter{ResponseWriter: w}
+	s.proxy.ServeHTTP(sw, r)
+	repo, kind, ref, _ := splitPath(strings.Trim(strings.TrimPrefix(r.URL.Path, "/v2"), "/"))
+	if kind == "manifests" && sw.status/100 == 2 {
+		s.Pushed(r.Context(), Pushed{
+			Repo: repo, Reference: ref, Digest: w.Header().Get("Docker-Content-Digest"),
+			Kind: c.Kind, Subject: c.Subject,
+		})
+	}
+}
+
+// statusWriter remembers the status the proxy answered with.
+type statusWriter struct {
+	http.ResponseWriter
+	status int
+}
+
+func (w *statusWriter) WriteHeader(code int) {
+	if w.status == 0 {
+		w.status = code
+	}
+	w.ResponseWriter.WriteHeader(code)
+}
+
+func (w *statusWriter) Write(b []byte) (int, error) {
+	if w.status == 0 {
+		w.status = http.StatusOK
+	}
+	return w.ResponseWriter.Write(b)
+}
+
+// Unwrap lets http.ResponseController reach the real writer (layers stream).
+func (w *statusWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
+
+// Flush keeps the proxy's streaming working through the wrapper.
+func (w *statusWriter) Flush() {
+	if f, ok := w.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
 }
