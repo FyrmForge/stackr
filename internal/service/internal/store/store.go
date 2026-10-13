@@ -76,6 +76,7 @@ type Tables struct {
 	NodeOrgs         NodeOrgStore
 	ForgottenNodes   ForgottenNodeStore
 	IngressPicks     IngressPickStore
+	TileVIPs         TileVIPStore
 }
 
 func bind(q querier, box *secrets.Box) Tables {
@@ -125,6 +126,7 @@ func bind(q querier, box *secrets.Box) Tables {
 		NodeOrgs:         nodeOrgs{q},
 		ForgottenNodes:   forgottenNodes{q},
 		IngressPicks:     ingressPicks{q},
+		TileVIPs:         tileVIPs{q},
 	}
 }
 
