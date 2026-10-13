@@ -645,7 +645,11 @@ func (o *Orchestrator) ClusterStatus(ctx context.Context) (ClusterOut, error) {
 		out.Groups = append(out.Groups, g)
 	}
 	up := map[[2]string]ClusterLink{}
-	for _, l := range m.Links {
+	pairs := m.Pairs
+	if pairs == nil {
+		pairs = m.Links
+	}
+	for _, l := range pairs {
 		up[[2]string{l.A, l.B}] = l
 	}
 	// A down link has no kind; two nodes in one network still label as lan.

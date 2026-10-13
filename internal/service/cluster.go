@@ -54,6 +54,8 @@ type ClusterMap struct {
 	Networks []ClusterNet
 	Links    []ClusterLink
 	Backups  []ClusterBackup
+	// Pairs is every node pair before the map drops routed ones; status reads it.
+	Pairs []ClusterLink `json:"-"`
 }
 
 type ClusterNode struct {
@@ -386,6 +388,7 @@ func (o *Orchestrator) ClusterMap(ctx context.Context) (ClusterMap, error) {
 		for _, n := range m.Nodes {
 			names[n.ID] = n.Name
 		}
+		m.Pairs = m.Links // every pair, routed ones included: cluster status lists them
 		m.Links = directLinks(m.Links, m.Nodes, names, o.mesh.Direct, o.mesh.Via)
 		o.remember(ctx, &m, in, o.mesh.Direct)
 	}
