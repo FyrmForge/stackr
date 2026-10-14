@@ -383,3 +383,46 @@ func (v Serve) Down() []Step {
 	}
 	return s
 }
+
+// Fence keeps the env ranges of a node without egress off its own uplink: the
+// ladder blackholes their internet, and this drops whatever still tries to
+// leave by the uplink. Private and link-local destinations return from the
+// chain first, so LAN and private traffic keeps flowing, and so do replies of
+// connections that came in through a published port (DNAT). Exit links and
+// stackr0 are other interfaces and never meet the DROP.
+// ponytail: IPv4 only; env networks have no IPv6 today.
+type Fence struct {
+	Sources []string // env subnets
+	Uplink  string   // interface of the default route
+}
+
+// FenceChain is the filter chain DOCKER-USER jumps into.
+const FenceChain = "STACKR-FENCE"
+
+// Up flushes and refills the chain and adds the jump once.
+func (f Fence) Up() ([]Step, error) {
+	if err := prefixes(f.Sources); err != nil {
+		return nil, err
+	}
+	if err := ifaceName(f.Uplink); err != nil {
+		return nil, err
+	}
+	s := []Step{quiet(ipt("filter", "-N", FenceChain)...), cmd(ipt("filter", "-F", FenceChain)...),
+		cmd(ipt("filter", "-A", FenceChain, "-m", "conntrack", "--ctstatus", "DNAT", "-j", "RETURN")...)}
+	for _, src := range f.Sources {
+		for _, d := range Refused {
+			s = append(s, cmd(ipt("filter", "-A", FenceChain, "-s", src, "-d", d, "-j", "RETURN")...))
+		}
+		s = append(s, cmd(ipt("filter", "-A", FenceChain, "-s", src, "-o", f.Uplink, "-j", "DROP")...))
+	}
+	return append(s, once("filter", "DOCKER-USER", "1", "-j", FenceChain)), nil
+}
+
+// Down removes the jump and the chain.
+func (f Fence) Down() []Step {
+	return []Step{
+		quiet(ipt("filter", "-D", "DOCKER-USER", "-j", FenceChain)...),
+		quiet(ipt("filter", "-F", FenceChain)...),
+		quiet(ipt("filter", "-X", FenceChain)...),
+	}
+}

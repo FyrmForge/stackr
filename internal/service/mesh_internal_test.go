@@ -105,6 +105,43 @@ func TestBuildMeshExits(t *testing.T) {
 	}
 }
 
+// A node without egress gets a ladder even when it has no usable exit (the
+// env's internet is blackholed, never the own uplink) and fences its env
+// ranges; a node whose exit is not on the mesh yet is blackholed the same way.
+func TestBuildMeshNoUplink(t *testing.T) {
+	plain := tnode("p", 0, "203.0.113.1",
+		meshEnvIn{Subnet: "10.208.2.0/24"},
+		meshEnvIn{Subnet: "10.208.1.0/24", Ladder: []string{"x"}})
+	plain.NoUplink = true
+	in := meshIn{Nodes: []meshNodeIn{plain, tnode("x", 1, "203.0.113.2")}}
+	p := buildMesh(in)["p"]
+	if !slices.Equal(p.NoUplink, []string{"10.208.1.0/24", "10.208.2.0/24"}) {
+		t.Errorf("fenced = %v", p.NoUplink)
+	}
+	var dead, routed *worker.LadderSpec
+	for i, l := range p.Ladders {
+		switch l.Subject.Sources[0] {
+		case "10.208.2.0/24":
+			dead = &p.Ladders[i]
+		case "10.208.1.0/24":
+			routed = &p.Ladders[i]
+		}
+	}
+	if dead == nil || len(dead.Rungs) != 0 {
+		t.Fatalf("no zero-rung ladder for the env without exits: %+v", p.Ladders)
+	}
+	if routed == nil || len(routed.Rungs) != 1 || routed.Rungs[0].NodeID != "x" {
+		t.Fatalf("routed ladder = %+v", routed)
+	}
+	if dead.Subject.PrefBase == routed.Subject.PrefBase {
+		t.Error("subjects share a rule block")
+	}
+	gone := tnode("g", 2, "203.0.113.3", meshEnvIn{Subnet: "10.208.3.0/24", Ladder: []string{"missing"}})
+	if g := buildMesh(meshIn{Nodes: []meshNodeIn{gone}})["g"]; len(g.Ladders) != 1 || len(g.Ladders[0].Rungs) != 0 || g.NoUplink != nil {
+		t.Errorf("exit not on the mesh: %+v", g)
+	}
+}
+
 func TestBuildMeshWaitsForExitKey(t *testing.T) {
 	x := tnode("x", 2, "203.0.113.9")
 	x.ExitKey = ""

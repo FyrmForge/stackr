@@ -489,3 +489,53 @@ func TestLadderLoop(t *testing.T) {
 		t.Errorf("state = %+v", h.l.State())
 	}
 }
+
+// The fence returns LAN, private and DNAT reply traffic before it drops what
+// leaves by the uplink, and only touches the uplink: the exit links and
+// stackr0 never meet its DROP.
+func TestFence(t *testing.T) {
+	f := Fence{Sources: []string{"10.208.1.0/24", "10.208.2.0/24"}, Uplink: "eth0"}
+	s, err := f.Up()
+	if err != nil {
+		t.Fatal(err)
+	}
+	l := joined(s)
+	for _, w := range []string{
+		"iptables -t filter -F STACKR-FENCE",
+		"iptables -t filter -A STACKR-FENCE -m conntrack --ctstatus DNAT -j RETURN",
+		"iptables -t filter -A STACKR-FENCE -s 10.208.1.0/24 -o eth0 -j DROP",
+		"iptables -t filter -A STACKR-FENCE -s 10.208.2.0/24 -o eth0 -j DROP",
+		"iptables -t filter -I DOCKER-USER 1 -j STACKR-FENCE",
+	} {
+		has(t, l, w)
+	}
+	idx := func(line string) int {
+		for i, x := range l {
+			if x == line {
+				return i
+			}
+		}
+		t.Fatalf("missing %q", line)
+		return -1
+	}
+	for _, src := range f.Sources {
+		drop := idx("iptables -t filter -A STACKR-FENCE -s " + src + " -o eth0 -j DROP")
+		for _, d := range Refused {
+			if idx("iptables -t filter -A STACKR-FENCE -s "+src+" -d "+d+" -j RETURN") > drop {
+				t.Errorf("%s to %s returns after the drop", src, d)
+			}
+		}
+	}
+	for _, line := range l {
+		if strings.Contains(line, "stackr0") || strings.Contains(line, "wgx-") {
+			t.Errorf("fence touches a tunnel: %s", line)
+		}
+	}
+	if _, err := (Fence{Sources: f.Sources}).Up(); err == nil {
+		t.Error("no uplink accepted")
+	}
+	if _, err := (Fence{Uplink: "eth0"}).Up(); err == nil {
+		t.Error("no sources accepted")
+	}
+	has(t, joined(f.Down()), "iptables -t filter -X STACKR-FENCE")
+}

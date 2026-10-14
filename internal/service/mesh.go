@@ -408,6 +408,9 @@ type meshNodeIn struct {
 	// Envs are the exit ladders of the envs on this node, one per env with a
 	// subnet; Ladder is the resolved ordered node ids (empty = own uplink).
 	Envs []meshEnvIn
+	// NoUplink is set on a node without egress: every env of it is in Envs,
+	// and the worker fences their ranges off the uplink.
+	NoUplink bool
 }
 
 type meshEnvIn struct {
@@ -431,14 +434,6 @@ func (m *meshSvc) gather(ctx context.Context) (meshIn, error) {
 	}
 	in := meshIn{}
 	stackOrg := map[string]string{}
-	ladder := func(kind, id string) ([]string, error) {
-		rs, err := m.st.ExitLadders.List(ctx, kind, id)
-		var out []string
-		for _, r := range rs {
-			out = append(out, r.NodeID)
-		}
-		return out, err
-	}
 	m.refreshAll(ctx, ns)
 	for _, n := range ns {
 		if n.Status == node.StatusPending || n.Status == StateNeedsRejoin { // no transit address yet; or cut off until it rejoins with new keys
@@ -490,13 +485,6 @@ func (m *meshSvc) gather(ctx context.Context) (meshIn, error) {
 				continue
 			}
 			mn.Subnets = append(mn.Subnets, sub)
-			var lv exits.Levels
-			if lv.Env, err = ladder("env", e.ID); err != nil {
-				return meshIn{}, err
-			}
-			if lv.Stack, err = ladder("stack", e.StackID); err != nil {
-				return meshIn{}, err
-			}
 			org, ok := stackOrg[e.StackID]
 			if !ok {
 				st, err := m.st.Stacks.Get(ctx, e.StackID)
@@ -506,26 +494,17 @@ func (m *meshSvc) gather(ctx context.Context) (meshIn, error) {
 				org = st.OrgID
 				stackOrg[e.StackID] = org
 			}
-			if lv.Org, err = ladder("org", org); err != nil {
+			// own = the node's own uplink: no ladder. Anything else is
+			// routed, and a ladder with nothing left is a blackhole.
+			lad, own, err := envExits(ctx, m.st, e, org, n)
+			if err != nil {
 				return meshIn{}, err
 			}
-			// No default exit set = the own uplink: no ladder.
-			res := exits.Resolve(lv, defaultExitIDs(ctx, m.st))
-			// OwnRung ("own node" in the placement UI) is this env's node.
-			own := make([]string, 0, len(res.Nodes))
-			for _, id := range res.Nodes {
-				if id == OwnRung {
-					id = n.ID
-				}
-				if !slices.Contains(own, id) {
-					own = append(own, id)
-				}
-			}
-			res.Nodes = own
-			if res.Routed(n.ID) {
-				mn.Envs = append(mn.Envs, meshEnvIn{Subnet: e.Subnet, Ladder: res.Nodes})
+			if !own {
+				mn.Envs = append(mn.Envs, meshEnvIn{Subnet: e.Subnet, Ladder: lad})
 			}
 		}
+		mn.NoUplink = !hasEgress(n)
 		in.Nodes = append(in.Nodes, mn)
 	}
 	return in, nil
@@ -772,9 +751,8 @@ func buildMesh(in meshIn) map[string]worker.MeshSpec {
 					l = append(l, id)
 				}
 			}
-			if len(l) == 0 {
-				continue
-			}
+			// An empty ladder is kept: it blackholes the env's internet, and
+			// never falls back to the own uplink.
 			k := strings.Join(l, ",")
 			groups[k] = append(groups[k], e.Subnet)
 		}
@@ -788,7 +766,10 @@ func buildMesh(in meshIn) map[string]worker.MeshSpec {
 		for _, k := range keys {
 			srcs := groups[k]
 			sort.Strings(srcs)
-			ids := strings.Split(k, ",")
+			var ids []string
+			if k != "" {
+				ids = strings.Split(k, ",")
+			}
 			ls := worker.LadderSpec{Subject: exits.Subject{Sources: srcs, PrefBase: pref}}
 			pref += 2 * len(srcs)
 			for _, id := range ids {
@@ -812,6 +793,12 @@ func buildMesh(in meshIn) map[string]worker.MeshSpec {
 				lp.sources = append(lp.sources, srcs...)
 			}
 			spec.Ladders = append(spec.Ladders, ls)
+		}
+		if n.NoUplink {
+			for _, e := range n.Envs {
+				spec.NoUplink = append(spec.NoUplink, e.Subnet)
+			}
+			sort.Strings(spec.NoUplink)
 		}
 		specs[n.ID] = spec
 	}

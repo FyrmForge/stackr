@@ -109,6 +109,45 @@ func TestEnvExits(t *testing.T) {
 	want("egress node, self then h4", l, own, []string{n.ctl.ID, "h4"}, false)
 }
 
+// gather hands the mesh every env of a node without egress (an empty ladder
+// is a blackhole, and the node fences) and none of an egress node that leaves
+// by its own uplink.
+func TestGatherEgressModel(t *testing.T) {
+	n := newTwoNodes(t)
+	ctx := context.Background()
+	n.orch.mesh = newMeshSvc(n.st, func(string) (MeshNode, bool) { return nil, false })
+	_, err := n.st.DB().ExecContext(ctx, `UPDATE environments SET subnet = '10.208.9.0/24' WHERE id = ?`, n.edge.ID)
+	must(t, err)
+	find := func(in meshIn, id string) meshNodeIn {
+		t.Helper()
+		for _, x := range in.Nodes {
+			if x.ID == id {
+				return x
+			}
+		}
+		t.Fatalf("node %s not gathered", id)
+		return meshNodeIn{}
+	}
+	in, err := n.orch.mesh.gather(ctx)
+	must(t, err)
+	if c := find(in, n.ctl.ID); c.NoUplink || len(c.Envs) != 0 {
+		t.Errorf("egress node with nothing set: %+v", c)
+	}
+	w := find(in, "w1")
+	if !w.NoUplink || len(w.Envs) != 1 || len(w.Envs[0].Ladder) != 0 {
+		t.Errorf("node without egress and no exit: %+v", w)
+	}
+
+	seedNode(t, n, "h4", `["egress"]`, "10.210.0.0/16")
+	_, err = n.orch.SetNodeExit(ctx, nodeExitAdmin(), "w1", []string{"h4"})
+	must(t, err)
+	in, err = n.orch.mesh.gather(ctx)
+	must(t, err)
+	if w = find(in, "w1"); !w.NoUplink || len(w.Envs) != 1 || !slices.Equal(w.Envs[0].Ladder, []string{"h4"}) {
+		t.Errorf("node with a default exit: %+v", w)
+	}
+}
+
 func mustNode(t *testing.T, n *twoNodes, id string) store.Node {
 	t.Helper()
 	nd, err := n.st.Nodes.Get(context.Background(), id)
