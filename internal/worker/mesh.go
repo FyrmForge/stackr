@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -39,6 +40,10 @@ type MeshSpec struct {
 	Links   []exits.Link
 	Serves  []exits.Serve
 	Ladders []LadderSpec
+	// NoUplink are the env subnets of a node without egress: the worker drops
+	// whatever of theirs would leave by the uplink (exits.Fence). Empty from
+	// an old controller = no fence.
+	NoUplink []string `json:",omitempty"`
 	// Registry is the controller's registry front over the mesh; the worker
 	// serves it on 127.0.0.1:5000. nil on the controller itself.
 	Registry *RegistrySpec `json:",omitempty"`
@@ -107,6 +112,8 @@ type meshState struct {
 	reMu    sync.Mutex
 	// registry is set once the registry proxy runs (startRegistry).
 	registry bool
+	// fence is the applied exits.Fence; zero = none.
+	fence exits.Fence
 	// legacyGone is set once the pre-stackr0 wg0 was checked for.
 	legacyGone bool
 }
@@ -405,9 +412,43 @@ func (s *Server) meshExits(ctx context.Context, spec MeshSpec) error {
 		}()
 		s.mesh.ladders[w.Subject.PrefBase] = rl
 	}
+	if err := s.meshFence(ctx, run, spec.NoUplink); err != nil {
+		return err
+	}
 	cp := spec
 	cp.Links, cp.Serves = links, serves
 	s.mesh.applied = &cp
+	return nil
+}
+
+// meshFence brings the uplink fence to the wanted env subnets. It runs after
+// the ladders, so the blackhole is up before the fence is.
+func (s *Server) meshFence(ctx context.Context, run exits.Runner, noUplink []string) error {
+	var want exits.Fence
+	if len(noUplink) > 0 {
+		up, err := s.uplink(ctx)
+		if err != nil {
+			return err
+		}
+		want = exits.Fence{Sources: slices.Sorted(slices.Values(noUplink)), Uplink: up}
+	}
+	if reflect.DeepEqual(want, s.mesh.fence) {
+		return nil
+	}
+	if len(s.mesh.fence.Sources) > 0 {
+		_ = exits.Apply(ctx, run, s.mesh.fence.Down())
+	}
+	s.mesh.fence = exits.Fence{}
+	if len(want.Sources) > 0 {
+		steps, err := want.Up()
+		if err == nil {
+			err = exits.Apply(ctx, run, steps)
+		}
+		if err != nil {
+			return err
+		}
+		s.mesh.fence = want
+	}
 	return nil
 }
 
@@ -432,6 +473,13 @@ func (s *Server) reassert(ctx context.Context) error {
 	}
 	for _, v := range a.Serves {
 		up, err := v.Up()
+		if err != nil {
+			return err
+		}
+		steps = append(steps, checked(up)...)
+	}
+	if len(s.mesh.fence.Sources) > 0 {
+		up, err := s.mesh.fence.Up()
 		if err != nil {
 			return err
 		}

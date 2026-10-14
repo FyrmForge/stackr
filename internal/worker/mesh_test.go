@@ -232,6 +232,35 @@ func TestIPTablesPushReassertsExitRules(t *testing.T) {
 	}
 }
 
+// A spec with NoUplink fences those env ranges off the uplink, a rebuilt
+// DOCKER-USER gets the jump back, and dropping the field takes the fence away.
+func TestMeshFence(t *testing.T) {
+	s, run, _ := newMeshServer(t, t.TempDir(), &pingFake{})
+	ctx := context.Background()
+	spec := meshSpec()
+	spec.NoUplink = []string{"10.213.1.0/24"}
+	if err := s.ApplyMesh(ctx, spec); err != nil {
+		t.Fatal(err)
+	}
+	if run.count("-A STACKR-FENCE -s 10.213.1.0/24 -o eth0 -j DROP") != 1 {
+		t.Errorf("no fence:\n%s", strings.Join(run.calls, "\n"))
+	}
+	jumps := run.count("-I DOCKER-USER 1 -j STACKR-FENCE")
+	if err := s.ApplyMesh(ctx, spec); err != nil || run.count("-F STACKR-FENCE") != 1 {
+		t.Errorf("unchanged push refilled the fence: %v", err)
+	}
+	if err := s.Reassert(ctx); err != nil || run.count("-I DOCKER-USER 1 -j STACKR-FENCE") != jumps+1 {
+		t.Errorf("reassert did not put the jump back: %v", err)
+	}
+	spec.NoUplink = nil
+	if err := s.ApplyMesh(ctx, spec); err != nil {
+		t.Fatal(err)
+	}
+	if run.count("-X STACKR-FENCE") != 1 {
+		t.Errorf("fence not removed:\n%s", strings.Join(run.calls, "\n"))
+	}
+}
+
 func TestMeshEndpoint(t *testing.T) {
 	s, _, _ := newMeshServer(t, t.TempDir(), &pingFake{})
 	srv := httptest.NewServer(s.Handler())

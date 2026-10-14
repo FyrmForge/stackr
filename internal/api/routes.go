@@ -228,6 +228,7 @@ func routes(h *v1.H) []Route {
 		{GET, "/cluster", "cluster.status", Self, h.Cluster()},
 		{POST, "/registry/login", "registry.login", Self, h.RegistryLogin()},
 		{PUT, "/admin/nodes/:node/tags", "admin.node-tags", "node.manage", h.TagNode()},
+		{PUT, "/admin/nodes/:node/exit", "admin.node-exit", "node.manage", h.SetNodeExit()},
 		{POST, "/admin/nodes/:node/orgs", "admin.node-open", "node.manage", h.OpenNode()},
 		{DELETE, "/admin/nodes/:node/orgs/:org", "admin.node-close", "node.manage", h.CloseNode()},
 		{GET, "/admin/node-defaults", "admin.node-defaults", Self, h.NodeDefaults()},

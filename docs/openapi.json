@@ -2647,6 +2647,12 @@
           "ListenPort": {
             "type": "integer"
           },
+          "NoUplink": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
           "Panel": {
             "type": "string"
           },
@@ -2760,6 +2766,20 @@
           "path",
           "org",
           "volumes"
+        ],
+        "type": "object"
+      },
+      "NodeExitIn": {
+        "properties": {
+          "exits": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "exits"
         ],
         "type": "object"
       },
@@ -7975,6 +7995,54 @@
         "responses": {
           "204": {
             "description": "No Content"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "node.manage"
+      }
+    },
+    "/api/v1/admin/nodes/{node}/exit": {
+      "put": {
+        "operationId": "admin.node-exit",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "node",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NodeExitIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NodeOut"
+                }
+              }
+            },
+            "description": "OK"
           },
           "default": {
             "content": {

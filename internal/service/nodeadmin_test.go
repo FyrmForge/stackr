@@ -50,7 +50,11 @@ func TestNodeAdminLifecycle(t *testing.T) {
 	if id, _ := n.orch.DefaultIngress(ctx); id != "w1" {
 		t.Errorf("default ingress = %s", id)
 	}
-	must(t, n.orch.SetNodeTags(ctx, adm, n.ctl.ID, []string{"builder"}))
+	// ...and drops egress only once it has a default exit
+	if err := n.orch.SetNodeTags(ctx, adm, n.ctl.ID, []string{"builder"}); !isConflict(err) {
+		t.Errorf("controller dropped egress with no default exit: %v", err)
+	}
+	must(t, n.orch.SaveNodeTags(ctx, adm, n.ctl.ID, []string{"builder"}, []string{"w1"}))
 	if _, err := n.orch.SetDefaultIngress(ctx, adm, n.ctl.ID); err == nil {
 		t.Error("default ingress set to a node without the tag")
 	}

@@ -48,6 +48,18 @@ func (h *H) TagNode() Endpoint {
 	})
 }
 
+// NodeExitIn is the node's default exit ladder, node names top to bottom.
+type NodeExitIn struct {
+	Exits []string `json:"exits"`
+}
+
+// SetNodeExit (server admin) sets the default exit of a node without egress.
+func (h *H) SetNodeExit() Endpoint {
+	return JSON(200, func(c echo.Context, in NodeExitIn) (service.NodeOut, error) {
+		return h.Orch.SetNodeExit(rc(c), middleware.Principal(c), c.Param("node"), in.Exits)
+	})
+}
+
 // OrgIn names an org by slug.
 type OrgIn struct {
 	Org string `json:"org"`
