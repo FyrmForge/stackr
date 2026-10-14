@@ -9,6 +9,7 @@ import (
 
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/filters"
+	"github.com/docker/docker/api/types/mount"
 	"github.com/docker/docker/api/types/network"
 	"github.com/docker/go-connections/nat"
 )
@@ -61,6 +62,8 @@ func (d *Client) Create(ctx context.Context, spec ContainerSpec) (string, error)
 	}
 	hostCfg := &container.HostConfig{
 		Binds:         spec.Volumes,
+		Mounts:        mounts(spec.Mounts),
+		LogConfig:     logConfig,
 		RestartPolicy: container.RestartPolicy{Name: container.RestartPolicyMode(spec.Restart)},
 		Privileged:    spec.Privileged,
 		CapAdd:        spec.CapAdd,
@@ -72,6 +75,9 @@ func (d *Client) Create(ctx context.Context, spec ContainerSpec) (string, error)
 			Memory:   int64(spec.MemLimitMB) << 20,
 			Devices:  devices,
 		},
+	}
+	if spec.PidHost {
+		hostCfg.PidMode = "host"
 	}
 	var netCfg *network.NetworkingConfig
 	if spec.HostNetwork {
@@ -97,6 +103,25 @@ func (d *Client) Create(ctx context.Context, spec ContainerSpec) (string, error)
 		return "", wrap(err)
 	}
 	return resp.ID, nil
+}
+
+// logConfig caps every container's json-file log at 3 files of 10 MB.
+// ponytail: one cap for every container stackr creates; the buildx builder container keeps the daemon default.
+var logConfig = container.LogConfig{
+	Type:   "json-file",
+	Config: map[string]string{"max-size": "10m", "max-file": "3"},
+}
+
+func mounts(ms []Mount) []mount.Mount {
+	var out []mount.Mount
+	for _, m := range ms {
+		mm := mount.Mount{Type: mount.TypeVolume, Source: m.Volume, Target: m.Target, ReadOnly: m.ReadOnly}
+		if m.Subpath != "" {
+			mm.VolumeOptions = &mount.VolumeOptions{Subpath: m.Subpath}
+		}
+		out = append(out, mm)
+	}
+	return out
 }
 
 // HostInfo is what the daemon's host has: the ceiling for a container's

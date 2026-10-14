@@ -28,7 +28,10 @@ type ContainerSpec struct {
 	Env     []string          // KEY=VALUE
 	Labels  map[string]string //
 	Volumes []string          // "name-or-hostpath:/container/path[:ro]"
-	Ports   map[string]string // host[/udp] -> container[/udp] (published)
+	// Mounts are named-volume mounts, the only way to mount one file or
+	// folder of a volume (Subpath; needs Docker 26).
+	Mounts []Mount
+	Ports  map[string]string // host[/udp] -> container[/udp] (published)
 	// AnyIP publishes Ports on every host address, IPv6 included (the
 	// proxy); unset binds IPv4 only.
 	AnyIP    bool
@@ -36,11 +39,13 @@ type ContainerSpec struct {
 	// HostNetwork runs in the host's network namespace; Networks and Ports
 	// are ignored (the proxy and stackrd itself).
 	HostNetwork bool
-	CapAdd      []string // e.g. NET_ADMIN
-	ExtraHosts  []string // "name:ip" or "name:host-gateway"
-	CapDrop     []string // e.g. NET_RAW
-	CPULimit    float64  // cores, 0 = unlimited
-	MemLimitMB  int      // MB, 0 = unlimited
+	// PidHost runs in the host's PID namespace (the host helper).
+	PidHost    bool
+	CapAdd     []string // e.g. NET_ADMIN
+	ExtraHosts []string // "name:ip" or "name:host-gateway"
+	CapDrop    []string // e.g. NET_RAW
+	CPULimit   float64  // cores, 0 = unlimited
+	MemLimitMB int      // MB, 0 = unlimited
 
 	User       string   // "uid[:gid]" ("" = image default)
 	ShmSizeMB  int      // 0 = docker default (64MB)
@@ -60,6 +65,14 @@ type ContainerSpec struct {
 	HealthTimeoutS     int
 	HealthRetries      int
 	HealthStartPeriodS int
+}
+
+// Mount mounts Volume (or one path inside it, Subpath) at Target.
+type Mount struct {
+	Volume   string
+	Subpath  string // "" = the whole volume
+	Target   string
+	ReadOnly bool
 }
 
 // HostInfo is the daemon host's capacity; 0 = not reported.

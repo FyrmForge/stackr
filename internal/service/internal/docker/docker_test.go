@@ -120,3 +120,29 @@ func TestParsePrune(t *testing.T) {
 		t.Errorf("empty: %d %q", n, total)
 	}
 }
+
+func TestLogConfigCapsJSONFile(t *testing.T) {
+	if logConfig.Type != "json-file" || logConfig.Config["max-size"] != "10m" || logConfig.Config["max-file"] != "3" {
+		t.Fatalf("logConfig = %+v, want json-file 3 x 10m", logConfig)
+	}
+}
+
+func TestMounts(t *testing.T) {
+	got := mounts([]Mount{
+		{Volume: "files-a", Subpath: "0/app.conf", Target: "/etc/app.conf", ReadOnly: true},
+		{Volume: "data", Target: "/data"},
+	})
+	if len(got) != 2 {
+		t.Fatalf("mounts = %+v", got)
+	}
+	if m := got[0]; m.Type != "volume" || m.Source != "files-a" || m.Target != "/etc/app.conf" || !m.ReadOnly ||
+		m.VolumeOptions == nil || m.VolumeOptions.Subpath != "0/app.conf" {
+		t.Errorf("subpath mount = %+v", m)
+	}
+	if m := got[1]; m.ReadOnly || m.VolumeOptions != nil {
+		t.Errorf("plain mount = %+v, want read-write with no subpath", m)
+	}
+	if len(mounts(nil)) != 0 {
+		t.Error("no mounts must map to none")
+	}
+}

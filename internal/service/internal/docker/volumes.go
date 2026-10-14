@@ -227,7 +227,7 @@ func (d *Client) toolContainer(
 		},
 		// AutoRemove off: the exit code has to be readable after the process
 		// ends, and a self-removing container races ContainerWait.
-		&container.HostConfig{Binds: []string{bind}},
+		&container.HostConfig{Binds: []string{bind}, LogConfig: logConfig},
 		nil,
 		nil,
 		"stkr-vol-"+hex.EncodeToString(b),
