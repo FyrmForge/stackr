@@ -37,6 +37,7 @@ func TestNodeExitsMigrationRoundTrip(t *testing.T) {
 	execAll(t, db, []stmt{
 		node("a", "controller", `["ingress"]`, "10.213.0.0/16"),
 		node("b", "worker", `["egress","builder"]`, "10.214.0.0/16"),
+		node("c", "worker", `null`, "10.215.0.0/16"),
 		{`INSERT INTO exit_ladders VALUES ('org','o1',0,'b')`, nil},
 	})
 	step(1)
@@ -53,6 +54,9 @@ func TestNodeExitsMigrationRoundTrip(t *testing.T) {
 	}
 	if got := tags("b"); got != `["egress","builder"]` {
 		t.Fatalf("b tags = %s, want untouched", got)
+	}
+	if got := tags("c"); got != `["egress"]` {
+		t.Fatalf("c tags = %s, want egress on a node whose tags are JSON null", got)
 	}
 	execAll(t, db, []stmt{{`INSERT INTO exit_ladders VALUES ('node','a',0,'b')`, nil}})
 	if n := count(t, db, "exit_ladders"); n != 2 {

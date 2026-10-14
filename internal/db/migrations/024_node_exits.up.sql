@@ -40,5 +40,6 @@ CREATE TRIGGER exit_ladders_node_cascade AFTER DELETE ON nodes BEGIN
     DELETE FROM exit_ladders WHERE scope_kind = 'node' AND scope_id = old.id;
 END;
 
-UPDATE nodes SET tags = json_insert(tags, '$[#]', 'egress')
+-- A node with no tags may hold the JSON text 'null', which json_insert leaves as is.
+UPDATE nodes SET tags = json_insert(CASE json_type(tags) WHEN 'array' THEN tags ELSE '[]' END, '$[#]', 'egress')
 WHERE NOT EXISTS (SELECT 1 FROM json_each(nodes.tags) WHERE value = 'egress');
