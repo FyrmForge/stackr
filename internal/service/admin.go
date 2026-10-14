@@ -377,6 +377,14 @@ func (o *Orchestrator) Upgrade(ctx context.Context, tag string) (Job, error) {
 	if !o.upgrade.Upgradable() {
 		return Job{}, errs.Conflictf("dev build, no upgrades")
 	}
+	// The new panel rolls the workers onto its build once it has published
+	// its image (rolloutAfterBoot); a stop from an earlier rollout is over.
+	if err := o.store.Settings.Delete(ctx, keyRolloutStopped); err != nil {
+		return Job{}, err
+	}
+	if err := o.setRolloutTarget(ctx, tag); err != nil {
+		return Job{}, err
+	}
 	return o.enqueue(ctx, kindUpgrade, upgradeJob{Tag: tag}, "panel")
 }
 
