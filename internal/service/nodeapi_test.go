@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/FyrmForge/stackr/internal/authz"
+	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/node"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 	"github.com/FyrmForge/stackr/internal/worker"
@@ -445,5 +446,17 @@ func TestListNodesShowsWorkerArch(t *testing.T) {
 	must(t, err)
 	if ns[1].Arch != "arm64" || ns[1].Docker != "29.0.0" {
 		t.Fatalf("w1 = %+v", ns[1])
+	}
+}
+
+// The controller has no worker to ask: its docker version and arch come from
+// the daemon it talks to.
+func TestListNodesControllerFacts(t *testing.T) {
+	n := newTwoNodes(t)
+	n.ctlFake.Host = docker.HostInfo{CPUs: 4, MemBytes: 8 << 30, Version: "29.9.0"}
+	ns, err := n.orch.ListNodes(context.Background())
+	must(t, err)
+	if c := ns[0]; c.Role != node.Controller || c.Docker != "29.9.0" || c.Arch == "" || c.CPU != 4 {
+		t.Fatalf("controller = %+v", c)
 	}
 }

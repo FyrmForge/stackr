@@ -225,6 +225,9 @@ func (o *Orchestrator) nodeEnvOut(ctx context.Context, e store.Environment) (Nod
 // reportedFacts is what a worker last reported: the mesh service's copy, else
 // a brief ask; nil when it cannot answer.
 func (o *Orchestrator) reportedFacts(ctx context.Context, n store.Node) *worker.Facts {
+	if n.Role == node.Controller {
+		return o.controllerFacts(ctx, n)
+	}
 	if n.Role != node.Worker || n.Status != node.StatusOnline {
 		return nil
 	}

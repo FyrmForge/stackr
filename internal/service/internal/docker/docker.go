@@ -69,6 +69,8 @@ type HostInfo struct {
 	// Arch is the daemon's Architecture as Docker reports it ("x86_64",
 	// "aarch64"); "" = not reported.
 	Arch string
+	// Version is the daemon's server version; "" = not reported.
+	Version string
 }
 
 // NetAttach is one network the container joins, with its DNS aliases there.
