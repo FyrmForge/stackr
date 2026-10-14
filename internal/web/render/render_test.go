@@ -121,7 +121,7 @@ func TestParamEntries(t *testing.T) {
 // not the error page; a plain 503 stays a failure.
 func TestRefusedNodeDown(t *testing.T) {
 	err := fmt.Errorf("deploy: %w", &service.NodeDownError{Name: "vm106"})
-	if msg, ok := render.Refused(err); !ok || msg != "vm106 is offline, never seen." {
+	if msg, ok := render.Refused(err); !ok || msg != middleware.NodeOfflineMsg {
 		t.Errorf("node down = %q %v", msg, ok)
 	}
 	if _, ok := render.Refused(echo.NewHTTPError(http.StatusServiceUnavailable, "x")); ok {
