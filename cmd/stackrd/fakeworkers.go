@@ -58,7 +58,7 @@ func startFakeWorkers(ctx context.Context, orch *service.Orchestrator, fakeDir s
 		}
 		cfg := worker.Config{
 			TLS: tc, Addr: addr, DockerSock: sock, StateDir: dir, Trust: trust, Runner: noRunner{},
-			Mesh: worker.MeshConfig{WG: &wgapply.Recorder{}},
+			Mesh: worker.MeshConfig{WG: &wgapply.Recorder{}}, Version: version,
 		}
 		go func() {
 			if err := runWorker(ctx, cfg); err != nil && ctx.Err() == nil {

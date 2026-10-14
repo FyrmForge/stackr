@@ -699,7 +699,7 @@ const clusterFactsTTL = 15 * time.Second
 // worker's over its extras client (timed: that is the link latency).
 func (o *Orchestrator) clusterFacts(ctx context.Context, n store.Node) (*worker.Facts, bool, time.Duration) {
 	if n.Role == node.Controller {
-		return &worker.Facts{Interfaces: worker.Interfaces()}, true, 0
+		return o.controllerFacts(ctx, n), true, 0
 	}
 	if v, ok := clusterFactsCache.Load(n.ID); ok {
 		if c := v.(cachedFacts); time.Since(c.at) < clusterFactsTTL {
