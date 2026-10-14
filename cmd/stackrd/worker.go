@@ -85,7 +85,7 @@ func workerConfig(args []string) (worker.Config, error) {
 		return worker.Config{}, fmt.Errorf("node cert: %w", err)
 	}
 	return worker.Config{
-		Registry: reg, AliveAddr: *alive, Recover: worker.RecoverConfig{Own: own, Panel: *panel},
+		Version: version, Registry: reg, AliveAddr: *alive, Recover: worker.RecoverConfig{Own: own, Panel: *panel},
 		TLS: tc, Addr: *addr, DockerSock: *sock, CaddySock: *caddy, StateDir: *state, Trust: trust, RenewCertNow: *renewNow,
 		Runner: worker.ExecRunner{}, Mesh: worker.MeshConfig{WG: workerWG(), WGPort: *wgPort},
 	}, nil

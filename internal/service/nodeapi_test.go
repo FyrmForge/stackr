@@ -13,6 +13,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/authz"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/node"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
+	"github.com/FyrmForge/stackr/internal/worker"
 )
 
 func adminP() *Principal {
@@ -432,5 +433,17 @@ func TestListNodesTunnelDown(t *testing.T) {
 	must(t, err)
 	if d.State != NodeTunnelDown {
 		t.Errorf("show state = %q", d.State)
+	}
+}
+
+// A worker's arch and stackr version come from the facts it reported.
+func TestListNodesShowsWorkerArch(t *testing.T) {
+	ctx := context.Background()
+	n := newTwoNodes(t)
+	n.orch.mesh.Report(ctx, "w1", worker.Facts{Arch: "arm64", Version: "0.6.0", Docker: "29.0.0"})
+	ns, err := n.orch.ListNodes(ctx)
+	must(t, err)
+	if ns[1].Arch != "arm64" || ns[1].Docker != "29.0.0" {
+		t.Fatalf("w1 = %+v", ns[1])
 	}
 }

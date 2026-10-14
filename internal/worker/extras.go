@@ -35,9 +35,14 @@ type Facts struct {
 	DockerError string  `json:"docker_error,omitempty"`
 	Kernel      string  `json:"kernel"`
 	CPUs        int     `json:"cpus"`
-	MemBytes    uint64  `json:"mem_bytes"`
-	MemFree     uint64  `json:"mem_free"` // MemAvailable: what a build could use
-	UptimeS     float64 `json:"uptime_s"`
+	// Arch is runtime.GOARCH of the worker binary.
+	// ponytail: the worker binary's arch, not Docker's Architecture; service.dockerArch can't be imported here (cycle). Same thing on every real install.
+	Arch string `json:"arch,omitempty"`
+	// Version is the stackr build the worker runs (empty from an older one).
+	Version  string  `json:"version,omitempty"`
+	MemBytes uint64  `json:"mem_bytes"`
+	MemFree  uint64  `json:"mem_free"` // MemAvailable: what a build could use
+	UptimeS  float64 `json:"uptime_s"`
 	// Seen is where each wg peer (by public key) sends from, for peers with a
 	// fresh handshake: a peer behind a NAT shows as the NAT's address.
 	Seen map[string]string `json:"seen,omitempty"`
@@ -246,7 +251,7 @@ func (s *Server) facts(w http.ResponseWriter, r *http.Request) {
 // Facts is what the node reports about itself: GET /v1/facts, and the body
 // of a recovery call.
 func (s *Server) Facts(ctx context.Context) Facts {
-	f := Facts{CPUs: runtime.NumCPU(), Interfaces: Interfaces()}
+	f := Facts{CPUs: runtime.NumCPU(), Arch: runtime.GOARCH, Version: s.cfg.Version, Interfaces: Interfaces()}
 	b, _ := os.ReadFile("/proc/sys/kernel/osrelease")
 	f.Kernel = strings.TrimSpace(string(b))
 	f.MemBytes, f.MemFree = meminfo("MemTotal:"), meminfo("MemAvailable:")
