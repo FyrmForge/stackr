@@ -19,7 +19,7 @@ import (
 
 // fakePanel answers /join pending, then /join/status pending once, then the
 // final answer. It returns the CA's real fingerprint.
-func fakePanel(t *testing.T, final string) (*httptest.Server, string, *atomic.Int32) {
+func fakePanel(t *testing.T, final string, tamper ...func(*joinStatus)) (*httptest.Server, string, *atomic.Int32) {
 	t.Helper()
 	ca, err := clusterca.NewCA(time.Now())
 	if err != nil {
@@ -58,6 +58,9 @@ func fakePanel(t *testing.T, final string) (*httptest.Server, string, *atomic.In
 			if polls.Load() >= 3 { // confirmed first, the mesh spec a sync later
 				st.Mesh = json.RawMessage(`{"listen_port":51820}`)
 			}
+			for _, f := range tamper {
+				f(&st)
+			}
 			b, _ := json.Marshal(st)
 			_, _ = w.Write(b)
 		default:
@@ -83,6 +86,35 @@ func TestJoinConfirmed(t *testing.T) {
 	st, err := callTo(ts, fp).run(context.Background(), csr, "pub", map[string]any{"interfaces": []any{}})
 	if err != nil || st.WGAddress != "10.207.255.2" || polls.Load() != 3 || len(st.Mesh) == 0 {
 		t.Fatalf("%+v %v polls=%d", st, err, polls.Load())
+	}
+}
+
+// H1: a second root after the pinned one in ca_pem must not reach the
+// trust files, also when the answer names no trust roots.
+func TestJoinDropsRootAfterPinned(t *testing.T) {
+	evil, err := clusterca.NewCA(time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ts, fp, _ := fakePanel(t, "confirmed", func(st *joinStatus) {
+		st.CAPEM += string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: evil.Cert.Raw}))
+	})
+	key, _ := clusterca.NewKey()
+	csr, _ := clusterca.NewCSR(key)
+	st, err := callTo(ts, fp).run(context.Background(), csr, "pub", map[string]any{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	if err := writeJoinState(dir, st, []byte("k")); err != nil {
+		t.Fatal(err)
+	}
+	ca := filepath.Join(dir, "cluster-ca.crt")
+	if err := worker.ResetTrust(ca, pinnedRoots(nil, fp), nil); err != nil {
+		t.Fatal(err)
+	}
+	if n := len(worker.NewTrust(ca).Roots()); n != 1 {
+		t.Fatalf("trusts %d roots, want only the pinned one", n)
 	}
 }
 

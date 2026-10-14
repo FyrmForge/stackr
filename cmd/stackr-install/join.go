@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"flag"
 	"fmt"
@@ -144,6 +145,9 @@ func (j joinCall) run(ctx context.Context, csrPEM []byte, wgPub string, facts an
 	if err := cert.CheckSignatureFrom(ca); err != nil {
 		return st, fmt.Errorf("the node cert is not signed by that CA: %w", err)
 	}
+	// Only the pinned cert is kept: cluster-ca.crt is read as a bundle, so an
+	// extra root after it would be trusted without the pin.
+	st.CAPEM = string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: ca.Raw}))
 	if st.WGAddress == "" {
 		return st, errors.New("the panel gave this node no address")
 	}
