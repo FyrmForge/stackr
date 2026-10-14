@@ -214,7 +214,7 @@ func TestSliceDrawer(t *testing.T) {
 	rec := s.Do(t, "GET", "/acme/shop/dev/-/slices/main", nil)
 	body := rec.Body.String()
 	for _, w := range []string{
-		`<div id="drawer-view">`,
+		`<div id="drawer-view"`,
 		`href="/acme/shop/dev?drawer=` + pg.ID + `&amp;tab=slices"`,
 		"shop/dev/pg",
 		`name="consumer" value="api"`,

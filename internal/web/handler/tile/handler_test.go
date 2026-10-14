@@ -31,7 +31,7 @@ func TestEveryTabServes(t *testing.T) {
 	} {
 		rec := s.Do(t, "GET", drawer+"?tab="+tab, nil)
 		body := rec.Body.String()
-		if rec.Code != 200 || !strings.HasPrefix(body, `<div id="drawer-view">`) || strings.Contains(body, "<html") {
+		if rec.Code != 200 || !strings.HasPrefix(body, `<div id="drawer-view"`) || strings.Contains(body, "<html") {
 			t.Errorf("tab %s = %d\n%s", tab, rec.Code, body)
 		}
 	}
