@@ -150,3 +150,43 @@ func TestDropWGKeys(t *testing.T) {
 		t.Fatalf("missing keys: %v", err)
 	}
 }
+
+// The join answer's node name is kept next to the certs: uninstall --purge
+// asks for it, and the name the panel printed is all a person has.
+func TestWriteJoinState(t *testing.T) {
+	dir := t.TempDir()
+	st := joinStatus{NodeID: "n1", NodeName: "h3", CertPEM: "cert", CAPEM: "ca", Mesh: json.RawMessage(`{"a":1}`)}
+	if err := writeJoinState(dir, st, []byte("key")); err != nil {
+		t.Fatal(err)
+	}
+	for name, want := range map[string]string{"node.name": "h3\n", "node.crt": "cert", "node.key": "key", "cluster-ca.crt": "ca"} {
+		got, err := os.ReadFile(filepath.Join(dir, name))
+		if err != nil || string(got) != want {
+			t.Errorf("%s = %q, %v; want %q", name, got, err, want)
+		}
+	}
+	// an older panel names no node: no file, not an empty one
+	dir = t.TempDir()
+	if err := writeJoinState(dir, joinStatus{CertPEM: "c", CAPEM: "a", Mesh: json.RawMessage(`{}`)}, []byte("k")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "node.name")); err == nil {
+		t.Error("node.name written without a name")
+	}
+}
+
+// A join takes the installer out of the panel image next to stackrd; both
+// are staged and renamed in.
+func TestFetchWorkerExtractsBothBinaries(t *testing.T) {
+	var out strings.Builder
+	r := runner{dry: true, out: &out}
+	if err := r.fetchWorker(context.Background(), "ghcr.io/fyrmforge/stackr:0.6.0"); err != nil {
+		t.Fatal(err)
+	}
+	flat := strings.Join(strings.Fields(out.String()), " ")
+	for _, want := range []string{":/stackrd " + joinBinary + ".new", ":/stackr-install " + joinInstaller + ".new"} {
+		if !strings.Contains(flat, want) {
+			t.Errorf("no docker cp for %q in:\n%s", want, out.String())
+		}
+	}
+}

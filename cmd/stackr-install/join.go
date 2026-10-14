@@ -27,6 +27,8 @@ import (
 const (
 	joinWorkerPort = "7443" // service.WorkerPort: where the head dials the worker
 	joinBinary     = "/usr/local/bin/stackrd"
+	joinInstaller  = "/usr/local/bin/stackr-install"
+	nodeNameFile   = "node.name" // the name the panel gave this node, in the state dir
 	joinUnitPath   = "/etc/systemd/system/stackr-worker.service"
 )
 
@@ -34,6 +36,7 @@ const (
 type joinStatus struct {
 	Status    string `json:"status"`
 	NodeID    string `json:"node_id"`
+	NodeName  string `json:"node_name"`
 	WGAddress string `json:"wg_address"`
 	CertPEM   string `json:"cert_pem"`
 	CAPEM     string `json:"ca_pem"`
@@ -273,16 +276,8 @@ func join(ctx context.Context, args []string, out io.Writer) error {
 		return err
 	}
 	r.say("  confirmed: node", st.NodeID, "at", st.WGAddress)
-	for name, f := range map[string]struct {
-		b    []byte
-		mode os.FileMode
-	}{
-		"node.key": {kb, 0o600}, "node.crt": {[]byte(st.CertPEM), 0o644}, "cluster-ca.crt": {[]byte(st.CAPEM), 0o644},
-		worker.MeshFile: {st.Mesh, 0o600},
-	} {
-		if err := os.WriteFile(filepath.Join(*stateDir, name), f.b, f.mode); err != nil {
-			return err
-		}
+	if err := writeJoinState(*stateDir, st, kb); err != nil {
+		return err
 	}
 	var spec worker.MeshSpec
 	if err := json.Unmarshal(st.Mesh, &spec); err != nil {
@@ -302,6 +297,31 @@ func join(ctx context.Context, args []string, out io.Writer) error {
 		}
 	}
 	r.say("This node is a worker now; the panel shows it under Nodes.")
+	return nil
+}
+
+// writeJoinState puts what the join answer gave next to the node's key:
+// certs, the first mesh spec and the node's name (uninstall --purge asks for
+// it; an older panel names none, and then no file is written).
+func writeJoinState(stateDir string, st joinStatus, keyPEM []byte) error {
+	files := map[string]struct {
+		b    []byte
+		mode os.FileMode
+	}{
+		"node.key": {keyPEM, 0o600}, "node.crt": {[]byte(st.CertPEM), 0o644}, "cluster-ca.crt": {[]byte(st.CAPEM), 0o644},
+		worker.MeshFile: {st.Mesh, 0o600},
+	}
+	if st.NodeName != "" {
+		files[nodeNameFile] = struct {
+			b    []byte
+			mode os.FileMode
+		}{[]byte(st.NodeName + "\n"), 0o644}
+	}
+	for name, f := range files {
+		if err := os.WriteFile(filepath.Join(stateDir, name), f.b, f.mode); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -344,8 +364,8 @@ func (r runner) ensureWireGuard(ctx context.Context) error {
 	return nil
 }
 
-// fetchWorker puts the release's stackrd on the host, taking it out of the
-// panel image (the one place releases publish it).
+// fetchWorker puts the release's stackrd and stackr-install on the host,
+// taking them out of the panel image (the one place releases publish them).
 func (r runner) fetchWorker(ctx context.Context, image string) error {
 	const tmp = "stackr-worker-extract"
 	if err := r.pull(ctx, image); err != nil {
@@ -355,7 +375,14 @@ func (r runner) fetchWorker(ctx context.Context, image string) error {
 	if err := r.docker(ctx, "create", "--name", tmp, image); err != nil {
 		return err
 	}
+	// stackrd is required. The installer is best effort: an image from
+	// before releases carried it has none, and uninstall then comes from
+	// the installer the admin already has.
 	err := r.docker(ctx, "cp", tmp+":/stackrd", joinBinary+".new")
+	instErr := errors.New("skipped")
+	if err == nil {
+		instErr = r.docker(ctx, "cp", tmp+":/stackr-install", joinInstaller+".new")
+	}
 	_ = r.run(ctx, "docker", "rm", "-f", tmp)
 	if err != nil {
 		return err
@@ -365,6 +392,16 @@ func (r runner) fetchWorker(ctx context.Context, image string) error {
 	}
 	if err := os.Chmod(joinBinary+".new", 0o755); err != nil {
 		return err
+	}
+	if instErr == nil {
+		if err := os.Chmod(joinInstaller+".new", 0o755); err != nil {
+			return err
+		}
+		if err := os.Rename(joinInstaller+".new", joinInstaller); err != nil {
+			return err
+		}
+	} else {
+		r.say("  this release's image carries no stackr-install; keeping the installed one")
 	}
 	return os.Rename(joinBinary+".new", joinBinary) // rename: a running worker keeps its old file
 }
