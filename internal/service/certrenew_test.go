@@ -78,7 +78,7 @@ func TestRenewTunnel(t *testing.T) {
 func TestRenewThroughPanel(t *testing.T) {
 	o, own := renewRig(t)
 	ctx := context.Background()
-	p := worker.RecoverPayload{Time: time.Now().Unix(), Nonce: "n1", CSR: newCSR(t)}
+	p := worker.RecoverPayload{Time: time.Now().Unix(), Nonce: "n1", Purpose: worker.PurposeRenew, CSR: newCSR(t)}
 	req, err := worker.SignRecover(own, p)
 	must(t, err)
 	a, err := o.RenewNodeCert(ctx, req)
@@ -88,7 +88,7 @@ func TestRenewThroughPanel(t *testing.T) {
 	if _, err := o.RenewNodeCert(ctx, req); err == nil {
 		t.Fatal("a replay was accepted")
 	}
-	req, err = worker.SignRecover(own, worker.RecoverPayload{Time: time.Now().Unix(), Nonce: "n2"})
+	req, err = worker.SignRecover(own, worker.RecoverPayload{Time: time.Now().Unix(), Nonce: "n2", Purpose: worker.PurposeRenew})
 	must(t, err)
 	if _, err := o.RenewNodeCert(ctx, req); err == nil {
 		t.Fatal("a call without a CSR was accepted")

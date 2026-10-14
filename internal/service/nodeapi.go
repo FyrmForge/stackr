@@ -486,6 +486,10 @@ func (o *Orchestrator) RejoinNode(ctx context.Context, by *Principal, ref string
 	if err := o.store.Nodes.Update(ctx, n); err != nil {
 		return JoinTokenOut{}, err
 	}
+	// One live command per node: a leaked older one must not outlive a new ask.
+	if _, err := o.store.JoinTokens.ExpireUnspentFor(ctx, n.Name, time.Now().UTC()); err != nil {
+		return JoinTokenOut{}, err
+	}
 	out, err := o.mintJoin(ctx, by, n.Name, node.Tags(n), 0)
 	if err != nil {
 		return out, err

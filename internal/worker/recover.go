@@ -19,6 +19,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/FyrmForge/stackr/internal/clusterca"
 )
 
 // Recovery: a worker whose controller has gone quiet (its tunnel to the
@@ -62,7 +64,16 @@ type RecoverPayload struct {
 	WGPublic   string `json:"wg_public,omitempty"`
 	ExitPublic string `json:"exit_public,omitempty"`
 	CSR        string `json:"csr,omitempty"` // a renewal (RenewPanelPath)
+	// Purpose says which call this signature is for, so a captured renewal
+	// cannot be replayed as a recovery or the other way round.
+	Purpose string `json:"purpose"`
 }
+
+// The purposes a signed request can carry.
+const (
+	PurposeRecover = "recover"
+	PurposeRenew   = "renew"
+)
 
 // SignRecover builds a signed request with the node's own cert and key.
 func SignRecover(own tls.Certificate, p RecoverPayload) (RecoverRequest, error) {
@@ -108,6 +119,94 @@ func OpenRecover(r RecoverRequest) (*x509.Certificate, RecoverPayload, error) {
 		return nil, RecoverPayload{}, fmt.Errorf("recover: payload: %w", err)
 	}
 	return c, p, nil
+}
+
+// RecoverAnswer is the panel's answer to a recovery call: the node's mesh
+// spec, signed by the controller's cert for that one request. Spec is signed
+// as sent (JSON of a MeshSpec).
+type RecoverAnswer struct {
+	Spec []byte `json:"spec"`
+	Cert string `json:"cert"` // the controller cert, PEM
+	Sig  []byte `json:"sig"`  // ECDSA (ASN.1) over answerDigest(request nonce, Spec)
+	// Cross are the new root cross-signed by the old one (PEM), present only
+	// while a rollover is open: a worker that trusts the old root alone can
+	// then verify a controller cert from the new one.
+	Cross []string `json:"cross,omitempty"`
+}
+
+// answerDigest binds the spec to the request nonce, so an answer taken off
+// the wire cannot be played back to another request.
+func answerDigest(nonce string, spec []byte) [32]byte {
+	return sha256.Sum256(append([]byte(nonce+"\n"), spec...))
+}
+
+// SignAnswer signs spec for the request that carried nonce with the
+// controller's cert and key.
+func SignAnswer(ctl tls.Certificate, nonce string, spec MeshSpec) (RecoverAnswer, error) {
+	signer, ok := ctl.PrivateKey.(crypto.Signer)
+	if !ok || len(ctl.Certificate) == 0 {
+		return RecoverAnswer{}, errors.New("worker: no controller key to sign with")
+	}
+	b, err := json.Marshal(spec)
+	if err != nil {
+		return RecoverAnswer{}, err
+	}
+	sum := answerDigest(nonce, b)
+	sig, err := signer.Sign(rand.Reader, sum[:], crypto.SHA256)
+	if err != nil {
+		return RecoverAnswer{}, err
+	}
+	return RecoverAnswer{Spec: b, Sig: sig,
+		Cert: string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: ctl.Certificate[0]}))}, nil
+}
+
+// Open checks the answer against the roots the worker trusts now: a
+// controller cert from one of them, a good signature over this request's
+// nonce and the spec. The allow list is not consulted, so a worker that
+// missed a controller cert switch can still learn the new list here.
+// ponytail: a leaked controller key from a still-trusted root can sign too;
+// revoking it is a root change (break glass). A worker that never got the new
+// root cannot verify and needs a rejoin; cross-signing the new root with the
+// old one would close that.
+func (a RecoverAnswer) Open(roots []*x509.Certificate, nonce string, now time.Time) (MeshSpec, error) {
+	blk, _ := pem.Decode([]byte(a.Cert))
+	if blk == nil {
+		return MeshSpec{}, errors.New("no controller cert")
+	}
+	c, err := x509.ParseCertificate(blk.Bytes)
+	if err != nil {
+		return MeshSpec{}, fmt.Errorf("controller cert: %w", err)
+	}
+	// A cross cert counts as a root for this check only if a root the worker
+	// trusts signed it; it is never stored.
+	vouched := append([]*x509.Certificate(nil), roots...)
+	for _, p := range a.Cross {
+		cs, err := clusterca.ParseBundlePEM([]byte(p))
+		if err != nil {
+			continue
+		}
+		for _, x := range cs {
+			for _, r := range roots {
+				if x.CheckSignatureFrom(r) == nil && now.Add(clusterca.ClockSlack).After(x.NotBefore) && now.Add(-clusterca.ClockSlack).Before(x.NotAfter) {
+					vouched = append(vouched, x)
+					break
+				}
+			}
+		}
+	}
+	if _, err := clusterca.Verify(vouched, []*x509.Certificate{c}, clusterca.RoleController, "", now); err != nil {
+		return MeshSpec{}, fmt.Errorf("controller cert: %w", err)
+	}
+	pub, ok := c.PublicKey.(*ecdsa.PublicKey)
+	sum := answerDigest(nonce, a.Spec)
+	if !ok || !ecdsa.VerifyASN1(pub, sum[:], a.Sig) {
+		return MeshSpec{}, errors.New("bad signature")
+	}
+	var spec MeshSpec
+	if err := json.Unmarshal(a.Spec, &spec); err != nil {
+		return MeshSpec{}, fmt.Errorf("mesh spec: %w", err)
+	}
+	return spec, nil
 }
 
 // heardController marks a call from the controller: the listener admits
@@ -192,8 +291,9 @@ func (s *Server) recoverOnce(ctx context.Context) error {
 	nonce := make([]byte, 16)
 	_, _ = rand.Read(nonce)
 	wgPub, exitPub := s.publicKeys()
-	req, err := SignRecover(s.ownCert(), RecoverPayload{Time: time.Now().Unix(), Nonce: hex.EncodeToString(nonce), Facts: s.Facts(ctx),
-		WGPublic: wgPub, ExitPublic: exitPub})
+	p := RecoverPayload{Time: time.Now().Unix(), Nonce: hex.EncodeToString(nonce), Purpose: PurposeRecover, Facts: s.Facts(ctx),
+		WGPublic: wgPub, ExitPublic: exitPub}
+	req, err := SignRecover(s.ownCert(), p)
 	if err != nil {
 		return err
 	}
@@ -217,9 +317,16 @@ func (s *Server) recoverOnce(ctx context.Context) error {
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("panel answered %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
 	}
-	var spec MeshSpec
-	if err := json.Unmarshal(body, &spec); err != nil {
-		return fmt.Errorf("mesh spec: %w", err)
+	// The public URL proves nothing about the cluster (STACKR_TLS=off is plain
+	// HTTP): the answer is applied only when a controller cert of the roots
+	// this worker already trusts signed it for this very request.
+	var ans RecoverAnswer
+	if err := json.Unmarshal(body, &ans); err != nil {
+		return fmt.Errorf("recover answer: %w", err)
+	}
+	spec, err := ans.Open(s.cfg.Trust.Roots(), p.Nonce, time.Now())
+	if err != nil {
+		return fmt.Errorf("recover answer: %w", err)
 	}
 	if err := s.ApplyMesh(ctx, spec); err != nil {
 		return err

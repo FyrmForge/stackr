@@ -1,8 +1,11 @@
 package v1
 
 import (
+	"net"
 	"net/http"
+	"net/netip"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -13,63 +16,112 @@ import (
 	"github.com/FyrmForge/stackr/internal/worker"
 )
 
-// The two unauthenticated join calls share one budget per address: the token
-// is the only credential, so guessing it must stay hopeless.
+// The unauthenticated join calls (join, status) share one budget per address:
+// the token is the only credential, so guessing it must stay hopeless. Recover
+// and renew are signed with a node key and get a budget of their own, so
+// filling the join one never blocks a worker's recovery.
 const (
 	joinPerWindow = 10
+	nodePerWindow = 60 // workers behind one NAT share an address
 	joinWindow    = time.Minute
 	joinMaxKeys   = 10000
 )
 
-var joinTries = struct {
-	sync.Mutex
-	m map[string]struct {
-		n     int
-		reset time.Time
-	}
-}{m: map[string]struct {
+type window struct {
 	n     int
 	reset time.Time
-}{}}
+}
 
-// joinAllowed counts one try for ip and says whether it may go on.
-func joinAllowed(ip string) (bool, time.Duration) {
-	joinTries.Lock()
-	defer joinTries.Unlock()
+// tryLimiter counts calls per client key in fixed windows.
+type tryLimiter struct {
+	mu        sync.Mutex
+	perWindow int
+	m         map[string]window
+}
+
+func newTryLimiter(perWindow int) *tryLimiter {
+	return &tryLimiter{perWindow: perWindow, m: map[string]window{}}
+}
+
+var (
+	joinTries = newTryLimiter(joinPerWindow)
+	nodeTries = newTryLimiter(nodePerWindow)
+)
+
+// limiterKey is the address a budget is counted on: an IPv6 client is
+// counted by its /64, since one host owns a whole /64 and could otherwise
+// spread its calls over addresses without end.
+func limiterKey(ip string) string {
+	a, err := netip.ParseAddr(ip)
+	if err != nil || a.Is4() || a.Is4In6() {
+		return ip
+	}
+	p, err := a.Prefix(64)
+	if err != nil {
+		return ip
+	}
+	return p.String()
+}
+
+// allow counts one try for ip and says whether it may go on.
+func (l *tryLimiter) allow(ip string) (bool, time.Duration) {
+	ip = limiterKey(ip)
+	l.mu.Lock()
+	defer l.mu.Unlock()
 	now := time.Now()
-	if len(joinTries.m) >= joinMaxKeys {
-		for k, w := range joinTries.m {
+	if len(l.m) >= joinMaxKeys {
+		for k, w := range l.m {
 			if !now.Before(w.reset) {
-				delete(joinTries.m, k)
+				delete(l.m, k)
 			}
 		}
 	}
-	w, ok := joinTries.m[ip]
-	if !ok && len(joinTries.m) >= joinMaxKeys {
+	w, ok := l.m[ip]
+	if !ok && len(l.m) >= joinMaxKeys {
 		return false, joinWindow
 	}
 	if !now.Before(w.reset) {
 		w.n, w.reset = 0, now.Add(joinWindow)
 	}
-	if w.n >= joinPerWindow {
+	if w.n >= l.perWindow {
 		return false, time.Until(w.reset)
 	}
 	w.n++
-	joinTries.m[ip] = w
+	l.m[ip] = w
 	return true, 0
 }
 
-// joinLimited wraps a public join endpoint in the per-address limit.
-func joinLimited(e Endpoint) Endpoint {
+// limited wraps a public endpoint in l's per-address limit.
+func limited(l *tryLimiter, e Endpoint) Endpoint {
 	next := e.Handle
 	e.Handle = func(c echo.Context) error {
-		if ok, wait := joinAllowed(c.RealIP()); !ok {
+		if ok, wait := l.allow(c.RealIP()); !ok {
 			c.Response().Header().Set("Retry-After", strconv.Itoa(int(wait.Seconds())+1))
 			return echo.NewHTTPError(http.StatusTooManyRequests, "too many join attempts; try again later")
 		}
 		return next(c)
 	}
 	return e.Limit(64 << 10)
+}
+
+func joinLimited(e Endpoint) Endpoint { return limited(joinTries, e) }
+func nodeLimited(e Endpoint) Endpoint { return limited(nodeTries, e) }
+
+// isHTTPS is whether the call came over TLS. The panel sits behind Caddy,
+// which ends TLS and says so in X-Forwarded-Proto; that header counts only
+// when the direct peer is one of TRUSTED_PROXIES. echo's RealIP is the peer
+// itself unless the peer is trusted (then it is the forwarded client), so a
+// difference means a trusted proxy sent this.
+func isHTTPS(c echo.Context) bool {
+	r := c.Request()
+	if r.TLS != nil {
+		return true
+	}
+	peer, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil || peer == c.RealIP() {
+		return false
+	}
+	return strings.EqualFold(r.Header.Get(echo.HeaderXForwardedProto), "https")
 }
 
 // CreateJoinToken (server admin) mints a single use token for a new worker
@@ -87,7 +139,7 @@ func (h *H) RequestJoin() Endpoint {
 	return joinLimited(JSON(http.StatusAccepted, func(c echo.Context, in service.JoinRequest) (service.JoinStatus, error) {
 		r := c.Request()
 		return h.Orch.RequestJoin(rc(c), service.JoinMeta{
-			IP: c.RealIP(), UserAgent: r.UserAgent(), HTTPS: c.Scheme() == "https",
+			IP: c.RealIP(), UserAgent: r.UserAgent(), HTTPS: isHTTPS(c),
 		}, in)
 	}))
 }
@@ -105,10 +157,10 @@ func (h *H) JoinStatus() Endpoint {
 	}))
 }
 
-// RecoverNode (public, rate limited like join) is a worker whose controller
+// RecoverNode (public, rate limited apart from join) is a worker whose controller
 // went quiet fetching its mesh spec; the request is signed with its node key.
 func (h *H) RecoverNode() Endpoint {
-	return joinLimited(JSON(http.StatusOK, func(c echo.Context, in worker.RecoverRequest) (worker.MeshSpec, error) {
+	return nodeLimited(JSON(http.StatusOK, func(c echo.Context, in worker.RecoverRequest) (worker.RecoverAnswer, error) {
 		return h.Orch.RecoverNode(rc(c), in)
 	}))
 }
@@ -116,7 +168,7 @@ func (h *H) RecoverNode() Endpoint {
 // RenewNodeCert (public, rate limited) is a worker renewing its node cert
 // through the panel, signed with its current key.
 func (h *H) RenewNodeCert() Endpoint {
-	return joinLimited(JSON(http.StatusOK, func(c echo.Context, in worker.RecoverRequest) (worker.RenewAnswer, error) {
+	return nodeLimited(JSON(http.StatusOK, func(c echo.Context, in worker.RecoverRequest) (worker.RenewAnswer, error) {
 		return h.Orch.RenewNodeCert(rc(c), in)
 	}))
 }

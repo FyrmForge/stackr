@@ -41,7 +41,7 @@ func TestRecoverTakesRotatedKeys(t *testing.T) {
 	own := nodeCert(t, o, "w1")
 	o.rotation.trigger.Store("w1", "manual by admin@test.com")
 	wg, exit := pubKey(t), pubKey(t)
-	req, err := worker.SignRecover(own, worker.RecoverPayload{Time: time.Now().Unix(), Nonce: "r1", WGPublic: wg, ExitPublic: exit})
+	req, err := worker.SignRecover(own, worker.RecoverPayload{Time: time.Now().Unix(), Nonce: "r1", Purpose: worker.PurposeRecover, WGPublic: wg, ExitPublic: exit})
 	must(t, err)
 	if _, err := o.RecoverNode(ctx, req); err != nil {
 		t.Fatal(err)
@@ -74,7 +74,7 @@ func TestRecoverTakesRotatedKeys(t *testing.T) {
 		t.Fatalf("audit = %q", row)
 	}
 
-	req, err = worker.SignRecover(own, worker.RecoverPayload{Time: time.Now().Unix(), Nonce: "r2", WGPublic: "not-a-key", ExitPublic: exit})
+	req, err = worker.SignRecover(own, worker.RecoverPayload{Time: time.Now().Unix(), Nonce: "r2", Purpose: worker.PurposeRecover, WGPublic: "not-a-key", ExitPublic: exit})
 	must(t, err)
 	if _, err := o.RecoverNode(ctx, req); !errors.Is(err, errs.ErrRefused) {
 		t.Fatalf("bad key: err = %v", err)

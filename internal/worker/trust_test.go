@@ -142,12 +142,12 @@ func TestControllerAllowList(t *testing.T) {
 	if err := r.call(b); err == nil {
 		t.Fatal("a controller off the list was accepted")
 	}
-	// An empty list lifts the restriction again.
-	if err := r.trust.Apply(nil, nil); err != nil {
-		t.Fatal(err)
+	// An empty list does not lift the restriction once one is set.
+	if err := r.trust.Apply(r.pems(r.ca1), nil); err == nil {
+		t.Fatal("an empty list replaced the set one")
 	}
-	if err := r.call(b); err != nil {
-		t.Fatalf("empty list: %v", err)
+	if err := r.call(b); err == nil {
+		t.Fatal("a controller off the list was accepted after an empty list")
 	}
 }
 
@@ -185,21 +185,9 @@ func TestRecoverWhileControllerRefused(t *testing.T) {
 	if err := r.call(ctl); err == nil {
 		t.Fatal("controller should be refused")
 	}
-	panel := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		var rr RecoverRequest
-		if json.NewDecoder(req.Body).Decode(&rr) != nil {
-			http.Error(w, "bad", 400)
-			return
-		}
-		if _, _, err := OpenRecover(rr); err != nil {
-			http.Error(w, err.Error(), http.StatusForbidden)
-			return
-		}
-		spec := meshSpec()
-		spec.TrustRoots, spec.ControllerSerials = r.pems(r.ca1, r.ca2), []string{serial}
-		_ = json.NewEncoder(w).Encode(spec)
-	}))
-	defer panel.Close()
+	spec := meshSpec()
+	spec.TrustRoots, spec.ControllerSerials = r.pems(r.ca1, r.ca2), []string{serial}
+	panel := signedPanel(t, ctl, spec)
 
 	s, _, _ := newMeshServer(t, t.TempDir(), &pingFake{})
 	s.cfg.Trust = r.trust

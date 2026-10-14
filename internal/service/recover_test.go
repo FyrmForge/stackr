@@ -45,12 +45,20 @@ func TestRecoverNode(t *testing.T) {
 	}))
 	own := nodeCert(t, o, "w1")
 	call := func(p worker.RecoverPayload, tamper func(*worker.RecoverRequest)) (worker.MeshSpec, error) {
+		if p.Purpose == "" {
+			p.Purpose = worker.PurposeRecover
+		}
 		req, err := worker.SignRecover(own, p)
 		must(t, err)
 		if tamper != nil {
 			tamper(&req)
 		}
-		return o.RecoverNode(ctx, req)
+		a, err := o.RecoverNode(ctx, req)
+		if err != nil {
+			return worker.MeshSpec{}, err
+		}
+		// The worker would open it with the roots it trusts: the panel's own.
+		return a.Open(o.cluster.roots(), p.Nonce, time.Now())
 	}
 	now := time.Now().Unix()
 	facts := worker.Facts{Interfaces: []worker.Iface{{Name: "enp7s0", Prefixes: []string{"10.0.0.2/32"}}}}
@@ -76,7 +84,11 @@ func TestRecoverNode(t *testing.T) {
 		}
 	}
 	refused("replay", worker.RecoverPayload{Time: now, Nonce: "n1"}, nil)
-	refused("old clock", worker.RecoverPayload{Time: now - 600, Nonce: "n2"}, nil)
+	if _, err := call(worker.RecoverPayload{Time: now - 600, Nonce: "n2"}, nil); errors.Is(err, errs.ErrRefused) {
+		t.Errorf("old clock: err = %v, want a typed Invalid, not a refusal", err)
+	} else if _, ok := errs.IsInvalid(err); !ok {
+		t.Errorf("old clock: err = %v, want Invalid", err)
+	}
 	refused("bad signature", worker.RecoverPayload{Time: now, Nonce: "n3"}, func(r *worker.RecoverRequest) {
 		r.Payload = []byte(`{"time":1,"nonce":"x"}`)
 	})
@@ -84,7 +96,7 @@ func TestRecoverNode(t *testing.T) {
 
 	other := newClusterPanel(t) // a cert from another cluster's CA
 	foreign := nodeCert(t, other, "w1")
-	req, err := worker.SignRecover(foreign, worker.RecoverPayload{Time: now, Nonce: "n4"})
+	req, err := worker.SignRecover(foreign, worker.RecoverPayload{Time: now, Nonce: "n4", Purpose: worker.PurposeRecover})
 	must(t, err)
 	if _, err := o.RecoverNode(ctx, req); !errors.Is(err, errs.ErrRefused) {
 		t.Errorf("foreign CA: err = %v", err)

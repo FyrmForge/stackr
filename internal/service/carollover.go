@@ -2,10 +2,14 @@ package service
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/x509"
+	"encoding/pem"
 	"errors"
 	"log/slog"
+	"math/big"
 	"os"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -210,6 +214,9 @@ func (o *Orchestrator) startRollover(ctx context.Context, by *Principal) (store.
 	if err := clusterca.RotateCA(o.cfg.DataDir, next); err != nil {
 		return st, err
 	}
+	if err := writeCross(o.cfg.DataDir, old, next); err != nil {
+		return st, err
+	}
 	// Sign with the new root from here, trust both.
 	o.cluster.swapCA(next, []*x509.Certificate{next.Cert, old.Cert})
 	now := time.Now().UTC()
@@ -281,6 +288,9 @@ func (o *Orchestrator) finishRollover(ctx context.Context, by *Principal, st sto
 	if err := clusterca.DropPrevCA(o.cfg.DataDir); err != nil {
 		return err
 	}
+	if err := dropCross(o.cfg.DataDir); err != nil {
+		return err
+	}
 	o.cluster.swapCA(o.cluster.ca, []*x509.Certificate{o.cluster.ca.Cert})
 	now := time.Now().UTC()
 	prev := st.PreviousFP
@@ -333,6 +343,7 @@ func (o *Orchestrator) reconcileRollover(ctx context.Context) (store.ClusterCA, 
 	case !hasPrev && st.RollingOver():
 		now := time.Now().UTC()
 		st.PreviousFP, st.RolloverFinishedAt = "", &now
+		_ = dropCross(o.cfg.DataDir)
 		o.cluster.setRoots([]*x509.Certificate{cur})
 	default:
 		return st, nil
@@ -372,4 +383,45 @@ func (o *Orchestrator) rootStragglers(ctx context.Context, curFP string, settle 
 		}
 	}
 	return out, nil
+}
+
+// crossFile is the new root signed by the old one, kept for the length of a
+// rollover so a recover answer can carry it (worker.RecoverAnswer.Cross).
+const crossFile = "keys/cluster-ca.cross.crt"
+
+// writeCross cross-signs next's key with old's, before old's key is gone.
+func writeCross(dir string, old, next *clusterca.CA) error {
+	serial, err := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 127))
+	if err != nil {
+		return err
+	}
+	tpl := &x509.Certificate{
+		SerialNumber: serial, Subject: next.Cert.Subject,
+		NotBefore: next.Cert.NotBefore, NotAfter: old.Cert.NotAfter,
+		KeyUsage: x509.KeyUsageCertSign | x509.KeyUsageCRLSign, BasicConstraintsValid: true, IsCA: true, MaxPathLenZero: true,
+	}
+	if next.Cert.NotAfter.Before(tpl.NotAfter) {
+		tpl.NotAfter = next.Cert.NotAfter
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tpl, old.Cert, next.Cert.PublicKey, old.Key)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(dir, crossFile), pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), 0o644)
+}
+
+// readCross is the cross cert as PEM, nil outside a rollover.
+func readCross(dir string) []string {
+	b, err := os.ReadFile(filepath.Join(dir, crossFile))
+	if err != nil {
+		return nil
+	}
+	return []string{string(b)}
+}
+
+func dropCross(dir string) error {
+	if err := os.Remove(filepath.Join(dir, crossFile)); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	return nil
 }

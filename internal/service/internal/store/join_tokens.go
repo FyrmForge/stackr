@@ -40,6 +40,8 @@ type JoinTokenStore interface {
 	Used(ctx context.Context) ([]JoinToken, error)
 	// ExpireUnspent ends every token not yet spent and returns how many.
 	ExpireUnspent(ctx context.Context, now time.Time) (int, error)
+	// ExpireUnspentFor ends the tokens for one node name not yet spent.
+	ExpireUnspentFor(ctx context.Context, nodeName string, now time.Time) (int, error)
 }
 
 var joinTokensT = newTable[JoinToken]("join_tokens", nil)
@@ -62,6 +64,15 @@ func (s joinTokens) Spend(ctx context.Context, hash string, now time.Time) error
 
 func (s joinTokens) Used(ctx context.Context) ([]JoinToken, error) {
 	return s.many(ctx, "used_at IS NOT NULL ORDER BY used_at")
+}
+
+func (s joinTokens) ExpireUnspentFor(ctx context.Context, nodeName string, now time.Time) (int, error) {
+	res, err := s.q.ExecContext(ctx, "UPDATE join_tokens SET expires_at = ? WHERE node_name = ? AND used_at IS NULL AND expires_at > ?", now, nodeName, now)
+	if err != nil {
+		return 0, mapErr(err)
+	}
+	n, err := res.RowsAffected()
+	return int(n), err
 }
 
 func (s joinTokens) ExpireUnspent(ctx context.Context, now time.Time) (int, error) {

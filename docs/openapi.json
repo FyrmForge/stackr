@@ -3807,6 +3807,25 @@
         ],
         "type": "object"
       },
+      "RecoverAnswer": {
+        "properties": {
+          "cert": {
+            "type": "string"
+          },
+          "sig": {
+            "type": "string"
+          },
+          "spec": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "spec",
+          "cert",
+          "sig"
+        ],
+        "type": "object"
+      },
       "RecoverRequest": {
         "properties": {
           "cert": {
@@ -9989,7 +10008,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/MeshSpec"
+                  "$ref": "#/components/schemas/RecoverAnswer"
                 }
               }
             },
