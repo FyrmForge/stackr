@@ -54,12 +54,12 @@ func (o *Orchestrator) RecoverNode(ctx context.Context, req worker.RecoverReques
 	if o.mesh == nil {
 		return worker.MeshSpec{}, refused
 	}
-	peer, p, err := o.openSigned(req, "", func(nodeID, detail string) { o.auditRecover(ctx, nodeID, detail) })
+	peer, p, err := o.openSigned(req, worker.PurposeRecover, func(nodeID, detail string) { o.auditRecover(ctx, nodeID, detail) })
 	if err != nil {
 		return worker.MeshSpec{}, err
 	}
 	n, err := o.store.Nodes.Get(ctx, peer.NodeID)
-	if err != nil || n.Role != node.Worker || n.Status == node.StatusPending {
+	if err != nil || n.Role != node.Worker || n.Status == node.StatusPending || n.Status == StateNeedsRejoin {
 		o.auditRecover(ctx, peer.NodeID, "refused: not a confirmed worker")
 		return worker.MeshSpec{}, refused
 	}
@@ -87,9 +87,12 @@ func (o *Orchestrator) RecoverNode(ctx context.Context, req worker.RecoverReques
 
 // openSigned checks a request a worker signed with its node key outside the
 // tunnel (recovery, cert renewal): the cluster CA's worker cert, not revoked,
-// a clock within recoverSkew and a fresh nonce (scope keeps the callers'
-// nonces apart). refuse, when set, records the clock and nonce refusals.
-func (o *Orchestrator) openSigned(req worker.RecoverRequest, scope string, refuse func(nodeID, detail string)) (clusterca.Peer, worker.RecoverPayload, error) {
+// a clock within recoverSkew and a fresh nonce. The payload must name purpose
+// (a signature for one call is no good for the other), which also keeps the
+// callers' nonces apart. A clock off is Invalid (400), not Refused, so the
+// worker does not count it toward giving up. refuse, when set, records the
+// clock and nonce refusals.
+func (o *Orchestrator) openSigned(req worker.RecoverRequest, purpose string, refuse func(nodeID, detail string)) (clusterca.Peer, worker.RecoverPayload, error) {
 	refused := errs.Refusedf("not a node of this cluster")
 	if o.cluster == nil {
 		return clusterca.Peer{}, worker.RecoverPayload{}, refused
@@ -106,11 +109,14 @@ func (o *Orchestrator) openSigned(req worker.RecoverRequest, scope string, refus
 	if refuse == nil {
 		refuse = func(string, string) {}
 	}
+	if p.Purpose != purpose {
+		return clusterca.Peer{}, worker.RecoverPayload{}, refused
+	}
 	if d := now.Sub(time.Unix(p.Time, 0)); d > recoverSkew || d < -recoverSkew {
 		refuse(peer.NodeID, "refused: clock off by "+d.Round(time.Second).String())
-		return clusterca.Peer{}, worker.RecoverPayload{}, errs.Refusedf("the request's clock is off by %s", d.Round(time.Second))
+		return clusterca.Peer{}, worker.RecoverPayload{}, errs.Invalidf("time", "the request's clock is off by %s", d.Round(time.Second))
 	}
-	if p.Nonce == "" || !o.recoverSeen.fresh(scope+peer.NodeID+"/"+p.Nonce, now) {
+	if p.Nonce == "" || !o.recoverSeen.fresh(purpose+"/"+peer.NodeID+"/"+p.Nonce, now) {
 		refuse(peer.NodeID, "refused: replayed or missing nonce")
 		return clusterca.Peer{}, worker.RecoverPayload{}, refused
 	}

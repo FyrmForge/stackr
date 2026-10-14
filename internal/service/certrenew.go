@@ -34,7 +34,7 @@ const NodeCertExpired = "cert-expired"
 // renewNodeCert issues the renewal for nodeID and audits it with how it came.
 func (o *Orchestrator) renewNodeCert(ctx context.Context, nodeID string, csr []byte, via string) ([]byte, error) {
 	n, err := o.store.Nodes.Get(ctx, nodeID)
-	if err != nil || n.Role != node.Worker || n.Status == node.StatusPending {
+	if err != nil || n.Role != node.Worker || n.Status == node.StatusPending || n.Status == StateNeedsRejoin {
 		return nil, errs.Refusedf("not a confirmed worker")
 	}
 	iss, err := o.cluster.ca.IssueNode(csr, nodeID, time.Now())
@@ -88,7 +88,7 @@ func (o *Orchestrator) renewTunnel(w http.ResponseWriter, r *http.Request) {
 // RenewNodeCert (public, rate limited) is a renewal through the panel: the
 // request is signed like a recovery call and checked the same way.
 func (o *Orchestrator) RenewNodeCert(ctx context.Context, req worker.RecoverRequest) (worker.RenewAnswer, error) {
-	peer, p, err := o.openSigned(req, "renew/", nil)
+	peer, p, err := o.openSigned(req, worker.PurposeRenew, nil)
 	if err != nil {
 		return worker.RenewAnswer{}, err
 	}

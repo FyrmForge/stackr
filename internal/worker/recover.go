@@ -62,7 +62,16 @@ type RecoverPayload struct {
 	WGPublic   string `json:"wg_public,omitempty"`
 	ExitPublic string `json:"exit_public,omitempty"`
 	CSR        string `json:"csr,omitempty"` // a renewal (RenewPanelPath)
+	// Purpose says which call this signature is for, so a captured renewal
+	// cannot be replayed as a recovery or the other way round.
+	Purpose string `json:"purpose"`
 }
+
+// The purposes a signed request can carry.
+const (
+	PurposeRecover = "recover"
+	PurposeRenew   = "renew"
+)
 
 // SignRecover builds a signed request with the node's own cert and key.
 func SignRecover(own tls.Certificate, p RecoverPayload) (RecoverRequest, error) {
@@ -192,7 +201,7 @@ func (s *Server) recoverOnce(ctx context.Context) error {
 	nonce := make([]byte, 16)
 	_, _ = rand.Read(nonce)
 	wgPub, exitPub := s.publicKeys()
-	req, err := SignRecover(s.ownCert(), RecoverPayload{Time: time.Now().Unix(), Nonce: hex.EncodeToString(nonce), Facts: s.Facts(ctx),
+	req, err := SignRecover(s.ownCert(), RecoverPayload{Time: time.Now().Unix(), Nonce: hex.EncodeToString(nonce), Purpose: PurposeRecover, Facts: s.Facts(ctx),
 		WGPublic: wgPub, ExitPublic: exitPub})
 	if err != nil {
 		return err

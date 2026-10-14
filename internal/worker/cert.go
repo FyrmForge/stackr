@@ -275,7 +275,7 @@ func (s *Server) renewPanel(ctx context.Context, csr []byte) ([]byte, error) {
 	}
 	nonce := make([]byte, 16)
 	_, _ = rand.Read(nonce)
-	req, err := SignRecover(s.ownCert(), RecoverPayload{Time: time.Now().Unix(), Nonce: hex.EncodeToString(nonce), CSR: string(csr)})
+	req, err := SignRecover(s.ownCert(), RecoverPayload{Time: time.Now().Unix(), Nonce: hex.EncodeToString(nonce), Purpose: PurposeRenew, CSR: string(csr)})
 	if err != nil {
 		return nil, err
 	}
