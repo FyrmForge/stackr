@@ -395,7 +395,8 @@ func (t *Trust) Guard(tc *tls.Config) *tls.Config {
 
 // Apply takes the trust fields of a mesh spec. No roots = keep the current
 // list (a spec that omits it must not wipe trust). The allow list is taken as
-// sent: empty means none, any controller cert from a trusted root. Nothing is
+// sent, except that an empty one never replaces a set one; before any is set,
+// empty means none (any controller cert from a trusted root). Nothing is
 // changed when a root does not parse.
 func (t *Trust) Apply(rootsPEM, serials []string) error {
 	var roots []*x509.Certificate
@@ -408,6 +409,16 @@ func (t *Trust) Apply(rootsPEM, serials []string) error {
 	set := serialSet(serials)
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	if set == nil && t.serials != nil {
+		// Once a list is set, only a non-empty one replaces it: an empty one
+		// would stop a revoked controller cert from ever reaching this
+		// worker. A spec with no trust fields at all (a removal push, the
+		// controller's own spec) leaves trust alone.
+		if len(roots) > 0 {
+			return errors.New("trust: refusing an empty controller allow list once one is set")
+		}
+		return nil
+	}
 	if len(roots) > 0 {
 		if err := writeAtomic(t.rootsFile, clusterca.BundlePEM(roots)); err != nil {
 			return err

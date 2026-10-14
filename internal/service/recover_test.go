@@ -53,7 +53,12 @@ func TestRecoverNode(t *testing.T) {
 		if tamper != nil {
 			tamper(&req)
 		}
-		return o.RecoverNode(ctx, req)
+		a, err := o.RecoverNode(ctx, req)
+		if err != nil {
+			return worker.MeshSpec{}, err
+		}
+		// The worker would open it with the roots it trusts: the panel's own.
+		return a.Open(o.cluster.roots(), p.Nonce, time.Now())
 	}
 	now := time.Now().Unix()
 	facts := worker.Facts{Interfaces: []worker.Iface{{Name: "enp7s0", Prefixes: []string{"10.0.0.2/32"}}}}

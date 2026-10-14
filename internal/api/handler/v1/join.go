@@ -108,7 +108,7 @@ func (h *H) JoinStatus() Endpoint {
 // RecoverNode (public, rate limited like join) is a worker whose controller
 // went quiet fetching its mesh spec; the request is signed with its node key.
 func (h *H) RecoverNode() Endpoint {
-	return joinLimited(JSON(http.StatusOK, func(c echo.Context, in worker.RecoverRequest) (worker.MeshSpec, error) {
+	return joinLimited(JSON(http.StatusOK, func(c echo.Context, in worker.RecoverRequest) (worker.RecoverAnswer, error) {
 		return h.Orch.RecoverNode(rc(c), in)
 	}))
 }

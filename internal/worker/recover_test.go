@@ -40,6 +40,8 @@ func selfCert(t *testing.T) tls.Certificate {
 // the worker applies the spec it answers. A tampered payload fails.
 func TestRecoverThroughPanel(t *testing.T) {
 	own := selfCert(t)
+	r := newTrustRig(t)
+	ctl, _ := controller(t, r.ca1)
 	var got RecoverPayload
 	panel := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var req RecoverRequest
@@ -53,11 +55,13 @@ func TestRecoverThroughPanel(t *testing.T) {
 			return
 		}
 		got = p
-		_ = json.NewEncoder(w).Encode(meshSpec())
+		a, _ := SignAnswer(ctl, p.Nonce, meshSpec())
+		_ = json.NewEncoder(w).Encode(a)
 	}))
 	defer panel.Close()
 
 	s, _, rec := newMeshServer(t, t.TempDir(), &pingFake{})
+	s.cfg.Trust = r.trust
 	s.cfg.Recover = RecoverConfig{Own: own, Panel: panel.URL}
 	if err := s.recoverOnce(context.Background()); err != nil {
 		t.Fatal(err)
@@ -104,17 +108,23 @@ func logCapture(t *testing.T) *bytes.Buffer {
 }
 
 // panelAnswering is a panel whose recover endpoint answers the status last set.
-func panelAnswering(t *testing.T, status *atomic.Int32) string {
+func panelAnswering(t *testing.T, status *atomic.Int32) (string, *Trust) {
 	t.Helper()
+	rig := newTrustRig(t)
+	ctl, _ := controller(t, rig.ca1)
 	panel := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if code := int(status.Load()); code != http.StatusOK {
 			http.Error(w, "no", code)
 			return
 		}
-		_ = json.NewEncoder(w).Encode(meshSpec())
+		var rr RecoverRequest
+		_ = json.NewDecoder(r.Body).Decode(&rr)
+		_, p, _ := OpenRecover(rr)
+		a, _ := SignAnswer(ctl, p.Nonce, meshSpec())
+		_ = json.NewEncoder(w).Encode(a)
 	}))
 	t.Cleanup(panel.Close)
-	return panel.URL
+	return panel.URL, rig.trust
 }
 
 // A worker the cluster removed is refused (403) on every call. After 24 hours
@@ -125,7 +135,9 @@ func TestRecoverGivesUpWhenRefusedForADay(t *testing.T) {
 	var status atomic.Int32
 	status.Store(http.StatusForbidden)
 	s, _, _ := newMeshServer(t, t.TempDir(), &pingFake{})
-	s.cfg.Recover = RecoverConfig{Own: selfCert(t), Panel: panelAnswering(t, &status)}
+	url, trust := panelAnswering(t, &status)
+	s.cfg.Trust = trust
+	s.cfg.Recover = RecoverConfig{Own: selfCert(t), Panel: url}
 
 	var st recoverState
 	t0 := time.Now().Add(2 * RecoverAfter) // the controller has been quiet since the server started
@@ -172,7 +184,9 @@ func TestRecoverRefusalIsTyped(t *testing.T) {
 	var status atomic.Int32
 	status.Store(http.StatusForbidden)
 	s, _, _ := newMeshServer(t, t.TempDir(), &pingFake{})
-	s.cfg.Recover = RecoverConfig{Own: selfCert(t), Panel: panelAnswering(t, &status)}
+	url, trust := panelAnswering(t, &status)
+	s.cfg.Trust = trust
+	s.cfg.Recover = RecoverConfig{Own: selfCert(t), Panel: url}
 	if err := s.recoverOnce(context.Background()); !errors.Is(err, errPanelRefused) {
 		t.Fatalf("403 = %v, want errPanelRefused", err)
 	}

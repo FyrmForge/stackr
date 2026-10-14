@@ -49,25 +49,25 @@ func (n *recoverNonces) fresh(nonce string, now time.Time) bool {
 // its cert must be the cluster CA's, a worker's and not revoked. Its facts
 // are taken as if read over the tunnel, the mesh is recomputed and pushed,
 // and the answer is the node's own mesh spec.
-func (o *Orchestrator) RecoverNode(ctx context.Context, req worker.RecoverRequest) (worker.MeshSpec, error) {
+func (o *Orchestrator) RecoverNode(ctx context.Context, req worker.RecoverRequest) (worker.RecoverAnswer, error) {
 	refused := errs.Refusedf("not a node of this cluster")
 	if o.mesh == nil {
-		return worker.MeshSpec{}, refused
+		return worker.RecoverAnswer{}, refused
 	}
 	peer, p, err := o.openSigned(req, worker.PurposeRecover, func(nodeID, detail string) { o.auditRecover(ctx, nodeID, detail) })
 	if err != nil {
-		return worker.MeshSpec{}, err
+		return worker.RecoverAnswer{}, err
 	}
 	n, err := o.store.Nodes.Get(ctx, peer.NodeID)
 	if err != nil || n.Role != node.Worker || n.Status == node.StatusPending || n.Status == StateNeedsRejoin {
 		o.auditRecover(ctx, peer.NodeID, "refused: not a confirmed worker")
-		return worker.MeshSpec{}, refused
+		return worker.RecoverAnswer{}, refused
 	}
 	force := false
 	if p.WGPublic != "" && p.WGPublic != n.WGPublicKey {
 		if err := o.takeNodeKeys(ctx, n, p.WGPublic, p.ExitPublic); err != nil {
 			o.auditRecover(ctx, n.ID, "refused: bad keys")
-			return worker.MeshSpec{}, err
+			return worker.RecoverAnswer{}, err
 		}
 		force = true // every peer learns the new key now
 	}
@@ -78,11 +78,13 @@ func (o *Orchestrator) RecoverNode(ctx context.Context, req worker.RecoverReques
 	}
 	spec, ok := o.mesh.Spec(n.ID)
 	if !ok {
-		return worker.MeshSpec{}, errs.ErrBusy
+		return worker.RecoverAnswer{}, errs.ErrBusy
 	}
 	slog.Info("recover: node fetched its mesh through the panel", "node", n.Name)
 	o.auditRecover(ctx, n.ID, "fetched its mesh: "+n.Name)
-	return spec, nil
+	// Signed with the controller cert for this request: the worker applies
+	// nothing it cannot verify against the roots it already trusts.
+	return worker.SignAnswer(o.cluster.cert(), p.Nonce, spec)
 }
 
 // openSigned checks a request a worker signed with its node key outside the

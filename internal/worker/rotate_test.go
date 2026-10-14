@@ -74,11 +74,15 @@ func TestRotateSwapsAndReverts(t *testing.T) {
 	}
 
 	var got RecoverPayload
+	rig := newTrustRig(t)
+	ctl, _ := controller(t, rig.ca1)
+	s.cfg.Trust = rig.trust
 	panel := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var req RecoverRequest
 		_ = json.NewDecoder(r.Body).Decode(&req)
 		_, got, _ = OpenRecover(req)
-		_ = json.NewEncoder(w).Encode(meshSpec())
+		a, _ := SignAnswer(ctl, got.Nonce, meshSpec())
+		_ = json.NewEncoder(w).Encode(a)
 	}))
 	defer panel.Close()
 	s.cfg.Recover = RecoverConfig{Own: selfCert(t), Panel: panel.URL}
