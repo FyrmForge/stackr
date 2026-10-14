@@ -84,7 +84,9 @@ func (o *Orchestrator) RecoverNode(ctx context.Context, req worker.RecoverReques
 	o.auditRecover(ctx, n.ID, "fetched its mesh: "+n.Name)
 	// Signed with the controller cert for this request: the worker applies
 	// nothing it cannot verify against the roots it already trusts.
-	return worker.SignAnswer(o.cluster.cert(), p.Nonce, spec)
+	a, err := worker.SignAnswer(o.cluster.cert(), p.Nonce, spec)
+	a.Cross = readCross(o.cfg.DataDir) // open rollover only
+	return a, err
 }
 
 // openSigned checks a request a worker signed with its node key outside the

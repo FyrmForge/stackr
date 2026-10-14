@@ -89,6 +89,9 @@ func (o *Orchestrator) BreakGlass(ctx context.Context, by *Principal) error {
 	if err := clusterca.DropPrevCA(o.cfg.DataDir); err != nil {
 		return err
 	}
+	if err := dropCross(o.cfg.DataDir); err != nil {
+		return err
+	}
 	c := o.cluster
 	c.rollMu.Lock() // no controller cert renewal in between
 	defer c.rollMu.Unlock()

@@ -128,6 +128,10 @@ type RecoverAnswer struct {
 	Spec []byte `json:"spec"`
 	Cert string `json:"cert"` // the controller cert, PEM
 	Sig  []byte `json:"sig"`  // ECDSA (ASN.1) over answerDigest(request nonce, Spec)
+	// Cross are the new root cross-signed by the old one (PEM), present only
+	// while a rollover is open: a worker that trusts the old root alone can
+	// then verify a controller cert from the new one.
+	Cross []string `json:"cross,omitempty"`
 }
 
 // answerDigest binds the spec to the request nonce, so an answer taken off
@@ -173,7 +177,24 @@ func (a RecoverAnswer) Open(roots []*x509.Certificate, nonce string, now time.Ti
 	if err != nil {
 		return MeshSpec{}, fmt.Errorf("controller cert: %w", err)
 	}
-	if _, err := clusterca.Verify(roots, []*x509.Certificate{c}, clusterca.RoleController, "", now); err != nil {
+	// A cross cert counts as a root for this check only if a root the worker
+	// trusts signed it; it is never stored.
+	vouched := append([]*x509.Certificate(nil), roots...)
+	for _, p := range a.Cross {
+		cs, err := clusterca.ParseBundlePEM([]byte(p))
+		if err != nil {
+			continue
+		}
+		for _, x := range cs {
+			for _, r := range roots {
+				if x.CheckSignatureFrom(r) == nil && now.Add(clusterca.ClockSlack).After(x.NotBefore) && now.Add(-clusterca.ClockSlack).Before(x.NotAfter) {
+					vouched = append(vouched, x)
+					break
+				}
+			}
+		}
+	}
+	if _, err := clusterca.Verify(vouched, []*x509.Certificate{c}, clusterca.RoleController, "", now); err != nil {
 		return MeshSpec{}, fmt.Errorf("controller cert: %w", err)
 	}
 	pub, ok := c.PublicKey.(*ecdsa.PublicKey)
