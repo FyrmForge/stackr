@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -235,5 +236,59 @@ func TestRegistryLoginToken(t *testing.T) {
 	// the login token is not an API key
 	if _, err := e.Orch.KeyPrincipal(ctx, out.Token); err == nil {
 		t.Error("the registry login token authenticated as an API key")
+	}
+}
+
+// The login token freezes nothing: a demotion and a revoked key are felt at
+// the next /token, not 12 hours later.
+func TestRegistryLoginTokenFollowsLiveRights(t *testing.T) {
+	e := servicetest.New(t, func(c *service.Config) { c.PanelDomain = "panel.test" })
+	ctx := context.Background()
+	org := e.Org(t, "acme")
+	e.Tile(t, org)
+	dev := e.User(t, "dev@x.test", false)
+	e.Member(t, org, dev, "member")
+	p, err := e.Orch.KeyPrincipal(ctx, e.APIKey(t, dev, org))
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := e.Orch.RegistryLogin(ctx, p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := echo.New()
+	srv.Pre(e.Orch.RegistryMiddleware())
+	do := func() int {
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, tokenReq("registry.panel.test", out.Token, "repository:acme/shop/api:pull,push"))
+		return w.Code
+	}
+	if c := do(); c != 200 {
+		t.Fatalf("fresh = %d", c)
+	}
+	m, err := e.Store.OrgMembers.GetByOrgUser(ctx, org, dev)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.Role = "viewer"
+	if err := e.Store.OrgMembers.Update(ctx, m); err != nil {
+		t.Fatal(err)
+	}
+	if c := do(); c != 200 {
+		t.Fatalf("demoted = %d", c)
+	}
+	rows, _ := e.Store.RegistryTokens.ListBySubject(ctx, dev, 10)
+	var scopes []string
+	for _, r := range rows {
+		scopes = append(scopes, r.Scope)
+	}
+	if !slices.Contains(scopes, "acme/shop/api:pull") {
+		t.Fatalf("a demoted member still got push: %v", scopes)
+	}
+	if err := e.Store.APIKeys.Delete(ctx, p.KeyID); err != nil {
+		t.Fatal(err)
+	}
+	if c := do(); c != 401 {
+		t.Fatalf("revoked key = %d", c)
 	}
 }

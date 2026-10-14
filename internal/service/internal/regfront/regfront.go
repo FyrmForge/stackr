@@ -35,6 +35,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"mime"
 	"net"
 	"net/http"
 	"net/http/httputil"
@@ -69,7 +70,8 @@ const (
 )
 
 // SystemOrg holds stackr's own images (the live-move rsync helper). The dot
-// keeps it out of the org slug space; every authenticated caller may pull it.
+// keeps it out of the org slug space; every authenticated caller may pull it
+// and none may push it: the controller publishes straight to the registry.
 const SystemOrg = "stackr.system"
 
 var slug = regexp.MustCompile(`^[a-z0-9]+(?:[._-][a-z0-9]+)*$`)
@@ -191,11 +193,13 @@ type Facts struct {
 }
 
 func (f Facts) allowed(repo, action string) bool {
-	if f.Kind == KindAdmin {
-		return true
-	}
+	// Before the admin shortcut: nodes run these images as root, so nothing
+	// writes them through the front, admins included.
 	if systemRepo(repo) {
 		return action == Pull
+	}
+	if f.Kind == KindAdmin {
+		return true
 	}
 	org, _, _, ok := ParseRepo(repo)
 	imp := false
@@ -572,6 +576,13 @@ func splitPath(rest string) (repo, kind, ref string, ok bool) {
 	return "", "", "", false
 }
 
+// uploadPath is a request for one upload session: .../blobs/uploads/<id>.
+func uploadPath(path string) bool {
+	p := strings.Split(strings.Trim(strings.TrimPrefix(path, "/v2"), "/"), "/")
+	n := len(p)
+	return n >= 4 && p[n-3] == "blobs" && p[n-2] == "uploads"
+}
+
 func validRepo(repo string) bool {
 	if _, _, _, ok := ParseRepo(repo); ok || systemRepo(repo) {
 		return true
@@ -609,13 +620,38 @@ func mountFrom(r *http.Request) string {
 	return r.URL.Query().Get("from")
 }
 
+// refuse is the registry API's error body with a status.
+func refuse(w http.ResponseWriter, status int, code, msg string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_, _ = w.Write([]byte(`{"errors":[{"code":"` + code + `","message":"` + msg + `"}]}`))
+}
+
+// formBody says the request carries a form or multipart body.
+func formBody(r *http.Request) bool {
+	mt, _, _ := mime.ParseMediaType(r.Header.Get("Content-Type"))
+	return mt == "application/x-www-form-urlencoded" || strings.HasPrefix(mt, "multipart/")
+}
+
 func (s *Server) serveV2(w http.ResponseWriter, r *http.Request) {
 	need, ok := required(r)
 	if !ok {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusNotFound)
-		_, _ = w.Write([]byte(`{"errors":[{"code":"NAME_UNKNOWN","message":"unknown repository"}]}`))
+		refuse(w, http.StatusNotFound, "NAME_UNKNOWN", "unknown repository")
 		return
+	}
+	if _, kind, _, _ := splitPath(strings.Trim(strings.TrimPrefix(r.URL.Path, "/v2"), "/")); kind != "" {
+		switch {
+		// The registry reads mount and from out of a form body as well as the
+		// query (r.FormValue), past mountFrom's check.
+		case r.Method == http.MethodPost && kind == "blobs" && formBody(r):
+			refuse(w, http.StatusBadRequest, "UNSUPPORTED", "form bodies are not accepted on uploads")
+			return
+		// Push rights write. Deleting goes through the controller's cleanup,
+		// straight to the registry; only cancelling an upload is left.
+		case r.Method == http.MethodDelete && !uploadPath(r.URL.Path):
+			refuse(w, http.StatusMethodNotAllowed, "UNSUPPORTED", "delete is not served here")
+			return
+		}
 	}
 	bearer, found := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
 	if !found {
@@ -660,7 +696,8 @@ func (s *Server) serveV2(w http.ResponseWriter, r *http.Request) {
 				// The registry builds its upload URLs from the Host and what
 				// Caddy forwarded, so both go through as they came.
 				pr.Out.Host = pr.In.Host
-				for _, h := range []string{"Forwarded", "X-Forwarded-For", "X-Forwarded-Host", "X-Forwarded-Proto"} {
+				// Not Forwarded: Caddy sets none, so it is the client's own.
+				for _, h := range []string{"X-Forwarded-For", "X-Forwarded-Host", "X-Forwarded-Proto"} {
 					if v, ok := pr.In.Header[h]; ok {
 						pr.Out.Header[h] = v
 					}

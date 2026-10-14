@@ -7,11 +7,14 @@ const (
 	RegistryImage = "registry:3"
 	// RegistryPort is the registry's port on the head's loopback. Nothing
 	// else reaches it: the panel's registry front checks tokens and proxies.
+	// A container on a bridge cannot dial the host's 127.0.0.1.
 	RegistryPort = "5000"
 )
 
-// Registry is the head's image store: the stock registry image, bound to
-// 127.0.0.1 only, its data on a named volume. It does no auth of its own.
+// Registry is the head's image store: the stock registry image on the host's
+// network, listening on 127.0.0.1 only, its data on a named volume. It does no
+// auth of its own, so it must sit on no bridge: a published port would be
+// open to every container there, and a tenant's build step is one.
 func Registry() Container {
 	c := Container{
 		Name:  RegistryName,
@@ -31,12 +34,15 @@ func Registry() Container {
 			// and a pull gets a broken stream. "none" is an unknown type,
 			// which the registry takes as caching disabled.
 			"REGISTRY_STORAGE_CACHE_BLOBDESCRIPTOR=none",
+			// The image's own config says :5000, which on the host network
+			// would be every interface.
+			"REGISTRY_HTTP_ADDR=127.0.0.1:" + RegistryPort,
 		},
-		Labels:  map[string]string{LabelRole: "registry"},
-		Volumes: []string{RegistryVolume + ":/var/lib/registry"},
-		Ports:   []string{"127.0.0.1:" + RegistryPort + ":5000"},
-		LogOpts: logCap,
-		Restart: "unless-stopped",
+		Labels:      map[string]string{LabelRole: "registry"},
+		Volumes:     []string{RegistryVolume + ":/var/lib/registry"},
+		HostNetwork: true,
+		LogOpts:     logCap,
+		Restart:     "unless-stopped",
 	}
 	c.Labels[LabelSpec] = c.Hash()
 	return c

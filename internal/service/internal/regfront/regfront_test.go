@@ -482,3 +482,98 @@ func TestProxyHeaders(t *testing.T) {
 		}
 	}
 }
+
+// Admin included: the system images are what nodes run as root, so nothing
+// pushes them through the front. The controller publishes to the registry
+// directly.
+func TestSystemOrgPullOnlyForAdmin(t *testing.T) {
+	for _, repo := range []string{SystemOrg + "/stackr", SystemOrg + "/tools/rsync"} {
+		got := Decide(Facts{Kind: KindAdmin}, []Scope{{repo, []string{Pull, Push}}})
+		if len(got) != 1 || len(got[0].Actions) != 1 || got[0].Actions[0] != Pull {
+			t.Fatalf("admin on %s = %v, want pull only", repo, got)
+		}
+	}
+}
+
+func send(t *testing.T, method, url, bearer, ctype, body string, hdr map[string]string) *http.Response {
+	t.Helper()
+	req, _ := http.NewRequest(method, url, strings.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+bearer)
+	if ctype != "" {
+		req.Header.Set("Content-Type", ctype)
+	}
+	for k, v := range hdr {
+		req.Header.Set(k, v)
+	}
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = res.Body.Close() })
+	return res
+}
+
+// The registry reads mount and from out of a form body too, past the check on
+// the query; a form or multipart upload start is refused.
+func TestFormUploadStartRefused(t *testing.T) {
+	var audit []Issued
+	web := "acme/shop/web"
+	_, front, seen := newServer(t, Facts{Kind: KindUser, Subject: "u1", Orgs: []string{"acme"}}, &audit)
+	defer front.Close()
+	tok := mint(t, front.URL, "repository:"+web+":pull,push")
+	n := len(*seen)
+	for _, path := range []string{"/blobs/uploads/", "/blobs/uploads"} {
+		for _, ct := range []string{"application/x-www-form-urlencoded", "multipart/form-data; boundary=x", "Application/X-WWW-Form-Urlencoded; charset=utf-8"} {
+			res := send(t, "POST", front.URL+"/v2/"+web+path, tok, ct, "mount=sha256:1&from=other/x/y", nil)
+			if res.StatusCode != 400 {
+				t.Errorf("POST %s as %s = %d, want 400", path, ct, res.StatusCode)
+			}
+		}
+	}
+	if len(*seen) != n {
+		t.Error("a form upload start reached the registry")
+	}
+	for _, ct := range []string{"", "application/octet-stream"} {
+		if res := send(t, "POST", front.URL+"/v2/"+web+"/blobs/uploads/", tok, ct, "", nil); res.StatusCode != 200 {
+			t.Errorf("plain upload start as %q = %d", ct, res.StatusCode)
+		}
+	}
+}
+
+// Push rights are for writing; deleting a manifest or blob goes through the
+// controller's cleanup, direct to the registry. Cancelling an upload stays.
+func TestFrontRefusesDelete(t *testing.T) {
+	var audit []Issued
+	web := "acme/shop/web"
+	_, front, seen := newServer(t, Facts{Kind: KindAdmin, Subject: "a1"}, &audit)
+	defer front.Close()
+	tok := mint(t, front.URL, "repository:"+web+":pull,push")
+	n := len(*seen)
+	for _, p := range []string{"/manifests/sha256:ab", "/blobs/sha256:ab"} {
+		if res := send(t, "DELETE", front.URL+"/v2/"+web+p, tok, "", "", nil); res.StatusCode != http.StatusMethodNotAllowed {
+			t.Errorf("DELETE %s = %d, want 405", p, res.StatusCode)
+		}
+	}
+	if len(*seen) != n {
+		t.Error("a delete reached the registry")
+	}
+	if res := send(t, "DELETE", front.URL+"/v2/"+web+"/blobs/uploads/9f1c", tok, "", "", nil); res.StatusCode != 200 {
+		t.Errorf("cancel upload = %d", res.StatusCode)
+	}
+}
+
+func TestFrontDropsClientForwarded(t *testing.T) {
+	var audit []Issued
+	web := "acme/shop/web"
+	_, front, seen := newServer(t, Facts{Kind: KindUser, Subject: "u1", Orgs: []string{"acme"}}, &audit)
+	defer front.Close()
+	tok := mint(t, front.URL, "repository:"+web+":pull")
+	send(t, "GET", front.URL+"/v2/"+web+"/manifests/v1", tok, "", "", map[string]string{"Forwarded": "host=evil.test;proto=http", "X-Forwarded-Proto": "https"})
+	got := (*seen)[len(*seen)-1].Header
+	if v := got.Get("Forwarded"); v != "" {
+		t.Errorf("registry saw Forwarded %q", v)
+	}
+	if got.Get("X-Forwarded-Proto") != "https" {
+		t.Error("X-Forwarded-Proto from Caddy was dropped")
+	}
+}

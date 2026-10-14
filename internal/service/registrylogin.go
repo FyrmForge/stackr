@@ -9,13 +9,16 @@ import (
 	"strings"
 	"time"
 
+	"github.com/FyrmForge/stackr/internal/authz"
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/regfront"
+	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
 
 // The password `stackr registry login` hands to docker: a short-lived token
 // that only the registry front accepts (never the CLI's API key), carrying
-// what the user may do in the registry at the time it was minted. Docker
+// only who minted it (user and key id): the rights are read from live rows on
+// every /token, so a demotion or a revoked key is felt at once. Docker
 // sends it to the front's /token as Basic auth and gets the usual per-repo
 // token back.
 
@@ -27,11 +30,9 @@ const (
 )
 
 type registryLogin struct {
-	Sub   string   `json:"sub"`
-	Exp   int64    `json:"exp"`
-	Admin bool     `json:"admin,omitempty"`
-	Orgs  []string `json:"orgs,omitempty"`
-	Pull  []string `json:"pull,omitempty"`
+	Sub string `json:"sub"`
+	Key string `json:"key,omitempty"` // the API key it was minted from, "" for a session
+	Exp int64  `json:"exp"`
 }
 
 // RegistryLoginOut is the docker password and when it stops working.
@@ -54,23 +55,19 @@ func (o *Orchestrator) loginSig(payload string) string {
 	return base64.RawURLEncoding.EncodeToString(m.Sum(nil))
 }
 
-// RegistryLogin mints a docker login password for the caller, scoped to the
-// orgs the caller can use in the registry.
+// RegistryLogin mints a docker login password for the caller.
 func (o *Orchestrator) RegistryLogin(ctx context.Context, by *Principal) (RegistryLoginOut, error) {
 	if by == nil {
 		return RegistryLoginOut{}, errs.ErrRefused
 	}
-	f := o.userRegistryFacts(ctx, by)
 	exp := time.Now().Add(RegistryLoginTTL)
-	b, _ := json.Marshal(registryLogin{
-		Sub: f.Subject, Exp: exp.Unix(), Admin: f.Kind == regfront.KindAdmin, Orgs: f.Orgs, Pull: f.PullOrgs,
-	})
+	b, _ := json.Marshal(registryLogin{Sub: by.User.ID, Key: by.KeyID, Exp: exp.Unix()})
 	p := base64.RawURLEncoding.EncodeToString(b)
 	return RegistryLoginOut{Token: registryLoginPrefix + p + "." + o.loginSig(p), ExpiresAt: exp.UTC()}, nil
 }
 
-// loginFacts checks a login token and answers the facts it was minted with,
-// provided the user is still active.
+// loginFacts checks a login token and answers the facts of its subject now:
+// the user must still be active and a key it came from must still exist.
 func (o *Orchestrator) loginFacts(ctx context.Context, tok string) (regfront.Facts, error) {
 	p, sig, ok := strings.Cut(strings.TrimPrefix(tok, registryLoginPrefix), ".")
 	if !ok || !hmac.Equal([]byte(sig), []byte(o.loginSig(p))) {
@@ -81,12 +78,27 @@ func (o *Orchestrator) loginFacts(ctx context.Context, tok string) (regfront.Fac
 	if err != nil || json.Unmarshal(raw, &c) != nil || time.Now().Unix() >= c.Exp {
 		return regfront.Facts{}, errRegistryAuth
 	}
-	if u, err := o.users.Get(ctx, c.Sub); err != nil || !u.Active {
+	u, err := o.users.Get(ctx, c.Sub)
+	if err != nil || !u.Active {
 		return regfront.Facts{}, errRegistryAuth
 	}
-	f := regfront.Facts{Kind: regfront.KindUser, Subject: c.Sub, Orgs: c.Orgs, PullOrgs: c.Pull}
-	if c.Admin {
-		f.Kind = regfront.KindAdmin
+	var k *store.APIKey
+	if c.Key != "" {
+		key, err := o.store.APIKeys.Get(ctx, c.Key)
+		if err != nil || key.UserID != u.ID {
+			return regfront.Facts{}, errRegistryAuth
+		}
+		k = &key
 	}
-	return f, nil
+	pr, err := o.principal(ctx, u, k)
+	if err != nil {
+		return regfront.Facts{}, errRegistryAuth
+	}
+	if k != nil {
+		pr.KeyID = k.ID
+	}
+	if authz.Self(pr.Access) != nil {
+		return regfront.Facts{}, errRegistryAuth
+	}
+	return o.userRegistryFacts(ctx, pr), nil
 }

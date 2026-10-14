@@ -3,7 +3,6 @@ package upgrade
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/FyrmForge/stackr/internal/installspec"
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
@@ -29,14 +28,9 @@ func (f *Flow) EnsureRegistry(ctx context.Context) error {
 			return fmt.Errorf("remove old registry: %w", err)
 		}
 	}
-	ports := map[string]string{}
-	for _, p := range want.Ports { // "127.0.0.1:5000:5000" = host key "127.0.0.1:5000", container "5000"
-		i := strings.LastIndex(p, ":")
-		ports[p[:i]] = p[i+1:]
-	}
 	_, err = f.Docker.Run(ctx, docker.ContainerSpec{
 		Name: want.Name, Image: want.Image, Cmd: want.Cmd, Env: want.Env, Labels: want.Labels,
-		Volumes: want.Volumes, Ports: ports, Restart: want.Restart,
+		Volumes: want.Volumes, HostNetwork: want.HostNetwork, Restart: want.Restart,
 	})
 	return err
 }

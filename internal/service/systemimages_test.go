@@ -13,15 +13,38 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
 
-func TestStackrSystemRef(t *testing.T) {
+func TestStackrTagRef(t *testing.T) {
 	for in, want := range map[string]string{
 		"ghcr.io/fyrmforge/stackr:0.6.0":    "localhost:5000/stackr.system/stackr:0.6.0",
 		"localhost:5000/x/stackr:0.6.0-dev": "localhost:5000/stackr.system/stackr:0.6.0-dev",
 		"stackr":                            "localhost:5000/stackr.system/stackr:latest",
 	} {
-		if got := stackrSystemRef(in); got != want {
-			t.Errorf("stackrSystemRef(%q) = %q, want %q", in, got, want)
+		if got := stackrTagRef(in); got != want {
+			t.Errorf("stackrTagRef(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+// Nodes pull the stackr image by the digest the publish recorded, not by a
+// tag anyone with registry access could have overwritten.
+func TestStackrSystemRefIsDigest(t *testing.T) {
+	stackrDigests.Clear()
+	t.Cleanup(stackrDigests.Clear)
+	const img = "ghcr.io/fyrmforge/stackr:0.6.0"
+	// nothing published yet: the tag ref, which only a waiting pull uses
+	if got, want := stackrSystemRef(img), "localhost:5000/stackr.system/stackr:0.6.0"; got != want {
+		t.Fatalf("before publish = %q, want %q", got, want)
+	}
+	var rows []store.RegistryImage
+	var copies [][2]string
+	if err := fakePublisher(&rows, &copies).publish(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := stackrSystemRef(img), "localhost:5000/stackr.system/stackr@sha256:local"; got != want {
+		t.Errorf("after publish = %q, want %q", got, want)
+	}
+	if got, want := stackrSystemRef("ghcr.io/fyrmforge/stackr:0.7.0"), "localhost:5000/stackr.system/stackr:0.7.0"; got != want {
+		t.Errorf("an unpublished tag = %q, want %q", got, want)
 	}
 }
 

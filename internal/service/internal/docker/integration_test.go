@@ -381,3 +381,86 @@ func TestSubpathMounts(t *testing.T) {
 		t.Fatal("a read-only subpath mount accepted a write")
 	}
 }
+
+// A build step is a tenant's code. The registry once sat on the default
+// bridge with no auth, next to the buildx builder; EnsureBuilder now puts the
+// builder on a network of its own, so a RUN step cannot dial a container on
+// the default bridge. The control builder, made the old way, shows the
+// Dockerfile does reach it: without it BLOCKED could be any failure.
+func TestBuilderCannotReachOtherContainers(t *testing.T) {
+	d, ctx := newClient(t)
+	if exec.Command("docker", "buildx", "version").Run() != nil {
+		t.Skip("no buildx")
+	}
+	// Stands in for the registry: an unauthenticated listener on the default bridge.
+	id, err := d.Run(ctx, ContainerSpec{
+		Name: uniq("stkr-it-target"), Image: testImage,
+		Cmd: []string{"sh", "-c", "while true; do printf 'HTTP/1.0 200 OK\\r\\n\\r\\nhi\\n' | nc -l -p 5000; done"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = d.StopRemove(context.Background(), id) })
+	info, err := d.cli.ContainerInspect(ctx, id)
+	br := info.NetworkSettings.Networks["bridge"]
+	if err != nil || br == nil || br.IPAddress == "" {
+		t.Fatalf("target address: %v", err)
+	}
+	dir := t.TempDir()
+	df := "FROM " + testImage + "\nRUN if wget -T3 -q -O- http://" + br.IPAddress +
+		":5000/ >/dev/null 2>&1; then echo REACHED-T''ARGET; else echo BLOCKED-T''ARGET; fi\n"
+	if err := os.WriteFile(filepath.Join(dir, "Dockerfile"), []byte(df), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	control := uniq("stkr-it-ctl")
+	if out, err := exec.CommandContext(ctx, "docker", "buildx", "create", "--name", control, "--driver", "docker-container").CombinedOutput(); err != nil {
+		t.Fatalf("control builder: %v: %s", err, out)
+	}
+	t.Cleanup(func() { _ = exec.Command("docker", "buildx", "rm", control).Run() })
+	var ctlLog strings.Builder
+	cmd := exec.CommandContext(ctx, "docker", "buildx", "build", "--builder", control, "--progress=plain", "--no-cache", ".")
+	cmd.Dir, cmd.Stdout, cmd.Stderr = dir, &ctlLog, &ctlLog
+	if err := cmd.Run(); err != nil || !strings.Contains(ctlLog.String(), "REACHED-TARGET") {
+		t.Fatalf("control: the default-bridge builder cannot reach the target, so the test proves nothing: %v\n%s", err, ctlLog.String())
+	}
+
+	name := uniq("stkr-it-bld")
+	if err := d.EnsureBuilder(ctx, name, 0); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = exec.Command("docker", "buildx", "rm", name).Run() })
+	if err := d.EnsureBuilder(ctx, name, 0); err != nil { // idempotent
+		t.Fatal(err)
+	}
+	var log strings.Builder
+	tag := uniq("stkr-it-iso") + ":1"
+	bid, err := d.Build(ctx, name, dir, "Dockerfile", tag, nil, nil, &log)
+	if err != nil {
+		t.Fatalf("build: %v\n%s", err, log.String())
+	}
+	t.Cleanup(func() { _ = d.RemoveImage(context.Background(), bid) })
+	if strings.Contains(log.String(), "REACHED-TARGET") || !strings.Contains(log.String(), "BLOCKED-TARGET") {
+		t.Fatalf("a build step reached a container on the default bridge:\n%s", log.String())
+	}
+}
+
+// A builder made before the network existed is replaced on the next ensure.
+func TestEnsureBuilderReplacesUnisolated(t *testing.T) {
+	d, ctx := newClient(t)
+	if exec.Command("docker", "buildx", "version").Run() != nil {
+		t.Skip("no buildx")
+	}
+	name := uniq("stkr-it-old")
+	if out, err := exec.CommandContext(ctx, "docker", "buildx", "create", "--name", name, "--driver", "docker-container").CombinedOutput(); err != nil {
+		t.Fatalf("old builder: %v: %s", err, out)
+	}
+	t.Cleanup(func() { _ = exec.Command("docker", "buildx", "rm", name).Run() })
+	if err := d.EnsureBuilder(ctx, name, 0); err != nil {
+		t.Fatal(err)
+	}
+	out, err := exec.CommandContext(ctx, "docker", "buildx", "inspect", name).Output()
+	if err != nil || !strings.Contains(string(out), `network="`+BuilderNetwork+`"`) {
+		t.Fatalf("builder not replaced: %v\n%s", err, out)
+	}
+}
