@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/FyrmForge/stackr/internal/worker"
 )
 
 // swapDirs makes an image dir with new binaries and a fake host with old ones.
@@ -45,13 +47,15 @@ func read(t *testing.T, p string) string {
 func TestWorkerSwapKeepsNewBinaries(t *testing.T) {
 	src, host := swapDirs(t)
 	restarts := 0
-	ctx, cancel := context.WithCancel(context.Background())
-	s := hostSwap{src: src, host: host, deadline: time.Minute, restart: func(context.Context) error {
+	s := hostSwap{src: src, host: host, deadline: time.Minute, poll: time.Millisecond, restart: func(context.Context) error {
 		restarts++
-		cancel() // the controller removed the helper: SIGTERM
+		go func() { // the controller's explicit commit
+			time.Sleep(5 * time.Millisecond)
+			_ = worker.SwapCommit(filepath.Join(host, hostBinDir))
+		}()
 		return nil
 	}}
-	if err := s.run(ctx); err != nil {
+	if err := s.run(context.Background()); err != nil {
 		t.Fatalf("a committed swap = %v", err)
 	}
 	bin := filepath.Join(host, "usr/local/bin")
@@ -68,6 +72,47 @@ func TestWorkerSwapKeepsNewBinaries(t *testing.T) {
 	}
 	if restarts != 1 {
 		t.Fatalf("restarts = %d, want 1", restarts)
+	}
+}
+
+// M1: SIGTERM (a stop, a removeHelpers, a node remove, a cancelled rollout)
+// is not a commit: the old binaries come back and the worker restarts.
+func TestWorkerSwapSigtermRollsBack(t *testing.T) {
+	src, host := swapDirs(t)
+	restarts := 0
+	ctx, cancel := context.WithCancel(context.Background())
+	s := hostSwap{src: src, host: host, deadline: time.Minute, poll: time.Millisecond, restart: func(context.Context) error {
+		restarts++
+		cancel()
+		return nil
+	}}
+	if err := s.run(ctx); err == nil {
+		t.Fatal("a stopped, uncommitted swap must fail")
+	}
+	bin := filepath.Join(host, hostBinDir)
+	for _, n := range swapBinaries {
+		if got := read(t, filepath.Join(bin, n)); got != "old "+n {
+			t.Errorf("%s = %q, want the old one back", n, got)
+		}
+	}
+	if restarts != 2 {
+		t.Fatalf("restarts = %d, want 2", restarts)
+	}
+	if ok, _ := worker.RestoreStaleSwap(bin, time.Now().Add(time.Hour)); ok {
+		t.Fatal("swap state left behind after the rollback")
+	}
+}
+
+// `worker-swap --commit` is how the controller commits.
+func TestWorkerSwapCommitCommand(t *testing.T) {
+	_, host := swapDirs(t)
+	bin := filepath.Join(host, hostBinDir)
+	if err := commitSwap(host); err == nil {
+		t.Fatal("commit with nothing pending must fail")
+	}
+	_ = worker.SwapPending(bin, time.Now().Add(time.Minute))
+	if err := commitSwap(host); err != nil || !worker.SwapCommitted(bin) {
+		t.Fatalf("commit = %v, committed = %v", err, worker.SwapCommitted(bin))
 	}
 }
 
@@ -126,16 +171,13 @@ func TestWorkerSwapOldHostAndFailedRestart(t *testing.T) {
 func TestWorkerSwapNeverLeavesNoBinary(t *testing.T) {
 	src, host := swapDirs(t)
 	bin := filepath.Join(host, "usr/local/bin", "stackrd")
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	s := hostSwap{src: src, host: host, deadline: time.Minute, restart: func(context.Context) error {
+	s := hostSwap{src: src, host: host, deadline: 10 * time.Millisecond, restart: func(context.Context) error {
 		if _, err := os.Stat(bin); err != nil {
 			t.Errorf("stackrd missing at restart: %v", err)
 		}
-		cancel()
 		return nil
 	}}
-	_ = s.run(ctx)
+	_ = s.run(context.Background())
 }
 
 // host-run uninstall puts the image's installer on the host and starts it in

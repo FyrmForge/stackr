@@ -11,13 +11,31 @@ import (
 )
 
 func TestWorkerWG(t *testing.T) {
+	old := envDevMode
+	t.Cleanup(func() { envDevMode = old })
+	envDevMode = true
 	t.Setenv("STACKR_FAKE_HOST", "true")
-	if _, ok := workerWG().(*wgapply.Recorder); !ok {
+	if w, err := workerWG(); err != nil {
+		t.Fatal(err)
+	} else if _, ok := w.(*wgapply.Recorder); !ok {
 		t.Error("fake host did not get the recorder")
 	}
 	t.Setenv("STACKR_FAKE_HOST", "")
-	if _, ok := workerWG().(wgapply.Kernel); !ok {
+	if w, err := workerWG(); err != nil {
+		t.Fatal(err)
+	} else if _, ok := w.(wgapply.Kernel); !ok {
 		t.Error("real host did not get the kernel applier")
+	}
+}
+
+// A worker refuses the fake host outside DEV_MODE, like the controller.
+func TestWorkerWGFakeHostNeedsDevMode(t *testing.T) {
+	old := envDevMode
+	t.Cleanup(func() { envDevMode = old })
+	envDevMode = false
+	t.Setenv("STACKR_FAKE_HOST", "true")
+	if _, err := workerWG(); err == nil {
+		t.Fatal("STACKR_FAKE_HOST without DEV_MODE must be refused")
 	}
 }
 

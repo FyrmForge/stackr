@@ -13,6 +13,8 @@ import (
 	"path/filepath"
 	"syscall"
 	"time"
+
+	"github.com/FyrmForge/stackr/internal/worker"
 )
 
 // The host helper: a privileged container from the panel image that the
@@ -27,8 +29,7 @@ const (
 
 // swapBinaries are what the image carries next to each other and a worker
 // upgrade replaces together.
-// ponytail: the list is fixed; a third binary in the image is one more entry.
-var swapBinaries = []string{"stackrd", "stackr-install"}
+var swapBinaries = worker.SwapBinaries
 
 // hostSwap is `stackrd worker-swap`. src is the dir holding the new
 // binaries (the image root), host the host's root as mounted in the helper.
@@ -36,6 +37,7 @@ var swapBinaries = []string{"stackrd", "stackr-install"}
 type hostSwap struct {
 	src, host string
 	deadline  time.Duration
+	poll      time.Duration // how often the commit marker is looked for; 0 = 500ms
 	restart   func(context.Context) error
 	log       *slog.Logger
 }
@@ -47,11 +49,13 @@ func (s hostSwap) logger() *slog.Logger {
 	return slog.Default()
 }
 
-// run swaps, restarts and then waits. The controller commits by removing
-// the helper, which cancels ctx (SIGTERM): nothing is restored. If the
-// deadline passes first, nobody confirmed the new worker, so the old binaries
-// go back and the worker restarts again; the helper then fails so the
-// controller can read the outcome from its exit code.
+// run swaps, restarts and then waits. Only the controller's explicit commit
+// (`worker-swap --commit`, which marks the swap state next to the binaries)
+// keeps the new ones. SIGTERM (a stop or removal of the helper) or the
+// deadline without a commit mean nobody confirmed the new worker, so the old
+// binaries go back and the worker restarts again; the helper then fails so
+// the controller can read the outcome from its exit code. If the helper
+// itself dies first, the worker restores a stale swap at its next start.
 func (s hostSwap) run(ctx context.Context) error {
 	bin := filepath.Join(s.host, hostBinDir)
 	for _, n := range swapBinaries {
@@ -77,6 +81,10 @@ func (s hostSwap) run(ctx context.Context) error {
 			had[n] = true
 		}
 	}
+	if err := worker.SwapPending(bin, time.Now().Add(s.deadline)); err != nil {
+		s.restore(bin, had)
+		return fmt.Errorf("record the swap: %w", err)
+	}
 	for _, n := range swapBinaries {
 		if err := os.Rename(filepath.Join(bin, n+".new"), filepath.Join(bin, n)); err != nil {
 			s.restore(bin, had)
@@ -89,17 +97,38 @@ func (s hostSwap) run(ctx context.Context) error {
 		return fmt.Errorf("restart the worker: %w", err)
 	}
 	s.logger().Info("worker-swap: swapped, waiting for the controller", "deadline", s.deadline)
-	select {
-	case <-ctx.Done():
-		return nil
-	case <-time.After(s.deadline):
+	poll := s.poll
+	if poll == 0 {
+		poll = 500 * time.Millisecond
 	}
-	s.logger().Warn("worker-swap: not confirmed in time, putting the old binaries back")
+	tick, deadline := time.NewTicker(poll), time.NewTimer(s.deadline)
+	defer tick.Stop()
+	defer deadline.Stop()
+	why := "not confirmed in time"
+wait:
+	for {
+		select {
+		case <-tick.C:
+			if worker.SwapCommitted(bin) {
+				s.logger().Info("worker-swap: committed")
+				return nil
+			}
+		case <-ctx.Done():
+			why = "stopped before the controller committed"
+			break wait
+		case <-deadline.C:
+			break wait
+		}
+	}
+	if worker.SwapCommitted(bin) { // a commit that landed with the stop
+		return nil
+	}
+	s.logger().Warn("worker-swap: "+why+", putting the old binaries back")
 	s.restore(bin, had)
 	if err := s.restart(context.WithoutCancel(ctx)); err != nil {
 		return fmt.Errorf("rolled back, but the restart failed: %w", err)
 	}
-	return errors.New("not confirmed in time; rolled back")
+	return errors.New(why + "; rolled back")
 }
 
 // restore renames each .prev back over its binary (atomic: the name always
@@ -111,6 +140,7 @@ func (s hostSwap) restore(bin string, had map[string]bool) {
 		}
 	}
 	s.cleanup(bin)
+	worker.SwapClear(bin)
 }
 
 func (s hostSwap) cleanup(bin string) {
@@ -155,13 +185,22 @@ func chrootSystemctl(host string) func(context.Context) error {
 	}
 }
 
+// commitSwap is `worker-swap --commit`: the controller's explicit confirmation.
+func commitSwap(host string) error {
+	return worker.SwapCommit(filepath.Join(host, hostBinDir))
+}
+
 // runWorkerSwap is `stackrd worker-swap [--deadline 150s]`.
 func runWorkerSwap(args []string) error {
 	fs := flag.NewFlagSet("worker-swap", flag.ContinueOnError)
 	deadline := fs.Duration("deadline", 150*time.Second, "how long to wait for the controller before rolling back")
 	host := fs.String("host", "/host", "the host's root")
+	commit := fs.Bool("commit", false, "commit the swap that is waiting (the controller runs this in the helper)")
 	if err := fs.Parse(args); err != nil {
 		return err
+	}
+	if *commit {
+		return commitSwap(*host)
 	}
 	self, err := os.Executable()
 	if err != nil {

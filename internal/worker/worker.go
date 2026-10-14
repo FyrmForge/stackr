@@ -13,7 +13,10 @@ import (
 	"net"
 	"net/http"
 	"net/http/httputil"
+	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -144,6 +147,14 @@ func (s *Server) Handler() http.Handler {
 // Run serves until ctx ends. HTTP/1.1 only: hijacked and upgraded streams
 // (attach, exec) do not exist over h2.
 func Run(ctx context.Context, cfg Config) error {
+	// A swap the helper never finished (Docker or the host died while it
+	// waited) is put back here, then the service restarts onto the old binary.
+	if ok, err := RestoreStaleSwap(SwapBinDir, time.Now()); err != nil {
+		slog.Error("worker: stale swap not restored", "err", err)
+	} else if ok {
+		slog.Warn("worker: an unconfirmed upgrade was left pending; the old binaries are back, restarting")
+		return errors.New("rolled back an unconfirmed upgrade")
+	}
 	if cfg.TLS == nil {
 		return errors.New("worker: tls config required")
 	}
@@ -207,4 +218,71 @@ func serve(ctx context.Context, ln net.Listener, h http.Handler) error {
 		return nil
 	}
 	return err
+}
+
+// The worker swap's state file lives next to the binaries it swaps. The
+// helper writes "pending <deadline unix>" before it replaces them, the
+// controller's explicit commit rewrites it to "committed", and the helper
+// removes it after a rollback. SIGTERM, a stop or the deadline never commit.
+const (
+	SwapBinDir   = "/usr/local/bin"
+	swapState    = ".stackr-swap"
+	swapSlack    = 30 * time.Second
+	swapPendingK = "pending "
+	swapDoneK    = "committed"
+)
+
+// SwapBinaries are what a worker upgrade replaces together.
+// ponytail: the list is fixed; a third binary in the image is one more entry.
+var SwapBinaries = []string{"stackrd", "stackr-install"}
+
+// SwapPending records that a swap is waiting for its commit until deadline.
+func SwapPending(bin string, deadline time.Time) error {
+	return os.WriteFile(filepath.Join(bin, swapState), []byte(swapPendingK+strconv.FormatInt(deadline.Unix(), 10)), 0o644)
+}
+
+// SwapCommit marks the pending swap as confirmed. It fails when none is pending.
+func SwapCommit(bin string) error {
+	if _, ok := swapDeadline(bin); !ok {
+		return errors.New("no swap is waiting for a commit")
+	}
+	return os.WriteFile(filepath.Join(bin, swapState), []byte(swapDoneK), 0o644)
+}
+
+// SwapCommitted reports whether the swap was committed.
+func SwapCommitted(bin string) bool {
+	b, err := os.ReadFile(filepath.Join(bin, swapState))
+	return err == nil && string(b) == swapDoneK
+}
+
+// SwapClear removes the state after a rollback.
+func SwapClear(bin string) { _ = os.Remove(filepath.Join(bin, swapState)) }
+
+func swapDeadline(bin string) (time.Time, bool) {
+	b, err := os.ReadFile(filepath.Join(bin, swapState))
+	if err != nil || !strings.HasPrefix(string(b), swapPendingK) {
+		return time.Time{}, false
+	}
+	sec, err := strconv.ParseInt(strings.TrimPrefix(string(b), swapPendingK), 10, 64)
+	return time.Unix(sec, 0), err == nil
+}
+
+// RestoreStaleSwap puts the .prev binaries back when a swap is still pending
+// well past its deadline: the helper is gone and nobody committed.
+func RestoreStaleSwap(bin string, now time.Time) (bool, error) {
+	dl, ok := swapDeadline(bin)
+	if !ok || now.Before(dl.Add(swapSlack)) {
+		return false, nil
+	}
+	var errs []error
+	for _, n := range SwapBinaries {
+		if err := os.Rename(filepath.Join(bin, n+".prev"), filepath.Join(bin, n)); err != nil && !os.IsNotExist(err) {
+			errs = append(errs, err)
+		}
+	}
+	if err := errors.Join(errs...); err != nil {
+		return false, err
+	}
+	SwapClear(bin)
+	return true, nil
 }

@@ -84,20 +84,27 @@ func workerConfig(args []string) (worker.Config, error) {
 	if err != nil {
 		return worker.Config{}, fmt.Errorf("node cert: %w", err)
 	}
+	wg, err := workerWG()
+	if err != nil {
+		return worker.Config{}, err
+	}
 	return worker.Config{
 		Version: version, Registry: reg, AliveAddr: *alive, Recover: worker.RecoverConfig{Own: own, Panel: *panel},
 		TLS: tc, Addr: *addr, DockerSock: *sock, CaddySock: *caddy, StateDir: *state, Trust: trust, RenewCertNow: *renewNow,
-		Runner: worker.ExecRunner{}, Mesh: worker.MeshConfig{WG: workerWG(), WGPort: *wgPort},
+		Runner: worker.ExecRunner{}, Mesh: worker.MeshConfig{WG: wg, WGPort: *wgPort},
 	}, nil
 }
 
 // workerWG is the kernel wg applier; STACKR_FAKE_HOST swaps in a recorder so
 // a laptop worker never touches the host's interfaces.
-func workerWG() wgapply.Applier {
+func workerWG() (wgapply.Applier, error) {
 	if config.GetEnvOrDefaultBool("STACKR_FAKE_HOST", false) {
-		return &wgapply.Recorder{}
+		if !envDevMode {
+			return nil, errors.New("STACKR_FAKE_HOST needs DEV_MODE=true: the fake host is for local development only")
+		}
+		return &wgapply.Recorder{}, nil
 	}
-	return wgapply.Kernel{}
+	return wgapply.Kernel{}, nil
 }
 
 // workerTLS is the worker's listener config: its own cert, clients must
