@@ -1,6 +1,7 @@
 package render_test
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -113,5 +114,17 @@ func TestParamEntries(t *testing.T) {
 	}
 	if got := render.ParamEntries(map[string][]string{"new_name": {" "}}); len(got) != 0 {
 		t.Errorf("a blank new row = %+v", got)
+	}
+}
+
+// An offline node is a refusal the user acts on (start it), shown inline,
+// not the error page; a plain 503 stays a failure.
+func TestRefusedNodeDown(t *testing.T) {
+	err := fmt.Errorf("deploy: %w", &service.NodeDownError{Name: "vm106"})
+	if msg, ok := render.Refused(err); !ok || msg != "vm106 is offline, never seen." {
+		t.Errorf("node down = %q %v", msg, ok)
+	}
+	if _, ok := render.Refused(echo.NewHTTPError(http.StatusServiceUnavailable, "x")); ok {
+		t.Error("a plain 503 read as a refusal")
 	}
 }
