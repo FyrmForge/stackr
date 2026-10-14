@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/FyrmForge/stackr/internal/clusterca"
 	"github.com/FyrmForge/stackr/internal/mesh"
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/node"
@@ -86,6 +87,10 @@ type ClusterNode struct {
 	// ViaDown are the ReachedVia hops that are not online: the node is cut
 	// off because its router is down.
 	ViaDown []string
+	// Behind: the worker runs another build than the panel. CertExpired and
+	// CertDays (0 = not under 14 days) are the cert note on its card.
+	Behind, CertExpired bool
+	CertDays            int
 }
 
 type ClusterEnv struct {
@@ -139,6 +144,8 @@ type clusterNodeIn struct {
 	Up          bool          // answered just now
 	Alive       bool          // not Up, but its public liveness port answered
 	Expired     bool          // a worker whose newest cert ran out
+	CertDays    int           // days left on its newest cert when under 14; 0 = more, or expired
+	Behind      bool          // a worker running another build than the panel
 	NotRejoined bool          // break glass revoked it and its rejoin is not used yet
 	Envs        []ClusterEnv
 	Domains     []string
@@ -183,6 +190,7 @@ func buildClusterMap(in []clusterNodeIn) ClusterMap {
 		cn := ClusterNode{
 			ID: n.Node.ID, Name: n.Node.Name, Role: n.Node.Role, Tags: node.Tags(n.Node),
 			Envs: n.Envs, Domains: n.Domains, DomainEnvs: n.DomainEnvs, ExitOwn: n.ExitOwn, ExitOthers: n.ExitOthers, Status: n.Node.Status,
+			Behind: n.Behind, CertExpired: n.Expired, CertDays: n.CertDays,
 		}
 		switch {
 		case n.NotRejoined:
@@ -288,6 +296,32 @@ func buildClusterMap(in []clusterNodeIn) ClusterMap {
 	return m
 }
 
+// certWarnDays is how close to its end a cert must be before the card says so.
+const certWarnDays = 14
+
+// clusterCertNote is the map card's cert note: the newest unrevoked cert has
+// run out (the rule of certExpired), or the days it has left when under
+// certWarnDays (rounded up, so the last day reads 1).
+// ponytail: merge with lane D1's certNote in nodelive.go at integration.
+func clusterCertNote(certs []store.NodeCert, now time.Time) (expired bool, days int) {
+	var newest time.Time
+	for _, c := range certs {
+		if c.RevokedAt == nil && c.NotAfter.After(newest) {
+			newest = c.NotAfter
+		}
+	}
+	if newest.IsZero() {
+		return false, 0
+	}
+	if now.Add(-clusterca.ClockSlack).After(newest) {
+		return true, 0
+	}
+	if left := newest.Sub(now); left < certWarnDays*24*time.Hour {
+		return false, int((left + 24*time.Hour - 1) / (24 * time.Hour))
+	}
+	return false, 0
+}
+
 // pingMS is the pair's ICMP round trip as either end measured it over the
 // mesh, the lower when both did. No reply on either side: not measured.
 func pingMS(a, b clusterNodeIn) (float64, bool) {
@@ -326,7 +360,12 @@ func (o *Orchestrator) ClusterMap(ctx context.Context) (ClusterMap, error) {
 			in[i].Mem = o.loadMemory(ctx, n.ID)
 			in[i].Alive = !in[i].Up && o.HostAlive(n.ID)
 			in[i].NotRejoined = o.notRejoined(n)
-			in[i].Expired = n.Role == node.Worker && o.certExpired(n.ID)
+			in[i].Behind = o.workerBehind(n, in[i].Facts)
+			if n.Role == node.Worker {
+				if cs, err := o.store.NodeCerts.ListByNode(ctx, n.ID); err == nil {
+					in[i].Expired, in[i].CertDays = clusterCertNote(cs, time.Now())
+				}
+			}
 		}()
 	}
 	wg.Wait()
