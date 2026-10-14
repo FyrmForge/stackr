@@ -221,8 +221,14 @@ func (l *Leaf) SizeBytes(ctx context.Context, v store.Volume) int64 {
 	return info.SizeBytes
 }
 
-// EnsureTool pulls the tar helper; call it before freezing anything.
-func (l *Leaf) EnsureTool(ctx context.Context) error { return l.docker.EnsureTool(ctx) }
+// EnsureTool pulls the tar helper on the volume's node; call it before freezing anything.
+func (l *Leaf) EnsureTool(ctx context.Context, v store.Volume) error {
+	ctx, err := l.at(ctx, v)
+	if err != nil {
+		return err
+	}
+	return l.docker.EnsureTool(ctx)
+}
 
 // Tar streams a gzipped tar of the volume into w.
 func (l *Leaf) Tar(ctx context.Context, v store.Volume, w io.Writer, live bool) error {
