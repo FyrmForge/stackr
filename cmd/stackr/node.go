@@ -269,7 +269,9 @@ func (a *app) nodeShow() *cobra.Command {
 				rows = append(rows, []string{"arch", ar})
 			}
 			if v := cell(n["version"]); v != "(none)" {
-				if b, _ := n["behind"].(bool); b {
+				if t, _ := n["too_old"].(bool); t {
+					v += " (too old)"
+				} else if b, _ := n["behind"].(bool); b {
 					v += " (behind)"
 				}
 				rows = append(rows, []string{"stackr", v})

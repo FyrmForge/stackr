@@ -114,6 +114,10 @@ func TestNodeShow(t *testing.T) {
 	if code != 0 || !strings.Contains(out, "tags\tingress, egress") || !strings.Contains(out, "arch\tamd64") || !strings.Contains(out, "stackr\tv0.5.0 (behind)") || !strings.Contains(out, "envs\tacme/shop/prod") || !strings.Contains(out, "exit for\tacme/shop/prod") {
 		t.Errorf("show = %d %q %q", code, out, errw)
 	}
+	fake(t, map[string]string{"/nodes/vps-fsn1": strings.Replace(nodeJSON, `"behind":true,`, `"behind":true,"too_old":true,`, 1)})
+	if _, out, _ = cli(t, "node", "show", "vps-fsn1"); !strings.Contains(out, "stackr\tv0.5.0 (too old)") {
+		t.Errorf("too old show = %q", out)
+	}
 	if code, _, errw = cli(t, "node", "show"); code != 2 {
 		t.Errorf("no name = %d %q", code, errw)
 	}

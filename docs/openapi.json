@@ -620,6 +620,9 @@
             },
             "type": "array"
           },
+          "too_old": {
+            "type": "boolean"
+          },
           "version": {
             "type": "string"
           },
@@ -645,6 +648,7 @@
           "arch",
           "version",
           "behind",
+          "too_old",
           "default_exit",
           "public"
         ],
@@ -3116,6 +3120,9 @@
             },
             "type": "array"
           },
+          "too_old": {
+            "type": "boolean"
+          },
           "version": {
             "type": "string"
           },
@@ -3141,6 +3148,7 @@
           "arch",
           "version",
           "behind",
+          "too_old",
           "default_exit",
           "env_list",
           "exit_for",
@@ -3207,6 +3215,9 @@
             },
             "type": "array"
           },
+          "too_old": {
+            "type": "boolean"
+          },
           "version": {
             "type": "string"
           },
@@ -3232,6 +3243,7 @@
           "arch",
           "version",
           "behind",
+          "too_old",
           "default_exit"
         ],
         "type": "object"

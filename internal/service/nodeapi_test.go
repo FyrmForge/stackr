@@ -491,13 +491,17 @@ func TestListNodesShowsVersionAndBehind(t *testing.T) {
 	n.orch.mesh.Report(ctx, "w1", worker.Facts{Arch: "arm64", Version: "v9.8.0"})
 	ns, err := n.orch.ListNodes(ctx)
 	must(t, err)
-	if ns[1].Version != "v9.8.0" || !ns[1].Behind {
+	if ns[1].Version != "v9.8.0" || !ns[1].Behind || !ns[1].TooOld {
 		t.Fatalf("old worker = %+v", ns[1])
+	}
+	must(t, n.orch.store.Settings.Set(ctx, prevVersionKey, "v9.8.0"))
+	if ns, _ = n.orch.ListNodes(ctx); !ns[1].Behind || ns[1].TooOld || ns[0].TooOld {
+		t.Fatalf("previous build = %+v, controller %+v", ns[1], ns[0])
 	}
 	n.orch.mesh.Report(ctx, "w1", worker.Facts{Arch: "arm64", Version: "v9.9.9"})
 	ns, err = n.orch.ListNodes(ctx)
 	must(t, err)
-	if ns[1].Version != "v9.9.9" || ns[1].Behind {
+	if ns[1].Version != "v9.9.9" || ns[1].Behind || ns[1].TooOld {
 		t.Fatalf("current worker = %+v", ns[1])
 	}
 }
