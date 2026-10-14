@@ -8,6 +8,7 @@ import (
 	"io"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -182,6 +183,9 @@ func TestRolloutRunsHelperAndCommits(t *testing.T) {
 	if !slices.Contains(names, "Pull("+testImage+")") && !sawCall(f, "Pull") {
 		t.Fatalf("no pull: %v", names)
 	}
+	if !sawCall(f, "Exec(helper-w1, /stackrd, worker-swap, --commit") {
+		t.Fatalf("the helper was not told to commit: %v", names)
+	}
 	if !sawCall(f, "StopRemove(stale") || !sawCall(f, "StopRemove(helper-w1") {
 		t.Fatalf("leftover or finished helper not removed: %v", names)
 	}
@@ -193,6 +197,24 @@ func TestRolloutRunsHelperAndCommits(t *testing.T) {
 	}
 	if r.setting(keyRolloutStopped) != "" {
 		t.Fatal("a clean rollout stopped")
+	}
+}
+
+// M1: removing the helper is not the commit. When the explicit commit
+// cannot be delivered the node is reported as rolling back, and the helper is
+// left to restore at its deadline.
+func TestRolloutCommitFailureIsNotRemoval(t *testing.T) {
+	r := newRolloutRig(t)
+	r.facts["w1"] = r.upgradeOnRun("w1")
+	r.fakes["w1"].Err = map[string]error{"Exec": errors.New("exec refused")}
+	if err := r.ro.run(context.Background()); err == nil {
+		t.Fatal("an undelivered commit must stop the rollout")
+	}
+	if got := r.state(t, "w1"); got.State != stateFailed {
+		t.Fatalf("w1 = %+v", got)
+	}
+	if sawCall(r.fakes["w1"], "StopRemove(helper-w1") {
+		t.Fatalf("the helper was removed without a commit: %v", callNames(r.fakes["w1"]))
 	}
 }
 
@@ -247,7 +269,7 @@ func TestUpdateWorkers(t *testing.T) {
 	n.orch.cfg.Version = "v9.9.9"
 	ctx := context.Background()
 	must(t, n.orch.store.Settings.Set(ctx, keyRolloutStopped, "w1 failed to upgrade, rolled back"))
-	j, err := n.orch.UpdateWorkers(ctx, &Principal{})
+	j, err := n.orch.UpdateWorkers(ctx, adminP())
 	must(t, err)
 	if j.Kind != string(kindWorkerRollout) {
 		t.Fatalf("job kind = %q", j.Kind)
@@ -258,8 +280,54 @@ func TestUpdateWorkers(t *testing.T) {
 	if v, _, _ := n.orch.store.Settings.Get(ctx, keyRolloutTarget); v != "v9.9.9" {
 		t.Fatalf("target = %q", v)
 	}
-	if _, err := n.orch.UpdateWorkers(ctx, &Principal{}); err == nil {
+	if _, err := n.orch.UpdateWorkers(ctx, adminP()); err == nil {
 		t.Fatal("a second rollout was queued over a pending one")
+	}
+}
+
+// Only a server admin starts a rollout, whoever the HTTP layer let through.
+func TestUpdateWorkersNeedsAdmin(t *testing.T) {
+	n := newTwoNodes(t)
+	n.orch.cfg.Version = "v9.9.9"
+	for _, by := range []*Principal{nil, {}} {
+		if _, err := n.orch.UpdateWorkers(context.Background(), by); err == nil {
+			t.Fatalf("UpdateWorkers(%v) was allowed", by)
+		}
+	}
+	if n.orch.rolloutActive(context.Background()) {
+		t.Fatal("a refused call queued a rollout")
+	}
+}
+
+// M1: a double click and reconnecting workers racing enqueue one rollout.
+func TestRolloutEnqueueIsAtomic(t *testing.T) {
+	n := newTwoNodes(t)
+	n.orch.cfg.Version = "v9.9.9"
+	ctx := context.Background()
+	must(t, n.orch.setRolloutTarget(ctx, "v9.9.9"))
+	var wg sync.WaitGroup
+	for i := range 8 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if i%2 == 0 {
+				_, _ = n.orch.UpdateWorkers(ctx, adminP())
+			} else {
+				n.orch.rolloutAfterBoot(ctx)
+			}
+		}()
+	}
+	wg.Wait()
+	js, err := n.orch.store.Jobs.ListByState(ctx)
+	must(t, err)
+	got := 0
+	for _, j := range js {
+		if j.Kind == string(kindWorkerRollout) {
+			got++
+		}
+	}
+	if got != 1 {
+		t.Fatalf("rollout jobs = %d, want 1", got)
 	}
 }
 
@@ -417,7 +485,7 @@ func TestWorkerRolloutRunning(t *testing.T) {
 	if v, _ := o.WorkerRollout(ctx); v.Running {
 		t.Fatalf("stopped rollout reads running: %+v", v)
 	}
-	_, err := o.UpdateWorkers(ctx, nil)
+	_, err := o.UpdateWorkers(ctx, adminP())
 	must(t, err)
 	if v, _ := o.WorkerRollout(ctx); !v.Running {
 		t.Fatalf("queued rollout reads idle: %+v", v)

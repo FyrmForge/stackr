@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/FyrmForge/stackr/internal/installspec"
@@ -25,7 +26,7 @@ import (
 // every worker onto the panel's build, one at a time. The swap runs on the
 // node, in a host helper container (hostHelperSpec) that replaces the
 // worker's binaries from the panel image and restarts the service; it puts
-// the old ones back by itself if the controller never removes it.
+// the old ones back by itself unless the controller commits it explicitly.
 
 // Settings keys (rows of the settings table, not catalogue knobs).
 const (
@@ -149,7 +150,17 @@ func (o *Orchestrator) rolloutActive(ctx context.Context) bool {
 	return err == nil && slices.ContainsFunc(js, func(j store.Job) bool { return j.Kind == string(kindWorkerRollout) })
 }
 
+// rolloutEnqueue makes the check and the enqueue one step: a double click
+// or two workers reconnecting together cannot both pass rolloutActive.
+// ponytail: one controller process, so a process lock is enough.
+var rolloutEnqueue sync.Mutex
+
 func (o *Orchestrator) enqueueRollout(ctx context.Context) (Job, error) {
+	rolloutEnqueue.Lock()
+	defer rolloutEnqueue.Unlock()
+	if o.rolloutActive(ctx) {
+		return Job{}, errs.Conflictf("A worker rollout is already running.")
+	}
 	return o.enqueue(ctx, kindWorkerRollout, struct{}{}, rolloutLock)
 }
 
@@ -168,6 +179,9 @@ func (o *Orchestrator) rolloutAfterBoot(ctx context.Context) {
 		return
 	}
 	if _, err := o.enqueueRollout(ctx); err != nil {
+		if _, busy := errs.IsConflict(err); busy {
+			return
+		}
 		slog.Warn("worker upgrade: rollout not queued", "err", err)
 	}
 }
@@ -182,7 +196,10 @@ func (o *Orchestrator) workerBack(ctx context.Context, n store.Node, f *worker.F
 
 // UpdateWorkers (server admin) is the Update tab's button, and Retry: it
 // clears a stop, makes this build the target and queues the rollout.
-func (o *Orchestrator) UpdateWorkers(ctx context.Context, _ *Principal) (Job, error) {
+func (o *Orchestrator) UpdateWorkers(ctx context.Context, by *Principal) (Job, error) {
+	if err := nodeAdmin(by); err != nil {
+		return Job{}, err
+	}
 	if o.rolloutActive(ctx) {
 		return Job{}, errs.Conflictf("A worker rollout is already running.")
 	}
@@ -430,10 +447,16 @@ func (ro rollout) one(ctx context.Context, n store.Node, target string) error {
 		return err // cancelled: the helper rolls back by itself at its deadline
 	}
 	if confirmed {
-		// The removal is the commit. If it fails the helper would roll the
-		// node back at its deadline, so it is retried and, failing that, reported.
-		if err := ro.remove(nctx, id); err != nil {
-			return stop("the helper could not be removed, so the node rolls back: "+err.Error(), true)
+		// The commit is an explicit command to the helper; removing the helper
+		// (SIGTERM) restores the old binaries. If the command cannot be
+		// delivered the helper rolls the node back at its deadline, so it is
+		// retried and, failing that, reported.
+		if err := ro.commit(nctx, id); err != nil {
+			return stop("the helper could not be told to commit, so the node rolls back: "+err.Error(), true)
+		}
+		// Committed: the helper exits by itself; this only clears the container.
+		if err := ro.docker.StopRemove(nctx, id); err != nil {
+			ro.say("%s: removing the finished helper: %v", n.Name, err)
 		}
 		set(stateDone, "")
 		return nil
@@ -469,7 +492,8 @@ func (ro rollout) waitVersion(ctx context.Context, id, target string) (bool, err
 	}
 }
 
-// removeHelpers removes any helper left on the node by an earlier run.
+// removeHelpers removes any helper left on the node by an earlier run. This
+// is a stop, not a commit: a helper still waiting restores the old binaries.
 func (ro rollout) removeHelpers(nctx context.Context) error {
 	cs, err := ro.docker.List(nctx, map[string]string{installspec.LabelRole: "host-helper"})
 	if err != nil {
@@ -483,10 +507,10 @@ func (ro rollout) removeHelpers(nctx context.Context) error {
 	return nil
 }
 
-// remove is StopRemove with a few tries.
-func (ro rollout) remove(nctx context.Context, id string) (err error) {
+// commit tells the helper to keep the new binaries, with a few tries.
+func (ro rollout) commit(nctx context.Context, id string) (err error) {
 	for range 3 {
-		if err = ro.docker.StopRemove(nctx, id); err == nil {
+		if _, err = ro.docker.Exec(nctx, id, []string{"/stackrd", "worker-swap", "--commit"}); err == nil {
 			return nil
 		}
 		time.Sleep(ro.interval)

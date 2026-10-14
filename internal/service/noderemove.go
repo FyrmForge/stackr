@@ -229,7 +229,7 @@ func (o *Orchestrator) runHostUninstall(ctx context.Context, nodeID string, log 
 	}
 	ref := stackrSystemRef(img)
 	nctx := docker.WithNode(ctx, nodeID)
-	_ = o.docker.StopRemove(nctx, hostHelperName) // a leftover of an earlier run
+	_ = o.docker.StopRemove(nctx, hostHelperName) // a leftover of an earlier run; a stop is never a swap commit
 	if err := o.docker.Pull(nctx, ref, "", log); err != nil {
 		return fmt.Errorf("pull %s: %w", ref, err)
 	}
