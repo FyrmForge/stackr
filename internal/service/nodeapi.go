@@ -468,6 +468,9 @@ func (o *Orchestrator) ForgetNodeRef(ctx context.Context, by *Principal, ref str
 	return ForgetOut{Node: n.Name, Lost: lost}, nil
 }
 
+// rejoinMu makes expire-then-mint one step per panel.
+var rejoinMu sync.Mutex
+
 // RejoinNode answers a new join command for a worker that broke. The node
 // keeps its name, range and envs; the old certs stop working when the new
 // request is confirmed.
@@ -486,7 +489,10 @@ func (o *Orchestrator) RejoinNode(ctx context.Context, by *Principal, ref string
 	if err := o.store.Nodes.Update(ctx, n); err != nil {
 		return JoinTokenOut{}, err
 	}
-	// One live command per node: a leaked older one must not outlive a new ask.
+	// One live command per node: a leaked older one must not outlive a new
+	// ask, and two asks at once must not both mint after both expired.
+	rejoinMu.Lock()
+	defer rejoinMu.Unlock()
 	if _, err := o.store.JoinTokens.ExpireUnspentFor(ctx, n.Name, time.Now().UTC()); err != nil {
 		return JoinTokenOut{}, err
 	}
