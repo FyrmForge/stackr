@@ -19,7 +19,6 @@ import (
 
 	"github.com/FyrmForge/stackr/internal/clusterca"
 	"github.com/FyrmForge/stackr/internal/installspec"
-	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/move"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/node"
@@ -72,6 +71,18 @@ type clusterPKI struct {
 	// alive: workers that miss the tunnel but answer their public liveness
 	// port ("tunnel down, host alive"). In memory only.
 	alive map[string]bool
+	// old: workers whose last probe showed a version this panel refuses new
+	// Docker calls for (id -> that version, "" = none reported). In memory
+	// only; the next probe fills it.
+	old map[string]string
+}
+
+// tooOldVersion is the version of a worker the gate refuses, and whether it does.
+func (c *clusterPKI) tooOldVersion(id string) (string, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	v, bad := c.old[id]
+	return v, bad
 }
 
 // roots is the live trust list (a clusterca.Roots). A rollover swaps it with
@@ -177,7 +188,7 @@ func bootCluster(ctx context.Context, st *store.Store, dataDir string) (*cluster
 	}
 	return &clusterPKI{ca: ca, trust: roots, announced: []string{serial}, own: own, st: st, rev: map[string]revAns{},
 		addr: map[string]string{}, ext: map[string]*workerclient.Client{},
-		probe: map[string]probeEnt{}, fails: map[string]int{}, alive: map[string]bool{}}, nil
+		probe: map[string]probeEnt{}, fails: map[string]int{}, alive: map[string]bool{}, old: map[string]string{}}, nil
 }
 
 // controllerCert loads the controller's cert and key, or issues a new pair.
@@ -333,6 +344,7 @@ func (o *Orchestrator) refreshNodeClients(ctx context.Context) error {
 		addr string
 		ext  *workerclient.Client
 		up   bool
+		ver  string // the version its facts reported
 	}
 	var cands []*cand
 	seen := map[string]bool{}
@@ -361,8 +373,8 @@ func (o *Orchestrator) refreshNodeClients(ctx context.Context) error {
 			defer wg.Done()
 			pctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 			defer cancel()
-			_, err := cd.ext.Facts(pctx)
-			cd.up = err == nil
+			f, err := cd.ext.Facts(pctx)
+			cd.up, cd.ver = err == nil, f.Version
 			alive := false
 			if !cd.up && o.mesh != nil {
 				// Its own deadline: a dead tunnel spends all of pctx on Facts.
@@ -386,6 +398,7 @@ func (o *Orchestrator) refreshNodeClients(ctx context.Context) error {
 			delete(c.probe, id)
 			delete(c.fails, id)
 			delete(c.alive, id)
+			delete(c.old, id)
 		}
 	}
 	c.mu.Unlock()
@@ -395,9 +408,15 @@ func (o *Orchestrator) refreshNodeClients(ctx context.Context) error {
 	changed := false
 	for _, cd := range cands {
 		n := cd.n
+		allowed := !cd.up || o.versionAllowed(ctx, cd.ver)
 		c.mu.Lock()
 		if cd.up {
 			c.fails[n.ID] = 0
+			if allowed {
+				delete(c.old, n.ID)
+			} else {
+				c.old[n.ID] = cd.ver
+			}
 		} else {
 			c.fails[n.ID]++
 		}
@@ -417,6 +436,9 @@ func (o *Orchestrator) refreshNodeClients(ctx context.Context) error {
 				continue
 			}
 			slog.Info("nodes: status changed", "node", n.Name, "status", status)
+			if status == node.StatusOffline {
+				o.markSeen(ctx, n.ID)
+			}
 			changed = true
 		}
 		if status != node.StatusOnline {
@@ -504,7 +526,7 @@ func (o *Orchestrator) nodeExtras(nodeID string) (*workerclient.Client, error) {
 			return c, nil
 		}
 	}
-	return nil, fmt.Errorf("%w: no connection to node %s", errs.ErrBusy, nodeID)
+	return nil, o.nodeDown(context.Background(), nodeID)
 }
 
 // HostAlive reports a worker the tunnel cannot reach that still answers its

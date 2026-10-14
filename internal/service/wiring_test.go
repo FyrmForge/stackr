@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+
+	"github.com/FyrmForge/stackr/internal/service/errs"
 )
 
 type fakeCaddy struct {
@@ -32,7 +34,8 @@ func TestProxyPushPerNode(t *testing.T) {
 				return w
 			}
 			return nil
-		})
+		},
+		func(_ context.Context, id string) error { return errs.ErrBusy })
 	ctx := context.Background()
 	if err := push(ctx, "ctl", json.RawMessage(`{"a":1}`)); err != nil || local != `{"a":1}` {
 		t.Fatalf("controller: %v %q", err, local)

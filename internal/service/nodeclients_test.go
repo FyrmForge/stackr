@@ -103,6 +103,9 @@ func workerNodeWith(t *testing.T, o *Orchestrator, id, status string, cfg worker
 	must(t, err)
 
 	cfg.DockerSock = sock
+	if cfg.Version == "" { // a worker on the panel's build, unless the test says otherwise
+		cfg.Version = o.cfg.Version
+	}
 	if cfg.StateDir == "" { // the worker keeps its mesh keys here, not in the package directory
 		cfg.StateDir = t.TempDir()
 	}
@@ -120,7 +123,7 @@ func workerNodeWith(t *testing.T, o *Orchestrator, id, status string, cfg worker
 func newClusterPanel(t *testing.T) *Orchestrator {
 	t.Helper()
 	dir := t.TempDir()
-	o, err := New(Config{DataDir: dir, SecretsKey: testKey, Conntrack: dir + "/nf_conntrack"},
+	o, err := New(Config{DataDir: dir, SecretsKey: testKey, Conntrack: dir + "/nf_conntrack", Version: "v2"},
 		WithDocker(dockerfake.New()), WithVIP(vipStub{}),
 		WithProxy(func(context.Context, json.RawMessage) error { return nil }))
 	must(t, err)

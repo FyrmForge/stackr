@@ -219,6 +219,9 @@ func ids(ts []Tile) []string {
 // before this returns; a run refused because the last one is still going
 // comes back cancelled with a zero job.
 func (o *Orchestrator) RunTile(ctx context.Context, id string) (Job, Run, error) {
+	if err := o.gateTile(ctx, id, false); err != nil {
+		return Job{}, Run{}, err
+	}
 	return o.queueRun(ctx, id, lrun.Manual)
 }
 

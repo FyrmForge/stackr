@@ -303,6 +303,7 @@ func ScopeOf(c echo.Context) service.Scope {
 
 // HTTPError maps the service vocabulary to a status, once, at the edge.
 func HTTPError(err error) error {
+	var down *service.NodeDownError
 	switch {
 	case err == nil:
 		return nil
@@ -310,6 +311,8 @@ func HTTPError(err error) error {
 		return echo.NewHTTPError(http.StatusNotFound)
 	case errors.Is(err, errs.ErrRefused):
 		return echo.NewHTTPError(http.StatusForbidden, err.Error())
+	case errors.As(err, &down):
+		return echo.NewHTTPError(http.StatusServiceUnavailable, down.Error())
 	case errors.Is(err, errs.ErrBusy):
 		return echo.NewHTTPError(http.StatusServiceUnavailable)
 	case service.DockerUnreachable(err):

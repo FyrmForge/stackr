@@ -127,7 +127,7 @@ type caddyNode interface {
 // proxyPush is the Syncer's PushNode. The controller's config goes to the
 // local admin socket (push); a worker's goes through worker(id), which
 // returns nil for a node with no connection.
-func proxyPush(controller func(context.Context) (string, error), push func(context.Context, json.RawMessage) error, worker func(nodeID string) caddyNode) func(context.Context, string, json.RawMessage) error {
+func proxyPush(controller func(context.Context) (string, error), push func(context.Context, json.RawMessage) error, worker func(nodeID string) caddyNode, down func(ctx context.Context, nodeID string) error) func(context.Context, string, json.RawMessage) error {
 	return func(ctx context.Context, node string, cfg json.RawMessage) error {
 		ctl, err := controller(ctx)
 		if err != nil {
@@ -138,7 +138,7 @@ func proxyPush(controller func(context.Context) (string, error), push func(conte
 		}
 		w := worker(node)
 		if w == nil {
-			return fmt.Errorf("%w: no connection to node %s", errs.ErrBusy, node)
+			return down(ctx, node)
 		}
 		resp, err := w.Caddy(ctx, http.MethodPost, "/load", cfg)
 		if err != nil {
