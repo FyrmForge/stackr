@@ -25,17 +25,23 @@ func TestRegistryAcceptsPartialIndexes(t *testing.T) {
 	}
 }
 
+// The registry checks nothing, so no container may reach it: it runs on the
+// host's network and listens on the host's loopback only. A published port on
+// a bridge would leave it open to every container on that bridge, a build
+// step included.
 func TestRegistryLocalOnly(t *testing.T) {
 	c := Registry()
-	for _, p := range c.Ports {
-		if !strings.HasPrefix(p, "127.0.0.1:") {
-			t.Fatalf("port %q not bound to loopback", p)
-		}
+	if !c.HostNetwork || len(c.Ports) != 0 {
+		t.Fatalf("host network %v, ports %v: want the host's network and no published port", c.HostNetwork, c.Ports)
+	}
+	if !slices.Contains(c.Env, "REGISTRY_HTTP_ADDR=127.0.0.1:"+RegistryPort) {
+		t.Fatalf("env %v does not bind the loopback", c.Env)
 	}
 	if c.Labels[LabelSpec] != c.Hash() || c.Labels[LabelRole] != "registry" {
 		t.Fatalf("labels %v", c.Labels)
 	}
-	if !slices.Contains(c.RunArgs(), "127.0.0.1:5000:5000") {
+	args := strings.Join(c.RunArgs(), " ")
+	if !strings.Contains(args, "--network host") || strings.Contains(args, " -p ") {
 		t.Fatalf("run args %v", c.RunArgs())
 	}
 }

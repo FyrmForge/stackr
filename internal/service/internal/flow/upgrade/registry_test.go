@@ -2,6 +2,7 @@ package upgrade
 
 import (
 	"context"
+	"slices"
 	"testing"
 
 	"github.com/FyrmForge/stackr/internal/installspec"
@@ -33,8 +34,10 @@ func TestEnsureRegistry(t *testing.T) {
 		if got := len(fake.Specs) == 1; got != tc.wantRun {
 			t.Errorf("%s: ran = %v", tc.name, got)
 		}
-		if tc.wantRun && fake.Specs[0].Ports["127.0.0.1:5000"] != "5000" {
-			t.Errorf("%s: ports %v", tc.name, fake.Specs[0].Ports)
+		// On the host's network, bound to its loopback by env: on a bridge it
+		// would be open to every container there, a build step included.
+		if s := fake.Specs; tc.wantRun && (!s[0].HostNetwork || len(s[0].Ports) != 0 || !slices.Contains(s[0].Env, "REGISTRY_HTTP_ADDR=127.0.0.1:5000")) {
+			t.Errorf("%s: host network %v, ports %v, env %v", tc.name, s[0].HostNetwork, s[0].Ports, s[0].Env)
 		}
 	}
 }
