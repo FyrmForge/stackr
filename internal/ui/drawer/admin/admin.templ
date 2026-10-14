@@ -33,6 +33,48 @@ type UpdateView struct {
 	CheckErr string
 	Run      c.ConfirmView // Action "" = may not run
 	Job      *c.JobStatusView
+	Workers  *WorkersView // nil = no workers to roll out to
+}
+
+// WorkersView is the worker rollout: one row per worker. Action (POST) is the
+// Update workers button, or Retry after a stop; "" = nothing to offer.
+type WorkersView struct {
+	Stopped string // "h3 failed to upgrade, rolled back"; "" = not stopped
+	Rows    []WorkerRow
+	Action  string
+	Button  string
+}
+
+// WorkerRow is one worker. State is waiting, upgrading, done, failed or
+// skipped; "" = never rolled. Behind says its build is not the panel's.
+type WorkerRow struct {
+	Name, Current, State, Error string
+	Behind                      bool
+}
+
+func workerTone(r WorkerRow) string {
+	switch r.State {
+	case "done":
+		return "success"
+	case "failed":
+		return "danger"
+	case "upgrading", "waiting", "skipped":
+		return "warn"
+	}
+	if r.Behind {
+		return "warn"
+	}
+	return ""
+}
+
+func workerState(r WorkerRow) string {
+	switch {
+	case r.State != "":
+		return r.State
+	case r.Behind:
+		return "behind"
+	}
+	return "up to date"
 }
 
 type CaddyView struct {
@@ -152,6 +194,32 @@ templ Update(v UpdateView) {
 					@c.PostButton("Check for update", Base+"/update/check")
 				}
 			</div>
+		}
+		if v.Workers != nil {
+			@c.Section("Workers", "instance", "Each worker upgrades one at a time and rolls back if it fails.") {
+				if v.Workers.Stopped != "" {
+					<p class="mb-3 text-sm text-rw-danger" role="status">{ v.Workers.Stopped }</p>
+				}
+				<ul class="space-y-2 mb-3">
+					for _, r := range v.Workers.Rows {
+						<li class="panel px-4 py-2 text-sm">
+							<div class="flex flex-wrap items-center gap-3">
+								<span class="text-rw-text font-medium">{ r.Name }</span>
+								if r.Current != "" {
+									<span class="font-mono text-xs text-rw-muted">{ r.Current }</span>
+								}
+								<span class="ml-auto">@c.Chip(workerState(r), workerTone(r))</span>
+							</div>
+							if r.Error != "" {
+								<p class="mt-1 text-xs text-rw-danger">{ r.Error }</p>
+							}
+						</li>
+					}
+				</ul>
+				if v.Workers.Action != "" {
+					@c.PrimaryPost(v.Workers.Button, v.Workers.Action)
+				}
+			}
 		}
 	</div>
 }
