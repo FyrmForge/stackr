@@ -289,6 +289,16 @@ func (o *Orchestrator) SetNodeTags(ctx context.Context, by *Principal, id string
 	if slices.Contains(node.Tags(n), node.TagEgress) && !slices.Contains(tags, node.TagEgress) && o.DefaultExit(ctx) == n.ID {
 		return errs.Conflictf("%s is the default exit. Set another default exit (or clear it) first.", n.Name)
 	}
+	losesEgress := slices.Contains(node.Tags(n), node.TagEgress) && !slices.Contains(tags, node.TagEgress)
+	if losesEgress {
+		// Without egress its traffic leaves through other nodes, so it needs one.
+		if ex, err := scopeLadder(ctx, o.store, scopeNode, n.ID); err != nil {
+			return err
+		} else if len(ex) == 0 {
+			return errs.Conflictf("Pick a default exit for %s first.", n.Name)
+		}
+	}
+	gainsEgress := !slices.Contains(node.Tags(n), node.TagEgress) && slices.Contains(tags, node.TagEgress)
 	if slices.Contains(node.Tags(n), node.TagIngress) && !slices.Contains(tags, node.TagIngress) {
 		picks, err := o.store.IngressPicks.ListByNode(ctx, n.ID)
 		if err != nil {
@@ -304,6 +314,11 @@ func (o *Orchestrator) SetNodeTags(ctx context.Context, by *Principal, id string
 	err = o.store.Tx(ctx, func(tx store.Tx) error {
 		if err := tx.Nodes.Update(ctx, n); err != nil {
 			return err
+		}
+		if gainsEgress { // it leaves by its own IP now: no default exit to keep
+			if err := tx.ExitLadders.Set(ctx, scopeNode, n.ID, nil); err != nil {
+				return err
+			}
 		}
 		return audit(tx).Append(ctx, securitylog.Event{
 			Action: auditNodeTags, ActorID: by.User.ID, KeyID: by.KeyID,
@@ -419,6 +434,15 @@ func (o *Orchestrator) RemoveNode(ctx context.Context, by *Principal, id string)
 	}
 	if len(es) > 0 {
 		return errs.Conflictf("%s still runs %d envs. Move them first, or forget the node if it is gone for good.", n.Name, len(es))
+	}
+	rungs, err := o.store.ExitLadders.ListByNode(ctx, id)
+	if err != nil {
+		return err
+	}
+	for _, r := range rungs {
+		if r.ScopeKind == scopeNode {
+			return errs.Conflictf("%s is the default exit of %s; point it elsewhere first.", n.Name, o.nodeName(ctx, r.ScopeID))
+		}
 	}
 	return o.dropNode(ctx, by, n, auditNodeRemove, false)
 }

@@ -684,7 +684,7 @@ func (o *Orchestrator) ownLadder(ctx context.Context, kind, id string) ([]string
 	return o.ladderIDs(ctx, kind, id)
 }
 
-// ResolveExits is the ladder a tile uses (tile, env, stack, org), for
+// ResolveExits is the ladder a tile uses (tile, env, stack, org, its node), for
 // callers that wire it (the mesh builds its own from env, stack and org).
 func (o *Orchestrator) ResolveExits(ctx context.Context, tileID string) (exits.Resolution, error) {
 	ch, _, err := o.chain(ctx, ScopeTile, tileID)
@@ -695,7 +695,16 @@ func (o *Orchestrator) ResolveExits(ctx context.Context, tileID string) (exits.R
 	if err != nil {
 		return exits.Resolution{}, err
 	}
-	return exits.Resolve(exits.Levels{Tile: ls[0], Env: ls[1], Stack: ls[2], Org: ls[3]}, defaultExitIDs(ctx, o.store)), nil
+	e, err := o.store.Environments.Get(ctx, ch[1].id)
+	if err != nil {
+		return exits.Resolution{}, err
+	}
+	n, err := o.store.Nodes.Get(ctx, e.NodeID)
+	if err != nil {
+		return exits.Resolution{}, err
+	}
+	res, _, err := resolveExits(ctx, o.store, exits.Levels{Tile: ls[0], Env: ls[1], Stack: ls[2], Org: ls[3]}, n)
+	return res, err
 }
 
 // IngressFor is the ingress node id in effect for a tile: the nearest pick
