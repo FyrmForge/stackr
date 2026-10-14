@@ -112,7 +112,7 @@ func get(t *testing.T, method, url, bearer string) *http.Response {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { res.Body.Close() })
+	t.Cleanup(func() { _ = res.Body.Close() })
 	return res
 }
 
@@ -124,7 +124,7 @@ func mint(t *testing.T, base, scope string) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	var body struct {
 		Token string `json:"token"`
 	}
@@ -442,5 +442,43 @@ func TestGate(t *testing.T) {
 	}
 	if s.Gate.Closed() {
 		t.Error("gate still shut")
+	}
+}
+
+// The proxy keeps what Caddy forwarded (the registry builds its upload URLs
+// from the Host and X-Forwarded-Proto), adds the hop, and drops our token.
+func TestProxyHeaders(t *testing.T) {
+	var audit []Issued
+	s, front, seen := newServer(t, Facts{Kind: KindNode, Subject: "n1", PullRepos: []string{"acme/shop/web"}}, &audit)
+	defer front.Close()
+	s.Backend.Path = "/base"
+	tok := mint(t, front.URL, "repository:acme/shop/web:pull")
+	req, _ := http.NewRequest("GET", front.URL+"/v2/acme/shop/web/manifests/v1?n=1", nil)
+	req.Host = "registry.example.com"
+	req.Header.Set("Authorization", "Bearer "+tok)
+	req.Header.Set("X-Forwarded-Proto", "https")
+	req.Header.Set("X-Forwarded-Host", "registry.example.com")
+	req.Header.Set("X-Forwarded-For", "203.0.113.9")
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = res.Body.Close()
+	if res.StatusCode != 200 {
+		t.Fatalf("pull: %d", res.StatusCode)
+	}
+	got := (*seen)[len(*seen)-1]
+	for _, c := range []struct{ name, got, want string }{
+		{"Host", got.Host, "registry.example.com"},
+		{"Path", got.URL.Path, "/base/v2/acme/shop/web/manifests/v1"},
+		{"Query", got.URL.RawQuery, "n=1"},
+		{"X-Forwarded-Proto", got.Header.Get("X-Forwarded-Proto"), "https"},
+		{"X-Forwarded-Host", got.Header.Get("X-Forwarded-Host"), "registry.example.com"},
+		{"X-Forwarded-For", got.Header.Get("X-Forwarded-For"), "203.0.113.9, 127.0.0.1"},
+		{"Authorization", got.Header.Get("Authorization"), ""},
+	} {
+		if c.got != c.want {
+			t.Errorf("%s = %q, want %q", c.name, c.got, c.want)
+		}
 	}
 }

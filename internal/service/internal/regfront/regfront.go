@@ -35,6 +35,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -652,12 +653,26 @@ func (s *Server) serveV2(w http.ResponseWriter, r *http.Request) {
 		r.URL.RawQuery = q.Encode()
 	}
 	s.once.Do(func() {
-		s.proxy = httputil.NewSingleHostReverseProxy(s.Backend)
-		s.proxy.FlushInterval = -1 // layers stream
-		d := s.proxy.Director
-		s.proxy.Director = func(r *http.Request) {
-			d(r)
-			r.Header.Del("Authorization") // the registry needs none, and must not see ours
+		s.proxy = &httputil.ReverseProxy{
+			FlushInterval: -1, // layers stream
+			Rewrite: func(pr *httputil.ProxyRequest) {
+				pr.SetURL(s.Backend)
+				// The registry builds its upload URLs from the Host and what
+				// Caddy forwarded, so both go through as they came.
+				pr.Out.Host = pr.In.Host
+				for _, h := range []string{"Forwarded", "X-Forwarded-For", "X-Forwarded-Host", "X-Forwarded-Proto"} {
+					if v, ok := pr.In.Header[h]; ok {
+						pr.Out.Header[h] = v
+					}
+				}
+				if ip, _, err := net.SplitHostPort(pr.In.RemoteAddr); err == nil {
+					if prior := pr.Out.Header.Values("X-Forwarded-For"); len(prior) > 0 {
+						ip = strings.Join(prior, ", ") + ", " + ip
+					}
+					pr.Out.Header.Set("X-Forwarded-For", ip)
+				}
+				pr.Out.Header.Del("Authorization") // the registry needs none, and must not see ours
+			},
 		}
 	})
 	if s.Pushed == nil || r.Method != http.MethodPut {
