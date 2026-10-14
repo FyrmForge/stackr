@@ -188,12 +188,18 @@ func (o *Orchestrator) diskOf(ctx context.Context, nodeID string) (free, total u
 		free, total = f.DiskFree, f.DiskTotal
 	}
 	if n.Role == node.Controller && free == 0 && total == 0 {
-		var st syscall.Statfs_t
-		if syscall.Statfs(o.cfg.DataDir, &st) == nil {
-			free, total = st.Bavail*uint64(st.Bsize), st.Blocks*uint64(st.Bsize)
-		}
+		free, total = o.dataDirDisk()
 	}
 	return free, total
+}
+
+// dataDirDisk is the free and total bytes of the disk under the data dir.
+func (o *Orchestrator) dataDirDisk() (free, total uint64) {
+	var st syscall.Statfs_t
+	if syscall.Statfs(o.cfg.DataDir, &st) != nil {
+		return 0, 0
+	}
+	return st.Bavail * uint64(st.Bsize), st.Blocks * uint64(st.Bsize)
 }
 
 func gb(b uint64) string { return fmt.Sprintf("%.1f GB", float64(b)/(1<<30)) }

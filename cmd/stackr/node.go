@@ -271,8 +271,8 @@ func (a *app) nodeShow() *cobra.Command {
 			if f := asMap(n["facts"]); f != nil {
 				rows = append(rows,
 					[]string{"version", fmt.Sprintf("Docker %s, kernel %s", cell(f["docker"]), cell(f["kernel"]))},
-					[]string{"system", fmt.Sprintf("%.0f CPU, %s memory, %s disk free, up %.0f days",
-						num(f["cpus"]), gb(f["mem_bytes"]), gb(f["disk_free"]), num(f["uptime_s"])/86400)})
+					[]string{"system", fmt.Sprintf("%.0f CPU, %s memory, %s of %s disk free, up %.0f days",
+						num(f["cpus"]), gb(f["mem_bytes"]), gb(f["disk_free"]), gb(f["disk_total"]), num(f["uptime_s"])/86400)})
 				var addrs []string
 				for _, i := range asList(f["interfaces"]) {
 					im := asMap(i)

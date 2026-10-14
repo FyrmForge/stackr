@@ -28,6 +28,7 @@ func (o *Orchestrator) controllerFacts(ctx context.Context, n store.Node) *worke
 	if h, err := o.docker.HostInfo(docker.WithNode(ctx, n.ID)); err == nil {
 		f.CPUs, f.MemBytes, f.Docker = h.CPUs, uint64(h.MemBytes), h.Version
 	}
+	f.DiskFree, f.DiskTotal = o.dataDirDisk()
 	return &f
 }
 

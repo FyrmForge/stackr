@@ -303,10 +303,6 @@ type rollout struct {
 	log                      io.Writer
 }
 
-// allowOldSeam stands for lane G's allowOld(ctx): router calls carrying it
-// skip the too-old refusal. Replace it with allowOld once G has merged.
-func allowOldSeam(ctx context.Context) context.Context { return ctx }
-
 func (o *Orchestrator) newRollout(log io.Writer) rollout {
 	return rollout{
 		o: o, docker: o.docker, log: log,
@@ -331,7 +327,7 @@ func (o *Orchestrator) newRollout(log io.Writer) rollout {
 			return stackrSystemRef(img), nil
 		},
 		hops:     o.rolloutHops,
-		allowOld: allowOldSeam,
+		allowOld: allowOld,
 		// ponytail: the stackr image is built for the controller's CPU type only.
 		arch:     runtime.GOARCH,
 		interval: rolloutPoll, wait: rolloutWait, exitWait: rolloutExitWait,

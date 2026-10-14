@@ -57,7 +57,7 @@ func (o *Orchestrator) ingressTarget(ctx context.Context, ref string) (store.Nod
 	if !slices.Contains(node.Tags(n), node.TagIngress) {
 		return n, ClusterNode{}, errs.Invalidf("node", "%s is not tagged %s", n.Name, node.TagIngress)
 	}
-	if err := o.nodeOnline(ctx, n); err != nil {
+	if err := o.nodeUp(ctx, n.ID); err != nil {
 		return n, ClusterNode{}, err
 	}
 	m, err := o.ClusterMap(ctx)

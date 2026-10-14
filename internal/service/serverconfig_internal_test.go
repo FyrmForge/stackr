@@ -2,6 +2,7 @@ package service
 
 import (
 	"encoding/json"
+	"github.com/FyrmForge/stackr/internal/service/internal/flow/jobs"
 	"testing"
 )
 
@@ -28,5 +29,17 @@ func TestServerJobKinds(t *testing.T) {
 	}
 	if b, _ := json.Marshal(serverPlanJob{}); string(b) != `{}` {
 		t.Errorf("plan payload = %s", b)
+	}
+}
+
+// The node verbs' job kinds have a handler: a queued remove, node backup or
+// worker rollout would otherwise fail with "no handler for job kind".
+func TestNodeJobKindsHaveHandlers(t *testing.T) {
+	var o Orchestrator
+	hs := o.handlers()
+	for _, k := range []jobs.Kind{kindRemoveNode, kindNodeBackup, kindWorkerRollout} {
+		if hs[k] == nil {
+			t.Errorf("no handler for job kind %q", k)
+		}
 	}
 }

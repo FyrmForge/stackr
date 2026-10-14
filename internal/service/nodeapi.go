@@ -47,6 +47,7 @@ type NodeOut struct {
 	CPU       int      `json:"cpu"`
 	MemTotal  uint64   `json:"mem_total"`
 	DiskFree  uint64   `json:"disk_free"`
+	DiskTotal uint64   `json:"disk_total"`
 	Docker    string   `json:"docker"`
 	Arch      string   `json:"arch"`
 	// DefaultExit is the exit node names of the node's own ladder; empty
@@ -283,7 +284,7 @@ func (o *Orchestrator) nodeOut(ctx context.Context, n store.Node) (NodeOut, erro
 		}
 	}
 	if f := o.reportedFacts(ctx, n); f != nil {
-		out.CPU, out.MemTotal, out.DiskFree, out.Docker, out.Arch = f.CPUs, f.MemBytes, f.DiskFree, f.Docker, f.Arch
+		out.CPU, out.MemTotal, out.DiskFree, out.DiskTotal, out.Docker, out.Arch = f.CPUs, f.MemBytes, f.DiskFree, f.DiskTotal, f.Docker, f.Arch
 	}
 	return out, nil
 }

@@ -196,9 +196,6 @@ func (o *Orchestrator) waitStackrPublished(ctx context.Context) error {
 // the proxy to bring any that failed to pull it.
 func (o *Orchestrator) publishSystemImages(ctx context.Context) {
 	defer o.markStackrPublished() // given up: a pull says what is missing
-	if err := o.recordPanelVersion(ctx); err != nil {
-		slog.Warn("panel version: not recorded", "err", err)
-	}
 	// The workers roll once the image they pull is in, and once only: a
 	// retry of the other copies publishes the stackr image again.
 	var rolled sync.Once

@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/job"
 	"io"
 	"strings"
 	"testing"
@@ -40,18 +41,21 @@ func nodeFake(t *testing.T, n *twoNodes, id string) *dockerfake.Fake {
 	return f
 }
 
-// removeNow queues the removal of a seeded node and runs the job body, which
-// is what the worker does once the kind is wired.
+// removeNow queues the removal of a seeded node and waits for the job runner
+// to finish it.
 func removeNow(t *testing.T, n *twoNodes, id string) {
 	t.Helper()
 	if id != "w1" {
 		nodeFake(t, n, id)
 	}
 	fakeUninstall(t, nil)
-	if _, err := n.orch.RemoveNode(context.Background(), adminP(), id); err != nil {
+	j, err := n.orch.RemoveNode(context.Background(), adminP(), id)
+	if err != nil {
 		t.Fatal(err)
 	}
-	must(t, n.orch.runRemoveNode(context.Background(), &jobs.Run{Log: io.Discard}, nodeJob{NodeID: id, By: "u-admin"}))
+	if j = n.wait(t, j); j.State != job.Done {
+		t.Fatalf("remove %s: %s %s", id, j.State, j.Error)
+	}
 }
 
 var managedLabel = map[string]string{docker.LabelManaged: "true"}
@@ -97,7 +101,9 @@ func TestRunRemoveNodeBacksUpThenUninstalls(t *testing.T) {
 	if j.Kind != string(kindRemoveNode) {
 		t.Errorf("job kind = %q", j.Kind)
 	}
-	must(t, n.orch.runRemoveNode(ctx, &jobs.Run{Log: io.Discard}, nodeJob{NodeID: "w2", By: "u-admin"}))
+	if j = n.wait(t, j); j.State != job.Done { // the runner reaches runRemoveNode
+		t.Fatalf("job %s: %s", j.State, j.Error)
+	}
 
 	if len(*ran) != 1 || (*ran)[0] != "w2" || !rowThere {
 		t.Errorf("uninstall ran %v with the node row there = %v; want once, before the node is dropped", *ran, rowThere)
@@ -189,7 +195,7 @@ func TestRemoveNodeRefusals(t *testing.T) {
 	seedNode(t, n, "h4", `["ingress"]`, "10.221.0.0/16")
 	must(t, n.st.Settings.Set(ctx, settingDefaultIngress, "h4"))
 	if _, err := n.orch.RemoveNode(ctx, adm, "h4"); !isConflict(err) || !strings.Contains(err.Error(), "default ingress") {
-		t.Errorf("default ingress = %v, want a conflict naming it", err)
+		t.Errorf("default ingress = %v, want node down", err)
 	}
 
 	seedNode(t, n, "h5", `[]`, "10.222.0.0/16")
@@ -197,8 +203,8 @@ func TestRemoveNodeRefusals(t *testing.T) {
 	must(t, err)
 	h5.Status = node.StatusOffline
 	must(t, n.st.Nodes.Update(ctx, h5))
-	if _, err := n.orch.RemoveNode(ctx, adm, "h5"); !isConflict(err) || !strings.Contains(err.Error(), "offline") {
-		t.Errorf("offline = %v, want a conflict naming it", err)
+	if _, err := n.orch.RemoveNode(ctx, adm, "h5"); !isNodeDown(err) {
+		t.Errorf("offline = %v, want node down", err)
 	}
 	if _, err := n.orch.RemoveNode(ctx, nil, "h5"); err == nil {
 		t.Error("a nil principal removed a node")
@@ -230,4 +236,9 @@ func TestForgetRefusesAnotherNodesDefaultExit(t *testing.T) {
 		t.Fatal(err)
 	}
 	must(t, n.orch.ForgetNode(ctx, adm, "h4", "h4"))
+}
+
+func isNodeDown(err error) bool {
+	var d *NodeDownError
+	return errors.As(err, &d)
 }

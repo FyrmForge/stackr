@@ -8,6 +8,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/FyrmForge/stackr/internal/installspec"
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	fbackup "github.com/FyrmForge/stackr/internal/service/internal/flow/backup"
@@ -22,15 +23,8 @@ import (
 
 const kindRemoveNode jobs.Kind = "remove-node"
 
-// Host helper (built by lane U, cmd/stackrd/hosthelper.go): a privileged
-// container from the cluster's stackr image that runs one command on the
-// box itself.
-const (
-	hostHelperName  = "stackr-host-helper"
-	hostHelperLabel = "stackr.role"
-	hostHelperRole  = "host-helper"
-	labelFilesTile  = "stackr.files.tile" // config-file volumes: rebuilt on deploy, not data
-)
+// labelFilesTile marks config-file volumes: rebuilt on deploy, not data.
+const labelFilesTile = "stackr.files.tile"
 
 // hostUninstall runs `stackrd host-run uninstall --yes` on a node. Tests
 // swap it; it must run before the mesh drops the node (dropNode).
@@ -69,7 +63,7 @@ func (o *Orchestrator) removeGuards(ctx context.Context, n store.Node) error {
 	} else if di == n.ID {
 		return errs.Conflictf("%s is the default ingress; make another node the default ingress first.", n.Name)
 	}
-	return o.nodeOnline(ctx, n)
+	return o.nodeUp(ctx, n.ID)
 }
 
 // RemoveNode (server admin) queues the removal of a worker that has no envs
@@ -145,7 +139,7 @@ func (o *Orchestrator) stopNodeContainers(ctx context.Context, log io.Writer) ([
 	}
 	var stopped []string
 	for _, c := range cs {
-		if c.State != "running" || c.Labels[hostHelperLabel] == hostHelperRole {
+		if c.State != "running" || c.Labels[installspec.LabelRole] == "host-helper" {
 			continue
 		}
 		_, _ = fmt.Fprintf(log, "stopping %s\n", c.Name)
@@ -239,17 +233,7 @@ func (o *Orchestrator) runHostUninstall(ctx context.Context, nodeID string, log 
 	if err := o.docker.Pull(nctx, ref, "", log); err != nil {
 		return fmt.Errorf("pull %s: %w", ref, err)
 	}
-	id, err := o.docker.Run(nctx, docker.ContainerSpec{
-		Name:        hostHelperName,
-		Image:       ref,
-		Cmd:         []string{"stackrd", "host-run", "uninstall", "--yes"},
-		Labels:      map[string]string{hostHelperLabel: hostHelperRole},
-		Volumes:     []string{"/:/host"},
-		Privileged:  true,
-		PidHost:     true,
-		HostNetwork: true,
-		Restart:     "no",
-	})
+	id, err := o.docker.Run(nctx, hostHelperSpec(ref, "host-run", "uninstall", "--yes"))
 	if err != nil {
 		return err
 	}

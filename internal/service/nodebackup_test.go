@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/job"
 	"io"
 	"slices"
 	"strings"
@@ -64,7 +65,9 @@ func TestRunNodeBackupDumpsThenStopsTarsStarts(t *testing.T) {
 	if _, err := n.orch.BackupNode(ctx, &Principal{}, "w1"); err == nil {
 		t.Error("a non-admin backed a node up")
 	}
-	must(t, runNodeBackupNow(n))
+	if j = n.wait(t, j); j.State != job.Done { // the runner reaches runNodeBackup
+		t.Fatalf("job %s: %s", j.State, j.Error)
+	}
 
 	dump, stop, tar, start := indexOf(n.wFake, "ExecStream("), indexOf(n.wFake, "Stop("), indexOf(n.wFake, "TarVolume("), indexOf(n.wFake, "Start(")
 	if dump < 0 || stop < 0 || tar < 0 || start < 0 || dump >= stop || stop >= tar || tar >= start {
@@ -166,7 +169,7 @@ func TestBackupEveryNodeQueuesOnePerOnlineNode(t *testing.T) {
 	if len(js) != 2 { // the controller and w1
 		t.Errorf("jobs = %d, want 2", len(js))
 	}
-	if _, err := n.orch.BackupNode(ctx, adminP(), "h4"); !isConflict(err) {
-		t.Errorf("offline node = %v, want a conflict", err)
+	if _, err := n.orch.BackupNode(ctx, adminP(), "h4"); !isNodeDown(err) {
+		t.Errorf("offline node = %v, want node down", err)
 	}
 }

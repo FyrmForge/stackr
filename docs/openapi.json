@@ -572,6 +572,9 @@
           "disk_free": {
             "type": "integer"
           },
+          "disk_total": {
+            "type": "integer"
+          },
           "docker": {
             "type": "string"
           },
@@ -631,6 +634,7 @@
           "cpu",
           "mem_total",
           "disk_free",
+          "disk_total",
           "docker",
           "arch",
           "default_exit",
@@ -1533,6 +1537,9 @@
           "disk_free": {
             "type": "integer"
           },
+          "disk_total": {
+            "type": "integer"
+          },
           "docker": {
             "type": "string"
           },
@@ -1606,6 +1613,7 @@
         "required": [
           "interfaces",
           "disk_free",
+          "disk_total",
           "docker_root",
           "docker",
           "kernel",
@@ -2079,6 +2087,9 @@
             ]
           },
           "node_id": {
+            "type": "string"
+          },
+          "node_name": {
             "type": "string"
           },
           "range": {
@@ -3027,6 +3038,9 @@
           "disk_free": {
             "type": "integer"
           },
+          "disk_total": {
+            "type": "integer"
+          },
           "docker": {
             "type": "string"
           },
@@ -3108,6 +3122,7 @@
           "cpu",
           "mem_total",
           "disk_free",
+          "disk_total",
           "docker",
           "arch",
           "default_exit",
@@ -3132,6 +3147,9 @@
             "type": "array"
           },
           "disk_free": {
+            "type": "integer"
+          },
+          "disk_total": {
             "type": "integer"
           },
           "docker": {
@@ -3187,6 +3205,7 @@
           "cpu",
           "mem_total",
           "disk_free",
+          "disk_total",
           "docker",
           "arch",
           "default_exit"

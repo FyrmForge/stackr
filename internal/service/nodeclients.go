@@ -345,6 +345,7 @@ func (o *Orchestrator) refreshNodeClients(ctx context.Context) error {
 		ext  *workerclient.Client
 		up   bool
 		ver  string // the version its facts reported
+		f    worker.Facts
 	}
 	var cands []*cand
 	seen := map[string]bool{}
@@ -374,7 +375,7 @@ func (o *Orchestrator) refreshNodeClients(ctx context.Context) error {
 			pctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 			defer cancel()
 			f, err := cd.ext.Facts(pctx)
-			cd.up, cd.ver = err == nil, f.Version
+			cd.up, cd.ver, cd.f = err == nil, f.Version, f
 			alive := false
 			if !cd.up && o.mesh != nil {
 				// Its own deadline: a dead tunnel spends all of pctx on Facts.
@@ -438,6 +439,9 @@ func (o *Orchestrator) refreshNodeClients(ctx context.Context) error {
 			slog.Info("nodes: status changed", "node", n.Name, "status", status)
 			if status == node.StatusOffline {
 				o.markSeen(ctx, n.ID)
+			}
+			if status == node.StatusOnline {
+				o.workerBack(ctx, n, &cd.f)
 			}
 			changed = true
 		}

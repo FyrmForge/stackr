@@ -718,6 +718,10 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 			slog.Warn("proxy: boot push failed", "err", err)
 		}
 	}()
+	// Any install, mesh or not: the too-old rule reads it.
+	if err := orch.recordPanelVersion(ctx); err != nil {
+		slog.Warn("panel version: not recorded", "err", err)
+	}
 	if orch.runMesh != nil {
 		orch.runMesh()
 		// A real host only: a fake host or a test has no registry to fill.

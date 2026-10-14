@@ -102,11 +102,11 @@ func TestIngressSwitchRefusals(t *testing.T) {
 	must(t, err)
 	h4.Status = "offline"
 	must(t, n.st.Nodes.Update(ctx, h4))
-	if _, err := n.orch.IngressSwitchPlan(ctx, adm, "h4"); !isConflict(err) {
-		t.Errorf("offline = %v, want a conflict", err)
+	if _, err := n.orch.IngressSwitchPlan(ctx, adm, "h4"); !isNodeDown(err) {
+		t.Errorf("offline = %v, want node down", err)
 	}
-	if _, err := n.orch.SetDefaultIngress(ctx, adm, "h4", "h4"); !isConflict(err) {
-		t.Errorf("offline set = %v, want a conflict", err)
+	if _, err := n.orch.SetDefaultIngress(ctx, adm, "h4", "h4"); !isNodeDown(err) {
+		t.Errorf("offline set = %v, want node down", err)
 	}
 	if _, err := n.orch.IngressSwitchPlan(ctx, adm, "plain"); err == nil {
 		t.Error("a node without the ingress tag got a plan")

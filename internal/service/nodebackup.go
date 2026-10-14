@@ -44,17 +44,6 @@ type nodeJob struct {
 	KeyID  string `json:"key_id,omitempty"`
 }
 
-// nodeOnline is the offline refusal of the node verbs: a node that is not
-// online cannot be stopped, backed up or cleaned.
-// ponytail: checks the stored status only; switch to lane G's o.nodeUp(ctx, id)
-// (which names when the node was last seen) once it is merged.
-func (o *Orchestrator) nodeOnline(ctx context.Context, n store.Node) error {
-	if n.Status == node.StatusOnline {
-		return nil
-	}
-	return errs.Conflictf("%s is offline; bring it back, or forget it if it is gone for good.", n.Name)
-}
-
 // nodeLock is the lock set of a node-wide job: the node and every tile on it,
 // so deploys there wait for it.
 func (o *Orchestrator) nodeLock(ctx context.Context, n store.Node) ([]string, error) {
@@ -87,7 +76,7 @@ func (o *Orchestrator) BackupNode(ctx context.Context, by *Principal, id string)
 	if n.Status == node.StatusPending {
 		return Job{}, errs.ErrNotFound
 	}
-	if err := o.nodeOnline(ctx, n); err != nil {
+	if err := o.nodeUp(ctx, n.ID); err != nil {
 		return Job{}, err
 	}
 	lock, err := o.nodeLock(ctx, n)
