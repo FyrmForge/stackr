@@ -10,9 +10,11 @@ package cluster
 import (
 	"fmt"
 	"math"
+	"net/url"
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/FyrmForge/stackr/internal/ui/graph"
 )
@@ -55,12 +57,12 @@ type Map struct {
 
 type Node struct {
 	ID, Name, Role, Status, Docker, Arch, Net string
-	Tags, Public, Domains, ExitEnvs     []string
-	DomainEnvs                          map[string]string // domain -> env path
-	Envs                                []Env
-	NoForward                           bool     // ingress behind a NAT the internet does not reach
-	ReachedVia                          []string // nodes the others' traffic to it is routed through
-	ViaDown                             []string // the ReachedVia hops that are not online
+	Tags, Public, Domains, ExitEnvs           []string
+	DomainEnvs                                map[string]string // domain -> env path
+	Envs                                      []Env
+	NoForward                                 bool     // ingress behind a NAT the internet does not reach
+	ReachedVia                                []string // nodes the others' traffic to it is routed through
+	ViaDown                                   []string // the ReachedVia hops that are not online
 }
 
 type Env struct{ Name, Href, Health string }
@@ -78,6 +80,36 @@ type Link struct {
 	MS         float64 // < 0 = not measured
 	Via        string  // the node the pair is routed through, "" = direct
 	Down       bool    // a direct tunnel whose end is not online
+	Ends       [2]End  // [0] is A's side
+}
+
+// End is one side of a tunnel, as that node reports it. Rx and Tx are -1
+// when the node did not report them; a zero Handshake is not reported.
+type End struct {
+	Dials     bool   // has an endpoint for the other side
+	Endpoint  string // where it dials, "" = waits
+	SeenFrom  string // where the other side's packets arrive from
+	Handshake time.Time
+	Rx, Tx    int64
+}
+
+// TunnelDrawer is a tunnel's drawer GET, the pair in a fixed order so one
+// pair has one URL; TunnelPush the URL the browser shows with it open.
+func TunnelDrawer(a, b string) string {
+	a, b = pairOrder(a, b)
+	return Base + "/tunnel?a=" + url.QueryEscape(a) + "&b=" + url.QueryEscape(b)
+}
+
+func TunnelPush(a, b string) string {
+	a, b = pairOrder(a, b)
+	return "?drawer=tunnel:" + url.QueryEscape(a) + ":" + url.QueryEscape(b)
+}
+
+func pairOrder(a, b string) (string, string) {
+	if a > b {
+		return b, a
+	}
+	return a, b
 }
 
 type Backup struct {
@@ -250,65 +282,46 @@ func Build(m Map, base string, notes []graph.Note, create []graph.Create) graph.
 		if l.Down {
 			kind, label = "tunnel-down", "down"
 		}
-		edges = append(edges, graph.Edge{Kind: kind, From: nodeID(l.A), To: nodeID(l.B), Label: label})
+		e := graph.Edge{Kind: kind, From: nodeID(l.A), To: nodeID(l.B), Label: label,
+			Drawer: TunnelDrawer(l.A, l.B), Push: TunnelPush(l.A, l.B)}
+		// An arrow runs from the side that dials to the one that waits; when
+		// both dial, or nobody is known to, there is none.
+		if !l.Down && l.Ends[0].Dials != l.Ends[1].Dials {
+			e.Dir = true
+			if l.Ends[1].Dials {
+				e.From, e.To = e.To, e.From
+			}
+		}
+		edges = append(edges, e)
 	}
 	// The internet card says what reaches it, so its edges carry no labels.
-	public := func(from string, in bool, info inetInfo) {
-		if !in && len(info.Egress) == 0 {
+	public := func(from string) {
+		info, ok := Internet(m, from)
+		if !ok || !info.In && len(info.Egress) == 0 {
 			return
 		}
 		inet := internetID(from)
-		info.ID = "inet-" + strings.NewReplacer(":", "-", "/", "-", ".", "-").Replace(from)
 		r := at[from]
 		r = place(inet, rect{r.x + (r.w-sideW)/2, top[from] - headH - inetGap - sideH, sideW, sideH})
 		cards = append(cards, graph.Node{ID: inet, Kind: "internet", Name: "Internet",
-			X: r.x, Y: r.y, W: r.w, H: r.h, Card: inetCard(info)})
-		if in {
+			X: r.x, Y: r.y, W: r.w, H: r.h, Card: inetCard(from)})
+		if info.In {
 			edges = append(edges, graph.Edge{Kind: "ingress", From: inet, To: from})
 		}
 		if len(info.Egress) > 0 {
 			edges = append(edges, graph.Edge{Kind: "egress", From: from, To: inet})
 		}
 	}
-	routes := func(n Node) []inetRoute {
-		var rs []inetRoute
-		for _, h := range n.Domains {
-			rs = append(rs, inetRoute{Host: h, Env: n.DomainEnvs[h]})
-		}
-		return rs
-	}
 	for _, c := range m.Nets {
-		var in bool
-		var nat inetInfo
 		for _, id := range c.Nodes {
-			n, ok := byID[id]
-			if !ok {
-				continue
+			if n, ok := byID[id]; ok && (len(n.Public) > 0 || !c.Router) {
+				public(nodeID(n.ID))
 			}
-			if len(n.Public) > 0 || !c.Router {
-				own := hasTag(n, "ingress") && len(n.Public) > 0
-				info := inetInfo{Public: n.Public, Egress: n.ExitEnvs}
-				if own {
-					info.Ingress = routes(n)
-				}
-				public(nodeID(n.ID), own, info)
-				continue
-			}
-			in = in || hasTag(n, "ingress")
-			if hasTag(n, "ingress") {
-				nat.Ingress = append(nat.Ingress, routes(n)...)
-			}
-			nat.Egress = append(nat.Egress, n.ExitEnvs...)
-			nat.NoForward = nat.NoForward || n.NoForward
 		}
 		if !c.Router {
 			continue
 		}
-		nat.Behind, nat.Unsure = true, c.Unsure
-		if f, ok := byID[c.Forward]; ok {
-			nat.Forward = f.Name
-		}
-		public(natID(c.ID), in, nat)
+		public(natID(c.ID))
 		if _, ok := byID[c.Forward]; ok {
 			kind := "forward"
 			if c.Unsure {
@@ -333,7 +346,7 @@ func Build(m Map, base string, notes []graph.Note, create []graph.Create) graph.
 		}
 		r := place(s3ID(b.ID), rect{sx, bottom + 120, sideW, sideH})
 		cards = append(cards, graph.Node{ID: s3ID(b.ID), Kind: "s3", Name: b.Name,
-			X: r.x, Y: r.y, W: r.w, H: r.h, Card: sideCard("S3 · "+b.Name, "bucket")})
+			X: r.x, Y: r.y, W: r.w, H: r.h, Card: sideCard("S3 · "+b.Name, "bucket", nil)})
 		sx += sideW + gapX
 	}
 
@@ -364,20 +377,89 @@ func wrap(rs []rect, minW int, at [2]int, moved bool) rect {
 	return b
 }
 
-// inetInfo is what an internet card lists when opened: the domains that
-// come in through it (each with its env), the envs that leave through it,
-// the public addresses, and the port forward of a NAT.
-type inetInfo struct {
-	ID                string // the popover's element id
+// Inet is what an internet card's drawer lists: the domains that come in
+// through it (each with its env), the envs that leave through it, the
+// public addresses, and the port forward of a NAT.
+type Inet struct {
+	Name              string // the node, or "NAT"
+	In                bool   // the internet reaches ingress here
 	Public            []string
-	Ingress           []inetRoute
+	Ingress           []InetRoute
 	Egress            []string // env paths
 	Behind            bool     // a NAT's card: the node behind it is Forward
 	Forward           string
 	Unsure, NoForward bool
 }
 
-type inetRoute struct{ Host, Env string }
+type InetRoute struct{ Host, Env string }
+
+// InternetDrawer is an internet card's drawer GET (from is the card it hangs
+// off, "node:<id>" or "nat:<net>"; ids hold ":" and "/", so a query param);
+// InternetPush the URL the browser shows with it open.
+func InternetDrawer(from string) string { return Base + "/internet?from=" + url.QueryEscape(from) }
+
+func InternetPush(from string) string { return "?drawer=" + url.QueryEscape("internet:"+from) }
+
+// Internet is the internet card of from: a node with its own address or any
+// node in a network without a router, or a router's NAT. ok is false for
+// anything else.
+func Internet(m Map, from string) (Inet, bool) {
+	byID := map[string]Node{}
+	for _, n := range m.Nodes {
+		byID[n.ID] = n
+	}
+	routes := func(n Node) []InetRoute {
+		var rs []InetRoute
+		for _, h := range n.Domains {
+			rs = append(rs, InetRoute{Host: h, Env: n.DomainEnvs[h]})
+		}
+		return rs
+	}
+	if id, ok := strings.CutPrefix(from, "node:"); ok {
+		n, ok := byID[id]
+		if !ok {
+			return Inet{}, false
+		}
+		for _, c := range m.Nets {
+			if slices.Contains(c.Nodes, id) && len(n.Public) == 0 && c.Router {
+				return Inet{}, false // behind the router's NAT card
+			}
+		}
+		own := hasTag(n, "ingress") && len(n.Public) > 0
+		info := Inet{Name: n.Name, In: own, Public: n.Public, Egress: n.ExitEnvs}
+		if own {
+			info.Ingress = routes(n)
+		}
+		return info, true
+	}
+	net, ok := strings.CutPrefix(from, "nat:")
+	if !ok {
+		return Inet{}, false
+	}
+	for _, c := range m.Nets {
+		if c.ID != net || !c.Router {
+			continue
+		}
+		nat := Inet{Name: "NAT", Behind: true, Unsure: c.Unsure}
+		if f, ok := byID[c.Forward]; ok {
+			nat.Forward = f.Name
+		}
+		for _, id := range c.Nodes {
+			n, ok := byID[id]
+			if !ok || len(n.Public) > 0 {
+				continue
+			}
+			if hasTag(n, "ingress") {
+				nat.In = true
+				nat.Ingress = append(nat.Ingress, routes(n)...)
+			}
+			nat.Egress = append(nat.Egress, n.ExitEnvs...)
+			nat.NoForward = nat.NoForward || n.NoForward
+		}
+		return nat, true
+	}
+	return Inet{}, false
+}
 
 func trimMS(ms float64) string {
 	if ms < 10 {

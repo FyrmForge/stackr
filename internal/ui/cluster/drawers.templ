@@ -1,0 +1,58 @@
+package cluster
+
+import "strings"
+
+// InternetBody is the internet card's drawer: what reaches ingress here,
+// the addresses, and which envs leave through it.
+templ InternetBody(i Inet) {
+	if i.Behind {
+		<section class="panel p-6 mb-6">
+			<h3 class="text-base font-semibold text-rw-text mb-2">Router</h3>
+			<p class="text-sm text-rw-muted">
+				switch {
+					case i.Forward != "" && !i.Unsure:
+						Ports 80 and 443 forward to <span class="text-rw-text">{ i.Forward }</span>.
+					case i.Forward != "":
+						Ports 80 and 443 seem to forward to <span class="text-rw-text">{ i.Forward }</span>. Not confirmed from outside.
+					case i.NoForward:
+						<span class="text-rw-warn">No port forward. The internet does not reach ingress here.</span>
+					default:
+						Nothing is known about the port forward.
+				}
+			</p>
+		</section>
+	}
+	if len(i.Public) > 0 {
+		<section class="panel p-6 mb-6">
+			<h3 class="text-base font-semibold text-rw-text mb-2">Public addresses</h3>
+			<p class="font-mono text-sm text-rw-text break-all">{ strings.Join(i.Public, ", ") }</p>
+		</section>
+	}
+	<section class="panel p-6 mb-6">
+		<h3 class="text-base font-semibold text-rw-text mb-2">Ingress</h3>
+		if len(i.Ingress) == 0 {
+			<p class="text-sm text-rw-muted">None.</p>
+		}
+		<ul class="space-y-1.5">
+			for _, r := range i.Ingress {
+				<li class="flex items-center justify-between gap-3 min-w-0">
+					<span class="font-mono text-sm truncate">{ r.Host }</span>
+					if r.Env != "" {
+						<a href={ templ.SafeURL("/" + r.Env) } class="text-xs text-rw-accent hover:underline truncate">{ r.Env }</a>
+					}
+				</li>
+			}
+		</ul>
+	</section>
+	<section class="panel p-6 mb-6">
+		<h3 class="text-base font-semibold text-rw-text mb-2">Egress</h3>
+		if len(i.Egress) == 0 {
+			<p class="text-sm text-rw-muted">None.</p>
+		}
+		<ul class="space-y-1.5">
+			for _, e := range i.Egress {
+				<li><a href={ templ.SafeURL("/" + e) } class="text-sm text-rw-accent hover:underline">{ e }</a></li>
+			}
+		</ul>
+	</section>
+}

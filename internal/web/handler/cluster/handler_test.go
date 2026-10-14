@@ -56,6 +56,58 @@ func TestClusterDrawerLoad(t *testing.T) {
 	}
 }
 
+// A fresh load of ?drawer=internet:... or tunnel:a:b asks for that drawer.
+func TestClusterDrawerLoadInternetAndTunnel(t *testing.T) {
+	s := webtest.New(t)
+	sess := admin(t, s)
+	for drawer, want := range map[string]string{
+		"internet:node:abc":        `hx-get="/-/cluster/internet?from=node%3Aabc"`,
+		"internet:nat:10.0.0.0/24": `hx-get="/-/cluster/internet?from=nat%3A10.0.0.0%2F24"`,
+	} {
+		req := httptest.NewRequest("GET", "/-/cluster?drawer="+url.QueryEscape(drawer), nil)
+		req.AddCookie(&http.Cookie{Name: s.Orch.Sessions().CookieName(), Value: sess})
+		rec := httptest.NewRecorder()
+		s.Handler().ServeHTTP(rec, req)
+		if body := rec.Body.String(); !strings.Contains(body, want) {
+			t.Errorf("?drawer=%s: no %s in\n%s", drawer, want, body)
+		}
+	}
+}
+
+// The internet drawer of the controller's card lists the envs that leave
+// there (and the hosts that come in, when the card is the NAT's).
+func TestClusterInternetDrawer(t *testing.T) {
+	s := webtest.New(t)
+	root := admin(t, s)
+	s.Domain(t, s.Tile.ID, "shop.example.com")
+	m, err := s.Orch.ClusterMap(context.Background())
+	if err != nil || len(m.Nodes) != 1 {
+		t.Fatalf("map = %+v, %v", m, err)
+	}
+	from := "node:" + m.Nodes[0].ID
+	if n := m.Networks[0]; n.Router {
+		from = "nat:" + n.ID // behind a router: the NAT card carries it
+	}
+	rec := s.As(t, root, "GET", "/-/cluster/internet?from="+url.QueryEscape(from), nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET internet = %d %s", rec.Code, rec.Body)
+	}
+	body := rec.Body.String()
+	for _, want := range []string{"Internet", "Ingress", "Egress", `href="/acme/shop/dev"`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("internet drawer lacks %q", want)
+		}
+	}
+	if strings.HasPrefix(from, "nat:") && !strings.Contains(body, "shop.example.com") {
+		t.Error("the NAT's drawer lacks the ingress host")
+	}
+	for _, bad := range []string{"/-/cluster/internet?from=node:nope"} {
+		if rec := s.As(t, root, "GET", bad, nil); rec.Code != http.StatusNotFound {
+			t.Errorf("GET %s = %d, want 404", bad, rec.Code)
+		}
+	}
+}
+
 // Notes work as on every canvas; a node card's drop is kept, an env's is
 // refused.
 func TestClusterNotes(t *testing.T) {

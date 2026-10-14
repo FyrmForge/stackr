@@ -34,6 +34,7 @@ func (h *handler) Mount(g *echo.Group, a *middleware.Access) {
 	admin := a.Require("node.manage")
 	g.GET(cluster.Base, h.Page, a.LoginFirst(), admin)
 	g.GET(cluster.Base+"/map", h.Map, admin)
+	g.GET(cluster.Base+"/internet", h.Internet, admin)
 	g.POST(cluster.Base+"/-/positions", h.Positions, admin)
 	g.POST(cluster.Base+"/-/reset", h.Reset, admin)
 	g.POST(cluster.Base+"/-/notes", h.Notes, admin)
@@ -75,8 +76,11 @@ func (h *handler) Page(c echo.Context) error {
 		return middleware.HTTPError(err)
 	}
 	var drawer templ.Component
-	if id, ok := strings.CutPrefix(c.QueryParam("drawer"), "node:"); ok && id != "" {
+	d := c.QueryParam("drawer")
+	if id, ok := strings.CutPrefix(d, "node:"); ok && id != "" {
 		drawer = components.DrawerLoad(cluster.NodeDrawer(id, c.QueryParam("tab")))
+	} else if from, ok := strings.CutPrefix(d, "internet:"); ok && from != "" {
+		drawer = components.DrawerLoad(cluster.InternetDrawer(from))
 	}
 	return render.PageWith(c, http.StatusOK, "Cluster", cluster.Page(v, m), nil, drawer)
 }
@@ -88,6 +92,22 @@ func (h *handler) Map(c echo.Context) error {
 		return middleware.HTTPError(err)
 	}
 	return respond.HTML(c, http.StatusOK, ui.Canvas(v))
+}
+
+// GET /-/cluster/internet?from=node:<id>|nat:<net>: what comes in and goes
+// out at that internet card.
+func (h *handler) Internet(c echo.Context) error {
+	_, m, err := h.view(c)
+	if err != nil {
+		return middleware.HTTPError(err)
+	}
+	from := c.QueryParam("from")
+	info, ok := cluster.Internet(m, from)
+	if !ok {
+		return echo.NewHTTPError(http.StatusNotFound, "no such internet card")
+	}
+	f := components.DrawerView{Node: "internet:" + from, Title: "Internet", Kind: info.Name, Base: cluster.InternetDrawer(from)}
+	return respond.HTML(c, http.StatusOK, components.Drawer(f, cluster.InternetBody(info)))
 }
 
 // POST …/-/positions (node_id, x, y): a note, node, NAT, internet or backup
@@ -178,10 +198,18 @@ func mapMap(cm service.ClusterMap) cluster.Map {
 		m.Nets = append(m.Nets, cluster.Net{ID: n.ID, CIDR: n.CIDR, Nodes: n.Nodes, Router: n.Router, Forward: n.Forward, Unsure: n.Unsure})
 	}
 	for _, l := range cm.Links {
-		m.Links = append(m.Links, cluster.Link{A: l.A, B: l.B, Kind: l.Kind, MS: l.MS, Via: l.Via, Down: l.Down})
+		m.Links = append(m.Links, mapLink(l))
 	}
 	for _, b := range cm.Backups {
 		m.Backups = append(m.Backups, cluster.Backup{ID: b.ID, Name: b.Name, Nodes: b.Nodes})
 	}
 	return m
+}
+
+func mapLink(l service.ClusterLink) cluster.Link {
+	u := cluster.Link{A: l.A, B: l.B, Kind: l.Kind, MS: l.MS, Via: l.Via, Down: l.Down}
+	for i, e := range l.Ends {
+		u.Ends[i] = cluster.End{Dials: e.Dials, Endpoint: e.Endpoint, SeenFrom: e.SeenFrom, Handshake: e.Handshake, Rx: e.Rx, Tx: e.Tx}
+	}
+	return u
 }

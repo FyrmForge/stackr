@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/FyrmForge/stackr/internal/ui/cluster"
+	"github.com/FyrmForge/stackr/internal/ui/graph"
 )
 
 func envs(health ...string) []cluster.Env {
@@ -61,9 +62,9 @@ func TestMapDraws(t *testing.T) {
 		`node-id="internet:nat:192.168.1.0/24"`, `node-id="internet:node:f"`, `node-id="s3:b"`, "S3 · nightly",
 		`members="nat:192.168.1.0/24 node:h node:n"`, // a box holds its NAT and nodes
 		">0.3 ms<", ">21 ms<", // tunnels say only their latency; colour says internet or private
-		// The internet card's panel lists what comes in and goes out there.
-		`popovertarget="inet-nat-192-168-1-0-24"`, "home.example.com", "a.example.com",
-		"shop.example.com", `href="/acme/prod/web"`, `href="/smoke/web/dev"`, "Behind a router",
+		// The internet card opens its drawer; the map lists nothing itself.
+		`hx-get="/-/cluster/internet?from=nat%3A192.168.1.0%2F24"`, `hx-push-url="?drawer=internet%3Anat%3A192.168.1.0%2F24"`,
+		`hx-get="/-/cluster/internet?from=node%3Af"`,
 		"+2 more", // five envs: three listed, the rest counted
 		"Not answering", "Healthy", "Moving",
 		"Public IP", "203.0.113.5", "No public IP",
@@ -235,5 +236,41 @@ func TestMapLayout(t *testing.T) {
 	}
 	if v.FanGap == 0 {
 		t.Error("cluster map keeps the default fan gap")
+	}
+}
+
+// A tunnel's line points from the side that dials to the side that waits;
+// both dialling, or nothing known, draws no arrow. Every line opens its drawer.
+func TestTunnelArrows(t *testing.T) {
+	m := sample()
+	dial, wait := cluster.End{Dials: true, Endpoint: "203.0.113.5:51820"}, cluster.End{}
+	m.Links[0].Ends = [2]cluster.End{dial, dial} // h-n: both dial, no arrow
+	m.Links[1].Ends = [2]cluster.End{wait, dial} // h-f: f dials h
+	m.Links[2].Ends = [2]cluster.End{dial, wait} // f-g: f dials g
+	got := map[string]graph.Edge{}
+	for _, e := range cluster.Build(m, cluster.Base, nil, nil).Edges {
+		if strings.HasPrefix(e.Kind, "tunnel") {
+			got[e.From+">"+e.To] = e
+			got[e.To+">"+e.From] = e
+		}
+	}
+	for _, c := range []struct {
+		from, to string
+		dir      bool
+	}{{"node:h", "node:n", false}, {"node:f", "node:h", true}, {"node:f", "node:g", true}} {
+		e, ok := got[c.from+">"+c.to]
+		if !ok || e.Dir != c.dir || (c.dir && (e.From != c.from || e.To != c.to)) {
+			t.Errorf("edge %s to %s = %+v, want dir %v", c.from, c.to, e, c.dir)
+		}
+		if e.Drawer == "" || !strings.HasPrefix(e.Push, "?drawer=tunnel:") {
+			t.Errorf("edge %s to %s opens no tunnel drawer: %+v", c.from, c.to, e)
+		}
+	}
+	// The pair is in one fixed order whichever way it is asked.
+	if cluster.TunnelDrawer("b", "a") != cluster.TunnelDrawer("a", "b") || cluster.TunnelDrawer("a", "b") != "/-/cluster/tunnel?a=a&b=b" {
+		t.Errorf("tunnel drawer url = %s", cluster.TunnelDrawer("b", "a"))
+	}
+	if cluster.TunnelPush("b", "a") != "?drawer=tunnel:a:b" {
+		t.Errorf("tunnel push = %s", cluster.TunnelPush("b", "a"))
 	}
 }
