@@ -431,7 +431,6 @@ html.light {
 .env-c-amber { --env-c: var(--rw-env-amber); }
 .env-c-rose { --env-c: var(--rw-env-rose); }
 .env-c-violet { --env-c: var(--rw-env-violet); }
-.env-band { height: 3px; flex-shrink: 0; background: var(--env-c, transparent); }
 
 /* Horizontal scroll without a visible bar (drawer tab strip). */
 .scrollbar-none {
@@ -702,6 +701,8 @@ graph-canvas > graph-node {
     transform: translate(calc(var(--px) + var(--x, 0px) * var(--s)), calc(var(--py) + var(--y, 0px) * var(--s))) scale(var(--s));
 }
 graph-canvas > graph-node[node-id^="note:"], graph-canvas > graph-node[members] { z-index: 0; }
+/* Notes sit over cards and lines; boxes stay behind (they frame cards). */
+graph-canvas > graph-node[note-kind="note"] { z-index: 3; }
 graph-canvas > graph-node[static] { cursor: default; }
 /* A network box's corner: drag it to size the box (its cards still push it out). */
 .graph-resize {
@@ -762,6 +763,9 @@ graph-node:hover > .note-del, graph-node:focus-within > .note-del { display: fle
 
 /* Edges: arrows on the drawn edges only (never lanes or swatches). */
 graph-canvas[arrows] svg[data-edges] path[data-edge-kind]:not([data-edge-kind^="tunnel"]) { marker-end: url(#edge-arrow); }
+svg[data-edges] path[data-edge-kind^="tunnel"][data-dir] { marker-end: url(#tunnel-arrow); }
+/* A clickable line's fat invisible twin; the svg is pointer-events: none, the child opts back in. */
+svg[data-edges] path[data-edge-hit] { stroke: transparent; stroke-width: 16; fill: none; pointer-events: stroke; cursor: pointer; }
 /* An edge's label rides its middle (the element places it), on a solid
    backing so no line shows between its words. */
 graph-canvas svg[data-edges] text[data-edge-label] {
