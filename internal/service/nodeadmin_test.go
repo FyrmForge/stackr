@@ -36,13 +36,16 @@ func TestNodeAdminLifecycle(t *testing.T) {
 	if err := n.orch.SetNodeTags(ctx, adm, n.ctl.ID, []string{"builder"}); err == nil {
 		t.Error("controller lost ingress while it is the default")
 	}
-	if _, err := n.orch.SetDefaultIngress(ctx, &Principal{}, "w1"); err == nil {
+	if _, err := n.orch.SetDefaultIngress(ctx, &Principal{}, "w1", "w1"); err == nil {
 		t.Error("a non-admin moved the default ingress")
 	}
-	if _, err := n.orch.SetDefaultIngress(ctx, adm, n.ctl.ID+"x"); err == nil {
+	if _, err := n.orch.SetDefaultIngress(ctx, adm, n.ctl.ID+"x", n.ctl.ID+"x"); err == nil {
 		t.Error("default ingress set to a missing node")
 	}
-	d0, err := n.orch.SetDefaultIngress(ctx, adm, "w1")
+	if _, err := n.orch.SetDefaultIngress(ctx, adm, "w1", "nope"); err == nil {
+		t.Error("default ingress moved without the node's name")
+	}
+	d0, err := n.orch.SetDefaultIngress(ctx, adm, "w1", "w1")
 	must(t, err)
 	if d0.Ingress != "w1" {
 		t.Errorf("defaults = %+v", d0)
@@ -55,7 +58,7 @@ func TestNodeAdminLifecycle(t *testing.T) {
 		t.Errorf("controller dropped egress with no default exit: %v", err)
 	}
 	must(t, n.orch.SaveNodeTags(ctx, adm, n.ctl.ID, []string{"builder"}, []string{"w1"}))
-	if _, err := n.orch.SetDefaultIngress(ctx, adm, n.ctl.ID); err == nil {
+	if _, err := n.orch.SetDefaultIngress(ctx, adm, n.ctl.ID, n.ctl.Name); err == nil {
 		t.Error("default ingress set to a node without the tag")
 	}
 	if _, err := n.orch.SetDefaultExit(ctx, adm, n.ctl.ID); err == nil {
@@ -102,10 +105,10 @@ func TestNodeAdminLifecycle(t *testing.T) {
 	}
 
 	// remove needs the node empty; the controller never goes
-	if err := n.orch.RemoveNode(ctx, adm, "w1"); err == nil {
+	if _, err := n.orch.RemoveNode(ctx, adm, "w1"); err == nil {
 		t.Error("removed a node that runs an env")
 	}
-	if err := n.orch.RemoveNode(ctx, adm, n.ctl.ID); !errors.Is(err, errs.ErrRefused) {
+	if _, err := n.orch.RemoveNode(ctx, adm, n.ctl.ID); !errors.Is(err, errs.ErrRefused) {
 		t.Errorf("remove controller = %v", err)
 	}
 
@@ -113,6 +116,11 @@ func TestNodeAdminLifecycle(t *testing.T) {
 	if err := n.orch.ForgetNode(ctx, adm, "w1", "nope"); err == nil {
 		t.Error("forgot without the name")
 	}
+	// the controller leaves through w1 now: forgetting w1 would clear that silently
+	if err := n.orch.ForgetNode(ctx, adm, "w1", "w1"); !isConflict(err) {
+		t.Errorf("forgot the controller's default exit: %v", err)
+	}
+	must(t, n.orch.SetNodeTags(ctx, adm, n.ctl.ID, []string{"ingress", "egress"}))
 	must(t, n.orch.ForgetNode(ctx, adm, "w1", "w1"))
 	one(t, w, auditNodeForget)
 	lost, err := n.orch.LostEnvs(ctx)

@@ -270,12 +270,12 @@ func TestEgressNeedsDefaultExit(t *testing.T) {
 	if _, err := n.orch.SetNodeExit(ctx, adm, "plain", []string{"h5"}); err != nil {
 		t.Fatal(err)
 	}
-	err = n.orch.RemoveNode(ctx, adm, "h5")
+	_, err = n.orch.RemoveNode(ctx, adm, "h5")
 	if !isConflict(err) {
 		t.Fatalf("remove a default exit = %v, want conflict", err)
 	}
 	if _, err := n.orch.SetNodeExit(ctx, adm, "plain", []string{n.ctl.ID}); err != nil {
 		t.Fatal(err)
 	}
-	must(t, n.orch.RemoveNode(ctx, adm, "h5"))
+	removeNow(t, n, "h5")
 }

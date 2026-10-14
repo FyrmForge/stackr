@@ -404,6 +404,19 @@ func (l *Leaf) Start(
 	volumeID, scheduleID *string,
 	destID, trigger string,
 ) (store.BackupRun, error) {
+	return l.StartIn(ctx, kind, volumeID, scheduleID, destID, trigger, nil)
+}
+
+// StartIn is Start for a run that belongs to a node backup group. Such a run
+// may carry no volume id: a Docker volume with no row (a move leftover) is
+// archived all the same.
+func (l *Leaf) StartIn(
+	ctx context.Context,
+	kind string,
+	volumeID, scheduleID *string,
+	destID, trigger string,
+	groupID *string,
+) (store.BackupRun, error) {
 	r := store.BackupRun{
 		ID:         uuid.NewString(),
 		Kind:       kind,
@@ -413,11 +426,12 @@ func (l *Leaf) Start(
 		Trigger:    trigger,
 		Status:     Running,
 		CreatedAt:  time.Now().UTC(),
+		GroupID:    groupID,
 	}
 	if kind != KindVolume && kind != KindPanel {
 		return r, errs.Invalidf("kind", "a run is a volume or panel run")
 	}
-	if (kind == KindVolume) != (volumeID != nil) {
+	if (kind == KindVolume && volumeID == nil && groupID == nil) || (kind == KindPanel && volumeID != nil) {
 		return r, errs.Invalidf("volume", "a volume run names its volume, a panel run none")
 	}
 	return r, l.runs.Create(ctx, r)
@@ -512,6 +526,12 @@ func PanelPrefix(installID, trigger string) string {
 		dir = "scheduled"
 	}
 	return "stackr/_panel/" + installID + "/" + dir
+}
+
+// NodePrefix is where a node backup group's archives go. Like the manual
+// prefix it is never pruned.
+func NodePrefix(nodeName, groupID string) string {
+	return "stackr/_node/" + nodeName + "/" + groupID
 }
 
 // OrphanPrefix is where the orphan job's last archive of a volume goes.

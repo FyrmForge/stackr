@@ -179,6 +179,99 @@
         ],
         "type": "object"
       },
+      "BackupGroupView": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "dest": {
+            "type": "string"
+          },
+          "error": {
+            "type": "string"
+          },
+          "finished_at": {
+            "oneOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "node": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "volumes": {
+            "items": {
+              "$ref": "#/components/schemas/BackupGroupVolume"
+            },
+            "type": "array"
+          },
+          "warning": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "reason",
+          "node",
+          "dest",
+          "warning",
+          "status",
+          "error",
+          "created_at",
+          "volumes"
+        ],
+        "type": "object"
+      },
+      "BackupGroupVolume": {
+        "properties": {
+          "error": {
+            "type": "string"
+          },
+          "method": {
+            "type": "string"
+          },
+          "size_bytes": {
+            "type": "integer"
+          },
+          "status": {
+            "type": "string"
+          },
+          "volume": {
+            "type": "string"
+          },
+          "where": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "volume",
+          "where",
+          "method",
+          "status",
+          "size_bytes",
+          "error"
+        ],
+        "type": "object"
+      },
       "BackupIn": {
         "properties": {
           "dest_id": {
@@ -214,6 +307,16 @@
             "oneOf": [
               {
                 "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "group_id": {
+            "oneOf": [
+              {
                 "type": "string"
               },
               {
@@ -828,6 +931,21 @@
           "url",
           "username",
           "password"
+        ],
+        "type": "object"
+      },
+      "DefaultIngressIn": {
+        "properties": {
+          "confirm": {
+            "type": "string"
+          },
+          "node": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "node",
+          "confirm"
         ],
         "type": "object"
       },
@@ -1676,6 +1794,36 @@
         ],
         "type": "object"
       },
+      "IngressHost": {
+        "properties": {
+          "error": {
+            "type": "string"
+          },
+          "host": {
+            "type": "string"
+          },
+          "ok": {
+            "type": "boolean"
+          },
+          "panel": {
+            "type": "boolean"
+          },
+          "points": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "host",
+          "panel",
+          "points",
+          "ok",
+          "error"
+        ],
+        "type": "object"
+      },
       "IngressOut": {
         "properties": {
           "from": {
@@ -1692,6 +1840,35 @@
           "scope",
           "node",
           "from"
+        ],
+        "type": "object"
+      },
+      "IngressPlan": {
+        "properties": {
+          "addrs": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "hosts": {
+            "items": {
+              "$ref": "#/components/schemas/IngressHost"
+            },
+            "type": "array"
+          },
+          "known": {
+            "type": "boolean"
+          },
+          "node": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "node",
+          "addrs",
+          "known",
+          "hosts"
         ],
         "type": "object"
       },
@@ -6175,6 +6352,9 @@
           "name": {
             "type": "string"
           },
+          "node_id": {
+            "type": "string"
+          },
           "orphaned_at": {
             "oneOf": [
               {
@@ -6203,7 +6383,8 @@
           "slug",
           "name",
           "max_size_mb",
-          "created_at"
+          "created_at",
+          "node_id"
         ],
         "type": "object"
       },
@@ -7159,7 +7340,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/NodeIn"
+                "$ref": "#/components/schemas/DefaultIngressIn"
               }
             }
           },
@@ -7171,6 +7352,35 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/DefaultsOut"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "node.manage"
+      }
+    },
+    "/api/v1/admin/default-ingress/plan": {
+      "get": {
+        "operationId": "admin.default-ingress-plan",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IngressPlan"
                 }
               }
             },
@@ -8044,8 +8254,94 @@
           }
         ],
         "responses": {
-          "204": {
-            "description": "No Content"
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Job"
+                }
+              }
+            },
+            "description": "Accepted"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "node.manage"
+      }
+    },
+    "/api/v1/admin/nodes/{node}/backup": {
+      "post": {
+        "operationId": "admin.node-backup",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "node",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Job"
+                }
+              }
+            },
+            "description": "Accepted"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "node.manage"
+      }
+    },
+    "/api/v1/admin/nodes/{node}/backups": {
+      "get": {
+        "operationId": "admin.node-backups",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "node",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/BackupGroupView"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
           },
           "default": {
             "content": {

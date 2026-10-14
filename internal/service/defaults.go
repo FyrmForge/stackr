@@ -74,11 +74,6 @@ func (o *Orchestrator) Defaults(ctx context.Context) (DefaultsOut, error) {
 	return out, nil
 }
 
-// SetDefaultIngress moves the default ingress to a node tagged ingress.
-func (o *Orchestrator) SetDefaultIngress(ctx context.Context, by *Principal, ref string) (DefaultsOut, error) {
-	return o.setDefault(ctx, by, ref, node.TagIngress, settingDefaultIngress, auditDefaultIngress)
-}
-
 // SetDefaultExit moves the default exit to a node tagged egress; ref "" clears
 // it (every node goes out its own uplink again).
 func (o *Orchestrator) SetDefaultExit(ctx context.Context, by *Principal, ref string) (DefaultsOut, error) {

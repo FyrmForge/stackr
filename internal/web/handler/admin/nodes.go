@@ -71,7 +71,7 @@ func (h *handler) mountNodes(g *echo.Group, a *middleware.Access) {
 		return h.orch.SetNodeOrgs(c.Request().Context(), middleware.Principal(c), c.Param("node"), f["org"])
 	}), m)
 	g.POST(nodesBase+"/default-ingress", h.act("nodes", func(c echo.Context) (string, *service.Job, error) {
-		_, err := h.orch.SetDefaultIngress(c.Request().Context(), middleware.Principal(c), c.FormValue("node"))
+		_, err := h.orch.SetDefaultIngress(c.Request().Context(), middleware.Principal(c), c.FormValue("node"), c.FormValue("confirm"))
 		return "Default ingress saved.", nil, err
 	}), m)
 	g.POST(nodesBase+"/default-exit", h.act("nodes", func(c echo.Context) (string, *service.Job, error) {
@@ -134,8 +134,9 @@ func (h *handler) mountNodes(g *echo.Group, a *middleware.Access) {
 		err := h.orch.RotateNodeKeys(c.Request().Context(), middleware.Principal(c), c.Param("node"))
 		return h.nodeAnswer(c, "security", "Rotating keys. The security log shows when it is done.", err)
 	}, m)
-	g.POST(nodesBase+"/:node/remove", h.leave("Node removed.", func(c echo.Context) error {
-		return h.orch.RemoveNode(c.Request().Context(), middleware.Principal(c), c.Param("node"))
+	g.POST(nodesBase+"/:node/remove", h.leave("Node removal queued.", func(c echo.Context) error {
+		_, err := h.orch.RemoveNode(c.Request().Context(), middleware.Principal(c), c.Param("node"))
+		return err
 	}), m)
 	g.POST(nodesBase+"/:node/forget", h.leave("Node forgotten.", func(c echo.Context) error {
 		return h.orch.ForgetNode(c.Request().Context(), middleware.Principal(c), c.Param("node"), c.FormValue("confirm"))

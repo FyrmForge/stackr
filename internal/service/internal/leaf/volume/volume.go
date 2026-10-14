@@ -50,8 +50,13 @@ func (l *Leaf) WithNode(f func(ctx context.Context, scopeKind, scopeID string) (
 	return l
 }
 
-// at is ctx for Docker calls on the node v lives on.
+// at is ctx for Docker calls on the node v lives on. A NodeID wins over the
+// scope lookup: an orphan's env row is gone, and a volume with no row at all
+// (a move leftover) only knows its node.
 func (l *Leaf) at(ctx context.Context, v store.Volume) (context.Context, error) {
+	if v.NodeID != "" {
+		return docker.WithNode(ctx, v.NodeID), nil
+	}
 	if l.Node == nil {
 		return ctx, nil
 	}
