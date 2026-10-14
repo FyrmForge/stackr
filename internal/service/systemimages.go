@@ -9,6 +9,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/FyrmForge/stackr/internal/installspec"
@@ -195,9 +196,20 @@ func (o *Orchestrator) waitStackrPublished(ctx context.Context) error {
 // the proxy to bring any that failed to pull it.
 func (o *Orchestrator) publishSystemImages(ctx context.Context) {
 	defer o.markStackrPublished() // given up: a pull says what is missing
+	if err := o.recordPanelVersion(ctx); err != nil {
+		slog.Warn("panel version: not recorded", "err", err)
+	}
+	// The workers roll once the image they pull is in, and once only: a
+	// retry of the other copies publishes the stackr image again.
+	var rolled sync.Once
 	var err error
 	for i := range 5 {
-		if err = o.systemPublisher().publish(ctx); err == nil {
+		p := o.systemPublisher()
+		p.published = func() {
+			o.markStackrPublished()
+			rolled.Do(func() { o.rolloutAfterBoot(ctx) })
+		}
+		if err = p.publish(ctx); err == nil {
 			if err := o.SyncProxy(ctx); err != nil {
 				slog.Warn("system images: proxy sync", "err", err)
 			}

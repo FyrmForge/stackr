@@ -45,6 +45,9 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 	if len(args) > 0 && args[0] == "join" {
 		return join(ctx, args[1:], out)
 	}
+	if len(args) > 0 && args[0] == "uninstall" {
+		return uninstall(ctx, args[1:], out, os.Stdin)
+	}
 	fs := flag.NewFlagSet("stackr-install", flag.ContinueOnError)
 	in := installspec.Input{DataDir: "/var/lib/stackr"}
 	if d := os.Getenv("STACKR_DATA_DIR"); d != "" {

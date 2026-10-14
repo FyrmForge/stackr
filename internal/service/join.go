@@ -83,8 +83,11 @@ const (
 // JoinStatus is what the new machine polls for. Cert and CA are set once
 // confirmed.
 type JoinStatus struct {
-	Status    string `json:"status"`
-	NodeID    string `json:"node_id,omitempty"`
+	Status string `json:"status"`
+	NodeID string `json:"node_id,omitempty"`
+	// NodeName is the name the admin gave, once confirmed: the installer
+	// keeps it, so an uninstall can ask for it.
+	NodeName  string `json:"node_name,omitempty"`
 	Range     string `json:"range,omitempty"`
 	WGAddress string `json:"wg_address,omitempty"`
 	CertPEM   string `json:"cert_pem,omitempty"`
@@ -180,7 +183,7 @@ func (o *Orchestrator) mintJoin(ctx context.Context, by *Principal, name string,
 		fp := caFingerprint(ca)
 		out = JoinTokenOut{
 			Token: token, NodeName: name, Tags: tags, ExpiresAt: row.ExpiresAt, Fingerprint: fp,
-			Command: "stackr-install join --panel " + o.panelURL() + " --token " + token + " --ca-sha256 " + fp,
+			Command: "stackr-install join --panel " + o.panelURL() + " --token " + token + " --ca-sha256 " + fp + o.joinVersionFlag(),
 		}
 		return audit(tx).Append(ctx, securitylog.Event{
 			Action: jointoken.ActionToken, ActorID: by.User.ID, KeyID: by.KeyID,
@@ -189,6 +192,17 @@ func (o *Orchestrator) mintJoin(ctx context.Context, by *Principal, name string,
 		})
 	})
 	return out, err
+}
+
+// joinVersionFlag pins the printed command to the panel's build, so an
+// installer older than the panel still installs the panel's version. A plain
+// dev build has no release to name.
+func (o *Orchestrator) joinVersionFlag() string {
+	v := strings.TrimPrefix(o.cfg.Version, "v")
+	if v == "" || v == "dev" {
+		return ""
+	}
+	return " --version " + v
 }
 
 // RequestJoin spends the token and parks a pending node. Unauthenticated: the
@@ -270,7 +284,7 @@ func (o *Orchestrator) JoinStatus(ctx context.Context, token string) (JoinStatus
 		return JoinStatus{}, err
 	}
 	st := JoinStatus{
-		Status: JoinConfirmed, NodeID: n.ID, WGAddress: n.WGAddress,
+		Status: JoinConfirmed, NodeID: n.ID, NodeName: n.Name, WGAddress: n.WGAddress,
 		CertPEM: row.CertPEM, CAPEM: string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: ca.Cert.Raw})),
 	}
 	if o.mesh != nil {

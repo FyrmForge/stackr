@@ -304,3 +304,36 @@ func TestJoinNeedsCA(t *testing.T) {
 		t.Errorf("mint without a CA = %v, want conflict", err)
 	}
 }
+
+// The printed command carries the panel's build, so a stale installer still
+// installs it; a plain dev build has no release to name. The confirmed
+// status names the node for the installer to keep.
+func TestJoinCommandCarriesVersion(t *testing.T) {
+	w, adm, _ := joinWorld(t)
+	ctx := context.Background()
+	for i, c := range []struct{ version, want string }{
+		{"v0.6.0", " --version 0.6.0"},
+		{"0.6.0-dev.3", " --version 0.6.0-dev.3"},
+		{"dev", ""},
+		{"", ""},
+	} {
+		w.orch.cfg.Version = c.version
+		out := mint(t, w, adm, "w"+string(rune('a'+i)))
+		if got := strings.SplitN(out.Command, "--ca-sha256 "+out.Fingerprint, 2)[1]; got != c.want {
+			t.Errorf("version %q: command tail %q, want %q", c.version, got, c.want)
+		}
+	}
+
+	w.orch.cfg.Version = "dev"
+	out := mint(t, w, adm, "named")
+	st, err := w.orch.RequestJoin(ctx, httpsMeta, joinReq(t, out.Token))
+	must(t, err)
+	if s, _ := w.orch.JoinStatus(ctx, out.Token); s.NodeName != "" {
+		t.Errorf("a pending join names the node: %+v", s)
+	}
+	_, err = w.orch.ConfirmJoin(ctx, adm, st.NodeID)
+	must(t, err)
+	if s, err := w.orch.JoinStatus(ctx, out.Token); err != nil || s.NodeName != "named" {
+		t.Errorf("confirmed status node name = %q, %v", s.NodeName, err)
+	}
+}

@@ -8,6 +8,7 @@ RUN go mod download
 COPY . .
 RUN CGO_ENABLED=0 go build -ldflags "-X main.version=${VERSION}" -o /stackrd ./cmd/stackrd
 RUN CGO_ENABLED=0 go build -ldflags "-X main.version=${VERSION}" -o /stackr ./cmd/stackr
+RUN CGO_ENABLED=0 go build -ldflags "-X main.version=${VERSION}" -o /stackr-install ./cmd/stackr-install
 
 FROM alpine:3.21
 # iptables for the VIP rules, git for clones, docker-cli + buildx for builds,
@@ -21,6 +22,8 @@ RUN apk upgrade --no-cache
 COPY --from=builder /stackrd /stackrd
 # The CLI, reached through the installer's /usr/local/bin/stackr wrapper.
 COPY --from=builder /stackr /stackr
+# The installer, next to stackrd: a worker upgrade swaps both (worker-swap).
+COPY --from=builder /stackr-install /stackr-install
 COPY --from=builder /app/ui /ui
 
 # No VOLUME: the install spec binds the data dir; an anonymous volume

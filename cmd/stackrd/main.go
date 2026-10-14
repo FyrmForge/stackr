@@ -124,6 +124,24 @@ func main() {
 		return
 	}
 
+	if flag.Arg(0) == "worker-swap" {
+		// The host helper the controller runs on a node to upgrade its worker.
+		if err := runWorkerSwap(flag.Args()[1:]); err != nil {
+			fmt.Fprintln(os.Stderr, "stackrd worker-swap:", err)
+			os.Exit(1)
+		}
+		return
+	}
+
+	if flag.Arg(0) == "host-run" {
+		// The other host helper job: uninstall stackr from the node it runs on.
+		if err := runHostRun(flag.Args()[1:]); err != nil {
+			fmt.Fprintln(os.Stderr, "stackrd host-run:", err)
+			os.Exit(1)
+		}
+		return
+	}
+
 	log := logging.New(!envDevMode)
 	slog.SetDefault(log)
 
