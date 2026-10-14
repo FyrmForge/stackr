@@ -13,6 +13,7 @@ import (
 
 	cerrdefs "github.com/containerd/errdefs"
 	"github.com/docker/docker/api/types/image"
+	"github.com/docker/docker/api/types/network"
 )
 
 // Pull pulls ref (repo@digest or repo:tag) with auth, the base64 blob the
@@ -218,10 +219,37 @@ func parsePrune(out string) (int, string, error) {
 	return n, total, nil
 }
 
+// BuilderNetwork is the bridge network the buildx builder runs on, alone. A
+// build step is a tenant's code: on the default bridge it would reach every
+// other container there with no auth, the registry once among them.
+const BuilderNetwork = "stackr-builder-net"
+
+// ensureBuilderNetwork creates BuilderNetwork unless it is there. Docker
+// picks its subnet from the daemon's pool.
+func (d *Client) ensureBuilderNetwork(ctx context.Context) error {
+	nets, err := d.cli.NetworkList(ctx, network.ListOptions{})
+	if err != nil {
+		return wrap(err)
+	}
+	if slices.ContainsFunc(nets, func(n network.Summary) bool { return n.Name == BuilderNetwork }) {
+		return nil
+	}
+	_, err = d.cli.NetworkCreate(ctx, BuilderNetwork, network.CreateOptions{
+		Driver: "bridge", Labels: map[string]string{LabelManaged: "true"},
+	})
+	if err != nil && !cerrdefs.IsConflict(err) { // a concurrent build made it
+		return wrap(err)
+	}
+	return nil
+}
+
 // EnsureBuilder creates a buildx docker-container builder capped at memMB with
 // a low cpu weight, so a build yields to running tiles. The daemon's own
-// builder ignores every resource flag. Shells out: buildx has no API. On a
-// worker the builder's container runs there, reached through the CLI proxy.
+// builder ignores every resource flag. The builder runs on BuilderNetwork,
+// away from every other container; one made before that (it lists no network
+// in its driver options) is removed, its cache kept, and made again. Shells
+// out: buildx has no API. On a worker the builder's container runs there,
+// reached through the CLI proxy.
 func (d *Client) EnsureBuilder(ctx context.Context, name string, memMB int) error {
 	name = d.builderName(name)
 	cmd, done, err := d.command(ctx, "buildx", "inspect", name)
@@ -229,11 +257,25 @@ func (d *Client) EnsureBuilder(ctx context.Context, name string, memMB int) erro
 		return err
 	}
 	defer done()
-	if cmd.Run() == nil {
-		return nil
+	if out, err := cmd.Output(); err == nil {
+		if strings.Contains(string(out), `network="`+BuilderNetwork+`"`) {
+			return nil
+		}
+		rm, doneRm, err := d.command(ctx, "buildx", "rm", "--keep-state", name)
+		if err != nil {
+			return err
+		}
+		defer doneRm()
+		if out, err := rm.CombinedOutput(); err != nil {
+			return fmt.Errorf("buildx rm: %w: %s", err, strings.TrimSpace(string(out)))
+		}
+	}
+	if err := d.ensureBuilderNetwork(ctx); err != nil {
+		return err
 	}
 	args := []string{"buildx", "create", "--name", name, "--driver", "docker-container",
-		"--driver-opt", fmt.Sprintf("memory=%dm", memMB), "--driver-opt", "cpu-shares=256"}
+		"--driver-opt", fmt.Sprintf("memory=%dm", memMB), "--driver-opt", "cpu-shares=256",
+		"--driver-opt", "network=" + BuilderNetwork}
 	if d.px != nil {
 		args = append(args, d.endpoint())
 	}
