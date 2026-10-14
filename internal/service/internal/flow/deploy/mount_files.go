@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
 	"path"
@@ -61,9 +62,6 @@ func (f *Flow) fileMounts(
 	if err != nil {
 		return nil, err
 	}
-	sum := sha256.Sum256([]byte(strings.Join(tile.Lines(t.Files), "\n")))
-	key := commit + "-" + hex.EncodeToString(sum[:4]) + "-" + ver
-
 	var buf bytes.Buffer
 	zw := gzip.NewWriter(&buf)
 	tw := tar.NewWriter(zw)
@@ -138,7 +136,7 @@ func (f *Flow) fileMounts(
 	if err := zw.Close(); err != nil {
 		return nil, err
 	}
-	vol, err := f.Tiles.WriteFiles(ctx, t, key, buf.Bytes())
+	vol, err := f.Tiles.WriteFiles(ctx, t, filesKey(commit, tile.Lines(t.Files), ver, buf.Bytes()), buf.Bytes())
 	if err != nil {
 		return nil, err
 	}
@@ -210,4 +208,15 @@ func (f *Flow) paramsVersion(ctx context.Context, e store.Environment, st store.
 	_, _, tierSlug := ownScopes(e, st, tiers)
 	sum := sha256.Sum256([]byte(strings.Join(locks, ",") + "|" + tierSlug))
 	return strconv.Itoa(n) + "-" + strconv.FormatInt(newest.UnixMicro(), 36) + "-" + hex.EncodeToString(sum[:3]), nil
+}
+
+// filesKey names the volume: the commit, the lines, the params stamp, and an
+// HMAC of the rendered archive. The stamp misses what a slice, tile or self
+// ref renders from, so a rotated credential changes the archive, and with it
+// the key, instead of reusing a volume that holds the old secret.
+func filesKey(commit string, lines []string, ver string, tgz []byte) string {
+	sum := sha256.Sum256([]byte(strings.Join(lines, "\n")))
+	m := hmac.New(sha256.New, []byte(commit))
+	m.Write(tgz)
+	return commit + "-" + hex.EncodeToString(sum[:4]) + "-" + ver + "-" + hex.EncodeToString(m.Sum(nil)[:8])
 }
