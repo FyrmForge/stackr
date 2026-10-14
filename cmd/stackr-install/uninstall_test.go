@@ -142,12 +142,13 @@ type uninstallRig struct {
 func newUninstallRig(t *testing.T) *uninstallRig {
 	t.Helper()
 	r := &uninstallRig{state: t.TempDir(), install: t.TempDir(), reads: map[string]string{
-		"docker ps -aq --filter label=stackr.managed=true":                     "c1\nc2\n",
-		"docker network ls -q --filter label=stackr.managed=true":              "n1\n",
-		"docker volume ls -q --filter label=stackr.managed=true":               "v1\nv2\n",
-		"docker image ls -q --filter label=stackr.managed=true":                "i1\n",
-		"docker image ls -q --filter reference=ghcr.io/fyrmforge/stackr":       "i2\n",
-		"docker image ls -q --filter reference=localhost:5000/stackr.system/*": "i3\ni2\n",
+		"docker ps -aq --filter label=stackr.managed=true":               "c1\nc2\n",
+		"docker network ls -q --filter label=stackr.managed=true":        "n1\n",
+		"docker volume ls -q --filter label=stackr.managed=true":         "v1\nv2\n",
+		"docker image ls -q --filter label=stackr.managed=true":          "i1\n",
+		"docker image ls -q --filter reference=ghcr.io/fyrmforge/stackr": "i2\n",
+		"docker image ls --format {{.Repository}} {{.ID}}": "localhost:5000/stackr.system/stackr i3\nlocalhost:5000/stackr.system/tools/rsync i4\n" +
+			"localhost:5000/acme/docker.io/library/nginx i5\nghcr.io/fyrmforge/stackr i2\npostgres i9\n",
 		"iptables-save": cannedSave,
 	}}
 	mesh := `{"Links":[{"Iface":"wgx-aaaaaaaaaa","Table":1001}],"Serves":[{"Iface":"wgx-bbbbbbbbbb","Table":1301,"Pref":20002}],` +
@@ -270,10 +271,13 @@ func TestUninstallPurgeAsksTheName(t *testing.T) {
 		t.Fatal(err)
 	}
 	out := r.out.String()
-	for _, want := range []string{"docker volume rm v1 v2 stackr-caddy", "docker image rm -f i1 i2 i3", "rm -rf " + r.state} {
+	for _, want := range []string{"docker volume rm v1 v2", "docker volume rm stackr-caddy", "docker image rm -f i1 i2 i3 i4 i5", "rm -rf " + r.state} {
 		if !strings.Contains(flat(out), want) {
 			t.Errorf("purge lacks %q:\n%s", want, out)
 		}
+	}
+	if strings.Contains(out, "i9") {
+		t.Errorf("purge removed an image stackr did not pull:\n%s", out)
 	}
 }
 

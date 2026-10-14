@@ -215,6 +215,10 @@ func Event(ctx context.Context, body templ.Component) (stream.HTML, error) {
 // than not found), shown inline over a drawer or form; ok false = a real
 // failure for the error page.
 func Refused(err error) (msg string, ok bool) {
+	var down *service.NodeDownError // a 503, but one the user acts on: start the node
+	if errors.As(err, &down) {
+		return down.Error() + ".", true
+	}
 	var he *echo.HTTPError
 	if errors.As(middleware.HTTPError(err), &he) && he.Code < 500 && he.Code != 404 {
 		return fmt.Sprint(he.Message), true

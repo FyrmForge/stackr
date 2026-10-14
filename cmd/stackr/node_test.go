@@ -231,6 +231,11 @@ func TestNodeRemove(t *testing.T) {
 	if code, _, errw := cli(t, "-y", "node", "remove", "w"); code != 1 || !strings.Contains(errw, "runs 1 env. Move them first") || len(writes(r)) != 0 {
 		t.Errorf("with envs = %d %q, writes %v", code, errw, writes(r))
 	}
+	// the controller is refused before any move, envs or not
+	r = fake(t, map[string]string{"/nodes/w": strings.Replace(nodeJSON, `"role":"worker"`, `"role":"controller"`, 1)})
+	if code, _, errw := cli(t, "-y", "node", "remove", "w", "--move-to", "home"); code != 1 || !strings.Contains(errw, "is the controller") || len(writes(r)) != 0 {
+		t.Errorf("controller = %d %q, writes %v", code, errw, writes(r))
+	}
 	// --move-to moves each env, then removes
 	r = fake(t, map[string]string{"/nodes/w": nodeJSON, "/move": `{}`, "/admin/nodes/w": `{}`})
 	if code, _, errw := cli(t, "-y", "node", "remove", "w", "--move-to", "home"); code != 0 {
