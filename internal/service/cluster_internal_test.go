@@ -152,8 +152,8 @@ func TestProbePath(t *testing.T) {
 // The map card carries the behind and cert notes (the rule is certNote).
 func TestClusterCardNotes(t *testing.T) {
 	n := store.Node{ID: "w", Name: "w", Role: "worker", Status: "online"}
-	m := buildClusterMap([]clusterNodeIn{{Node: n, Up: true, Behind: true, CertDays: 9}})
-	if g := m.Nodes[0]; !g.Behind || g.CertDays != 9 || g.CertExpired {
+	m := buildClusterMap([]clusterNodeIn{{Node: n, Up: true, Behind: true, TooOld: true, CertDays: 9}})
+	if g := m.Nodes[0]; !g.Behind || !g.TooOld || g.CertDays != 9 || g.CertExpired {
 		t.Fatalf("card = %+v", g)
 	}
 }

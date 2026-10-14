@@ -122,12 +122,13 @@ func TestCardNotes(t *testing.T) {
 	m.Nodes[1].Behind = true
 	m.Nodes[2].CertExpired = true
 	m.Nodes[3].CertDays = 9
+	m.Nodes[3].Behind, m.Nodes[3].TooOld = true, true
 	var sb strings.Builder
 	if err := cluster.Page(cluster.Build(m, cluster.Base, nil, nil), m).Render(context.Background(), &sb); err != nil {
 		t.Fatal(err)
 	}
 	body := sb.String()
-	for _, want := range []string{">behind<", "Cert expired, rejoin needed", "Cert expires in 9 days"} {
+	for _, want := range []string{">behind<", ">too old<", "Cert expired, rejoin needed", "Cert expires in 9 days"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("page lacks %q", want)
 		}

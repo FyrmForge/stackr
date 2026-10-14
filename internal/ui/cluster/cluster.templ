@@ -120,7 +120,9 @@ templ nodeCard(n Node) {
 			</div>
 			if hasNote(n) {
 				<div class="mb-1 flex items-center gap-2 text-[11px] min-w-0 h-4 overflow-hidden whitespace-nowrap">
-					if n.Behind {
+					if n.TooOld {
+						<span class="shrink-0 rounded-md border border-rw-danger/40 px-1.5 leading-4 text-rw-danger">too old</span>
+					} else if n.Behind {
 						<span class="shrink-0 rounded-md border border-rw-warn/40 px-1.5 leading-4 text-rw-warn">behind</span>
 					}
 					if n.CertExpired {
