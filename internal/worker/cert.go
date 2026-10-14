@@ -448,7 +448,12 @@ func serialSet(l []string) map[string]bool {
 	}
 	m := make(map[string]bool, len(l))
 	for _, s := range l {
-		m[normSerial(s)] = true
+		if n := normSerial(s); n != "" { // a blank or zero serial would reload as no list
+			m[n] = true
+		}
+	}
+	if len(m) == 0 {
+		return nil
 	}
 	return m
 }

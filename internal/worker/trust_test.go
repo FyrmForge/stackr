@@ -151,6 +151,22 @@ func TestControllerAllowList(t *testing.T) {
 	}
 }
 
+// A list of only blank or zero serials is no list: it never replaces a set
+// one, so a restart cannot read it back as "any controller".
+func TestBlankSerialsDoNotLiftAllowList(t *testing.T) {
+	r := newTrustRig(t)
+	_, serial := controller(t, r.ca1)
+	if err := r.trust.Apply(nil, []string{serial}); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.trust.Apply(r.pems(r.ca1), []string{"0", " "}); err == nil {
+		t.Fatal("a blank allow list replaced the set one")
+	}
+	if !NewTrust(r.caFile).Refuses("abcdef") {
+		t.Fatal("the allow list is gone after a restart")
+	}
+}
+
 // The list and the allow list survive a restart of the TLS setup, and the
 // trust file wins over the join-time CA.
 func TestTrustPersists(t *testing.T) {
