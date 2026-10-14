@@ -1,6 +1,7 @@
 package worker
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -65,4 +66,32 @@ func TestSwapCommitNeedsPending(t *testing.T) {
 	if err := SwapCommit(t.TempDir()); err == nil {
 		t.Fatal("commit with nothing pending must fail")
 	}
+}
+
+// A worker started while its swap is still pending restores it at the
+// deadline when the helper died before it could; a commit in time stops that.
+func TestWatchSwap(t *testing.T) {
+	bin := swapBin(t)
+	if err := SwapPending(bin, time.Now().Add(-swapSlack+500*time.Millisecond)); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan struct{})
+	go WatchSwap(context.Background(), bin, func() { close(done) })
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("not restored at the deadline")
+	}
+	if b, _ := os.ReadFile(filepath.Join(bin, SwapBinaries[0])); string(b) != "old" {
+		t.Fatalf("binary = %q, want the old one", b)
+	}
+
+	bin = swapBin(t)
+	if err := SwapPending(bin, time.Now().Add(-swapSlack+500*time.Millisecond)); err != nil {
+		t.Fatal(err)
+	}
+	if err := SwapCommit(bin); err != nil {
+		t.Fatal(err)
+	}
+	WatchSwap(context.Background(), bin, func() { t.Error("a committed swap was restored") })
 }

@@ -155,6 +155,13 @@ func Run(ctx context.Context, cfg Config) error {
 		slog.Warn("worker: an unconfirmed upgrade was left pending; the old binaries are back, restarting")
 		return errors.New("rolled back an unconfirmed upgrade")
 	}
+	// Still pending: if the helper dies before its deadline nobody else puts
+	// the old binaries back, so this process does it then and exits for the
+	// service manager to start the old one.
+	go WatchSwap(ctx, SwapBinDir, func() {
+		slog.Warn("worker: the upgrade was not confirmed by its deadline; the old binaries are back, restarting")
+		os.Exit(1)
+	})
 	if cfg.TLS == nil {
 		return errors.New("worker: tls config required")
 	}
@@ -265,6 +272,27 @@ func swapDeadline(bin string) (time.Time, bool) {
 	}
 	sec, err := strconv.ParseInt(strings.TrimPrefix(string(b), swapPendingK), 10, 64)
 	return time.Unix(sec, 0), err == nil
+}
+
+// WatchSwap waits out a pending swap's deadline and, if it is still not
+// committed then, restores the old binaries and calls restored.
+func WatchSwap(ctx context.Context, bin string, restored func()) {
+	dl, ok := swapDeadline(bin)
+	if !ok {
+		return
+	}
+	t := time.NewTimer(time.Until(dl.Add(swapSlack)) + time.Second)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+		return
+	case <-t.C:
+	}
+	if ok, err := RestoreStaleSwap(bin, time.Now()); err != nil {
+		slog.Error("worker: stale swap not restored", "err", err)
+	} else if ok {
+		restored()
+	}
 }
 
 // RestoreStaleSwap puts the .prev binaries back when a swap is still pending
