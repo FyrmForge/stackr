@@ -77,6 +77,11 @@ func (o *Orchestrator) NodeTunnels(ctx context.Context, id string) ([]NodeTunnel
 	if err != nil {
 		return nil, err
 	}
+	return tunnelsOf(m, id), nil
+}
+
+// tunnelsOf is the node's tunnels in the map's pairs, else its links.
+func tunnelsOf(m ClusterMap, id string) []NodeTunnel {
 	names := map[string]string{}
 	for _, n := range m.Nodes {
 		names[n.ID] = n.Name
@@ -97,5 +102,5 @@ func (o *Orchestrator) NodeTunnels(ctx context.Context, id string) ([]NodeTunnel
 		}
 		out = append(out, NodeTunnel{Peer: peer, PeerName: names[peer], Link: l})
 	}
-	return out, nil
+	return out
 }

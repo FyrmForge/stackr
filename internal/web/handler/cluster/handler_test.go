@@ -63,6 +63,7 @@ func TestClusterDrawerLoadInternetAndTunnel(t *testing.T) {
 	for drawer, want := range map[string]string{
 		"internet:node:abc":        `hx-get="/-/cluster/internet?from=node%3Aabc"`,
 		"internet:nat:10.0.0.0/24": `hx-get="/-/cluster/internet?from=nat%3A10.0.0.0%2F24"`,
+		"tunnel:a1:b2":             `hx-get="/-/cluster/tunnel?a=a1&amp;b=b2"`,
 	} {
 		req := httptest.NewRequest("GET", "/-/cluster?drawer="+url.QueryEscape(drawer), nil)
 		req.AddCookie(&http.Cookie{Name: s.Orch.Sessions().CookieName(), Value: sess})
@@ -101,7 +102,7 @@ func TestClusterInternetDrawer(t *testing.T) {
 	if strings.HasPrefix(from, "nat:") && !strings.Contains(body, "shop.example.com") {
 		t.Error("the NAT's drawer lacks the ingress host")
 	}
-	for _, bad := range []string{"/-/cluster/internet?from=node:nope"} {
+	for _, bad := range []string{"/-/cluster/internet?from=node:nope", "/-/cluster/tunnel?a=x&b=y"} {
 		if rec := s.As(t, root, "GET", bad, nil); rec.Code != http.StatusNotFound {
 			t.Errorf("GET %s = %d, want 404", bad, rec.Code)
 		}

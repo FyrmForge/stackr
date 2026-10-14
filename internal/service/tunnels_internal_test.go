@@ -75,3 +75,24 @@ func TestFillEndsRig(t *testing.T) {
 		t.Errorf("a node with no facts reports %d/%d, want -1/-1", x.Rx, x.Tx)
 	}
 }
+
+// A node's tunnels are the pairs it is in, routed ones included, each named
+// by its peer; a map without the mesh falls back to its links.
+func TestTunnelsOf(t *testing.T) {
+	m := ClusterMap{
+		Nodes: []ClusterNode{{ID: "a", Name: "ct109"}, {ID: "b", Name: "h4"}, {ID: "c", Name: "h3"}},
+		Pairs: []ClusterLink{{A: "a", B: "b"}, {A: "a", B: "c", Via: "h4"}, {A: "b", B: "c"}},
+	}
+	got := tunnelsOf(m, "c")
+	if len(got) != 2 || got[0].Peer != "a" || got[0].PeerName != "ct109" || got[0].Link.Via != "h4" || got[1].PeerName != "h4" {
+		t.Errorf("h3 tunnels = %+v", got)
+	}
+	m.Pairs = nil
+	m.Links = []ClusterLink{{A: "a", B: "b"}}
+	if got := tunnelsOf(m, "b"); len(got) != 1 || got[0].PeerName != "ct109" {
+		t.Errorf("fallback tunnels = %+v", got)
+	}
+	if got := tunnelsOf(m, "c"); len(got) != 0 {
+		t.Errorf("h3 has tunnels %+v", got)
+	}
+}

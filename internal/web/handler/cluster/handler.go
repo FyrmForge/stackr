@@ -35,6 +35,7 @@ func (h *handler) Mount(g *echo.Group, a *middleware.Access) {
 	g.GET(cluster.Base, h.Page, a.LoginFirst(), admin)
 	g.GET(cluster.Base+"/map", h.Map, admin)
 	g.GET(cluster.Base+"/internet", h.Internet, admin)
+	g.GET(cluster.Base+"/tunnel", h.Tunnel, admin)
 	g.POST(cluster.Base+"/-/positions", h.Positions, admin)
 	g.POST(cluster.Base+"/-/reset", h.Reset, admin)
 	g.POST(cluster.Base+"/-/notes", h.Notes, admin)
@@ -81,6 +82,10 @@ func (h *handler) Page(c echo.Context) error {
 		drawer = components.DrawerLoad(cluster.NodeDrawer(id, c.QueryParam("tab")))
 	} else if from, ok := strings.CutPrefix(d, "internet:"); ok && from != "" {
 		drawer = components.DrawerLoad(cluster.InternetDrawer(from))
+	} else if pair, ok := strings.CutPrefix(d, "tunnel:"); ok {
+		if a, b, ok := strings.Cut(pair, ":"); ok && a != "" && b != "" {
+			drawer = components.DrawerLoad(cluster.TunnelDrawer(a, b))
+		}
 	}
 	return render.PageWith(c, http.StatusOK, "Cluster", cluster.Page(v, m), nil, drawer)
 }
@@ -108,6 +113,35 @@ func (h *handler) Internet(c echo.Context) error {
 	}
 	f := components.DrawerView{Node: "internet:" + from, Title: "Internet", Kind: info.Name, Base: cluster.InternetDrawer(from)}
 	return respond.HTML(c, http.StatusOK, components.Drawer(f, cluster.InternetBody(info)))
+}
+
+// GET /-/cluster/tunnel?a=&b=: one node pair's tunnel, read from the map's
+// pairs (routed ones included) so a pair with no line still has a page.
+func (h *handler) Tunnel(c echo.Context) error {
+	cm, err := h.orch.ClusterMap(c.Request().Context())
+	if err != nil {
+		return middleware.HTTPError(err)
+	}
+	a, b := c.QueryParam("a"), c.QueryParam("b")
+	d, ok := tunnelDrawer(cm, a, b)
+	if !ok {
+		return echo.NewHTTPError(http.StatusNotFound, "no such tunnel")
+	}
+	return respond.HTML(c, http.StatusOK, d)
+}
+
+// tunnelDrawer finds the pair in the map's Pairs, else its Links.
+func tunnelDrawer(cm service.ClusterMap, a, b string) (templ.Component, bool) {
+	for _, ls := range [][]service.ClusterLink{cm.Pairs, cm.Links} {
+		for _, l := range ls {
+			if l.A == a && l.B == b || l.A == b && l.B == a {
+				m, ul := mapMap(cm), mapLink(l)
+				f := components.DrawerView{Node: "tunnel:" + a + ":" + b, Title: cluster.TunnelNames(m, ul), Kind: "tunnel", Base: cluster.TunnelDrawer(a, b)}
+				return components.Drawer(f, cluster.TunnelBody(m, ul)), true
+			}
+		}
+	}
+	return nil, false
 }
 
 // POST …/-/positions (node_id, x, y): a note, node, NAT, internet or backup
