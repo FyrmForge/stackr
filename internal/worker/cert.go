@@ -295,7 +295,7 @@ func renewPost(ctx context.Context, c *http.Client, url string, body []byte) ([]
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	b, _ := io.ReadAll(io.LimitReader(resp.Body, maxBody))
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("answered %d: %s", resp.StatusCode, strings.TrimSpace(string(b)))

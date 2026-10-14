@@ -58,7 +58,7 @@ func TestNodeConfirm(t *testing.T) {
 	if w := writes(r); len(w) != 1 || w[0] != "POST /api/v1/admin/join-requests/abc/confirm " {
 		t.Errorf("writes = %v", w)
 	}
-	r = fake(t, map[string]string{"/admin/join-requests": `[]`, "/nodes/vps-ams": `{"name":"vps-ams","state":"online"}`})
+	fake(t, map[string]string{"/admin/join-requests": `[]`, "/nodes/vps-ams": `{"name":"vps-ams","state":"online"}`})
 	if code, _, errw := cli(t, "-y", "node", "confirm", "vps-ams"); code != 1 || !strings.Contains(errw, "already online") {
 		t.Errorf("online = %d %q", code, errw)
 	}
@@ -365,12 +365,12 @@ func TestEnvMove(t *testing.T) {
 
 func TestEnvLostRestore(t *testing.T) {
 	lost := `[{"id":"e1","path":"acme/api/dev","org":"acme","volumes":[{"id":"v1","name":"db-data","run_id":"r1","last_backup":"2026-10-12T08:00:00Z"},{"id":"v2","name":"cache","last_backup":null}]}]`
-	r := fake(t, map[string]string{"/lost-envs": lost})
+	fake(t, map[string]string{"/lost-envs": lost})
 	code, out, errw := cli(t, "env", "lost")
 	if code != 0 || !strings.Contains(out, "acme/api/dev\tdb-data,cache") {
 		t.Fatalf("lost = %d %q %q", code, out, errw)
 	}
-	r = fake(t, map[string]string{
+	r := fake(t, map[string]string{
 		"/lost-envs": lost,
 		"/restore":   `{"env":{"volumes":[{"id":"v1","name":"db-data","run_id":"r1"},{"id":"v2","name":"cache"}]},"node":"home","tiles":["t1"]}`,
 		"/start":     `{}`,

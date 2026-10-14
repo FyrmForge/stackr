@@ -37,7 +37,7 @@ func TestTraffic(t *testing.T) {
 			{"Labels":{"stackr.managed":"true"},"NetworkSettings":{"Networks":{"x":{"IPAddress":"10.210.1.9"}}}}]`))
 	})}
 	go func() { _ = docker.Serve(ln) }()
-	defer docker.Close()
+	defer func() { _ = docker.Close() }()
 
 	ct := filepath.Join(dir, "ct")
 	table := "ipv4 2 tcp 6 1 src=10.210.1.5 dst=1.1.1.1 sport=1 dport=443 bytes=10 src=1.1.1.1 dst=10.210.1.5 bytes=20\n" +

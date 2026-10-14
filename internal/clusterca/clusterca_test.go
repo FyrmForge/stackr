@@ -211,7 +211,7 @@ func handshake(t *testing.T, srv, cli *tls.Config) (cerr, serr error) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer ln.Close()
+	defer func() { _ = ln.Close() }()
 	done := make(chan error, 1)
 	go func() {
 		c, err := ln.Accept()
@@ -219,7 +219,7 @@ func handshake(t *testing.T, srv, cli *tls.Config) (cerr, serr error) {
 			done <- err
 			return
 		}
-		defer c.Close()
+		defer func() { _ = c.Close() }()
 		buf := make([]byte, 1)
 		_, err = c.Read(buf) // drives the handshake and, in TLS 1.3, the client cert check
 		if err == nil {
@@ -229,7 +229,7 @@ func handshake(t *testing.T, srv, cli *tls.Config) (cerr, serr error) {
 	}()
 	c, err := tls.Dial("tcp", ln.Addr().String(), cli)
 	if err == nil {
-		defer c.Close()
+		defer func() { _ = c.Close() }()
 		if _, err = c.Write([]byte{1}); err == nil {
 			_, err = c.Read(make([]byte, 1))
 		}

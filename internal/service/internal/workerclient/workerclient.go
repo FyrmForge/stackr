@@ -64,7 +64,7 @@ func (c *Client) call(ctx context.Context, method, path, ctype string, body []by
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	b, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode >= 300 {
 		return fmt.Errorf("worker %s %s: %s: %s", method, path, resp.Status, bytes.TrimSpace(b))

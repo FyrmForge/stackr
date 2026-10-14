@@ -71,17 +71,6 @@ func (r *recRunner) count(sub string) int {
 	return n
 }
 
-func (r *recRunner) called(sub string) bool {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	for _, c := range r.calls {
-		if strings.Contains(c, sub) {
-			return true
-		}
-	}
-	return false
-}
-
 // A confirmed worker (joined) that answers becomes online and gets its
 // clients; one that stops answering goes offline; a pending node is left
 // alone throughout.

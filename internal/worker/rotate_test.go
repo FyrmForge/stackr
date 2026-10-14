@@ -129,7 +129,7 @@ func TestRotateRevertsWhenPanelRefuses(t *testing.T) {
 	ra, rr, rg := RotateRevertAfter, rotateRetry, rotateGrace
 	defer func() { RotateRevertAfter, rotateRetry, rotateGrace = ra, rr, rg }()
 	RotateRevertAfter, rotateRetry, rotateGrace = 0, 0, 0
-	panel := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { http.Error(w, "no", 403) }))
+	panel := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { http.Error(w, "no", http.StatusForbidden) }))
 	defer panel.Close()
 	s, _, rec := newMeshServer(t, t.TempDir(), &pingFake{})
 	if err := s.ApplyMesh(context.Background(), meshSpec()); err != nil {

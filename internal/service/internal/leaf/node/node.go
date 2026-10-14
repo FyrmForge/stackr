@@ -156,6 +156,7 @@ func (l *Leaf) Reserve(ctx context.Context, nodeID string, used []netip.Prefix) 
 		return netip.Prefix{}, errs.Conflictf(
 			"The cluster's network pool %s is full; remove an environment to free one.", mesh.Supernet)
 	}
-	l.held = append(live, hold{p, now})
+	live = append(live, hold{p, now})
+	l.held = live
 	return p, nil
 }

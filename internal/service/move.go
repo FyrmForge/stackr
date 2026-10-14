@@ -86,7 +86,7 @@ func (o *Orchestrator) rsyncSteps() rsyncSteps {
 			if err != nil {
 				return false, fmt.Errorf("registry: %w", err)
 			}
-			res.Body.Close()
+			_ = res.Body.Close()
 			return res.StatusCode == http.StatusOK, nil
 		},
 		local: func(ctx context.Context) bool {
@@ -102,7 +102,7 @@ func (o *Orchestrator) rsyncSteps() rsyncSteps {
 			if err != nil {
 				return err
 			}
-			defer os.RemoveAll(dir)
+			defer func() { _ = os.RemoveAll(dir) }()
 			df := filepath.Join(dir, "Dockerfile")
 			if err := os.WriteFile(df, []byte(rsyncDockerfile), 0o644); err != nil {
 				return err

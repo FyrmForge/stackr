@@ -83,10 +83,6 @@ type NodeInfo struct {
 	IngressFor []string      `json:"ingress_for"`
 }
 
-func (o *Orchestrator) isAdmin(p *Principal) bool {
-	return p != nil && authz.Can(p.Access, "node.manage", authz.Resource{}) == nil
-}
-
 // nodeByRef finds a node by name, id or a unique id prefix.
 func (o *Orchestrator) nodeByRef(ctx context.Context, ref string) (store.Node, error) {
 	ref = strings.TrimSpace(ref)

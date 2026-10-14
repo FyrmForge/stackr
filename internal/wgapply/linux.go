@@ -51,7 +51,7 @@ func configurePeers(cfg Config) error {
 	if err != nil {
 		return err
 	}
-	defer c.Close()
+	defer func() { _ = c.Close() }()
 	key, err := wgtypes.ParseKey(cfg.PrivateKey)
 	if err != nil {
 		return fmt.Errorf("wgapply: private key: %w", err)
@@ -160,7 +160,7 @@ func (Kernel) Stats(iface string) (map[string]PeerStat, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer c.Close()
+	defer func() { _ = c.Close() }()
 	dev, err := c.Device(iface)
 	if err != nil {
 		return nil, err
@@ -181,7 +181,7 @@ func (Kernel) Seen(iface string) (map[string]netip.AddrPort, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer c.Close()
+	defer func() { _ = c.Close() }()
 	dev, err := c.Device(iface)
 	if err != nil {
 		return nil, err
@@ -204,7 +204,7 @@ func (Kernel) SetEndpoint(iface, publicKey string, ep netip.AddrPort) error {
 	if err != nil {
 		return err
 	}
-	defer c.Close()
+	defer func() { _ = c.Close() }()
 	return c.ConfigureDevice(iface, wgtypes.Config{Peers: []wgtypes.PeerConfig{{
 		PublicKey: pk, UpdateOnly: true, Endpoint: net.UDPAddrFromAddrPort(ep),
 	}}})
@@ -219,7 +219,7 @@ func (Kernel) RemoveOwned(iface, privateKey string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	defer c.Close()
+	defer func() { _ = c.Close() }()
 	dev, err := c.Device(iface)
 	if err != nil {
 		return false, nil // no such interface, or not WireGuard
@@ -245,6 +245,6 @@ func Set(args []string) error {
 	if err != nil {
 		return err
 	}
-	defer c.Close()
+	defer func() { _ = c.Close() }()
 	return c.ConfigureDevice(iface, cfg)
 }

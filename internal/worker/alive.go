@@ -22,7 +22,7 @@ func serveAlive(ctx context.Context, addr string) error {
 	if err != nil {
 		return err
 	}
-	go func() { <-ctx.Done(); ln.Close() }()
+	go func() { <-ctx.Done(); _ = ln.Close() }()
 	for {
 		c, err := ln.Accept()
 		if err != nil {
@@ -33,7 +33,7 @@ func serveAlive(ctx context.Context, addr string) error {
 		}
 		_ = c.SetDeadline(time.Now().Add(2 * time.Second))
 		_, _ = io.WriteString(c, AliveReply)
-		c.Close()
+		_ = c.Close()
 	}
 }
 
@@ -46,7 +46,7 @@ func aliveAt(ctx context.Context, host, port string) bool {
 	if err != nil {
 		return false
 	}
-	defer c.Close()
+	defer func() { _ = c.Close() }()
 	_ = c.SetDeadline(time.Now().Add(3 * time.Second))
 	b := make([]byte, len(AliveReply))
 	if _, err := io.ReadFull(c, b); err != nil {

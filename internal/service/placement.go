@@ -128,7 +128,7 @@ func (o *Orchestrator) chain(ctx context.Context, kind, id string) ([]scopeRef, 
 				return nil, og, err
 			}
 			out = append(out, scopeRef{ScopeStack, s.ID, s.Name})
-			kind, id = ScopeOrg, s.OrgID
+			id = s.OrgID
 		}
 		fallthrough
 	case ScopeOrg:
@@ -174,8 +174,7 @@ func (o *Orchestrator) offered(ctx context.Context, orgID string, anywhere bool)
 		})
 	}
 	slices.SortStableFunc(out, func(a, b PlacementNode) int {
-		switch {
-		case a.Controller != b.Controller:
+		if a.Controller != b.Controller {
 			if a.Controller {
 				return -1
 			}

@@ -218,7 +218,7 @@ func TestMapLayout(t *testing.T) {
 		t.Errorf("boxes not stacked with a gap: %v then %v", home, lan)
 	}
 	nat, h, n := at["nat:192.168.1.0/24"], at["node:h"], at["node:n"]
-	if !(nat[0] < h[0] && h[0] < n[0]) || h[1] != n[1] {
+	if nat[0] >= h[0] || h[0] >= n[0] || h[1] != n[1] {
 		t.Errorf("row order NAT %v, forward target %v, rest %v", nat, h, n)
 	}
 	f, g := at["node:f"], at["node:g"]

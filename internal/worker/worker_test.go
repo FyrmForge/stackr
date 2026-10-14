@@ -28,7 +28,7 @@ func fakeDocker(t *testing.T) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { os.RemoveAll(dir) })
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
 	sock := filepath.Join(dir, "d.sock")
 	ln, err := net.Listen("unix", sock)
 	if err != nil {
@@ -36,7 +36,7 @@ func fakeDocker(t *testing.T) string {
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/info", func(w http.ResponseWriter, r *http.Request) {
-		io.WriteString(w, `{"ServerVersion":"29.0.0","DockerRootDir":"`+dir+`"}`)
+		_, _ = io.WriteString(w, `{"ServerVersion":"29.0.0","DockerRootDir":"`+dir+`"}`)
 	})
 	mux.HandleFunc("POST /{v}/containers/c1/attach", func(w http.ResponseWriter, r *http.Request) {
 		conn, rw, err := w.(http.Hijacker).Hijack()
@@ -44,17 +44,17 @@ func fakeDocker(t *testing.T) string {
 			t.Error(err)
 			return
 		}
-		defer conn.Close()
-		rw.WriteString("HTTP/1.1 101 UPGRADED\r\nContent-Type: application/vnd.docker.raw-stream\r\nConnection: Upgrade\r\nUpgrade: tcp\r\n\r\n")
-		rw.Flush()
-		io.Copy(conn, rw) // echo until the client closes
+		defer func() { _ = conn.Close() }()
+		_, _ = rw.WriteString("HTTP/1.1 101 UPGRADED\r\nContent-Type: application/vnd.docker.raw-stream\r\nConnection: Upgrade\r\nUpgrade: tcp\r\n\r\n")
+		_ = rw.Flush()
+		_, _ = io.Copy(conn, rw) // echo until the client closes
 	})
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		io.WriteString(w, "docker:"+r.URL.Path)
+		_, _ = io.WriteString(w, "docker:"+r.URL.Path)
 	})
 	srv := &http.Server{Handler: mux}
-	go srv.Serve(ln)
-	t.Cleanup(func() { srv.Close() })
+	go func() { _ = srv.Serve(ln) }()
+	t.Cleanup(func() { _ = srv.Close() })
 	return sock
 }
 
@@ -125,7 +125,7 @@ func TestDockerProxyAndVersion(t *testing.T) {
 		t.Fatal(err)
 	}
 	b, _ := io.ReadAll(resp.Body)
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	if string(b) != "docker:/v1.43/containers/json" || resp.Header.Get(VersionHeader) != APIVersion {
 		t.Fatalf("%q %v", b, resp.Header)
 	}
@@ -137,15 +137,15 @@ func TestHijackedAttach(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer conn.Close()
-	io.WriteString(conn, "POST /v1.43/containers/c1/attach?stream=1 HTTP/1.1\r\nHost: x\r\nConnection: Upgrade\r\nUpgrade: tcp\r\n\r\n")
+	defer func() { _ = conn.Close() }()
+	_, _ = io.WriteString(conn, "POST /v1.43/containers/c1/attach?stream=1 HTTP/1.1\r\nHost: x\r\nConnection: Upgrade\r\nUpgrade: tcp\r\n\r\n")
 	br := bufio.NewReader(conn)
 	resp, err := http.ReadResponse(br, nil)
 	if err != nil || resp.StatusCode != 101 {
 		t.Fatalf("%v %v", resp, err)
 	}
-	io.WriteString(conn, "ping\n")
-	conn.SetReadDeadline(time.Now().Add(3 * time.Second))
+	_, _ = io.WriteString(conn, "ping\n")
+	_ = conn.SetReadDeadline(time.Now().Add(3 * time.Second))
 	line, err := br.ReadString('\n')
 	if err != nil || line != "ping\n" {
 		t.Fatalf("%q %v", line, err)
@@ -275,14 +275,14 @@ func TestIPTablesAndWG501(t *testing.T) {
 
 func TestCaddyPassThrough(t *testing.T) {
 	dir, _ := os.MkdirTemp("", "wk")
-	defer os.RemoveAll(dir)
+	defer func() { _ = os.RemoveAll(dir) }()
 	sock := filepath.Join(dir, "c.sock")
 	ln, _ := net.Listen("unix", sock)
 	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		io.WriteString(w, r.Method+" "+r.URL.Path)
+		_, _ = io.WriteString(w, r.Method+" "+r.URL.Path)
 	})}
-	go srv.Serve(ln)
-	defer srv.Close()
+	go func() { _ = srv.Serve(ln) }()
+	defer func() { _ = srv.Close() }()
 	ts := httptest.NewTLSServer(New(Config{CaddySock: sock, DockerSock: "/nonexistent"}).Handler())
 	defer ts.Close()
 	resp, err := ts.Client().Post(ts.URL+"/v1/caddy/load", "application/json", strings.NewReader("{}"))

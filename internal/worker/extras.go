@@ -335,7 +335,7 @@ func (s *Server) dockerInfo(ctx context.Context, f *Facts) error {
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	var info struct{ ServerVersion, DockerRootDir string }
 	if err := json.NewDecoder(resp.Body).Decode(&info); err != nil {
 		return err
@@ -497,7 +497,7 @@ func writeAtomic(path string, b []byte) error {
 	if err != nil {
 		return err
 	}
-	defer os.Remove(f.Name())
+	defer func() { _ = os.Remove(f.Name()) }()
 	if _, err = f.Write(b); err == nil {
 		err = f.Sync()
 	}

@@ -29,14 +29,14 @@ func (r *rec) Run(_ context.Context, _ []byte, name string, args ...string) ([]b
 
 func TestClientRoundTrip(t *testing.T) {
 	dir, _ := os.MkdirTemp("", "wc")
-	defer os.RemoveAll(dir)
+	defer func() { _ = os.RemoveAll(dir) }()
 	sock := filepath.Join(dir, "d.sock")
 	ln, _ := net.Listen("unix", sock)
 	d := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		io.WriteString(w, `{"ServerVersion":"29.1","DockerRootDir":"`+dir+`"}`)
+		_, _ = io.WriteString(w, `{"ServerVersion":"29.1","DockerRootDir":"`+dir+`"}`)
 	})}
-	go d.Serve(ln)
-	defer d.Close()
+	go func() { _ = d.Serve(ln) }()
+	defer func() { _ = d.Close() }()
 
 	r := &rec{}
 	ts := httptest.NewTLSServer(worker.New(worker.Config{DockerSock: sock, StateDir: t.TempDir(), Runner: r}).Handler())

@@ -306,7 +306,7 @@ func (d *Docker) Create(ctx context.Context, spec docker.ContainerSpec) (string,
 				ip, err = n.IPv4, nil
 				for _, o := range d.st.Containers {
 					if o.Nets[n.Name] == ip {
-						err = fmt.Errorf("Address already in use: %s on %s", ip, n.Name)
+						err = fmt.Errorf("Address already in use: %s on %s", ip, n.Name) //nolint:staticcheck // mirrors the Docker daemon's own wording
 					}
 				}
 			}

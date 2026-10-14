@@ -94,7 +94,7 @@ func TestRenewOverTunnel(t *testing.T) {
 		calls++
 		if r.URL.Path != RenewTunnelPath || len(r.TLS.PeerCertificates) == 0 ||
 			r.TLS.PeerCertificates[0].SerialNumber.Cmp(old.SerialNumber) != 0 {
-			http.Error(w, "no client cert", 403)
+			http.Error(w, "no client cert", http.StatusForbidden)
 			return
 		}
 		var in RenewRequest
@@ -139,7 +139,7 @@ func TestRenewThroughPanel(t *testing.T) {
 		_ = json.Unmarshal(b, &req)
 		c, p, err := OpenRecover(req)
 		if r.URL.Path != RenewPanelPath || err != nil || p.CSR == "" || c.SerialNumber.Cmp(old.SerialNumber) != 0 {
-			http.Error(w, "refused", 403)
+			http.Error(w, "refused", http.StatusForbidden)
 			return
 		}
 		_, _ = w.Write(signer(t, ca, p.CSR))

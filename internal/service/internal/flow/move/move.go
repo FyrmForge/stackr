@@ -469,6 +469,6 @@ func (f *Flow) now() time.Time {
 
 func logf(log io.Writer, format string, a ...any) {
 	if log != nil {
-		fmt.Fprintf(log, format, a...)
+		_, _ = fmt.Fprintf(log, format, a...)
 	}
 }

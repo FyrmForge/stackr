@@ -272,7 +272,7 @@ func cmpHost(h string) string {
 	return h
 }
 
-var errNoDocker = errors.New("Docker is not installed")
+var errNoDocker = errors.New("Docker is not installed") //nolint:staticcheck // Docker is a name, and the line is shown as is
 
 // ensureDocker makes sure Docker answers, offering Docker's install script
 // when it is missing: --yes runs it, a terminal asks, anything else stops

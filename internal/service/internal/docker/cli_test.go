@@ -22,13 +22,13 @@ func TestCLIProxy(t *testing.T) {
 		t.Fatal(err)
 	}
 	ln := tls.NewListener(raw, &tls.Config{Certificates: []tls.Certificate{cert}})
-	defer ln.Close()
+	defer func() { _ = ln.Close() }()
 	go func() {
 		c, err := ln.Accept()
 		if err != nil {
 			return
 		}
-		defer c.Close()
+		defer func() { _ = c.Close() }()
 		b, _ := io.ReadAll(c) // until the proxy half-closes
 		_, _ = c.Write([]byte(strings.ToUpper(string(b))))
 	}()

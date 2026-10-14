@@ -15,7 +15,7 @@ func TestAlive(t *testing.T) {
 		t.Fatal(err)
 	}
 	addr := ln.Addr().String()
-	ln.Close()
+	_ = ln.Close()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go func() { _ = serveAlive(ctx, addr) }()
@@ -28,12 +28,12 @@ func TestAlive(t *testing.T) {
 		time.Sleep(20 * time.Millisecond)
 	}
 	other, _ := net.Listen("tcp", "127.0.0.1:0")
-	defer other.Close()
+	defer func() { _ = other.Close() }()
 	go func() {
 		c, err := other.Accept()
 		if err == nil {
 			_, _ = c.Write([]byte("HTTP/1.1 400 Bad\r\n"))
-			c.Close()
+			_ = c.Close()
 		}
 	}()
 	_, oport, _ := net.SplitHostPort(other.Addr().String())

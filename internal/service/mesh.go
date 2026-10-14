@@ -880,8 +880,7 @@ type rxSample struct {
 // ev is the sample's verdict: 1 when bytes moved within rxSilent, -1 when
 // they have not for rxSilent, 0 when there is not enough history yet.
 func (s rxSample) ev(now time.Time) int {
-	switch {
-	case !s.changed.IsZero() && now.Sub(s.changed) < rxSilent:
+	if !s.changed.IsZero() && now.Sub(s.changed) < rxSilent {
 		return 1
 	}
 	last := s.first

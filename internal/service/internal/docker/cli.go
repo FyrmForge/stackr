@@ -73,12 +73,12 @@ func (p *cliProxy) serve(ln net.Listener) {
 }
 
 func (p *cliProxy) pipe(c net.Conn) {
-	defer c.Close()
+	defer func() { _ = c.Close() }()
 	up, err := tls.DialWithDialer(&net.Dialer{Timeout: 10 * time.Second}, "tcp", p.addr, p.tc)
 	if err != nil {
 		return
 	}
-	defer up.Close()
+	defer func() { _ = up.Close() }()
 	go func() {
 		_, _ = io.Copy(up, c)
 		_ = up.CloseWrite()

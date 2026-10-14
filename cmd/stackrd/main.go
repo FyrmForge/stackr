@@ -90,12 +90,15 @@ func main() {
 	}
 	if flag.Arg(0) == "worker" {
 		// The node program: mTLS gatekeeper in front of the local Docker.
-		cfg, err := workerConfig(flag.Args()[1:])
-		if err == nil {
+		err := func() error {
+			cfg, err := workerConfig(flag.Args()[1:])
+			if err != nil {
+				return err
+			}
 			ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 			defer stop()
-			err = runWorker(ctx, cfg)
-		}
+			return runWorker(ctx, cfg)
+		}()
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "stackrd worker:", err)
 			os.Exit(1)

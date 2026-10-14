@@ -80,7 +80,7 @@ func (s *Server) localTiles(ctx context.Context) (map[string]string, []string, e
 		if err != nil {
 			return err
 		}
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 		return json.NewDecoder(resp.Body).Decode(v)
 	}
 	managed := `"label":["` + labelManaged + `=true"]`

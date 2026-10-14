@@ -86,7 +86,7 @@ func (j joinCall) post(ctx context.Context, path string, in any) (joinStatus, er
 	if err != nil {
 		return joinStatus{}, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	b, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if resp.StatusCode == http.StatusTooManyRequests {
 		return joinStatus{}, errBusy

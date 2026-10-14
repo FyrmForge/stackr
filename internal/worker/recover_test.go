@@ -44,7 +44,7 @@ func TestRecoverThroughPanel(t *testing.T) {
 		}
 		_, p, err := OpenRecover(req)
 		if err != nil {
-			http.Error(w, err.Error(), 403)
+			http.Error(w, err.Error(), http.StatusForbidden)
 			return
 		}
 		got = p

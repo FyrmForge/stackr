@@ -72,7 +72,7 @@ func (r *trustRig) call(c tls.Certificate) error {
 	cl := &http.Client{Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true, Certificates: []tls.Certificate{c}}}}
 	resp, err := cl.Get(r.url)
 	if err == nil {
-		resp.Body.Close()
+		_ = resp.Body.Close()
 	}
 	return err
 }
@@ -192,7 +192,7 @@ func TestRecoverWhileControllerRefused(t *testing.T) {
 			return
 		}
 		if _, _, err := OpenRecover(rr); err != nil {
-			http.Error(w, err.Error(), 403)
+			http.Error(w, err.Error(), http.StatusForbidden)
 			return
 		}
 		spec := meshSpec()

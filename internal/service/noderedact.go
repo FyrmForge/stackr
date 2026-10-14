@@ -19,7 +19,7 @@ func (d NodeInfo) Redacted() NodeInfo {
 func (c ClusterOut) Redacted() ClusterOut {
 	ns := make([]ClusterStatusNode, len(c.Nodes))
 	for i, n := range c.Nodes {
-		n.NodeOut, n.Public = n.NodeOut.Redacted(), []string{}
+		n.NodeOut, n.Public = n.Redacted(), []string{}
 		ns[i] = n
 	}
 	c.Nodes = ns
