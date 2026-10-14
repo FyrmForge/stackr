@@ -150,8 +150,8 @@ func newUninstallRig(t *testing.T) *uninstallRig {
 		"docker image ls -q --filter reference=localhost:5000/stackr.system/*": "i3\ni2\n",
 		"iptables-save": cannedSave,
 	}}
-	mesh := `{"Links":[{"Iface":"wgx-aaaaaaaaaa","Table":101}],"Serves":[{"Iface":"wgx-bbbbbbbbbb","Table":102,"Pref":5102}],` +
-		`"Ladders":[{"Subject":{"Sources":["10.208.1.0/24"],"PrefBase":6000}}]}`
+	mesh := `{"Links":[{"Iface":"wgx-aaaaaaaaaa","Table":1001}],"Serves":[{"Iface":"wgx-bbbbbbbbbb","Table":1301,"Pref":20002}],` +
+		`"Ladders":[{"Subject":{"Sources":["10.208.1.0/24"],"PrefBase":10000}}]}`
 	for name, body := range map[string]string{"mesh.json": mesh, "node.name": "h3\n"} {
 		if err := os.WriteFile(filepath.Join(r.state, name), []byte(body), 0o600); err != nil {
 			t.Fatal(err)
@@ -204,17 +204,43 @@ func TestUninstallCommands(t *testing.T) {
 		"ip link del stackr0",
 		"ip link del wgx-aaaaaaaaaa",
 		"ip link del wgx-bbbbbbbbbb",
-		"ip route flush table 101",
-		"ip route flush table 102",
-		"ip rule del pref 5102",
-		"ip rule del pref 6000",
-		"ip rule del pref 6001",
+		"ip route flush table 1001",
+		"ip route flush table 1301",
+		"ip rule del pref 20002",
+		"ip rule del pref 10000",
+		"ip rule del pref 10001",
 	} {
 		at = index(t, out, step, at)
 	}
 	for _, kept := range []string{"volume rm", "image rm", "rm -rf"} {
 		if strings.Contains(out, kept) {
 			t.Errorf("a plain uninstall ran %q:\n%s", kept, out)
+		}
+	}
+}
+
+// A mesh.json is only a file on the box: whatever it names outside stackr's
+// own interfaces, route tables and rule priorities is skipped, never run.
+func TestUninstallMeshStaysInStackrRanges(t *testing.T) {
+	r := newUninstallRig(t)
+	bad := `{"Links":[{"Iface":"eth0","Table":254},{"Iface":"wgx-a; reboot","Table":1001}],` +
+		`"Serves":[{"Iface":"docker0","Table":0,"Pref":0},{"Iface":"wg0","Table":1301,"Pref":32766}],` +
+		`"Ladders":[{"Subject":{"Sources":["10.208.1.0/24"],"PrefBase":0}}]}`
+	if err := os.WriteFile(filepath.Join(r.state, "mesh.json"), []byte(bad), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.env(true, "").run(context.Background(), false); err != nil {
+		t.Fatal(err)
+	}
+	out := flat(r.out.String())
+	for _, no := range []string{"ip link del eth0", "ip link del docker0", "ip link del wg0", "ip link del wgx-a", "flush table 254", "flush table 0", "del pref 0", "del pref 1 ", "del pref 32766"} {
+		if strings.Contains(out, no) {
+			t.Errorf("uninstall ran %q from a hostile mesh.json:\n%s", no, out)
+		}
+	}
+	for _, yes := range []string{"ip link del stackr0", "ip route flush table 1001", "ip route flush table 1301", "skipping"} {
+		if !strings.Contains(out, yes) {
+			t.Errorf("missing %q:\n%s", yes, out)
 		}
 	}
 }

@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -198,28 +199,63 @@ func (e uninstallEnv) mesh(ctx context.Context, try func(string, ...string)) {
 			spec = worker.MeshSpec{}
 		}
 	}
+	// mesh.json is a file on the box, not trusted: only stackr's own
+	// interfaces, route tables and rule priorities are touched.
 	ifaces := []string{mesh.Iface}
 	var tables []int
+	var prefs []int
 	for _, l := range spec.Links {
 		ifaces, tables = append(ifaces, l.Iface), append(tables, l.Table)
 	}
 	for _, s := range spec.Serves {
-		ifaces, tables = append(ifaces, s.Iface), append(tables, s.Table)
+		ifaces, tables, prefs = append(ifaces, s.Iface), append(tables, s.Table), append(prefs, s.Pref)
 	}
 	for _, i := range ifaces {
+		if i != mesh.Iface && !exitIface.MatchString(i) {
+			e.r.say("  skipping interface", fmt.Sprintf("%q", i), "from the saved mesh state: not stackr's")
+			continue
+		}
 		try("ip", "link", "del", i)
 	}
 	for _, t := range tables {
+		if !inRange(t, tableRanges) {
+			e.r.say("  skipping route table", strconv.Itoa(t), "from the saved mesh state: outside stackr's ranges")
+			continue
+		}
 		try("ip", "route", "flush", "table", strconv.Itoa(t))
 	}
-	for _, s := range spec.Serves {
-		try("ip", "rule", "del", "pref", strconv.Itoa(s.Pref))
+	for _, p := range prefs {
+		e.delPref(try, p)
 	}
 	for _, l := range spec.Ladders {
 		for _, st := range l.Subject.Clear() {
-			try(st.Argv[0], st.Argv[1:]...)
+			if p, err := strconv.Atoi(st.Argv[len(st.Argv)-1]); err == nil {
+				e.delPref(try, p)
+			}
 		}
 	}
+}
+
+func (e uninstallEnv) delPref(try func(string, ...string), p int) {
+	if !inRange(p, prefRanges) {
+		e.r.say("  skipping rule priority", strconv.Itoa(p), "from the saved mesh state: outside stackr's ranges")
+		return
+	}
+	try("ip", "rule", "del", "pref", strconv.Itoa(p))
+}
+
+// stackr's own ip numbers, from internal/service/mesh.go: link tables
+// 1000+slot and serve tables 1300+slot (slot 1..254), ladder rule priorities
+// from 10000 in blocks below 20000, serve priorities 20000+slot.
+var (
+	tableRanges = [][2]int{{1001, 1254}, {1301, 1554}}
+	prefRanges  = [][2]int{{10000, 20254}}
+	// exitIface is exits.Iface: wgx- and ten hex digits.
+	exitIface = regexp.MustCompile("^" + exitIfacePrefix + "[0-9a-f]{10}$")
+)
+
+func inRange(n int, rs [][2]int) bool {
+	return slices.ContainsFunc(rs, func(r [2]int) bool { return n >= r[0] && n <= r[1] })
 }
 
 // confirmPurge asks for the node's name. --yes never stands in for it: a

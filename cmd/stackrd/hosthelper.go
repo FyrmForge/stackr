@@ -123,7 +123,7 @@ wait:
 	if worker.SwapCommitted(bin) { // a commit that landed with the stop
 		return nil
 	}
-	s.logger().Warn("worker-swap: "+why+", putting the old binaries back")
+	s.logger().Warn("worker-swap: " + why + ", putting the old binaries back")
 	s.restore(bin, had)
 	if err := s.restart(context.WithoutCancel(ctx)); err != nil {
 		return fmt.Errorf("rolled back, but the restart failed: %w", err)
