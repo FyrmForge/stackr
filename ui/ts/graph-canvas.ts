@@ -11,6 +11,7 @@
 // (detail.ids). Look attributes follow [data-look] inputs (a checkbox, or
 // radios valued 1/0), kept in localStorage.
 const [MIN, MAX, MARGIN, CARD_W, CARD_H, FAN_GAP] = [0.3, 2.5, 24, 220, 96, 14];
+const TEXT = "input, textarea, select, [contenteditable]";
 const LOOKS = ["snap", "straight", "fan-out", "arrows", "hover-focus", "nooverlap", "badges", "boundary", "legend"];
 
 type Box = { x: number; y: number; w: number; h: number };
@@ -37,6 +38,10 @@ class GraphCanvas extends HTMLElement {
   private py = 0;
   private pointers = new Map<number, Pt>();
   private pan: Pt | null = null;
+  // Where the last pan began, and whether it moved past 3 px: the click that
+  // ends such a pan (a link, a clickable line) is swallowed.
+  private panFrom: Pt = [0, 0];
+  private moved = false;
   private marquee: { x: number; y: number; el: HTMLElement } | null = null;
   private pinch: { dist: number; mid: Pt } | null = null;
   private sizing: { box: Element; p: Pt; w: number; h: number } | null = null;
@@ -48,12 +53,13 @@ class GraphCanvas extends HTMLElement {
   // Listeners are arrow fields, so wire(false) removes the same functions.
   private wire(on: boolean): void {
     const pairs: [EventTarget, string, (e: never) => void][] = [
-      [this, "pointerdown", this.onDown], [this, "wheel", this.onWheel], [this, "click", this.onClick],
+      [this, "pointerdown", this.onDown], [this, "mousedown", this.onMouseDown], [this, "wheel", this.onWheel], [this, "click", this.onClick],
       [this, "change", this.onChange], [this, "pointerover", this.onOver], [this, "pointerleave", this.onOver],
       [window, "pointermove", this.onMove], [window, "pointerup", this.onUp], [window, "pointercancel", this.onUp],
       [window, "resize", this.onResize], [document, "keydown", this.onKey], [document, "htmx:beforeRequest", this.onRefresh],
     ];
     for (const [t, name, fn] of pairs) (on ? t.addEventListener : t.removeEventListener).call(t, name, fn as EventListener, { passive: false });
+    for (const name of ["click", "auxclick"]) (on ? this.addEventListener : this.removeEventListener).call(this, name, this.swallow as EventListener, true);
   }
   connectedCallback(): void {
     for (const look of LOOKS) if (stored(look) !== null) this.toggleAttribute(look, stored(look) === "1");
@@ -165,6 +171,13 @@ class GraphCanvas extends HTMLElement {
       return this.endMarquee();
     }
     const t = e.target as Element;
+    this.moved = false;
+    this.panFrom = p;
+    if (e.button === 1) { // middle button pans from anywhere, cards included; text fields keep their native click
+      if (t.closest(TEXT)) return;
+      e.preventDefault();
+      return void (this.pan = [p[0] - this.px, p[1] - this.py]);
+    }
     const box = t.closest("[data-resize]")?.parentElement;
     if (box && e.button === 0) return void (this.sizing = { box, p, w: num(box, "w"), h: num(box, "h") });
     if (e.button !== 0 || this.pointers.size > 2 || t.closest("a, button, input, label, select, textarea, [data-zoom], [popover]")) return;
@@ -181,6 +194,17 @@ class GraphCanvas extends HTMLElement {
       this.select(new Set());
     }
   };
+  // Firefox starts autoscroll on a middle mousedown unless it is cancelled.
+  private onMouseDown = (e: MouseEvent): void => {
+    if (e.button === 1 && !(e.target as Element).closest(TEXT)) e.preventDefault();
+  };
+  // The click (or middle click) that ends a pan which moved is not a click.
+  private swallow = (e: Event): void => {
+    if (!this.moved) return;
+    this.moved = false;
+    e.preventDefault();
+    e.stopPropagation();
+  };
   private onMove = (e: PointerEvent): void => {
     if (!this.pointers.has(e.pointerId)) return;
     const p = this.local(e);
@@ -192,6 +216,7 @@ class GraphCanvas extends HTMLElement {
       this.zoomAt(now.mid, now.dist / (this.pinch.dist || 1));
       this.pinch = now;
     } else if (this.pan) {
+      if (Math.hypot(p[0] - this.panFrom[0], p[1] - this.panFrom[1]) > 3) this.moved = true;
       this.px = p[0] - this.pan[0];
       this.py = p[1] - this.pan[1];
       this.apply();
@@ -320,10 +345,14 @@ class GraphCanvas extends HTMLElement {
     // the labels already placed.
     const placed: Box[] = [];
     for (const p of this.paths()) {
-      let label = p.nextElementSibling;
-      // A pipe's core follows its edge; the label comes after it.
-      if (label?.matches("[data-edge-core]")) (label.setAttribute("d", p.getAttribute("d") ?? ""), (label = label.nextElementSibling));
-      if (!(label instanceof SVGTextElement) || !label.matches("[data-edge-label]")) continue;
+      // Up to the next edge: a pipe's core and a clickable line's hit path
+      // follow the edge's d; the label is the text among them.
+      let label: Element | null = null;
+      for (let sib = p.nextElementSibling; sib && !sib.hasAttribute("data-from"); sib = sib.nextElementSibling) {
+        if (sib.matches("[data-edge-core], [data-edge-hit]")) sib.setAttribute("d", p.getAttribute("d") ?? "");
+        else if (sib instanceof SVGTextElement && sib.matches("[data-edge-label]")) label = sib;
+      }
+      if (!(label instanceof SVGTextElement)) continue;
       const m = p.getPointAtLength(p.getTotalLength() / 2);
       label.setAttribute("x", String(m.x));
       let r: Box = { x: 0, y: 0, w: 0, h: 0 };

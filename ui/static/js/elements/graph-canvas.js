@@ -1,4 +1,5 @@
 const [MIN, MAX, MARGIN, CARD_W, CARD_H, FAN_GAP] = [0.3, 2.5, 24, 220, 96, 14];
+const TEXT = "input, textarea, select, [contenteditable]";
 const LOOKS = ["snap", "straight", "fan-out", "arrows", "hover-focus", "nooverlap", "badges", "boundary", "legend"];
 const NORMAL = { l: [-1, 0], r: [1, 0], t: [0, -1], b: [0, 1] };
 const OPPOSITE = { l: "r", r: "l", t: "b", b: "t" };
@@ -23,6 +24,8 @@ class GraphCanvas extends HTMLElement {
     py = 0;
     pointers = new Map();
     pan = null;
+    panFrom = [0, 0];
+    moved = false;
     marquee = null;
     pinch = null;
     sizing = null;
@@ -33,13 +36,15 @@ class GraphCanvas extends HTMLElement {
     });
     wire(on) {
         const pairs = [
-            [this, "pointerdown", this.onDown], [this, "wheel", this.onWheel], [this, "click", this.onClick],
+            [this, "pointerdown", this.onDown], [this, "mousedown", this.onMouseDown], [this, "wheel", this.onWheel], [this, "click", this.onClick],
             [this, "change", this.onChange], [this, "pointerover", this.onOver], [this, "pointerleave", this.onOver],
             [window, "pointermove", this.onMove], [window, "pointerup", this.onUp], [window, "pointercancel", this.onUp],
             [window, "resize", this.onResize], [document, "keydown", this.onKey], [document, "htmx:beforeRequest", this.onRefresh],
         ];
         for (const [t, name, fn] of pairs)
             (on ? t.addEventListener : t.removeEventListener).call(t, name, fn, { passive: false });
+        for (const name of ["click", "auxclick"])
+            (on ? this.addEventListener : this.removeEventListener).call(this, name, this.swallow, true);
     }
     connectedCallback() {
         for (const look of LOOKS)
@@ -152,6 +157,14 @@ class GraphCanvas extends HTMLElement {
             return this.endMarquee();
         }
         const t = e.target;
+        this.moved = false;
+        this.panFrom = p;
+        if (e.button === 1) {
+            if (t.closest(TEXT))
+                return;
+            e.preventDefault();
+            return void (this.pan = [p[0] - this.px, p[1] - this.py]);
+        }
         const box = t.closest("[data-resize]")?.parentElement;
         if (box && e.button === 0)
             return void (this.sizing = { box, p, w: num(box, "w"), h: num(box, "h") });
@@ -171,6 +184,17 @@ class GraphCanvas extends HTMLElement {
             this.select(new Set());
         }
     };
+    onMouseDown = (e) => {
+        if (e.button === 1 && !e.target.closest(TEXT))
+            e.preventDefault();
+    };
+    swallow = (e) => {
+        if (!this.moved)
+            return;
+        this.moved = false;
+        e.preventDefault();
+        e.stopPropagation();
+    };
     onMove = (e) => {
         if (!this.pointers.has(e.pointerId))
             return;
@@ -184,6 +208,8 @@ class GraphCanvas extends HTMLElement {
             this.pinch = now;
         }
         else if (this.pan) {
+            if (Math.hypot(p[0] - this.panFrom[0], p[1] - this.panFrom[1]) > 3)
+                this.moved = true;
             this.px = p[0] - this.pan[0];
             this.py = p[1] - this.pan[1];
             this.apply();
@@ -324,10 +350,14 @@ class GraphCanvas extends HTMLElement {
             this.draw(ends[i], ends[i + 1]);
         const placed = [];
         for (const p of this.paths()) {
-            let label = p.nextElementSibling;
-            if (label?.matches("[data-edge-core]"))
-                (label.setAttribute("d", p.getAttribute("d") ?? ""), (label = label.nextElementSibling));
-            if (!(label instanceof SVGTextElement) || !label.matches("[data-edge-label]"))
+            let label = null;
+            for (let sib = p.nextElementSibling; sib && !sib.hasAttribute("data-from"); sib = sib.nextElementSibling) {
+                if (sib.matches("[data-edge-core], [data-edge-hit]"))
+                    sib.setAttribute("d", p.getAttribute("d") ?? "");
+                else if (sib instanceof SVGTextElement && sib.matches("[data-edge-label]"))
+                    label = sib;
+            }
+            if (!(label instanceof SVGTextElement))
                 continue;
             const m = p.getPointAtLength(p.getTotalLength() / 2);
             label.setAttribute("x", String(m.x));
