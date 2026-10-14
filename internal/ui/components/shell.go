@@ -21,6 +21,9 @@ type Shell struct {
 	// Waiting is the badge on the admin icon: stacks with a request for
 	// elevated access open. 0 = none (and always 0 for a non-admin).
 	Waiting int
+	// NodeDown is the offline banner on an env or tile page whose node is
+	// down: the whole sentence, "" = none.
+	NodeDown string
 	Flash   Flash
 	// EnvColor is the URL's env hue (one of EnvColors): the top bar's band
 	// and the env crumb's dot. "" = no env, or no hue picked.

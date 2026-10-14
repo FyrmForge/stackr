@@ -81,6 +81,11 @@ func Shell(c echo.Context, title string) components.Shell {
 		}
 	}
 	sc := middleware.ScopeOf(c)
+	if sc.Env != nil {
+		if down, ok := c.Get(nodeDownKey).(func(envID string) string); ok {
+			s.NodeDown = down(sc.Env.ID)
+		}
+	}
 	href := ""
 	if sc.Org != nil {
 		href += "/" + sc.Org.Slug
@@ -115,6 +120,25 @@ func Shell(c echo.Context, title string) components.Shell {
 }
 
 const waitingKey = "host_waiting"
+const nodeDownKey = "env_node_down"
+
+// NodeDown lets the shell show the offline banner on env and tile pages. It
+// leaves a lazy func, which Shell calls only when the URL has an env; the
+// answer is "" while the env's node is up.
+func NodeDown(orch *service.Orchestrator) echo.MiddlewareFunc {
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			c.Set(nodeDownKey, func(envID string) string {
+				d, ok := orch.EnvNodeDown(c.Request().Context(), envID)
+				if !ok {
+					return ""
+				}
+				return (&service.NodeDownError{Name: d.Name, LastSeen: d.LastSeen}).Error() + ". Deploys here are refused until it is back."
+			})
+			return next(c)
+		}
+	}
+}
 
 // Waiting lets the shell show the admin rail's badge: for a server admin it
 // leaves a lazy count of stacks waiting on elevated access, which Shell
