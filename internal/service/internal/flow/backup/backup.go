@@ -162,7 +162,7 @@ func (f *Flow) dump(ctx context.Context, s Subject, w io.Writer, log io.Writer) 
 // tar freezes the holders by mode and tars the volume (the helper gzips).
 func (f *Flow) tar(ctx context.Context, s Subject, mode string, w io.Writer, log io.Writer) error {
 	// Before the freeze: a pull inside the pause window is downtime.
-	if err := f.Volumes.EnsureTool(ctx); err != nil {
+	if err := f.Volumes.EnsureTool(ctx, s.Volume); err != nil {
 		return err
 	}
 	switch mode {

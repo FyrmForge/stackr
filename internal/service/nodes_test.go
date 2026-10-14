@@ -1,6 +1,9 @@
 package service
 
 import (
+	"archive/tar"
+	"bytes"
+	"compress/gzip"
 	"context"
 	"encoding/json"
 	"errors"
@@ -107,6 +110,48 @@ func callNames(f *dockerfake.Fake) []string {
 
 func sawCall(f *dockerfake.Fake, prefix string) bool {
 	return slices.ContainsFunc(f.Calls(), func(c dockerfake.Call) bool { return strings.HasPrefix(c.String(), prefix) })
+}
+
+// A tar backup of a volume runs on the volume's node, through the router:
+// the tool pull and the tar reach that node's daemon, the other's is never
+// asked. A pull without the node is refused by the router with ErrNoNode.
+func TestTarBackupRunsOnVolumeNode(t *testing.T) {
+	n := newTwoNodes(t)
+	ctx := context.Background()
+	var buf bytes.Buffer // an empty tar, gzipped: what the helper would stream
+	gz := gzip.NewWriter(&buf)
+	must(t, tar.NewWriter(gz).Close())
+	must(t, gz.Close())
+	n.ctlFake.TarOut, n.wFake.TarOut = buf.Bytes(), buf.Bytes()
+	for _, c := range []struct {
+		env         Environment
+		mine, other *dockerfake.Fake
+	}{{n.dev, n.ctlFake, n.wFake}, {n.edge, n.wFake, n.ctlFake}} {
+		v, err := n.orch.DeclareVolume(ctx, VolumeScope{Kind: "env", ID: c.env.ID}, "data-"+c.env.Slug, 0)
+		must(t, err)
+		j, err := n.orch.BackupNow(ctx, v.ID, "", "volume", "live")
+		must(t, err)
+		if j = n.wait(t, j); j.State != job.Done {
+			t.Fatalf("%s backup = %s %q", c.env.Slug, j.State, j.Error)
+		}
+		if !sawCall(c.mine, "EnsureTool") || !sawCall(c.mine, "TarVolume("+v.Name+")") {
+			t.Errorf("%s: the node's daemon missed the tar: %v", c.env.Slug, callNames(c.mine))
+		}
+		if sawCall(c.other, "TarVolume("+v.Name+")") {
+			t.Errorf("%s: the tar reached the other node", c.env.Slug)
+		}
+		// The restore's pre-restore backup and untar run there too.
+		runs, err := n.orch.BackupRuns(ctx, v.ID)
+		must(t, err)
+		j, err = n.orch.RestoreBackup(ctx, nil, runs[0].ID, v.ID, v.ID)
+		must(t, err)
+		if j = n.wait(t, j); j.State != job.Done {
+			t.Fatalf("%s restore = %s %q", c.env.Slug, j.State, j.Error)
+		}
+		if !sawCall(c.mine, "UntarVolume("+v.Name+")") || sawCall(c.other, "UntarVolume("+v.Name+")") {
+			t.Errorf("%s: the untar did not stay on the node: %v", c.env.Slug, callNames(c.mine))
+		}
+	}
 }
 
 // The VIP table of a node is the one its calls reach; no node is an error.
