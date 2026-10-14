@@ -27,3 +27,14 @@ func TestNodeDownBanner(t *testing.T) {
 		t.Error("an empty NodeDown rendered a banner")
 	}
 }
+
+// A skipped job (its node was offline) reads as a muted word, not a failure.
+func TestSkippedJobBadgeIsMuted(t *testing.T) {
+	var b strings.Builder
+	if err := JobBadge("skipped").Render(context.Background(), &b); err != nil {
+		t.Fatal(err)
+	}
+	if got := b.String(); !strings.Contains(got, "skipped") || !strings.Contains(got, "text-rw-muted") {
+		t.Errorf("badge = %s", got)
+	}
+}

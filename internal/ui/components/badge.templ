@@ -45,7 +45,7 @@ var tileTone = map[string]string{
 	"unhealthy":   "bad",
 }
 
-var jobTone = map[string]string{"queued": "busy", "running": "busy", "waiting": "warn", "done": "ok", "failed": "bad"}
+var jobTone = map[string]string{"queued": "busy", "running": "busy", "waiting": "warn", "done": "ok", "failed": "bad", "skipped": "muted"}
 
 // toneClass and dotClass spell every class in full so tailwind keeps them.
 // busy has no v0 twin; v0 painted queued and building warn, so busy is warn.

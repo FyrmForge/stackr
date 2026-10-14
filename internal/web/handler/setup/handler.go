@@ -468,6 +468,8 @@ func workLine(j service.Job) string {
 		return "The apply was cancelled."
 	case "superseded":
 		return "A newer apply replaced this one."
+	case "skipped":
+		return "The apply was skipped; its node was offline."
 	}
 	return ""
 }
