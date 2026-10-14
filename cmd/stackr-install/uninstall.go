@@ -129,7 +129,8 @@ func (e uninstallEnv) run(ctx context.Context, purge bool) error {
 		return errors.Join(errs...)
 	}
 	r.say("Purging volumes, images and state")
-	e.removeAll(ctx, "docker", []string{"volume", "ls", "-q", "--filter", managedLabel}, []string{"volume", "rm"}, fail, "stackr-caddy")
+	e.removeAll(ctx, "docker", []string{"volume", "ls", "-q", "--filter", managedLabel}, []string{"volume", "rm"}, fail)
+	try("docker", "volume", "rm", "stackr-caddy") // an ingress node's only
 	e.removeImages(ctx, fail)
 	fail(r.run(ctx, "rm", "-rf", e.stateDir))
 	r.say("Done. stackr is off this box.")
@@ -152,20 +153,35 @@ func (e uninstallEnv) removeAll(ctx context.Context, bin string, query, rm []str
 	}
 }
 
-// removeImages removes stackr's images: the panel image by release, the
-// cluster's system images, and whatever carries the managed label.
+// removeImages removes stackr's images: the panel image by release,
+// whatever carries the managed label, and every image pulled through the
+// registry front (localhost:<port>/...: the system images at any depth and
+// the orgs' tile images).
 func (e uninstallEnv) removeImages(ctx context.Context, fail func(error)) {
 	var ids []string
-	for _, f := range []string{managedLabel, "reference=" + installspec.Repo, "reference=localhost:" + installspec.RegistryPort + "/stackr.system/*"} {
+	add := func(id string) {
+		if !slices.Contains(ids, id) {
+			ids = append(ids, id)
+		}
+	}
+	for _, f := range []string{managedLabel, "reference=" + installspec.Repo} {
 		out, err := e.read(ctx, "docker", "image", "ls", "-q", "--filter", f)
 		if err != nil {
 			fail(fmt.Errorf("docker image ls: %w", err))
 			continue
 		}
 		for _, id := range strings.Fields(out) {
-			if !slices.Contains(ids, id) {
-				ids = append(ids, id)
-			}
+			add(id)
+		}
+	}
+	out, err := e.read(ctx, "docker", "image", "ls", "--format", "{{.Repository}} {{.ID}}")
+	if err != nil {
+		fail(fmt.Errorf("docker image ls: %w", err))
+	}
+	front := "localhost:" + installspec.RegistryPort + "/"
+	for _, l := range strings.Split(out, "\n") {
+		if repo, id, ok := strings.Cut(strings.TrimSpace(l), " "); ok && strings.HasPrefix(repo, front) {
+			add(id)
 		}
 	}
 	if len(ids) > 0 {
