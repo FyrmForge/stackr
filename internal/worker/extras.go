@@ -50,6 +50,11 @@ type Facts struct {
 	// facts were read; the controller watches it move to tell a live
 	// tunnel from a dead one within a minute (keepalives every 25 s).
 	Rx map[string]int64 `json:"rx,omitempty"`
+	// Tx is the bytes sent to each wg peer (by public key).
+	Tx map[string]int64 `json:"tx,omitempty"`
+	// Handshake is each wg peer's last handshake, unix seconds; peers that
+	// never shook hands are left out.
+	Handshake map[string]int64 `json:"handshake,omitempty"`
 	// Ping is the ICMP round trip to each mesh peer, by transit address.
 	Ping map[string]PeerPing `json:"ping,omitempty"`
 	// Resolvers are the host's IPv4 DNS servers.
@@ -272,9 +277,15 @@ func (s *Server) Facts(ctx context.Context) Facts {
 			}
 		}
 		if st, err := s.cfg.Mesh.WG.Stats(mesh.Iface); err == nil && len(st) > 0 {
-			f.Rx = map[string]int64{}
+			f.Rx, f.Tx = map[string]int64{}, map[string]int64{}
 			for k, p := range st {
-				f.Rx[k] = p.Rx
+				f.Rx[k], f.Tx[k] = p.Rx, p.Tx
+				if !p.Handshake.IsZero() {
+					if f.Handshake == nil {
+						f.Handshake = map[string]int64{}
+					}
+					f.Handshake[k] = p.Handshake.Unix()
+				}
 			}
 		}
 		f.Ping = s.pingPeers(ctx)

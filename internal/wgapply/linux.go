@@ -167,7 +167,7 @@ func (Kernel) Stats(iface string) (map[string]PeerStat, error) {
 	}
 	out := map[string]PeerStat{}
 	for _, p := range dev.Peers {
-		st := PeerStat{Handshake: p.LastHandshakeTime, Rx: p.ReceiveBytes}
+		st := PeerStat{Handshake: p.LastHandshakeTime, Rx: p.ReceiveBytes, Tx: p.TransmitBytes}
 		if p.Endpoint != nil {
 			st.Endpoint = p.Endpoint.AddrPort()
 		}

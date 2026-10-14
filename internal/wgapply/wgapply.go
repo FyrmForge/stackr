@@ -51,6 +51,7 @@ type Applier interface {
 type PeerStat struct {
 	Handshake time.Time
 	Rx        int64
+	Tx        int64
 	Endpoint  netip.AddrPort
 }
 
