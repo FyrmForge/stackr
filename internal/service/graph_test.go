@@ -362,7 +362,7 @@ func TestCanvasEnv(t *testing.T) {
 	ns := nodes(v)
 	api := ns[w.api]
 	if api.Status != "error" || len(api.Domains) != 1 || len(api.Subs) != 1 || api.Subs[0].ID != w.vols["uploads"] ||
-		api.H != 96 || api.Detail != "api" {
+		api.H != 104 || api.Detail != "api" {
 		t.Errorf("api = %+v", api)
 	}
 	if sl := ns[w.slice]; len(sl.Subs) != 0 || sl.Detail != "database on pg" || sl.Consumers != 1 {
