@@ -66,6 +66,9 @@ type Spec struct {
 	Trigger    string  // schedule | manual | pre-restore | orphan
 	Mode       string  // pause | stop | live; ignored when the subject dumps
 	Keep       int
+	// Held: the caller already stopped every holder (a node backup or
+	// remove), so a live copy is not torn and the log says so.
+	Held bool
 	// GroupID ties the run to a node backup group. A group run may name a
 	// volume with no row (empty ID); its archive is named by the Docker volume.
 	GroupID string
@@ -131,7 +134,7 @@ func (f *Flow) write(ctx context.Context, s Subject, sp Spec, log io.Writer) (st
 	if s.dumps() {
 		err = f.dump(ctx, s, enc, log)
 	} else {
-		err = f.tar(ctx, s, sp.Mode, enc, log)
+		err = f.tar(ctx, s, sp.Mode, sp.Held, enc, log)
 	}
 	if err == nil {
 		err = enc.Close()
@@ -175,15 +178,17 @@ func (f *Flow) dump(ctx context.Context, s Subject, w io.Writer, log io.Writer) 
 }
 
 // tar freezes the holders by mode and tars the volume (the helper gzips).
-func (f *Flow) tar(ctx context.Context, s Subject, mode string, w io.Writer, log io.Writer) error {
+func (f *Flow) tar(ctx context.Context, s Subject, mode string, held bool, w io.Writer, log io.Writer) error {
 	// Before the freeze: a pull inside the pause window is downtime.
 	if err := f.Volumes.EnsureTool(ctx, s.Volume); err != nil {
 		return err
 	}
-	switch mode {
-	case bk.Live:
+	switch {
+	case held:
+		logf(log, "copying %s (its tiles are stopped)\n", cmp.Or(s.Volume.Slug, s.Volume.Name))
+	case mode == bk.Live:
 		logf(log, "copying %s live (a torn copy is possible)\n", s.Volume.Slug)
-	case bk.Stop:
+	case mode == bk.Stop:
 		logf(log, "stopping holders of %s\n", s.Volume.Slug)
 		resume, err := f.Tiles.Quiesce(ctx, s.Holders)
 		if err != nil {

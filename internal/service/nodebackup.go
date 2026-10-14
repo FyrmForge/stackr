@@ -174,9 +174,9 @@ func groupLabel(n store.Node, now time.Time, suffix string) string {
 }
 
 func (o *Orchestrator) groupSpec(n store.Node, g store.BackupGroup, dest store.BackupDest) fbackup.Spec {
-	// live: the holders are stopped, or (a dump) the engine runs on purpose.
+	// live: the holders are stopped (Held), or (a dump) the engine runs on purpose.
 	return fbackup.Spec{
-		Dest: dest, Prefix: backup.NodePrefix(n.Name, g.ID), Trigger: triggerNode, Mode: backup.Live, GroupID: g.ID,
+		Dest: dest, Prefix: backup.NodePrefix(n.Name, g.ID), Trigger: triggerNode, Mode: backup.Live, Held: true, GroupID: g.ID,
 	}
 }
 

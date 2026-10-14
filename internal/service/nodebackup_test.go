@@ -69,6 +69,9 @@ func TestRunNodeBackupDumpsThenStopsTarsStarts(t *testing.T) {
 		t.Fatalf("job %s: %s", j.State, j.Error)
 	}
 
+	if _, l, err := n.orch.PollJob(ctx, j.ID, 0); err != nil || !strings.Contains(string(l.Chunk), "(its tiles are stopped)") || strings.Contains(string(l.Chunk), "torn copy") {
+		t.Errorf("log = %q %v; want the stopped wording, not a torn copy", l.Chunk, err)
+	}
 	dump, stop, tar, start := indexOf(n.wFake, "ExecStream("), indexOf(n.wFake, "Stop("), indexOf(n.wFake, "TarVolume("), indexOf(n.wFake, "Start(")
 	if dump < 0 || stop < 0 || tar < 0 || start < 0 || dump >= stop || stop >= tar || tar >= start {
 		t.Errorf("order dump %d stop %d tar %d start %d: %v", dump, stop, tar, start, callNames(n.wFake))
