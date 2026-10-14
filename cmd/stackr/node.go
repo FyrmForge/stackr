@@ -534,6 +534,9 @@ func (a *app) nodeRemove() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if cell(n["role"]) == "controller" { // before any move: --move-to would empty it first
+				return fmt.Errorf("%s is the controller; it cannot be removed", name)
+			}
 			envs := asList(n["env_list"])
 			if len(envs) > 0 && moveTo == "" {
 				return fmt.Errorf("%s runs %s. Move them first: stackr env move <env> --to <node>, or pass --move-to <node>", name, plural(len(envs), "env", "envs"))
