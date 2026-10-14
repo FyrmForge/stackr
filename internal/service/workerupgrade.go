@@ -231,6 +231,9 @@ func (o *Orchestrator) WorkerRollout(ctx context.Context) (Rollout, error) {
 		if f := o.reportedFacts(ctx, n); f != nil {
 			row.Current, row.Behind = f.Version, o.workerBehind(n, f)
 		}
+		if row.State == stateDone && row.Behind {
+			row.State = "" // done for an older build: the panel moved on, it is behind again
+		}
 		out.Nodes = append(out.Nodes, row)
 	}
 	return out, nil

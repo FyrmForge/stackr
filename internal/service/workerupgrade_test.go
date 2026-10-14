@@ -373,3 +373,22 @@ func TestWorkerRolloutView(t *testing.T) {
 		t.Fatalf("view = %+v", v)
 	}
 }
+
+// A worker done for an older build reads behind once the panel moves on.
+func TestWorkerRolloutViewDoneThenBehind(t *testing.T) {
+	r := newRolloutRig(t)
+	ctx := context.Background()
+	o := r.n.orch
+	o.setUpgrade(ctx, "w1", nodeUpgrade{Version: "v9.8.0", State: stateDone, At: time.Now()})
+	o.mesh.Report(ctx, "w1", worker.Facts{Version: "v9.8.0"})
+	v, err := o.WorkerRollout(ctx)
+	must(t, err)
+	if g := v.Nodes[0]; g.State != "" || !g.Behind {
+		t.Fatalf("row = %+v", g)
+	}
+	o.mesh.Report(ctx, "w1", worker.Facts{Version: "v9.9.9"})
+	o.setUpgrade(ctx, "w1", nodeUpgrade{Version: "v9.9.9", State: stateDone, At: time.Now()})
+	if v, _ = o.WorkerRollout(ctx); v.Nodes[0].State != stateDone || v.Nodes[0].Behind {
+		t.Fatalf("row = %+v", v.Nodes[0])
+	}
+}
