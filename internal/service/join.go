@@ -142,6 +142,9 @@ func (o *Orchestrator) panelURL() string {
 
 // CreateJoinToken (server admin) mints a token for a node name and tags.
 func (o *Orchestrator) CreateJoinToken(ctx context.Context, by *Principal, spec JoinTokenSpec) (JoinTokenOut, error) {
+	if err := nodeAdmin(by); err != nil {
+		return JoinTokenOut{}, err
+	}
 	name := strings.TrimSpace(spec.NodeName)
 	if !joinNameRE.MatchString(name) || name == "controller" {
 		return JoinTokenOut{}, errs.Invalidf("node_name", "use lowercase letters, digits and dashes, up to 32 characters")
@@ -298,7 +301,14 @@ func (o *Orchestrator) JoinStatus(ctx context.Context, token string) (JoinStatus
 }
 
 // PendingJoins (server admin) lists nodes waiting to be confirmed.
-func (o *Orchestrator) PendingJoins(ctx context.Context) ([]PendingJoin, error) {
+func (o *Orchestrator) PendingJoins(ctx context.Context, by *Principal) ([]PendingJoin, error) {
+	if err := nodeAdmin(by); err != nil {
+		return nil, err
+	}
+	return o.pendingJoins(ctx)
+}
+
+func (o *Orchestrator) pendingJoins(ctx context.Context) ([]PendingJoin, error) {
 	rows, err := jointoken.New(o.store.JoinTokens).Used(ctx)
 	if err != nil {
 		return nil, err
@@ -321,6 +331,9 @@ func (o *Orchestrator) PendingJoins(ctx context.Context) ([]PendingJoin, error) 
 // ConfirmJoin (server admin) gives a pending node its transit address and issues its
 // cert from the cluster CA. The worker fetches the cert through JoinStatus.
 func (o *Orchestrator) ConfirmJoin(ctx context.Context, by *Principal, nodeID string) (JoinedNode, error) {
+	if err := nodeAdmin(by); err != nil {
+		return JoinedNode{}, err
+	}
 	row, err := jointoken.New(o.store.JoinTokens).ByNode(ctx, nodeID)
 	if err != nil {
 		return JoinedNode{}, err
@@ -385,6 +398,9 @@ func (o *Orchestrator) ConfirmJoin(ctx context.Context, by *Principal, nodeID st
 // RejectJoin (server admin) turns a pending node away and deletes its row; a
 // pending rejoin goes back to needs-rejoin, `node rejoin` mints a fresh command.
 func (o *Orchestrator) RejectJoin(ctx context.Context, by *Principal, nodeID string) error {
+	if err := nodeAdmin(by); err != nil {
+		return err
+	}
 	row, err := jointoken.New(o.store.JoinTokens).ByNode(ctx, nodeID)
 	if err != nil {
 		return err

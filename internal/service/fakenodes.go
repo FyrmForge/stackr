@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 
+	"github.com/FyrmForge/stackr/internal/authz"
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/node"
 )
@@ -18,7 +19,7 @@ func (o *Orchestrator) FakeJoinNode(ctx context.Context, name string, tags []str
 	if o.cfg.FakeHost == "" {
 		return JoinStatus{}, errs.Refusedf("Fake nodes exist only on the fake host.")
 	}
-	by := &Principal{User: User{ID: "fake-host"}}
+	by := &Principal{User: User{ID: "fake-host"}, Access: authz.User{ID: "fake-host", Active: true, Admin: true}}
 	tok, err := o.CreateJoinToken(ctx, by, JoinTokenSpec{NodeName: name, Tags: tags})
 	if err != nil {
 		return JoinStatus{}, err

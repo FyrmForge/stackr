@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/FyrmForge/stackr/internal/authz"
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/job"
@@ -20,7 +21,7 @@ func secWorld(t *testing.T) (*world, *Principal) {
 	w := newWorld(t)
 	u, err := w.orch.users.CreateAdmin(context.Background(), "adm@x.test", adminPW, "Adm")
 	must(t, err)
-	return w, &Principal{User: u, KeyID: "k-1"}
+	return w, &Principal{User: u, KeyID: "k-1", Access: authz.User{ID: u.ID, Active: true, Admin: true}}
 }
 
 // events is the log for one action, newest first.

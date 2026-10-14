@@ -184,7 +184,7 @@ func TestJoinConfirmIssuesCert(t *testing.T) {
 	if s, _ := w.orch.JoinStatus(ctx, t1.Token); s.Status != JoinPending || s.CertPEM != "" {
 		t.Errorf("status = %+v", s)
 	}
-	pend, err := w.orch.PendingJoins(ctx)
+	pend, err := w.orch.PendingJoins(ctx, adm)
 	if err != nil || len(pend) != 1 || pend[0].NodeID != st1.NodeID || pend[0].Name != "w1" || pend[0].Tags[0] != "builder" {
 		t.Fatalf("pending = %+v %v", pend, err)
 	}
@@ -232,7 +232,7 @@ func TestJoinConfirmIssuesCert(t *testing.T) {
 	if err := w.orch.RejectJoin(ctx, adm, st1.NodeID); !isNotFound(err) {
 		t.Errorf("reject after confirm = %v", err)
 	}
-	if p, _ := w.orch.PendingJoins(ctx); len(p) != 0 {
+	if p, _ := w.orch.PendingJoins(ctx, adm); len(p) != 0 {
 		t.Errorf("pending = %+v", p)
 	}
 
