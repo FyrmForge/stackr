@@ -3,6 +3,7 @@ package admin_test
 import (
 	"net/http"
 	"net/url"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -78,5 +79,28 @@ func TestAdminNodes(t *testing.T) {
 		if rec := s.Do(t, c.method, c.path, url.Values{"name": {"w1"}}); rec.Code != http.StatusForbidden {
 			t.Errorf("owner %s %s = %d, want 403", c.method, c.path, rec.Code)
 		}
+	}
+}
+
+// The node drawer's overview is four cards: "1 core" and the arch. Tunnel rows
+// need a live mesh, so the ui package's test pins those.
+func TestAdminNodeOverview(t *testing.T) {
+	s := webtest.New(t)
+	root := s.Session(t, s.User(t, "root@x.test", true))
+	s.Docker.Host.CPUs = 1
+	s.Worker(t, "h4", "fp")
+	ns, err := s.Orch.Nodes(t.Context())
+	if err != nil || len(ns) != 2 {
+		t.Fatalf("nodes = %+v, %v", ns, err)
+	}
+	rec := s.As(t, root, "GET", "/-/admin/nodes/"+ns[0].ID, nil)
+	body := rec.Body.String()
+	for _, want := range []string{"1 core", runtime.GOARCH, "just now","Addresses", "Machine", "Tunnels"} {
+		if rec.Code != http.StatusOK || !strings.Contains(body, want) {
+			t.Fatalf("overview = %d, no %q in\n%s", rec.Code, want, body)
+		}
+	}
+	if strings.Contains(body, "1 cores") {
+		t.Errorf("1 cores\n%s", body)
 	}
 }

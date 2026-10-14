@@ -102,10 +102,13 @@ type NodeView struct {
 	Controller             bool
 	Tags                   []string
 	// Overview
-	Range, WGAddress                  string
-	Docker, Kernel, Hardware, Disk    string
-	Uptime                            string
-	HasFacts                          bool
+	Range, WGAddress               string
+	Docker, Kernel, Disk, Uptime   string
+	Version, LastSeen, CertExpiry  string // Version "" = not reported
+	Arch, Mem                      string
+	Cores                          int
+	HasFacts                       bool
+	Tunnels                        []TunnelRow
 	// Envs
 	Envs []NodeEnvRow
 	// Network
@@ -134,7 +137,11 @@ type NodeEnvRow struct {
 	Tiles     int
 }
 
-type IfaceRow struct{ Name, Addr, Kind string }
+// IfaceRow is one address; Group is a service.Iface* constant.
+type IfaceRow struct{ Group, Name, Addr, Label string }
+
+// TunnelRow is one peer of the node. Open is a GET answering the tunnel drawer.
+type TunnelRow struct{ Name, Dials, Ping, Open string }
 
 type NodeOrgRow struct {
 	ID, Name string
@@ -164,6 +171,39 @@ func statusTone(s string) string {
 		return "warn"
 	}
 	return "danger"
+}
+
+// statusDot and statusText spell every class in full so tailwind keeps them;
+// the tones match the cluster map's.
+func statusDot(s string) string {
+	switch statusTone(s) {
+	case "success":
+		return "bg-rw-success"
+	case "warn":
+		return "bg-rw-warn"
+	}
+	return "bg-rw-danger"
+}
+
+func statusText(s string) string {
+	switch statusTone(s) {
+	case "success":
+		return "text-rw-success"
+	case "warn":
+		return "text-rw-warn"
+	}
+	return "text-rw-danger"
+}
+
+// ifaces are the rows of one group.
+func ifaces(rows []IfaceRow, group string) []IfaceRow {
+	var out []IfaceRow
+	for _, r := range rows {
+		if r.Group == group {
+			out = append(out, r)
+		}
+	}
+	return out
 }
 
 func statusWord(s string) string {
@@ -431,20 +471,20 @@ templ NodeBody(tab string, v NodeView) {
 					}
 				}
 			case "network":
-				@c.Section("Interfaces", "", "Reported by the node.") {
-					if len(v.Ifaces) == 0 {
+				if len(v.Ifaces) == 0 {
+					@c.Section("Interfaces", "", "Reported by the node.") {
 						<p class="text-sm text-rw-faint">Nothing reported yet.</p>
-					} else {
-						<ul class="space-y-2">
-							for _, i := range v.Ifaces {
-								<li class="panel px-4 py-2 text-sm flex flex-wrap items-center gap-3">
-									<span class="font-mono text-rw-text">{ i.Name }</span>
-									<span class="font-mono text-xs text-rw-muted">{ i.Addr }</span>
-									@c.Chip(i.Kind, "")
-								</li>
-							}
-						</ul>
 					}
+				}
+				@ifaceSection("Public", "Reachable from the internet.", ifaces(v.Ifaces, "public"))
+				@ifaceSection("LAN", "Private networks this machine sits on.", ifaces(v.Ifaces, "lan"))
+				@ifaceSection("Cluster", "The tunnel and the env networks.", ifaces(v.Ifaces, "cluster"))
+				@ifaceSection("Docker", "Docker's own bridges.", ifaces(v.Ifaces, "docker"))
+				if hidden := ifaces(v.Ifaces, "hidden"); len(hidden) > 0 {
+					<details class="mb-6 text-sm">
+						<summary class="cursor-pointer text-rw-muted hover:text-rw-text">Show all</summary>
+						@ifaceList(hidden)
+					</details>
 				}
 			case "tags":
 				@c.Section("Tags", "", "What this node can do.") {
@@ -529,33 +569,99 @@ templ NodeBody(tab string, v NodeView) {
 				}
 			default:
 				@c.Section("Node", "", "") {
-					<dl class="text-sm grid grid-cols-[8rem_1fr] gap-y-1">
+					<dl class="panel px-4 py-3 text-sm grid grid-cols-[8rem_1fr] gap-y-1">
 						<dt class="text-rw-muted">Status</dt>
-						<dd class="text-rw-text">{ statusWord(v.Status) }</dd>
-						if v.Range != "" {
-							<dt class="text-rw-muted">Networks</dt>
-							<dd class="font-mono text-xs text-rw-text">{ v.Range }</dd>
-						}
-						if v.WGAddress != "" {
-							<dt class="text-rw-muted">Address</dt>
-							<dd class="font-mono text-xs text-rw-text">{ v.WGAddress }</dd>
-						}
-						if v.HasFacts {
-							<dt class="text-rw-muted">Hardware</dt>
-							<dd class="text-rw-text">{ v.Hardware }</dd>
-							<dt class="text-rw-muted">System</dt>
-							<dd class="text-rw-text">{ v.Kernel }</dd>
-							<dt class="text-rw-muted">Docker</dt>
-							<dd class="text-rw-text">{ v.Docker }</dd>
-							<dt class="text-rw-muted">Up</dt>
-							<dd class="text-rw-text">{ v.Uptime }</dd>
-							<dt class="text-rw-muted">Disk</dt>
-							<dd class="text-rw-text">{ v.Disk }</dd>
+						<dd class="text-rw-text flex items-center gap-2">
+							<span class={ "inline-block size-2 rounded-full", statusDot(v.Status) } aria-hidden="true"></span>
+							<span class={ statusText(v.Status) }>{ statusWord(v.Status) }</span>
+						</dd>
+						<dt class="text-rw-muted">Role</dt>
+						<dd class="text-rw-text">{ v.Role }</dd>
+						<dt class="text-rw-muted">Tags</dt>
+						<dd class="flex flex-wrap gap-1">
+							for _, t := range v.Tags {
+								@c.Chip(t, "accent")
+							}
+							if len(v.Tags) == 0 {
+								<span class="text-rw-faint">no tags</span>
+							}
+						</dd>
+						<dt class="text-rw-muted">Stackr</dt>
+						if v.Version != "" {
+							<dd class="font-mono text-xs text-rw-text">{ v.Version }</dd>
 						} else {
-							<dt class="text-rw-muted">Hardware</dt>
-							<dd class="text-rw-faint">Not reported yet.</dd>
+							<dd class="text-rw-faint">not reported</dd>
+						}
+						<dt class="text-rw-muted">Last seen</dt>
+						<dd class="text-rw-text">{ v.LastSeen }</dd>
+						if v.CertExpiry != "" {
+							<dt class="text-rw-muted">Certificate</dt>
+							<dd class="text-rw-text">expires { v.CertExpiry }</dd>
 						}
 					</dl>
+				}
+				@c.Section("Addresses", "", "") {
+					<dl class="panel px-4 py-3 text-sm grid grid-cols-[8rem_1fr] gap-y-1">
+						@addrRow("Public", ifaces(v.Ifaces, "public"))
+						@addrRow("LAN", ifaces(v.Ifaces, "lan"))
+						if v.WGAddress != "" {
+							<dt class="text-rw-muted">Tunnel</dt>
+							<dd class="font-mono text-xs text-rw-text">{ v.WGAddress }</dd>
+						}
+						if v.Range != "" {
+							<dt class="text-rw-muted">Env range</dt>
+							<dd class="font-mono text-xs text-rw-text">{ v.Range }</dd>
+						}
+					</dl>
+				}
+				@c.Section("Machine", "", "") {
+					if v.HasFacts {
+						<dl class="panel px-4 py-3 text-sm grid grid-cols-[8rem_1fr] gap-y-1">
+							<dt class="text-rw-muted">Arch</dt>
+							<dd>
+								if v.Arch != "" {
+									@c.Chip(v.Arch, "")
+								} else {
+									<span class="text-rw-faint">not reported</span>
+								}
+							</dd>
+							<dt class="text-rw-muted">Cores</dt>
+							<dd class="text-rw-text">{ plural(v.Cores, "core") }</dd>
+							<dt class="text-rw-muted">Memory</dt>
+							<dd class="text-rw-text">{ v.Mem }</dd>
+							<dt class="text-rw-muted">Disk</dt>
+							<dd class="text-rw-text">{ v.Disk }</dd>
+							<dt class="text-rw-muted">Kernel</dt>
+							<dd class="font-mono text-xs text-rw-text">{ v.Kernel }</dd>
+							<dt class="text-rw-muted">Docker</dt>
+							<dd class="font-mono text-xs text-rw-text">{ v.Docker }</dd>
+							<dt class="text-rw-muted">Up</dt>
+							<dd class="text-rw-text">{ v.Uptime }</dd>
+						</dl>
+					} else {
+						<p class="text-sm text-rw-faint">Not reported yet.</p>
+					}
+				}
+				@c.Section("Tunnels", "", "Click one for its detail.") {
+					if len(v.Tunnels) == 0 {
+						<p class="text-sm text-rw-faint">No tunnels.</p>
+					} else {
+						<ul class="space-y-2">
+							for _, t := range v.Tunnels {
+								<li>
+									<button type="button" hx-get={ t.Open } hx-target="#drawer-body" hx-push-url="false" class="panel w-full px-4 py-2 text-sm flex flex-wrap items-center gap-3 text-left hover:bg-rw-raised">
+										<span class="text-rw-text font-medium">{ t.Name }</span>
+										if t.Ping != "" {
+											<span class="font-mono text-xs text-rw-muted">{ t.Ping }</span>
+										}
+										if t.Dials != "" {
+											<span class="ml-auto text-xs text-rw-muted">{ t.Dials }</span>
+										}
+									</button>
+								</li>
+							}
+						</ul>
+					}
 				}
 		}
 	</div>
@@ -580,6 +686,39 @@ func tagHelp(t string) string {
 		return "Builds images."
 	}
 	return ""
+}
+
+templ addrRow(label string, rows []IfaceRow) {
+	if len(rows) > 0 {
+		<dt class="text-rw-muted">{ label }</dt>
+		<dd class="font-mono text-xs text-rw-text">
+			for _, r := range rows {
+				<div>{ r.Addr }</div>
+			}
+		</dd>
+	}
+}
+
+templ ifaceSection(title, help string, rows []IfaceRow) {
+	if len(rows) > 0 {
+		@c.Section(title, "", help) {
+			@ifaceList(rows)
+		}
+	}
+}
+
+templ ifaceList(rows []IfaceRow) {
+	<ul class="space-y-2 mt-2">
+		for _, i := range rows {
+			<li class="panel px-4 py-2 text-sm flex flex-wrap items-center gap-3">
+				<span class="font-mono text-rw-text">{ i.Name }</span>
+				<span class="font-mono text-xs text-rw-muted">{ i.Addr }</span>
+				if i.Label != "" {
+					@c.Chip(i.Label, "")
+				}
+			</li>
+		}
+	</ul>
 }
 
 // NodeBack is the link from a node drawer to the Nodes tab.

@@ -18,6 +18,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/middleware"
 	"github.com/FyrmForge/stackr/internal/service"
 	"github.com/FyrmForge/stackr/internal/service/errs"
+	clusterui "github.com/FyrmForge/stackr/internal/ui/cluster"
 	comp "github.com/FyrmForge/stackr/internal/ui/components"
 	ui "github.com/FyrmForge/stackr/internal/ui/drawer/admin"
 	"github.com/FyrmForge/stackr/internal/web/render"
@@ -375,24 +376,28 @@ func (h *handler) nodeView(c echo.Context, d service.NodeDetail, base string) (u
 		ID: d.ID, Name: d.Name, Role: d.Role, Status: d.Status, Controller: d.Controller, Tags: d.Tags,
 		Range: d.Range, WGAddress: d.WGAddress, AllTags: service.NodeTags, TagsAction: base + "/tags",
 	}
-	if f := d.Facts; f != nil {
+	ctx := c.Request().Context()
+	live, err := h.orch.NodeLive(ctx, d.ID)
+	if err != nil {
+		return v, err
+	}
+	if f := live.Facts; f != nil {
 		v.HasFacts = true
-		v.Hardware = fmt.Sprintf("%d cores · %s", f.CPUs, gb(f.MemBytes))
+		v.Arch, v.Version, v.Cores, v.Mem = f.Arch, f.Version, f.CPUs, gb(f.MemBytes)
 		v.Kernel, v.Docker = f.Kernel, f.Docker
 		v.Uptime = uptime(time.Duration(f.UptimeS) * time.Second)
 		v.Disk = render.Size(int64(f.DiskFree)) + " free"
-		for _, i := range f.Interfaces {
-			kind := "private network"
-			switch {
-			case i.Public:
-				kind = "public"
-			case strings.HasPrefix(i.Name, "wg"):
-				kind = "cluster"
-			}
-			for _, p := range i.Prefixes {
-				v.Ifaces = append(v.Ifaces, ui.IfaceRow{Name: i.Name, Addr: p, Kind: kind})
-			}
-		}
+	}
+	v.LastSeen = ago(live.LastSeen)
+	for _, i := range live.Ifaces {
+		v.Ifaces = append(v.Ifaces, ui.IfaceRow{Group: i.Group, Name: i.Name, Addr: i.Addr, Label: i.Label})
+	}
+	tuns, err := h.orch.NodeTunnels(ctx, d.ID)
+	if err != nil {
+		return v, err
+	}
+	for _, t := range tuns {
+		v.Tunnels = append(v.Tunnels, tunnelRow(d.ID, t))
 	}
 	x, err := h.orch.NodeExits(c.Request().Context(), d.ID)
 	if err != nil {
@@ -417,18 +422,25 @@ func (h *handler) nodeView(c echo.Context, d service.NodeDetail, base string) (u
 	for _, o := range d.Orgs {
 		v.Orgs = append(v.Orgs, ui.NodeOrgRow{ID: o.ID, Name: o.Name, On: o.On})
 	}
+	var newest time.Time // the newest valid cert's expiry
 	for _, ce := range d.Certs {
 		st := "valid"
-		if ce.Revoked {
+		switch {
+		case ce.Revoked:
 			st = "revoked"
-		} else if time.Now().After(ce.NotAfter) {
+		case time.Now().After(ce.NotAfter):
 			st = "expired"
+		case ce.NotAfter.After(newest):
+			newest = ce.NotAfter
 		}
 		v.Certs = append(v.Certs, ui.CertRow{
 			Serial: ce.Serial, State: st,
 			Issued: ce.IssuedAt.Format("Jan 2, 2006"), Expires: ce.NotAfter.Format("Jan 2, 2006"),
 			RenewFrom: ce.RenewFrom.Format("Jan 2"),
 		})
+	}
+	if !newest.IsZero() {
+		v.CertExpiry = newest.Format("Jan 2, 2006")
 	}
 	v.Rotate = base + "/rotate"
 	if !d.Controller {
@@ -461,6 +473,47 @@ func (h *handler) nodeView(c echo.Context, d service.NodeDetail, base string) (u
 		}
 	}
 	return v, nil
+}
+
+// tunnelRow is one peer of the node: who dials, the ping, and the tunnel
+// drawer that opens in place.
+func tunnelRow(self string, t service.NodeTunnel) ui.TunnelRow {
+	l := t.Link
+	me, peer := l.Ends[0], l.Ends[1]
+	if l.B == self {
+		me, peer = peer, me
+	}
+	r := ui.TunnelRow{Name: t.PeerName, Open: clusterui.TunnelDrawer(self, t.Peer)}
+	switch {
+	case l.Via != "":
+		r.Dials = "via " + l.Via
+	case me.Dials && peer.Dials:
+		r.Dials = "both dial"
+	case me.Dials:
+		r.Dials = "this node dials"
+	case peer.Dials:
+		r.Dials = t.PeerName + " dials"
+	}
+	if l.MS >= 0 {
+		r.Ping = strconv.FormatFloat(l.MS, 'f', -1, 64) + " ms"
+	}
+	return r
+}
+
+// ago reads "just now", "5 min ago", "3 h ago", "2 days ago"; zero = never.
+func ago(t time.Time) string {
+	d := time.Since(t)
+	switch {
+	case t.IsZero():
+		return "not seen yet"
+	case d < time.Minute:
+		return "just now"
+	case d < time.Hour:
+		return fmt.Sprintf("%d min ago", int(d/time.Minute))
+	case d < 48*time.Hour:
+		return fmt.Sprintf("%d h ago", int(d/time.Hour))
+	}
+	return fmt.Sprintf("%d days ago", int(d/(24*time.Hour)))
 }
 
 func contains(xs []string, s string) bool {
