@@ -87,7 +87,7 @@ func TestBreakGlassRejectsPendingJoins(t *testing.T) {
 	_, err = o.RequestJoin(ctx, httpsMeta, joinReq(t, out.Token))
 	must(t, err)
 	must(t, o.BreakGlass(ctx, adm))
-	if p, _ := o.PendingJoins(ctx); len(p) != 0 {
+	if p, _ := o.PendingJoins(ctx, adm); len(p) != 0 {
 		t.Errorf("%d joins still pending", len(p))
 	}
 	if s, err := o.JoinStatus(ctx, out.Token); err != nil || s.Status != JoinRejected {
