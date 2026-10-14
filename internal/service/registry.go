@@ -44,8 +44,9 @@ func registryKeyOf(secretsKey string) []byte {
 // Caddy gets a token URL they can reach.
 func (o *Orchestrator) RegistryHandler() http.Handler {
 	key := o.registryKey()
-	backend, tr := o.regs.Backend()
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Per request: the mesh listener is made before the registry leaf.
+		backend, tr := o.regs.Backend()
 		scheme := "https"
 		if r.TLS == nil && o.cfg.TLSOff {
 			scheme = "http"
