@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/FyrmForge/stackr/internal/service/internal/store"
 	"github.com/FyrmForge/stackr/internal/worker"
 )
 
@@ -68,24 +69,29 @@ func TestNodeLive(t *testing.T) {
 func TestCertNote(t *testing.T) {
 	now := time.Date(2026, 10, 14, 12, 0, 0, 0, time.UTC)
 	day := 24 * time.Hour
-	cert := func(d time.Duration, gone bool) NodeCertInfo {
-		return NodeCertInfo{NotAfter: now.Add(d), Revoked: gone}
+	cert := func(d time.Duration, gone bool) store.NodeCert {
+		c := store.NodeCert{NotAfter: now.Add(d)}
+		if gone {
+			c.RevokedAt = &now
+		}
+		return c
 	}
 	for _, c := range []struct {
 		name    string
-		certs   []NodeCertInfo
+		certs   []store.NodeCert
 		expired bool
 		days    int
 	}{
 		{"none", nil, false, 0},
-		{"far", []NodeCertInfo{cert(60*day, false)}, false, 0},
-		{"exactly 14", []NodeCertInfo{cert(14*day, false)}, false, 0},
-		{"nine days", []NodeCertInfo{cert(9*day, false)}, false, 9},
-		{"part of a day counts", []NodeCertInfo{cert(8*day+time.Hour, false)}, false, 9},
-		{"expired", []NodeCertInfo{cert(-day, false)}, true, 0},
-		{"the newest decides", []NodeCertInfo{cert(-day, false), cert(60*day, false)}, false, 0},
-		{"revoked is not expired", []NodeCertInfo{cert(-day, true)}, false, 0},
-		{"revoked ignored", []NodeCertInfo{cert(2*day, true), cert(-day, false)}, true, 0},
+		{"far", []store.NodeCert{cert(60*day, false)}, false, 0},
+		{"exactly 14", []store.NodeCert{cert(14*day, false)}, false, 0},
+		{"nine days", []store.NodeCert{cert(9*day, false)}, false, 9},
+		{"part of a day counts", []store.NodeCert{cert(8*day+time.Hour, false)}, false, 9},
+		{"expired", []store.NodeCert{cert(-day, false)}, true, 0},
+		{"inside the clock slack", []store.NodeCert{cert(-time.Minute, false)}, false, 1},
+		{"the newest decides", []store.NodeCert{cert(-day, false), cert(60*day, false)}, false, 0},
+		{"revoked is not expired", []store.NodeCert{cert(-day, true)}, false, 0},
+		{"revoked ignored", []store.NodeCert{cert(2*day, true), cert(-day, false)}, true, 0},
 	} {
 		if e, d := certNote(c.certs, now); e != c.expired || d != c.days {
 			t.Errorf("%s: certNote = %v, %d; want %v, %d", c.name, e, d, c.expired, c.days)

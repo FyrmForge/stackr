@@ -12,7 +12,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/FyrmForge/stackr/internal/clusterca"
 	"github.com/FyrmForge/stackr/internal/mesh"
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/node"
@@ -296,32 +295,6 @@ func buildClusterMap(in []clusterNodeIn) ClusterMap {
 	return m
 }
 
-// certWarnDays is how close to its end a cert must be before the card says so.
-const certWarnDays = 14
-
-// clusterCertNote is the map card's cert note: the newest unrevoked cert has
-// run out (the rule of certExpired), or the days it has left when under
-// certWarnDays (rounded up, so the last day reads 1).
-// ponytail: merge with lane D1's certNote in nodelive.go at integration.
-func clusterCertNote(certs []store.NodeCert, now time.Time) (expired bool, days int) {
-	var newest time.Time
-	for _, c := range certs {
-		if c.RevokedAt == nil && c.NotAfter.After(newest) {
-			newest = c.NotAfter
-		}
-	}
-	if newest.IsZero() {
-		return false, 0
-	}
-	if now.Add(-clusterca.ClockSlack).After(newest) {
-		return true, 0
-	}
-	if left := newest.Sub(now); left < certWarnDays*24*time.Hour {
-		return false, int((left + 24*time.Hour - 1) / (24 * time.Hour))
-	}
-	return false, 0
-}
-
 // pingMS is the pair's ICMP round trip as either end measured it over the
 // mesh, the lower when both did. No reply on either side: not measured.
 func pingMS(a, b clusterNodeIn) (float64, bool) {
@@ -363,7 +336,7 @@ func (o *Orchestrator) ClusterMap(ctx context.Context) (ClusterMap, error) {
 			in[i].Behind = o.workerBehind(n, in[i].Facts)
 			if n.Role == node.Worker {
 				if cs, err := o.store.NodeCerts.ListByNode(ctx, n.ID); err == nil {
-					in[i].Expired, in[i].CertDays = clusterCertNote(cs, time.Now())
+					in[i].Expired, in[i].CertDays = certNote(cs, time.Now())
 				}
 			}
 		}()

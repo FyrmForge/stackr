@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/FyrmForge/stackr/internal/clusterca"
 	"github.com/FyrmForge/stackr/internal/mesh"
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/node"
@@ -49,24 +50,25 @@ type NodeLive struct {
 // certWarnDays is how close to its end a certificate gets a note.
 const certWarnDays = 14
 
-// certNote is the node drawer's certificate rule: of the certificates not
-// revoked, the newest decides. Past its end: expired. Under certWarnDays to go:
+// certNote is the certificate rule of the node drawer and the map card: of
+// the certificates not revoked, the newest decides. Past its end (with
+// ClockSlack, the rule of certExpired): expired. Under certWarnDays to go:
 // the whole days left, a part of a day counting as one. Nothing live (all
 // revoked, or none) says nothing: that node is mid-rejoin, not expired.
-func certNote(certs []NodeCertInfo, now time.Time) (expired bool, days int) {
+func certNote(certs []store.NodeCert, now time.Time) (expired bool, days int) {
 	var newest time.Time
 	for _, c := range certs {
-		if !c.Revoked && c.NotAfter.After(newest) {
+		if c.RevokedAt == nil && c.NotAfter.After(newest) {
 			newest = c.NotAfter
 		}
 	}
 	switch {
 	case newest.IsZero():
 		return false, 0
-	case !newest.After(now):
+	case now.Add(-clusterca.ClockSlack).After(newest):
 		return true, 0
 	}
-	if d := int(math.Ceil(newest.Sub(now).Hours() / 24)); d < certWarnDays {
+	if d := max(1, int(math.Ceil(newest.Sub(now).Hours()/24))); d < certWarnDays {
 		return false, d
 	}
 	return false, 0
@@ -99,11 +101,7 @@ func (o *Orchestrator) NodeLive(ctx context.Context, id string) (NodeLive, error
 		if err != nil {
 			return out, err
 		}
-		var certs []NodeCertInfo
-		for _, c := range cs {
-			certs = append(certs, NodeCertInfo{NotAfter: c.NotAfter, Revoked: c.RevokedAt != nil})
-		}
-		out.CertExpired, out.CertDays = certNote(certs, time.Now())
+		out.CertExpired, out.CertDays = certNote(cs, time.Now())
 		if f := out.Facts; f != nil {
 			out.Behind = o.workerBehind(n, f)
 			out.TooOld = !o.versionAllowed(ctx, f.Version)
