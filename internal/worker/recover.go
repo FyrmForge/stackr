@@ -34,6 +34,14 @@ const (
 	RecoverPath = "/api/v1/nodes/recover"
 )
 
+// GiveUpAfter is how long the panel may keep refusing a worker (403: the
+// cluster no longer knows it) before the worker stops asking.
+const GiveUpAfter = 24 * time.Hour
+
+// errPanelRefused is the panel's 403: this node was removed, or its cert is
+// no longer the cluster's. Matched by status, never by the body's words.
+var errPanelRefused = errors.New("panel refused this node")
+
 // recoverPause is the wait after a failed call: 30 s, 2 min, then 5 min.
 var recoverPause = []time.Duration{30 * time.Second, 2 * time.Minute, 5 * time.Minute}
 
@@ -111,25 +119,52 @@ func (s *Server) heardController() { s.lastCtl.Store(time.Now().UnixNano()) }
 func (s *Server) recoverLoop(every time.Duration) {
 	t := time.NewTicker(every)
 	defer t.Stop()
-	var next time.Time
-	fails := 0
+	var st recoverState
 	for {
 		select {
 		case <-s.ctx.Done():
 			return
 		case now := <-t.C:
-			if now.Sub(time.Unix(0, s.lastCtl.Load())) < RecoverAfter || now.Before(next) {
-				continue
+			if s.recoverStep(now, &st) {
+				return
 			}
-			if err := s.recoverOnce(s.ctx); err != nil {
-				slog.Warn("worker: recover through the panel", "err", err)
-				next = now.Add(recoverPause[min(fails, len(recoverPause)-1)])
-				fails++
-				continue
-			}
-			fails, next = 0, time.Time{}
 		}
 	}
+}
+
+// recoverState is what the loop remembers between ticks.
+type recoverState struct {
+	next         time.Time // no call before this
+	fails        int
+	refusedSince time.Time // the first refusal of this run of them; zero = none
+}
+
+// recoverStep is one tick of the loop. It returns true when the worker should
+// stop asking: the panel has refused it for GiveUpAfter. A refusal is a 403;
+// any other failure (a 500, no route) is the panel's or the network's trouble
+// and does not count. A success starts the count over.
+func (s *Server) recoverStep(now time.Time, st *recoverState) (stop bool) {
+	if now.Sub(time.Unix(0, s.lastCtl.Load())) < RecoverAfter || now.Before(st.next) {
+		return false
+	}
+	err := s.recoverOnce(s.ctx)
+	if err == nil {
+		*st = recoverState{}
+		return false
+	}
+	if errors.Is(err, errPanelRefused) {
+		if st.refusedSince.IsZero() {
+			st.refusedSince = now
+		}
+		if now.Sub(st.refusedSince) >= GiveUpAfter {
+			slog.Warn("worker: removed from cluster, run stackr-install uninstall", "refused_since", st.refusedSince)
+			return true
+		}
+	}
+	slog.Warn("worker: recover through the panel", "err", err)
+	st.next = now.Add(recoverPause[min(st.fails, len(recoverPause)-1)])
+	st.fails++
+	return false
 }
 
 // panelURL is the flag's, else the one the controller named in the last
@@ -176,6 +211,9 @@ func (s *Server) recoverOnce(ctx context.Context) error {
 	}
 	defer func() { _ = resp.Body.Close() }()
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, maxBody))
+	if resp.StatusCode == http.StatusForbidden {
+		return fmt.Errorf("%w: %s", errPanelRefused, strings.TrimSpace(string(body)))
+	}
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("panel answered %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
 	}
