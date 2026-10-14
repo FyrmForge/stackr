@@ -107,6 +107,9 @@ func (o *Orchestrator) PlanEnvSync(ctx context.Context, envID, from string, drop
 // EnvSync queues the sync of the kept tiles. sig is the review's; the job
 // re-plans and refuses on drift, as this does.
 func (o *Orchestrator) EnvSync(ctx context.Context, envID, from string, keep []string, sig string) (Job, error) {
+	if err := o.gateEnv(ctx, envID, true); err != nil {
+		return Job{}, err
+	}
 	e, src, err := o.syncSource(ctx, envID, from)
 	if err != nil {
 		return Job{}, err

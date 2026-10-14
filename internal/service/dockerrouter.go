@@ -39,6 +39,9 @@ type DockerRouter struct {
 	// ToolReady makes sure a node's tool image can be pulled (EnsureTool);
 	// nil = nothing to do.
 	ToolReady func(ctx context.Context, nodeID string) error
+	// Gate is asked on every call with whether the node has a client; its
+	// error refuses the call (offline, too old). nil = no gate.
+	Gate func(ctx context.Context, nodeID string, connected bool) error
 }
 
 // NewRouter routes to the given clients, by node id.
@@ -74,6 +77,11 @@ func (r *DockerRouter) pick(ctx context.Context) (Docker, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	c, ok := r.clients[id]
+	if r.Gate != nil {
+		if err := r.Gate(ctx, id, ok); err != nil {
+			return nil, err
+		}
+	}
 	if !ok {
 		return nil, fmt.Errorf("%w: no connection to node %s", errs.ErrBusy, id)
 	}

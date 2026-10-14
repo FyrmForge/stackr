@@ -29,7 +29,8 @@ const maxBody = 4 << 20
 // Facts is GET /v1/facts.
 type Facts struct {
 	Interfaces  []Iface `json:"interfaces"`
-	DiskFree    uint64  `json:"disk_free"` // bytes free on the Docker root
+	DiskFree    uint64  `json:"disk_free"`  // bytes free on the Docker root
+	DiskTotal   uint64  `json:"disk_total"` // size of that disk
 	DockerRoot  string  `json:"docker_root"`
 	Docker      string  `json:"docker"` // server version
 	DockerError string  `json:"docker_error,omitempty"`
@@ -359,9 +360,12 @@ func (s *Server) dockerInfo(ctx context.Context, f *Facts) error {
 	f.Docker, f.DockerRoot = info.ServerVersion, info.DockerRootDir
 	var st syscall.Statfs_t
 	if err := syscall.Statfs(info.DockerRootDir, &st); err != nil {
-		return err
+		// ponytail: the controller's worker runs in the panel container; its data dir is the docker root's disk on a default install.
+		if err := syscall.Statfs(s.cfg.StateDir, &st); err != nil {
+			return err
+		}
 	}
-	f.DiskFree = st.Bavail * uint64(st.Bsize)
+	f.DiskFree, f.DiskTotal = st.Bavail*uint64(st.Bsize), st.Blocks*uint64(st.Bsize)
 	return nil
 }
 

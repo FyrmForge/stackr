@@ -198,6 +198,9 @@ func (o *Orchestrator) DeleteTile(ctx context.Context, id string) (Job, error) {
 // newer deploy of the tile supersedes a queued one. One gate for deploy and
 // redeploy (B29).
 func (o *Orchestrator) Deploy(ctx context.Context, id string) (Job, error) {
+	if err := o.gateTile(ctx, id, true); err != nil {
+		return Job{}, err
+	}
 	return o.enqueue(ctx, kindDeploy, tileJob{TileID: id}, id)
 }
 
@@ -222,6 +225,9 @@ func (o *Orchestrator) replicaVerb(ctx context.Context, id, verb string, kind jo
 	case tile.RunToCompletion(t.Kind):
 		return Job{}, errs.Invalidf("kind", "a %s has no long-running container to %s; use run instead", t.Kind, verb)
 	}
+	if err := o.gateTile(ctx, id, false); err != nil {
+		return Job{}, err
+	}
 	return o.enqueue(ctx, kind, tileJob{TileID: id}, id)
 }
 
@@ -240,6 +246,9 @@ func (o *Orchestrator) StopTile(ctx context.Context, id string) (Job, error) {
 		return Job{}, errs.Invalidf("kind", "nothing to stop")
 	case tile.Slice:
 		return Job{}, errs.Invalidf("kind", "a slice has no containers")
+	}
+	if err := o.gateTile(ctx, id, false); err != nil {
+		return Job{}, err
 	}
 	return o.enqueue(ctx, kindStop, tileJob{TileID: id}, id)
 }

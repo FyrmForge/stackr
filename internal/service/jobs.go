@@ -342,6 +342,9 @@ func (o *Orchestrator) enqueue(ctx context.Context, kind jobs.Kind, p any, lock 
 
 // enqueuePromote locks the env and every tile it runs now.
 func (o *Orchestrator) enqueuePromote(ctx context.Context, envID, releaseID string, ticked ...string) (Job, error) {
+	if err := o.gateEnv(ctx, envID, true); err != nil {
+		return Job{}, err
+	}
 	ts, err := o.tiles.List(ctx, envID)
 	if err != nil {
 		return Job{}, err

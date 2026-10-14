@@ -24,6 +24,7 @@ const (
 	Failed     = "failed"
 	Superseded = "superseded" // a newer job took over; not a failure
 	Cancelled  = "cancelled"  // someone pressed stop
+	Skipped    = "skipped"    // a schedule fired while its node was offline; it never ran
 )
 
 // Live is "still going to happen". A parked job is live.

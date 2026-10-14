@@ -108,8 +108,9 @@ type Runner struct {
 	beforePark func()
 }
 
-// onceLog drops a "deploying <tile>" line its job's log already has.
-// Promote and env sync both log it before a deploy that can park.
+// onceLog drops a "deploying <tile>" line its job's log already has, and a
+// "warning: " line (the disk check, once per tile of a promote).
+// Promote and env sync both log the first before a deploy that can park.
 type onceLog struct {
 	r  *Runner
 	id string
@@ -117,7 +118,9 @@ type onceLog struct {
 }
 
 func (o onceLog) Write(p []byte) (int, error) {
-	if line := string(p); strings.HasPrefix(line, "deploying ") && strings.Count(line, "\n") == 1 && strings.HasSuffix(line, "\n") {
+	line := string(p)
+	if (strings.HasPrefix(line, "deploying ") || strings.HasPrefix(line, "warning: ")) &&
+		strings.Count(line, "\n") == 1 && strings.HasSuffix(line, "\n") {
 		o.r.mu.Lock()
 		seen := o.r.deployed[o.id][line]
 		if o.r.deployed[o.id] == nil {
@@ -431,6 +434,20 @@ func (r *Runner) Enqueue(
 	}
 	r.poke()
 	return j, nil
+}
+
+// Skip records a job that never ran, finished at once as skipped with the
+// reason (a schedule that fired while its node was offline). It takes no
+// lock and supersedes nothing.
+func (r *Runner) Skip(ctx context.Context, kind Kind, lock []string, payload, reason string) (store.Job, error) {
+	j, err := r.jobs.Create(ctx, string(kind), lock, payload, nil, r.logDir)
+	if err != nil {
+		return j, err
+	}
+	if err := r.jobs.Finish(ctx, j, job.Skipped, reason); err != nil {
+		return j, err
+	}
+	return r.jobs.Get(ctx, j.ID)
 }
 
 // Cancel stops a job. A running job is cancelled through its context, except

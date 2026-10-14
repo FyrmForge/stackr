@@ -419,6 +419,7 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 	orch.helperReady = orch.rsyncSteps().ensure
 	if r, ok := d.(*DockerRouter); ok {
 		r.OwnRegistry = orch.RegistryHost
+		r.Gate = orch.gate
 		r.ToolReady = func(ctx context.Context, nodeID string) error {
 			if nodeID == ctl.ID {
 				return nil // the controller pulls ToolImage from its own registry
@@ -494,7 +495,7 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 		}
 	})
 	orch.sync = build("leaf/domain.Syncer", func() *domain.Syncer {
-		return &domain.Syncer{BuildAll: orch.proxyConfigs, PushNode: orch.pushNodeProxy(proxyPush(orch.controllerID, o.push, orch.caddyFor)), Soft: orch.isWorker}
+		return &domain.Syncer{BuildAll: orch.proxyConfigs, PushNode: orch.pushNodeProxy(proxyPush(orch.controllerID, o.push, orch.caddyFor, func(ctx context.Context, id string) error { return orch.nodeDown(ctx, id) })), Soft: orch.isWorker}
 	})
 	orch.deploy = build("flow/deploy", func() *deploy.Flow {
 		return &deploy.Flow{
@@ -645,15 +646,7 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 	orch.sched = build("flow/schedule", func() *schedule.Runner {
 		return schedule.New(schedule.Drivers{
 			Schedules: orch.backups.AllSchedules,
-			Backup: func(ctx context.Context, s store.BackupSchedule) error {
-				_, err := orch.enqueue(
-					ctx,
-					kindBackup,
-					backupJob{ScheduleID: s.ID, VolumeID: s.VolumeID},
-					"volume:"+s.VolumeID,
-				)
-				return err
-			},
+			Backup:    orch.scheduleBackup,
 			Orphans: func(ctx context.Context) error {
 				_, err := orch.enqueue(ctx, kindOrphans, nil, "orphans")
 				return err
@@ -673,11 +666,8 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 			Settings: orch.scheduleSettings,
 			Watch:    orch.watchTick,
 			Crons:    orch.deployedCrons,
-			Cron: func(ctx context.Context, t store.Tile) error {
-				_, _, err := orch.queueRun(ctx, t.ID, lrun.Schedule)
-				return err
-			},
-			Traffic: orch.trafficTick,
+			Cron:     orch.scheduleCron,
+			Traffic:  orch.trafficTick,
 		})
 	})
 
