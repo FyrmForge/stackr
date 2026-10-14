@@ -133,6 +133,15 @@ func main() {
 		return
 	}
 
+	if flag.Arg(0) == "host-run" {
+		// The other host helper job: uninstall stackr from the node it runs on.
+		if err := runHostRun(flag.Args()[1:]); err != nil {
+			fmt.Fprintln(os.Stderr, "stackrd host-run:", err)
+			os.Exit(1)
+		}
+		return
+	}
+
 	log := logging.New(!envDevMode)
 	slog.SetDefault(log)
 

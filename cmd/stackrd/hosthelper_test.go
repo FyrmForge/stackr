@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -135,4 +136,29 @@ func TestWorkerSwapNeverLeavesNoBinary(t *testing.T) {
 		return nil
 	}}
 	_ = s.run(ctx)
+}
+
+// host-run uninstall puts the image's installer on the host and starts it in
+// a transient unit that outlives the helper container.
+func TestHostRunUninstall(t *testing.T) {
+	src, host := swapDirs(t)
+	var got []string
+	h := hostRun{src: src, host: host, run: func(_ context.Context, argv ...string) error {
+		got = argv
+		return nil
+	}}
+	if err := h.uninstall(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if b := read(t, filepath.Join(host, "usr/local/bin/stackr-install")); b != "new stackr-install" {
+		t.Fatalf("host installer = %q, want the image's", b)
+	}
+	want := []string{"chroot", host, "systemd-run", "--collect", "--unit", "stackr-uninstall",
+		"/usr/local/bin/stackr-install", "uninstall", "--yes"}
+	if strings.Join(got, " ") != strings.Join(want, " ") {
+		t.Fatalf("command = %v, want %v", got, want)
+	}
+	if err := runHostRun([]string{"uninstall"}); err == nil {
+		t.Fatal("host-run uninstall without --yes was accepted")
+	}
 }

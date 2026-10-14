@@ -171,3 +171,42 @@ func runWorkerSwap(args []string) error {
 	defer stop()
 	return hostSwap{src: filepath.Dir(self), host: *host, deadline: *deadline, restart: chrootSystemctl(*host)}.run(ctx)
 }
+
+// hostRun is `stackrd host-run uninstall --yes`: the installer from the
+// image is put on the host and started in a transient systemd unit, which
+// outlives this container (the uninstall removes the helper, and so this
+// process). run executes one argv.
+type hostRun struct {
+	src, host string
+	run       func(ctx context.Context, argv ...string) error
+}
+
+func (h hostRun) uninstall(ctx context.Context) error {
+	dst := filepath.Join(h.host, hostBinDir, "stackr-install")
+	if err := copyExec(filepath.Join(h.src, "stackr-install"), dst+".new"); err != nil {
+		return fmt.Errorf("stage stackr-install: %w", err)
+	}
+	if err := os.Rename(dst+".new", dst); err != nil {
+		return err
+	}
+	return h.run(ctx, "chroot", h.host, "systemd-run", "--collect", "--unit", "stackr-uninstall",
+		"/usr/local/bin/stackr-install", "uninstall", "--yes")
+}
+
+// runHostRun is `stackrd host-run <command>`; only uninstall exists.
+func runHostRun(args []string) error {
+	if len(args) < 2 || args[0] != "uninstall" || args[1] != "--yes" {
+		return errors.New("usage: host-run uninstall --yes")
+	}
+	self, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	return hostRun{src: filepath.Dir(self), host: "/host", run: func(ctx context.Context, argv ...string) error {
+		out, err := exec.CommandContext(ctx, argv[0], argv[1:]...).CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("%s: %w: %s", argv[0], err, out)
+		}
+		return nil
+	}}.uninstall(context.Background())
+}
