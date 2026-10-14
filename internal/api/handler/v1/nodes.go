@@ -120,10 +120,26 @@ func (h *H) SetKeyRotation() Endpoint {
 	})
 }
 
-// RemoveNode (server admin) takes a worker with no envs out.
+// RemoveNode (server admin) queues the removal of a worker with no envs: stop,
+// back up, check, clean the box, forget the node. Follow the job.
 func (h *H) RemoveNode() Endpoint {
-	return Done(func(c echo.Context, _ None) error {
+	return Job(func(c echo.Context, _ None) (service.Job, error) {
 		return h.Orch.RemoveNodeRef(rc(c), middleware.Principal(c), c.Param("node"))
+	})
+}
+
+// BackupNode (server admin) queues a backup of every volume on the node.
+func (h *H) BackupNode() Endpoint {
+	return Job(func(c echo.Context, _ None) (service.Job, error) {
+		return h.Orch.BackupNodeRef(rc(c), middleware.Principal(c), c.Param("node"))
+	})
+}
+
+// NodeBackups (server admin) lists the node's backup groups, newest first.
+func (h *H) NodeBackups() Endpoint {
+	return Get(func(c echo.Context) ([]service.BackupGroupView, error) {
+		gs, err := h.Orch.NodeBackupsRef(rc(c), c.Param("node"))
+		return list(gs, err)
 	})
 }
 
@@ -193,10 +209,24 @@ func (h *H) NodeDefaults() Endpoint {
 	})
 }
 
+// DefaultIngressIn is the new default ingress; Confirm is the node's name.
+type DefaultIngressIn struct {
+	Node    string `json:"node"`
+	Confirm string `json:"confirm"`
+}
+
+// DefaultIngressPlan (server admin) lists the hosts that would enter by ?node=
+// and where each points now.
+func (h *H) DefaultIngressPlan() Endpoint {
+	return Get(func(c echo.Context) (service.IngressPlan, error) {
+		return h.Orch.IngressSwitchPlan(rc(c), middleware.Principal(c), c.QueryParam("node"))
+	})
+}
+
 // SetDefaultIngress (server admin) moves the default ingress.
 func (h *H) SetDefaultIngress() Endpoint {
-	return JSON(200, func(c echo.Context, in NodeIn) (service.DefaultsOut, error) {
-		return h.Orch.SetDefaultIngress(rc(c), middleware.Principal(c), in.Node)
+	return JSON(200, func(c echo.Context, in DefaultIngressIn) (service.DefaultsOut, error) {
+		return h.Orch.SetDefaultIngress(rc(c), middleware.Principal(c), in.Node, in.Confirm)
 	})
 }
 

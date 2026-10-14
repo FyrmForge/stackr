@@ -98,7 +98,7 @@ func (a *app) nodes() *cobra.Command {
 	return noun("node", "The cluster's machines: the controller and its workers",
 		a.nodeAdd(), a.nodeConfirm(), a.nodeReject(), a.nodeLs(), a.nodeShow(),
 		a.nodeTag(true), a.nodeTag(false), a.nodeExit(), a.nodeOpen(true), a.nodeOpen(false),
-		a.nodeRejoin(), a.nodeRotate(), a.nodeRemove(), a.nodeForget())
+		a.nodeRejoin(), a.nodeRotate(), a.nodeRemove(), a.nodeForget(), a.nodeBackup(), a.nodeBackups())
 }
 
 func (a *app) nodeAdd() *cobra.Command {
@@ -530,9 +530,10 @@ func (a *app) nodeRemove() *cobra.Command {
 			if len(envs) > 0 && moveTo == "" {
 				return fmt.Errorf("%s runs %s. Move them first: stackr env move <env> --to <node>, or pass --move-to <node>", name, plural(len(envs), "env", "envs"))
 			}
-			q := "Remove " + name + " from the cluster? Its certificate is revoked and its tunnel removed."
+			const steps = "Stops everything on it, backs it up, checks the backups, then cleans the box and removes it. A failed backup stops there and starts the apps again."
+			q := "Remove " + name + " from the cluster? " + steps
 			if len(envs) > 0 {
-				q = fmt.Sprintf("Move %s to %s, then remove %s? Its certificate is revoked and its tunnel removed.", plural(len(envs), "env", "envs"), moveTo, name)
+				q = fmt.Sprintf("Move %s to %s, then remove %s? %s", plural(len(envs), "env", "envs"), moveTo, name, steps)
 			}
 			if err := a.confirm(q); err != nil {
 				return err
@@ -551,15 +552,60 @@ func (a *app) nodeRemove() *cobra.Command {
 					return err
 				}
 			}
-			if _, err := a.call(DELETE, "/admin/nodes/"+url.PathEscape(name), nil); err != nil {
+			j, err := a.call(DELETE, "/admin/nodes/"+url.PathEscape(name), nil)
+			if err != nil {
 				return err
 			}
-			a.say("%s: removed", name)
-			return nil
+			return a.follow("/admin", j, "removal of "+name)
 		})
 	c.Example = "  stackr node remove vps-fsn1 --move-to home"
 	c.Flags().StringVar(&moveTo, "move-to", "", "move its envs to this node first")
 	return c
+}
+
+// nodeBackup backs up every volume on a node as one group (server admin).
+func (a *app) nodeBackup() *cobra.Command {
+	return leaf("backup <name>", "admin.node-backup", "Back up every volume on a node, one env at a time (server admin)", exact(1),
+		func(_ *cobra.Command, args []string) error {
+			name := args[0]
+			if err := a.confirm("Back up " + name + "? Each env's apps stop while its volumes are copied, then start again."); err != nil {
+				return err
+			}
+			j, err := a.call(POST, "/admin/nodes/"+url.PathEscape(name)+"/backup", nil)
+			if err != nil {
+				return err
+			}
+			return a.follow("/admin", j, "backup of "+name)
+		})
+}
+
+// nodeBackups lists a node's backup groups with their volumes (server admin).
+func (a *app) nodeBackups() *cobra.Command {
+	return leaf("backups <name>", "admin.node-backups", "List a node's backups, newest first (server admin)", exact(1),
+		func(_ *cobra.Command, args []string) error {
+			v, err := a.call(GET, "/admin/nodes/"+url.PathEscape(args[0])+"/backups", nil)
+			if err != nil {
+				return err
+			}
+			if a.json {
+				return a.show(v)
+			}
+			for _, g := range asList(v) {
+				m := asMap(g)
+				a.say("%s\t%s\t%s", cell(m["label"]), cell(m["status"]), cell(m["dest"]))
+				if w := cell(m["warning"]); w != "" && w != "(none)" {
+					a.say("  %s", w)
+				}
+				if e := cell(m["error"]); e != "" && e != "(none)" {
+					a.say("  %s", e)
+				}
+				for _, r := range asList(m["volumes"]) {
+					rm := asMap(r)
+					a.say("  %s\t%s\t%s\t%s", cell(rm["volume"]), cell(rm["method"]), cell(rm["status"]), cell(rm["error"]))
+				}
+			}
+			return nil
+		})
 }
 
 func (a *app) nodeForget() *cobra.Command {
