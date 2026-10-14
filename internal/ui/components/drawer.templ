@@ -35,7 +35,9 @@ templ SideDrawer(body templ.Component, tab string) {
 // DrawerHead is the top of a drawer body drawn outside Drawer: the
 // title, what it is, and the 32px close X (v0 PanelHeader, no extras).
 templ DrawerHead(title, kind string) {
-	@panelHeader(DrawerView{Title: title, Kind: kind})
+	<div class="sticky top-0 z-20 bg-rw-surface">
+		@panelHeader(DrawerView{Title: title, Kind: kind})
+	</div>
 }
 
 // DrawerLoad is a drawer body that fetches itself: a fresh load of
