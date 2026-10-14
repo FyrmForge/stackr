@@ -144,6 +144,32 @@ func TestNodeTagUntag(t *testing.T) {
 	}
 }
 
+// exit sends the names; none clears; show prints the default exit.
+func TestNodeExit(t *testing.T) {
+	r := fake(t, map[string]string{"/exit": `{"default_exit":["vps-fsn1"]}`})
+	code, out, errw := cli(t, "node", "exit", "home", "vps-fsn1", "vps-hel1")
+	if code != 0 || !strings.Contains(out, "home: default exit vps-fsn1, vps-hel1") {
+		t.Fatalf("exit = %d %q %q", code, out, errw)
+	}
+	if code, out, _ = cli(t, "node", "exit", "home"); code != 0 || !strings.Contains(out, "home: default exit cleared") {
+		t.Errorf("clear = %d %q", code, out)
+	}
+	if w := writes(r); len(w) != 2 || w[0] != `PUT /api/v1/admin/nodes/home/exit {"exits":["vps-fsn1","vps-hel1"]}` || w[1] != `PUT /api/v1/admin/nodes/home/exit {"exits":[]}` {
+		t.Errorf("writes = %v", w)
+	}
+	if code, _, _ = cli(t, "node", "exit"); code != 2 {
+		t.Errorf("no name = %d", code)
+	}
+	fake(t, map[string]string{"/nodes/home": `{"name":"home","role":"worker","state":"online","tags":["builder"],"default_exit":["vps-fsn1"],"env_list":[]}`})
+	if _, out, _ = cli(t, "node", "show", "home"); !strings.Contains(out, "default exit\tvps-fsn1") {
+		t.Errorf("show = %q", out)
+	}
+	fakeErr(t, 409, `{"error":"Pick a default exit for home first."}`)
+	if code, _, errw = cli(t, "node", "exit", "home"); code == 0 || !strings.Contains(errw, "Pick a default exit for home first.") {
+		t.Errorf("refusal = %d %q", code, errw)
+	}
+}
+
 func TestNodeOpenClose(t *testing.T) {
 	r := fake(t, map[string]string{"/orgs": `{}`, "/nodes/vps-fsn1": nodeJSON, "/orgs/acme": `{}`})
 	if code, out, errw := cli(t, "node", "open", "vps-fsn1", "--org", "acme"); code != 0 || !strings.Contains(out, "vps-fsn1: open to acme") {

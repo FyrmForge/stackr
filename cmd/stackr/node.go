@@ -97,7 +97,7 @@ func (a *app) nodeNames() (map[string]string, error) {
 func (a *app) nodes() *cobra.Command {
 	return noun("node", "The cluster's machines: the controller and its workers",
 		a.nodeAdd(), a.nodeConfirm(), a.nodeReject(), a.nodeLs(), a.nodeShow(),
-		a.nodeTag(true), a.nodeTag(false), a.nodeOpen(true), a.nodeOpen(false),
+		a.nodeTag(true), a.nodeTag(false), a.nodeExit(), a.nodeOpen(true), a.nodeOpen(false),
 		a.nodeRejoin(), a.nodeRotate(), a.nodeRemove(), a.nodeForget())
 }
 
@@ -298,6 +298,9 @@ func (a *app) nodeShow() *cobra.Command {
 			if ex := strs(n["exit_for"]); len(ex) > 0 {
 				rows = append(rows, []string{"exit for", strings.Join(ex, ", ")})
 			}
+			if de := strs(n["default_exit"]); len(de) > 0 {
+				rows = append(rows, []string{"default exit", strings.Join(de, ", ")})
+			}
 			if ig := strs(n["ingress_for"]); len(ig) > 0 {
 				rows = append(rows, []string{"ingress for", strings.Join(ig, ", ")})
 			}
@@ -349,6 +352,31 @@ func (a *app) nodeTag(add bool) *cobra.Command {
 		return nil
 	})
 	c.Example = "  stackr node " + strings.Fields(use)[0] + " vps-fsn1 egress"
+	return c
+}
+
+// nodeExit sets where a node without egress sends its internet traffic. The
+// service refuses a clear on such a node and exits that lack egress.
+func (a *app) nodeExit() *cobra.Command {
+	c := leaf("exit <name> [<exit>...]", "admin.node-exit",
+		"Set the default exit of a node without egress; none clears it (server admin)", atLeast(1),
+		func(_ *cobra.Command, args []string) error {
+			name, exits := args[0], args[1:]
+			v, err := a.call(PUT, "/admin/nodes/"+url.PathEscape(name)+"/exit", map[string][]string{"exits": exits})
+			if err != nil {
+				return err
+			}
+			if a.json {
+				return a.show(v)
+			}
+			if len(exits) == 0 {
+				a.say("%s: default exit cleared", name)
+				return nil
+			}
+			a.say("%s: default exit %s", name, strings.Join(exits, ", "))
+			return nil
+		})
+	c.Example = "  stackr node exit vps-home vps-fsn1 vps-hel1"
 	return c
 }
 
