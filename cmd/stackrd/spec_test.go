@@ -62,6 +62,7 @@ func fromArgs(t *testing.T, a []string) service.ContainerSpec {
 			s.Volumes = append(s.Volumes, v)
 		case "-e":
 			s.Env = append(s.Env, v)
+		case "--log-opt": // the docker client caps every container it creates (logConfig), so the upgrade spec needs no field
 		default:
 			t.Fatalf("flag %s has no field in the upgrade spec", a[i])
 		}
