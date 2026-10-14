@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
-	"regexp"
+	"strings"
 )
 
 // RegistryListen is where Docker on the node finds the controller's registry
@@ -28,12 +28,12 @@ type RegistryConfig struct {
 // inHost carries the request's own Host to ModifyResponse.
 type inHost struct{}
 
-var realmRe = regexp.MustCompile(`realm="[^"]*"`)
-
-// registryProxy forwards everything to the front. The token realm in the
-// 401 challenge is rewritten to this listener, so Docker's token fetch comes
-// back through the proxy (and its client cert) instead of straight to the
-// controller, where it has no cert.
+// registryProxy forwards the registry API (/v2/) to the front, and nothing
+// else: it carries the node's client cert, and anything on the host's
+// loopback reaches it (a host-network tile), so the mesh listener's other
+// paths (the cert renewal, /token) must stay out of reach. Docker pulls and
+// pushes here with a pass the controller minted for that one call
+// (service/registry.go registryPass), which needs no token exchange.
 func registryProxy(c RegistryConfig, listen string) (http.Handler, error) {
 	u, err := url.Parse(c.URL)
 	if err != nil {
@@ -41,7 +41,7 @@ func registryProxy(c RegistryConfig, listen string) (http.Handler, error) {
 	}
 	tc := c.TLS.Clone()
 	tc.ServerName = c.Host
-	return &httputil.ReverseProxy{
+	rp := &httputil.ReverseProxy{
 		Rewrite: func(r *httputil.ProxyRequest) {
 			r.SetURL(u)
 			r.Out.Host = c.Host
@@ -51,13 +51,10 @@ func registryProxy(c RegistryConfig, listen string) (http.Handler, error) {
 		Transport:     &http.Transport{TLSClientConfig: tc, ForceAttemptHTTP2: false},
 		ModifyResponse: func(res *http.Response) error {
 			// The host the client used ("localhost:5000"): Docker only sends its
-			// token back to the same host string.
+			// pass to the same host string.
 			host, _ := res.Request.Context().Value(inHost{}).(string)
 			if host == "" {
 				host = listen
-			}
-			if h := res.Header.Get("WWW-Authenticate"); h != "" {
-				res.Header.Set("WWW-Authenticate", realmRe.ReplaceAllLiteralString(h, `realm="http://`+host+`/token"`))
 			}
 			// A push's upload URLs name the registry host; keep them on this
 			// listener, so the blobs go over the mesh too.
@@ -67,7 +64,14 @@ func registryProxy(c RegistryConfig, listen string) (http.Handler, error) {
 			}
 			return nil
 		},
-	}, nil
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if p := r.URL.Path; p != "/v2" && !strings.HasPrefix(p, "/v2/") || strings.Contains(p, "..") {
+			http.NotFound(w, r)
+			return
+		}
+		rp.ServeHTTP(w, r)
+	}), nil
 }
 
 // serveRegistry runs the local listener until ctx ends.

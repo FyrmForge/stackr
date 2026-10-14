@@ -40,11 +40,19 @@ func TestRegistryProxy(t *testing.T) {
 	if rec.Code != 401 || rec.Body.String() != "no" {
 		t.Errorf("got %d %q", rec.Code, rec.Body)
 	}
-	if got := rec.Header().Get("WWW-Authenticate"); got != `Bearer realm="http://localhost:5000/token",service="stackr"` {
-		t.Errorf("challenge = %s", got)
-	}
-	// Docker sends its token only to the host string it used: keep it.
+	// Docker sends its pass only to the host string it used: keep it.
 	if got := rec.Header().Get("Location"); got != "http://localhost:5000/v2/a/b/c/blobs/uploads/u1?_state=x" {
 		t.Errorf("upload location = %s", got)
+	}
+
+	// Nothing but the registry API goes through: the proxy carries the
+	// node's cert, and a host-network tile shares this loopback.
+	for _, p := range []string{"/token?scope=repository:acme/shop/api:pull", "/stackr/v1/cert/renew", "/v2/../stackr/v1/cert/renew"} {
+		host = ""
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, httptest.NewRequest("POST", "http://localhost:5000"+p, nil))
+		if rec.Code != 404 || host != "" {
+			t.Errorf("%s: got %d, front saw %q", p, rec.Code, host)
+		}
 	}
 }
