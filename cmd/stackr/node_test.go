@@ -20,7 +20,7 @@ func fakeErr(t *testing.T, status int, body string) {
 }
 
 const nodeJSON = `{"id":"n1","name":"vps-fsn1","role":"worker","state":"online","tags":["ingress","egress"],"envs":2,` +
-	`"open_to":["acme"],"cpu":2,"mem_total":4294967296,"disk_free":76235669504,"docker":"29.9.0",` +
+	`"open_to":["acme"],"cpu":2,"mem_total":4294967296,"disk_free":76235669504,"docker":"29.9.0","arch":"amd64",` +
 	`"env_list":[{"id":"e1","path":"acme/shop/prod","org":"acme","volumes":[{"id":"v1","name":"pg-data","last_backup":"2026-10-12T08:00:00Z"},{"id":"v2","name":"cache","last_backup":null}]}],` +
 	`"exit_for":["acme/shop/prod"],"ingress_for":[],"default_ingress":false}`
 
@@ -111,7 +111,7 @@ func TestNodeLs(t *testing.T) {
 func TestNodeShow(t *testing.T) {
 	fake(t, map[string]string{"/nodes/vps-fsn1": nodeJSON})
 	code, out, errw := cli(t, "node", "show", "vps-fsn1")
-	if code != 0 || !strings.Contains(out, "tags\tingress, egress") || !strings.Contains(out, "envs\tacme/shop/prod") || !strings.Contains(out, "exit for\tacme/shop/prod") {
+	if code != 0 || !strings.Contains(out, "tags\tingress, egress") || !strings.Contains(out, "arch\tamd64") || !strings.Contains(out, "envs\tacme/shop/prod") || !strings.Contains(out, "exit for\tacme/shop/prod") {
 		t.Errorf("show = %d %q %q", code, out, errw)
 	}
 	if code, _, errw = cli(t, "node", "show"); code != 2 {

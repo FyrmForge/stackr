@@ -265,6 +265,9 @@ func (a *app) nodeShow() *cobra.Command {
 				{"state", stateWord(cell(n["state"]))},
 				{"tags", strings.Join(strs(n["tags"]), ", ")},
 			}
+			if ar := cell(n["arch"]); ar != "(none)" {
+				rows = append(rows, []string{"arch", ar})
+			}
 			if f := asMap(n["facts"]); f != nil {
 				rows = append(rows,
 					[]string{"version", fmt.Sprintf("Docker %s, kernel %s", cell(f["docker"]), cell(f["kernel"]))},
