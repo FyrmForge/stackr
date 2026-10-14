@@ -1,11 +1,12 @@
 package deploy
 
 import (
+	"archive/tar"
+	"bytes"
+	"compress/gzip"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"errors"
-	"os"
 	"path"
 	"path/filepath"
 	"strconv"
@@ -13,6 +14,7 @@ import (
 	"time"
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
+	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	"github.com/FyrmForge/stackr/internal/service/internal/git"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/environment"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/params"
@@ -21,23 +23,24 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
 
-// fileBinds writes the tile's files: lines under <DataDir>/files/<tile>/
-// <key>/<n>, key = commit-<files hash>-<params version> and returns them as read-only Docker binds. The content is the
+// fileMounts puts the tile's files: lines in a volume on the env's node and
+// returns them as read-only mounts of it, one subpath per line. key =
+// commit-<files hash>-<params version> names the volume. The content is the
 // config commit the env's release pins, read from the stack's config clone
 // (promote's plan cloned it). A :template line goes whole through the
 // resolver, secrets included; any other is copied byte for byte. Called only
 // when the tile has files: lines.
-// The folder is written once and never rewritten: an edit of the lines, a
-// param or the commit makes a new key, and pruneFiles drops the old folder.
-// The key holds no secret (the path shows in docker inspect): the params
-// version is the count and newest updated_at of the params the tile sees.
-func (f *Flow) fileBinds(
+// A volume is written once and never rewritten: an edit of the lines, a
+// param or the commit makes a new key, and the post-deploy prune drops the
+// old volume. The key holds no secret (the name shows in docker inspect): the
+// params version is the count and newest updated_at of the params the tile sees.
+func (f *Flow) fileMounts(
 	ctx context.Context,
 	t store.Tile,
 	e store.Environment,
 	st store.Stack,
 	rr *params.Resolver,
-) ([]string, error) {
+) ([]docker.Mount, error) {
 	refuse := errs.Conflictf("%s: files: needs the stack's config repo", t.Slug)
 	if st.ConfigRepo == "" || e.ReleaseID == nil {
 		return nil, refuse
@@ -51,29 +54,31 @@ func (f *Flow) fileBinds(
 		return nil, refuse
 	}
 	repo := git.Repo{Dir: filepath.Join(f.DataDir, "repos", "config-"+st.ID)}
+	if !repo.Has(ctx, commit) {
+		return nil, errs.Conflictf("%s: files: the config repo clone lacks %.12s; run a promote to fetch it", t.Slug, commit)
+	}
 	ver, err := f.paramsVersion(ctx, e, st)
 	if err != nil {
 		return nil, err
 	}
 	sum := sha256.Sum256([]byte(strings.Join(tile.Lines(t.Files), "\n")))
-	base := filepath.Join(f.DataDir, "files", t.ID, commit+"-"+hex.EncodeToString(sum[:4])+"-"+ver)
-	_, statErr := os.Stat(base)
-	written := statErr == nil
-	tmp := base + ".part"
-	if !written {
-		if !repo.Has(ctx, commit) {
-			return nil, errs.Conflictf("%s: files: the config repo clone lacks %.12s; run a promote to fetch it", t.Slug, commit)
-		}
-		// The data dir folder is the only gate on a template's secrets.
-		if err := os.MkdirAll(filepath.Join(f.DataDir, "files"), 0o700); err != nil {
-			return nil, err
-		}
-		if err := os.RemoveAll(tmp); err != nil {
-			return nil, err
-		}
-	}
+	key := commit + "-" + hex.EncodeToString(sum[:4]) + "-" + ver
 
-	var binds []string
+	var buf bytes.Buffer
+	zw := gzip.NewWriter(&buf)
+	tw := tar.NewWriter(zw)
+	put := func(name string, mode int64, typ byte, b []byte) error {
+		h := &tar.Header{Name: name, Mode: mode, Typeflag: typ, Size: int64(len(b)), ModTime: time.Unix(0, 0)}
+		if err := tw.WriteHeader(h); err != nil {
+			return err
+		}
+		_, err := tw.Write(b)
+		return err
+	}
+	type slot struct {
+		sub, dst string
+	}
+	var slots []slot
 	for i, l := range tile.Lines(t.Files) {
 		src, dst, err := tile.ParseFileMount(l)
 		if err != nil {
@@ -81,29 +86,23 @@ func (f *Flow) fileBinds(
 		}
 		tmpl := strings.HasSuffix(l, ":template")
 		n := strconv.Itoa(i)
-		var isDir bool
-		if written {
-			// ponytail: a folder holding one file named like its own
-			// folder reads as a file line; mark the slot if that bites.
-			fi, err := os.Stat(filepath.Join(base, n, path.Base(src)))
-			isDir = err != nil || fi.IsDir()
-		} else if isDir, err = repo.IsDir(ctx, commit, src); err != nil {
+		isDir, err := repo.IsDir(ctx, commit, src)
+		if err != nil {
 			return nil, err
 		}
-		host := filepath.Join(base, n)
-		if !isDir {
-			host = filepath.Join(host, path.Base(src))
-		}
-		binds = append(binds, host+":"+dst+":ro")
-		if written {
-			continue
-		}
 		names := []string{src}
+		sub := path.Join(n, path.Base(src))
 		if isDir {
+			sub = n
+			// An empty folder still has to exist to be mounted.
+			if err := put(n+"/", 0o755, tar.TypeDir, nil); err != nil {
+				return nil, err
+			}
 			if names, err = repo.ListTree(ctx, commit, src); err != nil {
 				return nil, err
 			}
 		}
+		slots = append(slots, slot{sub, dst})
 		for _, name := range names {
 			rel := path.Base(src)
 			if isDir {
@@ -120,100 +119,43 @@ func (f *Flow) fileBinds(
 				}
 				b = []byte(x)
 			}
-			p, err := slotPath(tmp, n, rel)
+			p, err := slotPath(n, rel)
 			if err != nil {
 				return nil, err
 			}
-			if err := putFile(p, b); err != nil {
+			// The container's user is unknown here: world-readable.
+			if err := put(p, 0o644, tar.TypeReg, b); err != nil {
 				return nil, err
 			}
 		}
 	}
-	if !written {
-		// Whole commit or nothing: a killed write never reads as done.
-		if err := syncDir(tmp); err != nil {
-			return nil, err
-		}
-		if err := os.Rename(tmp, base); err != nil && !errors.Is(err, os.ErrExist) {
-			return nil, err
-		}
-		if err := syncDir(filepath.Dir(base)); err != nil {
-			return nil, err
-		}
+	if err := put(tile.FilesDone, 0o644, tar.TypeReg, nil); err != nil {
+		return nil, err
 	}
-	return binds, nil
-}
-
-// pruneFiles removes the tile's written commit folders that no container
-// mount in mounts ("src -> dst", docker.Detail.Mounts) points into.
-func (f *Flow) pruneFiles(t store.Tile, mounts []string) error {
-	dir := filepath.Join(f.DataDir, "files", t.ID)
-	ents, err := os.ReadDir(dir)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil
+	if err := tw.Close(); err != nil {
+		return nil, err
 	}
+	if err := zw.Close(); err != nil {
+		return nil, err
+	}
+	vol, err := f.Tiles.WriteFiles(ctx, t, key, buf.Bytes())
 	if err != nil {
-		return err
+		return nil, err
 	}
-	for _, en := range ents {
-		p := filepath.Join(dir, en.Name()) + string(filepath.Separator)
-		used := false
-		for _, m := range mounts {
-			if strings.HasPrefix(m, p) {
-				used = true
-				break
-			}
-		}
-		if !used {
-			if err := os.RemoveAll(filepath.Join(dir, en.Name())); err != nil {
-				return err
-			}
-		}
+	var ms []docker.Mount
+	for _, s := range slots {
+		ms = append(ms, docker.Mount{Volume: vol, Subpath: s.sub, Target: s.dst, ReadOnly: true})
 	}
-	return nil
+	return ms, nil
 }
 
-// putFile writes b at p, folders made. The files sit under a 0700 data dir
-// folder; the container's user, unknown here, must be able to read them.
-func putFile(p string, b []byte) error {
-	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil { //nolint:gosec // see above
-		return err
-	}
-	fh, err := os.OpenFile(p, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644) //nolint:gosec // see above
-	if err != nil {
-		return err
-	}
-	if _, err := fh.Write(b); err != nil {
-		_ = fh.Close()
-		return err
-	}
-	if err := fh.Sync(); err != nil {
-		_ = fh.Close()
-		return err
-	}
-	return fh.Close()
-}
-
-// slotPath is where tree entry rel lands under slot n of the folder at tmp;
-// an entry that would leave the slot is refused.
-func slotPath(tmp, n, rel string) (string, error) {
+// slotPath is where tree entry rel lands in the archive under slot n; an
+// entry that would leave the slot is refused.
+func slotPath(n, rel string) (string, error) {
 	if !filepath.IsLocal(filepath.FromSlash(rel)) {
 		return "", errs.Invalidf("files", "%s leaves the mount folder", rel)
 	}
-	return filepath.Join(tmp, n, filepath.FromSlash(rel)), nil
-}
-
-// syncDir flushes a folder's entries, so a rename survives a crash.
-func syncDir(p string) error {
-	d, err := os.Open(p) //nolint:gosec // our own data dir
-	if err != nil {
-		return err
-	}
-	if err := d.Sync(); err != nil {
-		_ = d.Close()
-		return err
-	}
-	return d.Close()
+	return path.Join(n, rel), nil
 }
 
 // paramsVersion is a non-secret stamp of the params a template can see: the

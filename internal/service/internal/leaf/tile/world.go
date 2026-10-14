@@ -54,6 +54,13 @@ type Docker interface {
 	Unpause(ctx context.Context, id string) error
 	StreamLogs(ctx context.Context, id string, tail int) (<-chan string, func(), error)
 	Wait(ctx context.Context, id string) (int, error)
+	// The config file volumes (files.go).
+	HostInfo(ctx context.Context) (docker.HostInfo, error)
+	CreateVolume(ctx context.Context, name, driver string, opts, labels map[string]string) error
+	RemoveVolume(ctx context.Context, name string) error
+	ListVolumes(ctx context.Context, labels map[string]string) ([]docker.VolumeInfo, error)
+	TarVolume(ctx context.Context, name string, w io.Writer, live bool) error
+	UntarVolume(ctx context.Context, name string, src io.Reader) error
 }
 
 // VIP is the slice of internal/vip this leaf needs.
@@ -388,6 +395,9 @@ func (l *Leaf) Teardown(ctx context.Context, t store.Tile, network string) error
 		if err := l.remove(ctx, c, network); err != nil {
 			return err
 		}
+	}
+	if err := l.PruneFiles(ctx, t, ""); err != nil {
+		slog.Warn("prune config files", "tile", t.ID, "err", err)
 	}
 	return nil
 }

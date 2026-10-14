@@ -338,3 +338,46 @@ func TestImages(t *testing.T) {
 		t.Fatalf("still there: %+v", ims)
 	}
 }
+
+// A file and a folder of one volume mount read-only at their own targets
+// through subpaths: how a tile's config files reach it on any node.
+func TestSubpathMounts(t *testing.T) {
+	d, ctx := newClient(t)
+	old := ToolImage
+	ToolImage = testImage // no cluster registry on a dev box
+	t.Cleanup(func() { ToolImage = old })
+	vol := uniq("stkr-it-files")
+	if err := d.CreateVolume(ctx, vol, "", nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = d.RemoveVolume(context.Background(), vol) })
+	if _, wait, err := d.volumeTool(ctx, vol, false, []string{"sh", "-c",
+		"mkdir -p /data/0 /data/1/sub; echo conf > /data/0/app.conf; echo deep > /data/1/sub/b.conf; echo other > /data/0/other"}, nil); err != nil {
+		t.Fatal(err)
+	} else if err := wait(); err != nil {
+		t.Fatal(err)
+	}
+	id, err := d.Run(ctx, ContainerSpec{
+		Name:  uniq("stkr-it-sub"),
+		Image: testImage,
+		Cmd:   []string{"sleep", "300"},
+		Mounts: []Mount{
+			{Volume: vol, Subpath: "0/app.conf", Target: "/etc/app.conf", ReadOnly: true},
+			{Volume: vol, Subpath: "1", Target: "/etc/conf", ReadOnly: true},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = d.StopRemove(context.Background(), id) })
+	out, err := d.Exec(ctx, id, []string{"sh", "-c", "cat /etc/app.conf /etc/conf/sub/b.conf; ls /etc | grep -c '^other$'; true"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(out, "conf\ndeep\n0") {
+		t.Fatalf("mounts: %q", out)
+	}
+	if _, err := d.Exec(ctx, id, []string{"sh", "-c", "echo x > /etc/conf/new"}); err == nil {
+		t.Fatal("a read-only subpath mount accepted a write")
+	}
+}

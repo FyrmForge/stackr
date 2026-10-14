@@ -17,6 +17,8 @@ import (
 	"fmt"
 	"io"
 	"maps"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -73,8 +75,12 @@ type Flow struct {
 	// devices, privileged); nil = nothing is granted.
 	HostGrants *hostgrant.Leaf
 
-	// DataDir is where fileBinds writes a tile's config files; set from
-	// Config.DataDir.
+	// Preflight, when set, runs first in Run and refuses a deploy to an env
+	// whose node cannot take it (a full disk); nil = no check.
+	Preflight func(ctx context.Context, e store.Environment, log io.Writer) error
+
+	// DataDir is the data dir; the stack config clones live under it.
+	// Set from Config.DataDir.
 	DataDir string
 
 	// VIPLock, when set, is the lock of the node in ctx, held while route
@@ -190,6 +196,15 @@ func (f *Flow) Current(ctx context.Context, t store.Tile, e store.Environment) (
 // cancelled (the Railway rule); it is called right before the first
 // container changes.
 func (f *Flow) Run(ctx context.Context, t store.Tile, ref string, log io.Writer, swap func() error) (string, error) {
+	if f.Preflight != nil {
+		e, err := f.Envs.Get(ctx, t.EnvironmentID)
+		if err != nil {
+			return "", err
+		}
+		if err := f.Preflight(ctx, e, log); err != nil {
+			return "", err
+		}
+	}
 	if swap == nil {
 		swap = func() error { return nil }
 	}
@@ -223,16 +238,20 @@ func (f *Flow) Run(ctx context.Context, t store.Tile, ref string, log io.Writer,
 		return digest, f.Engines.Ready(ctx, t)
 	}
 	f.prune(ctx, t, e, log)
-	f.pruneFolders(ctx, t, log)
+	f.pruneFolders(ctx, t, r, log)
 	return digest, nil
 }
 
-// pruneFolders drops the tile's config file folders no replica mounts any
-// more. A failure is logged: the deploy already rolled out.
-func (f *Flow) pruneFolders(ctx context.Context, t store.Tile, log io.Writer) {
-	ms, err := f.Tiles.Mounts(ctx, t)
-	if err == nil {
-		err = f.pruneFiles(t, ms)
+// pruneFolders drops the tile's config file volumes but the one r mounts;
+// Docker refuses one an old replica still holds. A failure is logged: the
+// deploy already rolled out.
+func (f *Flow) pruneFolders(ctx context.Context, t store.Tile, r resolved, log io.Writer) {
+	// ponytail: drops the pre-volume folder; delete this line a release later.
+	err := os.RemoveAll(filepath.Join(f.DataDir, "files", t.ID))
+	// ponytail: a tile whose files: lines were all removed keeps its last
+	// volume until it is deleted; listing volumes on every deploy is a disk scan.
+	if err == nil && len(r.mounts) > 0 {
+		err = f.Tiles.PruneFiles(ctx, t, r.mounts[0].Volume)
 	}
 	if err != nil {
 		logf(log, "warning: prune config files: %v\n", err)
@@ -618,11 +637,9 @@ func (f *Flow) resolve(
 		r.binds = append(r.binds, src)
 	}
 	if strings.TrimSpace(t.Files) != "" {
-		fb, err := f.fileBinds(ctx, t, e, st, rr)
-		if err != nil {
+		if r.mounts, err = f.fileMounts(ctx, t, e, st, rr); err != nil {
 			return r, err
 		}
-		r.binds = append(r.binds, fb...)
 	}
 
 	r.cmd = def.Cmd

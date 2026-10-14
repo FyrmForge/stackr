@@ -1,11 +1,15 @@
 package deploy_test
 
 import (
+	"archive/tar"
+	"bytes"
+	"compress/gzip"
 	"context"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -17,6 +21,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/params"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/release"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
+	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
 
 // filesWorld is setup with a config clone at <DataDir>/repos/config-<stack>
@@ -67,77 +72,182 @@ func filesWorld(t *testing.T) (*world, string) {
 	return w, commit
 }
 
-// mountFake makes the old replica mount every bind a Run was given.
+// mountFake is a node that keeps what it is given: CreateVolume lists the
+// volume, UntarVolume stores the archive and TarVolume hands it back, which is
+// all the files volume's done check reads.
 type mountFake struct{ *dockerfake.Fake }
 
-func (m mountFake) mount(s docker.ContainerSpec) {
-	d := m.Details["old"]
-	d.Mounts = nil
-	for _, v := range s.Volumes {
-		d.Mounts = append(d.Mounts, strings.SplitN(v, ":", 2)[0]+" -> "+strings.Split(v, ":")[1])
+func (m mountFake) CreateVolume(ctx context.Context, name, driver string, opts, labels map[string]string) error {
+	m.Volumes = append(m.Volumes, docker.VolumeInfo{Name: name, Labels: labels})
+	return m.Fake.CreateVolume(ctx, name, driver, opts, labels)
+}
+
+func (m mountFake) TarVolume(ctx context.Context, name string, w io.Writer, live bool) error {
+	m.TarOut = m.Untarred
+	return m.Fake.TarVolume(ctx, name, w, live)
+}
+
+func (m mountFake) RemoveVolume(ctx context.Context, name string) error {
+	m.Volumes = slices.DeleteFunc(m.Volumes, func(v docker.VolumeInfo) bool { return v.Name == name })
+	return m.Fake.RemoveVolume(ctx, name)
+}
+
+// archive is the members of the last archive a volume was written from.
+func archive(t *testing.T, w *world) (names []string, body map[string]string) {
+	t.Helper()
+	zr, err := gzip.NewReader(bytes.NewReader(w.fake.Untarred))
+	must(t, err)
+	body = map[string]string{}
+	tr := tar.NewReader(zr)
+	for {
+		h, err := tr.Next()
+		if err == io.EOF {
+			return names, body
+		}
+		must(t, err)
+		b, _ := io.ReadAll(tr)
+		names = append(names, h.Name)
+		body[h.Name] = string(b)
 	}
-	m.Details["old"] = d
 }
 
-func (m mountFake) Run(ctx context.Context, s docker.ContainerSpec) (string, error) {
-	m.mount(s)
-	return m.Fake.Run(ctx, s)
-}
-
-// Create is the stop-first path's Run.
-func (m mountFake) Create(ctx context.Context, s docker.ContainerSpec) (string, error) {
-	m.mount(s)
-	return m.Fake.Create(ctx, s)
+func count(w *world, method string) (n int) {
+	for _, c := range w.fake.Calls() {
+		if c.Method == method {
+			n++
+		}
+	}
+	return n
 }
 
 func TestFilesLandReadOnly(t *testing.T) {
-	w, commit := filesWorld(t)
+	w, _ := filesWorld(t)
 	w.tile.Files = "conf/app.yml:/etc/app.yml:template\nconf:/etc/conf"
-	_, err := w.f.Run(ctx, w.tile, "nginx@sha256:aa", io.Discard, nil)
-	must(t, err)
-	base := filepath.Dir(filepath.Dir(bindSrc(w, 0)))
-	if !strings.HasPrefix(filepath.Base(base), commit+"-") {
-		t.Fatalf("folder %s is not keyed on the commit", base)
+	old := filepath.Join(w.f.DataDir, "files", w.tile.ID, "oldcommit", "0")
+	must(t, os.MkdirAll(old, 0o750))
+	mustRun(t, w)
+
+	s := w.fake.Specs[0]
+	if len(s.Mounts) != 2 {
+		t.Fatalf("mounts = %+v", s.Mounts)
 	}
-	want := []string{
-		filepath.Join(base, "0", "app.yml") + ":/etc/app.yml:ro",
-		filepath.Join(base, "1") + ":/etc/conf:ro",
+	vol := s.Mounts[0].Volume
+	if !strings.HasPrefix(vol, "stackr-files-"+w.tile.ID[:8]+"-") {
+		t.Errorf("volume = %s", vol)
 	}
-	if got := w.fake.Specs[0].Volumes; strings.Join(got, "|") != strings.Join(want, "|") {
-		t.Fatalf("binds = %v, want %v", got, want)
+	want := []docker.Mount{
+		{Volume: vol, Subpath: "0/app.yml", Target: "/etc/app.yml", ReadOnly: true},
+		{Volume: vol, Subpath: "1", Target: "/etc/conf", ReadOnly: true},
 	}
-	read := func(p string) string {
-		b, err := os.ReadFile(filepath.Join(base, p))
-		must(t, err)
-		return string(b)
+	if !slices.Equal(s.Mounts, want) {
+		t.Errorf("mounts = %+v, want %+v", s.Mounts, want)
 	}
-	if got := read("0/app.yml"); got != "key: s3cret\n" {
+	for _, v := range s.Volumes {
+		if strings.Contains(v, "/files/") {
+			t.Errorf("a host path is still bound: %s", v)
+		}
+	}
+	names, body := archive(t, w)
+	if last := names[len(names)-1]; last != tile.FilesDone {
+		t.Errorf("last member = %s", last)
+	}
+	if got := body["0/app.yml"]; got != "key: s3cret\n" {
 		t.Errorf("template = %q", got)
 	}
 	// Folder lines copy byte for byte unless flagged.
-	if got := read("1/sub/b.yml"); got != "b ${{ not.expanded }}\n" {
+	if got := body["1/sub/b.yml"]; got != "b ${{ not.expanded }}\n" {
 		t.Errorf("plain copy = %q", got)
 	}
-	if got := read("1/app.yml"); got != "key: ${{ params.app.key }}\n" {
+	if got := body["1/app.yml"]; got != "key: ${{ params.app.key }}\n" {
 		t.Errorf("plain copy = %q", got)
+	}
+	if _, err := os.Stat(old); err == nil {
+		t.Error("the pre-volume folder survived")
+	}
+	for _, c := range w.fake.Calls() {
+		if strings.Contains(c.String(), "s3cret") {
+			t.Errorf("a secret reached a Docker call: %s", c.Method)
+		}
 	}
 }
 
-func TestFilesPrune(t *testing.T) {
+// The same key finds its volume written and writes nothing; an edit of the
+// lines makes a new volume and drops the old one.
+func TestFilesWrittenOnce(t *testing.T) {
 	w, _ := filesWorld(t)
 	w.tile.Files = "conf/app.yml:/etc/app.yml"
-	_, err := w.f.Run(ctx, w.tile, "nginx@sha256:aa", io.Discard, nil)
-	must(t, err)
-	root := filepath.Join(w.f.DataDir, "files", w.tile.ID)
-	stale := filepath.Join(root, "oldcommit", "0")
-	must(t, os.MkdirAll(stale, 0o750))
-	live := filepath.Dir(filepath.Dir(bindSrc(w, 0)))
-	must(t, deploy.PruneFiles(w.f, w.tile, []string{filepath.Join(live, "0", "app.yml") + " -> /etc/app.yml"}))
-	if _, err := os.Stat(stale); err == nil {
-		t.Error("the unused commit folder survived")
+	mustRun(t, w)
+	first := w.fake.Specs[0].Mounts[0].Volume
+	mustRun(t, w)
+	if n := count(w, "UntarVolume"); n != 1 {
+		t.Errorf("untar calls = %d, want 1", n)
 	}
-	if _, err := os.Stat(live); err != nil {
-		t.Errorf("the mounted commit folder was pruned: %v", err)
+	if got := w.fake.Specs[1].Mounts[0].Volume; got != first {
+		t.Errorf("volume changed: %s", got)
+	}
+
+	w.tile.Files = "conf/app.yml:/etc/app.yml:template\nconf:/etc/conf"
+	mustRun(t, w)
+	if got := w.fake.Specs[2].Mounts[0].Volume; got == first {
+		t.Fatal("the volume was reused after the files: lines changed")
+	}
+	if !slices.ContainsFunc(w.fake.Calls(), func(c dockerfake.Call) bool {
+		return c.Method == "RemoveVolume" && c.Args[0] == first
+	}) {
+		t.Error("the old volume was not pruned")
+	}
+}
+
+// A volume cut short (no done marker) is written again.
+func TestFilesRewriteUnfinishedVolume(t *testing.T) {
+	w, _ := filesWorld(t)
+	w.tile.Files = "conf/app.yml:/etc/app.yml"
+	mustRun(t, w)
+	w.fake.Untarred = nil // the volume holds no marker
+	mustRun(t, w)
+	if n := count(w, "UntarVolume"); n != 2 {
+		t.Errorf("untar calls = %d, want 2", n)
+	}
+}
+
+// A param edit re-renders a template into a new volume; the name shows
+// neither the value nor the params version.
+func TestFilesParamEditRemounts(t *testing.T) {
+	w, _ := filesWorld(t)
+	w.tile.Files = "conf/app.yml:/etc/app.yml:template"
+	mustRun(t, w)
+	first := w.fake.Specs[0].Mounts[0].Volume
+	time.Sleep(10 * time.Millisecond)
+	must(t, w.f.Params.Merge(ctx, params.Scope{Kind: "env", ID: w.env.ID}, []params.Entry{
+		{Collection: "app", Name: "key", Kind: params.Secret, Value: "n3w-key"},
+	}))
+	mustRun(t, w)
+	second := w.fake.Specs[1].Mounts[0].Volume
+	if second == first {
+		t.Fatal("the volume was reused after a param edit")
+	}
+	if _, body := archive(t, w); body["0/app.yml"] != "key: n3w-key\n" {
+		t.Errorf("template = %q", body["0/app.yml"])
+	}
+	if strings.Contains(second, "n3w-key") {
+		t.Errorf("a secret value is in the volume name %s", second)
+	}
+}
+
+// A hook that refuses stops the deploy before anything is pulled or started.
+func TestPreflightRefuses(t *testing.T) {
+	w := setup(t)
+	var got string
+	w.f.Preflight = func(_ context.Context, e store.Environment, _ io.Writer) error {
+		got = e.ID
+		return errs.Conflictf("node is full")
+	}
+	_, err := w.f.Run(ctx, w.tile, "nginx@sha256:aa", io.Discard, nil)
+	if err == nil || !strings.Contains(err.Error(), "node is full") || got != w.env.ID {
+		t.Errorf("err = %v, env = %q", err, got)
+	}
+	if len(w.fake.Specs) != 0 {
+		t.Error("a container started after the refusal")
 	}
 }
 
@@ -150,78 +260,10 @@ func TestFilesNeedTheConfigRepo(t *testing.T) {
 	}
 }
 
-// bindSrc is the host path of the n-th bind of the last deployed spec.
-func bindSrc(w *world, n int) string {
-	v := w.fake.Specs[len(w.fake.Specs)-1].Volumes[n]
-	return strings.SplitN(v, ":", 2)[0]
-}
-
 func mustRun(t *testing.T, w *world) {
 	t.Helper()
 	_, err := w.f.Run(ctx, w.tile, "nginx@sha256:aa", io.Discard, nil)
 	must(t, err)
-}
-
-func readBind(t *testing.T, p string) string {
-	t.Helper()
-	b, err := os.ReadFile(p)
-	must(t, err)
-	return string(b)
-}
-
-// A drawer edit of files: at the same commit remounts the new content, adds a
-// new folder line and renders a line that became :template.
-func TestFilesEditAtSameCommit(t *testing.T) {
-	w, _ := filesWorld(t)
-	w.tile.Files = "conf/app.yml:/etc/app.yml"
-	mustRun(t, w)
-	if got := readBind(t, bindSrc(w, 0)); got != "key: ${{ params.app.key }}\n" {
-		t.Fatalf("first = %q", got)
-	}
-	first := bindSrc(w, 0)
-
-	w.tile.Files = "conf/app.yml:/etc/app.yml:template\nconf:/etc/conf"
-	mustRun(t, w)
-	if bindSrc(w, 0) == first {
-		t.Fatal("the folder was reused after the files: lines changed")
-	}
-	if got := readBind(t, bindSrc(w, 0)); got != "key: s3cret\n" {
-		t.Errorf("template line stayed raw: %q", got)
-	}
-	if got := readBind(t, filepath.Join(bindSrc(w, 1), "sub", "b.yml")); got != "b ${{ not.expanded }}\n" {
-		t.Errorf("new folder line = %q", got)
-	}
-
-	// Same lines, same params: the folder is reused, not rewritten.
-	again := bindSrc(w, 0)
-	mustRun(t, w)
-	if bindSrc(w, 0) != again {
-		t.Error("an unchanged tile got a new folder")
-	}
-}
-
-// A param edit re-renders a template; the path shows the params version, not
-// a value.
-func TestFilesParamEditRemounts(t *testing.T) {
-	w, _ := filesWorld(t)
-	w.tile.Files = "conf/app.yml:/etc/app.yml:template"
-	mustRun(t, w)
-	first := bindSrc(w, 0)
-	time.Sleep(10 * time.Millisecond)
-	must(t, w.f.Params.Merge(ctx, params.Scope{Kind: "env", ID: w.env.ID}, []params.Entry{
-		{Collection: "app", Name: "key", Kind: params.Secret, Value: "n3w-key"},
-	}))
-	mustRun(t, w)
-	if bindSrc(w, 0) == first {
-		t.Fatal("the folder was reused after a param edit")
-	}
-	if got := readBind(t, bindSrc(w, 0)); got != "key: n3w-key\n" {
-		t.Errorf("template = %q", got)
-	}
-	// a hyphen keeps the value from matching the path's base-36 stamp
-	if strings.Contains(bindSrc(w, 0), "n3w-key") || strings.Contains(bindSrc(w, 0), "s3cret") {
-		t.Errorf("a secret value is in the path %s", bindSrc(w, 0))
-	}
 }
 
 func TestFilesMissingCommit(t *testing.T) {
@@ -241,11 +283,11 @@ func TestFilesMissingCommit(t *testing.T) {
 
 func TestFilesRefuseEscapingEntry(t *testing.T) {
 	for _, rel := range []string{"../x", "a/../../x", "/abs"} {
-		if _, err := deploy.SlotPath("/t", "0", rel); err == nil {
+		if _, err := deploy.SlotPath("0", rel); err == nil {
 			t.Errorf("%q accepted", rel)
 		}
 	}
-	if _, err := deploy.SlotPath("/t", "0", "sub/b.yml"); err != nil {
+	if _, err := deploy.SlotPath("0", "sub/b.yml"); err != nil {
 		t.Error(err)
 	}
 }

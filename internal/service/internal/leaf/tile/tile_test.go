@@ -730,3 +730,22 @@ func TestEarlyOffOnGateFailureAndRemove(t *testing.T) {
 		t.Fatalf("remove: off %v", off)
 	}
 }
+
+func TestWriteFilesRefusesOldDocker(t *testing.T) {
+	l, fake, _, base := setup(t)
+	base.ID = "0123456789"
+	fake.Host = docker.HostInfo{Version: "25.0.3"}
+	_, err := l.WriteFiles(ctx, base, "k", []byte("x"))
+	if !isConflict(err) || !strings.Contains(err.Error(), "25.0.3") || !strings.Contains(err.Error(), "Docker 26") {
+		t.Fatalf("err = %v", err)
+	}
+	for _, c := range fake.Calls() {
+		if c.Method == "CreateVolume" || c.Method == "UntarVolume" {
+			t.Errorf("wrote after refusing: %s", c.Method)
+		}
+	}
+	fake.Host = docker.HostInfo{Version: "26.0.0"}
+	if _, err := l.WriteFiles(ctx, base, "k", []byte("x")); err != nil {
+		t.Fatal(err)
+	}
+}

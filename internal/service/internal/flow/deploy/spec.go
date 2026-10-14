@@ -19,6 +19,7 @@ type resolved struct {
 	name, image string
 	pinRef      string // repo@digest of image when known; "" = image itself
 	env, binds  []string
+	mounts      []docker.Mount // the files: volume, by subpath
 	cmd         []string
 	ports       map[string]string
 	devices     []docker.Device
@@ -39,6 +40,7 @@ func spec(t store.Tile, r resolved) docker.ContainerSpec {
 		Cmd:                r.cmd,
 		Env:                r.env,
 		Volumes:            r.binds,
+		Mounts:             r.mounts,
 		Ports:              r.ports,
 		Networks:           r.networks,
 		ExtraHosts:         r.extraHosts,
