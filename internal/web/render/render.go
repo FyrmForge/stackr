@@ -18,6 +18,7 @@ import (
 	"github.com/labstack/echo/v4"
 
 	"github.com/FyrmForge/stackr/internal/api/stream"
+	"github.com/FyrmForge/stackr/internal/authz"
 	"github.com/FyrmForge/stackr/internal/middleware"
 	"github.com/FyrmForge/stackr/internal/service"
 	"github.com/FyrmForge/stackr/internal/ui/components"
@@ -132,6 +133,9 @@ func NodeDown(orch *service.Orchestrator) echo.MiddlewareFunc {
 				d, ok := orch.EnvNodeDown(c.Request().Context(), envID)
 				if !ok {
 					return ""
+				}
+				if p := middleware.Principal(c); p == nil || authz.Can(p.Access, "node.manage", authz.Resource{}) != nil {
+					return middleware.NodeOfflineMsg + " Deploys here are refused until it is back."
 				}
 				return (&service.NodeDownError{Name: d.Name, LastSeen: d.LastSeen}).Error() + ". Deploys here are refused until it is back."
 			})
