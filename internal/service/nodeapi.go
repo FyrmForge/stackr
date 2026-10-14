@@ -424,11 +424,12 @@ func (o *Orchestrator) OpenNode(ctx context.Context, by *Principal, ref, orgSlug
 	return o.nodeOut(ctx, n)
 }
 
-// RemoveNodeRef removes a worker with no envs left (RemoveNode by name).
-func (o *Orchestrator) RemoveNodeRef(ctx context.Context, by *Principal, ref string) error {
+// RemoveNodeRef queues the removal of a worker with no envs left (RemoveNode
+// by name).
+func (o *Orchestrator) RemoveNodeRef(ctx context.Context, by *Principal, ref string) (Job, error) {
 	n, err := o.nodeByRef(ctx, ref)
 	if err != nil {
-		return err
+		return Job{}, err
 	}
 	return o.RemoveNode(ctx, by, n.ID)
 }

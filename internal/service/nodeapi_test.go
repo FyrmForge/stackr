@@ -255,16 +255,16 @@ func TestRemoveForgetRestore(t *testing.T) {
 	ctx := context.Background()
 	n := newTwoNodes(t)
 	adm := adminP()
-	if err := n.orch.RemoveNodeRef(ctx, adm, "w1"); err == nil || !strings.Contains(err.Error(), "still runs 1 envs") {
+	if _, err := n.orch.RemoveNodeRef(ctx, adm, "w1"); err == nil || !strings.Contains(err.Error(), "still runs 1 envs") {
 		t.Fatalf("remove with an env = %v", err)
 	}
-	if err := n.orch.RemoveNodeRef(ctx, adm, n.ctl.Name); err == nil {
+	if _, err := n.orch.RemoveNodeRef(ctx, adm, n.ctl.Name); err == nil {
 		t.Fatal("the controller was removed")
 	}
 	addNode(t, n, "tmp", "10.230.0.0/16", "egress")
 	_, err := n.orch.ExitSet(ctx, adm, "env", n.dev.ID, []string{"tmp"})
 	must(t, err)
-	must(t, n.orch.RemoveNodeRef(ctx, adm, "tmp"))
+	removeNow(t, n, "tmp")
 	if _, err := n.st.Nodes.Get(ctx, "tmp"); err == nil {
 		t.Error("the node row is still there")
 	}

@@ -7,6 +7,7 @@ package backup
 import (
 	"archive/tar"
 	"bufio"
+	"cmp"
 	"compress/gzip"
 	"context"
 	"errors"
@@ -65,20 +66,31 @@ type Spec struct {
 	Trigger    string  // schedule | manual | pre-restore | orphan
 	Mode       string  // pause | stop | live; ignored when the subject dumps
 	Keep       int
+	// GroupID ties the run to a node backup group. A group run may name a
+	// volume with no row (empty ID); its archive is named by the Docker volume.
+	GroupID string
 }
 
 // Backup claims the volume, writes one archive and prunes the schedule's
 // prefix. The run row records the outcome either way.
 func (f *Flow) Backup(ctx context.Context, s Subject, sp Spec, log io.Writer) (store.BackupRun, error) {
-	if !f.claim(s.Volume.ID) {
+	key := cmp.Or(s.Volume.ID, s.Volume.Name)
+	if !f.claim(key) {
 		return store.BackupRun{}, errs.Conflictf("a backup or restore of %s is already running", s.Volume.Slug)
 	}
-	defer f.release(s.Volume.ID)
+	defer f.release(key)
 	return f.backup(ctx, s, sp, log)
 }
 
 func (f *Flow) backup(ctx context.Context, s Subject, sp Spec, log io.Writer) (store.BackupRun, error) {
-	r, err := f.Backups.Start(ctx, bk.KindVolume, &s.Volume.ID, sp.ScheduleID, sp.Dest.ID, sp.Trigger)
+	var volumeID, groupID *string
+	if s.Volume.ID != "" {
+		volumeID = &s.Volume.ID
+	}
+	if sp.GroupID != "" {
+		groupID = &sp.GroupID
+	}
+	r, err := f.Backups.StartIn(ctx, bk.KindVolume, volumeID, sp.ScheduleID, sp.Dest.ID, sp.Trigger, groupID)
 	if err != nil {
 		return r, err
 	}
@@ -99,12 +111,15 @@ func (f *Flow) backup(ctx context.Context, s Subject, sp Spec, log io.Writer) (s
 // write produces the archive into a spool file and uploads it.
 func (f *Flow) write(ctx context.Context, s Subject, sp Spec, log io.Writer) (string, int64, error) {
 	name, ext := s.Volume.Slug, ".tar.gz.age"
+	if sp.GroupID != "" {
+		name = s.Volume.Name // unique on the node; slugs repeat across envs
+	}
 	if s.dumps() {
 		ext = ".sql.gz.age"
 	} else if err := f.checkSpace(ctx, s.Volume); err != nil {
 		return "", 0, err
 	}
-	spool, err := f.spool(s.Volume.ID)
+	spool, err := f.spool(cmp.Or(s.Volume.ID, "group"))
 	if err != nil {
 		return "", 0, err
 	}

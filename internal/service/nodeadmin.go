@@ -418,35 +418,6 @@ func (o *Orchestrator) workerNode(ctx context.Context, id string) (store.Node, e
 	return n, nil
 }
 
-// RemoveNode (server admin) removes a worker that has no envs left. Move them
-// first.
-func (o *Orchestrator) RemoveNode(ctx context.Context, by *Principal, id string) error {
-	if err := nodeAdmin(by); err != nil {
-		return err
-	}
-	n, err := o.workerNode(ctx, id)
-	if err != nil {
-		return err
-	}
-	es, err := o.store.Environments.ListByNode(ctx, id)
-	if err != nil {
-		return err
-	}
-	if len(es) > 0 {
-		return errs.Conflictf("%s still runs %d envs. Move them first, or forget the node if it is gone for good.", n.Name, len(es))
-	}
-	rungs, err := o.store.ExitLadders.ListByNode(ctx, id)
-	if err != nil {
-		return err
-	}
-	for _, r := range rungs {
-		if r.ScopeKind == scopeNode {
-			return errs.Conflictf("%s is the default exit of %s; point it elsewhere first.", n.Name, o.nodeName(ctx, r.ScopeID))
-		}
-	}
-	return o.dropNode(ctx, by, n, auditNodeRemove, false)
-}
-
 // ForgetPreview (server admin) is the envs that are lost if the node is forgotten.
 func (o *Orchestrator) ForgetPreview(ctx context.Context, id string) ([]NodeEnv, error) {
 	if _, err := o.workerNode(ctx, id); err != nil {
@@ -468,6 +439,10 @@ func (o *Orchestrator) ForgetNode(ctx context.Context, by *Principal, id, confir
 	}
 	if confirm != n.Name {
 		return errs.Invalidf("confirm", "type %s to confirm", n.Name)
+	}
+	// Forgetting would silently clear that node's exit, as a remove refuses to.
+	if err := o.exitGuard(ctx, n); err != nil {
+		return err
 	}
 	return o.dropNode(ctx, by, n, auditNodeForget, true)
 }
