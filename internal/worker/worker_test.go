@@ -163,7 +163,7 @@ func TestFacts(t *testing.T) {
 	}
 	b, _ := io.ReadAll(resp.Body)
 	s := string(b)
-	for _, want := range []string{`"docker":"29.0.0"`, `"interfaces"`, `"cpus"`, `"disk_free"`, `"wg_port":51871`, `"arch":"` + runtime.GOARCH + `"`} {
+	for _, want := range []string{`"docker":"29.0.0"`, `"interfaces"`, `"cpus"`, `"disk_free"`, `"disk_total"`, `"wg_port":51871`, `"arch":"` + runtime.GOARCH + `"`} {
 		if !strings.Contains(s, want) {
 			t.Errorf("missing %s in %s", want, s)
 		}
