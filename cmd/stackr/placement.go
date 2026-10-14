@@ -123,6 +123,7 @@ func (a *app) pin() *cobra.Command {
 func (a *app) ingress() *cobra.Command {
 	var clear, def bool
 	var getDef bool
+	var confirm string
 	get := leaf("get", "org.ingress,stack.ingress,env.ingress,tile.ingress,admin.node-defaults", "Which node public traffic enters through", exact(0),
 		func(c *cobra.Command, _ []string) error {
 			if getDef {
@@ -145,10 +146,10 @@ func (a *app) ingress() *cobra.Command {
 		})
 	get.Example = "  stackr ingress get --stack shop --env prod\n  stackr ingress get --default"
 	get.Flags().BoolVar(&getDef, "default", false, "show the cluster-wide default ingress and exit")
-	set := leaf("set [node]", "org.ingress-set,stack.ingress-set,env.ingress-set,tile.ingress-set,admin.default-ingress-set", "Pick the ingress node of a scope", upTo(1),
+	set := leaf("set [node]", "org.ingress-set,stack.ingress-set,env.ingress-set,tile.ingress-set,admin.default-ingress-set,admin.default-ingress-plan", "Pick the ingress node of a scope", upTo(1),
 		func(c *cobra.Command, args []string) error {
 			if def {
-				return a.setDefault(c, args, "/admin/default-ingress", "ingress")
+				return a.setDefaultIngress(args, confirm)
 			}
 			if len(args) == 0 && !clear {
 				return usage("pass a node, or --clear")
@@ -180,7 +181,8 @@ func (a *app) ingress() *cobra.Command {
 		})
 	set.Example = "  stackr ingress set home --tile admin --stack shop --env prod\n  stackr ingress set vps-fsn1 --default"
 	set.Flags().BoolVar(&clear, "clear", false, "remove the pick; the scope inherits")
-	set.Flags().BoolVar(&def, "default", false, "set the cluster-wide default ingress to <node>")
+	set.Flags().BoolVar(&def, "default", false, "set the cluster-wide default ingress to <node>; shows where the hosts point first")
+	set.Flags().StringVar(&confirm, "confirm", "", "with --default: the node's name, to skip the prompt")
 	scopeFlags(get, true)
 	scopeFlags(set, true)
 	return noun("ingress", "The node public traffic enters through", get, set)
@@ -200,6 +202,57 @@ func (a *app) showDefaults() error {
 		exit = "each node's own uplink"
 	}
 	a.say("default ingress\t%s\ndefault exit\t%s", cell(m["ingress"]), exit)
+	return nil
+}
+
+// setDefaultIngress shows where the hosts that enter by the default point,
+// then moves the default once the node's name is typed (admin).
+func (a *app) setDefaultIngress(args []string, confirm string) error {
+	if len(args) != 1 {
+		return usage("pass the node to make the default ingress")
+	}
+	node := args[0]
+	plan, err := a.call(GET, "/admin/default-ingress/plan?node="+url.QueryEscape(node), nil)
+	if err != nil {
+		return err
+	}
+	if !a.json {
+		a.say("The panel and every route without an ingress pick move to %s.", node)
+		for _, h := range asList(asMap(plan)["hosts"]) {
+			m := asMap(h)
+			where := "points to " + strings.Join(strs(m["points"]), ", ")
+			switch {
+			case m["ok"] == true:
+				where = "points here"
+			case cell(m["error"]) != "" && cell(m["error"]) != "(none)":
+				where = "lookup failed: " + cell(m["error"])
+			}
+			kind := "route"
+			if m["panel"] == true {
+				kind = "panel"
+			}
+			a.say("  %s\t%s\t%s", kind, cell(m["host"]), where)
+		}
+		if asMap(plan)["known"] != true {
+			a.say("%s has no public address of its own; check the DNS by hand.", node)
+		}
+	}
+	if confirm == "" {
+		if a.json || !a.tty {
+			return usage("pass --confirm %s to switch without a prompt", node)
+		}
+		_, _ = fmt.Fprintf(a.errw, "Type %s to confirm: ", node)
+		line, _ := a.in.ReadString('\n')
+		confirm = strings.TrimSpace(line)
+	}
+	v, err := a.call(PUT, "/admin/default-ingress", map[string]string{"node": node, "confirm": confirm})
+	if err != nil {
+		return err
+	}
+	if a.json {
+		return a.show(v)
+	}
+	a.say("default ingress is now %s", node)
 	return nil
 }
 

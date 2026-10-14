@@ -215,7 +215,8 @@ func TestNodeRemove(t *testing.T) {
 	if code, _, _ := cli(t, "node", "remove", "w"); code != 3 || len(writes(r)) != 0 {
 		t.Errorf("no -y = %d, writes %v", code, writes(r))
 	}
-	if code, out, errw := cli(t, "-y", "node", "remove", "w"); code != 0 || !strings.Contains(out, "w: removed") {
+	// the answer is a job; this fake's has no id, so it is shown, not followed
+	if code, out, errw := cli(t, "-y", "node", "remove", "w"); code != 0 {
 		t.Fatalf("-y = %d %q %q", code, out, errw)
 	}
 	if w := writes(r); len(w) != 1 || w[0] != "DELETE /api/v1/admin/nodes/w " {
@@ -227,7 +228,7 @@ func TestNodeRemove(t *testing.T) {
 		t.Errorf("with envs = %d %q, writes %v", code, errw, writes(r))
 	}
 	// --move-to moves each env, then removes
-	r = fake(t, map[string]string{"/nodes/w": nodeJSON, "/move": `{}`})
+	r = fake(t, map[string]string{"/nodes/w": nodeJSON, "/move": `{}`, "/admin/nodes/w": `{}`})
 	if code, _, errw := cli(t, "-y", "node", "remove", "w", "--move-to", "home"); code != 0 {
 		t.Fatalf("--move-to = %d %q", code, errw)
 	}
@@ -510,6 +511,49 @@ func TestRegistryLogin(t *testing.T) {
 	fakeErr(t, 401, `{"error":"no"}`)
 	if code, _, _ = cli(t, "registry", "login"); code == 0 || host != "registry.example.com" {
 		t.Errorf("a refused mint reached docker: %d host=%q", code, host)
+	}
+}
+
+// remove and backup are jobs: each sends one write that answers a job, then
+// follows it.
+func TestNodeRemoveAndBackupQueueJobs(t *testing.T) {
+	r := fake(t, map[string]string{
+		"/nodes/vps":              `{"name":"vps","env_list":[]}`,
+		"/admin/nodes/vps":        `{"id":"j1"}`,
+		"/admin/nodes/vps/backup": `{"id":"j2"}`,
+	})
+	cli(t, "-y", "node", "remove", "vps")
+	cli(t, "-y", "node", "backup", "vps")
+	want := []string{"DELETE /api/v1/admin/nodes/vps ", "POST /api/v1/admin/nodes/vps/backup "}
+	if w := writes(r); len(w) != 2 || w[0] != want[0] || w[1] != want[1] {
+		t.Errorf("writes = %q, want %q", w, want)
+	}
+	if code, _, _ := cli(t, "node", "backup", "vps"); code != 3 {
+		t.Errorf("backup without -y = %d, want the confirm refusal (3)", code)
+	}
+}
+
+// ingress set --default shows where the hosts point, then sends the typed
+// name as confirm; without it and without a terminal nothing is sent.
+func TestIngressSetDefaultShowsPlanAndSendsConfirm(t *testing.T) {
+	plan := `{"node":"h4","addrs":["203.0.113.4"],"known":true,"hosts":[` +
+		`{"host":"panel.example.com","panel":true,"points":["198.51.100.9"],"ok":false},` +
+		`{"host":"app.example.com","panel":false,"points":["203.0.113.4"],"ok":true}]}`
+	r := fake(t, map[string]string{"/admin/default-ingress/plan": plan, "/admin/default-ingress": `{"ingress":"h4","exit":""}`})
+	if code, _, errw := cli(t, "ingress", "set", "h4", "--default"); code != 2 || !strings.Contains(errw, "--confirm h4") || len(writes(r)) != 0 {
+		t.Errorf("no confirm = %d %q, writes %v", code, errw, writes(r))
+	}
+	code, out, errw := cli(t, "ingress", "set", "h4", "--default", "--confirm", "h4")
+	if code != 0 {
+		t.Fatalf("confirmed = %d %q %q", code, out, errw)
+	}
+	for _, s := range []string{"panel.example.com", "points to 198.51.100.9", "points here"} {
+		if !strings.Contains(out, s) {
+			t.Errorf("plan output lacks %q: %q", s, out)
+		}
+	}
+	if w := writes(r); len(w) != 1 || w[0] != `PUT /api/v1/admin/default-ingress {"confirm":"h4","node":"h4"}` {
+		t.Errorf("writes = %q", w)
 	}
 }
 
