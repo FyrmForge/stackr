@@ -86,6 +86,25 @@ func TestJoinConfirmed(t *testing.T) {
 	}
 }
 
+func TestPinnedRootsDropsUnpinned(t *testing.T) {
+	pemOf := func() string {
+		ca, err := clusterca.NewCA(time.Now())
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: ca.Cert.Raw}))
+	}
+	good, evil := pemOf(), pemOf()
+	pin, _ := fingerprint([]byte(good))
+	got := pinnedRoots([]string{good, evil, "junk"}, pin)
+	if len(got) != 1 || got[0] != good {
+		t.Fatalf("kept %d roots, want only the pinned one", len(got))
+	}
+	if len(pinnedRoots([]string{evil}, pin)) != 0 {
+		t.Fatal("an unpinned root survived")
+	}
+}
+
 func TestJoinRefusals(t *testing.T) {
 	key, _ := clusterca.NewKey()
 	csr, _ := clusterca.NewCSR(key)

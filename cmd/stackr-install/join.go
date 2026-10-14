@@ -283,7 +283,7 @@ func join(ctx context.Context, args []string, out io.Writer) error {
 	if err := json.Unmarshal(st.Mesh, &spec); err != nil {
 		return fmt.Errorf("the node's mesh spec: %w", err)
 	}
-	if err := worker.ResetTrust(filepath.Join(*stateDir, "cluster-ca.crt"), spec.TrustRoots, spec.ControllerSerials); err != nil {
+	if err := worker.ResetTrust(filepath.Join(*stateDir, "cluster-ca.crt"), pinnedRoots(spec.TrustRoots, fp), spec.ControllerSerials); err != nil {
 		return err
 	}
 	if err := os.WriteFile(joinUnitPath, []byte(workerUnit(*stateDir, strings.Split(st.WGAddress, "/")[0], *wgPort, u.String())), 0o644); err != nil {
@@ -298,6 +298,20 @@ func join(ctx context.Context, args []string, out io.Writer) error {
 	}
 	r.say("This node is a worker now; the panel shows it under Nodes.")
 	return nil
+}
+
+// pinnedRoots keeps the roots of a join answer whose fingerprint is the
+// --ca-sha256 pin. The answer is vouched for by that pin alone, so an extra
+// root in it is one the admin never named; the rollover pair reaches the
+// node later over mTLS.
+func pinnedRoots(pems []string, pin string) []string {
+	var out []string
+	for _, p := range pems {
+		if fp, err := fingerprint([]byte(p)); err == nil && fp == pin {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 // writeJoinState puts what the join answer gave next to the node's key:
