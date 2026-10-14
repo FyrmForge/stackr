@@ -548,6 +548,7 @@ var rank = map[string]int{
 	"queued":    6,
 	"waiting":   6,
 	"unhealthy": 5,
+	"offline":   5,
 	"degraded":  4,
 	"stopped":   3,
 	"running":   2,
@@ -611,7 +612,13 @@ func (f *Flow) status(ctx context.Context, t store.Tile) (status, error) {
 			return s, err
 		}
 	default:
-		if s.state, err = f.Tiles.State(ctx, t); err != nil {
+		s.state, err = f.Tiles.State(ctx, t)
+		switch {
+		case errors.Is(err, errs.ErrBusy):
+			// its node is offline (or not connected): the card says so and
+			// the canvas still draws; the page's banner names the node
+			s.state.Word = "offline"
+		case err != nil:
 			return s, err
 		}
 		s.word = s.state.Word

@@ -175,6 +175,8 @@ func word(status, waiting string) (tone, text string) {
 		return "danger", "Crashed"
 	case "unhealthy":
 		return "warn", "Unhealthy"
+	case "offline":
+		return "danger", "Node offline"
 	case "waiting":
 		if waiting == "" {
 			return "warn", "Waiting for a value"

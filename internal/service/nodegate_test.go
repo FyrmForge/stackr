@@ -280,3 +280,28 @@ func TestEnvNodeDown(t *testing.T) {
 		t.Errorf("EnvNodeDown = %+v, %v", nd, down)
 	}
 }
+
+// The env canvas of an offline worker still draws: its tiles read offline
+// instead of the page failing on the gate.
+func TestCanvasOfOfflineNode(t *testing.T) {
+	ctx := context.Background()
+	n := newTwoNodes(t)
+	w, err := n.st.Nodes.Get(ctx, "w1")
+	must(t, err)
+	w.Status = node.StatusOffline
+	must(t, n.st.Nodes.Update(ctx, w))
+	n.orch.docker.(*DockerRouter).Remove("w1") // an offline worker has no client
+	v, err := n.orch.Canvas(ctx, CanvasScope{Kind: CanvasEnv, ID: n.edge.ID}, ShowAll)
+	if err != nil {
+		t.Fatalf("canvas of an offline node: %v", err)
+	}
+	found := false
+	for _, c := range v.Nodes {
+		if c.ID == n.edgeT.ID {
+			found = c.Status == "offline"
+		}
+	}
+	if !found {
+		t.Fatalf("tile card not offline: %+v", v.Nodes)
+	}
+}
