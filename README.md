@@ -2,6 +2,16 @@
 
 A Go web application built with the [HAMR framework](https://github.com/FyrmForge/hamr).
 
+## Using stackr
+
+Step-by-step guides, in the order you need them:
+
+1. [Install a panel](docs/guide/install.md), first login and onboarding
+2. [Nodes](docs/guide/nodes.md): add a worker, pin envs, ingress and egress, rejoin, break glass
+3. [Upgrade](docs/guide/upgrade.md): the panel and every worker
+4. [Backups](docs/guide/backups.md), including Back up node
+5. [Remove a node](docs/guide/remove.md) and `stackr-install uninstall`
+
 ## System requirements
 
 What a box needs to run stackr, as a controller (`stackr-install`) or a
@@ -9,9 +19,9 @@ worker (`stackr-install join`). The installer checks all of it up front and
 names whatever is missing.
 
 - **Linux, run as root.**
-- **Docker Engine 25.0 or newer**, with its default iptables firewall
-  backend (not `firewall-backend: nftables`). 25.0 is the first that attaches
-  a container to several networks when it is created. When Docker is missing
+- **Docker Engine 26.0 or newer**, with its default iptables firewall
+  backend (not `firewall-backend: nftables`). 26.0 is the first whose volume
+  mounts take a subpath, which config files use. When Docker is missing
   the installer offers Docker's install script (get.docker.com, needs curl);
   `--yes` runs it without asking. An installed Docker is never upgraded.
 - **iptables 1.8 or newer.** A controller needs the nf_tables variant
