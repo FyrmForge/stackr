@@ -300,8 +300,8 @@ func (m *meshSvc) push(ctx context.Context, in meshIn, specs map[string]worker.M
 }
 
 // RemoveNode takes the node out of every exit ladder and tells it to drop its
-// mesh and exits (best effort: it may be gone), then re-syncs the others.
-// Call it before deleting the row.
+// mesh and exits (best effort: it may be gone). Call it before deleting the
+// row; the caller kicks the sync of the others after.
 func (m *meshSvc) RemoveNode(ctx context.Context, nodeID string) error {
 	_ = m.st.Settings.Delete(ctx, publicKey(nodeID))
 	_ = m.st.Settings.Delete(ctx, memoryKey(nodeID)) // the map forgets it too
@@ -339,7 +339,10 @@ func (m *meshSvc) RemoveNode(ctx context.Context, nodeID string) error {
 	delete(m.exitPK, nodeID)
 	delete(m.wgPK, nodeID)
 	m.mu.Unlock()
-	return m.Sync(ctx, "", false)
+	// No sync here: the node's row is still there, so a sync would push to
+	// a box the remove job just uninstalled. dropNode kicks one once the row
+	// is gone.
+	return nil
 }
 
 // taken is every block of the cluster pool in use: each env's network and

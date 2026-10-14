@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"maps"
 	"net/netip"
 	"slices"
@@ -538,5 +539,24 @@ func TestMeshSpecCarriesTrust(t *testing.T) {
 	}
 	if c := specs[ctrl.ID]; len(c.TrustRoots) != 0 || len(c.ControllerSerials) != 0 {
 		t.Errorf("controller spec carries trust: %+v", c)
+	}
+}
+
+// Removing a node whose box is already gone (uninstalled, the remove job's
+// last step) succeeds: the sync after the row goes leaves it out.
+func TestMeshRemoveNodeOfAGoneBox(t *testing.T) {
+	ctx := context.Background()
+	st := storetest.Store(t)
+	ctrl := storetest.Controller(t, st)
+	wk := ctrl
+	wk.ID, wk.Name, wk.Slug, wk.Role = "w1", "w1", "w1", "worker"
+	wk.RangeCIDR, wk.WGAddress, wk.WGPublicKey = "10.214.0.0/16", "10.207.255.7", "wgkey-w1"
+	if err := st.Nodes.Create(ctx, wk); err != nil {
+		t.Fatal(err)
+	}
+	fakes := map[string]*fakeMeshNode{ctrl.ID: {}, wk.ID: {fail: errors.New("connection refused")}}
+	m := newMeshSvc(st, func(id string) (MeshNode, bool) { f, ok := fakes[id]; return f, ok })
+	if err := m.RemoveNode(ctx, "w1"); err != nil {
+		t.Fatalf("remove of a gone box: %v", err)
 	}
 }
