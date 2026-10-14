@@ -137,7 +137,8 @@ func TestCanKeyScope(t *testing.T) {
 		{"admin user, owner ceiling, admin verb", adminKey, "user.admin", org, errs.ErrRefused},
 		{"admin user, owner ceiling, owner verb", adminKey, "member.manage", org, nil},
 		{"admin user, owner ceiling, above it", func() User { u := adminKey; u.KeyLevel = LevelRead; return u }(), "tile.write", shop, errs.ErrRefused},
-		{"admin user, no ceiling, admin verb", uncapped, "user.admin", org, nil},
+		{"admin user, org-bound key, no ceiling, admin verb", uncapped, "user.admin", org, errs.ErrRefused},
+		{"admin user, unbound key, admin verb", func() User { u := uncapped; u.KeyOrg = ""; return u }(), "user.admin", org, nil},
 	}
 	for _, tt := range tests {
 		if got := Can(tt.u, tt.v, tt.r); !errors.Is(got, tt.want) || (tt.want == nil && got != nil) {

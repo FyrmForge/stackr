@@ -110,8 +110,8 @@ func Can(u User, v Verb, r Resource) error {
 	}
 	need := LevelOf(v)
 	if need == LevelAdmin {
-		// a key capped below admin never passes an admin verb, whoever mints it
-		if !u.Admin || u.KeyStack != "" || (u.KeyCapped && u.KeyLevel < LevelAdmin) {
+		// a key capped below admin, or bound to an org, never passes an admin verb, whoever mints it
+		if !u.Admin || u.KeyOrg != "" || u.KeyStack != "" || (u.KeyCapped && u.KeyLevel < LevelAdmin) {
 			return errs.ErrRefused
 		}
 		return nil
