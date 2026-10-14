@@ -50,6 +50,10 @@ func (h *handler) Mount(g *echo.Group, a *middleware.Access) {
 		j, err := h.orch.Upgrade(c.Request().Context(), c.QueryParam("tag"))
 		return "Upgrade queued: the panel restarts when it is done.", &j, err
 	}), a.Require("container.admin"))
+	g.POST(b+"/update/workers", h.act("update", func(c echo.Context) (string, *service.Job, error) {
+		j, err := h.orch.UpdateWorkers(c.Request().Context(), middleware.Principal(c))
+		return "Worker rollout queued.", &j, err
+	}), a.Require("container.admin"))
 	g.POST(b+"/caddy", h.act("caddy", func(c echo.Context) (string, *service.Job, error) {
 		return "Saved.", nil, h.orch.SetSetting(c.Request().Context(), "proxy_custom", c.FormValue("proxy_custom"))
 	}), a.Require("proxy.admin"))
@@ -159,6 +163,8 @@ type extra struct {
 	job   *service.Job
 	check *ui.UpdateView
 	adder *ui.AddNodeView
+	// ingress is the DNS preview of a default ingress switch
+	ingress *ui.IngressPreview
 }
 
 // GET /-/admin?tab=
@@ -237,7 +243,7 @@ func (h *handler) tab(c echo.Context, tab string, x extra) (templ.Component, err
 		}
 		return ui.Users(v), err
 	case "nodes":
-		return h.nodesTab(c, x.adder)
+		return h.nodesTab(c, x)
 	case "routes":
 		rs, err := h.orch.ExternalRoutes(ctx)
 		v := ui.RoutesView{Add: ui.Base + "/routes"}
@@ -276,7 +282,9 @@ func (h *handler) tab(c echo.Context, tab string, x extra) (templ.Component, err
 				Target:  "#" + comp.DrawerRoot,
 			}
 		}
-		return ui.Update(v), nil
+		w, err := h.workersView(c)
+		v.Workers = w
+		return ui.Update(v), err
 	case "config":
 		return h.configTab(c, job)
 	case "params":
@@ -427,4 +435,27 @@ func (h *handler) SaveSettings(c echo.Context) error {
 		v.Note = "Saved. A changed limit or protect setting redeploys every running tile."
 	}
 	return respond.HTML(c, status, comp.SettingsForm(v))
+}
+
+// workersView is the Update tab's worker rows, with Update workers while any
+// worker is behind and no rollout runs, and Retry after a stop. nil = no workers.
+func (h *handler) workersView(c echo.Context) (*ui.WorkersView, error) {
+	r, err := h.orch.WorkerRollout(c.Request().Context())
+	if err != nil || len(r.Nodes) == 0 {
+		return nil, err
+	}
+	w := &ui.WorkersView{Stopped: r.Stopped}
+	behind, running := false, false
+	for _, n := range r.Nodes {
+		w.Rows = append(w.Rows, ui.WorkerRow{Name: n.Name, Current: n.Current, State: n.State, Error: n.Error, Behind: n.Behind})
+		behind = behind || n.Behind
+		running = running || n.State == "waiting" || n.State == "upgrading"
+	}
+	if (behind || r.Stopped != "") && !running {
+		w.Action, w.Button = ui.Base+"/update/workers", "Update workers"
+		if r.Stopped != "" {
+			w.Button = "Retry"
+		}
+	}
+	return w, nil
 }

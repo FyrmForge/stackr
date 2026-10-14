@@ -362,3 +362,22 @@ func TestAdminConfigBind(t *testing.T) {
 		t.Errorf("plans after unbind = %+v %v, want none pending", ps, err)
 	}
 }
+
+// The Update tab lists the workers and Update workers queues the rollout; a
+// non-admin gets neither.
+func TestAdminUpdateWorkers(t *testing.T) {
+	s := webtest.New(t)
+	root := s.Session(t, s.User(t, "root@x.test", true))
+	s.Worker(t, "h4", "fp")
+	rec := s.As(t, root, "GET", "/-/admin?tab=update", nil)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "Workers") || !strings.Contains(rec.Body.String(), "h4") {
+		t.Fatalf("update tab = %d\n%s", rec.Code, rec.Body)
+	}
+	rec = s.As(t, root, "POST", "/-/admin/update/workers", nil)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "Worker rollout queued.") {
+		t.Fatalf("update workers = %d\n%s", rec.Code, rec.Body)
+	}
+	if rec := s.Do(t, "POST", "/-/admin/update/workers", nil); rec.Code != http.StatusForbidden {
+		t.Errorf("owner update workers = %d, want 403", rec.Code)
+	}
+}
