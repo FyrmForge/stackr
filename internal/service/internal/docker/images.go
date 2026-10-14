@@ -18,14 +18,38 @@ import (
 
 // Pull pulls ref (repo@digest or repo:tag) with auth, the base64 blob the
 // API's X-Registry-Auth header wants; "" = anonymous. Per call, never `docker
-// login`: the daemon config is shared by every org on the node.
+// login`: the daemon config is shared by every org on the node. A cluster
+// registry ref gets the minted auth instead (SetRegistryAuth).
 func (d *Client) Pull(ctx context.Context, ref, auth string, log io.Writer) error {
+	if a, ok, err := d.clusterAuth(ctx, ref, false); err != nil {
+		return err
+	} else if ok {
+		auth = a
+	}
 	rc, err := d.cli.ImagePull(ctx, ref, image.PullOptions{RegistryAuth: auth})
 	if err != nil {
 		return wrap(err)
 	}
 	defer func() { _ = rc.Close() }()
 	return drainProgress(rc, log)
+}
+
+// Push pushes ref from this daemon, with the minted auth for a cluster
+// registry ref (a worker's goes through its registry front and the mesh).
+func (d *Client) Push(ctx context.Context, ref string) error {
+	auth, _, err := d.clusterAuth(ctx, ref, true)
+	if err != nil {
+		return err
+	}
+	rc, err := d.cli.ImagePush(ctx, ref, image.PushOptions{RegistryAuth: auth})
+	if err != nil {
+		return fmt.Errorf("push %s: %w", ref, wrap(err))
+	}
+	defer func() { _ = rc.Close() }()
+	if err := drainProgress(rc, io.Discard); err != nil {
+		return fmt.Errorf("push %s: %w", ref, err)
+	}
+	return nil
 }
 
 type progressLine struct {

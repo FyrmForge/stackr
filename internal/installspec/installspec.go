@@ -147,6 +147,7 @@ type Container struct {
 	Ports       []string          `json:"ports,omitempty"` // docker -p syntax
 	ExtraHosts  []string          `json:"extra_hosts,omitempty"`
 	HostNetwork bool              `json:"host_network,omitempty"`
+	Network     string            `json:"network,omitempty"` // a docker network mode ("none"); ignored with HostNetwork
 	CapAdd      []string          `json:"cap_add,omitempty"`
 	LogOpts     []string          `json:"log_opts,omitempty"` // docker --log-opt values
 	Restart     string            `json:"restart"`
@@ -284,6 +285,8 @@ func (c Container) RunArgs() []string {
 	a := []string{"run", "-d", "--name", c.Name, "--restart", c.Restart}
 	if c.HostNetwork {
 		a = append(a, "--network", "host")
+	} else if c.Network != "" {
+		a = append(a, "--network", c.Network)
 	}
 	for _, v := range c.CapAdd {
 		a = append(a, "--cap-add", v)

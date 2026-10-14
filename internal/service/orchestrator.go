@@ -247,7 +247,6 @@ type Orchestrator struct {
 	earlyMu      sync.Mutex          // guards earlyIPs
 	earlyIPs     map[string]earlyEnt // container id -> address holding early lan rules
 	repoLocks    sync.Map            // clone dir -> *sync.Mutex
-	builds       buildRepos          // repos a builder node may push right now (builders.go)
 	platforms    platformCache       // each node's CPU type (imports.go)
 	cli          cliCodes
 
@@ -347,6 +346,7 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 			_ = db.Close()
 			return nil, err
 		}
+		c.SetRegistryAuth(registryPass(registryKeyOf(cfg.SecretsKey), "controller"))
 		o.docker = c
 	}
 	if o.vip == nil {
@@ -461,7 +461,7 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 	orch.tiles.Node = orch.envNode
 	orch.tiles.Pin = orch.pinVIP
 	orch.creds = build("leaf/credential", func() *credential.Leaf { return credential.New(st.Credentials) })
-	orch.regs = build("leaf/registry", func() *registry.Leaf { return registry.New(st.RegistryImages) })
+	orch.regs = build("leaf/registry", func() *registry.Leaf { return registry.New(st.RegistryImages, installspec.RegistrySocket(cfg.DataDir)) })
 	orch.conns = build("leaf/connector", func() *connector.Leaf {
 		app := githubapp.New(cfg.BaseURL).WithPanelHost(func() string {
 			v, _ := orch.settings.Get(context.Background(), "panel_domain")
@@ -576,6 +576,7 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 
 			Docker:    d,
 			ProxySpec: cfg.ProxySpec,
+			DataDir:   registryHostDir(cfg),
 		}
 	})
 	orch.run = build("flow/run", func() *frun.Flow {
@@ -725,7 +726,15 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 	if orch.runMesh != nil {
 		orch.runMesh()
 		// A real host only: a fake host or a test has no registry to fill.
-		go orch.publishSystemImages(orch.meshCtx)
+		go func() {
+			// An upgrade ran the old panel's EnsureRegistry: bring the
+			// registry to this build's spec before anything uses it.
+			if err := orch.upgrade.EnsureRegistry(orch.meshCtx); err != nil {
+				slog.Warn("registry: not ensured", "err", err)
+			}
+			go orch.serveRegistryLocal(orch.meshCtx)
+			orch.publishSystemImages(orch.meshCtx)
+		}()
 	} else {
 		orch.markStackrPublished() // no registry to fill
 	}

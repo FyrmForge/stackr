@@ -166,7 +166,7 @@ func TestLogCap(t *testing.T) {
 		"panel":     Panel(Image("1.2.3"), tlsIn),
 		"proxy":     Proxy(Image("1.2.3"), tlsIn, ""),
 		"nodeproxy": NodeProxy(Image("1.2.3")),
-		"registry":  Registry(),
+		"registry":  Registry("/var/lib/stackr"),
 	} {
 		got := strings.Join(c.RunArgs(), " ")
 		if !strings.Contains(got, "--log-opt max-size=10m --log-opt max-file=3") {

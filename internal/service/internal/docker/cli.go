@@ -14,7 +14,7 @@ import (
 	"time"
 )
 
-// cliProxy lets the docker CLI (buildx, push) reach a worker's Docker: a unix
+// cliProxy lets the docker CLI (buildx) reach a worker's Docker: a unix
 // socket on the controller that pipes each connection to the worker over the
 // same mTLS the SDK client uses (the CLI cannot do the cluster CA's checks).
 // The path is fixed per worker, so a buildx builder made through it stays
@@ -109,18 +109,4 @@ func (d *Client) builderName(name string) string {
 		return name
 	}
 	return name + "-" + slug(d.px.addr)
-}
-
-// Push pushes ref from this daemon (a worker's goes through its registry
-// front and the mesh). Shells out: the client has no push.
-func (d *Client) Push(ctx context.Context, ref string) error {
-	cmd, done, err := d.command(ctx, "push", ref)
-	if err != nil {
-		return err
-	}
-	defer done()
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("push %s: %w: %s", ref, err, strings.TrimSpace(string(out)))
-	}
-	return nil
 }

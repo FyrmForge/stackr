@@ -35,7 +35,8 @@ type Result struct {
 
 // Copy copies src (a ref, "ghcr.io/foo/bar:1" or "postgres@sha256:...") to
 // dst (a ref with a tag, "localhost:5000/<org>/ghcr.io/foo/bar:1") and
-// returns what dst now holds. A nil auth is anonymous.
+// returns what dst now holds. A nil auth is anonymous; dstTr reaches dst's
+// registry (the cluster registry's socket), nil = the default transport.
 //
 // The contract, which G1 fills in and everyone else relies on:
 //   - platforms are CPU types ("amd64", "arm64"; linux only). An index is
@@ -57,8 +58,8 @@ type Result struct {
 //   - A src pinned by digest that dst already holds with every wanted platform
 //     is not contacted at all: the content behind a digest never changes.
 //   - Credentials go only to the registry they were given for (srcAuth to
-//     src's, dstAuth to dst's) and are never logged.
-func Copy(ctx context.Context, src, dst string, srcAuth, dstAuth authn.Authenticator, platforms []string) (Result, error) {
+//     src's; dst's takes none) and are never logged.
+func Copy(ctx context.Context, src, dst string, srcAuth authn.Authenticator, dstTr http.RoundTripper, platforms []string) (Result, error) {
 	srcRef, err := name.ParseReference(src)
 	if err != nil {
 		return Result{}, fmt.Errorf("source %q: %w", src, err)
@@ -78,7 +79,7 @@ func Copy(ctx context.Context, src, dst string, srcAuth, dstAuth authn.Authentic
 		wanted = append(wanted, parseWant(p))
 	}
 	so := []remote.Option{remote.WithContext(ctx), remote.WithAuth(orAnon(srcAuth))}
-	do := []remote.Option{remote.WithContext(ctx), remote.WithAuth(orAnon(dstAuth))}
+	do := dstOpts(ctx, dstTr)
 
 	// A digest pin names fixed content: if dst holds it, src is not asked.
 	if pin, ok := srcRef.(name.Digest); ok {
@@ -134,7 +135,7 @@ func heldAt(dstRef name.Reference, digest string, wanted []want, do []remote.Opt
 
 // Held reports what dst (a ref with a tag) stores behind that tag, and
 // whether it covers every platform, without contacting any other registry.
-func Held(ctx context.Context, dst string, dstAuth authn.Authenticator, platforms []string) (Result, bool, error) {
+func Held(ctx context.Context, dst string, dstTr http.RoundTripper, platforms []string) (Result, bool, error) {
 	dstRef, err := name.ParseReference(dst)
 	if err != nil {
 		return Result{}, false, fmt.Errorf("destination %q: %w", dst, err)
@@ -143,7 +144,7 @@ func Held(ctx context.Context, dst string, dstAuth authn.Authenticator, platform
 	for _, p := range platforms {
 		wanted = append(wanted, parseWant(p))
 	}
-	do := []remote.Option{remote.WithContext(ctx), remote.WithAuth(orAnon(dstAuth))}
+	do := dstOpts(ctx, dstTr)
 	h, err := remote.Head(dstRef, do...)
 	if notFound(err) {
 		return Result{}, false, nil
@@ -151,6 +152,16 @@ func Held(ctx context.Context, dst string, dstAuth authn.Authenticator, platform
 		return Result{}, false, fmt.Errorf("destination %s: %w", dstRef.Context(), err)
 	}
 	return heldAt(dstRef, h.Digest.String(), wanted, do)
+}
+
+// dstOpts are the options for the destination registry, which takes no
+// credential.
+func dstOpts(ctx context.Context, tr http.RoundTripper) []remote.Option {
+	do := []remote.Option{remote.WithContext(ctx)}
+	if tr != nil {
+		do = append(do, remote.WithTransport(tr))
+	}
+	return do
 }
 
 // UnreachableError is Copy's answer when src could not be asked: a network

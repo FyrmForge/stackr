@@ -17,7 +17,6 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/image"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/node"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/registry"
-	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
 	"github.com/FyrmForge/stackr/internal/service/internal/regfront"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
@@ -191,30 +190,4 @@ func (o *Orchestrator) registryPushed(ctx context.Context, p regfront.Pushed) {
 	if err != nil && !errors.Is(err, errors.ErrUnsupported) {
 		slog.Warn("registry: push not recorded", "repo", p.Repo, "ref", p.Reference, "err", err)
 	}
-}
-
-// tileImports are the import repos (regfront.ImportRepo) of the outside
-// images tile t of env e can run: what the env's release pins, its tag, and a
-// managed engine's image. The node that hosts the env may pull exactly these
-// (regfront Facts.PullImports); the set is the one the deploy imports.
-func (o *Orchestrator) tileImports(ctx context.Context, orgSlug string, e store.Environment, t store.Tile) []string {
-	var refs []string
-	if cur, _, err := o.deploy.Current(ctx, t, e); err == nil {
-		refs = append(refs, cur)
-	}
-	if tile.Pulls(t) {
-		refs = append(refs, t.ImageRef)
-	}
-	if t.Kind == tile.Managed {
-		if img, err := o.engines.Image(ctx, t); err == nil {
-			refs = append(refs, img)
-		}
-	}
-	var out []string
-	for _, ref := range refs {
-		if o.outsideRef(ctx, ref) {
-			out = append(out, regfront.ImportRepo(orgSlug, ref))
-		}
-	}
-	return out
 }

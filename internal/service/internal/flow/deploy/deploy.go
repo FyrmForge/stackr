@@ -334,7 +334,7 @@ func (f *Flow) prepare(
 		}
 	}
 	logf(log, "pulling %s\n", ref)
-	digest, err := f.Images.Ensure(pullCtx, ref, auth, log)
+	digest, err := f.Images.Ensure(docker.WithPullOrg(pullCtx, o.Slug), ref, auth, log)
 	if errors.Is(err, image.ErrCleanedUp) {
 		return r, e, "", fmt.Errorf("the image for %s was cleaned up; rebuild it", t.Slug)
 	}

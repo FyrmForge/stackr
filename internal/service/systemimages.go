@@ -5,9 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"os/exec"
 	"runtime"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -159,7 +157,7 @@ func (o *Orchestrator) systemPublisher() systemPublisher {
 				return imgcopy.Result{}, err
 			}
 			defer leave()
-			return imgcopy.Copy(ctx, src, dst, nil, nil, platforms)
+			return imgcopy.Copy(ctx, src, dst, nil, o.regs.Transport(), platforms)
 		},
 		pushLocal: func(ctx context.Context, src, dst string) (imgcopy.Result, error) {
 			leave, err := o.regs.Hold(ctx)
@@ -174,19 +172,7 @@ func (o *Orchestrator) systemPublisher() systemPublisher {
 			if err := o.docker.Tag(cctx, src, dst); err != nil {
 				return imgcopy.Result{}, fmt.Errorf("tag: %w", err)
 			}
-			if err := pushLocal(ctx, dst); err != nil {
-				return imgcopy.Result{}, err
-			}
-			dg, err := o.docker.LocalDigest(cctx, dst)
-			if err != nil {
-				return imgcopy.Result{}, err
-			}
-			res := imgcopy.Result{Digest: dg, Platforms: []string{runtime.GOARCH}}
-			// ponytail: the docker CLI for the size, as pushLocal; 0 when it fails.
-			if out, err := exec.CommandContext(ctx, "docker", "image", "inspect", "-f", "{{.Size}}", dst).Output(); err == nil {
-				res.Size, _ = strconv.ParseInt(strings.TrimSpace(string(out)), 10, 64)
-			}
-			return res, nil
+			return o.pushLocal(ctx, dst)
 		},
 		record:      o.recordImage,
 		stackrImage: o.controllerStackrImage,

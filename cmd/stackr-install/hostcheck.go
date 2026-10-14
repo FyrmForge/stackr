@@ -221,7 +221,7 @@ type portUse struct {
 func fixedPorts(worker bool, wgPort int) []portUse {
 	wg := portUse{":" + strconv.Itoa(wgPort), "udp", "the mesh's WireGuard (--wg-port)"}
 	if !worker {
-		return []portUse{wg, {"127.0.0.1:" + installspec.RegistryPort, "tcp", "the controller's image registry"}}
+		return []portUse{wg, {"127.0.0.1:" + installspec.RegistryPort, "tcp", "the controller's registry front"}}
 	}
 	return []portUse{wg,
 		{":" + joinWorkerPort, "tcp", "the worker API"},

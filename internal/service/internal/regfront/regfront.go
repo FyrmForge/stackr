@@ -1,5 +1,5 @@
 // Package regfront fronts the head's local registry. The registry itself
-// (installspec.Registry) listens on loopback and checks nothing; this package
+// (installspec.Registry) serves a unix socket and checks nothing; this package
 // speaks Docker's token auth to clients and enforces the token on every call
 // it proxies.
 //
@@ -460,9 +460,11 @@ type Server struct {
 	// Realm is the front's public base URL, where /token is.
 	Realm   string
 	Backend *url.URL // the local registry
-	TTL     time.Duration
-	// Authenticate reads the request's credentials (Basic auth, a node
-	// certificate) and returns the facts, or an error for a 401.
+	// Transport reaches Backend (the registry's unix socket); nil = TCP.
+	Transport http.RoundTripper
+	TTL       time.Duration
+	// Authenticate reads the request's credentials (Basic auth, Bearer) and
+	// returns the facts, or an error for a 401.
 	Authenticate func(*http.Request) (Facts, error)
 	// Audit records an issue; an error refuses the token.
 	Audit func(context.Context, Issued) error
@@ -691,6 +693,7 @@ func (s *Server) serveV2(w http.ResponseWriter, r *http.Request) {
 	s.once.Do(func() {
 		s.proxy = &httputil.ReverseProxy{
 			FlushInterval: -1, // layers stream
+			Transport:     s.Transport,
 			Rewrite: func(pr *httputil.ProxyRequest) {
 				pr.SetURL(s.Backend)
 				// The registry builds its upload URLs from the Host and what

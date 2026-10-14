@@ -15,7 +15,7 @@ func TestEnsureRegistry(t *testing.T) {
 		"stackr-registry": "rm -f|run -d",
 	} {
 		log := fakeDocker(t, have, false)
-		if err := (runner{out: &bytes.Buffer{}}).ensureRegistry(context.Background()); err != nil {
+		if err := (runner{out: &bytes.Buffer{}}).ensureRegistry(context.Background(), t.TempDir()); err != nil {
 			t.Fatal(err)
 		}
 		if got := strings.Join(proxyCalls(t, log), "|"); got != want {

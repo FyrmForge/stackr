@@ -5,12 +5,15 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
+
+	"github.com/google/go-containerregistry/pkg/name"
+	"github.com/google/go-containerregistry/pkg/v1/tarball"
 
 	"github.com/FyrmForge/stackr/internal/authz"
 	"github.com/FyrmForge/stackr/internal/installspec"
@@ -18,6 +21,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/jobs"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/move"
+	"github.com/FyrmForge/stackr/internal/service/internal/imgcopy"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/securitylog"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/volume"
@@ -76,18 +80,11 @@ func (o *Orchestrator) rsyncSteps() rsyncSteps {
 	repo, tag, _ := strings.Cut(strings.TrimPrefix(ref, "localhost:"+installspec.RegistryPort+"/"), ":")
 	return rsyncSteps{
 		inRegistry: func(ctx context.Context) (bool, error) {
-			url := "http://127.0.0.1:" + installspec.RegistryPort + "/v2/" + repo + "/manifests/" + tag
-			req, err := http.NewRequestWithContext(ctx, http.MethodHead, url, nil)
-			if err != nil {
-				return false, err
-			}
-			req.Header.Set("Accept", "application/vnd.docker.distribution.manifest.v2+json, application/vnd.oci.image.index.v1+json, application/vnd.oci.image.manifest.v1+json")
-			res, err := http.DefaultClient.Do(req)
+			dg, err := o.regs.Resolve(ctx, repo, tag)
 			if err != nil {
 				return false, fmt.Errorf("registry: %w", err)
 			}
-			_ = res.Body.Close()
-			return res.StatusCode == http.StatusOK, nil
+			return dg != "", nil
 		},
 		local: func(ctx context.Context) bool {
 			ctx, err := o.withController(ctx)
@@ -120,7 +117,7 @@ func (o *Orchestrator) rsyncSteps() rsyncSteps {
 				return err
 			}
 			defer leave()
-			if err := pushLocal(ctx, ref); err != nil {
+			if _, err := o.pushLocal(ctx, ref); err != nil {
 				return err
 			}
 			// the push went past the front, so write the system row here
@@ -130,14 +127,44 @@ func (o *Orchestrator) rsyncSteps() rsyncSteps {
 	}
 }
 
-// pushLocal pushes a localhost:5000/... image from the controller's daemon
-// into the cluster registry (on the controller that address is the registry).
-func pushLocal(ctx context.Context, ref string) error {
-	// ponytail: the docker CLI, as image builds use; the client has no push.
-	if out, err := exec.CommandContext(ctx, "docker", "push", ref).CombinedOutput(); err != nil {
-		return fmt.Errorf("push %s: %w: %s", ref, err, strings.TrimSpace(string(out)))
+// pushLocal copies a localhost:5000/<repo>:<tag> image from the controller's
+// daemon into the cluster registry over the registry's socket, not through
+// the loopback front: a pass that may write a system image (run as root on
+// every node) never crosses the host's loopback. Returns what the registry
+// now holds; the CPU type is the controller's.
+func (o *Orchestrator) pushLocal(ctx context.Context, ref string) (imgcopy.Result, error) {
+	t, err := name.NewTag(ref, name.Insecure)
+	if err != nil {
+		return imgcopy.Result{}, err
 	}
-	return nil
+	f, err := os.CreateTemp(o.cfg.DataDir, "push-*.tar")
+	if err != nil {
+		return imgcopy.Result{}, err
+	}
+	path := f.Name()
+	_ = f.Close()
+	defer func() { _ = os.Remove(path) }()
+	// ponytail: the docker CLI into a file, as image builds use the CLI; the
+	// tarball reader opens the file once per layer.
+	if out, err := exec.CommandContext(ctx, "docker", "save", "-o", path, ref).CombinedOutput(); err != nil {
+		return imgcopy.Result{}, fmt.Errorf("save %s: %w: %s", ref, err, strings.TrimSpace(string(out)))
+	}
+	img, err := tarball.ImageFromPath(path, &t)
+	if err != nil {
+		return imgcopy.Result{}, fmt.Errorf("read %s: %w", ref, err)
+	}
+	dg, err := o.regs.Write(ctx, t.RepositoryStr(), t.TagStr(), img)
+	if err != nil {
+		return imgcopy.Result{}, fmt.Errorf("push %s: %w", ref, err)
+	}
+	res := imgcopy.Result{Digest: dg, Platforms: []string{runtime.GOARCH}}
+	if m, err := img.Manifest(); err == nil {
+		res.Size = m.Config.Size
+		for _, l := range m.Layers {
+			res.Size += l.Size
+		}
+	}
+	return res, nil
 }
 
 // MoveEnv (org owner; the target must be open to the org) moves an env to

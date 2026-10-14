@@ -79,7 +79,7 @@ func TestVersionsAndListIndex(t *testing.T) {
 	srv, _ := fakeRegistry(t)
 	st := servicetest.Store(t)
 	org := seedOrg(t, st)
-	l := registry.New(st.RegistryImages).WithBase(srv.URL)
+	l := registry.New(st.RegistryImages, "").WithBase(srv.URL)
 	arrived := time.Now().Add(-2 * time.Hour).UTC()
 	if err := l.Record(ctx, store.RegistryImage{
 		OrgID: &org, Repo: repoImport, Tag: "16", Digest: dgIndex, Platforms: "amd64",
@@ -123,12 +123,12 @@ func TestDelete(t *testing.T) {
 	srv, deleted := fakeRegistry(t)
 	st := servicetest.Store(t)
 	org := seedOrg(t, st)
-	l := registry.New(st.RegistryImages).WithBase(srv.URL)
+	l := registry.New(st.RegistryImages, "").WithBase(srv.URL)
 	img := store.RegistryImage{OrgID: &org, Repo: repoImport, Tag: "16", Digest: dgIndex, Source: registry.SourceImported}
 	if err := l.Record(ctx, img); err != nil {
 		t.Fatal(err)
 	}
-	if err := registry.New(st.RegistryImages).WithBase("http://127.0.0.1:1").Delete(ctx, repoImport, dgIndex); err == nil {
+	if err := registry.New(st.RegistryImages, "").WithBase("http://127.0.0.1:1").Delete(ctx, repoImport, dgIndex); err == nil {
 		t.Error("a dead registry deleted")
 	}
 	if _, err := st.RegistryImages.GetByRepoDigest(ctx, repoImport, dgIndex); err != nil {
@@ -157,7 +157,7 @@ func TestUsage(t *testing.T) {
 	srv, _ := fakeRegistry(t)
 	st := servicetest.Store(t)
 	org := seedOrg(t, st)
-	l := registry.New(st.RegistryImages).WithBase(srv.URL)
+	l := registry.New(st.RegistryImages, "").WithBase(srv.URL)
 	for _, r := range []store.RegistryImage{
 		{OrgID: &org, Repo: repoImport, Tag: "16", Digest: "sha256:1", Source: "built", Size: 10},
 		{OrgID: &org, Repo: repoImport, Tag: "15", Digest: "sha256:2", Source: "built", Size: 5},

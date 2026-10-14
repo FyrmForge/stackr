@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"slices"
-	"sync"
 	"time"
 
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/node"
@@ -85,36 +84,4 @@ func (o *Orchestrator) nodeAnswers(ctx context.Context, id string) bool {
 	defer cancel()
 	_, err = c.Facts(ctx)
 	return err == nil
-}
-
-// buildRepos are the repos each builder node may push while it builds them:
-// the registry's node facts read them (PushRepos), so a builder can push a
-// build and nothing else.
-type buildRepos struct {
-	mu sync.Mutex
-	m  map[string][]string // node id -> repos
-}
-
-// hold lets node push repo until the returned release runs.
-func (b *buildRepos) hold(nodeID, repo string) (release func()) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	if b.m == nil {
-		b.m = map[string][]string{}
-	}
-	b.m[nodeID] = append(b.m[nodeID], repo)
-	return func() {
-		b.mu.Lock()
-		defer b.mu.Unlock()
-		rs := b.m[nodeID]
-		if i := slices.Index(rs, repo); i >= 0 {
-			b.m[nodeID] = slices.Delete(rs, i, i+1)
-		}
-	}
-}
-
-func (b *buildRepos) of(nodeID string) []string {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	return slices.Clone(b.m[nodeID])
 }

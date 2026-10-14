@@ -43,7 +43,7 @@ func (l *Leaf) Pushed(ctx context.Context, p Push) error {
 	if err != nil {
 		return err
 	}
-	desc, err := remote.Get(ref, remote.WithContext(ctx))
+	desc, err := remote.Get(ref, l.remote(ctx)...)
 	if err != nil {
 		return fmt.Errorf("read %s:%s back: %w", p.Repo, p.Reference, err)
 	}
@@ -64,6 +64,21 @@ func (l *Leaf) Pushed(ctx context.Context, p Push) error {
 		img.Source = SourceSystem
 	}
 	return l.Record(ctx, img)
+}
+
+// Write puts img into the registry under repo:tag (stackr's own images, from
+// the controller's daemon) and returns its digest. The caller holds the gate
+// (Hold) and records the row.
+func (l *Leaf) Write(ctx context.Context, repo, tag string, img v1.Image) (string, error) {
+	ref, err := name.NewTag(strings.TrimPrefix(l.base, "http://")+"/"+repo+":"+tag, name.Insecure)
+	if err != nil {
+		return "", err
+	}
+	if err := remote.Write(ref, img, l.remote(ctx)...); err != nil {
+		return "", err
+	}
+	d, err := img.Digest()
+	return d.String(), err
 }
 
 // measure is the CPU types and the bytes behind a manifest: for an index the

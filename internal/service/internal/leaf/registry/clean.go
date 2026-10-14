@@ -87,7 +87,7 @@ func (l *Leaf) do(ctx context.Context, method, path string) (*http.Response, err
 		return nil, err
 	}
 	req.Header.Set("Accept", manifestAccept)
-	return (&http.Client{Timeout: 10 * time.Second}).Do(req)
+	return (&http.Client{Timeout: 10 * time.Second, Transport: l.tr}).Do(req)
 }
 
 func (l *Leaf) getJSON(ctx context.Context, path string, into any) error {

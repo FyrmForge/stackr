@@ -14,10 +14,14 @@ package registry
 import (
 	"context"
 	"errors"
+	"net"
+	"net/http"
+	"net/url"
 	"slices"
 	"strings"
 	"time"
 
+	"github.com/google/go-containerregistry/pkg/v1/remote"
 	"github.com/google/uuid"
 
 	"github.com/FyrmForge/stackr/internal/installspec"
@@ -36,22 +40,52 @@ const (
 
 type Leaf struct {
 	images store.RegistryImageStore
-	// base is the registry's HTTP address on the head's loopback.
+	// base is the registry's HTTP address; tr reaches it (the registry's
+	// unix socket), nil = TCP to base (tests).
 	base string
+	tr   http.RoundTripper
 	// copy is import.go's filtered copy (imgcopy.Copy).
 	copy copier
 	// gate is shut while the cleanup sweep runs (clean.go); Import waits on it.
 	gate regfront.Gate
 }
 
-func New(images store.RegistryImageStore) *Leaf {
-	return &Leaf{images: images, base: "http://127.0.0.1:" + installspec.RegistryPort, copy: imgcopy.Copy}
+// New is the leaf over the registry serving socket (installspec.RegistrySocket).
+// Requests name localhost:5000, so the registry's upload URLs do too; the
+// transport dials the socket whatever the address.
+func New(images store.RegistryImageStore, socket string) *Leaf {
+	l := &Leaf{images: images, base: "http://localhost:" + installspec.RegistryPort, copy: imgcopy.Copy}
+	if socket != "" {
+		l.tr = &http.Transport{DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+			return (&net.Dialer{}).DialContext(ctx, "unix", socket)
+		}}
+	}
+	return l
 }
 
-// WithBase points the leaf at another registry address (tests).
+// WithBase points the leaf at another registry address over TCP (tests).
 func (l *Leaf) WithBase(base string) *Leaf {
-	l.base = base
+	l.base, l.tr = base, nil
 	return l
+}
+
+// Transport reaches the registry: the registry front's backend, and the
+// controller's own writes. nil = TCP.
+func (l *Leaf) Transport() http.RoundTripper { return l.tr }
+
+// Backend is the registry's address and transport, for the registry fronts.
+func (l *Leaf) Backend() (*url.URL, http.RoundTripper) {
+	u, _ := url.Parse(l.base) // set by New or WithBase: a URL
+	return u, l.tr
+}
+
+// remote is go-containerregistry's options for the registry.
+func (l *Leaf) remote(ctx context.Context) []remote.Option {
+	o := []remote.Option{remote.WithContext(ctx)}
+	if l.tr != nil {
+		o = append(o, remote.WithTransport(l.tr))
+	}
+	return o
 }
 
 // Local is the ref the controller and every node pull a repo and tag by:

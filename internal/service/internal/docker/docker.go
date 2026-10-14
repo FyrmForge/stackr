@@ -5,6 +5,7 @@
 package docker
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -195,6 +196,43 @@ type Client struct {
 	// remote: another host's Docker, so this process's own interfaces say
 	// nothing about it.
 	remote bool
+	// regAuth mints the X-Registry-Auth for one pull or push of a repo of
+	// the cluster registry (localhost:5000/...); nil = none.
+	regAuth RegistryAuth
+}
+
+// RegistryAuth mints the X-Registry-Auth for one pull (push false) or push
+// of repo in the cluster registry; an error refuses the call.
+type RegistryAuth func(ctx context.Context, repo string, push bool) (string, error)
+
+// SetRegistryAuth makes every pull and push of a cluster registry image carry
+// what f mints, whatever auth the caller passed: the registry front on
+// localhost:5000 takes nothing else.
+func (d *Client) SetRegistryAuth(f RegistryAuth) { d.regAuth = f }
+
+// clusterAuth is the minted auth for ref when it names the cluster registry;
+// ok is false for any other registry.
+func (d *Client) clusterAuth(ctx context.Context, ref string, push bool) (auth string, ok bool, err error) {
+	repo, ok := clusterRepo(ref)
+	if !ok || d.regAuth == nil {
+		return "", false, nil
+	}
+	auth, err = d.regAuth(ctx, repo, push)
+	return auth, err == nil, err
+}
+
+// clusterRepo is the repository of a localhost:5000/<repo>[:tag|@digest] ref.
+func clusterRepo(ref string) (string, bool) {
+	rest, ok := strings.CutPrefix(ref, "localhost:5000/")
+	if !ok {
+		return "", false
+	}
+	if i := strings.Index(rest, "@"); i >= 0 {
+		rest = rest[:i]
+	} else if i := strings.LastIndex(rest, ":"); i > strings.LastIndex(rest, "/") {
+		rest = rest[:i]
+	}
+	return rest, rest != ""
 }
 
 // SetTool makes the tool containers run ref instead of ToolImage: a worker

@@ -4,23 +4,23 @@ import (
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
-	"crypto/x509"
 	"errors"
 	"log/slog"
 	"net"
 	"net/http"
-	"net/url"
-	"slices"
 	"strconv"
 	"strings"
 	"time"
 
+	dockerregistry "github.com/docker/docker/api/types/registry"
 	"github.com/labstack/echo/v4"
 
 	"github.com/FyrmForge/stackr/internal/authz"
 	"github.com/FyrmForge/stackr/internal/clusterca"
 	"github.com/FyrmForge/stackr/internal/installspec"
 	"github.com/FyrmForge/stackr/internal/mesh"
+	"github.com/FyrmForge/stackr/internal/service/errs"
+	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/securitylog"
 	"github.com/FyrmForge/stackr/internal/service/internal/regfront"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
@@ -31,30 +31,109 @@ import (
 const RegistryHostPrefix = "registry."
 
 // registryKey derives the token signing key from the master key.
-func (o *Orchestrator) registryKey() []byte {
-	m := hmac.New(sha256.New, []byte(o.cfg.SecretsKey))
+func (o *Orchestrator) registryKey() []byte { return registryKeyOf(o.cfg.SecretsKey) }
+
+func registryKeyOf(secretsKey string) []byte {
+	m := hmac.New(sha256.New, []byte(secretsKey))
 	m.Write([]byte("stackr registry token v1"))
 	return m.Sum(nil)
 }
 
 // RegistryHandler is the registry front: /token and /v2/, in front of the
-// local registry. Realm follows the request's host, so a node dialing the
-// panel directly and a developer through Caddy each get a token URL they can
-// reach.
+// local registry. Realm follows the request's host, so a developer through
+// Caddy gets a token URL they can reach.
 func (o *Orchestrator) RegistryHandler() http.Handler {
-	backend, _ := url.Parse("http://127.0.0.1:" + installspec.RegistryPort)
 	key := o.registryKey()
+	backend, tr := o.regs.Backend()
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		scheme := "https"
 		if r.TLS == nil && o.cfg.TLSOff {
 			scheme = "http"
 		}
 		(&regfront.Server{
-			Key: key, Realm: scheme + "://" + r.Host, Backend: backend,
+			Key: key, Realm: scheme + "://" + r.Host, Backend: backend, Transport: tr,
 			Authenticate: o.registryFacts, Audit: o.registryAudit, Pushed: o.registryPushed,
 			Gate: o.regs.Gate(),
 		}).ServeHTTP(w, r)
 	})
+}
+
+// registryHostDir is the data dir the upgrade flow keeps the registry's
+// socket under: an installed box only (the installer's spec is there), never
+// dev or a test.
+func registryHostDir(cfg Config) string {
+	if cfg.PanelSpec == nil {
+		return ""
+	}
+	return cfg.DataDir
+}
+
+// registryPassTTL is how long a minted pass lives. Docker never refreshes
+// one, so it must outlast the slowest pull or push of a big image.
+const registryPassTTL = time.Hour
+
+// registryPass mints, per pull or push, the X-Registry-Auth a node's Docker
+// sends its localhost:5000: a front token (RegistryToken, sent as Bearer
+// with no token exchange) for that one repo, never a standing credential, so
+// nothing on a node's loopback can reuse it for anything else. A pull for an
+// org (docker.WithPullOrg) is refused another org's repo: the ref is the
+// org's to write. Nothing writes stackr.system through a front (Decide).
+func registryPass(key []byte, subject string) docker.RegistryAuth {
+	return func(ctx context.Context, repo string, push bool) (string, error) {
+		if org, ok := docker.PullOrgFrom(ctx); ok {
+			if owner, _, _ := strings.Cut(repo, "/"); owner != org && owner != regfront.SystemOrg {
+				return "", errs.Refusedf("%s is not an image of this org", repo)
+			}
+		}
+		want := regfront.Scope{Repo: repo, Actions: []string{regfront.Pull}}
+		if push {
+			want.Actions = append(want.Actions, regfront.Push)
+		}
+		now := time.Now()
+		tok := regfront.Sign(key, regfront.Claims{
+			Kind: regfront.KindNode, Subject: subject, Issued: now.Unix(), Expires: now.Add(registryPassTTL).Unix(),
+			Access: regfront.Decide(regfront.Facts{Kind: regfront.KindAdmin}, []regfront.Scope{want}),
+		})
+		return dockerregistry.EncodeAuthConfig(dockerregistry.AuthConfig{
+			RegistryToken: tok, ServerAddress: "localhost:" + installspec.RegistryPort,
+		})
+	}
+}
+
+// registryLocal is the front serveRegistryLocal serves: no token endpoint, no
+// push records (the controller records its own pushes).
+func (o *Orchestrator) registryLocal() http.Handler {
+	backend, tr := o.regs.Backend()
+	return &regfront.Server{
+		Key: o.registryKey(), Realm: "http://localhost:" + installspec.RegistryPort, Backend: backend, Transport: tr,
+		Authenticate: func(*http.Request) (regfront.Facts, error) { return regfront.Facts{}, errRegistryAuth },
+		Gate:         o.regs.Gate(),
+	}
+}
+
+// serveRegistryLocal is the controller's localhost:5000, where its own Docker
+// pulls and pushes: the registry front over the registry's socket, taking
+// only minted passes. It issues no tokens: anything on the host's loopback
+// (a host-network tile) can reach it. The registry container of an older
+// spec may still hold the port, so the bind is retried until it is gone.
+func (o *Orchestrator) serveRegistryLocal(ctx context.Context) {
+	addr := "127.0.0.1:" + installspec.RegistryPort
+	srv := &http.Server{Handler: o.registryLocal(), ReadHeaderTimeout: 10 * time.Second}
+	for {
+		ln, err := net.Listen("tcp", addr)
+		if err == nil {
+			go func() { <-ctx.Done(); _ = srv.Close() }()
+			if err := srv.Serve(ln); !errors.Is(err, http.ErrServerClosed) {
+				slog.Warn("registry: local listener", "addr", addr, "err", err)
+			}
+			return
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(5 * time.Second):
+		}
+	}
 }
 
 // serveRegistryWG serves the registry front to workers over the mesh: the
@@ -166,15 +245,13 @@ func (o *Orchestrator) registryAudit(ctx context.Context, i regfront.Issued) err
 
 var errRegistryAuth = errors.New("registry: unauthorized")
 
-// registryFacts authenticates a token request: a node by its client
-// certificate, otherwise a user by API key (Basic auth password or Bearer).
-// Sessions are host-only cookies of the panel host, so they never reach the
-// registry host; docker login uses a key.
+// registryFacts authenticates a token request: a user by API key (Basic auth
+// password or Bearer). Sessions are host-only cookies of the panel host, so
+// they never reach the registry host; docker login uses a key. A node gets
+// no tokens: the controller mints a pass for each pull it orders
+// (registryPass).
 func (o *Orchestrator) registryFacts(r *http.Request) (regfront.Facts, error) {
 	ctx := r.Context()
-	if r.TLS != nil && len(r.TLS.PeerCertificates) > 0 {
-		return o.nodeFacts(ctx, r.TLS.PeerCertificates)
-	}
 	tok := ""
 	if _, pw, ok := r.BasicAuth(); ok {
 		tok = pw
@@ -217,52 +294,4 @@ func (o *Orchestrator) userRegistryFacts(ctx context.Context, p *Principal) regf
 		}
 	}
 	return f
-}
-
-// nodeFacts: the cert must chain to the cluster CA with the worker role and
-// not be revoked; the node may pull the images of the envs pinned to it.
-// ponytail: no builder facts yet, build jobs do not run on workers.
-func (o *Orchestrator) nodeFacts(ctx context.Context, chain []*x509.Certificate) (regfront.Facts, error) {
-	roots, err := clusterca.TrustRoots(o.cfg.DataDir)
-	if err != nil {
-		return regfront.Facts{}, errRegistryAuth
-	}
-	peer, err := clusterca.Verify(roots, chain, clusterca.RoleWorker, "", time.Now())
-	if err != nil {
-		return regfront.Facts{}, errRegistryAuth
-	}
-	if revoked, err := o.store.NodeCerts.IsRevoked(ctx, peer.Serial); err != nil || revoked {
-		return regfront.Facts{}, errRegistryAuth
-	}
-	if _, err := o.store.Nodes.Get(ctx, peer.NodeID); err != nil {
-		return regfront.Facts{}, errRegistryAuth
-	}
-	envs, err := o.store.Environments.ListByNode(ctx, peer.NodeID)
-	if err != nil {
-		return regfront.Facts{}, err
-	}
-	f := regfront.Facts{Kind: regfront.KindNode, Subject: peer.NodeID, PushRepos: o.builds.of(peer.NodeID)}
-	for _, e := range envs {
-		st, err := o.store.Stacks.Get(ctx, e.StackID)
-		if err != nil {
-			return f, err
-		}
-		og, err := o.store.Orgs.Get(ctx, st.OrgID)
-		if err != nil {
-			return f, err
-		}
-		ts, err := o.store.Tiles.ListByEnv(ctx, e.ID)
-		if err != nil {
-			return f, err
-		}
-		for _, t := range ts {
-			f.PullRepos = append(f.PullRepos, regfront.Repo(og.Slug, st.Slug, t.Slug))
-			for _, r := range o.tileImports(ctx, og.Slug, e, t) {
-				if !slices.Contains(f.PullImports, r) {
-					f.PullImports = append(f.PullImports, r)
-				}
-			}
-		}
-	}
-	return f, nil
 }

@@ -32,7 +32,7 @@ type Version struct {
 // gone is not shown; an image with no row is shown with what the manifest
 // says. Tags on one digest share its row.
 func (l *Leaf) Versions(ctx context.Context, repo string) ([]Version, error) {
-	c := &client{base: l.base, http: &http.Client{Timeout: 5 * time.Second}}
+	c := &client{base: l.base, http: &http.Client{Timeout: 5 * time.Second, Transport: l.tr}}
 	var tl struct {
 		Tags []string `json:"tags"`
 	}

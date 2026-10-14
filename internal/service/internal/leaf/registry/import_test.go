@@ -33,7 +33,7 @@ func TestImport(t *testing.T) {
 	org := seedOrg(t, st)
 	var gotSrc, gotDst string
 	var gotAuth authn.Authenticator
-	l := registry.New(st.RegistryImages).WithCopier(func(_ context.Context, src, dst string, srcAuth, _ authn.Authenticator, p []string) (imgcopy.Result, error) {
+	l := registry.New(st.RegistryImages, "").WithCopier(func(_ context.Context, src, dst string, srcAuth authn.Authenticator, _ http.RoundTripper, p []string) (imgcopy.Result, error) {
 		gotSrc, gotDst, gotAuth = src, dst, srcAuth
 		return imgcopy.Result{Digest: "sha256:idx", Platforms: p, Size: 10 * int64(len(p))}, nil
 	})
@@ -76,8 +76,8 @@ func TestImportEdges(t *testing.T) {
 	org := seedOrg(t, st)
 	boom := errors.New("denied")
 	var order []string
-	l := registry.New(st.RegistryImages).
-		WithCopier(func(_ context.Context, _, dst string, _, _ authn.Authenticator, _ []string) (imgcopy.Result, error) {
+	l := registry.New(st.RegistryImages, "").
+		WithCopier(func(_ context.Context, _, dst string, _ authn.Authenticator, _ http.RoundTripper, _ []string) (imgcopy.Result, error) {
 			order = append(order, "copy "+dst[strings.Index(dst, "/")+1:])
 			return imgcopy.Result{}, boom
 		})
@@ -103,8 +103,8 @@ func TestImportWaitsOnSweepGate(t *testing.T) {
 	st := servicetest.Store(t)
 	org := seedOrg(t, st)
 	copied := make(chan struct{}, 1)
-	l := registry.New(st.RegistryImages).
-		WithCopier(func(context.Context, string, string, authn.Authenticator, authn.Authenticator, []string) (imgcopy.Result, error) {
+	l := registry.New(st.RegistryImages, "").
+		WithCopier(func(context.Context, string, string, authn.Authenticator, http.RoundTripper, []string) (imgcopy.Result, error) {
 			copied <- struct{}{}
 			return imgcopy.Result{Digest: "sha256:abc", Platforms: []string{"amd64"}}, nil
 		})
@@ -139,8 +139,8 @@ func TestSweepWaitsForImportInFlight(t *testing.T) {
 	st := servicetest.Store(t)
 	org := seedOrg(t, st)
 	copying, finish := make(chan struct{}), make(chan struct{})
-	l := registry.New(st.RegistryImages).
-		WithCopier(func(context.Context, string, string, authn.Authenticator, authn.Authenticator, []string) (imgcopy.Result, error) {
+	l := registry.New(st.RegistryImages, "").
+		WithCopier(func(context.Context, string, string, authn.Authenticator, http.RoundTripper, []string) (imgcopy.Result, error) {
 			close(copying)
 			<-finish
 			return imgcopy.Result{Digest: "sha256:abc", Platforms: []string{"amd64"}}, nil
@@ -189,7 +189,7 @@ func TestPushed(t *testing.T) {
 	host := strings.TrimPrefix(reg.URL, "http://")
 	st := servicetest.Store(t)
 	org := seedOrg(t, st)
-	l := registry.New(st.RegistryImages).WithBase(reg.URL)
+	l := registry.New(st.RegistryImages, "").WithBase(reg.URL)
 
 	amd, arm := platformImage(t, "amd64"), platformImage(t, "arm64")
 	idx := mutate.AppendManifests(empty.Index,
@@ -260,7 +260,7 @@ func TestImportUpstreamDown(t *testing.T) {
 	upHost := strings.TrimPrefix(up.URL, "http://")
 	st := servicetest.Store(t)
 	org := seedOrg(t, st)
-	l := registry.New(st.RegistryImages).WithBase(local.URL)
+	l := registry.New(st.RegistryImages, "").WithBase(local.URL)
 	ref, err := name.ParseReference(upHost+"/lib/app:1", name.Insecure)
 	if err != nil {
 		t.Fatal(err)
@@ -337,7 +337,7 @@ func TestImportPinnedHeldAsksNobody(t *testing.T) {
 	d, _ := img.Digest()
 	st := servicetest.Store(t)
 	org := seedOrg(t, st)
-	l := registry.New(st.RegistryImages).WithBase(local.URL)
+	l := registry.New(st.RegistryImages, "").WithBase(local.URL)
 	req := registry.ImportRequest{OrgID: org, OrgSlug: "acme", Ref: upHost + "/lib/app@" + d.String(), Platforms: []string{"amd64"}}
 	if _, err := l.Import(ctx, req); err != nil {
 		t.Fatal(err)

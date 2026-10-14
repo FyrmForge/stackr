@@ -35,6 +35,9 @@ type Flow struct {
 	// is left alone.
 	Docker    ProxyDocker
 	ProxySpec func(image, dnsToken string) docker.ContainerSpec
+	// DataDir is the install's data dir, where the registry's socket sits;
+	// "" = the registry is left alone (dev, tests).
+	DataDir string
 
 	upgrading sync.Mutex
 }

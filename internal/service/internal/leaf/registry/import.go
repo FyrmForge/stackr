@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"strings"
 	"time"
 
@@ -42,7 +43,7 @@ type Imported struct {
 }
 
 // copier is imgcopy.Copy's shape, so a test can stand in for the network.
-type copier func(ctx context.Context, src, dst string, srcAuth, dstAuth authn.Authenticator, platforms []string) (imgcopy.Result, error)
+type copier func(ctx context.Context, src, dst string, srcAuth authn.Authenticator, dstTr http.RoundTripper, platforms []string) (imgcopy.Result, error)
 
 // WithCopier replaces the copy (tests).
 func (l *Leaf) WithCopier(c copier) *Leaf {
@@ -69,13 +70,13 @@ func (l *Leaf) Import(ctx context.Context, req ImportRequest) (Imported, error) 
 	defer leave()
 	repo, tag := regfront.ImportName(req.OrgSlug, req.Ref)
 	dst := strings.TrimPrefix(l.base, "http://") + "/" + repo + ":" + tag
-	res, err := l.copy(ctx, req.Ref, dst, req.Auth, nil, req.Platforms)
+	res, err := l.copy(ctx, req.Ref, dst, req.Auth, l.tr, req.Platforms)
 	var down *imgcopy.UnreachableError
 	if errors.As(err, &down) && ctx.Err() == nil {
 		// The upstream is down, not saying no: a tag we already hold in full
 		// still runs. ponytail: any held copy, however old; a max age if it
 		// ever matters.
-		if held, ok, herr := imgcopy.Held(ctx, dst, nil, req.Platforms); herr == nil && ok {
+		if held, ok, herr := imgcopy.Held(ctx, dst, l.tr, req.Platforms); herr == nil && ok {
 			age := "an earlier import"
 			if row, gerr := l.images.GetByRepoDigest(ctx, repo, held.Digest); gerr == nil {
 				age = sinceText(time.Since(row.CreatedAt)) + " ago"

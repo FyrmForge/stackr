@@ -196,7 +196,7 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 	if err := r.ensureProxy(ctx, image, in, *dnsToken, proxyUp); err != nil {
 		return err
 	}
-	if err := r.ensureRegistry(ctx); err != nil {
+	if err := r.ensureRegistry(ctx, in.DataDir); err != nil {
 		return err
 	}
 	// The panel may be renamed stackr-<version> by an upgrade; its label is

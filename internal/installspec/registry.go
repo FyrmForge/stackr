@@ -5,17 +5,27 @@ const (
 	RegistryVolume = "stackr-registry-data"
 	// RegistryImage is the standard distribution registry.
 	RegistryImage = "registry:3"
-	// RegistryPort is the registry's port on the head's loopback. Nothing
-	// else reaches it: the panel's registry front checks tokens and proxies.
-	// A container on a bridge cannot dial the host's 127.0.0.1.
+	// RegistryPort is where every node's Docker finds the cluster registry,
+	// localhost:5000: stackrd's registry front on the host's loopback (the
+	// controller's serves the registry socket, a worker's proxies to the
+	// controller over the mesh). The front takes only tokens stackr minted.
 	RegistryPort = "5000"
+	// registryRun is where the registry container sees RegistryDir.
+	registryRun = "/run/stackr-registry"
 )
 
-// Registry is the head's image store: the stock registry image on the host's
-// network, listening on 127.0.0.1 only, its data on a named volume. It does no
-// auth of its own, so it must sit on no bridge: a published port would be
-// open to every container there, and a tenant's build step is one.
-func Registry() Container {
+// RegistryDir is the host directory holding the registry's socket: under the
+// data dir, root only, so no tile reaches it. A host-network tile shares the
+// host's loopback, so a TCP listener there would be open to it.
+func RegistryDir(dataDir string) string { return dataDir + "/registry" }
+
+// RegistrySocket is the registry's unix socket on the host.
+func RegistrySocket(dataDir string) string { return RegistryDir(dataDir) + "/registry.sock" }
+
+// Registry is the head's image store: the stock registry image with no
+// network at all, serving a unix socket under the data dir. It does no auth
+// of its own; only stackrd (root, the data dir mounted) talks to it.
+func Registry(dataDir string) Container {
 	c := Container{
 		Name:  RegistryName,
 		Image: RegistryImage,
@@ -27,22 +37,23 @@ func Registry() Container {
 			// importer guarantees the wanted ones. An env override rather
 			// than a config file: neither create path (stackr-install, the
 			// upgrade flow) places files, and the image's own config keeps
-			// the storage path and the :5000 address.
+			// the storage path.
 			"REGISTRY_VALIDATION_MANIFESTS_INDEXES_PLATFORMS=none",
 			// No blob descriptor cache: after a garbage collect the in-memory
 			// one still answers for deleted blobs, so a re-import skips them
 			// and a pull gets a broken stream. "none" is an unknown type,
 			// which the registry takes as caching disabled.
 			"REGISTRY_STORAGE_CACHE_BLOBDESCRIPTOR=none",
-			// The image's own config says :5000, which on the host network
-			// would be every interface.
-			"REGISTRY_HTTP_ADDR=127.0.0.1:" + RegistryPort,
+			"REGISTRY_HTTP_NET=unix",
+			"REGISTRY_HTTP_ADDR=" + registryRun + "/registry.sock",
 		},
-		Labels:      map[string]string{LabelRole: "registry"},
-		Volumes:     []string{RegistryVolume + ":/var/lib/registry"},
-		HostNetwork: true,
-		LogOpts:     logCap,
-		Restart:     "unless-stopped",
+		Labels:  map[string]string{LabelRole: "registry"},
+		Volumes: []string{RegistryVolume + ":/var/lib/registry", RegistryDir(dataDir) + ":" + registryRun},
+		// No network: the image's debug server (:5001) and anything else it
+		// opens stay inside the container.
+		Network: "none",
+		LogOpts: logCap,
+		Restart: "unless-stopped",
 	}
 	c.Labels[LabelSpec] = c.Hash()
 	return c

@@ -153,7 +153,7 @@ func TestCleanRealRegistry(t *testing.T) {
 	r := startRegistry(t)
 	st := servicetest.Store(t)
 	org := seedOrg(t, st)
-	l := registry.New(st.RegistryImages).WithBase(r.URL())
+	l := registry.New(st.RegistryImages, "").WithBase(r.URL())
 	const repo = "acme/docker.io/library/app"
 
 	t0 := time.Now().Add(-time.Hour)
@@ -231,7 +231,7 @@ func TestCleanRealRegistry(t *testing.T) {
 
 // The gate is shut for the whole sweep and open again whatever it returns.
 func TestWhileGated(t *testing.T) {
-	l := registry.New(nil)
+	l := registry.New(nil, "")
 	err := l.WhileGated(ctx, func(context.Context) error {
 		if !l.Gate().Closed() {
 			t.Error("gate open inside the sweep")

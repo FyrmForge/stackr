@@ -445,15 +445,14 @@ func (o *Orchestrator) buildTile(
 		func(n string) bool { return o.nodeAnswers(ctx, n) }, log)
 }
 
-// buildOn builds ref on nodeID and pushes it into the cluster registry. A
-// worker may push repo only while this runs.
+// buildOn builds ref on nodeID and pushes it into the cluster registry with a
+// pass minted for repo (registryPass).
 func (o *Orchestrator) buildOn(
 	ctx context.Context,
 	nodeID, repo, ref, dir, dockerfile string,
 	args map[string]string,
 	log io.Writer,
 ) (string, error) {
-	defer o.builds.hold(nodeID, repo)()
 	slog.Info("build: placed", "node", nodeID, "ref", ref)
 	ctx = docker.WithNode(ctx, nodeID)
 	img, err := o.images.Build(ctx, dir, dockerfile, ref, args, log)

@@ -34,7 +34,7 @@ const tagCap = 20
 // imported index has no layers of its own, so the row is what lets it show as
 // the latest.
 func (l *Leaf) List(ctx context.Context, org string) ([]Repository, error) {
-	c := &client{base: l.base, http: &http.Client{Timeout: 5 * time.Second}}
+	c := &client{base: l.base, http: &http.Client{Timeout: 5 * time.Second, Transport: l.tr}}
 	repos, err := l.catalog(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("the registry did not answer: %w", err)

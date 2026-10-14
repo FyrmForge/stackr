@@ -59,7 +59,7 @@ func TestList(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	l := registry.New(nil).WithBase(srv.URL)
+	l := registry.New(nil, "").WithBase(srv.URL)
 	got, err := l.List(ctx, "acme")
 	if err != nil {
 		t.Fatal(err)
@@ -70,13 +70,13 @@ func TestList(t *testing.T) {
 	if all, err := l.List(ctx, ""); err != nil || len(all) != 2 {
 		t.Fatalf("every org = %+v, %v", all, err)
 	}
-	if _, err := registry.New(nil).WithBase("http://127.0.0.1:1").List(ctx, "acme"); err == nil {
+	if _, err := registry.New(nil, "").WithBase("http://127.0.0.1:1").List(ctx, "acme"); err == nil {
 		t.Error("a dead registry listed")
 	}
 }
 
 func TestLocal(t *testing.T) {
-	if got := registry.New(nil).Local("acme/docker.io/library/postgres", "16"); got != "localhost:5000/acme/docker.io/library/postgres:16" {
+	if got := registry.New(nil, "").Local("acme/docker.io/library/postgres", "16"); got != "localhost:5000/acme/docker.io/library/postgres:16" {
 		t.Fatalf("local = %s", got)
 	}
 }
@@ -85,7 +85,7 @@ func TestLocal(t *testing.T) {
 // keeps who, when, source and the first tag.
 func TestRecord(t *testing.T) {
 	st := servicetest.Store(t)
-	l := registry.New(st.RegistryImages)
+	l := registry.New(st.RegistryImages, "")
 	org := seedOrg(t, st)
 	t0 := time.Date(2026, 10, 13, 4, 15, 0, 0, time.UTC)
 

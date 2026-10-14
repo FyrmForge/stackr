@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"net/http"
 	"slices"
 	"testing"
 	"time"
@@ -31,8 +32,8 @@ type copyCall struct {
 
 // fakeCopy stands in for the network: it records the call and answers with
 // a fixed upstream digest.
-func fakeCopy(calls *[]copyCall) func(context.Context, string, string, authn.Authenticator, authn.Authenticator, []string) (imgcopy.Result, error) {
-	return func(_ context.Context, src, dst string, srcAuth, _ authn.Authenticator, p []string) (imgcopy.Result, error) {
+func fakeCopy(calls *[]copyCall) func(context.Context, string, string, authn.Authenticator, http.RoundTripper, []string) (imgcopy.Result, error) {
+	return func(_ context.Context, src, dst string, srcAuth authn.Authenticator, _ http.RoundTripper, p []string) (imgcopy.Result, error) {
 		*calls = append(*calls, copyCall{src, dst, srcAuth, p})
 		return imgcopy.Result{Digest: "sha256:up", Platforms: p, Size: 5}, nil
 	}

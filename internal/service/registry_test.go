@@ -2,8 +2,6 @@ package service_test
 
 import (
 	"context"
-	"crypto/tls"
-	"crypto/x509"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -14,9 +12,7 @@ import (
 
 	"github.com/labstack/echo/v4"
 
-	"github.com/FyrmForge/stackr/internal/clusterca"
 	"github.com/FyrmForge/stackr/internal/service"
-	"github.com/FyrmForge/stackr/internal/service/internal/store"
 	"github.com/FyrmForge/stackr/internal/service/servicetest"
 )
 
@@ -89,108 +85,6 @@ func TestRegistryToken(t *testing.T) {
 	rows, _ = e.Store.RegistryTokens.ListBySubject(ctx, dev, 5)
 	if rows[0].Scope != "" {
 		t.Fatalf("other org scope = %q", rows[0].Scope)
-	}
-}
-
-// A node's cert gets the images of the envs pinned to it and nothing else;
-// a revoked cert gets nothing.
-func TestRegistryNodeCert(t *testing.T) {
-	e := servicetest.New(t, func(c *service.Config) { c.PanelDomain = "panel.test" })
-	ctx := context.Background()
-	org := e.Org(t, "acme")
-	tl := e.Tile(t, org)
-	env, err := e.Store.Environments.Get(ctx, tl.Env)
-	if err != nil || env.NodeID == "" {
-		t.Fatalf("env node = %+v, %v", env, err)
-	}
-
-	ca, err := clusterca.NewCA(time.Now())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := clusterca.SaveCA(e.Config.DataDir, ca); err != nil {
-		t.Fatal(err)
-	}
-	issue := func(node string) (*x509.Certificate, string) {
-		key, _ := clusterca.NewKey()
-		csr, _ := clusterca.NewCSR(key)
-		is, err := ca.IssueNode(csr, node, time.Now())
-		if err != nil {
-			t.Fatal(err)
-		}
-		c, err := clusterca.ParseCertPEM(is.CertPEM)
-		if err != nil {
-			t.Fatal(err)
-		}
-		return c, is.Serial
-	}
-	reqScope := func(c *x509.Certificate, sc string) *httptest.ResponseRecorder {
-		r := tokenReq("registry.panel.test", "", sc)
-		r.TLS = &tls.ConnectionState{PeerCertificates: []*x509.Certificate{c}}
-		w := httptest.NewRecorder()
-		e.Orch.RegistryHandler().ServeHTTP(w, r)
-		return w
-	}
-	req := func(c *x509.Certificate) *httptest.ResponseRecorder {
-		return reqScope(c, "repository:acme/shop/api:pull,push")
-	}
-	scope := func(node string) string {
-		rows, _ := e.Store.RegistryTokens.ListBySubject(ctx, node, 5)
-		if len(rows) == 0 {
-			return "none"
-		}
-		return rows[0].Scope
-	}
-
-	c, serial := issue(env.NodeID)
-	if w := req(c); w.Code != 200 || scope(env.NodeID) != "acme/shop/api:pull" {
-		t.Fatalf("pinned node: %d %q", w.Code, scope(env.NodeID))
-	}
-	// It may pull the import of the outside image its env runs (nginx:1),
-	// for its own org only, and no other import.
-	imp := func(repo string) string {
-		reqScope(c, "repository:"+repo+":pull")
-		return scope(env.NodeID)
-	}
-	if got := imp("acme/docker.io/library/nginx"); got != "acme/docker.io/library/nginx:pull" {
-		t.Fatalf("own import = %q", got)
-	}
-	for _, repo := range []string{"other/docker.io/library/nginx", "acme/docker.io/library/redis"} {
-		if got := imp(repo); got != "" {
-			t.Fatalf("pull of %s = %q", repo, got)
-		}
-	}
-	// A managed tile's engine image, before any deploy made its network.
-	if _, err := e.Orch.CreateManagedTile(ctx, service.Tile{StackID: tl.Stack, EnvironmentID: tl.Env, Name: "pg"}, "postgres"); err != nil {
-		t.Fatal(err)
-	}
-	if got := imp("acme/docker.io/library/postgres"); got != "acme/docker.io/library/postgres:pull" {
-		t.Fatalf("managed engine import = %q", got)
-	}
-	// A builder pushes a repo only while it builds it; a plain node never.
-	build := "repository:acme/shop/web:pull,push"
-	if reqScope(c, build); scope(env.NodeID) != "" {
-		t.Fatalf("plain node push = %q", scope(env.NodeID))
-	}
-	release := e.Orch.HoldBuild(env.NodeID, "acme/shop/web")
-	if reqScope(c, build); scope(env.NodeID) != "acme/shop/web:pull,push" {
-		t.Fatalf("builder push = %q", scope(env.NodeID))
-	}
-	release()
-	if reqScope(c, build); scope(env.NodeID) != "" {
-		t.Fatalf("after the build = %q", scope(env.NodeID))
-	}
-	if w := req(func() *x509.Certificate { c, _ := issue("not-a-node"); return c }()); w.Code != 401 {
-		t.Fatalf("unknown node = %d", w.Code)
-	}
-	if err := e.Store.NodeCerts.Create(ctx, store.NodeCert{Serial: serial, NodeID: env.NodeID, Role: "worker", NotAfter: c.NotAfter, CreatedAt: time.Now()}); err != nil {
-		t.Fatal(err)
-	}
-	if err := e.Store.NodeCerts.Revoke(ctx, serial, time.Now()); err != nil {
-		t.Fatal(err)
-	}
-	if w := req(c); w.Code != 401 {
-		t.Fatalf("revoked = %d", w.Code)
 	}
 }
 
