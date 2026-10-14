@@ -31,16 +31,16 @@ const (
 // the browser shows with it open.
 func NodeDrawer(id, tab string) string {
 	if tab == "" {
-		return nodesBase + "/" + id
+		return nodesBase + "/" + url.PathEscape(id)
 	}
-	return nodesBase + "/" + id + "?tab=" + tab
+	return nodesBase + "/" + url.PathEscape(id) + "?tab=" + url.QueryEscape(tab)
 }
 
 func NodePush(id, tab string) string {
 	if tab == "" {
-		return "?drawer=node:" + id
+		return "?drawer=node:" + url.QueryEscape(id)
 	}
-	return "?drawer=node:" + id + "&tab=" + tab
+	return "?drawer=node:" + url.QueryEscape(id) + "&tab=" + url.QueryEscape(tab)
 }
 
 // Map is the service's ClusterMap as the templ reads it.

@@ -46,6 +46,9 @@ func (o *Orchestrator) announceControllerCert(ctx context.Context) error {
 // leaves the list and is revoked, so every worker refuses it. Audited to by.
 // Returns once started; the switch lands within controllerAckBound.
 func (o *Orchestrator) RevokeControllerCert(ctx context.Context, by *Principal) error {
+	if err := nodeAdmin(by); err != nil {
+		return err
+	}
 	if o.cluster == nil {
 		return errors.ErrUnsupported
 	}

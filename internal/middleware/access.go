@@ -301,6 +301,9 @@ func ScopeOf(c echo.Context) service.Scope {
 	return s
 }
 
+// NodeOfflineMsg is what a non-admin hears when an env's node is down.
+const NodeOfflineMsg = "This env's node is offline."
+
 // HTTPError maps the service vocabulary to a status, once, at the edge.
 func HTTPError(err error) error {
 	var down *service.NodeDownError
@@ -312,7 +315,8 @@ func HTTPError(err error) error {
 	case errors.Is(err, errs.ErrRefused):
 		return echo.NewHTTPError(http.StatusForbidden, err.Error())
 	case errors.As(err, &down):
-		return echo.NewHTTPError(http.StatusServiceUnavailable, down.Error())
+		// the node's name is for admins; apiError puts it back for them
+		return echo.NewHTTPError(http.StatusServiceUnavailable, NodeOfflineMsg).SetInternal(down)
 	case errors.Is(err, errs.ErrBusy):
 		return echo.NewHTTPError(http.StatusServiceUnavailable)
 	case service.DockerUnreachable(err):
@@ -367,6 +371,10 @@ func JSONErrors() echo.MiddlewareFunc {
 				body.Error = http.StatusText(he.Code)
 				if m, ok := he.Message.(string); ok && m != "" {
 					body.Error = m
+				}
+				var down *service.NodeDownError
+				if p := Principal(c); p != nil && errors.As(he.Internal, &down) && authz.Can(p.Access, "node.manage", authz.Resource{}) == nil {
+					body.Error = down.Error()
 				}
 			} else {
 				logging.FromContext(c.Request().Context()).Error("api", "error", err.Error())

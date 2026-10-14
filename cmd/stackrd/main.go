@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
+	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -160,6 +162,9 @@ func run(log *slog.Logger, generate bool) error {
 		return fmt.Errorf("invalid BASE_URL: %w", err)
 	}
 	components.BaseURL = baseOrigin
+	if devModeOnPublicHost(envDevMode, envBaseURL) {
+		log.Warn("DEV_MODE is on but BASE_URL is not localhost: the component gallery and dev routes are exposed. Set DEV_MODE=false in production.", "base_url", envBaseURL)
+	}
 
 	// Server.
 	srv, err := server.New(
@@ -397,4 +402,21 @@ func controllerWG(fake string) wgapply.Applier {
 		return nil
 	}
 	return wgapply.Kernel{}
+}
+
+// devModeOnPublicHost: DEV_MODE with a base URL that names a real host, the
+// .env.example copied to a prod box. An empty base URL is a local run.
+func devModeOnPublicHost(dev bool, baseURL string) bool {
+	if !dev || baseURL == "" {
+		return false
+	}
+	u, err := url.Parse(baseURL)
+	if err != nil {
+		return true
+	}
+	h := u.Hostname()
+	if ip := net.ParseIP(h); ip != nil {
+		return !ip.IsLoopback()
+	}
+	return h != "localhost" && !strings.HasSuffix(h, ".localhost")
 }

@@ -538,7 +538,7 @@ type PendingNode struct {
 // PendingNodeByName (server admin) is the pending node of that name, or
 // ErrNotFound while the machine has not called in.
 func (o *Orchestrator) PendingNodeByName(ctx context.Context, name string) (PendingNode, error) {
-	ps, err := o.PendingJoins(ctx)
+	ps, err := o.pendingJoins(ctx)
 	if err != nil {
 		return PendingNode{}, err
 	}

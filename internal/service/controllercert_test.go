@@ -128,7 +128,7 @@ func TestRenewAnnouncesBothSwitchesThenNext(t *testing.T) {
 func TestRevokeDropsOldSerial(t *testing.T) {
 	o, an := ctlRig(t)
 	old := ctlSerial(t, o)
-	must(t, o.RevokeControllerCert(context.Background(), nil))
+	must(t, o.RevokeControllerCert(context.Background(), adminP()))
 	o.trustAsync.Wait()
 	next := ctlSerial(t, o)
 	if next == old {
@@ -153,7 +153,7 @@ func TestRenewNotBlockedByDeadWorker(t *testing.T) {
 	an.fail = true
 	old := ctlSerial(t, o)
 	start := time.Now()
-	must(t, o.RevokeControllerCert(context.Background(), nil))
+	must(t, o.RevokeControllerCert(context.Background(), adminP()))
 	o.trustAsync.Wait()
 	if ctlSerial(t, o) == old {
 		t.Fatal("not switched")
@@ -172,8 +172,8 @@ func TestTrustVerbsReturnWhileWorkerDead(t *testing.T) {
 	an.fail = true
 	controllerAckBound = time.Hour
 	start := time.Now()
-	must(t, o.RevokeControllerCert(context.Background(), nil))
-	if err := o.RevokeControllerCert(context.Background(), nil); err == nil {
+	must(t, o.RevokeControllerCert(context.Background(), adminP()))
+	if err := o.RevokeControllerCert(context.Background(), adminP()); err == nil {
 		t.Fatal("a second revoke ran beside the first")
 	}
 	if d := time.Since(start); d > 2*time.Second {

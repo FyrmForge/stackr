@@ -124,7 +124,7 @@ func (h *H) RenewNodeCert() Endpoint {
 // PendingJoins (server admin) lists the nodes waiting to be confirmed.
 func (h *H) PendingJoins() Endpoint {
 	return Get(func(c echo.Context) ([]service.PendingJoin, error) {
-		return list(h.Orch.PendingJoins(rc(c)))
+		return list(h.Orch.PendingJoins(rc(c), middleware.Principal(c)))
 	})
 }
 
