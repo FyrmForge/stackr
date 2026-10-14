@@ -49,6 +49,7 @@ type Map struct {
 	Nets    []Net
 	Links   []Link
 	Backups []Backup
+	Egress  []Egress
 	// Placed is where admins dropped cards ("node:", "nat:", "s3:" ids and
 	// "internet", "net:" boxes), in world pixels. A box stays where it was
 	// dropped and grows to hold its cards.
@@ -57,7 +58,8 @@ type Map struct {
 
 type Node struct {
 	ID, Name, Role, Status, Docker, Arch, Net string
-	Tags, Public, Domains, ExitEnvs           []string
+	Tags, Public, Domains                     []string
+	ExitOwn, ExitOthers                       []string          // env paths leaving here: this node's own, other nodes'
 	DomainEnvs                                map[string]string // domain -> env path
 	Envs                                      []Env
 	NoForward                                 bool     // ingress behind a NAT the internet does not reach
@@ -110,6 +112,12 @@ func pairOrder(a, b string) (string, string) {
 		return b, a
 	}
 	return a, b
+}
+
+// Egress is the envs of node From whose traffic leaves at node To.
+type Egress struct {
+	From, To string
+	Envs     []string
 }
 
 type Backup struct {
@@ -169,7 +177,24 @@ func publicTraffic(n Node, c Net) bool {
 	if len(n.Public) == 0 && c.Router {
 		return false
 	}
-	return hasTag(n, "ingress") && len(n.Public) > 0 || len(n.ExitEnvs) > 0
+	return hasTag(n, "ingress") && len(n.Public) > 0 || len(n.ExitOwn)+len(n.ExitOthers) > 0
+}
+
+// ownCard: the node has an internet card of its own. One with no public
+// address leaves through its router's NAT, or its network's shared gateway
+// card; a network that was not reported has no gateway to speak of.
+func ownCard(n Node, c Net) bool { return len(n.Public) > 0 || c.ID == "unknown" }
+
+// egressKind is the look of an internet edge: full when the node is an exit
+// for others, thin when only its own apps leave there, "" when none do.
+func egressKind(own, others []string) string {
+	switch {
+	case len(others) > 0:
+		return "egress"
+	case len(own) > 0:
+		return "egress-own"
+	}
+	return ""
 }
 
 func netTitle(c Net) (name, sub string) {
@@ -252,8 +277,9 @@ func Build(m Map, base string, notes []graph.Note, create []graph.Create) graph.
 		}
 		// A network with one node is no grouping: its cards stand alone.
 		if len(ns) >= 2 {
-			at, moved := m.Placed[boxID(c.ID)] // where the box was dropped
-			b := wrap(rs, minBoxW, at, moved)
+			dropped, moved := m.Placed[boxID(c.ID)] // where the box was dropped
+			b := wrap(rs, minBoxW, dropped, moved)
+			at[boxID(c.ID)], top[boxID(c.ID)] = b, b.y+headH // the shared internet card sits above it
 			name, sub := netTitle(c)
 			size := m.Placed["size:"+boxID(c.ID)] // a hand-set size: the box is at least this big
 			boxes = append(boxes, graph.Node{
@@ -295,9 +321,11 @@ func Build(m Map, base string, notes []graph.Note, create []graph.Create) graph.
 		edges = append(edges, e)
 	}
 	// The internet card says what reaches it, so its edges carry no labels.
-	public := func(from string) {
+	// Full egress when the node is an exit for others, thin when only its
+	// own apps leave there. Several nodes can feed one card (src).
+	public := func(from string, src ...string) {
 		info, ok := Internet(m, from)
-		if !ok || !info.In && len(info.Egress) == 0 {
+		if !ok || !info.In && !info.leaves() {
 			return
 		}
 		inet := internetID(from)
@@ -308,14 +336,33 @@ func Build(m Map, base string, notes []graph.Note, create []graph.Create) graph.
 		if info.In {
 			edges = append(edges, graph.Edge{Kind: "ingress", From: inet, To: from})
 		}
-		if len(info.Egress) > 0 {
-			edges = append(edges, graph.Edge{Kind: "egress", From: from, To: inet})
+		egress := func(card string, own, others []string) {
+			if k := egressKind(own, others); k != "" {
+				edges = append(edges, graph.Edge{Kind: k, From: card, To: inet})
+			}
+		}
+		if len(src) == 0 {
+			egress(from, info.EgressOwn, info.EgressOthers)
+		}
+		for _, id := range src {
+			egress(nodeID(id), byID[id].ExitOwn, byID[id].ExitOthers)
 		}
 	}
 	for _, c := range m.Nets {
+		var gateway []string // nodes whose traffic leaves through the network's gateway
 		for _, id := range c.Nodes {
-			if n, ok := byID[id]; ok && (len(n.Public) > 0 || !c.Router) {
+			n, ok := byID[id]
+			switch {
+			case !ok:
+			case ownCard(n, c):
 				public(nodeID(n.ID))
+			case !c.Router:
+				gateway = append(gateway, id)
+			}
+		}
+		if len(gateway) > 0 {
+			if _, ok := at[boxID(c.ID)]; ok {
+				public(boxID(c.ID), gateway...)
 			}
 		}
 		if !c.Router {
@@ -328,6 +375,14 @@ func Build(m Map, base string, notes []graph.Note, create []graph.Create) graph.
 				kind = "forward-unsure"
 			}
 			edges = append(edges, graph.Edge{Kind: kind, From: natID(c.ID), To: nodeID(c.Forward)})
+		}
+	}
+	// A node whose traffic leaves through another node draws an arrow to it.
+	for _, e := range m.Egress {
+		_, from := byID[e.From]
+		_, to := byID[e.To]
+		if from && to {
+			edges = append(edges, graph.Edge{Kind: "egress-via", From: nodeID(e.From), To: nodeID(e.To)})
 		}
 	}
 	for _, b := range m.Backups {
@@ -378,31 +433,38 @@ func wrap(rs []rect, minW int, at [2]int, moved bool) rect {
 }
 
 // Inet is what an internet card's drawer lists: the domains that come in
-// through it (each with its env), the envs that leave through it, the
-// public addresses, and the port forward of a NAT.
+// through it (each with its env), the envs that leave through it (this
+// node's own apps, and apps of other nodes it is the exit for), the public
+// addresses, and the port forward of a NAT.
 type Inet struct {
-	Name              string // the node, or "NAT"
-	In                bool   // the internet reaches ingress here
-	Public            []string
-	Ingress           []InetRoute
-	Egress            []string // env paths
-	Behind            bool     // a NAT's card: the node behind it is Forward
-	Forward           string
-	Unsure, NoForward bool
+	Name         string // the node, "NAT" or the network
+	In           bool   // the internet reaches ingress here
+	Gateway      bool   // a network's shared card: its nodes leave through the gateway
+	Public       []string
+	Ingress      []InetRoute
+	EgressOwn    []string // env paths
+	EgressOthers []string // env paths of other nodes
+	Behind       bool     // a NAT's card: the node behind it is Forward
+	Forward      string
+	Unsure       bool
+	NoForward    bool
 }
 
 type InetRoute struct{ Host, Env string }
 
+// leaves: some env's traffic leaves the internet here.
+func (i Inet) leaves() bool { return len(i.EgressOwn)+len(i.EgressOthers) > 0 }
+
 // InternetDrawer is an internet card's drawer GET (from is the card it hangs
-// off, "node:<id>" or "nat:<net>"; ids hold ":" and "/", so a query param);
-// InternetPush the URL the browser shows with it open.
+// off, "node:<id>", "nat:<net>" or "net:<net>"; ids hold ":" and "/", so a
+// query param); InternetPush the URL the browser shows with it open.
 func InternetDrawer(from string) string { return Base + "/internet?from=" + url.QueryEscape(from) }
 
 func InternetPush(from string) string { return "?drawer=" + url.QueryEscape("internet:"+from) }
 
-// Internet is the internet card of from: a node with its own address or any
-// node in a network without a router, or a router's NAT. ok is false for
-// anything else.
+// Internet is the internet card of from: a node with its own address, a
+// router's NAT, or a network whose nodes have none and leave through its
+// gateway. ok is false for anything else.
 func Internet(m Map, from string) (Inet, bool) {
 	byID := map[string]Node{}
 	for _, n := range m.Nodes {
@@ -421,42 +483,60 @@ func Internet(m Map, from string) (Inet, bool) {
 			return Inet{}, false
 		}
 		for _, c := range m.Nets {
-			if slices.Contains(c.Nodes, id) && len(n.Public) == 0 && c.Router {
-				return Inet{}, false // behind the router's NAT card
+			if slices.Contains(c.Nodes, id) && !ownCard(n, c) {
+				return Inet{}, false // behind the NAT card or the network's
 			}
 		}
 		own := hasTag(n, "ingress") && len(n.Public) > 0
-		info := Inet{Name: n.Name, In: own, Public: n.Public, Egress: n.ExitEnvs}
+		info := Inet{Name: n.Name, In: own, Public: n.Public, EgressOwn: n.ExitOwn, EgressOthers: n.ExitOthers}
 		if own {
 			info.Ingress = routes(n)
 		}
 		return info, true
 	}
-	net, ok := strings.CutPrefix(from, "nat:")
+	if net, ok := strings.CutPrefix(from, "nat:"); ok {
+		for _, c := range m.Nets {
+			if c.ID != net || !c.Router {
+				continue
+			}
+			nat := Inet{Name: "NAT", Behind: true, Unsure: c.Unsure}
+			if f, ok := byID[c.Forward]; ok {
+				nat.Forward = f.Name
+			}
+			for _, id := range c.Nodes {
+				n, ok := byID[id]
+				if !ok || len(n.Public) > 0 {
+					continue
+				}
+				if hasTag(n, "ingress") {
+					nat.In = true
+					nat.Ingress = append(nat.Ingress, routes(n)...)
+				}
+				nat.EgressOwn = append(nat.EgressOwn, n.ExitOwn...)
+				nat.EgressOthers = append(nat.EgressOthers, n.ExitOthers...)
+				nat.NoForward = nat.NoForward || n.NoForward
+			}
+			return nat, true
+		}
+		return Inet{}, false
+	}
+	net, ok := strings.CutPrefix(from, "net:")
 	if !ok {
 		return Inet{}, false
 	}
 	for _, c := range m.Nets {
-		if c.ID != net || !c.Router {
+		if c.ID != net || c.Router {
 			continue
 		}
-		nat := Inet{Name: "NAT", Behind: true, Unsure: c.Unsure}
-		if f, ok := byID[c.Forward]; ok {
-			nat.Forward = f.Name
-		}
+		gw, has := Inet{Name: c.CIDR, Gateway: true}, false
 		for _, id := range c.Nodes {
-			n, ok := byID[id]
-			if !ok || len(n.Public) > 0 {
-				continue
+			if n, ok := byID[id]; ok && !ownCard(n, c) {
+				has = true
+				gw.EgressOwn = append(gw.EgressOwn, n.ExitOwn...)
+				gw.EgressOthers = append(gw.EgressOthers, n.ExitOthers...)
 			}
-			if hasTag(n, "ingress") {
-				nat.In = true
-				nat.Ingress = append(nat.Ingress, routes(n)...)
-			}
-			nat.Egress = append(nat.Egress, n.ExitEnvs...)
-			nat.NoForward = nat.NoForward || n.NoForward
 		}
-		return nat, true
+		return gw, has
 	}
 	return Inet{}, false
 }

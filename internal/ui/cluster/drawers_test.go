@@ -21,11 +21,11 @@ func TestInternet(t *testing.T) {
 	if !ok || !nat.Behind || nat.Forward != "home" || !nat.In || len(nat.Ingress) != 3 {
 		t.Errorf("nat = %+v ok %v", nat, ok)
 	}
-	if nat.Name != "NAT" || len(nat.Egress) != 1 {
-		t.Errorf("nat name %q egress %v", nat.Name, nat.Egress)
+	if nat.Name != "NAT" || len(nat.EgressOwn) != 1 {
+		t.Errorf("nat name %q egress %v", nat.Name, nat.EgressOwn)
 	}
 	f, ok := cluster.Internet(m, "node:f")
-	if !ok || f.Name != "fsn1" || !f.In || len(f.Egress) != 2 || len(f.Public) != 1 {
+	if !ok || f.Name != "fsn1" || !f.In || len(f.EgressOwn) != 1 || len(f.EgressOthers) != 1 || len(f.Public) != 1 {
 		t.Errorf("fsn1 = %+v ok %v", f, ok)
 	}
 	// A node behind the router has no card of its own; neither does a made-up id.

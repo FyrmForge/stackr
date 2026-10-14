@@ -21,11 +21,11 @@ func sample() cluster.Map {
 	return cluster.Map{
 		Nodes: []cluster.Node{
 			{ID: "h", Name: "home", Role: "controller", Status: "online", Tags: []string{"ingress", "egress"},
-				Domains: []string{"home.example.com", "a.example.com", "b.example.com"}, ExitEnvs: []string{"smoke/web/dev"},
+				Domains: []string{"home.example.com", "a.example.com", "b.example.com"}, ExitOwn: []string{"smoke/web/dev"},
 				Envs: envs("healthy", "degraded", "healthy", "stopped", "healthy")},
 			{ID: "n", Name: "nas", Role: "worker", Status: "online", Arch: "arm64", Envs: envs("down"), Tags: []string{"ingress"}, NoForward: true},
 			{ID: "f", Name: "fsn1", Role: "worker", Status: "online", Docker: "29.9.0", Arch: "amd64", Public: []string{"203.0.113.5"},
-				Tags: []string{"ingress"}, Domains: []string{"shop.example.com"}, ExitEnvs: []string{"acme/prod/web", "x/y/z"},
+				Tags: []string{"ingress"}, Domains: []string{"shop.example.com"}, ExitOwn: []string{"acme/prod/web"}, ExitOthers: []string{"x/y/z"},
 				Envs: envs("moving")},
 			{ID: "g", Name: "fsn2", Role: "worker", Status: "unreachable", ReachedVia: []string{"fsn1"}},
 		},
