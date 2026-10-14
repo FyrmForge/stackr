@@ -169,7 +169,7 @@ templ railLink(l Link) {
 }
 
 // topBar is v0's canvas bar, shown wherever the URL has crumbs: the env's
-// colour band, then ← (the last crumb's parent), the crumbs, and the
+// colour stripe on its bottom edge, then ← (the last crumb's parent), the crumbs, and the
 // page's actions on the right. At the org it is v0's org head instead:
 // initials badge, name, /slug. Always rendered (empty without crumbs) so
 // a navigation has an out-of-band target.
@@ -182,10 +182,11 @@ templ topBar(s Shell, oob bool) {
 		}
 	>
 		if len(s.Crumbs) > 0 {
-			if band := envClass(s.EnvColor); band != "" {
-				<div class={ "env-band", band }></div>
-			}
-			<div class="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 sm:px-6 py-3 min-h-14 border-b border-rw-border bg-rw-surface">
+			<div
+				class={ "flex flex-wrap items-center gap-x-3 gap-y-2 px-4 sm:px-6 py-3 min-h-14 bg-rw-surface",
+					templ.KV(envClass(s.EnvColor)+" shadow-[inset_0_-3px_0_var(--env-c)]", envClass(s.EnvColor) != ""),
+					templ.KV("border-b border-rw-border", envClass(s.EnvColor) == "") }
+			>
 				if len(s.Crumbs) == 1 {
 					@orgHead(s.Crumbs[0])
 				} else {
