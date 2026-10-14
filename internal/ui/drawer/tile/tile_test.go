@@ -245,3 +245,10 @@ func TestDomainRedirectCode(t *testing.T) {
 		t.Errorf("redirect codes:\n%s", got)
 	}
 }
+
+// A skipped run is a stop, faint like a cancelled one, not a red failure.
+func TestSkippedRunIsFaint(t *testing.T) {
+	if got := runTone(RunRow{Status: "skipped"}); got != "text-rw-faint" {
+		t.Errorf("tone = %q", got)
+	}
+}

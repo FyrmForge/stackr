@@ -62,6 +62,7 @@ func RegisterRoutes(srv *server.Server, deps *Deps) {
 	site.Use(deps.Access.LoadSession())
 	site.Use(render.Theme)
 	site.Use(render.Waiting(deps.Orch))
+	site.Use(render.NodeDown(deps.Orch))
 	site.Use(render.DrawerTab)
 	site.Use(setup.Pending)
 	auth := deps.Access.Browser()

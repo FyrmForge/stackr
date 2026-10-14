@@ -2149,7 +2149,7 @@ func runTone(x RunRow) string {
 		return "text-rw-warn"
 	case x.Status == "ok":
 		return "text-rw-success"
-	case x.Status == "cancelled":
+	case x.Status == "cancelled", x.Status == "skipped":
 		return "text-rw-faint"
 	}
 	return "text-rw-danger"

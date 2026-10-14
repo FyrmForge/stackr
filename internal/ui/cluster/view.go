@@ -65,6 +65,8 @@ type Node struct {
 	NoForward                                 bool     // ingress behind a NAT the internet does not reach
 	ReachedVia                                []string // nodes the others' traffic to it is routed through
 	ViaDown                                   []string // the ReachedVia hops that are not online
+	Behind, CertExpired                       bool     // the worker runs another build; its cert ran out
+	CertDays                                  int      // days left under 14; 0 = none to say
 }
 
 type Env struct{ Name, Href, Health string }
@@ -653,3 +655,6 @@ func viaClass(n Node) string {
 	}
 	return "text-rw-text"
 }
+
+// hasNote: the card has a line for behind or a cert note.
+func hasNote(n Node) bool { return n.Behind || n.CertExpired || n.CertDays > 0 }

@@ -115,6 +115,28 @@ func TestMapDraws(t *testing.T) {
 }
 
 // Cards never overlap each other, and every box holds its cards.
+// A behind node's card says so; an expired cert says rejoin and opens the
+// node's drawer; a cert near its end counts the days.
+func TestCardNotes(t *testing.T) {
+	m := sample()
+	m.Nodes[1].Behind = true
+	m.Nodes[2].CertExpired = true
+	m.Nodes[3].CertDays = 9
+	var sb strings.Builder
+	if err := cluster.Page(cluster.Build(m, cluster.Base, nil, nil), m).Render(context.Background(), &sb); err != nil {
+		t.Fatal(err)
+	}
+	body := sb.String()
+	for _, want := range []string{">behind<", "Cert expired, rejoin needed", "Cert expires in 9 days"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("page lacks %q", want)
+		}
+	}
+	if strings.Contains(render(t), "behind<") || strings.Contains(render(t), "Cert ") {
+		t.Error("a healthy map shows a note")
+	}
+}
+
 func TestMapNoOverlap(t *testing.T) {
 	v := cluster.Build(sample(), cluster.Base, nil, nil)
 	byID := map[string]int{}

@@ -3,6 +3,7 @@ package service
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 	"github.com/FyrmForge/stackr/internal/worker"
@@ -146,5 +147,41 @@ func TestApplyProbes(t *testing.T) {
 func TestProbePath(t *testing.T) {
 	if p := probePath("ctl"); !strings.HasPrefix(p, worker.ProbePrefix) || len(p) != len(worker.ProbePrefix)+24 || p == probePath("other") {
 		t.Errorf("probePath = %q", p)
+	}
+}
+
+// The map card's cert note: expired, or the days left under 14; a renewed
+// cert, a revoked one and no certs at all say nothing.
+func TestClusterCertNote(t *testing.T) {
+	now := time.Now()
+	cert := func(d time.Duration, revoked bool) store.NodeCert {
+		c := store.NodeCert{NotAfter: now.Add(d)}
+		if revoked {
+			c.RevokedAt = &now
+		}
+		return c
+	}
+	for _, c := range []struct {
+		name    string
+		certs   []store.NodeCert
+		expired bool
+		days    int
+	}{
+		{"none", nil, false, 0},
+		{"fresh", []store.NodeCert{cert(60*24*time.Hour, false)}, false, 0},
+		{"nine days", []store.NodeCert{cert(9*24*time.Hour-time.Hour, false)}, false, 9},
+		{"expired", []store.NodeCert{cert(-48*time.Hour, false)}, true, 0},
+		{"renewed", []store.NodeCert{cert(-48*time.Hour, false), cert(60*24*time.Hour, false)}, false, 0},
+		{"revoked fresh does not count", []store.NodeCert{cert(-48*time.Hour, false), cert(60*24*time.Hour, true)}, true, 0},
+	} {
+		expired, days := clusterCertNote(c.certs, now)
+		if expired != c.expired || days != c.days {
+			t.Errorf("%s: got %v, %d; want %v, %d", c.name, expired, days, c.expired, c.days)
+		}
+	}
+	n := store.Node{ID: "w", Name: "w", Role: "worker", Status: "online"}
+	m := buildClusterMap([]clusterNodeIn{{Node: n, Up: true, Behind: true, CertDays: 9}})
+	if g := m.Nodes[0]; !g.Behind || g.CertDays != 9 || g.CertExpired {
+		t.Fatalf("card = %+v", g)
 	}
 }

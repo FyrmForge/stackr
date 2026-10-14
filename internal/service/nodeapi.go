@@ -50,6 +50,10 @@ type NodeOut struct {
 	DiskTotal uint64   `json:"disk_total"`
 	Docker    string   `json:"docker"`
 	Arch      string   `json:"arch"`
+	// Version is the stackr build the node reported; Behind is a worker
+	// whose build is not the panel's.
+	Version string `json:"version"`
+	Behind  bool   `json:"behind"`
 	// DefaultExit is the exit node names of the node's own ladder; empty
 	// for an egress node.
 	DefaultExit []string `json:"default_exit"`
@@ -285,6 +289,7 @@ func (o *Orchestrator) nodeOut(ctx context.Context, n store.Node) (NodeOut, erro
 	}
 	if f := o.reportedFacts(ctx, n); f != nil {
 		out.CPU, out.MemTotal, out.DiskFree, out.DiskTotal, out.Docker, out.Arch = f.CPUs, f.MemBytes, f.DiskFree, f.DiskTotal, f.Docker, f.Arch
+		out.Version, out.Behind = f.Version, o.workerBehind(n, f)
 	}
 	return out, nil
 }

@@ -263,6 +263,7 @@ func routes(h *v1.H) []Route {
 		{GET, "/admin/version", "admin.version", "admin.read", h.Version()},
 		{GET, "/admin/upgrade", "admin.upgrade-check", "admin.read", h.CheckUpgrade()},
 		{POST, "/admin/upgrade", "admin.upgrade", "container.admin", h.Upgrade()},
+		{POST, "/admin/upgrade/workers", "admin.upgrade-workers", "container.admin", h.UpgradeWorkers()},
 		{GET, "/admin/panel-backups", "admin.panel-backups", "admin.read", h.PanelBackups()},
 		{POST, "/admin/panel-backups", "admin.panel-backup", "container.admin", h.PanelBackupNow()},
 		{POST, "/admin/proxy/sync", "admin.proxy-sync", "proxy.admin", h.SyncProxy()},
