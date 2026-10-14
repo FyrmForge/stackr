@@ -157,7 +157,7 @@ func TestMapPlaced(t *testing.T) {
 		t.Errorf("fsn1 at %d,%d, want 2000,1500", x, y)
 	}
 	bx, by, bw, bh := at("net:10.20.0.0/24")
-	if bx > 2000 || by > 1500 || bx+bw < 2000+240 || by+bh < 1500+156 {
+	if bx > 2000 || by > 1500 || bx+bw < 2000+240 || by+bh < 1500+164 {
 		t.Errorf("box %d,%d %dx%d does not hold fsn1", bx, by, bw, bh)
 	}
 	for id, want := range map[string]bool{"node:f": true, "nat:x": true, "internet:node:f": true, "internet": false, "s3:b": true, "net:x": false, "env:f:0": false} {

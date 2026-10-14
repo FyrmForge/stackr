@@ -128,7 +128,7 @@ type Backup struct {
 // Geometry, in world pixels.
 const (
 	cardW      = 240
-	faceH      = 156 // a node card without envs
+	faceH      = 164 // a node card without envs: head, tags, IP row and footer come to about 158, plus the border
 	envRowH    = 22
 	maxEnvs    = 3 // env rows on a card; more becomes "+N more"
 	natW, natH = 104, 48

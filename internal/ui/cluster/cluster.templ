@@ -81,7 +81,7 @@ templ nodeCard(n Node) {
 		tabindex="0"
 		role="button"
 	>
-		<div class="p-3.5">
+		<div class="flex h-[162px] shrink-0 flex-col p-3.5">
 			<div class="flex items-center gap-2.5">
 				<span class="node-icon flex h-7 w-7 items-center justify-center rounded-md bg-rw-inset text-rw-muted shrink-0">
 					<svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -105,7 +105,7 @@ templ nodeCard(n Node) {
 					<span class="shrink-0 rounded-md border border-rw-border bg-rw-inset px-1.5 py-0.5 text-[10px] leading-3 text-rw-muted">{ t }</span>
 				}
 			</div>
-			<div class="mt-2 flex items-center justify-between gap-2 text-xs min-w-0 h-4">
+			<div class="mt-2 mb-3 flex items-center justify-between gap-2 text-xs min-w-0 h-4">
 				if ip := publicIP(n); ip != "" {
 					<span class="text-rw-faint shrink-0">Public IP</span>
 					<span class="font-mono text-rw-text truncate">{ ip }</span>
@@ -118,7 +118,7 @@ templ nodeCard(n Node) {
 					<span class="text-rw-faint">No public IP</span>
 				}
 			</div>
-			<div class="node-footer mt-3 pt-3 border-t border-rw-border flex items-center justify-between gap-2 min-w-0">
+			<div class="node-footer mt-auto pt-3 border-t border-rw-border flex items-center justify-between gap-2 min-w-0">
 				<span class={ "node-status flex items-center gap-2 text-xs", tone }>
 					<span class={ "h-1.5 w-1.5 rounded-full shrink-0", dot }></span>
 					<span class="truncate">{ word }</span>
