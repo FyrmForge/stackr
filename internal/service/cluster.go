@@ -12,7 +12,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/FyrmForge/stackr/internal/exits"
 	"github.com/FyrmForge/stackr/internal/mesh"
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/node"
@@ -54,6 +53,8 @@ type ClusterMap struct {
 	Networks []ClusterNet
 	Links    []ClusterLink
 	Backups  []ClusterBackup
+	// Egress is each env node whose traffic leaves through another node.
+	Egress []ClusterEgress
 	// Pairs is every node pair before the map drops routed ones; status reads it.
 	Pairs []ClusterLink `json:"-"`
 }
@@ -65,6 +66,7 @@ type ClusterNode struct {
 	// DefaultIngress and DefaultExit mark the cluster-wide defaults.
 	DefaultIngress, DefaultExit bool
 	Docker                      string   // the docker server version the node reported; "" = none
+	Arch                        string   // the CPU arch it reported; "" = none
 	Net                         string   // ClusterNet.ID
 	Public                      []string // public addresses on its interfaces
 	Envs                        []ClusterEnv
@@ -73,8 +75,9 @@ type ClusterNode struct {
 	Domains []string
 	// DomainEnvs is each of Domains' env path (org/stack/env).
 	DomainEnvs map[string]string
-	// ExitEnvs are the env paths whose traffic leaves the internet here.
-	ExitEnvs []string
+	// ExitOwn are the env paths of this node that leave the internet here;
+	// ExitOthers those of other nodes that leave through it.
+	ExitOwn, ExitOthers []string
 	// NoForward: an ingress node behind a NAT that the probe did not reach.
 	NoForward bool
 	// ReachedVia are the nodes others' traffic to this one is routed
@@ -112,6 +115,14 @@ type ClusterLink struct {
 	MS         float64
 	Via        string // the node the pair is routed through, "" = direct
 	Down       bool   // a remembered direct tunnel whose end is not online
+	// Ends are the two sides: [0] is A's. Set where the mesh runs.
+	Ends [2]TunnelEnd
+}
+
+// ClusterEgress is the envs of node From that leave the internet at node To.
+type ClusterEgress struct {
+	From, To string
+	Envs     []string
 }
 
 // ClusterBackup is an external S3 destination and the nodes that back up to it.
@@ -132,7 +143,8 @@ type clusterNodeIn struct {
 	Envs        []ClusterEnv
 	Domains     []string
 	DomainEnvs  map[string]string
-	ExitEnvs    []string
+	ExitOwn     []string
+	ExitOthers  []string
 }
 
 // excluded are the interfaces that are not a LAN the node sits on.
@@ -170,7 +182,7 @@ func buildClusterMap(in []clusterNodeIn) ClusterMap {
 	for _, n := range in {
 		cn := ClusterNode{
 			ID: n.Node.ID, Name: n.Node.Name, Role: n.Node.Role, Tags: node.Tags(n.Node),
-			Envs: n.Envs, Domains: n.Domains, DomainEnvs: n.DomainEnvs, ExitEnvs: n.ExitEnvs, Status: n.Node.Status,
+			Envs: n.Envs, Domains: n.Domains, DomainEnvs: n.DomainEnvs, ExitOwn: n.ExitOwn, ExitOthers: n.ExitOthers, Status: n.Node.Status,
 		}
 		switch {
 		case n.NotRejoined:
@@ -186,7 +198,7 @@ func buildClusterMap(in []clusterNodeIn) ClusterMap {
 		}
 		key := "unknown"
 		if f := n.Facts; f != nil {
-			cn.Docker = f.Docker
+			cn.Docker, cn.Arch = f.Docker, f.Arch
 			for _, a := range publicAddrs(*f) {
 				cn.Public = append(cn.Public, a.String())
 			}
@@ -197,7 +209,7 @@ func buildClusterMap(in []clusterNodeIn) ClusterMap {
 			}
 		} else if mem := n.Mem; mem != nil && mem.Net != "" {
 			// Gone quiet since the panel started: where it was last seen.
-			cn.Docker, cn.Public, key = mem.Docker, mem.Public, mem.Net
+			cn.Docker, cn.Arch, cn.Public, key = mem.Docker, mem.Arch, mem.Public, mem.Net
 		}
 		cn.Net = key
 		if nets[key] == nil {
@@ -337,6 +349,7 @@ func (o *Orchestrator) ClusterMap(ctx context.Context) (ClusterMap, error) {
 		return ClusterMap{}, err
 	}
 	names := &pathNames{o: o, stacks: map[string]store.Stack{}, orgs: map[string]store.Org{}}
+	egress := map[[2]string][]string{} // env node, exit node -> env paths
 	for i, n := range in {
 		envs, err := o.store.Environments.ListByNode(ctx, n.Node.ID)
 		if err != nil {
@@ -376,12 +389,18 @@ func (o *Orchestrator) ClusterMap(ctx context.Context) (ClusterMap, error) {
 				}
 			}
 			// The exit: the first rung of the env's resolved ladder, else its own node.
-			exit, err := o.exitNode(ctx, e, st.OrgID)
+			exit, err := o.exitNode(ctx, e, st.OrgID, n.Node)
 			if err != nil {
 				return ClusterMap{}, err
 			}
 			if j, ok := at[exit]; ok {
-				in[j].ExitEnvs = append(in[j].ExitEnvs, ce.Path)
+				if exit == n.Node.ID {
+					in[j].ExitOwn = append(in[j].ExitOwn, ce.Path)
+				} else {
+					in[j].ExitOthers = append(in[j].ExitOthers, ce.Path)
+					pair := [2]string{n.Node.ID, exit}
+					egress[pair] = append(egress[pair], ce.Path)
+				}
 			}
 		}
 		slices.SortStableFunc(in[i].Envs, func(a, b ClusterEnv) int { return healthRank(b.Health) - healthRank(a.Health) })
@@ -389,9 +408,15 @@ func (o *Orchestrator) ClusterMap(ctx context.Context) (ClusterMap, error) {
 	for i := range in {
 		slices.Sort(in[i].Domains)
 		in[i].Domains = slices.Compact(in[i].Domains)
-		slices.Sort(in[i].ExitEnvs)
+		slices.Sort(in[i].ExitOwn)
+		slices.Sort(in[i].ExitOthers)
 	}
 	m := buildClusterMap(in)
+	for pair, envs := range egress {
+		slices.Sort(envs)
+		m.Egress = append(m.Egress, ClusterEgress{From: pair[0], To: pair[1], Envs: envs})
+	}
+	slices.SortFunc(m.Egress, func(a, b ClusterEgress) int { return strings.Compare(a.From+" "+a.To, b.From+" "+b.To) })
 	for i := range m.Nodes {
 		m.Nodes[i].DefaultIngress = m.Nodes[i].ID == defIng
 		m.Nodes[i].DefaultExit = m.Nodes[i].ID == defExit
@@ -411,6 +436,7 @@ func (o *Orchestrator) ClusterMap(ctx context.Context) (ClusterMap, error) {
 			}
 		}
 		m.Links = directLinks(m.Links, m.Nodes, names, o.mesh.Direct, o.mesh.Via)
+		fillEnds(&m, in, o.mesh.Spec)
 		o.remember(ctx, &m, in, o.mesh.Direct)
 	}
 	recall(&m, in)
@@ -616,31 +642,20 @@ func (o *Orchestrator) envHealth(ctx context.Context, e store.Environment, nodeU
 	return HealthStopped
 }
 
-// exitNode is where the env's traffic leaves the internet.
-func (o *Orchestrator) exitNode(ctx context.Context, e store.Environment, orgID string) (string, error) {
-	ladder := func(kind, id string) ([]string, error) {
-		rs, err := o.store.ExitLadders.List(ctx, kind, id)
-		var out []string
-		for _, r := range rs {
-			out = append(out, r.NodeID)
-		}
-		return out, err
-	}
-	var lv exits.Levels
-	var err error
-	if lv.Env, err = ladder("env", e.ID); err != nil {
+// exitNode is where the env's traffic leaves the internet, by the same
+// resolver routing uses (envExits): the first rung, else the env's own node
+// when it has egress. "" = no internet: nothing is left for it to use.
+func (o *Orchestrator) exitNode(ctx context.Context, e store.Environment, orgID string, n store.Node) (string, error) {
+	ladder, own, err := envExits(ctx, o.store, e, orgID, n)
+	switch {
+	case err != nil:
 		return "", err
+	case len(ladder) > 0:
+		return ladder[0], nil
+	case own:
+		return n.ID, nil
 	}
-	if lv.Stack, err = ladder("stack", e.StackID); err != nil {
-		return "", err
-	}
-	if lv.Org, err = ladder("org", orgID); err != nil {
-		return "", err
-	}
-	if r := exits.Resolve(lv, defaultExitIDs(ctx, o.store)); len(r.Nodes) > 0 {
-		return r.Nodes[0], nil
-	}
-	return e.NodeID, nil
+	return "", nil
 }
 
 // clusterBackups are the external destinations some schedule writes to, and
@@ -698,7 +713,7 @@ const clusterFactsTTL = 15 * time.Second
 // worker's over its extras client (timed: that is the link latency).
 func (o *Orchestrator) clusterFacts(ctx context.Context, n store.Node) (*worker.Facts, bool, time.Duration) {
 	if n.Role == node.Controller {
-		return &worker.Facts{Interfaces: worker.Interfaces()}, true, 0
+		return o.controllerFacts(ctx, n), true, 0
 	}
 	if v, ok := clusterFactsCache.Load(n.ID); ok {
 		if c := v.(cachedFacts); time.Since(c.at) < clusterFactsTTL {

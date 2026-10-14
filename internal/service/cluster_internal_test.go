@@ -8,7 +8,9 @@ import (
 	"github.com/FyrmForge/stackr/internal/worker"
 )
 
-func facts(ifs ...worker.Iface) *worker.Facts { return &worker.Facts{Interfaces: ifs, Docker: "29.9"} }
+func facts(ifs ...worker.Iface) *worker.Facts {
+	return &worker.Facts{Interfaces: ifs, Docker: "29.9", Arch: "amd64"}
+}
 
 func iface(name string, public bool, prefixes ...string) worker.Iface {
 	return worker.Iface{Name: name, Public: public, Prefixes: prefixes}
@@ -55,6 +57,9 @@ func TestBuildClusterMap(t *testing.T) {
 	if got := m.Nodes[2].Public; len(got) != 1 || got[0] != "203.0.113.5" {
 		t.Errorf("fsn1 public = %v", got)
 	}
+	if m.Nodes[0].Docker != "29.9" || m.Nodes[0].Arch != "amd64" {
+		t.Errorf("controller docker %q arch %q, want 29.9 amd64", m.Nodes[0].Docker, m.Nodes[0].Arch)
+	}
 	if len(m.Links) != 6 {
 		t.Fatalf("links = %d, want one per pair (6)", len(m.Links))
 	}
@@ -74,6 +79,17 @@ func TestBuildClusterMap(t *testing.T) {
 		if l.Kind != w.kind || l.MS != w.ms {
 			t.Errorf("%s-%s = %s %.1f ms, want %s %.1f", l.A, l.B, l.Kind, l.MS, w.kind, w.ms)
 		}
+	}
+}
+
+// A node that went quiet keeps its docker and arch from memory.
+func TestBuildClusterMapMemoryArch(t *testing.T) {
+	m := buildClusterMap([]clusterNodeIn{{
+		Node: store.Node{ID: "w", Name: "w", Role: "worker", Status: "online"},
+		Mem:  &nodeMemory{Net: "10.0.0.0/24", Docker: "28.1", Arch: "arm64"},
+	}})
+	if n := m.Nodes[0]; n.Docker != "28.1" || n.Arch != "arm64" {
+		t.Errorf("remembered docker %q arch %q", n.Docker, n.Arch)
 	}
 }
 

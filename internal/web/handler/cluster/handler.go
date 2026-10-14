@@ -34,6 +34,8 @@ func (h *handler) Mount(g *echo.Group, a *middleware.Access) {
 	admin := a.Require("node.manage")
 	g.GET(cluster.Base, h.Page, a.LoginFirst(), admin)
 	g.GET(cluster.Base+"/map", h.Map, admin)
+	g.GET(cluster.Base+"/internet", h.Internet, admin)
+	g.GET(cluster.Base+"/tunnel", h.Tunnel, admin)
 	g.POST(cluster.Base+"/-/positions", h.Positions, admin)
 	g.POST(cluster.Base+"/-/reset", h.Reset, admin)
 	g.POST(cluster.Base+"/-/notes", h.Notes, admin)
@@ -75,8 +77,15 @@ func (h *handler) Page(c echo.Context) error {
 		return middleware.HTTPError(err)
 	}
 	var drawer templ.Component
-	if id, ok := strings.CutPrefix(c.QueryParam("drawer"), "node:"); ok && id != "" {
+	d := c.QueryParam("drawer")
+	if id, ok := strings.CutPrefix(d, "node:"); ok && id != "" {
 		drawer = components.DrawerLoad(cluster.NodeDrawer(id, c.QueryParam("tab")))
+	} else if from, ok := strings.CutPrefix(d, "internet:"); ok && from != "" {
+		drawer = components.DrawerLoad(cluster.InternetDrawer(from))
+	} else if pair, ok := strings.CutPrefix(d, "tunnel:"); ok {
+		if a, b, ok := strings.Cut(pair, ":"); ok && a != "" && b != "" {
+			drawer = components.DrawerLoad(cluster.TunnelDrawer(a, b))
+		}
 	}
 	return render.PageWith(c, http.StatusOK, "Cluster", cluster.Page(v, m), nil, drawer)
 }
@@ -88,6 +97,51 @@ func (h *handler) Map(c echo.Context) error {
 		return middleware.HTTPError(err)
 	}
 	return respond.HTML(c, http.StatusOK, ui.Canvas(v))
+}
+
+// GET /-/cluster/internet?from=node:<id>|nat:<net>: what comes in and goes
+// out at that internet card.
+func (h *handler) Internet(c echo.Context) error {
+	_, m, err := h.view(c)
+	if err != nil {
+		return middleware.HTTPError(err)
+	}
+	from := c.QueryParam("from")
+	info, ok := cluster.Internet(m, from)
+	if !ok {
+		return echo.NewHTTPError(http.StatusNotFound, "no such internet card")
+	}
+	f := components.DrawerView{Node: "internet:" + from, Title: "Internet", Kind: info.Name, Base: cluster.InternetDrawer(from)}
+	return respond.HTML(c, http.StatusOK, components.Drawer(f, cluster.InternetBody(info)))
+}
+
+// GET /-/cluster/tunnel?a=&b=: one node pair's tunnel, read from the map's
+// pairs (routed ones included) so a pair with no line still has a page.
+func (h *handler) Tunnel(c echo.Context) error {
+	cm, err := h.orch.ClusterMap(c.Request().Context())
+	if err != nil {
+		return middleware.HTTPError(err)
+	}
+	a, b := c.QueryParam("a"), c.QueryParam("b")
+	d, ok := tunnelDrawer(cm, a, b)
+	if !ok {
+		return echo.NewHTTPError(http.StatusNotFound, "no such tunnel")
+	}
+	return respond.HTML(c, http.StatusOK, d)
+}
+
+// tunnelDrawer finds the pair in the map's Pairs, else its Links.
+func tunnelDrawer(cm service.ClusterMap, a, b string) (templ.Component, bool) {
+	for _, ls := range [][]service.ClusterLink{cm.Pairs, cm.Links} {
+		for _, l := range ls {
+			if l.A == a && l.B == b || l.A == b && l.B == a {
+				m, ul := mapMap(cm), mapLink(l)
+				f := components.DrawerView{Node: "tunnel:" + a + ":" + b, Title: cluster.TunnelNames(m, ul), Kind: "tunnel", Base: cluster.TunnelDrawer(a, b)}
+				return components.Drawer(f, cluster.TunnelBody(m, ul)), true
+			}
+		}
+	}
+	return nil, false
 }
 
 // POST …/-/positions (node_id, x, y): a note, node, NAT, internet or backup
@@ -166,8 +220,8 @@ func mapMap(cm service.ClusterMap) cluster.Map {
 	var m cluster.Map
 	for _, n := range cm.Nodes {
 		u := cluster.Node{
-			ID: n.ID, Name: n.Name, Role: n.Role, Status: n.Status, Docker: n.Docker, Net: n.Net,
-			Tags: n.Tags, Public: n.Public, Domains: n.Domains, DomainEnvs: n.DomainEnvs, ExitEnvs: n.ExitEnvs, NoForward: n.NoForward, ReachedVia: n.ReachedVia, ViaDown: n.ViaDown,
+			ID: n.ID, Name: n.Name, Role: n.Role, Status: n.Status, Docker: n.Docker, Arch: n.Arch, Net: n.Net,
+			Tags: n.Tags, Public: n.Public, Domains: n.Domains, DomainEnvs: n.DomainEnvs, ExitOwn: n.ExitOwn, ExitOthers: n.ExitOthers, NoForward: n.NoForward, ReachedVia: n.ReachedVia, ViaDown: n.ViaDown,
 		}
 		for _, e := range n.Envs {
 			u.Envs = append(u.Envs, cluster.Env{Name: e.Path, Href: e.Href, Health: e.Health})
@@ -178,10 +232,21 @@ func mapMap(cm service.ClusterMap) cluster.Map {
 		m.Nets = append(m.Nets, cluster.Net{ID: n.ID, CIDR: n.CIDR, Nodes: n.Nodes, Router: n.Router, Forward: n.Forward, Unsure: n.Unsure})
 	}
 	for _, l := range cm.Links {
-		m.Links = append(m.Links, cluster.Link{A: l.A, B: l.B, Kind: l.Kind, MS: l.MS, Via: l.Via, Down: l.Down})
+		m.Links = append(m.Links, mapLink(l))
+	}
+	for _, e := range cm.Egress {
+		m.Egress = append(m.Egress, cluster.Egress{From: e.From, To: e.To, Envs: e.Envs})
 	}
 	for _, b := range cm.Backups {
 		m.Backups = append(m.Backups, cluster.Backup{ID: b.ID, Name: b.Name, Nodes: b.Nodes})
 	}
 	return m
+}
+
+func mapLink(l service.ClusterLink) cluster.Link {
+	u := cluster.Link{A: l.A, B: l.B, Kind: l.Kind, MS: l.MS, Via: l.Via, Down: l.Down}
+	for i, e := range l.Ends {
+		u.Ends[i] = cluster.End{Dials: e.Dials, Endpoint: e.Endpoint, SeenFrom: e.SeenFrom, Handshake: e.Handshake, Rx: e.Rx, Tx: e.Tx}
+	}
+	return u
 }

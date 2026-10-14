@@ -10,9 +10,11 @@ package cluster
 import (
 	"fmt"
 	"math"
+	"net/url"
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/FyrmForge/stackr/internal/ui/graph"
 )
@@ -47,6 +49,7 @@ type Map struct {
 	Nets    []Net
 	Links   []Link
 	Backups []Backup
+	Egress  []Egress
 	// Placed is where admins dropped cards ("node:", "nat:", "s3:" ids and
 	// "internet", "net:" boxes), in world pixels. A box stays where it was
 	// dropped and grows to hold its cards.
@@ -54,13 +57,14 @@ type Map struct {
 }
 
 type Node struct {
-	ID, Name, Role, Status, Docker, Net string
-	Tags, Public, Domains, ExitEnvs     []string
-	DomainEnvs                          map[string]string // domain -> env path
-	Envs                                []Env
-	NoForward                           bool     // ingress behind a NAT the internet does not reach
-	ReachedVia                          []string // nodes the others' traffic to it is routed through
-	ViaDown                             []string // the ReachedVia hops that are not online
+	ID, Name, Role, Status, Docker, Arch, Net string
+	Tags, Public, Domains                     []string
+	ExitOwn, ExitOthers                       []string          // env paths leaving here: this node's own, other nodes'
+	DomainEnvs                                map[string]string // domain -> env path
+	Envs                                      []Env
+	NoForward                                 bool     // ingress behind a NAT the internet does not reach
+	ReachedVia                                []string // nodes the others' traffic to it is routed through
+	ViaDown                                   []string // the ReachedVia hops that are not online
 }
 
 type Env struct{ Name, Href, Health string }
@@ -78,6 +82,42 @@ type Link struct {
 	MS         float64 // < 0 = not measured
 	Via        string  // the node the pair is routed through, "" = direct
 	Down       bool    // a direct tunnel whose end is not online
+	Ends       [2]End  // [0] is A's side
+}
+
+// End is one side of a tunnel, as that node reports it. Rx and Tx are -1
+// when the node did not report them; a zero Handshake is not reported.
+type End struct {
+	Dials     bool   // has an endpoint for the other side
+	Endpoint  string // where it dials, "" = waits
+	SeenFrom  string // where the other side's packets arrive from
+	Handshake time.Time
+	Rx, Tx    int64
+}
+
+// TunnelDrawer is a tunnel's drawer GET, the pair in a fixed order so one
+// pair has one URL; TunnelPush the URL the browser shows with it open.
+func TunnelDrawer(a, b string) string {
+	a, b = pairOrder(a, b)
+	return Base + "/tunnel?a=" + url.QueryEscape(a) + "&b=" + url.QueryEscape(b)
+}
+
+func TunnelPush(a, b string) string {
+	a, b = pairOrder(a, b)
+	return "?drawer=tunnel:" + url.QueryEscape(a) + ":" + url.QueryEscape(b)
+}
+
+func pairOrder(a, b string) (string, string) {
+	if a > b {
+		return b, a
+	}
+	return a, b
+}
+
+// Egress is the envs of node From whose traffic leaves at node To.
+type Egress struct {
+	From, To string
+	Envs     []string
 }
 
 type Backup struct {
@@ -88,7 +128,7 @@ type Backup struct {
 // Geometry, in world pixels.
 const (
 	cardW      = 240
-	faceH      = 156 // a node card without envs
+	faceH      = 164 // a node card without envs: head, tags, IP row and footer come to about 158, plus the border
 	envRowH    = 22
 	maxEnvs    = 3 // env rows on a card; more becomes "+N more"
 	natW, natH = 104, 48
@@ -137,7 +177,24 @@ func publicTraffic(n Node, c Net) bool {
 	if len(n.Public) == 0 && c.Router {
 		return false
 	}
-	return hasTag(n, "ingress") && len(n.Public) > 0 || len(n.ExitEnvs) > 0
+	return hasTag(n, "ingress") && len(n.Public) > 0 || len(n.ExitOwn)+len(n.ExitOthers) > 0
+}
+
+// ownCard: the node has an internet card of its own. One with no public
+// address leaves through its router's NAT, or its network's shared gateway
+// card; a network that was not reported has no gateway to speak of.
+func ownCard(n Node, c Net) bool { return len(n.Public) > 0 || c.ID == "unknown" }
+
+// egressKind is the look of an internet edge: full when the node is an exit
+// for others, thin when only its own apps leave there, "" when none do.
+func egressKind(own, others []string) string {
+	switch {
+	case len(others) > 0:
+		return "egress"
+	case len(own) > 0:
+		return "egress-own"
+	}
+	return ""
 }
 
 func netTitle(c Net) (name, sub string) {
@@ -220,8 +277,9 @@ func Build(m Map, base string, notes []graph.Note, create []graph.Create) graph.
 		}
 		// A network with one node is no grouping: its cards stand alone.
 		if len(ns) >= 2 {
-			at, moved := m.Placed[boxID(c.ID)] // where the box was dropped
-			b := wrap(rs, minBoxW, at, moved)
+			dropped, moved := m.Placed[boxID(c.ID)] // where the box was dropped
+			b := wrap(rs, minBoxW, dropped, moved)
+			at[boxID(c.ID)], top[boxID(c.ID)] = b, b.y+headH // the shared internet card sits above it
 			name, sub := netTitle(c)
 			size := m.Placed["size:"+boxID(c.ID)] // a hand-set size: the box is at least this big
 			boxes = append(boxes, graph.Node{
@@ -250,71 +308,81 @@ func Build(m Map, base string, notes []graph.Note, create []graph.Create) graph.
 		if l.Down {
 			kind, label = "tunnel-down", "down"
 		}
-		edges = append(edges, graph.Edge{Kind: kind, From: nodeID(l.A), To: nodeID(l.B), Label: label})
+		e := graph.Edge{Kind: kind, From: nodeID(l.A), To: nodeID(l.B), Label: label,
+			Drawer: TunnelDrawer(l.A, l.B), Push: TunnelPush(l.A, l.B)}
+		// An arrow runs from the side that dials to the one that waits; when
+		// both dial, or nobody is known to, there is none.
+		if !l.Down && l.Ends[0].Dials != l.Ends[1].Dials {
+			e.Dir = true
+			if l.Ends[1].Dials {
+				e.From, e.To = e.To, e.From
+			}
+		}
+		edges = append(edges, e)
 	}
 	// The internet card says what reaches it, so its edges carry no labels.
-	public := func(from string, in bool, info inetInfo) {
-		if !in && len(info.Egress) == 0 {
+	// Full egress when the node is an exit for others, thin when only its
+	// own apps leave there. Several nodes can feed one card (src).
+	public := func(from string, src ...string) {
+		info, ok := Internet(m, from)
+		if !ok || !info.In && !info.leaves() {
 			return
 		}
 		inet := internetID(from)
-		info.ID = "inet-" + strings.NewReplacer(":", "-", "/", "-", ".", "-").Replace(from)
 		r := at[from]
 		r = place(inet, rect{r.x + (r.w-sideW)/2, top[from] - headH - inetGap - sideH, sideW, sideH})
 		cards = append(cards, graph.Node{ID: inet, Kind: "internet", Name: "Internet",
-			X: r.x, Y: r.y, W: r.w, H: r.h, Card: inetCard(info)})
-		if in {
+			X: r.x, Y: r.y, W: r.w, H: r.h, Card: inetCard(from)})
+		if info.In {
 			edges = append(edges, graph.Edge{Kind: "ingress", From: inet, To: from})
 		}
-		if len(info.Egress) > 0 {
-			edges = append(edges, graph.Edge{Kind: "egress", From: from, To: inet})
+		egress := func(card string, own, others []string) {
+			if k := egressKind(own, others); k != "" {
+				edges = append(edges, graph.Edge{Kind: k, From: card, To: inet})
+			}
 		}
-	}
-	routes := func(n Node) []inetRoute {
-		var rs []inetRoute
-		for _, h := range n.Domains {
-			rs = append(rs, inetRoute{Host: h, Env: n.DomainEnvs[h]})
+		if len(src) == 0 {
+			egress(from, info.EgressOwn, info.EgressOthers)
 		}
-		return rs
+		for _, id := range src {
+			egress(nodeID(id), byID[id].ExitOwn, byID[id].ExitOthers)
+		}
 	}
 	for _, c := range m.Nets {
-		var in bool
-		var nat inetInfo
+		var gateway []string // nodes whose traffic leaves through the network's gateway
 		for _, id := range c.Nodes {
 			n, ok := byID[id]
-			if !ok {
-				continue
+			switch {
+			case !ok:
+			case ownCard(n, c):
+				public(nodeID(n.ID))
+			case !c.Router:
+				gateway = append(gateway, id)
 			}
-			if len(n.Public) > 0 || !c.Router {
-				own := hasTag(n, "ingress") && len(n.Public) > 0
-				info := inetInfo{Public: n.Public, Egress: n.ExitEnvs}
-				if own {
-					info.Ingress = routes(n)
-				}
-				public(nodeID(n.ID), own, info)
-				continue
+		}
+		if len(gateway) > 0 {
+			if _, ok := at[boxID(c.ID)]; ok {
+				public(boxID(c.ID), gateway...)
 			}
-			in = in || hasTag(n, "ingress")
-			if hasTag(n, "ingress") {
-				nat.Ingress = append(nat.Ingress, routes(n)...)
-			}
-			nat.Egress = append(nat.Egress, n.ExitEnvs...)
-			nat.NoForward = nat.NoForward || n.NoForward
 		}
 		if !c.Router {
 			continue
 		}
-		nat.Behind, nat.Unsure = true, c.Unsure
-		if f, ok := byID[c.Forward]; ok {
-			nat.Forward = f.Name
-		}
-		public(natID(c.ID), in, nat)
+		public(natID(c.ID))
 		if _, ok := byID[c.Forward]; ok {
 			kind := "forward"
 			if c.Unsure {
 				kind = "forward-unsure"
 			}
 			edges = append(edges, graph.Edge{Kind: kind, From: natID(c.ID), To: nodeID(c.Forward)})
+		}
+	}
+	// A node whose traffic leaves through another node draws an arrow to it.
+	for _, e := range m.Egress {
+		_, from := byID[e.From]
+		_, to := byID[e.To]
+		if from && to {
+			edges = append(edges, graph.Edge{Kind: "egress-via", From: nodeID(e.From), To: nodeID(e.To)})
 		}
 	}
 	for _, b := range m.Backups {
@@ -333,7 +401,7 @@ func Build(m Map, base string, notes []graph.Note, create []graph.Create) graph.
 		}
 		r := place(s3ID(b.ID), rect{sx, bottom + 120, sideW, sideH})
 		cards = append(cards, graph.Node{ID: s3ID(b.ID), Kind: "s3", Name: b.Name,
-			X: r.x, Y: r.y, W: r.w, H: r.h, Card: sideCard("S3 · "+b.Name, "bucket")})
+			X: r.x, Y: r.y, W: r.w, H: r.h, Card: sideCard("S3 · "+b.Name, "bucket", nil)})
 		sx += sideW + gapX
 	}
 
@@ -364,20 +432,114 @@ func wrap(rs []rect, minW int, at [2]int, moved bool) rect {
 	return b
 }
 
-// inetInfo is what an internet card lists when opened: the domains that
-// come in through it (each with its env), the envs that leave through it,
-// the public addresses, and the port forward of a NAT.
-type inetInfo struct {
-	ID                string // the popover's element id
-	Public            []string
-	Ingress           []inetRoute
-	Egress            []string // env paths
-	Behind            bool     // a NAT's card: the node behind it is Forward
-	Forward           string
-	Unsure, NoForward bool
+// Inet is what an internet card's drawer lists: the domains that come in
+// through it (each with its env), the envs that leave through it (this
+// node's own apps, and apps of other nodes it is the exit for), the public
+// addresses, and the port forward of a NAT.
+type Inet struct {
+	Name         string // the node, "NAT" or the network
+	In           bool   // the internet reaches ingress here
+	Gateway      bool   // a network's shared card: its nodes leave through the gateway
+	Public       []string
+	Ingress      []InetRoute
+	EgressOwn    []string // env paths
+	EgressOthers []string // env paths of other nodes
+	Behind       bool     // a NAT's card: the node behind it is Forward
+	Forward      string
+	Unsure       bool
+	NoForward    bool
 }
 
-type inetRoute struct{ Host, Env string }
+type InetRoute struct{ Host, Env string }
+
+// leaves: some env's traffic leaves the internet here.
+func (i Inet) leaves() bool { return len(i.EgressOwn)+len(i.EgressOthers) > 0 }
+
+// InternetDrawer is an internet card's drawer GET (from is the card it hangs
+// off, "node:<id>", "nat:<net>" or "net:<net>"; ids hold ":" and "/", so a
+// query param); InternetPush the URL the browser shows with it open.
+func InternetDrawer(from string) string { return Base + "/internet?from=" + url.QueryEscape(from) }
+
+func InternetPush(from string) string { return "?drawer=" + url.QueryEscape("internet:"+from) }
+
+// Internet is the internet card of from: a node with its own address, a
+// router's NAT, or a network whose nodes have none and leave through its
+// gateway. ok is false for anything else.
+func Internet(m Map, from string) (Inet, bool) {
+	byID := map[string]Node{}
+	for _, n := range m.Nodes {
+		byID[n.ID] = n
+	}
+	routes := func(n Node) []InetRoute {
+		var rs []InetRoute
+		for _, h := range n.Domains {
+			rs = append(rs, InetRoute{Host: h, Env: n.DomainEnvs[h]})
+		}
+		return rs
+	}
+	if id, ok := strings.CutPrefix(from, "node:"); ok {
+		n, ok := byID[id]
+		if !ok {
+			return Inet{}, false
+		}
+		for _, c := range m.Nets {
+			if slices.Contains(c.Nodes, id) && !ownCard(n, c) {
+				return Inet{}, false // behind the NAT card or the network's
+			}
+		}
+		own := hasTag(n, "ingress") && len(n.Public) > 0
+		info := Inet{Name: n.Name, In: own, Public: n.Public, EgressOwn: n.ExitOwn, EgressOthers: n.ExitOthers}
+		if own {
+			info.Ingress = routes(n)
+		}
+		return info, true
+	}
+	if net, ok := strings.CutPrefix(from, "nat:"); ok {
+		for _, c := range m.Nets {
+			if c.ID != net || !c.Router {
+				continue
+			}
+			nat := Inet{Name: "NAT", Behind: true, Unsure: c.Unsure}
+			if f, ok := byID[c.Forward]; ok {
+				nat.Forward = f.Name
+			}
+			for _, id := range c.Nodes {
+				n, ok := byID[id]
+				if !ok || len(n.Public) > 0 {
+					continue
+				}
+				if hasTag(n, "ingress") {
+					nat.In = true
+					nat.Ingress = append(nat.Ingress, routes(n)...)
+				}
+				nat.EgressOwn = append(nat.EgressOwn, n.ExitOwn...)
+				nat.EgressOthers = append(nat.EgressOthers, n.ExitOthers...)
+				nat.NoForward = nat.NoForward || n.NoForward
+			}
+			return nat, true
+		}
+		return Inet{}, false
+	}
+	net, ok := strings.CutPrefix(from, "net:")
+	if !ok {
+		return Inet{}, false
+	}
+	for _, c := range m.Nets {
+		if c.ID != net || c.Router {
+			continue
+		}
+		gw, has := Inet{Name: c.CIDR, Gateway: true}, false
+		for _, id := range c.Nodes {
+			if n, ok := byID[id]; ok && !ownCard(n, c) {
+				has = true
+				gw.EgressOwn = append(gw.EgressOwn, n.ExitOwn...)
+				gw.EgressOthers = append(gw.EgressOthers, n.ExitOthers...)
+			}
+		}
+		return gw, has
+	}
+	return Inet{}, false
+}
 
 func trimMS(ms float64) string {
 	if ms < 10 {
@@ -458,6 +620,18 @@ func publicIP(n Node) string {
 		a += fmt.Sprintf(" +%d", len(n.Public)-1)
 	}
 	return a
+}
+
+// buildInfo is the card footer's right side: "docker 29.9.0 · amd64", the
+// arch alone when docker is unknown.
+func buildInfo(n Node) string {
+	switch {
+	case n.Docker != "" && n.Arch != "":
+		return "docker " + n.Docker + " · " + n.Arch
+	case n.Docker != "":
+		return "docker " + n.Docker
+	}
+	return n.Arch
 }
 
 // viaList is the nodes a routed node is reached through, for its card.

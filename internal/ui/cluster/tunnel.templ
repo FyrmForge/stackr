@@ -1,0 +1,144 @@
+package cluster
+
+import (
+	"fmt"
+	"time"
+)
+
+// TunnelBody is a tunnel's drawer: the pair, who dials, and what each end
+// reports.
+templ TunnelBody(m Map, l Link) {
+	<section class="panel p-6 mb-6">
+		<h3 class="text-base font-semibold text-rw-text mb-2">Tunnel</h3>
+		<dl class="text-sm grid grid-cols-[8rem_1fr] gap-y-1">
+			<dt class="text-rw-muted">Between</dt>
+			<dd class="text-rw-text">
+				@nodeLink(m, l.A)
+				<span class="text-rw-faint"> and </span>
+				@nodeLink(m, l.B)
+			</dd>
+			<dt class="text-rw-muted">Kind</dt>
+			<dd class="text-rw-text">{ tunnelKind(m, l) }</dd>
+			<dt class="text-rw-muted">Dials</dt>
+			<dd class="text-rw-text">{ tunnelDials(m, l) }</dd>
+			<dt class="text-rw-muted">Ping</dt>
+			<dd class="text-rw-text">{ tunnelPing(l) }</dd>
+			if l.Via != "" {
+				<dt class="text-rw-muted">Via</dt>
+				<dd class="text-rw-text">{ l.Via }</dd>
+			}
+		</dl>
+	</section>
+	for i, id := range []string{l.A, l.B} {
+		<section class="panel p-6 mb-6">
+			<h3 class="text-base font-semibold text-rw-text mb-2">{ nodeName(m, id) } side</h3>
+			<dl class="text-sm grid grid-cols-[8rem_1fr] gap-y-1">
+				<dt class="text-rw-muted">Endpoint</dt>
+				<dd class="font-mono text-xs text-rw-text break-all">{ endpointText(l.Ends[i]) }</dd>
+				<dt class="text-rw-muted">Seen from</dt>
+				<dd class="font-mono text-xs text-rw-text break-all">{ orNone(l.Ends[i].SeenFrom, "not seen") }</dd>
+				<dt class="text-rw-muted">Last handshake</dt>
+				<dd class="text-rw-text">{ handshakeText(l.Ends[i].Handshake) }</dd>
+				<dt class="text-rw-muted">Sent</dt>
+				<dd class="text-rw-text">{ bytesText(l.Ends[i].Tx) }</dd>
+				<dt class="text-rw-muted">Received</dt>
+				<dd class="text-rw-text">{ bytesText(l.Ends[i].Rx) }</dd>
+			</dl>
+		</section>
+	}
+	<section class="panel p-6 mb-6">
+		<h3 class="text-base font-semibold text-rw-text mb-2">Ping history</h3>
+		<p class="text-sm text-rw-muted">Comes with observability.</p>
+	</section>
+}
+
+// nodeLink opens a node's drawer in place of this one.
+templ nodeLink(m Map, id string) {
+	<a href={ templ.SafeURL(NodePush(id, "")) } hx-get={ NodeDrawer(id, "") } hx-target="#drawer-body" hx-push-url={ NodePush(id, "") } class="text-rw-accent hover:underline">{ nodeName(m, id) }</a>
+}
+
+func nodeName(m Map, id string) string {
+	for _, n := range m.Nodes {
+		if n.ID == id {
+			return n.Name
+		}
+	}
+	return id
+}
+
+// TunnelNames is the drawer's title: "a and b".
+func TunnelNames(m Map, l Link) string { return nodeName(m, l.A) + " and " + nodeName(m, l.B) }
+
+func tunnelKind(m Map, l Link) string {
+	switch {
+	case l.Down:
+		return "Down"
+	case l.Via != "":
+		return "Via " + l.Via
+	case l.Kind == "LAN":
+		return "LAN"
+	case l.Kind == "private":
+		return "Private network"
+	}
+	return "Internet"
+}
+
+func tunnelDials(m Map, l Link) string {
+	a, b := l.Ends[0].Dials, l.Ends[1].Dials
+	switch {
+	case l.Via != "":
+		return "Neither. Routed through " + l.Via + "."
+	case a && b:
+		return "Both"
+	case a:
+		return nodeName(m, l.A)
+	case b:
+		return nodeName(m, l.B)
+	}
+	return "Not known"
+}
+
+func tunnelPing(l Link) string {
+	if l.MS < 0 {
+		return "not measured"
+	}
+	return trimMS(l.MS) + " ms"
+}
+
+func orNone(s, none string) string {
+	if s == "" {
+		return none
+	}
+	return s
+}
+
+func endpointText(e End) string { return orNone(e.Endpoint, "waits to be dialled") }
+
+func handshakeText(t time.Time) string {
+	if t.IsZero() {
+		return "not reported"
+	}
+	d := time.Since(t)
+	switch {
+	case d < time.Minute:
+		return "just now"
+	case d < time.Hour:
+		return fmt.Sprintf("%d min ago", int(d.Minutes()))
+	case d < 48*time.Hour:
+		return fmt.Sprintf("%d h ago", int(d.Hours()))
+	}
+	return t.Format("Jan 2")
+}
+
+// bytesText is a byte count for people; -1 is a node that did not report it.
+func bytesText(n int64) string {
+	switch {
+	case n < 0:
+		return "not reported"
+	case n >= 1<<30:
+		return fmt.Sprintf("%.1f GB", float64(n)/(1<<30))
+	case n >= 1<<20:
+		return fmt.Sprintf("%.1f MB", float64(n)/(1<<20))
+	}
+	return fmt.Sprintf("%.1f KB", float64(n)/(1<<10))
+}

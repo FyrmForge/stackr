@@ -49,7 +49,7 @@ func (o *Orchestrator) remember(ctx context.Context, m *ClusterMap, in []cluster
 			continue
 		}
 		old := in[i].Mem
-		mem := nodeMemory{Net: n.Net, Public: n.Public, Docker: n.Docker, Links: map[string]string{}}
+		mem := nodeMemory{Net: n.Net, Public: n.Public, Docker: n.Docker, Arch: n.Arch, Links: map[string]string{}}
 		if old != nil {
 			maps.Copy(mem.Links, old.Links)
 		}

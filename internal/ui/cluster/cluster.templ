@@ -1,11 +1,6 @@
 package cluster
 
-import (
-	"strings"
-
-	"github.com/FyrmForge/stackr/internal/ui/graph"
-)
-
+import "github.com/FyrmForge/stackr/internal/ui/graph"
 // Page is the Cluster page: its own bar (the shell's top bar shows only
 // where the URL has crumbs), then #graph, which holds the canvas and swaps
 // its inside on a timer. The swap waits while someone is typing in a note.
@@ -48,8 +43,8 @@ templ natCard() {
 }
 
 // sideCard is the internet or a backup store.
-templ sideCard(name, icon string) {
-	<div class="card-face h-full rounded-xl border border-rw-border bg-rw-surface shadow-rw flex items-center gap-2.5 px-3.5">
+templ sideCard(name, icon string, attrs templ.Attributes) {
+	<div class="card-face h-full rounded-xl border border-rw-border bg-rw-surface shadow-rw flex items-center gap-2.5 px-3.5" { attrs... }>
 		<span class="flex h-7 w-7 items-center justify-center rounded-md bg-rw-inset text-rw-muted shrink-0">
 			<svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
 				if icon == "globe" {
@@ -65,57 +60,13 @@ templ sideCard(name, icon string) {
 	</div>
 }
 
-// inetCard is a node's (or NAT's) internet: the face opens a panel listing
+// inetCard is a node's (or NAT's) internet: the face opens a drawer listing
 // what comes in and goes out through it.
-templ inetCard(i inetInfo) {
-	<button type="button" popovertarget={ i.ID } class="block h-full w-full text-left cursor-pointer" aria-label="What reaches the internet here">
-		@sideCard("Internet", "globe")
-	</button>
-	<div id={ i.ID } popover class="inet-panel w-[min(28rem,92vw)] max-h-[80vh] overflow-auto rounded-xl border border-rw-border bg-rw-surface p-4 text-sm text-rw-text shadow-rw">
-		<div class="flex items-center justify-between gap-2">
-			<h3 class="text-sm font-semibold">Internet</h3>
-			<button type="button" popovertarget={ i.ID } popovertargetaction="hide" class="text-rw-faint hover:text-rw-text" aria-label="Close">×</button>
-		</div>
-		if len(i.Public) > 0 {
-			<p class="mt-2 text-xs text-rw-muted">Public: <span class="font-mono text-rw-text">{ strings.Join(i.Public, ", ") }</span></p>
-		}
-		if i.Behind {
-			<p class="mt-2 text-xs text-rw-muted">
-				Behind a router.
-				switch {
-					case i.Forward != "" && !i.Unsure:
-						Ports 80 and 443 forward to <span class="text-rw-text">{ i.Forward }</span>.
-					case i.Forward != "":
-						Ports 80 and 443 seem to forward to <span class="text-rw-text">{ i.Forward }</span> (not confirmed from outside).
-					case i.NoForward:
-						<span class="text-rw-warn">No port forward: the internet does not reach ingress here.</span>
-				}
-			</p>
-		}
-		<h4 class="mt-3 text-xs font-semibold uppercase tracking-wide text-rw-faint">Ingress</h4>
-		if len(i.Ingress) == 0 {
-			<p class="mt-1 text-xs text-rw-muted">None.</p>
-		}
-		<ul class="mt-1 space-y-1">
-			for _, r := range i.Ingress {
-				<li class="flex items-center justify-between gap-3 min-w-0">
-					<span class="font-mono text-xs truncate">{ r.Host }</span>
-					if r.Env != "" {
-						<a href={ templ.SafeURL("/" + r.Env) } class="text-xs text-rw-accent hover:underline truncate">{ r.Env }</a>
-					}
-				</li>
-			}
-		</ul>
-		<h4 class="mt-3 text-xs font-semibold uppercase tracking-wide text-rw-faint">Egress</h4>
-		if len(i.Egress) == 0 {
-			<p class="mt-1 text-xs text-rw-muted">None.</p>
-		}
-		<ul class="mt-1 space-y-1">
-			for _, e := range i.Egress {
-				<li><a href={ templ.SafeURL("/" + e) } class="text-xs text-rw-accent hover:underline">{ e }</a></li>
-			}
-		</ul>
-	</div>
+templ inetCard(from string) {
+	@sideCard("Internet", "globe", templ.Attributes{
+		"hx-get": InternetDrawer(from), "hx-target": "#drawer-body", "hx-push-url": InternetPush(from),
+		"role": "button", "tabindex": "0", "aria-label": "What reaches the internet here",
+	})
 }
 
 // nodeCard is a node's face with its envs listed inside. The face opens
@@ -130,7 +81,7 @@ templ nodeCard(n Node) {
 		tabindex="0"
 		role="button"
 	>
-		<div class="p-3.5">
+		<div class="flex h-[162px] shrink-0 flex-col p-3.5">
 			<div class="flex items-center gap-2.5">
 				<span class="node-icon flex h-7 w-7 items-center justify-center rounded-md bg-rw-inset text-rw-muted shrink-0">
 					<svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -154,7 +105,7 @@ templ nodeCard(n Node) {
 					<span class="shrink-0 rounded-md border border-rw-border bg-rw-inset px-1.5 py-0.5 text-[10px] leading-3 text-rw-muted">{ t }</span>
 				}
 			</div>
-			<div class="mt-2 flex items-center justify-between gap-2 text-xs min-w-0 h-4">
+			<div class="mt-2 mb-3 flex items-center justify-between gap-2 text-xs min-w-0 h-4">
 				if ip := publicIP(n); ip != "" {
 					<span class="text-rw-faint shrink-0">Public IP</span>
 					<span class="font-mono text-rw-text truncate">{ ip }</span>
@@ -167,13 +118,13 @@ templ nodeCard(n Node) {
 					<span class="text-rw-faint">No public IP</span>
 				}
 			</div>
-			<div class="node-footer mt-3 pt-3 border-t border-rw-border flex items-center justify-between gap-2 min-w-0">
+			<div class="node-footer mt-auto pt-3 border-t border-rw-border flex items-center justify-between gap-2 min-w-0">
 				<span class={ "node-status flex items-center gap-2 text-xs", tone }>
 					<span class={ "h-1.5 w-1.5 rounded-full shrink-0", dot }></span>
 					<span class="truncate">{ word }</span>
 				</span>
-				if n.Docker != "" {
-					<span class="text-xs text-rw-faint font-mono whitespace-nowrap">docker { n.Docker }</span>
+				if info := buildInfo(n); info != "" {
+					<span class="text-xs text-rw-faint font-mono whitespace-nowrap">{ info }</span>
 				}
 			</div>
 		</div>
