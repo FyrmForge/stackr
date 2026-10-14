@@ -8,6 +8,7 @@ import (
 	"encoding/pem"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -52,6 +53,22 @@ func mint(t *testing.T, w *world, adm *Principal, name string) JoinTokenOut {
 	out, err := w.orch.CreateJoinToken(context.Background(), adm, JoinTokenSpec{NodeName: name, Tags: []string{"builder"}})
 	must(t, err)
 	return out
+}
+
+// A new node always carries egress: its default exit can't be picked before
+// it exists.
+func TestJoinTokenAlwaysEgress(t *testing.T) {
+	w, adm, _ := joinWorld(t)
+	out, err := w.orch.CreateJoinToken(context.Background(), adm, JoinTokenSpec{NodeName: "w1", Tags: []string{"ingress"}})
+	must(t, err)
+	if !slices.Equal(out.Tags, []string{"egress", "ingress"}) {
+		t.Errorf("tags = %v, want egress added", out.Tags)
+	}
+	out, err = w.orch.CreateJoinToken(context.Background(), adm, JoinTokenSpec{NodeName: "w2", Tags: []string{"egress"}})
+	must(t, err)
+	if !slices.Equal(out.Tags, []string{"egress"}) {
+		t.Errorf("tags = %v, want egress once", out.Tags)
+	}
 }
 
 func TestJoinTokenRules(t *testing.T) {

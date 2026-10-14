@@ -11,6 +11,7 @@ const (
 	SourceEnv     = "env"
 	SourceStack   = "stack"
 	SourceOrg     = "org"
+	SourceNode    = "node"
 	SourceDefault = "default"
 	SourceNone    = "none"
 )
@@ -19,6 +20,8 @@ const (
 // when that level has none.
 type Levels struct {
 	Tile, Env, Stack, Org []string
+	// Node is the tile's node's own default exit ladder.
+	Node []string
 }
 
 // Resolution is the ladder one tile uses.
@@ -30,7 +33,7 @@ type Resolution struct {
 	Nodes []string
 }
 
-// Resolve picks the first non-empty ladder of tile, env, stack, org, then def
+// Resolve picks the first non-empty ladder of tile, env, stack, org, node, then def
 // (the controller default). The tile's own node is an exit only when the
 // ladder lists it; it is never appended as a last resort, so a ladder of
 // exits that all fail means no internet, not a leak through the own uplink.
@@ -38,7 +41,7 @@ func Resolve(l Levels, def []string) Resolution {
 	for _, c := range []struct {
 		src   string
 		nodes []string
-	}{{SourceTile, l.Tile}, {SourceEnv, l.Env}, {SourceStack, l.Stack}, {SourceOrg, l.Org}, {SourceDefault, def}} {
+	}{{SourceTile, l.Tile}, {SourceEnv, l.Env}, {SourceStack, l.Stack}, {SourceOrg, l.Org}, {SourceNode, l.Node}, {SourceDefault, def}} {
 		if n := dedupe(c.nodes); len(n) > 0 {
 			return Resolution{Source: c.src, Nodes: n}
 		}

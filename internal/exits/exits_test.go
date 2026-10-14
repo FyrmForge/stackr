@@ -22,6 +22,8 @@ func TestResolve(t *testing.T) {
 		{"env", Levels{Env: l.Env, Stack: l.Stack, Org: l.Org}, SourceEnv, []string{"e"}},
 		{"stack", Levels{Stack: l.Stack, Org: l.Org}, SourceStack, []string{"s"}},
 		{"org", Levels{Org: l.Org}, SourceOrg, []string{"o"}},
+		{"node beats default", Levels{Node: []string{"n"}}, SourceNode, []string{"n"}},
+		{"node loses to org", Levels{Org: l.Org, Node: []string{"n"}}, SourceOrg, []string{"o"}},
 		{"default", Levels{}, SourceDefault, []string{"d"}},
 		{"empty slice inherits", Levels{Tile: []string{}, Env: []string{""}, Org: l.Org}, SourceOrg, []string{"o"}},
 		{"dedupe keeps order", Levels{Env: []string{"b", "a", "b", "c", "a"}}, SourceEnv, []string{"b", "a", "c"}},

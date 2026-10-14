@@ -151,7 +151,9 @@ func (o *Orchestrator) CreateJoinToken(ctx context.Context, by *Principal, spec 
 	if _, err := o.store.Nodes.GetBySlug(ctx, name); err == nil {
 		return JoinTokenOut{}, errs.Conflictf("A node named %q already exists.", name)
 	}
-	return o.mintJoin(ctx, by, name, spec.Tags, spec.TTLMinutes)
+	// A default exit can't be picked before the node exists, so a new node
+	// always has egress; an admin can drop it once it is up.
+	return o.mintJoin(ctx, by, name, append(slices.Clone(spec.Tags), node.TagEgress), spec.TTLMinutes)
 }
 
 // mintJoin is the token itself. A rejoin names a node that already exists
