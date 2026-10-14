@@ -54,7 +54,7 @@ type Map struct {
 }
 
 type Node struct {
-	ID, Name, Role, Status, Docker, Net string
+	ID, Name, Role, Status, Docker, Arch, Net string
 	Tags, Public, Domains, ExitEnvs     []string
 	DomainEnvs                          map[string]string // domain -> env path
 	Envs                                []Env
@@ -458,6 +458,18 @@ func publicIP(n Node) string {
 		a += fmt.Sprintf(" +%d", len(n.Public)-1)
 	}
 	return a
+}
+
+// buildInfo is the card footer's right side: "docker 29.9.0 · amd64", the
+// arch alone when docker is unknown.
+func buildInfo(n Node) string {
+	switch {
+	case n.Docker != "" && n.Arch != "":
+		return "docker " + n.Docker + " · " + n.Arch
+	case n.Docker != "":
+		return "docker " + n.Docker
+	}
+	return n.Arch
 }
 
 // viaList is the nodes a routed node is reached through, for its card.

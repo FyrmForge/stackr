@@ -782,15 +782,15 @@ func nodeCard(n Node) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		if n.Docker != "" {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 72, "<span class=\"text-xs text-rw-faint font-mono whitespace-nowrap\">docker ")
+		if info := buildInfo(n); info != "" {
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 72, "<span class=\"text-xs text-rw-faint font-mono whitespace-nowrap\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var40 string
-			templ_7745c5c3_Var40, templ_7745c5c3_Err = templ.JoinStringErrs(n.Docker)
+			templ_7745c5c3_Var40, templ_7745c5c3_Err = templ.JoinStringErrs(info)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/cluster/cluster.templ`, Line: 176, Col: 86}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/cluster/cluster.templ`, Line: 176, Col: 75}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var40))
 			if templ_7745c5c3_Err != nil {

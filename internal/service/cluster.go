@@ -65,6 +65,7 @@ type ClusterNode struct {
 	// DefaultIngress and DefaultExit mark the cluster-wide defaults.
 	DefaultIngress, DefaultExit bool
 	Docker                      string   // the docker server version the node reported; "" = none
+	Arch                        string   // the CPU arch it reported; "" = none
 	Net                         string   // ClusterNet.ID
 	Public                      []string // public addresses on its interfaces
 	Envs                        []ClusterEnv
@@ -186,7 +187,7 @@ func buildClusterMap(in []clusterNodeIn) ClusterMap {
 		}
 		key := "unknown"
 		if f := n.Facts; f != nil {
-			cn.Docker = f.Docker
+			cn.Docker, cn.Arch = f.Docker, f.Arch
 			for _, a := range publicAddrs(*f) {
 				cn.Public = append(cn.Public, a.String())
 			}
@@ -197,7 +198,7 @@ func buildClusterMap(in []clusterNodeIn) ClusterMap {
 			}
 		} else if mem := n.Mem; mem != nil && mem.Net != "" {
 			// Gone quiet since the panel started: where it was last seen.
-			cn.Docker, cn.Public, key = mem.Docker, mem.Public, mem.Net
+			cn.Docker, cn.Arch, cn.Public, key = mem.Docker, mem.Arch, mem.Public, mem.Net
 		}
 		cn.Net = key
 		if nets[key] == nil {

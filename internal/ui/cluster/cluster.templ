@@ -172,8 +172,8 @@ templ nodeCard(n Node) {
 					<span class={ "h-1.5 w-1.5 rounded-full shrink-0", dot }></span>
 					<span class="truncate">{ word }</span>
 				</span>
-				if n.Docker != "" {
-					<span class="text-xs text-rw-faint font-mono whitespace-nowrap">docker { n.Docker }</span>
+				if info := buildInfo(n); info != "" {
+					<span class="text-xs text-rw-faint font-mono whitespace-nowrap">{ info }</span>
 				}
 			</div>
 		</div>

@@ -166,7 +166,7 @@ func mapMap(cm service.ClusterMap) cluster.Map {
 	var m cluster.Map
 	for _, n := range cm.Nodes {
 		u := cluster.Node{
-			ID: n.ID, Name: n.Name, Role: n.Role, Status: n.Status, Docker: n.Docker, Net: n.Net,
+			ID: n.ID, Name: n.Name, Role: n.Role, Status: n.Status, Docker: n.Docker, Arch: n.Arch, Net: n.Net,
 			Tags: n.Tags, Public: n.Public, Domains: n.Domains, DomainEnvs: n.DomainEnvs, ExitEnvs: n.ExitEnvs, NoForward: n.NoForward, ReachedVia: n.ReachedVia, ViaDown: n.ViaDown,
 		}
 		for _, e := range n.Envs {
