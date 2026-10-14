@@ -231,8 +231,10 @@ func (o *Orchestrator) WorkerRollout(ctx context.Context) (Rollout, error) {
 		if f := o.reportedFacts(ctx, n); f != nil {
 			row.Current, row.Behind = f.Version, o.workerBehind(n, f)
 		}
-		if row.State == stateDone && row.Behind {
-			row.State = "" // done for an older build: the panel moved on, it is behind again
+		if row.State == stateDone && !sameVersion(u.Version, o.cfg.Version) {
+			// done for an older build: the panel moved on, so it is behind,
+			// offline (no facts) or not
+			row.State, row.Behind = "", true
 		}
 		out.Nodes = append(out.Nodes, row)
 	}

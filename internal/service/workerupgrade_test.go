@@ -386,9 +386,22 @@ func TestWorkerRolloutViewDoneThenBehind(t *testing.T) {
 	if g := v.Nodes[0]; g.State != "" || !g.Behind {
 		t.Fatalf("row = %+v", g)
 	}
+	must(t, o.store.Nodes.Create(ctx, store.Node{
+		ID: "off", Name: "off", Slug: "off", Role: node.Worker, Tags: "[]", RangeCIDR: "10.230.0.0/16",
+		Status: node.StatusOffline, CreatedAt: time.Now(),
+	}))
+	o.setUpgrade(ctx, "off", nodeUpgrade{Version: "v9.8.0", State: stateDone, At: time.Now()})
+	v, err = o.WorkerRollout(ctx)
+	must(t, err)
+	for _, g := range v.Nodes {
+		if g.Name == "off" && (g.State != "" || !g.Behind) {
+			t.Fatalf("offline row = %+v", g)
+		}
+	}
 	o.mesh.Report(ctx, "w1", worker.Facts{Version: "v9.9.9"})
 	o.setUpgrade(ctx, "w1", nodeUpgrade{Version: "v9.9.9", State: stateDone, At: time.Now()})
-	if v, _ = o.WorkerRollout(ctx); v.Nodes[0].State != stateDone || v.Nodes[0].Behind {
-		t.Fatalf("row = %+v", v.Nodes[0])
+	v, _ = o.WorkerRollout(ctx)
+	if g := v.Nodes[len(v.Nodes)-1]; g.Name != "w1" || g.State != stateDone || g.Behind {
+		t.Fatalf("row = %+v", g)
 	}
 }
