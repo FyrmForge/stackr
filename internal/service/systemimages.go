@@ -45,14 +45,32 @@ var systemCopies = []struct{ upstream, repo, tag string }{
 // stackrRepo is the stackr image's repo; the tag is the running version.
 const stackrRepo = systemRepoPrefix + "stackr"
 
-// stackrSystemRef is the ref every node pulls the stackr image by, given the
-// ref the controller's own proxy container runs.
-func stackrSystemRef(image string) string {
+// stackrDigests is the digest pushLocal recorded for each published stackr
+// tag. Nodes pull the helper and the ingress proxy by it, so a tag that
+// someone overwrote in the registry is never what runs as root.
+var stackrDigests sync.Map // tag -> digest
+
+// stackrTagRef is the registry ref the controller publishes the stackr image
+// under, given the ref the controller's own proxy container runs.
+func stackrTagRef(image string) string {
 	tag := "latest"
 	if i := strings.LastIndex(image, ":"); i > strings.LastIndex(image, "/") {
 		tag = image[i+1:]
 	}
 	return "localhost:" + installspec.RegistryPort + "/" + stackrRepo + ":" + tag
+}
+
+// stackrSystemRef is the ref every node pulls the stackr image by, given the
+// ref the controller's own proxy container runs: the digest the boot publish
+// recorded. Before that publish there is no digest and no image either, so
+// the tag ref is only ever what a pull waits on (waitStackrPublished).
+func stackrSystemRef(image string) string {
+	ref := stackrTagRef(image)
+	i := strings.LastIndex(ref, ":")
+	if dg, ok := stackrDigests.Load(ref[i+1:]); ok {
+		return ref[:i] + "@" + dg.(string)
+	}
+	return ref
 }
 
 // systemPublisher is the publish step with its effects as funcs, so a test
@@ -97,9 +115,12 @@ func (p systemPublisher) publish(ctx context.Context) error {
 	if img, err := p.stackrImage(ctx); err != nil {
 		errList = append(errList, fmt.Errorf("stackr image: %w", err))
 	} else {
-		dst := stackrSystemRef(img)
+		dst := stackrTagRef(img)
 		tag := dst[strings.LastIndex(dst, ":")+1:]
 		res, err := p.pushLocal(ctx, img, dst)
+		if err == nil && res.Digest != "" {
+			stackrDigests.Store(tag, res.Digest)
+		}
 		add(img, stackrRepo, tag, res, err)
 		if err == nil && p.published != nil {
 			p.published()
@@ -254,7 +275,7 @@ func (o *Orchestrator) systemInUse() registry.InUse {
 			if err != nil {
 				return true, err
 			}
-			ref := stackrSystemRef(img)
+			ref := stackrTagRef(img)
 			if current, err = o.regs.Resolve(ctx, stackrRepo, ref[strings.LastIndex(ref, ":")+1:]); err != nil {
 				return true, err
 			}
