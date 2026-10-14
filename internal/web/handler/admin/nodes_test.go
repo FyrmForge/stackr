@@ -24,7 +24,8 @@ func TestAdminNodes(t *testing.T) {
 	}
 
 	rec = s.As(t, root, "GET", "/-/admin/nodes/add", nil)
-	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "Get join command") {
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "Get join command") ||
+		!strings.Contains(rec.Body.String(), "Every node starts with egress.") {
 		t.Fatalf("add step 1 = %d\n%s", rec.Code, rec.Body)
 	}
 	// a bad name stays on step one with the refusal
@@ -49,9 +50,25 @@ func TestAdminNodes(t *testing.T) {
 		!strings.Contains(rec.Body.String(), "open to every organization") {
 		t.Fatalf("tags tab = %d\n%s", rec.Code, rec.Body)
 	}
-	rec = s.As(t, root, "POST", "/-/admin/nodes/"+id+"/tags", url.Values{"tag": {"builder"}})
+	rec = s.As(t, root, "POST", "/-/admin/nodes/"+id+"/tags", url.Values{"tag": {"builder", "egress"}})
 	if rec.Code != http.StatusUnprocessableEntity || !strings.Contains(rec.Body.String(), "Set another default ingress first") {
 		t.Errorf("untag ingress = %d\n%s", rec.Code, rec.Body)
+	}
+
+	// without egress a node needs a default exit; with one the tab shows it picked
+	h4 := s.Worker(t, "h4", "fp")
+	if rec := s.As(t, root, "POST", "/-/admin/nodes/"+h4+"/tags", url.Values{"tag": {"egress"}}); rec.Code != http.StatusOK {
+		t.Fatalf("tag h4 = %d\n%s", rec.Code, rec.Body)
+	}
+	noEgress := url.Values{"tag": {"ingress"}}
+	rec = s.As(t, root, "POST", "/-/admin/nodes/"+id+"/tags", noEgress)
+	if rec.Code != http.StatusUnprocessableEntity || !strings.Contains(rec.Body.String(), "Pick a default exit") {
+		t.Errorf("no exit = %d\n%s", rec.Code, rec.Body)
+	}
+	noEgress.Set("exit", "h4")
+	rec = s.As(t, root, "POST", "/-/admin/nodes/"+id+"/tags", noEgress)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `<option value="h4" selected`) {
+		t.Errorf("with exit = %d\n%s", rec.Code, rec.Body)
 	}
 
 	for _, c := range []struct{ method, path string }{

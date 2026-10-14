@@ -54,7 +54,13 @@ func (h *handler) mountNodes(g *echo.Group, a *middleware.Access) {
 		if err != nil {
 			return echo.NewHTTPError(http.StatusBadRequest, "bad form")
 		}
-		return h.orch.SetNodeTags(c.Request().Context(), middleware.Principal(c), c.Param("node"), f["tag"])
+		var exits []string
+		for _, x := range f["exit"] {
+			if x != "" {
+				exits = append(exits, x)
+			}
+		}
+		return h.orch.SaveNodeTags(c.Request().Context(), middleware.Principal(c), c.Param("node"), f["tag"], exits)
 	}), m)
 	g.POST(nodesBase+"/:node/orgs", h.nodeAct("tags", "Saved.", func(c echo.Context) error {
 		f, err := c.FormParams()
@@ -387,6 +393,18 @@ func (h *handler) nodeView(c echo.Context, d service.NodeDetail, base string) (u
 				v.Ifaces = append(v.Ifaces, ui.IfaceRow{Name: i.Name, Addr: p, Kind: kind})
 			}
 		}
+	}
+	x, err := h.orch.NodeExits(c.Request().Context(), d.ID)
+	if err != nil {
+		return v, err
+	}
+	picks := x.Ladder
+	if len(picks) == 0 && x.Suggested != "" {
+		picks = []string{x.Suggested}
+	}
+	copy(v.Exits[:], picks)
+	for _, o := range x.Options {
+		v.ExitNodes = append(v.ExitNodes, ui.Option{Value: o.Name, Label: o.Name})
 	}
 	if d.Controller {
 		v.RoutesNote = fmt.Sprintf("%s serves the panel and %d routes.", d.Name, d.RoutesServed)

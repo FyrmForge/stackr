@@ -111,7 +111,9 @@ type NodeView struct {
 	// Network
 	Ifaces []IfaceRow
 	// Tags and open to orgs
-	TagsAction  string // POST tag=
+	TagsAction  string // POST tag=, exit=
+	Exits       [3]string // default exit picks by node name, "" = none
+	ExitNodes   []Option  // nodes tagged egress, Value = name
 	AllTags     []string
 	RoutesNote  string
 	OrgsAction  string // POST org=; "" = the controller, open to all
@@ -351,7 +353,9 @@ templ AddNode(v AddNodeView) {
 					<fieldset class="space-y-1">
 						<legend class="label">Tags</legend>
 						for _, t := range v.Tags {
-							<label class="flex items-center gap-2 text-rw-text"><input type="checkbox" name="tag" value={ t } checked?={ picked(&v, t) } class="accent-rw-accent"/> { t }</label>
+							<label class="flex items-center gap-2 text-rw-text"><input type="checkbox" name="tag" value={ t } checked?={ t == "egress" || picked(&v, t) } disabled?={ t == "egress" } class="accent-rw-accent"/> { t }if t == "egress" {
+								<span class="text-xs text-rw-faint">Every node starts with egress.</span>
+							}</label>
 						}
 						<p class="text-xs text-rw-faint">You can change these later.</p>
 					</fieldset>
@@ -451,6 +455,20 @@ templ NodeBody(tab string, v NodeView) {
 						for _, t := range v.AllTags {
 							<label class="flex items-center gap-2 text-rw-text"><input type="checkbox" name="tag" value={ t } checked?={ hasTag(v.Tags, t) } class="accent-rw-accent"/> { t } <span class="text-xs text-rw-faint">{ tagHelp(t) }</span></label>
 						}
+						<fieldset class="pt-2">
+							<legend class="label">Default exit</legend>
+							<div class="flex flex-wrap gap-2">
+								for i, sel := range v.Exits {
+									<select name="exit" class="input" aria-label={ fmt.Sprintf("Default exit %d", i+1) }>
+										<option value="">None</option>
+										for _, o := range v.ExitNodes {
+											<option value={ o.Value } selected?={ o.Value == sel }>{ o.Label }</option>
+										}
+									</select>
+								}
+							</div>
+							<p class="text-xs text-rw-faint mt-1">Used when this node has no egress tag.</p>
+						</fieldset>
 						<button type="submit" class="btn btn-primary btn-sm">Save tags</button>
 					</form>
 				}
@@ -557,7 +575,7 @@ func tagHelp(t string) string {
 	case "ingress":
 		return "Takes public web traffic."
 	case "egress":
-		return "Apps can send their internet traffic out through it."
+		return "Internet traffic may leave from this node's IP."
 	case "builder":
 		return "Builds images."
 	}
