@@ -48,6 +48,59 @@ type DefaultsView struct {
 	// days=) sets the schedule, RotateDays the one in force (0 = off).
 	RotateAction, RotateEvery string
 	RotateDays                int
+	// Preview is the DNS check of a switch to a node, nil = none asked. The
+	// ingress form posts to IngressAction for it; Confirm then moves the default.
+	Preview *IngressPreview
+}
+
+// IngressPreview is what moving the default ingress to Node changes: the hosts
+// that follow it, panel domain first, and where each points now.
+type IngressPreview struct {
+	Node, PanelNote, Cancel string // PanelNote "The panel moves to h4." ; "" = no panel domain
+	Hosts                   []IngressHostRow
+	Confirm                 c.ConfirmView
+}
+
+// IngressHostRow is one host. Points reads "points here", "points to 1.2.3.4"
+// or the lookup's failure; OK says it already points at the node.
+type IngressHostRow struct {
+	Host, Points string
+	OK           bool
+}
+
+// BreakGlassBody is the break glass dialog's tick: on by default, it makes the
+// dialog queue a backup of every node instead of breaking glass.
+templ BreakGlassBody() {
+	<label class="flex items-center gap-2 text-rw-text"><input type="checkbox" name="backup" value="on" checked class="accent-rw-accent"/> Back up every node first</label>
+	<p class="text-xs text-rw-muted">Ticked, this only queues the backups. Break glass again once they finish, with the box unticked.</p>
+}
+
+templ ingressPreview(p IngressPreview) {
+	<div class="panel px-4 py-3 mb-3 text-sm space-y-3" id="ingress-preview">
+		<h3 class="font-semibold text-rw-text">Move the default ingress to { p.Node }</h3>
+		if p.PanelNote != "" {
+			<p class="text-rw-muted">{ p.PanelNote }</p>
+		}
+		if len(p.Hosts) == 0 {
+			<p class="text-rw-faint">No hosts use the default ingress.</p>
+		} else {
+			<table class="w-full text-left">
+				<thead><tr class="text-xs text-rw-muted"><th scope="col" class="font-normal pr-3">Host</th><th scope="col" class="font-normal">Points</th></tr></thead>
+				<tbody>
+					for _, h := range p.Hosts {
+						<tr>
+							<td class="font-mono text-xs text-rw-text pr-3">{ h.Host }</td>
+							<td class={ "text-xs", templ.KV("text-rw-success", h.OK), templ.KV("text-rw-warn", !h.OK) }>{ h.Points }</td>
+						</tr>
+					}
+				</tbody>
+			</table>
+		}
+		<div class="flex gap-2">
+			<button type="button" hx-get={ p.Cancel } hx-target={ target() } hx-swap="outerHTML" class="btn btn-ghost btn-sm">Cancel</button>
+			@c.Confirm(p.Confirm)
+		</div>
+	</div>
 }
 
 // NodeRow is one node card. Open is a GET that answers the node drawer.
@@ -831,6 +884,9 @@ templ NodeBack(href string) {
 }
 
 templ defaultsControl(d DefaultsView) {
+	if d.Preview != nil {
+		@ingressPreview(*d.Preview)
+	}
 	<div class="panel px-4 py-3 mb-3 text-sm grid gap-3 sm:grid-cols-2">
 		<form hx-post={ d.IngressAction } hx-target={ target() } hx-swap="outerHTML" class="flex items-end gap-2">
 			<div>
@@ -841,7 +897,7 @@ templ defaultsControl(d DefaultsView) {
 					}
 				</select>
 			</div>
-			<button type="submit" class="btn btn-ghost btn-sm">Set</button>
+			<button type="submit" class="btn btn-ghost btn-sm">Preview</button>
 		</form>
 		<form hx-post={ d.ExitAction } hx-target={ target() } hx-swap="outerHTML" class="flex items-end gap-2">
 			<div>

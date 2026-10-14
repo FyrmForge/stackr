@@ -3,6 +3,8 @@ package admin
 import (
 	"strings"
 	"testing"
+
+	c "github.com/FyrmForge/stackr/internal/ui/components"
 )
 
 // The network tab groups addresses and labels them: a cluster row carries its
@@ -95,6 +97,35 @@ func TestNodeOverviewVersionAndCert(t *testing.T) {
 	}
 	if out := renderNode(t, "overview", NodeView{Status: "online", Version: "1.0", CertExpiry: "Jan 1, 2027"}); strings.Contains(out, "Cert expires in") {
 		t.Errorf("a far cert is noted\n%s", out)
+	}
+}
+
+// The ingress preview lists hosts in the order given (panel first), says where
+// each points and asks for the node's name; the form posts to the preview.
+func TestIngressPreview(t *testing.T) {
+	var b strings.Builder
+	err := Nodes(NodesView{Rows: []NodeRow{{Name: "h4", Status: "online"}}, Defaults: &DefaultsView{
+		IngressAction: "/-/admin/nodes/default-ingress/preview",
+		Preview: &IngressPreview{
+			Node: "h4", PanelNote: "The panel moves to h4.", Cancel: "/-/admin?tab=nodes",
+			Hosts: []IngressHostRow{
+				{Host: "panel.example.com", Points: "points here", OK: true},
+				{Host: "app.example.com", Points: "points to 1.2.3.4"},
+			},
+			Confirm: c.ConfirmView{Button: "Move default ingress", Title: "Move?", Word: "h4", Kept: []string{"apps"}, Action: "/x"},
+		},
+	}}).Render(t.Context(), &b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := b.String()
+	for _, want := range []string{"The panel moves to h4.", "points here", "points to 1.2.3.4", `hx-post="/-/admin/nodes/default-ingress/preview"`, `data-word`} {
+		if !strings.Contains(out, want) {
+			t.Errorf("no %q in\n%s", want, out)
+		}
+	}
+	if strings.Index(out, "panel.example.com") > strings.Index(out, "app.example.com") {
+		t.Errorf("the panel host is not first\n%s", out)
 	}
 }
 

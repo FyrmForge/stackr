@@ -70,6 +70,7 @@ func (h *handler) mountNodes(g *echo.Group, a *middleware.Access) {
 		}
 		return h.orch.SetNodeOrgs(c.Request().Context(), middleware.Principal(c), c.Param("node"), f["org"])
 	}), m)
+	g.POST(nodesBase+"/default-ingress/preview", h.previewIngress, m)
 	g.POST(nodesBase+"/default-ingress", h.act("nodes", func(c echo.Context) (string, *service.Job, error) {
 		_, err := h.orch.SetDefaultIngress(c.Request().Context(), middleware.Principal(c), c.FormValue("node"), c.FormValue("confirm"))
 		return "Default ingress saved.", nil, err
@@ -118,6 +119,10 @@ func (h *handler) mountNodes(g *echo.Group, a *middleware.Access) {
 	g.POST(nodesBase+"/trust/break-glass", h.act("nodes", func(c echo.Context) (string, *service.Job, error) {
 		if c.FormValue("confirm") != breakGlassWord {
 			return "", nil, errs.Invalidf("confirm", "type %q to confirm", breakGlassWord)
+		}
+		if c.FormValue("backup") != "" {
+			_, err := h.orch.BackupEveryNode(c.Request().Context(), middleware.Principal(c))
+			return "Backups queued; break glass once they finish.", nil, err
 		}
 		err := h.orch.BreakGlass(c.Request().Context(), middleware.Principal(c))
 		return "Break glass done. Get a rejoin command for each node below.", nil, err
@@ -244,7 +249,7 @@ func (h *handler) pollNode(c echo.Context) error {
 
 func gb(b uint64) string { return fmt.Sprintf("%.0f GB", float64(b)/(1<<30)) }
 
-func (h *handler) nodesTab(c echo.Context, adder *ui.AddNodeView) (templ.Component, error) {
+func (h *handler) nodesTab(c echo.Context, x extra) (templ.Component, error) {
 	ctx := c.Request().Context()
 	ns, err := h.orch.Nodes(ctx)
 	if err != nil {
@@ -254,7 +259,7 @@ func (h *handler) nodesTab(c echo.Context, adder *ui.AddNodeView) (templ.Compone
 	if err != nil {
 		return nil, err
 	}
-	v := ui.NodesView{Add: nodesBase + "/add", Adder: adder}
+	v := ui.NodesView{Add: nodesBase + "/add", Adder: x.adder}
 	for _, n := range ns {
 		v.Rows = append(v.Rows, ui.NodeRow{
 			Name: n.Name, Role: n.Role, Status: n.Status, Tags: n.Tags, Envs: n.Envs,
@@ -262,7 +267,7 @@ func (h *handler) nodesTab(c echo.Context, adder *ui.AddNodeView) (templ.Compone
 		})
 	}
 	if len(ns) > 1 {
-		d := &ui.DefaultsView{IngressAction: nodesBase + "/default-ingress", ExitAction: nodesBase + "/default-exit",
+		d := &ui.DefaultsView{IngressAction: nodesBase + "/default-ingress/preview", Preview: x.ingress, ExitAction: nodesBase + "/default-exit",
 			RotateAction: nodesBase + "/rotate", RotateEvery: nodesBase + "/rotate-every", RotateDays: h.orch.RotateSchedule(ctx)}
 		if id, err := h.orch.DefaultIngress(ctx); err == nil {
 			d.Ingress = id
@@ -292,6 +297,39 @@ func (h *handler) nodesTab(c echo.Context, adder *ui.AddNodeView) (templ.Compone
 		return nil, err
 	}
 	return ui.Nodes(v), nil
+}
+
+// POST /-/admin/nodes/default-ingress/preview: where each host that would
+// enter by the node points now, then the typed-name confirm.
+func (h *handler) previewIngress(c echo.Context) error {
+	p, err := h.orch.IngressSwitchPlan(c.Request().Context(), middleware.Principal(c), c.FormValue("node"))
+	if err != nil {
+		return h.answer(c, "nodes", "", extra{}, err)
+	}
+	v := &ui.IngressPreview{Node: p.Node, Cancel: ui.Base + "?tab=nodes"}
+	for _, ho := range p.Hosts {
+		r := ui.IngressHostRow{Host: ho.Host, OK: ho.OK}
+		switch {
+		case ho.Error != "":
+			r.Points = "lookup failed: " + ho.Error
+		case ho.OK:
+			r.Points = "points here"
+		default:
+			r.Points = "points to " + strings.Join(ho.Points, ", ")
+		}
+		v.Hosts = append(v.Hosts, r)
+		if ho.Panel {
+			v.PanelNote = "The panel moves to " + p.Node + "."
+		}
+	}
+	vals, _ := json.Marshal(map[string]string{"node": p.Node, "confirm": p.Node})
+	v.Confirm = comp.ConfirmView{
+		Button: "Move default ingress", Title: "Move the default ingress to " + p.Node + "?",
+		Warning: "The panel and every route without its own ingress enter by " + p.Node + ".",
+		Kept:    []string{"apps running on every node"},
+		Word:    p.Node, Action: nodesBase + "/default-ingress", Target: "#" + comp.DrawerRoot, Vals: string(vals),
+	}
+	return h.answer(c, "nodes", "", extra{ingress: v}, nil)
 }
 
 // trustView is the cluster trust section: the root, the buttons with what
@@ -336,6 +374,7 @@ func (h *handler) trustView(c echo.Context) (ui.TrustView, error) {
 		Kept:    []string{"apps running on every node", "node names, envs and addresses"},
 		Word:    breakGlassWord, Action: act + "break-glass", Target: "#" + comp.DrawerRoot,
 		Vals: `{"confirm":"` + breakGlassWord + `"}`,
+		Body: ui.BreakGlassBody(), Include: "input[name=backup]",
 	}
 	cmd, _ := c.Get("rejoin").(service.JoinTokenOut)
 	for _, n := range t.NotRejoined {

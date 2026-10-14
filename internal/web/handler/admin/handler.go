@@ -163,6 +163,8 @@ type extra struct {
 	job   *service.Job
 	check *ui.UpdateView
 	adder *ui.AddNodeView
+	// ingress is the DNS preview of a default ingress switch
+	ingress *ui.IngressPreview
 }
 
 // GET /-/admin?tab=
@@ -241,7 +243,7 @@ func (h *handler) tab(c echo.Context, tab string, x extra) (templ.Component, err
 		}
 		return ui.Users(v), err
 	case "nodes":
-		return h.nodesTab(c, x.adder)
+		return h.nodesTab(c, x)
 	case "routes":
 		rs, err := h.orch.ExternalRoutes(ctx)
 		v := ui.RoutesView{Add: ui.Base + "/routes"}

@@ -105,6 +105,72 @@ func TestAdminNodeOverview(t *testing.T) {
 	}
 }
 
+// The default ingress select posts to a DNS preview that lists the panel's
+// domain first, then asks for the node's name; a refusal lands in the banner.
+func TestAdminIngressPreview(t *testing.T) {
+	s := webtest.New(t)
+	root := s.Session(t, s.User(t, "root@x.test", true))
+	h4 := s.Worker(t, "h4", "fp")
+	if err := s.Orch.SetSetting(t.Context(), "panel_domain", "panel.example.test"); err != nil {
+		t.Fatal(err)
+	}
+	// a node not tagged ingress cannot be previewed
+	if rec := s.As(t, root, "POST", "/-/admin/nodes/default-ingress/preview", url.Values{"node": {h4}}); rec.Code != http.StatusUnprocessableEntity {
+		t.Errorf("untagged preview = %d\n%s", rec.Code, rec.Body)
+	}
+	if rec := s.As(t, root, "POST", "/-/admin/nodes/"+h4+"/tags", url.Values{"tag": {"ingress", "egress"}}); rec.Code != http.StatusOK {
+		t.Fatalf("tag h4 = %d\n%s", rec.Code, rec.Body)
+	}
+	if body := s.As(t, root, "GET", "/-/admin?tab=nodes", nil).Body.String(); !strings.Contains(body, `hx-post="/-/admin/nodes/default-ingress/preview"`) {
+		t.Errorf("the select does not post to the preview\n%s", body)
+	}
+	rec := s.As(t, root, "POST", "/-/admin/nodes/default-ingress/preview", url.Values{"node": {h4}})
+	body := rec.Body.String()
+	for _, want := range []string{"panel.example.test", "The panel moves to h4.", "Type", "h4"} {
+		if rec.Code != http.StatusOK || !strings.Contains(body, want) {
+			t.Fatalf("preview = %d, no %q in\n%s", rec.Code, want, body)
+		}
+	}
+	// the typed name is checked on the server, and a refusal is the banner
+	rec = s.As(t, root, "POST", "/-/admin/nodes/default-ingress", url.Values{"node": {h4}, "confirm": {"nope"}})
+	if rec.Code != http.StatusUnprocessableEntity || !strings.Contains(rec.Body.String(), "type h4 to confirm") {
+		t.Errorf("wrong name = %d\n%s", rec.Code, rec.Body)
+	}
+}
+
+// Break glass offers a pre-ticked "Back up every node first". Ticked, it only
+// queues the backups; unticked it breaks glass as before.
+func TestAdminBreakGlassBackupFirst(t *testing.T) {
+	s := webtest.New(t)
+	root := s.Session(t, s.User(t, "root@x.test", true))
+	body := s.As(t, root, "GET", "/-/admin?tab=nodes", nil).Body.String()
+	for _, want := range []string{"Back up every node first", `name="backup"`, "checked"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("no %q in\n%s", want, body)
+		}
+	}
+	rec := s.As(t, root, "POST", "/-/admin/nodes/trust/break-glass", url.Values{"confirm": {"break glass"}, "backup": {"on"}})
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "Backups queued; break glass once they finish.") ||
+		strings.Contains(rec.Body.String(), "Break glass done.") {
+		t.Fatalf("ticked = %d\n%s", rec.Code, rec.Body)
+	}
+	js, err := s.Store.Jobs.ListByState(t.Context(), "queued", "running", "waiting")
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, j := range js {
+		found = found || j.Kind == "node-backup"
+	}
+	if !found {
+		t.Errorf("no node-backup job queued: %+v", js)
+	}
+	rec = s.As(t, root, "POST", "/-/admin/nodes/trust/break-glass", url.Values{"confirm": {"break glass"}})
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "Break glass done.") {
+		t.Errorf("unticked = %d\n%s", rec.Code, rec.Body)
+	}
+}
+
 // A worker's drawer offers Back up node and the remove steps; both answers
 // keep the drawer open and show the job they queued.
 func TestAdminNodeBackupAndRemove(t *testing.T) {
