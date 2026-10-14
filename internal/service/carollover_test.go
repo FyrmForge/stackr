@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -249,5 +250,22 @@ func TestJoinCommandCarriesNewFingerprint(t *testing.T) {
 	must(t, err)
 	if out.Fingerprint != rootFP(o) || !strings.Contains(out.Command, "--ca-sha256 "+rootFP(o)) {
 		t.Fatalf("join = %+v", out)
+	}
+}
+
+// The cross cert is written before the old key leaves: when it cannot be
+// written, nothing has rotated and the old root still signs.
+func TestRolloverCrossFailureRotatesNothing(t *testing.T) {
+	ctx := context.Background()
+	o := rolloverRig(t)
+	old := clusterca.Fingerprint(o.cluster.ca.Cert)
+	must(t, os.MkdirAll(filepath.Join(o.cfg.DataDir, crossFile, "x"), 0o755)) // a dir: the write fails
+	if err := o.RotateRoot(ctx, adminP()); err == nil {
+		t.Fatal("rotated with no cross cert")
+	}
+	ca, err := clusterca.LoadCA(o.cfg.DataDir)
+	must(t, err)
+	if clusterca.Fingerprint(ca.Cert) != old {
+		t.Fatal("the CA on disk moved although the rollover failed")
 	}
 }

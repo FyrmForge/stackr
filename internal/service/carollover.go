@@ -211,10 +211,13 @@ func (o *Orchestrator) startRollover(ctx context.Context, by *Principal) (store.
 		return st, err
 	}
 	old := o.cluster.ca
-	if err := clusterca.RotateCA(o.cfg.DataDir, next); err != nil {
+	// The cross cert first: once RotateCA moved the old key, a failure in
+	// between could never write it again.
+	if err := writeCross(o.cfg.DataDir, old, next); err != nil {
 		return st, err
 	}
-	if err := writeCross(o.cfg.DataDir, old, next); err != nil {
+	if err := clusterca.RotateCA(o.cfg.DataDir, next); err != nil {
+		_ = dropCross(o.cfg.DataDir)
 		return st, err
 	}
 	// Sign with the new root from here, trust both.
