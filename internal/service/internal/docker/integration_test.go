@@ -402,11 +402,12 @@ func TestBuilderCannotReachOtherContainers(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = d.StopRemove(context.Background(), id) })
 	info, err := d.cli.ContainerInspect(ctx, id)
-	if err != nil || info.NetworkSettings.IPAddress == "" {
+	br := info.NetworkSettings.Networks["bridge"]
+	if err != nil || br == nil || br.IPAddress == "" {
 		t.Fatalf("target address: %v", err)
 	}
 	dir := t.TempDir()
-	df := "FROM " + testImage + "\nRUN if wget -T3 -q -O- http://" + info.NetworkSettings.IPAddress +
+	df := "FROM " + testImage + "\nRUN if wget -T3 -q -O- http://" + br.IPAddress +
 		":5000/ >/dev/null 2>&1; then echo REACHED-T''ARGET; else echo BLOCKED-T''ARGET; fi\n"
 	if err := os.WriteFile(filepath.Join(dir, "Dockerfile"), []byte(df), 0o600); err != nil {
 		t.Fatal(err)
