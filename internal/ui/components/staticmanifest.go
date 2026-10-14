@@ -4,14 +4,14 @@ package components
 
 // StaticManifest maps original asset paths to fingerprinted paths.
 var StaticManifest = map[string]string{
-	"css/output.css": "css/output.cf825cabf415.css",
+	"css/output.css": "css/output.4838680b55c5.css",
 	"css/xterm.css": "css/xterm.854a7c0fb70e.css",
 	"images/apple-touch-icon.png": "images/apple-touch-icon.bf7ad3fd7ca1.png",
 	"images/favicon-32.png": "images/favicon-32.714289f559fa.png",
 	"images/logo-mark.png": "images/logo-mark.c7991eef2bbb.png",
 	"js/elements/confirm-dialog.js": "js/elements/confirm-dialog.b5196e834097.js",
 	"js/elements/flash-toast.js": "js/elements/flash-toast.614ea70a3063.js",
-	"js/elements/graph-canvas.js": "js/elements/graph-canvas.7803c6b2eb9d.js",
+	"js/elements/graph-canvas.js": "js/elements/graph-canvas.52ffb3737cd5.js",
 	"js/elements/graph-node.js": "js/elements/graph-node.e76610db4e1b.js",
 	"js/elements/log-pane.js": "js/elements/log-pane.695cb2926c42.js",
 	"js/elements/password-toggle.js": "js/elements/password-toggle.cf296dcb046e.js",

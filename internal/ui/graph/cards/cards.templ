@@ -24,7 +24,7 @@ templ Card(v CardView) {
 				<span class="text-[10px] text-rw-faint font-mono truncate ml-auto">{ v.Detail }</span>
 			</div>
 		} else {
-			<div class="p-3.5">
+			<div class="flex h-full flex-col p-3.5">
 				@top(v.Kind, v.Name, v.Detail, v.Host, v.NewVersion, v.Access)
 				if v.Sync != "" {
 					{{ text, class := syncChip(v.Sync) }}
@@ -75,7 +75,7 @@ templ top(kind, name, detail string, host, newVersion bool, acc Access) {
 // (hx-target="this", or it would inherit the card's #drawer-body).
 templ Footer(id string, f FooterView) {
 	<div
-		class="node-footer mt-3 pt-3 border-t border-rw-border flex items-center justify-between gap-2 min-w-0"
+		class="node-footer mt-auto pt-3 border-t border-rw-border flex items-center justify-between gap-2 min-w-0"
 		data-kind={ f.Kind }
 		sse-swap={ "footer:" + id }
 		hx-target="this"

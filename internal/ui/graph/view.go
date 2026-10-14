@@ -97,8 +97,14 @@ type Node struct {
 type Sub struct{ ID, Kind, Name, Status, Drawer string }
 
 // Edge is one server-drawn edge; the canvas re-paths it. Label rides its
-// middle ("" = none).
-type Edge struct{ Kind, From, To, Label string }
+// middle ("" = none). Dir draws an arrow From -> To on a tunnel; Drawer is
+// the GET a click on the line sends (into #drawer-body) and Push the URL it
+// pushes, "" Drawer = the line is not clickable.
+type Edge struct {
+	Kind, From, To, Label string
+	Dir                   bool
+	Drawer, Push          string
+}
 
 // Note is an annotation: kind note (text) or box (a labelled frame).
 type Note struct {
@@ -198,6 +204,10 @@ var edgeLooks = map[string]templ.Attributes{
 	"forward":        {"stroke": "var(--rw-env-sky)", "stroke-width": "2", "stroke-dasharray": "8 3"},
 	"forward-unsure": {"stroke": "var(--rw-env-sky)", "stroke-width": "2", "stroke-dasharray": "2 4"},
 	"backup":         {"stroke": "rgb(var(--rw-faint))", "stroke-dasharray": "2 4"},
+	// Egress on the Cluster map: own apps leaving by the node's own uplink
+	// (thin, faded), and traffic exiting through another node (dashed).
+	"egress-own": {"stroke": "var(--rw-amber)", "stroke-width": "1", "stroke-opacity": "0.35"},
+	"egress-via": {"stroke": "var(--rw-amber)", "stroke-dasharray": "3 4", "stroke-opacity": "0.5"},
 }
 
 // edgeCores hollow a kind into a pipe: a background-coloured stroke drawn
@@ -231,6 +241,8 @@ func EdgeAttrs(kind string) templ.Attributes {
 var legendRows = []struct{ kind, label string }{
 	{"ingress", "ingress"},
 	{"egress", "egress"},
+	{"egress-own", "egress, own apps"},
+	{"egress-via", "egress through another node"},
 	{"config", "config as code"},
 	{"source", "source repo"},
 	{"shared", "managed instance"},

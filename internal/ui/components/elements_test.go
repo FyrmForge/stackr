@@ -15,7 +15,7 @@ import (
 var elements = map[string]int{
 	"confirm-dialog":  150,
 	"flash-toast":     150,
-	"graph-canvas":    400,
+	"graph-canvas":    450,
 	"graph-node":      150,
 	"log-pane":        150,
 	"password-toggle": 150,
