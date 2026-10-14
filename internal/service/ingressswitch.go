@@ -66,19 +66,45 @@ func (o *Orchestrator) ingressTarget(ctx context.Context, ref string) (store.Nod
 	}
 	for _, c := range m.Nodes {
 		if c.ID == n.ID {
-			return n, c, ingressReachable(c)
+			return n, c, ingressReachable(m, c)
 		}
 	}
 	return n, ClusterNode{}, errs.ErrNotFound
 }
 
 // ingressReachable refuses a node the internet cannot reach: no public
-// address and no port forward to it.
-func ingressReachable(c ClusterNode) error {
-	if len(c.Public) == 0 && c.NoForward {
+// address, and no port forward to it (the probe missed it, its network has
+// no router of its own, or its router forwards to another node). An unknown
+// forward (nobody answered, or the network is not on the map) is allowed.
+func ingressReachable(m ClusterMap, c ClusterNode) error {
+	if len(c.Public) > 0 {
+		return nil
+	}
+	if c.NoForward {
 		return errs.Conflictf("%s has no public IP and no port forward; the internet cannot reach it.", c.Name)
 	}
+	for _, net := range m.Networks {
+		if net.ID != c.Net || net.ID == "unknown" { // no facts: nothing to tell
+			continue
+		}
+		if !net.Router {
+			return errs.Conflictf("%s has no public IP and its network has no router to forward to it; the internet cannot reach it.", c.Name)
+		}
+		if net.Forward != "" && net.Forward != c.ID {
+			return errs.Conflictf("%s has no public IP and its router forwards to %s; the internet cannot reach it.", c.Name, nameIn(m, net.Forward))
+		}
+	}
 	return nil
+}
+
+// nameIn is the map's name of node id, or the id.
+func nameIn(m ClusterMap, id string) string {
+	for _, n := range m.Nodes {
+		if n.ID == id {
+			return n.Name
+		}
+	}
+	return id
 }
 
 // IngressSwitchPlan (server admin) lists the hosts that would enter by the

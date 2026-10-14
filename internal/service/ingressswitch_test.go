@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -116,14 +117,35 @@ func TestIngressSwitchRefusals(t *testing.T) {
 	}
 
 	// no public IP and no port forward: the internet cannot reach it
-	if err := ingressReachable(ClusterNode{Name: "h3", NoForward: true}); !isConflict(err) {
-		t.Errorf("no public address and no forward = %v, want a conflict", err)
+	m := ClusterMap{
+		Nodes: []ClusterNode{{ID: "ctl", Name: "ctl"}},
+		Networks: []ClusterNet{
+			{ID: "lan", Router: true, Forward: "ctl"},
+			{ID: "hetzner"}, // h4 has the public address, h3 none: no router
+			{ID: "unsure", Router: true},
+			{ID: "unknown"},
+		},
 	}
 	for _, c := range []ClusterNode{
-		{Name: "h4", Public: []string{"203.0.113.4"}, NoForward: true}, // public wins
-		{Name: "home"}, // the forward target, or unsure
+		{Name: "h3", NoForward: true},
+		{ID: "h3", Name: "h3", Net: "hetzner"},
+		{ID: "ct110", Name: "ct110", Net: "lan"},
 	} {
-		if err := ingressReachable(c); err != nil {
+		if err := ingressReachable(m, c); !isConflict(err) {
+			t.Errorf("%s = %v, want a conflict", c.Name, err)
+		}
+	}
+	if err := ingressReachable(m, ClusterNode{ID: "ct110", Name: "ct110", Net: "lan"}); err == nil || !strings.Contains(err.Error(), "forwards to ctl") {
+		t.Errorf("lan refusal = %v, want it to name the forward", err)
+	}
+	for _, c := range []ClusterNode{
+		{Name: "h4", Public: []string{"203.0.113.4"}, NoForward: true, Net: "hetzner"}, // public wins
+		{ID: "ctl", Name: "ctl", Net: "lan"},                                           // the forward target
+		{ID: "x", Name: "x", Net: "unsure"},                                            // nobody answered
+		{Name: "home"},                                                                 // not on the map
+		{Name: "new", Net: "unknown"},                                                  // no facts yet
+	} {
+		if err := ingressReachable(m, c); err != nil {
 			t.Errorf("%s refused: %v", c.Name, err)
 		}
 	}
