@@ -445,13 +445,12 @@ func (h *handler) workersView(c echo.Context) (*ui.WorkersView, error) {
 		return nil, err
 	}
 	w := &ui.WorkersView{Stopped: r.Stopped}
-	behind, running := false, false
+	behind := false
 	for _, n := range r.Nodes {
 		w.Rows = append(w.Rows, ui.WorkerRow{Name: n.Name, Current: n.Current, State: n.State, Error: n.Error, Behind: n.Behind})
 		behind = behind || n.Behind
-		running = running || n.State == "waiting" || n.State == "upgrading"
 	}
-	if (behind || r.Stopped != "") && !running {
+	if (behind || r.Stopped != "") && !r.Running {
 		w.Action, w.Button = ui.Base+"/update/workers", "Update workers"
 		if r.Stopped != "" {
 			w.Button = "Retry"

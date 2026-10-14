@@ -405,3 +405,21 @@ func TestWorkerRolloutViewDoneThenBehind(t *testing.T) {
 		t.Fatalf("row = %+v", g)
 	}
 }
+
+// A stop leaves the nodes after the failed one waiting, but no job runs, so
+// the view is not running (the tab offers Retry); a queued rollout is.
+func TestWorkerRolloutRunning(t *testing.T) {
+	r := newRolloutRig(t)
+	ctx := context.Background()
+	o := r.n.orch
+	must(t, o.store.Settings.Set(ctx, keyRolloutStopped, "w1 failed to upgrade, rolled back"))
+	o.setUpgrade(ctx, "w1", nodeUpgrade{Version: "v9.9.9", State: stateWaiting, At: time.Now()})
+	if v, _ := o.WorkerRollout(ctx); v.Running {
+		t.Fatalf("stopped rollout reads running: %+v", v)
+	}
+	_, err := o.UpdateWorkers(ctx, nil)
+	must(t, err)
+	if v, _ := o.WorkerRollout(ctx); !v.Running {
+		t.Fatalf("queued rollout reads idle: %+v", v)
+	}
+}
