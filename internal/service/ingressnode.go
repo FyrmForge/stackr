@@ -53,13 +53,18 @@ func (o *Orchestrator) ensureNodeProxy(ctx context.Context, nodeID string) error
 		if err != nil {
 			return err
 		}
-		// The worker pulls the registry copy, never ghcr (systemimages.go).
-		spec = installspec.NodeProxy(stackrSystemRef(img))
+		// The worker pulls the registry copy by digest, never ghcr
+		// (systemimages.go); the digest exists once the publish ran.
+		if err := o.waitStackrPublished(ctx); err != nil {
+			return fmt.Errorf("proxy image on %s: %w", n.Name, err)
+		}
+		ref, err := stackrSystemRef(img)
+		if err != nil {
+			return fmt.Errorf("proxy image on %s: %w", n.Name, err)
+		}
+		spec = installspec.NodeProxy(ref)
 		// Pull before the old proxy goes: a failed pull keeps ingress up.
 		if _, err := o.docker.LocalDigest(nctx, spec.Image); err != nil {
-			if err := o.waitStackrPublished(ctx); err != nil {
-				return fmt.Errorf("proxy image on %s: %w", n.Name, err)
-			}
 			if err := o.docker.Pull(nctx, spec.Image, "", io.Discard); err != nil {
 				return fmt.Errorf("proxy image on %s: %w", n.Name, err)
 			}

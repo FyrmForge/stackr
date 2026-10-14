@@ -348,7 +348,7 @@ func (o *Orchestrator) newRollout(log io.Writer) rollout {
 			if err != nil {
 				return "", err
 			}
-			return stackrSystemRef(img), nil
+			return stackrSystemRef(img)
 		},
 		hops:     o.rolloutHops,
 		allowOld: allowOld,

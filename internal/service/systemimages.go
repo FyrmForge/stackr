@@ -62,15 +62,15 @@ func stackrTagRef(image string) string {
 
 // stackrSystemRef is the ref every node pulls the stackr image by, given the
 // ref the controller's own proxy container runs: the digest the boot publish
-// recorded. Before that publish there is no digest and no image either, so
-// the tag ref is only ever what a pull waits on (waitStackrPublished).
-func stackrSystemRef(image string) string {
+// recorded. With no digest there is no ref: a tag could be one someone
+// overwrote, and this image runs as root.
+func stackrSystemRef(image string) (string, error) {
 	ref := stackrTagRef(image)
 	i := strings.LastIndex(ref, ":")
 	if dg, ok := stackrDigests.Load(ref[i+1:]); ok {
-		return ref[:i] + "@" + dg.(string)
+		return ref[:i] + "@" + dg.(string), nil
 	}
-	return ref
+	return "", fmt.Errorf("the stackr image %s is not published in the cluster registry", ref[i+1:])
 }
 
 // systemPublisher is the publish step with its effects as funcs, so a test
@@ -118,7 +118,10 @@ func (p systemPublisher) publish(ctx context.Context) error {
 		dst := stackrTagRef(img)
 		tag := dst[strings.LastIndex(dst, ":")+1:]
 		res, err := p.pushLocal(ctx, img, dst)
-		if err == nil && res.Digest != "" {
+		if err == nil && res.Digest == "" {
+			err = errors.New("the push recorded no digest")
+		}
+		if err == nil {
 			stackrDigests.Store(tag, res.Digest)
 		}
 		add(img, stackrRepo, tag, res, err)

@@ -24,12 +24,15 @@ func TestNodeProxyFollowsIngressTag(t *testing.T) {
 	}
 
 	setTags(`["ingress"]`)
+	stackrDigests.Store("9.9.9", "sha256:pub")
+	t.Cleanup(stackrDigests.Clear)
+	n.orch.markStackrPublished()
 	must(t, n.orch.ensureNodeProxy(ctx, "w1"))
 	if len(n.wFake.Specs) != 1 {
 		t.Fatalf("want one proxy run on w1, got %d", len(n.wFake.Specs))
 	}
 	s := n.wFake.Specs[0]
-	want := installspec.NodeProxy("localhost:5000/stackr.system/stackr:9.9.9") // the registry copy, not ghcr
+	want := installspec.NodeProxy("localhost:5000/stackr.system/stackr@sha256:pub") // the registry copy by digest, not ghcr
 	if installspec.TokenFrom(s.Env) != "" {
 		t.Fatal("the controller's DNS-01 token reached a worker's proxy")
 	}

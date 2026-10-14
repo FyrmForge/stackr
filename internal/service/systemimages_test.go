@@ -31,20 +31,20 @@ func TestStackrSystemRefIsDigest(t *testing.T) {
 	stackrDigests.Clear()
 	t.Cleanup(stackrDigests.Clear)
 	const img = "ghcr.io/fyrmforge/stackr:0.6.0"
-	// nothing published yet: the tag ref, which only a waiting pull uses
-	if got, want := stackrSystemRef(img), "localhost:5000/stackr.system/stackr:0.6.0"; got != want {
-		t.Fatalf("before publish = %q, want %q", got, want)
+	// nothing published yet: no ref at all, never the tag
+	if got, err := stackrSystemRef(img); err == nil {
+		t.Fatalf("before publish = %q, want an error", got)
 	}
 	var rows []store.RegistryImage
 	var copies [][2]string
 	if err := fakePublisher(&rows, &copies).publish(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if got, want := stackrSystemRef(img), "localhost:5000/stackr.system/stackr@sha256:local"; got != want {
-		t.Errorf("after publish = %q, want %q", got, want)
+	if got, _ := stackrSystemRef(img); got != "localhost:5000/stackr.system/stackr@sha256:local" {
+		t.Errorf("after publish = %q", got)
 	}
-	if got, want := stackrSystemRef("ghcr.io/fyrmforge/stackr:0.7.0"), "localhost:5000/stackr.system/stackr:0.7.0"; got != want {
-		t.Errorf("an unpublished tag = %q, want %q", got, want)
+	if got, err := stackrSystemRef("ghcr.io/fyrmforge/stackr:0.7.0"); err == nil {
+		t.Errorf("an unpublished tag = %q, want an error", got)
 	}
 }
 
