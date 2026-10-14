@@ -49,7 +49,8 @@ const (
 	// kindWorkerRollout is the rollout job; its handler is runWorkerRollout
 	// and its lock is rolloutLock.
 	kindWorkerRollout jobs.Kind = "worker-rollout"
-	rolloutLock                 = "worker-rollout"
+
+	rolloutLock = "worker-rollout"
 
 	// hostHelperName is the one helper container a node may have.
 	hostHelperName = "stackr-host-helper"
@@ -250,8 +251,7 @@ func (o *Orchestrator) workerNodes(ctx context.Context) ([]store.Node, error) {
 func rolloutOrder(ns []store.Node, hops map[string]bool) []store.Node {
 	out := slices.Clone(ns)
 	slices.SortFunc(out, func(a, b store.Node) int {
-		switch {
-		case hops[a.ID] != hops[b.ID]:
+		if hops[a.ID] != hops[b.ID] {
 			if hops[a.ID] {
 				return 1
 			}
