@@ -36,6 +36,10 @@ const (
 	JoinTokenMaxTTL = 24 * time.Hour
 )
 
+// joinStatusGrace is how long after its confirm a join token still answers
+// /join/status (a var for tests).
+var joinStatusGrace = time.Hour
+
 var (
 	joinNameRE = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,30}[a-z0-9])?$`)
 	joinTags   = []string{node.TagIngress, node.TagEgress, node.TagBuilder}
@@ -274,6 +278,12 @@ func (o *Orchestrator) JoinStatus(ctx context.Context, token string) (JoinStatus
 		return JoinStatus{Status: JoinRejected}, nil
 	case row.CertPEM == "":
 		return JoinStatus{Status: JoinPending, NodeID: row.NodeID}, nil
+	}
+	// The installer polls until it holds its mesh spec, minutes after the
+	// confirm; after that the token has nothing left to open. The cert's
+	// NotBefore is the confirm time (less the clock slack).
+	if c, err := clusterca.ParseCertPEM([]byte(row.CertPEM)); err == nil && time.Since(c.NotBefore) > clusterca.ClockSlack+joinStatusGrace {
+		return JoinStatus{}, errs.ErrNotFound
 	}
 	n, err := o.store.Nodes.Get(ctx, row.NodeID)
 	if err != nil {
