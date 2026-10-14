@@ -44,6 +44,27 @@ func auditCount(t *testing.T, n *twoNodes, action string) int {
 	return len(es)
 }
 
+func TestNodeShowsDefaultExit(t *testing.T) {
+	ctx := context.Background()
+	n := newTwoNodes(t)
+	seedNode(t, n, "h4", `["egress"]`, "10.210.0.0/16")
+	_, err := n.orch.SetNodeExit(ctx, nodeExitAdmin(), "w1", []string{"h4"})
+	must(t, err)
+	w, err := n.orch.GetNode(ctx, "w1")
+	must(t, err)
+	if !slices.Equal(w.DefaultExit, []string{"h4"}) {
+		t.Errorf("w1 default_exit = %v", w.DefaultExit)
+	}
+	h, err := n.orch.GetNode(ctx, "h4")
+	must(t, err)
+	if h.DefaultExit == nil || len(h.DefaultExit) != 0 {
+		t.Errorf("egress default_exit = %#v, want empty list", h.DefaultExit)
+	}
+	if !slices.Equal(h.ExitFor, []string{"node w1"}) {
+		t.Errorf("h4 exit_for = %v", h.ExitFor)
+	}
+}
+
 func TestListAndShowNodes(t *testing.T) {
 	ctx := context.Background()
 	n := newTwoNodes(t)

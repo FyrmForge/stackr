@@ -454,8 +454,17 @@
       },
       "ClusterStatusNode": {
         "properties": {
+          "arch": {
+            "type": "string"
+          },
           "cpu": {
             "type": "integer"
+          },
+          "default_exit": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
           },
           "disk_free": {
             "type": "integer"
@@ -520,6 +529,8 @@
           "mem_total",
           "disk_free",
           "docker",
+          "arch",
+          "default_exit",
           "public"
         ],
         "type": "object"
@@ -1389,6 +1400,9 @@
       },
       "Facts": {
         "properties": {
+          "arch": {
+            "type": "string"
+          },
           "busy": {
             "items": {
               "type": "integer"
@@ -1409,6 +1423,12 @@
           },
           "docker_root": {
             "type": "string"
+          },
+          "handshake": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object"
           },
           "interfaces": {
             "items": {
@@ -1449,8 +1469,17 @@
             },
             "type": "object"
           },
+          "tx": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object"
+          },
           "uptime_s": {
             "type": "number"
+          },
+          "version": {
+            "type": "string"
           },
           "wg_port": {
             "type": "integer"
@@ -2796,6 +2825,9 @@
       },
       "NodeInfo": {
         "properties": {
+          "arch": {
+            "type": "string"
+          },
           "certificate": {
             "oneOf": [
               {
@@ -2808,6 +2840,12 @@
           },
           "cpu": {
             "type": "integer"
+          },
+          "default_exit": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
           },
           "disk_free": {
             "type": "integer"
@@ -2894,6 +2932,8 @@
           "mem_total",
           "disk_free",
           "docker",
+          "arch",
+          "default_exit",
           "env_list",
           "exit_for",
           "ingress_for"
@@ -2902,8 +2942,17 @@
       },
       "NodeOut": {
         "properties": {
+          "arch": {
+            "type": "string"
+          },
           "cpu": {
             "type": "integer"
+          },
+          "default_exit": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
           },
           "disk_free": {
             "type": "integer"
@@ -2961,7 +3010,9 @@
           "cpu",
           "mem_total",
           "disk_free",
-          "docker"
+          "docker",
+          "arch",
+          "default_exit"
         ],
         "type": "object"
       },

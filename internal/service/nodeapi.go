@@ -49,6 +49,9 @@ type NodeOut struct {
 	DiskFree  uint64   `json:"disk_free"`
 	Docker    string   `json:"docker"`
 	Arch      string   `json:"arch"`
+	// DefaultExit is the exit node names of the node's own ladder; empty
+	// for an egress node.
+	DefaultExit []string `json:"default_exit"`
 }
 
 // NodeVolume is a volume of an env on a node and when it was last backed up.
@@ -124,6 +127,12 @@ func (o *Orchestrator) placementOrg(ctx context.Context, kind, id string) (strin
 
 // scopePath words a scope: acme/shop/prod/web.
 func (o *Orchestrator) scopePath(ctx context.Context, kind, id string) string {
+	if kind == scopeNode {
+		if n, err := o.store.Nodes.Get(ctx, id); err == nil {
+			return "node " + n.Name
+		}
+		return kind + " " + id
+	}
 	ch, og, err := o.chain(ctx, kind, id)
 	if err != nil {
 		return kind + " " + id
@@ -260,7 +269,18 @@ func (o *Orchestrator) nodeOut(ctx context.Context, n store.Node) (NodeOut, erro
 	}
 	out := NodeOut{
 		ID: n.ID, Name: n.Name, Role: n.Role, State: o.shownStatus(n), Tags: node.Tags(n), Envs: len(es),
-		OpenTo: o.orgSlugs(ctx, open), Range: envNets(es), WGAddress: n.WGAddress,
+		OpenTo: o.orgSlugs(ctx, open), Range: envNets(es), WGAddress: n.WGAddress, DefaultExit: []string{},
+	}
+	if !hasEgress(n) {
+		ids, err := scopeLadder(ctx, o.store, scopeNode, n.ID)
+		if err != nil {
+			return NodeOut{}, err
+		}
+		for _, id := range ids {
+			if x, err := o.store.Nodes.Get(ctx, id); err == nil {
+				out.DefaultExit = append(out.DefaultExit, x.Name)
+			}
+		}
 	}
 	if f := o.reportedFacts(ctx, n); f != nil {
 		out.CPU, out.MemTotal, out.DiskFree, out.Docker, out.Arch = f.CPUs, f.MemBytes, f.DiskFree, f.Docker, f.Arch
