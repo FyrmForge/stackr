@@ -3,6 +3,7 @@ package v1
 import (
 	"github.com/labstack/echo/v4"
 
+	"github.com/FyrmForge/stackr/internal/middleware"
 	"github.com/FyrmForge/stackr/internal/service"
 )
 
@@ -75,6 +76,13 @@ func (h *H) CheckUpgrade() Endpoint {
 
 func (h *H) Upgrade() Endpoint {
 	return Job(func(c echo.Context, in TagIn) (service.Job, error) { return h.Orch.Upgrade(rc(c), in.Tag) })
+}
+
+// UpgradeWorkers (server admin) rolls every worker to the panel's build, one at a time.
+func (h *H) UpgradeWorkers() Endpoint {
+	return Job(func(c echo.Context, _ None) (service.Job, error) {
+		return h.Orch.UpdateWorkers(rc(c), middleware.Principal(c))
+	})
 }
 
 func (h *H) PanelBackups() Endpoint {

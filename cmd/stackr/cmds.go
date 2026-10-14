@@ -1061,6 +1061,14 @@ func (a *app) admin() *cobra.Command {
 				return a.show(v)
 			}),
 		upgrade,
+		adminJob(
+			"upgrade-workers",
+			"admin.upgrade-workers",
+			"Upgrade every worker to this server's version, one at a time",
+			"/admin/upgrade/workers",
+			"worker upgrade",
+			"",
+		),
 		list(
 			"panel-backups",
 			"admin.panel-backups",

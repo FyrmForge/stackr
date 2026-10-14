@@ -481,3 +481,23 @@ func TestListNodesControllerFacts(t *testing.T) {
 		t.Fatalf("controller = %+v", c)
 	}
 }
+
+// A worker on another build than the panel is behind; one on the panel's
+// build is not, and the version it reported shows either way.
+func TestListNodesShowsVersionAndBehind(t *testing.T) {
+	ctx := context.Background()
+	n := newTwoNodes(t)
+	n.orch.cfg.Version = "v9.9.9"
+	n.orch.mesh.Report(ctx, "w1", worker.Facts{Arch: "arm64", Version: "v9.8.0"})
+	ns, err := n.orch.ListNodes(ctx)
+	must(t, err)
+	if ns[1].Version != "v9.8.0" || !ns[1].Behind {
+		t.Fatalf("old worker = %+v", ns[1])
+	}
+	n.orch.mesh.Report(ctx, "w1", worker.Facts{Arch: "arm64", Version: "v9.9.9"})
+	ns, err = n.orch.ListNodes(ctx)
+	must(t, err)
+	if ns[1].Version != "v9.9.9" || ns[1].Behind {
+		t.Fatalf("current worker = %+v", ns[1])
+	}
+}
