@@ -113,6 +113,8 @@ type ClusterLink struct {
 	MS         float64
 	Via        string // the node the pair is routed through, "" = direct
 	Down       bool   // a remembered direct tunnel whose end is not online
+	// Ends are the two sides: [0] is A's. Set where the mesh runs.
+	Ends [2]TunnelEnd
 }
 
 // ClusterBackup is an external S3 destination and the nodes that back up to it.
@@ -412,6 +414,7 @@ func (o *Orchestrator) ClusterMap(ctx context.Context) (ClusterMap, error) {
 			}
 		}
 		m.Links = directLinks(m.Links, m.Nodes, names, o.mesh.Direct, o.mesh.Via)
+		fillEnds(&m, in, o.mesh.Spec)
 		o.remember(ctx, &m, in, o.mesh.Direct)
 	}
 	recall(&m, in)
