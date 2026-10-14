@@ -104,3 +104,29 @@ func TestAdminNodeOverview(t *testing.T) {
 		t.Errorf("1 cores\n%s", body)
 	}
 }
+
+// A worker's drawer offers Back up node and the remove steps; both answers
+// keep the drawer open and show the job they queued.
+func TestAdminNodeBackupAndRemove(t *testing.T) {
+	s := webtest.New(t)
+	root := s.Session(t, s.User(t, "root@x.test", true))
+	h4 := s.Worker(t, "h4", "fp")
+	rec := s.As(t, root, "GET", "/-/admin/nodes/"+h4+"?tab=security", nil)
+	for _, want := range []string{"Stops everything on h4, backs it up, checks the backups, then cleans the box and removes it. A failed backup stops here and starts the apps again.", "the backups, and the volumes and images on the box"} {
+		if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), want) {
+			t.Fatalf("security = %d, no %q in\n%s", rec.Code, want, rec.Body)
+		}
+	}
+	rec = s.As(t, root, "GET", "/-/admin/nodes/"+h4, nil)
+	if !strings.Contains(rec.Body.String(), "Back up node") || !strings.Contains(rec.Body.String(), "No node backups yet.") {
+		t.Fatalf("overview = %d\n%s", rec.Code, rec.Body)
+	}
+	for _, c := range []struct{ path, note string }{
+		{"/backup", "Node backup queued."}, {"/remove", "Node removal queued."},
+	} {
+		rec = s.As(t, root, "POST", "/-/admin/nodes/"+h4+c.path, nil)
+		if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), c.note) || !strings.Contains(rec.Body.String(), "/-/jobs/") {
+			t.Errorf("%s = %d, want %q and a job in\n%s", c.path, rec.Code, c.note, rec.Body)
+		}
+	}
+}

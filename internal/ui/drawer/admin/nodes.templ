@@ -108,6 +108,13 @@ type NodeView struct {
 	Arch, Mem                      string
 	Cores                          int
 	HasFacts                       bool
+	Behind, TooOld, CertExpired    bool // the build is not the panel's; not one it allows; no live certificate
+	CertDays                       int  // the certificate ends in this many days, under 14; 0 = not
+	// Backup is the Back up node POST; Backups its groups, newest first; Job
+	// the job an action just queued.
+	Backup  string
+	Backups []BackupGroupRow
+	Job     *c.JobStatusView
 	Tunnels                        []TunnelRow
 	// Envs
 	Envs []NodeEnvRow
@@ -132,6 +139,14 @@ type NodeView struct {
 	Back   string
 }
 
+// BackupGroupRow is one node backup: its volumes sit in a details element.
+type BackupGroupRow struct {
+	Label, Status, Dest, Warning, Error string
+	Volumes                             []BackupVolumeRow
+}
+
+type BackupVolumeRow struct{ Volume, Where, Method, Status, Size, Error string }
+
 type NodeEnvRow struct {
 	Path, Pin string
 	Tiles     int
@@ -154,6 +169,21 @@ type CertRow struct{ Serial, Issued, Expires, RenewFrom, State string }
 type ForgetBody struct {
 	Name string
 	Lost []string
+}
+
+// versionNote reads "0.6.0-dev.12, behind" or "0.6.0-dev.9, too old".
+func versionNote(v NodeView) string {
+	ver := v.Version
+	if ver == "" {
+		ver = "not reported"
+	}
+	switch {
+	case v.TooOld:
+		return ver + ", too old"
+	case v.Behind:
+		return ver + ", behind"
+	}
+	return ver
 }
 
 func plural(n int, one string) string {
@@ -453,6 +483,9 @@ templ ForgetWarning(b ForgetBody) {
 // NodeBody is one tab of the node drawer.
 templ NodeBody(tab string, v NodeView) {
 	<div id={ "node-" + tab }>
+		if v.Job != nil {
+			<div class="mb-4">@c.JobStatus(*v.Job)</div>
+		}
 		switch tab {
 			case "envs":
 				@c.Section("Envs on this node", "", "Pins decide where new envs go. Moving an existing env is a separate step.") {
@@ -568,6 +601,16 @@ templ NodeBody(tab string, v NodeView) {
 					}
 				}
 			default:
+				if v.CertExpired {
+					<div class="panel px-4 py-3 mb-4 text-sm flex flex-wrap items-center gap-3" role="alert">
+						<span class="text-rw-danger">Cert expired, rejoin needed</span>
+						if v.Rejoin != "" {
+							<form hx-post={ v.Rejoin } hx-target={ target() } hx-swap="outerHTML" class="ml-auto">
+								<button type="submit" class="btn btn-primary btn-sm">Rejoin</button>
+							</form>
+						}
+					</div>
+				}
 				@c.Section("Node", "", "") {
 					<dl class="panel px-4 py-3 text-sm grid grid-cols-[8rem_1fr] gap-y-1">
 						<dt class="text-rw-muted">Status</dt>
@@ -587,16 +630,17 @@ templ NodeBody(tab string, v NodeView) {
 							}
 						</dd>
 						<dt class="text-rw-muted">Stackr</dt>
-						if v.Version != "" {
-							<dd class="font-mono text-xs text-rw-text">{ v.Version }</dd>
-						} else {
-							<dd class="text-rw-faint">not reported</dd>
-						}
+						<dd class={ "font-mono text-xs", templ.KV("text-rw-text", !v.Behind && !v.TooOld), templ.KV("text-rw-warn", v.Behind || v.TooOld) }>{ versionNote(v) }</dd>
 						<dt class="text-rw-muted">Last seen</dt>
 						<dd class="text-rw-text">{ v.LastSeen }</dd>
 						if v.CertExpiry != "" {
 							<dt class="text-rw-muted">Certificate</dt>
-							<dd class="text-rw-text">expires { v.CertExpiry }</dd>
+							<dd class="text-rw-text">
+								expires { v.CertExpiry }
+								if v.CertDays > 0 {
+									<p class="text-rw-warn">Cert expires in { plural(v.CertDays, "day") }</p>
+								}
+							</dd>
 						}
 					</dl>
 				}
@@ -663,8 +707,68 @@ templ NodeBody(tab string, v NodeView) {
 						</ul>
 					}
 				}
+				if v.Backup != "" {
+					@c.Section("Backups", "", "Every volume on this node, into one group.") {
+						<div class="mb-3">@c.PostButton("Back up node", v.Backup)</div>
+						if len(v.Backups) == 0 {
+							<p class="text-sm text-rw-faint">No node backups yet.</p>
+						}
+						<ul class="space-y-2">
+							for _, g := range v.Backups {
+								<li class="panel px-4 py-3 text-sm space-y-1">
+									<div class="flex flex-wrap items-center gap-2">
+										<span class="text-rw-text">{ g.Label }</span>
+										@c.Chip(g.Status, backupTone(g.Status))
+										if g.Dest != "" {
+											<span class="ml-auto text-xs text-rw-muted">{ g.Dest }</span>
+										}
+									</div>
+									if g.Warning != "" {
+										<p class="text-xs text-rw-warn">{ g.Warning }</p>
+									}
+									if g.Error != "" {
+										<p class="text-xs text-rw-danger">{ g.Error }</p>
+									}
+									if len(g.Volumes) > 0 {
+										<details>
+											<summary class="cursor-pointer text-xs text-rw-muted hover:text-rw-text">{ plural(len(g.Volumes), "volume") }</summary>
+											<ul class="mt-2 space-y-1">
+												for _, vr := range g.Volumes {
+													<li class="flex flex-wrap items-center gap-2 text-xs">
+														<span class="font-mono text-rw-text">{ vr.Volume }</span>
+														if vr.Where != "" {
+															<span class="text-rw-muted">{ vr.Where }</span>
+														}
+														<span class="text-rw-faint">{ vr.Method }</span>
+														if vr.Size != "" {
+															<span class="text-rw-faint">{ vr.Size }</span>
+														}
+														@c.Chip(vr.Status, backupTone(vr.Status))
+														if vr.Error != "" {
+															<span class="basis-full text-rw-danger">{ vr.Error }</span>
+														}
+													</li>
+												}
+											</ul>
+										</details>
+									}
+								</li>
+							}
+						</ul>
+					}
+				}
 		}
 	</div>
+}
+
+func backupTone(s string) string {
+	switch s {
+	case "done":
+		return "success"
+	case "failed":
+		return "danger"
+	}
+	return "warn"
 }
 
 func hasTag(tags []string, t string) bool {

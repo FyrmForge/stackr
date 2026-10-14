@@ -134,9 +134,11 @@ func (h *handler) mountNodes(g *echo.Group, a *middleware.Access) {
 		err := h.orch.RotateNodeKeys(c.Request().Context(), middleware.Principal(c), c.Param("node"))
 		return h.nodeAnswer(c, "security", "Rotating keys. The security log shows when it is done.", err)
 	}, m)
-	g.POST(nodesBase+"/:node/remove", h.leave("Node removal queued.", func(c echo.Context) error {
-		_, err := h.orch.RemoveNode(c.Request().Context(), middleware.Principal(c), c.Param("node"))
-		return err
+	g.POST(nodesBase+"/:node/remove", h.nodeJob("security", "Node removal queued.", func(c echo.Context) (service.Job, error) {
+		return h.orch.RemoveNode(c.Request().Context(), middleware.Principal(c), c.Param("node"))
+	}), m)
+	g.POST(nodesBase+"/:node/backup", h.nodeJob("overview", "Node backup queued.", func(c echo.Context) (service.Job, error) {
+		return h.orch.BackupNode(c.Request().Context(), middleware.Principal(c), c.Param("node"))
 	}), m)
 	g.POST(nodesBase+"/:node/forget", h.leave("Node forgotten.", func(c echo.Context) error {
 		return h.orch.ForgetNode(c.Request().Context(), middleware.Principal(c), c.Param("node"), c.FormValue("confirm"))
@@ -152,6 +154,19 @@ func (h *handler) leave(note string, do func(echo.Context) error) echo.HandlerFu
 			return h.nodeAnswer(c, "security", "", err)
 		}
 		return h.answer(c, "nodes", note, extra{}, nil)
+	}
+}
+
+// nodeJob runs an action that queues a job and answers the node drawer on a
+// tab with the job's status; a refusal answers it with the banner.
+func (h *handler) nodeJob(tab, note string, do func(echo.Context) (service.Job, error)) echo.HandlerFunc {
+	return func(c echo.Context) error {
+		j, err := do(c)
+		if err != nil {
+			return h.nodeAnswer(c, tab, "", err)
+		}
+		c.Set("job", j)
+		return h.nodeAnswer(c, tab, note, nil)
 	}
 }
 
@@ -382,6 +397,28 @@ func (h *handler) nodeView(c echo.Context, d service.NodeDetail, base string) (u
 	if err != nil {
 		return v, err
 	}
+	v.Behind, v.TooOld, v.CertExpired, v.CertDays = live.Behind, live.TooOld, live.CertExpired, live.CertDays
+	if j, ok := c.Get("job").(service.Job); ok {
+		jv := render.JobView("", j)
+		v.Job = &jv
+	}
+	if d.Status == "online" {
+		v.Backup = base + "/backup"
+	}
+	gs, err := h.orch.NodeBackups(ctx, d.ID)
+	if err != nil {
+		return v, err
+	}
+	for _, g := range gs {
+		r := ui.BackupGroupRow{Label: g.Label, Status: g.Status, Dest: g.Dest, Warning: g.Warning, Error: g.Error}
+		for _, bv := range g.Volumes {
+			r.Volumes = append(r.Volumes, ui.BackupVolumeRow{
+				Volume: bv.Volume, Where: bv.Where, Method: bv.Method, Status: bv.Status, Error: bv.Error,
+				Size: render.Size(bv.SizeBytes),
+			})
+		}
+		v.Backups = append(v.Backups, r)
+	}
 	if f := live.Facts; f != nil {
 		v.HasFacts = true
 		v.Arch, v.Version, v.Cores, v.Mem = f.Arch, f.Version, f.CPUs, gb(f.MemBytes)
@@ -461,7 +498,8 @@ func (h *handler) nodeView(c echo.Context, d service.NodeDetail, base string) (u
 		}
 		v.Remove = comp.ConfirmView{
 			Button: "Remove node", Title: "Remove " + d.Name + "?",
-			Warning: "Its certificate is revoked and it leaves the cluster. It must have no envs.",
+			Warning: "Stops everything on " + d.Name + ", backs it up, checks the backups, then cleans the box and removes it. A failed backup stops here and starts the apps again.",
+			Kept:    []string{"the backups, and the volumes and images on the box"},
 			Action:  base + "/remove", Target: "#" + comp.DrawerRoot,
 		}
 		v.Forget = comp.ConfirmView{

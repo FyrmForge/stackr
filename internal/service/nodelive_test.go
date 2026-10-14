@@ -4,6 +4,7 @@ import (
 	"context"
 	"slices"
 	"testing"
+	"time"
 
 	"github.com/FyrmForge/stackr/internal/worker"
 )
@@ -61,5 +62,62 @@ func TestNodeLive(t *testing.T) {
 	}
 	if _, err := n.orch.NodeLive(ctx, "nope"); err == nil {
 		t.Error("unknown node found")
+	}
+}
+
+func TestCertNote(t *testing.T) {
+	now := time.Date(2026, 10, 14, 12, 0, 0, 0, time.UTC)
+	day := 24 * time.Hour
+	cert := func(d time.Duration, gone bool) NodeCertInfo {
+		return NodeCertInfo{NotAfter: now.Add(d), Revoked: gone}
+	}
+	for _, c := range []struct {
+		name    string
+		certs   []NodeCertInfo
+		expired bool
+		days    int
+	}{
+		{"none", nil, false, 0},
+		{"far", []NodeCertInfo{cert(60*day, false)}, false, 0},
+		{"exactly 14", []NodeCertInfo{cert(14*day, false)}, false, 0},
+		{"nine days", []NodeCertInfo{cert(9*day, false)}, false, 9},
+		{"part of a day counts", []NodeCertInfo{cert(8*day+time.Hour, false)}, false, 9},
+		{"expired", []NodeCertInfo{cert(-day, false)}, true, 0},
+		{"the newest decides", []NodeCertInfo{cert(-day, false), cert(60*day, false)}, false, 0},
+		{"revoked is not expired", []NodeCertInfo{cert(-day, true)}, false, 0},
+		{"revoked ignored", []NodeCertInfo{cert(2*day, true), cert(-day, false)}, true, 0},
+	} {
+		if e, d := certNote(c.certs, now); e != c.expired || d != c.days {
+			t.Errorf("%s: certNote = %v, %d; want %v, %d", c.name, e, d, c.expired, c.days)
+		}
+	}
+}
+
+// A worker on the panel's build is neither behind nor too old; an older one
+// is behind; one nobody allows is too old; the controller is neither.
+func TestNodeLiveVersion(t *testing.T) {
+	ctx := context.Background()
+	n := newTwoNodes(t)
+	n.orch.cfg.Version = "1.0.0"
+	for _, c := range []struct {
+		v           string
+		behind, old bool
+	}{{"1.0.0", false, false}, {"0.9.0", true, true}, {"", true, true}} {
+		n.orch.mesh.Report(ctx, "w1", worker.Facts{Version: c.v})
+		l, err := n.orch.NodeLive(ctx, "w1")
+		must(t, err)
+		if l.Behind != c.behind || l.TooOld != c.old {
+			t.Errorf("version %q: behind %v, too old %v; want %v, %v", c.v, l.Behind, l.TooOld, c.behind, c.old)
+		}
+	}
+	// the build the panel ran before its last upgrade is behind, not too old
+	must(t, n.orch.store.Settings.Set(ctx, prevVersionKey, "0.9.0"))
+	n.orch.mesh.Report(ctx, "w1", worker.Facts{Version: "0.9.0"})
+	if l, _ := n.orch.NodeLive(ctx, "w1"); !l.Behind || l.TooOld {
+		t.Errorf("previous build: %+v", l)
+	}
+	c, _ := n.orch.NodeLive(ctx, n.ctl.ID)
+	if c.Behind || c.TooOld {
+		t.Errorf("controller: %+v", c)
 	}
 }
