@@ -36,6 +36,7 @@ type WGApplier interface {
 }
 
 type Config struct {
+	Version    string      // stackr build, reported in facts
 	TLS        *tls.Config // built by the caller; client certs required
 	Addr       string      // listen address
 	DockerSock string      // local Docker unix socket

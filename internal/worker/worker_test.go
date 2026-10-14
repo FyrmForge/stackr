@@ -13,11 +13,14 @@ import (
 	"net/netip"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/FyrmForge/stackr/internal/wgapply"
 )
 
 // fakeDocker serves a unix socket: /info, an echoing hijack on attach, and a
@@ -160,10 +163,28 @@ func TestFacts(t *testing.T) {
 	}
 	b, _ := io.ReadAll(resp.Body)
 	s := string(b)
-	for _, want := range []string{`"docker":"29.0.0"`, `"interfaces"`, `"cpus"`, `"disk_free"`, `"wg_port":51871`} {
+	for _, want := range []string{`"docker":"29.0.0"`, `"interfaces"`, `"cpus"`, `"disk_free"`, `"wg_port":51871`, `"arch":"` + runtime.GOARCH + `"`} {
 		if !strings.Contains(s, want) {
 			t.Errorf("missing %s in %s", want, s)
 		}
+	}
+}
+
+// Facts carry each peer's last handshake and the bytes sent to it.
+func TestFactsHandshakeAndTx(t *testing.T) {
+	rec := &wgapply.Recorder{}
+	s := New(Config{StateDir: t.TempDir(), DockerSock: fakeDocker(t), Mesh: MeshConfig{WG: rec}})
+	t.Cleanup(s.Stop)
+	at := time.Unix(1700000000, 0)
+	rec.SetHandshake("k1", at)
+	rec.SetTx("k1", 42)
+	rec.AddRx("k2", 7) // no handshake yet: left out of the handshake map
+	f := s.Facts(context.Background())
+	if f.Handshake["k1"] != at.Unix() || f.Tx["k1"] != 42 || f.Rx["k2"] != 7 {
+		t.Fatalf("handshake=%v tx=%v rx=%v", f.Handshake, f.Tx, f.Rx)
+	}
+	if _, ok := f.Handshake["k2"]; ok {
+		t.Errorf("zero handshake reported: %v", f.Handshake)
 	}
 }
 

@@ -15,6 +15,7 @@ type nodeMemory struct {
 	Net    string            `json:"net,omitempty"`
 	Public []string          `json:"public,omitempty"`
 	Docker string            `json:"docker,omitempty"`
+	Arch   string            `json:"arch,omitempty"`
 	Links  map[string]string `json:"links,omitempty"` // peer id -> link kind: direct tunnels only
 	Via    []string          `json:"via,omitempty"`   // node ids its routed peers reach it through
 }

@@ -35,9 +35,14 @@ type Facts struct {
 	DockerError string  `json:"docker_error,omitempty"`
 	Kernel      string  `json:"kernel"`
 	CPUs        int     `json:"cpus"`
-	MemBytes    uint64  `json:"mem_bytes"`
-	MemFree     uint64  `json:"mem_free"` // MemAvailable: what a build could use
-	UptimeS     float64 `json:"uptime_s"`
+	// Arch is runtime.GOARCH of the worker binary.
+	// ponytail: the worker binary's arch, not Docker's Architecture; service.dockerArch can't be imported here (cycle). Same thing on every real install.
+	Arch string `json:"arch,omitempty"`
+	// Version is the stackr build the worker runs (empty from an older one).
+	Version  string  `json:"version,omitempty"`
+	MemBytes uint64  `json:"mem_bytes"`
+	MemFree  uint64  `json:"mem_free"` // MemAvailable: what a build could use
+	UptimeS  float64 `json:"uptime_s"`
 	// Seen is where each wg peer (by public key) sends from, for peers with a
 	// fresh handshake: a peer behind a NAT shows as the NAT's address.
 	Seen map[string]string `json:"seen,omitempty"`
@@ -45,6 +50,11 @@ type Facts struct {
 	// facts were read; the controller watches it move to tell a live
 	// tunnel from a dead one within a minute (keepalives every 25 s).
 	Rx map[string]int64 `json:"rx,omitempty"`
+	// Tx is the bytes sent to each wg peer (by public key).
+	Tx map[string]int64 `json:"tx,omitempty"`
+	// Handshake is each wg peer's last handshake, unix seconds; peers that
+	// never shook hands are left out.
+	Handshake map[string]int64 `json:"handshake,omitempty"`
 	// Ping is the ICMP round trip to each mesh peer, by transit address.
 	Ping map[string]PeerPing `json:"ping,omitempty"`
 	// Resolvers are the host's IPv4 DNS servers.
@@ -246,7 +256,7 @@ func (s *Server) facts(w http.ResponseWriter, r *http.Request) {
 // Facts is what the node reports about itself: GET /v1/facts, and the body
 // of a recovery call.
 func (s *Server) Facts(ctx context.Context) Facts {
-	f := Facts{CPUs: runtime.NumCPU(), Interfaces: Interfaces()}
+	f := Facts{CPUs: runtime.NumCPU(), Arch: runtime.GOARCH, Version: s.cfg.Version, Interfaces: Interfaces()}
 	b, _ := os.ReadFile("/proc/sys/kernel/osrelease")
 	f.Kernel = strings.TrimSpace(string(b))
 	f.MemBytes, f.MemFree = meminfo("MemTotal:"), meminfo("MemAvailable:")
@@ -267,9 +277,15 @@ func (s *Server) Facts(ctx context.Context) Facts {
 			}
 		}
 		if st, err := s.cfg.Mesh.WG.Stats(mesh.Iface); err == nil && len(st) > 0 {
-			f.Rx = map[string]int64{}
+			f.Rx, f.Tx = map[string]int64{}, map[string]int64{}
 			for k, p := range st {
-				f.Rx[k] = p.Rx
+				f.Rx[k], f.Tx[k] = p.Rx, p.Tx
+				if !p.Handshake.IsZero() {
+					if f.Handshake == nil {
+						f.Handshake = map[string]int64{}
+					}
+					f.Handshake[k] = p.Handshake.Unix()
+				}
 			}
 		}
 		f.Ping = s.pingPeers(ctx)

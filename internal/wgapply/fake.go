@@ -14,6 +14,7 @@ type Recorder struct {
 	Moves      []Move
 	handshakes map[string]time.Time
 	rx         map[string]int64
+	tx         map[string]int64
 }
 
 // Move is one SetEndpoint call.
@@ -45,6 +46,11 @@ func (r *Recorder) Stats(string) (map[string]PeerStat, error) {
 	for k, v := range r.rx {
 		st := out[k]
 		st.Rx = v
+		out[k] = st
+	}
+	for k, v := range r.tx {
+		st := out[k]
+		st.Tx = v
 		out[k] = st
 	}
 	for _, m := range r.Moves {
@@ -91,6 +97,16 @@ func (r *Recorder) AddRx(key string, n int64) {
 		r.rx = map[string]int64{}
 	}
 	r.rx[key] += n
+}
+
+// SetTx sets the bytes sent to a peer.
+func (r *Recorder) SetTx(key string, n int64) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.tx == nil {
+		r.tx = map[string]int64{}
+	}
+	r.tx[key] = n
 }
 
 // Last returns the most recent applied config.

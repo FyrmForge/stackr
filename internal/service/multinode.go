@@ -37,6 +37,7 @@ func (o *Orchestrator) startMesh(ctlID string) {
 		// keys/wg.key is the panel's WireGuard identity (installspec.WGKeyFile).
 		local = worker.New(worker.Config{
 			DockerSock: "/var/run/docker.sock",
+			Version:    o.cfg.Version,
 			StateDir:   filepath.Join(o.cfg.DataDir, "keys"),
 			Runner:     runner,
 			Mesh:       worker.MeshConfig{WG: o.cfg.MeshWG, WGPort: o.cfg.MeshWGPort},

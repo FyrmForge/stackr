@@ -48,6 +48,7 @@ type NodeOut struct {
 	MemTotal  uint64   `json:"mem_total"`
 	DiskFree  uint64   `json:"disk_free"`
 	Docker    string   `json:"docker"`
+	Arch      string   `json:"arch"`
 }
 
 // NodeVolume is a volume of an env on a node and when it was last backed up.
@@ -224,6 +225,9 @@ func (o *Orchestrator) nodeEnvOut(ctx context.Context, e store.Environment) (Nod
 // reportedFacts is what a worker last reported: the mesh service's copy, else
 // a brief ask; nil when it cannot answer.
 func (o *Orchestrator) reportedFacts(ctx context.Context, n store.Node) *worker.Facts {
+	if n.Role == node.Controller {
+		return o.controllerFacts(ctx, n)
+	}
 	if n.Role != node.Worker || n.Status != node.StatusOnline {
 		return nil
 	}
@@ -259,7 +263,7 @@ func (o *Orchestrator) nodeOut(ctx context.Context, n store.Node) (NodeOut, erro
 		OpenTo: o.orgSlugs(ctx, open), Range: envNets(es), WGAddress: n.WGAddress,
 	}
 	if f := o.reportedFacts(ctx, n); f != nil {
-		out.CPU, out.MemTotal, out.DiskFree, out.Docker = f.CPUs, f.MemBytes, f.DiskFree, f.Docker
+		out.CPU, out.MemTotal, out.DiskFree, out.Docker, out.Arch = f.CPUs, f.MemBytes, f.DiskFree, f.Docker, f.Arch
 	}
 	return out, nil
 }
