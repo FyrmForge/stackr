@@ -158,3 +158,22 @@ func TestProxyHashStamp(t *testing.T) {
 		t.Errorf("TokenFrom = %q", got)
 	}
 }
+
+// Every container the installer makes caps its own logs: the daemon default
+// is unbounded.
+func TestLogCap(t *testing.T) {
+	for name, c := range map[string]Container{
+		"panel":     Panel(Image("1.2.3"), tlsIn),
+		"proxy":     Proxy(Image("1.2.3"), tlsIn, ""),
+		"nodeproxy": NodeProxy(Image("1.2.3")),
+		"registry":  Registry(),
+	} {
+		got := strings.Join(c.RunArgs(), " ")
+		if !strings.Contains(got, "--log-opt max-size=10m --log-opt max-file=3") {
+			t.Errorf("%s: run args %q lack the log cap", name, got)
+		}
+		if c.Labels[LabelSpec] != "" && c.Labels[LabelSpec] != c.Hash() {
+			t.Errorf("%s: spec stamp is stale", name)
+		}
+	}
+}

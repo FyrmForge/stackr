@@ -10,6 +10,10 @@ docker run
   NET_ADMIN
   --label
   stackr.role=panel
+  --log-opt
+  max-size=10m
+  --log-opt
+  max-file=3
   -v
   /var/run/docker.sock:/var/run/docker.sock
   -v

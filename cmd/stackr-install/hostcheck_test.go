@@ -11,7 +11,8 @@ func TestAtLeast(t *testing.T) {
 		have, want string
 		ok         bool
 	}{
-		{"29.0.0", "25.0", true},
+		{"29.0.0", minDocker, true},
+		{"25.0.3", minDocker, false}, // volume subpath mounts need 26
 		{"25.0.3", "25.0", true},
 		{"24.0.9", "25.0", false},
 		{"iptables v1.8.10 (nf_tables)", "1.8", true},

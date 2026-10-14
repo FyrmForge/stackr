@@ -7,7 +7,11 @@ docker run
   --label
   stackr.role=proxy
   --label
-  stackr.spec=ce6f44fa1328176f
+  stackr.spec=0ef6f9e0ef063a7a
+  --log-opt
+  max-size=10m
+  --log-opt
+  max-file=3
   -v
   stackr-caddy:/caddy
   -v

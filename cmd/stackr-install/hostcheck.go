@@ -18,12 +18,13 @@ import (
 	"github.com/FyrmForge/stackr/internal/mesh"
 )
 
-// minDocker is the oldest Docker Engine stackr runs on. 25.0 (API 1.44) is
-// the first that attaches a container to several networks when it is
-// created; every tile with a link or an ingress name relies on that. Builds
+// minDocker is the oldest Docker Engine stackr runs on. 26.0 (API 1.45) is
+// the first whose volume mounts take a subpath, which a tile's config files
+// use; 25.0 already attaches a container to several networks when it is
+// created, which every tile with a link or an ingress name relies on. Builds
 // run the panel image's own docker CLI and buildx, so the host needs no
 // buildx of its own.
-const minDocker = "25.0"
+const minDocker = "26.0"
 
 // minIptables: 1.8 is the first with the nf_tables backend and the -w lock
 // flag everywhere; iptables-restore --noflush, which the rules use, is older.

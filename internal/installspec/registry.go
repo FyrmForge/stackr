@@ -35,6 +35,7 @@ func Registry() Container {
 		Labels:  map[string]string{LabelRole: "registry"},
 		Volumes: []string{RegistryVolume + ":/var/lib/registry"},
 		Ports:   []string{"127.0.0.1:" + RegistryPort + ":5000"},
+		LogOpts: logCap,
 		Restart: "unless-stopped",
 	}
 	c.Labels[LabelSpec] = c.Hash()

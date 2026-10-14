@@ -148,8 +148,13 @@ type Container struct {
 	ExtraHosts  []string          `json:"extra_hosts,omitempty"`
 	HostNetwork bool              `json:"host_network,omitempty"`
 	CapAdd      []string          `json:"cap_add,omitempty"`
+	LogOpts     []string          `json:"log_opts,omitempty"` // docker --log-opt values
 	Restart     string            `json:"restart"`
 }
+
+// logCap is the json-file cap on every container the installer makes: the
+// daemon's default keeps logs forever.
+var logCap = []string{"max-size=10m", "max-file=3"}
 
 // Panel is stackrd itself: host networking and NET_ADMIN for the VIP rules,
 // the Docker socket, the data dir at the same path inside.
@@ -195,6 +200,7 @@ func Panel(image string, in Input) Container {
 		},
 		HostNetwork: true,
 		CapAdd:      []string{"NET_ADMIN"},
+		LogOpts:     logCap,
 		Restart:     "unless-stopped",
 	}
 }
@@ -219,6 +225,7 @@ func Proxy(image string, in Input, dnsToken string) Container {
 		Volumes:    []string{ProxyVolume + ":/caddy", in.AdminDir() + ":" + ProxyAdminDir},
 		Ports:      ports,
 		ExtraHosts: []string{PanelName + ":host-gateway"},
+		LogOpts:    logCap,
 		Restart:    "unless-stopped",
 	}
 	c.Labels[LabelSpec] = c.Hash()
@@ -243,6 +250,7 @@ func NodeProxy(image string) Container {
 		Labels:      map[string]string{LabelRole: "proxy"},
 		Volumes:     []string{ProxyVolume + ":/caddy", WorkerProxyAdminDir + ":" + ProxyAdminDir},
 		HostNetwork: true,
+		LogOpts:     logCap,
 		Restart:     "unless-stopped",
 	}
 	c.Labels[LabelSpec] = c.Hash()
@@ -282,6 +290,9 @@ func (c Container) RunArgs() []string {
 	}
 	for _, k := range slices.Sorted(maps.Keys(c.Labels)) {
 		a = append(a, "--label", k+"="+c.Labels[k])
+	}
+	for _, v := range c.LogOpts {
+		a = append(a, "--log-opt", v)
 	}
 	for _, v := range c.Volumes {
 		a = append(a, "-v", v)
