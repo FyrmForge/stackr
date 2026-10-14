@@ -499,6 +499,7 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 	})
 	orch.deploy = build("flow/deploy", func() *deploy.Flow {
 		return &deploy.Flow{
+			Preflight:  orch.preflight,
 			Remote:     func(ctx context.Context, e store.Environment) bool { return orch.envRemote(ctx, e.ID) },
 			LinkHost:   orch.linkHost,
 			Tiles:      orch.tiles,

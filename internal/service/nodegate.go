@@ -219,8 +219,7 @@ func (o *Orchestrator) diskCheck(ctx context.Context, nodeID string) (warn strin
 }
 
 // preflight is the deploy's disk step: it logs the warning and returns the
-// refusal. ponytail: not wired yet; set it as deploy.Flow.Preflight at
-// integration, once lane F's field is in.
+// refusal; it is deploy.Flow.Preflight.
 func (o *Orchestrator) preflight(ctx context.Context, e store.Environment, log io.Writer) error {
 	id := e.NodeID
 	if id == "" {
