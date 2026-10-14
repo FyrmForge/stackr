@@ -502,7 +502,7 @@ func TestFence(t *testing.T) {
 	l := joined(s)
 	for _, w := range []string{
 		"iptables -t filter -F STACKR-FENCE",
-		"iptables -t filter -A STACKR-FENCE -m conntrack --ctstatus DNAT -j RETURN",
+		"iptables -t filter -A STACKR-FENCE -m conntrack --ctstate DNAT -j RETURN",
 		"iptables -t filter -A STACKR-FENCE -s 10.208.1.0/24 -o eth0 -j DROP",
 		"iptables -t filter -A STACKR-FENCE -s 10.208.2.0/24 -o eth0 -j DROP",
 		"iptables -t filter -I DOCKER-USER 1 -j STACKR-FENCE",

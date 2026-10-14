@@ -408,7 +408,7 @@ func (f Fence) Up() ([]Step, error) {
 		return nil, err
 	}
 	s := []Step{quiet(ipt("filter", "-N", FenceChain)...), cmd(ipt("filter", "-F", FenceChain)...),
-		cmd(ipt("filter", "-A", FenceChain, "-m", "conntrack", "--ctstatus", "DNAT", "-j", "RETURN")...)}
+		cmd(ipt("filter", "-A", FenceChain, "-m", "conntrack", "--ctstate", "DNAT", "-j", "RETURN")...)}
 	for _, src := range f.Sources {
 		for _, d := range Refused {
 			s = append(s, cmd(ipt("filter", "-A", FenceChain, "-s", src, "-d", d, "-j", "RETURN")...))
