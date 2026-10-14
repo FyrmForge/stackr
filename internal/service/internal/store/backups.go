@@ -92,6 +92,7 @@ type BackupRun struct {
 	Error      string     `db:"error" json:"error"`
 	CreatedAt  time.Time  `db:"created_at" json:"created_at"`
 	FinishedAt *time.Time `db:"finished_at" json:"finished_at"`
+	GroupID    *string    `db:"group_id" json:"group_id"`
 }
 
 type BackupRunStore interface {
@@ -99,6 +100,7 @@ type BackupRunStore interface {
 	Get(ctx context.Context, id string) (BackupRun, error)
 	ListByVolume(ctx context.Context, volumeID string) ([]BackupRun, error)
 	ListByKind(ctx context.Context, kind string) ([]BackupRun, error)
+	ListByGroup(ctx context.Context, groupID string) ([]BackupRun, error)
 	// ListByPrefix lists the runs whose object key sits under prefix.
 	ListByPrefix(ctx context.Context, prefix string) ([]BackupRun, error)
 	Update(ctx context.Context, b BackupRun) error
@@ -119,4 +121,8 @@ func (s backupRuns) ListByKind(ctx context.Context, kind string) ([]BackupRun, e
 
 func (s backupRuns) ListByPrefix(ctx context.Context, prefix string) ([]BackupRun, error) {
 	return s.many(ctx, "substr(object_key, 1, ?) = ?", len(prefix), prefix)
+}
+
+func (s backupRuns) ListByGroup(ctx context.Context, groupID string) ([]BackupRun, error) {
+	return s.many(ctx, "group_id = ?", groupID)
 }

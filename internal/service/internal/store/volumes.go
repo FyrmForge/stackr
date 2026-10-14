@@ -17,6 +17,9 @@ type Volume struct {
 	MaxSizeMB  int        `db:"max_size_mb" json:"max_size_mb"`
 	OrphanedAt *time.Time `db:"orphaned_at" json:"orphaned_at"`
 	CreatedAt  time.Time  `db:"created_at" json:"created_at"`
+	// NodeID is where an orphan's data lives once its env row is gone; ''
+	// means the controller. Set by the env delete trigger.
+	NodeID string `db:"node_id" json:"node_id"`
 }
 
 type VolumeStore interface {
@@ -24,6 +27,8 @@ type VolumeStore interface {
 	Get(ctx context.Context, id string) (Volume, error)
 	ListByScope(ctx context.Context, scopeKind, scopeID string) ([]Volume, error)
 	ListOrphaned(ctx context.Context) ([]Volume, error)
+	// ListByNode lists the orphans pinned to nodeID.
+	ListByNode(ctx context.Context, nodeID string) ([]Volume, error)
 	Update(ctx context.Context, v Volume) error
 	Delete(ctx context.Context, id string) error
 }
@@ -38,4 +43,8 @@ func (s volumes) ListByScope(ctx context.Context, scopeKind, scopeID string) ([]
 
 func (s volumes) ListOrphaned(ctx context.Context) ([]Volume, error) {
 	return s.many(ctx, "orphaned_at IS NOT NULL")
+}
+
+func (s volumes) ListByNode(ctx context.Context, nodeID string) ([]Volume, error) {
+	return s.many(ctx, "orphaned_at IS NOT NULL AND node_id = ?", nodeID)
 }
