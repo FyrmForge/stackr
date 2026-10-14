@@ -1,22 +1,53 @@
 name: Release
 
 on:
-  push:
-    tags: ["v*.*.*"]
+  workflow_run:
+    workflows:
+      - CI
+    types:
+      - completed
 
 permissions:
   contents: write
-  packages: write
 
 jobs:
   release:
+    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'master'
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.semantic.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - name: Semantic release
+        id: semantic
+        uses: go-semantic-release/action@v1
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          allow-initial-development-versions: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  build-release:
+    needs: release
+    if: needs.release.outputs.version != ''
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.workflow_run.head_sha }}
 
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.27.1"
+          go-version-file: go.mod
 
       - uses: actions/setup-node@v4
         with:
@@ -28,14 +59,23 @@ jobs:
         run: make install
 
       - name: Build image and installer
-        run: make release RELEASE=${{ github.ref_name }}
+        run: make release RELEASE=v${{ needs.release.outputs.version }}
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Push image
+        env:
+          VERSION: ${{ needs.release.outputs.version }}
         run: |
-          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
-          docker push ghcr.io/fyrmforge/stackr:${GITHUB_REF_NAME#v}
+          docker tag ghcr.io/fyrmforge/stackr:${VERSION} ghcr.io/fyrmforge/stackr:latest
+          docker push ghcr.io/fyrmforge/stackr:${VERSION}
+          docker push ghcr.io/fyrmforge/stackr:latest
 
-      - name: GitHub release
+      - name: Upload release asset
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release create ${{ github.ref_name }} bin/stackr-install-linux-amd64 --generate-notes
+        run: gh release upload v${{ needs.release.outputs.version }} bin/stackr-install-linux-amd64
