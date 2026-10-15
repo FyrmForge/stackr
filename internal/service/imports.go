@@ -13,6 +13,7 @@ import (
 
 	"github.com/google/go-containerregistry/pkg/authn"
 
+	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/image"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/node"
@@ -66,6 +67,32 @@ func (o *Orchestrator) outsideRef(ctx context.Context, ref string) bool {
 	return true
 }
 
+// ownClusterRef refuses a ref into the cluster registry (localhost:5000/...
+// or registry.<panel domain>/...) under another org's name: a node that
+// already holds that image would run it without asking the registry, so the
+// pass check at pull time is not enough. stackr's own images are anyone's.
+func (o *Orchestrator) ownClusterRef(ctx context.Context, orgID, ref string) error {
+	path, ok := strings.CutPrefix(ref, image.ClusterRegistry)
+	if own := o.RegistryHost(ctx); !ok && own != "" {
+		path, ok = strings.CutPrefix(ref, own+"/")
+	}
+	if !ok {
+		return nil
+	}
+	owner, _, _ := strings.Cut(path, "/")
+	if owner == regfront.SystemOrg {
+		return nil
+	}
+	og, err := o.store.Orgs.Get(ctx, orgID)
+	if err != nil {
+		return err
+	}
+	if owner != og.Slug {
+		return errs.Refusedf("%s is not an image of this org", ref)
+	}
+	return nil
+}
+
 // importForDeploy is flow/deploy's Import hook: an outside ref is imported on
 // the controller before its node pulls, with the org's credential credID
 // ("" anonymous). imported=false: the ref is not outside, or the install does
@@ -75,6 +102,9 @@ func (o *Orchestrator) outsideRef(ctx context.Context, ref string) bool {
 // localhost name; a tag ref keeps the name the user gave (the router tags the
 // pulled copy with it).
 func (o *Orchestrator) importForDeploy(ctx context.Context, orgID, ref, credID string, log io.Writer) (run string, imported bool, err error) {
+	if err := o.ownClusterRef(ctx, orgID, ref); err != nil {
+		return "", false, err
+	}
 	if !o.cfg.RegistryImports || !o.outsideRef(ctx, ref) {
 		return ref, false, nil
 	}

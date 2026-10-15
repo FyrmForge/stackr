@@ -204,6 +204,13 @@ func TestImportForDeploy(t *testing.T) {
 			t.Fatalf("%q was imported: %v", ref, err)
 		}
 	}
+	// Another org's image is refused by name, whether or not the node holds it.
+	must(t, n.orch.SetSetting(ctx, "panel_domain", "panel.test"))
+	for _, ref := range []string{"localhost:5000/zed/shop/web@sha256:abc", "localhost:5000/zed/docker.io/library/redis:7", "registry.panel.test/zed/shop/web:abc"} {
+		if _, _, err := n.orch.importForDeploy(ctx, og.ID, ref, "", io.Discard); err == nil {
+			t.Errorf("%q: another org's image was accepted", ref)
+		}
+	}
 	run, imported, err := n.orch.importForDeploy(ctx, og.ID, "nginx:1", "", io.Discard)
 	if err != nil || !imported || run != "nginx:1" {
 		t.Fatalf("tag ref: %q %v %v", run, imported, err)
