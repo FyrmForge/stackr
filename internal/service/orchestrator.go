@@ -264,9 +264,13 @@ type Orchestrator struct {
 	// pull waits on it after an upgrade (systemimages.go).
 	stackrPublished chan struct{}
 	stackrOnce      sync.Once
-	localWorker     *worker.Server // the controller's own node in the mesh, nil on a fake host
-	rotation        rotation       // mesh key rotation (rotate.go)
-	stopOnce        sync.Once
+	// regLocalUp closes once serveRegistryLocal holds the controller's
+	// localhost:5000: no pass goes to that port before (registryPassFor).
+	regLocalUp   chan struct{}
+	regLocalOnce sync.Once
+	localWorker  *worker.Server // the controller's own node in the mesh, nil on a fake host
+	rotation     rotation       // mesh key rotation (rotate.go)
+	stopOnce     sync.Once
 }
 
 // onBuild is a test hook: every constructor New calls reports its name here,
@@ -407,6 +411,7 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 		stopNodes: make(chan struct{}),
 
 		stackrPublished: make(chan struct{}),
+		regLocalUp:      make(chan struct{}),
 	}
 	// Every network comes from one cluster pool: a reservation avoids every
 	// env's network and every node's reported bridges, not just its own node's.
@@ -420,6 +425,7 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 	if r, ok := d.(*DockerRouter); ok {
 		r.OwnRegistry = orch.RegistryHost
 		if c, ok := r.clients[ctl.ID].(*docker.Client); ok {
+			c.SetRegistryAuth(orch.registryPassFor(ctl.ID, true))
 			c.SetRegistryDigest(orch.registryDigest)
 		}
 		r.Gate = orch.gate

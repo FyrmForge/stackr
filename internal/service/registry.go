@@ -5,6 +5,7 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
@@ -101,6 +102,45 @@ func registryPass(key []byte, subject string) docker.RegistryAuth {
 	}
 }
 
+// registryPassFor is registryPass for one node, minted only while stackr
+// holds that node's localhost:5000: a pass sent to whatever else bound the
+// port (a host-network tile, first at boot) could be replayed at the front.
+// The controller waits for its own listener; a worker must not report that
+// its registry proxy lost the bind.
+// ponytail: one facts call per pull or push; cache it if pulls get hot.
+func (o *Orchestrator) registryPassFor(nodeID string, controller bool) docker.RegistryAuth {
+	pass := registryPass(o.registryKey(), nodeID)
+	if controller {
+		nodeID = "controller"
+	}
+	return func(ctx context.Context, repo string, push bool) (string, error) {
+		if controller {
+			wctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+			defer cancel()
+			select {
+			case <-o.regLocalUp:
+			case <-wctx.Done():
+				return "", errors.New("the registry front does not hold 127.0.0.1:" + installspec.RegistryPort + " on the controller")
+			}
+			return pass(ctx, repo, push)
+		}
+		cl, err := o.nodeExtras(nodeID)
+		if err != nil {
+			return "", err
+		}
+		fctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		defer cancel()
+		f, err := cl.Facts(fctx)
+		if err != nil {
+			return "", fmt.Errorf("registry proxy state: %w", err)
+		}
+		if f.RegistryError != "" {
+			return "", errors.New(f.RegistryError)
+		}
+		return pass(ctx, repo, push)
+	}
+}
+
 // registryDigest is docker.Client's RegistryDigest: the registry's own
 // answer over its socket, never through a node's loopback.
 func (o *Orchestrator) registryDigest(ctx context.Context, repo, tag string) (string, error) {
@@ -129,6 +169,7 @@ func (o *Orchestrator) serveRegistryLocal(ctx context.Context) {
 	for {
 		ln, err := net.Listen("tcp", addr)
 		if err == nil {
+			o.regLocalOnce.Do(func() { close(o.regLocalUp) })
 			go func() { <-ctx.Done(); _ = srv.Close() }()
 			if err := srv.Serve(ln); !errors.Is(err, http.ErrServerClosed) {
 				slog.Warn("registry: local listener", "addr", addr, "err", err)

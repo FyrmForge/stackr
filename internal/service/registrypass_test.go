@@ -102,3 +102,19 @@ func TestRegistryLocalTakesPassesOnly(t *testing.T) {
 		t.Errorf("system image for an org's deploy: %v", err)
 	}
 }
+
+// No pass goes to the controller's localhost:5000 before stackr holds it:
+// whatever bound it first would get a token it could replay at the front.
+func TestRegistryPassWaitsForLocalListener(t *testing.T) {
+	o := &Orchestrator{cfg: Config{SecretsKey: testKey}, regLocalUp: make(chan struct{})}
+	pass := o.registryPassFor("ctl", true)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := pass(ctx, "acme/shop/api", false); err == nil {
+		t.Fatal("a pass was minted with the port not ours")
+	}
+	close(o.regLocalUp)
+	if a, err := pass(context.Background(), "acme/shop/api", false); err != nil || a == "" {
+		t.Fatalf("pass %q, %v", a, err)
+	}
+}
