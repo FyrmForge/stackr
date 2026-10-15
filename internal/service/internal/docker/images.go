@@ -119,6 +119,29 @@ func (d *Client) load(ctx context.Context, ref, repo, at string, log io.Writer) 
 	return nil
 }
 
+// runImage is what a container of ref is created from. A digest ref of the
+// cluster registry is the loaded image's id, checked against the registry's
+// now: its local name is a tag, which anything may retag between the load
+// and the create. Any other ref is itself.
+func (d *Client) runImage(ctx context.Context, ref string) (string, error) {
+	repo, at, ok := clusterRef(ref)
+	if !ok || !strings.HasPrefix(at, "sha256:") {
+		return ref, nil
+	}
+	id, err := d.localID(ctx, localName(ref))
+	if err != nil {
+		return "", err
+	}
+	img, err := d.cluster(ctx, repo, at)
+	if err != nil {
+		return "", err
+	}
+	if id == "" || !slices.Contains(img.IDs, id) {
+		return "", fmt.Errorf("%w: %s here is not the registry's %s", ErrNotFound, ref, img.Digest)
+	}
+	return id, nil
+}
+
 // Save writes ref from this daemon as docker save does.
 func (d *Client) Save(ctx context.Context, ref string, w io.Writer) error {
 	rc, err := d.cli.ImageSave(ctx, []string{ref})

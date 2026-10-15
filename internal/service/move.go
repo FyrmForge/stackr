@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -145,8 +146,14 @@ func (o *Orchestrator) pushLocal(ctx context.Context, ref string) (imgcopy.Resul
 	}
 	path := f.Name()
 	defer func() { _ = os.Remove(path) }()
-	// Into a file: the tarball reader opens it once per layer.
-	err = o.docker.Save(ctx, ref, f)
+	// Into a file: the tarball reader opens it once per layer. At most half
+	// the controller's free disk: the registry's copy needs the rest, and a
+	// tenant's build must not fill the disk the cluster runs on.
+	var w io.Writer = f
+	if free, _ := o.dataDirDisk(); free > 0 {
+		w = &capped{w: f, left: int64(free / 2)} //nolint:gosec // a disk size, never near the limit
+	}
+	err = o.docker.Save(ctx, ref, w)
 	if cerr := f.Close(); err == nil {
 		err = cerr
 	}
@@ -523,4 +530,18 @@ func deployOrder(ts []store.Tile) []store.Tile {
 		}
 	}
 	return out
+}
+
+// capped is a writer that refuses past left bytes.
+type capped struct {
+	w    io.Writer
+	left int64
+}
+
+func (c *capped) Write(p []byte) (int, error) {
+	if int64(len(p)) > c.left {
+		return 0, errors.New("the image is larger than the controller's free disk allows")
+	}
+	c.left -= int64(len(p))
+	return c.w.Write(p)
 }

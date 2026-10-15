@@ -131,6 +131,15 @@ func TestPullClusterLoads(t *testing.T) {
 	}
 	step("localhost:5000/acme/api:v1", true, "load localhost:5000/acme/api:v1")
 	step("localhost:5000/acme/api@"+good, true, "load localhost:5000/acme/api:sha256-"+strings.Repeat("a", 64))
+	// A container of a digest ref runs the checked id, never the tag.
+	pinned := "localhost:5000/acme/api@" + good
+	if img, err := d.runImage(ctx, pinned); err != nil || img != good {
+		t.Errorf("runImage = %q, %v", img, err)
+	}
+	ids["localhost:5000/acme/api:sha256-"+strings.Repeat("a", 64)] = "sha256:retagged"
+	if _, err := d.runImage(ctx, pinned); err == nil {
+		t.Error("a retagged digest name ran")
+	}
 	step("localhost:5000/other/api:v1", false) // refused: nothing moves
 	loads = "sha256:evil"
 	step("localhost:5000/acme/api:v2", false, "load localhost:5000/acme/api:v2", "rm localhost:5000/acme/api:v2")

@@ -36,8 +36,12 @@ func (d *Client) Create(ctx context.Context, spec ContainerSpec) (string, error)
 	labels := map[string]string{LabelManaged: "true"}
 	maps.Copy(labels, spec.Labels)
 
+	img, err := d.runImage(ctx, spec.Image)
+	if err != nil {
+		return "", err
+	}
 	cfg := &container.Config{
-		Image:  localName(spec.Image),
+		Image:  img,
 		Cmd:    spec.Cmd,
 		Env:    spec.Env,
 		User:   spec.User,
