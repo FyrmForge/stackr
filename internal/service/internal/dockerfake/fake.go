@@ -59,7 +59,7 @@ type Fake struct {
 	CacheRemoved  int      // what BuildCachePrune removes
 	CacheTotal    string   // and the size it reports
 	InUse         []string // image ids a prune cannot remove (a container uses them)
-	Gone          []string // refs LocalDigest reports missing
+	Gone          []string // refs LocalDigest and ListImages report missing
 	BuildID       string
 	ExecOut       string
 	TarOut        []byte    // what TarVolume writes
@@ -335,12 +335,12 @@ func (f *Fake) EnsureBuilder(_ context.Context, name string, _ int) error {
 	return f.rec("EnsureBuilder", name)
 }
 
-func (f *Fake) Push(_ context.Context, ref string) error { return f.rec("Push", ref) }
+func (f *Fake) Save(_ context.Context, ref string, _ io.Writer) error { return f.rec("Save", ref) }
 
 func (f *Fake) ListImages(_ context.Context, labels map[string]string) ([]docker.Image, error) {
 	var out []docker.Image
 	for _, im := range f.Images {
-		if matches(im.Labels, labels) {
+		if matches(im.Labels, labels) && !slices.ContainsFunc(im.Tags, func(t string) bool { return slices.Contains(f.Gone, t) }) {
 			out = append(out, im)
 		}
 	}

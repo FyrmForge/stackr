@@ -33,6 +33,7 @@ type Docker interface {
 	PruneImages(ctx context.Context, labels map[string]string, keep []string) ([]string, int64, error)
 	Pull(ctx context.Context, ref, auth string, log io.Writer) error
 	LocalDigest(ctx context.Context, ref string) (string, error)
+	ListImages(ctx context.Context, labels map[string]string) ([]docker.Image, error)
 	EnsureBuilder(ctx context.Context, name string, memMB int) error
 	Build(
 		ctx context.Context,
@@ -83,23 +84,28 @@ func (l *Leaf) Name(ctx context.Context, repoName, sha, jobID string) (string, e
 // caller names the tile.
 var ErrCleanedUp = errors.New("the image was cleaned up; rebuild it")
 
-// ClusterRegistry prefixes the refs of builds pushed to the cluster registry;
-// every node pulls them from its own localhost:5000 (the registry on the
-// controller, the worker's front over the mesh elsewhere).
+// ClusterRegistry prefixes the refs of builds in the cluster registry; every
+// node has them loaded from the registry on the controller under this name.
 const ClusterRegistry = "localhost:" + installspec.RegistryPort + "/"
 
 // Ensure makes ref present on the box and returns its registry digest ("" for
-// an image built here). A build of ours is pulled from the cluster registry
-// only when this node lacks it (an older one, never pushed, cannot be), nor
-// is a digest-pinned ref already here pulled (it cannot have moved); a tag is
-// pulled every time, so a first deploy gets what the tag means now.
-// auth is the X-Registry-Auth blob, "" = anonymous.
+// an image built here). A build of ours is loaded from the cluster registry
+// only when this node lacks it: the build itself (the image id the build
+// recorded) or the registry's copy (LocalDigest checks the id); an older one,
+// never pushed, cannot be. A digest-pinned ref already here is not pulled (it
+// cannot have moved); a tag is pulled every time, so a first deploy gets what
+// the tag means now. auth is the X-Registry-Auth blob, "" = anonymous.
 func (l *Leaf) Ensure(ctx context.Context, ref, auth string, log io.Writer) (string, error) {
 	if i, err := l.images.GetByRef(ctx, ref); err == nil && i.BuiltAt != nil {
+		if l.isBuild(ctx, ref, i.Digest) {
+			return "", nil
+		}
 		_, err := l.docker.LocalDigest(ctx, ref)
 		switch {
-		case !errors.Is(err, docker.ErrNotFound):
+		case err == nil:
 			return "", nil
+		case !errors.Is(err, docker.ErrNotFound):
+			return "", err
 		case !strings.HasPrefix(ref, ClusterRegistry):
 			return "", fmt.Errorf("%s: %w", ref, ErrCleanedUp)
 		}
@@ -117,6 +123,24 @@ func (l *Leaf) Ensure(ctx context.Context, ref, auth string, log io.Writer) (str
 		return "", err
 	}
 	return l.docker.LocalDigest(ctx, ref)
+}
+
+// isBuild reports whether ref here is the very image the build made (its
+// node, before any load): the image id is the content's own digest.
+func (l *Leaf) isBuild(ctx context.Context, ref, id string) bool {
+	if id == "" {
+		return false
+	}
+	ims, err := l.docker.ListImages(ctx, map[string]string{LabelBuilt: "true"})
+	if err != nil {
+		return false
+	}
+	for _, im := range ims {
+		if im.ID == id && slices.Contains(im.Tags, ref) {
+			return true
+		}
+	}
+	return false
 }
 
 // Build builds dir into ref and records it. The label lets Cleanup find it.

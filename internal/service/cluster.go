@@ -91,8 +91,6 @@ type ClusterNode struct {
 	// days) are the cert note on its card.
 	Behind, TooOld, CertExpired bool
 	CertDays                    int
-	// RegistryError: the worker's registry proxy does not hold its port.
-	RegistryError string
 }
 
 type ClusterEnv struct {
@@ -209,7 +207,7 @@ func buildClusterMap(in []clusterNodeIn) ClusterMap {
 		}
 		key := "unknown"
 		if f := n.Facts; f != nil {
-			cn.Docker, cn.Arch, cn.RegistryError = f.Docker, f.Arch, f.RegistryError
+			cn.Docker, cn.Arch = f.Docker, f.Arch
 			for _, a := range publicAddrs(*f) {
 				cn.Public = append(cn.Public, a.String())
 			}

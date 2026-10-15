@@ -105,7 +105,7 @@ func TestRenewOverTunnel(t *testing.T) {
 	srv.TLS.Certificates = []tls.Certificate{ctl} // httptest adds its own otherwise
 	srv.StartTLS()
 	defer srv.Close()
-	s.cfg.Registry.URL = srv.URL
+	s.mesh.applied = &MeshSpec{Controller: srv.URL}
 
 	if err := s.renewOnce(context.Background(), time.Now()); err != nil {
 		t.Fatal(err)
@@ -145,7 +145,7 @@ func TestRenewThroughPanel(t *testing.T) {
 		_, _ = w.Write(signer(t, ca, p.CSR))
 	}))
 	defer panel.Close()
-	s.cfg.Registry.URL = "https://127.0.0.1:1" // nothing listens
+	s.mesh.applied = &MeshSpec{Controller: "https://127.0.0.1:1"} // nothing listens
 	s.cfg.Recover.Panel = panel.URL
 	if err := s.renewOnce(context.Background(), time.Now()); err != nil {
 		t.Fatal(err)

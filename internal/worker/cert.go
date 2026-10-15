@@ -31,7 +31,7 @@ import (
 // cert run out rather than revoking it, so a lost answer strands nobody.
 const (
 	// RenewTunnelPath is the controller's renewal endpoint on its mesh
-	// listener (the registry front's address), worker certs only.
+	// listener (MeshSpec.Controller), worker certs only.
 	RenewTunnelPath = "/stackr/v1/cert/renew"
 	// RenewPanelPath is the panel's public renewal endpoint, signed like a
 	// recovery call.
@@ -51,7 +51,7 @@ type RenewAnswer struct {
 }
 
 // ownCert is the node's current cert, swapped in place on renewal: the
-// listener, the registry proxy and recovery read it per use.
+// listener and recovery read it per use.
 type ownCert struct {
 	mu sync.RWMutex
 	c  tls.Certificate
@@ -244,16 +244,12 @@ func (s *Server) swapCertFiles(certPEM, keyPEM []byte) error {
 	return os.Rename(filepath.Join(d, keyFile+".new"), filepath.Join(d, keyFile))
 }
 
-// controllerURL is the controller's mesh listener: the flag's registry URL,
-// else the one the applied spec names.
+// controllerURL is the controller's mesh listener the applied spec names.
 func (s *Server) controllerURL() string {
-	if s.cfg.Registry.URL != "" {
-		return s.cfg.Registry.URL
-	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.mesh.applied != nil && s.mesh.applied.Registry != nil {
-		return s.mesh.applied.Registry.URL
+	if s.mesh.applied != nil {
+		return s.mesh.applied.Controller
 	}
 	return ""
 }

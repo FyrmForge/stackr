@@ -95,8 +95,8 @@ func TestDockerArch(t *testing.T) {
 	for in, want := range map[string]string{
 		"x86_64": "amd64", "aarch64": "arm64", "arm64": "arm64", "armv7l": "arm", "i686": "386", "riscv64": "riscv64", "": "",
 	} {
-		if got := dockerArch(in); got != want {
-			t.Errorf("dockerArch(%q) = %q, want %q", in, got, want)
+		if got := docker.Arch(in); got != want {
+			t.Errorf("docker.Arch(%q) = %q, want %q", in, got, want)
 		}
 	}
 }

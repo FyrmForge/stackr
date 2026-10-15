@@ -121,13 +121,16 @@ func (d *Client) volumeInfos(ctx context.Context, vols []*volume.Volume) ([]Volu
 }
 
 // ToolImage is the throwaway container's image: the cluster registry's copy of
-// alpine:3 (the controller publishes it at boot, systemimages.go), pulled
-// from localhost:5000 like every stackr image. A var: tests point it elsewhere.
+// alpine:3 (the controller publishes it at boot, systemimages.go), loaded
+// like every stackr image. A var: tests point it elsewhere.
 var ToolImage = "localhost:5000/stackr.system/alpine:3"
 
 // EnsureTool pulls the tool image if it is not on the host. Call it before
 // freezing a container: a pull inside the pause window is downtime.
 func (d *Client) EnsureTool(ctx context.Context) error {
+	if _, _, ok := clusterRef(d.toolImage()); ok {
+		return d.Pull(ctx, d.toolImage(), "", io.Discard) // a load checks what is here
+	}
 	if _, err := d.cli.ImageInspect(ctx, d.toolImage()); err == nil {
 		return nil
 	}

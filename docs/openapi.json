@@ -1588,19 +1588,6 @@
             },
             "type": "object"
           },
-          "registry_error": {
-            "type": "string"
-          },
-          "registry_up": {
-            "oneOf": [
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
           "resolvers": {
             "items": {
               "type": "string"
@@ -2865,6 +2852,9 @@
           "Address": {
             "$ref": "#/components/schemas/Prefix"
           },
+          "Controller": {
+            "type": "string"
+          },
           "ControllerSerials": {
             "items": {
               "type": "string"
@@ -2903,16 +2893,6 @@
               "$ref": "#/components/schemas/Peer"
             },
             "type": "array"
-          },
-          "Registry": {
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/RegistrySpec"
-              },
-              {
-                "type": "null"
-              }
-            ]
           },
           "Serves": {
             "items": {
@@ -3961,21 +3941,6 @@
           "orgs",
           "versions",
           "bytes"
-        ],
-        "type": "object"
-      },
-      "RegistrySpec": {
-        "properties": {
-          "Host": {
-            "type": "string"
-          },
-          "URL": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "URL",
-          "Host"
         ],
         "type": "object"
       },

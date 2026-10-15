@@ -14,63 +14,120 @@ import (
 	cerrdefs "github.com/containerd/errdefs"
 	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/api/types/network"
+	"github.com/docker/docker/client"
 )
 
 // Pull pulls ref (repo@digest or repo:tag) with auth, the base64 blob the
 // API's X-Registry-Auth header wants; "" = anonymous. Per call, never `docker
 // login`: the daemon config is shared by every org on the node. A cluster
-// registry ref gets the minted auth instead (SetRegistryAuth), and a tag of it
-// is pulled by the digest the registry has for it (SetRegistryDigest).
+// registry ref (localhost:5000/...) is never pulled: it is loaded from what
+// the cluster source reads (load).
 func (d *Client) Pull(ctx context.Context, ref, auth string, log io.Writer) error {
-	if a, ok, err := d.clusterAuth(ctx, ref, false); err != nil {
-		return err
-	} else if ok {
-		auth = a
+	if repo, at, ok := clusterRef(ref); ok {
+		return d.load(ctx, ref, repo, at, log)
 	}
-	pull := ref
-	if repo, ok := clusterRepo(ref); ok && d.regDigest != nil && !strings.Contains(ref, "@") {
-		tag := "latest"
-		if i := strings.LastIndex(ref, ":"); i > strings.LastIndex(ref, "/") {
-			tag = ref[i+1:]
-		}
-		dg, err := d.regDigest(ctx, repo, tag)
-		if err != nil {
-			return fmt.Errorf("pull %s: %w", ref, err)
-		}
-		if dg == "" {
-			return fmt.Errorf("pull %s: the cluster registry has no such image", ref)
-		}
-		pull = "localhost:5000/" + repo + "@" + dg
-		if log != nil {
-			_, _ = fmt.Fprintf(log, "%s is %s\n", ref, pull)
-		}
-	}
-	rc, err := d.cli.ImagePull(ctx, pull, image.PullOptions{RegistryAuth: auth})
+	rc, err := d.cli.ImagePull(ctx, ref, image.PullOptions{RegistryAuth: auth})
 	if err != nil {
 		return wrap(err)
 	}
 	defer func() { _ = rc.Close() }()
-	if err := drainProgress(rc, log); err != nil || pull == ref {
-		return err
-	}
-	// containers name the image by its tag
-	return wrap(d.cli.ImageTag(ctx, pull, ref))
+	return drainProgress(rc, log)
 }
 
-// Push pushes ref from this daemon, with the minted auth for a cluster
-// registry ref (a worker's goes through its registry front and the mesh).
-func (d *Client) Push(ctx context.Context, ref string) error {
-	auth, _, err := d.clusterAuth(ctx, ref, true)
+// cluster asks the cluster source for repo at at, for this daemon's CPU type.
+func (d *Client) cluster(ctx context.Context, repo, at string) (ClusterImage, error) {
+	if d.src == nil {
+		return ClusterImage{}, fmt.Errorf("%s%s: this node has no cluster registry source", ClusterPrefix, repo)
+	}
+	info, err := d.cli.Info(ctx)
+	if err != nil {
+		return ClusterImage{}, wrap(err)
+	}
+	return d.src(ctx, repo, at, Arch(info.Architecture))
+}
+
+// Arch is Docker's Architecture as the CPU type images name (x86_64 is
+// amd64, aarch64 is arm64).
+func Arch(a string) string {
+	switch a = strings.ToLower(a); a {
+	case "x86_64", "amd64":
+		return "amd64"
+	case "aarch64", "arm64":
+		return "arm64"
+	case "armv7l", "armhf", "arm":
+		return "arm"
+	case "i386", "i686", "x86":
+		return "386"
+	}
+	return a // ppc64le, s390x, riscv64 are named the same in both
+}
+
+// localID is the id of the image named name here, "" when there is none.
+func (d *Client) localID(ctx context.Context, name string) (string, error) {
+	info, err := d.cli.ImageInspect(ctx, name)
+	if cerrdefs.IsNotFound(err) {
+		return "", nil
+	}
+	return info.ID, wrap(err)
+}
+
+// load makes the cluster image ref present under its local name: kept when
+// the image there already has an id the registry's copy gives, else loaded,
+// and the loaded id checked against the registry's. A tag here is never
+// trusted on its own: anything could have tagged another image so.
+func (d *Client) load(ctx context.Context, ref, repo, at string, log io.Writer) error {
+	img, err := d.cluster(ctx, repo, at)
+	if err != nil {
+		return fmt.Errorf("pull %s: %w", ref, err)
+	}
+	name := localName(ref)
+	if id, err := d.localID(ctx, name); err != nil {
+		return err
+	} else if slices.Contains(img.IDs, id) {
+		return nil
+	}
+	if log != nil {
+		_, _ = fmt.Fprintf(log, "%s is %s, loading it\n", ref, img.Digest)
+	}
+	pr, pw := io.Pipe()
+	wrote := make(chan error, 1)
+	go func() {
+		err := img.Write(pw, name)
+		_ = pw.CloseWithError(err)
+		wrote <- err
+	}()
+	res, err := d.cli.ImageLoad(ctx, pr, client.ImageLoadWithQuiet(true))
+	if err == nil {
+		err = drainProgress(res.Body, io.Discard)
+		_ = res.Body.Close()
+	}
+	_ = pr.CloseWithError(errors.New("load ended"))
+	if werr := <-wrote; err == nil && werr != nil && !errors.Is(werr, io.ErrClosedPipe) {
+		err = werr
+	}
+	if err != nil {
+		return fmt.Errorf("load %s: %w", ref, wrap(err))
+	}
+	id, err := d.localID(ctx, name)
 	if err != nil {
 		return err
 	}
-	rc, err := d.cli.ImagePush(ctx, ref, image.PushOptions{RegistryAuth: auth})
+	if !slices.Contains(img.IDs, id) {
+		_ = d.RemoveImage(context.WithoutCancel(ctx), name)
+		return fmt.Errorf("load %s: the loaded image is %q, the registry's is %s", ref, id, img.Digest)
+	}
+	return nil
+}
+
+// Save writes ref from this daemon as docker save does.
+func (d *Client) Save(ctx context.Context, ref string, w io.Writer) error {
+	rc, err := d.cli.ImageSave(ctx, []string{ref})
 	if err != nil {
-		return fmt.Errorf("push %s: %w", ref, wrap(err))
+		return fmt.Errorf("save %s: %w", ref, wrap(err))
 	}
 	defer func() { _ = rc.Close() }()
-	if err := drainProgress(rc, io.Discard); err != nil {
-		return fmt.Errorf("push %s: %w", ref, err)
+	if _, err := io.Copy(w, rc); err != nil {
+		return fmt.Errorf("save %s: %w", ref, err)
 	}
 	return nil
 }
@@ -113,8 +170,27 @@ func drainProgress(r io.Reader, log io.Writer) error {
 }
 
 // LocalDigest returns the registry digest the local image for ref was pulled
-// from, "" when it was built locally or never pulled.
+// from, "" when it was built locally or never pulled. A cluster image is
+// asked of the cluster source and counts only when its id is the registry
+// copy's; any other is ErrNotFound.
 func (d *Client) LocalDigest(ctx context.Context, ref string) (string, error) {
+	if repo, at, ok := clusterRef(ref); ok {
+		id, err := d.localID(ctx, localName(ref))
+		if err != nil {
+			return "", err
+		}
+		if id == "" {
+			return "", fmt.Errorf("%w: %s", ErrNotFound, ref)
+		}
+		img, err := d.cluster(ctx, repo, at)
+		if err != nil {
+			return "", err
+		}
+		if !slices.Contains(img.IDs, id) {
+			return "", fmt.Errorf("%w: %s here is not the registry's %s", ErrNotFound, ref, img.Digest)
+		}
+		return img.Digest, nil
+	}
 	info, err := d.cli.ImageInspect(ctx, ref)
 	if err != nil {
 		return "", wrap(err)

@@ -37,7 +37,7 @@ func (d *Client) Create(ctx context.Context, spec ContainerSpec) (string, error)
 	maps.Copy(labels, spec.Labels)
 
 	cfg := &container.Config{
-		Image:  spec.Image,
+		Image:  localName(spec.Image),
 		Cmd:    spec.Cmd,
 		Env:    spec.Env,
 		User:   spec.User,

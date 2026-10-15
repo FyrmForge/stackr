@@ -37,6 +37,9 @@ type Perm struct {
 	Waiting bool   // asked for, not granted yet
 }
 
+// HostNetWarning is said wherever host networking is granted.
+const HostNetWarning = "A host network tile can reach every env on its node and the mesh."
+
 // Risky perms give full trust on the server: they need the stack's name
 // typed to approve.
 func (p Perm) Risky() bool { return p.Kind == KindNet || p.Kind == KindDocker }
@@ -68,6 +71,9 @@ func Parse(line string) Perm {
 // the server's own addresses (addrs, the panel's among them), the cloud
 // metadata address or the tailnet range. "" = nothing to say.
 func (p Perm) Warn(addrs []string, panel string) string {
+	if p.Kind == KindNet {
+		return HostNetWarning
+	}
 	if p.Kind != KindLAN {
 		return ""
 	}

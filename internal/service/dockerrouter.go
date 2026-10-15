@@ -235,10 +235,9 @@ func (r *DockerRouter) UntarVolume(ctx context.Context, name string, rd io.Reade
 }
 
 // Pull fetches ref on ctx's node. An image of stackr's own registry
-// (registry.<panel domain>/...) comes from localhost:5000 on that node: the
-// registry itself on the controller, the worker's front over the mesh
-// elsewhere. So does an outside image imported for the org in ctx
-// (imports.go). A tag ref is then tagged with the ref, so containers name it as
+// (registry.<panel domain>/...) is loaded under its localhost:5000 name from
+// the registry on the controller (docker.Client.Pull). So is an outside image
+// imported for the org in ctx (imports.go). A tag ref is then tagged with the ref, so containers name it as
 // given; Docker refuses to tag a digest ref, so that one is used under its
 // localhost name everywhere instead (pinnedLocal).
 func (r *DockerRouter) Pull(ctx context.Context, ref, auth string, log io.Writer) error {
@@ -310,8 +309,12 @@ func (r *DockerRouter) ownRegistry(ctx context.Context) string {
 	return r.OwnRegistry(ctx)
 }
 
+// LocalDigest asks for an image of stackr's registry, or an import, by its
+// localhost name: the loaded copy is checked against the registry's.
 func (r *DockerRouter) LocalDigest(ctx context.Context, ref string) (string, error) {
-	ref = r.pinnedLocal(ctx, ref)
+	if local, ok := r.localOf(ctx, ref); ok {
+		ref = local
+	}
 	return via(r, ctx, func(c Docker) (string, error) { return c.LocalDigest(ctx, ref) })
 }
 
@@ -366,8 +369,8 @@ func (r *DockerRouter) Build(
 	})
 }
 
-func (r *DockerRouter) Push(ctx context.Context, ref string) error {
-	return r.do(ctx, func(c Docker) error { return c.Push(ctx, ref) })
+func (r *DockerRouter) Save(ctx context.Context, ref string, w io.Writer) error {
+	return r.do(ctx, func(c Docker) error { return c.Save(ctx, ref, w) })
 }
 
 func (r *DockerRouter) Logs(ctx context.Context, id string, tail int) (string, error) {

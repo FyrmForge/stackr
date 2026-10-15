@@ -430,7 +430,7 @@ func (o *Orchestrator) buildTile(
 	// The checkout stays on the controller; a builder-tagged worker gets the
 	// build context streamed over the mesh (the docker CLI through its
 	// proxied Docker). The image goes into the cluster registry: the env's
-	// node, and any node a move takes it to, pulls it over the mesh.
+	// node, and any node a move takes it to, gets it loaded from there.
 	ctl, err := o.controllerID(ctx)
 	if err != nil {
 		return "", err
@@ -445,8 +445,8 @@ func (o *Orchestrator) buildTile(
 		func(n string) bool { return o.nodeAnswers(ctx, n) }, log)
 }
 
-// buildOn builds ref on nodeID and pushes it into the cluster registry with a
-// pass minted for repo (registryPass).
+// buildOn builds ref on nodeID and copies it into the cluster registry
+// (pushLocal): the node's Docker saves it, the controller writes it.
 func (o *Orchestrator) buildOn(
 	ctx context.Context,
 	nodeID, repo, ref, dir, dockerfile string,
@@ -459,11 +459,18 @@ func (o *Orchestrator) buildOn(
 	if err != nil {
 		return "", err
 	}
-	if err := o.docker.Push(ctx, ref); err != nil {
-		return "", err
+	if o.cfg.FakeHost == "" { // a fake host has no registry
+		leave, err := o.regs.Hold(ctx)
+		if err != nil {
+			return "", err
+		}
+		_, err = o.pushLocal(ctx, ref)
+		leave()
+		if err != nil {
+			return "", err
+		}
 	}
-	// A push from the controller goes straight to the registry, past the
-	// front's callback; a worker's goes through it and records the same row.
+	// The write went past the front, so the row is recorded here.
 	_, tag, _ := strings.Cut(strings.TrimPrefix(ref, "localhost:"+installspec.RegistryPort+"/"+repo), ":")
 	o.registryPushed(ctx, regfront.Pushed{Repo: repo, Reference: tag, Kind: regfront.KindNode, Subject: nodeID})
 	return img.ID, nil

@@ -61,7 +61,10 @@ func (o *Orchestrator) startMesh(ctlID string) {
 	o.stopMesh, o.meshCtx, o.localWorker = cancel, ctx, local
 	go o.rotateSchedule(ctx)
 	if local != nil {
-		o.mesh.ctlID, o.mesh.Registry, o.mesh.Panel = ctlID, o.meshRegistry, o.panelURL()
+		o.mesh.ctlID, o.mesh.Panel = ctlID, o.panelURL()
+		if addr, ok := o.registryWGAddr(); ok {
+			o.mesh.Controller = "https://" + addr
+		}
 		o.mesh.Trust = o.meshTrust
 	}
 	// Not started here: its first sync reads leaves New builds after this.

@@ -5,10 +5,10 @@ const (
 	RegistryVolume = "stackr-registry-data"
 	// RegistryImage is the standard distribution registry.
 	RegistryImage = "registry:3"
-	// RegistryPort is where every node's Docker finds the cluster registry,
-	// localhost:5000: stackrd's registry front on the host's loopback (the
-	// controller's serves the registry socket, a worker's proxies to the
-	// controller over the mesh). The front takes only tokens stackr minted.
+	// RegistryPort is the port in the names cluster registry images have on
+	// a node (localhost:5000/...). Only a name: nothing listens there; the
+	// controller loads every image into a node's Docker from the registry's
+	// socket.
 	RegistryPort = "5000"
 	// registryRun is where the registry container sees RegistryDir.
 	registryRun = "/run/stackr-registry"

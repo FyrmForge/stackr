@@ -522,9 +522,8 @@ func (o *Orchestrator) refreshNodeClients(ctx context.Context) error {
 			delete(want, n.ID)
 			continue
 		}
-		d.SetTool(move.RsyncImage) // pulled over the mesh, see EnsureTool
-		d.SetRegistryAuth(o.registryPassFor(n.ID, workerRegistryUp(cd.ext)))
-		d.SetRegistryDigest(o.registryDigest)
+		d.SetTool(move.RsyncImage) // loaded from the registry, see EnsureTool
+		d.SetClusterSource(o.clusterImage)
 		r.Set(n.ID, d)
 		if nv, ok := o.vip.(*nodeVIPs); ok {
 			vctx, cancel := context.WithTimeout(ctx, 5*time.Second)

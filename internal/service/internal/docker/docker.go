@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -196,56 +197,61 @@ type Client struct {
 	// remote: another host's Docker, so this process's own interfaces say
 	// nothing about it.
 	remote bool
-	// regAuth mints the X-Registry-Auth for one pull or push of a repo of
-	// the cluster registry (localhost:5000/...); nil = none.
-	regAuth RegistryAuth
-	// regDigest is what a tag of the cluster registry points at, asked of
-	// the registry itself on the controller; nil = pull tags as they are.
-	regDigest RegistryDigest
+	// src reads the cluster registry's images for this node (the controller,
+	// over the registry's socket); nil = a cluster ref cannot be pulled.
+	src ClusterSource
 }
 
-// RegistryDigest answers the digest repo:tag has in the cluster registry, ""
-// when it has none.
-type RegistryDigest func(ctx context.Context, repo, tag string) (string, error)
-
-// SetRegistryDigest makes every pull of a cluster registry tag go by the
-// digest f answers: anything may hold the node's localhost:5000 (a
-// host-network tile that bound it first) and answer a tag with its own image;
-// a digest it cannot fake.
-func (d *Client) SetRegistryDigest(f RegistryDigest) { d.regDigest = f }
-
-// RegistryAuth mints the X-Registry-Auth for one pull (push false) or push
-// of repo in the cluster registry; an error refuses the call.
-type RegistryAuth func(ctx context.Context, repo string, push bool) (string, error)
-
-// SetRegistryAuth makes every pull and push of a cluster registry image carry
-// what f mints, whatever auth the caller passed: the registry front on
-// localhost:5000 takes nothing else.
-func (d *Client) SetRegistryAuth(f RegistryAuth) { d.regAuth = f }
-
-// clusterAuth is the minted auth for ref when it names the cluster registry;
-// ok is false for any other registry.
-func (d *Client) clusterAuth(ctx context.Context, ref string, push bool) (auth string, ok bool, err error) {
-	repo, ok := clusterRepo(ref)
-	if !ok || d.regAuth == nil {
-		return "", false, nil
-	}
-	auth, err = d.regAuth(ctx, repo, push)
-	return auth, err == nil, err
+// ClusterImage is one platform's image of the cluster registry.
+type ClusterImage struct {
+	// Digest is what the registry has for the ref asked: an index's for a
+	// multi-platform image.
+	Digest string
+	// IDs are the image ids a load of it gives: the platform manifest's
+	// digest (containerd image store) and the config's (classic store).
+	IDs []string
+	// Write writes the docker load tarball, the image named tag.
+	Write func(w io.Writer, tag string) error
 }
 
-// clusterRepo is the repository of a localhost:5000/<repo>[:tag|@digest] ref.
-func clusterRepo(ref string) (string, bool) {
-	rest, ok := strings.CutPrefix(ref, "localhost:5000/")
+// ClusterSource answers repo at at (a tag or "sha256:..." digest) for a node
+// of CPU type arch ("amd64"); an error refuses the image (another org's).
+type ClusterSource func(ctx context.Context, repo, at, arch string) (ClusterImage, error)
+
+// SetClusterSource makes every pull of a cluster registry image (localhost:5000/...)
+// a load of what f reads: no node's Docker ever dials localhost:5000, where
+// anything (a host-network tile) could answer.
+func (d *Client) SetClusterSource(f ClusterSource) { d.src = f }
+
+// ClusterPrefix starts every cluster registry image name on a node. Only a
+// name: nothing listens there.
+const ClusterPrefix = "localhost:5000/"
+
+// clusterRef splits a localhost:5000/<repo>[:tag|@digest] ref; at is the tag
+// ("latest" when none) or the digest.
+func clusterRef(ref string) (repo, at string, ok bool) {
+	rest, ok := strings.CutPrefix(ref, ClusterPrefix)
 	if !ok {
-		return "", false
+		return "", "", false
 	}
+	repo, at = rest, "latest"
 	if i := strings.Index(rest, "@"); i >= 0 {
-		rest = rest[:i]
+		repo, at = rest[:i], rest[i+1:]
 	} else if i := strings.LastIndex(rest, ":"); i > strings.LastIndex(rest, "/") {
-		rest = rest[:i]
+		repo, at = rest[:i], rest[i+1:]
 	}
-	return rest, rest != ""
+	return repo, at, repo != ""
+}
+
+// localName is the name a cluster image has on a node once loaded: a load
+// gives no repo digest, so a digest ref is the tag "sha256-<hex>" there.
+// Any other ref is itself.
+func localName(ref string) string {
+	repo, at, ok := clusterRef(ref)
+	if !ok || !strings.HasPrefix(at, "sha256:") {
+		return ref
+	}
+	return ClusterPrefix + repo + ":sha256-" + strings.TrimPrefix(at, "sha256:")
 }
 
 // SetTool makes the tool containers run ref instead of ToolImage: a worker

@@ -5,7 +5,6 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"errors"
-	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
@@ -13,7 +12,6 @@ import (
 	"strings"
 	"time"
 
-	dockerregistry "github.com/docker/docker/api/types/registry"
 	"github.com/labstack/echo/v4"
 
 	"github.com/FyrmForge/stackr/internal/authz"
@@ -70,138 +68,25 @@ func registryHostDir(cfg Config) string {
 	return cfg.DataDir
 }
 
-// registryPassTTL is how long a minted pass lives. Docker never refreshes
-// one, so it must outlast the slowest pull or push of a big image.
-const registryPassTTL = time.Hour
-
-// registryPass mints, per pull or push, the X-Registry-Auth a node's Docker
-// sends its localhost:5000: a front token (RegistryToken, sent as Bearer
-// with no token exchange) for that one repo, never a standing credential, so
-// nothing on a node's loopback can reuse it for anything else. A pull for an
-// org (docker.WithPullOrg) is refused another org's repo: the ref is the
-// org's to write. Nothing writes stackr.system through a front (Decide).
-func registryPass(key []byte, subject string) docker.RegistryAuth {
-	return func(ctx context.Context, repo string, push bool) (string, error) {
-		if org, ok := docker.PullOrgFrom(ctx); ok {
-			if owner, _, _ := strings.Cut(repo, "/"); owner != org && owner != regfront.SystemOrg {
-				return "", errs.Refusedf("%s is not an image of this org", repo)
-			}
-		}
-		want := regfront.Scope{Repo: repo, Actions: []string{regfront.Pull}}
-		if push {
-			want.Actions = append(want.Actions, regfront.Push)
-		}
-		now := time.Now()
-		tok := regfront.Sign(key, regfront.Claims{
-			Kind: regfront.KindNode, Subject: subject, Issued: now.Unix(), Expires: now.Add(registryPassTTL).Unix(),
-			Access: regfront.Decide(regfront.Facts{Kind: regfront.KindAdmin}, []regfront.Scope{want}),
-		})
-		return dockerregistry.EncodeAuthConfig(dockerregistry.AuthConfig{
-			RegistryToken: tok, ServerAddress: "localhost:" + installspec.RegistryPort,
-		})
-	}
-}
-
-// registryPassFor is registryPass for one node, minted only while up says
-// stackr holds that node's localhost:5000: a pass sent to whatever else bound
-// the port (a host-network tile, first at boot) could be replayed at the front.
-func (o *Orchestrator) registryPassFor(nodeID string, up func(context.Context) error) docker.RegistryAuth {
-	pass := registryPass(o.registryKey(), nodeID)
-	return func(ctx context.Context, repo string, push bool) (string, error) {
-		if err := up(ctx); err != nil {
-			return "", err
-		}
-		return pass(ctx, repo, push)
-	}
-}
-
-// registryLocalUp waits a little for serveRegistryLocal to hold the port: a
-// pull right after boot races the listener.
-func (o *Orchestrator) registryLocalUp(ctx context.Context) error {
-	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
-	defer cancel()
-	for !o.regLocalUp.Load() {
-		select {
-		case <-ctx.Done():
-			return errors.New("the registry front does not hold 127.0.0.1:" + installspec.RegistryPort + " on the controller")
-		case <-time.After(200 * time.Millisecond):
+// clusterImage is every node's docker.ClusterSource: what the registry holds
+// for repo at at, read over its socket on the controller and loaded into the
+// node's Docker over the link the controller already drives it by. No node
+// ever asks: the controller loads only what it deploys there. A load for an
+// org (docker.WithPullOrg) is refused another org's repo, since the image ref
+// is the org's to write; stackr's own images are anyone's. No recorded or
+// resolvable image is an error, never a fallback.
+func (o *Orchestrator) clusterImage(ctx context.Context, repo, at, arch string) (docker.ClusterImage, error) {
+	if org, ok := docker.PullOrgFrom(ctx); ok {
+		if owner, _, _ := strings.Cut(repo, "/"); owner != org && owner != regfront.SystemOrg {
+			return docker.ClusterImage{}, errs.Refusedf("%s is not an image of this org", repo)
 		}
 	}
-	return nil
+	return o.regs.Image(ctx, repo, at, arch)
 }
 
-// workerRegistryUp asks the worker, through the same client the Docker calls
-// go through, whether its registry proxy holds its port right now.
-// ponytail: one facts call per pull or push; cache it if pulls get hot.
-func workerRegistryUp(ext interface {
-	Facts(context.Context) (worker.Facts, error)
-}) func(context.Context) error {
-	return func(ctx context.Context) error {
-		ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
-		defer cancel()
-		f, err := ext.Facts(ctx)
-		switch {
-		case err != nil:
-			return fmt.Errorf("registry proxy state: %w", err)
-		case f.RegistryError != "":
-			return errors.New(f.RegistryError)
-		case f.RegistryUp != nil && !*f.RegistryUp:
-			// ponytail: nil is a worker from before the field, let through so
-			// the upgrade that brings it can pull; drop nil once none is left.
-			return errors.New("the node's registry proxy is not serving yet")
-		}
-		return nil
-	}
-}
-
-// registryDigest is docker.Client's RegistryDigest: the registry's own
-// answer over its socket, never through a node's loopback.
-func (o *Orchestrator) registryDigest(ctx context.Context, repo, tag string) (string, error) {
-	return o.regs.Resolve(ctx, repo, tag)
-}
-
-// registryLocal is the front serveRegistryLocal serves: no token endpoint, no
-// push records (the controller records its own pushes).
-func (o *Orchestrator) registryLocal() http.Handler {
-	backend, tr := o.regs.Backend()
-	return &regfront.Server{
-		Key: o.registryKey(), Realm: "http://localhost:" + installspec.RegistryPort, Backend: backend, Transport: tr,
-		Authenticate: func(*http.Request) (regfront.Facts, error) { return regfront.Facts{}, errRegistryAuth },
-		Gate:         o.regs.Gate(),
-	}
-}
-
-// serveRegistryLocal is the controller's localhost:5000, where its own Docker
-// pulls and pushes: the registry front over the registry's socket, taking
-// only minted passes. It issues no tokens: anything on the host's loopback
-// (a host-network tile) can reach it. The registry container of an older
-// spec may still hold the port, so the bind is retried until it is gone.
-func (o *Orchestrator) serveRegistryLocal(ctx context.Context) {
-	addr := "127.0.0.1:" + installspec.RegistryPort
-	srv := &http.Server{Handler: o.registryLocal(), ReadHeaderTimeout: 10 * time.Second}
-	go func() { <-ctx.Done(); _ = srv.Close() }()
-	for {
-		ln, err := worker.LoopbackListen(addr)
-		if err == nil {
-			o.regLocalUp.Store(true)
-			err = srv.Serve(ln)
-			o.regLocalUp.Store(false)
-			if errors.Is(err, http.ErrServerClosed) {
-				return
-			}
-			slog.Warn("registry: local listener", "addr", addr, "err", err)
-		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(5 * time.Second):
-		}
-	}
-}
-
-// serveRegistryWG serves the registry front to workers over the mesh: the
-// controller's transit address, the panel port (the one STACKR-IN lets in
-// from stackr0), worker certs only. The address exists once a second node
+// serveRegistryWG serves the mesh listener (node cert renewal) to workers:
+// the controller's transit address, the panel port (the one STACKR-IN lets
+// in from stackr0), worker certs only. The address exists once a second node
 // brings stackr0 up, so the bind is retried until then.
 func (o *Orchestrator) serveRegistryWG(ctx context.Context) {
 	addr, ok := o.registryWGAddr()
@@ -230,16 +115,15 @@ func (o *Orchestrator) serveRegistryWG(ctx context.Context) {
 	}
 }
 
-// meshHandler is the controller's mesh listener: node cert renewal, and the
-// registry front for everything else.
+// meshHandler is the controller's mesh listener: node cert renewal, nothing
+// else. The registry is not served here: nodes get images loaded, never pull.
 func (o *Orchestrator) meshHandler() http.Handler {
-	reg := o.RegistryHandler()
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == worker.RenewTunnelPath {
 			o.renewTunnel(w, r)
 			return
 		}
-		reg.ServeHTTP(w, r)
+		http.NotFound(w, r)
 	})
 }
 
@@ -249,17 +133,6 @@ func (o *Orchestrator) registryWGAddr() (string, bool) {
 		return "", false
 	}
 	return net.JoinHostPort(mesh.ControllerTransit.String(), strconv.Itoa(o.cfg.PanelPort)), true
-}
-
-// meshRegistry is the registry a worker's mesh spec names; nil without a
-// panel domain (the front answers to registry.<panel domain> only).
-func (o *Orchestrator) meshRegistry(ctx context.Context) *worker.RegistrySpec {
-	addr, ok := o.registryWGAddr()
-	host := o.RegistryHost(ctx)
-	if !ok || host == "" {
-		return nil
-	}
-	return &worker.RegistrySpec{URL: "https://" + addr, Host: host}
 }
 
 // RegistryMiddleware is an echo Pre middleware: requests for
@@ -311,8 +184,7 @@ var errRegistryAuth = errors.New("registry: unauthorized")
 // registryFacts authenticates a token request: a user by API key (Basic auth
 // password or Bearer). Sessions are host-only cookies of the panel host, so
 // they never reach the registry host; docker login uses a key. A node gets
-// no tokens: the controller mints a pass for each pull it orders
-// (registryPass).
+// no tokens: it never talks to the registry (clusterImage).
 func (o *Orchestrator) registryFacts(r *http.Request) (regfront.Facts, error) {
 	ctx := r.Context()
 	tok := ""

@@ -48,9 +48,8 @@ type Config struct {
 	Runner     Runner    // iptables-restore, iptables, ip
 	WG         WGApplier // nil = /v1/wg answers 501
 	Mesh       MeshConfig
-	Registry   RegistryConfig // the controller's registry on 127.0.0.1:5000; URL "" = off
-	AliveAddr  string         // public liveness listener (AlivePort); "" = off
-	Recover    RecoverConfig  // recovery through the panel; no cert = off
+	AliveAddr  string        // public liveness listener (AlivePort); "" = off
+	Recover    RecoverConfig // recovery through the panel; no cert = off
 	// Trust is the live trust list and controller allow list; nil = loaded
 	// from cluster-ca.crt in StateDir.
 	Trust *Trust
@@ -76,10 +75,6 @@ type Server struct {
 	renewNow atomic.Bool
 	// renewKick wakes the cert check early: a new signing root arrived.
 	renewKick chan struct{}
-	// regErr is why the registry proxy does not hold its port, "" = it does.
-	regErr atomic.Value
-	// regUp: the registry proxy holds its port now.
-	regUp atomic.Bool
 }
 
 func New(cfg Config) *Server {
@@ -186,12 +181,6 @@ func Run(ctx context.Context, cfg Config) error {
 	go s.reassertLoop()
 	if len(cfg.Recover.Own.Certificate) > 0 {
 		go s.recoverLoop(15 * time.Second)
-	}
-	if cfg.Registry.URL != "" {
-		if cfg.Registry.TLS != nil {
-			cfg.Registry.TLS = s.withOwn(cfg.Registry.TLS)
-		}
-		go s.runRegistry(ctx, cfg.Registry)
 	}
 	if cfg.AliveAddr != "" {
 		go func() {

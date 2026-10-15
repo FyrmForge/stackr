@@ -14,7 +14,6 @@ import (
 
 	"golang.org/x/term"
 
-	"github.com/FyrmForge/stackr/internal/installspec"
 	"github.com/FyrmForge/stackr/internal/mesh"
 )
 
@@ -221,12 +220,11 @@ type portUse struct {
 func fixedPorts(worker bool, wgPort int) []portUse {
 	wg := portUse{":" + strconv.Itoa(wgPort), "udp", "the mesh's WireGuard (--wg-port)"}
 	if !worker {
-		return []portUse{wg, {"127.0.0.1:" + installspec.RegistryPort, "tcp", "the controller's registry front"}}
+		return []portUse{wg}
 	}
 	return []portUse{wg,
 		{":" + joinWorkerPort, "tcp", "the worker API"},
 		{":7444", "tcp", "the worker's liveness answer"},
-		{"127.0.0.1:" + installspec.RegistryPort, "tcp", "the worker's registry front"},
 	}
 }
 

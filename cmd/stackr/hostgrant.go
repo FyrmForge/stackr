@@ -11,13 +11,16 @@ import (
 
 var hostGrantCols = []string{"granted", "lines", "approved_by", "pending"}
 
+// hostNetWarning is said wherever host networking is granted.
+const hostNetWarning = "A host network tile can reach every env on its node and the mesh."
+
 // hostGrant is the elevated access a server admin approved for a stack, one
 // "<tile> <perm>" line each: host mounts, devices, privileged, LAN access,
 // server ports and host networking. A deploy that needs more parks until an
 // admin approves it here or on the stack's page.
 func (a *app) hostGrant() *cobra.Command {
 	var only []string
-	approve := leaf("approve", "hostgrant.approve", "Approve the elevated access the stack's parked jobs ask for (server admin); --only grants part of it", exact(0),
+	approve := leaf("approve", "hostgrant.approve", "Approve the elevated access the stack's parked jobs ask for (server admin); --only grants part of it. "+hostNetWarning, exact(0),
 		a.at(atStack, func(_ *cobra.Command, p string, _ []string) error {
 			v, err := a.call(GET, p+"/host-grant", nil)
 			if err != nil {
@@ -41,7 +44,11 @@ func (a *app) hostGrant() *cobra.Command {
 			if len(only) > 0 {
 				grant = only
 			}
-			if err := a.confirm("Give stack " + last(p) + " elevated access to " + strings.Join(grant, ", ") + "? Its parked jobs resume."); err != nil {
+			msg := "Give stack " + last(p) + " elevated access to " + strings.Join(grant, ", ") + "? Its parked jobs resume."
+			if slices.ContainsFunc(grant, func(l string) bool { return strings.HasSuffix(l, " network:host") }) {
+				msg = hostNetWarning + " " + msg
+			}
+			if err := a.confirm(msg); err != nil {
 				return err
 			}
 			body := map[string]any{"pending": items}

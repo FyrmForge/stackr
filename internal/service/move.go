@@ -6,9 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"runtime"
 	"slices"
 	"strings"
 
@@ -51,7 +49,7 @@ func (o *Orchestrator) moveFlow() *move.Flow {
 
 // rsyncDockerfile is the live-move helper. The controller builds it once
 // (its own internet only) and pushes it to the cluster registry; nodes pull
-// it from there over the mesh.
+// it loaded from there.
 const rsyncDockerfile = "FROM alpine:3\nRUN apk add --no-cache rsync\n"
 
 // rsyncSteps puts move.RsyncImage in the registry: there already = done,
@@ -117,7 +115,11 @@ func (o *Orchestrator) rsyncSteps() rsyncSteps {
 				return err
 			}
 			defer leave()
-			if _, err := o.pushLocal(ctx, ref); err != nil {
+			cctx, err := o.withController(ctx)
+			if err != nil {
+				return err
+			}
+			if _, err := o.pushLocal(cctx, ref); err != nil {
 				return err
 			}
 			// the push went past the front, so write the system row here
@@ -127,11 +129,11 @@ func (o *Orchestrator) rsyncSteps() rsyncSteps {
 	}
 }
 
-// pushLocal copies a localhost:5000/<repo>:<tag> image from the controller's
-// daemon into the cluster registry over the registry's socket, not through
-// the loopback front: a pass that may write a system image (run as root on
-// every node) never crosses the host's loopback. Returns what the registry
-// now holds; the CPU type is the controller's.
+// pushLocal copies a localhost:5000/<repo>:<tag> image from the Docker of
+// ctx's node into the cluster registry over the registry's socket: the
+// node's Docker saves it (a worker's over its link), the controller writes
+// it. No node ever writes to the registry itself. The caller holds the gate
+// (Hold). Returns what the registry now holds.
 func (o *Orchestrator) pushLocal(ctx context.Context, ref string) (imgcopy.Result, error) {
 	t, err := name.NewTag(ref, name.Insecure)
 	if err != nil {
@@ -142,12 +144,14 @@ func (o *Orchestrator) pushLocal(ctx context.Context, ref string) (imgcopy.Resul
 		return imgcopy.Result{}, err
 	}
 	path := f.Name()
-	_ = f.Close()
 	defer func() { _ = os.Remove(path) }()
-	// ponytail: the docker CLI into a file, as image builds use the CLI; the
-	// tarball reader opens the file once per layer.
-	if out, err := exec.CommandContext(ctx, "docker", "save", "-o", path, ref).CombinedOutput(); err != nil {
-		return imgcopy.Result{}, fmt.Errorf("save %s: %w: %s", ref, err, strings.TrimSpace(string(out)))
+	// Into a file: the tarball reader opens it once per layer.
+	err = o.docker.Save(ctx, ref, f)
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		return imgcopy.Result{}, err
 	}
 	img, err := tarball.ImageFromPath(path, &t)
 	if err != nil {
@@ -157,7 +161,10 @@ func (o *Orchestrator) pushLocal(ctx context.Context, ref string) (imgcopy.Resul
 	if err != nil {
 		return imgcopy.Result{}, fmt.Errorf("push %s: %w", ref, err)
 	}
-	res := imgcopy.Result{Digest: dg, Platforms: []string{runtime.GOARCH}}
+	res := imgcopy.Result{Digest: dg}
+	if cf, err := img.ConfigFile(); err == nil {
+		res.Platforms = []string{cf.Architecture}
+	}
 	if m, err := img.Manifest(); err == nil {
 		res.Size = m.Config.Size
 		for _, l := range m.Layers {

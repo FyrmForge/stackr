@@ -22,10 +22,9 @@ import (
 
 // System images: stackr's own images that nodes run (the alpine tool image,
 // the pause image, the stackr image behind an ingress worker's Caddy). They
-// live in the cluster registry under stackr.system/, and every node pulls
-// them from localhost:5000 (the registry itself on the controller, the
-// worker's registry front over the tunnel elsewhere), so no node reaches an
-// outside registry. The controller publishes them at boot, which is also
+// live in the cluster registry under stackr.system/, and the controller loads
+// them into every node's Docker from there (docker.Client.Pull), so no node
+// reaches an outside registry. The controller publishes them at boot, which is also
 // right after every upgrade (the new panel boots). Join, before any tunnel
 // exists, still downloads from the public release.
 
@@ -172,7 +171,7 @@ func (o *Orchestrator) systemPublisher() systemPublisher {
 			if err := o.docker.Tag(cctx, src, dst); err != nil {
 				return imgcopy.Result{}, fmt.Errorf("tag: %w", err)
 			}
-			return o.pushLocal(ctx, dst)
+			return o.pushLocal(cctx, dst)
 		},
 		record:      o.recordImage,
 		stackrImage: o.controllerStackrImage,

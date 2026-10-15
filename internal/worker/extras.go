@@ -34,15 +34,10 @@ type Facts struct {
 	DockerRoot  string  `json:"docker_root"`
 	Docker      string  `json:"docker"` // server version
 	DockerError string  `json:"docker_error,omitempty"`
-	// RegistryError: the registry proxy does not hold 127.0.0.1:5000.
-	RegistryError string `json:"registry_error,omitempty"`
-	// RegistryUp: the registry proxy holds 127.0.0.1:5000 now; no pass is
-	// minted for this node otherwise. nil = a worker too old to say.
-	RegistryUp *bool  `json:"registry_up,omitempty"`
-	Kernel     string `json:"kernel"`
-	CPUs       int    `json:"cpus"`
+	Kernel      string  `json:"kernel"`
+	CPUs        int     `json:"cpus"`
 	// Arch is runtime.GOARCH of the worker binary.
-	// ponytail: the worker binary's arch, not Docker's Architecture; service.dockerArch can't be imported here (cycle). Same thing on every real install.
+	// ponytail: the worker binary's arch, not Docker's Architecture. Same thing on every real install.
 	Arch string `json:"arch,omitempty"`
 	// Version is the stackr build the worker runs (empty from an older one).
 	Version  string  `json:"version,omitempty"`
@@ -272,9 +267,6 @@ func (s *Server) Facts(ctx context.Context) Facts {
 	if err := s.dockerInfo(ctx, &f); err != nil {
 		f.DockerError = err.Error()
 	}
-	f.RegistryError, _ = s.regErr.Load().(string)
-	up := s.regUp.Load()
-	f.RegistryUp = &up
 	f.Resolvers = Resolvers()
 	f.WGPort = cmp.Or(s.cfg.Mesh.WGPort, mesh.DefaultPort)
 	f.Busy = busyPorts(IngressPorts)

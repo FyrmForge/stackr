@@ -70,7 +70,8 @@ type Docker interface {
 		buildArgs, labels map[string]string,
 		log io.Writer,
 	) (imageID string, err error)
-	Push(ctx context.Context, ref string) error
+	// Save writes ref from the node's Docker as docker save does.
+	Save(ctx context.Context, ref string, w io.Writer) error
 
 	// Logs and exec.
 	Logs(ctx context.Context, id string, tail int) (string, error)

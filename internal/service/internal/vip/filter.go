@@ -69,8 +69,7 @@ type Base struct {
 	WGIface      string
 	WGController netip.Addr
 	// WGPanelPort, set on the controller, is the panel's tcp port a worker
-	// reaches over the mesh: registry pulls go through the registry front on
-	// the panel listener.
+	// reaches over the mesh: its node cert renews on the mesh listener there.
 	WGPanelPort int
 
 	// Flows are the cross-node connections this node accepts (or, Out, sends):

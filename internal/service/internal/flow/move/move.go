@@ -97,9 +97,9 @@ type Flow struct {
 	EnsureRsync func(ctx context.Context) error
 }
 
-// RsyncImage is the live-move helper (alpine + rsync). Every node pulls it
-// from localhost:5000: the registry itself on the controller, the worker's
-// registry front over the mesh elsewhere, so no node needs the internet.
+// RsyncImage is the live-move helper (alpine + rsync). Every node has it
+// loaded from the cluster registry on the controller, so no node needs the
+// internet.
 var RsyncImage = "localhost:5000/" + regfront.SystemOrg + "/tools/rsync:1"
 
 // Request is one move to begin.

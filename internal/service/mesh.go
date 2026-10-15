@@ -91,10 +91,10 @@ type meshSvc struct {
 	// syncMu runs one plan-and-push at a time: a sync planned with a key
 	// that a controller rotation is replacing must not push after it.
 	syncMu sync.Mutex
-	// Registry names the controller's registry for a worker's spec; nil
-	// (or a nil answer) = none. Never set on the controller's own spec.
-	Registry func(ctx context.Context) *worker.RegistrySpec
-	ctlID    string
+	ctlID  string
+	// Controller is the controller's mesh listener URL, named in every
+	// worker's spec (cert renewal over the tunnel); "" = none.
+	Controller string
 	// Panel is the panel's public URL, named in every worker's spec.
 	Panel string
 	// Trust names the cluster's trust list (PEM roots) and the controller cert
@@ -240,19 +240,15 @@ func (m *meshSvc) plan(ctx context.Context) (meshIn, map[string]worker.MeshSpec,
 	if len(in.Pairs) != before {
 		m.savePairs(ctx, in.Pairs)
 	}
-	// A worker's spec names the registry and the panel's public URL (where
-	// it recovers); the controller's own names neither.
-	var reg *worker.RegistrySpec
-	if m.Registry != nil {
-		reg = m.Registry(ctx)
-	}
+	// A worker's spec names the panel's public URL (where it recovers); the
+	// controller's own does not.
 	var roots, serials []string
 	if m.Trust != nil {
 		roots, serials = m.Trust(ctx)
 	}
 	for id, sp := range specs {
 		if id != m.ctlID {
-			sp.Registry, sp.Panel = reg, m.Panel
+			sp.Panel, sp.Controller = m.Panel, m.Controller
 			sp.TrustRoots, sp.ControllerSerials = roots, serials
 			specs[id] = sp
 		}

@@ -264,12 +264,9 @@ type Orchestrator struct {
 	// pull waits on it after an upgrade (systemimages.go).
 	stackrPublished chan struct{}
 	stackrOnce      sync.Once
-	// regLocalUp: serveRegistryLocal holds the controller's localhost:5000
-	// now; no pass goes to that port otherwise (registryPassFor).
-	regLocalUp  atomic.Bool
-	localWorker *worker.Server // the controller's own node in the mesh, nil on a fake host
-	rotation    rotation       // mesh key rotation (rotate.go)
-	stopOnce    sync.Once
+	localWorker     *worker.Server // the controller's own node in the mesh, nil on a fake host
+	rotation        rotation       // mesh key rotation (rotate.go)
+	stopOnce        sync.Once
 }
 
 // onBuild is a test hook: every constructor New calls reports its name here,
@@ -349,7 +346,6 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 			_ = db.Close()
 			return nil, err
 		}
-		c.SetRegistryAuth(registryPass(registryKeyOf(cfg.SecretsKey), "controller"))
 		o.docker = c
 	}
 	if o.vip == nil {
@@ -423,8 +419,7 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 	if r, ok := d.(*DockerRouter); ok {
 		r.OwnRegistry = orch.RegistryHost
 		if c, ok := r.clients[ctl.ID].(*docker.Client); ok {
-			c.SetRegistryAuth(orch.registryPassFor(ctl.ID, orch.registryLocalUp))
-			c.SetRegistryDigest(orch.registryDigest)
+			c.SetClusterSource(orch.clusterImage)
 		}
 		r.Gate = orch.gate
 		r.ToolReady = func(ctx context.Context, nodeID string) error {
@@ -743,7 +738,6 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 			if err != nil {
 				slog.Warn("registry: not ensured", "err", err)
 			}
-			go orch.serveRegistryLocal(orch.meshCtx)
 			orch.publishSystemImages(orch.meshCtx)
 		}()
 	} else {

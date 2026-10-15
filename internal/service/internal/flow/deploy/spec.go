@@ -59,8 +59,8 @@ func spec(t store.Tile, r resolved) docker.ContainerSpec {
 		HealthStartPeriodS: t.HealthcheckStartPeriodS,
 	}
 	// Tiles lose NET_RAW: on a bridge it spoofs addresses past the LAN
-	// grants, on the host network it sniffs loopback (the registry's tokens on
-	// 127.0.0.1). A privileged tile has every capability anyway.
+	// grants, on the host network it sniffs the host's traffic. A privileged
+	// tile has every capability anyway.
 	if !r.privileged {
 		s.CapDrop = []string{"NET_RAW"}
 	}

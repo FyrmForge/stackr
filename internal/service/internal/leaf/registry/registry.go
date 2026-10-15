@@ -88,9 +88,9 @@ func (l *Leaf) remote(ctx context.Context) []remote.Option {
 	return o
 }
 
-// Local is the ref the controller and every node pull a repo and tag by:
-// the registry on the node's own loopback, which on a worker is the tunnel to
-// the head. Nothing outside this leaf builds one by hand.
+// Local is the name a repo and tag has on every node once loaded (Image);
+// nothing listens at localhost:5000. Nothing outside this leaf builds one by
+// hand.
 func (l *Leaf) Local(repo, tag string) string {
 	return "localhost:" + installspec.RegistryPort + "/" + repo + ":" + tag
 }

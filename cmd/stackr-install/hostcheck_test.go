@@ -112,7 +112,7 @@ func TestBusyPorts(t *testing.T) {
 		t.Fatalf("busy = %q", got)
 	}
 	ctl := fixedPorts(false, 51900)
-	if len(ctl) != 2 || ctl[0].addr != ":51900" || ctl[1].addr != "127.0.0.1:5000" {
+	if len(ctl) != 1 || ctl[0].addr != ":51900" {
 		t.Fatalf("controller ports = %v", ctl)
 	}
 }

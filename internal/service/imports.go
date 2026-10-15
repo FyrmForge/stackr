@@ -133,23 +133,6 @@ type platformEnt struct {
 	at   time.Time
 }
 
-// dockerArch is Docker's Architecture as the platform name images use.
-func dockerArch(a string) string {
-	switch a = strings.ToLower(a); a {
-	case "x86_64", "amd64":
-		return "amd64"
-	case "aarch64", "arm64":
-		return "arm64"
-	case "armv7l", "armhf", "arm":
-		return "arm"
-	case "i386", "i686", "x86":
-		return "386"
-	case "":
-		return ""
-	}
-	return a // ppc64le, s390x, riscv64 are named the same in both
-}
-
 // clusterPlatforms are the CPU types the cluster's nodes have, from each
 // node's Docker Info Architecture (x86_64 is amd64, aarch64 is arm64), sorted,
 // no repeats. A node of a new type shows up here the next time it is asked
@@ -177,7 +160,7 @@ func (o *Orchestrator) clusterPlatforms(ctx context.Context) []string {
 			hi, err := o.docker.HostInfo(docker.WithNode(ctx, n.ID))
 			if err != nil {
 				slog.Warn("platforms: node not asked", "node", n.Name, "err", err)
-			} else if a := dockerArch(hi.Arch); a != "" {
+			} else if a := docker.Arch(hi.Arch); a != "" {
 				e = platformEnt{arch: a, at: time.Now()}
 				o.platforms.at[n.ID] = e
 			}

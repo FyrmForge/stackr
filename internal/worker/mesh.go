@@ -3,7 +3,6 @@ package worker
 import (
 	"cmp"
 	"context"
-	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -20,7 +19,6 @@ import (
 
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
-	"github.com/FyrmForge/stackr/internal/clusterca"
 	"github.com/FyrmForge/stackr/internal/exits"
 	"github.com/FyrmForge/stackr/internal/mesh"
 	"github.com/FyrmForge/stackr/internal/wgapply"
@@ -44,9 +42,10 @@ type MeshSpec struct {
 	// whatever of theirs would leave by the uplink (exits.Fence). Empty from
 	// an old controller = no fence.
 	NoUplink []string `json:",omitempty"`
-	// Registry is the controller's registry front over the mesh; the worker
-	// serves it on 127.0.0.1:5000. nil on the controller itself.
-	Registry *RegistrySpec `json:",omitempty"`
+	// Controller is the controller's mesh listener,
+	// https://<controller transit>:<panel port>, where the node cert renews
+	// over the tunnel. "" on the controller itself.
+	Controller string `json:",omitempty"`
 	// Panel is the panel's public URL, where the worker recovers its spec
 	// when the controller goes quiet. "" on the controller itself.
 	Panel string `json:",omitempty"`
@@ -60,12 +59,6 @@ type MeshSpec struct {
 	// the worker accepts a controller only when its cert's serial is listed.
 	// Empty = no allow list, any controller cert from a trusted root.
 	ControllerSerials []string `json:",omitempty"`
-}
-
-// RegistrySpec: URL is https://<controller transit>:<panel port>, Host the
-// name the front answers to (registry.<panel domain>).
-type RegistrySpec struct {
-	URL, Host string
 }
 
 // LadderSpec is one subject (env subnets that share a ladder) and its rungs.
@@ -110,8 +103,6 @@ type meshState struct {
 	applied *MeshSpec // the last good apply, key files and uplink filled in
 	ladders map[int]*runningLadder
 	reMu    sync.Mutex
-	// registry is set once the registry proxy runs (startRegistry).
-	registry bool
 	// fence is the applied exits.Fence; zero = none.
 	fence exits.Fence
 	// legacyGone is set once the pre-stackr0 wg0 was checked for.
@@ -268,21 +259,7 @@ func (s *Server) meshNet(spec MeshSpec) error {
 		})
 	}
 	s.mesh.fo.Reset(spec.Peers)
-	s.startRegistry(spec.Registry)
 	return nil
-}
-
-// startRegistry serves the controller's registry on 127.0.0.1:5000 once the
-// mesh names it, so a worker joined before the flag existed needs no unit
-// change. A --registry-url flag wins; the first named registry stays until
-// restart. ponytail: a changed URL (new panel domain) needs a worker restart.
-func (s *Server) startRegistry(r *RegistrySpec) {
-	if r == nil || s.cfg.Registry.URL != "" || s.mesh.registry || len(s.own.get().Certificate) == 0 {
-		return
-	}
-	s.mesh.registry = true
-	c := RegistryConfig{URL: r.URL, Host: r.Host, TLS: s.withOwn(s.cfg.Trust.Guard(clusterca.ControllerClientConfig(s.cfg.Trust.Roots, tls.Certificate{})))}
-	go s.runRegistry(s.ctx, c)
 }
 
 // meshExits brings links, serves and ladders to spec. Only what changed since
