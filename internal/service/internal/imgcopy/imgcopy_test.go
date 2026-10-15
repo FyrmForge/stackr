@@ -162,6 +162,8 @@ func TestCopyIndexFiltersAndKeepsDigest(t *testing.T) {
 	eq(t, []string{"amd64"}, res.Platforms)
 	positive(t, res.Size)
 	eq(t, want.String(), digestOf(t, d))
+	// The version is tagged by its digest too: a moved tag leaves it tagged.
+	eq(t, want.String(), digestOf(t, dst.host+"/org/lib/app:"+strings.Replace(want.String(), ":", "-", 1)))
 
 	amd, _ := imgs["amd64"].Digest()
 	arm, _ := imgs["arm64"].Digest()

@@ -47,9 +47,10 @@ type Result struct {
 //   - A single-platform image is copied when its platform is wanted, else the
 //     error names the platforms it has. A wanted platform src lacks is a clear
 //     error naming what src has; nothing is half-copied.
-//   - dst always gets a tag, the one in dst. Callers pass "sha256-<hex>" for a
-//     digest-pinned src (regfront.ImportName), so the registry's untagged
-//     garbage collect never takes a running image.
+//   - dst always gets a tag, the one in dst, and "sha256-<hex>" of its digest
+//     too (regfront.ImportName's tag for a digest-pinned src): containers run
+//     an import by its digest, and the registry's untagged garbage collect
+//     must never take one once the upstream tag moves.
 //   - Already-present blobs are skipped, so a second run for a new platform
 //     copies only that platform.
 //   - HEAD first: a HEAD on src does not count against Docker Hub's pull
@@ -329,9 +330,11 @@ func held(dstRef name.Reference, d *remote.Descriptor, wanted []want, do []remot
 		res.Platforms = append(res.Platforms, a)
 	}
 	sort.Strings(res.Platforms)
-	if h, err := remote.Head(dstRef, do...); err != nil || h.Digest != d.Digest {
-		if err := remote.Put(dstRef, d, do...); err != nil {
-			return res, false, fmt.Errorf("tag %s: %w", dstRef, err)
+	for _, t := range []name.Reference{dstRef, dstRef.Context().Tag(strings.Replace(d.Digest.String(), ":", "-", 1))} {
+		if h, err := remote.Head(t, do...); err != nil || h.Digest != d.Digest {
+			if err := remote.Put(t, d, do...); err != nil {
+				return res, false, fmt.Errorf("tag %s: %w", t, err)
+			}
 		}
 	}
 	return res, true, nil

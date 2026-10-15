@@ -5,20 +5,27 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"maps"
 	"net/http"
+	"net/http/httptest"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/google/go-containerregistry/pkg/authn"
+	"github.com/google/uuid"
 
 	"github.com/FyrmForge/stackr/internal/authz"
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	"github.com/FyrmForge/stackr/internal/service/internal/dockerfake"
+	"github.com/FyrmForge/stackr/internal/service/internal/flow/deploy"
 	"github.com/FyrmForge/stackr/internal/service/internal/imgcopy"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/credential"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/environment"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/job"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
 	"github.com/FyrmForge/stackr/internal/service/internal/regfront"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
@@ -126,37 +133,9 @@ func TestClusterPlatforms(t *testing.T) {
 	}
 }
 
-// The router pulls an import's registry copy and tags it with the original
-// ref; a digest ref is not tagged and is looked up under its registry name.
-// Without an import org in the context nothing changes.
-func TestRouterPullsImports(t *testing.T) {
-	a := dockerfake.New()
-	r := NewRouter(map[string]Docker{"n1": a})
-	ctx := WithNode(context.Background(), "n1")
-	imp := docker.WithImportOrg(ctx, "acme")
-
-	must(t, r.Pull(imp, "nginx:1", "", nil))
-	must(t, r.Pull(imp, "ghcr.io/foo/bar@sha256:aa", "", nil))
-	_, _ = r.LocalDigest(imp, "ghcr.io/foo/bar@sha256:aa")
-	must(t, r.Pull(ctx, "redis:7", "", nil))
-	want := []string{
-		"Pull(localhost:5000/acme/docker.io/library/nginx:1)",
-		"Tag(localhost:5000/acme/docker.io/library/nginx:1, nginx:1)",
-		"Pull(localhost:5000/acme/ghcr.io/foo/bar@sha256:aa)",
-		"LocalDigest(localhost:5000/acme/ghcr.io/foo/bar@sha256:aa)",
-		"Pull(redis:7)",
-	}
-	if got := callNames(a); !slices.Equal(got, want) {
-		t.Fatalf("calls = %v\nwant    %v", got, want)
-	}
-	if got := r.pinnedLocal(imp, "nginx:1"); got != "nginx:1" {
-		t.Errorf("a tag ref was renamed to %q", got)
-	}
-}
-
 // A deploy of an outside image on a worker (here by a move) imports it first
-// and the worker pulls the registry's copy under the original name; the
-// controller's own deploy does the same through its loopback registry.
+// and the worker pulls the org's registry copy at its digest, never under the
+// outside name.
 func TestMovePullsImports(t *testing.T) {
 	ctx := context.Background()
 	n := newTwoNodes(t)
@@ -175,8 +154,8 @@ func TestMovePullsImports(t *testing.T) {
 	if len(calls) == 0 || calls[0].src != "nginx:1" || !slices.Equal(calls[0].platforms, []string{"amd64", "arm64"}) {
 		t.Fatalf("copies = %+v", calls)
 	}
-	if !sawCall(n.wFake, "Pull(localhost:5000/acme/docker.io/library/nginx:1)") ||
-		!sawCall(n.wFake, "Tag(localhost:5000/acme/docker.io/library/nginx:1, nginx:1)") || sawCall(n.wFake, "Pull(nginx:1)") {
+	if !sawCall(n.wFake, "Pull(localhost:5000/acme/docker.io/library/nginx@sha256:up)") ||
+		sawCall(n.wFake, "Tag(localhost:5000/acme/docker.io/library/nginx@sha256:up, nginx:1)") || sawCall(n.wFake, "Pull(nginx:1)") {
 		t.Fatalf("worker calls = %v", callNames(n.wFake))
 	}
 	rows, err := n.st.RegistryImages.ListAll(ctx)
@@ -185,9 +164,9 @@ func TestMovePullsImports(t *testing.T) {
 	}
 }
 
-// Only outside refs go to the registry; a digest ref runs under its registry
-// name, a tag ref under the one the user gave; an install without registry
-// imports (a fake host) pulls as before.
+// Only outside refs go to the registry; a tag or digest ref runs as the org's
+// registry copy at its digest; an install without registry imports (a fake
+// host) pulls as before.
 func TestImportForDeploy(t *testing.T) {
 	ctx := context.Background()
 	n := newTwoNodes(t)
@@ -212,11 +191,85 @@ func TestImportForDeploy(t *testing.T) {
 		}
 	}
 	run, imported, err := n.orch.importForDeploy(ctx, og.ID, "nginx:1", "", io.Discard)
-	if err != nil || !imported || run != "nginx:1" {
+	if err != nil || !imported || run != "localhost:5000/acme/docker.io/library/nginx@sha256:up" {
 		t.Fatalf("tag ref: %q %v %v", run, imported, err)
 	}
 	run, imported, err = n.orch.importForDeploy(ctx, og.ID, "ghcr.io/foo/bar@sha256:abcd", "", io.Discard)
 	if err != nil || !imported || run != "localhost:5000/acme/ghcr.io/foo/bar@sha256:up" {
 		t.Fatalf("digest ref: %q %v %v", run, imported, err)
+	}
+}
+
+// Two orgs deploy the same outside tag on one node while it means different
+// images to each: each container runs its own org's copy by digest, the
+// outside name is never tagged on the node, and each label pins its digest.
+func TestImportsDoNotShareANameAcrossOrgs(t *testing.T) {
+	ctx := context.Background()
+	n := newTwoNodes(t)
+	n.orch.cfg.RegistryImports = true
+	n.orch.regs.WithBase("http://127.0.0.1:1").WithCopier(func(_ context.Context, _, dst string, _ authn.Authenticator, _ http.RoundTripper, p []string) (imgcopy.Result, error) {
+		org := strings.Split(dst, "/")[1]
+		return imgcopy.Result{Digest: "sha256:" + org, Platforms: p}, nil
+	})
+	zed, stack := uuid.NewString(), uuid.NewString()
+	must(t, n.st.Orgs.Create(ctx, store.Org{ID: zed, Name: "zed", Slug: "zed", EnvColors: "{}", Settings: "{}", CreatedAt: time.Now()}))
+	must(t, n.st.Stacks.Create(ctx, store.Stack{ID: stack, OrgID: zed, Name: "sh", Slug: "sh", Settings: "{}", CreatedAt: time.Now()}))
+	env, err := n.orch.CreateEnv(ctx, stack, "dev", EnvSpec{NodeID: "w1", Type: environment.Static, FromKind: environment.FromBranch, FromBranch: "main"})
+	must(t, err)
+	zt, err := n.orch.CreateTile(ctx, Tile{StackID: stack, EnvironmentID: env.ID, Name: "web", Kind: tile.Image, ImageRef: "nginx:1", ContainerPort: 80})
+	must(t, err)
+
+	want := map[string]string{} // image -> label
+	for _, c := range []struct {
+		org string
+		tl  Tile
+		net string
+	}{{"acme", n.edgeT, n.edge.Network}, {"zed", zt, env.Network}} {
+		run := "localhost:5000/" + c.org + "/docker.io/library/nginx@sha256:" + c.org
+		n.wFake.Digests = map[string]string{run: "sha256:" + c.org}
+		n.wFake.RunID = "c-" + c.org
+		n.wFake.Details = map[string]docker.Detail{n.wFake.RunID: {Running: true, Networks: map[string]string{c.net: "10.209.0.2"}}}
+		j, err := n.orch.Deploy(ctx, c.tl.ID)
+		must(t, err)
+		if j = n.wait(t, j); j.State != job.Done {
+			t.Fatalf("%s deploy = %s %q", c.org, j.State, j.Error)
+		}
+		want[run] = "nginx@sha256:" + c.org
+	}
+	got := map[string]string{}
+	for _, s := range n.wFake.Specs {
+		if l, ok := s.Labels[deploy.LabelRef]; ok {
+			got[s.Image] = l
+		}
+	}
+	if !maps.Equal(got, want) {
+		t.Fatalf("containers = %v\nwant %v", got, want)
+	}
+	for _, c := range callNames(n.wFake) {
+		if strings.HasPrefix(c, "Tag(") || c == "Pull(nginx:1)" {
+			t.Errorf("the outside name was used on the node: %s", c)
+		}
+	}
+
+	// The registry sweep keeps both versions: each env's release pins its own.
+	reg := httptest.NewServer(http.NotFoundHandler())
+	defer reg.Close()
+	n.orch.regs.WithBase(reg.URL)
+	used, err := n.orch.registryInUse(ctx)
+	must(t, err)
+	if !used["sha256:acme"] || !used["sha256:zed"] {
+		t.Errorf("in use = %v", used)
+	}
+
+	// Image watch compares upstream with what each tile runs: the tag now
+	// means acme's digest, so only zed's tile is behind.
+	_, err = n.orch.images.Checked(ctx, "nginx:1", "sha256:acme", "1", nil)
+	must(t, err)
+	for tl, behind := range map[string]bool{n.edgeT.ID: false, zt.ID: true} {
+		im, err := n.orch.TileImage(ctx, tl)
+		must(t, err)
+		if im.Newer() != behind {
+			t.Errorf("tile %s: runs %s, upstream %s, behind = %v", tl, im.Digest, im.LastDigest, im.Newer())
+		}
 	}
 }

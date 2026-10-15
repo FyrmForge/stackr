@@ -97,10 +97,9 @@ func (o *Orchestrator) ownClusterRef(ctx context.Context, orgID, ref string) err
 // the controller before its node pulls, with the org's credential credID
 // ("" anonymous). imported=false: the ref is not outside, or the install does
 // not route through the registry (Config.RegistryImports), so the node pulls
-// it as it is. run is the ref the container must be started with: a
-// digest-pinned ref cannot be tagged by Docker, so it runs under its
-// localhost name; a tag ref keeps the name the user gave (the router tags the
-// pulled copy with it).
+// it as it is. run is the ref the node pulls and the container runs: the
+// org's own copy at its digest, never the outside name, which every org on a
+// node shares (two orgs on one tag would each retag it for the other).
 func (o *Orchestrator) importForDeploy(ctx context.Context, orgID, ref, credID string, log io.Writer) (run string, imported bool, err error) {
 	if err := o.ownClusterRef(ctx, orgID, ref); err != nil {
 		return "", false, err
@@ -112,10 +111,7 @@ func (o *Orchestrator) importForDeploy(ctx context.Context, orgID, ref, credID s
 	if err != nil {
 		return "", false, err
 	}
-	if strings.Contains(ref, "@") {
-		return local[:strings.LastIndex(local, ":")] + "@" + digest, true, nil
-	}
-	return ref, true, nil
+	return local[:strings.LastIndex(local, ":")] + "@" + digest, true, nil
 }
 
 // platformTTL is how long a node's CPU type is trusted before Docker is asked
