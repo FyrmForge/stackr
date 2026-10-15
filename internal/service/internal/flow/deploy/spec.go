@@ -58,9 +58,10 @@ func spec(t store.Tile, r resolved) docker.ContainerSpec {
 		HealthRetries:      t.HealthcheckRetries,
 		HealthStartPeriodS: t.HealthcheckStartPeriodS,
 	}
-	// Bridge tiles lose NET_RAW (address spoofing past the LAN grants); a
-	// host-network or privileged tile keeps it.
-	if !r.hostNet && !r.privileged {
+	// Tiles lose NET_RAW: on a bridge it spoofs addresses past the LAN
+	// grants, on the host network it sniffs loopback (the registry's tokens on
+	// 127.0.0.1). A privileged tile has every capability anyway.
+	if !r.privileged {
 		s.CapDrop = []string{"NET_RAW"}
 	}
 	s.Labels = map[string]string{LabelRef: cmp.Or(r.pinRef, r.image)}

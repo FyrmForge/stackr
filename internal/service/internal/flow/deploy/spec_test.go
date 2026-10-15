@@ -42,14 +42,14 @@ func TestSpecRefLabel(t *testing.T) {
 	}
 }
 
-// A bridge tile drops NET_RAW; host networking and privileged keep it.
+// A bridge or host-network tile drops NET_RAW; a privileged one keeps it.
 func TestSpecDropsNetRaw(t *testing.T) {
 	for name, c := range map[string]struct {
 		r    resolved
 		drop bool
 	}{
 		"bridge":     {resolved{}, true},
-		"host net":   {resolved{hostNet: true}, false},
+		"host net":   {resolved{hostNet: true}, true},
 		"privileged": {resolved{privileged: true}, false},
 	} {
 		if got := slices.Contains(spec(store.Tile{}, c.r).CapDrop, "NET_RAW"); got != c.drop {
