@@ -30,10 +30,15 @@ func TestAdminNodes(t *testing.T) {
 		t.Fatalf("add step 1 = %d\n%s", rec.Code, rec.Body)
 	}
 	// a bad name stays on step one with the refusal
-	rec = s.As(t, root, "POST", "/-/admin/nodes/add", url.Values{"name": {"Bad Name"}})
+	rec = s.As(t, root, "POST", "/-/admin/nodes/add", url.Values{"name": {"Bad Name"}, "all": {"on"}})
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "Get join command") ||
 		!strings.Contains(rec.Body.String(), "lowercase") {
 		t.Errorf("bad name = %d\n%s", rec.Code, rec.Body)
+	}
+	// not open to all, and no org picked
+	rec = s.As(t, root, "POST", "/-/admin/nodes/add", url.Values{"name": {"w8"}})
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "pick at least one org") {
+		t.Errorf("no orgs = %d\n%s", rec.Code, rec.Body)
 	}
 	// nothing has called in: the poll has nothing to say
 	if rec := s.As(t, root, "GET", "/-/admin/nodes/add/poll?name=w9", nil); rec.Code != http.StatusNoContent {

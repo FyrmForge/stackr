@@ -306,6 +306,10 @@ func masterKey() string {
 	return strings.TrimSpace(string(b))
 }
 
+// adminKeyPrefix starts the create-admin line carrying the admin's first API
+// key; stackr-install reads it.
+const adminKeyPrefix = "api key: "
+
 // errHasAdmin is --check's "nothing to do": the install has its admin.
 var errHasAdmin = errors.New("this install already has an admin")
 
@@ -340,11 +344,12 @@ func createAdmin(args []string, stdin io.Reader, out io.Writer) error {
 	if err != nil && !errors.Is(err, io.EOF) {
 		return fmt.Errorf("read the password from stdin: %w", err)
 	}
-	u, err := service.CreateAdmin(ctx, cfg, *email, strings.TrimRight(line, "\r\n"), "Admin")
+	u, key, err := service.CreateAdmin(ctx, cfg, *email, strings.TrimRight(line, "\r\n"), "Admin")
 	if err != nil {
 		return err
 	}
 	_, _ = fmt.Fprintln(out, "admin", u.Email, "created")
+	_, _ = fmt.Fprintln(out, adminKeyPrefix+key) // the installer shows it once
 	return nil
 }
 

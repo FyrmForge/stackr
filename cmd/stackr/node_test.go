@@ -27,12 +27,24 @@ const nodeJSON = `{"id":"n1","name":"vps-fsn1","role":"worker","state":"online",
 // node add asks for a token, prints the command, and refuses an unknown tag
 // before any request.
 func TestNodeAdd(t *testing.T) {
-	r := fake(t, map[string]string{"/admin/join-tokens": `{"node_name":"vps-fsn1","command":"stackr-install join --panel https://p --token T --ca-sha256 F","expires_at":"2099-01-01T00:00:00Z"}`})
+	r := fake(t, map[string]string{"/admin/join-tokens": `{"node_name":"vps-fsn1","command":"stackr-install join --panel https://p --token T --ca-sha256 F",` +
+		`"one_line":"curl -fsSL https://p/join/T | sh","expires_at":"2099-01-01T00:00:00Z"}`})
 	code, out, errw := cli(t, "node", "add", "vps-fsn1", "--tag", "ingress", "--tag", "egress")
-	if code != 0 || !strings.Contains(out, "stackr-install join --panel https://p --token T") || !strings.Contains(out, "works once") {
+	if code != 0 || !strings.Contains(out, "curl -fsSL https://p/join/T | sh") || !strings.Contains(out, "works once") ||
+		strings.Contains(out, "trusted certificate") {
 		t.Fatalf("add = %d %q %q", code, out, errw)
 	}
-	if w := writes(r); len(w) != 1 || w[0] != `POST /api/v1/admin/join-tokens {"node_name":"vps-fsn1","tags":["ingress","egress"]}` {
+	if w := writes(r); len(w) != 1 || w[0] != `POST /api/v1/admin/join-tokens {"node_name":"vps-fsn1","orgs":null,"tags":["ingress","egress"]}` {
+		t.Errorf("writes = %v", w)
+	}
+	// --org opens it to those orgs only; a panel without a trusted
+	// certificate gets the two-step command
+	r = fake(t, map[string]string{"/admin/join-tokens": `{"two_step":"curl -fLo stackr-install X\n./stackr-install join","expires_at":"2099-01-01T00:00:00Z"}`})
+	code, out, errw = cli(t, "node", "add", "vps-fsn1", "--org", "acme", "--org", "shop")
+	if code != 0 || !strings.Contains(out, "no trusted certificate") || !strings.Contains(out, "  ./stackr-install join") || strings.Contains(out, "| sh") {
+		t.Fatalf("add --org = %d %q %q", code, out, errw)
+	}
+	if w := writes(r); len(w) != 1 || !strings.Contains(w[0], `"orgs":["acme","shop"]`) {
 		t.Errorf("writes = %v", w)
 	}
 	r = fake(t, nil)
@@ -203,9 +215,9 @@ func TestNodeOpenClose(t *testing.T) {
 }
 
 func TestNodeRejoin(t *testing.T) {
-	r := fake(t, map[string]string{"/rejoin": `{"command":"stackr-install join --token R","expires_at":"2099-01-01T00:00:00Z"}`})
+	r := fake(t, map[string]string{"/rejoin": `{"command":"stackr-install join --token R","one_line":"curl -fsSL https://p/join/R | sh","expires_at":"2099-01-01T00:00:00Z"}`})
 	code, out, errw := cli(t, "node", "rejoin", "nas")
-	if code != 0 || !strings.Contains(out, "nas will need its install command run again") || !strings.Contains(out, "--token R") {
+	if code != 0 || !strings.Contains(out, "nas will need its install command run again") || !strings.Contains(out, "/join/R | sh") {
 		t.Fatalf("rejoin = %d %q %q", code, out, errw)
 	}
 	if w := writes(r); len(w) != 1 || w[0] != "POST /api/v1/admin/nodes/nas/rejoin " {

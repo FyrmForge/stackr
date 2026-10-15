@@ -79,6 +79,7 @@ type NodeDetail struct {
 	Facts     *worker.Facts // nil until the node has answered
 	EnvList   []NodeEnv
 	Certs     []NodeCertInfo
+	OpenToAll bool // every org's owners may pin here; Orgs are the picks for when it is off
 	Orgs      []NodeOrg
 	// RoutesServed is what the controller refuses to stop serving (the
 	// panel route and every external route); 0 for a worker.
@@ -181,6 +182,7 @@ func (o *Orchestrator) NodeDetail(ctx context.Context, id string) (NodeDetail, e
 			Revoked: c.RevokedAt != nil, RenewFrom: c.NotAfter.Add(-life / 3),
 		})
 	}
+	d.OpenToAll = n.OpenToAll || n.Role == node.Controller
 	if d.Orgs, err = o.nodeOrgList(ctx, n); err != nil {
 		return d, err
 	}
@@ -243,14 +245,15 @@ func (o *Orchestrator) nodeOrgList(ctx context.Context, n store.Node) ([]NodeOrg
 }
 
 // NodeOpenToOrg reports whether an org's owners may pin to the node: the
-// controller is open to every org, a worker only to the orgs an admin opened
-// it to. Admins pin anywhere; the placement verbs ask this for owners.
+// controller and a node open to all take every org, any other worker only
+// the orgs an admin opened it to. Admins pin anywhere; the placement verbs
+// ask this for owners.
 func (o *Orchestrator) NodeOpenToOrg(ctx context.Context, nodeID, orgID string) (bool, error) {
 	n, err := o.nodeLeaf().Get(ctx, nodeID)
 	if err != nil {
 		return false, err
 	}
-	if n.Role == node.Controller {
+	if n.Role == node.Controller || n.OpenToAll {
 		return true, nil
 	}
 	return o.store.NodeOrgs.Has(ctx, nodeID, orgID)
@@ -362,6 +365,38 @@ func (o *Orchestrator) SetNodeOrgs(ctx context.Context, by *Principal, id string
 		return audit(tx).Append(ctx, securitylog.Event{
 			Action: auditNodeOpen, ActorID: by.User.ID, KeyID: by.KeyID,
 			TargetKind: "node", TargetID: id, Detail: fmt.Sprintf("%d orgs", len(orgIDs)),
+		})
+	})
+}
+
+// SetNodeOpenToAll (server admin) opens a worker to every org, or closes it
+// back to the orgs it was opened to one by one. Envs already on it stay.
+func (o *Orchestrator) SetNodeOpenToAll(ctx context.Context, by *Principal, id string, all bool) error {
+	if err := nodeAdmin(by); err != nil {
+		return err
+	}
+	n, err := o.nodeLeaf().Get(ctx, id)
+	if err != nil {
+		return err
+	}
+	if n.Role == node.Controller {
+		return errs.Conflictf("%s is open to every organization.", n.Name)
+	}
+	if n.Status == node.StatusPending {
+		return errs.ErrNotFound
+	}
+	n.OpenToAll = all
+	detail := "closed to all orgs"
+	if all {
+		detail = "open to all orgs"
+	}
+	return o.store.Tx(ctx, func(tx store.Tx) error {
+		if err := tx.Nodes.Update(ctx, n); err != nil {
+			return err
+		}
+		return audit(tx).Append(ctx, securitylog.Event{
+			Action: auditNodeOpen, ActorID: by.User.ID, KeyID: by.KeyID,
+			TargetKind: "node", TargetID: id, Detail: detail,
 		})
 	})
 }

@@ -102,31 +102,44 @@ func (a *app) nodes() *cobra.Command {
 }
 
 func (a *app) nodeAdd() *cobra.Command {
-	var tags []string
-	c := leaf("add <name>", "admin.join-token", "Make the join command for a new worker (server admin)", exact(1),
+	var tags, orgs []string
+	c := leaf("add <name>", "admin.join-token", "Make the join command for a new worker; it always gets egress (server admin)", exact(1),
 		func(_ *cobra.Command, args []string) error {
 			for _, t := range tags {
 				if !slices.Contains(nodeTags, t) {
 					return usage("unknown tag %q; tags are %s", t, strings.Join(nodeTags, ", "))
 				}
 			}
-			v, err := a.call(POST, "/admin/join-tokens", map[string]any{"node_name": args[0], "tags": tags})
+			v, err := a.call(POST, "/admin/join-tokens", map[string]any{"node_name": args[0], "tags": tags, "orgs": orgs})
 			if err != nil {
 				return err
 			}
 			if a.json {
 				return a.show(v)
 			}
-			m := asMap(v)
-			a.say("Join %s to this cluster. On the new machine, as root, run:\n\n  %s\n", args[0], cell(m["command"]))
-			if t, err := time.Parse(time.RFC3339, cell(m["expires_at"])); err == nil {
-				a.say("The token works once and expires in %d minutes.", int(time.Until(t).Round(time.Minute).Minutes()))
-			}
+			a.sayJoin(fmt.Sprintf("Join %s to this cluster. On the new machine, as root, run:", args[0]), asMap(v))
 			return nil
 		})
-	c.Example = "  stackr node add vps-fsn1 --tag ingress --tag egress"
-	c.Flags().StringArrayVar(&tags, "tag", nil, "a capability: ingress, egress or builder (repeatable)")
+	c.Long = "Make the join command for a new worker (server admin). The node always gets egress; add more tags with --tag.\n" +
+		"It is open to every org unless you name orgs with --org."
+	c.Example = "  stackr node add vps-fsn1 --tag ingress\n  stackr node add vps-fsn1 --org acme --org shop"
+	c.Flags().StringArrayVar(&tags, "tag", nil, "another capability: ingress or builder (repeatable; egress is always on)")
+	c.Flags().StringArrayVar(&orgs, "org", nil, "open it to this org only (repeatable; default: every org)")
 	return c
+}
+
+// sayJoin prints a minted join command: the one line, or the two-step
+// version when the panel needs it, and when the token runs out.
+func (a *app) sayJoin(head string, m map[string]any) {
+	line, _ := m["one_line"].(string)
+	if two, _ := m["two_step"].(string); two != "" {
+		head += " (the panel has no trusted certificate, so it takes two steps)"
+		line = strings.ReplaceAll(two, "\n", "\n  ")
+	}
+	a.say("%s\n\n  %s\n", head, line)
+	if t, err := time.Parse(time.RFC3339, cell(m["expires_at"])); err == nil {
+		a.say("The token works once and expires in %d minutes.", int(time.Until(t).Round(time.Minute).Minutes()))
+	}
 }
 
 // pending finds the join request of a node by name.
@@ -295,7 +308,9 @@ func (a *app) nodeShow() *cobra.Command {
 			if r := cell(n["range"]); r != "(none)" {
 				rows = append(rows, []string{"range", r})
 			}
-			if o := strs(n["open_to"]); len(o) > 0 {
+			if n["open_to_all"] == true {
+				rows = append(rows, []string{"open to", "all orgs"})
+			} else if o := strs(n["open_to"]); len(o) > 0 {
 				rows = append(rows, []string{"open to", strings.Join(o, ", ")})
 			}
 			envs := []string{}
@@ -370,7 +385,7 @@ func (a *app) nodeTag(add bool) *cobra.Command {
 // service refuses a clear on such a node and exits that lack egress.
 func (a *app) nodeExit() *cobra.Command {
 	c := leaf("exit <name> [<exit>...]", "admin.node-exit",
-		"Set the default exit of a node without egress; none clears it (server admin)", atLeast(1),
+		"Set the exits a node without egress sends its traffic out through, in order, up to three (server admin)", atLeast(1),
 		func(_ *cobra.Command, args []string) error {
 			name, exits := args[0], args[1:]
 			v, err := a.call(PUT, "/admin/nodes/"+url.PathEscape(name)+"/exit", map[string][]string{"exits": exits})
@@ -392,13 +407,32 @@ func (a *app) nodeExit() *cobra.Command {
 }
 
 func (a *app) nodeOpen(open bool) *cobra.Command {
-	use, short := "open <name>", "Let an org pin to a node (server admin)"
+	use, short := "open <name>", "Let an org, or with --all every org, pin to a node (server admin)"
 	if !open {
-		use, short = "close <name>", "Stop an org from pinning to a node; its envs there stay (server admin)"
+		use, short = "close <name>", "Stop an org pinning to a node, or with --all end its open to all orgs; envs there stay (server admin)"
 	}
 	var orgSlug string
-	c := leaf(use, "admin.node-open,admin.node-close", short, exact(1), func(*cobra.Command, []string) error { return nil })
+	var all bool
+	c := leaf(use, "admin.node-open,admin.node-close,admin.node-open-all", short, exact(1), func(*cobra.Command, []string) error { return nil })
 	c.RunE = func(_ *cobra.Command, args []string) error {
+		if all {
+			if orgSlug != "" {
+				return usage("--all and --org do not go together")
+			}
+			v, err := a.call(PUT, "/admin/nodes/"+url.PathEscape(args[0])+"/open-to-all", map[string]bool{"open": open})
+			if err != nil {
+				return err
+			}
+			if a.json {
+				return a.show(v)
+			}
+			if open {
+				a.say("%s: open to all orgs", args[0])
+			} else {
+				a.say("%s: open only to %s; envs already there stay", args[0], orList(strs(asMap(v)["open_to"])))
+			}
+			return nil
+		}
 		if orgSlug == "" {
 			p, err := a.orgPath()
 			if err != nil {
@@ -443,9 +477,18 @@ func (a *app) nodeOpen(open bool) *cobra.Command {
 		a.say("%s: closed to %s", name, orgSlug)
 		return nil
 	}
-	c.Example = "  stackr node " + strings.Fields(use)[0] + " vps-fsn1 --org acme"
+	c.Example = "  stackr node " + strings.Fields(use)[0] + " vps-fsn1 --org acme\n  stackr node " + strings.Fields(use)[0] + " vps-fsn1 --all"
 	c.Flags().StringVar(&orgSlug, "org", "", "the org (default: the current one)")
+	c.Flags().BoolVar(&all, "all", false, "every org at once")
 	return c
+}
+
+// orList is "acme, shop", or "no org (admins only)" for none.
+func orList(orgs []string) string {
+	if len(orgs) == 0 {
+		return "no org (admins only)"
+	}
+	return strings.Join(orgs, ", ")
 }
 
 func (a *app) nodeRejoin() *cobra.Command {
@@ -458,10 +501,7 @@ func (a *app) nodeRejoin() *cobra.Command {
 			if a.json {
 				return a.show(v)
 			}
-			a.say("%s will need its install command run again. It keeps its envs and data. On %s, as root:\n\n  %s\n", args[0], args[0], cell(asMap(v)["command"]))
-			if t, err := time.Parse(time.RFC3339, cell(asMap(v)["expires_at"])); err == nil {
-				a.say("The token works once and expires in %d minutes.", int(time.Until(t).Round(time.Minute).Minutes()))
-			}
+			a.sayJoin(fmt.Sprintf("%s will need its install command run again. It keeps its envs and data. On %s, as root:", args[0], args[0]), asMap(v))
 			return nil
 		})
 }

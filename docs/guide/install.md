@@ -12,11 +12,11 @@ The panel is the controller: the web UI, the API and the first node. One box run
 
 ## Install
 
-1. Download the installer from the GitHub release.
+1. Download the installer from the latest GitHub release.
 
    ```bash
    curl -fL -o stackr-install \
-     https://github.com/FyrmForge/stackr/releases/download/v0.7.0/stackr-install-linux-amd64
+     https://github.com/FyrmForge/stackr/releases/latest/download/stackr-install-linux-amd64
    chmod +x stackr-install
    ```
 
@@ -45,6 +45,14 @@ The panel is the controller: the web UI, the API and the first node. One box run
    The second one is needed. Every stack gets a name under the domain, and each name must resolve before a certificate can be issued.
 
 4. Save the recovery passphrase the installer prints. It is shown once. It opens the panel's own backups, and a restore on another box needs it.
+
+5. The installer also prints an admin API key, shown once, and the line that logs the CLI on this box in with it:
+
+   ```bash
+   stackr login https://stkr.apps.example.com --with-key <key>
+   ```
+
+   The key is bound to no org, so server admin commands like `stackr node add` work with it. See [Log the CLI in](nodes.md#log-the-cli-in).
 
 Flags you may want:
 

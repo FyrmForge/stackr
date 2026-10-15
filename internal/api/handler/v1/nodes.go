@@ -79,6 +79,19 @@ func (h *H) CloseNode() Endpoint {
 	})
 }
 
+// OpenAllIn turns a node's open to all orgs on or off.
+type OpenAllIn struct {
+	Open bool `json:"open"`
+}
+
+// OpenNodeAll (server admin) opens the node to every org, or closes it back
+// to the orgs it was opened to; envs already there stay.
+func (h *H) OpenNodeAll() Endpoint {
+	return JSON(200, func(c echo.Context, in OpenAllIn) (service.NodeOut, error) {
+		return h.Orch.OpenNodeAll(rc(c), middleware.Principal(c), c.Param("node"), in.Open)
+	})
+}
+
 // RejoinNode (server admin) answers a new join command for a broken worker.
 func (h *H) RejoinNode() Endpoint {
 	return JSON(201, func(c echo.Context, _ None) (service.JoinTokenOut, error) {

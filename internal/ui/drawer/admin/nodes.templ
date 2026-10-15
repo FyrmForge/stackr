@@ -37,6 +37,7 @@ type TrustView struct {
 type NotRejoinedRow struct {
 	Name, Rejoin       string // Rejoin is a POST
 	Command, Expires   string
+	TwoStep            string // the command without the panel's script; "" = not needed
 }
 
 // DefaultsView is the "Default ingress / exit" control. Each form POSTs node=.
@@ -130,13 +131,17 @@ type AddNodeView struct {
 	Step  int
 	Error string
 	// Step 1
-	Name   string
-	Tags   []string // the choices
-	Picked []string
-	Create string // POST name, tag
-	Cancel string // GET: closes the steps
+	Name       string
+	Tags       []string // the choices
+	Picked     []string
+	Orgs       []Option // every org, Value = slug
+	AllOrgs    bool     // open to all orgs (the default)
+	PickedOrgs []string
+	Create     string // POST name, tag, all, org
+	Cancel     string // GET: closes the steps
 	// Step 2
 	Command string
+	TwoStep string // "" = not needed
 	Expires string
 	Poll    string // GET, 204 until the node has called in
 	// Step 3
@@ -179,13 +184,15 @@ type NodeView struct {
 	ExitNodes   []Option  // nodes tagged egress, Value = name
 	AllTags     []string
 	RoutesNote  string
-	OrgsAction  string // POST org=; "" = the controller, open to all
+	OrgsAction  string // POST all=, org=; "" = the controller, open to all
+	OpenToAll   bool
 	Orgs        []NodeOrgRow
 	// Security
 	Certs  []CertRow
 	Rotate      string // POST: replace the node's mesh keys
 	Rejoin      string // POST: a new join command; "" = the controller
 	JoinCommand string // the answer, shown once
+	JoinTwoStep string
 	JoinExpires string
 	Remove c.ConfirmView
 	Forget c.ConfirmView
@@ -442,9 +449,9 @@ templ trustSection(t TrustView) {
 								<button type="submit" class="btn btn-ghost btn-sm">Rejoin command</button>
 							</form>
 						</div>
-						if r.Command != "" {
+						if r.Command != "" || r.TwoStep != "" {
 							<p class="text-xs text-rw-muted">Expires { r.Expires }.</p>
-							<pre class="panel px-3 py-2 text-xs font-mono whitespace-pre-wrap break-all select-all">{ r.Command }</pre>
+							@joinCommand(r.Command, r.TwoStep)
 						}
 					</li>
 				}
@@ -474,6 +481,20 @@ templ AddNode(v AddNodeView) {
 				<form hx-post={ v.Create } hx-target={ target() } hx-swap="outerHTML" class="space-y-4">
 					@c.Field(c.FieldView{Name: "name", Label: "Name", Value: v.Name, Placeholder: "vps-fsn1", Help: "Lowercase, used in pins and the CLI."})
 					<fieldset class="space-y-1">
+						<legend class="label">Open to</legend>
+						<input type="checkbox" id="add-node-all" name="all" value="on" checked?={ v.AllOrgs } class="peer accent-rw-accent"/>
+						<label for="add-node-all" class="text-rw-text">All orgs</label>
+						<div class="space-y-1 pl-6 peer-checked:hidden">
+							for _, o := range v.Orgs {
+								<label class="flex items-center gap-2 text-rw-text"><input type="checkbox" name="org" value={ o.Value } checked?={ hasTag(v.PickedOrgs, o.Value) } class="accent-rw-accent"/> { o.Label }</label>
+							}
+							if len(v.Orgs) == 0 {
+								<p class="text-sm text-rw-faint">No organizations yet.</p>
+							}
+						</div>
+						<p class="text-xs text-rw-faint">Owners of these orgs can pin envs here.</p>
+					</fieldset>
+					<fieldset class="space-y-1">
 						<legend class="label">Tags</legend>
 						for _, t := range v.Tags {
 							<label class="flex items-center gap-2 text-rw-text"><input type="checkbox" name="tag" value={ t } checked?={ t == "egress" || picked(&v, t) } disabled?={ t == "egress" } class="accent-rw-accent"/> { t }if t == "egress" {
@@ -489,7 +510,7 @@ templ AddNode(v AddNodeView) {
 				</form>
 			case 2:
 				<p class="text-sm text-rw-muted">Run this on the new machine as root. It works once and expires { v.Expires }.</p>
-				<pre class="panel px-3 py-2 text-xs font-mono whitespace-pre-wrap break-all select-all">{ v.Command }</pre>
+				@joinCommand(v.Command, v.TwoStep)
 				<p class="text-sm text-rw-muted" aria-live="polite">Waiting for { v.Name } to call in…</p>
 				<button type="button" hx-get={ v.Cancel } hx-target={ target() } hx-swap="outerHTML" class="btn btn-ghost btn-sm">Cancel</button>
 			case 3:
@@ -603,12 +624,17 @@ templ NodeBody(tab string, v NodeView) {
 						<p class="text-sm text-rw-muted">The controller is open to every organization.</p>
 					} else {
 						<form hx-post={ v.OrgsAction } hx-target={ target() } hx-swap="outerHTML" class="space-y-2">
-							for _, o := range v.Orgs {
-								<label class="flex items-center gap-2 text-rw-text"><input type="checkbox" name="org" value={ o.ID } checked?={ o.On } class="accent-rw-accent"/> { o.Name }</label>
-							}
-							if len(v.Orgs) == 0 {
-								<p class="text-sm text-rw-faint">No organizations yet.</p>
-							}
+							<input type="checkbox" id="node-open-all" name="all" value="on" role="switch" checked?={ v.OpenToAll } class="peer accent-rw-accent"/>
+							<label for="node-open-all" class="text-rw-text">Open to all orgs</label>
+							<div class="space-y-2 peer-checked:hidden">
+								for _, o := range v.Orgs {
+									<label class="flex items-center gap-2 text-rw-text"><input type="checkbox" name="org" value={ o.ID } checked?={ o.On } class="accent-rw-accent"/> { o.Name }</label>
+								}
+								if len(v.Orgs) == 0 {
+									<p class="text-sm text-rw-faint">No organizations yet.</p>
+								}
+							</div>
+							<p class="text-xs text-rw-faint">Closing keeps the envs already here.</p>
 							<button type="submit" class="btn btn-ghost btn-sm">Save</button>
 						</form>
 					}
@@ -638,9 +664,9 @@ templ NodeBody(tab string, v NodeView) {
 				}
 				if !v.Controller {
 					@c.Section("Rejoin", "", "If this node broke or was reinstalled, get a new join command. It keeps its name, range and envs; the old certificate stops working once the new request is confirmed.") {
-						if v.JoinCommand != "" {
+						if v.JoinCommand != "" || v.JoinTwoStep != "" {
 							<p class="text-sm text-rw-muted mb-2">Run this on the machine as root. It works once and expires { v.JoinExpires }.</p>
-							<pre class="panel px-3 py-2 text-xs font-mono whitespace-pre-wrap break-all select-all mb-3">{ v.JoinCommand }</pre>
+							<div class="mb-3">@joinCommand(v.JoinCommand, v.JoinTwoStep)</div>
 						}
 						<form hx-post={ v.Rejoin } hx-target={ target() } hx-swap="outerHTML">
 							<button type="submit" class="btn btn-ghost btn-sm">Rejoin</button>
@@ -922,4 +948,16 @@ templ defaultsControl(d DefaultsView) {
 			<button type="submit" class="btn btn-ghost btn-sm">Rotate all keys now</button>
 		</form>
 	</div>
+}
+
+// joinCommand is the one line to run on a joining machine, or the two-step
+// version when the panel's certificate is not one a fresh box trusts.
+templ joinCommand(oneLine, twoStep string) {
+	if oneLine != "" {
+		<pre class="panel px-3 py-2 text-xs font-mono whitespace-pre-wrap break-all select-all">{ oneLine }</pre>
+	}
+	if twoStep != "" {
+		<p class="text-xs text-rw-muted mb-2">The panel has no trusted certificate, so it takes two steps.</p>
+		<pre class="panel px-3 py-2 text-xs font-mono whitespace-pre-wrap break-all select-all">{ twoStep }</pre>
+	}
 }

@@ -76,7 +76,7 @@ func TestConfirmTransit(t *testing.T) {
 	if _, _, err := l.Bootstrap(ctx); err != nil {
 		t.Fatal(err)
 	}
-	p, err := l.CreatePending(ctx, "w1", nil, "k")
+	p, err := l.CreatePending(ctx, "w1", nil, "k", true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,7 +84,7 @@ func TestConfirmTransit(t *testing.T) {
 	if err != nil || n.WGAddress != "10.207.255.1" || n.Status != node.StatusJoined {
 		t.Fatalf("confirm = %+v, %v", n, err)
 	}
-	p2, _ := l.CreatePending(ctx, "w2", nil, "k2")
+	p2, _ := l.CreatePending(ctx, "w2", nil, "k2", true)
 	if _, err := l.Confirm(ctx, p2.ID, []netip.Prefix{netip.MustParsePrefix("10.208.4.1/24")}); err == nil {
 		t.Fatal("a node on the cluster pool was confirmed")
 	}

@@ -599,6 +599,9 @@
             },
             "type": "array"
           },
+          "open_to_all": {
+            "type": "boolean"
+          },
           "public": {
             "items": {
               "type": "string"
@@ -637,6 +640,7 @@
           "state",
           "tags",
           "envs",
+          "open_to_all",
           "open_to",
           "range",
           "wg_address",
@@ -2145,6 +2149,9 @@
           "node_name": {
             "type": "string"
           },
+          "one_line": {
+            "type": "string"
+          },
           "tags": {
             "items": {
               "type": "string"
@@ -2152,6 +2159,9 @@
             "type": "array"
           },
           "token": {
+            "type": "string"
+          },
+          "two_step": {
             "type": "string"
           }
         },
@@ -2170,6 +2180,12 @@
           "node_name": {
             "type": "string"
           },
+          "orgs": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
           "tags": {
             "items": {
               "type": "string"
@@ -2183,7 +2199,8 @@
         "required": [
           "node_name",
           "tags",
-          "ttl_minutes"
+          "ttl_minutes",
+          "orgs"
         ],
         "type": "object"
       },
@@ -3098,6 +3115,9 @@
             },
             "type": "array"
           },
+          "open_to_all": {
+            "type": "boolean"
+          },
           "range": {
             "type": "string"
           },
@@ -3130,6 +3150,7 @@
           "state",
           "tags",
           "envs",
+          "open_to_all",
           "open_to",
           "range",
           "wg_address",
@@ -3193,6 +3214,9 @@
             },
             "type": "array"
           },
+          "open_to_all": {
+            "type": "boolean"
+          },
           "range": {
             "type": "string"
           },
@@ -3225,6 +3249,7 @@
           "state",
           "tags",
           "envs",
+          "open_to_all",
           "open_to",
           "range",
           "wg_address",
@@ -3292,6 +3317,17 @@
         },
         "required": [
           "on_remove"
+        ],
+        "type": "object"
+      },
+      "OpenAllIn": {
+        "properties": {
+          "open": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "open"
         ],
         "type": "object"
       },
@@ -8488,6 +8524,54 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ForgetOut"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "node.manage"
+      }
+    },
+    "/api/v1/admin/nodes/{node}/open-to-all": {
+      "put": {
+        "operationId": "admin.node-open-all",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "node",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OpenAllIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NodeOut"
                 }
               }
             },

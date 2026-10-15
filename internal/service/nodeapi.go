@@ -41,6 +41,7 @@ type NodeOut struct {
 	State     string   `json:"state"`
 	Tags      []string `json:"tags"`
 	Envs      int      `json:"envs"`
+	OpenToAll bool     `json:"open_to_all"` // every org may pin here; open_to lists the picks for when it is off
 	OpenTo    []string `json:"open_to"`
 	Range     string   `json:"range"`
 	WGAddress string   `json:"wg_address"`
@@ -275,7 +276,7 @@ func (o *Orchestrator) nodeOut(ctx context.Context, n store.Node) (NodeOut, erro
 	}
 	out := NodeOut{
 		ID: n.ID, Name: n.Name, Role: n.Role, State: o.shownStatus(n), Tags: node.Tags(n), Envs: len(es),
-		OpenTo: o.orgSlugs(ctx, open), Range: envNets(es), WGAddress: n.WGAddress, DefaultExit: []string{},
+		OpenToAll: n.OpenToAll || n.Role == node.Controller, OpenTo: o.orgSlugs(ctx, open), Range: envNets(es), WGAddress: n.WGAddress, DefaultExit: []string{},
 	}
 	if !hasEgress(n) {
 		ids, err := scopeLadder(ctx, o.store, scopeNode, n.ID)
@@ -424,9 +425,28 @@ func (o *Orchestrator) OpenNode(ctx context.Context, by *Principal, ref, orgSlug
 		cur = append(cur, og.ID)
 	}
 	if !open {
+		if n.OpenToAll {
+			return NodeOut{}, errs.Conflictf("%s is open to all orgs. Close it to all first, then open it to the orgs you want.", n.Name)
+		}
 		cur = slices.DeleteFunc(cur, func(id string) bool { return id == og.ID })
 	}
 	if err := o.SetNodeOrgs(ctx, by, n.ID, cur); err != nil {
+		return NodeOut{}, err
+	}
+	return o.nodeOut(ctx, n)
+}
+
+// OpenNodeAll opens the node to every org (open) or back to its own list
+// (close), by name. Envs already there stay.
+func (o *Orchestrator) OpenNodeAll(ctx context.Context, by *Principal, ref string, open bool) (NodeOut, error) {
+	n, err := o.nodeByRef(ctx, ref)
+	if err != nil {
+		return NodeOut{}, err
+	}
+	if err := o.SetNodeOpenToAll(ctx, by, n.ID, open); err != nil {
+		return NodeOut{}, err
+	}
+	if n, err = o.store.Nodes.Get(ctx, n.ID); err != nil {
 		return NodeOut{}, err
 	}
 	return o.nodeOut(ctx, n)
@@ -496,7 +516,7 @@ func (o *Orchestrator) RejoinNode(ctx context.Context, by *Principal, ref string
 	if _, err := o.store.JoinTokens.ExpireUnspentFor(ctx, n.Name, time.Now().UTC()); err != nil {
 		return JoinTokenOut{}, err
 	}
-	out, err := o.mintJoin(ctx, by, n.Name, node.Tags(n), 0)
+	out, err := o.mintJoin(ctx, by, n.Name, node.Tags(n), 0, true, nil) // a rejoin keeps the node's orgs
 	if err != nil {
 		return out, err
 	}

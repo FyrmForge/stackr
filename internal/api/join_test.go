@@ -1,6 +1,10 @@
 package api_test
 
-import "testing"
+import (
+	"net/http/httptest"
+	"strings"
+	"testing"
+)
 
 // The join calls: admin only to mint, confirm and reject; the public two
 // refuse plain http, answer an unknown token with a 404, and stop a flood
@@ -38,5 +42,34 @@ func TestJoinAPI(t *testing.T) {
 	}
 	if !limited {
 		t.Error("30 join calls from one address were never limited")
+	}
+}
+
+// The one-line join's script and download sit outside the API and the site:
+// a refusal is plain text (never a login redirect sh would run), never
+// cached, and a flood from one address is stopped. This panel has no
+// trusted certificate, so it serves neither.
+func TestJoinScriptRoutes(t *testing.T) {
+	w := newWorld(t)
+	get := func(path string) *httptest.ResponseRecorder {
+		rec := httptest.NewRecorder()
+		w.h.ServeHTTP(rec, httptest.NewRequest("GET", path, nil))
+		return rec
+	}
+	for _, p := range []string{"/join/stkjoin_nope", "/join/stkjoin_nope/stackr-install"} {
+		rec := get(p)
+		if rec.Code != 403 || !strings.Contains(rec.Body.String(), "two-step join command") ||
+			rec.Header().Get("Cache-Control") != "no-store" || rec.Header().Get("Location") != "" {
+			t.Errorf("GET %s = %d %q %v", p, rec.Code, rec.Body, rec.Header())
+		}
+	}
+	limited := false
+	for range 30 {
+		if get("/join/stkjoin_nope").Code == 429 {
+			limited = true
+		}
+	}
+	if !limited {
+		t.Error("30 script fetches from one address were never limited")
 	}
 }

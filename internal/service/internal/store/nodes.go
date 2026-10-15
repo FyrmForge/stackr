@@ -18,6 +18,9 @@ type Node struct {
 	WGAddress   string    `db:"wg_address" json:"wg_address"`
 	Status      string    `db:"status" json:"status"`
 	CreatedAt   time.Time `db:"created_at" json:"created_at"`
+	// OpenToAll lets every org's owners pin to the node; off, only the
+	// orgs in node_orgs may.
+	OpenToAll bool `db:"open_to_all" json:"open_to_all"`
 }
 
 type NodeStore interface {

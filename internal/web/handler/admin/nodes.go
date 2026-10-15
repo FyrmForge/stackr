@@ -68,7 +68,11 @@ func (h *handler) mountNodes(g *echo.Group, a *middleware.Access) {
 		if err != nil {
 			return echo.NewHTTPError(http.StatusBadRequest, "bad form")
 		}
-		return h.orch.SetNodeOrgs(c.Request().Context(), middleware.Principal(c), c.Param("node"), f["org"])
+		ctx, by := c.Request().Context(), middleware.Principal(c)
+		if err := h.orch.SetNodeOrgs(ctx, by, c.Param("node"), f["org"]); err != nil {
+			return err
+		}
+		return h.orch.SetNodeOpenToAll(ctx, by, c.Param("node"), f.Get("all") != "")
 	}), m)
 	g.POST(nodesBase+"/default-ingress/preview", h.previewIngress, m)
 	g.POST(nodesBase+"/default-ingress", h.act("nodes", func(c echo.Context) (string, *service.Job, error) {
@@ -188,14 +192,26 @@ func (h *handler) nodeAct(tab, note string, do func(echo.Context) error) echo.Ha
 
 // GET /-/admin/nodes/add
 func (h *handler) addNode(c echo.Context) error {
-	return h.answer(c, "nodes", "", extra{adder: h.step1("", nil, "")}, nil)
+	v, err := h.step1(c, "", nil, true, nil, "")
+	if err != nil {
+		return middleware.HTTPError(err)
+	}
+	return h.answer(c, "nodes", "", extra{adder: v}, nil)
 }
 
-func (h *handler) step1(name string, picked []string, msg string) *ui.AddNodeView {
-	return &ui.AddNodeView{
-		Step: 1, Name: name, Picked: picked, Tags: service.NodeTags, Error: msg,
-		Create: nodesBase + "/add", Cancel: ui.Base + "?tab=nodes",
+func (h *handler) step1(c echo.Context, name string, picked []string, all bool, orgs []string, msg string) (*ui.AddNodeView, error) {
+	ogs, err := h.orch.AllOrgs(c.Request().Context())
+	if err != nil {
+		return nil, err
 	}
+	v := &ui.AddNodeView{
+		Step: 1, Name: name, Picked: picked, Tags: service.NodeTags, Error: msg,
+		AllOrgs: all, PickedOrgs: orgs, Create: nodesBase + "/add", Cancel: ui.Base + "?tab=nodes",
+	}
+	for _, o := range ogs {
+		v.Orgs = append(v.Orgs, ui.Option{Value: o.Slug, Label: o.Name})
+	}
+	return v, nil
 }
 
 // POST /-/admin/nodes/add
@@ -204,19 +220,34 @@ func (h *handler) mintNode(c echo.Context) error {
 	if err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, "bad form")
 	}
-	name := strings.TrimSpace(f.Get("name"))
-	out, err := h.orch.CreateJoinToken(c.Request().Context(), middleware.Principal(c), service.JoinTokenSpec{
-		NodeName: name, Tags: f["tag"],
-	})
+	name, all := strings.TrimSpace(f.Get("name")), f.Get("all") != ""
+	var orgs []string
+	if !all {
+		orgs = f["org"]
+	}
+	err = nil
+	if !all && len(orgs) == 0 {
+		err = errs.Invalidf("orgs", "pick at least one org, or All orgs")
+	}
+	var out service.JoinTokenOut
+	if err == nil {
+		out, err = h.orch.CreateJoinToken(c.Request().Context(), middleware.Principal(c), service.JoinTokenSpec{
+			NodeName: name, Tags: f["tag"], Orgs: orgs,
+		})
+	}
 	if err != nil {
 		msg, ok := render.Refused(err)
 		if !ok {
 			return middleware.HTTPError(err)
 		}
-		return h.answer(c, "nodes", "", extra{adder: h.step1(name, f["tag"], msg)}, nil)
+		v, err := h.step1(c, name, f["tag"], all, orgs, msg)
+		if err != nil {
+			return middleware.HTTPError(err)
+		}
+		return h.answer(c, "nodes", "", extra{adder: v}, nil)
 	}
 	return h.answer(c, "nodes", "", extra{adder: &ui.AddNodeView{
-		Step: 2, Name: out.NodeName, Command: out.Command,
+		Step: 2, Name: out.NodeName, Command: out.OneLine, TwoStep: out.TwoStep,
 		Expires: "in " + fmt.Sprint(int(time.Until(out.ExpiresAt).Round(time.Minute).Minutes())) + " minutes",
 		Poll:    nodesBase + "/add/poll?name=" + url.QueryEscape(out.NodeName),
 		Cancel:  ui.Base + "?tab=nodes",
@@ -380,7 +411,7 @@ func (h *handler) trustView(c echo.Context) (ui.TrustView, error) {
 	for _, n := range t.NotRejoined {
 		r := ui.NotRejoinedRow{Name: n.Name, Rejoin: nodesBase + "/" + n.ID + "/trust-rejoin"}
 		if cmd.Command != "" && c.Param("node") == n.ID {
-			r.Command = cmd.Command
+			r.Command, r.TwoStep = cmd.OneLine, cmd.TwoStep
 			r.Expires = "in " + fmt.Sprint(int(time.Until(cmd.ExpiresAt).Round(time.Minute).Minutes())) + " minutes"
 		}
 		v.NotRejoined = append(v.NotRejoined, r)
@@ -491,7 +522,7 @@ func (h *handler) nodeView(c echo.Context, d service.NodeDetail, base string) (u
 	if d.Controller {
 		v.RoutesNote = fmt.Sprintf("%s serves the panel and %d routes.", d.Name, d.RoutesServed)
 	} else {
-		v.OrgsAction = base + "/orgs"
+		v.OrgsAction, v.OpenToAll = base+"/orgs", d.OpenToAll
 	}
 	for _, e := range d.EnvList {
 		v.Envs = append(v.Envs, ui.NodeEnvRow{Path: e.Path, Pin: e.Pin, Tiles: e.Tiles})
@@ -523,7 +554,7 @@ func (h *handler) nodeView(c echo.Context, d service.NodeDetail, base string) (u
 	if !d.Controller {
 		v.Rejoin = base + "/rejoin"
 		if out, ok := c.Get("rejoin").(service.JoinTokenOut); ok {
-			v.JoinCommand = out.Command
+			v.JoinCommand, v.JoinTwoStep = out.OneLine, out.TwoStep
 			v.JoinExpires = "in " + fmt.Sprint(int(time.Until(out.ExpiresAt).Round(time.Minute).Minutes())) + " minutes"
 		}
 		lost, err := h.orch.ForgetPreview(c.Request().Context(), d.ID)

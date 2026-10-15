@@ -10,7 +10,7 @@ import "fmt"
 // orgs the caller may not be in.
 func (n NodeOut) Redacted() NodeOut {
 	n.Range, n.WGAddress = "", ""
-	n.OpenTo, n.DefaultExit = []string{}, []string{}
+	n.OpenToAll, n.OpenTo, n.DefaultExit = false, []string{}, []string{}
 	n.Version, n.Arch, n.Docker = "", "", ""
 	n.Behind, n.TooOld = false, false
 	n.CPU, n.MemTotal, n.DiskFree, n.DiskTotal = 0, 0, 0, 0

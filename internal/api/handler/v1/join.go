@@ -193,3 +193,61 @@ func (h *H) RejectJoin() Endpoint {
 		return h.Orch.RejectJoin(rc(c), middleware.Principal(c), c.Param("node"))
 	})
 }
+
+// scriptTries is the budget of the join script and its download, apart from
+// the join calls': a re-run of the one line must not leave the installer's
+// own join request turned away.
+var scriptTries = newTryLimiter(joinPerWindow)
+
+// JoinScript (public, rate limited, mounted at /join/:token outside the API)
+// is the shell script the panel's one-line join pipes into sh. A refusal is
+// a plain non-2xx, which curl -f turns into running nothing.
+func (h *H) JoinScript(c echo.Context) error {
+	return joinFile(c, func() error {
+		s, err := h.Orch.JoinScript(rc(c), joinMeta(c), c.Param("token"))
+		if err != nil {
+			return err
+		}
+		return c.Blob(http.StatusOK, "text/x-shellscript; charset=utf-8", []byte(s))
+	})
+}
+
+// JoinInstaller (public, rate limited) is the stackr-install the join script
+// downloads, for a live token only.
+func (h *H) JoinInstaller(c echo.Context) error {
+	return joinFile(c, func() error {
+		p, err := h.Orch.JoinInstaller(rc(c), joinMeta(c), c.Param("token"))
+		if err != nil {
+			return err
+		}
+		c.Response().Header().Set(echo.HeaderContentType, "application/octet-stream")
+		return c.File(p)
+	})
+}
+
+func joinMeta(c echo.Context) service.JoinMeta {
+	return service.JoinMeta{IP: c.RealIP(), UserAgent: c.Request().UserAgent(), HTTPS: isHTTPS(c)}
+}
+
+func joinFile(c echo.Context, serve func() error) error {
+	c.Response().Header().Set("Cache-Control", "no-store")
+	if ok, wait := scriptTries.allow(c.RealIP()); !ok {
+		c.Response().Header().Set("Retry-After", strconv.Itoa(int(wait.Seconds())+1))
+		return c.String(http.StatusTooManyRequests, "too many join attempts; try again later\n")
+	}
+	err := serve()
+	if err == nil {
+		return nil
+	}
+	he, ok := middleware.HTTPError(err).(*echo.HTTPError)
+	if !ok {
+		return err
+	}
+	msg := http.StatusText(he.Code)
+	if he.Code == http.StatusNotFound {
+		msg = "this join command is used, expired or unknown; get a new one in the panel"
+	} else if s, ok := he.Message.(string); ok {
+		msg = s
+	}
+	return c.String(he.Code, msg+"\n")
+}

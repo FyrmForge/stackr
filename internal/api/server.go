@@ -29,6 +29,10 @@ func RegisterRoutes(srv *server.Server, deps *Deps) {
 
 	h := &v1.H{Orch: deps.Orch}
 	srv.Echo().POST("/hooks/connectors/:connector", h.Hook, middleware.Logging(), middleware.JSONErrors())
+	// The one-line join (curl .../join/<token> | sh): outside the site, so
+	// no login redirect ever lands an HTML page in sh.
+	srv.Echo().GET("/join/:token", h.JoinScript, middleware.Logging())
+	srv.Echo().GET("/join/:token/stackr-install", h.JoinInstaller, middleware.Logging())
 
 	g := api.Group("/v1", middleware.JSONErrors(), deps.Access.Load(), middleware.APICSRF(!deps.DevMode))
 	for _, r := range Routes(h) {

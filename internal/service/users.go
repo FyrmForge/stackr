@@ -16,17 +16,31 @@ import (
 // User is a users row as the surfaces see it.
 type User = store.User
 
-// CreateAdmin makes the install's first account, the stackr admin. Only the
-// installer reaches it (stackrd create-admin), beside a running panel, so it
-// opens the database on its own: New would start a second job runner and
-// scheduler. No route calls it.
-func CreateAdmin(ctx context.Context, cfg Config, email, password, name string) (User, error) {
+// CreateAdmin makes the install's first account, the stackr admin, and its
+// first API key, bound to no org, for the CLI on the controller (server admin
+// commands refuse an org's key). Only the installer reaches it (stackrd
+// create-admin), beside a running panel, so it opens the database on its
+// own: New would start a second job runner and scheduler. No route calls it.
+func CreateAdmin(ctx context.Context, cfg Config, email, password, name string) (User, string, error) {
 	var u User
-	err := withUsers(ctx, cfg, func(l *user.Leaf) (err error) {
-		u, err = l.CreateAdmin(ctx, email, password, name)
-		return err
+	var tok string
+	err := withStore(ctx, cfg, func(st *store.Store) error {
+		return st.Tx(ctx, func(tx store.Tx) (err error) {
+			l := user.New(tx.Users, tx.Sessions, tx.APIKeys)
+			if u, err = l.CreateAdmin(ctx, email, password, name); err != nil {
+				return err
+			}
+			var k store.APIKey
+			if tok, k, err = l.MintKey(ctx, u, "", "", "installer", "", ""); err != nil {
+				return err
+			}
+			return audit(tx).Append(ctx, securitylog.Event{
+				Action: securitylog.KeyMint, ActorID: u.ID, TargetKind: "api_key", TargetID: k.ID,
+				Detail: "name=installer org= level= stack=",
+			})
+		})
 	})
-	return u, err
+	return u, tok, err
 }
 
 // NeedsAdmin reports whether the install has no account yet, so a re-run of
@@ -43,6 +57,11 @@ func NeedsAdmin(ctx context.Context, cfg Config) (bool, error) {
 
 // withUsers opens the store alone, hands over the user leaf, and closes.
 func withUsers(ctx context.Context, cfg Config, do func(*user.Leaf) error) error {
+	return withStore(ctx, cfg, func(st *store.Store) error { return do(user.New(st.Users, st.Sessions, st.APIKeys)) })
+}
+
+// withStore opens the store alone, hands it over, and closes.
+func withStore(ctx context.Context, cfg Config, do func(*store.Store) error) error {
 	box, err := secrets.New(cfg.SecretsKey)
 	if err != nil {
 		return err
@@ -55,8 +74,7 @@ func withUsers(ctx context.Context, cfg Config, do func(*user.Leaf) error) error
 		return err
 	}
 	defer func() { _ = db.Close() }()
-	st := store.New(db, box)
-	return do(user.New(st.Users, st.Sessions, st.APIKeys))
+	return do(store.New(db, box))
 }
 
 // Login checks the credentials and opens a session. Either way one security

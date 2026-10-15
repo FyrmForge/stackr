@@ -44,6 +44,9 @@ func Logging() echo.MiddlewareFunc {
 				duration := time.Since(start)
 				method := c.Request().Method
 				path := c.Request().URL.Path
+				if strings.Contains(c.Path(), ":token") { // a join or invite token is a credential: log the route
+					path = c.Path()
+				}
 
 				attrs := []any{
 					slog.String("method", method),

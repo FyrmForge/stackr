@@ -231,6 +231,7 @@ func routes(h *v1.H) []Route {
 		{PUT, "/admin/nodes/:node/exit", "admin.node-exit", "node.manage", h.SetNodeExit()},
 		{POST, "/admin/nodes/:node/orgs", "admin.node-open", "node.manage", h.OpenNode()},
 		{DELETE, "/admin/nodes/:node/orgs/:org", "admin.node-close", "node.manage", h.CloseNode()},
+		{PUT, "/admin/nodes/:node/open-to-all", "admin.node-open-all", "node.manage", h.OpenNodeAll()},
 		{GET, "/admin/node-defaults", "admin.node-defaults", Self, h.NodeDefaults()},
 		{GET, "/admin/default-ingress/plan", "admin.default-ingress-plan", "node.manage", h.DefaultIngressPlan()},
 		{PUT, "/admin/default-ingress", "admin.default-ingress-set", "node.manage", h.SetDefaultIngress()},

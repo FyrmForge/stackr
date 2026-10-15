@@ -7,8 +7,11 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"errors"
+	"fmt"
+	"log/slog"
 	"net/netip"
 	"os"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
@@ -50,6 +53,9 @@ type JoinTokenSpec struct {
 	NodeName   string   `json:"node_name"`
 	Tags       []string `json:"tags"`
 	TTLMinutes int      `json:"ttl_minutes"` // 0 = one hour
+	// Orgs are the org slugs whose owners may pin to the node; none = every
+	// org (open to all).
+	Orgs []string `json:"orgs"`
 }
 
 // JoinTokenOut is a minted token. The token and the command carry it; both
@@ -60,7 +66,14 @@ type JoinTokenOut struct {
 	Tags        []string  `json:"tags"`
 	ExpiresAt   time.Time `json:"expires_at"`
 	Fingerprint string    `json:"ca_fingerprint"` // SHA-256 of the cluster CA cert, hex
-	Command     string    `json:"command"`        // the one line to run on the new machine
+	Command     string    `json:"command"`        // the installer's join line, which the one-line join runs
+	// OneLine is what to run on the new machine: curl the panel's join
+	// script into sh. "" on a panel without a publicly trusted certificate:
+	// a script fetched without one could be swapped on the way.
+	OneLine string `json:"one_line,omitempty"`
+	// TwoStep is the same without the panel's script, for such a panel:
+	// download the installer from GitHub, then Command. "" = not needed.
+	TwoStep string `json:"two_step,omitempty"`
 }
 
 // JoinRequest is what the new machine posts.
@@ -161,14 +174,25 @@ func (o *Orchestrator) CreateJoinToken(ctx context.Context, by *Principal, spec 
 	if _, err := o.store.Nodes.GetBySlug(ctx, name); err == nil {
 		return JoinTokenOut{}, errs.Conflictf("A node named %q already exists.", name)
 	}
+	var orgIDs []string
+	for _, sl := range spec.Orgs {
+		og, err := o.store.Orgs.GetBySlug(ctx, sl)
+		if errors.Is(err, errs.ErrNotFound) {
+			return JoinTokenOut{}, errs.Invalidf("orgs", "no organization %q", sl)
+		} else if err != nil {
+			return JoinTokenOut{}, err
+		}
+		orgIDs = append(orgIDs, og.ID)
+	}
 	// A default exit can't be picked before the node exists, so a new node
 	// always has egress; an admin can drop it once it is up.
-	return o.mintJoin(ctx, by, name, append(slices.Clone(spec.Tags), node.TagEgress), spec.TTLMinutes)
+	return o.mintJoin(ctx, by, name, append(slices.Clone(spec.Tags), node.TagEgress), spec.TTLMinutes, len(orgIDs) == 0, orgIDs)
 }
 
 // mintJoin is the token itself. A rejoin names a node that already exists
 // (RejoinNode set it to needs-rejoin); its request then reuses the row.
-func (o *Orchestrator) mintJoin(ctx context.Context, by *Principal, name string, tagList []string, ttlMinutes int) (JoinTokenOut, error) {
+// openAll and orgIDs are who a new node opens to.
+func (o *Orchestrator) mintJoin(ctx context.Context, by *Principal, name string, tagList []string, ttlMinutes int, openAll bool, orgIDs []string) (JoinTokenOut, error) {
 	ttl := time.Duration(ttlMinutes) * time.Minute
 	switch {
 	case ttlMinutes < 0 || ttl > JoinTokenMaxTTL:
@@ -183,14 +207,19 @@ func (o *Orchestrator) mintJoin(ctx context.Context, by *Principal, name string,
 	tags := slices.Compact(slices.Sorted(slices.Values(tagList)))
 	var out JoinTokenOut
 	err = o.store.Tx(ctx, func(tx store.Tx) error {
-		token, row, err := o.joinTokens(tx).Mint(ctx, name, tags, by.User.ID, ttl)
+		token, row, err := o.joinTokens(tx).Mint(ctx, name, tags, openAll, slices.Compact(slices.Sorted(slices.Values(orgIDs))), by.User.ID, ttl)
 		if err != nil {
 			return err
 		}
 		fp := caFingerprint(ca)
 		out = JoinTokenOut{
 			Token: token, NodeName: name, Tags: tags, ExpiresAt: row.ExpiresAt, Fingerprint: fp,
-			Command: "stackr-install join --panel " + o.panelURL() + " --token " + token + " --ca-sha256 " + fp + o.joinVersionFlag(),
+			Command: "stackr-install " + shLine(o.joinArgs(token, fp)),
+		}
+		if o.publicCert() {
+			out.OneLine = "curl -fsSL " + shWord(o.panelURL()+"/join/"+token) + " | sh"
+		} else {
+			out.TwoStep = "curl -fLo stackr-install " + shWord(o.installerURL()) + " && chmod +x stackr-install\n./" + out.Command
 		}
 		return audit(tx).Append(ctx, securitylog.Event{
 			Action: jointoken.ActionToken, ActorID: by.User.ID, KeyID: by.KeyID,
@@ -201,15 +230,39 @@ func (o *Orchestrator) mintJoin(ctx context.Context, by *Principal, name string,
 	return out, err
 }
 
-// joinVersionFlag pins the printed command to the panel's build, so an
-// installer older than the panel still installs the panel's version. A plain
-// dev build has no release to name.
-func (o *Orchestrator) joinVersionFlag() string {
+// joinArgs are the installer's join arguments. --version pins the worker to
+// the panel's build, so an installer older than the panel still installs the
+// panel's version; a plain dev build has no release to name.
+func (o *Orchestrator) joinArgs(token, fp string) []string {
+	args := []string{"join", "--panel", o.panelURL(), "--token", token, "--ca-sha256", fp}
+	if v := o.releaseVersion(); v != "" {
+		args = append(args, "--version", v)
+	}
+	return args
+}
+
+// releaseVersion is the panel's release without the v; "" for a dev build.
+func (o *Orchestrator) releaseVersion() string {
 	v := strings.TrimPrefix(o.cfg.Version, "v")
-	if v == "" || v == "dev" {
+	if v == "dev" {
 		return ""
 	}
-	return " --version " + v
+	return v
+}
+
+// publicCert is whether the panel's own URL is https on a certificate a
+// fresh box trusts: Caddy gets the panel one from ACME unless TLS is off.
+func (o *Orchestrator) publicCert() bool {
+	return !o.cfg.TLSOff && strings.HasPrefix(o.panelURL(), "https://")
+}
+
+// installerURL is the GitHub download of the installer of the panel's
+// release, the latest one for a dev build.
+func (o *Orchestrator) installerURL() string {
+	if v := o.releaseVersion(); v != "" {
+		return "https://github.com/FyrmForge/stackr/releases/download/v" + v + "/stackr-install-linux-amd64"
+	}
+	return "https://github.com/FyrmForge/stackr/releases/latest/download/stackr-install-linux-amd64"
 }
 
 // RequestJoin spends the token and parks a pending node. Unauthenticated: the
@@ -241,9 +294,14 @@ func (o *Orchestrator) RequestJoin(ctx context.Context, meta JoinMeta, req JoinR
 		}
 		var tags []string
 		_ = json.Unmarshal([]byte(row.Tags), &tags)
-		n, err := node.New(tx.Nodes).CreatePendingOrRejoin(ctx, row.NodeName, tags, req.WGPublicKey, StateNeedsRejoin)
+		n, fresh, err := node.New(tx.Nodes).CreatePendingOrRejoin(ctx, row.NodeName, tags, req.WGPublicKey, StateNeedsRejoin, row.OpenToAll)
 		if err != nil {
 			return err
+		}
+		if fresh && !row.OpenToAll {
+			if err := o.openToTokenOrgs(ctx, tx, n.ID, row.OrgIDs); err != nil {
+				return err
+			}
 		}
 		if err := jt.Record(ctx, row, n.ID, req.CSR, req.WGPublicKey, facts); err != nil {
 			return err
@@ -255,6 +313,21 @@ func (o *Orchestrator) RequestJoin(ctx context.Context, meta JoinMeta, req JoinR
 		})
 	})
 	return st, err
+}
+
+// openToTokenOrgs opens a new node to the orgs its join token named, less
+// any deleted since the mint.
+func (o *Orchestrator) openToTokenOrgs(ctx context.Context, tx store.Tx, nodeID, raw string) error {
+	var ids, live []string
+	_ = json.Unmarshal([]byte(raw), &ids)
+	for _, id := range ids {
+		if _, err := tx.Orgs.Get(ctx, id); err == nil {
+			live = append(live, id)
+		} else if !errors.Is(err, errs.ErrNotFound) {
+			return err
+		}
+	}
+	return tx.NodeOrgs.Set(ctx, nodeID, live)
 }
 
 func checkCSR(s string) error {
@@ -461,3 +534,117 @@ func reportedPrefixes(r store.JoinToken, rejoin bool) []netip.Prefix {
 	}
 	return out
 }
+
+// installerPath is the stackr-install the panel hands to a joining box: the
+// one next to stackrd (/stackr-install in the image, bin/ in development).
+var installerPath = func() string {
+	exe, err := os.Executable()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(filepath.Dir(exe), "stackr-install")
+}
+
+// JoinScript (token holder, public) is the shell script `curl .../join/<token>
+// | sh` runs on the new machine: check the box, fetch stackr-install from the
+// panel into a temp dir, run its join with the same token. Only a live token
+// gets one, and the token stays unspent. Every value in it is single quoted.
+func (o *Orchestrator) JoinScript(ctx context.Context, meta JoinMeta, token string) (string, error) {
+	if err := o.scriptServed(meta); err != nil {
+		return "", err
+	}
+	if _, err := jointoken.New(o.store.JoinTokens).Live(ctx, token); err != nil {
+		return "", err
+	}
+	panel := o.panelURL()
+	ca, err := o.loadCA()
+	if err != nil {
+		return "", err
+	}
+	args := o.joinArgs(token, caFingerprint(ca))
+	for i := range args {
+		args[i] = shQuote(args[i])
+	}
+	return fmt.Sprintf(joinScript, shQuote(panel+"/join/"+token+"/stackr-install"), strings.Join(args, " ")), nil
+}
+
+// scriptServed refuses the join script and its download unless both travel
+// over https on a certificate a fresh box trusts: either swapped on the way
+// is root on the new machine.
+func (o *Orchestrator) scriptServed(meta JoinMeta) error {
+	if !o.publicCert() {
+		return errs.Refusedf("This panel has no trusted certificate; use the two-step join command.")
+	}
+	if !meta.HTTPS {
+		return errs.Refusedf("The join script is only served over https.")
+	}
+	return nil
+}
+
+// JoinInstaller (token holder, public) is the path of the stackr-install the
+// join script downloads, for a live token only.
+func (o *Orchestrator) JoinInstaller(ctx context.Context, meta JoinMeta, token string) (string, error) {
+	if err := o.scriptServed(meta); err != nil {
+		return "", err
+	}
+	if _, err := jointoken.New(o.store.JoinTokens).Live(ctx, token); err != nil {
+		return "", err
+	}
+	p := installerPath()
+	if fi, err := os.Stat(p); err != nil || !fi.Mode().IsRegular() {
+		slog.Warn("join: no stackr-install next to stackrd to hand out", "path", p)
+		return "", errs.Conflictf("This panel has no stackr-install to hand out; download it from the GitHub release.")
+	}
+	return p, nil
+}
+
+// shQuote single quotes s for sh.
+func shQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }
+
+// shWord is s as one sh word: bare when it holds nothing sh reads, else
+// quoted. The printed commands get pasted into a root shell.
+func shWord(s string) string {
+	if s != "" && strings.Trim(s, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_./:@%+=,") == "" {
+		return s
+	}
+	return shQuote(s)
+}
+
+func shLine(args []string) string {
+	out := make([]string, len(args))
+	for i, a := range args {
+		out[i] = shWord(a)
+	}
+	return strings.Join(out, " ")
+}
+
+// joinScript takes the installer URL and the quoted join arguments. The body
+// sits in a function so a cut-off download runs nothing; the installer reads
+// /dev/null, never the rest of the piped script.
+const joinScript = `#!/bin/sh
+# stackr: join this machine to the cluster as a worker node.
+set -eu
+
+fail() { echo "stackr: $*" >&2; exit 1; }
+
+main() {
+	[ "$(uname -s)" = Linux ] || fail "a worker runs on Linux only"
+	case "$(uname -m)" in
+	x86_64 | amd64) ;;
+	*) fail "a worker needs amd64, this machine is $(uname -m)" ;;
+	esac
+	[ "$(id -u)" = 0 ] || fail "run as root: pipe it to sudo sh"
+	command -v docker >/dev/null 2>&1 || fail "install Docker 26.0 or newer first: https://docs.docker.com/engine/install/"
+	docker info >/dev/null 2>&1 || fail "Docker is installed but not running"
+	command -v curl >/dev/null 2>&1 || fail "curl is missing"
+
+	tmp=$(mktemp -d)
+	trap 'rm -rf "$tmp"' EXIT
+	trap 'exit 1' HUP INT TERM
+	curl -fsSL -o "$tmp/stackr-install" %s
+	chmod 0755 "$tmp/stackr-install"
+	"$tmp/stackr-install" %s </dev/null
+}
+
+main
+`

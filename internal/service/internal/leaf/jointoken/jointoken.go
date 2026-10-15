@@ -11,6 +11,7 @@ import (
 	"encoding/base32"
 	"encoding/hex"
 	"encoding/json"
+	"regexp"
 	"strings"
 	"time"
 
@@ -42,19 +43,23 @@ func Hash(token string) string {
 	return hex.EncodeToString(h[:])
 }
 
-// Mint stores a new token for a node name and tags and returns the token,
-// which exists nowhere else.
-func (l *Leaf) Mint(ctx context.Context, name string, tags []string, by string, ttl time.Duration) (string, store.JoinToken, error) {
+// Mint stores a new token for a node name, tags and the orgs the node opens
+// to (openAll, else orgIDs) and returns the token, which exists nowhere else.
+func (l *Leaf) Mint(ctx context.Context, name string, tags []string, openAll bool, orgIDs []string, by string, ttl time.Duration) (string, store.JoinToken, error) {
 	b := make([]byte, 20)
 	if _, err := rand.Read(b); err != nil {
 		return "", store.JoinToken{}, err
 	}
 	token := Prefix + strings.ToLower(base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(b))
 	t, _ := json.Marshal(tags)
+	if orgIDs == nil {
+		orgIDs = []string{}
+	}
+	o, _ := json.Marshal(orgIDs)
 	now := time.Now().UTC()
 	row := store.JoinToken{
 		ID: uuid.NewString(), Hash: Hash(token), NodeName: name, Tags: string(t),
-		CreatedBy: by, CreatedAt: now, ExpiresAt: now.Add(ttl),
+		CreatedBy: by, CreatedAt: now, ExpiresAt: now.Add(ttl), OpenToAll: openAll, OrgIDs: string(o),
 	}
 	return token, row, l.rows.Create(ctx, row)
 }
@@ -68,6 +73,26 @@ func (l *Leaf) Spend(ctx context.Context, token string) (store.JoinToken, error)
 	}
 	return l.rows.GetByHash(ctx, h)
 }
+
+// Live is the row of a token that could still be spent: well formed, unused,
+// unexpired, never rejected. Anything else is ErrNotFound, one answer for
+// every miss. It spends nothing (the join script and its download).
+func (l *Leaf) Live(ctx context.Context, token string) (store.JoinToken, error) {
+	if !tokenRE.MatchString(token) {
+		return store.JoinToken{}, errs.ErrNotFound
+	}
+	t, err := l.rows.GetByHash(ctx, Hash(token))
+	if err != nil {
+		return store.JoinToken{}, err
+	}
+	if t.UsedAt != nil || t.RejectedAt != nil || !time.Now().UTC().Before(t.ExpiresAt) {
+		return store.JoinToken{}, errs.ErrNotFound
+	}
+	return t, nil
+}
+
+// tokenRE is what Mint makes: the prefix and 20 random bytes in base32.
+var tokenRE = regexp.MustCompile(`^` + Prefix + `[a-z2-7]{32}$`)
 
 // Record keeps what the joining node sent.
 func (l *Leaf) Record(ctx context.Context, t store.JoinToken, nodeID, csr, wgKey, facts string) error {

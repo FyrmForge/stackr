@@ -210,8 +210,9 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 		func() error { return os.WriteFile(wrapperPath, []byte(wrapper(in.DataDir)), 0o755) }); err != nil {
 		return err
 	}
+	apiKey := ""
 	if needAdmin {
-		if err := r.createAdmin(ctx, in, image, *adminEmail, password); err != nil {
+		if apiKey, err = r.createAdmin(ctx, in, image, *adminEmail, password); err != nil {
 			return fmt.Errorf("admin: %w; re-run with --admin-email to try again", err)
 		}
 	}
@@ -219,7 +220,7 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 	if needAdmin {
 		admin = *adminEmail
 	}
-	_, _ = fmt.Fprint(out, doneText(in, newKey, admin, r.dry))
+	_, _ = fmt.Fprint(out, doneText(in, newKey, admin, apiKey, r.dry))
 	return nil
 }
 
@@ -339,41 +340,53 @@ func summaryText(a answers) string {
 }
 
 // createAdmin waits for the panel, then makes the admin inside it; the
-// password goes in on stdin so no flag, env or inspect ever holds it.
-func (r runner) createAdmin(ctx context.Context, in installspec.Input, image, email, password string) error {
+// password goes in on stdin so no flag, env or inspect ever holds it. It
+// answers the admin's first API key, for the CLI on this box.
+func (r runner) createAdmin(ctx context.Context, in installspec.Input, image, email, password string) (string, error) {
 	if r.dry {
 		r.say("  would create the admin", email)
-		return nil
+		return "", nil
 	}
 	if err := waitHealthy(ctx, "http://"+net.JoinHostPort(in.Bind, installspec.PanelPort)+"/api/health"); err != nil {
-		return err
+		return "", err
 	}
 	panel, err := read(ctx, "docker", "ps", "-q", "--filter", "label="+installspec.LabelRole+"=panel")
 	if err != nil || panel == "" {
-		return errors.New("the panel container is not running")
+		return "", errors.New("the panel container is not running")
 	}
 	panel = strings.Fields(panel)[0]
 	// An older panel has no create-admin: its stackrd would boot a second
 	// server instead. Only this installer's own image is asked.
 	if got, _ := read(ctx, "docker", "inspect", "-f", "{{.Config.Image}}", panel); got != image {
-		return fmt.Errorf("the panel runs %s, not %s; upgrade it from the panel first", got, image)
+		return "", fmt.Errorf("the panel runs %s, not %s; upgrade it from the panel first", got, image)
 	}
 	check := exec.CommandContext(ctx, "docker", "exec", panel, "/stackrd", "create-admin", "--check")
 	if err := check.Run(); err != nil {
 		var exit *exec.ExitError
 		if errors.As(err, &exit) && exit.ExitCode() == 3 {
 			r.say("  have an admin")
-			return nil
+			return "", nil
 		}
-		return fmt.Errorf("check for an admin: %w", err)
+		return "", fmt.Errorf("check for an admin: %w", err)
 	}
 	r.say("  creating the admin", email)
 	cmd := exec.CommandContext(ctx, "docker", "exec", "-i", panel, "/stackrd", "create-admin", "--email", email)
 	cmd.Stdin = strings.NewReader(password + "\n")
-	if b, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("%s", strings.TrimSpace(string(b)))
+	b, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("%s", strings.TrimSpace(string(b)))
 	}
-	return nil
+	return adminKey(string(b)), nil
+}
+
+// adminKey is the API key on stackrd create-admin's "api key: " line.
+func adminKey(out string) string {
+	for l := range strings.Lines(out) {
+		if k, ok := strings.CutPrefix(strings.TrimSpace(l), "api key: "); ok {
+			return k
+		}
+	}
+	return ""
 }
 
 // waitHealthy polls the panel's health route; a first boot migrates first.
@@ -581,7 +594,10 @@ func quote(args []string) string {
 }
 
 // doneText closes the run; admin is the account made this run, if any.
-func doneText(in installspec.Input, key, admin string, dry bool) string {
+// docsCLILogin is where the guide explains the CLI login.
+const docsCLILogin = "https://github.com/FyrmForge/stackr/blob/master/docs/guide/nodes.md#log-the-cli-in"
+
+func doneText(in installspec.Input, key, admin, apiKey string, dry bool) string {
 	status := "stackr is running."
 	if dry {
 		status = "Dry run finished, nothing was installed. A real run would end with:"
@@ -606,6 +622,15 @@ the panel's own backups, and restoring them anywhere else needs it.
 
   %s
 `, key)
+	}
+	if apiKey != "" {
+		s += fmt.Sprintf(`
+Admin API key, shown once. Log the CLI on this box in with it:
+
+  stackr login %s --with-key %s
+
+Docs: %s
+`, in.BaseURL(), apiKey, docsCLILogin)
 	}
 	if !in.HTTPS {
 		return s

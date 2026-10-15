@@ -300,8 +300,15 @@ func join(ctx context.Context, args []string, out io.Writer) error {
 			return err
 		}
 	}
-	r.say("This node is a worker now; the panel shows it under Nodes.")
+	r.say("This node is a worker now.")
+	r.say("Continue setup in the panel:")
+	r.say(" ", nodeLink(u.String(), st.NodeID))
 	return nil
+}
+
+// nodeLink opens the node's drawer on the panel's cluster map.
+func nodeLink(panel, nodeID string) string {
+	return panel + "/-/cluster?drawer=" + url.QueryEscape("node:"+nodeID)
 }
 
 // pinnedRoots keeps the roots of a join answer whose fingerprint is the

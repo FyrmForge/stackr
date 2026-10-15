@@ -48,7 +48,7 @@ func TestNodesMigrationRoundTrip(t *testing.T) {
 		t.Fatalf("env after up: %+v, %v", env, err)
 	}
 	node := func(id, role string) error {
-		_, err := db.Exec(`INSERT INTO nodes VALUES (?,?,?,?,'[]',?,'','','online',?)`,
+		_, err := db.Exec(`INSERT INTO nodes (id,name,slug,role,tags,range_cidr,wg_public_key,wg_address,status,created_at) VALUES (?,?,?,?,'[]',?,'','','online',?)`,
 			id, id, id, role, "10.213.0.0/16", now)
 		return err
 	}
