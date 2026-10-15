@@ -121,9 +121,9 @@ templ nodeCard(n Node) {
 			if hasNote(n) {
 				<div class="mb-[4px] flex items-center gap-[8px] text-[12px] leading-[16px] min-w-0 h-[16px] overflow-hidden whitespace-nowrap">
 					if n.TooOld {
-						<span class="shrink-0 rounded-md border border-rw-danger/40 px-[6px] leading-[16px] text-rw-danger">too old</span>
+						<span class="shrink-0 rounded-md border border-rw-danger/40 px-[6px] leading-[14px] text-rw-danger">too old</span>
 					} else if n.Behind {
-						<span class="shrink-0 rounded-md border border-rw-warn/40 px-[6px] leading-[16px] text-rw-warn">behind</span>
+						<span class="shrink-0 rounded-md border border-rw-warn/40 px-[6px] leading-[14px] text-rw-warn">behind</span>
 					}
 					if n.CertExpired {
 						<button type="button" class="truncate text-rw-danger underline" hx-get={ NodeDrawer(n.ID, "") } hx-target="#drawer-body" hx-push-url={ NodePush(n.ID, "") } hx-trigger="click consume">Cert expired, rejoin needed</button>

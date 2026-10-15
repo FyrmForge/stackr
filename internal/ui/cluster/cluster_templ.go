@@ -522,12 +522,12 @@ func nodeCard(n Node) templ.Component {
 				return templ_7745c5c3_Err
 			}
 			if n.TooOld {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 41, "<span class=\"shrink-0 rounded-md border border-rw-danger/40 px-[6px] leading-[16px] text-rw-danger\">too old</span> ")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 41, "<span class=\"shrink-0 rounded-md border border-rw-danger/40 px-[6px] leading-[14px] text-rw-danger\">too old</span> ")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 			} else if n.Behind {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 42, "<span class=\"shrink-0 rounded-md border border-rw-warn/40 px-[6px] leading-[16px] text-rw-warn\">behind</span> ")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 42, "<span class=\"shrink-0 rounded-md border border-rw-warn/40 px-[6px] leading-[14px] text-rw-warn\">behind</span> ")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
