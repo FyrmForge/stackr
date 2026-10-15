@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"strings"
 
@@ -11,6 +12,10 @@ import (
 // ensureRegistry creates the head's image registry, or replaces one made from
 // another spec. Its images live on the named volume, so replacing loses none.
 func (r runner) ensureRegistry(ctx context.Context, dataDir string) error {
+	// A unix socket path holds at most 107 bytes.
+	if sock := installspec.RegistrySocket(dataDir); len(sock) > 107 {
+		return fmt.Errorf("the data dir path is too long: the registry socket %s needs 107 bytes or fewer", sock)
+	}
 	want := installspec.Registry(dataDir)
 	if r.exists(ctx, "container", installspec.RegistryName) {
 		have, _ := read(ctx, "docker", "inspect", "-f", `{{index .Config.Labels "`+installspec.LabelSpec+`"}}`, installspec.RegistryName)

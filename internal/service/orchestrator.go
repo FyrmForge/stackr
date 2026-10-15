@@ -729,7 +729,11 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 		go func() {
 			// An upgrade ran the old panel's EnsureRegistry: bring the
 			// registry to this build's spec before anything uses it.
-			if err := orch.upgrade.EnsureRegistry(orch.meshCtx); err != nil {
+			cctx, err := orch.withController(orch.meshCtx)
+			if err == nil {
+				err = orch.upgrade.EnsureRegistry(cctx)
+			}
+			if err != nil {
 				slog.Warn("registry: not ensured", "err", err)
 			}
 			go orch.serveRegistryLocal(orch.meshCtx)
