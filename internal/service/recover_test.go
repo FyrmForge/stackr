@@ -58,7 +58,7 @@ func TestRecoverNode(t *testing.T) {
 			return worker.MeshSpec{}, err
 		}
 		// The worker would open it with the roots it trusts: the panel's own.
-		return a.Open(o.cluster.roots(), p.Nonce, time.Now())
+		return a.Open(o.cluster.roots(), nil, p.Nonce, time.Now())
 	}
 	now := time.Now().Unix()
 	facts := worker.Facts{Interfaces: []worker.Iface{{Name: "enp7s0", Prefixes: []string{"10.0.0.2/32"}}}}

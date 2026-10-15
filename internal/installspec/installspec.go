@@ -58,6 +58,10 @@ const (
 	// The controller's own cert and key, so a restore keeps them.
 	ControllerKeyFile  = "keys/controller.key"
 	ControllerCertFile = "keys/controller.crt"
+	// The controller's previous cert and key, kept from a renewal until a
+	// revoke or break glass: recovery answers carry its signature too.
+	ControllerPrevKeyFile  = "keys/controller-prev.key"
+	ControllerPrevCertFile = "keys/controller-prev.crt"
 	// DBFile, VersionMember and CaddyMember are the other archive names.
 	DBFile        = "stackr.db"
 	VersionMember = "VERSION"
@@ -87,6 +91,8 @@ var PanelState = []Member{
 	{Name: WGKeyFile, Mode: 0o600, Optional: true, OnDisk: true},
 	{Name: ControllerKeyFile, Mode: 0o600, Optional: true, OnDisk: true},
 	{Name: ControllerCertFile, Mode: 0o644, Optional: true, OnDisk: true},
+	{Name: ControllerPrevKeyFile, Mode: 0o600, Optional: true, OnDisk: true},
+	{Name: ControllerPrevCertFile, Mode: 0o644, Optional: true, OnDisk: true},
 	{Name: CaddyMember, Mode: 0o600, Optional: true},
 }
 

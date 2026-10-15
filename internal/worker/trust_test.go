@@ -189,13 +189,16 @@ func TestTrustPersists(t *testing.T) {
 	}
 }
 
-// A worker that refuses the controller still recovers through the panel: the
-// call is signed with the node key over the public URL, not the refused
-// mTLS, and the answer brings the allow list that admits the controller.
+// A worker that missed a controller cert switch still recovers through the
+// panel: the call is signed with the node key over the public URL, not the
+// refused mTLS, and the previous cert, still on its list, co-signs the answer
+// that brings the list admitting the new one. Signed by the new cert alone,
+// or by a cert on no list (a revoked one), the answer is refused.
 func TestRecoverWhileControllerRefused(t *testing.T) {
 	r := newTrustRig(t)
+	prev, prevSerial := controller(t, r.ca1)
 	ctl, serial := controller(t, r.ca1)
-	if err := r.trust.Apply(nil, []string{"1"}); err != nil {
+	if err := r.trust.Apply(nil, []string{prevSerial}); err != nil {
 		t.Fatal(err)
 	}
 	if err := r.call(ctl); err == nil {
@@ -203,11 +206,14 @@ func TestRecoverWhileControllerRefused(t *testing.T) {
 	}
 	spec := meshSpec()
 	spec.TrustRoots, spec.ControllerSerials = r.pems(r.ca1, r.ca2), []string{serial}
-	panel := signedPanel(t, ctl, spec)
 
 	s, _, _ := newMeshServer(t, t.TempDir(), &pingFake{})
 	s.cfg.Trust = r.trust
-	s.cfg.Recover = RecoverConfig{Own: selfCert(t), Panel: panel.URL}
+	s.cfg.Recover = RecoverConfig{Own: selfCert(t), Panel: signedPanel(t, ctl, spec).URL}
+	if err := s.recoverOnce(context.Background()); err == nil {
+		t.Fatal("an answer from an unlisted controller cert was applied")
+	}
+	s.cfg.Recover.Panel = signedPanel(t, ctl, spec, prev).URL
 	if err := s.recoverOnce(context.Background()); err != nil {
 		t.Fatal(err)
 	}

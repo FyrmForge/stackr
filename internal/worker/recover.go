@@ -128,6 +128,11 @@ type RecoverAnswer struct {
 	Spec []byte `json:"spec"`
 	Cert string `json:"cert"` // the controller cert, PEM
 	Sig  []byte `json:"sig"`  // ECDSA (ASN.1) over answerDigest(request nonce, Spec)
+	// PrevCert and PrevSig are the same signature by the controller's
+	// previous cert, kept until it is revoked: a worker offline through one
+	// renewal still holds only that serial on its allow list.
+	PrevCert string `json:"prev_cert,omitempty"`
+	PrevSig  []byte `json:"prev_sig,omitempty"`
 	// Cross are the new root cross-signed by the old one (PEM), present only
 	// while a rollover is open: a worker that trusts the old root alone can
 	// then verify a controller cert from the new one.
@@ -140,43 +145,54 @@ func answerDigest(nonce string, spec []byte) [32]byte {
 	return sha256.Sum256(append([]byte(nonce+"\n"), spec...))
 }
 
+// signDigest signs sum with ctl and returns its cert as PEM.
+func signDigest(ctl tls.Certificate, sum [32]byte) (string, []byte, error) {
+	signer, ok := ctl.PrivateKey.(crypto.Signer)
+	if !ok || len(ctl.Certificate) == 0 {
+		return "", nil, errors.New("worker: no controller key to sign with")
+	}
+	sig, err := signer.Sign(rand.Reader, sum[:], crypto.SHA256)
+	if err != nil {
+		return "", nil, err
+	}
+	return string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: ctl.Certificate[0]})), sig, nil
+}
+
 // SignAnswer signs spec for the request that carried nonce with the
 // controller's cert and key.
 func SignAnswer(ctl tls.Certificate, nonce string, spec MeshSpec) (RecoverAnswer, error) {
-	signer, ok := ctl.PrivateKey.(crypto.Signer)
-	if !ok || len(ctl.Certificate) == 0 {
-		return RecoverAnswer{}, errors.New("worker: no controller key to sign with")
-	}
 	b, err := json.Marshal(spec)
 	if err != nil {
 		return RecoverAnswer{}, err
 	}
-	sum := answerDigest(nonce, b)
-	sig, err := signer.Sign(rand.Reader, sum[:], crypto.SHA256)
+	c, sig, err := signDigest(ctl, answerDigest(nonce, b))
 	if err != nil {
 		return RecoverAnswer{}, err
 	}
-	return RecoverAnswer{Spec: b, Sig: sig,
-		Cert: string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: ctl.Certificate[0]}))}, nil
+	return RecoverAnswer{Spec: b, Cert: c, Sig: sig}, nil
 }
 
-// Open checks the answer against the roots the worker trusts now: a
-// controller cert from one of them, a good signature over this request's
-// nonce and the spec. The allow list is not consulted, so a worker that
-// missed a controller cert switch can still learn the new list here.
-// ponytail: a leaked controller key from a still-trusted root can sign too;
-// revoking it is a root change (break glass). A worker that never got the new
-// root cannot verify and needs a rejoin; cross-signing the new root with the
-// old one would close that.
-func (a RecoverAnswer) Open(roots []*x509.Certificate, nonce string, now time.Time) (MeshSpec, error) {
-	blk, _ := pem.Decode([]byte(a.Cert))
-	if blk == nil {
-		return MeshSpec{}, errors.New("no controller cert")
-	}
-	c, err := x509.ParseCertificate(blk.Bytes)
+// CoSign adds the previous controller cert's signature over the same spec.
+func (a *RecoverAnswer) CoSign(prev tls.Certificate, nonce string) error {
+	c, sig, err := signDigest(prev, answerDigest(nonce, a.Spec))
 	if err != nil {
-		return MeshSpec{}, fmt.Errorf("controller cert: %w", err)
+		return err
 	}
+	a.PrevCert, a.PrevSig = c, sig
+	return nil
+}
+
+// Open checks the answer against what the worker trusts now: a signer whose
+// controller cert chains to one of roots, whose serial refuses (the allow
+// list; nil = none) does not refuse, and whose signature covers this
+// request's nonce and the spec. Either signer will do, the current cert or
+// the previous one, so a worker offline through one renewal gets back in; a
+// revoked cert is on no list, and revoking drops the previous key, so a
+// worker that took the revoke cannot be answered by the revoked key. Offline
+// through two renewals, or a revoke, it needs a rejoin.
+// ponytail: a worker that missed the revoke itself still lists the revoked
+// serial; only break glass (a rejoin for all) closes that.
+func (a RecoverAnswer) Open(roots []*x509.Certificate, refuses func(serial string) bool, nonce string, now time.Time) (MeshSpec, error) {
 	// A cross cert counts as a root for this check only if a root the worker
 	// trusts signed it; it is never stored.
 	vouched := append([]*x509.Certificate(nil), roots...)
@@ -194,19 +210,45 @@ func (a RecoverAnswer) Open(roots []*x509.Certificate, nonce string, now time.Ti
 			}
 		}
 	}
-	if _, err := clusterca.Verify(vouched, []*x509.Certificate{c}, clusterca.RoleController, "", now); err != nil {
-		return MeshSpec{}, fmt.Errorf("controller cert: %w", err)
-	}
-	pub, ok := c.PublicKey.(*ecdsa.PublicKey)
 	sum := answerDigest(nonce, a.Spec)
-	if !ok || !ecdsa.VerifyASN1(pub, sum[:], a.Sig) {
-		return MeshSpec{}, errors.New("bad signature")
+	err := checkSigner(vouched, refuses, a.Cert, a.Sig, sum, now)
+	if err != nil && a.PrevCert != "" {
+		if checkSigner(vouched, refuses, a.PrevCert, a.PrevSig, sum, now) == nil {
+			err = nil
+		}
+	}
+	if err != nil {
+		return MeshSpec{}, err
 	}
 	var spec MeshSpec
 	if err := json.Unmarshal(a.Spec, &spec); err != nil {
 		return MeshSpec{}, fmt.Errorf("mesh spec: %w", err)
 	}
 	return spec, nil
+}
+
+// checkSigner is one signer of an answer: a controller cert of vouched, on
+// the allow list, and a good signature over sum.
+func checkSigner(vouched []*x509.Certificate, refuses func(string) bool, certPEM string, sig []byte, sum [32]byte, now time.Time) error {
+	blk, _ := pem.Decode([]byte(certPEM))
+	if blk == nil {
+		return errors.New("no controller cert")
+	}
+	c, err := x509.ParseCertificate(blk.Bytes)
+	if err != nil {
+		return fmt.Errorf("controller cert: %w", err)
+	}
+	if _, err := clusterca.Verify(vouched, []*x509.Certificate{c}, clusterca.RoleController, "", now); err != nil {
+		return fmt.Errorf("controller cert: %w", err)
+	}
+	if refuses != nil && refuses(hex.EncodeToString(c.SerialNumber.Bytes())) {
+		return errors.New("controller cert: not on the allow list")
+	}
+	pub, ok := c.PublicKey.(*ecdsa.PublicKey)
+	if !ok || !ecdsa.VerifyASN1(pub, sum[:], sig) {
+		return errors.New("bad signature")
+	}
+	return nil
 }
 
 // heardController marks a call from the controller: the listener admits
@@ -319,12 +361,13 @@ func (s *Server) recoverOnce(ctx context.Context) error {
 	}
 	// The public URL proves nothing about the cluster (STACKR_TLS=off is plain
 	// HTTP): the answer is applied only when a controller cert of the roots
-	// this worker already trusts signed it for this very request.
+	// this worker already trusts, on its allow list, signed it for this very
+	// request.
 	var ans RecoverAnswer
 	if err := json.Unmarshal(body, &ans); err != nil {
 		return fmt.Errorf("recover answer: %w", err)
 	}
-	spec, err := ans.Open(s.cfg.Trust.Roots(), p.Nonce, time.Now())
+	spec, err := ans.Open(s.cfg.Trust.Roots(), s.cfg.Trust.Refuses, p.Nonce, time.Now())
 	if err != nil {
 		return fmt.Errorf("recover answer: %w", err)
 	}

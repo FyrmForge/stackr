@@ -85,8 +85,20 @@ func (o *Orchestrator) RecoverNode(ctx context.Context, req worker.RecoverReques
 	// Signed with the controller cert for this request: the worker applies
 	// nothing it cannot verify against the roots it already trusts.
 	a, err := worker.SignAnswer(o.cluster.cert(), p.Nonce, spec)
+	if err != nil {
+		return a, err
+	}
+	// The previous cert co-signs for a worker offline through one renewal,
+	// unless it was revoked since.
+	if prev := o.cluster.prevCert(); len(prev.Certificate) > 0 {
+		if s, err := certSerial(prev); err == nil && !o.cluster.revoked(s) {
+			if err := a.CoSign(prev, p.Nonce); err != nil {
+				slog.Warn("recover: co-sign with the previous controller cert", "err", err)
+			}
+		}
+	}
 	a.Cross = readCross(o.cfg.DataDir) // open rollover only
-	return a, err
+	return a, nil
 }
 
 // openSigned checks a request a worker signed with its node key outside the

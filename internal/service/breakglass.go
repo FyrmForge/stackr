@@ -95,6 +95,10 @@ func (o *Orchestrator) BreakGlass(ctx context.Context, by *Principal) error {
 	c := o.cluster
 	c.rollMu.Lock() // no controller cert renewal in between
 	defer c.rollMu.Unlock()
+	// The previous controller key may be what leaked too.
+	if err := c.forgetPrev(o.cfg.DataDir); err != nil {
+		return err
+	}
 	next, err := issueController(ctx, c.st, ca) // a new controller cert from the new root
 	if err != nil {
 		return err

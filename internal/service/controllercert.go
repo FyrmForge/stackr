@@ -85,16 +85,33 @@ func (o *Orchestrator) rollController(ctx context.Context, by *Principal, revoke
 		o.announce(ctx, curSerial)
 		return nil
 	}
+	// A revoke drops any previous cert first and never keeps the revoked one:
+	// a revoked key co-signs no recovery answer.
+	if revoke {
+		if err := c.forgetPrev(o.cfg.DataDir); err != nil {
+			return err
+		}
+	}
 	next, err := issueController(ctx, c.st, c.ca)
 	if err != nil {
 		return fmt.Errorf("controller cert: %w", err)
 	}
 	// Current and next, until every reachable worker has the list.
 	o.announceAcked(ctx, curSerial, next.serial)
+	if !revoke {
+		// A worker offline through this renewal holds only curSerial: the
+		// current cert co-signs its recovery answer until the next renewal.
+		if err := keepPrev(o.cfg.DataDir); err != nil {
+			return err
+		}
+	}
 	if err := next.save(o.cfg.DataDir); err != nil {
 		return err
 	}
 	c.mu.Lock()
+	if !revoke {
+		c.prev = cur
+	}
 	c.own = next.pair
 	// Clients are rebuilt with the new cert on the next refresh; the router
 	// keeps serving through the old ones until then.

@@ -1,6 +1,7 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"crypto/x509"
@@ -36,6 +37,8 @@ const WorkerPort = "7443"
 const (
 	controllerKeyFile  = installspec.ControllerKeyFile
 	controllerCertFile = installspec.ControllerCertFile
+	controllerPrevKey  = installspec.ControllerPrevKeyFile
+	controllerPrevCert = installspec.ControllerPrevCertFile
 )
 
 // revokedTTL is how long a revoked-or-not answer is reused: the TLS verify
@@ -59,11 +62,14 @@ type clusterPKI struct {
 	// revoking is set while a RevokeControllerCert runs detached.
 	revoking atomic.Bool
 	own      tls.Certificate
-	st       *store.Store
-	mu       sync.Mutex
-	rev      map[string]revAns
-	addr     map[string]string // node id -> address its clients were built for
-	ext      map[string]*workerclient.Client
+	// prev is the cert own replaced in a renewal, kept until a revoke or
+	// break glass (forgetPrev); it co-signs recovery answers. Empty = none.
+	prev tls.Certificate
+	st   *store.Store
+	mu   sync.Mutex
+	rev  map[string]revAns
+	addr map[string]string // node id -> address its clients were built for
+	ext  map[string]*workerclient.Client
 	// probe is the client of every worker that could be online, fails the
 	// refreshes each missed in a row.
 	probe map[string]probeEnt
@@ -135,6 +141,52 @@ func (c *clusterPKI) cert() tls.Certificate {
 	return c.own
 }
 
+// prevCert is the controller's previous cert; empty when there is none.
+func (c *clusterPKI) prevCert() tls.Certificate {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.prev
+}
+
+// keepPrev makes the controller's current cert files the previous ones,
+// before a renewal overwrites them (rollController, not a revoke).
+func keepPrev(dataDir string) error {
+	for _, f := range [][2]string{{controllerKeyFile, controllerPrevKey}, {controllerCertFile, controllerPrevCert}} {
+		b, err := os.ReadFile(filepath.Join(dataDir, f[0]))
+		if err != nil {
+			return err
+		}
+		if err := os.WriteFile(filepath.Join(dataDir, f[1]), b, 0o600); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// forgetPrev drops the previous controller cert, from memory first (no
+// answer is co-signed from here), then its files. Revoke and break glass.
+func (c *clusterPKI) forgetPrev(dataDir string) error {
+	c.mu.Lock()
+	c.prev = tls.Certificate{}
+	c.mu.Unlock()
+	for _, f := range []string{controllerPrevKey, controllerPrevCert} {
+		if err := os.Remove(filepath.Join(dataDir, f)); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+	}
+	return nil
+}
+
+// loadPrev reads the previous controller cert; none, or the current one (a
+// crash between keepPrev and the switch), is no previous cert.
+func loadPrev(dataDir string, own tls.Certificate) tls.Certificate {
+	pair, err := tls.LoadX509KeyPair(filepath.Join(dataDir, controllerPrevCert), filepath.Join(dataDir, controllerPrevKey))
+	if err != nil || len(own.Certificate) == 0 || bytes.Equal(pair.Certificate[0], own.Certificate[0]) {
+		return tls.Certificate{}
+	}
+	return pair
+}
+
 type revAns struct {
 	revoked bool
 	at      time.Time
@@ -186,7 +238,7 @@ func bootCluster(ctx context.Context, st *store.Store, dataDir string) (*cluster
 	if err != nil {
 		return nil, fmt.Errorf("controller cert: %w", err)
 	}
-	return &clusterPKI{ca: ca, trust: roots, announced: []string{serial}, own: own, st: st, rev: map[string]revAns{},
+	return &clusterPKI{ca: ca, trust: roots, announced: []string{serial}, own: own, prev: loadPrev(dataDir, own), st: st, rev: map[string]revAns{},
 		addr: map[string]string{}, ext: map[string]*workerclient.Client{},
 		probe: map[string]probeEnt{}, fails: map[string]int{}, alive: map[string]bool{}, old: map[string]string{}}, nil
 }

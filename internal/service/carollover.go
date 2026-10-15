@@ -294,6 +294,11 @@ func (o *Orchestrator) finishRollover(ctx context.Context, by *Principal, st sto
 	if err := dropCross(o.cfg.DataDir); err != nil {
 		return err
 	}
+	// The previous controller cert is from the old root: co-signing with it
+	// would still answer a worker left on that root.
+	if err := o.cluster.forgetPrev(o.cfg.DataDir); err != nil {
+		return err
+	}
 	o.cluster.swapCA(o.cluster.ca, []*x509.Certificate{o.cluster.ca.Cert})
 	now := time.Now().UTC()
 	prev := st.PreviousFP
@@ -347,6 +352,7 @@ func (o *Orchestrator) reconcileRollover(ctx context.Context) (store.ClusterCA, 
 		now := time.Now().UTC()
 		st.PreviousFP, st.RolloverFinishedAt = "", &now
 		_ = dropCross(o.cfg.DataDir)
+		_ = o.cluster.forgetPrev(o.cfg.DataDir)
 		o.cluster.setRoots([]*x509.Certificate{cur})
 	default:
 		return st, nil

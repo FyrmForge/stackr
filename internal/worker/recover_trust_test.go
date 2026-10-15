@@ -21,7 +21,8 @@ func ctlCert(t *testing.T, ca *clusterca.CA) tls.Certificate {
 }
 
 // signedPanel answers recovery calls with spec, signed by ctl.
-func signedPanel(t *testing.T, ctl tls.Certificate, spec MeshSpec) *httptest.Server {
+// prev, when given, co-signs as the controller's previous cert.
+func signedPanel(t *testing.T, ctl tls.Certificate, spec MeshSpec, prev ...tls.Certificate) *httptest.Server {
 	t.Helper()
 	panel := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var rr RecoverRequest
@@ -35,6 +36,9 @@ func signedPanel(t *testing.T, ctl tls.Certificate, spec MeshSpec) *httptest.Ser
 			return
 		}
 		a, err := SignAnswer(ctl, p.Nonce, spec)
+		if err == nil && len(prev) > 0 {
+			err = a.CoSign(prev[0], p.Nonce)
+		}
 		if err != nil {
 			http.Error(w, err.Error(), 500)
 			return
@@ -111,15 +115,15 @@ func TestRecoverAnswerIsBoundToTheRequest(t *testing.T) {
 		t.Fatal(err)
 	}
 	roots := []*x509.Certificate{r.ca1.Cert}
-	if _, err := a.Open(roots, "nonce-1", time.Now()); err != nil {
+	if _, err := a.Open(roots, nil, "nonce-1", time.Now()); err != nil {
 		t.Fatalf("right nonce: %v", err)
 	}
-	if _, err := a.Open(roots, "nonce-2", time.Now()); err == nil {
+	if _, err := a.Open(roots, nil, "nonce-2", time.Now()); err == nil {
 		t.Fatal("an answer to another request was accepted")
 	}
 	a.Spec = append([]byte(nil), a.Spec...)
 	a.Spec[len(a.Spec)/2] ^= 1
-	if _, err := a.Open(roots, "nonce-1", time.Now()); err == nil {
+	if _, err := a.Open(roots, nil, "nonce-1", time.Now()); err == nil {
 		t.Fatal("a tampered spec was accepted")
 	}
 }

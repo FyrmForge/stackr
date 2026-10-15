@@ -3818,6 +3818,12 @@
             },
             "type": "array"
           },
+          "prev_cert": {
+            "type": "string"
+          },
+          "prev_sig": {
+            "type": "string"
+          },
           "sig": {
             "type": "string"
           },
