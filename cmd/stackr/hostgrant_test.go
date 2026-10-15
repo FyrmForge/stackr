@@ -1,6 +1,9 @@
 package main
 
 import (
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 )
@@ -59,5 +62,27 @@ func TestHostGrantRevoke(t *testing.T) {
 	}
 	if w := writes(r); len(w) != 1 || !strings.Contains(w[0], "host-grant?tile=web") {
 		t.Errorf("tile revoke writes = %v", w)
+	}
+}
+
+// revoke with no grant says so; a stack that is not there keeps its 404.
+func TestHostGrantRevokeNone(t *testing.T) {
+	stack := true
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		if req.Method == http.MethodDelete || !stack {
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = io.WriteString(w, `{"error":"Not Found"}`)
+			return
+		}
+		_, _ = io.WriteString(w, `{"granted":false}`)
+	}))
+	t.Cleanup(srv.Close)
+	useServer(t, srv.URL)
+	if code, _, errw := cli(t, "-y", "host-grant", "revoke", "--stack", "web"); code == 0 || !strings.Contains(errw, "stack web has no elevated access to revoke") {
+		t.Errorf("no grant = %d %q", code, errw)
+	}
+	stack = false
+	if code, _, errw := cli(t, "-y", "host-grant", "revoke", "--stack", "web"); code == 0 || !strings.Contains(errw, `no stack "web"`) {
+		t.Errorf("no stack = %d %q", code, errw)
 	}
 }
