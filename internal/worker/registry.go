@@ -100,7 +100,8 @@ func serveRegistry(ctx context.Context, c RegistryConfig, bound func()) error {
 // until the port is ours: the controller lists it as a cluster problem.
 func (s *Server) runRegistry(ctx context.Context, c RegistryConfig) {
 	for {
-		err := serveRegistry(ctx, c, func() { s.regErr.Store("") })
+		err := serveRegistry(ctx, c, func() { s.regErr.Store(""); s.regUp.Store(true) })
+		s.regUp.Store(false)
 		if err == nil || ctx.Err() != nil {
 			return
 		}

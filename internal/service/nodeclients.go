@@ -523,7 +523,7 @@ func (o *Orchestrator) refreshNodeClients(ctx context.Context) error {
 			continue
 		}
 		d.SetTool(move.RsyncImage) // pulled over the mesh, see EnsureTool
-		d.SetRegistryAuth(o.registryPassFor(n.ID, false))
+		d.SetRegistryAuth(o.registryPassFor(n.ID, workerRegistryUp(cd.ext)))
 		d.SetRegistryDigest(o.registryDigest)
 		r.Set(n.ID, d)
 		if nv, ok := o.vip.(*nodeVIPs); ok {

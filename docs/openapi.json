@@ -1591,6 +1591,9 @@
           "registry_error": {
             "type": "string"
           },
+          "registry_up": {
+            "type": "boolean"
+          },
           "resolvers": {
             "items": {
               "type": "string"

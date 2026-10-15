@@ -14,6 +14,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/installspec"
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	"github.com/FyrmForge/stackr/internal/service/internal/dockerfake"
+	"github.com/FyrmForge/stackr/internal/worker"
 )
 
 // The controller's localhost:5000 takes only a minted pass, for the repo it
@@ -103,18 +104,35 @@ func TestRegistryLocalTakesPassesOnly(t *testing.T) {
 	}
 }
 
-// No pass goes to the controller's localhost:5000 before stackr holds it:
-// whatever bound it first would get a token it could replay at the front.
-func TestRegistryPassWaitsForLocalListener(t *testing.T) {
-	o := &Orchestrator{cfg: Config{SecretsKey: testKey}, regLocalUp: make(chan struct{})}
-	pass := o.registryPassFor("ctl", true)
+// No pass goes to a node's localhost:5000 unless stackr holds it now:
+// whatever bound it first would get a token it could replay at the front. A
+// worker that never said its proxy is up counts as down.
+func TestRegistryPassOnlyWhileThePortIsOurs(t *testing.T) {
+	o := &Orchestrator{cfg: Config{SecretsKey: testKey}}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if _, err := pass(ctx, "acme/shop/api", false); err == nil {
-		t.Fatal("a pass was minted with the port not ours")
+	if _, err := o.registryPassFor("ctl", o.registryLocalUp)(ctx, "acme/shop/api", false); err == nil {
+		t.Fatal("controller: a pass was minted with the port not ours")
 	}
-	close(o.regLocalUp)
-	if a, err := pass(context.Background(), "acme/shop/api", false); err != nil || a == "" {
-		t.Fatalf("pass %q, %v", a, err)
+	o.regLocalUp.Store(true)
+	if a, err := o.registryPassFor("ctl", o.registryLocalUp)(context.Background(), "acme/shop/api", false); err != nil || a == "" {
+		t.Fatalf("controller: pass %q, %v", a, err)
+	}
+	for _, c := range []struct {
+		f    worker.Facts
+		mint bool
+	}{
+		{worker.Facts{}, false},
+		{worker.Facts{RegistryUp: true}, true},
+		{worker.Facts{RegistryError: "registry proxy: address already in use"}, false},
+	} {
+		a, err := o.registryPassFor("w1", workerRegistryUp(factsOf(c.f)))(context.Background(), "acme/shop/api", false)
+		if (err == nil && a != "") != c.mint {
+			t.Errorf("%+v: pass %q, %v", c.f, a, err)
+		}
 	}
 }
+
+type factsOf worker.Facts
+
+func (f factsOf) Facts(context.Context) (worker.Facts, error) { return worker.Facts(f), nil }

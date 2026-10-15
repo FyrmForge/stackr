@@ -73,10 +73,39 @@ func TestRegistryBindFailureReported(t *testing.T) {
 	go s.runRegistry(ctx, RegistryConfig{URL: "https://registry.example.com", Host: "registry.example.com", TLS: &tls.Config{}, Listen: squat.Addr().String()})
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
-		if e := s.Facts(ctx).RegistryError; e != "" {
+		if f := s.Facts(ctx); f.RegistryError != "" {
+			if f.RegistryUp {
+				t.Fatal("up with the port taken")
+			}
 			return
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
 	t.Fatal("the bind failure never showed in Facts")
+}
+
+// Up only while the proxy holds the port.
+func TestRegistryUpWhileBound(t *testing.T) {
+	s := New(Config{StateDir: t.TempDir()})
+	if s.Facts(context.Background()).RegistryUp {
+		t.Fatal("up before it started")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		s.runRegistry(ctx, RegistryConfig{URL: "https://registry.example.com", Host: "registry.example.com", TLS: &tls.Config{}, Listen: "127.0.0.1:0"})
+		close(done)
+	}()
+	deadline := time.Now().Add(2 * time.Second)
+	for !s.Facts(ctx).RegistryUp {
+		if time.Now().After(deadline) {
+			t.Fatal("never up")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	cancel()
+	<-done
+	if s.Facts(context.Background()).RegistryUp {
+		t.Fatal("still up after it stopped")
+	}
 }

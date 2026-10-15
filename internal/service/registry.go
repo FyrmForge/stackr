@@ -102,42 +102,53 @@ func registryPass(key []byte, subject string) docker.RegistryAuth {
 	}
 }
 
-// registryPassFor is registryPass for one node, minted only while stackr
-// holds that node's localhost:5000: a pass sent to whatever else bound the
-// port (a host-network tile, first at boot) could be replayed at the front.
-// The controller waits for its own listener; a worker must not report that
-// its registry proxy lost the bind.
-// ponytail: one facts call per pull or push; cache it if pulls get hot.
-func (o *Orchestrator) registryPassFor(nodeID string, controller bool) docker.RegistryAuth {
+// registryPassFor is registryPass for one node, minted only while up says
+// stackr holds that node's localhost:5000: a pass sent to whatever else bound
+// the port (a host-network tile, first at boot) could be replayed at the front.
+func (o *Orchestrator) registryPassFor(nodeID string, up func(context.Context) error) docker.RegistryAuth {
 	pass := registryPass(o.registryKey(), nodeID)
-	if controller {
-		nodeID = "controller"
-	}
 	return func(ctx context.Context, repo string, push bool) (string, error) {
-		if controller {
-			wctx, cancel := context.WithTimeout(ctx, 15*time.Second)
-			defer cancel()
-			select {
-			case <-o.regLocalUp:
-			case <-wctx.Done():
-				return "", errors.New("the registry front does not hold 127.0.0.1:" + installspec.RegistryPort + " on the controller")
-			}
-			return pass(ctx, repo, push)
-		}
-		cl, err := o.nodeExtras(nodeID)
-		if err != nil {
+		if err := up(ctx); err != nil {
 			return "", err
 		}
-		fctx, cancel := context.WithTimeout(ctx, 10*time.Second)
-		defer cancel()
-		f, err := cl.Facts(fctx)
-		if err != nil {
-			return "", fmt.Errorf("registry proxy state: %w", err)
-		}
-		if f.RegistryError != "" {
-			return "", errors.New(f.RegistryError)
-		}
 		return pass(ctx, repo, push)
+	}
+}
+
+// registryLocalUp waits a little for serveRegistryLocal to hold the port: a
+// pull right after boot races the listener.
+func (o *Orchestrator) registryLocalUp(ctx context.Context) error {
+	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	for !o.regLocalUp.Load() {
+		select {
+		case <-ctx.Done():
+			return errors.New("the registry front does not hold 127.0.0.1:" + installspec.RegistryPort + " on the controller")
+		case <-time.After(200 * time.Millisecond):
+		}
+	}
+	return nil
+}
+
+// workerRegistryUp asks the worker, through the same client the Docker calls
+// go through, whether its registry proxy holds its port right now.
+// ponytail: one facts call per pull or push; cache it if pulls get hot.
+func workerRegistryUp(ext interface {
+	Facts(context.Context) (worker.Facts, error)
+}) func(context.Context) error {
+	return func(ctx context.Context) error {
+		ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		defer cancel()
+		f, err := ext.Facts(ctx)
+		switch {
+		case err != nil:
+			return fmt.Errorf("registry proxy state: %w", err)
+		case f.RegistryError != "":
+			return errors.New(f.RegistryError)
+		case !f.RegistryUp:
+			return errors.New("the node's registry proxy is not serving yet")
+		}
+		return nil
 	}
 }
 
@@ -166,15 +177,17 @@ func (o *Orchestrator) registryLocal() http.Handler {
 func (o *Orchestrator) serveRegistryLocal(ctx context.Context) {
 	addr := "127.0.0.1:" + installspec.RegistryPort
 	srv := &http.Server{Handler: o.registryLocal(), ReadHeaderTimeout: 10 * time.Second}
+	go func() { <-ctx.Done(); _ = srv.Close() }()
 	for {
 		ln, err := net.Listen("tcp", addr)
 		if err == nil {
-			o.regLocalOnce.Do(func() { close(o.regLocalUp) })
-			go func() { <-ctx.Done(); _ = srv.Close() }()
-			if err := srv.Serve(ln); !errors.Is(err, http.ErrServerClosed) {
-				slog.Warn("registry: local listener", "addr", addr, "err", err)
+			o.regLocalUp.Store(true)
+			err = srv.Serve(ln)
+			o.regLocalUp.Store(false)
+			if errors.Is(err, http.ErrServerClosed) {
+				return
 			}
-			return
+			slog.Warn("registry: local listener", "addr", addr, "err", err)
 		}
 		select {
 		case <-ctx.Done():

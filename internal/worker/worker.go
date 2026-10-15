@@ -78,6 +78,8 @@ type Server struct {
 	renewKick chan struct{}
 	// regErr is why the registry proxy does not hold its port, "" = it does.
 	regErr atomic.Value
+	// regUp: the registry proxy holds its port now.
+	regUp atomic.Bool
 }
 
 func New(cfg Config) *Server {
