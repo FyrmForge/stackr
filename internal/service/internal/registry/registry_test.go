@@ -124,3 +124,32 @@ func TestDigestAndTags(t *testing.T) {
 		t.Fatalf("tags: %v %v", tags, err)
 	}
 }
+
+// A registry on a private or loopback address that speaks plain http is
+// watched like imports reach it; a public host is never tried over http.
+func TestPlainHTTPPrivateRegistry(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v2/app/manifests/1":
+			w.Header().Set("Docker-Content-Digest", "sha256:plain")
+		case "/v2/app/tags/list":
+			if r.URL.Query().Get("last") == "" {
+				w.Header().Set("Link", `</v2/app/tags/list?last=a>; rel="next"`)
+				_, _ = w.Write([]byte(`{"tags":["a"]}`))
+			} else {
+				_, _ = w.Write([]byte(`{"tags":["b"]}`))
+			}
+		}
+	}))
+	t.Cleanup(srv.Close)
+	host := strings.TrimPrefix(srv.URL, "http://")
+	if d, err := Digest(context.Background(), host+"/app:1", "", ""); err != nil || d != "sha256:plain" {
+		t.Errorf("digest = %q, %v", d, err)
+	}
+	if tags, err := Tags(context.Background(), host+"/app:1", "", ""); err != nil || strings.Join(tags, ",") != "a,b" {
+		t.Errorf("tags = %v, %v", tags, err)
+	}
+	if plainOK("https://ghcr.io/v2/x/manifests/1") || !plainOK("https://192.168.1.5:5000/v2/x/manifests/1") {
+		t.Error("plainOK: public must be https only, private may fall back")
+	}
+}

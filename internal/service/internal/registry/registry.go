@@ -15,6 +15,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/google/go-containerregistry/pkg/name"
 )
 
 // The full set docker pull negotiates. Anything less and a multi-arch image
@@ -119,7 +121,7 @@ func Tags(ctx context.Context, ref, user, pass string) ([]string, error) {
 		if link == "" {
 			break
 		}
-		if next, err = next.Parse(link); err != nil {
+		if next, err = resp.Request.URL.Parse(link); err != nil { // keeps a plain http fallback
 			return nil, err
 		}
 	}
@@ -153,6 +155,10 @@ func do(ctx context.Context, method, rawURL, repoPath, user, pass string) (*http
 		return HTTP.Do(req)
 	}
 	resp, err := send("")
+	if err != nil && ctx.Err() == nil && plainOK(rawURL) {
+		rawURL = "http" + strings.TrimPrefix(rawURL, "https")
+		resp, err = send("")
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -181,6 +187,18 @@ func do(ctx context.Context, method, rawURL, repoPath, user, pass string) (*http
 		return nil, err
 	}
 	return resp, nil
+}
+
+// plainOK is the scheme rule imports follow (go-containerregistry's): a
+// registry on localhost, a loopback or private address, or a .local name may
+// answer plain http once https fails. Any other registry is https only.
+func plainOK(rawURL string) bool {
+	u, err := url.Parse(rawURL)
+	if err != nil || u.Scheme != "https" {
+		return false
+	}
+	r, err := name.NewRegistry(u.Host)
+	return err == nil && r.Scheme() == "http"
 }
 
 func statusErr(resp *http.Response) error {
