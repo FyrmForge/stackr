@@ -74,7 +74,7 @@ func TestRegistryBindFailureReported(t *testing.T) {
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
 		if f := s.Facts(ctx); f.RegistryError != "" {
-			if f.RegistryUp {
+			if *f.RegistryUp {
 				t.Fatal("up with the port taken")
 			}
 			return
@@ -87,7 +87,7 @@ func TestRegistryBindFailureReported(t *testing.T) {
 // Up only while the proxy holds the port.
 func TestRegistryUpWhileBound(t *testing.T) {
 	s := New(Config{StateDir: t.TempDir()})
-	if s.Facts(context.Background()).RegistryUp {
+	if *s.Facts(context.Background()).RegistryUp {
 		t.Fatal("up before it started")
 	}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -97,7 +97,7 @@ func TestRegistryUpWhileBound(t *testing.T) {
 		close(done)
 	}()
 	deadline := time.Now().Add(2 * time.Second)
-	for !s.Facts(ctx).RegistryUp {
+	for !*s.Facts(ctx).RegistryUp {
 		if time.Now().After(deadline) {
 			t.Fatal("never up")
 		}
@@ -105,7 +105,7 @@ func TestRegistryUpWhileBound(t *testing.T) {
 	}
 	cancel()
 	<-done
-	if s.Facts(context.Background()).RegistryUp {
+	if *s.Facts(context.Background()).RegistryUp {
 		t.Fatal("still up after it stopped")
 	}
 }

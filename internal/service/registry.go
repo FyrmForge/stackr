@@ -145,7 +145,9 @@ func workerRegistryUp(ext interface {
 			return fmt.Errorf("registry proxy state: %w", err)
 		case f.RegistryError != "":
 			return errors.New(f.RegistryError)
-		case !f.RegistryUp:
+		case f.RegistryUp != nil && !*f.RegistryUp:
+			// ponytail: nil is a worker from before the field, let through so
+			// the upgrade that brings it can pull; drop nil once none is left.
 			return errors.New("the node's registry proxy is not serving yet")
 		}
 		return nil

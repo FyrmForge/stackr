@@ -106,7 +106,7 @@ func TestRegistryLocalTakesPassesOnly(t *testing.T) {
 
 // No pass goes to a node's localhost:5000 unless stackr holds it now:
 // whatever bound it first would get a token it could replay at the front. A
-// worker that never said its proxy is up counts as down.
+// worker whose proxy is not up counts as down.
 func TestRegistryPassOnlyWhileThePortIsOurs(t *testing.T) {
 	o := &Orchestrator{cfg: Config{SecretsKey: testKey}}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -118,12 +118,14 @@ func TestRegistryPassOnlyWhileThePortIsOurs(t *testing.T) {
 	if a, err := o.registryPassFor("ctl", o.registryLocalUp)(context.Background(), "acme/shop/api", false); err != nil || a == "" {
 		t.Fatalf("controller: pass %q, %v", a, err)
 	}
+	yes, no := true, false
 	for _, c := range []struct {
 		f    worker.Facts
 		mint bool
 	}{
-		{worker.Facts{}, false},
-		{worker.Facts{RegistryUp: true}, true},
+		{worker.Facts{RegistryUp: &no}, false},
+		{worker.Facts{RegistryUp: &yes}, true},
+		{worker.Facts{}, true}, // too old to say: the upgrade must still pull
 		{worker.Facts{RegistryError: "registry proxy: address already in use"}, false},
 	} {
 		a, err := o.registryPassFor("w1", workerRegistryUp(factsOf(c.f)))(context.Background(), "acme/shop/api", false)

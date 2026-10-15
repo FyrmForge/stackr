@@ -1592,7 +1592,14 @@
             "type": "string"
           },
           "registry_up": {
-            "type": "boolean"
+            "oneOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "resolvers": {
             "items": {
