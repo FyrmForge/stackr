@@ -8,8 +8,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
+	"path"
 	"sort"
 	"strings"
 
@@ -158,11 +160,30 @@ func Held(ctx context.Context, dst string, dstTr http.RoundTripper, platforms []
 // dstOpts are the options for the destination registry, which takes no
 // credential.
 func dstOpts(ctx context.Context, tr http.RoundTripper) []remote.Option {
-	do := []remote.Option{remote.WithContext(ctx)}
-	if tr != nil {
-		do = append(do, remote.WithTransport(tr))
+	if tr == nil {
+		tr = remote.DefaultTransport
 	}
-	return do
+	return []remote.Option{remote.WithContext(ctx), remote.WithTransport(noReferrers{tr})}
+}
+
+// noReferrers answers the referrers API itself with an empty index. The
+// cluster registry has no referrers API, so without this a manifest with an
+// OCI subject (an attestation) makes the library tag an index of referrers
+// "sha256-<subject hex>": an empty version in the registry list, under the
+// very tag an import pinned to that image's digest lands on.
+type noReferrers struct{ http.RoundTripper }
+
+func (t noReferrers) RoundTrip(req *http.Request) (*http.Response, error) {
+	if req.Method != http.MethodGet || path.Base(path.Dir(req.URL.Path)) != "referrers" {
+		return t.RoundTripper.RoundTrip(req)
+	}
+	body := `{"schemaVersion":2,"mediaType":"application/vnd.oci.image.index.v1+json","manifests":[]}`
+	return &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": {"application/vnd.oci.image.index.v1+json"}},
+		Body:       io.NopCloser(strings.NewReader(body)),
+		Request:    req,
+	}, nil
 }
 
 // UnreachableError is Copy's answer when src could not be asked: a network
