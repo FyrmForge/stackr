@@ -81,31 +81,31 @@ templ nodeCard(n Node) {
 		tabindex="0"
 		role="button"
 	>
-		<div class="flex h-[162px] shrink-0 flex-col p-3.5">
-			<div class="flex items-center gap-2.5">
-				<span class="node-icon flex h-7 w-7 items-center justify-center rounded-md bg-rw-inset text-rw-muted shrink-0">
-					<svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+		<div class="flex h-[162px] shrink-0 flex-col p-[14px]">
+			<div class="flex items-center gap-[10px]">
+				<span class="node-icon flex h-[28px] w-[28px] items-center justify-center rounded-md bg-rw-inset text-rw-muted shrink-0">
+					<svg class="h-[16px] w-[16px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
 						<rect width="20" height="8" x="2" y="2" rx="2"></rect>
 						<rect width="20" height="8" x="2" y="14" rx="2"></rect>
 						<path d="M6 6h.01M6 18h.01"></path>
 					</svg>
 				</span>
 				<div class="min-w-0">
-					<div class="font-semibold text-rw-text truncate text-sm leading-tight">{ n.Name }</div>
-					<div class="flex items-center gap-1.5 min-w-0">
-						<span class="text-xs text-rw-faint truncate">{ plural(len(n.Envs), "env") }</span>
-						<span class={ "shrink-0 rounded-md border px-1.5 py-0.5 text-[10px]",
+					<div class="font-semibold text-rw-text truncate text-[14px] leading-[17.5px]">{ n.Name }</div>
+					<div class="flex items-center gap-[6px] min-w-0">
+						<span class="text-[12px] leading-[16px] text-rw-faint truncate">{ plural(len(n.Envs), "env") }</span>
+						<span class={ "shrink-0 rounded-md border px-[6px] py-[2px] text-[10px]",
 							templ.KV("border-rw-accent/40 bg-rw-accent/10 text-rw-accentHi", n.Role == "controller"),
 							templ.KV("border-rw-border bg-rw-inset text-rw-muted", n.Role != "controller") }>{ n.Role }</span>
 					</div>
 				</div>
 			</div>
-			<div class="flex flex-wrap gap-1 mt-2 h-[calc(1rem+2px)] overflow-hidden">
+			<div class="flex flex-wrap gap-[4px] mt-[8px] h-[18px] shrink-0 overflow-hidden">
 				for _, t := range n.Tags {
-					<span class="shrink-0 rounded-md border border-rw-border bg-rw-inset px-1.5 py-0.5 text-[10px] leading-3 text-rw-muted">{ t }</span>
+					<span class="shrink-0 rounded-md border border-rw-border bg-rw-inset px-[6px] py-[2px] text-[10px] leading-[12px] text-rw-muted">{ t }</span>
 				}
 			</div>
-			<div class={ "mt-2 flex items-center justify-between gap-2 text-xs min-w-0 h-4", templ.KV("mb-3", !hasNote(n)), templ.KV("mb-1", hasNote(n)) }>
+			<div class={ "mt-[8px] flex items-center justify-between gap-[8px] text-[12px] leading-[16px] min-w-0 h-[16px]", templ.KV("mb-[12px]", !hasNote(n)), templ.KV("mb-[4px]", hasNote(n)) }>
 				if ip := publicIP(n); ip != "" {
 					<span class="text-rw-faint shrink-0">Public IP</span>
 					<span class="font-mono text-rw-text truncate">{ ip }</span>
@@ -119,11 +119,11 @@ templ nodeCard(n Node) {
 				}
 			</div>
 			if hasNote(n) {
-				<div class="mb-1 flex items-center gap-2 text-[11px] min-w-0 h-4 overflow-hidden whitespace-nowrap">
+				<div class="mb-[4px] flex items-center gap-[8px] text-[11px] min-w-0 h-[16px] overflow-hidden whitespace-nowrap">
 					if n.TooOld {
-						<span class="shrink-0 rounded-md border border-rw-danger/40 px-1.5 leading-4 text-rw-danger">too old</span>
+						<span class="shrink-0 rounded-md border border-rw-danger/40 px-[6px] leading-[16px] text-rw-danger">too old</span>
 					} else if n.Behind {
-						<span class="shrink-0 rounded-md border border-rw-warn/40 px-1.5 leading-4 text-rw-warn">behind</span>
+						<span class="shrink-0 rounded-md border border-rw-warn/40 px-[6px] leading-[16px] text-rw-warn">behind</span>
 					}
 					if n.CertExpired {
 						<button type="button" class="truncate text-rw-danger underline" hx-get={ NodeDrawer(n.ID, "") } hx-target="#drawer-body" hx-push-url={ NodePush(n.ID, "") } hx-trigger="click consume">Cert expired, rejoin needed</button>
@@ -132,22 +132,22 @@ templ nodeCard(n Node) {
 					}
 				</div>
 			}
-			<div class="node-footer mt-auto pt-3 border-t border-rw-border flex items-center justify-between gap-2 min-w-0">
-				<span class={ "node-status flex items-center gap-2 text-xs", tone }>
-					<span class={ "h-1.5 w-1.5 rounded-full shrink-0", dot }></span>
+			<div class="node-footer mt-auto pt-[12px] border-t border-rw-border flex items-center justify-between gap-[8px] min-w-0">
+				<span class={ "node-status flex items-center gap-[8px] text-[12px] leading-[16px]", tone }>
+					<span class={ "h-[6px] w-[6px] rounded-full shrink-0", dot }></span>
 					<span class="truncate">{ word }</span>
 				</span>
 				if info := buildInfo(n); info != "" {
-					<span class="text-xs text-rw-faint font-mono whitespace-nowrap">{ info }</span>
+					<span class="text-[12px] leading-[16px] text-rw-faint font-mono whitespace-nowrap">{ info }</span>
 				}
 			</div>
 		</div>
 		if rs := rows(n); len(rs) > 0 {
-			<ul class="border-t border-rw-border px-2 py-1.5">
+			<ul class="border-t border-rw-border px-[8px] py-[6px]">
 				for _, e := range rs {
 					<li>
 						<div
-							class="flex h-[22px] items-center gap-2 rounded-md px-1.5 min-w-0 cursor-pointer hover:bg-rw-inset"
+							class="flex h-[22px] items-center gap-[8px] rounded-md px-[6px] min-w-0 cursor-pointer hover:bg-rw-inset"
 							role="button"
 							tabindex="0"
 							hx-trigger="click consume"
@@ -162,11 +162,11 @@ templ nodeCard(n Node) {
 							}
 						>
 							if e.Health == "more" {
-								<span class="text-xs text-rw-faint truncate">{ e.Name }</span>
+								<span class="text-[12px] leading-[16px] text-rw-faint truncate">{ e.Name }</span>
 							} else {
 								<span class={ "env-dot shrink-0", dotClass(e.Health) } title={ healthWord(e.Health) }></span>
 								<span class="sr-only">{ healthWord(e.Health) }:</span>
-								<span class="text-xs font-medium text-rw-text truncate font-mono">{ e.Name }</span>
+								<span class="text-[12px] leading-[16px] font-medium text-rw-text truncate font-mono">{ e.Name }</span>
 							}
 						</div>
 					</li>
