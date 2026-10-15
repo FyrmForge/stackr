@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
 	"strings"
 	"testing"
 	"time"
@@ -12,7 +13,9 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
+	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	"github.com/FyrmForge/stackr/internal/service/internal/dockerfake"
+	"github.com/FyrmForge/stackr/internal/service/internal/flow/jobs"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/environment"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/job"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/node"
@@ -303,5 +306,35 @@ func TestCanvasOfOfflineNode(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("tile card not offline: %+v", v.Nodes)
+	}
+}
+
+// A scheduled backup whose worker stopped answering but is not yet marked
+// offline is skipped as it starts, like one on an offline node.
+func TestScheduledBackupSkipsAnUnreachableNode(t *testing.T) {
+	ctx := context.Background()
+	o, env, _ := gateWorld(t)
+	vol := store.Volume{ID: uuid.NewString(), ScopeKind: "env", ScopeID: env.ID, Slug: "data", Name: "data", CreatedAt: time.Now()}
+	must(t, o.store.Volumes.Create(ctx, vol))
+	must(t, o.skipUnreachable(ctx, vol.ID))
+
+	dead, err := docker.NewRemote("tcp://127.0.0.1:1", &http.Client{})
+	must(t, err)
+	o.docker.(*DockerRouter).Set("w1", dead)
+	err = o.skipUnreachable(ctx, vol.ID)
+	if !errors.Is(err, jobs.ErrSkipped) || !strings.HasPrefix(err.Error(), "skipped: w1 unreachable") {
+		t.Errorf("dropped node = %v", err)
+	}
+	// A worker too old is refused, not unreachable: the backup reports it.
+	o.cluster.mu.Lock()
+	o.cluster.old["w1"] = "v0.0.1"
+	o.cluster.mu.Unlock()
+	o.docker.(*DockerRouter).Set("w1", dead)
+	if err := o.skipUnreachable(ctx, vol.ID); err != nil {
+		t.Errorf("too old = %v, want the backup to run and say so", err)
+	}
+	setStatus(t, o, "w1", node.StatusOffline)
+	if err := o.skipUnreachable(ctx, vol.ID); err == nil || err.Error() != "skipped: w1 offline" {
+		t.Errorf("offline node = %v", err)
 	}
 }

@@ -56,6 +56,10 @@ var (
 	// ErrSuperseded is the cancel cause when a newer job takes over.
 	ErrSuperseded = errors.New("superseded by a newer job")
 	errCancelled  = errors.New("cancelled")
+	// ErrSkipped from a handler records the job as skipped, not failed, with
+	// the error as the reason (a scheduled run whose node dropped before it
+	// was marked offline).
+	ErrSkipped = errors.New("skipped")
 )
 
 type active struct {
@@ -370,6 +374,8 @@ func (r *Runner) call(ctx context.Context, rn *Run) (state, reason, param string
 		return job.Cancelled, "", ""
 	case errors.Is(cause, context.DeadlineExceeded):
 		return job.Failed, "stopped after the " + r.opt.Cap.String() + " cap", ""
+	case errors.Is(err, ErrSkipped):
+		return job.Skipped, err.Error(), ""
 	}
 	if u, ok := errs.IsUnset(err); ok {
 		r.mu.Lock()

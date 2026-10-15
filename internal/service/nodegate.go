@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
+	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/jobs"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/node"
 	lrun "github.com/FyrmForge/stackr/internal/service/internal/leaf/run"
@@ -315,17 +316,50 @@ func (o *Orchestrator) scheduleBackup(ctx context.Context, s store.BackupSchedul
 
 // volumeNodeUp is nodeUp for the node a volume's data lives on.
 func (o *Orchestrator) volumeNodeUp(ctx context.Context, volumeID string) error {
+	if id := o.volumeNode(ctx, volumeID); id != "" {
+		return o.nodeUp(ctx, id)
+	}
+	return nil // the backup job reports a missing volume itself
+}
+
+// volumeNode is the node a volume's data lives on; "" when it cannot be read.
+func (o *Orchestrator) volumeNode(ctx context.Context, volumeID string) string {
 	v, err := o.store.Volumes.Get(ctx, volumeID)
 	if err != nil {
-		return nil // the backup job reports a missing volume itself
+		return ""
 	}
-	id := v.NodeID
-	if id == "" {
-		if id, err = o.scopeNode(ctx, v.ScopeKind, v.ScopeID); err != nil {
-			return nil
-		}
+	if v.NodeID != "" {
+		return v.NodeID
 	}
-	return o.nodeUp(ctx, id)
+	id, _ := o.scopeNode(ctx, v.ScopeKind, v.ScopeID)
+	return id
+}
+
+// skipUnreachable is a scheduled backup's check as it starts: its node is
+// online and its Docker answers, else the run is skipped (jobs.ErrSkipped),
+// not failed. A node that dropped is marked offline only after missed
+// refreshes; a schedule firing in between is the same skip. An error once
+// the backup runs is the backup's own and still fails it.
+func (o *Orchestrator) skipUnreachable(ctx context.Context, volumeID string) error {
+	n, err := o.store.Nodes.Get(ctx, o.volumeNode(ctx, volumeID))
+	if err != nil || n.Role != node.Worker {
+		return nil // the controller is always up; a lookup error is the job's
+	}
+	id := n.ID
+	err = o.nodeUp(ctx, id)
+	if err == nil {
+		pctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		_, err = o.docker.HostInfo(docker.WithNode(pctx, id))
+		cancel()
+	}
+	var d *NodeDownError
+	if _, refused := errs.IsConflict(err); err == nil || refused {
+		return nil // a worker too old is refused, not unreachable: the backup says so
+	}
+	if errors.As(err, &d) {
+		return fmt.Errorf("%w: %s offline", jobs.ErrSkipped, d.Name)
+	}
+	return fmt.Errorf("%w: %s unreachable: %v", jobs.ErrSkipped, n.Name, err)
 }
 
 // scheduleCron is the schedule driver for a cron tile: a run is queued, or
