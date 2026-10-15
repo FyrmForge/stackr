@@ -101,10 +101,11 @@ func (o *Orchestrator) runCleanup(ctx context.Context, r *jobs.Run) error {
 }
 
 // keptReleases is the release ids a sweep must not strand: each env's current
-// release and the last rollbackDepth it was on (done promote and rollback
-// jobs), every release a live job targets (a parked promote deploys it
-// later), and the newest release of each stack (the next promote). The image
-// sweep and the registry sweep both keep what these pin.
+// release, the last rollbackDepth it was on (done promote and rollback jobs)
+// and the releases numbered between them (keepBetween), every release a live
+// job targets (a parked promote deploys it later), and the newest release of
+// each stack (the next promote). The image sweep and the registry sweep both
+// keep what these pin.
 func (o *Orchestrator) keptReleases(ctx context.Context) (map[string]bool, error) {
 	orgs, err := o.orgs.ListAll(ctx)
 	if err != nil {
@@ -112,6 +113,8 @@ func (o *Orchestrator) keptReleases(ctx context.Context) (map[string]bool, error
 	}
 	rels := map[string]bool{}
 	depth := map[string][]string{} // env id -> releases it was on, newest first
+	byStack := map[string][]store.Release{}
+	stackOf := map[string]string{} // env id -> stack id
 	for _, org := range orgs {
 		stacks, err := o.stacks.List(ctx, org.ID)
 		if err != nil {
@@ -125,12 +128,14 @@ func (o *Orchestrator) keptReleases(ctx context.Context) (map[string]bool, error
 			if len(rs) > 0 {
 				rels[rs[0].ID] = true
 			}
+			byStack[s.ID] = rs
 			envs, err := o.envs.List(ctx, s.ID)
 			if err != nil {
 				return nil, err
 			}
 			for _, e := range envs {
 				depth[e.ID] = nil
+				stackOf[e.ID] = s.ID
 				if e.ReleaseID != nil {
 					depth[e.ID] = []string{*e.ReleaseID}
 				}
@@ -157,12 +162,43 @@ func (o *Orchestrator) keptReleases(ctx context.Context) (map[string]bool, error
 			depth[p.EnvID] = append(h, *j.ReleaseID)
 		}
 	}
-	for _, h := range depth {
+	for env, h := range depth {
 		for _, id := range h {
 			rels[id] = true
 		}
+		keepBetween(rels, byStack[stackOf[env]], h)
 	}
 	return rels, nil
+}
+
+// keepBetween adds to rels every release of rs numbered from the oldest of
+// hist to its newest. An env also reaches releases no promote job targets
+// (a redeploy's, a promote's re-pin), and Roll back offers any older one: the
+// release it ran before the current is one of these. With only the current
+// release known, the one numbered below it is kept too.
+// ponytail: by number, so another env's releases in that span stay as well;
+// an env release history would be exact.
+func keepBetween(rels map[string]bool, rs []store.Release, hist []string) {
+	lo, hi := 0, 0
+	for _, r := range rs {
+		if slices.Contains(hist, r.ID) {
+			if lo == 0 || r.Number < lo {
+				lo = r.Number
+			}
+			hi = max(hi, r.Number)
+		}
+	}
+	if lo == 0 {
+		return
+	}
+	if len(hist) == 1 {
+		lo--
+	}
+	for _, r := range rs {
+		if r.Number >= lo && r.Number <= hi {
+			rels[r.ID] = true
+		}
+	}
 }
 
 // cleanupKeep is the image rows the releases of keptReleases pin. pinned is

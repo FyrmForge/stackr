@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -208,5 +209,59 @@ func TestRegistrySweepFailureOpensGate(t *testing.T) {
 	}
 	if res, ok := w.orch.LastRegistryClean(); !ok || len(res.Errors) == 0 {
 		t.Errorf("result = %+v, %v", res, ok)
+	}
+}
+
+// Roll back must find its image in the registry: the sweep keeps the env's
+// current release and the one it ran before, even when no promote job names
+// that one (a redeploy's or a re-pin's release), and deletes older ones.
+func TestRegistrySweepKeepsPreviousRelease(t *testing.T) {
+	const web = "acme/shop/web"
+	for _, c := range []struct {
+		name     string
+		promoted int // 1-based release a done promote job targeted, 0 none
+		keep     []string
+	}{
+		{"redeploys only", 0, []string{"b4", "b5"}},
+		{"promoted then redeployed", 3, []string{"b3", "b4", "b5"}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			w := newWorld(t)
+			ctx := context.Background()
+			fr := &fakeRegistry{tags: map[string]map[string]string{web: {}}}
+			srv := httptest.NewServer(fr)
+			defer srv.Close()
+			w.orch.regs.WithBase(srv.URL)
+			var rels []string
+			for i, tag := range []string{"b1", "b2", "b3", "b4", "b5"} {
+				fr.tags[web][tag] = "sha256:" + tag
+				must(t, w.orch.regs.Record(ctx, store.RegistryImage{
+					OrgID: &w.org, Repo: web, Tag: tag, Digest: "sha256:" + tag, Source: registry.SourceBuilt,
+					Size: 100, CreatedAt: time.Now().Add(time.Duration(i-10) * time.Minute),
+				}))
+				im, err := w.orch.images.Built(ctx, image.ClusterRegistry+web+":"+tag, "sha256:local-"+tag)
+				must(t, err)
+				rels = append(rels, w.release(t, im.ID))
+			}
+			if c.promoted > 0 {
+				w.job(t, w.env, rels[c.promoted-1], "done", time.Hour)
+			}
+			e, err := w.st.Environments.Get(ctx, w.env)
+			must(t, err)
+			e.ReleaseID = &rels[4]
+			must(t, w.st.Environments.Update(ctx, e))
+			must(t, w.orch.SetSetting(ctx, "registry_keep", "1"))
+
+			j, err := w.orch.CleanRegistryNow(ctx, "u1")
+			must(t, err)
+			if done := w.wait(t, j.ID); done.State != job.Done {
+				t.Fatalf("job = %s: %s", done.State, done.Error)
+			}
+			for _, tag := range []string{"b1", "b2", "b3", "b4", "b5"} {
+				if want := slices.Contains(c.keep, tag); fr.has(web, tag) != want {
+					t.Errorf("%s present = %v, want %v", tag, !want, want)
+				}
+			}
+		})
 	}
 }
