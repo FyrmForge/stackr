@@ -419,6 +419,9 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 	orch.helperReady = orch.rsyncSteps().ensure
 	if r, ok := d.(*DockerRouter); ok {
 		r.OwnRegistry = orch.RegistryHost
+		if c, ok := r.clients[ctl.ID].(*docker.Client); ok {
+			c.SetRegistryDigest(orch.registryDigest)
+		}
 		r.Gate = orch.gate
 		r.ToolReady = func(ctx context.Context, nodeID string) error {
 			if nodeID == ctl.ID {

@@ -19,19 +19,42 @@ import (
 // Pull pulls ref (repo@digest or repo:tag) with auth, the base64 blob the
 // API's X-Registry-Auth header wants; "" = anonymous. Per call, never `docker
 // login`: the daemon config is shared by every org on the node. A cluster
-// registry ref gets the minted auth instead (SetRegistryAuth).
+// registry ref gets the minted auth instead (SetRegistryAuth), and a tag of it
+// is pulled by the digest the registry has for it (SetRegistryDigest).
 func (d *Client) Pull(ctx context.Context, ref, auth string, log io.Writer) error {
 	if a, ok, err := d.clusterAuth(ctx, ref, false); err != nil {
 		return err
 	} else if ok {
 		auth = a
 	}
-	rc, err := d.cli.ImagePull(ctx, ref, image.PullOptions{RegistryAuth: auth})
+	pull := ref
+	if repo, ok := clusterRepo(ref); ok && d.regDigest != nil && !strings.Contains(ref, "@") {
+		tag := "latest"
+		if i := strings.LastIndex(ref, ":"); i > strings.LastIndex(ref, "/") {
+			tag = ref[i+1:]
+		}
+		dg, err := d.regDigest(ctx, repo, tag)
+		if err != nil {
+			return fmt.Errorf("pull %s: %w", ref, err)
+		}
+		if dg == "" {
+			return fmt.Errorf("pull %s: the cluster registry has no such image", ref)
+		}
+		pull = "localhost:5000/" + repo + "@" + dg
+		if log != nil {
+			_, _ = fmt.Fprintf(log, "%s is %s\n", ref, pull)
+		}
+	}
+	rc, err := d.cli.ImagePull(ctx, pull, image.PullOptions{RegistryAuth: auth})
 	if err != nil {
 		return wrap(err)
 	}
 	defer func() { _ = rc.Close() }()
-	return drainProgress(rc, log)
+	if err := drainProgress(rc, log); err != nil || pull == ref {
+		return err
+	}
+	// containers name the image by its tag
+	return wrap(d.cli.ImageTag(ctx, pull, ref))
 }
 
 // Push pushes ref from this daemon, with the minted auth for a cluster

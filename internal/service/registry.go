@@ -101,6 +101,12 @@ func registryPass(key []byte, subject string) docker.RegistryAuth {
 	}
 }
 
+// registryDigest is docker.Client's RegistryDigest: the registry's own
+// answer over its socket, never through a node's loopback.
+func (o *Orchestrator) registryDigest(ctx context.Context, repo, tag string) (string, error) {
+	return o.regs.Resolve(ctx, repo, tag)
+}
+
 // registryLocal is the front serveRegistryLocal serves: no token endpoint, no
 // push records (the controller records its own pushes).
 func (o *Orchestrator) registryLocal() http.Handler {

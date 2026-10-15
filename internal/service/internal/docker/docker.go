@@ -199,7 +199,20 @@ type Client struct {
 	// regAuth mints the X-Registry-Auth for one pull or push of a repo of
 	// the cluster registry (localhost:5000/...); nil = none.
 	regAuth RegistryAuth
+	// regDigest is what a tag of the cluster registry points at, asked of
+	// the registry itself on the controller; nil = pull tags as they are.
+	regDigest RegistryDigest
 }
+
+// RegistryDigest answers the digest repo:tag has in the cluster registry, ""
+// when it has none.
+type RegistryDigest func(ctx context.Context, repo, tag string) (string, error)
+
+// SetRegistryDigest makes every pull of a cluster registry tag go by the
+// digest f answers: anything may hold the node's localhost:5000 (a
+// host-network tile that bound it first) and answer a tag with its own image;
+// a digest it cannot fake.
+func (d *Client) SetRegistryDigest(f RegistryDigest) { d.regDigest = f }
 
 // RegistryAuth mints the X-Registry-Auth for one pull (push false) or push
 // of repo in the cluster registry; an error refuses the call.

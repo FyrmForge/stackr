@@ -1,8 +1,15 @@
 package docker
 
 import (
+	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
+	"slices"
+	"strings"
 	"testing"
+
+	"github.com/docker/docker/client"
 )
 
 // buildx prints a header before the ids; neither the header nor a stderr
@@ -45,5 +52,58 @@ func TestClusterRepo(t *testing.T) {
 		if got != want || ok != (want != "") {
 			t.Errorf("%s: %q %v, want %q", ref, got, ok, want)
 		}
+	}
+}
+
+// A cluster registry tag is pulled by the digest the registry answers, then
+// tagged; no digest is an error and nothing is pulled. Other registries and
+// digest refs go as given.
+func TestPullClusterTagByDigest(t *testing.T) {
+	var calls []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/images/create"):
+			calls = append(calls, "pull "+q.Get("fromImage")+" "+q.Get("tag"))
+		case strings.HasSuffix(r.URL.Path, "/tag"):
+			calls = append(calls, "tag "+strings.TrimSuffix(r.URL.Path[strings.Index(r.URL.Path, "/images/")+8:], "/tag")+" "+q.Get("repo")+":"+q.Get("tag"))
+			w.WriteHeader(http.StatusCreated)
+		default:
+			t.Errorf("unexpected %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+	cli, err := client.NewClientWithOpts(client.WithHost("tcp://"+srv.Listener.Addr().String()), client.WithHTTPClient(srv.Client()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	dg := "sha256:" + strings.Repeat("a", 64)
+	d := &Client{cli: cli}
+	d.SetRegistryDigest(func(_ context.Context, repo, tag string) (string, error) {
+		if repo == "acme/shop/api" && tag == "v1" {
+			return dg, nil
+		}
+		return "", nil
+	})
+	ctx := context.Background()
+	if err := d.Pull(ctx, "localhost:5000/acme/shop/api:v1", "", nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.Pull(ctx, "localhost:5000/acme/shop/api:v2", "", nil); err == nil {
+		t.Error("a tag with no digest was pulled")
+	}
+	for _, ref := range []string{"localhost:5000/acme/shop/api@" + dg, "ghcr.io/acme/api:v1"} {
+		if err := d.Pull(ctx, ref, "", nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	want := []string{
+		"pull localhost:5000/acme/shop/api " + dg,
+		"tag localhost:5000/acme/shop/api@" + dg + " localhost:5000/acme/shop/api:v1",
+		"pull localhost:5000/acme/shop/api " + dg,
+		"pull ghcr.io/acme/api v1",
+	}
+	if !slices.Equal(calls, want) {
+		t.Errorf("calls:\n%s\nwant:\n%s", strings.Join(calls, "\n"), strings.Join(want, "\n"))
 	}
 }
