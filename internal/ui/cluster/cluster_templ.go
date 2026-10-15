@@ -361,7 +361,7 @@ func nodeCard(n Node) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		var templ_7745c5c3_Var16 = []any{"shrink-0 rounded-md border px-[6px] py-[2px] text-[10px]",
+		var templ_7745c5c3_Var16 = []any{"shrink-0 rounded-md border px-[6px] py-[2px] text-[12px] leading-[16px]",
 			templ.KV("border-rw-accent/40 bg-rw-accent/10 text-rw-accentHi", n.Role == "controller"),
 			templ.KV("border-rw-border bg-rw-inset text-rw-muted", n.Role != "controller")}
 		templ_7745c5c3_Err = templ.RenderCSSItems(ctx, templ_7745c5c3_Buffer, templ_7745c5c3_Var16...)
@@ -399,7 +399,7 @@ func nodeCard(n Node) templ.Component {
 			return templ_7745c5c3_Err
 		}
 		for _, t := range n.Tags {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 26, "<span class=\"shrink-0 rounded-md border border-rw-border bg-rw-inset px-[6px] py-[2px] text-[10px] leading-[12px] text-rw-muted\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 26, "<span class=\"shrink-0 rounded-md border border-rw-border bg-rw-inset px-[6px] py-[2px] text-[12px] leading-[12px] text-rw-muted\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -517,7 +517,7 @@ func nodeCard(n Node) templ.Component {
 			return templ_7745c5c3_Err
 		}
 		if hasNote(n) {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 40, "<div class=\"mb-[4px] flex items-center gap-[8px] text-[11px] min-w-0 h-[16px] overflow-hidden whitespace-nowrap\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 40, "<div class=\"mb-[4px] flex items-center gap-[8px] text-[12px] leading-[16px] min-w-0 h-[16px] overflow-hidden whitespace-nowrap\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

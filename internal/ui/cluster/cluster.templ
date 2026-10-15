@@ -94,7 +94,7 @@ templ nodeCard(n Node) {
 					<div class="font-semibold text-rw-text truncate text-[14px] leading-[17.5px]">{ n.Name }</div>
 					<div class="flex items-center gap-[6px] min-w-0">
 						<span class="text-[12px] leading-[16px] text-rw-faint truncate">{ plural(len(n.Envs), "env") }</span>
-						<span class={ "shrink-0 rounded-md border px-[6px] py-[2px] text-[10px]",
+						<span class={ "shrink-0 rounded-md border px-[6px] py-[2px] text-[12px] leading-[16px]",
 							templ.KV("border-rw-accent/40 bg-rw-accent/10 text-rw-accentHi", n.Role == "controller"),
 							templ.KV("border-rw-border bg-rw-inset text-rw-muted", n.Role != "controller") }>{ n.Role }</span>
 					</div>
@@ -102,7 +102,7 @@ templ nodeCard(n Node) {
 			</div>
 			<div class="flex flex-wrap gap-[4px] mt-[8px] h-[18px] shrink-0 overflow-hidden">
 				for _, t := range n.Tags {
-					<span class="shrink-0 rounded-md border border-rw-border bg-rw-inset px-[6px] py-[2px] text-[10px] leading-[12px] text-rw-muted">{ t }</span>
+					<span class="shrink-0 rounded-md border border-rw-border bg-rw-inset px-[6px] py-[2px] text-[12px] leading-[12px] text-rw-muted">{ t }</span>
 				}
 			</div>
 			<div class={ "mt-[8px] flex items-center justify-between gap-[8px] text-[12px] leading-[16px] min-w-0 h-[16px]", templ.KV("mb-[12px]", !hasNote(n)), templ.KV("mb-[4px]", hasNote(n)) }>
@@ -119,7 +119,7 @@ templ nodeCard(n Node) {
 				}
 			</div>
 			if hasNote(n) {
-				<div class="mb-[4px] flex items-center gap-[8px] text-[11px] min-w-0 h-[16px] overflow-hidden whitespace-nowrap">
+				<div class="mb-[4px] flex items-center gap-[8px] text-[12px] leading-[16px] min-w-0 h-[16px] overflow-hidden whitespace-nowrap">
 					if n.TooOld {
 						<span class="shrink-0 rounded-md border border-rw-danger/40 px-[6px] leading-[16px] text-rw-danger">too old</span>
 					} else if n.Behind {
