@@ -3,12 +3,15 @@ package worker
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"log/slog"
 	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
 	"strings"
+	"sync"
+	"syscall"
 	"time"
 )
 
@@ -87,7 +90,7 @@ func serveRegistry(ctx context.Context, c RegistryConfig, bound func()) error {
 	if err != nil {
 		return err
 	}
-	ln, err := net.Listen("tcp", listen)
+	ln, err := LoopbackListen(listen)
 	if err != nil {
 		return err
 	}
@@ -114,3 +117,76 @@ func (s *Server) runRegistry(ctx context.Context, c RegistryConfig) {
 		}
 	}
 }
+
+// LoopbackListen listens on addr, a 127.0.0.1 port, and on the same port of
+// [::1] when the host has IPv6 loopback: Docker dials "localhost:5000" on ::1
+// first and sends its pass there, so a ::1 port left open is one any
+// host-network tile can take. Both or neither.
+func LoopbackListen(addr string) (net.Listener, error) {
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		return nil, err
+	}
+	host, port, _ := net.SplitHostPort(addr)
+	if host != "127.0.0.1" || port == "0" {
+		return ln, nil
+	}
+	ln6, err := net.Listen("tcp", net.JoinHostPort("::1", port))
+	switch {
+	case errors.Is(err, syscall.EADDRNOTAVAIL), errors.Is(err, syscall.EAFNOSUPPORT):
+		return ln, nil // no IPv6 loopback: nothing to take
+	case err != nil:
+		_ = ln.Close()
+		return nil, err
+	}
+	d := &dualListener{a: ln, b: ln6, conns: make(chan accepted), done: make(chan struct{})}
+	go d.pump(ln)
+	go d.pump(ln6)
+	return d, nil
+}
+
+// dualListener accepts from two listeners as one.
+type dualListener struct {
+	a, b  net.Listener
+	conns chan accepted
+	done  chan struct{}
+	once  sync.Once
+}
+
+type accepted struct {
+	c   net.Conn
+	err error
+}
+
+func (d *dualListener) pump(l net.Listener) {
+	for {
+		c, err := l.Accept()
+		select {
+		case d.conns <- accepted{c, err}:
+		case <-d.done:
+			if c != nil {
+				_ = c.Close()
+			}
+			return
+		}
+		if err != nil {
+			return
+		}
+	}
+}
+
+func (d *dualListener) Accept() (net.Conn, error) {
+	select {
+	case r := <-d.conns:
+		return r.c, r.err
+	case <-d.done:
+		return nil, net.ErrClosed
+	}
+}
+
+func (d *dualListener) Close() error {
+	d.once.Do(func() { close(d.done) })
+	return errors.Join(d.a.Close(), d.b.Close())
+}
+
+func (d *dualListener) Addr() net.Addr { return d.a.Addr() }

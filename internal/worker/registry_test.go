@@ -109,3 +109,30 @@ func TestRegistryUpWhileBound(t *testing.T) {
 		t.Fatal("still up after it stopped")
 	}
 }
+
+// Docker tries [::1] before 127.0.0.1 for localhost: a taken ::1 port is a
+// failed bind, not a half-held one, and both addresses reach the proxy.
+func TestLoopbackListenHoldsBoth(t *testing.T) {
+	probe, err := net.Listen("tcp", "[::1]:0")
+	if err != nil {
+		t.Skip("no IPv6 loopback")
+	}
+	_, port, _ := net.SplitHostPort(probe.Addr().String())
+	if _, err := LoopbackListen("127.0.0.1:" + port); err == nil {
+		t.Fatal("bound with [::1] taken")
+	}
+	_ = probe.Close()
+	ln, err := LoopbackListen("127.0.0.1:" + port)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = ln.Close() }()
+	go func() { _ = http.Serve(ln, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {})) }()
+	for _, h := range []string{"127.0.0.1", "[::1]"} {
+		resp, err := http.Get("http://" + h + ":" + port + "/")
+		if err != nil {
+			t.Fatalf("%s: %v", h, err)
+		}
+		_ = resp.Body.Close()
+	}
+}

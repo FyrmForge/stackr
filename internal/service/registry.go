@@ -181,7 +181,7 @@ func (o *Orchestrator) serveRegistryLocal(ctx context.Context) {
 	srv := &http.Server{Handler: o.registryLocal(), ReadHeaderTimeout: 10 * time.Second}
 	go func() { <-ctx.Done(); _ = srv.Close() }()
 	for {
-		ln, err := net.Listen("tcp", addr)
+		ln, err := worker.LoopbackListen(addr)
 		if err == nil {
 			o.regLocalUp.Store(true)
 			err = srv.Serve(ln)
