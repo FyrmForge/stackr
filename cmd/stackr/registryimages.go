@@ -1,6 +1,9 @@
 package main
 
 import (
+	"errors"
+	"fmt"
+	"net/http"
 	"net/url"
 	"strings"
 
@@ -25,7 +28,7 @@ func (a *app) registryImages() []*cobra.Command {
 				}
 				return a.show(v, "name", "tags", "latest", "size")
 			}
-			v, err := a.call(GET, p+"/registry/versions?repo="+url.QueryEscape(args[0]), nil)
+			v, err := a.versions(p, args[0])
 			if err != nil {
 				return err
 			}
@@ -47,14 +50,16 @@ func (a *app) registryImages() []*cobra.Command {
 			repo, tag := args[0][:i], args[0][i+1:]
 			q := "?repo=" + url.QueryEscape(repo) + "&tag=" + url.QueryEscape(tag)
 			// The versions say which envs run it, so the prompt names them.
-			vs, err := a.call(GET, p+"/registry/versions?repo="+url.QueryEscape(repo), nil)
+			vs, err := a.versions(p, repo)
 			if err != nil {
 				return err
 			}
 			warn := "Delete " + args[0] + "? It cannot be pulled again."
 			xs, _ := vs.([]any)
+			found := false
 			for _, x := range xs {
 				if m, _ := x.(map[string]any); cell(m["tag"]) == tag {
+					found = true
 					if used := strs(m["used_by"]); len(used) > 0 {
 						if !force {
 							return needsForce(args[0], used)
@@ -62,6 +67,9 @@ func (a *app) registryImages() []*cobra.Command {
 						warn = args[0] + " runs in " + strings.Join(used, ", ") + ". Delete it anyway? Those envs fail to pull it on their next deploy."
 					}
 				}
+			}
+			if !found {
+				return fmt.Errorf("no version %q in %s", tag, repo)
 			}
 			if err := a.confirm(warn); err != nil {
 				return err
@@ -75,6 +83,16 @@ func (a *app) registryImages() []*cobra.Command {
 	rm.Example = "  stackr registry rm acme/shop/api:v1"
 	rm.Flags().BoolVar(&force, "force", false, "delete even when an env runs it")
 	return []*cobra.Command{ls, rm}
+}
+
+// versions is a repo's versions; a repo the org lacks says so by name.
+func (a *app) versions(orgPath, repo string) (any, error) {
+	v, err := a.call(GET, orgPath+"/registry/versions?repo="+url.QueryEscape(repo), nil)
+	var e *apiErr
+	if errors.As(err, &e) && e.Status == http.StatusNotFound {
+		return nil, fmt.Errorf("no repository %q", repo)
+	}
+	return v, err
 }
 
 func needsForce(ref string, envs []string) error {

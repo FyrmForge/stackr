@@ -43,6 +43,14 @@ func TestRegistryRm(t *testing.T) {
 	if code, _, errw := cli(t, "registry", "rm", "acme/shop/api:v1", "--force", "-y"); code != 0 || len(writes(r)) != 1 || writes(r)[0] != del+"v1&force=true " {
 		t.Errorf("rm --force = %d %q, wrote %q", code, errw, writes(r))
 	}
+	r = fake(t, answers)
+	if code, _, errw := cli(t, "registry", "rm", "acme/shop/api:v9", "-y"); code == 0 || !strings.Contains(errw, `no version "v9" in acme/shop/api`) || len(writes(r)) != 0 {
+		t.Errorf("rm missing tag = %d %q, wrote %q", code, errw, writes(r))
+	}
+	fakeErr(t, 404, `{"error":"Not Found"}`)
+	if code, _, errw := cli(t, "registry", "rm", "acme/nope:v1", "-y"); code == 0 || !strings.Contains(errw, `no repository "acme/nope"`) {
+		t.Errorf("rm missing repo = %d %q", code, errw)
+	}
 	if code, _, _ := cli(t, "registry", "rm", "acme/shop/api", "-y"); code != 2 {
 		t.Errorf("rm without a tag = %d, want 2", code)
 	}
