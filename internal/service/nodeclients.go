@@ -151,12 +151,20 @@ func (c *clusterPKI) prevCert() tls.Certificate {
 // keepPrev makes the controller's current cert files the previous ones,
 // before a renewal overwrites them (rollController, not a revoke).
 func keepPrev(dataDir string) error {
-	for _, f := range [][2]string{{controllerKeyFile, controllerPrevKey}, {controllerCertFile, controllerPrevCert}} {
+	// Both written aside first, then renamed: a crash leaves at most a torn
+	// pair across the two renames, not a half-written file.
+	pairs := [][2]string{{controllerKeyFile, controllerPrevKey}, {controllerCertFile, controllerPrevCert}}
+	for _, f := range pairs {
 		b, err := os.ReadFile(filepath.Join(dataDir, f[0]))
 		if err != nil {
 			return err
 		}
-		if err := os.WriteFile(filepath.Join(dataDir, f[1]), b, 0o600); err != nil {
+		if err := os.WriteFile(filepath.Join(dataDir, f[1]+".new"), b, 0o600); err != nil {
+			return err
+		}
+	}
+	for _, f := range pairs {
+		if err := os.Rename(filepath.Join(dataDir, f[1]+".new"), filepath.Join(dataDir, f[1])); err != nil {
 			return err
 		}
 	}

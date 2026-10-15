@@ -96,6 +96,13 @@ func restore(ctx context.Context, args []string, out io.Writer) error {
 		}
 		src := filepath.Join(stage, m.Name)
 		if _, err := os.Stat(src); m.Optional && errors.Is(err, os.ErrNotExist) {
+			// A previous controller cert left from before would co-sign
+			// recovery answers the archived state had stopped.
+			if m.Name == installspec.ControllerPrevKeyFile || m.Name == installspec.ControllerPrevCertFile {
+				if err := os.Remove(filepath.Join(dataDir, m.Name)); err != nil && !errors.Is(err, os.ErrNotExist) {
+					return err
+				}
+			}
 			continue
 		}
 		if err := os.MkdirAll(filepath.Dir(filepath.Join(dataDir, m.Name)), 0o700); err != nil {

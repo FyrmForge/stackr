@@ -71,6 +71,9 @@ func (o *Orchestrator) RotateRoot(ctx context.Context, by *Principal) error {
 	if rolloverDetached.Load() {
 		return errs.Conflictf("A root rollover is already running.")
 	}
+	if o.cluster != nil && o.cluster.revoking.Load() { // it holds rollMu for minutes with a worker offline
+		return errs.Conflictf("The controller certificate is being replaced. Try again in a few minutes.")
+	}
 	rolloverMu.Lock()
 	st, err := o.startRollover(ctx, by)
 	if err != nil {
@@ -210,6 +213,9 @@ func (o *Orchestrator) startRollover(ctx context.Context, by *Principal) (store.
 	if err != nil {
 		return st, err
 	}
+	// No controller cert renewal issues from the old root while it moves.
+	o.cluster.rollMu.Lock()
+	defer o.cluster.rollMu.Unlock()
 	old := o.cluster.ca
 	// The cross cert first: once RotateCA moved the old key, a failure in
 	// between could never write it again.
@@ -299,7 +305,7 @@ func (o *Orchestrator) finishRollover(ctx context.Context, by *Principal, st sto
 	if err := o.cluster.forgetPrev(o.cfg.DataDir); err != nil {
 		return err
 	}
-	o.cluster.swapCA(o.cluster.ca, []*x509.Certificate{o.cluster.ca.Cert})
+	o.cluster.setRoots([]*x509.Certificate{o.cluster.ca.Cert})
 	now := time.Now().UTC()
 	prev := st.PreviousFP
 	st.PreviousFP, st.RolloverFinishedAt = "", &now
