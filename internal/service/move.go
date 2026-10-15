@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 
 	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/google/go-containerregistry/pkg/v1/tarball"
@@ -136,6 +137,10 @@ func (o *Orchestrator) rsyncSteps() rsyncSteps {
 // it. No node ever writes to the registry itself. The caller holds the gate
 // (Hold). Returns what the registry now holds.
 func (o *Orchestrator) pushLocal(ctx context.Context, ref string) (imgcopy.Result, error) {
+	// One at a time: each sizes its cap from the disk free now.
+	// ponytail: serial pushes; a shared byte budget if builds queue on it.
+	pushMu.Lock()
+	defer pushMu.Unlock()
 	t, err := name.NewTag(ref, name.Insecure)
 	if err != nil {
 		return imgcopy.Result{}, err
@@ -531,6 +536,9 @@ func deployOrder(ts []store.Tile) []store.Tile {
 	}
 	return out
 }
+
+// pushMu serialises pushLocal.
+var pushMu sync.Mutex
 
 // capped is a writer that refuses past left bytes.
 type capped struct {
