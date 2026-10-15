@@ -3,11 +3,13 @@ package worker
 import (
 	"context"
 	"crypto/tls"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
 	"strings"
+	"time"
 )
 
 // RegistryListen is where Docker on the node finds the controller's registry
@@ -74,8 +76,9 @@ func registryProxy(c RegistryConfig, listen string) (http.Handler, error) {
 	}), nil
 }
 
-// serveRegistry runs the local listener until ctx ends.
-func serveRegistry(ctx context.Context, c RegistryConfig) error {
+// serveRegistry runs the local listener until ctx ends; bound is called once
+// it holds the port.
+func serveRegistry(ctx context.Context, c RegistryConfig, bound func()) error {
 	listen := c.Listen
 	if listen == "" {
 		listen = RegistryListen
@@ -88,5 +91,25 @@ func serveRegistry(ctx context.Context, c RegistryConfig) error {
 	if err != nil {
 		return err
 	}
+	bound()
 	return serve(ctx, ln, h)
+}
+
+// runRegistry serves c until ctx ends. A failure (something else bound the
+// port first, say a host-network tile) is retried, and reported in Facts
+// until the port is ours: the controller lists it as a cluster problem.
+func (s *Server) runRegistry(ctx context.Context, c RegistryConfig) {
+	for {
+		err := serveRegistry(ctx, c, func() { s.regErr.Store("") })
+		if err == nil || ctx.Err() != nil {
+			return
+		}
+		slog.Error("worker: registry proxy", "err", err)
+		s.regErr.Store("registry proxy: " + err.Error())
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(5 * time.Second):
+		}
+	}
 }

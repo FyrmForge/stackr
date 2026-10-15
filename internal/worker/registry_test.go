@@ -1,11 +1,14 @@
 package worker
 
 import (
+	"context"
 	"crypto/tls"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 )
 
 func TestRegistryProxy(t *testing.T) {
@@ -55,4 +58,25 @@ func TestRegistryProxy(t *testing.T) {
 			t.Errorf("%s: got %d, front saw %q", p, rec.Code, host)
 		}
 	}
+}
+
+// A port someone else holds is reported in Facts, not just logged.
+func TestRegistryBindFailureReported(t *testing.T) {
+	squat, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = squat.Close() }()
+	s := New(Config{StateDir: t.TempDir()})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go s.runRegistry(ctx, RegistryConfig{URL: "https://registry.example.com", Host: "registry.example.com", TLS: &tls.Config{}, Listen: squat.Addr().String()})
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if e := s.Facts(ctx).RegistryError; e != "" {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("the bind failure never showed in Facts")
 }

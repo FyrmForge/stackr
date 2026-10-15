@@ -282,11 +282,7 @@ func (s *Server) startRegistry(r *RegistrySpec) {
 	}
 	s.mesh.registry = true
 	c := RegistryConfig{URL: r.URL, Host: r.Host, TLS: s.withOwn(s.cfg.Trust.Guard(clusterca.ControllerClientConfig(s.cfg.Trust.Roots, tls.Certificate{})))}
-	go func() {
-		if err := serveRegistry(s.ctx, c); err != nil {
-			slog.Error("worker: registry proxy", "err", err)
-		}
-	}()
+	go s.runRegistry(s.ctx, c)
 }
 
 // meshExits brings links, serves and ladders to spec. Only what changed since

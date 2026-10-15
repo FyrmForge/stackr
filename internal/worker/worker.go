@@ -76,6 +76,8 @@ type Server struct {
 	renewNow atomic.Bool
 	// renewKick wakes the cert check early: a new signing root arrived.
 	renewKick chan struct{}
+	// regErr is why the registry proxy does not hold its port, "" = it does.
+	regErr atomic.Value
 }
 
 func New(cfg Config) *Server {
@@ -187,11 +189,7 @@ func Run(ctx context.Context, cfg Config) error {
 		if cfg.Registry.TLS != nil {
 			cfg.Registry.TLS = s.withOwn(cfg.Registry.TLS)
 		}
-		go func() {
-			if err := serveRegistry(ctx, cfg.Registry); err != nil {
-				slog.Error("worker: registry proxy", "err", err)
-			}
-		}()
+		go s.runRegistry(ctx, cfg.Registry)
 	}
 	if cfg.AliveAddr != "" {
 		go func() {

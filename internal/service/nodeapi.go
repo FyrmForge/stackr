@@ -661,6 +661,9 @@ func (o *Orchestrator) ClusterStatus(ctx context.Context) (ClusterOut, error) {
 				v.State = mn.Status
 				cn.State = mn.Status
 			}
+			if mn.RegistryError != "" {
+				out.Problems = append(out.Problems, v.Name+": "+mn.RegistryError)
+			}
 		}
 		if len(cn.Public) > 0 {
 			inet = append(inet, v.Name)
