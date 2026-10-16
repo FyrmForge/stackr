@@ -236,12 +236,22 @@ func (h *handler) serverPlan(c echo.Context) error {
 			return middleware.HTTPError(err)
 		}
 		v.Parsed, v.Errors, v.Warnings = true, p.Blockers, p.Notes
+		// gaps are filled on Admin > Config, past the wizard
+		for _, g := range p.Gaps {
+			what := "Server secret " + g.Key
+			if g.Kind == "node" {
+				what = "Node " + g.Key
+			}
+			v.Warnings = append(v.Warnings, what+" is missing: finish setup, then fill it in on Admin > Config.")
+		}
 		for _, ch := range p.Changes {
 			v.Changes = append(v.Changes, pages.Change{Kind: "update", Env: "server", Tile: ch.Tile, Field: ch.Field, Old: ch.Old, New: ch.New, Note: cmpNote(ch.Impact, ch.Note)})
 		}
 	}
 	if pl.Status == "pending" && !applying {
-		v.Approve = ServerBase + "/config/plan/" + pl.ID + "/approve"
+		if len(p.Changes) > 0 || p.Blocked() { // gaps alone have nothing to approve
+			v.Approve = ServerBase + "/config/plan/" + pl.ID + "/approve"
+		}
 		v.Reject = ServerBase + "/config/plan/" + pl.ID + "/reject"
 		if p.Blocked() {
 			v.Blocked = "This plan has errors. Fix them in the file and plan again."
