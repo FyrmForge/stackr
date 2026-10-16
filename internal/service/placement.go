@@ -205,7 +205,7 @@ func (o *Orchestrator) Placement(ctx context.Context, kind, id string) (Placemen
 	}
 	// Ingress: the nearest pick wins.
 	for i, s := range ch {
-		pick, err := o.store.IngressPicks.Get(ctx, s.kind, s.id)
+		pick, err := o.ingressPick(ctx, s.kind, s.id)
 		if err != nil {
 			return v, err
 		}
@@ -251,12 +251,17 @@ func (o *Orchestrator) nodeNamer(ctx context.Context) func(string) string {
 
 func (o *Orchestrator) pinView(ctx context.Context, v *PlacementView, ch []scopeRef, og store.Org, name func(string) string) error {
 	var stack *store.Stack
-	switch v.Kind {
-	case ScopeTile:
+	if v.Kind == ScopeTile {
 		return nil
+	}
+	ogPin, err := o.pinNode(ctx, og.PlacementID)
+	if err != nil {
+		return err
+	}
+	switch v.Kind {
 	case ScopeOrg:
-		if og.NodeID != nil {
-			v.Pin = *og.NodeID
+		if ogPin != nil {
+			v.Pin = *ogPin
 		}
 	case ScopeStack:
 		st, err := o.store.Stacks.Get(ctx, v.ID)
@@ -264,11 +269,15 @@ func (o *Orchestrator) pinView(ctx context.Context, v *PlacementView, ch []scope
 			return err
 		}
 		stack = &st
-		if st.NodeID != nil {
-			v.Pin = *st.NodeID
+		stPin, err := o.pinNode(ctx, st.PlacementID)
+		if err != nil {
+			return err
 		}
-		if og.NodeID != nil {
-			v.PinFrom = fromHint(scopeRef{kind: ScopeOrg}, name(*og.NodeID))
+		if stPin != nil {
+			v.Pin = *stPin
+		}
+		if ogPin != nil {
+			v.PinFrom = fromHint(scopeRef{kind: ScopeOrg}, name(*ogPin))
 		}
 	case ScopeEnv:
 		e, err := o.store.Environments.Get(ctx, v.ID)
@@ -280,10 +289,14 @@ func (o *Orchestrator) pinView(ctx context.Context, v *PlacementView, ch []scope
 		if err != nil {
 			return err
 		}
+		stPin, err := o.pinNode(ctx, st.PlacementID)
+		if err != nil {
+			return err
+		}
 		switch {
-		case st.NodeID != nil && *st.NodeID == e.NodeID:
+		case stPin != nil && *stPin == e.NodeID:
 			v.PinFrom = fromHint(scopeRef{kind: ScopeStack}, name(e.NodeID))
-		case og.NodeID != nil && *og.NodeID == e.NodeID:
+		case ogPin != nil && *ogPin == e.NodeID:
 			v.PinFrom = fromHint(scopeRef{kind: ScopeOrg}, name(e.NodeID))
 		}
 	}
@@ -295,8 +308,8 @@ func (o *Orchestrator) pinView(ctx context.Context, v *PlacementView, ch []scope
 	}
 	// The effective pin new envs get, and the envs that are not on it.
 	eff := v.Pin
-	if eff == "" && stack != nil && og.NodeID != nil {
-		eff = *og.NodeID
+	if eff == "" && stack != nil && ogPin != nil {
+		eff = *ogPin
 	}
 	if eff == "" {
 		return nil
@@ -346,13 +359,11 @@ func (o *Orchestrator) envsUnder(ctx context.Context, kind, id string) ([]store.
 func (o *Orchestrator) ladders(ctx context.Context, ch []scopeRef) ([][]string, error) {
 	out := make([][]string, len(ch))
 	for i, s := range ch {
-		rs, err := o.store.ExitLadders.List(ctx, s.kind, s.id)
+		l, err := scopeLadder(ctx, o.store, s.kind, s.id)
 		if err != nil {
 			return nil, err
 		}
-		for _, r := range rs {
-			out[i] = append(out[i], r.NodeID)
-		}
+		out[i] = l
 	}
 	return out, nil
 }
@@ -533,13 +544,17 @@ func (o *Orchestrator) SetPin(ctx context.Context, by *Principal, kind, id, node
 			return err
 		}
 	}
-	var pin *string
-	if nodeID != "" {
-		pin = &nodeID
-	}
 	err = o.store.Tx(ctx, func(tx store.Tx) error {
+		var pin *string
+		if nodeID != "" {
+			pid, err := nodePlacement(ctx, tx.Tables, nodeID)
+			if err != nil {
+				return err
+			}
+			pin = &pid
+		}
 		if kind == ScopeOrg {
-			og.NodeID = pin
+			og.PlacementID = pin
 			if err := tx.Orgs.Update(ctx, og); err != nil {
 				return err
 			}
@@ -548,7 +563,7 @@ func (o *Orchestrator) SetPin(ctx context.Context, by *Principal, kind, id, node
 			if err != nil {
 				return err
 			}
-			st.NodeID = pin
+			st.PlacementID = pin
 			if err := tx.Stacks.Update(ctx, st); err != nil {
 				return err
 			}
@@ -575,8 +590,12 @@ func (o *Orchestrator) MoveEnvsToPin(ctx context.Context, by *Principal, kind, i
 		if err != nil {
 			return nil, err
 		}
-		if og.NodeID != nil {
-			pin = *og.NodeID
+		ogPin, err := o.pinNode(ctx, og.PlacementID)
+		if err != nil {
+			return nil, err
+		}
+		if ogPin != nil {
+			pin = *ogPin
 		}
 	}
 	if pin == "" {
@@ -715,7 +734,7 @@ func (o *Orchestrator) IngressFor(ctx context.Context, tileID string) (string, e
 		return "", err
 	}
 	for _, s := range ch {
-		pick, err := o.store.IngressPicks.Get(ctx, s.kind, s.id)
+		pick, err := o.ingressPick(ctx, s.kind, s.id)
 		if err != nil || pick != "" {
 			return pick, err
 		}

@@ -229,7 +229,7 @@ func TestForgetRefusesAnotherNodesDefaultExit(t *testing.T) {
 	if _, err := n.st.Nodes.Get(ctx, "h4"); err != nil {
 		t.Fatalf("h4 is gone: %v", err)
 	}
-	if rungs, _ := n.st.ExitLadders.ListByNode(ctx, "h4"); len(rungs) != 1 {
+	if rungs, _ := n.st.ExitLadders.ListByTarget(ctx, "h4"); len(rungs) != 1 {
 		t.Errorf("plain's exit was cleared: %v", rungs)
 	}
 	if _, err := n.orch.SetNodeExit(ctx, adm, "plain", []string{n.ctl.ID}); err != nil {

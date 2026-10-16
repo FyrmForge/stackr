@@ -118,8 +118,8 @@ func TestConnectorSharesCascade(t *testing.T) {
 	db := servicetest.Store(t).DB()
 	now := time.Now()
 	execAll(t, db, []stmt{
-		{`INSERT INTO orgs VALUES ('o1','Acme','acme','','','{}',NULL,'',?,'','','','',0,NULL)`, []any{now}},
-		{`INSERT INTO orgs VALUES ('o2','Globex','globex','','','{}',NULL,'',?,'','','','',0,NULL)`, []any{now}},
+		{`INSERT INTO orgs VALUES ('o1','Acme','acme','','','{}',NULL,'',?,'','','','',0,NULL,NULL)`, []any{now}},
+		{`INSERT INTO orgs VALUES ('o2','Globex','globex','','','{}',NULL,'',?,'','','','',0,NULL,NULL)`, []any{now}},
 		{`INSERT INTO connectors VALUES ('g1',NULL,'github','srv','github.com','enc1:x',?,0)`, []any{now}},
 		{`INSERT INTO connectors VALUES ('g2',NULL,'github','srv2','github.com','enc1:x',?,0)`, []any{now}},
 		{`INSERT INTO connector_shares VALUES ('g1','o1'), ('g1','o2'), ('g2','o1')`, nil},

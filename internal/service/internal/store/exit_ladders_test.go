@@ -12,7 +12,7 @@ import (
 func nodes(rs []store.ExitRung) []string {
 	out := []string{}
 	for _, r := range rs {
-		out = append(out, r.NodeID)
+		out = append(out, r.TargetID)
 	}
 	return out
 }
@@ -42,9 +42,9 @@ func TestExitLadders(t *testing.T) {
 	if got, _ = l.List(ctx, "org", "o1"); !reflect.DeepEqual(nodes(got), []string{"n3", "n2"}) {
 		t.Fatalf("after replace = %+v", got)
 	}
-	by, err := l.ListByNode(ctx, "n3")
+	by, err := l.ListByTarget(ctx, "n3")
 	if err != nil || len(by) != 2 {
-		t.Fatalf("by node = %+v, %v", by, err)
+		t.Fatalf("by target = %+v, %v", by, err)
 	}
 	// A node twice in one ladder is refused, and the old ladder stays unusable
 	// only if the caller ignores the error; Set runs in a tx in real use.

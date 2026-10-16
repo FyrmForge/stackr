@@ -44,11 +44,22 @@ type Plan struct {
 	Changes  []Change `json:"changes"`
 	Blockers []string `json:"blockers,omitempty"`
 	Warnings []string `json:"warnings,omitempty"`
+	// Gaps are what the plan can fill in place (an unset secret); they
+	// render and never block.
+	Gaps []planfile.Gap `json:"gaps,omitempty"`
 	// Deployed is the ids of the tiles Apply rolled out, in order (the
 	// orchestrator queues on_deploy runs from it). Empty on a dry run.
 	Deployed []string `json:"-"`
 	// Removed is the ids of the tiles Apply took out (their run logs go).
 	Removed []string `json:"-"`
+}
+
+// PlacementLive is the placement facts of one stack plan, gathered by the
+// orchestrator. Every field is a fact; the rules live in planfile.
+type PlacementLive struct {
+	Placements planfile.PlacementFacts
+	EnvNeeds   map[string]planfile.Needs    // env slug -> what it asks of its node
+	Moves      map[string]planfile.MoveFact // env path -> the move a pin change would cause
 }
 
 // shownValues are the tile keys whose old and new values the plan prints:

@@ -76,6 +76,9 @@ type Tables struct {
 	Moves            MoveStore
 	JoinTokens       JoinTokenStore
 	NodeOrgs         NodeOrgStore
+	Placements       PlacementStore
+	PlacementOrgs    PlacementOrgStore
+	PlacementMoves   PlacementMoveStore
 	ForgottenNodes   ForgottenNodeStore
 	IngressPicks     IngressPickStore
 	TileVIPs         TileVIPStore
@@ -129,6 +132,9 @@ func bind(q querier, box *secrets.Box) Tables {
 		Moves:            moves{crud[EnvMove]{q, box, movesT}},
 		JoinTokens:       joinTokens{crud[JoinToken]{q, box, joinTokensT}},
 		NodeOrgs:         nodeOrgs{q},
+		Placements:       placements{crud[Placement]{q, box, placementsT}},
+		PlacementOrgs:    placementOrgs{q},
+		PlacementMoves:   placementMoves{crud[PlacementMove]{q, box, placementMovesT}},
 		ForgottenNodes:   forgottenNodes{q},
 		IngressPicks:     ingressPicks{q},
 		TileVIPs:         tileVIPs{q},

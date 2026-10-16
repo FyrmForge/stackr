@@ -33,7 +33,7 @@ var hostUninstall = (*Orchestrator).runHostUninstall
 // exitGuard refuses while the node is another node's default exit: dropping
 // it would silently clear that node's exit.
 func (o *Orchestrator) exitGuard(ctx context.Context, n store.Node) error {
-	rungs, err := o.store.ExitLadders.ListByNode(ctx, n.ID)
+	rungs, err := o.store.ExitLadders.ListByTarget(ctx, n.ID)
 	if err != nil {
 		return err
 	}

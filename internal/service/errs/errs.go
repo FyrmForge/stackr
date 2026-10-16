@@ -23,6 +23,9 @@ var (
 	ErrNotFound = errors.New("not found")
 	ErrRefused  = errors.New("refused")
 	ErrBusy     = errors.New("unavailable")
+	// ErrNotBuilt is a verb whose contract exists and whose body does not
+	// yet (the placements build's lane stubs). None may remain at release.
+	ErrNotBuilt = errors.New("not built yet")
 )
 
 // Conflict is a refusal whose reason the user needs to act on. Msg is a whole

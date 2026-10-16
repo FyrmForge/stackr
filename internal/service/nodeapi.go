@@ -361,14 +361,20 @@ func (o *Orchestrator) GetNode(ctx context.Context, ref string) (NodeInfo, error
 			out.Cert = &NodeCertOut{Serial: c.Serial, NotAfter: c.NotAfter, RenewsOn: c.RenewFrom}
 		}
 	}
-	rungs, err := o.store.ExitLadders.ListByNode(ctx, n.ID)
+	targets, err := nodeTargets(ctx, o.store.Placements, n.ID)
 	if err != nil {
 		return out, err
 	}
-	for _, r := range rungs {
-		out.ExitFor = append(out.ExitFor, o.scopePath(ctx, r.ScopeKind, r.ScopeID))
+	for _, t := range targets {
+		rungs, err := o.store.ExitLadders.ListByTarget(ctx, t)
+		if err != nil {
+			return out, err
+		}
+		for _, r := range rungs {
+			out.ExitFor = append(out.ExitFor, o.scopePath(ctx, r.ScopeKind, r.ScopeID))
+		}
 	}
-	picks, err := o.store.IngressPicks.ListByNode(ctx, n.ID)
+	picks, err := o.picksOfNode(ctx, n.ID)
 	if err != nil {
 		return out, err
 	}
@@ -786,9 +792,13 @@ func (o *Orchestrator) PinOf(ctx context.Context, kind, id string) (PinOut, erro
 			if err != nil {
 				return out, err
 			}
-			nid = st.NodeID
+			if nid, err = o.pinNode(ctx, st.PlacementID); err != nil {
+				return out, err
+			}
 		case ScopeOrg:
-			nid = og.NodeID
+			if nid, err = o.pinNode(ctx, og.PlacementID); err != nil {
+				return out, err
+			}
 		}
 		if nid != nil {
 			out.Node = o.nodeName(ctx, *nid)
@@ -828,7 +838,7 @@ func (o *Orchestrator) IngressGet(ctx context.Context, kind, id string) (Ingress
 	}
 	out := IngressOut{Scope: o.scopePath(ctx, kind, id), From: "default"}
 	for _, c := range ch {
-		pick, err := o.store.IngressPicks.Get(ctx, c.kind, c.id)
+		pick, err := o.ingressPick(ctx, c.kind, c.id)
 		if err != nil {
 			return out, err
 		}

@@ -44,6 +44,28 @@ type Live struct {
 	Claims     []org.Claim     // every domain on the server and its org: the new-org slug check
 
 	TLSOff bool // STACKR_TLS=off: pass-through routes need TLS
+
+	Nodes      []NodeLive
+	Placements []PlacementLive
+	Moves      map[string][]planfile.Check // "placement->node": checks for each repoint the file asks for
+	MoveEnvs   map[string][]string         // "placement->node": env paths it moves
+}
+
+// NodeLive is one node row, pending ones included.
+type NodeLive struct {
+	ID, Name  string
+	Tags      []string
+	Pending   bool
+	Online    bool
+	Forgotten bool
+}
+
+// PlacementLive is one placement. Node is the node's name, "" = none.
+type PlacementLive struct {
+	ID, Name, Node string
+	OpenToAll      bool
+	Orgs           []string // slugs
+	Used           int      // pins + envs
 }
 
 // ConnectorLive is a server connector with the orgs it is shared with.

@@ -178,7 +178,12 @@ func (o *Orchestrator) envPins(ctx context.Context, stackID string) (environment
 	if err != nil {
 		return p, err
 	}
-	p.Stack, p.Org = st.NodeID, org.NodeID
+	if p.Stack, err = o.pinNode(ctx, st.PlacementID); err != nil {
+		return p, err
+	}
+	if p.Org, err = o.pinNode(ctx, org.PlacementID); err != nil {
+		return p, err
+	}
 	p.Controller, err = o.controllerID(ctx)
 	return p, err
 }

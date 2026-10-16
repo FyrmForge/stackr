@@ -45,7 +45,7 @@ var joinStatusGrace = time.Hour
 
 var (
 	joinNameRE = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,30}[a-z0-9])?$`)
-	joinTags   = []string{node.TagIngress, node.TagEgress, node.TagBuilder}
+	joinTags   = []string{node.TagIngress, node.TagEgress, node.TagBuilder, node.TagStorage}
 )
 
 // JoinTokenSpec is what an admin asks for.

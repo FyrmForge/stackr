@@ -301,13 +301,19 @@ func (m *meshSvc) push(ctx context.Context, in meshIn, specs map[string]worker.M
 func (m *meshSvc) RemoveNode(ctx context.Context, nodeID string) error {
 	_ = m.st.Settings.Delete(ctx, publicKey(nodeID))
 	_ = m.st.Settings.Delete(ctx, memoryKey(nodeID)) // the map forgets it too
-	rungs, err := m.st.ExitLadders.ListByNode(ctx, nodeID)
+	targets, err := nodeTargets(ctx, m.st.Placements, nodeID)
 	if err != nil {
 		return err
 	}
 	scopes := map[[2]string]bool{}
-	for _, r := range rungs {
-		scopes[[2]string{r.ScopeKind, r.ScopeID}] = true
+	for _, t := range targets {
+		rungs, err := m.st.ExitLadders.ListByTarget(ctx, t)
+		if err != nil {
+			return err
+		}
+		for _, r := range rungs {
+			scopes[[2]string{r.ScopeKind, r.ScopeID}] = true
+		}
 	}
 	for sc := range scopes {
 		cur, err := m.st.ExitLadders.List(ctx, sc[0], sc[1])
@@ -316,8 +322,8 @@ func (m *meshSvc) RemoveNode(ctx context.Context, nodeID string) error {
 		}
 		var keep []string
 		for _, r := range cur {
-			if r.NodeID != nodeID {
-				keep = append(keep, r.NodeID)
+			if !slices.Contains(targets, r.TargetID) {
+				keep = append(keep, r.TargetID)
 			}
 		}
 		if err := m.st.ExitLadders.Set(ctx, sc[0], sc[1], keep); err != nil {

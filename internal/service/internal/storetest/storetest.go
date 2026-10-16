@@ -50,13 +50,22 @@ func Open(t *testing.T, path string) *store.Store {
 	return store.New(db, box)
 }
 
-// Controller is the controller node row of st, made when missing, as the boot
-// path does. An env fixture that bypasses the env leaf puts its ID in node_id.
+// Controller is the controller node row of st, made when missing, with the
+// default placement on it, as the boot path does. An env fixture that bypasses the env leaf puts its ID in node_id.
 func Controller(t *testing.T, st *store.Store) store.Node {
 	t.Helper()
-	n, err := node.New(st.Nodes).Controller(context.Background())
+	ctx := context.Background()
+	n, err := node.New(st.Nodes).Controller(ctx)
 	if err != nil {
 		t.Fatal(err)
+	}
+	// default stands on the controller, as the boot path makes it.
+	if p, err := st.Placements.GetByName(ctx, "default"); err != nil {
+		t.Fatal(err)
+	} else if p.NodeID == "" {
+		if err := st.Placements.SetNode(ctx, p.ID, n.ID); err != nil {
+			t.Fatal(err)
+		}
 	}
 	return n
 }

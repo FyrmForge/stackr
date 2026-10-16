@@ -69,6 +69,10 @@ type Live struct {
 	Connectors []store.Connector                  // the org's connected connectors
 	Shares     []store.Share                      // the org's network shares
 	ShareUsers map[string][]string                // share slug -> slugs of the tiles whose lines mount it
+
+	Placements planfile.PlacementFacts      // the placements as this org sees them
+	EnvNeeds   map[string]planfile.Needs    // env slug -> what it asks of its node
+	Moves      map[string]planfile.MoveFact // env path -> the move a pin change would cause
 }
 
 // StackLive is one stack.

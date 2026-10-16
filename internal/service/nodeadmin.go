@@ -31,7 +31,7 @@ const (
 )
 
 // NodeTags are the tags an admin may set.
-var NodeTags = []string{node.TagIngress, node.TagEgress, node.TagBuilder}
+var NodeTags = []string{node.TagIngress, node.TagEgress, node.TagBuilder, node.TagStorage}
 
 func (o *Orchestrator) meshSvc() *meshSvc { return o.mesh }
 
@@ -216,11 +216,19 @@ func (o *Orchestrator) nodeEnvs(ctx context.Context, nodeID string) ([]NodeEnv, 
 		if err != nil {
 			return nil, err
 		}
+		stPin, err := o.pinNode(ctx, st.PlacementID)
+		if err != nil {
+			return nil, err
+		}
+		ogPin, err := o.pinNode(ctx, og.PlacementID)
+		if err != nil {
+			return nil, err
+		}
 		pin := "pinned on the env"
 		switch {
-		case st.NodeID != nil && *st.NodeID == nodeID:
+		case stPin != nil && *stPin == nodeID:
 			pin = "pinned on the stack"
-		case og.NodeID != nil && *og.NodeID == nodeID:
+		case ogPin != nil && *ogPin == nodeID:
 			pin = "pinned on the org"
 		}
 		out = append(out, NodeEnv{ID: e.ID, Path: og.Slug + " / " + st.Slug + " / " + e.Slug, Pin: pin, Tiles: len(ts)})
@@ -303,7 +311,7 @@ func (o *Orchestrator) SetNodeTags(ctx context.Context, by *Principal, id string
 	}
 	gainsEgress := !slices.Contains(node.Tags(n), node.TagEgress) && slices.Contains(tags, node.TagEgress)
 	if slices.Contains(node.Tags(n), node.TagIngress) && !slices.Contains(tags, node.TagIngress) {
-		picks, err := o.store.IngressPicks.ListByNode(ctx, n.ID)
+		picks, err := o.picksOfNode(ctx, n.ID)
 		if err != nil {
 			return err
 		}

@@ -52,6 +52,9 @@ func TestCreatePlacesByPins(t *testing.T) {
 		}); err != nil {
 			t.Fatal(err)
 		}
+		if err := st.Placements.Create(ctx, store.Placement{ID: "p-" + id, Name: id, NodeID: id, OpenToAll: true, CreatedAt: now}); err != nil {
+			t.Fatal(err)
+		}
 	}
 	stack := seedStack(t, st)
 	stk, err := st.Stacks.Get(ctx, stack)
@@ -64,7 +67,18 @@ func TestCreatePlacesByPins(t *testing.T) {
 			return environment.Pins{}, err
 		}
 		o, err := st.Orgs.Get(ctx, stk.OrgID)
-		return environment.Pins{Stack: s.NodeID, Org: o.NodeID, Controller: ctl.ID}, err
+		if err != nil {
+			return environment.Pins{}, err
+		}
+		// Pins name placements; the leaf places on their nodes.
+		nodeOf := func(pin *string) *string {
+			if pin == nil {
+				return nil
+			}
+			p, _ := st.Placements.Get(ctx, *pin)
+			return &p.NodeID
+		}
+		return environment.Pins{Stack: nodeOf(s.PlacementID), Org: nodeOf(o.PlacementID), Controller: ctl.ID}, nil
 	}
 	l := environment.New(st.Environments, dockerfake.New()).WithPlacement(pins)
 
@@ -74,7 +88,7 @@ func TestCreatePlacesByPins(t *testing.T) {
 	}
 
 	org, _ := st.Orgs.Get(ctx, stk.OrgID)
-	org.NodeID = ptr("w1")
+	org.PlacementID = ptr("p-w1")
 	if err := st.Orgs.Update(ctx, org); err != nil {
 		t.Fatal(err)
 	}
@@ -83,7 +97,7 @@ func TestCreatePlacesByPins(t *testing.T) {
 		t.Errorf("org pinned to w1: env on %q", qa.NodeID)
 	}
 
-	stk.NodeID = ptr("w2")
+	stk.PlacementID = ptr("p-w2")
 	if err := st.Stacks.Update(ctx, stk); err != nil {
 		t.Fatal(err)
 	}

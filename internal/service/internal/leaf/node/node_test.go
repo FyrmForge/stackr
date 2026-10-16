@@ -23,7 +23,7 @@ func TestBootstrapMakesOneController(t *testing.T) {
 	if n.Role != node.Controller || n.WGAddress != "10.207.255.6" || n.Status != node.StatusOnline {
 		t.Fatalf("controller row: %+v", n)
 	}
-	if got := node.Tags(n); !slices.Equal(got, []string{"ingress", "egress", "builder"}) {
+	if got := node.Tags(n); !slices.Equal(got, []string{"ingress", "egress", "builder", "storage"}) {
 		t.Fatalf("tags = %v", got)
 	}
 	// A second boot, and a lazy Controller, find the same row.

@@ -19,8 +19,8 @@ type Stack struct {
 	ConfigBranch      string    `db:"config_branch" json:"config_branch"`
 	ConfigPath        string    `db:"config_path" json:"config_path"`
 	CreatedAt         time.Time `db:"created_at" json:"created_at"`
-	// NodeID pins new envs of this stack to a node; nil = no pin.
-	NodeID *string `db:"node_id" json:"node_id"`
+	// PlacementID pins the stack's envs to a placement; nil = no pin.
+	PlacementID *string `db:"placement_id" json:"placement_id"`
 }
 
 type StackStore interface {
@@ -63,11 +63,14 @@ type Environment struct {
 	CreatedAt  time.Time `db:"created_at" json:"created_at"`
 	// Locked is the lock of an off-tier env; a tiered env uses its tier's.
 	Locked bool `db:"locked" json:"locked"`
-	// NodeID is the node the env runs on; it never changes under the env
-	// (pins on the org and stack only decide where new envs go). Subnet is
-	// the env's /24 from that node's range, "" until reserved.
+	// NodeID is the node the env runs on; only a move changes it. Subnet is
+	// the env's /24 from the cluster pool, "" until reserved.
 	NodeID string `db:"node_id" json:"node_id"`
 	Subnet string `db:"subnet" json:"subnet"`
+	// PlacementID is the placement the env belongs to; NodeID is where it
+	// actually runs (they differ mid move, or "" while the placement has no
+	// node).
+	PlacementID string `db:"placement_id" json:"placement_id"`
 }
 
 type EnvironmentStore interface {
@@ -83,6 +86,9 @@ type EnvironmentStore interface {
 	// it comes from the cluster pool, so the env keeps its network (and its
 	// tiles their VIPs) on the new node.
 	SetNode(ctx context.Context, id, nodeID string) error
+	// SetPlacement is the one writer of the placement.
+	SetPlacement(ctx context.Context, id, placementID string) error
+	ListByPlacement(ctx context.Context, placementID string) ([]Environment, error)
 	// Subnets is every env's network, all nodes: the blocks of the cluster
 	// pool envs hold.
 	Subnets(ctx context.Context) ([]string, error)
@@ -97,13 +103,14 @@ var environmentsT = newTable[Environment]("environments", nil)
 
 type environments struct{ crud[Environment] }
 
-// envUpdate is the env UPDATE without node_id and subnet: callers write back
-// whole rows they read earlier, and a stale copy must not undo a reserved
-// subnet. SetSubnet is the one writer of the subnet, and the node never
-// changes under an env (moves, step 8, get their own setter).
-var envUpdate = strings.NewReplacer(", node_id = :node_id", "", ", subnet = :subnet", "").Replace(environmentsT.update)
+// envUpdate is the env UPDATE without node_id, subnet and placement_id:
+// callers write back whole rows they read earlier, and a stale copy must not
+// undo a reserved subnet or a move. SetSubnet, SetNode and SetPlacement are
+// their one writers.
+var envUpdate = strings.NewReplacer(", node_id = :node_id", "", ", subnet = :subnet", "", ", placement_id = :placement_id", "").Replace(environmentsT.update)
 
-// Update writes every column of e except node_id and subnet, matched by id.
+// Update writes every column of e except node_id, subnet and placement_id,
+// matched by id.
 func (s environments) Update(ctx context.Context, e Environment) error {
 	res, err := s.q.NamedExecContext(ctx, envUpdate, e)
 	return affected(res, err)
@@ -125,6 +132,15 @@ func (s environments) SetSubnet(ctx context.Context, id, subnet string) error {
 func (s environments) SetNode(ctx context.Context, id, nodeID string) error {
 	res, err := s.q.ExecContext(ctx, `UPDATE environments SET node_id = ? WHERE id = ?`, nodeID, id)
 	return affected(res, err)
+}
+
+func (s environments) SetPlacement(ctx context.Context, id, placementID string) error {
+	res, err := s.q.ExecContext(ctx, `UPDATE environments SET placement_id = ? WHERE id = ?`, placementID, id)
+	return affected(res, err)
+}
+
+func (s environments) ListByPlacement(ctx context.Context, placementID string) ([]Environment, error) {
+	return s.many(ctx, "placement_id = ?", placementID)
 }
 
 func (s environments) Subnets(ctx context.Context) ([]string, error) {

@@ -26,14 +26,27 @@ const (
 
 func hasEgress(n store.Node) bool { return slices.Contains(node.Tags(n), node.TagEgress) }
 
-// scopeLadder is the stored ladder of one scope, node ids in order.
+// scopeLadder is the stored ladder of one scope, node ids in order. Rungs of
+// org, stack, env and tile scopes name placements: each is its node, and a
+// placement with no node is dropped.
 func scopeLadder(ctx context.Context, st *store.Store, kind, id string) ([]string, error) {
 	rs, err := st.ExitLadders.List(ctx, kind, id)
+	if err != nil {
+		return nil, err
+	}
 	var out []string
 	for _, r := range rs {
-		out = append(out, r.NodeID)
+		t := r.TargetID
+		if kind != scopeNode {
+			if t, err = placementNode(ctx, st.Placements, t); err != nil {
+				return nil, err
+			} else if t == "" {
+				continue
+			}
+		}
+		out = append(out, t)
 	}
-	return out, err
+	return out, nil
 }
 
 // resolveExits is exits.Resolve for something running on node n: the node's

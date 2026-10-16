@@ -368,6 +368,11 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 		_ = db.Close()
 		return nil, fmt.Errorf("controller node: %w", err)
 	}
+	// a database migrated before the controller row existed: default stands on it
+	if err := adoptDefault(ctx, st, ctl.ID); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("controller node: default placement: %w", err)
+	}
 	// envs from before nodes existed run on the controller
 	if n, err := st.Environments.AdoptUnplaced(ctx, ctl.ID); err != nil {
 		_ = db.Close()
