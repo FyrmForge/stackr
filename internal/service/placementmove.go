@@ -652,29 +652,41 @@ func (o *Orchestrator) pmDeployEnv(ctx context.Context, envID string) (Job, erro
 // (the placement takes the node), or marks it failed when rolled is an env
 // move that rolled back.
 func (o *Orchestrator) placementMoveSettle(ctx context.Context, pmID string, rolled *EnvMove) error {
+	switched, err := o.placementMoveSettleLocked(ctx, pmID, rolled)
+	if err != nil || !switched {
+		return err
+	}
+	// ingress picks on the placement now resolve to its new node: push the
+	// routes there now, not at the next sync (outside the lock: a push can wait)
+	return o.sync.Sync(ctx)
+}
+
+// placementMoveSettleLocked is placementMoveSettle under placementMoveMu;
+// switched is true when the placement took the target node.
+func (o *Orchestrator) placementMoveSettleLocked(ctx context.Context, pmID string, rolled *EnvMove) (switched bool, err error) {
 	placementMoveMu.Lock()
 	defer placementMoveMu.Unlock()
 	pm, err := o.store.PlacementMoves.Get(ctx, pmID)
 	if err != nil || pm.State == pmDone {
-		return err
+		return false, err
 	}
 	es, err := o.store.Environments.ListByPlacement(ctx, pm.PlacementID)
 	if err != nil {
-		return err
+		return false, err
 	}
 	now := time.Now().UTC()
 	pending := slices.ContainsFunc(es, func(e store.Environment) bool { return e.NodeID != "" && e.NodeID != pm.ToNode })
 	switch {
 	case !pending:
 		if err := o.store.Placements.SetNode(ctx, pm.PlacementID, pm.ToNode); err != nil {
-			return err
+			return false, err
 		}
 		o.kickMesh()
-		return o.store.PlacementMoves.SetState(ctx, pm.ID, pmDone, "", &now)
+		return true, o.store.PlacementMoves.SetState(ctx, pm.ID, pmDone, "", &now)
 	case rolled != nil && rolled.Phase == move.RolledBack && pm.State == pmRunning:
-		return o.store.PlacementMoves.SetState(ctx, pm.ID, pmFailed, rolled.Error, &now)
+		return false, o.store.PlacementMoves.SetState(ctx, pm.ID, pmFailed, rolled.Error, &now)
 	}
-	return nil
+	return false, nil
 }
 
 // RetryPlacementMove (admin) moves the envs a failed repoint left behind.
@@ -902,6 +914,10 @@ func (o *Orchestrator) placementNodeSet(ctx context.Context, by *Principal, plac
 		return err
 	}
 	o.pmAudit(ctx, by, auditPlacementNode, "placement", p.ID, p.Name+" on "+n.Name)
+	o.kickMesh()
+	if err := o.sync.Sync(ctx); err != nil { // ingress picks on it resolve to n now
+		slog.Warn("placement node: route push", "placement", p.Name, "err", err)
+	}
 	es, err := o.store.Environments.ListByPlacement(ctx, p.ID)
 	if err != nil {
 		return err

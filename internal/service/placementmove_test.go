@@ -191,6 +191,7 @@ func TestMovePlacementNoEnvsRepointsAtOnce(t *testing.T) {
 	ctx := context.Background()
 	n := newPMFix(t)
 	n.placement(t, "empty", n.ctl.ID)
+	before := n.pushes.Load()
 	j, err := n.orch.MovePlacement(ctx, n.admin, "empty", "w1", "empty")
 	must(t, err)
 	if j.ID != "" {
@@ -202,6 +203,10 @@ func TestMovePlacementNoEnvsRepointsAtOnce(t *testing.T) {
 	}
 	if st, _ := n.orch.PlacementMove(ctx, "empty"); st == nil || st.State != "done" {
 		t.Errorf("status = %+v", st)
+	}
+	// an ingress pick on it now enters on w1: the routes went out with the repoint
+	if n.pushes.Load() == before {
+		t.Error("the repoint pushed no routes")
 	}
 }
 
